@@ -1,0 +1,44 @@
+{
+  "name": "pharosville",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:visual": "playwright test tests/visual/pharosville.spec.ts",
+    "check:pharosville-assets": "node scripts/pharosville/validate-assets.mjs",
+    "check:pharosville-colors": "node scripts/check-pharosville-colors.mjs",
+    "smoke:live": "node scripts/smoke-live.mjs",
+    "validate": "npm run typecheck && npm test && npm run check:pharosville-assets && npm run check:pharosville-colors && npm run build",
+    "deploy": "wrangler pages deploy dist --project-name=pharosville --commit-dirty=true"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "5.99.0",
+    "gsap": "3.15.0",
+    "lucide-react": "^1.8.0",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.59.1",
+    "@types/node": "24.12.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^5.2.0",
+    "jsdom": "^29.0.2",
+    "playwright": "1.59.1",
+    "tsx": "^4.20.6",
+    "typescript": "~5.9.0",
+    "vite": "^7.2.8",
+    "vitest": "^4.1.4",
+    "wrangler": "4.83.0"
+  }
+}
