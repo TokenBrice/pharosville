@@ -50,6 +50,7 @@ import type {
 export { SHIP_WATER_ANCHORS, waterZoneForPlacement } from "./risk-water-areas";
 
 export interface PharosVilleInputs {
+  generatedAt?: number;
   stablecoins: StablecoinListResponse | null | undefined;
   chains: ChainsResponse | null | undefined;
   stability: StabilityIndexResponse | null | undefined;
@@ -59,6 +60,29 @@ export interface PharosVilleInputs {
   cemeteryEntries?: readonly CemeteryEntry[];
   freshness: PharosVilleFreshness;
   routeMode?: PharosVilleWorld["routeMode"];
+}
+
+function toEpochMs(value: number | null | undefined): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return null;
+  return value < 10_000_000_000 ? value * 1000 : value;
+}
+
+function resolveGeneratedAt(inputs: PharosVilleInputs): number {
+  const explicitGeneratedAt = toEpochMs(inputs.generatedAt);
+  if (explicitGeneratedAt !== null) return explicitGeneratedAt;
+
+  const candidates = [
+    inputs.chains?.updatedAt,
+    inputs.stability?.current?.computedAt,
+    inputs.stability?.methodology?.asOf,
+    inputs.pegSummary?.methodology?.asOf,
+    inputs.stress?.updatedAt,
+    inputs.reportCards?.updatedAt,
+  ]
+    .map(toEpochMs)
+    .filter((value): value is number => value !== null);
+
+  return candidates.length > 0 ? Math.max(...candidates) : 0;
 }
 
 function isConditionBand(value: string | null | undefined): value is keyof typeof PSI_HEX_COLORS {
@@ -336,7 +360,7 @@ export function buildPharosVilleWorld(inputs: PharosVilleInputs): PharosVilleWor
   const dockedShips = assignDockVisits(allShips, docks);
   const graves = graveNodesFromEntries(inputs.cemeteryEntries ?? CEMETERY_ENTRIES);
   const baseWorld = {
-    generatedAt: Date.now(),
+    generatedAt: resolveGeneratedAt(inputs),
     routeMode: inputs.routeMode ?? "world",
     freshness: inputs.freshness,
     map,

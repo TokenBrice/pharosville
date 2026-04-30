@@ -12,6 +12,7 @@ import type {
 import type { ChainsResponse, ChainSummary } from "@shared/types/chains";
 import { CHAIN_META } from "@shared/lib/chains";
 import { ACTIVE_STABLECOINS } from "@shared/lib/stablecoins";
+import type { PharosVilleInputs } from "../systems/pharosville-world";
 
 const methodology = {
   version: "fixture",
@@ -228,6 +229,23 @@ export const fixtureReportCards: ReportCardsResponse = {
   dependencyGraph: { edges: [] },
   updatedAt: 1_700_000_000,
 } as ReportCardsResponse;
+
+export const fixtureGeneratedAt = 1_700_000_000_000;
+
+export function makePharosVilleWorldInput(overrides: Partial<PharosVilleInputs> = {}): PharosVilleInputs {
+  return {
+    generatedAt: fixtureGeneratedAt,
+    stablecoins: fixtureStablecoins,
+    chains: fixtureChains,
+    stability: fixtureStability,
+    pegSummary: fixturePegSummary,
+    stress: fixtureStress,
+    reportCards: fixtureReportCards,
+    cemeteryEntries: [],
+    freshness: {},
+    ...overrides,
+  };
+}
 
 const DENSE_CHAIN_IDS = [
   "ethereum",

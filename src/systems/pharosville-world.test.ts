@@ -14,6 +14,7 @@ import {
   fixtureStability,
   fixtureStablecoins,
   fixtureStress,
+  makePharosVilleWorldInput,
   makeAsset,
   makeChain,
   makePegCoin,
@@ -28,6 +29,23 @@ import {
 } from "./world-layout";
 
 describe("buildPharosVilleWorld", () => {
+  it("returns identical worlds for identical inputs with a supplied generatedAt", () => {
+    const input = makePharosVilleWorldInput({
+      generatedAt: 1_700_123_456_789,
+      cemeteryEntries: CEMETERY_ENTRIES.slice(0, 3),
+    });
+
+    expect(buildPharosVilleWorld(input)).toEqual(buildPharosVilleWorld(input));
+  });
+
+  it("derives generatedAt deterministically from input data when omitted", () => {
+    const input = makePharosVilleWorldInput({ generatedAt: undefined });
+    const world = buildPharosVilleWorld(input);
+
+    expect(world.generatedAt).toBe(1_700_000_000_000);
+    expect(buildPharosVilleWorld(input)).toEqual(world);
+  });
+
   it("builds deterministic core entities without React or canvas", () => {
     const world = buildPharosVilleWorld({
       stablecoins: fixtureStablecoins,
