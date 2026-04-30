@@ -14,6 +14,7 @@ import { drawPharosVille, type PharosVilleRenderMetrics } from "./renderer/world
 import { cameraZoomLabel, clampCameraToMap, defaultCamera, followTile, panCamera, zoomIn, zoomOut } from "./systems/camera";
 import { resolveCanvasBudget } from "./systems/canvas-budget";
 import { buildBaseMotionPlan, buildMotionPlan, isShipMapVisible, resolveShipMotionSample, type ShipMotionSample } from "./systems/motion";
+import { warmAllWaterPaths } from "./systems/motion-water";
 import { zoomCameraAt, type IsoCamera, type ScreenPoint } from "./systems/projection";
 import { observeReducedMotion } from "./systems/reduced-motion";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "./systems/world-types";
@@ -156,6 +157,8 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     let active = true;
     deferredLoadStartedRef.current = true;
     const startDeferredLoad = () => {
+      const planForWarmup = motionPlanRef.current;
+      if (planForWarmup) warmAllWaterPaths(planForWarmup);
       assetManager.loadDeferred(controller.signal)
         .then((deferredResult) => {
           if (!active) return;
