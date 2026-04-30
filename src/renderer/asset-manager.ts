@@ -46,6 +46,7 @@ export interface PharosVilleAssetLoadStats {
 }
 
 export const PHAROSVILLE_DEFERRED_ASSET_CONCURRENCY = 6;
+export const PHAROSVILLE_LOGO_CONCURRENCY = 6;
 
 export class PharosVilleAssetManager {
   private assets = new Map<string, LoadedPharosVilleAsset>();
@@ -186,7 +187,7 @@ export class PharosVilleAssetManager {
 
   async loadLogos(srcs: Iterable<string>, signal?: AbortSignal): Promise<LoadedPharosVilleLogo[]> {
     const uniqueSrcs = [...new Set([...srcs].filter((src) => src.startsWith("/") && !this.failedLogos.has(src)))];
-    const settled = await Promise.allSettled(uniqueSrcs.map((src) => this.loadLogo(src, signal)));
+    const settled = await settleQueuedLoads(uniqueSrcs, (src) => this.loadLogo(src, signal), PHAROSVILLE_LOGO_CONCURRENCY, signal);
     return settled.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
   }
 
@@ -201,10 +202,11 @@ export class PharosVilleAssetManager {
       this.deferredStartedAt ??= performanceNow();
       this.deferredCompletedAt = null;
     }
-    const settled = await settleAssetLoads(
+    const settled = await settleQueuedLoads(
       assets,
       (asset) => this.loadTrackedAsset(asset, manifest, signal, options.deferred === true),
       options.concurrency ?? assets.length,
+      signal,
     );
     if (options.deferred) this.deferredCompletedAt = performanceNow();
     const loaded: LoadedPharosVilleAsset[] = [];
@@ -243,21 +245,22 @@ export class PharosVilleAssetManager {
   }
 }
 
-async function settleAssetLoads<T>(
-  assets: PharosVilleAssetManifestEntry[],
-  load: (asset: PharosVilleAssetManifestEntry) => Promise<T>,
+async function settleQueuedLoads<TItem, TResult>(
+  items: TItem[],
+  load: (item: TItem) => Promise<TResult>,
   concurrency: number,
-): Promise<PromiseSettledResult<T>[]> {
-  if (assets.length === 0) return [];
-  const limit = Math.max(1, Math.min(concurrency, assets.length));
-  const settled: PromiseSettledResult<T>[] = new Array(assets.length);
+  signal?: AbortSignal,
+): Promise<PromiseSettledResult<TResult>[]> {
+  if (items.length === 0) return [];
+  const limit = Math.max(1, Math.min(concurrency, items.length));
+  const settled: PromiseSettledResult<TResult>[] = new Array(items.length);
   let nextIndex = 0;
   await Promise.all(Array.from({ length: limit }, async () => {
-    while (nextIndex < assets.length) {
+    while (nextIndex < items.length && !signal?.aborted) {
       const index = nextIndex;
       nextIndex += 1;
       try {
-        settled[index] = { status: "fulfilled", value: await load(assets[index]) };
+        settled[index] = { status: "fulfilled", value: await load(items[index]) };
       } catch (reason) {
         settled[index] = { reason, status: "rejected" };
       }
@@ -320,23 +323,48 @@ function loadImage(src: string, signal?: AbortSignal): Promise<HTMLImageElement>
       return;
     }
     const image = new Image();
+    let settled = false;
     const cleanup = () => {
       signal?.removeEventListener("abort", abort);
+      image.onerror = null;
+      image.onload = null;
+    };
+    const settle = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback();
     };
     const abort = () => {
-      cleanup();
-      reject(new DOMException("Image load aborted", "AbortError"));
+      settle(() => reject(new DOMException("Image load aborted", "AbortError")));
+      image.src = "";
     };
     image.decoding = "async";
     image.onload = () => {
-      cleanup();
-      resolve(image);
+      void decodeImage(image).then(
+        () => settle(() => resolve(image)),
+        (error) => {
+          if (isLoadedImage(image)) {
+            settle(() => resolve(image));
+            return;
+          }
+          settle(() => reject(new Error(`Failed to decode image ${src}: ${errorMessage(error)}`)));
+        },
+      );
     };
     image.onerror = () => {
-      cleanup();
-      reject(new Error(`Failed to load image ${src}`));
+      settle(() => reject(new Error(`Failed to load image ${src}`)));
     };
     signal?.addEventListener("abort", abort, { once: true });
     image.src = src;
   });
+}
+
+async function decodeImage(image: HTMLImageElement): Promise<void> {
+  if (typeof image.decode !== "function") return;
+  await image.decode();
+}
+
+function isLoadedImage(image: HTMLImageElement): boolean {
+  return typeof image.naturalWidth !== "number" || image.naturalWidth > 0;
 }

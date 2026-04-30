@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PharosVilleAssetManifest, PharosVilleAssetManifestEntry } from "../systems/asset-manifest";
-import { PHAROSVILLE_DEFERRED_ASSET_CONCURRENCY, PharosVilleAssetManager } from "./asset-manager";
+import {
+  PHAROSVILLE_DEFERRED_ASSET_CONCURRENCY,
+  PHAROSVILLE_LOGO_CONCURRENCY,
+  PharosVilleAssetManager,
+} from "./asset-manager";
 
 const baseEntry: PharosVilleAssetManifestEntry = {
   anchor: [24, 24],
@@ -107,6 +111,80 @@ describe("PharosVilleAssetManager", () => {
     });
     expect(manager.getLoadStats().deferredCompletedAt).toEqual(expect.any(Number));
   });
+
+  it("loads logos with a bounded decode queue and filters duplicate or remote sources", async () => {
+    const logoSrcs = Array.from({ length: PHAROSVILLE_LOGO_CONCURRENCY + 3 }, (_, index) => `/logos/${index}.png`);
+    const starts: string[] = [];
+    let activeLoads = 0;
+    let peakLoads = 0;
+    stubImageLoader((src) => {
+      starts.push(src);
+      activeLoads += 1;
+      peakLoads = Math.max(peakLoads, activeLoads);
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          activeLoads -= 1;
+          resolve();
+        }, 1);
+      });
+    });
+
+    const manager = new PharosVilleAssetManager();
+    const loaded = await manager.loadLogos([
+      ...logoSrcs,
+      logoSrcs[0],
+      "https://example.com/logo.png",
+      "",
+    ]);
+
+    expect(loaded).toHaveLength(logoSrcs.length);
+    expect(peakLoads).toBe(PHAROSVILLE_LOGO_CONCURRENCY);
+    expect(starts).toEqual(logoSrcs);
+    expect(manager.getLoadStats()).toMatchObject({
+      failedLogoCount: 0,
+      loadedLogoCount: logoSrcs.length,
+    });
+  });
+
+  it("waits for image decode before resolving a loaded logo", async () => {
+    let resolveDecode: () => void = () => undefined;
+    const decode = vi.fn(() => new Promise<void>((resolve) => {
+      resolveDecode = resolve;
+    }));
+    stubDecodingImage(decode);
+
+    const manager = new PharosVilleAssetManager();
+    const pending = manager.loadLogo("/logos/decoded.png");
+    let resolved = false;
+    void pending.then(() => {
+      resolved = true;
+    });
+
+    await nextTask();
+    expect(decode).toHaveBeenCalledTimes(1);
+    expect(resolved).toBe(false);
+
+    resolveDecode();
+    const loaded = await pending;
+
+    expect(loaded.src).toBe("/logos/decoded.png");
+    expect(resolved).toBe(true);
+  });
+
+  it("falls back to a loaded logo when image decode rejects", async () => {
+    const decode = vi.fn(() => Promise.reject(new Error("decode unavailable")));
+    stubDecodingImage(decode, 48);
+
+    const manager = new PharosVilleAssetManager();
+    const loaded = await manager.loadLogo("/logos/fallback.png");
+
+    expect(decode).toHaveBeenCalledTimes(1);
+    expect(loaded.src).toBe("/logos/fallback.png");
+    expect(manager.getLoadStats()).toMatchObject({
+      failedLogoCount: 0,
+      loadedLogoCount: 1,
+    });
+  });
 });
 
 function makeManifest(
@@ -174,4 +252,26 @@ function stubImageLoader(onStart: (src: string) => Promise<void>) {
     }
   }
   vi.stubGlobal("Image", MockImage);
+}
+
+function stubDecodingImage(decoder: () => Promise<void>, naturalWidthValue = 48) {
+  class MockImage {
+    decoding: "async" | "auto" | "sync" = "auto";
+    naturalWidth = naturalWidthValue;
+    onerror: (() => void) | null = null;
+    onload: (() => void) | null = null;
+
+    decode = decoder;
+
+    set src(_value: string) {
+      queueMicrotask(() => this.onload?.());
+    }
+  }
+  vi.stubGlobal("Image", MockImage);
+}
+
+function nextTask() {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
 }
