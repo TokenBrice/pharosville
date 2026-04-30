@@ -3,6 +3,11 @@ import { CEMETERY_ENTRIES } from "@shared/lib/cemetery-merged";
 import { ACTIVE_IDS } from "@shared/lib/stablecoins";
 import type { ReportCardsResponse } from "@shared/types";
 import {
+  denseFixtureChains,
+  denseFixturePegSummary,
+  denseFixtureReportCards,
+  denseFixtureStablecoins,
+  denseFixtureStress,
   fixtureChains,
   fixturePegSummary,
   fixtureReportCards,
@@ -46,7 +51,7 @@ describe("buildPharosVilleWorld", () => {
     expect(world.ships.find((ship) => ship.id === "usdt-tether")?.logoSrc).toBe("/logos/1-usdt.svg");
     expect(world.detailIndex["ship.usdt-tether"]?.facts).toEqual(expect.arrayContaining([
       { label: "Ship class", value: "CeFi" },
-      { label: "Size tier", value: "Flagship" },
+      { label: "Size tier", value: "Titan" },
     ]));
     expect(world.graves).toHaveLength(3);
     expect(world.graves[0]?.logoSrc).toBe("/logos/cemetery/nubits.png");
@@ -521,34 +526,27 @@ describe("buildPharosVilleWorld", () => {
     expect(["water", "deep-water"]).toContain(tileKindAt(usdc?.riskTile.x ?? -1, usdc?.riskTile.y ?? -1));
   });
 
-  it("keeps long-tail clusters on water tiles", () => {
-    const assets = Array.from({ length: 132 }, (_, index) => makeAsset({
-      id: index % 2 === 0 ? "usdc-circle" : "usdt-tether",
-      symbol: index % 2 === 0 ? "USDC" : "USDT",
-      circulating: { peggedUSD: 1_000_000 - index },
-    })).map((asset, index) => ({
-      ...asset,
-      id: index % 2 === 0 ? "usdc-circle" : "usdt-tether",
-    }));
+  it("renders every dense active stablecoin as an individual ship without clusters", () => {
     const world = buildPharosVilleWorld({
-      stablecoins: { peggedAssets: assets },
-      chains: fixtureChains,
+      stablecoins: denseFixtureStablecoins,
+      chains: denseFixtureChains,
       stability: fixtureStability,
-      pegSummary: fixturePegSummary,
-      stress: fixtureStress,
-      reportCards: fixtureReportCards,
+      pegSummary: denseFixturePegSummary,
+      stress: denseFixtureStress,
+      reportCards: denseFixtureReportCards,
       cemeteryEntries: [],
       freshness: {},
     });
+    const activeAssetIds = new Set(denseFixtureStablecoins.peggedAssets.map((asset) => asset.id));
 
-    expect(world.shipClusters.length).toBeGreaterThan(0);
-    expect(world.shipClusters.every((cluster) => ["water", "deep-water"].includes(tileKindAt(cluster.tile.x, cluster.tile.y)))).toBe(true);
-    expect(world.shipClusters.every((cluster) => cluster.riskWaterLabel === "Calm Anchorage")).toBe(true);
-    expect(world.shipClusters.every((cluster) => cluster.riskZone === "calm")).toBe(true);
-    expect(world.detailIndex[world.shipClusters[0]!.detailId]?.facts).toEqual(expect.arrayContaining([
-      { label: "Risk water area", value: "Calm Anchorage" },
-      { label: "Risk water zone", value: "calm" },
-    ]));
+    expect(world.ships).toHaveLength(activeAssetIds.size);
+    expect(new Set(world.ships.map((ship) => ship.id))).toEqual(activeAssetIds);
+    expect(world.ships.every((ship) => ["water", "deep-water"].includes(tileKindAt(ship.tile.x, ship.tile.y)))).toBe(true);
+    expect(world.ships.every((ship) => ["water", "deep-water"].includes(tileKindAt(ship.riskTile.x, ship.riskTile.y)))).toBe(true);
+    expect(new Set(world.ships.map((ship) => ship.detailId)).size).toBe(world.ships.length);
+    for (const ship of world.ships) {
+      expect(world.detailIndex[ship.detailId]).toBeDefined();
+    }
   });
 });
 

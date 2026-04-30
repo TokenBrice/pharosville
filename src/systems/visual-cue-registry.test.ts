@@ -31,7 +31,6 @@ describe("buildVisualCueRegistry", () => {
       "cue.ship.rigging",
       "cue.ship.pennant",
       "cue.ship.scale",
-      "cue.ship-cluster",
       "cue.water.semantic-terrain",
     ]));
     expect(cues.find((cue) => cue.id === "cue.ship.motion")).toMatchObject({
@@ -59,7 +58,6 @@ describe("buildVisualCueRegistry", () => {
       docks: targetKeys.has("dock"),
       graves: targetKeys.has("grave"),
       lighthouse: targetKeys.has("lighthouse"),
-      shipClusters: targetKeys.has("ship-cluster"),
       ships: targetKeys.has("ship"),
     } as const satisfies Partial<Record<keyof PharosVilleWorld, boolean>>;
 
@@ -68,7 +66,6 @@ describe("buildVisualCueRegistry", () => {
       docks: true,
       graves: true,
       lighthouse: true,
-      shipClusters: true,
       ships: true,
     });
     expect(STRUCTURAL_WORLD_FIELDS).toEqual({

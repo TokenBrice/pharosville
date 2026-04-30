@@ -1,5 +1,5 @@
 import { CHAIN_META } from "@shared/lib/chains";
-import type { AreaNode, DetailModel, DockNode, GraveNode, LighthouseNode, ShipClusterNode, ShipNode } from "./world-types";
+import type { AreaNode, DetailModel, DockNode, GraveNode, LighthouseNode, ShipNode } from "./world-types";
 import { ETHEREUM_L2_DOCK_CHAIN_IDS } from "./world-layout";
 import { analyticalRouteHref } from "./route-links";
 
@@ -126,30 +126,6 @@ export function detailForShip(node: ShipNode): DetailModel {
       { label: "Evidence", value: node.placementEvidence.sourceFields.join(", ") },
     ],
     links: [{ label: "Stablecoin", href: analyticalRouteHref(`/stablecoin/${node.id}/`) }],
-  };
-}
-
-export function detailForCluster(node: ShipClusterNode): DetailModel {
-  return {
-    id: node.detailId,
-    kind: node.kind,
-    title: node.label,
-    summary: "Clustered long-tail ships share the same risk placement.",
-    facts: [
-      { label: "Ships", value: String(node.count) },
-      { label: "Total market cap", value: usd.format(node.totalUsd) },
-      { label: "Risk water area", value: node.riskWaterLabel },
-      { label: "Risk water zone", value: node.riskZone },
-      { label: "Risk placement key", value: node.riskPlacement },
-    ],
-    links: [{ label: "Stablecoins", href: analyticalRouteHref("/stablecoins/") }],
-    membersHeading: "Cluster members",
-    members: node.ships.map((ship) => ({
-      id: ship.id,
-      label: `${ship.label} (${ship.symbol})`,
-      href: analyticalRouteHref(`/stablecoin/${ship.id}/`),
-      value: usd.format(ship.marketCapUsd),
-    })),
   };
 }
 

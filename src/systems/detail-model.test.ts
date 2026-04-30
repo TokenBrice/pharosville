@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { detailForArea, detailForCluster, detailForDock, detailForLighthouse, detailForShip } from "./detail-model";
-import type { AreaNode, DockNode, LighthouseNode, ShipClusterNode, ShipNode } from "./world-types";
+import { detailForArea, detailForDock, detailForLighthouse, detailForShip } from "./detail-model";
+import type { AreaNode, DockNode, LighthouseNode, ShipNode } from "./world-types";
 
 describe("detail-model analytical links", () => {
   it("points built-in detail links at canonical Pharos Watch routes", () => {
@@ -40,23 +40,6 @@ describe("detail-model analytical links", () => {
   });
 
   it("rewrites member and custom area analytical links", () => {
-    const cluster = detailForCluster({
-      id: "cluster.calm",
-      kind: "ship-cluster",
-      label: "Calm flotilla",
-      tile: { x: 1, y: 1 },
-      riskPlacement: "safe-harbor",
-      riskZone: "calm",
-      riskWaterLabel: "Calm Anchorage",
-      shipIds: ["usdc-circle"],
-      ships: [{ id: "usdc-circle", label: "USD Coin", symbol: "USDC", marketCapUsd: 100 }],
-      count: 1,
-      totalUsd: 100,
-      detailId: "cluster.calm",
-    } satisfies ShipClusterNode);
-    expect(cluster.links[0]?.href).toBe("https://pharos.watch/stablecoins/");
-    expect(cluster.members?.[0]?.href).toBe("https://pharos.watch/stablecoin/usdc-circle/");
-
     expect(detailForArea({
       id: "area.dews.danger",
       kind: "area",

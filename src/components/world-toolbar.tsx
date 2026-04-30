@@ -39,7 +39,6 @@ export function WorldToolbar({
     + world.areas.length
     + world.docks.length
     + world.ships.length
-    + world.shipClusters.length
     + world.graves.length;
 
   return (

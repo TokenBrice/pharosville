@@ -112,16 +112,5 @@ export function buildVisualCueRegistry(): VisualCue[] {
       domEquivalent: "cemetery ledger rows",
       reducedMotionEquivalent: "same static tomb marker and cause plaque",
     },
-    {
-      id: "cue.ship-cluster",
-      target: { kind: "ship-cluster" },
-      primaryChannels: ["size", "position", "shape"],
-      visual: "count-capped water-zone cluster marker",
-      sourceField: "stablecoins.peggedAssets[], pegSummary.coins[], stress.signals[]",
-      questionAnswered: "Where are long-tail stablecoins grouped after the individual ship budget is reached?",
-      failureState: "cluster omitted and represented in DOM ledger only",
-      domEquivalent: "long-tail cluster detail panel and accessibility ledger rows with risk-water area and zone",
-      reducedMotionEquivalent: "same static cluster marker and member list",
-    },
   ];
 }

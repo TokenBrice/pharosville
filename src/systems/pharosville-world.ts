@@ -15,9 +15,7 @@ import { PSI_HEX_COLORS } from "@shared/lib/psi-colors";
 import { buildPegSummaryCoinMap, buildReportCardMap } from "@/lib/stablecoin-lookups";
 import { logosById } from "@/lib/logos";
 import { buildChainDocks } from "./chain-docks";
-import { clusterLongTailShips } from "./clustering";
 import {
-  detailForCluster,
   detailForDock,
   detailForGrave,
   detailForLighthouse,
@@ -323,7 +321,6 @@ function buildDetailIndex(world: Omit<PharosVilleWorld, "detailIndex" | "visualC
     detailForLighthouse(world.lighthouse),
     ...world.docks.map(detailForDock),
     ...world.ships.map(detailForShip),
-    ...world.shipClusters.map(detailForCluster),
     ...world.areas.map(detailForArea),
     ...world.graves.map(detailForGrave),
   ];
@@ -337,7 +334,6 @@ export function buildPharosVilleWorld(inputs: PharosVilleInputs): PharosVilleWor
   const areas = buildAreas(inputs.stress);
   const allShips = buildShips(inputs, docks);
   const dockedShips = assignDockVisits(allShips, docks);
-  const { visibleShips, clusters } = clusterLongTailShips(dockedShips);
   const graves = graveNodesFromEntries(inputs.cemeteryEntries ?? CEMETERY_ENTRIES);
   const baseWorld = {
     generatedAt: Date.now(),
@@ -347,8 +343,7 @@ export function buildPharosVilleWorld(inputs: PharosVilleInputs): PharosVilleWor
     lighthouse,
     docks,
     areas,
-    ships: visibleShips,
-    shipClusters: clusters,
+    ships: dockedShips,
     graves,
     effects: [],
     legends: [

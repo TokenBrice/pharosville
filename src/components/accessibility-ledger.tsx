@@ -91,17 +91,6 @@ export function AccessibilityLedger({
         ))}
       </ol>
 
-      <h3>Ship clusters</h3>
-      <ol>
-        {world.shipClusters.map((cluster) => (
-          <li key={cluster.id}>
-            {cluster.label}: {cluster.count} ships, {compactUsd.format(cluster.totalUsd)} total market cap, placed at{" "}
-            {cluster.riskWaterLabel} ({cluster.riskPlacement}), risk zone {cluster.riskZone}. Members:{" "}
-            {cluster.ships.map((ship) => `${ship.label} (${ship.symbol}) ${compactUsd.format(ship.marketCapUsd)}`).join("; ")}.
-          </li>
-        ))}
-      </ol>
-
       <h3>Cemetery</h3>
       <ol>
         {world.graves.map((grave) => (

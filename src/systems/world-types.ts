@@ -64,6 +64,7 @@ export type ShipClass =
   | "unclassified";
 
 export type ShipSizeTier =
+  | "titan"
   | "flagship"
   | "major"
   | "regional"
@@ -74,6 +75,7 @@ export type ShipSizeTier =
 
 export interface ShipVisual {
   hull: ShipHull;
+  spriteAssetId?: string;
   shipClass: ShipClass;
   classLabel: string;
   rigging: "issuer-rig" | "dependent-rig" | "dao-rig";
@@ -163,26 +165,6 @@ export interface ShipNode {
   detailId: string;
 }
 
-export interface ShipClusterNode {
-  id: string;
-  kind: "ship-cluster";
-  label: string;
-  tile: { x: number; y: number };
-  riskPlacement: ShipRiskPlacement;
-  riskZone: ShipWaterZone;
-  riskWaterLabel: string;
-  shipIds: string[];
-  ships: Array<{
-    id: string;
-    label: string;
-    symbol: string;
-    marketCapUsd: number;
-  }>;
-  count: number;
-  totalUsd: number;
-  detailId: string;
-}
-
 export interface GraveNode {
   id: string;
   kind: "grave";
@@ -256,8 +238,7 @@ export type VisualCueTarget =
   | { kind: "dock" }
   | { kind: "grave" }
   | { kind: "lighthouse" }
-  | { kind: "ship" }
-  | { kind: "ship-cluster" };
+  | { kind: "ship" };
 
 export type VisualCueChannel =
   | "color"
@@ -298,7 +279,6 @@ export interface PharosVilleWorld {
   docks: DockNode[];
   areas: AreaNode[];
   ships: ShipNode[];
-  shipClusters: ShipClusterNode[];
   graves: GraveNode[];
   effects: WorldEffect[];
   detailIndex: Record<string, DetailModel>;
