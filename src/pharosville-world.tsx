@@ -26,7 +26,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const canvasBudgetRef = useRef<ReturnType<typeof resolveCanvasBudget> | null>(null);
   const criticalFramePaintedRef = useRef(false);
   const deferredLoadStartedRef = useRef(false);
-  const motionStartTimeRef = useRef<number | null>(null);
   const lastWallRef = useRef<number | null>(null);
   const accSecondsRef = useRef(0);
   const motionFrameCountRef = useRef(0);
@@ -246,7 +245,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     let frameId = 0;
     const drawFrame = (time: number) => {
       animationFramePendingRef.current = false;
-      if (motionStartTimeRef.current == null) motionStartTimeRef.current = time;
       let timeSeconds: number;
       if (reducedMotion) {
         timeSeconds = 0;
