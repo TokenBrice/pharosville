@@ -24,7 +24,7 @@ PharosVille remains dark-first, precise, semantic, maritime, and analytical. Avo
 | Chain stablecoin supply | Harbors/docks | Top chain footprint, chain identity, dominant stablecoin cargo | Chain supply, health, top cargo |
 | Active stablecoins | Ships | Stablecoin identity, class, scale, home docks, risk route | Exact supply, chain presence, risk placement, route facts |
 | Peg and DEWS stress | Risk water bands | Distance from harbor, water severity, fog/storm context | DEWS band, peg status, source fields |
-| Long-tail active assets | Ship clusters | Budgeted grouping by water zone and total supply | Cluster members and totals |
+| Dense active assets | Individual ships | Full active stablecoin coverage within the current route budget | Per-ship supply, route, risk placement, and source facts |
 | Dead/frozen lifecycle | Cemetery | Memorialized dead/frozen assets with cause-aware treatment | Cause/date/cemetery detail |
 
 Mint/burn pressure, exit liquidity, redemption routes, Yield Intelligence,
@@ -38,7 +38,6 @@ product surface.
 | Entity | Identity cues | Movement behavior |
 | --- | --- | --- |
 | Active stablecoin | Hull by governance class, sail logo or symbol, compressed market-cap scale | Slow deterministic water-only route through home docks and risk anchor |
-| Long-tail group | Count, total market cap, risk placement | Static water-zone cluster |
 | Chain dock cargo | Chain logo flag, harbored stablecoins in DOM | Static landmark; selection can highlight associated ships |
 | Cemetery entry | Local cemetery logo, cause-aware marker treatment | Static memorial precinct |
 

@@ -49,7 +49,7 @@ These are the non-negotiable visual/data contracts for the PharosVille world. A 
 | Ship | Active stablecoin representative | Full supply distribution as linear pixel area |
 | Ship route/docking cadence | Positive rendered-chain presence and risk-water patrol | Real transfer activity or issuer operations |
 | Ship risk water | Peg/DEWS evidence, named risk-water area, risk zone, and placement precedence | Risk from stale or missing evidence alone |
-| Long-tail cluster | Count-capped grouped active stablecoins sharing a risk placement, named risk-water area, and risk zone | One aggregated issuer |
+| Dense active ship field | Individual active stablecoins sharing the current dense route budget, named risk-water areas, and risk zones | Aggregated issuers or hidden long-tail ship clusters |
 | Cemetery marker | Dead/frozen lifecycle asset with cause-aware visual style | Active market status |
 | Evidence caveat | Missing, stale, or low-confidence evidence | Confirmed depeg/stress |
 
@@ -64,7 +64,7 @@ These are the non-negotiable visual/data contracts for the PharosVille world. A 
 - Printed water-area labels render above entity sprites and their hit targets win inside the printed label rectangle. This keeps all zone names visible and selectable even near tall landmarks.
 - Reduced-motion representative placement uses deterministic static positions and no RAF loop.
 - Reduced-motion ships freeze at risk-water idle tiles, or Ledger Mooring for NAV ledger assets. Details and the accessibility ledger must still expose the named risk-water area and risk zone.
-- Normal motion samples, hit testing, selected rings, follow-selected behavior, and debug state must use the same motion model.
+- Normal motion samples, hit testing, selected rings, follow-selected behavior, and debug state must use the same motion model. Non-titan ships that are currently `moored` are not map-visible or hit-testable; titan ships remain map-visible while moored.
 - Water routes must stay on water tiles where tests assert that contract.
 
 ## Renderer Rules

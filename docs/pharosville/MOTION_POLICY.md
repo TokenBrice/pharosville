@@ -8,8 +8,8 @@ renders deterministic static frames and must not keep a RAF loop alive.
 
 ## Speed Classes
 
-- Static: terrain, printed water labels, cemetery markers,
-  dock footprints, cluster markers, and detail chrome.
+- Static: terrain, printed water labels, cemetery markers, dock footprints, and
+  detail chrome.
 - Slow: lighthouse beam shimmer, semantic water shimmer, fog, selected
   relationship pulse, harbor lamps, and lighthouse-attached birds.
 - Medium: ship movement along sampled water routes and bounded harbor/civic
@@ -46,6 +46,7 @@ renders deterministic static frames and must not keep a RAF loop alive.
 - `calm`, `watch`, `alert`, `warning`, and `danger` map to the separated DEWS sea districts from Calm Anchorage through Danger Strait. `ledger` maps to Ledger Mooring in a quiet basin clear of top-chain harbor traffic.
 - Higher DEWS turbulence should increase risk-water dwell, drift radius, and sailing wake intensity in this order: calm < watch < alert < warning < danger.
 - Reduced-motion ships freeze at their risk-water idle tile, or Ledger Mooring for NAV ledger assets. Details and the accessibility ledger must expose named risk-water area, risk-water zone, home dock, chain presence, docking cadence, and evidence caveats.
+- Routed normal-motion ships spend one third of each cycle moored at rendered docks. Non-titan ships are hidden while moored to rotate map-visible ship load; titan ships remain visible while docked.
 - Dockless normal-motion patrols must not collapse to a near-static loop. If a named area is too small for meaningful travel, use current or adjacent same-purpose sea anchors while keeping samples on water tiles.
 
 ## Debug Contract
