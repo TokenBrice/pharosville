@@ -79,14 +79,15 @@ Edge-anchored compound masks (current iteration as of 2026-04-30):
 
 | Zone | Primary edge | Bounds | Approx tiles |
 |------|--------------|--------|-------------:|
-| CALM | x=0 | large left-edge vertical anchorage plus reclaimed southeast corner basin | ~880 |
-| WATCH | y=55 | south breakwater basin between the western Calm wedge and the southeast reclaimed Calm corner | ~250 |
+| CALM | x=0 | large left-edge vertical anchorage | ~700 |
+| WATCH | y=55 | south breakwater basin plus the reclaimed southeast corner basin | ~430 |
 | LEDGER | top edge | non-DEWS NAV mooring shelf spanning the entire top of the diamond, touching Calm at the western flank | ~310 |
 | ALERT | x=55/eastern corner | outer eastern ring | ~232 |
 | WARNING | x=55/eastern corner | middle eastern ring bridged into Danger Strait | ~65 |
 | DANGER | x=55/eastern corner | inner/right storm strait on the angled shelf | ~48 |
 
-The eastern corner is covered by overlapping ALERT+WARNING+DANGER water, with
+The southeast corner basin is WATCH water rather than Calm Anchorage. The
+eastern corner is covered by overlapping ALERT+WARNING+DANGER water, with
 Warning Shoals touching the Danger Strait shelf rather than leaving a generic
 water gap. The four-tile Chebyshev island periphery and lighthouse
 visual-clearance box (x:14..24, y:23..32) are generic water.

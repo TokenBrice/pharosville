@@ -120,8 +120,8 @@ describe("buildPharosVilleMap", () => {
     expect(terrainKindAt(REGION_TILES["storm-shelf"].x, REGION_TILES["storm-shelf"].y)).toBe("storm-water");
     expect(terrainKindAt(REGION_TILES["ledger-mooring"].x, REGION_TILES["ledger-mooring"].y)).toBe("ledger-water");
     expect(terrainKindAt(0, 55)).toBe("calm-water");
-    expect(terrainKindAt(47, 52)).toBe("calm-water");
-    expect(terrainKindAt(50, 55)).toBe("calm-water");
+    expect(terrainKindAt(47, 52)).toBe("watch-water");
+    expect(terrainKindAt(50, 55)).toBe("watch-water");
   });
 
   it("uses the left edge for Calm Anchorage and the south basin for Watch Breakwater", () => {
@@ -163,7 +163,7 @@ describe("buildPharosVilleMap", () => {
       { x: 20, y: 5 },
       { x: 13, y: 8 },
     ];
-    const oldLedgerSamples = [
+    const southeastWatchSamples = [
       { x: 45, y: 55 },
       { x: 47, y: 52 },
       { x: 50, y: 55 },
@@ -173,8 +173,8 @@ describe("buildPharosVilleMap", () => {
     for (const tile of ledgerSamples) {
       expect(terrainKindAt(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("ledger-water");
     }
-    for (const tile of oldLedgerSamples) {
-      expect(terrainKindAt(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("calm-water");
+    for (const tile of southeastWatchSamples) {
+      expect(terrainKindAt(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("watch-water");
     }
     // The south basin previously held by Calm now reads as Watch Breakwater.
     expect(terrainKindAt(28, 50)).toBe("watch-water");

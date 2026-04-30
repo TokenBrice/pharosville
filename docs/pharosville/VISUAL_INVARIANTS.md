@@ -31,8 +31,8 @@ These are the non-negotiable visual/data contracts for the PharosVille world. A 
 - The cemetery remains a compact memorial precinct separated from the EVM bay and lighthouse approach.
 - The inland civic spine does not host Pharos data buildings. Mint/burn flows, DEX liquidity, and redemption-route backstops stay on their dedicated analytical surfaces outside PharosVille.
 - DEWS zone edge anchoring uses compound/coast-aware masks rather than rectangles:
-  - CALM ANCHORAGE → x=0 large left-edge vertical basin plus reclaimed southeast corner
-  - WATCH BREAKWATER → south breakwater basin between the western Calm wedge and the southeast reclaimed Calm corner
+  - CALM ANCHORAGE → x=0 large left-edge vertical basin
+  - WATCH BREAKWATER → south breakwater basin plus reclaimed southeast corner basin
   - ALERT CHANNEL -> eastern-corner outer ring, anchored to the x=55 edge
   - WARNING SHOALS -> eastern-corner middle ring, bridged into Danger Strait
   - DANGER STRAIT -> eastern-corner inner/right storm ring

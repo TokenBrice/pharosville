@@ -219,24 +219,22 @@ function isLighthouseVisualClearance(x: number, y: number): boolean {
 
 function isWatchBreakwater(x: number, y: number): boolean {
   // South breakwater basin plus an east bridge that absorbs the previously
-  // un-attributed strip between the south basin and the southeast Calm
-  // reclaimed corner. The reclaimed Calm ellipse is excluded from the bridge
-  // so it stays visible as Calm water.
+  // un-attributed strip between the south basin and the southeast corner basin.
   const southBasin = x >= 16 && x <= 43 && y >= 45;
   const eastBridge = x >= 28
     && x <= 55
     && y >= 38
     && y <= 50
     && ellipseValue(x, y, 55.0, 55.0, 14.0, 14.0) >= 1.0;
-  return southBasin || eastBridge;
+  const southeastBasin = ellipseValue(x, y, 55.0, 55.0, 14.0, 14.0) < 1.0;
+  return southBasin || eastBridge || southeastBasin;
 }
 
 function isCalmAnchorage(x: number, y: number): boolean {
   const leftEdge = x <= 15 && y >= 10 && y <= MAX_TILE_Y;
   const leftBasin = ellipseValue(x, y, 8.2, 31.0, 15.0, 20.5) < 1.08 && x <= 22 && y >= 10;
   const southBay = x >= 16 && x <= 43 && y >= 45;
-  const reclaimedLedgerBasin = ellipseValue(x, y, 55.0, 55.0, 14.0, 14.0) < 1.0;
-  return leftEdge || leftBasin || southBay || reclaimedLedgerBasin;
+  return leftEdge || leftBasin || southBay;
 }
 
 function isOutOfBounds(x: number, y: number): boolean {

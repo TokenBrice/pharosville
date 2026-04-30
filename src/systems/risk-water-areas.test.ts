@@ -171,9 +171,9 @@ describe("risk water areas", () => {
     }
 
     // CALM occupies the left edge, LEDGER owns the entire top mooring shelf
-    // touching Calm at its western flank, WATCH now owns the south breakwater
-    // basin south of the island, and ALERT/WARNING/DANGER form concentric
-    // rings anchored at the east corner (55, 0).
+    // touching Calm at its western flank, WATCH owns the south breakwater
+    // basin and southeast corner basin, and ALERT/WARNING/DANGER form
+    // concentric rings anchored at the east corner (55, 0).
     expect(terrainKindAt(0, 27)).toBe("calm-water");
     expect(terrainKindAt(14, 42)).toBe("calm-water");
     expect(terrainKindAt(28, 50)).toBe("watch-water");
@@ -182,7 +182,7 @@ describe("risk water areas", () => {
     expect(terrainKindAt(30, 55)).toBe("watch-water");
     // Watch east bridge absorbs the strip between the south basin and the
     // southeast Calm corner that previously read as un-attributed water.
-    expect(terrainKindAt(40, 44)).toBe("watch-water");
+    expect(terrainKindAt(45, 44)).toBe("watch-water");
     expect(terrainKindAt(45, 45)).toBe("watch-water");
     expect(terrainKindAt(55, 0)).toBe("storm-water");
     expect(terrainKindAt(54, 0)).toBe("storm-water");
@@ -197,8 +197,8 @@ describe("risk water areas", () => {
     expect(terrainKindAt(15, 4)).toBe("ledger-water");
     expect(terrainKindAt(20, 5)).toBe("ledger-water");
     expect(terrainKindAt(30, 0)).toBe("ledger-water");
-    expect(terrainKindAt(47, 52)).toBe("calm-water");
-    expect(terrainKindAt(50, 55)).toBe("calm-water");
+    expect(terrainKindAt(47, 52)).toBe("watch-water");
+    expect(terrainKindAt(50, 55)).toBe("watch-water");
   });
 
   it("keeps every named sea zone in the same water component with edge-snapped ship anchors where required", () => {
