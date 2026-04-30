@@ -2,7 +2,7 @@ import { MAX_TILE_X, MAX_TILE_Y } from "./world-layout";
 import { stableHash } from "./stable-random";
 import { DOCKED_SHIP_DWELL_SHARE, ZONE_DWELL } from "./motion-config";
 import { sampleShipWaterPath as sampleWaterPath } from "./motion-water";
-import { clamp, normalizeHeading, pathKey, positiveModulo, smoothstep } from "./motion-utils";
+import { clamp, normalizeHeading, pathKey, positiveModulo, smoothstep, smoothstepRange } from "./motion-utils";
 import type { PharosVilleMotionPlan, ShipMotionRoute, ShipMotionRouteStop, ShipMotionSample, ShipMotionState, ShipWaterPath } from "./motion-types";
 import type { ShipNode, ShipWaterZone } from "./world-types";
 
@@ -60,6 +60,9 @@ export function resolveShipMotionSample(input: {
         progress: smoothstep(cursor / Math.max(1, transitSecondsEach)),
         state: "departing",
         dockId: stop.dockId,
+        fromMooringStop: stop,
+        toMooringStop: null,
+        timeSeconds: input.timeSeconds,
       });
     }
     cursor -= transitSecondsEach;
@@ -76,6 +79,9 @@ export function resolveShipMotionSample(input: {
         progress: smoothstep(cursor / Math.max(1, transitSecondsEach)),
         state: "arriving",
         dockId: nextStop.dockId,
+        fromMooringStop: null,
+        toMooringStop: nextStop,
+        timeSeconds: input.timeSeconds,
       });
     }
     cursor -= transitSecondsEach;
@@ -145,15 +151,26 @@ function transitSample(input: {
   progress: number;
   state: Extract<ShipMotionState, "arriving" | "departing" | "sailing">;
   dockId: string | null;
+  fromMooringStop: ShipMotionRoute["dockStops"][number] | null;
+  toMooringStop: ShipMotionRoute["dockStops"][number] | null;
+  timeSeconds: number;
 }): ShipMotionSample {
   const { point, heading } = sampleShipWaterPath(input.path, input.progress);
   const dockStop = input.dockId
     ? input.route.dockStops.find((stop) => stop.dockId === input.dockId) ?? null
     : null;
   const lanePoint = transitLanePoint(point, heading, input.route, input.progress);
+  const blendedTile = applyMooringBlend({
+    tile: lanePoint,
+    progress: input.progress,
+    route: input.route,
+    fromMooringStop: input.fromMooringStop,
+    toMooringStop: input.toMooringStop,
+    timeSeconds: input.timeSeconds,
+  });
   return {
     shipId: input.route.shipId,
-    tile: lanePoint,
+    tile: blendedTile,
     state: input.state,
     zone: input.route.zone,
     currentDockId: input.dockId,
@@ -162,6 +179,32 @@ function transitSample(input: {
     heading,
     wakeIntensity: transitWakeIntensityForZone(input.route.zone),
   };
+}
+
+function applyMooringBlend(input: {
+  tile: { x: number; y: number };
+  progress: number;
+  route: ShipMotionRoute;
+  fromMooringStop: ShipMotionRoute["dockStops"][number] | null;
+  toMooringStop: ShipMotionRoute["dockStops"][number] | null;
+  timeSeconds: number;
+}): { x: number; y: number } {
+  let dx = 0;
+  let dy = 0;
+  if (input.fromMooringStop) {
+    const easeIn = smoothstepRange(0, 0.15, input.progress);
+    const offset = mooredOffset(input.route, input.fromMooringStop, input.timeSeconds);
+    dx += offset.dx * (1 - easeIn);
+    dy += offset.dy * (1 - easeIn);
+  }
+  if (input.toMooringStop) {
+    const easeOut = smoothstepRange(0.85, 1, input.progress);
+    const offset = mooredOffset(input.route, input.toMooringStop, input.timeSeconds);
+    dx += offset.dx * easeOut;
+    dy += offset.dy * easeOut;
+  }
+  if (dx === 0 && dy === 0) return input.tile;
+  return clampMotionTile({ x: input.tile.x + dx, y: input.tile.y + dy });
 }
 
 function transitLanePoint(
@@ -203,6 +246,9 @@ function openWaterPatrolSample(route: ShipMotionRoute, timeSeconds: number): Shi
       progress: smoothstep(cursor / Math.max(1, transitSecondsEach)),
       state: "sailing",
       dockId: null,
+      fromMooringStop: null,
+      toMooringStop: null,
+      timeSeconds,
     });
   }
   cursor -= transitSecondsEach;
@@ -218,6 +264,9 @@ function openWaterPatrolSample(route: ShipMotionRoute, timeSeconds: number): Shi
     progress: smoothstep(cursor / Math.max(1, transitSecondsEach)),
     state: "sailing",
     dockId: null,
+    fromMooringStop: null,
+    toMooringStop: null,
+    timeSeconds,
   });
 }
 
@@ -247,12 +296,12 @@ function mooredSample(
 ): ShipMotionSample {
   const seed = stableHash(`${route.shipId}.${stop.dockId}.moored`);
   const angle = timeSeconds * 0.027 + seed * 0.0001;
-  const radius = mooredRadiusForZone(route.zone);
+  const offset = mooredOffset(route, stop, timeSeconds);
   return {
     shipId: route.shipId,
     tile: {
-      x: stop.mooringTile.x + Math.cos(angle) * radius.x,
-      y: stop.mooringTile.y + Math.sin(angle * 0.9) * radius.y,
+      x: stop.mooringTile.x + offset.dx,
+      y: stop.mooringTile.y + offset.dy,
     },
     state: "moored",
     zone: route.zone,
@@ -261,6 +310,20 @@ function mooredSample(
     currentRouteStopKind: stop.kind,
     heading: normalizeHeading({ x: -Math.sin(angle), y: Math.cos(angle * 0.9) }),
     wakeIntensity: 0.05,
+  };
+}
+
+function mooredOffset(
+  route: ShipMotionRoute,
+  stop: ShipMotionRoute["dockStops"][number],
+  timeSeconds: number,
+): { dx: number; dy: number } {
+  const seed = stableHash(`${route.shipId}.${stop.dockId}.moored`);
+  const angle = timeSeconds * 0.027 + seed * 0.0001;
+  const radius = mooredRadiusForZone(route.zone);
+  return {
+    dx: Math.cos(angle) * radius.x,
+    dy: Math.sin(angle * 0.9) * radius.y,
   };
 }
 
