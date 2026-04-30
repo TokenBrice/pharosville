@@ -27,6 +27,8 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
   const criticalFramePaintedRef = useRef(false);
   const deferredLoadStartedRef = useRef(false);
   const motionStartTimeRef = useRef<number | null>(null);
+  const lastWallRef = useRef<number | null>(null);
+  const accSecondsRef = useRef(0);
   const motionFrameCountRef = useRef(0);
   const lastRenderMetricsRef = useRef<PharosVilleRenderMetrics & { drawDurationMs: number }>({
     drawableCount: 0,
@@ -245,7 +247,16 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
     const drawFrame = (time: number) => {
       animationFramePendingRef.current = false;
       if (motionStartTimeRef.current == null) motionStartTimeRef.current = time;
-      const timeSeconds = reducedMotion ? 0 : (time - motionStartTimeRef.current) / 1000;
+      let timeSeconds: number;
+      if (reducedMotion) {
+        timeSeconds = 0;
+      } else {
+        const last = lastWallRef.current ?? time;
+        const dt = Math.min(Math.max((time - last) / 1000, 0), 1 / 30);
+        accSecondsRef.current += dt;
+        lastWallRef.current = time;
+        timeSeconds = accSecondsRef.current;
+      }
       const shipMotionSamples = collectShipMotionSamples({
         motionPlan,
         reducedMotion,
@@ -318,6 +329,8 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
     drawFrame(performance.now());
     return () => {
       animationFramePendingRef.current = false;
+      lastWallRef.current = null;
+      accSecondsRef.current = 0;
       if (frameId) cancelAnimationFrame(frameId);
     };
   }, [assetLoadTick, assetManager, camera, canvasSize.x, canvasSize.y, criticalAssetAttemptsSettled, hoveredDetailId, motionPlan, reducedMotion, selectedDetailId, world]);
