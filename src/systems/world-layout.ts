@@ -57,6 +57,7 @@ export const PREFERRED_DOCK_TILES: Record<string, { x: number; y: number }> = {
   tron: OUTER_HARBOR_DOCK_TILES[1],
   solana: OUTER_HARBOR_DOCK_TILES[2],
   aptos: OUTER_HARBOR_DOCK_TILES[3],
+  avalanche: OUTER_HARBOR_DOCK_TILES[4],
 };
 
 export const EVM_BAY_CHAIN_IDS = new Set<string>(ETHEREUM_HARBOR_PRIORITY_CHAIN_IDS);
