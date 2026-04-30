@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoins, fixtureStability, fixtureStress, makeAsset, makeChain, makePegCoin } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
-import { buildBaseMotionPlan, buildMotionPlan, buildShipWaterRoute, lighthouseFireFlickerSpeed, resolveShipMotionSample, sampleShipWaterPath, stableMotionPhase } from "./motion";
+import { buildBaseMotionPlan, buildMotionPlan, buildShipWaterRoute, isShipMapVisible, lighthouseFireFlickerSpeed, resolveShipMotionSample, sampleShipWaterPath, stableMotionPhase } from "./motion";
 import { buildPharosVilleMap, isWaterTileKind, terrainKindAt, tileKindAt } from "./world-layout";
 import type { PharosVilleMap, PharosVilleWorld, ShipWaterZone } from "./world-types";
 
@@ -190,6 +190,57 @@ describe("motion", () => {
     const second = resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds: route.cycleSeconds / 2 });
 
     expect(second.tile).not.toEqual(first.tile);
+  });
+
+  it("docks routed ships for one third of their motion cycle", () => {
+    const sampleWorld = worldForShip({
+      chainCirculating: chainCirculating(["Ethereum", "Tron", "Solana"]),
+      chains: ["ethereum", "tron", "solana"],
+    });
+    const ship = sampleWorld.ships[0]!;
+    const plan = buildMotionPlan(sampleWorld, ship.detailId);
+    const route = plan.shipRoutes.get(ship.id)!;
+    let mooredSamples = 0;
+    const sampleCount = 300;
+
+    for (let index = 0; index < sampleCount; index += 1) {
+      const sample = resolveShipMotionSample({
+        plan,
+        reducedMotion: false,
+        ship,
+        timeSeconds: route.cycleSeconds * (index / sampleCount) - route.phaseSeconds,
+      });
+      if (sample.state === "moored") mooredSamples += 1;
+    }
+
+    expect(mooredSamples / sampleCount).toBeGreaterThan(0.31);
+    expect(mooredSamples / sampleCount).toBeLessThan(0.35);
+  });
+
+  it("hides only non-titan ships while they are moored", () => {
+    const titanShip = world.ships[0]!;
+    const nonTitanShip = {
+      ...titanShip,
+      visual: {
+        ...titanShip.visual,
+        sizeTier: "major" as const,
+        spriteAssetId: undefined,
+      },
+    };
+    const mooredSample = {
+      shipId: titanShip.id,
+      tile: titanShip.tile,
+      state: "moored" as const,
+      zone: titanShip.riskZone,
+      currentDockId: titanShip.dockVisits[0]?.dockId ?? null,
+      heading: { x: 0, y: 1 },
+      wakeIntensity: 0,
+    };
+
+    expect(isShipMapVisible(titanShip, mooredSample)).toBe(true);
+    expect(isShipMapVisible(nonTitanShip, mooredSample)).toBe(false);
+    expect(isShipMapVisible(nonTitanShip, { ...mooredSample, state: "departing" })).toBe(true);
+    expect(isShipMapVisible(nonTitanShip, null)).toBe(true);
   });
 
   it("keeps routed calm ships in transit for a visible share of the cycle", () => {
@@ -406,7 +457,7 @@ describe("motion", () => {
     }
   });
 
-  it("keeps danger and ledger ships near risk water more than docks", () => {
+  it("keeps danger and ledger ships visiting risk water with the shared docked share", () => {
     const dangerWorld = worldForShip({
       chainCirculating: chainCirculating(["Ethereum"]),
       chains: ["ethereum"],
@@ -418,8 +469,13 @@ describe("motion", () => {
       navToken: true,
     });
 
-    expect(riskVsDockDwell(dangerWorld).riskSamples).toBeGreaterThan(riskVsDockDwell(dangerWorld).dockSamples);
-    expect(riskVsDockDwell(ledgerWorld).riskSamples).toBeGreaterThan(riskVsDockDwell(ledgerWorld).dockSamples);
+    const danger = riskVsDockDwell(dangerWorld);
+    const ledger = riskVsDockDwell(ledgerWorld);
+
+    expect(danger.riskSamples).toBeGreaterThan(25);
+    expect(danger.dockSamples).toBeGreaterThan(25);
+    expect(ledger.riskSamples).toBeGreaterThan(20);
+    expect(ledger.dockSamples).toBeGreaterThan(25);
   });
 
   it("derives lighthouse fire flicker speed from PSI band and score", () => {

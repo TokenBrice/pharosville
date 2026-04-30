@@ -13,7 +13,7 @@ import { selectionDrawableCount } from "./renderer/layers/selection";
 import { drawPharosVille, type PharosVilleRenderMetrics } from "./renderer/world-canvas";
 import { cameraZoomLabel, clampCameraToMap, defaultCamera, followTile, panCamera, zoomIn, zoomOut } from "./systems/camera";
 import { resolveCanvasBudget } from "./systems/canvas-budget";
-import { buildBaseMotionPlan, buildMotionPlan, resolveShipMotionSample, type ShipMotionSample } from "./systems/motion";
+import { buildBaseMotionPlan, buildMotionPlan, isShipMapVisible, resolveShipMotionSample, type ShipMotionSample } from "./systems/motion";
 import { zoomCameraAt, type IsoCamera, type ScreenPoint } from "./systems/projection";
 import { observeReducedMotion } from "./systems/reduced-motion";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "./systems/world-types";
@@ -33,6 +33,7 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
     drawableCounts: { underlay: 0, body: 0, overlay: 0, selection: 0 },
     drawDurationMs: 0,
     movingShipCount: 0,
+    visibleShipCount: 0,
     visibleTileCount: 0,
   });
   const currentShipMotionSamplesRef = useRef<ReadonlyMap<string, ShipMotionSample>>(new Map());
@@ -172,7 +173,6 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
     const logoSrcs = [
       ...world.docks.map((dock) => dock.logoSrc),
       ...world.ships.map((ship) => ship.logoSrc),
-      ...world.graves.map((grave) => grave.logoSrc),
     ]
       .filter((src): src is string => typeof src === "string" && src.startsWith("/"));
     if (logoSrcs.length === 0) return;
@@ -184,7 +184,7 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
     return () => {
       controller.abort();
     };
-  }, [assetManager, world.docks, world.graves, world.ships]);
+  }, [assetManager, world.docks, world.ships]);
 
   useEffect(() => observeReducedMotion(setReducedMotion), []);
 
@@ -247,6 +247,7 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
         hoveredDetailId,
         selectedDetailId,
         shipMotionSamples,
+        viewport: { height: canvasSize.y, width: canvasSize.x },
         world,
       });
       const nextFrameState = {
@@ -341,7 +342,7 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
       reducedMotion,
       selectedDetailAnchor,
       selectedDetailId,
-      shipMotionSamples: compactShipMotionSamples(frameState.samples),
+      shipMotionSamples: compactShipMotionSamples(frameState.samples, world),
       targets: frameState.targets,
       timeSeconds: frameState.timeSeconds,
     };
@@ -372,11 +373,12 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
       hoveredDetailId,
       selectedDetailId,
       shipMotionSamples: currentShipMotionSamplesRef.current,
+      viewport: { height: canvasSize.y, width: canvasSize.x },
       world,
     });
     currentHitTargetsRef.current = targets;
     return targets;
-  }, [assetManager, camera, hoveredDetailId, selectedDetailId, world]);
+  }, [assetManager, camera, canvasSize.x, canvasSize.y, hoveredDetailId, selectedDetailId, world]);
 
   const handlePointerDown = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -566,7 +568,6 @@ type SelectableWorldEntity =
   | PharosVilleWorldModel["lighthouse"]
   | PharosVilleWorldModel["docks"][number]
   | PharosVilleWorldModel["ships"][number]
-  | PharosVilleWorldModel["shipClusters"][number]
   | PharosVilleWorldModel["areas"][number]
   | PharosVilleWorldModel["graves"][number];
 
@@ -576,7 +577,6 @@ function findWorldEntity(world: PharosVilleWorldModel, detailId: string | null):
     world.lighthouse,
     ...world.docks,
     ...world.ships,
-    ...world.shipClusters,
     ...world.areas,
     ...world.graves,
   ].find((entity) => entity.detailId === detailId) ?? null;
@@ -599,6 +599,7 @@ function isCameraWithinBounds(camera: IsoCamera | null, map: PharosVilleWorldMod
 
 type CompactShipMotionSample = {
   id: string;
+  mapVisible: boolean;
   state: ShipMotionSample["state"];
   x: number;
   y: number;
@@ -659,14 +660,22 @@ function collectShipMotionSamples(input: {
   return samples;
 }
 
-function compactShipMotionSamples(samples: ReadonlyMap<string, ShipMotionSample>): CompactShipMotionSample[] {
-  return Array.from(samples.values(), (sample) => ({
-    id: sample.shipId,
-    state: sample.state,
-    x: sample.tile.x,
-    y: sample.tile.y,
-    zone: sample.zone,
-  }));
+function compactShipMotionSamples(
+  samples: ReadonlyMap<string, ShipMotionSample>,
+  world: PharosVilleWorldModel,
+): CompactShipMotionSample[] {
+  const shipsById = new Map(world.ships.map((ship) => [ship.id, ship]));
+  return Array.from(samples.values(), (sample) => {
+    const ship = shipsById.get(sample.shipId);
+    return {
+      id: sample.shipId,
+      mapVisible: ship ? isShipMapVisible(ship, sample) : true,
+      state: sample.state,
+      x: sample.tile.x,
+      y: sample.tile.y,
+      zone: sample.zone,
+    };
+  });
 }
 
 function renderMetricsWithCurrentSelection(input: {
@@ -722,7 +731,7 @@ function updateDebugFrame(input: {
     motionFrameCount: input.frameCount,
     renderMetrics: input.renderMetrics,
     reducedMotion: input.reducedMotion,
-    shipMotionSamples: compactShipMotionSamples(input.frameState.samples),
+    shipMotionSamples: compactShipMotionSamples(input.frameState.samples, input.world),
     targets: input.frameState.targets,
     timeSeconds: input.frameState.timeSeconds,
   });

@@ -12,6 +12,8 @@ export interface ShipWaterPath {
 }
 
 export type ShipMotionState = "idle" | "moored" | "departing" | "sailing" | "risk-drift" | "arriving";
+type ShipWaterRouteCache = Map<string, ShipWaterPath>;
+type ShipWaterPathBuilder = () => ShipWaterPath;
 
 export interface ShipMotionRoute {
   shipId: string;
@@ -81,6 +83,7 @@ const ZONE_DWELL: Record<ShipWaterZone, { dockDwell: number; riskDwell: number; 
   warning: { riskDwell: 0.46, dockDwell: 0.12, transit: 0.42 },
   watch: { riskDwell: 0.3, dockDwell: 0.22, transit: 0.48 },
 };
+const DOCKED_SHIP_DWELL_SHARE = 1 / 3;
 
 const OPEN_WATER_PATROL_WAYPOINTS: Record<ShipWaterZone, readonly { x: number; y: number }[]> = {
   alert: [...SHIP_WATER_ANCHORS["harbor-mouth-watch"], ...SHIP_WATER_ANCHORS["outer-rough-water"], ...SHIP_WATER_ANCHORS["breakwater-edge"]],
@@ -102,6 +105,7 @@ export function buildBaseMotionPlan(world: PharosVilleWorld): PharosVilleBaseMot
   const baseEffectShipIds = new Set<string>();
   for (const ship of topShips) baseEffectShipIds.add(ship.id);
   for (const ship of moverShips) baseEffectShipIds.add(ship.id);
+  const waterRouteCache: ShipWaterRouteCache = new Map();
 
   return {
     animatedShipIds: new Set(world.ships.map((ship) => ship.id)),
@@ -109,7 +113,7 @@ export function buildBaseMotionPlan(world: PharosVilleWorld): PharosVilleBaseMot
     lighthouseFireFlickerPerSecond: lighthouseFireFlickerSpeed(world.lighthouse.psiBand, world.lighthouse.score),
     moverShipIds: new Set(moverShips.map((ship) => ship.id)),
     shipPhases: new Map(world.ships.map((ship) => [ship.id, stableMotionPhase(ship.id)])),
-    shipRoutes: new Map(world.ships.map((ship) => [ship.id, buildShipMotionRoute(ship, world.map)])),
+    shipRoutes: new Map(world.ships.map((ship) => [ship.id, buildShipMotionRoute(ship, world.map, waterRouteCache)])),
   };
 }
 
@@ -141,6 +145,15 @@ export function buildShipWaterRoute(input: {
 }): ShipWaterPath {
   const from = nearestMapWaterTile(input.from, input.map);
   const to = nearestMapWaterTile(input.to, input.map);
+  return buildShipWaterRouteFromWaterTiles({ from, to, map: input.map });
+}
+
+function buildShipWaterRouteFromWaterTiles(input: {
+  from: { x: number; y: number };
+  to: { x: number; y: number };
+  map: PharosVilleMap;
+}): ShipWaterPath {
+  const { from, to } = input;
   if (sameTile(from, to)) return waterPathFromPoints(from, to, [from]);
 
   const detouredPoints = findDetouredWaterPath(from, to, input.map);
@@ -189,7 +202,7 @@ export function resolveShipMotionSample(input: {
   const stops = scheduledDockStopsForCycle(route, cycleIndex, scheduledStopCount);
   if (stops.length === 0) return openWaterPatrolSample(route, input.timeSeconds);
 
-  const zoneDwell = ZONE_DWELL[route.zone];
+  const zoneDwell = dockedShipZoneDwell(route.zone);
   const riskSecondsEach = route.cycleSeconds * zoneDwell.riskDwell / stops.length;
   const dockSecondsEach = route.cycleSeconds * zoneDwell.dockDwell / stops.length;
   const transitSecondsEach = route.cycleSeconds * zoneDwell.transit / (stops.length * 2);
@@ -245,27 +258,36 @@ export function stableMotionPhase(id: string) {
   return (stableHash(id) % 628) / 100;
 }
 
+export function isShipMapVisible(ship: ShipNode, sample: ShipMotionSample | null | undefined): boolean {
+  return ship.visual.sizeTier === "titan" || sample?.state !== "moored";
+}
+
 function hasRecentMove(ship: ShipNode) {
   const absolute = Math.abs(ship.change24hUsd ?? 0);
   const percentage = Math.abs(ship.change24hPct ?? 0);
   return absolute >= 1_000_000 || percentage >= 0.01;
 }
 
-function buildShipMotionRoute(ship: ShipNode, map: PharosVilleMap): ShipMotionRoute {
+function buildShipMotionRoute(
+  ship: ShipNode,
+  map: PharosVilleMap,
+  waterRouteCache: ShipWaterRouteCache = new Map(),
+): ShipMotionRoute {
   const riskTile = nearestWaterTile(ship.riskTile);
   const dockStops = ship.dockVisits.map((visit) => ({ ...visit }));
   const cycleSeconds = shipCycleSeconds(ship);
-  const waterPaths = new Map<string, ShipWaterPath>();
+  const waterPaths = new LazyShipWaterPathMap();
   const openWaterPatrol = dockStops.length === 0
-    ? buildOpenWaterPatrol(ship, riskTile, map)
+    ? buildOpenWaterPatrol(ship, riskTile, map, waterRouteCache)
     : null;
   const homeDockId = primaryDockStop(ship, dockStops)?.dockId ?? null;
 
   for (const stop of dockStops) {
-    const outbound = buildShipWaterRoute({ from: riskTile, to: stop.mooringTile, map });
-    const inbound = reverseWaterPath(outbound);
-    waterPaths.set(pathKey(riskTile, stop.mooringTile), outbound);
-    waterPaths.set(pathKey(stop.mooringTile, riskTile), inbound);
+    const outboundKey = pathKey(riskTile, stop.mooringTile);
+    const inboundKey = pathKey(stop.mooringTile, riskTile);
+    const outbound = () => buildCachedShipWaterRoute({ from: riskTile, to: stop.mooringTile, map }, waterRouteCache);
+    waterPaths.setBuilder(outboundKey, outbound);
+    waterPaths.setBuilder(inboundKey, () => reverseWaterPath(outbound()));
   }
 
   return {
@@ -356,13 +378,24 @@ function dockStopCount(renderedDockCount: number) {
   return 3;
 }
 
+function dockedShipZoneDwell(zone: ShipWaterZone): { dockDwell: number; riskDwell: number; transit: number } {
+  const base = ZONE_DWELL[zone];
+  const transit = Math.min(base.transit, 1 - DOCKED_SHIP_DWELL_SHARE - 0.08);
+  return {
+    dockDwell: DOCKED_SHIP_DWELL_SHARE,
+    riskDwell: 1 - DOCKED_SHIP_DWELL_SHARE - transit,
+    transit,
+  };
+}
+
 function buildOpenWaterPatrol(
   ship: ShipNode,
   riskTile: { x: number; y: number },
   map: PharosVilleMap,
+  waterRouteCache: ShipWaterRouteCache,
 ): ShipMotionRoute["openWaterPatrol"] {
   const waypoint = openWaterPatrolWaypoint(ship, riskTile, map);
-  const outbound = buildShipWaterRoute({ from: riskTile, to: waypoint, map });
+  const outbound = buildCachedShipWaterRoute({ from: riskTile, to: waypoint, map }, waterRouteCache);
   if (outbound.points.length <= 1 || outbound.totalLength <= 0) return null;
   return {
     waypoint,
@@ -392,6 +425,50 @@ function openWaterPatrolWaypoint(
   }
 
   return fallback;
+}
+
+function buildCachedShipWaterRoute(input: {
+  from: { x: number; y: number };
+  to: { x: number; y: number };
+  map: PharosVilleMap;
+}, cache: ShipWaterRouteCache): ShipWaterPath {
+  const from = nearestMapWaterTile(input.from, input.map);
+  const to = nearestMapWaterTile(input.to, input.map);
+  const key = pathKey(from, to);
+  const cached = cache.get(key);
+  if (cached) return cached;
+
+  const route = buildShipWaterRouteFromWaterTiles({ from, to, map: input.map });
+  cache.set(key, route);
+  return route;
+}
+
+class LazyShipWaterPathMap extends Map<string, ShipWaterPath> {
+  private readonly builders = new Map<string, ShipWaterPathBuilder>();
+
+  override get size(): number {
+    return this.builders.size;
+  }
+
+  setBuilder(key: string, builder: ShipWaterPathBuilder): void {
+    this.builders.set(key, builder);
+  }
+
+  override get(key: string): ShipWaterPath | undefined {
+    const cached = super.get(key);
+    if (cached) return cached;
+
+    const builder = this.builders.get(key);
+    if (!builder) return undefined;
+
+    const path = builder();
+    super.set(key, path);
+    return path;
+  }
+
+  override has(key: string): boolean {
+    return this.builders.has(key);
+  }
 }
 
 function findDetouredWaterPath(from: { x: number; y: number }, to: { x: number; y: number }, map: PharosVilleMap): Array<{ x: number; y: number }> {

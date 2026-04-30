@@ -16,7 +16,6 @@ export type WorldSelectableEntity =
   | PharosVilleWorld["lighthouse"]
   | PharosVilleWorld["docks"][number]
   | PharosVilleWorld["ships"][number]
-  | PharosVilleWorld["shipClusters"][number]
   | PharosVilleWorld["areas"][number]
   | PharosVilleWorld["graves"][number];
 
@@ -48,7 +47,7 @@ export interface ResolvedEntityGeometry {
 
 export function entityAssetId(entity: WorldSelectableEntity) {
   if (entity.kind === "dock") return entity.assetId;
-  if (entity.kind === "ship") return `ship.${entity.visual.hull}`;
+  if (entity.kind === "ship") return entity.visual.spriteAssetId ?? `ship.${entity.visual.hull}`;
   return null;
 }
 
@@ -272,6 +271,5 @@ function targetSize(entity: WorldSelectableEntity): { height: number; width: num
   if (entity.kind === "dock") return { height: 38, width: 96, yOffset: 0 };
   if (entity.kind === "area") return { height: 28, width: 112, yOffset: 0 };
   if (entity.kind === "ship") return { height: 48, width: 56, yOffset: -16 };
-  if (entity.kind === "ship-cluster") return { height: 48, width: 48, yOffset: -12 };
   return { height: 34 * entity.visual.scale, width: 30 * entity.visual.scale, yOffset: -10 * entity.visual.scale };
 }

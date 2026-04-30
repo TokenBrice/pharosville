@@ -29,5 +29,6 @@ export interface PharosVilleRenderMetrics {
   drawableCounts: Record<WorldDrawablePass, number>;
   drawableCount: number;
   movingShipCount: number;
+  visibleShipCount: number;
   visibleTileCount: number;
 }

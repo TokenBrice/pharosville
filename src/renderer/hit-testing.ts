@@ -1,5 +1,5 @@
 import type { IsoCamera, ScreenPoint } from "../systems/projection";
-import type { ShipMotionSample } from "../systems/motion";
+import { isShipMapVisible, type ShipMotionSample } from "../systems/motion";
 import type { PharosVilleWorld } from "../systems/world-types";
 import type { PharosVilleAssetManager } from "./asset-manager";
 import { sortWorldDrawables, type WorldDrawable } from "./drawable-pass";
@@ -16,6 +16,11 @@ export interface HitTarget {
   label: string;
   priority: number;
   rect: { height: number; width: number; x: number; y: number };
+}
+
+interface HitTargetViewport {
+  height: number;
+  width: number;
 }
 
 function targetPriorityBoost(entity: WorldSelectableEntity, selectedDetailId: string | null, hoveredDetailId: string | null): number {
@@ -39,13 +44,13 @@ export function collectHitTargets(input: {
   hoveredDetailId?: string | null;
   selectedDetailId?: string | null;
   shipMotionSamples?: ReadonlyMap<string, ShipMotionSample>;
+  viewport?: HitTargetViewport | null;
   world: PharosVilleWorld;
 }): HitTarget[] {
   const entities: WorldSelectableEntity[] = [
     input.world.lighthouse,
     ...input.world.docks,
-    ...input.world.ships,
-    ...input.world.shipClusters,
+    ...input.world.ships.filter((ship) => isShipMapVisible(ship, input.shipMotionSamples?.get(ship.id))),
     ...input.world.areas,
     ...input.world.graves,
   ];
@@ -61,7 +66,13 @@ export function collectHitTargets(input: {
       shipMotionSamples: input.shipMotionSamples,
     });
     return { entity, geometry };
-  });
+  }).filter(({ entity, geometry }) => shouldKeepHitTargetCandidate({
+    entity,
+    geometry,
+    hoveredDetailId: input.hoveredDetailId ?? null,
+    selectedDetailId: input.selectedDetailId ?? null,
+    viewport: input.viewport ?? null,
+  }));
   const visualPriority = new Map<string, number>();
   sortWorldDrawables(targetRecords.map(({ entity, geometry }): WorldDrawable => ({
     depth: geometry.depth,
@@ -87,6 +98,28 @@ export function collectHitTargets(input: {
       rect: geometry.targetRect,
     };
   });
+}
+
+function shouldKeepHitTargetCandidate(input: {
+  entity: WorldSelectableEntity;
+  geometry: { targetRect: HitTarget["rect"] };
+  hoveredDetailId: string | null;
+  selectedDetailId: string | null;
+  viewport: HitTargetViewport | null;
+}): boolean {
+  if (!input.viewport) return true;
+  if (input.entity.kind === "area") return true;
+  if (input.entity.detailId === input.selectedDetailId || input.entity.detailId === input.hoveredDetailId) return true;
+  return rectIntersectsViewport(input.geometry.targetRect, input.viewport, 48);
+}
+
+function rectIntersectsViewport(rect: HitTarget["rect"], viewport: HitTargetViewport, margin: number): boolean {
+  return (
+    rect.x + rect.width >= -margin
+    && rect.x <= viewport.width + margin
+    && rect.y + rect.height >= -margin
+    && rect.y <= viewport.height + margin
+  );
 }
 
 export function hitTest(targets: readonly HitTarget[], point: ScreenPoint): HitTarget | null {

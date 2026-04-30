@@ -56,6 +56,37 @@ describe("hit-testing", () => {
     expect(targets.some((target) => target.detailId.startsWith("building."))).toBe(false);
   });
 
+  it("culls offscreen hit target candidates while keeping labels and active targets", () => {
+    const offscreenShip = {
+      ...world.ships[0]!,
+      detailId: "ship.offscreen",
+      id: "offscreen",
+      label: "Offscreen Ship",
+      tile: { x: 500, y: 500 },
+    };
+    const area = world.areas[0]!;
+    const sparseWorld = {
+      ...world,
+      areas: [area],
+      docks: [],
+      graves: [],
+      ships: [offscreenShip],
+    };
+    const tinyViewport = { height: 1, width: 1 };
+
+    const culledTargets = collectHitTargets({ camera, viewport: tinyViewport, world: sparseWorld });
+    expect(culledTargets.some((target) => target.detailId === offscreenShip.detailId)).toBe(false);
+    expect(culledTargets.some((target) => target.detailId === area.detailId)).toBe(true);
+
+    const activeTargets = collectHitTargets({
+      camera,
+      selectedDetailId: offscreenShip.detailId,
+      viewport: tinyViewport,
+      world: sparseWorld,
+    });
+    expect(activeTargets.some((target) => target.detailId === offscreenShip.detailId)).toBe(true);
+  });
+
   it("selects the top-priority target under the pointer", () => {
     const ship = world.ships[0];
     expect(ship).toBeDefined();
@@ -89,7 +120,6 @@ describe("hit-testing", () => {
         areas: [],
         docks: [],
         graves: [],
-        shipClusters: [],
         ships: [backShip, frontShip],
       },
     });
@@ -193,7 +223,7 @@ describe("hit-testing", () => {
     })?.detailId).toBe(ship!.detailId);
   });
 
-  it("keeps docked ships selectable while their dock is selected", () => {
+  it("keeps titan ships selectable while they are docked", () => {
     const assets = {
       get: (id: string): LoadedPharosVilleAsset | null => {
         const isDock = id.startsWith("dock.");
@@ -223,7 +253,7 @@ describe("hit-testing", () => {
       assets,
       camera,
       selectedDetailId: "dock.ethereum",
-      shipMotionSamples: new Map([[usdt!.id, motionSample(usdt!.id, ethereumDock!.tile)]]),
+      shipMotionSamples: new Map([[usdt!.id, motionSample(usdt!.id, ethereumDock!.tile, "moored")]]),
       world,
     });
     const ship = targets.find((target) => target.detailId === "ship.usdt-tether");
@@ -236,6 +266,33 @@ describe("hit-testing", () => {
       y: ship!.rect.y + ship!.rect.height / 2,
     };
     expect(hitTest(targets, point)?.detailId).toBe(ship!.detailId);
+  });
+
+  it("hides non-titan ship targets while they are docked", () => {
+    const sourceShip = world.ships[0]!;
+    const nonTitanShip = {
+      ...sourceShip,
+      detailId: "ship.non-titan-docked",
+      id: "non-titan-docked",
+      visual: {
+        ...sourceShip.visual,
+        sizeTier: "major" as const,
+        spriteAssetId: undefined,
+      },
+    };
+    const targets = collectHitTargets({
+      camera,
+      shipMotionSamples: new Map([[nonTitanShip.id, motionSample(nonTitanShip.id, nonTitanShip.tile, "moored")]]),
+      world: {
+        ...world,
+        areas: [],
+        docks: [],
+        graves: [],
+        ships: [nonTitanShip],
+      },
+    });
+
+    expect(targets.some((target) => target.detailId === nonTitanShip.detailId)).toBe(false);
   });
 
   it("keeps ships above the backgrounded Ethereum harbor hub hitbox", () => {
@@ -360,13 +417,17 @@ describe("hit-testing", () => {
   });
 });
 
-function motionSample(shipId: string, tile: { x: number; y: number }): ShipMotionSample {
+function motionSample(
+  shipId: string,
+  tile: { x: number; y: number },
+  state: ShipMotionSample["state"] = "sailing",
+): ShipMotionSample {
   return {
     shipId,
     tile,
-    state: "sailing",
+    state,
     zone: "calm",
-    currentDockId: null,
+    currentDockId: state === "moored" ? "dock.ethereum" : null,
     heading: { x: 1, y: 0 },
     wakeIntensity: 0.4,
   };

@@ -1,4 +1,4 @@
-import { shipWaterPathKey, type ShipWaterPath } from "../../systems/motion";
+import { isShipMapVisible, shipWaterPathKey, type ShipWaterPath } from "../../systems/motion";
 import { tileToScreen, type IsoCamera, type ScreenPoint } from "../../systems/projection";
 import type { PharosVilleWorld } from "../../systems/world-types";
 import { dockDrawPoint } from "../geometry";
@@ -95,6 +95,7 @@ function drawSelectedDockRelationships(
 ) {
   const visibleShips = world.ships
     .filter((ship) => ship.chainPresence.some((presence) => presence.chainId === dock.chainId && presence.hasRenderedDock))
+    .filter((ship) => isShipMapVisible(ship, shipMotionSamples?.get(ship.id)))
     .toSorted((a, b) => b.marketCapUsd - a.marketCapUsd)
     .slice(0, 10);
   if (visibleShips.length === 0) return;

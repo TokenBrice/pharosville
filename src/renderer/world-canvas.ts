@@ -1,4 +1,5 @@
 import { areaLabelPlacementForArea } from "../systems/area-labels";
+import { isShipMapVisible } from "../systems/motion";
 import { DEWS_AREA_LABEL_COLORS, waterTerrainStyle, type WaterTerrainStyle } from "../systems/palette";
 import { TILE_HEIGHT, TILE_WIDTH, tileToScreen, type IsoCamera, type ScreenPoint } from "../systems/projection";
 import {
@@ -313,11 +314,13 @@ const SHIP_COLORS = {
   "algo-junk": "#774734",
 };
 
-const SHIP_SAIL_MARKS: Record<PharosVilleWorld["ships"][number]["visual"]["hull"], { height: number; width: number; x: number; y: number }> = {
+const SHIP_SAIL_MARKS: Record<string, { height: number; width: number; x: number; y: number }> = {
   "algo-junk": { height: 11, width: 13, x: 8, y: -28 },
   "chartered-brigantine": { height: 11, width: 13, x: 9, y: -29 },
   "crypto-caravel": { height: 10, width: 12, x: 8, y: -26 },
   "dao-schooner": { height: 10, width: 12, x: 8, y: -27 },
+  "ship.usdc-titan": { height: 16, width: 19, x: 15, y: -52 },
+  "ship.usdt-titan": { height: 18, width: 21, x: 17, y: -58 },
   "treasury-galleon": { height: 12, width: 14, x: 10, y: -31 },
 };
 
@@ -433,6 +436,7 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
     drawableCounts,
     movingShipCount: Array.from(input.shipMotionSamples?.values() ?? [])
       .filter((sample) => sample.state !== "idle" && sample.state !== "risk-drift" && sample.state !== "moored").length,
+    visibleShipCount: visibleShipsForFrame(input).length,
     visibleTileCount,
   };
 }
@@ -482,14 +486,10 @@ function drawEntityPass(input: DrawPharosVilleInput): Pick<PharosVilleRenderMetr
       ...(isBackgroundedHarborDock(dock) ? [] : [entityDrawable(input, dock, "body", () => drawDockBody(input, dock))]),
       entityDrawable(input, dock, "overlay", () => drawDockOverlay(input, dock)),
     ]),
-    ...input.world.ships.flatMap((ship) => [
+    ...visibleShipsForFrame(input).flatMap((ship) => [
       entityDrawable(input, ship, "underlay", () => drawShipWake(input, ship)),
       entityDrawable(input, ship, "body", () => drawShipBody(input, ship)),
       entityDrawable(input, ship, "overlay", () => drawShipOverlay(input, ship)),
-    ]),
-    ...input.world.shipClusters.flatMap((cluster) => [
-      entityDrawable(input, cluster, "body", () => drawClusterBody(input, cluster)),
-      entityDrawable(input, cluster, "overlay", () => drawClusterOverlay(input, cluster)),
     ]),
     ...input.world.graves.flatMap((grave) => [
       entityDrawable(input, grave, "underlay", () => drawGraveUnderlay(input, grave)),
@@ -500,12 +500,41 @@ function drawEntityPass(input: DrawPharosVilleInput): Pick<PharosVilleRenderMetr
     entityDrawable(input, input.world.lighthouse, "overlay", () => drawLighthouseOverlay(input)),
   ];
 
-  const sorted = sortWorldDrawables(drawables);
+  const visibleDrawables = drawables.filter((drawable) => shouldDrawWorldDrawable(input, drawable));
+  const sorted = sortWorldDrawables(visibleDrawables);
   for (const drawable of sorted) drawable.draw(input.ctx);
   return {
     drawableCount: sorted.length,
     drawableCounts: drawablePassCounts(sorted),
   };
+}
+
+function shouldDrawWorldDrawable(input: DrawPharosVilleInput, drawable: WorldDrawable) {
+  if (drawable.detailId && (
+    drawable.detailId === input.selectedTarget?.detailId
+    || drawable.detailId === input.hoveredTarget?.detailId
+  )) {
+    return true;
+  }
+  return isScreenRectInViewport(drawable.screenBounds, input.width, input.height, Math.max(64, 128 * input.camera.zoom));
+}
+
+function visibleShipsForFrame(input: DrawPharosVilleInput): PharosVilleWorld["ships"] {
+  return input.world.ships.filter((ship) => isShipMapVisible(ship, input.shipMotionSamples?.get(ship.id)));
+}
+
+function isScreenRectInViewport(
+  rect: { height: number; width: number; x: number; y: number },
+  width: number,
+  height: number,
+  margin: number,
+) {
+  return (
+    rect.x + rect.width >= -margin
+    && rect.x <= width + margin
+    && rect.y + rect.height >= -margin
+    && rect.y <= height + margin
+  );
 }
 
 function sceneryDrawable(input: DrawPharosVilleInput, prop: SceneryProp): WorldDrawable {
@@ -3264,7 +3293,8 @@ function drawFittedText(
 function shipRenderState(input: DrawPharosVilleInput, ship: PharosVilleWorld["ships"][number]) {
   const { assets, camera, motion, selectedTarget, shipMotionSamples, world } = input;
   const sample = shipMotionSamples?.get(ship.id) ?? null;
-  const shipAsset = assets?.get(`ship.${ship.visual.hull}`);
+  const shipAssetId = entityAssetId(ship);
+  const shipAsset = shipAssetId ? assets?.get(shipAssetId) : null;
   const geometry = resolveEntityGeometry({
     asset: shipAsset,
     camera,
@@ -3275,15 +3305,16 @@ function shipRenderState(input: DrawPharosVilleInput, ship: PharosVilleWorld["sh
   const p = geometry.screenPoint;
   const phase = motion.plan.shipPhases.get(ship.id) ?? 0;
   const animated = !motion.reducedMotion && motion.plan.animatedShipIds.has(ship.id);
-  const bob = animated ? Math.round(Math.sin(motion.timeSeconds * 0.7 + phase) * 2 * camera.zoom) : 0;
+  const bobAmplitude = ship.visual.spriteAssetId ? 0 : 2;
+  const bob = animated ? Math.round(Math.sin(motion.timeSeconds * 0.7 + phase) * bobAmplitude * camera.zoom) : 0;
   const selected = selectedTarget?.id === ship.id;
   return { bob, geometry, p, sample, selected, shipAsset };
 }
 
 function drawShipWake(input: DrawPharosVilleInput, ship: PharosVilleWorld["ships"][number]) {
   const { camera, ctx, motion } = input;
-  const { bob, geometry, p, sample, selected } = shipRenderState(input, ship);
-  drawShipContactShadow(ctx, geometry.drawPoint.x, geometry.drawPoint.y + bob, geometry.drawScale);
+  const { geometry, p, sample, selected } = shipRenderState(input, ship);
+  drawShipContactShadow(ctx, geometry.drawPoint.x, geometry.drawPoint.y, geometry.drawScale);
   const drawsWake = !motion.reducedMotion
     && (
       motion.plan.effectShipIds.has(ship.id)
@@ -3294,7 +3325,7 @@ function drawShipWake(input: DrawPharosVilleInput, ship: PharosVilleWorld["ships
     const changeIntensity = Math.min(1, Math.abs(ship.change24hPct ?? 0) * 18 + 0.2);
     const sampleIntensity = sample?.wakeIntensity ?? 0;
     const intensity = Math.max(sampleIntensity, motion.plan.moverShipIds.has(ship.id) ? changeIntensity : 0.18);
-    drawWake(ctx, p.x, p.y + 8 * camera.zoom + bob, camera.zoom, intensity, sample?.heading ?? { x: -1, y: 0 });
+    drawWake(ctx, p.x, p.y + 8 * camera.zoom, camera.zoom, intensity, sample?.heading ?? { x: -1, y: 0 });
   }
 }
 
@@ -3339,7 +3370,7 @@ function drawShipOverlay(input: DrawPharosVilleInput, ship: PharosVilleWorld["sh
   if (shipAsset) {
     const drawY = geometry.drawPoint.y + bob;
     if (selected) drawSelectedShipOutline(ctx, geometry.drawPoint.x, drawY, geometry.drawScale);
-    const mark = SHIP_SAIL_MARKS[ship.visual.hull];
+    const mark = SHIP_SAIL_MARKS[ship.visual.spriteAssetId ?? ship.visual.hull] ?? SHIP_SAIL_MARKS[ship.visual.hull];
     drawSailLogo({
       ctx,
       logo: assets?.getLogo(ship.logoSrc) ?? null,
@@ -3349,6 +3380,7 @@ function drawShipOverlay(input: DrawPharosVilleInput, ship: PharosVilleWorld["sh
       x: geometry.drawPoint.x + mark.x * geometry.drawScale,
       y: drawY + mark.y * geometry.drawScale,
     });
+    if (ship.visual.spriteAssetId) drawTitanShipWaterline(ctx, geometry.drawPoint.x, drawY, geometry.drawScale);
     drawShipSignalOverlay(ctx, ship.visual.overlay, geometry.drawPoint.x - 17 * geometry.drawScale, drawY - 36 * geometry.drawScale, geometry.drawScale);
   } else {
     const proceduralScale = camera.zoom * ship.visual.scale;
@@ -3375,82 +3407,6 @@ function drawSelectedShipOutline(ctx: CanvasRenderingContext2D, x: number, y: nu
   ctx.ellipse(x, y - 18 * scale, 34 * scale, 23 * scale, -0.08, 0, Math.PI * 2);
   ctx.stroke();
   ctx.restore();
-}
-
-function clusterRenderState({ camera, world }: DrawPharosVilleInput, cluster: PharosVilleWorld["shipClusters"][number]) {
-  const geometry = resolveEntityGeometry({
-    camera,
-    entity: cluster,
-    mapWidth: world.map.width,
-  });
-  const p = geometry.screenPoint;
-  const radius = Math.min(18, 7 + Math.sqrt(cluster.count) * 2) * camera.zoom;
-  return { p, radius };
-}
-
-function drawClusterBody(input: DrawPharosVilleInput, cluster: PharosVilleWorld["shipClusters"][number]) {
-  const { camera, ctx } = input;
-  const { p, radius } = clusterRenderState(input, cluster);
-  ctx.save();
-  ctx.fillStyle = "rgba(7, 10, 12, 0.26)";
-  ctx.beginPath();
-  ctx.ellipse(p.x, p.y + 8 * camera.zoom, radius * 1.45, radius * 0.46, -0.08, 0, Math.PI * 2);
-  ctx.fill();
-
-  const boats = Math.min(6, Math.max(3, Math.ceil(Math.sqrt(cluster.count))));
-  for (let index = 0; index < boats; index += 1) {
-    const angle = (Math.PI * 2 * index) / boats - 0.45;
-    const boatX = p.x + Math.cos(angle) * radius * 0.58;
-    const boatY = p.y + Math.sin(angle) * radius * 0.28;
-    drawClusterBoat(ctx, boatX, boatY, camera.zoom * (0.55 + (index % 2) * 0.08), index);
-  }
-  ctx.restore();
-}
-
-function drawClusterOverlay(input: DrawPharosVilleInput, cluster: PharosVilleWorld["shipClusters"][number]) {
-  const { camera, ctx } = input;
-  const { p, radius } = clusterRenderState(input, cluster);
-  ctx.save();
-  const scale = Math.max(0.78, camera.zoom);
-  const mastX = p.x + radius * 0.72;
-  const mastY = p.y - radius * 0.42;
-  ctx.strokeStyle = "#2f2117";
-  ctx.lineWidth = Math.max(1, 1.2 * scale);
-  ctx.beginPath();
-  ctx.moveTo(mastX, mastY + 15 * scale);
-  ctx.lineTo(mastX, mastY - 12 * scale);
-  ctx.stroke();
-  drawSignBoard(ctx, mastX + 7 * scale, mastY - 15 * scale, 25 * scale, 15 * scale, scale * 0.8, "#d9b974", "#2e1e14");
-  ctx.fillStyle = "#061721";
-  ctx.font = `800 ${Math.max(8, 8.5 * scale)}px ui-sans-serif, system-ui, sans-serif`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(String(cluster.count), mastX + 19.5 * scale, mastY - 7.5 * scale, 20 * scale);
-  ctx.textAlign = "start";
-  ctx.textBaseline = "alphabetic";
-  ctx.restore();
-}
-
-function drawClusterBoat(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number, index: number) {
-  ctx.fillStyle = index % 2 === 0 ? "#6d3d26" : "#3b5361";
-  ctx.beginPath();
-  ctx.moveTo(x - 10 * scale, y + 2 * scale);
-  ctx.lineTo(x + 10 * scale, y + 1 * scale);
-  ctx.lineTo(x + 5 * scale, y + 7 * scale);
-  ctx.lineTo(x - 6 * scale, y + 7 * scale);
-  ctx.closePath();
-  ctx.fill();
-  ctx.strokeStyle = "#24170f";
-  ctx.lineWidth = Math.max(1, 0.9 * scale);
-  ctx.stroke();
-  ctx.fillStyle = index % 3 === 0 ? "#f0ead2" : "#e3d4ae";
-  ctx.beginPath();
-  ctx.moveTo(x, y - 16 * scale);
-  ctx.lineTo(x, y);
-  ctx.lineTo(x + (index % 2 === 0 ? 8 : -8) * scale, y - 4 * scale);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
 }
 
 function graveRenderState(input: DrawPharosVilleInput, grave: PharosVilleWorld["graves"][number]) {
@@ -4103,6 +4059,26 @@ function drawSailLogo(input: {
     ctx.textAlign = "start";
     ctx.textBaseline = "alphabetic";
   }
+  ctx.restore();
+}
+
+function drawTitanShipWaterline(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = "rgba(210, 245, 236, 0.74)";
+  ctx.lineWidth = Math.max(1, 1.4 * scale);
+  ctx.beginPath();
+  ctx.moveTo(x - 32 * scale, y - 1.4 * scale);
+  ctx.quadraticCurveTo(x - 8 * scale, y + 5.2 * scale, x + 30 * scale, y + 1.1 * scale);
+  ctx.stroke();
+
+  ctx.strokeStyle = "rgba(58, 174, 177, 0.42)";
+  ctx.lineWidth = Math.max(1, 0.9 * scale);
+  ctx.beginPath();
+  ctx.moveTo(x - 25 * scale, y + 3.5 * scale);
+  ctx.quadraticCurveTo(x - 4 * scale, y + 8 * scale, x + 24 * scale, y + 5.2 * scale);
+  ctx.stroke();
   ctx.restore();
 }
 
