@@ -83,6 +83,42 @@ describe("resolveShipVisual", () => {
     expect(visual.scale).toBe(3);
   });
 
+  it("derives deterministic fallback livery variants instead of one peg color", () => {
+    const meta = makeMeta({ governance: "centralized", pegCurrency: "USD" });
+    const first = resolveShipVisual(makeAsset({
+      id: "alpha-dollar",
+      symbol: "ALPHA",
+      circulating: { peggedUSD: 100_000_000 },
+    }), meta, null);
+    const second = resolveShipVisual(makeAsset({
+      id: "bravo-dollar",
+      symbol: "BRAVO",
+      circulating: { peggedUSD: 100_000_000 },
+    }), meta, null);
+    const repeat = resolveShipVisual(makeAsset({
+      id: "alpha-dollar",
+      symbol: "ALPHA",
+      circulating: { peggedUSD: 100_000_000 },
+    }), meta, null);
+
+    expect(first.livery.source).toBe("peg-fallback");
+    expect(first.livery.label).toBe("USD peg derived livery");
+    expect(first.livery).toEqual(repeat.livery);
+    expect([
+      first.livery.primary,
+      first.livery.accent,
+      first.livery.sailColor,
+      first.livery.sailPanel,
+      first.livery.stripePattern,
+    ]).not.toEqual([
+      second.livery.primary,
+      second.livery.accent,
+      second.livery.sailColor,
+      second.livery.sailPanel,
+      second.livery.stripePattern,
+    ]);
+  });
+
   it("gives USDC and USDT dedicated titan hull treatments", () => {
     const meta = makeMeta({ governance: "centralized" });
     const usdc = resolveShipVisual(makeAsset({

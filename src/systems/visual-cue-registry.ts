@@ -83,11 +83,11 @@ export function buildVisualCueRegistry(): VisualCue[] {
       id: "cue.ship.pennant",
       target: { kind: "ship" },
       primaryChannels: ["shape", "color", "position"],
-      visual: "ship sail logo and pennant color",
+      visual: "ship sail logo, peg pennant shape/pattern, and brand livery trim",
       sourceField: "data/logos.json, stablecoinMeta.flags.pegCurrency",
       questionAnswered: "Which stablecoin is this, and what is its peg currency?",
       failureState: "symbol monogram on slate pennant",
-      domEquivalent: "ship detail identity and peg rows",
+      domEquivalent: "ship detail identity, livery, and peg marker rows",
       reducedMotionEquivalent: "same static sail logo or monogram",
     },
     {

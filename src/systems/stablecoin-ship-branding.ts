@@ -43,8 +43,7 @@ const STABLECOIN_SAIL_COLORS: Record<string, StablecoinShipBranding> = {
 
 export function resolveStablecoinShipBranding(id: string, meta: StablecoinMeta): StablecoinShipBranding {
   return STABLECOIN_SAIL_COLORS[id]
-    ?? PEG_SAIL_COLORS[meta.flags.pegCurrency]
-    ?? fallbackLivery("Unknown peg", "#8a98a3", "#e5e7eb", "#b6c0c8", "circle", "center", "single");
+    ?? derivedFallbackLivery(id, meta);
 }
 
 function livery(
@@ -93,4 +92,92 @@ function fallbackLivery(
     source: "peg-fallback",
     stripePattern,
   };
+}
+
+const FALLBACK_ACCENTS = [
+  "#2f9d6a",
+  "#3e73c4",
+  "#b9872d",
+  "#7a65b8",
+  "#c85e4b",
+  "#2f8b92",
+  "#8c7a3f",
+  "#5e86c8",
+] as const;
+
+const FALLBACK_LOGO_SHAPES = ["circle", "diamond", "hex", "pill", "ring", "slash", "triangle"] as const satisfies readonly ShipLogoShape[];
+const FALLBACK_SAIL_PANELS = ["center", "field", "hoist", "quartered"] as const satisfies readonly ShipSailPanel[];
+const FALLBACK_STRIPES = ["single", "double", "diagonal", "chevron", "wave", "ladder", "cross", "grain"] as const satisfies readonly ShipStripePattern[];
+
+function derivedFallbackLivery(id: string, meta: StablecoinMeta): StablecoinShipBranding {
+  const peg = meta.flags.pegCurrency;
+  const base = PEG_SAIL_COLORS[peg] ?? fallbackLivery("Unknown peg", "#8a98a3", "#e5e7eb", "#b6c0c8", "circle", "center", "single");
+  const hash = stableHash(id);
+  const accentSeed = FALLBACK_ACCENTS[hash % FALLBACK_ACCENTS.length];
+  const nextAccent = FALLBACK_ACCENTS[(hash >>> 3) % FALLBACK_ACCENTS.length];
+  const accent = mixHex(base.accent, accentSeed, 0.56);
+  const primary = mixHex(base.primary, accentSeed, 0.42);
+  const secondary = mixHex(base.secondary, darkenHex(nextAccent, 0.42), 0.38);
+  const sailColor = mixHex(base.sailColor, lightenHex(accentSeed, 0.74), 0.34);
+  const logoMatte = mixHex(base.logoMatte, lightenHex(nextAccent, 0.82), 0.28);
+  return {
+    accent,
+    label: `${peg ?? "Unknown"} peg derived livery`,
+    logoMatte,
+    logoShape: FALLBACK_LOGO_SHAPES[(hash >>> 5) % FALLBACK_LOGO_SHAPES.length],
+    primary,
+    sailColor,
+    sailPanel: FALLBACK_SAIL_PANELS[(hash >>> 9) % FALLBACK_SAIL_PANELS.length],
+    secondary,
+    source: "peg-fallback",
+    stripePattern: FALLBACK_STRIPES[(hash >>> 13) % FALLBACK_STRIPES.length],
+  };
+}
+
+function stableHash(input: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function mixHex(first: string, second: string, amount: number): string {
+  const a = parseHex(first);
+  const b = parseHex(second);
+  return toHex({
+    red: mix(a.red, b.red, amount),
+    green: mix(a.green, b.green, amount),
+    blue: mix(a.blue, b.blue, amount),
+  });
+}
+
+function lightenHex(hex: string, amount: number): string {
+  return mixHex(hex, "#f8f2df", amount);
+}
+
+function darkenHex(hex: string, amount: number): string {
+  return mixHex(hex, "#17222a", amount);
+}
+
+function parseHex(hex: string): { blue: number; green: number; red: number } {
+  const normalized = hex.replace("#", "");
+  return {
+    red: Number.parseInt(normalized.slice(0, 2), 16),
+    green: Number.parseInt(normalized.slice(2, 4), 16),
+    blue: Number.parseInt(normalized.slice(4, 6), 16),
+  };
+}
+
+function toHex(color: { blue: number; green: number; red: number }): string {
+  return `#${hexChannel(color.red)}${hexChannel(color.green)}${hexChannel(color.blue)}`;
+}
+
+function hexChannel(value: number): string {
+  return Math.round(Math.max(0, Math.min(255, value))).toString(16).padStart(2, "0");
+}
+
+function mix(first: number, second: number, amount: number): number {
+  return first + (second - first) * amount;
 }

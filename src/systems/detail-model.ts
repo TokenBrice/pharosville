@@ -67,6 +67,10 @@ function shipLiveryLabel(node: ShipNode): string {
   return `${livery.label}; ${livery.logoShape} logo shape, ${livery.sailPanel} sail panel, ${livery.stripePattern} brand stripe`;
 }
 
+function shipPegLabel(node: ShipNode): string {
+  return `${node.visual.pegLabel}; ${node.visual.pegShape} pennant, ${node.visual.pegPattern} pattern`;
+}
+
 export function detailForLighthouse(node: LighthouseNode): DetailModel {
   return {
     id: node.detailId,
@@ -120,6 +124,7 @@ export function detailForShip(node: ShipNode): DetailModel {
       { label: "Ship class", value: node.visual.classLabel },
       { label: "Size tier", value: node.visual.sizeLabel },
       { label: "Ship livery", value: shipLiveryLabel(node) },
+      { label: "Peg marker", value: shipPegLabel(node) },
       { label: "Representative position", value: representativePositionLabel(node) },
       { label: "Risk water area", value: node.riskWaterLabel },
       { label: "Risk water zone", value: node.riskZone },

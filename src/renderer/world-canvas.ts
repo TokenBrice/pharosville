@@ -10,7 +10,7 @@ import {
   isShoreTileKind,
   isWaterTileKind,
 } from "../systems/world-layout";
-import type { PharosVilleWorld, ShipLivery, ShipLogoShape, ShipStripePattern, ShipWaterZone, TerrainKind } from "../systems/world-types";
+import type { PharosVilleWorld, ShipLivery, ShipLogoShape, ShipPegPattern, ShipPegShape, ShipStripePattern, ShipWaterZone, TerrainKind } from "../systems/world-types";
 import type { LoadedPharosVilleAsset, PharosVilleAssetManager } from "./asset-manager";
 import {
   drawableDepth,
@@ -22,6 +22,7 @@ import { drawEntityLayer } from "./layers/entity-pass";
 import { drawSelection } from "./layers/selection";
 import { drawCoastalWaterDetails } from "./layers/shoreline";
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion, PharosVilleRenderMetrics } from "./render-types";
+import { recolorSailImageData, SHIP_SAIL_TINT_MASKS } from "./ship-sail-tint";
 import { CAUSE_HEX, type CauseOfDeath } from "@shared/lib/cause-of-death";
 
 const TILE_COLORS: Record<string, string> = {
@@ -316,64 +317,65 @@ const SHIP_SAIL_MARKS: Record<string, { height: number; width: number; x: number
   "treasury-galleon": { height: 16, width: 19, x: 10, y: -31 },
 };
 
-type SailMaskPoint = readonly [number, number];
-type SailMaskPolygon = readonly SailMaskPoint[];
+const SHIP_PEG_MARKS: Record<string, { size: number; x: number; y: number }> = {
+  "algo-junk": { size: 5.4, x: -18, y: -44 },
+  "chartered-brigantine": { size: 5.6, x: -18, y: -46 },
+  "crypto-caravel": { size: 5.3, x: -17, y: -42 },
+  "dao-schooner": { size: 5.3, x: -17, y: -43 },
+  "treasury-galleon": { size: 5.8, x: -19, y: -47 },
+  "ship.usdc-titan": { size: 7.6, x: -33, y: -73 },
+  "ship.usdt-titan": { size: 8.4, x: -41, y: -84 },
+};
 
-interface SailMaskSpec {
-  bounds: { height: number; width: number; x: number; y: number };
-  polygons: readonly SailMaskPolygon[];
+interface ShipTrimSpec {
+  deck: readonly { height: number; width: number; x: number; y: number }[];
+  keel: readonly [number, number, number, number];
+  rail: readonly [number, number, number, number];
+  stern: { height: number; width: number; x: number; y: number };
 }
 
-const SHIP_SAIL_TINT_MASKS: Record<string, SailMaskSpec> = {
-  "ship.algo-junk": {
-    bounds: { x: 28, y: 4, width: 40, height: 44 },
-    polygons: [
-      [[31, 8], [62, 20], [56, 43], [35, 36]],
-    ],
+const SHIP_TRIM_MARKS: Record<string, ShipTrimSpec> = {
+  "algo-junk": {
+    rail: [-24, -13, 21, -8],
+    keel: [-22, -3, 18, 0],
+    stern: { x: -29, y: -17, width: 9, height: 4 },
+    deck: [{ x: -8, y: -20, width: 8, height: 4 }, { x: 5, y: -18, width: 7, height: 3 }],
   },
-  "ship.chartered-brigantine": {
-    bounds: { x: 24, y: 16, width: 50, height: 56 },
-    polygons: [
-      [[30, 22], [47, 18], [47, 65], [30, 55]],
-      [[48, 18], [66, 26], [65, 62], [49, 66]],
-    ],
+  "chartered-brigantine": {
+    rail: [-25, -14, 22, -9],
+    keel: [-23, -3, 20, 0],
+    stern: { x: -30, y: -18, width: 9, height: 4 },
+    deck: [{ x: -10, y: -22, width: 8, height: 4 }, { x: 7, y: -20, width: 7, height: 3 }],
   },
-  "ship.crypto-caravel": {
-    bounds: { x: 34, y: 10, width: 42, height: 45 },
-    polygons: [
-      [[39, 15], [71, 25], [62, 50], [42, 43]],
-    ],
+  "crypto-caravel": {
+    rail: [-23, -13, 21, -8],
+    keel: [-21, -3, 18, 0],
+    stern: { x: -27, y: -17, width: 8, height: 4 },
+    deck: [{ x: -7, y: -20, width: 7, height: 4 }, { x: 7, y: -18, width: 6, height: 3 }],
   },
-  "ship.dao-schooner": {
-    bounds: { x: 28, y: 15, width: 42, height: 42 },
-    polygons: [
-      [[30, 20], [62, 29], [54, 49], [35, 44]],
-    ],
+  "dao-schooner": {
+    rail: [-22, -13, 20, -8],
+    keel: [-20, -3, 17, 0],
+    stern: { x: -26, y: -17, width: 8, height: 4 },
+    deck: [{ x: -7, y: -20, width: 7, height: 4 }, { x: 6, y: -18, width: 6, height: 3 }],
   },
-  "ship.treasury-galleon": {
-    bounds: { x: 22, y: 16, width: 56, height: 56 },
-    polygons: [
-      [[26, 25], [42, 18], [42, 62], [27, 55]],
-      [[43, 19], [58, 18], [58, 67], [43, 64]],
-      [[58, 23], [73, 34], [67, 64], [58, 61]],
-    ],
+  "treasury-galleon": {
+    rail: [-26, -15, 23, -9],
+    keel: [-24, -4, 20, 0],
+    stern: { x: -31, y: -19, width: 10, height: 5 },
+    deck: [{ x: -10, y: -23, width: 8, height: 4 }, { x: 8, y: -21, width: 7, height: 3 }],
   },
   "ship.usdc-titan": {
-    bounds: { x: 34, y: 4, width: 98, height: 92 },
-    polygons: [
-      [[36, 66], [76, 8], [84, 91]],
-      [[80, 17], [104, 12], [104, 76], [82, 71]],
-      [[103, 22], [128, 38], [120, 82], [103, 76]],
-    ],
+    rail: [-53, -20, 48, -11],
+    keel: [-48, -5, 42, 0],
+    stern: { x: -60, y: -27, width: 16, height: 7 },
+    deck: [{ x: -17, y: -31, width: 13, height: 6 }, { x: 13, y: -27, width: 11, height: 5 }],
   },
   "ship.usdt-titan": {
-    bounds: { x: 26, y: 4, width: 138, height: 112 },
-    polygons: [
-      [[28, 88], [83, 6], [92, 109]],
-      [[86, 13], [111, 9], [110, 91], [88, 83]],
-      [[112, 16], [141, 30], [135, 96], [111, 91]],
-      [[138, 31], [165, 50], [153, 100], [135, 96]],
-    ],
+    rail: [-66, -23, 61, -12],
+    keel: [-60, -5, 53, 0],
+    stern: { x: -74, y: -31, width: 18, height: 8 },
+    deck: [{ x: -23, y: -35, width: 15, height: 7 }, { x: 16, y: -30, width: 13, height: 6 }],
   },
 };
 
@@ -385,6 +387,8 @@ const PENNANTS: Record<string, string> = {
   silver: "#e5e7eb",
   slate: "#c7d0d8",
 };
+
+const shipSailTintCache = new Map<string, HTMLCanvasElement | null>();
 
 const GRAVE_CAUSE_COLORS: Record<CauseOfDeath, string> = CAUSE_HEX;
 
@@ -3400,9 +3404,12 @@ function drawShipBody(input: DrawPharosVilleInput, frame: WorldCanvasFrame, ship
   if (shipAsset) {
     const drawY = geometry.drawPoint.y + bob;
     drawAsset(ctx, shipAsset, geometry.drawPoint.x, drawY, geometry.drawScale);
-    drawShipSailTint(ctx, shipAsset, geometry.drawPoint.x, drawY, geometry.drawScale, ship.visual.livery.primary);
+    const visualKey = ship.visual.spriteAssetId ?? ship.visual.hull;
+    drawShipSailTint(ctx, shipAsset, geometry.drawPoint.x, drawY, geometry.drawScale, ship.visual.livery);
+    drawShipLiveryTrim(ctx, ship.id, ship.visual.livery, visualKey, geometry.drawPoint.x, drawY, geometry.drawScale);
   } else {
     const drawY = p.y - 4 * camera.zoom + bob;
+    const proceduralScale = camera.zoom * ship.visual.scale;
     drawShip(
       ctx,
       p.x,
@@ -3412,6 +3419,7 @@ function drawShipBody(input: DrawPharosVilleInput, frame: WorldCanvasFrame, ship
       SHIP_COLORS[ship.visual.hull],
       camera.zoom,
     );
+    drawProceduralShipLiveryTrim(ctx, ship.id, ship.visual.livery, p.x, drawY, proceduralScale);
   }
 }
 
@@ -3434,6 +3442,16 @@ function drawShipOverlay(input: DrawPharosVilleInput, frame: WorldCanvasFrame, s
       x: geometry.drawPoint.x + mark.x * geometry.drawScale,
       y: drawY + mark.y * geometry.drawScale,
     });
+    drawShipPegPennant(
+      ctx,
+      ship.visual.pennant,
+      ship.visual.pegShape,
+      ship.visual.pegPattern,
+      ship.visual.spriteAssetId ?? ship.visual.hull,
+      geometry.drawPoint.x,
+      drawY,
+      geometry.drawScale,
+    );
     if (ship.visual.spriteAssetId) drawTitanShipWaterline(ctx, geometry.drawPoint.x, drawY, geometry.drawScale);
     drawShipSignalOverlay(ctx, ship.visual.overlay, geometry.drawPoint.x - 17 * geometry.drawScale, drawY - 36 * geometry.drawScale, geometry.drawScale);
   } else {
@@ -3452,6 +3470,7 @@ function drawShipOverlay(input: DrawPharosVilleInput, frame: WorldCanvasFrame, s
       x: p.x + 7 * proceduralScale,
       y: drawY - 10 * proceduralScale,
     });
+    drawProceduralShipPegPennant(ctx, ship.visual.pennant, ship.visual.pegShape, ship.visual.pegPattern, p.x, drawY, proceduralScale);
     drawShipSignalOverlay(ctx, ship.visual.overlay, p.x - 10 * proceduralScale, drawY - 20 * proceduralScale, proceduralScale);
   }
 }
@@ -3898,6 +3917,15 @@ function hexToRgba(hex: string, alpha: number) {
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
+function stableVisualVariant(input: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
 function drawGraveLogo(input: {
   causeColor: string;
   ctx: CanvasRenderingContext2D;
@@ -4087,8 +4115,8 @@ function drawSailLogo(input: {
   y: number;
 }) {
   const { ctx, height, livery, logo, mark, sailColor, stripeColor, width, x, y } = input;
-  const safeWidth = Math.max(5, width);
-  const safeHeight = Math.max(5, height);
+  const safeWidth = Math.max(6, width * 1.14);
+  const safeHeight = Math.max(6, height * 1.1);
   ctx.save();
   ctx.translate(Math.round(x), Math.round(y));
   ctx.fillStyle = sailColor;
@@ -4111,18 +4139,27 @@ function drawSailLogo(input: {
   ctx.fillRect(-safeWidth * 0.38, -safeHeight * 0.41, safeWidth * 0.22, safeHeight * 0.82);
   ctx.restore();
 
-  const matteWidth = safeWidth * 0.72;
-  const matteHeight = safeHeight * 0.68;
+  const matteWidth = safeWidth * 0.82;
+  const matteHeight = safeHeight * 0.78;
+  ctx.save();
+  logoShapePath(ctx, livery.logoShape, 0, -safeHeight * 0.04, matteWidth, matteHeight);
+  ctx.fillStyle = livery.logoMatte;
+  ctx.fill();
+  ctx.strokeStyle = hexToRgba(livery.primary, 0.86);
+  ctx.lineWidth = Math.max(1, safeWidth * 0.07);
+  ctx.stroke();
+  ctx.restore();
+
   if (logo) {
     ctx.save();
-    logoShapePath(ctx, livery.logoShape, 0, -safeHeight * 0.04, matteWidth * 0.9, matteHeight * 0.9);
+    logoShapePath(ctx, livery.logoShape, 0, -safeHeight * 0.04, matteWidth * 0.8, matteHeight * 0.8);
     ctx.clip();
-    const size = Math.round(Math.min(safeWidth, safeHeight) * 0.86);
+    const size = Math.round(Math.min(safeWidth, safeHeight) * 0.82);
     ctx.drawImage(logo.image, -size / 2, -safeHeight * 0.04 - size / 2, size, size);
     ctx.restore();
   } else {
     ctx.save();
-    ctx.fillStyle = readableInkForFill(livery.sailColor);
+    ctx.fillStyle = readableInkForFill(livery.logoMatte);
     ctx.font = `800 ${Math.max(5, Math.min(safeHeight * 0.72, safeWidth * 0.48))}px ui-sans-serif, system-ui, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
@@ -4195,6 +4232,245 @@ function drawLiveryStripePattern(
     }
   } else {
     ctx.fillRect(-width * 0.43, height * 0.19, width * 0.88, Math.max(1.2, height * 0.16));
+  }
+}
+
+function drawShipLiveryTrim(
+  ctx: CanvasRenderingContext2D,
+  stablecoinId: string,
+  livery: ShipLivery,
+  visualKey: string,
+  x: number,
+  y: number,
+  scale: number,
+) {
+  const spec = SHIP_TRIM_MARKS[visualKey];
+  if (!spec) return;
+  const variant = stableVisualVariant(stablecoinId);
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = hexToRgba(livery.primary, 0.88);
+  ctx.lineWidth = Math.max(1, 1.15 * scale);
+  if (variant % 3 === 1) ctx.setLineDash([Math.max(2, 3 * scale), Math.max(1, 1.6 * scale)]);
+  drawRelativeLine(ctx, x, y, scale, spec.rail);
+  ctx.setLineDash([]);
+  if (variant % 3 === 2) {
+    ctx.strokeStyle = hexToRgba(livery.accent, 0.78);
+    ctx.lineWidth = Math.max(1, 0.82 * scale);
+    drawRelativeLine(ctx, x, y + 2 * scale, scale, spec.rail);
+  }
+
+  ctx.strokeStyle = hexToRgba(livery.secondary, 0.5);
+  ctx.lineWidth = Math.max(1, 0.85 * scale);
+  drawRelativeLine(ctx, x, y, scale, spec.keel);
+
+  const stern = spec.stern;
+  ctx.fillStyle = hexToRgba(livery.accent, 0.88);
+  roundedRectPath(
+    ctx,
+    x + stern.x * scale,
+    y + stern.y * scale,
+    stern.width * scale,
+    stern.height * scale,
+    Math.max(1, stern.height * scale * 0.25),
+  );
+  ctx.fill();
+  ctx.strokeStyle = hexToRgba(livery.secondary, 0.64);
+  ctx.stroke();
+
+  const deck = spec.deck[variant % spec.deck.length];
+  if (deck) {
+    ctx.fillStyle = hexToRgba(variant % 2 === 0 ? livery.logoMatte : livery.accent, 0.86);
+    roundedRectPath(
+      ctx,
+      x + deck.x * scale,
+      y + deck.y * scale,
+      deck.width * scale,
+      deck.height * scale,
+      Math.max(1, deck.height * scale * 0.25),
+    );
+    ctx.fill();
+    ctx.strokeStyle = hexToRgba(livery.primary, 0.78);
+    ctx.lineWidth = Math.max(1, 0.7 * scale);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawProceduralShipLiveryTrim(
+  ctx: CanvasRenderingContext2D,
+  stablecoinId: string,
+  livery: ShipLivery,
+  x: number,
+  y: number,
+  scale: number,
+) {
+  const variant = stableVisualVariant(stablecoinId);
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.strokeStyle = hexToRgba(livery.primary, 0.86);
+  ctx.lineWidth = Math.max(1, 1.1 * scale);
+  ctx.beginPath();
+  ctx.moveTo(x - 12 * scale, y + 1 * scale);
+  ctx.lineTo(x + 12 * scale, y + 1.5 * scale);
+  ctx.stroke();
+  ctx.fillStyle = hexToRgba(variant % 2 === 0 ? livery.accent : livery.logoMatte, 0.86);
+  roundedRectPath(ctx, x - 5 * scale, y - 6 * scale, 7 * scale, 3.4 * scale, Math.max(1, scale));
+  ctx.fill();
+  ctx.strokeStyle = hexToRgba(livery.secondary, 0.62);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawRelativeLine(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  scale: number,
+  line: readonly [number, number, number, number],
+) {
+  ctx.beginPath();
+  ctx.moveTo(x + line[0] * scale, y + line[1] * scale);
+  ctx.lineTo(x + line[2] * scale, y + line[3] * scale);
+  ctx.stroke();
+}
+
+function drawShipPegPennant(
+  ctx: CanvasRenderingContext2D,
+  pennant: string,
+  shape: ShipPegShape,
+  pattern: ShipPegPattern,
+  visualKey: string,
+  x: number,
+  y: number,
+  scale: number,
+) {
+  const mark = SHIP_PEG_MARKS[visualKey] ?? SHIP_PEG_MARKS["treasury-galleon"];
+  if (!mark) return;
+  drawPegPennant(ctx, pennant, shape, pattern, x + mark.x * scale, y + mark.y * scale, mark.size * scale);
+}
+
+function drawProceduralShipPegPennant(
+  ctx: CanvasRenderingContext2D,
+  pennant: string,
+  shape: ShipPegShape,
+  pattern: ShipPegPattern,
+  x: number,
+  y: number,
+  scale: number,
+) {
+  drawPegPennant(ctx, pennant, shape, pattern, x - 10 * scale, y - 27 * scale, 4.8 * scale);
+}
+
+function drawPegPennant(
+  ctx: CanvasRenderingContext2D,
+  pennant: string,
+  shape: ShipPegShape,
+  pattern: ShipPegPattern,
+  x: number,
+  y: number,
+  size: number,
+) {
+  const color = PENNANTS[pennant] ?? PENNANTS.slate;
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = "#2f2117";
+  ctx.lineWidth = Math.max(1, size * 0.18);
+  ctx.beginPath();
+  ctx.moveTo(x, y + size * 0.9);
+  ctx.lineTo(x, y - size * 1.15);
+  ctx.stroke();
+
+  const centerX = x + size * 0.62;
+  const centerY = y - size * 0.72;
+  ctx.fillStyle = color;
+  pegPennantPath(ctx, shape, centerX, centerY, size);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.save();
+  pegPennantPath(ctx, shape, centerX, centerY, size * 0.86);
+  ctx.clip();
+  drawPegPattern(ctx, pattern, centerX, centerY, size, readableInkForFill(color));
+  ctx.restore();
+  ctx.restore();
+}
+
+function pegPennantPath(ctx: CanvasRenderingContext2D, shape: ShipPegShape, x: number, y: number, size: number) {
+  if (shape === "diamond") {
+    ctx.beginPath();
+    ctx.moveTo(x, y - size * 0.58);
+    ctx.lineTo(x + size * 0.66, y);
+    ctx.lineTo(x, y + size * 0.58);
+    ctx.lineTo(x - size * 0.66, y);
+    ctx.closePath();
+  } else if (shape === "shield") {
+    ctx.beginPath();
+    ctx.moveTo(x - size * 0.58, y - size * 0.48);
+    ctx.lineTo(x + size * 0.58, y - size * 0.48);
+    ctx.lineTo(x + size * 0.48, y + size * 0.16);
+    ctx.lineTo(x, y + size * 0.62);
+    ctx.lineTo(x - size * 0.48, y + size * 0.16);
+    ctx.closePath();
+  } else if (shape === "crown") {
+    ctx.beginPath();
+    ctx.moveTo(x - size * 0.62, y + size * 0.42);
+    ctx.lineTo(x - size * 0.54, y - size * 0.36);
+    ctx.lineTo(x - size * 0.18, y - size * 0.08);
+    ctx.lineTo(x, y - size * 0.52);
+    ctx.lineTo(x + size * 0.18, y - size * 0.08);
+    ctx.lineTo(x + size * 0.54, y - size * 0.36);
+    ctx.lineTo(x + size * 0.62, y + size * 0.42);
+    ctx.closePath();
+  } else if (shape === "coin") {
+    roundedRectPath(ctx, x - size * 0.56, y - size * 0.5, size * 1.12, size, Math.max(1, size * 0.2));
+  } else {
+    ctx.beginPath();
+    ctx.ellipse(x, y, size * 0.58, size * 0.5, 0, 0, Math.PI * 2);
+  }
+}
+
+function drawPegPattern(
+  ctx: CanvasRenderingContext2D,
+  pattern: ShipPegPattern,
+  x: number,
+  y: number,
+  size: number,
+  ink: string,
+) {
+  ctx.strokeStyle = ink;
+  ctx.fillStyle = ink;
+  ctx.lineWidth = Math.max(1, size * 0.14);
+  if (pattern === "ring") {
+    ctx.beginPath();
+    ctx.ellipse(x, y, size * 0.28, size * 0.24, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (pattern === "cross") {
+    ctx.beginPath();
+    ctx.moveTo(x - size * 0.34, y);
+    ctx.lineTo(x + size * 0.34, y);
+    ctx.moveTo(x, y - size * 0.32);
+    ctx.lineTo(x, y + size * 0.32);
+    ctx.stroke();
+  } else if (pattern === "grain") {
+    for (const offset of [-0.22, 0.08, 0.34]) {
+      ctx.beginPath();
+      ctx.ellipse(x + offset * size, y + size * 0.08, size * 0.08, size * 0.18, 0.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (pattern === "wave") {
+    ctx.beginPath();
+    ctx.moveTo(x - size * 0.36, y + size * 0.08);
+    ctx.quadraticCurveTo(x - size * 0.16, y - size * 0.18, x + size * 0.04, y + size * 0.08);
+    ctx.quadraticCurveTo(x + size * 0.22, y + size * 0.3, x + size * 0.38, y + size * 0.02);
+    ctx.stroke();
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(x - size * 0.36, y);
+    ctx.lineTo(x + size * 0.36, y);
+    ctx.stroke();
   }
 }
 
@@ -4323,30 +4599,55 @@ function drawShipSailTint(
   x: number,
   y: number,
   scale: number,
-  color: string,
+  livery: ShipLivery,
 ) {
+  const tint = shipSailTintCanvasFor(asset, livery);
+  if (!tint) return;
   const { entry } = asset;
-  const spec = SHIP_SAIL_TINT_MASKS[entry.id];
-  if (!spec) return;
-  const drawScale = entry.displayScale * scale;
-  const left = x - entry.anchor[0] * drawScale;
-  const top = y - entry.anchor[1] * drawScale;
+  const width = entry.width * entry.displayScale * scale;
+  const height = entry.height * entry.displayScale * scale;
+  const left = Math.round(x - entry.anchor[0] * entry.displayScale * scale);
+  const top = Math.round(y - entry.anchor[1] * entry.displayScale * scale);
   ctx.save();
-  ctx.globalAlpha = 0.52;
-  ctx.globalCompositeOperation = "multiply";
-  ctx.fillStyle = color;
-  for (const polygon of spec.polygons) {
-    ctx.beginPath();
-    polygon.forEach(([px, py], index) => {
-      const screenX = left + px * drawScale;
-      const screenY = top + py * drawScale;
-      if (index === 0) ctx.moveTo(screenX, screenY);
-      else ctx.lineTo(screenX, screenY);
-    });
-    ctx.closePath();
-    ctx.fill();
-  }
+  ctx.globalAlpha = 1;
+  ctx.drawImage(tint, left, top, Math.round(width), Math.round(height));
   ctx.restore();
+}
+
+function shipSailTintCanvasFor(asset: LoadedPharosVilleAsset, livery: ShipLivery): HTMLCanvasElement | null {
+  const { entry, image } = asset;
+  const spec = SHIP_SAIL_TINT_MASKS[entry.id];
+  const cacheKey = `${entry.id}:${livery.sailColor.toLowerCase()}:${livery.primary.toLowerCase()}:${livery.accent.toLowerCase()}`;
+  if (shipSailTintCache.has(cacheKey)) return shipSailTintCache.get(cacheKey) ?? null;
+  const canvas = spec ? createSailTintCanvas(entry.width, entry.height) : null;
+  if (!canvas || !spec) {
+    shipSailTintCache.set(cacheKey, null);
+    return null;
+  }
+  const tintCtx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!tintCtx) {
+    shipSailTintCache.set(cacheKey, null);
+    return null;
+  }
+  try {
+    tintCtx.drawImage(image, 0, 0, entry.width, entry.height);
+    const imageData = tintCtx.getImageData(0, 0, entry.width, entry.height);
+    recolorSailImageData(imageData.data, entry.width, entry.height, spec, livery);
+    tintCtx.putImageData(imageData, 0, 0);
+  } catch {
+    shipSailTintCache.set(cacheKey, null);
+    return null;
+  }
+  shipSailTintCache.set(cacheKey, canvas);
+  return canvas;
+}
+
+function createSailTintCanvas(width: number, height: number): HTMLCanvasElement | null {
+  if (typeof document === "undefined") return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  return canvas;
 }
 
 function drawWake(
