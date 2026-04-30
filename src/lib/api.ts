@@ -73,11 +73,13 @@ async function buildFetchError(path: string, res: Response): Promise<ApiFetchErr
   return new ApiFetchError(path, res.status, bodyText);
 }
 
+const DEFAULT_CONTRACT_MODE: ApiContractMode = import.meta.env.PROD ? "warn" : "strict";
+
 function validateApiPayload<T>(
   path: string,
   data: unknown,
   schema?: ZodType<T>,
-  contractMode: ApiContractMode = "strict",
+  contractMode: ApiContractMode = DEFAULT_CONTRACT_MODE,
 ): T {
   if (!schema) return data as T;
 
