@@ -1,7 +1,7 @@
 # PharosVille Main Island Revamp Implementation Plan
 
 Date: 2026-04-30
-Status: Draft reviewed by specialized subagents
+Status: Implemented and reviewer-validated
 Scope: Standalone `pharosville` repository only
 Primary request: Preserve current sea zones, ships, and associated logic/visuals while completely revamping the main island, lighthouse, and harbors; shrink the main island by roughly 33%; use PixelLab sprite/map generation.
 
@@ -13,6 +13,27 @@ ship systems.
 
 This is a coordinated map, asset, and renderer change. It must not become a
 ship, risk-water, API, or mobile-runtime change.
+
+## Implementation Completion Record
+
+Implemented on 2026-04-30.
+
+- Main island land tiles are reduced from the measured 592-tile baseline to 393
+  main-island land tiles, excluding the cemetery islet, a 33.6% reduction.
+- Accepted tile-count water-ratio target is 85.2-85.6%; the implemented map
+  measures about 85.4% water.
+- `LIGHTHOUSE_TILE` remains `{ x: 18, y: 28 }`, and the lighthouse
+  visual-clearance box remains `x:14..24, y:23..32`.
+- Promoted PixelLab assets are `overlay.central-island`
+  (`25ee8636-32f7-4aa1-bb29-f924cbb4fc01`), `landmark.lighthouse`
+  (`c47c36c5-dd3e-4721-923f-9e5852400f65`), and
+  `dock.compact-harbor-pier` (`31155966-7d76-413a-bd7b-557f79cffc9f`).
+- Runtime asset cache version is
+  `2026-04-30-pharosville-main-island-revamp-v2`; the manifest-wide style
+  anchor remains `2026-04-29-lighthouse-hill-v5` for validator consistency.
+- Validation passed: `npm run typecheck`, `npm test`,
+  `npm run check:pharosville-assets`, `npm run check:pharosville-colors`,
+  `npm run build`, and `npm run test:visual`.
 
 ## Non-Negotiable Preservation Rules
 
@@ -108,7 +129,8 @@ should be regenerated or downloaded only into scratch space if still useful.
 
 2. Water-ratio tests will fail by design.
    If the product accepts a 33% land shrink, update the documented target from
-   `78-82%` to the measured new target, likely around `84-86%`.
+   `78-82%` to the measured new target. The implemented target is
+   `85.2-85.6%`.
 
 3. Dock tiles will drift.
    Re-author every preferred dock tile so it remains a land/coast tile with
@@ -151,7 +173,7 @@ code, or desktop gating unless a test proves an incidental adjustment is needed.
 
 ## Phase 0: Baseline And Measurement
 
-Status: Pending
+Status: Completed
 
 Tasks:
 
@@ -182,7 +204,7 @@ Acceptance:
 
 ## Phase 1: Re-Author Main-Island Geometry
 
-Status: Pending
+Status: Completed
 
 Primary files:
 
@@ -245,7 +267,7 @@ Acceptance:
 
 ## Phase 2: Re-Author Harbor Coordinates
 
-Status: Pending
+Status: Completed
 
 Primary files:
 
@@ -302,7 +324,7 @@ Acceptance:
 
 ## Phase 3: PixelLab Asset Generation And Promotion
 
-Status: Pending
+Status: Completed
 
 Primary files:
 
@@ -409,7 +431,7 @@ Acceptance:
 
 ## Phase 4: Renderer Alignment
 
-Status: Pending
+Status: Completed
 
 Primary files:
 
@@ -456,7 +478,7 @@ Acceptance:
 
 ## Phase 5: Documentation Updates
 
-Status: Pending
+Status: Completed
 
 Primary files:
 
@@ -492,7 +514,7 @@ Acceptance:
 
 ## Phase 6: Validation And Visual Approval
 
-Status: Pending
+Status: Completed
 
 Focused iteration commands:
 
@@ -642,6 +664,10 @@ Avoid editing:
 
 ## Reviewer Signoff Summary
 
+Plan-time reviewer findings below were addressed by the implementation. A
+post-implementation reviewer swarm was also spawned after the full validation
+gate passed.
+
 Layout reviewer:
 
 - Treat shrink as coordinated map re-authoring.
@@ -677,15 +703,15 @@ Validation reviewer:
 - Use full asset, color, build, and visual gates before claiming completion.
 - Manually inspect visual diffs before snapshot updates.
 
-## Open Decisions For The Implementer
+## Implemented Decisions
 
-- Whether to keep `LIGHTHOUSE_TILE = { x: 18, y: 28 }` or move it slightly with
-  the new shrunken island.
-- Whether to change the official water-ratio invariant to roughly `84-86%`.
-- Whether to keep the current lighthouse sprite as a style anchor or establish a
-  new island/lighthouse anchor pair.
-- Which dock asset subset to regenerate first; recommended first subset is
-  Ethereum hub plus one compact and one large quay.
+- `LIGHTHOUSE_TILE = { x: 18, y: 28 }` was kept.
+- The official water-ratio invariant changed to `85.2-85.6%`.
+- The manifest-wide style anchor remains `2026-04-29-lighthouse-hill-v5`; the
+  runtime cache version changed to
+  `2026-04-30-pharosville-main-island-revamp-v2`.
+- The promoted dock subset is `dock.compact-harbor-pier`; the Ethereum hub art
+  remains the previous runtime asset after review of the generated candidate.
 
 ## Done Criteria
 
