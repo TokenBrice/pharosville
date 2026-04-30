@@ -76,8 +76,8 @@ export function clampCameraToMap(camera: IsoCamera, input: CameraBoundsInput): I
 
   return {
     ...camera,
-    offsetX: Math.round(offsetX),
-    offsetY: Math.round(offsetY),
+    offsetX,
+    offsetY,
   };
 }
 
