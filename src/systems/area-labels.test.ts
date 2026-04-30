@@ -20,8 +20,9 @@ describe("areaLabelPlacementForArea", () => {
     }
 
     expect(isoByBand.get("CALM")!.x).toBeLessThan(isoByBand.get("ALERT")!.x);
-    expect(isoByBand.get("WATCH")!.y).toBeLessThan(isoByBand.get("CALM")!.y);
-    expect(isoByBand.get("WATCH")!.y).toBeLessThan(isoByBand.get("ALERT")!.y);
+    // Watch now sits in the south basin, below every other DEWS band in iso.
+    expect(isoByBand.get("WATCH")!.y).toBeGreaterThan(isoByBand.get("CALM")!.y);
+    expect(isoByBand.get("WATCH")!.y).toBeGreaterThan(isoByBand.get("ALERT")!.y);
     expect(isoByBand.get("ALERT")!.x).toBeGreaterThan(lighthouseIso.x + 500);
     expect(isoByBand.get("WARNING")!.x).toBeGreaterThan(lighthouseIso.x + 500);
     expect(isoByBand.get("DANGER")!.x).toBeGreaterThan(lighthouseIso.x + 500);

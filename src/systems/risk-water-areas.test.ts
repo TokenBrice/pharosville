@@ -84,14 +84,15 @@ describe("risk water areas", () => {
     const warning = isoByBand.get("WARNING")!;
     const danger = isoByBand.get("DANGER")!;
 
-    // CALM lives left of every eastern DEWS band; WATCH lives at the top.
+    // CALM lives left of every eastern DEWS band; WATCH now lives in the
+    // south basin so it sits below Calm and below every eastern DEWS band.
     expect(calm.x).toBeLessThan(alert.x);
     expect(calm.x).toBeLessThan(warning.x);
     expect(calm.x).toBeLessThan(danger.x);
-    expect(watch.y).toBeLessThan(calm.y);
-    expect(watch.y).toBeLessThan(alert.y);
-    expect(watch.y).toBeLessThan(warning.y);
-    expect(watch.y).toBeLessThan(danger.y);
+    expect(watch.y).toBeGreaterThan(calm.y);
+    expect(watch.y).toBeGreaterThan(alert.y);
+    expect(watch.y).toBeGreaterThan(warning.y);
+    expect(watch.y).toBeGreaterThan(danger.y);
 
     // The eastern DEWS cluster sits well east of the lighthouse approach.
     expect(alert.x).toBeGreaterThan(lighthouseIso.x + 500);
@@ -116,20 +117,24 @@ describe("risk water areas", () => {
     expect(warning.y).toBeLessThan(alert.y);
   });
 
-  it("keeps Ledger Mooring as the northeast non-DEWS water shelf", () => {
+  it("keeps Ledger Mooring as the top-shelf non-DEWS water area touching Calm Anchorage", () => {
     const ledger = RISK_WATER_AREAS["ledger-mooring"];
     const calm = RISK_WATER_AREAS["safe-harbor"];
     const watch = RISK_WATER_AREAS["breakwater-edge"];
 
-    expect(ledger.regionTile).toEqual({ x: 37, y: 5 });
-    expect(ledger.labelTile).toEqual({ x: 37, y: 5 });
+    expect(ledger.regionTile).toEqual({ x: 10, y: 5 });
+    expect(ledger.labelTile).toEqual({ x: 10, y: 5 });
     expect(ledger.terrain).toBe("ledger-water");
     expect(ledger.validTerrains).toEqual(["ledger-water"]);
     expect(minDistance([ledger.regionTile, ...ledger.shipAnchors], DOCK_TILES)).toBeGreaterThanOrEqual(3);
     expect(ledger.shipAnchors.some((tile) => tile.y === 0)).toBe(true);
-    expect(ledger.regionTile.x).toBeGreaterThan(calm.labelTile.x);
-    expect(ledger.labelTile.x).toBeGreaterThan(watch.labelTile.x);
-    expect(ledger.regionTile.y).toBeLessThan(calm.labelTile.y);
+    expect(ledger.shipAnchors.some((tile) => tile.x === 0)).toBe(true);
+    // Ledger is above Calm in iso projection (smaller iso.y) and shares an
+    // edge with Calm at the y=9/y=10 boundary along the western flank.
+    expect(ledger.regionTile.x + ledger.regionTile.y).toBeLessThan(calm.labelTile.x + calm.labelTile.y);
+    expect(ledger.regionTile.x + ledger.regionTile.y).toBeLessThan(watch.labelTile.x + watch.labelTile.y);
+    expect(terrainKindAt(0, 9)).toBe("ledger-water");
+    expect(terrainKindAt(0, 10)).toBe("calm-water");
   });
 
   it("keeps named risk water out of the lighthouse mountain clearance lane", () => {
@@ -152,8 +157,8 @@ describe("risk water areas", () => {
 
   it("matches the authored DEWS placement diagram", () => {
     const expectedSamples = [
-      { band: "CALM", tile: { x: 6, y: 30 }, terrain: "calm-water" },
-      { band: "WATCH", tile: { x: 14, y: 8 }, terrain: "watch-water" },
+      { band: "CALM", tile: { x: 8, y: 35 }, terrain: "calm-water" },
+      { band: "WATCH", tile: { x: 28, y: 50 }, terrain: "watch-water" },
       { band: "ALERT", tile: { x: 47, y: 14 }, terrain: "alert-water" },
       { band: "WARNING", tile: { x: 50, y: 8 }, terrain: "warning-water" },
       { band: "DANGER", tile: { x: 54, y: 1 }, terrain: "storm-water" },
@@ -165,25 +170,33 @@ describe("risk water areas", () => {
       expect(terrainKindAt(sample.tile.x, sample.tile.y)).toBe(sample.terrain);
     }
 
-    // CALM occupies the left edge, WATCH owns the top breakwater,
-    // and ALERT/WARNING/DANGER form concentric rings anchored at the
-    // east corner (55, 0) — DANGER snapped tightly to the corner, with
-    // WARNING and ALERT extending progressively west.
+    // CALM occupies the left edge, LEDGER owns the entire top mooring shelf
+    // touching Calm at its western flank, WATCH now owns the south breakwater
+    // basin south of the island, and ALERT/WARNING/DANGER form concentric
+    // rings anchored at the east corner (55, 0).
     expect(terrainKindAt(0, 27)).toBe("calm-water");
     expect(terrainKindAt(14, 42)).toBe("calm-water");
-    expect(terrainKindAt(14, 0)).toBe("watch-water");
-    expect(terrainKindAt(16, 0)).toBe("watch-water");
-    expect(terrainKindAt(34, 0)).toBe("ledger-water");
+    expect(terrainKindAt(28, 50)).toBe("watch-water");
+    expect(terrainKindAt(22, 47)).toBe("watch-water");
+    expect(terrainKindAt(38, 52)).toBe("watch-water");
+    expect(terrainKindAt(30, 55)).toBe("watch-water");
+    // Watch east bridge absorbs the strip between the south basin and the
+    // southeast Calm corner that previously read as un-attributed water.
+    expect(terrainKindAt(40, 44)).toBe("watch-water");
+    expect(terrainKindAt(45, 45)).toBe("watch-water");
     expect(terrainKindAt(55, 0)).toBe("storm-water");
     expect(terrainKindAt(54, 0)).toBe("storm-water");
     expect(terrainKindAt(55, 8)).toBe("warning-water");
     expect(terrainKindAt(45, 0)).toBe("warning-water");
     expect(terrainKindAt(40, 0)).toBe("alert-water");
     expect(terrainKindAt(47, 14)).toBe("alert-water");
-    expect(RISK_WATER_AREAS["ledger-mooring"].regionTile).toEqual({ x: 37, y: 5 });
-    expect(terrainKindAt(31, 0)).toBe("ledger-water");
-    expect(terrainKindAt(37, 5)).toBe("ledger-water");
-    expect(terrainKindAt(41, 13)).toBe("ledger-water");
+    expect(RISK_WATER_AREAS["ledger-mooring"].regionTile).toEqual({ x: 10, y: 5 });
+    expect(terrainKindAt(0, 0)).toBe("ledger-water");
+    expect(terrainKindAt(0, 9)).toBe("ledger-water");
+    expect(terrainKindAt(10, 5)).toBe("ledger-water");
+    expect(terrainKindAt(15, 4)).toBe("ledger-water");
+    expect(terrainKindAt(20, 5)).toBe("ledger-water");
+    expect(terrainKindAt(30, 0)).toBe("ledger-water");
     expect(terrainKindAt(47, 52)).toBe("calm-water");
     expect(terrainKindAt(50, 55)).toBe("calm-water");
   });
@@ -240,7 +253,7 @@ describe("risk water areas", () => {
   it("anchors edge-snapped DEWS zones to their authored map edges", () => {
     const expectedEdge: Partial<Record<DewsAreaBand, "x0" | "x55" | "y0" | "y55">> = {
       CALM: "x0",
-      WATCH: "y0",
+      WATCH: "y55",
       ALERT: "x55",
       WARNING: "x55",
       DANGER: "x55",
@@ -296,21 +309,18 @@ describe("risk water areas", () => {
     }
   });
 
-  it("sizes the northeast Ledger Mooring footprint about one third larger than the old south basin", () => {
+  it("sizes the top-shelf Ledger Mooring footprint to span the full upper edge", () => {
     const counts = terrainCounts();
 
-    expect(counts["ledger-water"]).toBeGreaterThanOrEqual(200);
-    expect(counts["ledger-water"]).toBeLessThanOrEqual(232);
-    expect(counts["ledger-water"] / 160).toBeGreaterThanOrEqual(1.25);
-    expect(counts["ledger-water"] / 160).toBeLessThanOrEqual(1.45);
-    expect(counts["calm-water"]).toBeGreaterThan(counts["watch-water"]);
+    expect(counts["ledger-water"]).toBeGreaterThanOrEqual(280);
+    expect(counts["ledger-water"]).toBeLessThanOrEqual(330);
+    expect(counts["calm-water"]).toBeGreaterThan(counts["ledger-water"]);
   });
 
   it("sizes each zone proportionally to ship count", () => {
     const counts = terrainCounts();
     expect(counts["calm-water"]).toBeGreaterThan(counts["watch-water"]);
-    expect(counts["watch-water"]).toBeGreaterThanOrEqual(190);
-    expect(counts["watch-water"]).toBeGreaterThanOrEqual(counts["alert-water"]);
+    expect(counts["watch-water"]).toBeGreaterThanOrEqual(80);
     expect(counts["alert-water"]).toBeGreaterThan(counts["warning-water"] ?? 0);
     expect(counts["alert-water"]).toBeGreaterThan(counts["storm-water"] ?? 0);
     expect(counts["warning-water"] ?? 0).toBeGreaterThanOrEqual(30);

@@ -408,14 +408,14 @@ describe("motion", () => {
       expect(waypoint).toBeDefined();
       expect(entry.expectedTerrains).toContain(terrainKindAt(waypoint?.x ?? -1, waypoint?.y ?? -1));
       if (route.zone === "ledger") {
-        expect(waypoint?.x).toBeGreaterThanOrEqual(21);
-        expect(waypoint?.x).toBeLessThanOrEqual(42);
+        expect(waypoint?.x).toBeGreaterThanOrEqual(0);
+        expect(waypoint?.x).toBeLessThanOrEqual(30);
         expect(waypoint?.y).toBeGreaterThanOrEqual(0);
-        expect(waypoint?.y).toBeLessThanOrEqual(14);
+        expect(waypoint?.y).toBeLessThanOrEqual(9);
       } else if (route.zone === "calm") {
-        expect(waypoint?.y).toBeLessThanOrEqual(45);
+        expect(waypoint?.y).toBeGreaterThanOrEqual(10);
       } else if (route.zone === "watch") {
-        expect(waypoint?.x).toBeLessThanOrEqual(20);
+        expect(waypoint?.y).toBeGreaterThanOrEqual(40);
       } else if (route.zone === "warning" || route.zone === "danger") {
         expect(waypoint?.x).toBeGreaterThanOrEqual(38);
       }

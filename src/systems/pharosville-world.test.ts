@@ -243,7 +243,7 @@ describe("buildPharosVilleWorld", () => {
     expect(alertArea?.tile ? terrainKindAt(alertArea.tile.x, alertArea.tile.y) : null).toBe("alert-water");
     expect(world.areas.map((area) => area.detailId)).not.toContain("area.risk-water.data-fog");
     expect(ledgerArea).toMatchObject({ label: "Ledger Mooring", riskZone: "ledger", detailId: "area.risk-water.ledger-mooring" });
-    expect(ledgerArea?.tile).toEqual({ x: 37, y: 5 });
+    expect(ledgerArea?.tile).toEqual({ x: 10, y: 5 });
     expect(ledgerArea?.tile ? terrainKindAt(ledgerArea.tile.x, ledgerArea.tile.y) : null).toBe("ledger-water");
     expect(world.detailIndex["area.risk-water.data-fog"]).toBeUndefined();
     expect(world.detailIndex["area.risk-water.ledger-mooring"]?.facts).toEqual(expect.arrayContaining([

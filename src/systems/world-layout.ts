@@ -132,6 +132,7 @@ export function terrainKindAt(x: number, y: number): TerrainKind {
       if (isWatchBreakwater(x, y)) return "watch-water";
       if (isCalmAnchorage(x, y)) return "calm-water";
     }
+    if (isTopShelfOpenWaterGap(x, y)) return "water";
     if (isDeepSeaShelf(x, y)) return "deep-water";
     return "water";
   }
@@ -217,9 +218,17 @@ function isLighthouseVisualClearance(x: number, y: number): boolean {
 }
 
 function isWatchBreakwater(x: number, y: number): boolean {
-  const topEdge = y <= 9;
-  const topBasin = ellipseValue(x, y, 28.0, 4.8, 25.5, 5.8) < 1.05 && y <= 10;
-  return topEdge || topBasin;
+  // South breakwater basin plus an east bridge that absorbs the previously
+  // un-attributed strip between the south basin and the southeast Calm
+  // reclaimed corner. The reclaimed Calm ellipse is excluded from the bridge
+  // so it stays visible as Calm water.
+  const southBasin = x >= 16 && x <= 43 && y >= 45;
+  const eastBridge = x >= 28
+    && x <= 55
+    && y >= 38
+    && y <= 50
+    && ellipseValue(x, y, 55.0, 55.0, 14.0, 14.0) >= 1.0;
+  return southBasin || eastBridge;
 }
 
 function isCalmAnchorage(x: number, y: number): boolean {
@@ -273,18 +282,16 @@ function isDeepSeaShelf(x: number, y: number): boolean {
   return false;
 }
 
+function isTopShelfOpenWaterGap(x: number, y: number): boolean {
+  return x >= 31 && x <= 39 && y >= 0 && y <= 7;
+}
+
 function isLedgerMooring(x: number, y: number): boolean {
-  const northeastMooring = ellipseValue(x, y, 34.0, 2.0, 14.0, 5.4) < 1.0;
-  const diagonalBasin = ellipseValue(x, y, 37.0, 8.0, 10.5, 6.2) < 1.0;
-  const upperNorthAngle = y <= 0.3 * x + 3.2;
-  const lowerNorthAngle = y >= -0.3 * x + 14.8;
-  return (
-    (northeastMooring || (diagonalBasin && upperNorthAngle && lowerNorthAngle))
-    && x >= 21
-    && x <= 43
-    && y >= 0
-    && y <= 14
-  );
+  // Top mooring shelf: covers the entire upper edge of the diamond from the
+  // western corner down to where Calm Anchorage begins, across to just before
+  // the eastern Alert ring. Alert/Warning/Danger checks run first, so this
+  // simple rectangle never steals their tiles.
+  return y >= 0 && y <= 9 && x >= 0 && x <= 30;
 }
 
 export function nearestWaterTile(tile: { x: number; y: number }, maxRadius = 10): { x: number; y: number } {

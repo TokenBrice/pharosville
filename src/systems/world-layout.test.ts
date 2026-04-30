@@ -51,8 +51,9 @@ describe("buildPharosVilleMap", () => {
     const counts = terrainCounts(map.tiles);
     expect((counts.get("deep-water") ?? 0) / map.tiles.length).toBeLessThanOrEqual(0.03);
     expect(counts.get("calm-water") ?? 0).toBeGreaterThan(counts.get("watch-water") ?? 0);
-    expect(counts.get("watch-water") ?? 0).toBeGreaterThanOrEqual(190);
-    expect(counts.get("watch-water") ?? 0).toBeGreaterThanOrEqual(counts.get("alert-water") ?? 0);
+    expect(counts.get("calm-water") ?? 0).toBeGreaterThan(counts.get("ledger-water") ?? 0);
+    expect(counts.get("ledger-water") ?? 0).toBeGreaterThanOrEqual(280);
+    expect(counts.get("watch-water") ?? 0).toBeGreaterThanOrEqual(80);
     expect(counts.get("alert-water") ?? 0).toBeGreaterThan(counts.get("warning-water") ?? 0);
     expect(counts.get("warning-water") ?? 0).toBeGreaterThan(counts.get("storm-water") ?? 0);
     expect(map.tiles.every((tile) => tile.terrain)).toBe(true);
@@ -123,7 +124,7 @@ describe("buildPharosVilleMap", () => {
     expect(terrainKindAt(50, 55)).toBe("calm-water");
   });
 
-  it("uses the left edge for Calm Anchorage and the top edge for Watch Breakwater", () => {
+  it("uses the left edge for Calm Anchorage and the south basin for Watch Breakwater", () => {
     const calmSamples = [
       { x: 0, y: 13 },
       { x: 0, y: 27 },
@@ -133,12 +134,12 @@ describe("buildPharosVilleMap", () => {
       { x: 14, y: 42 },
     ];
     const watchSamples = [
-      { x: 4, y: 1 },
-      { x: 1, y: 7 },
-      { x: 16, y: 0 },
-      { x: 14, y: 8 },
-      { x: 18, y: 9 },
-      { x: 20, y: 10 },
+      { x: 18, y: 47 },
+      { x: 22, y: 49 },
+      { x: 28, y: 50 },
+      { x: 34, y: 52 },
+      { x: 22, y: 55 },
+      { x: 38, y: 55 },
     ];
 
     for (const tile of calmSamples) {
@@ -149,17 +150,20 @@ describe("buildPharosVilleMap", () => {
     }
   });
 
-  it("places Ledger Mooring on the northeast shelf while preserving the east risk stack", () => {
+  it("places Ledger Mooring across the entire top shelf while preserving the east risk stack", () => {
     const ledgerSamples = [
-      { x: 23, y: 0 },
-      { x: 31, y: 0 },
-      { x: 37, y: 5 },
-      { x: 39, y: 8 },
-      { x: 40, y: 10 },
-      { x: 41, y: 13 },
+      { x: 0, y: 0 },
+      { x: 0, y: 9 },
+      { x: 7, y: 0 },
+      { x: 14, y: 0 },
+      { x: 22, y: 0 },
+      { x: 30, y: 0 },
+      { x: 10, y: 5 },
+      { x: 15, y: 4 },
+      { x: 20, y: 5 },
+      { x: 13, y: 8 },
     ];
     const oldLedgerSamples = [
-      { x: 43, y: 54 },
       { x: 45, y: 55 },
       { x: 47, y: 52 },
       { x: 50, y: 55 },
@@ -172,8 +176,18 @@ describe("buildPharosVilleMap", () => {
     for (const tile of oldLedgerSamples) {
       expect(terrainKindAt(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("calm-water");
     }
-    expect(terrainKindAt(31, 14)).toBe("water");
-    expect(terrainKindAt(36, 18)).toBe("water");
+    // The south basin previously held by Calm now reads as Watch Breakwater.
+    expect(terrainKindAt(28, 50)).toBe("watch-water");
+    expect(terrainKindAt(43, 54)).toBe("watch-water");
+    // Ledger ends at y=9; Calm picks up at y=10 along the western flank so
+    // the two zones touch without overlap.
+    expect(terrainKindAt(0, 10)).toBe("calm-water");
+    expect(terrainKindAt(15, 10)).toBe("calm-water");
+    // Tiles between the new Ledger shelf and the eastern Alert ring fall back
+    // to generic navigable water; the eastern rings stay intact.
+    expect(terrainKindAt(31, 0)).toBe("water");
+    expect(terrainKindAt(34, 2)).toBe("water");
+    expect(terrainKindAt(37, 5)).toBe("water");
     expect(terrainKindAt(40, 0)).toBe("alert-water");
     expect(terrainKindAt(45, 0)).toBe("warning-water");
     expect(terrainKindAt(55, 0)).toBe("storm-water");

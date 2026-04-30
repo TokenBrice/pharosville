@@ -53,8 +53,8 @@ The current implementation includes the desktop PharosVille v0.1 baseline:
 - ship scale uses exaggerated compressed market-cap tiers, not linear supply area, so $1B+ issuers are spottable while USDC and USDT receive dedicated titan-size hull treatments instead of linear supply area
 - ship reduced-motion/static placement uses each ship's risk-water idle tile, or Ledger Mooring for NAV ledger assets; rendered dock moorings remain active route stops rather than the static representative position
 - normal-motion ships follow slow deterministic water-only harbor cycles, with seeded detours between chain moorings and their peg/DEWS risk water; routed ships spend one third of their cycle moored, and non-titan ships are hidden while moored so visible ship load rotates without dropping any ship from the world model
-- DEWS-driven risk water areas follow the diagrammed sea-zone field: Calm Anchorage owns the large left-edge basin and reclaimed south/right basin, Watch Breakwater owns the remaining top-edge band, Ledger Mooring owns the northeast shelf between Watch Breakwater and the elevated Alert/Warning/Danger stack, and Alert Channel / Warning Shoals / Danger Strait form overlapping rings snapped to the eastern angled shelf; each area has its own terrain texture, printed label, selectable hit target, and live band counts in details and the accessibility ledger
-- fresh ship risk water maps to Calm Anchorage, Watch Breakwater, Alert Channel, Warning Shoals, or Danger Strait; stale/low-confidence evidence stays as an evidence caveat on Calm Anchorage fallback placement, and NAV ledger assets use Ledger Mooring ledger water in the northeast basin between Watch and the alert stack. Normal-motion dockless patrols use current or adjacent same-purpose sea anchors so every risk zone has meaningful water-only travel
+- DEWS-driven risk water areas follow the diagrammed sea-zone field: Calm Anchorage owns the large left-edge basin and reclaimed southeast corner, Watch Breakwater occupies the south breakwater basin between the western Calm wedge and the southeast reclaimed Calm corner, Ledger Mooring spans the entire top mooring shelf and touches Calm Anchorage along the western flank, and Alert Channel / Warning Shoals / Danger Strait form overlapping rings snapped to the eastern angled shelf; each area has its own terrain texture, printed label, selectable hit target, and live band counts in details and the accessibility ledger
+- fresh ship risk water maps to Calm Anchorage, Watch Breakwater, Alert Channel, Warning Shoals, or Danger Strait; stale/low-confidence evidence stays as an evidence caveat on Calm Anchorage fallback placement, and NAV ledger assets use Ledger Mooring ledger water across the top mooring shelf. Normal-motion dockless patrols use current or adjacent same-purpose sea anchors so every risk zone has meaningful water-only travel
 - ship docking cadence comes from `stablecoins.chainCirculating` chain presence, while risk water comes from `pegSummary.coins[]` and `stress.signals[]`; DOM details expose the route source, named risk water area, risk water zone, home dock, chain-presence count, and cadence text
 - active ships draw painted sail marks or pennants when a local logo asset is available; secondary `ShipVisual.overlay` cues render as tiny lanterns, pennants, or signal flags rather than circular badges
 - the current dense fixture processes all active stablecoins as individual ships with named risk-water placement and route facts; no ship-cluster targets are emitted in the current world, and normal-motion map-visible ship targets rotate as non-titan ships dock
@@ -87,8 +87,8 @@ Five DEWS zones encircle the island, with CALM/WATCH snapped to map edges and
 the higher-risk bands drawn as overlapping eastern-corner rings sized roughly
 proportionally to the ships they must host:
 
-- **Calm Anchorage** — large left-edge vertical anchorage basin.
-- **Watch Breakwater** — wide top-edge breakwater band.
+- **Calm Anchorage** — large left-edge vertical anchorage basin plus reclaimed southeast corner.
+- **Watch Breakwater** — south breakwater basin between the western Calm wedge and the southeast reclaimed Calm corner.
 - **Alert Channel** — outer eastern channel ring.
 - **Warning Shoals** — middle eastern shoal ring, bridged into Danger Strait.
 - **Danger Strait** — inner/right storm strait snapped to the angled east edge.
@@ -99,8 +99,8 @@ periphery around all island lobes and water tiles inside a lighthouse
 visual-clearance box (x:14..24, y:23..32) remain generic water so zones don't
 crowd the island or the lighthouse sprite.
 
-**Ledger Mooring** is non-DEWS and sits on the northeast shelf for NAV-ledger
-ships.
+**Ledger Mooring** is non-DEWS and spans the entire top mooring shelf for
+NAV-ledger ships, touching Calm Anchorage along the western flank.
 
 ## Data Mapping Target
 
