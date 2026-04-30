@@ -57,7 +57,8 @@ Historical plans in this directory are context, not live instructions. If they c
 - Ship visuals and size classes: `src/systems/ship-visuals.ts`
 - Deterministic ship routes: `src/systems/motion.ts`
 - Detail/DOM parity: `src/systems/detail-model.ts`, `src/components/accessibility-ledger.tsx`
-- Renderer and hit testing: `src/renderer/world-canvas.ts`, `src/renderer/hit-testing.ts`
+- Renderer facade and hit testing: `src/renderer/world-canvas.ts`, `src/renderer/hit-testing.ts`
+- Renderer layers: `src/renderer/layers/*`, with shared primitives in `src/renderer/canvas-primitives.ts`
 - Shared render geometry: `src/renderer/geometry.ts`
 - Asset manifest/types: `public/pharosville/assets/manifest.json`, `src/systems/asset-manifest.ts`
 

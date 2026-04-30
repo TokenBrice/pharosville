@@ -4,8 +4,18 @@ The renderer turns a pure `PharosVilleWorld` model into a Canvas 2D scene plus a
 
 ## Files
 
-- `world-canvas.ts` sequences sky, terrain, entity drawables, decorative overlays,
-  and render metrics for the route debug frame.
+- `world-canvas.ts` is the public facade: it creates the frame cache, sequences
+  renderer layers, wires entity-pass callbacks, and returns route debug metrics.
+- `canvas-primitives.ts` owns shared low-level canvas helpers for asset drawing,
+  diamonds, sign boards, rounded paths, color alpha, fitted text, and stable
+  visual variants.
+- `layers/sky.ts`, `layers/terrain.ts`, `layers/shoreline.ts`,
+  `layers/harbor-district.ts`, `layers/lighthouse.ts`, `layers/cemetery.ts`,
+  and `layers/ambient.ts` draw non-entity scene layers.
+- `layers/docks.ts`, `layers/ships.ts`, `layers/graves.ts`, and
+  `layers/scenery.ts` own entity drawing details used by the entity pass.
+- `layers/water-labels.ts` draws printed water labels and harbor signs as a
+  post-entity overlay.
 - `layers/selection.ts` draws hover/selection rings and selected ship/dock
   relationship overlays.
 - `geometry.ts` owns shared render geometry for sprite draw points, manifest
