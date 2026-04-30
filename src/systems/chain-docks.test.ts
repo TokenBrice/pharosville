@@ -63,7 +63,6 @@ describe("buildChainDocks", () => {
     expect(byChain.get("arbitrum")).toEqual(PREFERRED_DOCK_TILES.arbitrum);
     expect(byChain.get("optimism")).toEqual(PREFERRED_DOCK_TILES.optimism);
     expect(byChain.get("polygon")).toEqual(PREFERRED_DOCK_TILES.polygon);
-    expect(byChain.get("mantle")).toEqual(PREFERRED_DOCK_TILES.mantle);
     expect(docks.find((dock) => dock.chainId === "ethereum")?.assetId).toBe("dock.ethereum-civic-cove");
     expect(docks.find((dock) => dock.chainId === "base")?.assetId).toBe("dock.base-modular-slip");
     expect(docks.find((dock) => dock.chainId === "arbitrum")?.assetId).toBe("dock.arbitrum-arch-bridge");
@@ -78,10 +77,10 @@ describe("buildChainDocks", () => {
     expect(byChain.get("solana")).toEqual(PREFERRED_DOCK_TILES.solana);
     expect(byChain.get("aptos")).toEqual(PREFERRED_DOCK_TILES.aptos);
 
-    for (const chainId of ["ethereum", "base", "arbitrum", "optimism", "polygon", "mantle"]) {
+    for (const chainId of ["ethereum", "base", "arbitrum", "optimism", "polygon"]) {
       expect(EVM_BAY_DOCK_TILES).toContainEqual(byChain.get(chainId));
     }
-    for (const chainId of ["bsc", "tron", "solana", "aptos"]) {
+    for (const chainId of ["bsc", "tron", "solana", "aptos", "mantle"]) {
       expect(EVM_BAY_DOCK_TILES).not.toContainEqual(byChain.get(chainId));
       expect(OUTER_HARBOR_DOCK_TILES).toContainEqual(byChain.get(chainId));
     }
@@ -119,14 +118,13 @@ describe("buildChainDocks", () => {
       "base",
       "arbitrum",
       "polygon",
-      "mantle",
+      "aptos",
       "optimism",
     ]);
-    expect(docks.map((dock) => dock.chainId)).not.toContain("aptos");
     expect(docks.map((dock) => dock.chainId)).not.toContain("avalanche");
     expect(docks.map((dock) => dock.chainId)).not.toContain("xlayer");
+    expect(docks.map((dock) => dock.chainId)).not.toContain("mantle");
     expect(docks.find((dock) => dock.chainId === "optimism")?.tile).toEqual(PREFERRED_DOCK_TILES.optimism);
-    expect(docks.find((dock) => dock.chainId === "mantle")?.tile).toEqual(PREFERRED_DOCK_TILES.mantle);
   });
 
   it("keeps billion-dollar hubs large even when their global share is modest", () => {

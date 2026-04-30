@@ -306,17 +306,17 @@ describe("hit-testing", () => {
         if (id === "dock.ethereum-civic-cove") {
           return {
             entry: {
-              anchor: [140, 156],
+              anchor: [200, 250],
               category: "dock",
               displayScale: 1,
-              footprint: [144, 56],
-              height: 200,
-              hitbox: [16, 28, 248, 152],
+              footprint: [208, 78],
+              height: 320,
+              hitbox: [24, 40, 352, 240],
               id,
               layer: "docks",
               loadPriority: "critical",
               path: "docks/ethereum-civic-cove.png",
-              width: 280,
+              width: 400,
             },
             image: {} as HTMLImageElement,
           };

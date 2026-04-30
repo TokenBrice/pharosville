@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-05-01-pharosville-harbor-diversity-v1",
+    "cacheVersion": "2026-05-01-pharosville-harbor-diversity-v2",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": [
@@ -351,25 +351,25 @@
       "path": "docks/ethereum-civic-cove.png",
       "category": "dock",
       "layer": "docks",
-      "width": 280,
-      "height": 200,
+      "width": 400,
+      "height": 320,
       "displayScale": 1,
       "anchor": [
-        140,
-        156
+        200,
+        250
       ],
       "footprint": [
-        144,
-        56
+        208,
+        78
       ],
       "hitbox": [
-        16,
-        28,
-        248,
-        152
+        24,
+        40,
+        352,
+        240
       ],
       "loadPriority": "critical",
-      "criticalReason": "Ethereum civic-cove harbor; ships dock at the side berths and pass behind the curved wall.",
+      "criticalReason": "Ethereum grand civic-cove capital harbor; ships dock at the side berths and pass behind the curved wall.",
       "promptKey": "dock.ethereum-civic-cove",
       "semanticRole": "ethereum civic-cove harbor",
       "paletteKeys": [
@@ -379,7 +379,7 @@
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "5f97546d-c25a-4e24-9a94-6719b80cb4bf",
+        "jobId": "08a692a4-5355-430d-a6d5-52781ae84bfc",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },
@@ -499,25 +499,25 @@
       "path": "docks/base-modular-slip.png",
       "category": "dock",
       "layer": "docks",
-      "width": 192,
-      "height": 136,
+      "width": 304,
+      "height": 220,
       "displayScale": 1,
       "anchor": [
-        96,
-        106
+        152,
+        172
       ],
       "footprint": [
-        98,
-        40
+        156,
+        60
       ],
       "hitbox": [
-        10,
-        16,
-        172,
-        110
+        18,
+        28,
+        268,
+        172
       ],
       "loadPriority": "critical",
-      "criticalReason": "Base navy-steel modular slip.",
+      "criticalReason": "Base major industrial wharf with central watchtower and freight crane.",
       "promptKey": "dock.base-modular-slip",
       "semanticRole": "base modular steel slip",
       "paletteKeys": [
@@ -527,7 +527,7 @@
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "4b7fb2f0-208b-4c92-a73d-9654d3ad0161",
+        "jobId": "ad891780-d921-4cc9-9c08-443821c7d6e7",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },

@@ -17,7 +17,7 @@ export const ISLAND_PERIPHERY_TILE_DISTANCE = 4;
 
 export const REGION_TILES: Record<ShipRiskPlacement, { x: number; y: number }> = RISK_WATER_REGION_TILES;
 
-export const ETHEREUM_L2_DOCK_CHAIN_IDS = ["base", "arbitrum", "optimism", "polygon", "mantle"] as const;
+export const ETHEREUM_L2_DOCK_CHAIN_IDS = ["base", "arbitrum", "optimism", "polygon"] as const;
 export const ETHEREUM_HARBOR_PRIORITY_CHAIN_IDS = ["ethereum", ...ETHEREUM_L2_DOCK_CHAIN_IDS] as const;
 
 // Ethereum anchors the east cove while major L2s use smaller extension slips
@@ -52,7 +52,6 @@ export const PREFERRED_DOCK_TILES: Record<string, { x: number; y: number }> = {
   arbitrum: EVM_BAY_DOCK_TILES[2],
   optimism: EVM_BAY_DOCK_TILES[3],
   polygon: EVM_BAY_DOCK_TILES[4],
-  mantle: EVM_BAY_DOCK_TILES[5],
   bsc: OUTER_HARBOR_DOCK_TILES[0],
   tron: OUTER_HARBOR_DOCK_TILES[1],
   solana: OUTER_HARBOR_DOCK_TILES[2],
