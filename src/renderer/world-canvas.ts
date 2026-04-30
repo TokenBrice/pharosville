@@ -11,7 +11,7 @@ import { drawCemeteryContext, drawCemeteryGround, drawCemeteryMist } from "./lay
 import { drawCentralIslandModel, drawEthereumHarborExtensions, drawHarborDistrictGround } from "./layers/harbor-district";
 import { drawTerrain } from "./layers/terrain";
 import { drawEthereumHarborSigns, drawWaterAreaLabels } from "./layers/water-labels";
-import { drawLighthouseBody, drawLighthouseHeadland, drawLighthouseOverlay, drawLighthouseSeaGlow, drawLighthouseSurf, lighthouseOverlayScreenBounds } from "./layers/lighthouse";
+import { drawLighthouseBody, drawLighthouseHeadland, drawLighthouseOverlay, drawLighthouseSurf, lighthouseOverlayScreenBounds } from "./layers/lighthouse";
 import { drawSelection } from "./layers/selection";
 import { drawCoastalWaterDetails } from "./layers/shoreline";
 import { drawSky } from "./layers/sky";
@@ -39,7 +39,6 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   drawHarborDistrictGround(input);
   drawBackgroundedHarborDocks(input, frame);
   drawEthereumHarborExtensions(input);
-  if (!input.world.lighthouse.unavailable) drawLighthouseSeaGlow(input);
   drawLighthouseSurf(input);
   drawCemeteryGround(input);
   drawLighthouseHeadland(input);
