@@ -19,6 +19,7 @@ import type { PegSummaryResponse, StressSignalsAllResponse } from "@shared/types
 
 type DebugShipMotionSample = {
   id: string;
+  mapVisible: boolean;
   state: string;
   x: number;
   y: number;
@@ -48,6 +49,7 @@ type DebugRenderMetrics = {
   };
   drawDurationMs: number;
   movingShipCount: number;
+  visibleShipCount: number;
   visibleTileCount: number;
 };
 
@@ -310,7 +312,7 @@ test("pharosville renders desktop canvas shell", async ({ page }) => {
   await expect(page).toHaveScreenshot("pharosville-desktop-shell.png");
 });
 
-test("pharosville dense visual fixture preserves districts, flotillas, and render budget", async ({ page }) => {
+test("pharosville dense visual fixture preserves districts, dense ships, and render budget", async ({ page }) => {
   await mockDensePharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -320,9 +322,17 @@ test("pharosville dense visual fixture preserves districts, flotillas, and rende
 
   const debug = await readVisualDebug(page);
   const targets = debug.targets ?? [];
+  const denseFixtureShipCount = new Set(denseFixtureStablecoins.peggedAssets.map((asset) => asset.id)).size;
+  const motionSamples = debug.shipMotionSamples ?? [];
+  const visibleMotionSamples = motionSamples.filter((sample) => sample.mapVisible);
+  const hiddenMooredSamples = motionSamples.filter((sample) => !sample.mapVisible && sample.state === "moored");
   expect(targets.filter((target) => target.kind === "dock")).toHaveLength(10);
-  expect(targets.filter((target) => target.kind === "ship")).toHaveLength(128);
-  expect(targets.filter((target) => target.kind === "ship-cluster").length).toBeGreaterThan(0);
+  expect(targets.filter((target) => target.kind === "ship")).toHaveLength(visibleMotionSamples.length);
+  expect(visibleMotionSamples.length).toBeLessThan(denseFixtureShipCount);
+  expect(hiddenMooredSamples.length).toBeGreaterThan(0);
+  expect(targets.filter((target) => target.kind === "ship-cluster")).toHaveLength(0);
+  expect(motionSamples).toHaveLength(denseFixtureShipCount);
+  expect(debug.renderMetrics?.visibleShipCount).toBe(visibleMotionSamples.length);
   expect(targets.filter((target) => target.kind === "grave").length).toBeGreaterThan(10);
 
   await expectDrawDurationP95Within(page, 90, 24);
@@ -335,9 +345,18 @@ test("pharosville dense visual fixture preserves districts, flotillas, and rende
   await page.waitForTimeout(250);
   const stillDebug = await readVisualDebug(page);
   const stillTargets = stillDebug.targets ?? [];
+  expect(stillDebug.shipMotionSamples ?? []).toHaveLength(denseFixtureShipCount);
+  expect((stillDebug.shipMotionSamples ?? []).every((sample) => sample.mapVisible)).toBe(true);
+  expect(stillTargets.filter((target) => target.kind === "ship").length).toBeGreaterThan(120);
   const viewport = page.viewportSize();
   expect(viewport).not.toBeNull();
   const viewportSize = viewport!;
+  const watchBreakwater = stillTargets.find((target) => target.detailId === "area.dews.watch");
+  expect(watchBreakwater).toBeDefined();
+  const watchBreakwaterCenter = {
+    x: watchBreakwater!.rect.x + watchBreakwater!.rect.width / 2,
+    y: watchBreakwater!.rect.y + watchBreakwater!.rect.height / 2,
+  };
   await expect(page).toHaveScreenshot("pharosville-dense-lighthouse.png", {
     clip: clipForTargets(stillTargets, (target) => target.detailId === "lighthouse", viewportSize, 92, { height: 280, width: 260 }),
   });
@@ -347,7 +366,15 @@ test("pharosville dense visual fixture preserves districts, flotillas, and rende
     ), viewportSize, 88, { height: 300, width: 380 }),
   });
   await expect(page).toHaveScreenshot("pharosville-dense-ship-flotillas.png", {
-    clip: clipForTargets(stillTargets, (target) => target.kind === "ship-cluster" || target.detailId === "area.dews.watch", viewportSize, 96, { height: 280, width: 420 }),
+    clip: clipForTargets(stillTargets, (target) => {
+      if (target.detailId === "area.dews.watch") return true;
+      if (target.kind !== "ship") return false;
+      const targetCenter = {
+        x: target.rect.x + target.rect.width / 2,
+        y: target.rect.y + target.rect.height / 2,
+      };
+      return Math.hypot(targetCenter.x - watchBreakwaterCenter.x, targetCenter.y - watchBreakwaterCenter.y) <= 260;
+    }, viewportSize, 96, { height: 280, width: 420 }),
   });
   await expect(page).toHaveScreenshot("pharosville-dense-cemetery.png", {
     clip: clipForTargets(stillTargets, (target) => target.kind === "grave", viewportSize, 80, { height: 260, width: 360 }),
