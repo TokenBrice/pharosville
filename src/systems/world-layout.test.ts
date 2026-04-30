@@ -7,11 +7,13 @@ import {
   CIVIC_CORE_CENTER,
   CIVIC_CORE_RADIUS,
   DOCK_TILES,
+  EVM_BAY_DOCK_TILES,
   graveNodesFromEntries,
   isElevatedTileKind,
   isLandTileKind,
   isWaterTileKind,
   LIGHTHOUSE_TILE,
+  OUTER_HARBOR_DOCK_TILES,
   PHAROSVILLE_MAP_HEIGHT,
   PHAROSVILLE_MAP_WIDTH,
   nearestAvailableWaterTile,
@@ -29,14 +31,17 @@ describe("buildPharosVilleMap", () => {
     expect(map.width).toBe(PHAROSVILLE_MAP_WIDTH);
     expect(map.height).toBe(PHAROSVILLE_MAP_HEIGHT);
     expect(map.tiles).toHaveLength(PHAROSVILLE_MAP_WIDTH * PHAROSVILLE_MAP_HEIGHT);
-    // Sea zones still dominate the canvas while the center reads as one coherent island.
-    expect(map.waterRatio).toBeGreaterThanOrEqual(0.78);
-    expect(map.waterRatio).toBeLessThanOrEqual(0.82);
+    // Sea zones now dominate more of the canvas after the compact-island revamp.
+    expect(map.waterRatio).toBeGreaterThanOrEqual(0.852);
+    expect(map.waterRatio).toBeLessThanOrEqual(0.856);
+    const mainIslandLandTiles = landTilesExcludingCemetery(map.tiles);
+    // Baseline was 592 main-island land tiles; 393 is a 33.6% reduction.
+    expect(mainIslandLandTiles).toHaveLength(393);
     const mainIslandBounds = landBoundsExcludingCemetery(map.tiles);
-    expect(mainIslandBounds.minX).toBeGreaterThanOrEqual(14);
-    expect(mainIslandBounds.maxX).toBeLessThanOrEqual(46);
-    expect(mainIslandBounds.minY).toBeGreaterThanOrEqual(18);
-    expect(mainIslandBounds.maxY).toBeLessThanOrEqual(45);
+    expect(mainIslandBounds.minX).toBeGreaterThanOrEqual(16);
+    expect(mainIslandBounds.maxX).toBeLessThanOrEqual(43);
+    expect(mainIslandBounds.minY).toBeGreaterThanOrEqual(21);
+    expect(mainIslandBounds.maxY).toBeLessThanOrEqual(41);
     const mainCenter = {
       x: (mainIslandBounds.minX + mainIslandBounds.maxX) / 2,
       y: (mainIslandBounds.minY + mainIslandBounds.maxY) / 2,
@@ -94,12 +99,13 @@ describe("buildPharosVilleMap", () => {
     expect(terrainKindAt(30, 35)).toBe("rock");
     expect(terrainKindAt(32, 33)).toBe("rock");
     // Generated lighthouse mountain keeps cliff/rock/hill texture.
-    expect(terrainKindAt(15, 28)).toBe("cliff");
+    expect(terrainKindAt(16, 28)).toBe("rock");
     expect(terrainKindAt(17, 27)).toBe("hill");
     expect(terrainKindAt(20, 29)).toBe("hill");
+    expect(terrainKindAt(21, 26)).toBe("cliff");
     // Harbor ring slots stay natural coast, not roads.
-    expect(terrainKindAt(20, 38)).toBe("shore");
-    expect(terrainKindAt(24, 41)).toBe("shore");
+    expect(terrainKindAt(23, 37)).toBe("shore");
+    expect(terrainKindAt(27, 40)).toBe("shore");
     expect(terrainKindAt(Math.round(CEMETERY_CENTER.x), Math.round(CEMETERY_CENTER.y))).toBe("grass");
   });
 
@@ -175,10 +181,33 @@ describe("buildPharosVilleMap", () => {
   });
 
   it("keeps dock slots on coastline edges with water access", () => {
+    expect(EVM_BAY_DOCK_TILES).toEqual([
+      { x: 43, y: 31 },
+      { x: 40, y: 36 },
+      { x: 36, y: 40 },
+      { x: 41, y: 27 },
+      { x: 29, y: 40 },
+      { x: 42, y: 34 },
+    ]);
+    expect(OUTER_HARBOR_DOCK_TILES).toEqual([
+      { x: 20, y: 35 },
+      { x: 23, y: 37 },
+      { x: 30, y: 21 },
+      { x: 40, y: 22 },
+      { x: 33, y: 41 },
+      { x: 25, y: 23 },
+      { x: 25, y: 38 },
+      { x: 27, y: 40 },
+      { x: 43, y: 33 },
+      { x: 28, y: 22 },
+    ]);
+    expect(OUTER_HARBOR_DOCK_TILES.every((tile) => !isInLighthouseClearance(tile))).toBe(true);
     expect(DOCK_TILES.every((tile) => !isWaterTileKind(tileKindAt(tile.x, tile.y)))).toBe(true);
     expect(DOCK_TILES.every((tile) => cardinalNeighbors(tile).some((neighbor) => (
       isWaterTileKind(tileKindAt(neighbor.x, neighbor.y))
     )))).toBe(true);
+    expect(DOCK_TILES.every((tile) => outwardWaterDirections(tile).length > 0)).toBe(true);
+    expect(DOCK_TILES.every((tile) => isProductionOutwardWater(tile))).toBe(true);
   });
 
   it("resolves inland placement anchors back to water", () => {
@@ -243,13 +272,7 @@ function nearbyTiles(center: { x: number; y: number }, radius: number): { x: num
 function landBoundsExcludingCemetery(tiles: PharosVilleTile[]) {
   // Cemetery is its own islet now — exclude tiles within ~6 tiles of CEMETERY_CENTER
   // when measuring the main-island envelope.
-  const cemeteryRadius = 6;
-  const landTiles = tiles.filter((tile) => {
-    if (isWaterTileKind(tile.kind)) return false;
-    const dx = tile.x - CEMETERY_CENTER.x;
-    const dy = tile.y - CEMETERY_CENTER.y;
-    return Math.hypot(dx, dy) > cemeteryRadius;
-  });
+  const landTiles = landTilesExcludingCemetery(tiles);
   const xs = landTiles.map((tile) => tile.x);
   const ys = landTiles.map((tile) => tile.y);
   return {
@@ -260,12 +283,68 @@ function landBoundsExcludingCemetery(tiles: PharosVilleTile[]) {
   };
 }
 
+function landTilesExcludingCemetery(tiles: PharosVilleTile[]) {
+  const cemeteryRadius = 6;
+  return tiles.filter((tile) => {
+    if (isWaterTileKind(tile.kind)) return false;
+    const dx = tile.x - CEMETERY_CENTER.x;
+    const dy = tile.y - CEMETERY_CENTER.y;
+    return Math.hypot(dx, dy) > cemeteryRadius;
+  });
+}
+
+function outwardWaterDirections(tile: { x: number; y: number }) {
+  const centerDistance = Math.hypot(tile.x - CIVIC_CORE_CENTER.x, tile.y - CIVIC_CORE_CENTER.y);
+  return cardinalDirections().filter((direction) => {
+    const waterTile = {
+      x: tile.x + direction.x,
+      y: tile.y + direction.y,
+    };
+    const mooringTile = {
+      x: tile.x + direction.x * 2,
+      y: tile.y + direction.y * 2,
+    };
+    const waterDistance = Math.hypot(waterTile.x - CIVIC_CORE_CENTER.x, waterTile.y - CIVIC_CORE_CENTER.y);
+    return waterDistance > centerDistance
+      && isWaterTileKind(tileKindAt(waterTile.x, waterTile.y))
+      && isWaterTileKind(tileKindAt(mooringTile.x, mooringTile.y));
+  });
+}
+
+function isInLighthouseClearance(tile: { x: number; y: number }) {
+  return tile.x >= 14 && tile.x <= 24 && tile.y >= 23 && tile.y <= 32;
+}
+
+function isProductionOutwardWater(tile: { x: number; y: number }) {
+  const outward = productionDockOutwardVector(tile);
+  const waterTile = {
+    x: tile.x + outward.x,
+    y: tile.y + outward.y,
+  };
+  return isWaterTileKind(tileKindAt(waterTile.x, waterTile.y));
+}
+
+function productionDockOutwardVector(tile: { x: number; y: number }): { x: -1 | 0 | 1; y: -1 | 0 | 1 } {
+  const center = (PHAROSVILLE_MAP_WIDTH - 1) / 2;
+  const dx = tile.x - center;
+  const dy = tile.y - center;
+  if (Math.abs(dx) >= Math.abs(dy)) return { x: dx < 0 ? -1 : 1, y: 0 };
+  return { x: 0, y: dy < 0 ? -1 : 1 };
+}
+
 function cardinalNeighbors(tile: { x: number; y: number }): { x: number; y: number }[] {
+  return cardinalDirections().map((direction) => ({
+    x: tile.x + direction.x,
+    y: tile.y + direction.y,
+  }));
+}
+
+function cardinalDirections(): { x: number; y: number }[] {
   return [
-    { x: tile.x + 1, y: tile.y },
-    { x: tile.x - 1, y: tile.y },
-    { x: tile.x, y: tile.y + 1 },
-    { x: tile.x, y: tile.y - 1 },
+    { x: 1, y: 0 },
+    { x: -1, y: 0 },
+    { x: 0, y: 1 },
+    { x: 0, y: -1 },
   ];
 }
 

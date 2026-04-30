@@ -23,27 +23,27 @@ export const ETHEREUM_HARBOR_PRIORITY_CHAIN_IDS = ["ethereum", ...ETHEREUM_L2_DO
 // Ethereum anchors the east cove while major L2s use smaller extension slips
 // wrapping the east and south harbor shelves.
 export const EVM_BAY_DOCK_TILES = [
-  { x: 45, y: 31 },
-  { x: 40, y: 39 },
-  { x: 35, y: 43 },
-  { x: 44, y: 27 },
-  { x: 28, y: 43 },
-  { x: 44, y: 35 },
+  { x: 43, y: 31 },
+  { x: 40, y: 36 },
+  { x: 36, y: 40 },
+  { x: 41, y: 27 },
+  { x: 29, y: 40 },
+  { x: 42, y: 34 },
 ] as const;
 
 // Outer harbors wrap the north, west, south, and east coasts so the
 // island reads as a single inhabited harbor ring rather than a dock staircase.
 export const OUTER_HARBOR_DOCK_TILES = [
-  { x: 16, y: 31 },
-  { x: 20, y: 38 },
-  { x: 24, y: 22 },
-  { x: 39, y: 19 },
-  { x: 37, y: 43 },
-  { x: 31, y: 19 },
-  { x: 18, y: 34 },
-  { x: 24, y: 41 },
-  { x: 43, y: 36 },
-  { x: 32, y: 19 },
+  { x: 20, y: 35 },
+  { x: 23, y: 37 },
+  { x: 30, y: 21 },
+  { x: 40, y: 22 },
+  { x: 33, y: 41 },
+  { x: 25, y: 23 },
+  { x: 25, y: 38 },
+  { x: 27, y: 40 },
+  { x: 43, y: 33 },
+  { x: 28, y: 22 },
 ] as const;
 
 export const PREFERRED_DOCK_TILES: Record<string, { x: number; y: number }> = {
@@ -167,27 +167,27 @@ function islandValue(x: number, y: number): number {
 
 function mainIslandValue(x: number, y: number): number {
   return Math.min(
-    // Main central island.
-    ellipseValue(x, y, 31.2, 31.3, 12.4, 10.2),
+    // Compact central island.
+    ellipseValue(x, y, 31.0, 31.2, 9.2, 7.6),
     // North harbor shelf.
-    ellipseValue(x, y, 31.2, 23.9, 8.7, 5.4),
+    ellipseValue(x, y, 30.5, 24.8, 6.4, 3.9),
     // West harbor cove.
-    ellipseValue(x, y, 23.3, 32.2, 5.8, 7.8),
-    // Raised lighthouse mountain shoulder from the generated island overlay.
-    ellipseValue(x, y, 18.8, 28.2, 4.4, 3.9),
+    ellipseValue(x, y, 23.6, 32.0, 4.4, 5.5),
+    // Raised lighthouse mountain shoulder.
+    ellipseValue(x, y, 18.9, 28.0, 3.7, 3.2),
     // Southern quay shelf.
-    ellipseValue(x, y, 31.8, 39.4, 8.8, 4.9),
+    ellipseValue(x, y, 31.4, 37.8, 6.5, 3.4),
     // East / Ethereum cove.
-    ellipseValue(x, y, 39.3, 31.2, 6.1, 7.0),
+    ellipseValue(x, y, 38.8, 31.3, 4.6, 5.2),
     // Northeast harbor shelf.
-    ellipseValue(x, y, 39.5, 23.0, 5.5, 4.8),
+    ellipseValue(x, y, 37.8, 24.8, 4.2, 3.3),
   );
 }
 
 function lighthouseMountainValue(x: number, y: number): number {
   return Math.min(
-    ellipseValue(x, y, 18.7, 28.35, 4.2, 3.4),
-    ellipseValue(x, y, 17.9, 27.55, 3.0, 2.45),
+    ellipseValue(x, y, 18.7, 28.25, 3.7, 3.05),
+    ellipseValue(x, y, 17.9, 27.55, 2.65, 2.25),
   );
 }
 

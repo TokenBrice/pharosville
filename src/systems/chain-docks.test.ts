@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import { fixtureChains, makeChain } from "../__fixtures__/pharosville-world";
 import { buildChainDocks } from "./chain-docks";
 import {
+  CIVIC_CORE_CENTER,
   EVM_BAY_DOCK_TILES,
   isLandTileKind,
   isWaterTileKind,
   OUTER_HARBOR_DOCK_TILES,
+  PHAROSVILLE_MAP_WIDTH,
   PREFERRED_DOCK_TILES,
   tileKindAt,
 } from "./world-layout";
@@ -33,6 +35,8 @@ describe("buildChainDocks", () => {
     expect(docks.every((dock) => cardinalNeighbors(dock.tile).some((neighbor) => (
       isWaterTileKind(tileKindAt(neighbor.x, neighbor.y))
     )))).toBe(true);
+    expect(docks.every((dock) => outwardWaterDirections(dock.tile).length > 0)).toBe(true);
+    expect(docks.every((dock) => isProductionOutwardWater(dock.tile))).toBe(true);
   });
 
   it("keeps the Ethereum and L2 extension harbors in the EVM bay and distributes alt L1s outside it", () => {
@@ -190,10 +194,48 @@ describe("buildChainDocks", () => {
 });
 
 function cardinalNeighbors(tile: { x: number; y: number }): { x: number; y: number }[] {
+  return cardinalDirections().map((direction) => ({
+    x: tile.x + direction.x,
+    y: tile.y + direction.y,
+  }));
+}
+
+function outwardWaterDirections(tile: { x: number; y: number }) {
+  const centerDistance = Math.hypot(tile.x - CIVIC_CORE_CENTER.x, tile.y - CIVIC_CORE_CENTER.y);
+  return cardinalDirections().filter((direction) => {
+    const waterTile = {
+      x: tile.x + direction.x,
+      y: tile.y + direction.y,
+    };
+    const mooringTile = {
+      x: tile.x + direction.x * 2,
+      y: tile.y + direction.y * 2,
+    };
+    const waterDistance = Math.hypot(waterTile.x - CIVIC_CORE_CENTER.x, waterTile.y - CIVIC_CORE_CENTER.y);
+    return waterDistance > centerDistance
+      && isWaterTileKind(tileKindAt(waterTile.x, waterTile.y))
+      && isWaterTileKind(tileKindAt(mooringTile.x, mooringTile.y));
+  });
+}
+
+function isProductionOutwardWater(tile: { x: number; y: number }) {
+  const outward = productionDockOutwardVector(tile);
+  return isWaterTileKind(tileKindAt(tile.x + outward.x, tile.y + outward.y));
+}
+
+function productionDockOutwardVector(tile: { x: number; y: number }): { x: -1 | 0 | 1; y: -1 | 0 | 1 } {
+  const center = (PHAROSVILLE_MAP_WIDTH - 1) / 2;
+  const dx = tile.x - center;
+  const dy = tile.y - center;
+  if (Math.abs(dx) >= Math.abs(dy)) return { x: dx < 0 ? -1 : 1, y: 0 };
+  return { x: 0, y: dy < 0 ? -1 : 1 };
+}
+
+function cardinalDirections(): { x: number; y: number }[] {
   return [
-    { x: tile.x + 1, y: tile.y },
-    { x: tile.x - 1, y: tile.y },
-    { x: tile.x, y: tile.y + 1 },
-    { x: tile.x, y: tile.y - 1 },
+    { x: 1, y: 0 },
+    { x: -1, y: 0 },
+    { x: 0, y: 1 },
+    { x: 0, y: -1 },
   ];
 }
