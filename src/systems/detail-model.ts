@@ -62,6 +62,11 @@ function evidenceStatusLabel(node: ShipNode): string {
   return node.placementEvidence.stale ? `Caveat: ${node.placementEvidence.reason}` : "Fresh current placement evidence";
 }
 
+function shipLiveryLabel(node: ShipNode): string {
+  const livery = node.visual.livery;
+  return `${livery.label}; ${livery.logoShape} logo shape, ${livery.sailPanel} sail panel, ${livery.stripePattern} brand stripe`;
+}
+
 export function detailForLighthouse(node: LighthouseNode): DetailModel {
   return {
     id: node.detailId,
@@ -114,6 +119,7 @@ export function detailForShip(node: ShipNode): DetailModel {
       { label: "Market cap", value: marketCapLabel(node.marketCapUsd) },
       { label: "Ship class", value: node.visual.classLabel },
       { label: "Size tier", value: node.visual.sizeLabel },
+      { label: "Ship livery", value: shipLiveryLabel(node) },
       { label: "Representative position", value: representativePositionLabel(node) },
       { label: "Risk water area", value: node.riskWaterLabel },
       { label: "Risk water zone", value: node.riskZone },

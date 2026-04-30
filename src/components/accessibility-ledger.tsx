@@ -85,7 +85,8 @@ export function AccessibilityLedger({
             {ship.riskPlacement === "ledger-mooring" ? "Ledger Mooring idle" : `${ship.riskWaterLabel} idle`}; risk anchor{" "}
             {ship.riskPlacement}; route summary: {pluralize(ship.chainPresence.length, "positive chain deployment")},{" "}
             {pluralize(ship.dockVisits.length, "rendered dock stop")}, risk water {ship.riskWaterLabel}, risk zone{" "}
-            {ship.riskZone}; placement evidence{" "}
+            {ship.riskZone}; livery {ship.visual.livery.label}, {ship.visual.livery.logoShape} logo shape,{" "}
+            {ship.visual.livery.sailPanel} sail panel, {ship.visual.livery.stripePattern} brand stripe; placement evidence{" "}
             {ship.placementEvidence.reason}; evidence status {ship.placementEvidence.stale ? "caveat" : "fresh"}; source fields {ship.placementEvidence.sourceFields.join(", ") || "unavailable"}.
           </li>
         ))}

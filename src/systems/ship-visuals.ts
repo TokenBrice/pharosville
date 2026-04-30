@@ -1,7 +1,8 @@
 import type { ReportCard, StablecoinData, StablecoinMeta } from "@shared/types";
 import { getCirculatingRaw } from "@shared/lib/supply";
 import { GOVERNANCE_LABELS_SHORT } from "@shared/lib/classification";
-import type { ShipClass, ShipHull, ShipSizeTier, ShipVisual } from "./world-types";
+import type { ShipClass, ShipHull, ShipPegPattern, ShipPegShape, ShipSizeTier, ShipVisual } from "./world-types";
+import { resolveStablecoinShipBranding } from "./stablecoin-ship-branding";
 
 const PEG_PENNANTS: Record<string, string> = {
   USD: "emerald",
@@ -9,6 +10,30 @@ const PEG_PENNANTS: Record<string, string> = {
   GBP: "cyan",
   GOLD: "gold",
   SILVER: "silver",
+};
+
+const PEG_SHAPES: Record<string, ShipPegShape> = {
+  USD: "disc",
+  EUR: "diamond",
+  GBP: "shield",
+  GOLD: "crown",
+  SILVER: "coin",
+};
+
+const PEG_PATTERNS: Record<string, ShipPegPattern> = {
+  USD: "ring",
+  EUR: "bar",
+  GBP: "cross",
+  GOLD: "grain",
+  SILVER: "bar",
+};
+
+const PEG_LABELS: Record<string, string> = {
+  USD: "USD peg",
+  EUR: "EUR peg",
+  GBP: "GBP peg",
+  GOLD: "Gold peg",
+  SILVER: "Silver peg",
 };
 
 interface ShipClassDefinition {
@@ -100,6 +125,7 @@ export function resolveShipVisual(asset: StablecoinData, meta: StablecoinMeta, r
   const shipClass = resolveShipClass(meta);
   const size = resolveShipSizeTier(marketCap);
   const titanSpriteAssetId = TITAN_SHIP_ASSET_IDS[asset.id];
+  const branding = resolveStablecoinShipBranding(asset.id, meta);
   return {
     hull: shipClass.hull,
     ...(titanSpriteAssetId ? { spriteAssetId: titanSpriteAssetId } : {}),
@@ -107,6 +133,12 @@ export function resolveShipVisual(asset: StablecoinData, meta: StablecoinMeta, r
     classLabel: shipClass.label,
     rigging: shipClass.rigging,
     pennant: PEG_PENNANTS[meta.flags.pegCurrency] ?? "slate",
+    pegLabel: PEG_LABELS[meta.flags.pegCurrency] ?? `${meta.flags.pegCurrency} peg`,
+    pegPattern: PEG_PATTERNS[meta.flags.pegCurrency] ?? "bar",
+    pegShape: PEG_SHAPES[meta.flags.pegCurrency] ?? "disc",
+    livery: branding,
+    sailColor: branding.sailColor,
+    sailStripeColor: branding.primary,
     overlay: meta.flags.navToken ? "nav" : meta.flags.yieldBearing ? "yield" : reportCard?.overallGrade === "D" || reportCard?.overallGrade === "F" ? "watch" : "none",
     sizeTier: titanSpriteAssetId ? "titan" : size.tier,
     sizeLabel: titanSpriteAssetId ? "Titan" : size.label,

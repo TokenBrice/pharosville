@@ -10,7 +10,7 @@ import {
   isShoreTileKind,
   isWaterTileKind,
 } from "../systems/world-layout";
-import type { PharosVilleWorld, ShipWaterZone, TerrainKind } from "../systems/world-types";
+import type { PharosVilleWorld, ShipLivery, ShipLogoShape, ShipStripePattern, ShipWaterZone, TerrainKind } from "../systems/world-types";
 import type { PharosVilleAssetManager } from "./asset-manager";
 import {
   drawableDepth,
@@ -310,13 +310,11 @@ const SHIP_COLORS = {
 };
 
 const SHIP_SAIL_MARKS: Record<string, { height: number; width: number; x: number; y: number }> = {
-  "algo-junk": { height: 11, width: 13, x: 8, y: -28 },
-  "chartered-brigantine": { height: 11, width: 13, x: 9, y: -29 },
-  "crypto-caravel": { height: 10, width: 12, x: 8, y: -26 },
-  "dao-schooner": { height: 10, width: 12, x: 8, y: -27 },
-  "ship.usdc-titan": { height: 16, width: 19, x: 15, y: -52 },
-  "ship.usdt-titan": { height: 18, width: 21, x: 17, y: -58 },
-  "treasury-galleon": { height: 12, width: 14, x: 10, y: -31 },
+  "algo-junk": { height: 15, width: 18, x: 8, y: -28 },
+  "chartered-brigantine": { height: 15, width: 18, x: 9, y: -29 },
+  "crypto-caravel": { height: 14, width: 17, x: 8, y: -26 },
+  "dao-schooner": { height: 14, width: 17, x: 8, y: -27 },
+  "treasury-galleon": { height: 16, width: 19, x: 10, y: -31 },
 };
 
 const PENNANTS: Record<string, string> = {
@@ -3378,7 +3376,7 @@ function drawShipBody(input: DrawPharosVilleInput, ship: PharosVilleWorld["ships
       p.x,
       drawY,
       ship.visual.scale,
-      PENNANTS[ship.visual.pennant] ?? PENNANTS.slate,
+      ship.visual.livery.sailColor,
       SHIP_COLORS[ship.visual.hull],
       camera.zoom,
     );
@@ -3395,7 +3393,10 @@ function drawShipOverlay(input: DrawPharosVilleInput, ship: PharosVilleWorld["sh
     drawSailLogo({
       ctx,
       logo: assets?.getLogo(ship.logoSrc) ?? null,
+      livery: ship.visual.livery,
       mark: ship.symbol,
+      sailColor: ship.visual.sailColor,
+      stripeColor: ship.visual.sailStripeColor,
       height: mark.height * geometry.drawScale,
       width: mark.width * geometry.drawScale,
       x: geometry.drawPoint.x + mark.x * geometry.drawScale,
@@ -3410,9 +3411,12 @@ function drawShipOverlay(input: DrawPharosVilleInput, ship: PharosVilleWorld["sh
     drawSailLogo({
       ctx,
       logo: assets?.getLogo(ship.logoSrc) ?? null,
+      livery: ship.visual.livery,
       mark: ship.symbol,
-      height: 8 * proceduralScale,
-      width: 10 * proceduralScale,
+      sailColor: ship.visual.sailColor,
+      stripeColor: ship.visual.sailStripeColor,
+      height: 12 * proceduralScale,
+      width: 14 * proceduralScale,
       x: p.x + 7 * proceduralScale,
       y: drawY - 10 * proceduralScale,
     });
@@ -4041,18 +4045,21 @@ function drawShip(ctx: CanvasRenderingContext2D, x: number, y: number, scale: nu
 function drawSailLogo(input: {
   ctx: CanvasRenderingContext2D;
   height: number;
+  livery: ShipLivery;
   logo: ReturnType<PharosVilleAssetManager["getLogo"]>;
   mark: string;
+  sailColor: string;
+  stripeColor: string;
   width: number;
   x: number;
   y: number;
 }) {
-  const { ctx, height, logo, mark, width, x, y } = input;
+  const { ctx, height, livery, logo, mark, sailColor, stripeColor, width, x, y } = input;
   const safeWidth = Math.max(5, width);
   const safeHeight = Math.max(5, height);
   ctx.save();
   ctx.translate(Math.round(x), Math.round(y));
-  ctx.fillStyle = "rgba(247, 244, 218, 0.84)";
+  ctx.fillStyle = sailColor;
   ctx.strokeStyle = "rgba(43, 28, 18, 0.72)";
   ctx.lineWidth = Math.max(1, safeWidth * 0.08);
   ctx.beginPath();
@@ -4064,23 +4071,145 @@ function drawSailLogo(input: {
   ctx.fill();
   ctx.stroke();
 
+  ctx.save();
+  ctx.clip();
+  drawLiverySailPanel(ctx, livery, safeWidth, safeHeight);
+  drawLiveryStripePattern(ctx, livery.stripePattern, stripeColor, safeWidth, safeHeight);
+  ctx.fillStyle = "rgba(255, 250, 222, 0.32)";
+  ctx.fillRect(-safeWidth * 0.38, -safeHeight * 0.41, safeWidth * 0.22, safeHeight * 0.82);
+  ctx.restore();
+
+  const matteWidth = safeWidth * 0.72;
+  const matteHeight = safeHeight * 0.68;
   if (logo) {
     ctx.save();
-    roundedRectPath(ctx, -safeWidth * 0.32, -safeHeight * 0.34, safeWidth * 0.64, safeHeight * 0.68, Math.max(1, safeWidth * 0.1));
+    logoShapePath(ctx, livery.logoShape, 0, -safeHeight * 0.04, matteWidth * 0.9, matteHeight * 0.9);
     ctx.clip();
-    const size = Math.round(Math.min(safeWidth, safeHeight) * 0.78);
-    ctx.drawImage(logo.image, -size / 2, -size / 2, size, size);
+    const size = Math.round(Math.min(safeWidth, safeHeight) * 0.86);
+    ctx.drawImage(logo.image, -size / 2, -safeHeight * 0.04 - size / 2, size, size);
     ctx.restore();
   } else {
-    ctx.fillStyle = "#102333";
+    ctx.save();
+    ctx.fillStyle = readableInkForFill(livery.sailColor);
     ctx.font = `800 ${Math.max(5, Math.min(safeHeight * 0.72, safeWidth * 0.48))}px ui-sans-serif, system-ui, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(mark.slice(0, 2).toUpperCase(), 0, 0.4, safeWidth * 0.66);
+    ctx.fillText(mark.slice(0, 3).toUpperCase(), 0, -safeHeight * 0.02, safeWidth * 0.58);
     ctx.textAlign = "start";
     ctx.textBaseline = "alphabetic";
+    ctx.restore();
   }
   ctx.restore();
+}
+
+function drawLiverySailPanel(ctx: CanvasRenderingContext2D, livery: ShipLivery, width: number, height: number) {
+  ctx.fillStyle = hexToRgba(livery.accent, 0.24);
+  if (livery.sailPanel === "field") {
+    ctx.fillRect(-width * 0.42, -height * 0.44, width * 0.84, height * 0.88);
+  } else if (livery.sailPanel === "hoist") {
+    ctx.fillRect(-width * 0.42, -height * 0.44, width * 0.3, height * 0.88);
+  } else if (livery.sailPanel === "quartered") {
+    ctx.fillRect(-width * 0.42, -height * 0.44, width * 0.42, height * 0.44);
+    ctx.fillRect(0, 0, width * 0.42, height * 0.44);
+  } else {
+    roundedRectPath(ctx, -width * 0.32, -height * 0.32, width * 0.64, height * 0.62, Math.max(1, width * 0.12));
+    ctx.fill();
+  }
+}
+
+function drawLiveryStripePattern(
+  ctx: CanvasRenderingContext2D,
+  pattern: ShipStripePattern,
+  color: string,
+  width: number,
+  height: number,
+) {
+  ctx.fillStyle = hexToRgba(color, 0.84);
+  ctx.strokeStyle = hexToRgba(color, 0.88);
+  ctx.lineWidth = Math.max(1, height * 0.12);
+  if (pattern === "double") {
+    ctx.fillRect(-width * 0.43, height * 0.08, width * 0.88, Math.max(1, height * 0.1));
+    ctx.fillRect(-width * 0.43, height * 0.27, width * 0.88, Math.max(1, height * 0.1));
+  } else if (pattern === "diagonal") {
+    ctx.save();
+    ctx.rotate(-0.42);
+    ctx.fillRect(-width * 0.54, height * 0.08, width * 1.08, Math.max(1.2, height * 0.16));
+    ctx.restore();
+  } else if (pattern === "chevron") {
+    ctx.beginPath();
+    ctx.moveTo(-width * 0.42, height * 0.24);
+    ctx.lineTo(0, height * 0.04);
+    ctx.lineTo(width * 0.42, height * 0.24);
+    ctx.stroke();
+  } else if (pattern === "wave") {
+    ctx.beginPath();
+    ctx.moveTo(-width * 0.42, height * 0.2);
+    ctx.quadraticCurveTo(-width * 0.2, height * 0.02, 0, height * 0.2);
+    ctx.quadraticCurveTo(width * 0.2, height * 0.38, width * 0.42, height * 0.2);
+    ctx.stroke();
+  } else if (pattern === "ladder") {
+    ctx.fillRect(-width * 0.43, height * 0.18, width * 0.88, Math.max(1, height * 0.1));
+    for (const offset of [-0.24, 0, 0.24]) {
+      ctx.fillRect(width * offset, -height * 0.34, Math.max(1, width * 0.06), height * 0.7);
+    }
+  } else if (pattern === "cross") {
+    ctx.fillRect(-width * 0.43, height * 0.16, width * 0.88, Math.max(1, height * 0.11));
+    ctx.fillRect(-width * 0.04, -height * 0.42, Math.max(1, width * 0.08), height * 0.82);
+  } else if (pattern === "grain") {
+    for (const offset of [-0.24, 0, 0.24]) {
+      ctx.beginPath();
+      ctx.ellipse(width * offset, height * 0.18, width * 0.07, height * 0.2, 0.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else {
+    ctx.fillRect(-width * 0.43, height * 0.19, width * 0.88, Math.max(1.2, height * 0.16));
+  }
+}
+
+function logoShapePath(ctx: CanvasRenderingContext2D, shape: ShipLogoShape, x: number, y: number, width: number, height: number) {
+  if (shape === "circle" || shape === "ring") {
+    ctx.beginPath();
+    ctx.ellipse(x, y, width / 2, height / 2, 0, 0, Math.PI * 2);
+  } else if (shape === "diamond") {
+    ctx.beginPath();
+    ctx.moveTo(x, y - height / 2);
+    ctx.lineTo(x + width / 2, y);
+    ctx.lineTo(x, y + height / 2);
+    ctx.lineTo(x - width / 2, y);
+    ctx.closePath();
+  } else if (shape === "hex") {
+    ctx.beginPath();
+    ctx.moveTo(x - width * 0.28, y - height / 2);
+    ctx.lineTo(x + width * 0.28, y - height / 2);
+    ctx.lineTo(x + width / 2, y);
+    ctx.lineTo(x + width * 0.28, y + height / 2);
+    ctx.lineTo(x - width * 0.28, y + height / 2);
+    ctx.lineTo(x - width / 2, y);
+    ctx.closePath();
+  } else if (shape === "triangle") {
+    ctx.beginPath();
+    ctx.moveTo(x, y - height / 2);
+    ctx.lineTo(x + width / 2, y + height / 2);
+    ctx.lineTo(x - width / 2, y + height / 2);
+    ctx.closePath();
+  } else if (shape === "slash") {
+    ctx.beginPath();
+    ctx.moveTo(x - width * 0.28, y - height / 2);
+    ctx.lineTo(x + width / 2, y - height / 2);
+    ctx.lineTo(x + width * 0.28, y + height / 2);
+    ctx.lineTo(x - width / 2, y + height / 2);
+    ctx.closePath();
+  } else {
+    roundedRectPath(ctx, x - width / 2, y - height / 2, width, height, Math.max(1, width * 0.2));
+  }
+}
+
+function readableInkForFill(hex: string) {
+  const normalized = hex.replace("#", "");
+  const red = Number.parseInt(normalized.slice(0, 2), 16);
+  const green = Number.parseInt(normalized.slice(2, 4), 16);
+  const blue = Number.parseInt(normalized.slice(4, 6), 16);
+  return red * 0.299 + green * 0.587 + blue * 0.114 > 160 ? "#102333" : "#f8efd2";
 }
 
 function drawTitanShipWaterline(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
