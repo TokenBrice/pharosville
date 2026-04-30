@@ -31,7 +31,7 @@ assert.equal(
 
 const markdown = [
   "Run `npm run typecheck`, then `npm run missing-command`.",
-  "See `src/App.tsx`, `src/missing.ts`, and [guide](./guide.md).",
+  "See `src/App.tsx`, `src/missing.ts:12-18`, and [guide](./guide.md).",
 ].join("\n");
 
 assert.deepEqual(

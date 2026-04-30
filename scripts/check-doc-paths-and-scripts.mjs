@@ -140,7 +140,8 @@ function isEmbeddedBarePathMatch(text, index) {
 function cleanReference(rawTarget) {
   const withoutAnchor = rawTarget.trim().split("#")[0];
   const withoutQuery = withoutAnchor.split("?")[0];
-  const cleaned = withoutQuery.replace(/[,:;.)]+$/g, "");
+  const withoutLineRange = withoutQuery.replace(/:(?:\d+)(?:-\d+)?$/, "");
+  const cleaned = withoutLineRange.replace(/[,:;.)]+$/g, "");
   if (!cleaned || ignoredReferencePattern.test(cleaned)) return null;
   if (cleaned.includes("://")) return null;
   if (cleaned.includes("$(") || cleaned.includes("${")) return null;

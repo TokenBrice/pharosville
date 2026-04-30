@@ -66,7 +66,7 @@ Relevant path:
   - `buildPharosVilleWorld()` then calls `clusterLongTailShips(dockedShips)`.
   - The returned `visibleShips` become `world.ships`.
   - The returned `clusters` become `world.shipClusters`.
-- `src/systems/clustering.ts`
+- Historical clustering module (retired)
   - `DEFAULT_INDIVIDUAL_SHIP_BUDGET = 128`.
   - Ships are sorted by `marketCapUsd`.
   - Top 128 remain individual.
@@ -265,7 +265,7 @@ Tasks:
   the type is retired.
 - [x] Remove cluster geometry fallback from `src/renderer/geometry.ts` if the
   type is retired.
-- [x] Remove `src/systems/clustering.ts` and `src/systems/clustering.test.ts`
+- [x] Remove the clustering module and its tests
   if no other feature uses them.
 - [x] Update `src/components/world-toolbar.tsx` count math if it includes
   clusters.
