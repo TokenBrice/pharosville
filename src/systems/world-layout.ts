@@ -13,7 +13,7 @@ export const CIVIC_CORE_RADIUS = 8.5;
 // Chebyshev tile distance: any sea tile within this many tiles of land is rendered
 // as generic "water" (no DEWS zone), giving the island a non-attributed halo
 // before named edge-water districts begin.
-export const ISLAND_PERIPHERY_TILE_DISTANCE = 3;
+export const ISLAND_PERIPHERY_TILE_DISTANCE = 4;
 
 export const REGION_TILES: Record<ShipRiskPlacement, { x: number; y: number }> = RISK_WATER_REGION_TILES;
 
@@ -159,6 +159,14 @@ function canonicalTileKind(kind: TerrainKind): TileKind {
 
 function islandValue(x: number, y: number): number {
   return Math.min(
+    mainIslandValue(x, y),
+    // Detached bottom-left cemetery islet.
+    ellipseValue(x, y, CEMETERY_CENTER.x, CEMETERY_CENTER.y, CEMETERY_ISLAND_RADIUS.x, CEMETERY_ISLAND_RADIUS.y),
+  );
+}
+
+function mainIslandValue(x: number, y: number): number {
+  return Math.min(
     // Main central island.
     ellipseValue(x, y, 31.2, 31.3, 12.4, 10.2),
     // North harbor shelf.
@@ -173,8 +181,6 @@ function islandValue(x: number, y: number): number {
     ellipseValue(x, y, 39.3, 31.2, 6.1, 7.0),
     // Northeast harbor shelf.
     ellipseValue(x, y, 39.5, 23.0, 5.5, 4.8),
-    // Detached bottom-left cemetery islet.
-    ellipseValue(x, y, CEMETERY_CENTER.x, CEMETERY_CENTER.y, CEMETERY_ISLAND_RADIUS.x, CEMETERY_ISLAND_RADIUS.y),
   );
 }
 
@@ -187,7 +193,8 @@ function lighthouseMountainValue(x: number, y: number): number {
 
 function isAlertChannel(x: number, y: number): boolean {
   const value = eastCornerRiskValue(x, y);
-  return value >= 0.66 && value < 1.63;
+  const eastApproach = x >= 53 && y >= 14 && y <= 43;
+  return (value >= 0.66 && value < 1.63) || eastApproach;
 }
 
 function isWarningShoals(x: number, y: number): boolean {
@@ -210,13 +217,13 @@ function isLighthouseVisualClearance(x: number, y: number): boolean {
 }
 
 function isWatchBreakwater(x: number, y: number): boolean {
-  const topEdge = y <= 6;
+  const topEdge = y <= 9;
   const topBasin = ellipseValue(x, y, 28.0, 4.8, 25.5, 5.8) < 1.05 && y <= 10;
   return topEdge || topBasin;
 }
 
 function isCalmAnchorage(x: number, y: number): boolean {
-  const leftEdge = x <= 15 && y >= 10 && y <= 49;
+  const leftEdge = x <= 15 && y >= 10 && y <= MAX_TILE_Y;
   const leftBasin = ellipseValue(x, y, 8.2, 31.0, 15.0, 20.5) < 1.08 && x <= 22 && y >= 10;
   const southBay = x >= 16 && x <= 43 && y >= 45;
   return leftEdge || leftBasin || southBay;
@@ -226,31 +233,24 @@ function isOutOfBounds(x: number, y: number): boolean {
   return x < 0 || y < 0 || x >= PHAROSVILLE_MAP_WIDTH || y >= PHAROSVILLE_MAP_HEIGHT;
 }
 
-// Computes whether (x, y) is land WITHOUT consulting the periphery rule, so the
-// land mask can be precomputed without recursion.
-function isLandTileRaw(x: number, y: number): boolean {
-  if (isOutOfBounds(x, y)) return false;
-  return islandValue(x, y) < 1;
-}
+let cachedMainIslandLandMask: Uint8Array | null = null;
 
-let cachedLandMask: Uint8Array | null = null;
-
-function getLandMask(): Uint8Array {
-  if (cachedLandMask) return cachedLandMask;
+function getMainIslandLandMask(): Uint8Array {
+  if (cachedMainIslandLandMask) return cachedMainIslandLandMask;
   const mask = new Uint8Array(PHAROSVILLE_MAP_WIDTH * PHAROSVILLE_MAP_HEIGHT);
   for (let y = 0; y < PHAROSVILLE_MAP_HEIGHT; y += 1) {
     for (let x = 0; x < PHAROSVILLE_MAP_WIDTH; x += 1) {
-      if (isLandTileRaw(x, y)) mask[y * PHAROSVILLE_MAP_WIDTH + x] = 1;
+      if (!isOutOfBounds(x, y) && mainIslandValue(x, y) < 1) mask[y * PHAROSVILLE_MAP_WIDTH + x] = 1;
     }
   }
-  cachedLandMask = mask;
+  cachedMainIslandLandMask = mask;
   return mask;
 }
 
 function isWithinIslandPeriphery(x: number, y: number): boolean {
   if (isOutOfBounds(x, y)) return false;
   const r = ISLAND_PERIPHERY_TILE_DISTANCE;
-  const mask = getLandMask();
+  const mask = getMainIslandLandMask();
   const minX = Math.max(0, Math.floor(x) - r);
   const maxX = Math.min(PHAROSVILLE_MAP_WIDTH - 1, Math.ceil(x) + r);
   const minY = Math.max(0, Math.floor(y) - r);

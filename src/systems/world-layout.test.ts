@@ -44,8 +44,7 @@ describe("buildPharosVilleMap", () => {
     expect(Math.abs(mainCenter.x - CIVIC_CORE_CENTER.x)).toBeLessThan(2);
     expect(Math.abs(mainCenter.y - CIVIC_CORE_CENTER.y)).toBeLessThan(2);
     const counts = terrainCounts(map.tiles);
-    expect((counts.get("deep-water") ?? 0) / map.tiles.length).toBeLessThanOrEqual(0.125);
-    expect((counts.get("deep-water") ?? 0) / map.tiles.length).toBeGreaterThanOrEqual(0.018);
+    expect((counts.get("deep-water") ?? 0) / map.tiles.length).toBeLessThanOrEqual(0.03);
     expect(counts.get("calm-water") ?? 0).toBeGreaterThan(counts.get("watch-water") ?? 0);
     expect(counts.get("watch-water") ?? 0).toBeGreaterThan(counts.get("alert-water") ?? 0);
     expect(counts.get("alert-water") ?? 0).toBeGreaterThan(counts.get("warning-water") ?? 0);
@@ -112,7 +111,7 @@ describe("buildPharosVilleMap", () => {
     expect(terrainKindAt(REGION_TILES["outer-rough-water"].x, REGION_TILES["outer-rough-water"].y)).toBe("warning-water");
     expect(terrainKindAt(REGION_TILES["storm-shelf"].x, REGION_TILES["storm-shelf"].y)).toBe("storm-water");
     expect(terrainKindAt(REGION_TILES["ledger-mooring"].x, REGION_TILES["ledger-mooring"].y)).toBe("ledger-water");
-    expect(terrainKindAt(0, 55)).toBe("deep-water");
+    expect(terrainKindAt(0, 55)).toBe("calm-water");
   });
 
   it("uses the left edge for Calm Anchorage and the top edge for Watch Breakwater", () => {
@@ -120,11 +119,13 @@ describe("buildPharosVilleMap", () => {
       { x: 0, y: 13 },
       { x: 0, y: 27 },
       { x: 0, y: 39 },
+      { x: 0, y: 55 },
       { x: 6, y: 20 },
       { x: 14, y: 42 },
     ];
     const watchSamples = [
       { x: 4, y: 1 },
+      { x: 1, y: 7 },
       { x: 16, y: 0 },
       { x: 28, y: 5 },
       { x: 34, y: 0 },
@@ -136,6 +137,29 @@ describe("buildPharosVilleMap", () => {
     }
     for (const tile of watchSamples) {
       expect(terrainKindAt(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("watch-water");
+    }
+  });
+
+  it("extends DEWS water over the exposed outer perimeter while keeping the island halo generic", () => {
+    for (const tile of [
+      { x: 0, y: 54 },
+      { x: 1, y: 55 },
+      { x: 55, y: 24 },
+      { x: 55, y: 38 },
+    ]) {
+      expect(
+        ["calm-water", "watch-water", "alert-water", "warning-water", "storm-water"],
+        `${tile.x}.${tile.y}`,
+      ).toContain(terrainKindAt(tile.x, tile.y));
+    }
+
+    for (const tile of [
+      { x: 14, y: 21 },
+      { x: 19, y: 40 },
+      { x: 44, y: 40 },
+      { x: 51, y: 31 },
+    ]) {
+      expect(terrainKindAt(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("water");
     }
   });
 

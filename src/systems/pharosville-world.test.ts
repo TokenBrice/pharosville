@@ -51,7 +51,7 @@ describe("buildPharosVilleWorld", () => {
     expect(world.graves).toHaveLength(3);
     expect(world.graves[0]?.logoSrc).toBe("/logos/cemetery/nubits.png");
     expect(world.detailIndex["lighthouse"]).toBeDefined();
-    expect(terrainKindAt(0, 55)).toBe("deep-water");
+    expect(terrainKindAt(0, 55)).toBe("calm-water");
     expect(Object.keys(world.detailIndex).some((detailId) => detailId.startsWith("building."))).toBe(false);
     expect(world.areas.every((area) => area.id.startsWith("area.dews.") || area.id.startsWith("area.risk-water."))).toBe(true);
     expect(world.visualCues.length).toBeGreaterThan(0);

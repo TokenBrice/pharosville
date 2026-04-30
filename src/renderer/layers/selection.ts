@@ -202,7 +202,62 @@ function drawDiamond(ctx: CanvasRenderingContext2D, x: number, y: number, width:
 }
 
 function drawSelectionRing(ctx: CanvasRenderingContext2D, target: HitTarget, color: string) {
+  const cx = target.rect.x + target.rect.width / 2;
+  const bottom = target.rect.y + target.rect.height;
+  const width = Math.max(28, Math.min(target.rect.width * 0.82, target.kind === "lighthouse" ? 118 : 76));
+  const height = Math.max(12, Math.min(target.rect.height * 0.22, target.kind === "lighthouse" ? 28 : 22));
+
+  ctx.save();
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
   ctx.strokeStyle = color;
-  ctx.lineWidth = 2;
-  ctx.strokeRect(target.rect.x, target.rect.y, target.rect.width, target.rect.height);
+  ctx.lineWidth = Math.max(1.5, target.kind === "area" ? 1.4 : 2);
+
+  if (target.kind === "area") {
+    drawLabelBrackets(ctx, target, color);
+    ctx.restore();
+    return;
+  }
+
+  ctx.globalAlpha = target.kind === "lighthouse" ? 0.94 : 0.86;
+  ctx.beginPath();
+  ctx.ellipse(cx, bottom - height * 0.55, width / 2, height / 2, -0.08, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.globalAlpha = 0.34;
+  ctx.strokeStyle = color;
+  drawDiamondStroke(ctx, cx, bottom - height * 0.56, width * 0.54, height * 0.7);
+  ctx.restore();
+}
+
+function drawLabelBrackets(ctx: CanvasRenderingContext2D, target: HitTarget, color: string) {
+  const { rect } = target;
+  const inset = 4;
+  const length = Math.min(16, rect.width * 0.16);
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.86;
+  ctx.beginPath();
+  ctx.moveTo(rect.x + inset, rect.y + length);
+  ctx.lineTo(rect.x + inset, rect.y + inset);
+  ctx.lineTo(rect.x + inset + length, rect.y + inset);
+  ctx.moveTo(rect.x + rect.width - inset - length, rect.y + inset);
+  ctx.lineTo(rect.x + rect.width - inset, rect.y + inset);
+  ctx.lineTo(rect.x + rect.width - inset, rect.y + length);
+  ctx.moveTo(rect.x + inset, rect.y + rect.height - length);
+  ctx.lineTo(rect.x + inset, rect.y + rect.height - inset);
+  ctx.lineTo(rect.x + inset + length, rect.y + rect.height - inset);
+  ctx.moveTo(rect.x + rect.width - inset - length, rect.y + rect.height - inset);
+  ctx.lineTo(rect.x + rect.width - inset, rect.y + rect.height - inset);
+  ctx.lineTo(rect.x + rect.width - inset, rect.y + rect.height - length);
+  ctx.stroke();
+}
+
+function drawDiamondStroke(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number) {
+  ctx.beginPath();
+  ctx.moveTo(x, y - height / 2);
+  ctx.lineTo(x + width / 2, y);
+  ctx.lineTo(x, y + height / 2);
+  ctx.lineTo(x - width / 2, y);
+  ctx.closePath();
+  ctx.stroke();
 }

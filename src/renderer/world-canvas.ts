@@ -25,29 +25,29 @@ import type { DrawPharosVilleInput, PharosVilleCanvasMotion, PharosVilleRenderMe
 import { CAUSE_HEX, type CauseOfDeath } from "@shared/lib/cause-of-death";
 
 const TILE_COLORS: Record<string, string> = {
-  beach: "#d5b873",
-  cliff: "#2e4052",
-  grass: "#4f8a52",
-  hill: "#6f9958",
-  land: "#6d8450",
-  road: "#ad8050",
-  rock: "#526776",
-  shore: "#caa467",
+  beach: "#c8b06f",
+  cliff: "#2b3943",
+  grass: "#4f7e4d",
+  hill: "#667f4f",
+  land: "#697a4d",
+  road: "#9e7446",
+  rock: "#4e5d63",
+  shore: "#b9955f",
 };
 
 const TERRAIN_TEXTURE = {
-  beachPebble: "rgba(82, 67, 47, 0.16)",
-  cliffFace: "rgba(19, 26, 34, 0.62)",
-  foam: "rgba(232, 243, 233, 0.76)",
-  grassDark: "rgba(28, 76, 49, 0.52)",
-  grassLight: "rgba(172, 211, 132, 0.34)",
-  grassMid: "rgba(78, 138, 82, 0.36)",
-  groundGrain: "rgba(35, 37, 27, 0.2)",
-  mossShadow: "rgba(43, 58, 38, 0.26)",
-  roadLight: "rgba(184, 146, 91, 0.32)",
-  roadShadow: "rgba(53, 39, 26, 0.22)",
-  rockLight: "rgba(176, 177, 160, 0.24)",
-  sandLight: "rgba(237, 204, 137, 0.28)",
+  beachPebble: "rgba(82, 67, 47, 0.12)",
+  cliffFace: "rgba(18, 24, 30, 0.56)",
+  foam: "rgba(232, 243, 233, 0.56)",
+  grassDark: "rgba(28, 70, 48, 0.38)",
+  grassLight: "rgba(174, 194, 118, 0.24)",
+  grassMid: "rgba(78, 128, 76, 0.26)",
+  groundGrain: "rgba(32, 34, 25, 0.14)",
+  mossShadow: "rgba(39, 52, 35, 0.2)",
+  roadLight: "rgba(184, 146, 91, 0.24)",
+  roadShadow: "rgba(45, 34, 24, 0.18)",
+  rockLight: "rgba(176, 177, 160, 0.18)",
+  sandLight: "rgba(228, 195, 126, 0.2)",
 } as const;
 
 const TERRAIN_ASSET_BY_KIND: Partial<Record<TerrainKind, string>> = {
@@ -73,12 +73,12 @@ const TERRAIN_ASSET_BY_KIND: Partial<Record<TerrainKind, string>> = {
 const TERRAIN_ASSET_SCALE = 0.5;
 
 const LIGHTHOUSE_HEADLAND = {
-  cliff: "#2e4052",
-  grass: "#4f8a52",
-  halo: "rgba(255, 200, 87, 0.2)",
-  moss: "#6f9958",
+  cliff: "#2b3943",
+  grass: "#4f7e4d",
+  halo: "rgba(255, 200, 87, 0.14)",
+  moss: "#667f4f",
   shadow: "rgba(10, 12, 12, 0.42)",
-  stone: "#9f9278",
+  stone: "#9b8f74",
 } as const;
 
 const LIGHTHOUSE_SPRITE_CROP = {
@@ -442,7 +442,19 @@ function drawCentralIslandModel({ assets, camera, ctx }: DrawPharosVilleInput) {
   if (!islandAsset) return;
   const point = tileToScreen(CENTRAL_ISLAND_MODEL_TILE, camera);
   ctx.save();
-  ctx.globalAlpha = 0.88;
+  ctx.fillStyle = "rgba(3, 8, 10, 0.28)";
+  ctx.beginPath();
+  ctx.ellipse(
+    point.x,
+    point.y + 18 * camera.zoom,
+    190 * camera.zoom,
+    70 * camera.zoom,
+    -0.08,
+    0,
+    Math.PI * 2,
+  );
+  ctx.fill();
+  ctx.globalAlpha = 0.72;
   drawAsset(
     ctx,
     islandAsset,
@@ -830,19 +842,17 @@ function drawWaterTile(
   const width = 32 * zoom;
   const height = 16 * zoom;
   const style = waterTerrainStyle(value) ?? waterTerrainStyle("water")!;
+  drawDiamond(ctx, x, y, width, height, style.base);
   if (asset) {
-    drawTerrainAsset(ctx, asset, x, y, zoom);
-    drawDiamond(ctx, x, y, width, height, withAlpha(style.base, 0.34));
-  } else {
-    drawDiamond(ctx, x, y, width, height, style.base);
+    drawTerrainAsset(ctx, asset, x, y, zoom, 0.18);
   }
   drawWaterDepthOverlay(ctx, x, y, zoom, width, height, tileX, tileY, style.inner);
   drawWaterTerrainTexture(ctx, x, y, zoom, style, tileX, tileY, motion);
 
-  if ((tileX * 13 + tileY * 17) % 5 !== 0) return;
+  if ((tileX * 13 + tileY * 17) % 9 !== 0) return;
   const wave = motion.reducedMotion
-    ? 0.2
-    : 0.16 + Math.sin(motion.timeSeconds * 1.25 + tileX * 0.27 + tileY * 0.19) * 0.05;
+    ? 0.13
+    : 0.1 + Math.sin(motion.timeSeconds * 1.05 + tileX * 0.27 + tileY * 0.19) * 0.035;
   ctx.save();
   ctx.strokeStyle = withAlpha(style.wave, Math.max(0.08, wave));
   ctx.lineWidth = Math.max(1, zoom);
@@ -851,7 +861,7 @@ function drawWaterTile(
   ctx.lineTo(x + 7 * zoom, y + 2 * zoom);
   ctx.stroke();
   if ((tileX + tileY) % 3 === 0) {
-    ctx.strokeStyle = withAlpha(style.accent, 0.26);
+    ctx.strokeStyle = withAlpha(style.accent, 0.18);
     ctx.beginPath();
     ctx.moveTo(x - 3 * zoom, y + 4 * zoom);
     ctx.lineTo(x + 10 * zoom, y + 7 * zoom);
@@ -876,8 +886,8 @@ function drawWaterDepthOverlay(
   if (shimmer === 0) return;
   ctx.save();
   const overlayFill = shimmer > 0
-    ? `rgba(218, 236, 224, ${0.018 * shimmer})`
-    : `rgba(1, 8, 18, ${-0.018 * shimmer})`;
+    ? `rgba(218, 236, 224, ${0.01 * shimmer})`
+    : `rgba(1, 8, 18, ${-0.012 * shimmer})`;
   ctx.fillStyle = overlayFill;
   drawDiamond(ctx, x, y, width * 0.98, height * 0.9, overlayFill);
   ctx.restore();
@@ -1355,11 +1365,10 @@ function drawLandTile(
   const value = String(kind);
   const width = 32 * zoom;
   const height = 16 * zoom;
+  drawDiamond(ctx, x, y, width, height, terrainColor(kind));
   if (asset) {
-    drawTerrainAsset(ctx, asset, x, y, zoom);
-    drawDiamond(ctx, x, y, width, height, withAlpha(terrainColor(kind), value === "road" ? 0.36 : 0.24));
-  } else {
-    drawDiamond(ctx, x, y, width, height, terrainColor(kind));
+    drawTerrainAsset(ctx, asset, x, y, zoom, value === "road" ? 0.24 : 0.28);
+    drawDiamond(ctx, x, y, width, height, withAlpha(terrainColor(kind), value === "road" ? 0.14 : 0.1));
   }
   drawGroundGrain(ctx, x, y, zoom, value, tileX, tileY);
 
@@ -1386,8 +1395,16 @@ function drawTerrainAsset(
   x: number,
   y: number,
   zoom: number,
+  alpha = 1,
 ) {
   const scale = zoom * TERRAIN_ASSET_SCALE;
+  if (alpha < 1) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    drawAsset(ctx, asset, x, y + TILE_HEIGHT * zoom * 0.46, scale);
+    ctx.restore();
+    return;
+  }
   drawAsset(ctx, asset, x, y + TILE_HEIGHT * zoom * 0.46, scale);
 }
 
@@ -1525,10 +1542,10 @@ function drawAtmosphere({ camera, ctx, motion, world }: DrawPharosVilleInput) {
 
 function drawHarborDistrictGround({ camera, ctx }: DrawPharosVilleInput) {
   ctx.save();
-  drawDistrictPad(ctx, camera, { x: 31.2, y: 22.6 }, 118, 38, "rgba(66, 62, 53, 0.38)", "rgba(204, 177, 116, 0.24)");
-  drawDistrictPad(ctx, camera, { x: 20.4, y: 33.5 }, 92, 44, "rgba(66, 62, 53, 0.42)", "rgba(204, 177, 116, 0.26)");
-  drawDistrictPad(ctx, camera, { x: 33.0, y: 41.6 }, 128, 42, "rgba(66, 62, 53, 0.46)", "rgba(204, 177, 116, 0.28)");
-  drawDistrictPad(ctx, camera, { x: 44.6, y: 31.8 }, 98, 42, "rgba(66, 62, 53, 0.5)", "rgba(204, 177, 116, 0.3)");
+  drawDistrictPad(ctx, camera, { x: 31.2, y: 22.6 }, 118, 38, "rgba(55, 55, 47, 0.32)", "rgba(197, 176, 125, 0.18)");
+  drawDistrictPad(ctx, camera, { x: 20.4, y: 33.5 }, 92, 44, "rgba(55, 55, 47, 0.36)", "rgba(197, 176, 125, 0.2)");
+  drawDistrictPad(ctx, camera, { x: 33.0, y: 41.6 }, 128, 42, "rgba(55, 55, 47, 0.38)", "rgba(197, 176, 125, 0.22)");
+  drawDistrictPad(ctx, camera, { x: 44.6, y: 31.8 }, 98, 42, "rgba(55, 55, 47, 0.42)", "rgba(197, 176, 125, 0.24)");
 
   drawSeawallRun(ctx, camera, [
     { x: 23.0, y: 24.3 },
@@ -1563,7 +1580,7 @@ function drawEthereumHarborExtensions({ camera, ctx, motion, world }: DrawPharos
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
   const anchor = dockDrawPoint(ethereumDock, camera, world.map.width);
   ctx.save();
-  drawDistrictPad(ctx, camera, { x: 41.8, y: 34.8 }, 118, 36, "rgba(54, 49, 44, 0.38)", "rgba(204, 177, 116, 0.2)");
+  drawDistrictPad(ctx, camera, { x: 41.8, y: 34.8 }, 118, 36, "rgba(42, 50, 48, 0.34)", "rgba(197, 176, 125, 0.16)");
   for (const [index, dock] of extensionDocks.entries()) {
     const point = dockDrawPoint(dock, camera, world.map.width);
     drawRollupExtensionCauseway(ctx, anchor, point, camera.zoom, index, extensionDocks.length, time);
@@ -1674,7 +1691,7 @@ function drawDistrictPad(
 ) {
   const p = tileToScreen(tile, camera);
   const zoom = camera.zoom;
-  drawDiamond(ctx, p.x, p.y + 10 * zoom, width * zoom, height * zoom, "rgba(5, 7, 9, 0.26)");
+  drawDiamond(ctx, p.x, p.y + 10 * zoom, width * zoom, height * zoom, "rgba(4, 8, 10, 0.2)");
   drawDiamond(ctx, p.x, p.y + 6 * zoom, width * zoom * 0.92, height * zoom * 0.82, fill);
   drawDiamond(ctx, p.x, p.y + 1 * zoom, width * zoom * 0.76, height * zoom * 0.5, top);
   drawDistrictPaving(ctx, p.x, p.y + 1 * zoom, width * zoom * 0.76, height * zoom * 0.5, zoom);
@@ -1687,21 +1704,21 @@ function drawSeawallRun(ctx: CanvasRenderingContext2D, camera: IsoCamera, tiles:
   ctx.save();
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  ctx.strokeStyle = "rgba(7, 9, 12, 0.42)";
+  ctx.strokeStyle = "rgba(4, 8, 10, 0.34)";
   ctx.lineWidth = Math.max(3, 6 * camera.zoom);
   ctx.beginPath();
   ctx.moveTo(firstPoint.x, firstPoint.y + 4 * camera.zoom);
   for (const point of rest) ctx.lineTo(point.x, point.y + 4 * camera.zoom);
   ctx.stroke();
 
-  ctx.strokeStyle = "rgba(176, 153, 104, 0.76)";
+  ctx.strokeStyle = "rgba(166, 146, 105, 0.66)";
   ctx.lineWidth = Math.max(2, 3.6 * camera.zoom);
   ctx.beginPath();
   ctx.moveTo(firstPoint.x, firstPoint.y);
   for (const point of rest) ctx.lineTo(point.x, point.y);
   ctx.stroke();
 
-  ctx.strokeStyle = "rgba(239, 221, 169, 0.42)";
+  ctx.strokeStyle = "rgba(232, 214, 166, 0.3)";
   ctx.lineWidth = Math.max(1, 1.2 * camera.zoom);
   ctx.beginPath();
   ctx.moveTo(firstPoint.x - 3 * camera.zoom, firstPoint.y - 2 * camera.zoom);
@@ -2504,10 +2521,10 @@ function drawDockQuayUnderlay(
   const width = (58 + size * 0.75) * zoom;
   const height = (22 + size * 0.18) * zoom;
   ctx.save();
-  drawDiamond(ctx, point.x, point.y + 9 * zoom, width * 1.14, height * 1.12, "rgba(5, 8, 10, 0.36)");
-  drawDiamond(ctx, point.x, point.y + 5 * zoom, width, height, "rgba(83, 75, 58, 0.72)");
-  drawDiamond(ctx, point.x, point.y + 1 * zoom, width * 0.78, height * 0.62, "rgba(211, 184, 126, 0.5)");
-  ctx.strokeStyle = "rgba(57, 38, 23, 0.32)";
+  drawDiamond(ctx, point.x, point.y + 9 * zoom, width * 1.14, height * 1.12, "rgba(4, 8, 10, 0.28)");
+  drawDiamond(ctx, point.x, point.y + 5 * zoom, width, height, "rgba(66, 64, 54, 0.64)");
+  drawDiamond(ctx, point.x, point.y + 1 * zoom, width * 0.78, height * 0.62, "rgba(202, 178, 124, 0.4)");
+  ctx.strokeStyle = "rgba(47, 35, 24, 0.26)";
   ctx.lineWidth = Math.max(1, 0.9 * zoom);
   ctx.beginPath();
   ctx.moveTo(point.x - width * 0.31, point.y + height * 0.02);
@@ -2515,9 +2532,9 @@ function drawDockQuayUnderlay(
   ctx.moveTo(point.x - width * 0.18, point.y - height * 0.09);
   ctx.lineTo(point.x + width * 0.2, point.y - height * 0.02);
   ctx.stroke();
-  ctx.fillStyle = "rgba(247, 214, 138, 0.09)";
+  ctx.fillStyle = "rgba(247, 214, 138, 0.07)";
   drawDiamond(ctx, point.x + width * 0.04, point.y - height * 0.04, width * 0.34, height * 0.22, ctx.fillStyle);
-  ctx.strokeStyle = "rgba(232, 243, 233, 0.34)";
+  ctx.strokeStyle = "rgba(218, 238, 231, 0.26)";
   ctx.lineWidth = Math.max(1, 1.2 * zoom);
   ctx.beginPath();
   ctx.moveTo(point.x - width * 0.42, point.y + height * 0.1);
@@ -3283,11 +3300,11 @@ function drawShipWake(input: DrawPharosVilleInput, ship: PharosVilleWorld["ships
 
 function drawShipContactShadow(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
   ctx.save();
-  ctx.fillStyle = "rgba(4, 8, 10, 0.28)";
+  ctx.fillStyle = "rgba(3, 7, 10, 0.34)";
   ctx.beginPath();
-  ctx.ellipse(x, y - 2 * scale, 30 * scale, 8.5 * scale, -0.08, 0, Math.PI * 2);
+  ctx.ellipse(x, y - 1 * scale, 28 * scale, 7.5 * scale, -0.08, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = "rgba(169, 224, 213, 0.16)";
+  ctx.strokeStyle = "rgba(169, 224, 213, 0.12)";
   ctx.lineWidth = Math.max(1, 1.1 * scale);
   ctx.beginPath();
   ctx.moveTo(x - 25 * scale, y + 2 * scale);

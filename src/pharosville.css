@@ -6,7 +6,7 @@ body,
 }
 
 body {
-  background: #061015;
+  background: #050d13;
 }
 
 button,
@@ -33,14 +33,14 @@ textarea {
   min-height: 100svh;
   place-items: center;
   background:
-    repeating-linear-gradient(0deg, rgba(236, 196, 116, 0.045) 0 2px, transparent 2px 7px),
-    radial-gradient(circle at 50% 12%, rgba(104, 180, 172, 0.2), transparent 34%),
-    linear-gradient(180deg, #102526, #061015 72%);
-  color: #f6e3b7;
+    repeating-linear-gradient(0deg, rgba(189, 168, 111, 0.035) 0 1px, transparent 1px 8px),
+    linear-gradient(90deg, rgba(106, 154, 151, 0.08), transparent 38%, rgba(143, 126, 91, 0.08)),
+    linear-gradient(180deg, #0d2028, #050d13 74%);
+  color: #d8d0b7;
   font-family: Georgia, "Times New Roman", serif;
   font-size: 0.92rem;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
 }
 
 .pharosville-query-error {
@@ -53,21 +53,23 @@ textarea {
   gap: 10px;
   min-height: 42px;
   transform: translateX(-50%);
-  border: 2px solid #d6a85b;
+  border: 1px solid #b99a62;
+  border-radius: 2px;
   padding: 8px 12px;
-  background: rgba(7, 18, 23, 0.96);
-  color: #fff0c7;
+  background: rgba(6, 18, 25, 0.96);
+  color: #e5dcc4;
   font-family: Georgia, "Times New Roman", serif;
   font-size: 0.84rem;
   font-weight: 900;
-  box-shadow: 0 18px 40px rgba(3, 8, 10, 0.38);
+  box-shadow: 0 14px 34px rgba(3, 8, 10, 0.34);
 }
 
 .pharosville-query-error button {
   min-height: 30px;
-  border: 1px solid #ffe4a8;
-  background: #173235;
-  color: #fff7df;
+  border: 1px solid rgba(185, 154, 98, 0.76);
+  border-radius: 2px;
+  background: #0c252e;
+  color: #eee6cf;
   cursor: pointer;
 }
 
@@ -87,11 +89,11 @@ textarea {
   min-height: 100svh;
   padding: 32px 18px;
   background:
-    radial-gradient(circle at 50% 16%, rgba(213, 165, 78, 0.2), transparent 34%),
-    radial-gradient(circle at 16% 76%, rgba(104, 180, 172, 0.16), transparent 28%),
-    repeating-linear-gradient(90deg, rgba(246, 226, 182, 0.04) 0 1px, transparent 1px 12px),
-    linear-gradient(180deg, #102526, #061015 72%);
-  color: #f4e5c4;
+    linear-gradient(90deg, rgba(106, 154, 151, 0.1), transparent 34%, rgba(185, 154, 98, 0.08)),
+    repeating-linear-gradient(90deg, rgba(216, 208, 183, 0.035) 0 1px, transparent 1px 16px),
+    repeating-linear-gradient(0deg, rgba(216, 208, 183, 0.026) 0 1px, transparent 1px 16px),
+    linear-gradient(180deg, #0d2028, #050d13 72%);
+  color: #d8d0b7;
   font-family: Georgia, "Times New Roman", serif;
 }
 
@@ -107,53 +109,55 @@ textarea {
   position: absolute;
   inset: min(18svh, 120px) -18px -24px;
   z-index: -1;
-  border: 4px solid #83633c;
+  border: 1px solid rgba(185, 154, 98, 0.7);
+  border-radius: 3px;
   background:
-    linear-gradient(135deg, rgba(255, 226, 155, 0.12), transparent 34%),
-    linear-gradient(180deg, rgba(20, 46, 48, 0.96), rgba(8, 19, 24, 0.98));
+    linear-gradient(135deg, rgba(185, 154, 98, 0.08), transparent 32%),
+    repeating-linear-gradient(90deg, rgba(216, 208, 183, 0.025) 0 1px, transparent 1px 14px),
+    linear-gradient(180deg, rgba(12, 32, 41, 0.96), rgba(5, 14, 20, 0.98));
   box-shadow:
-    0 0 0 1px #d6a85b,
-    inset 0 0 0 1px rgba(4, 11, 14, 0.82),
-    inset 0 20px 42px rgba(100, 178, 170, 0.08),
-    0 28px 80px rgba(3, 8, 10, 0.48);
+    inset 0 0 0 1px rgba(216, 208, 183, 0.08),
+    inset 0 18px 38px rgba(106, 154, 151, 0.06),
+    0 24px 70px rgba(3, 8, 10, 0.42);
 }
 
 .pharosville-narrow__beacon {
-  width: 44px;
-  height: 44px;
+  width: 42px;
+  height: 42px;
   margin-bottom: 18px;
-  border: 3px solid #d6a85b;
+  border: 1px solid rgba(185, 154, 98, 0.84);
+  border-radius: 2px;
   background:
-    linear-gradient(90deg, transparent 42%, rgba(246, 226, 182, 0.34) 42% 58%, transparent 58%),
-    linear-gradient(180deg, rgba(246, 226, 182, 0.18), rgba(9, 24, 30, 0.92));
+    linear-gradient(90deg, transparent 42%, rgba(216, 208, 183, 0.26) 42% 58%, transparent 58%),
+    linear-gradient(180deg, rgba(185, 154, 98, 0.16), rgba(7, 22, 30, 0.92));
   box-shadow:
-    0 0 0 1px rgba(246, 226, 182, 0.22),
-    0 12px 32px rgba(214, 168, 91, 0.18);
+    0 0 0 1px rgba(216, 208, 183, 0.12),
+    0 10px 26px rgba(185, 154, 98, 0.12);
 }
 
 .pharosville-narrow__kicker {
   margin: 0 0 10px;
-  color: #d6a85b;
+  color: #b99a62;
   font-size: 0.75rem;
   font-weight: 900;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
 .pharosville-narrow h2 {
   margin: 0;
   max-width: 12ch;
-  color: #fff0c7;
+  color: #eee6cf;
   font-size: clamp(2.5rem, 10vw, 4.9rem);
   font-weight: 900;
   line-height: 0.95;
-  text-shadow: 0 3px 0 #102526, 0 10px 24px rgba(3, 8, 10, 0.48);
+  text-shadow: 0 2px 0 #0d2028, 0 10px 24px rgba(3, 8, 10, 0.46);
 }
 
 .pharosville-narrow p {
   margin: 20px 0 0;
   max-width: 52ch;
-  color: rgba(244, 229, 196, 0.86);
+  color: rgba(216, 208, 183, 0.86);
   font-size: 1rem;
   line-height: 1.65;
 }
@@ -167,46 +171,49 @@ textarea {
 
 .pharosville-narrow__links a {
   min-height: 44px;
-  border: 2px solid #83633c;
-  border-radius: 0;
+  border: 1px solid rgba(185, 154, 98, 0.7);
+  border-radius: 2px;
   padding: 10px 14px;
   background:
-    linear-gradient(180deg, #173235, #09181e);
-  color: #fff0c7;
+    linear-gradient(180deg, #0c252e, #071820);
+  color: #eee6cf;
   font-size: 0.9rem;
   font-weight: 900;
   text-decoration: none;
-  box-shadow: inset 0 0 0 1px rgba(246, 226, 182, 0.2);
+  box-shadow: inset 0 0 0 1px rgba(216, 208, 183, 0.08);
 }
 
 .pharosville-narrow__links a:hover {
-  border-color: #d6a85b;
-  color: #fff7df;
+  border-color: #d1b777;
+  color: #f6efd8;
 }
 
 .pharosville-narrow__links a:focus-visible {
-  outline: 2px solid #ffe4a8;
+  outline: 2px solid #d8c58c;
   outline-offset: 3px;
 }
 
 .pharosville-shell {
-  --pv-ink: #07110f;
-  --pv-panel: rgba(18, 43, 44, 0.94);
-  --pv-panel-dark: rgba(7, 18, 23, 0.96);
-  --pv-gold: #d6a85b;
-  --pv-gold-bright: #ffe4a8;
-  --pv-parchment: #f4e5c4;
-  --pv-muted: rgba(244, 229, 196, 0.76);
-  --pv-border: #89683d;
-  --pv-border-dark: #203633;
-  --pv-ruby: #d06442;
-  --pv-teal: #79c8bd;
-  --pv-copper: #b66f3f;
-  --pv-shadow: rgba(3, 8, 10, 0.44);
+  --pv-ink: #061116;
+  --pv-panel: rgba(10, 29, 38, 0.92);
+  --pv-panel-dark: rgba(5, 14, 20, 0.96);
+  --pv-gold: #b99a62;
+  --pv-gold-bright: #d8c58c;
+  --pv-parchment: #d8d0b7;
+  --pv-muted: rgba(216, 208, 183, 0.72);
+  --pv-border: rgba(185, 154, 98, 0.62);
+  --pv-border-dark: rgba(79, 104, 103, 0.38);
+  --pv-ruby: #be6e55;
+  --pv-teal: #6a9a97;
+  --pv-copper: #a5794f;
+  --pv-shadow: rgba(3, 8, 10, 0.36);
+  --pv-control: #0b222c;
+  --pv-control-dark: #071821;
+  --pv-chart-line: rgba(216, 208, 183, 0.075);
   position: relative;
   min-height: 100svh;
   overflow: hidden;
-  background: #061015;
+  background: #050d13;
   font-family: Georgia, "Times New Roman", serif;
   image-rendering: pixelated;
 }
@@ -221,24 +228,24 @@ textarea {
 }
 
 .pharosville-shell::before {
-  inset: 12px;
-  border: 4px solid var(--pv-border-dark);
-  outline: 2px solid var(--pv-border);
+  inset: 14px;
+  border: 1px solid var(--pv-border-dark);
   box-shadow:
-    inset 0 0 0 2px rgba(255, 228, 168, 0.22),
-    inset 0 0 80px rgba(3, 8, 10, 0.34);
+    inset 0 0 0 1px rgba(185, 154, 98, 0.24),
+    inset 0 0 36px rgba(3, 8, 10, 0.18);
 }
 
 .pharosville-shell::after {
   background:
-    repeating-linear-gradient(0deg, rgba(255, 228, 168, 0.03) 0 1px, transparent 1px 4px),
-    radial-gradient(circle at 50% 52%, transparent 0 44%, rgba(3, 8, 10, 0.36) 100%);
+    repeating-linear-gradient(0deg, rgba(216, 208, 183, 0.026) 0 1px, transparent 1px 10px),
+    repeating-linear-gradient(90deg, rgba(216, 208, 183, 0.018) 0 1px, transparent 1px 10px),
+    linear-gradient(180deg, rgba(3, 8, 10, 0.1), transparent 20%, transparent 78%, rgba(3, 8, 10, 0.16));
   mix-blend-mode: soft-light;
 }
 
 .pharosville-shell:focus-visible {
   outline: 2px solid var(--pv-gold-bright);
-  outline-offset: -8px;
+  outline-offset: -9px;
 }
 
 .pharosville-shell--fullscreen,
@@ -329,31 +336,16 @@ textarea {
 
 .pharosville-hud > [data-testid="pharosville-world-toolbar"],
 .pharosville-detail-dock > [data-testid="pharosville-detail-panel"] {
-  border: 4px solid var(--pv-border);
-  border-radius: 0;
+  border: 1px solid var(--pv-border);
+  border-radius: 3px;
   background:
-    linear-gradient(135deg, rgba(255, 228, 168, 0.12), transparent 34%),
-    linear-gradient(180deg, rgba(121, 200, 189, 0.1), transparent 28%),
+    linear-gradient(135deg, rgba(185, 154, 98, 0.08), transparent 32%),
+    repeating-linear-gradient(90deg, var(--pv-chart-line) 0 1px, transparent 1px 18px),
     linear-gradient(180deg, var(--pv-panel), var(--pv-panel-dark));
   box-shadow:
-    0 0 0 1px rgba(214, 168, 91, 0.86),
-    inset 0 0 0 1px rgba(4, 11, 14, 0.9),
-    inset 0 -16px 0 rgba(3, 8, 10, 0.18),
-    0 18px 42px var(--pv-shadow);
-  clip-path: polygon(
-    0 8px,
-    8px 8px,
-    8px 0,
-    calc(100% - 8px) 0,
-    calc(100% - 8px) 8px,
-    100% 8px,
-    100% calc(100% - 8px),
-    calc(100% - 8px) calc(100% - 8px),
-    calc(100% - 8px) 100%,
-    8px 100%,
-    8px calc(100% - 8px),
-    0 calc(100% - 8px)
-  );
+    inset 0 0 0 1px rgba(216, 208, 183, 0.06),
+    inset 0 -1px 0 rgba(3, 8, 10, 0.52),
+    0 14px 34px var(--pv-shadow);
 }
 
 .pharosville-detail-dock > [data-testid="pharosville-detail-panel"] {
@@ -375,17 +367,17 @@ textarea {
 }
 
 .pharosville-detail-dock--right::before {
-  left: -12px;
-  border-top: 10px solid transparent;
-  border-right: 12px solid var(--pv-border);
-  border-bottom: 10px solid transparent;
+  left: -8px;
+  border-top: 8px solid transparent;
+  border-right: 8px solid rgba(185, 154, 98, 0.62);
+  border-bottom: 8px solid transparent;
 }
 
 .pharosville-detail-dock--left::before {
-  right: -12px;
-  border-top: 10px solid transparent;
-  border-bottom: 10px solid transparent;
-  border-left: 12px solid var(--pv-border);
+  right: -8px;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-left: 8px solid rgba(185, 154, 98, 0.62);
 }
 
 .pharosville-hud h2,
@@ -396,8 +388,8 @@ textarea {
   color: var(--pv-gold-bright);
   font-size: 0.86rem;
   font-weight: 900;
-  letter-spacing: 0.04em;
-  text-shadow: 0 2px 0 #07110f;
+  letter-spacing: 0.035em;
+  text-shadow: 0 1px 0 #061116;
 }
 
 .pharosville-detail-dock h2 {
@@ -433,9 +425,9 @@ textarea {
 
 .pharosville-hud a:hover,
 .pharosville-detail-dock a:hover {
-  color: #fff0c7;
+  color: #eee6cf;
   text-decoration: underline;
-  text-decoration-thickness: 2px;
+  text-decoration-thickness: 1px;
   text-underline-offset: 3px;
 }
 
@@ -445,16 +437,14 @@ textarea {
   align-items: center;
   gap: 7px;
   flex-wrap: wrap;
-  border-width: 2px;
   padding: 7px;
   background:
-    linear-gradient(135deg, rgba(255, 228, 168, 0.09), transparent 34%),
-    linear-gradient(90deg, rgba(121, 200, 189, 0.1), transparent 42%),
-    linear-gradient(180deg, rgba(18, 43, 44, 0.82), rgba(7, 18, 23, 0.88));
+    linear-gradient(135deg, rgba(185, 154, 98, 0.07), transparent 34%),
+    linear-gradient(90deg, rgba(106, 154, 151, 0.07), transparent 42%),
+    linear-gradient(180deg, rgba(10, 29, 38, 0.84), rgba(5, 14, 20, 0.9));
   box-shadow:
-    0 0 0 1px rgba(214, 168, 91, 0.72),
-    inset 0 0 0 1px rgba(4, 11, 14, 0.82),
-    0 12px 28px rgba(3, 8, 10, 0.36);
+    inset 0 0 0 1px rgba(216, 208, 183, 0.055),
+    0 12px 28px rgba(3, 8, 10, 0.3);
 }
 
 .pharosville-world-toolbar::before {
@@ -462,7 +452,8 @@ textarea {
   position: absolute;
   inset: 5px;
   pointer-events: none;
-  border: 1px solid rgba(255, 228, 168, 0.12);
+  border: 1px solid rgba(216, 208, 183, 0.075);
+  border-radius: 2px;
 }
 
 .pharosville-world-toolbar__group,
@@ -474,7 +465,7 @@ textarea {
 
 .pharosville-world-toolbar__group + .pharosville-world-toolbar__group,
 .pharosville-world-toolbar__status {
-  border-left: 1px solid rgba(214, 168, 91, 0.26);
+  border-left: 1px solid rgba(185, 154, 98, 0.24);
   padding-left: 7px;
 }
 
@@ -489,30 +480,37 @@ textarea {
   min-width: 36px;
   min-height: 36px;
   place-items: center;
-  border: 2px solid var(--pv-border);
-  border-radius: 0;
+  border: 1px solid var(--pv-border);
+  border-radius: 2px;
   background:
-    linear-gradient(180deg, #173235, #09181e);
+    linear-gradient(180deg, var(--pv-control), var(--pv-control-dark));
   color: var(--pv-parchment);
   cursor: pointer;
   font: inherit;
   font-weight: 900;
   box-shadow:
-    inset 0 0 0 1px rgba(255, 228, 168, 0.14),
-    inset 0 -8px 0 rgba(3, 8, 10, 0.18);
+    inset 0 0 0 1px rgba(216, 208, 183, 0.07),
+    inset 0 -1px 0 rgba(3, 8, 10, 0.58);
 }
 
 .pharosville-hud > [data-testid="pharosville-world-toolbar"] button {
   min-width: 34px;
   min-height: 34px;
-  border-width: 1px;
 }
 
 .pharosville-hud > [data-testid="pharosville-world-toolbar"] button:hover,
 .pharosville-detail-dock button:hover {
-  border-color: var(--pv-gold);
+  border-color: var(--pv-gold-bright);
   color: var(--pv-gold-bright);
   transform: translateY(-1px);
+}
+
+.pharosville-hud > [data-testid="pharosville-world-toolbar"] button[aria-pressed="true"],
+.pharosville-detail-dock button[aria-pressed="true"] {
+  border-color: rgba(106, 154, 151, 0.86);
+  background:
+    linear-gradient(180deg, #12313a, #09202a);
+  color: #e6dfc9;
 }
 
 .pharosville-hud > [data-testid="pharosville-world-toolbar"] button:disabled,
@@ -532,11 +530,11 @@ textarea {
 
 .pharosville-hud > [data-testid="pharosville-world-toolbar"] output {
   min-height: 34px;
-  border: 1px solid rgba(121, 200, 189, 0.28);
-  border-radius: 0;
+  border: 1px solid rgba(106, 154, 151, 0.28);
+  border-radius: 2px;
   padding: 7px 8px;
-  background: rgba(5, 16, 20, 0.78);
-  color: rgba(244, 229, 196, 0.9);
+  background: rgba(4, 14, 20, 0.78);
+  color: rgba(216, 208, 183, 0.9);
   font-size: 0.72rem;
   font-weight: 900;
 }
@@ -557,7 +555,7 @@ textarea {
 .pharosville-detail-dock dl div {
   display: grid;
   gap: 2px;
-  border-left: 2px solid rgba(214, 168, 91, 0.48);
+  border-left: 1px solid rgba(185, 154, 98, 0.5);
   padding-left: 8px;
 }
 
@@ -571,7 +569,7 @@ textarea {
 
 .pharosville-detail-dock dd {
   margin: 0;
-  color: rgba(244, 229, 196, 0.92);
+  color: rgba(216, 208, 183, 0.92);
 }
 
 .pharosville-detail-panel__header {
@@ -585,14 +583,14 @@ textarea {
   right: 0;
   bottom: 0;
   left: 0;
-  height: 3px;
+  height: 1px;
   background:
-    linear-gradient(90deg, var(--pv-gold), rgba(121, 200, 189, 0.58), transparent);
+    linear-gradient(90deg, var(--pv-gold), rgba(106, 154, 151, 0.58), transparent);
 }
 
 .pharosville-detail-panel__kind {
   margin: 0 0 7px;
-  color: #e17c55;
+  color: var(--pv-ruby);
   font-size: 0.72rem;
   font-weight: 900;
   letter-spacing: 0.12em;
@@ -600,21 +598,21 @@ textarea {
 }
 
 .pharosville-detail-panel__section {
-  border-top: 1px solid rgba(214, 168, 91, 0.26);
+  border-top: 1px solid rgba(185, 154, 98, 0.24);
   padding-top: 10px;
   margin-top: 10px;
 }
 
 .pharosville-detail-panel__section--route dl div {
-  border-left-color: rgba(121, 200, 189, 0.6);
+  border-left-color: rgba(106, 154, 151, 0.64);
 }
 
 .pharosville-detail-panel__section--source dl div {
-  border-left-color: rgba(208, 100, 66, 0.5);
+  border-left-color: rgba(190, 110, 85, 0.52);
 }
 
 .pharosville-detail-panel__section--source dd {
-  color: rgba(244, 229, 196, 0.78);
+  color: rgba(216, 208, 183, 0.78);
   font-size: 0.76rem;
   line-height: 1.45;
 }
@@ -645,17 +643,16 @@ textarea {
   width: 46px;
   height: 46px;
   place-items: center;
-  border: 3px solid var(--pv-border);
-  border-radius: 0;
+  border: 1px solid var(--pv-border);
+  border-radius: 2px;
   background:
-    linear-gradient(135deg, rgba(255, 228, 168, 0.1), transparent 34%),
-    linear-gradient(180deg, rgba(23, 50, 53, 0.96), rgba(9, 24, 30, 0.96));
+    linear-gradient(135deg, rgba(185, 154, 98, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(11, 34, 44, 0.96), rgba(7, 24, 33, 0.96));
   color: var(--pv-parchment);
   box-shadow:
-    0 0 0 1px rgba(214, 168, 91, 0.82),
-    inset 0 0 0 1px rgba(4, 11, 14, 0.9),
-    inset 0 -10px 0 rgba(3, 8, 10, 0.18),
-    0 14px 34px rgba(3, 8, 10, 0.42);
+    inset 0 0 0 1px rgba(216, 208, 183, 0.07),
+    inset 0 -1px 0 rgba(3, 8, 10, 0.58),
+    0 12px 30px rgba(3, 8, 10, 0.34);
 }
 
 .pharosville-fullscreen-button {
@@ -668,7 +665,7 @@ textarea {
 
 .pharosville-fullscreen-button:hover,
 .pharosville-home-button:hover {
-  border-color: var(--pv-gold);
+  border-color: var(--pv-gold-bright);
   color: var(--pv-gold-bright);
   transform: translateY(-1px);
 }
