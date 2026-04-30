@@ -2,7 +2,6 @@ import type { IsoCamera, ScreenPoint } from "../systems/projection";
 import { isShipMapVisible, type ShipMotionSample } from "../systems/motion";
 import type { PharosVilleWorld } from "../systems/world-types";
 import type { PharosVilleAssetManager } from "./asset-manager";
-import { sortWorldDrawables, type WorldDrawable } from "./drawable-pass";
 import {
   entityAssetId,
   resolveEntityGeometry,
@@ -55,7 +54,7 @@ export function collectHitTargets(input: {
     ...input.world.graves,
   ];
 
-  const targetRecords = entities.map((entity) => {
+  const targetRecords = entities.map((entity, sortIndex) => {
     const assetId = entityAssetId(entity);
     const asset = assetId ? input.assets?.get(assetId) ?? null : null;
     const geometry = resolveEntityGeometry({
@@ -65,7 +64,7 @@ export function collectHitTargets(input: {
       mapWidth: input.world.map.width,
       shipMotionSamples: input.shipMotionSamples,
     });
-    return { entity, geometry };
+    return { entity, geometry, sortIndex };
   }).filter(({ entity, geometry }) => shouldKeepHitTargetCandidate({
     entity,
     geometry,
@@ -73,19 +72,21 @@ export function collectHitTargets(input: {
     selectedDetailId: input.selectedDetailId ?? null,
     viewport: input.viewport ?? null,
   }));
+  // Sort body-pass drawables by iso depth, then by entity kind, then by the
+  // construction-order numeric index. This mirrors `sortWorldDrawables` for
+  // body-pass drawables, but the per-entity tiebreaker is the numeric
+  // sortIndex assigned at entity-list construction time — replacing the
+  // previous `entity.id.localeCompare(...)` allocation per comparison.
   const visualPriority = new Map<string, number>();
-  sortWorldDrawables(targetRecords.map(({ entity, geometry }): WorldDrawable => ({
-    depth: geometry.depth,
-    detailId: entity.detailId,
-    draw: () => undefined,
-    entityId: entity.id,
-    kind: entity.kind,
-    pass: "body",
-    screenBounds: geometry.targetRect,
-    tieBreaker: entity.id,
-  }))).forEach((drawable, index) => {
-    if (drawable.entityId) visualPriority.set(drawable.entityId, index);
-  });
+  [...targetRecords]
+    .sort((a, b) => (
+      a.geometry.depth - b.geometry.depth
+      || (a.entity.kind < b.entity.kind ? -1 : a.entity.kind > b.entity.kind ? 1 : 0)
+      || a.sortIndex - b.sortIndex
+    ))
+    .forEach(({ entity }, index) => {
+      visualPriority.set(entity.id, index);
+    });
 
   return targetRecords.map(({ entity, geometry }) => {
     return {
