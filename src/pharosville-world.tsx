@@ -52,6 +52,7 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
   const [assetLoadTick, setAssetLoadTick] = useState(0);
   const [assetLoadErrors, setAssetLoadErrors] = useState<PharosVilleAssetLoadError[]>([]);
   const [criticalFramePainted, setCriticalFramePainted] = useState(false);
+  const [criticalAssetAttemptsSettled, setCriticalAssetAttemptsSettled] = useState(false);
   const [criticalAssetsLoaded, setCriticalAssetsLoaded] = useState(false);
   const [deferredAssetsLoaded, setDeferredAssetsLoaded] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(true);
@@ -98,15 +99,22 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
     let active = true;
     criticalFramePaintedRef.current = false;
     deferredLoadStartedRef.current = false;
+    setCriticalFramePainted(false);
+    setCriticalAssetAttemptsSettled(false);
+    setCriticalAssetsLoaded(false);
+    setDeferredAssetsLoaded(false);
     assetManager.loadCritical(controller.signal)
       .then((criticalResult) => {
         if (!active) return;
         setAssetLoadErrors(criticalResult.errors);
-        setCriticalAssetsLoaded(assetManager.areCriticalAssetsLoaded() && criticalResult.errors.length === 0);
+        setCriticalAssetsLoaded(assetManager.areCriticalAssetsLoaded());
+        setCriticalAssetAttemptsSettled(true);
         setAssetLoadTick((tick) => tick + 1);
       })
       .catch((error) => {
         if (!active) return;
+        setCriticalAssetsLoaded(false);
+        setCriticalAssetAttemptsSettled(true);
         setAssetLoadErrors([{
           id: "manifest",
           message: error instanceof Error ? error.message : String(error),
@@ -122,7 +130,7 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
   }, [assetManager]);
 
   useEffect(() => {
-    if (!criticalAssetsLoaded || !criticalFramePainted || deferredLoadStartedRef.current) return;
+    if (!criticalAssetAttemptsSettled || !criticalFramePainted || deferredLoadStartedRef.current) return;
 
     const controller = new AbortController();
     let active = true;
@@ -167,11 +175,14 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
       controller.abort();
       globalThis.clearTimeout(timeoutId);
     };
-  }, [assetManager, criticalAssetsLoaded, criticalFramePainted]);
+  }, [assetManager, criticalAssetAttemptsSettled, criticalFramePainted]);
 
   useEffect(() => {
     const logoSrcs = [
       ...world.docks.map((dock) => dock.logoSrc),
+      ...world.graves
+        .filter((grave) => grave.visual.scale >= 0.41)
+        .map((grave) => grave.logoSrc),
       ...world.ships.map((ship) => ship.logoSrc),
     ]
       .filter((src): src is string => typeof src === "string" && src.startsWith("/"));
@@ -184,7 +195,7 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
     return () => {
       controller.abort();
     };
-  }, [assetManager, world.docks, world.ships]);
+  }, [assetManager, world.docks, world.graves, world.ships]);
 
   useEffect(() => observeReducedMotion(setReducedMotion), []);
 
@@ -283,7 +294,7 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
         ...renderMetrics,
         drawDurationMs: performance.now() - drawStartedAt,
       };
-      if (criticalAssetsLoaded && !criticalFramePaintedRef.current) {
+      if (criticalAssetAttemptsSettled && !criticalFramePaintedRef.current) {
         criticalFramePaintedRef.current = true;
         setCriticalFramePainted(true);
       }
@@ -309,7 +320,7 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
       animationFramePendingRef.current = false;
       if (frameId) cancelAnimationFrame(frameId);
     };
-  }, [assetLoadTick, assetManager, camera, canvasSize.x, canvasSize.y, criticalAssetsLoaded, hoveredDetailId, motionPlan, reducedMotion, selectedDetailId, world]);
+  }, [assetLoadTick, assetManager, camera, canvasSize.x, canvasSize.y, criticalAssetAttemptsSettled, hoveredDetailId, motionPlan, reducedMotion, selectedDetailId, world]);
 
   useEffect(() => {
     if (import.meta.env.PROD && window.location.hostname !== "localhost") return;
@@ -329,6 +340,7 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
       assetLoadErrors,
       assetLoadStats: assetManager.getLoadStats(),
       assetsLoaded: criticalAssetsLoaded && deferredAssetsLoaded,
+      criticalAssetAttemptsSettled,
       criticalAssetsLoaded,
       deferredAssetsLoaded,
       activeMotionLoopCount: reducedMotion || !animationFramePendingRef.current ? 0 : 1,
@@ -349,7 +361,7 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
     return () => {
       delete debugWindow.__pharosVilleDebug;
     };
-  }, [assetLoadErrors, assetManager, camera, canvasSize, criticalAssetsLoaded, deferredAssetsLoaded, hoveredDetailId, motionPlan, reducedMotion, selectedDetailAnchor, selectedDetailId, world]);
+  }, [assetLoadErrors, assetManager, camera, canvasSize, criticalAssetAttemptsSettled, criticalAssetsLoaded, deferredAssetsLoaded, hoveredDetailId, motionPlan, reducedMotion, selectedDetailAnchor, selectedDetailId, world]);
 
   const canvasPoint = useCallback((event: ReactPointerEvent<HTMLCanvasElement> | ReactWheelEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -616,6 +628,7 @@ type PharosVilleDebugState = {
   camera: IsoCamera | null;
   cameraWithinBounds: boolean;
   assetsLoaded: boolean;
+  criticalAssetAttemptsSettled: boolean;
   criticalAssetsLoaded: boolean;
   deferredAssetsLoaded: boolean;
   canvasBudget: ReturnType<typeof resolveCanvasBudget> | null;

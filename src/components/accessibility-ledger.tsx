@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { PharosVilleWorld } from "../systems/world-types";
 
 const compactUsd = new Intl.NumberFormat("en-US", {
@@ -17,7 +18,7 @@ export interface AccessibilityLedgerProps {
   headingId?: string;
 }
 
-export function AccessibilityLedger({
+function AccessibilityLedgerContent({
   world,
   headingId = "pharosville-accessibility-ledger-title",
 }: AccessibilityLedgerProps) {
@@ -113,6 +114,8 @@ export function AccessibilityLedger({
     </section>
   );
 }
+
+export const AccessibilityLedger = memo(AccessibilityLedgerContent);
 
 function pluralize(count: number, singular: string, plural: string = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
