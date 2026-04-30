@@ -1,4 +1,22 @@
+import { AMBIENT_SEA_HZ, AMBIENT_WIND_HZ } from "./motion-config";
 import type { ShipWaterZone } from "./world-types";
+
+const TWO_PI = Math.PI * 2;
+
+interface AmbientPhaseSource {
+  readonly reducedMotion: boolean;
+  readonly timeSeconds: number;
+}
+
+export function ambientWindPhase(motion: AmbientPhaseSource, offset = 0): number {
+  if (motion.reducedMotion) return 0;
+  return Math.sin(motion.timeSeconds * AMBIENT_WIND_HZ * TWO_PI + offset);
+}
+
+export function ambientSeaPhase(motion: AmbientPhaseSource, offset = 0): number {
+  if (motion.reducedMotion) return 0;
+  return Math.sin(motion.timeSeconds * AMBIENT_SEA_HZ * TWO_PI + offset);
+}
 
 export interface ShipWaterPath {
   from: { x: number; y: number };

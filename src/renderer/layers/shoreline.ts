@@ -1,3 +1,4 @@
+import { ambientSeaPhase } from "../../systems/motion-types";
 import { waterTerrainStyle, type WaterTerrainStyle, type WaterTextureKind } from "../../systems/palette";
 import { TILE_HEIGHT, TILE_WIDTH, tileToScreen } from "../../systems/projection";
 import { isWaterTileKind } from "../../systems/world-layout";
@@ -178,9 +179,7 @@ function drawNearshoreWaterMotif(
   tileY: number,
   motion: PharosVilleCanvasMotion,
 ) {
-  const time = motion.reducedMotion ? 0 : motion.timeSeconds;
-  const phase = time + tileX * 0.23 + tileY * 0.31;
-  const drift = motion.reducedMotion ? 0 : Math.sin(phase * 0.8) * 0.9 * zoom;
+  const drift = ambientSeaPhase(motion, tileX * 0.23 + tileY * 0.31) * 0.9 * zoom;
   const seed = (tileX * 19 + tileY * 23) % 6;
 
   ctx.save();

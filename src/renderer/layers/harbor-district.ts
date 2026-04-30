@@ -1,9 +1,10 @@
+import { ambientSeaPhase } from "../../systems/motion-types";
 import { ETHEREUM_L2_DOCK_CHAIN_IDS } from "../../systems/world-layout";
 import type { PharosVilleWorld } from "../../systems/world-types";
 import { tileToScreen, type IsoCamera, type ScreenPoint } from "../../systems/projection";
 import { drawAsset, drawDiamond } from "../canvas-primitives";
 import { dockDrawPoint } from "../geometry";
-import type { DrawPharosVilleInput } from "../render-types";
+import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
 
 const CENTRAL_ISLAND_MODEL_TILE = { x: 31.0, y: 39.0 } as const;
 const CENTRAL_ISLAND_MODEL_SCALE = 1.08;
@@ -79,8 +80,8 @@ export function drawEthereumHarborExtensions({ camera, ctx, motion, world }: Dra
   drawDistrictPad(ctx, camera, { x: 40.4, y: 35.2 }, 90, 30, "rgba(42, 50, 48, 0.34)", "rgba(197, 176, 125, 0.16)");
   for (const [index, dock] of extensionDocks.entries()) {
     const point = dockDrawPoint(dock, camera, world.map.width);
-    drawRollupExtensionCauseway(ctx, anchor, point, camera.zoom, index, extensionDocks.length, time);
-    drawRollupExtensionSlip(ctx, point, camera.zoom, dock.size, index, time);
+    drawRollupExtensionCauseway(ctx, anchor, point, camera.zoom, index, extensionDocks.length, motion);
+    drawRollupExtensionSlip(ctx, point, camera.zoom, dock.size, index, motion);
   }
   drawRollupHubMark(ctx, anchor, camera.zoom, extensionDocks.length, time);
   ctx.restore();
@@ -93,13 +94,13 @@ function drawRollupExtensionCauseway(
   zoom: number,
   index: number,
   total: number,
-  time: number,
+  motion: PharosVilleCanvasMotion,
 ) {
   const side = index - (total - 1) / 2;
   const bend = Math.max(-26, Math.min(26, side * 9)) * zoom;
   const midX = (from.x + to.x) / 2 + bend;
   const midY = (from.y + to.y) / 2 - (12 + Math.abs(side) * 2.5) * zoom;
-  const pulse = 0.22 + Math.sin(time * 0.85 + index * 0.7) * 0.04;
+  const pulse = 0.22 + ambientSeaPhase(motion, index * 0.7) * 0.04;
 
   ctx.save();
   ctx.lineCap = "round";
@@ -134,12 +135,12 @@ function drawRollupExtensionSlip(
   zoom: number,
   dockSize: number,
   index: number,
-  time: number,
+  motion: PharosVilleCanvasMotion,
 ) {
   const scale = Math.max(0.72, zoom);
   const width = (34 + dockSize * 0.8) * scale;
   const height = (12 + dockSize * 0.28) * scale;
-  const shimmer = 0.2 + Math.sin(time * 0.72 + index) * 0.035;
+  const shimmer = 0.2 + ambientSeaPhase(motion, index) * 0.035;
   ctx.save();
   drawDiamond(ctx, point.x, point.y + 12 * scale, width * 1.35, height * 1.45, "rgba(5, 8, 10, 0.26)");
   drawDiamond(ctx, point.x, point.y + 9 * scale, width, height, "rgba(73, 67, 55, 0.54)");

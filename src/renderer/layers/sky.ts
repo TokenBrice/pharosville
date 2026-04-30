@@ -1,3 +1,4 @@
+import { ambientWindPhase } from "../../systems/motion-types";
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
 import { lighthouseRenderState, type LighthouseRenderState } from "./lighthouse";
 
@@ -346,10 +347,9 @@ function drawSkyClouds(
   state: ReturnType<typeof skyState>,
   motion: PharosVilleCanvasMotion,
 ) {
-  const time = motion.reducedMotion ? 0 : motion.timeSeconds;
   ctx.save();
   for (const cloud of SKY_CLOUDS) {
-    const drift = Math.sin(time * 0.035 + cloud.x * 8) * 22 * zoom;
+    const drift = ambientWindPhase(motion, cloud.x * 8) * 22 * zoom;
     ctx.strokeStyle = state.mood.mist.replace(/[\d.]+\)$/, `${cloud.alpha})`);
     ctx.lineWidth = Math.max(1, 5 * zoom);
     ctx.beginPath();

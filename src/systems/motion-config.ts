@@ -1,6 +1,9 @@
 import { SHIP_WATER_ANCHORS } from "./risk-water-areas";
 import type { ShipWaterZone } from "./world-types";
 
+export const AMBIENT_WIND_HZ = 0.04;
+export const AMBIENT_SEA_HZ = 0.7;
+
 export const BAND_FIRE_FLICKER_SPEED: Record<string, number> = {
   critical: 0.18,
   danger: 0.28,
