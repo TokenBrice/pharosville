@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
 import { Home, Maximize2, Minimize2 } from "lucide-react";
 import { AccessibilityLedger } from "./components/accessibility-ledger";
@@ -18,7 +18,7 @@ import { zoomCameraAt, type IsoCamera, type ScreenPoint } from "./systems/projec
 import { observeReducedMotion } from "./systems/reduced-motion";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "./systems/world-types";
 
-export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
+function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const [assetManager] = useState(() => new PharosVilleAssetManager());
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dragRef = useRef<{ last: ScreenPoint; moved: boolean; pointerId: number } | null>(null);
@@ -579,6 +579,11 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
     </main>
   );
 }
+
+// Memoized so re-renders triggered by parent (e.g. from React Query refetches that
+// produce identical payloads) don't reach the canvas component when `world` reference
+// is stable. Pairs with the structural-compare cache in `pharosville-desktop-data.tsx`.
+export const PharosVilleWorld = memo(PharosVilleWorldInner);
 
 interface DetailAnchor extends ScreenPoint {
   side: "left" | "right";
