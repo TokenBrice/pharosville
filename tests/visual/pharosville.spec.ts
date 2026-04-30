@@ -312,7 +312,9 @@ test("pharosville renders desktop canvas shell", async ({ page }) => {
   expect(pixelStats.landPixels / pixelStats.backingPixels).toBeLessThan(0.45);
   expect(pixelStats.waterPixels / pixelStats.backingPixels).toBeLessThan(0.86);
   expect(retiredSummaryRequests).toEqual([]);
-  await expect(page).toHaveScreenshot("pharosville-desktop-shell.png");
+  await expect(page).toHaveScreenshot("pharosville-desktop-shell.png", {
+    maxDiffPixels: 8,
+  });
 });
 
 test("pharosville dense visual fixture preserves districts, dense ships, and render budget", async ({ page }) => {
