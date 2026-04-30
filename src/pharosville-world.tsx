@@ -59,6 +59,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const [criticalAssetsLoaded, setCriticalAssetsLoaded] = useState(false);
   const [deferredAssetsLoaded, setDeferredAssetsLoaded] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(true);
+  const [paintRequestTick, setPaintRequestTick] = useState(0);
   const shellRef = useRef<HTMLElement | null>(null);
   const { exitFullscreen, fullscreenMode, toggleFullscreen } = useFullscreenMode(shellRef);
   const baseMotionPlan = useMemo(() => buildBaseMotionPlan(world), [world]);
@@ -331,6 +332,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       const renderMetrics = drawPharosVille({
         camera: activeCamera,
         ctx,
+        dpr,
         height: activeCanvasSize.y,
         hoveredTarget: nextHoveredTarget,
         motion: {
@@ -377,7 +379,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       accSecondsRef.current = 0;
       if (frameId) cancelAnimationFrame(frameId);
     };
-  }, [assetLoadTick, assetManager, cameraReady, canvasSize.x, canvasSize.y, reducedMotion, world]);
+  }, [assetLoadTick, assetManager, cameraReady, canvasSize.x, canvasSize.y, paintRequestTick, reducedMotion, world]);
 
   useEffect(() => {
     if (import.meta.env.PROD && window.location.hostname !== "localhost") return;
@@ -451,7 +453,8 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   // transitions are handled in-frame by the RAF effect via cell-hash diffing.
   useEffect(() => {
     recomputeHitTargets();
-  }, [camera, canvasSize.x, canvasSize.y, hoveredDetailId, recomputeHitTargets, selectedDetailId]);
+    if (reducedMotion) setPaintRequestTick((t) => t + 1);
+  }, [camera, canvasSize.x, canvasSize.y, hoveredDetailId, recomputeHitTargets, reducedMotion, selectedDetailId]);
 
   const updateHover = useCallback((point: ScreenPoint) => {
     const target = hitTest(currentHitTargetsRef.current, point);
