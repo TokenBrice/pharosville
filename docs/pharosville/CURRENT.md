@@ -15,6 +15,26 @@ route-local chrome. It is not a ClaudeVille port; ClaudeVille contributed the
 quality bar and validation habits, not its lore, fantasy-village objects,
 agent mechanics, copy voice, or data semantics.
 
+The current main-island revamp from
+`agents/pharosville-main-island-revamp-plan.md` is implemented as a coordinated
+layout, asset, renderer, test, and docs change:
+
+- The accepted water-ratio target is 85.2-85.6% by tile count; the measured map
+  ratio is about 85.4%.
+- Baseline main-island land tiles were 592, excluding the cemetery islet. The
+  compact island has 393 main-island land tiles, a 33.6% reduction.
+- `LIGHTHOUSE_TILE` remains `{ x: 18, y: 28 }` and the visual-clearance box
+  remains `x:14..24, y:23..32`.
+- Runtime asset cache version is
+  `2026-04-30-pharosville-main-island-revamp-v2`; the manifest-wide style
+  anchor remains `2026-04-29-lighthouse-hill-v5` so all asset provenance stays
+  validator-aligned.
+- Promoted PixelLab assets are `overlay.central-island`
+  (`25ee8636-32f7-4aa1-bb29-f924cbb4fc01`),
+  `landmark.lighthouse` (`c47c36c5-dd3e-4721-923f-9e5852400f65`), and
+  `dock.compact-harbor-pier` (`31155966-7d76-413a-bd7b-557f79cffc9f`), with
+  ImageMagick cleanup/cropping before runtime promotion.
+
 Historical plans in this directory are context, not live instructions. If they conflict with this file, follow this file and the verified docs.
 
 ## Runtime Entry Points
@@ -67,18 +87,18 @@ Edge-anchored compound masks (current iteration as of 2026-04-30):
 
 The eastern corner is covered by overlapping ALERT+WARNING+DANGER water, with
 Warning Shoals touching the Danger Strait shelf rather than leaving a generic
-water gap. Two-tile island periphery and lighthouse visual-clearance box
-(x:14..24, y:23..32) are generic water.
+water gap. The four-tile Chebyshev island periphery and lighthouse
+visual-clearance box (x:14..24, y:23..32) are generic water.
 - Stale or missing peg evidence maps to Calm Anchorage with an evidence caveat unless a fresher risk signal exists; it must not create a separate sea zone or masquerade as storm/depeg risk.
 - Stablecoin supply values from the list payload are already USD-denominated. Use `getCirculatingRaw()` for market-cap visual tiers.
 - Local runtime assets come from `public/pharosville/assets/` and `manifest.json`. Do not reference remote prototype URLs at runtime.
-- Treat `public/pharosville/assets/manifest.json` and `npm run check:pharosville-assets` as the asset inventory source of truth. At this update, the manifest contains 32 runtime assets split by `loadPriority` into 22 critical/first-render entries and 10 deferred entries; rerun the validator instead of hand-maintaining prose counts.
+- Treat `public/pharosville/assets/manifest.json` and `npm run check:pharosville-assets` as the asset inventory source of truth. At this update, the manifest contains 34 runtime assets split by `loadPriority` into 24 critical/first-render entries and 10 deferred entries; rerun the validator instead of hand-maintaining prose counts.
 
 ## Current Visual Model
 
 - Chain harbors are built from top chain supply and capped by `MAX_CHAIN_HARBORS` in `chain-docks.ts`.
 - The authored map is `56 x 56` tiles. Deep outer water is intentionally a narrow perimeter shelf, not a large default border.
-- The current composition target is 78-82% water by tile count with a tighter default camera and more coast/district density.
+- The current composition target is 85.2-85.6% water by tile count after the compact main-island revamp. Tests pin both water ratio and the 393-tile main-island land count, excluding the cemetery islet.
 - Named sea areas use printed cartographic water labels backed by
   `systems/area-labels.ts`; renderer drawing, hit targets, and follow-selected
   behavior must use the same placement metadata.
@@ -97,7 +117,7 @@ water gap. Two-tile island periphery and lighthouse visual-clearance box
 - Ship size is a compressed market-cap tier, not linear area.
 - The current runtime manifest uses schema v2. `style.cacheVersion` controls image cache busting; `style.styleAnchorVersion` is the provenance/style anchor for generated assets.
 - Asset loading is intentionally staged: the route loads the manifest and critical/first-render sprites before the initial canvas frame, then loads deferred sprite families after the core scene can render. Do not move visual-only sprites into the critical set without checking first-render need and the manifest cap.
-- The current lighthouse asset is `landmark.lighthouse` at `public/pharosville/assets/landmarks/lighthouse-alexandria.png`, with manifest cache version `2026-04-30-pharosville-island-harbor-recompose-v1` and style anchor `2026-04-29-lighthouse-hill-v5`.
+- The current lighthouse asset is `landmark.lighthouse` at `public/pharosville/assets/landmarks/lighthouse-alexandria.png`, with manifest cache version `2026-04-30-pharosville-main-island-revamp-v2` and style anchor `2026-04-29-lighthouse-hill-v5`.
 - Current ship sprites share the lighthouse style anchor, keep logo-safe sail/pennant zones, and treat overlays as small lanterns/pennants/signals rather than badges. Standard class hulls use 104 x 80 transparent PNGs; USDC and USDT use dedicated larger titan hull PNGs, with USDT allowed to read up to roughly 40% larger than USDC.
 - Current cemetery props share the same style anchor and use a local memorial sprite set under `public/pharosville/assets/props/`: `memorial-terrace`, `memorial-headstone`, `ledger-slab`, `reliquary-marker`, and `regulatory-obelisk`.
 

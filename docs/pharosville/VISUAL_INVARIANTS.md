@@ -21,7 +21,8 @@ These are the non-negotiable visual/data contracts for the PharosVille world. A 
 
 ## Geography
 
-- The current map acceptance target is a sea-first isometric island with roughly 78-82% water by tile count. Treat that as the current route contract, but update this file and tests if an intentional layout plan changes the target.
+- The current map acceptance target is a sea-first isometric island with roughly 85.2-85.6% water by tile count after the compact main-island revamp.
+- The compact main island is pinned to 393 main-island land tiles, excluding the cemetery islet, down from the 592-tile baseline. This shrink must preserve the authored `56 x 56` map, current named DEWS sea-zone semantics, Ledger Mooring as the only non-DEWS named risk-water area, ship route semantics, same-origin `/api/*`, and the desktop gate.
 - The lighthouse stays on the generated central-island mountain at `LIGHTHOUSE_TILE`.
 - The eastern and southern coves keep Ethereum, Base, Arbitrum, Optimism, Polygon, and Mantle in preferred dock positions when those chains are rendered.
 - Docks are capped by `MAX_CHAIN_HARBORS`; they reserve the Ethereum/L2 harbor cluster when present, then fill remaining slots by chain stablecoin supply.
@@ -32,11 +33,11 @@ These are the non-negotiable visual/data contracts for the PharosVille world. A 
 - DEWS zone edge anchoring uses compound/coast-aware masks rather than rectangles:
   - CALM ANCHORAGE → x=0 large left-edge vertical basin
   - WATCH BREAKWATER → y=0 wide top-edge band
-  - ALERT CHANNEL → lower-right outer ring, not hard-snapped to an edge
-  - WARNING SHOALS → lower-right middle ring, not hard-snapped to an edge
-  - DANGER STRAIT → lower-right inner/right storm ring
-- Lower-right basin is covered by overlapping ALERT/WARNING/DANGER water
-- Two-tile island periphery (islandValue 1.0–1.10) is reserved as generic water
+  - ALERT CHANNEL -> eastern-corner outer ring, anchored to the x=55 edge
+  - WARNING SHOALS -> eastern-corner middle ring, bridged into Danger Strait
+  - DANGER STRAIT -> eastern-corner inner/right storm ring
+- The eastern corner is covered by overlapping ALERT/WARNING/DANGER water
+- Four-tile Chebyshev island periphery is reserved as generic water
 - Water tiles inside lighthouse visual clearance (x:14..24, y:23..32) stay generic water (lighthouse sprite breathing room)
 - Ledger Mooring should remain a quiet owned basin below the harbor in ledger water. Freeze/blacklist tracker activity remains outside PharosVille and belongs to the `/blacklist/` product surface.
 
@@ -72,6 +73,7 @@ These are the non-negotiable visual/data contracts for the PharosVille world. A 
 - Local runtime art comes from `public/pharosville/assets/manifest.json`; no generated remote URLs or prototype paths at runtime.
 - Manifest assets must stay local PNGs with `critical` or `deferred` load priority, accurate dimensions, anchors, footprints, hitboxes, category/layer metadata, and prompt provenance when generated.
 - The current v0.1 manifest budget is 34 total runtime assets; first-render/critical membership should stay narrow and justified by visible initial-frame need.
+- The main-island revamp replaces existing island, lighthouse, and dock asset IDs in place. Keep critical/first-render membership stable unless a visible initial-frame need is documented.
 - Hit boxes must track rendered geometry, not just tile centers.
 - Asset geometry changes require manifest updates and hit-testing/visual validation.
 - Canvas backing store must remain bounded by the canvas budget.

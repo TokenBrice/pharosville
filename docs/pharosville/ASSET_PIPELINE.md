@@ -33,6 +33,31 @@ Use `PIXELLAB_MCP.md` for PixelLab-specific tool selection, prompt construction,
 review-pack handling, provenance, and cleanup. The short guidance below remains
 the shared style contract for any image-generation path.
 
+## Main-Island Revamp Asset Handoff
+
+For the main-island revamp, the selected production PNGs are promoted in place:
+
+- Replace runtime assets in place first: `overlay.central-island`,
+  `landmark.lighthouse`, and only the dock IDs that are actually regenerated.
+- Do not add new runtime IDs or move extra assets into first-render loading
+  unless a measured visual need and budget impact are recorded.
+- Prefer current manifest dimensions for replacements. If PixelLab returns
+  square or oversized output, crop or pad in scratch space before promotion
+  rather than silently increasing decoded-pixel cost.
+- Keep promoted files local under `public/pharosville/assets/**`; never commit
+  PixelLab scratch output, remote URLs, tokens, or review-pack links.
+- Record accepted PixelLab object/job IDs in `promptProvenance.jobId` and set
+  `promptProvenance.styleAnchorVersion` to the manifest style anchor. Current
+  promoted IDs are `25ee8636-32f7-4aa1-bb29-f924cbb4fc01` for
+  `overlay.central-island`, `c47c36c5-dd3e-4721-923f-9e5852400f65` for
+  `landmark.lighthouse`, and `31155966-7d76-413a-bd7b-557f79cffc9f` for
+  `dock.compact-harbor-pier`. Current cache version is
+  `2026-04-30-pharosville-main-island-revamp-v2`; the style anchor remains
+  `2026-04-29-lighthouse-hill-v5`.
+- Re-check renderer assumptions for central overlay placement, lighthouse crop,
+  beacon point, hitbox, selection ring, and dock flag/logo offsets before
+  updating screenshots.
+
 ## Image Generation Guidance
 
 Use transparent PNG map-object generation for standalone sprites and tile generation for repeatable terrain. Keep prompts consistent with the manifest style anchor:
@@ -40,6 +65,13 @@ Use transparent PNG map-object generation for standalone sprites and tile genera
 ```text
 old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI
 ```
+
+For main-island revamp assets, extend the prompt with: compact Pharos maritime
+observatory island, terraced pale limestone cliffs and seawalls, terracotta roof
+accents, dark timber piers and quay decks, oxidized bronze beacon hardware,
+warm harbor lights, cool teal water-bounce on lower edges, and dark contact
+shadows. Keep `no text`, `no logos`, `no UI`, `no ships`, and no analytical
+status colors.
 
 ## Sprite Bible
 

@@ -40,6 +40,26 @@ Use focused entries while developing:
 | Reduced motion | `npx playwright test tests/visual/pharosville.spec.ts --grep "reduced motion"` | Static ship samples, no RAF loop, and live reduced-motion preference changes. |
 | Normal motion | `npx playwright test tests/visual/pharosville.spec.ts --grep "normal motion"` | Bounded RAF startup, moving ship samples, moving target hitboxes, and route facts in detail/ledger. |
 
+## Main-Island Revamp Review Notes
+
+Use these notes for the compact main-island revamp:
+
+- Desktop shell should prove the new compact island is intentionally smaller,
+  with the 85.2-85.6% water-ratio target documented in tests and docs.
+- Dense lighthouse crop should check the final lighthouse tile, beacon point,
+  hitbox, selection ring, visual-clearance box, and nearby water labels together.
+- Dense EVM bay crop should verify re-authored dock coordinates, outward
+  mooring water, Ethereum hub backgrounding, L2 bay grouping, sign placement,
+  and ship readability around the tighter coast.
+- Dense civic core crop should confirm the new central overlay matches the
+  generated land mask, harbor slots, lighthouse socket, and depth sorting.
+- Dense risk-water and named-risk-water entries should confirm Calm Anchorage,
+  Watch Breakwater, Alert Channel, Warning Shoals, Danger Strait, and Ledger
+  Mooring keep their labels, hit targets, and semantic colors after the island
+  periphery is recalibrated.
+- Narrow and short fallback screenshots should remain unchanged: no world data,
+  manifest, canvas, or sprite decode below `1280 x 760`.
+
 ## Historical Review Images
 
 Historical visual-review images and handoff notes from the old planning archive were context only, not current acceptance baselines. Use this file, current tests, and fresh screenshots to approve new pixels.
@@ -52,7 +72,7 @@ Use this checklist when approving screenshot changes:
 - The lighthouse, EVM bay, cemetery, civic spine, DEWS water areas, and Ledger Mooring are all visually distinguishable.
 - The revamp quality comes from authored material detail, local lighting, shoreline/harbor texture, sprite density, draw ordering, and UI polish; it must not rely on decorative copy or unexplained scenery.
 - The DEWS sea reads as a clear escalation route matching the current compound masks: Calm Anchorage fills the large left-edge vertical basin, Watch Breakwater owns the wide top-edge band, Alert Channel, Warning Shoals, and Danger Strait occupy overlapping eastern-corner rings with Danger snapped to the angled shelf, and Ledger Mooring reads as quiet ledger water along the bottom edge away from top-chain harbor traffic.
-- The default composition stays around 78-82% water while still showing enough coast, piers, islets, and districts to feel authored rather than empty.
+- The default composition currently stays around 85.2-85.6% water while still showing enough coast, piers, islets, and districts to feel authored rather than empty.
 - Terrain sprites add texture, but semantic overlay colors still make calm/watch/alert/warning/danger/ledger water distinguishable.
 - Ships remain readable at default zoom; very large stablecoins are capped rather than overwhelming the map.
 - Dock flags/logos identify chain harbors without becoming large label boards.
