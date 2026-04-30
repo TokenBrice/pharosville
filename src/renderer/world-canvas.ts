@@ -11,7 +11,7 @@ import { drawCemeteryContext, drawCemeteryGround, drawCemeteryMist } from "./lay
 import { drawCentralIslandModel, drawEthereumHarborExtensions, drawHarborDistrictGround } from "./layers/harbor-district";
 import { drawTerrain } from "./layers/terrain";
 import { drawEthereumHarborSigns, drawWaterAreaLabels } from "./layers/water-labels";
-import { drawLighthouseBody, drawLighthouseHeadland, drawLighthouseOverlay, drawLighthouseSurf, lighthouseOverlayScreenBounds, lighthouseRenderState, type LighthouseRenderState } from "./layers/lighthouse";
+import { drawLighthouseBeamRim, drawLighthouseBody, drawLighthouseHeadland, drawLighthouseOverlay, drawLighthouseSurf, lighthouseOverlayScreenBounds, lighthouseRenderState, type LighthouseRenderState } from "./layers/lighthouse";
 import { drawSelection } from "./layers/selection";
 import { drawCoastalWaterDetails } from "./layers/shoreline";
 import { drawSky } from "./layers/sky";
@@ -160,6 +160,7 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   drawEthereumHarborExtensions(input);
   drawLighthouseSurf(input);
   const entityMetrics = drawEntityPass(input, frame);
+  drawLighthouseBeamRim(input, frame.visibleShips, frame.lighthouseRender);
   drawWaterAreaLabels(input);
   drawEthereumHarborSigns(input);
   drawDecorativeLights(input);

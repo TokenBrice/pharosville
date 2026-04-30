@@ -279,6 +279,43 @@ function drawLighthouseFire(
   ctx.fillStyle = "#9a5a2a";
   ctx.fillRect(-9, 6, 18, 3);
   ctx.restore();
+
+  drawHearthEmbers(ctx, point, zoom, psiColor, motion);
+}
+
+const EMBER_MOTES: ReadonlyArray<{ dx: number; dy: number; r: number }> = [
+  { dx: -8, dy: -14, r: 1.2 },
+  { dx: 4, dy: -22, r: 1.4 },
+  { dx: -2, dy: -8, r: 1 },
+  { dx: 9, dy: -12, r: 1.3 },
+  { dx: -10, dy: -2, r: 1 },
+  { dx: 7, dy: -28, r: 1.1 },
+];
+
+function drawHearthEmbers(
+  ctx: CanvasRenderingContext2D,
+  point: ScreenPoint,
+  zoom: number,
+  psiColor: string,
+  motion: PharosVilleCanvasMotion,
+) {
+  const flickerSpeed = motion.plan.lighthouseFireFlickerPerSecond;
+  ctx.save();
+  ctx.fillStyle = psiColor;
+  for (let index = 0; index < EMBER_MOTES.length; index += 1) {
+    const mote = EMBER_MOTES[index]!;
+    const alpha = motion.reducedMotion
+      ? 0.5
+      : 0.5 + 0.5 * Math.sin(motion.timeSeconds * flickerSpeed * Math.PI * 2 + index * 1.7);
+    ctx.globalAlpha = alpha;
+    const px = point.x + mote.dx * zoom;
+    const py = point.y + mote.dy * zoom;
+    const radius = Math.max(1, mote.r * zoom);
+    ctx.beginPath();
+    ctx.arc(px, py, radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
 }
 
 function drawLighthouseBeam(
@@ -314,6 +351,93 @@ function drawLighthouseBeam(
   ctx.ellipse(point.x, point.y - 2 * zoom, 58 * zoom, 24 * zoom, -0.08, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
+}
+
+export function drawLighthouseBeamRim(
+  input: DrawPharosVilleInput,
+  visibleShips: readonly DrawPharosVilleInput["world"]["ships"][number][],
+  cached?: LighthouseRenderState,
+) {
+  const { camera, ctx, motion, world } = input;
+  if (motion.reducedMotion) return;
+  if (world.lighthouse.unavailable) return;
+
+  const { firePoint } = cached ?? lighthouseRenderState(input);
+  const beamZoom = camera.zoom * 1.35;
+  const wedges = [
+    {
+      apex: { x: firePoint.x + 4 * beamZoom, y: firePoint.y - 2 * beamZoom },
+      a: { x: firePoint.x + 250 * beamZoom, y: firePoint.y - 74 * beamZoom },
+      b: { x: firePoint.x + 228 * beamZoom, y: firePoint.y + 28 * beamZoom },
+    },
+    {
+      apex: { x: firePoint.x - 5 * beamZoom, y: firePoint.y },
+      a: { x: firePoint.x - 168 * beamZoom, y: firePoint.y - 42 * beamZoom },
+      b: { x: firePoint.x - 154 * beamZoom, y: firePoint.y + 25 * beamZoom },
+    },
+  ];
+
+  ctx.save();
+  ctx.globalAlpha = 0.5;
+  ctx.strokeStyle = world.lighthouse.color;
+  ctx.lineWidth = Math.max(1, 2);
+  ctx.lineCap = "round";
+
+  for (const ship of visibleShips) {
+    const sample = input.shipMotionSamples?.get(ship.id);
+    const tile = sample?.tile ?? ship.tile;
+    const screen = tileToScreen(tile, camera);
+    const shipScale = camera.zoom * ship.visual.scale * 0.7;
+    // Approximate sail bbox: sits above the ship anchor, ~28×28 sprite-units.
+    const bboxWidth = 28 * shipScale;
+    const bboxHeight = 28 * shipScale;
+    const bboxX = screen.x - bboxWidth / 2;
+    const bboxY = screen.y + 12 * camera.zoom - 30 * shipScale;
+    const corners = [
+      { x: bboxX, y: bboxY },
+      { x: bboxX + bboxWidth, y: bboxY },
+      { x: bboxX, y: bboxY + bboxHeight },
+      { x: bboxX + bboxWidth, y: bboxY + bboxHeight },
+    ];
+
+    let intersectingWedge: typeof wedges[number] | null = null;
+    for (const wedge of wedges) {
+      if (corners.some((corner) => pointInTriangle(corner, wedge.apex, wedge.a, wedge.b))) {
+        intersectingWedge = wedge;
+        break;
+      }
+    }
+    if (!intersectingWedge) continue;
+
+    // Brighten the bbox edge nearest the beam apex.
+    const apex = intersectingWedge.apex;
+    const dxLeft = Math.abs(apex.x - bboxX);
+    const dxRight = Math.abs(apex.x - (bboxX + bboxWidth));
+    ctx.beginPath();
+    if (dxLeft <= dxRight) {
+      ctx.moveTo(bboxX, bboxY);
+      ctx.lineTo(bboxX, bboxY + bboxHeight);
+    } else {
+      ctx.moveTo(bboxX + bboxWidth, bboxY);
+      ctx.lineTo(bboxX + bboxWidth, bboxY + bboxHeight);
+    }
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+function pointInTriangle(p: ScreenPoint, a: ScreenPoint, b: ScreenPoint, c: ScreenPoint): boolean {
+  const d1 = sign(p, a, b);
+  const d2 = sign(p, b, c);
+  const d3 = sign(p, c, a);
+  const hasNeg = d1 < 0 || d2 < 0 || d3 < 0;
+  const hasPos = d1 > 0 || d2 > 0 || d3 > 0;
+  return !(hasNeg && hasPos);
+}
+
+function sign(p: ScreenPoint, a: ScreenPoint, b: ScreenPoint): number {
+  return (p.x - b.x) * (a.y - b.y) - (a.x - b.x) * (p.y - b.y);
 }
 
 function drawPixelFlame(ctx: CanvasRenderingContext2D, points: Array<[number, number]>, color: string) {
