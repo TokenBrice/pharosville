@@ -20,6 +20,7 @@ import {
   makeReportCard,
 } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld, SHIP_WATER_ANCHORS } from "./pharosville-world";
+import { riskWaterAreaForPlacement } from "./risk-water-areas";
 import {
   isWaterTileKind,
   terrainKindAt,
@@ -99,7 +100,7 @@ describe("buildPharosVilleWorld", () => {
     expect(world.visualCues.map((cue) => cue.id).filter((id) => id.startsWith("cue.building."))).toEqual([]);
   });
 
-  it("spreads safe ships across the western calm anchorage", () => {
+  it("spreads ships across their resolved semantic water placements", () => {
     const ids = Array.from(ACTIVE_IDS).slice(0, 36);
     const world = buildPharosVilleWorld({
       stablecoins: {
@@ -120,13 +121,21 @@ describe("buildPharosVilleWorld", () => {
       cemeteryEntries: [],
       freshness: {},
     });
-    const xs = world.ships.map((ship) => ship.riskTile.x);
-    const ys = world.ships.map((ship) => ship.riskTile.y);
+    const calmShips = world.ships.filter((ship) => ship.riskPlacement === "safe-harbor");
+    const navShips = world.ships.filter((ship) => ship.riskPlacement === "ledger-mooring");
+    const xs = calmShips.map((ship) => ship.riskTile.x);
+    const ys = calmShips.map((ship) => ship.riskTile.y);
 
     expect(world.ships.length).toBeGreaterThan(24);
+    expect(calmShips.length).toBeGreaterThan(12);
+    expect(navShips.length).toBeGreaterThan(0);
     expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThanOrEqual(12);
     expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThanOrEqual(10);
-    expect(world.ships.every((ship) => terrainKindAt(ship.riskTile.x, ship.riskTile.y) === "calm-water")).toBe(true);
+    expect(world.ships.every((ship) => {
+      const terrain = terrainKindAt(ship.riskTile.x, ship.riskTile.y);
+      const validTerrains = riskWaterAreaForPlacement(ship.riskPlacement).validTerrains;
+      return validTerrains === "any-water" ? isWaterTileKind(terrain) : validTerrains.includes(terrain);
+    })).toBe(true);
   });
 
   it("keeps every authored ship anchor on water after island layout changes", () => {

@@ -34,10 +34,16 @@ export function resolveShipRiskPlacement(input: RiskPlacementInput): {
     };
   }
 
-  if (meta.flags.navToken && !pegCoin) {
+  if (meta.flags.navToken) {
+    const sourceFields = ["meta.flags.navToken"];
+    if (pegCoin) sourceFields.push("pegSummary.coins[]");
+    else sourceFields.push("pegSummary.coins");
+    if (stress) sourceFields.push("stress.signals[]");
+    const stale = (pegCoin?.activeDepeg === true && freshness.pegSummaryStale === true)
+      || (!!stress && freshness.stressStale === true);
     return {
       placement: "ledger-mooring",
-      evidence: evidence("NAV token missing peg-summary row", ["meta.flags.navToken", "pegSummary.coins"], freshness.pegSummaryStale),
+      evidence: evidence("NAV token ledger placement", sourceFields, stale),
     };
   }
 

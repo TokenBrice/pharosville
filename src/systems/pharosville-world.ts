@@ -108,14 +108,14 @@ function areaIdForRiskWaterPlacement(placement: ShipNode["riskPlacement"], band:
 
 function sourceFieldsForRiskWaterPlacement(placement: ShipNode["riskPlacement"], band: DewsAreaBand | null): string[] {
   if (band) return ["stress.signals[]"];
-  if (placement === "ledger-mooring") return ["meta.flags.navToken", "pegSummary.coins"];
+  if (placement === "ledger-mooring") return ["meta.flags.navToken", "pegSummary.coins[]", "stress.signals[]"];
   return ["pegSummary.coins[]", "stress.signals[]"];
 }
 
 function summaryForRiskWaterPlacement(placement: ShipNode["riskPlacement"], band: DewsAreaBand | null): string {
   const area = riskWaterAreaForPlacement(placement);
   if (band) return `${area.label} uses ${area.waterStyle} for DEWS ${band} placement.`;
-  if (placement === "ledger-mooring") return "Ledger Mooring uses ledger water for NAV ledger assets that do not have a standard peg-summary row.";
+  if (placement === "ledger-mooring") return "Ledger Mooring uses ledger water for NAV ledger assets, including assets that also have standard peg or DEWS rows.";
   return `${area.label} is a named risk-water area.`;
 }
 

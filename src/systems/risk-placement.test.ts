@@ -31,6 +31,50 @@ describe("resolveShipRiskPlacement", () => {
     });
 
     expect(result.placement).toBe("ledger-mooring");
+    expect(result.evidence.reason).toBe("NAV token ledger placement");
+    expect(result.evidence.sourceFields).toEqual(["meta.flags.navToken", "pegSummary.coins"]);
+  });
+
+  it("places NAV tokens with peg rows at ledger mooring", () => {
+    expect(susdeMeta).toBeDefined();
+    const result = resolveShipRiskPlacement({
+      asset: makeAsset({ id: "susde-ethena", symbol: "sUSDe" }),
+      meta: susdeMeta!,
+      pegCoin: makePegCoin({ id: "susde-ethena", symbol: "sUSDe", currentDeviationBps: 0 }),
+      stress: undefined,
+      freshness: {},
+    });
+
+    expect(result.placement).toBe("ledger-mooring");
+    expect(result.evidence.sourceFields).toEqual(["meta.flags.navToken", "pegSummary.coins[]"]);
+    expect(result.evidence.stale).toBe(false);
+  });
+
+  it("keeps NAV tokens at ledger mooring when fresh DEWS would otherwise move them", () => {
+    expect(susdeMeta).toBeDefined();
+    const result = resolveShipRiskPlacement({
+      asset: makeAsset({ id: "susde-ethena", symbol: "sUSDe" }),
+      meta: susdeMeta!,
+      pegCoin: makePegCoin({ id: "susde-ethena", symbol: "sUSDe", currentDeviationBps: 0 }),
+      stress: { band: "WATCH", score: 31, signals: {}, computedAt: 1, methodologyVersion: "fixture" },
+      freshness: {},
+    });
+
+    expect(result.placement).toBe("ledger-mooring");
+    expect(result.evidence.sourceFields).toEqual(["meta.flags.navToken", "pegSummary.coins[]", "stress.signals[]"]);
+  });
+
+  it("keeps fresh active depeg as the acute NAV placement", () => {
+    expect(susdeMeta).toBeDefined();
+    const result = resolveShipRiskPlacement({
+      asset: makeAsset({ id: "susde-ethena", symbol: "sUSDe" }),
+      meta: susdeMeta!,
+      pegCoin: makePegCoin({ id: "susde-ethena", symbol: "sUSDe", activeDepeg: true, currentDeviationBps: 780 }),
+      stress: undefined,
+      freshness: {},
+    });
+
+    expect(result.placement).toBe("storm-shelf");
   });
 
   it("uses fresh DEWS danger even when report cards are stale", () => {
