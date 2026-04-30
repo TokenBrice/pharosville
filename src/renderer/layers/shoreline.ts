@@ -1,7 +1,7 @@
 import { waterTerrainStyle, type WaterTerrainStyle, type WaterTextureKind } from "../../systems/palette";
 import { TILE_HEIGHT, TILE_WIDTH, tileToScreen } from "../../systems/projection";
 import { isWaterTileKind } from "../../systems/world-layout";
-import type { PharosVilleTile, TerrainKind } from "../../systems/world-types";
+import type { PharosVilleMap, PharosVilleTile, TerrainKind } from "../../systems/world-types";
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
 
 type CoastEdge = "east" | "north" | "south" | "west";
@@ -19,9 +19,33 @@ interface FoamSettings {
   lineWidth: number;
 }
 
-export function drawCoastalWaterDetails({ camera, ctx, height, motion, width, world }: DrawPharosVilleInput) {
-  const tilesByKey = new Map(world.map.tiles.map((tile) => [tileKey(tile.x, tile.y), tile]));
+const tilesByKeyCache = new WeakMap<PharosVilleMap, Map<string, PharosVilleTile>>();
+const coastalEdgesCache = new WeakMap<PharosVilleMap, Map<string, CoastEdge[]>>();
 
+function tilesByKeyForMap(map: PharosVilleMap): Map<string, PharosVilleTile> {
+  let cached = tilesByKeyCache.get(map);
+  if (!cached) {
+    cached = new Map(map.tiles.map((tile) => [tileKey(tile.x, tile.y), tile]));
+    tilesByKeyCache.set(map, cached);
+  }
+  return cached;
+}
+
+function coastalEdgesForMap(map: PharosVilleMap, tile: PharosVilleTile): CoastEdge[] {
+  let cache = coastalEdgesCache.get(map);
+  if (!cache) {
+    cache = new Map();
+    coastalEdgesCache.set(map, cache);
+  }
+  const key = tileKey(tile.x, tile.y);
+  const cached = cache.get(key);
+  if (cached) return cached;
+  const edges = computeCoastalEdges(tile, tilesByKeyForMap(map));
+  cache.set(key, edges);
+  return edges;
+}
+
+export function drawCoastalWaterDetails({ camera, ctx, height, motion, width, world }: DrawPharosVilleInput) {
   ctx.save();
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
@@ -32,7 +56,7 @@ export function drawCoastalWaterDetails({ camera, ctx, height, motion, width, wo
     const point = tileToScreen(tile, camera);
     if (!isTileInViewport(point.x, point.y, camera.zoom, width, height)) continue;
 
-    const coastEdges = coastalEdgesForTile(tile, tilesByKey);
+    const coastEdges = coastalEdgesForMap(world.map, tile);
     if (coastEdges.length === 0) continue;
 
     const style = waterTerrainStyle(String(terrain)) ?? waterTerrainStyle("water")!;
@@ -50,7 +74,7 @@ function tileTerrain(tile: PharosVilleTile): TerrainKind {
   return tile.terrain ?? tile.kind;
 }
 
-function coastalEdgesForTile(tile: PharosVilleTile, tilesByKey: ReadonlyMap<string, PharosVilleTile>): CoastEdge[] {
+function computeCoastalEdges(tile: PharosVilleTile, tilesByKey: ReadonlyMap<string, PharosVilleTile>): CoastEdge[] {
   const edges: CoastEdge[] = [];
   for (const edge of Object.keys(EDGE_OFFSETS) as CoastEdge[]) {
     const offset = EDGE_OFFSETS[edge];
