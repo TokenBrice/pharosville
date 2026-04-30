@@ -18,6 +18,9 @@ import { tileToScreen } from "../../src/systems/projection";
 import type { PegSummaryResponse, StressSignalsAllResponse } from "@shared/types";
 
 type DebugShipMotionSample = {
+  currentDockId: string | null;
+  currentRouteStopId: string | null;
+  currentRouteStopKind: string | null;
   id: string;
   mapVisible: boolean;
   state: string;
@@ -326,10 +329,27 @@ test("pharosville dense visual fixture preserves districts, dense ships, and ren
   const motionSamples = debug.shipMotionSamples ?? [];
   const visibleMotionSamples = motionSamples.filter((sample) => sample.mapVisible);
   const hiddenMooredSamples = motionSamples.filter((sample) => !sample.mapVisible && sample.state === "moored");
+  const ledgerRouteStopSamples = motionSamples.filter((sample) => sample.currentRouteStopKind === "ledger");
   expect(targets.filter((target) => target.kind === "dock")).toHaveLength(10);
   expect(targets.filter((target) => target.kind === "ship")).toHaveLength(visibleMotionSamples.length);
   expect(visibleMotionSamples.length).toBeLessThan(denseFixtureShipCount);
   expect(hiddenMooredSamples.length).toBeGreaterThan(0);
+  expect(hiddenMooredSamples.every((sample) => sample.currentDockId)).toBe(true);
+  expect(ledgerRouteStopSamples.length).toBeGreaterThan(0);
+  expect(ledgerRouteStopSamples.every((sample) => (
+    sample.state === "moored"
+    && sample.zone === "ledger"
+    && sample.currentDockId === null
+    && sample.currentRouteStopId === "area.risk-water.ledger-mooring"
+    && sample.mapVisible
+  ))).toBe(true);
+  expect(motionSamples.every((sample) => (
+    sample.state === "idle"
+    || sample.state === "risk-drift"
+    || sample.state === "sailing"
+    || sample.currentRouteStopKind === "dock"
+    || sample.currentRouteStopKind === "ledger"
+  ))).toBe(true);
   expect(targets.filter((target) => target.kind === "ship-cluster")).toHaveLength(0);
   expect(motionSamples).toHaveLength(denseFixtureShipCount);
   expect(debug.renderMetrics?.visibleShipCount).toBe(visibleMotionSamples.length);
@@ -817,6 +837,12 @@ test("pharosville reduced motion keeps ship samples static without RAF", async (
   expect(second.timeSeconds).toBe(0);
   expect(first.shipMotionSamples.length).toBeGreaterThan(0);
   expect(second.shipMotionSamples).toEqual(first.shipMotionSamples);
+  expect(first.shipMotionSamples.every((sample) => (
+    sample.state === "idle"
+    && sample.currentDockId === null
+    && sample.currentRouteStopId === null
+    && sample.currentRouteStopKind === null
+  ))).toBe(true);
   expect(first.renderMetrics?.drawableCount).toBeGreaterThan(0);
   expect(first.renderMetrics?.visibleTileCount).toBeGreaterThan(0);
   expect(first.renderMetrics?.movingShipCount).toBe(0);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoins, fixtureStability, fixtureStress, makeAsset, makeChain, makePegCoin } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
-import { buildBaseMotionPlan, buildMotionPlan, buildShipWaterRoute, isShipMapVisible, lighthouseFireFlickerSpeed, resolveShipMotionSample, sampleShipWaterPath, stableMotionPhase } from "./motion";
+import { buildBaseMotionPlan, buildMotionPlan, buildShipWaterRoute, isShipMapVisible, lighthouseFireFlickerSpeed, resolveShipMotionSample, sampleShipWaterPath, shipWaterPathKey, stableMotionPhase, type ShipDockMotionStop } from "./motion";
 import { buildPharosVilleMap, isWaterTileKind, terrainKindAt, tileKindAt } from "./world-layout";
 import type { PharosVilleMap, PharosVilleWorld, ShipWaterZone } from "./world-types";
 
@@ -134,7 +134,7 @@ describe("motion", () => {
       expect(route?.cycleSeconds).toBe(repeatedRoute?.cycleSeconds);
       expect(route?.phaseSeconds).toBe(repeatedRoute?.phaseSeconds);
       expect(route?.dockStopSchedule).toEqual(repeatedRoute?.dockStopSchedule);
-      expect(route?.dockStops).toEqual(ship.dockVisits);
+      expect(route?.dockStops.map(stripRouteStopRuntimeFields)).toEqual(ship.dockVisits);
     }
   });
 
@@ -217,6 +217,88 @@ describe("motion", () => {
     expect(mooredSamples / sampleCount).toBeLessThan(0.35);
   });
 
+  it("models Ledger Mooring as a semantic route stop separate from chain docks", () => {
+    const sampleWorld = worldForShip({
+      chainCirculating: chainCirculating(["Ethereum", "Tron"]),
+      chains: ["ethereum", "tron"],
+      navToken: true,
+    });
+    const ship = sampleWorld.ships[0]!;
+    const route = onlyRoute(sampleWorld);
+    const dockStop = route.dockStops[0]!;
+
+    expect(route.zone).toBe("ledger");
+    expect(route.riskStop).toMatchObject({
+      id: "area.risk-water.ledger-mooring",
+      kind: "ledger",
+      chainId: null,
+      dockId: null,
+      mooringTile: route.riskTile,
+    });
+    expect(route.dockStops.map(stripRouteStopRuntimeFields)).toEqual(ship.dockVisits);
+    expect(route.waterPaths.has(shipWaterPathKey(route.riskTile, dockStop.mooringTile))).toBe(true);
+    expect(route.waterPaths.has(shipWaterPathKey(dockStop.mooringTile, route.riskTile))).toBe(true);
+  });
+
+  it("keeps NAV ships visibly moored at Ledger Mooring while preserving dock visits", () => {
+    const sampleWorld = worldForShip({
+      chainCirculating: chainCirculating(["Ethereum", "Tron", "Solana"]),
+      chains: ["ethereum", "tron", "solana"],
+      navToken: true,
+    });
+    const ship = sampleWorld.ships[0]!;
+    const plan = buildMotionPlan(sampleWorld, ship.detailId);
+    const route = plan.shipRoutes.get(ship.id)!;
+    const visitedDockIds = new Set<string>();
+    let ledgerSamples = 0;
+    const sampleCount = 240;
+
+    for (let cycleIndex = 0; cycleIndex < 6; cycleIndex += 1) {
+      for (let index = 0; index < sampleCount; index += 1) {
+        const sample = resolveShipMotionSample({
+          plan,
+          reducedMotion: false,
+          ship,
+          timeSeconds: route.cycleSeconds * (cycleIndex + index / sampleCount) - route.phaseSeconds,
+        });
+        expect(tileKindForSample(sample.tile), `cycle ${cycleIndex} sample ${index}`).toMatch(/water/);
+        if (sample.currentRouteStopKind === "ledger") {
+          ledgerSamples += 1;
+          expect(sample.state).toBe("moored");
+          expect(sample.currentDockId).toBeNull();
+          expect(distance(sample.tile, route.riskTile)).toBeLessThanOrEqual(1);
+          expect(isShipMapVisible({ ...ship, visual: { ...ship.visual, sizeTier: "major" } }, sample)).toBe(true);
+        }
+        if (sample.state === "moored" && sample.currentDockId) {
+          visitedDockIds.add(sample.currentDockId);
+        }
+      }
+    }
+
+    expect(ledgerSamples / (sampleCount * 6)).toBeGreaterThan(0.2);
+    expect(visitedDockIds).toEqual(new Set(route.dockStops.map((stop) => stop.dockId)));
+  });
+
+  it("pins reduced-motion NAV ships to static ledger water", () => {
+    const sampleWorld = worldForShip({
+      chainCirculating: chainCirculating(["Ethereum"]),
+      chains: ["ethereum"],
+      navToken: true,
+    });
+    const ship = sampleWorld.ships[0]!;
+    const plan = buildMotionPlan(sampleWorld, ship.detailId);
+    const sample = resolveShipMotionSample({ plan, reducedMotion: true, ship, timeSeconds: 120 });
+
+    expect(sample.tile).toEqual(ship.riskTile);
+    expect(sample.state).toBe("idle");
+    expect(sample.zone).toBe("ledger");
+    expect(sample.currentDockId).toBeNull();
+    expect(sample.currentRouteStopId).toBeNull();
+    expect(sample.currentRouteStopKind).toBeNull();
+    expect(sample.wakeIntensity).toBe(0);
+    expect(terrainKindAt(Math.round(sample.tile.x), Math.round(sample.tile.y))).toBe("ledger-water");
+  });
+
   it("hides only non-titan ships while they are moored", () => {
     const titanShip = world.ships[0]!;
     const nonTitanShip = {
@@ -233,12 +315,21 @@ describe("motion", () => {
       state: "moored" as const,
       zone: titanShip.riskZone,
       currentDockId: titanShip.dockVisits[0]?.dockId ?? null,
+      currentRouteStopId: titanShip.dockVisits[0]?.dockId ?? null,
+      currentRouteStopKind: "dock" as const,
       heading: { x: 0, y: 1 },
       wakeIntensity: 0,
+    };
+    const ledgerSample = {
+      ...mooredSample,
+      currentDockId: null,
+      currentRouteStopId: "area.risk-water.ledger-mooring",
+      currentRouteStopKind: "ledger" as const,
     };
 
     expect(isShipMapVisible(titanShip, mooredSample)).toBe(true);
     expect(isShipMapVisible(nonTitanShip, mooredSample)).toBe(false);
+    expect(isShipMapVisible(nonTitanShip, ledgerSample)).toBe(true);
     expect(isShipMapVisible(nonTitanShip, { ...mooredSample, state: "departing" })).toBe(true);
     expect(isShipMapVisible(nonTitanShip, null)).toBe(true);
   });
@@ -557,6 +648,15 @@ function chainCirculating(chainNames: string[]) {
 function onlyRoute(sampleWorld: PharosVilleWorld) {
   const ship = sampleWorld.ships[0]!;
   return buildMotionPlan(sampleWorld, ship.detailId).shipRoutes.get(ship.id)!;
+}
+
+function stripRouteStopRuntimeFields(stop: ShipDockMotionStop) {
+  return {
+    chainId: stop.chainId,
+    dockId: stop.dockId,
+    weight: stop.weight,
+    mooringTile: stop.mooringTile,
+  };
 }
 
 function tileKindForSample(tile: { x: number; y: number }) {

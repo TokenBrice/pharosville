@@ -12,20 +12,37 @@ export interface ShipWaterPath {
 }
 
 export type ShipMotionState = "idle" | "moored" | "departing" | "sailing" | "risk-drift" | "arriving";
+export type ShipMotionStopKind = "dock" | "ledger";
 type ShipWaterRouteCache = Map<string, ShipWaterPath>;
 type ShipWaterPathBuilder = () => ShipWaterPath;
+
+export interface ShipDockMotionStop {
+  id: string;
+  kind: "dock";
+  dockId: string;
+  chainId: string;
+  weight: number;
+  mooringTile: { x: number; y: number };
+}
+
+export interface ShipLedgerMotionStop {
+  id: string;
+  kind: "ledger";
+  dockId: null;
+  chainId: null;
+  weight: number;
+  mooringTile: { x: number; y: number };
+}
+
+export type ShipMotionRouteStop = ShipDockMotionStop | ShipLedgerMotionStop;
 
 export interface ShipMotionRoute {
   shipId: string;
   cycleSeconds: number;
   phaseSeconds: number;
   riskTile: { x: number; y: number };
-  dockStops: Array<{
-    chainId: string;
-    dockId: string;
-    weight: number;
-    mooringTile: { x: number; y: number };
-  }>;
+  dockStops: ShipDockMotionStop[];
+  riskStop: ShipMotionRouteStop | null;
   zone: ShipWaterZone;
   dockStopSchedule: string[];
   homeDockId: string | null;
@@ -44,6 +61,8 @@ export interface ShipMotionSample {
   state: ShipMotionState;
   zone: ShipWaterZone;
   currentDockId: string | null;
+  currentRouteStopId: string | null;
+  currentRouteStopKind: ShipMotionStopKind | null;
   heading: { x: number; y: number };
   wakeIntensity: number;
 }
@@ -186,6 +205,8 @@ export function resolveShipMotionSample(input: {
       state: "idle",
       zone: input.ship.riskZone,
       currentDockId: null,
+      currentRouteStopId: null,
+      currentRouteStopKind: null,
       heading: { x: 0, y: 0 },
       wakeIntensity: 0,
     };
@@ -229,7 +250,7 @@ export function resolveShipMotionSample(input: {
     cursor -= transitSecondsEach;
 
     if (cursor < riskSecondsEach) {
-      return riskDriftSample(route, input.timeSeconds, cursor / Math.max(1, riskSecondsEach));
+      return riskWaterSample(route, input.timeSeconds, cursor / Math.max(1, riskSecondsEach));
     }
     cursor -= riskSecondsEach;
 
@@ -245,7 +266,7 @@ export function resolveShipMotionSample(input: {
     cursor -= transitSecondsEach;
   }
 
-  return riskDriftSample(route, input.timeSeconds, 1);
+  return riskWaterSample(route, input.timeSeconds, 1);
 }
 
 export function lighthouseFireFlickerSpeed(band: string | null, score: number | null) {
@@ -259,7 +280,7 @@ export function stableMotionPhase(id: string) {
 }
 
 export function isShipMapVisible(ship: ShipNode, sample: ShipMotionSample | null | undefined): boolean {
-  return ship.visual.sizeTier === "titan" || sample?.state !== "moored";
+  return ship.visual.sizeTier === "titan" || sample?.state !== "moored" || sample.currentDockId == null;
 }
 
 function hasRecentMove(ship: ShipNode) {
@@ -274,7 +295,24 @@ function buildShipMotionRoute(
   waterRouteCache: ShipWaterRouteCache = new Map(),
 ): ShipMotionRoute {
   const riskTile = nearestWaterTile(ship.riskTile);
-  const dockStops = ship.dockVisits.map((visit) => ({ ...visit }));
+  const dockStops = ship.dockVisits.map((visit) => ({
+    id: visit.dockId,
+    kind: "dock" as const,
+    chainId: visit.chainId,
+    dockId: visit.dockId,
+    weight: visit.weight,
+    mooringTile: visit.mooringTile,
+  }));
+  const riskStop: ShipMotionRouteStop | null = ship.riskPlacement === "ledger-mooring"
+    ? {
+      id: "area.risk-water.ledger-mooring",
+      kind: "ledger",
+      chainId: null,
+      dockId: null,
+      weight: 1,
+      mooringTile: riskTile,
+    }
+    : null;
   const cycleSeconds = shipCycleSeconds(ship);
   const waterPaths = new LazyShipWaterPathMap();
   const openWaterPatrol = dockStops.length === 0
@@ -296,6 +334,7 @@ function buildShipMotionRoute(
     phaseSeconds: stableUnit(`${ship.id}.phase`) * cycleSeconds,
     riskTile,
     dockStops,
+    riskStop,
     zone: ship.riskZone,
     dockStopSchedule: weightedDockStopSchedule(ship.id, dockStops),
     homeDockId,
@@ -641,19 +680,24 @@ function transitSample(input: {
   dockId: string | null;
 }): ShipMotionSample {
   const { point, heading } = sampleShipWaterPath(input.path, input.progress);
+  const dockStop = input.dockId
+    ? input.route.dockStops.find((stop) => stop.dockId === input.dockId) ?? null
+    : null;
   return {
     shipId: input.route.shipId,
     tile: point,
     state: input.state,
     zone: input.route.zone,
     currentDockId: input.dockId,
+    currentRouteStopId: dockStop?.id ?? null,
+    currentRouteStopKind: dockStop?.kind ?? null,
     heading,
     wakeIntensity: transitWakeIntensityForZone(input.route.zone),
   };
 }
 
 function openWaterPatrolSample(route: ShipMotionRoute, timeSeconds: number): ShipMotionSample {
-  if (!route.openWaterPatrol) return riskDriftSample(route, timeSeconds, 0.18);
+  if (!route.openWaterPatrol) return riskWaterSample(route, timeSeconds, 0.18);
 
   const cyclePosition = timeSeconds + route.phaseSeconds;
   const elapsedSeconds = positiveModulo(cyclePosition, route.cycleSeconds);
@@ -664,7 +708,7 @@ function openWaterPatrolSample(route: ShipMotionRoute, timeSeconds: number): Shi
   let cursor = elapsedSeconds;
 
   if (cursor < riskSeconds) {
-    return riskDriftSample(route, timeSeconds, cursor / Math.max(1, riskSeconds));
+    return riskWaterSample(route, timeSeconds, cursor / Math.max(1, riskSeconds));
   }
   cursor -= riskSeconds;
 
@@ -705,6 +749,8 @@ function openWaterWaypointDriftSample(route: ShipMotionRoute, timeSeconds: numbe
     state: "sailing",
     zone: route.zone,
     currentDockId: null,
+    currentRouteStopId: null,
+    currentRouteStopKind: null,
     heading: normalizeHeading({ x: -Math.sin(angle), y: Math.cos(angle * 0.85) }),
     wakeIntensity: patrolWakeIntensityForZone(route.zone),
   };
@@ -727,8 +773,39 @@ function mooredSample(
     state: "moored",
     zone: route.zone,
     currentDockId: stop.dockId,
+    currentRouteStopId: stop.id,
+    currentRouteStopKind: stop.kind,
     heading: normalizeHeading({ x: -Math.sin(angle), y: Math.cos(angle * 0.9) }),
     wakeIntensity: 0.05,
+  };
+}
+
+function riskWaterSample(route: ShipMotionRoute, timeSeconds: number, progress: number): ShipMotionSample {
+  if (route.riskStop?.kind === "ledger") return mooredRouteStopSample(route, route.riskStop, timeSeconds);
+  return riskDriftSample(route, timeSeconds, progress);
+}
+
+function mooredRouteStopSample(
+  route: ShipMotionRoute,
+  stop: ShipMotionRouteStop,
+  timeSeconds: number,
+): ShipMotionSample {
+  const seed = stableHash(`${route.shipId}.${stop.id}.moored`);
+  const angle = timeSeconds * 0.018 + seed * 0.0001;
+  const radius = mooredRadiusForZone(route.zone);
+  return {
+    shipId: route.shipId,
+    tile: clampMotionTile({
+      x: stop.mooringTile.x + Math.cos(angle) * radius.x * 0.72,
+      y: stop.mooringTile.y + Math.sin(angle * 0.9) * radius.y * 0.72,
+    }),
+    state: "moored",
+    zone: route.zone,
+    currentDockId: null,
+    currentRouteStopId: stop.id,
+    currentRouteStopKind: stop.kind,
+    heading: normalizeHeading({ x: -Math.sin(angle), y: Math.cos(angle * 0.9) }),
+    wakeIntensity: 0.03,
   };
 }
 
@@ -752,6 +829,8 @@ function riskDriftSample(route: ShipMotionRoute, timeSeconds: number, progress: 
     state: "risk-drift",
     zone: route.zone,
     currentDockId: null,
+    currentRouteStopId: null,
+    currentRouteStopKind: null,
     heading: normalizeHeading({ x: -Math.sin(angle), y: Math.cos(angle * 0.8) }),
     wakeIntensity: 0.08,
   };

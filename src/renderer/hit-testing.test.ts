@@ -428,6 +428,8 @@ function motionSample(
     state,
     zone: "calm",
     currentDockId: state === "moored" ? "dock.ethereum" : null,
+    currentRouteStopId: state === "moored" ? "dock.ethereum" : null,
+    currentRouteStopKind: state === "moored" ? "dock" : null,
     heading: { x: 1, y: 0 },
     wakeIntensity: 0.4,
   };

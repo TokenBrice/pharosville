@@ -94,4 +94,54 @@ describe("detail-model analytical links", () => {
       { label: "Stablecoin", href: "https://pharos.watch/stablecoin/usdt-tether/" },
     ]);
   });
+
+  it("exposes ship route and Ledger Mooring placement facts", () => {
+    const detail = detailForShip({
+      id: "susde-ethena",
+      kind: "ship",
+      label: "Staked USDe",
+      symbol: "sUSDe",
+      asset: {} as ShipNode["asset"],
+      meta: {} as ShipNode["meta"],
+      reportCard: null,
+      logoSrc: null,
+      tile: { x: 1, y: 1 },
+      riskTile: { x: 30, y: 52 },
+      chainPresence: [{ chainId: "ethereum", currentUsd: 100, hasRenderedDock: true, share: 1 }],
+      dockVisits: [{ chainId: "ethereum", dockId: "dock.ethereum", weight: 1, mooringTile: { x: 28, y: 44 } }],
+      dominantChainId: "ethereum",
+      homeDockChainId: "ethereum",
+      dockChainId: "ethereum",
+      marketCapUsd: 100,
+      riskPlacement: "ledger-mooring",
+      riskZone: "ledger",
+      riskWaterLabel: "Ledger Mooring",
+      placementEvidence: { reason: "NAV token ledger placement", sourceFields: ["meta.flags.navToken", "pegSummary.coins[]"], stale: false },
+      visual: {
+        hull: "treasury-galleon",
+        shipClass: "cefi",
+        classLabel: "CeFi",
+        rigging: "issuer-rig",
+        pennant: "sUSDe",
+        overlay: "none",
+        sizeTier: "major",
+        sizeLabel: "Major",
+        scale: 1,
+      },
+      change24hUsd: null,
+      change24hPct: null,
+      detailId: "ship.susde-ethena",
+    } satisfies ShipNode);
+
+    expect(detail.facts).toEqual(expect.arrayContaining([
+      { label: "Representative position", value: "Ledger Mooring idle" },
+      { label: "Risk water area", value: "Ledger Mooring" },
+      { label: "Risk water zone", value: "ledger" },
+      { label: "Risk placement key", value: "ledger-mooring" },
+      { label: "Home dock", value: "Ethereum" },
+      { label: "Docking cadence", value: "Occasional; 1 positive chain deployment, 1 rendered dock stop" },
+      { label: "Route source", value: "stablecoins.chainCirculating, pegSummary.coins[], stress.signals[]" },
+      { label: "Evidence", value: "meta.flags.navToken, pegSummary.coins[]" },
+    ]));
+  });
 });

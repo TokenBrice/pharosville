@@ -598,6 +598,9 @@ function isCameraWithinBounds(camera: IsoCamera | null, map: PharosVilleWorldMod
 }
 
 type CompactShipMotionSample = {
+  currentDockId: string | null;
+  currentRouteStopId: string | null;
+  currentRouteStopKind: ShipMotionSample["currentRouteStopKind"];
   id: string;
   mapVisible: boolean;
   state: ShipMotionSample["state"];
@@ -668,6 +671,9 @@ function compactShipMotionSamples(
   return Array.from(samples.values(), (sample) => {
     const ship = shipsById.get(sample.shipId);
     return {
+      currentDockId: sample.currentDockId,
+      currentRouteStopId: sample.currentRouteStopId,
+      currentRouteStopKind: sample.currentRouteStopKind,
       id: sample.shipId,
       mapVisible: ship ? isShipMapVisible(ship, sample) : true,
       state: sample.state,
