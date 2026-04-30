@@ -19,13 +19,13 @@ const TARGET_CLICK_POINTS = [
 ] as const;
 
 const LIGHTHOUSE_ASSET_ENTRY: PharosVilleAssetManifestEntry = {
-  anchor: [160, 306],
-  beacon: [160, 50],
+  anchor: [160, 319],
+  beacon: [160, 167],
   category: "landmark",
   displayScale: 0.82,
-  footprint: [88, 62],
+  footprint: [74, 46],
   height: 320,
-  hitbox: [48, 20, 224, 276],
+  hitbox: [108, 128, 104, 192],
   id: "landmark.lighthouse",
   layer: "landmarks",
   loadPriority: "critical",
@@ -410,10 +410,11 @@ describe("hit-testing", () => {
 
     const target = targets.find((entry) => entry.detailId === lighthouse.detailId);
 
-    expect(target?.rect.x).toBeCloseTo(point.x - 80 * camera.zoom);
-    expect(target?.rect.y).toBeCloseTo(point.y - 206 * camera.zoom);
-    expect(target?.rect.width).toBeCloseTo(160 * camera.zoom);
-    expect(target?.rect.height).toBeCloseTo(224 * camera.zoom);
+    const hitScale = camera.zoom * 1.04 * LIGHTHOUSE_ASSET_ENTRY.displayScale;
+    expect(target?.rect.x).toBeCloseTo(point.x - LIGHTHOUSE_ASSET_ENTRY.anchor[0] * hitScale + LIGHTHOUSE_ASSET_ENTRY.hitbox[0] * hitScale);
+    expect(target?.rect.y).toBeCloseTo(point.y + 18 * camera.zoom - LIGHTHOUSE_ASSET_ENTRY.anchor[1] * hitScale + LIGHTHOUSE_ASSET_ENTRY.hitbox[1] * hitScale);
+    expect(target?.rect.width).toBeCloseTo(LIGHTHOUSE_ASSET_ENTRY.hitbox[2] * hitScale);
+    expect(target?.rect.height).toBeCloseTo(LIGHTHOUSE_ASSET_ENTRY.hitbox[3] * hitScale);
   });
 });
 

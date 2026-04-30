@@ -82,18 +82,8 @@ const LIGHTHOUSE_HEADLAND = {
   stone: "#9b8f74",
 } as const;
 
-const LIGHTHOUSE_SPRITE_CROP = {
-  anchorX: 38,
-  anchorY: 206,
-  beaconX: 38,
-  beaconY: 50,
-  bottomOffsetY: 4,
-  scale: 1.04,
-  sourceHeight: 206,
-  sourceWidth: 64,
-  sourceX: 122,
-  sourceY: 0,
-} as const;
+const LIGHTHOUSE_ASSET_BOTTOM_OFFSET_Y = 18;
+const LIGHTHOUSE_ASSET_SCALE = 1.04;
 
 const VILLAGE_LIGHTS = [
   { x: 16.7, y: 29.4, size: 0.52 },
@@ -111,14 +101,14 @@ const VILLAGE_LIGHTS = [
 ] as const;
 
 const LIGHTHOUSE_SURF = [
-  { x: 14.7, y: 27.8, length: 20, phase: 5.1, tilt: 0.12 },
-  { x: 15.6, y: 28.8, length: 26, phase: 0.1, tilt: -0.14 },
-  { x: 16.7, y: 31.8, length: 34, phase: 1.7, tilt: 0.02 },
-  { x: 17.8, y: 33.0, length: 29, phase: 4.8, tilt: 0.18 },
-  { x: 19.8, y: 33.1, length: 38, phase: 2.6, tilt: 0.16 },
-  { x: 22.4, y: 31.8, length: 30, phase: 3.4, tilt: -0.12 },
-  { x: 21.1, y: 25.4, length: 24, phase: 4.1, tilt: 0.1 },
-  { x: 23.0, y: 27.0, length: 22, phase: 5.7, tilt: -0.18 },
+  { x: 15.2, y: 27.8, length: 18, phase: 5.1, tilt: 0.12 },
+  { x: 15.9, y: 28.9, length: 22, phase: 0.1, tilt: -0.14 },
+  { x: 16.8, y: 31.2, length: 28, phase: 1.7, tilt: 0.02 },
+  { x: 18.1, y: 32.2, length: 25, phase: 4.8, tilt: 0.18 },
+  { x: 19.8, y: 32.0, length: 31, phase: 2.6, tilt: 0.16 },
+  { x: 21.4, y: 30.9, length: 24, phase: 3.4, tilt: -0.12 },
+  { x: 20.7, y: 25.7, length: 20, phase: 4.1, tilt: 0.1 },
+  { x: 22.0, y: 27.0, length: 18, phase: 5.7, tilt: -0.18 },
 ] as const;
 
 const LIGHTHOUSE_REFLECTIONS = [
@@ -216,10 +206,7 @@ const SCENERY_PROPS: readonly SceneryProp[] = [
   { id: "cemetery-rock", kind: "rock", tile: { x: 12.2, y: 51.4 }, scale: 0.66 },
   { id: "cemetery-cypress", kind: "cypress", tile: { x: 10.4, y: 47.8 }, scale: 0.52 },
   { id: "cemetery-reeds", kind: "reed-bed", tile: { x: 6.2, y: 48.2 }, scale: 0.52 },
-  { id: "lighthouse-wall", kind: "sea-wall", tile: { x: 20.6, y: 30.1 }, scale: 0.74 },
   { id: "lighthouse-lamp", kind: "harbor-lamp", tile: { x: 17.2, y: 29.0 }, scale: 0.7 },
-  { id: "lighthouse-grass", kind: "grass-tuft", tile: { x: 16.7, y: 27.0 }, scale: 0.72 },
-  { id: "lighthouse-cypress", kind: "cypress", tile: { x: 20.8, y: 27.2 }, scale: 0.56 },
 ] as const;
 
 const SKY_MOODS = {
@@ -372,7 +359,7 @@ const ETHEREUM_HARBOR_SIGNS = [
     label: "Ethereum Harbor",
     maxWidth: 136,
     rotation: -0.035,
-    tile: { x: 41.4, y: 28.6 },
+    tile: { x: 42.1, y: 29.1 },
   },
   {
     accent: "#88ccc1",
@@ -380,7 +367,7 @@ const ETHEREUM_HARBOR_SIGNS = [
     label: "L2 Bay",
     maxWidth: 76,
     rotation: 0.035,
-    tile: { x: 35.9, y: 34.8 },
+    tile: { x: 38.2, y: 36.1 },
   },
 ] as const;
 
@@ -398,8 +385,8 @@ const CEMETERY_SURFACE = {
   quayFoam: "rgba(194, 231, 222, 0.42)",
 } as const;
 
-const CENTRAL_ISLAND_MODEL_TILE = { x: 31.5, y: 41.3 } as const;
-const CENTRAL_ISLAND_MODEL_SCALE = 1.45;
+const CENTRAL_ISLAND_MODEL_TILE = { x: 31.0, y: 39.0 } as const;
+const CENTRAL_ISLAND_MODEL_SCALE = 1.08;
 
 export type { DrawPharosVilleInput, PharosVilleCanvasMotion, PharosVilleRenderMetrics } from "./render-types";
 
@@ -451,8 +438,8 @@ function drawCentralIslandModel({ assets, camera, ctx }: DrawPharosVilleInput) {
   ctx.ellipse(
     point.x,
     point.y + 18 * camera.zoom,
-    190 * camera.zoom,
-    70 * camera.zoom,
+    138 * camera.zoom,
+    54 * camera.zoom,
     -0.08,
     0,
     Math.PI * 2,
@@ -577,8 +564,34 @@ function entityDrawable(
     entityId: entity.id,
     kind: entity.kind,
     pass,
-    screenBounds: geometry.selectionRect,
+    screenBounds: entity.kind === "lighthouse" && pass === "overlay"
+      ? lighthouseOverlayScreenBounds(input, geometry.selectionRect)
+      : geometry.selectionRect,
     tieBreaker: entity.id,
+  };
+}
+
+function lighthouseOverlayScreenBounds(
+  input: DrawPharosVilleInput,
+  selectionRect: { height: number; width: number; x: number; y: number },
+): { height: number; width: number; x: number; y: number } {
+  const { firePoint } = lighthouseRenderState(input);
+  const beamZoom = input.camera.zoom * 1.35;
+  const beamBounds = {
+    height: 120 * beamZoom,
+    width: 436 * beamZoom,
+    x: firePoint.x - 176 * beamZoom,
+    y: firePoint.y - 82 * beamZoom,
+  };
+  const minX = Math.min(selectionRect.x, beamBounds.x);
+  const minY = Math.min(selectionRect.y, beamBounds.y);
+  const maxX = Math.max(selectionRect.x + selectionRect.width, beamBounds.x + beamBounds.width);
+  const maxY = Math.max(selectionRect.y + selectionRect.height, beamBounds.y + beamBounds.height);
+  return {
+    height: maxY - minY,
+    width: maxX - minX,
+    x: minX,
+    y: minY,
   };
 }
 
@@ -588,7 +601,8 @@ function assetForEntity(input: DrawPharosVilleInput, entity: WorldSelectableEnti
   return assetId ? input.assets?.get(assetId) ?? null : null;
 }
 
-function drawSky({ camera, ctx, height, motion, width, world }: DrawPharosVilleInput) {
+function drawSky(input: DrawPharosVilleInput) {
+  const { camera, ctx, height, motion, width } = input;
   const state = skyState(motion);
   const mood = state.mood;
   const gradient = ctx.createLinearGradient(0, 0, 0, height);
@@ -606,13 +620,13 @@ function drawSky({ camera, ctx, height, motion, width, world }: DrawPharosVilleI
   drawSkyClouds(ctx, width, height, camera.zoom, state, motion);
 
   ctx.globalAlpha = 0.72;
-  const beacon = tileToScreen(world.lighthouse.tile, camera);
+  const { firePoint } = lighthouseRenderState(input);
   const glow = ctx.createRadialGradient(
-    beacon.x,
-    beacon.y - 122 * camera.zoom,
+    firePoint.x,
+    firePoint.y,
     14 * camera.zoom,
-    beacon.x,
-    beacon.y - 122 * camera.zoom,
+    firePoint.x,
+    firePoint.y,
     260 * camera.zoom,
   );
   glow.addColorStop(0, "rgba(255, 213, 119, 0.32)");
@@ -620,7 +634,7 @@ function drawSky({ camera, ctx, height, motion, width, world }: DrawPharosVilleI
   glow.addColorStop(1, "rgba(255, 213, 119, 0)");
   ctx.fillStyle = glow;
   ctx.beginPath();
-  ctx.ellipse(beacon.x, beacon.y - 122 * camera.zoom, 260 * camera.zoom, 115 * camera.zoom, -0.08, 0, Math.PI * 2);
+  ctx.ellipse(firePoint.x, firePoint.y, 260 * camera.zoom, 115 * camera.zoom, -0.08, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.globalAlpha = 1;
@@ -1558,41 +1572,42 @@ function drawGrassTexture(ctx: CanvasRenderingContext2D, x: number, y: number, z
   ctx.restore();
 }
 
-function drawAtmosphere({ camera, ctx, motion, world }: DrawPharosVilleInput) {
+function drawAtmosphere(input: DrawPharosVilleInput) {
+  const { camera, ctx, motion } = input;
   const mood = skyState(motion).mood;
-  const beacon = tileToScreen(world.lighthouse.tile, camera);
+  const { firePoint } = lighthouseRenderState(input);
   ctx.save();
   ctx.fillStyle = mood.mist;
   ctx.beginPath();
-  ctx.ellipse(beacon.x - 18 * camera.zoom, beacon.y - 92 * camera.zoom, 220 * camera.zoom, 54 * camera.zoom, -0.16, 0, Math.PI * 2);
+  ctx.ellipse(firePoint.x - 18 * camera.zoom, firePoint.y + 30 * camera.zoom, 190 * camera.zoom, 48 * camera.zoom, -0.16, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 }
 
 function drawHarborDistrictGround({ camera, ctx }: DrawPharosVilleInput) {
   ctx.save();
-  drawDistrictPad(ctx, camera, { x: 31.2, y: 22.6 }, 118, 38, "rgba(55, 55, 47, 0.32)", "rgba(197, 176, 125, 0.18)");
-  drawDistrictPad(ctx, camera, { x: 20.4, y: 33.5 }, 92, 44, "rgba(55, 55, 47, 0.36)", "rgba(197, 176, 125, 0.2)");
-  drawDistrictPad(ctx, camera, { x: 33.0, y: 41.6 }, 128, 42, "rgba(55, 55, 47, 0.38)", "rgba(197, 176, 125, 0.22)");
-  drawDistrictPad(ctx, camera, { x: 44.6, y: 31.8 }, 98, 42, "rgba(55, 55, 47, 0.42)", "rgba(197, 176, 125, 0.24)");
+  drawDistrictPad(ctx, camera, { x: 31.0, y: 23.3 }, 88, 30, "rgba(55, 55, 47, 0.3)", "rgba(197, 176, 125, 0.16)");
+  drawDistrictPad(ctx, camera, { x: 21.2, y: 32.6 }, 72, 34, "rgba(55, 55, 47, 0.34)", "rgba(197, 176, 125, 0.18)");
+  drawDistrictPad(ctx, camera, { x: 32.2, y: 39.6 }, 96, 34, "rgba(55, 55, 47, 0.36)", "rgba(197, 176, 125, 0.2)");
+  drawDistrictPad(ctx, camera, { x: 42.5, y: 31.7 }, 78, 34, "rgba(55, 55, 47, 0.4)", "rgba(197, 176, 125, 0.22)");
 
   drawSeawallRun(ctx, camera, [
-    { x: 23.0, y: 24.3 },
-    { x: 29.4, y: 20.1 },
-    { x: 36.3, y: 20.0 },
-    { x: 43.0, y: 25.5 },
+    { x: 24.4, y: 24.3 },
+    { x: 30.2, y: 21.4 },
+    { x: 37.8, y: 22.5 },
+    { x: 42.3, y: 27.1 },
   ]);
   drawSeawallRun(ctx, camera, [
-    { x: 45.0, y: 30.0 },
-    { x: 44.5, y: 35.2 },
-    { x: 39.2, y: 41.0 },
-    { x: 31.5, y: 44.4 },
+    { x: 43.5, y: 30.4 },
+    { x: 42.2, y: 35.0 },
+    { x: 36.8, y: 40.3 },
+    { x: 31.0, y: 41.7 },
   ]);
   drawSeawallRun(ctx, camera, [
-    { x: 28.5, y: 44.0 },
-    { x: 22.0, y: 38.8 },
-    { x: 18.5, y: 33.4 },
-    { x: 20.0, y: 27.3 },
+    { x: 28.0, y: 40.8 },
+    { x: 22.5, y: 37.0 },
+    { x: 19.0, y: 32.4 },
+    { x: 20.0, y: 27.6 },
   ]);
   ctx.restore();
 }
@@ -1609,7 +1624,7 @@ function drawEthereumHarborExtensions({ camera, ctx, motion, world }: DrawPharos
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
   const anchor = dockDrawPoint(ethereumDock, camera, world.map.width);
   ctx.save();
-  drawDistrictPad(ctx, camera, { x: 41.8, y: 34.8 }, 118, 36, "rgba(42, 50, 48, 0.34)", "rgba(197, 176, 125, 0.16)");
+  drawDistrictPad(ctx, camera, { x: 40.4, y: 35.2 }, 90, 30, "rgba(42, 50, 48, 0.34)", "rgba(197, 176, 125, 0.16)");
   for (const [index, dock] of extensionDocks.entries()) {
     const point = dockDrawPoint(dock, camera, world.map.width);
     drawRollupExtensionCauseway(ctx, anchor, point, camera.zoom, index, extensionDocks.length, time);
@@ -2254,15 +2269,17 @@ function drawStoneLantern(ctx: CanvasRenderingContext2D, point: ScreenPoint, zoo
 function lighthouseRenderState({ assets, camera, world }: DrawPharosVilleInput) {
   const center = tileToScreen(world.lighthouse.tile, camera);
   const lighthouseAsset = assets?.get("landmark.lighthouse");
-  const spriteScale = camera.zoom * LIGHTHOUSE_SPRITE_CROP.scale;
+  const spriteScale = camera.zoom * LIGHTHOUSE_ASSET_SCALE;
   const spriteAnchor = {
     x: center.x,
-    y: center.y + LIGHTHOUSE_SPRITE_CROP.bottomOffsetY * camera.zoom,
+    y: center.y + LIGHTHOUSE_ASSET_BOTTOM_OFFSET_Y * camera.zoom,
   };
   const firePoint = lighthouseAsset
     ? {
-      x: spriteAnchor.x + (LIGHTHOUSE_SPRITE_CROP.beaconX - LIGHTHOUSE_SPRITE_CROP.anchorX) * spriteScale,
-      y: spriteAnchor.y + (LIGHTHOUSE_SPRITE_CROP.beaconY - LIGHTHOUSE_SPRITE_CROP.anchorY) * spriteScale,
+      x: spriteAnchor.x + (lighthouseAsset.entry.beacon?.[0] ?? lighthouseAsset.entry.anchor[0]) * lighthouseAsset.entry.displayScale * spriteScale
+        - lighthouseAsset.entry.anchor[0] * lighthouseAsset.entry.displayScale * spriteScale,
+      y: spriteAnchor.y + (lighthouseAsset.entry.beacon?.[1] ?? lighthouseAsset.entry.anchor[1]) * lighthouseAsset.entry.displayScale * spriteScale
+        - lighthouseAsset.entry.anchor[1] * lighthouseAsset.entry.displayScale * spriteScale,
     }
     : { x: center.x, y: center.y - 148 * camera.zoom };
   return { center, firePoint, lighthouseAsset, spriteAnchor, spriteScale };
@@ -2272,7 +2289,7 @@ function drawLighthouseBody(input: DrawPharosVilleInput) {
   const { camera, ctx, world } = input;
   const { center, lighthouseAsset, spriteAnchor, spriteScale } = lighthouseRenderState(input);
   if (lighthouseAsset) {
-    drawLighthouseAssetCrop(ctx, lighthouseAsset, spriteAnchor.x, spriteAnchor.y, spriteScale);
+    drawAsset(ctx, lighthouseAsset, spriteAnchor.x, spriteAnchor.y, spriteScale);
     return;
   }
 
@@ -2326,26 +2343,6 @@ function drawLighthouseBody(input: DrawPharosVilleInput) {
   ctx.arc(0, -150, 16, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
-}
-
-function drawLighthouseAssetCrop(
-  ctx: CanvasRenderingContext2D,
-  asset: NonNullable<ReturnType<PharosVilleAssetManager["get"]>>,
-  anchorX: number,
-  anchorY: number,
-  scale: number,
-) {
-  ctx.drawImage(
-    asset.image,
-    LIGHTHOUSE_SPRITE_CROP.sourceX,
-    LIGHTHOUSE_SPRITE_CROP.sourceY,
-    LIGHTHOUSE_SPRITE_CROP.sourceWidth,
-    LIGHTHOUSE_SPRITE_CROP.sourceHeight,
-    Math.round(anchorX - LIGHTHOUSE_SPRITE_CROP.anchorX * scale),
-    Math.round(anchorY - LIGHTHOUSE_SPRITE_CROP.anchorY * scale),
-    Math.round(LIGHTHOUSE_SPRITE_CROP.sourceWidth * scale),
-    Math.round(LIGHTHOUSE_SPRITE_CROP.sourceHeight * scale),
-  );
 }
 
 function drawLighthouseOverlay(input: DrawPharosVilleInput) {

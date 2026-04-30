@@ -46,6 +46,7 @@ export interface ResolvedEntityGeometry {
 }
 
 export function entityAssetId(entity: WorldSelectableEntity) {
+  if (entity.kind === "lighthouse") return "landmark.lighthouse";
   if (entity.kind === "dock") return entity.assetId;
   if (entity.kind === "ship") return entity.visual.spriteAssetId ?? `ship.${entity.visual.hull}`;
   return null;
