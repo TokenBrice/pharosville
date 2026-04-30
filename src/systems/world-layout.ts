@@ -128,8 +128,8 @@ export function terrainKindAt(x: number, y: number): TerrainKind {
       if (isDangerStrait(x, y)) return "storm-water";
       if (isWarningShoals(x, y)) return "warning-water";
       if (isAlertChannel(x, y)) return "alert-water";
-      if (isWatchBreakwater(x, y)) return "watch-water";
       if (isLedgerMooring(x, y)) return "ledger-water";
+      if (isWatchBreakwater(x, y)) return "watch-water";
       if (isCalmAnchorage(x, y)) return "calm-water";
     }
     if (isDeepSeaShelf(x, y)) return "deep-water";
@@ -226,7 +226,8 @@ function isCalmAnchorage(x: number, y: number): boolean {
   const leftEdge = x <= 15 && y >= 10 && y <= MAX_TILE_Y;
   const leftBasin = ellipseValue(x, y, 8.2, 31.0, 15.0, 20.5) < 1.08 && x <= 22 && y >= 10;
   const southBay = x >= 16 && x <= 43 && y >= 45;
-  return leftEdge || leftBasin || southBay;
+  const reclaimedLedgerBasin = ellipseValue(x, y, 55.0, 55.0, 14.0, 14.0) < 1.0;
+  return leftEdge || leftBasin || southBay || reclaimedLedgerBasin;
 }
 
 function isOutOfBounds(x: number, y: number): boolean {
@@ -273,7 +274,17 @@ function isDeepSeaShelf(x: number, y: number): boolean {
 }
 
 function isLedgerMooring(x: number, y: number): boolean {
-  return ellipseValue(x, y, 55.0, 55.0, 14.0, 14.0) < 1.0;
+  const northeastMooring = ellipseValue(x, y, 34.0, 2.0, 14.0, 5.4) < 1.0;
+  const diagonalBasin = ellipseValue(x, y, 37.0, 8.0, 10.5, 6.2) < 1.0;
+  const upperNorthAngle = y <= 0.3 * x + 3.2;
+  const lowerNorthAngle = y >= -0.3 * x + 14.8;
+  return (
+    (northeastMooring || (diagonalBasin && upperNorthAngle && lowerNorthAngle))
+    && x >= 21
+    && x <= 43
+    && y >= 0
+    && y <= 14
+  );
 }
 
 export function nearestWaterTile(tile: { x: number; y: number }, maxRadius = 10): { x: number; y: number } {

@@ -71,7 +71,7 @@ Historical plans in this directory are context, not live instructions. If they c
   debug expectations are recorded in `docs/pharosville/MOTION_POLICY.md`.
 - Canvas is not the only source of analytical meaning. Any new visual signal needs matching detail-panel or accessibility-ledger text.
 - Ship placement and semantic water zones express peg/DEWS risk or source confidence. Dock visits express positive chain presence and supply share; they must not imply bridge volume, transaction flow, or real-time transfers.
-- Fresh DEWS risk water uses edge-anchored compound/coast-aware masks. Ledger Mooring remains the only non-DEWS named risk-water area and stays clear of Solana/top-chain harbor traffic.
+- Fresh DEWS risk water uses edge-anchored compound/coast-aware masks. Ledger Mooring remains the only non-DEWS named risk-water area and now occupies a northeast shelf between Watch Breakwater and the elevated Alert/Warning/Danger stack.
 
 ### DEWS zone geometry
 
@@ -79,11 +79,12 @@ Edge-anchored compound masks (current iteration as of 2026-04-30):
 
 | Zone | Primary edge | Bounds | Approx tiles |
 |------|--------------|--------|-------------:|
-| CALM | x=0 | large left-edge vertical anchorage basin | ~549 |
-| WATCH | y=0 | wide top-edge breakwater band | ~408 |
-| ALERT | x=55/eastern corner | outer eastern ring | ~142 |
-| WARNING | x=55/eastern corner | middle eastern ring bridged into Danger Strait | ~114 |
-| DANGER | x=55/eastern corner | inner/right storm strait on the angled shelf | ~74 |
+| CALM | x=0 | large left-edge vertical anchorage plus reclaimed south/right basin | ~1107 |
+| WATCH | y=0 | top-edge breakwater water not claimed by Ledger Mooring | ~246 |
+| LEDGER | northeast shelf | non-DEWS NAV mooring between Watch Breakwater and the eastern alert stack | ~204 |
+| ALERT | x=55/eastern corner | outer eastern ring | ~232 |
+| WARNING | x=55/eastern corner | middle eastern ring bridged into Danger Strait | ~65 |
+| DANGER | x=55/eastern corner | inner/right storm strait on the angled shelf | ~48 |
 
 The eastern corner is covered by overlapping ALERT+WARNING+DANGER water, with
 Warning Shoals touching the Danger Strait shelf rather than leaving a generic

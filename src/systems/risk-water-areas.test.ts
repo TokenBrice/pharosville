@@ -116,18 +116,20 @@ describe("risk water areas", () => {
     expect(warning.y).toBeLessThan(alert.y);
   });
 
-  it("keeps Ledger Mooring as the only bottom sea exception zone", () => {
+  it("keeps Ledger Mooring as the northeast non-DEWS water shelf", () => {
     const ledger = RISK_WATER_AREAS["ledger-mooring"];
+    const calm = RISK_WATER_AREAS["safe-harbor"];
+    const watch = RISK_WATER_AREAS["breakwater-edge"];
 
-    expect(ledger.regionTile).toEqual({ x: 47, y: 52 });
-    expect(ledger.labelTile).toEqual({ x: 47, y: 52 });
+    expect(ledger.regionTile).toEqual({ x: 37, y: 5 });
+    expect(ledger.labelTile).toEqual({ x: 37, y: 5 });
     expect(ledger.terrain).toBe("ledger-water");
     expect(ledger.validTerrains).toEqual(["ledger-water"]);
-    expect(minDistance([ledger.regionTile, ...ledger.shipAnchors], DOCK_TILES)).toBeGreaterThanOrEqual(5);
-    // Snapped to the south corner of the iso diamond.
-    expect(ledger.shipAnchors.some(
-      (anchor) => anchor.x === PHAROSVILLE_MAP_WIDTH - 1 && anchor.y === PHAROSVILLE_MAP_HEIGHT - 1,
-    )).toBe(true);
+    expect(minDistance([ledger.regionTile, ...ledger.shipAnchors], DOCK_TILES)).toBeGreaterThanOrEqual(3);
+    expect(ledger.shipAnchors.some((tile) => tile.y === 0)).toBe(true);
+    expect(ledger.regionTile.x).toBeGreaterThan(calm.labelTile.x);
+    expect(ledger.labelTile.x).toBeGreaterThan(watch.labelTile.x);
+    expect(ledger.regionTile.y).toBeLessThan(calm.labelTile.y);
   });
 
   it("keeps named risk water out of the lighthouse mountain clearance lane", () => {
@@ -151,7 +153,7 @@ describe("risk water areas", () => {
   it("matches the authored DEWS placement diagram", () => {
     const expectedSamples = [
       { band: "CALM", tile: { x: 6, y: 30 }, terrain: "calm-water" },
-      { band: "WATCH", tile: { x: 28, y: 5 }, terrain: "watch-water" },
+      { band: "WATCH", tile: { x: 14, y: 8 }, terrain: "watch-water" },
       { band: "ALERT", tile: { x: 47, y: 14 }, terrain: "alert-water" },
       { band: "WARNING", tile: { x: 50, y: 8 }, terrain: "warning-water" },
       { band: "DANGER", tile: { x: 54, y: 1 }, terrain: "storm-water" },
@@ -170,14 +172,20 @@ describe("risk water areas", () => {
     expect(terrainKindAt(0, 27)).toBe("calm-water");
     expect(terrainKindAt(14, 42)).toBe("calm-water");
     expect(terrainKindAt(14, 0)).toBe("watch-water");
-    expect(terrainKindAt(34, 0)).toBe("watch-water");
+    expect(terrainKindAt(16, 0)).toBe("watch-water");
+    expect(terrainKindAt(34, 0)).toBe("ledger-water");
     expect(terrainKindAt(55, 0)).toBe("storm-water");
     expect(terrainKindAt(54, 0)).toBe("storm-water");
     expect(terrainKindAt(55, 8)).toBe("warning-water");
     expect(terrainKindAt(45, 0)).toBe("warning-water");
     expect(terrainKindAt(40, 0)).toBe("alert-water");
     expect(terrainKindAt(47, 14)).toBe("alert-water");
-    expect(RISK_WATER_AREAS["ledger-mooring"].regionTile.y).toBeGreaterThan(45);
+    expect(RISK_WATER_AREAS["ledger-mooring"].regionTile).toEqual({ x: 37, y: 5 });
+    expect(terrainKindAt(31, 0)).toBe("ledger-water");
+    expect(terrainKindAt(37, 5)).toBe("ledger-water");
+    expect(terrainKindAt(41, 13)).toBe("ledger-water");
+    expect(terrainKindAt(47, 52)).toBe("calm-water");
+    expect(terrainKindAt(50, 55)).toBe("calm-water");
   });
 
   it("keeps every named sea zone in the same water component with edge-snapped ship anchors where required", () => {
@@ -269,7 +277,7 @@ describe("risk water areas", () => {
     ];
     for (const tile of peripherySamples) {
       const terrain = terrainKindAt(tile.x, tile.y);
-      const isZoneTerrain = ["calm-water", "watch-water", "alert-water", "warning-water", "storm-water"].includes(terrain);
+      const isZoneTerrain = ["calm-water", "watch-water", "alert-water", "warning-water", "storm-water", "ledger-water"].includes(terrain);
       expect(isZoneTerrain, `${tile.x}.${tile.y} should be generic water, got ${terrain}`).toBe(false);
     }
   });
@@ -283,21 +291,26 @@ describe("risk water areas", () => {
     ];
     for (const tile of lighthouseClearanceSamples) {
       const terrain = terrainKindAt(tile.x, tile.y);
-      const isZoneTerrain = ["calm-water", "watch-water", "alert-water", "warning-water", "storm-water"].includes(terrain);
+      const isZoneTerrain = ["calm-water", "watch-water", "alert-water", "warning-water", "storm-water", "ledger-water"].includes(terrain);
       expect(isZoneTerrain, `${tile.x}.${tile.y} should be generic water (lighthouse clearance), got ${terrain}`).toBe(false);
     }
   });
 
-  it("sizes each zone proportionally to ship count", () => {
-    const counts: Record<string, number> = {};
-    for (let y = 0; y < PHAROSVILLE_MAP_HEIGHT; y += 1) {
-      for (let x = 0; x < PHAROSVILLE_MAP_WIDTH; x += 1) {
-        const t = terrainKindAt(x, y);
-        counts[t] = (counts[t] ?? 0) + 1;
-      }
-    }
+  it("sizes the northeast Ledger Mooring footprint about one third larger than the old south basin", () => {
+    const counts = terrainCounts();
+
+    expect(counts["ledger-water"]).toBeGreaterThanOrEqual(200);
+    expect(counts["ledger-water"]).toBeLessThanOrEqual(232);
+    expect(counts["ledger-water"] / 160).toBeGreaterThanOrEqual(1.25);
+    expect(counts["ledger-water"] / 160).toBeLessThanOrEqual(1.45);
     expect(counts["calm-water"]).toBeGreaterThan(counts["watch-water"]);
-    expect(counts["watch-water"]).toBeGreaterThan(counts["alert-water"]);
+  });
+
+  it("sizes each zone proportionally to ship count", () => {
+    const counts = terrainCounts();
+    expect(counts["calm-water"]).toBeGreaterThan(counts["watch-water"]);
+    expect(counts["watch-water"]).toBeGreaterThanOrEqual(190);
+    expect(counts["watch-water"]).toBeGreaterThanOrEqual(counts["alert-water"]);
     expect(counts["alert-water"]).toBeGreaterThan(counts["warning-water"] ?? 0);
     expect(counts["alert-water"]).toBeGreaterThan(counts["storm-water"] ?? 0);
     expect(counts["warning-water"] ?? 0).toBeGreaterThanOrEqual(30);
@@ -306,6 +319,17 @@ describe("risk water areas", () => {
     expect(counts["storm-water"] ?? 0).toBeLessThanOrEqual(100);
   });
 });
+
+function terrainCounts(): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (let y = 0; y < PHAROSVILLE_MAP_HEIGHT; y += 1) {
+    for (let x = 0; x < PHAROSVILLE_MAP_WIDTH; x += 1) {
+      const t = terrainKindAt(x, y);
+      counts[t] = (counts[t] ?? 0) + 1;
+    }
+  }
+  return counts;
+}
 
 function connectedWaterTileKeys(start: { x: number; y: number }): Set<string> {
   const visited = new Set<string>();

@@ -51,7 +51,8 @@ describe("buildPharosVilleMap", () => {
     const counts = terrainCounts(map.tiles);
     expect((counts.get("deep-water") ?? 0) / map.tiles.length).toBeLessThanOrEqual(0.03);
     expect(counts.get("calm-water") ?? 0).toBeGreaterThan(counts.get("watch-water") ?? 0);
-    expect(counts.get("watch-water") ?? 0).toBeGreaterThan(counts.get("alert-water") ?? 0);
+    expect(counts.get("watch-water") ?? 0).toBeGreaterThanOrEqual(190);
+    expect(counts.get("watch-water") ?? 0).toBeGreaterThanOrEqual(counts.get("alert-water") ?? 0);
     expect(counts.get("alert-water") ?? 0).toBeGreaterThan(counts.get("warning-water") ?? 0);
     expect(counts.get("warning-water") ?? 0).toBeGreaterThan(counts.get("storm-water") ?? 0);
     expect(map.tiles.every((tile) => tile.terrain)).toBe(true);
@@ -118,6 +119,8 @@ describe("buildPharosVilleMap", () => {
     expect(terrainKindAt(REGION_TILES["storm-shelf"].x, REGION_TILES["storm-shelf"].y)).toBe("storm-water");
     expect(terrainKindAt(REGION_TILES["ledger-mooring"].x, REGION_TILES["ledger-mooring"].y)).toBe("ledger-water");
     expect(terrainKindAt(0, 55)).toBe("calm-water");
+    expect(terrainKindAt(47, 52)).toBe("calm-water");
+    expect(terrainKindAt(50, 55)).toBe("calm-water");
   });
 
   it("uses the left edge for Calm Anchorage and the top edge for Watch Breakwater", () => {
@@ -133,9 +136,9 @@ describe("buildPharosVilleMap", () => {
       { x: 4, y: 1 },
       { x: 1, y: 7 },
       { x: 16, y: 0 },
-      { x: 28, y: 5 },
-      { x: 34, y: 0 },
-      { x: 24, y: 10 },
+      { x: 14, y: 8 },
+      { x: 18, y: 9 },
+      { x: 20, y: 10 },
     ];
 
     for (const tile of calmSamples) {
@@ -144,6 +147,36 @@ describe("buildPharosVilleMap", () => {
     for (const tile of watchSamples) {
       expect(terrainKindAt(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("watch-water");
     }
+  });
+
+  it("places Ledger Mooring on the northeast shelf while preserving the east risk stack", () => {
+    const ledgerSamples = [
+      { x: 23, y: 0 },
+      { x: 31, y: 0 },
+      { x: 37, y: 5 },
+      { x: 39, y: 8 },
+      { x: 40, y: 10 },
+      { x: 41, y: 13 },
+    ];
+    const oldLedgerSamples = [
+      { x: 43, y: 54 },
+      { x: 45, y: 55 },
+      { x: 47, y: 52 },
+      { x: 50, y: 55 },
+      { x: 55, y: 55 },
+    ];
+
+    for (const tile of ledgerSamples) {
+      expect(terrainKindAt(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("ledger-water");
+    }
+    for (const tile of oldLedgerSamples) {
+      expect(terrainKindAt(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("calm-water");
+    }
+    expect(terrainKindAt(31, 14)).toBe("water");
+    expect(terrainKindAt(36, 18)).toBe("water");
+    expect(terrainKindAt(40, 0)).toBe("alert-water");
+    expect(terrainKindAt(45, 0)).toBe("warning-water");
+    expect(terrainKindAt(55, 0)).toBe("storm-water");
   });
 
   it("extends DEWS water over the exposed outer perimeter while keeping the island halo generic", () => {

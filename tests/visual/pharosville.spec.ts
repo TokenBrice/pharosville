@@ -410,6 +410,12 @@ test("pharosville dense visual fixture preserves districts, dense ships, and ren
       || target.detailId === "area.dews.alert"
     ), viewportSize, 104, { height: 320, width: 460 }),
   });
+  await expect(page).toHaveScreenshot("pharosville-dense-ledger-northeast.png", {
+    clip: clipForTargets(stillTargets, (target) => (
+      target.detailId === "area.risk-water.ledger-mooring"
+      || target.detailId === "area.dews.watch"
+    ), viewportSize, 92, { height: 300, width: 460 }),
+  });
 });
 
 test("pharosville renders a stressed ship in storm-shelf detail", async ({ page }) => {

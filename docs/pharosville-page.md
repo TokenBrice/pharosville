@@ -53,8 +53,8 @@ The current implementation includes the desktop PharosVille v0.1 baseline:
 - ship scale uses exaggerated compressed market-cap tiers, not linear supply area, so $1B+ issuers are spottable while USDC and USDT receive dedicated titan-size hull treatments instead of linear supply area
 - ship reduced-motion/static placement uses each ship's risk-water idle tile, or Ledger Mooring for NAV ledger assets; rendered dock moorings remain active route stops rather than the static representative position
 - normal-motion ships follow slow deterministic water-only harbor cycles, with seeded detours between chain moorings and their peg/DEWS risk water; routed ships spend one third of their cycle moored, and non-titan ships are hidden while moored so visible ship load rotates without dropping any ship from the world model
-- DEWS-driven risk water areas follow the diagrammed sea-zone field: Calm Anchorage owns the large left-edge vertical basin, Watch Breakwater owns the wide top-edge band, Ledger Mooring owns the bottom-edge basin, and Alert Channel / Warning Shoals / Danger Strait form overlapping rings snapped to the eastern angled shelf; each area has its own terrain texture, printed label, selectable hit target, and live band counts in details and the accessibility ledger
-- fresh ship risk water maps to Calm Anchorage, Watch Breakwater, Alert Channel, Warning Shoals, or Danger Strait; stale/low-confidence evidence stays as an evidence caveat on Calm Anchorage fallback placement, and NAV ledger assets use Ledger Mooring ledger water below the harbor in a quiet bottom basin. Normal-motion dockless patrols use current or adjacent same-purpose sea anchors so every risk zone has meaningful water-only travel
+- DEWS-driven risk water areas follow the diagrammed sea-zone field: Calm Anchorage owns the large left-edge basin and reclaimed south/right basin, Watch Breakwater owns the remaining top-edge band, Ledger Mooring owns the northeast shelf between Watch Breakwater and the elevated Alert/Warning/Danger stack, and Alert Channel / Warning Shoals / Danger Strait form overlapping rings snapped to the eastern angled shelf; each area has its own terrain texture, printed label, selectable hit target, and live band counts in details and the accessibility ledger
+- fresh ship risk water maps to Calm Anchorage, Watch Breakwater, Alert Channel, Warning Shoals, or Danger Strait; stale/low-confidence evidence stays as an evidence caveat on Calm Anchorage fallback placement, and NAV ledger assets use Ledger Mooring ledger water in the northeast basin between Watch and the alert stack. Normal-motion dockless patrols use current or adjacent same-purpose sea anchors so every risk zone has meaningful water-only travel
 - ship docking cadence comes from `stablecoins.chainCirculating` chain presence, while risk water comes from `pegSummary.coins[]` and `stress.signals[]`; DOM details expose the route source, named risk water area, risk water zone, home dock, chain-presence count, and cadence text
 - active ships draw painted sail marks or pennants when a local logo asset is available; secondary `ShipVisual.overlay` cues render as tiny lanterns, pennants, or signal flags rather than circular badges
 - the current dense fixture processes all active stablecoins as individual ships with named risk-water placement and route facts; no ship-cluster targets are emitted in the current world, and normal-motion map-visible ship targets rotate as non-titan ships dock
@@ -99,7 +99,7 @@ periphery around all island lobes and water tiles inside a lighthouse
 visual-clearance box (x:14..24, y:23..32) remain generic water so zones don't
 crowd the island or the lighthouse sprite.
 
-**Ledger Mooring** is non-DEWS and sits at the south edge for NAV-ledger
+**Ledger Mooring** is non-DEWS and sits on the northeast shelf for NAV-ledger
 ships.
 
 ## Data Mapping Target
@@ -119,7 +119,7 @@ The planned PharosVille visual grammar is:
 - cemetery = dead and frozen assets from merged cemetery data, with each tomb marker using the local memorial marker sprite for its cause-aware shape, a stone-mounted local cemetery logo on selected or major memorials when available, and a cause-of-death plaque keyed to the same color taxonomy as the cemetery legend
 - mint/burn flows, DEX liquidity, and redemption-route backstops = dedicated analytical pages outside PharosVille, not canvas landmarks
 - evidence caveat = missing, low-confidence, or stale evidence, exposed in ship details and the accessibility ledger
-- ledger water = NAV ledger assets that do not have standard peg-summary rows
+- ledger water = NAV ledger assets, including assets that also have standard peg-summary or DEWS rows
 
 Exact values and placement explanations must be available in DOM panels. The canvas must never be the only source of analytical truth.
 

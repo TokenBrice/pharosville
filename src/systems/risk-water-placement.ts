@@ -1,5 +1,12 @@
 import { riskWaterAreaForPlacement } from "./risk-water-areas";
-import { clampMapTile, isWaterTileKind, terrainKindAt, tileKindAt } from "./world-layout";
+import {
+  PHAROSVILLE_MAP_HEIGHT,
+  PHAROSVILLE_MAP_WIDTH,
+  clampMapTile,
+  isWaterTileKind,
+  terrainKindAt,
+  tileKindAt,
+} from "./world-layout";
 import type { ShipRiskPlacement } from "./world-types";
 
 export function isRiskPlacementWaterTile(tile: { x: number; y: number }, placement: ShipRiskPlacement): boolean {
@@ -69,6 +76,29 @@ export function nearestAvailableRiskPlacementWaterTile(
     if (bestTile) return bestTile;
   }
 
+  for (const candidate of riskPlacementWaterTilesByDistance(tile, placement)) {
+    if (!occupied.has(`${candidate.x}.${candidate.y}`)) return candidate;
+  }
+
   return null;
 }
 
+function riskPlacementWaterTilesByDistance(
+  tile: { x: number; y: number },
+  placement: ShipRiskPlacement,
+): { x: number; y: number }[] {
+  const candidates: { x: number; y: number; distance: number }[] = [];
+  for (let y = 0; y < PHAROSVILLE_MAP_HEIGHT; y += 1) {
+    for (let x = 0; x < PHAROSVILLE_MAP_WIDTH; x += 1) {
+      const candidate = { x, y };
+      if (!isRiskPlacementWaterTile(candidate, placement)) continue;
+      candidates.push({
+        ...candidate,
+        distance: Math.abs(tile.x - x) + Math.abs(tile.y - y),
+      });
+    }
+  }
+  return candidates
+    .toSorted((a, b) => a.distance - b.distance || a.y - b.y || a.x - b.x)
+    .map(({ x, y }) => ({ x, y }));
+}

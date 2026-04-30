@@ -129,6 +129,7 @@ describe("buildPharosVilleWorld", () => {
     expect(world.ships.length).toBeGreaterThan(24);
     expect(calmShips.length).toBeGreaterThan(12);
     expect(navShips.length).toBeGreaterThan(0);
+    expect(navShips.every((ship) => terrainKindAt(ship.riskTile.x, ship.riskTile.y) === "ledger-water")).toBe(true);
     expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThanOrEqual(12);
     expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThanOrEqual(10);
     expect(world.ships.every((ship) => {
@@ -242,6 +243,7 @@ describe("buildPharosVilleWorld", () => {
     expect(alertArea?.tile ? terrainKindAt(alertArea.tile.x, alertArea.tile.y) : null).toBe("alert-water");
     expect(world.areas.map((area) => area.detailId)).not.toContain("area.risk-water.data-fog");
     expect(ledgerArea).toMatchObject({ label: "Ledger Mooring", riskZone: "ledger", detailId: "area.risk-water.ledger-mooring" });
+    expect(ledgerArea?.tile).toEqual({ x: 37, y: 5 });
     expect(ledgerArea?.tile ? terrainKindAt(ledgerArea.tile.x, ledgerArea.tile.y) : null).toBe("ledger-water");
     expect(world.detailIndex["area.risk-water.data-fog"]).toBeUndefined();
     expect(world.detailIndex["area.risk-water.ledger-mooring"]?.facts).toEqual(expect.arrayContaining([
@@ -552,6 +554,9 @@ describe("buildPharosVilleWorld", () => {
     expect(new Set(world.ships.map((ship) => ship.id))).toEqual(activeAssetIds);
     expect(world.ships.every((ship) => ["water", "deep-water"].includes(tileKindAt(ship.tile.x, ship.tile.y)))).toBe(true);
     expect(world.ships.every((ship) => ["water", "deep-water"].includes(tileKindAt(ship.riskTile.x, ship.riskTile.y)))).toBe(true);
+    expect(world.ships
+      .filter((ship) => ship.riskPlacement === "ledger-mooring")
+      .every((ship) => terrainKindAt(ship.riskTile.x, ship.riskTile.y) === "ledger-water")).toBe(true);
     expect(new Set(world.ships.map((ship) => ship.detailId)).size).toBe(world.ships.length);
     for (const ship of world.ships) {
       expect(world.detailIndex[ship.detailId]).toBeDefined();

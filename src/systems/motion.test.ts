@@ -238,6 +238,14 @@ describe("motion", () => {
     expect(route.dockStops.map(stripRouteStopRuntimeFields)).toEqual(ship.dockVisits);
     expect(route.waterPaths.has(shipWaterPathKey(route.riskTile, dockStop.mooringTile))).toBe(true);
     expect(route.waterPaths.has(shipWaterPathKey(dockStop.mooringTile, route.riskTile))).toBe(true);
+    for (const path of [
+      route.waterPaths.get(shipWaterPathKey(route.riskTile, dockStop.mooringTile)),
+      route.waterPaths.get(shipWaterPathKey(dockStop.mooringTile, route.riskTile)),
+    ]) {
+      expect(path).toBeDefined();
+      expect(path!.points.every((point) => inMapBounds(sampleWorld.map, point))).toBe(true);
+      expect(path!.points.every((point) => /water/.test(tileKindForSample(point)))).toBe(true);
+    }
   });
 
   it("keeps NAV ships visibly moored at Ledger Mooring while preserving dock visits", () => {
@@ -400,22 +408,30 @@ describe("motion", () => {
       expect(waypoint).toBeDefined();
       expect(entry.expectedTerrains).toContain(terrainKindAt(waypoint?.x ?? -1, waypoint?.y ?? -1));
       if (route.zone === "ledger") {
-        expect(waypoint?.y).toBeGreaterThanOrEqual(46);
+        expect(waypoint?.x).toBeGreaterThanOrEqual(21);
+        expect(waypoint?.x).toBeLessThanOrEqual(42);
+        expect(waypoint?.y).toBeGreaterThanOrEqual(0);
+        expect(waypoint?.y).toBeLessThanOrEqual(14);
       } else if (route.zone === "calm") {
         expect(waypoint?.y).toBeLessThanOrEqual(45);
       } else if (route.zone === "watch") {
-        expect(waypoint?.x).toBeLessThanOrEqual(12);
-      } else {
+        expect(waypoint?.x).toBeLessThanOrEqual(20);
+      } else if (route.zone === "warning" || route.zone === "danger") {
         expect(waypoint?.x).toBeGreaterThanOrEqual(38);
       }
     }
   });
 
-  it("keeps calm, alert, warning, and danger route samples on water tiles", () => {
+  it("keeps calm, ledger, alert, warning, and danger route samples on water tiles", () => {
     const worlds = [
       worldForShip({
         chainCirculating: chainCirculating(["Ethereum", "Tron"]),
         chains: ["ethereum", "tron"],
+      }),
+      worldForShip({
+        chainCirculating: chainCirculating(["Ethereum", "Tron"]),
+        chains: ["ethereum", "tron"],
+        navToken: true,
       }),
       worldForShip({
         chainCirculating: chainCirculating(["Ethereum", "Tron"]),
@@ -439,7 +455,7 @@ describe("motion", () => {
       const plan = buildMotionPlan(sampleWorld, ship.detailId);
       const route = plan.shipRoutes.get(ship.id)!;
 
-      expect(["calm", "alert", "warning", "danger"]).toContain(route.zone);
+      expect(["calm", "ledger", "alert", "warning", "danger"]).toContain(route.zone);
       for (let index = 0; index < 40; index += 1) {
         const sample = resolveShipMotionSample({
           plan,
