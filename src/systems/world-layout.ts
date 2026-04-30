@@ -20,27 +20,30 @@ export const REGION_TILES: Record<ShipRiskPlacement, { x: number; y: number }> =
 export const ETHEREUM_L2_DOCK_CHAIN_IDS = ["base", "arbitrum", "optimism", "polygon"] as const;
 export const ETHEREUM_HARBOR_PRIORITY_CHAIN_IDS = ["ethereum", ...ETHEREUM_L2_DOCK_CHAIN_IDS] as const;
 
-// Ethereum anchors the east cove while major L2s use smaller extension slips
-// wrapping the east and south harbor shelves.
+// Ethereum anchors the east cove. With grand-tier ethereum (400x320) and base
+// (304x220 at 0.7 displayScale) sprites the bay is spaced wider so harbors stay
+// readable: base pulled south-west away from ethereum, arbitrum and polygon
+// shifted up the south-west arc to thin out the lower cluster.
 export const EVM_BAY_DOCK_TILES = [
   { x: 43, y: 31 },
-  { x: 40, y: 36 },
-  { x: 36, y: 40 },
+  { x: 37, y: 39 },
+  { x: 32, y: 41 },
   { x: 41, y: 27 },
-  { x: 29, y: 40 },
+  { x: 26, y: 39 },
   { x: 42, y: 34 },
 ] as const;
 
 // Outer harbors wrap the north, west, south, and east coasts so the
 // island reads as a single inhabited harbor ring rather than a dock staircase.
-// Tron anchors the north shelf to balance the southwest cluster.
+// Tron anchors the north-west shelf and solana the north-east shelf to keep
+// them clear of the central lighthouse and ethereum harbors.
 export const OUTER_HARBOR_DOCK_TILES = [
   { x: 20, y: 35 },
-  { x: 22, y: 22 },
-  { x: 30, y: 21 },
+  { x: 25, y: 23 },
+  { x: 34, y: 22 },
   { x: 40, y: 22 },
   { x: 33, y: 41 },
-  { x: 25, y: 23 },
+  { x: 23, y: 37 },
   { x: 25, y: 38 },
   { x: 27, y: 40 },
   { x: 43, y: 33 },

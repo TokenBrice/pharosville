@@ -1,7 +1,6 @@
 import { areaLabelPlacementForArea } from "../../systems/area-labels";
 import { DEWS_AREA_LABEL_COLORS } from "../../systems/palette";
 import { tileToScreen } from "../../systems/projection";
-import { ETHEREUM_L2_DOCK_CHAIN_IDS } from "../../systems/world-layout";
 import type { PharosVilleWorld } from "../../systems/world-types";
 import { drawSignBoard } from "../canvas-primitives";
 import type { DrawPharosVilleInput } from "../render-types";
@@ -14,14 +13,6 @@ const ETHEREUM_HARBOR_SIGNS = [
     maxWidth: 136,
     rotation: -0.035,
     tile: { x: 42.1, y: 29.1 },
-  },
-  {
-    accent: "#88ccc1",
-    chainIds: ETHEREUM_L2_DOCK_CHAIN_IDS,
-    label: "L2 Bay",
-    maxWidth: 76,
-    rotation: 0.035,
-    tile: { x: 38.2, y: 36.1 },
   },
 ] as const;
 

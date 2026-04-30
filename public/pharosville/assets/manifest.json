@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-05-01-pharosville-titan-sprites-v1",
+    "cacheVersion": "2026-05-01-pharosville-harbor-diversity-v3",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": [
@@ -463,25 +463,25 @@
       "path": "docks/solana-prism-stilt.png",
       "category": "dock",
       "layer": "docks",
-      "width": 208,
-      "height": 160,
+      "width": 192,
+      "height": 136,
       "displayScale": 1,
       "anchor": [
-        104,
-        124
+        96,
+        106
       ],
       "footprint": [
-        104,
-        44
+        98,
+        40
       ],
       "hitbox": [
-        14,
-        22,
-        180,
-        118
+        10,
+        16,
+        172,
+        110
       ],
       "loadPriority": "critical",
-      "criticalReason": "Solana slender stilt-pier with crystal-glass column lamps.",
+      "criticalReason": "Solana compact stilt-pier with crystal-glass column lamps; sized to clear tron and ethereum harbors.",
       "promptKey": "dock.solana-prism-stilt",
       "semanticRole": "solana prismatic stilt-pier",
       "paletteKeys": [
@@ -491,7 +491,7 @@
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "0f848991-c028-4dea-b51f-bb7cb1918ded",
+        "jobId": "b429c45f-cfd5-4845-a01d-1acc2342f1c7",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },
@@ -502,7 +502,7 @@
       "layer": "docks",
       "width": 304,
       "height": 220,
-      "displayScale": 1,
+      "displayScale": 0.7,
       "anchor": [
         152,
         172

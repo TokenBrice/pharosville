@@ -230,19 +230,19 @@ describe("buildPharosVilleMap", () => {
   it("keeps dock slots on coastline edges with water access", () => {
     expect(EVM_BAY_DOCK_TILES).toEqual([
       { x: 43, y: 31 },
-      { x: 40, y: 36 },
-      { x: 36, y: 40 },
+      { x: 37, y: 39 },
+      { x: 32, y: 41 },
       { x: 41, y: 27 },
-      { x: 29, y: 40 },
+      { x: 26, y: 39 },
       { x: 42, y: 34 },
     ]);
     expect(OUTER_HARBOR_DOCK_TILES).toEqual([
       { x: 20, y: 35 },
-      { x: 23, y: 37 },
-      { x: 30, y: 21 },
+      { x: 25, y: 23 },
+      { x: 34, y: 22 },
       { x: 40, y: 22 },
       { x: 33, y: 41 },
-      { x: 25, y: 23 },
+      { x: 23, y: 37 },
       { x: 25, y: 38 },
       { x: 27, y: 40 },
       { x: 43, y: 33 },
