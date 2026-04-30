@@ -1,6 +1,6 @@
 # PharosVille Change Playbook
 
-Last updated: 2026-04-30
+Last updated: 2026-05-01
 
 Use this playbook to choose the smallest safe path for `/pharosville/` work. The verified product contract remains `docs/pharosville-page.md`; this file is for maintenance execution.
 
@@ -38,7 +38,7 @@ Start by classifying the change:
 | Assets | `npm run check:pharosville-assets` |
 | Palette/color drift | `npm run check:pharosville-colors` |
 | Canvas/UI behavior | `npx playwright test tests/visual/pharosville.spec.ts --grep "pharosville"` |
-| Deployable artifact or metadata | `npm run typecheck && npm test && npm run build` |
+| Deployable artifact or metadata | `npm run validate` |
 | Release/deploy-impacting work | `npm run validate:release` |
 
 ## Documentation Rules

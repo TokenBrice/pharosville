@@ -15,6 +15,7 @@ import {
 } from "../../src/__fixtures__/pharosville-world";
 import { MAX_MAIN_CANVAS_PIXELS, MAX_TOTAL_BACKING_PIXELS } from "../../src/systems/canvas-budget";
 import { tileToScreen } from "../../src/systems/projection";
+import { PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY } from "@shared/lib/pharosville-api-endpoints";
 import type { PegSummaryResponse, StressSignalsAllResponse } from "@shared/types";
 
 type DebugShipMotionSample = {
@@ -86,12 +87,12 @@ type PharosVilleVisualDebug = {
 
 const meta = { updatedAt: 1_700_000_000, ageSeconds: 60, status: "fresh" };
 const PHAROSVILLE_DESKTOP_DATA_ENDPOINTS = [
-  "/stablecoins",
-  "/chains",
-  "/stability-index",
-  "/peg-summary",
-  "/stress-signals",
-  "/report-cards",
+  PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stablecoins,
+  PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.chains,
+  PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stability,
+  PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.pegSummary,
+  PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stress,
+  PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.reportCards,
 ] as const;
 const RISK_WATER_AREA_DETAILS = [
   { detailId: "area.dews.calm", label: "Calm Anchorage", zone: "calm" },
@@ -140,23 +141,24 @@ async function mockPharosVillePayloads(page: Page, payload: {
   stress: unknown;
 }) {
   const payloads: Array<{ path: string; body: unknown }> = [
-    { path: "stablecoins", body: payload.stablecoins },
-    { path: "chains", body: payload.chains },
-    { path: "stability-index", body: payload.stability },
-    { path: "peg-summary", body: payload.pegSummary },
-    { path: "stress-signals", body: payload.stress },
-    { path: "report-cards", body: payload.reportCards },
+    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stablecoins, body: payload.stablecoins },
+    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.chains, body: payload.chains },
+    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stability, body: payload.stability },
+    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.pegSummary, body: payload.pegSummary },
+    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stress, body: payload.stress },
+    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.reportCards, body: payload.reportCards },
   ];
 
   for (const { path, body } of payloads) {
-    for (const prefix of ["api", "_site-data"]) {
-      await page.route(`**/${prefix}/${path}**`, async (route) => {
-        await route.fulfill({
-          contentType: "application/json",
-          body: JSON.stringify({ ...(body as Record<string, unknown>), _meta: meta }),
-        });
+    const endpoint = new URL(path, "http://localhost");
+    await page.route((url) => (
+      url.pathname === endpoint.pathname && url.search === endpoint.search
+    ), async (route) => {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ ...(body as Record<string, unknown>), _meta: meta }),
       });
-    }
+    });
   }
 }
 
@@ -562,7 +564,7 @@ function isPharosVilleViewportGatedRequest(url: URL) {
   ) {
     return true;
   }
-  return PHAROSVILLE_DESKTOP_DATA_ENDPOINTS.some((path) => url.pathname.endsWith(path));
+  return PHAROSVILLE_DESKTOP_DATA_ENDPOINTS.some((path) => `${url.pathname}${url.search}` === path);
 }
 
 test("pharosville narrow fallback avoids world runtime requests", async ({ page }) => {

@@ -1,6 +1,6 @@
 # PharosVille Operations
 
-Last updated: 2026-04-30
+Last updated: 2026-05-01
 
 This runbook covers the standalone Cloudflare Pages app at `https://pharosville.pharos.watch/`.
 
@@ -48,22 +48,13 @@ Wrangler serves Pages locally, including Functions, at `http://localhost:8788` b
 Focused development checks:
 
 ```bash
-npm run typecheck
-npm test
-npm run check:pharosville-assets
-npm run check:pharosville-colors
-npm run build
+npm run validate
 ```
 
 Before publishing or claiming release-level confidence:
 
 ```bash
-npm run typecheck
-npm test
-npm run check:pharosville-assets
-npm run check:pharosville-colors
-npm run build
-npm run test:visual
+npm run validate:release
 ```
 
 ## Deploy

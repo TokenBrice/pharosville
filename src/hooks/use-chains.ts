@@ -1,17 +1,17 @@
-import { API_PATHS } from "@shared/lib/api-endpoints";
-import { API_FRESHNESS_MAX_AGE_SEC } from "@shared/lib/api-freshness";
-import { ChainsResponseSchema, type ChainsResponse } from "@shared/types/chains";
+import { PHAROSVILLE_API_CONTRACT } from "@shared/lib/pharosville-api-contract";
+import { type ChainsResponse } from "@shared/types/chains";
 import { CRON_15MIN } from "@/lib/cron-intervals";
 import { useApiQueryWithMeta } from "./use-api-query";
 
 export function useChains() {
+  const endpoint = PHAROSVILLE_API_CONTRACT.chains;
   return useApiQueryWithMeta<ChainsResponse>(
     ["chains"],
-    API_PATHS.chains(),
+    endpoint.path,
     CRON_15MIN,
     {
-      schema: ChainsResponseSchema,
-      metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.chains,
+      schema: endpoint.schema,
+      metaMaxAgeSec: endpoint.metaMaxAgeSec,
     },
   );
 }

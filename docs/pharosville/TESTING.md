@@ -1,6 +1,6 @@
 # PharosVille Testing Guide
 
-Last updated: 2026-04-29
+Last updated: 2026-05-01
 
 Use this guide to choose focused checks for the standalone PharosVille Vite app.
 
@@ -59,22 +59,15 @@ The visual suite covers desktop shell rendering, narrow/short fallback behavior,
 Use these when HTML metadata, CSS, assets, screenshots, or app shell behavior changes:
 
 ```bash
-npm run typecheck
-npm test
-npm run check:pharosville-assets
-npm run check:pharosville-colors
-npm run build
+npm run validate
 ```
 
-Before claiming release-level confidence, run the current broad manual gate until the release worker adds a dedicated release script:
+`npm test` is the default Vitest lane and includes `src`, `functions`, and the PharosVille shared contract tests so the split app keeps the copied shared contracts under validation.
+
+Before claiming release-level confidence, run the broad release gate:
 
 ```bash
-npm run typecheck
-npm test
-npm run check:pharosville-assets
-npm run check:pharosville-colors
-npm run build
-npm run test:visual
+npm run validate:release
 ```
 
 ## Docs-Only Maintenance Changes

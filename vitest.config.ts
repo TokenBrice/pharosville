@@ -12,6 +12,16 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx", "functions/**/*.test.ts"],
+    exclude: [
+      "node_modules/**",
+      "dist/**",
+      "shared/lib/__tests__/public-docs.test.ts",
+    ],
+    include: [
+      "src/**/*.test.ts",
+      "src/**/*.test.tsx",
+      "shared/**/*.test.ts",
+      "functions/**/*.test.ts",
+    ],
   },
 });

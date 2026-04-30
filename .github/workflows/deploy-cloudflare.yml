@@ -7,13 +7,12 @@ on:
     branches:
       - main
 
-concurrency:
-  group: production-deploy
-  cancel-in-progress: false
-
 jobs:
   validate:
     runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-validate-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - uses: actions/setup-node@v6
@@ -34,6 +33,9 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     environment: production
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - uses: actions/setup-node@v6

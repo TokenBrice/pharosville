@@ -1,10 +1,5 @@
-import { API_PATHS } from "@shared/lib/api-endpoints";
-import { API_FRESHNESS_MAX_AGE_SEC } from "@shared/lib/api-freshness";
+import { PHAROSVILLE_API_CONTRACT } from "@shared/lib/pharosville-api-contract";
 import {
-  PegSummaryResponseSchema,
-  ReportCardsResponseSchema,
-  StabilityIndexResponseSchema,
-  StressSignalsAllResponseSchema,
   type PegSummaryResponse,
   type ReportCardsResponse,
   type StabilityIndexResponse,
@@ -14,49 +9,53 @@ import { CRON_15MIN, CRON_30MIN } from "@/lib/cron-intervals";
 import { useApiQueryWithMeta } from "./use-api-query";
 
 export function usePegSummary() {
+  const endpoint = PHAROSVILLE_API_CONTRACT.pegSummary;
   return useApiQueryWithMeta<PegSummaryResponse>(
     ["peg-summary"],
-    API_PATHS.pegSummary(),
+    endpoint.path,
     CRON_15MIN,
     {
-      schema: PegSummaryResponseSchema,
-      metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.pegSummary,
+      schema: endpoint.schema,
+      metaMaxAgeSec: endpoint.metaMaxAgeSec,
     },
   );
 }
 
 export function useReportCards() {
+  const endpoint = PHAROSVILLE_API_CONTRACT.reportCards;
   return useApiQueryWithMeta<ReportCardsResponse>(
     ["report-cards"],
-    API_PATHS.reportCards(),
+    endpoint.path,
     CRON_15MIN,
     {
-      schema: ReportCardsResponseSchema,
-      metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.reportCards,
+      schema: endpoint.schema,
+      metaMaxAgeSec: endpoint.metaMaxAgeSec,
     },
   );
 }
 
 export function useStabilityIndexDetail() {
+  const endpoint = PHAROSVILLE_API_CONTRACT.stability;
   return useApiQueryWithMeta<StabilityIndexResponse>(
     ["stability-index-detail"],
-    API_PATHS.stabilityIndex(true),
+    endpoint.path,
     CRON_30MIN,
     {
-      schema: StabilityIndexResponseSchema,
-      metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.stabilityIndex,
+      schema: endpoint.schema,
+      metaMaxAgeSec: endpoint.metaMaxAgeSec,
     },
   );
 }
 
 export function useStressSignals() {
+  const endpoint = PHAROSVILLE_API_CONTRACT.stress;
   return useApiQueryWithMeta<StressSignalsAllResponse>(
     ["stress-signals"],
-    API_PATHS.stressSignals(),
+    endpoint.path,
     CRON_30MIN,
     {
-      schema: StressSignalsAllResponseSchema,
-      metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.stressSignals,
+      schema: endpoint.schema,
+      metaMaxAgeSec: endpoint.metaMaxAgeSec,
     },
   );
 }
