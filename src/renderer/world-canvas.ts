@@ -75,11 +75,15 @@ const TERRAIN_ASSET_SCALE = 0.5;
 
 const LIGHTHOUSE_HEADLAND = {
   cliff: "#2b3943",
+  cliffEdge: "rgba(20, 24, 22, 0.62)",
+  foam: "rgba(180, 224, 208, 0.46)",
   grass: "#4f7e4d",
+  grassTuft: "#3d6240",
   halo: "rgba(255, 200, 87, 0.14)",
   moss: "#667f4f",
   shadow: "rgba(10, 12, 12, 0.42)",
-  stone: "#9b8f74",
+  stone: "#c8b88a",
+  stoneShadow: "#7a6c4f",
 } as const;
 
 const LIGHTHOUSE_ASSET_BOTTOM_OFFSET_Y = 18;
@@ -285,12 +289,16 @@ const SKY_CLOUDS = [
 ] as const;
 
 const HEADLAND_TERRAIN_ACCENTS = [
-  { dx: -1.6, dy: -0.5, size: 0.76 },
-  { dx: -0.9, dy: -1.1, size: 0.92 },
-  { dx: 0.2, dy: -1.3, size: 1 },
-  { dx: 1.1, dy: -0.8, size: 0.86 },
-  { dx: 1.7, dy: 0.1, size: 0.72 },
-  { dx: -1.2, dy: 0.7, size: 0.68 },
+  { dx: -1.8, dy: -0.4, size: 0.78 },
+  { dx: -1.0, dy: -1.0, size: 0.92 },
+  { dx: 0.0, dy: -1.4, size: 1.05 },
+  { dx: 1.0, dy: -1.0, size: 0.92 },
+  { dx: 1.8, dy: -0.4, size: 0.78 },
+  { dx: -2.0, dy: 0.3, size: 0.66 },
+  { dx: 2.0, dy: 0.3, size: 0.66 },
+  { dx: -1.2, dy: 0.9, size: 0.62 },
+  { dx: 1.2, dy: 0.9, size: 0.62 },
+  { dx: 0.0, dy: 1.1, size: 0.7 },
 ] as const;
 
 const SHIP_COLORS = {
@@ -1884,14 +1892,30 @@ function drawLighthouseHeadland({ camera, ctx, world }: DrawPharosVilleInput) {
 
   ctx.fillStyle = LIGHTHOUSE_HEADLAND.halo;
   ctx.beginPath();
-  ctx.ellipse(center.x - 2 * zoom, center.y + 10 * zoom, 70 * zoom, 24 * zoom, -0.08, 0, Math.PI * 2);
+  ctx.ellipse(center.x - 2 * zoom, center.y + 12 * zoom, 95 * zoom, 32 * zoom, -0.08, 0, Math.PI * 2);
   ctx.fill();
 
-  drawDiamond(ctx, center.x - 2 * zoom, center.y + 19 * zoom, 88 * zoom, 38 * zoom, LIGHTHOUSE_HEADLAND.shadow);
-  drawDiamond(ctx, center.x - 2 * zoom, center.y + 11 * zoom, 74 * zoom, 30 * zoom, LIGHTHOUSE_HEADLAND.cliff);
-  drawTileLowerFacet(ctx, center.x - 2 * zoom, center.y + 11 * zoom, 74 * zoom, 30 * zoom, "rgba(25, 29, 27, 0.54)");
-  drawDiamond(ctx, center.x - 1 * zoom, center.y + 1 * zoom, 58 * zoom, 22 * zoom, crownColor);
-  drawDiamond(ctx, center.x, center.y - 5 * zoom, 42 * zoom, 16 * zoom, LIGHTHOUSE_HEADLAND.stone);
+  ctx.fillStyle = LIGHTHOUSE_HEADLAND.foam;
+  ctx.beginPath();
+  ctx.ellipse(center.x - 2 * zoom, center.y + 30 * zoom, 132 * zoom, 56 * zoom, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  drawDiamond(ctx, center.x - 2 * zoom, center.y + 27 * zoom, 130 * zoom, 55 * zoom, LIGHTHOUSE_HEADLAND.shadow);
+  drawDiamond(ctx, center.x - 2 * zoom, center.y + 14 * zoom, 110 * zoom, 46 * zoom, LIGHTHOUSE_HEADLAND.cliff);
+  drawTileLowerFacet(ctx, center.x - 2 * zoom, center.y + 14 * zoom, 110 * zoom, 46 * zoom, LIGHTHOUSE_HEADLAND.cliffEdge);
+  drawDiamond(ctx, center.x - 1 * zoom, center.y + 1 * zoom, 84 * zoom, 32 * zoom, crownColor);
+  drawDiamond(ctx, center.x, center.y - 4 * zoom, 60 * zoom, 24 * zoom, LIGHTHOUSE_HEADLAND.stone);
+  drawTileLowerFacet(ctx, center.x, center.y - 4 * zoom, 60 * zoom, 24 * zoom, LIGHTHOUSE_HEADLAND.stoneShadow);
+
+  ctx.fillStyle = LIGHTHOUSE_HEADLAND.grassTuft;
+  for (const tuft of [
+    { dx: -16, dy: -1 }, { dx: 14, dy: -3 }, { dx: -28, dy: 6 },
+    { dx: 28, dy: 6 }, { dx: -6, dy: 7 }, { dx: 8, dy: 9 },
+  ]) {
+    ctx.beginPath();
+    ctx.ellipse(center.x + tuft.dx * zoom, center.y + tuft.dy * zoom, 2.2 * zoom, 1.3 * zoom, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
   for (const accent of HEADLAND_TERRAIN_ACCENTS) {
     const accentPoint = tileToScreen({

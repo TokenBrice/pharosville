@@ -4,6 +4,7 @@ dist/
 .cache/
 test-results/
 playwright-report/
+output/
 .DS_Store
 .env
 .env.*
