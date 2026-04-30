@@ -32,6 +32,26 @@ export class ApiFetchError extends Error {
   }
 }
 
+export class ApiPathError extends Error {
+  readonly path: string;
+
+  constructor(path: string) {
+    super(`API fetch path must be a same-origin /api/ path: ${path}`);
+    this.name = "ApiPathError";
+    this.path = path;
+  }
+}
+
+function assertSameOriginApiPath(path: string): void {
+  if (
+    !path.startsWith("/api/")
+    || path.startsWith("//")
+    || /^[a-z][a-z0-9+.-]*:/i.test(path)
+  ) {
+    throw new ApiPathError(path);
+  }
+}
+
 function formatIssues(
   issues: readonly { path: readonly PropertyKey[]; message: string }[],
 ): string {
@@ -79,6 +99,7 @@ export async function apiFetch<T>(
   init?: RequestInit,
   contractMode?: ApiContractMode,
 ): Promise<T> {
+  assertSameOriginApiPath(path);
   const res = await fetch(path, init);
   if (!res.ok) throw await buildFetchError(path, res);
   const data: unknown = await res.json();
@@ -92,6 +113,7 @@ export async function apiFetchWithMeta<T>(
   maxAgeSec = 900,
   contractMode?: ApiContractMode,
 ): Promise<{ data: T; meta: ApiMeta | null }> {
+  assertSameOriginApiPath(path);
   const res = await fetch(path, init);
   if (!res.ok) throw await buildFetchError(path, res);
 

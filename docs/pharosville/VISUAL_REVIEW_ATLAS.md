@@ -68,7 +68,7 @@ Use this checklist when approving screenshot changes:
 Update snapshots only after confirming the visual behavior is intentionally changed. Pair snapshot changes with:
 
 ```bash
-npm test -- src/app/pharosville
+npm test -- src
 npm run check:pharosville-assets
 npm run check:pharosville-colors
 npx playwright test tests/visual/pharosville.spec.ts

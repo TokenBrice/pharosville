@@ -1,25 +1,25 @@
-# Shared Agent Notes
+# Shared Agent Guide
 
 Applies to `shared/**`.
 
-## Read First
+## Scope
 
-- `docs/architecture.md`
-- `docs/classification.md` for stablecoin or taxonomy work
-- `docs/methodology-page.md` for scoring/versioned methodology work
+- `shared/**` is copied runtime-neutral contract/data logic used by standalone PharosVille.
+- Treat copied shared data and helper modules as an import boundary for this app, not as the full host repository source of truth.
+- Do not import from `src/**`, `functions/**`, or local sibling repositories.
+- Do not assume host-repo-only scripts, docs, Worker code, or deployment settings exist here.
 
 ## Rules
 
-- `shared/lib/**` is runtime-neutral and must compile under both the root and Worker TypeScript targets.
-- Shared code may use the repository's ES2022 TypeScript target, but it must stay runtime-neutral and avoid frontend-only or Worker-only globals unless explicitly abstracted.
+- `shared/lib/**` must stay runtime-neutral and avoid frontend-only or Worker-only globals unless explicitly abstracted.
 - Import shared runtime logic as `@shared/lib/...` from frontend code; import shared type/schema modules as `@shared/types...`. Avoid relative cross-boundary imports.
-- Do not import `worker/src/**` or frontend-only `src/**` from shared code.
 - Classification labels and colors live in `shared/lib/classification.ts`; do not redefine them locally.
 - Use `getCirculatingRaw()` from `shared/lib/supply.ts` for circulating-supply semantics.
+- Keep PharosVille API contract changes aligned with `shared/types/pharosville.ts` and `shared/lib/pharosville-api-contract.ts`.
 
 ## Common Checks
 
-- `npm run check:worker-boundary`
-- `npm run check:shared-cycles`
-- `npm run check:stablecoin-data` when stablecoin metadata is affected
-- Focused `shared/lib/__tests__` suites for touched logic
+- `npm run typecheck`.
+- `npm run build` when exported types or shared imports change.
+- `npm test` for the standalone app's default suite.
+- Focused shared tests may be run by explicit file path after confirming they are standalone-safe; broad `shared/**` host-repo test sweeps are not part of the default PharosVille gate.

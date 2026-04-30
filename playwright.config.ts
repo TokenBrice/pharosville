@@ -1,5 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
 
+function shouldReuseExistingServer() {
+  if (process.env.PHAROSVILLE_VISUAL_REUSE === "1") return true;
+  if (process.env.PHAROSVILLE_VISUAL_REUSE === "0") return false;
+  return !process.env.CI;
+}
+
 export default defineConfig({
   testDir: "./tests/visual",
   timeout: 60_000,
@@ -15,7 +21,7 @@ export default defineConfig({
   webServer: {
     command: "npm run dev -- --host 127.0.0.1 --port 4173",
     url: "http://127.0.0.1:4173",
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: shouldReuseExistingServer(),
     timeout: 120_000,
   },
 });

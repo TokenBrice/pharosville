@@ -1,3 +1,5 @@
+import { PHAROSVILLE_API_ENDPOINT_PATHS } from "../../shared/lib/pharosville-api-endpoints";
+
 interface Env {
   PHAROS_API_BASE?: string;
   PHAROS_API_KEY?: string;
@@ -11,20 +13,6 @@ interface PagesContext {
   };
 }
 
-interface AllowedEndpoint {
-  pathname: string;
-  search: string;
-}
-
-const ALLOWED_ENDPOINTS: readonly AllowedEndpoint[] = [
-  { pathname: "/api/stablecoins", search: "" },
-  { pathname: "/api/chains", search: "" },
-  { pathname: "/api/stability-index", search: "?detail=true" },
-  { pathname: "/api/peg-summary", search: "" },
-  { pathname: "/api/stress-signals", search: "" },
-  { pathname: "/api/report-cards", search: "" },
-];
-
 const FORWARDED_RESPONSE_HEADERS = [
   "cache-control",
   "content-type",
@@ -34,30 +22,38 @@ const FORWARDED_RESPONSE_HEADERS = [
   "x-data-age",
 ] as const;
 
+const REQUIRED_PHAROS_API_ORIGIN = "https://api.pharos.watch";
+const UPSTREAM_TIMEOUT_MS = 8_000;
+
 function jsonError(message: string, status: number, headers?: HeadersInit): Response {
   return Response.json({ error: message }, { status, headers });
 }
 
 function normalizeBaseUrl(base: string | undefined): string | null {
   const trimmed = base?.trim();
-  if (!trimmed) return null;
+  if (trimmed !== REQUIRED_PHAROS_API_ORIGIN) return null;
   try {
     const parsed = new URL(trimmed);
-    if (parsed.protocol !== "https:") return null;
-    parsed.pathname = parsed.pathname.replace(/\/+$/, "");
-    parsed.search = "";
-    parsed.hash = "";
-    return parsed.toString().replace(/\/$/, "");
+    if (
+      parsed.protocol !== "https:"
+      || parsed.hostname !== "api.pharos.watch"
+      || parsed.username
+      || parsed.password
+      || parsed.port
+      || parsed.pathname !== "/"
+      || parsed.search
+      || parsed.hash
+    ) {
+      return null;
+    }
+    return parsed.origin;
   } catch {
     return null;
   }
 }
 
 function isAllowedRequest(url: URL): boolean {
-  return ALLOWED_ENDPOINTS.some((endpoint) => (
-    endpoint.pathname === url.pathname
-    && endpoint.search === url.search
-  ));
+  return PHAROSVILLE_API_ENDPOINT_PATHS.includes(`${url.pathname}${url.search}`);
 }
 
 function buildUpstreamUrl(base: string, url: URL): string {
@@ -72,6 +68,25 @@ function copyForwardedHeaders(upstream: Response): Headers {
   }
   headers.set("x-pharosville-proxy", "1");
   return headers;
+}
+
+async function fetchUpstream(url: string, apiKey: string): Promise<Response | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  try {
+    return await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        "X-API-Key": apiKey,
+      },
+      redirect: "manual",
+      signal: controller.signal,
+    });
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 export async function onRequest(context: PagesContext): Promise<Response> {
@@ -90,13 +105,10 @@ export async function onRequest(context: PagesContext): Promise<Response> {
     return jsonError("PharosVille API proxy is not configured", 500);
   }
 
-  const upstream = await fetch(buildUpstreamUrl(base, url), {
-    headers: {
-      Accept: "application/json",
-      "X-API-Key": apiKey,
-    },
-    redirect: "manual",
-  });
+  const upstream = await fetchUpstream(buildUpstreamUrl(base, url), apiKey);
+  if (!upstream) {
+    return jsonError("PharosVille API upstream request failed", 502);
+  }
 
   return new Response(upstream.body, {
     status: upstream.status,

@@ -1,7 +1,7 @@
 import type { ZodType } from "zod";
-import { API_PATHS } from "./api-endpoints";
 import { API_FRESHNESS_MAX_AGE_SEC } from "./api-freshness";
 import { CRON_INTERVALS } from "./cron-jobs";
+import { PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY } from "./pharosville-api-endpoints";
 import {
   PHAROSVILLE_API_ENDPOINT_KEYS,
   type PharosVilleApiEndpointKey,
@@ -27,42 +27,42 @@ export interface PharosVilleApiEndpoint<K extends PharosVilleApiEndpointKey = Ph
 export const PHAROSVILLE_API_CONTRACT = {
   stablecoins: {
     key: "stablecoins",
-    path: API_PATHS.stablecoins(),
+    path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stablecoins,
     schema: StablecoinListResponseSchema,
     metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.stablecoins,
     producerIntervalSec: CRON_INTERVALS["sync-stablecoins"],
   },
   chains: {
     key: "chains",
-    path: API_PATHS.chains(),
+    path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.chains,
     schema: ChainsResponseSchema,
     metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.chains,
     producerIntervalSec: CRON_INTERVALS["sync-stablecoins"],
   },
   stability: {
     key: "stability",
-    path: API_PATHS.stabilityIndex(true),
+    path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stability,
     schema: StabilityIndexResponseSchema,
     metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.stabilityIndex,
     producerIntervalSec: CRON_INTERVALS["stability-index"],
   },
   pegSummary: {
     key: "pegSummary",
-    path: API_PATHS.pegSummary(),
+    path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.pegSummary,
     schema: PegSummaryResponseSchema,
     metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.pegSummary,
     producerIntervalSec: CRON_INTERVALS["sync-stablecoins"],
   },
   stress: {
     key: "stress",
-    path: API_PATHS.stressSignals(),
+    path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stress,
     schema: StressSignalsAllResponseSchema,
     metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.stressSignals,
     producerIntervalSec: CRON_INTERVALS["compute-dews"],
   },
   reportCards: {
     key: "reportCards",
-    path: API_PATHS.reportCards(),
+    path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.reportCards,
     schema: ReportCardsResponseSchema,
     metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.reportCards,
     producerIntervalSec: CRON_INTERVALS["publish-report-card-cache"],

@@ -2,11 +2,11 @@
 
 Last updated: 2026-04-30
 
-Use this file before changing `/pharosville/`. It summarizes the current implementation shape for maintainers; the verified product contract remains `docs/pharosville-page.md`.
+Use this file before changing PharosVille. It summarizes the current standalone Vite implementation shape for maintainers; the verified product contract remains `docs/pharosville-page.md`.
 
 ## Status
 
-PharosVille is an implemented desktop-only route at `/pharosville/`. It is an old-school maritime isometric analytics surface backed by existing Pharos APIs, local PNG sprites, a pure world model, a Canvas 2D renderer, and DOM-accessible details.
+PharosVille is an implemented desktop-only standalone app served at `https://pharosville.pharos.watch/`. It is an old-school maritime isometric analytics surface backed by existing Pharos APIs, local PNG sprites, a pure world model, a Canvas 2D renderer, and DOM-accessible details.
 
 The current visual revamp target is a dense dark-first maritime observatory
 diorama: richer local sprites, textured sea/coast/harbor materials, warm
@@ -19,28 +19,32 @@ Historical plans in this directory are context, not live instructions. If they c
 
 ## Runtime Entry Points
 
-- Route shell: `src/app/pharosville/page.tsx`
-- Viewport gate and dynamic desktop mount: `src/app/pharosville/client.tsx`
-- Data hook aggregation: `src/app/pharosville/pharosville-desktop-data.tsx`
-- Canvas/runtime shell: `src/app/pharosville/pharosville-world.tsx`
-- Pure world model: `src/app/pharosville/systems/pharosville-world.ts`
-- Map/terrain layout: `src/app/pharosville/systems/world-layout.ts`
-- Chain dock model: `src/app/pharosville/systems/chain-docks.ts`
-- Ship risk placement: `src/app/pharosville/systems/risk-placement.ts`
-- Risk-water source of truth: `src/app/pharosville/systems/risk-water-areas.ts`
-- Risk-water placement validation: `src/app/pharosville/systems/risk-water-placement.ts`
-- Printed water labels: `src/app/pharosville/systems/area-labels.ts`
-- Ship visuals and size classes: `src/app/pharosville/systems/ship-visuals.ts`
-- Deterministic ship routes: `src/app/pharosville/systems/motion.ts`
-- Detail/DOM parity: `src/app/pharosville/systems/detail-model.ts`, `src/app/pharosville/components/accessibility-ledger.tsx`
-- Renderer and hit testing: `src/app/pharosville/renderer/world-canvas.ts`, `src/app/pharosville/renderer/hit-testing.ts`
-- Shared render geometry: `src/app/pharosville/renderer/geometry.ts`
-- Asset manifest/types: `public/pharosville/assets/manifest.json`, `src/app/pharosville/systems/asset-manifest.ts`
+- HTML and metadata shell: `index.html`
+- React root and query provider: `src/main.tsx`
+- App shell and screen-reader H1: `src/App.tsx`
+- Viewport gate and dynamic desktop mount: `src/client.tsx`
+- Desktop fallback: `src/desktop-only-fallback.tsx`
+- Data hook aggregation: `src/pharosville-desktop-data.tsx`
+- Canvas/runtime shell: `src/pharosville-world.tsx`
+- Route styles: `src/pharosville.css`
+- Pure world model: `src/systems/pharosville-world.ts`
+- Map/terrain layout: `src/systems/world-layout.ts`
+- Chain dock model: `src/systems/chain-docks.ts`
+- Ship risk placement: `src/systems/risk-placement.ts`
+- Risk-water source of truth: `src/systems/risk-water-areas.ts`
+- Risk-water placement validation: `src/systems/risk-water-placement.ts`
+- Printed water labels: `src/systems/area-labels.ts`
+- Ship visuals and size classes: `src/systems/ship-visuals.ts`
+- Deterministic ship routes: `src/systems/motion.ts`
+- Detail/DOM parity: `src/systems/detail-model.ts`, `src/components/accessibility-ledger.tsx`
+- Renderer and hit testing: `src/renderer/world-canvas.ts`, `src/renderer/hit-testing.ts`
+- Shared render geometry: `src/renderer/geometry.ts`
+- Asset manifest/types: `public/pharosville/assets/manifest.json`, `src/systems/asset-manifest.ts`
 
 ## Current Route Invariants
 
 - The desktop world must not mount below `1280px` width or `760px` height. Below that gate, keep the DOM fallback and avoid world queries, manifest fetches, canvas setup, and sprite decoding.
-- PharosVille uses existing frontend hooks and API payloads. Do not add Worker/API sources for visual-only route changes unless the user explicitly asks for a new data contract.
+- PharosVille uses same-origin `/api/*` requests proxied by the Cloudflare Pages Function. Do not add client-side cross-origin API calls or expose `PHAROS_API_KEY`.
 - The world model should stay pure and deterministic. Canvas drawing, hit testing, selected rings, follow-selected behavior, and debug frame state must sample the same motion model.
 - Reduced-motion users get a deterministic non-animated frame without a running RAF loop.
 - Normal motion uses one route-owned RAF clock. Motion caps, cue priority, and
@@ -67,8 +71,8 @@ water gap. Two-tile island periphery and lighthouse visual-clearance box
 (x:14..24, y:23..32) are generic water.
 - Stale or missing peg evidence maps to Calm Anchorage with an evidence caveat unless a fresher risk signal exists; it must not create a separate sea zone or masquerade as storm/depeg risk.
 - Stablecoin supply values from the list payload are already USD-denominated. Use `getCirculatingRaw()` for market-cap visual tiers.
-- Local runtime assets come from `public/pharosville/assets/` and `manifest.json`. Do not reference Pixellab URLs or remote assets at runtime.
-- The current manifest has 32 runtime assets: 22 critical/first-render entries and 10 deferred entries. `npm run check:pharosville-assets` enforces the local PNG contract and the v0.1 core cap of 34 manifest assets.
+- Local runtime assets come from `public/pharosville/assets/` and `manifest.json`. Do not reference remote prototype URLs at runtime.
+- Treat `public/pharosville/assets/manifest.json` and `npm run check:pharosville-assets` as the asset inventory source of truth. At this update, the manifest contains 32 runtime assets split by `loadPriority` into 22 critical/first-render entries and 10 deferred entries; rerun the validator instead of hand-maintaining prose counts.
 
 ## Current Visual Model
 
@@ -109,8 +113,8 @@ water gap. Two-tile island periphery and lighthouse visual-clearance box
 
 ## Local Code Orientation
 
-- `src/app/pharosville/systems/README.md` explains the pure data-to-world layer and its extension points.
-- `src/app/pharosville/renderer/README.md` explains Canvas drawing, asset loading, hit testing, and renderer validation.
+- `src/systems/README.md` explains the pure data-to-world layer and its extension points.
+- `src/renderer/README.md` explains Canvas drawing, asset loading, hit testing, and renderer validation.
 
 ## Known Historical Drift
 

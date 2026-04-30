@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
+  "packageManager": "npm@11.12.1",
   "engines": {
     "node": ">=24 <25"
   },
@@ -13,11 +14,17 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:visual": "playwright test tests/visual/pharosville.spec.ts",
+    "test:visual:no-reuse": "PHAROSVILLE_VISUAL_REUSE=0 playwright test tests/visual/pharosville.spec.ts",
+    "test:visual:dist": "playwright test tests/visual/pharosville.spec.ts --config=playwright.dist.config.ts",
     "check:pharosville-assets": "node scripts/pharosville/validate-assets.mjs",
     "check:pharosville-colors": "node scripts/check-pharosville-colors.mjs",
+    "check:committed-secrets": "node scripts/check-committed-secrets.mjs",
+    "check:doc-paths-and-scripts": "node scripts/check-doc-paths-and-scripts.mjs",
+    "test:guard-scripts": "node scripts/check-guards.test.mjs",
     "smoke:live": "node scripts/smoke-live.mjs",
-    "validate": "npm run typecheck && npm test && npm run check:pharosville-assets && npm run check:pharosville-colors && npm run build",
-    "deploy": "wrangler pages deploy dist --project-name=pharosville --commit-dirty=true"
+    "validate": "npm run typecheck && npm test && npm run test:guard-scripts && npm run check:committed-secrets && npm run check:doc-paths-and-scripts && npm run check:pharosville-assets && npm run check:pharosville-colors && npm run build",
+    "validate:release": "npm run validate && npm run test:visual:dist",
+    "deploy": "wrangler pages deploy dist --project-name=pharosville"
   },
   "dependencies": {
     "@tanstack/react-query": "5.99.0",

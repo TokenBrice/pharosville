@@ -1,6 +1,6 @@
 # PharosVille Page
 
-Contract for `/pharosville/`, the beta PharosVille route.
+Contract for `https://pharosville.pharos.watch/`, the standalone beta PharosVille app.
 
 `/pharosville/` is a data-driven old-school RPG island city for exploring Pharos stablecoin signals.
 
@@ -19,15 +19,17 @@ review discipline. Fantasy-village scenery, decorative lore copy,
 non-semantic palettes, extra typography systems, ClaudeVille-specific entities,
 and canvas-only data truth remain out of scope.
 
-## Route Contract
+## App Contract
 
-- **Page shell:** `src/app/pharosville/page.tsx`
-- **Viewport gate:** `src/app/pharosville/client.tsx`
-- **Desktop fallback:** `src/app/pharosville/desktop-only-fallback.tsx`
-- **World shell:** `src/app/pharosville/pharosville-world.tsx`
-- **Route styles:** `src/app/pharosville/pharosville.css`
+- **HTML and metadata shell:** `index.html`
+- **React root:** `src/main.tsx`
+- **App shell:** `src/App.tsx`
+- **Viewport gate:** `src/client.tsx`
+- **Desktop fallback:** `src/desktop-only-fallback.tsx`
+- **World shell:** `src/pharosville-world.tsx`
+- **Route styles:** `src/pharosville.css`
 
-The Server Component owns metadata, canonical `/pharosville/`, breadcrumb JSON-LD, and the screen-reader H1. The client component performs the desktop viewport gate before mounting the browser-only world module.
+`index.html` owns document metadata and the Vite entrypoint. `src/App.tsx` owns the screen-reader H1 and route error boundary. `src/client.tsx` performs the desktop viewport gate before mounting the browser-only world module.
 
 PharosVille is a desktop-only experience. Mobile and tablet compatibility is explicitly out of scope: there is no responsive canvas layout, no touch-first toolbar, and no mobile-specific UX work. Screens below `1280px` wide or `760px` tall render a DOM fallback with links to the main analytical pages and must not mount the canvas, world queries, asset manifest loader, or sprite decode path. Mobile/narrow-viewport bugs in the world surface are not regressions — the fallback is the supported mobile contract.
 
@@ -44,10 +46,10 @@ The current implementation includes the desktop PharosVille v0.1 baseline:
 - Pharos lighthouse placed on the generated island mountain at tile `{ x: 18, y: 28 }`, sitting on elevated terrain inside the central island silhouette
 - only the tower portion of the generated lighthouse asset is composited onto the island mountain platform, so no embedded island base or road/causeway is drawn
 - Ethereum anchors the eastern cove with a selectable four-gate harbor-hub sprite drawn visually behind ship traffic, while Base, Arbitrum, Optimism, Polygon, and Mantle use reserved L2 extension slips around the eastern and southern coves when present; BSC, Tron, Solana, Aptos, and other non-core high-supply chain harbors use distributed outer-coast dock slots; generated harbor-ring quay sprites, compact piers, rollup causeways, quay pads, seawalls, posts, crates, lamps, buoys, ropes, skiffs, tents, and harbor clutter make the ports read as a continuous harbor ring; the cemetery sits on a separate bottom-left memorial islet
-- live aggregate Pharos queries mounted only after the desktop gate
+- live aggregate Pharos queries mounted only after the desktop gate, using same-origin `/api/*` paths served by the Pages Function proxy
 - pure world model for PSI, docks, active ships, clusters, cemetery, named risk-water areas, details, and visual cues
-- docks are capped to ten chain harbors, reserving the Ethereum/L2 harbor cluster first when those chains are present and then filling remaining slots by stablecoin supply; each dock represents one chain harbor, uses Pixellab harbor sprites with dedicated EVM-bay assets for Ethereum/Base/Arbitrum/Optimism/Polygon/Mantle, identifies itself with a small logo flag rather than a large name board, scales from both global share and absolute billion-dollar supply tiers, and lists that chain's highest-supply stablecoins in DOM details
-- active ships use distinct Pixellab base sprites by governance class: CeFi treasury galleons, CeFi-dependent chartered brigantines, and DeFi DAO schooners, with legacy algorithmic junk and caravel fallback sprites reserved for defensive/unclassified cases
+- docks are capped to ten chain harbors, reserving the Ethereum/L2 harbor cluster first when those chains are present and then filling remaining slots by stablecoin supply; each dock represents one chain harbor, uses local harbor sprites with dedicated EVM-bay assets for Ethereum/Base/Arbitrum/Optimism/Polygon/Mantle, identifies itself with a small logo flag rather than a large name board, scales from both global share and absolute billion-dollar supply tiers, and lists that chain's highest-supply stablecoins in DOM details
+- active ships use distinct local base sprites by governance class: CeFi treasury galleons, CeFi-dependent chartered brigantines, and DeFi DAO schooners, with legacy algorithmic junk and caravel fallback sprites reserved for defensive/unclassified cases
 - ship scale uses exaggerated compressed market-cap tiers, not linear supply area, so $1B+ issuers are spottable while USDT and USDC remain capped
 - ship reduced-motion/static placement uses each ship's risk-water idle tile, or Ledger Mooring for NAV ledger assets; rendered dock moorings remain active route stops rather than the static representative position
 - normal-motion ships follow slow deterministic water-only harbor cycles, with seeded detours between chain moorings and their peg/DEWS risk water
@@ -69,7 +71,7 @@ The current implementation includes the desktop PharosVille v0.1 baseline:
 - route-owned motion debug fields for browser validation, including
   `motionClockSource`, `activeMotionLoopCount`, and capped `motionCueCounts`
 - desktop, dense-atlas, stressed-ship, short-screen, ultrawide backing-store, interaction, central-core invariants, and motion visual coverage, including a p95 draw-duration budget for dense normal-motion rendering
-- controlled Pixellab asset manifest v2 under `public/pharosville/assets/`, currently 32 local runtime assets with 22 critical/first-render entries and 10 deferred entries, separate cache/provenance versions, reserved frame-animation metadata, and a validator-enforced v0.1 core cap of 34 assets
+- controlled local asset manifest v2 under `public/pharosville/assets/`, with the runtime inventory and critical/deferred split derived from `manifest.json` and enforced by `npm run check:pharosville-assets`
 - asset validation through `npm run check:pharosville-assets`
 - no production fixture/default market data
 
@@ -171,21 +173,22 @@ Visual tests route-mock `/api/*` and `/_site-data/*` data before asserting map s
 
 ## Color Guard
 
-`npm run check:harbor-palette` remains as a compatibility script name, but it now runs `scripts/check-pharosville-colors.mjs`. The new guard checks the PharosVille route shell for unsafe placeholder/debug colors and visual-system drift.
+`npm run check:pharosville-colors` checks the PharosVille route shell for unsafe placeholder/debug colors and visual-system drift.
 
 ## Update Rules
 
 Update this file when any of the following change:
 
-- `/pharosville/` route shell, metadata, or desktop gate
+- standalone app shell, metadata, or desktop gate
 - PharosVille data mapping
 - canvas mount, renderer, or world-model contract
 - DOM parity, keyboard access, or detail-panel behavior
 - visual regression expectations
-- asset manifest or Pixellab pipeline
+- asset manifest or raster asset pipeline
 
 Related docs to check in the same change:
 
-- [architecture.md](./architecture.md)
-- [README.md](./README.md)
-- [data-visualization.md](./data-visualization.md)
+- [README.md](../README.md)
+- [CURRENT.md](./pharosville/CURRENT.md)
+- [TESTING.md](./pharosville/TESTING.md)
+- [VISUAL_INVARIANTS.md](./pharosville/VISUAL_INVARIANTS.md)

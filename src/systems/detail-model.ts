@@ -1,6 +1,7 @@
 import { CHAIN_META } from "@shared/lib/chains";
 import type { AreaNode, DetailModel, DockNode, GraveNode, LighthouseNode, ShipClusterNode, ShipNode } from "./world-types";
 import { ETHEREUM_L2_DOCK_CHAIN_IDS } from "./world-layout";
+import { analyticalRouteHref } from "./route-links";
 
 const usd = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0, style: "currency", currency: "USD" });
 const percent = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1, style: "percent" });
@@ -71,7 +72,7 @@ export function detailForLighthouse(node: LighthouseNode): DetailModel {
       { label: "Score", value: node.score == null ? "Unavailable" : String(node.score) },
       { label: "Band", value: node.psiBand ?? "Unavailable" },
     ],
-    links: [{ label: "PSI", href: "/stability-index/" }],
+    links: [{ label: "PSI", href: analyticalRouteHref("/stability-index/") }],
   };
 }
 
@@ -92,12 +93,12 @@ export function detailForDock(node: DockNode): DetailModel {
       { label: "Harbor group", value: harborGroup },
       { label: "Harbor style", value: node.assetId.replace("dock.", "").replaceAll("-", " ") },
     ],
-    links: [{ label: "Chain", href: `/chains/${node.chainId}/` }],
+    links: [{ label: "Chain", href: analyticalRouteHref(`/chains/${node.chainId}/`) }],
     membersHeading: "Harbored stablecoins",
     members: node.harboredStablecoins.map((coin) => ({
       id: coin.id,
       label: `${coin.symbol} (${percent.format(coin.share)})`,
-      href: `/stablecoin/${coin.id}/`,
+      href: analyticalRouteHref(`/stablecoin/${coin.id}/`),
       value: usd.format(coin.supplyUsd),
     })),
   };
@@ -124,7 +125,7 @@ export function detailForShip(node: ShipNode): DetailModel {
       { label: "Evidence status", value: evidenceStatusLabel(node) },
       { label: "Evidence", value: node.placementEvidence.sourceFields.join(", ") },
     ],
-    links: [{ label: "Stablecoin", href: `/stablecoin/${node.id}/` }],
+    links: [{ label: "Stablecoin", href: analyticalRouteHref(`/stablecoin/${node.id}/`) }],
   };
 }
 
@@ -141,12 +142,12 @@ export function detailForCluster(node: ShipClusterNode): DetailModel {
       { label: "Risk water zone", value: node.riskZone },
       { label: "Risk placement key", value: node.riskPlacement },
     ],
-    links: [{ label: "Stablecoins", href: "/stablecoins/" }],
+    links: [{ label: "Stablecoins", href: analyticalRouteHref("/stablecoins/") }],
     membersHeading: "Cluster members",
     members: node.ships.map((ship) => ({
       id: ship.id,
       label: `${ship.label} (${ship.symbol})`,
-      href: `/stablecoin/${ship.id}/`,
+      href: analyticalRouteHref(`/stablecoin/${ship.id}/`),
       value: usd.format(ship.marketCapUsd),
     })),
   };
@@ -163,7 +164,7 @@ export function detailForGrave(node: GraveNode): DetailModel {
       { label: "Cause", value: node.entry.causeOfDeath },
       { label: "Date", value: node.entry.deathDate },
     ],
-    links: [{ label: "Cemetery", href: "/cemetery/" }],
+    links: [{ label: "Cemetery", href: analyticalRouteHref("/cemetery/") }],
   };
 }
 
@@ -183,6 +184,7 @@ export function detailForArea(node: AreaNode): DetailModel {
       ...(node.facts ?? []),
       ...(node.sourceFields?.length ? [{ label: "Source fields", value: node.sourceFields.join(", ") }] : []),
     ],
-    links: node.links ?? [{ label: "DEWS", href: "/depeg/" }],
+    links: node.links?.map((link) => ({ ...link, href: analyticalRouteHref(link.href) }))
+      ?? [{ label: "DEWS", href: analyticalRouteHref("/depeg/") }],
   };
 }

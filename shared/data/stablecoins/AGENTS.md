@@ -4,24 +4,25 @@ Applies to `shared/data/stablecoins/**`.
 
 ## Read First
 
-- `docs/classification.md`
-- `docs/shadow-stablecoins.md` for PSI-only exclusions
-- `docs/process/adding-a-stablecoin.md` when adding a new asset
+- `shared/AGENTS.md`
+- `shared/data/stablecoins/PROVENANCE_NOTES.md`
+- `shared/lib/stablecoins/schema.ts`
 
 ## Rules
 
-- Author stablecoin metadata in `shared/data/stablecoins/coins/*.json`; this directory is the editable source of truth.
-- Regenerate `shared/data/stablecoins/coins.generated.json` with `tsx scripts/generate-stablecoin-per-coin-asset.ts` after per-coin edits. Do not edit the generated aggregate by hand.
-- Treat `usd-major.json`, `usd-minor.json`, `non-usd.json`, `commodity.json`, and `pre-launch.json` as read-only compatibility shells. They should remain empty, and `npm run check:stablecoin-data` guards that layout.
-- Keep `canonical-order.json` aligned with the per-coin catalog.
+- This directory is copied shared data for standalone PharosVille. Do not treat host-repo authoring docs or generation scripts as executable here unless they are present in this repository.
+- Avoid editing stablecoin catalog JSON from PharosVille maintenance tasks. If a data correction is required, make the change in the canonical upstream data workflow and copy the resulting artifact here intentionally.
+- Do not edit `shared/data/stablecoins/coins.generated.json` by hand.
+- Treat `usd-major.json`, `usd-minor.json`, `non-usd.json`, `commodity.json`, and `pre-launch.json` as read-only compatibility shells.
+- Keep `canonical-order.json` aligned with any intentionally copied per-coin catalog update.
 - Do not add manual, on-chain, CMC, or DEX supply overrides. Primary supply is DefiLlama with the existing fallback path only.
 - DefiLlama list endpoint `circulating` values are already USD-denominated; do not multiply them by price.
 - Add or update contracts only when the address is verified against the relevant source.
-- If adding a data source, update the about page and source docs.
-- If classification or methodology semantics change, update the relevant methodology doc and timeline.
+- If adding a data source, classification rule, or methodology semantic, coordinate with the host-repo source of truth before copying changes into this standalone app.
 
 ## Common Checks
 
-- `npm run check:stablecoin-data`
-- `npm run check:doc-counts`
-- Focused stablecoin registry tests under `shared/lib/__tests__`
+- `npm run typecheck`
+- `npm run build`
+- `npm test` for the standalone default suite.
+- Focused shared stablecoin tests may be run by explicit file path only after confirming they do not depend on host-repo scripts, docs, generated files, or runtime services that are absent here.

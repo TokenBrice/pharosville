@@ -8,11 +8,13 @@ The browser reads same-origin `/api/*` paths. Cloudflare Pages Functions allow o
 
 ```bash
 npm ci
+npm run dev
 npm run typecheck
 npm test
 npm run check:pharosville-assets
 npm run check:pharosville-colors
 npm run build
+npm run test:visual
 ```
 
 ## Cloudflare Pages
@@ -27,3 +29,5 @@ wrangler pages secret put PHAROS_API_KEY --project-name pharosville
 ```
 
 `PHAROS_API_BASE` is set in `wrangler.toml` as `https://api.pharos.watch`.
+
+For Pages Functions preview, deployment, smoke, rollback, and credential rotation, see `docs/pharosville/OPERATIONS.md`.

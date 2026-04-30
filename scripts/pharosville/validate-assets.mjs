@@ -4,8 +4,12 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, normalize, relative, resolve, sep } from "node:path";
 
 const repoRoot = process.cwd();
+const publicRoot = resolve(repoRoot, "public");
 const assetRoot = resolve(repoRoot, "public/pharosville/assets");
 const manifestPath = join(assetRoot, "manifest.json");
+const chainMetaPath = resolve(repoRoot, "shared/lib/chains.ts");
+const stablecoinLogosPath = resolve(repoRoot, "data/logos.json");
+const deadStablecoinsPath = resolve(repoRoot, "shared/data/dead-stablecoins.json");
 const pharosVilleSrcRoot = resolve(repoRoot, "src");
 const forbiddenPattern = /(Bearer|PIXELLAB|NEXT_PUBLIC_PIXELLAB|pixellab\.ai|https?:\/\/)/i;
 const placeholderPattern = /(placeholder|checker|debug|sample)/i;
@@ -16,6 +20,7 @@ const hexColorPattern = /^#[0-9a-f]{6}$/i;
 const assetIdPattern = /^(building|dock|landmark|overlay|prop|ship|terrain)\.[a-z0-9-]+$/;
 const pharosVilleSourceExtensionPattern = /\.(?:ts|tsx)$/;
 const pharosVilleTestFilePattern = /(?:^|\/)(?:__tests__|tests?)\/|\.test\.(?:ts|tsx)$/;
+const publicImageExtensionPattern = /\.(?:png|svg|jpe?g|webp)$/i;
 
 const manifestText = readFileSync(manifestPath, "utf8");
 const manifest = JSON.parse(manifestText);
@@ -42,6 +47,9 @@ for (const asset of manifest.assets ?? []) {
   validateAsset(asset, ids, referenced);
 }
 validateReferencedAssetIds(ids);
+validateChainLogoReferences();
+validateStablecoinLogoReferences();
+validateCemeteryLogoReferences();
 
 for (const pngPath of listPngs(assetRoot)) {
   const relativePath = relative(assetRoot, pngPath).split(sep).join("/");
@@ -361,6 +369,73 @@ function validateReferencedAssetIds(manifestIds) {
     if (!manifestIds.has(id)) {
       errors.push(`Manifest is missing referenced asset ${id} from ${[...sources].join(", ")}.`);
     }
+  }
+}
+
+function validateChainLogoReferences() {
+  const source = readFileSync(chainMetaPath, "utf8");
+  const references = [...source.matchAll(/logoPath:\s*["'`]([^"'`]+)["'`]/g)]
+    .map((match) => match[1]);
+  if (references.length === 0) {
+    errors.push("shared/lib/chains.ts has no logoPath references.");
+    return;
+  }
+  for (const path of references) {
+    validatePublicImageReference(path, "shared/lib/chains.ts logoPath");
+  }
+}
+
+function validateStablecoinLogoReferences() {
+  const logos = JSON.parse(readFileSync(stablecoinLogosPath, "utf8"));
+  if (!logos || typeof logos !== "object" || Array.isArray(logos)) {
+    errors.push("data/logos.json must be an object.");
+    return;
+  }
+  for (const [id, path] of Object.entries(logos)) {
+    if (typeof path !== "string") {
+      errors.push(`data/logos.json ${id} must reference a string path.`);
+      continue;
+    }
+    validatePublicImageReference(path, `data/logos.json ${id}`);
+  }
+}
+
+function validateCemeteryLogoReferences() {
+  const entries = JSON.parse(readFileSync(deadStablecoinsPath, "utf8"));
+  if (!Array.isArray(entries)) {
+    errors.push("shared/data/dead-stablecoins.json must be an array.");
+    return;
+  }
+  for (const entry of entries) {
+    if (!entry || typeof entry !== "object" || entry.logo == null) continue;
+    if (typeof entry.logo !== "string") {
+      errors.push(`shared/data/dead-stablecoins.json ${entry.id ?? "<unknown>"} logo must be a string.`);
+      continue;
+    }
+    validatePublicImageReference(`/logos/cemetery/${entry.logo}`, `shared/data/dead-stablecoins.json ${entry.id ?? entry.symbol ?? entry.logo}`);
+  }
+}
+
+function validatePublicImageReference(path, source) {
+  if (path.includes("://") || path.startsWith("//")) {
+    errors.push(`${source} must use a same-origin public asset path: ${path}`);
+    return;
+  }
+  if (!path.startsWith("/")) {
+    errors.push(`${source} must start with /: ${path}`);
+    return;
+  }
+  const relativePath = path.slice(1);
+  if (relativePath.includes("..") || normalize(relativePath).startsWith("..")) {
+    errors.push(`${source} uses traversal: ${path}`);
+    return;
+  }
+  if (!publicImageExtensionPattern.test(relativePath)) {
+    errors.push(`${source} must reference an image asset: ${path}`);
+  }
+  const fullPath = join(publicRoot, relativePath);
+  if (!existsSync(fullPath)) {
+    errors.push(`${source} file is missing: ${path}`);
   }
 }
 

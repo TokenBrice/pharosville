@@ -2,14 +2,14 @@
 
 Last updated: 2026-04-29
 
-Use this guide to choose focused checks for `/pharosville/`. The global testing reference remains `docs/testing.md`.
+Use this guide to choose focused checks for the standalone PharosVille Vite app.
 
 ## Fast Focused Checks
 
 World model, route facts, ship visual classes, risk placement, map layout, and motion:
 
 ```bash
-npm test -- src/app/pharosville
+npm test -- src
 ```
 
 Asset manifest and local PNG contract:
@@ -21,19 +21,19 @@ npm run check:pharosville-assets
 Route palette guardrail:
 
 ```bash
-npm run check:harbor-palette
+npm run check:pharosville-colors
 ```
 
 Focused renderer/hit-testing changes:
 
 ```bash
-npm test -- src/app/pharosville/renderer/hit-testing.test.ts
+npm test -- src/renderer/hit-testing.test.ts
 ```
 
 Focused motion changes:
 
 ```bash
-npm test -- src/app/pharosville/systems/motion.test.ts
+npm test -- src/systems/motion.test.ts
 ```
 
 ## Visual And Browser Checks
@@ -56,31 +56,32 @@ The visual suite covers desktop shell rendering, narrow/short fallback behavior,
 
 ## Build And Release Checks
 
-Use these when route metadata, static export behavior, CSS, assets, screenshots, or page shell behavior changes:
+Use these when HTML metadata, CSS, assets, screenshots, or app shell behavior changes:
 
 ```bash
-npm run lint
 npm run typecheck
+npm test
+npm run check:pharosville-assets
+npm run check:pharosville-colors
 npm run build
-npm run seo:check
 ```
 
-Before pushing deploy-impacting work:
+Before claiming release-level confidence, run the current broad manual gate until the release worker adds a dedicated release script:
 
 ```bash
-npm run test:merge-gate
+npm run typecheck
+npm test
+npm run check:pharosville-assets
+npm run check:pharosville-colors
+npm run build
+npm run test:visual
 ```
 
 ## Docs-Only Maintenance Changes
 
-For changes limited to `docs/pharosville/`, `docs/agent-task-router.md`, `docs/doc-ownership.json`, or `docs/testing.md`, run:
+For changes limited to PharosVille docs, run grep checks for stale standalone drift:
 
-```bash
-npm run check:verified-doc-links
-npm run check:doc-source-paths
-```
-
-These checks are still useful for docs-only route-maintenance changes because `docs/pharosville/` is part of the verified documentation corpus.
+Run `rg` over `README.md`, `docs/pharosville`, `docs/pharosville-page.md`, and shared agent notes for former route paths and removed script names. Matches should be historical/tracker context only, not live instructions.
 
 ## What To Verify Manually
 

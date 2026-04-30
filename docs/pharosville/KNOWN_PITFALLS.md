@@ -15,7 +15,7 @@ These are repeat-risk areas for agents working on PharosVille.
 
 ## Visual And Renderer
 
-- Do not reference Pixellab candidate paths, remote URLs, or prototype assets at runtime.
+- Do not reference generated candidate paths, remote URLs, or prototype assets at runtime.
 - Do not add ad hoc colors that bypass `palette.ts`, `world-canvas.ts` route constants, or shared classification colors.
 - Do not change manifest geometry without checking hitboxes, anchors, selection rings, and visual tests.
 - Do not move ships with a different model than hit testing and debug state use.

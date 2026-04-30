@@ -69,7 +69,7 @@ These are the non-negotiable visual/data contracts for the PharosVille world. A 
 
 ## Renderer Rules
 
-- Local runtime art comes from `public/pharosville/assets/manifest.json`; no Pixellab URLs or prototype paths at runtime.
+- Local runtime art comes from `public/pharosville/assets/manifest.json`; no generated remote URLs or prototype paths at runtime.
 - Manifest assets must stay local PNGs with `critical` or `deferred` load priority, accurate dimensions, anchors, footprints, hitboxes, category/layer metadata, and prompt provenance when generated.
 - The current v0.1 manifest budget is 34 total runtime assets; first-render/critical membership should stay narrow and justified by visible initial-frame need.
 - Hit boxes must track rendered geometry, not just tile centers.

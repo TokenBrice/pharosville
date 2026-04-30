@@ -88,12 +88,6 @@ const PHAROSVILLE_DESKTOP_DATA_ENDPOINTS = [
   "/stress-signals",
   "/report-cards",
 ] as const;
-const PHAROSVILLE_SHARED_SHELL_ENDPOINTS = new Set([
-  "/api/peg-summary",
-  "/api/stability-index",
-  "/_site-data/peg-summary",
-  "/_site-data/stability-index",
-]);
 const RISK_WATER_AREA_DETAILS = [
   { detailId: "area.dews.calm", label: "Calm Anchorage", zone: "calm" },
   { detailId: "area.dews.watch", label: "Watch Breakwater", zone: "watch" },
@@ -498,16 +492,21 @@ function collectRetiredSummaryRequests(page: Page): string[] {
 function isPharosVilleViewportGatedRequest(url: URL) {
   const retiredPath = ["blacklist", "summary"].join("-");
   if (url.pathname.endsWith(`/${retiredPath}`)) return true;
+  if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/_site-data/")) return true;
   if (
     url.pathname.startsWith("/pharosville/assets/")
     || url.pathname.startsWith("/logos/")
+    || /^\/chains\/[^/]+\.(?:png|svg|jpe?g|webp)$/i.test(url.pathname)
   ) {
     return true;
   }
-  if (!url.pathname.startsWith("/api/") && !url.pathname.startsWith("/_site-data/")) return false;
-  // These no-query endpoints are also consumed by the page shell outside PharosVilleDesktopData.
-  // The viewport gate can assert the desktop-only stability detail request via ?detail=true.
-  if (PHAROSVILLE_SHARED_SHELL_ENDPOINTS.has(url.pathname) && url.search === "") return false;
+  if (
+    /(?:^|\/)(?:pharosville-desktop-data|pharosville-world)(?:[.-]|$)/.test(url.pathname)
+    || url.pathname.includes("/src/pharosville-desktop-data")
+    || url.pathname.includes("/src/pharosville-world")
+  ) {
+    return true;
+  }
   return PHAROSVILLE_DESKTOP_DATA_ENDPOINTS.some((path) => url.pathname.endsWith(path));
 }
 

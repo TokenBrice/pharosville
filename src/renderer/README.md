@@ -51,4 +51,4 @@ npm run check:pharosville-colors
 npx playwright test tests/visual/pharosville.spec.ts --grep "pharosville"
 ```
 
-Add `npm run build` and `npm run seo:check` when the route shell or static export behavior changes.
+Add `npm run build` and the built-artifact visual lane when the route shell or deployable artifact changes.

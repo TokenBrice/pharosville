@@ -8,10 +8,10 @@ This is the agent-facing workflow for PharosVille raster assets. Runtime asset t
 
 - Generate or stage candidates under local scratch space first, such as `output/pharosville/pixellab-prototypes/`.
 - Promote selected PNGs to `public/pharosville/assets/` only after they are chosen for runtime use.
-- Runtime code must reference local manifest asset IDs, not Pixellab URLs, remote URLs, tokens, or prototype paths.
+- Runtime code must reference local manifest asset IDs, not remote generation URLs, tokens, or prototype paths.
 - Every runtime PNG needs a manifest entry with accurate dimensions, anchor, footprint, hitbox, layer/category, load priority, semantic role when useful, and prompt provenance.
 - Load priority is part of the runtime budget: use `critical` only for assets needed to make the initial desktop canvas frame coherent, and `deferred` for supplemental scenery or alternate sprites that can arrive after the core scene.
-- The current v0.1 manifest budget is 34 runtime assets. The live manifest has 31 entries: 21 critical/first-render assets and 10 deferred assets.
+- Treat `public/pharosville/assets/manifest.json` as the runtime inventory source of truth and use `loadPriority` for the critical/deferred split. `npm run check:pharosville-assets` enforces the local PNG contract and the v0.1 manifest budget.
 - Manifest schema v2 separates `style.cacheVersion` from `style.styleAnchorVersion`.
 - Bump `style.cacheVersion` whenever promoted asset bytes, manifest geometry, or animation frame assets change.
 - Keep `promptProvenance.jobId` and `promptProvenance.styleAnchorVersion` aligned with the selected asset's style anchor.
@@ -27,7 +27,7 @@ This is the agent-facing workflow for PharosVille raster assets. Runtime asset t
 - Props: `public/pharosville/assets/props/`, including the cemetery memorial terrace and marker sprite set
 - Manifest: `public/pharosville/assets/manifest.json`
 
-## Pixellab Guidance
+## Image Generation Guidance
 
 Use transparent PNG map-object generation for standalone sprites and tile generation for repeatable terrain. Keep prompts consistent with the manifest style anchor:
 
@@ -87,17 +87,17 @@ Preferred constraints:
 
 ```bash
 npm run check:pharosville-assets
-npm run check:harbor-palette
+npm run check:pharosville-colors
 ```
 
 For geometry, anchor, hitbox, or visible sprite changes, also run focused unit tests and visual checks:
 
 ```bash
-npm test -- src/app/pharosville/renderer/hit-testing.test.ts src/app/pharosville/systems/pharosville-world.test.ts
+npm test -- src/renderer/hit-testing.test.ts src/systems/pharosville-world.test.ts
 npx playwright test tests/visual/pharosville.spec.ts --grep "pharosville"
 ```
 
-Use `npm run build` and `npm run seo:check` when the change affects the static route artifact or is part of release validation.
+Use `npm run build` when the change affects the deployable Vite artifact or is part of release validation.
 
 ## Common Failure Modes
 
