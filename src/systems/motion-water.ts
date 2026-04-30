@@ -1,7 +1,7 @@
 import { isWaterTileKind } from "./world-layout";
 import { stableHash, stableOffset, stableUnit } from "./stable-random";
 import { clamp, normalizeHeading, pathKey, sameTile } from "./motion-utils";
-import type { ShipWaterPath, ShipWaterPathBuilder, ShipWaterRouteCache } from "./motion-types";
+import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipWaterPath, ShipWaterPathBuilder, ShipWaterRouteCache } from "./motion-types";
 import type { PharosVilleMap, PharosVilleTile, ShipWaterZone } from "./world-types";
 
 export function buildShipWaterRoute(input: {
@@ -77,6 +77,15 @@ export class LazyShipWaterPathMap extends Map<string, ShipWaterPath> {
 
   override has(key: string): boolean {
     return this.builders.has(key);
+  }
+}
+
+export function warmAllWaterPaths(plan: PharosVilleMotionPlan | PharosVilleBaseMotionPlan): void {
+  for (const route of plan.shipRoutes.values()) {
+    for (const stop of route.dockStops) {
+      route.waterPaths.get(pathKey(stop.mooringTile, route.riskTile));
+      route.waterPaths.get(pathKey(route.riskTile, stop.mooringTile));
+    }
   }
 }
 
