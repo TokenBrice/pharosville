@@ -303,20 +303,20 @@ describe("hit-testing", () => {
 
     const assets = {
       get: (id: string): LoadedPharosVilleAsset | null => {
-        if (id === "dock.ethereum-harbor-hub") {
+        if (id === "dock.ethereum-civic-cove") {
           return {
             entry: {
-              anchor: [168, 186],
+              anchor: [140, 156],
               category: "dock",
               displayScale: 1,
-              footprint: [168, 72],
-              height: 240,
-              hitbox: [24, 18, 288, 176],
+              footprint: [144, 56],
+              height: 200,
+              hitbox: [16, 28, 248, 152],
               id,
               layer: "docks",
               loadPriority: "critical",
-              path: "docks/ethereum-harbor-hub.png",
-              width: 336,
+              path: "docks/ethereum-civic-cove.png",
+              width: 280,
             },
             image: {} as HTMLImageElement,
           };

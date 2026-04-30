@@ -1,10 +1,17 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-04-30-pharosville-main-island-revamp-v2",
+    "cacheVersion": "2026-05-01-pharosville-harbor-diversity-v1",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
-    "palette": ["#061721", "#0d5f70", "#15858c", "#f0ead2", "#b95437", "#ffcc62"],
+    "palette": [
+      "#061721",
+      "#0d5f70",
+      "#15858c",
+      "#f0ead2",
+      "#b95437",
+      "#ffcc62"
+    ],
     "generationDefaults": {
       "view": "low top-down",
       "outline": "single color outline",
@@ -16,19 +23,16 @@
   "requiredForFirstRender": [
     "landmark.lighthouse",
     "overlay.central-island",
-    "dock.harbor-ring-quay",
-    "dock.ethereum-harbor-hub",
-    "dock.compact-harbor-pier",
-    "dock.grand-quay",
-    "dock.container-wharf",
-    "dock.twin-slip",
-    "dock.stone-breakwater",
-    "dock.market-marina",
-    "dock.relay-pontoon",
-    "dock.rollup-ferry-slip",
-    "dock.vault-quay",
-    "dock.bridge-pontoon",
-    "dock.sentinel-breakwater",
+    "dock.ethereum-civic-cove",
+    "dock.tron-arena-wharf",
+    "dock.bsc-mercantile-wharf",
+    "dock.solana-prism-stilt",
+    "dock.base-modular-slip",
+    "dock.arbitrum-arch-bridge",
+    "dock.polygon-hexmarket",
+    "dock.optimism-sunrise-beacon",
+    "dock.aptos-jade-pagoda",
+    "dock.avalanche-alpine-watch",
     "dock.wooden-pier",
     "ship.treasury-galleon",
     "ship.usdc-titan",
@@ -48,13 +52,27 @@
       "width": 64,
       "height": 64,
       "displayScale": 1,
-      "anchor": [32, 32],
-      "footprint": [32, 16],
-      "hitbox": [0, 0, 64, 64],
+      "anchor": [
+        32,
+        32
+      ],
+      "footprint": [
+        32,
+        16
+      ],
+      "hitbox": [
+        0,
+        0,
+        64,
+        64
+      ],
       "loadPriority": "deferred",
       "promptKey": "terrain.deep-water",
       "semanticRole": "open ocean base tile",
-      "paletteKeys": ["deep navy", "teal sea"],
+      "paletteKeys": [
+        "deep navy",
+        "teal sea"
+      ],
       "tool": "mcp:create_tiles_pro",
       "promptProvenance": {
         "jobId": "96c4d9ac-c577-4120-a52e-3d6b3038c737",
@@ -70,9 +88,20 @@
       "width": 64,
       "height": 64,
       "displayScale": 1,
-      "anchor": [32, 32],
-      "footprint": [32, 16],
-      "hitbox": [0, 0, 64, 64],
+      "anchor": [
+        32,
+        32
+      ],
+      "footprint": [
+        32,
+        16
+      ],
+      "hitbox": [
+        0,
+        0,
+        64,
+        64
+      ],
       "loadPriority": "deferred",
       "tool": "mcp:create_tiles_pro",
       "promptProvenance": {
@@ -89,9 +118,20 @@
       "width": 64,
       "height": 64,
       "displayScale": 1,
-      "anchor": [32, 32],
-      "footprint": [32, 16],
-      "hitbox": [0, 0, 64, 64],
+      "anchor": [
+        32,
+        32
+      ],
+      "footprint": [
+        32,
+        16
+      ],
+      "hitbox": [
+        0,
+        0,
+        64,
+        64
+      ],
       "loadPriority": "deferred",
       "tool": "mcp:create_tiles_pro",
       "promptProvenance": {
@@ -108,9 +148,20 @@
       "width": 64,
       "height": 64,
       "displayScale": 1,
-      "anchor": [32, 32],
-      "footprint": [32, 16],
-      "hitbox": [0, 0, 64, 64],
+      "anchor": [
+        32,
+        32
+      ],
+      "footprint": [
+        32,
+        16
+      ],
+      "hitbox": [
+        0,
+        0,
+        64,
+        64
+      ],
       "loadPriority": "deferred",
       "tool": "mcp:create_tiles_pro",
       "promptProvenance": {
@@ -127,9 +178,20 @@
       "width": 64,
       "height": 64,
       "displayScale": 1,
-      "anchor": [32, 32],
-      "footprint": [32, 16],
-      "hitbox": [0, 0, 64, 64],
+      "anchor": [
+        32,
+        32
+      ],
+      "footprint": [
+        32,
+        16
+      ],
+      "hitbox": [
+        0,
+        0,
+        64,
+        64
+      ],
       "loadPriority": "deferred",
       "tool": "mcp:create_tiles_pro",
       "promptProvenance": {
@@ -146,9 +208,20 @@
       "width": 64,
       "height": 64,
       "displayScale": 1,
-      "anchor": [32, 32],
-      "footprint": [32, 16],
-      "hitbox": [0, 0, 64, 64],
+      "anchor": [
+        32,
+        32
+      ],
+      "footprint": [
+        32,
+        16
+      ],
+      "hitbox": [
+        0,
+        0,
+        64,
+        64
+      ],
       "loadPriority": "deferred",
       "tool": "mcp:create_tiles_pro",
       "promptProvenance": {
@@ -165,15 +238,34 @@
       "width": 320,
       "height": 320,
       "displayScale": 0.82,
-      "anchor": [160, 319],
-      "beacon": [160, 167],
-      "footprint": [74, 46],
-      "hitbox": [108, 128, 104, 192],
+      "anchor": [
+        160,
+        319
+      ],
+      "beacon": [
+        160,
+        167
+      ],
+      "footprint": [
+        74,
+        46
+      ],
+      "hitbox": [
+        108,
+        128,
+        104,
+        192
+      ],
       "loadPriority": "critical",
       "criticalReason": "Primary PSI landmark and initial selected detail.",
       "promptKey": "landmark.lighthouse",
       "semanticRole": "PSI beacon landmark",
-      "paletteKeys": ["bronze beacon", "limestone", "terracotta", "deep navy"],
+      "paletteKeys": [
+        "bronze beacon",
+        "limestone",
+        "terracotta",
+        "deep navy"
+      ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
         "jobId": "c47c36c5-dd3e-4721-923f-9e5852400f65",
@@ -188,14 +280,30 @@
       "width": 400,
       "height": 320,
       "displayScale": 1,
-      "anchor": [200, 280],
-      "footprint": [214, 104],
-      "hitbox": [43, 19, 322, 270],
+      "anchor": [
+        200,
+        280
+      ],
+      "footprint": [
+        214,
+        104
+      ],
+      "hitbox": [
+        43,
+        19,
+        322,
+        270
+      ],
       "loadPriority": "critical",
       "criticalReason": "Generated island model overlay that unifies the central harbor-ring landmass.",
       "promptKey": "overlay.central-island",
       "semanticRole": "central island harbor-ring model",
-      "paletteKeys": ["limestone", "teal sea", "grass", "weathered wood"],
+      "paletteKeys": [
+        "limestone",
+        "teal sea",
+        "grass",
+        "weathered wood"
+      ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
         "jobId": "25ee8636-32f7-4aa1-bb29-f924cbb4fc01",
@@ -210,14 +318,28 @@
       "width": 96,
       "height": 64,
       "displayScale": 1,
-      "anchor": [48, 46],
-      "footprint": [42, 18],
-      "hitbox": [8, 12, 80, 42],
+      "anchor": [
+        48,
+        46
+      ],
+      "footprint": [
+        42,
+        18
+      ],
+      "hitbox": [
+        8,
+        12,
+        80,
+        42
+      ],
       "loadPriority": "critical",
       "criticalReason": "Fallback dock sprite for chain harbors.",
       "promptKey": "dock.wooden-pier",
       "semanticRole": "fallback chain dock",
-      "paletteKeys": ["weathered wood", "harbor teal"],
+      "paletteKeys": [
+        "weathered wood",
+        "harbor teal"
+      ],
       "tool": "mcp:create_map_object",
       "promptProvenance": {
         "jobId": "3af5f1a1-f579-43ed-850c-70dfa9051cac",
@@ -225,252 +347,372 @@
       }
     },
     {
-      "id": "dock.harbor-ring-quay",
-      "path": "docks/harbor-ring-quay.png",
+      "id": "dock.ethereum-civic-cove",
+      "path": "docks/ethereum-civic-cove.png",
       "category": "dock",
       "layer": "docks",
-      "width": 224,
-      "height": 160,
+      "width": 280,
+      "height": 200,
       "displayScale": 1,
-      "anchor": [112, 124],
-      "footprint": [112, 48],
-      "hitbox": [10, 16, 204, 124],
+      "anchor": [
+        140,
+        156
+      ],
+      "footprint": [
+        144,
+        56
+      ],
+      "hitbox": [
+        16,
+        28,
+        248,
+        152
+      ],
       "loadPriority": "critical",
-      "criticalReason": "Primary generated harbor cove sprite for large island-ring chain harbors.",
-      "promptKey": "dock.harbor-ring-quay",
-      "semanticRole": "large island-ring harbor quay",
-      "paletteKeys": ["limestone", "teal sea", "bronze beacon"],
-      "tool": "mcp:create_map_object",
-      "promptProvenance": {
-        "jobId": "d4eda13d-bea3-4273-95bb-895c77369f9d",
-        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
-    },
-    {
-      "id": "dock.ethereum-harbor-hub",
-      "path": "docks/ethereum-harbor-hub.png",
-      "category": "dock",
-      "layer": "docks",
-      "width": 336,
-      "height": 240,
-      "displayScale": 1,
-      "anchor": [168, 186],
-      "footprint": [168, 72],
-      "hitbox": [24, 18, 288, 176],
-      "loadPriority": "critical",
-      "criticalReason": "Selectable Ethereum harbor-hub sprite drawn behind ships so traffic sails over the ring.",
-      "promptKey": "dock.ethereum-harbor-hub",
-      "semanticRole": "selectable backgrounded Ethereum harbor hub",
-      "paletteKeys": ["limestone", "teal sea", "bronze beacon"],
+      "criticalReason": "Ethereum civic-cove harbor; ships dock at the side berths and pass behind the curved wall.",
+      "promptKey": "dock.ethereum-civic-cove",
+      "semanticRole": "ethereum civic-cove harbor",
+      "paletteKeys": [
+        "limestone",
+        "bronze beacon",
+        "deep navy"
+      ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "8f6ca5d8-bdb7-4ec2-a2d6-91f529cb3799",
+        "jobId": "5f97546d-c25a-4e24-9a94-6719b80cb4bf",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },
     {
-      "id": "dock.compact-harbor-pier",
-      "path": "docks/compact-harbor-pier.png",
+      "id": "dock.tron-arena-wharf",
+      "path": "docks/tron-arena-wharf.png",
       "category": "dock",
       "layer": "docks",
-      "width": 168,
-      "height": 120,
+      "width": 256,
+      "height": 184,
       "displayScale": 1,
-      "anchor": [84, 96],
-      "footprint": [70, 30],
-      "hitbox": [25, 8, 121, 102],
+      "anchor": [
+        128,
+        144
+      ],
+      "footprint": [
+        132,
+        52
+      ],
+      "hitbox": [
+        16,
+        24,
+        224,
+        140
+      ],
       "loadPriority": "critical",
-      "criticalReason": "Generated compact harbor pier for distributed chain harbors.",
-      "promptKey": "dock.compact-harbor-pier",
-      "semanticRole": "compact island-ring harbor pier",
-      "paletteKeys": ["weathered wood", "teal sea", "bronze beacon"],
-      "tool": "mcp:create_map_object",
+      "criticalReason": "Tron amphitheater-arch wharf for the second tier-1 chain.",
+      "promptKey": "dock.tron-arena-wharf",
+      "semanticRole": "tron amphitheater-arch wharf",
+      "paletteKeys": [
+        "terracotta",
+        "bronze beacon",
+        "limestone"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "31155966-7d76-413a-bd7b-557f79cffc9f",
+        "jobId": "9f39268d-91df-4768-897e-74d246fb7460",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },
     {
-      "id": "dock.grand-quay",
-      "path": "docks/grand-quay.png",
-      "category": "dock",
-      "layer": "docks",
-      "width": 224,
-      "height": 160,
-      "displayScale": 1,
-      "anchor": [112, 124],
-      "footprint": [112, 48],
-      "hitbox": [16, 18, 190, 126],
-      "loadPriority": "critical",
-      "criticalReason": "First-ranked dock sprite for large chain harbors.",
-      "promptKey": "dock.grand-quay",
-      "semanticRole": "large chain dock",
-      "paletteKeys": ["limestone", "bronze beacon"],
-      "tool": "mcp:create_map_object",
-      "promptProvenance": {
-        "jobId": "e85602f1-dfda-484c-8ff5-5c3c171767d3",
-        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
-    },
-    {
-      "id": "dock.container-wharf",
-      "path": "docks/container-wharf.png",
+      "id": "dock.bsc-mercantile-wharf",
+      "path": "docks/bsc-mercantile-wharf.png",
       "category": "dock",
       "layer": "docks",
       "width": 224,
       "height": 160,
       "displayScale": 1,
-      "anchor": [112, 124],
-      "footprint": [118, 44],
-      "hitbox": [12, 28, 198, 110],
+      "anchor": [
+        112,
+        124
+      ],
+      "footprint": [
+        118,
+        44
+      ],
+      "hitbox": [
+        12,
+        28,
+        200,
+        110
+      ],
       "loadPriority": "critical",
-      "tool": "mcp:create_map_object",
+      "criticalReason": "BSC mercantile timber-warehouse wharf.",
+      "promptKey": "dock.bsc-mercantile-wharf",
+      "semanticRole": "bsc mercantile wharf",
+      "paletteKeys": [
+        "weathered wood",
+        "terracotta",
+        "bronze beacon"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "74433a05-055e-4344-a806-2a3e33bf8c77",
+        "jobId": "ca075bad-fd53-4313-8b7e-fe5131431ee1",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },
     {
-      "id": "dock.twin-slip",
-      "path": "docks/twin-slip.png",
+      "id": "dock.solana-prism-stilt",
+      "path": "docks/solana-prism-stilt.png",
       "category": "dock",
       "layer": "docks",
       "width": 208,
-      "height": 152,
+      "height": 160,
       "displayScale": 1,
-      "anchor": [104, 118],
-      "footprint": [104, 46],
-      "hitbox": [14, 20, 180, 116],
+      "anchor": [
+        104,
+        124
+      ],
+      "footprint": [
+        104,
+        44
+      ],
+      "hitbox": [
+        14,
+        22,
+        180,
+        118
+      ],
       "loadPriority": "critical",
-      "tool": "mcp:create_map_object",
+      "criticalReason": "Solana slender stilt-pier with crystal-glass column lamps.",
+      "promptKey": "dock.solana-prism-stilt",
+      "semanticRole": "solana prismatic stilt-pier",
+      "paletteKeys": [
+        "limestone",
+        "weathered wood",
+        "teal sea"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "122723cd-dac2-4480-8fda-0fae619adc04",
+        "jobId": "0f848991-c028-4dea-b51f-bb7cb1918ded",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },
     {
-      "id": "dock.stone-breakwater",
-      "path": "docks/stone-breakwater.png",
+      "id": "dock.base-modular-slip",
+      "path": "docks/base-modular-slip.png",
       "category": "dock",
       "layer": "docks",
       "width": 192,
       "height": 136,
       "displayScale": 1,
-      "anchor": [96, 110],
-      "footprint": [98, 42],
-      "hitbox": [8, 14, 176, 108],
+      "anchor": [
+        96,
+        106
+      ],
+      "footprint": [
+        98,
+        40
+      ],
+      "hitbox": [
+        10,
+        16,
+        172,
+        110
+      ],
       "loadPriority": "critical",
-      "tool": "mcp:create_map_object",
+      "criticalReason": "Base navy-steel modular slip.",
+      "promptKey": "dock.base-modular-slip",
+      "semanticRole": "base modular steel slip",
+      "paletteKeys": [
+        "deep navy",
+        "bronze beacon",
+        "weathered wood"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "f5f1eb36-5bc4-4c99-bf98-888ef762e587",
+        "jobId": "4b7fb2f0-208b-4c92-a73d-9654d3ad0161",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },
     {
-      "id": "dock.market-marina",
-      "path": "docks/market-marina.png",
+      "id": "dock.arbitrum-arch-bridge",
+      "path": "docks/arbitrum-arch-bridge.png",
+      "category": "dock",
+      "layer": "docks",
+      "width": 192,
+      "height": 136,
+      "displayScale": 1,
+      "anchor": [
+        96,
+        106
+      ],
+      "footprint": [
+        98,
+        40
+      ],
+      "hitbox": [
+        10,
+        16,
+        172,
+        110
+      ],
+      "loadPriority": "critical",
+      "criticalReason": "Arbitrum limestone arch-bridge cove.",
+      "promptKey": "dock.arbitrum-arch-bridge",
+      "semanticRole": "arbitrum arch-bridge dock",
+      "paletteKeys": [
+        "limestone",
+        "terracotta",
+        "bronze beacon"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
+      "promptProvenance": {
+        "jobId": "9224794f-dda9-4301-86be-628e1025b85e",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "dock.polygon-hexmarket",
+      "path": "docks/polygon-hexmarket.png",
+      "category": "dock",
+      "layer": "docks",
+      "width": 192,
+      "height": 136,
+      "displayScale": 1,
+      "anchor": [
+        96,
+        106
+      ],
+      "footprint": [
+        98,
+        40
+      ],
+      "hitbox": [
+        10,
+        16,
+        172,
+        110
+      ],
+      "loadPriority": "critical",
+      "criticalReason": "Polygon hex-tiled market quay.",
+      "promptKey": "dock.polygon-hexmarket",
+      "semanticRole": "polygon hex-tile market quay",
+      "paletteKeys": [
+        "limestone",
+        "terracotta",
+        "weathered wood"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
+      "promptProvenance": {
+        "jobId": "67f5d383-a12a-4b10-a6a8-4822274319f1",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "dock.optimism-sunrise-beacon",
+      "path": "docks/optimism-sunrise-beacon.png",
       "category": "dock",
       "layer": "docks",
       "width": 176,
       "height": 128,
       "displayScale": 1,
-      "anchor": [88, 100],
-      "footprint": [88, 38],
-      "hitbox": [12, 14, 152, 100],
+      "anchor": [
+        88,
+        100
+      ],
+      "footprint": [
+        80,
+        36
+      ],
+      "hitbox": [
+        12,
+        14,
+        152,
+        100
+      ],
       "loadPriority": "critical",
-      "tool": "mcp:create_map_object",
+      "criticalReason": "Optimism compact beacon harbor.",
+      "promptKey": "dock.optimism-sunrise-beacon",
+      "semanticRole": "optimism beacon harbor",
+      "paletteKeys": [
+        "terracotta",
+        "bronze beacon",
+        "limestone"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "49e0ddbe-c128-472a-ae25-18803fbb8741",
+        "jobId": "b3368a14-3c20-4937-b45c-ee51e5833ef1",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },
     {
-      "id": "dock.relay-pontoon",
-      "path": "docks/relay-pontoon.png",
-      "category": "dock",
-      "layer": "docks",
-      "width": 160,
-      "height": 120,
-      "displayScale": 1,
-      "anchor": [80, 94],
-      "footprint": [76, 34],
-      "hitbox": [8, 18, 144, 86],
-      "loadPriority": "critical",
-      "tool": "mcp:create_map_object",
-      "promptProvenance": {
-        "jobId": "e4006f7e-e11f-4266-bec7-5d1bdc07d82d",
-        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
-    },
-    {
-      "id": "dock.rollup-ferry-slip",
-      "path": "docks/rollup-ferry-slip.png",
-      "category": "dock",
-      "layer": "docks",
-      "width": 168,
-      "height": 120,
-      "displayScale": 1,
-      "anchor": [84, 92],
-      "footprint": [76, 34],
-      "hitbox": [12, 18, 140, 86],
-      "loadPriority": "critical",
-      "tool": "mcp:create_map_object",
-      "promptProvenance": {
-        "jobId": "58747022-a0e4-4f2c-b727-f917da2ebf30",
-        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
-    },
-    {
-      "id": "dock.vault-quay",
-      "path": "docks/vault-quay.png",
+      "id": "dock.aptos-jade-pagoda",
+      "path": "docks/aptos-jade-pagoda.png",
       "category": "dock",
       "layer": "docks",
       "width": 176,
       "height": 128,
       "displayScale": 1,
-      "anchor": [88, 98],
-      "footprint": [84, 38],
-      "hitbox": [10, 18, 152, 96],
+      "anchor": [
+        88,
+        100
+      ],
+      "footprint": [
+        80,
+        36
+      ],
+      "hitbox": [
+        12,
+        14,
+        152,
+        100
+      ],
       "loadPriority": "critical",
-      "tool": "mcp:create_map_object",
+      "criticalReason": "Aptos jade-eaved pagoda quay.",
+      "promptKey": "dock.aptos-jade-pagoda",
+      "semanticRole": "aptos pagoda quay",
+      "paletteKeys": [
+        "limestone",
+        "teal sea",
+        "weathered wood"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "6e828a73-ab42-47e6-a207-f5c5721905dc",
+        "jobId": "5cac51ba-85ee-48ff-b2c4-d890af01f455",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },
     {
-      "id": "dock.bridge-pontoon",
-      "path": "docks/bridge-pontoon.png",
+      "id": "dock.avalanche-alpine-watch",
+      "path": "docks/avalanche-alpine-watch.png",
       "category": "dock",
       "layer": "docks",
-      "width": 160,
-      "height": 120,
+      "width": 176,
+      "height": 128,
       "displayScale": 1,
-      "anchor": [80, 92],
-      "footprint": [70, 30],
-      "hitbox": [10, 20, 138, 78],
+      "anchor": [
+        88,
+        100
+      ],
+      "footprint": [
+        80,
+        36
+      ],
+      "hitbox": [
+        12,
+        14,
+        152,
+        100
+      ],
       "loadPriority": "critical",
-      "tool": "mcp:create_map_object",
+      "criticalReason": "Avalanche alpine watchtower dock.",
+      "promptKey": "dock.avalanche-alpine-watch",
+      "semanticRole": "avalanche alpine watchtower dock",
+      "paletteKeys": [
+        "weathered wood",
+        "limestone",
+        "bronze beacon"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "65a30ce1-c858-4b0e-9111-46b82cf4e126",
-        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
-    },
-    {
-      "id": "dock.sentinel-breakwater",
-      "path": "docks/sentinel-breakwater.png",
-      "category": "dock",
-      "layer": "docks",
-      "width": 168,
-      "height": 120,
-      "displayScale": 1,
-      "anchor": [84, 94],
-      "footprint": [76, 34],
-      "hitbox": [12, 16, 142, 90],
-      "loadPriority": "critical",
-      "tool": "mcp:create_map_object",
-      "promptProvenance": {
-        "jobId": "4aed90c0-54f1-4142-b5a7-9987805793ab",
+        "jobId": "36f21810-9335-47da-8516-09ea6fd1d9f7",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },
@@ -482,14 +724,28 @@
       "width": 104,
       "height": 80,
       "displayScale": 1,
-      "anchor": [52, 68],
-      "footprint": [30, 14],
-      "hitbox": [12, 8, 80, 60],
+      "anchor": [
+        52,
+        68
+      ],
+      "footprint": [
+        30,
+        14
+      ],
+      "hitbox": [
+        12,
+        8,
+        80,
+        60
+      ],
       "loadPriority": "critical",
       "criticalReason": "Default centralized issuer hull used by first-render ships.",
       "promptKey": "ship.treasury-galleon",
       "semanticRole": "centralized issuer ship hull",
-      "paletteKeys": ["bronze beacon", "deep navy"],
+      "paletteKeys": [
+        "bronze beacon",
+        "deep navy"
+      ],
       "tool": "mcp:create_map_object",
       "promptProvenance": {
         "jobId": "ad9c2829-2a63-44ba-a01f-e6614c1fa912",
@@ -504,13 +760,27 @@
       "width": 104,
       "height": 80,
       "displayScale": 1,
-      "anchor": [52, 68],
-      "footprint": [30, 14],
-      "hitbox": [12, 8, 80, 60],
+      "anchor": [
+        52,
+        68
+      ],
+      "footprint": [
+        30,
+        14
+      ],
+      "hitbox": [
+        12,
+        8,
+        80,
+        60
+      ],
       "loadPriority": "deferred",
       "promptKey": "ship.chartered-brigantine",
       "semanticRole": "centralized dependent ship hull",
-      "paletteKeys": ["teal sea", "weathered wood"],
+      "paletteKeys": [
+        "teal sea",
+        "weathered wood"
+      ],
       "tool": "mcp:create_map_object",
       "promptProvenance": {
         "jobId": "4eff5e71-5d29-45dc-b891-4b5c1989c3ea",
@@ -525,14 +795,30 @@
       "width": 160,
       "height": 112,
       "displayScale": 1,
-      "anchor": [80, 102],
-      "footprint": [54, 24],
-      "hitbox": [34, 2, 102, 102],
+      "anchor": [
+        80,
+        102
+      ],
+      "footprint": [
+        54,
+        24
+      ],
+      "hitbox": [
+        34,
+        2,
+        102,
+        102
+      ],
       "loadPriority": "critical",
       "criticalReason": "USDC uses a dedicated titan hull on the first coherent ship frame.",
       "promptKey": "ship.usdc-titan",
       "semanticRole": "USDC titan stablecoin ship hull",
-      "paletteKeys": ["limestone", "deep navy", "bronze beacon", "teal sea"],
+      "paletteKeys": [
+        "limestone",
+        "deep navy",
+        "bronze beacon",
+        "teal sea"
+      ],
       "tool": "mcp:create_map_object",
       "promptProvenance": {
         "jobId": "04eaa819-b7ff-4ba7-b7a9-44c6165254e8",
@@ -547,14 +833,30 @@
       "width": 192,
       "height": 128,
       "displayScale": 1,
-      "anchor": [96, 111],
-      "footprint": [70, 28],
-      "hitbox": [30, 2, 128, 112],
+      "anchor": [
+        96,
+        111
+      ],
+      "footprint": [
+        70,
+        28
+      ],
+      "hitbox": [
+        30,
+        2,
+        128,
+        112
+      ],
       "loadPriority": "critical",
       "criticalReason": "USDT uses the largest dedicated titan hull on the first coherent ship frame.",
       "promptKey": "ship.usdt-titan",
       "semanticRole": "USDT supreme titan stablecoin ship hull",
-      "paletteKeys": ["weathered wood", "limestone", "bronze beacon", "teal sea"],
+      "paletteKeys": [
+        "weathered wood",
+        "limestone",
+        "bronze beacon",
+        "teal sea"
+      ],
       "tool": "mcp:create_map_object",
       "promptProvenance": {
         "jobId": "8e7c264e-efff-4d97-b477-f6de76986f4c",
@@ -569,9 +871,20 @@
       "width": 104,
       "height": 80,
       "displayScale": 1,
-      "anchor": [52, 68],
-      "footprint": [30, 14],
-      "hitbox": [12, 8, 80, 60],
+      "anchor": [
+        52,
+        68
+      ],
+      "footprint": [
+        30,
+        14
+      ],
+      "hitbox": [
+        12,
+        8,
+        80,
+        60
+      ],
       "loadPriority": "deferred",
       "tool": "mcp:create_map_object",
       "promptProvenance": {
@@ -587,9 +900,20 @@
       "width": 104,
       "height": 80,
       "displayScale": 1,
-      "anchor": [52, 68],
-      "footprint": [30, 14],
-      "hitbox": [12, 8, 80, 60],
+      "anchor": [
+        52,
+        68
+      ],
+      "footprint": [
+        30,
+        14
+      ],
+      "hitbox": [
+        12,
+        8,
+        80,
+        60
+      ],
       "loadPriority": "deferred",
       "tool": "mcp:create_map_object",
       "promptProvenance": {
@@ -605,9 +929,20 @@
       "width": 104,
       "height": 80,
       "displayScale": 1,
-      "anchor": [52, 68],
-      "footprint": [30, 14],
-      "hitbox": [12, 8, 80, 60],
+      "anchor": [
+        52,
+        68
+      ],
+      "footprint": [
+        30,
+        14
+      ],
+      "hitbox": [
+        12,
+        8,
+        80,
+        60
+      ],
       "loadPriority": "deferred",
       "tool": "mcp:create_map_object",
       "promptProvenance": {
@@ -623,14 +958,29 @@
       "width": 128,
       "height": 96,
       "displayScale": 1,
-      "anchor": [64, 76],
-      "footprint": [72, 38],
-      "hitbox": [7, 22, 114, 62],
+      "anchor": [
+        64,
+        76
+      ],
+      "footprint": [
+        72,
+        38
+      ],
+      "hitbox": [
+        7,
+        22,
+        114,
+        62
+      ],
       "loadPriority": "critical",
       "criticalReason": "Cemetery memorial precinct base for first-render geography.",
       "promptKey": "prop.memorial-terrace",
       "semanticRole": "cemetery memorial terrace",
-      "paletteKeys": ["limestone", "teal sea", "bronze beacon"],
+      "paletteKeys": [
+        "limestone",
+        "teal sea",
+        "bronze beacon"
+      ],
       "tool": "mcp:create_map_object",
       "promptProvenance": {
         "jobId": "eea93024-37b7-4f86-aec9-b686e34c9ce5",
@@ -645,14 +995,28 @@
       "width": 64,
       "height": 64,
       "displayScale": 1,
-      "anchor": [32, 56],
-      "footprint": [14, 10],
-      "hitbox": [13, 9, 38, 50],
+      "anchor": [
+        32,
+        56
+      ],
+      "footprint": [
+        14,
+        10
+      ],
+      "hitbox": [
+        13,
+        9,
+        38,
+        50
+      ],
       "loadPriority": "critical",
       "criticalReason": "Default cemetery marker sprite for dead asset entries.",
       "promptKey": "prop.memorial-headstone",
       "semanticRole": "cemetery headstone marker",
-      "paletteKeys": ["limestone", "bronze beacon"],
+      "paletteKeys": [
+        "limestone",
+        "bronze beacon"
+      ],
       "tool": "mcp:create_map_object",
       "promptProvenance": {
         "jobId": "78e8c52c-f6a5-46fb-b574-b24d8f6bd560",
@@ -667,14 +1031,28 @@
       "width": 64,
       "height": 48,
       "displayScale": 1,
-      "anchor": [32, 37],
-      "footprint": [18, 10],
-      "hitbox": [8, 12, 48, 30],
+      "anchor": [
+        32,
+        37
+      ],
+      "footprint": [
+        18,
+        10
+      ],
+      "hitbox": [
+        8,
+        12,
+        48,
+        30
+      ],
       "loadPriority": "critical",
       "criticalReason": "Flat cemetery ledger/tablet marker sprite for dead asset entries.",
       "promptKey": "prop.ledger-slab",
       "semanticRole": "cemetery ledger slab marker",
-      "paletteKeys": ["limestone", "bronze beacon"],
+      "paletteKeys": [
+        "limestone",
+        "bronze beacon"
+      ],
       "tool": "mcp:create_map_object",
       "promptProvenance": {
         "jobId": "e6b61b0b-b545-41cb-91b9-3c7fbe52ce9c",
@@ -689,14 +1067,29 @@
       "width": 72,
       "height": 72,
       "displayScale": 1,
-      "anchor": [36, 62],
-      "footprint": [18, 12],
-      "hitbox": [11, 6, 50, 58],
+      "anchor": [
+        36,
+        62
+      ],
+      "footprint": [
+        18,
+        12
+      ],
+      "hitbox": [
+        11,
+        6,
+        50,
+        58
+      ],
       "loadPriority": "critical",
       "criticalReason": "Cemetery reliquary marker sprite for dead asset entries.",
       "promptKey": "prop.reliquary-marker",
       "semanticRole": "cemetery reliquary marker",
-      "paletteKeys": ["limestone", "bronze beacon", "terracotta"],
+      "paletteKeys": [
+        "limestone",
+        "bronze beacon",
+        "terracotta"
+      ],
       "tool": "mcp:create_map_object",
       "promptProvenance": {
         "jobId": "7f1a2911-8dc0-4d16-b61a-94d0e81dc8dd",
@@ -711,14 +1104,29 @@
       "width": 64,
       "height": 80,
       "displayScale": 1,
-      "anchor": [32, 70],
-      "footprint": [14, 12],
-      "hitbox": [17, 5, 30, 68],
+      "anchor": [
+        32,
+        70
+      ],
+      "footprint": [
+        14,
+        12
+      ],
+      "hitbox": [
+        17,
+        5,
+        30,
+        68
+      ],
       "loadPriority": "critical",
       "criticalReason": "Cemetery regulatory marker sprite for dead asset entries.",
       "promptKey": "prop.regulatory-obelisk",
       "semanticRole": "cemetery regulatory obelisk marker",
-      "paletteKeys": ["limestone", "bronze beacon", "teal sea"],
+      "paletteKeys": [
+        "limestone",
+        "bronze beacon",
+        "teal sea"
+      ],
       "tool": "mcp:create_map_object",
       "promptProvenance": {
         "jobId": "11370813-9fe6-4d3c-b1b3-502599e39ba2",

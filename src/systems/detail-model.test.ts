@@ -24,7 +24,7 @@ describe("detail-model analytical links", () => {
       label: "Ethereum",
       chainId: "ethereum",
       logoSrc: "/chains/ethereum.png",
-      assetId: "dock.harbor-ring-quay",
+      assetId: "dock.ethereum-civic-cove",
       tile: { x: 1, y: 1 },
       totalUsd: 100,
       size: 1,

@@ -22,7 +22,7 @@ describe("buildChainDocks", () => {
     expect(docks[0]?.size).toBeGreaterThan(docks[1]?.size ?? 0);
     expect(docks[0]?.size).toBeGreaterThanOrEqual(7);
     expect(docks[1]?.size).toBeGreaterThanOrEqual(6);
-    expect(docks[0]?.assetId).toBe("dock.ethereum-harbor-hub");
+    expect(docks[0]?.assetId).toBe("dock.ethereum-civic-cove");
     expect(docks[0]?.logoSrc).toBeNull();
   });
 
@@ -64,12 +64,12 @@ describe("buildChainDocks", () => {
     expect(byChain.get("optimism")).toEqual(PREFERRED_DOCK_TILES.optimism);
     expect(byChain.get("polygon")).toEqual(PREFERRED_DOCK_TILES.polygon);
     expect(byChain.get("mantle")).toEqual(PREFERRED_DOCK_TILES.mantle);
-    expect(docks.find((dock) => dock.chainId === "ethereum")?.assetId).toBe("dock.ethereum-harbor-hub");
-    expect(docks.find((dock) => dock.chainId === "base")?.assetId).toBe("dock.rollup-ferry-slip");
-    expect(docks.find((dock) => dock.chainId === "arbitrum")?.assetId).toBe("dock.bridge-pontoon");
-    expect(docks.find((dock) => dock.chainId === "optimism")?.assetId).toBe("dock.relay-pontoon");
-    expect(docks.find((dock) => dock.chainId === "polygon")?.assetId).toBe("dock.market-marina");
-    expect(docks.find((dock) => dock.chainId === "mantle")?.assetId).toBe("dock.vault-quay");
+    expect(docks.find((dock) => dock.chainId === "ethereum")?.assetId).toBe("dock.ethereum-civic-cove");
+    expect(docks.find((dock) => dock.chainId === "base")?.assetId).toBe("dock.base-modular-slip");
+    expect(docks.find((dock) => dock.chainId === "arbitrum")?.assetId).toBe("dock.arbitrum-arch-bridge");
+    expect(docks.find((dock) => dock.chainId === "optimism")?.assetId).toBe("dock.optimism-sunrise-beacon");
+    expect(docks.find((dock) => dock.chainId === "polygon")?.assetId).toBe("dock.polygon-hexmarket");
+    expect(docks.find((dock) => dock.chainId === "mantle")?.assetId).toBe("dock.wooden-pier");
     expect(docks.find((dock) => dock.chainId === "ethereum")?.logoSrc).toBe("/chains/ethereum.png");
     expect(docks.find((dock) => dock.chainId === "base")?.logoSrc).toBe("/chains/base.png");
     expect(docks.find((dock) => dock.chainId === "tron")?.logoSrc).toBeNull();
@@ -177,18 +177,7 @@ describe("buildChainDocks", () => {
       "chain-9",
     ]);
     expect(docks.map((dock) => dock.tile)).toEqual(OUTER_HARBOR_DOCK_TILES.slice(0, 10));
-    expect(docks.map((dock) => dock.assetId)).toEqual([
-      "dock.harbor-ring-quay",
-      "dock.compact-harbor-pier",
-      "dock.grand-quay",
-      "dock.container-wharf",
-      "dock.twin-slip",
-      "dock.stone-breakwater",
-      "dock.market-marina",
-      "dock.relay-pontoon",
-      "dock.rollup-ferry-slip",
-      "dock.vault-quay",
-    ]);
+    expect(docks.map((dock) => dock.assetId)).toEqual(Array(10).fill("dock.wooden-pier"));
     expect(docks[0]?.harboredStablecoins.map((coin) => coin.symbol)).toEqual(["A0", "B0"]);
   });
 });
