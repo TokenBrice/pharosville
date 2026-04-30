@@ -1,40 +1,9 @@
 import { ETHEREUM_L2_DOCK_CHAIN_IDS } from "../../systems/world-layout";
 import type { PharosVilleWorld } from "../../systems/world-types";
 import { tileToScreen, type IsoCamera, type ScreenPoint } from "../../systems/projection";
-import { drawAsset, drawDiamond } from "../canvas-primitives";
+import { drawDiamond } from "../canvas-primitives";
 import { dockDrawPoint } from "../geometry";
 import type { DrawPharosVilleInput } from "../render-types";
-
-const CENTRAL_ISLAND_MODEL_TILE = { x: 31.0, y: 39.0 } as const;
-const CENTRAL_ISLAND_MODEL_SCALE = 1.08;
-
-export function drawCentralIslandModel({ assets, camera, ctx }: DrawPharosVilleInput) {
-  const islandAsset = assets?.get("overlay.central-island") ?? null;
-  if (!islandAsset) return;
-  const point = tileToScreen(CENTRAL_ISLAND_MODEL_TILE, camera);
-  ctx.save();
-  ctx.fillStyle = "rgba(3, 8, 10, 0.28)";
-  ctx.beginPath();
-  ctx.ellipse(
-    point.x,
-    point.y + 18 * camera.zoom,
-    138 * camera.zoom,
-    54 * camera.zoom,
-    -0.08,
-    0,
-    Math.PI * 2,
-  );
-  ctx.fill();
-  ctx.globalAlpha = 0.72;
-  drawAsset(
-    ctx,
-    islandAsset,
-    point.x,
-    point.y + 10 * camera.zoom,
-    camera.zoom * CENTRAL_ISLAND_MODEL_SCALE,
-  );
-  ctx.restore();
-}
 
 export function drawHarborDistrictGround({ camera, ctx }: DrawPharosVilleInput) {
   ctx.save();
