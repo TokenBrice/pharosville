@@ -1,5 +1,5 @@
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
-import { lighthouseRenderState } from "./lighthouse";
+import { lighthouseRenderState, type LighthouseRenderState } from "./lighthouse";
 
 const SKY_MOODS = {
   dawn: {
@@ -150,7 +150,7 @@ function getSkyBackdropCanvas(
   firePointY: number,
   zoom: number,
 ): HTMLCanvasElement | null {
-  const key = `${width}x${height}|${moodKeyFor(mood)}|${firePointX},${firePointY}`;
+  const key = `${width}x${height}|${moodKeyFor(mood)}|${firePointX},${firePointY}|z${(zoom * 100) | 0}`;
   if (skyBackdropCache && skyBackdropCache.key === key) {
     return skyBackdropCache.canvas;
   }
@@ -168,11 +168,11 @@ function getSkyBackdropCanvas(
   return canvas;
 }
 
-export function drawSky(input: DrawPharosVilleInput) {
+export function drawSky(input: DrawPharosVilleInput, lighthouse?: LighthouseRenderState) {
   const { camera, ctx, height, motion, width } = input;
   const state = skyState(motion);
   const mood = state.mood;
-  const { firePoint } = lighthouseRenderState(input);
+  const { firePoint } = lighthouse ?? lighthouseRenderState(input);
   const firePointX = firePoint.x | 0;
   const firePointY = firePoint.y | 0;
 

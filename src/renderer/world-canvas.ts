@@ -11,7 +11,7 @@ import { drawCemeteryContext, drawCemeteryGround, drawCemeteryMist } from "./lay
 import { drawCentralIslandModel, drawEthereumHarborExtensions, drawHarborDistrictGround } from "./layers/harbor-district";
 import { drawTerrain } from "./layers/terrain";
 import { drawEthereumHarborSigns, drawWaterAreaLabels } from "./layers/water-labels";
-import { drawLighthouseBody, drawLighthouseHeadland, drawLighthouseOverlay, drawLighthouseSurf, lighthouseOverlayScreenBounds } from "./layers/lighthouse";
+import { drawLighthouseBody, drawLighthouseHeadland, drawLighthouseOverlay, drawLighthouseSurf, lighthouseOverlayScreenBounds, lighthouseRenderState, type LighthouseRenderState } from "./layers/lighthouse";
 import { drawSelection } from "./layers/selection";
 import { drawCoastalWaterDetails } from "./layers/shoreline";
 import { drawSky } from "./layers/sky";
@@ -23,18 +23,20 @@ interface WorldCanvasFrame {
   cache: RenderFrameCache;
   dockRenderStates: Map<string, DockRenderState>;
   graveRenderStates: Map<string, GraveRenderState>;
+  lighthouseRender: LighthouseRenderState;
   shipRenderStates: Map<string, ShipRenderState>;
+  visibleShips: PharosVilleWorld["ships"];
 }
 
 export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderMetrics {
   const { ctx } = input;
   const frame = createWorldCanvasFrame(input);
   ctx.imageSmoothingEnabled = false;
-  drawSky(input);
+  drawSky(input, frame.lighthouseRender);
 
   const visibleTileCount = drawTerrain(input);
   drawCoastalWaterDetails(input);
-  drawAtmosphere(input);
+  drawAtmosphere(input, frame.lighthouseRender);
   drawCentralIslandModel(input);
   drawHarborDistrictGround(input);
   drawBackgroundedHarborDocks(input, frame);
@@ -59,7 +61,7 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
     drawableCounts,
     movingShipCount: Array.from(input.shipMotionSamples?.values() ?? [])
       .filter((sample) => sample.state !== "idle" && sample.state !== "risk-drift" && sample.state !== "moored").length,
-    visibleShipCount: visibleShipsForFrame(input).length,
+    visibleShipCount: frame.visibleShips.length,
     visibleTileCount,
   };
 }
@@ -69,7 +71,9 @@ function createWorldCanvasFrame(input: DrawPharosVilleInput): WorldCanvasFrame {
     cache: createRenderFrameCache(input),
     dockRenderStates: new Map(),
     graveRenderStates: new Map(),
+    lighthouseRender: lighthouseRenderState(input),
     shipRenderStates: new Map(),
+    visibleShips: visibleShipsForFrame(input),
   };
 }
 
@@ -90,14 +94,14 @@ function drawEntityPass(input: DrawPharosVilleInput, frame: WorldCanvasFrame): P
       drawGraveBody: (grave) => drawGraveBody(input, frame, grave),
       drawGraveOverlay: (grave) => drawGraveOverlay(input, frame, grave),
       drawGraveUnderlay: (grave) => drawGraveUnderlay(input, frame, grave),
-      drawLighthouseBody: () => drawLighthouseBody(input),
-      drawLighthouseOverlay: () => drawLighthouseOverlay(input),
+      drawLighthouseBody: () => drawLighthouseBody(input, frame.lighthouseRender),
+      drawLighthouseOverlay: () => drawLighthouseOverlay(input, frame.lighthouseRender),
       drawShipBody: (ship) => drawShipBody(input, frame, ship),
       drawShipOverlay: (ship) => drawShipOverlay(input, frame, ship),
       drawShipWake: (ship) => drawShipWake(input, frame, ship),
       isBackgroundedHarborDock,
-      lighthouseOverlayScreenBounds: (selectionRect) => lighthouseOverlayScreenBounds(input, selectionRect),
-      visibleShips: visibleShipsForFrame(input),
+      lighthouseOverlayScreenBounds: (selectionRect) => lighthouseOverlayScreenBounds(input, selectionRect, frame.lighthouseRender),
+      visibleShips: frame.visibleShips,
     },
   );
 }

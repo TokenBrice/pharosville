@@ -7,6 +7,8 @@ import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-ty
 const LIGHTHOUSE_ASSET_BOTTOM_OFFSET_Y = 18;
 const LIGHTHOUSE_ASSET_SCALE = 1.04;
 
+export type LighthouseRenderState = ReturnType<typeof lighthouseRenderState>;
+
 export function lighthouseRenderState({ assets, camera, world }: DrawPharosVilleInput) {
   const center = tileToScreen(world.lighthouse.tile, camera);
   const lighthouseAsset = assets?.get("landmark.lighthouse");
@@ -127,8 +129,9 @@ function lighthouseTerrain(world: PharosVilleWorld): TerrainKind {
 export function lighthouseOverlayScreenBounds(
   input: DrawPharosVilleInput,
   selectionRect: { height: number; width: number; x: number; y: number },
+  cached?: LighthouseRenderState,
 ): { height: number; width: number; x: number; y: number } {
-  const { firePoint } = lighthouseRenderState(input);
+  const { firePoint } = cached ?? lighthouseRenderState(input);
   const beamZoom = input.camera.zoom * 1.35;
   const beamBounds = {
     height: 120 * beamZoom,
@@ -148,9 +151,9 @@ export function lighthouseOverlayScreenBounds(
   };
 }
 
-export function drawLighthouseBody(input: DrawPharosVilleInput) {
+export function drawLighthouseBody(input: DrawPharosVilleInput, cached?: LighthouseRenderState) {
   const { camera, ctx, world } = input;
-  const { center, lighthouseAsset, spriteAnchor, spriteScale } = lighthouseRenderState(input);
+  const { center, lighthouseAsset, spriteAnchor, spriteScale } = cached ?? lighthouseRenderState(input);
   if (lighthouseAsset) {
     drawAsset(ctx, lighthouseAsset, spriteAnchor.x, spriteAnchor.y, spriteScale);
     return;
@@ -208,9 +211,9 @@ export function drawLighthouseBody(input: DrawPharosVilleInput) {
   ctx.restore();
 }
 
-export function drawLighthouseOverlay(input: DrawPharosVilleInput) {
+export function drawLighthouseOverlay(input: DrawPharosVilleInput, cached?: LighthouseRenderState) {
   const { camera, ctx, motion, world } = input;
-  const { firePoint, lighthouseAsset } = lighthouseRenderState(input);
+  const { firePoint, lighthouseAsset } = cached ?? lighthouseRenderState(input);
   if (!world.lighthouse.unavailable) drawLighthouseBeam(ctx, firePoint, camera.zoom * 1.35, motion);
   if (lighthouseAsset) return;
   drawLighthouseFire(ctx, firePoint, camera.zoom * 1.32, world.lighthouse.color, motion);
