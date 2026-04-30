@@ -14,6 +14,7 @@ Goal: maintain durable maintenance, asset, and validation notes for `/pharosvill
 - `VISUAL_REVIEW_ATLAS.md` — screenshot baselines, browser review entries, and manual pixel checklist.
 - `KNOWN_PITFALLS.md` — repeat-risk issues maintainers should check before editing or claiming completion.
 - `ASSET_PIPELINE.md` — generated/prototype-to-manifest workflow and asset guardrails.
+- `PIXELLAB_MCP.md` — PixelLab MCP tool selection, prompting, review, provenance, and promotion workflow for sprite generation.
 - `TESTING.md` — route-specific focused checks, visual checks, and broader validation guidance.
 
 Historical plans were intentionally not migrated here. Current code, `CURRENT.md`, and `docs/pharosville-page.md` win over old planning artifacts.

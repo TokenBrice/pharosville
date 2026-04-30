@@ -22,6 +22,7 @@ Applies to the whole standalone `pharosville` repository.
 - `README.md` for commands and deployment shape.
 - `docs/pharosville/CURRENT.md` for current implementation boundaries.
 - `docs/pharosville/CHANGE_CHECKLIST.md` before non-trivial UI, asset, renderer, or data-model changes.
+- `docs/pharosville/PIXELLAB_MCP.md` before PixelLab MCP sprite generation or review.
 - `docs/pharosville/TESTING.md` for focused validation and visual-review expectations.
 
 ## Change Rules

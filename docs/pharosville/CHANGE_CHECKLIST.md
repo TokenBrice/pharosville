@@ -8,6 +8,7 @@ Use this checklist for future standalone PharosVille work. Keep it agent-facing 
 
 - Read `docs/pharosville-page.md`, `docs/pharosville/CURRENT.md`, and `docs/pharosville/TESTING.md`.
 - For asset work, also read `docs/pharosville/ASSET_PIPELINE.md`.
+- For PixelLab sprite generation, also read `docs/pharosville/PIXELLAB_MCP.md`.
 - Run `git status --short` and identify dirty files before touching anything.
 - Inspect the exact files you plan to edit. Work with existing dirty changes; do not revert or overwrite unrelated work.
 - State whether the change affects app behavior, visual encoding, asset inventory, data/API contracts, operations, or agent docs only.

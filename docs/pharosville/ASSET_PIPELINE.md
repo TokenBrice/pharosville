@@ -27,6 +27,12 @@ This is the agent-facing workflow for PharosVille raster assets. Runtime asset t
 - Props: `public/pharosville/assets/props/`, including the cemetery memorial terrace and marker sprite set
 - Manifest: `public/pharosville/assets/manifest.json`
 
+## PixelLab MCP Workflow
+
+Use `PIXELLAB_MCP.md` for PixelLab-specific tool selection, prompt construction,
+review-pack handling, provenance, and cleanup. The short guidance below remains
+the shared style contract for any image-generation path.
+
 ## Image Generation Guidance
 
 Use transparent PNG map-object generation for standalone sprites and tile generation for repeatable terrain. Keep prompts consistent with the manifest style anchor:
@@ -77,11 +83,13 @@ Preferred constraints:
 ## Promotion Checklist
 
 1. Save candidate PNGs under local scratch space such as `output/pharosville/pixellab-prototypes/`.
-2. Select one candidate and copy only the chosen production asset into `public/pharosville/assets/...`.
-3. Verify actual PNG dimensions before editing the manifest.
-4. Update manifest geometry, cache/provenance versions, and optional animation metadata.
-5. Re-check renderer assumptions for anchor, scale, beacon points, sail-logo offsets, and hitboxes.
-6. Run focused asset and visual checks.
+2. For PixelLab review packs, use `get_object` to inspect candidates, then
+   `select_object_frames` for keepers or `dismiss_review` for rejects.
+3. Select one candidate and copy only the chosen production asset into `public/pharosville/assets/...`.
+4. Verify actual PNG dimensions before editing the manifest.
+5. Update manifest geometry, cache/provenance versions, and optional animation metadata.
+6. Re-check renderer assumptions for anchor, scale, beacon points, sail-logo offsets, and hitboxes.
+7. Run focused asset and visual checks.
 
 ## Required Checks For Asset Changes
 
