@@ -10,7 +10,7 @@ import {
   isShoreTileKind,
   isWaterTileKind,
 } from "../systems/world-layout";
-import type { PharosVilleWorld, TerrainKind } from "../systems/world-types";
+import type { PharosVilleWorld, ShipWaterZone, TerrainKind } from "../systems/world-types";
 import type { PharosVilleAssetManager } from "./asset-manager";
 import {
   drawableDepth,
@@ -3325,7 +3325,7 @@ function drawShipWake(input: DrawPharosVilleInput, ship: PharosVilleWorld["ships
     const changeIntensity = Math.min(1, Math.abs(ship.change24hPct ?? 0) * 18 + 0.2);
     const sampleIntensity = sample?.wakeIntensity ?? 0;
     const intensity = Math.max(sampleIntensity, motion.plan.moverShipIds.has(ship.id) ? changeIntensity : 0.18);
-    drawWake(ctx, p.x, p.y + 8 * camera.zoom, camera.zoom, intensity, sample?.heading ?? { x: -1, y: 0 });
+    drawWake(ctx, p.x, p.y + 8 * camera.zoom, camera.zoom, intensity, sample?.heading ?? { x: -1, y: 0 }, sample?.zone ?? ship.riskZone);
   }
 }
 
@@ -4142,7 +4142,9 @@ function drawWake(
   zoom: number,
   intensity: number,
   heading: { x: number; y: number },
+  zone: ShipWaterZone,
 ) {
+  const style = wakeStyleForZone(zone);
   const headingMagnitude = Math.hypot(heading.x, heading.y);
   const forward = headingMagnitude > 0
     ? { x: heading.x / headingMagnitude, y: heading.y / headingMagnitude }
@@ -4150,13 +4152,13 @@ function drawWake(
   const wakeDirection = { x: -forward.x, y: -forward.y };
   const cross = { x: -forward.y, y: forward.x };
   ctx.save();
-  ctx.strokeStyle = `rgba(186, 231, 225, ${0.26 + intensity * 0.16})`;
-  ctx.lineWidth = Math.max(1, zoom);
+  ctx.strokeStyle = wakeRgba(style, 0.22 + intensity * style.alphaScale);
+  ctx.lineWidth = Math.max(1, zoom * style.lineScale);
   for (let index = 0; index < 3; index += 1) {
-    const offset = index * 7 * zoom;
-    const baseDistance = (16 + offset) * zoom;
-    const spread = (4 + index * 2) * zoom;
-    const length = (12 + index * 3) * zoom;
+    const offset = index * style.spacing * zoom;
+    const baseDistance = (14 + offset) * zoom;
+    const spread = (style.spread + index * style.spreadStep) * zoom;
+    const length = (style.length + index * style.lengthStep) * zoom;
     ctx.beginPath();
     ctx.moveTo(
       x + wakeDirection.x * baseDistance + cross.x * spread,
@@ -4169,4 +4171,28 @@ function drawWake(
     ctx.stroke();
   }
   ctx.restore();
+}
+
+function wakeStyleForZone(zone: ShipWaterZone): {
+  alphaScale: number;
+  b: number;
+  g: number;
+  length: number;
+  lengthStep: number;
+  lineScale: number;
+  r: number;
+  spacing: number;
+  spread: number;
+  spreadStep: number;
+} {
+  if (zone === "ledger") return { r: 228, g: 210, b: 142, alphaScale: 0.1, length: 9, lengthStep: 2, lineScale: 0.84, spacing: 5.5, spread: 3, spreadStep: 1.5 };
+  if (zone === "calm") return { r: 177, g: 232, b: 222, alphaScale: 0.12, length: 10, lengthStep: 2.4, lineScale: 0.9, spacing: 6, spread: 3.5, spreadStep: 1.7 };
+  if (zone === "watch") return { r: 180, g: 224, b: 234, alphaScale: 0.15, length: 12, lengthStep: 3, lineScale: 1, spacing: 7, spread: 4, spreadStep: 2 };
+  if (zone === "alert") return { r: 190, g: 238, b: 229, alphaScale: 0.17, length: 13, lengthStep: 3.4, lineScale: 1.04, spacing: 7.2, spread: 4.4, spreadStep: 2.1 };
+  if (zone === "warning") return { r: 222, g: 235, b: 225, alphaScale: 0.19, length: 15, lengthStep: 4, lineScale: 1.08, spacing: 7.8, spread: 4.8, spreadStep: 2.4 };
+  return { r: 236, g: 241, b: 230, alphaScale: 0.22, length: 17, lengthStep: 4.8, lineScale: 1.14, spacing: 8.4, spread: 5.2, spreadStep: 2.8 };
+}
+
+function wakeRgba(style: ReturnType<typeof wakeStyleForZone>, alpha: number): string {
+  return `rgba(${style.r}, ${style.g}, ${style.b}, ${Math.max(0, Math.min(0.52, alpha))})`;
 }

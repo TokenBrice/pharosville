@@ -484,6 +484,21 @@ describe("motion", () => {
     expect(route.points.every((point) => isWaterTileKind(terrainKindInMap(map, point) ?? "land"))).toBe(true);
   });
 
+  it("scores water routes by semantic sea zone", () => {
+    const map = semanticLaneMap();
+    const calmRoute = buildShipWaterRoute({ from: { x: 0, y: 1 }, to: { x: 4, y: 1 }, map, zone: "calm" });
+    const dangerRoute = buildShipWaterRoute({ from: { x: 0, y: 1 }, to: { x: 4, y: 1 }, map, zone: "danger" });
+    const ledgerRoute = buildShipWaterRoute({ from: { x: 0, y: 1 }, to: { x: 4, y: 1 }, map, zone: "ledger" });
+
+    expect(terrainsForPath(map, calmRoute.points)).toContain("calm-water");
+    expect(terrainsForPath(map, calmRoute.points).filter((terrain) => terrain === "storm-water").length).toBeLessThan(4);
+    expect(terrainsForPath(map, dangerRoute.points).filter((terrain) => terrain === "storm-water").length).toBeGreaterThanOrEqual(4);
+    expect(terrainsForPath(map, ledgerRoute.points)).toContain("ledger-water");
+    for (const route of [calmRoute, dangerRoute, ledgerRoute]) {
+      expect(route.points.every((point) => isWaterTileKind(terrainKindInMap(map, point) ?? "land"))).toBe(true);
+    }
+  });
+
   it("uses deterministic water-only detours for longer crossings", () => {
     const map = buildPharosVilleMap();
     const firstRoute = buildShipWaterRoute({ from: { x: 8, y: 16 }, to: { x: 55, y: 16 }, map });
@@ -674,6 +689,29 @@ function terrainKindInMap(map: PharosVilleMap, tile: { x: number; y: number }) {
   const y = Math.round(tile.y);
   const tileEntry = map.tiles[y * map.width + x];
   return tileEntry?.terrain ?? tileEntry?.kind;
+}
+
+function terrainsForPath(map: PharosVilleMap, points: Array<{ x: number; y: number }>) {
+  return points.map((point) => terrainKindInMap(map, point));
+}
+
+function semanticLaneMap(): PharosVilleMap {
+  const terrains = [
+    ["calm-water", "calm-water", "calm-water", "calm-water", "calm-water"],
+    ["storm-water", "storm-water", "storm-water", "storm-water", "storm-water"],
+    ["ledger-water", "ledger-water", "ledger-water", "ledger-water", "ledger-water"],
+  ] as const;
+  return {
+    width: 5,
+    height: 3,
+    waterRatio: 1,
+    tiles: terrains.flatMap((row, y) => row.map((terrain, x) => ({
+      x,
+      y,
+      kind: "water" as const,
+      terrain,
+    }))),
+  };
 }
 
 function inMapBounds(map: PharosVilleMap, tile: { x: number; y: number }) {

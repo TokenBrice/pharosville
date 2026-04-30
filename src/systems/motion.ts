@@ -161,29 +161,31 @@ export function buildShipWaterRoute(input: {
   from: { x: number; y: number };
   to: { x: number; y: number };
   map: PharosVilleMap;
+  zone?: ShipWaterZone;
 }): ShipWaterPath {
   const from = nearestMapWaterTile(input.from, input.map);
   const to = nearestMapWaterTile(input.to, input.map);
-  return buildShipWaterRouteFromWaterTiles({ from, to, map: input.map });
+  return buildShipWaterRouteFromWaterTiles({ from, to, map: input.map, zone: input.zone });
 }
 
 function buildShipWaterRouteFromWaterTiles(input: {
   from: { x: number; y: number };
   to: { x: number; y: number };
   map: PharosVilleMap;
+  zone?: ShipWaterZone;
 }): ShipWaterPath {
   const { from, to } = input;
   if (sameTile(from, to)) return waterPathFromPoints(from, to, [from]);
 
-  const detouredPoints = findDetouredWaterPath(from, to, input.map);
+  const detouredPoints = findDetouredWaterPath(from, to, input.map, input.zone);
   if (detouredPoints.length > 0) return waterPathFromPoints(from, to, detouredPoints);
 
-  const points = findWaterPath(from, to, input.map);
+  const points = findWaterPath(from, to, input.map, input.zone);
   if (points.length > 0) return waterPathFromPoints(from, to, points);
 
   const waypoint = fallbackWaterWaypoint(from, to, input.map);
-  const firstLeg = findWaterPath(from, waypoint, input.map);
-  const secondLeg = findWaterPath(waypoint, to, input.map);
+  const firstLeg = findWaterPath(from, waypoint, input.map, input.zone);
+  const secondLeg = findWaterPath(waypoint, to, input.map, input.zone);
   if (firstLeg.length > 0 && secondLeg.length > 0) {
     return waterPathFromPoints(from, to, [...firstLeg, ...secondLeg.slice(1)]);
   }
@@ -323,7 +325,7 @@ function buildShipMotionRoute(
   for (const stop of dockStops) {
     const outboundKey = pathKey(riskTile, stop.mooringTile);
     const inboundKey = pathKey(stop.mooringTile, riskTile);
-    const outbound = () => buildCachedShipWaterRoute({ from: riskTile, to: stop.mooringTile, map }, waterRouteCache);
+    const outbound = () => buildCachedShipWaterRoute({ from: riskTile, to: stop.mooringTile, map, zone: ship.riskZone }, waterRouteCache);
     waterPaths.setBuilder(outboundKey, outbound);
     waterPaths.setBuilder(inboundKey, () => reverseWaterPath(outbound()));
   }
@@ -434,7 +436,7 @@ function buildOpenWaterPatrol(
   waterRouteCache: ShipWaterRouteCache,
 ): ShipMotionRoute["openWaterPatrol"] {
   const waypoint = openWaterPatrolWaypoint(ship, riskTile, map);
-  const outbound = buildCachedShipWaterRoute({ from: riskTile, to: waypoint, map }, waterRouteCache);
+  const outbound = buildCachedShipWaterRoute({ from: riskTile, to: waypoint, map, zone: ship.riskZone }, waterRouteCache);
   if (outbound.points.length <= 1 || outbound.totalLength <= 0) return null;
   return {
     waypoint,
@@ -470,14 +472,15 @@ function buildCachedShipWaterRoute(input: {
   from: { x: number; y: number };
   to: { x: number; y: number };
   map: PharosVilleMap;
+  zone: ShipWaterZone;
 }, cache: ShipWaterRouteCache): ShipWaterPath {
   const from = nearestMapWaterTile(input.from, input.map);
   const to = nearestMapWaterTile(input.to, input.map);
-  const key = pathKey(from, to);
+  const key = `${input.zone}:${pathKey(from, to)}`;
   const cached = cache.get(key);
   if (cached) return cached;
 
-  const route = buildShipWaterRouteFromWaterTiles({ from, to, map: input.map });
+  const route = buildShipWaterRouteFromWaterTiles({ from, to, map: input.map, zone: input.zone });
   cache.set(key, route);
   return route;
 }
@@ -510,16 +513,16 @@ class LazyShipWaterPathMap extends Map<string, ShipWaterPath> {
   }
 }
 
-function findDetouredWaterPath(from: { x: number; y: number }, to: { x: number; y: number }, map: PharosVilleMap): Array<{ x: number; y: number }> {
+function findDetouredWaterPath(from: { x: number; y: number }, to: { x: number; y: number }, map: PharosVilleMap, zone?: ShipWaterZone): Array<{ x: number; y: number }> {
   const waypoints = detourWaterWaypoints(from, to, map);
   if (waypoints.length === 0) return [];
-  return findWaterPathThroughPoints([from, ...waypoints, to], map);
+  return findWaterPathThroughPoints([from, ...waypoints, to], map, zone);
 }
 
-function findWaterPathThroughPoints(points: Array<{ x: number; y: number }>, map: PharosVilleMap): Array<{ x: number; y: number }> {
+function findWaterPathThroughPoints(points: Array<{ x: number; y: number }>, map: PharosVilleMap, zone?: ShipWaterZone): Array<{ x: number; y: number }> {
   const route: Array<{ x: number; y: number }> = [];
   for (let index = 1; index < points.length; index += 1) {
-    const leg = findWaterPath(points[index - 1]!, points[index]!, map);
+    const leg = findWaterPath(points[index - 1]!, points[index]!, map, zone);
     if (leg.length === 0) return [];
     route.push(...(route.length === 0 ? leg : leg.slice(1)));
   }
@@ -556,7 +559,7 @@ function detourWaterWaypoints(from: { x: number; y: number }, to: { x: number; y
   return waypoints;
 }
 
-function findWaterPath(from: { x: number; y: number }, to: { x: number; y: number }, map: PharosVilleMap): Array<{ x: number; y: number }> {
+function findWaterPath(from: { x: number; y: number }, to: { x: number; y: number }, map: PharosVilleMap, zone?: ShipWaterZone): Array<{ x: number; y: number }> {
   const startIndex = tileIndex(from.x, from.y, map);
   const endIndex = tileIndex(to.x, to.y, map);
   if (startIndex < 0 || endIndex < 0) return [];
@@ -586,7 +589,7 @@ function findWaterPath(from: { x: number; y: number }, to: { x: number; y: numbe
     for (const neighbor of waterNeighbors(current, map)) {
       const neighborIndex = tileIndex(neighbor.x, neighbor.y, map);
       const tile = map.tiles[neighborIndex];
-      const cost = tile?.kind === "deep-water" ? 1.18 : 1;
+      const cost = waterPathCost(tile, zone);
       const nextDistance = distances[currentIndex!]! + cost;
       if (nextDistance >= distances[neighborIndex]!) continue;
       previous[neighborIndex] = currentIndex!;
@@ -615,6 +618,55 @@ function waterNeighbors(tile: { x: number; y: number }, map: PharosVilleMap): Ar
     { x: tile.x - 1, y: tile.y },
     { x: tile.x, y: tile.y - 1 },
   ].filter((candidate) => isWaterTile(candidate.x, candidate.y, map));
+}
+
+function waterPathCost(tile: PharosVilleTile | undefined, zone: ShipWaterZone | undefined): number {
+  if (!tile) return Number.POSITIVE_INFINITY;
+  const terrain = tile.terrain ?? tile.kind;
+  const deepPenalty = terrain === "deep-water" || tile.kind === "deep-water" ? 0.16 : 0;
+  if (!zone) return 1 + deepPenalty;
+
+  const zonePenalty = waterZoneTerrainPenalty(zone, terrain);
+  return Math.max(0.72, 1 + deepPenalty + zonePenalty);
+}
+
+function waterZoneTerrainPenalty(zone: ShipWaterZone, terrain: string): number {
+  switch (zone) {
+    case "calm":
+      if (terrain === "calm-water" || terrain === "harbor-water" || terrain === "water") return 0;
+      if (terrain === "watch-water" || terrain === "ledger-water") return 0.12;
+      if (terrain === "alert-water") return 0.22;
+      if (terrain === "warning-water" || terrain === "storm-water") return 0.72;
+      return 0.18;
+    case "ledger":
+      if (terrain === "ledger-water") return -0.08;
+      if (terrain === "calm-water" || terrain === "harbor-water" || terrain === "water") return 0.08;
+      if (terrain === "watch-water" || terrain === "alert-water") return 0.2;
+      if (terrain === "warning-water" || terrain === "storm-water") return 1.4;
+      return 0.18;
+    case "watch":
+      if (terrain === "watch-water" || terrain === "calm-water" || terrain === "harbor-water" || terrain === "water") return 0;
+      if (terrain === "alert-water") return 0.08;
+      if (terrain === "warning-water") return 0.24;
+      if (terrain === "storm-water") return 0.42;
+      return 0.16;
+    case "alert":
+      if (terrain === "alert-water" || terrain === "watch-water" || terrain === "warning-water") return 0;
+      if (terrain === "calm-water" || terrain === "harbor-water" || terrain === "water") return 0.12;
+      if (terrain === "storm-water") return 0.22;
+      return 0.14;
+    case "warning":
+      if (terrain === "warning-water" || terrain === "storm-water" || terrain === "alert-water") return 0;
+      if (terrain === "watch-water") return 0.12;
+      if (terrain === "calm-water" || terrain === "harbor-water" || terrain === "water") return 0.32;
+      return 0.16;
+    case "danger":
+      if (terrain === "storm-water" || terrain === "warning-water") return 0;
+      if (terrain === "alert-water") return 0.12;
+      if (terrain === "watch-water") return 0.24;
+      if (terrain === "calm-water" || terrain === "harbor-water" || terrain === "water") return 0.44;
+      return 0.16;
+  }
 }
 
 function nearestMapWaterTile(tile: { x: number; y: number }, map: PharosVilleMap): { x: number; y: number } {
@@ -683,9 +735,10 @@ function transitSample(input: {
   const dockStop = input.dockId
     ? input.route.dockStops.find((stop) => stop.dockId === input.dockId) ?? null
     : null;
+  const lanePoint = transitLanePoint(point, heading, input.route, input.progress);
   return {
     shipId: input.route.shipId,
-    tile: point,
+    tile: lanePoint,
     state: input.state,
     zone: input.route.zone,
     currentDockId: input.dockId,
@@ -694,6 +747,22 @@ function transitSample(input: {
     heading,
     wakeIntensity: transitWakeIntensityForZone(input.route.zone),
   };
+}
+
+function transitLanePoint(
+  point: { x: number; y: number },
+  heading: { x: number; y: number },
+  route: ShipMotionRoute,
+  progress: number,
+): { x: number; y: number } {
+  const laneStrength = Math.sin(clamp(progress, 0, 1) * Math.PI);
+  if (laneStrength <= 0.01) return point;
+  const laneSign = stableHash(`${route.shipId}.lane`) % 2 === 0 ? 1 : -1;
+  const laneMagnitude = (0.11 + (route.routeSeed % 7) * 0.012) * laneStrength;
+  return clampMotionTile({
+    x: point.x + -heading.y * laneMagnitude * laneSign,
+    y: point.y + heading.x * laneMagnitude * laneSign,
+  });
 }
 
 function openWaterPatrolSample(route: ShipMotionRoute, timeSeconds: number): ShipMotionSample {
