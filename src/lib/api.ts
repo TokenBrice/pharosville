@@ -82,17 +82,12 @@ function validateApiPayload<T>(
   contractMode: ApiContractMode = DEFAULT_CONTRACT_MODE,
 ): T {
   if (!schema) return data as T;
+  if (contractMode === "warn") return data as T;
 
   const result = schema.safeParse(data);
   if (result.success) return result.data;
 
-  const issues = formatIssues(result.error.issues);
-  if (contractMode === "warn") {
-    console.warn("[API contract] Schema validation failed", { endpoint: path, issues });
-    return data as T;
-  }
-
-  throw new SchemaValidationError(path, issues);
+  throw new SchemaValidationError(path, formatIssues(result.error.issues));
 }
 
 export async function apiFetch<T>(
