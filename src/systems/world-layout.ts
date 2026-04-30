@@ -33,9 +33,10 @@ export const EVM_BAY_DOCK_TILES = [
 
 // Outer harbors wrap the north, west, south, and east coasts so the
 // island reads as a single inhabited harbor ring rather than a dock staircase.
+// Tron anchors the north shelf to balance the southwest cluster.
 export const OUTER_HARBOR_DOCK_TILES = [
   { x: 20, y: 35 },
-  { x: 23, y: 37 },
+  { x: 22, y: 22 },
   { x: 30, y: 21 },
   { x: 40, y: 22 },
   { x: 33, y: 41 },

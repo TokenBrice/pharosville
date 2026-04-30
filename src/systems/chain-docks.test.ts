@@ -68,19 +68,19 @@ describe("buildChainDocks", () => {
     expect(docks.find((dock) => dock.chainId === "arbitrum")?.assetId).toBe("dock.arbitrum-arch-bridge");
     expect(docks.find((dock) => dock.chainId === "optimism")?.assetId).toBe("dock.optimism-sunrise-beacon");
     expect(docks.find((dock) => dock.chainId === "polygon")?.assetId).toBe("dock.polygon-hexmarket");
-    expect(docks.find((dock) => dock.chainId === "mantle")?.assetId).toBe("dock.wooden-pier");
     expect(docks.find((dock) => dock.chainId === "ethereum")?.logoSrc).toBe("/chains/ethereum.png");
     expect(docks.find((dock) => dock.chainId === "base")?.logoSrc).toBe("/chains/base.png");
     expect(docks.find((dock) => dock.chainId === "tron")?.logoSrc).toBeNull();
     expect(byChain.get("bsc")).toEqual(PREFERRED_DOCK_TILES.bsc);
     expect(byChain.get("tron")).toEqual(PREFERRED_DOCK_TILES.tron);
     expect(byChain.get("solana")).toEqual(PREFERRED_DOCK_TILES.solana);
-    expect(byChain.get("aptos")).toEqual(PREFERRED_DOCK_TILES.aptos);
+    expect(docks.map((dock) => dock.chainId)).not.toContain("aptos");
+    expect(docks.map((dock) => dock.chainId)).not.toContain("mantle");
 
     for (const chainId of ["ethereum", "base", "arbitrum", "optimism", "polygon"]) {
       expect(EVM_BAY_DOCK_TILES).toContainEqual(byChain.get(chainId));
     }
-    for (const chainId of ["bsc", "tron", "solana", "aptos", "mantle"]) {
+    for (const chainId of ["bsc", "tron", "solana"]) {
       expect(EVM_BAY_DOCK_TILES).not.toContainEqual(byChain.get(chainId));
       expect(OUTER_HARBOR_DOCK_TILES).toContainEqual(byChain.get(chainId));
     }
@@ -108,19 +108,19 @@ describe("buildChainDocks", () => {
       globalTotalUsd: 586,
     });
 
-    expect(docks).toHaveLength(10);
+    expect(docks).toHaveLength(8);
     expect(docks.map((dock) => dock.chainId)).toEqual([
       "ethereum",
       "tron",
       "bsc",
       "solana",
-      "hyperliquid",
       "base",
       "arbitrum",
       "polygon",
-      "aptos",
       "optimism",
     ]);
+    expect(docks.map((dock) => dock.chainId)).not.toContain("hyperliquid");
+    expect(docks.map((dock) => dock.chainId)).not.toContain("aptos");
     expect(docks.map((dock) => dock.chainId)).not.toContain("avalanche");
     expect(docks.map((dock) => dock.chainId)).not.toContain("xlayer");
     expect(docks.map((dock) => dock.chainId)).not.toContain("mantle");
@@ -145,7 +145,7 @@ describe("buildChainDocks", () => {
     expect(docks.find((dock) => dock.chainId === "small")?.size).toBe(1);
   });
 
-  it("emits only the top ten chain harbors and preserves top stablecoin cargo", () => {
+  it("emits only the top eight chain harbors and preserves top stablecoin cargo", () => {
     const chains = Array.from({ length: 12 }, (_, index) => makeChain({
       id: `chain-${index}`,
       totalUsd: 12_000_000_000 - index * 1_000_000_000,
@@ -161,7 +161,7 @@ describe("buildChainDocks", () => {
       globalTotalUsd: 78_000_000_000,
     });
 
-    expect(docks).toHaveLength(10);
+    expect(docks).toHaveLength(8);
     expect(docks.map((dock) => dock.chainId)).toEqual([
       "chain-0",
       "chain-1",
@@ -171,11 +171,9 @@ describe("buildChainDocks", () => {
       "chain-5",
       "chain-6",
       "chain-7",
-      "chain-8",
-      "chain-9",
     ]);
-    expect(docks.map((dock) => dock.tile)).toEqual(OUTER_HARBOR_DOCK_TILES.slice(0, 10));
-    expect(docks.map((dock) => dock.assetId)).toEqual(Array(10).fill("dock.wooden-pier"));
+    expect(docks.map((dock) => dock.tile)).toEqual(OUTER_HARBOR_DOCK_TILES.slice(0, 8));
+    expect(docks.map((dock) => dock.assetId)).toEqual(Array(8).fill("dock.wooden-pier"));
     expect(docks[0]?.harboredStablecoins.map((coin) => coin.symbol)).toEqual(["A0", "B0"]);
   });
 });

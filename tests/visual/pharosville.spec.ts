@@ -334,7 +334,7 @@ test("pharosville dense visual fixture preserves districts, dense ships, and ren
   const visibleMotionSamples = motionSamples.filter((sample) => sample.mapVisible);
   const hiddenMooredSamples = motionSamples.filter((sample) => !sample.mapVisible && sample.state === "moored");
   const ledgerRouteStopSamples = motionSamples.filter((sample) => sample.currentRouteStopKind === "ledger");
-  expect(targets.filter((target) => target.kind === "dock")).toHaveLength(10);
+  expect(targets.filter((target) => target.kind === "dock")).toHaveLength(8);
   expect(targets.filter((target) => target.kind === "ship")).toHaveLength(visibleMotionSamples.length);
   expect(visibleMotionSamples.length).toBeLessThan(denseFixtureShipCount);
   expect(hiddenMooredSamples.length).toBeGreaterThan(0);

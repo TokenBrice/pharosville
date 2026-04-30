@@ -9,7 +9,7 @@ import {
   PREFERRED_DOCK_TILES,
 } from "./world-layout";
 
-export const MAX_CHAIN_HARBORS = 10;
+export const MAX_CHAIN_HARBORS = 8;
 export const MAX_DOCK_SIZE = 10;
 
 const DOCK_ASSET_IDS = [
