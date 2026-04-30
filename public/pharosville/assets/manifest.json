@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-04-30-pharosville-ethereum-harbor-hub-rotated-v2",
+    "cacheVersion": "2026-04-30-pharosville-titan-ships-v1",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": ["#061721", "#0d5f70", "#15858c", "#f0ead2", "#b95437", "#ffcc62"],
@@ -31,6 +31,8 @@
     "dock.sentinel-breakwater",
     "dock.wooden-pier",
     "ship.treasury-galleon",
+    "ship.usdc-titan",
+    "ship.usdt-titan",
     "prop.memorial-terrace",
     "prop.memorial-headstone",
     "prop.ledger-slab",
@@ -512,6 +514,50 @@
       "tool": "mcp:create_map_object",
       "promptProvenance": {
         "jobId": "4eff5e71-5d29-45dc-b891-4b5c1989c3ea",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "ship.usdc-titan",
+      "path": "ships/usdc-titan.png",
+      "category": "ship",
+      "layer": "ships",
+      "width": 160,
+      "height": 112,
+      "displayScale": 1,
+      "anchor": [80, 102],
+      "footprint": [54, 24],
+      "hitbox": [34, 2, 102, 102],
+      "loadPriority": "critical",
+      "criticalReason": "USDC uses a dedicated titan hull on the first coherent ship frame.",
+      "promptKey": "ship.usdc-titan",
+      "semanticRole": "USDC titan stablecoin ship hull",
+      "paletteKeys": ["limestone", "deep navy", "bronze beacon", "teal sea"],
+      "tool": "mcp:create_map_object",
+      "promptProvenance": {
+        "jobId": "04eaa819-b7ff-4ba7-b7a9-44c6165254e8",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "ship.usdt-titan",
+      "path": "ships/usdt-titan.png",
+      "category": "ship",
+      "layer": "ships",
+      "width": 192,
+      "height": 128,
+      "displayScale": 1,
+      "anchor": [96, 111],
+      "footprint": [70, 28],
+      "hitbox": [30, 2, 128, 112],
+      "loadPriority": "critical",
+      "criticalReason": "USDT uses the largest dedicated titan hull on the first coherent ship frame.",
+      "promptKey": "ship.usdt-titan",
+      "semanticRole": "USDT supreme titan stablecoin ship hull",
+      "paletteKeys": ["weathered wood", "limestone", "bronze beacon", "teal sea"],
+      "tool": "mcp:create_map_object",
+      "promptProvenance": {
+        "jobId": "8e7c264e-efff-4d97-b477-f6de76986f4c",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },

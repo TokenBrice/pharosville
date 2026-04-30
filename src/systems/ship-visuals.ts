@@ -31,6 +31,16 @@ const UNKNOWN_CLASS: ShipClassDefinition = {
   rigging: "issuer-rig",
 };
 
+const TITAN_SHIP_ASSET_IDS: Record<string, string> = {
+  "usdc-circle": "ship.usdc-titan",
+  "usdt-tether": "ship.usdt-titan",
+};
+
+const TITAN_SHIP_SCALES: Record<string, number> = {
+  "usdc-circle": 1.8,
+  "usdt-tether": 2,
+};
+
 export function resolveShipClass(meta: StablecoinMeta): ShipClassDefinition {
   const backing = meta.flags?.backing;
   const governance = meta.flags?.governance;
@@ -89,15 +99,17 @@ export function resolveShipVisual(asset: StablecoinData, meta: StablecoinMeta, r
   const marketCap = getCirculatingRaw(asset);
   const shipClass = resolveShipClass(meta);
   const size = resolveShipSizeTier(marketCap);
+  const titanSpriteAssetId = TITAN_SHIP_ASSET_IDS[asset.id];
   return {
     hull: shipClass.hull,
+    ...(titanSpriteAssetId ? { spriteAssetId: titanSpriteAssetId } : {}),
     shipClass: shipClass.shipClass,
     classLabel: shipClass.label,
     rigging: shipClass.rigging,
     pennant: PEG_PENNANTS[meta.flags.pegCurrency] ?? "slate",
     overlay: meta.flags.navToken ? "nav" : meta.flags.yieldBearing ? "yield" : reportCard?.overallGrade === "D" || reportCard?.overallGrade === "F" ? "watch" : "none",
-    sizeTier: size.tier,
-    sizeLabel: size.label,
-    scale: size.scale,
+    sizeTier: titanSpriteAssetId ? "titan" : size.tier,
+    sizeLabel: titanSpriteAssetId ? "Titan" : size.label,
+    scale: TITAN_SHIP_SCALES[asset.id] ?? size.scale,
   };
 }
