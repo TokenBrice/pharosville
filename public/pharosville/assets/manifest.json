@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-04-30-pharosville-titan-ships-v1",
+    "cacheVersion": "2026-04-30-pharosville-main-island-revamp-v2",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": ["#061721", "#0d5f70", "#15858c", "#f0ead2", "#b95437", "#ffcc62"],
@@ -165,18 +165,18 @@
       "width": 320,
       "height": 320,
       "displayScale": 0.82,
-      "anchor": [160, 306],
-      "beacon": [160, 50],
-      "footprint": [88, 62],
-      "hitbox": [48, 20, 224, 276],
+      "anchor": [160, 319],
+      "beacon": [160, 167],
+      "footprint": [74, 46],
+      "hitbox": [108, 128, 104, 192],
       "loadPriority": "critical",
       "criticalReason": "Primary PSI landmark and initial selected detail.",
       "promptKey": "landmark.lighthouse",
       "semanticRole": "PSI beacon landmark",
       "paletteKeys": ["bronze beacon", "limestone", "terracotta", "deep navy"],
-      "tool": "mcp:create_map_object",
+      "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "5cbb8783-1bed-4d7d-bc6b-7cff28ec84fb",
+        "jobId": "c47c36c5-dd3e-4721-923f-9e5852400f65",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },
@@ -189,16 +189,16 @@
       "height": 320,
       "displayScale": 1,
       "anchor": [200, 280],
-      "footprint": [260, 130],
-      "hitbox": [44, 54, 312, 250],
+      "footprint": [214, 104],
+      "hitbox": [43, 19, 322, 270],
       "loadPriority": "critical",
       "criticalReason": "Generated island model overlay that unifies the central harbor-ring landmass.",
       "promptKey": "overlay.central-island",
       "semanticRole": "central island harbor-ring model",
       "paletteKeys": ["limestone", "teal sea", "grass", "weathered wood"],
-      "tool": "mcp:create_map_object",
+      "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "414ecb12-6d07-4379-bf83-e23e270cf0b5",
+        "jobId": "25ee8636-32f7-4aa1-bb29-f924cbb4fc01",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },
@@ -277,8 +277,8 @@
       "height": 120,
       "displayScale": 1,
       "anchor": [84, 96],
-      "footprint": [76, 34],
-      "hitbox": [10, 16, 148, 88],
+      "footprint": [70, 30],
+      "hitbox": [25, 8, 121, 102],
       "loadPriority": "critical",
       "criticalReason": "Generated compact harbor pier for distributed chain harbors.",
       "promptKey": "dock.compact-harbor-pier",
@@ -286,7 +286,7 @@
       "paletteKeys": ["weathered wood", "teal sea", "bronze beacon"],
       "tool": "mcp:create_map_object",
       "promptProvenance": {
-        "jobId": "2b7b2115-4d3f-4483-8de6-f12188d4a466",
+        "jobId": "31155966-7d76-413a-bd7b-557f79cffc9f",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },
