@@ -119,13 +119,19 @@ describe("resolveShipVisual", () => {
     ]);
   });
 
-  it("gives USDC and USDT dedicated titan hull treatments", () => {
+  it("gives USDC, USDS, and USDT dedicated titan hull treatments", () => {
     const meta = makeMeta({ governance: "centralized" });
+    const dependentMeta = makeMeta({ governance: "centralized-dependent" });
     const usdc = resolveShipVisual(makeAsset({
       id: "usdc-circle",
       symbol: "USDC",
       circulating: { peggedUSD: 50_000_000_000 },
     }), meta, null);
+    const usds = resolveShipVisual(makeAsset({
+      id: "usds-sky",
+      symbol: "USDS",
+      circulating: { peggedUSD: 8_000_000_000 },
+    }), dependentMeta, null);
     const usdt = resolveShipVisual(makeAsset({
       id: "usdt-tether",
       symbol: "USDT",
@@ -136,11 +142,17 @@ describe("resolveShipVisual", () => {
     expect(usdc.spriteAssetId).toBe("ship.usdc-titan");
     expect(usdc.sizeTier).toBe("titan");
     expect(usdc.sizeLabel).toBe("Titan");
+    expect(usds.hull).toBe("chartered-brigantine");
+    expect(usds.spriteAssetId).toBe("ship.usds-titan");
+    expect(usds.sizeTier).toBe("titan");
+    expect(usds.sizeLabel).toBe("Titan");
     expect(usdt.spriteAssetId).toBe("ship.usdt-titan");
     expect(usdt.sizeTier).toBe("titan");
     expect(usdt.sizeLabel).toBe("Titan");
+    expect(usds.scale).toBe(1.6);
     expect(usdc.scale).toBe(1.8);
     expect(usdt.scale).toBe(2);
+    expect(usds.scale).toBeLessThan(usdc.scale);
     expect(usdt.scale).toBeGreaterThan(usdc.scale);
   });
 });

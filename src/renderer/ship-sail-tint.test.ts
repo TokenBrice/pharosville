@@ -11,6 +11,7 @@ const SHIP_ASSET_FILES: Record<string, string> = {
   "ship.dao-schooner": "dao-schooner.png",
   "ship.treasury-galleon": "treasury-galleon.png",
   "ship.usdc-titan": "usdc-titan.png",
+  "ship.usds-titan": "usds-titan.png",
   "ship.usdt-titan": "usdt-titan.png",
 };
 
@@ -21,6 +22,7 @@ const MIN_SAIL_COVERAGE: Record<string, number> = {
   "ship.dao-schooner": 0.34,
   "ship.treasury-galleon": 0.34,
   "ship.usdc-titan": 0.38,
+  "ship.usds-titan": 0.38,
   "ship.usdt-titan": 0.38,
 };
 

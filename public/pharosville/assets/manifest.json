@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-05-01-pharosville-harbor-diversity-v2",
+    "cacheVersion": "2026-05-01-pharosville-titan-sprites-v1",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": [
@@ -36,6 +36,7 @@
     "dock.wooden-pier",
     "ship.treasury-galleon",
     "ship.usdc-titan",
+    "ship.usds-titan",
     "ship.usdt-titan",
     "prop.memorial-terrace",
     "prop.memorial-headstone",
@@ -819,9 +820,47 @@
         "bronze beacon",
         "teal sea"
       ],
-      "tool": "mcp:create_map_object",
+      "tool": "mcp:create_object+imagemagick",
       "promptProvenance": {
-        "jobId": "04eaa819-b7ff-4ba7-b7a9-44c6165254e8",
+        "jobId": "7ae30033-c73b-45a3-bdba-d1613145cc59",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "ship.usds-titan",
+      "path": "ships/usds-titan.png",
+      "category": "ship",
+      "layer": "ships",
+      "width": 144,
+      "height": 104,
+      "displayScale": 1,
+      "anchor": [
+        72,
+        96
+      ],
+      "footprint": [
+        48,
+        22
+      ],
+      "hitbox": [
+        24,
+        4,
+        100,
+        96
+      ],
+      "loadPriority": "critical",
+      "criticalReason": "USDS uses a dedicated smaller titan hull on the first coherent ship frame.",
+      "promptKey": "ship.usds-titan",
+      "semanticRole": "USDS Sky titan stablecoin ship hull",
+      "paletteKeys": [
+        "weathered wood",
+        "limestone",
+        "bronze beacon",
+        "warm amber"
+      ],
+      "tool": "mcp:create_object+imagemagick",
+      "promptProvenance": {
+        "jobId": "2e57d55c-da89-44e4-90b4-3ef69f29122f",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },

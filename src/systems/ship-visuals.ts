@@ -58,11 +58,13 @@ const UNKNOWN_CLASS: ShipClassDefinition = {
 
 const TITAN_SHIP_ASSET_IDS: Record<string, string> = {
   "usdc-circle": "ship.usdc-titan",
+  "usds-sky": "ship.usds-titan",
   "usdt-tether": "ship.usdt-titan",
 };
 
 const TITAN_SHIP_SCALES: Record<string, number> = {
   "usdc-circle": 1.8,
+  "usds-sky": 1.6,
   "usdt-tether": 2,
 };
 

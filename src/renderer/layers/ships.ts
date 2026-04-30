@@ -31,6 +31,7 @@ const SHIP_PEG_MARKS: Record<string, { size: number; x: number; y: number }> = {
   "dao-schooner": { size: 5.3, x: -17, y: -43 },
   "treasury-galleon": { size: 5.8, x: -19, y: -47 },
   "ship.usdc-titan": { size: 7.6, x: -33, y: -73 },
+  "ship.usds-titan": { size: 7.2, x: -29, y: -65 },
   "ship.usdt-titan": { size: 8.4, x: -41, y: -84 },
 };
 
@@ -77,6 +78,12 @@ const SHIP_TRIM_MARKS: Record<string, ShipTrimSpec> = {
     keel: [-48, -5, 42, 0],
     stern: { x: -60, y: -27, width: 16, height: 7 },
     deck: [{ x: -17, y: -31, width: 13, height: 6 }, { x: 13, y: -27, width: 11, height: 5 }],
+  },
+  "ship.usds-titan": {
+    rail: [-44, -18, 40, -8],
+    keel: [-40, -5, 35, 0],
+    stern: { x: -48, y: -26, width: 14, height: 6 },
+    deck: [{ x: -14, y: -29, width: 11, height: 5 }, { x: 12, y: -25, width: 10, height: 4 }],
   },
   "ship.usdt-titan": {
     rail: [-66, -23, 61, -12],
