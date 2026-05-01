@@ -6,8 +6,10 @@ test-results/
 playwright-report/
 .playwright-mcp/
 output/
+outputs/
 .worktrees/
 .claude/
+.superpowers/
 .DS_Store
 .env
 .env.*
