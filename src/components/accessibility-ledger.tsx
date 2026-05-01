@@ -103,7 +103,7 @@ function AccessibilityLedgerContent({
         const memberLine = orderedShips
           .map((ship) => formationLabel(ship.id, makerSquadRole(ship.id) ?? "consort", ship.symbol))
           .join(", ");
-        const overrideShips = squadShips.filter((ship) => ship.placementEvidence.squadOverride === true);
+        const overrideShips = squadShips.filter((ship) => ship.placementEvidence.squadOverride !== undefined);
         return (
           <>
             <h3>Maker squad</h3>
@@ -115,11 +115,11 @@ function AccessibilityLedgerContent({
                     {overrideShips.map((ship) => (
                       <li key={ship.id}>
                         {ship.symbol} in distress — squad sheltering at flagship&apos;s position
-                        {ship.placementEvidence.overrideReason
-                          ? `; consort signal ${ship.placementEvidence.overrideReason}`
+                        {ship.placementEvidence.squadOverride?.ownReason
+                          ? `; consort signal ${ship.placementEvidence.squadOverride.ownReason}`
                           : ""}
-                        {ship.placementEvidence.overridePlacement
-                          ? ` (own placement ${ship.placementEvidence.overridePlacement})`
+                        {ship.placementEvidence.squadOverride?.ownPlacement
+                          ? ` (own placement ${ship.placementEvidence.squadOverride.ownPlacement})`
                           : ""}
                         .
                       </li>

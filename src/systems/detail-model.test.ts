@@ -207,7 +207,9 @@ describe("detail-model Maker squad surfacing", () => {
   it("squad detail panel surfaces the override banner when DAI is depegged but flagship is calm", () => {
     const world = buildPharosVilleWorld(fixtureWithDepegOn(makerSquadFixtureInputs(), "dai-makerdao"));
     const dai = world.ships.find((ship) => ship.id === "dai-makerdao")!;
-    expect(dai.placementEvidence.squadOverride).toBe(true);
+    expect(dai.placementEvidence.squadOverride).toBeDefined();
+    expect(dai.placementEvidence.squadOverride?.ownPlacement).toBeDefined();
+    expect(dai.placementEvidence.squadOverride?.ownReason).toBeTruthy();
 
     const detail = world.detailIndex[dai.detailId]!;
     const overrideFact = detail.facts.find((fact) => fact.label === "Squad override");

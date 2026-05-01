@@ -133,9 +133,9 @@ export function squadFormationLine(squadShips: readonly ShipNode[]): string {
 }
 
 export function squadOverrideBanner(node: ShipNode): string | null {
-  if (node.placementEvidence.squadOverride !== true) return null;
-  const ownReason = node.placementEvidence.overrideReason;
-  const suffix = ownReason ? ` (${ownReason})` : "";
+  const override = node.placementEvidence.squadOverride;
+  if (!override) return null;
+  const suffix = override.ownReason ? ` (${override.ownReason})` : "";
   return `${node.symbol} in distress — squad sheltering at flagship's position${suffix}`;
 }
 

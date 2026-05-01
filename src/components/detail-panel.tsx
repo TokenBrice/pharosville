@@ -112,7 +112,7 @@ function groupFacts(facts: DetailModel["facts"]): FactGroup[] {
 }
 
 function isRouteFact(label: string): boolean {
-  return /route|risk|dock|chain|position|cadence|deployment/i.test(label);
+  return /route|risk|dock|chain|position|cadence|deployment|formation|squad/i.test(label);
 }
 
 function isSourceFact(label: string): boolean {

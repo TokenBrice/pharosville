@@ -47,9 +47,7 @@ export interface PlacementEvidence {
   reason: string;
   sourceFields: string[];
   stale: boolean;
-  squadOverride?: boolean;
-  overridePlacement?: ShipRiskPlacement;
-  overrideReason?: string;
+  squadOverride?: { ownPlacement: ShipRiskPlacement; ownReason: string };
 }
 
 export type ShipHull =

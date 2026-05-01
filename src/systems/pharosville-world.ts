@@ -325,9 +325,10 @@ function consortRisk(
     stale: flagshipRisk.evidence.stale,
     ...(stricter
       ? {
-          squadOverride: true,
-          overridePlacement: ownRisk.placement,
-          overrideReason: ownRisk.evidence.reason,
+          squadOverride: {
+            ownPlacement: ownRisk.placement,
+            ownReason: ownRisk.evidence.reason,
+          },
         }
       : {}),
   };
