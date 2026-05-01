@@ -5,7 +5,7 @@ import type { PharosVilleWorld, ShipNode } from "../../systems/world-types";
 import type { LoadedPharosVilleAsset } from "../asset-manager";
 import type { ResolvedEntityGeometry } from "../geometry";
 import type { DrawPharosVilleInput } from "../render-types";
-import { drawShipWake, drawSquadIdentityAccent, type ShipRenderFrame } from "./ships";
+import { drawShipWake, drawSquadIdentityAccent, shipMastTopScreenPoint, type ShipRenderFrame } from "./ships";
 
 // --- Identity accent dispatch ----------------------------------------------
 
@@ -47,6 +47,11 @@ function makeRecordingCtx(): CanvasRenderingContext2D & RecordingCtx {
   return ctx as unknown as CanvasRenderingContext2D & RecordingCtx;
 }
 
+// These tests verify that the right helper fires for the right ship.id and
+// that calls hit the canvas (counts of fills/strokes/rects). They do NOT
+// verify rendered geometry — visual baselines (test:visual) are the canonical
+// source of truth for shape correctness. Geometric assertions here would just
+// duplicate the snapshot's job and brittle-fail on any tuning pass.
 describe("drawSquadIdentityAccent", () => {
   it("renders the admiral's banner only for the USDS flagship", () => {
     const ctx = makeRecordingCtx();
@@ -293,5 +298,55 @@ describe("drawShipWake squad ordering", () => {
     // a single ellipse at the flagship's x means the flagship was painted
     // exactly once even though both consort and flagship draw calls ran.
     expect(flagshipPaints).toBe(1);
+  });
+});
+
+// --- Mast-top fallback ------------------------------------------------------
+
+describe("shipMastTopScreenPoint", () => {
+  it("falls back to galleon offsets for unknown sprite/hull keys", () => {
+    const ship = makeShipNode({
+      id: "test-unknown",
+      tile: { x: 5, y: 5 },
+    });
+    // Override visual to use a hull key that is NOT in SHIP_SAIL_MARKS.
+    (ship as { visual: { hull: string; spriteAssetId?: string; sizeTier: string; scale: number; livery: unknown } }).visual = {
+      hull: "fictional-hull",
+      spriteAssetId: undefined,
+      sizeTier: "major",
+      scale: 1,
+      livery: {},
+    };
+
+    const ctx = makeRecordingCtx();
+    const input = {
+      assets: null,
+      camera: { offsetX: 0, offsetY: 0, zoom: 1 },
+      ctx,
+      height: 600,
+      hoveredTarget: null,
+      motion: {
+        plan: makeMotionPlan([]),
+        reducedMotion: false,
+        timeSeconds: 0,
+      },
+      selectedTarget: null,
+      shipMotionSamples: new Map<string, ShipMotionSample>(),
+      targets: [],
+      width: 800,
+      world: { ships: [ship] } as unknown as PharosVilleWorld,
+    } satisfies DrawPharosVilleInput;
+
+    const frame: ShipRenderFrame = {
+      cache: {
+        assetForEntity: () => null,
+        geometryForEntity: () => makeGeometry(120, 80),
+      },
+      shipRenderStates: new Map(),
+    };
+
+    const point = shipMastTopScreenPoint(input, frame, ship);
+    expect(Number.isFinite(point.x)).toBe(true);
+    expect(Number.isFinite(point.y)).toBe(true);
   });
 });

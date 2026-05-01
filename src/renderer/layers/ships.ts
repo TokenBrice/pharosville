@@ -186,6 +186,13 @@ function drawWithShipPose(
   ctx.restore();
 }
 
+/**
+ * Draws a ship's wake. May also paint the flagship's wake out-of-turn for
+ * synchronised-squad-wake interference: when called for a Maker squad consort
+ * that's a mover and the flagship is also a mover, the flagship's wake is
+ * drawn first via `drawShipWakeRaw` and marked in `frame.wakeDrawnShipIds`
+ * to prevent double-draw. See `ShipRenderFrame.wakeDrawnShipIds`.
+ */
 export function drawShipWake(input: DrawPharosVilleInput, frame: ShipRenderFrame, ship: PharosVilleWorld["ships"][number]) {
   // Synchronised squad wake: when this hull is a Maker squad consort that
   // is currently a mover and the flagship is also a mover, draw the
@@ -438,7 +445,7 @@ export function drawSquadIdentityAccent(
   y: number,
   scale: number,
 ) {
-  if (shipId === "usds-sky") drawAdmiralBanner(ctx, x, y, scale);
+  if (shipId === MAKER_SQUAD_FLAGSHIP_ID) drawAdmiralBanner(ctx, x, y, scale);
   else if (shipId === "stusds-sky") drawForgeGlow(ctx, x, y, scale);
   else if (shipId === "dai-makerdao") drawWeatheredPatches(ctx, x, y, scale);
 }
@@ -515,9 +522,12 @@ export function shipMastTopScreenPoint(
   const drawY = geometry.drawPoint.y + bob;
   const sailKey = ship.visual.spriteAssetId ?? ship.visual.hull;
   const sail = SHIP_SAIL_MARKS[sailKey] ?? SHIP_SAIL_MARKS["treasury-galleon"]!;
-  // Mast tip sits a little above the sail mark; pad by 18% of sail height.
-  const localX = sail.x * geometry.drawScale * 0.1;
-  const localY = (sail.y - sail.height * 0.6) * geometry.drawScale;
+  // Mast tip sits above the sail mark, slightly inboard of the sail's nominal X
+  // (the sail mark sits roughly mid-sail; the mast pole is closer to centerline).
+  const MAST_TOP_HEIGHT_FACTOR = 0.6; // mast extends 60% of sail-mark height above the mark
+  const MAST_X_INSET_FACTOR = 0.1; // mast pole sits at 10% of sail.x toward centerline
+  const localX = sail.x * geometry.drawScale * MAST_X_INSET_FACTOR;
+  const localY = (sail.y - sail.height * MAST_TOP_HEIGHT_FACTOR) * geometry.drawScale;
   // Apply pose roll about the hull origin (drawX, drawY).
   const cos = Math.cos(pose.rollRadians);
   const sin = Math.sin(pose.rollRadians);
