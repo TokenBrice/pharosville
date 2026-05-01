@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-05-01-harbor-trim-v1",
+    "cacheVersion": "2026-05-01-harbor-trim-maker-squad-titans-v1",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": [
@@ -36,6 +36,8 @@
     "dock.avalanche-alpine-watch",
     "dock.wooden-pier",
     "ship.treasury-galleon",
+    "ship.dai-titan",
+    "ship.stusds-titan",
     "ship.usdc-titan",
     "ship.usds-titan",
     "ship.usdt-titan",
@@ -966,6 +968,205 @@
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
         "jobId": "abd84dde-c282-40a6-a762-85aafba0cc2e",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "ship.dai-titan",
+      "path": "ships/dai-titan.png",
+      "category": "ship",
+      "layer": "ships",
+      "width": 144,
+      "height": 104,
+      "displayScale": 1,
+      "anchor": [
+        72,
+        96
+      ],
+      "footprint": [
+        48,
+        22
+      ],
+      "hitbox": [
+        24,
+        4,
+        100,
+        96
+      ],
+      "loadPriority": "critical",
+      "criticalReason": "DAI uses a dedicated veteran titan hull on the first coherent ship frame.",
+      "animation": {
+        "frameCount": 4,
+        "frameSource": "ships/dai-titan-frames.png",
+        "fps": 4,
+        "loop": true,
+        "reducedMotionFrame": 0,
+        "spriteSheet": {
+          "columns": 4,
+          "rows": 1,
+          "frameWidth": 144,
+          "frameHeight": 104
+        }
+      },
+      "promptKey": "ship.dai-titan",
+      "semanticRole": "DAI veteran Maker treasury titan ship hull",
+      "paletteKeys": [
+        "weathered wood",
+        "limestone",
+        "bronze beacon",
+        "warm amber"
+      ],
+      "tool": "mcp:create_object+animate_object+pillow",
+      "promptProvenance": {
+        "jobId": "89f2c771-18a5-49af-8f5c-8d12a41b51ae",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "ship.susds-titan",
+      "path": "ships/susds-titan.png",
+      "category": "ship",
+      "layer": "ships",
+      "width": 128,
+      "height": 92,
+      "displayScale": 1,
+      "anchor": [
+        64,
+        84
+      ],
+      "footprint": [
+        42,
+        20
+      ],
+      "hitbox": [
+        20,
+        4,
+        88,
+        84
+      ],
+      "loadPriority": "deferred",
+      "animation": {
+        "frameCount": 4,
+        "frameSource": "ships/susds-titan-frames.png",
+        "fps": 4,
+        "loop": true,
+        "reducedMotionFrame": 0,
+        "spriteSheet": {
+          "columns": 4,
+          "rows": 1,
+          "frameWidth": 128,
+          "frameHeight": 92
+        }
+      },
+      "promptKey": "ship.susds-titan",
+      "semanticRole": "sUSDS Sky savings cutter titan ship hull",
+      "paletteKeys": [
+        "deep navy",
+        "warm amber",
+        "bronze beacon"
+      ],
+      "tool": "mcp:create_object+animate_object+pillow",
+      "promptProvenance": {
+        "jobId": "25f73b33-2eac-453c-859b-d8000d071361",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "ship.sdai-titan",
+      "path": "ships/sdai-titan.png",
+      "category": "ship",
+      "layer": "ships",
+      "width": 128,
+      "height": 92,
+      "displayScale": 1,
+      "anchor": [
+        64,
+        84
+      ],
+      "footprint": [
+        42,
+        20
+      ],
+      "hitbox": [
+        20,
+        4,
+        88,
+        84
+      ],
+      "loadPriority": "deferred",
+      "animation": {
+        "frameCount": 4,
+        "frameSource": "ships/sdai-titan-frames.png",
+        "fps": 4,
+        "loop": true,
+        "reducedMotionFrame": 0,
+        "spriteSheet": {
+          "columns": 4,
+          "rows": 1,
+          "frameWidth": 128,
+          "frameHeight": 92
+        }
+      },
+      "promptKey": "ship.sdai-titan",
+      "semanticRole": "sDAI savings cutter titan ship hull",
+      "paletteKeys": [
+        "weathered wood",
+        "limestone",
+        "bronze beacon"
+      ],
+      "tool": "mcp:create_object+animate_object+pillow",
+      "promptProvenance": {
+        "jobId": "49353421-dfc7-494d-b512-fb512aeb3ff2",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "ship.stusds-titan",
+      "path": "ships/stusds-titan.png",
+      "category": "ship",
+      "layer": "ships",
+      "width": 136,
+      "height": 96,
+      "displayScale": 1,
+      "anchor": [
+        68,
+        88
+      ],
+      "footprint": [
+        46,
+        21
+      ],
+      "hitbox": [
+        22,
+        4,
+        92,
+        88
+      ],
+      "loadPriority": "critical",
+      "criticalReason": "stUSDS uses a dedicated risk-capital icebreaker titan hull on the first coherent ship frame.",
+      "animation": {
+        "frameCount": 4,
+        "frameSource": "ships/stusds-titan-frames.png",
+        "fps": 4,
+        "loop": true,
+        "reducedMotionFrame": 0,
+        "spriteSheet": {
+          "columns": 4,
+          "rows": 1,
+          "frameWidth": 136,
+          "frameHeight": 96
+        }
+      },
+      "promptKey": "ship.stusds-titan",
+      "semanticRole": "stUSDS Sky risk-capital icebreaker titan ship hull",
+      "paletteKeys": [
+        "weathered wood",
+        "bronze beacon",
+        "deep navy"
+      ],
+      "tool": "mcp:create_object+animate_object+pillow",
+      "promptProvenance": {
+        "jobId": "53962ddf-5896-4f0d-aa3f-508723e70038",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },

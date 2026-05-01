@@ -2,6 +2,7 @@ import { CHAIN_META } from "@shared/lib/chains";
 import type { AreaNode, DetailModel, DockNode, GraveNode, LighthouseNode, ShipNode } from "./world-types";
 import { ETHEREUM_L2_DOCK_CHAIN_IDS } from "./world-layout";
 import { analyticalRouteHref } from "./route-links";
+import { formationLabel, squadForMember, squadRole } from "./maker-squad";
 
 const usd = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0, style: "currency", currency: "USD" });
 const percent = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1, style: "percent" });
@@ -113,29 +114,68 @@ export function detailForDock(node: DockNode): DetailModel {
   };
 }
 
-export function detailForShip(node: ShipNode): DetailModel {
+export interface ShipDetailContext {
+  squadShips?: readonly ShipNode[];
+}
+
+export function squadFormationLine(squadShips: readonly ShipNode[]): string {
+  if (squadShips.length === 0) return "";
+  // Use the squad's own display order so Sky and Maker each list their own
+  // members in their own formation order, rather than the global all-squads order.
+  const squad = squadForMember(squadShips[0]!.id);
+  if (!squad) return "";
+  const byId = new Map(squadShips.map((ship) => [ship.id, ship]));
+  return squad.displayOrder
+    .map((id) => {
+      const ship = byId.get(id);
+      if (!ship) return null;
+      const role = squadRole(ship.id);
+      if (!role) return null;
+      return formationLabel(ship.id, role, ship.symbol);
+    })
+    .filter((label): label is string => label !== null)
+    .join(", ");
+}
+
+export function squadOverrideBanner(node: ShipNode): string | null {
+  const override = node.placementEvidence.squadOverride;
+  if (!override) return null;
+  const suffix = override.ownReason ? ` (${override.ownReason})` : "";
+  return `${node.symbol} in distress — squad sheltering at flagship's position${suffix}`;
+}
+
+export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): DetailModel {
+  const isSquadShip = !!node.squadId;
+  const squadShips = isSquadShip ? context.squadShips ?? [] : [];
+  const formationLine = isSquadShip && squadShips.length > 0 ? squadFormationLine(squadShips) : "";
+  const overrideBanner = isSquadShip ? squadOverrideBanner(node) : null;
+
+  const facts = [
+    { label: "Market cap", value: marketCapLabel(node.marketCapUsd) },
+    { label: "Ship class", value: node.visual.classLabel },
+    { label: "Size tier", value: node.visual.sizeLabel },
+    { label: "Ship livery", value: shipLiveryLabel(node) },
+    { label: "Peg marker", value: shipPegLabel(node) },
+    { label: "Representative position", value: representativePositionLabel(node) },
+    { label: "Risk water area", value: node.riskWaterLabel },
+    { label: "Risk water zone", value: node.riskZone },
+    { label: "Risk placement key", value: node.riskPlacement },
+    { label: "Home dock", value: node.homeDockChainId ? chainLabel(node.homeDockChainId) : "No rendered dock" },
+    { label: "Chains present", value: chainsPresentLabel(node) },
+    { label: "Docking cadence", value: dockingCadenceLabel(node) },
+    ...(formationLine ? [{ label: "Sailing in formation", value: formationLine }] : []),
+    ...(overrideBanner ? [{ label: "Squad override", value: overrideBanner }] : []),
+    { label: "Route source", value: "stablecoins.chainCirculating, pegSummary.coins[], stress.signals[]" },
+    { label: "Evidence status", value: evidenceStatusLabel(node) },
+    { label: "Evidence", value: node.placementEvidence.sourceFields.join(", ") },
+  ];
+
   return {
     id: node.detailId,
     kind: node.kind,
     title: node.label,
     summary: node.placementEvidence.reason,
-    facts: [
-      { label: "Market cap", value: marketCapLabel(node.marketCapUsd) },
-      { label: "Ship class", value: node.visual.classLabel },
-      { label: "Size tier", value: node.visual.sizeLabel },
-      { label: "Ship livery", value: shipLiveryLabel(node) },
-      { label: "Peg marker", value: shipPegLabel(node) },
-      { label: "Representative position", value: representativePositionLabel(node) },
-      { label: "Risk water area", value: node.riskWaterLabel },
-      { label: "Risk water zone", value: node.riskZone },
-      { label: "Risk placement key", value: node.riskPlacement },
-      { label: "Home dock", value: node.homeDockChainId ? chainLabel(node.homeDockChainId) : "No rendered dock" },
-      { label: "Chains present", value: chainsPresentLabel(node) },
-      { label: "Docking cadence", value: dockingCadenceLabel(node) },
-      { label: "Route source", value: "stablecoins.chainCirculating, pegSummary.coins[], stress.signals[]" },
-      { label: "Evidence status", value: evidenceStatusLabel(node) },
-      { label: "Evidence", value: node.placementEvidence.sourceFields.join(", ") },
-    ],
+    facts,
     links: [{ label: "Stablecoin", href: analyticalRouteHref(`/stablecoin/${node.id}/`) }],
   };
 }

@@ -1,3 +1,4 @@
+import { squadForMember } from "../../systems/maker-squad";
 import type { ShipMotionSample } from "../../systems/motion";
 import type { ScreenPoint } from "../../systems/projection";
 import type { PharosVilleWorld, ShipLivery, ShipLogoShape, ShipPegPattern, ShipPegShape, ShipStripePattern, ShipWaterZone } from "../../systems/world-types";
@@ -17,7 +18,7 @@ const SHIP_COLORS = {
   "algo-junk": "#774734",
 };
 
-const SHIP_SAIL_MARKS: Record<string, { height: number; width: number; x: number; y: number }> = {
+export const SHIP_SAIL_MARKS: Record<string, { height: number; width: number; x: number; y: number }> = {
   "algo-junk": { height: 15, width: 18, x: 8, y: -28 },
   "chartered-brigantine": { height: 15, width: 18, x: 9, y: -29 },
   "crypto-caravel": { height: 14, width: 17, x: 8, y: -26 },
@@ -26,9 +27,14 @@ const SHIP_SAIL_MARKS: Record<string, { height: number; width: number; x: number
   "ship.usdc-titan": { height: 21, width: 25, x: 4, y: -52 },
   "ship.usds-titan": { height: 19, width: 23, x: 3, y: -45 },
   "ship.usdt-titan": { height: 24, width: 28, x: 8, y: -58 },
+  // Maker consorts seeded from ship.usds-titan; tuning in Task 7.5.
+  "ship.dai-titan": { height: 19, width: 23, x: 3, y: -45 },
+  "ship.susds-titan": { height: 19, width: 23, x: 3, y: -45 },
+  "ship.sdai-titan": { height: 19, width: 23, x: 3, y: -45 },
+  "ship.stusds-titan": { height: 19, width: 23, x: 3, y: -45 },
 };
 
-const SHIP_PEG_MARKS: Record<string, { size: number; x: number; y: number }> = {
+export const SHIP_PEG_MARKS: Record<string, { size: number; x: number; y: number }> = {
   "algo-junk": { size: 5.4, x: -18, y: -44 },
   "chartered-brigantine": { size: 5.6, x: -18, y: -46 },
   "crypto-caravel": { size: 5.3, x: -17, y: -42 },
@@ -37,6 +43,11 @@ const SHIP_PEG_MARKS: Record<string, { size: number; x: number; y: number }> = {
   "ship.usdc-titan": { size: 7.6, x: -33, y: -73 },
   "ship.usds-titan": { size: 7.2, x: -29, y: -65 },
   "ship.usdt-titan": { size: 8.4, x: -41, y: -84 },
+  // Maker consorts seeded from ship.usds-titan; tuning in Task 7.5.
+  "ship.dai-titan": { size: 7.2, x: -29, y: -65 },
+  "ship.susds-titan": { size: 7.2, x: -29, y: -65 },
+  "ship.sdai-titan": { size: 7.2, x: -29, y: -65 },
+  "ship.stusds-titan": { size: 7.2, x: -29, y: -65 },
 };
 
 interface ShipTrimSpec {
@@ -46,7 +57,7 @@ interface ShipTrimSpec {
   stern: { height: number; width: number; x: number; y: number };
 }
 
-const SHIP_TRIM_MARKS: Record<string, ShipTrimSpec> = {
+export const SHIP_TRIM_MARKS: Record<string, ShipTrimSpec> = {
   "algo-junk": {
     rail: [-24, -13, 21, -8],
     keel: [-22, -3, 18, 0],
@@ -95,6 +106,31 @@ const SHIP_TRIM_MARKS: Record<string, ShipTrimSpec> = {
     stern: { x: -74, y: -31, width: 18, height: 8 },
     deck: [{ x: -23, y: -35, width: 15, height: 7 }, { x: 16, y: -30, width: 13, height: 6 }],
   },
+  // Maker consorts seeded from ship.usds-titan; tuning in Task 7.5.
+  "ship.dai-titan": {
+    rail: [-44, -18, 40, -8],
+    keel: [-40, -5, 35, 0],
+    stern: { x: -48, y: -26, width: 14, height: 6 },
+    deck: [{ x: -14, y: -29, width: 11, height: 5 }, { x: 12, y: -25, width: 10, height: 4 }],
+  },
+  "ship.susds-titan": {
+    rail: [-44, -18, 40, -8],
+    keel: [-40, -5, 35, 0],
+    stern: { x: -48, y: -26, width: 14, height: 6 },
+    deck: [{ x: -14, y: -29, width: 11, height: 5 }, { x: 12, y: -25, width: 10, height: 4 }],
+  },
+  "ship.sdai-titan": {
+    rail: [-44, -18, 40, -8],
+    keel: [-40, -5, 35, 0],
+    stern: { x: -48, y: -26, width: 14, height: 6 },
+    deck: [{ x: -14, y: -29, width: 11, height: 5 }, { x: 12, y: -25, width: 10, height: 4 }],
+  },
+  "ship.stusds-titan": {
+    rail: [-44, -18, 40, -8],
+    keel: [-40, -5, 35, 0],
+    stern: { x: -48, y: -26, width: 14, height: 6 },
+    deck: [{ x: -14, y: -29, width: 11, height: 5 }, { x: 12, y: -25, width: 10, height: 4 }],
+  },
 };
 
 const PENNANTS: Record<string, string> = {
@@ -106,7 +142,15 @@ const PENNANTS: Record<string, string> = {
   slate: "#c7d0d8",
 };
 
-const TITAN_SPRITE_IDS = new Set(["ship.usdc-titan", "ship.usds-titan", "ship.usdt-titan"]);
+export const TITAN_SPRITE_IDS = new Set([
+  "ship.usdc-titan",
+  "ship.usds-titan",
+  "ship.usdt-titan",
+  "ship.dai-titan",
+  "ship.susds-titan",
+  "ship.sdai-titan",
+  "ship.stusds-titan",
+]);
 const SHIP_SAIL_TINT_CACHE_MAX = 48;
 const shipSailTintCache = new Map<string, HTMLCanvasElement | null>();
 
@@ -123,6 +167,15 @@ export interface ShipRenderState {
 export interface ShipRenderFrame {
   cache: RenderFrameCache;
   shipRenderStates: Map<string, ShipRenderState>;
+  // Optional: visible ships needed to look up the squad flagship for
+  // synchronised wake ordering. World-canvas frames provide this; tests
+  // may omit it (in which case wake ordering reduces to per-ship draw).
+  visibleShips?: readonly PharosVilleWorld["ships"][number][];
+  // Optional: tracks ship ids whose wake has been drawn this frame. Allows
+  // `drawShipWake` to render the flagship's wake first (then mark it) when
+  // both flagship and a consort move, so consort wakes overdraw the
+  // flagship and create the squad interference pattern.
+  wakeDrawnShipIds?: Set<string>;
 }
 
 function shipRenderState(input: DrawPharosVilleInput, frame: ShipRenderFrame, ship: PharosVilleWorld["ships"][number]): ShipRenderState {
@@ -176,7 +229,37 @@ function drawWithShipPose(
   ctx.restore();
 }
 
+/**
+ * Draws a ship's wake. May also paint the flagship's wake out-of-turn for
+ * synchronised-squad-wake interference: when called for a Maker squad consort
+ * that's a mover and the flagship is also a mover, the flagship's wake is
+ * drawn first via `drawShipWakeRaw` and marked in `frame.wakeDrawnShipIds`
+ * to prevent double-draw. See `ShipRenderFrame.wakeDrawnShipIds`.
+ */
 export function drawShipWake(input: DrawPharosVilleInput, frame: ShipRenderFrame, ship: PharosVilleWorld["ships"][number]) {
+  // Synchronised squad wake: when this hull is a squad consort that is
+  // currently a mover and its squad's flagship is also a mover, draw the
+  // flagship's wake first so consort wakes overdraw additively.
+  const squad = ship.squadId ? squadForMember(ship.id) : null;
+  if (
+    squad
+    && ship.squadRole === "consort"
+    && input.motion.plan.moverShipIds.has(ship.id)
+    && input.motion.plan.moverShipIds.has(squad.flagshipId)
+  ) {
+    const flagship = frame.visibleShips?.find((entry) => entry.id === squad.flagshipId);
+    const drawn = frame.wakeDrawnShipIds;
+    if (flagship && drawn && !drawn.has(squad.flagshipId)) {
+      drawShipWakeRaw(input, frame, flagship);
+      drawn.add(squad.flagshipId);
+    }
+  }
+  if (frame.wakeDrawnShipIds?.has(ship.id)) return;
+  drawShipWakeRaw(input, frame, ship);
+  frame.wakeDrawnShipIds?.add(ship.id);
+}
+
+function drawShipWakeRaw(input: DrawPharosVilleInput, frame: ShipRenderFrame, ship: PharosVilleWorld["ships"][number]) {
   const { camera, ctx, motion } = input;
   const { geometry, p, pose, sample, selected } = shipRenderState(input, frame, ship);
   drawShipContactShadow(ctx, geometry.drawPoint.x, geometry.drawPoint.y, geometry.drawScale);
@@ -377,6 +460,7 @@ export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame
       if (!titanSprite) {
         drawShipLiveryTrim(ctx, ship.id, ship.visual.livery, visualKey, geometry.drawPoint.x, drawY, geometry.drawScale);
       }
+      drawSquadIdentityAccent(ctx, ship.id, geometry.drawPoint.x, drawY, geometry.drawScale);
     });
   } else {
     const drawY = p.y - 4 * camera.zoom + bob;
@@ -391,7 +475,113 @@ export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame
       camera.zoom,
     );
     drawProceduralShipLiveryTrim(ctx, ship.id, ship.visual.livery, p.x, drawY, proceduralScale);
+    drawSquadIdentityAccent(ctx, ship.id, p.x, drawY, proceduralScale);
   }
+}
+
+// Per-hull identity accents, drawn after sprite blit and livery trim but
+// before overlay chrome. Gated by ship.id so only the three squad members
+// with a distinct callsign render an accent.
+export function drawSquadIdentityAccent(
+  ctx: CanvasRenderingContext2D,
+  shipId: string,
+  x: number,
+  y: number,
+  scale: number,
+) {
+  // Both squad flagships fly the admiral's banner. DAI (Maker flagship) also
+  // carries weathered hull patches as elder consort lore.
+  const squad = squadForMember(shipId);
+  if (squad && shipId === squad.flagshipId) drawAdmiralBanner(ctx, x, y, scale);
+  if (shipId === "stusds-sky") drawForgeGlow(ctx, x, y, scale);
+  if (shipId === "dai-makerdao") drawWeatheredPatches(ctx, x, y, scale);
+}
+
+// Narrow rectangular pennant just above the mast tip; flagship-only.
+function drawAdmiralBanner(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
+  ctx.save();
+  ctx.fillStyle = "#e8bb60";
+  ctx.strokeStyle = "rgba(43, 28, 18, 0.78)";
+  ctx.lineWidth = Math.max(1, 0.6 * scale);
+  ctx.beginPath();
+  ctx.rect(x - 1 * scale, y - 60 * scale, 11 * scale, 3.4 * scale);
+  ctx.fill();
+  ctx.stroke();
+  // Forked tip for admiral's banner.
+  ctx.beginPath();
+  ctx.moveTo(x + 10 * scale, y - 60 * scale);
+  ctx.lineTo(x + 13.5 * scale, y - 58.3 * scale);
+  ctx.lineTo(x + 10 * scale, y - 56.6 * scale);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+// Soft warm-orange radial gradient at the bow ram joint; reads as forge-glow.
+function drawForgeGlow(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
+  const cx = x + 14 * scale;
+  const cy = y - 4 * scale;
+  const radius = Math.max(2, 9 * scale);
+  ctx.save();
+  const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+  gradient.addColorStop(0, "rgba(255, 140, 40, 0.32)");
+  gradient.addColorStop(0.6, "rgba(255, 140, 40, 0.12)");
+  gradient.addColorStop(1, "rgba(255, 140, 40, 0)");
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+// Three desaturated grey-brown rectangles near the waterline; reads as
+// patched-up timbers on the elder consort.
+function drawWeatheredPatches(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
+  ctx.save();
+  ctx.fillStyle = "rgba(96, 78, 60, 0.55)";
+  ctx.strokeStyle = "rgba(40, 32, 24, 0.5)";
+  ctx.lineWidth = Math.max(1, 0.5 * scale);
+  const patches: ReadonlyArray<readonly [number, number, number, number]> = [
+    [-16, -3, 5, 2.4],
+    [-6, -4, 4.4, 2.2],
+    [4, -3, 4.8, 2.6],
+    [13, -4, 3.6, 2.0],
+  ];
+  for (const [px, py, pw, ph] of patches) {
+    ctx.beginPath();
+    ctx.rect(x + px * scale, y + py * scale, pw * scale, ph * scale);
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// Mast-top in screen-space, including hull pose (bob + roll). Used by the
+// squad chrome layer to anchor the bunting catenary so it follows wake.
+export function shipMastTopScreenPoint(
+  input: DrawPharosVilleInput,
+  frame: ShipRenderFrame,
+  ship: PharosVilleWorld["ships"][number],
+): { x: number; y: number } {
+  const { bob, geometry, pose } = shipRenderState(input, frame, ship);
+  const drawX = geometry.drawPoint.x;
+  const drawY = geometry.drawPoint.y + bob;
+  const sailKey = ship.visual.spriteAssetId ?? ship.visual.hull;
+  const sail = SHIP_SAIL_MARKS[sailKey] ?? SHIP_SAIL_MARKS["treasury-galleon"]!;
+  // Mast tip sits above the sail mark, slightly inboard of the sail's nominal X
+  // (the sail mark sits roughly mid-sail; the mast pole is closer to centerline).
+  const MAST_TOP_HEIGHT_FACTOR = 0.6; // mast extends 60% of sail-mark height above the mark
+  const MAST_X_INSET_FACTOR = 0.1; // mast pole sits at 10% of sail.x toward centerline
+  const localX = sail.x * geometry.drawScale * MAST_X_INSET_FACTOR;
+  const localY = (sail.y - sail.height * MAST_TOP_HEIGHT_FACTOR) * geometry.drawScale;
+  // Apply pose roll about the hull origin (drawX, drawY).
+  const cos = Math.cos(pose.rollRadians);
+  const sin = Math.sin(pose.rollRadians);
+  return {
+    x: drawX + localX * cos - localY * sin,
+    y: drawY + localX * sin + localY * cos,
+  };
 }
 
 function shipAnimationFrameIndex(asset: LoadedPharosVilleAsset, timeSeconds: number, shipId: string): number {

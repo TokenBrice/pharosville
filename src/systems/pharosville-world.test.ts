@@ -14,16 +14,28 @@ import {
   fixtureStability,
   fixtureStablecoins,
   fixtureStress,
+  fixtureWithDepegOn,
+  fixtureWithFlagshipPlacement,
+  fixtureWithoutAsset,
   makePharosVilleWorldInput,
   makeAsset,
   makeChain,
   makePegCoin,
   makeReportCard,
+  makerSquadFixtureInputs,
 } from "../__fixtures__/pharosville-world";
+import {
+  MAKER_SQUAD,
+  SKY_SQUAD,
+  STABLECOIN_SQUAD_MEMBER_IDS,
+  squadFormationOffsetForPlacement,
+  squadForMember,
+} from "./maker-squad";
 import { buildPharosVilleWorld, SHIP_WATER_ANCHORS } from "./pharosville-world";
-import { riskPlacementWaterTiles } from "./risk-water-placement";
+import { isRiskPlacementWaterTile, riskPlacementWaterTiles } from "./risk-water-placement";
 import { riskWaterAreaForPlacement } from "./risk-water-areas";
 import {
+  clampMapTile,
   isNavigableWaterTile,
   isWaterTileKind,
   terrainKindAt,
@@ -587,6 +599,90 @@ describe("buildPharosVilleWorld", () => {
     for (const ship of world.ships) {
       expect(world.detailIndex[ship.detailId]).toBeDefined();
     }
+  });
+
+  it("each squad's members share their own flagship's risk placement", () => {
+    const world = buildPharosVilleWorld(makerSquadFixtureInputs());
+    for (const memberId of STABLECOIN_SQUAD_MEMBER_IDS) {
+      const ship = world.ships.find((s) => s.id === memberId)!;
+      const squad = squadForMember(memberId)!;
+      const flagship = world.ships.find((s) => s.id === squad.flagshipId)!;
+      expect(ship.riskPlacement).toBe(flagship.riskPlacement);
+      expect(ship.squadId).toBe(squad.id);
+    }
+  });
+
+  it("Sky-flagship-missing: Sky consorts revert to per-asset placement; Maker squad still active", () => {
+    const inputs = fixtureWithoutAsset(makerSquadFixtureInputs(), "usds-sky");
+    const world = buildPharosVilleWorld(inputs);
+    for (const id of ["susds-sky", "stusds-sky"]) {
+      const ship = world.ships.find((s) => s.id === id)!;
+      expect(ship.squadId).toBeUndefined();
+      expect(ship.squadRole).toBeUndefined();
+      expect(ship.riskPlacement).toBe("ledger-mooring");
+    }
+    // Maker squad continues to sail without Sky.
+    const dai = world.ships.find((s) => s.id === "dai-makerdao")!;
+    expect(dai.squadId).toBe("maker");
+    expect(dai.squadRole).toBe("flagship");
+    const sdai = world.ships.find((s) => s.id === "sdai-sky")!;
+    expect(sdai.squadId).toBe("maker");
+    expect(sdai.squadRole).toBe("consort");
+  });
+
+  it("placementEvidence keeps navToken sourceField for nav-token consorts", () => {
+    const world = buildPharosVilleWorld(makerSquadFixtureInputs());
+    const susds = world.ships.find((s) => s.id === "susds-sky")!;
+    expect(susds.placementEvidence.sourceFields).toEqual(
+      expect.arrayContaining(["meta.flags.navToken"]),
+    );
+  });
+
+  it("Sky consort with stronger stress tracks Sky flagship; squadOverride evidence flags suppression", () => {
+    // sUSDS (a Sky consort) gets a depeg signal stronger than its USDS flagship.
+    const inputs = fixtureWithDepegOn(makerSquadFixtureInputs(), "susds-sky");
+    const world = buildPharosVilleWorld(inputs);
+    const susds = world.ships.find((s) => s.id === "susds-sky")!;
+    const usds = world.ships.find((s) => s.id === "usds-sky")!;
+    expect(susds.riskPlacement).toBe(usds.riskPlacement);
+    expect(susds.placementEvidence.squadOverride).toBeDefined();
+    expect(susds.placementEvidence.squadOverride?.ownPlacement).toBeDefined();
+    expect(susds.placementEvidence.squadOverride?.ownReason).toBeTruthy();
+  });
+
+  it("places each consort at its own squad's flagship + formation offset, never outside placement water", () => {
+    const world = buildPharosVilleWorld(makerSquadFixtureInputs());
+    for (const memberId of STABLECOIN_SQUAD_MEMBER_IDS) {
+      const squad = squadForMember(memberId)!;
+      if (memberId === squad.flagshipId) continue;
+      const consort = world.ships.find((s) => s.id === memberId)!;
+      const flagship = world.ships.find((s) => s.id === squad.flagshipId)!;
+      const offset = squadFormationOffsetForPlacement(memberId, squad, flagship.riskPlacement)!;
+      const expected = clampMapTile({
+        x: flagship.tile.x + offset.dx,
+        y: flagship.tile.y + offset.dy,
+      });
+      // Allow ±2 tile drift per axis: nearestRiskPlacementWaterTile clamps within
+      // radius 4, so each axis can drift up to 2 when the ideal target is off-water
+      // and the nearest in-placement tile sits a couple of rows away.
+      expect(Math.abs(consort.tile.x - expected.x)).toBeLessThanOrEqual(2);
+      expect(Math.abs(consort.tile.y - expected.y)).toBeLessThanOrEqual(2);
+      expect(isRiskPlacementWaterTile(consort.tile, flagship.riskPlacement)).toBe(true);
+    }
+  });
+
+  it("contracts the formation when flagship is in storm-shelf", () => {
+    const world = buildPharosVilleWorld(fixtureWithFlagshipPlacement("storm-shelf"));
+    const flagship = world.ships.find((s) => s.id === "usds-sky")!;
+    const stusds = world.ships.find((s) => s.id === "stusds-sky")!;
+    expect(flagship.riskPlacement).toBe("storm-shelf");
+    // Contracted: stUSDS dy = Math.trunc(-3 / 2) = -1, plus ±1 placement clamp drift.
+    // Bounds catch a regression where contraction broke (e.g. dy stayed at -3, or
+    // Math.round flipped to -2 and drift landed at -3).
+    const dy = stusds.tile.y - flagship.tile.y;
+    expect(dy).toBeGreaterThanOrEqual(-2);
+    expect(dy).toBeLessThanOrEqual(0);
+    expect(isRiskPlacementWaterTile(stusds.tile, "storm-shelf")).toBe(true);
   });
 });
 

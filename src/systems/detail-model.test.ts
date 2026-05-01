@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { detailForArea, detailForDock, detailForLighthouse, detailForShip } from "./detail-model";
 import type { AreaNode, DockNode, LighthouseNode, ShipNode } from "./world-types";
+import { buildPharosVilleWorld } from "./pharosville-world";
+import {
+  fixtureWithDepegOn,
+  fixtureWithoutAsset,
+  makerSquadFixtureInputs,
+} from "../__fixtures__/pharosville-world";
 
 describe("detail-model analytical links", () => {
   it("points built-in detail links at canonical Pharos Watch routes", () => {
@@ -178,5 +184,68 @@ describe("detail-model analytical links", () => {
       { label: "Route source", value: "stablecoins.chainCirculating, pegSummary.coins[], stress.signals[]" },
       { label: "Evidence", value: "meta.flags.navToken, pegSummary.coins[]" },
     ]));
+  });
+});
+
+describe("detail-model squad surfacing", () => {
+  it("Sky squad detail panel surfaces flagship + vanguard + savings cutter", () => {
+    const world = buildPharosVilleWorld(makerSquadFixtureInputs());
+    const susds = world.ships.find((ship) => ship.id === "susds-sky")!;
+    const detail = world.detailIndex[susds.detailId]!;
+
+    const formationFact = detail.facts.find((fact) => fact.label === "Sailing in formation");
+    expect(formationFact).toBeDefined();
+    expect(formationFact!.value).toContain("USDS (flagship)");
+    expect(formationFact!.value).toContain("stUSDS (vanguard)");
+    expect(formationFact!.value).toContain("sUSDS");
+    // DAI/sDAI are in the Maker squad and must NOT appear in the Sky detail.
+    expect(formationFact!.value).not.toContain("DAI");
+    expect(detail.summary).toContain("inherits flagship placement");
+  });
+
+  it("Maker squad detail panel surfaces flagship + sDAI", () => {
+    const world = buildPharosVilleWorld(makerSquadFixtureInputs());
+    const sdai = world.ships.find((ship) => ship.id === "sdai-sky")!;
+    const detail = world.detailIndex[sdai.detailId]!;
+
+    const formationFact = detail.facts.find((fact) => fact.label === "Sailing in formation");
+    expect(formationFact).toBeDefined();
+    expect(formationFact!.value).toContain("DAI (flagship)");
+    expect(formationFact!.value).toContain("sDAI");
+    // Sky members must NOT appear in the Maker detail.
+    expect(formationFact!.value).not.toContain("USDS");
+    expect(formationFact!.value).not.toContain("stUSDS");
+  });
+
+  it("squad detail panel surfaces the override banner when a Sky consort outpaces its flagship", () => {
+    const world = buildPharosVilleWorld(fixtureWithDepegOn(makerSquadFixtureInputs(), "susds-sky"));
+    const susds = world.ships.find((ship) => ship.id === "susds-sky")!;
+    expect(susds.placementEvidence.squadOverride).toBeDefined();
+    expect(susds.placementEvidence.squadOverride?.ownPlacement).toBeDefined();
+    expect(susds.placementEvidence.squadOverride?.ownReason).toBeTruthy();
+
+    const detail = world.detailIndex[susds.detailId]!;
+    const overrideFact = detail.facts.find((fact) => fact.label === "Squad override");
+    expect(overrideFact).toBeDefined();
+    expect(overrideFact!.value).toContain("sUSDS in distress");
+    expect(overrideFact!.value).toContain("squad sheltering at flagship's position");
+  });
+
+  it("Sky squad goes silent on its members when its flagship is missing; Maker squad continues", () => {
+    const inputs = fixtureWithoutAsset(makerSquadFixtureInputs(), "usds-sky");
+    const world = buildPharosVilleWorld(inputs);
+    // Sky-side: stUSDS no longer in a squad, no formation/override facts.
+    const stusds = world.ships.find((ship) => ship.id === "stusds-sky")!;
+    const stusdsDetail = world.detailIndex[stusds.detailId]!;
+    expect(stusdsDetail.facts.find((fact) => fact.label === "Sailing in formation")).toBeUndefined();
+    expect(stusdsDetail.facts.find((fact) => fact.label === "Squad override")).toBeUndefined();
+    expect(stusdsDetail.summary).not.toContain("inherits flagship placement");
+
+    // Maker-side: still active.
+    const sdai = world.ships.find((ship) => ship.id === "sdai-sky")!;
+    const sdaiDetail = world.detailIndex[sdai.detailId]!;
+    const formationFact = sdaiDetail.facts.find((fact) => fact.label === "Sailing in formation");
+    expect(formationFact).toBeDefined();
+    expect(formationFact!.value).toContain("DAI (flagship)");
   });
 });

@@ -326,7 +326,7 @@ function fallbackWaterWaypoint(from: { x: number; y: number }, to: { x: number; 
   return waypoint ? { x: waypoint.x, y: waypoint.y } : from;
 }
 
-function waterPathFromPoints(from: { x: number; y: number }, to: { x: number; y: number }, points: Array<{ x: number; y: number }>): ShipWaterPath {
+export function waterPathFromPoints(from: { x: number; y: number }, to: { x: number; y: number }, points: Array<{ x: number; y: number }>): ShipWaterPath {
   const cumulativeLengths = [0];
   let totalLength = 0;
   for (let index = 1; index < points.length; index += 1) {

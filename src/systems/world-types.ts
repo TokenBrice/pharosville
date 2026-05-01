@@ -47,6 +47,7 @@ export interface PlacementEvidence {
   reason: string;
   sourceFields: string[];
   stale: boolean;
+  squadOverride?: { ownPlacement: ShipRiskPlacement; ownReason: string };
 }
 
 export type ShipHull =
@@ -189,6 +190,8 @@ export interface ShipNode {
   change24hUsd: number | null;
   change24hPct: number | null;
   detailId: string;
+  squadId?: "sky" | "maker";
+  squadRole?: "flagship" | "consort";
 }
 
 export interface GraveNode {

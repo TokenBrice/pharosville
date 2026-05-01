@@ -1,5 +1,6 @@
 import { memo } from "react";
-import type { PharosVilleWorld } from "../systems/world-types";
+import { formationLabel, squadRole, STABLECOIN_SQUADS, type StablecoinSquad } from "../systems/maker-squad";
+import type { PharosVilleWorld, ShipNode } from "../systems/world-types";
 
 const compactUsd = new Intl.NumberFormat("en-US", {
   currency: "USD",
@@ -94,6 +95,43 @@ function AccessibilityLedgerContent({
         ))}
       </ol>
 
+      {STABLECOIN_SQUADS.map((squad) => {
+        const squadShips = world.ships.filter((ship) => ship.squadId === squad.id);
+        if (squadShips.length === 0) return null;
+        const flagship = squadShips.find((ship) => ship.squadRole === "flagship") ?? squadShips[0]!;
+        const orderedShips = orderSquadShips(squadShips, squad);
+        const memberLine = orderedShips
+          .map((ship) => formationLabel(ship.id, squadRole(ship.id) ?? "consort", ship.symbol))
+          .join(", ");
+        const overrideShips = squadShips.filter((ship) => ship.placementEvidence.squadOverride !== undefined);
+        return (
+          <div key={squad.id}>
+            <h3>{squad.label} squad</h3>
+            <ol>
+              <li>
+                Sailing in formation: {memberLine}; shared placement {flagship.riskPlacement} at {flagship.riskWaterLabel}.
+                {overrideShips.length > 0 && (
+                  <ul>
+                    {overrideShips.map((ship) => (
+                      <li key={ship.id}>
+                        {ship.symbol} in distress — squad sheltering at flagship&apos;s position
+                        {ship.placementEvidence.squadOverride?.ownReason
+                          ? `; consort signal ${ship.placementEvidence.squadOverride.ownReason}`
+                          : ""}
+                        {ship.placementEvidence.squadOverride?.ownPlacement
+                          ? ` (own placement ${ship.placementEvidence.squadOverride.ownPlacement})`
+                          : ""}
+                        .
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            </ol>
+          </div>
+        );
+      })}
+
       <h3>Cemetery</h3>
       <ol>
         {world.graves.map((grave) => (
@@ -120,6 +158,13 @@ export const AccessibilityLedger = memo(AccessibilityLedgerContent);
 
 function pluralize(count: number, singular: string, plural: string = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function orderSquadShips(ships: readonly ShipNode[], squad: StablecoinSquad): ShipNode[] {
+  const byId = new Map(ships.map((ship) => [ship.id, ship]));
+  return squad.displayOrder
+    .map((id) => byId.get(id))
+    .filter((ship): ship is ShipNode => ship !== undefined);
 }
 
 function freshnessEntries(world: PharosVilleWorld) {

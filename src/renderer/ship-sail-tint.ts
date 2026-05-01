@@ -88,6 +88,48 @@ export const SHIP_SAIL_TINT_MASKS: Record<string, SailMaskSpec> = {
       [[95, 84], [123, 91], [113, 111], [96, 105]],
     ],
   },
+  // Maker consorts (Task 7.5). Polygons derived from per-sprite analysis of
+  // sail-tint-eligible pixels (`outputs/task75/derive_masks.py`).
+  "ship.dai-titan": {
+    bounds: { x: 31, y: 0, width: 84, height: 96 },
+    polygons: [
+      [[32, 79], [61, 17], [64, 16], [105, 15], [114, 42], [114, 44], [94, 71], [92, 73]],
+      [[78, 2], [82, 1], [93, 4], [89, 8], [78, 7]],
+      [[74, 89], [82, 86], [83, 88], [80, 91], [74, 93]],
+      [[56, 89], [62, 92], [63, 93], [57, 95], [56, 92]],
+    ],
+  },
+  "ship.sdai-titan": {
+    bounds: { x: 25, y: 2, width: 76, height: 69 },
+    polygons: [
+      [[26, 68], [45, 16], [48, 11], [88, 8], [100, 37], [80, 59], [26, 70]],
+    ],
+  },
+  // sUSDS / stUSDS: the rendered sails on these sprites are warm-orange
+  // (sUSDS) and near-black (stUSDS), which `isSailTintPixel` rejects as
+  // "warm dark wood" / sub-luminance. Polygons below tightly trace what few
+  // sail-tint-eligible pixels do exist, but the sprites cannot satisfy the
+  // strict coverage gate without sprite regeneration or heuristic widening.
+  // Both IDs remain in test::UNTUNED_TITAN_IDS until that is resolved.
+  "ship.susds-titan": {
+    bounds: { x: 42, y: 45, width: 49, height: 24 },
+    polygons: [
+      [[43, 67], [54, 60], [67, 60], [67, 62], [48, 68]],
+      [[85, 46], [88, 46], [90, 50], [84, 54], [80, 50]],
+    ],
+  },
+  "ship.stusds-titan": {
+    bounds: { x: 26, y: 15, width: 96, height: 79 },
+    polygons: [
+      [[78, 15], [110, 19], [109, 45], [81, 24]],
+      [[29, 70], [61, 17], [68, 86], [37, 80]],
+      [[27, 58], [46, 23], [61, 18], [48, 52], [36, 64]],
+      [[58, 28], [80, 18], [80, 72], [60, 68]],
+      [[79, 25], [105, 35], [99, 76], [80, 71]],
+      [[96, 43], [121, 58], [109, 90], [96, 78]],
+      [[69, 76], [96, 72], [106, 91], [78, 89]],
+    ],
+  },
 };
 
 export function recolorSailImageData(

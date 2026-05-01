@@ -1,6 +1,12 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { buildVisualCueRegistry } from "../systems/visual-cue-registry";
+import { buildPharosVilleWorld } from "../systems/pharosville-world";
+import {
+  fixtureWithDepegOn,
+  fixtureWithoutAsset,
+  makerSquadFixtureInputs,
+} from "../__fixtures__/pharosville-world";
 import type { PharosVilleWorld } from "../systems/world-types";
 import { AccessibilityLedger } from "./accessibility-ledger";
 
@@ -23,6 +29,37 @@ describe("AccessibilityLedger", () => {
     expect(markup).toContain("1 positive chain deployment");
     expect(markup).toContain("1 rendered dock stop");
     expect(markup).toContain("meta.flags.navToken");
+  });
+
+  it("renders a Sky squad row and a Maker squad row, each listing its own members", () => {
+    const world = buildPharosVilleWorld(makerSquadFixtureInputs());
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("Sky squad");
+    expect(markup).toContain("Maker squad");
+    expect(markup).toContain("USDS (flagship)");
+    expect(markup).toContain("stUSDS (vanguard)");
+    expect(markup).toContain("sUSDS");
+    expect(markup).toContain("DAI (flagship)");
+    expect(markup).toContain("sDAI");
+    expect(markup).toContain("Sailing in formation");
+  });
+
+  it("includes a sub-row for any squadOverride consort", () => {
+    // sUSDS is a Sky-squad consort; depegging it produces an override.
+    const world = buildPharosVilleWorld(fixtureWithDepegOn(makerSquadFixtureInputs(), "susds-sky"));
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("sUSDS in distress");
+    expect(markup).toContain("squad sheltering at flagship");
+  });
+
+  it("hides the Sky squad section when its flagship is missing; Maker squad still renders", () => {
+    const world = buildPharosVilleWorld(fixtureWithoutAsset(makerSquadFixtureInputs(), "usds-sky"));
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).not.toContain("Sky squad");
+    expect(markup).toContain("Maker squad");
   });
 });
 

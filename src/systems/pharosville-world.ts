@@ -24,7 +24,15 @@ import {
 } from "./detail-model";
 import { buildPharosVilleMap, clampMapTile, graveNodesFromEntries, isNavigableWaterTile, isWaterTileKind, LIGHTHOUSE_TILE, MAX_TILE_X, MAX_TILE_Y, nearestAvailableWaterTile, nearestWaterTile, REGION_TILES, tileKindAt } from "./world-layout";
 import { getRecentChange } from "./recent-change";
-import { resolveShipRiskPlacement } from "./risk-placement";
+import { isStricterPlacement, resolveShipRiskPlacement } from "./risk-placement";
+import {
+  STABLECOIN_SQUADS,
+  squadFormationOffsetForPlacement,
+  squadForMember,
+  squadRole,
+  type StablecoinSquad,
+  type SquadId,
+} from "./maker-squad";
 import { isRiskPlacementWaterTile, nearestRiskPlacementWaterTile, riskPlacementWaterTiles } from "./risk-water-placement";
 import { isSeawallBarrierTile, seawallBarrierDistance } from "./seawall";
 import {
@@ -43,6 +51,7 @@ import type {
   LighthouseNode,
   PharosVilleFreshness,
   PharosVilleWorld,
+  PlacementEvidence,
   ShipChainPresence,
   ShipDockVisit,
   ShipNode,
@@ -228,23 +237,53 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
   const stressById = inputs.stress?.signals ?? {};
   const renderedDockChainIds = new Set(docks.map((dock) => dock.chainId));
 
-  const ships = activeAssets(inputs.stablecoins).map((asset) => {
+  const assets = activeAssets(inputs.stablecoins);
+  // Per-squad flagship risk: a squad activates iff its flagship is in
+  // activeAssets. Squads activate independently — Maker (DAI flagship) can sail
+  // even if Sky (USDS flagship) is missing, and vice versa.
+  type FlagshipRisk = { placement: ShipRiskPlacement; evidence: PlacementEvidence };
+  const flagshipRiskBySquad = new Map<SquadId, FlagshipRisk>();
+  for (const squad of STABLECOIN_SQUADS) {
+    const flagshipAsset = assets.find((asset) => asset.id === squad.flagshipId);
+    const flagshipMeta = flagshipAsset ? RUNTIME_ACTIVE_META_BY_ID.get(flagshipAsset.id) : undefined;
+    if (!flagshipAsset || !flagshipMeta) continue;
+    flagshipRiskBySquad.set(squad.id, resolveShipRiskPlacement({
+      asset: flagshipAsset,
+      meta: flagshipMeta,
+      pegCoin: pegById.get(flagshipAsset.id),
+      stress: stressById[flagshipAsset.id],
+      freshness: inputs.freshness,
+    }));
+  }
+
+  const ships = assets.map((asset) => {
     const meta = RUNTIME_ACTIVE_META_BY_ID.get(asset.id);
     if (!meta) throw new Error(`Active asset ${asset.id} is missing metadata`);
     const reportCard = reportCardById[asset.id] ?? null;
-    const risk = resolveShipRiskPlacement({
+    const ownRisk = resolveShipRiskPlacement({
       asset,
       meta,
       pegCoin: pegById.get(asset.id),
       stress: stressById[asset.id],
       freshness: inputs.freshness,
     });
+
+    // If this asset belongs to an active squad and is a consort, inherit that
+    // squad's flagship risk. Otherwise use the per-asset placement.
+    const squad = squadForMember(asset.id);
+    const flagshipRisk = squad ? flagshipRiskBySquad.get(squad.id) : undefined;
+    const isConsort = !!squad && !!flagshipRisk && asset.id !== squad.flagshipId;
+    const risk = isConsort && flagshipRisk
+      ? consortRisk(ownRisk, flagshipRisk, meta.flags.navToken === true)
+      : ownRisk;
+
     const chainPresence = buildShipChainPresence(asset, renderedDockChainIds);
     const dominantChainId = chainPresence[0]?.chainId ?? null;
     const homeDockChainId = chainPresence.find((presence) => presence.hasRenderedDock)?.chainId ?? null;
     const recent = getRecentChange(asset);
     const riskTile = shipTile(asset, risk.placement);
     const riskWaterArea = riskWaterAreaForPlacement(risk.placement);
+    const stamped = squad && flagshipRisk ? stampSquad(asset.id, squad) : null;
     return {
       id: asset.id,
       kind: "ship" as const,
@@ -270,9 +309,47 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
       change24hUsd: recent.change24hUsd,
       change24hPct: recent.change24hPct,
       detailId: `ship.${asset.id}`,
+      ...(stamped ? { squadId: stamped.squadId, squadRole: stamped.role } : {}),
     };
   });
   return spreadShipRiskAnchorsAcrossWater(ships);
+}
+
+function stampSquad(id: string, squad: StablecoinSquad): { squadId: SquadId; role: "flagship" | "consort" } | null {
+  const role = squadRole(id);
+  if (!role) return null;
+  return { squadId: squad.id, role };
+}
+
+function consortRisk(
+  ownRisk: { placement: ShipRiskPlacement; evidence: PlacementEvidence },
+  flagshipRisk: { placement: ShipRiskPlacement; evidence: PlacementEvidence },
+  consortHasNavToken: boolean,
+): { placement: ShipRiskPlacement; evidence: PlacementEvidence } {
+  const stricter = isStricterPlacement(ownRisk.placement, flagshipRisk.placement);
+  const sourceFields: string[] = [...flagshipRisk.evidence.sourceFields];
+  if (consortHasNavToken && !sourceFields.includes("meta.flags.navToken")) {
+    sourceFields.push("meta.flags.navToken");
+  }
+  if (stricter) {
+    for (const field of ownRisk.evidence.sourceFields) {
+      if (!sourceFields.includes(field)) sourceFields.push(field);
+    }
+  }
+  const evidence: PlacementEvidence = {
+    reason: `Maker squad member; inherits flagship placement (${flagshipRisk.evidence.reason})`,
+    sourceFields,
+    stale: flagshipRisk.evidence.stale,
+    ...(stricter
+      ? {
+          squadOverride: {
+            ownPlacement: ownRisk.placement,
+            ownReason: ownRisk.evidence.reason,
+          },
+        }
+      : {}),
+  };
+  return { placement: flagshipRisk.placement, evidence };
 }
 
 function dockMooringTile(
@@ -383,6 +460,19 @@ function assignDockVisits(ships: readonly ShipNode[], docks: readonly DockNode[]
   return ships
     .toSorted((a, b) => b.marketCapUsd - a.marketCapUsd || a.id.localeCompare(b.id))
     .map((ship) => {
+      // Squad consorts ride the flagship motion route — they don't dock.
+      // Strip dockVisits and homeDockChainId so motion-planning sees a clean
+      // dockless ship and consort routes inherit flagship route entirely.
+      if (ship.squadRole === "consort") {
+        return {
+          ...ship,
+          dockChainId: null,
+          dockVisits: [],
+          homeDockChainId: null,
+          tile: ship.riskTile,
+        };
+      }
+
       const visits = ship.chainPresence
         .filter((presence) => presence.hasRenderedDock)
         .flatMap((presence) => {
@@ -436,6 +526,54 @@ function spreadShipRiskAnchorsAcrossWater(ships: ShipNode[]): ShipNode[] {
 }
 
 function spreadRiskPlacementShips(
+  ships: readonly ShipNode[],
+  placement: ShipRiskPlacement,
+  occupied: Set<string>,
+): ShipNode[] {
+  // 1) Place flagships and non-squad ships first (so each squad's flagship.tile is fixed)
+  // 2) For each consort, find its squad's flagship and snap to that flagship's
+  //    tile + the squad's placement-aware formation offset.
+  // 3) Clamp via nearestRiskPlacementWaterTile — never generic water tiles —
+  //    so the consort cannot spill outside the placement's motion zone.
+  const consorts = ships.filter((s) => s.squadRole === "consort");
+  const others = ships.filter((s) => s.squadRole !== "consort");
+
+  const placedOthers = othersSpread(others, placement, occupied);
+  const flagshipsBySquadId = new Map<string, ShipNode>();
+  for (const placed of placedOthers) {
+    if (placed.squadRole === "flagship" && placed.squadId) {
+      flagshipsBySquadId.set(placed.squadId, placed);
+    }
+  }
+
+  const placedConsorts = consorts.map((consort) => {
+    const consortSquad = consort.squadId ? squadForMember(consort.id) : null;
+    const flagship = consort.squadId ? flagshipsBySquadId.get(consort.squadId) : null;
+    if (!consortSquad || !flagship) return consort; // squad inactive in this placement
+    const offset = squadFormationOffsetForPlacement(consort.id, consortSquad, placement)
+      ?? { dx: 0, dy: 0 };
+    const target = clampMapTile({
+      x: flagship.tile.x + offset.dx,
+      y: flagship.tile.y + offset.dy,
+    });
+    // Fallback: when the placement's water set is too tight to host the
+    // formation offset within radius 4, collapse onto the flagship's tile.
+    // Placement-scoped clamping protects motionZone invariants; overlap is
+    // tolerable, generic-water spill would break DEWS-band contracts.
+    const placementTile = nearestRiskPlacementWaterTile(target, placement, 4)
+      ?? flagship.tile;
+    occupied.add(tileKey(placementTile));
+    return { ...consort, tile: placementTile, riskTile: placementTile };
+  });
+
+  // Preserve original ship ordering.
+  const byId = new Map<string, ShipNode>(
+    [...placedOthers, ...placedConsorts].map((s) => [s.id, s]),
+  );
+  return ships.map((s) => byId.get(s.id) ?? s);
+}
+
+function othersSpread(
   ships: readonly ShipNode[],
   placement: ShipRiskPlacement,
   occupied: Set<string>,
@@ -501,10 +639,22 @@ function tileKey(tile: { x: number; y: number }): string {
 }
 
 function buildDetailIndex(world: Omit<PharosVilleWorld, "detailIndex" | "visualCues">): Record<string, DetailModel> {
+  // Group ships by their squad so the detail panel can list squad-mates.
+  const shipsBySquad = new Map<string, ShipNode[]>();
+  for (const ship of world.ships) {
+    if (!ship.squadId) continue;
+    const list = shipsBySquad.get(ship.squadId) ?? [];
+    list.push(ship);
+    shipsBySquad.set(ship.squadId, list);
+  }
   const details = [
     detailForLighthouse(world.lighthouse),
     ...world.docks.map(detailForDock),
-    ...world.ships.map(detailForShip),
+    ...world.ships.map((ship) => (
+      ship.squadId
+        ? detailForShip(ship, { squadShips: shipsBySquad.get(ship.squadId) ?? [] })
+        : detailForShip(ship)
+    )),
     ...world.areas.map(detailForArea),
     ...world.graves.map(detailForGrave),
   ];

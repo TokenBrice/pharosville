@@ -1,3 +1,4 @@
+import { STABLECOIN_SQUADS } from "../systems/maker-squad";
 import { manifestCacheVersion } from "../systems/asset-manifest";
 import { isShipMapVisible } from "../systems/motion";
 import type { PharosVilleWorld } from "../systems/world-types";
@@ -5,8 +6,15 @@ import { createRenderFrameCache, type RenderFrameCache } from "./frame-cache";
 import { drawAtmosphere, drawBirds, drawDecorativeLights } from "./layers/ambient";
 import { drawDockBody, drawDockOverlay, isBackgroundedHarborDock, type DockRenderState } from "./layers/docks";
 import { drawGraveBody, drawGraveOverlay, drawGraveUnderlay, type GraveRenderState } from "./layers/graves";
+import {
+  computeSquadBoundingEllipse,
+  computeSquadPennantPath,
+  drawSquadPennant,
+  drawSquadSelectionHalo,
+  type SquadAnchor,
+} from "./layers/maker-squad-chrome";
 import { sceneryDrawables } from "./layers/scenery";
-import { drawShipBody, drawShipOverlay, drawShipWake, type ShipRenderState } from "./layers/ships";
+import { drawShipBody, drawShipOverlay, drawShipWake, shipMastTopScreenPoint, type ShipRenderState } from "./layers/ships";
 import { drawEntityLayer } from "./layers/entity-pass";
 import { drawCemeteryContext, drawCemeteryGround, drawCemeteryMist } from "./layers/cemetery";
 import { drawHarborDistrictGround } from "./layers/harbor-district";
@@ -29,6 +37,7 @@ interface WorldCanvasFrame {
   lighthouseRender: LighthouseRenderState;
   shipRenderStates: Map<string, ShipRenderState>;
   visibleShips: PharosVilleWorld["ships"];
+  wakeDrawnShipIds: Set<string>;
 }
 
 interface StaticLayerCacheEntry {
@@ -176,6 +185,7 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   drawCoastalWaterDetails(input);
   drawLighthouseSurf(input);
   const entityMetrics = drawEntityPass(input, frame, nightFactor);
+  drawSquadChrome(input, frame);
   drawWaterAreaLabels(input);
   drawEthereumHarborSigns(input);
   drawNightTint(input, nightFactor);
@@ -208,12 +218,38 @@ function createWorldCanvasFrame(input: DrawPharosVilleInput): WorldCanvasFrame {
     lighthouseRender: lighthouseRenderState(input),
     shipRenderStates: new Map(),
     visibleShips: visibleShipsForFrame(input),
+    wakeDrawnShipIds: new Set<string>(),
   };
 }
 
 function drawBackgroundedHarborDocks(input: DrawPharosVilleInput, frame: WorldCanvasFrame) {
   for (const dock of input.world.docks) {
     if (isBackgroundedHarborDock(dock)) drawDockBody(input, frame, dock);
+  }
+}
+
+function drawSquadChrome(input: DrawPharosVilleInput, frame: WorldCanvasFrame) {
+  // Draw a separate pennant + halo per active squad so Sky and Maker each
+  // get their own streamer rather than one polyline crossing the harbor.
+  const selectedId = input.selectedTarget?.id ?? null;
+  for (const squad of STABLECOIN_SQUADS) {
+    const anchors: SquadAnchor[] = [];
+    let selectedIsSquad = false;
+    for (const ship of frame.visibleShips) {
+      if (ship.squadId !== squad.id) continue;
+      anchors.push({
+        id: ship.id,
+        mastTop: shipMastTopScreenPoint(input, frame, ship),
+      });
+      if (selectedId && ship.id === selectedId) selectedIsSquad = true;
+    }
+    if (anchors.length === 0) continue;
+    const path = computeSquadPennantPath(anchors, squad.displayOrder);
+    if (path) drawSquadPennant(input.ctx, path);
+    if (selectedIsSquad) {
+      const ellipse = computeSquadBoundingEllipse(anchors);
+      if (ellipse) drawSquadSelectionHalo(input.ctx, ellipse);
+    }
   }
 }
 

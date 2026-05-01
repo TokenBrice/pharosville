@@ -1,9 +1,15 @@
-import { nearestWaterTile } from "./world-layout";
+import { clampMapTile, nearestWaterTile } from "./world-layout";
 import { stableHash, stableOffset, stableUnit } from "./stable-random";
 import { BAND_FIRE_FLICKER_SPEED, OPEN_WATER_PATROL_WAYPOINTS } from "./motion-config";
-import { buildCachedShipWaterRoute, LazyShipWaterPathMap, nearestMapWaterTile, reverseWaterPath } from "./motion-water";
+import { buildCachedShipWaterRoute, LazyShipWaterPathMap, nearestMapWaterTile, reverseWaterPath, waterPathFromPoints } from "./motion-water";
 import { clamp, pathKey } from "./motion-utils";
-import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipMotionRoute, ShipMotionRouteStop, ShipMotionSample, ShipWaterRouteCache } from "./motion-types";
+import {
+  STABLECOIN_SQUADS,
+  squadFormationOffsetForPlacement,
+  squadForMember,
+} from "./maker-squad";
+import { nearestRiskPlacementWaterTile } from "./risk-water-placement";
+import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipMotionRoute, ShipMotionRouteStop, ShipMotionSample, ShipWaterPath, ShipWaterRouteCache } from "./motion-types";
 import type { PharosVilleMap, PharosVilleWorld, ShipDockVisit, ShipNode } from "./world-types";
 
 export function buildBaseMotionPlan(world: PharosVilleWorld): PharosVilleBaseMotionPlan {
@@ -19,13 +25,47 @@ export function buildBaseMotionPlan(world: PharosVilleWorld): PharosVilleBaseMot
   for (const ship of moverShips) baseEffectShipIds.add(ship.id);
   const waterRouteCache: ShipWaterRouteCache = new Map();
 
+  // Build flagship route per squad first, so each squad's consorts can inherit
+  // their own flagship's cycle/phase/zone. When a squad's flagship is missing,
+  // its consorts fall back to per-ship routing.
+  const flagshipShipBySquad = new Map<string, ShipNode>();
+  const flagshipRouteBySquad = new Map<string, ShipMotionRoute>();
+  for (const squad of STABLECOIN_SQUADS) {
+    const flagship = world.ships.find((ship) => (
+      ship.id === squad.flagshipId && ship.squadRole === "flagship" && ship.squadId === squad.id
+    ));
+    if (!flagship) continue;
+    flagshipShipBySquad.set(squad.id, flagship);
+    flagshipRouteBySquad.set(squad.id, buildShipMotionRoute(flagship, world.map, waterRouteCache));
+  }
+
+  const shipRoutes = new Map<string, ShipMotionRoute>();
+  for (const ship of world.ships) {
+    if (ship.squadRole === "flagship" && ship.squadId) {
+      const cached = flagshipRouteBySquad.get(ship.squadId);
+      if (cached) {
+        shipRoutes.set(ship.id, cached);
+        continue;
+      }
+    }
+    if (ship.squadRole === "consort" && ship.squadId) {
+      const flagshipShip = flagshipShipBySquad.get(ship.squadId);
+      const flagshipRoute = flagshipRouteBySquad.get(ship.squadId);
+      if (flagshipShip && flagshipRoute) {
+        shipRoutes.set(ship.id, buildConsortMotionRoute(ship, flagshipShip, flagshipRoute));
+        continue;
+      }
+    }
+    shipRoutes.set(ship.id, buildShipMotionRoute(ship, world.map, waterRouteCache));
+  }
+
   return {
     animatedShipIds: new Set(world.ships.map((ship) => ship.id)),
     baseEffectShipIds,
     lighthouseFireFlickerPerSecond: lighthouseFireFlickerSpeed(world.lighthouse.psiBand, world.lighthouse.score),
     moverShipIds: new Set(moverShips.map((ship) => ship.id)),
     shipPhases: new Map(world.ships.map((ship) => [ship.id, stableMotionPhase(ship.id)])),
-    shipRoutes: new Map(world.ships.map((ship) => [ship.id, buildShipMotionRoute(ship, world.map, waterRouteCache)])),
+    shipRoutes,
   };
 }
 
@@ -123,6 +163,84 @@ function buildShipMotionRoute(
     waterPaths,
     routeSeed: stableHash(ship.id),
   };
+}
+
+function buildConsortMotionRoute(
+  ship: ShipNode,
+  flagshipShip: ShipNode,
+  flagshipRoute: ShipMotionRoute,
+): ShipMotionRoute {
+  // Consorts inherit the flagship's cycle, phase, zone, and patrol shape so
+  // the squad sails as one body. We only translate spatial waypoints by the
+  // placement-aware formation offset; everything else is a clone.
+  //
+  // Known limitation: when the flagship has rendered docks (production case),
+  // its motion sample enters dock-mooring cycles while consorts (with empty
+  // dockStops by design) keep patrolling their offset risk tile. Cohesion is
+  // structurally guaranteed only during the openWaterPatrol slice. Inheriting
+  // dockStops would require consorts to escort the flagship into dock approach
+  // paths — explicit scope expansion, not a refinement.
+  const squad = squadForMember(ship.id);
+  const offset = squad
+    ? squadFormationOffsetForPlacement(ship.id, squad, flagshipShip.riskPlacement) ?? { dx: 0, dy: 0 }
+    : { dx: 0, dy: 0 };
+  // Placement-scoped clamping protects motionZone invariants: consort waypoints
+  // must stay in flagship's water set or motion-water sampling reads the wrong
+  // zone-style. When the placement is too tight to host the offset within
+  // radius 4, collapse the consort onto the flagship's tile (overlap) rather
+  // than spilling into a different zone — same fallback discipline as
+  // `spreadRiskPlacementShips` in pharosville-world.ts.
+  const offsetTile = (tile: { x: number; y: number }) => {
+    const target = clampMapTile({ x: tile.x + offset.dx, y: tile.y + offset.dy });
+    return nearestRiskPlacementWaterTile(target, flagshipShip.riskPlacement, 4) ?? tile;
+  };
+
+  const riskTile = offsetTile(flagshipRoute.riskTile);
+  const riskStop: ShipMotionRouteStop | null = flagshipRoute.riskStop
+    ? { ...flagshipRoute.riskStop, mooringTile: riskTile }
+    : null;
+  const openWaterPatrol = flagshipRoute.openWaterPatrol
+    ? offsetOpenWaterPatrol(flagshipRoute.openWaterPatrol, offsetTile)
+    : null;
+
+  return {
+    shipId: ship.id,
+    cycleSeconds: flagshipRoute.cycleSeconds,
+    phaseSeconds: flagshipRoute.phaseSeconds,
+    riskTile,
+    dockStops: [],
+    riskStop,
+    zone: flagshipRoute.zone,
+    dockStopSchedule: [],
+    homeDockId: null,
+    openWaterPatrol,
+    waterPaths: new LazyShipWaterPathMap(),
+    routeSeed: flagshipRoute.routeSeed,
+  };
+}
+
+function offsetOpenWaterPatrol(
+  patrol: NonNullable<ShipMotionRoute["openWaterPatrol"]>,
+  offsetTile: (tile: { x: number; y: number }) => { x: number; y: number },
+): ShipMotionRoute["openWaterPatrol"] {
+  const outbound = offsetWaterPath(patrol.outbound, offsetTile);
+  return {
+    waypoint: offsetTile(patrol.waypoint),
+    outbound,
+    inbound: reverseWaterPath(outbound),
+  };
+}
+
+function offsetWaterPath(
+  path: ShipWaterPath,
+  offsetTile: (tile: { x: number; y: number }) => { x: number; y: number },
+): ShipWaterPath {
+  const points = path.points.map(offsetTile);
+  return waterPathFromPoints(
+    points[0] ?? offsetTile(path.from),
+    points[points.length - 1] ?? offsetTile(path.to),
+    points,
+  );
 }
 
 function primaryDockStop(ship: ShipNode, dockStops: readonly ShipMotionRoute["dockStops"][number][]) {

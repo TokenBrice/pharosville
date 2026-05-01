@@ -456,6 +456,119 @@ export const denseFixtureStress = {
   updatedAt: 1_700_000_000,
 } satisfies StressSignalsAllResponse;
 
+// --- Maker squad fixtures ---------------------------------------------------
+// Compose minimal inputs that contain all 5 Maker squad members as active
+// assets, so squad-aware placement logic can be exercised in isolation.
+const MAKER_SQUAD_FIXTURE_IDS = [
+  "usds-sky",
+  "dai-makerdao",
+  "susds-sky",
+  "sdai-sky",
+  "stusds-sky",
+] as const;
+
+function makerSquadFixtureMetas(): StablecoinMeta[] {
+  return MAKER_SQUAD_FIXTURE_IDS.map((id) => {
+    const meta = ACTIVE_STABLECOINS.find((entry) => entry.id === id);
+    if (!meta) throw new Error(`Maker squad fixture missing meta for ${id}`);
+    return meta;
+  });
+}
+
+function makerSquadFixtureAssets(): StablecoinData[] {
+  return makerSquadFixtureMetas().map((meta, index) => makeAsset({
+    id: meta.id,
+    symbol: meta.symbol,
+    name: meta.name,
+    circulating: { peggedUSD: 1_000_000_000 - index * 10_000_000 },
+  }));
+}
+
+function makerSquadFixturePegCoins(): PegSummaryCoin[] {
+  return makerSquadFixtureMetas().map((meta) => makePegCoin({
+    id: meta.id,
+    symbol: meta.symbol,
+    name: meta.name,
+    governance: meta.flags.governance,
+  }));
+}
+
+export function makerSquadFixtureInputs(): PharosVilleInputs {
+  return {
+    generatedAt: fixtureGeneratedAt,
+    stablecoins: { peggedAssets: makerSquadFixtureAssets() },
+    chains: fixtureChains,
+    stability: fixtureStability,
+    pegSummary: { ...fixturePegSummary, coins: makerSquadFixturePegCoins() },
+    stress: { ...fixtureStress, signals: {} },
+    reportCards: {
+      ...fixtureReportCards,
+      cards: makerSquadFixtureMetas().map((meta) => makeReportCard({ id: meta.id, symbol: meta.symbol })),
+    },
+    cemeteryEntries: [],
+    freshness: {},
+  };
+}
+
+export function fixtureWithoutAsset(inputs: PharosVilleInputs, assetId: string): PharosVilleInputs {
+  return {
+    ...inputs,
+    stablecoins: {
+      ...(inputs.stablecoins ?? { peggedAssets: [] }),
+      peggedAssets: (inputs.stablecoins?.peggedAssets ?? []).filter((asset) => asset.id !== assetId),
+    },
+    pegSummary: inputs.pegSummary
+      ? { ...inputs.pegSummary, coins: (inputs.pegSummary.coins ?? []).filter((coin) => coin.id !== assetId) }
+      : inputs.pegSummary,
+  };
+}
+
+export function fixtureWithDepegOn(inputs: PharosVilleInputs, assetId: string): PharosVilleInputs {
+  if (!inputs.pegSummary) return inputs;
+  return {
+    ...inputs,
+    pegSummary: {
+      ...inputs.pegSummary,
+      coins: (inputs.pegSummary.coins ?? []).map((coin) => (
+        coin.id === assetId
+          ? { ...coin, activeDepeg: true, currentDeviationBps: 800, severityScore: 95 }
+          : coin
+      )),
+    },
+  };
+}
+
+// Force the Maker flagship (`usds-sky`) into a specific risk placement by
+// cranking peg deviation on the flagship coin. Used to exercise tight-water
+// formation contraction without touching production resolver logic.
+export function fixtureWithFlagshipPlacement(
+  placement: "storm-shelf" | "outer-rough-water" | "harbor-mouth-watch",
+  inputs: PharosVilleInputs = makerSquadFixtureInputs(),
+): PharosVilleInputs {
+  const deviationBps = placement === "storm-shelf"
+    ? 800
+    : placement === "outer-rough-water"
+      ? 300
+      : 120;
+  if (!inputs.pegSummary) return inputs;
+  return {
+    ...inputs,
+    pegSummary: {
+      ...inputs.pegSummary,
+      coins: (inputs.pegSummary.coins ?? []).map((coin) => (
+        coin.id === "usds-sky"
+          ? {
+              ...coin,
+              activeDepeg: placement === "storm-shelf",
+              currentDeviationBps: deviationBps,
+              severityScore: Math.min(100, Math.round(deviationBps / 8)),
+            }
+          : coin
+      )),
+    },
+  };
+}
+
 export const denseFixtureReportCards: ReportCardsResponse = {
   ...fixtureReportCards,
   cards: denseFixtureMetas.map((meta, index) => {

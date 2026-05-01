@@ -56,6 +56,29 @@ layout, asset, renderer, test, and docs change:
   diorama PNG was already dead code (no callers), and removing it lets the
   limestone tile pack carry the visible ground without a competing overlay.
 
+- The five Maker-family stables form two distinct squads that sail
+  independently. **Sky squad**: USDS flagship + sUSDS savings cutter + stUSDS
+  vanguard icebreaker. **Maker squad**: DAI flagship + sDAI savings cutter.
+  Each squad activates iff its own flagship is in `activeAssets`; consorts
+  inherit their squad's flagship risk placement and motion route, snap to a
+  placement-aware formation offset around their flagship's tile, and render
+  with a per-squad world-space golden bunting plus a per-squad bounding
+  selection halo. The navToken→`ledger-mooring` short-circuit is overridden
+  for any consort whose flagship is active. The squad data model lives in
+  `src/systems/maker-squad.ts` (exports `SKY_SQUAD`, `MAKER_SQUAD`,
+  `STABLECOIN_SQUADS`, `squadForMember`); chrome in
+  `src/renderer/layers/maker-squad-chrome.ts`. Per-hull identity accents
+  (admiral's banner on each squad flagship, forge-glow at hull joints on
+  stUSDS, weathered patches on DAI) and synchronised wake interference live
+  in `src/renderer/layers/ships.ts`. Squad-member titan scales are reduced
+  ~20% from solo titans (USDS 1.35, DAI 1.25, sUSDS/sDAI 1.1, stUSDS 1.15)
+  to relieve formation overlap; USDC and USDT remain at solo scales (1.8 /
+  2.0). Each titan sprite has a dedicated PixelLab asset; sail-tint masks
+  are tuned for DAI and sDAI, seeded for sUSDS/stUSDS whose painted sail
+  colours fall outside `isSailTintPixel`'s recognised range (sprites render
+  their painted colour without runtime livery tinting; see
+  `UNTUNED_TITAN_IDS` in `src/renderer/ship-sail-tint.test.ts`).
+
 Historical plans in this directory are context, not live instructions. If they conflict with this file, follow this file and the verified docs.
 
 ## Runtime Entry Points
