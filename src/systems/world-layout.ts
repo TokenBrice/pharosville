@@ -42,31 +42,32 @@ const SOUTH_SHELF_DIAGONAL_THRESHOLD = 78;
 
 export const REGION_TILES: Record<ShipRiskPlacement, { x: number; y: number }> = RISK_WATER_REGION_TILES;
 
-export const ETHEREUM_L2_DOCK_CHAIN_IDS = ["base", "arbitrum", "optimism", "polygon"] as const;
+export const ETHEREUM_L2_DOCK_CHAIN_IDS = ["base", "arbitrum", "polygon"] as const;
 export const ETHEREUM_HARBOR_PRIORITY_CHAIN_IDS = ["ethereum", ...ETHEREUM_L2_DOCK_CHAIN_IDS] as const;
 
-// Ethereum anchors the east cove. With grand-tier ethereum (400x320) and base
-// (304x220 at 0.76 displayScale) sprites the bay is spaced wider so harbors stay
-// readable: base pulled south-east, arbitrum sits mid-south between polygon and
-// base to keep the lower arc evenly spaced.
+// Ethereum anchors the east cove. Base now sits west of Ethereum and between
+// Ethereum and Arbitrum so it reads as the middle slip in the cove without
+// covering neighboring ports. Optimism is intentionally not assigned a rendered
+// harbor.
+export const BASE_HARBOR_DOCK_TILE = { x: 38.5, y: 37.5 } as const;
 export const EVM_BAY_DOCK_TILES = [
   { x: 43, y: 31 },
-  { x: 37, y: 39 },
+  BASE_HARBOR_DOCK_TILE,
   { x: 32, y: 41 },
-  { x: 41, y: 27 },
   { x: 26, y: 39 },
-  { x: 42, y: 34 },
 ] as const;
 
 // Outer harbors wrap the north, west, south, and east coasts so the
 // island reads as a single inhabited harbor ring rather than a dock staircase.
 // Tron anchors the central north shelf and solana the north-east shelf to keep
-// them clear of the central lighthouse and ethereum harbors.
+// them clear of the central lighthouse and ethereum harbors. HyperLiquid gets a
+// small northward nudge on the east shelf so it clears the neighboring cove.
+export const HYPERLIQUID_HARBOR_DOCK_TILE = { x: 39.5, y: 21.5 } as const;
 export const OUTER_HARBOR_DOCK_TILES = [
   { x: 20, y: 35 },
   { x: 28, y: 22 },
   { x: 34, y: 22 },
-  { x: 40, y: 22 },
+  HYPERLIQUID_HARBOR_DOCK_TILE,
   { x: 33, y: 41 },
   { x: 23, y: 37 },
   { x: 25, y: 38 },
@@ -79,8 +80,7 @@ export const PREFERRED_DOCK_TILES: Record<string, { x: number; y: number }> = {
   ethereum: EVM_BAY_DOCK_TILES[0],
   base: EVM_BAY_DOCK_TILES[1],
   arbitrum: EVM_BAY_DOCK_TILES[2],
-  optimism: EVM_BAY_DOCK_TILES[3],
-  polygon: EVM_BAY_DOCK_TILES[4],
+  polygon: EVM_BAY_DOCK_TILES[3],
   bsc: OUTER_HARBOR_DOCK_TILES[0],
   tron: OUTER_HARBOR_DOCK_TILES[1],
   solana: OUTER_HARBOR_DOCK_TILES[2],
@@ -146,6 +146,8 @@ export function tileKindAt(x: number, y: number): TileKind {
 }
 
 export function terrainKindAt(x: number, y: number): TerrainKind {
+  if (x === BASE_HARBOR_DOCK_TILE.x && y === BASE_HARBOR_DOCK_TILE.y) return "shore";
+  if (x === HYPERLIQUID_HARBOR_DOCK_TILE.x && y === HYPERLIQUID_HARBOR_DOCK_TILE.y) return "shore";
   const island = islandValue(x, y);
   const lighthouseMountain = lighthouseMountainValue(x, y);
   const cemetery = cemeteryValue(x, y);

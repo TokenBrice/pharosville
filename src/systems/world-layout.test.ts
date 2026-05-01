@@ -7,7 +7,9 @@ import {
   CIVIC_CORE_CENTER,
   CIVIC_CORE_RADIUS,
   DOCK_TILES,
+  BASE_HARBOR_DOCK_TILE,
   EVM_BAY_DOCK_TILES,
+  HYPERLIQUID_HARBOR_DOCK_TILE,
   graveNodesFromEntries,
   isElevatedTileKind,
   isLandTileKind,
@@ -241,17 +243,15 @@ describe("buildPharosVilleMap", () => {
   it("keeps dock slots on coastline edges with water access", () => {
     expect(EVM_BAY_DOCK_TILES).toEqual([
       { x: 43, y: 31 },
-      { x: 37, y: 39 },
+      BASE_HARBOR_DOCK_TILE,
       { x: 32, y: 41 },
-      { x: 41, y: 27 },
       { x: 26, y: 39 },
-      { x: 42, y: 34 },
     ]);
     expect(OUTER_HARBOR_DOCK_TILES).toEqual([
       { x: 20, y: 35 },
       { x: 28, y: 22 },
       { x: 34, y: 22 },
-      { x: 40, y: 22 },
+      HYPERLIQUID_HARBOR_DOCK_TILE,
       { x: 33, y: 41 },
       { x: 23, y: 37 },
       { x: 25, y: 38 },
