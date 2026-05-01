@@ -104,18 +104,26 @@ export const WATER_TERRAIN_STYLES = {
     wave: "rgba(207, 240, 231, 0.16)",
   },
   "ledger-water": {
-    accent: "rgba(213, 180, 112, 0.24)",
-    base: "#355346",
-    inner: "rgba(93, 123, 107, 0.22)",
+    // Parchment-shadow tone in the timber family, kept clear of warning's
+    // olive (>18 hex distance). Honors the "warm, off the DEWS ladder" intent
+    // from agents/pharosville-zone-themes-research.md by pulling the base
+    // out of the green axis entirely.
+    accent: "rgba(212, 154, 62, 0.28)",
+    base: "#3a2e22",
+    inner: "rgba(58, 42, 30, 0.22)",
     texture: "ledger",
-    wave: "rgba(226, 210, 166, 0.16)",
+    wave: "rgba(232, 218, 175, 0.18)",
   },
   "storm-water": {
-    accent: "rgba(218, 232, 224, 0.22)",
-    base: "#08243b",
-    inner: "rgba(2, 9, 18, 0.32)",
+    // Near-black storm, kept >18 hex distance from deep-water #06131d so the
+    // overlapping rings stay distinct on the ultrawide lane. Slightly more
+    // blue than the research-proposed #06192d while preserving the
+    // "one step darker than #08243b" intent.
+    accent: "rgba(232, 238, 240, 0.26)",
+    base: "#091a30",
+    inner: "rgba(2, 9, 18, 0.36)",
     texture: "storm",
-    wave: "rgba(218, 232, 224, 0.18)",
+    wave: "rgba(218, 232, 224, 0.22)",
   },
   "watch-water": {
     accent: "rgba(150, 196, 218, 0.22)",
@@ -125,11 +133,11 @@ export const WATER_TERRAIN_STYLES = {
     wave: "rgba(182, 222, 235, 0.16)",
   },
   "warning-water": {
-    accent: "rgba(215, 174, 100, 0.28)",
-    base: "#4a4a35",
-    inner: "rgba(111, 93, 55, 0.24)",
+    accent: "rgba(215, 174, 100, 0.30)",
+    base: "#3d4332",
+    inner: "rgba(82, 70, 42, 0.28)",
     texture: "warning",
-    wave: "rgba(224, 214, 174, 0.18)",
+    wave: "rgba(224, 214, 174, 0.20)",
   },
   water: {
     accent: "rgba(176, 226, 218, 0.18)",
@@ -194,16 +202,23 @@ function defaultLabelTheme(accent: string): ZoneLabelTheme {
   };
 }
 
+// Per-zone visual theme proposal applied 2026-05-01 from
+// agents/pharosville-zone-themes-research.md. DEWS bands form a single
+// escalation gradient (saturation drains, shadow deepens, motion climbs);
+// Ledger is intentionally OFF that ladder, reading as parchment-and-ink.
+// Calm/Watch keep their existing colors and only dial motion; Alert is the
+// baseline reference; Warning/Danger/Ledger get full color tuples.
+
 export const ZONE_THEMES = {
   "alert-water": {
     ...WATER_TERRAIN_STYLES["alert-water"],
     label: defaultLabelTheme(DEWS_AREA_LABEL_COLORS.ALERT),
-    motion: DEFAULT_MOTION,
+    motion: { amplitudeScale: 1, strokeAlphaScale: 1 },
   },
   "calm-water": {
     ...WATER_TERRAIN_STYLES["calm-water"],
     label: defaultLabelTheme(DEWS_AREA_LABEL_COLORS.CALM),
-    motion: DEFAULT_MOTION,
+    motion: { amplitudeScale: 0.6, strokeAlphaScale: 0.85 },
   },
   "deep-water": {
     ...WATER_TERRAIN_STYLES["deep-water"],
@@ -217,23 +232,23 @@ export const ZONE_THEMES = {
   },
   "ledger-water": {
     ...WATER_TERRAIN_STYLES["ledger-water"],
-    label: defaultLabelTheme("#d9b974"), // matches riskWaterAreaColor for "ledger"
-    motion: DEFAULT_MOTION,
+    label: defaultLabelTheme("#d9b974"), // bronze ink — off THREAT_BAND_HEX axis
+    motion: { amplitudeScale: 0.5, strokeAlphaScale: 1.05 },
   },
   "storm-water": {
     ...WATER_TERRAIN_STYLES["storm-water"],
     label: defaultLabelTheme(DEWS_AREA_LABEL_COLORS.DANGER),
-    motion: DEFAULT_MOTION,
+    motion: { amplitudeScale: 1.8, strokeAlphaScale: 1.35 },
   },
   "watch-water": {
     ...WATER_TERRAIN_STYLES["watch-water"],
     label: defaultLabelTheme(DEWS_AREA_LABEL_COLORS.WATCH),
-    motion: DEFAULT_MOTION,
+    motion: { amplitudeScale: 0.85, strokeAlphaScale: 0.95 },
   },
   "warning-water": {
     ...WATER_TERRAIN_STYLES["warning-water"],
     label: defaultLabelTheme(DEWS_AREA_LABEL_COLORS.WARNING),
-    motion: DEFAULT_MOTION,
+    motion: { amplitudeScale: 1.3, strokeAlphaScale: 1.15 },
   },
   water: {
     ...WATER_TERRAIN_STYLES.water,
