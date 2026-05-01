@@ -8,6 +8,8 @@ import type { RenderFrameCache } from "../frame-cache";
 import type { ResolvedEntityGeometry } from "../geometry";
 import type { DrawPharosVilleInput } from "../render-types";
 import { recolorSailImageData, SHIP_SAIL_TINT_MASKS } from "../ship-sail-tint";
+
+export { SHIP_SAIL_TINT_MASKS } from "../ship-sail-tint";
 import { resolveShipPose, zeroShipPose, type ShipPose } from "./ship-pose";
 
 const SHIP_COLORS = {
@@ -18,7 +20,7 @@ const SHIP_COLORS = {
   "algo-junk": "#774734",
 };
 
-const SHIP_SAIL_MARKS: Record<string, { height: number; width: number; x: number; y: number }> = {
+export const SHIP_SAIL_MARKS: Record<string, { height: number; width: number; x: number; y: number }> = {
   "algo-junk": { height: 15, width: 18, x: 8, y: -28 },
   "chartered-brigantine": { height: 15, width: 18, x: 9, y: -29 },
   "crypto-caravel": { height: 14, width: 17, x: 8, y: -26 },
@@ -27,9 +29,14 @@ const SHIP_SAIL_MARKS: Record<string, { height: number; width: number; x: number
   "ship.usdc-titan": { height: 21, width: 25, x: 4, y: -52 },
   "ship.usds-titan": { height: 19, width: 23, x: 3, y: -45 },
   "ship.usdt-titan": { height: 24, width: 28, x: 8, y: -58 },
+  // Maker consorts seeded from ship.usds-titan; tuning in Task 7.5.
+  "ship.dai-titan": { height: 19, width: 23, x: 3, y: -45 },
+  "ship.susds-titan": { height: 19, width: 23, x: 3, y: -45 },
+  "ship.sdai-titan": { height: 19, width: 23, x: 3, y: -45 },
+  "ship.stusds-titan": { height: 19, width: 23, x: 3, y: -45 },
 };
 
-const SHIP_PEG_MARKS: Record<string, { size: number; x: number; y: number }> = {
+export const SHIP_PEG_MARKS: Record<string, { size: number; x: number; y: number }> = {
   "algo-junk": { size: 5.4, x: -18, y: -44 },
   "chartered-brigantine": { size: 5.6, x: -18, y: -46 },
   "crypto-caravel": { size: 5.3, x: -17, y: -42 },
@@ -38,6 +45,11 @@ const SHIP_PEG_MARKS: Record<string, { size: number; x: number; y: number }> = {
   "ship.usdc-titan": { size: 7.6, x: -33, y: -73 },
   "ship.usds-titan": { size: 7.2, x: -29, y: -65 },
   "ship.usdt-titan": { size: 8.4, x: -41, y: -84 },
+  // Maker consorts seeded from ship.usds-titan; tuning in Task 7.5.
+  "ship.dai-titan": { size: 7.2, x: -29, y: -65 },
+  "ship.susds-titan": { size: 7.2, x: -29, y: -65 },
+  "ship.sdai-titan": { size: 7.2, x: -29, y: -65 },
+  "ship.stusds-titan": { size: 7.2, x: -29, y: -65 },
 };
 
 interface ShipTrimSpec {
@@ -47,7 +59,7 @@ interface ShipTrimSpec {
   stern: { height: number; width: number; x: number; y: number };
 }
 
-const SHIP_TRIM_MARKS: Record<string, ShipTrimSpec> = {
+export const SHIP_TRIM_MARKS: Record<string, ShipTrimSpec> = {
   "algo-junk": {
     rail: [-24, -13, 21, -8],
     keel: [-22, -3, 18, 0],
@@ -96,6 +108,31 @@ const SHIP_TRIM_MARKS: Record<string, ShipTrimSpec> = {
     stern: { x: -74, y: -31, width: 18, height: 8 },
     deck: [{ x: -23, y: -35, width: 15, height: 7 }, { x: 16, y: -30, width: 13, height: 6 }],
   },
+  // Maker consorts seeded from ship.usds-titan; tuning in Task 7.5.
+  "ship.dai-titan": {
+    rail: [-44, -18, 40, -8],
+    keel: [-40, -5, 35, 0],
+    stern: { x: -48, y: -26, width: 14, height: 6 },
+    deck: [{ x: -14, y: -29, width: 11, height: 5 }, { x: 12, y: -25, width: 10, height: 4 }],
+  },
+  "ship.susds-titan": {
+    rail: [-44, -18, 40, -8],
+    keel: [-40, -5, 35, 0],
+    stern: { x: -48, y: -26, width: 14, height: 6 },
+    deck: [{ x: -14, y: -29, width: 11, height: 5 }, { x: 12, y: -25, width: 10, height: 4 }],
+  },
+  "ship.sdai-titan": {
+    rail: [-44, -18, 40, -8],
+    keel: [-40, -5, 35, 0],
+    stern: { x: -48, y: -26, width: 14, height: 6 },
+    deck: [{ x: -14, y: -29, width: 11, height: 5 }, { x: 12, y: -25, width: 10, height: 4 }],
+  },
+  "ship.stusds-titan": {
+    rail: [-44, -18, 40, -8],
+    keel: [-40, -5, 35, 0],
+    stern: { x: -48, y: -26, width: 14, height: 6 },
+    deck: [{ x: -14, y: -29, width: 11, height: 5 }, { x: 12, y: -25, width: 10, height: 4 }],
+  },
 };
 
 const PENNANTS: Record<string, string> = {
@@ -107,7 +144,15 @@ const PENNANTS: Record<string, string> = {
   slate: "#c7d0d8",
 };
 
-const TITAN_SPRITE_IDS = new Set(["ship.usdc-titan", "ship.usds-titan", "ship.usdt-titan"]);
+export const TITAN_SPRITE_IDS = new Set([
+  "ship.usdc-titan",
+  "ship.usds-titan",
+  "ship.usdt-titan",
+  "ship.dai-titan",
+  "ship.susds-titan",
+  "ship.sdai-titan",
+  "ship.stusds-titan",
+]);
 const SHIP_SAIL_TINT_CACHE_MAX = 48;
 const shipSailTintCache = new Map<string, HTMLCanvasElement | null>();
 
