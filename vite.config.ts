@@ -151,6 +151,9 @@ export default defineConfig(({ mode }) => {
         "@shared": fileURLToPath(new URL("./shared", import.meta.url)),
       },
     },
+    esbuild: mode === "production"
+      ? { drop: ["debugger"], pure: ["console.warn", "console.debug"] }
+      : undefined,
     build: {
       target: "es2022",
       outDir: "dist",

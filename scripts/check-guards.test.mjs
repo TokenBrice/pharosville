@@ -10,13 +10,11 @@ import {
 } from "./check-committed-secrets.mjs";
 import {
   checkMarkdownFiles,
+  checkOnboardingDocs,
   findDocumentedNpmRunCommands,
+  findOnboardingDocFindings,
   findPathReferencesInMarkdown,
 } from "./check-doc-paths-and-scripts.mjs";
-import {
-  checkOnboardingDocs,
-  findOnboardingDocFindings,
-} from "./check-agent-onboarding-docs.mjs";
 import { evaluateBundleBudgets } from "./check-bundle-size.mjs";
 import {
   discoverPharosApiConfig,

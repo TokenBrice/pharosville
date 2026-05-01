@@ -7,6 +7,27 @@ import { pathToFileURL } from "node:url";
 const markdownLinkPattern = /!?\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 const codeSpanPattern = /`([^`\n]+)`/g;
 const npmRunPattern = /\bnpm\s+run\s+([A-Za-z0-9:_-]+)/g;
+
+const onboardingScopePrefixes = [
+  "AGENTS.md",
+  "CLAUDE.md",
+  "README.md",
+  "docs/pharosville-page.md",
+  "docs/pharosville/",
+];
+
+const onboardingLintRules = [
+  {
+    id: "legacy-output-path",
+    message: "Use outputs/pharosville/... scratch paths, not output/pharosville/...",
+    pattern: /\boutput\/pharosville\//g,
+  },
+  {
+    id: "planning-typo",
+    message: "Use 'planning', not 'planing'.",
+    pattern: /\bplaning artifacts\b/gi,
+  },
+];
 const repoRootPathPattern =
   /\b(?:README\.md|AGENTS\.md|CLAUDE\.md|package\.json|package-lock\.json|wrangler\.toml|vite\.config\.ts|vitest\.config\.ts|playwright\.config\.ts|tsconfig\.json|(?:agent|agents|data|docs|functions|public|scripts|shared|src|tests)\/[A-Za-z0-9._~!$&'()+,;=:@%/\-[\]\*{}]+)(?=$|[\s`),.;])/g;
 const repoRootPathStartPattern =
@@ -48,6 +69,66 @@ export function findPathReferencesInMarkdown(filePath, text) {
   collectCodeSpanReferences(filePath, text, references);
   collectBarePathReferences(filePath, text, references);
   return dedupeReferences(references);
+}
+
+export function isOnboardingMarkdownPath(filePath) {
+  return onboardingScopePrefixes.some((prefix) => filePath === prefix || filePath.startsWith(prefix));
+}
+
+export function findOnboardingDocFindings(filePath, text) {
+  const findings = [];
+
+  for (const rule of onboardingLintRules) {
+    rule.pattern.lastIndex = 0;
+    for (const match of text.matchAll(rule.pattern)) {
+      findings.push({
+        filePath,
+        line: lineNumberForIndex(text, match.index ?? 0),
+        id: rule.id,
+        message: rule.message,
+        snippet: match[0],
+      });
+    }
+  }
+
+  if (filePath === "AGENTS.md" && !text.includes("docs/pharosville/AGENT_ONBOARDING.md")) {
+    findings.push({
+      filePath,
+      line: 1,
+      id: "agents-onboarding-link",
+      message: "AGENTS.md should link to docs/pharosville/AGENT_ONBOARDING.md.",
+      snippet: "missing onboarding link",
+    });
+  }
+
+  if (filePath === "CLAUDE.md" && !text.includes("AGENTS.md")) {
+    findings.push({
+      filePath,
+      line: 1,
+      id: "claude-canonical-link",
+      message: "CLAUDE.md should reference AGENTS.md as canonical guidance.",
+      snippet: "missing AGENTS.md reference",
+    });
+  }
+
+  return findings;
+}
+
+export function checkOnboardingDocs({ repoRoot = process.cwd(), markdownFiles } = {}) {
+  const files = markdownFiles
+    ?? listTrackedMarkdownFiles(repoRoot)
+      .filter(isOnboardingMarkdownPath)
+      .map((filePath) => ({ path: filePath }));
+  const findings = [];
+
+  for (const file of files) {
+    const text = typeof file.text === "string"
+      ? file.text
+      : readFileSync(resolve(repoRoot, file.path), "utf8");
+    findings.push(...findOnboardingDocFindings(file.path, text));
+  }
+
+  return { scannedFileCount: files.length, findings };
 }
 
 export function checkMarkdownFiles({ repoRoot = process.cwd(), markdownFiles, packageScripts, exists = existsSync }) {
@@ -206,7 +287,13 @@ function main() {
   const markdownFiles = listTrackedMarkdownFiles(repoRoot).map((path) => ({ path }));
   const { missingScripts, missingPaths } = checkMarkdownFiles({ repoRoot, markdownFiles, packageScripts });
 
+  const onboardingFiles = markdownFiles.filter((file) => isOnboardingMarkdownPath(file.path));
+  const { findings: onboardingFindings } = checkOnboardingDocs({ repoRoot, markdownFiles: onboardingFiles });
+
+  let failed = false;
+
   if (missingScripts.length > 0 || missingPaths.length > 0) {
+    failed = true;
     console.error("Documentation path/script check failed:");
     if (missingScripts.length > 0) {
       console.error("\nMissing package scripts referenced by markdown:");
@@ -220,10 +307,24 @@ function main() {
         console.error(`- ${finding.filePath}:${finding.line} ${finding.target} -> ${finding.checkedPath}`);
       }
     }
+  }
+
+  if (onboardingFindings.length > 0) {
+    failed = true;
+    console.error("Agent onboarding doc check failed:");
+    for (const finding of onboardingFindings) {
+      console.error(
+        `- ${finding.filePath}:${finding.line} [${finding.id}] ${finding.message} (${finding.snippet})`,
+      );
+    }
+  }
+
+  if (failed) {
     process.exit(1);
   }
 
   console.log(`Documentation path/script check passed for ${markdownFiles.length} markdown files.`);
+  console.log(`Agent onboarding doc check passed for ${onboardingFiles.length} markdown files.`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
