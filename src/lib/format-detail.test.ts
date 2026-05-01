@@ -21,3 +21,31 @@ describe("compactCurrency", () => {
     expect(compactCurrency("$8.4B")).toBe("$8.4B");
   });
 });
+
+import { composeCurrently } from "./format-detail";
+
+describe("composeCurrently", () => {
+  it("composes area + idle suffix when zone reads as calm", () => {
+    expect(composeCurrently({
+      position: "Calm Anchorage idle",
+      area: "Calm Anchorage",
+      zone: "calm",
+    })).toBe("Calm Anchorage (idle)");
+  });
+  it("uses position verbatim when zone is non-calm", () => {
+    expect(composeCurrently({
+      position: "Razormane Watch — boarding",
+      area: "Razormane Watch",
+      zone: "razormane",
+    })).toBe("Razormane Watch — boarding");
+  });
+  it("falls back to the area when only area is provided", () => {
+    expect(composeCurrently({ area: "Ledger Mooring" })).toBe("Ledger Mooring");
+  });
+  it("falls back to position when only position is provided", () => {
+    expect(composeCurrently({ position: "Ledger Mooring idle" })).toBe("Ledger Mooring idle");
+  });
+  it("returns empty string when nothing is provided", () => {
+    expect(composeCurrently({})).toBe("");
+  });
+});
