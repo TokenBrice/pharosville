@@ -7,32 +7,23 @@ import { drawAsset, drawDiamond, drawTileLowerFacet, withAlpha } from "../canvas
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
 
 const TILE_COLORS: Record<string, string> = {
-  beach: "#c8b06f",
-  cliff: "#2b3943",
-  grass: "#4f7e4d",
-  hill: "#667f4f",
-  land: "#697a4d",
-  road: "#9e7446",
-  rock: "#4e5d63",
-  shore: "#b9955f",
+  beach: "#dcb978",
+  cliff: "#5c5240",
+  grass: "#d8c8a8",
+  hill: "#9c8a6c",
+  land: "#d8c8a8",
+  shore: "#dcb978",
 };
 
 const TERRAIN_TEXTURE = {
   beachPebble: "rgba(82, 67, 47, 0.12)",
-  cliffFace: "rgba(18, 24, 30, 0.56)",
+  cliffFace: "rgba(92, 80, 60, 0.42)",
   foam: "rgba(232, 243, 233, 0.56)",
-  grassDark: "rgba(28, 70, 48, 0.38)",
-  grassLight: "rgba(174, 194, 118, 0.24)",
-  grassMid: "rgba(78, 128, 76, 0.26)",
-  groundGrain: "rgba(32, 34, 25, 0.14)",
-  mossShadow: "rgba(39, 52, 35, 0.2)",
-  roadLight: "rgba(184, 146, 91, 0.24)",
-  roadShadow: "rgba(45, 34, 24, 0.18)",
-  rockLight: "rgba(176, 177, 160, 0.18)",
-  sandLight: "rgba(228, 195, 126, 0.2)",
+  groundGrain: "rgba(64, 56, 40, 0.14)",
+  sandLight: "rgba(240, 216, 160, 0.22)",
 } as const;
 
-const TERRAIN_ASSET_BY_KIND: Partial<Record<TerrainKind, string>> = {
+const WATER_TERRAIN_ASSET_BY_KIND: Partial<Record<TerrainKind, string>> = {
   "alert-water": "terrain.harbor-water",
   "calm-water": "terrain.harbor-water",
   "deep-water": "terrain.deep-water",
@@ -41,16 +32,14 @@ const TERRAIN_ASSET_BY_KIND: Partial<Record<TerrainKind, string>> = {
   "storm-water": "terrain.storm-water",
   "warning-water": "terrain.storm-water",
   "watch-water": "terrain.harbor-water",
-  beach: "terrain.shore",
-  cliff: "terrain.shore",
-  grass: "terrain.land",
-  hill: "terrain.land",
-  land: "terrain.land",
-  road: "terrain.road",
-  rock: "terrain.land",
-  shore: "terrain.shore",
   water: "terrain.harbor-water",
 };
+
+function landAssetIdFor(kind: TerrainKind, x: number, y: number): string {
+  if (kind === "beach" || kind === "shore" || kind === "cliff") return "terrain.shore";
+  const h = ((x * 374761393) ^ (y * 668265263)) >>> 0;
+  return (h % 5 < 2) ? "terrain.land-scrub" : "terrain.land";
+}
 
 const TERRAIN_ASSET_SCALE = 0.5;
 
@@ -84,7 +73,7 @@ export function drawTerrainBase({ assets, camera, ctx, height, width, world }: D
       const p = tileToScreen(tile, camera);
       if (!isTileInViewport(p, camera.zoom, width, height)) continue;
       visibleTileCount += 1;
-      drawWaterTileBase(ctx, p.x, p.y, camera.zoom, terrain, tile.x, tile.y, terrainAssetFor(assets, terrain));
+      drawWaterTileBase(ctx, p.x, p.y, camera.zoom, terrain, tile.x, tile.y, waterAssetFor(assets, terrain));
     }
   }
 
@@ -98,7 +87,7 @@ export function drawTerrainBase({ assets, camera, ctx, height, width, world }: D
       const p = tileToScreen(tile, camera);
       if (!isTileInViewport(p, camera.zoom, width, height)) continue;
       visibleTileCount += 1;
-      drawLandTile(ctx, p.x, p.y, camera.zoom, terrain, tile.x, tile.y, terrainAssetFor(assets, terrain));
+      drawLandTile(ctx, p.x, p.y, camera.zoom, terrain, tile.x, tile.y, landAssetFor(assets, terrain, tile.x, tile.y));
     }
   }
   return visibleTileCount;
@@ -147,9 +136,13 @@ function visibleTileBounds(
   return minX > maxX || minY > maxY ? null : { maxX, maxY, minX, minY };
 }
 
-function terrainAssetFor(assets: PharosVilleAssetManager | null, terrain: TerrainKind) {
-  const assetId = TERRAIN_ASSET_BY_KIND[terrain] ?? null;
+function waterAssetFor(assets: PharosVilleAssetManager | null, terrain: TerrainKind) {
+  const assetId = WATER_TERRAIN_ASSET_BY_KIND[terrain] ?? null;
   return assetId ? assets?.get(assetId) ?? null : null;
+}
+
+function landAssetFor(assets: PharosVilleAssetManager | null, terrain: TerrainKind, x: number, y: number) {
+  return assets?.get(landAssetIdFor(terrain, x, y)) ?? null;
 }
 
 function isTileInViewport(point: ScreenPoint, zoom: number, width: number, height: number) {
@@ -170,9 +163,7 @@ function terrainColor(kind: TerrainKind) {
   const directColor = TILE_COLORS[value];
   if (directColor) return directColor;
   if (value.includes("water")) return value.includes("deep") ? "#050d1b" : "#153d63";
-  if (value.includes("road") || value.includes("stair")) return TILE_COLORS.road;
   if (value.includes("cliff")) return TILE_COLORS.cliff;
-  if (value.includes("rock")) return TILE_COLORS.rock;
   if (value.includes("hill")) return TILE_COLORS.hill;
   if (value.includes("grass")) return TILE_COLORS.grass;
   if (value.includes("beach")) return TILE_COLORS.beach;
@@ -726,30 +717,19 @@ function drawLandTile(
   tileY: number,
   asset: NonNullable<ReturnType<PharosVilleAssetManager["get"]>> | null,
 ) {
-  const value = String(kind);
   const width = 32 * zoom;
   const height = 16 * zoom;
   drawDiamond(ctx, x, y, width, height, terrainColor(kind));
   if (asset) {
-    drawTerrainAsset(ctx, asset, x, y, zoom, value === "road" ? 0.24 : 0.28);
-    drawDiamond(ctx, x, y, width, height, withAlpha(terrainColor(kind), value === "road" ? 0.14 : 0.1));
+    drawTerrainAsset(ctx, asset, x, y, zoom, 0.62);
   }
-  drawGroundGrain(ctx, x, y, zoom, value, tileX, tileY);
 
   if (isElevatedTileKind(kind)) {
-    drawTileLowerFacet(ctx, x, y, width, height, value === "cliff" || value.includes("cliff")
-      ? TERRAIN_TEXTURE.cliffFace
-      : "rgba(54, 63, 45, 0.32)");
+    drawTileLowerFacet(ctx, x, y, width, height, TERRAIN_TEXTURE.cliffFace);
   }
 
   if (isShoreTileKind(kind)) {
     drawShoreFoam(ctx, x, y, zoom, tileX, tileY);
-  } else if (value === "road" || value.includes("road") || value.includes("stair")) {
-    drawRoadTexture(ctx, x, y, zoom);
-  } else if (value === "rock" || value === "cliff" || value.includes("rock") || value.includes("cliff")) {
-    drawRockTexture(ctx, x, y, zoom, tileX, tileY);
-  } else if (value === "grass" || value === "hill" || value === "land" || (tileX * 19 + tileY * 23) % 6 === 0) {
-    drawGrassTexture(ctx, x, y, zoom, tileX, tileY);
   }
 }
 
@@ -772,51 +752,6 @@ function drawTerrainAsset(
   drawAsset(ctx, asset, x, y + TILE_HEIGHT * zoom * 0.46, scale);
 }
 
-function drawGroundGrain(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  zoom: number,
-  value: string,
-  tileX: number,
-  tileY: number,
-) {
-  if (value === "road" || value.includes("road") || value.includes("stair")) return;
-  if (value === "rock" || value === "cliff" || value.includes("rock") || value.includes("cliff")) return;
-  const offset = ((tileX * 11 + tileY * 5) % 5 - 2) * zoom;
-  ctx.save();
-  if (value === "beach" || value === "shore") {
-    ctx.fillStyle = TERRAIN_TEXTURE.beachPebble;
-    ctx.fillRect(Math.round(x - 4 * zoom + offset), Math.round(y + 1 * zoom), Math.max(1, Math.round(2 * zoom)), Math.max(1, Math.round(2 * zoom)));
-    if ((tileX + tileY) % 3 === 0) {
-      ctx.strokeStyle = TERRAIN_TEXTURE.sandLight;
-      ctx.lineWidth = Math.max(1, 0.8 * zoom);
-      ctx.beginPath();
-      ctx.moveTo(x - 9 * zoom, y - 2 * zoom);
-      ctx.lineTo(x + 7 * zoom, y + 1 * zoom);
-      ctx.stroke();
-    }
-    ctx.restore();
-    return;
-  }
-
-  ctx.strokeStyle = TERRAIN_TEXTURE.mossShadow;
-  ctx.lineWidth = Math.max(1, 0.8 * zoom);
-  ctx.beginPath();
-  ctx.moveTo(x - 9 * zoom + offset, y + 2 * zoom);
-  ctx.lineTo(x - 2 * zoom + offset, y + 5 * zoom);
-  if ((tileX * 3 + tileY * 7) % 2 === 0) {
-    ctx.moveTo(x + 1 * zoom - offset, y - 3 * zoom);
-    ctx.lineTo(x + 8 * zoom - offset, y);
-  }
-  ctx.stroke();
-  if ((tileX * 17 + tileY * 19) % 4 === 0) {
-    ctx.fillStyle = TERRAIN_TEXTURE.groundGrain;
-    drawDiamond(ctx, x + 2 * zoom, y + 2 * zoom, 7 * zoom, 3 * zoom, ctx.fillStyle);
-  }
-  ctx.restore();
-}
-
 function drawShoreFoam(ctx: CanvasRenderingContext2D, x: number, y: number, zoom: number, tileX: number, tileY: number) {
   ctx.save();
   ctx.strokeStyle = TERRAIN_TEXTURE.foam;
@@ -835,47 +770,5 @@ function drawShoreFoam(ctx: CanvasRenderingContext2D, x: number, y: number, zoom
   ctx.moveTo(x - 6 * zoom, y - 2 * zoom);
   ctx.lineTo(x + 6 * zoom, y + 1 * zoom);
   ctx.stroke();
-  ctx.restore();
-}
-
-function drawRoadTexture(ctx: CanvasRenderingContext2D, x: number, y: number, zoom: number) {
-  ctx.save();
-  ctx.strokeStyle = TERRAIN_TEXTURE.roadShadow;
-  ctx.lineWidth = Math.max(1, 1.8 * zoom);
-  ctx.beginPath();
-  ctx.moveTo(x - 11 * zoom, y + 2 * zoom);
-  ctx.lineTo(x + 9 * zoom, y + 5 * zoom);
-  ctx.stroke();
-  ctx.strokeStyle = TERRAIN_TEXTURE.roadLight;
-  ctx.lineWidth = Math.max(1, zoom);
-  ctx.beginPath();
-  ctx.moveTo(x - 10 * zoom, y - 1 * zoom);
-  ctx.lineTo(x + 10 * zoom, y + 2 * zoom);
-  ctx.stroke();
-  ctx.restore();
-}
-
-function drawRockTexture(ctx: CanvasRenderingContext2D, x: number, y: number, zoom: number, tileX: number, tileY: number) {
-  const offset = ((tileX * 7 + tileY * 11) % 5 - 2) * zoom;
-  ctx.save();
-  ctx.strokeStyle = TERRAIN_TEXTURE.rockLight;
-  ctx.lineWidth = Math.max(1, zoom);
-  ctx.beginPath();
-  ctx.moveTo(x - 7 * zoom + offset, y - 2 * zoom);
-  ctx.lineTo(x - 1 * zoom + offset, y + 1 * zoom);
-  ctx.lineTo(x + 6 * zoom + offset, y - 1 * zoom);
-  ctx.stroke();
-  ctx.restore();
-}
-
-function drawGrassTexture(ctx: CanvasRenderingContext2D, x: number, y: number, zoom: number, tileX: number, tileY: number) {
-  const offset = ((tileX * 5 + tileY * 3) % 7 - 3) * zoom;
-  ctx.save();
-  ctx.fillStyle = TERRAIN_TEXTURE.grassDark;
-  ctx.fillRect(Math.round(x - 2 * zoom + offset), Math.round(y - 1 * zoom), Math.max(1, Math.round(2 * zoom)), Math.max(1, Math.round(3 * zoom)));
-  ctx.fillStyle = TERRAIN_TEXTURE.grassMid;
-  ctx.fillRect(Math.round(x - 5 * zoom - offset * 0.4), Math.round(y + 2 * zoom), Math.max(1, Math.round(2 * zoom)), Math.max(1, Math.round(2 * zoom)));
-  ctx.fillStyle = TERRAIN_TEXTURE.grassLight;
-  ctx.fillRect(Math.round(x + 2 * zoom + offset), Math.round(y + 1 * zoom), Math.max(1, Math.round(2 * zoom)), Math.max(1, Math.round(2 * zoom)));
   ctx.restore();
 }

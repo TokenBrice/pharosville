@@ -64,8 +64,14 @@ export function drawLighthouseSurf({ camera, ctx, motion }: DrawPharosVilleInput
   ctx.restore();
 }
 
-export function drawLighthouseHeadland(_input: DrawPharosVilleInput) {
-  // The generated lighthouse sprite owns its terrace, retaining wall, and road connector.
+const LIGHTHOUSE_HEADLAND_SCALE = 0.5;
+
+export function drawLighthouseHeadland(input: DrawPharosVilleInput) {
+  const { assets, camera, ctx, world } = input;
+  const headland = assets?.get("overlay.lighthouse-headland");
+  if (!headland) return;
+  const center = tileToScreen(world.lighthouse.tile, camera);
+  drawAsset(ctx, headland, center.x, center.y, camera.zoom * LIGHTHOUSE_HEADLAND_SCALE);
 }
 
 

@@ -272,7 +272,7 @@ function drawCypress(ctx: CanvasRenderingContext2D, x: number, y: number, scale:
   drawDiamond(ctx, x + 1 * scale, y + 4 * scale, 18 * scale, 7 * scale, ctx.fillStyle);
   ctx.fillStyle = "#5b3a24";
   ctx.fillRect(Math.round(x - 1.5 * scale), Math.round(y - 22 * scale), Math.max(1, Math.round(3 * scale)), Math.max(1, Math.round(24 * scale)));
-  ctx.fillStyle = "#243f2d";
+  ctx.fillStyle = "#5c5240";
   ctx.beginPath();
   ctx.moveTo(x, y - 38 * scale);
   ctx.quadraticCurveTo(x - 11 * scale, y - 24 * scale, x - 6 * scale, y - 9 * scale);
@@ -280,7 +280,7 @@ function drawCypress(ctx: CanvasRenderingContext2D, x: number, y: number, scale:
   ctx.quadraticCurveTo(x + 10 * scale, y - 25 * scale, x, y - 38 * scale);
   ctx.closePath();
   ctx.fill();
-  ctx.fillStyle = "rgba(135, 159, 98, 0.34)";
+  ctx.fillStyle = "rgba(156, 138, 108, 0.34)";
   ctx.beginPath();
   ctx.moveTo(x - 1 * scale, y - 33 * scale);
   ctx.quadraticCurveTo(x - 6 * scale, y - 22 * scale, x - 3 * scale, y - 13 * scale);
@@ -291,7 +291,7 @@ function drawCypress(ctx: CanvasRenderingContext2D, x: number, y: number, scale:
 
 function drawCoastalGrass(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
   ctx.save();
-  ctx.strokeStyle = "#314f37";
+  ctx.strokeStyle = "#7c6b48";
   ctx.lineWidth = Math.max(1, 1.2 * scale);
   for (const [dx, height, lean] of [[-7, 13, -3], [-3, 17, 1], [1, 14, 4], [5, 11, 2], [8, 15, -2]] as const) {
     ctx.beginPath();
@@ -299,7 +299,7 @@ function drawCoastalGrass(ctx: CanvasRenderingContext2D, x: number, y: number, s
     ctx.quadraticCurveTo(x + (dx + lean * 0.4) * scale, y - height * 0.45 * scale, x + (dx + lean) * scale, y - height * scale);
     ctx.stroke();
   }
-  ctx.strokeStyle = "rgba(176, 196, 121, 0.42)";
+  ctx.strokeStyle = "rgba(196, 168, 112, 0.42)";
   ctx.beginPath();
   ctx.moveTo(x - 6 * scale, y - 2 * scale);
   ctx.lineTo(x + 5 * scale, y + 2 * scale);
@@ -380,7 +380,7 @@ function drawPalm(ctx: CanvasRenderingContext2D, x: number, y: number, scale: nu
 
 function drawReedBed(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
   ctx.save();
-  ctx.strokeStyle = "#314f37";
+  ctx.strokeStyle = "#7c6b48";
   ctx.lineWidth = Math.max(1, 1.05 * scale);
   for (const [dx, height, lean] of [[-9, 16, -2], [-5, 20, 1], [-1, 14, 2], [4, 18, -1], [8, 13, 3]] as const) {
     ctx.beginPath();

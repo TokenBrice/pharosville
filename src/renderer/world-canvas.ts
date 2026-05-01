@@ -1,3 +1,4 @@
+import { manifestCacheVersion } from "../systems/asset-manifest";
 import { isShipMapVisible } from "../systems/motion";
 import type { PharosVilleWorld } from "../systems/world-types";
 import { createRenderFrameCache, type RenderFrameCache } from "./frame-cache";
@@ -65,7 +66,9 @@ function staticCacheKey(input: DrawPharosVilleInput, dpr: number, scope: StaticC
   const dprBucket = Math.max(1, Math.round(dpr * 100));
   const width = input.width | 0;
   const height = input.height | 0;
-  return `${scope}|${worldIdFor(input.world)}|${width}x${height}|z${zoomBucket}|o${offsetX},${offsetY}|d${dprBucket}|a${assetLoadTickFor(input)}`;
+  const manifest = input.assets?.getManifest();
+  const cv = manifest ? manifestCacheVersion(manifest) : "0";
+  return `${scope}|${worldIdFor(input.world)}|${width}x${height}|z${zoomBucket}|o${offsetX},${offsetY}|d${dprBucket}|a${assetLoadTickFor(input)}|cv${cv}`;
 }
 
 function createStaticCacheCanvas(width: number, height: number): HTMLCanvasElement | null {
