@@ -337,7 +337,7 @@ function drawLedgerWaterTexture(
   if ((tileX * 3 + tileY) % 7 === 0) {
     drawDepthSounding(ctx, x + 6 * zoom, y + 1 * zoom, zoom, theme.accent, 0.22);
   }
-  if ((tileX * 5 + tileY * 9) % 11 === 0) {
+  if ((tileX * 5 + tileY * 9) % 7 === 0) {
     drawLedgerTallyMark(ctx, x, y, zoom, theme, tileX, tileY);
   }
   ctx.restore();
@@ -405,7 +405,7 @@ function drawCalmWaterTexture(
     ctx.fillStyle = reflection;
     drawDiamond(ctx, x, y + 2 * zoom, 9 * zoom, 2.5 * zoom, reflection);
   }
-  if ((tileX * 17 + tileY * 11) % 13 === 0) {
+  if ((tileX * 17 + tileY * 11) % 9 === 0) {
     drawCalmReflectionRing(ctx, x, y, zoom, motion, theme, tileX, tileY);
   }
   ctx.restore();
@@ -471,7 +471,7 @@ function drawAlertChannelTexture(
   if ((tileX * 13 + tileY * 5) % 7 === 0) {
     drawCurrentWakeMark(ctx, x, y, zoom, theme.accent, 0.28);
   }
-  if ((tileX * 7 + tileY * 13) % 9 === 0) {
+  if ((tileX * 7 + tileY * 13) % 6 === 0) {
     drawAlertCurrentChevron(ctx, x, y, zoom, theme);
   }
   ctx.restore();
@@ -515,7 +515,7 @@ function drawWatchWaterTexture(
   if ((tileX + tileY * 5) % 7 === 0) {
     drawBreakwaterFoam(ctx, x, y, zoom, theme.wave, 0.22);
   }
-  if ((tileX * 13 + tileY * 7) % 11 === 0) {
+  if ((tileX * 13 + tileY * 7) % 7 === 0) {
     drawWatchChannelBuoy(ctx, x, y, zoom, motion, theme, tileX, tileY);
   }
   ctx.restore();
@@ -563,7 +563,7 @@ function drawWarningShoalTexture(
   if ((tileX * 11 + tileY * 13) % 9 === 0) {
     drawDepthSounding(ctx, x + 7 * zoom, y + 3 * zoom, zoom, theme.wave, 0.26);
   }
-  if ((tileX * 11 + tileY * 5) % 7 === 0) {
+  if ((tileX * 11 + tileY * 5) % 5 === 0) {
     drawWarningReefCluster(ctx, x, y, zoom, theme);
   }
   ctx.restore();
@@ -618,7 +618,7 @@ function drawDangerStraitTexture(
     ctx.fillRect(Math.round(x - 1 * zoom), Math.round(y - 5 * zoom), Math.max(1, Math.round(2 * zoom)), Math.max(1, Math.round(2 * zoom)));
     ctx.fillRect(Math.round(x + 5 * zoom), Math.round(y + 3 * zoom), Math.max(1, Math.round(2 * zoom)), Math.max(1, Math.round(2 * zoom)));
   }
-  if ((tileX * 19 + tileY * 23) % 17 === 0) {
+  if ((tileX * 19 + tileY * 23) % 11 === 0) {
     drawDangerStormBurst(ctx, x, y, zoom, motion, theme, tileX, tileY);
   }
   ctx.restore();
@@ -738,7 +738,7 @@ function drawBreakwaterFoam(
 }
 
 // Calm Anchorage signature: pebble-in-still-water concentric rings whose
-// radius pulses slowly outward. Sparse and quiet.
+// radius pulses slowly outward.
 function drawCalmReflectionRing(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -752,16 +752,17 @@ function drawCalmReflectionRing(
   const phase = motion.reducedMotion
     ? 0.5
     : (Math.sin(motion.timeSeconds * 0.42 + tileX * 0.31 + tileY * 0.23) + 1) * 0.5;
-  const radius = (3 + phase * 1.6) * zoom * theme.motion.amplitudeScale;
+  const radius = (4 + phase * 2.4) * zoom * theme.motion.amplitudeScale;
   ctx.save();
-  ctx.strokeStyle = withAlpha(theme.wave, 0.18 * (1 - phase * 0.5) * theme.motion.strokeAlphaScale);
-  ctx.lineWidth = Math.max(1, 0.6 * zoom);
+  ctx.strokeStyle = withAlpha(theme.wave, 0.55 * (1 - phase * 0.4) * theme.motion.strokeAlphaScale);
+  ctx.lineWidth = Math.max(1, 1.05 * zoom);
   ctx.beginPath();
   ctx.ellipse(x, y, radius, radius * 0.5, 0, 0, Math.PI * 2);
   ctx.stroke();
-  ctx.strokeStyle = withAlpha(theme.accent, 0.12 * theme.motion.strokeAlphaScale);
+  ctx.strokeStyle = withAlpha(theme.accent, 0.4 * theme.motion.strokeAlphaScale);
+  ctx.lineWidth = Math.max(1, 0.85 * zoom);
   ctx.beginPath();
-  const innerR = Math.max(1, radius - 1.6 * zoom);
+  const innerR = Math.max(1, radius - 2 * zoom);
   ctx.ellipse(x, y, innerR, innerR * 0.5, 0, 0, Math.PI * 2);
   ctx.stroke();
   ctx.restore();
@@ -781,27 +782,35 @@ function drawWatchChannelBuoy(
 ) {
   const bob = motion.reducedMotion
     ? 0
-    : Math.sin(motion.timeSeconds * 0.95 + tileX * 0.41 + tileY * 0.27) * 0.6 * zoom;
+    : Math.sin(motion.timeSeconds * 0.95 + tileX * 0.41 + tileY * 0.27) * 0.7 * zoom;
   const cx = x + 3 * zoom;
   const cy = y - 1 * zoom + bob;
   ctx.save();
-  ctx.fillStyle = withAlpha(theme.accent, 0.42 * theme.motion.strokeAlphaScale);
+  ctx.fillStyle = withAlpha(theme.accent, 0.82 * theme.motion.strokeAlphaScale);
   ctx.fillRect(
-    Math.round(cx - 0.8 * zoom),
-    Math.round(cy - 1.6 * zoom),
-    Math.max(1, Math.round(1.6 * zoom)),
-    Math.max(2, Math.round(3.2 * zoom)),
+    Math.round(cx - 1 * zoom),
+    Math.round(cy - 2 * zoom),
+    Math.max(2, Math.round(2 * zoom)),
+    Math.max(3, Math.round(4 * zoom)),
   );
-  ctx.strokeStyle = withAlpha(theme.accent, 0.32);
-  ctx.lineWidth = Math.max(1, 0.6 * zoom);
+  ctx.fillStyle = withAlpha(theme.wave, 0.7);
+  ctx.fillRect(
+    Math.round(cx - 1 * zoom),
+    Math.round(cy - 0.5 * zoom),
+    Math.max(2, Math.round(2 * zoom)),
+    Math.max(1, Math.round(1 * zoom)),
+  );
+  ctx.strokeStyle = withAlpha(theme.accent, 0.65);
+  ctx.lineWidth = Math.max(1, 0.9 * zoom);
   ctx.beginPath();
-  ctx.moveTo(cx, cy - 2 * zoom);
-  ctx.lineTo(cx, cy - 4 * zoom);
+  ctx.moveTo(cx, cy - 2.5 * zoom);
+  ctx.lineTo(cx, cy - 5 * zoom);
   ctx.stroke();
-  ctx.strokeStyle = withAlpha(theme.wave, 0.22);
+  ctx.strokeStyle = withAlpha(theme.wave, 0.5);
+  ctx.lineWidth = Math.max(1, 0.8 * zoom);
   ctx.beginPath();
-  ctx.moveTo(cx - 3 * zoom, cy + 2 * zoom);
-  ctx.quadraticCurveTo(cx, cy + 1 * zoom, cx + 3 * zoom, cy + 2 * zoom);
+  ctx.moveTo(cx - 4 * zoom, cy + 2.5 * zoom);
+  ctx.quadraticCurveTo(cx, cy + 1.4 * zoom, cx + 4 * zoom, cy + 2.5 * zoom);
   ctx.stroke();
   ctx.restore();
 }
@@ -817,19 +826,21 @@ function drawAlertCurrentChevron(
   theme: ZoneVisualTheme,
 ) {
   ctx.save();
-  ctx.strokeStyle = withAlpha(theme.accent, 0.34 * theme.motion.strokeAlphaScale);
-  ctx.lineWidth = Math.max(1, 0.95 * zoom);
   ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  ctx.strokeStyle = withAlpha(theme.accent, 0.7 * theme.motion.strokeAlphaScale);
+  ctx.lineWidth = Math.max(1.4, 1.5 * zoom);
   ctx.beginPath();
-  ctx.moveTo(x + 5 * zoom, y - 2 * zoom);
-  ctx.lineTo(x - 3 * zoom, y + 2 * zoom);
-  ctx.lineTo(x + 5 * zoom, y + 6 * zoom);
+  ctx.moveTo(x + 6 * zoom, y - 2 * zoom);
+  ctx.lineTo(x - 4 * zoom, y + 2 * zoom);
+  ctx.lineTo(x + 6 * zoom, y + 6 * zoom);
   ctx.stroke();
-  ctx.strokeStyle = withAlpha(theme.accent, 0.22 * theme.motion.strokeAlphaScale);
+  ctx.strokeStyle = withAlpha(theme.accent, 0.5 * theme.motion.strokeAlphaScale);
+  ctx.lineWidth = Math.max(1.2, 1.3 * zoom);
   ctx.beginPath();
-  ctx.moveTo(x + 9 * zoom, y - 5 * zoom);
-  ctx.lineTo(x + 1 * zoom, y - 1 * zoom);
-  ctx.lineTo(x + 9 * zoom, y + 3 * zoom);
+  ctx.moveTo(x + 10 * zoom, y - 5 * zoom);
+  ctx.lineTo(x, y - 1 * zoom);
+  ctx.lineTo(x + 10 * zoom, y + 3 * zoom);
   ctx.stroke();
   ctx.restore();
 }
@@ -844,34 +855,47 @@ function drawWarningReefCluster(
   theme: ZoneVisualTheme,
 ) {
   ctx.save();
-  ctx.fillStyle = withAlpha(theme.accent, 0.42);
-  ctx.strokeStyle = withAlpha(theme.wave, 0.36);
-  ctx.lineWidth = Math.max(1, 0.7 * zoom);
+  ctx.fillStyle = withAlpha(theme.accent, 0.78);
+  ctx.strokeStyle = withAlpha(theme.wave, 0.65);
+  ctx.lineJoin = "round";
+  ctx.lineWidth = Math.max(1, 1.1 * zoom);
+  // Larger central rock — the dominant landmark of the cluster.
   ctx.beginPath();
-  ctx.moveTo(x - 1 * zoom, y);
-  ctx.lineTo(x + 4 * zoom, y - 4 * zoom);
-  ctx.lineTo(x + 7 * zoom, y + 1 * zoom);
+  ctx.moveTo(x - 2 * zoom, y + 1 * zoom);
+  ctx.lineTo(x + 4 * zoom, y - 5 * zoom);
+  ctx.lineTo(x + 8 * zoom, y + 2 * zoom);
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
-  ctx.fillStyle = withAlpha(theme.accent, 0.32);
+  // Two smaller satellites to either side.
+  ctx.fillStyle = withAlpha(theme.accent, 0.62);
+  ctx.lineWidth = Math.max(1, 0.85 * zoom);
   ctx.beginPath();
-  ctx.moveTo(x - 6 * zoom, y + 3 * zoom);
-  ctx.lineTo(x - 3 * zoom, y + 1 * zoom);
-  ctx.lineTo(x - 1 * zoom, y + 4 * zoom);
+  ctx.moveTo(x - 7 * zoom, y + 4 * zoom);
+  ctx.lineTo(x - 4 * zoom, y + 1 * zoom);
+  ctx.lineTo(x - 1 * zoom, y + 5 * zoom);
   ctx.closePath();
   ctx.fill();
+  ctx.stroke();
   ctx.beginPath();
-  ctx.moveTo(x + 5 * zoom, y + 4 * zoom);
-  ctx.lineTo(x + 8 * zoom, y + 2 * zoom);
-  ctx.lineTo(x + 10 * zoom, y + 5 * zoom);
+  ctx.moveTo(x + 5 * zoom, y + 5 * zoom);
+  ctx.lineTo(x + 9 * zoom, y + 2 * zoom);
+  ctx.lineTo(x + 11 * zoom, y + 6 * zoom);
   ctx.closePath();
   ctx.fill();
+  ctx.stroke();
+  // Foam ring around the main rock — communicates "submerged hazard".
+  ctx.strokeStyle = withAlpha(theme.wave, 0.5);
+  ctx.lineWidth = Math.max(1, 0.7 * zoom);
+  ctx.beginPath();
+  ctx.ellipse(x + 3 * zoom, y + 1 * zoom, 7 * zoom, 2.2 * zoom, 0, 0, Math.PI * 2);
+  ctx.stroke();
   ctx.restore();
 }
 
-// Danger Strait signature: rare animated whitecap-spray bursts. Only fire
-// when local sin phase peaks; reduced-motion shows a fixed faint spume.
+// Danger Strait signature: animated whitecap-spray bursts. Fires more
+// readily than the original, with a fallback for reduced motion so the
+// zone still reads in static frames.
 function drawDangerStormBurst(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -885,26 +909,38 @@ function drawDangerStormBurst(
   const flicker = motion.reducedMotion
     ? 1.0
     : Math.sin(motion.timeSeconds * 2.4 + tileX * 0.61 + tileY * 0.43);
-  if (!motion.reducedMotion && flicker < 0.78) return;
-  const intensity = motion.reducedMotion ? 0.42 : Math.min(1, (flicker - 0.78) * 4.5);
+  if (!motion.reducedMotion && flicker < 0.45) return;
+  const intensity = motion.reducedMotion ? 0.7 : Math.min(1, 0.55 + (flicker - 0.45) * 1.6);
   ctx.save();
-  ctx.strokeStyle = withAlpha(theme.wave, 0.55 * intensity * theme.motion.strokeAlphaScale);
-  ctx.lineWidth = Math.max(1, 1.1 * zoom);
   ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  // Bright zig-zag spray streak (whitecap break).
+  ctx.strokeStyle = withAlpha(theme.wave, 0.92 * intensity * theme.motion.strokeAlphaScale);
+  ctx.lineWidth = Math.max(1.5, 1.7 * zoom);
   ctx.beginPath();
-  ctx.moveTo(x - 6 * zoom, y - 2 * zoom);
-  ctx.lineTo(x - 2 * zoom, y - 5 * zoom);
+  ctx.moveTo(x - 7 * zoom, y - 2 * zoom);
+  ctx.lineTo(x - 3 * zoom, y - 6 * zoom);
   ctx.lineTo(x + 1 * zoom, y - 1 * zoom);
-  ctx.lineTo(x + 5 * zoom, y - 4 * zoom);
+  ctx.lineTo(x + 6 * zoom, y - 5 * zoom);
   ctx.stroke();
-  ctx.fillStyle = withAlpha(theme.wave, 0.44 * intensity);
-  ctx.fillRect(Math.round(x + 6 * zoom), Math.round(y - 6 * zoom), Math.max(1, Math.round(1.5 * zoom)), Math.max(1, Math.round(1.5 * zoom)));
-  ctx.fillRect(Math.round(x - 8 * zoom), Math.round(y + 1 * zoom), Math.max(1, Math.round(1.5 * zoom)), Math.max(1, Math.round(1.5 * zoom)));
-  ctx.fillRect(Math.round(x + 3 * zoom), Math.round(y + 4 * zoom), Math.max(1, Math.round(1.5 * zoom)), Math.max(1, Math.round(1.5 * zoom)));
+  // Secondary trailing streak underneath.
+  ctx.strokeStyle = withAlpha(theme.accent, 0.68 * intensity * theme.motion.strokeAlphaScale);
+  ctx.lineWidth = Math.max(1, 1.2 * zoom);
+  ctx.beginPath();
+  ctx.moveTo(x - 5 * zoom, y + 2 * zoom);
+  ctx.lineTo(x + 1 * zoom, y + 5 * zoom);
+  ctx.lineTo(x + 7 * zoom, y + 2 * zoom);
+  ctx.stroke();
+  // Spume dots flung from the whitecap.
+  ctx.fillStyle = withAlpha(theme.wave, 0.85 * intensity);
+  const dot = Math.max(2, Math.round(2.2 * zoom));
+  ctx.fillRect(Math.round(x + 7 * zoom), Math.round(y - 7 * zoom), dot, dot);
+  ctx.fillRect(Math.round(x - 9 * zoom), Math.round(y + 1 * zoom), dot, dot);
+  ctx.fillRect(Math.round(x + 4 * zoom), Math.round(y + 5 * zoom), dot, dot);
   ctx.restore();
 }
 
-// Ledger Mooring signature: small Roman-numeral-style tally tick marks —
+// Ledger Mooring signature: Roman-numeral-style tally tick marks —
 // administrative registry strokes. Static; ledgers don't pulse.
 function drawLedgerTallyMark(
   ctx: CanvasRenderingContext2D,
@@ -917,21 +953,24 @@ function drawLedgerTallyMark(
 ) {
   const count = ((tileX * 3 + tileY * 5) % 3) + 1;
   ctx.save();
-  ctx.strokeStyle = withAlpha(theme.wave, 0.46);
-  ctx.lineWidth = Math.max(1, 0.85 * zoom);
+  ctx.strokeStyle = withAlpha(theme.wave, 0.85);
+  ctx.lineWidth = Math.max(1.4, 1.3 * zoom);
   ctx.lineCap = "round";
   for (let i = 0; i < count; i += 1) {
-    const tx = x - 3 * zoom + i * 2.4 * zoom;
+    const tx = x - 3.5 * zoom + i * 2.8 * zoom;
     ctx.beginPath();
-    ctx.moveTo(tx, y - 2.4 * zoom);
-    ctx.lineTo(tx, y + 2.4 * zoom);
+    ctx.moveTo(tx, y - 3 * zoom);
+    ctx.lineTo(tx, y + 3 * zoom);
     ctx.stroke();
   }
+  // Crossbar through the strokes when the count maxes out — closed-five
+  // tally flavor (purely visual; not an analytical count claim).
   if (count === 3) {
-    ctx.strokeStyle = withAlpha(theme.accent, 0.42);
+    ctx.strokeStyle = withAlpha(theme.accent, 0.78);
+    ctx.lineWidth = Math.max(1.2, 1.1 * zoom);
     ctx.beginPath();
-    ctx.moveTo(x - 4.5 * zoom, y);
-    ctx.lineTo(x + 3 * zoom, y - 2.5 * zoom);
+    ctx.moveTo(x - 5 * zoom, y + 0.5 * zoom);
+    ctx.lineTo(x + 3.5 * zoom, y - 3 * zoom);
     ctx.stroke();
   }
   ctx.restore();
