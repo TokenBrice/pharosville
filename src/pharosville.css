@@ -210,6 +210,27 @@ textarea {
   --pv-control: #0b222c;
   --pv-control-dark: #071821;
   --pv-chart-line: rgba(216, 208, 183, 0.075);
+  /* Old-school chrome — timber rail */
+  --pv-timber-light: #6b4628;
+  --pv-timber: #3a2614;
+  --pv-timber-dark: #2a1a0c;
+  --pv-timber-edge: #1a0e08;
+  /* Old-school chrome — polished brass */
+  --pv-brass-highlight: #f8e5b2;
+  --pv-brass: #d8b87a;
+  --pv-brass-mid: #c9a866;
+  --pv-brass-dark: #8a6531;
+  --pv-brass-edge: #6c4a14;
+  /* Old-school chrome — parchment reading surface */
+  --pv-parchment-light: #f8e5b2;
+  --pv-parchment-warm: #e2c98c;
+  --pv-parchment-dark: #c9a866;
+  /* Old-school chrome — ink for parchment */
+  --pv-ink-text: #1a0e08;
+  --pv-ink-soft: #4b3414;
+  /* Old-school chrome — wax-seal alert */
+  --pv-seal-red: #a8321a;
+  --pv-seal-red-dark: #5a1a0a;
   position: relative;
   min-height: 100svh;
   overflow: hidden;
