@@ -13,7 +13,52 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-prepare-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/cache@v4
+        id: node-modules
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-${{ runner.arch }}-node24-modules-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-node24-modules-
+      - if: steps.node-modules.outputs.cache-hit != 'true'
+        run: npm ci
+      - uses: actions/cache@v4
+        id: playwright
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-ms-playwright-${{ hashFiles('package-lock.json') }}
+      - if: steps.playwright.outputs.cache-hit != 'true'
+        run: npx --no-install playwright install chromium
+      - name: Pack node_modules
+        run: tar -I 'zstd -T0 -1' -cf node_modules.tar.zst node_modules
+      - name: Pack Playwright browser cache
+        run: tar -I 'zstd -T0 -1' -cf playwright-cache.tar.zst -C "$HOME" .cache/ms-playwright
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prepared-node-modules
+          path: node_modules.tar.zst
+          retention-days: 1
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prepared-playwright-cache
+          path: playwright-cache.tar.zst
+          retention-days: 1
+          compression-level: 0
+
   typecheck:
+    needs: prepare
     runs-on: ubuntu-latest
     concurrency:
       group: ${{ github.workflow }}-typecheck-${{ github.event.pull_request.number || github.ref }}
@@ -23,20 +68,15 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: npm
-      - uses: actions/cache@v4
-        id: node-modules
+      - uses: actions/download-artifact@v4
         with:
-          path: node_modules
-          key: ${{ runner.os }}-${{ runner.arch }}-node24-modules-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-node24-modules-
-      - if: steps.node-modules.outputs.cache-hit != 'true'
-        run: npm ci
+          name: prepared-node-modules
+      - run: tar -I 'zstd -T0' -xf node_modules.tar.zst
       - name: Typecheck
         run: npm run typecheck
 
   unit:
+    needs: prepare
     runs-on: ubuntu-latest
     concurrency:
       group: ${{ github.workflow }}-unit-${{ github.event.pull_request.number || github.ref }}
@@ -46,20 +86,15 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: npm
-      - uses: actions/cache@v4
-        id: node-modules
+      - uses: actions/download-artifact@v4
         with:
-          path: node_modules
-          key: ${{ runner.os }}-${{ runner.arch }}-node24-modules-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-node24-modules-
-      - if: steps.node-modules.outputs.cache-hit != 'true'
-        run: npm ci
+          name: prepared-node-modules
+      - run: tar -I 'zstd -T0' -xf node_modules.tar.zst
       - name: Unit and contract tests
         run: npm test
 
   guards:
+    needs: prepare
     runs-on: ubuntu-latest
     concurrency:
       group: ${{ github.workflow }}-guards-${{ github.event.pull_request.number || github.ref }}
@@ -69,16 +104,10 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: npm
-      - uses: actions/cache@v4
-        id: node-modules
+      - uses: actions/download-artifact@v4
         with:
-          path: node_modules
-          key: ${{ runner.os }}-${{ runner.arch }}-node24-modules-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-node24-modules-
-      - if: steps.node-modules.outputs.cache-hit != 'true'
-        run: npm ci
+          name: prepared-node-modules
+      - run: tar -I 'zstd -T0' -xf node_modules.tar.zst
       - name: Guard script self-tests
         run: npm run test:guard-scripts
       - name: Secret scan
@@ -91,6 +120,7 @@ jobs:
         run: npm run check:pharosville-colors
 
   build:
+    needs: prepare
     runs-on: ubuntu-latest
     concurrency:
       group: ${{ github.workflow }}-build-${{ github.event.pull_request.number || github.ref }}
@@ -100,16 +130,10 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: npm
-      - uses: actions/cache@v4
-        id: node-modules
+      - uses: actions/download-artifact@v4
         with:
-          path: node_modules
-          key: ${{ runner.os }}-${{ runner.arch }}-node24-modules-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-node24-modules-
-      - if: steps.node-modules.outputs.cache-hit != 'true'
-        run: npm ci
+          name: prepared-node-modules
+      - run: tar -I 'zstd -T0' -xf node_modules.tar.zst
       - name: Build
         run: npm run build
       - uses: actions/upload-artifact@v4
@@ -118,7 +142,7 @@ jobs:
           path: dist
 
   visual:
-    needs: build
+    needs: [prepare, build]
     runs-on: ubuntu-latest
     concurrency:
       group: ${{ github.workflow }}-visual-${{ github.event.pull_request.number || github.ref }}
@@ -128,24 +152,18 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: npm
-      - uses: actions/cache@v4
-        id: node-modules
+      - uses: actions/download-artifact@v4
         with:
-          path: node_modules
-          key: ${{ runner.os }}-${{ runner.arch }}-node24-modules-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-node24-modules-
-      - if: steps.node-modules.outputs.cache-hit != 'true'
-        run: npm ci
+          name: prepared-node-modules
+      - run: tar -I 'zstd -T0' -xf node_modules.tar.zst
+      - uses: actions/download-artifact@v4
+        with:
+          name: prepared-playwright-cache
+      - run: tar -I 'zstd -T0' -xf playwright-cache.tar.zst -C "$HOME"
       - uses: actions/download-artifact@v4
         with:
           name: pharosville-dist
           path: dist
-      - uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-ms-playwright-${{ hashFiles('package-lock.json') }}
       - run: npx --no-install playwright install --with-deps chromium
       - name: Built-dist visual tests
         run: npm run test:visual:dist
@@ -176,16 +194,10 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: npm
-      - uses: actions/cache@v4
-        id: node-modules
+      - uses: actions/download-artifact@v4
         with:
-          path: node_modules
-          key: ${{ runner.os }}-${{ runner.arch }}-node24-modules-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-node24-modules-
-      - if: steps.node-modules.outputs.cache-hit != 'true'
-        run: npm ci
+          name: prepared-node-modules
+      - run: tar -I 'zstd -T0' -xf node_modules.tar.zst
       - uses: actions/download-artifact@v4
         with:
           name: pharosville-dist
