@@ -18,6 +18,12 @@ Asset manifest and local PNG contract:
 npm run check:pharosville-assets
 ```
 
+Built bundle-size budget, after `npm run build`:
+
+```bash
+npm run check:bundle-size
+```
+
 Route palette guardrail:
 
 ```bash
@@ -52,7 +58,21 @@ npx playwright test tests/visual/pharosville.spec.ts --grep "reduced motion"
 npx playwright test tests/visual/pharosville.spec.ts --grep "narrow fallback"
 ```
 
-The visual suite covers desktop shell rendering, narrow/short fallback behavior, canvas interaction, reduced-motion behavior, normal-motion movement, and backing-store budget checks.
+The visual suite covers desktop shell rendering, narrow/short fallback behavior, canvas interaction, reduced-motion behavior, normal-motion movement, and backing-store budget checks. The narrow fallback has a committed screenshot baseline; the short fallback is DOM-only coverage that confirms no clipped canvas and no world/runtime requests below `760px` height.
+
+## Budget Guards
+
+Current executable budgets:
+
+- Entry chunk: `<= 300 KiB` raw and `<= 90 KiB` gzip.
+- Desktop lazy chunk: `<= 950 KiB` raw and `<= 275 KiB` gzip.
+- Entry CSS: `<= 32 KiB` raw and `<= 8 KiB` gzip.
+- Total JS: `<= 1,250 KiB` raw and `<= 375 KiB` gzip.
+- First-render assets: `<= 24` PNGs, `<= 575 KiB` source bytes, and `<= 875,000` decoded pixels.
+- Total runtime PharosVille assets: `<= 625 KiB` source bytes and `<= 950,000` decoded pixels.
+- Canvas backing store: capped by `MAX_MAIN_CANVAS_PIXELS` and `MAX_TOTAL_BACKING_PIXELS` in `src/systems/canvas-budget.ts`.
+
+Display-size waste in `npm run check:pharosville-assets` is warning-only unless an image decodes more than 4x its displayed pixel area. Treat warnings as optimization backlog and failures as release blockers.
 
 ## Build And Release Checks
 
@@ -60,6 +80,13 @@ Use these when HTML metadata, CSS, assets, screenshots, or app shell behavior ch
 
 ```bash
 npm run validate
+```
+
+For bundle-sensitive changes, run the build-output budget explicitly:
+
+```bash
+npm run build
+npm run check:bundle-size
 ```
 
 `npm test` is the default Vitest lane and includes `src`, `functions`, and the PharosVille shared contract tests so the split app keeps the copied shared contracts under validation.

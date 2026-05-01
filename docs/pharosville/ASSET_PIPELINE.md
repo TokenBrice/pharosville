@@ -11,7 +11,7 @@ This is the agent-facing workflow for PharosVille raster assets. Runtime asset t
 - Runtime code must reference local manifest asset IDs, not remote generation URLs, tokens, or prototype paths.
 - Every runtime PNG needs a manifest entry with accurate dimensions, anchor, footprint, hitbox, layer/category, load priority, semantic role when useful, and prompt provenance.
 - Load priority is part of the runtime budget: use `critical` only for assets needed to make the initial desktop canvas frame coherent, and `deferred` for supplemental scenery or alternate sprites that can arrive after the core scene.
-- Treat `public/pharosville/assets/manifest.json` as the runtime inventory source of truth and use `loadPriority` for the critical/deferred split. `npm run check:pharosville-assets` enforces the local PNG contract and the v0.1 manifest budget.
+- Treat `public/pharosville/assets/manifest.json` as the runtime inventory source of truth and use `loadPriority` for the critical/deferred split. `npm run check:pharosville-assets` enforces the local PNG contract, the v0.1 manifest budget, first-render byte/decoded-pixel budgets, and per-image size ceilings.
 - Manifest schema v2 separates `style.cacheVersion` from `style.styleAnchorVersion`.
 - Bump `style.cacheVersion` whenever promoted asset bytes, manifest geometry, or animation frame assets change.
 - Keep `promptProvenance.jobId` and `promptProvenance.styleAnchorVersion` aligned with the selected asset's style anchor.
@@ -49,10 +49,10 @@ For the main-island revamp, the selected production PNGs are promoted in place:
 - Record accepted PixelLab object/job IDs in `promptProvenance.jobId` and set
   `promptProvenance.styleAnchorVersion` to the manifest style anchor. Current
   promoted IDs are `25ee8636-32f7-4aa1-bb29-f924cbb4fc01` for
-  `overlay.central-island`, `c47c36c5-dd3e-4721-923f-9e5852400f65` for
+  `overlay.central-island`, `3b89b603-35ce-4b87-97fb-37a3fc8d913f` for
   `landmark.lighthouse`, and `31155966-7d76-413a-bd7b-557f79cffc9f` for
   `dock.compact-harbor-pier`. Current cache version is
-  `2026-04-30-pharosville-main-island-revamp-v2`; the style anchor remains
+  `2026-05-01-lighthouse-integrated-ground-v1`; the style anchor remains
   `2026-04-29-lighthouse-hill-v5`.
 - Re-check renderer assumptions for central overlay placement, lighthouse crop,
   beacon point, hitbox, selection ring, and dock flag/logo offsets before
@@ -122,6 +122,37 @@ Preferred constraints:
 5. Update manifest geometry, cache/provenance versions, and optional animation metadata.
 6. Re-check renderer assumptions for anchor, scale, beacon points, sail-logo offsets, and hitboxes.
 7. Run focused asset and visual checks.
+
+## Asset Budgets
+
+Hard validator budgets:
+
+- Total runtime manifest: `<= 34` assets, `<= 625 KiB` source bytes, and `<= 950,000` decoded pixels.
+- First render: `<= 24` assets, `<= 575 KiB` source bytes, and `<= 875,000` decoded pixels.
+- Per-image ceilings:
+  - terrain: `<= 8 KiB`, `<= 8,192` decoded pixels;
+  - ship: `<= 32 KiB`, `<= 50,000` decoded pixels;
+  - prop: `<= 24 KiB`, `<= 30,000` decoded pixels;
+  - dock: `<= 128 KiB`, `<= 150,000` decoded pixels;
+  - overlay: `<= 96 KiB`, `<= 150,000` decoded pixels;
+  - landmark: `<= 96 KiB`, `<= 131,072` decoded pixels.
+
+The validator warns when large images are displayed below `0.8` native scale.
+Warnings are acceptable during replacement work, but the next asset pass should
+trim transparent padding or downscale source art when screenshot diffs remain
+visually equivalent. Images that decode more than 4x their displayed pixel area
+fail validation.
+
+Use lossless optimization before promotion, then re-check dimensions and visual
+diffs:
+
+```bash
+npm run check:pharosville-assets
+```
+
+Optimized formats beyond PNG require browser-support review and intentional
+renderer/manifest changes. Do not convert runtime assets to WebP or PNG8 as a
+drive-by change.
 
 ## Required Checks For Asset Changes
 

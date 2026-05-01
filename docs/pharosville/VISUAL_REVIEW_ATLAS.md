@@ -18,6 +18,10 @@ This atlas defines what to look at when reviewing PharosVille pixels. It complem
 | Dense Ledger north crop | `pharosville dense visual fixture preserves districts, dense ships, and render budget` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-ledger-north-linux.png` | Ledger Mooring spanning the entire top mooring shelf, touching Calm Anchorage along the western flank, with NAV ships visibly moored and labels readable. |
 | Narrow fallback | `pharosville narrow fallback avoids world runtime requests` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-narrow-fallback-linux.png` | DOM fallback copy and links, no canvas, and no world data/asset requests below the desktop gate. |
 
+The short-height fallback is covered by Playwright assertions but does not have
+a committed screenshot baseline; review it as DOM-only behavior unless the
+fallback design itself changes.
+
 ## Browser Review Entries
 
 Run the whole visual atlas when canvas drawing, layout, interaction, motion, or assets change:
@@ -31,11 +35,11 @@ Use focused entries while developing:
 | Entry | Command | What to inspect |
 | --- | --- | --- |
 | Desktop canvas shell | `npx playwright test tests/visual/pharosville.spec.ts --grep "desktop canvas shell"` | World framing, absence of retired building targets, water/land pixel stats, hidden old auxiliary UI, asset load state. |
-| Dense visual fixture | `npx playwright test tests/visual/pharosville.spec.ts --grep "dense visual fixture"` | Ten docks, 132 dense-fixture ship motion samples, rotating normal-motion visible ship targets, no ship-cluster targets, crop atlas coverage, and p95 draw-duration budget under normal motion. |
+| Dense visual fixture | `npx playwright test tests/visual/pharosville.spec.ts --grep "dense visual fixture"` | 8 rendered chain docks, 132 dense-fixture ship motion samples, rotating normal-motion visible ship targets, no ship-cluster targets, crop atlas coverage, and p95 draw-duration budget under normal motion. |
 | Named risk-water areas | `npx playwright test tests/visual/pharosville.spec.ts --grep "named risk water"` | Calm, Watch, Alert, Warning, Danger, and Ledger Mooring labels all remain visible, win label clicks, and select browser details with matching risk-water zones. |
 | Stressed ship detail | `npx playwright test tests/visual/pharosville.spec.ts --grep "stressed ship"` | USDT active-depeg fixture selects a ship, shows Danger Strait/storm-shelf risk water, risk zone `danger`, and evidence fields. |
 | Narrow fallback | `npx playwright test tests/visual/pharosville.spec.ts --grep "narrow fallback"` | No canvas/runtime requests under `1280px` width. |
-| Short fallback | `npx playwright test tests/visual/pharosville.spec.ts --grep "short desktop"` | No clipped canvas under `760px` height. |
+| Short fallback | `npx playwright test tests/visual/pharosville.spec.ts --grep "short desktop"` | DOM-only fallback, no clipped canvas, and no world/runtime requests under `760px` height. |
 | Ultrawide canvas | `npx playwright test tests/visual/pharosville.spec.ts --grep "ultrawide"` | DPR/backing-store caps at `2560 x 1440` with device scale factor 3. |
 | Interactions | `npx playwright test tests/visual/pharosville.spec.ts --grep "interactions"` | Click selection, detail anchors, blank-map clearing, pan/zoom, fullscreen, and camera bounds. |
 | Reduced motion | `npx playwright test tests/visual/pharosville.spec.ts --grep "reduced motion"` | Static ship samples, no RAF loop, and live reduced-motion preference changes. |
@@ -58,8 +62,9 @@ Use these notes for the compact main-island revamp:
   Watch Breakwater, Alert Channel, Warning Shoals, Danger Strait, and Ledger
   Mooring keep their labels, hit targets, and semantic colors after the island
   periphery is recalibrated.
-- Narrow and short fallback screenshots should remain unchanged: no world data,
-  manifest, canvas, or sprite decode below `1280 x 760`.
+- Narrow fallback screenshots should remain unchanged, and short fallback
+  assertions should stay DOM-only: no world data, manifest, canvas, or sprite
+  decode below `1280 x 760`.
 
 ## Historical Review Images
 

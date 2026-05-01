@@ -8,9 +8,9 @@ const markdownLinkPattern = /!?\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 const codeSpanPattern = /`([^`\n]+)`/g;
 const npmRunPattern = /\bnpm\s+run\s+([A-Za-z0-9:_-]+)/g;
 const repoRootPathPattern =
-  /\b(?:README\.md|AGENTS\.md|CLAUDE\.md|package\.json|package-lock\.json|wrangler\.toml|vite\.config\.ts|vitest\.config\.ts|playwright\.config\.ts|tsconfig\.json|(?:agent|data|docs|functions|public|scripts|shared|src|tests)\/[A-Za-z0-9._~!$&'()+,;=:@%/\-[\]\*{}]+)(?=$|[\s`),.;])/g;
+  /\b(?:README\.md|AGENTS\.md|CLAUDE\.md|package\.json|package-lock\.json|wrangler\.toml|vite\.config\.ts|vitest\.config\.ts|playwright\.config\.ts|tsconfig\.json|(?:agent|agents|data|docs|functions|public|scripts|shared|src|tests)\/[A-Za-z0-9._~!$&'()+,;=:@%/\-[\]\*{}]+)(?=$|[\s`),.;])/g;
 const repoRootPathStartPattern =
-  /^(?:README\.md|AGENTS\.md|CLAUDE\.md|package\.json|package-lock\.json|wrangler\.toml|vite\.config\.ts|vitest\.config\.ts|playwright\.config\.ts|tsconfig\.json|(?:agent|data|docs|functions|public|scripts|shared|src|tests)\/)/;
+  /^(?:README\.md|AGENTS\.md|CLAUDE\.md|package\.json|package-lock\.json|wrangler\.toml|vite\.config\.ts|vitest\.config\.ts|playwright\.config\.ts|tsconfig\.json|(?:agent|agents|data|docs|functions|public|scripts|shared|src|tests)\/)/;
 
 const ignoredReferencePattern =
   /^(?:https?:|mailto:|#|\/(?:api|pharosville)(?:\/|$)|[a-z]+:)/i;
@@ -140,7 +140,7 @@ function isEmbeddedBarePathMatch(text, index) {
 function cleanReference(rawTarget) {
   const withoutAnchor = rawTarget.trim().split("#")[0];
   const withoutQuery = withoutAnchor.split("?")[0];
-  const withoutLineRange = withoutQuery.replace(/:(?:\d+)(?:-\d+)?$/, "");
+  const withoutLineRange = withoutQuery.replace(/:(?:\d+)(?:-\d+)?(?:,\d+(?:-\d+)?)*$/, "");
   const cleaned = withoutLineRange.replace(/[,:;.)]+$/g, "");
   if (!cleaned || ignoredReferencePattern.test(cleaned)) return null;
   if (cleaned.includes("://")) return null;

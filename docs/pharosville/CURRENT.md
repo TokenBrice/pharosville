@@ -26,14 +26,14 @@ layout, asset, renderer, test, and docs change:
 - `LIGHTHOUSE_TILE` remains `{ x: 18, y: 28 }` and the visual-clearance box
   remains `x:14..24, y:23..32`.
 - Runtime asset cache version is
-  `2026-04-30-pharosville-main-island-revamp-v2`; the manifest-wide style
+  `2026-05-01-lighthouse-integrated-ground-v1`; the manifest-wide style
   anchor remains `2026-04-29-lighthouse-hill-v5` so all asset provenance stays
   validator-aligned.
 - Promoted PixelLab assets are `overlay.central-island`
   (`25ee8636-32f7-4aa1-bb29-f924cbb4fc01`),
-  `landmark.lighthouse` (`c47c36c5-dd3e-4721-923f-9e5852400f65`), and
+  `landmark.lighthouse` (`3b89b603-35ce-4b87-97fb-37a3fc8d913f`), and
   `dock.compact-harbor-pier` (`31155966-7d76-413a-bd7b-557f79cffc9f`), with
-  ImageMagick cleanup/cropping before runtime promotion.
+  runtime promotion recorded in the manifest provenance.
 
 Historical plans in this directory are context, not live instructions. If they conflict with this file, follow this file and the verified docs.
 
@@ -120,7 +120,7 @@ visual-clearance box (x:14..24, y:23..32) are generic water.
 - Ship size is a compressed market-cap tier, not linear area.
 - The current runtime manifest uses schema v2. `style.cacheVersion` controls image cache busting; `style.styleAnchorVersion` is the provenance/style anchor for generated assets.
 - Asset loading is intentionally staged: the route loads the manifest and critical/first-render sprites before the initial canvas frame, then loads deferred sprite families after the core scene can render. Do not move visual-only sprites into the critical set without checking first-render need and the manifest cap.
-- The current lighthouse asset is `landmark.lighthouse` at `public/pharosville/assets/landmarks/lighthouse-alexandria.png`, with manifest cache version `2026-04-30-pharosville-main-island-revamp-v2` and style anchor `2026-04-29-lighthouse-hill-v5`.
+- The current lighthouse asset is `landmark.lighthouse` at `public/pharosville/assets/landmarks/lighthouse-alexandria.png`, with manifest cache version `2026-05-01-lighthouse-integrated-ground-v1` and style anchor `2026-04-29-lighthouse-hill-v5`.
 - Current ship sprites share the lighthouse style anchor, keep logo-safe sail/pennant zones, and treat overlays as small lanterns/pennants/signals rather than badges. Standard class hulls use 104 x 80 transparent PNGs; USDC, USDS, and USDT use dedicated titan hull PNGs, with USDS a bit smaller than USDC and USDT allowed to read larger than both.
 - Current cemetery props share the same style anchor and use a local memorial sprite set under `public/pharosville/assets/props/`: `memorial-terrace`, `memorial-headstone`, `ledger-slab`, `reliquary-marker`, and `regulatory-obelisk`.
 

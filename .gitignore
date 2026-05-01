@@ -7,6 +7,7 @@ playwright-report/
 .playwright-mcp/
 output/
 .worktrees/
+.claude/
 .DS_Store
 .env
 .env.*

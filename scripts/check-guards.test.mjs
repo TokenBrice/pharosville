@@ -11,6 +11,7 @@ import {
   findDocumentedNpmRunCommands,
   findPathReferencesInMarkdown,
 } from "./check-doc-paths-and-scripts.mjs";
+import { evaluateBundleBudgets } from "./check-bundle-size.mjs";
 
 const neutralValue = ["alpha", "beta", "gamma", "9876543210"].join("_");
 
@@ -31,7 +32,7 @@ assert.equal(
 
 const markdown = [
   "Run `npm run typecheck`, then `npm run missing-command`.",
-  "See `src/App.tsx`, `src/missing.ts:12-18`, and [guide](./guide.md).",
+  "See `src/App.tsx:12,18-20`, `agents/example-plan.md`, `src/missing.ts:12-18`, and [guide](./guide.md).",
 ].join("\n");
 
 assert.deepEqual(
@@ -40,13 +41,14 @@ assert.deepEqual(
 );
 assert.deepEqual(
   findPathReferencesInMarkdown("docs/check.md", markdown).map((reference) => reference.target),
-  ["./guide.md", "src/App.tsx", "src/missing.ts"],
+  ["./guide.md", "src/App.tsx", "agents/example-plan.md", "src/missing.ts"],
 );
 
 const repoRoot = resolve("/repo");
 const existingPaths = new Set([
   resolve(repoRoot, "docs/check.md"),
   resolve(repoRoot, "docs/guide.md"),
+  resolve(repoRoot, "agents/example-plan.md"),
   resolve(repoRoot, "src/App.tsx"),
 ]);
 const result = checkMarkdownFiles({
@@ -64,5 +66,34 @@ assert.deepEqual(
   result.missingPaths.map((finding) => join(finding.checkedPath)),
   ["src/missing.ts"],
 );
+
+const passingBundle = evaluateBundleBudgets([
+  { fileName: "index-a1.js", gzipBytes: 10, rawBytes: 100, type: "js" },
+  { fileName: "pharosville-desktop-data-b2.js", gzipBytes: 20, rawBytes: 200, type: "js" },
+  { fileName: "index-c3.css", gzipBytes: 5, rawBytes: 50, type: "css" },
+], {
+  aggregate: { maxJsGzipBytes: 100, maxJsRawBytes: 500 },
+  budgets: {
+    entry: { label: "entry chunk", maxGzipBytes: 15, maxRawBytes: 150, pattern: /^index-.*\.js$/, required: true },
+    desktop: { label: "desktop chunk", maxGzipBytes: 25, maxRawBytes: 250, pattern: /^pharosville-desktop-data-.*\.js$/, required: true },
+    css: { label: "entry CSS", maxGzipBytes: 10, maxRawBytes: 60, pattern: /^index-.*\.css$/, required: true },
+  },
+});
+assert.deepEqual(passingBundle.errors, []);
+
+const failingBundle = evaluateBundleBudgets([
+  { fileName: "index-a1.js", gzipBytes: 30, rawBytes: 100, type: "js" },
+  { fileName: "pharosville-desktop-data-b2.js", gzipBytes: 20, rawBytes: 200, type: "js" },
+  { fileName: "index-c3.css", gzipBytes: 5, rawBytes: 50, type: "css" },
+], {
+  aggregate: { maxJsGzipBytes: 45, maxJsRawBytes: 500 },
+  budgets: {
+    entry: { label: "entry chunk", maxGzipBytes: 15, maxRawBytes: 150, pattern: /^index-.*\.js$/, required: true },
+    desktop: { label: "desktop chunk", maxGzipBytes: 25, maxRawBytes: 250, pattern: /^pharosville-desktop-data-.*\.js$/, required: true },
+    css: { label: "entry CSS", maxGzipBytes: 10, maxRawBytes: 60, pattern: /^index-.*\.css$/, required: true },
+  },
+});
+assert.equal(failingBundle.errors.some((error) => error.includes("entry chunk")), true);
+assert.equal(failingBundle.errors.some((error) => error.includes("Total JS")), true);
 
 console.log("Guard script self-tests passed.");
