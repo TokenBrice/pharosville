@@ -378,7 +378,23 @@ function transitSampleInto(input: {
   // internal waypoint vertex; without smoothing ships visibly twitch when
   // crossing 4-connected A* corners. Skipped for moored/risk-drift (those have
   // intentional orbital headings) and for reduced-motion (deterministic snapshot).
-  applyHeadingSmoothing(input.route.shipId, input.state, input.timeSeconds, out.heading);
+  // #2: during the final 12% of an arriving transit, blend the smoothed heading
+  // toward the destination dock's natural tangent so the bow tucks into the
+  // berth instead of sliding sideways. The ramp is applied inside the smoothing
+  // step so headingDelta (memory) captures the ramp contribution — ship-pose
+  // reads it for bank-into-turn, producing an incidental bank into the dock.
+  const alignmentTangent = input.state === "arriving" && input.toMooringStop?.dockTangent
+    ? input.toMooringStop.dockTangent
+    : null;
+  const alignmentT = alignmentTangent ? smoothstepRange(0.88, 1, input.progress) : 0;
+  applyHeadingSmoothing(
+    input.route.shipId,
+    input.state,
+    input.timeSeconds,
+    out.heading,
+    alignmentTangent,
+    alignmentT,
+  );
 }
 
 function applyHeadingSmoothing(
@@ -386,6 +402,8 @@ function applyHeadingSmoothing(
   state: ShipMotionState,
   timeSeconds: number,
   heading: { x: number; y: number },
+  alignmentTangent: { x: number; y: number } | null,
+  alignmentT: number,
 ): void {
   const memory = headingMemoryByShipId.get(shipId);
   if (memory) {
@@ -400,6 +418,14 @@ function applyHeadingSmoothing(
     const hx = memory.hx + (targetX - memory.hx) * alpha;
     const hy = memory.hy + (targetY - memory.hy) * alpha;
     normalizeHeadingInto(hx, hy, heading);
+    // Docking alignment ramp: lerp the smoothed (unit) heading toward the
+    // dockTangent and renormalize, so the ramp is the authoritative final
+    // heading at touchdown.
+    if (alignmentTangent && alignmentT > 0) {
+      const lerpX = heading.x + (alignmentTangent.x - heading.x) * alignmentT;
+      const lerpY = heading.y + (alignmentTangent.y - heading.y) * alignmentT;
+      normalizeHeadingInto(lerpX, lerpY, heading);
+    }
 
     // Track signed angular velocity for ship-pose's bank-into-turn.
     let headingDelta = 0;
@@ -413,6 +439,13 @@ function applyHeadingSmoothing(
     memory.lastT = timeSeconds;
     memory.headingDelta = headingDelta;
     return;
+  }
+  // First sample for this ship: seed memory directly (skip the lerp). Apply the
+  // alignment ramp before recording so the seed reflects the ramped heading.
+  if (alignmentTangent && alignmentT > 0) {
+    const hx = heading.x + (alignmentTangent.x - heading.x) * alignmentT;
+    const hy = heading.y + (alignmentTangent.y - heading.y) * alignmentT;
+    normalizeHeadingInto(hx, hy, heading);
   }
   headingMemoryByShipId.set(shipId, {
     hx: heading.x,

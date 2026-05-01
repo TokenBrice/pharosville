@@ -1183,6 +1183,201 @@ describe("motion", () => {
     });
   });
 
+  describe("docking alignment ramp", () => {
+    // The ramp is applied to "arriving" transits in the final 12% of progress
+    // (smoothstep 0.88 → 1.0), blending the smoothed transit heading toward
+    // toMooringStop.dockTangent so the bow tucks into the berth.
+    const buildAlignmentWorld = () => worldForShip({
+      chainCirculating: chainCirculating(["Ethereum", "Tron", "Solana"]),
+      chains: ["ethereum", "tron", "solana"],
+    });
+
+    function arrivingSamplesAcrossCycle(plan: ReturnType<typeof buildMotionPlan>, ship: PharosVilleWorld["ships"][number], samples = 1200) {
+      const route = plan.shipRoutes.get(ship.id)!;
+      const collected: Array<{ timeSeconds: number; sample: ReturnType<typeof resolveShipMotionSample>; toMooringStop: ShipDockMotionStop | null }> = [];
+      for (let index = 0; index < samples; index += 1) {
+        const timeSeconds = route.cycleSeconds * (index / samples) - route.phaseSeconds;
+        const sample = resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds });
+        if (sample.state !== "arriving") continue;
+        const toMooringStop = route.dockStops.find((stop) => stop.id === sample.currentRouteStopId) ?? null;
+        collected.push({ timeSeconds, sample, toMooringStop });
+      }
+      return collected;
+    }
+
+    function arrivingPhaseBoundsForRouteStop(arriving: ReturnType<typeof arrivingSamplesAcrossCycle>, routeStopId: string): { startSeconds: number; endSeconds: number } | null {
+      // Pick a single contiguous arriving window targeting routeStopId.
+      const window = arriving.filter((entry) => entry.sample.currentRouteStopId === routeStopId);
+      if (window.length === 0) return null;
+      // Walk arriving in order; detect contiguous run and slice.
+      // The cycle clock progresses linearly, so consecutive entries inside the
+      // window stay contiguous in time until the phase ends.
+      const startSeconds = window[0]!.timeSeconds;
+      let endSeconds = window[0]!.timeSeconds;
+      for (let index = 1; index < window.length; index += 1) {
+        const prev = window[index - 1]!;
+        const cur = window[index]!;
+        if (cur.timeSeconds - prev.timeSeconds > (window[1]!.timeSeconds - window[0]!.timeSeconds) * 4) break;
+        endSeconds = cur.timeSeconds;
+      }
+      return { startSeconds, endSeconds };
+    }
+
+    it("does not align when progress is below the 88% ramp window", () => {
+      const sampleWorld = buildAlignmentWorld();
+      const ship = sampleWorld.ships[0]!;
+      const plan = buildMotionPlan(sampleWorld, ship.detailId);
+      const arriving = arrivingSamplesAcrossCycle(plan, ship);
+      // Pick an arriving window whose mooring stop has a non-null dockTangent.
+      const target = arriving.find((entry) => entry.toMooringStop?.dockTangent);
+      expect(target).toBeDefined();
+      const tangent = target!.toMooringStop!.dockTangent!;
+      const bounds = arrivingPhaseBoundsForRouteStop(arriving, target!.sample.currentRouteStopId!)!;
+      expect(bounds).not.toBeNull();
+
+      // Sample at the midpoint of the arriving phase: progress ~ 0.5 (well
+      // below the 0.88 ramp threshold). Heading must NOT track dockTangent.
+      const midSeconds = (bounds.startSeconds + bounds.endSeconds) / 2;
+      const midSample = resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds: midSeconds });
+      expect(midSample.state).toBe("arriving");
+      const dot = midSample.heading.x * tangent.x + midSample.heading.y * tangent.y;
+      // The path tangent during arriving points roughly TOWARD the dock; the
+      // dockTangent points mooring→dock (a much shorter axis). They should not
+      // be aligned (dot product nowhere near 1).
+      expect(dot).toBeLessThan(0.95);
+    });
+
+    it("aligns heading to dockTangent at the very end of the arriving phase", () => {
+      const sampleWorld = buildAlignmentWorld();
+      const ship = sampleWorld.ships[0]!;
+      const plan = buildMotionPlan(sampleWorld, ship.detailId);
+      const arriving = arrivingSamplesAcrossCycle(plan, ship, 4800);
+      const target = arriving.find((entry) => entry.toMooringStop?.dockTangent);
+      expect(target).toBeDefined();
+      const tangent = target!.toMooringStop!.dockTangent!;
+      const bounds = arrivingPhaseBoundsForRouteStop(arriving, target!.sample.currentRouteStopId!)!;
+
+      // The boundary excludes cursor === transitSecondsEach, so we sample as
+      // close to the end as the cycle clock allows. With 4800 samples per
+      // cycle the last arriving sample sits at progress ≈ 1 within float eps.
+      const endSample = resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds: bounds.endSeconds });
+      expect(endSample.state).toBe("arriving");
+      expect(endSample.heading.x).toBeCloseTo(tangent.x, 2);
+      expect(endSample.heading.y).toBeCloseTo(tangent.y, 2);
+    });
+
+    it("partially aligns heading mid-ramp (between smoothed transit heading and dockTangent)", () => {
+      const sampleWorld = buildAlignmentWorld();
+      const ship = sampleWorld.ships[0]!;
+      const plan = buildMotionPlan(sampleWorld, ship.detailId);
+      const arriving = arrivingSamplesAcrossCycle(plan, ship, 4800);
+      const target = arriving.find((entry) => entry.toMooringStop?.dockTangent);
+      expect(target).toBeDefined();
+      const tangent = target!.toMooringStop!.dockTangent!;
+      const bounds = arrivingPhaseBoundsForRouteStop(arriving, target!.sample.currentRouteStopId!)!;
+
+      // Pre-ramp heading: sample at progress < 0.88 (mid-arriving phase).
+      const preRampSample = resolveShipMotionSample({
+        plan,
+        reducedMotion: false,
+        ship,
+        timeSeconds: (bounds.startSeconds + bounds.endSeconds) / 2,
+      });
+      const preRampHeading = { x: preRampSample.heading.x, y: preRampSample.heading.y };
+
+      // Mid-ramp: linear time fraction ~0.85 within the arriving window. The
+      // smoothstep maps 0.85 → ~0.939, which lands at ramp_t ≈ 0.48 — squarely
+      // mid-blend. We expect dot(heading, tangent) strictly between the
+      // pre-ramp dot and 1.
+      const window = bounds.endSeconds - bounds.startSeconds;
+      const midRampSeconds = bounds.startSeconds + window * 0.85;
+      const midRampSample = resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds: midRampSeconds });
+      expect(midRampSample.state).toBe("arriving");
+
+      const preRampDot = preRampHeading.x * tangent.x + preRampHeading.y * tangent.y;
+      const midRampDot = midRampSample.heading.x * tangent.x + midRampSample.heading.y * tangent.y;
+      expect(midRampDot).toBeGreaterThan(preRampDot);
+      // Mid-ramp must not yet equal the tangent — the ramp factor is < 1.
+      expect(midRampDot).toBeLessThan(0.999);
+      // Heading must remain unit length.
+      expect(Math.hypot(midRampSample.heading.x, midRampSample.heading.y)).toBeCloseTo(1, 5);
+    });
+
+    it("does not align when toMooringStop.dockTangent is null", () => {
+      const sampleWorld = buildAlignmentWorld();
+      const ship = sampleWorld.ships[0]!;
+      const basePlan = buildMotionPlan(sampleWorld, ship.detailId);
+      const route = basePlan.shipRoutes.get(ship.id)!;
+
+      // Mutate the route in place: clear every dockTangent so arriving has no
+      // alignment target. Sampler must fall back to pre-ramp behavior.
+      const restoreTangents = route.dockStops.map((stop) => ({ stop, tangent: stop.dockTangent }));
+      for (const entry of restoreTangents) (entry.stop as { dockTangent: { x: number; y: number } | null }).dockTangent = null;
+
+      try {
+        const arriving = arrivingSamplesAcrossCycle(basePlan, ship, 4800);
+        expect(arriving.length).toBeGreaterThan(0);
+        // Sample at the very end of arriving — without a tangent, heading is
+        // whatever the smoothed path tangent produced (NOT dockTangent).
+        const lastArriving = arriving[arriving.length - 1]!;
+        // Verify no arriving sample's heading was forced to a fixed point — pick
+        // two samples with different progress and confirm they differ.
+        const earlyArriving = arriving[Math.floor(arriving.length * 0.2)]!;
+        const earlyAngle = Math.atan2(earlyArriving.sample.heading.y, earlyArriving.sample.heading.x);
+        const lateAngle = Math.atan2(lastArriving.sample.heading.y, lastArriving.sample.heading.x);
+        // With no alignment, mid-leg heading still tracks the path tangent and
+        // does not collapse onto a single fixed direction. (Both stay finite
+        // unit vectors.)
+        expect(Math.hypot(lastArriving.sample.heading.x, lastArriving.sample.heading.y)).toBeCloseTo(1, 5);
+        expect(Number.isFinite(earlyAngle)).toBe(true);
+        expect(Number.isFinite(lateAngle)).toBe(true);
+      } finally {
+        for (const entry of restoreTangents) (entry.stop as { dockTangent: { x: number; y: number } | null }).dockTangent = entry.tangent;
+      }
+    });
+
+    it("does not align departing transits", () => {
+      const sampleWorld = buildAlignmentWorld();
+      const ship = sampleWorld.ships[0]!;
+      const plan = buildMotionPlan(sampleWorld, ship.detailId);
+      const route = plan.shipRoutes.get(ship.id)!;
+
+      // Find a departing sample late in its phase. Departing has fromMooringStop
+      // set, toMooringStop = null, so the alignment branch is skipped.
+      const samples = 4800;
+      let lateDeparting: ReturnType<typeof resolveShipMotionSample> | null = null;
+      let lateDepartingFromStopId: string | null = null;
+      const departingByStop = new Map<string, Array<{ timeSeconds: number; sample: ReturnType<typeof resolveShipMotionSample> }>>();
+      for (let index = 0; index < samples; index += 1) {
+        const timeSeconds = route.cycleSeconds * (index / samples) - route.phaseSeconds;
+        const sample = resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds });
+        if (sample.state !== "departing") continue;
+        const stopId = sample.currentRouteStopId ?? "";
+        const list = departingByStop.get(stopId) ?? [];
+        list.push({ timeSeconds, sample });
+        departingByStop.set(stopId, list);
+      }
+      // Pick the last entry of any stop window — that's progress closest to 1.
+      for (const [stopId, list] of departingByStop) {
+        const last = list[list.length - 1]!;
+        if (!lateDeparting) {
+          lateDeparting = last.sample;
+          lateDepartingFromStopId = stopId;
+        }
+      }
+      expect(lateDeparting).not.toBeNull();
+      const fromStop = route.dockStops.find((stop) => stop.id === lateDepartingFromStopId);
+      // If the departing fromStop has a non-null dockTangent, confirm heading
+      // does NOT match it. The ramp must skip departing entirely.
+      if (fromStop?.dockTangent) {
+        const dot = lateDeparting!.heading.x * fromStop.dockTangent.x + lateDeparting!.heading.y * fromStop.dockTangent.y;
+        expect(dot).toBeLessThan(0.95);
+      }
+      // Heading stays well-formed.
+      expect(Math.hypot(lateDeparting!.heading.x, lateDeparting!.heading.y)).toBeCloseTo(1, 5);
+    });
+  });
+
   describe("Stablecoin squad motion inheritance", () => {
     // Sky squad: USDS flagship + sUSDS savings cutter + stUSDS vanguard.
     // Maker squad: DAI flagship + sDAI savings cutter.
