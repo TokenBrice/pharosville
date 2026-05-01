@@ -2,6 +2,11 @@ import type { PegSummaryCoin, StablecoinData, StablecoinMeta, StressSignalEntry 
 import type { PharosVilleFreshness, PlacementEvidence, ShipRiskPlacement } from "./world-types";
 import { dewsAreaPlacementForBand } from "./risk-water-areas";
 
+// Severity rank for cross-placement comparison. The DEWS continuum maps to ranks
+// 1-5 (CALM → DANGER) per the band ordering in `risk-water-areas.ts`.
+// `ledger-mooring` is ranked below CALM because it is the navToken routing track,
+// outside the DEWS gradient — a navToken-only consort never out-stricts a flagship
+// in any DEWS placement, which is the intended Maker-squad invariant.
 const PLACEMENT_SEVERITY: Record<ShipRiskPlacement, number> = {
   "storm-shelf": 5,
   "outer-rough-water": 4,
