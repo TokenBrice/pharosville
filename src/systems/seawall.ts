@@ -57,11 +57,6 @@ export const SEAWALL_BARRIER_TILES = [
   { x: 25, y: 39 },
   { x: 24, y: 38 },
   { x: 23, y: 38 },
-  { x: 20, y: 36 },
-  { x: 19, y: 35 },
-  { x: 19, y: 34 },
-  { x: 19, y: 33 },
-  { x: 19, y: 32 },
 ] as const;
 
 const BARRIER_TILE_KEYS = new Set(SEAWALL_BARRIER_TILES.map((tile) => `${tile.x}.${tile.y}`));
@@ -167,7 +162,4 @@ export const SEAWALL_RENDER_PLACEMENTS: readonly SeawallPlacement[] = [
   { assetId: "overlay.seawall-straight", flipX: true, rotation: 0, scale: 0.85, tile: { x: 27.6, y: 40.8 }, yOffset: 1, alphaJitter: -0.02 },
   { assetId: "overlay.seawall-corner", flipX: false, rotation: 0, scale: 0.85, tile: { x: 24.8, y: 39.0 }, yOffset: 2, alphaJitter: 0.01 },
   { assetId: "overlay.seawall-corner", flipX: false, rotation: 0, scale: 0.88, tile: { x: 22.6, y: 37.6 }, yOffset: 2, alphaJitter: 0.03 },
-  { assetId: "overlay.seawall-corner", flipX: false, rotation: 0, scale: 0.88, tile: { x: 20.8, y: 35.8 }, yOffset: 2, alphaJitter: -0.01 },
-  { assetId: "overlay.seawall-corner", flipX: false, rotation: 0, scale: 0.85, tile: { x: 19.6, y: 33.6 }, yOffset: 1, alphaJitter: 0.04 },
-  { assetId: "overlay.seawall-corner", flipX: false, rotation: 0, scale: 0.85, tile: { x: 19.4, y: 31.2 }, yOffset: 1, alphaJitter: -0.03 },
 ] as const;

@@ -52,7 +52,6 @@ const SCENERY_PROPS: readonly SceneryProp[] = [
   { id: "watch-reeds", kind: "reed-bed", tile: { x: 14.7, y: 28.8 }, scale: 0.64 },
   { id: "watch-rocks", kind: "rock", tile: { x: 12.2, y: 35.6 }, scale: 0.62 },
   { id: "west-lamp", kind: "harbor-lamp", tile: { x: 18.7, y: 31.5 }, scale: 0.78 },
-  { id: "west-seawall", kind: "sea-wall", tile: { x: 18.5, y: 34.4 }, scale: 0.82 },
   { id: "west-mooring", kind: "mooring-posts", tile: { x: 17.2, y: 33.2 }, scale: 0.78 },
   { id: "west-barrels", kind: "barrel", tile: { x: 20.1, y: 35.3 }, scale: 0.64 },
   { id: "west-steps", kind: "stone-steps", tile: { x: 19.1, y: 30.0 }, scale: 0.7 },

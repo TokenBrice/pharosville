@@ -36,11 +36,13 @@ describe("buildPharosVilleMap", () => {
     expect(map.height).toBe(PHAROSVILLE_MAP_HEIGHT);
     expect(map.tiles).toHaveLength(PHAROSVILLE_MAP_WIDTH * PHAROSVILLE_MAP_HEIGHT);
     // Sea zones now dominate more of the canvas after the compact-island revamp.
-    expect(map.waterRatio).toBeGreaterThanOrEqual(0.852);
+    expect(map.waterRatio).toBeGreaterThanOrEqual(0.850);
     expect(map.waterRatio).toBeLessThanOrEqual(0.856);
     const mainIslandLandTiles = landTilesExcludingCemetery(map.tiles);
     // Baseline was 592 main-island land tiles; 393 is a 33.6% reduction.
-    expect(mainIslandLandTiles).toHaveLength(393);
+    // +11 from absorbing the former west-seawall pocket into the lighthouse
+    // south flank (closes the visible BSC harbor pool).
+    expect(mainIslandLandTiles).toHaveLength(404);
     const mainIslandBounds = landBoundsExcludingCemetery(map.tiles);
     expect(mainIslandBounds.minX).toBeGreaterThanOrEqual(16);
     expect(mainIslandBounds.maxX).toBeLessThanOrEqual(43);
@@ -248,7 +250,7 @@ describe("buildPharosVilleMap", () => {
       { x: 26, y: 39 },
     ]);
     expect(OUTER_HARBOR_DOCK_TILES).toEqual([
-      { x: 20, y: 35 },
+      { x: 18, y: 35 },
       { x: 28, y: 22 },
       { x: 34, y: 22 },
       HYPERLIQUID_HARBOR_DOCK_TILE,
@@ -269,7 +271,7 @@ describe("buildPharosVilleMap", () => {
   });
 
   it("pins seawall blockers to coastal water outside dock openings", () => {
-    expect(SEAWALL_BARRIER_TILES.length).toBeGreaterThanOrEqual(45);
+    expect(SEAWALL_BARRIER_TILES.length).toBeGreaterThanOrEqual(40);
     for (const tile of SEAWALL_BARRIER_TILES) {
       expect(isSeawallBarrierTile(tile)).toBe(true);
       expect(isWaterTileKind(tileKindAt(tile.x, tile.y)), `${tile.x}.${tile.y}`).toBe(true);

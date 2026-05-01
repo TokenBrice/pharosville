@@ -1,8 +1,9 @@
 import type { GraveNode, PharosVilleMap, PharosVilleTile, ShipRiskPlacement, TerrainKind, TileKind } from "./world-types";
 import type { CemeteryEntry } from "@shared/lib/cemetery-merged";
 import { RISK_WATER_REGION_TILES } from "./risk-water-areas";
+import { mulberry32 } from "./rng";
 import { isSeawallBarrierTile } from "./seawall";
-import { stableUnit } from "./stable-random";
+import { stableHash, stableUnit } from "./stable-random";
 
 export const PHAROSVILLE_MAP_WIDTH = 56;
 export const PHAROSVILLE_MAP_HEIGHT = 56;
@@ -64,7 +65,7 @@ export const EVM_BAY_DOCK_TILES = [
 // small northward nudge on the east shelf so it clears the neighboring cove.
 export const HYPERLIQUID_HARBOR_DOCK_TILE = { x: 39.5, y: 21.5 } as const;
 export const OUTER_HARBOR_DOCK_TILES = [
-  { x: 20, y: 35 },
+  { x: 18, y: 35 },
   { x: 28, y: 22 },
   { x: 34, y: 22 },
   HYPERLIQUID_HARBOR_DOCK_TILE,
@@ -208,6 +209,9 @@ function mainIslandValue(x: number, y: number): number {
     ellipseValue(x, y, 23.6, 32.0, 4.4, 5.5),
     // Raised lighthouse mountain shoulder.
     ellipseValue(x, y, 18.9, 28.0, 3.7, 3.2),
+    // Land fill from the lighthouse south flank down to the southwest coast,
+    // absorbing the former west-seawall pocket.
+    ellipseValue(x, y, 19.0, 33.5, 1.7, 3.1),
     // Southern quay shelf.
     ellipseValue(x, y, 31.4, 37.8, 6.5, 3.4),
     // East / Ethereum cove.
@@ -438,7 +442,13 @@ export function clampMapTile(tile: { x: number; y: number }): { x: number; y: nu
   };
 }
 
+// `buildPharosVilleMap` is a pure function of compile-time layout constants —
+// the result is identical across every call. Cache it once at module scope so
+// repeated world rebuilds don't re-allocate ~3,000 tile objects.
+let cachedPharosVilleMap: PharosVilleMap | null = null;
+
 export function buildPharosVilleMap(): PharosVilleMap {
+  if (cachedPharosVilleMap) return cachedPharosVilleMap;
   const tiles: PharosVilleTile[] = [];
   let waterTiles = 0;
   for (let y = 0; y < PHAROSVILLE_MAP_HEIGHT; y += 1) {
@@ -449,22 +459,60 @@ export function buildPharosVilleMap(): PharosVilleMap {
       tiles.push({ x, y, kind, terrain });
     }
   }
-  return {
+  cachedPharosVilleMap = {
     width: PHAROSVILLE_MAP_WIDTH,
     height: PHAROSVILLE_MAP_HEIGHT,
     tiles,
     waterRatio: waterTiles / tiles.length,
   };
+  return cachedPharosVilleMap;
 }
 
-export function graveNodesFromEntries(entries: readonly CemeteryEntry[]): GraveNode[] {
-  const placed: Array<{ scale: number; x: number; y: number }> = [];
-  return entries.map((entry, index) => {
-    const visual = graveVisual(entry, index);
-    const tile = cemeteryScatterTile(entry, index, placed, visual.scale);
-    placed.push({ ...tile, scale: visual.scale });
+type PlacedGrave = { scale: number; x: number; y: number };
 
-    return {
+// Spatial grid cell size for cemetery scatter neighbor queries. The maximum
+// effective rejection distance is ~1.16 in `(dx*1.05, dy*1.45)` space, so a
+// 1.5-tile cell guarantees a 3x3 neighbor scan covers every potential conflict.
+const CEMETERY_GRID_CELL = 1.5;
+
+function cemeteryGridKey(x: number, y: number): number {
+  // Pack into a 32-bit integer to avoid string allocations per lookup.
+  // Add a generous offset (1024) to keep coordinates non-negative; the
+  // cemetery sits well within (0, 56).
+  const cx = Math.floor(x / CEMETERY_GRID_CELL) + 1024;
+  const cy = Math.floor(y / CEMETERY_GRID_CELL) + 1024;
+  return (cx << 16) | cy;
+}
+
+// Memoize on the entries array reference. PharosVille's runtime cemetery
+// entries are constructed once at module init, so the same reference flows
+// through every world rebuild — this hits cleanly without retaining entries
+// across test boundaries (the WeakMap drops them with the array itself).
+const graveNodesCache = new WeakMap<readonly CemeteryEntry[], GraveNode[]>();
+
+export function graveNodesFromEntries(entries: readonly CemeteryEntry[]): GraveNode[] {
+  const cached = graveNodesCache.get(entries);
+  if (cached) return cached;
+
+  // Sort by id for deterministic layout regardless of upstream insertion order.
+  // Map back to the original index so visual variation that depends on
+  // position-in-array stays stable across data shuffles.
+  const ordered = entries
+    .map((entry, originalIndex) => ({ entry, originalIndex }))
+    .sort((a, b) => (a.entry.id < b.entry.id ? -1 : a.entry.id > b.entry.id ? 1 : 0));
+
+  const placedByGridCell = new Map<number, PlacedGrave[]>();
+  const result: GraveNode[] = new Array(ordered.length);
+
+  for (const { entry, originalIndex } of ordered) {
+    const visual = graveVisual(entry, originalIndex);
+    const tile = cemeteryScatterTile(entry, originalIndex, placedByGridCell, visual.scale);
+    const placed: PlacedGrave = { x: tile.x, y: tile.y, scale: visual.scale };
+    const key = cemeteryGridKey(tile.x, tile.y);
+    const bucket = placedByGridCell.get(key);
+    if (bucket) bucket.push(placed); else placedByGridCell.set(key, [placed]);
+
+    result[originalIndex] = {
       id: `grave.${entry.id}`,
       kind: "grave",
       label: entry.symbol,
@@ -474,31 +522,59 @@ export function graveNodesFromEntries(entries: readonly CemeteryEntry[]): GraveN
       visual,
       detailId: `grave.${entry.id}`,
     };
-  });
+  }
+
+  graveNodesCache.set(entries, result);
+  return result;
+}
+
+function nearestPlacedDistance(
+  placedByGridCell: ReadonlyMap<number, PlacedGrave[]>,
+  candidateX: number,
+  candidateY: number,
+  scale: number,
+): number {
+  const cellX = Math.floor(candidateX / CEMETERY_GRID_CELL);
+  const cellY = Math.floor(candidateY / CEMETERY_GRID_CELL);
+  let nearest = Number.POSITIVE_INFINITY;
+  for (let dy = -1; dy <= 1; dy += 1) {
+    for (let dx = -1; dx <= 1; dx += 1) {
+      const key = ((cellX + dx + 1024) << 16) | (cellY + dy + 1024);
+      const bucket = placedByGridCell.get(key);
+      if (!bucket) continue;
+      for (const grave of bucket) {
+        const requiredSpace = 0.36 + (grave.scale + scale) * 0.2;
+        const ex = (candidateX - grave.x) * 1.05;
+        const ey = (candidateY - grave.y) * 1.45;
+        const distance = Math.sqrt(ex * ex + ey * ey) - requiredSpace;
+        if (distance < nearest) nearest = distance;
+      }
+    }
+  }
+  return nearest;
 }
 
 function cemeteryScatterTile(
   entry: CemeteryEntry,
   index: number,
-  placed: readonly { scale: number; x: number; y: number }[],
+  placedByGridCell: ReadonlyMap<number, PlacedGrave[]>,
   scale: number,
 ): { x: number; y: number } {
+  // Single seeded RNG per entry: avoids ~240 string allocations + hashes
+  // (3 keys * 80 attempts) on the previous hot path.
+  const rng = mulberry32(stableHash(entry.id));
+  const drift = stableUnit(`${index}.grave.drift`) * 0.34 - 0.17;
   let bestTile: { x: number; y: number } | null = null;
   let bestScore = Number.NEGATIVE_INFINITY;
   for (let attempt = 0; attempt < 80; attempt += 1) {
-    const angle = stableUnit(`${entry.id}.angle.${attempt}`) * Math.PI * 2;
-    const radius = Math.sqrt(stableUnit(`${entry.id}.radius.${attempt}`)) * 0.96;
-    const drift = stableUnit(`${index}.grave.drift`) * 0.34 - 0.17;
+    const angle = rng() * Math.PI * 2;
+    const radius = Math.sqrt(rng()) * 0.96;
     const tile = {
       x: CEMETERY_CENTER.x + Math.cos(angle + drift) * CEMETERY_RADIUS.x * radius,
       y: CEMETERY_CENTER.y + Math.sin(angle - drift) * CEMETERY_RADIUS.y * radius,
     };
     if (cemeteryValue(tile.x, tile.y) > 0.97 || cemeteryReserved(tile) || tileKindAt(tile.x, tile.y) !== "land") continue;
-    const nearest = placed.reduce((minimum, grave) => {
-      const requiredSpace = 0.36 + (grave.scale + scale) * 0.2;
-      const distance = Math.hypot((tile.x - grave.x) * 1.05, (tile.y - grave.y) * 1.45) - requiredSpace;
-      return Math.min(minimum, distance);
-    }, Number.POSITIVE_INFINITY);
+    const nearest = nearestPlacedDistance(placedByGridCell, tile.x, tile.y, scale);
     const edgePenalty = Math.abs(0.58 - radius) * 0.18;
     const score = nearest - edgePenalty - attempt * 0.001;
     if (score > bestScore) {
@@ -509,8 +585,8 @@ function cemeteryScatterTile(
   }
   if (bestTile) return bestTile;
   for (let attempt = 0; attempt < 40; attempt += 1) {
-    const angle = stableUnit(`${entry.id}.fallback.angle.${attempt}`) * Math.PI * 2;
-    const radius = Math.sqrt(stableUnit(`${entry.id}.fallback.radius.${attempt}`)) * 0.72;
+    const angle = rng() * Math.PI * 2;
+    const radius = Math.sqrt(rng()) * 0.72;
     const tile = {
       x: CEMETERY_CENTER.x + Math.cos(angle) * CEMETERY_RADIUS.x * radius,
       y: CEMETERY_CENTER.y + Math.sin(angle) * CEMETERY_RADIUS.y * radius,
