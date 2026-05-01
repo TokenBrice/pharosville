@@ -66,12 +66,10 @@ export function drawLighthouseSurf({ camera, ctx, motion }: DrawPharosVilleInput
 
 const LIGHTHOUSE_HEADLAND_SCALE = 0.5;
 
-const NIGHT_HALO_OUTER_RADIUS = 320;       // sprite units — additive halo at firePoint
-const NIGHT_HALO_MAX_ALPHA = 0.55;
-const NIGHT_BEAM_ALPHA = 0.22;             // additive beam intensity on top of the existing pulse
-const NIGHT_BEAM_LENGTH_BOOST = 0.3;       // wedges reach this much further at full night
-const NIGHT_WATER_POOL_RADIUS = 280;       // sprite units — warm pool centered slightly below firePoint
-const NIGHT_WATER_POOL_MAX_ALPHA = 0.35;
+const NIGHT_HALO_OUTER_RADIUS = 380;       // sprite units — additive halo at firePoint (broadened to compensate for the beam fade)
+const NIGHT_HALO_MAX_ALPHA = 0.7;
+const NIGHT_WATER_POOL_RADIUS = 320;       // sprite units — warm pool centered slightly below firePoint
+const NIGHT_WATER_POOL_MAX_ALPHA = 0.42;
 
 export function drawLighthouseHeadland(input: DrawPharosVilleInput) {
   const { assets, camera, ctx, world } = input;
@@ -90,7 +88,9 @@ export function lighthouseOverlayScreenBounds(
 ): { height: number; width: number; x: number; y: number } {
   const { firePoint } = cached ?? lighthouseRenderState(input);
   const beamZoom = input.camera.zoom * 1.35;
-  const reach = 1 + NIGHT_BEAM_LENGTH_BOOST * nightFactor;
+  // Beams fade with nightFactor (see drawLighthouseBeam); the night halo
+  // takes over the visual footprint. Reach contracts with darkness.
+  const reach = 1 - nightFactor;
   const beamBounds = {
     height: 120 * beamZoom,
     width: 436 * beamZoom * reach,
@@ -169,10 +169,14 @@ export function drawLighthouseBody(input: DrawPharosVilleInput, cached?: Lightho
   ctx.restore();
 }
 
-export function drawLighthouseOverlay(input: DrawPharosVilleInput, cached?: LighthouseRenderState) {
+export function drawLighthouseOverlay(
+  input: DrawPharosVilleInput,
+  cached?: LighthouseRenderState,
+  nightFactor = 0,
+) {
   const { camera, ctx, motion, world } = input;
   const { firePoint, lighthouseAsset } = cached ?? lighthouseRenderState(input);
-  if (!world.lighthouse.unavailable) drawLighthouseBeam(ctx, firePoint, camera.zoom * 1.35, motion);
+  if (!world.lighthouse.unavailable) drawLighthouseBeam(ctx, firePoint, camera.zoom * 1.35, motion, nightFactor);
   if (lighthouseAsset) return;
   drawLighthouseFire(ctx, firePoint, camera.zoom * 1.32, world.lighthouse.color, motion);
 }
@@ -281,9 +285,15 @@ function drawLighthouseBeam(
   point: ScreenPoint,
   zoom: number,
   motion: PharosVilleCanvasMotion,
+  nightFactor: number,
 ) {
+  // Beams are a daytime affordance; at night the ambient halo + water pool
+  // take over the visual footprint. Fade linearly with nightFactor so dawn
+  // and dusk transition smoothly.
+  const fade = 1 - nightFactor;
+  if (fade <= 0) return;
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
-  const pulse = 0.11 + Math.sin(time * 0.7) * 0.025;
+  const pulse = (0.11 + Math.sin(time * 0.7) * 0.025) * fade;
   ctx.save();
   ctx.globalAlpha = pulse;
   ctx.fillStyle = "#f5d176";
@@ -303,7 +313,7 @@ function drawLighthouseBeam(
   ctx.closePath();
   ctx.fill();
 
-  ctx.globalAlpha = 0.24;
+  ctx.globalAlpha = 0.24 * fade;
   ctx.fillStyle = "#ffe2a0";
   ctx.beginPath();
   ctx.ellipse(point.x, point.y - 2 * zoom, 58 * zoom, 24 * zoom, -0.08, 0, Math.PI * 2);
@@ -314,8 +324,12 @@ function drawLighthouseBeam(
 export function drawLighthouseBeamRim(
   input: DrawPharosVilleInput,
   visibleShips: readonly DrawPharosVilleInput["world"]["ships"][number][],
-  cached?: LighthouseRenderState,
+  cached: LighthouseRenderState | undefined,
+  nightFactor: number,
 ) {
+  // Rim highlight is a beam affordance; with beams faded at night there's
+  // nothing for ships to be lit by, so fade in lockstep.
+  if (1 - nightFactor <= 0) return;
   const { camera, ctx, motion, world } = input;
   if (motion.reducedMotion) return;
   if (world.lighthouse.unavailable) return;
@@ -336,7 +350,7 @@ export function drawLighthouseBeamRim(
   ];
 
   ctx.save();
-  ctx.globalAlpha = 0.5;
+  ctx.globalAlpha = 0.5 * (1 - nightFactor);
   ctx.strokeStyle = world.lighthouse.color;
   ctx.lineWidth = Math.max(1, 2);
   ctx.lineCap = "round";
@@ -426,8 +440,9 @@ export function drawLighthouseNightHighlights(
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
 
-  // Warm halo — additive radial centered on firePoint, large enough to wash
-  // warmth onto the headland sprite below.
+  // Warm halo — additive radial centered on firePoint. Broad and bright, since
+  // the beams (which used to give the lighthouse directional reach at night)
+  // now fade with nightFactor and the halo carries the entire night footprint.
   const haloRadius = NIGHT_HALO_OUTER_RADIUS * zoom;
   const haloAlpha = NIGHT_HALO_MAX_ALPHA * nightFactor;
   const halo = ctx.createRadialGradient(
@@ -435,32 +450,13 @@ export function drawLighthouseNightHighlights(
     firePoint.x, firePoint.y, haloRadius,
   );
   halo.addColorStop(0, `rgba(255, 220, 130, ${haloAlpha})`);
-  halo.addColorStop(0.35, `rgba(255, 180, 80, ${haloAlpha * 0.4})`);
+  halo.addColorStop(0.4, `rgba(255, 180, 80, ${haloAlpha * 0.38})`);
   halo.addColorStop(1, "rgba(255, 160, 60, 0)");
   ctx.fillStyle = halo;
   ctx.beginPath();
   ctx.arc(firePoint.x, firePoint.y, haloRadius, 0, Math.PI * 2);
   ctx.fill();
 
-  // Boosted beam wedges — reach further at night and stack on the existing beam.
-  const beamZoom = zoom * 1.35;
-  const reach = 1 + NIGHT_BEAM_LENGTH_BOOST * nightFactor;
-  ctx.globalAlpha = NIGHT_BEAM_ALPHA * nightFactor;
-  ctx.fillStyle = "rgba(255, 234, 160, 1)";
-  ctx.beginPath();
-  ctx.moveTo(firePoint.x + 4 * beamZoom, firePoint.y - 2 * beamZoom);
-  ctx.lineTo(firePoint.x + 250 * beamZoom * reach, firePoint.y - 74 * beamZoom);
-  ctx.lineTo(firePoint.x + 228 * beamZoom * reach, firePoint.y + 28 * beamZoom);
-  ctx.closePath();
-  ctx.fill();
-  ctx.beginPath();
-  ctx.moveTo(firePoint.x - 5 * beamZoom, firePoint.y);
-  ctx.lineTo(firePoint.x - 168 * beamZoom * reach, firePoint.y - 42 * beamZoom);
-  ctx.lineTo(firePoint.x - 154 * beamZoom * reach, firePoint.y + 25 * beamZoom);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.globalAlpha = 1;
   ctx.restore();
 
   // Warm water pool — centered slightly below firePoint, drawn with default

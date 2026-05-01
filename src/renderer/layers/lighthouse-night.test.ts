@@ -58,20 +58,25 @@ describe("drawLighthouseNightHighlights", () => {
     expect(input.ctx.fill).not.toHaveBeenCalled();
   });
 
-  it("draws halo + 2 beam wedges + 1 water pool at full night (>= 4 fills)", () => {
+  it("draws halo + warm water pool at full night (>= 2 fills, no beam wedges)", () => {
     const input = makeInput();
     drawLighthouseNightHighlights(input, undefined, 1);
     const fillMock = input.ctx.fill as unknown as ReturnType<typeof vi.fn>;
-    expect(fillMock.mock.calls.length).toBeGreaterThanOrEqual(4);
+    // 1 halo arc + 1 water-pool ellipse. Beam wedges removed by design — at
+    // night the lighthouse light is purely ambient, beams fade to nothing.
+    expect(fillMock.mock.calls.length).toBe(2);
   });
 });
 
-describe("lighthouseOverlayScreenBounds extends with nightFactor", () => {
-  it("returns a wider rect at full night than at noon", () => {
+describe("lighthouseOverlayScreenBounds contracts with nightFactor", () => {
+  it("returns a smaller (or equal) rect at full night than at noon", () => {
+    // Beams fade with nightFactor (drawLighthouseBeam multiplies alpha by
+    // 1 - nightFactor), so the beam reach contributing to selection bounds
+    // collapses. At full night the bounds reduce to the selection rect.
     const input = makeInput();
     const selectionRect = { x: 0, y: 0, width: 100, height: 100 };
     const noon = lighthouseOverlayScreenBounds(input, selectionRect, undefined, 0);
     const night = lighthouseOverlayScreenBounds(input, selectionRect, undefined, 1);
-    expect(night.width).toBeGreaterThan(noon.width);
+    expect(night.width).toBeLessThan(noon.width);
   });
 });

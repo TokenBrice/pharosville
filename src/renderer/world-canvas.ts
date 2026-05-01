@@ -182,7 +182,7 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   drawAtmosphere(input, frame.lighthouseRender);
   drawLighthouseNightHighlights(input, frame.lighthouseRender, nightFactor);
   drawDecorativeLights(input);
-  drawLighthouseBeamRim(input, frame.visibleShips, frame.lighthouseRender);
+  drawLighthouseBeamRim(input, frame.visibleShips, frame.lighthouseRender, nightFactor);
   drawCemeteryMist(input);
   drawBirds(input);
   const selectionDrawableCount = drawSelection(input);
@@ -229,7 +229,7 @@ function drawEntityPass(input: DrawPharosVilleInput, frame: WorldCanvasFrame, ni
       drawGraveOverlay: (grave) => drawGraveOverlay(input, frame, grave),
       drawGraveUnderlay: (grave) => drawGraveUnderlay(input, frame, grave),
       drawLighthouseBody: () => drawLighthouseBody(input, frame.lighthouseRender),
-      drawLighthouseOverlay: () => drawLighthouseOverlay(input, frame.lighthouseRender),
+      drawLighthouseOverlay: () => drawLighthouseOverlay(input, frame.lighthouseRender, nightFactor),
       drawShipBody: (ship) => drawShipBody(input, frame, ship),
       drawShipOverlay: (ship) => drawShipOverlay(input, frame, ship),
       drawShipWake: (ship) => drawShipWake(input, frame, ship),
