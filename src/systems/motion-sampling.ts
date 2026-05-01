@@ -2,8 +2,8 @@ import { MAX_TILE_X, MAX_TILE_Y } from "./world-layout";
 import { stableHash } from "./stable-random";
 import { DOCKED_SHIP_DWELL_SHARE, ZONE_DWELL } from "./motion-config";
 import { squadForMember, squadFormationOffsetForPlacement } from "./maker-squad";
-import { sampleShipWaterPath as sampleWaterPath } from "./motion-water";
-import { clamp, normalizeHeading, pathKey, positiveModulo, smoothstep, smoothstepRange } from "./motion-utils";
+import { sampleShipWaterPathInto as sampleWaterPathInto, sampleShipWaterPath as sampleWaterPath } from "./motion-water";
+import { clamp, normalizeHeadingInto, pathKey, positiveModulo, smoothstep, smoothstepRange } from "./motion-utils";
 import type { PharosVilleMotionPlan, ShipMotionRoute, ShipMotionRouteStop, ShipMotionSample, ShipMotionState, ShipWaterPath } from "./motion-types";
 import type { ShipNode, ShipWaterZone } from "./world-types";
 
@@ -73,25 +73,56 @@ function routeSamplingRuntime(route: ShipMotionRoute): RouteSamplingRuntime {
   return runtime;
 }
 
+export function createShipMotionSample(): ShipMotionSample {
+  return {
+    shipId: "",
+    tile: { x: 0, y: 0 },
+    state: "idle",
+    zone: "calm",
+    currentDockId: null,
+    currentRouteStopId: null,
+    currentRouteStopKind: null,
+    heading: { x: 0, y: 0 },
+    wakeIntensity: 0,
+  };
+}
+
+// Module-scope scratch sample reused for the consort branch (flagship lookup).
+// Safe because resolveShipMotionSampleInto is synchronous and not re-entrant.
+const flagshipScratch: ShipMotionSample = createShipMotionSample();
+
 export function resolveShipMotionSample(input: {
   plan: PharosVilleMotionPlan;
   reducedMotion: boolean;
   ship: ShipNode;
   timeSeconds: number;
 }): ShipMotionSample {
+  const out = createShipMotionSample();
+  resolveShipMotionSampleInto(input, out);
+  return out;
+}
+
+export function resolveShipMotionSampleInto(input: {
+  plan: PharosVilleMotionPlan;
+  reducedMotion: boolean;
+  ship: ShipNode;
+  timeSeconds: number;
+}, out: ShipMotionSample): void {
   const route = input.plan.shipRoutes.get(input.ship.id);
   if (input.reducedMotion || !route) {
-    return {
-      shipId: input.ship.id,
-      tile: route?.riskTile ?? input.ship.riskTile,
-      state: "idle",
-      zone: input.ship.riskZone,
-      currentDockId: null,
-      currentRouteStopId: null,
-      currentRouteStopKind: null,
-      heading: { x: 0, y: 0 },
-      wakeIntensity: 0,
-    };
+    out.shipId = input.ship.id;
+    const tile = route?.riskTile ?? input.ship.riskTile;
+    out.tile.x = tile.x;
+    out.tile.y = tile.y;
+    out.state = "idle";
+    out.zone = input.ship.riskZone;
+    out.currentDockId = null;
+    out.currentRouteStopId = null;
+    out.currentRouteStopKind = null;
+    out.heading.x = 0;
+    out.heading.y = 0;
+    out.wakeIntensity = 0;
+    return;
   }
 
   // Squad consorts shadow their flagship's sample with a placement-aware
@@ -103,38 +134,45 @@ export function resolveShipMotionSample(input: {
     const squad = squadForMember(input.ship.id);
     const flagshipRoute = squad ? input.plan.shipRoutes.get(squad.flagshipId) : undefined;
     if (squad && flagshipRoute) {
-      const flagshipSample = sampleRouteCycle(flagshipRoute, input.timeSeconds);
+      sampleRouteCycleInto(flagshipRoute, input.timeSeconds, flagshipScratch);
       const offset = squadFormationOffsetForPlacement(input.ship.id, squad, input.ship.riskPlacement)
         ?? { dx: 0, dy: 0 };
-      return {
-        ...flagshipSample,
-        shipId: input.ship.id,
-        zone: input.ship.riskZone,
-        tile: clampMotionTile({
-          x: flagshipSample.tile.x + offset.dx,
-          y: flagshipSample.tile.y + offset.dy,
-        }),
-        currentDockId: null,
-        currentRouteStopId: null,
-        currentRouteStopKind: null,
-      };
+      out.shipId = input.ship.id;
+      clampMotionTileInto(
+        flagshipScratch.tile.x + offset.dx,
+        flagshipScratch.tile.y + offset.dy,
+        out.tile,
+      );
+      out.state = flagshipScratch.state;
+      out.zone = input.ship.riskZone;
+      out.currentDockId = null;
+      out.currentRouteStopId = null;
+      out.currentRouteStopKind = null;
+      out.heading.x = flagshipScratch.heading.x;
+      out.heading.y = flagshipScratch.heading.y;
+      out.wakeIntensity = flagshipScratch.wakeIntensity;
+      return;
     }
   }
 
-  return sampleRouteCycle(route, input.timeSeconds);
+  sampleRouteCycleInto(route, input.timeSeconds, out);
 }
 
-function sampleRouteCycle(route: ShipMotionRoute, timeSeconds: number): ShipMotionSample {
+function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number, out: ShipMotionSample): void {
   const runtime = routeSamplingRuntime(route);
   if (runtime.scheduledStopCount === 0) {
-    return openWaterPatrolSample(route, timeSeconds);
+    openWaterPatrolSampleInto(route, timeSeconds, out);
+    return;
   }
 
   const cyclePosition = timeSeconds + route.phaseSeconds;
   const elapsedSeconds = positiveModulo(cyclePosition, route.cycleSeconds);
   const cycleIndex = Math.floor(cyclePosition / route.cycleSeconds);
   const stopCount = activeStopCountForCycle(runtime);
-  if (stopCount === 0) return openWaterPatrolSample(route, timeSeconds);
+  if (stopCount === 0) {
+    openWaterPatrolSampleInto(route, timeSeconds, out);
+    return;
+  }
 
   const riskSecondsEach = route.cycleSeconds * runtime.zoneDwell.riskDwell / stopCount;
   const dockSecondsEach = route.cycleSeconds * runtime.zoneDwell.dockDwell / stopCount;
@@ -147,12 +185,13 @@ function sampleRouteCycle(route: ShipMotionRoute, timeSeconds: number): ShipMoti
     if (!stop || !nextStop) break;
 
     if (cursor < dockSecondsEach) {
-      return mooredSample(route, stop, timeSeconds, runtime);
+      mooredSampleInto(route, stop, timeSeconds, runtime, out);
+      return;
     }
     cursor -= dockSecondsEach;
 
     if (cursor < transitSecondsEach) {
-      return transitSample({
+      transitSampleInto({
         route,
         path: runtime.stopToRiskPathByDockId.get(stop.dockId),
         progress: smoothstep(cursor / Math.max(1, transitSecondsEach)),
@@ -162,17 +201,19 @@ function sampleRouteCycle(route: ShipMotionRoute, timeSeconds: number): ShipMoti
         toMooringStop: null,
         timeSeconds,
         runtime,
-      });
+      }, out);
+      return;
     }
     cursor -= transitSecondsEach;
 
     if (cursor < riskSecondsEach) {
-      return riskWaterSample(route, timeSeconds, cursor / Math.max(1, riskSecondsEach));
+      riskWaterSampleInto(route, timeSeconds, cursor / Math.max(1, riskSecondsEach), out);
+      return;
     }
     cursor -= riskSecondsEach;
 
     if (cursor < transitSecondsEach) {
-      return transitSample({
+      transitSampleInto({
         route,
         path: runtime.riskToStopPathByDockId.get(nextStop.dockId),
         progress: smoothstep(cursor / Math.max(1, transitSecondsEach)),
@@ -182,12 +223,13 @@ function sampleRouteCycle(route: ShipMotionRoute, timeSeconds: number): ShipMoti
         toMooringStop: nextStop,
         timeSeconds,
         runtime,
-      });
+      }, out);
+      return;
     }
     cursor -= transitSecondsEach;
   }
 
-  return riskWaterSample(route, timeSeconds, 1);
+  riskWaterSampleInto(route, timeSeconds, 1, out);
 }
 
 export function sampleShipWaterPath(path: ShipWaterPath | undefined, progress: number): { point: { x: number; y: number }; heading: { x: number; y: number } } {
@@ -239,7 +281,11 @@ function dockedShipZoneDwell(zone: ShipWaterZone): { dockDwell: number; riskDwel
   };
 }
 
-function transitSample(input: {
+// Scratch tile reused inside transitSampleInto: holds the lane-adjusted point
+// before mooring blend writes it into out.tile.
+const transitTileScratch: { x: number; y: number } = { x: 0, y: 0 };
+
+function transitSampleInto(input: {
   route: ShipMotionRoute;
   path: ShipWaterPath | undefined;
   progress: number;
@@ -249,75 +295,87 @@ function transitSample(input: {
   fromMooringStop: ShipMotionRoute["dockStops"][number] | null;
   toMooringStop: ShipMotionRoute["dockStops"][number] | null;
   timeSeconds: number;
-}): ShipMotionSample {
-  const { point, heading } = sampleShipWaterPath(input.path, input.progress);
-  const lanePoint = transitLanePoint(point, heading, input.progress, input.runtime);
-  const blendedTile = applyMooringBlend({
-    tile: lanePoint,
+}, out: ShipMotionSample): void {
+  // Write water-path point/heading directly into out.tile / out.heading.
+  sampleWaterPathInto(input.path, input.progress, out.tile, out.heading);
+  // Apply lane offset (uses heading); write through a scratch tile because
+  // the lane formula reads the un-offset point.
+  transitLanePointInto(out.tile, out.heading, input.progress, input.runtime, transitTileScratch);
+  out.tile.x = transitTileScratch.x;
+  out.tile.y = transitTileScratch.y;
+  applyMooringBlendInto({
     progress: input.progress,
     route: input.route,
     fromMooringStop: input.fromMooringStop,
     toMooringStop: input.toMooringStop,
     timeSeconds: input.timeSeconds,
     runtime: input.runtime,
-  });
-  return {
-    shipId: input.route.shipId,
-    tile: blendedTile,
-    state: input.state,
-    zone: input.route.zone,
-    currentDockId: input.routeStop?.dockId ?? null,
-    currentRouteStopId: input.routeStop?.id ?? null,
-    currentRouteStopKind: input.routeStop?.kind ?? null,
-    heading,
-    wakeIntensity: transitWakeIntensityForZone(input.route.zone),
-  };
+  }, out.tile);
+  out.shipId = input.route.shipId;
+  out.state = input.state;
+  out.zone = input.route.zone;
+  out.currentDockId = input.routeStop?.dockId ?? null;
+  out.currentRouteStopId = input.routeStop?.id ?? null;
+  out.currentRouteStopKind = input.routeStop?.kind ?? null;
+  out.wakeIntensity = transitWakeIntensityForZone(input.route.zone);
 }
 
-function applyMooringBlend(input: {
-  tile: { x: number; y: number };
+function applyMooringBlendInto(input: {
   progress: number;
   route: ShipMotionRoute;
   fromMooringStop: ShipMotionRoute["dockStops"][number] | null;
   runtime: RouteSamplingRuntime;
   toMooringStop: ShipMotionRoute["dockStops"][number] | null;
   timeSeconds: number;
-}): { x: number; y: number } {
+}, tile: { x: number; y: number }): void {
   let dx = 0;
   let dy = 0;
   if (input.fromMooringStop) {
     const easeIn = smoothstepRange(0, 0.15, input.progress);
-    const offset = mooredOffset(input.route, input.fromMooringStop, input.timeSeconds, input.runtime);
-    dx += offset.dx * (1 - easeIn);
-    dy += offset.dy * (1 - easeIn);
+    const seed = mooredSeedFor(input.route, input.fromMooringStop, input.runtime);
+    const angle = input.timeSeconds * 0.027 + seed * 0.0001;
+    const radius = mooredRadiusForZone(input.route.zone);
+    dx += Math.cos(angle) * radius.x * (1 - easeIn);
+    dy += Math.sin(angle * 0.9) * radius.y * (1 - easeIn);
   }
   if (input.toMooringStop) {
     const easeOut = smoothstepRange(0.85, 1, input.progress);
-    const offset = mooredOffset(input.route, input.toMooringStop, input.timeSeconds, input.runtime);
-    dx += offset.dx * easeOut;
-    dy += offset.dy * easeOut;
+    const seed = mooredSeedFor(input.route, input.toMooringStop, input.runtime);
+    const angle = input.timeSeconds * 0.027 + seed * 0.0001;
+    const radius = mooredRadiusForZone(input.route.zone);
+    dx += Math.cos(angle) * radius.x * easeOut;
+    dy += Math.sin(angle * 0.9) * radius.y * easeOut;
   }
-  if (dx === 0 && dy === 0) return input.tile;
-  return clampMotionTile({ x: input.tile.x + dx, y: input.tile.y + dy });
+  if (dx === 0 && dy === 0) return;
+  clampMotionTileInto(tile.x + dx, tile.y + dy, tile);
 }
 
-function transitLanePoint(
+function transitLanePointInto(
   point: { x: number; y: number },
   heading: { x: number; y: number },
   progress: number,
   runtime: RouteSamplingRuntime,
-): { x: number; y: number } {
+  out: { x: number; y: number },
+): void {
   const laneStrength = Math.sin(clamp(progress, 0, 1) * Math.PI);
-  if (laneStrength <= 0.01) return point;
+  if (laneStrength <= 0.01) {
+    out.x = point.x;
+    out.y = point.y;
+    return;
+  }
   const laneMagnitude = runtime.laneMagnitude * laneStrength;
-  return clampMotionTile({
-    x: point.x + -heading.y * laneMagnitude * runtime.laneSign,
-    y: point.y + heading.x * laneMagnitude * runtime.laneSign,
-  });
+  clampMotionTileInto(
+    point.x + -heading.y * laneMagnitude * runtime.laneSign,
+    point.y + heading.x * laneMagnitude * runtime.laneSign,
+    out,
+  );
 }
 
-function openWaterPatrolSample(route: ShipMotionRoute, timeSeconds: number): ShipMotionSample {
-  if (!route.openWaterPatrol) return riskWaterSample(route, timeSeconds, 0.18);
+function openWaterPatrolSampleInto(route: ShipMotionRoute, timeSeconds: number, out: ShipMotionSample): void {
+  if (!route.openWaterPatrol) {
+    riskWaterSampleInto(route, timeSeconds, 0.18, out);
+    return;
+  }
   const runtime = routeSamplingRuntime(route);
 
   const cyclePosition = timeSeconds + route.phaseSeconds;
@@ -329,12 +387,13 @@ function openWaterPatrolSample(route: ShipMotionRoute, timeSeconds: number): Shi
   let cursor = elapsedSeconds;
 
   if (cursor < riskSeconds) {
-    return riskWaterSample(route, timeSeconds, cursor / Math.max(1, riskSeconds));
+    riskWaterSampleInto(route, timeSeconds, cursor / Math.max(1, riskSeconds), out);
+    return;
   }
   cursor -= riskSeconds;
 
   if (cursor < transitSecondsEach) {
-    return transitSample({
+    transitSampleInto({
       route,
       path: route.openWaterPatrol.outbound,
       progress: smoothstep(cursor / Math.max(1, transitSecondsEach)),
@@ -344,16 +403,18 @@ function openWaterPatrolSample(route: ShipMotionRoute, timeSeconds: number): Shi
       fromMooringStop: null,
       toMooringStop: null,
       timeSeconds,
-    });
+    }, out);
+    return;
   }
   cursor -= transitSecondsEach;
 
   if (cursor < waypointSeconds) {
-    return openWaterWaypointDriftSample(route, timeSeconds, cursor / Math.max(1, waypointSeconds));
+    openWaterWaypointDriftSampleInto(route, timeSeconds, cursor / Math.max(1, waypointSeconds), out);
+    return;
   }
   cursor -= waypointSeconds;
 
-  return transitSample({
+  transitSampleInto({
     route,
     path: route.openWaterPatrol.inbound,
     progress: smoothstep(cursor / Math.max(1, transitSecondsEach)),
@@ -363,92 +424,95 @@ function openWaterPatrolSample(route: ShipMotionRoute, timeSeconds: number): Shi
     fromMooringStop: null,
     toMooringStop: null,
     timeSeconds,
-  });
+  }, out);
 }
 
-function openWaterWaypointDriftSample(route: ShipMotionRoute, timeSeconds: number, progress: number): ShipMotionSample {
-  if (!route.openWaterPatrol) return riskDriftSample(route, timeSeconds, progress);
+function openWaterWaypointDriftSampleInto(route: ShipMotionRoute, timeSeconds: number, progress: number, out: ShipMotionSample): void {
+  if (!route.openWaterPatrol) {
+    riskDriftSampleInto(route, timeSeconds, progress, out);
+    return;
+  }
   const angle = timeSeconds * 0.023 + route.routeSeed * 0.00013 + progress * Math.PI * 2;
-  return {
-    shipId: route.shipId,
-    tile: {
-      x: route.openWaterPatrol.waypoint.x + Math.cos(angle) * 0.32,
-      y: route.openWaterPatrol.waypoint.y + Math.sin(angle * 0.85) * 0.22,
-    },
-    state: "sailing",
-    zone: route.zone,
-    currentDockId: null,
-    currentRouteStopId: null,
-    currentRouteStopKind: null,
-    heading: normalizeHeading({ x: -Math.sin(angle), y: Math.cos(angle * 0.85) }),
-    wakeIntensity: patrolWakeIntensityForZone(route.zone),
-  };
+  out.shipId = route.shipId;
+  out.tile.x = route.openWaterPatrol.waypoint.x + Math.cos(angle) * 0.32;
+  out.tile.y = route.openWaterPatrol.waypoint.y + Math.sin(angle * 0.85) * 0.22;
+  out.state = "sailing";
+  out.zone = route.zone;
+  out.currentDockId = null;
+  out.currentRouteStopId = null;
+  out.currentRouteStopKind = null;
+  normalizeHeadingInto(-Math.sin(angle), Math.cos(angle * 0.85), out.heading);
+  out.wakeIntensity = patrolWakeIntensityForZone(route.zone);
 }
 
-function mooredSample(
+function mooredSampleInto(
   route: ShipMotionRoute,
   stop: ShipMotionRoute["dockStops"][number],
   timeSeconds: number,
   runtime: RouteSamplingRuntime,
-): ShipMotionSample {
-  const seed = runtime.mooredSeedByStopId.get(stop.id) ?? stableHash(`${route.shipId}.${stop.dockId}.moored`);
-  const angle = timeSeconds * 0.027 + seed * 0.0001;
-  const offset = mooredOffset(route, stop, timeSeconds, runtime);
-  return {
-    shipId: route.shipId,
-    tile: {
-      x: stop.mooringTile.x + offset.dx,
-      y: stop.mooringTile.y + offset.dy,
-    },
-    state: "moored",
-    zone: route.zone,
-    currentDockId: stop.dockId,
-    currentRouteStopId: stop.id,
-    currentRouteStopKind: stop.kind,
-    heading: normalizeHeading({ x: -Math.sin(angle), y: Math.cos(angle * 0.9) }),
-    wakeIntensity: 0.05,
-  };
-}
-
-function mooredOffset(
-  route: ShipMotionRoute,
-  stop: ShipMotionRoute["dockStops"][number],
-  timeSeconds: number,
-  runtime: RouteSamplingRuntime,
-): { dx: number; dy: number } {
-  const seed = runtime.mooredSeedByStopId.get(stop.id) ?? stableHash(`${route.shipId}.${stop.dockId}.moored`);
+  out: ShipMotionSample,
+): void {
+  const seed = mooredSeedFor(route, stop, runtime);
   const angle = timeSeconds * 0.027 + seed * 0.0001;
   const radius = mooredRadiusForZone(route.zone);
-  return {
-    dx: Math.cos(angle) * radius.x,
-    dy: Math.sin(angle * 0.9) * radius.y,
-  };
+  out.shipId = route.shipId;
+  out.tile.x = stop.mooringTile.x + Math.cos(angle) * radius.x;
+  out.tile.y = stop.mooringTile.y + Math.sin(angle * 0.9) * radius.y;
+  out.state = "moored";
+  out.zone = route.zone;
+  out.currentDockId = stop.dockId;
+  out.currentRouteStopId = stop.id;
+  out.currentRouteStopKind = stop.kind;
+  normalizeHeadingInto(-Math.sin(angle), Math.cos(angle * 0.9), out.heading);
+  out.wakeIntensity = 0.05;
 }
 
-function riskWaterSample(route: ShipMotionRoute, timeSeconds: number, progress: number): ShipMotionSample {
+function mooredSeedFor(
+  route: ShipMotionRoute,
+  stop: ShipMotionRouteStop,
+  runtime: RouteSamplingRuntime,
+): number {
+  const cached = runtime.mooredSeedByStopId.get(stop.id);
+  if (cached !== undefined) return cached;
+  const dockKey = stop.kind === "dock" ? stop.dockId : stop.id;
+  return stableHash(`${route.shipId}.${dockKey}.moored`);
+}
+
+function riskWaterSampleInto(route: ShipMotionRoute, timeSeconds: number, progress: number, out: ShipMotionSample): void {
   if (route.riskStop?.kind === "ledger") {
-    if (route.openWaterPatrol) return ledgerRoamingSample(route, route.riskStop, timeSeconds, progress);
-    return mooredRouteStopSample(route, route.riskStop, timeSeconds);
+    if (route.openWaterPatrol) {
+      ledgerRoamingSampleInto(route, route.riskStop, timeSeconds, progress, out);
+      return;
+    }
+    mooredRouteStopSampleInto(route, route.riskStop, timeSeconds, out);
+    return;
   }
-  return riskDriftSample(route, timeSeconds, progress);
+  riskDriftSampleInto(route, timeSeconds, progress, out);
 }
 
-function ledgerRoamingSample(
+function ledgerRoamingSampleInto(
   route: ShipMotionRoute,
   stop: ShipMotionRouteStop,
   timeSeconds: number,
   progress: number,
-): ShipMotionSample {
+  out: ShipMotionSample,
+): void {
   const patrol = route.openWaterPatrol;
-  if (!patrol) return mooredRouteStopSample(route, stop, timeSeconds);
+  if (!patrol) {
+    mooredRouteStopSampleInto(route, stop, timeSeconds, out);
+    return;
+  }
 
   const idleShare = 0.58;
-  if (progress <= idleShare) return mooredRouteStopSample(route, stop, timeSeconds);
+  if (progress <= idleShare) {
+    mooredRouteStopSampleInto(route, stop, timeSeconds, out);
+    return;
+  }
 
   const runtime = routeSamplingRuntime(route);
   const patrolProgress = (progress - idleShare) / Math.max(0.0001, 1 - idleShare);
   if (patrolProgress < 0.5) {
-    return transitSample({
+    transitSampleInto({
       route,
       path: patrol.outbound,
       progress: smoothstep(patrolProgress * 2),
@@ -458,10 +522,11 @@ function ledgerRoamingSample(
       toMooringStop: null,
       timeSeconds,
       runtime,
-    });
+    }, out);
+    return;
   }
 
-  return transitSample({
+  transitSampleInto({
     route,
     path: patrol.inbound,
     progress: smoothstep((patrolProgress - 0.5) * 2),
@@ -471,32 +536,32 @@ function ledgerRoamingSample(
     toMooringStop: null,
     timeSeconds,
     runtime,
-  });
+  }, out);
 }
 
-function mooredRouteStopSample(
+function mooredRouteStopSampleInto(
   route: ShipMotionRoute,
   stop: ShipMotionRouteStop,
   timeSeconds: number,
-): ShipMotionSample {
+  out: ShipMotionSample,
+): void {
   const runtime = routeSamplingRuntime(route);
-  const seed = runtime.mooredSeedByStopId.get(stop.id) ?? stableHash(`${route.shipId}.${stop.id}.moored`);
+  const seed = mooredSeedFor(route, stop, runtime);
   const angle = timeSeconds * 0.018 + seed * 0.0001;
   const radius = mooredRadiusForZone(route.zone);
-  return {
-    shipId: route.shipId,
-    tile: clampMotionTile({
-      x: stop.mooringTile.x + Math.cos(angle) * radius.x * 0.72,
-      y: stop.mooringTile.y + Math.sin(angle * 0.9) * radius.y * 0.72,
-    }),
-    state: "moored",
-    zone: route.zone,
-    currentDockId: null,
-    currentRouteStopId: stop.id,
-    currentRouteStopKind: stop.kind,
-    heading: normalizeHeading({ x: -Math.sin(angle), y: Math.cos(angle * 0.9) }),
-    wakeIntensity: 0.03,
-  };
+  out.shipId = route.shipId;
+  clampMotionTileInto(
+    stop.mooringTile.x + Math.cos(angle) * radius.x * 0.72,
+    stop.mooringTile.y + Math.sin(angle * 0.9) * radius.y * 0.72,
+    out.tile,
+  );
+  out.state = "moored";
+  out.zone = route.zone;
+  out.currentDockId = null;
+  out.currentRouteStopId = stop.id;
+  out.currentRouteStopKind = stop.kind;
+  normalizeHeadingInto(-Math.sin(angle), Math.cos(angle * 0.9), out.heading);
+  out.wakeIntensity = 0.03;
 }
 
 function mooredRadiusForZone(zone: ShipWaterZone): { x: number; y: number } {
@@ -506,31 +571,27 @@ function mooredRadiusForZone(zone: ShipWaterZone): { x: number; y: number } {
   return { x: 0.28, y: 0.18 };
 }
 
-function riskDriftSample(route: ShipMotionRoute, timeSeconds: number, progress: number): ShipMotionSample {
+function riskDriftSampleInto(route: ShipMotionRoute, timeSeconds: number, progress: number, out: ShipMotionSample): void {
   const angle = timeSeconds * 0.017 + route.routeSeed * 0.0001 + progress * Math.PI * 2;
   const radius = driftRadiusForZone(route.zone);
-  const tile = clampMotionTile({
-    x: route.riskTile.x + Math.cos(angle) * radius.x,
-    y: route.riskTile.y + Math.sin(angle * 0.8) * radius.y,
-  });
-  return {
-    shipId: route.shipId,
-    tile,
-    state: "risk-drift",
-    zone: route.zone,
-    currentDockId: null,
-    currentRouteStopId: null,
-    currentRouteStopKind: null,
-    heading: normalizeHeading({ x: -Math.sin(angle), y: Math.cos(angle * 0.8) }),
-    wakeIntensity: 0.08,
-  };
+  out.shipId = route.shipId;
+  clampMotionTileInto(
+    route.riskTile.x + Math.cos(angle) * radius.x,
+    route.riskTile.y + Math.sin(angle * 0.8) * radius.y,
+    out.tile,
+  );
+  out.state = "risk-drift";
+  out.zone = route.zone;
+  out.currentDockId = null;
+  out.currentRouteStopId = null;
+  out.currentRouteStopKind = null;
+  normalizeHeadingInto(-Math.sin(angle), Math.cos(angle * 0.8), out.heading);
+  out.wakeIntensity = 0.08;
 }
 
-function clampMotionTile(tile: { x: number; y: number }): { x: number; y: number } {
-  return {
-    x: Math.max(0, Math.min(MAX_TILE_X, tile.x)),
-    y: Math.max(0, Math.min(MAX_TILE_Y, tile.y)),
-  };
+function clampMotionTileInto(x: number, y: number, out: { x: number; y: number }): void {
+  out.x = Math.max(0, Math.min(MAX_TILE_X, x));
+  out.y = Math.max(0, Math.min(MAX_TILE_Y, y));
 }
 
 function driftRadiusForZone(zone: ShipWaterZone): { x: number; y: number } {

@@ -12,6 +12,43 @@ import { nearestRiskPlacementWaterTile } from "./risk-water-placement";
 import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipMotionRoute, ShipMotionRouteStop, ShipMotionSample, ShipWaterPath, ShipWaterRouteCache } from "./motion-types";
 import type { PharosVilleMap, PharosVilleWorld, ShipDockVisit, ShipNode } from "./world-types";
 
+// Stable, content-aware signature for the inputs `buildBaseMotionPlan` actually
+// reads. Two world instances with different identities but identical ship/dock/
+// map/lighthouse-flicker content yield the same string. Live data refetches
+// that don't change these fields can therefore reuse the prior plan instead of
+// re-running A* warmups. Kept cheap on purpose: short field joins, no
+// JSON.stringify of nested objects.
+export function motionPlanSignature(world: PharosVilleWorld): string {
+  const shipParts: string[] = [];
+  for (const ship of [...world.ships].sort((a, b) => a.id.localeCompare(b.id))) {
+    const dockParts: string[] = [];
+    for (const visit of [...ship.dockVisits].sort((a, b) => a.dockId.localeCompare(b.dockId))) {
+      dockParts.push(`${visit.dockId}:${visit.chainId}:${visit.weight}:${visit.mooringTile.x},${visit.mooringTile.y}`);
+    }
+    shipParts.push([
+      ship.id,
+      ship.marketCapUsd,
+      ship.change24hUsd ?? "",
+      ship.change24hPct ?? "",
+      `${ship.riskTile.x},${ship.riskTile.y}`,
+      ship.riskPlacement,
+      ship.riskZone,
+      ship.squadId ?? "",
+      ship.squadRole ?? "",
+      ship.homeDockChainId ?? "",
+      ship.chainPresence.length,
+      dockParts.join("|"),
+    ].join(";"));
+  }
+  const dockParts: string[] = [];
+  for (const dock of [...world.docks].sort((a, b) => a.id.localeCompare(b.id))) {
+    dockParts.push(`${dock.id}:${dock.tile.x},${dock.tile.y}`);
+  }
+  const lighthouse = `${world.lighthouse.psiBand ?? ""}:${world.lighthouse.score ?? ""}`;
+  const map = `${world.map.width}x${world.map.height}:${world.map.waterRatio}`;
+  return `S[${shipParts.join("/")}]D[${dockParts.join("/")}]L[${lighthouse}]M[${map}]`;
+}
+
 export function buildBaseMotionPlan(world: PharosVilleWorld): PharosVilleBaseMotionPlan {
   const topShips = world.ships
     .toSorted((a, b) => b.marketCapUsd - a.marketCapUsd)

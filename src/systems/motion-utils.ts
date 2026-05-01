@@ -27,6 +27,17 @@ export function normalizeHeading(vector: { x: number; y: number }): { x: number;
   return { x: vector.x / magnitude, y: vector.y / magnitude };
 }
 
+export function normalizeHeadingInto(x: number, y: number, out: { x: number; y: number }): void {
+  const magnitude = Math.hypot(x, y);
+  if (magnitude <= 0) {
+    out.x = 0;
+    out.y = 0;
+    return;
+  }
+  out.x = x / magnitude;
+  out.y = y / magnitude;
+}
+
 export function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }

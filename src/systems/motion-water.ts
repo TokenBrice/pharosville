@@ -1,7 +1,7 @@
 import { isWaterTileKind } from "./world-layout";
 import { isSeawallBarrierTile } from "./seawall";
 import { stableHash, stableOffset, stableUnit } from "./stable-random";
-import { clamp, normalizeHeading, pathKey, sameTile } from "./motion-utils";
+import { clamp, normalizeHeading, normalizeHeadingInto, pathKey, sameTile } from "./motion-utils";
 import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipWaterPath, ShipWaterPathBuilder, ShipWaterRouteCache } from "./motion-types";
 import type { PharosVilleMap, PharosVilleTile, ShipWaterZone } from "./world-types";
 
@@ -95,8 +95,33 @@ export function reverseWaterPath(path: ShipWaterPath): ShipWaterPath {
 }
 
 export function sampleShipWaterPath(path: ShipWaterPath | undefined, progress: number): { point: { x: number; y: number }; heading: { x: number; y: number } } {
-  if (!path || path.points.length === 0) return { point: { x: 0, y: 0 }, heading: { x: 0, y: 0 } };
-  if (path.points.length === 1 || path.totalLength <= 0) return { point: path.points[0]!, heading: { x: 0, y: 0 } };
+  const point = { x: 0, y: 0 };
+  const heading = { x: 0, y: 0 };
+  sampleShipWaterPathInto(path, progress, point, heading);
+  return { point, heading };
+}
+
+export function sampleShipWaterPathInto(
+  path: ShipWaterPath | undefined,
+  progress: number,
+  point: { x: number; y: number },
+  heading: { x: number; y: number },
+): void {
+  if (!path || path.points.length === 0) {
+    point.x = 0;
+    point.y = 0;
+    heading.x = 0;
+    heading.y = 0;
+    return;
+  }
+  if (path.points.length === 1 || path.totalLength <= 0) {
+    const only = path.points[0]!;
+    point.x = only.x;
+    point.y = only.y;
+    heading.x = 0;
+    heading.y = 0;
+    return;
+  }
 
   const distance = clamp(progress, 0, 1) * path.totalLength;
   const index = waterPathSegmentIndex(path.cumulativeLengths, distance);
@@ -105,13 +130,9 @@ export function sampleShipWaterPath(path: ShipWaterPath | undefined, progress: n
   const previous = path.points[index - 1]!;
   const current = path.points[index]!;
   const segmentProgress = segmentEnd === segmentStart ? 0 : (distance - segmentStart) / (segmentEnd - segmentStart);
-  return {
-    point: {
-      x: previous.x + (current.x - previous.x) * segmentProgress,
-      y: previous.y + (current.y - previous.y) * segmentProgress,
-    },
-    heading: normalizeHeading({ x: current.x - previous.x, y: current.y - previous.y }),
-  };
+  point.x = previous.x + (current.x - previous.x) * segmentProgress;
+  point.y = previous.y + (current.y - previous.y) * segmentProgress;
+  normalizeHeadingInto(current.x - previous.x, current.y - previous.y, heading);
 }
 
 function waterPathSegmentIndex(cumulativeLengths: readonly number[], distance: number): number {
@@ -199,49 +220,119 @@ function detourWaterWaypoints(from: { x: number; y: number }, to: { x: number; y
   return waypoints;
 }
 
+// Module-level reusable buffers for findWaterPath. Lazily resized when mapSize grows.
+let pathDistances: Float64Array = new Float64Array(0);
+let pathPrevious: Int32Array = new Int32Array(0);
+let pathHeapIndices: Int32Array = new Int32Array(0);
+let pathHeapPriorities: Float64Array = new Float64Array(0);
+let pathHeapSize = 0;
+const NEIGHBOR_DX = [1, 0, -1, 0] as const;
+const NEIGHBOR_DY = [0, 1, 0, -1] as const;
+
+function ensurePathBuffers(mapSize: number): void {
+  if (pathDistances.length < mapSize) {
+    pathDistances = new Float64Array(mapSize);
+    pathPrevious = new Int32Array(mapSize);
+    // Heap can grow beyond mapSize because stale entries accumulate; size for the worst case
+    // (4 neighbors per relaxation) but cap at 4 * mapSize which is plenty in practice.
+    pathHeapIndices = new Int32Array(mapSize * 4);
+    pathHeapPriorities = new Float64Array(mapSize * 4);
+  }
+}
+
+function heapPush(index: number, priority: number): void {
+  let i = pathHeapSize;
+  pathHeapSize += 1;
+  pathHeapIndices[i] = index;
+  pathHeapPriorities[i] = priority;
+  while (i > 0) {
+    const parent = (i - 1) >> 1;
+    if (pathHeapPriorities[parent]! <= pathHeapPriorities[i]!) break;
+    const tmpIdx = pathHeapIndices[i]!;
+    const tmpPri = pathHeapPriorities[i]!;
+    pathHeapIndices[i] = pathHeapIndices[parent]!;
+    pathHeapPriorities[i] = pathHeapPriorities[parent]!;
+    pathHeapIndices[parent] = tmpIdx;
+    pathHeapPriorities[parent] = tmpPri;
+    i = parent;
+  }
+}
+
+function heapPopIndex(): number {
+  if (pathHeapSize === 0) return -1;
+  const top = pathHeapIndices[0]!;
+  pathHeapSize -= 1;
+  if (pathHeapSize === 0) return top;
+  pathHeapIndices[0] = pathHeapIndices[pathHeapSize]!;
+  pathHeapPriorities[0] = pathHeapPriorities[pathHeapSize]!;
+  let i = 0;
+  for (;;) {
+    const left = i * 2 + 1;
+    const right = left + 1;
+    let smallest = i;
+    if (left < pathHeapSize && pathHeapPriorities[left]! < pathHeapPriorities[smallest]!) smallest = left;
+    if (right < pathHeapSize && pathHeapPriorities[right]! < pathHeapPriorities[smallest]!) smallest = right;
+    if (smallest === i) break;
+    const tmpIdx = pathHeapIndices[i]!;
+    const tmpPri = pathHeapPriorities[i]!;
+    pathHeapIndices[i] = pathHeapIndices[smallest]!;
+    pathHeapPriorities[i] = pathHeapPriorities[smallest]!;
+    pathHeapIndices[smallest] = tmpIdx;
+    pathHeapPriorities[smallest] = tmpPri;
+    i = smallest;
+  }
+  return top;
+}
+
 function findWaterPath(from: { x: number; y: number }, to: { x: number; y: number }, map: PharosVilleMap, zone?: ShipWaterZone): Array<{ x: number; y: number }> {
   const startIndex = tileIndex(from.x, from.y, map);
   const endIndex = tileIndex(to.x, to.y, map);
   if (startIndex < 0 || endIndex < 0) return [];
 
-  const distances = new Array(map.width * map.height).fill(Number.POSITIVE_INFINITY);
-  const previous = new Array<number>(map.width * map.height).fill(-1);
-  const open = [startIndex];
+  const mapSize = map.width * map.height;
+  ensurePathBuffers(mapSize);
+  const distances = pathDistances;
+  const previous = pathPrevious;
+  for (let i = 0; i < mapSize; i += 1) {
+    distances[i] = Number.POSITIVE_INFINITY;
+    previous[i] = -1;
+  }
+  pathHeapSize = 0;
+
   distances[startIndex] = 0;
+  heapPush(startIndex, Math.abs(from.x - to.x) + Math.abs(from.y - to.y));
 
-  while (open.length > 0) {
-    let bestOpenIndex = 0;
-    let bestScore = Number.POSITIVE_INFINITY;
-    for (let index = 0; index < open.length; index += 1) {
-      const currentIndex = open[index]!;
-      const current = indexToTile(currentIndex, map);
-      const score = distances[currentIndex]! + Math.abs(current.x - to.x) + Math.abs(current.y - to.y);
-      if (score < bestScore) {
-        bestScore = score;
-        bestOpenIndex = index;
-      }
-    }
+  while (pathHeapSize > 0) {
+    const poppedPriority = pathHeapPriorities[0]!;
+    const currentIndex = heapPopIndex();
+    const currentX = currentIndex % map.width;
+    const currentY = (currentIndex - currentX) / map.width;
+    const expectedPriority = distances[currentIndex]! + Math.abs(currentX - to.x) + Math.abs(currentY - to.y);
+    // Stale entries: when a node was relaxed, we pushed a new entry without removing the old one.
+    if (poppedPriority !== expectedPriority) continue;
 
-    const [currentIndex] = open.splice(bestOpenIndex, 1);
     if (currentIndex === endIndex) return reconstructPath(previous, endIndex, map);
 
-    const current = indexToTile(currentIndex!, map);
-    for (const neighbor of waterNeighbors(current, map)) {
-      const neighborIndex = tileIndex(neighbor.x, neighbor.y, map);
+    for (let n = 0; n < 4; n += 1) {
+      const nx = currentX + NEIGHBOR_DX[n]!;
+      const ny = currentY + NEIGHBOR_DY[n]!;
+      if (nx < 0 || ny < 0 || nx >= map.width || ny >= map.height) continue;
+      const neighborIndex = ny * map.width + nx;
       const tile = map.tiles[neighborIndex];
+      if (!tile || isSeawallBarrierTile({ x: nx, y: ny }) || !isMotionWaterTile(tile)) continue;
       const cost = waterPathCost(tile, zone);
-      const nextDistance = distances[currentIndex!]! + cost;
+      const nextDistance = distances[currentIndex]! + cost;
       if (nextDistance >= distances[neighborIndex]!) continue;
-      previous[neighborIndex] = currentIndex!;
+      previous[neighborIndex] = currentIndex;
       distances[neighborIndex] = nextDistance;
-      if (!open.includes(neighborIndex)) open.push(neighborIndex);
+      heapPush(neighborIndex, nextDistance + Math.abs(nx - to.x) + Math.abs(ny - to.y));
     }
   }
 
   return [];
 }
 
-function reconstructPath(previous: readonly number[], endIndex: number, map: PharosVilleMap): Array<{ x: number; y: number }> {
+function reconstructPath(previous: ArrayLike<number>, endIndex: number, map: PharosVilleMap): Array<{ x: number; y: number }> {
   const points: Array<{ x: number; y: number }> = [];
   let current = endIndex;
   while (current >= 0) {

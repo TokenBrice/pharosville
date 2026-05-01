@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { denseFixtureChains, denseFixturePegSummary, denseFixtureReportCards, denseFixtureStablecoins, denseFixtureStress, fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoins, fixtureStability, fixtureStress, fixtureWithFlagshipPlacement, makeAsset, makeChain, makePegCoin, makerSquadFixtureInputs } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
-import { buildBaseMotionPlan, buildMotionPlan, buildShipWaterRoute, isShipMapVisible, lighthouseFireFlickerSpeed, resolveShipMotionSample, sampleShipWaterPath, shipWaterPathKey, stableMotionPhase, type ShipDockMotionStop } from "./motion";
+import { buildBaseMotionPlan, buildMotionPlan, buildShipWaterRoute, isShipMapVisible, lighthouseFireFlickerSpeed, motionPlanSignature, resolveShipMotionSample, sampleShipWaterPath, shipWaterPathKey, stableMotionPhase, type ShipDockMotionStop } from "./motion";
 import { squadForMember, squadFormationOffsetForPlacement } from "./maker-squad";
 import { isSeawallBarrierTile, seawallBarrierDistance } from "./seawall";
 import { buildPharosVilleMap, isWaterTileKind, terrainKindAt, tileKindAt } from "./world-layout";
@@ -155,6 +155,47 @@ describe("motion", () => {
     expect(selectedPlan.animatedShipIds).toBe(unselectedPlan.animatedShipIds);
     expect(selectedPlan.moverShipIds).toBe(unselectedPlan.moverShipIds);
     expect(selectedPlan.effectShipIds.size).toBeGreaterThanOrEqual(unselectedPlan.effectShipIds.size);
+  });
+
+  it("produces the same motionPlanSignature for distinct world identities with identical content", () => {
+    const otherWorld = buildPharosVilleWorld({
+      stablecoins: fixtureStablecoins,
+      chains: fixtureChains,
+      stability: fixtureStability,
+      pegSummary: fixturePegSummary,
+      stress: fixtureStress,
+      reportCards: fixtureReportCards,
+      cemeteryEntries: [],
+      freshness: {},
+    });
+
+    expect(otherWorld).not.toBe(world);
+    expect(motionPlanSignature(otherWorld)).toBe(motionPlanSignature(world));
+
+    // Different freshness flags should not change the plan signature: live
+    // refetches that only flip stale bits must reuse the cached plan.
+    const staleFreshnessWorld = buildPharosVilleWorld({
+      stablecoins: fixtureStablecoins,
+      chains: fixtureChains,
+      stability: fixtureStability,
+      pegSummary: fixturePegSummary,
+      stress: fixtureStress,
+      reportCards: fixtureReportCards,
+      cemeteryEntries: [],
+      freshness: { stablecoinsStale: true, chainsStale: true },
+    });
+    expect(motionPlanSignature(staleFreshnessWorld)).toBe(motionPlanSignature(world));
+  });
+
+  it("changes motionPlanSignature when ship content shifts in a way the plan reads", () => {
+    const baseSignature = motionPlanSignature(world);
+    const mutatedShips = world.ships.map((ship, index) => (
+      index === 0
+        ? { ...ship, marketCapUsd: ship.marketCapUsd + 1_000_000 }
+        : ship
+    ));
+    const mutatedWorld: PharosVilleWorld = { ...world, ships: mutatedShips };
+    expect(motionPlanSignature(mutatedWorld)).not.toBe(baseSignature);
   });
 
   it("shortens cycles and increases scheduled dock cadence with chain breadth", () => {
