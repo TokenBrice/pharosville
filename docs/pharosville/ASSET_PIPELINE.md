@@ -90,7 +90,12 @@ fantasy town:
   is visible.
 - **Ships:** each hull needs a clear sail or pennant area for runtime logo marks;
   do not bake logos, token badges, text, counts, UI panels, or chain names into
-  the PNG.
+  the PNG. Standard hulls are 104×80; titan hulls are 144×104 to 160×112 with
+  4-frame animation sheets; **heritage-hull (unique tier) sprites are 136×100
+  single-frame transparent PNGs at `loadPriority: "deferred"` with no
+  `animation` block** — themes are conveyed by silhouette, sail painting, and
+  figurehead, plus a shared oxidized-bronze masthead lantern + cream bowsprit
+  pennant tier-unifier.
 - **Docks/landmarks:** include built-in mass, posts, stairs, rope/crate clutter,
   lanterns, and waterline contact so they read as districts rather than floating
   stickers.
