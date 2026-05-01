@@ -64,14 +64,14 @@ const SCENERY_PROPS: readonly SceneryProp[] = [
   { id: "east-steps", kind: "stone-steps", tile: { x: 41.8, y: 36.2 }, scale: 0.7 },
   { id: "east-rope", kind: "rope-coil", tile: { x: 39.3, y: 38.4 }, scale: 0.58 },
   { id: "east-net", kind: "net-rack", tile: { x: 46.1, y: 29.1 }, scale: 0.58 },
-  { id: "alert-beacon", kind: "beacon", tile: { x: 39.8, y: 50.4 }, scale: 0.9 },
-  { id: "alert-reeds", kind: "reed-bed", tile: { x: 36.4, y: 49.2 }, scale: 0.6 },
-  { id: "warning-reef-1", kind: "reef", tile: { x: 48.4, y: 48.4 }, scale: 0.82 },
-  { id: "warning-reef-2", kind: "rock", tile: { x: 50.2, y: 50.2 }, scale: 0.68 },
-  { id: "warning-buoy", kind: "buoy", tile: { x: 47.2, y: 45.7 }, scale: 0.72 },
-  { id: "danger-buoy-1", kind: "buoy", tile: { x: 54.0, y: 38.6 }, scale: 0.84 },
-  { id: "danger-buoy-2", kind: "signal-post", tile: { x: 55.0, y: 44.0 }, scale: 0.82 },
-  { id: "danger-reef", kind: "reef", tile: { x: 52.5, y: 47.2 }, scale: 0.72 },
+  { id: "watch-southeast-beacon", kind: "beacon", tile: { x: 39.8, y: 50.4 }, scale: 0.9 },
+  { id: "watch-southeast-reeds", kind: "reed-bed", tile: { x: 36.4, y: 49.2 }, scale: 0.6 },
+  { id: "watch-southeast-reef-1", kind: "reef", tile: { x: 48.4, y: 48.4 }, scale: 0.82 },
+  { id: "watch-southeast-reef-2", kind: "rock", tile: { x: 50.2, y: 50.2 }, scale: 0.68 },
+  { id: "watch-southeast-buoy", kind: "buoy", tile: { x: 47.2, y: 45.7 }, scale: 0.72 },
+  { id: "watch-east-buoy", kind: "buoy", tile: { x: 54.0, y: 38.6 }, scale: 0.84 },
+  { id: "watch-east-signal", kind: "signal-post", tile: { x: 55.0, y: 44.0 }, scale: 0.82 },
+  { id: "watch-east-reef", kind: "reef", tile: { x: 52.5, y: 47.2 }, scale: 0.72 },
   { id: "civic-bollards", kind: "bollards", tile: { x: 31.2, y: 31.5 }, scale: 0.86 },
   { id: "civic-crates", kind: "crate-stack", tile: { x: 29.2, y: 30.0 }, scale: 0.62 },
   { id: "civic-rope", kind: "rope-coil", tile: { x: 33.9, y: 32.6 }, scale: 0.62 },
@@ -520,4 +520,3 @@ function drawTimberPile(ctx: CanvasRenderingContext2D, x: number, y: number, sca
   }
   ctx.restore();
 }
-

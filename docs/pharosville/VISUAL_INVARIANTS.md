@@ -32,12 +32,12 @@ These are the non-negotiable visual/data contracts for the PharosVille world. A 
 - The inland civic spine does not host Pharos data buildings. Mint/burn flows, DEX liquidity, and redemption-route backstops stay on their dedicated analytical surfaces outside PharosVille.
 - DEWS zone edge anchoring uses compound/coast-aware masks rather than rectangles:
   - CALM ANCHORAGE → x=0 large left-edge vertical basin
-  - WATCH BREAKWATER → south breakwater basin plus reclaimed southeast corner basin
-  - ALERT CHANNEL -> eastern-corner outer ring, anchored to the x=55 edge
+  - WATCH BREAKWATER → south breakwater basin plus the entire eastern shelf below the Alert ring
+  - ALERT CHANNEL -> compact upper eastern-corner ring at (55, 0); no longer extends down the x=55 edge
   - WARNING SHOALS -> eastern-corner middle ring, bridged into Danger Strait
   - DANGER STRAIT -> eastern-corner inner/right storm ring
-- The eastern corner is covered by overlapping ALERT/WARNING/DANGER water
-- Four-tile Chebyshev island periphery is reserved as generic water
+- The eastern corner is covered by overlapping ALERT/WARNING/DANGER water at the (55, 0) corner only
+- Four-tile Chebyshev island periphery is reserved as generic water except for the Watch Breakwater shelf, which reaches the eastern coast
 - Water tiles inside lighthouse visual clearance (x:14..24, y:23..32) stay generic water (lighthouse sprite breathing room)
 - Ledger Mooring spans the entire top mooring shelf (y≤9, x≤30) and touches Calm Anchorage along the western flank at the y=9/y=10 boundary, sitting clear of Watch Breakwater and the eastern Alert/Warning/Danger ring without stealing their tiles. Freeze/blacklist tracker activity remains outside PharosVille and belongs to the `/blacklist/` product surface.
 

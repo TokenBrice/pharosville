@@ -25,7 +25,7 @@ export const ZONE_DWELL: Record<ShipWaterZone, { dockDwell: number; riskDwell: n
 export const DOCKED_SHIP_DWELL_SHARE = 1 / 3;
 
 export const OPEN_WATER_PATROL_WAYPOINTS: Record<ShipWaterZone, readonly { x: number; y: number }[]> = {
-  alert: [...SHIP_WATER_ANCHORS["harbor-mouth-watch"], ...SHIP_WATER_ANCHORS["outer-rough-water"], ...SHIP_WATER_ANCHORS["breakwater-edge"]],
+  alert: [...SHIP_WATER_ANCHORS["harbor-mouth-watch"], ...SHIP_WATER_ANCHORS["outer-rough-water"]],
   calm: SHIP_WATER_ANCHORS["safe-harbor"],
   danger: [...SHIP_WATER_ANCHORS["storm-shelf"], ...SHIP_WATER_ANCHORS["outer-rough-water"]],
   ledger: SHIP_WATER_ANCHORS["ledger-mooring"],

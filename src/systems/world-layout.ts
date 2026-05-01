@@ -128,6 +128,7 @@ export function terrainKindAt(x: number, y: number): TerrainKind {
 
   if (isOutOfBounds(x, y) || island >= 1) {
     const inIslandPeriphery = isWithinIslandPeriphery(x, y);
+    if (!isLighthouseVisualClearance(x, y) && isSoutheastWatchShelf(x, y)) return "watch-water";
     if (!inIslandPeriphery && !isLighthouseVisualClearance(x, y)) {
       if (isDangerStrait(x, y)) return "storm-water";
       if (isWarningShoals(x, y)) return "warning-water";
@@ -198,8 +199,7 @@ function lighthouseMountainValue(x: number, y: number): number {
 
 function isAlertChannel(x: number, y: number): boolean {
   const value = eastCornerRiskValue(x, y);
-  const eastApproach = x >= 53 && y >= 14 && y <= 43;
-  return (value >= 0.66 && value < 1.63) || eastApproach;
+  return value >= 0.66 && value < 1.63;
 }
 
 function isWarningShoals(x: number, y: number): boolean {
@@ -222,16 +222,22 @@ function isLighthouseVisualClearance(x: number, y: number): boolean {
 }
 
 function isWatchBreakwater(x: number, y: number): boolean {
-  // South breakwater basin plus an east bridge that absorbs the previously
-  // un-attributed strip between the south basin and the southeast corner basin.
+  // South breakwater basin plus the southeast/east shelf below the Alert Channel.
   const southBasin = x >= 16 && x <= 43 && y >= 45;
-  const eastBridge = x >= 28
-    && x <= 55
-    && y >= 38
-    && y <= 50
-    && ellipseValue(x, y, 55.0, 55.0, 14.0, 14.0) >= 1.0;
+  const eastBridge = isSoutheastWatchShelf(x, y) && ellipseValue(x, y, 55.0, 55.0, 14.0, 14.0) >= 1.0;
   const southeastBasin = ellipseValue(x, y, 55.0, 55.0, 14.0, 14.0) < 1.0;
   return southBasin || eastBridge || southeastBasin;
+}
+
+function isSoutheastWatchShelf(x: number, y: number): boolean {
+  if (x < 28 || x > MAX_TILE_X || y < 18 || y > MAX_TILE_Y) return false;
+  // Stay clear of the east-corner Alert/Warning/Danger ring stack.
+  if (eastCornerRiskValue(x, y) < 1.63) return false;
+  // Eastern shelf: tiles below the Alert ring along the x=55 edge.
+  const easternShelf = x >= 45;
+  // Southern shelf: tiles south of the harbor that bridge into the south basin.
+  const southernShelf = y >= 38 && x + y >= 78;
+  return easternShelf || southernShelf;
 }
 
 function isCalmAnchorage(x: number, y: number): boolean {

@@ -80,18 +80,22 @@ Edge-anchored compound masks (current iteration as of 2026-04-30):
 
 | Zone | Primary edge | Bounds | Approx tiles |
 |------|--------------|--------|-------------:|
-| CALM | x=0 | large left-edge vertical anchorage | ~700 |
-| WATCH | y=55 | south breakwater basin plus the reclaimed southeast corner basin | ~430 |
+| WATCH | y=55 / east shelf | south breakwater basin plus the entire eastern shelf below the Alert ring | ~786 |
+| CALM | x=0 | large left-edge vertical anchorage | ~665 |
 | LEDGER | top edge | non-DEWS NAV mooring shelf spanning the entire top of the diamond, touching Calm at the western flank | ~310 |
-| ALERT | x=55/eastern corner | outer eastern ring | ~232 |
+| ALERT | x=55/eastern corner | upper outer eastern ring at the (55, 0) corner | ~150 |
 | WARNING | x=55/eastern corner | middle eastern ring bridged into Danger Strait | ~65 |
 | DANGER | x=55/eastern corner | inner/right storm strait on the angled shelf | ~48 |
 
 The southeast corner basin is WATCH water rather than Calm Anchorage. The
-eastern corner is covered by overlapping ALERT+WARNING+DANGER water, with
-Warning Shoals touching the Danger Strait shelf rather than leaving a generic
-water gap. The four-tile Chebyshev island periphery and lighthouse
-visual-clearance box (x:14..24, y:23..32) are generic water.
+eastern corner is covered by overlapping ALERT+WARNING+DANGER water at the
+(55, 0) corner only; the eastern shelf below the Alert ring is reabsorbed into
+Watch Breakwater so Alert Channel reads as a compact upper ring instead of a
+strip running down the right edge. Warning Shoals touches the Danger Strait
+shelf rather than leaving a generic water gap. The four-tile Chebyshev island
+periphery is generic water except where the Watch shelf intentionally reaches
+the coast; the lighthouse visual-clearance box (x:14..24, y:23..32) remains
+generic water.
 - Stale or missing peg evidence maps to Calm Anchorage with an evidence caveat unless a fresher risk signal exists; it must not create a separate sea zone or masquerade as storm/depeg risk.
 - Stablecoin supply values from the list payload are already USD-denominated. Use `getCirculatingRaw()` for market-cap visual tiers.
 - Local runtime assets come from `public/pharosville/assets/` and `manifest.json`. Do not reference remote prototype URLs at runtime.

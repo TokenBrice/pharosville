@@ -88,8 +88,8 @@ the higher-risk bands drawn as overlapping eastern-corner rings sized roughly
 proportionally to the ships they must host:
 
 - **Calm Anchorage** — large left-edge vertical anchorage basin.
-- **Watch Breakwater** — south breakwater basin plus the reclaimed southeast corner basin.
-- **Alert Channel** — outer eastern channel ring.
+- **Watch Breakwater** — south breakwater basin plus the entire eastern shelf below the Alert ring.
+- **Alert Channel** — compact upper eastern-corner ring at (55, 0).
 - **Warning Shoals** — middle eastern shoal ring, bridged into Danger Strait.
 - **Danger Strait** — inner/right storm strait snapped to the angled east edge.
 

@@ -50,7 +50,7 @@ describe("buildPharosVilleMap", () => {
     expect(Math.abs(mainCenter.y - CIVIC_CORE_CENTER.y)).toBeLessThan(2);
     const counts = terrainCounts(map.tiles);
     expect((counts.get("deep-water") ?? 0) / map.tiles.length).toBeLessThanOrEqual(0.03);
-    expect(counts.get("calm-water") ?? 0).toBeGreaterThan(counts.get("watch-water") ?? 0);
+    expect(counts.get("watch-water") ?? 0).toBeGreaterThan(counts.get("calm-water") ?? 0);
     expect(counts.get("calm-water") ?? 0).toBeGreaterThan(counts.get("ledger-water") ?? 0);
     expect(counts.get("ledger-water") ?? 0).toBeGreaterThanOrEqual(280);
     expect(counts.get("watch-water") ?? 0).toBeGreaterThanOrEqual(80);
@@ -138,6 +138,12 @@ describe("buildPharosVilleMap", () => {
       { x: 22, y: 49 },
       { x: 28, y: 50 },
       { x: 34, y: 52 },
+      { x: 48, y: 44 },
+      { x: 52, y: 42 },
+      { x: 55, y: 38 },
+      { x: 55, y: 25 },
+      { x: 50, y: 30 },
+      { x: 45, y: 35 },
       { x: 22, y: 55 },
       { x: 38, y: 55 },
     ];
@@ -189,6 +195,9 @@ describe("buildPharosVilleMap", () => {
     expect(terrainKindAt(34, 2)).toBe("water");
     expect(terrainKindAt(37, 5)).toBe("water");
     expect(terrainKindAt(40, 0)).toBe("alert-water");
+    expect(terrainKindAt(55, 17)).toBe("alert-water");
+    expect(terrainKindAt(55, 18)).toBe("watch-water");
+    expect(terrainKindAt(55, 38)).toBe("watch-water");
     expect(terrainKindAt(45, 0)).toBe("warning-water");
     expect(terrainKindAt(55, 0)).toBe("storm-water");
   });
@@ -199,6 +208,8 @@ describe("buildPharosVilleMap", () => {
       { x: 1, y: 55 },
       { x: 55, y: 24 },
       { x: 55, y: 38 },
+      { x: 44, y: 40 },
+      { x: 51, y: 31 },
     ]) {
       expect(
         ["calm-water", "watch-water", "alert-water", "warning-water", "storm-water"],
@@ -209,8 +220,6 @@ describe("buildPharosVilleMap", () => {
     for (const tile of [
       { x: 14, y: 21 },
       { x: 19, y: 40 },
-      { x: 44, y: 40 },
-      { x: 51, y: 31 },
     ]) {
       expect(terrainKindAt(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("water");
     }

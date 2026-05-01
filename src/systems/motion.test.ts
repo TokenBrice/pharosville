@@ -23,7 +23,7 @@ describe("motion", () => {
       { zone: "watch", expectedTerrains: ["watch-water", "calm-water"], minDistance: 8, world: worldForShip({ chainCirculating: {}, chains: ["ethereum"], stressBand: "WATCH" }) },
       {
         zone: "alert",
-        expectedTerrains: ["alert-water", "warning-water", "watch-water"],
+        expectedTerrains: ["alert-water", "warning-water"],
         minDistance: 8,
         world: worldForShip({
           chainCirculating: {},
@@ -375,7 +375,7 @@ describe("motion", () => {
     const cases = [
       { expectedTerrains: ["calm-water"], world: worldForShip({ chainCirculating: {}, chains: ["ethereum"] }) },
       {
-        expectedTerrains: ["alert-water", "warning-water", "watch-water"],
+        expectedTerrains: ["alert-water", "warning-water"],
         world: worldForShip({
           chainCirculating: {},
           chains: ["ethereum"],
