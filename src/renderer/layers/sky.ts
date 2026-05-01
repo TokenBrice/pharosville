@@ -194,17 +194,27 @@ export function drawSky(input: DrawPharosVilleInput, lighthouse?: LighthouseRend
 }
 
 export function skyState(motion: PharosVilleCanvasMotion) {
-  const progress = motion.reducedMotion
-    ? 0.58
-    : ((motion.timeSeconds * 0.006) % 1 + 1) % 1;
-  const mood = progress < 0.18
-    ? SKY_MOODS.dawn
-    : progress < 0.48
-      ? SKY_MOODS.day
-      : progress < 0.64
-        ? SKY_MOODS.dusk
-        : SKY_MOODS.night;
-  return { mood, progress };
+  const hour = ((motion.wallClockHour % 24) + 24) % 24;
+  const mood = hour < 5
+    ? SKY_MOODS.night
+    : hour < 7
+      ? SKY_MOODS.dawn
+      : hour < 18
+        ? SKY_MOODS.day
+        : hour < 20
+          ? SKY_MOODS.dusk
+          : SKY_MOODS.night;
+  const progress = (((hour - 6) / 24) % 1 + 1) % 1;
+  const nightFactor = computeNightFactor(hour);
+  return { mood, progress, nightFactor };
+}
+
+function computeNightFactor(hour: number): number {
+  if (hour < 5) return 1;
+  if (hour < 7) return 1 - (hour - 5) / 2;
+  if (hour < 18) return 0;
+  if (hour < 20) return (hour - 18) / 2;
+  return 1;
 }
 
 function skyPathPoint(width: number, height: number, progress: number, phaseOffset = 0) {
