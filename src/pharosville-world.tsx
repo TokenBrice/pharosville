@@ -764,6 +764,18 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       clearSelection();
       return;
     }
+    if (event.key === "+" || event.key === "=") {
+      if (isInteractiveEventTarget(event.target)) return;
+      event.preventDefault();
+      handleToolbarZoomIn();
+      return;
+    }
+    if (event.key === "-" || event.key === "_") {
+      if (isInteractiveEventTarget(event.target)) return;
+      event.preventDefault();
+      handleToolbarZoomOut();
+      return;
+    }
     const step = event.shiftKey ? 72 : 32;
     if (event.key === "ArrowLeft" || event.key === "ArrowRight" || event.key === "ArrowUp" || event.key === "ArrowDown") {
       if (isInteractiveEventTarget(event.target)) return;
@@ -777,7 +789,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       const next = panCamera(camera, deltas[event.key], { map: world.map, viewport: canvasSize });
       if (!sameCamera(camera, next)) setCamera(next);
     }
-  }, [camera, canvasSize, clearSelection, exitFullscreen, fullscreenMode, world.map]);
+  }, [camera, canvasSize, clearSelection, exitFullscreen, fullscreenMode, handleToolbarZoomIn, handleToolbarZoomOut, world.map]);
 
   const detailDockStyle = selectedDetailAnchor
     ? ({
