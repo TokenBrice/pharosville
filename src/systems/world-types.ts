@@ -125,7 +125,8 @@ export interface ShipDockVisit {
   mooringTile: { x: number; y: number };
 }
 
-export type ShipWaterZone = "calm" | "watch" | "alert" | "warning" | "danger" | "ledger";
+export const SHIP_WATER_ZONES = ["calm", "watch", "alert", "warning", "danger", "ledger"] as const;
+export type ShipWaterZone = typeof SHIP_WATER_ZONES[number];
 
 export interface LighthouseNode {
   id: "lighthouse";

@@ -194,7 +194,7 @@ function defaultLabelTheme(accent: string): ZoneLabelTheme {
   };
 }
 
-export const ZONE_THEMES: Record<keyof typeof WATER_TERRAIN_STYLES, ZoneVisualTheme> = {
+export const ZONE_THEMES = {
   "alert-water": {
     ...WATER_TERRAIN_STYLES["alert-water"],
     label: defaultLabelTheme(DEWS_AREA_LABEL_COLORS.ALERT),
@@ -240,7 +240,7 @@ export const ZONE_THEMES: Record<keyof typeof WATER_TERRAIN_STYLES, ZoneVisualTh
     label: defaultLabelTheme("#d8b56a"),
     motion: DEFAULT_MOTION,
   },
-};
+} as const satisfies Record<keyof typeof WATER_TERRAIN_STYLES, ZoneVisualTheme>;
 
 export function zoneThemeForTerrain(kind: string): ZoneVisualTheme {
   return ZONE_THEMES[kind as keyof typeof ZONE_THEMES] ?? ZONE_THEMES.water;

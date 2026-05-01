@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { THREAT_BAND_HEX } from "@shared/lib/classification";
 import { DEWS_AREA_LABEL_COLORS, HARBOR_PALETTE, WATER_TERRAIN_STYLES, ZONE_THEMES, hexToInt, paletteOrThrow, paletteRgba, waterTerrainStyle } from "./palette";
+import { RISK_WATER_AREAS } from "./risk-water-areas";
+import { SHIP_WATER_ZONES } from "./world-types";
 
 describe("HARBOR_PALETTE", () => {
   it("contains 25 entries", () => {
@@ -84,6 +86,15 @@ describe("HARBOR_PALETTE", () => {
       expect(theme.label.accent).toMatch(/^#|^rgba/);
       expect(theme.motion.amplitudeScale).toBeGreaterThan(0);
       expect(theme.motion.strokeAlphaScale).toBeGreaterThan(0);
+    }
+  });
+
+  it("every ShipWaterZone resolves to a ZONE_THEMES entry via the RISK_WATER_AREAS terrain mapping", () => {
+    for (const zone of SHIP_WATER_ZONES) {
+      const placement = Object.values(RISK_WATER_AREAS).find((area) => area.motionZone === zone);
+      expect(placement, zone).toBeDefined();
+      const terrainKind = placement!.terrain;
+      expect(ZONE_THEMES[terrainKind as keyof typeof ZONE_THEMES], `${zone} → ${terrainKind}`).toBeDefined();
     }
   });
 });

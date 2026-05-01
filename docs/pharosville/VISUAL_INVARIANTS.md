@@ -78,6 +78,7 @@ These are the non-negotiable visual/data contracts for the PharosVille world. A 
 - Asset geometry changes require manifest updates and hit-testing/visual validation.
 - Canvas backing store must remain bounded by the canvas budget.
 - Palette changes must pass `npm run check:pharosville-colors`; use the route palette and classification/shared colors rather than ad hoc debug colors.
+- Per-zone water styling — base/depth/wave/accent colors, procedural texture kind, label outline/fill/plaque/accent, motion amplitude scalar, stroke-alpha scalar — is sourced from `ZONE_THEMES` in `src/systems/palette.ts`. Renderers must not re-introduce hardcoded zone color literals; pull from the theme. The `RISK_WATER_AREAS[area.riskPlacement].terrain` lookup is the canonical placement-to-terrain bridge that label rendering uses (the bare `${riskZone}-water` concatenation is wrong for Danger).
 
 ## Accessibility And Motion
 

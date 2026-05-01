@@ -5,14 +5,14 @@ import type { ShipSizeTier, ShipWaterZone } from "../../systems/world-types";
 const TWO_PI = Math.PI * 2;
 const NON_TITAN_BOB_PIXELS = 2;
 
-const ZONE_ROUGHNESS: Record<ShipWaterZone, number> = {
+const ZONE_ROUGHNESS = {
   alert: 1,
   calm: 0.72,
   danger: 1.32,
   ledger: 0.65,
   warning: 1.14,
   watch: 0.86,
-};
+} as const satisfies Record<ShipWaterZone, number>;
 
 const STATIC_SHIP_POSE: ShipPose = {
   bobPixels: 0,
