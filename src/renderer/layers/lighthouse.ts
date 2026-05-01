@@ -66,6 +66,13 @@ export function drawLighthouseSurf({ camera, ctx, motion }: DrawPharosVilleInput
 
 const LIGHTHOUSE_HEADLAND_SCALE = 0.5;
 
+const NIGHT_HALO_OUTER_RADIUS = 320;       // sprite units — additive halo at firePoint
+const NIGHT_HALO_MAX_ALPHA = 0.55;
+const NIGHT_BEAM_ALPHA = 0.22;             // additive beam intensity on top of the existing pulse
+const NIGHT_BEAM_LENGTH_BOOST = 0.3;       // wedges reach this much further at full night
+const NIGHT_WATER_POOL_RADIUS = 280;       // sprite units — warm pool centered slightly below firePoint
+const NIGHT_WATER_POOL_MAX_ALPHA = 0.35;
+
 export function drawLighthouseHeadland(input: DrawPharosVilleInput) {
   const { assets, camera, ctx, world } = input;
   const headland = assets?.get("overlay.lighthouse-headland");
@@ -78,14 +85,16 @@ export function drawLighthouseHeadland(input: DrawPharosVilleInput) {
 export function lighthouseOverlayScreenBounds(
   input: DrawPharosVilleInput,
   selectionRect: { height: number; width: number; x: number; y: number },
-  cached?: LighthouseRenderState,
+  cached: LighthouseRenderState | undefined,
+  nightFactor: number,
 ): { height: number; width: number; x: number; y: number } {
   const { firePoint } = cached ?? lighthouseRenderState(input);
   const beamZoom = input.camera.zoom * 1.35;
+  const reach = 1 + NIGHT_BEAM_LENGTH_BOOST * nightFactor;
   const beamBounds = {
     height: 120 * beamZoom,
-    width: 436 * beamZoom,
-    x: firePoint.x - 176 * beamZoom,
+    width: 436 * beamZoom * reach,
+    x: firePoint.x - 176 * beamZoom * reach,
     y: firePoint.y - 82 * beamZoom,
   };
   const minX = Math.min(selectionRect.x, beamBounds.x);
@@ -400,4 +409,76 @@ function drawPixelFlame(ctx: CanvasRenderingContext2D, points: Array<[number, nu
   });
   ctx.closePath();
   ctx.fill();
+}
+
+export function drawLighthouseNightHighlights(
+  input: DrawPharosVilleInput,
+  cached: LighthouseRenderState | undefined,
+  nightFactor: number,
+): void {
+  if (nightFactor <= 0) return;
+  if (input.world.lighthouse.unavailable) return;
+
+  const { camera, ctx } = input;
+  const { firePoint } = cached ?? lighthouseRenderState(input);
+  const zoom = camera.zoom;
+
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+
+  // Warm halo — additive radial centered on firePoint, large enough to wash
+  // warmth onto the headland sprite below.
+  const haloRadius = NIGHT_HALO_OUTER_RADIUS * zoom;
+  const haloAlpha = NIGHT_HALO_MAX_ALPHA * nightFactor;
+  const halo = ctx.createRadialGradient(
+    firePoint.x, firePoint.y, 12 * zoom,
+    firePoint.x, firePoint.y, haloRadius,
+  );
+  halo.addColorStop(0, `rgba(255, 220, 130, ${haloAlpha})`);
+  halo.addColorStop(0.35, `rgba(255, 180, 80, ${haloAlpha * 0.4})`);
+  halo.addColorStop(1, "rgba(255, 160, 60, 0)");
+  ctx.fillStyle = halo;
+  ctx.beginPath();
+  ctx.arc(firePoint.x, firePoint.y, haloRadius, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Boosted beam wedges — reach further at night and stack on the existing beam.
+  const beamZoom = zoom * 1.35;
+  const reach = 1 + NIGHT_BEAM_LENGTH_BOOST * nightFactor;
+  ctx.globalAlpha = NIGHT_BEAM_ALPHA * nightFactor;
+  ctx.fillStyle = "rgba(255, 234, 160, 1)";
+  ctx.beginPath();
+  ctx.moveTo(firePoint.x + 4 * beamZoom, firePoint.y - 2 * beamZoom);
+  ctx.lineTo(firePoint.x + 250 * beamZoom * reach, firePoint.y - 74 * beamZoom);
+  ctx.lineTo(firePoint.x + 228 * beamZoom * reach, firePoint.y + 28 * beamZoom);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(firePoint.x - 5 * beamZoom, firePoint.y);
+  ctx.lineTo(firePoint.x - 168 * beamZoom * reach, firePoint.y - 42 * beamZoom);
+  ctx.lineTo(firePoint.x - 154 * beamZoom * reach, firePoint.y + 25 * beamZoom);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.globalAlpha = 1;
+  ctx.restore();
+
+  // Warm water pool — centered slightly below firePoint, drawn with default
+  // composite (source-over) so it warms the dark water without over-saturating.
+  ctx.save();
+  const poolY = firePoint.y + 36 * zoom;
+  const poolRadius = NIGHT_WATER_POOL_RADIUS * zoom;
+  const poolAlpha = NIGHT_WATER_POOL_MAX_ALPHA * nightFactor;
+  const pool = ctx.createRadialGradient(
+    firePoint.x, poolY, 18 * zoom,
+    firePoint.x, poolY, poolRadius,
+  );
+  pool.addColorStop(0, `rgba(255, 175, 90, ${poolAlpha})`);
+  pool.addColorStop(0.4, `rgba(245, 150, 65, ${poolAlpha * 0.45})`);
+  pool.addColorStop(1, "rgba(245, 150, 65, 0)");
+  ctx.fillStyle = pool;
+  ctx.beginPath();
+  ctx.ellipse(firePoint.x, poolY, poolRadius, poolRadius * 0.55, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }
