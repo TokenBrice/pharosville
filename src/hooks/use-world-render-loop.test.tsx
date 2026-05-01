@@ -38,20 +38,58 @@ describe("useWorldRenderLoop", () => {
 
   let rafSpy: ReturnType<typeof vi.spyOn>;
   let cafSpy: ReturnType<typeof vi.spyOn>;
+  let intersectionObservers: Array<{
+    callback: IntersectionObserverCallback;
+    target: Element | null;
+    fire: (ratio: number) => void;
+  }> = [];
 
   beforeEach(() => {
     // Don't fire scheduled callbacks during the test — we only care about
     // counts of cancel/request calls, not actually running another draw.
-    rafSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1 as unknown as number);
+    let nextFrameId = 1;
+    rafSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => (nextFrameId += 1));
     cafSpy = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
     HTMLCanvasElement.prototype.getContext = (function getContext() {
       return makeStubCanvasContext();
     }) as unknown as HTMLCanvasElement["getContext"];
+    // Stub IntersectionObserver so the test can drive visibility transitions.
+    intersectionObservers = [];
+    const StubIntersectionObserver = class {
+      callback: IntersectionObserverCallback;
+      target: Element | null = null;
+      constructor(callback: IntersectionObserverCallback) {
+        this.callback = callback;
+        intersectionObservers.push({
+          callback,
+          target: null,
+          fire: (ratio: number) => {
+            const target = this.target;
+            if (!target) return;
+            this.callback([{ intersectionRatio: ratio, target } as unknown as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+          },
+        });
+      }
+      observe(target: Element) {
+        this.target = target;
+        const entry = intersectionObservers[intersectionObservers.length - 1];
+        if (entry) entry.target = target;
+      }
+      unobserve() {}
+      disconnect() {}
+      takeRecords() { return []; }
+    };
+    (window as unknown as { IntersectionObserver: typeof IntersectionObserver }).IntersectionObserver
+      = StubIntersectionObserver as unknown as typeof IntersectionObserver;
+    (globalThis as unknown as { IntersectionObserver: typeof IntersectionObserver }).IntersectionObserver
+      = StubIntersectionObserver as unknown as typeof IntersectionObserver;
   });
 
   afterEach(() => {
     rafSpy.mockRestore();
     cafSpy.mockRestore();
+    delete (window as unknown as { IntersectionObserver?: typeof IntersectionObserver }).IntersectionObserver;
+    delete (globalThis as unknown as { IntersectionObserver?: typeof IntersectionObserver }).IntersectionObserver;
   });
 
   function Harness({
@@ -172,5 +210,26 @@ describe("useWorldRenderLoop", () => {
       latest!.requestPaint();
     });
     expect(rafSpy.mock.calls.length).toBe(beforeRepeats);
+  });
+
+  it("pauses RAF when canvas reports intersectionRatio 0 and resumes when it goes back to 1", () => {
+    let latest: UseWorldRenderLoopResult | null = null;
+    const onResult = (r: UseWorldRenderLoopResult) => { latest = r; };
+    render(<Harness hoveredDetailId={null} onResult={onResult} />);
+
+    // Find the IntersectionObserver instance attached to the canvas.
+    const observer = intersectionObservers.find((entry) => entry.target !== null);
+    expect(observer).toBeDefined();
+
+    // Drive the canvas offscreen — requestPaint() must NOT schedule a frame.
+    act(() => observer!.fire(0));
+    const rafsAfterOffscreen = rafSpy.mock.calls.length;
+    act(() => latest!.requestPaint());
+    expect(rafSpy.mock.calls.length).toBe(rafsAfterOffscreen);
+
+    // Drive it back onscreen — the visibility transition itself should
+    // schedule a one-shot frame to repaint the current state.
+    act(() => observer!.fire(1));
+    expect(rafSpy.mock.calls.length).toBeGreaterThan(rafsAfterOffscreen);
   });
 });

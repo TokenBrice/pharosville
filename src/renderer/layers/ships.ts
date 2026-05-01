@@ -254,6 +254,51 @@ const SHIP_SIZE_TIER_PRIORITY: Record<PharosVilleWorld["ships"][number]["visual"
   unknown: 0,
 };
 
+// Module-level scratch reused by `planShipRenderLod`. Lifecycle: cleared on
+// each cache miss; cached plan sets are reused (mutated in place) across
+// frames when key matches, then fully rebuilt on miss. `resetPlanCache()`
+// drops the cache when the world identity changes.
+type ShipLodCandidate = { score: number; shipId: string };
+const overlayCandidatesScratch: ShipLodCandidate[] = [];
+const wakeCandidatesScratch: ShipLodCandidate[] = [];
+const drawOverlayShipIdsScratch = new Set<string>();
+const drawWakeShipIdsScratch = new Set<string>();
+const cachedPlan: ShipRenderLodPlan = {
+  drawOverlayShipIds: drawOverlayShipIdsScratch,
+  drawWakeShipIds: drawWakeShipIdsScratch,
+};
+let cachedPlanKey: string | null = null;
+let cachedMoverHashSource: ReadonlySet<string> | null = null;
+let cachedMoverHash = "";
+let cachedEffectHashSource: ReadonlySet<string> | null = null;
+let cachedEffectHash = "";
+
+function compareShipLodCandidates(a: ShipLodCandidate, b: ShipLodCandidate): number {
+  const scoreDelta = b.score - a.score;
+  if (Math.abs(scoreDelta) > 0.0001) return scoreDelta;
+  return a.shipId < b.shipId ? -1 : a.shipId > b.shipId ? 1 : 0;
+}
+
+function hashIdSet(set: ReadonlySet<string>, prevSource: ReadonlySet<string> | null, prevHash: string): {
+  hash: string;
+  source: ReadonlySet<string>;
+} {
+  if (set === prevSource) return { hash: prevHash, source: set };
+  if (set.size === 0) return { hash: "", source: set };
+  const ids: string[] = [];
+  for (const id of set) ids.push(id);
+  ids.sort();
+  return { hash: ids.join("|"), source: set };
+}
+
+export function resetPlanCache(): void {
+  cachedPlanKey = null;
+  cachedMoverHashSource = null;
+  cachedMoverHash = "";
+  cachedEffectHashSource = null;
+  cachedEffectHash = "";
+}
+
 export function planShipRenderLod(
   input: Pick<DrawPharosVilleInput, "camera" | "height" | "hoveredTarget" | "motion" | "selectedTarget" | "shipMotionSamples" | "width">,
   cache: Pick<RenderFrameCache, "geometryForEntity">,
@@ -271,9 +316,25 @@ export function planShipRenderLod(
   const selectedDetailId = input.selectedTarget?.detailId ?? null;
   const hoveredId = input.hoveredTarget?.id ?? null;
   const hoveredDetailId = input.hoveredTarget?.detailId ?? null;
+
+  const moverIds = input.motion.plan.moverShipIds;
+  const effectIds = input.motion.plan.effectShipIds;
+  const moverHashed = hashIdSet(moverIds, cachedMoverHashSource, cachedMoverHash);
+  const effectHashed = hashIdSet(effectIds, cachedEffectHashSource, cachedEffectHash);
+  cachedMoverHashSource = moverHashed.source;
+  cachedMoverHash = moverHashed.hash;
+  cachedEffectHashSource = effectHashed.source;
+  cachedEffectHash = effectHashed.hash;
+
+  const zoomBucket = (input.camera.zoom * 100) | 0;
+  const cacheKey = `${zoomBucket}|${input.width}|${input.height}|${visibleShips.length}|${selectedId ?? ""}|${selectedDetailId ?? ""}|${hoveredId ?? ""}|${hoveredDetailId ?? ""}|${moverHashed.hash}|${effectHashed.hash}`;
+  if (cacheKey === cachedPlanKey) {
+    return cachedPlan;
+  }
+
   const centerX = input.width / 2;
   const centerY = input.height / 2;
-  const maxDistance = Math.max(320, Math.hypot(centerX, centerY) + 220 * input.camera.zoom);
+  const maxDistance = Math.max(320, Math.sqrt(centerX * centerX + centerY * centerY) + 220 * input.camera.zoom);
   const viewportMargin = Math.max(96, 160 * input.camera.zoom);
   const zoomFactor = Math.max(0.72, Math.min(1.2, input.camera.zoom));
   const overlayBudget = Math.min(
@@ -285,16 +346,16 @@ export function planShipRenderLod(
     Math.max(SHIP_WAKE_BUDGET_MIN, Math.floor(visibleShips.length * SHIP_WAKE_BUDGET_RATIO * zoomFactor)),
   );
 
-  const drawOverlayShipIds = new Set<string>();
-  const drawWakeShipIds = new Set<string>();
-  const overlayCandidates: Array<{ score: number; shipId: string }> = [];
-  const wakeCandidates: Array<{ score: number; shipId: string }> = [];
+  drawOverlayShipIdsScratch.clear();
+  drawWakeShipIdsScratch.clear();
+  overlayCandidatesScratch.length = 0;
+  wakeCandidatesScratch.length = 0;
 
   for (const ship of visibleShips) {
     const geometry = cache.geometryForEntity(ship);
     const sample = input.shipMotionSamples?.get(ship.id) ?? null;
-    const mover = input.motion.plan.moverShipIds.has(ship.id);
-    const effect = input.motion.plan.effectShipIds.has(ship.id);
+    const mover = moverIds.has(ship.id);
+    const effect = effectIds.has(ship.id);
     const selected = ship.id === selectedId || ship.detailId === selectedDetailId;
     const hovered = ship.id === hoveredId || ship.detailId === hoveredDetailId;
     const preserveTier = ship.visual.sizeTier === "titan"
@@ -302,15 +363,17 @@ export function planShipRenderLod(
       || isTitanSprite(ship)
       || isUniqueSprite(ship);
     const inViewport = isShipRectInViewport(geometry.selectionRect, input.width, input.height, viewportMargin);
-    const distance = Math.hypot(geometry.screenPoint.x - centerX, geometry.screenPoint.y - centerY);
+    const dx = geometry.screenPoint.x - centerX;
+    const dy = geometry.screenPoint.y - centerY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
     const proximityScore = Math.max(-1, 1 - distance / maxDistance);
     const sizePriority = SHIP_SIZE_TIER_PRIORITY[ship.visual.sizeTier] ?? 0;
     const transit = sample?.state === "departing" || sample?.state === "sailing" || sample?.state === "arriving";
     const preserve = selected || hovered || preserveTier;
 
     if (preserve) {
-      drawOverlayShipIds.add(ship.id);
-      drawWakeShipIds.add(ship.id);
+      drawOverlayShipIdsScratch.add(ship.id);
+      drawWakeShipIdsScratch.add(ship.id);
       continue;
     }
 
@@ -321,7 +384,7 @@ export function planShipRenderLod(
       + (effect ? 2.1 : 0)
       + (mover ? 2.8 : 0)
       + (transit ? 0.8 : -0.4);
-    overlayCandidates.push({ score: overlayScore, shipId: ship.id });
+    overlayCandidatesScratch.push({ score: overlayScore, shipId: ship.id });
 
     const wakeScore = proximityScore * 5.1
       + visibilityScore
@@ -329,30 +392,24 @@ export function planShipRenderLod(
       + (mover ? 5.8 : 0)
       + (transit ? 4.4 : -3.6)
       + sizePriority * 0.4;
-    wakeCandidates.push({ score: wakeScore, shipId: ship.id });
+    wakeCandidatesScratch.push({ score: wakeScore, shipId: ship.id });
   }
 
-  addTopBudgetedShips(drawOverlayShipIds, overlayCandidates, overlayBudget);
-  addTopBudgetedShips(drawWakeShipIds, wakeCandidates, wakeBudget);
+  addTopBudgetedShips(drawOverlayShipIdsScratch, overlayCandidatesScratch, overlayBudget);
+  addTopBudgetedShips(drawWakeShipIdsScratch, wakeCandidatesScratch, wakeBudget);
 
-  return {
-    drawOverlayShipIds,
-    drawWakeShipIds,
-  };
+  cachedPlanKey = cacheKey;
+  return cachedPlan;
 }
 
 function addTopBudgetedShips(
   output: Set<string>,
-  candidates: Array<{ score: number; shipId: string }>,
+  candidates: ShipLodCandidate[],
   targetBudget: number,
 ) {
   const target = Math.max(targetBudget, output.size);
   if (output.size >= target || candidates.length === 0) return;
-  candidates.sort((a, b) => {
-    const scoreDelta = b.score - a.score;
-    if (Math.abs(scoreDelta) > 0.0001) return scoreDelta;
-    return a.shipId < b.shipId ? -1 : a.shipId > b.shipId ? 1 : 0;
-  });
+  candidates.sort(compareShipLodCandidates);
   for (const candidate of candidates) {
     output.add(candidate.shipId);
     if (output.size >= target) break;

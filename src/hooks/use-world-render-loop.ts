@@ -107,6 +107,10 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   const requestPaint = useCallback(() => {
     paintRequestRef.current();
   }, []);
+  // Tracks whether the canvas is currently visible enough to be worth drawing.
+  // The RAF effect updates this from an IntersectionObserver + visibilitychange
+  // handler and gates both the loop and on-demand paints.
+  const canvasIsVisibleRef = useRef(true);
   const drawDurationWindowRef = useRef<DrawDurationWindow>(createDrawDurationWindow());
   const drawDurationStatsRef = useRef<{ averageMs: number; count: number; p90Ms: number }>({
     averageMs: 0,
@@ -149,20 +153,6 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     drawDurationStatsRef.current = { averageMs: 0, count: 0, p90Ms: 0 };
   }, [hitTargetSnapshotRef, hitTargetsRef, shipMotionSamplesRef, world]);
 
-  // When the tab is hidden, RAFs pause; on resume the next frame can carry a
-  // multi-second time delta. Flag the next frame so it skips accumulating that
-  // gap, preventing ships from teleporting through cycles after a long pause.
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "hidden") {
-        pendingResumeRef.current = true;
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, []);
-
   // RAF effect — bound once per plumbing change (`world`, `canvasSize`,
   // `reducedMotion`, `assetManager`, `cameraReady`, `nightMode`, `shipsById`).
   // All other inputs (hoveredDetailId, selectedDetailId, motionPlan, camera,
@@ -170,6 +160,12 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   // repaints under reduced motion are routed through `requestPaint()` so the
   // loop is not torn down on every interaction. Asset-load ticks also call
   // `requestPaint()` to repaint when sprites arrive without rebinding.
+  //
+  // The IntersectionObserver + visibilitychange handler are owned by the same
+  // effect so their lifecycle is bound to the RAF loop. When the canvas leaves
+  // the viewport (intersectionRatio < 0.05) or the tab is hidden, the loop
+  // pauses by cancelling the pending frame; when visible again it resumes via
+  // scheduleFrame() to paint the current state.
   const cameraReady = camera !== null;
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -185,8 +181,12 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       });
     }
     let frameId = 0;
+    let intersectionRatio = 1;
+    let documentHidden = typeof document !== "undefined" && document.visibilityState === "hidden";
+    canvasIsVisibleRef.current = !documentHidden && intersectionRatio >= 0.05;
     const scheduleFrame = () => {
       if (animationFramePendingRef.current) return;
+      if (!canvasIsVisibleRef.current) return;
       animationFramePendingRef.current = true;
       frameId = requestAnimationFrame(drawFrame);
     };
@@ -364,12 +364,56 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       }
     };
     paintRequestRef.current = scheduleFrame;
+
+    // Pause the loop when the canvas is offscreen or the tab is hidden; resume
+    // by scheduling a one-shot frame to paint the current state. Set the
+    // pending-resume flag so the first post-pause frame drops its accumulated
+    // dt (otherwise long pauses would teleport ships through cycles).
+    const applyVisibility = () => {
+      const nextVisible = !documentHidden && intersectionRatio >= 0.05;
+      if (nextVisible === canvasIsVisibleRef.current) return;
+      canvasIsVisibleRef.current = nextVisible;
+      if (nextVisible) {
+        pendingResumeRef.current = true;
+        scheduleFrame();
+      } else {
+        if (frameId) {
+          cancelAnimationFrame(frameId);
+          frameId = 0;
+        }
+        animationFramePendingRef.current = false;
+      }
+    };
+
+    let observer: IntersectionObserver | null = null;
+    if (typeof IntersectionObserver !== "undefined") {
+      observer = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (entry.target === canvas) intersectionRatio = entry.intersectionRatio;
+        }
+        applyVisibility();
+      }, { rootMargin: "0px", threshold: [0, 0.05] });
+      observer.observe(canvas);
+    }
+
+    const handleVisibilityChange = () => {
+      documentHidden = document.visibilityState === "hidden";
+      applyVisibility();
+    };
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
+
     drawFrame(performance.now());
     return () => {
       paintRequestRef.current = () => {};
       animationFramePendingRef.current = false;
       lastWallRef.current = null;
       if (frameId) cancelAnimationFrame(frameId);
+      if (observer) observer.disconnect();
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assetManager, cameraReady, canvasSize.x, canvasSize.y, nightMode, reducedMotion, shipsById, world]);
@@ -507,18 +551,28 @@ function collectShipMotionSamples(input: {
   world: PharosVilleWorldModel;
 }) {
   const samples = input.samples as Map<string, ShipMotionSample>;
-  for (const ship of input.world.ships) {
-    let sample = samples.get(ship.id);
-    if (!sample) {
-      sample = createShipMotionSample();
-      samples.set(ship.id, sample);
+  // Process flagships/solo ships before consorts so consorts can read their
+  // flagship's already-computed sample from the map instead of re-sampling
+  // the flagship's route. Two passes keeps allocation-free; ordering inside
+  // each pass is unchanged from world.ships.
+  for (let pass = 0; pass < 2; pass += 1) {
+    for (const ship of input.world.ships) {
+      const isConsort = ship.squadRole === "consort";
+      if (pass === 0 && isConsort) continue;
+      if (pass === 1 && !isConsort) continue;
+      let sample = samples.get(ship.id);
+      if (!sample) {
+        sample = createShipMotionSample();
+        samples.set(ship.id, sample);
+      }
+      resolveShipMotionSampleInto({
+        plan: input.motionPlan,
+        reducedMotion: input.reducedMotion,
+        ship,
+        timeSeconds: input.timeSeconds,
+        flagshipSamples: samples,
+      }, sample);
     }
-    resolveShipMotionSampleInto({
-      plan: input.motionPlan,
-      reducedMotion: input.reducedMotion,
-      ship,
-      timeSeconds: input.timeSeconds,
-    }, sample);
   }
   if (samples.size !== input.world.ships.length) {
     const liveIds = new Set(input.world.ships.map((ship) => ship.id));

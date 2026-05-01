@@ -130,6 +130,10 @@ export function resolveShipMotionSampleInto(input: {
   reducedMotion: boolean;
   ship: ShipNode;
   timeSeconds: number;
+  // Optional already-computed flagship samples by ship id. When the consort
+  // branch finds its flagship's sample here it skips the redundant
+  // sampleRouteCycleInto pass; without it, falls back to the local scratch.
+  flagshipSamples?: ReadonlyMap<string, ShipMotionSample>;
 }, out: ShipMotionSample): void {
   const route = input.plan.shipRoutes.get(input.ship.id);
   if (input.reducedMotion || !route) {
@@ -157,16 +161,23 @@ export function resolveShipMotionSampleInto(input: {
     const squad = squadForMember(input.ship.id);
     const flagshipRoute = squad ? input.plan.shipRoutes.get(squad.flagshipId) : undefined;
     if (squad && flagshipRoute) {
-      sampleRouteCycleInto(flagshipRoute, input.timeSeconds, flagshipScratch);
+      // Prefer the already-computed flagship sample from the per-frame map; if
+      // missing (legacy callers / out-of-order iteration), fall back to a
+      // local scratch route sample.
+      const cachedFlagshipSample = input.flagshipSamples?.get(squad.flagshipId);
+      const flagshipSample = cachedFlagshipSample ?? flagshipScratch;
+      if (!cachedFlagshipSample) {
+        sampleRouteCycleInto(flagshipRoute, input.timeSeconds, flagshipScratch);
+      }
       // Prefer the route's cached formation offset over live computation.
       const offset = route.formationOffset
         ?? squadFormationOffsetForPlacement(input.ship.id, squad, input.ship.riskPlacement)
         ?? { dx: 0, dy: 0 };
-      let tileX = flagshipScratch.tile.x + offset.dx;
-      let tileY = flagshipScratch.tile.y + offset.dy;
+      let tileX = flagshipSample.tile.x + offset.dx;
+      let tileY = flagshipSample.tile.y + offset.dy;
       // #8: sub-tile breathing perturbation while the flagship is actively
       // moving; skipped when moored/idle so docked formations stay glued.
-      if (flagshipScratch.state !== "moored" && flagshipScratch.state !== "idle") {
+      if (flagshipSample.state !== "moored" && flagshipSample.state !== "idle") {
         const phase = stableUnit(`${input.ship.id}.formation-breath`) * Math.PI * 2;
         const t = input.timeSeconds;
         tileX += Math.sin(t * 0.31 + phase) * 0.18;
@@ -174,14 +185,14 @@ export function resolveShipMotionSampleInto(input: {
       }
       out.shipId = input.ship.id;
       clampMotionTileInto(tileX, tileY, out.tile);
-      out.state = flagshipScratch.state;
+      out.state = flagshipSample.state;
       out.zone = input.ship.riskZone;
       out.currentDockId = null;
       out.currentRouteStopId = null;
       out.currentRouteStopKind = null;
-      out.heading.x = flagshipScratch.heading.x;
-      out.heading.y = flagshipScratch.heading.y;
-      out.wakeIntensity = flagshipScratch.wakeIntensity;
+      out.heading.x = flagshipSample.heading.x;
+      out.heading.y = flagshipSample.heading.y;
+      out.wakeIntensity = flagshipSample.wakeIntensity;
       return;
     }
   }
