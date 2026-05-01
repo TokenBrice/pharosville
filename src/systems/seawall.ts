@@ -70,12 +70,70 @@ export function isSeawallBarrierTile(tile: { x: number; y: number }): boolean {
   return BARRIER_TILE_KEYS.has(`${Math.round(tile.x)}.${Math.round(tile.y)}`);
 }
 
-export function seawallBarrierDistance(tile: { x: number; y: number }): number {
+// Distance mask covers the integer tile grid spanning the barrier set with a
+// safety pad in all directions. Float inputs fall through to the precise
+// hypot scan so motion samples (which interpolate between tiles) stay
+// bit-identical to the prior implementation.
+const SEAWALL_DISTANCE_MASK_PAD = 8;
+const SEAWALL_DISTANCE_MASK_MIN_X = -SEAWALL_DISTANCE_MASK_PAD;
+const SEAWALL_DISTANCE_MASK_MIN_Y = -SEAWALL_DISTANCE_MASK_PAD;
+const SEAWALL_DISTANCE_MASK_MAX_X = 56 + SEAWALL_DISTANCE_MASK_PAD;
+const SEAWALL_DISTANCE_MASK_MAX_Y = 56 + SEAWALL_DISTANCE_MASK_PAD;
+const SEAWALL_DISTANCE_MASK_WIDTH =
+  SEAWALL_DISTANCE_MASK_MAX_X - SEAWALL_DISTANCE_MASK_MIN_X;
+const SEAWALL_DISTANCE_MASK_HEIGHT =
+  SEAWALL_DISTANCE_MASK_MAX_Y - SEAWALL_DISTANCE_MASK_MIN_Y;
+
+let seawallDistanceMask: Float32Array | null = null;
+
+function ensureSeawallDistanceMask(): Float32Array {
+  if (seawallDistanceMask) return seawallDistanceMask;
+  const mask = new Float32Array(SEAWALL_DISTANCE_MASK_WIDTH * SEAWALL_DISTANCE_MASK_HEIGHT);
+  for (let gy = 0; gy < SEAWALL_DISTANCE_MASK_HEIGHT; gy += 1) {
+    const tileY = gy + SEAWALL_DISTANCE_MASK_MIN_Y;
+    const rowBase = gy * SEAWALL_DISTANCE_MASK_WIDTH;
+    for (let gx = 0; gx < SEAWALL_DISTANCE_MASK_WIDTH; gx += 1) {
+      const tileX = gx + SEAWALL_DISTANCE_MASK_MIN_X;
+      let best = Number.POSITIVE_INFINITY;
+      for (const barrier of SEAWALL_BARRIER_TILES) {
+        const dx = tileX - barrier.x;
+        const dy = tileY - barrier.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < best) best = dist;
+      }
+      mask[rowBase + gx] = best;
+    }
+  }
+  seawallDistanceMask = mask;
+  return mask;
+}
+
+function computeSeawallBarrierDistance(tile: { x: number; y: number }): number {
   let best = Number.POSITIVE_INFINITY;
   for (const barrier of SEAWALL_BARRIER_TILES) {
     best = Math.min(best, Math.hypot(tile.x - barrier.x, tile.y - barrier.y));
   }
   return best;
+}
+
+export function seawallBarrierDistance(tile: { x: number; y: number }): number {
+  const x = tile.x;
+  const y = tile.y;
+  // Integer-tile fast path: O(1) lookup into precomputed mask.
+  if (
+    Number.isInteger(x) &&
+    Number.isInteger(y) &&
+    x >= SEAWALL_DISTANCE_MASK_MIN_X &&
+    x < SEAWALL_DISTANCE_MASK_MAX_X &&
+    y >= SEAWALL_DISTANCE_MASK_MIN_Y &&
+    y < SEAWALL_DISTANCE_MASK_MAX_Y
+  ) {
+    const mask = ensureSeawallDistanceMask();
+    const gx = x - SEAWALL_DISTANCE_MASK_MIN_X;
+    const gy = y - SEAWALL_DISTANCE_MASK_MIN_Y;
+    return mask[gy * SEAWALL_DISTANCE_MASK_WIDTH + gx];
+  }
+  return computeSeawallBarrierDistance(tile);
 }
 
 // The rendered wall follows the same blocked coast, but uses denser sub-tile
