@@ -1,5 +1,3 @@
-import { THREAT_BAND_HEX } from "@shared/lib/classification";
-
 import type { DewsAreaBand } from "./world-types";
 
 export const HARBOR_PALETTE = {
@@ -143,11 +141,11 @@ export const WATER_TERRAIN_STYLES = {
 } as const satisfies Record<string, WaterTerrainStyle>;
 
 export const DEWS_AREA_LABEL_COLORS = {
-  CALM: THREAT_BAND_HEX.CALM,
-  WATCH: THREAT_BAND_HEX.WATCH,
-  ALERT: THREAT_BAND_HEX.ALERT,
-  WARNING: THREAT_BAND_HEX.WARNING,
-  DANGER: THREAT_BAND_HEX.DANGER,
+  CALM: "#22c55e",
+  WATCH: "#14b8a6",
+  ALERT: "#eab308",
+  WARNING: "#f97316",
+  DANGER: "#ef4444",
 } as const satisfies Record<DewsAreaBand, string>;
 
 export function waterTerrainStyle(kind: string): WaterTerrainStyle | null {

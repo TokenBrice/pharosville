@@ -1,5 +1,5 @@
 import type { StablecoinData } from "@shared/types/market";
-import { getCirculatingRaw, getPrevDayRawOrNull, getPrevMonthRawOrNull, getPrevWeekRawOrNull } from "@shared/lib/supply";
+import { getCirculatingRaw, getPrevDayRawOrNull, getPrevMonthRawOrNull, getPrevWeekRawOrNull } from "@/lib/supply";
 
 export interface RecentChange {
   change24hUsd: number | null;

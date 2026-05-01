@@ -6,6 +6,7 @@ import { fileURLToPath, URL } from "node:url";
 import { onRequest as pharosVilleApiProxy } from "./functions/api/[[path]]";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
+const pharosVilleDesktopQuery = "(min-width: 1280px) and (min-height: 760px)";
 
 function loadLooseLocalPharosEnv(): Record<string, string> {
   try {
@@ -58,6 +59,34 @@ function localPharosVilleApiProxy(env: { PHAROS_API_BASE?: string; PHAROS_API_KE
   };
 }
 
+function desktopChunkModulePreload(): Plugin {
+  return {
+    name: "pharosville-desktop-chunk-modulepreload",
+    apply: "build",
+    transformIndexHtml(_html, context) {
+      const bundle = context.bundle;
+      if (!bundle) return [];
+
+      const desktopChunk = Object.values(bundle).find((entry) => (
+        entry.type === "chunk"
+        && entry.isDynamicEntry
+        && entry.facadeModuleId?.endsWith("/src/pharosville-desktop-data.tsx")
+      ));
+      if (!desktopChunk || desktopChunk.type !== "chunk") return [];
+
+      return [{
+        tag: "link",
+        attrs: {
+          rel: "modulepreload",
+          href: `/${desktopChunk.fileName}`,
+          media: pharosVilleDesktopQuery,
+        },
+        injectTo: "head",
+      }];
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const env = {
     ...loadLooseLocalPharosEnv(),
@@ -71,6 +100,7 @@ export default defineConfig(({ mode }) => {
         PHAROS_API_BASE: env.PHAROS_API_BASE ?? "https://api.pharos.watch",
         PHAROS_API_KEY: env.PHAROS_API_KEY,
       }),
+      desktopChunkModulePreload(),
       react(),
     ],
     resolve: {
@@ -80,7 +110,20 @@ export default defineConfig(({ mode }) => {
       },
     },
     build: {
+      target: "es2022",
       outDir: "dist",
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes("/node_modules/react/") || id.includes("/node_modules/react-dom/")) {
+              return "vendor-react";
+            }
+            if (id.includes("/node_modules/@tanstack/react-query/")) {
+              return "vendor-query";
+            }
+          },
+        },
+      },
     },
   };
 });

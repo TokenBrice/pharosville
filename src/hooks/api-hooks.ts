@@ -1,60 +1,55 @@
-import { PHAROSVILLE_API_CONTRACT } from "@shared/lib/pharosville-api-contract";
+import { PHAROSVILLE_API_CLIENT_CONTRACT } from "@shared/lib/pharosville-api-client-contract";
 import {
   type PegSummaryResponse,
   type ReportCardsResponse,
   type StabilityIndexResponse,
   type StressSignalsAllResponse,
 } from "@shared/types";
-import { CRON_15MIN, CRON_30MIN } from "@/lib/cron-intervals";
 import { useApiQueryWithMeta } from "./use-api-query";
 
 export function usePegSummary() {
-  const endpoint = PHAROSVILLE_API_CONTRACT.pegSummary;
+  const endpoint = PHAROSVILLE_API_CLIENT_CONTRACT.pegSummary;
   return useApiQueryWithMeta<PegSummaryResponse>(
-    ["peg-summary"],
+    endpoint.queryKey,
     endpoint.path,
-    CRON_15MIN,
+    endpoint.producerIntervalSec * 1000,
     {
-      schema: endpoint.schema,
       metaMaxAgeSec: endpoint.metaMaxAgeSec,
     },
   );
 }
 
 export function useReportCards() {
-  const endpoint = PHAROSVILLE_API_CONTRACT.reportCards;
+  const endpoint = PHAROSVILLE_API_CLIENT_CONTRACT.reportCards;
   return useApiQueryWithMeta<ReportCardsResponse>(
-    ["report-cards"],
+    endpoint.queryKey,
     endpoint.path,
-    CRON_15MIN,
+    endpoint.producerIntervalSec * 1000,
     {
-      schema: endpoint.schema,
       metaMaxAgeSec: endpoint.metaMaxAgeSec,
     },
   );
 }
 
 export function useStabilityIndexDetail() {
-  const endpoint = PHAROSVILLE_API_CONTRACT.stability;
+  const endpoint = PHAROSVILLE_API_CLIENT_CONTRACT.stability;
   return useApiQueryWithMeta<StabilityIndexResponse>(
-    ["stability-index-detail"],
+    endpoint.queryKey,
     endpoint.path,
-    CRON_30MIN,
+    endpoint.producerIntervalSec * 1000,
     {
-      schema: endpoint.schema,
       metaMaxAgeSec: endpoint.metaMaxAgeSec,
     },
   );
 }
 
 export function useStressSignals() {
-  const endpoint = PHAROSVILLE_API_CONTRACT.stress;
+  const endpoint = PHAROSVILLE_API_CLIENT_CONTRACT.stress;
   return useApiQueryWithMeta<StressSignalsAllResponse>(
-    ["stress-signals"],
+    endpoint.queryKey,
     endpoint.path,
-    CRON_30MIN,
+    endpoint.producerIntervalSec * 1000,
     {
-      schema: endpoint.schema,
       metaMaxAgeSec: endpoint.metaMaxAgeSec,
     },
   );

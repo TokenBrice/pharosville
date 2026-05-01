@@ -1,8 +1,13 @@
 import type { ReportCard, StablecoinData, StablecoinMeta } from "@shared/types";
-import { getCirculatingRaw } from "@shared/lib/supply";
-import { GOVERNANCE_LABELS_SHORT } from "@shared/lib/classification";
+import { getCirculatingRaw } from "@/lib/supply";
 import type { ShipClass, ShipHull, ShipPegPattern, ShipPegShape, ShipSizeTier, ShipVisual } from "./world-types";
 import { resolveStablecoinShipBranding } from "./stablecoin-ship-branding";
+
+const GOVERNANCE_LABELS_SHORT = {
+  centralized: "CeFi",
+  "centralized-dependent": "CeFi-Dep",
+  decentralized: "DeFi",
+} as const;
 
 const PEG_PENNANTS: Record<string, string> = {
   USD: "emerald",

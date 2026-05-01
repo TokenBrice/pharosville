@@ -1,10 +1,23 @@
-import type { ZodType } from "zod";
 import { classifyFreshnessRatio } from "@shared/lib/status-thresholds";
-import { ApiMetaSchema, type ApiMeta } from "@shared/types/api-meta";
+import { PHAROSVILLE_API_CLIENT_ENDPOINTS } from "@shared/lib/pharosville-api-client-contract";
+import type { ApiDependencyMeta, ApiMeta } from "@shared/types/api-meta";
 
 export type { ApiMeta } from "@shared/types/api-meta";
 
 export type ApiContractMode = "strict" | "warn";
+
+interface SchemaParseIssue {
+  path: readonly PropertyKey[];
+  message: string;
+}
+
+type SchemaValidationResult<T> =
+  | { success: true; data: T }
+  | { success: false; error: { issues: readonly SchemaParseIssue[] } };
+
+export interface ApiSchema<T> {
+  safeParse(data: unknown): SchemaValidationResult<T>;
+}
 
 export class SchemaValidationError extends Error {
   readonly path: string;
@@ -63,6 +76,89 @@ function isFreshnessWarningHeader(warningHeader: string): boolean {
     || /Response is (?:degraded|stale)/i.test(warningHeader);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isApiMetaStatus(value: unknown): value is ApiMeta["status"] {
+  return value === "fresh" || value === "degraded" || value === "stale";
+}
+
+function isApiDependencyMetaStatus(value: unknown): value is ApiDependencyMeta["status"] {
+  return value === "fresh" || value === "degraded" || value === "stale" || value === "unavailable";
+}
+
+function parseNullableNumber(value: unknown): number | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function parseNullableString(value: unknown): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  return typeof value === "string" ? value : undefined;
+}
+
+function parseApiDependencyMeta(value: unknown): ApiDependencyMeta | null {
+  if (!isRecord(value) || !isApiDependencyMetaStatus(value.status)) return null;
+
+  const updatedAt = parseNullableNumber(value.updatedAt);
+  const ageSeconds = parseNullableNumber(value.ageSeconds);
+  const reason = parseNullableString(value.reason);
+  if (
+    (value.updatedAt !== undefined && updatedAt === undefined)
+    || (value.ageSeconds !== undefined && ageSeconds === undefined)
+    || (value.reason !== undefined && reason === undefined)
+  ) {
+    return null;
+  }
+
+  return {
+    ...(updatedAt !== undefined ? { updatedAt } : {}),
+    ...(ageSeconds !== undefined ? { ageSeconds } : {}),
+    status: value.status,
+    ...(reason !== undefined ? { reason } : {}),
+  };
+}
+
+function parseApiMeta(value: unknown): ApiMeta | null {
+  if (
+    !isRecord(value)
+    || typeof value.updatedAt !== "number"
+    || !Number.isFinite(value.updatedAt)
+    || typeof value.ageSeconds !== "number"
+    || !Number.isFinite(value.ageSeconds)
+    || !isApiMetaStatus(value.status)
+  ) {
+    return null;
+  }
+
+  const warning = parseNullableString(value.warning);
+  if (value.warning !== undefined && warning === undefined) return null;
+
+  let dependencies: Record<string, ApiDependencyMeta> | null | undefined;
+  if (value.dependencies !== undefined && value.dependencies !== null) {
+    if (!isRecord(value.dependencies)) return null;
+    dependencies = {};
+    for (const [key, dependency] of Object.entries(value.dependencies)) {
+      const parsed = parseApiDependencyMeta(dependency);
+      if (!parsed) return null;
+      dependencies[key] = parsed;
+    }
+  } else {
+    dependencies = value.dependencies === null ? null : undefined;
+  }
+
+  return {
+    updatedAt: value.updatedAt,
+    ageSeconds: value.ageSeconds,
+    status: value.status,
+    ...(warning !== undefined ? { warning } : {}),
+    ...(dependencies !== undefined ? { dependencies } : {}),
+  };
+}
+
 async function buildFetchError(path: string, res: Response): Promise<ApiFetchError> {
   let bodyText: string | null = null;
   try {
@@ -85,7 +181,7 @@ function logSchemaDriftOnce(path: string, issues: string): void {
 function validateApiPayload<T>(
   path: string,
   data: unknown,
-  schema?: ZodType<T>,
+  schema?: ApiSchema<T>,
   contractMode: ApiContractMode = DEFAULT_CONTRACT_MODE,
 ): T {
   if (!schema) return data as T;
@@ -103,9 +199,23 @@ function validateApiPayload<T>(
   throw new SchemaValidationError(path, formatIssues(result.error.issues));
 }
 
+async function resolveApiSchema<T>(
+  path: string,
+  schema?: ApiSchema<T>,
+): Promise<ApiSchema<T> | undefined> {
+  if (import.meta.env.PROD) return schema;
+  if (schema) return schema;
+
+  const endpoint = PHAROSVILLE_API_CLIENT_ENDPOINTS.find((candidate) => candidate.path === path);
+  if (!endpoint) return undefined;
+
+  const { PHAROSVILLE_API_CONTRACT } = await import("@shared/lib/pharosville-api-contract");
+  return PHAROSVILLE_API_CONTRACT[endpoint.key].schema as ApiSchema<T>;
+}
+
 export async function apiFetch<T>(
   path: string,
-  schema?: ZodType<T>,
+  schema?: ApiSchema<T>,
   init?: RequestInit,
   contractMode?: ApiContractMode,
 ): Promise<T> {
@@ -113,12 +223,13 @@ export async function apiFetch<T>(
   const res = await fetch(path, init);
   if (!res.ok) throw await buildFetchError(path, res);
   const data: unknown = await res.json();
-  return validateApiPayload(path, data, schema, contractMode);
+  const validationSchema = await resolveApiSchema(path, schema);
+  return validateApiPayload(path, data, validationSchema, contractMode);
 }
 
 export async function apiFetchWithMeta<T>(
   path: string,
-  schema?: ZodType<T>,
+  schema?: ApiSchema<T>,
   init?: RequestInit,
   maxAgeSec = 900,
   contractMode?: ApiContractMode,
@@ -133,8 +244,7 @@ export async function apiFetchWithMeta<T>(
 
   if (json && typeof json === "object" && !Array.isArray(json) && "_meta" in json) {
     const { _meta, ...rest } = json as Record<string, unknown>;
-    const parsed = ApiMetaSchema.safeParse(_meta);
-    if (parsed.success) meta = parsed.data;
+    meta = parseApiMeta(_meta);
     data = rest;
   }
 
@@ -171,5 +281,6 @@ export async function apiFetchWithMeta<T>(
     }
   }
 
-  return { data: validateApiPayload(path, data, schema, contractMode), meta };
+  const validationSchema = await resolveApiSchema(path, schema);
+  return { data: validateApiPayload(path, data, validationSchema, contractMode), meta };
 }

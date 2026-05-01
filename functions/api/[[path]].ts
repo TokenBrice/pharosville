@@ -1,8 +1,13 @@
-import { PHAROSVILLE_API_ENDPOINT_PATHS } from "../../shared/lib/pharosville-api-endpoints";
+import { PHAROSVILLE_API_CLIENT_ENDPOINTS } from "../../shared/lib/pharosville-api-client-contract";
 
 interface Env {
   PHAROS_API_BASE?: string;
   PHAROS_API_KEY?: string;
+}
+
+interface EdgeCache {
+  match(request: Request): Promise<Response | undefined>;
+  put(request: Request, response: Response): Promise<void>;
 }
 
 interface PagesContext {
@@ -11,6 +16,7 @@ interface PagesContext {
   params: {
     path?: string | string[];
   };
+  waitUntil?: (promise: Promise<unknown>) => void;
 }
 
 const FORWARDED_RESPONSE_HEADERS = [
@@ -23,6 +29,7 @@ const FORWARDED_RESPONSE_HEADERS = [
 ] as const;
 
 const REQUIRED_PHAROS_API_ORIGIN = "https://api.pharos.watch";
+const CACHE_KEY_ORIGIN = "https://pharosville.pharos.watch";
 const UPSTREAM_TIMEOUT_MS = 8_000;
 
 function jsonError(message: string, status: number, headers?: HeadersInit): Response {
@@ -52,8 +59,9 @@ function normalizeBaseUrl(base: string | undefined): string | null {
   }
 }
 
-function isAllowedRequest(url: URL): boolean {
-  return PHAROSVILLE_API_ENDPOINT_PATHS.includes(`${url.pathname}${url.search}`);
+function getAllowedEndpoint(url: URL) {
+  const path = `${url.pathname}${url.search}`;
+  return PHAROSVILLE_API_CLIENT_ENDPOINTS.find((endpoint) => endpoint.path === path) ?? null;
 }
 
 function buildUpstreamUrl(base: string, url: URL): string {
@@ -68,6 +76,48 @@ function copyForwardedHeaders(upstream: Response): Headers {
   }
   headers.set("x-pharosville-proxy", "1");
   return headers;
+}
+
+function isJsonResponse(response: Response): boolean {
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+  return contentType.includes("application/json") || contentType.includes("+json");
+}
+
+function getEdgeCache(): EdgeCache | null {
+  const maybeCaches = globalThis.caches as unknown as { default?: EdgeCache } | undefined;
+  return maybeCaches?.default ?? null;
+}
+
+function buildCacheKey(url: URL): Request {
+  return new Request(new URL(`${url.pathname}${url.search}`, CACHE_KEY_ORIGIN).toString(), {
+    method: "GET",
+  });
+}
+
+function prepareProxyResponseForCache(response: Response, maxAgeSec: number): Response {
+  const headers = new Headers(response.headers);
+  if (response.status === 200 && isJsonResponse(response) && !headers.has("cache-control")) {
+    headers.set("cache-control", `public, max-age=${maxAgeSec}`);
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+function maybeStoreEdgeCache(
+  context: PagesContext,
+  cache: EdgeCache | null,
+  cacheKey: Request,
+  response: Response,
+): void {
+  if (!cache || response.status !== 200 || !isJsonResponse(response)) return;
+
+  const cacheWrite = cache.put(cacheKey, response.clone()).catch(() => undefined);
+  if (context.waitUntil) {
+    context.waitUntil(cacheWrite);
+  }
 }
 
 async function fetchUpstream(url: string, apiKey: string): Promise<Response | null> {
@@ -95,7 +145,8 @@ export async function onRequest(context: PagesContext): Promise<Response> {
   }
 
   const url = new URL(context.request.url);
-  if (!isAllowedRequest(url)) {
+  const endpoint = getAllowedEndpoint(url);
+  if (!endpoint) {
     return jsonError("Not found", 404);
   }
 
@@ -105,14 +156,21 @@ export async function onRequest(context: PagesContext): Promise<Response> {
     return jsonError("PharosVille API proxy is not configured", 500);
   }
 
+  const cache = getEdgeCache();
+  const cacheKey = buildCacheKey(url);
+  const cached = await cache?.match(cacheKey);
+  if (cached) return cached;
+
   const upstream = await fetchUpstream(buildUpstreamUrl(base, url), apiKey);
   if (!upstream) {
     return jsonError("PharosVille API upstream request failed", 502);
   }
 
-  return new Response(upstream.body, {
+  const response = prepareProxyResponseForCache(new Response(upstream.body, {
     status: upstream.status,
     statusText: upstream.statusText,
     headers: copyForwardedHeaders(upstream),
-  });
+  }), endpoint.metaMaxAgeSec);
+  maybeStoreEdgeCache(context, cache, cacheKey, response);
+  return response;
 }

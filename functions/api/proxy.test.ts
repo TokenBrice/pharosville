@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PHAROSVILLE_API_CLIENT_ENDPOINTS } from "../../shared/lib/pharosville-api-client-contract";
 import { PHAROSVILLE_API_ENDPOINT_PATHS } from "../../shared/lib/pharosville-api-endpoints";
-import { PHAROSVILLE_API_ENDPOINTS } from "../../shared/lib/pharosville-api-contract";
 import { onRequest } from "./[[path]]";
 
 function makeContext(url: string, init?: {
   env?: Record<string, string | undefined>;
   headers?: HeadersInit;
   method?: string;
+  waitUntilPromises?: Promise<unknown>[];
 }) {
   return {
     request: new Request(url, {
@@ -19,18 +20,40 @@ function makeContext(url: string, init?: {
       ...init?.env,
     },
     params: {},
+    ...(init?.waitUntilPromises
+      ? { waitUntil: (promise: Promise<unknown>) => init.waitUntilPromises?.push(promise) }
+      : {}),
   };
+}
+
+class MemoryEdgeCache {
+  readonly putUrls: string[] = [];
+  readonly responses = new Map<string, Response>();
+
+  async match(request: Request): Promise<Response | undefined> {
+    return this.responses.get(request.url)?.clone();
+  }
+
+  async put(request: Request, response: Response): Promise<void> {
+    this.putUrls.push(request.url);
+    this.responses.set(request.url, response.clone());
+  }
+}
+
+function installEdgeCache(cache: MemoryEdgeCache): void {
+  vi.stubGlobal("caches", { default: cache });
 }
 
 describe("PharosVille API proxy", () => {
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
-  it("keeps the proxy allowlist in sync with the PharosVille API contract", () => {
+  it("keeps the proxy allowlist in sync with the lightweight PharosVille API client contract", () => {
     expect(PHAROSVILLE_API_ENDPOINT_PATHS).toEqual(
-      PHAROSVILLE_API_ENDPOINTS.map((endpoint) => endpoint.path),
+      PHAROSVILLE_API_CLIENT_ENDPOINTS.map((endpoint) => endpoint.path),
     );
   });
 
@@ -71,6 +94,116 @@ describe("PharosVille API proxy", () => {
         signal: expect.any(AbortSignal),
       }),
     );
+  });
+
+  it("stores successful JSON responses in the edge cache using a path-only cache key", async () => {
+    const cache = new MemoryEdgeCache();
+    const waitUntilPromises: Promise<unknown>[] = [];
+    installEdgeCache(cache);
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+          "x-data-age": "5",
+        },
+      }),
+    );
+
+    const response = await onRequest(makeContext("https://preview.example.com/api/stablecoins", {
+      waitUntilPromises,
+    }));
+    await Promise.all(waitUntilPromises);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("public, max-age=600");
+    expect(cache.putUrls).toEqual(["https://pharosville.pharos.watch/api/stablecoins"]);
+    expect(cache.putUrls[0]).not.toContain("test-proxy-key");
+    await expect(cache.match(new Request("https://pharosville.pharos.watch/api/stablecoins")))
+      .resolves.toBeInstanceOf(Response);
+  });
+
+  it("serves edge cache hits without calling upstream", async () => {
+    const cache = new MemoryEdgeCache();
+    installEdgeCache(cache);
+    await cache.put(
+      new Request("https://pharosville.pharos.watch/api/stablecoins"),
+      new Response(JSON.stringify({ cached: true }), {
+        status: 200,
+        headers: {
+          "cache-control": "public, max-age=600",
+          "content-type": "application/json",
+          "x-pharosville-proxy": "1",
+        },
+      }),
+    );
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+
+    const response = await onRequest(makeContext("https://pharosville.pharos.watch/api/stablecoins"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ cached: true });
+    expect(response.headers.get("x-pharosville-proxy")).toBe("1");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not cache non-200 or non-JSON upstream responses", async () => {
+    const cache = new MemoryEdgeCache();
+    const waitUntilPromises: Promise<unknown>[] = [];
+    installEdgeCache(cache);
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "upstream unavailable" }), {
+          status: 503,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response("plain text", {
+          status: 200,
+          headers: { "content-type": "text/plain" },
+        }),
+      );
+
+    const non200 = await onRequest(makeContext("https://pharosville.pharos.watch/api/stablecoins", {
+      waitUntilPromises,
+    }));
+    const nonJson = await onRequest(makeContext("https://pharosville.pharos.watch/api/chains", {
+      waitUntilPromises,
+    }));
+    await Promise.all(waitUntilPromises);
+
+    expect(non200.status).toBe(503);
+    expect(nonJson.status).toBe(200);
+    expect(cache.putUrls).toEqual([]);
+  });
+
+  it("keeps the server-side API key out of responses and edge cache keys", async () => {
+    const cache = new MemoryEdgeCache();
+    const waitUntilPromises: Promise<unknown>[] = [];
+    installEdgeCache(cache);
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+          "set-cookie": "session=leak",
+          "x-api-key": "test-proxy-key",
+        },
+      }),
+    );
+
+    const response = await onRequest(makeContext("https://pharosville.pharos.watch/api/stablecoins", {
+      waitUntilPromises,
+    }));
+    const body = await response.text();
+    await Promise.all(waitUntilPromises);
+
+    expect(body).not.toContain("test-proxy-key");
+    expect(response.headers.get("x-api-key")).toBeNull();
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(cache.putUrls).toEqual(["https://pharosville.pharos.watch/api/stablecoins"]);
+    expect(cache.putUrls[0]).not.toContain("test-proxy-key");
   });
 
   it("rejects unlisted API paths before upstream fetch", async () => {

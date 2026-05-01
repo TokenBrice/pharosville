@@ -1,7 +1,5 @@
 import type { ZodType } from "zod";
-import { API_FRESHNESS_MAX_AGE_SEC } from "./api-freshness";
-import { CRON_INTERVALS } from "./cron-jobs";
-import { PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY } from "./pharosville-api-endpoints";
+import { PHAROSVILLE_API_CLIENT_CONTRACT } from "./pharosville-api-client-contract";
 import {
   PHAROSVILLE_API_ENDPOINT_KEYS,
   type PharosVilleApiEndpointKey,
@@ -26,46 +24,28 @@ export interface PharosVilleApiEndpoint<K extends PharosVilleApiEndpointKey = Ph
 
 export const PHAROSVILLE_API_CONTRACT = {
   stablecoins: {
-    key: "stablecoins",
-    path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stablecoins,
+    ...PHAROSVILLE_API_CLIENT_CONTRACT.stablecoins,
     schema: StablecoinListResponseSchema,
-    metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.stablecoins,
-    producerIntervalSec: CRON_INTERVALS["sync-stablecoins"],
   },
   chains: {
-    key: "chains",
-    path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.chains,
+    ...PHAROSVILLE_API_CLIENT_CONTRACT.chains,
     schema: ChainsResponseSchema,
-    metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.chains,
-    producerIntervalSec: CRON_INTERVALS["sync-stablecoins"],
   },
   stability: {
-    key: "stability",
-    path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stability,
+    ...PHAROSVILLE_API_CLIENT_CONTRACT.stability,
     schema: StabilityIndexResponseSchema,
-    metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.stabilityIndex,
-    producerIntervalSec: CRON_INTERVALS["stability-index"],
   },
   pegSummary: {
-    key: "pegSummary",
-    path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.pegSummary,
+    ...PHAROSVILLE_API_CLIENT_CONTRACT.pegSummary,
     schema: PegSummaryResponseSchema,
-    metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.pegSummary,
-    producerIntervalSec: CRON_INTERVALS["sync-stablecoins"],
   },
   stress: {
-    key: "stress",
-    path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stress,
+    ...PHAROSVILLE_API_CLIENT_CONTRACT.stress,
     schema: StressSignalsAllResponseSchema,
-    metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.stressSignals,
-    producerIntervalSec: CRON_INTERVALS["compute-dews"],
   },
   reportCards: {
-    key: "reportCards",
-    path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.reportCards,
+    ...PHAROSVILLE_API_CLIENT_CONTRACT.reportCards,
     schema: ReportCardsResponseSchema,
-    metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.reportCards,
-    producerIntervalSec: CRON_INTERVALS["publish-report-card-cache"],
   },
 } satisfies {
   [K in PharosVilleApiEndpointKey]: PharosVilleApiEndpoint<K>;

@@ -7,13 +7,13 @@ import type {
   StressSignalsAllResponse,
 } from "@shared/types";
 import type { ChainsResponse } from "@shared/types/chains";
-import { ACTIVE_IDS, ACTIVE_META_BY_ID } from "@shared/lib/stablecoins";
-import { CEMETERY_ENTRIES, type CemeteryEntry } from "@shared/lib/cemetery-merged";
+import { RUNTIME_ACTIVE_IDS, RUNTIME_ACTIVE_META_BY_ID } from "@shared/lib/stablecoins/runtime-registry";
+import { RUNTIME_CEMETERY_ENTRIES, type CemeteryEntry } from "@shared/lib/cemetery-runtime";
 import { canonicalizeChainCirculating } from "@shared/lib/chain-circulating";
-import { getCirculatingRaw } from "@shared/lib/supply";
 import { PSI_HEX_COLORS } from "@shared/lib/psi-colors";
 import { buildPegSummaryCoinMap, buildReportCardMap } from "@/lib/stablecoin-lookups";
 import { logosById } from "@/lib/logos";
+import { getCirculatingRaw } from "@/lib/supply";
 import { buildChainDocks } from "./chain-docks";
 import {
   detailForDock,
@@ -108,7 +108,7 @@ function buildLighthouse(stability: StabilityIndexResponse | null | undefined): 
 
 function activeAssets(stablecoins: StablecoinListResponse | null | undefined): StablecoinData[] {
   return (stablecoins?.peggedAssets ?? []).filter((asset) => (
-    ACTIVE_IDS.has(asset.id) && ACTIVE_META_BY_ID.has(asset.id) && asset.frozen !== true
+    RUNTIME_ACTIVE_IDS.has(asset.id) && RUNTIME_ACTIVE_META_BY_ID.has(asset.id) && asset.frozen !== true
   ));
 }
 
@@ -228,7 +228,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
   const renderedDockChainIds = new Set(docks.map((dock) => dock.chainId));
 
   const ships = activeAssets(inputs.stablecoins).map((asset) => {
-    const meta = ACTIVE_META_BY_ID.get(asset.id);
+    const meta = RUNTIME_ACTIVE_META_BY_ID.get(asset.id);
     if (!meta) throw new Error(`Active asset ${asset.id} is missing metadata`);
     const reportCard = reportCardById[asset.id] ?? null;
     const risk = resolveShipRiskPlacement({
@@ -436,7 +436,7 @@ export function buildPharosVilleWorld(inputs: PharosVilleInputs): PharosVilleWor
   const areas = buildAreas(inputs.stress);
   const allShips = buildShips(inputs, docks);
   const dockedShips = assignDockVisits(allShips, docks);
-  const graves = graveNodesFromEntries(inputs.cemeteryEntries ?? CEMETERY_ENTRIES);
+  const graves = graveNodesFromEntries(inputs.cemeteryEntries ?? RUNTIME_CEMETERY_ENTRIES);
   const baseWorld = {
     generatedAt: resolveGeneratedAt(inputs),
     routeMode: inputs.routeMode ?? "world",

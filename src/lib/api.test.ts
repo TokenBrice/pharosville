@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { apiFetch, ApiPathError, apiFetchWithMeta } from "./api";
+import { apiFetch, ApiPathError, apiFetchWithMeta, SchemaValidationError } from "./api";
 
 describe("apiFetch path guard", () => {
   afterEach(() => {
@@ -53,5 +53,52 @@ describe("apiFetch path guard", () => {
     expect(warnSpy).toHaveBeenCalledTimes(1);
 
     warnSpy.mockRestore();
+  });
+
+  it("extracts API metadata without loading the shared Zod metadata schema", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      _meta: {
+        updatedAt: 1_700_000_000,
+        ageSeconds: 12,
+        status: "fresh",
+        warning: null,
+        dependencies: {
+          dews: {
+            updatedAt: null,
+            ageSeconds: null,
+            status: "unavailable",
+            reason: "fixture",
+          },
+        },
+      },
+    })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await apiFetchWithMeta<{ ok: boolean }>("/api/custom-fixture");
+
+    expect(result.data).toEqual({ ok: true });
+    expect(result.meta).toEqual({
+      updatedAt: 1_700_000_000,
+      ageSeconds: 12,
+      status: "fresh",
+      warning: null,
+      dependencies: {
+        dews: {
+          updatedAt: null,
+          ageSeconds: null,
+          status: "unavailable",
+          reason: "fixture",
+        },
+      },
+    });
+  });
+
+  it("loads known endpoint schemas for strict dev and test validation when no schema is passed", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ chains: [] })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(apiFetchWithMeta("/api/chains")).rejects.toBeInstanceOf(SchemaValidationError);
+    expect(fetchMock).toHaveBeenCalledWith("/api/chains", undefined);
   });
 });

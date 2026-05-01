@@ -1,18 +1,16 @@
-import { PHAROSVILLE_API_CONTRACT } from "@shared/lib/pharosville-api-contract";
+import { PHAROSVILLE_API_CLIENT_CONTRACT } from "@shared/lib/pharosville-api-client-contract";
 import {
   type StablecoinListResponse,
 } from "@shared/types";
-import { CRON_15MIN } from "@/lib/cron-intervals";
 import { useApiQueryWithMeta } from "./use-api-query";
 
 export function useStablecoins() {
-  const endpoint = PHAROSVILLE_API_CONTRACT.stablecoins;
+  const endpoint = PHAROSVILLE_API_CLIENT_CONTRACT.stablecoins;
   return useApiQueryWithMeta<StablecoinListResponse>(
-    ["stablecoins"],
+    endpoint.queryKey,
     endpoint.path,
-    CRON_15MIN,
+    endpoint.producerIntervalSec * 1000,
     {
-      schema: endpoint.schema,
       metaMaxAgeSec: endpoint.metaMaxAgeSec,
     },
   );
