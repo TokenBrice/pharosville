@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { denseFixtureChains, denseFixturePegSummary, denseFixtureReportCards, denseFixtureStablecoins, denseFixtureStress, fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoins, fixtureStability, fixtureStress, fixtureWithFlagshipPlacement, makeAsset, makeChain, makePegCoin } from "../__fixtures__/pharosville-world";
+import { denseFixtureChains, denseFixturePegSummary, denseFixtureReportCards, denseFixtureStablecoins, denseFixtureStress, fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoins, fixtureStability, fixtureStress, fixtureWithFlagshipPlacement, makeAsset, makeChain, makePegCoin, makerSquadFixtureInputs } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import { buildBaseMotionPlan, buildMotionPlan, buildShipWaterRoute, isShipMapVisible, lighthouseFireFlickerSpeed, resolveShipMotionSample, sampleShipWaterPath, shipWaterPathKey, stableMotionPhase, type ShipDockMotionStop } from "./motion";
+import { squadForMember, squadFormationOffsetForPlacement } from "./maker-squad";
 import { isSeawallBarrierTile, seawallBarrierDistance } from "./seawall";
 import { buildPharosVilleMap, isWaterTileKind, terrainKindAt, tileKindAt } from "./world-layout";
 import type { PharosVilleMap, PharosVilleWorld, ShipWaterZone } from "./world-types";
@@ -221,6 +222,42 @@ describe("motion", () => {
 
     expect(mooredSamples / sampleCount).toBeGreaterThan(0.31);
     expect(mooredSamples / sampleCount).toBeLessThan(0.35);
+  });
+
+  it("keeps squad consorts in formation with the flagship through the entire dock cycle", () => {
+    const world = buildPharosVilleWorld(makerSquadFixtureInputs());
+    const plan = buildMotionPlan(world, null);
+    const flagship = world.ships.find((ship) => ship.id === "usds-sky")!;
+    const flagshipRoute = plan.shipRoutes.get(flagship.id)!;
+
+    // Guard: production case requires the flagship to actually have docks.
+    expect(flagshipRoute.dockStops.length).toBeGreaterThan(0);
+
+    for (const consortId of ["susds-sky", "stusds-sky"] as const) {
+      const consort = world.ships.find((ship) => ship.id === consortId)!;
+      const squad = squadForMember(consortId)!;
+      const offset = squadFormationOffsetForPlacement(consortId, squad, flagship.riskPlacement)!;
+      const flagshipStates = new Set<string>();
+      const sampleCount = 60;
+
+      for (let index = 0; index < sampleCount; index += 1) {
+        const timeSeconds = flagshipRoute.cycleSeconds * (index / sampleCount) - flagshipRoute.phaseSeconds;
+        const flagshipSample = resolveShipMotionSample({ plan, reducedMotion: false, ship: flagship, timeSeconds });
+        const consortSample = resolveShipMotionSample({ plan, reducedMotion: false, ship: consort, timeSeconds });
+        flagshipStates.add(flagshipSample.state);
+
+        expect(consortSample.tile.x - flagshipSample.tile.x).toBeCloseTo(offset.dx, 5);
+        expect(consortSample.tile.y - flagshipSample.tile.y).toBeCloseTo(offset.dy, 5);
+        // Consort doesn't actually visit chain docks even when shadowing a moored flagship.
+        expect(consortSample.currentDockId).toBeNull();
+        expect(consortSample.currentRouteStopId).toBeNull();
+        expect(consortSample.currentRouteStopKind).toBeNull();
+      }
+
+      // Sanity: the cycle must traverse multiple states or the formation
+      // assertion is meaningless (we'd only be testing one phase).
+      expect(flagshipStates.size).toBeGreaterThanOrEqual(2);
+    }
   });
 
   it("models Ledger Mooring as a semantic route stop separate from chain docks", () => {

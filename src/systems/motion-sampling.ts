@@ -1,6 +1,7 @@
 import { MAX_TILE_X, MAX_TILE_Y } from "./world-layout";
 import { stableHash } from "./stable-random";
 import { DOCKED_SHIP_DWELL_SHARE, ZONE_DWELL } from "./motion-config";
+import { squadForMember, squadFormationOffsetForPlacement } from "./maker-squad";
 import { sampleShipWaterPath as sampleWaterPath } from "./motion-water";
 import { clamp, normalizeHeading, pathKey, positiveModulo, smoothstep, smoothstepRange } from "./motion-utils";
 import type { PharosVilleMotionPlan, ShipMotionRoute, ShipMotionRouteStop, ShipMotionSample, ShipMotionState, ShipWaterPath } from "./motion-types";
@@ -93,16 +94,47 @@ export function resolveShipMotionSample(input: {
     };
   }
 
-  const runtime = routeSamplingRuntime(route);
-  if (runtime.scheduledStopCount === 0) {
-    return openWaterPatrolSample(route, input.timeSeconds);
+  // Squad consorts shadow their flagship's sample with a placement-aware
+  // formation offset, so the squad sails as one body through every motion
+  // phase (moored, transit, drift). Without this, the flagship's dock cycle
+  // leaves consorts orbiting their fixed riskTile while the flagship is away
+  // — the cohesion gap documented in motion-planning.ts.
+  if (input.ship.squadRole === "consort" && input.ship.squadId) {
+    const squad = squadForMember(input.ship.id);
+    const flagshipRoute = squad ? input.plan.shipRoutes.get(squad.flagshipId) : undefined;
+    if (squad && flagshipRoute) {
+      const flagshipSample = sampleRouteCycle(flagshipRoute, input.timeSeconds);
+      const offset = squadFormationOffsetForPlacement(input.ship.id, squad, input.ship.riskPlacement)
+        ?? { dx: 0, dy: 0 };
+      return {
+        ...flagshipSample,
+        shipId: input.ship.id,
+        zone: input.ship.riskZone,
+        tile: clampMotionTile({
+          x: flagshipSample.tile.x + offset.dx,
+          y: flagshipSample.tile.y + offset.dy,
+        }),
+        currentDockId: null,
+        currentRouteStopId: null,
+        currentRouteStopKind: null,
+      };
+    }
   }
 
-  const cyclePosition = input.timeSeconds + route.phaseSeconds;
+  return sampleRouteCycle(route, input.timeSeconds);
+}
+
+function sampleRouteCycle(route: ShipMotionRoute, timeSeconds: number): ShipMotionSample {
+  const runtime = routeSamplingRuntime(route);
+  if (runtime.scheduledStopCount === 0) {
+    return openWaterPatrolSample(route, timeSeconds);
+  }
+
+  const cyclePosition = timeSeconds + route.phaseSeconds;
   const elapsedSeconds = positiveModulo(cyclePosition, route.cycleSeconds);
   const cycleIndex = Math.floor(cyclePosition / route.cycleSeconds);
   const stopCount = activeStopCountForCycle(runtime);
-  if (stopCount === 0) return openWaterPatrolSample(route, input.timeSeconds);
+  if (stopCount === 0) return openWaterPatrolSample(route, timeSeconds);
 
   const riskSecondsEach = route.cycleSeconds * runtime.zoneDwell.riskDwell / stopCount;
   const dockSecondsEach = route.cycleSeconds * runtime.zoneDwell.dockDwell / stopCount;
@@ -115,7 +147,7 @@ export function resolveShipMotionSample(input: {
     if (!stop || !nextStop) break;
 
     if (cursor < dockSecondsEach) {
-      return mooredSample(route, stop, input.timeSeconds, runtime);
+      return mooredSample(route, stop, timeSeconds, runtime);
     }
     cursor -= dockSecondsEach;
 
@@ -128,14 +160,14 @@ export function resolveShipMotionSample(input: {
         routeStop: stop,
         fromMooringStop: stop,
         toMooringStop: null,
-        timeSeconds: input.timeSeconds,
+        timeSeconds,
         runtime,
       });
     }
     cursor -= transitSecondsEach;
 
     if (cursor < riskSecondsEach) {
-      return riskWaterSample(route, input.timeSeconds, cursor / Math.max(1, riskSecondsEach));
+      return riskWaterSample(route, timeSeconds, cursor / Math.max(1, riskSecondsEach));
     }
     cursor -= riskSecondsEach;
 
@@ -148,14 +180,14 @@ export function resolveShipMotionSample(input: {
         routeStop: nextStop,
         fromMooringStop: null,
         toMooringStop: nextStop,
-        timeSeconds: input.timeSeconds,
+        timeSeconds,
         runtime,
       });
     }
     cursor -= transitSecondsEach;
   }
 
-  return riskWaterSample(route, input.timeSeconds, 1);
+  return riskWaterSample(route, timeSeconds, 1);
 }
 
 export function sampleShipWaterPath(path: ShipWaterPath | undefined, progress: number): { point: { x: number; y: number }; heading: { x: number; y: number } } {

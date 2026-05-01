@@ -174,12 +174,10 @@ function buildConsortMotionRoute(
   // the squad sails as one body. We only translate spatial waypoints by the
   // placement-aware formation offset; everything else is a clone.
   //
-  // Known limitation: when the flagship has rendered docks (production case),
-  // its motion sample enters dock-mooring cycles while consorts (with empty
-  // dockStops by design) keep patrolling their offset risk tile. Cohesion is
-  // structurally guaranteed only during the openWaterPatrol slice. Inheriting
-  // dockStops would require consorts to escort the flagship into dock approach
-  // paths — explicit scope expansion, not a refinement.
+  // Cohesion across the dock cycle is guaranteed at sample time: in
+  // `resolveShipMotionSample`, consorts shadow the flagship's sample with this
+  // same formation offset. The route built here is used for the reduced-motion
+  // idle position and as a fallback when the flagship route is unresolved.
   const squad = squadForMember(ship.id);
   const offset = squad
     ? squadFormationOffsetForPlacement(ship.id, squad, flagshipShip.riskPlacement) ?? { dx: 0, dy: 0 }
