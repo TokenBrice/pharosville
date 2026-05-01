@@ -2,6 +2,7 @@ import type { ReportCard, StablecoinData, StablecoinMeta } from "@shared/types";
 import { getCirculatingRaw } from "@/lib/supply";
 import type { ShipClass, ShipHull, ShipPegPattern, ShipPegShape, ShipSizeTier, ShipVisual } from "./world-types";
 import { resolveStablecoinShipBranding } from "./stablecoin-ship-branding";
+import { uniqueDefinitionFor } from "./unique-ships";
 
 const GOVERNANCE_LABELS_SHORT = {
   centralized: "CeFi",
@@ -61,7 +62,7 @@ const UNKNOWN_CLASS: ShipClassDefinition = {
   rigging: "issuer-rig",
 };
 
-const TITAN_SHIP_ASSET_IDS: Record<string, string> = {
+export const TITAN_SHIP_ASSET_IDS: Record<string, string> = {
   "usdc-circle": "ship.usdc-titan",
   "usds-sky": "ship.usds-titan",
   "usdt-tether": "ship.usdt-titan",
@@ -143,10 +144,15 @@ export function resolveShipVisual(asset: StablecoinData, meta: StablecoinMeta, r
   const shipClass = resolveShipClass(meta);
   const size = resolveShipSizeTier(marketCap);
   const titanSpriteAssetId = TITAN_SHIP_ASSET_IDS[asset.id];
+  // Titan registry wins if a stablecoin id ever appears in both. Unique
+  // resolution only runs when the titan lookup misses.
+  const uniqueDef = !titanSpriteAssetId ? uniqueDefinitionFor(asset) : null;
   const branding = resolveStablecoinShipBranding(asset.id, meta);
+  const spriteAssetId = titanSpriteAssetId ?? uniqueDef?.spriteAssetId;
   return {
     hull: shipClass.hull,
-    ...(titanSpriteAssetId ? { spriteAssetId: titanSpriteAssetId } : {}),
+    ...(spriteAssetId ? { spriteAssetId } : {}),
+    ...(uniqueDef ? { uniqueRationale: uniqueDef.rationale } : {}),
     shipClass: shipClass.shipClass,
     classLabel: shipClass.label,
     rigging: shipClass.rigging,
@@ -158,8 +164,8 @@ export function resolveShipVisual(asset: StablecoinData, meta: StablecoinMeta, r
     sailColor: branding.sailColor,
     sailStripeColor: branding.primary,
     overlay: meta.flags.navToken ? "nav" : meta.flags.yieldBearing ? "yield" : reportCard?.overallGrade === "D" || reportCard?.overallGrade === "F" ? "watch" : "none",
-    sizeTier: titanSpriteAssetId ? "titan" : size.tier,
-    sizeLabel: titanSpriteAssetId ? "Titan" : size.label,
-    scale: TITAN_SHIP_SCALES[asset.id] ?? size.scale,
+    sizeTier: titanSpriteAssetId ? "titan" : uniqueDef ? "unique" : size.tier,
+    sizeLabel: titanSpriteAssetId ? "Titan" : uniqueDef ? "Heritage hull" : size.label,
+    scale: TITAN_SHIP_SCALES[asset.id] ?? uniqueDef?.scale ?? size.scale,
   };
 }

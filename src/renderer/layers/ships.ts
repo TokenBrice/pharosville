@@ -191,6 +191,7 @@ const SHIP_LOD_SKIP_THRESHOLD = 24;
 
 const SHIP_SIZE_TIER_PRIORITY: Record<PharosVilleWorld["ships"][number]["visual"]["sizeTier"], number> = {
   titan: 7,
+  unique: 6,
   flagship: 5,
   major: 4,
   regional: 3,

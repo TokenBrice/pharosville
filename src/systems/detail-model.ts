@@ -154,6 +154,9 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
     { label: "Market cap", value: marketCapLabel(node.marketCapUsd) },
     { label: "Ship class", value: node.visual.classLabel },
     { label: "Size tier", value: node.visual.sizeLabel },
+    ...(node.visual.uniqueRationale
+      ? [{ label: "Cultural significance", value: node.visual.uniqueRationale }]
+      : []),
     { label: "Ship livery", value: shipLiveryLabel(node) },
     { label: "Peg marker", value: shipPegLabel(node) },
     { label: "Representative position", value: representativePositionLabel(node) },

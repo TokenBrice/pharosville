@@ -90,7 +90,7 @@ function AccessibilityLedgerContent({
             {ship.riskZone}; livery {ship.visual.livery.label}, {ship.visual.livery.logoShape} logo shape,{" "}
             {ship.visual.livery.sailPanel} sail panel, {ship.visual.livery.stripePattern} brand stripe; peg{" "}
             {ship.visual.pegLabel}, {ship.visual.pegShape} pennant, {ship.visual.pegPattern} pattern; placement evidence{" "}
-            {ship.placementEvidence.reason}; evidence status {ship.placementEvidence.stale ? "caveat" : "fresh"}; source fields {ship.placementEvidence.sourceFields.join(", ") || "unavailable"}.
+            {ship.placementEvidence.reason}; evidence status {ship.placementEvidence.stale ? "caveat" : "fresh"}; source fields {ship.placementEvidence.sourceFields.join(", ") || "unavailable"}{ship.visual.uniqueRationale ? ` — heritage hull: ${ship.visual.uniqueRationale}` : ""}.
           </li>
         ))}
       </ol>

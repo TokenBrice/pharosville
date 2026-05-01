@@ -101,7 +101,10 @@ export function stableMotionPhase(id: string) {
 }
 
 export function isShipMapVisible(ship: ShipNode, sample: ShipMotionSample | null | undefined): boolean {
-  return ship.visual.sizeTier === "titan" || sample?.state !== "moored" || sample.currentDockId == null;
+  return ship.visual.sizeTier === "titan"
+    || ship.visual.sizeTier === "unique"
+    || sample?.state !== "moored"
+    || sample.currentDockId == null;
 }
 
 function hasRecentMove(ship: ShipNode) {

@@ -3,6 +3,7 @@ import type { BackingType, GovernanceType, PegCurrency, StablecoinMeta } from "@
 import { makeAsset } from "../__fixtures__/pharosville-world";
 import { MAKER_SQUAD_MEMBER_IDS } from "./maker-squad";
 import { resolveShipClass, resolveShipSizeTier, resolveShipVisual } from "./ship-visuals";
+import { UNIQUE_SHIP_DEFINITIONS } from "./unique-ships";
 
 function makeMeta(input: {
   backing?: BackingType;
@@ -169,6 +170,74 @@ describe("resolveShipVisual", () => {
       expect(visual.spriteAssetId, `expected sprite for ${id}`).toBeDefined();
       expect(visual.sizeTier, `expected titan tier for ${id}`).toBe("titan");
     }
+  });
+
+  it("resolves a unique sprite + 'Heritage hull' label for every cultural-significance stablecoin", () => {
+    const meta = makeMeta({ governance: "decentralized" });
+    for (const [id, def] of Object.entries(UNIQUE_SHIP_DEFINITIONS)) {
+      const visual = resolveShipVisual(makeAsset({
+        id,
+        symbol: id.toUpperCase(),
+        circulating: { peggedUSD: 250_000_000 },
+      }), meta, null);
+      expect(visual.spriteAssetId, id).toBe(def.spriteAssetId);
+      expect(visual.sizeTier, id).toBe("unique");
+      expect(visual.sizeLabel, id).toBe("Heritage hull");
+      expect(visual.scale, id).toBe(def.scale);
+      expect(visual.uniqueRationale, id).toBe(def.rationale);
+    }
+  });
+
+  it("unique tier overrides marketcap-derived size for crvusd-curve at any cap", () => {
+    const meta = makeMeta({ governance: "decentralized" });
+    const tinyCap = resolveShipVisual(makeAsset({
+      id: "crvusd-curve",
+      symbol: "crvUSD",
+      circulating: { peggedUSD: 500_000 },
+    }), meta, null);
+    const hugeCap = resolveShipVisual(makeAsset({
+      id: "crvusd-curve",
+      symbol: "crvUSD",
+      circulating: { peggedUSD: 50_000_000_000 },
+    }), meta, null);
+
+    expect(tinyCap.sizeTier).toBe("unique");
+    expect(tinyCap.sizeLabel).toBe("Heritage hull");
+    expect(hugeCap.sizeTier).toBe("unique");
+    expect(hugeCap.sizeLabel).toBe("Heritage hull");
+    expect(tinyCap.scale).toBe(UNIQUE_SHIP_DEFINITIONS["crvusd-curve"].scale);
+    expect(hugeCap.scale).toBe(UNIQUE_SHIP_DEFINITIONS["crvusd-curve"].scale);
+  });
+
+  it("titan tier wins if a stablecoin id ever appears in both registries", () => {
+    // Synthetic check: usdc-circle is in TITAN_SHIP_ASSET_IDS. Even if we
+    // pretend it's also unique by looking up its visual via the resolver,
+    // the resolver must short-circuit on the titan branch.
+    const meta = makeMeta({ governance: "centralized" });
+    const visual = resolveShipVisual(makeAsset({
+      id: "usdc-circle",
+      symbol: "USDC",
+      circulating: { peggedUSD: 50_000_000_000 },
+    }), meta, null);
+    expect(visual.sizeTier).toBe("titan");
+    expect(visual.sizeLabel).toBe("Titan");
+    expect(visual.uniqueRationale).toBeUndefined();
+  });
+
+  it("leaves uniqueRationale undefined for non-unique ships", () => {
+    const meta = makeMeta({ governance: "centralized" });
+    const visual = resolveShipVisual(makeAsset({
+      id: "alpha-dollar",
+      symbol: "ALPHA",
+      circulating: { peggedUSD: 100_000_000 },
+    }), meta, null);
+    expect(visual.uniqueRationale).toBeUndefined();
+    const titanVisual = resolveShipVisual(makeAsset({
+      id: "usdt-tether",
+      symbol: "USDT",
+      circulating: { peggedUSD: 100_000_000_000 },
+    }), meta, null);
+    expect(titanVisual.uniqueRationale).toBeUndefined();
   });
 
   it("uses the re-tuned scale band for Maker squad members", () => {

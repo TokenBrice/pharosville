@@ -187,6 +187,81 @@ describe("detail-model analytical links", () => {
   });
 });
 
+describe("detail-model unique tier surfacing", () => {
+  function makeShipNode(overrides: { uniqueRationale?: string }): ShipNode {
+    return {
+      id: "crvusd-curve",
+      kind: "ship",
+      label: "Curve",
+      symbol: "crvUSD",
+      asset: {} as ShipNode["asset"],
+      meta: {} as ShipNode["meta"],
+      reportCard: null,
+      logoSrc: null,
+      tile: { x: 1, y: 1 },
+      riskTile: { x: 2, y: 2 },
+      chainPresence: [],
+      dockVisits: [],
+      dominantChainId: null,
+      homeDockChainId: null,
+      dockChainId: null,
+      marketCapUsd: 100,
+      riskPlacement: "safe-harbor",
+      riskZone: "calm",
+      riskWaterLabel: "Calm Anchorage",
+      placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
+      visual: {
+        hull: "dao-schooner",
+        spriteAssetId: "ship.crvusd-unique",
+        ...(overrides.uniqueRationale ? { uniqueRationale: overrides.uniqueRationale } : {}),
+        shipClass: "defi",
+        classLabel: "DeFi",
+        rigging: "dao-rig",
+        pennant: "emerald",
+        pegLabel: "USD peg",
+        pegPattern: "ring",
+        pegShape: "disc",
+        livery: {
+          accent: "#8bbf72",
+          label: "Curve logo livery",
+          logoMatte: "#f7fff5",
+          logoShape: "ring",
+          primary: "#41956b",
+          sailColor: "#d9ecdf",
+          sailPanel: "quartered",
+          secondary: "#27543e",
+          source: "stablecoin-logo",
+          stripePattern: "wave",
+        },
+        sailColor: "#d9ecdf",
+        sailStripeColor: "#41956b",
+        overlay: "none",
+        sizeTier: overrides.uniqueRationale ? "unique" : "major",
+        sizeLabel: overrides.uniqueRationale ? "Heritage hull" : "Major",
+        scale: 1,
+      },
+      change24hUsd: null,
+      change24hPct: null,
+      detailId: "ship.crvusd-curve",
+    };
+  }
+
+  it("exposes a Cultural significance fact for unique ships", () => {
+    const detail = detailForShip(makeShipNode({
+      uniqueRationale: "Sails under Curve's llama mascot — the DEX that defined stablecoin AMM curves.",
+    }));
+    const culturalFact = detail.facts.find((fact) => fact.label === "Cultural significance");
+    expect(culturalFact).toBeDefined();
+    expect(culturalFact!.value).toContain("Curve");
+  });
+
+  it("does not expose a Cultural significance fact for non-unique ships", () => {
+    const detail = detailForShip(makeShipNode({}));
+    const culturalFact = detail.facts.find((fact) => fact.label === "Cultural significance");
+    expect(culturalFact).toBeUndefined();
+  });
+});
+
 describe("detail-model squad surfacing", () => {
   it("Sky squad detail panel surfaces flagship + vanguard + savings cutter", () => {
     const world = buildPharosVilleWorld(makerSquadFixtureInputs());
