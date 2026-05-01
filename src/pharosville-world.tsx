@@ -846,7 +846,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         title={fullscreenMode ? "Exit fullscreen" : "Enter fullscreen"}
         onClick={toggleFullscreen}
       >
-        {fullscreenMode ? <Minimize2 aria-hidden="true" size={17} /> : <Maximize2 aria-hidden="true" size={17} />}
+        {fullscreenMode ? <Minimize2 aria-hidden="true" size={24} /> : <Maximize2 aria-hidden="true" size={24} />}
       </button>
       <a
         href="https://pharos.watch/"
@@ -854,7 +854,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         aria-label="Go to Pharos homepage"
         title="Go to Pharos homepage"
       >
-        <Home aria-hidden="true" size={17} />
+        <Home aria-hidden="true" size={24} />
       </a>
       <p className="sr-only" aria-live="polite">{announcement}</p>
       <AccessibilityLedger world={world} />
