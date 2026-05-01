@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-05-01-pharosville-seawall-v1",
+    "cacheVersion": "2026-05-01-pharosville-seawall-v2",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": [
@@ -344,7 +344,7 @@
         "terracotta",
         "teal sea"
       ],
-      "tool": "mcp:create_map_object",
+      "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
         "jobId": "a91899ab-d01a-45c4-95e7-23b7f982f739",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
@@ -381,7 +381,7 @@
         "terracotta",
         "teal sea"
       ],
-      "tool": "mcp:create_map_object",
+      "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
         "jobId": "febb7bca-ed6a-42b3-b4ce-ff30789a887e",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"

@@ -121,7 +121,7 @@ function drawGeneratedSeawallAssets(input: DrawPharosVilleInput) {
     const y = p.y + placement.yOffset * camera.zoom;
     const scale = camera.zoom * placement.scale;
     ctx.save();
-    ctx.globalAlpha = 0.9;
+    ctx.globalAlpha = 0.76;
     if (placement.flipX) {
       ctx.translate(p.x, y);
       ctx.scale(-1, 1);
@@ -268,63 +268,82 @@ function drawSeawallRun(ctx: CanvasRenderingContext2D, camera: IsoCamera, tiles:
   const [firstPoint, ...rest] = points;
   if (!firstPoint) return;
   ctx.save();
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
+  const zoom = camera.zoom;
+  ctx.lineCap = "butt";
+  ctx.lineJoin = "miter";
 
-  // Foam trail just below the wall base
-  ctx.strokeStyle = "rgba(218, 238, 231, 0.32)";
-  ctx.lineWidth = Math.max(3, 6 * camera.zoom);
+  ctx.strokeStyle = "rgba(225, 243, 235, 0.36)";
+  ctx.lineWidth = Math.max(4, 7.4 * zoom);
   ctx.beginPath();
-  ctx.moveTo(firstPoint.x, firstPoint.y + 8 * camera.zoom);
-  for (const point of rest) ctx.lineTo(point.x, point.y + 8 * camera.zoom);
+  ctx.moveTo(firstPoint.x, firstPoint.y + 10 * zoom);
+  for (const point of rest) ctx.lineTo(point.x, point.y + 10 * zoom);
   ctx.stroke();
 
-  // Dark wall shadow
-  ctx.strokeStyle = "rgba(4, 8, 10, 0.46)";
-  ctx.lineWidth = Math.max(4, 8 * camera.zoom);
+  ctx.strokeStyle = "rgba(10, 14, 16, 0.5)";
+  ctx.lineWidth = Math.max(5, 9.6 * zoom);
   ctx.beginPath();
-  ctx.moveTo(firstPoint.x, firstPoint.y + 5 * camera.zoom);
-  for (const point of rest) ctx.lineTo(point.x, point.y + 5 * camera.zoom);
+  ctx.moveTo(firstPoint.x, firstPoint.y + 7 * zoom);
+  for (const point of rest) ctx.lineTo(point.x, point.y + 7 * zoom);
   ctx.stroke();
 
-  // Limestone wall body
-  ctx.strokeStyle = "rgba(212, 195, 152, 0.86)";
-  ctx.lineWidth = Math.max(3, 5.4 * camera.zoom);
+  ctx.strokeStyle = "rgba(91, 126, 119, 0.74)";
+  ctx.lineWidth = Math.max(4, 7 * zoom);
   ctx.beginPath();
-  ctx.moveTo(firstPoint.x, firstPoint.y);
-  for (const point of rest) ctx.lineTo(point.x, point.y);
+  ctx.moveTo(firstPoint.x, firstPoint.y + 4.8 * zoom);
+  for (const point of rest) ctx.lineTo(point.x, point.y + 4.8 * zoom);
   ctx.stroke();
 
-  // Terracotta tile cap on the wall
-  ctx.strokeStyle = "rgba(185, 86, 55, 0.6)";
-  ctx.lineWidth = Math.max(1, 1.6 * camera.zoom);
+  ctx.strokeStyle = "rgba(154, 139, 112, 0.92)";
+  ctx.lineWidth = Math.max(4, 6.6 * zoom);
   ctx.beginPath();
-  ctx.moveTo(firstPoint.x, firstPoint.y - 2.6 * camera.zoom);
-  for (const point of rest) ctx.lineTo(point.x, point.y - 2.6 * camera.zoom);
+  ctx.moveTo(firstPoint.x, firstPoint.y + 2.2 * zoom);
+  for (const point of rest) ctx.lineTo(point.x, point.y + 2.2 * zoom);
   ctx.stroke();
 
-  // Crisp highlight stroke
-  ctx.strokeStyle = "rgba(248, 232, 188, 0.42)";
-  ctx.lineWidth = Math.max(1, 1.2 * camera.zoom);
+  ctx.strokeStyle = "rgba(224, 209, 170, 0.95)";
+  ctx.lineWidth = Math.max(3, 4.4 * zoom);
   ctx.beginPath();
-  ctx.moveTo(firstPoint.x - 3 * camera.zoom, firstPoint.y - 1.6 * camera.zoom);
-  for (const point of rest) ctx.lineTo(point.x - 3 * camera.zoom, point.y - 1.6 * camera.zoom);
+  ctx.moveTo(firstPoint.x, firstPoint.y - 0.8 * zoom);
+  for (const point of rest) ctx.lineTo(point.x, point.y - 0.8 * zoom);
   ctx.stroke();
 
-  // Stone-block diamonds at every densified point + bronze rings every third
+  ctx.strokeStyle = "rgba(110, 92, 74, 0.42)";
+  ctx.lineWidth = Math.max(1, 0.95 * zoom);
+  ctx.setLineDash([5 * zoom, 4 * zoom]);
+  ctx.beginPath();
+  ctx.moveTo(firstPoint.x, firstPoint.y + 2.4 * zoom);
+  for (const point of rest) ctx.lineTo(point.x, point.y + 2.4 * zoom);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.strokeStyle = "rgba(249, 235, 196, 0.48)";
+  ctx.lineWidth = Math.max(1, 1.2 * zoom);
+  ctx.beginPath();
+  ctx.moveTo(firstPoint.x - 3 * zoom, firstPoint.y - 3 * zoom);
+  for (const point of rest) ctx.lineTo(point.x - 3 * zoom, point.y - 3 * zoom);
+  ctx.stroke();
+
   for (const [index, point] of points.entries()) {
+    if (index % 2 === 0) {
+      ctx.strokeStyle = "rgba(72, 58, 48, 0.38)";
+      ctx.lineWidth = Math.max(1, 0.85 * zoom);
+      ctx.beginPath();
+      ctx.moveTo(point.x, point.y - 2.5 * zoom);
+      ctx.lineTo(point.x, point.y + 5.5 * zoom);
+      ctx.stroke();
+    }
     drawDiamond(
       ctx,
       point.x,
-      point.y - 1.2 * camera.zoom,
-      8 * camera.zoom,
-      3.4 * camera.zoom,
-      "rgba(232, 211, 158, 0.55)",
+      point.y - 1.8 * zoom,
+      8.2 * zoom,
+      3.2 * zoom,
+      "rgba(238, 222, 178, 0.6)",
     );
     if (index % 3 === 1) {
-      ctx.fillStyle = "rgba(178, 122, 64, 0.78)";
+      ctx.fillStyle = "rgba(160, 110, 58, 0.72)";
       ctx.beginPath();
-      ctx.arc(point.x, point.y - 0.4 * camera.zoom, 1.4 * camera.zoom, 0, Math.PI * 2);
+      ctx.arc(point.x, point.y - 0.6 * zoom, 1.3 * zoom, 0, Math.PI * 2);
       ctx.fill();
     }
   }
