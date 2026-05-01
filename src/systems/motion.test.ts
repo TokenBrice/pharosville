@@ -52,7 +52,12 @@ describe("motion", () => {
           pegCoin: makePegCoin({ id: "usdc-circle", symbol: "USDC", activeDepeg: true }),
         }),
       },
-      { zone: "ledger", expectedTerrains: ["ledger-water"], minDistance: 4, world: worldForShip({ chainCirculating: {}, chains: ["ethereum"], navToken: true }) },
+      {
+        zone: "ledger",
+        expectedTerrains: ["ledger-water", "calm-water", "watch-water", "alert-water", "warning-water", "storm-water"],
+        minDistance: 8,
+        world: worldForShip({ chainCirculating: {}, chains: ["ethereum"], navToken: true }),
+      },
     ];
 
     for (const entry of cases) {
@@ -263,7 +268,7 @@ describe("motion", () => {
     expect(terrainKindAt(route.riskTile.x, route.riskTile.y)).toBe("watch-water");
   });
 
-  it("keeps NAV ships visibly moored at Ledger Mooring while preserving dock visits", () => {
+  it("keeps NAV ships idling at Ledger Mooring while preserving dock visits and roaming range", () => {
     const sampleWorld = worldForShip({
       chainCirculating: chainCirculating(["Ethereum", "Tron", "Solana"]),
       chains: ["ethereum", "tron", "solana"],
@@ -274,6 +279,7 @@ describe("motion", () => {
     const route = plan.shipRoutes.get(ship.id)!;
     const visitedDockIds = new Set<string>();
     let ledgerSamples = 0;
+    let maxDistanceFromRisk = 0;
     const sampleCount = 240;
 
     for (let cycleIndex = 0; cycleIndex < 6; cycleIndex += 1) {
@@ -285,6 +291,7 @@ describe("motion", () => {
           timeSeconds: route.cycleSeconds * (cycleIndex + index / sampleCount) - route.phaseSeconds,
         });
         expect(tileKindForSample(sample.tile), `cycle ${cycleIndex} sample ${index}`).toMatch(/water/);
+        maxDistanceFromRisk = Math.max(maxDistanceFromRisk, distance(sample.tile, route.riskTile));
         if (sample.currentRouteStopKind === "ledger") {
           ledgerSamples += 1;
           expect(sample.state).toBe("moored");
@@ -298,7 +305,9 @@ describe("motion", () => {
       }
     }
 
-    expect(ledgerSamples / (sampleCount * 6)).toBeGreaterThan(0.2);
+    expect(ledgerSamples / (sampleCount * 6)).toBeGreaterThan(0.06);
+    expect(ledgerSamples / (sampleCount * 6)).toBeLessThan(0.16);
+    expect(maxDistanceFromRisk).toBeGreaterThan(6);
     expect(visitedDockIds).toEqual(new Set(route.dockStops.map((stop) => stop.dockId)));
   });
 
@@ -386,7 +395,7 @@ describe("motion", () => {
     expect(samples.every((sample) => /water/.test(tileKindForSample(sample.tile)))).toBe(true);
   });
 
-  it("keeps dockless patrol waypoints in the current or adjacent risk water districts", () => {
+  it("keeps dockless patrol waypoints in expected zone corridors, with NAV ledger patrols free to span all water zones", () => {
     const cases = [
       { expectedTerrains: ["calm-water"], world: worldForShip({ chainCirculating: {}, chains: ["ethereum"] }) },
       {
@@ -413,7 +422,10 @@ describe("motion", () => {
           pegCoin: makePegCoin({ id: "usdc-circle", symbol: "USDC", activeDepeg: true }),
         }),
       },
-      { expectedTerrains: ["ledger-water"], world: worldForShip({ chainCirculating: {}, chains: ["ethereum"], navToken: true }) },
+      {
+        expectedTerrains: ["ledger-water", "calm-water", "watch-water", "alert-water", "warning-water", "storm-water"],
+        world: worldForShip({ chainCirculating: {}, chains: ["ethereum"], navToken: true }),
+      },
     ];
 
     for (const entry of cases) {
@@ -422,12 +434,7 @@ describe("motion", () => {
 
       expect(waypoint).toBeDefined();
       expect(entry.expectedTerrains).toContain(terrainKindAt(waypoint?.x ?? -1, waypoint?.y ?? -1));
-      if (route.zone === "ledger") {
-        expect(waypoint?.x).toBeGreaterThanOrEqual(0);
-        expect(waypoint?.x).toBeLessThanOrEqual(30);
-        expect(waypoint?.y).toBeGreaterThanOrEqual(0);
-        expect(waypoint?.y).toBeLessThanOrEqual(9);
-      } else if (route.zone === "calm") {
+      if (route.zone === "calm") {
         expect(waypoint?.y).toBeGreaterThanOrEqual(10);
       } else if (route.zone === "watch") {
         expect(waypoint?.y).toBeGreaterThanOrEqual(40);
@@ -694,7 +701,7 @@ describe("motion", () => {
 
     expect(danger.riskSamples).toBeGreaterThan(25);
     expect(danger.dockSamples).toBeGreaterThan(25);
-    expect(ledger.riskSamples).toBeGreaterThan(20);
+    expect(ledger.riskSamples).toBeGreaterThan(12);
     expect(ledger.dockSamples).toBeGreaterThan(25);
   });
 

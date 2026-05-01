@@ -28,7 +28,14 @@ export const OPEN_WATER_PATROL_WAYPOINTS = {
   alert: [...SHIP_WATER_ANCHORS["harbor-mouth-watch"], ...SHIP_WATER_ANCHORS["outer-rough-water"]],
   calm: SHIP_WATER_ANCHORS["safe-harbor"],
   danger: [...SHIP_WATER_ANCHORS["storm-shelf"], ...SHIP_WATER_ANCHORS["outer-rough-water"]],
-  ledger: SHIP_WATER_ANCHORS["ledger-mooring"],
+  ledger: [
+    ...SHIP_WATER_ANCHORS["ledger-mooring"],
+    ...SHIP_WATER_ANCHORS["safe-harbor"],
+    ...SHIP_WATER_ANCHORS["breakwater-edge"],
+    ...SHIP_WATER_ANCHORS["harbor-mouth-watch"],
+    ...SHIP_WATER_ANCHORS["outer-rough-water"],
+    ...SHIP_WATER_ANCHORS["storm-shelf"],
+  ],
   warning: [...SHIP_WATER_ANCHORS["outer-rough-water"], ...SHIP_WATER_ANCHORS["storm-shelf"]],
   watch: [...SHIP_WATER_ANCHORS["breakwater-edge"], ...SHIP_WATER_ANCHORS["safe-harbor"]],
 } as const satisfies Record<ShipWaterZone, readonly { x: number; y: number }[]>;

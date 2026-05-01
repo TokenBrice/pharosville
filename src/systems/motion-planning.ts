@@ -136,7 +136,7 @@ function buildShipMotionRoute(
     : null;
   const cycleSeconds = shipCycleSeconds(ship);
   const waterPaths = new LazyShipWaterPathMap();
-  const openWaterPatrol = dockStops.length === 0
+  const openWaterPatrol = dockStops.length === 0 || ship.riskPlacement === "ledger-mooring"
     ? buildOpenWaterPatrol(ship, riskTile, map, waterRouteCache)
     : null;
   const homeDockId = primaryDockStop(ship, dockStops)?.dockId ?? null;
