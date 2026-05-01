@@ -21,7 +21,32 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx --no-install playwright install --with-deps chromium
-      - run: npm run validate:release
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit and contract tests
+        run: npm test
+      - name: Guard script self-tests
+        run: npm run test:guard-scripts
+      - name: Secret scan
+        run: npm run check:committed-secrets
+      - name: Documentation path and script guard
+        run: npm run check:doc-paths-and-scripts
+      - name: Asset manifest guard
+        run: npm run check:pharosville-assets
+      - name: Palette guard
+        run: npm run check:pharosville-colors
+      - name: Build
+        run: npm run build
+      - name: Built-dist visual tests
+        run: npm run test:visual:dist
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: pharosville-validation-artifacts
+          path: |
+            test-results
+            playwright-report
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:

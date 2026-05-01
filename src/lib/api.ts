@@ -75,6 +75,13 @@ async function buildFetchError(path: string, res: Response): Promise<ApiFetchErr
 
 const DEFAULT_CONTRACT_MODE: ApiContractMode = import.meta.env.PROD ? "warn" : "strict";
 
+const warnedSchemaPaths = new Set<string>();
+function logSchemaDriftOnce(path: string, issues: string): void {
+  if (warnedSchemaPaths.has(path)) return;
+  warnedSchemaPaths.add(path);
+  console.warn(`[api] schema drift in warn mode for ${path}: ${issues}`);
+}
+
 function validateApiPayload<T>(
   path: string,
   data: unknown,
@@ -82,7 +89,13 @@ function validateApiPayload<T>(
   contractMode: ApiContractMode = DEFAULT_CONTRACT_MODE,
 ): T {
   if (!schema) return data as T;
-  if (contractMode === "warn") return data as T;
+  if (contractMode === "warn") {
+    const result = schema.safeParse(data);
+    if (!result.success) {
+      logSchemaDriftOnce(path, formatIssues(result.error.issues));
+    }
+    return data as T;
+  }
 
   const result = schema.safeParse(data);
   if (result.success) return result.data;

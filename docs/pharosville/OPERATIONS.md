@@ -57,6 +57,15 @@ Before publishing or claiming release-level confidence:
 npm run validate:release
 ```
 
+For direct `main` pushes, install the optional local pre-push hook once:
+
+```bash
+npm run hooks:install
+```
+
+The repository still needs GitHub branch protection or a ruleset requiring the
+`validate` job before `main` is considered protected server-side.
+
 ## Deploy
 
 Check the worktree first and do not deploy unrelated dirty work:

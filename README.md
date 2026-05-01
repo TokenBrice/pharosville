@@ -17,6 +17,14 @@ npm run build
 npm run test:visual
 ```
 
+To install the optional local pre-push gate for direct `main` pushes:
+
+```bash
+npm run hooks:install
+```
+
+The hook runs `npm run validate:release` only when pushing to `main`.
+
 ## Cloudflare Pages
 
 Project name: `pharosville`

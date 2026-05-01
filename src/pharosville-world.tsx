@@ -484,10 +484,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     setHoveredDetailId((previous) => previous === target?.detailId ? previous : (target?.detailId ?? null));
   }, []);
 
-  const collectCurrentHitTargets = useCallback(() => {
-    return currentHitTargetsRef.current;
-  }, []);
-
   const handlePointerDown = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = { last: canvasPoint(event), moved: false, pointerId: event.pointerId };
@@ -514,13 +510,13 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     dragRef.current = null;
     event.currentTarget.releasePointerCapture(event.pointerId);
     if (drag?.moved) return;
-    const target = hitTest(collectCurrentHitTargets(), point);
+    const target = hitTest(recomputeHitTargets(), point);
     if (target) {
       selectDetail(target.detailId, detailAnchorForPoint(point, canvasSize));
       return;
     }
     if (selectedDetailId) clearSelection();
-  }, [canvasPoint, canvasSize, clearSelection, collectCurrentHitTargets, selectDetail, selectedDetailId]);
+  }, [canvasPoint, canvasSize, clearSelection, recomputeHitTargets, selectDetail, selectedDetailId]);
 
   const handleWheel = useCallback((event: ReactWheelEvent<HTMLCanvasElement>) => {
     if (!camera) return;

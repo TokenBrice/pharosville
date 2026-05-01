@@ -21,6 +21,7 @@
     "check:committed-secrets": "node scripts/check-committed-secrets.mjs",
     "check:doc-paths-and-scripts": "node scripts/check-doc-paths-and-scripts.mjs",
     "test:guard-scripts": "node scripts/check-guards.test.mjs",
+    "hooks:install": "git config core.hooksPath .githooks",
     "smoke:live": "node scripts/smoke-live.mjs",
     "validate": "npm run typecheck && npm test && npm run test:guard-scripts && npm run check:committed-secrets && npm run check:doc-paths-and-scripts && npm run check:pharosville-assets && npm run check:pharosville-colors && npm run build",
     "validate:release": "npm run validate && npm run test:visual:dist",

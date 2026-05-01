@@ -209,10 +209,7 @@ async function clickMapTargetWithPoint(page: Page, kind: string, detailId?: stri
     point: { x: number; y: number };
     rect: { height: number; width: number; x: number; y: number };
   };
-  await page.getByTestId("pharosville-canvas").click({
-    force: true,
-    position: value.point,
-  });
+  await page.mouse.click(value.point.x, value.point.y);
   return { detailId: value.detailId, point: value.point };
 }
 

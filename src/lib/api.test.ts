@@ -33,4 +33,25 @@ describe("apiFetch path guard", () => {
     await expect(apiFetchWithMeta(path)).rejects.toBeInstanceOf(ApiPathError);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("logs schema drift once in warn mode and returns unvalidated data", async () => {
+    const path = "/api/__warn-mode-drift-test";
+    const payload = { name: "drift", count: "not-a-number" };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload)));
+    vi.stubGlobal("fetch", fetchMock);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const schema = z.object({ name: z.string(), count: z.number() });
+
+    const first = await apiFetch(path, schema, undefined, "warn");
+    expect(first).toEqual(payload);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0]?.[0]).toContain("schema drift");
+
+    const second = await apiFetch(path, schema, undefined, "warn");
+    expect(second).toEqual(payload);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+
+    warnSpy.mockRestore();
+  });
 });

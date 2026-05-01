@@ -21,7 +21,7 @@ export function loadPackageScripts(packageJsonPath = "package.json") {
 }
 
 export function listTrackedMarkdownFiles(repoRoot = process.cwd()) {
-  const output = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "*.md"], { cwd: repoRoot });
+  const output = execFileSync("git", ["ls-files", "-z", "--cached", "--", "*.md"], { cwd: repoRoot });
   return output
     .toString("utf8")
     .split("\0")
