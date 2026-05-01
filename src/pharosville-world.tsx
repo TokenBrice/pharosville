@@ -49,7 +49,8 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     samples: ReadonlyMap<string, ShipMotionSample>;
     targets: readonly HitTarget[];
     timeSeconds: number;
-  }>({ samples: new Map(), targets: [], timeSeconds: 0 });
+    wallClockHour: number;
+  }>({ samples: new Map(), targets: [], timeSeconds: 0, wallClockHour: 0 });
   const [camera, setCamera] = useState<IsoCamera | null>(null);
   const [canvasSize, setCanvasSize] = useState<ScreenPoint>({ x: 0, y: 0 });
   const [hoveredDetailId, setHoveredDetailId] = useState<string | null>(null);
@@ -339,6 +340,15 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         lastWallRef.current = time;
         timeSeconds = accSecondsRef.current;
       }
+      let wallClockHour: number;
+      if (reducedMotion) {
+        // Reduced-motion users: pin to noon for a stable, drift-free scene every visit.
+        // Mirrors the prior behavior where reducedMotion forced a fixed sky-state progress.
+        wallClockHour = 12;
+      } else {
+        const wallClockNow = new Date();
+        wallClockHour = ((wallClockNow.getHours() + wallClockNow.getMinutes() / 60) % 24 + 24) % 24;
+      }
       const shipMotionSamples = collectShipMotionSamples({
         motionPlan: activeMotionPlan,
         reducedMotion,
@@ -367,6 +377,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       nextFrameState.samples = shipMotionSamples;
       nextFrameState.targets = targets;
       nextFrameState.timeSeconds = timeSeconds;
+      nextFrameState.wallClockHour = wallClockHour;
       const nextHoveredTarget = targets.find((target) => target.detailId === activeHoveredDetailId) ?? null;
       const nextSelectedTarget = targets.find((target) => target.detailId === activeSelectedDetailId) ?? null;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -381,6 +392,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
           plan: activeMotionPlan,
           reducedMotion,
           timeSeconds,
+          wallClockHour,
         },
         selectedTarget: nextSelectedTarget,
         shipMotionSamples,
@@ -460,6 +472,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       shipMotionSamples: compactShipMotionSamples(frameState.samples, shipsById),
       targets: frameState.targets,
       timeSeconds: frameState.timeSeconds,
+      wallClockHour: frameState.wallClockHour,
     };
     return () => {
       delete debugWindow.__pharosVilleDebug;
@@ -809,6 +822,7 @@ type PharosVilleDebugState = {
   shipMotionSamples: CompactShipMotionSample[];
   targets: readonly HitTarget[];
   timeSeconds: number;
+  wallClockHour: number;
 };
 
 type MotionCueCounts = {
@@ -912,6 +926,7 @@ function updateDebugFrame(input: {
     samples: ReadonlyMap<string, ShipMotionSample>;
     targets: readonly HitTarget[];
     timeSeconds: number;
+    wallClockHour: number;
   };
   motionPlan: ReturnType<typeof buildMotionPlan>;
   reducedMotion: boolean;
@@ -942,6 +957,7 @@ function updateDebugFrame(input: {
     shipMotionSamples: compactShipMotionSamples(input.frameState.samples, input.shipsById),
     targets: input.frameState.targets,
     timeSeconds: input.frameState.timeSeconds,
+    wallClockHour: input.frameState.wallClockHour,
   });
 }
 

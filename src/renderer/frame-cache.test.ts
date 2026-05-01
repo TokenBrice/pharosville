@@ -93,6 +93,7 @@ describe("render frame cache", () => {
         },
         reducedMotion: true,
         timeSeconds: 0,
+        wallClockHour: 12,
       },
       selectedTarget: null,
       targets: [],

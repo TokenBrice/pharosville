@@ -9,6 +9,14 @@ export interface PharosVilleCanvasMotion {
   plan: PharosVilleMotionPlan;
   reducedMotion: boolean;
   timeSeconds: number;
+  /**
+   * User's local wall-clock hour as a fractional value in [0, 24).
+   * Production: derived from `new Date().getHours() + getMinutes()/60` (or 12
+   * when reducedMotion is true, so RM users get a stable noon scene).
+   * Tests: overridden via `installWallClockOverride(page, hour)` (Playwright
+   * `addInitScript` overriding `Date.prototype.getHours`/`getMinutes`).
+   */
+  wallClockHour: number;
 }
 
 export interface DrawPharosVilleInput {
