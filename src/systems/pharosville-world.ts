@@ -323,7 +323,13 @@ function consortRisk(
     reason: `Maker squad member; inherits flagship placement (${flagshipRisk.evidence.reason})`,
     sourceFields,
     stale: flagshipRisk.evidence.stale,
-    ...(stricter ? { squadOverride: true } : {}),
+    ...(stricter
+      ? {
+          squadOverride: true,
+          overridePlacement: ownRisk.placement,
+          overrideReason: ownRisk.evidence.reason,
+        }
+      : {}),
   };
   return { placement: flagshipRisk.placement, evidence };
 }
@@ -473,10 +479,15 @@ function tileKey(tile: { x: number; y: number }): string {
 }
 
 function buildDetailIndex(world: Omit<PharosVilleWorld, "detailIndex" | "visualCues">): Record<string, DetailModel> {
+  const squadShips = world.ships.filter((ship) => ship.squadId === "maker");
   const details = [
     detailForLighthouse(world.lighthouse),
     ...world.docks.map(detailForDock),
-    ...world.ships.map(detailForShip),
+    ...world.ships.map((ship) => (
+      ship.squadId === "maker"
+        ? detailForShip(ship, { squadShips })
+        : detailForShip(ship)
+    )),
     ...world.areas.map(detailForArea),
     ...world.graves.map(detailForGrave),
   ];

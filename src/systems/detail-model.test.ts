@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { detailForArea, detailForDock, detailForLighthouse, detailForShip } from "./detail-model";
 import type { AreaNode, DockNode, LighthouseNode, ShipNode } from "./world-types";
+import { buildPharosVilleWorld } from "./pharosville-world";
+import {
+  fixtureWithDepegOn,
+  fixtureWithoutAsset,
+  makerSquadFixtureInputs,
+} from "../__fixtures__/pharosville-world";
 
 describe("detail-model analytical links", () => {
   it("points built-in detail links at canonical Pharos Watch routes", () => {
@@ -178,5 +184,46 @@ describe("detail-model analytical links", () => {
       { label: "Route source", value: "stablecoins.chainCirculating, pegSummary.coins[], stress.signals[]" },
       { label: "Evidence", value: "meta.flags.navToken, pegSummary.coins[]" },
     ]));
+  });
+});
+
+describe("detail-model Maker squad surfacing", () => {
+  it("squad detail panel surfaces all five members and the shared placement", () => {
+    const world = buildPharosVilleWorld(makerSquadFixtureInputs());
+    const dai = world.ships.find((ship) => ship.id === "dai-makerdao")!;
+    const detail = world.detailIndex[dai.detailId]!;
+
+    const formationFact = detail.facts.find((fact) => fact.label === "Sailing in formation");
+    expect(formationFact).toBeDefined();
+    expect(formationFact!.value).toContain("USDS (flagship)");
+    expect(formationFact!.value).toContain("stUSDS (vanguard)");
+    expect(formationFact!.value).toContain("sUSDS");
+    expect(formationFact!.value).toContain("sDAI");
+    expect(formationFact!.value).toContain("DAI");
+
+    expect(detail.summary).toContain("inherits flagship placement");
+  });
+
+  it("squad detail panel surfaces the override banner when DAI is depegged but flagship is calm", () => {
+    const world = buildPharosVilleWorld(fixtureWithDepegOn(makerSquadFixtureInputs(), "dai-makerdao"));
+    const dai = world.ships.find((ship) => ship.id === "dai-makerdao")!;
+    expect(dai.placementEvidence.squadOverride).toBe(true);
+
+    const detail = world.detailIndex[dai.detailId]!;
+    const overrideFact = detail.facts.find((fact) => fact.label === "Squad override");
+    expect(overrideFact).toBeDefined();
+    expect(overrideFact!.value).toContain("DAI in distress");
+    expect(overrideFact!.value).toContain("squad sheltering at flagship's position");
+  });
+
+  it("does not surface squad text when squad is inactive (flagship missing)", () => {
+    const inputs = fixtureWithoutAsset(makerSquadFixtureInputs(), "usds-sky");
+    const world = buildPharosVilleWorld(inputs);
+    const dai = world.ships.find((ship) => ship.id === "dai-makerdao")!;
+    const detail = world.detailIndex[dai.detailId]!;
+
+    expect(detail.facts.find((fact) => fact.label === "Sailing in formation")).toBeUndefined();
+    expect(detail.facts.find((fact) => fact.label === "Squad override")).toBeUndefined();
+    expect(detail.summary).not.toContain("inherits flagship placement");
   });
 });
