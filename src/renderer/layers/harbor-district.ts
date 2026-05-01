@@ -6,23 +6,48 @@ import { drawAsset, drawDiamond } from "../canvas-primitives";
 import { dockDrawPoint } from "../geometry";
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
 
+// Seawall placements wrap the main-island coast. Tile coords are sub-tile so each
+// wall sits in the gap between adjacent coast tiles. Docks on the coast tiles are:
+//   N  (28,22), (34,22), (40,22), (25,23)
+//   NE (41,27)
+//   E  (43,31), (43,33), (42,34)
+//   SE (37,39)
+//   S  (33,41), (32,41), (27,40)
+//   SW (26,39), (25,38), (23,37), (20,35)
+// Placements bridge between docks without overlapping them. The lighthouse
+// headland sprite covers roughly x in [16-22], y in [26-30].
 const GENERATED_SEAWALL_ASSETS = [
-  { assetId: "overlay.seawall-corner",   flipX: false, rotation: 0, scale: 0.9, tile: { x: 20.5, y: 28.4 }, yOffset: 2, alphaJitter: 0.02 },
-  { assetId: "overlay.seawall-straight", flipX: false, rotation: 0, scale: 0.85, tile: { x: 23.6, y: 25.2 }, yOffset: 1, alphaJitter: -0.03 },
-  { assetId: "overlay.seawall-straight", flipX: false, rotation: 0, scale: 0.85, tile: { x: 28.4, y: 22.8 }, yOffset: 2, alphaJitter: 0.01 },
-  { assetId: "overlay.seawall-straight", flipX: false, rotation: 0, scale: 0.85, tile: { x: 33.6, y: 22.0 }, yOffset: 1, alphaJitter: -0.02 },
-  { assetId: "overlay.seawall-straight", flipX: false, rotation: 0, scale: 0.85, tile: { x: 38.4, y: 22.4 }, yOffset: 1, alphaJitter: 0.03 },
-  { assetId: "overlay.seawall-corner",   flipX: true,  rotation: 0, scale: 0.9, tile: { x: 41.8, y: 24.8 }, yOffset: 2, alphaJitter: 0.04 },
-  { assetId: "overlay.seawall-corner",   flipX: true,  rotation: 0, scale: 0.85, tile: { x: 42.8, y: 28.6 }, yOffset: 1, alphaJitter: -0.01 },
-  { assetId: "overlay.seawall-corner",   flipX: true,  rotation: 0, scale: 0.85, tile: { x: 42.8, y: 32.4 }, yOffset: 1, alphaJitter: 0.03 },
-  { assetId: "overlay.seawall-corner",   flipX: true,  rotation: 0, scale: 0.9, tile: { x: 41.6, y: 36.0 }, yOffset: 2, alphaJitter: -0.02 },
-  { assetId: "overlay.seawall-straight", flipX: true,  rotation: 0, scale: 0.85, tile: { x: 38.0, y: 39.4 }, yOffset: 1, alphaJitter: 0.02 },
-  { assetId: "overlay.seawall-straight", flipX: true,  rotation: 0, scale: 0.85, tile: { x: 33.0, y: 41.2 }, yOffset: 1, alphaJitter: -0.04 },
-  { assetId: "overlay.seawall-straight", flipX: true,  rotation: 0, scale: 0.85, tile: { x: 28.2, y: 41.4 }, yOffset: 1, alphaJitter: 0.03 },
-  { assetId: "overlay.seawall-straight", flipX: true,  rotation: 0, scale: 0.85, tile: { x: 23.6, y: 39.6 }, yOffset: 1, alphaJitter: -0.02 },
-  { assetId: "overlay.seawall-corner",   flipX: false, rotation: 0, scale: 0.9, tile: { x: 20.0, y: 36.6 }, yOffset: 2, alphaJitter: 0.01 },
-  { assetId: "overlay.seawall-corner",   flipX: false, rotation: 0, scale: 0.85, tile: { x: 19.4, y: 33.0 }, yOffset: 1, alphaJitter: 0.04 },
-  { assetId: "overlay.seawall-corner",   flipX: false, rotation: 0, scale: 0.85, tile: { x: 19.6, y: 30.0 }, yOffset: 1, alphaJitter: -0.03 },
+  // NW iso-diagonal, between lighthouse mountain and the N coast
+  { assetId: "overlay.seawall-straight", flipX: false, rotation: 0, scale: 0.85, tile: { x: 22.6, y: 26.4 }, yOffset: 1, alphaJitter: 0.02 },
+  { assetId: "overlay.seawall-straight", flipX: false, rotation: 0, scale: 0.85, tile: { x: 24.6, y: 24.6 }, yOffset: 1, alphaJitter: -0.03 },
+  // North coast (NE iso-diagonal, flipX:false slopes \)
+  // (25,23) dock skipped — start at 26.8
+  { assetId: "overlay.seawall-corner",   flipX: false, rotation: 0, scale: 0.85, tile: { x: 26.8, y: 22.6 }, yOffset: 2, alphaJitter: 0.01 },
+  // Bridge between (28,22) and (34,22) docks — covers tiles 29-33
+  { assetId: "overlay.seawall-straight", flipX: false, rotation: 0, scale: 0.85, tile: { x: 30.0, y: 22.0 }, yOffset: 1, alphaJitter: -0.02 },
+  { assetId: "overlay.seawall-straight", flipX: false, rotation: 0, scale: 0.85, tile: { x: 32.6, y: 22.0 }, yOffset: 1, alphaJitter: 0.02 },
+  // Bridge between (34,22) and (40,22) docks — covers tiles 35-39
+  { assetId: "overlay.seawall-straight", flipX: false, rotation: 0, scale: 0.85, tile: { x: 36.2, y: 22.0 }, yOffset: 1, alphaJitter: -0.03 },
+  { assetId: "overlay.seawall-straight", flipX: false, rotation: 0, scale: 0.85, tile: { x: 38.8, y: 22.2 }, yOffset: 1, alphaJitter: 0.03 },
+  // NE corner past (40,22) before (41,27) dock
+  { assetId: "overlay.seawall-corner",   flipX: true,  rotation: 0, scale: 0.9,  tile: { x: 41.4, y: 24.2 }, yOffset: 2, alphaJitter: 0.04 },
+  // East face, between (41,27) dock and (43,31) dock
+  { assetId: "overlay.seawall-corner",   flipX: true,  rotation: 0, scale: 0.85, tile: { x: 42.4, y: 28.8 }, yOffset: 1, alphaJitter: -0.01 },
+  // SE shelf bridge between (42,34) dock cluster and (37,39) dock
+  // Wall sits on coast tiles (40,36)/(39,36) — south of the Ethereum harbor pad
+  { assetId: "overlay.seawall-straight", flipX: true,  rotation: 0, scale: 0.85, tile: { x: 39.4, y: 36.6 }, yOffset: 1, alphaJitter: -0.02 },
+  // South coast (SE iso-diagonal, flipX:true slopes /)
+  // Bridge between (37,39) dock and (33,41) dock
+  { assetId: "overlay.seawall-straight", flipX: true,  rotation: 0, scale: 0.85, tile: { x: 35.0, y: 40.2 }, yOffset: 1, alphaJitter: 0.03 },
+  // Bridge between (32,41) dock and (27,40) dock
+  { assetId: "overlay.seawall-straight", flipX: true,  rotation: 0, scale: 0.85, tile: { x: 30.4, y: 41.0 }, yOffset: 1, alphaJitter: -0.04 },
+  // SW transition between (27,40) dock and (26,39)/(25,38)/(23,37) docks
+  { assetId: "overlay.seawall-corner",   flipX: false, rotation: 0, scale: 0.85, tile: { x: 24.4, y: 37.4 }, yOffset: 2, alphaJitter: 0.01 },
+  // SW face between (23,37) dock and (20,35) dock
+  { assetId: "overlay.seawall-corner",   flipX: false, rotation: 0, scale: 0.9,  tile: { x: 21.4, y: 36.4 }, yOffset: 2, alphaJitter: 0.03 },
+  // West face below lighthouse mountain, above (20,35) dock
+  { assetId: "overlay.seawall-corner",   flipX: false, rotation: 0, scale: 0.85, tile: { x: 19.8, y: 33.6 }, yOffset: 1, alphaJitter: 0.04 },
+  { assetId: "overlay.seawall-corner",   flipX: false, rotation: 0, scale: 0.85, tile: { x: 19.8, y: 31.4 }, yOffset: 1, alphaJitter: -0.03 },
 ] as const;
 
 export function drawHarborDistrictGround(input: DrawPharosVilleInput) {
