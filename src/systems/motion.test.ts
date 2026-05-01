@@ -198,6 +198,77 @@ describe("motion", () => {
     expect(motionPlanSignature(mutatedWorld)).not.toBe(baseSignature);
   });
 
+  it("memoizes motionPlanSignature on the same world reference", () => {
+    const first = motionPlanSignature(world);
+    const second = motionPlanSignature(world);
+    // Reference equality proves the second call hit the WeakMap cache rather
+    // than re-running the sort + join (which always allocates a fresh string).
+    expect(second).toBe(first);
+  });
+
+  it("reuses cached water paths across plan rebuilds when the map identity is stable", () => {
+    const sharedWorld = buildPharosVilleWorld({
+      stablecoins: fixtureStablecoins,
+      chains: fixtureChains,
+      stability: fixtureStability,
+      pegSummary: fixturePegSummary,
+      stress: fixtureStress,
+      reportCards: fixtureReportCards,
+      cemeteryEntries: [],
+      freshness: {},
+    });
+    const otherWorldSameMap: PharosVilleWorld = { ...sharedWorld, ships: [...sharedWorld.ships] };
+    expect(otherWorldSameMap).not.toBe(sharedWorld);
+    expect(otherWorldSameMap.map).toBe(sharedWorld.map);
+
+    const firstPlan = buildBaseMotionPlan(sharedWorld);
+    const secondPlan = buildBaseMotionPlan(otherWorldSameMap);
+
+    // Pick a docked ship and force its outbound path to materialize on each
+    // plan. With the cross-plan cache, both lookups must return the same
+    // ShipWaterPath instance — proving the A* result was not recomputed.
+    const dockedShip = sharedWorld.ships.find((ship) => ship.dockVisits.length > 0)!;
+    const firstRoute = firstPlan.shipRoutes.get(dockedShip.id)!;
+    const secondRoute = secondPlan.shipRoutes.get(dockedShip.id)!;
+    const stop = firstRoute.dockStops[0]!;
+    const key = shipWaterPathKey(firstRoute.riskTile, stop.mooringTile);
+    const firstPath = firstRoute.waterPaths.get(key);
+    const secondPath = secondRoute.waterPaths.get(key);
+    expect(firstPath).toBeDefined();
+    expect(secondPath).toBe(firstPath);
+  });
+
+  it("caches the squad formation offset on each consort route", () => {
+    const squadWorld = buildPharosVilleWorld(makerSquadFixtureInputs());
+    const plan = buildMotionPlan(squadWorld, null);
+    const consortShip = squadWorld.ships.find((ship) => ship.id === "susds-sky")!;
+    const flagshipShip = squadWorld.ships.find((ship) => ship.id === "usds-sky")!;
+    const consortRoute = plan.shipRoutes.get(consortShip.id)!;
+    const squad = squadForMember(consortShip.id)!;
+    const expected = squadFormationOffsetForPlacement(consortShip.id, squad, flagshipShip.riskPlacement);
+
+    expect(expected).not.toBeNull();
+    expect(consortRoute.formationOffset).toEqual(expected);
+
+    const flagshipRoute = plan.shipRoutes.get(flagshipShip.id)!;
+    // Non-consort routes must keep the field set to null so consumers can rely
+    // on the discriminator instead of probing for squad membership at runtime.
+    expect(flagshipRoute.formationOffset).toBeNull();
+  });
+
+  it("caches a usable dockTangent on at least one dock stop per dock-having ship", () => {
+    const plan = buildBaseMotionPlan(world);
+    const dockedShip = world.ships.find((ship) => ship.dockVisits.length > 0)!;
+    const route = plan.shipRoutes.get(dockedShip.id)!;
+    const tangent = route.dockStops.map((stop) => stop.dockTangent).find((entry) => entry !== null);
+    expect(tangent).toBeDefined();
+    expect(Number.isFinite(tangent!.x)).toBe(true);
+    expect(Number.isFinite(tangent!.y)).toBe(true);
+    // Tangent must be a unit vector so the sampler can lerp around it without
+    // re-normalizing per frame.
+    expect(Math.hypot(tangent!.x, tangent!.y)).toBeCloseTo(1, 5);
+  });
+
   it("shortens cycles and increases scheduled dock cadence with chain breadth", () => {
     const singleChainWorld = worldForShip({
       chainCirculating: chainCirculating(["Ethereum"]),

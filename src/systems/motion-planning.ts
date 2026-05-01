@@ -9,8 +9,29 @@ import {
   squadForMember,
 } from "./maker-squad";
 import { nearestRiskPlacementWaterTile } from "./risk-water-placement";
-import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipMotionRoute, ShipMotionRouteStop, ShipMotionSample, ShipWaterPath, ShipWaterRouteCache } from "./motion-types";
-import type { PharosVilleMap, PharosVilleWorld, ShipDockVisit, ShipNode } from "./world-types";
+import { SEAWALL_BARRIER_TILES } from "./seawall";
+import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipDockMotionStop, ShipMotionRoute, ShipMotionRouteStop, ShipMotionSample, ShipWaterPath, ShipWaterRouteCache } from "./motion-types";
+import type { DockNode, PharosVilleMap, PharosVilleWorld, ShipDockVisit, ShipNode } from "./world-types";
+
+// World identity is stable across React re-renders for the same TanStack
+// payload, so memoizing the signature on the world reference turns ~1000
+// transient strings + sort comparisons per render into a single Map lookup.
+const signatureByWorld = new WeakMap<PharosVilleWorld, string>();
+
+// Path cache shared across plan rebuilds for the same map identity. When the
+// motion plan signature changes (new ship, marketCap reshuffle), only the
+// route shapes need to rebuild — the underlying A* paths from waypoint X to Y
+// on a stable map remain valid and shouldn't be recomputed.
+const pathCacheByMap = new WeakMap<PharosVilleMap, ShipWaterRouteCache>();
+
+function getMapPathCache(map: PharosVilleMap): ShipWaterRouteCache {
+  let cache = pathCacheByMap.get(map);
+  if (!cache) {
+    cache = new Map();
+    pathCacheByMap.set(map, cache);
+  }
+  return cache;
+}
 
 // Stable, content-aware signature for the inputs `buildBaseMotionPlan` actually
 // reads. Two world instances with different identities but identical ship/dock/
@@ -19,6 +40,8 @@ import type { PharosVilleMap, PharosVilleWorld, ShipDockVisit, ShipNode } from "
 // re-running A* warmups. Kept cheap on purpose: short field joins, no
 // JSON.stringify of nested objects.
 export function motionPlanSignature(world: PharosVilleWorld): string {
+  const cached = signatureByWorld.get(world);
+  if (cached !== undefined) return cached;
   const shipParts: string[] = [];
   for (const ship of [...world.ships].sort((a, b) => a.id.localeCompare(b.id))) {
     const dockParts: string[] = [];
@@ -46,7 +69,9 @@ export function motionPlanSignature(world: PharosVilleWorld): string {
   }
   const lighthouse = `${world.lighthouse.psiBand ?? ""}:${world.lighthouse.score ?? ""}`;
   const map = `${world.map.width}x${world.map.height}:${world.map.waterRatio}`;
-  return `S[${shipParts.join("/")}]D[${dockParts.join("/")}]L[${lighthouse}]M[${map}]`;
+  const signature = `S[${shipParts.join("/")}]D[${dockParts.join("/")}]L[${lighthouse}]M[${map}]`;
+  signatureByWorld.set(world, signature);
+  return signature;
 }
 
 export function buildBaseMotionPlan(world: PharosVilleWorld): PharosVilleBaseMotionPlan {
@@ -60,7 +85,7 @@ export function buildBaseMotionPlan(world: PharosVilleWorld): PharosVilleBaseMot
   const baseEffectShipIds = new Set<string>();
   for (const ship of topShips) baseEffectShipIds.add(ship.id);
   for (const ship of moverShips) baseEffectShipIds.add(ship.id);
-  const waterRouteCache: ShipWaterRouteCache = new Map();
+  const waterRouteCache = getMapPathCache(world.map);
 
   // Build flagship route per squad first, so each squad's consorts can inherit
   // their own flagship's cycle/phase/zone. When a squad's flagship is missing,
@@ -73,7 +98,7 @@ export function buildBaseMotionPlan(world: PharosVilleWorld): PharosVilleBaseMot
     ));
     if (!flagship) continue;
     flagshipShipBySquad.set(squad.id, flagship);
-    flagshipRouteBySquad.set(squad.id, buildShipMotionRoute(flagship, world.map, waterRouteCache));
+    flagshipRouteBySquad.set(squad.id, buildShipMotionRoute(flagship, world.map, world.docks, waterRouteCache));
   }
 
   const shipRoutes = new Map<string, ShipMotionRoute>();
@@ -93,7 +118,7 @@ export function buildBaseMotionPlan(world: PharosVilleWorld): PharosVilleBaseMot
         continue;
       }
     }
-    shipRoutes.set(ship.id, buildShipMotionRoute(ship, world.map, waterRouteCache));
+    shipRoutes.set(ship.id, buildShipMotionRoute(ship, world.map, world.docks, waterRouteCache));
   }
 
   return {
@@ -153,16 +178,18 @@ function hasRecentMove(ship: ShipNode) {
 function buildShipMotionRoute(
   ship: ShipNode,
   map: PharosVilleMap,
+  docks: readonly DockNode[] = [],
   waterRouteCache: ShipWaterRouteCache = new Map(),
 ): ShipMotionRoute {
   const riskTile = nearestWaterTile(ship.riskTile);
-  const dockStops = ship.dockVisits.map((visit) => ({
+  const dockStops: ShipDockMotionStop[] = ship.dockVisits.map((visit) => ({
     id: visit.dockId,
     kind: "dock" as const,
     chainId: visit.chainId,
     dockId: visit.dockId,
     weight: visit.weight,
     mooringTile: visit.mooringTile,
+    dockTangent: dockTangentForVisit(visit, docks),
   }));
   const riskStop: ShipMotionRouteStop | null = ship.riskPlacement === "ledger-mooring"
     ? {
@@ -172,6 +199,8 @@ function buildShipMotionRoute(
       dockId: null,
       weight: 1,
       mooringTile: riskTile,
+      // Risk-water mooring is open water — no dock tile to anchor to.
+      dockTangent: null,
     }
     : null;
   const cycleSeconds = shipCycleSeconds(ship);
@@ -202,6 +231,7 @@ function buildShipMotionRoute(
     openWaterPatrol,
     waterPaths,
     routeSeed: stableHash(ship.id),
+    formationOffset: null,
   };
 }
 
@@ -219,9 +249,10 @@ function buildConsortMotionRoute(
   // same formation offset. The route built here is used for the reduced-motion
   // idle position and as a fallback when the flagship route is unresolved.
   const squad = squadForMember(ship.id);
-  const offset = squad
-    ? squadFormationOffsetForPlacement(ship.id, squad, flagshipShip.riskPlacement) ?? { dx: 0, dy: 0 }
-    : { dx: 0, dy: 0 };
+  const formationOffset = squad
+    ? squadFormationOffsetForPlacement(ship.id, squad, flagshipShip.riskPlacement)
+    : null;
+  const offset = formationOffset ?? { dx: 0, dy: 0 };
   // Placement-scoped clamping protects motionZone invariants: consort waypoints
   // must stay in flagship's water set or motion-water sampling reads the wrong
   // zone-style. When the placement is too tight to host the offset within
@@ -254,6 +285,7 @@ function buildConsortMotionRoute(
     openWaterPatrol,
     waterPaths: new LazyShipWaterPathMap(),
     routeSeed: flagshipRoute.routeSeed,
+    formationOffset,
   };
 }
 
@@ -279,6 +311,41 @@ function offsetWaterPath(
     points[points.length - 1] ?? offsetTile(path.to),
     points,
   );
+}
+
+// Direction the moored ship's bow should face: from the mooring tile toward
+// the dock entity's tile (the natural orientation — bow toward the wharf).
+// Falls back to pointing away from the nearest seawall barrier when the dock
+// can't be located, so docked ships never face into the wall. Returns `null`
+// only when the geometry is degenerate (mooring tile colocated with dock,
+// or no barrier within range).
+function dockTangentForVisit(
+  visit: ShipDockVisit,
+  docks: readonly DockNode[],
+): { x: number; y: number } | null {
+  const dock = docks.find((entry) => entry.id === visit.dockId && entry.chainId === visit.chainId);
+  if (dock) {
+    const dx = dock.tile.x - visit.mooringTile.x;
+    const dy = dock.tile.y - visit.mooringTile.y;
+    const length = Math.hypot(dx, dy);
+    if (length > 0) return { x: dx / length, y: dy / length };
+  }
+  // Fallback: vector pointing away from the nearest seawall barrier.
+  let nearestBarrier: { x: number; y: number } | null = null;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  for (const barrier of SEAWALL_BARRIER_TILES) {
+    const distance = Math.hypot(barrier.x - visit.mooringTile.x, barrier.y - visit.mooringTile.y);
+    if (distance < nearestDistance) {
+      nearestBarrier = barrier;
+      nearestDistance = distance;
+    }
+  }
+  if (!nearestBarrier || nearestDistance === 0) return null;
+  const dx = visit.mooringTile.x - nearestBarrier.x;
+  const dy = visit.mooringTile.y - nearestBarrier.y;
+  const length = Math.hypot(dx, dy);
+  if (length === 0) return null;
+  return { x: dx / length, y: dy / length };
 }
 
 function primaryDockStop(ship: ShipNode, dockStops: readonly ShipMotionRoute["dockStops"][number][]) {

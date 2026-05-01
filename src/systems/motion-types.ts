@@ -38,6 +38,12 @@ export interface ShipDockMotionStop {
   chainId: string;
   weight: number;
   mooringTile: { x: number; y: number };
+  // Unit vector from the mooring tile toward the dock's tile (or, when the
+  // dock isn't resolvable, away from the nearest seawall barrier). Sampler
+  // anchors moored heading to this direction so docked ships face naturally
+  // instead of sweeping a Lissajous around the wall. `null` when no usable
+  // direction can be derived; sampler falls back to the legacy sweep.
+  dockTangent: { x: number; y: number } | null;
 }
 
 export interface ShipLedgerMotionStop {
@@ -47,6 +53,7 @@ export interface ShipLedgerMotionStop {
   chainId: null;
   weight: number;
   mooringTile: { x: number; y: number };
+  dockTangent: { x: number; y: number } | null;
 }
 
 export type ShipMotionRouteStop = ShipDockMotionStop | ShipLedgerMotionStop;
@@ -68,6 +75,10 @@ export interface ShipMotionRoute {
   } | null;
   waterPaths: ReadonlyMap<string, ShipWaterPath>;
   routeSeed: number;
+  // Squad consort offset relative to the flagship, precomputed at route-build
+  // so the per-frame sampler doesn't repeat the squad/placement lookups.
+  // `null` for non-consort routes (flagships and unsquaded ships).
+  formationOffset: { dx: number; dy: number } | null;
 }
 
 export interface ShipMotionSample {
