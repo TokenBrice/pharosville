@@ -15,6 +15,7 @@ import {
   fixtureStablecoins,
   fixtureStress,
   fixtureWithDepegOn,
+  fixtureWithFlagshipPlacement,
   fixtureWithoutAsset,
   makePharosVilleWorldInput,
   makeAsset,
@@ -23,11 +24,16 @@ import {
   makeReportCard,
   makerSquadFixtureInputs,
 } from "../__fixtures__/pharosville-world";
-import { MAKER_SQUAD_MEMBER_IDS } from "./maker-squad";
+import {
+  MAKER_SQUAD_MEMBER_IDS,
+  makerSquadFormationOffsetForPlacement,
+  type MakerSquadMemberId,
+} from "./maker-squad";
 import { buildPharosVilleWorld, SHIP_WATER_ANCHORS } from "./pharosville-world";
-import { riskPlacementWaterTiles } from "./risk-water-placement";
+import { isRiskPlacementWaterTile, riskPlacementWaterTiles } from "./risk-water-placement";
 import { riskWaterAreaForPlacement } from "./risk-water-areas";
 import {
+  clampMapTile,
   isWaterTileKind,
   terrainKindAt,
   tileKindAt,
@@ -627,6 +633,36 @@ describe("buildPharosVilleWorld", () => {
     const usds = world.ships.find((s) => s.id === "usds-sky")!;
     expect(dai.riskPlacement).toBe(usds.riskPlacement);
     expect(dai.placementEvidence.squadOverride).toBe(true);
+  });
+
+  it("places squad consorts at flagship + formation offset, never outside the placement's water", () => {
+    const world = buildPharosVilleWorld(makerSquadFixtureInputs());
+    const flagship = world.ships.find((s) => s.id === "usds-sky");
+    expect(flagship).toBeDefined();
+    for (const id of MAKER_SQUAD_MEMBER_IDS) {
+      if (id === "usds-sky") continue;
+      const consort = world.ships.find((s) => s.id === id)!;
+      const offset = makerSquadFormationOffsetForPlacement(
+        id as MakerSquadMemberId,
+        flagship!.riskPlacement,
+      );
+      const expected = clampMapTile({
+        x: flagship!.tile.x + offset.dx,
+        y: flagship!.tile.y + offset.dy,
+      });
+      expect(Math.abs(consort.tile.x - expected.x)).toBeLessThanOrEqual(1);
+      expect(Math.abs(consort.tile.y - expected.y)).toBeLessThanOrEqual(1);
+      expect(isRiskPlacementWaterTile(consort.tile, flagship!.riskPlacement)).toBe(true);
+    }
+  });
+
+  it("contracts the formation when flagship is in storm-shelf", () => {
+    const world = buildPharosVilleWorld(fixtureWithFlagshipPlacement("storm-shelf"));
+    const flagship = world.ships.find((s) => s.id === "usds-sky")!;
+    const stusds = world.ships.find((s) => s.id === "stusds-sky")!;
+    expect(flagship.riskPlacement).toBe("storm-shelf");
+    expect(Math.abs(stusds.tile.y - flagship.tile.y)).toBeLessThanOrEqual(2);
+    expect(isRiskPlacementWaterTile(stusds.tile, "storm-shelf")).toBe(true);
   });
 });
 

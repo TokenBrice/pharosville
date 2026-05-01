@@ -28,7 +28,9 @@ import { isStricterPlacement, resolveShipRiskPlacement } from "./risk-placement"
 import {
   MAKER_SQUAD_FLAGSHIP_ID,
   isMakerSquadMember,
+  makerSquadFormationOffsetForPlacement,
   makerSquadRole,
+  type MakerSquadMemberId,
 } from "./maker-squad";
 import { isRiskPlacementWaterTile, nearestRiskPlacementWaterTile, riskPlacementWaterTiles } from "./risk-water-placement";
 import {
@@ -408,6 +410,44 @@ function spreadShipRiskAnchorsAcrossWater(ships: ShipNode[]): ShipNode[] {
 }
 
 function spreadRiskPlacementShips(
+  ships: readonly ShipNode[],
+  placement: ShipRiskPlacement,
+  occupied: Set<string>,
+): ShipNode[] {
+  // 1) Place flagship and non-squad ships first (so flagship.tile is fixed)
+  // 2) Snap consorts to flagship.tile + (placement-aware) formation offset
+  // 3) Clamp via nearestRiskPlacementWaterTile — never generic water tiles —
+  //    so the consort cannot spill outside the placement's motion zone.
+  const consorts = ships.filter((s) => s.squadRole === "consort");
+  const others = ships.filter((s) => s.squadRole !== "consort");
+
+  const placedOthers = othersSpread(others, placement, occupied);
+  const placedFlagship = placedOthers.find((s) => s.squadRole === "flagship") ?? null;
+
+  const placedConsorts = consorts.map((consort) => {
+    if (!placedFlagship) return consort; // squad inactive in this placement
+    const offset = makerSquadFormationOffsetForPlacement(
+      consort.id as MakerSquadMemberId,
+      placement,
+    );
+    const target = clampMapTile({
+      x: placedFlagship.tile.x + offset.dx,
+      y: placedFlagship.tile.y + offset.dy,
+    });
+    const placementTile = nearestRiskPlacementWaterTile(target, placement, 4)
+      ?? placedFlagship.tile; // fallback: collapse onto flagship rather than spill
+    occupied.add(tileKey(placementTile));
+    return { ...consort, tile: placementTile, riskTile: placementTile };
+  });
+
+  // Preserve original ship ordering.
+  const byId = new Map<string, ShipNode>(
+    [...placedOthers, ...placedConsorts].map((s) => [s.id, s]),
+  );
+  return ships.map((s) => byId.get(s.id) ?? s);
+}
+
+function othersSpread(
   ships: readonly ShipNode[],
   placement: ShipRiskPlacement,
   occupied: Set<string>,
