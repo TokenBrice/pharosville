@@ -3,7 +3,7 @@ import { manifestCacheVersion } from "../systems/asset-manifest";
 import { isShipMapVisible } from "../systems/motion";
 import type { PharosVilleWorld } from "../systems/world-types";
 import { createRenderFrameCache, type RenderFrameCache } from "./frame-cache";
-import { drawAtmosphere, drawBirds, drawBioluminescentSparkles, drawDecorativeLights } from "./layers/ambient";
+import { drawAtmosphere, drawBirds, drawBioluminescentSparkles, drawDecorativeLights, drawMoonReflection, drawSeaMist } from "./layers/ambient";
 import { drawDockBody, drawDockOverlay, isBackgroundedHarborDock, type DockRenderState } from "./layers/docks";
 import { drawGraveBody, drawGraveOverlay, drawGraveUnderlay, type GraveRenderState } from "./layers/graves";
 import {
@@ -24,7 +24,7 @@ import { drawLighthouseBeamRim, drawLighthouseBody, drawLighthouseHeadland, draw
 import { drawSelection } from "./layers/selection";
 import { drawCoastalWaterDetails } from "./layers/shoreline";
 import { drawSky } from "./layers/sky";
-import { drawNightTint } from "./layers/night-tint";
+import { drawNightTint, drawNightVignette } from "./layers/night-tint";
 import { skyState } from "./layers/sky";
 import type { DrawPharosVilleInput, PharosVilleRenderMetrics } from "./render-types";
 import { tileBoundsTileCount, visibleTileBoundsForCamera } from "./viewport";
@@ -289,10 +289,13 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   drawAtmosphere(input, frame.lighthouseRender);
   drawLighthouseNightHighlights(input, frame.lighthouseRender, nightFactor);
   drawBioluminescentSparkles(input, nightFactor);
+  drawMoonReflection(input, nightFactor);
+  drawSeaMist(input, nightFactor);
   drawDecorativeLights(input);
   drawLighthouseBeamRim(input, frame.visibleShips, frame.lighthouseRender, nightFactor);
   drawCemeteryMist(input);
   drawBirds(input);
+  drawNightVignette(input, nightFactor);
   const selectionDrawableCount = drawSelection(input);
   const drawableCounts = {
     ...entityMetrics.drawableCounts,

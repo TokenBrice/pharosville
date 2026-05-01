@@ -844,6 +844,23 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
     drawProceduralShipPegPennant(ctx, ship.visual.pennant, ship.visual.pegShape, ship.visual.pegPattern, p.x, drawY, proceduralScale);
     drawShipSignalOverlay(ctx, ship.visual.overlay, p.x - 10 * proceduralScale, drawY - 20 * proceduralScale, proceduralScale);
   }
+  const { nightFactor: lanternNight } = skyState(input.motion);
+  if (lanternNight > 0) {
+    const mast = shipMastTopScreenPoint(input, frame, ship);
+    const lanternZoom = input.camera.zoom * ship.visual.scale;
+    const lanternAlpha = lanternNight * 0.55;
+    input.ctx.save();
+    input.ctx.globalCompositeOperation = "lighter";
+    const lg = input.ctx.createRadialGradient(mast.x, mast.y, 0, mast.x, mast.y, 14 * lanternZoom);
+    lg.addColorStop(0, `rgba(255, 200, 80, ${lanternAlpha})`);
+    lg.addColorStop(0.4, `rgba(230, 150, 40, ${lanternAlpha * 0.45})`);
+    lg.addColorStop(1, "rgba(200, 100, 20, 0)");
+    input.ctx.fillStyle = lg;
+    input.ctx.beginPath();
+    input.ctx.arc(mast.x, mast.y, 14 * lanternZoom, 0, Math.PI * 2);
+    input.ctx.fill();
+    input.ctx.restore();
+  }
 }
 
 function drawSelectedShipOutline(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {

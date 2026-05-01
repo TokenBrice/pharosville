@@ -88,6 +88,19 @@ const BIRDS = [
   { anchorX: -9.8, anchorY: -8.2, radiusX: 5.8, radiusY: 1.7, scale: 0.82, speed: 0.17, phase: 4.9 },
 ] as const;
 
+const SEA_MIST_PATCHES = [
+  { x: 22.5, y: 16.2, rx: 5.8, ry: 1.8, phase: 0.3, speed: 0.018 },
+  { x: 28.1, y: 18.5, rx: 7.2, ry: 2.1, phase: 1.7, speed: 0.014 },
+  { x: 33.6, y: 15.8, rx: 6.1, ry: 1.9, phase: 3.1, speed: 0.021 },
+  { x: 44.2, y: 24.3, rx: 6.8, ry: 2.0, phase: 0.9, speed: 0.016 },
+  { x: 50.1, y: 29.8, rx: 8.0, ry: 2.4, phase: 2.4, speed: 0.013 },
+  { x: 47.5, y: 33.1, rx: 5.5, ry: 1.7, phase: 4.2, speed: 0.019 },
+  { x: 6.8,  y: 26.4, rx: 6.3, ry: 1.9, phase: 1.2, speed: 0.017 },
+  { x: 10.2, y: 30.2, rx: 7.5, ry: 2.2, phase: 5.1, speed: 0.015 },
+  { x: 20.4, y: 54.3, rx: 7.8, ry: 2.3, phase: 2.8, speed: 0.012 },
+  { x: 36.7, y: 57.1, rx: 6.6, ry: 2.0, phase: 0.6, speed: 0.020 },
+] as const;
+
 export function drawAtmosphere(input: DrawPharosVilleInput, lighthouse?: LighthouseRenderState) {
   const { camera, ctx, motion } = input;
   const mood = skyState(motion).mood;
@@ -201,5 +214,44 @@ export function drawLamp(ctx: CanvasRenderingContext2D, x: number, y: number, zo
   ctx.moveTo(x - 8 * zoom, y + 2 * zoom);
   ctx.lineTo(x + 9 * zoom, y + 4 * zoom);
   ctx.stroke();
+  ctx.restore();
+}
+
+export function drawMoonReflection(input: DrawPharosVilleInput, nightFactor: number): void {
+  if (nightFactor <= 0) return;
+  const { ctx, width, height } = input;
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  const cx = width * 0.28;
+  const cy = height * 0.38;
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.hypot(width, height) * 0.42);
+  grad.addColorStop(0, `rgba(185, 205, 230, ${0.13 * nightFactor})`);
+  grad.addColorStop(0.35, `rgba(160, 185, 215, ${0.06 * nightFactor})`);
+  grad.addColorStop(1, "rgba(130, 160, 200, 0)");
+  ctx.fillStyle = grad;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(-0.55);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, Math.hypot(width, height) * 0.42, Math.hypot(width, height) * 0.09, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+  ctx.restore();
+}
+
+export function drawSeaMist(input: DrawPharosVilleInput, nightFactor: number): void {
+  if (nightFactor <= 0) return;
+  const { camera, ctx, motion } = input;
+  const time = motion.reducedMotion ? 0 : motion.timeSeconds;
+  ctx.save();
+  for (const patch of SEA_MIST_PATCHES) {
+    const drift = Math.sin(time * patch.speed + patch.phase) * 0.4;
+    const p = tileToScreen({ x: patch.x + drift, y: patch.y + drift * 0.3 }, camera);
+    const alpha = (0.042 + Math.sin(time * patch.speed * 1.8 + patch.phase) * 0.012) * nightFactor;
+    ctx.fillStyle = `rgba(165, 178, 195, ${alpha})`;
+    ctx.beginPath();
+    ctx.ellipse(p.x, p.y, patch.rx * camera.zoom * 12, patch.ry * camera.zoom * 12, -0.12, 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.restore();
 }
