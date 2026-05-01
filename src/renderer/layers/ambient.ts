@@ -18,7 +18,14 @@ const VILLAGE_LIGHTS = [
   { x: 44.2, y: 33.7, size: 0.52 },
 ] as const;
 
-const SPARKLE_POINTS = [
+type BioluminescentSparkle = {
+  isoX: number;
+  isoY: number;
+  phase: number;
+  baseRadius: number;
+};
+
+const SPARKLE_POINT_DEFS = [
   { x: 8.3, y: 28.4, phase: 0.0 },
   { x: 9.7, y: 31.2, phase: 0.72 },
   { x: 10.4, y: 33.8, phase: 1.44 },
@@ -75,6 +82,13 @@ const SPARKLE_POINTS = [
   { x: 54.8, y: 37.6, phase: 3.51 },
   { x: 52.7, y: 36.2, phase: 4.23 },
 ] as const;
+
+const SPARKLE_POINTS = SPARKLE_POINT_DEFS.map((p) => ({
+  isoX: (p.x - p.y) * 16,
+  isoY: (p.x + p.y) * 8,
+  phase: p.phase,
+  baseRadius: 0.9 + Math.sin(p.phase * 2.1) * 0.4,
+})) as readonly BioluminescentSparkle[];
 
 const BIRDS = [
   { anchorX: -4.2, anchorY: -3.2, radiusX: 3.8, radiusY: 1.4, scale: 1.14, speed: 0.24, phase: 0.1 },
@@ -175,25 +189,41 @@ export function drawBioluminescentSparkles(
   lighthouse?: LighthouseRenderState,
 ): void {
   if (nightFactor <= 0) return;
-  const { camera, ctx, motion } = input;
+  const { camera, ctx, motion, width, height } = input;
   const { firePoint } = lighthouse ?? lighthouseRenderState(input);
   // Suppress sparkles inside the warm pool — cyan + warm amber stack to white
   // and wash both effects out. Match the lighthouse pool radius.
   const haloRadius = 900 * camera.zoom;
+  const haloRadiusSq = haloRadius * haloRadius;
+  const invHaloRadius = 1 / haloRadius;
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
+  const zoom = camera.zoom;
+  const offsetX = camera.offsetX;
+  const offsetY = camera.offsetY;
+  const cullPadding = 24 * zoom;
+  const minX = -cullPadding;
+  const maxX = width + cullPadding;
+  const minY = -cullPadding;
+  const maxY = height + cullPadding;
+
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
   for (const sp of SPARKLE_POINTS) {
-    const p = tileToScreen(sp, camera);
-    const dist = Math.hypot(p.x - firePoint.x, p.y - firePoint.y);
-    const haloSuppress = dist < haloRadius ? Math.min(1, dist / haloRadius) : 1;
+    const px = sp.isoX * zoom + offsetX;
+    const py = sp.isoY * zoom + offsetY;
+    if (px < minX || px > maxX || py < minY || py > maxY) continue;
+
+    const dx = px - firePoint.x;
+    const dy = py - firePoint.y;
+    const distSq = dx * dx + dy * dy;
+    const haloSuppress = distSq < haloRadiusSq ? Math.sqrt(distSq) * invHaloRadius : 1;
     const twinkle = 0.5 + 0.5 * Math.sin(time * 1.4 + sp.phase);
     const alpha = twinkle * twinkle * nightFactor * 0.55 * haloSuppress;
     if (alpha < 0.01) continue;
-    const r = Math.max(1, (0.9 + Math.sin(sp.phase * 2.1) * 0.4) * camera.zoom);
+    const r = Math.max(1, sp.baseRadius * zoom);
     ctx.fillStyle = `rgba(140, 230, 215, ${alpha})`;
     ctx.beginPath();
-    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.arc(px, py, r, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.restore();

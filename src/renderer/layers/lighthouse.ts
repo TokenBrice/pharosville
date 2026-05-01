@@ -97,11 +97,18 @@ const RIM_RADIUS = 380;
 const RIM_PEAK_ALPHA = 0.45;
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const cached = LANTERN_TIP_RGB_CACHE.get(hex);
+  if (cached) return cached;
   const m = /^#([0-9a-fA-F]{6})$/.exec(hex);
-  if (!m) return { r: 240, g: 140, b: 70 };
+  if (!m) return FALLBACK_LANTERN_TIP_RGB;
   const n = parseInt(m[1]!, 16);
-  return { r: (n >> 16) & 0xff, g: (n >> 8) & 0xff, b: n & 0xff };
+  const rgb = { r: (n >> 16) & 0xff, g: (n >> 8) & 0xff, b: n & 0xff };
+  LANTERN_TIP_RGB_CACHE.set(hex, rgb);
+  return rgb;
 }
+
+const FALLBACK_LANTERN_TIP_RGB = { r: 240, g: 140, b: 70 };
+const LANTERN_TIP_RGB_CACHE = new Map<string, { r: number; g: number; b: number }>();
 
 export function drawLighthouseHeadland(input: DrawPharosVilleInput) {
   const { assets, camera, ctx, world } = input;

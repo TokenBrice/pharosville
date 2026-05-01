@@ -290,7 +290,7 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   drawNightTint(input, nightFactor);
   drawAtmosphere(input, frame.lighthouseRender);
   drawLighthouseNightHighlights(input, frame.lighthouseRender, nightFactor);
-  drawBioluminescentSparkles(input, nightFactor);
+  drawBioluminescentSparkles(input, nightFactor, frame.lighthouseRender);
   drawMoonReflection(input, nightFactor);
   drawSeaMist(input, nightFactor);
   drawDecorativeLights(input);
