@@ -9,7 +9,8 @@ export function QueryErrorNotice({ error, hasData, onRetry }: QueryErrorNoticePr
 
   return (
     <div className="pharosville-query-error" role="alert">
-      <span>Market signal fetch failed.</span>
+      <span className="pharosville-query-error__seal" aria-hidden="true">!</span>
+      <span className="pharosville-query-error__msg">Market signal fetch failed.</span>
       <button type="button" onClick={onRetry}>Retry</button>
     </div>
   );

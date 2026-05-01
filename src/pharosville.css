@@ -78,27 +78,60 @@ textarea {
   z-index: 60;
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 42px;
+  gap: 12px;
+  min-height: 48px;
+  padding: 8px 16px 8px 8px;
   transform: translateX(-50%);
-  border: 1px solid #b99a62;
-  border-radius: 2px;
-  padding: 8px 12px;
-  background: rgba(6, 18, 25, 0.96);
-  color: #e5dcc4;
+  background:
+    repeating-linear-gradient(90deg, rgba(40, 22, 12, 0.5) 0 1px, transparent 1px 11px),
+    linear-gradient(180deg, var(--pv-timber-light), var(--pv-timber-dark));
+  border: 2px solid var(--pv-timber-edge);
+  color: var(--pv-parchment-light);
   font-family: Georgia, "Times New Roman", serif;
-  font-size: 0.84rem;
+  font-size: 0.86rem;
   font-weight: 900;
-  box-shadow: 0 14px 34px rgba(3, 8, 10, 0.34);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 210, 140, 0.18),
+    0 14px 34px rgba(0, 0, 0, 0.5);
 }
-
+.pharosville-query-error__seal {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 2px solid var(--pv-timber-edge);
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%,
+    #d65440 0%,
+    var(--pv-seal-red) 50%,
+    var(--pv-seal-red-dark) 100%);
+  color: var(--pv-parchment-light);
+  font: 900 18px Georgia, serif;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 1px 2px rgba(0, 0, 0, 0.5);
+}
+.pharosville-query-error__msg { color: var(--pv-parchment-light); }
 .pharosville-query-error button {
   min-height: 30px;
-  border: 1px solid rgba(185, 154, 98, 0.76);
-  border-radius: 2px;
-  background: #0c252e;
-  color: #eee6cf;
+  padding: 6px 12px;
+  border: 1.5px solid var(--pv-timber-dark);
+  background: radial-gradient(circle at 30% 25%,
+    var(--pv-brass-highlight),
+    var(--pv-brass-mid) 55%,
+    var(--pv-brass-dark));
+  color: var(--pv-ink-text);
+  font: 900 12px Georgia, serif;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.3);
+}
+.pharosville-query-error button:focus-visible {
+  outline: 2px solid var(--pv-brass-highlight);
+  outline-offset: 3px;
 }
 
 @media (max-width: 1279px), (max-height: 759px) {
