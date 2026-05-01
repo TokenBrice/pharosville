@@ -112,6 +112,8 @@ jobs:
         run: npm ci
       - name: Build
         run: npm run build
+      - name: Bundle size guard
+        run: npm run check:bundle-size
       - uses: actions/upload-artifact@v4
         with:
           name: pharosville-dist

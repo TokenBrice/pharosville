@@ -56,12 +56,24 @@ Smoke all allowlisted Pharos endpoints with the discovered key before debugging 
 npm run smoke:api-local
 ```
 
+Smoke the same allowlisted endpoints through the local Vite `/api/*` proxy path:
+
+```bash
+npm run smoke:dev-proxy
+```
+
 ## Agent Workflow Automation
 
 Create and bootstrap a new local worktree:
 
 ```bash
 npm run worktree:new -- <name> --branch <branch-name> --install
+```
+
+One-shot bootstrap (optional worktree creation + key setup + API smoke + onboarding):
+
+```bash
+npm run agent:init -- [worktree-name] --branch <branch-name> --install
 ```
 
 Scaffold a dated plan artifact in `agents/`:
@@ -83,6 +95,7 @@ npm run hooks:install
 ```
 
 The hook runs `npm run validate:release` only when pushing to `main`.
+For non-main branch pushes, the hook runs `npm run validate:changed`.
 
 ## Cloudflare Pages
 

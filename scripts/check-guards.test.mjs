@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { join, resolve } from "node:path";
+import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, join, resolve } from "node:path";
 
 import {
   findSecretFindingsInText,
@@ -17,6 +19,10 @@ import {
 } from "./check-agent-onboarding-docs.mjs";
 import { evaluateBundleBudgets } from "./check-bundle-size.mjs";
 import {
+  discoverPharosApiConfig,
+  parseLoosePharosEnvFile,
+} from "./pharosville/setup-local-api-key.mjs";
+import {
   chooseValidationLane,
   parseChangedPaths,
 } from "./pharosville/validate-changed.mjs";
@@ -28,8 +34,91 @@ import {
   formatDate,
   sanitizeSlug,
 } from "./pharosville/new-agent-plan.mjs";
+import {
+  parseArgs as parseAgentInitArgs,
+} from "./pharosville/agent-init.mjs";
 
 const neutralValue = ["alpha", "beta", "gamma", "9876543210"].join("_");
+const guardedEnvKeys = [
+  "FAKE_GIT_COMMON_DIR",
+  "FAKE_GIT_EXIT_CODE",
+  "PATH",
+  "PHAROS_API_BASE",
+  "PHAROS_API_KEY",
+];
+
+function withEnvPatch(patch, fn) {
+  const previous = new Map();
+  for (const key of guardedEnvKeys) {
+    previous.set(key, process.env[key]);
+  }
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined || value === null) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  try {
+    return fn();
+  } finally {
+    for (const key of guardedEnvKeys) {
+      const value = previous.get(key);
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
+function createApiConfigFixture() {
+  const root = mkdtempSync(join(tmpdir(), "pharosville-guard-"));
+  const fakeBinDir = join(root, "fake-bin");
+  const fakeGitPath = join(fakeBinDir, "git");
+  const mainRoot = join(root, "main-worktree");
+  const worktreeRoot = join(root, "linked-worktree");
+  const commonDir = join(mainRoot, ".git");
+  const worktreeEnvPath = join(worktreeRoot, ".env.local");
+  const mainEnvPath = join(mainRoot, ".env.local");
+  const sharedEnvPath = join(commonDir, "pharosville.env.local");
+
+  mkdirSync(fakeBinDir, { recursive: true });
+  mkdirSync(commonDir, { recursive: true });
+  mkdirSync(worktreeRoot, { recursive: true });
+
+  writeFileSync(
+    fakeGitPath,
+    [
+      "#!/usr/bin/env bash",
+      'if [ "$1" = "rev-parse" ] && [ "$2" = "--git-common-dir" ]; then',
+      '  if [ -n "${FAKE_GIT_COMMON_DIR:-}" ]; then',
+      '    printf "%s\\n" "$FAKE_GIT_COMMON_DIR"',
+      "    exit 0",
+      "  fi",
+      '  exit "${FAKE_GIT_EXIT_CODE:-1}"',
+      "fi",
+      "exit 1",
+      "",
+    ].join("\n"),
+  );
+  chmodSync(fakeGitPath, 0o755);
+
+  return {
+    root,
+    fakeBinDir,
+    commonDir,
+    mainEnvPath,
+    sharedEnvPath,
+    worktreeEnvPath,
+    worktreeRoot,
+    cleanup() {
+      rmSync(root, { force: true, recursive: true });
+    },
+  };
+}
 
 assert.equal(shouldScanCommittedPath("src/App.tsx"), true);
 assert.equal(shouldScanCommittedPath("node_modules/pkg/index.js"), false);
@@ -112,6 +201,15 @@ assert.deepEqual(
 assert.equal(chooseValidationLane(["README.md", "docs/pharosville/CURRENT.md"]), "docs");
 assert.equal(chooseValidationLane(["README.md", "src/main.tsx"]), "full");
 assert.equal(chooseValidationLane([]), "none");
+assert.equal(chooseValidationLane(["AGENTS.md", "CLAUDE.md", "agents/new-plan.md"]), "docs");
+assert.equal(chooseValidationLane(["docs/pharosville/CURRENT.md", "functions/api/[[path]].ts"]), "full");
+
+assert.deepEqual(parseChangedPaths("AM src/index.ts\n D docs/pharosville/AGENT_ONBOARDING.md\n"), [
+  "src/index.ts",
+  "docs/pharosville/AGENT_ONBOARDING.md",
+]);
+assert.deepEqual(parseChangedPaths(""), []);
+assert.deepEqual(parseChangedPaths("?? docs/new guide.md\n"), ["docs/new guide.md"]);
 
 assert.equal(sanitizeSegment("  Feature Branch 42 "), "feature-branch-42");
 assert.deepEqual(
@@ -119,6 +217,140 @@ assert.deepEqual(
   { name: "new-branch", ref: "main", branch: "feat/new", install: true },
 );
 assert.equal(parseWorktreeArgs([]), null);
+assert.deepEqual(parseWorktreeArgs(["sandbox"]), {
+  name: "sandbox",
+  ref: "HEAD",
+  branch: "",
+  install: false,
+});
+assert.equal(parseWorktreeArgs(["--ref", "main"]), null);
+assert.equal(parseWorktreeArgs(["sandbox", "--ref"]), null);
+assert.equal(parseWorktreeArgs(["sandbox", "--branch"]), null);
+assert.equal(parseWorktreeArgs(["sandbox", "--bogus"]), null);
+
+assert.deepEqual(parseAgentInitArgs([]), {
+  worktreeName: "",
+  ref: "HEAD",
+  branch: "",
+  install: false,
+  runSetupKey: true,
+  runSmoke: true,
+  runOnboard: true,
+  help: false,
+});
+assert.deepEqual(parseAgentInitArgs(["sandbox", "--install"]), {
+  worktreeName: "sandbox",
+  ref: "HEAD",
+  branch: "",
+  install: true,
+  runSetupKey: true,
+  runSmoke: true,
+  runOnboard: true,
+  help: false,
+});
+assert.deepEqual(parseAgentInitArgs(["--worktree", "sandbox", "--skip-smoke"]), {
+  worktreeName: "sandbox",
+  ref: "HEAD",
+  branch: "",
+  install: false,
+  runSetupKey: true,
+  runSmoke: false,
+  runOnboard: true,
+  help: false,
+});
+assert.equal(parseAgentInitArgs(["--ref", "main"]), null);
+assert.equal(parseAgentInitArgs(["--worktree"]), null);
+assert.equal(parseAgentInitArgs(["--branch", "feat/test"]), null);
+assert.equal(parseAgentInitArgs(["--unknown"]), null);
+
+const parsedLooseEnv = parseLoosePharosEnvFile("/definitely-missing/pharos.env.local");
+assert.deepEqual(parsedLooseEnv, {});
+
+const apiFixture = createApiConfigFixture();
+try {
+  writeFileSync(
+    apiFixture.worktreeEnvPath,
+    "PHAROS_API_BASE=https://worktree.example\nPHAROS_API_KEY=worktree-key\n",
+  );
+  writeFileSync(
+    apiFixture.mainEnvPath,
+    "PHAROS_API_BASE=https://main.example\nPHAROS_API_KEY=main-key\n",
+  );
+  writeFileSync(
+    apiFixture.sharedEnvPath,
+    "PHAROS_API_BASE=https://shared.example\nPHAROS_API_KEY=shared-key\n",
+  );
+
+  const fakePath = [apiFixture.fakeBinDir, process.env.PATH || ""].join(delimiter);
+  const envDiscovered = withEnvPatch({
+    FAKE_GIT_COMMON_DIR: apiFixture.commonDir,
+    FAKE_GIT_EXIT_CODE: undefined,
+    PATH: fakePath,
+    PHAROS_API_BASE: "https://env.example",
+    PHAROS_API_KEY: "env-key",
+  }, () => discoverPharosApiConfig(apiFixture.worktreeRoot));
+  assert.equal(envDiscovered.source, "process.env");
+  assert.equal(envDiscovered.apiBase, "https://env.example");
+  assert.equal(envDiscovered.apiKey, "env-key");
+  assert.deepEqual(envDiscovered.checkedPaths, []);
+
+  const worktreeDiscovered = withEnvPatch({
+    FAKE_GIT_COMMON_DIR: apiFixture.commonDir,
+    FAKE_GIT_EXIT_CODE: undefined,
+    PATH: fakePath,
+    PHAROS_API_BASE: undefined,
+    PHAROS_API_KEY: undefined,
+  }, () => discoverPharosApiConfig(apiFixture.worktreeRoot));
+  assert.equal(worktreeDiscovered.source, ".env.local (current worktree)");
+  assert.equal(worktreeDiscovered.apiBase, "https://worktree.example");
+  assert.equal(worktreeDiscovered.apiKey, "worktree-key");
+  assert.deepEqual(worktreeDiscovered.checkedPaths, [apiFixture.worktreeEnvPath]);
+
+  writeFileSync(apiFixture.worktreeEnvPath, "PHAROS_API_BASE=https://worktree.example\n");
+  const mainDiscovered = withEnvPatch({
+    FAKE_GIT_COMMON_DIR: apiFixture.commonDir,
+    FAKE_GIT_EXIT_CODE: undefined,
+    PATH: fakePath,
+    PHAROS_API_BASE: undefined,
+    PHAROS_API_KEY: undefined,
+  }, () => discoverPharosApiConfig(apiFixture.worktreeRoot));
+  assert.equal(mainDiscovered.source, ".env.local (main worktree)");
+  assert.equal(mainDiscovered.apiBase, "https://main.example");
+  assert.equal(mainDiscovered.apiKey, "main-key");
+  assert.deepEqual(mainDiscovered.checkedPaths, [apiFixture.worktreeEnvPath, apiFixture.mainEnvPath]);
+
+  writeFileSync(apiFixture.mainEnvPath, "PHAROS_API_BASE=https://main.example\n");
+  const sharedDiscovered = withEnvPatch({
+    FAKE_GIT_COMMON_DIR: apiFixture.commonDir,
+    FAKE_GIT_EXIT_CODE: undefined,
+    PATH: fakePath,
+    PHAROS_API_BASE: undefined,
+    PHAROS_API_KEY: undefined,
+  }, () => discoverPharosApiConfig(apiFixture.worktreeRoot));
+  assert.equal(sharedDiscovered.source, ".git/pharosville.env.local (existing shared file)");
+  assert.equal(sharedDiscovered.apiBase, "https://shared.example");
+  assert.equal(sharedDiscovered.apiKey, "shared-key");
+  assert.deepEqual(sharedDiscovered.checkedPaths, [
+    apiFixture.worktreeEnvPath,
+    apiFixture.mainEnvPath,
+    apiFixture.sharedEnvPath,
+  ]);
+
+  const noGitDiscovered = withEnvPatch({
+    FAKE_GIT_COMMON_DIR: undefined,
+    FAKE_GIT_EXIT_CODE: "1",
+    PATH: fakePath,
+    PHAROS_API_BASE: "https://env.example",
+    PHAROS_API_KEY: "env-key",
+  }, () => discoverPharosApiConfig(apiFixture.worktreeRoot));
+  assert.equal(noGitDiscovered.apiBase, "https://api.pharos.watch");
+  assert.equal(noGitDiscovered.apiKey, null);
+  assert.equal(noGitDiscovered.source, null);
+  assert.equal(noGitDiscovered.sharedEnvPath, null);
+  assert.deepEqual(noGitDiscovered.checkedPaths, []);
+} finally {
+  apiFixture.cleanup();
+}
 
 assert.equal(sanitizeSlug("  My Plan / Scope "), "my-plan-scope");
 assert.equal(formatDate(new Date(Date.UTC(2026, 4, 1))), "2026-05-01");

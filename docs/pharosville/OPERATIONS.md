@@ -43,6 +43,7 @@ Run these before debugging missing ships/data:
 npm run setup:local-api-key
 npm run onboard:agent
 npm run smoke:api-local
+npm run smoke:dev-proxy
 ```
 
 For local Pages Functions preview, keep local secrets in ignored `.dev.vars` or pass local bindings through Wrangler. Do not commit local secret files.

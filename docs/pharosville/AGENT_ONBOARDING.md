@@ -23,6 +23,7 @@ Use this file as the fastest path to productive and safe PharosVille work.
    ```bash
    npm run setup:local-api-key
    npm run smoke:api-local
+   npm run smoke:dev-proxy
    ```
 
 4. Read in this order:
@@ -88,6 +89,12 @@ Use this file as the fastest path to productive and safe PharosVille work.
 
   ```bash
   npm run worktree:new -- <name> --branch <branch-name> --install
+  ```
+
+- Run full one-shot bootstrap (optional worktree + install + key setup + smoke + onboard):
+
+  ```bash
+  npm run agent:init -- [worktree-name] --branch <branch-name> --install
   ```
 
 - Create a dated plan scaffold in `agents/`:

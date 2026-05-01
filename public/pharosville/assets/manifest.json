@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-05-01-harbor-trim-maker-squad-titans-v1",
+    "cacheVersion": "2026-05-01-harbor-trim-maker-squad-titans-v2",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": [
@@ -507,22 +507,22 @@
       "path": "docks/tron-arena-wharf.png",
       "category": "dock",
       "layer": "docks",
-      "width": 384,
-      "height": 280,
-      "displayScale": 0.625,
+      "width": 288,
+      "height": 210,
+      "displayScale": 0.8333333333333334,
       "anchor": [
-        192,
-        218
+        144,
+        164
       ],
       "footprint": [
-        200,
-        76
+        150,
+        57
       ],
       "hitbox": [
+        18,
         24,
-        32,
-        336,
-        216
+        252,
+        162
       ],
       "loadPriority": "critical",
       "criticalReason": "Tron grand triumphal harbor: three-arched terracotta gateway flanked by tall watchtowers, second-tier presence after ethereum.",
@@ -618,22 +618,22 @@
       "path": "docks/base-modular-slip.png",
       "category": "dock",
       "layer": "docks",
-      "width": 304,
-      "height": 220,
-      "displayScale": 0.608,
+      "width": 228,
+      "height": 165,
+      "displayScale": 0.8106666666666666,
       "anchor": [
-        152,
-        172
+        114,
+        129
       ],
       "footprint": [
-        156,
-        60
+        117,
+        45
       ],
       "hitbox": [
-        18,
-        28,
-        268,
-        172
+        14,
+        21,
+        201,
+        129
       ],
       "loadPriority": "critical",
       "criticalReason": "Base major industrial wharf with central watchtower and freight crane.",

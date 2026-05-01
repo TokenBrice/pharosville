@@ -47,6 +47,7 @@ Use the smallest focused check while developing. Before publishing or claiming b
 ```bash
 npm run onboard:agent
 npm run smoke:api-local
+npm run smoke:dev-proxy
 npm run validate:docs
 npm run typecheck
 npm test

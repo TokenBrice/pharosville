@@ -47,6 +47,7 @@ Local API/dev-proxy sanity (recommended before debugging missing ships/data):
 ```bash
 npm run setup:local-api-key
 npm run smoke:api-local
+npm run smoke:dev-proxy
 ```
 
 ## Visual And Browser Checks

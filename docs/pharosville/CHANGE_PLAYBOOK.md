@@ -42,7 +42,7 @@ Start by classifying the change:
 | Release/deploy-impacting work | `npm run validate:release` |
 | Docs/process only | `npm run validate:docs` |
 | Mixed/uncertain scope | `npm run validate:changed` |
-| Local ships/API readiness | `npm run setup:local-api-key` then `npm run smoke:api-local` |
+| Local ships/API readiness | `npm run setup:local-api-key` then `npm run smoke:api-local` and `npm run smoke:dev-proxy` |
 
 ## Documentation Rules
 
