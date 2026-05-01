@@ -1,5 +1,5 @@
 import { isWaterTileKind } from "./world-layout";
-import { isSeawallBarrierTile } from "./seawall";
+import { isSeawallBarrierTile, isSeawallBarrierTileXY } from "./seawall";
 import { stableHash, stableOffset, stableUnit } from "./stable-random";
 import { clamp, normalizeHeading, normalizeHeadingInto, pathKey, sameTile } from "./motion-utils";
 import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipWaterPath, ShipWaterPathBuilder, ShipWaterRouteCache } from "./motion-types";
@@ -226,18 +226,29 @@ let pathPrevious: Int32Array = new Int32Array(0);
 let pathHeapIndices: Int32Array = new Int32Array(0);
 let pathHeapPriorities: Float64Array = new Float64Array(0);
 let pathHeapSize = 0;
-const NEIGHBOR_DX = [1, 0, -1, 0] as const;
-const NEIGHBOR_DY = [0, 1, 0, -1] as const;
+const NEIGHBOR_DX = [1, 0, -1, 0, 1, 1, -1, -1] as const;
+const NEIGHBOR_DY = [0, 1, 0, -1, 1, -1, 1, -1] as const;
+// Octile heuristic scaled by min-step-cost so it stays admissible against the
+// 0.72 cost floor in waterPathCost; Manhattan would overestimate.
+const MIN_STEP_COST = 0.72;
+const OCTILE_DIAGONAL = Math.SQRT2 - 1;
 
 function ensurePathBuffers(mapSize: number): void {
   if (pathDistances.length < mapSize) {
     pathDistances = new Float64Array(mapSize);
     pathPrevious = new Int32Array(mapSize);
-    // Heap can grow beyond mapSize because stale entries accumulate; size for the worst case
-    // (4 neighbors per relaxation) but cap at 4 * mapSize which is plenty in practice.
-    pathHeapIndices = new Int32Array(mapSize * 4);
-    pathHeapPriorities = new Float64Array(mapSize * 4);
+    // 8 neighbors per relaxation can push more stale entries than the 4-connected case.
+    pathHeapIndices = new Int32Array(mapSize * 8);
+    pathHeapPriorities = new Float64Array(mapSize * 8);
   }
+}
+
+function octileHeuristic(dx: number, dy: number): number {
+  const adx = dx < 0 ? -dx : dx;
+  const ady = dy < 0 ? -dy : dy;
+  const max = adx > ady ? adx : ady;
+  const min = adx > ady ? ady : adx;
+  return MIN_STEP_COST * (max + OCTILE_DIAGONAL * min);
 }
 
 function heapPush(index: number, priority: number): void {
@@ -300,32 +311,47 @@ function findWaterPath(from: { x: number; y: number }, to: { x: number; y: numbe
   pathHeapSize = 0;
 
   distances[startIndex] = 0;
-  heapPush(startIndex, Math.abs(from.x - to.x) + Math.abs(from.y - to.y));
+  heapPush(startIndex, octileHeuristic(from.x - to.x, from.y - to.y));
 
   while (pathHeapSize > 0) {
     const poppedPriority = pathHeapPriorities[0]!;
     const currentIndex = heapPopIndex();
     const currentX = currentIndex % map.width;
     const currentY = (currentIndex - currentX) / map.width;
-    const expectedPriority = distances[currentIndex]! + Math.abs(currentX - to.x) + Math.abs(currentY - to.y);
+    const expectedPriority = distances[currentIndex]! + octileHeuristic(currentX - to.x, currentY - to.y);
     // Stale entries: when a node was relaxed, we pushed a new entry without removing the old one.
     if (poppedPriority !== expectedPriority) continue;
 
     if (currentIndex === endIndex) return reconstructPath(previous, endIndex, map);
 
-    for (let n = 0; n < 4; n += 1) {
-      const nx = currentX + NEIGHBOR_DX[n]!;
-      const ny = currentY + NEIGHBOR_DY[n]!;
+    for (let n = 0; n < 8; n += 1) {
+      const dx = NEIGHBOR_DX[n]!;
+      const dy = NEIGHBOR_DY[n]!;
+      const nx = currentX + dx;
+      const ny = currentY + dy;
       if (nx < 0 || ny < 0 || nx >= map.width || ny >= map.height) continue;
       const neighborIndex = ny * map.width + nx;
       const tile = map.tiles[neighborIndex];
-      if (!tile || isSeawallBarrierTile({ x: nx, y: ny }) || !isMotionWaterTile(tile)) continue;
-      const cost = waterPathCost(tile, zone);
+      if (!tile || isSeawallBarrierTileXY(nx, ny) || !isMotionWaterTile(tile)) continue;
+      if (dx !== 0 && dy !== 0) {
+        // Reject corner-cuts: a diagonal must have BOTH cardinal neighbors open
+        // so the path can't clip through a coast corner or seawall gap.
+        const cornerAX = currentX + dx;
+        const cornerAY = currentY;
+        const cornerBX = currentX;
+        const cornerBY = currentY + dy;
+        const cornerATile = map.tiles[cornerAY * map.width + cornerAX];
+        const cornerBTile = map.tiles[cornerBY * map.width + cornerBX];
+        if (!cornerATile || !isMotionWaterTile(cornerATile) || isSeawallBarrierTileXY(cornerAX, cornerAY)) continue;
+        if (!cornerBTile || !isMotionWaterTile(cornerBTile) || isSeawallBarrierTileXY(cornerBX, cornerBY)) continue;
+      }
+      const stepCost = waterPathCost(tile, zone);
+      const cost = dx !== 0 && dy !== 0 ? stepCost * Math.SQRT2 : stepCost;
       const nextDistance = distances[currentIndex]! + cost;
       if (nextDistance >= distances[neighborIndex]!) continue;
       previous[neighborIndex] = currentIndex;
       distances[neighborIndex] = nextDistance;
-      heapPush(neighborIndex, nextDistance + Math.abs(nx - to.x) + Math.abs(ny - to.y));
+      heapPush(neighborIndex, nextDistance + octileHeuristic(nx - to.x, ny - to.y));
     }
   }
 

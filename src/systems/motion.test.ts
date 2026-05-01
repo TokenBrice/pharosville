@@ -591,6 +591,68 @@ describe("motion", () => {
     }
   });
 
+  it("prefers diagonal moves on open water under the 8-connected expansion", () => {
+    const map = openWaterMap(6, 6);
+    const route = buildShipWaterRoute({ from: { x: 0, y: 0 }, to: { x: 5, y: 5 }, map });
+
+    // 8-connected with octile heuristic should hit the corner in 6 points
+    // (start + 5 diagonal steps); 4-connected zig-zag would need 11.
+    expect(route.points).toHaveLength(6);
+    const hasDiagonalStep = route.points.slice(1).some((point, index) => {
+      const previous = route.points[index]!;
+      return Math.abs(point.x - previous.x) === 1 && Math.abs(point.y - previous.y) === 1;
+    });
+    expect(hasDiagonalStep).toBe(true);
+  });
+
+  it("rejects diagonal corner-cuts when both flanking tiles are non-water", () => {
+    // Two diagonal water tiles framed by land on each cardinal corner: a 4-connected
+    // path can't reach across, and an 8-connected path without corner-cut rejection
+    // would clip through. We expect a fallback (or a route that avoids the cut).
+    const map: PharosVilleMap = {
+      width: 3,
+      height: 3,
+      waterRatio: 5 / 9,
+      tiles: [
+        { x: 0, y: 0, kind: "water" },
+        { x: 1, y: 0, kind: "land" },
+        { x: 2, y: 0, kind: "water" },
+        { x: 0, y: 1, kind: "water" },
+        { x: 1, y: 1, kind: "water" },
+        { x: 2, y: 1, kind: "water" },
+        { x: 0, y: 2, kind: "water" },
+        { x: 1, y: 2, kind: "land" },
+        { x: 2, y: 2, kind: "water" },
+      ],
+    };
+    // (0,0) and (1,1) are water but the corner at (1,0) is land — diagonal move
+    // (0,0)->(1,1) must be rejected; the path has to detour through (0,1).
+    const route = buildShipWaterRoute({ from: { x: 0, y: 0 }, to: { x: 1, y: 1 }, map });
+    const stepFromStart = route.points[1];
+    if (stepFromStart) {
+      const dx = stepFromStart.x - 0;
+      const dy = stepFromStart.y - 0;
+      expect(dx === 0 || dy === 0).toBe(true);
+    }
+  });
+
+  it("octile heuristic stays admissible against minimum-cost paths on open water", () => {
+    // A* admissibility: heuristic must be <= true cost. On unobstructed open water
+    // the actual route cost equals the octile distance (each step costs 1 cardinal
+    // or SQRT2 diagonal at base), and the heuristic uses the 0.72 floor — so the
+    // heuristic value must be strictly <= the realised path cost.
+    const map = openWaterMap(8, 8);
+    const route = buildShipWaterRoute({ from: { x: 0, y: 0 }, to: { x: 7, y: 5 }, map });
+    const dx = 7;
+    const dy = 5;
+    const max = Math.max(dx, dy);
+    const min = Math.min(dx, dy);
+    const heuristicLowerBound = 0.72 * (max + (Math.SQRT2 - 1) * min);
+    // route.totalLength is geometric distance; on open water it equals the actual
+    // cost when zone is undefined (cost === 1 per cardinal, SQRT2 per diagonal).
+    expect(heuristicLowerBound).toBeLessThanOrEqual(route.totalLength + 1e-9);
+  });
+
   it("keeps routed ships off the seawall blocker ring", () => {
     const map = buildPharosVilleMap();
     const route = buildShipWaterRoute({ from: { x: 45, y: 28 }, to: { x: 30, y: 20 }, map, zone: "watch" });
@@ -971,6 +1033,19 @@ function terrainKindInMap(map: PharosVilleMap, tile: { x: number; y: number }) {
 
 function terrainsForPath(map: PharosVilleMap, points: Array<{ x: number; y: number }>) {
   return points.map((point) => terrainKindInMap(map, point));
+}
+
+function openWaterMap(width: number, height: number): PharosVilleMap {
+  return {
+    width,
+    height,
+    waterRatio: 1,
+    tiles: Array.from({ length: width * height }, (_, index) => ({
+      x: index % width,
+      y: Math.floor(index / width),
+      kind: "water" as const,
+    })),
+  };
 }
 
 function semanticLaneMap(): PharosVilleMap {

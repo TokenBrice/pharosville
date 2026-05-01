@@ -70,6 +70,12 @@ export function isSeawallBarrierTile(tile: { x: number; y: number }): boolean {
   return BARRIER_TILE_KEYS.has(`${Math.round(tile.x)}.${Math.round(tile.y)}`);
 }
 
+// Zero-alloc overload for the A* hot loop: avoids the per-neighbor object literal
+// that the {x,y} signature otherwise forces.
+export function isSeawallBarrierTileXY(x: number, y: number): boolean {
+  return BARRIER_TILE_KEYS.has(`${Math.round(x)}.${Math.round(y)}`);
+}
+
 // Distance mask covers the integer tile grid spanning the barrier set with a
 // safety pad in all directions. Float inputs fall through to the precise
 // hypot scan so motion samples (which interpolate between tiles) stay
