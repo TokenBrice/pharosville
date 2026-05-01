@@ -33,8 +33,12 @@ describe("UNIQUE_SHIP_DEFINITIONS", () => {
     }
   });
 
-  it("exposes 5 distinct sprite ids in UNIQUE_SPRITE_IDS", () => {
-    expect(UNIQUE_SPRITE_IDS.size).toBe(5);
+  it("exposes one distinct sprite id per definition in UNIQUE_SPRITE_IDS", () => {
+    // Initial roster ships crvusd, xaut, paxg. BOLD and fxUSD are deferred to a
+    // follow-up commit because their PixelLab sprites were stuck in a queue
+    // backlog at execution time. The follow-up will restore both entries and
+    // bump this back to 5.
+    expect(UNIQUE_SPRITE_IDS.size).toBe(3);
     expect(UNIQUE_SPRITE_IDS.size).toBe(entries.length);
   });
 });
