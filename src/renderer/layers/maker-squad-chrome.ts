@@ -1,16 +1,9 @@
-// Squad chrome: a continuous golden bunting that links visible Maker squad
-// hulls plus a thin secondary halo that signals "this hull is part of a
-// squad". Both anchor on world-space mast-tops supplied by the caller, so
-// the streamer follows hull bob/roll without needing a screen-space dashed
-// fallback.
-
-const PENNANT_ORDER = [
-  "stusds-sky",
-  "susds-sky",
-  "usds-sky",
-  "sdai-sky",
-  "dai-makerdao",
-] as const;
+// Squad chrome: a continuous golden bunting that links visible squad hulls
+// plus a thin secondary halo that signals "this hull is part of a squad".
+// Both anchor on world-space mast-tops supplied by the caller, so the
+// streamer follows hull bob/roll without needing a screen-space dashed
+// fallback. Pennant order is supplied per squad so each squad gets its own
+// streamer.
 
 export interface SquadAnchor {
   id: string;
@@ -21,10 +14,11 @@ export interface SquadAnchor {
 
 export function computeSquadPennantPath(
   anchors: readonly SquadAnchor[],
+  order: readonly string[],
 ): { x: number; y: number }[] | null {
   if (anchors.length < 2) return null;
   const byId = new Map(anchors.map((anchor) => [anchor.id, anchor.mastTop]));
-  const ordered = PENNANT_ORDER
+  const ordered = order
     .map((id) => byId.get(id))
     .filter((point): point is { x: number; y: number } => Boolean(point));
   return ordered.length >= 2 ? ordered : null;

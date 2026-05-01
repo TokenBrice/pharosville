@@ -4,9 +4,9 @@ import { BAND_FIRE_FLICKER_SPEED, OPEN_WATER_PATROL_WAYPOINTS } from "./motion-c
 import { buildCachedShipWaterRoute, LazyShipWaterPathMap, nearestMapWaterTile, reverseWaterPath, waterPathFromPoints } from "./motion-water";
 import { clamp, pathKey } from "./motion-utils";
 import {
-  MAKER_SQUAD_FLAGSHIP_ID,
-  makerSquadFormationOffsetForPlacement,
-  type MakerSquadMemberId,
+  STABLECOIN_SQUADS,
+  squadFormationOffsetForPlacement,
+  squadForMember,
 } from "./maker-squad";
 import { nearestRiskPlacementWaterTile } from "./risk-water-placement";
 import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipMotionRoute, ShipMotionRouteStop, ShipMotionSample, ShipWaterPath, ShipWaterRouteCache } from "./motion-types";
@@ -25,24 +25,36 @@ export function buildBaseMotionPlan(world: PharosVilleWorld): PharosVilleBaseMot
   for (const ship of moverShips) baseEffectShipIds.add(ship.id);
   const waterRouteCache: ShipWaterRouteCache = new Map();
 
-  // Build flagship route first so consorts can inherit it. When the flagship
-  // is missing or not squad-active, consort routes fall back to per-ship routing.
-  const flagshipShip = world.ships.find((ship) => (
-    ship.id === MAKER_SQUAD_FLAGSHIP_ID && ship.squadRole === "flagship"
-  )) ?? null;
-  const flagshipRoute = flagshipShip
-    ? buildShipMotionRoute(flagshipShip, world.map, waterRouteCache)
-    : null;
+  // Build flagship route per squad first, so each squad's consorts can inherit
+  // their own flagship's cycle/phase/zone. When a squad's flagship is missing,
+  // its consorts fall back to per-ship routing.
+  const flagshipShipBySquad = new Map<string, ShipNode>();
+  const flagshipRouteBySquad = new Map<string, ShipMotionRoute>();
+  for (const squad of STABLECOIN_SQUADS) {
+    const flagship = world.ships.find((ship) => (
+      ship.id === squad.flagshipId && ship.squadRole === "flagship" && ship.squadId === squad.id
+    ));
+    if (!flagship) continue;
+    flagshipShipBySquad.set(squad.id, flagship);
+    flagshipRouteBySquad.set(squad.id, buildShipMotionRoute(flagship, world.map, waterRouteCache));
+  }
 
   const shipRoutes = new Map<string, ShipMotionRoute>();
   for (const ship of world.ships) {
-    if (ship.id === MAKER_SQUAD_FLAGSHIP_ID && flagshipRoute) {
-      shipRoutes.set(ship.id, flagshipRoute);
-      continue;
+    if (ship.squadRole === "flagship" && ship.squadId) {
+      const cached = flagshipRouteBySquad.get(ship.squadId);
+      if (cached) {
+        shipRoutes.set(ship.id, cached);
+        continue;
+      }
     }
-    if (ship.squadRole === "consort" && flagshipRoute && flagshipShip) {
-      shipRoutes.set(ship.id, buildConsortMotionRoute(ship, flagshipShip, flagshipRoute));
-      continue;
+    if (ship.squadRole === "consort" && ship.squadId) {
+      const flagshipShip = flagshipShipBySquad.get(ship.squadId);
+      const flagshipRoute = flagshipRouteBySquad.get(ship.squadId);
+      if (flagshipShip && flagshipRoute) {
+        shipRoutes.set(ship.id, buildConsortMotionRoute(ship, flagshipShip, flagshipRoute));
+        continue;
+      }
     }
     shipRoutes.set(ship.id, buildShipMotionRoute(ship, world.map, waterRouteCache));
   }
@@ -168,10 +180,10 @@ function buildConsortMotionRoute(
   // structurally guaranteed only during the openWaterPatrol slice. Inheriting
   // dockStops would require consorts to escort the flagship into dock approach
   // paths — explicit scope expansion, not a refinement.
-  const offset = makerSquadFormationOffsetForPlacement(
-    ship.id as MakerSquadMemberId,
-    flagshipShip.riskPlacement,
-  );
+  const squad = squadForMember(ship.id);
+  const offset = squad
+    ? squadFormationOffsetForPlacement(ship.id, squad, flagshipShip.riskPlacement) ?? { dx: 0, dy: 0 }
+    : { dx: 0, dy: 0 };
   // Placement-scoped clamping protects motionZone invariants: consort waypoints
   // must stay in flagship's water set or motion-water sampling reads the wrong
   // zone-style. When the placement is too tight to host the offset within

@@ -9,9 +9,11 @@ import { DetailPanel } from "./detail-panel";
 
 describe("DetailPanel fact grouping", () => {
   it("routes 'Sailing in formation' and 'Squad override' facts into the route group", () => {
-    const world = buildPharosVilleWorld(fixtureWithDepegOn(makerSquadFixtureInputs(), "dai-makerdao"));
-    const dai = world.ships.find((ship) => ship.id === "dai-makerdao")!;
-    const detail = world.detailIndex[dai.detailId]!;
+    // sUSDS is a Sky-squad consort; depegging it produces an override that
+    // surfaces both facts in the consort's detail panel.
+    const world = buildPharosVilleWorld(fixtureWithDepegOn(makerSquadFixtureInputs(), "susds-sky"));
+    const susds = world.ships.find((ship) => ship.id === "susds-sky")!;
+    const detail = world.detailIndex[susds.detailId]!;
 
     const markup = renderToStaticMarkup(<DetailPanel detail={detail} />);
 

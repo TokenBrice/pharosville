@@ -31,32 +31,35 @@ describe("AccessibilityLedger", () => {
     expect(markup).toContain("meta.flags.navToken");
   });
 
-  it("renders a single Maker squad row listing all five members and the shared placement", () => {
+  it("renders a Sky squad row and a Maker squad row, each listing its own members", () => {
     const world = buildPharosVilleWorld(makerSquadFixtureInputs());
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
 
+    expect(markup).toContain("Sky squad");
     expect(markup).toContain("Maker squad");
     expect(markup).toContain("USDS (flagship)");
     expect(markup).toContain("stUSDS (vanguard)");
     expect(markup).toContain("sUSDS");
+    expect(markup).toContain("DAI (flagship)");
     expect(markup).toContain("sDAI");
     expect(markup).toContain("Sailing in formation");
   });
 
   it("includes a sub-row for any squadOverride consort", () => {
-    const world = buildPharosVilleWorld(fixtureWithDepegOn(makerSquadFixtureInputs(), "dai-makerdao"));
+    // sUSDS is a Sky-squad consort; depegging it produces an override.
+    const world = buildPharosVilleWorld(fixtureWithDepegOn(makerSquadFixtureInputs(), "susds-sky"));
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
 
-    expect(markup).toContain("DAI in distress");
+    expect(markup).toContain("sUSDS in distress");
     expect(markup).toContain("squad sheltering at flagship");
   });
 
-  it("does not render the Maker squad section when the flagship is missing", () => {
+  it("hides the Sky squad section when its flagship is missing; Maker squad still renders", () => {
     const world = buildPharosVilleWorld(fixtureWithoutAsset(makerSquadFixtureInputs(), "usds-sky"));
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
 
-    expect(markup).not.toContain("Maker squad");
-    expect(markup).not.toContain("Sailing in formation");
+    expect(markup).not.toContain("Sky squad");
+    expect(markup).toContain("Maker squad");
   });
 });
 

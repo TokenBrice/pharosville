@@ -2,7 +2,7 @@ import { CHAIN_META } from "@shared/lib/chains";
 import type { AreaNode, DetailModel, DockNode, GraveNode, LighthouseNode, ShipNode } from "./world-types";
 import { ETHEREUM_L2_DOCK_CHAIN_IDS } from "./world-layout";
 import { analyticalRouteHref } from "./route-links";
-import { formationLabel, makerSquadFormationOrder, makerSquadRole } from "./maker-squad";
+import { formationLabel, squadForMember, squadRole } from "./maker-squad";
 
 const usd = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0, style: "currency", currency: "USD" });
 const percent = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1, style: "percent" });
@@ -119,12 +119,17 @@ export interface ShipDetailContext {
 }
 
 export function squadFormationLine(squadShips: readonly ShipNode[]): string {
+  if (squadShips.length === 0) return "";
+  // Use the squad's own display order so Sky and Maker each list their own
+  // members in their own formation order, rather than the global all-squads order.
+  const squad = squadForMember(squadShips[0]!.id);
+  if (!squad) return "";
   const byId = new Map(squadShips.map((ship) => [ship.id, ship]));
-  return makerSquadFormationOrder()
+  return squad.displayOrder
     .map((id) => {
       const ship = byId.get(id);
       if (!ship) return null;
-      const role = makerSquadRole(ship.id);
+      const role = squadRole(ship.id);
       if (!role) return null;
       return formationLabel(ship.id, role, ship.symbol);
     })
@@ -140,7 +145,7 @@ export function squadOverrideBanner(node: ShipNode): string | null {
 }
 
 export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): DetailModel {
-  const isSquadShip = node.squadId === "maker";
+  const isSquadShip = !!node.squadId;
   const squadShips = isSquadShip ? context.squadShips ?? [] : [];
   const formationLine = isSquadShip && squadShips.length > 0 ? squadFormationLine(squadShips) : "";
   const overrideBanner = isSquadShip ? squadOverrideBanner(node) : null;

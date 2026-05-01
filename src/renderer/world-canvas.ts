@@ -1,4 +1,4 @@
-import { isMakerSquadMember } from "../systems/maker-squad";
+import { STABLECOIN_SQUADS } from "../systems/maker-squad";
 import { manifestCacheVersion } from "../systems/asset-manifest";
 import { isShipMapVisible } from "../systems/motion";
 import type { PharosVilleWorld } from "../systems/world-types";
@@ -224,24 +224,27 @@ function drawBackgroundedHarborDocks(input: DrawPharosVilleInput, frame: WorldCa
 }
 
 function drawSquadChrome(input: DrawPharosVilleInput, frame: WorldCanvasFrame) {
-  const anchors: SquadAnchor[] = [];
-  let selectedIsSquad = false;
+  // Draw a separate pennant + halo per active squad so Sky and Maker each
+  // get their own streamer rather than one polyline crossing the harbor.
   const selectedId = input.selectedTarget?.id ?? null;
-  for (const ship of frame.visibleShips) {
-    if (ship.squadId !== "maker") continue;
-    if (!isMakerSquadMember(ship.id)) continue;
-    anchors.push({
-      id: ship.id,
-      mastTop: shipMastTopScreenPoint(input, frame, ship),
-    });
-    if (selectedId && ship.id === selectedId) selectedIsSquad = true;
-  }
-  if (anchors.length === 0) return;
-  const path = computeSquadPennantPath(anchors);
-  if (path) drawSquadPennant(input.ctx, path);
-  if (selectedIsSquad) {
-    const ellipse = computeSquadBoundingEllipse(anchors);
-    if (ellipse) drawSquadSelectionHalo(input.ctx, ellipse);
+  for (const squad of STABLECOIN_SQUADS) {
+    const anchors: SquadAnchor[] = [];
+    let selectedIsSquad = false;
+    for (const ship of frame.visibleShips) {
+      if (ship.squadId !== squad.id) continue;
+      anchors.push({
+        id: ship.id,
+        mastTop: shipMastTopScreenPoint(input, frame, ship),
+      });
+      if (selectedId && ship.id === selectedId) selectedIsSquad = true;
+    }
+    if (anchors.length === 0) continue;
+    const path = computeSquadPennantPath(anchors, squad.displayOrder);
+    if (path) drawSquadPennant(input.ctx, path);
+    if (selectedIsSquad) {
+      const ellipse = computeSquadBoundingEllipse(anchors);
+      if (ellipse) drawSquadSelectionHalo(input.ctx, ellipse);
+    }
   }
 }
 

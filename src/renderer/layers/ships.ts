@@ -1,4 +1,4 @@
-import { MAKER_SQUAD_FLAGSHIP_ID } from "../../systems/maker-squad";
+import { squadForMember } from "../../systems/maker-squad";
 import type { ShipMotionSample } from "../../systems/motion";
 import type { ScreenPoint } from "../../systems/projection";
 import type { PharosVilleWorld, ShipLivery, ShipLogoShape, ShipPegPattern, ShipPegShape, ShipStripePattern, ShipWaterZone } from "../../systems/world-types";
@@ -237,20 +237,21 @@ function drawWithShipPose(
  * to prevent double-draw. See `ShipRenderFrame.wakeDrawnShipIds`.
  */
 export function drawShipWake(input: DrawPharosVilleInput, frame: ShipRenderFrame, ship: PharosVilleWorld["ships"][number]) {
-  // Synchronised squad wake: when this hull is a Maker squad consort that
-  // is currently a mover and the flagship is also a mover, draw the
+  // Synchronised squad wake: when this hull is a squad consort that is
+  // currently a mover and its squad's flagship is also a mover, draw the
   // flagship's wake first so consort wakes overdraw additively.
+  const squad = ship.squadId ? squadForMember(ship.id) : null;
   if (
-    ship.id !== MAKER_SQUAD_FLAGSHIP_ID
-    && ship.squadId === "maker"
+    squad
+    && ship.squadRole === "consort"
     && input.motion.plan.moverShipIds.has(ship.id)
-    && input.motion.plan.moverShipIds.has(MAKER_SQUAD_FLAGSHIP_ID)
+    && input.motion.plan.moverShipIds.has(squad.flagshipId)
   ) {
-    const flagship = frame.visibleShips?.find((entry) => entry.id === MAKER_SQUAD_FLAGSHIP_ID);
+    const flagship = frame.visibleShips?.find((entry) => entry.id === squad.flagshipId);
     const drawn = frame.wakeDrawnShipIds;
-    if (flagship && drawn && !drawn.has(MAKER_SQUAD_FLAGSHIP_ID)) {
+    if (flagship && drawn && !drawn.has(squad.flagshipId)) {
       drawShipWakeRaw(input, frame, flagship);
-      drawn.add(MAKER_SQUAD_FLAGSHIP_ID);
+      drawn.add(squad.flagshipId);
     }
   }
   if (frame.wakeDrawnShipIds?.has(ship.id)) return;
@@ -488,9 +489,12 @@ export function drawSquadIdentityAccent(
   y: number,
   scale: number,
 ) {
-  if (shipId === MAKER_SQUAD_FLAGSHIP_ID) drawAdmiralBanner(ctx, x, y, scale);
-  else if (shipId === "stusds-sky") drawForgeGlow(ctx, x, y, scale);
-  else if (shipId === "dai-makerdao") drawWeatheredPatches(ctx, x, y, scale);
+  // Both squad flagships fly the admiral's banner. DAI (Maker flagship) also
+  // carries weathered hull patches as elder consort lore.
+  const squad = squadForMember(shipId);
+  if (squad && shipId === squad.flagshipId) drawAdmiralBanner(ctx, x, y, scale);
+  if (shipId === "stusds-sky") drawForgeGlow(ctx, x, y, scale);
+  if (shipId === "dai-makerdao") drawWeatheredPatches(ctx, x, y, scale);
 }
 
 // Narrow rectangular pennant just above the mast tip; flagship-only.

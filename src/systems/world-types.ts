@@ -190,7 +190,7 @@ export interface ShipNode {
   change24hUsd: number | null;
   change24hPct: number | null;
   detailId: string;
-  squadId?: "maker";
+  squadId?: "sky" | "maker";
   squadRole?: "flagship" | "consort";
 }
 

@@ -610,10 +610,16 @@ describe("motion", () => {
     expect(stableMotionPhase("usdt-tether")).not.toBe(stableMotionPhase("usdc-circle"));
   });
 
-  describe("Maker squad motion inheritance", () => {
-    const consortIds = ["dai-makerdao", "susds-sky", "sdai-sky", "stusds-sky"] as const;
-    // Build a squad-active world with no rendered docks so the flagship sails
-    // an open-water patrol — the only state where formation cohesion is
+  describe("Stablecoin squad motion inheritance", () => {
+    // Sky squad: USDS flagship + sUSDS savings cutter + stUSDS vanguard.
+    // Maker squad: DAI flagship + sDAI savings cutter.
+    // Each consort tracks its OWN squad's flagship, not a shared one.
+    const consortsBySquad = [
+      { flagshipId: "usds-sky", consortIds: ["susds-sky", "stusds-sky"] as const },
+      { flagshipId: "dai-makerdao", consortIds: ["sdai-sky"] as const },
+    ] as const;
+    // Build a squad-active world with no rendered docks so flagships sail
+    // open-water patrols — the only state where formation cohesion is
     // structurally guaranteed (consorts have no dockStops by design).
     const squadInputs = () => {
       const base = fixtureWithFlagshipPlacement("outer-rough-water");
@@ -623,48 +629,53 @@ describe("motion", () => {
       };
     };
 
-    it("Maker consorts hold tight formation and same zone as flagship across full motion cycle", () => {
+    it("each squad's consorts hold tight formation and same zone as their own flagship across full motion cycle", () => {
       const squadWorld = buildPharosVilleWorld(squadInputs());
       const plan = buildMotionPlan(squadWorld, null);
-      const flagshipShip = squadWorld.ships.find((ship) => ship.id === "usds-sky")!;
-      const flagshipRoute = plan.shipRoutes.get("usds-sky")!;
+      for (const { flagshipId, consortIds } of consortsBySquad) {
+        const flagshipShip = squadWorld.ships.find((ship) => ship.id === flagshipId)!;
+        const flagshipRoute = plan.shipRoutes.get(flagshipId)!;
+        for (const consortId of consortIds) {
+          const consortShip = squadWorld.ships.find((ship) => ship.id === consortId)!;
+          const consortRoute = plan.shipRoutes.get(consortId)!;
+          expect(consortRoute.cycleSeconds).toBe(flagshipRoute.cycleSeconds);
+          expect(consortRoute.phaseSeconds).toBe(flagshipRoute.phaseSeconds);
+          expect(consortRoute.zone).toBe(flagshipRoute.zone);
 
-      for (const consortId of consortIds) {
-        const consortShip = squadWorld.ships.find((ship) => ship.id === consortId)!;
-        const consortRoute = plan.shipRoutes.get(consortId)!;
-        expect(consortRoute.cycleSeconds).toBe(flagshipRoute.cycleSeconds);
-        expect(consortRoute.phaseSeconds).toBe(flagshipRoute.phaseSeconds);
-        expect(consortRoute.zone).toBe(flagshipRoute.zone);
-
-        for (let step = 0; step < 8; step += 1) {
-          const timeSeconds = (flagshipRoute.cycleSeconds / 8) * step;
-          const flagSample = resolveShipMotionSample({ plan, reducedMotion: false, ship: flagshipShip, timeSeconds });
-          const consortSample = resolveShipMotionSample({ plan, reducedMotion: false, ship: consortShip, timeSeconds });
-          const dx = consortSample.tile.x - flagSample.tile.x;
-          const dy = consortSample.tile.y - flagSample.tile.y;
-          expect(Math.hypot(dx, dy)).toBeLessThan(4.5);
+          for (let step = 0; step < 8; step += 1) {
+            const timeSeconds = (flagshipRoute.cycleSeconds / 8) * step;
+            const flagSample = resolveShipMotionSample({ plan, reducedMotion: false, ship: flagshipShip, timeSeconds });
+            const consortSample = resolveShipMotionSample({ plan, reducedMotion: false, ship: consortShip, timeSeconds });
+            const dx = consortSample.tile.x - flagSample.tile.x;
+            const dy = consortSample.tile.y - flagSample.tile.y;
+            expect(Math.hypot(dx, dy)).toBeLessThan(4.5);
+          }
         }
       }
     });
 
     it("consorts have no dock visits and homeDockChainId=null", () => {
       const squadWorld = buildPharosVilleWorld(squadInputs());
-      for (const id of consortIds) {
-        const ship = squadWorld.ships.find((entry) => entry.id === id)!;
-        expect(ship.dockVisits).toEqual([]);
-        expect(ship.homeDockChainId).toBeNull();
+      for (const { consortIds } of consortsBySquad) {
+        for (const id of consortIds) {
+          const ship = squadWorld.ships.find((entry) => entry.id === id)!;
+          expect(ship.dockVisits).toEqual([]);
+          expect(ship.homeDockChainId).toBeNull();
+        }
       }
     });
 
-    it("reduced-motion frame still places the squad in formation", () => {
+    it("reduced-motion frame still places each squad in formation", () => {
       const squadWorld = buildPharosVilleWorld(squadInputs());
       const plan = buildMotionPlan(squadWorld, null);
-      const flagshipShip = squadWorld.ships.find((ship) => ship.id === "usds-sky")!;
-      for (const consortId of consortIds) {
-        const consortShip = squadWorld.ships.find((ship) => ship.id === consortId)!;
-        const flagSample = resolveShipMotionSample({ plan, reducedMotion: true, ship: flagshipShip, timeSeconds: 0 });
-        const consortSample = resolveShipMotionSample({ plan, reducedMotion: true, ship: consortShip, timeSeconds: 0 });
-        expect(Math.hypot(consortSample.tile.x - flagSample.tile.x, consortSample.tile.y - flagSample.tile.y)).toBeLessThan(4.5);
+      for (const { flagshipId, consortIds } of consortsBySquad) {
+        const flagshipShip = squadWorld.ships.find((ship) => ship.id === flagshipId)!;
+        for (const consortId of consortIds) {
+          const consortShip = squadWorld.ships.find((ship) => ship.id === consortId)!;
+          const flagSample = resolveShipMotionSample({ plan, reducedMotion: true, ship: flagshipShip, timeSeconds: 0 });
+          const consortSample = resolveShipMotionSample({ plan, reducedMotion: true, ship: consortShip, timeSeconds: 0 });
+          expect(Math.hypot(consortSample.tile.x - flagSample.tile.x, consortSample.tile.y - flagSample.tile.y)).toBeLessThan(4.5);
+        }
       }
     });
   });

@@ -150,9 +150,10 @@ describe("resolveShipVisual", () => {
     expect(usdt.spriteAssetId).toBe("ship.usdt-titan");
     expect(usdt.sizeTier).toBe("titan");
     expect(usdt.sizeLabel).toBe("Titan");
-    expect(usds.scale).toBe(1.7);
+    expect(usds.scale).toBe(1.35);
     expect(usdc.scale).toBe(1.8);
     expect(usdt.scale).toBe(2);
+    // Sky flagship sails in formation, so it's smaller than solo titans.
     expect(usds.scale).toBeLessThan(usdc.scale);
     expect(usdt.scale).toBeGreaterThan(usdc.scale);
   });
@@ -173,11 +174,11 @@ describe("resolveShipVisual", () => {
   it("uses the re-tuned scale band for Maker squad members", () => {
     const meta = makeMeta({ governance: "centralized-dependent" });
     const expectedScales: Record<string, number> = {
-      "usds-sky": 1.7,
-      "dai-makerdao": 1.55,
-      "susds-sky": 1.35,
-      "sdai-sky": 1.35,
-      "stusds-sky": 1.45,
+      "usds-sky": 1.35,
+      "dai-makerdao": 1.25,
+      "susds-sky": 1.1,
+      "sdai-sky": 1.1,
+      "stusds-sky": 1.15,
     };
     for (const [id, expectedScale] of Object.entries(expectedScales)) {
       const visual = resolveShipVisual(makeAsset({

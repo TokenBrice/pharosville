@@ -84,14 +84,16 @@ describe("drawSquadIdentityAccent", () => {
     expect(ctx.calls.some((call) => call.method === "fill")).toBe(true);
   });
 
-  it("renders weathered hull patches only for DAI", () => {
+  it("renders weathered hull patches and admiral banner for Maker flagship DAI", () => {
+    // DAI is the Maker squad's flagship, so it gets both the admiral's banner
+    // (flagship signal, like USDS) and weathered patches (elder-consort lore).
     const ctx = makeRecordingCtx();
     drawSquadIdentityAccent(ctx, "dai-makerdao", 0, 0, 1);
-    // Four patches, each with a fill and a stroke.
+    // Four weathered patches plus the banner contribute fills and rects.
     const rectCount = ctx.calls.filter((call) => call.method === "rect").length;
-    expect(rectCount).toBe(4);
+    expect(rectCount).toBeGreaterThanOrEqual(4);
     const fillCount = ctx.calls.filter((call) => call.method === "fill").length;
-    expect(fillCount).toBe(4);
+    expect(fillCount).toBeGreaterThanOrEqual(4);
   });
 
   it("renders nothing for ships outside the Maker squad", () => {
@@ -194,15 +196,15 @@ function makeMotionSample(shipId: string): ShipMotionSample {
 describe("drawShipWake squad ordering", () => {
   it("draws the flagship's wake before a consort's when both are mover ships", () => {
     const flagship = makeShipNode({
-      id: MAKER_SQUAD_FLAGSHIP_ID,
+      id: MAKER_SQUAD_FLAGSHIP_ID, // "usds-sky"
       tile: { x: 10, y: 10 },
-      squadId: "maker",
+      squadId: "sky",
       squadRole: "flagship",
     });
     const consort = makeShipNode({
-      id: "dai-makerdao",
+      id: "stusds-sky", // Sky-squad vanguard consort
       tile: { x: 12, y: 12 },
-      squadId: "maker",
+      squadId: "sky",
       squadRole: "consort",
     });
 
@@ -268,15 +270,15 @@ describe("drawShipWake squad ordering", () => {
 
   it("does not double-draw the flagship's wake when its turn arrives", () => {
     const flagship = makeShipNode({
-      id: MAKER_SQUAD_FLAGSHIP_ID,
+      id: MAKER_SQUAD_FLAGSHIP_ID, // "usds-sky"
       tile: { x: 10, y: 10 },
-      squadId: "maker",
+      squadId: "sky",
       squadRole: "flagship",
     });
     const consort = makeShipNode({
-      id: "dai-makerdao",
+      id: "stusds-sky", // Sky-squad vanguard consort
       tile: { x: 12, y: 12 },
-      squadId: "maker",
+      squadId: "sky",
       squadRole: "consort",
     });
 

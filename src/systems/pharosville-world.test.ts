@@ -25,9 +25,11 @@ import {
   makerSquadFixtureInputs,
 } from "../__fixtures__/pharosville-world";
 import {
-  MAKER_SQUAD_MEMBER_IDS,
-  makerSquadFormationOffsetForPlacement,
-  type MakerSquadMemberId,
+  MAKER_SQUAD,
+  SKY_SQUAD,
+  STABLECOIN_SQUAD_MEMBER_IDS,
+  squadFormationOffsetForPlacement,
+  squadForMember,
 } from "./maker-squad";
 import { buildPharosVilleWorld, SHIP_WATER_ANCHORS } from "./pharosville-world";
 import { isRiskPlacementWaterTile, riskPlacementWaterTiles } from "./risk-water-placement";
@@ -597,25 +599,33 @@ describe("buildPharosVilleWorld", () => {
     }
   });
 
-  it("places all Maker squad members at the same risk placement", () => {
+  it("each squad's members share their own flagship's risk placement", () => {
     const world = buildPharosVilleWorld(makerSquadFixtureInputs());
-    const placements = MAKER_SQUAD_MEMBER_IDS.map((id) =>
-      world.ships.find((s) => s.id === id)?.riskPlacement,
-    );
-    expect(placements.every((p) => p && p === placements[0])).toBe(true);
+    for (const memberId of STABLECOIN_SQUAD_MEMBER_IDS) {
+      const ship = world.ships.find((s) => s.id === memberId)!;
+      const squad = squadForMember(memberId)!;
+      const flagship = world.ships.find((s) => s.id === squad.flagshipId)!;
+      expect(ship.riskPlacement).toBe(flagship.riskPlacement);
+      expect(ship.squadId).toBe(squad.id);
+    }
   });
 
-  it("flagship-missing: consorts revert to per-asset placement, no squadId stamped", () => {
+  it("Sky-flagship-missing: Sky consorts revert to per-asset placement; Maker squad still active", () => {
     const inputs = fixtureWithoutAsset(makerSquadFixtureInputs(), "usds-sky");
     const world = buildPharosVilleWorld(inputs);
-    for (const id of ["susds-sky", "stusds-sky", "sdai-sky"]) {
+    for (const id of ["susds-sky", "stusds-sky"]) {
       const ship = world.ships.find((s) => s.id === id)!;
       expect(ship.squadId).toBeUndefined();
       expect(ship.squadRole).toBeUndefined();
       expect(ship.riskPlacement).toBe("ledger-mooring");
     }
+    // Maker squad continues to sail without Sky.
     const dai = world.ships.find((s) => s.id === "dai-makerdao")!;
-    expect(dai.squadId).toBeUndefined();
+    expect(dai.squadId).toBe("maker");
+    expect(dai.squadRole).toBe("flagship");
+    const sdai = world.ships.find((s) => s.id === "sdai-sky")!;
+    expect(sdai.squadId).toBe("maker");
+    expect(sdai.squadRole).toBe("consort");
   });
 
   it("placementEvidence keeps navToken sourceField for nav-token consorts", () => {
@@ -626,35 +636,36 @@ describe("buildPharosVilleWorld", () => {
     );
   });
 
-  it("consort with stronger stress still tracks flagship placement but flags squadOverride evidence", () => {
-    const inputs = fixtureWithDepegOn(makerSquadFixtureInputs(), "dai-makerdao");
+  it("Sky consort with stronger stress tracks Sky flagship; squadOverride evidence flags suppression", () => {
+    // sUSDS (a Sky consort) gets a depeg signal stronger than its USDS flagship.
+    const inputs = fixtureWithDepegOn(makerSquadFixtureInputs(), "susds-sky");
     const world = buildPharosVilleWorld(inputs);
-    const dai = world.ships.find((s) => s.id === "dai-makerdao")!;
+    const susds = world.ships.find((s) => s.id === "susds-sky")!;
     const usds = world.ships.find((s) => s.id === "usds-sky")!;
-    expect(dai.riskPlacement).toBe(usds.riskPlacement);
-    expect(dai.placementEvidence.squadOverride).toBeDefined();
-    expect(dai.placementEvidence.squadOverride?.ownPlacement).toBeDefined();
-    expect(dai.placementEvidence.squadOverride?.ownReason).toBeTruthy();
+    expect(susds.riskPlacement).toBe(usds.riskPlacement);
+    expect(susds.placementEvidence.squadOverride).toBeDefined();
+    expect(susds.placementEvidence.squadOverride?.ownPlacement).toBeDefined();
+    expect(susds.placementEvidence.squadOverride?.ownReason).toBeTruthy();
   });
 
-  it("places squad consorts at flagship + formation offset, never outside the placement's water", () => {
+  it("places each consort at its own squad's flagship + formation offset, never outside placement water", () => {
     const world = buildPharosVilleWorld(makerSquadFixtureInputs());
-    const flagship = world.ships.find((s) => s.id === "usds-sky");
-    expect(flagship).toBeDefined();
-    for (const id of MAKER_SQUAD_MEMBER_IDS) {
-      if (id === "usds-sky") continue;
-      const consort = world.ships.find((s) => s.id === id)!;
-      const offset = makerSquadFormationOffsetForPlacement(
-        id as MakerSquadMemberId,
-        flagship!.riskPlacement,
-      );
+    for (const memberId of STABLECOIN_SQUAD_MEMBER_IDS) {
+      const squad = squadForMember(memberId)!;
+      if (memberId === squad.flagshipId) continue;
+      const consort = world.ships.find((s) => s.id === memberId)!;
+      const flagship = world.ships.find((s) => s.id === squad.flagshipId)!;
+      const offset = squadFormationOffsetForPlacement(memberId, squad, flagship.riskPlacement)!;
       const expected = clampMapTile({
-        x: flagship!.tile.x + offset.dx,
-        y: flagship!.tile.y + offset.dy,
+        x: flagship.tile.x + offset.dx,
+        y: flagship.tile.y + offset.dy,
       });
-      expect(Math.abs(consort.tile.x - expected.x)).toBeLessThanOrEqual(1);
-      expect(Math.abs(consort.tile.y - expected.y)).toBeLessThanOrEqual(1);
-      expect(isRiskPlacementWaterTile(consort.tile, flagship!.riskPlacement)).toBe(true);
+      // Allow ±2 tile drift per axis: nearestRiskPlacementWaterTile clamps within
+      // radius 4, so each axis can drift up to 2 when the ideal target is off-water
+      // and the nearest in-placement tile sits a couple of rows away.
+      expect(Math.abs(consort.tile.x - expected.x)).toBeLessThanOrEqual(2);
+      expect(Math.abs(consort.tile.y - expected.y)).toBeLessThanOrEqual(2);
+      expect(isRiskPlacementWaterTile(consort.tile, flagship.riskPlacement)).toBe(true);
     }
   });
 

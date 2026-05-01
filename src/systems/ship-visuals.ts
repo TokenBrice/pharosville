@@ -71,16 +71,17 @@ const TITAN_SHIP_ASSET_IDS: Record<string, string> = {
   "stusds-sky": "ship.stusds-titan",
 };
 
-// Re-tuned scale band so the squad collectively dominates the frame next to
-// the existing 1.8 USDC and 2.0 USDT. USDS bumps from 1.6 -> 1.7.
+// Squad members reduced by ~20% from prior tuning to relieve formation overlap
+// at common zoom levels (Sky: USDS+sUSDS+stUSDS; Maker: DAI+sDAI). USDC and
+// USDT remain at their solo titan scales since they don't sail in formation.
 const TITAN_SHIP_SCALES: Record<string, number> = {
   "usdc-circle": 1.8,
-  "usds-sky": 1.7,
   "usdt-tether": 2,
-  "dai-makerdao": 1.55,
-  "susds-sky": 1.35,
-  "sdai-sky": 1.35,
-  "stusds-sky": 1.45,
+  "usds-sky": 1.35,    // 1.7 * 0.8
+  "dai-makerdao": 1.25, // 1.55 * 0.8
+  "susds-sky": 1.1,    // 1.35 * 0.8
+  "sdai-sky": 1.1,     // 1.35 * 0.8
+  "stusds-sky": 1.15,  // 1.45 * 0.8
 };
 
 export function resolveShipClass(meta: StablecoinMeta): ShipClassDefinition {
