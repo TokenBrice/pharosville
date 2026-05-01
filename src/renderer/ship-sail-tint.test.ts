@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { inflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
-import { SHIP_SAIL_TINT_MASKS, sailTintCoverageForPixels } from "./ship-sail-tint";
+import { SHIP_SAIL_TINT_MASKS, isPointInSailMaskSpec, isSailTintPixel, sailTintCoverageForPixels } from "./ship-sail-tint";
 
 const SHIP_ASSET_FILES: Record<string, string> = {
   "ship.algo-junk": "algo-junk.png",
@@ -39,6 +39,34 @@ describe("ship sail tint masks", () => {
       expect(coverage.polygonPixels, `${assetId} polygon pixels`).toBeGreaterThan(150);
       expect(coverage.tintablePixels, `${assetId} tintable pixels`).toBeGreaterThan(80);
       expect(coverage.coverageRatio, `${assetId} sail coverage`).toBeGreaterThanOrEqual(MIN_SAIL_COVERAGE[assetId] ?? 0.34);
+    }
+  });
+
+  it("does not leave large titan sail fragments outside the tint mask", () => {
+    for (const assetId of ["ship.usdc-titan", "ship.usds-titan", "ship.usdt-titan"]) {
+      const fileName = SHIP_ASSET_FILES[assetId];
+      const image = readRgbaPng(path.resolve("public/pharosville/assets/ships", fileName));
+      const spec = SHIP_SAIL_TINT_MASKS[assetId];
+      expect(spec).toBeDefined();
+
+      let unmaskedTintablePixels = 0;
+      for (let y = 0; y < image.height; y += 1) {
+        for (let x = 0; x < image.width; x += 1) {
+          const offset = (y * image.width + x) * 4;
+          const red = image.data[offset] ?? 0;
+          const green = image.data[offset + 1] ?? 0;
+          const blue = image.data[offset + 2] ?? 0;
+          const alpha = image.data[offset + 3] ?? 0;
+          if (
+            isSailTintPixel(red, green, blue, alpha)
+            && !isPointInSailMaskSpec(x + 0.5, y + 0.5, spec!)
+          ) {
+            unmaskedTintablePixels += 1;
+          }
+        }
+      }
+
+      expect(unmaskedTintablePixels, `${assetId} unmasked sail cloth`).toBeLessThan(220);
     }
   });
 });
