@@ -11,7 +11,6 @@ import {
   EVM_BAY_DOCK_TILES,
   HYPERLIQUID_HARBOR_DOCK_TILE,
   graveNodesFromEntries,
-  isElevatedTileKind,
   isLandTileKind,
   isNavigableWaterTile,
   isWaterTileKind,
@@ -72,8 +71,6 @@ describe("buildPharosVilleMap", () => {
       "storm-water",
       "grass",
       "rock",
-      "cliff",
-      "hill",
     ]));
     expect([...new Set(map.tiles.map((tile) => tile.terrain))]).not.toContain("road");
   });
@@ -85,17 +82,11 @@ describe("buildPharosVilleMap", () => {
     expect(terrainKindAt(CIVIC_CORE_CENTER.x, CIVIC_CORE_CENTER.y)).toBe("rock");
   });
 
-  it("places the lighthouse on the generated island mountain clear of outer harbors", () => {
+  it("places the lighthouse on the western shoulder clear of outer harbors", () => {
     expect(LIGHTHOUSE_TILE).toEqual({ x: 18, y: 28 });
     expect(LIGHTHOUSE_TILE.x).toBeLessThan(CIVIC_CORE_CENTER.x);
     expect(LIGHTHOUSE_TILE.y).toBeLessThan(CIVIC_CORE_CENTER.y);
-    expect(isElevatedTileKind(terrainKindAt(LIGHTHOUSE_TILE.x, LIGHTHOUSE_TILE.y))).toBe(true);
-
-    const hasWaterFacingCliff = nearbyTiles(LIGHTHOUSE_TILE, 5).some((tile) => (
-      terrainKindAt(tile.x, tile.y) === "cliff"
-      && cardinalNeighbors(tile).some((neighbor) => isWaterTileKind(tileKindAt(neighbor.x, neighbor.y)))
-    ));
-    expect(hasWaterFacingCliff).toBe(true);
+    expect(isLandTileKind(tileKindAt(LIGHTHOUSE_TILE.x, LIGHTHOUSE_TILE.y))).toBe(true);
   });
 
   it("keeps the civic core natural without road terrain", () => {
@@ -106,11 +97,6 @@ describe("buildPharosVilleMap", () => {
     expect(terrainKindAt(31, 29)).toBe("rock");
     expect(terrainKindAt(30, 35)).toBe("rock");
     expect(terrainKindAt(32, 33)).toBe("rock");
-    // Generated lighthouse mountain keeps cliff/rock/hill texture.
-    expect(terrainKindAt(16, 28)).toBe("rock");
-    expect(terrainKindAt(17, 27)).toBe("hill");
-    expect(terrainKindAt(20, 29)).toBe("hill");
-    expect(terrainKindAt(21, 26)).toBe("cliff");
     // Harbor ring slots stay natural coast, not roads.
     expect(terrainKindAt(23, 37)).toBe("shore");
     expect(terrainKindAt(27, 40)).toBe("shore");

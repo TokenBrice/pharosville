@@ -150,7 +150,6 @@ export function terrainKindAt(x: number, y: number): TerrainKind {
   if (x === BASE_HARBOR_DOCK_TILE.x && y === BASE_HARBOR_DOCK_TILE.y) return "shore";
   if (x === HYPERLIQUID_HARBOR_DOCK_TILE.x && y === HYPERLIQUID_HARBOR_DOCK_TILE.y) return "shore";
   const island = islandValue(x, y);
-  const lighthouseMountain = lighthouseMountainValue(x, y);
   const cemetery = cemeteryValue(x, y);
   const nearIslandEdge = island > 0.82;
 
@@ -170,13 +169,7 @@ export function terrainKindAt(x: number, y: number): TerrainKind {
     return "water";
   }
 
-  if (x === LIGHTHOUSE_TILE.x && y === LIGHTHOUSE_TILE.y) return "hill";
   if (cemetery < 1) return "grass";
-  if (lighthouseMountain < 1.04) {
-    if (lighthouseMountain > 0.78 || y < LIGHTHOUSE_TILE.y - 2) return "cliff";
-    if (lighthouseMountain > 0.48) return "rock";
-    return "hill";
-  }
   if (nearIslandEdge) return "shore";
   if (ellipseValue(x, y, 31.3, 31.2, 7.2, 5.9) < 0.7) return "rock";
   if (ellipseValue(x, y, 39.0, 29.6, 5.8, 5.2) < 0.58) return "rock";
@@ -218,13 +211,6 @@ function mainIslandValue(x: number, y: number): number {
     ellipseValue(x, y, 38.8, 31.3, 4.6, 5.2),
     // Northeast harbor shelf.
     ellipseValue(x, y, 37.8, 24.8, 4.2, 3.3),
-  );
-}
-
-function lighthouseMountainValue(x: number, y: number): number {
-  return Math.min(
-    ellipseValue(x, y, 18.7, 28.25, 3.7, 3.05),
-    ellipseValue(x, y, 17.9, 27.55, 2.65, 2.25),
   );
 }
 
