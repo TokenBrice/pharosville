@@ -1,6 +1,6 @@
 import type { DrawPharosVilleInput } from "../render-types";
 
-const MAX_NIGHT_DARKNESS = 0.62;
+const MAX_NIGHT_DARKNESS = 0.70;
 const NIGHT_TINT_R = 8;
 const NIGHT_TINT_G = 14;
 const NIGHT_TINT_B = 28;

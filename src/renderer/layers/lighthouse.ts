@@ -66,9 +66,9 @@ export function drawLighthouseSurf({ camera, ctx, motion }: DrawPharosVilleInput
 
 const LIGHTHOUSE_HEADLAND_SCALE = 0.5;
 
-const NIGHT_HALO_OUTER_RADIUS = 380;       // sprite units — additive halo at firePoint (broadened to compensate for the beam fade)
+const NIGHT_HALO_OUTER_RADIUS = 760;       // sprite units — additive halo at firePoint
 const NIGHT_HALO_MAX_ALPHA = 0.7;
-const NIGHT_WATER_POOL_RADIUS = 320;       // sprite units — warm pool centered slightly below firePoint
+const NIGHT_WATER_POOL_RADIUS = 640;       // sprite units — warm pool centered slightly below firePoint
 const NIGHT_WATER_POOL_MAX_ALPHA = 0.42;
 
 export function drawLighthouseHeadland(input: DrawPharosVilleInput) {
@@ -327,9 +327,11 @@ export function drawLighthouseBeamRim(
   cached: LighthouseRenderState | undefined,
   nightFactor: number,
 ) {
-  // Rim highlight is a beam affordance; with beams faded at night there's
-  // nothing for ships to be lit by, so fade in lockstep.
-  if (1 - nightFactor <= 0) return;
+  // Rim highlight is active for both day beams (warm) and night beams (cool-white).
+  const dayRimAlpha = 0.5 * (1 - nightFactor);
+  const nightRimAlpha = 0.8 * nightFactor;
+  const rimAlpha = Math.max(dayRimAlpha, nightRimAlpha);
+  if (rimAlpha <= 0) return;
   const { camera, ctx, motion, world } = input;
   if (motion.reducedMotion) return;
   if (world.lighthouse.unavailable) return;
@@ -350,8 +352,8 @@ export function drawLighthouseBeamRim(
   ];
 
   ctx.save();
-  ctx.globalAlpha = 0.5 * (1 - nightFactor);
-  ctx.strokeStyle = world.lighthouse.color;
+  ctx.globalAlpha = rimAlpha;
+  ctx.strokeStyle = nightFactor > 0.5 ? "rgba(210, 240, 255, 1)" : world.lighthouse.color;
   ctx.lineWidth = Math.max(1, 2);
   ctx.lineCap = "round";
 
@@ -433,18 +435,117 @@ export function drawLighthouseNightHighlights(
   if (nightFactor <= 0) return;
   if (input.world.lighthouse.unavailable) return;
 
-  const { camera, ctx } = input;
+  const { camera, ctx, motion } = input;
   const { firePoint } = cached ?? lighthouseRenderState(input);
   const zoom = camera.zoom;
+  const time = motion.reducedMotion ? 0 : motion.timeSeconds;
 
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
 
-  // Warm halo — additive radial centered on firePoint. Broad and bright, since
-  // the beams (which used to give the lighthouse directional reach at night)
-  // now fade with nightFactor and the halo carries the entire night footprint.
+  // Wide diffuse fill — very low-alpha wash that gently illuminates the entire
+  // island and surrounding water rather than blasting from the center.
+  const diffuse = ctx.createRadialGradient(
+    firePoint.x, firePoint.y, 60 * zoom,
+    firePoint.x, firePoint.y, 1000 * zoom,
+  );
+  diffuse.addColorStop(0, `rgba(215, 210, 192, ${0.14 * nightFactor})`);
+  diffuse.addColorStop(0.6, `rgba(190, 200, 180, ${0.07 * nightFactor})`);
+  diffuse.addColorStop(1, "rgba(160, 180, 160, 0)");
+  ctx.fillStyle = diffuse;
+  ctx.beginPath();
+  ctx.arc(firePoint.x, firePoint.y, 1000 * zoom, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Core — softer and wider than before; just enough to read as a light source
+  // without creating a blinding white hotspot on top of the halo.
+  const coreAlpha = 0.17 * nightFactor;
+  const core = ctx.createRadialGradient(
+    firePoint.x, firePoint.y, 0,
+    firePoint.x, firePoint.y, 68 * zoom,
+  );
+  core.addColorStop(0, `rgba(255, 255, 248, ${coreAlpha})`);
+  core.addColorStop(0.4, `rgba(255, 248, 210, ${coreAlpha * 0.50})`);
+  core.addColorStop(1, "rgba(255, 230, 150, 0)");
+  ctx.fillStyle = core;
+  ctx.beginPath();
+  ctx.arc(firePoint.x, firePoint.y, 68 * zoom, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Night beam cones — cool-white directional beams drawn after the night tint
+  // so they visually cut through the darkness. Same geometry as the day beams
+  // (drawLighthouseBeam) but bright, inverted in alpha vs nightFactor, and
+  // coloured white→blue-white rather than the warm gold used during the day.
+  // Midpoint at 0.45 (was 0.28) so the light spreads further before fading.
+  const beamPulse = 0.25 + Math.sin(time * 0.7) * 0.04;
+  const beamAlpha = beamPulse * nightFactor;
+
+  // Right beam
+  const rg = ctx.createLinearGradient(
+    firePoint.x, firePoint.y,
+    firePoint.x + 240 * zoom, firePoint.y - 23 * zoom,
+  );
+  rg.addColorStop(0, `rgba(255, 255, 238, ${beamAlpha})`);
+  rg.addColorStop(0.45, `rgba(215, 242, 255, ${beamAlpha * 0.55})`);
+  rg.addColorStop(1, `rgba(140, 205, 255, 0)`);
+  ctx.fillStyle = rg;
+  ctx.beginPath();
+  ctx.moveTo(firePoint.x + 4 * zoom, firePoint.y - 2 * zoom);
+  ctx.lineTo(firePoint.x + 250 * zoom, firePoint.y - 74 * zoom);
+  ctx.lineTo(firePoint.x + 228 * zoom, firePoint.y + 28 * zoom);
+  ctx.closePath();
+  ctx.fill();
+
+  // Left beam
+  const lg = ctx.createLinearGradient(
+    firePoint.x, firePoint.y,
+    firePoint.x - 158 * zoom, firePoint.y - 9 * zoom,
+  );
+  lg.addColorStop(0, `rgba(255, 255, 238, ${beamAlpha})`);
+  lg.addColorStop(0.45, `rgba(215, 242, 255, ${beamAlpha * 0.55})`);
+  lg.addColorStop(1, `rgba(140, 205, 255, 0)`);
+  ctx.fillStyle = lg;
+  ctx.beginPath();
+  ctx.moveTo(firePoint.x - 5 * zoom, firePoint.y);
+  ctx.lineTo(firePoint.x - 168 * zoom, firePoint.y - 42 * zoom);
+  ctx.lineTo(firePoint.x - 154 * zoom, firePoint.y + 25 * zoom);
+  ctx.closePath();
+  ctx.fill();
+
+  // Water reflection shimmers — elongated glints on the water surface along
+  // each beam's path; lighter composite means they naturally brighten the
+  // water tiles under the beams.
+  const shimAlpha = 0.30 * nightFactor;
+
+  ctx.save();
+  ctx.translate(firePoint.x + 122 * zoom, firePoint.y + 12 * zoom);
+  ctx.rotate(-0.09);
+  const rs = ctx.createRadialGradient(0, 0, 6 * zoom, 0, 0, 164 * zoom);
+  rs.addColorStop(0, `rgba(185, 228, 255, ${shimAlpha})`);
+  rs.addColorStop(1, `rgba(185, 228, 255, 0)`);
+  ctx.fillStyle = rs;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 164 * zoom, 34 * zoom, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(firePoint.x - 82 * zoom, firePoint.y + 10 * zoom);
+  ctx.rotate(0.06);
+  const ls = ctx.createRadialGradient(0, 0, 6 * zoom, 0, 0, 132 * zoom);
+  ls.addColorStop(0, `rgba(185, 228, 255, ${shimAlpha})`);
+  ls.addColorStop(1, `rgba(185, 228, 255, 0)`);
+  ctx.fillStyle = ls;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 132 * zoom, 28 * zoom, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // Warm halo — reduced intensity now that the diffuse fill carries the broader
+  // scene illumination; 0.58 factor keeps warmth near the tower without stacking
+  // too much additive light on top of the core and beams.
   const haloRadius = NIGHT_HALO_OUTER_RADIUS * zoom;
-  const haloAlpha = NIGHT_HALO_MAX_ALPHA * nightFactor;
+  const haloAlpha = NIGHT_HALO_MAX_ALPHA * 0.32 * nightFactor;
   const halo = ctx.createRadialGradient(
     firePoint.x, firePoint.y, 12 * zoom,
     firePoint.x, firePoint.y, haloRadius,

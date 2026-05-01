@@ -5,12 +5,13 @@ import type { DrawPharosVilleInput } from "../render-types";
 
 function makeCtx() {
   return createCanvasContextStub(
-    ["save", "restore", "fillRect", "fill", "beginPath", "moveTo", "lineTo", "closePath", "ellipse", "arc"],
+    ["save", "restore", "fillRect", "fill", "beginPath", "moveTo", "lineTo", "closePath", "ellipse", "arc", "translate", "rotate"],
     {
       fillStyle: "",
       globalAlpha: 1,
       globalCompositeOperation: "source-over",
       createRadialGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+      createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
     },
   );
 }
@@ -51,13 +52,13 @@ describe("drawLighthouseNightHighlights", () => {
     expect(input.ctx.fill).not.toHaveBeenCalled();
   });
 
-  it("draws halo + warm water pool at full night (>= 2 fills, no beam wedges)", () => {
+  it("draws all night layers at full night", () => {
     const input = makeInput();
     drawLighthouseNightHighlights(input, undefined, 1);
     const fillMock = input.ctx.fill as unknown as ReturnType<typeof vi.fn>;
-    // 1 halo arc + 1 water-pool ellipse. Beam wedges removed by design — at
-    // night the lighthouse light is purely ambient, beams fade to nothing.
-    expect(fillMock.mock.calls.length).toBe(2);
+    // diffuse(1) + core(1) + right beam(1) + left beam(1) +
+    // right shimmer(1) + left shimmer(1) + halo(1) + pool(1) = 8
+    expect(fillMock.mock.calls.length).toBe(8);
   });
 });
 
