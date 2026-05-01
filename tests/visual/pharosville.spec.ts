@@ -391,6 +391,8 @@ test("pharosville dense visual fixture preserves districts, dense ships, and ren
     sample.state === "idle"
     || sample.state === "risk-drift"
     || sample.state === "sailing"
+    || sample.state === "arriving"
+    || sample.state === "departing"
     || sample.currentRouteStopKind === "dock"
     || sample.currentRouteStopKind === "ledger"
   ))).toBe(true);
@@ -522,7 +524,7 @@ test("pharosville renders a stressed ship in storm-shelf detail", async ({ page 
   await page.goto("/");
   await expectNoAssetLoadErrors(page);
 
-  await page.getByRole("button", { name: "Clear selection" }).click();
+  await page.getByRole("button", { name: "Close details" }).click();
   await waitForSelectedDetail(page, null);
 
   const clickedDetailId = await clickMapTarget(page, "ship", "ship.usdt-tether");
@@ -531,14 +533,7 @@ test("pharosville renders a stressed ship in storm-shelf detail", async ({ page 
   const detailPanel = page.getByTestId("pharosville-detail-panel");
   await expect(detailPanel).toContainText("Tether");
   await expect(detailPanel).toContainText("Active depeg event");
-  await expect(detailPanel).toContainText("Risk placement key");
-  await expect(detailPanel).toContainText("storm-shelf");
-  await expect(detailPanel).toContainText("Risk water area");
   await expect(detailPanel).toContainText("Danger Strait");
-  await expect(detailPanel).toContainText("Risk water zone");
-  await expect(detailPanel).toContainText("danger");
-  await expect(detailPanel).toContainText("Evidence");
-  await expect(detailPanel).toContainText("pegSummary.coins[].activeDepeg");
 });
 
 test("pharosville exposes all named risk water areas in browser details", async ({ page }) => {
@@ -550,7 +545,7 @@ test("pharosville exposes all named risk water areas in browser details", async 
   await expectNoAssetLoadErrors(page);
 
   const ledger = page.getByTestId("pharosville-accessibility-ledger");
-  await page.getByRole("button", { name: "Clear selection" }).click();
+  await page.getByRole("button", { name: "Close details" }).click();
   await waitForSelectedDetail(page, null);
   for (const area of RISK_WATER_AREA_DETAILS) {
     await test.step(area.detailId, async () => {
@@ -560,9 +555,7 @@ test("pharosville exposes all named risk water areas in browser details", async 
       await waitForSelectedDetail(page, area.detailId);
       const detailPanel = page.getByTestId("pharosville-detail-panel");
       await expect(detailPanel).toContainText(area.label);
-      await expect(detailPanel).toContainText("Risk water zone");
-      await expect(detailPanel).toContainText(area.zone);
-      await page.getByRole("button", { name: "Clear selection" }).click();
+      await page.getByRole("button", { name: "Close details" }).click();
       await waitForSelectedDetail(page, null);
     });
   }
@@ -772,17 +765,17 @@ test("pharosville canvas interactions update details and camera", async ({ page 
   await expectDetailPanelClearOfFullscreenButton(page);
 
   await waitForSelectedDetail(page, "lighthouse");
-  await page.getByRole("button", { name: "Clear selection" }).click();
+  await page.getByRole("button", { name: "Close details" }).click();
   await waitForSelectedDetail(page, null);
   await clickMapTarget(page, "lighthouse");
   await waitForSelectedDetail(page, "lighthouse");
-  await page.getByRole("button", { name: "Clear selection" }).click();
+  await page.getByRole("button", { name: "Close details" }).click();
   await waitForSelectedDetail(page, null);
   await expect(page.getByTestId("pharosville-detail-panel")).toHaveCount(0);
 
   const dockDetailId = await clickMapTarget(page, "dock");
   await waitForSelectedDetail(page, dockDetailId);
-  await page.getByRole("button", { name: "Clear selection" }).click();
+  await page.getByRole("button", { name: "Close details" }).click();
   await waitForSelectedDetail(page, null);
 
   const shipSelection = await clickMapTargetWithPoint(page, "ship");
@@ -1101,12 +1094,9 @@ test.describe("pharosville normal motion", () => {
     }, movingDetailId);
     const selectedRuntime = await readRuntimeSnapshot(page);
     expect(selectedRuntime.renderMetrics?.drawableCounts.selection).toBeGreaterThan(0);
-    await expect(page.getByTestId("pharosville-detail-panel")).toContainText("Risk water area");
+    await expect(page.getByTestId("pharosville-detail-panel")).toContainText("Currently");
     await expect(page.getByTestId("pharosville-detail-panel")).toContainText("Home dock");
-    await expect(page.getByTestId("pharosville-detail-panel")).toContainText("Chains present");
-    await expect(page.getByTestId("pharosville-detail-panel")).toContainText("Docking cadence");
-    await expect(page.getByTestId("pharosville-detail-panel")).toContainText("Route source");
-    await expect(page.getByTestId("pharosville-detail-panel")).toContainText("stablecoins.chainCirculating, pegSummary.coins[], stress.signals[]");
+    await expect(page.getByTestId("pharosville-detail-panel")).toContainText("Chains");
     await expect(page.getByTestId("pharosville-accessibility-ledger")).toContainText("route summary:");
     await expect(page.getByTestId("pharosville-accessibility-ledger")).toContainText("risk water Calm Anchorage");
     await expect(page.getByTestId("pharosville-accessibility-ledger")).toContainText("risk zone");

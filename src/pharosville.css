@@ -413,10 +413,11 @@ textarea {
 }
 .pharosville-detail-dock > * { pointer-events: auto; }
 
-/* Outer aside: timber frame + brass corner caps via ::before/::after */
+/* Outer aside: timber frame + brass corner caps via absolute spans */
 .pharosville-detail-panel {
   position: relative;
-  height: 100%;
+  height: auto;
+  max-height: var(--pv-detail-panel-max-height, 100%);
   padding: 6px;
   overflow: hidden;
   background:
@@ -430,31 +431,12 @@ textarea {
     inset 0 0 0 1px var(--pv-brass-dark),
     0 8px 22px rgba(0, 0, 0, 0.6);
 }
-.pharosville-detail-panel::before,
-.pharosville-detail-panel::after {
-  content: "";
-  position: absolute;
-  width: 22px;
-  height: 22px;
-  background: radial-gradient(circle at 30% 30%,
-    var(--pv-brass-highlight) 0%,
-    var(--pv-brass) 25%,
-    #b8862e 55%,
-    var(--pv-brass-edge) 100%);
-  border: 1.5px solid var(--pv-timber-edge);
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 235, 180, 0.5),
-    0 1px 2px rgba(0, 0, 0, 0.5);
-  z-index: 3;
-  pointer-events: none;
-}
-.pharosville-detail-panel::before { top: -6px; left: -6px; }
-.pharosville-detail-panel::after { top: -6px; right: -6px; }
 
 /* Inner reading surface: parchment */
 .pharosville-detail-panel__inner {
   position: relative;
-  height: 100%;
+  height: auto;
+  max-height: 100%;
   padding: 18px 22px;
   overflow: auto;
   background:
@@ -466,6 +448,22 @@ textarea {
       var(--pv-parchment-dark) 100%);
   border: 1.5px solid var(--pv-timber-dark);
   color: var(--pv-ink-text);
+  scrollbar-width: thin;
+  scrollbar-color: var(--pv-brass-dark) rgba(40, 22, 12, 0.15);
+}
+.pharosville-detail-panel__inner::-webkit-scrollbar {
+  width: 6px;
+}
+.pharosville-detail-panel__inner::-webkit-scrollbar-track {
+  background: rgba(40, 22, 12, 0.15);
+  border-radius: 3px;
+}
+.pharosville-detail-panel__inner::-webkit-scrollbar-thumb {
+  background: var(--pv-brass-dark);
+  border-radius: 3px;
+}
+.pharosville-detail-panel__inner::-webkit-scrollbar-thumb:hover {
+  background: var(--pv-brass-mid);
 }
 
 .pharosville-detail-panel__header {
@@ -540,8 +538,16 @@ textarea {
   text-underline-offset: 3px;
 }
 
+.pharosville-detail-panel__close-wrap {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
 .pharosville-detail-panel__close {
-  margin: 14px 0 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
 }
 
 .pharosville-world-toolbar {
@@ -603,7 +609,7 @@ textarea {
 }
 .pharosville-fullscreen-button:focus-visible,
 .pharosville-home-button:focus-visible {
-  outline: 2px solid var(--pv-brass-highlight);
+  outline: 2px solid var(--pv-timber-edge);
   outline-offset: 4px;
 }
 
@@ -713,7 +719,7 @@ textarea {
     var(--pv-brass-dark) 100%);
 }
 .pv-brass-button:focus-visible {
-  outline: 2px solid var(--pv-brass-highlight);
+  outline: 2px solid var(--pv-timber-edge);
   outline-offset: 3px;
 }
 .pv-brass-button:disabled {
@@ -767,6 +773,7 @@ textarea {
 .pv-chip-zoom {
   display: inline-grid;
   height: 36px;
+  min-width: 56px;
   padding: 0 14px;
   place-items: center;
   border: 1.5px solid var(--pv-timber-edge);
@@ -776,6 +783,7 @@ textarea {
   color: var(--pv-parchment-light);
   font: 900 12px Georgia, "Times New Roman", serif;
   letter-spacing: 0.05em;
+  text-align: center;
   box-shadow:
     inset 0 1px 0 rgba(255, 210, 140, 0.15),
     inset 0 -1px 0 rgba(0, 0, 0, 0.5);
@@ -805,7 +813,7 @@ textarea {
   color: var(--pv-ink-text);
 }
 .pv-formation-list li small {
-  color: var(--pv-brass-edge);
+  color: var(--pv-ink-soft);
   font-style: italic;
   margin-left: 6px;
 }
@@ -825,13 +833,25 @@ textarea {
   letter-spacing: 0.04em;
   text-decoration: none;
   cursor: pointer;
+  text-shadow: 0 1px 0 rgba(255, 235, 180, 0.5);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.4),
     inset 0 -1px 0 rgba(0, 0, 0, 0.3);
 }
-.pv-panel-link:hover { color: var(--pv-timber-edge); }
+.pv-panel-link:hover {
+  color: var(--pv-timber-edge);
+  background: radial-gradient(circle at 30% 25%,
+    #fff0c8,
+    var(--pv-brass) 55%,
+    var(--pv-brass-dark));
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.3),
+    0 2px 4px rgba(0, 0, 0, 0.3);
+}
 .pv-panel-link:focus-visible {
-  outline: 2px solid var(--pv-brass-highlight);
+  outline: 2px solid var(--pv-timber-edge);
   outline-offset: 3px;
 }
 

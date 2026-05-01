@@ -16,6 +16,9 @@ export default defineConfig({
     ...devices["Desktop Chrome"],
     baseURL: "http://127.0.0.1:4173",
     viewport: { width: 1440, height: 960 },
+    contextOptions: {
+      reducedMotion: "reduce",
+    },
     trace: "on-first-retry",
   },
   webServer: {

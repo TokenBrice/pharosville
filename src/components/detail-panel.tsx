@@ -1,5 +1,6 @@
 "use client";
 
+import { X } from "lucide-react";
 import type { DetailModel } from "../systems/world-types";
 import { compactCurrency, composeCurrently } from "../lib/format-detail";
 
@@ -106,6 +107,10 @@ export function DetailPanel({
       aria-live="polite"
       data-testid="pharosville-detail-panel"
     >
+      <span className="pv-corner-brass pv-corner-brass--tl" aria-hidden="true" />
+      <span className="pv-corner-brass pv-corner-brass--tr" aria-hidden="true" />
+      <span className="pv-corner-brass pv-corner-brass--bl" aria-hidden="true" />
+      <span className="pv-corner-brass pv-corner-brass--br" aria-hidden="true" />
       <div className="pharosville-detail-panel__inner">
         <header className="pharosville-detail-panel__header">
           <p className="pharosville-detail-panel__kind">{detail.kind}</p>
@@ -126,7 +131,7 @@ export function DetailPanel({
               {detail.members.map((member) => (
                 <li key={member.id}>
                   <a href={member.href}>{member.label}</a>
-                  {member.value ? <small>{member.value}</small> : null}
+                  {member.value ? <small>{compactCurrency(member.value)}</small> : null}
                 </li>
               ))}
             </ol>
@@ -152,9 +157,11 @@ export function DetailPanel({
         )}
 
         {onClose && (
-          <button className="pharosville-detail-panel__close pv-panel-link" type="button" onClick={onClose}>
-            Close details
-          </button>
+          <div className="pharosville-detail-panel__close-wrap">
+            <button className="pharosville-detail-panel__close pv-panel-link" type="button" onClick={onClose}>
+              <X size={14} aria-hidden="true" /> Close details
+            </button>
+          </div>
         )}
       </div>
     </aside>
