@@ -887,7 +887,7 @@ The per-titan offsets in Task 7 are seeded from `usds-titan` and will be wrong f
 
 - [ ] **Step 1: Stand up a throwaway harness page**
 
-Create `src/dev/squad-harness.tsx` (gitignored — do not commit) that mounts the world canvas with a deterministic squad-active fixture, no DEWS chrome, no labels. Run `npm run dev` and open it.
+Create a throwaway local harness page that mounts the world canvas with a deterministic squad-active fixture, no DEWS chrome, no labels. Run `npm run dev` and open it.
 
 - [ ] **Step 2: Iterate per consort**
 
@@ -906,7 +906,6 @@ npx vitest run src/renderer/layers/ships -t "foam stays within hull bounds"
 - [ ] **Step 4: Delete the harness file; commit only the offset edits**
 
 ```bash
-rm src/dev/squad-harness.tsx
 git add src/renderer/layers/ships.ts
 git commit -m "Tune Maker squad titan offsets to actual sprite geometry"
 ```
