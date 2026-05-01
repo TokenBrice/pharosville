@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { usePegSummary, useReportCards, useStabilityIndexDetail, useStressSignals } from "@/hooks/api-hooks";
 import { useChains } from "@/hooks/use-chains";
 import { useStablecoins } from "@/hooks/use-stablecoins";
 import type { ApiMeta } from "@/lib/api";
-import { structuralFingerprint } from "@/lib/structural-hash";
 import type {
   PegSummaryResponse,
   ReportCardsResponse,
@@ -58,56 +58,14 @@ function resolveRouteMode(input: {
   return "world";
 }
 
-function metaFingerprint(meta: ApiMeta | null | undefined): { updatedAt: number | null; status: ApiMeta["status"] | null } {
-  return {
-    updatedAt: meta?.updatedAt ?? null,
-    status: meta?.status ?? null,
-  };
-}
-
-function worldFingerprint(input: {
-  routeMode: RouteMode;
-  data: WorldInputData;
-  meta: {
-    stablecoins: ApiMeta | null;
-    chains: ApiMeta | null;
-    stability: ApiMeta | null;
-    pegSummary: ApiMeta | null;
-    stress: ApiMeta | null;
-    reportCards: ApiMeta | null;
-  };
-}): string {
-  return structuralFingerprint({
-    routeMode: input.routeMode,
-    stablecoins: {
-      meta: metaFingerprint(input.meta.stablecoins),
-      data: input.data.stablecoins ?? null,
-    },
-    chains: {
-      meta: metaFingerprint(input.meta.chains),
-      data: input.data.chains ?? null,
-    },
-    stability: {
-      meta: metaFingerprint(input.meta.stability),
-      data: input.data.stability ?? null,
-    },
-    pegSummary: {
-      meta: metaFingerprint(input.meta.pegSummary),
-      data: input.data.pegSummary ?? null,
-    },
-    stress: {
-      meta: metaFingerprint(input.meta.stress),
-      data: input.data.stress ?? null,
-    },
-    reportCards: {
-      meta: metaFingerprint(input.meta.reportCards),
-      data: input.data.reportCards ?? null,
-    },
-  }, {
-    // Endpoint payloads are set-like snapshots for world construction.
-    arrayOrder: "unordered",
-  });
-}
+const PHAROSVILLE_QUERY_KEY_ROOTS = new Set<string>([
+  "stablecoins",
+  "chains",
+  "stability-index-detail",
+  "peg-summary",
+  "stress-signals",
+  "report-cards",
+]);
 
 export function usePharosVilleWorldData(): PharosVilleWorldDataResult {
   const stablecoinsQuery = useStablecoins();
@@ -164,29 +122,21 @@ export function usePharosVilleWorldData(): PharosVilleWorldDataResult {
     reportCards: canPublishCurrentPayloads ? reportCardsQuery.data : undefined,
   };
 
-  const hash = worldFingerprint({
-    routeMode,
-    data: publishedData,
-    meta: {
-      stablecoins: canPublishCurrentPayloads ? stablecoinsQuery.meta : null,
-      chains: canPublishCurrentPayloads ? chainsQuery.meta : null,
-      stability: canPublishCurrentPayloads ? stabilityQuery.meta : null,
-      pegSummary: canPublishCurrentPayloads ? pegSummaryQuery.meta : null,
-      stress: canPublishCurrentPayloads ? stressQuery.meta : null,
-      reportCards: canPublishCurrentPayloads ? reportCardsQuery.meta : null,
-    },
-  });
+  const stablecoinsStale = isMetaStale(stablecoinsQuery.meta);
+  const chainsStale = isMetaStale(chainsQuery.meta);
+  const stabilityStale = isMetaStale(stabilityQuery.meta);
+  const pegSummaryStale = isMetaStale(pegSummaryQuery.meta);
+  const stressStale = isMetaStale(stressQuery.meta);
+  const reportCardsStale = isMetaStale(reportCardsQuery.meta);
 
-  const worldCacheRef = useRef<{ hash: string; world: PharosVilleWorldModel } | null>(null);
   const completeWorldRef = useRef<PharosVilleWorldModel | null>(null);
 
-  let world: PharosVilleWorldModel;
-  if (!canPublishCurrentPayloads && completeWorldRef.current) {
-    world = completeWorldRef.current;
-  } else if (worldCacheRef.current && worldCacheRef.current.hash === hash) {
-    world = worldCacheRef.current.world;
-  } else {
-    world = buildPharosVilleWorld({
+  const world = useMemo<PharosVilleWorldModel>(() => {
+    // Hold the last complete "world"-mode build during transient incomplete passes.
+    if (!canPublishCurrentPayloads && completeWorldRef.current) {
+      return completeWorldRef.current;
+    }
+    const built = buildPharosVilleWorld({
       stablecoins: publishedData.stablecoins,
       chains: publishedData.chains,
       stability: publishedData.stability,
@@ -195,36 +145,47 @@ export function usePharosVilleWorldData(): PharosVilleWorldDataResult {
       reportCards: publishedData.reportCards,
       routeMode,
       freshness: {
-        stablecoinsStale: isMetaStale(stablecoinsQuery.meta),
-        chainsStale: isMetaStale(chainsQuery.meta),
-        stabilityStale: isMetaStale(stabilityQuery.meta),
-        pegSummaryStale: isMetaStale(pegSummaryQuery.meta),
-        stressStale: isMetaStale(stressQuery.meta),
-        reportCardsStale: isMetaStale(reportCardsQuery.meta),
+        stablecoinsStale,
+        chainsStale,
+        stabilityStale,
+        pegSummaryStale,
+        stressStale,
+        reportCardsStale,
       },
     });
-
-    worldCacheRef.current = { hash, world };
-    if (currentHasCompleteData && routeMode === "world") {
-      completeWorldRef.current = world;
+    if (canPublishCurrentPayloads && currentHasCompleteData && routeMode === "world") {
+      completeWorldRef.current = built;
     }
-  }
-
-  const refetchAll = useCallback(() => {
-    void stablecoinsQuery.refetch();
-    void chainsQuery.refetch();
-    void stabilityQuery.refetch();
-    void pegSummaryQuery.refetch();
-    void stressQuery.refetch();
-    void reportCardsQuery.refetch();
+    return built;
+    // TanStack Query returns stable `data` references when content hasn't changed,
+    // so this memo will hit reliably across re-renders.
   }, [
-    chainsQuery,
-    pegSummaryQuery,
-    reportCardsQuery,
-    stabilityQuery,
-    stablecoinsQuery,
-    stressQuery,
+    publishedData.stablecoins,
+    publishedData.chains,
+    publishedData.stability,
+    publishedData.pegSummary,
+    publishedData.stress,
+    publishedData.reportCards,
+    routeMode,
+    stablecoinsStale,
+    chainsStale,
+    stabilityStale,
+    pegSummaryStale,
+    stressStale,
+    reportCardsStale,
+    canPublishCurrentPayloads,
+    currentHasCompleteData,
   ]);
+
+  const queryClient = useQueryClient();
+  const refetchAll = useCallback(() => {
+    void queryClient.refetchQueries({
+      predicate: (query) => {
+        const root = query.queryKey[0];
+        return typeof root === "string" && PHAROSVILLE_QUERY_KEY_ROOTS.has(root);
+      },
+    });
+  }, [queryClient]);
 
   return {
     world,

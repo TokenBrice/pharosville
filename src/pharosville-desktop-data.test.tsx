@@ -4,6 +4,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ApiMeta } from "@/lib/api";
 import {
   fixtureChains,
@@ -146,6 +147,7 @@ function cloneStablecoins() {
 
 let root: Root | null = null;
 let container: HTMLDivElement;
+let queryClient: QueryClient;
 let currentQueries: {
   stablecoins: QueryState<typeof fixtureStablecoins>;
   chains: QueryState<typeof fixtureChains>;
@@ -169,7 +171,11 @@ function setCompleteQueries() {
 async function renderData() {
   await act(async () => {
     root ??= createRoot(container);
-    root.render(<PharosVilleDesktopData />);
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <PharosVilleDesktopData />
+      </QueryClientProvider>,
+    );
   });
 }
 
@@ -185,6 +191,7 @@ describe("PharosVilleDesktopData", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = null;
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     mocks.resetBuildIds();
     mocks.buildPharosVilleWorld.mockClear();
     setCompleteQueries();
@@ -203,11 +210,13 @@ describe("PharosVilleDesktopData", () => {
     container.remove();
   });
 
-  it("does not rebuild the world for semantically identical payload references", async () => {
-    currentQueries.stablecoins = queryState(cloneStablecoins());
+  it("does not rebuild the world when query data references are stable", async () => {
+    const stableStablecoins = cloneStablecoins();
+    currentQueries.stablecoins = queryState(stableStablecoins);
     await renderData();
 
-    currentQueries.stablecoins = queryState(cloneStablecoins());
+    // Same reference returned on the next render (TanStack's no-change behavior).
+    currentQueries.stablecoins = queryState(stableStablecoins);
     await renderData();
 
     expect(mocks.buildPharosVilleWorld).toHaveBeenCalledTimes(1);
