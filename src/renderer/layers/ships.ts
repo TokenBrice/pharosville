@@ -140,7 +140,9 @@ export function drawShipWake(input: DrawPharosVilleInput, frame: ShipRenderFrame
   const { camera, ctx, motion } = input;
   const { geometry, p, sample, selected } = shipRenderState(input, frame, ship);
   drawShipContactShadow(ctx, geometry.drawPoint.x, geometry.drawPoint.y, geometry.drawScale);
+  const isTransit = sample?.state === "departing" || sample?.state === "sailing" || sample?.state === "arriving";
   const drawsWake = !motion.reducedMotion
+    && isTransit
     && (
       motion.plan.effectShipIds.has(ship.id)
       || selected
@@ -149,7 +151,7 @@ export function drawShipWake(input: DrawPharosVilleInput, frame: ShipRenderFrame
   if (drawsWake) {
     const changeIntensity = Math.min(1, Math.abs(ship.change24hPct ?? 0) * 18 + 0.2);
     const sampleIntensity = sample?.wakeIntensity ?? 0;
-    const intensity = Math.max(sampleIntensity, motion.plan.moverShipIds.has(ship.id) ? changeIntensity : 0.18);
+    const intensity = Math.max(sampleIntensity, motion.plan.moverShipIds.has(ship.id) ? changeIntensity : 0);
     drawWake(ctx, p.x, p.y + 8 * camera.zoom, camera.zoom, intensity, sample?.heading ?? { x: -1, y: 0 }, sample?.zone ?? ship.riskZone);
   }
 }

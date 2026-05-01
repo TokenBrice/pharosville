@@ -1,9 +1,30 @@
-import { areaLabelPlacementForArea } from "../../systems/area-labels";
+import { areaLabelPlacementForArea, type ResolvedAreaLabelPlacement } from "../../systems/area-labels";
 import { DEWS_AREA_LABEL_COLORS } from "../../systems/palette";
 import { tileToScreen } from "../../systems/projection";
-import type { PharosVilleWorld } from "../../systems/world-types";
+import type { AreaNode, PharosVilleWorld } from "../../systems/world-types";
 import { drawSignBoard } from "../canvas-primitives";
 import type { DrawPharosVilleInput } from "../render-types";
+
+const placementByArea = new WeakMap<AreaNode, ResolvedAreaLabelPlacement>();
+const measuredTextWidth = new Map<string, number>();
+
+function cachedAreaLabelPlacement(area: AreaNode): ResolvedAreaLabelPlacement {
+  let cached = placementByArea.get(area);
+  if (!cached) {
+    cached = areaLabelPlacementForArea(area);
+    placementByArea.set(area, cached);
+  }
+  return cached;
+}
+
+function cachedMeasureTextWidth(ctx: CanvasRenderingContext2D, text: string, font: string): number {
+  const key = `${font}${text}`;
+  const cached = measuredTextWidth.get(key);
+  if (cached !== undefined) return cached;
+  const width = ctx.measureText(text).width;
+  measuredTextWidth.set(key, width);
+  return width;
+}
 
 const ETHEREUM_HARBOR_SIGNS = [
   {
@@ -18,7 +39,7 @@ const ETHEREUM_HARBOR_SIGNS = [
 
 export function drawWaterAreaLabels({ camera, ctx, world }: DrawPharosVilleInput) {
   for (const area of world.areas) {
-    const placement = areaLabelPlacementForArea(area);
+    const placement = cachedAreaLabelPlacement(area);
     const p = tileToScreen(placement.anchorTile, camera);
     const accent = area.band ? dewsAreaColor(area.band) : riskWaterAreaColor(area.riskZone);
     drawCartographicWaterLabel({
@@ -79,15 +100,17 @@ function drawCartographicWaterLabel(input: {
   const fontSize = Math.max(8, Math.round(8.6 * scale));
   const text = label.toUpperCase();
   const width = maxWidth * scale;
+  const font = `700 ${fontSize}px Georgia, "Times New Roman", serif`;
 
   ctx.save();
   ctx.translate(Math.round(x), Math.round(y));
   ctx.rotate(rotation);
-  ctx.font = `700 ${fontSize}px Georgia, "Times New Roman", serif`;
+  ctx.font = font;
   ctx.textAlign = align;
   ctx.textBaseline = "middle";
   ctx.lineJoin = "round";
-  const plaqueWidth = Math.min(width, ctx.measureText(text).width + 16 * scale);
+  const measuredWidthRaw = cachedMeasureTextWidth(ctx, text, font);
+  const plaqueWidth = Math.min(width, measuredWidthRaw + 16 * scale);
   const plaqueX = align === "left" ? -3 * scale : align === "right" ? -plaqueWidth + 3 * scale : -plaqueWidth / 2;
   ctx.globalAlpha = 0.46;
   drawSignBoard(ctx, plaqueX, -8.4 * scale, plaqueWidth, 16.8 * scale, scale * 0.72, "rgba(74, 50, 27, 0.5)", "rgba(15, 10, 7, 0.76)");
@@ -111,8 +134,7 @@ function drawCartographicWaterLabel(input: {
   ctx.fillStyle = "rgba(238, 218, 169, 0.78)";
   ctx.fillText(text, 0, 0, width);
 
-  const metrics = ctx.measureText(text);
-  const measuredWidth = Math.min(width, metrics.width);
+  const measuredWidth = Math.min(width, measuredWidthRaw);
   const lineStart = align === "left" ? 0 : align === "right" ? -measuredWidth : -measuredWidth / 2;
   const lineEnd = align === "left" ? measuredWidth : align === "right" ? 0 : measuredWidth / 2;
   ctx.globalAlpha = 0.48;

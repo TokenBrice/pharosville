@@ -4,6 +4,7 @@ dist/
 .cache/
 test-results/
 playwright-report/
+.playwright-mcp/
 output/
 .worktrees/
 .DS_Store

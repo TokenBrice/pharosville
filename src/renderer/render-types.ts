@@ -15,6 +15,7 @@ export interface DrawPharosVilleInput {
   assets: PharosVilleAssetManager | null;
   camera: IsoCamera;
   ctx: CanvasRenderingContext2D;
+  dpr?: number;
   height: number;
   hoveredTarget: HitTarget | null;
   motion: PharosVilleCanvasMotion;

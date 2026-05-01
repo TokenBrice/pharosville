@@ -1,16 +1,27 @@
 "use client";
-import { useMemo } from "react";
+import { useRef } from "react";
 import { QueryErrorNotice } from "@/components/query-error-notice";
 import { usePegSummary, useReportCards, useStabilityIndexDetail, useStressSignals } from "@/hooks/api-hooks";
 import { useChains } from "@/hooks/use-chains";
 import { useStablecoins } from "@/hooks/use-stablecoins";
 import type { ApiMeta } from "@/lib/api";
 import { buildPharosVilleWorld } from "./systems/pharosville-world";
-import type { RouteMode } from "./systems/world-types";
+import type { PharosVilleWorld as PharosVilleWorldModel, RouteMode } from "./systems/world-types";
 import { PharosVilleWorld } from "./pharosville-world";
 
 function isMetaStale(meta: ApiMeta | null | undefined): boolean {
   return meta?.status === "stale" || meta?.status === "degraded";
+}
+
+function metaToken(meta: ApiMeta | null | undefined, data: unknown): string {
+  // Compose a cheap, stable token capturing the dimensions that affect the world build:
+  // - meta.updatedAt advances when the payload genuinely changes
+  // - meta.status drives the freshness flags
+  // - presence of data covers the loading -> loaded transition when meta is absent
+  const updatedAt = meta?.updatedAt ?? "n";
+  const status = meta?.status ?? "n";
+  const has = data == null ? "0" : "1";
+  return `${updatedAt}:${status}:${has}`;
 }
 
 function resolveRouteMode(input: {
@@ -54,37 +65,42 @@ export function PharosVilleDesktopData() {
     || reportCardsQuery.isLoading;
   const routeMode = resolveRouteMode({ hasAnyData, hasBlockingError: Boolean(error), isLoading });
 
-  const world = useMemo(() => buildPharosVilleWorld({
-    stablecoins: stablecoinsQuery.data,
-    chains: chainsQuery.data,
-    stability: stabilityQuery.data,
-    pegSummary: pegSummaryQuery.data,
-    stress: stressQuery.data,
-    reportCards: reportCardsQuery.data,
-    routeMode,
-    freshness: {
-      stablecoinsStale: isMetaStale(stablecoinsQuery.meta),
-      chainsStale: isMetaStale(chainsQuery.meta),
-      stabilityStale: isMetaStale(stabilityQuery.meta),
-      pegSummaryStale: isMetaStale(pegSummaryQuery.meta),
-      stressStale: isMetaStale(stressQuery.meta),
-      reportCardsStale: isMetaStale(reportCardsQuery.meta),
-    },
-  }), [
-    chainsQuery.data,
-    chainsQuery.meta,
-    pegSummaryQuery.data,
-    pegSummaryQuery.meta,
-    reportCardsQuery.data,
-    reportCardsQuery.meta,
-    routeMode,
-    stablecoinsQuery.data,
-    stablecoinsQuery.meta,
-    stabilityQuery.data,
-    stabilityQuery.meta,
-    stressQuery.data,
-    stressQuery.meta,
-  ]);
+  // Structural-compare cache: refetches frequently produce new `data`/`meta` references
+  // even when payloads are byte-identical. Skip the (expensive) world rebuild when the
+  // structural hash of inputs has not advanced, so downstream effects keying on `world`
+  // identity (RAF loop, motion plan) don't churn.
+  const worldHash = `${routeMode}|`
+    + metaToken(stablecoinsQuery.meta, stablecoinsQuery.data)
+    + "|" + metaToken(chainsQuery.meta, chainsQuery.data)
+    + "|" + metaToken(stabilityQuery.meta, stabilityQuery.data)
+    + "|" + metaToken(pegSummaryQuery.meta, pegSummaryQuery.data)
+    + "|" + metaToken(stressQuery.meta, stressQuery.data)
+    + "|" + metaToken(reportCardsQuery.meta, reportCardsQuery.data);
+
+  const worldCacheRef = useRef<{ hash: string; world: PharosVilleWorldModel } | null>(null);
+  let world: PharosVilleWorldModel;
+  if (worldCacheRef.current && worldCacheRef.current.hash === worldHash) {
+    world = worldCacheRef.current.world;
+  } else {
+    world = buildPharosVilleWorld({
+      stablecoins: stablecoinsQuery.data,
+      chains: chainsQuery.data,
+      stability: stabilityQuery.data,
+      pegSummary: pegSummaryQuery.data,
+      stress: stressQuery.data,
+      reportCards: reportCardsQuery.data,
+      routeMode,
+      freshness: {
+        stablecoinsStale: isMetaStale(stablecoinsQuery.meta),
+        chainsStale: isMetaStale(chainsQuery.meta),
+        stabilityStale: isMetaStale(stabilityQuery.meta),
+        pegSummaryStale: isMetaStale(pegSummaryQuery.meta),
+        stressStale: isMetaStale(stressQuery.meta),
+        reportCardsStale: isMetaStale(reportCardsQuery.meta),
+      },
+    });
+    worldCacheRef.current = { hash: worldHash, world };
+  }
 
   return (
     <>

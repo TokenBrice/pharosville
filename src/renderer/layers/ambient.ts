@@ -1,6 +1,6 @@
 import { tileToScreen } from "../../systems/projection";
 import type { DrawPharosVilleInput } from "../render-types";
-import { lighthouseRenderState } from "./lighthouse";
+import { lighthouseRenderState, type LighthouseRenderState } from "./lighthouse";
 import { skyState } from "./sky";
 
 const VILLAGE_LIGHTS = [
@@ -30,10 +30,10 @@ const BIRDS = [
   { anchorX: -9.8, anchorY: -8.2, radiusX: 5.8, radiusY: 1.7, scale: 0.82, speed: 0.17, phase: 4.9 },
 ] as const;
 
-export function drawAtmosphere(input: DrawPharosVilleInput) {
+export function drawAtmosphere(input: DrawPharosVilleInput, lighthouse?: LighthouseRenderState) {
   const { camera, ctx, motion } = input;
   const mood = skyState(motion).mood;
-  const { firePoint } = lighthouseRenderState(input);
+  const { firePoint } = lighthouse ?? lighthouseRenderState(input);
   ctx.save();
   ctx.fillStyle = mood.mist;
   ctx.beginPath();

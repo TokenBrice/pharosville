@@ -1,5 +1,5 @@
 import { waterTerrainStyle, type WaterTerrainStyle } from "../../systems/palette";
-import { TILE_HEIGHT, tileToScreen, type ScreenPoint } from "../../systems/projection";
+import { TILE_HEIGHT, screenToTile, tileToScreen, type ScreenPoint } from "../../systems/projection";
 import { isElevatedTileKind, isShoreTileKind, isWaterTileKind } from "../../systems/world-layout";
 import type { TerrainKind } from "../../systems/world-types";
 import type { PharosVilleAssetManager } from "../asset-manager";
@@ -55,23 +55,48 @@ const TERRAIN_ASSET_BY_KIND: Partial<Record<TerrainKind, string>> = {
 const TERRAIN_ASSET_SCALE = 0.5;
 
 export function drawTerrain({ assets, camera, ctx, height, motion, width, world }: DrawPharosVilleInput) {
+  const { width: mapWidth, height: mapHeight, tiles } = world.map;
+  const margin = 2;
+  const corners = [
+    screenToTile({ x: 0, y: 0 }, camera),
+    screenToTile({ x: width, y: 0 }, camera),
+    screenToTile({ x: 0, y: height }, camera),
+    screenToTile({ x: width, y: height }, camera),
+  ];
+  const minX = Math.max(0, Math.floor(Math.min(corners[0].x, corners[1].x, corners[2].x, corners[3].x)) - margin);
+  const maxX = Math.min(mapWidth - 1, Math.ceil(Math.max(corners[0].x, corners[1].x, corners[2].x, corners[3].x)) + margin);
+  const minY = Math.max(0, Math.floor(Math.min(corners[0].y, corners[1].y, corners[2].y, corners[3].y)) - margin);
+  const maxY = Math.min(mapHeight - 1, Math.ceil(Math.max(corners[0].y, corners[1].y, corners[2].y, corners[3].y)) + margin);
+
   let visibleTileCount = 0;
-  for (const tile of world.map.tiles) {
-    const terrain = tile.terrain ?? tile.kind;
-    if (!isWaterTileKind(terrain)) continue;
-    const p = tileToScreen(tile, camera);
-    if (!isTileInViewport(p, camera.zoom, width, height)) continue;
-    visibleTileCount += 1;
-    drawWaterTile(ctx, p.x, p.y, camera.zoom, terrain, tile.x, tile.y, motion, terrainAssetFor(assets, terrain));
+  if (minX > maxX || minY > maxY) return visibleTileCount;
+
+  for (let y = minY; y <= maxY; y += 1) {
+    const rowOffset = y * mapWidth;
+    for (let x = minX; x <= maxX; x += 1) {
+      const tile = tiles[rowOffset + x];
+      if (!tile) continue;
+      const terrain = tile.terrain ?? tile.kind;
+      if (!isWaterTileKind(terrain)) continue;
+      const p = tileToScreen(tile, camera);
+      if (!isTileInViewport(p, camera.zoom, width, height)) continue;
+      visibleTileCount += 1;
+      drawWaterTile(ctx, p.x, p.y, camera.zoom, terrain, tile.x, tile.y, motion, terrainAssetFor(assets, terrain));
+    }
   }
 
-  for (const tile of world.map.tiles) {
-    const terrain = tile.terrain ?? tile.kind;
-    if (isWaterTileKind(terrain)) continue;
-    const p = tileToScreen(tile, camera);
-    if (!isTileInViewport(p, camera.zoom, width, height)) continue;
-    visibleTileCount += 1;
-    drawLandTile(ctx, p.x, p.y, camera.zoom, terrain, tile.x, tile.y, terrainAssetFor(assets, terrain));
+  for (let y = minY; y <= maxY; y += 1) {
+    const rowOffset = y * mapWidth;
+    for (let x = minX; x <= maxX; x += 1) {
+      const tile = tiles[rowOffset + x];
+      if (!tile) continue;
+      const terrain = tile.terrain ?? tile.kind;
+      if (isWaterTileKind(terrain)) continue;
+      const p = tileToScreen(tile, camera);
+      if (!isTileInViewport(p, camera.zoom, width, height)) continue;
+      visibleTileCount += 1;
+      drawLandTile(ctx, p.x, p.y, camera.zoom, terrain, tile.x, tile.y, terrainAssetFor(assets, terrain));
+    }
   }
   return visibleTileCount;
 }

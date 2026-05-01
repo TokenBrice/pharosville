@@ -1,5 +1,6 @@
+import { ambientWindPhase } from "../../systems/motion-types";
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
-import { lighthouseRenderState } from "./lighthouse";
+import { lighthouseRenderState, type LighthouseRenderState } from "./lighthouse";
 
 const SKY_MOODS = {
   dawn: {
@@ -76,16 +77,112 @@ const SKY_CLOUDS = [
   { alpha: 0.14, rx: 140, ry: 16, x: 0.84, y: 0.43 },
 ] as const;
 
-export function drawSky(input: DrawPharosVilleInput) {
-  const { camera, ctx, height, motion, width } = input;
-  const state = skyState(motion);
-  const mood = state.mood;
-  const gradient = ctx.createLinearGradient(0, 0, 0, height);
+type SkyMoodKey = keyof typeof SKY_MOODS;
+
+const SKY_MOOD_KEYS: readonly SkyMoodKey[] = ["dawn", "day", "dusk", "night"];
+
+function moodKeyFor(mood: typeof SKY_MOODS[SkyMoodKey]): SkyMoodKey {
+  for (const key of SKY_MOOD_KEYS) {
+    if (SKY_MOODS[key] === mood) return key;
+  }
+  return "day";
+}
+
+interface SkyBackdropCacheEntry {
+  canvas: HTMLCanvasElement;
+  key: string;
+}
+
+let skyBackdropCache: SkyBackdropCacheEntry | null = null;
+
+function createSkyBackdropCanvas(width: number, height: number): HTMLCanvasElement | null {
+  if (typeof document === "undefined") return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  return canvas;
+}
+
+function paintSkyBackdrop(
+  target: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  mood: typeof SKY_MOODS[SkyMoodKey],
+  firePointX: number,
+  firePointY: number,
+  zoom: number,
+) {
+  const gradient = target.createLinearGradient(0, 0, 0, height);
   gradient.addColorStop(0, mood.top);
   gradient.addColorStop(0.52, mood.horizon);
   gradient.addColorStop(1, mood.lower);
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, width, height);
+  target.fillStyle = gradient;
+  target.fillRect(0, 0, width, height);
+
+  target.save();
+  target.globalAlpha = 0.72;
+  const glow = target.createRadialGradient(
+    firePointX,
+    firePointY,
+    14 * zoom,
+    firePointX,
+    firePointY,
+    260 * zoom,
+  );
+  glow.addColorStop(0, "rgba(255, 213, 119, 0.32)");
+  glow.addColorStop(0.34, mood.mist);
+  glow.addColorStop(1, "rgba(255, 213, 119, 0)");
+  target.fillStyle = glow;
+  target.beginPath();
+  target.ellipse(firePointX, firePointY, 260 * zoom, 115 * zoom, -0.08, 0, Math.PI * 2);
+  target.fill();
+
+  target.globalAlpha = 1;
+  target.fillStyle = mood.waterVeil;
+  target.fillRect(0, Math.round(height * 0.52), width, Math.ceil(height * 0.48));
+  target.restore();
+}
+
+function getSkyBackdropCanvas(
+  width: number,
+  height: number,
+  mood: typeof SKY_MOODS[SkyMoodKey],
+  firePointX: number,
+  firePointY: number,
+  zoom: number,
+): HTMLCanvasElement | null {
+  const key = `${width}x${height}|${moodKeyFor(mood)}|${firePointX},${firePointY}|z${(zoom * 100) | 0}`;
+  if (skyBackdropCache && skyBackdropCache.key === key) {
+    return skyBackdropCache.canvas;
+  }
+  const canvas = skyBackdropCache?.canvas ?? createSkyBackdropCanvas(width, height);
+  if (!canvas) return null;
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  const offCtx = canvas.getContext("2d");
+  if (!offCtx) return null;
+  offCtx.clearRect(0, 0, width, height);
+  paintSkyBackdrop(offCtx, width, height, mood, firePointX, firePointY, zoom);
+  skyBackdropCache = { canvas, key };
+  return canvas;
+}
+
+export function drawSky(input: DrawPharosVilleInput, lighthouse?: LighthouseRenderState) {
+  const { camera, ctx, height, motion, width } = input;
+  const state = skyState(motion);
+  const mood = state.mood;
+  const { firePoint } = lighthouse ?? lighthouseRenderState(input);
+  const firePointX = firePoint.x | 0;
+  const firePointY = firePoint.y | 0;
+
+  const cached = getSkyBackdropCanvas(width, height, mood, firePointX, firePointY, camera.zoom);
+  if (cached) {
+    ctx.drawImage(cached, 0, 0);
+  } else {
+    paintSkyBackdrop(ctx, width, height, mood, firePoint.x, firePoint.y, camera.zoom);
+  }
 
   ctx.save();
   drawCelestialArc(ctx, width, height, camera.zoom, state);
@@ -93,28 +190,6 @@ export function drawSky(input: DrawPharosVilleInput) {
   drawMoon(ctx, width, height, camera.zoom, state);
   drawStars(ctx, width, height, camera.zoom, state, motion);
   drawSkyClouds(ctx, width, height, camera.zoom, state, motion);
-
-  ctx.globalAlpha = 0.72;
-  const { firePoint } = lighthouseRenderState(input);
-  const glow = ctx.createRadialGradient(
-    firePoint.x,
-    firePoint.y,
-    14 * camera.zoom,
-    firePoint.x,
-    firePoint.y,
-    260 * camera.zoom,
-  );
-  glow.addColorStop(0, "rgba(255, 213, 119, 0.32)");
-  glow.addColorStop(0.34, mood.mist);
-  glow.addColorStop(1, "rgba(255, 213, 119, 0)");
-  ctx.fillStyle = glow;
-  ctx.beginPath();
-  ctx.ellipse(firePoint.x, firePoint.y, 260 * camera.zoom, 115 * camera.zoom, -0.08, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = mood.waterVeil;
-  ctx.fillRect(0, Math.round(height * 0.52), width, Math.ceil(height * 0.48));
   ctx.restore();
 }
 
@@ -272,10 +347,9 @@ function drawSkyClouds(
   state: ReturnType<typeof skyState>,
   motion: PharosVilleCanvasMotion,
 ) {
-  const time = motion.reducedMotion ? 0 : motion.timeSeconds;
   ctx.save();
   for (const cloud of SKY_CLOUDS) {
-    const drift = Math.sin(time * 0.035 + cloud.x * 8) * 22 * zoom;
+    const drift = ambientWindPhase(motion, cloud.x * 8) * 22 * zoom;
     ctx.strokeStyle = state.mood.mist.replace(/[\d.]+\)$/, `${cloud.alpha})`);
     ctx.lineWidth = Math.max(1, 5 * zoom);
     ctx.beginPath();

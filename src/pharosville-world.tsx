@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
 import { Home, Maximize2, Minimize2 } from "lucide-react";
 import { AccessibilityLedger } from "./components/accessibility-ledger";
@@ -14,11 +14,12 @@ import { drawPharosVille, type PharosVilleRenderMetrics } from "./renderer/world
 import { cameraZoomLabel, clampCameraToMap, defaultCamera, followTile, panCamera, zoomIn, zoomOut } from "./systems/camera";
 import { resolveCanvasBudget } from "./systems/canvas-budget";
 import { buildBaseMotionPlan, buildMotionPlan, isShipMapVisible, resolveShipMotionSample, type ShipMotionSample } from "./systems/motion";
+import { warmAllWaterPaths } from "./systems/motion-water";
 import { zoomCameraAt, type IsoCamera, type ScreenPoint } from "./systems/projection";
 import { observeReducedMotion } from "./systems/reduced-motion";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "./systems/world-types";
 
-export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
+function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const [assetManager] = useState(() => new PharosVilleAssetManager());
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dragRef = useRef<{ last: ScreenPoint; moved: boolean; pointerId: number } | null>(null);
@@ -26,7 +27,9 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
   const canvasBudgetRef = useRef<ReturnType<typeof resolveCanvasBudget> | null>(null);
   const criticalFramePaintedRef = useRef(false);
   const deferredLoadStartedRef = useRef(false);
-  const motionStartTimeRef = useRef<number | null>(null);
+  const lastWallRef = useRef<number | null>(null);
+  const accSecondsRef = useRef(0);
+  const pendingResumeRef = useRef(false);
   const motionFrameCountRef = useRef(0);
   const lastRenderMetricsRef = useRef<PharosVilleRenderMetrics & { drawDurationMs: number }>({
     drawableCount: 0,
@@ -38,6 +41,7 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
   });
   const currentShipMotionSamplesRef = useRef<ReadonlyMap<string, ShipMotionSample>>(new Map());
   const currentHitTargetsRef = useRef<readonly HitTarget[]>([]);
+  const lastHitTargetCellHashRef = useRef<string>("");
   const frameStateRef = useRef<{
     samples: ReadonlyMap<string, ShipMotionSample>;
     targets: readonly HitTarget[];
@@ -56,12 +60,31 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
   const [criticalAssetsLoaded, setCriticalAssetsLoaded] = useState(false);
   const [deferredAssetsLoaded, setDeferredAssetsLoaded] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(true);
+  const [paintRequestTick, setPaintRequestTick] = useState(0);
   const shellRef = useRef<HTMLElement | null>(null);
   const { exitFullscreen, fullscreenMode, toggleFullscreen } = useFullscreenMode(shellRef);
   const baseMotionPlan = useMemo(() => buildBaseMotionPlan(world), [world]);
   const motionPlan = useMemo(() => buildMotionPlan(world, selectedDetailId, baseMotionPlan), [baseMotionPlan, selectedDetailId, world]);
   const selectedEntity = useMemo(() => findWorldEntity(world, selectedDetailId), [selectedDetailId, world]);
   const selectedDetail = selectedDetailId ? world.detailIndex[selectedDetailId] ?? null : null;
+
+  // Refs that mirror frequently-changing state so the RAF effect can read the
+  // latest values without rebinding on every hover/select/motionPlan change.
+  // Synced via a single effect so they stay coherent.
+  const hoveredDetailIdRef = useRef(hoveredDetailId);
+  const selectedDetailIdRef = useRef(selectedDetailId);
+  const motionPlanRef = useRef(motionPlan);
+  const cameraRef = useRef(camera);
+  const canvasSizeRef = useRef(canvasSize);
+  const criticalAssetAttemptsSettledRef = useRef(criticalAssetAttemptsSettled);
+  useEffect(() => {
+    hoveredDetailIdRef.current = hoveredDetailId;
+    selectedDetailIdRef.current = selectedDetailId;
+    motionPlanRef.current = motionPlan;
+    cameraRef.current = camera;
+    canvasSizeRef.current = canvasSize;
+    criticalAssetAttemptsSettledRef.current = criticalAssetAttemptsSettled;
+  }, [camera, canvasSize, criticalAssetAttemptsSettled, hoveredDetailId, motionPlan, selectedDetailId]);
 
   const selectDetail = useCallback((detailId: string, anchor: DetailAnchor | null = null) => {
     const detail = world.detailIndex[detailId];
@@ -136,6 +159,8 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
     let active = true;
     deferredLoadStartedRef.current = true;
     const startDeferredLoad = () => {
+      const planForWarmup = motionPlanRef.current;
+      if (planForWarmup) warmAllWaterPaths(planForWarmup);
       assetManager.loadDeferred(controller.signal)
         .then((deferredResult) => {
           if (!active) return;
@@ -199,6 +224,20 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
 
   useEffect(() => observeReducedMotion(setReducedMotion), []);
 
+  // When the tab is hidden, RAFs pause; on resume the next frame can carry a
+  // multi-second time delta. Flag the next frame so it skips accumulating that
+  // gap, preventing ships from teleporting through cycles after a long pause.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        pendingResumeRef.current = true;
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, []);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -230,9 +269,19 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
     return () => observer.disconnect();
   }, [world.map]);
 
+  // RAF effect — bound once per `world` / `canvasSize` / `reducedMotion` /
+  // `assetManager` / `assetLoadTick` / `cameraReady`. All other inputs
+  // (hoveredDetailId, selectedDetailId, motionPlan, camera, criticalAssetAttemptsSettled)
+  // are read through refs so per-hover / per-selection state changes do not
+  // cancel and re-create the RAF loop. `assetLoadTick` is kept in the dep set
+  // because reduced-motion mode paints exactly one frame on bind, and a freshly
+  // loaded sprite must trigger a re-bind to repaint. `cameraReady` (boolean)
+  // gates the initial bind from null→non-null camera; subsequent camera moves
+  // flow through the ref.
+  const cameraReady = camera !== null;
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !camera || canvasSize.x <= 0 || canvasSize.y <= 0) return;
+    if (!canvas || !cameraReady || canvasSize.x <= 0 || canvasSize.y <= 0) return;
     const ctx = canvas.getContext("2d", { alpha: false });
     if (!ctx) return;
     const budget = canvasBudgetRef.current ?? resolveCanvasBudget({
@@ -244,49 +293,79 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
     let frameId = 0;
     const drawFrame = (time: number) => {
       animationFramePendingRef.current = false;
-      if (motionStartTimeRef.current == null) motionStartTimeRef.current = time;
-      const timeSeconds = reducedMotion ? 0 : (time - motionStartTimeRef.current) / 1000;
+      const activeCamera = cameraRef.current;
+      const activeCanvasSize = canvasSizeRef.current;
+      const activeMotionPlan = motionPlanRef.current;
+      const activeHoveredDetailId = hoveredDetailIdRef.current;
+      const activeSelectedDetailId = selectedDetailIdRef.current;
+      const activeCriticalSettled = criticalAssetAttemptsSettledRef.current;
+      if (!activeCamera || activeCanvasSize.x <= 0 || activeCanvasSize.y <= 0) return;
+      let timeSeconds: number;
+      if (reducedMotion) {
+        timeSeconds = 0;
+      } else {
+        const last = lastWallRef.current ?? time;
+        const rawDt = Math.max((time - last) / 1000, 0);
+        // Skip accumulating across known tab-pause transitions: the
+        // visibilitychange handler raises pendingResumeRef when the page goes
+        // hidden, so the first frame after resume drops its (large) dt. For all
+        // other gaps — including Playwright fake-clock fastForward — accept the
+        // raw dt so motion advances naturally.
+        const dt = pendingResumeRef.current ? 0 : rawDt;
+        pendingResumeRef.current = false;
+        accSecondsRef.current += dt;
+        lastWallRef.current = time;
+        timeSeconds = accSecondsRef.current;
+      }
       const shipMotionSamples = collectShipMotionSamples({
-        motionPlan,
+        motionPlan: activeMotionPlan,
         reducedMotion,
         timeSeconds,
         world,
       });
-      const targets = collectHitTargets({
-        assets: assetManager,
-        camera,
-        hoveredDetailId,
-        selectedDetailId,
-        shipMotionSamples,
-        viewport: { height: canvasSize.y, width: canvasSize.x },
-        world,
-      });
+      currentShipMotionSamplesRef.current = shipMotionSamples;
+      // Hit-targets are no longer recomputed on every RAF tick. They are
+      // recomputed only on input/state changes (pointer move, selection, hover,
+      // camera, canvas) and on ship-cell transitions detected here.
+      const cellHash = shipCellHash(shipMotionSamples, world);
+      if (cellHash !== lastHitTargetCellHashRef.current) {
+        lastHitTargetCellHashRef.current = cellHash;
+        currentHitTargetsRef.current = collectHitTargets({
+          assets: assetManager,
+          camera: activeCamera,
+          hoveredDetailId: activeHoveredDetailId,
+          selectedDetailId: activeSelectedDetailId,
+          shipMotionSamples,
+          viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
+          world,
+        });
+      }
+      const targets = currentHitTargetsRef.current;
       const nextFrameState = {
         samples: shipMotionSamples,
         targets,
         timeSeconds,
       };
       frameStateRef.current = nextFrameState;
-      currentShipMotionSamplesRef.current = shipMotionSamples;
-      currentHitTargetsRef.current = targets;
-      const nextHoveredTarget = targets.find((target) => target.detailId === hoveredDetailId) ?? null;
-      const nextSelectedTarget = targets.find((target) => target.detailId === selectedDetailId) ?? null;
+      const nextHoveredTarget = targets.find((target) => target.detailId === activeHoveredDetailId) ?? null;
+      const nextSelectedTarget = targets.find((target) => target.detailId === activeSelectedDetailId) ?? null;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const drawStartedAt = performance.now();
       const renderMetrics = drawPharosVille({
-        camera,
+        camera: activeCamera,
         ctx,
-        height: canvasSize.y,
+        dpr,
+        height: activeCanvasSize.y,
         hoveredTarget: nextHoveredTarget,
         motion: {
-          plan: motionPlan,
+          plan: activeMotionPlan,
           reducedMotion,
           timeSeconds,
         },
         selectedTarget: nextSelectedTarget,
         shipMotionSamples,
         targets,
-        width: canvasSize.x,
+        width: activeCanvasSize.x,
         world,
         assets: assetManager,
       });
@@ -294,7 +373,7 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
         ...renderMetrics,
         drawDurationMs: performance.now() - drawStartedAt,
       };
-      if (criticalAssetAttemptsSettled && !criticalFramePaintedRef.current) {
+      if (activeCriticalSettled && !criticalFramePaintedRef.current) {
         criticalFramePaintedRef.current = true;
         setCriticalFramePainted(true);
       }
@@ -307,20 +386,23 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
         animationFramePending: animationFramePendingRef.current,
         frameCount: motionFrameCountRef.current,
         frameState: nextFrameState,
-        motionPlan,
+        motionPlan: activeMotionPlan,
         reducedMotion,
         renderMetrics: lastRenderMetricsRef.current,
         assetLoadStats: assetManager.getLoadStats(),
-        selectedDetailId,
+        selectedDetailId: activeSelectedDetailId,
         world,
       });
     };
     drawFrame(performance.now());
     return () => {
       animationFramePendingRef.current = false;
+      lastWallRef.current = null;
+      accSecondsRef.current = 0;
+      pendingResumeRef.current = false;
       if (frameId) cancelAnimationFrame(frameId);
     };
-  }, [assetLoadTick, assetManager, camera, canvasSize.x, canvasSize.y, criticalAssetAttemptsSettled, hoveredDetailId, motionPlan, reducedMotion, selectedDetailId, world]);
+  }, [assetLoadTick, assetManager, cameraReady, canvasSize.x, canvasSize.y, paintRequestTick, reducedMotion, world]);
 
   useEffect(() => {
     if (import.meta.env.PROD && window.location.hostname !== "localhost") return;
@@ -372,25 +454,39 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
     };
   }, []);
 
+  const recomputeHitTargets = useCallback(() => {
+    const activeCamera = cameraRef.current;
+    if (!activeCamera) return currentHitTargetsRef.current;
+    const activeCanvasSize = canvasSizeRef.current;
+    const targets = collectHitTargets({
+      assets: assetManager,
+      camera: activeCamera,
+      hoveredDetailId: hoveredDetailIdRef.current,
+      selectedDetailId: selectedDetailIdRef.current,
+      shipMotionSamples: currentShipMotionSamplesRef.current,
+      viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
+      world,
+    });
+    currentHitTargetsRef.current = targets;
+    return targets;
+  }, [assetManager, world]);
+
+  // Keep hit-targets in sync with state-driven inputs that affect them:
+  // hover, selection, camera (pan/zoom/follow), and canvas size. Ship-cell
+  // transitions are handled in-frame by the RAF effect via cell-hash diffing.
+  useEffect(() => {
+    recomputeHitTargets();
+    if (reducedMotion) setPaintRequestTick((t) => t + 1);
+  }, [camera, canvasSize.x, canvasSize.y, hoveredDetailId, recomputeHitTargets, reducedMotion, selectedDetailId]);
+
   const updateHover = useCallback((point: ScreenPoint) => {
     const target = hitTest(currentHitTargetsRef.current, point);
     setHoveredDetailId((previous) => previous === target?.detailId ? previous : (target?.detailId ?? null));
   }, []);
 
   const collectCurrentHitTargets = useCallback(() => {
-    if (!camera) return currentHitTargetsRef.current;
-    const targets = collectHitTargets({
-      assets: assetManager,
-      camera,
-      hoveredDetailId,
-      selectedDetailId,
-      shipMotionSamples: currentShipMotionSamplesRef.current,
-      viewport: { height: canvasSize.y, width: canvasSize.x },
-      world,
-    });
-    currentHitTargetsRef.current = targets;
-    return targets;
-  }, [assetManager, camera, canvasSize.x, canvasSize.y, hoveredDetailId, selectedDetailId, world]);
+    return currentHitTargetsRef.current;
+  }, []);
 
   const handlePointerDown = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -567,6 +663,11 @@ export function PharosVilleWorld({ world }: { world: PharosVilleWorldModel }) {
   );
 }
 
+// Memoized so re-renders triggered by parent (e.g. from React Query refetches that
+// produce identical payloads) don't reach the canvas component when `world` reference
+// is stable. Pairs with the structural-compare cache in `pharosville-desktop-data.tsx`.
+export const PharosVilleWorld = memo(PharosVilleWorldInner);
+
 interface DetailAnchor extends ScreenPoint {
   side: "left" | "right";
 }
@@ -657,6 +758,24 @@ type MotionCueCounts = {
 
 const PHAROSVILLE_AMBIENT_BIRD_CAP = 9;
 const PHAROSVILLE_HARBOR_LIGHT_CAP = 3;
+
+// Hash visible ships by their integer tile cell; if any ship crosses a tile
+// boundary the hash changes and the RAF effect rebuilds hit-targets eagerly.
+function shipCellHash(
+  samples: ReadonlyMap<string, ShipMotionSample>,
+  world: PharosVilleWorldModel,
+): string {
+  const shipsById = new Map(world.ships.map((ship) => [ship.id, ship]));
+  const parts: string[] = [];
+  for (const sample of samples.values()) {
+    const ship = shipsById.get(sample.shipId);
+    if (!ship) continue;
+    if (!isShipMapVisible(ship, sample)) continue;
+    parts.push(`${sample.shipId}:${Math.floor(sample.tile.x)},${Math.floor(sample.tile.y)}`);
+  }
+  parts.sort();
+  return parts.join("|");
+}
 
 function collectShipMotionSamples(input: {
   motionPlan: ReturnType<typeof buildMotionPlan>;

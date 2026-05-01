@@ -231,7 +231,7 @@ describe("buildPharosVilleMap", () => {
     expect(EVM_BAY_DOCK_TILES).toEqual([
       { x: 43, y: 31 },
       { x: 37, y: 39 },
-      { x: 35, y: 40 },
+      { x: 32, y: 41 },
       { x: 41, y: 27 },
       { x: 26, y: 39 },
       { x: 42, y: 34 },

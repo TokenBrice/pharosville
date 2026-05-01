@@ -1,3 +1,4 @@
+import { tileKindAt } from "../../systems/world-layout";
 import { TILE_HEIGHT, TILE_WIDTH, tileToScreen } from "../../systems/projection";
 import { drawDiamond, drawSignBoard } from "../canvas-primitives";
 import { drawableDepth, type WorldDrawable } from "../drawable-pass";
@@ -82,6 +83,58 @@ const SCENERY_PROPS: readonly SceneryProp[] = [
   { id: "lighthouse-lamp", kind: "harbor-lamp", tile: { x: 17.2, y: 29.0 }, scale: 0.7 },
 ] as const;
 
+const lampSeawardTileCache = new Map<string, { x: number; y: number } | null>();
+
+function seawardTileForLamp(prop: SceneryProp): { x: number; y: number } | null {
+  const cached = lampSeawardTileCache.get(prop.id);
+  if (cached !== undefined) return cached;
+  const baseX = Math.round(prop.tile.x);
+  const baseY = Math.round(prop.tile.y);
+  const cardinals = [
+    { dx: 1, dy: 0 },
+    { dx: -1, dy: 0 },
+    { dx: 0, dy: 1 },
+    { dx: 0, dy: -1 },
+  ];
+  for (let step = 1; step <= 2; step += 1) {
+    for (const dir of cardinals) {
+      const tx = baseX + dir.dx * step;
+      const ty = baseY + dir.dy * step;
+      if (tileKindAt(tx, ty) === "water" || tileKindAt(tx, ty) === "deep-water") {
+        const tile = { x: prop.tile.x + dir.dx * step, y: prop.tile.y + dir.dy * step };
+        lampSeawardTileCache.set(prop.id, tile);
+        return tile;
+      }
+    }
+  }
+  lampSeawardTileCache.set(prop.id, null);
+  return null;
+}
+
+function drawLampLightCone(input: DrawPharosVilleInput, prop: SceneryProp) {
+  const seaward = seawardTileForLamp(prop);
+  if (!seaward) return;
+  const { camera, ctx, motion } = input;
+  const center = tileToScreen(seaward, camera);
+  const baseAlpha = 0.18;
+  const breath = 0.06;
+  const alpha = motion.reducedMotion
+    ? baseAlpha
+    : baseAlpha + breath * Math.sin(motion.timeSeconds * 0.9 + prop.tile.y);
+  const rx = TILE_WIDTH * 0.7 * camera.zoom;
+  const ry = TILE_HEIGHT * 0.6 * camera.zoom;
+  const gradient = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, rx);
+  gradient.addColorStop(0, `rgba(255, 196, 102, ${alpha})`);
+  gradient.addColorStop(1, "rgba(255, 196, 102, 0)");
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.ellipse(center.x, center.y, rx, ry, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
 export function sceneryDrawables(input: DrawPharosVilleInput): WorldDrawable[] {
   return SCENERY_PROPS.map((prop) => sceneryDrawable(input, prop));
 }
@@ -115,6 +168,7 @@ function drawSceneryProp(input: DrawPharosVilleInput, prop: SceneryProp) {
     const bob = Math.sin(time * 0.9 + prop.tile.x) * 1.2 * scale;
     drawBuoy(ctx, p.x, p.y + bob, scale);
   } else if (prop.kind === "harbor-lamp") {
+    drawLampLightCone(input, prop);
     drawLamp(ctx, p.x, p.y, scale, time * 0.9 + prop.tile.y);
   } else if (prop.kind === "crate-stack") {
     drawCrateStack(ctx, p.x, p.y, scale);

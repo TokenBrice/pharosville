@@ -11,6 +11,12 @@ export function smoothstep(value: number) {
   return clamped * clamped * (3 - 2 * clamped);
 }
 
+export function smoothstepRange(edge0: number, edge1: number, value: number) {
+  if (edge0 === edge1) return value < edge0 ? 0 : 1;
+  const t = clamp((value - edge0) / (edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
 export function positiveModulo(value: number, divisor: number) {
   return ((value % divisor) + divisor) % divisor;
 }
