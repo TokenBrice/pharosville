@@ -14,6 +14,7 @@ import type {
   PharosVilleFreshness,
   PharosVilleMap,
   PharosVilleWorld,
+  SelectableWorldEntity,
   ShipNode,
 } from "../world-types";
 
@@ -30,7 +31,7 @@ export interface PharosVilleInputs {
   routeMode?: PharosVilleWorld["routeMode"];
 }
 
-export type PharosVilleWorldBase = Omit<PharosVilleWorld, "detailIndex" | "visualCues">;
+export type PharosVilleWorldBase = Omit<PharosVilleWorld, "detailIndex" | "entityById" | "visualCues">;
 
 export interface BuildWorldScaffoldStage {
   map: PharosVilleMap;
@@ -50,4 +51,5 @@ export interface DockAssignmentStage {
 
 export interface DetailIndexStage {
   detailIndex: Record<string, DetailModel>;
+  entityById: Record<string, SelectableWorldEntity>;
 }

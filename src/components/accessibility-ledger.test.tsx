@@ -99,6 +99,7 @@ function sampleWorld(): PharosVilleWorld {
     graves: [],
     effects: [],
     detailIndex: {},
+    entityById: {},
     legends: [],
     visualCues: buildVisualCueRegistry(),
   };

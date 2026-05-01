@@ -8,6 +8,7 @@ import { WorldToolbar } from "./components/world-toolbar";
 import { useAssetLoadingPipeline } from "./hooks/use-asset-loading-pipeline";
 import { useCanvasResizeAndCamera } from "./hooks/use-canvas-resize-and-camera";
 import { useFullscreenMode } from "./hooks/use-fullscreen-mode";
+import { useLatestRef } from "./hooks/use-latest-ref";
 import { useWorldRenderLoop } from "./hooks/use-world-render-loop";
 import { createHitTargetSnapshot, type HitTarget, type HitTargetSnapshot } from "./renderer/hit-testing";
 import { buildBaseMotionPlan, buildMotionPlan, motionPlanSignature, type ShipMotionSample } from "./systems/motion";
@@ -34,20 +35,17 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const baseMotionPlan = useMemo(() => buildBaseMotionPlan(world), [baseMotionPlanSignature]);
   const motionPlan = useMemo(() => buildMotionPlan(world, selectedDetailId, baseMotionPlan), [baseMotionPlan, selectedDetailId, world]);
   const shipsById = useMemo(() => new Map(world.ships.map((ship) => [ship.id, ship])), [world.ships]);
-  const selectedEntity = useMemo(() => findWorldEntity(world, selectedDetailId), [selectedDetailId, world]);
+  const selectedEntity = selectedDetailId ? world.entityById[selectedDetailId] ?? null : null;
   const selectedDetail = selectedDetailId ? world.detailIndex[selectedDetailId] ?? null : null;
 
   // Refs that mirror frequently-changing state so hook-internal effects/RAF can
   // read the latest values without rebinding on every hover/select/motionPlan
-  // change. Synced via a single effect so they stay coherent.
-  const hoveredDetailIdRef = useRef(hoveredDetailId);
-  const selectedDetailIdRef = useRef(selectedDetailId);
-  const motionPlanRef = useRef(motionPlan);
-  useEffect(() => {
-    hoveredDetailIdRef.current = hoveredDetailId;
-    selectedDetailIdRef.current = selectedDetailId;
-    motionPlanRef.current = motionPlan;
-  }, [hoveredDetailId, motionPlan, selectedDetailId]);
+  // change. Updated synchronously during render via `useLatestRef` so they
+  // stay coherent without an extra sync effect (and survive StrictMode
+  // double-invokes).
+  const hoveredDetailIdRef = useLatestRef(hoveredDetailId);
+  const selectedDetailIdRef = useLatestRef(selectedDetailId);
+  const motionPlanRef = useLatestRef(motionPlan);
 
   // Cross-hook shared refs: filled by the render loop, read by the canvas
   // hook (for hover/select hit-testing) and by the recompute callback.
@@ -273,20 +271,3 @@ function detailAnchorForPoint(point: ScreenPoint, viewport: ScreenPoint): Detail
   return { ...point, side };
 }
 
-type SelectableWorldEntity =
-  | PharosVilleWorldModel["lighthouse"]
-  | PharosVilleWorldModel["docks"][number]
-  | PharosVilleWorldModel["ships"][number]
-  | PharosVilleWorldModel["areas"][number]
-  | PharosVilleWorldModel["graves"][number];
-
-function findWorldEntity(world: PharosVilleWorldModel, detailId: string | null): SelectableWorldEntity | null {
-  if (!detailId) return null;
-  return [
-    world.lighthouse,
-    ...world.docks,
-    ...world.ships,
-    ...world.areas,
-    ...world.graves,
-  ].find((entity) => entity.detailId === detailId) ?? null;
-}

@@ -38,6 +38,7 @@ export function buildPharosVilleWorld(inputs: PharosVilleInputs): PharosVilleWor
   return {
     ...baseWorld,
     detailIndex: detailIndexStage.detailIndex,
+    entityById: detailIndexStage.entityById,
     visualCues: buildVisualCueRegistry(),
   };
 }

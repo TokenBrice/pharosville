@@ -301,6 +301,13 @@ export interface PharosVilleFreshness {
   reportCardsStale?: boolean;
 }
 
+export type SelectableWorldEntity =
+  | LighthouseNode
+  | DockNode
+  | ShipNode
+  | AreaNode
+  | GraveNode;
+
 export interface PharosVilleWorld {
   generatedAt: number;
   routeMode: RouteMode;
@@ -313,6 +320,9 @@ export interface PharosVilleWorld {
   graves: GraveNode[];
   effects: WorldEffect[];
   detailIndex: Record<string, DetailModel>;
+  // Keyed by `detailId` (the same key used by `detailIndex`) so detail-panel
+  // selection can resolve the source entity in O(1) without a linear scan.
+  entityById: Record<string, SelectableWorldEntity>;
   legends: LegendItem[];
   visualCues: VisualCue[];
 }
