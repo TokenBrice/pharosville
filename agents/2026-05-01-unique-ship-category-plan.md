@@ -56,13 +56,13 @@ The unique tier exists because the titan tier conflates two ideas: "biggest by m
 ## File Structure
 
 **New files:**
-- `src/systems/unique-ships.ts` — pure registry (definitions, sprite-id Set, helpers)
-- `src/systems/unique-ships.test.ts` — registry assertions
-- `public/pharosville/assets/ships/crvusd-unique.png`
-- `public/pharosville/assets/ships/bold-unique.png`
-- `public/pharosville/assets/ships/fxusd-unique.png`
-- `public/pharosville/assets/ships/xaut-unique.png`
-- `public/pharosville/assets/ships/paxg-unique.png`
+- `unique-ships` registry module — pure registry (definitions, sprite-id Set, helpers)
+- `unique-ships` test module — registry assertions
+- `ship.crvusd-unique` sprite asset
+- `ship.bold-unique` sprite asset
+- `ship.fxusd-unique` sprite asset
+- `ship.xaut-unique` sprite asset
+- `ship.paxg-unique` sprite asset
 
 **Modified files:**
 - `src/systems/world-types.ts` — extend `ShipSizeTier` union with `"unique"`; add `uniqueRationale?: string` to `ShipVisual`. **Same-commit constraint with `src/renderer/layers/ships.ts` priority-map update — see Step 1.1 / Step 6.5.**
@@ -75,7 +75,7 @@ The unique tier exists because the titan tier conflates two ideas: "biggest by m
 - `src/renderer/ship-sail-tint.test.ts` — register unique sprite assets in `SHIP_ASSET_FILES`; add a new `UNTUNED_UNIQUE_IDS` Set for sprites whose painted sail color falls outside `isSailTintPixel`'s recognised range (expected: at minimum BOLD, xAUT, PAXG); update the exact-set assertion to filter by **both** `UNTUNED_TITAN_IDS` AND `UNTUNED_UNIQUE_IDS` (see Step 7.2 for the exact filter pattern).
 - `src/systems/motion-planning.ts` — extend `isShipMapVisible` so `sizeTier === "titan" || sizeTier === "unique"` keep map visibility while moored.
 - `src/systems/pharosville-world/stages/dock-assignment.ts` — extend `dockMooringDepthBonus` and `dockMooringBarrierClearance` switches: `unique` matches `flagship` values (depth bonus 2, clearance 3.3).
-- `src/systems/pharosville-world/stages/dock-assignment.test.ts` — add coverage for unique tier mooring placement.
+- `pharosville-world` dock-assignment test coverage for unique-tier mooring placement.
 - `src/systems/detail-model.ts` — when `node.visual.uniqueRationale` is present, append a fact line `{ label: "Cultural significance", value: rationale }` directly after the existing `Size tier` line.
 - `src/systems/detail-model.test.ts` — assert unique ships expose the new fact line; standard ships do not.
 - `src/systems/pharosville-world.test.ts` — has a hard-coded `"Titan"` assertion (line ~87) that may need updating if any unique-ship fixture asset is referenced. Audit during Step 8.
@@ -117,7 +117,7 @@ The unique tier exists because the titan tier conflates two ideas: "biggest by m
     | "unknown";
   ```
 - [ ] **1.2** Add `uniqueRationale?: string` to the `ShipVisual` interface (alongside `spriteAssetId`).
-- [ ] **1.3** Create `src/systems/unique-ships.ts`:
+- [ ] **1.3** Create the `unique-ships` registry module:
   ```ts
   import type { StablecoinData } from "@shared/types";
 
@@ -143,14 +143,14 @@ The unique tier exists because the titan tier conflates two ideas: "biggest by m
     return UNIQUE_SHIP_DEFINITIONS[asset.id as keyof typeof UNIQUE_SHIP_DEFINITIONS] ?? null;
   }
   ```
-- [ ] **1.4** Create `src/systems/unique-ships.test.ts`:
+- [ ] **1.4** Create the registry test module:
   - Asserts every entry's sprite id matches `^ship\.[a-z0-9-]+-unique$`.
   - Asserts every rationale is non-empty and ≤ 90 chars.
   - Asserts every scale is in `[1.45, 1.55]`.
   - Asserts no overlap between `Object.keys(UNIQUE_SHIP_DEFINITIONS)` and the seven titan stablecoin ids (read `TITAN_SHIP_ASSET_IDS` from `ship-visuals.ts`).
   - Asserts `UNIQUE_SPRITE_IDS.size === 5` (no duplicate sprite ids).
 
-✅ **Verify:** `npm test -- src/systems/unique-ships.test.ts` passes; `npm run typecheck` clean.
+✅ **Verify:** New registry test module passes; `npm run typecheck` clean.
 
 ### 2. Wire unique resolution into `resolveShipVisual`
 
@@ -193,9 +193,9 @@ The unique tier exists because the titan tier conflates two ideas: "biggest by m
   ```
   > **Palette notes:** `bold-liquity` uses oxblood `#7a2424` (darker than scarlet) so the hull doesn't visually merge with Danger Strait storm-water palette. `xaut-tether` uses Tether's actual teal `#009393` as primary with gold *trim only* — differentiates from PAXG warm-gold and from the lighthouse bronze-beacon glow.
 - [ ] **3.2** Verify `crvusd-curve` existing entry still works with the new sprite. The existing Curve livery is green-and-cream (`#41956b` / `#d9ecdf`), and the new sprite is authored to harmonise with it (see Step 4.1 prompt). Re-tune accent/sailColor only if visual review surfaces a clash.
-- [ ] **3.3** Add a test in `src/systems/stablecoin-ship-branding.test.ts` (create if absent): "every UNIQUE_SHIP_DEFINITIONS id has an explicit `stablecoin-logo` source via `resolveStablecoinShipBranding`" — uses the public `resolveStablecoinShipBranding(id, meta)` API and asserts `result.source === "stablecoin-logo"` (do NOT reach into the private `STABLECOIN_SAIL_COLORS` map).
+- [ ] **3.3** Add a branding test for unique-tier stablecoins using the public `resolveStablecoinShipBranding` API, asserting `result.source === "stablecoin-logo"` for each configured id.
 
-✅ **Verify:** `npm test -- src/systems/stablecoin-ship-branding.test.ts` passes.
+✅ **Verify:** Branding tests for unique-tier entries pass.
 
 ### 4. PixelLab sprite generation
 
@@ -276,7 +276,7 @@ Sub-tasks (each produces one PNG + one manifest entry):
 - [ ] **6.1** In `src/renderer/layers/ships.ts`, add to `SHIP_SAIL_MARKS` the five sprite ids with sail-mark offsets matching the painted sail polygon of each new sprite (eyeballed from the PNG; pinned by visual review). Approximate starting values for 136×100 sprites: `{ height: 18-20, width: 21-23, x: 5-7, y: -42 to -46 }`.
 - [ ] **6.2** Add to `SHIP_PEG_MARKS`: peg-mark offsets for each of the five ids. Approximate for 136×100: `{ size: 6.4-6.8, x: -25 to -28, y: -56 to -60 }`.
 - [ ] **6.3** Add to `SHIP_TRIM_MARKS`: rail/keel/stern/deck offsets for each of the five sprite ids.
-- [ ] **6.4** Import `UNIQUE_SPRITE_IDS` from `src/systems/unique-ships.ts` (already exported in Step 1.3 — do NOT redeclare). Add a thin `isUniqueSprite(ship)` helper mirroring `isTitanSprite(ship)`.
+- [ ] **6.4** Import `UNIQUE_SPRITE_IDS` from the unique registry module (already exported in Step 1.3 — do NOT redeclare). Add a thin `isUniqueSprite(ship)` helper mirroring `isTitanSprite(ship)`.
 - [ ] **6.5** **(SAME COMMIT AS STEP 1.1.)** Update `SHIP_SIZE_TIER_PRIORITY` so it remains exhaustive over the union: add `unique: 6` (between `titan: 7` and `flagship: 5`).
 - [ ] **6.6** Extend the LOD `preserve` predicate (find by reading the surrounding `const titan = ship.visual.sizeTier === "titan" || isTitanSprite(ship); const preserve = selected || hovered || titan;` pattern):
   ```ts
@@ -324,7 +324,7 @@ Sub-tasks (each produces one PNG + one manifest entry):
 - [ ] **8.3** Extend `src/systems/motion.test.ts` "hides only non-titan ships while they are moored" → rename to "hides only non-titan, non-unique ships while they are moored".
 - [ ] **8.4** Audit `src/systems/pharosville-world.test.ts` (line ~87 has a hard-coded `"Titan"` assertion). If it references a fixture that includes any of the five unique stablecoin ids, the assertion will read `"Heritage hull"` instead and need updating. Fix in the same commit as the `sizeLabel` resolver change (Step 2).
 - [ ] **8.5** In `src/systems/pharosville-world/stages/dock-assignment.ts`, extend the two switch statements to include `case "unique":` returning the same values as `case "flagship":` (depth bonus 2, clearance 3.3). Co-locate the new case directly after `case "titan":` for readability.
-- [ ] **8.6** Add coverage in `src/systems/pharosville-world/stages/dock-assignment.test.ts`: "unique tier ships moor at flagship-tier depth/clearance".
+- [ ] **8.6** Add coverage for unique-tier ships mooring at flagship-tier depth/clearance.
 
 ✅ **Verify:** `npm test -- src/systems` passes.
 
@@ -348,7 +348,7 @@ Sub-tasks (each produces one PNG + one manifest entry):
 ### 10. Docs
 
 - [ ] **10.1** In `docs/pharosville/CURRENT.md`, in the "Current Visual Model" section after the existing titan paragraph (the squad section), add a new paragraph:
-  > Heritage hulls (unique tier) sit between titans and standard hulls and are curated by cultural significance rather than market cap. Members get dedicated 136×100 PixelLab sprites (single-frame, deferred load) and stay visible/selectable while moored, but skip titan-only chrome (foam, spray, full pose, sail flutter). The current registry in `src/systems/unique-ships.ts` covers crvUSD (Curve / llama), BOLD (Liquity / spartan), fxUSD (f(x) Protocol / mathematical livery), xAUT (Tether gold barge), and PAXG (Paxos gilded merchantman). All five sprites share an oxidized-bronze masthead lantern and cream bowsprit pennant as a tier-unifying device. Each carries a per-ship rationale string surfaced as a "Cultural significance" line in the detail panel and accessibility ledger.
+  > Heritage hulls (unique tier) sit between titans and standard hulls and are curated by cultural significance rather than market cap. Members get dedicated 136×100 PixelLab sprites (single-frame, deferred load) and stay visible/selectable while moored, but skip titan-only chrome (foam, spray, full pose, sail flutter). The current registry covers crvUSD (Curve / llama), BOLD (Liquity / spartan), fxUSD (f(x) Protocol / mathematical livery), xAUT (Tether gold barge), and PAXG (Paxos gilded merchantman). All five sprites share an oxidized-bronze masthead lantern and cream bowsprit pennant as a tier-unifying device. Each carries a per-ship rationale string surfaced as a "Cultural significance" line in the detail panel and accessibility ledger.
 - [ ] **10.2** Refresh the manifest count line in `CURRENT.md` (currently *stale* at "34 runtime assets, 23 critical / 11 deferred"). The actual current state is 38/25/13; post-change becomes **43 runtime, 25 critical / 18 deferred**. Re-run `npm run check:pharosville-assets` to confirm before committing.
 - [ ] **10.3** In `docs/pharosville/ASSET_PIPELINE.md`, add a short subsection under the Sprite Bible noting unique-tier (heritage hull) sprites are static (single-frame) deferred PNGs at 136×100 with no animation block, and noting the validator cap was bumped to 45.
 - [ ] **10.4** In `docs/pharosville-page.md`:
