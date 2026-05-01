@@ -26,14 +26,34 @@ layout, asset, renderer, test, and docs change:
 - `LIGHTHOUSE_TILE` remains `{ x: 18, y: 28 }` and the visual-clearance box
   remains `x:14..24, y:23..32`.
 - Runtime asset cache version is
-  `2026-05-01-lighthouse-eth-scale-v1`; the manifest-wide style
+  `2026-05-01-pharosville-island-coherence-v1`; the manifest-wide style
   anchor remains `2026-04-29-lighthouse-hill-v5` so all asset provenance stays
-  validator-aligned.
-- Promoted PixelLab assets are `overlay.central-island`
-  (`25ee8636-32f7-4aa1-bb29-f924cbb4fc01`),
-  `landmark.lighthouse` (`3b89b603-35ce-4b87-97fb-37a3fc8d913f`), and
-  `dock.compact-harbor-pier` (`31155966-7d76-413a-bd7b-557f79cffc9f`), with
-  runtime promotion recorded in the manifest provenance.
+  validator-aligned. The static-scene cache key in `src/renderer/world-canvas.ts`
+  includes `manifestCacheVersion`, so bumping `style.cacheVersion` invalidates
+  the in-memory `staticLayerCache` rather than just the browser HTTP cache.
+- The land-tile substrate is the limestone-family PixelLab tile pack
+  (`terrain.land`, `terrain.land-scrub`, `terrain.shore`, batch
+  `7b5aca9d-4984-4409-b1fe-76c1f781696f` seed `50501`); `landAssetIdFor`
+  in `src/renderer/layers/terrain.ts` picks `terrain.land` vs
+  `terrain.land-scrub` per tile via a 2D PRNG hash to break the iso-diagonal
+  banding that a small-prime mod would have produced.
+- The lighthouse rests on `overlay.lighthouse-headland` (384x192, PixelLab job
+  `be1f0841-b378-48b5-9fb4-7f3e8749c92d`, post-processed in scratch with an
+  ImageMagick sky color-key plus radial alpha vignette so its edges feather
+  into surrounding tiles). It is drawn from the previously empty
+  `drawLighthouseHeadland` stub at `camera.zoom * 0.5` so the sprite covers
+  ~6 tiles around `LIGHTHOUSE_TILE` rather than overrunning the southern
+  island half.
+- Perimeter masonry is rendered solely by full-opacity `overlay.seawall-*`
+  PNG placements in `harbor-district.ts` (16 entries with `flipX` plus per-
+  placement `alphaJitter` to break stamp rhythm). The procedural
+  `drawSeawallRun` taupe-and-light strokes that the previous build relied on
+  are deleted. `overlay.seawall-straight` was regenerated to 160x96
+  (PixelLab `3ff6e65f-e080-4971-ae3e-70dd9f0fb8b2`) so it reads as a wall
+  not a curb; `overlay.seawall-corner` is unchanged.
+- `overlay.central-island` and `drawCentralIslandModel` are retired. The
+  diorama PNG was already dead code (no callers), and removing it lets the
+  limestone tile pack carry the visible ground without a competing overlay.
 
 Historical plans in this directory are context, not live instructions. If they conflict with this file, follow this file and the verified docs.
 
@@ -99,7 +119,7 @@ generic water.
 - Stale or missing peg evidence maps to Calm Anchorage with an evidence caveat unless a fresher risk signal exists; it must not create a separate sea zone or masquerade as storm/depeg risk.
 - Stablecoin supply values from the list payload are already USD-denominated. Use `getCirculatingRaw()` for market-cap visual tiers.
 - Local runtime assets come from `public/pharosville/assets/` and `manifest.json`. Do not reference remote prototype URLs at runtime.
-- Treat `public/pharosville/assets/manifest.json` and `npm run check:pharosville-assets` as the asset inventory source of truth. At this update, the manifest contains 34 runtime assets split by `loadPriority` into 24 critical/first-render entries and 10 deferred entries; rerun the validator instead of hand-maintaining prose counts.
+- Treat `public/pharosville/assets/manifest.json` and `npm run check:pharosville-assets` as the asset inventory source of truth. At this update, the manifest contains 35 runtime assets (cap bumped from 34 in `scripts/pharosville/validate-assets.mjs:24` to fund the limestone tile-pack `terrain.land-scrub` variant), split by `loadPriority` into 24 critical/first-render entries and 11 deferred entries; rerun the validator instead of hand-maintaining prose counts.
 
 ## Current Visual Model
 
@@ -124,7 +144,7 @@ generic water.
 - Ship size is a compressed market-cap tier, not linear area.
 - The current runtime manifest uses schema v2. `style.cacheVersion` controls image cache busting; `style.styleAnchorVersion` is the provenance/style anchor for generated assets.
 - Asset loading is intentionally staged: the route loads the manifest and critical/first-render sprites before the initial canvas frame, then loads deferred sprite families after the core scene can render. Do not move visual-only sprites into the critical set without checking first-render need and the manifest cap.
-- The current lighthouse asset is `landmark.lighthouse` at `public/pharosville/assets/landmarks/lighthouse-alexandria.png`, with manifest cache version `2026-05-01-lighthouse-eth-scale-v1` and style anchor `2026-04-29-lighthouse-hill-v5`.
+- The current lighthouse asset is `landmark.lighthouse` at `public/pharosville/assets/landmarks/lighthouse-alexandria.png`, with manifest cache version `2026-05-01-pharosville-island-coherence-v1` and style anchor `2026-04-29-lighthouse-hill-v5`.
 - Current ship sprites share the lighthouse style anchor, keep logo-safe sail/pennant zones, and treat overlays as small lanterns/pennants/signals rather than badges. Standard class hulls use 104 x 80 transparent PNGs; USDC, USDS, and USDT use dedicated titan hull PNGs, with USDS a bit smaller than USDC and USDT allowed to read larger than both.
 - Current cemetery props share the same style anchor and use a local memorial sprite set under `public/pharosville/assets/props/`: `memorial-terrace`, `memorial-headstone`, `ledger-slab`, `reliquary-marker`, and `regulatory-obelisk`.
 

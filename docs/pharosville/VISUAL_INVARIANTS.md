@@ -1,6 +1,6 @@
 # PharosVille Visual Invariants
 
-Last updated: 2026-04-30
+Last updated: 2026-05-01
 
 These are the non-negotiable visual/data contracts for the PharosVille world. A change that violates one of these is a product behavior change and needs explicit intent plus matching tests and docs.
 
@@ -23,7 +23,7 @@ These are the non-negotiable visual/data contracts for the PharosVille world. A 
 
 - The current map acceptance target is a sea-first isometric island with roughly 85.2-85.6% water by tile count after the compact main-island revamp.
 - The compact main island is pinned to 393 main-island land tiles, excluding the cemetery islet, down from the 592-tile baseline. This shrink must preserve the authored `56 x 56` map, current named DEWS sea-zone semantics, Ledger Mooring as the only non-DEWS named risk-water area, ship route semantics, same-origin `/api/*`, and the desktop gate.
-- The lighthouse stays on the generated central-island mountain at `LIGHTHOUSE_TILE`.
+- The lighthouse stays at `LIGHTHOUSE_TILE = { x: 18, y: 28 }` and visually rests on `overlay.lighthouse-headland`, the limestone outcrop drawn beneath it from `drawLighthouseHeadland`. The retired `overlay.central-island` diorama is no longer painted; the headland sprite plus the limestone-family land tile pack (`terrain.land`, `terrain.land-scrub`, `terrain.shore`) carry the central island ground.
 - The eastern and southern coves keep Ethereum, Base, Arbitrum, Optimism, Polygon, and Mantle in preferred dock positions when those chains are rendered.
 - Docks are capped by `MAX_CHAIN_HARBORS`; they reserve the Ethereum/L2 harbor cluster when present, then fill remaining slots by chain stablecoin supply.
 - Ethereum's harbor may be selected as a dock, but its four-gate hub body must read as backgrounded water infrastructure with ships rendering over it.
@@ -72,7 +72,7 @@ These are the non-negotiable visual/data contracts for the PharosVille world. A 
 
 - Local runtime art comes from `public/pharosville/assets/manifest.json`; no generated remote URLs or prototype paths at runtime.
 - Manifest assets must stay local PNGs with `critical` or `deferred` load priority, accurate dimensions, anchors, footprints, hitboxes, category/layer metadata, and prompt provenance when generated.
-- The current v0.1 manifest budget is 34 total runtime assets; first-render/critical membership should stay narrow and justified by visible initial-frame need.
+- The current v0.1 manifest budget is 35 total runtime assets (raised from 34 to fund the limestone tile-pack `terrain.land-scrub` variant); first-render/critical membership should stay narrow and justified by visible initial-frame need.
 - The main-island revamp replaces existing island, lighthouse, and dock asset IDs in place. Keep critical/first-render membership stable unless a visible initial-frame need is documented.
 - Hit boxes must track rendered geometry, not just tile centers.
 - Asset geometry changes require manifest updates and hit-testing/visual validation.
