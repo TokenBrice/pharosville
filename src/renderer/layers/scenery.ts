@@ -16,7 +16,6 @@ type SceneryPropKind =
   | "harbor-lamp"
   | "mooring-posts"
   | "net-rack"
-  | "palm"
   | "reed-bed"
   | "reef"
   | "rock"
@@ -212,8 +211,6 @@ function drawSceneryProp(input: DrawPharosVilleInput, prop: SceneryProp) {
     drawMooringPosts(ctx, p.x, p.y, scale);
   } else if (prop.kind === "net-rack") {
     drawNetRack(ctx, p.x, p.y, scale);
-  } else if (prop.kind === "palm") {
-    drawPalm(ctx, p.x, p.y, scale);
   } else if (prop.kind === "reed-bed") {
     drawReedBed(ctx, p.x, p.y, scale);
   } else if (prop.kind === "reef") {
@@ -385,25 +382,6 @@ function drawNetRack(ctx: CanvasRenderingContext2D, x: number, y: number, scale:
   ctx.lineTo(x + 8 * scale, y - 4 * scale);
   ctx.stroke();
   ctx.restore();
-}
-
-function drawPalm(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
-  ctx.strokeStyle = "#4f331f";
-  ctx.lineWidth = Math.max(2, 3 * scale);
-  ctx.beginPath();
-  ctx.moveTo(x, y + 3 * scale);
-  ctx.lineTo(x + 4 * scale, y - 25 * scale);
-  ctx.stroke();
-  ctx.strokeStyle = "#2f7e48";
-  ctx.lineWidth = Math.max(2, 3.2 * scale);
-  for (const angle of [-0.9, -0.45, 0.05, 0.5, 0.95]) {
-    ctx.beginPath();
-    ctx.moveTo(x + 4 * scale, y - 25 * scale);
-    ctx.lineTo(x + 4 * scale + Math.cos(angle) * 15 * scale, y - 25 * scale + Math.sin(angle) * 9 * scale);
-    ctx.stroke();
-  }
-  ctx.fillStyle = "rgba(7, 10, 12, 0.24)";
-  drawDiamond(ctx, x + 1 * scale, y + 4 * scale, 18 * scale, 7 * scale, ctx.fillStyle);
 }
 
 function drawReedBed(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
