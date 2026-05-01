@@ -8,7 +8,6 @@ import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-ty
 
 const CENTRAL_ISLAND_MODEL_TILE = { x: 31.0, y: 39.0 } as const;
 const CENTRAL_ISLAND_MODEL_SCALE = 1.08;
-const HARBOR_GATEWAY_TILE = { x: 32.0, y: 27.5 } as const;
 
 export function drawCentralIslandModel({ assets, camera, ctx }: DrawPharosVilleInput) {
   const islandAsset = assets?.get("overlay.central-island") ?? null;
@@ -36,13 +35,6 @@ export function drawCentralIslandModel({ assets, camera, ctx }: DrawPharosVilleI
     camera.zoom * CENTRAL_ISLAND_MODEL_SCALE,
   );
   ctx.restore();
-}
-
-export function drawHarborGateway({ assets, camera, ctx }: DrawPharosVilleInput) {
-  const asset = assets?.get("overlay.harbor-gateway") ?? null;
-  if (!asset) return;
-  const point = tileToScreen(HARBOR_GATEWAY_TILE, camera);
-  drawAsset(ctx, asset, point.x, point.y, camera.zoom);
 }
 
 export function drawHarborDistrictGround({ camera, ctx }: DrawPharosVilleInput) {
