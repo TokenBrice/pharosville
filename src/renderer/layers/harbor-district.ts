@@ -8,6 +8,7 @@ import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-ty
 
 const CENTRAL_ISLAND_MODEL_TILE = { x: 31.0, y: 39.0 } as const;
 const CENTRAL_ISLAND_MODEL_SCALE = 1.08;
+const HARBOR_GATEWAY_TILE = { x: 32.0, y: 27.5 } as const;
 
 export function drawCentralIslandModel({ assets, camera, ctx }: DrawPharosVilleInput) {
   const islandAsset = assets?.get("overlay.central-island") ?? null;
@@ -35,6 +36,13 @@ export function drawCentralIslandModel({ assets, camera, ctx }: DrawPharosVilleI
     camera.zoom * CENTRAL_ISLAND_MODEL_SCALE,
   );
   ctx.restore();
+}
+
+export function drawHarborGateway({ assets, camera, ctx }: DrawPharosVilleInput) {
+  const asset = assets?.get("overlay.harbor-gateway") ?? null;
+  if (!asset) return;
+  const point = tileToScreen(HARBOR_GATEWAY_TILE, camera);
+  drawAsset(ctx, asset, point.x, point.y, camera.zoom);
 }
 
 export function drawHarborDistrictGround({ camera, ctx }: DrawPharosVilleInput) {
@@ -195,45 +203,93 @@ function drawDistrictPad(
 }
 
 function drawSeawallRun(ctx: CanvasRenderingContext2D, camera: IsoCamera, tiles: readonly { x: number; y: number }[]) {
-  const points = tiles.map((tile) => tileToScreen(tile, camera));
+  const dense = densifySeawallTiles(tiles, 1.4);
+  const points = dense.map((tile) => tileToScreen(tile, camera));
   const [firstPoint, ...rest] = points;
   if (!firstPoint) return;
   ctx.save();
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  ctx.strokeStyle = "rgba(4, 8, 10, 0.34)";
+
+  // Foam trail just below the wall base
+  ctx.strokeStyle = "rgba(218, 238, 231, 0.32)";
   ctx.lineWidth = Math.max(3, 6 * camera.zoom);
   ctx.beginPath();
-  ctx.moveTo(firstPoint.x, firstPoint.y + 4 * camera.zoom);
-  for (const point of rest) ctx.lineTo(point.x, point.y + 4 * camera.zoom);
+  ctx.moveTo(firstPoint.x, firstPoint.y + 8 * camera.zoom);
+  for (const point of rest) ctx.lineTo(point.x, point.y + 8 * camera.zoom);
   ctx.stroke();
 
-  ctx.strokeStyle = "rgba(166, 146, 105, 0.66)";
-  ctx.lineWidth = Math.max(2, 3.6 * camera.zoom);
+  // Dark wall shadow
+  ctx.strokeStyle = "rgba(4, 8, 10, 0.46)";
+  ctx.lineWidth = Math.max(4, 8 * camera.zoom);
+  ctx.beginPath();
+  ctx.moveTo(firstPoint.x, firstPoint.y + 5 * camera.zoom);
+  for (const point of rest) ctx.lineTo(point.x, point.y + 5 * camera.zoom);
+  ctx.stroke();
+
+  // Limestone wall body
+  ctx.strokeStyle = "rgba(212, 195, 152, 0.86)";
+  ctx.lineWidth = Math.max(3, 5.4 * camera.zoom);
   ctx.beginPath();
   ctx.moveTo(firstPoint.x, firstPoint.y);
   for (const point of rest) ctx.lineTo(point.x, point.y);
   ctx.stroke();
 
-  ctx.strokeStyle = "rgba(232, 214, 166, 0.3)";
-  ctx.lineWidth = Math.max(1, 1.2 * camera.zoom);
+  // Terracotta tile cap on the wall
+  ctx.strokeStyle = "rgba(185, 86, 55, 0.6)";
+  ctx.lineWidth = Math.max(1, 1.6 * camera.zoom);
   ctx.beginPath();
-  ctx.moveTo(firstPoint.x - 3 * camera.zoom, firstPoint.y - 2 * camera.zoom);
-  for (const point of rest) ctx.lineTo(point.x - 3 * camera.zoom, point.y - 2 * camera.zoom);
+  ctx.moveTo(firstPoint.x, firstPoint.y - 2.6 * camera.zoom);
+  for (const point of rest) ctx.lineTo(point.x, point.y - 2.6 * camera.zoom);
   ctx.stroke();
 
+  // Crisp highlight stroke
+  ctx.strokeStyle = "rgba(248, 232, 188, 0.42)";
+  ctx.lineWidth = Math.max(1, 1.2 * camera.zoom);
+  ctx.beginPath();
+  ctx.moveTo(firstPoint.x - 3 * camera.zoom, firstPoint.y - 1.6 * camera.zoom);
+  for (const point of rest) ctx.lineTo(point.x - 3 * camera.zoom, point.y - 1.6 * camera.zoom);
+  ctx.stroke();
+
+  // Stone-block diamonds at every densified point + bronze rings every third
   for (const [index, point] of points.entries()) {
-    if (index % 2 !== 0 && index !== points.length - 1) continue;
     drawDiamond(
       ctx,
       point.x,
       point.y - 1.2 * camera.zoom,
-      10 * camera.zoom,
-      4.2 * camera.zoom,
-      "rgba(218, 197, 145, 0.38)",
+      8 * camera.zoom,
+      3.4 * camera.zoom,
+      "rgba(232, 211, 158, 0.55)",
     );
+    if (index % 3 === 1) {
+      ctx.fillStyle = "rgba(178, 122, 64, 0.78)";
+      ctx.beginPath();
+      ctx.arc(point.x, point.y - 0.4 * camera.zoom, 1.4 * camera.zoom, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
   ctx.restore();
+}
+
+function densifySeawallTiles(
+  tiles: readonly { x: number; y: number }[],
+  step: number,
+): { x: number; y: number }[] {
+  if (tiles.length < 2) return tiles.slice();
+  const out: { x: number; y: number }[] = [tiles[0]!];
+  for (let i = 0; i < tiles.length - 1; i += 1) {
+    const a = tiles[i]!;
+    const b = tiles[i + 1]!;
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const dist = Math.hypot(dx, dy);
+    const subdiv = Math.max(1, Math.round(dist / step));
+    for (let j = 1; j <= subdiv; j += 1) {
+      const t = j / subdiv;
+      out.push({ x: a.x + dx * t, y: a.y + dy * t });
+    }
+  }
+  return out;
 }
 
 function drawDistrictPaving(

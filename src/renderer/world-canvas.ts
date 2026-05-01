@@ -8,7 +8,7 @@ import { sceneryDrawables } from "./layers/scenery";
 import { drawShipBody, drawShipOverlay, drawShipWake, type ShipRenderState } from "./layers/ships";
 import { drawEntityLayer } from "./layers/entity-pass";
 import { drawCemeteryContext, drawCemeteryGround, drawCemeteryMist } from "./layers/cemetery";
-import { drawHarborDistrictGround } from "./layers/harbor-district";
+import { drawHarborDistrictGround, drawHarborGateway } from "./layers/harbor-district";
 import { drawTerrain } from "./layers/terrain";
 import { drawEthereumHarborSigns, drawWaterAreaLabels } from "./layers/water-labels";
 import { drawLighthouseBeamRim, drawLighthouseBody, drawLighthouseHeadland, drawLighthouseOverlay, drawLighthouseSurf, lighthouseOverlayScreenBounds, lighthouseRenderState, type LighthouseRenderState } from "./layers/lighthouse";
@@ -79,6 +79,7 @@ function paintStaticPass(input: DrawPharosVilleInput, frame: WorldCanvasFrame) {
   ctx.imageSmoothingEnabled = false;
   drawTerrain(input);
   drawHarborDistrictGround(input);
+  drawHarborGateway(input);
   drawBackgroundedHarborDocks(input, frame);
   drawCemeteryGround(input);
   drawLighthouseHeadland(input);

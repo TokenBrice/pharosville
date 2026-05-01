@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-05-01-pharosville-harbor-diversity-v6",
+    "cacheVersion": "2026-05-01-pharosville-harbor-diversity-v7",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": [
@@ -308,6 +308,42 @@
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
         "jobId": "25ee8636-32f7-4aa1-bb29-f924cbb4fc01",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "overlay.harbor-gateway",
+      "path": "overlays/harbor-gateway.png",
+      "category": "overlay",
+      "layer": "terrain",
+      "width": 280,
+      "height": 96,
+      "displayScale": 1,
+      "anchor": [
+        140,
+        84
+      ],
+      "footprint": [
+        240,
+        24
+      ],
+      "hitbox": [
+        12,
+        12,
+        256,
+        72
+      ],
+      "loadPriority": "deferred",
+      "promptKey": "overlay.harbor-gateway",
+      "semanticRole": "east-coast limestone harbor gateway between lighthouse and ethereum harbor",
+      "paletteKeys": [
+        "limestone",
+        "terracotta",
+        "bronze beacon"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
+      "promptProvenance": {
+        "jobId": "d092c77c-db50-473a-b4da-b3bc632d0906",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },
