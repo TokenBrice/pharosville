@@ -5,6 +5,9 @@ import type { PharosVilleWorld } from "../systems/world-types";
 import type { LoadedPharosVilleAsset } from "./asset-manager";
 import { drawableDepth } from "./drawable-pass";
 
+export const LIGHTHOUSE_DRAW_OFFSET = { x: 14, y: 24 } as const;
+export const LIGHTHOUSE_DRAW_SCALE = 1.02;
+
 export interface ScreenRect {
   height: number;
   width: number;
@@ -149,8 +152,9 @@ export function entityDrawGeometry(input: {
   let y = point.y;
   let drawScale = camera.zoom;
   if (entity.kind === "lighthouse") {
-    y += 18 * camera.zoom;
-    drawScale *= 1.04;
+    x += LIGHTHOUSE_DRAW_OFFSET.x * camera.zoom;
+    y += LIGHTHOUSE_DRAW_OFFSET.y * camera.zoom;
+    drawScale *= LIGHTHOUSE_DRAW_SCALE;
   } else if (entity.kind === "dock") {
     const draw = dockDrawPoint(entity, camera, mapWidth);
     x = draw.x;

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-05-01-pharosville-titan-motion-v1",
+    "cacheVersion": "2026-05-01-lighthouse-integrated-ground-v1",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": [
@@ -238,26 +238,26 @@
       "path": "landmarks/lighthouse-alexandria.png",
       "category": "landmark",
       "layer": "landmarks",
-      "width": 320,
-      "height": 320,
-      "displayScale": 0.82,
+      "width": 256,
+      "height": 256,
+      "displayScale": 1,
       "anchor": [
-        160,
-        319
+        128,
+        245
       ],
       "beacon": [
-        160,
-        167
+        128,
+        47
       ],
       "footprint": [
-        74,
-        46
+        132,
+        70
       ],
       "hitbox": [
-        108,
-        128,
-        104,
-        192
+        50,
+        9,
+        178,
+        236
       ],
       "loadPriority": "critical",
       "criticalReason": "Primary PSI landmark and initial selected detail.",
@@ -269,9 +269,9 @@
         "terracotta",
         "deep navy"
       ],
-      "tool": "mcp:create_map_object+imagemagick",
+      "tool": "mcp:create_object+select_object_frames",
       "promptProvenance": {
-        "jobId": "c47c36c5-dd3e-4721-923f-9e5852400f65",
+        "jobId": "3b89b603-35ce-4b87-97fb-37a3fc8d913f",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },

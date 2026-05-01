@@ -1,21 +1,17 @@
 import { tileToScreen, type ScreenPoint } from "../../systems/projection";
-import { isElevatedTileKind } from "../../systems/world-layout";
-import type { PharosVilleWorld, TerrainKind } from "../../systems/world-types";
-import { drawAsset, drawDiamond, drawTileLowerFacet } from "../canvas-primitives";
+import { drawAsset } from "../canvas-primitives";
+import { LIGHTHOUSE_DRAW_OFFSET, LIGHTHOUSE_DRAW_SCALE } from "../geometry";
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
-
-const LIGHTHOUSE_ASSET_BOTTOM_OFFSET_Y = 18;
-const LIGHTHOUSE_ASSET_SCALE = 1.04;
 
 export type LighthouseRenderState = ReturnType<typeof lighthouseRenderState>;
 
 export function lighthouseRenderState({ assets, camera, world }: DrawPharosVilleInput) {
   const center = tileToScreen(world.lighthouse.tile, camera);
   const lighthouseAsset = assets?.get("landmark.lighthouse");
-  const spriteScale = camera.zoom * LIGHTHOUSE_ASSET_SCALE;
+  const spriteScale = camera.zoom * LIGHTHOUSE_DRAW_SCALE;
   const spriteAnchor = {
-    x: center.x,
-    y: center.y + LIGHTHOUSE_ASSET_BOTTOM_OFFSET_Y * camera.zoom,
+    x: center.x + LIGHTHOUSE_DRAW_OFFSET.x * camera.zoom,
+    y: center.y + LIGHTHOUSE_DRAW_OFFSET.y * camera.zoom,
   };
   const firePoint = lighthouseAsset
     ? {
@@ -29,16 +25,8 @@ export function lighthouseRenderState({ assets, camera, world }: DrawPharosVille
 }
 
 const LIGHTHOUSE_HEADLAND = {
-  cliff: "#2b3943",
-  cliffEdge: "rgba(20, 24, 22, 0.62)",
   foam: "rgba(180, 224, 208, 0.46)",
-  grass: "#4f7e4d",
-  grassTuft: "#3d6240",
   halo: "rgba(255, 200, 87, 0.14)",
-  moss: "#667f4f",
-  shadow: "rgba(10, 12, 12, 0.42)",
-  stone: "#c8b88a",
-  stoneShadow: "#7a6c4f",
 } as const;
 
 const LIGHTHOUSE_SURF = [
@@ -83,8 +71,6 @@ export function drawLighthouseSurf({ camera, ctx, motion }: DrawPharosVilleInput
 
 export function drawLighthouseHeadland({ camera, ctx, world }: DrawPharosVilleInput) {
   const center = tileToScreen(world.lighthouse.tile, camera);
-  const terrain = lighthouseTerrain(world);
-  const crownColor = isElevatedTileKind(terrain) ? LIGHTHOUSE_HEADLAND.moss : LIGHTHOUSE_HEADLAND.grass;
   const zoom = camera.zoom;
   ctx.save();
 
@@ -98,31 +84,7 @@ export function drawLighthouseHeadland({ camera, ctx, world }: DrawPharosVilleIn
   ctx.ellipse(center.x - 2 * zoom, center.y + 30 * zoom, 132 * zoom, 56 * zoom, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  drawDiamond(ctx, center.x - 2 * zoom, center.y + 27 * zoom, 130 * zoom, 55 * zoom, LIGHTHOUSE_HEADLAND.shadow);
-  drawDiamond(ctx, center.x - 2 * zoom, center.y + 14 * zoom, 110 * zoom, 46 * zoom, LIGHTHOUSE_HEADLAND.cliff);
-  drawTileLowerFacet(ctx, center.x - 2 * zoom, center.y + 14 * zoom, 110 * zoom, 46 * zoom, LIGHTHOUSE_HEADLAND.cliffEdge);
-  drawDiamond(ctx, center.x - 1 * zoom, center.y + 1 * zoom, 84 * zoom, 32 * zoom, crownColor);
-  drawDiamond(ctx, center.x, center.y - 4 * zoom, 60 * zoom, 24 * zoom, LIGHTHOUSE_HEADLAND.stone);
-  drawTileLowerFacet(ctx, center.x, center.y - 4 * zoom, 60 * zoom, 24 * zoom, LIGHTHOUSE_HEADLAND.stoneShadow);
-
-  ctx.fillStyle = LIGHTHOUSE_HEADLAND.grassTuft;
-  for (const tuft of [
-    { dx: -16, dy: -1 }, { dx: 14, dy: -3 }, { dx: -28, dy: 6 },
-    { dx: 28, dy: 6 }, { dx: -6, dy: 7 }, { dx: 8, dy: 9 },
-  ]) {
-    ctx.beginPath();
-    ctx.ellipse(center.x + tuft.dx * zoom, center.y + tuft.dy * zoom, 2.2 * zoom, 1.3 * zoom, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
   ctx.restore();
-}
-
-function lighthouseTerrain(world: PharosVilleWorld): TerrainKind {
-  const tile = world.map.tiles.find((candidate) => (
-    candidate.x === world.lighthouse.tile.x && candidate.y === world.lighthouse.tile.y
-  ));
-  return tile?.terrain ?? tile?.kind ?? "hill";
 }
 
 
@@ -452,4 +414,3 @@ function drawPixelFlame(ctx: CanvasRenderingContext2D, points: Array<[number, nu
   ctx.closePath();
   ctx.fill();
 }
-

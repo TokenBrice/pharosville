@@ -21,23 +21,49 @@ const assetIdPattern = /^(building|dock|landmark|overlay|prop|ship|terrain)\.[a-
 const pharosVilleSourceExtensionPattern = /\.(?:ts|tsx)$/;
 const pharosVilleTestFilePattern = /(?:^|\/)(?:__tests__|tests?)\/|\.test\.(?:ts|tsx)$/;
 const publicImageExtensionPattern = /\.(?:png|svg|jpe?g|webp)$/i;
+const maxManifestAssets = 34;
+const firstRenderBudgets = {
+  maxCount: 24,
+  maxBytes: 575 * 1024,
+  maxDecodedPixels: 875_000,
+};
+const totalAssetBudgets = {
+  maxBytes: 625 * 1024,
+  maxDecodedPixels: 950_000,
+};
+const imageBudgetsByCategory = {
+  dock: { maxBytes: 128 * 1024, maxDecodedPixels: 150_000 },
+  landmark: { maxBytes: 96 * 1024, maxDecodedPixels: 131_072 },
+  overlay: { maxBytes: 96 * 1024, maxDecodedPixels: 150_000 },
+  prop: { maxBytes: 24 * 1024, maxDecodedPixels: 30_000 },
+  ship: { maxBytes: 32 * 1024, maxDecodedPixels: 50_000 },
+  terrain: { maxBytes: 8 * 1024, maxDecodedPixels: 8_192 },
+};
+const displayScaleWarningThreshold = 0.8;
+const displayScaleWarningMinPixels = 50_000;
+const displayScaleFailureWasteRatio = 4;
 
 const manifestText = readFileSync(manifestPath, "utf8");
 const manifest = JSON.parse(manifestText);
 const errors = [];
+const warnings = [];
+const assetMetrics = new Map();
 
 if (manifest.schemaVersion !== 1 && manifest.schemaVersion !== 2) {
   errors.push("Manifest schemaVersion must be 1 or 2.");
 }
 validateStyle(manifest.style);
 if (!Array.isArray(manifest.assets) || manifest.assets.length === 0) errors.push("Manifest assets array is required.");
-if (manifest.assets?.length > 34) errors.push(`Manifest has ${manifest.assets.length} assets; v0.1 core cap is 34.`);
+if (manifest.assets?.length > maxManifestAssets) errors.push(`Manifest has ${manifest.assets.length} assets; v0.1 core cap is ${maxManifestAssets}.`);
 if (!Array.isArray(manifest.requiredForFirstRender)) errors.push("Manifest requiredForFirstRender array is required.");
 
 const ids = new Set();
 const referenced = new Set(["manifest.json"]);
+const requiredForFirstRenderIds = new Set();
 for (const requiredId of manifest.requiredForFirstRender ?? []) {
   if (typeof requiredId !== "string") errors.push("requiredForFirstRender entries must be strings.");
+  if (requiredForFirstRenderIds.has(requiredId)) errors.push(`requiredForFirstRender duplicates asset ${requiredId}.`);
+  requiredForFirstRenderIds.add(requiredId);
   if (!manifest.assets?.some((asset) => asset.id === requiredId)) {
     errors.push(`requiredForFirstRender references missing asset ${requiredId}.`);
   }
@@ -46,6 +72,7 @@ for (const requiredId of manifest.requiredForFirstRender ?? []) {
 for (const asset of manifest.assets ?? []) {
   validateAsset(asset, ids, referenced);
 }
+validateManifestBudgets(ids, assetMetrics);
 validateReferencedAssetIds(ids);
 validateChainLogoReferences();
 validateStablecoinLogoReferences();
@@ -67,9 +94,11 @@ for (const filePath of listFiles(assetRoot)) {
 if (errors.length > 0) {
   console.error("PharosVille asset validation failed:");
   for (const error of errors) console.error(`- ${error}`);
+  printWarnings();
   process.exit(1);
 }
 
+printWarnings();
 console.log(`PharosVille asset validation passed for ${manifest.assets.length} assets.`);
 
 function validateAsset(asset, ids, referenced) {
@@ -120,7 +149,8 @@ function validateAsset(asset, ids, referenced) {
     errors.push(`${id} file is missing: ${asset.path}`);
     return;
   }
-  if (statSync(fullPath).size < 100) errors.push(`${id} PNG is too small to be a real asset.`);
+  const byteSize = statSync(fullPath).size;
+  if (byteSize < 100) errors.push(`${id} PNG is too small to be a real asset.`);
   if (!bytes.subarray(0, pngSignature.length).equals(pngSignature)) {
     errors.push(`${id} is not a PNG file: ${asset.path}`);
     return;
@@ -132,6 +162,18 @@ function validateAsset(asset, ids, referenced) {
   if (width !== asset.width || height !== asset.height) {
     errors.push(`${id} dimensions are ${width}x${height}, manifest says ${asset.width}x${asset.height}.`);
   }
+  const decodedPixels = width * height;
+  assetMetrics.set(id, {
+    byteSize,
+    category: asset.category,
+    decodedPixels,
+    displayScale: asset.displayScale,
+    height,
+    loadPriority: asset.loadPriority,
+    path: asset.path,
+    width,
+  });
+  validateImageBudgets(asset, id, byteSize, decodedPixels);
   if (!Array.isArray(asset.anchor) || asset.anchor.length !== 2) errors.push(`${id} anchor must be [x,y].`);
   if (Array.isArray(asset.anchor) && (
     asset.anchor[0] < 0 || asset.anchor[1] < 0 || asset.anchor[0] > asset.width || asset.anchor[1] > asset.height
@@ -157,6 +199,89 @@ function validateAsset(asset, ids, referenced) {
   }
   validateOptionalMetadata(asset, id);
   validateAnimation(asset, id, referenced);
+}
+
+function validateManifestBudgets(manifestIds, metrics) {
+  let totalBytes = 0;
+  let totalDecodedPixels = 0;
+  let firstRenderBytes = 0;
+  let firstRenderDecodedPixels = 0;
+  let firstRenderCount = 0;
+
+  for (const asset of manifest.assets ?? []) {
+    const metric = metrics.get(asset.id);
+    if (!metric) continue;
+    totalBytes += metric.byteSize;
+    totalDecodedPixels += metric.decodedPixels;
+    const isFirstRender = requiredForFirstRenderIds.has(asset.id);
+    if (isFirstRender) {
+      firstRenderCount += 1;
+      firstRenderBytes += metric.byteSize;
+      firstRenderDecodedPixels += metric.decodedPixels;
+    }
+    if (asset.loadPriority === "critical" && !isFirstRender) {
+      errors.push(`${asset.id} is critical but missing from requiredForFirstRender.`);
+    }
+    if (isFirstRender && asset.loadPriority !== "critical") {
+      errors.push(`${asset.id} is requiredForFirstRender but loadPriority is ${asset.loadPriority}.`);
+    }
+  }
+
+  if (firstRenderCount > firstRenderBudgets.maxCount) {
+    errors.push(`First-render asset count is ${firstRenderCount}; budget is ${firstRenderBudgets.maxCount}.`);
+  }
+  if (firstRenderBytes > firstRenderBudgets.maxBytes) {
+    errors.push(`First-render asset bytes are ${formatBytes(firstRenderBytes)}; budget is ${formatBytes(firstRenderBudgets.maxBytes)}.`);
+  }
+  if (firstRenderDecodedPixels > firstRenderBudgets.maxDecodedPixels) {
+    errors.push(`First-render decoded pixels are ${formatNumber(firstRenderDecodedPixels)}; budget is ${formatNumber(firstRenderBudgets.maxDecodedPixels)}.`);
+  }
+  if (totalBytes > totalAssetBudgets.maxBytes) {
+    errors.push(`Runtime asset bytes are ${formatBytes(totalBytes)}; budget is ${formatBytes(totalAssetBudgets.maxBytes)}.`);
+  }
+  if (totalDecodedPixels > totalAssetBudgets.maxDecodedPixels) {
+    errors.push(`Runtime decoded pixels are ${formatNumber(totalDecodedPixels)}; budget is ${formatNumber(totalAssetBudgets.maxDecodedPixels)}.`);
+  }
+
+  for (const requiredId of requiredForFirstRenderIds) {
+    if (!manifestIds.has(requiredId)) continue;
+    if (!metrics.has(requiredId)) {
+      errors.push(`requiredForFirstRender asset ${requiredId} has no readable PNG metrics.`);
+    }
+  }
+}
+
+function validateImageBudgets(asset, id, byteSize, decodedPixels) {
+  const budget = imageBudgetsByCategory[asset.category];
+  if (!budget) return;
+  if (byteSize > budget.maxBytes) {
+    errors.push(`${id} is ${formatBytes(byteSize)}; ${asset.category} image byte budget is ${formatBytes(budget.maxBytes)}.`);
+  }
+  if (decodedPixels > budget.maxDecodedPixels) {
+    errors.push(`${id} decodes ${formatNumber(decodedPixels)} pixels; ${asset.category} decoded-pixel budget is ${formatNumber(budget.maxDecodedPixels)}.`);
+  }
+  const displayedPixels = decodedPixels * asset.displayScale * asset.displayScale;
+  const wasteRatio = displayedPixels > 0 ? decodedPixels / displayedPixels : Infinity;
+  if (asset.displayScale < displayScaleWarningThreshold && decodedPixels >= displayScaleWarningMinPixels) {
+    warnings.push(`${id} is ${asset.width}x${asset.height} at displayScale ${asset.displayScale}; consider trimmed/downscaled source art if visual diffs pass.`);
+  }
+  if (wasteRatio > displayScaleFailureWasteRatio && decodedPixels >= displayScaleWarningMinPixels) {
+    errors.push(`${id} decodes ${wasteRatio.toFixed(1)}x its displayed pixel area; trim or justify the native source size.`);
+  }
+}
+
+function printWarnings() {
+  if (warnings.length === 0) return;
+  console.warn("PharosVille asset validation warnings:");
+  for (const warning of warnings) console.warn(`- ${warning}`);
+}
+
+function formatBytes(bytes) {
+  return `${(bytes / 1024).toFixed(1)} KiB`;
+}
+
+function formatNumber(value) {
+  return value.toLocaleString("en-US");
 }
 
 function listPngs(dir) {
