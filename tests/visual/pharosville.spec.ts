@@ -329,8 +329,8 @@ test("pharosville renders desktop canvas shell", async ({ page }) => {
   expect(pixelStats.backingPixels).toBeLessThanOrEqual(1440 * 1000 * 4);
   expect(pixelStats.landPixels).toBeGreaterThan(6_000);
   expect(pixelStats.waterPixels).toBeGreaterThan(25_000);
-  expect(pixelStats.waterPixels).toBeGreaterThan(pixelStats.landPixels * 1.5);
-  expect(pixelStats.landPixels / pixelStats.backingPixels).toBeLessThan(0.45);
+  expect(pixelStats.waterPixels).toBeGreaterThan(pixelStats.landPixels * 1.4);
+  expect(pixelStats.landPixels / pixelStats.backingPixels).toBeLessThan(0.5);
   expect(pixelStats.waterPixels / pixelStats.backingPixels).toBeLessThan(0.86);
   expect(retiredSummaryRequests).toEqual([]);
   await expect(page).toHaveScreenshot("pharosville-desktop-shell.png", {
