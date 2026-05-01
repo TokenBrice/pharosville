@@ -15,6 +15,30 @@ export const CIVIC_CORE_RADIUS = 8.5;
 // before named edge-water districts begin.
 export const ISLAND_PERIPHERY_TILE_DISTANCE = 4;
 
+// Zone geometry constants.
+// East-corner Alert/Warning/Danger rings share a single ellipse anchored at
+// the (55, 0) corner. Thresholds slice that ellipse into three concentric
+// bands; isSoutheastWatchShelf re-uses ALERT_RING_OUTER as a guard so it never
+// claims tiles that should be Alert.
+const EAST_CORNER_CENTER = { x: 55, y: 0 } as const;
+const SOUTHEAST_CORNER_CENTER = { x: 55, y: 55 } as const;
+const CORNER_RADIUS = 14;
+const DANGER_RING_OUTER = 0.26;
+const WARNING_RING_OUTER = 0.66;
+const ALERT_RING_INNER = 0.66;
+const ALERT_RING_OUTER = 1.63;
+
+// South breakwater basin shared between Watch Breakwater (primary) and the
+// Calm Anchorage southBay fallback.
+const SOUTH_BASIN_BOUNDS = { minX: 16, maxX: 43, minY: 45 } as const;
+
+// Compact upper Alert ring covers the eastern shelf above this threshold;
+// tiles beyond it on the eastern edge belong to Watch Breakwater.
+const EAST_SHELF_MIN_X = 45;
+const EAST_SHELF_MIN_Y = 18;
+const SOUTH_SHELF_MIN_Y = 38;
+const SOUTH_SHELF_DIAGONAL_THRESHOLD = 78;
+
 export const REGION_TILES: Record<ShipRiskPlacement, { x: number; y: number }> = RISK_WATER_REGION_TILES;
 
 export const ETHEREUM_L2_DOCK_CHAIN_IDS = ["base", "arbitrum", "optimism", "polygon"] as const;
@@ -199,20 +223,20 @@ function lighthouseMountainValue(x: number, y: number): number {
 
 function isAlertChannel(x: number, y: number): boolean {
   const value = eastCornerRiskValue(x, y);
-  return value >= 0.66 && value < 1.63;
+  return value >= ALERT_RING_INNER && value < ALERT_RING_OUTER;
 }
 
 function isWarningShoals(x: number, y: number): boolean {
   const value = eastCornerRiskValue(x, y);
-  return value >= 0.26 && value < 0.66;
+  return value >= DANGER_RING_OUTER && value < WARNING_RING_OUTER;
 }
 
 function isDangerStrait(x: number, y: number): boolean {
-  return eastCornerRiskValue(x, y) < 0.26;
+  return eastCornerRiskValue(x, y) < DANGER_RING_OUTER;
 }
 
 function eastCornerRiskValue(x: number, y: number): number {
-  return ellipseValue(x, y, 55.0, 0.0, 14.0, 14.0);
+  return ellipseValue(x, y, EAST_CORNER_CENTER.x, EAST_CORNER_CENTER.y, CORNER_RADIUS, CORNER_RADIUS);
 }
 
 // Visual buffer around the lighthouse sprite on the generated island mountain:
@@ -223,27 +247,33 @@ function isLighthouseVisualClearance(x: number, y: number): boolean {
 
 function isWatchBreakwater(x: number, y: number): boolean {
   // South breakwater basin plus the southeast/east shelf below the Alert Channel.
-  const southBasin = x >= 16 && x <= 43 && y >= 45;
-  const eastBridge = isSoutheastWatchShelf(x, y) && ellipseValue(x, y, 55.0, 55.0, 14.0, 14.0) >= 1.0;
-  const southeastBasin = ellipseValue(x, y, 55.0, 55.0, 14.0, 14.0) < 1.0;
+  const southBasin =
+    x >= SOUTH_BASIN_BOUNDS.minX && x <= SOUTH_BASIN_BOUNDS.maxX && y >= SOUTH_BASIN_BOUNDS.minY;
+  const eastBridge =
+    isSoutheastWatchShelf(x, y)
+    && ellipseValue(x, y, SOUTHEAST_CORNER_CENTER.x, SOUTHEAST_CORNER_CENTER.y, CORNER_RADIUS, CORNER_RADIUS) >= 1.0;
+  const southeastBasin =
+    ellipseValue(x, y, SOUTHEAST_CORNER_CENTER.x, SOUTHEAST_CORNER_CENTER.y, CORNER_RADIUS, CORNER_RADIUS) < 1.0;
   return southBasin || eastBridge || southeastBasin;
 }
 
 function isSoutheastWatchShelf(x: number, y: number): boolean {
-  if (x < 28 || x > MAX_TILE_X || y < 18 || y > MAX_TILE_Y) return false;
+  if (x < 28 || x > MAX_TILE_X || y < EAST_SHELF_MIN_Y || y > MAX_TILE_Y) return false;
   // Stay clear of the east-corner Alert/Warning/Danger ring stack.
-  if (eastCornerRiskValue(x, y) < 1.63) return false;
+  if (eastCornerRiskValue(x, y) < ALERT_RING_OUTER) return false;
   // Eastern shelf: tiles below the Alert ring along the x=55 edge.
-  const easternShelf = x >= 45;
+  const easternShelf = x >= EAST_SHELF_MIN_X;
   // Southern shelf: tiles south of the harbor that bridge into the south basin.
-  const southernShelf = y >= 38 && x + y >= 78;
+  const southernShelf =
+    y >= SOUTH_SHELF_MIN_Y && x + y >= SOUTH_SHELF_DIAGONAL_THRESHOLD;
   return easternShelf || southernShelf;
 }
 
 function isCalmAnchorage(x: number, y: number): boolean {
   const leftEdge = x <= 15 && y >= 10 && y <= MAX_TILE_Y;
   const leftBasin = ellipseValue(x, y, 8.2, 31.0, 15.0, 20.5) < 1.08 && x <= 22 && y >= 10;
-  const southBay = x >= 16 && x <= 43 && y >= 45;
+  const southBay =
+    x >= SOUTH_BASIN_BOUNDS.minX && x <= SOUTH_BASIN_BOUNDS.maxX && y >= SOUTH_BASIN_BOUNDS.minY;
   return leftEdge || leftBasin || southBay;
 }
 
