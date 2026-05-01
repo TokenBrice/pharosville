@@ -1,9 +1,9 @@
 import type { DrawPharosVilleInput } from "../render-types";
 
 const MAX_NIGHT_DARKNESS = 0.70;
-const NIGHT_TINT_R = 8;
-const NIGHT_TINT_G = 14;
-const NIGHT_TINT_B = 28;
+const NIGHT_TINT_R = 14;
+const NIGHT_TINT_G = 8;
+const NIGHT_TINT_B = 38;
 
 export function drawNightTint(input: DrawPharosVilleInput, nightFactor: number): void {
   if (nightFactor <= 0) return;

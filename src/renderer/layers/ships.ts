@@ -10,6 +10,7 @@ import type { DrawPharosVilleInput } from "../render-types";
 import { recolorSailImageData, SHIP_SAIL_TINT_MASKS } from "../ship-sail-tint";
 import { UNIQUE_SPRITE_IDS } from "../../systems/unique-ships";
 import { resolveShipPose, zeroShipPose, type ShipPose } from "./ship-pose";
+import { skyState } from "./sky";
 
 const SHIP_COLORS = {
   "treasury-galleon": "#8a4f2b",
@@ -484,6 +485,8 @@ function drawShipWakeRaw(input: DrawPharosVilleInput, frame: ShipRenderFrame, sh
     const sampleIntensity = sample?.wakeIntensity ?? 0;
     const intensity = Math.max(sampleIntensity, motion.plan.moverShipIds.has(ship.id) ? changeIntensity : 0);
     drawWake(ctx, p.x, p.y + 8 * camera.zoom, camera.zoom, intensity, sample?.heading ?? { x: -1, y: 0 }, sample?.zone ?? ship.riskZone);
+    const { nightFactor } = skyState(motion);
+    drawNightWakeGlow(ctx, p.x, p.y + 8 * camera.zoom, camera.zoom, intensity, sample?.heading ?? { x: -1, y: 0 }, nightFactor);
     if (isTitanSprite(ship)) {
       drawTitanBowSpray(
         ctx,
@@ -1419,6 +1422,47 @@ function drawWake(
     const baseDistance = (14 + offset) * zoom;
     const spread = (style.spread + index * style.spreadStep) * zoom;
     const length = (style.length + index * style.lengthStep) * zoom;
+    ctx.beginPath();
+    ctx.moveTo(
+      x + wakeDirection.x * baseDistance + cross.x * spread,
+      y + wakeDirection.y * baseDistance + cross.y * spread,
+    );
+    ctx.lineTo(
+      x + wakeDirection.x * (baseDistance + length) + cross.x * spread * 1.45,
+      y + wakeDirection.y * (baseDistance + length) + cross.y * spread * 1.45,
+    );
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawNightWakeGlow(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  intensity: number,
+  heading: { x: number; y: number },
+  nightFactor: number,
+) {
+  if (nightFactor <= 0) return;
+  const headingMagnitude = Math.hypot(heading.x, heading.y);
+  const forward = headingMagnitude > 0
+    ? { x: heading.x / headingMagnitude, y: heading.y / headingMagnitude }
+    : { x: -1, y: 0 };
+  const wakeDirection = { x: -forward.x, y: -forward.y };
+  const cross = { x: -forward.y, y: forward.x };
+  const glowAlpha = (0.14 + intensity * 0.18) * nightFactor;
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.strokeStyle = `rgba(80, 215, 195, ${Math.min(0.45, glowAlpha)})`;
+  ctx.lineWidth = Math.max(1, zoom * 1.4);
+  ctx.lineCap = "round";
+  for (let index = 0; index < 3; index += 1) {
+    const offset = index * 6 * zoom;
+    const baseDistance = (14 + offset) * zoom;
+    const spread = (4 + index * 2) * zoom;
+    const length = (10 + index * 3) * zoom;
     ctx.beginPath();
     ctx.moveTo(
       x + wakeDirection.x * baseDistance + cross.x * spread,

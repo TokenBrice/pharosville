@@ -18,6 +18,64 @@ const VILLAGE_LIGHTS = [
   { x: 44.2, y: 33.7, size: 0.52 },
 ] as const;
 
+const SPARKLE_POINTS = [
+  { x: 8.3, y: 28.4, phase: 0.0 },
+  { x: 9.7, y: 31.2, phase: 0.72 },
+  { x: 10.4, y: 33.8, phase: 1.44 },
+  { x: 11.1, y: 30.1, phase: 2.16 },
+  { x: 12.6, y: 35.4, phase: 2.88 },
+  { x: 13.2, y: 27.9, phase: 3.60 },
+  { x: 8.8, y: 24.6, phase: 4.32 },
+  { x: 11.9, y: 26.3, phase: 5.04 },
+  { x: 9.2, y: 29.7, phase: 5.76 },
+  { x: 13.8, y: 32.9, phase: 0.38 },
+  { x: 15.3, y: 36.8, phase: 1.10 },
+  { x: 17.2, y: 39.4, phase: 1.82 },
+  { x: 18.8, y: 41.7, phase: 2.54 },
+  { x: 20.4, y: 43.2, phase: 3.26 },
+  { x: 22.1, y: 44.8, phase: 3.98 },
+  { x: 24.3, y: 45.9, phase: 4.70 },
+  { x: 26.7, y: 46.5, phase: 5.42 },
+  { x: 28.9, y: 47.1, phase: 0.19 },
+  { x: 31.2, y: 47.4, phase: 0.91 },
+  { x: 33.5, y: 46.8, phase: 1.63 },
+  { x: 35.8, y: 45.6, phase: 2.35 },
+  { x: 37.4, y: 44.1, phase: 3.07 },
+  { x: 16.1, y: 38.2, phase: 3.79 },
+  { x: 19.6, y: 40.8, phase: 4.51 },
+  { x: 23.4, y: 43.0, phase: 5.23 },
+  { x: 29.7, y: 45.3, phase: 0.57 },
+  { x: 14.8, y: 35.1, phase: 1.29 },
+  { x: 21.8, y: 42.4, phase: 2.01 },
+  { x: 27.3, y: 46.0, phase: 2.73 },
+  { x: 32.4, y: 47.2, phase: 3.45 },
+  { x: 39.1, y: 34.2, phase: 4.17 },
+  { x: 40.8, y: 31.7, phase: 4.89 },
+  { x: 42.3, y: 29.4, phase: 5.61 },
+  { x: 44.1, y: 27.2, phase: 0.45 },
+  { x: 45.9, y: 25.1, phase: 1.17 },
+  { x: 47.6, y: 23.3, phase: 1.89 },
+  { x: 49.2, y: 26.8, phase: 2.61 },
+  { x: 50.7, y: 28.9, phase: 3.33 },
+  { x: 51.4, y: 31.5, phase: 4.05 },
+  { x: 52.1, y: 33.8, phase: 4.77 },
+  { x: 43.5, y: 32.6, phase: 5.49 },
+  { x: 46.4, y: 30.1, phase: 0.83 },
+  { x: 48.8, y: 24.7, phase: 1.55 },
+  { x: 38.3, y: 36.1, phase: 2.27 },
+  { x: 41.7, y: 22.4, phase: 2.99 },
+  { x: 4.2, y: 29.3, phase: 3.71 },
+  { x: 5.1, y: 31.8, phase: 4.43 },
+  { x: 6.4, y: 28.7, phase: 5.15 },
+  { x: 7.3, y: 30.9, phase: 5.87 },
+  { x: 5.8, y: 33.4, phase: 0.63 },
+  { x: 53.2, y: 29.7, phase: 1.35 },
+  { x: 54.1, y: 32.4, phase: 2.07 },
+  { x: 55.3, y: 35.1, phase: 2.79 },
+  { x: 54.8, y: 37.6, phase: 3.51 },
+  { x: 52.7, y: 36.2, phase: 4.23 },
+] as const;
+
 const BIRDS = [
   { anchorX: -4.2, anchorY: -3.2, radiusX: 3.8, radiusY: 1.4, scale: 1.14, speed: 0.24, phase: 0.1 },
   { anchorX: -1.4, anchorY: -5.2, radiusX: 4.4, radiusY: 1.7, scale: 0.98, speed: 0.2, phase: 1.9 },
@@ -93,6 +151,26 @@ export function drawDecorativeLights({ camera, ctx, motion }: DrawPharosVilleInp
     const p = tileToScreen(light, camera);
     drawLamp(ctx, p.x, p.y, camera.zoom * light.size, time + light.x * 0.31 + light.y * 0.17);
   }
+}
+
+export function drawBioluminescentSparkles(input: DrawPharosVilleInput, nightFactor: number): void {
+  if (nightFactor <= 0) return;
+  const { camera, ctx, motion } = input;
+  const time = motion.reducedMotion ? 0 : motion.timeSeconds;
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (const sp of SPARKLE_POINTS) {
+    const p = tileToScreen(sp, camera);
+    const twinkle = 0.5 + 0.5 * Math.sin(time * 1.4 + sp.phase);
+    const alpha = twinkle * twinkle * nightFactor * 0.55;
+    if (alpha < 0.01) continue;
+    const r = Math.max(1, (0.9 + Math.sin(sp.phase * 2.1) * 0.4) * camera.zoom);
+    ctx.fillStyle = `rgba(140, 230, 215, ${alpha})`;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
 }
 
 export function drawLamp(ctx: CanvasRenderingContext2D, x: number, y: number, zoom: number, phase: number) {

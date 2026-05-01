@@ -3,7 +3,7 @@ import { manifestCacheVersion } from "../systems/asset-manifest";
 import { isShipMapVisible } from "../systems/motion";
 import type { PharosVilleWorld } from "../systems/world-types";
 import { createRenderFrameCache, type RenderFrameCache } from "./frame-cache";
-import { drawAtmosphere, drawBirds, drawDecorativeLights } from "./layers/ambient";
+import { drawAtmosphere, drawBirds, drawBioluminescentSparkles, drawDecorativeLights } from "./layers/ambient";
 import { drawDockBody, drawDockOverlay, isBackgroundedHarborDock, type DockRenderState } from "./layers/docks";
 import { drawGraveBody, drawGraveOverlay, drawGraveUnderlay, type GraveRenderState } from "./layers/graves";
 import {
@@ -288,6 +288,7 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   drawNightTint(input, nightFactor);
   drawAtmosphere(input, frame.lighthouseRender);
   drawLighthouseNightHighlights(input, frame.lighthouseRender, nightFactor);
+  drawBioluminescentSparkles(input, nightFactor);
   drawDecorativeLights(input);
   drawLighthouseBeamRim(input, frame.visibleShips, frame.lighthouseRender, nightFactor);
   drawCemeteryMist(input);
