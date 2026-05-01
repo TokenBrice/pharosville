@@ -35,11 +35,11 @@ export const EVM_BAY_DOCK_TILES = [
 
 // Outer harbors wrap the north, west, south, and east coasts so the
 // island reads as a single inhabited harbor ring rather than a dock staircase.
-// Tron anchors the north-west shelf and solana the north-east shelf to keep
+// Tron anchors the central north shelf and solana the north-east shelf to keep
 // them clear of the central lighthouse and ethereum harbors.
 export const OUTER_HARBOR_DOCK_TILES = [
   { x: 20, y: 35 },
-  { x: 25, y: 23 },
+  { x: 28, y: 22 },
   { x: 34, y: 22 },
   { x: 40, y: 22 },
   { x: 33, y: 41 },
@@ -47,7 +47,7 @@ export const OUTER_HARBOR_DOCK_TILES = [
   { x: 25, y: 38 },
   { x: 27, y: 40 },
   { x: 43, y: 33 },
-  { x: 28, y: 22 },
+  { x: 25, y: 23 },
 ] as const;
 
 export const PREFERRED_DOCK_TILES: Record<string, { x: number; y: number }> = {

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-05-01-pharosville-harbor-diversity-v5",
+    "cacheVersion": "2026-05-01-pharosville-harbor-diversity-v6",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": [
@@ -391,7 +391,7 @@
       "layer": "docks",
       "width": 384,
       "height": 280,
-      "displayScale": 1,
+      "displayScale": 0.625,
       "anchor": [
         192,
         218

@@ -238,7 +238,7 @@ describe("buildPharosVilleMap", () => {
     ]);
     expect(OUTER_HARBOR_DOCK_TILES).toEqual([
       { x: 20, y: 35 },
-      { x: 25, y: 23 },
+      { x: 28, y: 22 },
       { x: 34, y: 22 },
       { x: 40, y: 22 },
       { x: 33, y: 41 },
@@ -246,7 +246,7 @@ describe("buildPharosVilleMap", () => {
       { x: 25, y: 38 },
       { x: 27, y: 40 },
       { x: 43, y: 33 },
-      { x: 28, y: 22 },
+      { x: 25, y: 23 },
     ]);
     expect(OUTER_HARBOR_DOCK_TILES.every((tile) => !isInLighthouseClearance(tile))).toBe(true);
     expect(DOCK_TILES.every((tile) => !isWaterTileKind(tileKindAt(tile.x, tile.y)))).toBe(true);
