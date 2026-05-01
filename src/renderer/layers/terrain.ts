@@ -304,7 +304,9 @@ function drawLedgerWaterTexture(
   motion: PharosVilleCanvasMotion,
   theme: ZoneVisualTheme,
 ) {
-  const ledgerPulse = motion.reducedMotion ? 0.18 : 0.15 + Math.sin(motion.timeSeconds * 0.62 + tileX * 0.25 + tileY * 0.37) * 0.04;
+  const ledgerPulse = motion.reducedMotion
+    ? 0.18
+    : 0.15 + Math.sin(motion.timeSeconds * 0.62 + tileX * 0.25 + tileY * 0.37) * 0.04 * theme.motion.amplitudeScale;
   ctx.save();
   if ((tileX + tileY) % 2 === 0) {
     drawMooringRule(ctx, x, y, zoom, -10, -2, 9, 3, theme.accent, 0.16);
@@ -320,7 +322,7 @@ function drawLedgerWaterTexture(
       Math.max(1, Math.round(4 * zoom)),
     );
   }
-  ctx.strokeStyle = withAlpha(theme.accent, Math.max(0.12, ledgerPulse));
+  ctx.strokeStyle = withAlpha(theme.accent, Math.max(0.12, ledgerPulse) * theme.motion.strokeAlphaScale);
   ctx.lineWidth = Math.max(1, zoom);
   ctx.beginPath();
   ctx.moveTo(x - 11 * zoom, y - 2 * zoom);
@@ -378,9 +380,11 @@ function drawCalmWaterTexture(
   motion: PharosVilleCanvasMotion,
   theme: ZoneVisualTheme,
 ) {
-  const hush = motion.reducedMotion ? 0.13 : 0.11 + Math.sin(motion.timeSeconds * 0.48 + tileX * 0.19 + tileY * 0.13) * 0.025;
+  const hush = motion.reducedMotion
+    ? 0.13
+    : 0.11 + Math.sin(motion.timeSeconds * 0.48 + tileX * 0.19 + tileY * 0.13) * 0.025 * theme.motion.amplitudeScale;
   ctx.save();
-  ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.08, hush));
+  ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.08, hush) * theme.motion.strokeAlphaScale);
   ctx.lineWidth = Math.max(1, 0.85 * zoom);
   ctx.beginPath();
   ctx.moveTo(x - 12 * zoom, y + 3 * zoom);
@@ -433,10 +437,12 @@ function drawAlertChannelTexture(
   motion: PharosVilleCanvasMotion,
   theme: ZoneVisualTheme,
 ) {
-  const pulse = motion.reducedMotion ? 0.16 : 0.14 + Math.sin(motion.timeSeconds * 1.1 + tileX * 0.31) * 0.04;
+  const pulse = motion.reducedMotion
+    ? 0.16
+    : 0.14 + Math.sin(motion.timeSeconds * 1.1 + tileX * 0.31) * 0.04 * theme.motion.amplitudeScale;
   ctx.save();
   const drift = motion.reducedMotion ? 0 : Math.sin(motion.timeSeconds * 0.7 + tileY * 0.23) * 1.5 * zoom;
-  ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.12, pulse - 0.03));
+  ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.12, pulse - 0.03) * theme.motion.strokeAlphaScale);
   ctx.lineWidth = Math.max(1, 0.9 * zoom);
   ctx.beginPath();
   ctx.moveTo(x - 12 * zoom + drift, y + 4 * zoom);
@@ -446,7 +452,7 @@ function drawAlertChannelTexture(
     ctx.quadraticCurveTo(x - 2 * zoom - drift, y + 3 * zoom, x + 8 * zoom - drift, y + 6 * zoom);
   }
   ctx.stroke();
-  ctx.strokeStyle = withAlpha(theme.accent, Math.max(0.16, pulse));
+  ctx.strokeStyle = withAlpha(theme.accent, Math.max(0.16, pulse) * theme.motion.strokeAlphaScale);
   ctx.lineWidth = Math.max(1, 1.1 * zoom);
   ctx.beginPath();
   ctx.moveTo(x - 10 * zoom, y - 3 * zoom);
@@ -472,7 +478,9 @@ function drawWatchWaterTexture(
   motion: PharosVilleCanvasMotion,
   theme: ZoneVisualTheme,
 ) {
-  const crosswind = motion.reducedMotion ? 0.16 : 0.14 + Math.sin(motion.timeSeconds * 0.95 + tileY * 0.29) * 0.04;
+  const crosswind = motion.reducedMotion
+    ? 0.16
+    : 0.14 + Math.sin(motion.timeSeconds * 0.95 + tileY * 0.29) * 0.04 * theme.motion.amplitudeScale;
   ctx.save();
   if ((tileX * 7 + tileY * 2) % 4 !== 1) {
     ctx.strokeStyle = withAlpha(theme.accent, 0.16);
@@ -484,7 +492,7 @@ function drawWatchWaterTexture(
     ctx.stroke();
     ctx.setLineDash([]);
   }
-  ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.12, crosswind));
+  ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.12, crosswind) * theme.motion.strokeAlphaScale);
   ctx.lineWidth = Math.max(1, zoom);
   ctx.beginPath();
   ctx.moveTo(x - 11 * zoom, y + 1 * zoom);
@@ -511,7 +519,9 @@ function drawWarningShoalTexture(
   motion: PharosVilleCanvasMotion,
   theme: ZoneVisualTheme,
 ) {
-  const chop = motion.reducedMotion ? 0.2 : 0.18 + Math.sin(motion.timeSeconds * 1.6 + tileY * 0.37) * 0.05;
+  const chop = motion.reducedMotion
+    ? 0.2
+    : 0.18 + Math.sin(motion.timeSeconds * 1.6 + tileY * 0.37) * 0.05 * theme.motion.amplitudeScale;
   ctx.save();
   if ((tileX + tileY) % 2 === 0) {
     const shoalFill = withAlpha(theme.accent, 0.22);
@@ -525,7 +535,7 @@ function drawWarningShoalTexture(
     ctx.lineTo(x + 10 * zoom, y + 1 * zoom);
     ctx.stroke();
   }
-  ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.16, chop));
+  ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.16, chop) * theme.motion.strokeAlphaScale);
   ctx.lineWidth = Math.max(1, 1.2 * zoom);
   ctx.beginPath();
   ctx.moveTo(x - 11 * zoom, y - 2 * zoom);
@@ -554,7 +564,9 @@ function drawDangerStraitTexture(
   motion: PharosVilleCanvasMotion,
   theme: ZoneVisualTheme,
 ) {
-  const whitecap = motion.reducedMotion ? 0.22 : 0.18 + Math.sin(motion.timeSeconds * 2.1 + tileX * 0.43 + tileY * 0.29) * 0.08;
+  const whitecap = motion.reducedMotion
+    ? 0.22
+    : 0.18 + Math.sin(motion.timeSeconds * 2.1 + tileX * 0.43 + tileY * 0.29) * 0.08 * theme.motion.amplitudeScale;
   ctx.save();
   if ((tileX * 3 + tileY * 5) % 4 !== 2) {
     ctx.strokeStyle = "rgba(7, 12, 21, 0.34)";
@@ -564,7 +576,7 @@ function drawDangerStraitTexture(
     ctx.lineTo(x + 12 * zoom, y - 5 * zoom);
     ctx.stroke();
   }
-  ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.14, whitecap));
+  ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.14, whitecap) * theme.motion.strokeAlphaScale);
   ctx.lineWidth = Math.max(1, 1.4 * zoom);
   ctx.beginPath();
   ctx.moveTo(x - 12 * zoom, y - 4 * zoom);
