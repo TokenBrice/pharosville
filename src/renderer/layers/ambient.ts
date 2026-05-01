@@ -103,10 +103,13 @@ const SEA_MIST_PATCHES = [
 
 export function drawAtmosphere(input: DrawPharosVilleInput, lighthouse?: LighthouseRenderState) {
   const { camera, ctx, motion } = input;
-  const mood = skyState(motion).mood;
+  const sky = skyState(motion);
+  // The new warm pool replaces this cool mist at night; drawing it would
+  // visibly desaturate the pool centre.
+  if (sky.nightFactor > 0.4) return;
   const { firePoint } = lighthouse ?? lighthouseRenderState(input);
   ctx.save();
-  ctx.fillStyle = mood.mist;
+  ctx.fillStyle = sky.mood.mist;
   ctx.beginPath();
   ctx.ellipse(firePoint.x - 18 * camera.zoom, firePoint.y + 30 * camera.zoom, 190 * camera.zoom, 48 * camera.zoom, -0.16, 0, Math.PI * 2);
   ctx.fill();
@@ -166,16 +169,26 @@ export function drawDecorativeLights({ camera, ctx, motion }: DrawPharosVilleInp
   }
 }
 
-export function drawBioluminescentSparkles(input: DrawPharosVilleInput, nightFactor: number): void {
+export function drawBioluminescentSparkles(
+  input: DrawPharosVilleInput,
+  nightFactor: number,
+  lighthouse?: LighthouseRenderState,
+): void {
   if (nightFactor <= 0) return;
   const { camera, ctx, motion } = input;
+  const { firePoint } = lighthouse ?? lighthouseRenderState(input);
+  // Suppress sparkles inside the warm pool — cyan + warm amber stack to white
+  // and wash both effects out. Match the lighthouse pool radius.
+  const haloRadius = 900 * camera.zoom;
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
   for (const sp of SPARKLE_POINTS) {
     const p = tileToScreen(sp, camera);
+    const dist = Math.hypot(p.x - firePoint.x, p.y - firePoint.y);
+    const haloSuppress = dist < haloRadius ? Math.min(1, dist / haloRadius) : 1;
     const twinkle = 0.5 + 0.5 * Math.sin(time * 1.4 + sp.phase);
-    const alpha = twinkle * twinkle * nightFactor * 0.55;
+    const alpha = twinkle * twinkle * nightFactor * 0.55 * haloSuppress;
     if (alpha < 0.01) continue;
     const r = Math.max(1, (0.9 + Math.sin(sp.phase * 2.1) * 0.4) * camera.zoom);
     ctx.fillStyle = `rgba(140, 230, 215, ${alpha})`;
@@ -225,8 +238,8 @@ export function drawMoonReflection(input: DrawPharosVilleInput, nightFactor: num
   const cx = width * 0.28;
   const cy = height * 0.38;
   const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.hypot(width, height) * 0.42);
-  grad.addColorStop(0, `rgba(185, 205, 230, ${0.13 * nightFactor})`);
-  grad.addColorStop(0.35, `rgba(160, 185, 215, ${0.06 * nightFactor})`);
+  grad.addColorStop(0, `rgba(170, 195, 225, ${0.10 * nightFactor})`);
+  grad.addColorStop(0.35, `rgba(145, 175, 210, ${0.045 * nightFactor})`);
   grad.addColorStop(1, "rgba(130, 160, 200, 0)");
   ctx.fillStyle = grad;
   ctx.save();

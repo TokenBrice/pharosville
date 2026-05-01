@@ -111,6 +111,7 @@ function paintSkyBackdrop(
   firePointX: number,
   firePointY: number,
   zoom: number,
+  nightFactor: number,
 ) {
   const gradient = target.createLinearGradient(0, 0, 0, height);
   gradient.addColorStop(0, mood.top);
@@ -120,7 +121,9 @@ function paintSkyBackdrop(
   target.fillRect(0, 0, width, height);
 
   target.save();
-  target.globalAlpha = 0.72;
+  // Reduce sky-glow alpha at night so the new ground-level warm aura doesn't
+  // stack with a sky halo to read as "two halos."
+  target.globalAlpha = 0.72 * (1 - 0.4 * nightFactor);
   const glow = target.createRadialGradient(
     firePointX,
     firePointY,
@@ -150,8 +153,9 @@ function getSkyBackdropCanvas(
   firePointX: number,
   firePointY: number,
   zoom: number,
+  nightFactor: number,
 ): HTMLCanvasElement | null {
-  const key = `${width}x${height}|${moodKeyFor(mood)}|${firePointX},${firePointY}|z${(zoom * 100) | 0}`;
+  const key = `${width}x${height}|${moodKeyFor(mood)}|${firePointX},${firePointY}|z${(zoom * 100) | 0}|n${(nightFactor * 20) | 0}`;
   if (skyBackdropCache && skyBackdropCache.key === key) {
     return skyBackdropCache.canvas;
   }
@@ -164,7 +168,7 @@ function getSkyBackdropCanvas(
   const offCtx = canvas.getContext("2d");
   if (!offCtx) return null;
   offCtx.clearRect(0, 0, width, height);
-  paintSkyBackdrop(offCtx, width, height, mood, firePointX, firePointY, zoom);
+  paintSkyBackdrop(offCtx, width, height, mood, firePointX, firePointY, zoom, nightFactor);
   skyBackdropCache = { canvas, key };
   return canvas;
 }
@@ -177,11 +181,11 @@ export function drawSky(input: DrawPharosVilleInput, lighthouse?: LighthouseRend
   const firePointX = firePoint.x | 0;
   const firePointY = firePoint.y | 0;
 
-  const cached = getSkyBackdropCanvas(width, height, mood, firePointX, firePointY, camera.zoom);
+  const cached = getSkyBackdropCanvas(width, height, mood, firePointX, firePointY, camera.zoom, state.nightFactor);
   if (cached) {
     ctx.drawImage(cached, 0, 0);
   } else {
-    paintSkyBackdrop(ctx, width, height, mood, firePoint.x, firePoint.y, camera.zoom);
+    paintSkyBackdrop(ctx, width, height, mood, firePoint.x, firePoint.y, camera.zoom, state.nightFactor);
   }
 
   ctx.save();
