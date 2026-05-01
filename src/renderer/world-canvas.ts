@@ -8,7 +8,7 @@ import { sceneryDrawables } from "./layers/scenery";
 import { drawShipBody, drawShipOverlay, drawShipWake, type ShipRenderState } from "./layers/ships";
 import { drawEntityLayer } from "./layers/entity-pass";
 import { drawCemeteryContext, drawCemeteryGround, drawCemeteryMist } from "./layers/cemetery";
-import { drawEthereumHarborExtensions, drawHarborDistrictGround } from "./layers/harbor-district";
+import { drawHarborDistrictGround } from "./layers/harbor-district";
 import { drawTerrain } from "./layers/terrain";
 import { drawEthereumHarborSigns, drawWaterAreaLabels } from "./layers/water-labels";
 import { drawLighthouseBody, drawLighthouseHeadland, drawLighthouseOverlay, drawLighthouseSurf, lighthouseOverlayScreenBounds } from "./layers/lighthouse";
@@ -37,7 +37,6 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   drawAtmosphere(input);
   drawHarborDistrictGround(input);
   drawBackgroundedHarborDocks(input, frame);
-  drawEthereumHarborExtensions(input);
   drawLighthouseSurf(input);
   drawCemeteryGround(input);
   drawLighthouseHeadland(input);

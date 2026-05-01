@@ -21,13 +21,13 @@ export const ETHEREUM_L2_DOCK_CHAIN_IDS = ["base", "arbitrum", "optimism", "poly
 export const ETHEREUM_HARBOR_PRIORITY_CHAIN_IDS = ["ethereum", ...ETHEREUM_L2_DOCK_CHAIN_IDS] as const;
 
 // Ethereum anchors the east cove. With grand-tier ethereum (400x320) and base
-// (304x220 at 0.7 displayScale) sprites the bay is spaced wider so harbors stay
-// readable: base pulled south-west away from ethereum, arbitrum and polygon
-// shifted up the south-west arc to thin out the lower cluster.
+// (304x220 at 0.76 displayScale) sprites the bay is spaced wider so harbors stay
+// readable: base pulled south-west away from ethereum, arbitrum nudged back
+// closer to ethereum, polygon held to the south-west arc to thin the lower cluster.
 export const EVM_BAY_DOCK_TILES = [
   { x: 43, y: 31 },
   { x: 37, y: 39 },
-  { x: 32, y: 41 },
+  { x: 35, y: 40 },
   { x: 41, y: 27 },
   { x: 26, y: 39 },
   { x: 42, y: 34 },
