@@ -1,7 +1,8 @@
 import { areaLabelPlacementForArea, type ResolvedAreaLabelPlacement } from "../../systems/area-labels";
-import { DEWS_AREA_LABEL_COLORS } from "../../systems/palette";
+import { zoneThemeForTerrain } from "../../systems/palette";
 import { tileToScreen } from "../../systems/projection";
-import type { AreaNode, PharosVilleWorld } from "../../systems/world-types";
+import { RISK_WATER_AREAS } from "../../systems/risk-water-areas";
+import type { AreaNode } from "../../systems/world-types";
 import { drawSignBoard } from "../canvas-primitives";
 import type { DrawPharosVilleInput } from "../render-types";
 
@@ -41,13 +42,18 @@ export function drawWaterAreaLabels({ camera, ctx, world }: DrawPharosVilleInput
   for (const area of world.areas) {
     const placement = cachedAreaLabelPlacement(area);
     const p = tileToScreen(placement.anchorTile, camera);
-    const accent = area.band ? dewsAreaColor(area.band) : riskWaterAreaColor(area.riskZone);
+    const terrainKind = area.riskPlacement ? RISK_WATER_AREAS[area.riskPlacement].terrain : "water";
+    const theme = zoneThemeForTerrain(terrainKind);
     drawCartographicWaterLabel({
-      accent,
+      accent: theme.label.accent,
       align: placement.align,
       ctx,
+      fill: theme.label.fill,
       label: area.label,
       maxWidth: placement.maxWidth,
+      outline: theme.label.outline,
+      plaqueDark: theme.label.plaqueDark,
+      plaqueLight: theme.label.plaqueLight,
       rotation: placement.rotation,
       x: p.x,
       y: p.y,
@@ -65,8 +71,12 @@ export function drawEthereumHarborSigns({ camera, ctx, world }: DrawPharosVilleI
       accent: sign.accent,
       align: "center",
       ctx,
+      fill: "rgba(238, 218, 169, 0.78)",
       label: sign.label,
       maxWidth: sign.maxWidth,
+      outline: "rgba(5, 10, 17, 0.7)",
+      plaqueDark: "rgba(15, 10, 7, 0.76)",
+      plaqueLight: "rgba(74, 50, 27, 0.5)",
       rotation: sign.rotation,
       x: p.x,
       y: p.y,
@@ -75,27 +85,22 @@ export function drawEthereumHarborSigns({ camera, ctx, world }: DrawPharosVilleI
   }
 }
 
-function dewsAreaColor(band: NonNullable<PharosVilleWorld["areas"][number]["band"]>) {
-  return DEWS_AREA_LABEL_COLORS[band];
-}
-
-function riskWaterAreaColor(zone: PharosVilleWorld["areas"][number]["riskZone"]) {
-  if (zone === "ledger") return "#d9b974";
-  return "#d8b56a";
-}
-
 function drawCartographicWaterLabel(input: {
   accent: string;
   align: "center" | "left" | "right";
   ctx: CanvasRenderingContext2D;
+  fill: string;
   label: string;
   maxWidth: number;
+  outline: string;
+  plaqueDark: string;
+  plaqueLight: string;
   rotation: number;
   x: number;
   y: number;
   zoom: number;
 }) {
-  const { accent, align, ctx, label, maxWidth, rotation, x, y, zoom } = input;
+  const { accent, align, ctx, fill, label, maxWidth, outline, plaqueDark, plaqueLight, rotation, x, y, zoom } = input;
   const scale = Math.max(0.72, zoom);
   const fontSize = Math.max(8, Math.round(8.6 * scale));
   const text = label.toUpperCase();
@@ -113,7 +118,7 @@ function drawCartographicWaterLabel(input: {
   const plaqueWidth = Math.min(width, measuredWidthRaw + 16 * scale);
   const plaqueX = align === "left" ? -3 * scale : align === "right" ? -plaqueWidth + 3 * scale : -plaqueWidth / 2;
   ctx.globalAlpha = 0.46;
-  drawSignBoard(ctx, plaqueX, -8.4 * scale, plaqueWidth, 16.8 * scale, scale * 0.72, "rgba(74, 50, 27, 0.5)", "rgba(15, 10, 7, 0.76)");
+  drawSignBoard(ctx, plaqueX, -8.4 * scale, plaqueWidth, 16.8 * scale, scale * 0.72, plaqueLight, plaqueDark);
   ctx.fillStyle = accent;
   ctx.beginPath();
   ctx.moveTo(plaqueX - 4 * scale, 0);
@@ -128,10 +133,10 @@ function drawCartographicWaterLabel(input: {
   ctx.closePath();
   ctx.fill();
   ctx.globalAlpha = 0.88;
-  ctx.strokeStyle = "rgba(5, 10, 17, 0.7)";
+  ctx.strokeStyle = outline;
   ctx.lineWidth = Math.max(1.2, 2.2 * scale);
   ctx.strokeText(text, 0, 0, width);
-  ctx.fillStyle = "rgba(238, 218, 169, 0.78)";
+  ctx.fillStyle = fill;
   ctx.fillText(text, 0, 0, width);
 
   const measuredWidth = Math.min(width, measuredWidthRaw);
