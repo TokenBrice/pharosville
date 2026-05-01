@@ -1,6 +1,7 @@
 import type { GraveNode, PharosVilleMap, PharosVilleTile, ShipRiskPlacement, TerrainKind, TileKind } from "./world-types";
 import type { CemeteryEntry } from "@shared/lib/cemetery-merged";
 import { RISK_WATER_REGION_TILES } from "./risk-water-areas";
+import { isSeawallBarrierTile } from "./seawall";
 import { stableUnit } from "./stable-random";
 
 export const PHAROSVILLE_MAP_WIDTH = 56;
@@ -282,6 +283,7 @@ function isOutOfBounds(x: number, y: number): boolean {
 }
 
 let cachedMainIslandLandMask: Uint8Array | null = null;
+let cachedNavigableWaterMask: Uint8Array | null = null;
 
 function getMainIslandLandMask(): Uint8Array {
   if (cachedMainIslandLandMask) return cachedMainIslandLandMask;
@@ -332,9 +334,48 @@ function isLedgerMooring(x: number, y: number): boolean {
   return y >= 0 && y <= 9 && x >= 0 && x <= 30;
 }
 
+function getNavigableWaterMask(): Uint8Array {
+  if (cachedNavigableWaterMask) return cachedNavigableWaterMask;
+  const mask = new Uint8Array(PHAROSVILLE_MAP_WIDTH * PHAROSVILLE_MAP_HEIGHT);
+  const queue: Array<{ x: number; y: number }> = [];
+  const enqueue = (x: number, y: number) => {
+    if (isOutOfBounds(x, y) || isSeawallBarrierTile({ x, y }) || !isWaterTileKind(tileKindAt(x, y))) return;
+    const index = y * PHAROSVILLE_MAP_WIDTH + x;
+    if (mask[index]) return;
+    mask[index] = 1;
+    queue.push({ x, y });
+  };
+
+  for (let x = 0; x < PHAROSVILLE_MAP_WIDTH; x += 1) {
+    enqueue(x, 0);
+    enqueue(x, PHAROSVILLE_MAP_HEIGHT - 1);
+  }
+  for (let y = 1; y < PHAROSVILLE_MAP_HEIGHT - 1; y += 1) {
+    enqueue(0, y);
+    enqueue(PHAROSVILLE_MAP_WIDTH - 1, y);
+  }
+
+  while (queue.length > 0) {
+    const tile = queue.shift();
+    if (!tile) continue;
+    enqueue(tile.x + 1, tile.y);
+    enqueue(tile.x - 1, tile.y);
+    enqueue(tile.x, tile.y + 1);
+    enqueue(tile.x, tile.y - 1);
+  }
+
+  cachedNavigableWaterMask = mask;
+  return mask;
+}
+
+export function isNavigableWaterTile(tile: { x: number; y: number }): boolean {
+  if (isOutOfBounds(tile.x, tile.y) || isSeawallBarrierTile(tile) || !isWaterTileKind(tileKindAt(tile.x, tile.y))) return false;
+  return !!getNavigableWaterMask()[tile.y * PHAROSVILLE_MAP_WIDTH + tile.x];
+}
+
 export function nearestWaterTile(tile: { x: number; y: number }, maxRadius = 10): { x: number; y: number } {
   const initialKind = tileKindAt(tile.x, tile.y);
-  if (isWaterTileKind(initialKind)) return tile;
+  if (isWaterTileKind(initialKind) && isNavigableWaterTile(tile)) return tile;
 
   let bestTile: { x: number; y: number } | null = null;
   let bestDistance = Number.POSITIVE_INFINITY;
@@ -343,8 +384,7 @@ export function nearestWaterTile(tile: { x: number; y: number }, maxRadius = 10)
       for (let dy = -radius; dy <= radius; dy += 1) {
         if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue;
         const { x, y } = clampMapTile({ x: tile.x + dx, y: tile.y + dy });
-        const kind = tileKindAt(x, y);
-        if (!isWaterTileKind(kind)) continue;
+        if (!isNavigableWaterTile({ x, y })) continue;
         const distance = Math.abs(dx) + Math.abs(dy);
         if (distance < bestDistance) {
           bestTile = { x, y };
@@ -365,7 +405,7 @@ export function nearestAvailableWaterTile(
 ): { x: number; y: number } {
   const initialKind = tileKindAt(tile.x, tile.y);
   const initialKey = `${tile.x}.${tile.y}`;
-  if (isWaterTileKind(initialKind) && !occupied.has(initialKey)) return tile;
+  if (isWaterTileKind(initialKind) && isNavigableWaterTile(tile) && !occupied.has(initialKey)) return tile;
 
   let bestTile: { x: number; y: number } | null = null;
   let bestDistance = Number.POSITIVE_INFINITY;
@@ -375,8 +415,7 @@ export function nearestAvailableWaterTile(
         if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue;
         const { x, y } = clampMapTile({ x: tile.x + dx, y: tile.y + dy });
         if (occupied.has(`${x}.${y}`)) continue;
-        const kind = tileKindAt(x, y);
-        if (!isWaterTileKind(kind)) continue;
+        if (!isNavigableWaterTile({ x, y })) continue;
         const distance = Math.abs(dx) + Math.abs(dy);
         if (distance < bestDistance) {
           bestTile = { x, y };

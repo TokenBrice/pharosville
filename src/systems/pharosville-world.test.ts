@@ -24,6 +24,7 @@ import { buildPharosVilleWorld, SHIP_WATER_ANCHORS } from "./pharosville-world";
 import { riskPlacementWaterTiles } from "./risk-water-placement";
 import { riskWaterAreaForPlacement } from "./risk-water-areas";
 import {
+  isNavigableWaterTile,
   isWaterTileKind,
   terrainKindAt,
   tileKindAt,
@@ -558,6 +559,7 @@ describe("buildPharosVilleWorld", () => {
     expect(usdc?.dockVisits?.[0]?.mooringTile).not.toEqual(usdc?.tile);
     expect(usdc?.dockVisits?.[0]?.mooringTile).not.toEqual(usdc?.riskTile);
     expect(["water", "deep-water"]).toContain(tileKindAt(usdc?.dockVisits?.[0]?.mooringTile.x ?? -1, usdc?.dockVisits?.[0]?.mooringTile.y ?? -1));
+    expect(isNavigableWaterTile(usdc?.dockVisits?.[0]?.mooringTile ?? { x: -1, y: -1 })).toBe(true);
     expect(["water", "deep-water"]).toContain(tileKindAt(usdc?.riskTile.x ?? -1, usdc?.riskTile.y ?? -1));
   });
 
@@ -578,6 +580,7 @@ describe("buildPharosVilleWorld", () => {
     expect(new Set(world.ships.map((ship) => ship.id))).toEqual(activeAssetIds);
     expect(world.ships.every((ship) => ["water", "deep-water"].includes(tileKindAt(ship.tile.x, ship.tile.y)))).toBe(true);
     expect(world.ships.every((ship) => ["water", "deep-water"].includes(tileKindAt(ship.riskTile.x, ship.riskTile.y)))).toBe(true);
+    expect(world.ships.flatMap((ship) => ship.dockVisits).every((visit) => isNavigableWaterTile(visit.mooringTile))).toBe(true);
     expect(world.ships
       .filter((ship) => ship.riskPlacement === "ledger-mooring")
       .every((ship) => terrainKindAt(ship.riskTile.x, ship.riskTile.y) === "ledger-water")).toBe(true);

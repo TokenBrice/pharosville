@@ -1,67 +1,11 @@
 import { ambientSeaPhase } from "../../systems/motion-types";
+import { SEAWALL_RENDER_PLACEMENTS } from "../../systems/seawall";
 import { ETHEREUM_L2_DOCK_CHAIN_IDS } from "../../systems/world-layout";
 import type { PharosVilleWorld } from "../../systems/world-types";
 import { tileToScreen, type IsoCamera, type ScreenPoint } from "../../systems/projection";
 import { drawAsset, drawDiamond } from "../canvas-primitives";
 import { dockDrawPoint } from "../geometry";
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
-
-// Seawall placements wrap the main-island coast tile-for-tile, tracing the
-// red-line target in docs/pharosville/refs/seawall-precision-target.png.
-// Docks (skipped as 1-tile openings):
-//   N  (25,23), (28,22), (34,22), (40,22)
-//   NE (41,27)
-//   E  (43,31), (43,33), (42,34)
-//   SE (37,39)
-//   S  (33,41), (32,41), (27,40)
-//   SW (26,39), (25,38), (23,37), (20,35)
-// Lighthouse headland sprite covers roughly x in [15-21], y in [26-32];
-// wall passes east of x=20 to keep the plinth clear. rotation: 0 always
-// (the cap-highlight on the PNG reads wrong when rotated 90/270).
-const GENERATED_SEAWALL_ASSETS = [
-  // ── W edge: SW corner up to lighthouse headland ──
-  // 1→2: W edge approach (above (20,35) opening)
-  { assetId: "overlay.seawall-corner",   flipX: false, rotation: 0, scale: 0.85, tile: { x: 17.6, y: 36.6 }, yOffset: 1, alphaJitter: -0.02 },
-  // 2→3: W edge (below lighthouse)
-  { assetId: "overlay.seawall-corner",   flipX: false, rotation: 0, scale: 0.85, tile: { x: 17.6, y: 33.4 }, yOffset: 1, alphaJitter: 0.03 },
-  // 3→4: NW wrap of lighthouse plinth (east of x=21 to clear (15..21, 26..32))
-  { assetId: "overlay.seawall-corner",   flipX: false, rotation: 0, scale: 0.9,  tile: { x: 21.6, y: 30.4 }, yOffset: 2, alphaJitter: -0.03 },
-  // 4→5: N wrap of lighthouse plinth (just past plinth y range)
-  { assetId: "overlay.seawall-corner",   flipX: false, rotation: 0, scale: 0.9,  tile: { x: 22.0, y: 25.6 }, yOffset: 2, alphaJitter: 0.04 },
-  // 5→6: N edge approach to (25,23) opening (split into two for density)
-  { assetId: "overlay.seawall-straight", flipX: false, rotation: 0, scale: 0.85, tile: { x: 22.4, y: 25.0 }, yOffset: 1, alphaJitter: -0.02 },
-  { assetId: "overlay.seawall-straight", flipX: false, rotation: 0, scale: 0.85, tile: { x: 24.0, y: 23.6 }, yOffset: 1, alphaJitter: 0.03 },
-  // (25,23) opening — no placement
-  // (28,22) opening — no placement; piece nudged east to clear both (25,23) and (28,22)
-  // 8→9: N edge bridge between (28,22) and (34,22) — two pieces for density
-  { assetId: "overlay.seawall-straight", flipX: false, rotation: 0, scale: 0.85, tile: { x: 29.8, y: 22.0 }, yOffset: 1, alphaJitter: 0.02 },
-  { assetId: "overlay.seawall-straight", flipX: false, rotation: 0, scale: 0.85, tile: { x: 32.0, y: 22.0 }, yOffset: 1, alphaJitter: -0.03 },
-  // (34,22) opening — no placement
-  // 10→11: N edge bridge between (34,22) and (40,22) — two pieces
-  { assetId: "overlay.seawall-straight", flipX: false, rotation: 0, scale: 0.85, tile: { x: 35.8, y: 22.0 }, yOffset: 1, alphaJitter: -0.03 },
-  { assetId: "overlay.seawall-straight", flipX: false, rotation: 0, scale: 0.85, tile: { x: 38.2, y: 22.0 }, yOffset: 1, alphaJitter: 0.03 },
-  // (40,22) opening — no placement
-  // 12→13: NE corner east of (40,22), above (41,27) opening
-  { assetId: "overlay.seawall-corner",   flipX: true,  rotation: 0, scale: 0.9,  tile: { x: 42.0, y: 25.4 }, yOffset: 2, alphaJitter: 0.03 },
-  // (41,27), (43,31), (43,33), (42,34) — east coast dock cluster, openings
-  // 16→17: E coast continuation south of (42,34)
-  { assetId: "overlay.seawall-corner",   flipX: true,  rotation: 0, scale: 0.85, tile: { x: 42.0, y: 36.8 }, yOffset: 1, alphaJitter: -0.02 },
-  // 17→18: SE corner east of (37,39) opening
-  { assetId: "overlay.seawall-corner",   flipX: true,  rotation: 0, scale: 0.85, tile: { x: 40.1, y: 38.8 }, yOffset: 1, alphaJitter: 0.04 },
-  // (37,39) opening — no placement
-  // 19→20: S edge bridge between (37,39) and (33,41) — two pieces
-  { assetId: "overlay.seawall-straight", flipX: true,  rotation: 0, scale: 0.85, tile: { x: 35.6, y: 40.2 }, yOffset: 1, alphaJitter: -0.02 },
-  { assetId: "overlay.seawall-straight", flipX: true,  rotation: 0, scale: 0.85, tile: { x: 34.2, y: 40.4 }, yOffset: 1, alphaJitter: 0.04 },
-  // (33,41) and (32,41) openings — covered by gap; (27,40) opening too
-  // 21→22: S edge bridge between (32,41) cluster and (27,40)
-  { assetId: "overlay.seawall-straight", flipX: true,  rotation: 0, scale: 0.85, tile: { x: 29.8, y: 41.0 }, yOffset: 1, alphaJitter: 0.03 },
-  // 22→23: SW shelf turn (skips (26,39), (25,38), (23,37))
-  { assetId: "overlay.seawall-corner",   flipX: false, rotation: 0, scale: 0.85, tile: { x: 24.2, y: 38.6 }, yOffset: 2, alphaJitter: -0.03 },
-  // 23→24: SW close (skips (23,37), (20,35))
-  { assetId: "overlay.seawall-corner",   flipX: false, rotation: 0, scale: 0.85, tile: { x: 21.2, y: 37.6 }, yOffset: 2, alphaJitter: 0.02 },
-  // 24→1: SW corner closes the loop
-  { assetId: "overlay.seawall-corner",   flipX: false, rotation: 0, scale: 0.85, tile: { x: 18.4, y: 38.0 }, yOffset: 2, alphaJitter: -0.02 },
-] as const;
 
 export function drawHarborDistrictGround(input: DrawPharosVilleInput) {
   const { camera, ctx } = input;
@@ -78,7 +22,7 @@ export function drawHarborDistrictGround(input: DrawPharosVilleInput) {
 function drawGeneratedSeawallAssets(input: DrawPharosVilleInput) {
   const { assets, camera, ctx } = input;
   if (!assets) return;
-  for (const placement of GENERATED_SEAWALL_ASSETS) {
+  for (const placement of SEAWALL_RENDER_PLACEMENTS) {
     const asset = assets.get(placement.assetId);
     if (!asset) continue;
     const p = tileToScreen(placement.tile, camera);

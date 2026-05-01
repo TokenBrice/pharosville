@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoins, fixtureStability, fixtureStress, makeAsset, makeChain, makePegCoin } from "../__fixtures__/pharosville-world";
+import { denseFixtureChains, denseFixturePegSummary, denseFixtureReportCards, denseFixtureStablecoins, denseFixtureStress, fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoins, fixtureStability, fixtureStress, makeAsset, makeChain, makePegCoin } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import { buildBaseMotionPlan, buildMotionPlan, buildShipWaterRoute, isShipMapVisible, lighthouseFireFlickerSpeed, resolveShipMotionSample, sampleShipWaterPath, shipWaterPathKey, stableMotionPhase, type ShipDockMotionStop } from "./motion";
+import { isSeawallBarrierTile, seawallBarrierDistance } from "./seawall";
 import { buildPharosVilleMap, isWaterTileKind, terrainKindAt, tileKindAt } from "./world-layout";
 import type { PharosVilleMap, PharosVilleWorld, ShipWaterZone } from "./world-types";
 
@@ -479,6 +480,89 @@ describe("motion", () => {
     for (const point of route.points) {
       expect(inMapBounds(map, point)).toBe(true);
       expect(isWaterTileKind(terrainKindInMap(map, point) ?? "land"), `${point.x}.${point.y}`).toBe(true);
+    }
+  });
+
+  it("keeps routed ships off the seawall blocker ring", () => {
+    const map = buildPharosVilleMap();
+    const route = buildShipWaterRoute({ from: { x: 45, y: 28 }, to: { x: 30, y: 20 }, map, zone: "watch" });
+
+    expect(route.points.length).toBeGreaterThan(1);
+    expect(route.points.some((point) => point.y <= 20)).toBe(true);
+    for (const point of route.points) {
+      expect(isSeawallBarrierTile(point), `${point.x}.${point.y}`).toBe(false);
+    }
+  });
+
+  it("keeps visible titan dock samples well outside the seawall", () => {
+    const sampleWorld = buildPharosVilleWorld({
+      stablecoins: fixtureStablecoins,
+      chains: fixtureChains,
+      stability: fixtureStability,
+      pegSummary: fixturePegSummary,
+      stress: fixtureStress,
+      reportCards: fixtureReportCards,
+      cemeteryEntries: [],
+      freshness: {},
+    });
+    const plan = buildMotionPlan(sampleWorld, null);
+
+    for (const ship of sampleWorld.ships.filter((entry) => entry.visual.sizeTier === "titan" && entry.dockVisits.length > 0)) {
+      const route = plan.shipRoutes.get(ship.id)!;
+      let closest = Number.POSITIVE_INFINITY;
+      for (let index = 0; index < 240; index += 1) {
+        const sample = resolveShipMotionSample({
+          plan,
+          reducedMotion: false,
+          ship,
+          timeSeconds: route.cycleSeconds * (index / 240) - route.phaseSeconds,
+        });
+        if (sample.state !== "moored" || sample.currentDockId == null) continue;
+        closest = Math.min(closest, seawallBarrierDistance(sample.tile));
+      }
+      expect(closest, ship.id).toBeGreaterThanOrEqual(2.9);
+    }
+  });
+
+  it("keeps all visible moored dock samples outside the seawall envelope", () => {
+    const sampleWorld = buildPharosVilleWorld({
+      stablecoins: fixtureStablecoins,
+      chains: fixtureChains,
+      stability: fixtureStability,
+      pegSummary: fixturePegSummary,
+      stress: fixtureStress,
+      reportCards: fixtureReportCards,
+      cemeteryEntries: [],
+      freshness: {},
+    });
+    const denseWorld = buildPharosVilleWorld({
+      stablecoins: denseFixtureStablecoins,
+      chains: denseFixtureChains,
+      stability: fixtureStability,
+      pegSummary: denseFixturePegSummary,
+      stress: denseFixtureStress,
+      reportCards: denseFixtureReportCards,
+      cemeteryEntries: [],
+      freshness: {},
+    });
+
+    for (const world of [sampleWorld, denseWorld]) {
+      const plan = buildMotionPlan(world, null);
+      for (const ship of world.ships.filter((entry) => entry.dockVisits.length > 0)) {
+        const route = plan.shipRoutes.get(ship.id)!;
+        let closest = Number.POSITIVE_INFINITY;
+        for (let index = 0; index < 240; index += 1) {
+          const sample = resolveShipMotionSample({
+            plan,
+            reducedMotion: false,
+            ship,
+            timeSeconds: route.cycleSeconds * (index / 240) - route.phaseSeconds,
+          });
+          if (sample.state !== "moored" || sample.currentDockId == null) continue;
+          closest = Math.min(closest, seawallBarrierDistance(sample.tile));
+        }
+        expect(closest, `${world === denseWorld ? "dense" : "base"}:${ship.id}`).toBeGreaterThanOrEqual(1.7);
+      }
     }
   });
 

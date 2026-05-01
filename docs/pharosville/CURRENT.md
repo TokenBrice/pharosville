@@ -44,12 +44,13 @@ layout, asset, renderer, test, and docs change:
   `drawLighthouseHeadland` stub at `camera.zoom * 0.5` so the sprite covers
   ~6 tiles around `LIGHTHOUSE_TILE` rather than overrunning the southern
   island half.
-- Perimeter masonry is rendered solely by full-opacity `overlay.seawall-*`
-  PNG placements in `harbor-district.ts` (16 entries with `flipX` plus per-
-  placement `alphaJitter` to break stamp rhythm). The procedural
-  `drawSeawallRun` taupe-and-light strokes that the previous build relied on
-  are deleted. `overlay.seawall-straight` was regenerated to 160x96
-  (PixelLab `3ff6e65f-e080-4971-ae3e-70dd9f0fb8b2`) so it reads as a wall
+- Perimeter masonry now comes from a shared seawall model in
+  `src/systems/seawall.ts`: a denser `overlay.seawall-*` placement list feeds
+  `harbor-district.ts`, and the same module exports a blocked coastal-water ring
+  that motion/path helpers treat as wall-capped water instead of navigable sea.
+  The procedural `drawSeawallRun` taupe-and-light strokes that the previous
+  build relied on are deleted. `overlay.seawall-straight` was regenerated to
+  160x96 (PixelLab `3ff6e65f-e080-4971-ae3e-70dd9f0fb8b2`) so it reads as a wall
   not a curb; `overlay.seawall-corner` is unchanged.
 - `overlay.central-island` and `drawCentralIslandModel` are retired. The
   diorama PNG was already dead code (no callers), and removing it lets the
@@ -69,6 +70,7 @@ Historical plans in this directory are context, not live instructions. If they c
 - Route styles: `src/pharosville.css`
 - Pure world model: `src/systems/pharosville-world.ts`
 - Map/terrain layout: `src/systems/world-layout.ts`
+- Seawall geometry and wall-blocked coast ring: `src/systems/seawall.ts`
 - Chain dock model: `src/systems/chain-docks.ts`
 - Ship risk placement: `src/systems/risk-placement.ts`
 - Risk-water source of truth: `src/systems/risk-water-areas.ts`

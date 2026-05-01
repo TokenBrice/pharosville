@@ -11,6 +11,7 @@ import {
   graveNodesFromEntries,
   isElevatedTileKind,
   isLandTileKind,
+  isNavigableWaterTile,
   isWaterTileKind,
   LIGHTHOUSE_TILE,
   OUTER_HARBOR_DOCK_TILES,
@@ -22,6 +23,7 @@ import {
   terrainKindAt,
   tileKindAt,
 } from "./world-layout";
+import { SEAWALL_BARRIER_TILES, isSeawallBarrierTile } from "./seawall";
 import type { PharosVilleTile } from "./world-types";
 
 describe("buildPharosVilleMap", () => {
@@ -266,6 +268,15 @@ describe("buildPharosVilleMap", () => {
     expect(DOCK_TILES.every((tile) => isProductionOutwardWater(tile))).toBe(true);
   });
 
+  it("pins seawall blockers to coastal water outside dock openings", () => {
+    expect(SEAWALL_BARRIER_TILES.length).toBeGreaterThanOrEqual(45);
+    for (const tile of SEAWALL_BARRIER_TILES) {
+      expect(isSeawallBarrierTile(tile)).toBe(true);
+      expect(isWaterTileKind(tileKindAt(tile.x, tile.y)), `${tile.x}.${tile.y}`).toBe(true);
+      expect(DOCK_TILES.some((dock) => dock.x === tile.x && dock.y === tile.y), `${tile.x}.${tile.y}`).toBe(false);
+    }
+  });
+
   it("resolves inland placement anchors back to water", () => {
     const tile = nearestWaterTile({ x: 32, y: 36 });
 
@@ -278,6 +289,28 @@ describe("buildPharosVilleMap", () => {
 
     expect(`${tile.x}.${tile.y}`).not.toBe("37.6");
     expect(isWaterTileKind(tileKindAt(tile.x, tile.y))).toBe(true);
+  });
+
+  it("keeps nearest-water helpers off the seawall barrier", () => {
+    const north = nearestWaterTile({ x: 28, y: 22 });
+    const east = nearestAvailableWaterTile({ x: 44, y: 31 }, new Set());
+
+    expect(isSeawallBarrierTile(north)).toBe(false);
+    expect(isSeawallBarrierTile(east)).toBe(false);
+    expect(north.y).toBeLessThanOrEqual(20);
+    expect(east.x).toBeGreaterThanOrEqual(45);
+  });
+
+  it("closes the seawall ring around the interior harbor pockets", () => {
+    for (const tile of [
+      { x: 43, y: 28 },
+      { x: 42, y: 26 },
+      { x: 38, y: 37 },
+    ]) {
+      expect(isNavigableWaterTile(tile), `${tile.x}.${tile.y}`).toBe(false);
+    }
+    expect(isNavigableWaterTile({ x: 45, y: 28 })).toBe(true);
+    expect(isNavigableWaterTile({ x: 39, y: 17 })).toBe(true);
   });
 
   it("scatters cemetery graves across expanded land with varied markers", () => {
@@ -403,6 +436,7 @@ function cardinalDirections(): { x: number; y: number }[] {
     { x: 0, y: -1 },
   ];
 }
+
 
 function connectedLandTileKeys(start: { x: number; y: number }): Set<string> {
   const visited = new Set<string>();

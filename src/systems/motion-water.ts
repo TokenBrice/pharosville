@@ -1,4 +1,5 @@
 import { isWaterTileKind } from "./world-layout";
+import { isSeawallBarrierTile } from "./seawall";
 import { stableHash, stableOffset, stableUnit } from "./stable-random";
 import { clamp, normalizeHeading, pathKey, sameTile } from "./motion-utils";
 import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipWaterPath, ShipWaterPathBuilder, ShipWaterRouteCache } from "./motion-types";
@@ -42,7 +43,7 @@ export function nearestMapWaterTile(tile: { x: number; y: number }, map: PharosV
   let bestTile: { x: number; y: number } | null = null;
   let bestDistance = Number.POSITIVE_INFINITY;
   for (const candidate of map.tiles) {
-    if (!isMotionWaterTile(candidate)) continue;
+    if (!isMotionWaterTile(candidate) || isSeawallBarrierTile(candidate)) continue;
     const distance = Math.abs(candidate.x - rounded.x) + Math.abs(candidate.y - rounded.y);
     if (distance < bestDistance) {
       bestDistance = distance;
@@ -311,13 +312,17 @@ function waterZoneTerrainPenalty(zone: ShipWaterZone, terrain: string): number {
 function fallbackWaterWaypoint(from: { x: number; y: number }, to: { x: number; y: number }, map: PharosVilleMap): { x: number; y: number } {
   const seed = stableHash(`${from.x}.${from.y}->${to.x}.${to.y}`);
   const edgeTiles = map.tiles
-    .filter((tile) => isMotionWaterTile(tile) && (tile.x === 0 || tile.y === 0 || tile.x === map.width - 1 || tile.y === map.height - 1))
+    .filter((tile) => (
+      isMotionWaterTile(tile)
+      && !isSeawallBarrierTile(tile)
+      && (tile.x === 0 || tile.y === 0 || tile.x === map.width - 1 || tile.y === map.height - 1)
+    ))
     .sort((a, b) => {
       const aScore = Math.abs(a.x - from.x) + Math.abs(a.y - from.y) + Math.abs(a.x - to.x) + Math.abs(a.y - to.y);
       const bScore = Math.abs(b.x - from.x) + Math.abs(b.y - from.y) + Math.abs(b.x - to.x) + Math.abs(b.y - to.y);
       return aScore - bScore || ((a.x * 131 + a.y + seed) % 17) - ((b.x * 131 + b.y + seed) % 17);
     });
-  const waypoint = edgeTiles[0] ?? map.tiles.find((tile) => isMotionWaterTile(tile));
+  const waypoint = edgeTiles[0] ?? map.tiles.find((tile) => isMotionWaterTile(tile) && !isSeawallBarrierTile(tile));
   return waypoint ? { x: waypoint.x, y: waypoint.y } : from;
 }
 
@@ -343,7 +348,7 @@ function isWaterTile(x: number, y: number, map: PharosVilleMap): boolean {
   const index = tileIndex(x, y, map);
   if (index < 0) return false;
   const tile = map.tiles[index];
-  return !!tile && isMotionWaterTile(tile);
+  return !!tile && !isSeawallBarrierTile({ x, y }) && isMotionWaterTile(tile);
 }
 
 function isMotionWaterTile(tile: Pick<PharosVilleTile, "kind" | "terrain">): boolean {
