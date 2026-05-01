@@ -824,16 +824,10 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       <div className="pharosville-overlay" aria-label="PharosVille controls and details">
         <div className="pharosville-hud">
           <WorldToolbar
-            world={world}
             selectedDetailId={selectedDetailId}
-            selectedDetailLabel={selectedDetail?.title ?? null}
             zoomLabel={camera ? cameraZoomLabel(camera) : "100%"}
-            onClearSelection={clearSelection}
             onFollowSelected={selectedEntity ? handleFollowSelected : undefined}
-            onPan={handleToolbarPan}
             onResetView={handleResetView}
-            onZoomIn={handleToolbarZoomIn}
-            onZoomOut={handleToolbarZoomOut}
           />
         </div>
         {selectedDetail && (

@@ -1,110 +1,75 @@
 "use client";
 
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, LocateFixed, Minus, Plus, RotateCcw, X } from "lucide-react";
-import type { PharosVilleWorld } from "../systems/world-types";
-import type { ScreenPoint } from "../systems/projection";
+import { LocateFixed, RotateCcw } from "lucide-react";
 
 export interface WorldToolbarProps {
-  world: PharosVilleWorld;
   headingId?: string;
   ledgerVisible?: boolean;
   selectedDetailId?: string | null;
-  selectedDetailLabel?: string | null;
   zoomLabel?: string;
-  onClearSelection?: () => void;
   onFollowSelected?: () => void;
-  onPan?: (delta: ScreenPoint) => void;
   onResetView?: () => void;
   onToggleLedger?: () => void;
-  onZoomIn?: () => void;
-  onZoomOut?: () => void;
 }
 
 export function WorldToolbar({
-  world,
   headingId = "pharosville-world-toolbar-title",
   ledgerVisible = false,
   selectedDetailId,
-  selectedDetailLabel,
   zoomLabel = "100%",
-  onClearSelection,
   onFollowSelected,
-  onPan,
   onResetView,
   onToggleLedger,
-  onZoomIn,
-  onZoomOut,
 }: WorldToolbarProps) {
-  const entityCount = 1
-    + world.areas.length
-    + world.docks.length
-    + world.ships.length
-    + world.graves.length;
-
   return (
     <div
-      className="pharosville-world-toolbar"
+      className="pharosville-world-toolbar pv-timber"
       role="toolbar"
       aria-labelledby={headingId}
       data-testid="pharosville-world-toolbar"
     >
-      <h2 id={headingId} className="sr-only">
-        World toolbar
-      </h2>
-      <div className="pharosville-world-toolbar__group" role="group" aria-label="Zoom controls">
-        <button type="button" onClick={onZoomOut} disabled={!onZoomOut} aria-label="Zoom out" title="Zoom out">
-          <Minus aria-hidden="true" size={16} />
-        </button>
-        <output aria-label="Current zoom">{zoomLabel}</output>
-        <button type="button" onClick={onZoomIn} disabled={!onZoomIn} aria-label="Zoom in" title="Zoom in">
-          <Plus aria-hidden="true" size={16} />
-        </button>
-      </div>
-      <div className="pharosville-world-toolbar__group" role="group" aria-label="Pan controls">
-        <button type="button" onClick={() => onPan?.({ x: 0, y: 32 })} disabled={!onPan} aria-label="Pan north" title="Pan north">
-          <ArrowUp aria-hidden="true" size={16} />
-        </button>
-        <button type="button" onClick={() => onPan?.({ x: -32, y: 0 })} disabled={!onPan} aria-label="Pan east" title="Pan east">
-          <ArrowRight aria-hidden="true" size={16} />
-        </button>
-        <button type="button" onClick={() => onPan?.({ x: 0, y: -32 })} disabled={!onPan} aria-label="Pan south" title="Pan south">
-          <ArrowDown aria-hidden="true" size={16} />
-        </button>
-        <button type="button" onClick={() => onPan?.({ x: 32, y: 0 })} disabled={!onPan} aria-label="Pan west" title="Pan west">
-          <ArrowLeft aria-hidden="true" size={16} />
-        </button>
-      </div>
-      <div className="pharosville-world-toolbar__group" role="group" aria-label="Selection controls">
-        <button type="button" onClick={onResetView} disabled={!onResetView} aria-label="Reset view" title="Reset view">
-          <RotateCcw aria-hidden="true" size={16} />
-        </button>
-        <button type="button" onClick={onFollowSelected} disabled={!onFollowSelected} aria-label="Follow selected" title="Follow selected">
-          <LocateFixed aria-hidden="true" size={16} />
-        </button>
-        <button type="button" onClick={onClearSelection} disabled={!onClearSelection || !selectedDetailId} aria-label="Clear selection" title="Clear selection">
-          <X aria-hidden="true" size={16} />
-        </button>
-      </div>
+      <h2 id={headingId} className="sr-only">World toolbar</h2>
+      <span className="pv-corner-brass pv-corner-brass--tl" aria-hidden="true" />
+      <span className="pv-corner-brass pv-corner-brass--tr" aria-hidden="true" />
+      <span className="pv-corner-brass pv-corner-brass--bl" aria-hidden="true" />
+      <span className="pv-corner-brass pv-corner-brass--br" aria-hidden="true" />
+
+      <output className="pv-chip-zoom" aria-label="Current zoom">{zoomLabel}</output>
+
+      <button
+        type="button"
+        className="pv-brass-button"
+        onClick={onResetView}
+        disabled={!onResetView}
+        aria-label="Reset view"
+        title="Reset view"
+      >
+        <RotateCcw aria-hidden="true" size={18} />
+      </button>
+
+      <button
+        type="button"
+        className="pv-brass-button"
+        onClick={onFollowSelected}
+        disabled={!onFollowSelected || !selectedDetailId}
+        aria-label="Follow selected"
+        title="Follow selected"
+      >
+        <LocateFixed aria-hidden="true" size={18} />
+      </button>
+
       {onToggleLedger && (
         <button
-          className="pharosville-world-toolbar__ledger-button"
           type="button"
+          className="pv-brass-button pharosville-world-toolbar__ledger-button"
           aria-pressed={ledgerVisible}
           onClick={onToggleLedger}
+          aria-label={ledgerVisible ? "Hide accessibility ledger" : "Show accessibility ledger"}
+          title="Ledger"
         >
           Ledger
         </button>
       )}
-      <div className="pharosville-world-toolbar__meta">
-        <output className="pharosville-world-toolbar__chip" aria-live="polite" aria-label="Map entity count">
-          {entityCount} entities
-        </output>
-        {selectedDetailId && (
-          <output className="pharosville-world-toolbar__chip" aria-live="polite" aria-label="Selected detail">
-            {selectedDetailLabel ?? selectedDetailId}
-          </output>
-        )}
-      </div>
     </div>
   );
 }
