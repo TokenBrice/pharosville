@@ -83,22 +83,26 @@ export function nearestAvailableRiskPlacementWaterTile(
   return null;
 }
 
+export function riskPlacementWaterTiles(placement: ShipRiskPlacement): { x: number; y: number }[] {
+  const candidates: { x: number; y: number }[] = [];
+  for (let y = 0; y < PHAROSVILLE_MAP_HEIGHT; y += 1) {
+    for (let x = 0; x < PHAROSVILLE_MAP_WIDTH; x += 1) {
+      const candidate = { x, y };
+      if (isRiskPlacementWaterTile(candidate, placement)) candidates.push(candidate);
+    }
+  }
+  return candidates;
+}
+
 function riskPlacementWaterTilesByDistance(
   tile: { x: number; y: number },
   placement: ShipRiskPlacement,
 ): { x: number; y: number }[] {
-  const candidates: { x: number; y: number; distance: number }[] = [];
-  for (let y = 0; y < PHAROSVILLE_MAP_HEIGHT; y += 1) {
-    for (let x = 0; x < PHAROSVILLE_MAP_WIDTH; x += 1) {
-      const candidate = { x, y };
-      if (!isRiskPlacementWaterTile(candidate, placement)) continue;
-      candidates.push({
-        ...candidate,
-        distance: Math.abs(tile.x - x) + Math.abs(tile.y - y),
-      });
-    }
-  }
-  return candidates
+  return riskPlacementWaterTiles(placement)
+    .map((candidate) => ({
+      ...candidate,
+      distance: Math.abs(tile.x - candidate.x) + Math.abs(tile.y - candidate.y),
+    }))
     .toSorted((a, b) => a.distance - b.distance || a.y - b.y || a.x - b.x)
     .map(({ x, y }) => ({ x, y }));
 }

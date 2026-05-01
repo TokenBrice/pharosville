@@ -158,7 +158,7 @@ Replace `localeCompare` tiebreaker with a numeric entity index assigned at world
 
 **Risk:** stale hover targets if a moving ship slides under a stationary cursor. Mitigate by checking on each ship-tile transition (cheap once shipMotionSamples is in a ref).
 
-**Validation:** `tests/integration/...` selection/hover suites pass; flame chart shows `collectHitTargets` ≤ 60×/min instead of 60/s.
+**Validation:** selection/hover browser suites pass; flame chart shows `collectHitTargets` ≤ 60×/min instead of 60/s.
 
 ---
 

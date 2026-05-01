@@ -21,6 +21,7 @@ import {
   makeReportCard,
 } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld, SHIP_WATER_ANCHORS } from "./pharosville-world";
+import { riskPlacementWaterTiles } from "./risk-water-placement";
 import { riskWaterAreaForPlacement } from "./risk-water-areas";
 import {
   isWaterTileKind,
@@ -143,13 +144,14 @@ describe("buildPharosVilleWorld", () => {
     const navShips = world.ships.filter((ship) => ship.riskPlacement === "ledger-mooring");
     const xs = calmShips.map((ship) => ship.riskTile.x);
     const ys = calmShips.map((ship) => ship.riskTile.y);
+    const calmBounds = tileBounds(riskPlacementWaterTiles("safe-harbor"));
 
     expect(world.ships.length).toBeGreaterThan(24);
     expect(calmShips.length).toBeGreaterThan(12);
     expect(navShips.length).toBeGreaterThan(0);
     expect(navShips.every((ship) => terrainKindAt(ship.riskTile.x, ship.riskTile.y) === "ledger-water")).toBe(true);
-    expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThanOrEqual(12);
-    expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThanOrEqual(10);
+    expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThanOrEqual(Math.floor((calmBounds.maxX - calmBounds.minX) * 0.6));
+    expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThanOrEqual(Math.floor((calmBounds.maxY - calmBounds.minY) * 0.55));
     expect(world.ships.every((ship) => {
       const terrain = terrainKindAt(ship.riskTile.x, ship.riskTile.y);
       const validTerrains = riskWaterAreaForPlacement(ship.riskPlacement).validTerrains;
@@ -593,4 +595,18 @@ function bandSignals(band: "ALERT" | "WATCH" | "CALM", count: number) {
       methodologyVersion: "fixture",
     },
   ]));
+}
+
+function tileBounds(tiles: readonly { x: number; y: number }[]) {
+  return tiles.reduce((bounds, tile) => ({
+    minX: Math.min(bounds.minX, tile.x),
+    maxX: Math.max(bounds.maxX, tile.x),
+    minY: Math.min(bounds.minY, tile.y),
+    maxY: Math.max(bounds.maxY, tile.y),
+  }), {
+    minX: Number.POSITIVE_INFINITY,
+    maxX: Number.NEGATIVE_INFINITY,
+    minY: Number.POSITIVE_INFINITY,
+    maxY: Number.NEGATIVE_INFINITY,
+  });
 }

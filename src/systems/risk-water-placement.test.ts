@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { isRiskPlacementWaterTile, nearestAvailableRiskPlacementWaterTile, nearestRiskPlacementWaterTile } from "./risk-water-placement";
+import {
+  isRiskPlacementWaterTile,
+  nearestAvailableRiskPlacementWaterTile,
+  nearestRiskPlacementWaterTile,
+  riskPlacementWaterTiles,
+} from "./risk-water-placement";
 import { terrainKindAt } from "./world-layout";
 
 describe("risk water placement", () => {
@@ -36,5 +41,17 @@ describe("risk water placement", () => {
     expect(nearest).not.toBeNull();
     expect(nearest ? terrainKindAt(nearest.x, nearest.y) : null).toBe("ledger-water");
     expect(occupied.has(`${nearest?.x}.${nearest?.y}`)).toBe(false);
+  });
+
+  it("exposes every valid tile in a placement so idle ships can use the full zone", () => {
+    const calmTiles = riskPlacementWaterTiles("safe-harbor");
+    const ledgerTiles = riskPlacementWaterTiles("ledger-mooring");
+
+    expect(calmTiles.length).toBeGreaterThan(600);
+    expect(ledgerTiles.length).toBeGreaterThan(280);
+    expect(calmTiles.every((tile) => isRiskPlacementWaterTile(tile, "safe-harbor"))).toBe(true);
+    expect(ledgerTiles.every((tile) => isRiskPlacementWaterTile(tile, "ledger-mooring"))).toBe(true);
+    expect(calmTiles.some((tile) => tile.x >= 18 && tile.y >= 40)).toBe(true);
+    expect(ledgerTiles.some((tile) => tile.x >= 25 && tile.y >= 7)).toBe(true);
   });
 });

@@ -25,7 +25,7 @@ import {
 import { buildPharosVilleMap, clampMapTile, graveNodesFromEntries, LIGHTHOUSE_TILE, MAX_TILE_X, MAX_TILE_Y, nearestAvailableWaterTile, nearestWaterTile, REGION_TILES } from "./world-layout";
 import { getRecentChange } from "./recent-change";
 import { resolveShipRiskPlacement } from "./risk-placement";
-import { isRiskPlacementWaterTile, nearestAvailableRiskPlacementWaterTile, nearestRiskPlacementWaterTile } from "./risk-water-placement";
+import { isRiskPlacementWaterTile, nearestRiskPlacementWaterTile, riskPlacementWaterTiles } from "./risk-water-placement";
 import {
   SHIP_SCATTER_RADIUS,
   SHIP_RISK_PLACEMENTS,
@@ -45,6 +45,7 @@ import type {
   ShipChainPresence,
   ShipDockVisit,
   ShipNode,
+  ShipRiskPlacement,
 } from "./world-types";
 
 export { SHIP_WATER_ANCHORS, waterZoneForPlacement } from "./risk-water-areas";
@@ -329,15 +330,92 @@ function assignDockVisits(ships: readonly ShipNode[], docks: readonly DockNode[]
 }
 
 function spreadShipRiskAnchorsAcrossWater(ships: ShipNode[]): ShipNode[] {
+  const sortedShips = ships.toSorted((a, b) => b.marketCapUsd - a.marketCapUsd || a.id.localeCompare(b.id));
   const occupied = new Set<string>();
-  return ships
-    .toSorted((a, b) => b.marketCapUsd - a.marketCapUsd || a.id.localeCompare(b.id))
-    .map((ship) => {
-      const riskTile = nearestAvailableRiskPlacementWaterTile(ship.riskTile, ship.riskPlacement, occupied, 18)
-        ?? nearestAvailableWaterTile(ship.riskTile, occupied);
-      occupied.add(`${riskTile.x}.${riskTile.y}`);
-      return { ...ship, tile: riskTile, riskTile };
-    });
+  const shipsByPlacement = new Map<ShipRiskPlacement, ShipNode[]>();
+  const updatedShips = new Map<string, ShipNode>();
+
+  for (const ship of sortedShips) {
+    const placementShips = shipsByPlacement.get(ship.riskPlacement) ?? [];
+    placementShips.push(ship);
+    shipsByPlacement.set(ship.riskPlacement, placementShips);
+  }
+
+  for (const placement of SHIP_RISK_PLACEMENTS) {
+    const placementShips = shipsByPlacement.get(placement) ?? [];
+    if (placementShips.length === 0) continue;
+
+    for (const ship of spreadRiskPlacementShips(placementShips, placement, occupied)) {
+      updatedShips.set(ship.id, ship);
+    }
+  }
+
+  return sortedShips.map((ship) => updatedShips.get(ship.id) ?? ship);
+}
+
+function spreadRiskPlacementShips(
+  ships: readonly ShipNode[],
+  placement: ShipRiskPlacement,
+  occupied: Set<string>,
+): ShipNode[] {
+  const candidates = riskPlacementWaterTiles(placement);
+  const selectedTiles: { x: number; y: number }[] = [];
+
+  return ships.map((ship) => {
+    const riskTile = spacedRiskPlacementTile({
+      candidates,
+      occupied,
+      preferred: ship.riskTile,
+      selectedTiles,
+      seed: `${ship.id}.${placement}.risk-spread`,
+    }) ?? nearestAvailableWaterTile(ship.riskTile, occupied);
+
+    occupied.add(tileKey(riskTile));
+    selectedTiles.push(riskTile);
+    return { ...ship, tile: riskTile, riskTile };
+  });
+}
+
+function spacedRiskPlacementTile(input: {
+  candidates: readonly { x: number; y: number }[];
+  occupied: ReadonlySet<string>;
+  preferred: { x: number; y: number };
+  selectedTiles: readonly { x: number; y: number }[];
+  seed: string;
+}): { x: number; y: number } | null {
+  let bestTile: { x: number; y: number } | null = null;
+  let bestScore = Number.NEGATIVE_INFINITY;
+
+  for (const candidate of input.candidates) {
+    if (input.occupied.has(tileKey(candidate))) continue;
+    const spacing = input.selectedTiles.length > 0
+      ? minTileDistance(candidate, input.selectedTiles)
+      : 0;
+    const preferredDistance = Math.hypot(candidate.x - input.preferred.x, candidate.y - input.preferred.y);
+    const jitter = stableUnit(`${input.seed}.${candidate.x}.${candidate.y}`) * 0.001;
+    const score = input.selectedTiles.length > 0
+      ? spacing * 1000 - preferredDistance * 0.1 + jitter
+      : -preferredDistance + jitter;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestTile = candidate;
+    }
+  }
+
+  return bestTile;
+}
+
+function minTileDistance(tile: { x: number; y: number }, others: readonly { x: number; y: number }[]): number {
+  let distance = Number.POSITIVE_INFINITY;
+  for (const other of others) {
+    distance = Math.min(distance, Math.hypot(tile.x - other.x, tile.y - other.y));
+  }
+  return distance;
+}
+
+function tileKey(tile: { x: number; y: number }): string {
+  return `${tile.x}.${tile.y}`;
 }
 
 function buildDetailIndex(world: Omit<PharosVilleWorld, "detailIndex" | "visualCues">): Record<string, DetailModel> {

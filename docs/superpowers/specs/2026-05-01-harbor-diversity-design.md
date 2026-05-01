@@ -73,7 +73,7 @@ Per `docs/pharosville/PIXELLAB_MCP.md`. Each sprite goes through:
    - no text, logos, chain colors competing with DEWS overlays
    - flag/pennant area free for runtime logo
    - dimensions match the assigned tier
-4. **Promote** — copy PNG to `public/pharosville/assets/docks/<id>.png`, write manifest entry with `tool: "mcp:create_map_object"`, `promptProvenance.jobId`, optional `seed`, `styleAnchorVersion: "2026-04-29-lighthouse-hill-v5"`.
+4. **Promote** — copy the accepted PNG into the dock asset directory, write manifest entry with `tool: "mcp:create_map_object"`, `promptProvenance.jobId`, optional `seed`, `styleAnchorVersion: "2026-04-29-lighthouse-hill-v5"`.
 
 **Prompt template**:
 
