@@ -1,3 +1,4 @@
+import { MAKER_SQUAD_FLAGSHIP_ID } from "../../systems/maker-squad";
 import type { ShipMotionSample } from "../../systems/motion";
 import type { ScreenPoint } from "../../systems/projection";
 import type { PharosVilleWorld, ShipLivery, ShipLogoShape, ShipPegPattern, ShipPegShape, ShipStripePattern, ShipWaterZone } from "../../systems/world-types";
@@ -123,6 +124,15 @@ export interface ShipRenderState {
 export interface ShipRenderFrame {
   cache: RenderFrameCache;
   shipRenderStates: Map<string, ShipRenderState>;
+  // Optional: visible ships needed to look up the squad flagship for
+  // synchronised wake ordering. World-canvas frames provide this; tests
+  // may omit it (in which case wake ordering reduces to per-ship draw).
+  visibleShips?: readonly PharosVilleWorld["ships"][number][];
+  // Optional: tracks ship ids whose wake has been drawn this frame. Allows
+  // `drawShipWake` to render the flagship's wake first (then mark it) when
+  // both flagship and a consort move, so consort wakes overdraw the
+  // flagship and create the squad interference pattern.
+  wakeDrawnShipIds?: Set<string>;
 }
 
 function shipRenderState(input: DrawPharosVilleInput, frame: ShipRenderFrame, ship: PharosVilleWorld["ships"][number]): ShipRenderState {
@@ -176,7 +186,36 @@ function drawWithShipPose(
   ctx.restore();
 }
 
+/**
+ * Draws a ship's wake. May also paint the flagship's wake out-of-turn for
+ * synchronised-squad-wake interference: when called for a Maker squad consort
+ * that's a mover and the flagship is also a mover, the flagship's wake is
+ * drawn first via `drawShipWakeRaw` and marked in `frame.wakeDrawnShipIds`
+ * to prevent double-draw. See `ShipRenderFrame.wakeDrawnShipIds`.
+ */
 export function drawShipWake(input: DrawPharosVilleInput, frame: ShipRenderFrame, ship: PharosVilleWorld["ships"][number]) {
+  // Synchronised squad wake: when this hull is a Maker squad consort that
+  // is currently a mover and the flagship is also a mover, draw the
+  // flagship's wake first so consort wakes overdraw additively.
+  if (
+    ship.id !== MAKER_SQUAD_FLAGSHIP_ID
+    && ship.squadId === "maker"
+    && input.motion.plan.moverShipIds.has(ship.id)
+    && input.motion.plan.moverShipIds.has(MAKER_SQUAD_FLAGSHIP_ID)
+  ) {
+    const flagship = frame.visibleShips?.find((entry) => entry.id === MAKER_SQUAD_FLAGSHIP_ID);
+    const drawn = frame.wakeDrawnShipIds;
+    if (flagship && drawn && !drawn.has(MAKER_SQUAD_FLAGSHIP_ID)) {
+      drawShipWakeRaw(input, frame, flagship);
+      drawn.add(MAKER_SQUAD_FLAGSHIP_ID);
+    }
+  }
+  if (frame.wakeDrawnShipIds?.has(ship.id)) return;
+  drawShipWakeRaw(input, frame, ship);
+  frame.wakeDrawnShipIds?.add(ship.id);
+}
+
+function drawShipWakeRaw(input: DrawPharosVilleInput, frame: ShipRenderFrame, ship: PharosVilleWorld["ships"][number]) {
   const { camera, ctx, motion } = input;
   const { geometry, p, pose, sample, selected } = shipRenderState(input, frame, ship);
   drawShipContactShadow(ctx, geometry.drawPoint.x, geometry.drawPoint.y, geometry.drawScale);
@@ -377,6 +416,7 @@ export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame
       if (!titanSprite) {
         drawShipLiveryTrim(ctx, ship.id, ship.visual.livery, visualKey, geometry.drawPoint.x, drawY, geometry.drawScale);
       }
+      drawSquadIdentityAccent(ctx, ship.id, geometry.drawPoint.x, drawY, geometry.drawScale);
     });
   } else {
     const drawY = p.y - 4 * camera.zoom + bob;
@@ -391,7 +431,110 @@ export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame
       camera.zoom,
     );
     drawProceduralShipLiveryTrim(ctx, ship.id, ship.visual.livery, p.x, drawY, proceduralScale);
+    drawSquadIdentityAccent(ctx, ship.id, p.x, drawY, proceduralScale);
   }
+}
+
+// Per-hull identity accents, drawn after sprite blit and livery trim but
+// before overlay chrome. Gated by ship.id so only the three squad members
+// with a distinct callsign render an accent.
+export function drawSquadIdentityAccent(
+  ctx: CanvasRenderingContext2D,
+  shipId: string,
+  x: number,
+  y: number,
+  scale: number,
+) {
+  if (shipId === MAKER_SQUAD_FLAGSHIP_ID) drawAdmiralBanner(ctx, x, y, scale);
+  else if (shipId === "stusds-sky") drawForgeGlow(ctx, x, y, scale);
+  else if (shipId === "dai-makerdao") drawWeatheredPatches(ctx, x, y, scale);
+}
+
+// Narrow rectangular pennant just above the mast tip; flagship-only.
+function drawAdmiralBanner(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
+  ctx.save();
+  ctx.fillStyle = "#e8bb60";
+  ctx.strokeStyle = "rgba(43, 28, 18, 0.78)";
+  ctx.lineWidth = Math.max(1, 0.6 * scale);
+  ctx.beginPath();
+  ctx.rect(x - 1 * scale, y - 60 * scale, 11 * scale, 3.4 * scale);
+  ctx.fill();
+  ctx.stroke();
+  // Forked tip for admiral's banner.
+  ctx.beginPath();
+  ctx.moveTo(x + 10 * scale, y - 60 * scale);
+  ctx.lineTo(x + 13.5 * scale, y - 58.3 * scale);
+  ctx.lineTo(x + 10 * scale, y - 56.6 * scale);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+// Soft warm-orange radial gradient at the bow ram joint; reads as forge-glow.
+function drawForgeGlow(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
+  const cx = x + 14 * scale;
+  const cy = y - 4 * scale;
+  const radius = Math.max(2, 9 * scale);
+  ctx.save();
+  const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+  gradient.addColorStop(0, "rgba(255, 140, 40, 0.32)");
+  gradient.addColorStop(0.6, "rgba(255, 140, 40, 0.12)");
+  gradient.addColorStop(1, "rgba(255, 140, 40, 0)");
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+// Three desaturated grey-brown rectangles near the waterline; reads as
+// patched-up timbers on the elder consort.
+function drawWeatheredPatches(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
+  ctx.save();
+  ctx.fillStyle = "rgba(96, 78, 60, 0.55)";
+  ctx.strokeStyle = "rgba(40, 32, 24, 0.5)";
+  ctx.lineWidth = Math.max(1, 0.5 * scale);
+  const patches: ReadonlyArray<readonly [number, number, number, number]> = [
+    [-16, -3, 5, 2.4],
+    [-6, -4, 4.4, 2.2],
+    [4, -3, 4.8, 2.6],
+    [13, -4, 3.6, 2.0],
+  ];
+  for (const [px, py, pw, ph] of patches) {
+    ctx.beginPath();
+    ctx.rect(x + px * scale, y + py * scale, pw * scale, ph * scale);
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// Mast-top in screen-space, including hull pose (bob + roll). Used by the
+// squad chrome layer to anchor the bunting catenary so it follows wake.
+export function shipMastTopScreenPoint(
+  input: DrawPharosVilleInput,
+  frame: ShipRenderFrame,
+  ship: PharosVilleWorld["ships"][number],
+): { x: number; y: number } {
+  const { bob, geometry, pose } = shipRenderState(input, frame, ship);
+  const drawX = geometry.drawPoint.x;
+  const drawY = geometry.drawPoint.y + bob;
+  const sailKey = ship.visual.spriteAssetId ?? ship.visual.hull;
+  const sail = SHIP_SAIL_MARKS[sailKey] ?? SHIP_SAIL_MARKS["treasury-galleon"]!;
+  // Mast tip sits above the sail mark, slightly inboard of the sail's nominal X
+  // (the sail mark sits roughly mid-sail; the mast pole is closer to centerline).
+  const MAST_TOP_HEIGHT_FACTOR = 0.6; // mast extends 60% of sail-mark height above the mark
+  const MAST_X_INSET_FACTOR = 0.1; // mast pole sits at 10% of sail.x toward centerline
+  const localX = sail.x * geometry.drawScale * MAST_X_INSET_FACTOR;
+  const localY = (sail.y - sail.height * MAST_TOP_HEIGHT_FACTOR) * geometry.drawScale;
+  // Apply pose roll about the hull origin (drawX, drawY).
+  const cos = Math.cos(pose.rollRadians);
+  const sin = Math.sin(pose.rollRadians);
+  return {
+    x: drawX + localX * cos - localY * sin,
+    y: drawY + localX * sin + localY * cos,
+  };
 }
 
 function shipAnimationFrameIndex(asset: LoadedPharosVilleAsset, timeSeconds: number, shipId: string): number {

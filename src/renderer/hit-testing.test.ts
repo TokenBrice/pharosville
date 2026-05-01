@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoins, fixtureStability, fixtureStress } from "../__fixtures__/pharosville-world";
+import { fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoins, fixtureStability, fixtureStress, makerSquadFixtureInputs } from "../__fixtures__/pharosville-world";
+import { MAKER_SQUAD_MEMBER_IDS } from "../systems/maker-squad";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import { defaultCamera } from "../systems/camera";
 import { fitCameraToMap, tileToScreen } from "../systems/projection";
@@ -415,6 +416,23 @@ describe("hit-testing", () => {
     expect(target?.rect.y).toBeCloseTo(point.y + LIGHTHOUSE_DRAW_OFFSET.y * camera.zoom - LIGHTHOUSE_ASSET_ENTRY.anchor[1] * hitScale + LIGHTHOUSE_ASSET_ENTRY.hitbox[1] * hitScale);
     expect(target?.rect.width).toBeCloseTo(LIGHTHOUSE_ASSET_ENTRY.hitbox[2] * hitScale);
     expect(target?.rect.height).toBeCloseTo(LIGHTHOUSE_ASSET_ENTRY.hitbox[3] * hitScale);
+  });
+
+  it("resolves to the exact squad member at each member's anchor when squad active", () => {
+    const squadWorld = buildPharosVilleWorld(makerSquadFixtureInputs());
+    const squadCamera = fitCameraToMap({ width: 1440, height: 1000, map: squadWorld.map });
+    const targets = collectHitTargets({ camera: squadCamera, world: squadWorld });
+    for (const id of MAKER_SQUAD_MEMBER_IDS) {
+      const ship = squadWorld.ships.find((entry) => entry.id === id);
+      expect(ship, `world should contain ${id}`).toBeDefined();
+      const target = targets.find((candidate) => candidate.id === id);
+      expect(target, `hit target for ${id}`).toBeDefined();
+      const point = {
+        x: target!.rect.x + target!.rect.width / 2,
+        y: target!.rect.y + target!.rect.height / 2,
+      };
+      expect(hitTest(targets, point)?.id).toBe(id);
+    }
   });
 });
 
