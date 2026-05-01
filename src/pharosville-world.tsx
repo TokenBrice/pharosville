@@ -341,7 +341,14 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         timeSeconds = accSecondsRef.current;
       }
       let wallClockHour: number;
-      if (reducedMotion) {
+      const testOverride = (globalThis as { __pharosVilleTestWallClockHour?: number }).__pharosVilleTestWallClockHour;
+      if (typeof testOverride === "number" && Number.isFinite(testOverride)) {
+        // Visual tests inject this global to render at a specific hour. Takes
+        // precedence over the reduced-motion noon pin so dawn/dusk/night
+        // baselines are stable without losing reduced-motion's animation
+        // suppression.
+        wallClockHour = ((testOverride % 24) + 24) % 24;
+      } else if (reducedMotion) {
         // Reduced-motion users: pin to noon for a stable, drift-free scene every visit.
         // Mirrors the prior behavior where reducedMotion forced a fixed sky-state progress.
         wallClockHour = 12;

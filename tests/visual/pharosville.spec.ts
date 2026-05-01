@@ -104,21 +104,23 @@ const RISK_WATER_AREA_DETAILS = [
   { detailId: "area.risk-water.ledger-mooring", label: "Ledger Mooring", zone: "ledger" },
 ] as const;
 async function installWallClockOverride(page: Page, hour: number): Promise<void> {
-  // Override Date.prototype.getHours/getMinutes so motion.wallClockHour is
-  // deterministic per-test. Does NOT virtualize rAF (unlike page.clock.install),
-  // so requestAnimationFrame keeps advancing normally and existing tests still
-  // see motionFrameCount progress.
+  // Set a global the renderer reads BEFORE its reduced-motion noon pin (see
+  // pharosville-world.tsx). Also override Date.prototype.getHours/getMinutes
+  // for any non-reduced-motion paths and for code that constructs Date
+  // independently. Does NOT virtualize rAF (unlike page.clock.install), so
+  // requestAnimationFrame keeps advancing normally.
   const flooredHour = Math.floor(hour);
   const minutes = Math.round((hour - flooredHour) * 60);
-  await page.addInitScript(({ h, m }) => {
+  const fractional = ((hour % 24) + 24) % 24;
+  await page.addInitScript(({ h, m, frac }) => {
+    (globalThis as { __pharosVilleTestWallClockHour?: number }).__pharosVilleTestWallClockHour = frac;
     const origGetHours = Date.prototype.getHours;
     const origGetMinutes = Date.prototype.getMinutes;
     Date.prototype.getHours = function () { return h; };
     Date.prototype.getMinutes = function () { return m; };
-    // Keep originals reachable in case any other code path needs them.
     (Date.prototype as { __origGetHours?: typeof origGetHours }).__origGetHours = origGetHours;
     (Date.prototype as { __origGetMinutes?: typeof origGetMinutes }).__origGetMinutes = origGetMinutes;
-  }, { h: flooredHour, m: minutes });
+  }, { h: flooredHour, m: minutes, frac: fractional });
 }
 
 async function mockPharosVilleData(page: Page) {
