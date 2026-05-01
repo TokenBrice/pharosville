@@ -776,3 +776,100 @@ textarea {
     radial-gradient(circle at 100% 0%, rgba(108, 74, 20, 0.18), transparent 18%),
     radial-gradient(circle at 0% 100%, rgba(108, 74, 20, 0.18), transparent 18%);
 }
+
+/* Old-school chrome — controls */
+
+.pv-brass-button {
+  display: inline-grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1.5px solid var(--pv-timber-edge);
+  background: radial-gradient(circle at 35% 25%,
+    var(--pv-brass-highlight) 0%,
+    var(--pv-brass) 30%,
+    #a07a32 70%,
+    var(--pv-brass-edge) 100%);
+  color: var(--pv-ink-text);
+  font: inherit;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    inset 0 -2px 1px rgba(0, 0, 0, 0.4),
+    0 1px 2px rgba(0, 0, 0, 0.4);
+}
+.pv-brass-button:hover {
+  background: radial-gradient(circle at 35% 25%,
+    #fff0c8 0%,
+    #f3d49a 30%,
+    var(--pv-brass-mid) 70%,
+    var(--pv-brass-dark) 100%);
+}
+.pv-brass-button:focus-visible {
+  outline: 2px solid var(--pv-brass-highlight);
+  outline-offset: 3px;
+}
+.pv-brass-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+.pv-brass-button[aria-pressed="true"] {
+  background: radial-gradient(circle at 35% 75%,
+    var(--pv-brass-edge) 0%,
+    #6c4a14 50%,
+    var(--pv-timber-dark) 100%);
+  color: var(--pv-brass-highlight);
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.5),
+    inset 0 0 0 1px var(--pv-timber-edge);
+}
+
+.pv-corner-action {
+  position: absolute;
+  display: grid;
+  width: 56px;
+  height: 56px;
+  place-items: center;
+  border: 3px solid var(--pv-timber-edge);
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 25%,
+    var(--pv-brass-highlight) 0%,
+    var(--pv-brass) 30%,
+    #a07a32 65%,
+    #4b3414 100%);
+  color: var(--pv-ink-text);
+  cursor: pointer;
+  text-decoration: none;
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 235, 180, 0.4),
+    inset 0 -3px 4px rgba(0, 0, 0, 0.4),
+    0 4px 10px rgba(0, 0, 0, 0.6);
+}
+.pv-corner-action:hover {
+  background: radial-gradient(circle at 30% 25%,
+    #fff0c8 0%,
+    #f3d49a 30%,
+    var(--pv-brass-mid) 65%,
+    var(--pv-brass-dark) 100%);
+}
+.pv-corner-action:focus-visible {
+  outline: 2px solid var(--pv-brass-highlight);
+  outline-offset: 4px;
+}
+
+.pv-chip-zoom {
+  display: inline-grid;
+  height: 36px;
+  padding: 0 14px;
+  place-items: center;
+  border: 1.5px solid var(--pv-timber-edge);
+  background:
+    repeating-linear-gradient(90deg, rgba(40, 22, 12, 0.3) 0 1px, transparent 1px 8px),
+    linear-gradient(180deg, var(--pv-ink-soft), var(--pv-timber-dark));
+  color: var(--pv-parchment-light);
+  font: 900 12px Georgia, "Times New Roman", serif;
+  letter-spacing: 0.05em;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 210, 140, 0.15),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5);
+}
