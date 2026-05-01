@@ -125,7 +125,7 @@ Acceptance:
 
 Export `drawCenterCluster(input: DrawPharosVilleInput)`. Body fetches `assets.get("overlay.center-cluster")`; returns no-op if undefined; otherwise computes `tileToScreen(CIVIC_CORE_CENTER, camera)` and draws via `drawAsset` at zoom-aware scale 1. Pattern matches `drawLighthouseHeadland` in `src/renderer/layers/lighthouse.ts`.
 
-Imports: `tileToScreen` from `../../systems/projection`, `drawAsset` from canvas primitives, `CIVIC_CORE_CENTER` from `../../systems/world-layout`, `DrawPharosVilleInput` from `../render-types`.
+Imports: `tileToScreen` from `../../systems/projection`, `drawAsset` from canvas primitives, `CIVIC_CORE_CENTER` from `../../systems/world-layout`, `DrawPharosVilleInput` from `src/renderer/render-types.ts`.
 
 ### 3b. `src/renderer/world-canvas.ts` — wire into static pass
 

@@ -363,7 +363,7 @@ After this line, add a new import line:
 import { drawCenterCluster } from "./layers/center-cluster";
 ```
 
-(Place it alphabetically among the `./layers/*` imports.)
+(Place it alphabetically among the other layer imports.)
 
 - [ ] **Step 3: Run typecheck**
 
@@ -508,7 +508,7 @@ If no match, add to the imports at the top of the file:
 import { drawAsset } from "../canvas-primitives";
 ```
 
-If `drawDiamond, drawSignBoard` is already imported from `../canvas-primitives`, extend the existing import to include `drawAsset` instead of adding a second import line.
+If `drawDiamond, drawSignBoard` is already imported from `src/renderer/canvas-primitives.ts`, extend the existing import to include `drawAsset` instead of adding a second import line.
 
 - [ ] **Step 6: Run typecheck**
 

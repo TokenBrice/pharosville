@@ -144,8 +144,8 @@ Notes:
    ```bash
    magick frame-0.png frame-1.png ... frame-7.png +append lighthouse-pyre-frames.png
    ```
-3. Promote single still: `cp frame-0-keyed.png public/pharosville/assets/landmarks/lighthouse-pyre.png`.
-4. Promote strip: `cp lighthouse-pyre-frames.png public/pharosville/assets/landmarks/lighthouse-pyre-frames.png`.
+3. Promote single still: `cp frame-0-keyed.png <landmark-still-dest>`.
+4. Promote strip: `cp lighthouse-pyre-frames.png <landmark-strip-dest>`.
 
 ### 2. Frame size & beacon alignment
 
@@ -177,10 +177,8 @@ Manifest `displayScale: 1` (matches `landmark.lighthouse`). At runtime the rende
 Mirror the ship-animation convention exactly (`public/pharosville/assets/manifest.json:880-922`,
 USDC titan):
 
-- Static / reduced-motion PNG: `public/pharosville/assets/landmarks/lighthouse-pyre.png`
-  (64×64 transparent PNG, single frame).
-- Animation strip: `public/pharosville/assets/landmarks/lighthouse-pyre-frames.png`
-  (512×64 horizontal strip — 8 frames × 64 wide × 64 tall, columns:8 rows:1).
+- Static / reduced-motion PNG: `lighthouse-pyre-still` (planned output artifact, not yet provisioned).
+- Animation strip: `lighthouse-pyre-frames` (planned output artifact, not yet provisioned).
 
 New manifest entry under `assets[]`:
 
@@ -403,8 +401,8 @@ with an inline comment, mirroring the precedent in
 | File | Lines | Change |
 | --- | --- | --- |
 | `public/pharosville/assets/manifest.json` | bump `style.cacheVersion` (line 4); add new `assets[]` entry after the last landmark | one new entry, cache bump |
-| `public/pharosville/assets/landmarks/lighthouse-pyre.png` | new file | 64×64 still |
-| `public/pharosville/assets/landmarks/lighthouse-pyre-frames.png` | new file | 512×64 strip |
+| `lighthouse-pyre.png` | new file | 64×64 still |
+| `lighthouse-pyre-frames.png` | new file | 512×64 strip |
 | `src/renderer/layers/lighthouse.ts` | 8-25 (lighthouseRenderState), 172-182 (drawLighthouseOverlay), new helper | sprite acquisition, frame-index, sprite draw |
 | `scripts/pharosville/validate-assets.mjs` | `maxManifestAssets` constant (~line 25) | conditional bump if 45-cap is exceeded |
 | `agents/pharosville-lighthouse-fire-options-2-3-plan.md` | this file | (delete on completion or move to `agents/completed/`) |
