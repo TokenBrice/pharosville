@@ -159,19 +159,41 @@ function buildShipWaterRouteFromWaterTiles(input: {
   if (sameTile(from, to)) return waterPathFromPoints(from, to, [from]);
 
   const detouredPoints = findDetouredWaterPath(from, to, input.map, input.zone);
-  if (detouredPoints.length > 0) return waterPathFromPoints(from, to, detouredPoints);
+  if (detouredPoints.length > 0) return waterPathFromPoints(from, to, chaikinSmoothPath(detouredPoints));
 
   const points = findWaterPath(from, to, input.map, input.zone);
-  if (points.length > 0) return waterPathFromPoints(from, to, points);
+  if (points.length > 0) return waterPathFromPoints(from, to, chaikinSmoothPath(points));
 
   const waypoint = fallbackWaterWaypoint(from, to, input.map);
   const firstLeg = findWaterPath(from, waypoint, input.map, input.zone);
   const secondLeg = findWaterPath(waypoint, to, input.map, input.zone);
   if (firstLeg.length > 0 && secondLeg.length > 0) {
-    return waterPathFromPoints(from, to, [...firstLeg, ...secondLeg.slice(1)]);
+    return waterPathFromPoints(from, to, chaikinSmoothPath([...firstLeg, ...secondLeg.slice(1)]));
   }
 
   return waterPathFromPoints(from, to, [from]);
+}
+
+// Open Chaikin (1 iteration), endpoints preserved. Each interior segment p_i→p_{i+1}
+// emits Q_i = 0.75 p_i + 0.25 p_{i+1} and R_i = 0.25 p_i + 0.75 p_{i+1}, so an N-point
+// input becomes a 2N-point output. N <= 2 passes through unchanged.
+export function chaikinSmoothPath(points: ReadonlyArray<{ x: number; y: number }>): Array<{ x: number; y: number }> {
+  const n = points.length;
+  if (n <= 2) return points.map((point) => ({ x: point.x, y: point.y }));
+
+  const result = new Array<{ x: number; y: number }>(2 * n);
+  result[0] = { x: points[0]!.x, y: points[0]!.y };
+  let writeIndex = 1;
+  for (let i = 0; i < n - 1; i += 1) {
+    const current = points[i]!;
+    const next = points[i + 1]!;
+    result[writeIndex] = { x: 0.75 * current.x + 0.25 * next.x, y: 0.75 * current.y + 0.25 * next.y };
+    writeIndex += 1;
+    result[writeIndex] = { x: 0.25 * current.x + 0.75 * next.x, y: 0.25 * current.y + 0.75 * next.y };
+    writeIndex += 1;
+  }
+  result[writeIndex] = { x: points[n - 1]!.x, y: points[n - 1]!.y };
+  return result;
 }
 
 function findDetouredWaterPath(from: { x: number; y: number }, to: { x: number; y: number }, map: PharosVilleMap, zone?: ShipWaterZone): Array<{ x: number; y: number }> {
@@ -309,6 +331,8 @@ function findWaterPath(from: { x: number; y: number }, to: { x: number; y: numbe
     previous[i] = -1;
   }
   pathHeapSize = 0;
+  const shoreMask = ensureShoreDistanceMask(map);
+
 
   distances[startIndex] = 0;
   heapPush(startIndex, octileHeuristic(from.x - to.x, from.y - to.y));
@@ -346,7 +370,11 @@ function findWaterPath(from: { x: number; y: number }, to: { x: number; y: numbe
         if (!cornerBTile || !isMotionWaterTile(cornerBTile) || isSeawallBarrierTileXY(cornerBX, cornerBY)) continue;
       }
       const stepCost = waterPathCost(tile, zone);
-      const cost = dx !== 0 && dy !== 0 ? stepCost * Math.SQRT2 : stepCost;
+      // Graded shore bias: nudge routes 1-2 tiles offshore where viable. Additive
+      // on top of zone cost so the octile heuristic stays admissible.
+      const shoreD = shoreMask[neighborIndex]!;
+      const shorePenalty = shoreD < 1.5 ? 0.08 : shoreD < 2.5 ? 0.03 : 0;
+      const cost = (dx !== 0 && dy !== 0 ? (stepCost + shorePenalty) * Math.SQRT2 : stepCost + shorePenalty);
       const nextDistance = distances[currentIndex]! + cost;
       if (nextDistance >= distances[neighborIndex]!) continue;
       previous[neighborIndex] = currentIndex;
@@ -356,6 +384,79 @@ function findWaterPath(from: { x: number; y: number }, to: { x: number; y: numbe
   }
 
   return [];
+}
+
+const shoreDistanceMaskByMap = new WeakMap<PharosVilleMap, Float32Array>();
+
+// Euclidean distance (in tiles) from each tile to the nearest non-water or seawall
+// tile. Computed once per map via a 4-connected multi-source BFS seeded from every
+// land/seawall tile (and the implicit land border outside the map).
+export function ensureShoreDistanceMask(map: PharosVilleMap): Float32Array {
+  const cached = shoreDistanceMaskByMap.get(map);
+  if (cached) return cached;
+
+  const width = map.width;
+  const height = map.height;
+  const size = width * height;
+  const mask = new Float32Array(size);
+  const queue: number[] = [];
+  for (let index = 0; index < size; index += 1) {
+    const tile = map.tiles[index];
+    const isLand = !tile || !isMotionWaterTile(tile) || isSeawallBarrierTile({ x: index % width, y: Math.floor(index / width) });
+    if (isLand) {
+      mask[index] = 0;
+      queue.push(index);
+    } else {
+      mask[index] = Number.POSITIVE_INFINITY;
+    }
+  }
+
+  let head = 0;
+  while (head < queue.length) {
+    const index = queue[head]!;
+    head += 1;
+    const x = index % width;
+    const y = Math.floor(index / width);
+    const baseDistance = mask[index]!;
+    const neighbours = [
+      { x: x + 1, y },
+      { x: x - 1, y },
+      { x, y: y + 1 },
+      { x, y: y - 1 },
+    ];
+    for (const neighbour of neighbours) {
+      if (neighbour.x < 0 || neighbour.y < 0 || neighbour.x >= width || neighbour.y >= height) continue;
+      const neighbourIndex = neighbour.y * width + neighbour.x;
+      const candidate = baseDistance + 1;
+      if (candidate < mask[neighbourIndex]!) {
+        mask[neighbourIndex] = candidate;
+        queue.push(neighbourIndex);
+      }
+    }
+  }
+
+  // Treat the implicit border outside the map as land so edge water tiles read 1.
+  for (let x = 0; x < width; x += 1) {
+    const top = x;
+    const bottom = (height - 1) * width + x;
+    if (mask[top]! > 1) mask[top] = 1;
+    if (mask[bottom]! > 1) mask[bottom] = 1;
+  }
+  for (let y = 0; y < height; y += 1) {
+    const left = y * width;
+    const right = y * width + (width - 1);
+    if (mask[left]! > 1) mask[left] = 1;
+    if (mask[right]! > 1) mask[right] = 1;
+  }
+
+  shoreDistanceMaskByMap.set(map, mask);
+  return mask;
+}
+
+export function shoreDistance(x: number, y: number, map: PharosVilleMap, mask: Float32Array): number {
+  const index = tileIndex(x, y, map);
+  if (index < 0) return 0;
+  return mask[index]!;
 }
 
 function reconstructPath(previous: ArrayLike<number>, endIndex: number, map: PharosVilleMap): Array<{ x: number; y: number }> {
