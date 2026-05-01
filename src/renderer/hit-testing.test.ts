@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoins, fixtureStability, fixtureStress, makerSquadFixtureInputs } from "../__fixtures__/pharosville-world";
+import type { PegSummaryResponse, ReportCardsResponse, StablecoinListResponse } from "@shared/types";
+import { fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoins, fixtureStability, fixtureStress, makeAsset, makePegCoin, makeReportCard, makerSquadFixtureInputs } from "../__fixtures__/pharosville-world";
 import { MAKER_SQUAD_MEMBER_IDS } from "../systems/maker-squad";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import { defaultCamera } from "../systems/camera";
@@ -222,6 +223,80 @@ describe("hit-testing", () => {
       x: target!.rect.x + target!.rect.width / 2,
       y: target!.rect.y + target!.rect.height / 2,
     })?.detailId).toBe(ship!.detailId);
+  });
+
+  it("keeps unique ships selectable while they are docked", () => {
+    // Build a world that includes crvusd-curve so it resolves to a unique
+    // (heritage hull) ship per the unique-ship registry.
+    const stablecoins: StablecoinListResponse = {
+      peggedAssets: [
+        ...fixtureStablecoins.peggedAssets,
+        makeAsset({ id: "crvusd-curve", symbol: "crvUSD", name: "Curve.fi USD" }),
+      ],
+    };
+    const pegSummary: PegSummaryResponse = {
+      ...fixturePegSummary,
+      coins: [...fixturePegSummary.coins, makePegCoin({ id: "crvusd-curve", symbol: "crvUSD" })],
+    };
+    const reportCards: ReportCardsResponse = {
+      ...fixtureReportCards,
+      cards: [...fixtureReportCards.cards, makeReportCard({ id: "crvusd-curve", symbol: "crvUSD" })],
+    };
+    const uniqueWorld = buildPharosVilleWorld({
+      stablecoins,
+      chains: fixtureChains,
+      stability: fixtureStability,
+      pegSummary,
+      stress: fixtureStress,
+      reportCards,
+      cemeteryEntries: [],
+      freshness: {},
+    });
+    const uniqueCamera = fitCameraToMap({ width: 1440, height: 1000, map: uniqueWorld.map });
+
+    const assets = {
+      get: (id: string): LoadedPharosVilleAsset | null => {
+        const isDock = id.startsWith("dock.");
+        const isShip = id.startsWith("ship.");
+        if (!isDock && !isShip) return null;
+        const entry: PharosVilleAssetManifestEntry = {
+          anchor: isDock ? [48, 46] : [40, 50],
+          category: isDock ? "dock" : "ship",
+          displayScale: 1,
+          footprint: isDock ? [42, 18] : [20, 12],
+          height: 64,
+          hitbox: isDock ? [8, 4, 80, 55] : [8, 8, 64, 48],
+          id,
+          layer: isDock ? "docks" : "ships",
+          loadPriority: "critical",
+          path: `${id}.png`,
+          width: isDock ? 96 : 80,
+        };
+        return { entry, image: {} as HTMLImageElement };
+      },
+    };
+    const crvusd = uniqueWorld.ships.find((entry) => entry.detailId === "ship.crvusd-curve");
+    expect(crvusd, "fixture must include crvusd-curve as a unique-tier ship").toBeDefined();
+    expect(crvusd!.visual.sizeTier).toBe("unique");
+    const ethereumDock = uniqueWorld.docks.find((entry) => entry.detailId === "dock.ethereum");
+    expect(ethereumDock).toBeDefined();
+    const targets = collectHitTargets({
+      assets,
+      camera: uniqueCamera,
+      selectedDetailId: "dock.ethereum",
+      shipMotionSamples: new Map([[crvusd!.id, motionSample(crvusd!.id, ethereumDock!.tile, "moored")]]),
+      world: uniqueWorld,
+    });
+    const ship = targets.find((target) => target.detailId === "ship.crvusd-curve");
+    const dock = targets.find((target) => target.detailId === "dock.ethereum");
+    expect(ship).toBeDefined();
+    expect(dock).toBeDefined();
+
+    const point = {
+      x: ship!.rect.x + ship!.rect.width / 2,
+      y: ship!.rect.y + ship!.rect.height / 2,
+    };
+    expect(hitTest(targets, point)?.detailId).toBe(ship!.detailId);
   });
 
   it("keeps titan ships selectable while they are docked", () => {

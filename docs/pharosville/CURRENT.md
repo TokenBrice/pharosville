@@ -79,6 +79,26 @@ layout, asset, renderer, test, and docs change:
   their painted colour without runtime livery tinting; see
   `UNTUNED_TITAN_IDS` in `src/renderer/ship-sail-tint.test.ts`).
 
+- Heritage hulls (unique tier) sit between titans and standard hulls and are
+  curated by cultural significance rather than market cap. Members get
+  dedicated 136×100 PixelLab sprites (single-frame, deferred load) and stay
+  visible/selectable while moored, but skip titan-only chrome (foam, spray,
+  full pose, sail flutter). The current registry in
+  `src/systems/unique-ships.ts` covers crvUSD (Curve / llama), BOLD (Liquity
+  / spartan), fxUSD (f(x) Protocol / mathematical livery), xAUT (Tether gold
+  barge), and PAXG (Paxos gilded merchantman). All five sprites share an
+  oxidized-bronze masthead lantern and cream bowsprit pennant as a tier-
+  unifying device. Each carries a per-ship rationale string surfaced as a
+  "Cultural significance" line in the detail panel and accessibility
+  ledger. The user-facing `sizeLabel` is `"Heritage hull"` while the
+  internal `sizeTier === "unique"` discriminator drives all rendering and
+  routing. Mooring uses flagship-tier dock placement (depth bonus 2,
+  barrier clearance 3.3). Sail-tint masks are tuned for paxg-unique; the
+  remaining four (`crvusd`/`bold`/`fxusd`/`xaut`) sit in
+  `UNTUNED_UNIQUE_IDS` because their painted brand colors fall outside
+  `isSailTintPixel`'s recognised range — these ships render their painted
+  identity directly by design.
+
 Historical plans in this directory are context, not live instructions. If they conflict with this file, follow this file and the verified docs.
 
 ## Runtime Entry Points
@@ -144,7 +164,7 @@ generic water.
 - Stale or missing peg evidence maps to Calm Anchorage with an evidence caveat unless a fresher risk signal exists; it must not create a separate sea zone or masquerade as storm/depeg risk.
 - Stablecoin supply values from the list payload are already USD-denominated. Use `getCirculatingRaw()` for market-cap visual tiers.
 - Local runtime assets come from `public/pharosville/assets/` and `manifest.json`. Do not reference remote prototype URLs at runtime.
-- Treat `public/pharosville/assets/manifest.json` and `npm run check:pharosville-assets` as the asset inventory source of truth. At this update, the manifest contains 34 runtime assets, split by `loadPriority` into 23 critical/first-render entries and 11 deferred entries; rerun the validator instead of hand-maintaining prose counts.
+- Treat `public/pharosville/assets/manifest.json` and `npm run check:pharosville-assets` as the asset inventory source of truth. At this update, the manifest contains 43 runtime assets, split by `loadPriority` into 25 critical/first-render entries and 18 deferred entries (the heritage-hull tier added 5 deferred unique-ship sprites); the validator's `maxManifestAssets` cap was bumped to 45 to leave headroom. Rerun the validator instead of hand-maintaining prose counts.
 
 ## Current Visual Model
 
@@ -157,7 +177,7 @@ generic water.
 - Printed water labels render above entity sprites, so label visibility and label hit targets intentionally win over overlapping ships or tall landmarks.
 - Sea terrain is semantic: harbor water, calm DEWS anchorage water, watch breakwater water, alert current, warning shoals, storm strait, ledger water, generic navigable water, and deep outer shelf each have distinct palette/texture handling. Manifest terrain sprites draw first; renderer overlays preserve analytical color semantics while adding shoals, foam, current streaks, storm chop, ledger glow, and reef/buoy context.
 - Per-zone visual styling lives in a single `ZONE_THEMES` table in `src/systems/palette.ts`. Each entry bundles base/inner/wave/accent water colors, the procedural texture kind, label outline/fill/plaque colors, and motion amplitude/stroke-alpha scalars. `drawWaterAreaLabels` (`src/renderer/layers/water-labels.ts`) reads the theme via `RISK_WATER_AREAS[area.riskPlacement].terrain` so it routes Danger Strait through `storm-water` rather than a non-existent `danger-water` key. The exhaustiveness invariant (`SHIP_WATER_ZONES` ↔ `ZONE_THEMES`) is enforced both by `as const satisfies Record<...>` constraints on `ZONE_THEMES`, `ZONE_DWELL`, `OPEN_WATER_PATROL_WAYPOINTS`, and `ZONE_ROUGHNESS`, and by `src/systems/palette.test.ts`. Adjusting a zone's color, label styling, wave amplitude, or accent stroke alpha is a one-table edit; texture geometry, frequency, and procedural cadence still live inside the per-zone draw functions in `src/renderer/layers/terrain.ts`.
-- Ship risk routes expose both `riskWaterLabel` and `riskZone` in details and the accessibility ledger. Reduced-motion ships freeze at their current risk-water idle tile, or Ledger Mooring for NAV ledger assets; harbor moorings are route stops, not the static representative position. In normal motion, routed ships spend one third of each cycle moored; non-titan ships are hidden while moored, while titan ships remain visible.
+- Ship risk routes expose both `riskWaterLabel` and `riskZone` in details and the accessibility ledger. Reduced-motion ships freeze at their current risk-water idle tile, or Ledger Mooring for NAV ledger assets; harbor moorings are route stops, not the static representative position. In normal motion, routed ships spend one third of each cycle moored; non-titan, non-unique ships are hidden while moored, while titan and heritage-hull ships remain visible.
 - Dock sprites are rank/preference selected through manifest IDs such as `dock.ethereum-harbor-hub`, `dock.harbor-ring-quay`, `dock.compact-harbor-pier`, `dock.rollup-ferry-slip`, and `dock.bridge-pontoon`; Ethereum's hub remains selectable while its dock body is drawn behind ships so harbor traffic sails over it.
 - Dock selection reserves the Ethereum/L2 harbor cluster (`ethereum`, `base`, `arbitrum`, `polygon`) when those chains are present, intentionally suppresses Optimism as a rendered harbor, then fills the remaining eight-dock cap by chain stablecoin supply.
 - The Ethereum/L2 cove prints `ETHEREUM HARBOR` and `L2 BAY` plaque signs using the same canvas label treatment as named DEWS water areas.

@@ -368,7 +368,7 @@ describe("motion", () => {
     expect(terrainKindAt(Math.round(sample.tile.x), Math.round(sample.tile.y))).toBe("ledger-water");
   });
 
-  it("hides only non-titan ships while they are moored", () => {
+  it("hides only non-titan, non-unique ships while they are moored", () => {
     const titanShip = world.ships[0]!;
     const nonTitanShip = {
       ...titanShip,
@@ -376,6 +376,14 @@ describe("motion", () => {
         ...titanShip.visual,
         sizeTier: "major" as const,
         spriteAssetId: undefined,
+      },
+    };
+    const uniqueShip = {
+      ...titanShip,
+      visual: {
+        ...titanShip.visual,
+        sizeTier: "unique" as const,
+        spriteAssetId: "ship.crvusd-unique",
       },
     };
     const mooredSample = {
@@ -397,6 +405,7 @@ describe("motion", () => {
     };
 
     expect(isShipMapVisible(titanShip, mooredSample)).toBe(true);
+    expect(isShipMapVisible(uniqueShip, mooredSample)).toBe(true);
     expect(isShipMapVisible(nonTitanShip, mooredSample)).toBe(false);
     expect(isShipMapVisible(nonTitanShip, ledgerSample)).toBe(true);
     expect(isShipMapVisible(nonTitanShip, { ...mooredSample, state: "departing" })).toBe(true);

@@ -8,6 +8,7 @@ import type { RenderFrameCache } from "../frame-cache";
 import type { ResolvedEntityGeometry } from "../geometry";
 import type { DrawPharosVilleInput } from "../render-types";
 import { recolorSailImageData, SHIP_SAIL_TINT_MASKS } from "../ship-sail-tint";
+import { UNIQUE_SPRITE_IDS } from "../../systems/unique-ships";
 import { resolveShipPose, zeroShipPose, type ShipPose } from "./ship-pose";
 
 const SHIP_COLORS = {
@@ -32,6 +33,14 @@ export const SHIP_SAIL_MARKS: Record<string, { height: number; width: number; x:
   "ship.susds-titan": { height: 19, width: 23, x: 3, y: -45 },
   "ship.sdai-titan": { height: 19, width: 23, x: 3, y: -45 },
   "ship.stusds-titan": { height: 19, width: 23, x: 3, y: -45 },
+  // Unique heritage hulls (136x100, anchor [68,92]). Per-sprite tuned to the
+  // painted mainsail polygon centroid; see PNG inspection notes in
+  // agents/2026-05-01-unique-ship-category-plan.md Step 6.1.
+  "ship.crvusd-unique": { height: 19, width: 22, x: 4, y: -50 },
+  "ship.bold-unique": { height: 18, width: 21, x: 3, y: -52 },
+  "ship.fxusd-unique": { height: 18, width: 20, x: 3, y: -50 },
+  "ship.xaut-unique": { height: 17, width: 20, x: -7, y: -57 },
+  "ship.paxg-unique": { height: 20, width: 22, x: 2, y: -47 },
 };
 
 export const SHIP_PEG_MARKS: Record<string, { size: number; x: number; y: number }> = {
@@ -48,6 +57,13 @@ export const SHIP_PEG_MARKS: Record<string, { size: number; x: number; y: number
   "ship.susds-titan": { size: 7.2, x: -29, y: -65 },
   "ship.sdai-titan": { size: 7.2, x: -29, y: -65 },
   "ship.stusds-titan": { size: 7.2, x: -29, y: -65 },
+  // Unique heritage hulls (136x100, anchor [68,92]). Peg pennant sits forward
+  // of the mainmast and below the masthead lantern.
+  "ship.crvusd-unique": { size: 6.6, x: -26, y: -58 },
+  "ship.bold-unique": { size: 6.5, x: -27, y: -60 },
+  "ship.fxusd-unique": { size: 6.4, x: -25, y: -57 },
+  "ship.xaut-unique": { size: 6.4, x: -25, y: -56 },
+  "ship.paxg-unique": { size: 6.8, x: -28, y: -60 },
 };
 
 interface ShipTrimSpec {
@@ -131,6 +147,38 @@ export const SHIP_TRIM_MARKS: Record<string, ShipTrimSpec> = {
     stern: { x: -48, y: -26, width: 14, height: 6 },
     deck: [{ x: -14, y: -29, width: 11, height: 5 }, { x: 12, y: -25, width: 10, height: 4 }],
   },
+  // Unique heritage hulls (136x100, anchor [68,92]). Trim offsets sit between
+  // the standard galleon (104x80) and the titan hulls (144x104+).
+  "ship.crvusd-unique": {
+    rail: [-38, -16, 36, -7],
+    keel: [-36, -4, 32, 0],
+    stern: { x: -42, y: -22, width: 12, height: 5 },
+    deck: [{ x: -12, y: -25, width: 10, height: 4 }, { x: 10, y: -22, width: 9, height: 4 }],
+  },
+  "ship.bold-unique": {
+    rail: [-38, -16, 36, -7],
+    keel: [-36, -4, 32, 0],
+    stern: { x: -42, y: -23, width: 12, height: 5 },
+    deck: [{ x: -12, y: -26, width: 10, height: 4 }, { x: 10, y: -23, width: 9, height: 4 }],
+  },
+  "ship.fxusd-unique": {
+    rail: [-38, -15, 36, -7],
+    keel: [-36, -4, 32, 0],
+    stern: { x: -42, y: -21, width: 12, height: 5 },
+    deck: [{ x: -12, y: -24, width: 10, height: 4 }, { x: 10, y: -21, width: 9, height: 4 }],
+  },
+  "ship.xaut-unique": {
+    rail: [-38, -14, 36, -6],
+    keel: [-36, -3, 32, 0],
+    stern: { x: -42, y: -19, width: 12, height: 5 },
+    deck: [{ x: -12, y: -22, width: 10, height: 4 }, { x: 10, y: -19, width: 9, height: 4 }],
+  },
+  "ship.paxg-unique": {
+    rail: [-38, -17, 36, -8],
+    keel: [-36, -4, 32, 0],
+    stern: { x: -42, y: -23, width: 12, height: 5 },
+    deck: [{ x: -12, y: -26, width: 10, height: 4 }, { x: 10, y: -23, width: 9, height: 4 }],
+  },
 };
 
 const PENNANTS: Record<string, string> = {
@@ -191,6 +239,7 @@ const SHIP_LOD_SKIP_THRESHOLD = 24;
 
 const SHIP_SIZE_TIER_PRIORITY: Record<PharosVilleWorld["ships"][number]["visual"]["sizeTier"], number> = {
   titan: 7,
+  unique: 6,
   flagship: 5,
   major: 4,
   regional: 3,
@@ -243,13 +292,16 @@ export function planShipRenderLod(
     const effect = input.motion.plan.effectShipIds.has(ship.id);
     const selected = ship.id === selectedId || ship.detailId === selectedDetailId;
     const hovered = ship.id === hoveredId || ship.detailId === hoveredDetailId;
-    const titan = ship.visual.sizeTier === "titan" || isTitanSprite(ship);
+    const preserveTier = ship.visual.sizeTier === "titan"
+      || ship.visual.sizeTier === "unique"
+      || isTitanSprite(ship)
+      || isUniqueSprite(ship);
     const inViewport = isShipRectInViewport(geometry.selectionRect, input.width, input.height, viewportMargin);
     const distance = Math.hypot(geometry.screenPoint.x - centerX, geometry.screenPoint.y - centerY);
     const proximityScore = Math.max(-1, 1 - distance / maxDistance);
     const sizePriority = SHIP_SIZE_TIER_PRIORITY[ship.visual.sizeTier] ?? 0;
     const transit = sample?.state === "departing" || sample?.state === "sailing" || sample?.state === "arriving";
-    const preserve = selected || hovered || titan;
+    const preserve = selected || hovered || preserveTier;
 
     if (preserve) {
       drawOverlayShipIds.add(ship.id);
@@ -346,6 +398,10 @@ function shipRenderState(input: DrawPharosVilleInput, frame: ShipRenderFrame, sh
 
 function isTitanSprite(ship: PharosVilleWorld["ships"][number]): boolean {
   return !!ship.visual.spriteAssetId && TITAN_SPRITE_IDS.has(ship.visual.spriteAssetId);
+}
+
+function isUniqueSprite(ship: PharosVilleWorld["ships"][number]): boolean {
+  return !!ship.visual.spriteAssetId && UNIQUE_SPRITE_IDS.has(ship.visual.spriteAssetId);
 }
 
 function drawWithShipPose(

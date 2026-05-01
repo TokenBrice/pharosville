@@ -22,7 +22,8 @@ const pharosVilleSourceExtensionPattern = /\.(?:ts|tsx)$/;
 const pharosVilleTestFilePattern = /(?:^|\/)(?:__tests__|tests?)\/|\.test\.(?:ts|tsx)$/;
 const publicImageExtensionPattern = /\.(?:png|svg|jpe?g|webp)$/i;
 // 2026-05-01: bumped for Maker squad titans (USDS, DAI, sUSDS, sDAI, stUSDS)
-const maxManifestAssets = 40;
+// 2026-05-01: bumped from 40 to 45 to accommodate unique-ship category (+5 deferred sprites). Current actual count: 43.
+const maxManifestAssets = 45;
 const firstRenderBudgets = {
   // 2026-05-01: bumped for Maker squad titans (USDS, DAI, sUSDS, sDAI, stUSDS)
   maxCount: 28,

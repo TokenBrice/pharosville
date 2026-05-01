@@ -54,6 +54,14 @@ describe("AccessibilityLedger", () => {
     expect(markup).toContain("squad sheltering at flagship");
   });
 
+  it("appends a heritage-hull clause for ships carrying uniqueRationale", () => {
+    const world = sampleWorldWithUniqueShip();
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("heritage hull:");
+    expect(markup).toContain("llama mascot");
+  });
+
   it("hides the Sky squad section when its flagship is missing; Maker squad still renders", () => {
     const world = buildPharosVilleWorld(fixtureWithoutAsset(makerSquadFixtureInputs(), "usds-sky"));
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
@@ -93,6 +101,70 @@ function sampleWorld(): PharosVilleWorld {
     detailIndex: {},
     legends: [],
     visualCues: buildVisualCueRegistry(),
+  };
+}
+
+function sampleWorldWithUniqueShip(): PharosVilleWorld {
+  const world = sampleWorld();
+  return {
+    ...world,
+    ships: [
+      {
+        id: "crvusd-curve",
+        kind: "ship",
+        label: "Curve",
+        symbol: "crvUSD",
+        asset: {} as PharosVilleWorld["ships"][number]["asset"],
+        meta: {} as PharosVilleWorld["ships"][number]["meta"],
+        reportCard: null,
+        logoSrc: null,
+        tile: { x: 1, y: 1 },
+        riskTile: { x: 1, y: 1 },
+        chainPresence: [{ chainId: "ethereum", currentUsd: 100, hasRenderedDock: false, share: 1 }],
+        dockVisits: [],
+        dominantChainId: "ethereum",
+        homeDockChainId: null,
+        dockChainId: null,
+        marketCapUsd: 100,
+        riskPlacement: "safe-harbor",
+        riskZone: "calm",
+        riskWaterLabel: "Calm Anchorage",
+        placementEvidence: { reason: "Fresh", sourceFields: ["pegSummary.coins[]"], stale: false },
+        visual: {
+          hull: "dao-schooner",
+          spriteAssetId: "ship.crvusd-unique",
+          uniqueRationale: "Sails under Curve's llama mascot — the DEX that defined stablecoin AMM curves.",
+          shipClass: "defi",
+          classLabel: "DeFi",
+          rigging: "dao-rig",
+          pennant: "emerald",
+          pegLabel: "USD peg",
+          pegPattern: "ring",
+          pegShape: "disc",
+          livery: {
+            accent: "#8bbf72",
+            label: "Curve logo livery",
+            logoMatte: "#f7fff5",
+            logoShape: "ring",
+            primary: "#41956b",
+            sailColor: "#d9ecdf",
+            sailPanel: "quartered",
+            secondary: "#27543e",
+            source: "stablecoin-logo",
+            stripePattern: "wave",
+          },
+          sailColor: "#d9ecdf",
+          sailStripeColor: "#41956b",
+          overlay: "none",
+          sizeTier: "unique",
+          sizeLabel: "Heritage hull",
+          scale: 1.5,
+        },
+        change24hUsd: null,
+        change24hPct: null,
+        detailId: "ship.crvusd-curve",
+      },
+    ],
   };
 }
 

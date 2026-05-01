@@ -29,6 +29,8 @@ function dockMooringDepthBonus(ship: ShipNode): number {
   switch (ship.visual.sizeTier) {
     case "titan":
       return 3;
+    case "unique":
+      return 2;
     case "flagship":
       return 2;
     case "major":
@@ -42,6 +44,8 @@ function dockMooringBarrierClearance(ship: ShipNode): number {
   switch (ship.visual.sizeTier) {
     case "titan":
       return 4.0;
+    case "unique":
+      return 3.3;
     case "flagship":
       return 3.3;
     case "major":

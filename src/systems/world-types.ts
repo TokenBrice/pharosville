@@ -66,6 +66,7 @@ export type ShipClass =
 
 export type ShipSizeTier =
   | "titan"
+  | "unique"
   | "flagship"
   | "major"
   | "regional"
@@ -96,6 +97,7 @@ export interface ShipLivery {
 export interface ShipVisual {
   hull: ShipHull;
   spriteAssetId?: string;
+  uniqueRationale?: string;
   shipClass: ShipClass;
   classLabel: string;
   rigging: "issuer-rig" | "dependent-rig" | "dao-rig";
