@@ -14,7 +14,6 @@ Applies to `shared/**`.
 - `shared/lib/**` must stay runtime-neutral and avoid frontend-only or Worker-only globals unless explicitly abstracted.
 - Import shared runtime logic as `@shared/lib/...` from frontend code; import shared type/schema modules as `@shared/types...`. Avoid relative cross-boundary imports.
 - Classification labels and colors live in `shared/lib/classification.ts`; do not redefine them locally.
-- Use `getCirculatingRaw()` from `shared/lib/supply.ts` for circulating-supply semantics.
 - Keep PharosVille API contract changes aligned with `shared/types/pharosville.ts` and `shared/lib/pharosville-api-contract.ts`.
 
 ## Common Checks

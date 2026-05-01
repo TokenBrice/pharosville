@@ -102,7 +102,7 @@ Implementation:
 
 Tests:
 - `npm run typecheck`
-- `npm test -- src/hooks/api-hooks.test.ts src/lib/api.test.ts shared/lib/__tests__/pharosville-api-contract.test.ts`
+- `npm test -- src/hooks/api-hooks.test.ts src/lib/api.test.ts`
 - `npm run build`
 - New: `npm run check:bundle-size`
 
