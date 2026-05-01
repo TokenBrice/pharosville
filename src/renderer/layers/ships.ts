@@ -356,9 +356,10 @@ export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame
   const { camera, ctx, motion } = input;
   const { bob, geometry, p, pose, shipAsset } = shipRenderState(input, frame, ship);
   if (shipAsset) {
+    const titanSprite = isTitanSprite(ship);
     const drawY = geometry.drawPoint.y + bob;
     drawWithShipPose(ctx, geometry.drawPoint.x, drawY, pose, () => {
-      if (isTitanSprite(ship)) {
+      if (titanSprite) {
         drawAnimatedAsset(
           ctx,
           shipAsset,
@@ -373,7 +374,9 @@ export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame
       }
       const visualKey = ship.visual.spriteAssetId ?? ship.visual.hull;
       drawShipSailTint(ctx, shipAsset, geometry.drawPoint.x, drawY, geometry.drawScale, ship.visual.livery);
-      drawShipLiveryTrim(ctx, ship.id, ship.visual.livery, visualKey, geometry.drawPoint.x, drawY, geometry.drawScale);
+      if (!titanSprite) {
+        drawShipLiveryTrim(ctx, ship.id, ship.visual.livery, visualKey, geometry.drawPoint.x, drawY, geometry.drawScale);
+      }
     });
   } else {
     const drawY = p.y - 4 * camera.zoom + bob;
@@ -404,11 +407,12 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
   const { assets, camera, ctx } = input;
   const { bob, geometry, p, pose, selected, shipAsset } = shipRenderState(input, frame, ship);
   if (shipAsset) {
+    const titanSprite = isTitanSprite(ship);
     const drawY = geometry.drawPoint.y + bob;
     drawWithShipPose(ctx, geometry.drawPoint.x, drawY, pose, () => {
       if (selected) drawSelectedShipOutline(ctx, geometry.drawPoint.x, drawY, geometry.drawScale);
       const mark = SHIP_SAIL_MARKS[ship.visual.spriteAssetId ?? ship.visual.hull] ?? SHIP_SAIL_MARKS[ship.visual.hull];
-      const flutterY = isTitanSprite(ship) ? pose.sailFlutter * geometry.drawScale : 0;
+      const flutterY = titanSprite ? pose.sailFlutter * geometry.drawScale : 0;
       drawSailLogo({
         ctx,
         logo: assets?.getLogo(ship.logoSrc) ?? null,
@@ -421,6 +425,7 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
         x: geometry.drawPoint.x + mark.x * geometry.drawScale,
         y: drawY + mark.y * geometry.drawScale + flutterY,
       });
+      if (titanSprite) return;
       drawShipPegPennant(
         ctx,
         ship.visual.pennant,
@@ -431,10 +436,6 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
         drawY,
         geometry.drawScale,
       );
-      if (ship.visual.spriteAssetId) {
-        drawTitanShipWaterline(ctx, geometry.drawPoint.x, drawY, geometry.drawScale);
-        drawTitanLanterns(ctx, ship.visual.spriteAssetId, geometry.drawPoint.x, drawY, geometry.drawScale, pose);
-      }
       drawShipSignalOverlay(ctx, ship.visual.overlay, geometry.drawPoint.x - 17 * geometry.drawScale, drawY - 36 * geometry.drawScale, geometry.drawScale);
     });
   } else {
@@ -903,59 +904,6 @@ function logoShapePath(ctx: CanvasRenderingContext2D, shape: ShipLogoShape, x: n
   } else {
     roundedRectPath(ctx, x - width / 2, y - height / 2, width, height, Math.max(1, width * 0.2));
   }
-}
-
-function drawTitanShipWaterline(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
-  ctx.save();
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.strokeStyle = "rgba(210, 245, 236, 0.74)";
-  ctx.lineWidth = Math.max(1, 1.4 * scale);
-  ctx.beginPath();
-  ctx.moveTo(x - 32 * scale, y - 1.4 * scale);
-  ctx.quadraticCurveTo(x - 8 * scale, y + 5.2 * scale, x + 30 * scale, y + 1.1 * scale);
-  ctx.stroke();
-
-  ctx.strokeStyle = "rgba(58, 174, 177, 0.42)";
-  ctx.lineWidth = Math.max(1, 0.9 * scale);
-  ctx.beginPath();
-  ctx.moveTo(x - 25 * scale, y + 3.5 * scale);
-  ctx.quadraticCurveTo(x - 4 * scale, y + 8 * scale, x + 24 * scale, y + 5.2 * scale);
-  ctx.stroke();
-  ctx.restore();
-}
-
-function drawTitanLanterns(
-  ctx: CanvasRenderingContext2D,
-  visualKey: string,
-  x: number,
-  y: number,
-  scale: number,
-  pose: ShipPose,
-) {
-  const spec = SHIP_TRIM_MARKS[visualKey];
-  if (!spec) return;
-  const lanterns = [
-    { x: spec.stern.x + spec.stern.width * 0.5, y: spec.stern.y - 1 },
-    { x: spec.rail[2] - 6, y: spec.rail[3] - 2 },
-  ];
-  ctx.save();
-  ctx.globalCompositeOperation = "lighter";
-  for (const lantern of lanterns) {
-    const alpha = 0.18 + pose.lanternAlpha + pose.mooringTension * 0.12;
-    const px = x + lantern.x * scale;
-    const py = y + lantern.y * scale;
-    const glow = ctx.createRadialGradient(px, py, 0.8 * scale, px, py, 7 * scale);
-    glow.addColorStop(0, `rgba(255, 213, 132, ${Math.min(0.54, alpha)})`);
-    glow.addColorStop(1, "rgba(255, 185, 94, 0)");
-    ctx.fillStyle = glow;
-    ctx.beginPath();
-    ctx.ellipse(px, py, 7 * scale, 4 * scale, -0.08, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = `rgba(255, 218, 147, ${Math.min(0.82, alpha + 0.18)})`;
-    ctx.fillRect(Math.round(px - scale), Math.round(py - scale), Math.max(1, Math.round(2 * scale)), Math.max(1, Math.round(2 * scale)));
-  }
-  ctx.restore();
 }
 
 function drawShipSignalOverlay(
