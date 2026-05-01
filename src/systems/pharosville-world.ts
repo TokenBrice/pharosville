@@ -24,7 +24,12 @@ import {
 } from "./detail-model";
 import { buildPharosVilleMap, clampMapTile, graveNodesFromEntries, LIGHTHOUSE_TILE, MAX_TILE_X, MAX_TILE_Y, nearestAvailableWaterTile, nearestWaterTile, REGION_TILES } from "./world-layout";
 import { getRecentChange } from "./recent-change";
-import { resolveShipRiskPlacement } from "./risk-placement";
+import { isStricterPlacement, resolveShipRiskPlacement } from "./risk-placement";
+import {
+  MAKER_SQUAD_FLAGSHIP_ID,
+  isMakerSquadMember,
+  makerSquadRole,
+} from "./maker-squad";
 import { isRiskPlacementWaterTile, nearestRiskPlacementWaterTile, riskPlacementWaterTiles } from "./risk-water-placement";
 import {
   SHIP_SCATTER_RADIUS,
@@ -42,6 +47,7 @@ import type {
   LighthouseNode,
   PharosVilleFreshness,
   PharosVilleWorld,
+  PlacementEvidence,
   ShipChainPresence,
   ShipDockVisit,
   ShipNode,
@@ -227,23 +233,46 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
   const stressById = inputs.stress?.signals ?? {};
   const renderedDockChainIds = new Set(docks.map((dock) => dock.chainId));
 
-  const ships = activeAssets(inputs.stablecoins).map((asset) => {
+  const assets = activeAssets(inputs.stablecoins);
+  const flagshipAsset = assets.find((asset) => asset.id === MAKER_SQUAD_FLAGSHIP_ID);
+  const flagshipMeta = flagshipAsset ? RUNTIME_ACTIVE_META_BY_ID.get(flagshipAsset.id) : undefined;
+  const flagshipRisk = flagshipAsset && flagshipMeta
+    ? resolveShipRiskPlacement({
+        asset: flagshipAsset,
+        meta: flagshipMeta,
+        pegCoin: pegById.get(flagshipAsset.id),
+        stress: stressById[flagshipAsset.id],
+        freshness: inputs.freshness,
+      })
+    : null;
+  const squadActive = flagshipRisk !== null;
+
+  const ships = assets.map((asset) => {
     const meta = RUNTIME_ACTIVE_META_BY_ID.get(asset.id);
     if (!meta) throw new Error(`Active asset ${asset.id} is missing metadata`);
     const reportCard = reportCardById[asset.id] ?? null;
-    const risk = resolveShipRiskPlacement({
+    const ownRisk = resolveShipRiskPlacement({
       asset,
       meta,
       pegCoin: pegById.get(asset.id),
       stress: stressById[asset.id],
       freshness: inputs.freshness,
     });
+
+    const isConsort = squadActive
+      && isMakerSquadMember(asset.id)
+      && asset.id !== MAKER_SQUAD_FLAGSHIP_ID;
+    const risk = isConsort && flagshipRisk
+      ? consortRisk(ownRisk, flagshipRisk, meta.flags.navToken === true)
+      : ownRisk;
+
     const chainPresence = buildShipChainPresence(asset, renderedDockChainIds);
     const dominantChainId = chainPresence[0]?.chainId ?? null;
     const homeDockChainId = chainPresence.find((presence) => presence.hasRenderedDock)?.chainId ?? null;
     const recent = getRecentChange(asset);
     const riskTile = shipTile(asset, risk.placement);
     const riskWaterArea = riskWaterAreaForPlacement(risk.placement);
+    const role = squadActive ? makerSquadRole(asset.id) : null;
     return {
       id: asset.id,
       kind: "ship" as const,
@@ -269,9 +298,34 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
       change24hUsd: recent.change24hUsd,
       change24hPct: recent.change24hPct,
       detailId: `ship.${asset.id}`,
+      ...(role ? { squadId: "maker" as const, squadRole: role } : {}),
     };
   });
   return spreadShipRiskAnchorsAcrossWater(ships);
+}
+
+function consortRisk(
+  ownRisk: { placement: ShipRiskPlacement; evidence: PlacementEvidence },
+  flagshipRisk: { placement: ShipRiskPlacement; evidence: PlacementEvidence },
+  consortHasNavToken: boolean,
+): { placement: ShipRiskPlacement; evidence: PlacementEvidence } {
+  const stricter = isStricterPlacement(ownRisk.placement, flagshipRisk.placement);
+  const sourceFields: string[] = [...flagshipRisk.evidence.sourceFields];
+  if (consortHasNavToken && !sourceFields.includes("meta.flags.navToken")) {
+    sourceFields.push("meta.flags.navToken");
+  }
+  if (stricter) {
+    for (const field of ownRisk.evidence.sourceFields) {
+      if (!sourceFields.includes(field)) sourceFields.push(field);
+    }
+  }
+  const evidence: PlacementEvidence = {
+    reason: `Maker squad member; inherits flagship placement (${flagshipRisk.evidence.reason})`,
+    sourceFields,
+    stale: flagshipRisk.evidence.stale,
+    ...(stricter ? { squadOverride: true } : {}),
+  };
+  return { placement: flagshipRisk.placement, evidence };
 }
 
 function dockMooringTile(dock: DockNode, index: number, occupied: ReadonlySet<string>): { x: number; y: number } {

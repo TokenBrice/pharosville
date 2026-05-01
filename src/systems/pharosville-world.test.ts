@@ -14,12 +14,16 @@ import {
   fixtureStability,
   fixtureStablecoins,
   fixtureStress,
+  fixtureWithDepegOn,
+  fixtureWithoutAsset,
   makePharosVilleWorldInput,
   makeAsset,
   makeChain,
   makePegCoin,
   makeReportCard,
+  makerSquadFixtureInputs,
 } from "../__fixtures__/pharosville-world";
+import { MAKER_SQUAD_MEMBER_IDS } from "./maker-squad";
 import { buildPharosVilleWorld, SHIP_WATER_ANCHORS } from "./pharosville-world";
 import { riskPlacementWaterTiles } from "./risk-water-placement";
 import { riskWaterAreaForPlacement } from "./risk-water-areas";
@@ -585,6 +589,44 @@ describe("buildPharosVilleWorld", () => {
     for (const ship of world.ships) {
       expect(world.detailIndex[ship.detailId]).toBeDefined();
     }
+  });
+
+  it("places all Maker squad members at the same risk placement", () => {
+    const world = buildPharosVilleWorld(makerSquadFixtureInputs());
+    const placements = MAKER_SQUAD_MEMBER_IDS.map((id) =>
+      world.ships.find((s) => s.id === id)?.riskPlacement,
+    );
+    expect(placements.every((p) => p && p === placements[0])).toBe(true);
+  });
+
+  it("flagship-missing: consorts revert to per-asset placement, no squadId stamped", () => {
+    const inputs = fixtureWithoutAsset(makerSquadFixtureInputs(), "usds-sky");
+    const world = buildPharosVilleWorld(inputs);
+    for (const id of ["susds-sky", "stusds-sky", "sdai-sky"]) {
+      const ship = world.ships.find((s) => s.id === id)!;
+      expect(ship.squadId).toBeUndefined();
+      expect(ship.squadRole).toBeUndefined();
+      expect(ship.riskPlacement).toBe("ledger-mooring");
+    }
+    const dai = world.ships.find((s) => s.id === "dai-makerdao")!;
+    expect(dai.squadId).toBeUndefined();
+  });
+
+  it("placementEvidence keeps navToken sourceField for nav-token consorts", () => {
+    const world = buildPharosVilleWorld(makerSquadFixtureInputs());
+    const susds = world.ships.find((s) => s.id === "susds-sky")!;
+    expect(susds.placementEvidence.sourceFields).toEqual(
+      expect.arrayContaining(["meta.flags.navToken"]),
+    );
+  });
+
+  it("consort with stronger stress still tracks flagship placement but flags squadOverride evidence", () => {
+    const inputs = fixtureWithDepegOn(makerSquadFixtureInputs(), "dai-makerdao");
+    const world = buildPharosVilleWorld(inputs);
+    const dai = world.ships.find((s) => s.id === "dai-makerdao")!;
+    const usds = world.ships.find((s) => s.id === "usds-sky")!;
+    expect(dai.riskPlacement).toBe(usds.riskPlacement);
+    expect(dai.placementEvidence.squadOverride).toBe(true);
   });
 });
 

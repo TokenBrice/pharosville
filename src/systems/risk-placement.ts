@@ -2,6 +2,19 @@ import type { PegSummaryCoin, StablecoinData, StablecoinMeta, StressSignalEntry 
 import type { PharosVilleFreshness, PlacementEvidence, ShipRiskPlacement } from "./world-types";
 import { dewsAreaPlacementForBand } from "./risk-water-areas";
 
+const PLACEMENT_SEVERITY: Record<ShipRiskPlacement, number> = {
+  "storm-shelf": 5,
+  "outer-rough-water": 4,
+  "harbor-mouth-watch": 3,
+  "breakwater-edge": 2,
+  "safe-harbor": 1,
+  "ledger-mooring": 0,
+};
+
+export function isStricterPlacement(a: ShipRiskPlacement, b: ShipRiskPlacement): boolean {
+  return PLACEMENT_SEVERITY[a] > PLACEMENT_SEVERITY[b];
+}
+
 export interface RiskPlacementInput {
   asset: StablecoinData;
   meta: StablecoinMeta;
