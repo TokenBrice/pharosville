@@ -699,3 +699,80 @@ textarea {
   outline: 2px solid var(--pv-gold-bright);
   outline-offset: 3px;
 }
+
+/* ============================================================
+ * Old-school chrome — base
+ *
+ * Naming convention: utility/token-style classes are prefixed
+ * `.pv-*`; existing component-style classes stay `.pharosville-*`
+ * (BEM). New classes here compose with existing components.
+ * ============================================================ */
+
+.pv-timber {
+  position: relative;
+  background:
+    repeating-linear-gradient(90deg, rgba(40, 22, 12, 0.5) 0 1px, transparent 1px 11px),
+    repeating-linear-gradient(90deg, rgba(20, 12, 8, 0.3) 0 2px, transparent 2px 38px),
+    linear-gradient(180deg, var(--pv-timber-light) 0%, var(--pv-timber) 80%, var(--pv-timber-dark) 100%);
+  border: 2px solid var(--pv-timber-edge);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 210, 140, 0.18),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.6),
+    inset 0 0 0 1px var(--pv-brass-dark),
+    0 8px 22px rgba(0, 0, 0, 0.6);
+}
+
+.pv-corner-brass {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  background: radial-gradient(circle at 30% 30%,
+    var(--pv-brass-highlight) 0%,
+    var(--pv-brass) 25%,
+    #b8862e 55%,
+    var(--pv-brass-edge) 100%);
+  border: 1.5px solid var(--pv-timber-edge);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 235, 180, 0.5),
+    0 1px 2px rgba(0, 0, 0, 0.5);
+  z-index: 3;
+  pointer-events: none;
+}
+.pv-corner-brass::before {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, var(--pv-brass), var(--pv-brass-edge));
+  border: 1px solid var(--pv-timber-dark);
+}
+.pv-corner-brass--tl { top: -6px; left: -6px; }
+.pv-corner-brass--tr { top: -6px; right: -6px; }
+.pv-corner-brass--bl { bottom: -6px; left: -6px; }
+.pv-corner-brass--br { bottom: -6px; right: -6px; }
+
+.pv-parchment {
+  position: relative;
+  padding: 22px 22px 18px;
+  background:
+    repeating-linear-gradient(123deg, rgba(108, 74, 20, 0.04) 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(57deg, rgba(108, 74, 20, 0.04) 0 1px, transparent 1px 5px),
+    radial-gradient(ellipse at 0% 0%,
+      var(--pv-parchment-light) 0%,
+      var(--pv-parchment-warm) 50%,
+      var(--pv-parchment-dark) 100%);
+  border: 1.5px solid var(--pv-timber-dark);
+  box-shadow:
+    inset 0 0 60px rgba(108, 74, 20, 0.25),
+    inset 0 0 0 1px rgba(245, 219, 164, 0.5);
+  color: var(--pv-ink-text);
+}
+.pv-parchment::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(108, 74, 20, 0.18), transparent 18%),
+    radial-gradient(circle at 0% 100%, rgba(108, 74, 20, 0.18), transparent 18%);
+}
