@@ -33,14 +33,42 @@ textarea {
   min-height: 100svh;
   place-items: center;
   background:
-    repeating-linear-gradient(0deg, rgba(189, 168, 111, 0.035) 0 1px, transparent 1px 8px),
-    linear-gradient(90deg, rgba(106, 154, 151, 0.08), transparent 38%, rgba(143, 126, 91, 0.08)),
-    linear-gradient(180deg, #0d2028, #050d13 74%);
-  color: #d8d0b7;
+    repeating-linear-gradient(123deg, rgba(108, 74, 20, 0.04) 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(57deg, rgba(108, 74, 20, 0.04) 0 1px, transparent 1px 5px),
+    radial-gradient(ellipse at 30% 20%,
+      var(--pv-parchment-light) 0%,
+      var(--pv-parchment-warm) 50%,
+      var(--pv-parchment-dark) 100%);
+  color: var(--pv-ink-text);
   font-family: Georgia, "Times New Roman", serif;
   font-size: 0.92rem;
   font-weight: 700;
   letter-spacing: 0.03em;
+}
+.pharosville-loading::before {
+  content: "";
+  display: block;
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 14px;
+  border: 2px solid var(--pv-timber-edge);
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%,
+    #fff0c8 0%,
+    #f3d49a 30%,
+    var(--pv-brass-mid) 60%,
+    var(--pv-brass-edge) 100%);
+  box-shadow:
+    0 0 0 4px rgba(248, 229, 178, 0.2),
+    0 0 24px rgba(248, 229, 178, 0.5);
+  animation: pv-loading-beacon 1.4s ease-in-out infinite;
+}
+@keyframes pv-loading-beacon {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(248, 229, 178, 0.18), 0 0 14px rgba(248, 229, 178, 0.35); }
+  50%      { box-shadow: 0 0 0 4px rgba(248, 229, 178, 0.30), 0 0 28px rgba(248, 229, 178, 0.65); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pharosville-loading::before { animation: none; }
 }
 
 .pharosville-query-error {
