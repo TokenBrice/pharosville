@@ -8,7 +8,9 @@ const SHIP_ASSET_FILES: Record<string, string> = {
   "ship.algo-junk": "algo-junk.png",
   "ship.chartered-brigantine": "chartered-brigantine.png",
   "ship.crypto-caravel": "crypto-caravel.png",
+  "ship.dai-titan": "dai-titan.png",
   "ship.dao-schooner": "dao-schooner.png",
+  "ship.sdai-titan": "sdai-titan.png",
   "ship.treasury-galleon": "treasury-galleon.png",
   "ship.usdc-titan": "usdc-titan.png",
   "ship.usds-titan": "usds-titan.png",
@@ -19,19 +21,22 @@ const MIN_SAIL_COVERAGE: Record<string, number> = {
   "ship.algo-junk": 0.34,
   "ship.chartered-brigantine": 0.34,
   "ship.crypto-caravel": 0.34,
+  "ship.dai-titan": 0.38,
   "ship.dao-schooner": 0.34,
+  "ship.sdai-titan": 0.38,
   "ship.treasury-galleon": 0.34,
   "ship.usdc-titan": 0.38,
   "ship.usds-titan": 0.34,
   "ship.usdt-titan": 0.38,
 };
 
-// Maker consorts (DAI, sUSDS, sDAI, stUSDS) are registered with USDS-seeded
-// masks pending visual tuning in Task 7.5; their coverage is not yet asserted.
+// sUSDS and stUSDS sprites have sail colors (warm-orange / near-black) that
+// `isSailTintPixel` rejects as wood/sub-luminance, so they cannot satisfy
+// the strict coverage gate without sprite regeneration or heuristic
+// widening. Their masks are still tuned (see SHIP_SAIL_TINT_MASKS) but the
+// per-pixel gate is skipped until the underlying sprites are fixed.
 const UNTUNED_TITAN_IDS = new Set([
-  "ship.dai-titan",
   "ship.susds-titan",
-  "ship.sdai-titan",
   "ship.stusds-titan",
 ]);
 
@@ -52,11 +57,14 @@ describe("ship sail tint masks", () => {
     }
   });
 
-  // TODO(task-7.5): once the four Maker consort tint masks are tuned and
-  // removed from UNTUNED_TITAN_IDS, extend this list to include them so this
-  // unmasked-sail-fragment gate covers the whole squad.
   it("does not leave large titan sail fragments outside the tint mask", () => {
-    for (const assetId of ["ship.usdc-titan", "ship.usds-titan", "ship.usdt-titan"]) {
+    for (const assetId of [
+      "ship.usdc-titan",
+      "ship.usds-titan",
+      "ship.usdt-titan",
+      "ship.dai-titan",
+      "ship.sdai-titan",
+    ]) {
       const fileName = SHIP_ASSET_FILES[assetId];
       const image = readRgbaPng(path.resolve("public/pharosville/assets/ships", fileName));
       const spec = SHIP_SAIL_TINT_MASKS[assetId];
