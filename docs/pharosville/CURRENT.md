@@ -16,7 +16,7 @@ quality bar and validation habits, not its lore, fantasy-village objects,
 agent mechanics, copy voice, or data semantics.
 
 The current main-island revamp from
-`agents/pharosville-main-island-revamp-plan.md` is implemented as a coordinated
+`agents/completed/pharosville-main-island-revamp-plan.md` is implemented as a coordinated
 layout, asset, renderer, test, and docs change:
 
 - The accepted water-ratio target is 85.2-85.6% by tile count; the measured map

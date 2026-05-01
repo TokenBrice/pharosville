@@ -130,7 +130,7 @@ hit-testing.
 - `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-evm-bay-linux.png`
 - `.gitignore` — added `output/` so PixelLab/OpenAI prototype scratch is
   not committable.
-- `agents/pharosville-lighthouse-integration-plan.md` (this file).
+- `agents/completed/pharosville-lighthouse-integration-plan.md` (this file).
 
 ## Validation Record
 

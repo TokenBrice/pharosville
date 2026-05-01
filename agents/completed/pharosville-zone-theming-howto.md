@@ -1,6 +1,6 @@
 # Zone Theme Authoring Guide
 
-> Companion to `pharosville-zone-theming-base-plan.md`. Where the base plan installed the surface, this guide is how to *use* it. Read this before authoring or iterating on a `ZONE_THEMES` entry.
+> Companion to `completed/pharosville-zone-theming-base-plan.md`. Where the base plan installed the surface, this guide is how to *use* it. Read this before authoring or iterating on a `ZONE_THEMES` entry.
 
 ## TL;DR
 
@@ -137,7 +137,7 @@ Use case: "Add a `wave.frequency` scalar so I can slow Calm and speed Danger".
    }
    ```
 2. Add `frequencyScale: 1` to `DEFAULT_MOTION` so existing zones default to no-op.
-3. Find the per-zone literal you want to scale. For frequency, that's the `* F` inside `Math.sin(motion.timeSeconds * F + ...)` — see the table in `pharosville-zone-theming-base-plan.md` step 3.6.
+3. Find the per-zone literal you want to scale. For frequency, that's the `* F` inside `Math.sin(motion.timeSeconds * F + ...)` — see the table in `completed/pharosville-zone-theming-base-plan.md` step 3.6.
 4. Wrap: `Math.sin(motion.timeSeconds * F * theme.motion.frequencyScale + ...)`.
 5. Run typecheck; the `as const satisfies Record<...>` will demand the new field on every entry.
 6. Run visual snapshots — should be identical at scale=1.

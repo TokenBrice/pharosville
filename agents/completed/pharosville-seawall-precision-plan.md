@@ -113,7 +113,7 @@ Approximate count: 13 walls with 16 openings. If visual review shows gaps, add 2
 
 ## Implementation Steps
 
-1. **Branch state.** Confirm `git status --short` is clean except for `agents/pharosville-zone-theming-base-plan.md` and the parallel terrain.ts theming refactor (don't touch those). Work on `main` per repo convention.
+1. **Branch state.** Confirm `git status --short` is clean except for `agents/completed/pharosville-zone-theming-base-plan.md` and the parallel terrain.ts theming refactor (don't touch those). Work on `main` per repo convention.
 2. **Open the live dev server** (user maintains http://localhost:5173/).
 3. **Replace `GENERATED_SEAWALL_ASSETS`** in `src/renderer/layers/harbor-district.ts` with the placements from the per-segment table above. Keep the surrounding header comment listing dock tiles up to date.
 4. **Reload http://localhost:5173/pharosville/**, take a screenshot, lay it next to `docs/pharosville/refs/seawall-precision-target.png`, and compare against the red line.

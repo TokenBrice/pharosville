@@ -410,7 +410,7 @@ The dense fixture at `src/__fixtures__/pharosville-world.ts` seeds from `ACTIVE_
 
 ## References
 
-- `agents/usds-titan-squad-plan.md` — closest precedent (titan-tier curated registry + per-ship rendering plumbing + tier-unifier device pattern)
+- `agents/completed/usds-titan-squad-plan.md` — closest precedent (titan-tier curated registry + per-ship rendering plumbing + tier-unifier device pattern)
 - `docs/pharosville/CURRENT.md` — current visual-model source of truth
 - `docs/pharosville/ASSET_PIPELINE.md` — manifest contract + sprite specs
 - `docs/pharosville/PIXELLAB_MCP.md` — sprite generation pipeline (style anchor compliance)

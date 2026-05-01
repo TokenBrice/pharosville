@@ -633,7 +633,7 @@ The markdown drift checker recognizes the singular agent namespace but not
 
 Implementation:
 - Add `agents` to markdown path regexes.
-- Add a self-test containing an `agents/NFS3.md`-style reference.
+- Add a self-test containing an `agents/completed/NFS3.md`-style reference.
 - Keep historical plan references allowed only when the referenced file exists.
 
 Tests:
