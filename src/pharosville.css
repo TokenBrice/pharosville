@@ -295,11 +295,10 @@ textarea {
   position: absolute;
   top: 26px;
   left: 24px;
-  display: grid;
-  width: min(420px, calc(100% - 560px));
+  display: inline-flex;
+  max-width: calc(100% - 56px);
   max-height: calc(100% - 72px);
-  gap: 10px;
-  overflow: auto;
+  overflow: hidden;
   padding: 2px;
   pointer-events: none;
 }
@@ -436,7 +435,7 @@ textarea {
   display: flex;
   align-items: center;
   gap: 7px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   padding: 7px;
   background:
     linear-gradient(135deg, rgba(185, 154, 98, 0.07), transparent 34%),
@@ -457,21 +456,21 @@ textarea {
 }
 
 .pharosville-world-toolbar__group,
-.pharosville-world-toolbar__status {
+.pharosville-world-toolbar__meta {
   display: inline-flex;
   align-items: center;
   gap: 4px;
 }
 
 .pharosville-world-toolbar__group + .pharosville-world-toolbar__group,
-.pharosville-world-toolbar__status {
+.pharosville-world-toolbar__meta {
   border-left: 1px solid rgba(185, 154, 98, 0.24);
   padding-left: 7px;
 }
 
-.pharosville-world-toolbar__status {
-  flex: 1 1 100%;
+.pharosville-world-toolbar__meta {
   min-width: 0;
+  white-space: nowrap;
 }
 
 .pharosville-hud > [data-testid="pharosville-world-toolbar"] button,
@@ -544,6 +543,10 @@ textarea {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.pharosville-world-toolbar__chip {
+  min-width: 0;
 }
 
 .pharosville-detail-dock dl {

@@ -95,12 +95,12 @@ export function WorldToolbar({
           Ledger
         </button>
       )}
-      <div className="pharosville-world-toolbar__status">
-        <output aria-live="polite" aria-label="Map entity count">
+      <div className="pharosville-world-toolbar__meta">
+        <output className="pharosville-world-toolbar__chip" aria-live="polite" aria-label="Map entity count">
           {entityCount} entities
         </output>
         {selectedDetailId && (
-          <output aria-live="polite" aria-label="Selected detail">
+          <output className="pharosville-world-toolbar__chip" aria-live="polite" aria-label="Selected detail">
             {selectedDetailLabel ?? selectedDetailId}
           </output>
         )}
