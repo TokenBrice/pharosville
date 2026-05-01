@@ -337,6 +337,9 @@ function drawLedgerWaterTexture(
   if ((tileX * 3 + tileY) % 7 === 0) {
     drawDepthSounding(ctx, x + 6 * zoom, y + 1 * zoom, zoom, theme.accent, 0.22);
   }
+  if ((tileX * 5 + tileY * 9) % 11 === 0) {
+    drawLedgerTallyMark(ctx, x, y, zoom, theme, tileX, tileY);
+  }
   ctx.restore();
 }
 
@@ -402,6 +405,9 @@ function drawCalmWaterTexture(
     ctx.fillStyle = reflection;
     drawDiamond(ctx, x, y + 2 * zoom, 9 * zoom, 2.5 * zoom, reflection);
   }
+  if ((tileX * 17 + tileY * 11) % 13 === 0) {
+    drawCalmReflectionRing(ctx, x, y, zoom, motion, theme, tileX, tileY);
+  }
   ctx.restore();
 }
 
@@ -465,6 +471,9 @@ function drawAlertChannelTexture(
   if ((tileX * 13 + tileY * 5) % 7 === 0) {
     drawCurrentWakeMark(ctx, x, y, zoom, theme.accent, 0.28);
   }
+  if ((tileX * 7 + tileY * 13) % 9 === 0) {
+    drawAlertCurrentChevron(ctx, x, y, zoom, theme);
+  }
   ctx.restore();
 }
 
@@ -505,6 +514,9 @@ function drawWatchWaterTexture(
   ctx.stroke();
   if ((tileX + tileY * 5) % 7 === 0) {
     drawBreakwaterFoam(ctx, x, y, zoom, theme.wave, 0.22);
+  }
+  if ((tileX * 13 + tileY * 7) % 11 === 0) {
+    drawWatchChannelBuoy(ctx, x, y, zoom, motion, theme, tileX, tileY);
   }
   ctx.restore();
 }
@@ -550,6 +562,9 @@ function drawWarningShoalTexture(
   }
   if ((tileX * 11 + tileY * 13) % 9 === 0) {
     drawDepthSounding(ctx, x + 7 * zoom, y + 3 * zoom, zoom, theme.wave, 0.26);
+  }
+  if ((tileX * 11 + tileY * 5) % 7 === 0) {
+    drawWarningReefCluster(ctx, x, y, zoom, theme);
   }
   ctx.restore();
 }
@@ -602,6 +617,9 @@ function drawDangerStraitTexture(
     ctx.fillStyle = withAlpha(theme.wave, 0.18);
     ctx.fillRect(Math.round(x - 1 * zoom), Math.round(y - 5 * zoom), Math.max(1, Math.round(2 * zoom)), Math.max(1, Math.round(2 * zoom)));
     ctx.fillRect(Math.round(x + 5 * zoom), Math.round(y + 3 * zoom), Math.max(1, Math.round(2 * zoom)), Math.max(1, Math.round(2 * zoom)));
+  }
+  if ((tileX * 19 + tileY * 23) % 17 === 0) {
+    drawDangerStormBurst(ctx, x, y, zoom, motion, theme, tileX, tileY);
   }
   ctx.restore();
 }
@@ -716,6 +734,206 @@ function drawBreakwaterFoam(
   ctx.quadraticCurveTo(x, y + 9 * zoom, x + 4 * zoom, y + 5 * zoom);
   ctx.quadraticCurveTo(x + 8 * zoom, y + 1 * zoom, x + 12 * zoom, y + 5 * zoom);
   ctx.stroke();
+  ctx.restore();
+}
+
+// Calm Anchorage signature: pebble-in-still-water concentric rings whose
+// radius pulses slowly outward. Sparse and quiet.
+function drawCalmReflectionRing(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  motion: PharosVilleCanvasMotion,
+  theme: ZoneVisualTheme,
+  tileX: number,
+  tileY: number,
+) {
+  const phase = motion.reducedMotion
+    ? 0.5
+    : (Math.sin(motion.timeSeconds * 0.42 + tileX * 0.31 + tileY * 0.23) + 1) * 0.5;
+  const radius = (3 + phase * 1.6) * zoom * theme.motion.amplitudeScale;
+  ctx.save();
+  ctx.strokeStyle = withAlpha(theme.wave, 0.18 * (1 - phase * 0.5) * theme.motion.strokeAlphaScale);
+  ctx.lineWidth = Math.max(1, 0.6 * zoom);
+  ctx.beginPath();
+  ctx.ellipse(x, y, radius, radius * 0.5, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.strokeStyle = withAlpha(theme.accent, 0.12 * theme.motion.strokeAlphaScale);
+  ctx.beginPath();
+  const innerR = Math.max(1, radius - 1.6 * zoom);
+  ctx.ellipse(x, y, innerR, innerR * 0.5, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// Watch Breakwater signature: a small channel-marker buoy with a vertical
+// stripe; bobs gently with the clock.
+function drawWatchChannelBuoy(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  motion: PharosVilleCanvasMotion,
+  theme: ZoneVisualTheme,
+  tileX: number,
+  tileY: number,
+) {
+  const bob = motion.reducedMotion
+    ? 0
+    : Math.sin(motion.timeSeconds * 0.95 + tileX * 0.41 + tileY * 0.27) * 0.6 * zoom;
+  const cx = x + 3 * zoom;
+  const cy = y - 1 * zoom + bob;
+  ctx.save();
+  ctx.fillStyle = withAlpha(theme.accent, 0.42 * theme.motion.strokeAlphaScale);
+  ctx.fillRect(
+    Math.round(cx - 0.8 * zoom),
+    Math.round(cy - 1.6 * zoom),
+    Math.max(1, Math.round(1.6 * zoom)),
+    Math.max(2, Math.round(3.2 * zoom)),
+  );
+  ctx.strokeStyle = withAlpha(theme.accent, 0.32);
+  ctx.lineWidth = Math.max(1, 0.6 * zoom);
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - 2 * zoom);
+  ctx.lineTo(cx, cy - 4 * zoom);
+  ctx.stroke();
+  ctx.strokeStyle = withAlpha(theme.wave, 0.22);
+  ctx.beginPath();
+  ctx.moveTo(cx - 3 * zoom, cy + 2 * zoom);
+  ctx.quadraticCurveTo(cx, cy + 1 * zoom, cx + 3 * zoom, cy + 2 * zoom);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// Alert Channel signature: directional current chevrons pointing toward
+// Pharosville (south-west on iso) so the strip reads as flowing water
+// funneling into the harbor.
+function drawAlertCurrentChevron(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  theme: ZoneVisualTheme,
+) {
+  ctx.save();
+  ctx.strokeStyle = withAlpha(theme.accent, 0.34 * theme.motion.strokeAlphaScale);
+  ctx.lineWidth = Math.max(1, 0.95 * zoom);
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(x + 5 * zoom, y - 2 * zoom);
+  ctx.lineTo(x - 3 * zoom, y + 2 * zoom);
+  ctx.lineTo(x + 5 * zoom, y + 6 * zoom);
+  ctx.stroke();
+  ctx.strokeStyle = withAlpha(theme.accent, 0.22 * theme.motion.strokeAlphaScale);
+  ctx.beginPath();
+  ctx.moveTo(x + 9 * zoom, y - 5 * zoom);
+  ctx.lineTo(x + 1 * zoom, y - 1 * zoom);
+  ctx.lineTo(x + 9 * zoom, y + 3 * zoom);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// Warning Shoals signature: a cluster of three exposed reef triangles —
+// submerged rocks breaking the surface. Static (rocks don't move).
+function drawWarningReefCluster(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  theme: ZoneVisualTheme,
+) {
+  ctx.save();
+  ctx.fillStyle = withAlpha(theme.accent, 0.42);
+  ctx.strokeStyle = withAlpha(theme.wave, 0.36);
+  ctx.lineWidth = Math.max(1, 0.7 * zoom);
+  ctx.beginPath();
+  ctx.moveTo(x - 1 * zoom, y);
+  ctx.lineTo(x + 4 * zoom, y - 4 * zoom);
+  ctx.lineTo(x + 7 * zoom, y + 1 * zoom);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = withAlpha(theme.accent, 0.32);
+  ctx.beginPath();
+  ctx.moveTo(x - 6 * zoom, y + 3 * zoom);
+  ctx.lineTo(x - 3 * zoom, y + 1 * zoom);
+  ctx.lineTo(x - 1 * zoom, y + 4 * zoom);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(x + 5 * zoom, y + 4 * zoom);
+  ctx.lineTo(x + 8 * zoom, y + 2 * zoom);
+  ctx.lineTo(x + 10 * zoom, y + 5 * zoom);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+// Danger Strait signature: rare animated whitecap-spray bursts. Only fire
+// when local sin phase peaks; reduced-motion shows a fixed faint spume.
+function drawDangerStormBurst(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  motion: PharosVilleCanvasMotion,
+  theme: ZoneVisualTheme,
+  tileX: number,
+  tileY: number,
+) {
+  const flicker = motion.reducedMotion
+    ? 1.0
+    : Math.sin(motion.timeSeconds * 2.4 + tileX * 0.61 + tileY * 0.43);
+  if (!motion.reducedMotion && flicker < 0.78) return;
+  const intensity = motion.reducedMotion ? 0.42 : Math.min(1, (flicker - 0.78) * 4.5);
+  ctx.save();
+  ctx.strokeStyle = withAlpha(theme.wave, 0.55 * intensity * theme.motion.strokeAlphaScale);
+  ctx.lineWidth = Math.max(1, 1.1 * zoom);
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(x - 6 * zoom, y - 2 * zoom);
+  ctx.lineTo(x - 2 * zoom, y - 5 * zoom);
+  ctx.lineTo(x + 1 * zoom, y - 1 * zoom);
+  ctx.lineTo(x + 5 * zoom, y - 4 * zoom);
+  ctx.stroke();
+  ctx.fillStyle = withAlpha(theme.wave, 0.44 * intensity);
+  ctx.fillRect(Math.round(x + 6 * zoom), Math.round(y - 6 * zoom), Math.max(1, Math.round(1.5 * zoom)), Math.max(1, Math.round(1.5 * zoom)));
+  ctx.fillRect(Math.round(x - 8 * zoom), Math.round(y + 1 * zoom), Math.max(1, Math.round(1.5 * zoom)), Math.max(1, Math.round(1.5 * zoom)));
+  ctx.fillRect(Math.round(x + 3 * zoom), Math.round(y + 4 * zoom), Math.max(1, Math.round(1.5 * zoom)), Math.max(1, Math.round(1.5 * zoom)));
+  ctx.restore();
+}
+
+// Ledger Mooring signature: small Roman-numeral-style tally tick marks —
+// administrative registry strokes. Static; ledgers don't pulse.
+function drawLedgerTallyMark(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  theme: ZoneVisualTheme,
+  tileX: number,
+  tileY: number,
+) {
+  const count = ((tileX * 3 + tileY * 5) % 3) + 1;
+  ctx.save();
+  ctx.strokeStyle = withAlpha(theme.wave, 0.46);
+  ctx.lineWidth = Math.max(1, 0.85 * zoom);
+  ctx.lineCap = "round";
+  for (let i = 0; i < count; i += 1) {
+    const tx = x - 3 * zoom + i * 2.4 * zoom;
+    ctx.beginPath();
+    ctx.moveTo(tx, y - 2.4 * zoom);
+    ctx.lineTo(tx, y + 2.4 * zoom);
+    ctx.stroke();
+  }
+  if (count === 3) {
+    ctx.strokeStyle = withAlpha(theme.accent, 0.42);
+    ctx.beginPath();
+    ctx.moveTo(x - 4.5 * zoom, y);
+    ctx.lineTo(x + 3 * zoom, y - 2.5 * zoom);
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
