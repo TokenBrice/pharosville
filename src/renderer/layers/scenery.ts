@@ -1,6 +1,6 @@
 import { tileKindAt } from "../../systems/world-layout";
 import { TILE_HEIGHT, TILE_WIDTH, tileToScreen } from "../../systems/projection";
-import { drawDiamond, drawSignBoard } from "../canvas-primitives";
+import { drawAsset, drawDiamond, drawSignBoard } from "../canvas-primitives";
 import { drawableDepth, type WorldDrawable } from "../drawable-pass";
 import { drawLamp } from "./ambient";
 import type { DrawPharosVilleInput } from "../render-types";
@@ -24,6 +24,7 @@ type SceneryPropKind =
   | "signal-post"
   | "skiff"
   | "stone-steps"
+  | "sundial"
   | "timber-pile";
 
 interface SceneryProp {
@@ -76,6 +77,7 @@ const SCENERY_PROPS: readonly SceneryProp[] = [
   { id: "watch-east-buoy", kind: "buoy", tile: { x: 54.0, y: 38.6 }, scale: 0.84 },
   { id: "watch-east-signal", kind: "signal-post", tile: { x: 55.0, y: 44.0 }, scale: 0.82 },
   { id: "watch-east-reef", kind: "reef", tile: { x: 52.5, y: 47.2 }, scale: 0.72 },
+  { id: "civic-sundial", kind: "sundial", tile: { x: 35.0, y: 31.0 }, scale: 0.9 },
   { id: "cemetery-lamp", kind: "harbor-lamp", tile: { x: 8.4, y: 47.0 }, scale: 0.72 },
   { id: "cemetery-rock", kind: "rock", tile: { x: 12.2, y: 51.4 }, scale: 0.66 },
   { id: "cemetery-cypress", kind: "cypress", tile: { x: 10.4, y: 47.8 }, scale: 0.52 },
@@ -227,6 +229,8 @@ function drawSceneryProp(input: DrawPharosVilleInput, prop: SceneryProp) {
     drawMiniSkiff(ctx, p.x, p.y, scale);
   } else if (prop.kind === "stone-steps") {
     drawStoneSteps(ctx, p.x, p.y, scale);
+  } else if (prop.kind === "sundial") {
+    drawSundial(input, p.x, p.y, scale);
   } else if (prop.kind === "timber-pile") {
     drawTimberPile(ctx, p.x, p.y, scale);
   }
@@ -504,6 +508,12 @@ function drawStoneSteps(ctx: CanvasRenderingContext2D, x: number, y: number, sca
     ctx.stroke();
   }
   ctx.restore();
+}
+
+function drawSundial(input: DrawPharosVilleInput, x: number, y: number, scale: number) {
+  const sprite = input.assets?.get("prop.sundial");
+  if (!sprite) return;
+  drawAsset(input.ctx, sprite, x, y, scale);
 }
 
 function drawTimberPile(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
