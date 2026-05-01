@@ -661,7 +661,12 @@ describe("buildPharosVilleWorld", () => {
     const flagship = world.ships.find((s) => s.id === "usds-sky")!;
     const stusds = world.ships.find((s) => s.id === "stusds-sky")!;
     expect(flagship.riskPlacement).toBe("storm-shelf");
-    expect(Math.abs(stusds.tile.y - flagship.tile.y)).toBeLessThanOrEqual(2);
+    // Contracted: stUSDS dy = Math.trunc(-3 / 2) = -1, plus ±1 placement clamp drift.
+    // Bounds catch a regression where contraction broke (e.g. dy stayed at -3, or
+    // Math.round flipped to -2 and drift landed at -3).
+    const dy = stusds.tile.y - flagship.tile.y;
+    expect(dy).toBeGreaterThanOrEqual(-2);
+    expect(dy).toBeLessThanOrEqual(0);
     expect(isRiskPlacementWaterTile(stusds.tile, "storm-shelf")).toBe(true);
   });
 });

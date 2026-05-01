@@ -434,8 +434,15 @@ function spreadRiskPlacementShips(
       x: placedFlagship.tile.x + offset.dx,
       y: placedFlagship.tile.y + offset.dy,
     });
+    // Fallback: when the placement's water set is too tight to host the
+    // formation offset within radius 4, collapse onto the flagship's tile.
+    // We choose tile overlap over generic-water spill because:
+    //   - placement-scoped clamping protects motionZone invariants
+    //     (consort.riskZone must match flagship.riskZone via riskWaterAreaForPlacement)
+    //   - overlap is a tolerable visual artifact for a degenerate-tight pocket;
+    //     spilling into adjacent zones would silently break DEWS-band contracts.
     const placementTile = nearestRiskPlacementWaterTile(target, placement, 4)
-      ?? placedFlagship.tile; // fallback: collapse onto flagship rather than spill
+      ?? placedFlagship.tile;
     occupied.add(tileKey(placementTile));
     return { ...consort, tile: placementTile, riskTile: placementTile };
   });
