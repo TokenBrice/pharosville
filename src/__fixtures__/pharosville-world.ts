@@ -538,6 +538,37 @@ export function fixtureWithDepegOn(inputs: PharosVilleInputs, assetId: string): 
   };
 }
 
+// Force the Maker flagship (`usds-sky`) into a specific risk placement by
+// cranking peg deviation on the flagship coin. Used to exercise tight-water
+// formation contraction without touching production resolver logic.
+export function fixtureWithFlagshipPlacement(
+  placement: "storm-shelf" | "outer-rough-water" | "harbor-mouth-watch",
+  inputs: PharosVilleInputs = makerSquadFixtureInputs(),
+): PharosVilleInputs {
+  const deviationBps = placement === "storm-shelf"
+    ? 800
+    : placement === "outer-rough-water"
+      ? 300
+      : 120;
+  if (!inputs.pegSummary) return inputs;
+  return {
+    ...inputs,
+    pegSummary: {
+      ...inputs.pegSummary,
+      coins: (inputs.pegSummary.coins ?? []).map((coin) => (
+        coin.id === "usds-sky"
+          ? {
+              ...coin,
+              activeDepeg: placement === "storm-shelf",
+              currentDeviationBps: deviationBps,
+              severityScore: Math.min(100, Math.round(deviationBps / 8)),
+            }
+          : coin
+      )),
+    },
+  };
+}
+
 export const denseFixtureReportCards: ReportCardsResponse = {
   ...fixtureReportCards,
   cards: denseFixtureMetas.map((meta, index) => {
