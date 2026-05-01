@@ -1,5 +1,4 @@
 import type { ZodType } from "zod";
-import { PHAROSVILLE_API_CLIENT_CONTRACT } from "./pharosville-api-client-contract";
 import {
   PHAROSVILLE_API_ENDPOINT_KEYS,
   type PharosVilleApiEndpointKey,
@@ -13,10 +12,12 @@ import {
 } from "../types/market";
 import { ReportCardsResponseSchema } from "../types/report-cards";
 import { StabilityIndexResponseSchema } from "../types/stability";
+import { PHAROSVILLE_ENDPOINT_REGISTRY } from "./pharosville-endpoint-registry";
 
 export interface PharosVilleApiEndpoint<K extends PharosVilleApiEndpointKey = PharosVilleApiEndpointKey> {
   key: K;
   path: string;
+  queryKey: readonly string[];
   schema: ZodType<PharosVilleApiPayload<K>>;
   metaMaxAgeSec: number;
   producerIntervalSec: number;
@@ -24,30 +25,30 @@ export interface PharosVilleApiEndpoint<K extends PharosVilleApiEndpointKey = Ph
 
 export const PHAROSVILLE_API_CONTRACT = {
   stablecoins: {
-    ...PHAROSVILLE_API_CLIENT_CONTRACT.stablecoins,
+    ...PHAROSVILLE_ENDPOINT_REGISTRY.stablecoins,
     schema: StablecoinListResponseSchema,
   },
   chains: {
-    ...PHAROSVILLE_API_CLIENT_CONTRACT.chains,
+    ...PHAROSVILLE_ENDPOINT_REGISTRY.chains,
     schema: ChainsResponseSchema,
   },
   stability: {
-    ...PHAROSVILLE_API_CLIENT_CONTRACT.stability,
+    ...PHAROSVILLE_ENDPOINT_REGISTRY.stability,
     schema: StabilityIndexResponseSchema,
   },
   pegSummary: {
-    ...PHAROSVILLE_API_CLIENT_CONTRACT.pegSummary,
+    ...PHAROSVILLE_ENDPOINT_REGISTRY.pegSummary,
     schema: PegSummaryResponseSchema,
   },
   stress: {
-    ...PHAROSVILLE_API_CLIENT_CONTRACT.stress,
+    ...PHAROSVILLE_ENDPOINT_REGISTRY.stress,
     schema: StressSignalsAllResponseSchema,
   },
   reportCards: {
-    ...PHAROSVILLE_API_CLIENT_CONTRACT.reportCards,
+    ...PHAROSVILLE_ENDPOINT_REGISTRY.reportCards,
     schema: ReportCardsResponseSchema,
   },
-} satisfies {
+} as const satisfies {
   [K in PharosVilleApiEndpointKey]: PharosVilleApiEndpoint<K>;
 };
 

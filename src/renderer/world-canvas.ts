@@ -27,6 +27,7 @@ import { drawSky } from "./layers/sky";
 import { drawNightTint } from "./layers/night-tint";
 import { skyState } from "./layers/sky";
 import type { DrawPharosVilleInput, PharosVilleRenderMetrics } from "./render-types";
+import { tileBoundsTileCount, visibleTileBoundsForCamera } from "./viewport";
 
 export type { DrawPharosVilleInput, PharosVilleCanvasMotion, PharosVilleRenderMetrics } from "./render-types";
 
@@ -46,10 +47,20 @@ interface StaticLayerCacheEntry {
   lastUsed: number;
 }
 
+interface DynamicLayerCacheEntry {
+  canvas: HTMLCanvasElement;
+  key: string;
+  lastPhaseBucket: number;
+  lastUsed: number;
+}
+
 type StaticCacheScope = "scene" | "terrain";
+type DynamicCacheScope = "water-overlays";
 
 const STATIC_CACHE_MAX = 4;
+const DYNAMIC_CACHE_MAX = 4;
 const staticLayerCache: { entries: StaticLayerCacheEntry[] } = { entries: [] };
+const dynamicLayerCache: { entries: DynamicLayerCacheEntry[] } = { entries: [] };
 
 const worldIdMap = new WeakMap<PharosVilleWorld, number>();
 let nextWorldId = 1;
@@ -70,16 +81,30 @@ function assetLoadTickFor(input: DrawPharosVilleInput): number {
   return stats.criticalLoadedCount * 1_000_003 + stats.deferredLoadedCount;
 }
 
-function staticCacheKey(input: DrawPharosVilleInput, dpr: number, scope: StaticCacheScope): string {
+function cameraCacheKeySegment(input: DrawPharosVilleInput, dpr: number): string {
   const zoomBucket = (input.camera.zoom * 100) | 0;
   const offsetX = input.camera.offsetX | 0;
   const offsetY = input.camera.offsetY | 0;
   const dprBucket = Math.max(1, Math.round(dpr * 100));
   const width = input.width | 0;
   const height = input.height | 0;
+  return `${worldIdFor(input.world)}|${width}x${height}|z${zoomBucket}|o${offsetX},${offsetY}|d${dprBucket}`;
+}
+
+function staticCacheKey(input: DrawPharosVilleInput, dpr: number, scope: StaticCacheScope): string {
   const manifest = input.assets?.getManifest();
   const cv = manifest ? manifestCacheVersion(manifest) : "0";
-  return `${scope}|${worldIdFor(input.world)}|${width}x${height}|z${zoomBucket}|o${offsetX},${offsetY}|d${dprBucket}|a${assetLoadTickFor(input)}|cv${cv}`;
+  return `${scope}|${cameraCacheKeySegment(input, dpr)}|a${assetLoadTickFor(input)}|cv${cv}`;
+}
+
+function dynamicCacheKey(input: DrawPharosVilleInput, dpr: number, scope: DynamicCacheScope): string {
+  return `${scope}|${cameraCacheKeySegment(input, dpr)}`;
+}
+
+function dynamicWaterPhaseBucket(input: DrawPharosVilleInput): number {
+  if (input.motion.reducedMotion) return 0;
+  const cadenceHz = 24;
+  return Math.floor(input.motion.timeSeconds * cadenceHz);
 }
 
 function createStaticCacheCanvas(width: number, height: number): HTMLCanvasElement | null {
@@ -104,6 +129,13 @@ function paintStaticScenePass(input: DrawPharosVilleInput, frame: WorldCanvasFra
   drawCemeteryGround(input);
   drawLighthouseHeadland(input);
   drawCemeteryContext(input);
+}
+
+function paintDynamicWaterPass(input: DrawPharosVilleInput) {
+  const { ctx } = input;
+  ctx.imageSmoothingEnabled = false;
+  drawWaterTerrainOverlays(input);
+  drawCoastalWaterDetails(input);
 }
 
 function drawStaticPassCached(
@@ -148,6 +180,61 @@ function drawStaticPassCached(
   staticLayerCache.entries.push({ canvas: offCanvas, key, lastUsed: performance.now() });
 }
 
+function drawDynamicPassCached(
+  input: DrawPharosVilleInput,
+  scope: DynamicCacheScope,
+  paint: (input: DrawPharosVilleInput) => void,
+) {
+  const { ctx, width, height } = input;
+  const dpr = input.dpr && input.dpr > 0 ? input.dpr : 1;
+  const backingWidth = Math.max(1, Math.round(width * dpr));
+  const backingHeight = Math.max(1, Math.round(height * dpr));
+  const key = dynamicCacheKey(input, dpr, scope);
+  const phaseBucket = dynamicWaterPhaseBucket(input);
+
+  const cached = dynamicLayerCache.entries.find((entry) => entry.key === key);
+  if (cached && cached.lastPhaseBucket === phaseBucket) {
+    cached.lastUsed = performance.now();
+    blitStaticCanvas(ctx, cached.canvas, backingWidth, backingHeight);
+    return;
+  }
+
+  const targetEntry = cached ?? prepareDynamicCacheEntry(key, backingWidth, backingHeight);
+  if (!targetEntry) {
+    paint(input);
+    return;
+  }
+
+  const offCtx = targetEntry.canvas.getContext("2d", { alpha: true });
+  if (!offCtx) {
+    paint(input);
+    return;
+  }
+  offCtx.setTransform(1, 0, 0, 1, 0, 0);
+  offCtx.clearRect(0, 0, backingWidth, backingHeight);
+  offCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  paint({ ...input, ctx: offCtx });
+
+  targetEntry.lastPhaseBucket = phaseBucket;
+  targetEntry.lastUsed = performance.now();
+  blitStaticCanvas(ctx, targetEntry.canvas, backingWidth, backingHeight);
+}
+
+function prepareDynamicCacheEntry(key: string, backingWidth: number, backingHeight: number): DynamicLayerCacheEntry | null {
+  const reusableEntry = dynamicLayerCache.entries.length >= DYNAMIC_CACHE_MAX
+    ? evictOldestDynamicEntry()
+    : null;
+  const offCanvas = reusableEntry?.canvas ?? createStaticCacheCanvas(backingWidth, backingHeight);
+  if (!offCanvas) return null;
+  if (offCanvas.width !== backingWidth) offCanvas.width = backingWidth;
+  if (offCanvas.height !== backingHeight) offCanvas.height = backingHeight;
+  const nextEntry: DynamicLayerCacheEntry = reusableEntry
+    ? { ...reusableEntry, canvas: offCanvas, key, lastPhaseBucket: Number.NaN, lastUsed: performance.now() }
+    : { canvas: offCanvas, key, lastPhaseBucket: Number.NaN, lastUsed: performance.now() };
+  dynamicLayerCache.entries.push(nextEntry);
+  return nextEntry;
+}
+
 function blitStaticCanvas(
   ctx: CanvasRenderingContext2D,
   canvas: HTMLCanvasElement,
@@ -171,6 +258,17 @@ function evictOldestStaticEntry(): StaticLayerCacheEntry | null {
   return staticLayerCache.entries.splice(oldestIndex, 1)[0] ?? null;
 }
 
+function evictOldestDynamicEntry(): DynamicLayerCacheEntry | null {
+  if (dynamicLayerCache.entries.length === 0) return null;
+  let oldestIndex = 0;
+  for (let index = 1; index < dynamicLayerCache.entries.length; index += 1) {
+    if (dynamicLayerCache.entries[index]!.lastUsed < dynamicLayerCache.entries[oldestIndex]!.lastUsed) {
+      oldestIndex = index;
+    }
+  }
+  return dynamicLayerCache.entries.splice(oldestIndex, 1)[0] ?? null;
+}
+
 export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderMetrics {
   const { ctx } = input;
   const frame = createWorldCanvasFrame(input);
@@ -180,9 +278,8 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
 
   const visibleTileCount = countVisibleTiles(input);
   drawStaticPassCached(input, frame, "terrain", paintStaticTerrainPass);
-  drawWaterTerrainOverlays(input);
+  drawDynamicPassCached(input, "water-overlays", paintDynamicWaterPass);
   drawStaticPassCached(input, frame, "scene", paintStaticScenePass);
-  drawCoastalWaterDetails(input);
   drawLighthouseSurf(input);
   const entityMetrics = drawEntityPass(input, frame, nightFactor);
   drawSquadChrome(input, frame);
@@ -281,36 +378,15 @@ function visibleShipsForFrame(input: DrawPharosVilleInput): PharosVilleWorld["sh
 }
 
 function countVisibleTiles(input: DrawPharosVilleInput): number {
-  // Static-pass cache hides terrain's visible-tile count from the metrics path.
-  // Re-derive it cheaply via the same viewport-rect projection terrain uses.
-  // Cheap approximation: count tiles inside the screen-rect projection bounds.
-  const { camera, width, height, world } = input;
-  const margin = 2;
-  const corners = [
-    screenCornerToTile(0, 0, camera),
-    screenCornerToTile(width, 0, camera),
-    screenCornerToTile(0, height, camera),
-    screenCornerToTile(width, height, camera),
-  ];
-  const minX = Math.max(0, Math.floor(Math.min(corners[0].x, corners[1].x, corners[2].x, corners[3].x)) - margin);
-  const maxX = Math.min(world.map.width - 1, Math.ceil(Math.max(corners[0].x, corners[1].x, corners[2].x, corners[3].x)) + margin);
-  const minY = Math.max(0, Math.floor(Math.min(corners[0].y, corners[1].y, corners[2].y, corners[3].y)) - margin);
-  const maxY = Math.min(world.map.height - 1, Math.ceil(Math.max(corners[0].y, corners[1].y, corners[2].y, corners[3].y)) + margin);
-  if (minX > maxX || minY > maxY) return 0;
-  return (maxX - minX + 1) * (maxY - minY + 1);
-}
-
-function screenCornerToTile(
-  x: number,
-  y: number,
-  camera: { offsetX: number; offsetY: number; zoom: number },
-): { x: number; y: number } {
-  // Inline projection inverse to avoid an extra import; matches screenToTile.
-  const TILE_W = 32 * camera.zoom;
-  const TILE_H = 16 * camera.zoom;
-  const localX = x - camera.offsetX;
-  const localY = y - camera.offsetY;
-  const tileX = (localX / (TILE_W / 2) - localY / (TILE_H / 2)) / 2;
-  const tileY = (localX / (TILE_W / 2) + localY / (TILE_H / 2)) / 2;
-  return { x: tileX, y: tileY };
+  // Static-pass caching bypasses terrain's direct visible-tile metrics path.
+  // Recompute from the same shared viewport/tile helper terrain now uses.
+  const bounds = visibleTileBoundsForCamera({
+    camera: input.camera,
+    mapHeight: input.world.map.height,
+    mapWidth: input.world.map.width,
+    tileMargin: 2,
+    viewportHeight: input.height,
+    viewportWidth: input.width,
+  });
+  return tileBoundsTileCount(bounds);
 }

@@ -34,6 +34,11 @@ interface SceneryProp {
   tile: { x: number; y: number };
 }
 
+interface CachedSceneryDrawable extends WorldDrawable {
+  currentInput: DrawPharosVilleInput | null;
+  readonly prop: SceneryProp;
+}
+
 const SCENERY_PROPS: readonly SceneryProp[] = [
   { id: "north-buoy", kind: "buoy", tile: { x: 31.2, y: 16.8 }, scale: 0.78 },
   { id: "north-signal", kind: "signal-post", tile: { x: 36.8, y: 18.7 }, scale: 0.72 },
@@ -84,6 +89,14 @@ const SCENERY_PROPS: readonly SceneryProp[] = [
 ] as const;
 
 const lampSeawardTileCache = new Map<string, { x: number; y: number } | null>();
+const DYNAMIC_SCENERY_KINDS = new Set<SceneryPropKind>(["buoy", "harbor-lamp"]);
+const staticSceneryDrawables = SCENERY_PROPS
+  .filter((prop) => !DYNAMIC_SCENERY_KINDS.has(prop.kind))
+  .map((prop) => createCachedSceneryDrawable(prop));
+const dynamicSceneryDrawables = SCENERY_PROPS
+  .filter((prop) => DYNAMIC_SCENERY_KINDS.has(prop.kind))
+  .map((prop) => createCachedSceneryDrawable(prop));
+const sceneryDrawablesScratch: WorldDrawable[] = [];
 
 function seawardTileForLamp(prop: SceneryProp): { x: number; y: number } | null {
   const cached = lampSeawardTileCache.get(prop.id);
@@ -136,26 +149,45 @@ function drawLampLightCone(input: DrawPharosVilleInput, prop: SceneryProp) {
 }
 
 export function sceneryDrawables(input: DrawPharosVilleInput): WorldDrawable[] {
-  return SCENERY_PROPS.map((prop) => sceneryDrawable(input, prop));
+  sceneryDrawablesScratch.length = 0;
+  updateSceneryDrawablesForFrame(input, staticSceneryDrawables, sceneryDrawablesScratch);
+  updateSceneryDrawablesForFrame(input, dynamicSceneryDrawables, sceneryDrawablesScratch);
+  return sceneryDrawablesScratch;
 }
 
-function sceneryDrawable(input: DrawPharosVilleInput, prop: SceneryProp): WorldDrawable {
-  const p = tileToScreen(prop.tile, input.camera);
-  const size = 26 * (prop.scale ?? 1) * input.camera.zoom;
-  return {
+function createCachedSceneryDrawable(prop: SceneryProp): CachedSceneryDrawable {
+  const drawable: CachedSceneryDrawable = {
+    currentInput: null,
     depth: drawableDepth(prop.tile),
-    draw: () => drawSceneryProp(input, prop),
+    draw: (_ctx) => {
+      if (!drawable.currentInput) return;
+      drawSceneryProp(drawable.currentInput, drawable.prop);
+    },
     entityId: prop.id,
     kind: "scenery",
     pass: "body",
-    screenBounds: {
-      height: size,
-      width: size,
-      x: p.x - size / 2,
-      y: p.y - size / 2,
-    },
+    prop,
+    screenBounds: { height: 0, width: 0, x: 0, y: 0 },
     tieBreaker: prop.id,
   };
+  return drawable;
+}
+
+function updateSceneryDrawablesForFrame(
+  input: DrawPharosVilleInput,
+  drawables: readonly CachedSceneryDrawable[],
+  output: WorldDrawable[],
+) {
+  for (const drawable of drawables) {
+    const p = tileToScreen(drawable.prop.tile, input.camera);
+    const size = 26 * (drawable.prop.scale ?? 1) * input.camera.zoom;
+    drawable.currentInput = input;
+    drawable.screenBounds.x = p.x - size / 2;
+    drawable.screenBounds.y = p.y - size / 2;
+    drawable.screenBounds.width = size;
+    drawable.screenBounds.height = size;
+    output.push(drawable);
+  }
 }
 
 function drawSceneryProp(input: DrawPharosVilleInput, prop: SceneryProp) {

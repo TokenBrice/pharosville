@@ -178,6 +178,144 @@ export interface ShipRenderFrame {
   wakeDrawnShipIds?: Set<string>;
 }
 
+export interface ShipRenderLodPlan {
+  drawOverlayShipIds: ReadonlySet<string>;
+  drawWakeShipIds: ReadonlySet<string>;
+}
+
+const SHIP_OVERLAY_BUDGET_MIN = 20;
+const SHIP_OVERLAY_BUDGET_RATIO = 0.64;
+const SHIP_WAKE_BUDGET_MIN = 12;
+const SHIP_WAKE_BUDGET_RATIO = 0.44;
+const SHIP_LOD_SKIP_THRESHOLD = 24;
+
+const SHIP_SIZE_TIER_PRIORITY: Record<PharosVilleWorld["ships"][number]["visual"]["sizeTier"], number> = {
+  titan: 7,
+  flagship: 5,
+  major: 4,
+  regional: 3,
+  local: 2,
+  skiff: 1,
+  micro: 1,
+  unknown: 0,
+};
+
+export function planShipRenderLod(
+  input: Pick<DrawPharosVilleInput, "camera" | "height" | "hoveredTarget" | "motion" | "selectedTarget" | "shipMotionSamples" | "width">,
+  cache: Pick<RenderFrameCache, "geometryForEntity">,
+  visibleShips: readonly PharosVilleWorld["ships"][number][],
+): ShipRenderLodPlan {
+  if (visibleShips.length <= SHIP_LOD_SKIP_THRESHOLD) {
+    const allIds = new Set(visibleShips.map((ship) => ship.id));
+    return {
+      drawOverlayShipIds: allIds,
+      drawWakeShipIds: allIds,
+    };
+  }
+
+  const selectedId = input.selectedTarget?.id ?? null;
+  const selectedDetailId = input.selectedTarget?.detailId ?? null;
+  const hoveredId = input.hoveredTarget?.id ?? null;
+  const hoveredDetailId = input.hoveredTarget?.detailId ?? null;
+  const centerX = input.width / 2;
+  const centerY = input.height / 2;
+  const maxDistance = Math.max(320, Math.hypot(centerX, centerY) + 220 * input.camera.zoom);
+  const viewportMargin = Math.max(96, 160 * input.camera.zoom);
+  const zoomFactor = Math.max(0.72, Math.min(1.2, input.camera.zoom));
+  const overlayBudget = Math.min(
+    visibleShips.length,
+    Math.max(SHIP_OVERLAY_BUDGET_MIN, Math.floor(visibleShips.length * SHIP_OVERLAY_BUDGET_RATIO * zoomFactor)),
+  );
+  const wakeBudget = Math.min(
+    visibleShips.length,
+    Math.max(SHIP_WAKE_BUDGET_MIN, Math.floor(visibleShips.length * SHIP_WAKE_BUDGET_RATIO * zoomFactor)),
+  );
+
+  const drawOverlayShipIds = new Set<string>();
+  const drawWakeShipIds = new Set<string>();
+  const overlayCandidates: Array<{ score: number; shipId: string }> = [];
+  const wakeCandidates: Array<{ score: number; shipId: string }> = [];
+
+  for (const ship of visibleShips) {
+    const geometry = cache.geometryForEntity(ship);
+    const sample = input.shipMotionSamples?.get(ship.id) ?? null;
+    const mover = input.motion.plan.moverShipIds.has(ship.id);
+    const effect = input.motion.plan.effectShipIds.has(ship.id);
+    const selected = ship.id === selectedId || ship.detailId === selectedDetailId;
+    const hovered = ship.id === hoveredId || ship.detailId === hoveredDetailId;
+    const titan = ship.visual.sizeTier === "titan" || isTitanSprite(ship);
+    const inViewport = isShipRectInViewport(geometry.selectionRect, input.width, input.height, viewportMargin);
+    const distance = Math.hypot(geometry.screenPoint.x - centerX, geometry.screenPoint.y - centerY);
+    const proximityScore = Math.max(-1, 1 - distance / maxDistance);
+    const sizePriority = SHIP_SIZE_TIER_PRIORITY[ship.visual.sizeTier] ?? 0;
+    const transit = sample?.state === "departing" || sample?.state === "sailing" || sample?.state === "arriving";
+    const preserve = selected || hovered || titan;
+
+    if (preserve) {
+      drawOverlayShipIds.add(ship.id);
+      drawWakeShipIds.add(ship.id);
+      continue;
+    }
+
+    const visibilityScore = inViewport ? 2.2 : -2.4;
+    const overlayScore = proximityScore * 5.6
+      + visibilityScore
+      + sizePriority
+      + (effect ? 2.1 : 0)
+      + (mover ? 2.8 : 0)
+      + (transit ? 0.8 : -0.4);
+    overlayCandidates.push({ score: overlayScore, shipId: ship.id });
+
+    const wakeScore = proximityScore * 5.1
+      + visibilityScore
+      + (effect ? 3.1 : 0)
+      + (mover ? 5.8 : 0)
+      + (transit ? 4.4 : -3.6)
+      + sizePriority * 0.4;
+    wakeCandidates.push({ score: wakeScore, shipId: ship.id });
+  }
+
+  addTopBudgetedShips(drawOverlayShipIds, overlayCandidates, overlayBudget);
+  addTopBudgetedShips(drawWakeShipIds, wakeCandidates, wakeBudget);
+
+  return {
+    drawOverlayShipIds,
+    drawWakeShipIds,
+  };
+}
+
+function addTopBudgetedShips(
+  output: Set<string>,
+  candidates: Array<{ score: number; shipId: string }>,
+  targetBudget: number,
+) {
+  const target = Math.max(targetBudget, output.size);
+  if (output.size >= target || candidates.length === 0) return;
+  candidates.sort((a, b) => {
+    const scoreDelta = b.score - a.score;
+    if (Math.abs(scoreDelta) > 0.0001) return scoreDelta;
+    return a.shipId < b.shipId ? -1 : a.shipId > b.shipId ? 1 : 0;
+  });
+  for (const candidate of candidates) {
+    output.add(candidate.shipId);
+    if (output.size >= target) break;
+  }
+}
+
+function isShipRectInViewport(
+  rect: { height: number; width: number; x: number; y: number },
+  width: number,
+  height: number,
+  margin: number,
+) {
+  return (
+    rect.x + rect.width >= -margin
+    && rect.x <= width + margin
+    && rect.y + rect.height >= -margin
+    && rect.y <= height + margin
+  );
+}
+
 function shipRenderState(input: DrawPharosVilleInput, frame: ShipRenderFrame, ship: PharosVilleWorld["ships"][number]): ShipRenderState {
   const cached = frame.shipRenderStates.get(ship.id);
   if (cached) return cached;

@@ -1,10 +1,11 @@
-import { waterTerrainStyle, zoneThemeForTerrain, type ZoneVisualTheme } from "../../systems/palette";
-import { TILE_HEIGHT, screenToTile, tileToScreen, type ScreenPoint } from "../../systems/projection";
+import { waterTerrainStyle, zoneThemeForTerrain, type WaterTextureKind, type ZoneVisualTheme } from "../../systems/palette";
+import { TILE_HEIGHT, tileToScreen } from "../../systems/projection";
 import { isElevatedTileKind, isShoreTileKind, isWaterTileKind } from "../../systems/world-layout";
 import type { TerrainKind } from "../../systems/world-types";
 import type { PharosVilleAssetManager } from "../asset-manager";
 import { drawAsset, drawDiamond, drawTileLowerFacet, withAlpha } from "../canvas-primitives";
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
+import { isScreenPointInViewport, visibleTileBoundsForCamera } from "../viewport";
 
 const TILE_COLORS: Record<string, string> = {
   beach: "#dcb978",
@@ -43,12 +44,27 @@ function landAssetIdFor(kind: TerrainKind, x: number, y: number): string {
 
 const TERRAIN_ASSET_SCALE = 0.5;
 
-interface VisibleTileBounds {
-  maxX: number;
-  maxY: number;
-  minX: number;
-  minY: number;
-}
+type WaterTextureRenderer = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  tileX: number,
+  tileY: number,
+  motion: PharosVilleCanvasMotion,
+  theme: ZoneVisualTheme,
+) => void;
+
+const WATER_TEXTURE_RENDERERS: Partial<Record<WaterTextureKind, WaterTextureRenderer>> = {
+  alert: drawAlertChannelTexture,
+  calm: drawCalmWaterTexture,
+  deep: drawDeepSeaTexture,
+  harbor: drawHarborWaterTexture,
+  ledger: drawLedgerWaterTexture,
+  storm: drawDangerStraitTexture,
+  warning: drawWarningShoalTexture,
+  watch: drawWatchWaterTexture,
+};
 
 export function drawTerrain(input: DrawPharosVilleInput) {
   const visibleTileCount = drawTerrainBase(input);
@@ -58,7 +74,16 @@ export function drawTerrain(input: DrawPharosVilleInput) {
 
 export function drawTerrainBase({ assets, camera, ctx, height, width, world }: DrawPharosVilleInput) {
   const { width: mapWidth, height: mapHeight, tiles } = world.map;
-  const bounds = visibleTileBounds(camera, width, height, mapWidth, mapHeight, 2);
+  const bounds = visibleTileBoundsForCamera({
+    camera,
+    mapHeight,
+    mapWidth,
+    tileMargin: 2,
+    viewportHeight: height,
+    viewportWidth: width,
+  });
+  const viewportMarginX = 36 * camera.zoom;
+  const viewportMarginY = 22 * camera.zoom;
 
   let visibleTileCount = 0;
   if (!bounds) return visibleTileCount;
@@ -71,7 +96,7 @@ export function drawTerrainBase({ assets, camera, ctx, height, width, world }: D
       const terrain = tile.terrain ?? tile.kind;
       if (!isWaterTileKind(terrain)) continue;
       const p = tileToScreen(tile, camera);
-      if (!isTileInViewport(p, camera.zoom, width, height)) continue;
+      if (!isScreenPointInViewport(p, width, height, viewportMarginX, viewportMarginY)) continue;
       visibleTileCount += 1;
       drawWaterTileBase(ctx, p.x, p.y, camera.zoom, terrain, tile.x, tile.y, waterAssetFor(assets, terrain));
     }
@@ -85,7 +110,7 @@ export function drawTerrainBase({ assets, camera, ctx, height, width, world }: D
       const terrain = tile.terrain ?? tile.kind;
       if (isWaterTileKind(terrain)) continue;
       const p = tileToScreen(tile, camera);
-      if (!isTileInViewport(p, camera.zoom, width, height)) continue;
+      if (!isScreenPointInViewport(p, width, height, viewportMarginX, viewportMarginY)) continue;
       visibleTileCount += 1;
       drawLandTile(ctx, p.x, p.y, camera.zoom, terrain, tile.x, tile.y, landAssetFor(assets, terrain, tile.x, tile.y));
     }
@@ -95,7 +120,16 @@ export function drawTerrainBase({ assets, camera, ctx, height, width, world }: D
 
 export function drawWaterTerrainOverlays({ camera, ctx, height, motion, width, world }: DrawPharosVilleInput) {
   const { width: mapWidth, height: mapHeight, tiles } = world.map;
-  const bounds = visibleTileBounds(camera, width, height, mapWidth, mapHeight, 2);
+  const bounds = visibleTileBoundsForCamera({
+    camera,
+    mapHeight,
+    mapWidth,
+    tileMargin: 2,
+    viewportHeight: height,
+    viewportWidth: width,
+  });
+  const viewportMarginX = 36 * camera.zoom;
+  const viewportMarginY = 22 * camera.zoom;
   if (!bounds) return 0;
 
   let visibleWaterTileCount = 0;
@@ -107,33 +141,12 @@ export function drawWaterTerrainOverlays({ camera, ctx, height, motion, width, w
       const terrain = tile.terrain ?? tile.kind;
       if (!isWaterTileKind(terrain)) continue;
       const p = tileToScreen(tile, camera);
-      if (!isTileInViewport(p, camera.zoom, width, height)) continue;
+      if (!isScreenPointInViewport(p, width, height, viewportMarginX, viewportMarginY)) continue;
       visibleWaterTileCount += 1;
       drawWaterTileOverlay(ctx, p.x, p.y, camera.zoom, terrain, tile.x, tile.y, motion);
     }
   }
   return visibleWaterTileCount;
-}
-
-function visibleTileBounds(
-  camera: DrawPharosVilleInput["camera"],
-  width: number,
-  height: number,
-  mapWidth: number,
-  mapHeight: number,
-  margin: number,
-): VisibleTileBounds | null {
-  const corners = [
-    screenToTile({ x: 0, y: 0 }, camera),
-    screenToTile({ x: width, y: 0 }, camera),
-    screenToTile({ x: 0, y: height }, camera),
-    screenToTile({ x: width, y: height }, camera),
-  ];
-  const minX = Math.max(0, Math.floor(Math.min(corners[0].x, corners[1].x, corners[2].x, corners[3].x)) - margin);
-  const maxX = Math.min(mapWidth - 1, Math.ceil(Math.max(corners[0].x, corners[1].x, corners[2].x, corners[3].x)) + margin);
-  const minY = Math.max(0, Math.floor(Math.min(corners[0].y, corners[1].y, corners[2].y, corners[3].y)) - margin);
-  const maxY = Math.min(mapHeight - 1, Math.ceil(Math.max(corners[0].y, corners[1].y, corners[2].y, corners[3].y)) + margin);
-  return minX > maxX || minY > maxY ? null : { maxX, maxY, minX, minY };
 }
 
 function waterAssetFor(assets: PharosVilleAssetManager | null, terrain: TerrainKind) {
@@ -143,17 +156,6 @@ function waterAssetFor(assets: PharosVilleAssetManager | null, terrain: TerrainK
 
 function landAssetFor(assets: PharosVilleAssetManager | null, terrain: TerrainKind, x: number, y: number) {
   return assets?.get(landAssetIdFor(terrain, x, y)) ?? null;
-}
-
-function isTileInViewport(point: ScreenPoint, zoom: number, width: number, height: number) {
-  const marginX = 36 * zoom;
-  const marginY = 22 * zoom;
-  return (
-    point.x >= -marginX
-    && point.x <= width + marginX
-    && point.y >= -marginY
-    && point.y <= height + marginY
-  );
 }
 
 function terrainColor(kind: TerrainKind) {
@@ -258,37 +260,9 @@ function drawWaterTerrainTexture(
   tileY: number,
   motion: PharosVilleCanvasMotion,
 ) {
-  const { texture } = theme;
-  if (texture === "alert") {
-    drawAlertChannelTexture(ctx, x, y, zoom, tileX, tileY, motion, theme);
-    return;
-  }
-  if (texture === "calm") {
-    drawCalmWaterTexture(ctx, x, y, zoom, tileX, tileY, motion, theme);
-    return;
-  }
-  if (texture === "deep") {
-    drawDeepSeaTexture(ctx, x, y, zoom, tileX, tileY, motion, theme);
-    return;
-  }
-  if (texture === "harbor") {
-    drawHarborWaterTexture(ctx, x, y, zoom, tileX, tileY, motion, theme);
-    return;
-  }
-  if (texture === "ledger") {
-    drawLedgerWaterTexture(ctx, x, y, zoom, tileX, tileY, motion, theme);
-    return;
-  }
-  if (texture === "storm") {
-    drawDangerStraitTexture(ctx, x, y, zoom, tileX, tileY, motion, theme);
-    return;
-  }
-  if (texture === "watch") {
-    drawWatchWaterTexture(ctx, x, y, zoom, tileX, tileY, motion, theme);
-    return;
-  }
-  if (texture === "warning") {
-    drawWarningShoalTexture(ctx, x, y, zoom, tileX, tileY, motion, theme);
+  const renderTexture = WATER_TEXTURE_RENDERERS[theme.texture];
+  if (renderTexture) {
+    renderTexture(ctx, x, y, zoom, tileX, tileY, motion, theme);
     return;
   }
   drawOpenWaterTexture(ctx, x, y, zoom, tileX, tileY, motion, theme);

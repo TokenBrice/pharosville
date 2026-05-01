@@ -1,32 +1,18 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { drawNightTint } from "./night-tint";
+import { createCanvasContextStub, createDrawInput } from "../__test-utils__/draw-input";
 import type { DrawPharosVilleInput } from "../render-types";
 
 function makeInput(width = 800, height = 600): DrawPharosVilleInput {
-  const fillRect = vi.fn();
-  const ctx = {
-    fillRect,
-    fillStyle: "",
-    save: vi.fn(),
-    restore: vi.fn(),
-  } as unknown as CanvasRenderingContext2D;
-  return {
-    assets: null,
-    camera: { offsetX: 0, offsetY: 0, zoom: 1 } as DrawPharosVilleInput["camera"],
+  const ctx = createCanvasContextStub(
+    ["fillRect", "save", "restore"],
+    { fillStyle: "" },
+  );
+  return createDrawInput({
     ctx,
-    height,
-    hoveredTarget: null,
-    motion: {
-      plan: {} as DrawPharosVilleInput["motion"]["plan"],
-      reducedMotion: false,
-      timeSeconds: 0,
-      wallClockHour: 0,
-    },
-    selectedTarget: null,
-    targets: [],
     width,
-    world: {} as DrawPharosVilleInput["world"],
-  } as DrawPharosVilleInput;
+    height,
+  });
 }
 
 describe("drawNightTint", () => {

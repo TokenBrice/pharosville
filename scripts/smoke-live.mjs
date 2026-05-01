@@ -1,5 +1,13 @@
 #!/usr/bin/env node
 
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const {
+  PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS,
+  PHAROSVILLE_SMOKE_LIVE_BLOCKED_VARIANTS,
+} = require("../shared/lib/pharosville-smoke-matrix.ts");
+
 const args = process.argv.slice(2);
 let baseUrl = process.env.SMOKE_UI_URL ?? "https://pharosville.pharos.watch";
 let timeoutMs = Number(process.env.SMOKE_TIMEOUT_MS ?? 10_000);
@@ -88,64 +96,44 @@ async function expectBlocked(path, expectedStatuses, init) {
   }
 }
 
-const endpointChecks = [
-  {
-    path: "/api/stablecoins",
-    validate(json) {
-      assertArray(json.peggedAssets, "stablecoins.peggedAssets", { nonEmpty: true });
-    },
+const endpointValidatorsByPath = {
+  "/api/stablecoins": (json) => {
+    assertArray(json.peggedAssets, "stablecoins.peggedAssets", { nonEmpty: true });
   },
-  {
-    path: "/api/chains",
-    validate(json) {
-      assertArray(json.chains, "chains.chains", { nonEmpty: true });
-      assertNumber(json.updatedAt, "chains.updatedAt");
-    },
+  "/api/chains": (json) => {
+    assertArray(json.chains, "chains.chains", { nonEmpty: true });
+    assertNumber(json.updatedAt, "chains.updatedAt");
   },
-  {
-    path: "/api/stability-index?detail=true",
-    validate(json) {
-      assert(json.current === null || isRecord(json.current), "stability.current must be null or an object");
-      assertArray(json.history, "stability.history");
-      assert(isRecord(json.methodology), "stability.methodology must be an object");
-    },
+  "/api/stability-index?detail=true": (json) => {
+    assert(json.current === null || isRecord(json.current), "stability.current must be null or an object");
+    assertArray(json.history, "stability.history");
+    assert(isRecord(json.methodology), "stability.methodology must be an object");
   },
-  {
-    path: "/api/peg-summary",
-    validate(json) {
-      assertArray(json.coins, "pegSummary.coins", { nonEmpty: true });
-      assert(json.summary === null || isRecord(json.summary), "pegSummary.summary must be null or an object");
-      assert(isRecord(json.methodology), "pegSummary.methodology must be an object");
-    },
+  "/api/peg-summary": (json) => {
+    assertArray(json.coins, "pegSummary.coins", { nonEmpty: true });
+    assert(json.summary === null || isRecord(json.summary), "pegSummary.summary must be null or an object");
+    assert(isRecord(json.methodology), "pegSummary.methodology must be an object");
   },
-  {
-    path: "/api/stress-signals",
-    validate(json) {
-      assert(isRecord(json.signals), "stress.signals must be an object");
-      assertNumber(json.updatedAt, "stress.updatedAt");
-      assert(isRecord(json.methodology), "stress.methodology must be an object");
-    },
+  "/api/stress-signals": (json) => {
+    assert(isRecord(json.signals), "stress.signals must be an object");
+    assertNumber(json.updatedAt, "stress.updatedAt");
+    assert(isRecord(json.methodology), "stress.methodology must be an object");
   },
-  {
-    path: "/api/report-cards",
-    validate(json) {
-      assertArray(json.cards, "reportCards.cards", { nonEmpty: true });
-      assert(isRecord(json.methodology), "reportCards.methodology must be an object");
-      assert(isRecord(json.dependencyGraph), "reportCards.dependencyGraph must be an object");
-      assertNumber(json.updatedAt, "reportCards.updatedAt");
-    },
+  "/api/report-cards": (json) => {
+    assertArray(json.cards, "reportCards.cards", { nonEmpty: true });
+    assert(isRecord(json.methodology), "reportCards.methodology must be an object");
+    assert(isRecord(json.dependencyGraph), "reportCards.dependencyGraph must be an object");
+    assertNumber(json.updatedAt, "reportCards.updatedAt");
   },
-];
+};
 
-const blockedChecks = [
-  { path: "/api/health", statuses: [404] },
-  { path: "/api/stability-index", statuses: [404] },
-  { path: "/api/stability-index?detail=false", statuses: [404] },
-  { path: "/api/stability-index?detail=true&extra=1", statuses: [404] },
-  { path: "/api/stablecoins?detail=true", statuses: [404] },
-  { path: "/api/report-cards?foo=bar", statuses: [404] },
-  { path: "/api/stablecoins", statuses: [405], init: { method: "POST" } },
-];
+const endpointChecks = PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS.map((path) => {
+  const validate = endpointValidatorsByPath[path];
+  if (!validate) {
+    throw new Error(`Missing smoke validator for allowlisted endpoint: ${path}`);
+  }
+  return { path, validate };
+});
 
 async function main() {
   const root = await expectOk("/");
@@ -157,11 +145,11 @@ async function main() {
     endpoint.validate(json);
   }
 
-  for (const blocked of blockedChecks) {
+  for (const blocked of PHAROSVILLE_SMOKE_LIVE_BLOCKED_VARIANTS) {
     await expectBlocked(blocked.path, blocked.statuses, blocked.init);
   }
 
-  console.log(`[smoke-live] ${base.toString()} OK (${endpointChecks.length} endpoints, ${blockedChecks.length} blocked variants)`);
+  console.log(`[smoke-live] ${base.toString()} OK (${endpointChecks.length} endpoints, ${PHAROSVILLE_SMOKE_LIVE_BLOCKED_VARIANTS.length} blocked variants)`);
 }
 
 main().catch((error) => {

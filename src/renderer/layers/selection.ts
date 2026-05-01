@@ -1,6 +1,7 @@
 import { isShipMapVisible, shipWaterPathKey, type ShipWaterPath } from "../../systems/motion";
 import { tileToScreen, type IsoCamera, type ScreenPoint } from "../../systems/projection";
 import type { PharosVilleWorld } from "../../systems/world-types";
+import { drawDiamond } from "../canvas-primitives";
 import { dockDrawPoint } from "../geometry";
 import type { HitTarget } from "../hit-testing";
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
@@ -189,17 +190,6 @@ function drawRelationshipMarker(
     ctx.fill();
   }
   ctx.restore();
-}
-
-function drawDiamond(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, fill: string) {
-  ctx.beginPath();
-  ctx.moveTo(x, y - height / 2);
-  ctx.lineTo(x + width / 2, y);
-  ctx.lineTo(x, y + height / 2);
-  ctx.lineTo(x - width / 2, y);
-  ctx.closePath();
-  ctx.fillStyle = fill;
-  ctx.fill();
 }
 
 function drawSelectionRing(ctx: CanvasRenderingContext2D, target: HitTarget, color: string) {

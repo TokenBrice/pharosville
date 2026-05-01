@@ -3,19 +3,20 @@ import { PHAROSVILLE_API_CLIENT_CONTRACT } from "@shared/lib/pharosville-api-cli
 import { PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY } from "@shared/lib/pharosville-api-endpoints";
 import type { PharosVilleApiEndpointKey } from "@shared/types/pharosville";
 import { usePegSummary, useReportCards, useStabilityIndexDetail, useStressSignals } from "./api-hooks";
-import { useApiQueryWithMeta } from "./use-api-query";
 import { useChains } from "./use-chains";
 import { useStablecoins } from "./use-stablecoins";
+import { usePharosVilleEndpointQuery } from "./use-api-query";
 
 vi.mock("./use-api-query", () => ({
   useApiQueryWithMeta: vi.fn(() => ({ data: undefined, meta: null })),
+  usePharosVilleEndpointQuery: vi.fn(() => ({ data: undefined, meta: null })),
 }));
 
-const mockedUseApiQueryWithMeta = vi.mocked(useApiQueryWithMeta);
+const mockedUsePharosVilleEndpointQuery = vi.mocked(usePharosVilleEndpointQuery);
 
 describe("PharosVille API hooks", () => {
   beforeEach(() => {
-    mockedUseApiQueryWithMeta.mockClear();
+    mockedUsePharosVilleEndpointQuery.mockClear();
   });
 
   it.each([
@@ -60,15 +61,8 @@ describe("PharosVille API hooks", () => {
 
     hook();
 
-    expect(mockedUseApiQueryWithMeta).toHaveBeenCalledTimes(1);
-    expect(mockedUseApiQueryWithMeta).toHaveBeenCalledWith(
-      endpoint.queryKey,
-      PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY[key],
-      endpoint.producerIntervalSec * 1000,
-      {
-        metaMaxAgeSec: endpoint.metaMaxAgeSec,
-      },
-    );
+    expect(mockedUsePharosVilleEndpointQuery).toHaveBeenCalledTimes(1);
+    expect(mockedUsePharosVilleEndpointQuery).toHaveBeenCalledWith(key);
     expect(endpoint.queryKey).toEqual(queryKey);
   });
 });

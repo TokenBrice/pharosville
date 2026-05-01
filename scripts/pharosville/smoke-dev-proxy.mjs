@@ -1,18 +1,13 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import net from "node:net";
 import { pathToFileURL } from "node:url";
 
 import { discoverPharosApiConfig } from "./setup-local-api-key.mjs";
 
-const ALLOWLISTED_ENDPOINTS = [
-  "/api/stablecoins",
-  "/api/chains",
-  "/api/stability-index?detail=true",
-  "/api/peg-summary",
-  "/api/stress-signals",
-  "/api/report-cards",
-];
+const require = createRequire(import.meta.url);
+const { PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS } = require("../../shared/lib/pharosville-smoke-matrix.ts");
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
@@ -278,7 +273,7 @@ async function smokeEndpoint(baseUrl, path, requestTimeoutMs) {
 
 async function runSmoke(baseUrl, requestTimeoutMs) {
   const failures = [];
-  for (const path of ALLOWLISTED_ENDPOINTS) {
+  for (const path of PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS) {
     try {
       const status = await smokeEndpoint(baseUrl, path, requestTimeoutMs);
       console.log(`✓ ${path} ${status}`);
@@ -298,7 +293,7 @@ async function runSmoke(baseUrl, requestTimeoutMs) {
     return;
   }
 
-  console.log(`\n[smoke-dev-proxy] OK (${ALLOWLISTED_ENDPOINTS.length} endpoints)`);
+  console.log(`\n[smoke-dev-proxy] OK (${PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS.length} endpoints)`);
 }
 
 async function main() {

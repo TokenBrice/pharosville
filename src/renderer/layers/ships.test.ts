@@ -9,6 +9,7 @@ import { SHIP_SAIL_TINT_MASKS } from "../ship-sail-tint";
 import {
   drawShipWake,
   drawSquadIdentityAccent,
+  planShipRenderLod,
   SHIP_PEG_MARKS,
   SHIP_SAIL_MARKS,
   SHIP_TRIM_MARKS,
@@ -128,27 +129,32 @@ describe("Maker squad titan offset tables", () => {
 
 // --- Synchronised squad wake ordering --------------------------------------
 
-function makeShipNode(overrides: Partial<ShipNode> & Pick<ShipNode, "id" | "tile">): ShipNode {
+function makeShipNode(
+  overrides: Omit<Partial<ShipNode>, "visual"> & Pick<ShipNode, "id" | "tile"> & { visual?: Partial<ShipNode["visual"]> },
+): ShipNode {
   // Wake/render path only reads id, tile, squadId/squadRole, change24hPct,
   // riskZone, and visual.sizeTier/spriteAssetId on the no-asset/static
   // path. Build a minimal stub via `unknown` cast — the real ShipNode is
   // far wider, but we don't exercise those fields here.
+  const visual = {
+    hull: "treasury-galleon",
+    sizeTier: "major",
+    scale: 1,
+    livery: {},
+    ...overrides.visual,
+  };
+  const { visual: _visualOverride, ...rest } = overrides;
   const stub = {
     kind: "ship",
     label: overrides.id,
     symbol: overrides.id.toUpperCase(),
     riskTile: overrides.tile,
     riskZone: "calm",
-    visual: {
-      hull: "treasury-galleon",
-      sizeTier: "major",
-      scale: 1,
-      livery: {},
-    },
     change24hUsd: 0,
     change24hPct: 0,
     detailId: `ship.${overrides.id}`,
-    ...overrides,
+    ...rest,
+    visual,
   };
   return stub as unknown as ShipNode;
 }
@@ -489,5 +495,68 @@ describe("shipMastTopScreenPoint", () => {
     const point = shipMastTopScreenPoint(input, frame, ship);
     expect(Number.isFinite(point.x)).toBe(true);
     expect(Number.isFinite(point.y)).toBe(true);
+  });
+});
+
+describe("planShipRenderLod", () => {
+  it("keeps selected and titan ships in wake/overlay sets while budget-throttling dense fleets", () => {
+    const selected = makeShipNode({
+      id: "selected-local",
+      detailId: "ship.selected-local",
+      tile: { x: 8, y: 8 },
+      visual: { sizeTier: "local" },
+    });
+    const titan = makeShipNode({
+      id: "titan-major",
+      detailId: "ship.titan-major",
+      tile: { x: 10, y: 10 },
+      visual: { sizeTier: "titan", spriteAssetId: "ship.usdc-titan" },
+    });
+    const filler = Array.from({ length: 48 }, (_unused, index) => makeShipNode({
+      id: `ship-${index}`,
+      detailId: `ship.ship-${index}`,
+      tile: { x: 12 + index * 0.2, y: 10 + index * 0.2 },
+      visual: { sizeTier: "local" },
+    }));
+    const visibleShips = [selected, titan, ...filler];
+
+    const input = {
+      camera: { offsetX: 0, offsetY: 0, zoom: 0.9 },
+      height: 760,
+      hoveredTarget: null,
+      motion: {
+        plan: makeMotionPlan([]),
+        reducedMotion: false,
+        timeSeconds: 0,
+        wallClockHour: 12,
+      },
+      selectedTarget: {
+        detailId: selected.detailId,
+        id: selected.id,
+        kind: "ship",
+        label: selected.label,
+        priority: 0,
+        rect: { height: 20, width: 20, x: 0, y: 0 },
+      },
+      shipMotionSamples: new Map<string, ShipMotionSample>(),
+      width: 1280,
+    } as const;
+
+    const cache = {
+      geometryForEntity: (entity: { id: string }) => {
+        const index = visibleShips.findIndex((ship) => ship.id === entity.id);
+        const x = 50 + index * 30;
+        const y = index % 2 === 0 ? 160 : 900;
+        return makeGeometry(x, y);
+      },
+    };
+
+    const lod = planShipRenderLod(input, cache, visibleShips);
+    expect(lod.drawOverlayShipIds.has(selected.id)).toBe(true);
+    expect(lod.drawWakeShipIds.has(selected.id)).toBe(true);
+    expect(lod.drawOverlayShipIds.has(titan.id)).toBe(true);
+    expect(lod.drawWakeShipIds.has(titan.id)).toBe(true);
+    expect(lod.drawOverlayShipIds.size).toBeLessThan(visibleShips.length);
+    expect(lod.drawWakeShipIds.size).toBeLessThan(visibleShips.length);
   });
 });

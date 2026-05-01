@@ -4,6 +4,7 @@ import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import { fitCameraToMap } from "../systems/projection";
 import type { PharosVilleAssetManifestEntry } from "../systems/asset-manifest";
 import type { PharosVilleAssetManager } from "./asset-manager";
+import { createCanvasContextStub, createDrawInput } from "./__test-utils__/draw-input";
 import { createRenderFrameCache } from "./frame-cache";
 import type { DrawPharosVilleInput } from "./render-types";
 
@@ -76,12 +77,10 @@ describe("render frame cache", () => {
   });
 
   function makeInput(overrides: Partial<DrawPharosVilleInput> = {}): DrawPharosVilleInput {
-    return {
-      assets: null,
+    return createDrawInput({
       camera,
-      ctx: {} as CanvasRenderingContext2D,
+      ctx: createCanvasContextStub([]),
       height: 1000,
-      hoveredTarget: null,
       motion: {
         plan: {
           animatedShipIds: new Set(),
@@ -95,11 +94,9 @@ describe("render frame cache", () => {
         timeSeconds: 0,
         wallClockHour: 12,
       },
-      selectedTarget: null,
-      targets: [],
       width: 1440,
       world,
       ...overrides,
-    };
+    });
   }
 });

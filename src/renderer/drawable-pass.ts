@@ -33,7 +33,7 @@ export function sortByIsoDepth<T>(
     const bTile = tileFor(b);
     return (aTile.x + aTile.y) - (bTile.x + bTile.y)
       || aTile.y - bTile.y
-      || tieBreakerFor(a).localeCompare(tieBreakerFor(b));
+      || compareText(tieBreakerFor(a), tieBreakerFor(b));
   });
 }
 
@@ -54,13 +54,17 @@ function compareWorldDrawables(a: WorldDrawableSortFields, b: WorldDrawableSortF
     selectionRank(a) - selectionRank(b)
     || a.depth - b.depth
     || DRAWABLE_PASS_RANK[a.pass] - DRAWABLE_PASS_RANK[b.pass]
-    || a.kind.localeCompare(b.kind)
-    || a.tieBreaker.localeCompare(b.tieBreaker)
+    || compareText(a.kind, b.kind)
+    || compareText(a.tieBreaker, b.tieBreaker)
   );
 }
 
 function selectionRank(drawable: WorldDrawableSortFields): number {
   return drawable.pass === "selection" ? 1 : 0;
+}
+
+function compareText(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 export function drawablePassCounts(drawables: readonly Pick<WorldDrawableSortFields, "pass">[]): Record<WorldDrawablePass, number> {

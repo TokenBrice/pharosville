@@ -9,7 +9,7 @@ import type { ShipMotionSample } from "../systems/motion";
 import { areaLabelPlacementForArea } from "../systems/area-labels";
 import type { LoadedPharosVilleAsset } from "./asset-manager";
 import { dockDrawPoint, dockRenderScale, LIGHTHOUSE_DRAW_OFFSET, LIGHTHOUSE_DRAW_SCALE } from "./geometry";
-import { collectHitTargets, hitTest, type HitTarget } from "./hit-testing";
+import { collectHitTargets, createHitTargetSnapshot, hitTest, hitTestSpatial, updateHitTargetSnapshotShips, type HitTarget } from "./hit-testing";
 
 const TARGET_CLICK_POINTS = [
   [0.5, 0.5],
@@ -442,6 +442,57 @@ describe("hit-testing", () => {
       expect(hit, `hit-test at ${id} centre`).not.toBeNull();
       expect(squadIds.has(hit!.id), `${id} centre should resolve to a squad member, got ${hit!.id}`).toBe(true);
     }
+  });
+
+  it("matches spatial-index hit test results with full scan hit testing", () => {
+    const snapshot = createHitTargetSnapshot({ camera, world });
+    const points = snapshot.targets.slice(0, 24).map((target) => ({
+      x: target.rect.x + target.rect.width / 2,
+      y: target.rect.y + target.rect.height / 2,
+    }));
+    points.push({ x: -24, y: -24 });
+    for (const point of points) {
+      const full = hitTest(snapshot.targets, point);
+      const indexed = hitTestSpatial(snapshot.spatialIndex, point);
+      expect(indexed?.detailId ?? null).toBe(full?.detailId ?? null);
+    }
+  });
+
+  it("updates only changed ship targets incrementally while preserving hit semantics", () => {
+    const ship = world.ships[0]!;
+    const initialSamples = new Map([[ship.id, motionSample(ship.id, ship.tile)]]);
+    const initialSnapshot = createHitTargetSnapshot({
+      camera,
+      shipMotionSamples: initialSamples,
+      world,
+    });
+    const movedTile = { x: ship.tile.x + 2, y: ship.tile.y + 3 };
+    const movedSamples = new Map([[ship.id, motionSample(ship.id, movedTile)]]);
+    const updatedSnapshot = updateHitTargetSnapshotShips({
+      camera,
+      changedShipIds: [ship.id],
+      shipMotionSamples: movedSamples,
+      snapshot: initialSnapshot,
+      viewport: null,
+      world,
+      worldShipsById: new Map(world.ships.map((entry) => [entry.id, entry])),
+    });
+    const fullRebuild = createHitTargetSnapshot({
+      camera,
+      shipMotionSamples: movedSamples,
+      world,
+    });
+    const updatedShipTarget = updatedSnapshot.targets.find((target) => target.id === ship.id);
+    const fullShipTarget = fullRebuild.targets.find((target) => target.id === ship.id);
+    expect(updatedShipTarget).toBeDefined();
+    expect(fullShipTarget).toBeDefined();
+    expect(updatedShipTarget!.rect).toEqual(fullShipTarget!.rect);
+
+    const point = {
+      x: updatedShipTarget!.rect.x + updatedShipTarget!.rect.width / 2,
+      y: updatedShipTarget!.rect.y + updatedShipTarget!.rect.height / 2,
+    };
+    expect(hitTestSpatial(updatedSnapshot.spatialIndex, point)?.detailId).toBe(hitTest(fullRebuild.targets, point)?.detailId);
   });
 });
 

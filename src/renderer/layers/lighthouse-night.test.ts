@@ -1,48 +1,41 @@
 import { describe, expect, it, vi } from "vitest";
 import { drawLighthouseNightHighlights, lighthouseOverlayScreenBounds } from "./lighthouse";
+import { createCanvasContextStub, createDrawInput } from "../__test-utils__/draw-input";
 import type { DrawPharosVilleInput } from "../render-types";
 
 function makeCtx() {
-  const ctx: Record<string, unknown> = {
-    save: vi.fn(),
-    restore: vi.fn(),
-    fillRect: vi.fn(),
-    fill: vi.fn(),
-    beginPath: vi.fn(),
-    moveTo: vi.fn(),
-    lineTo: vi.fn(),
-    closePath: vi.fn(),
-    ellipse: vi.fn(),
-    arc: vi.fn(),
-    createRadialGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
-    fillStyle: "",
-    globalAlpha: 1,
-    globalCompositeOperation: "source-over",
-  };
-  return ctx as unknown as CanvasRenderingContext2D;
+  return createCanvasContextStub(
+    ["save", "restore", "fillRect", "fill", "beginPath", "moveTo", "lineTo", "closePath", "ellipse", "arc"],
+    {
+      fillStyle: "",
+      globalAlpha: 1,
+      globalCompositeOperation: "source-over",
+      createRadialGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+    },
+  );
 }
 
 function makeInput(unavailable = false): DrawPharosVilleInput {
-  return {
-    assets: null,
-    camera: { offsetX: 0, offsetY: 0, zoom: 1 } as DrawPharosVilleInput["camera"],
+  return createDrawInput({
     ctx: makeCtx(),
-    height: 600,
-    hoveredTarget: null,
     motion: {
-      plan: { lighthouseFireFlickerPerSecond: 1 } as DrawPharosVilleInput["motion"]["plan"],
+      plan: {
+        animatedShipIds: new Set(),
+        effectShipIds: new Set(),
+        lighthouseFireFlickerPerSecond: 1,
+        moverShipIds: new Set(),
+        shipPhases: new Map(),
+        shipRoutes: new Map(),
+      },
       reducedMotion: false,
       timeSeconds: 0,
       wallClockHour: 0,
     },
-    selectedTarget: null,
-    targets: [],
-    width: 800,
     world: {
       lighthouse: { tile: { x: 18, y: 30 }, color: "#ffd877", unavailable },
       ships: [],
     } as unknown as DrawPharosVilleInput["world"],
-  } as DrawPharosVilleInput;
+  });
 }
 
 describe("drawLighthouseNightHighlights", () => {

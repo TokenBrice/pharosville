@@ -1,9 +1,11 @@
 import { ambientSeaPhase } from "../../systems/motion-types";
 import { waterTerrainStyle, type WaterTerrainStyle, type WaterTextureKind } from "../../systems/palette";
-import { TILE_HEIGHT, TILE_WIDTH, screenToTile, tileToScreen } from "../../systems/projection";
+import { TILE_HEIGHT, TILE_WIDTH, tileToScreen } from "../../systems/projection";
 import { isWaterTileKind } from "../../systems/world-layout";
 import type { PharosVilleMap, PharosVilleTile, TerrainKind } from "../../systems/world-types";
+import { withAlpha } from "../canvas-primitives";
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
+import { isScreenPointInViewport, visibleTileBoundsForCamera } from "../viewport";
 
 type CoastEdge = "east" | "north" | "south" | "west";
 
@@ -29,6 +31,25 @@ interface CoastalWaterCandidate {
   tile: PharosVilleTile;
 }
 
+type NearshoreMotifRenderer = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  seed: number,
+  style: WaterTerrainStyle,
+) => void;
+
+const NEARSHORE_MOTIF_RENDERERS: Partial<Record<WaterTextureKind, NearshoreMotifRenderer>> = {
+  alert: drawAlertCurrentChevron,
+  calm: drawCalmSandbar,
+  harbor: drawHarborRipples,
+  ledger: drawLedgerTally,
+  storm: drawStormWhitecap,
+  warning: drawWarningShoalFlecks,
+  watch: drawWatchCrosswind,
+};
+
 function tilesByKeyForMap(map: PharosVilleMap): Map<string, PharosVilleTile> {
   let cached = tilesByKeyCache.get(map);
   if (!cached) {
@@ -39,7 +60,16 @@ function tilesByKeyForMap(map: PharosVilleMap): Map<string, PharosVilleTile> {
 }
 
 export function drawCoastalWaterDetails({ camera, ctx, height, motion, width, world }: DrawPharosVilleInput) {
-  const bounds = visibleTileBounds(world.map, camera, width, height, 3);
+  const bounds = visibleTileBoundsForCamera({
+    camera,
+    mapHeight: world.map.height,
+    mapWidth: world.map.width,
+    tileMargin: 3,
+    viewportHeight: height,
+    viewportWidth: width,
+  });
+  const viewportMarginX = 46 * camera.zoom;
+  const viewportMarginY = 28 * camera.zoom;
   if (!bounds) return 0;
   const candidates = coastalCandidatesForMap(world.map);
   let drawnTileCount = 0;
@@ -51,7 +81,7 @@ export function drawCoastalWaterDetails({ camera, ctx, height, motion, width, wo
     const tile = candidate.tile;
     if (tile.x < bounds.minX || tile.x > bounds.maxX || tile.y < bounds.minY || tile.y > bounds.maxY) continue;
     const point = tileToScreen(tile, camera);
-    if (!isTileInViewport(point.x, point.y, camera.zoom, width, height)) continue;
+    if (!isScreenPointInViewport(point, width, height, viewportMarginX, viewportMarginY)) continue;
 
     drawnTileCount += 1;
     drawCoastEdgeWash(ctx, point.x, point.y, camera.zoom, candidate.style, candidate.coastEdges, tile.x, tile.y);
@@ -99,32 +129,6 @@ function computeCoastalEdges(tile: PharosVilleTile, tilesByKey: ReadonlyMap<stri
     if (!isWaterTileKind(tileTerrain(neighbor))) edges.push(edge);
   }
   return edges;
-}
-
-function visibleTileBounds(
-  map: PharosVilleMap,
-  camera: DrawPharosVilleInput["camera"],
-  width: number,
-  height: number,
-  margin: number,
-): { maxX: number; maxY: number; minX: number; minY: number } | null {
-  const corners = [
-    screenToTile({ x: 0, y: 0 }, camera),
-    screenToTile({ x: width, y: 0 }, camera),
-    screenToTile({ x: 0, y: height }, camera),
-    screenToTile({ x: width, y: height }, camera),
-  ];
-  const minX = Math.max(0, Math.floor(Math.min(corners[0].x, corners[1].x, corners[2].x, corners[3].x)) - margin);
-  const maxX = Math.min(map.width - 1, Math.ceil(Math.max(corners[0].x, corners[1].x, corners[2].x, corners[3].x)) + margin);
-  const minY = Math.max(0, Math.floor(Math.min(corners[0].y, corners[1].y, corners[2].y, corners[3].y)) - margin);
-  const maxY = Math.min(map.height - 1, Math.ceil(Math.max(corners[0].y, corners[1].y, corners[2].y, corners[3].y)) + margin);
-  return minX > maxX || minY > maxY ? null : { maxX, maxY, minX, minY };
-}
-
-function isTileInViewport(x: number, y: number, zoom: number, width: number, height: number) {
-  const marginX = 46 * zoom;
-  const marginY = 28 * zoom;
-  return x >= -marginX && x <= width + marginX && y >= -marginY && y <= height + marginY;
 }
 
 function drawCoastEdgeWash(
@@ -221,24 +225,8 @@ function drawNearshoreWaterMotif(
   ctx.strokeStyle = withAlpha(style.accent, 0.28);
   ctx.fillStyle = withAlpha(style.accent, 0.22);
   ctx.lineWidth = Math.max(1, 0.9 * zoom);
-
-  if (style.texture === "calm") {
-    drawCalmSandbar(ctx, x, y + drift, zoom, seed, style);
-  } else if (style.texture === "watch") {
-    drawWatchCrosswind(ctx, x, y + drift, zoom, seed, style);
-  } else if (style.texture === "alert") {
-    drawAlertCurrentChevron(ctx, x, y + drift, zoom, seed, style);
-  } else if (style.texture === "warning") {
-    drawWarningShoalFlecks(ctx, x, y + drift, zoom, seed, style);
-  } else if (style.texture === "storm") {
-    drawStormWhitecap(ctx, x, y + drift, zoom, seed, style);
-  } else if (style.texture === "ledger") {
-    drawLedgerTally(ctx, x, y + drift, zoom, seed, style);
-  } else if (style.texture === "harbor") {
-    drawHarborRipples(ctx, x, y + drift, zoom, seed, style);
-  } else {
-    drawOpenEddy(ctx, x, y + drift, zoom, seed, style);
-  }
+  const renderMotif = NEARSHORE_MOTIF_RENDERERS[style.texture] ?? drawOpenEddy;
+  renderMotif(ctx, x, y + drift, zoom, seed, style);
   ctx.restore();
 }
 
@@ -379,18 +367,4 @@ function drawOpenEddy(
   ctx.beginPath();
   ctx.ellipse(x + (seed - 2) * zoom, y + 1 * zoom, 7 * zoom, 2.5 * zoom, -0.08, 0.1, Math.PI * 1.6);
   ctx.stroke();
-}
-
-function withAlpha(color: string, alpha: number) {
-  if (color.startsWith("rgba(")) return color.replace(/,\s*[\d.]+\)$/, `, ${alpha})`);
-  if (color.startsWith("#")) return hexToRgba(color, alpha);
-  return color;
-}
-
-function hexToRgba(hex: string, alpha: number) {
-  const normalized = hex.replace("#", "");
-  const red = Number.parseInt(normalized.slice(0, 2), 16);
-  const green = Number.parseInt(normalized.slice(2, 4), 16);
-  const blue = Number.parseInt(normalized.slice(4, 6), 16);
-  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }

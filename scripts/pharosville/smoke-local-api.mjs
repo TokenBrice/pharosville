@@ -1,16 +1,11 @@
 #!/usr/bin/env node
+import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
 import { discoverPharosApiConfig } from "./setup-local-api-key.mjs";
 
-const LOCAL_PROXY_ENDPOINTS = [
-  "/api/stablecoins",
-  "/api/chains",
-  "/api/stability-index?detail=true",
-  "/api/peg-summary",
-  "/api/stress-signals",
-  "/api/report-cards",
-];
+const require = createRequire(import.meta.url);
+const { PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS } = require("../../shared/lib/pharosville-smoke-matrix.ts");
 
 async function smokeEndpoint(apiBase, apiKey, path) {
   const response = await fetch(`${apiBase}${path}`, {
@@ -53,7 +48,7 @@ async function main() {
   console.log(`API key source: ${discovered.source}`);
 
   const failures = [];
-  for (const endpoint of LOCAL_PROXY_ENDPOINTS) {
+  for (const endpoint of PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS) {
     try {
       const result = await smokeEndpoint(discovered.apiBase, discovered.apiKey, endpoint);
       console.log(`✓ ${endpoint} (${result.status}) age=${result.dataAge} cache=${result.cacheControl}`);

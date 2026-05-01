@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PHAROSVILLE_API_CLIENT_ENDPOINTS } from "../../shared/lib/pharosville-api-client-contract";
 import { PHAROSVILLE_API_ENDPOINT_PATHS } from "../../shared/lib/pharosville-api-endpoints";
+import {
+  PHAROSVILLE_PROXY_BLOCKED_VARIANTS,
+  PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS,
+  type PharosVilleSmokeBlockedVariant,
+} from "../../shared/lib/pharosville-smoke-matrix";
 import { onRequest } from "./[[path]]";
 
 function makeContext(url: string, init?: {
@@ -44,6 +49,19 @@ function installEdgeCache(cache: MemoryEdgeCache): void {
   vi.stubGlobal("caches", { default: cache });
 }
 
+function isMethodBlockedVariant(
+  variant: PharosVilleSmokeBlockedVariant,
+): variant is PharosVilleSmokeBlockedVariant & { init: { method: "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" } } {
+  return Boolean(variant.init?.method);
+}
+
+const PROXY_BLOCKED_METHOD_VARIANTS = PHAROSVILLE_PROXY_BLOCKED_VARIANTS.filter(isMethodBlockedVariant);
+const PROXY_BLOCKED_QUERY_VARIANTS = PHAROSVILLE_PROXY_BLOCKED_VARIANTS.filter((variant) => !variant.init);
+const UNLISTED_API_PATH = PROXY_BLOCKED_QUERY_VARIANTS.find((variant) => variant.path === "/api/health")?.path ?? "/api/health";
+const NON_EXACT_ENDPOINT_QUERY_VARIANTS = PROXY_BLOCKED_QUERY_VARIANTS
+  .filter((variant) => variant.path !== UNLISTED_API_PATH)
+  .map((variant) => variant.path);
+
 describe("PharosVille API proxy", () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -52,12 +70,13 @@ describe("PharosVille API proxy", () => {
   });
 
   it("keeps the proxy allowlist in sync with the lightweight PharosVille API client contract", () => {
-    expect(PHAROSVILLE_API_ENDPOINT_PATHS).toEqual(
+    expect(PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS).toEqual(
       PHAROSVILLE_API_CLIENT_ENDPOINTS.map((endpoint) => endpoint.path),
     );
+    expect(PHAROSVILLE_API_ENDPOINT_PATHS).toEqual(PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS);
   });
 
-  it.each(PHAROSVILLE_API_ENDPOINT_PATHS)("proxies the allowed endpoint %s", async (endpointPath) => {
+  it.each(PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS)("proxies the allowed endpoint %s", async (endpointPath) => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(JSON.stringify({ ok: true }), {
         status: 200,
@@ -208,23 +227,14 @@ describe("PharosVille API proxy", () => {
 
   it("rejects unlisted API paths before upstream fetch", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch");
-    const response = await onRequest(makeContext("https://pharosville.pharos.watch/api/health"));
+    const response = await onRequest(makeContext(`https://pharosville.pharos.watch${UNLISTED_API_PATH}`));
 
     expect(response.status).toBe(404);
     expect(fetchMock).not.toHaveBeenCalled();
 
   });
 
-  it.each([
-    "/api/stablecoins?extra=1",
-    "/api/chains?extra=1",
-    "/api/stability-index",
-    "/api/stability-index?detail=false",
-    "/api/stability-index?detail=true&extra=1",
-    "/api/peg-summary?extra=1",
-    "/api/stress-signals?days=7",
-    "/api/report-cards?extra=1",
-  ])("rejects non-exact endpoint query %s before upstream fetch", async (endpointPath) => {
+  it.each(NON_EXACT_ENDPOINT_QUERY_VARIANTS)("rejects non-exact endpoint query %s before upstream fetch", async (endpointPath) => {
     const fetchMock = vi.spyOn(globalThis, "fetch");
     const response = await onRequest(makeContext(`https://pharosville.pharos.watch${endpointPath}`));
 
@@ -232,7 +242,7 @@ describe("PharosVille API proxy", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it.each(["POST", "PUT", "PATCH", "DELETE", "OPTIONS"])("rejects %s requests with 405", async (method) => {
+  it.each(PROXY_BLOCKED_METHOD_VARIANTS.map((variant) => variant.init.method))("rejects %s requests with 405", async (method) => {
     const fetchMock = vi.spyOn(globalThis, "fetch");
     const response = await onRequest(makeContext("https://pharosville.pharos.watch/api/stablecoins", { method }));
 

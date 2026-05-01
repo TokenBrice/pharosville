@@ -1,14 +1,14 @@
 import type { PharosVilleWorld } from "../../systems/world-types";
 import {
-  drawablePassCounts,
   sortWorldDrawablesInPlace,
   type WorldDrawable,
   type WorldDrawablePass,
   type WorldDrawableSortFields,
 } from "../drawable-pass";
 import type { RenderFrameCache } from "../frame-cache";
-import type { WorldSelectableEntity } from "../geometry";
+import type { ResolvedEntityGeometry, WorldSelectableEntity } from "../geometry";
 import type { DrawPharosVilleInput, PharosVilleRenderMetrics } from "../render-types";
+import { planShipRenderLod } from "./ships";
 
 export interface EntityPassCallbacks {
   drawDockBody(dock: PharosVilleWorld["docks"][number]): void;
@@ -50,73 +50,117 @@ interface EntityDrawableDescriptor extends WorldDrawableSortFields {
 
 type EntityPassDrawable = WorldDrawable | EntityDrawableDescriptor;
 
+const entityDrawablesScratch: EntityPassDrawable[] = [];
+const entityDescriptorPool: EntityDrawableDescriptor[] = [];
+let entityDescriptorPoolSize = 0;
+
 export function drawEntityLayer(
   input: DrawPharosVilleInput,
   cache: RenderFrameCache,
   extraDrawables: readonly WorldDrawable[],
   callbacks: EntityPassCallbacks,
 ): Pick<PharosVilleRenderMetrics, "drawableCount" | "drawableCounts"> {
-  const visibleDrawables: EntityPassDrawable[] = [];
+  entityDrawablesScratch.length = 0;
+  entityDescriptorPoolSize = 0;
+  const visibleDrawables = entityDrawablesScratch;
 
   for (const drawable of extraDrawables) {
     if (shouldDrawWorldDrawable(input, drawable)) visibleDrawables.push(drawable);
   }
 
   for (const dock of input.world.docks) {
+    const geometry = cache.geometryForEntity(dock);
     if (!callbacks.isBackgroundedHarborDock(dock)) {
-      pushEntityDrawable(input, cache, callbacks, visibleDrawables, dock, "body", "dock-body");
+      pushEntityDrawable(input, callbacks, visibleDrawables, geometry, dock, "body", "dock-body");
     }
-    pushEntityDrawable(input, cache, callbacks, visibleDrawables, dock, "overlay", "dock-overlay");
+    pushEntityDrawable(input, callbacks, visibleDrawables, geometry, dock, "overlay", "dock-overlay");
   }
 
+  const shipLodPlan = planShipRenderLod(input, cache, callbacks.visibleShips);
   for (const ship of callbacks.visibleShips) {
-    pushEntityDrawable(input, cache, callbacks, visibleDrawables, ship, "underlay", "ship-wake");
-    pushEntityDrawable(input, cache, callbacks, visibleDrawables, ship, "body", "ship-body");
-    pushEntityDrawable(input, cache, callbacks, visibleDrawables, ship, "overlay", "ship-overlay");
+    const geometry = cache.geometryForEntity(ship);
+    if (shipLodPlan.drawWakeShipIds.has(ship.id)) {
+      pushEntityDrawable(input, callbacks, visibleDrawables, geometry, ship, "underlay", "ship-wake");
+    }
+    pushEntityDrawable(input, callbacks, visibleDrawables, geometry, ship, "body", "ship-body");
+    if (shipLodPlan.drawOverlayShipIds.has(ship.id)) {
+      pushEntityDrawable(input, callbacks, visibleDrawables, geometry, ship, "overlay", "ship-overlay");
+    }
   }
 
   for (const grave of input.world.graves) {
-    pushEntityDrawable(input, cache, callbacks, visibleDrawables, grave, "underlay", "grave-underlay");
-    pushEntityDrawable(input, cache, callbacks, visibleDrawables, grave, "body", "grave-body");
-    pushEntityDrawable(input, cache, callbacks, visibleDrawables, grave, "overlay", "grave-overlay");
+    const geometry = cache.geometryForEntity(grave);
+    pushEntityDrawable(input, callbacks, visibleDrawables, geometry, grave, "underlay", "grave-underlay");
+    pushEntityDrawable(input, callbacks, visibleDrawables, geometry, grave, "body", "grave-body");
+    pushEntityDrawable(input, callbacks, visibleDrawables, geometry, grave, "overlay", "grave-overlay");
   }
 
-  pushEntityDrawable(input, cache, callbacks, visibleDrawables, input.world.lighthouse, "body", "lighthouse-body");
-  pushEntityDrawable(input, cache, callbacks, visibleDrawables, input.world.lighthouse, "overlay", "lighthouse-overlay");
+  const lighthouseGeometry = cache.geometryForEntity(input.world.lighthouse);
+  pushEntityDrawable(input, callbacks, visibleDrawables, lighthouseGeometry, input.world.lighthouse, "body", "lighthouse-body");
+  pushEntityDrawable(input, callbacks, visibleDrawables, lighthouseGeometry, input.world.lighthouse, "overlay", "lighthouse-overlay");
 
   const sorted = sortWorldDrawablesInPlace(visibleDrawables);
-  for (const drawable of sorted) drawEntityPassDrawable(input.ctx, callbacks, drawable);
+  const drawableCounts: Record<WorldDrawablePass, number> = {
+    underlay: 0,
+    body: 0,
+    overlay: 0,
+    selection: 0,
+  };
+  for (const drawable of sorted) {
+    drawableCounts[drawable.pass] += 1;
+    drawEntityPassDrawable(input.ctx, callbacks, drawable);
+  }
   return {
     drawableCount: sorted.length,
-    drawableCounts: drawablePassCounts(sorted),
+    drawableCounts,
   };
 }
 
 function pushEntityDrawable(
   input: DrawPharosVilleInput,
-  cache: RenderFrameCache,
   callbacks: EntityPassCallbacks,
   drawables: EntityPassDrawable[],
+  geometry: Pick<ResolvedEntityGeometry, "depth" | "selectionRect">,
   entity: WorldSelectableEntity,
   pass: WorldDrawablePass,
   drawAction: EntityDrawAction,
 ) {
-  const geometry = cache.geometryForEntity(entity);
   const screenBounds = entity.kind === "lighthouse" && pass === "overlay"
     ? callbacks.lighthouseOverlayScreenBounds(geometry.selectionRect)
     : geometry.selectionRect;
-  const descriptor: EntityDrawableDescriptor = {
-    depth: geometry.depth,
-    detailId: entity.detailId,
-    drawAction,
-    entityId: entity.id,
-    entity,
-    kind: entity.kind,
-    pass,
-    screenBounds,
-    tieBreaker: entity.id,
-  };
+  const descriptor = acquireEntityDescriptor();
+  descriptor.depth = geometry.depth;
+  descriptor.detailId = entity.detailId;
+  descriptor.drawAction = drawAction;
+  descriptor.entityId = entity.id;
+  descriptor.entity = entity;
+  descriptor.kind = entity.kind;
+  descriptor.pass = pass;
+  descriptor.screenBounds = screenBounds;
+  descriptor.tieBreaker = entity.id;
   if (shouldDrawWorldDrawable(input, descriptor)) drawables.push(descriptor);
+}
+
+function acquireEntityDescriptor(): EntityDrawableDescriptor {
+  const descriptor = entityDescriptorPool[entityDescriptorPoolSize];
+  if (descriptor) {
+    entityDescriptorPoolSize += 1;
+    return descriptor;
+  }
+  const created: EntityDrawableDescriptor = {
+    depth: 0,
+    detailId: undefined,
+    drawAction: "dock-body",
+    entityId: undefined,
+    entity: null as unknown as WorldSelectableEntity,
+    kind: "",
+    pass: "body",
+    screenBounds: { height: 0, width: 0, x: 0, y: 0 },
+    tieBreaker: "",
+  };
+  entityDescriptorPool.push(created);
+  entityDescriptorPoolSize += 1;
+  return created;
 }
 
 function drawEntityPassDrawable(

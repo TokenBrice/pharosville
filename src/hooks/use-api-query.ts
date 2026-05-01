@@ -4,6 +4,8 @@ import {
   type UseQueryOptions,
   type UseQueryResult,
 } from "@tanstack/react-query";
+import { PHAROSVILLE_API_CLIENT_CONTRACT } from "@shared/lib/pharosville-api-client-contract";
+import type { PharosVilleApiEndpointKey, PharosVilleApiPayload } from "@shared/types/pharosville";
 import { apiFetchWithMeta, type ApiContractMode, type ApiMeta } from "@/lib/api";
 import type { ZodType } from "zod";
 
@@ -91,4 +93,18 @@ export function useApiQueryWithMeta<T>(
     data: data?.data,
     meta: data?.meta ?? null,
   };
+}
+
+export function usePharosVilleEndpointQuery<K extends PharosVilleApiEndpointKey>(
+  endpointKey: K,
+): ApiQueryWithMetaResult<PharosVilleApiPayload<K>> {
+  const endpoint = PHAROSVILLE_API_CLIENT_CONTRACT[endpointKey];
+  return useApiQueryWithMeta<PharosVilleApiPayload<K>>(
+    endpoint.queryKey,
+    endpoint.path,
+    endpoint.producerIntervalSec * 1000,
+    {
+      metaMaxAgeSec: endpoint.metaMaxAgeSec,
+    },
+  );
 }
