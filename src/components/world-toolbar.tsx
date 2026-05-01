@@ -1,25 +1,29 @@
 "use client";
 
-import { LocateFixed, RotateCcw } from "lucide-react";
+import { LocateFixed, Moon, RotateCcw, Sun } from "lucide-react";
 
 export interface WorldToolbarProps {
   headingId?: string;
   ledgerVisible?: boolean;
+  nightMode?: boolean;
   selectedDetailId?: string | null;
   zoomLabel?: string;
   onFollowSelected?: () => void;
   onResetView?: () => void;
   onToggleLedger?: () => void;
+  onToggleNightMode?: () => void;
 }
 
 export function WorldToolbar({
   headingId = "pharosville-world-toolbar-title",
   ledgerVisible = false,
+  nightMode = false,
   selectedDetailId,
   zoomLabel = "100%",
   onFollowSelected,
   onResetView,
   onToggleLedger,
+  onToggleNightMode,
 }: WorldToolbarProps) {
   return (
     <div
@@ -56,6 +60,17 @@ export function WorldToolbar({
         title="Follow selected"
       >
         <LocateFixed aria-hidden="true" size={18} />
+      </button>
+
+      <button
+        type="button"
+        className="pv-brass-button"
+        onClick={onToggleNightMode}
+        aria-pressed={nightMode}
+        aria-label={nightMode ? "Switch to day" : "Switch to night"}
+        title={nightMode ? "Switch to day" : "Switch to night"}
+      >
+        {nightMode ? <Sun aria-hidden="true" size={18} /> : <Moon aria-hidden="true" size={18} />}
       </button>
 
       {onToggleLedger && (

@@ -82,6 +82,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const [criticalAssetsLoaded, setCriticalAssetsLoaded] = useState(false);
   const [deferredAssetsLoaded, setDeferredAssetsLoaded] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(true);
+  const [nightMode, setNightMode] = useState(false);
   const [paintRequestTick, setPaintRequestTick] = useState(0);
   const shellRef = useRef<HTMLElement | null>(null);
   const { exitFullscreen, fullscreenMode, toggleFullscreen } = useFullscreenMode(shellRef);
@@ -391,13 +392,10 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         // baselines are stable without losing reduced-motion's animation
         // suppression.
         wallClockHour = ((testOverride % 24) + 24) % 24;
-      } else if (reducedMotion) {
-        // Reduced-motion users: pin to noon for a stable, drift-free scene every visit.
-        // Mirrors the prior behavior where reducedMotion forced a fixed sky-state progress.
-        wallClockHour = 12;
+      } else if (nightMode) {
+        wallClockHour = 22;
       } else {
-        const wallClockNow = new Date();
-        wallClockHour = ((wallClockNow.getHours() + wallClockNow.getMinutes() / 60) % 24 + 24) % 24;
+        wallClockHour = 12;
       }
       const shipMotionSamples = collectShipMotionSamples({
         motionPlan: activeMotionPlan,
@@ -532,7 +530,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       lastWallRef.current = null;
       if (frameId) cancelAnimationFrame(frameId);
     };
-  }, [assetLoadTick, assetManager, cameraReady, canvasSize.x, canvasSize.y, paintRequestTick, reducedMotion, shipsById, world]);
+  }, [assetLoadTick, assetManager, cameraReady, canvasSize.x, canvasSize.y, nightMode, paintRequestTick, reducedMotion, shipsById, world]);
 
   useEffect(() => {
     if (!isVisualDebugAllowed()) return;
@@ -828,6 +826,8 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
             zoomLabel={camera ? cameraZoomLabel(camera) : "100%"}
             onFollowSelected={selectedEntity ? handleFollowSelected : undefined}
             onResetView={handleResetView}
+            nightMode={nightMode}
+            onToggleNightMode={() => setNightMode((n) => !n)}
           />
         </div>
         {selectedDetail && (
