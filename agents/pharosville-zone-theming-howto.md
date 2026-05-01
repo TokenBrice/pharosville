@@ -4,7 +4,7 @@
 
 ## TL;DR
 
-- **One file, one table.** All per-zone visual knobs live in `src/systems/palette.ts:ZONE_THEMES`. Edit a row, the renderer picks it up.
+- **One file, one table.** All per-zone visual knobs live in `src/systems/palette.ts` in the `ZONE_THEMES` table. Edit a row, the renderer picks it up.
 - **Three knob classes:** static colors (`base`, `inner`, `wave`, `accent`), label appearance (`label.*`), motion intensity (`motion.amplitudeScale`, `motion.strokeAlphaScale`).
 - **One footgun:** `theme.base` and `theme.inner` flow through the static-scene cache. Edit them and the rendered map won't update until the cache is evicted (zoom, camera move, manifest `cacheVersion` bump, or page reload).
 - **Validation:** `npx vitest run src/systems/palette.test.ts` (unit) plus `npm run test:visual` (snapshot regression) plus eyeball at `http://localhost:5173/`.
@@ -71,7 +71,7 @@ The renderer reads `zoneThemeForTerrain` once per visible water tile per frame. 
 
 ### The static-scene cache footgun
 
-`src/renderer/world-canvas.ts:paintStaticTerrainPass` paints all base tiles into an offscreen canvas keyed by viewport + zoom + dpr + asset load tick + `manifestCacheVersion`. The key does **not** include a theme version. So:
+`src/renderer/world-canvas.ts`'s `paintStaticTerrainPass` paints all base tiles into an offscreen canvas keyed by viewport + zoom + dpr + asset load tick + `manifestCacheVersion`. The key does **not** include a theme version. So:
 
 - Edit `theme.wave` / `accent` / `motion.*` / `label.*` → live next frame, no action needed.
 - Edit `theme.base` or `theme.inner` → cached canvas keeps the old color until *something else* invalidates the key.

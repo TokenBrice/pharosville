@@ -198,7 +198,7 @@ Tasks:
 - Add `overlay.lighthouse-headland` entry: 384×192, anchor [192, 128], footprint [240, 128], hitbox [72, 16, 312, 176], category `overlay`, layer `terrain`, displayScale 1, loadPriority `critical`, criticalReason `"Limestone outcrop under the PSI lighthouse — required for first-frame headland and to cover the lighthouse-mountain ellipse."`, paletteKeys `["limestone", "scrub", "teal sea", "deep shadow"]`, tool `mcp:create_map_object`, promptProvenance `{ jobId, styleAnchorVersion }`. Add to `requiredForFirstRender`.
 - Update `width`/`height`/`anchor` for the resized seawall entries (straight 160×96 anchor [80,86]; corner 192×128 anchor [96,114]). Update `tool` and `promptProvenance` for all four regenerated entries (`terrain.land`, `terrain.shore`, `overlay.seawall-straight`, `overlay.seawall-corner`).
 - Bump `style.cacheVersion` to `2026-05-01-pharosville-island-coherence-v1`. Keep manifest-wide `styleAnchorVersion` at `2026-04-29-lighthouse-hill-v5` for validator continuity.
-- Delete the retired PNG: `public/pharosville/assets/overlays/central-island.png`.
+- Delete the retired central-island PNG asset.
 
 Acceptance:
 

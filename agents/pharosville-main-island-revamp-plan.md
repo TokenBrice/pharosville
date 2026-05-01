@@ -65,8 +65,7 @@ Relevant current facts:
   `src/systems/world-layout.ts`.
 - Current lighthouse tile is `LIGHTHOUSE_TILE = { x: 18, y: 28 }`.
 - Current civic center is `CIVIC_CORE_CENTER = { x: 31, y: 31 }`.
-- Current island model overlay is `overlay.central-island` at
-  `public/pharosville/assets/overlays/central-island.png`.
+- Current island model overlay is `overlay.central-island`, now retired.
 - Current overlay drawing uses hard-coded renderer placement:
   `CENTRAL_ISLAND_MODEL_TILE = { x: 31.5, y: 41.3 }` and
   `CENTRAL_ISLAND_MODEL_SCALE = 1.45` in `src/renderer/world-canvas.ts`.
@@ -328,7 +327,7 @@ Status: Completed
 
 Primary files:
 
-- `public/pharosville/assets/overlays/central-island.png`
+- retired central-island overlay asset
 - `public/pharosville/assets/landmarks/lighthouse-alexandria.png`
 - selected `public/pharosville/assets/docks/*.png`
 - `public/pharosville/assets/manifest.json`
@@ -613,7 +612,7 @@ Likely edit set:
   - replace existing entries in place
   - update dimensions, anchors, hitboxes, beacon, cache version, provenance
 
-- `public/pharosville/assets/overlays/central-island.png`
+- retired central-island overlay asset
   - replace in place after approval
 
 - `public/pharosville/assets/landmarks/lighthouse-alexandria.png`
