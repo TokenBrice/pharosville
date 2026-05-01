@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BackingType, GovernanceType, PegCurrency, StablecoinMeta } from "@shared/types";
 import { makeAsset } from "../__fixtures__/pharosville-world";
+import { MAKER_SQUAD_MEMBER_IDS } from "./maker-squad";
 import { resolveShipClass, resolveShipSizeTier, resolveShipVisual } from "./ship-visuals";
 
 function makeMeta(input: {
@@ -149,10 +150,42 @@ describe("resolveShipVisual", () => {
     expect(usdt.spriteAssetId).toBe("ship.usdt-titan");
     expect(usdt.sizeTier).toBe("titan");
     expect(usdt.sizeLabel).toBe("Titan");
-    expect(usds.scale).toBe(1.6);
+    expect(usds.scale).toBe(1.7);
     expect(usdc.scale).toBe(1.8);
     expect(usdt.scale).toBe(2);
     expect(usds.scale).toBeLessThan(usdc.scale);
     expect(usdt.scale).toBeGreaterThan(usdc.scale);
+  });
+
+  it("resolves a titan sprite for every Maker squad member", () => {
+    const meta = makeMeta({ governance: "centralized-dependent" });
+    for (const id of MAKER_SQUAD_MEMBER_IDS) {
+      const visual = resolveShipVisual(makeAsset({
+        id,
+        symbol: id.toUpperCase(),
+        circulating: { peggedUSD: 1_000_000_000 },
+      }), meta, null);
+      expect(visual.spriteAssetId, `expected sprite for ${id}`).toBeDefined();
+      expect(visual.sizeTier, `expected titan tier for ${id}`).toBe("titan");
+    }
+  });
+
+  it("uses the re-tuned scale band for Maker squad members", () => {
+    const meta = makeMeta({ governance: "centralized-dependent" });
+    const expectedScales: Record<string, number> = {
+      "usds-sky": 1.7,
+      "dai-makerdao": 1.55,
+      "susds-sky": 1.35,
+      "sdai-sky": 1.35,
+      "stusds-sky": 1.45,
+    };
+    for (const [id, expectedScale] of Object.entries(expectedScales)) {
+      const visual = resolveShipVisual(makeAsset({
+        id,
+        symbol: id.toUpperCase(),
+        circulating: { peggedUSD: 1_000_000_000 },
+      }), meta, null);
+      expect(visual.scale, `expected scale ${expectedScale} for ${id}`).toBe(expectedScale);
+    }
   });
 });

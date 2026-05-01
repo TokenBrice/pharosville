@@ -65,12 +65,22 @@ const TITAN_SHIP_ASSET_IDS: Record<string, string> = {
   "usdc-circle": "ship.usdc-titan",
   "usds-sky": "ship.usds-titan",
   "usdt-tether": "ship.usdt-titan",
+  "dai-makerdao": "ship.dai-titan",
+  "susds-sky": "ship.susds-titan",
+  "sdai-sky": "ship.sdai-titan",
+  "stusds-sky": "ship.stusds-titan",
 };
 
+// Re-tuned scale band so the squad collectively dominates the frame next to
+// the existing 1.8 USDC and 2.0 USDT. USDS bumps from 1.6 -> 1.7.
 const TITAN_SHIP_SCALES: Record<string, number> = {
   "usdc-circle": 1.8,
-  "usds-sky": 1.6,
+  "usds-sky": 1.7,
   "usdt-tether": 2,
+  "dai-makerdao": 1.55,
+  "susds-sky": 1.35,
+  "sdai-sky": 1.35,
+  "stusds-sky": 1.45,
 };
 
 export function resolveShipClass(meta: StablecoinMeta): ShipClassDefinition {

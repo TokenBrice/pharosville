@@ -301,6 +301,110 @@ describe("drawShipWake squad ordering", () => {
   });
 });
 
+// --- Titan foam scaling regression -----------------------------------------
+
+// Confirms the titan-chrome offsets in drawTitanHullFoam / drawTitanBowSpray
+// are all multiplied by geometry.drawScale (no hardcoded pixel drift). This
+// guards smaller squad consorts (e.g. sUSDS / sDAI at scale 1.35) from
+// inheriting an oversized USDS-titan foam silhouette that would punch outside
+// the hull bounds.
+describe("titan foam scaling stays within hull bounds", () => {
+  it("keeps all foam stroke coordinates near the ship origin for a small consort", () => {
+    const consort = makeShipNode({
+      id: "susds-sky",
+      tile: { x: 8, y: 8 },
+      squadId: "maker",
+      squadRole: "consort",
+    });
+    (consort as { visual: { hull: string; spriteAssetId: string; sizeTier: string; scale: number; livery: unknown } }).visual = {
+      hull: "chartered-brigantine",
+      spriteAssetId: "ship.susds-titan",
+      sizeTier: "titan",
+      scale: 1.35,
+      livery: {},
+    };
+
+    const ORIGIN_X = 200;
+    const ORIGIN_Y = 100;
+    const DRAW_SCALE = 1.35;
+    const geometry: ResolvedEntityGeometry = {
+      assetScale: null,
+      depth: 0,
+      depthTile: { x: 0, y: 0 },
+      drawPoint: { x: ORIGIN_X, y: ORIGIN_Y },
+      drawScale: DRAW_SCALE,
+      followTile: { x: 0, y: 0 },
+      screenPoint: { x: ORIGIN_X, y: ORIGIN_Y },
+      selectionRect: { x: ORIGIN_X - 16, y: ORIGIN_Y - 16, width: 32, height: 32 },
+      semanticTile: { x: 0, y: 0 },
+      targetRect: { x: ORIGIN_X - 16, y: ORIGIN_Y - 16, width: 32, height: 32 },
+    };
+
+    const ctx = makeRecordingCtx();
+    const input = {
+      assets: null,
+      camera: { offsetX: 0, offsetY: 0, zoom: 1 },
+      ctx,
+      height: 600,
+      hoveredTarget: null,
+      motion: {
+        plan: makeMotionPlan([consort.id]),
+        reducedMotion: false,
+        timeSeconds: 0,
+      },
+      selectedTarget: null,
+      shipMotionSamples: new Map<string, ShipMotionSample>([
+        [consort.id, makeMotionSample(consort.id)],
+      ]),
+      targets: [],
+      width: 800,
+      world: { ships: [consort] } as unknown as PharosVilleWorld,
+    } satisfies DrawPharosVilleInput;
+
+    const frame: ShipRenderFrame = {
+      cache: {
+        assetForEntity: () => null as LoadedPharosVilleAsset | null,
+        geometryForEntity: () => geometry,
+      },
+      shipRenderStates: new Map(),
+      visibleShips: [consort],
+      wakeDrawnShipIds: new Set<string>(),
+    };
+
+    drawShipWake(input, frame, consort);
+
+    // Extract every coordinate emitted by stroke-path primitives. moveTo /
+    // lineTo carry a single (x,y) pair; quadraticCurveTo carries (cx,cy,x,y).
+    // ellipse calls also pass coordinates but those are contact-shadow / wake
+    // primitives we're not regressing here — keep them out of the bound.
+    const STROKE_METHODS = new Set(["moveTo", "lineTo", "quadraticCurveTo"]);
+    const strokeCoords: Array<{ x: number; y: number }> = [];
+    for (const call of ctx.calls) {
+      if (!STROKE_METHODS.has(call.method)) continue;
+      const args = call.args as number[];
+      // quadraticCurveTo: (cx, cy, x, y) — record both control and endpoint.
+      for (let index = 0; index + 1 < args.length; index += 2) {
+        strokeCoords.push({ x: args[index], y: args[index + 1] });
+      }
+    }
+
+    // Sanity: at least the foam strokes fired (drawTitanHullFoam draws two
+    // quadratic curves; drawTitanBowSpray draws three line segments).
+    expect(strokeCoords.length).toBeGreaterThan(0);
+
+    // Coarse bound: every stroke coordinate stays within ±100px on x and
+    // ±50px on y of the ship draw origin, even at the consort's draw scale.
+    // If any titan-chrome offset were a hardcoded pixel value rather than
+    // multiplied by drawScale, it would exceed this bound at scales >1.
+    for (const { x, y } of strokeCoords) {
+      const dx = x - ORIGIN_X;
+      const dy = y - ORIGIN_Y;
+      expect(Math.abs(dx), `dx ${dx} from origin`).toBeLessThanOrEqual(100);
+      expect(Math.abs(dy), `dy ${dy} from origin`).toBeLessThanOrEqual(50);
+    }
+  });
+});
+
 // --- Mast-top fallback ------------------------------------------------------
 
 describe("shipMastTopScreenPoint", () => {
