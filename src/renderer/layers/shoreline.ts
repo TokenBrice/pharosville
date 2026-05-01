@@ -1,6 +1,6 @@
 import { ambientSeaPhase } from "../../systems/motion-types";
 import { waterTerrainStyle, type WaterTerrainStyle, type WaterTextureKind } from "../../systems/palette";
-import { TILE_HEIGHT, TILE_WIDTH, tileToScreen } from "../../systems/projection";
+import { TILE_HEIGHT, TILE_WIDTH, screenToTile, tileToScreen } from "../../systems/projection";
 import { isWaterTileKind } from "../../systems/world-layout";
 import type { PharosVilleMap, PharosVilleTile, TerrainKind } from "../../systems/world-types";
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
@@ -21,7 +21,13 @@ interface FoamSettings {
 }
 
 const tilesByKeyCache = new WeakMap<PharosVilleMap, Map<string, PharosVilleTile>>();
-const coastalEdgesCache = new WeakMap<PharosVilleMap, Map<string, CoastEdge[]>>();
+const coastalCandidatesCache = new WeakMap<PharosVilleMap, CoastalWaterCandidate[]>();
+
+interface CoastalWaterCandidate {
+  coastEdges: CoastEdge[];
+  style: WaterTerrainStyle;
+  tile: PharosVilleTile;
+}
 
 function tilesByKeyForMap(map: PharosVilleMap): Map<string, PharosVilleTile> {
   let cached = tilesByKeyCache.get(map);
@@ -32,39 +38,27 @@ function tilesByKeyForMap(map: PharosVilleMap): Map<string, PharosVilleTile> {
   return cached;
 }
 
-function coastalEdgesForMap(map: PharosVilleMap, tile: PharosVilleTile): CoastEdge[] {
-  let cache = coastalEdgesCache.get(map);
-  if (!cache) {
-    cache = new Map();
-    coastalEdgesCache.set(map, cache);
-  }
-  const key = tileKey(tile.x, tile.y);
-  const cached = cache.get(key);
-  if (cached) return cached;
-  const edges = computeCoastalEdges(tile, tilesByKeyForMap(map));
-  cache.set(key, edges);
-  return edges;
-}
-
 export function drawCoastalWaterDetails({ camera, ctx, height, motion, width, world }: DrawPharosVilleInput) {
+  const bounds = visibleTileBounds(world.map, camera, width, height, 3);
+  if (!bounds) return 0;
+  const candidates = coastalCandidatesForMap(world.map);
+  let drawnTileCount = 0;
+
   ctx.save();
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  for (const tile of world.map.tiles) {
-    const terrain = tileTerrain(tile);
-    if (!isWaterTileKind(terrain)) continue;
-
+  for (const candidate of candidates) {
+    const tile = candidate.tile;
+    if (tile.x < bounds.minX || tile.x > bounds.maxX || tile.y < bounds.minY || tile.y > bounds.maxY) continue;
     const point = tileToScreen(tile, camera);
     if (!isTileInViewport(point.x, point.y, camera.zoom, width, height)) continue;
 
-    const coastEdges = coastalEdgesForMap(world.map, tile);
-    if (coastEdges.length === 0) continue;
-
-    const style = waterTerrainStyle(String(terrain)) ?? waterTerrainStyle("water")!;
-    drawCoastEdgeWash(ctx, point.x, point.y, camera.zoom, style, coastEdges, tile.x, tile.y);
-    drawNearshoreWaterMotif(ctx, point.x, point.y, camera.zoom, style, tile.x, tile.y, motion);
+    drawnTileCount += 1;
+    drawCoastEdgeWash(ctx, point.x, point.y, camera.zoom, candidate.style, candidate.coastEdges, tile.x, tile.y);
+    drawNearshoreWaterMotif(ctx, point.x, point.y, camera.zoom, candidate.style, tile.x, tile.y, motion);
   }
   ctx.restore();
+  return drawnTileCount;
 }
 
 function tileKey(x: number, y: number) {
@@ -73,6 +67,27 @@ function tileKey(x: number, y: number) {
 
 function tileTerrain(tile: PharosVilleTile): TerrainKind {
   return tile.terrain ?? tile.kind;
+}
+
+function coastalCandidatesForMap(map: PharosVilleMap): CoastalWaterCandidate[] {
+  const cached = coastalCandidatesCache.get(map);
+  if (cached) return cached;
+
+  const tilesByKey = tilesByKeyForMap(map);
+  const candidates: CoastalWaterCandidate[] = [];
+  for (const tile of map.tiles) {
+    const terrain = tileTerrain(tile);
+    if (!isWaterTileKind(terrain)) continue;
+    const coastEdges = computeCoastalEdges(tile, tilesByKey);
+    if (coastEdges.length === 0) continue;
+    candidates.push({
+      coastEdges,
+      style: waterTerrainStyle(String(terrain)) ?? waterTerrainStyle("water")!,
+      tile,
+    });
+  }
+  coastalCandidatesCache.set(map, candidates);
+  return candidates;
 }
 
 function computeCoastalEdges(tile: PharosVilleTile, tilesByKey: ReadonlyMap<string, PharosVilleTile>): CoastEdge[] {
@@ -84,6 +99,26 @@ function computeCoastalEdges(tile: PharosVilleTile, tilesByKey: ReadonlyMap<stri
     if (!isWaterTileKind(tileTerrain(neighbor))) edges.push(edge);
   }
   return edges;
+}
+
+function visibleTileBounds(
+  map: PharosVilleMap,
+  camera: DrawPharosVilleInput["camera"],
+  width: number,
+  height: number,
+  margin: number,
+): { maxX: number; maxY: number; minX: number; minY: number } | null {
+  const corners = [
+    screenToTile({ x: 0, y: 0 }, camera),
+    screenToTile({ x: width, y: 0 }, camera),
+    screenToTile({ x: 0, y: height }, camera),
+    screenToTile({ x: width, y: height }, camera),
+  ];
+  const minX = Math.max(0, Math.floor(Math.min(corners[0].x, corners[1].x, corners[2].x, corners[3].x)) - margin);
+  const maxX = Math.min(map.width - 1, Math.ceil(Math.max(corners[0].x, corners[1].x, corners[2].x, corners[3].x)) + margin);
+  const minY = Math.max(0, Math.floor(Math.min(corners[0].y, corners[1].y, corners[2].y, corners[3].y)) - margin);
+  const maxY = Math.min(map.height - 1, Math.ceil(Math.max(corners[0].y, corners[1].y, corners[2].y, corners[3].y)) + margin);
+  return minX > maxX || minY > maxY ? null : { maxX, maxY, minX, minY };
 }
 
 function isTileInViewport(x: number, y: number, zoom: number, width: number, height: number) {

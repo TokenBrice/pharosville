@@ -9,7 +9,7 @@ import { drawShipBody, drawShipOverlay, drawShipWake, type ShipRenderState } fro
 import { drawEntityLayer } from "./layers/entity-pass";
 import { drawCemeteryContext, drawCemeteryGround, drawCemeteryMist } from "./layers/cemetery";
 import { drawHarborDistrictGround } from "./layers/harbor-district";
-import { drawTerrain } from "./layers/terrain";
+import { drawTerrainBase, drawWaterTerrainOverlays } from "./layers/terrain";
 import { drawEthereumHarborSigns, drawWaterAreaLabels } from "./layers/water-labels";
 import { drawLighthouseBeamRim, drawLighthouseBody, drawLighthouseHeadland, drawLighthouseOverlay, drawLighthouseSurf, lighthouseOverlayScreenBounds, lighthouseRenderState, type LighthouseRenderState } from "./layers/lighthouse";
 import { drawSelection } from "./layers/selection";
@@ -34,7 +34,9 @@ interface StaticLayerCacheEntry {
   lastUsed: number;
 }
 
-const STATIC_CACHE_MAX = 2;
+type StaticCacheScope = "scene" | "terrain";
+
+const STATIC_CACHE_MAX = 4;
 const staticLayerCache: { entries: StaticLayerCacheEntry[] } = { entries: [] };
 
 const worldIdMap = new WeakMap<PharosVilleWorld, number>();
@@ -56,14 +58,14 @@ function assetLoadTickFor(input: DrawPharosVilleInput): number {
   return stats.criticalLoadedCount * 1_000_003 + stats.deferredLoadedCount;
 }
 
-function staticCacheKey(input: DrawPharosVilleInput, dpr: number): string {
+function staticCacheKey(input: DrawPharosVilleInput, dpr: number, scope: StaticCacheScope): string {
   const zoomBucket = (input.camera.zoom * 100) | 0;
   const offsetX = input.camera.offsetX | 0;
   const offsetY = input.camera.offsetY | 0;
   const dprBucket = Math.max(1, Math.round(dpr * 100));
   const width = input.width | 0;
   const height = input.height | 0;
-  return `${worldIdFor(input.world)}|${width}x${height}|z${zoomBucket}|o${offsetX},${offsetY}|d${dprBucket}|a${assetLoadTickFor(input)}`;
+  return `${scope}|${worldIdFor(input.world)}|${width}x${height}|z${zoomBucket}|o${offsetX},${offsetY}|d${dprBucket}|a${assetLoadTickFor(input)}`;
 }
 
 function createStaticCacheCanvas(width: number, height: number): HTMLCanvasElement | null {
@@ -74,10 +76,15 @@ function createStaticCacheCanvas(width: number, height: number): HTMLCanvasEleme
   return canvas;
 }
 
-function paintStaticPass(input: DrawPharosVilleInput, frame: WorldCanvasFrame) {
+function paintStaticTerrainPass(input: DrawPharosVilleInput) {
   const { ctx } = input;
   ctx.imageSmoothingEnabled = false;
-  drawTerrain(input);
+  drawTerrainBase(input);
+}
+
+function paintStaticScenePass(input: DrawPharosVilleInput, frame: WorldCanvasFrame) {
+  const { ctx } = input;
+  ctx.imageSmoothingEnabled = false;
   drawHarborDistrictGround(input);
   drawBackgroundedHarborDocks(input, frame);
   drawCemeteryGround(input);
@@ -85,12 +92,17 @@ function paintStaticPass(input: DrawPharosVilleInput, frame: WorldCanvasFrame) {
   drawCemeteryContext(input);
 }
 
-function drawStaticPassCached(input: DrawPharosVilleInput, frame: WorldCanvasFrame) {
+function drawStaticPassCached(
+  input: DrawPharosVilleInput,
+  frame: WorldCanvasFrame,
+  scope: StaticCacheScope,
+  paint: (input: DrawPharosVilleInput, frame: WorldCanvasFrame) => void,
+) {
   const { ctx, width, height } = input;
   const dpr = input.dpr && input.dpr > 0 ? input.dpr : 1;
   const backingWidth = Math.max(1, Math.round(width * dpr));
   const backingHeight = Math.max(1, Math.round(height * dpr));
-  const key = staticCacheKey(input, dpr);
+  const key = staticCacheKey(input, dpr, scope);
 
   const cached = staticLayerCache.entries.find((entry) => entry.key === key);
   if (cached) {
@@ -104,20 +116,20 @@ function drawStaticPassCached(input: DrawPharosVilleInput, frame: WorldCanvasFra
     : null;
   const offCanvas = reusableEntry?.canvas ?? createStaticCacheCanvas(backingWidth, backingHeight);
   if (!offCanvas) {
-    paintStaticPass(input, frame);
+    paint(input, frame);
     return;
   }
   if (offCanvas.width !== backingWidth) offCanvas.width = backingWidth;
   if (offCanvas.height !== backingHeight) offCanvas.height = backingHeight;
   const offCtx = offCanvas.getContext("2d", { alpha: true });
   if (!offCtx) {
-    paintStaticPass(input, frame);
+    paint(input, frame);
     return;
   }
   offCtx.setTransform(1, 0, 0, 1, 0, 0);
   offCtx.clearRect(0, 0, backingWidth, backingHeight);
   offCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  paintStaticPass({ ...input, ctx: offCtx }, frame);
+  paint({ ...input, ctx: offCtx }, frame);
   blitStaticCanvas(ctx, offCanvas, backingWidth, backingHeight);
   staticLayerCache.entries.push({ canvas: offCanvas, key, lastUsed: performance.now() });
 }
@@ -151,9 +163,10 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   ctx.imageSmoothingEnabled = false;
   drawSky(input, frame.lighthouseRender);
 
-  drawStaticPassCached(input, frame);
-
   const visibleTileCount = countVisibleTiles(input);
+  drawStaticPassCached(input, frame, "terrain", paintStaticTerrainPass);
+  drawWaterTerrainOverlays(input);
+  drawStaticPassCached(input, frame, "scene", paintStaticScenePass);
   drawCoastalWaterDetails(input);
   drawAtmosphere(input, frame.lighthouseRender);
   drawLighthouseSurf(input);

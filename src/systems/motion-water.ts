@@ -98,28 +98,33 @@ export function sampleShipWaterPath(path: ShipWaterPath | undefined, progress: n
   if (path.points.length === 1 || path.totalLength <= 0) return { point: path.points[0]!, heading: { x: 0, y: 0 } };
 
   const distance = clamp(progress, 0, 1) * path.totalLength;
-  for (let index = 1; index < path.points.length; index += 1) {
-    const segmentEnd = path.cumulativeLengths[index]!;
-    if (distance > segmentEnd) continue;
-    const segmentStart = path.cumulativeLengths[index - 1]!;
-    const previous = path.points[index - 1]!;
-    const current = path.points[index]!;
-    const segmentProgress = segmentEnd === segmentStart ? 0 : (distance - segmentStart) / (segmentEnd - segmentStart);
-    return {
-      point: {
-        x: previous.x + (current.x - previous.x) * segmentProgress,
-        y: previous.y + (current.y - previous.y) * segmentProgress,
-      },
-      heading: normalizeHeading({ x: current.x - previous.x, y: current.y - previous.y }),
-    };
-  }
-
-  const last = path.points[path.points.length - 1]!;
-  const previous = path.points[path.points.length - 2] ?? last;
+  const index = waterPathSegmentIndex(path.cumulativeLengths, distance);
+  const segmentEnd = path.cumulativeLengths[index]!;
+  const segmentStart = path.cumulativeLengths[index - 1]!;
+  const previous = path.points[index - 1]!;
+  const current = path.points[index]!;
+  const segmentProgress = segmentEnd === segmentStart ? 0 : (distance - segmentStart) / (segmentEnd - segmentStart);
   return {
-    point: last,
-    heading: normalizeHeading({ x: last.x - previous.x, y: last.y - previous.y }),
+    point: {
+      x: previous.x + (current.x - previous.x) * segmentProgress,
+      y: previous.y + (current.y - previous.y) * segmentProgress,
+    },
+    heading: normalizeHeading({ x: current.x - previous.x, y: current.y - previous.y }),
   };
+}
+
+function waterPathSegmentIndex(cumulativeLengths: readonly number[], distance: number): number {
+  let low = 1;
+  let high = cumulativeLengths.length - 1;
+  while (low < high) {
+    const mid = low + Math.floor((high - low) / 2);
+    if (distance > cumulativeLengths[mid]!) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  return low;
 }
 
 function buildShipWaterRouteFromWaterTiles(input: {

@@ -1,5 +1,11 @@
 import type { PharosVilleWorld } from "../../systems/world-types";
-import { drawablePassCounts, sortWorldDrawables, type WorldDrawable, type WorldDrawablePass } from "../drawable-pass";
+import {
+  drawablePassCounts,
+  sortWorldDrawablesInPlace,
+  type WorldDrawable,
+  type WorldDrawablePass,
+  type WorldDrawableSortFields,
+} from "../drawable-pass";
 import type { RenderFrameCache } from "../frame-cache";
 import type { WorldSelectableEntity } from "../geometry";
 import type { DrawPharosVilleInput, PharosVilleRenderMetrics } from "../render-types";
@@ -25,67 +31,139 @@ export interface EntityPassCallbacks {
   visibleShips: readonly PharosVilleWorld["ships"][number][];
 }
 
+type EntityDrawAction =
+  | "dock-body"
+  | "dock-overlay"
+  | "grave-body"
+  | "grave-overlay"
+  | "grave-underlay"
+  | "lighthouse-body"
+  | "lighthouse-overlay"
+  | "ship-body"
+  | "ship-overlay"
+  | "ship-wake";
+
+interface EntityDrawableDescriptor extends WorldDrawableSortFields {
+  drawAction: EntityDrawAction;
+  entity: WorldSelectableEntity;
+}
+
+type EntityPassDrawable = WorldDrawable | EntityDrawableDescriptor;
+
 export function drawEntityLayer(
   input: DrawPharosVilleInput,
   cache: RenderFrameCache,
   extraDrawables: readonly WorldDrawable[],
   callbacks: EntityPassCallbacks,
 ): Pick<PharosVilleRenderMetrics, "drawableCount" | "drawableCounts"> {
-  const drawables: WorldDrawable[] = [
-    ...extraDrawables,
-    ...input.world.docks.flatMap((dock) => [
-      ...(callbacks.isBackgroundedHarborDock(dock)
-        ? []
-        : [entityDrawable(input, cache, callbacks, dock, "body", () => callbacks.drawDockBody(dock))]),
-      entityDrawable(input, cache, callbacks, dock, "overlay", () => callbacks.drawDockOverlay(dock)),
-    ]),
-    ...callbacks.visibleShips.flatMap((ship) => [
-      entityDrawable(input, cache, callbacks, ship, "underlay", () => callbacks.drawShipWake(ship)),
-      entityDrawable(input, cache, callbacks, ship, "body", () => callbacks.drawShipBody(ship)),
-      entityDrawable(input, cache, callbacks, ship, "overlay", () => callbacks.drawShipOverlay(ship)),
-    ]),
-    ...input.world.graves.flatMap((grave) => [
-      entityDrawable(input, cache, callbacks, grave, "underlay", () => callbacks.drawGraveUnderlay(grave)),
-      entityDrawable(input, cache, callbacks, grave, "body", () => callbacks.drawGraveBody(grave)),
-      entityDrawable(input, cache, callbacks, grave, "overlay", () => callbacks.drawGraveOverlay(grave)),
-    ]),
-    entityDrawable(input, cache, callbacks, input.world.lighthouse, "body", callbacks.drawLighthouseBody),
-    entityDrawable(input, cache, callbacks, input.world.lighthouse, "overlay", callbacks.drawLighthouseOverlay),
-  ];
+  const visibleDrawables: EntityPassDrawable[] = [];
 
-  const visibleDrawables = drawables.filter((drawable) => shouldDrawWorldDrawable(input, drawable));
-  const sorted = sortWorldDrawables(visibleDrawables);
-  for (const drawable of sorted) drawable.draw(input.ctx);
+  for (const drawable of extraDrawables) {
+    if (shouldDrawWorldDrawable(input, drawable)) visibleDrawables.push(drawable);
+  }
+
+  for (const dock of input.world.docks) {
+    if (!callbacks.isBackgroundedHarborDock(dock)) {
+      pushEntityDrawable(input, cache, callbacks, visibleDrawables, dock, "body", "dock-body");
+    }
+    pushEntityDrawable(input, cache, callbacks, visibleDrawables, dock, "overlay", "dock-overlay");
+  }
+
+  for (const ship of callbacks.visibleShips) {
+    pushEntityDrawable(input, cache, callbacks, visibleDrawables, ship, "underlay", "ship-wake");
+    pushEntityDrawable(input, cache, callbacks, visibleDrawables, ship, "body", "ship-body");
+    pushEntityDrawable(input, cache, callbacks, visibleDrawables, ship, "overlay", "ship-overlay");
+  }
+
+  for (const grave of input.world.graves) {
+    pushEntityDrawable(input, cache, callbacks, visibleDrawables, grave, "underlay", "grave-underlay");
+    pushEntityDrawable(input, cache, callbacks, visibleDrawables, grave, "body", "grave-body");
+    pushEntityDrawable(input, cache, callbacks, visibleDrawables, grave, "overlay", "grave-overlay");
+  }
+
+  pushEntityDrawable(input, cache, callbacks, visibleDrawables, input.world.lighthouse, "body", "lighthouse-body");
+  pushEntityDrawable(input, cache, callbacks, visibleDrawables, input.world.lighthouse, "overlay", "lighthouse-overlay");
+
+  const sorted = sortWorldDrawablesInPlace(visibleDrawables);
+  for (const drawable of sorted) drawEntityPassDrawable(input.ctx, callbacks, drawable);
   return {
     drawableCount: sorted.length,
     drawableCounts: drawablePassCounts(sorted),
   };
 }
 
-function entityDrawable(
+function pushEntityDrawable(
   input: DrawPharosVilleInput,
   cache: RenderFrameCache,
   callbacks: EntityPassCallbacks,
+  drawables: EntityPassDrawable[],
   entity: WorldSelectableEntity,
   pass: WorldDrawablePass,
-  draw: () => void,
-): WorldDrawable {
+  drawAction: EntityDrawAction,
+) {
   const geometry = cache.geometryForEntity(entity);
-  return {
+  const screenBounds = entity.kind === "lighthouse" && pass === "overlay"
+    ? callbacks.lighthouseOverlayScreenBounds(geometry.selectionRect)
+    : geometry.selectionRect;
+  const descriptor: EntityDrawableDescriptor = {
     depth: geometry.depth,
     detailId: entity.detailId,
-    draw,
+    drawAction,
     entityId: entity.id,
+    entity,
     kind: entity.kind,
     pass,
-    screenBounds: entity.kind === "lighthouse" && pass === "overlay"
-      ? callbacks.lighthouseOverlayScreenBounds(geometry.selectionRect)
-      : geometry.selectionRect,
+    screenBounds,
     tieBreaker: entity.id,
   };
+  if (shouldDrawWorldDrawable(input, descriptor)) drawables.push(descriptor);
 }
 
-function shouldDrawWorldDrawable(input: DrawPharosVilleInput, drawable: WorldDrawable) {
+function drawEntityPassDrawable(
+  ctx: CanvasRenderingContext2D,
+  callbacks: EntityPassCallbacks,
+  drawable: EntityPassDrawable,
+) {
+  if ("draw" in drawable) {
+    drawable.draw(ctx);
+    return;
+  }
+
+  switch (drawable.drawAction) {
+    case "dock-body":
+      callbacks.drawDockBody(drawable.entity as PharosVilleWorld["docks"][number]);
+      return;
+    case "dock-overlay":
+      callbacks.drawDockOverlay(drawable.entity as PharosVilleWorld["docks"][number]);
+      return;
+    case "grave-body":
+      callbacks.drawGraveBody(drawable.entity as PharosVilleWorld["graves"][number]);
+      return;
+    case "grave-overlay":
+      callbacks.drawGraveOverlay(drawable.entity as PharosVilleWorld["graves"][number]);
+      return;
+    case "grave-underlay":
+      callbacks.drawGraveUnderlay(drawable.entity as PharosVilleWorld["graves"][number]);
+      return;
+    case "lighthouse-body":
+      callbacks.drawLighthouseBody();
+      return;
+    case "lighthouse-overlay":
+      callbacks.drawLighthouseOverlay();
+      return;
+    case "ship-body":
+      callbacks.drawShipBody(drawable.entity as PharosVilleWorld["ships"][number]);
+      return;
+    case "ship-overlay":
+      callbacks.drawShipOverlay(drawable.entity as PharosVilleWorld["ships"][number]);
+      return;
+    case "ship-wake":
+      callbacks.drawShipWake(drawable.entity as PharosVilleWorld["ships"][number]);
+      return;
+  }
+}
+
+function shouldDrawWorldDrawable(input: DrawPharosVilleInput, drawable: WorldDrawableSortFields) {
   if (drawable.detailId && (
     drawable.detailId === input.selectedTarget?.detailId
     || drawable.detailId === input.hoveredTarget?.detailId

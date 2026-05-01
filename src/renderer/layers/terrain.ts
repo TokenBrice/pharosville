@@ -54,26 +54,29 @@ const TERRAIN_ASSET_BY_KIND: Partial<Record<TerrainKind, string>> = {
 
 const TERRAIN_ASSET_SCALE = 0.5;
 
-export function drawTerrain({ assets, camera, ctx, height, motion, width, world }: DrawPharosVilleInput) {
+interface VisibleTileBounds {
+  maxX: number;
+  maxY: number;
+  minX: number;
+  minY: number;
+}
+
+export function drawTerrain(input: DrawPharosVilleInput) {
+  const visibleTileCount = drawTerrainBase(input);
+  drawWaterTerrainOverlays(input);
+  return visibleTileCount;
+}
+
+export function drawTerrainBase({ assets, camera, ctx, height, width, world }: DrawPharosVilleInput) {
   const { width: mapWidth, height: mapHeight, tiles } = world.map;
-  const margin = 2;
-  const corners = [
-    screenToTile({ x: 0, y: 0 }, camera),
-    screenToTile({ x: width, y: 0 }, camera),
-    screenToTile({ x: 0, y: height }, camera),
-    screenToTile({ x: width, y: height }, camera),
-  ];
-  const minX = Math.max(0, Math.floor(Math.min(corners[0].x, corners[1].x, corners[2].x, corners[3].x)) - margin);
-  const maxX = Math.min(mapWidth - 1, Math.ceil(Math.max(corners[0].x, corners[1].x, corners[2].x, corners[3].x)) + margin);
-  const minY = Math.max(0, Math.floor(Math.min(corners[0].y, corners[1].y, corners[2].y, corners[3].y)) - margin);
-  const maxY = Math.min(mapHeight - 1, Math.ceil(Math.max(corners[0].y, corners[1].y, corners[2].y, corners[3].y)) + margin);
+  const bounds = visibleTileBounds(camera, width, height, mapWidth, mapHeight, 2);
 
   let visibleTileCount = 0;
-  if (minX > maxX || minY > maxY) return visibleTileCount;
+  if (!bounds) return visibleTileCount;
 
-  for (let y = minY; y <= maxY; y += 1) {
+  for (let y = bounds.minY; y <= bounds.maxY; y += 1) {
     const rowOffset = y * mapWidth;
-    for (let x = minX; x <= maxX; x += 1) {
+    for (let x = bounds.minX; x <= bounds.maxX; x += 1) {
       const tile = tiles[rowOffset + x];
       if (!tile) continue;
       const terrain = tile.terrain ?? tile.kind;
@@ -81,13 +84,13 @@ export function drawTerrain({ assets, camera, ctx, height, motion, width, world 
       const p = tileToScreen(tile, camera);
       if (!isTileInViewport(p, camera.zoom, width, height)) continue;
       visibleTileCount += 1;
-      drawWaterTile(ctx, p.x, p.y, camera.zoom, terrain, tile.x, tile.y, motion, terrainAssetFor(assets, terrain));
+      drawWaterTileBase(ctx, p.x, p.y, camera.zoom, terrain, tile.x, tile.y, terrainAssetFor(assets, terrain));
     }
   }
 
-  for (let y = minY; y <= maxY; y += 1) {
+  for (let y = bounds.minY; y <= bounds.maxY; y += 1) {
     const rowOffset = y * mapWidth;
-    for (let x = minX; x <= maxX; x += 1) {
+    for (let x = bounds.minX; x <= bounds.maxX; x += 1) {
       const tile = tiles[rowOffset + x];
       if (!tile) continue;
       const terrain = tile.terrain ?? tile.kind;
@@ -99,6 +102,49 @@ export function drawTerrain({ assets, camera, ctx, height, motion, width, world 
     }
   }
   return visibleTileCount;
+}
+
+export function drawWaterTerrainOverlays({ camera, ctx, height, motion, width, world }: DrawPharosVilleInput) {
+  const { width: mapWidth, height: mapHeight, tiles } = world.map;
+  const bounds = visibleTileBounds(camera, width, height, mapWidth, mapHeight, 2);
+  if (!bounds) return 0;
+
+  let visibleWaterTileCount = 0;
+  for (let y = bounds.minY; y <= bounds.maxY; y += 1) {
+    const rowOffset = y * mapWidth;
+    for (let x = bounds.minX; x <= bounds.maxX; x += 1) {
+      const tile = tiles[rowOffset + x];
+      if (!tile) continue;
+      const terrain = tile.terrain ?? tile.kind;
+      if (!isWaterTileKind(terrain)) continue;
+      const p = tileToScreen(tile, camera);
+      if (!isTileInViewport(p, camera.zoom, width, height)) continue;
+      visibleWaterTileCount += 1;
+      drawWaterTileOverlay(ctx, p.x, p.y, camera.zoom, terrain, tile.x, tile.y, motion);
+    }
+  }
+  return visibleWaterTileCount;
+}
+
+function visibleTileBounds(
+  camera: DrawPharosVilleInput["camera"],
+  width: number,
+  height: number,
+  mapWidth: number,
+  mapHeight: number,
+  margin: number,
+): VisibleTileBounds | null {
+  const corners = [
+    screenToTile({ x: 0, y: 0 }, camera),
+    screenToTile({ x: width, y: 0 }, camera),
+    screenToTile({ x: 0, y: height }, camera),
+    screenToTile({ x: width, y: height }, camera),
+  ];
+  const minX = Math.max(0, Math.floor(Math.min(corners[0].x, corners[1].x, corners[2].x, corners[3].x)) - margin);
+  const maxX = Math.min(mapWidth - 1, Math.ceil(Math.max(corners[0].x, corners[1].x, corners[2].x, corners[3].x)) + margin);
+  const minY = Math.max(0, Math.floor(Math.min(corners[0].y, corners[1].y, corners[2].y, corners[3].y)) - margin);
+  const maxY = Math.min(mapHeight - 1, Math.ceil(Math.max(corners[0].y, corners[1].y, corners[2].y, corners[3].y)) + margin);
+  return minX > maxX || minY > maxY ? null : { maxX, maxY, minX, minY };
 }
 
 function terrainAssetFor(assets: PharosVilleAssetManager | null, terrain: TerrainKind) {
@@ -133,7 +179,7 @@ function terrainColor(kind: TerrainKind) {
   return TILE_COLORS.land;
 }
 
-function drawWaterTile(
+function drawWaterTileBase(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -141,7 +187,6 @@ function drawWaterTile(
   kind: TerrainKind,
   tileX: number,
   tileY: number,
-  motion: PharosVilleCanvasMotion,
   asset: NonNullable<ReturnType<PharosVilleAssetManager["get"]>> | null,
 ) {
   const value = String(kind);
@@ -153,8 +198,21 @@ function drawWaterTile(
     drawTerrainAsset(ctx, asset, x, y, zoom, 0.18);
   }
   drawWaterDepthOverlay(ctx, x, y, zoom, width, height, tileX, tileY, style.inner);
-  drawWaterTerrainTexture(ctx, x, y, zoom, style, tileX, tileY, motion);
+}
 
+function drawWaterTileOverlay(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  kind: TerrainKind,
+  tileX: number,
+  tileY: number,
+  motion: PharosVilleCanvasMotion,
+) {
+  const value = String(kind);
+  const style = waterTerrainStyle(value) ?? waterTerrainStyle("water")!;
+  drawWaterTerrainTexture(ctx, x, y, zoom, style, tileX, tileY, motion);
   if ((tileX * 13 + tileY * 17) % 9 !== 0) return;
   const wave = motion.reducedMotion
     ? 0.13

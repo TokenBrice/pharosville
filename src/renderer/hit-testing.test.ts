@@ -7,7 +7,7 @@ import type { PharosVilleAssetManifestEntry } from "../systems/asset-manifest";
 import type { ShipMotionSample } from "../systems/motion";
 import { areaLabelPlacementForArea } from "../systems/area-labels";
 import type { LoadedPharosVilleAsset } from "./asset-manager";
-import { dockDrawPoint, dockRenderScale } from "./geometry";
+import { dockDrawPoint, dockRenderScale, LIGHTHOUSE_DRAW_OFFSET, LIGHTHOUSE_DRAW_SCALE } from "./geometry";
 import { collectHitTargets, hitTest, type HitTarget } from "./hit-testing";
 
 const TARGET_CLICK_POINTS = [
@@ -19,13 +19,13 @@ const TARGET_CLICK_POINTS = [
 ] as const;
 
 const LIGHTHOUSE_ASSET_ENTRY: PharosVilleAssetManifestEntry = {
-  anchor: [160, 319],
-  beacon: [160, 167],
+  anchor: [128, 245],
+  beacon: [128, 47],
   category: "landmark",
-  displayScale: 0.82,
-  footprint: [74, 46],
-  height: 320,
-  hitbox: [108, 128, 104, 192],
+  displayScale: 1,
+  footprint: [132, 70],
+  height: 256,
+  hitbox: [50, 9, 178, 236],
   id: "landmark.lighthouse",
   layer: "landmarks",
   loadPriority: "critical",
@@ -410,9 +410,9 @@ describe("hit-testing", () => {
 
     const target = targets.find((entry) => entry.detailId === lighthouse.detailId);
 
-    const hitScale = camera.zoom * 1.04 * LIGHTHOUSE_ASSET_ENTRY.displayScale;
-    expect(target?.rect.x).toBeCloseTo(point.x - LIGHTHOUSE_ASSET_ENTRY.anchor[0] * hitScale + LIGHTHOUSE_ASSET_ENTRY.hitbox[0] * hitScale);
-    expect(target?.rect.y).toBeCloseTo(point.y + 18 * camera.zoom - LIGHTHOUSE_ASSET_ENTRY.anchor[1] * hitScale + LIGHTHOUSE_ASSET_ENTRY.hitbox[1] * hitScale);
+    const hitScale = camera.zoom * LIGHTHOUSE_DRAW_SCALE * LIGHTHOUSE_ASSET_ENTRY.displayScale;
+    expect(target?.rect.x).toBeCloseTo(point.x + LIGHTHOUSE_DRAW_OFFSET.x * camera.zoom - LIGHTHOUSE_ASSET_ENTRY.anchor[0] * hitScale + LIGHTHOUSE_ASSET_ENTRY.hitbox[0] * hitScale);
+    expect(target?.rect.y).toBeCloseTo(point.y + LIGHTHOUSE_DRAW_OFFSET.y * camera.zoom - LIGHTHOUSE_ASSET_ENTRY.anchor[1] * hitScale + LIGHTHOUSE_ASSET_ENTRY.hitbox[1] * hitScale);
     expect(target?.rect.width).toBeCloseTo(LIGHTHOUSE_ASSET_ENTRY.hitbox[2] * hitScale);
     expect(target?.rect.height).toBeCloseTo(LIGHTHOUSE_ASSET_ENTRY.hitbox[3] * hitScale);
   });

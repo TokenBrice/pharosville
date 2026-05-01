@@ -31,6 +31,9 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const accSecondsRef = useRef(0);
   const pendingResumeRef = useRef(false);
   const motionFrameCountRef = useRef(0);
+  const canvasRectRef = useRef<Pick<DOMRectReadOnly, "left" | "top"> | null>(null);
+  const dragPanDeltaRef = useRef<ScreenPoint>({ x: 0, y: 0 });
+  const dragPanFrameRef = useRef(0);
   const lastRenderMetricsRef = useRef<PharosVilleRenderMetrics & { drawDurationMs: number }>({
     drawableCount: 0,
     drawableCounts: { underlay: 0, body: 0, overlay: 0, selection: 0 },
@@ -41,7 +44,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   });
   const currentShipMotionSamplesRef = useRef<ReadonlyMap<string, ShipMotionSample>>(new Map());
   const currentHitTargetsRef = useRef<readonly HitTarget[]>([]);
-  const lastHitTargetCellHashRef = useRef<string>("");
+  const lastHitTargetCellHashRef = useRef(-1);
   const frameStateRef = useRef<{
     samples: ReadonlyMap<string, ShipMotionSample>;
     targets: readonly HitTarget[];
@@ -65,8 +68,14 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const { exitFullscreen, fullscreenMode, toggleFullscreen } = useFullscreenMode(shellRef);
   const baseMotionPlan = useMemo(() => buildBaseMotionPlan(world), [world]);
   const motionPlan = useMemo(() => buildMotionPlan(world, selectedDetailId, baseMotionPlan), [baseMotionPlan, selectedDetailId, world]);
+  const shipsById = useMemo(() => new Map(world.ships.map((ship) => [ship.id, ship])), [world.ships]);
+  const shipCellHashSeeds = useMemo(() => new Map(world.ships.map((ship) => [ship.id, stableStringHash(ship.id)])), [world.ships]);
   const selectedEntity = useMemo(() => findWorldEntity(world, selectedDetailId), [selectedDetailId, world]);
   const selectedDetail = selectedDetailId ? world.detailIndex[selectedDetailId] ?? null : null;
+
+  useEffect(() => {
+    canvasRectRef.current = null;
+  }, [fullscreenMode]);
 
   // Refs that mirror frequently-changing state so the RAF effect can read the
   // latest values without rebinding on every hover/select/motionPlan change.
@@ -224,6 +233,15 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
 
   useEffect(() => observeReducedMotion(setReducedMotion), []);
 
+  useEffect(() => {
+    lastWallRef.current = null;
+    accSecondsRef.current = 0;
+    pendingResumeRef.current = false;
+    motionFrameCountRef.current = 0;
+    currentShipMotionSamplesRef.current = new Map();
+    lastHitTargetCellHashRef.current = -1;
+  }, [world]);
+
   // When the tab is hidden, RAFs pause; on resume the next frame can carry a
   // multi-second time delta. Flag the next frame so it skips accumulating that
   // gap, preventing ships from teleporting through cycles after a long pause.
@@ -244,6 +262,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
 
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
+      canvasRectRef.current = rect;
       const cssWidth = Math.max(1, Math.floor(rect.width));
       const cssHeight = Math.max(1, Math.floor(rect.height));
       const budget = resolveCanvasBudget({
@@ -257,10 +276,13 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       if (canvas.width !== nextWidth) canvas.width = nextWidth;
       if (canvas.height !== nextHeight) canvas.height = nextHeight;
       const nextCanvasSize = { x: cssWidth, y: cssHeight };
-      setCanvasSize(nextCanvasSize);
-      setCamera((previous) => previous
-        ? clampCameraToMap(previous, { map: world.map, viewport: nextCanvasSize })
-        : defaultCamera({ width: cssWidth, height: cssHeight, map: world.map }));
+      setCanvasSize((previous) => samePoint(previous, nextCanvasSize) ? previous : nextCanvasSize);
+      setCamera((previous) => {
+        const next = previous
+          ? clampCameraToMap(previous, { map: world.map, viewport: nextCanvasSize })
+          : defaultCamera({ width: cssWidth, height: cssHeight, map: world.map });
+        return previous && sameCamera(previous, next) ? previous : next;
+      });
     };
 
     resize();
@@ -320,14 +342,14 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       const shipMotionSamples = collectShipMotionSamples({
         motionPlan: activeMotionPlan,
         reducedMotion,
+        samples: currentShipMotionSamplesRef.current,
         timeSeconds,
         world,
       });
-      currentShipMotionSamplesRef.current = shipMotionSamples;
       // Hit-targets are no longer recomputed on every RAF tick. They are
       // recomputed only on input/state changes (pointer move, selection, hover,
       // camera, canvas) and on ship-cell transitions detected here.
-      const cellHash = shipCellHash(shipMotionSamples, world);
+      const cellHash = shipCellSignature(shipMotionSamples, world, shipCellHashSeeds);
       if (cellHash !== lastHitTargetCellHashRef.current) {
         lastHitTargetCellHashRef.current = cellHash;
         currentHitTargetsRef.current = collectHitTargets({
@@ -341,12 +363,10 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         });
       }
       const targets = currentHitTargetsRef.current;
-      const nextFrameState = {
-        samples: shipMotionSamples,
-        targets,
-        timeSeconds,
-      };
-      frameStateRef.current = nextFrameState;
+      const nextFrameState = frameStateRef.current;
+      nextFrameState.samples = shipMotionSamples;
+      nextFrameState.targets = targets;
+      nextFrameState.timeSeconds = timeSeconds;
       const nextHoveredTarget = targets.find((target) => target.detailId === activeHoveredDetailId) ?? null;
       const nextSelectedTarget = targets.find((target) => target.detailId === activeSelectedDetailId) ?? null;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -382,27 +402,28 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         animationFramePendingRef.current = true;
         frameId = requestAnimationFrame(drawFrame);
       }
-      updateDebugFrame({
-        animationFramePending: animationFramePendingRef.current,
-        frameCount: motionFrameCountRef.current,
-        frameState: nextFrameState,
-        motionPlan: activeMotionPlan,
-        reducedMotion,
-        renderMetrics: lastRenderMetricsRef.current,
-        assetLoadStats: assetManager.getLoadStats(),
-        selectedDetailId: activeSelectedDetailId,
-        world,
-      });
+      if (isVisualDebugAllowed()) {
+        updateDebugFrame({
+          animationFramePending: animationFramePendingRef.current,
+          frameCount: motionFrameCountRef.current,
+          frameState: nextFrameState,
+          motionPlan: activeMotionPlan,
+          reducedMotion,
+          renderMetrics: lastRenderMetricsRef.current,
+          assetLoadStats: assetManager.getLoadStats(),
+          selectedDetailId: activeSelectedDetailId,
+          shipsById,
+          world,
+        });
+      }
     };
     drawFrame(performance.now());
     return () => {
       animationFramePendingRef.current = false;
       lastWallRef.current = null;
-      accSecondsRef.current = 0;
-      pendingResumeRef.current = false;
       if (frameId) cancelAnimationFrame(frameId);
     };
-  }, [assetLoadTick, assetManager, cameraReady, canvasSize.x, canvasSize.y, paintRequestTick, reducedMotion, world]);
+  }, [assetLoadTick, assetManager, cameraReady, canvasSize.x, canvasSize.y, paintRequestTick, reducedMotion, shipCellHashSeeds, shipsById, world]);
 
   useEffect(() => {
     if (!isVisualDebugAllowed()) return;
@@ -436,18 +457,19 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       reducedMotion,
       selectedDetailAnchor,
       selectedDetailId,
-      shipMotionSamples: compactShipMotionSamples(frameState.samples, world),
+      shipMotionSamples: compactShipMotionSamples(frameState.samples, shipsById),
       targets: frameState.targets,
       timeSeconds: frameState.timeSeconds,
     };
     return () => {
       delete debugWindow.__pharosVilleDebug;
     };
-  }, [assetLoadErrors, assetManager, camera, canvasSize, criticalAssetAttemptsSettled, criticalAssetsLoaded, deferredAssetsLoaded, hoveredDetailId, motionPlan, reducedMotion, selectedDetailAnchor, selectedDetailId, world]);
+  }, [assetLoadErrors, assetManager, camera, canvasSize, criticalAssetAttemptsSettled, criticalAssetsLoaded, deferredAssetsLoaded, hoveredDetailId, motionPlan, reducedMotion, selectedDetailAnchor, selectedDetailId, shipsById, world]);
 
   const canvasPoint = useCallback((event: ReactPointerEvent<HTMLCanvasElement> | ReactWheelEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
-    const rect = canvas?.getBoundingClientRect();
+    const rect = canvasRectRef.current ?? canvas?.getBoundingClientRect();
+    if (rect) canvasRectRef.current = rect;
     return {
       x: event.clientX - (rect?.left ?? 0),
       y: event.clientY - (rect?.top ?? 0),
@@ -484,7 +506,32 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     setHoveredDetailId((previous) => previous === target?.detailId ? previous : (target?.detailId ?? null));
   }, []);
 
+  const scheduleDragPan = useCallback((delta: ScreenPoint) => {
+    dragPanDeltaRef.current = {
+      x: dragPanDeltaRef.current.x + delta.x,
+      y: dragPanDeltaRef.current.y + delta.y,
+    };
+    if (dragPanFrameRef.current) return;
+    dragPanFrameRef.current = requestAnimationFrame(() => {
+      dragPanFrameRef.current = 0;
+      const queuedDelta = dragPanDeltaRef.current;
+      dragPanDeltaRef.current = { x: 0, y: 0 };
+      if (queuedDelta.x === 0 && queuedDelta.y === 0) return;
+      setCamera((previous) => {
+        if (!previous) return previous;
+        const viewport = canvasSizeRef.current;
+        const next = panCamera(previous, queuedDelta, { map: world.map, viewport });
+        return sameCamera(previous, next) ? previous : next;
+      });
+    });
+  }, [world.map]);
+
+  useEffect(() => () => {
+    if (dragPanFrameRef.current) cancelAnimationFrame(dragPanFrameRef.current);
+  }, []);
+
   const handlePointerDown = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
+    canvasRectRef.current = event.currentTarget.getBoundingClientRect();
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = { last: canvasPoint(event), moved: false, pointerId: event.pointerId };
   }, [canvasPoint]);
@@ -496,13 +543,13 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       const delta = { x: point.x - drag.last.x, y: point.y - drag.last.y };
       if (Math.abs(delta.x) + Math.abs(delta.y) > 1) {
         drag.moved = true;
-        setCamera((previous) => previous ? panCamera(previous, delta, { map: world.map, viewport: canvasSize }) : previous);
+        scheduleDragPan(delta);
       }
       drag.last = point;
       return;
     }
     updateHover(point);
-  }, [canvasPoint, canvasSize, updateHover, world.map]);
+  }, [canvasPoint, scheduleDragPan, updateHover]);
 
   const handlePointerUp = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
     const point = canvasPoint(event);
@@ -522,24 +569,40 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     if (!camera) return;
     event.preventDefault();
     const direction = event.deltaY < 0 ? 1.12 : 1 / 1.12;
-    setCamera(clampCameraToMap(zoomCameraAt(camera, canvasPoint(event), camera.zoom * direction), { map: world.map, viewport: canvasSize }));
+    const next = clampCameraToMap(zoomCameraAt(camera, canvasPoint(event), camera.zoom * direction), { map: world.map, viewport: canvasSize });
+    if (!sameCamera(camera, next)) setCamera(next);
   }, [camera, canvasPoint, canvasSize, world.map]);
 
   const handleToolbarPan = useCallback((delta: ScreenPoint) => {
-    setCamera((previous) => previous ? panCamera(previous, delta, { map: world.map, viewport: canvasSize }) : previous);
+    setCamera((previous) => {
+      if (!previous) return previous;
+      const next = panCamera(previous, delta, { map: world.map, viewport: canvasSize });
+      return sameCamera(previous, next) ? previous : next;
+    });
   }, [canvasSize, world.map]);
 
   const handleResetView = useCallback(() => {
     if (canvasSize.x <= 0 || canvasSize.y <= 0) return;
-    setCamera(defaultCamera({ height: canvasSize.y, map: world.map, width: canvasSize.x }));
+    setCamera((previous) => {
+      const next = defaultCamera({ height: canvasSize.y, map: world.map, width: canvasSize.x });
+      return previous && sameCamera(previous, next) ? previous : next;
+    });
   }, [canvasSize, world.map]);
 
   const handleToolbarZoomIn = useCallback(() => {
-    setCamera((previous) => previous ? zoomIn(previous, canvasSize, world.map) : previous);
+    setCamera((previous) => {
+      if (!previous) return previous;
+      const next = zoomIn(previous, canvasSize, world.map);
+      return sameCamera(previous, next) ? previous : next;
+    });
   }, [canvasSize, world.map]);
 
   const handleToolbarZoomOut = useCallback(() => {
-    setCamera((previous) => previous ? zoomOut(previous, canvasSize, world.map) : previous);
+    setCamera((previous) => {
+      if (!previous) return previous;
+      const next = zoomOut(previous, canvasSize, world.map);
+      return sameCamera(previous, next) ? previous : next;
+    });
   }, [canvasSize, world.map]);
 
   const handleFollowSelected = useCallback(() => {
@@ -549,12 +612,16 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       mapWidth: world.map.width,
       shipMotionSamples: currentShipMotionSamplesRef.current,
     });
-    setCamera((previous) => previous ? followTile({
-      camera: previous,
-      map: world.map,
-      tile: sampledTile,
-      viewport: canvasSize,
-    }) : previous);
+    setCamera((previous) => {
+      if (!previous) return previous;
+      const next = followTile({
+        camera: previous,
+        map: world.map,
+        tile: sampledTile,
+        viewport: canvasSize,
+      });
+      return sameCamera(previous, next) ? previous : next;
+    });
   }, [canvasSize, selectedEntity, world.map]);
 
   const handleKeyDown = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
@@ -578,7 +645,8 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         ArrowRight: { x: -step, y: 0 },
         ArrowUp: { x: 0, y: step },
       };
-      setCamera(panCamera(camera, deltas[event.key], { map: world.map, viewport: canvasSize }));
+      const next = panCamera(camera, deltas[event.key], { map: world.map, viewport: canvasSize });
+      if (!sameCamera(camera, next)) setCamera(next);
     }
   }, [camera, canvasSize, clearSelection, exitFullscreen, fullscreenMode, world.map]);
 
@@ -757,29 +825,35 @@ const PHAROSVILLE_HARBOR_LIGHT_CAP = 3;
 
 // Hash visible ships by their integer tile cell; if any ship crosses a tile
 // boundary the hash changes and the RAF effect rebuilds hit-targets eagerly.
-function shipCellHash(
+function shipCellSignature(
   samples: ReadonlyMap<string, ShipMotionSample>,
   world: PharosVilleWorldModel,
-): string {
-  const shipsById = new Map(world.ships.map((ship) => [ship.id, ship]));
-  const parts: string[] = [];
-  for (const sample of samples.values()) {
-    const ship = shipsById.get(sample.shipId);
-    if (!ship) continue;
+  shipHashSeeds: ReadonlyMap<string, number>,
+): number {
+  let hash = 2_166_136_261;
+  for (const ship of world.ships) {
+    const sample = samples.get(ship.id);
+    if (!sample) continue;
     if (!isShipMapVisible(ship, sample)) continue;
-    parts.push(`${sample.shipId}:${Math.floor(sample.tile.x)},${Math.floor(sample.tile.y)}`);
+    hash ^= shipHashSeeds.get(sample.shipId) ?? 0;
+    hash = Math.imul(hash, 16_777_619);
+    hash ^= Math.floor(sample.tile.x) + 1_024;
+    hash = Math.imul(hash, 16_777_619);
+    hash ^= Math.floor(sample.tile.y) + 1_024;
+    hash = Math.imul(hash, 16_777_619);
   }
-  parts.sort();
-  return parts.join("|");
+  return hash >>> 0;
 }
 
 function collectShipMotionSamples(input: {
   motionPlan: ReturnType<typeof buildMotionPlan>;
   reducedMotion: boolean;
+  samples: ReadonlyMap<string, ShipMotionSample>;
   timeSeconds: number;
   world: PharosVilleWorldModel;
 }) {
-  const samples = new Map<string, ShipMotionSample>();
+  const samples = input.samples as Map<string, ShipMotionSample>;
+  if (samples.size !== input.world.ships.length) samples.clear();
   for (const ship of input.world.ships) {
     samples.set(ship.id, resolveShipMotionSample({
       plan: input.motionPlan,
@@ -793,9 +867,8 @@ function collectShipMotionSamples(input: {
 
 function compactShipMotionSamples(
   samples: ReadonlyMap<string, ShipMotionSample>,
-  world: PharosVilleWorldModel,
+  shipsById: ReadonlyMap<string, PharosVilleWorldModel["ships"][number]>,
 ): CompactShipMotionSample[] {
-  const shipsById = new Map(world.ships.map((ship) => [ship.id, ship]));
   return Array.from(samples.values(), (sample) => {
     const ship = shipsById.get(sample.shipId);
     return {
@@ -845,6 +918,7 @@ function updateDebugFrame(input: {
   renderMetrics: PharosVilleRenderMetrics & { drawDurationMs: number };
   assetLoadStats: PharosVilleAssetLoadStats;
   selectedDetailId: string | null;
+  shipsById: ReadonlyMap<string, PharosVilleWorldModel["ships"][number]>;
   world: PharosVilleWorldModel;
 }) {
   if (!isVisualDebugAllowed()) return;
@@ -865,10 +939,27 @@ function updateDebugFrame(input: {
     motionFrameCount: input.frameCount,
     renderMetrics: input.renderMetrics,
     reducedMotion: input.reducedMotion,
-    shipMotionSamples: compactShipMotionSamples(input.frameState.samples, input.world),
+    shipMotionSamples: compactShipMotionSamples(input.frameState.samples, input.shipsById),
     targets: input.frameState.targets,
     timeSeconds: input.frameState.timeSeconds,
   });
+}
+
+function samePoint(left: ScreenPoint, right: ScreenPoint): boolean {
+  return left.x === right.x && left.y === right.y;
+}
+
+function sameCamera(left: IsoCamera, right: IsoCamera): boolean {
+  return left.offsetX === right.offsetX && left.offsetY === right.offsetY && left.zoom === right.zoom;
+}
+
+function stableStringHash(value: string): number {
+  let hash = 2_166_136_261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return hash >>> 0;
 }
 
 function isVisualDebugAllowed() {
