@@ -44,24 +44,17 @@ export function resolveShipRiskPlacement(input: RiskPlacementInput): {
   evidence: PlacementEvidence;
 } {
   const { asset, meta, pegCoin, stress, freshness } = input;
+  const navSourceFields = ["meta.flags.navToken"];
+  if (pegCoin) navSourceFields.push("pegSummary.coins[]");
+  else navSourceFields.push("pegSummary.coins");
+  if (stress) navSourceFields.push("stress.signals[]");
+  const navStale = (pegCoin?.activeDepeg === true && freshness.pegSummaryStale === true)
+    || (!!stress && freshness.stressStale === true);
 
   if (pegCoin?.activeDepeg && !freshness.pegSummaryStale) {
     return {
       placement: "storm-shelf",
       evidence: evidence("Active depeg event", ["pegSummary.coins[].activeDepeg"]),
-    };
-  }
-
-  if (meta.flags.navToken) {
-    const sourceFields = ["meta.flags.navToken"];
-    if (pegCoin) sourceFields.push("pegSummary.coins[]");
-    else sourceFields.push("pegSummary.coins");
-    if (stress) sourceFields.push("stress.signals[]");
-    const stale = (pegCoin?.activeDepeg === true && freshness.pegSummaryStale === true)
-      || (!!stress && freshness.stressStale === true);
-    return {
-      placement: "ledger-mooring",
-      evidence: evidence("NAV token ledger placement", sourceFields, stale),
     };
   }
 
@@ -84,6 +77,13 @@ export function resolveShipRiskPlacement(input: RiskPlacementInput): {
         evidence: evidence("DEWS stress escalation", ["stress.signals[id].band"]),
       };
     }
+  }
+
+  if (meta.flags.navToken) {
+    return {
+      placement: "ledger-mooring",
+      evidence: evidence("NAV token Ledger Mooring idle preference", navSourceFields, navStale),
+    };
   }
 
   if (pegCoin?.activeDepeg && freshness.pegSummaryStale) {

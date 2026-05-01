@@ -31,7 +31,7 @@ describe("resolveShipRiskPlacement", () => {
     });
 
     expect(result.placement).toBe("ledger-mooring");
-    expect(result.evidence.reason).toBe("NAV token ledger placement");
+    expect(result.evidence.reason).toBe("NAV token Ledger Mooring idle preference");
     expect(result.evidence.sourceFields).toEqual(["meta.flags.navToken", "pegSummary.coins"]);
   });
 
@@ -46,11 +46,12 @@ describe("resolveShipRiskPlacement", () => {
     });
 
     expect(result.placement).toBe("ledger-mooring");
+    expect(result.evidence.reason).toBe("NAV token Ledger Mooring idle preference");
     expect(result.evidence.sourceFields).toEqual(["meta.flags.navToken", "pegSummary.coins[]"]);
     expect(result.evidence.stale).toBe(false);
   });
 
-  it("keeps NAV tokens at ledger mooring when fresh DEWS would otherwise move them", () => {
+  it("maps NAV tokens to fresh DEWS placements instead of forcing Ledger Mooring", () => {
     expect(susdeMeta).toBeDefined();
     const result = resolveShipRiskPlacement({
       asset: makeAsset({ id: "susde-ethena", symbol: "sUSDe" }),
@@ -60,8 +61,9 @@ describe("resolveShipRiskPlacement", () => {
       freshness: {},
     });
 
-    expect(result.placement).toBe("ledger-mooring");
-    expect(result.evidence.sourceFields).toEqual(["meta.flags.navToken", "pegSummary.coins[]", "stress.signals[]"]);
+    expect(result.placement).toBe("breakwater-edge");
+    expect(result.evidence.reason).toBe("DEWS stress escalation");
+    expect(result.evidence.sourceFields).toEqual(["stress.signals[id].band"]);
   });
 
   it("keeps fresh active depeg as the acute NAV placement", () => {

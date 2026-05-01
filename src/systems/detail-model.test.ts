@@ -139,7 +139,7 @@ describe("detail-model analytical links", () => {
       riskPlacement: "ledger-mooring",
       riskZone: "ledger",
       riskWaterLabel: "Ledger Mooring",
-      placementEvidence: { reason: "NAV token ledger placement", sourceFields: ["meta.flags.navToken", "pegSummary.coins[]"], stale: false },
+      placementEvidence: { reason: "NAV token Ledger Mooring idle preference", sourceFields: ["meta.flags.navToken", "pegSummary.coins[]"], stale: false },
       visual: {
         hull: "treasury-galleon",
         shipClass: "cefi",

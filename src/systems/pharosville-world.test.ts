@@ -337,6 +337,42 @@ describe("buildPharosVilleWorld", () => {
     expect(usdt?.riskTile ? terrainKindAt(usdt.riskTile.x, usdt.riskTile.y) : null).toBe("storm-water");
   });
 
+  it("maps NAV ships to fresh DEWS zones instead of pinning Ledger Mooring", () => {
+    const world = buildPharosVilleWorld({
+      stablecoins: {
+        peggedAssets: [makeAsset({ id: "susde-ethena", symbol: "sUSDe" })],
+      },
+      chains: fixtureChains,
+      stability: fixtureStability,
+      pegSummary: {
+        ...fixturePegSummary,
+        coins: [makePegCoin({ id: "susde-ethena", symbol: "sUSDe", currentDeviationBps: 0 })],
+      },
+      stress: {
+        ...fixtureStress,
+        signals: {
+          "susde-ethena": {
+            score: 36,
+            band: "WATCH",
+            signals: {},
+            computedAt: 1_700_000_000,
+            methodologyVersion: "fixture",
+          },
+        },
+      },
+      reportCards: fixtureReportCards,
+      cemeteryEntries: [],
+      freshness: {},
+    });
+    const navShip = world.ships[0];
+
+    expect(navShip?.riskPlacement).toBe("breakwater-edge");
+    expect(navShip?.riskZone).toBe("watch");
+    expect(navShip?.riskWaterLabel).toBe("Watch Breakwater");
+    expect(navShip?.riskTile ? terrainKindAt(navShip.riskTile.x, navShip.riskTile.y) : null).toBe("watch-water");
+    expect(navShip?.placementEvidence.reason).toBe("DEWS stress escalation");
+  });
+
   it("canonicalizes positive chain presence and normalizes shares", () => {
     const world = buildPharosVilleWorld({
       stablecoins: {

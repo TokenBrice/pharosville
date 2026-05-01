@@ -122,7 +122,7 @@ function sampleWorldWithLedgerShip(): PharosVilleWorld {
         riskZone: "ledger",
         riskWaterLabel: "Ledger Mooring",
         placementEvidence: {
-          reason: "NAV token ledger placement",
+          reason: "NAV token Ledger Mooring idle preference",
           sourceFields: ["meta.flags.navToken", "pegSummary.coins[]"],
           stale: false,
         },

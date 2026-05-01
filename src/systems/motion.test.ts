@@ -249,6 +249,20 @@ describe("motion", () => {
     }
   });
 
+  it("does not lock NAV ships to Ledger Mooring when fresh DEWS stress is present", () => {
+    const sampleWorld = worldForShip({
+      chainCirculating: chainCirculating(["Ethereum", "Tron"]),
+      chains: ["ethereum", "tron"],
+      navToken: true,
+      stressBand: "WATCH",
+    });
+    const route = onlyRoute(sampleWorld);
+
+    expect(route.zone).toBe("watch");
+    expect(route.riskStop).toBeNull();
+    expect(terrainKindAt(route.riskTile.x, route.riskTile.y)).toBe("watch-water");
+  });
+
   it("keeps NAV ships visibly moored at Ledger Mooring while preserving dock visits", () => {
     const sampleWorld = worldForShip({
       chainCirculating: chainCirculating(["Ethereum", "Tron", "Solana"]),
