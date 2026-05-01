@@ -25,6 +25,11 @@ interface FoamSettings {
 const tilesByKeyCache = new WeakMap<PharosVilleMap, Map<string, PharosVilleTile>>();
 const coastalCandidatesCache = new WeakMap<PharosVilleMap, CoastalWaterCandidate[]>();
 
+// Scratch dash buffer reused across drawCoastEdgeWash calls. The longest
+// dash pattern in foamSettings is 4 entries; we reuse this Array (resizing
+// length when needed) instead of allocating a fresh one per coast edge.
+const dashScratch: number[] = [0, 0, 0, 0];
+
 interface CoastalWaterCandidate {
   coastEdges: CoastEdge[];
   style: WaterTerrainStyle;
@@ -157,7 +162,9 @@ function drawCoastEdgeWash(
     ctx.quadraticCurveTo(x, y + 2.8 * zoom, to.x, to.y + 1.2 * zoom);
     ctx.stroke();
 
-    ctx.setLineDash(settings.dash.map((value) => value * zoom));
+    if (dashScratch.length !== settings.dash.length) dashScratch.length = settings.dash.length;
+    for (let i = 0; i < settings.dash.length; i += 1) dashScratch[i] = settings.dash[i]! * zoom;
+    ctx.setLineDash(dashScratch);
     ctx.strokeStyle = withAlpha(style.wave, settings.alpha);
     ctx.lineWidth = Math.max(1, settings.lineWidth * zoom);
     ctx.beginPath();

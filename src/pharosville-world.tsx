@@ -21,7 +21,7 @@ import {
   type AdaptiveDprState,
   type DrawDurationWindow,
 } from "./systems/canvas-budget";
-import { buildBaseMotionPlan, buildMotionPlan, isShipMapVisible, resolveShipMotionSample, type ShipMotionSample } from "./systems/motion";
+import { buildBaseMotionPlan, buildMotionPlan, createShipMotionSample, isShipMapVisible, motionPlanSignature, resolveShipMotionSampleInto, type ShipMotionSample } from "./systems/motion";
 import { warmAllWaterPaths } from "./systems/motion-water";
 import { zoomCameraAt, type IsoCamera, type ScreenPoint } from "./systems/projection";
 import { observeReducedMotion } from "./systems/reduced-motion";
@@ -86,7 +86,12 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const [paintRequestTick, setPaintRequestTick] = useState(0);
   const shellRef = useRef<HTMLElement | null>(null);
   const { exitFullscreen, fullscreenMode, toggleFullscreen } = useFullscreenMode(shellRef);
-  const baseMotionPlan = useMemo(() => buildBaseMotionPlan(world), [world]);
+  // Memoize on a content signature instead of `world` identity so live data
+  // refetches that don't change ship/dock/map/lighthouse-flicker fields reuse
+  // the prior plan (and skip A* warmups). `world` is still passed to the
+  // builder; the signature only gates re-memo.
+  const baseMotionPlanSignature = motionPlanSignature(world);
+  const baseMotionPlan = useMemo(() => buildBaseMotionPlan(world), [baseMotionPlanSignature]);
   const motionPlan = useMemo(() => buildMotionPlan(world, selectedDetailId, baseMotionPlan), [baseMotionPlan, selectedDetailId, world]);
   const shipsById = useMemo(() => new Map(world.ships.map((ship) => [ship.id, ship])), [world.ships]);
   const selectedEntity = useMemo(() => findWorldEntity(world, selectedDetailId), [selectedDetailId, world]);
@@ -988,14 +993,24 @@ function collectShipMotionSamples(input: {
   world: PharosVilleWorldModel;
 }) {
   const samples = input.samples as Map<string, ShipMotionSample>;
-  if (samples.size !== input.world.ships.length) samples.clear();
   for (const ship of input.world.ships) {
-    samples.set(ship.id, resolveShipMotionSample({
+    let sample = samples.get(ship.id);
+    if (!sample) {
+      sample = createShipMotionSample();
+      samples.set(ship.id, sample);
+    }
+    resolveShipMotionSampleInto({
       plan: input.motionPlan,
       reducedMotion: input.reducedMotion,
       ship,
       timeSeconds: input.timeSeconds,
-    }));
+    }, sample);
+  }
+  if (samples.size !== input.world.ships.length) {
+    const liveIds = new Set(input.world.ships.map((ship) => ship.id));
+    for (const id of samples.keys()) {
+      if (!liveIds.has(id)) samples.delete(id);
+    }
   }
   return samples;
 }

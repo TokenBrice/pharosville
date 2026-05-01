@@ -35,6 +35,7 @@ export type { DrawPharosVilleInput, PharosVilleCanvasMotion, PharosVilleRenderMe
 interface WorldCanvasFrame {
   cache: RenderFrameCache;
   dockRenderStates: Map<string, DockRenderState>;
+  flagshipById: Map<string, PharosVilleWorld["ships"][number]>;
   graveRenderStates: Map<string, GraveRenderState>;
   lighthouseRender: LighthouseRenderState;
   shipRenderStates: Map<string, ShipRenderState>;
@@ -62,6 +63,12 @@ const STATIC_CACHE_MAX = 4;
 const DYNAMIC_CACHE_MAX = 4;
 const staticLayerCache: { entries: StaticLayerCacheEntry[] } = { entries: [] };
 const dynamicLayerCache: { entries: DynamicLayerCacheEntry[] } = { entries: [] };
+
+const shipRenderStatesScratch = new Map<string, ShipRenderState>();
+const wakeDrawnShipIdsScratch = new Set<string>();
+const flagshipByIdScratch = new Map<string, PharosVilleWorld["ships"][number]>();
+const visibleShipsScratch: PharosVilleWorld["ships"][number][] = [];
+const squadAnchorsScratch: SquadAnchor[] = [];
 
 const worldIdMap = new WeakMap<PharosVilleWorld, number>();
 let nextWorldId = 1;
@@ -104,7 +111,9 @@ function dynamicCacheKey(input: DrawPharosVilleInput, dpr: number, scope: Dynami
 
 function dynamicWaterPhaseBucket(input: DrawPharosVilleInput): number {
   if (input.motion.reducedMotion) return 0;
-  const cadenceHz = 24;
+  // 10 Hz is visually indistinguishable from 24 Hz for the sin-modulated
+  // water overlays but cuts dynamic-cache repaint cost by ~58%.
+  const cadenceHz = 10;
   return Math.floor(input.motion.timeSeconds * cadenceHz);
 }
 
@@ -303,25 +312,42 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
     ...entityMetrics.drawableCounts,
     selection: selectionDrawableCount,
   };
+  let movingShipCount = 0;
+  if (input.shipMotionSamples) {
+    for (const sample of input.shipMotionSamples.values()) {
+      if (sample.state !== "idle" && sample.state !== "risk-drift" && sample.state !== "moored") {
+        movingShipCount += 1;
+      }
+    }
+  }
   return {
     drawableCount: entityMetrics.drawableCount + selectionDrawableCount,
     drawableCounts,
-    movingShipCount: Array.from(input.shipMotionSamples?.values() ?? [])
-      .filter((sample) => sample.state !== "idle" && sample.state !== "risk-drift" && sample.state !== "moored").length,
+    movingShipCount,
     visibleShipCount: frame.visibleShips.length,
     visibleTileCount,
   };
 }
 
 function createWorldCanvasFrame(input: DrawPharosVilleInput): WorldCanvasFrame {
+  shipRenderStatesScratch.clear();
+  wakeDrawnShipIdsScratch.clear();
+  flagshipByIdScratch.clear();
+  const visibleShips = visibleShipsForFrame(input);
+  for (const ship of visibleShips) {
+    if (ship.squadId && ship.squadRole === "flagship") {
+      flagshipByIdScratch.set(ship.squadId, ship);
+    }
+  }
   return {
     cache: createRenderFrameCache(input),
     dockRenderStates: new Map(),
     graveRenderStates: new Map(),
     lighthouseRender: lighthouseRenderState(input),
-    shipRenderStates: new Map(),
-    visibleShips: visibleShipsForFrame(input),
-    wakeDrawnShipIds: new Set<string>(),
+    shipRenderStates: shipRenderStatesScratch,
+    visibleShips,
+    wakeDrawnShipIds: wakeDrawnShipIdsScratch,
+    flagshipById: flagshipByIdScratch,
   };
 }
 
@@ -335,8 +361,9 @@ function drawSquadChrome(input: DrawPharosVilleInput, frame: WorldCanvasFrame) {
   // Draw a separate pennant + halo per active squad so Sky and Maker each
   // get their own streamer rather than one polyline crossing the harbor.
   const selectedId = input.selectedTarget?.id ?? null;
+  const anchors = squadAnchorsScratch;
   for (const squad of STABLECOIN_SQUADS) {
-    const anchors: SquadAnchor[] = [];
+    anchors.length = 0;
     let selectedIsSquad = false;
     for (const ship of frame.visibleShips) {
       if (ship.squadId !== squad.id) continue;
@@ -380,7 +407,13 @@ function drawEntityPass(input: DrawPharosVilleInput, frame: WorldCanvasFrame, ni
 }
 
 function visibleShipsForFrame(input: DrawPharosVilleInput): PharosVilleWorld["ships"] {
-  return input.world.ships.filter((ship) => isShipMapVisible(ship, input.shipMotionSamples?.get(ship.id)));
+  visibleShipsScratch.length = 0;
+  for (const ship of input.world.ships) {
+    if (isShipMapVisible(ship, input.shipMotionSamples?.get(ship.id))) {
+      visibleShipsScratch.push(ship);
+    }
+  }
+  return visibleShipsScratch;
 }
 
 function countVisibleTiles(input: DrawPharosVilleInput): number {

@@ -14,7 +14,7 @@ const ZONE_ROUGHNESS = {
   watch: 0.86,
 } as const satisfies Record<ShipWaterZone, number>;
 
-const STATIC_SHIP_POSE: ShipPose = {
+const STATIC_SHIP_POSE: ShipPose = Object.freeze({
   bobPixels: 0,
   bowWake: 0,
   lanternAlpha: 0,
@@ -22,7 +22,7 @@ const STATIC_SHIP_POSE: ShipPose = {
   rollRadians: 0,
   sailFlutter: 0,
   sternChurn: 0,
-};
+}) as ShipPose;
 
 export interface ShipPose {
   rollRadians: number;
@@ -118,7 +118,7 @@ export function resolveShipPose(input: ShipPoseInput): ShipPose {
 }
 
 export function zeroShipPose(): ShipPose {
-  return { ...STATIC_SHIP_POSE };
+  return STATIC_SHIP_POSE;
 }
 
 function isTransitState(state: ShipMotionState): boolean {

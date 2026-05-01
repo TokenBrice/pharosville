@@ -225,6 +225,10 @@ export interface ShipRenderFrame {
   // both flagship and a consort move, so consort wakes overdraw the
   // flagship and create the squad interference pattern.
   wakeDrawnShipIds?: Set<string>;
+  // Optional: O(1) flagship lookup keyed by squadId, populated from
+  // `visibleShips` once per frame. Avoids O(N) `.find()` inside the
+  // per-ship wake loop. World-canvas frames provide this; tests may omit it.
+  flagshipById?: Map<string, PharosVilleWorld["ships"][number]>;
 }
 
 export interface ShipRenderLodPlan {
@@ -442,7 +446,8 @@ export function drawShipWake(input: DrawPharosVilleInput, frame: ShipRenderFrame
     && input.motion.plan.moverShipIds.has(ship.id)
     && input.motion.plan.moverShipIds.has(squad.flagshipId)
   ) {
-    const flagship = frame.visibleShips?.find((entry) => entry.id === squad.flagshipId);
+    const flagship = frame.flagshipById?.get(squad.id)
+      ?? frame.visibleShips?.find((entry) => entry.id === squad.flagshipId);
     const drawn = frame.wakeDrawnShipIds;
     if (flagship && drawn && !drawn.has(squad.flagshipId)) {
       drawShipWakeRaw(input, frame, flagship);
@@ -526,7 +531,11 @@ function drawTitanHullFoam(
   zone: ShipWaterZone,
 ) {
   const style = wakeStyleForZone(zone);
-  const { cross, forward } = headingBasis(heading);
+  const magnitude = Math.sqrt(heading.x * heading.x + heading.y * heading.y);
+  const fx = magnitude > 0 ? heading.x / magnitude : -1;
+  const fy = magnitude > 0 ? heading.y / magnitude : 0;
+  const cx = -fy;
+  const cy = fx;
   const alpha = 0.12 + pose.bowWake * 0.18 + pose.mooringTension * 0.08;
   ctx.save();
   ctx.lineCap = "round";
@@ -535,14 +544,14 @@ function drawTitanHullFoam(
   for (const side of [-1, 1]) {
     ctx.beginPath();
     ctx.moveTo(
-      x - forward.x * 3 * scale + cross.x * side * 25 * scale,
-      y + 4 * scale - forward.y * 3 * scale + cross.y * side * 25 * scale,
+      x - fx * 3 * scale + cx * side * 25 * scale,
+      y + 4 * scale - fy * 3 * scale + cy * side * 25 * scale,
     );
     ctx.quadraticCurveTo(
-      x + forward.x * 10 * scale + cross.x * side * 18 * scale,
-      y + 7 * scale + forward.y * 10 * scale + cross.y * side * 18 * scale,
-      x + forward.x * 19 * scale + cross.x * side * 8 * scale,
-      y + 4 * scale + forward.y * 19 * scale + cross.y * side * 8 * scale,
+      x + fx * 10 * scale + cx * side * 18 * scale,
+      y + 7 * scale + fy * 10 * scale + cy * side * 18 * scale,
+      x + fx * 19 * scale + cx * side * 8 * scale,
+      y + 4 * scale + fy * 19 * scale + cy * side * 8 * scale,
     );
     ctx.stroke();
   }
@@ -601,7 +610,11 @@ function drawTitanBowSpray(
 ) {
   if (pose.bowWake <= 0.02 && pose.sternChurn <= 0.02) return;
   const style = wakeStyleForZone(zone);
-  const { cross, forward } = headingBasis(heading);
+  const magnitude = Math.sqrt(heading.x * heading.x + heading.y * heading.y);
+  const fx = magnitude > 0 ? heading.x / magnitude : -1;
+  const fy = magnitude > 0 ? heading.y / magnitude : 0;
+  const cx = -fy;
+  const cy = fx;
   ctx.save();
   ctx.lineCap = "round";
   ctx.strokeStyle = wakeRgba(style, 0.16 + pose.bowWake * 0.24);
@@ -611,10 +624,10 @@ function drawTitanBowSpray(
     const spread = (5 + index * 4) * side * scale;
     const start = (24 + index * 3) * scale;
     ctx.beginPath();
-    ctx.moveTo(x + forward.x * start + cross.x * spread, y + 2 * scale + forward.y * start + cross.y * spread);
+    ctx.moveTo(x + fx * start + cx * spread, y + 2 * scale + fy * start + cy * spread);
     ctx.lineTo(
-      x + forward.x * (start + 12 * scale) + cross.x * spread * 1.7,
-      y + 2 * scale + forward.y * (start + 12 * scale) + cross.y * spread * 1.7,
+      x + fx * (start + 12 * scale) + cx * spread * 1.7,
+      y + 2 * scale + fy * (start + 12 * scale) + cy * spread * 1.7,
     );
     ctx.stroke();
   }
@@ -623,10 +636,10 @@ function drawTitanBowSpray(
     ctx.strokeStyle = wakeRgba(style, 0.12 + pose.sternChurn * 0.2);
     ctx.lineWidth = Math.max(1, 1 * scale);
     ctx.beginPath();
-    ctx.moveTo(x - forward.x * 34 * scale - cross.x * 10 * scale, y + 6 * scale - forward.y * 34 * scale - cross.y * 10 * scale);
-    ctx.lineTo(x - forward.x * 48 * scale - cross.x * 15 * scale, y + 8 * scale - forward.y * 48 * scale - cross.y * 15 * scale);
-    ctx.moveTo(x - forward.x * 34 * scale + cross.x * 10 * scale, y + 6 * scale - forward.y * 34 * scale + cross.y * 10 * scale);
-    ctx.lineTo(x - forward.x * 48 * scale + cross.x * 15 * scale, y + 8 * scale - forward.y * 48 * scale + cross.y * 15 * scale);
+    ctx.moveTo(x - fx * 34 * scale - cx * 10 * scale, y + 6 * scale - fy * 34 * scale - cy * 10 * scale);
+    ctx.lineTo(x - fx * 48 * scale - cx * 15 * scale, y + 8 * scale - fy * 48 * scale - cy * 15 * scale);
+    ctx.moveTo(x - fx * 34 * scale + cx * 10 * scale, y + 6 * scale - fy * 34 * scale + cy * 10 * scale);
+    ctx.lineTo(x - fx * 48 * scale + cx * 15 * scale, y + 8 * scale - fy * 48 * scale + cy * 15 * scale);
     ctx.stroke();
   }
   ctx.restore();
@@ -800,18 +813,20 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
       if (selected) drawSelectedShipOutline(ctx, geometry.drawPoint.x, drawY, geometry.drawScale);
       const mark = SHIP_SAIL_MARKS[ship.visual.spriteAssetId ?? ship.visual.hull] ?? SHIP_SAIL_MARKS[ship.visual.hull];
       const flutterY = titanSprite ? pose.sailFlutter * geometry.drawScale : 0;
-      drawSailLogo({
-        ctx,
-        logo: assets?.getLogo(ship.logoSrc) ?? null,
-        livery: ship.visual.livery,
-        mark: ship.symbol,
-        sailColor: ship.visual.sailColor,
-        stripeColor: ship.visual.sailStripeColor,
-        height: mark.height * geometry.drawScale,
-        width: mark.width * geometry.drawScale,
-        x: geometry.drawPoint.x + mark.x * geometry.drawScale,
-        y: drawY + mark.y * geometry.drawScale + flutterY,
-      });
+      if (ship.id !== "crvusd-curve") {
+        drawSailLogo({
+          ctx,
+          logo: assets?.getLogo(ship.logoSrc) ?? null,
+          livery: ship.visual.livery,
+          mark: ship.symbol,
+          sailColor: ship.visual.sailColor,
+          stripeColor: ship.visual.sailStripeColor,
+          height: mark.height * geometry.drawScale,
+          width: mark.width * geometry.drawScale,
+          x: geometry.drawPoint.x + mark.x * geometry.drawScale,
+          y: drawY + mark.y * geometry.drawScale + flutterY,
+        });
+      }
       if (titanSprite) return;
       drawShipPegPennant(
         ctx,
@@ -913,6 +928,156 @@ function drawSailLogo(input: {
   y: number;
 }) {
   const { ctx, height, livery, logo, mark, sailColor, stripeColor, width, x, y } = input;
+  const safeWidth = Math.max(6, width * 1.14);
+  const safeHeight = Math.max(6, height * 1.1);
+  const widthPx = Math.max(6, Math.round(safeWidth));
+  const heightPx = Math.max(6, Math.round(safeHeight));
+  const sprite = getSailLogoSprite(livery, sailColor, stripeColor, mark, logo, widthPx, heightPx);
+  if (sprite) {
+    ctx.drawImage(
+      sprite.canvas,
+      Math.floor(Math.round(x) - sprite.anchorX),
+      Math.floor(Math.round(y) - sprite.anchorY),
+    );
+    return;
+  }
+  drawSailLogoInline(ctx, {
+    height,
+    livery,
+    logo,
+    mark,
+    sailColor,
+    stripeColor,
+    width,
+    x,
+    y,
+  });
+}
+
+// Sprite cache for sail logos. The logo is fully determined by the livery
+// fields, sail/stripe colors, the 3-char mark fallback, the logo image
+// identity (its `src`), and integer-bucketed width/height. Liveries are
+// shared across squad consorts (~10 unique liveries in a typical scene),
+// width/height settle into 2-3 buckets per camera zoom; total cardinality
+// is comfortably under the LRU cap.
+const SAIL_LOGO_SPRITE_CACHE_MAX = 128;
+interface SailLogoSprite {
+  canvas: HTMLCanvasElement;
+  anchorX: number;
+  anchorY: number;
+}
+const sailLogoSpriteCache = new Map<string, SailLogoSprite | null>();
+
+function liverySpriteFingerprint(livery: ShipLivery): string {
+  return `${livery.sailPanel}|${livery.stripePattern}|${livery.logoShape}|${livery.logoMatte}|${livery.primary}|${livery.accent}`;
+}
+
+function sailLogoSpriteKey(
+  livery: ShipLivery,
+  sailColor: string,
+  stripeColor: string,
+  mark: string,
+  logo: ReturnType<PharosVilleAssetManager["getLogo"]>,
+  widthPx: number,
+  heightPx: number,
+): string {
+  const liveryKey = liverySpriteFingerprint(livery);
+  const logoKey = logo ? `img:${logo.src}` : `txt:${mark.slice(0, 3).toUpperCase()}`;
+  return `${liveryKey}|${sailColor}|${stripeColor}|${widthPx}x${heightPx}|${logoKey}`;
+}
+
+function rememberSailLogoSprite(key: string, sprite: SailLogoSprite | null) {
+  sailLogoSpriteCache.set(key, sprite);
+  while (sailLogoSpriteCache.size > SAIL_LOGO_SPRITE_CACHE_MAX) {
+    const oldest = sailLogoSpriteCache.keys().next().value;
+    if (typeof oldest !== "string") break;
+    sailLogoSpriteCache.delete(oldest);
+  }
+}
+
+function getSailLogoSprite(
+  livery: ShipLivery,
+  sailColor: string,
+  stripeColor: string,
+  mark: string,
+  logo: ReturnType<PharosVilleAssetManager["getLogo"]>,
+  widthPx: number,
+  heightPx: number,
+): SailLogoSprite | null {
+  const key = sailLogoSpriteKey(livery, sailColor, stripeColor, mark, logo, widthPx, heightPx);
+  const cached = sailLogoSpriteCache.get(key);
+  if (cached !== undefined) {
+    // LRU touch.
+    sailLogoSpriteCache.delete(key);
+    sailLogoSpriteCache.set(key, cached);
+    return cached;
+  }
+  const sprite = buildSailLogoSprite(livery, sailColor, stripeColor, mark, logo, widthPx, heightPx);
+  rememberSailLogoSprite(key, sprite);
+  return sprite;
+}
+
+function buildSailLogoSprite(
+  livery: ShipLivery,
+  sailColor: string,
+  stripeColor: string,
+  mark: string,
+  logo: ReturnType<PharosVilleAssetManager["getLogo"]>,
+  widthPx: number,
+  heightPx: number,
+): SailLogoSprite | null {
+  if (typeof document === "undefined") return null;
+  // The inline draw paints within ±widthPx/2, ±heightPx/2 around its origin.
+  // Pad by stroke half-width (max stroke is widthPx*0.08) plus 1px for safety.
+  const padX = Math.ceil(Math.max(2, widthPx * 0.05));
+  const padY = Math.ceil(Math.max(2, heightPx * 0.05));
+  const canvasWidth = widthPx + padX * 2;
+  const canvasHeight = heightPx + padY * 2;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvasWidth;
+  canvas.height = canvasHeight;
+  const spriteCtx = canvas.getContext("2d");
+  if (!spriteCtx) return null;
+  // The inline path translates to (round(x), round(y)) and uses safeWidth/
+  // safeHeight derived from the input width/height. We pre-bucketed those
+  // to widthPx/heightPx, so build a synthetic input that yields exactly
+  // safeWidth=widthPx and safeHeight=heightPx after the same Math.max
+  // expansion. width*1.14 = widthPx → width = widthPx/1.14; height*1.1 →
+  // height = heightPx/1.1.
+  // Floor to ensure integer anchors; the sail polygon is symmetric around
+  // its origin, so picking the floor of the half-width is visually
+  // identical to the half-pixel center.
+  const anchorX = padX + Math.floor(widthPx / 2);
+  const anchorY = padY + Math.floor(heightPx / 2);
+  drawSailLogoInline(spriteCtx, {
+    height: heightPx / 1.1,
+    livery,
+    logo,
+    mark,
+    sailColor,
+    stripeColor,
+    width: widthPx / 1.14,
+    x: anchorX,
+    y: anchorY,
+  });
+  return { canvas, anchorX, anchorY };
+}
+
+function drawSailLogoInline(
+  ctx: CanvasRenderingContext2D,
+  input: {
+    height: number;
+    livery: ShipLivery;
+    logo: ReturnType<PharosVilleAssetManager["getLogo"]>;
+    mark: string;
+    sailColor: string;
+    stripeColor: string;
+    width: number;
+    x: number;
+    y: number;
+  },
+) {
+  const { height, livery, logo, mark, sailColor, stripeColor, width, x, y } = input;
   const safeWidth = Math.max(6, width * 1.14);
   const safeHeight = Math.max(6, height * 1.1);
   ctx.save();
@@ -1161,7 +1326,104 @@ function drawProceduralShipPegPennant(
   drawPegPennant(ctx, pennant, shape, pattern, x - 10 * scale, y - 27 * scale, 4.8 * scale);
 }
 
+// Sprite cache for peg pennants. Pennants are fully determined by
+// (pennant color key, shape, pattern, integer-bucketed size). With ~6
+// pennants × 5 shapes × 5 patterns and only a handful of size buckets at
+// any given camera zoom, cardinality stays well under the LRU cap.
+const PEG_PENNANT_SPRITE_CACHE_MAX = 256;
+interface PegPennantSprite {
+  canvas: HTMLCanvasElement;
+  // Pixel offset from sprite top-left to the pennant's mast-base anchor
+  // (the (x, y) the inline path treated as origin).
+  anchorX: number;
+  anchorY: number;
+}
+const pegPennantSpriteCache = new Map<string, PegPennantSprite | null>();
+
+function pegPennantSpriteKey(
+  pennant: string,
+  shape: ShipPegShape,
+  pattern: ShipPegPattern,
+  sizePx: number,
+): string {
+  return `${pennant}|${shape}|${pattern}|${sizePx}`;
+}
+
+function rememberPegPennantSprite(key: string, sprite: PegPennantSprite | null) {
+  pegPennantSpriteCache.set(key, sprite);
+  while (pegPennantSpriteCache.size > PEG_PENNANT_SPRITE_CACHE_MAX) {
+    const oldest = pegPennantSpriteCache.keys().next().value;
+    if (typeof oldest !== "string") break;
+    pegPennantSpriteCache.delete(oldest);
+  }
+}
+
+function buildPegPennantSprite(
+  pennant: string,
+  shape: ShipPegShape,
+  pattern: ShipPegPattern,
+  sizePx: number,
+): PegPennantSprite | null {
+  if (typeof document === "undefined") return null;
+  // Pennant geometry around its origin (the mast-base anchor passed by the
+  // caller as `(x, y)`):
+  //   pole stretches from (x, y + size*0.9) to (x, y - size*1.15)
+  //   flag center is at (x + size*0.62, y - size*0.72)
+  //   flag radius up to ~0.66*size; diamond reaches y - 1.34*size at top
+  // Pad by stroke half-width (lineWidth = max(1, size*0.18)).
+  const stroke = Math.max(1, sizePx * 0.18);
+  const padX = Math.ceil(stroke + 1);
+  const padY = Math.ceil(stroke + 1);
+  const left = padX; // mast-base x sits `padX` from the left edge.
+  const top = Math.ceil(sizePx * 1.34) + padY; // farthest point above origin.
+  const width = left + Math.ceil(sizePx * 1.32) + padX;
+  const height = top + Math.ceil(sizePx * 0.9) + padY;
+  if (width <= 0 || height <= 0) return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const spriteCtx = canvas.getContext("2d");
+  if (!spriteCtx) return null;
+  drawPegPennantInline(spriteCtx, pennant, shape, pattern, left, top, sizePx);
+  return { canvas, anchorX: left, anchorY: top };
+}
+
 function drawPegPennant(
+  ctx: CanvasRenderingContext2D,
+  pennant: string,
+  shape: ShipPegShape,
+  pattern: ShipPegPattern,
+  x: number,
+  y: number,
+  size: number,
+) {
+  // Bucket size to integer pixels so consecutive frames at the same camera
+  // zoom share a sprite. Sub-pixel distance from `size` to `sizePx` is
+  // imperceptible (< 1px) and avoids cache thrash on continuous zoom.
+  const sizePx = Math.max(1, Math.round(size));
+  const key = pegPennantSpriteKey(pennant, shape, pattern, sizePx);
+  let sprite = pegPennantSpriteCache.get(key);
+  if (sprite === undefined) {
+    sprite = buildPegPennantSprite(pennant, shape, pattern, sizePx);
+    rememberPegPennantSprite(key, sprite);
+  } else {
+    // LRU touch: re-insert moves to most-recent position.
+    pegPennantSpriteCache.delete(key);
+    pegPennantSpriteCache.set(key, sprite);
+  }
+  if (sprite) {
+    ctx.drawImage(
+      sprite.canvas,
+      Math.floor(x - sprite.anchorX),
+      Math.floor(y - sprite.anchorY),
+    );
+    return;
+  }
+  // Fallback: jsdom or any context where sprite caching is unavailable.
+  drawPegPennantInline(ctx, pennant, shape, pattern, x, y, size);
+}
+
+function drawPegPennantInline(
   ctx: CanvasRenderingContext2D,
   pennant: string,
   shape: ShipPegShape,
@@ -1425,12 +1687,13 @@ function drawWake(
   zone: ShipWaterZone,
 ) {
   const style = wakeStyleForZone(zone);
-  const headingMagnitude = Math.hypot(heading.x, heading.y);
-  const forward = headingMagnitude > 0
-    ? { x: heading.x / headingMagnitude, y: heading.y / headingMagnitude }
-    : { x: -1, y: 0 };
-  const wakeDirection = { x: -forward.x, y: -forward.y };
-  const cross = { x: -forward.y, y: forward.x };
+  const headingMagnitude = Math.sqrt(heading.x * heading.x + heading.y * heading.y);
+  const fx = headingMagnitude > 0 ? heading.x / headingMagnitude : -1;
+  const fy = headingMagnitude > 0 ? heading.y / headingMagnitude : 0;
+  const wx = -fx;
+  const wy = -fy;
+  const cx = -fy;
+  const cy = fx;
   ctx.save();
   ctx.strokeStyle = wakeRgba(style, 0.22 + intensity * style.alphaScale);
   ctx.lineWidth = Math.max(1, zoom * style.lineScale);
@@ -1441,12 +1704,12 @@ function drawWake(
     const length = (style.length + index * style.lengthStep) * zoom;
     ctx.beginPath();
     ctx.moveTo(
-      x + wakeDirection.x * baseDistance + cross.x * spread,
-      y + wakeDirection.y * baseDistance + cross.y * spread,
+      x + wx * baseDistance + cx * spread,
+      y + wy * baseDistance + cy * spread,
     );
     ctx.lineTo(
-      x + wakeDirection.x * (baseDistance + length) + cross.x * spread * 1.45,
-      y + wakeDirection.y * (baseDistance + length) + cross.y * spread * 1.45,
+      x + wx * (baseDistance + length) + cx * spread * 1.45,
+      y + wy * (baseDistance + length) + cy * spread * 1.45,
     );
     ctx.stroke();
   }
@@ -1463,12 +1726,13 @@ function drawNightWakeGlow(
   nightFactor: number,
 ) {
   if (nightFactor <= 0) return;
-  const headingMagnitude = Math.hypot(heading.x, heading.y);
-  const forward = headingMagnitude > 0
-    ? { x: heading.x / headingMagnitude, y: heading.y / headingMagnitude }
-    : { x: -1, y: 0 };
-  const wakeDirection = { x: -forward.x, y: -forward.y };
-  const cross = { x: -forward.y, y: forward.x };
+  const headingMagnitude = Math.sqrt(heading.x * heading.x + heading.y * heading.y);
+  const fx = headingMagnitude > 0 ? heading.x / headingMagnitude : -1;
+  const fy = headingMagnitude > 0 ? heading.y / headingMagnitude : 0;
+  const wx = -fx;
+  const wy = -fy;
+  const cx = -fy;
+  const cy = fx;
   const glowAlpha = (0.14 + intensity * 0.18) * nightFactor;
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
@@ -1482,30 +1746,16 @@ function drawNightWakeGlow(
     const length = (10 + index * 3) * zoom;
     ctx.beginPath();
     ctx.moveTo(
-      x + wakeDirection.x * baseDistance + cross.x * spread,
-      y + wakeDirection.y * baseDistance + cross.y * spread,
+      x + wx * baseDistance + cx * spread,
+      y + wy * baseDistance + cy * spread,
     );
     ctx.lineTo(
-      x + wakeDirection.x * (baseDistance + length) + cross.x * spread * 1.45,
-      y + wakeDirection.y * (baseDistance + length) + cross.y * spread * 1.45,
+      x + wx * (baseDistance + length) + cx * spread * 1.45,
+      y + wy * (baseDistance + length) + cy * spread * 1.45,
     );
     ctx.stroke();
   }
   ctx.restore();
-}
-
-function headingBasis(heading: { x: number; y: number }): {
-  cross: { x: number; y: number };
-  forward: { x: number; y: number };
-} {
-  const magnitude = Math.hypot(heading.x, heading.y);
-  const forward = magnitude > 0
-    ? { x: heading.x / magnitude, y: heading.y / magnitude }
-    : { x: -1, y: 0 };
-  return {
-    cross: { x: -forward.y, y: forward.x },
-    forward,
-  };
 }
 
 function wakeStyleForZone(zone: ShipWaterZone): {
