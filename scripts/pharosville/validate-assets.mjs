@@ -21,9 +21,11 @@ const assetIdPattern = /^(building|dock|landmark|overlay|prop|ship|terrain)\.[a-
 const pharosVilleSourceExtensionPattern = /\.(?:ts|tsx)$/;
 const pharosVilleTestFilePattern = /(?:^|\/)(?:__tests__|tests?)\/|\.test\.(?:ts|tsx)$/;
 const publicImageExtensionPattern = /\.(?:png|svg|jpe?g|webp)$/i;
-const maxManifestAssets = 35;
+// 2026-05-01: bumped for Maker squad titans (USDS, DAI, sUSDS, sDAI, stUSDS)
+const maxManifestAssets = 40;
 const firstRenderBudgets = {
-  maxCount: 24,
+  // 2026-05-01: bumped for Maker squad titans (USDS, DAI, sUSDS, sDAI, stUSDS)
+  maxCount: 28,
   maxBytes: 575 * 1024,
   maxDecodedPixels: 875_000,
 };
