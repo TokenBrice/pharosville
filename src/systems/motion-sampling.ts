@@ -7,19 +7,6 @@ import { clamp, normalizeHeadingInto, pathKey, positiveModulo, smoothstep, smoot
 import type { PharosVilleMotionPlan, ShipMotionRoute, ShipMotionRouteStop, ShipMotionSample, ShipMotionState, ShipWaterPath } from "./motion-types";
 import type { ShipNode, ShipWaterZone } from "./world-types";
 
-// Local type extensions for fields BETA's motion-types.ts change introduces.
-// Cast at the read site; the canonical declarations will replace these once
-// BETA's branch lands.
-type RouteWithFormation = ShipMotionRoute & {
-  formationOffset?: { dx: number; dy: number } | null;
-};
-type DockStopWithTangent = ShipMotionRoute["dockStops"][number] & {
-  dockTangent?: { x: number; y: number } | null;
-};
-type LedgerStopWithTangent = ShipMotionRouteStop & {
-  dockTangent?: { x: number; y: number } | null;
-};
-
 interface RouteSamplingRuntime {
   dockStopByDockId: ReadonlyMap<string, ShipMotionRoute["dockStops"][number]>;
   fallbackNonHomeStops: readonly ShipMotionRoute["dockStops"][number][];
@@ -171,10 +158,8 @@ export function resolveShipMotionSampleInto(input: {
     const flagshipRoute = squad ? input.plan.shipRoutes.get(squad.flagshipId) : undefined;
     if (squad && flagshipRoute) {
       sampleRouteCycleInto(flagshipRoute, input.timeSeconds, flagshipScratch);
-      // #13: prefer the route's cached formation offset (BETA writes it during
-      // plan build); fall back to live computation while that field is absent.
-      const cachedOffset = (route as RouteWithFormation).formationOffset;
-      const offset = cachedOffset
+      // Prefer the route's cached formation offset over live computation.
+      const offset = route.formationOffset
         ?? squadFormationOffsetForPlacement(input.ship.id, squad, input.ship.riskPlacement)
         ?? { dx: 0, dy: 0 };
       let tileX = flagshipScratch.tile.x + offset.dx;
@@ -580,10 +565,9 @@ function mooredSampleInto(
   out.currentDockId = stop.dockId;
   out.currentRouteStopId = stop.id;
   out.currentRouteStopKind = stop.kind;
-  // #9: anchor heading around the dock's natural mooring axis when available
-  // so moored boats sway around their berth instead of pivoting full-circle.
-  // Falls back to the legacy Lissajous when BETA's dockTangent is absent.
-  writeMooredHeading((stop as DockStopWithTangent).dockTangent ?? null, angle, out.heading);
+  // Anchor heading around the dock's natural mooring axis when available so
+  // moored boats sway around their berth instead of sweeping full-circle.
+  writeMooredHeading(stop.dockTangent, angle, out.heading);
   out.wakeIntensity = 0.05;
 }
 
@@ -695,8 +679,7 @@ function mooredRouteStopSampleInto(
   out.currentDockId = null;
   out.currentRouteStopId = stop.id;
   out.currentRouteStopKind = stop.kind;
-  // #9: same dock-aligned mooring heading treatment as mooredSampleInto.
-  writeMooredHeading((stop as LedgerStopWithTangent).dockTangent ?? null, angle, out.heading);
+  writeMooredHeading(stop.dockTangent, angle, out.heading);
   out.wakeIntensity = 0.03;
 }
 
