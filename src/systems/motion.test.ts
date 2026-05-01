@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoins, fixtureStability, fixtureStress, makeAsset, makeChain, makePegCoin } from "../__fixtures__/pharosville-world";
+import { fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoins, fixtureStability, fixtureStress, fixtureWithFlagshipPlacement, makeAsset, makeChain, makePegCoin } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import { buildBaseMotionPlan, buildMotionPlan, buildShipWaterRoute, isShipMapVisible, lighthouseFireFlickerSpeed, resolveShipMotionSample, sampleShipWaterPath, shipWaterPathKey, stableMotionPhase, type ShipDockMotionStop } from "./motion";
 import { buildPharosVilleMap, isWaterTileKind, terrainKindAt, tileKindAt } from "./world-layout";
@@ -608,6 +608,65 @@ describe("motion", () => {
   it("uses deterministic per-entity phases", () => {
     expect(stableMotionPhase("usdt-tether")).toBe(stableMotionPhase("usdt-tether"));
     expect(stableMotionPhase("usdt-tether")).not.toBe(stableMotionPhase("usdc-circle"));
+  });
+
+  describe("Maker squad motion inheritance", () => {
+    const consortIds = ["dai-makerdao", "susds-sky", "sdai-sky", "stusds-sky"] as const;
+    // Build a squad-active world with no rendered docks so the flagship sails
+    // an open-water patrol — the only state where formation cohesion is
+    // structurally guaranteed (consorts have no dockStops by design).
+    const squadInputs = () => {
+      const base = fixtureWithFlagshipPlacement("outer-rough-water");
+      return {
+        ...base,
+        chains: { ...fixtureChains, chains: [] },
+      };
+    };
+
+    it("Maker consorts hold tight formation and same zone as flagship across full motion cycle", () => {
+      const squadWorld = buildPharosVilleWorld(squadInputs());
+      const plan = buildMotionPlan(squadWorld, null);
+      const flagshipShip = squadWorld.ships.find((ship) => ship.id === "usds-sky")!;
+      const flagshipRoute = plan.shipRoutes.get("usds-sky")!;
+
+      for (const consortId of consortIds) {
+        const consortShip = squadWorld.ships.find((ship) => ship.id === consortId)!;
+        const consortRoute = plan.shipRoutes.get(consortId)!;
+        expect(consortRoute.cycleSeconds).toBe(flagshipRoute.cycleSeconds);
+        expect(consortRoute.phaseSeconds).toBe(flagshipRoute.phaseSeconds);
+        expect(consortRoute.zone).toBe(flagshipRoute.zone);
+
+        for (let step = 0; step < 8; step += 1) {
+          const timeSeconds = (flagshipRoute.cycleSeconds / 8) * step;
+          const flagSample = resolveShipMotionSample({ plan, reducedMotion: false, ship: flagshipShip, timeSeconds });
+          const consortSample = resolveShipMotionSample({ plan, reducedMotion: false, ship: consortShip, timeSeconds });
+          const dx = consortSample.tile.x - flagSample.tile.x;
+          const dy = consortSample.tile.y - flagSample.tile.y;
+          expect(Math.hypot(dx, dy)).toBeLessThan(4.5);
+        }
+      }
+    });
+
+    it("consorts have no dock visits and homeDockChainId=null", () => {
+      const squadWorld = buildPharosVilleWorld(squadInputs());
+      for (const id of consortIds) {
+        const ship = squadWorld.ships.find((entry) => entry.id === id)!;
+        expect(ship.dockVisits).toEqual([]);
+        expect(ship.homeDockChainId).toBeNull();
+      }
+    });
+
+    it("reduced-motion frame still places the squad in formation", () => {
+      const squadWorld = buildPharosVilleWorld(squadInputs());
+      const plan = buildMotionPlan(squadWorld, null);
+      const flagshipShip = squadWorld.ships.find((ship) => ship.id === "usds-sky")!;
+      for (const consortId of consortIds) {
+        const consortShip = squadWorld.ships.find((ship) => ship.id === consortId)!;
+        const flagSample = resolveShipMotionSample({ plan, reducedMotion: true, ship: flagshipShip, timeSeconds: 0 });
+        const consortSample = resolveShipMotionSample({ plan, reducedMotion: true, ship: consortShip, timeSeconds: 0 });
+        expect(Math.hypot(consortSample.tile.x - flagSample.tile.x, consortSample.tile.y - flagSample.tile.y)).toBeLessThan(4.5);
+      }
+    });
   });
 });
 

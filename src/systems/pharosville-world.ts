@@ -357,6 +357,19 @@ function assignDockVisits(ships: readonly ShipNode[], docks: readonly DockNode[]
   return ships
     .toSorted((a, b) => b.marketCapUsd - a.marketCapUsd || a.id.localeCompare(b.id))
     .map((ship) => {
+      // Squad consorts ride the flagship motion route — they don't dock.
+      // Strip dockVisits and homeDockChainId so motion-planning sees a clean
+      // dockless ship and consort routes inherit flagship route entirely.
+      if (ship.squadRole === "consort") {
+        return {
+          ...ship,
+          dockChainId: null,
+          dockVisits: [],
+          homeDockChainId: null,
+          tile: ship.riskTile,
+        };
+      }
+
       const visits = ship.chainPresence
         .filter((presence) => presence.hasRenderedDock)
         .flatMap((presence) => {
