@@ -130,6 +130,26 @@ export const SHIP_SAIL_TINT_MASKS: Record<string, SailMaskSpec> = {
       [[69, 76], [96, 72], [106, 91], [78, 89]],
     ],
   },
+  // Unique heritage hulls (136x100 sprites). Polygons trace the painted
+  // mainsail/rigging region of each PNG; coordinates are PNG-pixel-relative.
+  "ship.crvusd-unique": {
+    bounds: { x: 50, y: 20, width: 44, height: 45 },
+    polygons: [
+      [[51, 27], [70, 21], [93, 28], [88, 60], [60, 60], [55, 50]],
+    ],
+  },
+  "ship.xaut-unique": {
+    bounds: { x: 48, y: 22, width: 26, height: 24 },
+    polygons: [
+      [[51, 23], [73, 23], [70, 45], [52, 45]],
+    ],
+  },
+  "ship.paxg-unique": {
+    bounds: { x: 45, y: 19, width: 52, height: 50 },
+    polygons: [
+      [[46, 30], [73, 19], [96, 30], [90, 68], [50, 68]],
+    ],
+  },
 };
 
 export function recolorSailImageData(

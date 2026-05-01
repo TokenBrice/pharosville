@@ -3,10 +3,12 @@ import { MAKER_SQUAD_FLAGSHIP_ID } from "../../systems/maker-squad";
 import type { PharosVilleMotionPlan, ShipMotionSample } from "../../systems/motion";
 import type { PharosVilleWorld, ShipNode } from "../../systems/world-types";
 import type { LoadedPharosVilleAsset } from "../asset-manager";
+import * as canvasPrimitives from "../canvas-primitives";
 import type { ResolvedEntityGeometry } from "../geometry";
 import type { DrawPharosVilleInput } from "../render-types";
 import { SHIP_SAIL_TINT_MASKS } from "../ship-sail-tint";
 import {
+  drawShipBody,
   drawShipWake,
   drawSquadIdentityAccent,
   planShipRenderLod,
@@ -17,6 +19,15 @@ import {
   TITAN_SPRITE_IDS,
   type ShipRenderFrame,
 } from "./ships";
+
+vi.mock("../canvas-primitives", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../canvas-primitives")>();
+  return {
+    ...actual,
+    drawAsset: vi.fn(actual.drawAsset),
+    drawAnimatedAsset: vi.fn(actual.drawAnimatedAsset),
+  };
+});
 
 // --- Identity accent dispatch ----------------------------------------------
 
@@ -124,6 +135,106 @@ describe("Maker squad titan offset tables", () => {
       expect(SHIP_TRIM_MARKS[titanId]).toBeDefined();
       expect(SHIP_SAIL_TINT_MASKS[titanId]).toBeDefined();
     }
+  });
+});
+
+// --- Per-unique offset table coverage --------------------------------------
+
+describe("Unique ship offset tables", () => {
+  it("every unique-tier sprite is registered in all per-sprite offset tables", () => {
+    const uniqueIds = [
+      "ship.crvusd-unique",
+      "ship.xaut-unique",
+      "ship.paxg-unique",
+    ];
+    for (const uniqueId of uniqueIds) {
+      expect(SHIP_SAIL_MARKS[uniqueId]).toBeDefined();
+      expect(SHIP_PEG_MARKS[uniqueId]).toBeDefined();
+      expect(SHIP_TRIM_MARKS[uniqueId]).toBeDefined();
+      expect(SHIP_SAIL_TINT_MASKS[uniqueId]).toBeDefined();
+    }
+  });
+});
+
+// --- Static draw path for unique sprites -----------------------------------
+
+describe("drawShipBody for unique sprites", () => {
+  it("renders unique ships through the static drawAsset path, not drawAnimatedAsset", () => {
+    const drawAssetMock = vi.mocked(canvasPrimitives.drawAsset);
+    const drawAnimatedAssetMock = vi.mocked(canvasPrimitives.drawAnimatedAsset);
+    drawAssetMock.mockClear();
+    drawAnimatedAssetMock.mockClear();
+
+    const unique = makeShipNode({
+      id: "crvusd-curve",
+      tile: { x: 10, y: 10 },
+      visual: {
+        sizeTier: "unique",
+        spriteAssetId: "ship.crvusd-unique",
+        livery: {
+          label: "Curve livery",
+          source: "stablecoin-logo",
+          sailColor: "#d9ecdf",
+          primary: "#41956b",
+          accent: "#e8d6a4",
+          secondary: "#3a684a",
+          logoMatte: "#fbf3df",
+          logoShape: "circle",
+          sailPanel: "center",
+          stripePattern: "single",
+        },
+      },
+    });
+
+    const fakeAsset: LoadedPharosVilleAsset = {
+      entry: {
+        anchor: [68, 92],
+        category: "ship",
+        displayScale: 1,
+        footprint: [46, 22],
+        height: 100,
+        hitbox: [30, 4, 92, 90],
+        id: "ship.crvusd-unique",
+        layer: "ships",
+        loadPriority: "deferred",
+        path: "ships/crvusd-unique.png",
+        width: 136,
+      },
+      image: {} as HTMLImageElement,
+    };
+
+    const ctx = makeRecordingCtx();
+    const input = {
+      assets: null,
+      camera: { offsetX: 0, offsetY: 0, zoom: 1 },
+      ctx,
+      height: 600,
+      hoveredTarget: null,
+      motion: {
+        plan: makeMotionPlan([]),
+        reducedMotion: false,
+        timeSeconds: 0,
+        wallClockHour: 12,
+      },
+      selectedTarget: null,
+      shipMotionSamples: new Map<string, ShipMotionSample>(),
+      targets: [],
+      width: 800,
+      world: { ships: [unique] } as unknown as PharosVilleWorld,
+    } satisfies DrawPharosVilleInput;
+
+    const frame: ShipRenderFrame = {
+      cache: {
+        assetForEntity: () => fakeAsset,
+        geometryForEntity: () => makeGeometry(200, 100),
+      },
+      shipRenderStates: new Map(),
+    };
+
+    drawShipBody(input, frame, unique);
+
+    expect(drawAnimatedAssetMock).not.toHaveBeenCalled();
+    expect(drawAssetMock).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -499,7 +610,7 @@ describe("shipMastTopScreenPoint", () => {
 });
 
 describe("planShipRenderLod", () => {
-  it("keeps selected and titan ships in wake/overlay sets while budget-throttling dense fleets", () => {
+  it("keeps selected, titan, and unique ships in wake/overlay sets while budget-throttling dense fleets", () => {
     const selected = makeShipNode({
       id: "selected-local",
       detailId: "ship.selected-local",
@@ -512,13 +623,19 @@ describe("planShipRenderLod", () => {
       tile: { x: 10, y: 10 },
       visual: { sizeTier: "titan", spriteAssetId: "ship.usdc-titan" },
     });
+    const unique = makeShipNode({
+      id: "unique-major",
+      detailId: "ship.unique-major",
+      tile: { x: 11, y: 11 },
+      visual: { sizeTier: "unique", spriteAssetId: "ship.crvusd-unique" },
+    });
     const filler = Array.from({ length: 48 }, (_unused, index) => makeShipNode({
       id: `ship-${index}`,
       detailId: `ship.ship-${index}`,
       tile: { x: 12 + index * 0.2, y: 10 + index * 0.2 },
       visual: { sizeTier: "local" },
     }));
-    const visibleShips = [selected, titan, ...filler];
+    const visibleShips = [selected, titan, unique, ...filler];
 
     const input = {
       camera: { offsetX: 0, offsetY: 0, zoom: 0.9 },
@@ -556,6 +673,8 @@ describe("planShipRenderLod", () => {
     expect(lod.drawWakeShipIds.has(selected.id)).toBe(true);
     expect(lod.drawOverlayShipIds.has(titan.id)).toBe(true);
     expect(lod.drawWakeShipIds.has(titan.id)).toBe(true);
+    expect(lod.drawOverlayShipIds.has(unique.id)).toBe(true);
+    expect(lod.drawWakeShipIds.has(unique.id)).toBe(true);
     expect(lod.drawOverlayShipIds.size).toBeLessThan(visibleShips.length);
     expect(lod.drawWakeShipIds.size).toBeLessThan(visibleShips.length);
   });

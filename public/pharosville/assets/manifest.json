@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-05-01-harbor-trim-maker-squad-titans-v2",
+    "cacheVersion": "2026-05-01-unique-ships-v1",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": [
@@ -1167,6 +1167,120 @@
       "tool": "mcp:create_object+animate_object+pillow",
       "promptProvenance": {
         "jobId": "53962ddf-5896-4f0d-aa3f-508723e70038",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "ship.crvusd-unique",
+      "path": "ships/crvusd-unique.png",
+      "category": "ship",
+      "layer": "ships",
+      "width": 136,
+      "height": 100,
+      "displayScale": 1,
+      "anchor": [
+        68,
+        92
+      ],
+      "footprint": [
+        46,
+        22
+      ],
+      "hitbox": [
+        30,
+        4,
+        92,
+        90
+      ],
+      "loadPriority": "deferred",
+      "promptKey": "ship.crvusd-unique",
+      "semanticRole": "crvUSD heritage hull (unique tier)",
+      "paletteKeys": [
+        "limestone",
+        "deep navy",
+        "bronze beacon",
+        "teal sea",
+        "curve green"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
+      "promptProvenance": {
+        "jobId": "d45afa07-b9ab-4773-8b9a-06d52e75350a",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "ship.xaut-unique",
+      "path": "ships/xaut-unique.png",
+      "category": "ship",
+      "layer": "ships",
+      "width": 136,
+      "height": 100,
+      "displayScale": 1,
+      "anchor": [
+        68,
+        92
+      ],
+      "footprint": [
+        46,
+        22
+      ],
+      "hitbox": [
+        30,
+        4,
+        92,
+        90
+      ],
+      "loadPriority": "deferred",
+      "promptKey": "ship.xaut-unique",
+      "semanticRole": "xAUT heritage hull (unique tier)",
+      "paletteKeys": [
+        "limestone",
+        "deep navy",
+        "bronze beacon",
+        "teal sea",
+        "tether teal"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
+      "promptProvenance": {
+        "jobId": "300440ce",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "ship.paxg-unique",
+      "path": "ships/paxg-unique.png",
+      "category": "ship",
+      "layer": "ships",
+      "width": 136,
+      "height": 100,
+      "displayScale": 1,
+      "anchor": [
+        68,
+        92
+      ],
+      "footprint": [
+        46,
+        22
+      ],
+      "hitbox": [
+        30,
+        4,
+        92,
+        90
+      ],
+      "loadPriority": "deferred",
+      "promptKey": "ship.paxg-unique",
+      "semanticRole": "PAXG heritage hull (unique tier)",
+      "paletteKeys": [
+        "limestone",
+        "deep navy",
+        "bronze beacon",
+        "teal sea",
+        "warm gold"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
+      "promptProvenance": {
+        "jobId": "3516e5c3",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },
