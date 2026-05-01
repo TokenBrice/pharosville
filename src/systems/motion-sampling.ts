@@ -1,11 +1,24 @@
 import { MAX_TILE_X, MAX_TILE_Y } from "./world-layout";
-import { stableHash } from "./stable-random";
+import { stableHash, stableUnit } from "./stable-random";
 import { DOCKED_SHIP_DWELL_SHARE, ZONE_DWELL } from "./motion-config";
 import { squadForMember, squadFormationOffsetForPlacement } from "./maker-squad";
 import { sampleShipWaterPathInto as sampleWaterPathInto, sampleShipWaterPath as sampleWaterPath } from "./motion-water";
 import { clamp, normalizeHeadingInto, pathKey, positiveModulo, smoothstep, smoothstepRange } from "./motion-utils";
 import type { PharosVilleMotionPlan, ShipMotionRoute, ShipMotionRouteStop, ShipMotionSample, ShipMotionState, ShipWaterPath } from "./motion-types";
 import type { ShipNode, ShipWaterZone } from "./world-types";
+
+// Local type extensions for fields BETA's motion-types.ts change introduces.
+// Cast at the read site; the canonical declarations will replace these once
+// BETA's branch lands.
+type RouteWithFormation = ShipMotionRoute & {
+  formationOffset?: { dx: number; dy: number } | null;
+};
+type DockStopWithTangent = ShipMotionRoute["dockStops"][number] & {
+  dockTangent?: { x: number; y: number } | null;
+};
+type LedgerStopWithTangent = ShipMotionRouteStop & {
+  dockTangent?: { x: number; y: number } | null;
+};
 
 interface RouteSamplingRuntime {
   dockStopByDockId: ReadonlyMap<string, ShipMotionRoute["dockStops"][number]>;
@@ -91,6 +104,29 @@ export function createShipMotionSample(): ShipMotionSample {
 // Safe because resolveShipMotionSampleInto is synchronous and not re-entrant.
 const flagshipScratch: ShipMotionSample = createShipMotionSample();
 
+// Per-ship heading low-pass memory. Keyed by shipId (string) instead of ShipNode
+// because the ship object can be replaced across re-renders while the id is
+// stable. headingDelta caches angular velocity (rad/sec) so ship-pose can derive
+// bank-into-turn without recomputing.
+interface HeadingMemory {
+  hx: number;
+  hy: number;
+  lastT: number;
+  headingDelta: number;
+}
+const headingMemoryByShipId = new Map<string, HeadingMemory>();
+
+export function getShipHeadingDelta(shipId: string): number {
+  return headingMemoryByShipId.get(shipId)?.headingDelta ?? 0;
+}
+
+// Forward-difference scratch buffers used by transitSampleInto for the
+// lane-curve aware heading. We sample the lane-displaced point a small step
+// ahead and derive the tangent from the actual rendered trajectory.
+const aheadPointScratch: { x: number; y: number } = { x: 0, y: 0 };
+const aheadHeadingScratch: { x: number; y: number } = { x: 0, y: 0 };
+const aheadLaneScratch: { x: number; y: number } = { x: 0, y: 0 };
+
 export function resolveShipMotionSample(input: {
   plan: PharosVilleMotionPlan;
   reducedMotion: boolean;
@@ -135,14 +171,24 @@ export function resolveShipMotionSampleInto(input: {
     const flagshipRoute = squad ? input.plan.shipRoutes.get(squad.flagshipId) : undefined;
     if (squad && flagshipRoute) {
       sampleRouteCycleInto(flagshipRoute, input.timeSeconds, flagshipScratch);
-      const offset = squadFormationOffsetForPlacement(input.ship.id, squad, input.ship.riskPlacement)
+      // #13: prefer the route's cached formation offset (BETA writes it during
+      // plan build); fall back to live computation while that field is absent.
+      const cachedOffset = (route as RouteWithFormation).formationOffset;
+      const offset = cachedOffset
+        ?? squadFormationOffsetForPlacement(input.ship.id, squad, input.ship.riskPlacement)
         ?? { dx: 0, dy: 0 };
+      let tileX = flagshipScratch.tile.x + offset.dx;
+      let tileY = flagshipScratch.tile.y + offset.dy;
+      // #8: sub-tile breathing perturbation while the flagship is actively
+      // moving; skipped when moored/idle so docked formations stay glued.
+      if (flagshipScratch.state !== "moored" && flagshipScratch.state !== "idle") {
+        const phase = stableUnit(`${input.ship.id}.formation-breath`) * Math.PI * 2;
+        const t = input.timeSeconds;
+        tileX += Math.sin(t * 0.31 + phase) * 0.18;
+        tileY += Math.cos(t * 0.27 + phase * 1.1) * 0.14;
+      }
       out.shipId = input.ship.id;
-      clampMotionTileInto(
-        flagshipScratch.tile.x + offset.dx,
-        flagshipScratch.tile.y + offset.dy,
-        out.tile,
-      );
+      clampMotionTileInto(tileX, tileY, out.tile);
       out.state = flagshipScratch.state;
       out.zone = input.ship.riskZone;
       out.currentDockId = null;
@@ -303,6 +349,20 @@ function transitSampleInto(input: {
   transitLanePointInto(out.tile, out.heading, input.progress, input.runtime, transitTileScratch);
   out.tile.x = transitTileScratch.x;
   out.tile.y = transitTileScratch.y;
+
+  // #6: derive heading from the forward-difference along the lane-displaced
+  // trajectory rather than the raw path tangent. Without this, the lane bulge
+  // shifts position perpendicular while heading stays straight, producing a
+  // visible "crab" sideways motion.
+  const aheadProgress = Math.min(1, input.progress + 0.01);
+  sampleWaterPathInto(input.path, aheadProgress, aheadPointScratch, aheadHeadingScratch);
+  transitLanePointInto(aheadPointScratch, aheadHeadingScratch, aheadProgress, input.runtime, aheadLaneScratch);
+  const fdx = aheadLaneScratch.x - out.tile.x;
+  const fdy = aheadLaneScratch.y - out.tile.y;
+  if (fdx !== 0 || fdy !== 0) {
+    normalizeHeadingInto(fdx, fdy, out.heading);
+  }
+
   applyMooringBlendInto({
     progress: input.progress,
     route: input.route,
@@ -317,7 +377,64 @@ function transitSampleInto(input: {
   out.currentDockId = input.routeStop?.dockId ?? null;
   out.currentRouteStopId = input.routeStop?.id ?? null;
   out.currentRouteStopKind = input.routeStop?.kind ?? null;
-  out.wakeIntensity = transitWakeIntensityForZone(input.route.zone);
+
+  // #5: speed-aware wake. departing/arriving accelerate from rest and decelerate
+  // back to rest, so wake should peak mid-leg. sailing (open-water patrol) is
+  // mid-leg by construction and stays at full intensity.
+  const baseWake = transitWakeIntensityForZone(input.route.zone);
+  if (input.state === "departing" || input.state === "arriving") {
+    const speedEnvelope = 4 * input.progress * (1 - input.progress);
+    out.wakeIntensity = baseWake * speedEnvelope;
+  } else {
+    out.wakeIntensity = baseWake;
+  }
+
+  // #4: per-ship heading low-pass filter. Path-segment tangents jump at every
+  // internal waypoint vertex; without smoothing ships visibly twitch when
+  // crossing 4-connected A* corners. Skipped for moored/risk-drift (those have
+  // intentional orbital headings) and for reduced-motion (deterministic snapshot).
+  applyHeadingSmoothing(input.route.shipId, input.state, input.timeSeconds, out.heading);
+}
+
+function applyHeadingSmoothing(
+  shipId: string,
+  state: ShipMotionState,
+  timeSeconds: number,
+  heading: { x: number; y: number },
+): void {
+  const memory = headingMemoryByShipId.get(shipId);
+  if (memory) {
+    // Clamp dt: defends against tab-resume jumps where timeSeconds advances
+    // by minutes and the filter would otherwise snap straight to the target.
+    const dt = Math.max(0, Math.min(0.1, timeSeconds - memory.lastT));
+    // "arriving" turns sharper into the mooring; sailing/departing breathe.
+    const tau = state === "arriving" ? 0.06 : 0.18;
+    const alpha = 1 - Math.exp(-dt / tau);
+    const targetX = heading.x;
+    const targetY = heading.y;
+    const hx = memory.hx + (targetX - memory.hx) * alpha;
+    const hy = memory.hy + (targetY - memory.hy) * alpha;
+    normalizeHeadingInto(hx, hy, heading);
+
+    // Track signed angular velocity for ship-pose's bank-into-turn.
+    let headingDelta = 0;
+    if (dt > 0) {
+      const dot = memory.hx * heading.x + memory.hy * heading.y;
+      const cross = memory.hx * heading.y - memory.hy * heading.x;
+      headingDelta = Math.atan2(cross, dot) / dt;
+    }
+    memory.hx = heading.x;
+    memory.hy = heading.y;
+    memory.lastT = timeSeconds;
+    memory.headingDelta = headingDelta;
+    return;
+  }
+  headingMemoryByShipId.set(shipId, {
+    hx: heading.x,
+    hy: heading.y,
+    lastT: timeSeconds,
+    headingDelta: 0,
+  });
 }
 
 function applyMooringBlendInto(input: {
@@ -463,8 +580,26 @@ function mooredSampleInto(
   out.currentDockId = stop.dockId;
   out.currentRouteStopId = stop.id;
   out.currentRouteStopKind = stop.kind;
-  normalizeHeadingInto(-Math.sin(angle), Math.cos(angle * 0.9), out.heading);
+  // #9: anchor heading around the dock's natural mooring axis when available
+  // so moored boats sway around their berth instead of pivoting full-circle.
+  // Falls back to the legacy Lissajous when BETA's dockTangent is absent.
+  writeMooredHeading((stop as DockStopWithTangent).dockTangent ?? null, angle, out.heading);
   out.wakeIntensity = 0.05;
+}
+
+function writeMooredHeading(
+  dockTangent: { x: number; y: number } | null,
+  angle: number,
+  heading: { x: number; y: number },
+): void {
+  if (dockTangent) {
+    const sway = 0.08;
+    const swayX = -Math.sin(angle) * sway;
+    const swayY = Math.cos(angle * 0.9) * sway;
+    normalizeHeadingInto(dockTangent.x + swayX, dockTangent.y + swayY, heading);
+    return;
+  }
+  normalizeHeadingInto(-Math.sin(angle), Math.cos(angle * 0.9), heading);
 }
 
 function mooredSeedFor(
@@ -560,7 +695,8 @@ function mooredRouteStopSampleInto(
   out.currentDockId = null;
   out.currentRouteStopId = stop.id;
   out.currentRouteStopKind = stop.kind;
-  normalizeHeadingInto(-Math.sin(angle), Math.cos(angle * 0.9), out.heading);
+  // #9: same dock-aligned mooring heading treatment as mooredSampleInto.
+  writeMooredHeading((stop as LedgerStopWithTangent).dockTangent ?? null, angle, out.heading);
   out.wakeIntensity = 0.03;
 }
 

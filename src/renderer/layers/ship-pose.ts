@@ -1,6 +1,10 @@
 import { stableUnit } from "../../systems/stable-random";
+import { getShipHeadingDelta } from "../../systems/motion-sampling";
 import type { ShipMotionSample, ShipMotionState } from "../../systems/motion";
 import type { ShipSizeTier, ShipWaterZone } from "../../systems/world-types";
+
+const BANK_GAIN = 0.18;
+const BANK_MAX = 0.06;
 
 const TWO_PI = Math.PI * 2;
 const NON_TITAN_BOB_PIXELS = 2;
@@ -78,8 +82,14 @@ export function resolveShipPose(input: ShipPoseInput): ShipPose {
 
   if (isTransitState(state)) {
     const wake = clamp((0.18 + wakeIntensity * 0.82) * (0.86 + roughness * 0.14) * (0.9 + headingMagnitude * 0.1), 0, 1);
+    // Bank into turns proportional to angular velocity. headingDelta is the
+    // signed rad/sec the heading has rotated this sample, cached by the
+    // sampler's low-pass filter. Real boats heel into a turn; this couples
+    // the visual roll to the ship's actual rotation rate.
+    const headingDelta = getShipHeadingDelta(input.shipId);
+    const bank = Math.max(-BANK_MAX, Math.min(BANK_MAX, headingDelta * BANK_GAIN));
     return {
-      rollRadians: sea * 0.026 * roughness * (0.82 + wakeIntensity * 0.46) + headingLean * 0.012,
+      rollRadians: sea * 0.026 * roughness * (0.82 + wakeIntensity * 0.46) + headingLean * 0.012 + bank,
       bobPixels: swell * 3.1 * zoom * roughness * (0.82 + wakeIntensity * 0.34),
       sailFlutter: clamp(0.52 + flutter * 0.24 + wakeIntensity * 0.08, 0, 1),
       bowWake: wake,

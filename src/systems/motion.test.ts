@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { denseFixtureChains, denseFixturePegSummary, denseFixtureReportCards, denseFixtureStablecoins, denseFixtureStress, fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoins, fixtureStability, fixtureStress, fixtureWithFlagshipPlacement, makeAsset, makeChain, makePegCoin, makerSquadFixtureInputs } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import { buildBaseMotionPlan, buildMotionPlan, buildShipWaterRoute, isShipMapVisible, lighthouseFireFlickerSpeed, motionPlanSignature, resolveShipMotionSample, sampleShipWaterPath, shipWaterPathKey, stableMotionPhase, type ShipDockMotionStop } from "./motion";
+import { getShipHeadingDelta } from "./motion-sampling";
 import { squadForMember, squadFormationOffsetForPlacement } from "./maker-squad";
 import { isSeawallBarrierTile, seawallBarrierDistance } from "./seawall";
 import { buildPharosVilleMap, isWaterTileKind, terrainKindAt, tileKindAt } from "./world-layout";
@@ -358,8 +359,15 @@ describe("motion", () => {
         const consortSample = resolveShipMotionSample({ plan, reducedMotion: false, ship: consort, timeSeconds });
         flagshipStates.add(flagshipSample.state);
 
-        expect(consortSample.tile.x - flagshipSample.tile.x).toBeCloseTo(offset.dx, 5);
-        expect(consortSample.tile.y - flagshipSample.tile.y).toBeCloseTo(offset.dy, 5);
+        if (flagshipSample.state === "moored" || flagshipSample.state === "idle") {
+          // Moored/idle: consort holds an exact integer offset (no breathing).
+          expect(consortSample.tile.x - flagshipSample.tile.x).toBeCloseTo(offset.dx, 5);
+          expect(consortSample.tile.y - flagshipSample.tile.y).toBeCloseTo(offset.dy, 5);
+        } else {
+          // Transit: sub-tile breathing perturbation may be added; tolerate it.
+          expect(consortSample.tile.x - flagshipSample.tile.x).toBeCloseTo(offset.dx, 0);
+          expect(consortSample.tile.y - flagshipSample.tile.y).toBeCloseTo(offset.dy, 0);
+        }
         // Consort doesn't actually visit chain docks even when shadowing a moored flagship.
         expect(consortSample.currentDockId).toBeNull();
         expect(consortSample.currentRouteStopId).toBeNull();
@@ -933,6 +941,154 @@ describe("motion", () => {
   it("uses deterministic per-entity phases", () => {
     expect(stableMotionPhase("usdt-tether")).toBe(stableMotionPhase("usdt-tether"));
     expect(stableMotionPhase("usdt-tether")).not.toBe(stableMotionPhase("usdc-circle"));
+  });
+
+  describe("liveliness improvements", () => {
+    // Multi-chain world so the route has scheduled dock stops + transits we can
+    // sample mid-leg. We dial in the time to a known departing/arriving phase.
+    const buildLivelinessWorld = () => worldForShip({
+      chainCirculating: chainCirculating(["Ethereum", "Tron", "Solana"]),
+      chains: ["ethereum", "tron", "solana"],
+    });
+
+    function findTransitTime(plan: ReturnType<typeof buildMotionPlan>, ship: PharosVilleWorld["ships"][number], state: "departing" | "arriving" | "sailing"): number | null {
+      const route = plan.shipRoutes.get(ship.id)!;
+      for (let index = 0; index < 240; index += 1) {
+        const timeSeconds = route.cycleSeconds * (index / 240) - route.phaseSeconds;
+        const sample = resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds });
+        if (sample.state === state) return timeSeconds;
+      }
+      return null;
+    }
+
+    it("low-pass filters per-ship transit heading instead of snapping", () => {
+      const sampleWorld = buildLivelinessWorld();
+      const ship = sampleWorld.ships[0]!;
+      const plan = buildMotionPlan(sampleWorld, ship.detailId);
+      const transitTime = findTransitTime(plan, ship, "departing") ?? findTransitTime(plan, ship, "arriving");
+      expect(transitTime).not.toBeNull();
+
+      const dt = 0.016; // 16ms; one render frame.
+      const first = resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds: transitTime! });
+      const firstHeading = { x: first.heading.x, y: first.heading.y };
+      const second = resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds: transitTime! + dt });
+
+      // Filter must keep the heading well-formed (unit length, finite).
+      const magnitude = Math.hypot(second.heading.x, second.heading.y);
+      expect(magnitude).toBeGreaterThan(0.99);
+      expect(magnitude).toBeLessThan(1.01);
+
+      // With tau between 0.06 and 0.18 and dt=0.016, alpha is at most
+      // 1 - exp(-0.016/0.06) ~= 0.234. The angular delta from `first` to
+      // `second` must therefore be a fraction of any large raw jump.
+      const angleDelta = Math.abs(Math.atan2(
+        firstHeading.x * second.heading.y - firstHeading.y * second.heading.x,
+        firstHeading.x * second.heading.x + firstHeading.y * second.heading.y,
+      ));
+      expect(angleDelta).toBeLessThan(0.6); // < ~34 degrees per frame
+    });
+
+    it("peaks departing/arriving wake mid-leg (parabolic envelope)", () => {
+      const sampleWorld = buildLivelinessWorld();
+      const ship = sampleWorld.ships[0]!;
+      const plan = buildMotionPlan(sampleWorld, ship.detailId);
+      const route = plan.shipRoutes.get(ship.id)!;
+
+      // Walk the cycle and observe wake across the departing/arriving windows.
+      // The parabolic envelope means the minimum wake in any leg sits near the
+      // edges (progress ~0 or ~1) and the maximum sits mid-leg.
+      let minWake = Number.POSITIVE_INFINITY;
+      let maxWake = 0;
+      const samples = 480;
+      for (let index = 0; index < samples; index += 1) {
+        const timeSeconds = route.cycleSeconds * (index / samples) - route.phaseSeconds;
+        const sample = resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds });
+        if (sample.state !== "departing" && sample.state !== "arriving") continue;
+        minWake = Math.min(minWake, sample.wakeIntensity);
+        maxWake = Math.max(maxWake, sample.wakeIntensity);
+      }
+
+      expect(maxWake).toBeGreaterThan(minWake);
+      // Edge wake must be a clear fraction of peak; with a parabolic envelope
+      // sampled at progress~0.05/0.95 it is 0.19 * peak, so 0.5 * peak is a
+      // safe upper bound.
+      expect(minWake).toBeLessThan(maxWake * 0.5);
+    });
+
+    it("bank stays bounded across a full cycle (no runaway angular velocity)", () => {
+      const sampleWorld = buildLivelinessWorld();
+      const ship = sampleWorld.ships[0]!;
+      const plan = buildMotionPlan(sampleWorld, ship.detailId);
+      const route = plan.shipRoutes.get(ship.id)!;
+
+      // Walk the cycle in tight steps and confirm headingDelta never explodes.
+      // A small dt (~0.05s) keeps angular velocity well within reasonable bounds
+      // for any realistic transit path; a runaway value would indicate the
+      // smoothing math is broken or the WeakMap got polluted.
+      let maxAbs = 0;
+      const dt = 0.05;
+      for (let index = 0; index < 200; index += 1) {
+        const timeSeconds = route.cycleSeconds * (index / 200) - route.phaseSeconds;
+        resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds });
+        resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds: timeSeconds + dt });
+        const delta = Math.abs(getShipHeadingDelta(ship.id));
+        if (Number.isFinite(delta)) maxAbs = Math.max(maxAbs, delta);
+      }
+      expect(maxAbs).toBeLessThan(Math.PI / dt); // less than half-revolution per step
+      expect(getShipHeadingDelta("nonexistent-ship-id")).toBe(0);
+    });
+
+    it("keeps formation glued (no breathing) while flagship is moored", () => {
+      const squadWorld = buildPharosVilleWorld(makerSquadFixtureInputs());
+      const plan = buildMotionPlan(squadWorld, null);
+      const flagship = squadWorld.ships.find((ship) => ship.id === "usds-sky")!;
+      const consort = squadWorld.ships.find((ship) => ship.id === "susds-sky")!;
+      const flagshipRoute = plan.shipRoutes.get(flagship.id)!;
+      const squad = squadForMember(consort.id)!;
+      const offset = squadFormationOffsetForPlacement(consort.id, squad, flagship.riskPlacement)!;
+
+      let inspectedMoored = 0;
+      const samples = 240;
+      for (let index = 0; index < samples; index += 1) {
+        const timeSeconds = flagshipRoute.cycleSeconds * (index / samples) - flagshipRoute.phaseSeconds;
+        const flagshipSample = resolveShipMotionSample({ plan, reducedMotion: false, ship: flagship, timeSeconds });
+        if (flagshipSample.state !== "moored") continue;
+        const consortSample = resolveShipMotionSample({ plan, reducedMotion: false, ship: consort, timeSeconds });
+        // Moored: consort tile must equal flagship tile + integer offset exactly.
+        expect(consortSample.tile.x - flagshipSample.tile.x).toBeCloseTo(offset.dx, 5);
+        expect(consortSample.tile.y - flagshipSample.tile.y).toBeCloseTo(offset.dy, 5);
+        inspectedMoored += 1;
+      }
+      expect(inspectedMoored).toBeGreaterThan(0);
+    });
+
+    it("breathes consort sub-tile offsets while flagship is in transit", () => {
+      const squadWorld = buildPharosVilleWorld(makerSquadFixtureInputs());
+      const plan = buildMotionPlan(squadWorld, null);
+      const flagship = squadWorld.ships.find((ship) => ship.id === "usds-sky")!;
+      const consort = squadWorld.ships.find((ship) => ship.id === "susds-sky")!;
+      const flagshipRoute = plan.shipRoutes.get(flagship.id)!;
+      const squad = squadForMember(consort.id)!;
+      const offset = squadFormationOffsetForPlacement(consort.id, squad, flagship.riskPlacement)!;
+
+      let observedBreathing = false;
+      const samples = 480;
+      for (let index = 0; index < samples; index += 1) {
+        const timeSeconds = flagshipRoute.cycleSeconds * (index / samples) - flagshipRoute.phaseSeconds;
+        const flagshipSample = resolveShipMotionSample({ plan, reducedMotion: false, ship: flagship, timeSeconds });
+        if (flagshipSample.state === "moored" || flagshipSample.state === "idle") continue;
+        const consortSample = resolveShipMotionSample({ plan, reducedMotion: false, ship: consort, timeSeconds });
+        const breathDx = consortSample.tile.x - flagshipSample.tile.x - offset.dx;
+        const breathDy = consortSample.tile.y - flagshipSample.tile.y - offset.dy;
+        if (Math.hypot(breathDx, breathDy) > 0.02) {
+          observedBreathing = true;
+          // Breathing must stay sub-tile (well below 1 tile).
+          expect(Math.abs(breathDx)).toBeLessThan(0.5);
+          expect(Math.abs(breathDy)).toBeLessThan(0.5);
+        }
+      }
+      expect(observedBreathing).toBe(true);
+    });
   });
 
   describe("Stablecoin squad motion inheritance", () => {
