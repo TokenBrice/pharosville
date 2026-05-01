@@ -11,6 +11,10 @@ import {
   findDocumentedNpmRunCommands,
   findPathReferencesInMarkdown,
 } from "./check-doc-paths-and-scripts.mjs";
+import {
+  checkOnboardingDocs,
+  findOnboardingDocFindings,
+} from "./check-agent-onboarding-docs.mjs";
 import { evaluateBundleBudgets } from "./check-bundle-size.mjs";
 
 const neutralValue = ["alpha", "beta", "gamma", "9876543210"].join("_");
@@ -66,6 +70,28 @@ assert.deepEqual(
   result.missingPaths.map((finding) => join(finding.checkedPath)),
   ["src/missing.ts"],
 );
+
+const onboardingLintFindings = findOnboardingDocFindings(
+  "docs/pharosville/TESTING.md",
+  "Store candidates in `output/pharosville/pixellab-prototypes/` and use /agents/ for planing artifacts.",
+);
+assert.equal(onboardingLintFindings.some((finding) => finding.id === "legacy-output-path"), true);
+assert.equal(onboardingLintFindings.some((finding) => finding.id === "planning-typo"), true);
+
+const onboardingCheck = checkOnboardingDocs({
+  markdownFiles: [
+    {
+      path: "AGENTS.md",
+      text: "Use /agents/ for planning artifacts.",
+    },
+    {
+      path: "CLAUDE.md",
+      text: "# Claude Guide",
+    },
+  ],
+});
+assert.equal(onboardingCheck.findings.some((finding) => finding.id === "agents-onboarding-link"), true);
+assert.equal(onboardingCheck.findings.some((finding) => finding.id === "claude-canonical-link"), true);
 
 const passingBundle = evaluateBundleBudgets([
   { fileName: "index-a1.js", gzipBytes: 10, rawBytes: 100, type: "js" },

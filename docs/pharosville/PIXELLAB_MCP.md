@@ -15,7 +15,7 @@ visual-invariant rules.
   copied into docs, committed, embedded in prompts, or exposed as `VITE_*`.
 - PixelLab download URLs and job IDs are generation provenance only. Runtime code
   must use local PNG files under `public/pharosville/assets/` and manifest IDs.
-- Keep candidates in scratch space such as `output/pharosville/pixellab-prototypes/`
+- Keep candidates in scratch space such as `outputs/pharosville/pixellab-prototypes/`
   until a specific PNG is accepted for runtime.
 - If MCP tools are unavailable, say PixelLab MCP is not configured. Do not fall
   back to unauthenticated curl calls against MCP endpoints.

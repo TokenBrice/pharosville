@@ -6,6 +6,7 @@ Goal: maintain durable maintenance, asset, and validation notes for `/pharosvill
 
 ## Start Here
 
+- `AGENT_ONBOARDING.md` — fast startup sequence, required conventions, and task-to-command lanes for agents.
 - `CURRENT.md` — current source of truth for PharosVille maintenance work, live route entrypoints, invariants, and known boundaries.
 - `CHANGE_CHECKLIST.md` — pre-edit and pre-claim checklist for future PharosVille changes.
 - `CHANGE_PLAYBOOK.md` — task-type decision tree from request to files, docs, and focused checks.

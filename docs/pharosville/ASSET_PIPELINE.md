@@ -6,7 +6,7 @@ This is the agent-facing workflow for PharosVille raster assets. Runtime asset t
 
 ## Asset Rules
 
-- Generate or stage candidates under local scratch space first, such as `output/pharosville/pixellab-prototypes/`.
+- Generate or stage candidates under local scratch space first, such as `outputs/pharosville/pixellab-prototypes/`.
 - Promote selected PNGs to `public/pharosville/assets/` only after they are chosen for runtime use.
 - Runtime code must reference local manifest asset IDs, not remote generation URLs, tokens, or prototype paths.
 - Every runtime PNG needs a manifest entry with accurate dimensions, anchor, footprint, hitbox, layer/category, load priority, semantic role when useful, and prompt provenance.
@@ -114,7 +114,7 @@ Preferred constraints:
 
 ## Promotion Checklist
 
-1. Save candidate PNGs under local scratch space such as `output/pharosville/pixellab-prototypes/`.
+1. Save candidate PNGs under local scratch space such as `outputs/pharosville/pixellab-prototypes/`.
 2. For PixelLab review packs, use `get_object` to inspect candidates, then
    `select_object_frames` for keepers or `dismiss_review` for rejects.
 3. Select one candidate and copy only the chosen production asset into `public/pharosville/assets/...`.

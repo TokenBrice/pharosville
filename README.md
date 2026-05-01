@@ -4,11 +4,25 @@ Standalone PharosVille frontend for `pharosville.pharos.watch`.
 
 The browser reads same-origin `/api/*` paths. Cloudflare Pages Functions allow only the six PharosVille read endpoints and inject `PHAROS_API_KEY` server-side, so no API key is shipped to the client bundle.
 
+## Agent Onboarding
+
+For agent-oriented startup, guardrails, and focused command lanes:
+
+- `AGENTS.md`
+- `docs/pharosville/AGENT_ONBOARDING.md`
+
+Run the onboarding/environment check:
+
+```bash
+npm run onboard:agent
+```
+
 ## Commands
 
 ```bash
 npm ci
 npm run dev
+npm run validate:docs
 npm run typecheck
 npm test
 npm run check:pharosville-assets
@@ -16,6 +30,19 @@ npm run check:pharosville-colors
 npm run build
 npm run test:visual
 ```
+
+## Local API Key For Worktrees
+
+`npm run dev` proxies same-origin `/api/*` through `functions/api/[[path]].ts`, which requires `PHAROS_API_KEY` server-side.
+
+The dev proxy resolves `PHAROS_API_KEY` in this order:
+
+1. `process.env.PHAROS_API_KEY`
+2. `.env.local` in the current worktree
+3. `.env.local` in the main worktree (auto-discovered for linked worktrees)
+4. `.git/pharosville.env.local` (shared across worktrees)
+
+Use `npm run onboard:agent` to confirm whether the key is discoverable before debugging missing ships/data in local dev.
 
 To install the optional local pre-push gate for direct `main` pushes:
 

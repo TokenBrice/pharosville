@@ -2,8 +2,9 @@
 
 Applies to the whole standalone `pharosville` repository.
 
-Use /agents/ for planing artifacts, with subfolder organization as optimized.
-Use /outputs/ to store screenshot, rendering, test sprites, and other temporary files
+Use `/agents/` for planning artifacts, with subfolder organization as needed.
+Use `/outputs/` to store screenshots, renders, test sprites, and other temporary files.
+Legacy `/output/` content may exist, but new scratch artifacts should go under `/outputs/`.
 
 
 ## Scope
@@ -23,6 +24,7 @@ Use /outputs/ to store screenshot, rendering, test sprites, and other temporary 
 
 ## Read First
 
+- `docs/pharosville/AGENT_ONBOARDING.md` for the quickest safe startup path.
 - `README.md` for commands and deployment shape.
 - `docs/pharosville/CURRENT.md` for current implementation boundaries.
 - `docs/pharosville/CHANGE_CHECKLIST.md` before non-trivial UI, asset, renderer, or data-model changes.
@@ -43,6 +45,8 @@ Use /outputs/ to store screenshot, rendering, test sprites, and other temporary 
 Use the smallest focused check while developing. Before publishing or claiming broad completion, run:
 
 ```bash
+npm run onboard:agent
+npm run validate:docs
 npm run typecheck
 npm test
 npm run check:pharosville-assets

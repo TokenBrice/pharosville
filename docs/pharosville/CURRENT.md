@@ -176,13 +176,14 @@ generic water.
 
 ## Agent Workflow
 
-1. Read `docs/pharosville-page.md`, this file, `CHANGE_CHECKLIST.md`, and `TESTING.md`.
-2. Use `CHANGE_PLAYBOOK.md` to classify the task and choose the smallest relevant source/doc/test set.
-3. For visual semantics, read `VISUAL_INVARIANTS.md`; for fixture or browser coverage, read `SCENARIO_CATALOG.md` and `VISUAL_REVIEW_ATLAS.md`.
-4. For visual/asset changes, also read `ASSET_PIPELINE.md`; for PixelLab sprite generation, read `PIXELLAB_MCP.md`; for repeat-risk checks, read `KNOWN_PITFALLS.md`.
-5. Run `git status --short` before editing. Preserve existing dirty work and inspect any file you intend to touch.
-6. Keep code changes surgical and route-local unless the user asks for broader behavior.
-7. Update `docs/pharosville-page.md` only when route behavior changes. Update this maintenance pack when process, ownership, or handoff guidance changes.
+1. Read `docs/pharosville/AGENT_ONBOARDING.md`.
+2. Read `docs/pharosville-page.md`, this file, `CHANGE_CHECKLIST.md`, and `TESTING.md`.
+3. Use `CHANGE_PLAYBOOK.md` to classify the task and choose the smallest relevant source/doc/test set.
+4. For visual semantics, read `VISUAL_INVARIANTS.md`; for fixture or browser coverage, read `SCENARIO_CATALOG.md` and `VISUAL_REVIEW_ATLAS.md`.
+5. For visual/asset changes, also read `ASSET_PIPELINE.md`; for PixelLab sprite generation, read `PIXELLAB_MCP.md`; for repeat-risk checks, read `KNOWN_PITFALLS.md`.
+6. Run `git status --short` before editing. Preserve existing dirty work and inspect any file you intend to touch.
+7. Keep code changes surgical and route-local unless the user asks for broader behavior.
+8. Update `docs/pharosville-page.md` only when route behavior changes. Update this maintenance pack when process, ownership, or handoff guidance changes.
 
 ## Local Code Orientation
 

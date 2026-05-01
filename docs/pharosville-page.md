@@ -200,6 +200,7 @@ Update this file when any of the following change:
 Related docs to check in the same change:
 
 - [README.md](../README.md)
+- [AGENT_ONBOARDING.md](./pharosville/AGENT_ONBOARDING.md)
 - [CURRENT.md](./pharosville/CURRENT.md)
 - [TESTING.md](./pharosville/TESTING.md)
 - [VISUAL_INVARIANTS.md](./pharosville/VISUAL_INVARIANTS.md)

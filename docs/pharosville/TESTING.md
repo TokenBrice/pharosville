@@ -99,7 +99,13 @@ npm run validate:release
 
 ## Docs-Only Maintenance Changes
 
-For changes limited to PharosVille docs, run grep checks for stale standalone drift:
+For changes limited to PharosVille docs, run:
+
+```bash
+npm run validate:docs
+```
+
+And keep grep checks for stale standalone drift when needed:
 
 Run `rg` over `README.md`, `docs/pharosville`, `docs/pharosville-page.md`, and shared agent notes for former route paths and removed script names. Matches should be historical/tracker context only, not live instructions.
 

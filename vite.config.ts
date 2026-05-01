@@ -1,5 +1,6 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath, URL } from "node:url";
@@ -7,10 +8,11 @@ import { onRequest as pharosVilleApiProxy } from "./functions/api/[[path]]";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const pharosVilleDesktopQuery = "(min-width: 1280px) and (min-height: 760px)";
+const PHAROS_SHARED_ENV_FILE = "pharosville.env.local";
 
-function loadLooseLocalPharosEnv(): Record<string, string> {
+function parseLoosePharosEnvFile(filePath: string): Record<string, string> {
   try {
-    const file = readFileSync(join(root, ".env.local"), "utf8");
+    const file = readFileSync(filePath, "utf8");
     return Object.fromEntries(file.split(/\r?\n/).flatMap((line) => {
       const match = line.match(/^\s*(PHAROS_API_(?:BASE|KEY))\s*(?:=|:)\s*(.*?)\s*$/);
       if (!match) return [];
@@ -22,6 +24,36 @@ function loadLooseLocalPharosEnv(): Record<string, string> {
   }
 }
 
+function resolveGitCommonDir(): string | null {
+  try {
+    const rawPath = execFileSync("git", ["rev-parse", "--git-common-dir"], { cwd: root })
+      .toString("utf8")
+      .trim();
+    if (!rawPath) return null;
+    return isAbsolute(rawPath) ? rawPath : resolve(root, rawPath);
+  } catch {
+    return null;
+  }
+}
+
+function loadWorktreeSharedPharosEnv(): Record<string, string> {
+  const commonDir = resolveGitCommonDir();
+  if (!commonDir) return {};
+
+  const commonRoot = dirname(commonDir);
+  const merged: Record<string, string> = {};
+  const candidateFiles = [
+    commonRoot !== root ? join(commonRoot, ".env.local") : null,
+    join(commonDir, PHAROS_SHARED_ENV_FILE),
+  ].filter((value): value is string => Boolean(value));
+
+  for (const filePath of candidateFiles) {
+    Object.assign(merged, parseLoosePharosEnvFile(filePath));
+  }
+
+  return merged;
+}
+
 function localPharosVilleApiProxy(env: { PHAROS_API_BASE?: string; PHAROS_API_KEY?: string }): Plugin {
   return {
     name: "local-pharosville-api-proxy",
@@ -30,6 +62,16 @@ function localPharosVilleApiProxy(env: { PHAROS_API_BASE?: string; PHAROS_API_KE
       server.middlewares.use(async (req, res, next) => {
         if (!req.url?.startsWith("/api/")) {
           next();
+          return;
+        }
+
+        if (!env.PHAROS_API_KEY?.trim()) {
+          res.statusCode = 500;
+          res.setHeader("content-type", "application/json");
+          res.end(JSON.stringify({
+            error: "Local PharosVille API proxy is not configured",
+            hint: "Set PHAROS_API_KEY in .env.local, main worktree .env.local, or .git/pharosville.env.local.",
+          }));
           return;
         }
 
@@ -89,7 +131,7 @@ function desktopChunkModulePreload(): Plugin {
 
 export default defineConfig(({ mode }) => {
   const env = {
-    ...loadLooseLocalPharosEnv(),
+    ...loadWorktreeSharedPharosEnv(),
     ...loadEnv(mode, root, "PHAROS_API_"),
     ...process.env,
   };

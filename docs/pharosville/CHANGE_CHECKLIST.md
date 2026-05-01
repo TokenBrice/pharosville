@@ -6,6 +6,7 @@ Use this checklist for future standalone PharosVille work. Keep it agent-facing 
 
 ## Before Editing
 
+- Read `docs/pharosville/AGENT_ONBOARDING.md`.
 - Read `docs/pharosville-page.md`, `docs/pharosville/CURRENT.md`, and `docs/pharosville/TESTING.md`.
 - For asset work, also read `docs/pharosville/ASSET_PIPELINE.md`.
 - For PixelLab sprite generation, also read `docs/pharosville/PIXELLAB_MCP.md`.
@@ -34,6 +35,11 @@ Use this checklist for future standalone PharosVille work. Keep it agent-facing 
 Choose the narrowest relevant checks from `TESTING.md`, then broaden when the change touches shared route behavior.
 
 Minimum for docs-only agent changes: run `rg` over `README.md`, `docs/pharosville`, `docs/pharosville-page.md`, and shared agent notes for former route paths and removed script names.
+Prefer the automated docs lane:
+
+```bash
+npm run validate:docs
+```
 
 Minimum for PharosVille implementation changes:
 
