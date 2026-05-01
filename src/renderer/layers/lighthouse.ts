@@ -110,6 +110,16 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
 const FALLBACK_LANTERN_TIP_RGB = { r: 240, g: 140, b: 70 };
 const LANTERN_TIP_RGB_CACHE = new Map<string, { r: number; g: number; b: number }>();
 
+type NightGradientBundle = {
+  diffuse: CanvasGradient;
+  core: CanvasGradient;
+  pool: CanvasGradient;
+};
+
+const NIGHT_GRADIENT_CACHE_LIMIT = 16;
+// Camera-derived inputs make the working set tiny; LRU evicts on overflow.
+const nightGradientCache = new Map<string, NightGradientBundle>();
+
 export function drawLighthouseHeadland(input: DrawPharosVilleInput) {
   const { assets, camera, ctx, world } = input;
   const headland = assets?.get("overlay.lighthouse-headland");
@@ -604,34 +614,21 @@ export function drawLighthouseNightHighlights(
   const zoom = camera.zoom;
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
 
+  const gradients = getNightGradientBundle(ctx, firePoint, zoom, nightFactor);
+
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
 
   // Wide diffuse fill — very low-alpha wash that gently illuminates the entire
   // island and surrounding water rather than blasting from the center.
-  const diffuse = ctx.createRadialGradient(
-    firePoint.x, firePoint.y, 60 * zoom,
-    firePoint.x, firePoint.y, 1500 * zoom,
-  );
-  diffuse.addColorStop(0, `rgba(215, 210, 192, ${0.13 * nightFactor})`);
-  diffuse.addColorStop(0.6, `rgba(190, 200, 180, ${0.045 * nightFactor})`);
-  diffuse.addColorStop(1, "rgba(160, 180, 160, 0)");
-  ctx.fillStyle = diffuse;
+  ctx.fillStyle = gradients.diffuse;
   ctx.beginPath();
   ctx.arc(firePoint.x, firePoint.y, 1500 * zoom, 0, Math.PI * 2);
   ctx.fill();
 
   // Core — softer and wider than before; just enough to read as a light source
   // without creating a blinding white hotspot on top of the diffuse wash.
-  const coreAlpha = 0.17 * nightFactor;
-  const core = ctx.createRadialGradient(
-    firePoint.x, firePoint.y, 0,
-    firePoint.x, firePoint.y, 68 * zoom,
-  );
-  core.addColorStop(0, `rgba(255, 255, 248, ${coreAlpha})`);
-  core.addColorStop(0.4, `rgba(255, 248, 210, ${coreAlpha * 0.50})`);
-  core.addColorStop(1, "rgba(255, 230, 150, 0)");
-  ctx.fillStyle = core;
+  ctx.fillStyle = gradients.core;
   ctx.beginPath();
   ctx.arc(firePoint.x, firePoint.y, 68 * zoom, 0, Math.PI * 2);
   ctx.fill();
@@ -724,6 +721,46 @@ export function drawLighthouseNightHighlights(
   ctx.save();
   const poolY = firePoint.y + 36 * zoom;
   const poolRadius = NIGHT_WATER_POOL_RADIUS * zoom;
+  ctx.fillStyle = gradients.pool;
+  ctx.beginPath();
+  ctx.ellipse(firePoint.x, poolY, poolRadius, poolRadius * 0.55, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function getNightGradientBundle(
+  ctx: CanvasRenderingContext2D,
+  firePoint: ScreenPoint,
+  zoom: number,
+  nightFactor: number,
+): NightGradientBundle {
+  const key = `${firePoint.x | 0}:${firePoint.y | 0}:${(zoom * 100) | 0}:${(nightFactor * 20) | 0}`;
+  const hit = nightGradientCache.get(key);
+  if (hit) {
+    nightGradientCache.delete(key);
+    nightGradientCache.set(key, hit);
+    return hit;
+  }
+
+  const diffuse = ctx.createRadialGradient(
+    firePoint.x, firePoint.y, 60 * zoom,
+    firePoint.x, firePoint.y, 1500 * zoom,
+  );
+  diffuse.addColorStop(0, `rgba(215, 210, 192, ${0.13 * nightFactor})`);
+  diffuse.addColorStop(0.6, `rgba(190, 200, 180, ${0.045 * nightFactor})`);
+  diffuse.addColorStop(1, "rgba(160, 180, 160, 0)");
+
+  const coreAlpha = 0.17 * nightFactor;
+  const core = ctx.createRadialGradient(
+    firePoint.x, firePoint.y, 0,
+    firePoint.x, firePoint.y, 68 * zoom,
+  );
+  core.addColorStop(0, `rgba(255, 255, 248, ${coreAlpha})`);
+  core.addColorStop(0.4, `rgba(255, 248, 210, ${coreAlpha * 0.50})`);
+  core.addColorStop(1, "rgba(255, 230, 150, 0)");
+
+  const poolY = firePoint.y + 36 * zoom;
+  const poolRadius = NIGHT_WATER_POOL_RADIUS * zoom;
   const poolAlpha = NIGHT_WATER_POOL_MAX_ALPHA * nightFactor;
   const pool = ctx.createRadialGradient(
     firePoint.x, poolY, 18 * zoom,
@@ -732,9 +769,12 @@ export function drawLighthouseNightHighlights(
   pool.addColorStop(0, `rgba(255, 175, 90, ${poolAlpha})`);
   pool.addColorStop(0.4, `rgba(245, 150, 65, ${poolAlpha * 0.45})`);
   pool.addColorStop(1, "rgba(245, 150, 65, 0)");
-  ctx.fillStyle = pool;
-  ctx.beginPath();
-  ctx.ellipse(firePoint.x, poolY, poolRadius, poolRadius * 0.55, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
+
+  const bundle: NightGradientBundle = { diffuse, core, pool };
+  nightGradientCache.set(key, bundle);
+  if (nightGradientCache.size > NIGHT_GRADIENT_CACHE_LIMIT) {
+    const oldest = nightGradientCache.keys().next().value;
+    if (oldest !== undefined) nightGradientCache.delete(oldest);
+  }
+  return bundle;
 }
