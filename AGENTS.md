@@ -2,6 +2,10 @@
 
 Applies to the whole standalone `pharosville` repository.
 
+Use /agents/ for planing artifacts, with subfolder organization as optimized.
+Use /outputs/ to store screenshot, rendering, test sprites, and other temporary files
+
+
 ## Scope
 
 - Work only in `/home/ahirice/Documents/git/pharosville` unless the operator explicitly authorizes a specific read elsewhere.
@@ -52,3 +56,7 @@ For deployed changes, confirm the live smoke path:
 ```bash
 npm run smoke:live -- --url https://pharosville.pharos.watch
 ```
+
+## Testing
+
+http://localhost:5173/ is maintained by operator
