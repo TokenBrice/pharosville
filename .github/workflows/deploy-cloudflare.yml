@@ -120,12 +120,8 @@ jobs:
   visual:
     needs: build
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2]
     concurrency:
-      group: ${{ github.workflow }}-visual-${{ matrix.shard }}-${{ github.event.pull_request.number || github.ref }}
+      group: ${{ github.workflow }}-visual-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: true
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -151,12 +147,12 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-ms-playwright-${{ hashFiles('package-lock.json') }}
       - run: npx --no-install playwright install --with-deps chromium
-      - name: Built-dist visual tests (shard ${{ matrix.shard }}/2)
-        run: npm run test:visual:dist -- --shard=${{ matrix.shard }}/2
+      - name: Built-dist visual tests
+        run: npm run test:visual:dist
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: pharosville-visual-artifacts-shard-${{ matrix.shard }}
+          name: pharosville-visual-artifacts
           path: |
             test-results
             playwright-report
