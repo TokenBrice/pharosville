@@ -107,7 +107,15 @@ const PENNANTS: Record<string, string> = {
   slate: "#c7d0d8",
 };
 
-const TITAN_SPRITE_IDS = new Set(["ship.usdc-titan", "ship.usds-titan", "ship.usdt-titan"]);
+const TITAN_SPRITE_IDS = new Set([
+  "ship.usdc-titan",
+  "ship.usds-titan",
+  "ship.usdt-titan",
+  "ship.dai-titan",
+  "ship.susds-titan",
+  "ship.sdai-titan",
+  "ship.stusds-titan",
+]);
 const SHIP_SAIL_TINT_CACHE_MAX = 48;
 const shipSailTintCache = new Map<string, HTMLCanvasElement | null>();
 
