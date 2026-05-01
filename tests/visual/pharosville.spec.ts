@@ -167,50 +167,72 @@ async function clickMapTarget(page: Page, kind: string, detailId?: string) {
 }
 
 async function clickMapTargetWithPoint(page: Page, kind: string, detailId?: string) {
-  const target = await page.waitForFunction(({ targetKind, targetDetailId }) => {
-    const debug = (window as typeof window & {
-      __pharosVilleDebug?: {
-        targets: DebugTarget[];
-      };
-    }).__pharosVilleDebug;
-    const candidates = debug?.targets?.filter((entry) => entry.kind === targetKind && (!targetDetailId || entry.detailId === targetDetailId)) ?? [];
-    for (const candidate of candidates) {
-      const points = [
-        [0.5, 0.5],
-        [0.25, 0.25],
-        [0.75, 0.25],
-        [0.25, 0.75],
-        [0.75, 0.75],
-      ].map(([x, y]) => ({
-        x: candidate.rect.x + candidate.rect.width * x,
-        y: candidate.rect.y + candidate.rect.height * y,
-      }));
-      const point = points.find((candidatePoint) => {
-        const elementAtPoint = document.elementFromPoint(candidatePoint.x, candidatePoint.y);
-        if (!(elementAtPoint instanceof HTMLCanvasElement) || elementAtPoint.dataset.testid !== "pharosville-canvas") {
-          return false;
-        }
-        const topTarget = debug?.targets
-          ?.filter((entry) => (
-            candidatePoint.x >= entry.rect.x
-            && candidatePoint.x <= entry.rect.x + entry.rect.width
-            && candidatePoint.y >= entry.rect.y
-            && candidatePoint.y <= entry.rect.y + entry.rect.height
-          ))
-          .toSorted((a, b) => b.priority - a.priority)[0] ?? null;
-        return topTarget?.detailId === candidate.detailId;
-      });
-      if (point) return { ...candidate, point };
-    }
-    return null;
-  }, { targetDetailId: detailId, targetKind: kind });
-  const value = await target.jsonValue() as {
+  let lastValue: {
     detailId: string;
     point: { x: number; y: number };
     rect: { height: number; width: number; x: number; y: number };
-  };
-  await page.mouse.click(value.point.x, value.point.y);
-  return { detailId: value.detailId, point: value.point };
+  } | null = null;
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const target = await page.waitForFunction(({ targetKind, targetDetailId }) => {
+      const debug = (window as typeof window & {
+        __pharosVilleDebug?: {
+          targets: DebugTarget[];
+        };
+      }).__pharosVilleDebug;
+      const candidates = debug?.targets?.filter((entry) => entry.kind === targetKind && (!targetDetailId || entry.detailId === targetDetailId)) ?? [];
+      for (const candidate of candidates) {
+        const points = [
+          [0.5, 0.5],
+          [0.25, 0.25],
+          [0.75, 0.25],
+          [0.25, 0.75],
+          [0.75, 0.75],
+        ].map(([x, y]) => ({
+          x: candidate.rect.x + candidate.rect.width * x,
+          y: candidate.rect.y + candidate.rect.height * y,
+        }));
+        const point = points.find((candidatePoint) => {
+          const elementAtPoint = document.elementFromPoint(candidatePoint.x, candidatePoint.y);
+          if (!(elementAtPoint instanceof HTMLCanvasElement) || elementAtPoint.dataset.testid !== "pharosville-canvas") {
+            return false;
+          }
+          const topTarget = debug?.targets
+            ?.filter((entry) => (
+              candidatePoint.x >= entry.rect.x
+              && candidatePoint.x <= entry.rect.x + entry.rect.width
+              && candidatePoint.y >= entry.rect.y
+              && candidatePoint.y <= entry.rect.y + entry.rect.height
+            ))
+            .toSorted((a, b) => b.priority - a.priority)[0] ?? null;
+          return topTarget?.detailId === candidate.detailId;
+        });
+        if (point) return { ...candidate, point };
+      }
+      return null;
+    }, { targetDetailId: detailId, targetKind: kind });
+    const value = await target.jsonValue() as {
+      detailId: string;
+      point: { x: number; y: number };
+      rect: { height: number; width: number; x: number; y: number };
+    };
+    lastValue = value;
+    await page.mouse.click(value.point.x, value.point.y);
+    try {
+      await page.waitForFunction((expectedDetailId) => {
+        const debug = (window as typeof window & {
+          __pharosVilleDebug?: { selectedDetailId?: string | null };
+        }).__pharosVilleDebug;
+        return debug?.selectedDetailId === expectedDetailId;
+      }, value.detailId, { timeout: 2_000 });
+      return { detailId: value.detailId, point: value.point };
+    } catch {
+      // Moving targets can drift between debug sampling and click dispatch.
+    }
+  }
+
+  if (lastValue) return { detailId: lastValue.detailId, point: lastValue.point };
+  throw new Error(`No ${kind} target found${detailId ? ` for ${detailId}` : ""}`);
 }
 
 async function expectNoAssetLoadErrors(page: Page) {

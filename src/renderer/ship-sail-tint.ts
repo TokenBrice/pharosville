@@ -66,8 +66,9 @@ export const SHIP_SAIL_TINT_MASKS: Record<string, SailMaskSpec> = {
     ],
   },
   "ship.usds-titan": {
-    bounds: { x: 26, y: 18, width: 96, height: 76 },
+    bounds: { x: 26, y: 15, width: 96, height: 79 },
     polygons: [
+      [[78, 15], [110, 19], [109, 45], [81, 24]],
       [[29, 70], [61, 17], [68, 86], [37, 80]],
       [[27, 58], [46, 23], [61, 18], [48, 52], [36, 64]],
       [[58, 28], [80, 18], [80, 72], [60, 68]],
@@ -160,6 +161,8 @@ export function isSailTintPixel(red: number, green: number, blue: number, alpha:
   if (Math.max(red, green, blue) < 104) return false;
   const warmDarkWood = red > green + 36 && green > blue + 16 && luminance < 178;
   if (warmDarkWood) return false;
+  const tealWaterGlint = green > red + 6 && blue > red + 8 && green > 95 && blue > 105;
+  if (tealWaterGlint) return false;
   const saturatedDarkInk = Math.max(red, green, blue) - Math.min(red, green, blue) > 96 && luminance < 138;
   return !saturatedDarkInk;
 }

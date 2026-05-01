@@ -8,10 +8,10 @@ on:
       - main
 
 jobs:
-  validate:
+  checks:
     runs-on: ubuntu-latest
     concurrency:
-      group: ${{ github.workflow }}-validate-${{ github.event.pull_request.number || github.ref }}
+      group: ${{ github.workflow }}-checks-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: true
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -20,7 +20,6 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npx --no-install playwright install --with-deps chromium
       - name: Typecheck
         run: npm run typecheck
       - name: Unit and contract tests
@@ -35,27 +34,65 @@ jobs:
         run: npm run check:pharosville-assets
       - name: Palette guard
         run: npm run check:pharosville-colors
+
+  build:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-build-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
       - name: Build
         run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pharosville-dist
+          path: dist
+
+  visual:
+    needs: build
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-visual-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: pharosville-dist
+          path: dist
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-ms-playwright-${{ hashFiles('package-lock.json') }}
+      - run: npx --no-install playwright install --with-deps chromium
       - name: Built-dist visual tests
         run: npm run test:visual:dist
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: pharosville-validation-artifacts
+          name: pharosville-visual-artifacts
           path: |
             test-results
             playwright-report
           if-no-files-found: ignore
-      - uses: actions/upload-artifact@v4
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        with:
-          name: pharosville-dist
-          path: dist
 
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: validate
+    needs:
+      - checks
+      - build
+      - visual
     runs-on: ubuntu-latest
     environment: production
     concurrency:

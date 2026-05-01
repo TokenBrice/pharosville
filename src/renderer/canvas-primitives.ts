@@ -19,6 +19,65 @@ export function drawAsset(
   );
 }
 
+export function drawAnimatedAsset(
+  ctx: CanvasRenderingContext2D,
+  asset: LoadedPharosVilleAsset,
+  x: number,
+  y: number,
+  scale: number,
+  frameIndex: number,
+  reducedMotion: boolean,
+): boolean {
+  const animation = asset.entry.animation;
+  const resolvedFrameIndex = reducedMotion
+    ? animation?.reducedMotionFrame ?? 0
+    : frameIndex;
+  if (drawAssetFrame(ctx, asset, x, y, scale, resolvedFrameIndex)) return true;
+  drawAsset(ctx, asset, x, y, scale);
+  return false;
+}
+
+export function drawAssetFrame(
+  ctx: CanvasRenderingContext2D,
+  asset: LoadedPharosVilleAsset,
+  x: number,
+  y: number,
+  scale: number,
+  frameIndex: number,
+): boolean {
+  const { entry, frameSource } = asset;
+  const animation = entry.animation;
+  const sheet = animation?.spriteSheet;
+  if (!animation || !sheet || !frameSource) return false;
+  if (
+    !isPositiveInteger(sheet.columns)
+    || !isPositiveInteger(sheet.rows)
+    || !isPositiveInteger(sheet.frameWidth)
+    || !isPositiveInteger(sheet.frameHeight)
+  ) return false;
+
+  const normalizedFrame = normalizeFrameIndex(frameIndex, animation.frameCount, animation.loop);
+  const column = normalizedFrame % sheet.columns;
+  const row = Math.floor(normalizedFrame / sheet.columns);
+  if (row >= sheet.rows) return false;
+
+  const drawScale = entry.displayScale * scale;
+  const width = sheet.frameWidth * drawScale;
+  const height = sheet.frameHeight * drawScale;
+  ctx.drawImage(
+    frameSource,
+    column * sheet.frameWidth,
+    row * sheet.frameHeight,
+    sheet.frameWidth,
+    sheet.frameHeight,
+    Math.round(x - entry.anchor[0] * drawScale),
+    Math.round(y - entry.anchor[1] * drawScale),
+    Math.round(width),
+    Math.round(height),
+  );
+  return true;
+}
+
 export function drawDiamond(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, fill: string) {
   ctx.fillStyle = fill;
   ctx.beginPath();
@@ -124,4 +183,15 @@ export function withAlpha(color: string, alpha: number) {
   if (color.startsWith("rgba(")) return color.replace(/,\s*[\d.]+\)$/, `, ${alpha})`);
   if (color.startsWith("#")) return hexToRgba(color, alpha);
   return color;
+}
+
+function normalizeFrameIndex(frameIndex: number, frameCount: number, loop: boolean): number {
+  if (!Number.isInteger(frameCount) || frameCount <= 0) return 0;
+  const integerFrame = Number.isFinite(frameIndex) ? Math.trunc(frameIndex) : 0;
+  if (!loop) return Math.max(0, Math.min(frameCount - 1, integerFrame));
+  return ((integerFrame % frameCount) + frameCount) % frameCount;
+}
+
+function isPositiveInteger(value: number): boolean {
+  return Number.isInteger(value) && value > 0;
 }

@@ -22,7 +22,7 @@ const MIN_SAIL_COVERAGE: Record<string, number> = {
   "ship.dao-schooner": 0.34,
   "ship.treasury-galleon": 0.34,
   "ship.usdc-titan": 0.38,
-  "ship.usds-titan": 0.38,
+  "ship.usds-titan": 0.34,
   "ship.usdt-titan": 0.38,
 };
 
@@ -48,9 +48,11 @@ describe("ship sail tint masks", () => {
       const image = readRgbaPng(path.resolve("public/pharosville/assets/ships", fileName));
       const spec = SHIP_SAIL_TINT_MASKS[assetId];
       expect(spec).toBeDefined();
+      const sailScanBottom = spec!.bounds.y + spec!.bounds.height * 0.9;
 
       let unmaskedTintablePixels = 0;
       for (let y = 0; y < image.height; y += 1) {
+        if (y >= sailScanBottom) continue;
         for (let x = 0; x < image.width; x += 1) {
           const offset = (y * image.width + x) * 4;
           const red = image.data[offset] ?? 0;

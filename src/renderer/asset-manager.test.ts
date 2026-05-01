@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PharosVilleAssetManifest, PharosVilleAssetManifestEntry } from "../systems/asset-manifest";
 import {
+  type LoadedPharosVilleAsset,
   PHAROSVILLE_DEFERRED_ASSET_CONCURRENCY,
   PHAROSVILLE_LOGO_CONCURRENCY,
   PharosVilleAssetManager,
 } from "./asset-manager";
+import { drawAssetFrame } from "./canvas-primitives";
 
 const baseEntry: PharosVilleAssetManifestEntry = {
   anchor: [24, 24],
@@ -110,6 +112,121 @@ describe("PharosVilleAssetManager", () => {
       maxDeferredConcurrency: PHAROSVILLE_DEFERRED_ASSET_CONCURRENCY,
     });
     expect(manager.getLoadStats().deferredCompletedAt).toEqual(expect.any(Number));
+  });
+
+  it("loads sprite-sheet frame sources for animated assets without changing static entries", async () => {
+    const animated = {
+      ...makeEntry("ship.animated", "ship", 0),
+      animation: {
+        frameCount: 4,
+        frameSource: "ships/animated-frames.png",
+        fps: 8,
+        loop: true,
+        reducedMotionFrame: 0,
+        spriteSheet: {
+          columns: 2,
+          frameHeight: 48,
+          frameWidth: 48,
+          rows: 2,
+        },
+      },
+    } satisfies PharosVilleAssetManifestEntry;
+    const staticEntry = makeEntry("ship.static", "ship", 1);
+    const manifest = makeManifest([animated, staticEntry]);
+    const starts: string[] = [];
+    stubImageLoader((src) => {
+      starts.push(src);
+      return Promise.resolve();
+    });
+
+    const manager = new PharosVilleAssetManager();
+    const loadedAnimated = await manager.loadAsset(animated, manifest);
+    const loadedStatic = await manager.loadAsset(staticEntry, manifest);
+
+    expect(loadedAnimated.frameSource).toBeDefined();
+    expect(loadedStatic.frameSource).toBeUndefined();
+    expect(starts).toEqual([
+      "/pharosville/assets/ships/animated.png?v=test-cache",
+      "/pharosville/assets/ships/animated-frames.png?v=test-cache",
+      "/pharosville/assets/ships/static.png?v=test-cache",
+    ]);
+  });
+
+  it("keeps animated static image loading usable when the optional frame source fails", async () => {
+    const animated = {
+      ...makeEntry("ship.animated", "ship", 0),
+      animation: {
+        frameCount: 4,
+        frameSource: "ships/animated-frames.png",
+        fps: 8,
+        loop: true,
+        reducedMotionFrame: 0,
+        spriteSheet: {
+          columns: 2,
+          frameHeight: 48,
+          frameWidth: 48,
+          rows: 2,
+        },
+      },
+    } satisfies PharosVilleAssetManifestEntry;
+    const manifest = makeManifest([animated]);
+    stubImageLoader((src) => (
+      src.includes("animated-frames")
+        ? Promise.reject(new Error("missing frame source"))
+        : Promise.resolve()
+    ));
+
+    const manager = new PharosVilleAssetManager();
+    const loaded = await manager.loadAsset(animated, manifest);
+
+    expect(loaded.image).toBeDefined();
+    expect(loaded.frameSource).toBeUndefined();
+    expect(manager.get(animated.id)).toBe(loaded);
+  });
+
+  it("draws a sprite-sheet frame with static asset anchor and display scale semantics", () => {
+    const entry = {
+      ...baseEntry,
+      anchor: [12, 14],
+      animation: {
+        frameCount: 6,
+        frameSource: "ships/base-frames.png",
+        fps: 8,
+        loop: true,
+        reducedMotionFrame: 0,
+        spriteSheet: {
+          columns: 3,
+          frameHeight: 24,
+          frameWidth: 32,
+          rows: 2,
+        },
+      },
+      displayScale: 2,
+      height: 24,
+      width: 32,
+    } satisfies PharosVilleAssetManifestEntry;
+    const frameSource = {} as HTMLImageElement;
+    const asset: LoadedPharosVilleAsset = {
+      entry,
+      frameSource,
+      image: {} as HTMLImageElement,
+    };
+    const drawImage = vi.fn();
+    const ctx = { drawImage } as unknown as CanvasRenderingContext2D;
+
+    expect(drawAssetFrame(ctx, asset, 100, 80, 0.5, 4)).toBe(true);
+
+    expect(drawImage).toHaveBeenCalledWith(
+      frameSource,
+      32,
+      24,
+      32,
+      24,
+      88,
+      66,
+      32,
+      24,
+    );
   });
 
   it("loads logos with a bounded decode queue and filters duplicate or remote sources", async () => {

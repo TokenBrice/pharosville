@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-05-01-pharosville-seawall-v2",
+    "cacheVersion": "2026-05-01-pharosville-titan-motion-v1",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": [
@@ -888,6 +888,19 @@
       ],
       "loadPriority": "critical",
       "criticalReason": "USDC uses a dedicated titan hull on the first coherent ship frame.",
+      "animation": {
+        "frameCount": 4,
+        "frameSource": "ships/usdc-titan-frames.png",
+        "fps": 4,
+        "loop": true,
+        "reducedMotionFrame": 0,
+        "spriteSheet": {
+          "columns": 4,
+          "rows": 1,
+          "frameWidth": 160,
+          "frameHeight": 112
+        }
+      },
       "promptKey": "ship.usdc-titan",
       "semanticRole": "USDC titan stablecoin ship hull",
       "paletteKeys": [
@@ -896,9 +909,9 @@
         "bronze beacon",
         "teal sea"
       ],
-      "tool": "mcp:create_object+imagemagick",
+      "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "7ae30033-c73b-45a3-bdba-d1613145cc59",
+        "jobId": "af346d52-0c92-4476-9b24-1af45022afaf",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },
@@ -926,6 +939,19 @@
       ],
       "loadPriority": "critical",
       "criticalReason": "USDS uses a dedicated smaller titan hull on the first coherent ship frame.",
+      "animation": {
+        "frameCount": 4,
+        "frameSource": "ships/usds-titan-frames.png",
+        "fps": 4,
+        "loop": true,
+        "reducedMotionFrame": 0,
+        "spriteSheet": {
+          "columns": 4,
+          "rows": 1,
+          "frameWidth": 144,
+          "frameHeight": 104
+        }
+      },
       "promptKey": "ship.usds-titan",
       "semanticRole": "USDS Sky titan stablecoin ship hull",
       "paletteKeys": [
@@ -934,9 +960,9 @@
         "bronze beacon",
         "warm amber"
       ],
-      "tool": "mcp:create_object+imagemagick",
+      "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "2e57d55c-da89-44e4-90b4-3ef69f29122f",
+        "jobId": "abd84dde-c282-40a6-a762-85aafba0cc2e",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },
@@ -964,6 +990,19 @@
       ],
       "loadPriority": "critical",
       "criticalReason": "USDT uses the largest dedicated titan hull on the first coherent ship frame.",
+      "animation": {
+        "frameCount": 4,
+        "frameSource": "ships/usdt-titan-frames.png",
+        "fps": 4,
+        "loop": true,
+        "reducedMotionFrame": 0,
+        "spriteSheet": {
+          "columns": 4,
+          "rows": 1,
+          "frameWidth": 192,
+          "frameHeight": 128
+        }
+      },
       "promptKey": "ship.usdt-titan",
       "semanticRole": "USDT supreme titan stablecoin ship hull",
       "paletteKeys": [
@@ -972,9 +1011,9 @@
         "bronze beacon",
         "teal sea"
       ],
-      "tool": "mcp:create_map_object",
+      "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "8e7c264e-efff-4d97-b477-f6de76986f4c",
+        "jobId": "c33f2297-b6ba-4d55-9e3a-1b6023365f06",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },

@@ -1,8 +1,9 @@
 import type { PharosVilleAssetManifest, PharosVilleAssetManifestEntry } from "../systems/asset-manifest";
-import { assetUrl, PHAROSVILLE_ASSET_MANIFEST_PATH } from "../systems/asset-manifest";
+import { assetUrl, manifestCacheVersion, PHAROSVILLE_ASSET_MANIFEST_PATH } from "../systems/asset-manifest";
 
 export interface LoadedPharosVilleAsset {
   entry: PharosVilleAssetManifestEntry;
+  frameSource?: HTMLImageElement;
   image: HTMLImageElement;
 }
 
@@ -153,7 +154,10 @@ export class PharosVilleAssetManager {
     if (cached) return cached;
     try {
       const image = await loadImage(assetUrl(asset, manifest), signal);
-      const loaded = { entry: asset, image };
+      const frameSource = await loadAssetFrameSource(asset, manifest, signal);
+      const loaded = frameSource == null
+        ? { entry: asset, image }
+        : { entry: asset, frameSource, image };
       this.assets.set(asset.id, loaded);
       this.failedAssets.delete(asset.id);
       return loaded;
@@ -294,6 +298,21 @@ function deferredAssetRank(asset: PharosVilleAssetManifestEntry, required: Reado
     prop: 6,
   };
   return categoryRank[asset.category] ?? 10;
+}
+
+async function loadAssetFrameSource(
+  asset: PharosVilleAssetManifestEntry,
+  manifest: PharosVilleAssetManifest,
+  signal?: AbortSignal,
+): Promise<HTMLImageElement | undefined> {
+  const frameSource = asset.animation?.frameSource;
+  if (!frameSource) return undefined;
+  try {
+    return await loadImage(`/pharosville/assets/${frameSource}?v=${encodeURIComponent(manifestCacheVersion(manifest))}`, signal);
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    return undefined;
+  }
 }
 
 function countLoaded(assets: ReadonlyMap<string, LoadedPharosVilleAsset>, ids: ReadonlySet<string>) {

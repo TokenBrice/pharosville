@@ -405,7 +405,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   }, [assetLoadTick, assetManager, cameraReady, canvasSize.x, canvasSize.y, paintRequestTick, reducedMotion, world]);
 
   useEffect(() => {
-    if (import.meta.env.PROD && window.location.hostname !== "localhost") return;
+    if (!isVisualDebugAllowed()) return;
     const debugWindow = window as typeof window & {
       __pharosVilleDebug?: PharosVilleDebugState;
     };
@@ -847,7 +847,7 @@ function updateDebugFrame(input: {
   selectedDetailId: string | null;
   world: PharosVilleWorldModel;
 }) {
-  if (import.meta.env.PROD && window.location.hostname !== "localhost") return;
+  if (!isVisualDebugAllowed()) return;
   const debugWindow = window as typeof window & {
     __pharosVilleDebug?: Partial<PharosVilleDebugState>;
   };
@@ -869,6 +869,11 @@ function updateDebugFrame(input: {
     targets: input.frameState.targets,
     timeSeconds: input.frameState.timeSeconds,
   });
+}
+
+function isVisualDebugAllowed() {
+  if (!import.meta.env.PROD) return true;
+  return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
 }
 
 function motionCueCounts(input: {
