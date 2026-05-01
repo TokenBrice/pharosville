@@ -7,6 +7,11 @@ on:
     branches:
       - main
 
+env:
+  # Opt JS actions (cache, setup-node, etc.) into Node 24 ahead of the
+  # September 2026 Node 20 removal. Remove once GitHub flips the default.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   typecheck:
     runs-on: ubuntu-latest
@@ -115,8 +120,12 @@ jobs:
   visual:
     needs: build
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     concurrency:
-      group: ${{ github.workflow }}-visual-${{ github.event.pull_request.number || github.ref }}
+      group: ${{ github.workflow }}-visual-${{ matrix.shard }}-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: true
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -142,12 +151,12 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-ms-playwright-${{ hashFiles('package-lock.json') }}
       - run: npx --no-install playwright install --with-deps chromium
-      - name: Built-dist visual tests
-        run: npm run test:visual:dist
+      - name: Built-dist visual tests (shard ${{ matrix.shard }}/2)
+        run: npm run test:visual:dist -- --shard=${{ matrix.shard }}/2
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: pharosville-visual-artifacts
+          name: pharosville-visual-artifacts-shard-${{ matrix.shard }}
           path: |
             test-results
             playwright-report

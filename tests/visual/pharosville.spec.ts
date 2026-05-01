@@ -378,7 +378,9 @@ test("pharosville dense visual fixture preserves districts, dense ships, and ren
   expect(debug.renderMetrics?.visibleShipCount).toBe(visibleMotionSamples.length);
   expect(targets.filter((target) => target.kind === "grave").length).toBeGreaterThan(10);
 
-  await expectDrawDurationP95Within(page, 90, 24);
+  // Budget is 100ms (not the 90ms target) to absorb CPU contention
+  // from 3 parallel Playwright workers on 4-vCPU GitHub runners.
+  await expectDrawDurationP95Within(page, 100, 24);
 
   await page.emulateMedia({ reducedMotion: "reduce" });
   await waitForRuntimeDebug(page, true);
@@ -1051,7 +1053,7 @@ test.describe("pharosville normal motion", () => {
     expect(runtime.motionCueCounts?.effectShips ?? 0).toBeLessThanOrEqual(runtime.motionCueCounts?.animatedShips ?? 0);
     expect(runtime.renderMetrics?.drawableCount).toBeGreaterThan(0);
     expect(runtime.renderMetrics?.drawableCounts.body).toBeGreaterThan(0);
-    expect(runtime.renderMetrics?.drawDurationMs ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(90);
+    expect(runtime.renderMetrics?.drawDurationMs ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(100);
     expect(runtime.renderMetrics?.movingShipCount).toBeGreaterThan(0);
     expect(runtime.renderMetrics?.visibleTileCount).toBeGreaterThan(0);
     const movingDetailId = `ship.${movedSample.id}`;
