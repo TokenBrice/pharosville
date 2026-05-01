@@ -29,6 +29,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const deferredLoadStartedRef = useRef(false);
   const lastWallRef = useRef<number | null>(null);
   const accSecondsRef = useRef(0);
+  const pendingResumeRef = useRef(false);
   const motionFrameCountRef = useRef(0);
   const lastRenderMetricsRef = useRef<PharosVilleRenderMetrics & { drawDurationMs: number }>({
     drawableCount: 0,
@@ -223,6 +224,20 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
 
   useEffect(() => observeReducedMotion(setReducedMotion), []);
 
+  // When the tab is hidden, RAFs pause; on resume the next frame can carry a
+  // multi-second time delta. Flag the next frame so it skips accumulating that
+  // gap, preventing ships from teleporting through cycles after a long pause.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        pendingResumeRef.current = true;
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, []);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -290,7 +305,14 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         timeSeconds = 0;
       } else {
         const last = lastWallRef.current ?? time;
-        const dt = Math.min(Math.max((time - last) / 1000, 0), 1 / 30);
+        const rawDt = Math.max((time - last) / 1000, 0);
+        // Skip accumulating across known tab-pause transitions: the
+        // visibilitychange handler raises pendingResumeRef when the page goes
+        // hidden, so the first frame after resume drops its (large) dt. For all
+        // other gaps — including Playwright fake-clock fastForward — accept the
+        // raw dt so motion advances naturally.
+        const dt = pendingResumeRef.current ? 0 : rawDt;
+        pendingResumeRef.current = false;
         accSecondsRef.current += dt;
         lastWallRef.current = time;
         timeSeconds = accSecondsRef.current;
@@ -377,6 +399,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       animationFramePendingRef.current = false;
       lastWallRef.current = null;
       accSecondsRef.current = 0;
+      pendingResumeRef.current = false;
       if (frameId) cancelAnimationFrame(frameId);
     };
   }, [assetLoadTick, assetManager, cameraReady, canvasSize.x, canvasSize.y, paintRequestTick, reducedMotion, world]);
