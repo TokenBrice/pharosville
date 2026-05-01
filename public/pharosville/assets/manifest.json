@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-05-01-pharosville-harbor-diversity-v4",
+    "cacheVersion": "2026-05-01-pharosville-harbor-diversity-v5",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": [
@@ -389,25 +389,25 @@
       "path": "docks/tron-arena-wharf.png",
       "category": "dock",
       "layer": "docks",
-      "width": 256,
-      "height": 184,
+      "width": 384,
+      "height": 280,
       "displayScale": 1,
       "anchor": [
-        128,
-        144
+        192,
+        218
       ],
       "footprint": [
-        132,
-        52
+        200,
+        76
       ],
       "hitbox": [
-        16,
         24,
-        224,
-        140
+        32,
+        336,
+        216
       ],
       "loadPriority": "critical",
-      "criticalReason": "Tron amphitheater-arch wharf for the second tier-1 chain.",
+      "criticalReason": "Tron grand triumphal harbor: three-arched terracotta gateway flanked by tall watchtowers, second-tier presence after ethereum.",
       "promptKey": "dock.tron-arena-wharf",
       "semanticRole": "tron amphitheater-arch wharf",
       "paletteKeys": [
@@ -417,7 +417,7 @@
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "9f39268d-91df-4768-897e-74d246fb7460",
+        "jobId": "d8f037dc-5dd7-4be0-8594-4d147d023e9e",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },
