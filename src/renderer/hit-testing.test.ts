@@ -308,7 +308,7 @@ describe("hit-testing", () => {
             entry: {
               anchor: [200, 250],
               category: "dock",
-              displayScale: 1,
+              displayScale: 0.8,
               footprint: [208, 78],
               height: 320,
               hitbox: [24, 40, 352, 240],

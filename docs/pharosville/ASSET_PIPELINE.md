@@ -52,7 +52,7 @@ For the main-island revamp, the selected production PNGs are promoted in place:
   `overlay.central-island`, `3b89b603-35ce-4b87-97fb-37a3fc8d913f` for
   `landmark.lighthouse`, and `31155966-7d76-413a-bd7b-557f79cffc9f` for
   `dock.compact-harbor-pier`. Current cache version is
-  `2026-05-01-lighthouse-integrated-ground-v1`; the style anchor remains
+  `2026-05-01-lighthouse-eth-scale-v1`; the style anchor remains
   `2026-04-29-lighthouse-hill-v5`.
 - Re-check renderer assumptions for central overlay placement, lighthouse crop,
   beacon point, hitbox, selection ring, and dock flag/logo offsets before

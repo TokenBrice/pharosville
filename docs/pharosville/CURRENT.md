@@ -26,7 +26,7 @@ layout, asset, renderer, test, and docs change:
 - `LIGHTHOUSE_TILE` remains `{ x: 18, y: 28 }` and the visual-clearance box
   remains `x:14..24, y:23..32`.
 - Runtime asset cache version is
-  `2026-05-01-lighthouse-integrated-ground-v1`; the manifest-wide style
+  `2026-05-01-lighthouse-eth-scale-v1`; the manifest-wide style
   anchor remains `2026-04-29-lighthouse-hill-v5` so all asset provenance stays
   validator-aligned.
 - Promoted PixelLab assets are `overlay.central-island`
@@ -120,7 +120,7 @@ visual-clearance box (x:14..24, y:23..32) are generic water.
 - Ship size is a compressed market-cap tier, not linear area.
 - The current runtime manifest uses schema v2. `style.cacheVersion` controls image cache busting; `style.styleAnchorVersion` is the provenance/style anchor for generated assets.
 - Asset loading is intentionally staged: the route loads the manifest and critical/first-render sprites before the initial canvas frame, then loads deferred sprite families after the core scene can render. Do not move visual-only sprites into the critical set without checking first-render need and the manifest cap.
-- The current lighthouse asset is `landmark.lighthouse` at `public/pharosville/assets/landmarks/lighthouse-alexandria.png`, with manifest cache version `2026-05-01-lighthouse-integrated-ground-v1` and style anchor `2026-04-29-lighthouse-hill-v5`.
+- The current lighthouse asset is `landmark.lighthouse` at `public/pharosville/assets/landmarks/lighthouse-alexandria.png`, with manifest cache version `2026-05-01-lighthouse-eth-scale-v1` and style anchor `2026-04-29-lighthouse-hill-v5`.
 - Current ship sprites share the lighthouse style anchor, keep logo-safe sail/pennant zones, and treat overlays as small lanterns/pennants/signals rather than badges. Standard class hulls use 104 x 80 transparent PNGs; USDC, USDS, and USDT use dedicated titan hull PNGs, with USDS a bit smaller than USDC and USDT allowed to read larger than both.
 - Current cemetery props share the same style anchor and use a local memorial sprite set under `public/pharosville/assets/props/`: `memorial-terrace`, `memorial-headstone`, `ledger-slab`, `reliquary-marker`, and `regulatory-obelisk`.
 

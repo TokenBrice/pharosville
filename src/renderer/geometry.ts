@@ -5,8 +5,8 @@ import type { PharosVilleWorld } from "../systems/world-types";
 import type { LoadedPharosVilleAsset } from "./asset-manager";
 import { drawableDepth } from "./drawable-pass";
 
-export const LIGHTHOUSE_DRAW_OFFSET = { x: 14, y: 24 } as const;
-export const LIGHTHOUSE_DRAW_SCALE = 1.02;
+export const LIGHTHOUSE_DRAW_OFFSET = { x: 22, y: 36 } as const;
+export const LIGHTHOUSE_DRAW_SCALE = 1.224;
 
 export interface ScreenRect {
   height: number;

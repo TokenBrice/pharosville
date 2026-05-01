@@ -24,11 +24,6 @@ export function lighthouseRenderState({ assets, camera, world }: DrawPharosVille
   return { center, firePoint, lighthouseAsset, spriteAnchor, spriteScale };
 }
 
-const LIGHTHOUSE_HEADLAND = {
-  foam: "rgba(180, 224, 208, 0.46)",
-  halo: "rgba(255, 200, 87, 0.14)",
-} as const;
-
 const LIGHTHOUSE_SURF = [
   { x: 15.2, y: 27.8, length: 18, phase: 5.1, tilt: 0.12 },
   { x: 15.9, y: 28.9, length: 22, phase: 0.1, tilt: -0.14 },
@@ -69,22 +64,8 @@ export function drawLighthouseSurf({ camera, ctx, motion }: DrawPharosVilleInput
   ctx.restore();
 }
 
-export function drawLighthouseHeadland({ camera, ctx, world }: DrawPharosVilleInput) {
-  const center = tileToScreen(world.lighthouse.tile, camera);
-  const zoom = camera.zoom;
-  ctx.save();
-
-  ctx.fillStyle = LIGHTHOUSE_HEADLAND.halo;
-  ctx.beginPath();
-  ctx.ellipse(center.x - 2 * zoom, center.y + 12 * zoom, 95 * zoom, 32 * zoom, -0.08, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = LIGHTHOUSE_HEADLAND.foam;
-  ctx.beginPath();
-  ctx.ellipse(center.x - 2 * zoom, center.y + 30 * zoom, 132 * zoom, 56 * zoom, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.restore();
+export function drawLighthouseHeadland(_input: DrawPharosVilleInput) {
+  // The generated lighthouse sprite owns its terrace, retaining wall, and road connector.
 }
 
 
