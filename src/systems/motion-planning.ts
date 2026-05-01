@@ -1,7 +1,7 @@
 import { clampMapTile, nearestWaterTile } from "./world-layout";
 import { stableHash, stableOffset, stableUnit } from "./stable-random";
 import { BAND_FIRE_FLICKER_SPEED, OPEN_WATER_PATROL_WAYPOINTS } from "./motion-config";
-import { buildCachedShipWaterRoute, LazyShipWaterPathMap, nearestMapWaterTile, reverseWaterPath } from "./motion-water";
+import { buildCachedShipWaterRoute, LazyShipWaterPathMap, nearestMapWaterTile, reverseWaterPath, waterPathFromPoints } from "./motion-water";
 import { clamp, pathKey } from "./motion-utils";
 import {
   MAKER_SQUAD_FLAGSHIP_ID,
@@ -161,14 +161,26 @@ function buildConsortMotionRoute(
   // Consorts inherit the flagship's cycle, phase, zone, and patrol shape so
   // the squad sails as one body. We only translate spatial waypoints by the
   // placement-aware formation offset; everything else is a clone.
+  //
+  // Known limitation: when the flagship has rendered docks (production case),
+  // its motion sample enters dock-mooring cycles while consorts (with empty
+  // dockStops by design) keep patrolling their offset risk tile. Cohesion is
+  // structurally guaranteed only during the openWaterPatrol slice. Inheriting
+  // dockStops would require consorts to escort the flagship into dock approach
+  // paths — explicit scope expansion, not a refinement.
   const offset = makerSquadFormationOffsetForPlacement(
     ship.id as MakerSquadMemberId,
     flagshipShip.riskPlacement,
   );
+  // Placement-scoped clamping protects motionZone invariants: consort waypoints
+  // must stay in flagship's water set or motion-water sampling reads the wrong
+  // zone-style. When the placement is too tight to host the offset within
+  // radius 4, collapse the consort onto the flagship's tile (overlap) rather
+  // than spilling into a different zone — same fallback discipline as
+  // `spreadRiskPlacementShips` in pharosville-world.ts.
   const offsetTile = (tile: { x: number; y: number }) => {
     const target = clampMapTile({ x: tile.x + offset.dx, y: tile.y + offset.dy });
-    return nearestRiskPlacementWaterTile(target, flagshipShip.riskPlacement, 4)
-      ?? nearestWaterTile(target);
+    return nearestRiskPlacementWaterTile(target, flagshipShip.riskPlacement, 4) ?? tile;
   };
 
   const riskTile = offsetTile(flagshipRoute.riskTile);
@@ -212,21 +224,11 @@ function offsetWaterPath(
   offsetTile: (tile: { x: number; y: number }) => { x: number; y: number },
 ): ShipWaterPath {
   const points = path.points.map(offsetTile);
-  const cumulativeLengths = [0];
-  let totalLength = 0;
-  for (let index = 1; index < points.length; index += 1) {
-    const previous = points[index - 1]!;
-    const current = points[index]!;
-    totalLength += Math.hypot(current.x - previous.x, current.y - previous.y);
-    cumulativeLengths.push(totalLength);
-  }
-  return {
-    from: points[0] ?? offsetTile(path.from),
-    to: points[points.length - 1] ?? offsetTile(path.to),
+  return waterPathFromPoints(
+    points[0] ?? offsetTile(path.from),
+    points[points.length - 1] ?? offsetTile(path.to),
     points,
-    cumulativeLengths,
-    totalLength,
-  };
+  );
 }
 
 function primaryDockStop(ship: ShipNode, dockStops: readonly ShipMotionRoute["dockStops"][number][]) {
