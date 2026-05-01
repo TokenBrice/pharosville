@@ -176,10 +176,39 @@ export function drawLighthouseOverlay(
 ) {
   const { camera, ctx, motion, world } = input;
   const { firePoint, lighthouseAsset } = cached ?? lighthouseRenderState(input);
-  if (!world.lighthouse.unavailable) drawLighthouseBeam(ctx, firePoint, camera.zoom * 1.35, motion, nightFactor);
-  if (lighthouseAsset) return;
-  drawLighthouseFire(ctx, firePoint, camera.zoom * 1.32, world.lighthouse.color, motion);
+  if (world.lighthouse.unavailable) return;
+  drawLighthouseBeam(ctx, firePoint, camera.zoom * 1.35, motion, nightFactor);
+  // Fire always renders. With the sprite loaded, skip the procedural brazier
+  // base (the asset already has one); without it, draw the full fallback.
+  drawLighthouseFire(ctx, firePoint, camera.zoom * 1.32, world.lighthouse.color, motion, !lighthouseAsset);
 }
+
+const FLAME_OUTER: ReadonlyArray<[number, number]> = [
+  [-11, 2],
+  [-7, -11],
+  [-3, -6],
+  [0, -25],
+  [5, -8],
+  [10, -14],
+  [13, 2],
+  [6, 10],
+  [-5, 10],
+];
+const FLAME_MID: ReadonlyArray<[number, number]> = [
+  [-6, 4],
+  [-3, -8],
+  [0, -18],
+  [4, -7],
+  [8, 4],
+  [3, 9],
+  [-3, 9],
+];
+const FLAME_INNER: ReadonlyArray<[number, number]> = [
+  [-3, 5],
+  [0, -8],
+  [4, 5],
+  [0, 8],
+];
 
 function drawLighthouseFire(
   ctx: CanvasRenderingContext2D,
@@ -187,10 +216,12 @@ function drawLighthouseFire(
   zoom: number,
   psiColor: string,
   motion: PharosVilleCanvasMotion,
+  withBrazierBase: boolean,
 ) {
   const flickerSpeed = motion.plan.lighthouseFireFlickerPerSecond;
-  const flicker = motion.reducedMotion ? 0 : Math.sin(motion.timeSeconds * 14 * flickerSpeed) * 0.12
-    + Math.sin(motion.timeSeconds * 21 * flickerSpeed) * 0.06;
+  const time = motion.timeSeconds;
+  const flicker = motion.reducedMotion ? 0 : Math.sin(time * 14 * flickerSpeed) * 0.12
+    + Math.sin(time * 21 * flickerSpeed) * 0.06;
   const scale = zoom * (1 + flicker);
   ctx.save();
   ctx.translate(point.x, point.y);
@@ -209,37 +240,22 @@ function drawLighthouseFire(
   ctx.fill();
 
   ctx.globalAlpha = 1;
-  drawPixelFlame(ctx, [
-    [-11, 2],
-    [-7, -11],
-    [-3, -6],
-    [0, -25],
-    [5, -8],
-    [10, -14],
-    [13, 2],
-    [6, 10],
-    [-5, 10],
-  ], psiColor);
-  drawPixelFlame(ctx, [
-    [-6, 4],
-    [-3, -8],
-    [0, -18],
-    [4, -7],
-    [8, 4],
-    [3, 9],
-    [-3, 9],
-  ], "#ffcc62");
-  drawPixelFlame(ctx, [
-    [-3, 5],
-    [0, -8],
-    [4, 5],
-    [0, 8],
-  ], "#fff2a8");
+  if (motion.reducedMotion) {
+    drawPixelFlame(ctx, FLAME_OUTER, psiColor);
+    drawPixelFlame(ctx, FLAME_MID, "#ffcc62");
+    drawPixelFlame(ctx, FLAME_INNER, "#fff2a8");
+  } else {
+    drawLivingFlame(ctx, FLAME_OUTER, psiColor, time, flickerSpeed, 1.7);
+    drawLivingFlame(ctx, FLAME_MID, "#ffcc62", time, flickerSpeed, 1.3);
+    drawLivingFlame(ctx, FLAME_INNER, "#fff2a8", time, flickerSpeed, 0.8);
+  }
 
-  ctx.fillStyle = "#4b2d1d";
-  ctx.fillRect(-12, 8, 24, 5);
-  ctx.fillStyle = "#9a5a2a";
-  ctx.fillRect(-9, 6, 18, 3);
+  if (withBrazierBase) {
+    ctx.fillStyle = "#4b2d1d";
+    ctx.fillRect(-12, 8, 24, 5);
+    ctx.fillStyle = "#9a5a2a";
+    ctx.fillRect(-9, 6, 18, 3);
+  }
   ctx.restore();
 
   drawHearthEmbers(ctx, point, zoom, psiColor, motion);
@@ -254,6 +270,9 @@ const EMBER_MOTES: ReadonlyArray<{ dx: number; dy: number; r: number }> = [
   { dx: 7, dy: -28, r: 1.1 },
 ];
 
+const EMBER_STREAM_COUNT = 14;
+const EMBER_STREAM_LIFETIME = 2.6;
+
 function drawHearthEmbers(
   ctx: CanvasRenderingContext2D,
   point: ScreenPoint,
@@ -261,18 +280,38 @@ function drawHearthEmbers(
   psiColor: string,
   motion: PharosVilleCanvasMotion,
 ) {
-  const flickerSpeed = motion.plan.lighthouseFireFlickerPerSecond;
+  if (motion.reducedMotion) {
+    ctx.save();
+    ctx.fillStyle = psiColor;
+    for (let index = 0; index < EMBER_MOTES.length; index += 1) {
+      const mote = EMBER_MOTES[index]!;
+      ctx.globalAlpha = 0.5;
+      const px = point.x + mote.dx * zoom;
+      const py = point.y + mote.dy * zoom;
+      const radius = Math.max(1, mote.r * zoom);
+      ctx.beginPath();
+      ctx.arc(px, py, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    return;
+  }
+
+  const time = motion.timeSeconds;
   ctx.save();
   ctx.fillStyle = psiColor;
-  for (let index = 0; index < EMBER_MOTES.length; index += 1) {
-    const mote = EMBER_MOTES[index]!;
-    const alpha = motion.reducedMotion
-      ? 0.5
-      : 0.5 + 0.5 * Math.sin(motion.timeSeconds * flickerSpeed * Math.PI * 2 + index * 1.7);
+  for (let i = 0; i < EMBER_STREAM_COUNT; i += 1) {
+    const offset = (i / EMBER_STREAM_COUNT) * EMBER_STREAM_LIFETIME;
+    const t = ((time + offset) % EMBER_STREAM_LIFETIME) / EMBER_STREAM_LIFETIME; // 0..1
+    const seed = i * 2.713;
+    const baseX = Math.sin(seed) * 7;
+    const driftX = Math.sin(seed * 1.7 + time * 0.9) * 3.5 * t;
+    const px = point.x + (baseX + driftX) * zoom;
+    const py = point.y + (-2 - 30 * t) * zoom;
+    const radius = Math.max(1, (1.35 - t * 0.55) * zoom);
+    // Triangle alpha curve: ramps in fast, fades slow.
+    const alpha = (t < 0.18 ? t / 0.18 : (1 - t) / 0.82) * 0.85;
     ctx.globalAlpha = alpha;
-    const px = point.x + mote.dx * zoom;
-    const py = point.y + mote.dy * zoom;
-    const radius = Math.max(1, mote.r * zoom);
     ctx.beginPath();
     ctx.arc(px, py, radius, 0, Math.PI * 2);
     ctx.fill();
@@ -353,7 +392,7 @@ export function drawLighthouseBeamRim(
 
   ctx.save();
   ctx.globalAlpha = rimAlpha;
-  ctx.strokeStyle = nightFactor > 0.5 ? "rgba(210, 240, 255, 1)" : world.lighthouse.color;
+  ctx.strokeStyle = nightFactor > 0.5 ? "rgba(255, 210, 140, 1)" : world.lighthouse.color;
   ctx.lineWidth = Math.max(1, 2);
   ctx.lineCap = "round";
 
@@ -414,12 +453,39 @@ function sign(p: ScreenPoint, a: ScreenPoint, b: ScreenPoint): number {
   return (p.x - b.x) * (a.y - b.y) - (a.x - b.x) * (p.y - b.y);
 }
 
-function drawPixelFlame(ctx: CanvasRenderingContext2D, points: Array<[number, number]>, color: string) {
+function drawPixelFlame(ctx: CanvasRenderingContext2D, points: ReadonlyArray<[number, number]>, color: string) {
   ctx.fillStyle = color;
   ctx.beginPath();
   points.forEach(([x, y], index) => {
     const px = Math.round(x);
     const py = Math.round(y);
+    if (index === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  });
+  ctx.closePath();
+  ctx.fill();
+}
+
+// Like drawPixelFlame but each vertex sways with low-freq sine noise. Tips
+// (negative y, near the apex) sway most; base vertices stay anchored so the
+// flame doesn't visibly slide off the brazier.
+function drawLivingFlame(
+  ctx: CanvasRenderingContext2D,
+  points: ReadonlyArray<[number, number]>,
+  color: string,
+  time: number,
+  flickerSpeed: number,
+  swayAmount: number,
+) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  points.forEach(([x, y], index) => {
+    const phase = index * 1.27;
+    const tipFactor = Math.max(0, Math.min(1, -y / 22));
+    const dx = Math.sin(time * 6.2 * flickerSpeed + phase) * swayAmount * tipFactor;
+    const dy = Math.sin(time * 8.4 * flickerSpeed + phase * 0.81) * swayAmount * 0.7 * tipFactor;
+    const px = Math.round(x + dx);
+    const py = Math.round(y + dy);
     if (index === 0) ctx.moveTo(px, py);
     else ctx.lineTo(px, py);
   });
@@ -472,12 +538,15 @@ export function drawLighthouseNightHighlights(
   ctx.arc(firePoint.x, firePoint.y, 68 * zoom, 0, Math.PI * 2);
   ctx.fill();
 
-  // Night beam cones — cool-white directional beams drawn after the night tint
-  // so they visually cut through the darkness. Same geometry as the day beams
-  // (drawLighthouseBeam) but bright, inverted in alpha vs nightFactor, and
-  // coloured white→blue-white rather than the warm gold used during the day.
-  // Midpoint at 0.45 (was 0.28) so the light spreads further before fading.
-  const beamPulse = 0.25 + Math.sin(time * 0.7) * 0.04;
+  // Night beam cones — warm firelight cast down the wedges so they read as
+  // ember-glow streaming from the brazier rather than Fresnel-lens beams.
+  // Pulse is tied to the same flicker pair drawLighthouseFire uses, so the
+  // beams visibly breathe with the flame.
+  const flickerSpeed = motion.plan.lighthouseFireFlickerPerSecond;
+  const fireFlicker = motion.reducedMotion
+    ? 0
+    : Math.sin(time * 14 * flickerSpeed) * 0.12 + Math.sin(time * 21 * flickerSpeed) * 0.06;
+  const beamPulse = 0.26 + fireFlicker * 0.55;
   const beamAlpha = beamPulse * nightFactor;
 
   // Right beam
@@ -485,9 +554,9 @@ export function drawLighthouseNightHighlights(
     firePoint.x, firePoint.y,
     firePoint.x + 240 * zoom, firePoint.y - 23 * zoom,
   );
-  rg.addColorStop(0, `rgba(255, 255, 238, ${beamAlpha})`);
-  rg.addColorStop(0.45, `rgba(215, 242, 255, ${beamAlpha * 0.55})`);
-  rg.addColorStop(1, `rgba(140, 205, 255, 0)`);
+  rg.addColorStop(0, `rgba(255, 232, 170, ${beamAlpha})`);
+  rg.addColorStop(0.45, `rgba(255, 165, 80, ${beamAlpha * 0.55})`);
+  rg.addColorStop(1, `rgba(190, 70, 30, 0)`);
   ctx.fillStyle = rg;
   ctx.beginPath();
   ctx.moveTo(firePoint.x + 4 * zoom, firePoint.y - 2 * zoom);
@@ -501,9 +570,9 @@ export function drawLighthouseNightHighlights(
     firePoint.x, firePoint.y,
     firePoint.x - 158 * zoom, firePoint.y - 9 * zoom,
   );
-  lg.addColorStop(0, `rgba(255, 255, 238, ${beamAlpha})`);
-  lg.addColorStop(0.45, `rgba(215, 242, 255, ${beamAlpha * 0.55})`);
-  lg.addColorStop(1, `rgba(140, 205, 255, 0)`);
+  lg.addColorStop(0, `rgba(255, 232, 170, ${beamAlpha})`);
+  lg.addColorStop(0.45, `rgba(255, 165, 80, ${beamAlpha * 0.55})`);
+  lg.addColorStop(1, `rgba(190, 70, 30, 0)`);
   ctx.fillStyle = lg;
   ctx.beginPath();
   ctx.moveTo(firePoint.x - 5 * zoom, firePoint.y);
@@ -512,17 +581,17 @@ export function drawLighthouseNightHighlights(
   ctx.closePath();
   ctx.fill();
 
-  // Water reflection shimmers — elongated glints on the water surface along
-  // each beam's path; lighter composite means they naturally brighten the
-  // water tiles under the beams.
-  const shimAlpha = 0.30 * nightFactor;
+  // Water reflection shimmers — warm gold glints under each beam path,
+  // breathing with the same flicker so the water under the lighthouse
+  // looks lit by firelight rather than moonlight.
+  const shimAlpha = (0.32 + fireFlicker * 0.4) * nightFactor;
 
   ctx.save();
   ctx.translate(firePoint.x + 122 * zoom, firePoint.y + 12 * zoom);
   ctx.rotate(-0.09);
   const rs = ctx.createRadialGradient(0, 0, 6 * zoom, 0, 0, 164 * zoom);
-  rs.addColorStop(0, `rgba(185, 228, 255, ${shimAlpha})`);
-  rs.addColorStop(1, `rgba(185, 228, 255, 0)`);
+  rs.addColorStop(0, `rgba(255, 195, 110, ${shimAlpha})`);
+  rs.addColorStop(1, `rgba(255, 165, 80, 0)`);
   ctx.fillStyle = rs;
   ctx.beginPath();
   ctx.ellipse(0, 0, 164 * zoom, 34 * zoom, 0, 0, Math.PI * 2);
@@ -533,8 +602,8 @@ export function drawLighthouseNightHighlights(
   ctx.translate(firePoint.x - 82 * zoom, firePoint.y + 10 * zoom);
   ctx.rotate(0.06);
   const ls = ctx.createRadialGradient(0, 0, 6 * zoom, 0, 0, 132 * zoom);
-  ls.addColorStop(0, `rgba(185, 228, 255, ${shimAlpha})`);
-  ls.addColorStop(1, `rgba(185, 228, 255, 0)`);
+  ls.addColorStop(0, `rgba(255, 195, 110, ${shimAlpha})`);
+  ls.addColorStop(1, `rgba(255, 165, 80, 0)`);
   ctx.fillStyle = ls;
   ctx.beginPath();
   ctx.ellipse(0, 0, 132 * zoom, 28 * zoom, 0, 0, Math.PI * 2);
