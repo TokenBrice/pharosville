@@ -792,6 +792,7 @@ test("pharosville canvas interactions update details and camera", async ({ page 
   await expect(page.getByTestId("pharosville-world")).toHaveClass(/pharosville-shell--fullscreen/);
   await page.getByRole("button", { name: "Exit fullscreen" }).click();
   await expect(page.getByTestId("pharosville-world")).not.toHaveClass(/pharosville-shell--fullscreen/);
+  await page.waitForFunction(() => !document.fullscreenElement);
 
   const cameraBeforeDrag = await page.evaluate(() => {
     const debug = (window as typeof window & {

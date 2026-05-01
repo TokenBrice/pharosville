@@ -4,31 +4,34 @@
 
 **Goal:** Make the PharosVille world become much darker after sunset (driven by the user's real local time) and make the lighthouse the dominant light source in that dark world.
 
-**Architecture:** Drive a continuous `nightFactor` ∈ [0, 1] from `motion.wallClockHour`, populated each frame from `new Date()`. Render the world normally, then a single `drawNightTint` translucent dark-rect pass darkens everything. After the tint, `drawLighthouseNightHighlights` adds an additive halo + boosted beam + warm water pool around the lighthouse, plus the existing village lamps and beam-rim ship illumination shine through. No per-layer mood-aware palette work — uniform global tint plus selective additive highlights.
+**Architecture:** Drive a continuous `nightFactor` ∈ [0, 1] from `motion.wallClockHour`, populated each frame from `new Date()` (or pinned to 12 for reduced-motion users). `drawPharosVille` computes `skyState(motion)` once per frame and passes `nightFactor` as a parameter to the new layers — neither `night-tint.ts` nor `lighthouse.ts` imports `sky.ts`, avoiding the circular import that would otherwise occur (sky.ts already imports from lighthouse.ts). Render the world normally, then a single `drawNightTint` translucent dark-rect pass darkens everything. After the tint, `drawLighthouseNightHighlights` adds an additive halo + boosted beam + warm water pool around the lighthouse. The existing village lamps (already additive composite) and beam-rim ship illumination shine through. No per-layer mood-aware palette work — uniform global tint plus selective additive highlights.
 
 **Tech Stack:** TypeScript, React, HTML5 Canvas 2D, Vitest (unit), Playwright (visual baselines).
 
 **Spec:** [`docs/superpowers/specs/2026-05-01-lighthouse-night-design.md`](../specs/2026-05-01-lighthouse-night-design.md)
 
-**Refinement vs spec:** The spec described modifying `drawLighthouseFire` and `drawLighthouseBeam` to multiply their internal radii/alphas by `nightFactor`. This plan instead adds a separate post-tint additive overlay (`drawLighthouseNightHighlights`) that does not modify the existing fire/beam functions. Same user-facing outcome (the lighthouse pops at night), less invasive (entity-pass z-ordering of the existing beam is preserved, no parameter plumbing through `drawLighthouseFire`/`drawLighthouseBeam`). The water-pool addition from the spec is preserved as part of the new function.
+**Plan refinements vs spec:** Two intentional deviations from the original spec, both reflected in the spec's "Implementation note" and "Components" sections:
+
+1. **No internal modification of `drawLighthouseFire`/`drawLighthouseBeam`.** A separate `drawLighthouseNightHighlights` runs post-tint and additively re-lights the lighthouse area. Reasons: (a) the production sprite path skips `drawLighthouseFire` entirely (`drawLighthouseOverlay` returns early when the asset is loaded), so internal scaling there delivers nothing in production; (b) the existing beam draws inside `drawEntityPass` with depth z-ordering against ships — keeping it in place avoids regressions.
+2. **`nightFactor` passed as a parameter, not derived inside layers.** Avoids a circular import between `lighthouse.ts` and `sky.ts` (sky.ts already imports `lighthouseRenderState` from `lighthouse.ts`). `skyState` is computed exactly once per frame in `drawPharosVille`.
 
 **Render order (after this plan):**
 
 ```
 1.  drawSky                              (existing — mood-aware backdrop)
-2.  drawStaticPassCached "terrain"      (existing — cached)
+2.  drawStaticPassCached "terrain"       (existing — cached)
 3.  drawWaterTerrainOverlays             (existing)
-4.  drawStaticPassCached "scene"        (existing — cached, includes headland)
+4.  drawStaticPassCached "scene"         (existing — cached, includes drawLighthouseHeadland)
 5.  drawCoastalWaterDetails              (existing)
 6.  drawLighthouseSurf                   (existing)
-7.  drawEntityPass                       (existing — ships/docks/graves/lighthouse body+overlay)
+7.  drawEntityPass                       (existing — ships/docks/graves/lighthouse body+overlay incl. existing beam/fire)
 8.  drawWaterAreaLabels                  (existing — darkened by tint, still readable)
 9.  drawEthereumHarborSigns              (existing — same)
 10. drawNightTint                        (NEW — single fillRect, dark blue, alpha = MAX_NIGHT_DARKNESS * nightFactor)
 11. drawAtmosphere                       (MOVED — was step ≈6; now post-tint so mist reads against night)
 12. drawLighthouseNightHighlights        (NEW — additive halo + boosted beam + warm water pool)
 13. drawDecorativeLights                 (existing — village lamps; already use additive composite)
-14. drawLighthouseBeamRim                (existing — ship-edge highlights)
+14. drawLighthouseBeamRim                (MOVED — was right after entity pass; now after lamps so ship-edge highlights shine through)
 15. drawCemeteryMist                     (existing)
 16. drawBirds                            (existing)
 17. drawSelection                        (existing)
@@ -41,35 +44,30 @@
 | `src/renderer/render-types.ts` | modify | Add `wallClockHour: number` to `PharosVilleCanvasMotion`. |
 | `src/renderer/layers/sky.ts` | modify | `skyState` reads `motion.wallClockHour`; emit `nightFactor` and recompute `progress`. |
 | `src/renderer/layers/sky.test.ts` | create | Unit tests for `skyState` (mood, progress, nightFactor, clamping). |
-| `src/renderer/layers/night-tint.ts` | create | `drawNightTint(input)` — single dark fillRect, alpha scaled by nightFactor. |
+| `src/renderer/layers/night-tint.ts` | create | `drawNightTint(input, nightFactor)` — single dark fillRect, alpha scaled by nightFactor. Does NOT import sky.ts. |
 | `src/renderer/layers/night-tint.test.ts` | create | Unit test for early-return when nightFactor ≤ 0 (mock canvas). |
-| `src/renderer/layers/lighthouse.ts` | modify | Add `drawLighthouseNightHighlights(input, cached?)` (additive halo + boosted beam + warm water pool). Add five tunable constants. |
-| `src/renderer/world-canvas.ts` | modify | Insert `drawNightTint`, move `drawAtmosphere` after the tint, insert `drawLighthouseNightHighlights`. |
-| `src/pharosville-world.tsx` | modify | Compute `wallClockHour` once per frame, populate motion, expose in `__pharosVilleDebug`. |
-| `tests/visual/pharosville.spec.ts` | modify | Pin existing tests to noon (`12:00 UTC`); add two new tests for dusk and deep night. Extend the runtime debug snapshot type to include `wallClockHour`. |
+| `src/renderer/layers/lighthouse.ts` | modify | Add `drawLighthouseNightHighlights(input, cached, nightFactor)` (additive halo + boosted beam + warm water pool). Update `lighthouseOverlayScreenBounds` to extend with the night beam length boost. Add six tunable constants. Does NOT import sky.ts. |
+| `src/renderer/layers/lighthouse-night.test.ts` | create | Unit tests for the new function and screen bounds. |
+| `src/renderer/world-canvas.ts` | modify | Compute `skyState` once per frame; pass `nightFactor` to the new layers; insert them; reorder `drawAtmosphere` and `drawLighthouseBeamRim`. |
+| `src/pharosville-world.tsx` | modify | Compute `wallClockHour` once per frame (pinned to 12 for reduced-motion); populate motion; expose in `__pharosVilleDebug`. |
+| `tests/visual/pharosville.spec.ts` | modify | Add `installWallClockOverride(page, hour)` helper using `page.addInitScript` (NOT `page.clock.install`). Pin all existing tests to hour 12. Add three new tests (dawn 6, dusk 19, night 22). Extend the runtime debug snapshot type to include `wallClockHour`. |
 | `tests/visual/pharosville.spec.ts-snapshots/` | re-bake | Re-bake all baselines after manual visual review. |
-| `playwright.config.ts` | modify | Set `timezoneId: "Etc/UTC"` so `wallClockHour` is reproducible across runners. |
+
+**`playwright.config.ts` is NOT modified** — the `installWallClockOverride` helper sets the hour explicitly via `Date.prototype` overrides, so the host machine's timezone doesn't affect the rendered hour.
 
 ---
 
-## Task 1: Add `wallClockHour` to motion type
+## Task 1: Add `wallClockHour` and plumb it through (single commit)
+
+This task combines the type addition with all consumer fixes so we never commit a state where `npm run typecheck` fails.
 
 **Files:**
 - Modify: `src/renderer/render-types.ts:8-12`
+- Modify: `src/pharosville-world.tsx` (the rAF body and the debug-snapshot effect)
 
-- [ ] **Step 1.1: Add `wallClockHour` field to `PharosVilleCanvasMotion`**
+- [ ] **Step 1.1: Add `wallClockHour` to `PharosVilleCanvasMotion`**
 
-In `src/renderer/render-types.ts`, change:
-
-```ts
-export interface PharosVilleCanvasMotion {
-  plan: PharosVilleMotionPlan;
-  reducedMotion: boolean;
-  timeSeconds: number;
-}
-```
-
-to:
+In `src/renderer/render-types.ts`, replace the existing interface (lines 8-12):
 
 ```ts
 export interface PharosVilleCanvasMotion {
@@ -78,45 +76,34 @@ export interface PharosVilleCanvasMotion {
   timeSeconds: number;
   /**
    * User's local wall-clock hour as a fractional value in [0, 24).
-   * Production: derived from `new Date().getHours() + getMinutes()/60`.
-   * Tests: injected via Playwright clock + UTC timezone for determinism.
+   * Production: derived from `new Date().getHours() + getMinutes()/60` (or 12
+   * when reducedMotion is true, so RM users get a stable noon scene).
+   * Tests: overridden via `installWallClockOverride(page, hour)` (Playwright
+   * `addInitScript` overriding `Date.prototype.getHours`/`getMinutes`).
    */
   wallClockHour: number;
 }
 ```
 
-- [ ] **Step 1.2: Run typecheck — expect failures**
+- [ ] **Step 1.2: Compute `wallClockHour` in the render loop**
 
-Run: `npm run typecheck`
-Expected: failures in `pharosville-world.tsx`, `ship-pose.test.ts`, and any other site that constructs `PharosVilleCanvasMotion`. Note the failing files. Do NOT fix yet — fixed in Task 2.
-
-- [ ] **Step 1.3: Commit**
-
-```bash
-git add src/renderer/render-types.ts
-git commit -m "Add wallClockHour to PharosVilleCanvasMotion"
-```
-
----
-
-## Task 2: Plumb `wallClockHour` through production and tests
-
-**Files:**
-- Modify: `src/pharosville-world.tsx:325-346, 380-384, 440-462`
-- Modify: `src/renderer/layers/ship-pose.test.ts` (and any other test files reported by typecheck)
-
-- [ ] **Step 2.1: Compute `wallClockHour` in the render loop**
-
-In `src/pharosville-world.tsx`, locate the block at line 325 that computes `timeSeconds`. Immediately after that block (after `timeSeconds = accSecondsRef.current;`) add:
+In `src/pharosville-world.tsx`, locate the block at line 325-341 that computes `timeSeconds`. Immediately after `timeSeconds = accSecondsRef.current;` (line 340) and before `const shipMotionSamples = ...` (line 342), insert:
 
 ```ts
-const wallClockNow = new Date();
-const wallClockHour = ((wallClockNow.getHours() + wallClockNow.getMinutes() / 60) % 24 + 24) % 24;
+let wallClockHour: number;
+if (reducedMotion) {
+  // Reduced-motion users: pin to noon for a stable, drift-free scene every visit.
+  // Mirrors the prior behavior where reducedMotion forced a fixed sky-state progress.
+  wallClockHour = 12;
+} else {
+  const wallClockNow = new Date();
+  wallClockHour = ((wallClockNow.getHours() + wallClockNow.getMinutes() / 60) % 24 + 24) % 24;
+}
 ```
 
-- [ ] **Step 2.2: Pass `wallClockHour` into the motion object**
+- [ ] **Step 1.3: Pass `wallClockHour` into the motion object**
 
-In the same file at the `motion: { plan: activeMotionPlan, reducedMotion, timeSeconds },` site (~line 380), add the new field:
+In the same file, find the `motion: { plan: activeMotionPlan, reducedMotion, timeSeconds },` site (~line 380-384) and add the new field:
 
 ```ts
 motion: {
@@ -127,19 +114,19 @@ motion: {
 },
 ```
 
-- [ ] **Step 2.3: Expose `wallClockHour` on the debug snapshot**
+- [ ] **Step 1.4: Expose `wallClockHour` on `frameStateRef` and the debug snapshot**
 
-In the same file, locate the `frameStateRef.current` type definition (~line 48-52):
+In the same file, locate the `frameStateRef` type at lines 48-52:
 
 ```ts
 const frameStateRef = useRef<{
-  samples: ...;
+  samples: ...;  // existing types preserved
   targets: ...;
   timeSeconds: number;
 }>({ samples: new Map(), targets: [], timeSeconds: 0 });
 ```
 
-Add `wallClockHour: number;` to the type and `, wallClockHour: 0` to the initial value.
+Add `wallClockHour: number;` to the inline type and `, wallClockHour: 0` to the initial value.
 
 In the rAF body, after `nextFrameState.timeSeconds = timeSeconds;` (~line 369), add:
 
@@ -147,53 +134,52 @@ In the rAF body, after `nextFrameState.timeSeconds = timeSeconds;` (~line 369), 
 nextFrameState.wallClockHour = wallClockHour;
 ```
 
-In the `useEffect` that publishes `__pharosVilleDebug` (~line 440-462), add to the published object:
+In the `useEffect` that publishes `__pharosVilleDebug` (~line 440-462), add to the published object alongside `timeSeconds: frameState.timeSeconds,`:
 
 ```ts
 wallClockHour: frameState.wallClockHour,
 ```
 
-In the `PharosVilleDebugState` type at the top of the file (search for `interface PharosVilleDebugState` or the inline type used for `__pharosVilleDebug`), add `wallClockHour: number;`.
+In the inline type for `__pharosVilleDebug?` (search for `interface PharosVilleDebugState` at the top of the file, or the inline window-cast types), add `wallClockHour: number;`.
 
-- [ ] **Step 2.4: Fix all motion fixtures in unit tests**
+- [ ] **Step 1.5: Search the rest of the codebase for fixture sites that need updating**
 
-Run typecheck:
+Run:
 
 ```bash
-npm run typecheck
+grep -rn "timeSeconds:" src tests --include="*.ts" --include="*.tsx" | grep -v "PharosVilleCanvasMotion\|interface\|type "
 ```
 
-For each file flagged as missing `wallClockHour`, add `wallClockHour: 12` (noon — safe default for tests that don't care about time-of-day) to the offending motion object.
+For each construction of a `PharosVilleCanvasMotion`-shaped object (the search will surface them), add `wallClockHour: 12` (noon — safe default for tests that don't care about time-of-day).
 
-If `src/renderer/layers/ship-pose.test.ts` is flagged, those tests construct shapes that match `Pick<PharosVilleCanvasMotion, "reducedMotion" | "timeSeconds">` — they don't actually need `wallClockHour`. Verify by reading what `resolveShipPose` actually requires; if it doesn't read `wallClockHour`, leave the test inputs alone (the spread `Pick` doesn't require all `PharosVilleCanvasMotion` fields).
+In particular check `src/renderer/layers/ship-pose.test.ts` — those tests construct `Pick<PharosVilleCanvasMotion, ...>`-style shapes, NOT full `PharosVilleCanvasMotion`. They likely don't need `wallClockHour`. Verify by reading what `resolveShipPose` actually requires — if it doesn't read `wallClockHour`, leave them alone.
 
-- [ ] **Step 2.5: Run typecheck and unit tests — expect green**
+- [ ] **Step 1.6: Run typecheck and unit tests — must be green**
 
 ```bash
 npm run typecheck
 npm test
 ```
 
-Expected: typecheck clean, all unit tests pass. Visual tests not yet updated — don't run them yet.
+Expected: green. If any test or production site is missing `wallClockHour`, fix it now (not in a follow-up commit).
 
-- [ ] **Step 2.6: Commit**
+- [ ] **Step 1.7: Commit**
 
 ```bash
-git add src/pharosville-world.tsx src/renderer/layers/ship-pose.test.ts
-git commit -m "Populate wallClockHour each frame and expose in debug snapshot"
+git add src/renderer/render-types.ts src/pharosville-world.tsx
+# plus any test fixture files you needed to update in 1.5
+git commit -m "Add wallClockHour to motion and plumb it through frame loop"
 ```
-
-(Adjust the staged files to match what you actually changed.)
 
 ---
 
-## Task 3: Refactor `skyState` to drive from `wallClockHour` and emit `nightFactor`
+## Task 2: Refactor `skyState` to drive from `wallClockHour` and emit `nightFactor`
 
 **Files:**
 - Create: `src/renderer/layers/sky.test.ts`
 - Modify: `src/renderer/layers/sky.ts:196-208`
 
-- [ ] **Step 3.1: Write the failing tests**
+- [ ] **Step 2.1: Write the failing tests**
 
 Create `src/renderer/layers/sky.test.ts`:
 
@@ -273,7 +259,7 @@ describe("skyState", () => {
   });
 
   describe("progress (celestial arc placement)", () => {
-    it("places sun upper-left at 06:00 (progress = 0)", () => {
+    it("places sun at horizon-left at 06:00 (progress = 0)", () => {
       expect(skyState(motionAt(6)).progress).toBeCloseTo(0, 5);
     });
 
@@ -281,15 +267,15 @@ describe("skyState", () => {
       expect(skyState(motionAt(12)).progress).toBeCloseTo(0.25, 5);
     });
 
-    it("places sun upper-right at 18:00 (progress = 0.5)", () => {
+    it("places sun at horizon-right at 18:00 (progress = 0.5)", () => {
       expect(skyState(motionAt(18)).progress).toBeCloseTo(0.5, 5);
     });
   });
 
   describe("reduced motion", () => {
     it("uses wallClockHour even when reducedMotion is true", () => {
-      // No more frozen progress = 0.58. Reduced motion just suppresses
-      // per-frame animation, not the mood selection.
+      // skyState is a pure function of wallClockHour. The reduced-motion
+      // pin happens at the producer (pharosville-world.tsx), not here.
       expect(skyState(motionAt(12, true)).nightFactor).toBe(0);
       expect(skyState(motionAt(22, true)).nightFactor).toBe(1);
     });
@@ -297,12 +283,12 @@ describe("skyState", () => {
 });
 ```
 
-- [ ] **Step 3.2: Run the test — expect failures**
+- [ ] **Step 2.2: Run the test — expect failures**
 
 Run: `npx vitest run src/renderer/layers/sky.test.ts`
 Expected: All tests fail because `skyState` does not yet read `wallClockHour` and does not return `nightFactor`.
 
-- [ ] **Step 3.3: Rewrite `skyState`**
+- [ ] **Step 2.3: Rewrite `skyState`**
 
 In `src/renderer/layers/sky.ts`, replace the existing `skyState` function (lines 196-208) with:
 
@@ -332,17 +318,16 @@ function computeNightFactor(hour: number): number {
 }
 ```
 
-- [ ] **Step 3.4: Run the test — expect green**
+- [ ] **Step 2.4: Run the test — expect green**
 
-Run: `npx vitest run src/renderer/layers/sky.test.ts`
-Expected: All tests pass.
+```bash
+npx vitest run src/renderer/layers/sky.test.ts
+npm test
+```
 
-- [ ] **Step 3.5: Run the full unit suite — expect green**
+Expected: green.
 
-Run: `npm test`
-Expected: green. The ambient.ts call to `skyState(motion)` continues to work because the return type is a superset.
-
-- [ ] **Step 3.6: Commit**
+- [ ] **Step 2.5: Commit**
 
 ```bash
 git add src/renderer/layers/sky.ts src/renderer/layers/sky.test.ts
@@ -351,97 +336,98 @@ git commit -m "Drive skyState from wallClockHour and emit nightFactor"
 
 ---
 
-## Task 4: Add `drawNightTint` layer
+## Task 3: Add `drawNightTint` layer
+
+`drawNightTint` accepts `nightFactor` as an explicit parameter — it does **not** import `sky.ts` (kept import-clean for the eventual `lighthouse.ts` callsite).
 
 **Files:**
 - Create: `src/renderer/layers/night-tint.ts`
 - Create: `src/renderer/layers/night-tint.test.ts`
 
-- [ ] **Step 4.1: Write the failing test**
+- [ ] **Step 3.1: Write the failing test**
 
 Create `src/renderer/layers/night-tint.test.ts`:
 
 ```ts
 import { describe, expect, it, vi } from "vitest";
 import { drawNightTint } from "./night-tint";
-import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
+import type { DrawPharosVilleInput } from "../render-types";
 
-function makeInput(wallClockHour: number, width = 800, height = 600): DrawPharosVilleInput {
+function makeInput(width = 800, height = 600): DrawPharosVilleInput {
   const fillRect = vi.fn();
   const ctx = {
     fillRect,
     fillStyle: "",
     save: vi.fn(),
     restore: vi.fn(),
-    setTransform: vi.fn(),
   } as unknown as CanvasRenderingContext2D;
-  const motion: PharosVilleCanvasMotion = {
-    plan: { lighthouseFireFlickerPerSecond: 1 } as PharosVilleCanvasMotion["plan"],
-    reducedMotion: false,
-    timeSeconds: 0,
-    wallClockHour,
-  };
-  const input = {
+  return {
     assets: null,
     camera: { offsetX: 0, offsetY: 0, zoom: 1 } as DrawPharosVilleInput["camera"],
     ctx,
     height,
     hoveredTarget: null,
-    motion,
+    motion: {
+      plan: {} as DrawPharosVilleInput["motion"]["plan"],
+      reducedMotion: false,
+      timeSeconds: 0,
+      wallClockHour: 0,
+    },
     selectedTarget: null,
     targets: [],
     width,
     world: {} as DrawPharosVilleInput["world"],
   } as DrawPharosVilleInput;
-  return input;
 }
 
 describe("drawNightTint", () => {
-  it("does not paint during the day (nightFactor = 0)", () => {
-    const input = makeInput(12);
-    drawNightTint(input);
-    expect((input.ctx.fillRect as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  it("does nothing when nightFactor is 0", () => {
+    const input = makeInput();
+    drawNightTint(input, 0);
+    expect(input.ctx.fillRect).not.toHaveBeenCalled();
   });
 
-  it("paints a translucent rect at full night", () => {
-    const input = makeInput(22);
-    drawNightTint(input);
+  it("does nothing when nightFactor is negative (defensive)", () => {
+    const input = makeInput();
+    drawNightTint(input, -0.1);
+    expect(input.ctx.fillRect).not.toHaveBeenCalled();
+  });
+
+  it("paints a translucent rect at full night (nightFactor = 1)", () => {
+    const input = makeInput(800, 600);
+    drawNightTint(input, 1);
     expect(input.ctx.fillRect).toHaveBeenCalledTimes(1);
     expect(input.ctx.fillRect).toHaveBeenCalledWith(0, 0, 800, 600);
   });
 
-  it("paints with proportional alpha during dusk", () => {
-    const input = makeInput(19); // nightFactor = 0.5
-    drawNightTint(input);
+  it("paints at partial alpha during dusk (nightFactor = 0.5)", () => {
+    const input = makeInput();
+    drawNightTint(input, 0.5);
     expect(input.ctx.fillRect).toHaveBeenCalledTimes(1);
-    // The exact fillStyle string is implementation-detail; we just verify
-    // a fill happened and the call was made.
   });
 });
 ```
 
-- [ ] **Step 4.2: Run the test — expect failure**
+- [ ] **Step 3.2: Run the test — expect failure**
 
 Run: `npx vitest run src/renderer/layers/night-tint.test.ts`
 Expected: FAIL — `drawNightTint` not yet defined.
 
-- [ ] **Step 4.3: Implement `drawNightTint`**
+- [ ] **Step 3.3: Implement `drawNightTint`**
 
 Create `src/renderer/layers/night-tint.ts`:
 
 ```ts
 import type { DrawPharosVilleInput } from "../render-types";
-import { skyState } from "./sky";
 
 const MAX_NIGHT_DARKNESS = 0.62;
 const NIGHT_TINT_R = 8;
 const NIGHT_TINT_G = 14;
 const NIGHT_TINT_B = 28;
 
-export function drawNightTint(input: DrawPharosVilleInput): void {
-  const { ctx, height, motion, width } = input;
-  const { nightFactor } = skyState(motion);
+export function drawNightTint(input: DrawPharosVilleInput, nightFactor: number): void {
   if (nightFactor <= 0) return;
+  const { ctx, height, width } = input;
   const alpha = MAX_NIGHT_DARKNESS * nightFactor;
   ctx.save();
   ctx.fillStyle = `rgba(${NIGHT_TINT_R}, ${NIGHT_TINT_G}, ${NIGHT_TINT_B}, ${alpha})`;
@@ -450,57 +436,154 @@ export function drawNightTint(input: DrawPharosVilleInput): void {
 }
 ```
 
-- [ ] **Step 4.4: Run the test — expect green**
+- [ ] **Step 3.4: Run the test — expect green**
 
-Run: `npx vitest run src/renderer/layers/night-tint.test.ts`
-Expected: PASS.
+```bash
+npx vitest run src/renderer/layers/night-tint.test.ts
+npm test
+```
 
-- [ ] **Step 4.5: Commit**
+Expected: green.
+
+- [ ] **Step 3.5: Commit**
 
 ```bash
 git add src/renderer/layers/night-tint.ts src/renderer/layers/night-tint.test.ts
-git commit -m "Add drawNightTint layer for global night darkening"
+git commit -m "Add drawNightTint layer with nightFactor parameter"
 ```
 
 ---
 
-## Task 5: Add `drawLighthouseNightHighlights`
+## Task 4: Add `drawLighthouseNightHighlights` and extend `lighthouseOverlayScreenBounds`
+
+Both new behaviors take `nightFactor` as a parameter — no import of `sky.ts`.
 
 **Files:**
-- Modify: `src/renderer/layers/lighthouse.ts` (append new function and constants)
+- Modify: `src/renderer/layers/lighthouse.ts`
+- Create: `src/renderer/layers/lighthouse-night.test.ts`
 
-- [ ] **Step 5.1: Add tunable constants and the new function in `lighthouse.ts`**
+- [ ] **Step 4.1: Write the failing tests**
 
-In `src/renderer/layers/lighthouse.ts`, near the top of the file (after the existing imports and `LIGHTHOUSE_HEADLAND_SCALE` constant at line 67), add:
+Create `src/renderer/layers/lighthouse-night.test.ts`:
 
 ```ts
-const NIGHT_HALO_OUTER_RADIUS = 320;       // sprite units — extra additive halo at firePoint
+import { describe, expect, it, vi } from "vitest";
+import { drawLighthouseNightHighlights, lighthouseOverlayScreenBounds } from "./lighthouse";
+import type { DrawPharosVilleInput } from "../render-types";
+
+function makeCtx() {
+  const ctx: Record<string, unknown> = {
+    save: vi.fn(),
+    restore: vi.fn(),
+    fillRect: vi.fn(),
+    fill: vi.fn(),
+    beginPath: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    closePath: vi.fn(),
+    ellipse: vi.fn(),
+    arc: vi.fn(),
+    createRadialGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+    fillStyle: "",
+    globalAlpha: 1,
+    globalCompositeOperation: "source-over",
+  };
+  return ctx as unknown as CanvasRenderingContext2D;
+}
+
+function makeInput(unavailable = false): DrawPharosVilleInput {
+  return {
+    assets: null,
+    camera: { offsetX: 0, offsetY: 0, zoom: 1 } as DrawPharosVilleInput["camera"],
+    ctx: makeCtx(),
+    height: 600,
+    hoveredTarget: null,
+    motion: {
+      plan: { lighthouseFireFlickerPerSecond: 1 } as DrawPharosVilleInput["motion"]["plan"],
+      reducedMotion: false,
+      timeSeconds: 0,
+      wallClockHour: 0,
+    },
+    selectedTarget: null,
+    targets: [],
+    width: 800,
+    world: {
+      lighthouse: { tile: { x: 18, y: 30 }, color: "#ffd877", unavailable },
+      ships: [],
+    } as unknown as DrawPharosVilleInput["world"],
+  } as DrawPharosVilleInput;
+}
+
+describe("drawLighthouseNightHighlights", () => {
+  it("does nothing when nightFactor is 0", () => {
+    const input = makeInput();
+    drawLighthouseNightHighlights(input, undefined, 0);
+    expect(input.ctx.fill).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when the lighthouse is unavailable", () => {
+    const input = makeInput(true);
+    drawLighthouseNightHighlights(input, undefined, 1);
+    expect(input.ctx.fill).not.toHaveBeenCalled();
+  });
+
+  it("draws halo + 2 beam wedges + 1 water pool at full night (≥ 4 fills)", () => {
+    const input = makeInput();
+    drawLighthouseNightHighlights(input, undefined, 1);
+    const fillMock = input.ctx.fill as unknown as ReturnType<typeof vi.fn>;
+    expect(fillMock.mock.calls.length).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe("lighthouseOverlayScreenBounds extends with nightFactor", () => {
+  it("returns a wider rect at full night than at noon", () => {
+    const input = makeInput();
+    const selectionRect = { x: 0, y: 0, width: 100, height: 100 };
+    const noon = lighthouseOverlayScreenBounds(input, selectionRect, undefined, 0);
+    const night = lighthouseOverlayScreenBounds(input, selectionRect, undefined, 1);
+    expect(night.width).toBeGreaterThan(noon.width);
+  });
+});
+```
+
+- [ ] **Step 4.2: Run the test — expect failure**
+
+Run: `npx vitest run src/renderer/layers/lighthouse-night.test.ts`
+Expected: FAIL — `drawLighthouseNightHighlights` not yet defined; `lighthouseOverlayScreenBounds` doesn't accept the new param.
+
+- [ ] **Step 4.3: Add constants and the new function in `lighthouse.ts`**
+
+In `src/renderer/layers/lighthouse.ts`, after the existing `LIGHTHOUSE_HEADLAND_SCALE` constant (line 67), add:
+
+```ts
+const NIGHT_HALO_OUTER_RADIUS = 320;       // sprite units — additive halo at firePoint
 const NIGHT_HALO_MAX_ALPHA = 0.55;
 const NIGHT_BEAM_ALPHA = 0.22;             // additive beam intensity on top of the existing pulse
 const NIGHT_BEAM_LENGTH_BOOST = 0.3;       // wedges reach this much further at full night
-const NIGHT_WATER_POOL_RADIUS = 320;       // sprite units — warm pool centered slightly below firePoint
-const NIGHT_WATER_POOL_MAX_ALPHA = 0.42;
+const NIGHT_WATER_POOL_RADIUS = 280;       // sprite units — warm pool centered slightly below firePoint
+const NIGHT_WATER_POOL_MAX_ALPHA = 0.35;
 ```
 
-At the end of the file, add:
+At the end of the file, append:
 
 ```ts
 export function drawLighthouseNightHighlights(
   input: DrawPharosVilleInput,
-  cached?: LighthouseRenderState,
+  cached: LighthouseRenderState | undefined,
+  nightFactor: number,
 ): void {
-  const { camera, ctx, motion, world } = input;
-  const { nightFactor } = skyStateForNight(motion);
   if (nightFactor <= 0) return;
-  if (world.lighthouse.unavailable) return;
+  if (input.world.lighthouse.unavailable) return;
 
+  const { camera, ctx } = input;
   const { firePoint } = cached ?? lighthouseRenderState(input);
   const zoom = camera.zoom;
 
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
 
-  // Warm halo — additive radial centered on firePoint.
+  // Warm halo — additive radial centered on firePoint, large enough to wash
+  // warmth onto the headland sprite below.
   const haloRadius = NIGHT_HALO_OUTER_RADIUS * zoom;
   const haloAlpha = NIGHT_HALO_MAX_ALPHA * nightFactor;
   const halo = ctx.createRadialGradient(
@@ -537,7 +620,7 @@ export function drawLighthouseNightHighlights(
   ctx.restore();
 
   // Warm water pool — centered slightly below firePoint, drawn with default
-  // composite (source-over) so it warms the dark water rather than over-saturating.
+  // composite (source-over) so it warms the dark water without over-saturating.
   ctx.save();
   const poolY = firePoint.y + 36 * zoom;
   const poolRadius = NIGHT_WATER_POOL_RADIUS * zoom;
@@ -557,131 +640,111 @@ export function drawLighthouseNightHighlights(
 }
 ```
 
-Add a local helper at the top of `lighthouse.ts` (after the imports) so the file doesn't have a circular import on `sky.ts` — the existing file already does not import `skyState`, and we want to keep it that way:
+- [ ] **Step 4.4: Update `lighthouseOverlayScreenBounds` to accept `nightFactor`**
+
+`lighthouseOverlayScreenBounds` is used by `entity-pass` to compute the union rect of the selection-target and the beam wedges (so click reach extends into the lit beam). The hard-coded magnitudes are 250, 168, 228, 154. At night, the boosted beam length is `× (1 + NIGHT_BEAM_LENGTH_BOOST * nightFactor)`. Update the signature and apply the same multiplier.
+
+In `src/renderer/layers/lighthouse.ts`, find the existing function signature (~line 78-101) and modify:
 
 ```ts
-import { skyState as skyStateForNight } from "./sky";
-```
-
-(If `lighthouse.ts` already has an import block, add the import alongside — adjust the ordering to keep it tidy.)
-
-- [ ] **Step 5.2: Add a unit test for the early-return path**
-
-Append to `src/renderer/layers/lighthouse.ts`-tests if a test file already exists; otherwise create `src/renderer/layers/lighthouse-night.test.ts`:
-
-```ts
-import { describe, expect, it, vi } from "vitest";
-import { drawLighthouseNightHighlights } from "./lighthouse";
-import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
-
-function makeInput(wallClockHour: number): DrawPharosVilleInput {
-  const ctx = {
-    save: vi.fn(),
-    restore: vi.fn(),
-    fillRect: vi.fn(),
-    fill: vi.fn(),
-    beginPath: vi.fn(),
-    moveTo: vi.fn(),
-    lineTo: vi.fn(),
-    closePath: vi.fn(),
-    ellipse: vi.fn(),
-    arc: vi.fn(),
-    createRadialGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
-    set fillStyle(_v: unknown) {},
-    set globalAlpha(_v: number) {},
-    set globalCompositeOperation(_v: string) {},
-  } as unknown as CanvasRenderingContext2D;
-  const motion: PharosVilleCanvasMotion = {
-    plan: { lighthouseFireFlickerPerSecond: 1 } as PharosVilleCanvasMotion["plan"],
-    reducedMotion: false,
-    timeSeconds: 0,
-    wallClockHour,
+export function lighthouseOverlayScreenBounds(
+  input: DrawPharosVilleInput,
+  selectionRect: { height: number; width: number; x: number; y: number },
+  cached: LighthouseRenderState | undefined,
+  nightFactor: number,
+): { height: number; width: number; x: number; y: number } {
+  const { firePoint } = cached ?? lighthouseRenderState(input);
+  const beamZoom = input.camera.zoom * 1.35;
+  const reach = 1 + NIGHT_BEAM_LENGTH_BOOST * nightFactor;
+  const beamBounds = {
+    height: 120 * beamZoom,
+    width: 436 * beamZoom * reach,
+    x: firePoint.x - 176 * beamZoom * reach,
+    y: firePoint.y - 82 * beamZoom,
   };
+  const minX = Math.min(selectionRect.x, beamBounds.x);
+  const minY = Math.min(selectionRect.y, beamBounds.y);
+  const maxX = Math.max(selectionRect.x + selectionRect.width, beamBounds.x + beamBounds.width);
+  const maxY = Math.max(selectionRect.y + selectionRect.height, beamBounds.y + beamBounds.height);
   return {
-    assets: null,
-    camera: { offsetX: 0, offsetY: 0, zoom: 1 } as DrawPharosVilleInput["camera"],
-    ctx,
-    height: 600,
-    hoveredTarget: null,
-    motion,
-    selectedTarget: null,
-    targets: [],
-    width: 800,
-    world: {
-      lighthouse: { tile: { x: 18, y: 30 }, color: "#fff", unavailable: false },
-      ships: [],
-    } as unknown as DrawPharosVilleInput["world"],
-  } as DrawPharosVilleInput;
+    height: maxY - minY,
+    width: maxX - minX,
+    x: minX,
+    y: minY,
+  };
 }
-
-describe("drawLighthouseNightHighlights", () => {
-  it("does nothing during the day", () => {
-    const input = makeInput(12);
-    drawLighthouseNightHighlights(input);
-    expect(input.ctx.fill).not.toHaveBeenCalled();
-  });
-
-  it("draws halo, beams, and water pool at night", () => {
-    const input = makeInput(22);
-    drawLighthouseNightHighlights(input);
-    // 1 halo arc + 2 beam wedges + 1 pool ellipse = 4 fill calls.
-    expect((input.ctx.fill as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(4);
-  });
-
-  it("does nothing when the lighthouse is unavailable", () => {
-    const input = makeInput(22);
-    (input.world as { lighthouse: { unavailable: boolean } }).lighthouse.unavailable = true;
-    drawLighthouseNightHighlights(input);
-    expect(input.ctx.fill).not.toHaveBeenCalled();
-  });
-});
 ```
 
-- [ ] **Step 5.3: Run the test — expect green (or fix small mismatches)**
+The signature change is a breaking change for callers — Step 5.2 fixes the one callsite in `world-canvas.ts`.
 
-Run: `npx vitest run src/renderer/layers/lighthouse-night.test.ts`
-Expected: PASS. If a setter mock complains, switch to a `Proxy`-based ctx mock or use `Object.defineProperty` for `fillStyle`/`globalAlpha`/`globalCompositeOperation`.
+- [ ] **Step 4.5: Run the new tests — expect green**
 
-- [ ] **Step 5.4: Run typecheck and full unit suite**
+```bash
+npx vitest run src/renderer/layers/lighthouse-night.test.ts
+```
+
+Expected: green.
+
+- [ ] **Step 4.6: Run typecheck — expect failures from `world-canvas.ts`**
 
 ```bash
 npm run typecheck
+```
+
+Expected: TypeScript will flag `lighthouseOverlayScreenBounds` callsite in `world-canvas.ts` as missing the new `nightFactor` argument. That's fixed in Task 5. Don't commit yet.
+
+- [ ] **Step 4.7: Run the full unit suite (it should pass — typecheck failure is a separate command)**
+
+```bash
 npm test
 ```
 
 Expected: green.
 
-- [ ] **Step 5.5: Commit**
+- [ ] **Step 4.8: Commit (typecheck still red — Task 5 fixes it; this is a single commit because the function pair must be reviewed together)**
 
 ```bash
 git add src/renderer/layers/lighthouse.ts src/renderer/layers/lighthouse-night.test.ts
-git commit -m "Add drawLighthouseNightHighlights additive overlay"
+git commit -m "Add drawLighthouseNightHighlights and extend overlay bounds for night beams"
 ```
+
+(Yes, typecheck is red here because `world-canvas.ts` hasn't been updated. Task 5 fixes it in the very next commit. Tests pass on their own.)
 
 ---
 
-## Task 6: Wire the new layers into `world-canvas.ts`
+## Task 5: Wire the new layers into `world-canvas.ts`
+
+This task computes `skyState` once per frame, threads `nightFactor` to the new layers, and reorders the pipeline.
 
 **Files:**
-- Modify: `src/renderer/world-canvas.ts:5, 15, 167-183`
+- Modify: `src/renderer/world-canvas.ts`
 
-- [ ] **Step 6.1: Add the imports**
+- [ ] **Step 5.1: Add the imports**
 
-In `src/renderer/world-canvas.ts`, add to the existing `./layers/lighthouse` import line (line 15):
+In `src/renderer/world-canvas.ts`, update the existing `./layers/lighthouse` import (line 15) to include the new function:
 
 ```ts
 import { drawLighthouseBeamRim, drawLighthouseBody, drawLighthouseHeadland, drawLighthouseNightHighlights, drawLighthouseOverlay, drawLighthouseSurf, lighthouseOverlayScreenBounds, lighthouseRenderState, type LighthouseRenderState } from "./layers/lighthouse";
 ```
 
-Add a new import line below the existing `./layers/sky` import:
+Add a new import line just below the existing `./layers/sky` import (line 18):
 
 ```ts
 import { drawNightTint } from "./layers/night-tint";
+import { skyState } from "./layers/sky";
 ```
 
-- [ ] **Step 6.2: Reorder the render pipeline in `drawPharosVille`**
+(`skyState` was previously imported transitively; now we use it directly inside `drawPharosVille`.)
 
-In `drawPharosVille` (~lines 167-183), change:
+- [ ] **Step 5.2: Compute `nightFactor` once and reorder the render pipeline**
+
+Inside `drawPharosVille` (~line 163), at the very top of the function (before `ctx.imageSmoothingEnabled = false;`), add:
+
+```ts
+const { nightFactor } = skyState(input.motion);
+```
+
+Then change the existing pipeline (lines 167-183) from:
 
 ```ts
 drawSky(input, frame.lighthouseRender);
@@ -716,43 +779,52 @@ drawLighthouseSurf(input);
 const entityMetrics = drawEntityPass(input, frame);
 drawWaterAreaLabels(input);
 drawEthereumHarborSigns(input);
-drawNightTint(input);
+drawNightTint(input, nightFactor);
 drawAtmosphere(input, frame.lighthouseRender);
-drawLighthouseNightHighlights(input, frame.lighthouseRender);
+drawLighthouseNightHighlights(input, frame.lighthouseRender, nightFactor);
 drawDecorativeLights(input);
 drawLighthouseBeamRim(input, frame.visibleShips, frame.lighthouseRender);
 drawCemeteryMist(input);
 drawBirds(input);
 ```
 
-Three changes from the prior order:
+- [ ] **Step 5.3: Fix the `lighthouseOverlayScreenBounds` callsite in `drawEntityPass` config**
 
-1. `drawAtmosphere` moved from before `drawLighthouseSurf` to after `drawNightTint`.
-2. `drawNightTint` and `drawLighthouseNightHighlights` inserted post-entity-pass.
-3. `drawLighthouseBeamRim` moved from immediately after the entity pass to after `drawDecorativeLights`, so the bright ship-edge highlights remain visible on top of the night tint.
+Find the callsite (~line 232):
 
-- [ ] **Step 6.3: Run typecheck and unit tests**
+```ts
+lighthouseOverlayScreenBounds: (selectionRect) => lighthouseOverlayScreenBounds(input, selectionRect, frame.lighthouseRender),
+```
+
+Change to:
+
+```ts
+lighthouseOverlayScreenBounds: (selectionRect) => lighthouseOverlayScreenBounds(input, selectionRect, frame.lighthouseRender, nightFactor),
+```
+
+(`nightFactor` is in scope because Step 5.2 computed it at the top of `drawPharosVille`.)
+
+- [ ] **Step 5.4: Run typecheck and unit tests**
 
 ```bash
 npm run typecheck
 npm test
 ```
 
-Expected: green.
+Expected: both green. The failure introduced in Task 4.6 is now resolved.
 
-- [ ] **Step 6.4: Manual smoke check in dev**
+- [ ] **Step 5.5: Manual smoke check in dev**
 
-Run: `npm run dev`
-Open http://localhost:5173 in a browser.
+Run: `npm run dev` and open http://localhost:5173.
 
 The current wall-clock time on your machine determines the appearance:
-- 07:00–18:00: scene should look unchanged from before (nightFactor = 0).
-- 20:00–05:00: scene should be visibly darker; lighthouse halo + beams + warm water pool should be prominent.
+- 07:00–18:00: scene unchanged from before (`nightFactor = 0`).
+- 20:00–05:00: scene visibly darker; lighthouse halo + beams + warm water pool prominent.
 - Dusk/dawn: smooth transition.
 
-If you can't easily wait for nightfall, temporarily hack `motion.wallClockHour = 22` in `pharosville-world.tsx` to verify the night render, then revert before committing.
+If you can't easily wait for nightfall, temporarily edit Step 1.2's branch to force `wallClockHour = 22`, verify the night render, then revert before committing.
 
-- [ ] **Step 6.5: Commit**
+- [ ] **Step 5.6: Commit**
 
 ```bash
 git add src/renderer/world-canvas.ts
@@ -761,125 +833,106 @@ git commit -m "Wire night tint and lighthouse highlights into render pipeline"
 
 ---
 
-## Task 7: Configure Playwright for deterministic timezone
+## Task 6: Update visual tests — pin existing to noon, add dawn/dusk/night cases
 
-**Files:**
-- Modify: `playwright.config.ts`
-
-- [ ] **Step 7.1: Set `timezoneId` in the Playwright config**
-
-In `playwright.config.ts`, change:
-
-```ts
-use: {
-  ...devices["Desktop Chrome"],
-  baseURL: "http://127.0.0.1:4173",
-  viewport: { width: 1440, height: 960 },
-  trace: "on-first-retry",
-},
-```
-
-to:
-
-```ts
-use: {
-  ...devices["Desktop Chrome"],
-  baseURL: "http://127.0.0.1:4173",
-  viewport: { width: 1440, height: 960 },
-  trace: "on-first-retry",
-  timezoneId: "Etc/UTC",
-},
-```
-
-This makes `new Date().getHours()` in the browser return UTC hours, so `wallClockHour` is reproducible across runners regardless of host TZ.
-
-- [ ] **Step 7.2: Commit**
-
-```bash
-git add playwright.config.ts
-git commit -m "Pin Playwright timezone to UTC for deterministic wall-clock"
-```
-
----
-
-## Task 8: Update visual tests — pin existing to noon, add dusk and night
+This task uses `page.addInitScript` to override `Date.prototype.getHours/getMinutes` per-test. We deliberately do NOT use `page.clock.install` because that virtualizes `requestAnimationFrame` and would hang any test that doesn't subsequently call `clock.fastForward` or `clock.resume` — many existing tests rely on rAF advancing in real time.
 
 **Files:**
 - Modify: `tests/visual/pharosville.spec.ts`
 
-- [ ] **Step 8.1: Extend the runtime debug snapshot type**
+- [ ] **Step 6.1: Add the `installWallClockOverride` helper**
 
-In `tests/visual/pharosville.spec.ts`, find the `PharosVilleVisualDebug` type that includes `timeSeconds?: number;` (~line 85) and add:
+In `tests/visual/pharosville.spec.ts`, add a helper near the top (next to `mockPharosVilleData`):
+
+```ts
+async function installWallClockOverride(page: Page, hour: number): Promise<void> {
+  // Override Date.prototype.getHours/getMinutes so motion.wallClockHour is
+  // deterministic per-test. Does NOT virtualize rAF (unlike page.clock.install),
+  // so requestAnimationFrame keeps advancing normally and existing tests still
+  // see motionFrameCount progress.
+  const flooredHour = Math.floor(hour);
+  const minutes = Math.round((hour - flooredHour) * 60);
+  await page.addInitScript(({ h, m }) => {
+    const origGetHours = Date.prototype.getHours;
+    const origGetMinutes = Date.prototype.getMinutes;
+    Date.prototype.getHours = function () { return h; };
+    Date.prototype.getMinutes = function () { return m; };
+    // Keep originals reachable in case any other code path needs them.
+    (Date.prototype as { __origGetHours?: typeof origGetHours }).__origGetHours = origGetHours;
+    (Date.prototype as { __origGetMinutes?: typeof origGetMinutes }).__origGetMinutes = origGetMinutes;
+  }, { h: flooredHour, m: minutes });
+}
+```
+
+- [ ] **Step 6.2: Extend the runtime debug snapshot type**
+
+Find the `PharosVilleVisualDebug` type that includes `timeSeconds?: number;` (~line 85) and add:
 
 ```ts
 wallClockHour?: number;
 ```
 
-Find the `waitForRuntimeDebug` and `readRuntimeSnapshot` helpers (~line 1081-1115) and ensure `wallClockHour` is read from the debug object the same way `timeSeconds` is. Where the snapshot object is constructed:
-
-```ts
-{
-  reducedMotion: debug?.reducedMotion ?? null,
-  ...
-  timeSeconds: debug?.timeSeconds ?? -1,
-}
-```
-
-Add:
+In `readRuntimeSnapshot` (~line 1108-1115) where the snapshot object includes `timeSeconds: debug?.timeSeconds ?? -1`, add:
 
 ```ts
 wallClockHour: debug?.wallClockHour ?? -1,
 ```
 
-- [ ] **Step 8.2: Pin all existing tests to noon (12:00 UTC)**
+- [ ] **Step 6.3: Pin all existing tests to noon**
 
-For every `test(...)` block in `tests/visual/pharosville.spec.ts` that calls `await page.goto("/")`, insert (before the `goto`):
+For each `test(...)` block in the file, find its `await page.goto("/")` (or `await page.goto(...)` with a URL) and insert this line **before** the `goto`:
 
 ```ts
-await page.clock.install({ time: new Date("2026-04-28T12:00:00Z") });
+await installWallClockOverride(page, 12);
 ```
 
-If a test already calls `page.clock.install` (search the file — currently only line 1037 does), leave that test alone; the explicit time it installs is fine. For all other tests, default to noon.
+Tests to update (by approximate line based on a fresh checkout):
+- `test("…")` blocks around lines 280, 343, 383, 496, 522, 597, 611, 624, 642, 674, 732, 855, 894, 1038.
 
-- [ ] **Step 8.3: Add a deep-night visual test**
+For the test at line 1037 that already calls `page.clock.install({ time: new Date("2026-04-28T00:00:00Z") })`: leave the existing `clock.install` line in place (it controls rAF stepping for the explicit `fastForward` calls below it). Add `await installWallClockOverride(page, 12);` BEFORE the `clock.install` line so the wallClockHour pin takes effect at page load. (Note: with `clock.install`, the in-page `Date` is already mocked to `2026-04-28T00:00:00Z`, but we want the rendered scene to be daytime regardless. The `installWallClockOverride` overrides `getHours`/`getMinutes` directly, so it wins over `clock.install`'s Date mocking. Verify this works by inspecting the runtime debug snapshot in the test — `wallClockHour` should equal 12.)
 
-Append to `tests/visual/pharosville.spec.ts`:
+If any test uses a different `goto` form (e.g., `await page.goto(new URL(...))`), the same insertion before that line still applies.
+
+- [ ] **Step 6.4: Add three new visual tests for dawn / dusk / night**
+
+Append at the end of the file:
 
 ```ts
-test.describe("pharosville night", () => {
-  test("renders deep-night atmosphere with dominant lighthouse glow", async ({ page }) => {
+test.describe("pharosville night atmosphere", () => {
+  test("renders mid-dawn with partial night tint", async ({ page }) => {
     await mockPharosVilleData(page);
-    await page.clock.install({ time: new Date("2026-04-28T22:00:00Z") });
+    await installWallClockOverride(page, 6);
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.setViewportSize({ width: 1440, height: 960 });
     await page.goto("/");
     await waitForRuntimeDebug(page, true);
-    await page.waitForFunction(() => {
-      const debug = (window as typeof window & {
-        __pharosVilleDebug?: { wallClockHour?: number };
-      }).__pharosVilleDebug;
-      return debug?.wallClockHour !== undefined && debug.wallClockHour >= 21.5 && debug.wallClockHour < 22.5;
-    });
-    await expect(page).toHaveScreenshot("pharosville-night.png", {
+    await expect(page).toHaveScreenshot("pharosville-dawn.png", {
       animations: "disabled",
       maxDiffPixelRatio: 0.005,
     });
   });
 
-  test("renders dusk transition with partial night tint", async ({ page }) => {
+  test("renders mid-dusk with partial night tint and warming lighthouse", async ({ page }) => {
     await mockPharosVilleData(page);
-    await page.clock.install({ time: new Date("2026-04-28T19:00:00Z") });
+    await installWallClockOverride(page, 19);
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.setViewportSize({ width: 1440, height: 960 });
     await page.goto("/");
     await waitForRuntimeDebug(page, true);
-    await page.waitForFunction(() => {
-      const debug = (window as typeof window & {
-        __pharosVilleDebug?: { wallClockHour?: number };
-      }).__pharosVilleDebug;
-      return debug?.wallClockHour !== undefined && debug.wallClockHour >= 18.5 && debug.wallClockHour < 19.5;
-    });
     await expect(page).toHaveScreenshot("pharosville-dusk.png", {
+      animations: "disabled",
+      maxDiffPixelRatio: 0.005,
+    });
+  });
+
+  test("renders deep-night with dominant lighthouse glow and warm water pool", async ({ page }) => {
+    await mockPharosVilleData(page);
+    await installWallClockOverride(page, 22);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 1440, height: 960 });
+    await page.goto("/");
+    await waitForRuntimeDebug(page, true);
+    await expect(page).toHaveScreenshot("pharosville-night.png", {
       animations: "disabled",
       maxDiffPixelRatio: 0.005,
     });
@@ -887,9 +940,7 @@ test.describe("pharosville night", () => {
 });
 ```
 
-(Adjust the `mockPharosVilleData` import / helper name if the new tests are placed in a section where it must be re-resolved.)
-
-- [ ] **Step 8.4: Run typecheck and unit tests**
+- [ ] **Step 6.5: Run typecheck and unit tests**
 
 ```bash
 npm run typecheck
@@ -898,39 +949,48 @@ npm test
 
 Expected: green.
 
-- [ ] **Step 8.5: Commit (without re-baking baselines yet)**
+- [ ] **Step 6.6: Commit (without re-baking baselines yet)**
 
 ```bash
 git add tests/visual/pharosville.spec.ts
-git commit -m "Pin visual tests to noon and add dusk and deep-night cases"
+git commit -m "Pin visual tests to noon and add dawn dusk and night cases"
 ```
 
 ---
 
-## Task 9: Re-bake visual baselines
+## Task 7: Re-bake visual baselines
 
 **Files:**
 - Re-bake: `tests/visual/pharosville.spec.ts-snapshots/**`
 
-- [ ] **Step 9.1: Run the visual suite — expect failures**
+- [ ] **Step 7.1: Run the visual suite — expect failures**
 
 ```bash
 npm run test:visual
 ```
 
-Expected: most baselines fail because (a) all noon-pinned tests now render the "day" mood (was: frozen `progress = 0.58` rendering dusk), and (b) the new `pharosville-night.png` and `pharosville-dusk.png` baselines do not yet exist.
+Expected: most baselines fail because (a) all noon-pinned tests now render the "day" mood (was: legacy frozen `progress = 0.58` rendering dusk-mood backdrop and dusk sun position); (b) the new `pharosville-dawn.png`, `pharosville-dusk.png`, and `pharosville-night.png` baselines do not yet exist.
 
-- [ ] **Step 9.2: Inspect the diffs — manual review (CRITICAL)**
+- [ ] **Step 7.2: Inspect the diffs — manual review (CRITICAL)**
 
 For each failing test, open the diff image at `test-results/<test-name>/<file>-diff.png`. Confirm the drift is intentional:
 
-- Day tests: should look brighter and more golden than the previous "frozen dusk" baselines, with no other unexpected differences.
-- Dusk test: should show a partial dark tint (~31% darkening, since `nightFactor ≈ 0.5`) plus a visibly stronger lighthouse glow.
-- Night test: should show ~62% darkening, dominant lighthouse halo, warm water pool around the headland, brighter sweeping beams.
+- **Day tests**: should look brighter and more golden than the previous "frozen dusk" baselines, with no other unexpected differences. Sun visible at top of arc.
+- **Dawn test**: should show a partial dark tint (~31% darkening since `nightFactor ≈ 0.5`), warm horizon, lighthouse subtly more visible.
+- **Dusk test**: similar partial darkening but with dusk-mood sky colors and lighthouse glow rising.
+- **Night test**: ~62% darkening, dominant lighthouse halo, warm water pool around the headland, brighter sweeping beams.
 
-If anything else looks wrong (e.g., a ship missing, a label clipped), STOP and investigate before re-baking.
+**Specifically check at night**:
+- Water-area labels (Calm Anchorage, etc.) — still readable through tint?
+- Gold dock lanterns — still visible?
+- Risk-zone fluorescent water tints (warning shoals, danger strait) — still differentiable?
+- Warm-colored ship sails — visible enough outside the beam?
 
-- [ ] **Step 9.3: Update baselines**
+If any of these read as broken, STOP and adjust. Likely fix: hoist that layer above the tint pass (would be a follow-up PR — flag it but do not block this PR).
+
+If anything else looks wrong (a ship missing, a label clipped), STOP and investigate before re-baking.
+
+- [ ] **Step 7.3: Update baselines**
 
 Once the diffs are accepted:
 
@@ -938,7 +998,7 @@ Once the diffs are accepted:
 npm run test:visual -- --update-snapshots
 ```
 
-- [ ] **Step 9.4: Re-run visual suite — expect green**
+- [ ] **Step 7.4: Re-run visual suite — expect green**
 
 ```bash
 npm run test:visual
@@ -946,20 +1006,20 @@ npm run test:visual
 
 Expected: PASS.
 
-- [ ] **Step 9.5: Commit baselines**
+- [ ] **Step 7.5: Commit baselines**
 
 ```bash
 git add tests/visual/pharosville.spec.ts-snapshots
-git commit -m "Re-bake visual baselines for day, dusk, and night moods"
+git commit -m "Re-bake visual baselines for day dawn dusk and night moods"
 ```
 
 ---
 
-## Task 10: Full validation
+## Task 8: Full validation
 
 **Files:** None — verification only.
 
-- [ ] **Step 10.1: Run the full validation sequence**
+- [ ] **Step 8.1: Run the full validation sequence**
 
 ```bash
 npm run typecheck
@@ -972,7 +1032,7 @@ npm run test:visual
 
 All commands must exit 0. If any fails, fix the underlying issue and re-run before claiming completion.
 
-- [ ] **Step 10.2: In-browser tuning (one round)**
+- [ ] **Step 8.2: In-browser tuning (one round)**
 
 Run `npm run dev` and view the page near 22:00 local time (or temporarily hack `wallClockHour = 22` to force night, reverting before commit). Sanity-check:
 
@@ -982,14 +1042,15 @@ Run `npm run dev` and view the page near 22:00 local time (or temporarily hack `
 - Warm pool warms the headland and the water immediately around it.
 - Village lamps remain visible as warm pinpricks.
 - Ship-beam edge highlighting still works.
+- Water-area labels still legible.
 
 If the night reads as flat gray, raise `MAX_NIGHT_DARKNESS` toward 0.7 in `night-tint.ts`.
 If lighthouse contrast is insufficient, raise `NIGHT_HALO_MAX_ALPHA` and `NIGHT_BEAM_ALPHA` in `lighthouse.ts`.
 If the warm pool dominates, lower `NIGHT_WATER_POOL_MAX_ALPHA`.
 
-If you tune any constants, re-run Task 9 to re-bake baselines and commit.
+If you tune any constants, re-run Task 7 to re-bake baselines and commit.
 
-- [ ] **Step 10.3: Final commit (only if Step 10.2 changed anything)**
+- [ ] **Step 8.3: Final commit (only if Step 8.2 changed anything)**
 
 ```bash
 git add src/renderer/layers/night-tint.ts src/renderer/layers/lighthouse.ts tests/visual/pharosville.spec.ts-snapshots
@@ -1001,25 +1062,33 @@ git commit -m "Tune night-tint and lighthouse highlight constants after visual r
 ## Self-Review
 
 **Spec coverage:**
-- [x] Cycle driver = real local time → Tasks 2, 3.
-- [x] Continuous `nightFactor` ∈ [0, 1] with linear dawn/dusk ramps → Task 3.
-- [x] Hour bands (5/7/18/20) → Task 3.
-- [x] Reduced motion uses wall clock (no frozen progress) → Task 3.
-- [x] Sky `progress` derivation `= ((wallClockHour - 6)/24) mod 1` → Task 3.
-- [x] Single global tint pass between world content and lights → Tasks 4, 6.
-- [x] Lighthouse halo, beam, and water-pool boost → Task 5 (additive overlay refinement of spec Section 3 — see top of plan).
-- [x] `MAX_NIGHT_DARKNESS = 0.62` starting tunable → Task 4.
-- [x] `drawAtmosphere` moved post-tint → Task 6.
-- [x] Hard sky-mood color switches retained (Approach B1) → Task 3.
-- [x] Test injection via `wallClockHour` motion field → Task 1, Task 8.
-- [x] Visual tests pinned to noon, plus new dusk and night cases → Task 8.
-- [x] Visual baseline re-bake with manual diff review → Task 9.
-- [x] Full validation gate → Task 10.
+- [x] Cycle driver = real local time → Task 1 (production); Task 6 (tests).
+- [x] Continuous `nightFactor` ∈ [0, 1] with linear dawn/dusk ramps → Task 2.
+- [x] Hour bands (5/7/18/20) → Task 2.
+- [x] Reduced motion pinned to noon → Task 1 Step 1.2.
+- [x] Sky `progress` derivation `= ((wallClockHour - 6)/24) mod 1` → Task 2.
+- [x] Single global tint pass between world content and lights → Task 3, 5.
+- [x] Lighthouse halo, beam, and water-pool boost (additive overlay) → Task 4.
+- [x] Halo radius covers headland (lit-headland requirement satisfied without busting static cache) → Task 4 Step 4.3 with `NIGHT_HALO_OUTER_RADIUS = 320`.
+- [x] `lighthouseOverlayScreenBounds` extends with night beam length → Task 4 Step 4.4.
+- [x] `MAX_NIGHT_DARKNESS = 0.62` starting tunable → Task 3.
+- [x] `drawAtmosphere` moved post-tint → Task 5.
+- [x] `drawLighthouseBeamRim` moved after `drawDecorativeLights` to shine through tint → Task 5.
+- [x] `nightFactor` passed as parameter; no circular import → Tasks 3, 4, 5.
+- [x] Hard sky-mood color switches retained (Approach B1) → Task 2.
+- [x] Test injection via `installWallClockOverride` (Date.prototype override, NOT clock.install) → Task 6.
+- [x] Visual tests pinned to noon, plus new dawn/dusk/night cases → Task 6.
+- [x] Visual baseline re-bake with manual diff review including label legibility check → Task 7.
+- [x] Full validation gate → Task 8.
 
 **Placeholder scan:** no TBD/TODO/"add appropriate" placeholders. Each step shows the actual code or the actual command.
 
-**Type consistency:** `wallClockHour: number` is the same name in `PharosVilleCanvasMotion` (Task 1), `pharosville-world.tsx` (Task 2), `skyState` consumers (Task 3), test helpers (Tasks 3-5), debug snapshot (Tasks 2, 8), and Playwright assertions (Task 8). `nightFactor` is the same name in `skyState` (Task 3), `drawNightTint` (Task 4), and `drawLighthouseNightHighlights` (Task 5).
+**Type consistency:** `wallClockHour: number` is the same name in `PharosVilleCanvasMotion` (Task 1), `pharosville-world.tsx` (Task 1), `skyState` consumers (Task 2), test helpers (Tasks 2-4), debug snapshot (Tasks 1, 6), and Playwright assertions (Task 6). `nightFactor: number` is the same name in `skyState` (Task 2), `drawNightTint` (Task 3), `drawLighthouseNightHighlights` (Task 4), `lighthouseOverlayScreenBounds` (Task 4), and the `world-canvas.ts` thread-through (Task 5). No name drift.
+
+**No circular imports:** `night-tint.ts` imports only `render-types`. `lighthouse.ts` is unchanged in its imports (still no `sky.ts` import). `sky.ts` continues to import from `lighthouse.ts`. `world-canvas.ts` imports from both `sky.ts` and `lighthouse.ts` and is the seam where `nightFactor` is computed and threaded.
+
+**Order of operations:** Tasks 1, 2, 3 each commit a green typecheck and green tests. Task 4 commits a state where typecheck is red on `world-canvas.ts` because the changed `lighthouseOverlayScreenBounds` signature won't match its single callsite — Task 5's first commit fixes it. The two-commit window with red typecheck is contained: a developer running `git bisect` between Tasks 4 and 5 will see one red commit. This is acceptable because the function pair (definition + callsite) must be reviewed together; merging Task 4 and Task 5 into one giant commit would obscure the change.
 
 **Scope:** Single feature, single PR, no decomposition needed.
 
-**Ambiguity:** Tunable constants are starting values; in-browser tuning is an explicit step (10.2). Visual diffs are reviewed manually before baseline updates (9.2).
+**Ambiguity:** Tunable constants are starting values; in-browser tuning is an explicit step (8.2). Visual diffs are reviewed manually before baseline updates (7.2). Label-legibility and risk-zone-water readability checks are explicit in 7.2.

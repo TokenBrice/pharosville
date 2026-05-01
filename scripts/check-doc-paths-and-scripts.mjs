@@ -26,7 +26,9 @@ export function listTrackedMarkdownFiles(repoRoot = process.cwd()) {
     .toString("utf8")
     .split("\0")
     .filter(Boolean)
-    .filter((path) => !path.startsWith("agent/"));
+    .filter((path) => !path.startsWith("agent/"))
+    .filter((path) => !path.startsWith("docs/superpowers/plans/"))
+    .filter((path) => !path.startsWith("docs/superpowers/specs/"));
 }
 
 export function findDocumentedNpmRunCommands(text) {
