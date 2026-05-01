@@ -18,14 +18,21 @@ Use this file as the fastest path to productive and safe PharosVille work.
    npm run onboard:agent
    ```
 
-3. Read in this order:
+3. Ensure local API key and endpoint smoke are healthy before UI debugging:
+
+   ```bash
+   npm run setup:local-api-key
+   npm run smoke:api-local
+   ```
+
+4. Read in this order:
    - `AGENTS.md`
    - `docs/pharosville-page.md`
    - `docs/pharosville/CURRENT.md`
    - `docs/pharosville/CHANGE_PLAYBOOK.md`
    - `docs/pharosville/TESTING.md`
 
-4. For docs/process-only work, run:
+5. For docs/process-only work, run:
 
    ```bash
    npm run validate:docs
@@ -49,6 +56,12 @@ Use this file as the fastest path to productive and safe PharosVille work.
   npm run validate:docs
   ```
 
+- Mixed or unknown change scope (auto-select lane):
+
+  ```bash
+  npm run validate:changed
+  ```
+
 - World/data semantics:
 
   ```bash
@@ -67,6 +80,20 @@ Use this file as the fastest path to productive and safe PharosVille work.
 
   ```bash
   npm run validate:release
+  ```
+
+## Worktree And Plan Shortcuts
+
+- Create and bootstrap a new worktree:
+
+  ```bash
+  npm run worktree:new -- <name> --branch <branch-name> --install
+  ```
+
+- Create a dated plan scaffold in `agents/`:
+
+  ```bash
+  npm run agent:plan:new -- <slug>
   ```
 
 ## High-Risk Mistakes To Avoid

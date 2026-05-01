@@ -42,6 +42,13 @@ Focused motion changes:
 npm test -- src/systems/motion.test.ts
 ```
 
+Local API/dev-proxy sanity (recommended before debugging missing ships/data):
+
+```bash
+npm run setup:local-api-key
+npm run smoke:api-local
+```
+
 ## Visual And Browser Checks
 
 Run Playwright when the change affects canvas drawing, interaction, viewport gating, reduced motion, screenshots, detail positioning, or route shell behavior:
@@ -103,6 +110,12 @@ For changes limited to PharosVille docs, run:
 
 ```bash
 npm run validate:docs
+```
+
+For mixed or uncertain scope, use:
+
+```bash
+npm run validate:changed
 ```
 
 And keep grep checks for stale standalone drift when needed:

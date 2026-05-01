@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -13,11 +13,11 @@ const requiredPaths = [
   "docs/pharosville/CHANGE_PLAYBOOK.md",
   "docs/pharosville/TESTING.md",
   "agents",
-  "outputs",
 ];
 
 const supportedNodeMajor = 24;
 const sharedEnvFileName = "pharosville.env.local";
+const writableScratchPaths = ["outputs"];
 
 function summarizeGitStatus(repoRoot) {
   try {
@@ -37,6 +37,18 @@ function validateRequiredPaths(repoRoot) {
     }
   }
   return missing;
+}
+
+function ensureScratchDirectories(repoRoot) {
+  const created = [];
+  for (const relativePath of writableScratchPaths) {
+    const absolutePath = resolve(repoRoot, relativePath);
+    if (!existsSync(absolutePath)) {
+      mkdirSync(absolutePath, { recursive: true });
+      created.push(relativePath);
+    }
+  }
+  return created;
 }
 
 function hasLegacyOutputArtifacts(repoRoot) {
@@ -116,6 +128,7 @@ function main() {
   const actualNodeMajor = Number(process.versions.node.split(".")[0]);
   const expectedNodeMajor = detectExpectedNodeMajor(repoRoot);
   const missingPaths = validateRequiredPaths(repoRoot);
+  const createdScratchPaths = ensureScratchDirectories(repoRoot);
   const status = summarizeGitStatus(repoRoot);
   const legacyOutputWarning = hasLegacyOutputArtifacts(repoRoot);
   const apiKeyStatus = discoverLocalPharosApiKey(repoRoot);
@@ -138,6 +151,10 @@ function main() {
     if (status.lines.length > 10) {
       console.log(`  ...and ${status.lines.length - 10} more`);
     }
+  }
+
+  if (createdScratchPaths.length > 0) {
+    console.log(`- Created scratch directories: ${createdScratchPaths.join(", ")}`);
   }
 
   if (missingPaths.length > 0) {
@@ -163,12 +180,21 @@ function main() {
         console.log(`  ${hint}`);
       }
     }
+    console.log("- Suggested fix: run `npm run setup:local-api-key`.");
   }
 
   console.log("\nRecommended next commands:");
-  console.log("1. npm run validate:docs");
-  console.log("2. npm test -- src   # if code semantics changed");
-  console.log("3. npm run validate:release   # before claiming release confidence");
+  if (apiKeyStatus.keyFound) {
+    console.log("1. npm run smoke:api-local");
+    console.log("2. npm run validate:docs");
+    console.log("3. npm test -- src   # if code semantics changed");
+    console.log("4. npm run validate:release   # before claiming release confidence");
+  } else {
+    console.log("1. npm run setup:local-api-key");
+    console.log("2. npm run smoke:api-local");
+    console.log("3. npm run validate:docs");
+    console.log("4. npm run validate:release   # before claiming release confidence");
+  }
 
   const failedChecks = [];
   if (missingPaths.length > 0) {

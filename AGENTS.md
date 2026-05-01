@@ -46,6 +46,7 @@ Use the smallest focused check while developing. Before publishing or claiming b
 
 ```bash
 npm run onboard:agent
+npm run smoke:api-local
 npm run validate:docs
 npm run typecheck
 npm test
@@ -53,6 +54,12 @@ npm run check:pharosville-assets
 npm run check:pharosville-colors
 npm run build
 npm run test:visual
+```
+
+For uncertain scope while iterating, use:
+
+```bash
+npm run validate:changed
 ```
 
 For deployed changes, confirm the live smoke path:

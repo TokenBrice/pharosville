@@ -44,6 +44,38 @@ The dev proxy resolves `PHAROS_API_KEY` in this order:
 
 Use `npm run onboard:agent` to confirm whether the key is discoverable before debugging missing ships/data in local dev.
 
+Initialize/update the shared key file for all linked worktrees:
+
+```bash
+npm run setup:local-api-key
+```
+
+Smoke all allowlisted Pharos endpoints with the discovered key before debugging UI data issues:
+
+```bash
+npm run smoke:api-local
+```
+
+## Agent Workflow Automation
+
+Create and bootstrap a new local worktree:
+
+```bash
+npm run worktree:new -- <name> --branch <branch-name> --install
+```
+
+Scaffold a dated plan artifact in `agents/`:
+
+```bash
+npm run agent:plan:new -- <slug>
+```
+
+Auto-select validation lane from current diff (`validate:docs` for docs-only changes, otherwise full `validate`):
+
+```bash
+npm run validate:changed
+```
+
 To install the optional local pre-push gate for direct `main` pushes:
 
 ```bash

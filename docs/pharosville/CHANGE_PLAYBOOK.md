@@ -41,6 +41,8 @@ Start by classifying the change:
 | Deployable artifact or metadata | `npm run validate` |
 | Release/deploy-impacting work | `npm run validate:release` |
 | Docs/process only | `npm run validate:docs` |
+| Mixed/uncertain scope | `npm run validate:changed` |
+| Local ships/API readiness | `npm run setup:local-api-key` then `npm run smoke:api-local` |
 
 ## Documentation Rules
 

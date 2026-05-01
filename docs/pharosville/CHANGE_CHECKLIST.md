@@ -13,6 +13,7 @@ Use this checklist for future standalone PharosVille work. Keep it agent-facing 
 - Run `git status --short` and identify dirty files before touching anything.
 - Inspect the exact files you plan to edit. Work with existing dirty changes; do not revert or overwrite unrelated work.
 - State whether the change affects app behavior, visual encoding, asset inventory, data/API contracts, operations, or agent docs only.
+- For local data/debug tasks, verify API key discovery and endpoint health first: `npm run onboard:agent` and `npm run smoke:api-local`.
 
 ## Scope Guardrails
 

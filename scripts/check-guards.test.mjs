@@ -16,6 +16,18 @@ import {
   findOnboardingDocFindings,
 } from "./check-agent-onboarding-docs.mjs";
 import { evaluateBundleBudgets } from "./check-bundle-size.mjs";
+import {
+  chooseValidationLane,
+  parseChangedPaths,
+} from "./pharosville/validate-changed.mjs";
+import {
+  parseArgs as parseWorktreeArgs,
+  sanitizeSegment,
+} from "./pharosville/new-worktree.mjs";
+import {
+  formatDate,
+  sanitizeSlug,
+} from "./pharosville/new-agent-plan.mjs";
 
 const neutralValue = ["alpha", "beta", "gamma", "9876543210"].join("_");
 
@@ -92,6 +104,24 @@ const onboardingCheck = checkOnboardingDocs({
 });
 assert.equal(onboardingCheck.findings.some((finding) => finding.id === "agents-onboarding-link"), true);
 assert.equal(onboardingCheck.findings.some((finding) => finding.id === "claude-canonical-link"), true);
+
+assert.deepEqual(
+  parseChangedPaths(" M README.md\n?? docs/pharosville/AGENT_ONBOARDING.md\nR  docs/a.md -> docs/b.md\n"),
+  ["README.md", "docs/pharosville/AGENT_ONBOARDING.md", "docs/b.md"],
+);
+assert.equal(chooseValidationLane(["README.md", "docs/pharosville/CURRENT.md"]), "docs");
+assert.equal(chooseValidationLane(["README.md", "src/main.tsx"]), "full");
+assert.equal(chooseValidationLane([]), "none");
+
+assert.equal(sanitizeSegment("  Feature Branch 42 "), "feature-branch-42");
+assert.deepEqual(
+  parseWorktreeArgs(["new-branch", "--ref", "main", "--branch", "feat/new", "--install"]),
+  { name: "new-branch", ref: "main", branch: "feat/new", install: true },
+);
+assert.equal(parseWorktreeArgs([]), null);
+
+assert.equal(sanitizeSlug("  My Plan / Scope "), "my-plan-scope");
+assert.equal(formatDate(new Date(Date.UTC(2026, 4, 1))), "2026-05-01");
 
 const passingBundle = evaluateBundleBudgets([
   { fileName: "index-a1.js", gzipBytes: 10, rawBytes: 100, type: "js" },

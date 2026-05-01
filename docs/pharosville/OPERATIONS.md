@@ -37,7 +37,13 @@ Use it for canvas, layout, and React behavior that does not require a live `/api
 For linked-worktree development, the Vite `/api/*` proxy can read `PHAROS_API_KEY`
 from either the current worktree `.env.local`, the main worktree `.env.local`,
 or `.git/pharosville.env.local` as a shared local secret file.
-Run `npm run onboard:agent` to verify key discovery before debugging missing ships/data.
+Run these before debugging missing ships/data:
+
+```bash
+npm run setup:local-api-key
+npm run onboard:agent
+npm run smoke:api-local
+```
 
 For local Pages Functions preview, keep local secrets in ignored `.dev.vars` or pass local bindings through Wrangler. Do not commit local secret files.
 
