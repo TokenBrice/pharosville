@@ -11,7 +11,7 @@ Each task is implementation-ready: anchored file, problem, concrete change, succ
 ## Tier 1 — Critical impact, do first
 
 ### 1. Prune dead `shared/` modules and stop running their tests `[size: M, impact: HIGH]`
-- **Files:** `vitest.config.ts:18-22`; `shared/lib/__tests__/*`, `shared/lib/classification.ts`, `shared/lib/chains.ts`, `shared/lib/{mint-burn-flow,liquidity-score,blacklist-tracker,depeg-dews}-version.ts`, `shared/lib/api-endpoints/*`, `shared/lib/redemption-backstop-configs/*`.
+- **Files:** `vitest.config.ts:18-22`; large unreachable trees under `shared/lib/` (host-repo modules, vendored tests, redemption-backstop configs, classification, chains, depeg/blacklist/mint-burn/liquidity version banks).
 - **Problem:** Production code reaches ~58 of the ~164 shared `.ts` files. The other ~106 (~940 KiB source, ~8000 LOC of tests) come from the upstream host repo and run on every `npm test`. `vitest.config.ts` `include` glob `shared/**/*.test.ts` directly contradicts `shared/AGENTS.md` ("not part of the default PharosVille gate").
 - **Fix:**
   1. Remove `shared/**/*.test.ts` from the `include` array (and drop the `public-docs.test.ts` exclude band-aid).
