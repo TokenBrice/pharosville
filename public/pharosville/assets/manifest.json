@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-05-01-unique-ships-v2",
+    "cacheVersion": "2026-05-01-island-center-build-v1",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": [
@@ -352,6 +352,43 @@
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
         "jobId": "be1f0841-b378-48b5-9fb4-7f3e8749c92d",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "overlay.center-cluster",
+      "path": "overlays/center-cluster.png",
+      "category": "overlay",
+      "layer": "terrain",
+      "width": 384,
+      "height": 224,
+      "displayScale": 1,
+      "anchor": [
+        192,
+        168
+      ],
+      "footprint": [
+        240,
+        144
+      ],
+      "hitbox": [
+        40,
+        25,
+        304,
+        155
+      ],
+      "loadPriority": "deferred",
+      "promptKey": "overlay.center-cluster",
+      "semanticRole": "ambient observatory citadel cluster overlay",
+      "paletteKeys": [
+        "limestone",
+        "terracotta",
+        "scrub",
+        "copper"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
+      "promptProvenance": {
+        "jobId": "4bf818c4-92ce-47e7-9731-ac5d577d6d05",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },
@@ -1678,6 +1715,41 @@
       "tool": "mcp:create_map_object",
       "promptProvenance": {
         "jobId": "11370813-9fe6-4d3c-b1b3-502599e39ba2",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "prop.sundial",
+      "path": "props/sundial.png",
+      "category": "prop",
+      "layer": "props",
+      "width": 64,
+      "height": 64,
+      "displayScale": 1,
+      "anchor": [
+        32,
+        56
+      ],
+      "footprint": [
+        20,
+        12
+      ],
+      "hitbox": [
+        16,
+        14,
+        32,
+        42
+      ],
+      "loadPriority": "deferred",
+      "promptKey": "prop.sundial",
+      "semanticRole": "observatory sundial monument",
+      "paletteKeys": [
+        "limestone",
+        "copper"
+      ],
+      "tool": "mcp:create_object",
+      "promptProvenance": {
+        "jobId": "94047e66-fdb9-4f02-b141-17f2748521ac",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     }
