@@ -83,6 +83,7 @@ type PharosVilleVisualDebug = {
   shipMotionSamples?: DebugShipMotionSample[];
   targets?: DebugTarget[];
   timeSeconds?: number;
+  wallClockHour?: number;
 };
 
 const meta = { updatedAt: 1_700_000_000, ageSeconds: 60, status: "fresh" };
@@ -102,6 +103,24 @@ const RISK_WATER_AREA_DETAILS = [
   { detailId: "area.dews.danger", label: "Danger Strait", zone: "danger" },
   { detailId: "area.risk-water.ledger-mooring", label: "Ledger Mooring", zone: "ledger" },
 ] as const;
+async function installWallClockOverride(page: Page, hour: number): Promise<void> {
+  // Override Date.prototype.getHours/getMinutes so motion.wallClockHour is
+  // deterministic per-test. Does NOT virtualize rAF (unlike page.clock.install),
+  // so requestAnimationFrame keeps advancing normally and existing tests still
+  // see motionFrameCount progress.
+  const flooredHour = Math.floor(hour);
+  const minutes = Math.round((hour - flooredHour) * 60);
+  await page.addInitScript(({ h, m }) => {
+    const origGetHours = Date.prototype.getHours;
+    const origGetMinutes = Date.prototype.getMinutes;
+    Date.prototype.getHours = function () { return h; };
+    Date.prototype.getMinutes = function () { return m; };
+    // Keep originals reachable in case any other code path needs them.
+    (Date.prototype as { __origGetHours?: typeof origGetHours }).__origGetHours = origGetHours;
+    (Date.prototype as { __origGetMinutes?: typeof origGetMinutes }).__origGetMinutes = origGetMinutes;
+  }, { h: flooredHour, m: minutes });
+}
+
 async function mockPharosVilleData(page: Page) {
   await mockPharosVillePayloads(page, {
     stablecoins: fixtureStablecoins,
@@ -279,6 +298,7 @@ test("pharosville renders desktop canvas shell", async ({ page }) => {
   const retiredSummaryRequests = collectRetiredSummaryRequests(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await installWallClockOverride(page, 12);
   await page.goto("/");
   const canvas = page.getByTestId("pharosville-canvas");
   await expect(canvas).toBeVisible();
@@ -342,6 +362,7 @@ test("pharosville dense visual fixture preserves districts, dense ships, and ren
   await mockDensePharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await installWallClockOverride(page, 12);
   await page.goto("/");
   await waitForRuntimeDebug(page, false);
   await expectNoAssetLoadErrors(page);
@@ -497,6 +518,7 @@ test("pharosville renders a stressed ship in storm-shelf detail", async ({ page 
   });
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await installWallClockOverride(page, 12);
   await page.goto("/");
   await expectNoAssetLoadErrors(page);
 
@@ -523,6 +545,7 @@ test("pharosville exposes all named risk water areas in browser details", async 
   await mockPharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await installWallClockOverride(page, 12);
   await page.goto("/");
   await expectNoAssetLoadErrors(page);
 
@@ -600,6 +623,7 @@ test("pharosville narrow fallback avoids world runtime requests", async ({ page 
   const deniedRequests = await denyPharosVilleViewportGatedRequests(page);
 
   await page.setViewportSize({ width: 1279, height: 900 });
+  await installWallClockOverride(page, 12);
   await page.goto("/");
 
   await expect(page.getByText("PharosVille needs a wider harbor.")).toBeVisible();
@@ -614,6 +638,7 @@ test("pharosville short desktop fallback avoids clipped map", async ({ page }) =
   const deniedRequests = await denyPharosVilleViewportGatedRequests(page);
 
   await page.setViewportSize({ width: 1280, height: 720 });
+  await installWallClockOverride(page, 12);
   await page.goto("/");
 
   await expect(page.getByText("PharosVille needs a wider harbor.")).toBeVisible();
@@ -626,6 +651,7 @@ test("pharosville desktop gate includes threshold viewport and excludes edge-bel
   await page.emulateMedia({ reducedMotion: "reduce" });
 
   await page.setViewportSize({ width: 1280, height: 760 });
+  await installWallClockOverride(page, 12);
   await page.goto("/");
   await expect(page.getByTestId("pharosville-canvas")).toBeVisible();
   await waitForRuntimeDebug(page, true);
@@ -643,6 +669,7 @@ test("pharosville resizing below desktop gate unmounts world runtime and stops g
   await mockPharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await installWallClockOverride(page, 12);
   await page.goto("/");
   await waitForRuntimeDebug(page, false);
   await expectNoAssetLoadErrors(page);
@@ -679,6 +706,7 @@ test("pharosville ultrawide canvas keeps DPR backing store capped", async ({ bas
   const page = await context.newPage();
   await mockPharosVilleData(page);
   try {
+    await installWallClockOverride(page, 12);
     await page.goto(new URL("/", baseURL ?? "http://127.0.0.1:3000").toString());
     await page.waitForFunction(() => {
       const debug = (window as typeof window & {
@@ -733,6 +761,7 @@ test("pharosville canvas interactions update details and camera", async ({ page 
   await mockPharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await installWallClockOverride(page, 12);
   await page.goto("/");
   await expect(page.getByTestId("pharosville-world-toolbar")).toBeVisible();
   await expect(page.getByTestId("pharosville-query-status-banner")).toHaveCount(0);
@@ -857,6 +886,7 @@ test("pharosville reduced motion keeps ship samples static without RAF", async (
   await mockPharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await installWallClockOverride(page, 12);
   await page.goto("/");
   await waitForRuntimeDebug(page, true);
 
@@ -896,6 +926,7 @@ test("pharosville responds to live reduced-motion preference transitions", async
   await mockPharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await installWallClockOverride(page, 12);
   await page.goto("/");
   await waitForRuntimeDebug(page, false);
 
@@ -1037,6 +1068,7 @@ function clipAroundPoint(
 test.describe("pharosville normal motion", () => {
   test("starts bounded world animation and keeps moving ship targets selectable", async ({ page }) => {
     await mockPharosVilleData(page);
+    await installWallClockOverride(page, 12);
     await page.clock.install({ time: new Date("2026-04-28T00:00:00Z") });
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await page.setViewportSize({ width: 1440, height: 1000 });
@@ -1112,6 +1144,7 @@ async function readRuntimeSnapshot(page: Page) {
       renderMetrics: debug?.renderMetrics ?? null,
       shipMotionSamples: debug?.shipMotionSamples ?? [],
       timeSeconds: debug?.timeSeconds ?? -1,
+      wallClockHour: debug?.wallClockHour ?? -1,
     };
   });
 }
@@ -1185,3 +1218,44 @@ async function canvasPixelStats(page: Page) {
     };
   });
 }
+
+test.describe("pharosville night atmosphere", () => {
+  test("renders mid-dawn with partial night tint", async ({ page }) => {
+    await mockPharosVilleData(page);
+    await installWallClockOverride(page, 6);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 1440, height: 960 });
+    await page.goto("/");
+    await waitForRuntimeDebug(page, true);
+    await expect(page).toHaveScreenshot("pharosville-dawn.png", {
+      animations: "disabled",
+      maxDiffPixelRatio: 0.005,
+    });
+  });
+
+  test("renders mid-dusk with partial night tint and warming lighthouse", async ({ page }) => {
+    await mockPharosVilleData(page);
+    await installWallClockOverride(page, 19);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 1440, height: 960 });
+    await page.goto("/");
+    await waitForRuntimeDebug(page, true);
+    await expect(page).toHaveScreenshot("pharosville-dusk.png", {
+      animations: "disabled",
+      maxDiffPixelRatio: 0.005,
+    });
+  });
+
+  test("renders deep-night with dominant lighthouse glow and warm water pool", async ({ page }) => {
+    await mockPharosVilleData(page);
+    await installWallClockOverride(page, 22);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 1440, height: 960 });
+    await page.goto("/");
+    await waitForRuntimeDebug(page, true);
+    await expect(page).toHaveScreenshot("pharosville-night.png", {
+      animations: "disabled",
+      maxDiffPixelRatio: 0.005,
+    });
+  });
+});
