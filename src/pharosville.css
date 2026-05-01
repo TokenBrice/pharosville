@@ -332,123 +332,149 @@ textarea {
   right: 32px;
   width: var(--pv-detail-panel-width);
   max-height: var(--pv-detail-panel-max-height);
-  overflow: visible;
   pointer-events: auto;
 }
-
 .pharosville-detail-dock--anchored {
   right: auto;
   top: clamp(28px, calc(var(--pv-detail-y) - 34px), calc(100% - var(--pv-detail-panel-max-height) - 28px));
 }
-
 .pharosville-detail-dock--right {
   left: clamp(28px, calc(var(--pv-detail-x) + 24px), calc(100% - var(--pv-detail-panel-width) - 28px));
 }
-
 .pharosville-detail-dock--left {
   left: clamp(28px, calc(var(--pv-detail-x) - var(--pv-detail-panel-width) - 24px), calc(100% - var(--pv-detail-panel-width) - 28px));
 }
+.pharosville-detail-dock > * { pointer-events: auto; }
 
-.pharosville-hud > *,
-.pharosville-detail-dock > * {
-  pointer-events: auto;
-}
-
-.pharosville-hud > [data-testid="pharosville-world-toolbar"],
-.pharosville-detail-dock > [data-testid="pharosville-detail-panel"] {
-  border: 1px solid var(--pv-border);
-  border-radius: 3px;
+/* Outer aside: timber frame + brass corner caps via ::before/::after */
+.pharosville-detail-panel {
+  position: relative;
+  height: 100%;
+  padding: 6px;
+  overflow: hidden;
   background:
-    linear-gradient(135deg, rgba(185, 154, 98, 0.08), transparent 32%),
-    repeating-linear-gradient(90deg, var(--pv-chart-line) 0 1px, transparent 1px 18px),
-    linear-gradient(180deg, var(--pv-panel), var(--pv-panel-dark));
+    repeating-linear-gradient(90deg, rgba(40, 22, 12, 0.5) 0 1px, transparent 1px 11px),
+    repeating-linear-gradient(90deg, rgba(20, 12, 8, 0.3) 0 2px, transparent 2px 38px),
+    linear-gradient(180deg, var(--pv-timber-light) 0%, var(--pv-timber) 80%, var(--pv-timber-dark) 100%);
+  border: 2px solid var(--pv-timber-edge);
   box-shadow:
-    inset 0 0 0 1px rgba(216, 208, 183, 0.06),
-    inset 0 -1px 0 rgba(3, 8, 10, 0.52),
-    0 14px 34px var(--pv-shadow);
+    inset 0 1px 0 rgba(255, 210, 140, 0.18),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.6),
+    inset 0 0 0 1px var(--pv-brass-dark),
+    0 8px 22px rgba(0, 0, 0, 0.6);
 }
-
-.pharosville-detail-dock > [data-testid="pharosville-detail-panel"] {
-  padding: 16px;
-}
-
-.pharosville-detail-dock > [data-testid="pharosville-detail-panel"] {
-  max-height: var(--pv-detail-panel-max-height);
-  overflow: auto;
-}
-
-.pharosville-detail-dock--anchored::before {
+.pharosville-detail-panel::before,
+.pharosville-detail-panel::after {
   content: "";
   position: absolute;
-  top: clamp(18px, 34px, calc(100% - 18px));
-  width: 0;
-  height: 0;
+  width: 22px;
+  height: 22px;
+  background: radial-gradient(circle at 30% 30%,
+    var(--pv-brass-highlight) 0%,
+    var(--pv-brass) 25%,
+    #b8862e 55%,
+    var(--pv-brass-edge) 100%);
+  border: 1.5px solid var(--pv-timber-edge);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 235, 180, 0.5),
+    0 1px 2px rgba(0, 0, 0, 0.5);
+  z-index: 3;
   pointer-events: none;
 }
+.pharosville-detail-panel::before { top: -6px; left: -6px; }
+.pharosville-detail-panel::after { top: -6px; right: -6px; }
 
-.pharosville-detail-dock--right::before {
-  left: -8px;
-  border-top: 8px solid transparent;
-  border-right: 8px solid rgba(185, 154, 98, 0.62);
-  border-bottom: 8px solid transparent;
+/* Inner reading surface: parchment */
+.pharosville-detail-panel__inner {
+  position: relative;
+  height: 100%;
+  padding: 18px 22px;
+  overflow: auto;
+  background:
+    repeating-linear-gradient(123deg, rgba(108, 74, 20, 0.04) 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(57deg, rgba(108, 74, 20, 0.04) 0 1px, transparent 1px 5px),
+    radial-gradient(ellipse at 0% 0%,
+      var(--pv-parchment-light) 0%,
+      var(--pv-parchment-warm) 50%,
+      var(--pv-parchment-dark) 100%);
+  border: 1.5px solid var(--pv-timber-dark);
+  color: var(--pv-ink-text);
 }
 
-.pharosville-detail-dock--left::before {
-  right: -8px;
-  border-top: 8px solid transparent;
-  border-bottom: 8px solid transparent;
-  border-left: 8px solid rgba(185, 154, 98, 0.62);
+.pharosville-detail-panel__header {
+  position: relative;
+  padding-bottom: 14px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid rgba(108, 74, 20, 0.4);
 }
-
-.pharosville-hud h2,
-.pharosville-hud h3,
-.pharosville-detail-dock h2,
-.pharosville-detail-dock h3 {
+.pharosville-detail-panel__kind {
+  margin: 0 0 4px;
+  color: var(--pv-brass-edge);
+  font: 900 10px Georgia, serif;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+.pharosville-detail-panel h2 {
   margin: 0;
-  color: var(--pv-gold-bright);
-  font-size: 0.86rem;
-  font-weight: 900;
-  letter-spacing: 0.035em;
-  text-shadow: 0 1px 0 #061116;
+  color: var(--pv-timber-edge);
+  font: 900 1.5rem Georgia, serif;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  text-shadow: 0 1px 0 rgba(255, 235, 180, 0.4);
+}
+.pharosville-detail-panel__header > p:not(.pharosville-detail-panel__kind) {
+  margin: 6px 0 0;
+  color: var(--pv-ink-soft);
+  font: italic 13px Georgia, serif;
 }
 
-.pharosville-detail-dock h2 {
-  font-size: 1.2rem;
-  line-height: 1.1;
+.pharosville-detail-panel__section {
+  margin-bottom: 14px;
+}
+.pharosville-detail-panel__section h3 {
+  margin: 0 0 8px;
+  color: var(--pv-brass-edge);
+  font: 900 10px Georgia, serif;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.pharosville-detail-panel__section dl {
+  margin: 0;
+}
+.pharosville-detail-panel__section .pv-fact-row {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 12px;
+  padding: 5px 0;
+  border-bottom: 1px dotted rgba(108, 74, 20, 0.3);
+}
+.pharosville-detail-panel__section .pv-fact-row:last-child { border-bottom: none; }
+.pharosville-detail-panel__section .pv-fact-row dt {
+  margin: 0;
+  color: var(--pv-brass-edge);
+  font: 900 11px Georgia, serif;
+  letter-spacing: 0.06em;
+}
+.pharosville-detail-panel__section .pv-fact-row dd {
+  margin: 0;
+  color: var(--pv-ink-text);
+  font: 400 13px Georgia, serif;
 }
 
-.pharosville-hud p,
-.pharosville-detail-dock p {
-  margin: 7px 0 0;
-  color: var(--pv-muted);
-}
-
-.pharosville-hud ul,
-.pharosville-hud ol,
-.pharosville-detail-dock ul,
-.pharosville-detail-dock ol {
-  margin: 8px 0 0;
-  padding-left: 18px;
-}
-
-.pharosville-hud li,
-.pharosville-detail-dock li {
-  margin: 4px 0;
-}
-
-.pharosville-hud a,
-.pharosville-detail-dock a {
-  color: var(--pv-gold-bright);
+.pharosville-detail-panel__section--members li a,
+.pharosville-detail-panel__section--links li a {
+  color: var(--pv-ink-text);
   font-weight: 900;
   text-decoration: none;
 }
-
-.pharosville-hud a:hover,
-.pharosville-detail-dock a:hover {
-  color: #eee6cf;
+.pharosville-detail-panel__section--members li a:hover,
+.pharosville-detail-panel__section--links li a:hover {
   text-decoration: underline;
-  text-decoration-thickness: 1px;
   text-underline-offset: 3px;
+}
+
+.pharosville-detail-panel__close {
+  margin: 14px 0 0;
 }
 
 .pharosville-world-toolbar {
@@ -472,94 +498,6 @@ textarea {
   font: 900 11px Georgia, serif;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-}
-
-.pharosville-detail-dock dl {
-  display: grid;
-  gap: 7px;
-  margin: 8px 0 0;
-}
-
-.pharosville-detail-dock dl div {
-  display: grid;
-  gap: 2px;
-  border-left: 1px solid rgba(185, 154, 98, 0.5);
-  padding-left: 8px;
-}
-
-.pharosville-detail-dock dt {
-  color: var(--pv-gold);
-  font-size: 0.72rem;
-  font-weight: 900;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.pharosville-detail-dock dd {
-  margin: 0;
-  color: rgba(216, 208, 183, 0.92);
-}
-
-.pharosville-detail-panel__header {
-  position: relative;
-  padding-bottom: 12px;
-}
-
-.pharosville-detail-panel__header::after {
-  content: "";
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 1px;
-  background:
-    linear-gradient(90deg, var(--pv-gold), rgba(106, 154, 151, 0.58), transparent);
-}
-
-.pharosville-detail-panel__kind {
-  margin: 0 0 7px;
-  color: var(--pv-ruby);
-  font-size: 0.72rem;
-  font-weight: 900;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.pharosville-detail-panel__section {
-  border-top: 1px solid rgba(185, 154, 98, 0.24);
-  padding-top: 10px;
-  margin-top: 10px;
-}
-
-.pharosville-detail-panel__section--route dl div {
-  border-left-color: rgba(106, 154, 151, 0.64);
-}
-
-.pharosville-detail-panel__section--source dl div {
-  border-left-color: rgba(190, 110, 85, 0.52);
-}
-
-.pharosville-detail-panel__section--source dd {
-  color: rgba(216, 208, 183, 0.78);
-  font-size: 0.76rem;
-  line-height: 1.45;
-}
-
-.pharosville-detail-panel__section--members ol,
-.pharosville-detail-panel__section--links ul {
-  display: grid;
-  gap: 5px;
-  padding-left: 18px;
-}
-
-.pharosville-detail-panel__section--members li::marker,
-.pharosville-detail-panel__section--links li::marker {
-  color: var(--pv-gold);
-}
-
-.pharosville-detail-dock button {
-  margin-top: 12px;
-  padding: 8px 12px;
 }
 
 .pharosville-fullscreen-button,
