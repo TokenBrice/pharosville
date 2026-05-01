@@ -1,4 +1,4 @@
-import { waterTerrainStyle, type WaterTerrainStyle } from "../../systems/palette";
+import { waterTerrainStyle, zoneThemeForTerrain, type ZoneVisualTheme } from "../../systems/palette";
 import { TILE_HEIGHT, screenToTile, tileToScreen, type ScreenPoint } from "../../systems/projection";
 import { isElevatedTileKind, isShoreTileKind, isWaterTileKind } from "../../systems/world-layout";
 import type { TerrainKind } from "../../systems/world-types";
@@ -183,12 +183,12 @@ function drawWaterTileBase(
   const value = String(kind);
   const width = 32 * zoom;
   const height = 16 * zoom;
-  const style = waterTerrainStyle(value) ?? waterTerrainStyle("water")!;
-  drawDiamond(ctx, x, y, width, height, style.base);
+  const theme = zoneThemeForTerrain(value);
+  drawDiamond(ctx, x, y, width, height, theme.base);
   if (asset) {
     drawTerrainAsset(ctx, asset, x, y, zoom, 0.18);
   }
-  drawWaterDepthOverlay(ctx, x, y, zoom, width, height, tileX, tileY, style.inner);
+  drawWaterDepthOverlay(ctx, x, y, zoom, width, height, tileX, tileY, theme.inner);
 }
 
 function drawWaterTileOverlay(
@@ -202,21 +202,21 @@ function drawWaterTileOverlay(
   motion: PharosVilleCanvasMotion,
 ) {
   const value = String(kind);
-  const style = waterTerrainStyle(value) ?? waterTerrainStyle("water")!;
-  drawWaterTerrainTexture(ctx, x, y, zoom, style, tileX, tileY, motion);
+  const theme = zoneThemeForTerrain(value);
+  drawWaterTerrainTexture(ctx, x, y, zoom, theme, tileX, tileY, motion);
   if ((tileX * 13 + tileY * 17) % 9 !== 0) return;
   const wave = motion.reducedMotion
     ? 0.13
     : 0.1 + Math.sin(motion.timeSeconds * 1.05 + tileX * 0.27 + tileY * 0.19) * 0.035;
   ctx.save();
-  ctx.strokeStyle = withAlpha(style.wave, Math.max(0.08, wave));
+  ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.08, wave));
   ctx.lineWidth = Math.max(1, zoom);
   ctx.beginPath();
   ctx.moveTo(x - 9 * zoom, y - 2 * zoom);
   ctx.lineTo(x + 7 * zoom, y + 2 * zoom);
   ctx.stroke();
   if ((tileX + tileY) % 3 === 0) {
-    ctx.strokeStyle = withAlpha(style.accent, 0.18);
+    ctx.strokeStyle = withAlpha(theme.accent, 0.18);
     ctx.beginPath();
     ctx.moveTo(x - 3 * zoom, y + 4 * zoom);
     ctx.lineTo(x + 10 * zoom, y + 7 * zoom);
@@ -253,45 +253,45 @@ function drawWaterTerrainTexture(
   x: number,
   y: number,
   zoom: number,
-  style: WaterTerrainStyle,
+  theme: ZoneVisualTheme,
   tileX: number,
   tileY: number,
   motion: PharosVilleCanvasMotion,
 ) {
-  const { texture } = style;
+  const { texture } = theme;
   if (texture === "alert") {
-    drawAlertChannelTexture(ctx, x, y, zoom, tileX, tileY, motion, style);
+    drawAlertChannelTexture(ctx, x, y, zoom, tileX, tileY, motion, theme);
     return;
   }
   if (texture === "calm") {
-    drawCalmWaterTexture(ctx, x, y, zoom, tileX, tileY, motion, style);
+    drawCalmWaterTexture(ctx, x, y, zoom, tileX, tileY, motion, theme);
     return;
   }
   if (texture === "deep") {
-    drawDeepSeaTexture(ctx, x, y, zoom, tileX, tileY, motion, style);
+    drawDeepSeaTexture(ctx, x, y, zoom, tileX, tileY, motion, theme);
     return;
   }
   if (texture === "harbor") {
-    drawHarborWaterTexture(ctx, x, y, zoom, tileX, tileY, motion, style);
+    drawHarborWaterTexture(ctx, x, y, zoom, tileX, tileY, motion, theme);
     return;
   }
   if (texture === "ledger") {
-    drawLedgerWaterTexture(ctx, x, y, zoom, tileX, tileY, motion, style);
+    drawLedgerWaterTexture(ctx, x, y, zoom, tileX, tileY, motion, theme);
     return;
   }
   if (texture === "storm") {
-    drawDangerStraitTexture(ctx, x, y, zoom, tileX, tileY, motion, style);
+    drawDangerStraitTexture(ctx, x, y, zoom, tileX, tileY, motion, theme);
     return;
   }
   if (texture === "watch") {
-    drawWatchWaterTexture(ctx, x, y, zoom, tileX, tileY, motion, style);
+    drawWatchWaterTexture(ctx, x, y, zoom, tileX, tileY, motion, theme);
     return;
   }
   if (texture === "warning") {
-    drawWarningShoalTexture(ctx, x, y, zoom, tileX, tileY, motion, style);
+    drawWarningShoalTexture(ctx, x, y, zoom, tileX, tileY, motion, theme);
     return;
   }
-  drawOpenWaterTexture(ctx, x, y, zoom, tileX, tileY, motion, style);
+  drawOpenWaterTexture(ctx, x, y, zoom, tileX, tileY, motion, theme);
 }
 
 function drawLedgerWaterTexture(
@@ -302,16 +302,16 @@ function drawLedgerWaterTexture(
   tileX: number,
   tileY: number,
   motion: PharosVilleCanvasMotion,
-  style: WaterTerrainStyle,
+  theme: ZoneVisualTheme,
 ) {
   const ledgerPulse = motion.reducedMotion ? 0.18 : 0.15 + Math.sin(motion.timeSeconds * 0.62 + tileX * 0.25 + tileY * 0.37) * 0.04;
   ctx.save();
   if ((tileX + tileY) % 2 === 0) {
-    drawMooringRule(ctx, x, y, zoom, -10, -2, 9, 3, style.accent, 0.16);
-    drawMooringRule(ctx, x, y, zoom, -8, 5, 7, 8, style.wave, 0.18);
+    drawMooringRule(ctx, x, y, zoom, -10, -2, 9, 3, theme.accent, 0.16);
+    drawMooringRule(ctx, x, y, zoom, -8, 5, 7, 8, theme.wave, 0.18);
   }
   if ((tileX * 5 + tileY * 11) % 6 === 0) {
-    ctx.strokeStyle = withAlpha(style.accent, 0.24);
+    ctx.strokeStyle = withAlpha(theme.accent, 0.24);
     ctx.lineWidth = Math.max(1, 0.75 * zoom);
     ctx.strokeRect(
       Math.round(x - 4 * zoom),
@@ -320,7 +320,7 @@ function drawLedgerWaterTexture(
       Math.max(1, Math.round(4 * zoom)),
     );
   }
-  ctx.strokeStyle = withAlpha(style.accent, Math.max(0.12, ledgerPulse));
+  ctx.strokeStyle = withAlpha(theme.accent, Math.max(0.12, ledgerPulse));
   ctx.lineWidth = Math.max(1, zoom);
   ctx.beginPath();
   ctx.moveTo(x - 11 * zoom, y - 2 * zoom);
@@ -329,11 +329,11 @@ function drawLedgerWaterTexture(
   ctx.lineTo(x + 7 * zoom, y + 8 * zoom);
   ctx.stroke();
   if ((tileX * 7 + tileY * 5) % 5 === 0) {
-    ctx.fillStyle = withAlpha(style.wave, 0.24);
+    ctx.fillStyle = withAlpha(theme.wave, 0.24);
     drawDiamond(ctx, x - 1 * zoom, y + 2 * zoom, 8 * zoom, 3 * zoom, ctx.fillStyle);
   }
   if ((tileX * 3 + tileY) % 7 === 0) {
-    drawDepthSounding(ctx, x + 6 * zoom, y + 1 * zoom, zoom, style.accent, 0.22);
+    drawDepthSounding(ctx, x + 6 * zoom, y + 1 * zoom, zoom, theme.accent, 0.22);
   }
   ctx.restore();
 }
@@ -346,11 +346,11 @@ function drawHarborWaterTexture(
   tileX: number,
   tileY: number,
   motion: PharosVilleCanvasMotion,
-  style: WaterTerrainStyle,
+  theme: ZoneVisualTheme,
 ) {
   const pulse = motion.reducedMotion ? 0.16 : 0.13 + Math.sin(motion.timeSeconds * 0.85 + tileX * 0.23 + tileY * 0.17) * 0.04;
   ctx.save();
-  ctx.strokeStyle = withAlpha(style.wave, Math.max(0.1, pulse));
+  ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.1, pulse));
   ctx.lineWidth = Math.max(1, zoom);
   ctx.beginPath();
   ctx.moveTo(x - 10 * zoom, y + 2 * zoom);
@@ -361,7 +361,7 @@ function drawHarborWaterTexture(
   }
   ctx.stroke();
   if ((tileX * 7 + tileY * 5) % 6 === 0) {
-    const reflection = withAlpha(style.accent, 0.24);
+    const reflection = withAlpha(theme.accent, 0.24);
     ctx.fillStyle = reflection;
     drawDiamond(ctx, x + 2 * zoom, y + 2 * zoom, 8 * zoom, 3 * zoom, reflection);
   }
@@ -376,11 +376,11 @@ function drawCalmWaterTexture(
   tileX: number,
   tileY: number,
   motion: PharosVilleCanvasMotion,
-  style: WaterTerrainStyle,
+  theme: ZoneVisualTheme,
 ) {
   const hush = motion.reducedMotion ? 0.13 : 0.11 + Math.sin(motion.timeSeconds * 0.48 + tileX * 0.19 + tileY * 0.13) * 0.025;
   ctx.save();
-  ctx.strokeStyle = withAlpha(style.wave, Math.max(0.08, hush));
+  ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.08, hush));
   ctx.lineWidth = Math.max(1, 0.85 * zoom);
   ctx.beginPath();
   ctx.moveTo(x - 12 * zoom, y + 3 * zoom);
@@ -391,10 +391,10 @@ function drawCalmWaterTexture(
   }
   ctx.stroke();
   if ((tileX * 7 + tileY * 3) % 8 === 0) {
-    drawDepthSounding(ctx, x - 5 * zoom, y + 1 * zoom, zoom, style.accent, 0.18);
+    drawDepthSounding(ctx, x - 5 * zoom, y + 1 * zoom, zoom, theme.accent, 0.18);
   }
   if ((tileX + tileY) % 6 === 0) {
-    const reflection = withAlpha(style.accent, 0.2);
+    const reflection = withAlpha(theme.accent, 0.2);
     ctx.fillStyle = reflection;
     drawDiamond(ctx, x, y + 2 * zoom, 9 * zoom, 2.5 * zoom, reflection);
   }
@@ -409,12 +409,12 @@ function drawDeepSeaTexture(
   tileX: number,
   tileY: number,
   motion: PharosVilleCanvasMotion,
-  style: WaterTerrainStyle,
+  theme: ZoneVisualTheme,
 ) {
   if ((tileX * 5 + tileY * 7) % 6 !== 0) return;
   const glint = motion.reducedMotion ? 0.08 : 0.06 + Math.sin(motion.timeSeconds * 0.6 + tileX * 0.2 + tileY * 0.31) * 0.025;
   ctx.save();
-  ctx.strokeStyle = withAlpha(style.wave, Math.max(0.04, glint));
+  ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.04, glint));
   ctx.lineWidth = Math.max(1, zoom);
   ctx.beginPath();
   ctx.moveTo(x - 8 * zoom, y);
@@ -431,12 +431,12 @@ function drawAlertChannelTexture(
   tileX: number,
   tileY: number,
   motion: PharosVilleCanvasMotion,
-  style: WaterTerrainStyle,
+  theme: ZoneVisualTheme,
 ) {
   const pulse = motion.reducedMotion ? 0.16 : 0.14 + Math.sin(motion.timeSeconds * 1.1 + tileX * 0.31) * 0.04;
   ctx.save();
   const drift = motion.reducedMotion ? 0 : Math.sin(motion.timeSeconds * 0.7 + tileY * 0.23) * 1.5 * zoom;
-  ctx.strokeStyle = withAlpha(style.wave, Math.max(0.12, pulse - 0.03));
+  ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.12, pulse - 0.03));
   ctx.lineWidth = Math.max(1, 0.9 * zoom);
   ctx.beginPath();
   ctx.moveTo(x - 12 * zoom + drift, y + 4 * zoom);
@@ -446,7 +446,7 @@ function drawAlertChannelTexture(
     ctx.quadraticCurveTo(x - 2 * zoom - drift, y + 3 * zoom, x + 8 * zoom - drift, y + 6 * zoom);
   }
   ctx.stroke();
-  ctx.strokeStyle = withAlpha(style.accent, Math.max(0.16, pulse));
+  ctx.strokeStyle = withAlpha(theme.accent, Math.max(0.16, pulse));
   ctx.lineWidth = Math.max(1, 1.1 * zoom);
   ctx.beginPath();
   ctx.moveTo(x - 10 * zoom, y - 3 * zoom);
@@ -457,7 +457,7 @@ function drawAlertChannelTexture(
   }
   ctx.stroke();
   if ((tileX * 13 + tileY * 5) % 7 === 0) {
-    drawCurrentWakeMark(ctx, x, y, zoom, style.accent, 0.28);
+    drawCurrentWakeMark(ctx, x, y, zoom, theme.accent, 0.28);
   }
   ctx.restore();
 }
@@ -470,12 +470,12 @@ function drawWatchWaterTexture(
   tileX: number,
   tileY: number,
   motion: PharosVilleCanvasMotion,
-  style: WaterTerrainStyle,
+  theme: ZoneVisualTheme,
 ) {
   const crosswind = motion.reducedMotion ? 0.16 : 0.14 + Math.sin(motion.timeSeconds * 0.95 + tileY * 0.29) * 0.04;
   ctx.save();
   if ((tileX * 7 + tileY * 2) % 4 !== 1) {
-    ctx.strokeStyle = withAlpha(style.accent, 0.16);
+    ctx.strokeStyle = withAlpha(theme.accent, 0.16);
     ctx.lineWidth = Math.max(1, 0.8 * zoom);
     ctx.setLineDash([2.8 * zoom, 3.4 * zoom]);
     ctx.beginPath();
@@ -484,7 +484,7 @@ function drawWatchWaterTexture(
     ctx.stroke();
     ctx.setLineDash([]);
   }
-  ctx.strokeStyle = withAlpha(style.wave, Math.max(0.12, crosswind));
+  ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.12, crosswind));
   ctx.lineWidth = Math.max(1, zoom);
   ctx.beginPath();
   ctx.moveTo(x - 11 * zoom, y + 1 * zoom);
@@ -496,7 +496,7 @@ function drawWatchWaterTexture(
   }
   ctx.stroke();
   if ((tileX + tileY * 5) % 7 === 0) {
-    drawBreakwaterFoam(ctx, x, y, zoom, style.wave, 0.22);
+    drawBreakwaterFoam(ctx, x, y, zoom, theme.wave, 0.22);
   }
   ctx.restore();
 }
@@ -509,14 +509,14 @@ function drawWarningShoalTexture(
   tileX: number,
   tileY: number,
   motion: PharosVilleCanvasMotion,
-  style: WaterTerrainStyle,
+  theme: ZoneVisualTheme,
 ) {
   const chop = motion.reducedMotion ? 0.2 : 0.18 + Math.sin(motion.timeSeconds * 1.6 + tileY * 0.37) * 0.05;
   ctx.save();
   if ((tileX + tileY) % 2 === 0) {
-    const shoalFill = withAlpha(style.accent, 0.22);
+    const shoalFill = withAlpha(theme.accent, 0.22);
     drawDiamond(ctx, x + 1 * zoom, y + 1 * zoom, 18 * zoom, 7 * zoom, shoalFill);
-    ctx.strokeStyle = withAlpha(style.wave, 0.18);
+    ctx.strokeStyle = withAlpha(theme.wave, 0.18);
     ctx.lineWidth = Math.max(1, 0.75 * zoom);
     ctx.beginPath();
     ctx.moveTo(x - 7 * zoom, y + 1 * zoom);
@@ -525,7 +525,7 @@ function drawWarningShoalTexture(
     ctx.lineTo(x + 10 * zoom, y + 1 * zoom);
     ctx.stroke();
   }
-  ctx.strokeStyle = withAlpha(style.wave, Math.max(0.16, chop));
+  ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.16, chop));
   ctx.lineWidth = Math.max(1, 1.2 * zoom);
   ctx.beginPath();
   ctx.moveTo(x - 11 * zoom, y - 2 * zoom);
@@ -535,11 +535,11 @@ function drawWarningShoalTexture(
   ctx.lineTo(x + 11 * zoom, y + 8 * zoom);
   ctx.stroke();
   if ((tileX * 5 + tileY * 7) % 4 === 0) {
-    ctx.fillStyle = withAlpha(style.accent, 0.3);
+    ctx.fillStyle = withAlpha(theme.accent, 0.3);
     ctx.fillRect(Math.round(x - 2 * zoom), Math.round(y + 1 * zoom), Math.max(1, Math.round(4 * zoom)), Math.max(1, Math.round(2 * zoom)));
   }
   if ((tileX * 11 + tileY * 13) % 9 === 0) {
-    drawDepthSounding(ctx, x + 7 * zoom, y + 3 * zoom, zoom, style.wave, 0.26);
+    drawDepthSounding(ctx, x + 7 * zoom, y + 3 * zoom, zoom, theme.wave, 0.26);
   }
   ctx.restore();
 }
@@ -552,7 +552,7 @@ function drawDangerStraitTexture(
   tileX: number,
   tileY: number,
   motion: PharosVilleCanvasMotion,
-  style: WaterTerrainStyle,
+  theme: ZoneVisualTheme,
 ) {
   const whitecap = motion.reducedMotion ? 0.22 : 0.18 + Math.sin(motion.timeSeconds * 2.1 + tileX * 0.43 + tileY * 0.29) * 0.08;
   ctx.save();
@@ -564,7 +564,7 @@ function drawDangerStraitTexture(
     ctx.lineTo(x + 12 * zoom, y - 5 * zoom);
     ctx.stroke();
   }
-  ctx.strokeStyle = withAlpha(style.wave, Math.max(0.14, whitecap));
+  ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.14, whitecap));
   ctx.lineWidth = Math.max(1, 1.4 * zoom);
   ctx.beginPath();
   ctx.moveTo(x - 12 * zoom, y - 4 * zoom);
@@ -575,7 +575,7 @@ function drawDangerStraitTexture(
   ctx.lineTo(x + 13 * zoom, y + 3 * zoom);
   ctx.stroke();
   if ((tileX + tileY) % 3 === 0) {
-    ctx.strokeStyle = withAlpha(style.accent, 0.22);
+    ctx.strokeStyle = withAlpha(theme.accent, 0.22);
     ctx.lineWidth = Math.max(1, 0.85 * zoom);
     ctx.beginPath();
     ctx.moveTo(x - 8 * zoom, y + 1 * zoom);
@@ -587,7 +587,7 @@ function drawDangerStraitTexture(
     ctx.stroke();
   }
   if ((tileX * 7 + tileY * 11) % 8 === 0) {
-    ctx.fillStyle = withAlpha(style.wave, 0.18);
+    ctx.fillStyle = withAlpha(theme.wave, 0.18);
     ctx.fillRect(Math.round(x - 1 * zoom), Math.round(y - 5 * zoom), Math.max(1, Math.round(2 * zoom)), Math.max(1, Math.round(2 * zoom)));
     ctx.fillRect(Math.round(x + 5 * zoom), Math.round(y + 3 * zoom), Math.max(1, Math.round(2 * zoom)), Math.max(1, Math.round(2 * zoom)));
   }
@@ -602,12 +602,12 @@ function drawOpenWaterTexture(
   tileX: number,
   tileY: number,
   motion: PharosVilleCanvasMotion,
-  style: WaterTerrainStyle,
+  theme: ZoneVisualTheme,
 ) {
   if ((tileX * 7 + tileY * 13) % 4 !== 0) return;
   const drift = motion.reducedMotion ? 0.12 : 0.1 + Math.sin(motion.timeSeconds * 0.72 + tileX * 0.17 + tileY * 0.21) * 0.03;
   ctx.save();
-  ctx.strokeStyle = withAlpha(style.accent, Math.max(0.08, drift));
+  ctx.strokeStyle = withAlpha(theme.accent, Math.max(0.08, drift));
   ctx.lineWidth = Math.max(1, 0.9 * zoom);
   ctx.beginPath();
   ctx.moveTo(x - 11 * zoom, y + 1 * zoom);
