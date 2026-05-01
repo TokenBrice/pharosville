@@ -37,6 +37,8 @@ export const SHIP_SAIL_MARKS: Record<string, { height: number; width: number; x:
   // painted mainsail polygon centroid; see PNG inspection notes in
   // agents/2026-05-01-unique-ship-category-plan.md Step 6.1.
   "ship.crvusd-unique": { height: 19, width: 22, x: 4, y: -50 },
+  "ship.bold-unique": { height: 18, width: 21, x: 3, y: -52 },
+  "ship.fxusd-unique": { height: 18, width: 20, x: 3, y: -50 },
   "ship.xaut-unique": { height: 17, width: 20, x: -7, y: -57 },
   "ship.paxg-unique": { height: 20, width: 22, x: 2, y: -47 },
 };
@@ -58,6 +60,8 @@ export const SHIP_PEG_MARKS: Record<string, { size: number; x: number; y: number
   // Unique heritage hulls (136x100, anchor [68,92]). Peg pennant sits forward
   // of the mainmast and below the masthead lantern.
   "ship.crvusd-unique": { size: 6.6, x: -26, y: -58 },
+  "ship.bold-unique": { size: 6.5, x: -27, y: -60 },
+  "ship.fxusd-unique": { size: 6.4, x: -25, y: -57 },
   "ship.xaut-unique": { size: 6.4, x: -25, y: -56 },
   "ship.paxg-unique": { size: 6.8, x: -28, y: -60 },
 };
@@ -150,6 +154,18 @@ export const SHIP_TRIM_MARKS: Record<string, ShipTrimSpec> = {
     keel: [-36, -4, 32, 0],
     stern: { x: -42, y: -22, width: 12, height: 5 },
     deck: [{ x: -12, y: -25, width: 10, height: 4 }, { x: 10, y: -22, width: 9, height: 4 }],
+  },
+  "ship.bold-unique": {
+    rail: [-38, -16, 36, -7],
+    keel: [-36, -4, 32, 0],
+    stern: { x: -42, y: -23, width: 12, height: 5 },
+    deck: [{ x: -12, y: -26, width: 10, height: 4 }, { x: 10, y: -23, width: 9, height: 4 }],
+  },
+  "ship.fxusd-unique": {
+    rail: [-38, -15, 36, -7],
+    keel: [-36, -4, 32, 0],
+    stern: { x: -42, y: -21, width: 12, height: 5 },
+    deck: [{ x: -12, y: -24, width: 10, height: 4 }, { x: 10, y: -21, width: 9, height: 4 }],
   },
   "ship.xaut-unique": {
     rail: [-38, -14, 36, -6],

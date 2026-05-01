@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-05-01-unique-ships-v1",
+    "cacheVersion": "2026-05-01-unique-ships-v2",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": [
@@ -1281,6 +1281,82 @@
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
         "jobId": "3516e5c3",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "ship.bold-unique",
+      "path": "ships/bold-unique.png",
+      "category": "ship",
+      "layer": "ships",
+      "width": 136,
+      "height": 100,
+      "displayScale": 1,
+      "anchor": [
+        68,
+        92
+      ],
+      "footprint": [
+        46,
+        22
+      ],
+      "hitbox": [
+        30,
+        4,
+        92,
+        90
+      ],
+      "loadPriority": "deferred",
+      "promptKey": "ship.bold-unique",
+      "semanticRole": "BOLD heritage hull (unique tier)",
+      "paletteKeys": [
+        "limestone",
+        "deep navy",
+        "bronze beacon",
+        "teal sea",
+        "liquity mint"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
+      "promptProvenance": {
+        "jobId": "6dc12a85-5d5c-4eb5-8815-a6fa6cc4e2ba",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "ship.fxusd-unique",
+      "path": "ships/fxusd-unique.png",
+      "category": "ship",
+      "layer": "ships",
+      "width": 136,
+      "height": 100,
+      "displayScale": 1,
+      "anchor": [
+        68,
+        92
+      ],
+      "footprint": [
+        46,
+        22
+      ],
+      "hitbox": [
+        30,
+        4,
+        92,
+        90
+      ],
+      "loadPriority": "deferred",
+      "promptKey": "ship.fxusd-unique",
+      "semanticRole": "fxUSD heritage hull (unique tier)",
+      "paletteKeys": [
+        "limestone",
+        "deep navy",
+        "bronze beacon",
+        "teal sea",
+        "fxusd forest"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
+      "promptProvenance": {
+        "jobId": "61402364-5f7e-4f9f-9319-9c96e28844e1",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },

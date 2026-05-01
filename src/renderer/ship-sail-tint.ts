@@ -150,6 +150,18 @@ export const SHIP_SAIL_TINT_MASKS: Record<string, SailMaskSpec> = {
       [[46, 30], [73, 19], [96, 30], [90, 68], [50, 68]],
     ],
   },
+  "ship.bold-unique": {
+    bounds: { x: 50, y: 22, width: 44, height: 42 },
+    polygons: [
+      [[52, 28], [70, 22], [92, 28], [88, 60], [60, 60], [54, 50]],
+    ],
+  },
+  "ship.fxusd-unique": {
+    bounds: { x: 50, y: 20, width: 38, height: 44 },
+    polygons: [
+      [[52, 25], [86, 25], [82, 62], [56, 62]],
+    ],
+  },
 };
 
 export function recolorSailImageData(

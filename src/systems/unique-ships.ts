@@ -7,9 +7,11 @@ export interface UniqueShipDefinition {
 }
 
 export const UNIQUE_SHIP_DEFINITIONS = {
-  "crvusd-curve": { spriteAssetId: "ship.crvusd-unique", rationale: "Sails under Curve's llama mascot — the DEX that defined stablecoin AMM curves.", scale: 1.50 },
-  "xaut-tether":  { spriteAssetId: "ship.xaut-unique",   rationale: "Bullion barge — Tether's gold treasury reserve.",                                scale: 1.50 },
-  "paxg-paxos":   { spriteAssetId: "ship.paxg-unique",   rationale: "Gilded merchantman — Paxos institutional gold custody.",                         scale: 1.55 },
+  "crvusd-curve":       { spriteAssetId: "ship.crvusd-unique", rationale: "Sails under Curve's llama mascot — the DEX that defined stablecoin AMM curves.", scale: 1.50 },
+  "bold-liquity":       { spriteAssetId: "ship.bold-unique",   rationale: "Spartan crest hull — Liquity's stance on credibly neutral decentralization.",    scale: 1.45 },
+  "fxusd-f-x-protocol": { spriteAssetId: "ship.fxusd-unique",  rationale: "Mathematical livery — f(x) Protocol's analytic identity.",                       scale: 1.45 },
+  "xaut-tether":        { spriteAssetId: "ship.xaut-unique",   rationale: "Bullion barge — Tether's gold treasury reserve.",                                scale: 1.50 },
+  "paxg-paxos":         { spriteAssetId: "ship.paxg-unique",   rationale: "Gilded merchantman — Paxos institutional gold custody.",                         scale: 1.55 },
 } as const satisfies Record<string, UniqueShipDefinition>;
 
 export const UNIQUE_SPRITE_IDS: ReadonlySet<string> = new Set(

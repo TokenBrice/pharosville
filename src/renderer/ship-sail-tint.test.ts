@@ -6,11 +6,13 @@ import { SHIP_SAIL_TINT_MASKS, isPointInSailMaskSpec, isSailTintPixel, sailTintC
 
 const SHIP_ASSET_FILES: Record<string, string> = {
   "ship.algo-junk": "algo-junk.png",
+  "ship.bold-unique": "bold-unique.png",
   "ship.chartered-brigantine": "chartered-brigantine.png",
   "ship.crvusd-unique": "crvusd-unique.png",
   "ship.crypto-caravel": "crypto-caravel.png",
   "ship.dai-titan": "dai-titan.png",
   "ship.dao-schooner": "dao-schooner.png",
+  "ship.fxusd-unique": "fxusd-unique.png",
   "ship.paxg-unique": "paxg-unique.png",
   "ship.sdai-titan": "sdai-titan.png",
   "ship.treasury-galleon": "treasury-galleon.png",
@@ -52,11 +54,17 @@ const UNTUNED_TITAN_IDS = new Set([
 //     `isSailTintPixel`'s `saturatedDarkInk` gate (max-min=103, lum~110).
 //   - ship.xaut-unique   : Tether teal sail (~#027162) trips the
 //     `luminance < 96` gate (sub-luminance).
+//   - ship.bold-unique   : Liquity mint-green sail (~#7ed87e) is a
+//     saturated cool green that trips `saturatedDarkInk`.
+//   - ship.fxusd-unique  : f(x) Protocol forest-green sail (~#3d6b3d) is
+//     sub-luminance saturated green, also trips `saturatedDarkInk`.
 // If `isSailTintPixel` is later widened to recognise these palettes, remove
 // the matching entry and re-run this test to verify coverage gates pass.
 const UNTUNED_UNIQUE_IDS = new Set<string>([
   "ship.crvusd-unique",
   "ship.xaut-unique",
+  "ship.bold-unique",
+  "ship.fxusd-unique",
 ]);
 
 describe("ship sail tint masks", () => {
