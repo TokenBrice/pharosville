@@ -21,7 +21,7 @@ const assetIdPattern = /^(building|dock|landmark|overlay|prop|ship|terrain)\.[a-
 const pharosVilleSourceExtensionPattern = /\.(?:ts|tsx)$/;
 const pharosVilleTestFilePattern = /(?:^|\/)(?:__tests__|tests?)\/|\.test\.(?:ts|tsx)$/;
 const publicImageExtensionPattern = /\.(?:png|svg|jpe?g|webp)$/i;
-const maxManifestAssets = 34;
+const maxManifestAssets = 35;
 const firstRenderBudgets = {
   maxCount: 24,
   maxBytes: 575 * 1024,

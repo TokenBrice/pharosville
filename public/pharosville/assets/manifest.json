@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-05-01-lighthouse-eth-scale-v1",
+    "cacheVersion": "2026-05-01-pharosville-island-coherence-v1",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": [
@@ -22,7 +22,7 @@
   },
   "requiredForFirstRender": [
     "landmark.lighthouse",
-    "overlay.central-island",
+    "overlay.lighthouse-headland",
     "overlay.seawall-straight",
     "overlay.seawall-corner",
     "dock.ethereum-civic-cove",
@@ -136,10 +136,47 @@
         64
       ],
       "loadPriority": "deferred",
+      "paletteKeys": [
+        "limestone"
+      ],
       "tool": "mcp:create_tiles_pro",
       "promptProvenance": {
-        "jobId": "96c4d9ac-c577-4120-a52e-3d6b3038c737",
-        "seed": 42801,
+        "jobId": "7b5aca9d-4984-4409-b1fe-76c1f781696f",
+        "seed": 50501,
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "terrain.land-scrub",
+      "path": "terrain/land-scrub.png",
+      "category": "terrain",
+      "layer": "terrain",
+      "width": 64,
+      "height": 64,
+      "displayScale": 1,
+      "anchor": [
+        32,
+        32
+      ],
+      "footprint": [
+        32,
+        16
+      ],
+      "hitbox": [
+        0,
+        0,
+        64,
+        64
+      ],
+      "loadPriority": "deferred",
+      "paletteKeys": [
+        "limestone",
+        "scrub"
+      ],
+      "tool": "mcp:create_tiles_pro",
+      "promptProvenance": {
+        "jobId": "7b5aca9d-4984-4409-b1fe-76c1f781696f",
+        "seed": 50501,
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },
@@ -166,10 +203,14 @@
         64
       ],
       "loadPriority": "deferred",
+      "paletteKeys": [
+        "sand",
+        "limestone"
+      ],
       "tool": "mcp:create_tiles_pro",
       "promptProvenance": {
-        "jobId": "96c4d9ac-c577-4120-a52e-3d6b3038c737",
-        "seed": 42801,
+        "jobId": "7b5aca9d-4984-4409-b1fe-76c1f781696f",
+        "seed": 50501,
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },
@@ -276,40 +317,40 @@
       }
     },
     {
-      "id": "overlay.central-island",
-      "path": "overlays/central-island.png",
+      "id": "overlay.lighthouse-headland",
+      "path": "overlays/lighthouse-headland.png",
       "category": "overlay",
       "layer": "terrain",
-      "width": 400,
-      "height": 320,
+      "width": 384,
+      "height": 192,
       "displayScale": 1,
       "anchor": [
-        200,
-        280
+        192,
+        128
       ],
       "footprint": [
-        214,
-        104
+        240,
+        128
       ],
       "hitbox": [
-        43,
-        19,
-        322,
-        270
+        72,
+        16,
+        240,
+        160
       ],
       "loadPriority": "critical",
-      "criticalReason": "Generated island model overlay that unifies the central harbor-ring landmass.",
-      "promptKey": "overlay.central-island",
-      "semanticRole": "central island harbor-ring model",
+      "criticalReason": "Limestone outcrop drawn under the PSI lighthouse — required for first-frame headland and to cover the lighthouse-mountain ellipse.",
+      "promptKey": "overlay.lighthouse-headland",
+      "semanticRole": "limestone headland under PSI lighthouse",
       "paletteKeys": [
         "limestone",
+        "scrub",
         "teal sea",
-        "grass",
-        "weathered wood"
+        "deep shadow"
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "25ee8636-32f7-4aa1-bb29-f924cbb4fc01",
+        "jobId": "be1f0841-b378-48b5-9fb4-7f3e8749c92d",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },
@@ -319,21 +360,21 @@
       "category": "overlay",
       "layer": "terrain",
       "width": 160,
-      "height": 72,
+      "height": 96,
       "displayScale": 1,
       "anchor": [
         80,
-        65
+        86
       ],
       "footprint": [
-        96,
-        22
+        128,
+        56
       ],
       "hitbox": [
-        3,
-        10,
-        154,
-        56
+        4,
+        14,
+        152,
+        76
       ],
       "loadPriority": "critical",
       "criticalReason": "Generated seawall run pieces needed for the initial harbor-ring island silhouette.",
@@ -344,9 +385,9 @@
         "terracotta",
         "teal sea"
       ],
-      "tool": "mcp:create_map_object+imagemagick",
+      "tool": "mcp:create_map_object",
       "promptProvenance": {
-        "jobId": "a91899ab-d01a-45c4-95e7-23b7f982f739",
+        "jobId": "3ff6e65f-e080-4971-ae3e-70dd9f0fb8b2",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },

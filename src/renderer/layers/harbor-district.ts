@@ -6,9 +6,6 @@ import { drawAsset, drawDiamond } from "../canvas-primitives";
 import { dockDrawPoint } from "../geometry";
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
 
-const CENTRAL_ISLAND_MODEL_TILE = { x: 31.0, y: 39.0 } as const;
-const CENTRAL_ISLAND_MODEL_SCALE = 1.08;
-
 const MAIN_SEAWALL_RUN = [
   { x: 20.0, y: 28.0 },
   { x: 24.4, y: 24.3 },
@@ -69,34 +66,6 @@ const GENERATED_SEAWALL_ASSETS = [
     yOffset: 3,
   },
 ] as const;
-
-export function drawCentralIslandModel({ assets, camera, ctx }: DrawPharosVilleInput) {
-  const islandAsset = assets?.get("overlay.central-island") ?? null;
-  if (!islandAsset) return;
-  const point = tileToScreen(CENTRAL_ISLAND_MODEL_TILE, camera);
-  ctx.save();
-  ctx.fillStyle = "rgba(3, 8, 10, 0.28)";
-  ctx.beginPath();
-  ctx.ellipse(
-    point.x,
-    point.y + 18 * camera.zoom,
-    138 * camera.zoom,
-    54 * camera.zoom,
-    -0.08,
-    0,
-    Math.PI * 2,
-  );
-  ctx.fill();
-  ctx.globalAlpha = 0.72;
-  drawAsset(
-    ctx,
-    islandAsset,
-    point.x,
-    point.y + 10 * camera.zoom,
-    camera.zoom * CENTRAL_ISLAND_MODEL_SCALE,
-  );
-  ctx.restore();
-}
 
 export function drawHarborDistrictGround(input: DrawPharosVilleInput) {
   const { camera, ctx } = input;
