@@ -5,7 +5,17 @@ import type { PharosVilleWorld, ShipNode } from "../../systems/world-types";
 import type { LoadedPharosVilleAsset } from "../asset-manager";
 import type { ResolvedEntityGeometry } from "../geometry";
 import type { DrawPharosVilleInput } from "../render-types";
-import { drawShipWake, drawSquadIdentityAccent, shipMastTopScreenPoint, type ShipRenderFrame } from "./ships";
+import { SHIP_SAIL_TINT_MASKS } from "../ship-sail-tint";
+import {
+  drawShipWake,
+  drawSquadIdentityAccent,
+  SHIP_PEG_MARKS,
+  SHIP_SAIL_MARKS,
+  SHIP_TRIM_MARKS,
+  shipMastTopScreenPoint,
+  TITAN_SPRITE_IDS,
+  type ShipRenderFrame,
+} from "./ships";
 
 // --- Identity accent dispatch ----------------------------------------------
 
@@ -89,6 +99,27 @@ describe("drawSquadIdentityAccent", () => {
       const ctx = makeRecordingCtx();
       drawSquadIdentityAccent(ctx, id, 0, 0, 1);
       expect(ctx.calls).toHaveLength(0);
+    }
+  });
+});
+
+// --- Per-titan offset table coverage ---------------------------------------
+
+describe("Maker squad titan offset tables", () => {
+  it("every Maker squad titan sprite is registered in all per-titan offset tables", () => {
+    const titanIds = [
+      "ship.usds-titan",
+      "ship.dai-titan",
+      "ship.susds-titan",
+      "ship.sdai-titan",
+      "ship.stusds-titan",
+    ];
+    for (const titanId of titanIds) {
+      expect(TITAN_SPRITE_IDS.has(titanId)).toBe(true);
+      expect(SHIP_SAIL_MARKS[titanId]).toBeDefined();
+      expect(SHIP_PEG_MARKS[titanId]).toBeDefined();
+      expect(SHIP_TRIM_MARKS[titanId]).toBeDefined();
+      expect(SHIP_SAIL_TINT_MASKS[titanId]).toBeDefined();
     }
   });
 });
