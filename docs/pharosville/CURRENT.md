@@ -26,7 +26,7 @@ layout, asset, renderer, test, and docs change:
 - `LIGHTHOUSE_TILE` remains `{ x: 18, y: 28 }` and the visual-clearance box
   remains `x:14..24, y:23..32`.
 - Runtime asset cache version is
-  `2026-05-01-unique-ships-v2`; the manifest-wide style
+  `2026-05-01-island-center-build-v1`; the manifest-wide style
   anchor remains `2026-04-29-lighthouse-hill-v5` so all asset provenance stays
   validator-aligned. The static-scene cache key in `src/renderer/world-canvas.ts`
   includes `manifestCacheVersion`, so bumping `style.cacheVersion` invalidates
@@ -164,7 +164,7 @@ generic water.
 - Stale or missing peg evidence maps to Calm Anchorage with an evidence caveat unless a fresher risk signal exists; it must not create a separate sea zone or masquerade as storm/depeg risk.
 - Stablecoin supply values from the list payload are already USD-denominated. Use `getCirculatingRaw()` for market-cap visual tiers.
 - Local runtime assets come from `public/pharosville/assets/` and `manifest.json`. Do not reference remote prototype URLs at runtime.
-- Treat `public/pharosville/assets/manifest.json` and `npm run check:pharosville-assets` as the asset inventory source of truth. At this update, the manifest contains 43 runtime assets, split by `loadPriority` into 25 critical/first-render entries and 18 deferred entries (the heritage-hull tier added 5 deferred unique-ship sprites); the validator's `maxManifestAssets` cap was bumped to 45 to leave headroom. Rerun the validator instead of hand-maintaining prose counts.
+- Treat `public/pharosville/assets/manifest.json` and `npm run check:pharosville-assets` as the asset inventory source of truth. At this update, the manifest contains 45 runtime assets, split by `loadPriority` into 25 critical/first-render entries and 20 deferred entries (the heritage-hull tier added 5 deferred unique-ship sprites); the validator's `maxManifestAssets` cap was bumped to 45 to leave headroom. Rerun the validator instead of hand-maintaining prose counts.
 
 ## Current Visual Model
 
@@ -190,7 +190,8 @@ generic water.
 - Ship size is a compressed market-cap tier, not linear area.
 - The current runtime manifest uses schema v2. `style.cacheVersion` controls image cache busting; `style.styleAnchorVersion` is the provenance/style anchor for generated assets.
 - Asset loading is intentionally staged: the route loads the manifest and critical/first-render sprites before the initial canvas frame, then loads deferred sprite families after the core scene can render. Do not move visual-only sprites into the critical set without checking first-render need and the manifest cap.
-- The current lighthouse asset is `landmark.lighthouse` at `public/pharosville/assets/landmarks/lighthouse-alexandria.png`, with manifest cache version `2026-05-01-unique-ships-v2` and style anchor `2026-04-29-lighthouse-hill-v5`.
+- The current lighthouse asset is `landmark.lighthouse` at `public/pharosville/assets/landmarks/lighthouse-alexandria.png`, with manifest cache version `2026-05-01-island-center-build-v1` and style anchor `2026-04-29-lighthouse-hill-v5`.
+- The central plaza is filled by the ambient `overlay.center-cluster` observatory citadel — a dense limestone+terracotta residential cluster anchored at `CIVIC_CORE_CENTER (31, 31)`, drawn between the district-pad and lighthouse-headland passes via `src/renderer/layers/center-cluster.ts`. It carries no analytical signal and no detail-panel parity. A single `prop.sundial` at tile (35, 31) reinforces the observatory identity. The lighthouse remains the dominant vertical anchor; the cluster's silhouette caps at ≈ 110 px in 1× zoom.
 - Current ship sprites share the lighthouse style anchor, keep logo-safe sail/pennant zones, and treat overlays as small lanterns/pennants/signals rather than badges. Standard class hulls use 104 x 80 transparent PNGs; USDC, USDS, and USDT use dedicated titan hull PNGs, with USDS a bit smaller than USDC and USDT allowed to read larger than both.
 - Current cemetery props share the same style anchor and use a local memorial sprite set under `public/pharosville/assets/props/`: `memorial-terrace`, `memorial-headstone`, `ledger-slab`, `reliquary-marker`, and `regulatory-obelisk`.
 
