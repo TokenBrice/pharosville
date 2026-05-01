@@ -9,6 +9,67 @@ import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-ty
 const CENTRAL_ISLAND_MODEL_TILE = { x: 31.0, y: 39.0 } as const;
 const CENTRAL_ISLAND_MODEL_SCALE = 1.08;
 
+const MAIN_SEAWALL_RUN = [
+  { x: 20.0, y: 28.0 },
+  { x: 24.4, y: 24.3 },
+  { x: 30.2, y: 21.4 },
+  { x: 37.8, y: 22.5 },
+  { x: 42.3, y: 27.1 },
+  { x: 43.5, y: 30.4 },
+  { x: 42.2, y: 35.0 },
+  { x: 36.8, y: 40.3 },
+  { x: 31.0, y: 41.7 },
+  { x: 28.0, y: 40.8 },
+  { x: 22.5, y: 37.0 },
+  { x: 19.0, y: 32.4 },
+  { x: 20.0, y: 28.0 },
+] as const;
+
+const GENERATED_SEAWALL_ASSETS = [
+  {
+    assetId: "overlay.seawall-straight",
+    flipX: false,
+    scale: 0.64,
+    tile: { x: 30.8, y: 22.7 },
+    yOffset: 2,
+  },
+  {
+    assetId: "overlay.seawall-straight",
+    flipX: true,
+    scale: 0.62,
+    tile: { x: 40.7, y: 28.0 },
+    yOffset: 2,
+  },
+  {
+    assetId: "overlay.seawall-straight",
+    flipX: false,
+    scale: 0.68,
+    tile: { x: 34.6, y: 40.9 },
+    yOffset: 2,
+  },
+  {
+    assetId: "overlay.seawall-straight",
+    flipX: true,
+    scale: 0.62,
+    tile: { x: 22.4, y: 35.7 },
+    yOffset: 2,
+  },
+  {
+    assetId: "overlay.seawall-corner",
+    flipX: false,
+    scale: 0.52,
+    tile: { x: 20.8, y: 29.6 },
+    yOffset: 3,
+  },
+  {
+    assetId: "overlay.seawall-corner",
+    flipX: true,
+    scale: 0.5,
+    tile: { x: 42.7, y: 33.6 },
+    yOffset: 3,
+  },
+] as const;
+
 export function drawCentralIslandModel({ assets, camera, ctx }: DrawPharosVilleInput) {
   const islandAsset = assets?.get("overlay.central-island") ?? null;
   if (!islandAsset) return;
@@ -37,32 +98,39 @@ export function drawCentralIslandModel({ assets, camera, ctx }: DrawPharosVilleI
   ctx.restore();
 }
 
-export function drawHarborDistrictGround({ camera, ctx }: DrawPharosVilleInput) {
+export function drawHarborDistrictGround(input: DrawPharosVilleInput) {
+  const { camera, ctx } = input;
   ctx.save();
   drawDistrictPad(ctx, camera, { x: 31.0, y: 23.3 }, 88, 30, "rgba(55, 55, 47, 0.3)", "rgba(197, 176, 125, 0.16)");
   drawDistrictPad(ctx, camera, { x: 21.2, y: 32.6 }, 72, 34, "rgba(55, 55, 47, 0.34)", "rgba(197, 176, 125, 0.18)");
   drawDistrictPad(ctx, camera, { x: 32.2, y: 39.6 }, 96, 34, "rgba(55, 55, 47, 0.36)", "rgba(197, 176, 125, 0.2)");
   drawDistrictPad(ctx, camera, { x: 42.5, y: 31.7 }, 78, 34, "rgba(55, 55, 47, 0.4)", "rgba(197, 176, 125, 0.22)");
 
-  drawSeawallRun(ctx, camera, [
-    { x: 24.4, y: 24.3 },
-    { x: 30.2, y: 21.4 },
-    { x: 37.8, y: 22.5 },
-    { x: 42.3, y: 27.1 },
-  ]);
-  drawSeawallRun(ctx, camera, [
-    { x: 43.5, y: 30.4 },
-    { x: 42.2, y: 35.0 },
-    { x: 36.8, y: 40.3 },
-    { x: 31.0, y: 41.7 },
-  ]);
-  drawSeawallRun(ctx, camera, [
-    { x: 28.0, y: 40.8 },
-    { x: 22.5, y: 37.0 },
-    { x: 19.0, y: 32.4 },
-    { x: 20.0, y: 27.6 },
-  ]);
+  drawSeawallRun(ctx, camera, MAIN_SEAWALL_RUN);
+  drawGeneratedSeawallAssets(input);
   ctx.restore();
+}
+
+function drawGeneratedSeawallAssets(input: DrawPharosVilleInput) {
+  const { assets, camera, ctx } = input;
+  if (!assets) return;
+  for (const placement of GENERATED_SEAWALL_ASSETS) {
+    const asset = assets.get(placement.assetId);
+    if (!asset) continue;
+    const p = tileToScreen(placement.tile, camera);
+    const y = p.y + placement.yOffset * camera.zoom;
+    const scale = camera.zoom * placement.scale;
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    if (placement.flipX) {
+      ctx.translate(p.x, y);
+      ctx.scale(-1, 1);
+      drawAsset(ctx, asset, 0, 0, scale);
+    } else {
+      drawAsset(ctx, asset, p.x, y, scale);
+    }
+    ctx.restore();
+  }
 }
 
 export function drawEthereumHarborExtensions({ camera, ctx, motion, world }: DrawPharosVilleInput) {
@@ -318,4 +386,3 @@ function drawDistrictPaving(
   drawDiamond(ctx, x, y - 1 * zoom, width * 0.46, height * 0.28, ctx.fillStyle);
   ctx.restore();
 }
-

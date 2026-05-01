@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-05-01-pharosville-harbor-diversity-v8",
+    "cacheVersion": "2026-05-01-pharosville-seawall-v1",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": [
@@ -23,6 +23,8 @@
   "requiredForFirstRender": [
     "landmark.lighthouse",
     "overlay.central-island",
+    "overlay.seawall-straight",
+    "overlay.seawall-corner",
     "dock.ethereum-civic-cove",
     "dock.tron-arena-wharf",
     "dock.bsc-mercantile-wharf",
@@ -308,6 +310,80 @@
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
         "jobId": "25ee8636-32f7-4aa1-bb29-f924cbb4fc01",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "overlay.seawall-straight",
+      "path": "overlays/seawall-straight.png",
+      "category": "overlay",
+      "layer": "terrain",
+      "width": 160,
+      "height": 72,
+      "displayScale": 1,
+      "anchor": [
+        80,
+        65
+      ],
+      "footprint": [
+        96,
+        22
+      ],
+      "hitbox": [
+        3,
+        10,
+        154,
+        56
+      ],
+      "loadPriority": "critical",
+      "criticalReason": "Generated seawall run pieces needed for the initial harbor-ring island silhouette.",
+      "promptKey": "overlay.seawall-straight",
+      "semanticRole": "decorative raised harbor seawall straight segment",
+      "paletteKeys": [
+        "limestone",
+        "terracotta",
+        "teal sea"
+      ],
+      "tool": "mcp:create_map_object",
+      "promptProvenance": {
+        "jobId": "a91899ab-d01a-45c4-95e7-23b7f982f739",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "overlay.seawall-corner",
+      "path": "overlays/seawall-corner.png",
+      "category": "overlay",
+      "layer": "terrain",
+      "width": 160,
+      "height": 96,
+      "displayScale": 1,
+      "anchor": [
+        80,
+        86
+      ],
+      "footprint": [
+        88,
+        40
+      ],
+      "hitbox": [
+        5,
+        8,
+        150,
+        80
+      ],
+      "loadPriority": "critical",
+      "criticalReason": "Generated seawall corner pieces mark the harbor-ring junctions on the initial island silhouette.",
+      "promptKey": "overlay.seawall-corner",
+      "semanticRole": "decorative raised harbor seawall corner segment",
+      "paletteKeys": [
+        "limestone",
+        "terracotta",
+        "teal sea"
+      ],
+      "tool": "mcp:create_map_object",
+      "promptProvenance": {
+        "jobId": "febb7bca-ed6a-42b3-b4ce-ff30789a887e",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },
