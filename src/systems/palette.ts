@@ -151,3 +151,97 @@ export const DEWS_AREA_LABEL_COLORS = {
 export function waterTerrainStyle(kind: string): WaterTerrainStyle | null {
   return WATER_TERRAIN_STYLES[kind as keyof typeof WATER_TERRAIN_STYLES] ?? null;
 }
+
+export interface ZoneLabelTheme {
+  /** Per-zone accent color for plaque pennants and underline. */
+  accent: string;
+  /** Outline drawn behind the title text. */
+  outline: string;
+  /** Title fill color. */
+  fill: string;
+  /** Plaque highlight color (top edge). */
+  plaqueLight: string;
+  /** Plaque shadow color (body). */
+  plaqueDark: string;
+}
+
+export interface ZoneMotionTheme {
+  /** Multiplier on procedural texture wave amplitude (1 = current). */
+  amplitudeScale: number;
+  /** Multiplier on accent stroke alpha (1 = current). */
+  strokeAlphaScale: number;
+}
+
+export interface ZoneVisualTheme extends WaterTerrainStyle {
+  label: ZoneLabelTheme;
+  motion: ZoneMotionTheme;
+}
+
+// Defaults preserved from drawCartographicWaterLabel pre-refactor.
+const DEFAULT_LABEL_OUTLINE = "rgba(5, 10, 17, 0.7)";
+const DEFAULT_LABEL_FILL = "rgba(238, 218, 169, 0.78)";
+const DEFAULT_LABEL_PLAQUE_LIGHT = "rgba(74, 50, 27, 0.5)";
+const DEFAULT_LABEL_PLAQUE_DARK = "rgba(15, 10, 7, 0.76)";
+const DEFAULT_MOTION: ZoneMotionTheme = { amplitudeScale: 1, strokeAlphaScale: 1 };
+
+function defaultLabelTheme(accent: string): ZoneLabelTheme {
+  return {
+    accent,
+    outline: DEFAULT_LABEL_OUTLINE,
+    fill: DEFAULT_LABEL_FILL,
+    plaqueLight: DEFAULT_LABEL_PLAQUE_LIGHT,
+    plaqueDark: DEFAULT_LABEL_PLAQUE_DARK,
+  };
+}
+
+export const ZONE_THEMES: Record<keyof typeof WATER_TERRAIN_STYLES, ZoneVisualTheme> = {
+  "alert-water": {
+    ...WATER_TERRAIN_STYLES["alert-water"],
+    label: defaultLabelTheme(DEWS_AREA_LABEL_COLORS.ALERT),
+    motion: DEFAULT_MOTION,
+  },
+  "calm-water": {
+    ...WATER_TERRAIN_STYLES["calm-water"],
+    label: defaultLabelTheme(DEWS_AREA_LABEL_COLORS.CALM),
+    motion: DEFAULT_MOTION,
+  },
+  "deep-water": {
+    ...WATER_TERRAIN_STYLES["deep-water"],
+    label: defaultLabelTheme("#d8b56a"), // matches riskWaterAreaColor fallback
+    motion: DEFAULT_MOTION,
+  },
+  "harbor-water": {
+    ...WATER_TERRAIN_STYLES["harbor-water"],
+    label: defaultLabelTheme("#d8b56a"),
+    motion: DEFAULT_MOTION,
+  },
+  "ledger-water": {
+    ...WATER_TERRAIN_STYLES["ledger-water"],
+    label: defaultLabelTheme("#d9b974"), // matches riskWaterAreaColor for "ledger"
+    motion: DEFAULT_MOTION,
+  },
+  "storm-water": {
+    ...WATER_TERRAIN_STYLES["storm-water"],
+    label: defaultLabelTheme(DEWS_AREA_LABEL_COLORS.DANGER),
+    motion: DEFAULT_MOTION,
+  },
+  "watch-water": {
+    ...WATER_TERRAIN_STYLES["watch-water"],
+    label: defaultLabelTheme(DEWS_AREA_LABEL_COLORS.WATCH),
+    motion: DEFAULT_MOTION,
+  },
+  "warning-water": {
+    ...WATER_TERRAIN_STYLES["warning-water"],
+    label: defaultLabelTheme(DEWS_AREA_LABEL_COLORS.WARNING),
+    motion: DEFAULT_MOTION,
+  },
+  water: {
+    ...WATER_TERRAIN_STYLES.water,
+    label: defaultLabelTheme("#d8b56a"),
+    motion: DEFAULT_MOTION,
+  },
+};
+
+export function zoneThemeForTerrain(kind: string): ZoneVisualTheme {
+  return ZONE_THEMES[kind as keyof typeof ZONE_THEMES] ?? ZONE_THEMES.water;
+}

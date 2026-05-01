@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { THREAT_BAND_HEX } from "@shared/lib/classification";
-import { DEWS_AREA_LABEL_COLORS, HARBOR_PALETTE, WATER_TERRAIN_STYLES, hexToInt, paletteOrThrow, paletteRgba, waterTerrainStyle } from "./palette";
+import { DEWS_AREA_LABEL_COLORS, HARBOR_PALETTE, WATER_TERRAIN_STYLES, ZONE_THEMES, hexToInt, paletteOrThrow, paletteRgba, waterTerrainStyle } from "./palette";
 
 describe("HARBOR_PALETTE", () => {
   it("contains 25 entries", () => {
@@ -69,6 +69,22 @@ describe("HARBOR_PALETTE", () => {
       WARNING: THREAT_BAND_HEX.WARNING,
       DANGER: THREAT_BAND_HEX.DANGER,
     });
+  });
+
+  it("provides a complete ZoneVisualTheme for every water terrain", () => {
+    const waterKinds = Object.keys(WATER_TERRAIN_STYLES);
+    expect(Object.keys(ZONE_THEMES).sort()).toEqual(waterKinds.sort());
+    for (const kind of waterKinds) {
+      const theme = ZONE_THEMES[kind as keyof typeof ZONE_THEMES];
+      expect(theme.base).toBe(WATER_TERRAIN_STYLES[kind as keyof typeof WATER_TERRAIN_STYLES].base);
+      expect(theme.label.outline).toBeTruthy();
+      expect(theme.label.fill).toBeTruthy();
+      expect(theme.label.plaqueLight).toBeTruthy();
+      expect(theme.label.plaqueDark).toBeTruthy();
+      expect(theme.label.accent).toMatch(/^#|^rgba/);
+      expect(theme.motion.amplitudeScale).toBeGreaterThan(0);
+      expect(theme.motion.strokeAlphaScale).toBeGreaterThan(0);
+    }
   });
 });
 
