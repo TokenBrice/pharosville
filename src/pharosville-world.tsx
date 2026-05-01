@@ -1,123 +1,67 @@
 "use client";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
+import type { CSSProperties } from "react";
 import { Home, Maximize2, Minimize2 } from "lucide-react";
 import { AccessibilityLedger } from "./components/accessibility-ledger";
 import { DetailPanel } from "./components/detail-panel";
 import { WorldToolbar } from "./components/world-toolbar";
+import { useAssetLoadingPipeline } from "./hooks/use-asset-loading-pipeline";
+import { useCanvasResizeAndCamera } from "./hooks/use-canvas-resize-and-camera";
 import { useFullscreenMode } from "./hooks/use-fullscreen-mode";
-import { PharosVilleAssetManager, type PharosVilleAssetLoadError, type PharosVilleAssetLoadStats } from "./renderer/asset-manager";
-import { entityFollowTile } from "./renderer/geometry";
-import { createHitTargetSnapshot, hitTest, hitTestSpatial, updateHitTargetSnapshotShips, type HitTarget, type HitTargetSnapshot } from "./renderer/hit-testing";
-import { selectionDrawableCount } from "./renderer/layers/selection";
-import { drawPharosVille, type PharosVilleRenderMetrics } from "./renderer/world-canvas";
-import { cameraZoomLabel, clampCameraToMap, defaultCamera, followTile, panCamera, zoomIn, zoomOut } from "./systems/camera";
-import {
-  createDrawDurationWindow,
-  initialAdaptiveDprState,
-  pushDrawDurationSample,
-  resolveAdaptiveDprState,
-  resolveCanvasBudget,
-  type AdaptiveDprState,
-  type DrawDurationWindow,
-} from "./systems/canvas-budget";
-import { buildBaseMotionPlan, buildMotionPlan, createShipMotionSample, isShipMapVisible, motionPlanSignature, resolveShipMotionSampleInto, type ShipMotionSample } from "./systems/motion";
-import { warmAllWaterPaths } from "./systems/motion-water";
-import { zoomCameraAt, type IsoCamera, type ScreenPoint } from "./systems/projection";
+import { useWorldRenderLoop } from "./hooks/use-world-render-loop";
+import { createHitTargetSnapshot, type HitTarget, type HitTargetSnapshot } from "./renderer/hit-testing";
+import { buildBaseMotionPlan, buildMotionPlan, motionPlanSignature, type ShipMotionSample } from "./systems/motion";
+import type { ScreenPoint } from "./systems/projection";
 import { observeReducedMotion } from "./systems/reduced-motion";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "./systems/world-types";
 
 function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
-  const [assetManager] = useState(() => new PharosVilleAssetManager());
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const dragRef = useRef<{ last: ScreenPoint; moved: boolean; pointerId: number } | null>(null);
-  const animationFramePendingRef = useRef(false);
-  const canvasBudgetRef = useRef<ReturnType<typeof resolveCanvasBudget> | null>(null);
-  const adaptiveDprStateRef = useRef<AdaptiveDprState>(initialAdaptiveDprState(1));
-  const drawDurationWindowRef = useRef<DrawDurationWindow>(createDrawDurationWindow());
-  const drawDurationStatsRef = useRef<{ averageMs: number; count: number; p90Ms: number }>({
-    averageMs: 0,
-    count: 0,
-    p90Ms: 0,
-  });
-  const adaptiveDprInitializedRef = useRef(false);
-  const maximumRequestedDprRef = useRef(1);
-  const criticalFramePaintedRef = useRef(false);
-  const deferredLoadStartedRef = useRef(false);
-  const lastWallRef = useRef<number | null>(null);
-  const accSecondsRef = useRef(0);
-  const pendingResumeRef = useRef(false);
-  const motionFrameCountRef = useRef(0);
-  const canvasRectRef = useRef<Pick<DOMRectReadOnly, "left" | "top"> | null>(null);
-  const dragPanDeltaRef = useRef<ScreenPoint>({ x: 0, y: 0 });
-  const dragPanFrameRef = useRef(0);
-  const lastRenderMetricsRef = useRef<PharosVilleRenderMetrics & { drawDurationMs: number }>({
-    drawableCount: 0,
-    drawableCounts: { underlay: 0, body: 0, overlay: 0, selection: 0 },
-    drawDurationMs: 0,
-    movingShipCount: 0,
-    visibleShipCount: 0,
-    visibleTileCount: 0,
-  });
-  const currentShipMotionSamplesRef = useRef<ReadonlyMap<string, ShipMotionSample>>(new Map());
-  const currentHitTargetSnapshotRef = useRef<HitTargetSnapshot | null>(null);
-  const currentHitTargetsRef = useRef<readonly HitTarget[]>([]);
-  const shipHitStateRef = useRef(new Map<string, { cellX: number; cellY: number; visible: boolean }>());
-  const frameStateRef = useRef<{
-    samples: ReadonlyMap<string, ShipMotionSample>;
-    targets: readonly HitTarget[];
-    timeSeconds: number;
-    wallClockHour: number;
-  }>({ samples: new Map(), targets: [], timeSeconds: 0, wallClockHour: 0 });
-  const [camera, setCamera] = useState<IsoCamera | null>(null);
-  const [canvasSize, setCanvasSize] = useState<ScreenPoint>({ x: 0, y: 0 });
   const [hoveredDetailId, setHoveredDetailId] = useState<string | null>(null);
   const [selectedDetailId, setSelectedDetailId] = useState<string | null>("lighthouse");
   const [selectedDetailAnchor, setSelectedDetailAnchor] = useState<DetailAnchor | null>(null);
   const [announcement, setAnnouncement] = useState("PharosVille ready.");
-  const [assetLoadTick, setAssetLoadTick] = useState(0);
-  const [assetLoadErrors, setAssetLoadErrors] = useState<PharosVilleAssetLoadError[]>([]);
-  const [criticalFramePainted, setCriticalFramePainted] = useState(false);
-  const [criticalAssetAttemptsSettled, setCriticalAssetAttemptsSettled] = useState(false);
-  const [criticalAssetsLoaded, setCriticalAssetsLoaded] = useState(false);
-  const [deferredAssetsLoaded, setDeferredAssetsLoaded] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(true);
   const [nightMode, setNightMode] = useState(false);
-  const [paintRequestTick, setPaintRequestTick] = useState(0);
   const shellRef = useRef<HTMLElement | null>(null);
   const { exitFullscreen, fullscreenMode, toggleFullscreen } = useFullscreenMode(shellRef);
+
   // Memoize on a content signature instead of `world` identity so live data
   // refetches that don't change ship/dock/map/lighthouse-flicker fields reuse
   // the prior plan (and skip A* warmups). `world` is still passed to the
   // builder; the signature only gates re-memo.
   const baseMotionPlanSignature = motionPlanSignature(world);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const baseMotionPlan = useMemo(() => buildBaseMotionPlan(world), [baseMotionPlanSignature]);
   const motionPlan = useMemo(() => buildMotionPlan(world, selectedDetailId, baseMotionPlan), [baseMotionPlan, selectedDetailId, world]);
   const shipsById = useMemo(() => new Map(world.ships.map((ship) => [ship.id, ship])), [world.ships]);
   const selectedEntity = useMemo(() => findWorldEntity(world, selectedDetailId), [selectedDetailId, world]);
   const selectedDetail = selectedDetailId ? world.detailIndex[selectedDetailId] ?? null : null;
 
-  useEffect(() => {
-    canvasRectRef.current = null;
-  }, [fullscreenMode]);
-
-  // Refs that mirror frequently-changing state so the RAF effect can read the
-  // latest values without rebinding on every hover/select/motionPlan change.
-  // Synced via a single effect so they stay coherent.
+  // Refs that mirror frequently-changing state so hook-internal effects/RAF can
+  // read the latest values without rebinding on every hover/select/motionPlan
+  // change. Synced via a single effect so they stay coherent.
   const hoveredDetailIdRef = useRef(hoveredDetailId);
   const selectedDetailIdRef = useRef(selectedDetailId);
   const motionPlanRef = useRef(motionPlan);
-  const cameraRef = useRef(camera);
-  const canvasSizeRef = useRef(canvasSize);
-  const criticalAssetAttemptsSettledRef = useRef(criticalAssetAttemptsSettled);
   useEffect(() => {
     hoveredDetailIdRef.current = hoveredDetailId;
     selectedDetailIdRef.current = selectedDetailId;
     motionPlanRef.current = motionPlan;
-    cameraRef.current = camera;
-    canvasSizeRef.current = canvasSize;
-    criticalAssetAttemptsSettledRef.current = criticalAssetAttemptsSettled;
-  }, [camera, canvasSize, criticalAssetAttemptsSettled, hoveredDetailId, motionPlan, selectedDetailId]);
+  }, [hoveredDetailId, motionPlan, selectedDetailId]);
+
+  // Cross-hook shared refs: filled by the render loop, read by the canvas
+  // hook (for hover/select hit-testing) and by the recompute callback.
+  const hitTargetSnapshotRef = useRef<HitTargetSnapshot | null>(null);
+  const hitTargetsRef = useRef<readonly HitTarget[]>([]);
+  const shipMotionSamplesRef = useRef<ReadonlyMap<string, ShipMotionSample>>(new Map());
+
+  // `recomputeHitTargets` is a stable wrapper that reads through this ref so
+  // the canvas hook's pointer handlers can call it without depending on hook
+  // ordering (the render-loop hook is bound after the canvas hook).
+  const recomputeHitTargetsRef = useRef<() => HitTargetSnapshot | null>(() => null);
+  const recomputeHitTargets = useCallback((): HitTargetSnapshot | null => recomputeHitTargetsRef.current(), []);
+
+  const assetPipeline = useAssetLoadingPipeline({ motionPlanRef, world });
 
   const selectDetail = useCallback((detailId: string, anchor: DetailAnchor | null = null) => {
     const detail = world.detailIndex[detailId];
@@ -131,6 +75,96 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     setSelectedDetailAnchor(null);
     setAnnouncement("Selection cleared.");
   }, []);
+
+  const handleSelectTarget = useCallback((target: HitTarget, point: ScreenPoint, viewport: ScreenPoint) => {
+    selectDetail(target.detailId, detailAnchorForPoint(point, viewport));
+  }, [selectDetail]);
+
+  const hasSelection = useCallback(() => selectedDetailIdRef.current !== null, []);
+
+  const canvas = useCanvasResizeAndCamera({
+    exitFullscreen,
+    fullscreenMode,
+    hasSelection,
+    hitTargetSnapshotRef,
+    hitTargetsRef,
+    hoveredDetailIdRef,
+    onClearSelection: clearSelection,
+    onSelectTarget: handleSelectTarget,
+    recomputeHitTargets,
+    selectedDetailIdRef,
+    selectedEntity,
+    setHoveredDetailId,
+    shipMotionSamplesRef,
+    world,
+  });
+
+  // Wire the late-bound recompute callback now that the canvas hook has
+  // exposed its refs. The ref-of-callback indirection lets the canvas hook's
+  // pointer handlers reach this without forcing the render-loop hook to be
+  // bound first.
+  recomputeHitTargetsRef.current = (): HitTargetSnapshot | null => {
+    const activeCamera = canvas.cameraRef.current;
+    if (!activeCamera) return hitTargetSnapshotRef.current;
+    const activeCanvasSize = canvas.canvasSizeRef.current;
+    const snapshot = createHitTargetSnapshot({
+      assets: assetPipeline.assetManager,
+      camera: activeCamera,
+      hoveredDetailId: hoveredDetailIdRef.current,
+      selectedDetailId: selectedDetailIdRef.current,
+      shipMotionSamples: shipMotionSamplesRef.current,
+      viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
+      world,
+    });
+    hitTargetSnapshotRef.current = snapshot;
+    hitTargetsRef.current = snapshot.targets;
+    return snapshot;
+  };
+
+  const { requestPaint } = useWorldRenderLoop({
+    adaptiveDprStateRef: canvas.adaptiveDprStateRef,
+    assetLoadErrors: assetPipeline.assetLoadErrors,
+    assetLoadTick: assetPipeline.assetLoadTick,
+    assetManager: assetPipeline.assetManager,
+    camera: canvas.camera,
+    cameraRef: canvas.cameraRef,
+    canvasBudgetRef: canvas.canvasBudgetRef,
+    canvasRef: canvas.canvasRef,
+    canvasSize: canvas.canvasSize,
+    canvasSizeRef: canvas.canvasSizeRef,
+    criticalAssetAttemptsSettled: assetPipeline.criticalAssetAttemptsSettled,
+    criticalAssetsLoaded: assetPipeline.criticalAssetsLoaded,
+    deferredAssetsLoaded: assetPipeline.deferredAssetsLoaded,
+    hitTargetSnapshotRef,
+    hitTargetsRef,
+    hoveredDetailId,
+    hoveredDetailIdRef,
+    maximumRequestedDprRef: canvas.maximumRequestedDprRef,
+    motionPlan,
+    motionPlanRef,
+    nightMode,
+    reducedMotion,
+    selectedDetailAnchor,
+    selectedDetailId,
+    selectedDetailIdRef,
+    setCriticalFramePainted: assetPipeline.setCriticalFramePainted,
+    shipMotionSamplesRef,
+    shipsById,
+    world,
+  });
+
+  // Keep hit-targets in sync with state-driven inputs that affect them:
+  // selection, camera (pan/zoom/follow), and canvas size. Ship-cell and
+  // visibility transitions are handled incrementally inside the RAF loop.
+  useEffect(() => {
+    recomputeHitTargets();
+    if (reducedMotion) requestPaint();
+  }, [canvas.camera, canvas.canvasSize.x, canvas.canvasSize.y, recomputeHitTargets, reducedMotion, requestPaint, selectedDetailId]);
+
+  useEffect(() => {
+    if (!reducedMotion) return;
+    requestPaint();
+  }, [hoveredDetailId, reducedMotion, requestPaint]);
 
   useEffect(() => {
     if (!selectedDetailId) return;
@@ -150,649 +184,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     return () => document.removeEventListener("pointerdown", handleOutsidePointerDown, true);
   }, [clearSelection, selectedDetailId]);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    let active = true;
-    criticalFramePaintedRef.current = false;
-    deferredLoadStartedRef.current = false;
-    setCriticalFramePainted(false);
-    setCriticalAssetAttemptsSettled(false);
-    setCriticalAssetsLoaded(false);
-    setDeferredAssetsLoaded(false);
-    assetManager.loadCritical(controller.signal)
-      .then((criticalResult) => {
-        if (!active) return;
-        setAssetLoadErrors(criticalResult.errors);
-        setCriticalAssetsLoaded(assetManager.areCriticalAssetsLoaded());
-        setCriticalAssetAttemptsSettled(true);
-        setAssetLoadTick((tick) => tick + 1);
-      })
-      .catch((error) => {
-        if (!active) return;
-        setCriticalAssetsLoaded(false);
-        setCriticalAssetAttemptsSettled(true);
-        setAssetLoadErrors([{
-          id: "manifest",
-          message: error instanceof Error ? error.message : String(error),
-          path: "manifest.json",
-          priority: "critical",
-        }]);
-        setAssetLoadTick((tick) => tick + 1);
-      });
-    return () => {
-      active = false;
-      controller.abort();
-    };
-  }, [assetManager]);
-
-  useEffect(() => {
-    if (!criticalAssetAttemptsSettled || !criticalFramePainted || deferredLoadStartedRef.current) return;
-
-    const controller = new AbortController();
-    let active = true;
-    deferredLoadStartedRef.current = true;
-    const startDeferredLoad = () => {
-      const planForWarmup = motionPlanRef.current;
-      if (planForWarmup) warmAllWaterPaths(planForWarmup);
-      assetManager.loadDeferred(controller.signal)
-        .then((deferredResult) => {
-          if (!active) return;
-          setAssetLoadErrors((previous) => [...previous, ...deferredResult.errors]);
-          setDeferredAssetsLoaded(assetManager.areDeferredAssetsSettled() && deferredResult.errors.length === 0);
-          setAssetLoadTick((tick) => tick + 1);
-        })
-        .catch((error) => {
-          if (!active) return;
-          setAssetLoadErrors((previous) => [
-            ...previous,
-            {
-              id: "deferred-assets",
-              message: error instanceof Error ? error.message : String(error),
-              path: "manifest.json",
-              priority: "deferred",
-            },
-          ]);
-          setAssetLoadTick((tick) => tick + 1);
-        });
-    };
-
-    const requestIdleCallback = window.requestIdleCallback?.bind(window);
-    const cancelIdleCallback = window.cancelIdleCallback?.bind(window);
-    if (requestIdleCallback && cancelIdleCallback) {
-      const idleId = requestIdleCallback(startDeferredLoad, { timeout: 800 });
-      return () => {
-        active = false;
-        controller.abort();
-        cancelIdleCallback(idleId);
-      };
-    }
-
-    const timeoutId = globalThis.setTimeout(startDeferredLoad, 0);
-    return () => {
-      active = false;
-      controller.abort();
-      globalThis.clearTimeout(timeoutId);
-    };
-  }, [assetManager, criticalAssetAttemptsSettled, criticalFramePainted]);
-
-  useEffect(() => {
-    const logoSrcs = [
-      ...world.docks.map((dock) => dock.logoSrc),
-      ...world.graves
-        .filter((grave) => grave.visual.scale >= 0.41)
-        .map((grave) => grave.logoSrc),
-      ...world.ships.map((ship) => ship.logoSrc),
-    ]
-      .filter((src): src is string => typeof src === "string" && src.startsWith("/"));
-    if (logoSrcs.length === 0) return;
-
-    const controller = new AbortController();
-    assetManager.loadLogos(logoSrcs, controller.signal)
-      .then(() => setAssetLoadTick((tick) => tick + 1))
-      .catch(() => setAssetLoadTick((tick) => tick + 1));
-    return () => {
-      controller.abort();
-    };
-  }, [assetManager, world.docks, world.graves, world.ships]);
-
   useEffect(() => observeReducedMotion(setReducedMotion), []);
-
-  useEffect(() => {
-    lastWallRef.current = null;
-    accSecondsRef.current = 0;
-    pendingResumeRef.current = false;
-    motionFrameCountRef.current = 0;
-    currentShipMotionSamplesRef.current = new Map();
-    currentHitTargetSnapshotRef.current = null;
-    currentHitTargetsRef.current = [];
-    shipHitStateRef.current.clear();
-    drawDurationWindowRef.current = createDrawDurationWindow();
-    drawDurationStatsRef.current = { averageMs: 0, count: 0, p90Ms: 0 };
-  }, [world]);
-
-  // When the tab is hidden, RAFs pause; on resume the next frame can carry a
-  // multi-second time delta. Flag the next frame so it skips accumulating that
-  // gap, preventing ships from teleporting through cycles after a long pause.
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "hidden") {
-        pendingResumeRef.current = true;
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, []);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const resize = () => {
-      const rect = canvas.getBoundingClientRect();
-      canvasRectRef.current = rect;
-      const cssWidth = Math.max(1, Math.floor(rect.width));
-      const cssHeight = Math.max(1, Math.floor(rect.height));
-      const deviceRequestedDpr = Math.max(1, window.devicePixelRatio || 1);
-      maximumRequestedDprRef.current = deviceRequestedDpr;
-      if (!adaptiveDprInitializedRef.current) {
-        adaptiveDprStateRef.current = initialAdaptiveDprState(deviceRequestedDpr);
-        adaptiveDprInitializedRef.current = true;
-      } else if (adaptiveDprStateRef.current.requestedDpr > deviceRequestedDpr) {
-        adaptiveDprStateRef.current = {
-          ...adaptiveDprStateRef.current,
-          requestedDpr: deviceRequestedDpr,
-        };
-      }
-      const budget = resolveCanvasBudget({
-        cssHeight,
-        cssWidth,
-        requestedDpr: adaptiveDprStateRef.current.requestedDpr,
-      });
-      canvasBudgetRef.current = budget;
-      const nextWidth = budget.backingWidth;
-      const nextHeight = budget.backingHeight;
-      if (canvas.width !== nextWidth) canvas.width = nextWidth;
-      if (canvas.height !== nextHeight) canvas.height = nextHeight;
-      drawDurationWindowRef.current = createDrawDurationWindow();
-      drawDurationStatsRef.current = { averageMs: 0, count: 0, p90Ms: 0 };
-      const nextCanvasSize = { x: cssWidth, y: cssHeight };
-      setCanvasSize((previous) => samePoint(previous, nextCanvasSize) ? previous : nextCanvasSize);
-      setCamera((previous) => {
-        const next = previous
-          ? clampCameraToMap(previous, { map: world.map, viewport: nextCanvasSize })
-          : defaultCamera({ width: cssWidth, height: cssHeight, map: world.map });
-        return previous && sameCamera(previous, next) ? previous : next;
-      });
-    };
-
-    resize();
-    const observer = new ResizeObserver(resize);
-    observer.observe(canvas);
-    return () => observer.disconnect();
-  }, [world.map]);
-
-  // RAF effect — bound once per `world` / `canvasSize` / `reducedMotion` /
-  // `assetManager` / `assetLoadTick` / `cameraReady`. All other inputs
-  // (hoveredDetailId, selectedDetailId, motionPlan, camera, criticalAssetAttemptsSettled)
-  // are read through refs so per-hover / per-selection state changes do not
-  // cancel and re-create the RAF loop. `assetLoadTick` is kept in the dep set
-  // because reduced-motion mode paints exactly one frame on bind, and a freshly
-  // loaded sprite must trigger a re-bind to repaint. `cameraReady` (boolean)
-  // gates the initial bind from null→non-null camera; subsequent camera moves
-  // flow through the ref.
-  const cameraReady = camera !== null;
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !cameraReady || canvasSize.x <= 0 || canvasSize.y <= 0) return;
-    const ctx = canvas.getContext("2d", { alpha: false });
-    if (!ctx) return;
-    if (!canvasBudgetRef.current) {
-      const requestedDpr = adaptiveDprStateRef.current.requestedDpr || Math.max(1, window.devicePixelRatio || 1);
-      canvasBudgetRef.current = resolveCanvasBudget({
-        cssHeight: canvasSize.y,
-        cssWidth: canvasSize.x,
-        requestedDpr,
-      });
-    }
-    let frameId = 0;
-    const drawFrame = (time: number) => {
-      animationFramePendingRef.current = false;
-      const activeCamera = cameraRef.current;
-      const activeCanvasSize = canvasSizeRef.current;
-      const activeMotionPlan = motionPlanRef.current;
-      const activeHoveredDetailId = hoveredDetailIdRef.current;
-      const activeSelectedDetailId = selectedDetailIdRef.current;
-      const activeCriticalSettled = criticalAssetAttemptsSettledRef.current;
-      if (!activeCamera || activeCanvasSize.x <= 0 || activeCanvasSize.y <= 0) return;
-      const activeBudget = canvasBudgetRef.current ?? resolveCanvasBudget({
-        cssHeight: activeCanvasSize.y,
-        cssWidth: activeCanvasSize.x,
-        requestedDpr: adaptiveDprStateRef.current.requestedDpr,
-      });
-      canvasBudgetRef.current = activeBudget;
-      const dpr = activeBudget.effectiveDpr;
-      let timeSeconds: number;
-      if (reducedMotion) {
-        timeSeconds = 0;
-      } else {
-        const last = lastWallRef.current ?? time;
-        const rawDt = Math.max((time - last) / 1000, 0);
-        // Skip accumulating across known tab-pause transitions: the
-        // visibilitychange handler raises pendingResumeRef when the page goes
-        // hidden, so the first frame after resume drops its (large) dt. For all
-        // other gaps — including Playwright fake-clock fastForward — accept the
-        // raw dt so motion advances naturally.
-        const dt = pendingResumeRef.current ? 0 : rawDt;
-        pendingResumeRef.current = false;
-        accSecondsRef.current += dt;
-        lastWallRef.current = time;
-        timeSeconds = accSecondsRef.current;
-      }
-      let wallClockHour: number;
-      const testOverride = (globalThis as { __pharosVilleTestWallClockHour?: number }).__pharosVilleTestWallClockHour;
-      if (typeof testOverride === "number" && Number.isFinite(testOverride)) {
-        // Visual tests inject this global to render at a specific hour. Takes
-        // precedence over the reduced-motion noon pin so dawn/dusk/night
-        // baselines are stable without losing reduced-motion's animation
-        // suppression.
-        wallClockHour = ((testOverride % 24) + 24) % 24;
-      } else if (nightMode) {
-        wallClockHour = 22;
-      } else {
-        wallClockHour = 12;
-      }
-      const shipMotionSamples = collectShipMotionSamples({
-        motionPlan: activeMotionPlan,
-        reducedMotion,
-        samples: currentShipMotionSamplesRef.current,
-        timeSeconds,
-        world,
-      });
-      const changedShipIds = changedShipHitTargets({
-        shipHitStateById: shipHitStateRef.current,
-        samples: shipMotionSamples,
-        world,
-      });
-      if (changedShipIds.length > 0) {
-        const snapshot = currentHitTargetSnapshotRef.current;
-        if (snapshot) {
-          const nextSnapshot = updateHitTargetSnapshotShips({
-            assets: assetManager,
-            camera: activeCamera,
-            changedShipIds,
-            hoveredDetailId: activeHoveredDetailId,
-            selectedDetailId: activeSelectedDetailId,
-            shipMotionSamples,
-            snapshot,
-            viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
-            world,
-            worldShipsById: shipsById,
-          });
-          currentHitTargetSnapshotRef.current = nextSnapshot;
-          currentHitTargetsRef.current = nextSnapshot.targets;
-        }
-      }
-      if (!currentHitTargetSnapshotRef.current) {
-        const nextSnapshot = createHitTargetSnapshot({
-          assets: assetManager,
-          camera: activeCamera,
-          selectedDetailId: activeSelectedDetailId,
-          shipMotionSamples,
-          viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
-          world,
-        });
-        currentHitTargetSnapshotRef.current = nextSnapshot;
-        currentHitTargetsRef.current = nextSnapshot.targets;
-      }
-      const targets = currentHitTargetsRef.current;
-      const nextFrameState = frameStateRef.current;
-      nextFrameState.samples = shipMotionSamples;
-      nextFrameState.targets = targets;
-      nextFrameState.timeSeconds = timeSeconds;
-      nextFrameState.wallClockHour = wallClockHour;
-      const nextHoveredTarget = targets.find((target) => target.detailId === activeHoveredDetailId) ?? null;
-      const nextSelectedTarget = targets.find((target) => target.detailId === activeSelectedDetailId) ?? null;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const drawStartedAt = performance.now();
-      const renderMetrics = drawPharosVille({
-        camera: activeCamera,
-        ctx,
-        dpr,
-        height: activeCanvasSize.y,
-        hoveredTarget: nextHoveredTarget,
-        motion: {
-          plan: activeMotionPlan,
-          reducedMotion,
-          timeSeconds,
-          wallClockHour,
-        },
-        selectedTarget: nextSelectedTarget,
-        shipMotionSamples,
-        targets,
-        width: activeCanvasSize.x,
-        world,
-        assets: assetManager,
-      });
-      lastRenderMetricsRef.current = {
-        ...renderMetrics,
-        drawDurationMs: performance.now() - drawStartedAt,
-      };
-      if (!reducedMotion) {
-        drawDurationStatsRef.current = pushDrawDurationSample(drawDurationWindowRef.current, lastRenderMetricsRef.current.drawDurationMs);
-        const nextAdaptiveDprState = resolveAdaptiveDprState({
-          maximumRequestedDpr: maximumRequestedDprRef.current,
-          state: adaptiveDprStateRef.current,
-          stats: drawDurationStatsRef.current,
-        });
-        if (nextAdaptiveDprState.requestedDpr !== adaptiveDprStateRef.current.requestedDpr) {
-          adaptiveDprStateRef.current = nextAdaptiveDprState;
-          const nextBudget = resolveCanvasBudget({
-            cssHeight: activeCanvasSize.y,
-            cssWidth: activeCanvasSize.x,
-            requestedDpr: nextAdaptiveDprState.requestedDpr,
-          });
-          canvasBudgetRef.current = nextBudget;
-          const nextBackingWidth = nextBudget.backingWidth;
-          const nextBackingHeight = nextBudget.backingHeight;
-          if (canvas.width !== nextBackingWidth) canvas.width = nextBackingWidth;
-          if (canvas.height !== nextBackingHeight) canvas.height = nextBackingHeight;
-        } else if (
-          nextAdaptiveDprState.cooldownFrames !== adaptiveDprStateRef.current.cooldownFrames
-          || nextAdaptiveDprState.downshiftStreak !== adaptiveDprStateRef.current.downshiftStreak
-          || nextAdaptiveDprState.upshiftStreak !== adaptiveDprStateRef.current.upshiftStreak
-        ) {
-          adaptiveDprStateRef.current = nextAdaptiveDprState;
-        }
-      }
-      if (activeCriticalSettled && !criticalFramePaintedRef.current) {
-        criticalFramePaintedRef.current = true;
-        setCriticalFramePainted(true);
-      }
-      if (!reducedMotion) {
-        motionFrameCountRef.current += 1;
-        animationFramePendingRef.current = true;
-        frameId = requestAnimationFrame(drawFrame);
-      }
-      if (isVisualDebugAllowed()) {
-        updateDebugFrame({
-          animationFramePending: animationFramePendingRef.current,
-          frameCount: motionFrameCountRef.current,
-          frameState: nextFrameState,
-          motionPlan: activeMotionPlan,
-          reducedMotion,
-          renderMetrics: lastRenderMetricsRef.current,
-          assetLoadStats: assetManager.getLoadStats(),
-          selectedDetailId: activeSelectedDetailId,
-          shipsById,
-          world,
-        });
-      }
-    };
-    drawFrame(performance.now());
-    return () => {
-      animationFramePendingRef.current = false;
-      lastWallRef.current = null;
-      if (frameId) cancelAnimationFrame(frameId);
-    };
-  }, [assetLoadTick, assetManager, cameraReady, canvasSize.x, canvasSize.y, nightMode, paintRequestTick, reducedMotion, shipsById, world]);
-
-  useEffect(() => {
-    if (!isVisualDebugAllowed()) return;
-    const debugWindow = window as typeof window & {
-      __pharosVilleDebug?: PharosVilleDebugState;
-    };
-    const frameState = frameStateRef.current;
-    const renderMetrics = renderMetricsWithCurrentSelection({
-      hoveredDetailId,
-      metrics: lastRenderMetricsRef.current,
-      selectedDetailId,
-      targets: frameState.targets,
-    });
-    debugWindow.__pharosVilleDebug = {
-      camera,
-      cameraWithinBounds: isCameraWithinBounds(camera, world.map, canvasSize),
-      assetLoadErrors,
-      assetLoadStats: assetManager.getLoadStats(),
-      assetsLoaded: criticalAssetsLoaded && deferredAssetsLoaded,
-      criticalAssetAttemptsSettled,
-      criticalAssetsLoaded,
-      deferredAssetsLoaded,
-      activeMotionLoopCount: reducedMotion || !animationFramePendingRef.current ? 0 : 1,
-      animationFramePending: animationFramePendingRef.current,
-      canvasBudget: canvasBudgetRef.current,
-      canvasSize,
-      motionClockSource: reducedMotion ? "reduced-motion-static-frame" : "requestAnimationFrame",
-      motionCueCounts: motionCueCounts({ motionPlan, selectedDetailId, world }),
-      motionFrameCount: motionFrameCountRef.current,
-      renderMetrics,
-      reducedMotion,
-      selectedDetailAnchor,
-      selectedDetailId,
-      shipMotionSamples: compactShipMotionSamples(frameState.samples, shipsById),
-      targets: frameState.targets,
-      timeSeconds: frameState.timeSeconds,
-      wallClockHour: frameState.wallClockHour,
-    };
-    return () => {
-      delete debugWindow.__pharosVilleDebug;
-    };
-  }, [assetLoadErrors, assetManager, camera, canvasSize, criticalAssetAttemptsSettled, criticalAssetsLoaded, deferredAssetsLoaded, hoveredDetailId, motionPlan, reducedMotion, selectedDetailAnchor, selectedDetailId, shipsById, world]);
-
-  const canvasPoint = useCallback((event: ReactPointerEvent<HTMLCanvasElement> | ReactWheelEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    const rect = canvasRectRef.current ?? canvas?.getBoundingClientRect();
-    if (rect) canvasRectRef.current = rect;
-    return {
-      x: event.clientX - (rect?.left ?? 0),
-      y: event.clientY - (rect?.top ?? 0),
-    };
-  }, []);
-
-  const recomputeHitTargets = useCallback(() => {
-    const activeCamera = cameraRef.current;
-    if (!activeCamera) return currentHitTargetSnapshotRef.current;
-    const activeCanvasSize = canvasSizeRef.current;
-    const snapshot = createHitTargetSnapshot({
-      assets: assetManager,
-      camera: activeCamera,
-      hoveredDetailId: hoveredDetailIdRef.current,
-      selectedDetailId: selectedDetailIdRef.current,
-      shipMotionSamples: currentShipMotionSamplesRef.current,
-      viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
-      world,
-    });
-    currentHitTargetSnapshotRef.current = snapshot;
-    currentHitTargetsRef.current = snapshot.targets;
-    return snapshot;
-  }, [assetManager, world]);
-
-  // Keep hit-targets in sync with state-driven inputs that affect them:
-  // selection, camera (pan/zoom/follow), and canvas size. Ship-cell and
-  // visibility transitions are handled incrementally inside the RAF loop.
-  useEffect(() => {
-    recomputeHitTargets();
-    if (reducedMotion) setPaintRequestTick((t) => t + 1);
-  }, [camera, canvasSize.x, canvasSize.y, recomputeHitTargets, reducedMotion, selectedDetailId]);
-
-  useEffect(() => {
-    if (!reducedMotion) return;
-    setPaintRequestTick((t) => t + 1);
-  }, [hoveredDetailId, reducedMotion]);
-
-  const updateHover = useCallback((point: ScreenPoint) => {
-    const target = hitTestSpatial(currentHitTargetSnapshotRef.current?.spatialIndex ?? null, point, {
-      hoveredDetailId: hoveredDetailIdRef.current,
-      selectedDetailId: selectedDetailIdRef.current,
-    }) ?? hitTest(currentHitTargetsRef.current, point, {
-      hoveredDetailId: hoveredDetailIdRef.current,
-      selectedDetailId: selectedDetailIdRef.current,
-    });
-    setHoveredDetailId((previous) => previous === target?.detailId ? previous : (target?.detailId ?? null));
-  }, []);
-
-  const scheduleDragPan = useCallback((delta: ScreenPoint) => {
-    dragPanDeltaRef.current = {
-      x: dragPanDeltaRef.current.x + delta.x,
-      y: dragPanDeltaRef.current.y + delta.y,
-    };
-    if (dragPanFrameRef.current) return;
-    dragPanFrameRef.current = requestAnimationFrame(() => {
-      dragPanFrameRef.current = 0;
-      const queuedDelta = dragPanDeltaRef.current;
-      dragPanDeltaRef.current = { x: 0, y: 0 };
-      if (queuedDelta.x === 0 && queuedDelta.y === 0) return;
-      setCamera((previous) => {
-        if (!previous) return previous;
-        const viewport = canvasSizeRef.current;
-        const next = panCamera(previous, queuedDelta, { map: world.map, viewport });
-        return sameCamera(previous, next) ? previous : next;
-      });
-    });
-  }, [world.map]);
-
-  useEffect(() => () => {
-    if (dragPanFrameRef.current) cancelAnimationFrame(dragPanFrameRef.current);
-  }, []);
-
-  const handlePointerDown = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
-    canvasRectRef.current = event.currentTarget.getBoundingClientRect();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    dragRef.current = { last: canvasPoint(event), moved: false, pointerId: event.pointerId };
-  }, [canvasPoint]);
-
-  const handlePointerMove = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
-    const point = canvasPoint(event);
-    const drag = dragRef.current;
-    if (drag?.pointerId === event.pointerId) {
-      const delta = { x: point.x - drag.last.x, y: point.y - drag.last.y };
-      if (Math.abs(delta.x) + Math.abs(delta.y) > 1) {
-        drag.moved = true;
-        scheduleDragPan(delta);
-      }
-      drag.last = point;
-      return;
-    }
-    updateHover(point);
-  }, [canvasPoint, scheduleDragPan, updateHover]);
-
-  const handlePointerUp = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
-    const point = canvasPoint(event);
-    const drag = dragRef.current;
-    dragRef.current = null;
-    event.currentTarget.releasePointerCapture(event.pointerId);
-    if (drag?.moved) return;
-    const snapshot = recomputeHitTargets();
-    const target = hitTestSpatial(snapshot?.spatialIndex ?? null, point, {
-      hoveredDetailId: hoveredDetailIdRef.current,
-      selectedDetailId: selectedDetailIdRef.current,
-    }) ?? hitTest(snapshot?.targets ?? currentHitTargetsRef.current, point, {
-      hoveredDetailId: hoveredDetailIdRef.current,
-      selectedDetailId: selectedDetailIdRef.current,
-    });
-    if (target) {
-      selectDetail(target.detailId, detailAnchorForPoint(point, canvasSize));
-      return;
-    }
-    if (selectedDetailId) clearSelection();
-  }, [canvasPoint, canvasSize, clearSelection, recomputeHitTargets, selectDetail, selectedDetailId]);
-
-  const handleWheel = useCallback((event: ReactWheelEvent<HTMLCanvasElement>) => {
-    if (!camera) return;
-    event.preventDefault();
-    const direction = event.deltaY < 0 ? 1.12 : 1 / 1.12;
-    const next = clampCameraToMap(zoomCameraAt(camera, canvasPoint(event), camera.zoom * direction), { map: world.map, viewport: canvasSize });
-    if (!sameCamera(camera, next)) setCamera(next);
-  }, [camera, canvasPoint, canvasSize, world.map]);
-
-  const handleToolbarPan = useCallback((delta: ScreenPoint) => {
-    setCamera((previous) => {
-      if (!previous) return previous;
-      const next = panCamera(previous, delta, { map: world.map, viewport: canvasSize });
-      return sameCamera(previous, next) ? previous : next;
-    });
-  }, [canvasSize, world.map]);
-
-  const handleResetView = useCallback(() => {
-    if (canvasSize.x <= 0 || canvasSize.y <= 0) return;
-    setCamera((previous) => {
-      const next = defaultCamera({ height: canvasSize.y, map: world.map, width: canvasSize.x });
-      return previous && sameCamera(previous, next) ? previous : next;
-    });
-  }, [canvasSize, world.map]);
-
-  const handleToolbarZoomIn = useCallback(() => {
-    setCamera((previous) => {
-      if (!previous) return previous;
-      const next = zoomIn(previous, canvasSize, world.map);
-      return sameCamera(previous, next) ? previous : next;
-    });
-  }, [canvasSize, world.map]);
-
-  const handleToolbarZoomOut = useCallback(() => {
-    setCamera((previous) => {
-      if (!previous) return previous;
-      const next = zoomOut(previous, canvasSize, world.map);
-      return sameCamera(previous, next) ? previous : next;
-    });
-  }, [canvasSize, world.map]);
-
-  const handleFollowSelected = useCallback(() => {
-    if (!selectedEntity) return;
-    const sampledTile = entityFollowTile({
-      entity: selectedEntity,
-      mapWidth: world.map.width,
-      shipMotionSamples: currentShipMotionSamplesRef.current,
-    });
-    setCamera((previous) => {
-      if (!previous) return previous;
-      const next = followTile({
-        camera: previous,
-        map: world.map,
-        tile: sampledTile,
-        viewport: canvasSize,
-      });
-      return sameCamera(previous, next) ? previous : next;
-    });
-  }, [canvasSize, selectedEntity, world.map]);
-
-  const handleKeyDown = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
-    if (!camera) return;
-    if (event.key === "Escape") {
-      if (fullscreenMode) {
-        event.preventDefault();
-        exitFullscreen();
-        return;
-      }
-      clearSelection();
-      return;
-    }
-    if (event.key === "+" || event.key === "=") {
-      if (isInteractiveEventTarget(event.target)) return;
-      event.preventDefault();
-      handleToolbarZoomIn();
-      return;
-    }
-    if (event.key === "-" || event.key === "_") {
-      if (isInteractiveEventTarget(event.target)) return;
-      event.preventDefault();
-      handleToolbarZoomOut();
-      return;
-    }
-    const step = event.shiftKey ? 72 : 32;
-    if (event.key === "ArrowLeft" || event.key === "ArrowRight" || event.key === "ArrowUp" || event.key === "ArrowDown") {
-      if (isInteractiveEventTarget(event.target)) return;
-      event.preventDefault();
-      const deltas: Record<string, ScreenPoint> = {
-        ArrowDown: { x: 0, y: -step },
-        ArrowLeft: { x: step, y: 0 },
-        ArrowRight: { x: -step, y: 0 },
-        ArrowUp: { x: 0, y: step },
-      };
-      const next = panCamera(camera, deltas[event.key], { map: world.map, viewport: canvasSize });
-      if (!sameCamera(camera, next)) setCamera(next);
-    }
-  }, [camera, canvasSize, clearSelection, exitFullscreen, fullscreenMode, handleToolbarZoomIn, handleToolbarZoomOut, world.map]);
 
   const detailDockStyle = selectedDetailAnchor
     ? ({
@@ -807,30 +199,30 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       className={fullscreenMode ? "pharosville-desktop pharosville-shell pharosville-shell--fullscreen" : "pharosville-desktop pharosville-shell"}
       data-testid="pharosville-world"
       aria-describedby="pharosville-world-instructions"
-      onKeyDown={handleKeyDown}
+      onKeyDown={canvas.handleKeyDown}
       tabIndex={0}
     >
       <p id="pharosville-world-instructions" className="sr-only">
         Use the visible toolbar, wheel zoom, drag pan, arrow keys, and canvas selection to inspect PharosVille map data.
       </p>
       <canvas
-        ref={canvasRef}
+        ref={canvas.canvasRef}
         className={hoveredDetailId ? "pharosville-canvas pharosville-canvas--selectable" : "pharosville-canvas"}
         data-testid="pharosville-canvas"
         aria-hidden="true"
-        onPointerDown={handlePointerDown}
+        onPointerDown={canvas.handlePointerDown}
         onPointerLeave={() => setHoveredDetailId(null)}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onWheel={handleWheel}
+        onPointerMove={canvas.handlePointerMove}
+        onPointerUp={canvas.handlePointerUp}
+        onWheel={canvas.handleWheel}
       />
       <div className="pharosville-overlay" aria-label="PharosVille controls and details">
         <div className="pharosville-hud">
           <WorldToolbar
             selectedDetailId={selectedDetailId}
-            zoomLabel={camera ? cameraZoomLabel(camera) : "100%"}
-            onFollowSelected={selectedEntity ? handleFollowSelected : undefined}
-            onResetView={handleResetView}
+            zoomLabel={canvas.cameraZoomLabel}
+            onFollowSelected={selectedEntity ? canvas.handleFollowSelected : undefined}
+            onResetView={canvas.handleResetView}
             nightMode={nightMode}
             onToggleNightMode={() => setNightMode((n) => !n)}
           />
@@ -897,232 +289,4 @@ function findWorldEntity(world: PharosVilleWorldModel, detailId: string | null):
     ...world.areas,
     ...world.graves,
   ].find((entity) => entity.detailId === detailId) ?? null;
-}
-
-function isInteractiveEventTarget(target: EventTarget | null) {
-  return target instanceof HTMLElement
-    && Boolean(target.closest("a, button, input, select, textarea, summary, [role='button']"));
-}
-
-function isCameraWithinBounds(camera: IsoCamera | null, map: PharosVilleWorldModel["map"], viewport: ScreenPoint) {
-  if (!camera || viewport.x <= 0 || viewport.y <= 0) return false;
-  const clamped = clampCameraToMap(camera, { map, viewport });
-  return (
-    Math.abs(clamped.offsetX - camera.offsetX) <= 1
-    && Math.abs(clamped.offsetY - camera.offsetY) <= 1
-    && clamped.zoom === camera.zoom
-  );
-}
-
-type CompactShipMotionSample = {
-  currentDockId: string | null;
-  currentRouteStopId: string | null;
-  currentRouteStopKind: ShipMotionSample["currentRouteStopKind"];
-  id: string;
-  mapVisible: boolean;
-  state: ShipMotionSample["state"];
-  x: number;
-  y: number;
-  zone: ShipMotionSample["zone"];
-};
-
-type PharosVilleDebugState = {
-  activeMotionLoopCount: number;
-  assetLoadErrors: PharosVilleAssetLoadError[];
-  assetLoadStats: PharosVilleAssetLoadStats;
-  camera: IsoCamera | null;
-  cameraWithinBounds: boolean;
-  assetsLoaded: boolean;
-  criticalAssetAttemptsSettled: boolean;
-  criticalAssetsLoaded: boolean;
-  deferredAssetsLoaded: boolean;
-  canvasBudget: ReturnType<typeof resolveCanvasBudget> | null;
-  canvasSize: ScreenPoint;
-  animationFramePending: boolean;
-  motionClockSource: "requestAnimationFrame" | "reduced-motion-static-frame";
-  motionCueCounts: MotionCueCounts;
-  motionFrameCount: number;
-  renderMetrics: PharosVilleRenderMetrics & { drawDurationMs: number };
-  reducedMotion: boolean;
-  selectedDetailAnchor: DetailAnchor | null;
-  selectedDetailId: string | null;
-  shipMotionSamples: CompactShipMotionSample[];
-  targets: readonly HitTarget[];
-  timeSeconds: number;
-  wallClockHour: number;
-};
-
-type MotionCueCounts = {
-  ambientBirds: number;
-  animatedShips: number;
-  effectShips: number;
-  harborLights: number;
-  moverShips: number;
-  selectedRelationshipOverlays: number;
-};
-
-const PHAROSVILLE_AMBIENT_BIRD_CAP = 9;
-const PHAROSVILLE_HARBOR_LIGHT_CAP = 3;
-
-function changedShipHitTargets(input: {
-  samples: ReadonlyMap<string, ShipMotionSample>;
-  shipHitStateById: Map<string, { cellX: number; cellY: number; visible: boolean }>;
-  world: PharosVilleWorldModel;
-}): string[] {
-  const changedShipIds: string[] = [];
-  for (const ship of input.world.ships) {
-    const sample = input.samples.get(ship.id);
-    if (!sample) continue;
-    const visible = isShipMapVisible(ship, sample);
-    const cellX = Math.floor(sample.tile.x);
-    const cellY = Math.floor(sample.tile.y);
-    const previous = input.shipHitStateById.get(ship.id);
-    if (!previous || previous.cellX !== cellX || previous.cellY !== cellY || previous.visible !== visible) {
-      input.shipHitStateById.set(ship.id, { cellX, cellY, visible });
-      changedShipIds.push(ship.id);
-    }
-  }
-  return changedShipIds;
-}
-
-function collectShipMotionSamples(input: {
-  motionPlan: ReturnType<typeof buildMotionPlan>;
-  reducedMotion: boolean;
-  samples: ReadonlyMap<string, ShipMotionSample>;
-  timeSeconds: number;
-  world: PharosVilleWorldModel;
-}) {
-  const samples = input.samples as Map<string, ShipMotionSample>;
-  for (const ship of input.world.ships) {
-    let sample = samples.get(ship.id);
-    if (!sample) {
-      sample = createShipMotionSample();
-      samples.set(ship.id, sample);
-    }
-    resolveShipMotionSampleInto({
-      plan: input.motionPlan,
-      reducedMotion: input.reducedMotion,
-      ship,
-      timeSeconds: input.timeSeconds,
-    }, sample);
-  }
-  if (samples.size !== input.world.ships.length) {
-    const liveIds = new Set(input.world.ships.map((ship) => ship.id));
-    for (const id of samples.keys()) {
-      if (!liveIds.has(id)) samples.delete(id);
-    }
-  }
-  return samples;
-}
-
-function compactShipMotionSamples(
-  samples: ReadonlyMap<string, ShipMotionSample>,
-  shipsById: ReadonlyMap<string, PharosVilleWorldModel["ships"][number]>,
-): CompactShipMotionSample[] {
-  return Array.from(samples.values(), (sample) => {
-    const ship = shipsById.get(sample.shipId);
-    return {
-      currentDockId: sample.currentDockId,
-      currentRouteStopId: sample.currentRouteStopId,
-      currentRouteStopKind: sample.currentRouteStopKind,
-      id: sample.shipId,
-      mapVisible: ship ? isShipMapVisible(ship, sample) : true,
-      state: sample.state,
-      x: sample.tile.x,
-      y: sample.tile.y,
-      zone: sample.zone,
-    };
-  });
-}
-
-function renderMetricsWithCurrentSelection(input: {
-  hoveredDetailId: string | null;
-  metrics: PharosVilleRenderMetrics & { drawDurationMs: number };
-  selectedDetailId: string | null;
-  targets: readonly HitTarget[];
-}): PharosVilleRenderMetrics & { drawDurationMs: number } {
-  const selectedTarget = input.targets.find((target) => target.detailId === input.selectedDetailId) ?? null;
-  const hoveredTarget = input.targets.find((target) => target.detailId === input.hoveredDetailId) ?? null;
-  const selectionCount = selectionDrawableCount({ hoveredTarget, selectedTarget });
-  if (selectionCount === input.metrics.drawableCounts.selection) return input.metrics;
-  return {
-    ...input.metrics,
-    drawableCount: input.metrics.drawableCount - input.metrics.drawableCounts.selection + selectionCount,
-    drawableCounts: {
-      ...input.metrics.drawableCounts,
-      selection: selectionCount,
-    },
-  };
-}
-
-function updateDebugFrame(input: {
-  animationFramePending: boolean;
-  frameCount: number;
-  frameState: {
-    samples: ReadonlyMap<string, ShipMotionSample>;
-    targets: readonly HitTarget[];
-    timeSeconds: number;
-    wallClockHour: number;
-  };
-  motionPlan: ReturnType<typeof buildMotionPlan>;
-  reducedMotion: boolean;
-  renderMetrics: PharosVilleRenderMetrics & { drawDurationMs: number };
-  assetLoadStats: PharosVilleAssetLoadStats;
-  selectedDetailId: string | null;
-  shipsById: ReadonlyMap<string, PharosVilleWorldModel["ships"][number]>;
-  world: PharosVilleWorldModel;
-}) {
-  if (!isVisualDebugAllowed()) return;
-  const debugWindow = window as typeof window & {
-    __pharosVilleDebug?: Partial<PharosVilleDebugState>;
-  };
-  if (!debugWindow.__pharosVilleDebug) return;
-  Object.assign(debugWindow.__pharosVilleDebug, {
-    activeMotionLoopCount: input.reducedMotion || !input.animationFramePending ? 0 : 1,
-    animationFramePending: input.animationFramePending,
-    assetLoadStats: input.assetLoadStats,
-    motionClockSource: input.reducedMotion ? "reduced-motion-static-frame" : "requestAnimationFrame",
-    motionCueCounts: motionCueCounts({
-      motionPlan: input.motionPlan,
-      selectedDetailId: input.selectedDetailId,
-      world: input.world,
-    }),
-    motionFrameCount: input.frameCount,
-    renderMetrics: input.renderMetrics,
-    reducedMotion: input.reducedMotion,
-    shipMotionSamples: compactShipMotionSamples(input.frameState.samples, input.shipsById),
-    targets: input.frameState.targets,
-    timeSeconds: input.frameState.timeSeconds,
-    wallClockHour: input.frameState.wallClockHour,
-  });
-}
-
-function samePoint(left: ScreenPoint, right: ScreenPoint): boolean {
-  return left.x === right.x && left.y === right.y;
-}
-
-function sameCamera(left: IsoCamera, right: IsoCamera): boolean {
-  return left.offsetX === right.offsetX && left.offsetY === right.offsetY && left.zoom === right.zoom;
-}
-
-function isVisualDebugAllowed() {
-  if (!import.meta.env.PROD) return true;
-  return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-}
-
-function motionCueCounts(input: {
-  motionPlan: ReturnType<typeof buildMotionPlan>;
-  selectedDetailId: string | null;
-  world: PharosVilleWorldModel;
-}): MotionCueCounts {
-  const selectedDetail = input.selectedDetailId ? input.world.detailIndex[input.selectedDetailId] ?? null : null;
-  const selectedRelationshipOverlays = selectedDetail && /ship|dock/i.test(selectedDetail.kind) ? 1 : 0;
-  return {
-    ambientBirds: PHAROSVILLE_AMBIENT_BIRD_CAP,
-    animatedShips: input.motionPlan.animatedShipIds.size,
-    effectShips: input.motionPlan.effectShipIds.size,
-    harborLights: PHAROSVILLE_HARBOR_LIGHT_CAP,
-    moverShips: input.motionPlan.moverShipIds.size,
-    selectedRelationshipOverlays,
-  };
 }
