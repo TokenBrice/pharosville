@@ -1,6 +1,12 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { buildVisualCueRegistry } from "../systems/visual-cue-registry";
+import { buildPharosVilleWorld } from "../systems/pharosville-world";
+import {
+  fixtureWithDepegOn,
+  fixtureWithoutAsset,
+  makerSquadFixtureInputs,
+} from "../__fixtures__/pharosville-world";
 import type { PharosVilleWorld } from "../systems/world-types";
 import { AccessibilityLedger } from "./accessibility-ledger";
 
@@ -23,6 +29,34 @@ describe("AccessibilityLedger", () => {
     expect(markup).toContain("1 positive chain deployment");
     expect(markup).toContain("1 rendered dock stop");
     expect(markup).toContain("meta.flags.navToken");
+  });
+
+  it("renders a single Maker squad row listing all five members and the shared placement", () => {
+    const world = buildPharosVilleWorld(makerSquadFixtureInputs());
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("Maker squad");
+    expect(markup).toContain("USDS (flagship)");
+    expect(markup).toContain("stUSDS (vanguard)");
+    expect(markup).toContain("sUSDS");
+    expect(markup).toContain("sDAI");
+    expect(markup).toContain("Sailing in formation");
+  });
+
+  it("includes a sub-row for any squadOverride consort", () => {
+    const world = buildPharosVilleWorld(fixtureWithDepegOn(makerSquadFixtureInputs(), "dai-makerdao"));
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("DAI in distress");
+    expect(markup).toContain("squad sheltering at flagship");
+  });
+
+  it("does not render the Maker squad section when the flagship is missing", () => {
+    const world = buildPharosVilleWorld(fixtureWithoutAsset(makerSquadFixtureInputs(), "usds-sky"));
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).not.toContain("Maker squad");
+    expect(markup).not.toContain("Sailing in formation");
   });
 });
 

@@ -50,3 +50,23 @@ export function makerSquadFormationOffsetForPlacement(
   if (!TIGHT_PLACEMENT_IDS.has(placement)) return base;
   return { dx: Math.trunc(base.dx / 2), dy: Math.trunc(base.dy / 2) };
 }
+
+// Listing order in DOM/detail-panel formation lines:
+// flagship, vanguard, savings cutters (port then starboard by symbol order), DAI port-aft.
+const FORMATION_DISPLAY_ORDER: readonly MakerSquadMemberId[] = [
+  "usds-sky",
+  "stusds-sky",
+  "susds-sky",
+  "sdai-sky",
+  "dai-makerdao",
+];
+
+export function makerSquadFormationOrder(): readonly MakerSquadMemberId[] {
+  return FORMATION_DISPLAY_ORDER;
+}
+
+export function formationLabel(id: string, role: MakerSquadRole, symbol: string): string {
+  if (role === "flagship") return `${symbol} (flagship)`;
+  if (id === "stusds-sky") return `${symbol} (vanguard)`;
+  return symbol;
+}

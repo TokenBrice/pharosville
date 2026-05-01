@@ -1,5 +1,6 @@
 import { memo } from "react";
-import type { PharosVilleWorld } from "../systems/world-types";
+import { formationLabel, makerSquadFormationOrder, makerSquadRole } from "../systems/maker-squad";
+import type { PharosVilleWorld, ShipNode } from "../systems/world-types";
 
 const compactUsd = new Intl.NumberFormat("en-US", {
   currency: "USD",
@@ -94,6 +95,43 @@ function AccessibilityLedgerContent({
         ))}
       </ol>
 
+      {(() => {
+        const squadShips = world.ships.filter((ship) => ship.squadId === "maker");
+        if (squadShips.length === 0) return null;
+        const flagship = squadShips.find((ship) => ship.squadRole === "flagship") ?? squadShips[0];
+        const orderedShips = orderSquadShips(squadShips);
+        const memberLine = orderedShips
+          .map((ship) => formationLabel(ship.id, makerSquadRole(ship.id) ?? "consort", ship.symbol))
+          .join(", ");
+        const overrideShips = squadShips.filter((ship) => ship.placementEvidence.squadOverride !== undefined);
+        return (
+          <>
+            <h3>Maker squad</h3>
+            <ol>
+              <li>
+                Sailing in formation: {memberLine}; shared placement {flagship.riskPlacement} at {flagship.riskWaterLabel}.
+                {overrideShips.length > 0 && (
+                  <ul>
+                    {overrideShips.map((ship) => (
+                      <li key={ship.id}>
+                        {ship.symbol} in distress — squad sheltering at flagship&apos;s position
+                        {ship.placementEvidence.squadOverride?.ownReason
+                          ? `; consort signal ${ship.placementEvidence.squadOverride.ownReason}`
+                          : ""}
+                        {ship.placementEvidence.squadOverride?.ownPlacement
+                          ? ` (own placement ${ship.placementEvidence.squadOverride.ownPlacement})`
+                          : ""}
+                        .
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            </ol>
+          </>
+        );
+      })()}
+
       <h3>Cemetery</h3>
       <ol>
         {world.graves.map((grave) => (
@@ -120,6 +158,13 @@ export const AccessibilityLedger = memo(AccessibilityLedgerContent);
 
 function pluralize(count: number, singular: string, plural: string = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function orderSquadShips(ships: readonly ShipNode[]): ShipNode[] {
+  const byId = new Map(ships.map((ship) => [ship.id, ship]));
+  return makerSquadFormationOrder()
+    .map((id) => byId.get(id))
+    .filter((ship): ship is ShipNode => ship !== undefined);
 }
 
 function freshnessEntries(world: PharosVilleWorld) {

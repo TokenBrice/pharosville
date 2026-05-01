@@ -632,7 +632,9 @@ describe("buildPharosVilleWorld", () => {
     const dai = world.ships.find((s) => s.id === "dai-makerdao")!;
     const usds = world.ships.find((s) => s.id === "usds-sky")!;
     expect(dai.riskPlacement).toBe(usds.riskPlacement);
-    expect(dai.placementEvidence.squadOverride).toBe(true);
+    expect(dai.placementEvidence.squadOverride).toBeDefined();
+    expect(dai.placementEvidence.squadOverride?.ownPlacement).toBeDefined();
+    expect(dai.placementEvidence.squadOverride?.ownReason).toBeTruthy();
   });
 
   it("places squad consorts at flagship + formation offset, never outside the placement's water", () => {
