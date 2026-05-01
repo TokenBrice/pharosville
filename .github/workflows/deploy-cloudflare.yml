@@ -8,10 +8,10 @@ on:
       - main
 
 jobs:
-  checks:
+  typecheck:
     runs-on: ubuntu-latest
     concurrency:
-      group: ${{ github.workflow }}-checks-${{ github.event.pull_request.number || github.ref }}
+      group: ${{ github.workflow }}-typecheck-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: true
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -19,11 +19,61 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      - uses: actions/cache@v4
+        id: node-modules
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-${{ runner.arch }}-node24-modules-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-node24-modules-
+      - if: steps.node-modules.outputs.cache-hit != 'true'
+        run: npm ci
       - name: Typecheck
         run: npm run typecheck
+
+  unit:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-unit-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/cache@v4
+        id: node-modules
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-${{ runner.arch }}-node24-modules-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-node24-modules-
+      - if: steps.node-modules.outputs.cache-hit != 'true'
+        run: npm ci
       - name: Unit and contract tests
         run: npm test
+
+  guards:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-guards-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/cache@v4
+        id: node-modules
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-${{ runner.arch }}-node24-modules-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-node24-modules-
+      - if: steps.node-modules.outputs.cache-hit != 'true'
+        run: npm ci
       - name: Guard script self-tests
         run: npm run test:guard-scripts
       - name: Secret scan
@@ -46,7 +96,15 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      - uses: actions/cache@v4
+        id: node-modules
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-${{ runner.arch }}-node24-modules-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-node24-modules-
+      - if: steps.node-modules.outputs.cache-hit != 'true'
+        run: npm ci
       - name: Build
         run: npm run build
       - uses: actions/upload-artifact@v4
@@ -66,7 +124,15 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      - uses: actions/cache@v4
+        id: node-modules
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-${{ runner.arch }}-node24-modules-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-node24-modules-
+      - if: steps.node-modules.outputs.cache-hit != 'true'
+        run: npm ci
       - uses: actions/download-artifact@v4
         with:
           name: pharosville-dist
@@ -90,7 +156,9 @@ jobs:
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs:
-      - checks
+      - typecheck
+      - unit
+      - guards
       - build
       - visual
     runs-on: ubuntu-latest
@@ -104,7 +172,15 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      - uses: actions/cache@v4
+        id: node-modules
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-${{ runner.arch }}-node24-modules-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-node24-modules-
+      - if: steps.node-modules.outputs.cache-hit != 'true'
+        run: npm ci
       - uses: actions/download-artifact@v4
         with:
           name: pharosville-dist

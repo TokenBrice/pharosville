@@ -15,7 +15,7 @@
     "test": "vitest run",
     "test:visual": "playwright test tests/visual/pharosville.spec.ts",
     "test:visual:no-reuse": "PHAROSVILLE_VISUAL_REUSE=0 playwright test tests/visual/pharosville.spec.ts",
-    "test:visual:dist": "npm run test:visual:dist:static && npm run test:visual:dist:interaction && npm run test:visual:dist:motion",
+    "test:visual:dist": "playwright test tests/visual/pharosville.spec.ts --config=playwright.dist.config.ts",
     "test:visual:dist:static": "playwright test tests/visual/pharosville.spec.ts --config=playwright.dist.config.ts --grep \"desktop canvas shell|dense visual|stressed ship|named risk water|narrow fallback|short desktop fallback|desktop gate|resizing below|ultrawide\"",
     "test:visual:dist:interaction": "playwright test tests/visual/pharosville.spec.ts --config=playwright.dist.config.ts --grep \"canvas interactions|reduced motion keeps|live reduced-motion\"",
     "test:visual:dist:motion": "playwright test tests/visual/pharosville.spec.ts --config=playwright.dist.config.ts --grep \"normal motion\"",
