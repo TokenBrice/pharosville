@@ -20,7 +20,6 @@ const DOCK_ASSET_IDS = [
   "dock.base-modular-slip",
   "dock.arbitrum-arch-bridge",
   "dock.polygon-hexmarket",
-  "dock.optimism-sunrise-beacon",
   "dock.aptos-jade-pagoda",
   "dock.avalanche-alpine-watch",
 ] as const;
@@ -33,10 +32,11 @@ const PREFERRED_DOCK_ASSET_IDS: Record<string, (typeof DOCK_ASSET_IDS)[number]> 
   base: "dock.base-modular-slip",
   arbitrum: "dock.arbitrum-arch-bridge",
   polygon: "dock.polygon-hexmarket",
-  optimism: "dock.optimism-sunrise-beacon",
   aptos: "dock.aptos-jade-pagoda",
   avalanche: "dock.avalanche-alpine-watch",
 };
+
+const SUPPRESSED_CHAIN_HARBOR_IDS = new Set<string>(["optimism"]);
 
 function dockSize(chain: ChainSummary, globalTotalUsd: number): number {
   const shareSize = globalTotalUsd > 0
@@ -102,7 +102,8 @@ export function buildChainDocks(chains: ChainsResponse | null | undefined): Dock
 }
 
 function selectChainHarbors(chains: readonly ChainSummary[]): ChainSummary[] {
-  const byId = new Map(chains.map((chain) => [chain.id, chain]));
+  const harborEligibleChains = chains.filter((chain) => !SUPPRESSED_CHAIN_HARBOR_IDS.has(chain.id));
+  const byId = new Map(harborEligibleChains.map((chain) => [chain.id, chain]));
   const selected = new Map<string, ChainSummary>();
 
   for (const chainId of ETHEREUM_HARBOR_PRIORITY_CHAIN_IDS) {
@@ -110,7 +111,7 @@ function selectChainHarbors(chains: readonly ChainSummary[]): ChainSummary[] {
     if (chain && chain.totalUsd > 0) selected.set(chain.id, chain);
   }
 
-  for (const chain of chains.toSorted((a, b) => b.totalUsd - a.totalUsd)) {
+  for (const chain of harborEligibleChains.toSorted((a, b) => b.totalUsd - a.totalUsd)) {
     if (selected.size >= MAX_CHAIN_HARBORS) break;
     selected.set(chain.id, chain);
   }

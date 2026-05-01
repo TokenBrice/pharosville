@@ -26,7 +26,7 @@ layout, asset, renderer, test, and docs change:
 - `LIGHTHOUSE_TILE` remains `{ x: 18, y: 28 }` and the visual-clearance box
   remains `x:14..24, y:23..32`.
 - Runtime asset cache version is
-  `2026-05-01-pharosville-island-coherence-v1`; the manifest-wide style
+  `2026-05-01-harbor-trim-v1`; the manifest-wide style
   anchor remains `2026-04-29-lighthouse-hill-v5` so all asset provenance stays
   validator-aligned. The static-scene cache key in `src/renderer/world-canvas.ts`
   includes `manifestCacheVersion`, so bumping `style.cacheVersion` invalidates
@@ -121,7 +121,7 @@ generic water.
 - Stale or missing peg evidence maps to Calm Anchorage with an evidence caveat unless a fresher risk signal exists; it must not create a separate sea zone or masquerade as storm/depeg risk.
 - Stablecoin supply values from the list payload are already USD-denominated. Use `getCirculatingRaw()` for market-cap visual tiers.
 - Local runtime assets come from `public/pharosville/assets/` and `manifest.json`. Do not reference remote prototype URLs at runtime.
-- Treat `public/pharosville/assets/manifest.json` and `npm run check:pharosville-assets` as the asset inventory source of truth. At this update, the manifest contains 35 runtime assets (cap bumped from 34 in `scripts/pharosville/validate-assets.mjs:24` to fund the limestone tile-pack `terrain.land-scrub` variant), split by `loadPriority` into 24 critical/first-render entries and 11 deferred entries; rerun the validator instead of hand-maintaining prose counts.
+- Treat `public/pharosville/assets/manifest.json` and `npm run check:pharosville-assets` as the asset inventory source of truth. At this update, the manifest contains 34 runtime assets, split by `loadPriority` into 23 critical/first-render entries and 11 deferred entries; rerun the validator instead of hand-maintaining prose counts.
 
 ## Current Visual Model
 
@@ -136,7 +136,7 @@ generic water.
 - Per-zone visual styling lives in a single `ZONE_THEMES` table in `src/systems/palette.ts`. Each entry bundles base/inner/wave/accent water colors, the procedural texture kind, label outline/fill/plaque colors, and motion amplitude/stroke-alpha scalars. `drawWaterAreaLabels` (`src/renderer/layers/water-labels.ts`) reads the theme via `RISK_WATER_AREAS[area.riskPlacement].terrain` so it routes Danger Strait through `storm-water` rather than a non-existent `danger-water` key. The exhaustiveness invariant (`SHIP_WATER_ZONES` ↔ `ZONE_THEMES`) is enforced both by `as const satisfies Record<...>` constraints on `ZONE_THEMES`, `ZONE_DWELL`, `OPEN_WATER_PATROL_WAYPOINTS`, and `ZONE_ROUGHNESS`, and by `src/systems/palette.test.ts`. Adjusting a zone's color, label styling, wave amplitude, or accent stroke alpha is a one-table edit; texture geometry, frequency, and procedural cadence still live inside the per-zone draw functions in `src/renderer/layers/terrain.ts`.
 - Ship risk routes expose both `riskWaterLabel` and `riskZone` in details and the accessibility ledger. Reduced-motion ships freeze at their current risk-water idle tile, or Ledger Mooring for NAV ledger assets; harbor moorings are route stops, not the static representative position. In normal motion, routed ships spend one third of each cycle moored; non-titan ships are hidden while moored, while titan ships remain visible.
 - Dock sprites are rank/preference selected through manifest IDs such as `dock.ethereum-harbor-hub`, `dock.harbor-ring-quay`, `dock.compact-harbor-pier`, `dock.rollup-ferry-slip`, and `dock.bridge-pontoon`; Ethereum's hub remains selectable while its dock body is drawn behind ships so harbor traffic sails over it.
-- Dock selection reserves the Ethereum/L2 harbor cluster (`ethereum`, `base`, `arbitrum`, `optimism`, `polygon`, `mantle`) when those chains are present, then fills the remaining ten-dock cap by chain stablecoin supply.
+- Dock selection reserves the Ethereum/L2 harbor cluster (`ethereum`, `base`, `arbitrum`, `polygon`) when those chains are present, intentionally suppresses Optimism as a rendered harbor, then fills the remaining eight-dock cap by chain stablecoin supply.
 - The Ethereum/L2 cove prints `ETHEREUM HARBOR` and `L2 BAY` plaque signs using the same canvas label treatment as named DEWS water areas.
 - Ship class is derived from governance/backing metadata:
   - centralized -> treasury galleon
@@ -147,7 +147,7 @@ generic water.
 - Ship size is a compressed market-cap tier, not linear area.
 - The current runtime manifest uses schema v2. `style.cacheVersion` controls image cache busting; `style.styleAnchorVersion` is the provenance/style anchor for generated assets.
 - Asset loading is intentionally staged: the route loads the manifest and critical/first-render sprites before the initial canvas frame, then loads deferred sprite families after the core scene can render. Do not move visual-only sprites into the critical set without checking first-render need and the manifest cap.
-- The current lighthouse asset is `landmark.lighthouse` at `public/pharosville/assets/landmarks/lighthouse-alexandria.png`, with manifest cache version `2026-05-01-pharosville-island-coherence-v1` and style anchor `2026-04-29-lighthouse-hill-v5`.
+- The current lighthouse asset is `landmark.lighthouse` at `public/pharosville/assets/landmarks/lighthouse-alexandria.png`, with manifest cache version `2026-05-01-harbor-trim-v1` and style anchor `2026-04-29-lighthouse-hill-v5`.
 - Current ship sprites share the lighthouse style anchor, keep logo-safe sail/pennant zones, and treat overlays as small lanterns/pennants/signals rather than badges. Standard class hulls use 104 x 80 transparent PNGs; USDC, USDS, and USDT use dedicated titan hull PNGs, with USDS a bit smaller than USDC and USDT allowed to read larger than both.
 - Current cemetery props share the same style anchor and use a local memorial sprite set under `public/pharosville/assets/props/`: `memorial-terrace`, `memorial-headstone`, `ledger-slab`, `reliquary-marker`, and `regulatory-obelisk`.
 

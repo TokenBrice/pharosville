@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-05-01-zone-themes-v1",
+    "cacheVersion": "2026-05-01-harbor-trim-v1",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": [
@@ -32,7 +32,6 @@
     "dock.base-modular-slip",
     "dock.arbitrum-arch-bridge",
     "dock.polygon-hexmarket",
-    "dock.optimism-sunrise-beacon",
     "dock.aptos-jade-pagoda",
     "dock.avalanche-alpine-watch",
     "dock.wooden-pier",
@@ -619,7 +618,7 @@
       "layer": "docks",
       "width": 304,
       "height": 220,
-      "displayScale": 0.76,
+      "displayScale": 0.608,
       "anchor": [
         152,
         172
@@ -720,43 +719,6 @@
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
         "jobId": "67f5d383-a12a-4b10-a6a8-4822274319f1",
-        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
-    },
-    {
-      "id": "dock.optimism-sunrise-beacon",
-      "path": "docks/optimism-sunrise-beacon.png",
-      "category": "dock",
-      "layer": "docks",
-      "width": 176,
-      "height": 128,
-      "displayScale": 1,
-      "anchor": [
-        88,
-        100
-      ],
-      "footprint": [
-        80,
-        36
-      ],
-      "hitbox": [
-        12,
-        14,
-        152,
-        100
-      ],
-      "loadPriority": "critical",
-      "criticalReason": "Optimism compact beacon harbor.",
-      "promptKey": "dock.optimism-sunrise-beacon",
-      "semanticRole": "optimism beacon harbor",
-      "paletteKeys": [
-        "terracotta",
-        "bronze beacon",
-        "limestone"
-      ],
-      "tool": "mcp:create_map_object+imagemagick",
-      "promptProvenance": {
-        "jobId": "b3368a14-3c20-4937-b45c-ee51e5833ef1",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },

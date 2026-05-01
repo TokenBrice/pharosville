@@ -379,11 +379,10 @@ describe("buildPharosVilleWorld", () => {
         chainId: "optimism",
         currentUsd: 1_000,
         share: 1,
-        hasRenderedDock: true,
+        hasRenderedDock: false,
       },
     ]);
-    expect(usdc?.dockVisits).toHaveLength(1);
-    expect(usdc?.dockVisits?.[0]?.chainId).toBe("optimism");
+    expect(usdc?.dockVisits).toHaveLength(0);
   });
 
   it("excludes frozen response rows from active ships", () => {

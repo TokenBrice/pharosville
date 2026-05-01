@@ -39,7 +39,7 @@ describe("buildChainDocks", () => {
     expect(docks.every((dock) => isProductionOutwardWater(dock.tile))).toBe(true);
   });
 
-  it("keeps the Ethereum and L2 extension harbors in the EVM bay and distributes alt L1s outside it", () => {
+  it("keeps the rendered Ethereum and L2 extension harbors in the EVM bay and distributes alt L1s outside it", () => {
     const docks = buildChainDocks({
       ...fixtureChains,
       chains: [
@@ -61,33 +61,32 @@ describe("buildChainDocks", () => {
     expect(byChain.get("ethereum")).toEqual(PREFERRED_DOCK_TILES.ethereum);
     expect(byChain.get("base")).toEqual(PREFERRED_DOCK_TILES.base);
     expect(byChain.get("arbitrum")).toEqual(PREFERRED_DOCK_TILES.arbitrum);
-    expect(byChain.get("optimism")).toEqual(PREFERRED_DOCK_TILES.optimism);
     expect(byChain.get("polygon")).toEqual(PREFERRED_DOCK_TILES.polygon);
     expect(docks.find((dock) => dock.chainId === "ethereum")?.assetId).toBe("dock.ethereum-civic-cove");
     expect(docks.find((dock) => dock.chainId === "base")?.assetId).toBe("dock.base-modular-slip");
     expect(docks.find((dock) => dock.chainId === "arbitrum")?.assetId).toBe("dock.arbitrum-arch-bridge");
-    expect(docks.find((dock) => dock.chainId === "optimism")?.assetId).toBe("dock.optimism-sunrise-beacon");
     expect(docks.find((dock) => dock.chainId === "polygon")?.assetId).toBe("dock.polygon-hexmarket");
+    expect(docks.map((dock) => dock.chainId)).not.toContain("optimism");
     expect(docks.find((dock) => dock.chainId === "ethereum")?.logoSrc).toBe("/chains/ethereum.png");
     expect(docks.find((dock) => dock.chainId === "base")?.logoSrc).toBe("/chains/base.png");
     expect(docks.find((dock) => dock.chainId === "tron")?.logoSrc).toBeNull();
     expect(byChain.get("bsc")).toEqual(PREFERRED_DOCK_TILES.bsc);
     expect(byChain.get("tron")).toEqual(PREFERRED_DOCK_TILES.tron);
     expect(byChain.get("solana")).toEqual(PREFERRED_DOCK_TILES.solana);
-    expect(docks.map((dock) => dock.chainId)).not.toContain("aptos");
+    expect(byChain.get("aptos")).toEqual(PREFERRED_DOCK_TILES.aptos);
     expect(docks.map((dock) => dock.chainId)).not.toContain("mantle");
 
-    for (const chainId of ["ethereum", "base", "arbitrum", "optimism", "polygon"]) {
+    for (const chainId of ["ethereum", "base", "arbitrum", "polygon"]) {
       expect(EVM_BAY_DOCK_TILES).toContainEqual(byChain.get(chainId));
     }
-    for (const chainId of ["bsc", "tron", "solana"]) {
+    for (const chainId of ["bsc", "tron", "solana", "aptos"]) {
       expect(EVM_BAY_DOCK_TILES).not.toContainEqual(byChain.get(chainId));
       expect(OUTER_HARBOR_DOCK_TILES).toContainEqual(byChain.get(chainId));
     }
     expect(new Set(docks.map((dock) => `${dock.tile.x}.${dock.tile.y}`)).size).toBe(docks.length);
   });
 
-  it("reserves key Ethereum L2 extension slips before lower-ranked outer harbors", () => {
+  it("suppresses Optimism while reserving key Ethereum L2 extension slips before lower-ranked outer harbors", () => {
     const docks = buildChainDocks({
       ...fixtureChains,
       chains: [
@@ -114,17 +113,16 @@ describe("buildChainDocks", () => {
       "tron",
       "bsc",
       "solana",
+      "hyperliquid",
       "base",
       "arbitrum",
       "polygon",
-      "optimism",
     ]);
-    expect(docks.map((dock) => dock.chainId)).not.toContain("hyperliquid");
+    expect(docks.map((dock) => dock.chainId)).not.toContain("optimism");
     expect(docks.map((dock) => dock.chainId)).not.toContain("aptos");
     expect(docks.map((dock) => dock.chainId)).not.toContain("avalanche");
     expect(docks.map((dock) => dock.chainId)).not.toContain("xlayer");
     expect(docks.map((dock) => dock.chainId)).not.toContain("mantle");
-    expect(docks.find((dock) => dock.chainId === "optimism")?.tile).toEqual(PREFERRED_DOCK_TILES.optimism);
   });
 
   it("keeps billion-dollar hubs large even when their global share is modest", () => {
