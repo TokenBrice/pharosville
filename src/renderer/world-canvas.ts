@@ -20,6 +20,7 @@ import { drawCemeteryContext, drawCemeteryGround, drawCemeteryMist } from "./lay
 import { drawHarborDistrictGround } from "./layers/harbor-district";
 import { drawTerrainBase, drawWaterTerrainOverlays } from "./layers/terrain";
 import { drawEthereumHarborSigns, drawWaterAreaLabels } from "./layers/water-labels";
+import { drawCenterCluster } from "./layers/center-cluster";
 import { drawLighthouseBeamRim, drawLighthouseBody, drawLighthouseHeadland, drawLighthouseNightHighlights, drawLighthouseOverlay, drawLighthouseSurf, lighthouseOverlayScreenBounds, lighthouseRenderState, type LighthouseRenderState } from "./layers/lighthouse";
 import { drawSelection } from "./layers/selection";
 import { drawCoastalWaterDetails } from "./layers/shoreline";
@@ -127,6 +128,7 @@ function paintStaticScenePass(input: DrawPharosVilleInput, frame: WorldCanvasFra
   drawHarborDistrictGround(input);
   drawBackgroundedHarborDocks(input, frame);
   drawCemeteryGround(input);
+  drawCenterCluster(input);
   drawLighthouseHeadland(input);
   drawCemeteryContext(input);
 }
