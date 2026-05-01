@@ -8,8 +8,6 @@ import type { RenderFrameCache } from "../frame-cache";
 import type { ResolvedEntityGeometry } from "../geometry";
 import type { DrawPharosVilleInput } from "../render-types";
 import { recolorSailImageData, SHIP_SAIL_TINT_MASKS } from "../ship-sail-tint";
-
-export { SHIP_SAIL_TINT_MASKS } from "../ship-sail-tint";
 import { resolveShipPose, zeroShipPose, type ShipPose } from "./ship-pose";
 
 const SHIP_COLORS = {

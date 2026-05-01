@@ -5,12 +5,12 @@ import type { PharosVilleWorld, ShipNode } from "../../systems/world-types";
 import type { LoadedPharosVilleAsset } from "../asset-manager";
 import type { ResolvedEntityGeometry } from "../geometry";
 import type { DrawPharosVilleInput } from "../render-types";
+import { SHIP_SAIL_TINT_MASKS } from "../ship-sail-tint";
 import {
   drawShipWake,
   drawSquadIdentityAccent,
   SHIP_PEG_MARKS,
   SHIP_SAIL_MARKS,
-  SHIP_SAIL_TINT_MASKS,
   SHIP_TRIM_MARKS,
   shipMastTopScreenPoint,
   TITAN_SPRITE_IDS,

@@ -52,6 +52,9 @@ describe("ship sail tint masks", () => {
     }
   });
 
+  // TODO(task-7.5): once the four Maker consort tint masks are tuned and
+  // removed from UNTUNED_TITAN_IDS, extend this list to include them so this
+  // unmasked-sail-fragment gate covers the whole squad.
   it("does not leave large titan sail fragments outside the tint mask", () => {
     for (const assetId of ["ship.usdc-titan", "ship.usds-titan", "ship.usdt-titan"]) {
       const fileName = SHIP_ASSET_FILES[assetId];
