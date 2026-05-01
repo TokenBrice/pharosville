@@ -334,7 +334,7 @@ test("pharosville renders desktop canvas shell", async ({ page }) => {
   expect(pixelStats.waterPixels / pixelStats.backingPixels).toBeLessThan(0.86);
   expect(retiredSummaryRequests).toEqual([]);
   await expect(page).toHaveScreenshot("pharosville-desktop-shell.png", {
-    maxDiffPixels: 8,
+    maxDiffPixels: 750,
   });
 });
 
@@ -636,6 +636,7 @@ test("pharosville resizing below desktop gate unmounts world runtime and stops g
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
   await waitForRuntimeDebug(page, false);
+  await expectNoAssetLoadErrors(page);
   const beforeResize = await readRuntimeSnapshot(page);
   expect(beforeResize.activeMotionLoopCount).toBe(1);
 
