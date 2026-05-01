@@ -12,10 +12,12 @@ import { drawCemeteryContext, drawCemeteryGround, drawCemeteryMist } from "./lay
 import { drawHarborDistrictGround } from "./layers/harbor-district";
 import { drawTerrainBase, drawWaterTerrainOverlays } from "./layers/terrain";
 import { drawEthereumHarborSigns, drawWaterAreaLabels } from "./layers/water-labels";
-import { drawLighthouseBeamRim, drawLighthouseBody, drawLighthouseHeadland, drawLighthouseOverlay, drawLighthouseSurf, lighthouseOverlayScreenBounds, lighthouseRenderState, type LighthouseRenderState } from "./layers/lighthouse";
+import { drawLighthouseBeamRim, drawLighthouseBody, drawLighthouseHeadland, drawLighthouseNightHighlights, drawLighthouseOverlay, drawLighthouseSurf, lighthouseOverlayScreenBounds, lighthouseRenderState, type LighthouseRenderState } from "./layers/lighthouse";
 import { drawSelection } from "./layers/selection";
 import { drawCoastalWaterDetails } from "./layers/shoreline";
 import { drawSky } from "./layers/sky";
+import { drawNightTint } from "./layers/night-tint";
+import { skyState } from "./layers/sky";
 import type { DrawPharosVilleInput, PharosVilleRenderMetrics } from "./render-types";
 
 export type { DrawPharosVilleInput, PharosVilleCanvasMotion, PharosVilleRenderMetrics } from "./render-types";
@@ -163,6 +165,7 @@ function evictOldestStaticEntry(): StaticLayerCacheEntry | null {
 export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderMetrics {
   const { ctx } = input;
   const frame = createWorldCanvasFrame(input);
+  const { nightFactor } = skyState(input.motion);
   ctx.imageSmoothingEnabled = false;
   drawSky(input, frame.lighthouseRender);
 
@@ -171,13 +174,15 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   drawWaterTerrainOverlays(input);
   drawStaticPassCached(input, frame, "scene", paintStaticScenePass);
   drawCoastalWaterDetails(input);
-  drawAtmosphere(input, frame.lighthouseRender);
   drawLighthouseSurf(input);
-  const entityMetrics = drawEntityPass(input, frame);
-  drawLighthouseBeamRim(input, frame.visibleShips, frame.lighthouseRender);
+  const entityMetrics = drawEntityPass(input, frame, nightFactor);
   drawWaterAreaLabels(input);
   drawEthereumHarborSigns(input);
+  drawNightTint(input, nightFactor);
+  drawAtmosphere(input, frame.lighthouseRender);
+  drawLighthouseNightHighlights(input, frame.lighthouseRender, nightFactor);
   drawDecorativeLights(input);
+  drawLighthouseBeamRim(input, frame.visibleShips, frame.lighthouseRender);
   drawCemeteryMist(input);
   drawBirds(input);
   const selectionDrawableCount = drawSelection(input);
@@ -212,7 +217,7 @@ function drawBackgroundedHarborDocks(input: DrawPharosVilleInput, frame: WorldCa
   }
 }
 
-function drawEntityPass(input: DrawPharosVilleInput, frame: WorldCanvasFrame): Pick<PharosVilleRenderMetrics, "drawableCount" | "drawableCounts"> {
+function drawEntityPass(input: DrawPharosVilleInput, frame: WorldCanvasFrame, nightFactor: number): Pick<PharosVilleRenderMetrics, "drawableCount" | "drawableCounts"> {
   return drawEntityLayer(
     input,
     frame.cache,
@@ -229,7 +234,7 @@ function drawEntityPass(input: DrawPharosVilleInput, frame: WorldCanvasFrame): P
       drawShipOverlay: (ship) => drawShipOverlay(input, frame, ship),
       drawShipWake: (ship) => drawShipWake(input, frame, ship),
       isBackgroundedHarborDock,
-      lighthouseOverlayScreenBounds: (selectionRect) => lighthouseOverlayScreenBounds(input, selectionRect, frame.lighthouseRender),
+      lighthouseOverlayScreenBounds: (selectionRect) => lighthouseOverlayScreenBounds(input, selectionRect, frame.lighthouseRender, nightFactor),
       visibleShips: frame.visibleShips,
     },
   );
