@@ -72,7 +72,7 @@ These are the non-negotiable visual/data contracts for the PharosVille world. A 
 
 - Local runtime art comes from `public/pharosville/assets/manifest.json`; no generated remote URLs or prototype paths at runtime.
 - Manifest assets must stay local PNGs with `critical` or `deferred` load priority, accurate dimensions, anchors, footprints, hitboxes, category/layer metadata, and prompt provenance when generated.
-- The current v0.1 manifest budget is 35 total runtime assets (raised from 34 to fund the limestone tile-pack `terrain.land-scrub` variant); first-render/critical membership should stay narrow and justified by visible initial-frame need.
+- The current v0.1 manifest budget is 56 total runtime assets (27 critical + 29 deferred); first-render/critical membership should stay narrow and justified by visible initial-frame need.
 - The main-island revamp replaces existing island, lighthouse, and dock asset IDs in place. Keep critical/first-render membership stable unless a visible initial-frame need is documented.
 - Hit boxes must track rendered geometry, not just tile centers.
 - Asset geometry changes require manifest updates and hit-testing/visual validation.

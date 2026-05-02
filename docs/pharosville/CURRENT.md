@@ -1,6 +1,6 @@
 # Current PharosVille Agent Source Of Truth
 
-Last updated: 2026-05-01
+Last updated: 2026-05-02
 
 Use this file before changing PharosVille. It summarizes the current standalone Vite implementation shape for maintainers; the verified product contract remains `docs/pharosville-page.md`.
 
@@ -178,7 +178,7 @@ generic water.
 - Stale or missing peg evidence maps to Calm Anchorage with an evidence caveat unless a fresher risk signal exists; it must not create a separate sea zone or masquerade as storm/depeg risk.
 - Stablecoin supply values from the list payload are already USD-denominated. Use `getCirculatingRaw()` for market-cap visual tiers.
 - Local runtime assets come from `public/pharosville/assets/` and `manifest.json`. Do not reference remote prototype URLs at runtime.
-- Treat `public/pharosville/assets/manifest.json` and `npm run check:pharosville-assets` as the asset inventory source of truth. At this update, the manifest contains 51 runtime assets, split by `loadPriority` into 27 critical/first-render entries and 24 deferred entries (the village-decor overlays increased first-render demand in the current pass); the validator's `maxManifestAssets` cap is 55. Rerun the validator instead of hand-maintaining prose counts.
+- Treat `public/pharosville/assets/manifest.json` and `npm run check:pharosville-assets` as the asset inventory source of truth. At this update, the manifest contains 56 runtime assets, split by `loadPriority` into 27 critical/first-render entries and 29 deferred entries; the validator's `maxManifestAssets` cap is 56. Rerun the validator instead of hand-maintaining prose counts.
 
 ## Current Visual Model
 

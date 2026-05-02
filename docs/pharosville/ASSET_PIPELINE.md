@@ -139,7 +139,7 @@ Preferred constraints:
 
 Hard validator budgets:
 
-- Total runtime manifest: `<= 55` assets, `<= 900 KiB` source bytes, and `<= 1,300,000` decoded pixels.
+- Total runtime manifest: `<= 56` assets, `<= 900 KiB` source bytes, and `<= 1,300,000` decoded pixels.
 - First render: `<= 28` assets, `<= 575 KiB` source bytes, and `<= 875,000` decoded pixels.
 - Per-image ceilings:
   - terrain: `<= 8 KiB`, `<= 8,192` decoded pixels;

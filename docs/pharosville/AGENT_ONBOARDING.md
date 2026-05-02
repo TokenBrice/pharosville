@@ -1,6 +1,6 @@
 # PharosVille Agent Onboarding
 
-Last updated: 2026-05-01
+Last updated: 2026-05-02
 
 Use this file as the fastest path to productive and safe PharosVille work.
 
@@ -29,6 +29,7 @@ Use this file as the fastest path to productive and safe PharosVille work.
 4. Read in this order:
    - `AGENTS.md`
    - `docs/pharosville-page.md`
+   - `docs/pharosville/CHANGE_CHECKLIST.md`
    - `docs/pharosville/CURRENT.md`
    - `docs/pharosville/CHANGE_PLAYBOOK.md`
    - `docs/pharosville/TESTING.md`

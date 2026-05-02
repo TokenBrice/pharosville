@@ -1,6 +1,6 @@
 # PharosVille Change Checklist
 
-Last updated: 2026-04-29
+Last updated: 2026-05-02
 
 Use this checklist for future standalone PharosVille work. Keep it agent-facing and update it when the app workflow changes.
 
@@ -35,11 +35,18 @@ Use this checklist for future standalone PharosVille work. Keep it agent-facing 
 
 Choose the narrowest relevant checks from `TESTING.md`, then broaden when the change touches shared route behavior.
 
-Minimum for docs-only agent changes: run `rg` over `README.md`, `docs/pharosville`, `docs/pharosville-page.md`, and shared agent notes for former route paths and removed script names.
-Prefer the automated docs lane:
+Minimum for docs/process-only changes:
+
+1. Run the automated docs lane:
 
 ```bash
 npm run validate:docs
+```
+
+2. Optionally, when you are specifically hunting for historical drift, run:
+
+```bash
+rg -n 'README.md|docs/pharosville|docs/pharosville-page.md|AGENTS.md|CLAUDE.md' .
 ```
 
 Minimum for PharosVille implementation changes:
