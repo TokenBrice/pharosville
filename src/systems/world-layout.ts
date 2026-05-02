@@ -100,7 +100,7 @@ export const DOCK_TILES = [
 // as in the positioning source while staying outside the central island model.
 export const CEMETERY_CENTER = { x: 8.0, y: 50.0 } as const;
 export const CEMETERY_RADIUS = { x: 3.3, y: 2.1 } as const;
-const CEMETERY_ISLAND_RADIUS = { x: 5.4, y: 3.8 } as const;
+export const CEMETERY_ISLAND_RADIUS = { x: 5.4, y: 3.8 } as const;
 
 type GraveMarker = GraveNode["visual"]["marker"];
 
@@ -277,7 +277,7 @@ function isOutOfBounds(x: number, y: number): boolean {
 let cachedMainIslandLandMask: Uint8Array | null = null;
 let cachedNavigableWaterMask: Uint8Array | null = null;
 
-function getMainIslandLandMask(): Uint8Array {
+export function getMainIslandLandMask(): Uint8Array {
   if (cachedMainIslandLandMask) return cachedMainIslandLandMask;
   const mask = new Uint8Array(PHAROSVILLE_MAP_WIDTH * PHAROSVILLE_MAP_HEIGHT);
   for (let y = 0; y < PHAROSVILLE_MAP_HEIGHT; y += 1) {
@@ -591,22 +591,20 @@ function graveVisual(entry: CemeteryEntry, index: number): GraveNode["visual"] {
   return { marker, scale };
 }
 
-function graveMarkerFor(entry: CemeteryEntry, index: number, peakScale: number): GraveMarker {
-  const largeMemorial = peakScale > 0.72 && stableUnit(`${entry.id}.marker.major`) > 0.42;
-  if (entry.causeOfDeath === "regulatory") return "cross";
-  if (entry.causeOfDeath === "liquidity-drain") {
-    const roll = stableUnit(`${entry.id}.marker.liquidity`);
-    if (roll > 0.66) return "ledger";
-    return roll > 0.34 ? "tablet" : "headstone";
+function graveMarkerFor(entry: CemeteryEntry, _index: number, _peakScale: number): GraveMarker {
+  switch (entry.causeOfDeath) {
+    case "regulatory":
+      return "broken-keel";
+    case "liquidity-drain":
+      return "sinking-stern";
+    case "counterparty-failure":
+      return "grounded";
+    case "algorithmic-failure":
+      return "shattered";
+    case "abandoned":
+    default:
+      return "skeletal";
   }
-  if (entry.causeOfDeath === "counterparty-failure") {
-    return largeMemorial || stableUnit(`${entry.id}.marker.counterparty`) > 0.38 ? "tablet" : "reliquary";
-  }
-  if (entry.causeOfDeath === "algorithmic-failure") {
-    return largeMemorial || stableUnit(`${entry.id}.marker.algorithmic`) > 0.58 ? "reliquary" : "headstone";
-  }
-  const markers: GraveMarker[] = ["headstone", "headstone", "tablet", "reliquary"];
-  return markers[Math.floor(stableUnit(`${entry.id}.${index}.marker`) * markers.length)] ?? "headstone";
 }
 
 function cemeteryValue(x: number, y: number) {
