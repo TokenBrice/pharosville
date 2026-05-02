@@ -128,7 +128,7 @@ Add `landmark.yggdrasil`, mirroring the field shape of `landmark.lighthouse`:
 
 Bump `style.cacheVersion` from `2026-05-02-ethereum-harbor-v1` to `2026-05-02-ethereum-yggdrasil-v1`. `style.styleAnchorVersion` unchanged.
 
-Also: bump validator `maxManifestAssets` cap from 55 to 56 in the validator script (likely `scripts/check-pharosville-assets.ts` or similar — confirm path during plan execution).
+Also: bump validator `maxManifestAssets` cap from 55 to 56 in `scripts/pharosville/validate-assets.mjs`.
 
 Acceptance:
 
@@ -207,7 +207,7 @@ Acceptance:
 Update only:
 
 - `src/systems/asset-manifest.test.ts` — assert count 56 and the new ID exists.
-- The validator-cap test fixture (likely in `tests/check-pharosville-assets.test.ts` or asserted inside the validator script's own self-check).
+- The validator-cap is asserted inside `scripts/pharosville/validate-assets.mjs` itself; no separate test fixture.
 
 Visual baselines drift in:
 
