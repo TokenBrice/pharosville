@@ -358,21 +358,21 @@ function tracePerimeterLoop(): { x: number; y: number; sides: Side[] }[] {
 // band on long runs like the south quay.
 const SAMPLE_STRIDE = 2;
 
-// Pre-rotated diagonal sprites: seawall-edge-nw runs down-right (matches
-// N/S tile-edges in iso); seawall-edge-ne runs down-left/up-right (matches
-// E/W tile-edges). For each diagonal, the sprite has its wall face on one
-// side; rotating 180° flips it to the opposite outward side without changing
-// the long-axis direction. This replaces the canvas-rotated screen-horizontal
-// sprite, giving us crisp diagonal pixel art instead of nearest-neighbor
-// staircase artifacts.
+// Use the existing pale-limestone seawall-straight sprite for every side and
+// rotate it to the iso edge angle (±atan(0.5) ≈ ±26.57° from screen-horizontal).
+// The pre-generated diagonal variants were darker and had baked end-cap features
+// that broke seamless tiling; rotation accepts a small nearest-neighbor pixel
+// softness in exchange for one cohesive limestone style and no visible joints.
+const ISO_EDGE_ANGLE_DEG = (Math.atan2(1, 2) * 180) / Math.PI;
+
 function spriteForSide(side: Side): {
   assetId: SeawallPlacement["assetId"];
   rotation: number;
 } {
-  if (side === "N") return { assetId: "overlay.seawall-edge-nw", rotation: 180 };
-  if (side === "S") return { assetId: "overlay.seawall-edge-nw", rotation: 0 };
-  if (side === "E") return { assetId: "overlay.seawall-edge-ne", rotation: 0 };
-  return { assetId: "overlay.seawall-edge-ne", rotation: 180 }; // W
+  if (side === "N") return { assetId: "overlay.seawall-straight", rotation: ISO_EDGE_ANGLE_DEG };
+  if (side === "S") return { assetId: "overlay.seawall-straight", rotation: -ISO_EDGE_ANGLE_DEG };
+  if (side === "E") return { assetId: "overlay.seawall-straight", rotation: -ISO_EDGE_ANGLE_DEG };
+  return { assetId: "overlay.seawall-straight", rotation: ISO_EDGE_ANGLE_DEG }; // W
 }
 
 function computePlacements(): SeawallPlacement[] {

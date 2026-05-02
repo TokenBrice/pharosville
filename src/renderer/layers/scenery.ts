@@ -63,7 +63,6 @@ const SCENERY_PROPS: readonly SceneryProp[] = [
   { id: "south-cypress", kind: "cypress", tile: { x: 38.7, y: 39.7 }, scale: 0.58 },
   { id: "east-lamp", kind: "harbor-lamp", tile: { x: 45.8, y: 31.6 }, scale: 0.88 },
   { id: "east-crates", kind: "crate-stack", tile: { x: 44.6, y: 34.8 }, scale: 0.82 },
-  { id: "east-seawall", kind: "sea-wall", tile: { x: 45.7, y: 33.2 }, scale: 0.92 },
   { id: "east-mooring", kind: "mooring-posts", tile: { x: 43.6, y: 29.4 }, scale: 0.82 },
   { id: "east-steps", kind: "stone-steps", tile: { x: 41.8, y: 36.2 }, scale: 0.7 },
   { id: "east-rope", kind: "rope-coil", tile: { x: 39.3, y: 38.4 }, scale: 0.58 },
