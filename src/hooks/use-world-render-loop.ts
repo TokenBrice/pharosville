@@ -141,10 +141,19 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   const shipHitStateRef = useRef(new Map<string, { cellX: number; cellY: number; visible: boolean }>());
   const frameStateRef = useRef<{
     samples: ReadonlyMap<string, ShipMotionSample>;
+    hoveredTarget: HitTarget | null;
     targets: readonly HitTarget[];
+    selectedTarget: HitTarget | null;
     timeSeconds: number;
     wallClockHour: number;
-  }>({ samples: new Map(), targets: [], timeSeconds: 0, wallClockHour: 0 });
+  }>({
+    hoveredTarget: null,
+    samples: new Map(),
+    selectedTarget: null,
+    targets: [],
+    timeSeconds: 0,
+    wallClockHour: 0,
+  });
 
   // Reset per-world transient state (timing, samples, hit snapshot) when the
   // world reference changes.
@@ -246,35 +255,35 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         wallClockHour = 12;
       }
       let shipMotionSamples = shipMotionSamplesRef.current;
+      let changedShipIds: string[] = [];
       if (reducedMotion) {
         const nextSamplesSignature = motionPlanSignature(world);
         if (reducedMotionSamplesSignatureRef.current !== nextSamplesSignature || shipMotionSamples.size === 0) {
-          shipMotionSamples = collectShipMotionSamples({
+          const collected = collectShipMotionSamples({
             motionPlan: activeMotionPlan,
             reducedMotion,
             samples: shipMotionSamples,
             timeSeconds,
             world,
           });
-          shipMotionSamplesRef.current = shipMotionSamples;
+          shipMotionSamples = collected.samples;
           reducedMotionSamplesSignatureRef.current = nextSamplesSignature;
         }
       } else {
-        shipMotionSamples = collectShipMotionSamples({
+        const collected = collectShipMotionSamples({
           motionPlan: activeMotionPlan,
           reducedMotion,
           samples: shipMotionSamples,
           timeSeconds,
           world,
+          shipHitStateById: shipHitStateRef.current,
+          trackShipHitState: true,
         });
-        shipMotionSamplesRef.current = shipMotionSamples;
+        shipMotionSamples = collected.samples;
+        changedShipIds = collected.changedShipIds;
         reducedMotionSamplesSignatureRef.current = null;
       }
-      const changedShipIds = changedShipHitTargets({
-        shipHitStateById: shipHitStateRef.current,
-        samples: shipMotionSamples,
-        world,
-      });
+      shipMotionSamplesRef.current = shipMotionSamples;
       if (changedShipIds.length > 0) {
         const snapshot = hitTargetSnapshotRef.current;
         if (snapshot) {
@@ -308,12 +317,19 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       }
       const targets = hitTargetsRef.current;
       const nextFrameState = frameStateRef.current;
+      const targetByDetailId = hitTargetSnapshotRef.current?.targetsByDetailId;
       nextFrameState.samples = shipMotionSamples;
       nextFrameState.targets = targets;
+      nextFrameState.hoveredTarget = activeHoveredDetailId
+        ? targetByDetailId?.get(activeHoveredDetailId) ?? null
+        : null;
+      nextFrameState.selectedTarget = activeSelectedDetailId
+        ? targetByDetailId?.get(activeSelectedDetailId) ?? null
+        : null;
       nextFrameState.timeSeconds = timeSeconds;
       nextFrameState.wallClockHour = wallClockHour;
-      const nextHoveredTarget = targets.find((target) => target.detailId === activeHoveredDetailId) ?? null;
-      const nextSelectedTarget = targets.find((target) => target.detailId === activeSelectedDetailId) ?? null;
+      const nextHoveredTarget = nextFrameState.hoveredTarget;
+      const nextSelectedTarget = nextFrameState.selectedTarget;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const drawStartedAt = performance.now();
       const renderMetrics = drawPharosVille({
@@ -459,10 +475,9 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     };
     const frameState = frameStateRef.current;
     const renderMetrics = renderMetricsWithCurrentSelection({
-      hoveredDetailId,
+      hoveredTarget: frameState.hoveredTarget,
       metrics: lastRenderMetricsRef.current,
-      selectedDetailId,
-      targets: frameState.targets,
+      selectedTarget: frameState.selectedTarget,
     });
     debugWindow.__pharosVilleDebug = {
       camera,
@@ -548,35 +563,19 @@ type MotionCueCounts = {
 const PHAROSVILLE_AMBIENT_BIRD_CAP = 9;
 const PHAROSVILLE_HARBOR_LIGHT_CAP = 3;
 
-function changedShipHitTargets(input: {
-  samples: ReadonlyMap<string, ShipMotionSample>;
-  shipHitStateById: Map<string, { cellX: number; cellY: number; visible: boolean }>;
-  world: PharosVilleWorldModel;
-}): string[] {
-  const changedShipIds: string[] = [];
-  for (const ship of input.world.ships) {
-    const sample = input.samples.get(ship.id);
-    if (!sample) continue;
-    const visible = isShipMapVisible(ship, sample);
-    const cellX = Math.floor(sample.tile.x);
-    const cellY = Math.floor(sample.tile.y);
-    const previous = input.shipHitStateById.get(ship.id);
-    if (!previous || previous.cellX !== cellX || previous.cellY !== cellY || previous.visible !== visible) {
-      input.shipHitStateById.set(ship.id, { cellX, cellY, visible });
-      changedShipIds.push(ship.id);
-    }
-  }
-  return changedShipIds;
-}
-
 function collectShipMotionSamples(input: {
   motionPlan: MotionPlan;
   reducedMotion: boolean;
   samples: ReadonlyMap<string, ShipMotionSample>;
   timeSeconds: number;
   world: PharosVilleWorldModel;
+  shipHitStateById?: Map<string, { cellX: number; cellY: number; visible: boolean }>;
+  trackShipHitState?: boolean;
 }) {
   const samples = input.samples as Map<string, ShipMotionSample>;
+  const trackShipHitState = Boolean(input.trackShipHitState && input.shipHitStateById);
+  const shipHitStateById = input.shipHitStateById;
+  const changedShipIds: string[] = [];
   // Process flagships/solo ships before consorts so consorts can read their
   // flagship's already-computed sample from the map instead of re-sampling
   // the flagship's route. Two passes keeps allocation-free; ordering inside
@@ -598,6 +597,16 @@ function collectShipMotionSamples(input: {
         timeSeconds: input.timeSeconds,
         flagshipSamples: samples,
       }, sample);
+      if (trackShipHitState && shipHitStateById) {
+        const visible = isShipMapVisible(ship, sample);
+        const cellX = Math.floor(sample.tile.x);
+        const cellY = Math.floor(sample.tile.y);
+        const previous = shipHitStateById.get(ship.id);
+        if (!previous || previous.cellX !== cellX || previous.cellY !== cellY || previous.visible !== visible) {
+          shipHitStateById.set(ship.id, { cellX, cellY, visible });
+          changedShipIds.push(ship.id);
+        }
+      }
     }
   }
   if (samples.size !== input.world.ships.length) {
@@ -606,7 +615,7 @@ function collectShipMotionSamples(input: {
       if (!liveIds.has(id)) samples.delete(id);
     }
   }
-  return samples;
+  return { samples, changedShipIds };
 }
 
 function compactShipMotionSamples(
@@ -630,14 +639,11 @@ function compactShipMotionSamples(
 }
 
 function renderMetricsWithCurrentSelection(input: {
-  hoveredDetailId: string | null;
+  hoveredTarget: HitTarget | null;
   metrics: PharosVilleRenderMetrics & { drawDurationMs: number };
-  selectedDetailId: string | null;
-  targets: readonly HitTarget[];
+  selectedTarget: HitTarget | null;
 }): PharosVilleRenderMetrics & { drawDurationMs: number } {
-  const selectedTarget = input.targets.find((target) => target.detailId === input.selectedDetailId) ?? null;
-  const hoveredTarget = input.targets.find((target) => target.detailId === input.hoveredDetailId) ?? null;
-  const selectionCount = selectionDrawableCount({ hoveredTarget, selectedTarget });
+  const selectionCount = selectionDrawableCount({ hoveredTarget: input.hoveredTarget, selectedTarget: input.selectedTarget });
   if (selectionCount === input.metrics.drawableCounts.selection) return input.metrics;
   return {
     ...input.metrics,

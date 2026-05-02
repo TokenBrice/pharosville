@@ -24,6 +24,7 @@ export interface HitTargetPriorityContext {
 
 export interface HitTargetSnapshot {
   recordsById: Map<string, HitTargetRecord>;
+  targetsByDetailId: Map<string, HitTarget>;
   spatialIndex: HitTargetSpatialIndex;
   targets: HitTarget[];
 }
@@ -47,6 +48,8 @@ interface HitTargetRecord {
   };
   sortIndex: number;
 }
+
+const shipSortIndexByWorld = new WeakMap<PharosVilleWorld, Map<string, number>>();
 
 const HIT_TARGET_SPATIAL_CELL_SIZE = 96;
 
@@ -270,8 +273,13 @@ function snapshotFromRecords(
       rect: record.geometry.targetRect,
     };
   });
+  const targetsByDetailId = new Map<string, HitTarget>();
+  for (const target of targets) {
+    targetsByDetailId.set(target.detailId, target);
+  }
   return {
     recordsById,
+    targetsByDetailId,
     spatialIndex: buildHitTargetSpatialIndex(targets),
     targets,
   };
@@ -302,7 +310,15 @@ function rectIntersectsViewport(rect: HitTarget["rect"], viewport: HitTargetView
 function shipSortIndex(world: PharosVilleWorld, shipId: string): number {
   const lighthouseCount = 1;
   const dockCount = world.docks.length;
-  const shipIndex = world.ships.findIndex((ship) => ship.id === shipId);
+  let indexById = shipSortIndexByWorld.get(world);
+  if (!indexById) {
+    indexById = new Map<string, number>();
+    for (let shipIndex = 0; shipIndex < world.ships.length; shipIndex += 1) {
+      indexById.set(world.ships[shipIndex]!.id, shipIndex);
+    }
+    shipSortIndexByWorld.set(world, indexById);
+  }
+  const shipIndex = indexById.get(shipId) ?? -1;
   if (shipIndex < 0) return lighthouseCount + dockCount;
   return lighthouseCount + dockCount + shipIndex;
 }

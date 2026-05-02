@@ -7,6 +7,8 @@ import { drawAsset, drawDiamond } from "../canvas-primitives";
 import { dockDrawPoint } from "../geometry";
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
 
+const docksByChainCache = new WeakMap<PharosVilleWorld, Map<string, PharosVilleWorld["docks"][number]>>();
+
 export function drawHarborDistrictGround(input: DrawPharosVilleInput) {
   const { camera, ctx } = input;
   ctx.save();
@@ -39,11 +41,11 @@ function drawGeneratedSeawallAssets(input: DrawPharosVilleInput) {
 }
 
 export function drawEthereumHarborExtensions({ camera, ctx, motion, world }: DrawPharosVilleInput) {
-  const ethereumDock = world.docks.find((dock) => dock.chainId === "ethereum") ?? null;
+  const ethereumDock = dockForChain(world, "ethereum");
   if (!ethereumDock) return;
 
   const extensionDocks = ETHEREUM_L2_DOCK_CHAIN_IDS
-    .map((chainId) => world.docks.find((dock) => dock.chainId === chainId) ?? null)
+    .map((chainId) => dockForChain(world, chainId))
     .filter((dock): dock is PharosVilleWorld["docks"][number] => dock != null);
   if (extensionDocks.length === 0) return;
 
@@ -200,4 +202,18 @@ function drawDistrictPaving(
   ctx.fillStyle = "rgba(247, 214, 138, 0.08)";
   drawDiamond(ctx, x, y - 1 * zoom, width * 0.46, height * 0.28, ctx.fillStyle);
   ctx.restore();
+}
+
+function dockForChain(world: PharosVilleWorld, chainId: string): PharosVilleWorld["docks"][number] | null {
+  let docksByChain = docksByChainCache.get(world);
+  if (!docksByChain) {
+    docksByChain = new Map<string, PharosVilleWorld["docks"][number]>();
+    for (const dock of world.docks) {
+      if (!docksByChain.has(dock.chainId)) {
+        docksByChain.set(dock.chainId, dock);
+      }
+    }
+    docksByChainCache.set(world, docksByChain);
+  }
+  return docksByChain.get(chainId) ?? null;
 }
