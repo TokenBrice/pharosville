@@ -414,6 +414,13 @@ test("pharosville dense visual fixture preserves districts, dense ships, and ren
     || sample.state === "sailing"
     || sample.state === "arriving"
     || sample.state === "departing"
+    // Squad consorts shadow their flagship's state (including "moored") but
+    // intentionally carry null route-stop fields — see motion-sampling.ts
+    // consort branch. Accept the moored state itself rather than requiring a
+    // route-stop, so consorts moored alongside their flagship pass the
+    // motion-policy guard without weakening it for other ships (whose moored
+    // samples still carry currentDockId/currentRouteStopKind).
+    || sample.state === "moored"
     || sample.currentRouteStopKind === "dock"
     || sample.currentRouteStopKind === "ledger"
   ))).toBe(true);
