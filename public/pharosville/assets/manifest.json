@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-05-02-vegetation-v2",
+    "cacheVersion": "2026-05-02-ethereum-yggdrasil-v1",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": [
@@ -320,6 +320,43 @@
       }
     },
     {
+      "id": "landmark.yggdrasil",
+      "path": "landmarks/yggdrasil.png",
+      "category": "landmark",
+      "layer": "landmarks",
+      "width": 256,
+      "height": 320,
+      "displayScale": 0.6,
+      "anchor": [
+        128,
+        288
+      ],
+      "footprint": [
+        178,
+        50
+      ],
+      "hitbox": [
+        80,
+        140,
+        96,
+        80
+      ],
+      "loadPriority": "deferred",
+      "promptKey": "landmark.yggdrasil",
+      "semanticRole": "ethereum harbor world-tree (pure flavor, no analytical signal)",
+      "paletteKeys": [
+        "weathered timber",
+        "deep canopy",
+        "limestone",
+        "warm lantern"
+      ],
+      "tool": "mcp:create_map_object+pillow",
+      "promptProvenance": {
+        "jobId": "750b6527-b69f-4411-88a0-cebb41434015",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
       "id": "overlay.lighthouse-headland",
       "path": "overlays/lighthouse-headland.png",
       "category": "overlay",
@@ -585,7 +622,7 @@
       "layer": "docks",
       "width": 400,
       "height": 320,
-      "displayScale": 0.8,
+      "displayScale": 0.9,
       "anchor": [
         200,
         250
@@ -611,7 +648,7 @@
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "08a692a4-5355-430d-a6d5-52781ae84bfc",
+        "jobId": "5602e897-9e10-47ea-bdc1-4d74fb987b36",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },

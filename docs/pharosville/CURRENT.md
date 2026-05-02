@@ -26,7 +26,7 @@ layout, asset, renderer, test, and docs change:
 - `LIGHTHOUSE_TILE` remains `{ x: 18, y: 28 }` and the visual-clearance box
   remains `x:14..24, y:23..32`.
 - Runtime asset cache version is
-  `2026-05-01-island-center-build-v1`; the manifest-wide style
+  `2026-05-02-ethereum-yggdrasil-v1`; the manifest-wide style
   anchor remains `2026-04-29-lighthouse-hill-v5` so all asset provenance stays
   validator-aligned. The static-scene cache key in `src/renderer/world-canvas.ts`
   includes `manifestCacheVersion`, so bumping `style.cacheVersion` invalidates
@@ -204,8 +204,10 @@ generic water.
 - Ship size is a compressed market-cap tier, not linear area.
 - The current runtime manifest uses schema v2. `style.cacheVersion` controls image cache busting; `style.styleAnchorVersion` is the provenance/style anchor for generated assets.
 - Asset loading is intentionally staged: the route loads the manifest and critical/first-render sprites before the initial canvas frame, then loads deferred sprite families after the core scene can render. Do not move visual-only sprites into the critical set without checking first-render need and the manifest cap.
-- The current lighthouse asset is `landmark.lighthouse` at `public/pharosville/assets/landmarks/lighthouse-alexandria.png`, with manifest cache version `2026-05-02-village-decor-v1` and style anchor `2026-04-29-lighthouse-hill-v5`.
+- The current lighthouse asset is `landmark.lighthouse` at `public/pharosville/assets/landmarks/lighthouse-alexandria.png`, with manifest cache version `2026-05-02-ethereum-yggdrasil-v1` and style anchor `2026-04-29-lighthouse-hill-v5`.
 - The central plaza is filled by the ambient `overlay.center-cluster` observatory citadel — a dense limestone+terracotta residential cluster anchored at `CIVIC_CORE_CENTER (31, 31)`, drawn between the district-pad and lighthouse-headland passes via `src/renderer/layers/center-cluster.ts`. It carries no analytical signal and no detail-panel parity. A single `prop.sundial` at tile (35, 31) reinforces the observatory identity. The lighthouse remains the dominant vertical anchor; the cluster's silhouette caps at ≈ 110 px in 1× zoom.
+- The Ethereum civic-cove rotunda's inner plaza is anchored by the `landmark.yggdrasil` world-tree (256×320 PixelLab job `750b6527`, displayScale `0.6`) at tile `(42.5, 29.2)` — pure-flavor mythic landmark drawn in the static-scene pass after the cove dock body and before the lighthouse-headland pass, so harbor traffic sails over its canopy. The cove dock displayScale was bumped from 0.8 to 0.9 (+12%) so the rotunda holds the tree without crowding; the surrounding `civic-*` plant/decoration props are scaled down ~12% to balance. Lighthouse silhouette remains the dominant vertical anchor. The Yggdrasil carries no analytical signal and no detail-panel parity, matching the `overlay.center-cluster` precedent. Validator `maxManifestAssets` was bumped from 55 to 56 to fit `landmark.yggdrasil`.
+- Solana and Hyperliquid harbors were relocated off the prior north-wall pairing: Solana sits at the NW shoulder `(25, 23)` near the lighthouse, Hyperliquid sits on the south periphery `(36, 39)` between Base and Arbitrum. Aptos slid west into Solana's old N-wall slot at `(32, 22)`. Hyperliquid is now an explicit entry in `PREFERRED_DOCK_TILES` (was previously placed dynamically into a spare slot).
 - Current ship sprites share the lighthouse style anchor. Standard class hulls (104×80) reserve a logo-safe sail/pennant zone for the runtime SVG-logo overlay; unique- and titan-tier hulls carry an iconographic silhouette painted directly into the mainsail (no runtime overlay). Secondary `ShipVisual.overlay` cues render as small lanterns, pennants, or signal flags rather than badges. USDC, USDS, and USDT use dedicated titan hull PNGs, with USDS a bit smaller than USDC and USDT allowed to read larger than both.
 - Current cemetery props share the same style anchor and use a local memorial sprite set under `public/pharosville/assets/props/`: `memorial-terrace`, `memorial-headstone`, `ledger-slab`, `reliquary-marker`, and `regulatory-obelisk`.
 

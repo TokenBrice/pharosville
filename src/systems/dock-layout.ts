@@ -4,17 +4,15 @@ interface TilePoint {
 }
 
 const DOCK_OUTWARD_VECTOR_OVERRIDES: Record<string, { x: -1 | 0 | 1; y: -1 | 0 | 1 }> = {
-  // North-east shoulder docks should project into the upper harbor pocket,
-  // not eastward into the seawall bend.
-  "34.22": { x: 0, y: -1 },
-  "37.23": { x: 0, y: -1 },
+  // NW-shoulder Solana faces north into the upper harbor pocket so its
+  // gangway stays clear of the seawall turn.
+  "25.23": { x: 0, y: -1 },
 };
 
 const DOCK_DRAW_TILE_OVERRIDES: Record<string, TilePoint> = {
-  // These authored draw anchors tuck the Solana / Hyperliquid slips against
-  // the north wall while keeping their gangways clear of the seawall turn.
-  "34.22": { x: 34.45, y: 21.35 },
-  "37.23": { x: 37.55, y: 22.25 },
+  // The concept-C Ethereum rotunda reads too far inland at the generic east
+  // dock anchor, so push it slightly seaward.
+  "42.31": { x: 44.9, y: 32.15 },
 };
 
 function tileKey(tile: TilePoint): string {

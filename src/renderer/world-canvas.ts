@@ -14,12 +14,13 @@ import {
   type SquadAnchor,
 } from "./layers/maker-squad-chrome";
 import { sceneryDrawables } from "./layers/scenery";
+import { drawYggdrasil } from "./layers/yggdrasil";
 import { drawShipBody, drawShipOverlay, drawShipWake, shipMastTopScreenPoint, type ShipRenderState } from "./layers/ships";
 import { drawEntityLayer } from "./layers/entity-pass";
 import { drawCemeteryContext, drawCemeteryGround, drawCemeteryMist } from "./layers/cemetery";
 import { drawHarborDistrictGround } from "./layers/harbor-district";
 import { drawTerrainBase, drawWaterTerrainOverlays } from "./layers/terrain";
-import { drawEthereumHarborSigns, drawWaterAreaLabels } from "./layers/water-labels";
+import { drawWaterAreaLabels } from "./layers/water-labels";
 import { drawCenterCluster } from "./layers/center-cluster";
 import { drawLighthouseBeamRim, drawLighthouseBody, drawLighthouseHeadland, drawLighthouseNightHighlights, drawLighthouseOverlay, drawLighthouseSurf, lighthouseOverlayScreenBounds, lighthouseRenderState, type LighthouseRenderState } from "./layers/lighthouse";
 import { drawSelection } from "./layers/selection";
@@ -136,6 +137,7 @@ function paintStaticScenePass(input: DrawPharosVilleInput, frame: WorldCanvasFra
   ctx.imageSmoothingEnabled = false;
   drawHarborDistrictGround(input);
   drawBackgroundedHarborDocks(input, frame);
+  drawYggdrasil(input);
   drawCemeteryGround(input);
   drawCenterCluster(input);
   drawLighthouseHeadland(input);
@@ -295,7 +297,6 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   const entityMetrics = drawEntityPass(input, frame, nightFactor);
   drawSquadChrome(input, frame);
   drawWaterAreaLabels(input);
-  drawEthereumHarborSigns(input);
   drawNightTint(input, nightFactor);
   drawAtmosphere(input, frame.lighthouseRender);
   drawLighthouseNightHighlights(input, frame.lighthouseRender, nightFactor);

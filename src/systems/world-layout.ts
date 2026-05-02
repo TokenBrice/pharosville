@@ -62,14 +62,15 @@ export const EVM_BAY_DOCK_TILES = [
 // promontory. Each tile is a perimeter land tile with cardinal water access.
 // Slots [0..4] map to named chains (BSC, Tron, Solana, Aptos, Avalanche);
 // slots [5..7] are spare perimeter slips for unmapped chains.
-export const HYPERLIQUID_HARBOR_DOCK_TILE = { x: 37, y: 23 } as const;
+export const HYPERLIQUID_HARBOR_DOCK_TILE = { x: 36, y: 39 } as const;
+export const SOLANA_HARBOR_DOCK_TILE = { x: 25, y: 23 } as const;
 export const OUTER_HARBOR_DOCK_TILES = [
   { x: 21, y: 36 }, // bsc (SW promontory shoulder)
   { x: 28, y: 22 }, // tron (N periphery, west)
-  { x: 34, y: 22 }, // solana (N periphery, east)
-  HYPERLIQUID_HARBOR_DOCK_TILE, // aptos (NE shoulder)
+  SOLANA_HARBOR_DOCK_TILE, // solana (NW shoulder, near lighthouse — paired-but-detached with Hyperliquid per user direction)
+  HYPERLIQUID_HARBOR_DOCK_TILE, // hyperliquid (S periphery, between Base and Arbitrum — paired with the EVM bay's south-shore stretch per user direction)
+  { x: 32, y: 22 }, // aptos (N periphery, where Solana used to sit — leaves the Tron neighborhood populated)
   { x: 33, y: 40 }, // avalanche (S periphery, between Arbitrum and Base)
-  { x: 25, y: 23 }, // spare: NW shoulder
   { x: 42, y: 28 }, // spare: E shoulder above Ethereum
   { x: 35, y: 39 }, // spare: SE between Avalanche and Base
 ] as const;
@@ -81,9 +82,10 @@ export const PREFERRED_DOCK_TILES: Record<string, { x: number; y: number }> = {
   polygon: EVM_BAY_DOCK_TILES[3],
   bsc: OUTER_HARBOR_DOCK_TILES[0],
   tron: OUTER_HARBOR_DOCK_TILES[1],
-  solana: OUTER_HARBOR_DOCK_TILES[2],
-  aptos: OUTER_HARBOR_DOCK_TILES[3],
-  avalanche: OUTER_HARBOR_DOCK_TILES[4],
+  solana: SOLANA_HARBOR_DOCK_TILE,
+  hyperliquid: HYPERLIQUID_HARBOR_DOCK_TILE,
+  aptos: OUTER_HARBOR_DOCK_TILES[4],
+  avalanche: OUTER_HARBOR_DOCK_TILES[5],
 };
 
 export const EVM_BAY_CHAIN_IDS = new Set<string>(ETHEREUM_HARBOR_PRIORITY_CHAIN_IDS);

@@ -19,24 +19,13 @@ function cachedAreaLabelPlacement(area: AreaNode): ResolvedAreaLabelPlacement {
 }
 
 function cachedMeasureTextWidth(ctx: CanvasRenderingContext2D, text: string, font: string): number {
-  const key = `${font}${text}`;
+  const key = `${font}${text}`;
   const cached = measuredTextWidth.get(key);
   if (cached !== undefined) return cached;
   const width = ctx.measureText(text).width;
   measuredTextWidth.set(key, width);
   return width;
 }
-
-const ETHEREUM_HARBOR_SIGNS = [
-  {
-    accent: "#d9b974",
-    chainIds: ["ethereum"],
-    label: "Ethereum Harbor",
-    maxWidth: 136,
-    rotation: -0.035,
-    tile: { x: 42.1, y: 29.1 },
-  },
-] as const;
 
 export function drawWaterAreaLabels({ camera, ctx, world }: DrawPharosVilleInput) {
   for (const area of world.areas) {
@@ -55,29 +44,6 @@ export function drawWaterAreaLabels({ camera, ctx, world }: DrawPharosVilleInput
       plaqueDark: theme.label.plaqueDark,
       plaqueLight: theme.label.plaqueLight,
       rotation: placement.rotation,
-      x: p.x,
-      y: p.y,
-      zoom: camera.zoom,
-    });
-  }
-}
-
-export function drawEthereumHarborSigns({ camera, ctx, world }: DrawPharosVilleInput) {
-  const renderedChainIds = new Set(world.docks.map((dock) => dock.chainId));
-  for (const sign of ETHEREUM_HARBOR_SIGNS) {
-    if (!sign.chainIds.some((chainId) => renderedChainIds.has(chainId))) continue;
-    const p = tileToScreen(sign.tile, camera);
-    drawCartographicWaterLabel({
-      accent: sign.accent,
-      align: "center",
-      ctx,
-      fill: "rgba(238, 218, 169, 0.78)",
-      label: sign.label,
-      maxWidth: sign.maxWidth,
-      outline: "rgba(5, 10, 17, 0.7)",
-      plaqueDark: "rgba(15, 10, 7, 0.76)",
-      plaqueLight: "rgba(74, 50, 27, 0.5)",
-      rotation: sign.rotation,
       x: p.x,
       y: p.y,
       zoom: camera.zoom,
@@ -151,4 +117,3 @@ function drawCartographicWaterLabel(input: {
   ctx.stroke();
   ctx.restore();
 }
-

@@ -22,7 +22,8 @@ const pharosVilleSourceExtensionPattern = /\.(?:ts|tsx)$/;
 const pharosVilleTestFilePattern = /(?:^|\/)(?:__tests__|tests?)\/|\.test\.(?:ts|tsx)$/;
 const publicImageExtensionPattern = /\.(?:png|svg|jpe?g|webp)$/i;
 // 2026-05-02: bumped for village-decor overlays and first-render scene density.
-const maxManifestAssets = 55;
+// 2026-05-02: bumped 55 -> 56 for landmark.yggdrasil (Ethereum harbor world-tree).
+const maxManifestAssets = 56;
 const firstRenderBudgets = {
   // 2026-05-01: bumped for Maker squad titans (USDS, DAI, sUSDS, sDAI, stUSDS)
   maxCount: 28,
