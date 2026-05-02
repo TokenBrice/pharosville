@@ -270,7 +270,7 @@ export function parseHexColor(hex: string): RgbColor {
   };
 }
 
-function sailClothTintTarget(livery: ShipLivery): RgbColor {
+export function sailClothTintTarget(livery: ShipLivery): RgbColor {
   const sail = parseHexColor(livery.sailColor);
   const primary = parseHexColor(livery.primary);
   const accent = parseHexColor(livery.accent);
@@ -279,6 +279,20 @@ function sailClothTintTarget(livery: ShipLivery): RgbColor {
     green: clampChannel(sail.green * 0.32 + primary.green * 0.48 + accent.green * 0.2),
     blue: clampChannel(sail.blue * 0.32 + primary.blue * 0.48 + accent.blue * 0.2),
   };
+}
+
+// Picks an ink color for emblem silhouettes painted directly on the
+// sail-tinted cloth (generic-hull ships, replacing the white matte
+// sticker per crvUSD reference). Defaults to the cream `logoMatte` so
+// the emblem reads as a dyed mark; falls back to `primary` only when
+// matte/cloth contrast is too low for legibility.
+export function pickSailEmblemInk(livery: ShipLivery): string {
+  const target = sailClothTintTarget(livery);
+  const targetLuminance = colorLuminance(target.red, target.green, target.blue);
+  const matte = parseHexColor(livery.logoMatte);
+  const matteLuminance = colorLuminance(matte.red, matte.green, matte.blue);
+  if (Math.abs(matteLuminance - targetLuminance) >= 50) return livery.logoMatte;
+  return livery.primary;
 }
 
 function recolorSailPixel(red: number, green: number, blue: number, target: RgbColor): [number, number, number] {

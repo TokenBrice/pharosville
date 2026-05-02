@@ -7,7 +7,7 @@ import { drawAnimatedAsset, drawAsset, hexToRgba, readableInkForFill, roundedRec
 import type { RenderFrameCache } from "../frame-cache";
 import type { ResolvedEntityGeometry } from "../geometry";
 import type { DrawPharosVilleInput } from "../render-types";
-import { recolorSailImageData, SHIP_SAIL_TINT_MASKS } from "../ship-sail-tint";
+import { pickSailEmblemInk, recolorSailImageData, SHIP_SAIL_TINT_MASKS } from "../ship-sail-tint";
 import { UNIQUE_SPRITE_IDS } from "../../systems/unique-ships";
 import { resolveShipPose, zeroShipPose, type ShipPose } from "./ship-pose";
 import { skyState } from "./sky";
@@ -865,12 +865,26 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
   const { bob, geometry, p, pose, selected, shipAsset } = shipRenderState(input, frame, ship);
   if (shipAsset) {
     const titanSprite = isTitanSprite(ship);
+    const uniqueSprite = isUniqueSprite(ship);
+    const dyedEmblem = !titanSprite && !uniqueSprite;
     const drawY = geometry.drawPoint.y + bob;
     drawWithShipPose(ctx, geometry.drawPoint.x, drawY, pose, () => {
       if (selected) drawSelectedShipOutline(ctx, geometry.drawPoint.x, drawY, geometry.drawScale);
       const mark = SHIP_SAIL_MARKS[ship.visual.spriteAssetId ?? ship.visual.hull] ?? SHIP_SAIL_MARKS[ship.visual.hull];
       const flutterY = titanSprite ? pose.sailFlutter * geometry.drawScale : 0;
-      if (ship.id !== "crvusd-curve") {
+      if (dyedEmblem) {
+        drawDyedSailEmblem({
+          ctx,
+          asset: shipAsset,
+          drawX: geometry.drawPoint.x,
+          drawY,
+          drawScale: geometry.drawScale,
+          sailMark: mark,
+          livery: ship.visual.livery,
+          logo: assets?.getLogo(ship.logoSrc) ?? null,
+          mark: ship.symbol,
+        });
+      } else if (ship.id !== "crvusd-curve") {
         drawSailLogo({
           ctx,
           logo: assets?.getLogo(ship.logoSrc) ?? null,
@@ -1189,6 +1203,138 @@ function drawSailLogoInline(
     ctx.restore();
   }
   ctx.restore();
+}
+
+// Generic-hull emblem path. Replaces the white-matte "sticker" with a
+// silhouette of the issuer logo (or 3-letter glyph) painted directly on
+// the recolored sail cloth, clipped to the sail polygon transformed into
+// hull-pose-local screen space. Visually matches the crvUSD heritage hull
+// where the llama mark is baked into the sail art instead of layered on
+// top — see plan §B in agents/.
+function drawDyedSailEmblem(input: {
+  asset: LoadedPharosVilleAsset;
+  ctx: CanvasRenderingContext2D;
+  drawScale: number;
+  drawX: number;
+  drawY: number;
+  livery: ShipLivery;
+  logo: ReturnType<PharosVilleAssetManager["getLogo"]>;
+  mark: string;
+  sailMark: { height: number; width: number; x: number; y: number };
+}) {
+  const { asset, ctx, drawScale, drawX, drawY, livery, logo, mark, sailMark } = input;
+  const spec = SHIP_SAIL_TINT_MASKS[asset.entry.id];
+  if (!spec) return;
+  const widthPx = Math.max(8, Math.round(sailMark.width * drawScale * 1.05));
+  const heightPx = Math.max(8, Math.round(sailMark.height * drawScale * 1.05));
+  const ink = pickSailEmblemInk(livery);
+  const sprite = getSailEmblemSilhouetteSprite(livery, logo, mark, ink, widthPx, heightPx);
+  if (!sprite) return;
+
+  const [anchorX, anchorY] = asset.entry.anchor;
+  const ds = asset.entry.displayScale * drawScale;
+
+  ctx.save();
+  // ctx is already inside drawWithShipPose's translate/rotate-around-(drawX,drawY)
+  // sandwich, so polygon vertices are emitted in screen-space; the active
+  // transform applies pose-roll automatically.
+  ctx.beginPath();
+  for (const polygon of spec.polygons) {
+    if (polygon.length === 0) continue;
+    const first = polygon[0];
+    if (!first) continue;
+    ctx.moveTo(drawX + (first[0] - anchorX) * ds, drawY + (first[1] - anchorY) * ds);
+    for (let index = 1; index < polygon.length; index += 1) {
+      const point = polygon[index];
+      if (!point) continue;
+      ctx.lineTo(drawX + (point[0] - anchorX) * ds, drawY + (point[1] - anchorY) * ds);
+    }
+    ctx.closePath();
+  }
+  ctx.clip("evenodd");
+  // Slight translucency so the recolored cloth shading reads through and
+  // the emblem feels printed/dyed rather than glued on.
+  ctx.globalAlpha = 0.88;
+  ctx.drawImage(
+    sprite.canvas,
+    Math.round(drawX + sailMark.x * drawScale - sprite.anchorX),
+    Math.round(drawY + sailMark.y * drawScale - sprite.anchorY),
+  );
+  ctx.restore();
+}
+
+const SAIL_EMBLEM_SPRITE_CACHE_MAX = 128;
+const sailEmblemSpriteCache = new Map<string, SailLogoSprite | null>();
+
+function sailEmblemSpriteKey(
+  livery: ShipLivery,
+  logo: ReturnType<PharosVilleAssetManager["getLogo"]>,
+  mark: string,
+  ink: string,
+  widthPx: number,
+  heightPx: number,
+): string {
+  const logoKey = logo ? `img:${logo.src}` : `txt:${mark.slice(0, 3).toUpperCase()}`;
+  return `${livery.logoMatte}|${livery.primary}|${ink}|${widthPx}x${heightPx}|${logoKey}`;
+}
+
+function getSailEmblemSilhouetteSprite(
+  livery: ShipLivery,
+  logo: ReturnType<PharosVilleAssetManager["getLogo"]>,
+  mark: string,
+  ink: string,
+  widthPx: number,
+  heightPx: number,
+): SailLogoSprite | null {
+  const key = sailEmblemSpriteKey(livery, logo, mark, ink, widthPx, heightPx);
+  const cached = sailEmblemSpriteCache.get(key);
+  if (cached !== undefined) {
+    sailEmblemSpriteCache.delete(key);
+    sailEmblemSpriteCache.set(key, cached);
+    return cached;
+  }
+  const sprite = buildSailEmblemSilhouetteSprite(logo, mark, ink, widthPx, heightPx);
+  sailEmblemSpriteCache.set(key, sprite);
+  while (sailEmblemSpriteCache.size > SAIL_EMBLEM_SPRITE_CACHE_MAX) {
+    const oldest = sailEmblemSpriteCache.keys().next().value;
+    if (typeof oldest !== "string") break;
+    sailEmblemSpriteCache.delete(oldest);
+  }
+  return sprite;
+}
+
+function buildSailEmblemSilhouetteSprite(
+  logo: ReturnType<PharosVilleAssetManager["getLogo"]>,
+  mark: string,
+  ink: string,
+  widthPx: number,
+  heightPx: number,
+): SailLogoSprite | null {
+  if (typeof document === "undefined") return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = widthPx;
+  canvas.height = heightPx;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  if (logo) {
+    // Paint the logo at its native colors (no silhouette extraction);
+    // most stablecoin logos are filled discs whose alpha mask collapses
+    // to a plain circle, while the few shaped marks like crvUSD's llama
+    // already read as silhouettes. Drawing at native colors preserves
+    // brand identity and reads as a decal on cloth once the surrounding
+    // matte/circle is removed.
+    const size = Math.round(Math.min(widthPx, heightPx) * 0.96);
+    const offsetX = Math.round((widthPx - size) / 2);
+    const offsetY = Math.round((heightPx - size) / 2);
+    ctx.drawImage(logo.image, offsetX, offsetY, size, size);
+  } else {
+    ctx.fillStyle = ink;
+    ctx.font = `800 ${Math.max(6, Math.min(heightPx * 0.78, widthPx * 0.5))}px ui-sans-serif, system-ui, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(mark.slice(0, 3).toUpperCase(), widthPx / 2, heightPx / 2, widthPx * 0.92);
+  }
+  return { canvas, anchorX: Math.round(widthPx / 2), anchorY: Math.round(heightPx / 2) };
 }
 
 function drawLiverySailPanel(ctx: CanvasRenderingContext2D, livery: ShipLivery, width: number, height: number) {

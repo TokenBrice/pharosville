@@ -2,7 +2,14 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { inflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
-import { SHIP_SAIL_TINT_MASKS, isPointInSailMaskSpec, isSailTintPixel, sailTintCoverageForPixels } from "./ship-sail-tint";
+import type { ShipLivery } from "../systems/world-types";
+import {
+  SHIP_SAIL_TINT_MASKS,
+  isPointInSailMaskSpec,
+  isSailTintPixel,
+  pickSailEmblemInk,
+  sailTintCoverageForPixels,
+} from "./ship-sail-tint";
 
 const SHIP_ASSET_FILES: Record<string, string> = {
   "ship.algo-junk": "algo-junk.png",
@@ -126,6 +133,47 @@ describe("ship sail tint masks", () => {
     }
   });
 });
+
+describe("pickSailEmblemInk", () => {
+  it("dyes with the cream logoMatte when matte/cloth contrast is high (crvUSD)", () => {
+    // Mirrors STABLECOIN_SAIL_COLORS["crvusd-curve"] in stablecoin-ship-branding.ts.
+    const livery = makeLivery({
+      sailColor: "#d9ecdf",
+      primary: "#41956b",
+      accent: "#8bbf72",
+      logoMatte: "#f7fff5",
+    });
+    expect(pickSailEmblemInk(livery)).toBe(livery.logoMatte);
+  });
+
+  it("falls back to the brand primary when matte would read close to the cloth", () => {
+    // Constructed: cloth target lands near matte luminance, so matte would
+    // disappear into the sail. The picker should pick the primary.
+    const livery = makeLivery({
+      sailColor: "#f0f0f0",
+      primary: "#c0c0c0",
+      accent: "#d0d0d0",
+      logoMatte: "#e8e8e8",
+    });
+    expect(pickSailEmblemInk(livery)).toBe(livery.primary);
+  });
+});
+
+function makeLivery(overrides: Partial<ShipLivery>): ShipLivery {
+  return {
+    accent: "#cccccc",
+    label: "test",
+    logoMatte: "#ffffff",
+    logoShape: "circle",
+    primary: "#000000",
+    sailColor: "#dddddd",
+    sailPanel: "center",
+    secondary: "#222222",
+    source: "stablecoin-logo",
+    stripePattern: "single",
+    ...overrides,
+  };
+}
 
 function readRgbaPng(filePath: string): { data: Uint8ClampedArray; height: number; width: number } {
   const bytes = readFileSync(filePath);
