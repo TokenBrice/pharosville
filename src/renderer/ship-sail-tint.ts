@@ -182,7 +182,7 @@ export function recolorSailImageData(
       if (inside && alpha >= 48) polygonPixels += 1;
       if (
         !inside
-        || !isSailTintPixel(data[offset] ?? 0, data[offset + 1] ?? 0, data[offset + 2] ?? 0, alpha)
+        || !isSailTintPixel(data[offset] ?? 0, data[offset + 1] ?? 0, data[offset + 2] ?? 0, alpha, true)
       ) {
         data[offset + 3] = 0;
         continue;
@@ -216,7 +216,7 @@ export function sailTintCoverageForPixels(
       if (!isPointInSailMaskSpec(x + 0.5, y + 0.5, spec)) continue;
       if ((data[offset + 3] ?? 0) < 48) continue;
       polygonPixels += 1;
-      if (isSailTintPixel(data[offset] ?? 0, data[offset + 1] ?? 0, data[offset + 2] ?? 0, data[offset + 3] ?? 0)) {
+      if (isSailTintPixel(data[offset] ?? 0, data[offset + 1] ?? 0, data[offset + 2] ?? 0, data[offset + 3] ?? 0, true)) {
         tintablePixels += 1;
       }
     }
@@ -228,15 +228,17 @@ export function sailTintCoverageForPixels(
   };
 }
 
-export function isSailTintPixel(red: number, green: number, blue: number, alpha: number): boolean {
+export function isSailTintPixel(red: number, green: number, blue: number, alpha: number, insideMask = false): boolean {
   if (alpha < 48) return false;
   const luminance = colorLuminance(red, green, blue);
   if (luminance < 96) return false;
   if (Math.max(red, green, blue) < 104) return false;
   const warmDarkWood = red > green + 36 && green > blue + 16 && luminance < 178;
   if (warmDarkWood) return false;
-  const tealWaterGlint = green > red + 6 && blue > red + 8 && green > 95 && blue > 105;
-  if (tealWaterGlint) return false;
+  if (!insideMask) {
+    const tealWaterGlint = green > red + 6 && blue > red + 8 && green > 95 && blue > 105;
+    if (tealWaterGlint) return false;
+  }
   const saturatedDarkInk = Math.max(red, green, blue) - Math.min(red, green, blue) > 96 && luminance < 138;
   return !saturatedDarkInk;
 }
