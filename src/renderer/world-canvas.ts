@@ -90,6 +90,8 @@ let staticCameraCacheKeyCache: { key: string; input: CameraCacheKeyInput } | nul
 const shipRenderStatesScratch = new Map<string, ShipRenderState>();
 const wakeDrawnShipIdsScratch = new Set<string>();
 const flagshipByIdScratch = new Map<string, PharosVilleWorld["ships"][number]>();
+const dockRenderStatesScratch = new Map<string, DockRenderState>();
+const graveRenderStatesScratch = new Map<string, GraveRenderState>();
 const visibleShipsScratch: PharosVilleWorld["ships"][number][] = [];
 const squadAnchorsScratch: SquadAnchor[] = [];
 
@@ -441,6 +443,8 @@ function createWorldCanvasFrame(input: DrawPharosVilleInput): WorldCanvasFrame {
   shipRenderStatesScratch.clear();
   wakeDrawnShipIdsScratch.clear();
   flagshipByIdScratch.clear();
+  dockRenderStatesScratch.clear();
+  graveRenderStatesScratch.clear();
   const visibleShips = visibleShipsForFrame(input);
   for (const ship of visibleShips) {
     if (ship.squadId && ship.squadRole === "flagship") {
@@ -452,8 +456,8 @@ function createWorldCanvasFrame(input: DrawPharosVilleInput): WorldCanvasFrame {
     staticCameraCache: staticCameraCacheForFrame(input, dpr),
     dpr,
     cache: createRenderFrameCache(input),
-    dockRenderStates: new Map(),
-    graveRenderStates: new Map(),
+    dockRenderStates: dockRenderStatesScratch,
+    graveRenderStates: graveRenderStatesScratch,
     lighthouseRender: lighthouseRenderState(input),
     shipRenderStates: shipRenderStatesScratch,
     visibleShips,

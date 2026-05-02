@@ -229,18 +229,93 @@ export function drawBioluminescentSparkles(
   ctx.restore();
 }
 
+// Per-radius-bucket cache for the lamp halo (radial gradient × elliptical
+// clip). Baked at glow=1 and modulated via `globalAlpha` at draw time.
+// Mirrors the `lampLightConeSpriteCache` radius-bucket pattern in
+// scenery.ts. Used by both the village-lamp loop in `drawDecorativeLights`
+// and the harbor-lamp props rendered through `drawSceneryProp` ->
+// `drawLamp` in scenery.ts.
+const LAMP_HALO_RADIUS_BUCKETS = 2;
+const lampHaloSpriteCache = new Map<number, { canvas: HTMLCanvasElement; centerX: number; centerY: number }>();
+
+function quantizeLampHaloZoom(zoom: number): number {
+  // Bucket the effective draw zoom by quantizing to half-pixel steps of the
+  // lamp's outer radius (22 * zoom). Matches the half-pixel granularity the
+  // scenery lamp-cone sprite uses for its own zoom-driven cache.
+  const radius = Math.max(1, Math.round(22 * zoom * LAMP_HALO_RADIUS_BUCKETS) / LAMP_HALO_RADIUS_BUCKETS);
+  return radius / 22;
+}
+
+function getLampHaloSprite(zoom: number): { canvas: HTMLCanvasElement; centerX: number; centerY: number } | null {
+  if (typeof document === "undefined") return null;
+  const bucketed = quantizeLampHaloZoom(zoom);
+  const cached = lampHaloSpriteCache.get(bucketed);
+  if (cached) return cached;
+
+  // Mirrors the in-place ellipse + radial-gradient draw, baked once per
+  // bucket. Sprite is centered on the radial gradient's anchor (y - 9*zoom);
+  // callers offset by (y - 8*zoom) to keep the ellipse clip 1px below.
+  const radius = 22 * bucketed;
+  const ellipseX = 22 * bucketed;
+  const ellipseY = 12 * bucketed;
+  const padding = 2;
+  const width = Math.max(2, Math.ceil(ellipseX * 2) + padding * 2);
+  const height = Math.max(2, Math.ceil(ellipseY * 2) + padding * 2);
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const offCtx = canvas.getContext("2d");
+  if (!offCtx) return null;
+  const cx = width / 2;
+  const cy = height / 2;
+  // Radial-gradient anchor sat at (y - 9*zoom); ellipse sat at (y - 8*zoom).
+  // Bake the gradient anchored at (cx, cy - 1*bucketed) and the ellipse
+  // centered at (cx, cy) so the same 1px offset is preserved.
+  const gradAnchorY = cy - 1 * bucketed;
+  const grad = offCtx.createRadialGradient(cx, gradAnchorY, 1 * bucketed, cx, gradAnchorY, radius);
+  grad.addColorStop(0, "rgba(247, 214, 138, 0.9)");
+  grad.addColorStop(0.46, "rgba(212, 154, 62, 0.28)");
+  grad.addColorStop(1, "rgba(212, 154, 62, 0)");
+  offCtx.save();
+  offCtx.fillStyle = grad;
+  offCtx.beginPath();
+  offCtx.ellipse(cx, cy, ellipseX, ellipseY, -0.08, 0, Math.PI * 2);
+  offCtx.fill();
+  offCtx.restore();
+
+  // `centerX`/`centerY` mark the ellipse center inside the sprite, so callers
+  // can position the sprite so that its ellipse sits on the original
+  // (x, y - 8*zoom) anchor regardless of the bucketed zoom.
+  const entry = { canvas, centerX: cx, centerY: cy };
+  lampHaloSpriteCache.set(bucketed, entry);
+  return entry;
+}
+
 export function drawLamp(ctx: CanvasRenderingContext2D, x: number, y: number, zoom: number, phase: number) {
   const glow = 0.22 + Math.sin(phase * 1.6) * 0.04;
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
-  const halo = ctx.createRadialGradient(x, y - 9 * zoom, 1 * zoom, x, y - 9 * zoom, 22 * zoom);
-  halo.addColorStop(0, `rgba(247, 214, 138, ${glow * 0.9})`);
-  halo.addColorStop(0.46, `rgba(212, 154, 62, ${glow * 0.28})`);
-  halo.addColorStop(1, "rgba(212, 154, 62, 0)");
-  ctx.fillStyle = halo;
-  ctx.beginPath();
-  ctx.ellipse(x, y - 8 * zoom, 22 * zoom, 12 * zoom, -0.08, 0, Math.PI * 2);
-  ctx.fill();
+  const sprite = getLampHaloSprite(zoom);
+  if (sprite) {
+    ctx.globalAlpha = glow;
+    ctx.drawImage(
+      sprite.canvas,
+      x - sprite.centerX,
+      y - 8 * zoom - sprite.centerY,
+      sprite.canvas.width,
+      sprite.canvas.height,
+    );
+    ctx.globalAlpha = 1;
+  } else {
+    const halo = ctx.createRadialGradient(x, y - 9 * zoom, 1 * zoom, x, y - 9 * zoom, 22 * zoom);
+    halo.addColorStop(0, `rgba(247, 214, 138, ${glow * 0.9})`);
+    halo.addColorStop(0.46, `rgba(212, 154, 62, ${glow * 0.28})`);
+    halo.addColorStop(1, "rgba(212, 154, 62, 0)");
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.ellipse(x, y - 8 * zoom, 22 * zoom, 12 * zoom, -0.08, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
   ctx.globalCompositeOperation = "source-over";
   ctx.fillStyle = `rgba(255, 197, 95, ${glow})`;
@@ -282,6 +357,22 @@ export function drawMoonReflection(input: DrawPharosVilleInput, nightFactor: num
   ctx.restore();
 }
 
+// Alpha-bucketed `rgba(165, 178, 195, ...)` template strings for `drawSeaMist`.
+// 256 buckets cap the quantization step at 1/255 — below the alpha-channel
+// resolution the canvas itself can resolve — while collapsing the per-frame
+// string allocations down to one cache lookup per patch after warmup.
+const SEA_MIST_FILL_BUCKETS = 256;
+const seaMistFillCache: (string | undefined)[] = new Array(SEA_MIST_FILL_BUCKETS + 1);
+
+function seaMistFillFor(alpha: number): string {
+  const bucket = Math.max(0, Math.min(SEA_MIST_FILL_BUCKETS, Math.round(alpha * SEA_MIST_FILL_BUCKETS)));
+  const cached = seaMistFillCache[bucket];
+  if (cached !== undefined) return cached;
+  const next = `rgba(165, 178, 195, ${bucket / SEA_MIST_FILL_BUCKETS})`;
+  seaMistFillCache[bucket] = next;
+  return next;
+}
+
 export function drawSeaMist(input: DrawPharosVilleInput, nightFactor: number): void {
   if (nightFactor <= 0) return;
   const { camera, ctx, motion } = input;
@@ -291,7 +382,7 @@ export function drawSeaMist(input: DrawPharosVilleInput, nightFactor: number): v
     const drift = Math.sin(time * patch.speed + patch.phase) * 0.4;
     const p = tileToScreen({ x: patch.x + drift, y: patch.y + drift * 0.3 }, camera);
     const alpha = (0.042 + Math.sin(time * patch.speed * 1.8 + patch.phase) * 0.012) * nightFactor;
-    ctx.fillStyle = `rgba(165, 178, 195, ${alpha})`;
+    ctx.fillStyle = seaMistFillFor(alpha);
     ctx.beginPath();
     ctx.ellipse(p.x, p.y, patch.rx * camera.zoom * 12, patch.ry * camera.zoom * 12, -0.12, 0, Math.PI * 2);
     ctx.fill();

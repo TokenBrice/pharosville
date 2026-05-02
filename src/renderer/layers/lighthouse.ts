@@ -120,6 +120,74 @@ const NIGHT_GRADIENT_CACHE_LIMIT = 16;
 // Camera-derived inputs make the working set tiny; LRU evicts on overflow.
 const nightGradientCache = new Map<string, NightGradientBundle>();
 
+// Pre-baked sweep-beam sprite cache. Each entry is a horizontal trapezoidal
+// beam (apex at left, far end at right) baked at sweepAlpha=1; callers
+// modulate via `globalAlpha` and rotate via canvas transform. Skips both
+// `createLinearGradient` calls per frame. Key: tip-color RGB + bucketed
+// beamZoom, since the trapezoid endpoints scale with beamZoom and the last
+// two color stops carry the lighthouse tip color.
+const SWEEP_BEAM_CACHE_LIMIT = 8;
+const SWEEP_BEAM_ZOOM_BUCKETS = 4;
+const sweepBeamSpriteCache = new Map<string, { canvas: HTMLCanvasElement; apexX: number; centerY: number }>();
+
+function quantizeSweepBeamZoom(zoom: number): number {
+  return Math.max(0.05, Math.round(zoom * SWEEP_BEAM_ZOOM_BUCKETS) / SWEEP_BEAM_ZOOM_BUCKETS);
+}
+
+function getSweepBeamSprite(
+  tip: { r: number; g: number; b: number },
+  beamZoom: number,
+): { canvas: HTMLCanvasElement; apexX: number; centerY: number } | null {
+  if (typeof document === "undefined") return null;
+  const bucketedZoom = quantizeSweepBeamZoom(beamZoom);
+  const key = `${tip.r},${tip.g},${tip.b}|z${(bucketedZoom * 100) | 0}`;
+  const cached = sweepBeamSpriteCache.get(key);
+  if (cached) {
+    sweepBeamSpriteCache.delete(key);
+    sweepBeamSpriteCache.set(key, cached);
+    return cached;
+  }
+
+  const sweepLen = SWEEP_LENGTH * bucketedZoom;
+  const sweepApex = SWEEP_APEX_HALF * bucketedZoom;
+  const sweepFar = SWEEP_FAR_HALF * bucketedZoom;
+  const padding = 2;
+  const width = Math.max(2, Math.ceil(sweepLen) + padding * 2);
+  const height = Math.max(2, Math.ceil(sweepFar * 2) + padding * 2);
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const offCtx = canvas.getContext("2d");
+  if (!offCtx) return null;
+  const apexX = padding;
+  const centerY = height / 2;
+  const tipX = apexX + sweepLen;
+
+  const grad = offCtx.createLinearGradient(apexX, centerY, tipX, centerY);
+  grad.addColorStop(0, "rgba(255, 240, 195, 1)");
+  grad.addColorStop(0.25, "rgba(255, 200, 110, 0.78)");
+  grad.addColorStop(0.65, "rgba(240, 140, 70, 0.36)");
+  grad.addColorStop(0.88, `rgba(${tip.r}, ${tip.g}, ${tip.b}, 0.22)`);
+  grad.addColorStop(1, `rgba(${tip.r}, ${tip.g}, ${tip.b}, 0)`);
+  offCtx.fillStyle = grad;
+  offCtx.beginPath();
+  offCtx.moveTo(apexX, centerY - sweepApex);
+  offCtx.lineTo(tipX, centerY - sweepFar);
+  offCtx.lineTo(tipX, centerY + sweepFar);
+  offCtx.lineTo(apexX, centerY + sweepApex);
+  offCtx.closePath();
+  offCtx.fill();
+
+  const entry = { canvas, apexX, centerY };
+  sweepBeamSpriteCache.set(key, entry);
+  while (sweepBeamSpriteCache.size > SWEEP_BEAM_CACHE_LIMIT) {
+    const oldest = sweepBeamSpriteCache.keys().next().value;
+    if (oldest === undefined) break;
+    sweepBeamSpriteCache.delete(oldest);
+  }
+  return entry;
+}
+
 export function drawLighthouseHeadland(input: DrawPharosVilleInput) {
   const { assets, camera, ctx, world } = input;
   const headland = assets?.get("overlay.lighthouse-headland");
@@ -657,29 +725,45 @@ export function drawLighthouseNightHighlights(
   }
   const beamArms = SWEEP_PAIRED ? [0, Math.PI] : [0];
   const tip = hexToRgb(input.world.lighthouse.color);
+  const beamSprite = getSweepBeamSprite(tip, beamZoom);
   for (const armOffset of beamArms) {
     const angle = sweepAngle + armOffset;
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-    const px = -sin;
-    const py = cos;
+    if (beamSprite) {
+      ctx.save();
+      ctx.translate(firePoint.x, firePoint.y);
+      ctx.rotate(angle);
+      ctx.globalAlpha = sweepAlpha;
+      ctx.drawImage(
+        beamSprite.canvas,
+        -beamSprite.apexX,
+        -beamSprite.centerY,
+        beamSprite.canvas.width,
+        beamSprite.canvas.height,
+      );
+      ctx.restore();
+    } else {
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const px = -sin;
+      const py = cos;
 
-    const tipX = firePoint.x + cos * sweepLen;
-    const tipY = firePoint.y + sin * sweepLen;
-    const grad = ctx.createLinearGradient(firePoint.x, firePoint.y, tipX, tipY);
-    grad.addColorStop(0, `rgba(255, 240, 195, ${sweepAlpha})`);
-    grad.addColorStop(0.25, `rgba(255, 200, 110, ${sweepAlpha * 0.78})`);
-    grad.addColorStop(0.65, `rgba(240, 140, 70, ${sweepAlpha * 0.36})`);
-    grad.addColorStop(0.88, `rgba(${tip.r}, ${tip.g}, ${tip.b}, ${sweepAlpha * 0.22})`);
-    grad.addColorStop(1, `rgba(${tip.r}, ${tip.g}, ${tip.b}, 0)`);
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.moveTo(firePoint.x + px * sweepApex, firePoint.y + py * sweepApex);
-    ctx.lineTo(firePoint.x + cos * sweepLen + px * sweepFar, firePoint.y + sin * sweepLen + py * sweepFar);
-    ctx.lineTo(firePoint.x + cos * sweepLen - px * sweepFar, firePoint.y + sin * sweepLen - py * sweepFar);
-    ctx.lineTo(firePoint.x - px * sweepApex, firePoint.y - py * sweepApex);
-    ctx.closePath();
-    ctx.fill();
+      const tipX = firePoint.x + cos * sweepLen;
+      const tipY = firePoint.y + sin * sweepLen;
+      const grad = ctx.createLinearGradient(firePoint.x, firePoint.y, tipX, tipY);
+      grad.addColorStop(0, `rgba(255, 240, 195, ${sweepAlpha})`);
+      grad.addColorStop(0.25, `rgba(255, 200, 110, ${sweepAlpha * 0.78})`);
+      grad.addColorStop(0.65, `rgba(240, 140, 70, ${sweepAlpha * 0.36})`);
+      grad.addColorStop(0.88, `rgba(${tip.r}, ${tip.g}, ${tip.b}, ${sweepAlpha * 0.22})`);
+      grad.addColorStop(1, `rgba(${tip.r}, ${tip.g}, ${tip.b}, 0)`);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(firePoint.x + px * sweepApex, firePoint.y + py * sweepApex);
+      ctx.lineTo(firePoint.x + cos * sweepLen + px * sweepFar, firePoint.y + sin * sweepLen + py * sweepFar);
+      ctx.lineTo(firePoint.x + cos * sweepLen - px * sweepFar, firePoint.y + sin * sweepLen - py * sweepFar);
+      ctx.lineTo(firePoint.x - px * sweepApex, firePoint.y - py * sweepApex);
+      ctx.closePath();
+      ctx.fill();
+    }
   }
 
   // Beam-tail water glints — small specks near the far end of each sweep arm,

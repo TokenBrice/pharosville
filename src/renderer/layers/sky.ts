@@ -88,12 +88,52 @@ function moodKeyFor(mood: typeof SKY_MOODS[SkyMoodKey]): SkyMoodKey {
   return "day";
 }
 
+// Pre-baked cloud stroke colors per (mood × cloud index). Replaces a
+// per-frame `state.mood.mist.replace(/[\d.]+\)$/, ...)` regex inside
+// `drawSkyClouds`. The mist string template is `rgba(R, G, B, A)`; the
+// cloud-alpha replaces only the trailing alpha.
+const SKY_CLOUD_STROKES: Record<SkyMoodKey, readonly string[]> = (() => {
+  const result: Record<SkyMoodKey, string[]> = {
+    dawn: [], day: [], dusk: [], night: [],
+  };
+  for (const moodKey of SKY_MOOD_KEYS) {
+    const mist = SKY_MOODS[moodKey].mist;
+    for (const cloud of SKY_CLOUDS) {
+      result[moodKey].push(mist.replace(/[\d.]+\)$/, `${cloud.alpha})`));
+    }
+  }
+  return result;
+})();
+
 interface SkyBackdropCacheEntry {
   canvas: HTMLCanvasElement;
   key: string;
 }
 
 let skyBackdropCache: SkyBackdropCacheEntry | null = null;
+
+// LRU caches for the sun and moon glow radial gradients. Both are pure
+// functions of `(width, height, zoom-bucket, mood, quantized-phase)` — the
+// celestial-arc coordinates derive from `progress` quantized to wall-clock
+// minute granularity. Mirrors `nightGradientCache` in lighthouse.ts.
+const SKY_GLOW_GRADIENT_CACHE_LIMIT = 12;
+const SKY_PROGRESS_QUANTIZATION = 24 * 60;
+const sunGlowGradientCache = new Map<string, CanvasGradient>();
+const moonGlowGradientCache = new Map<string, CanvasGradient>();
+
+function quantizeSkyProgress(progress: number): number {
+  return Math.round(progress * SKY_PROGRESS_QUANTIZATION);
+}
+
+function rememberGradient(cache: Map<string, CanvasGradient>, key: string, gradient: CanvasGradient): CanvasGradient {
+  cache.set(key, gradient);
+  while (cache.size > SKY_GLOW_GRADIENT_CACHE_LIMIT) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+  return gradient;
+}
 
 function createSkyBackdropCanvas(width: number, height: number): HTMLCanvasElement | null {
   if (typeof document === "undefined") return null;
@@ -257,10 +297,17 @@ function drawSun(
   const point = skyPathPoint(width, height, state.progress);
   const radius = 18 * zoom;
   ctx.save();
-  const glow = ctx.createRadialGradient(point.x, point.y, radius * 0.3, point.x, point.y, radius * 4.6);
-  glow.addColorStop(0, `rgba(255, 220, 128, ${0.56 * state.mood.sunAlpha})`);
-  glow.addColorStop(0.42, `rgba(255, 164, 90, ${0.2 * state.mood.sunAlpha})`);
-  glow.addColorStop(1, "rgba(255, 164, 90, 0)");
+  const zoomBucket = (zoom * 100) | 0;
+  const phaseBucket = quantizeSkyProgress(state.progress);
+  const sunKey = `${width|0}x${height|0}|${moodKeyFor(state.mood)}|z${zoomBucket}|p${phaseBucket}`;
+  let glow = sunGlowGradientCache.get(sunKey);
+  if (!glow) {
+    glow = ctx.createRadialGradient(point.x, point.y, radius * 0.3, point.x, point.y, radius * 4.6);
+    glow.addColorStop(0, `rgba(255, 220, 128, ${0.56 * state.mood.sunAlpha})`);
+    glow.addColorStop(0.42, `rgba(255, 164, 90, ${0.2 * state.mood.sunAlpha})`);
+    glow.addColorStop(1, "rgba(255, 164, 90, 0)");
+    rememberGradient(sunGlowGradientCache, sunKey, glow);
+  }
   ctx.fillStyle = glow;
   ctx.beginPath();
   ctx.arc(point.x, point.y, radius * 4.6, 0, Math.PI * 2);
@@ -289,9 +336,16 @@ function drawMoon(
   const point = skyPathPoint(width, height, state.progress, 0.5);
   const radius = 14 * zoom;
   ctx.save();
-  const glow = ctx.createRadialGradient(point.x, point.y, radius * 0.5, point.x, point.y, radius * 4.2);
-  glow.addColorStop(0, `rgba(220, 231, 220, ${0.32 * state.mood.moonAlpha})`);
-  glow.addColorStop(1, "rgba(220, 231, 220, 0)");
+  const zoomBucket = (zoom * 100) | 0;
+  const phaseBucket = quantizeSkyProgress(state.progress);
+  const moonKey = `${width|0}x${height|0}|${moodKeyFor(state.mood)}|z${zoomBucket}|p${phaseBucket}`;
+  let glow = moonGlowGradientCache.get(moonKey);
+  if (!glow) {
+    glow = ctx.createRadialGradient(point.x, point.y, radius * 0.5, point.x, point.y, radius * 4.2);
+    glow.addColorStop(0, `rgba(220, 231, 220, ${0.32 * state.mood.moonAlpha})`);
+    glow.addColorStop(1, "rgba(220, 231, 220, 0)");
+    rememberGradient(moonGlowGradientCache, moonKey, glow);
+  }
   ctx.fillStyle = glow;
   ctx.beginPath();
   ctx.arc(point.x, point.y, radius * 4.2, 0, Math.PI * 2);
@@ -362,9 +416,11 @@ function drawSkyClouds(
   motion: PharosVilleCanvasMotion,
 ) {
   ctx.save();
-  for (const cloud of SKY_CLOUDS) {
+  const strokes = SKY_CLOUD_STROKES[moodKeyFor(state.mood)];
+  for (let i = 0; i < SKY_CLOUDS.length; i += 1) {
+    const cloud = SKY_CLOUDS[i]!;
     const drift = ambientWindPhase(motion, cloud.x * 8) * 22 * zoom;
-    ctx.strokeStyle = state.mood.mist.replace(/[\d.]+\)$/, `${cloud.alpha})`);
+    ctx.strokeStyle = strokes[i]!;
     ctx.lineWidth = Math.max(1, 5 * zoom);
     ctx.beginPath();
     ctx.ellipse(width * cloud.x + drift, height * cloud.y, cloud.rx * zoom, cloud.ry * zoom, -0.08, 0, Math.PI * 2);

@@ -229,6 +229,45 @@ const SHIP_WAKE_BUDGET_RATIO = 0.44;
 const SHIP_LOD_SKIP_THRESHOLD = 24;
 const SHIP_ANIMATION_FRAME_CACHE_MAX = 144;
 
+// Per-zoom-bucket cache for the night lantern halo on overlay ships. We bake
+// one normalized (alpha=1) radial gradient into a small offscreen canvas per
+// quantized radius and modulate the night fade via `globalAlpha` on draw,
+// mirroring `lampLightConeSpriteCache` in scenery.ts.
+const SHIP_LANTERN_RADIUS_BUCKET = 2;
+const shipLanternSpriteCache = new Map<number, { canvas: HTMLCanvasElement; halfSize: number }>();
+
+function quantizeShipLanternRadius(radius: number): number {
+  return Math.max(2, Math.round(radius * SHIP_LANTERN_RADIUS_BUCKET) / SHIP_LANTERN_RADIUS_BUCKET);
+}
+
+function getShipLanternSprite(radius: number): { canvas: HTMLCanvasElement; halfSize: number } | null {
+  if (typeof document === "undefined") return null;
+  const bucketed = quantizeShipLanternRadius(radius);
+  const cached = shipLanternSpriteCache.get(bucketed);
+  if (cached) return cached;
+
+  const size = Math.max(2, Math.ceil(bucketed * 2) + 2);
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const offCtx = canvas.getContext("2d");
+  if (!offCtx) return null;
+  const cx = size / 2;
+  const cy = size / 2;
+  const grad = offCtx.createRadialGradient(cx, cy, 0, cx, cy, bucketed);
+  grad.addColorStop(0, "rgba(255, 200, 80, 1)");
+  grad.addColorStop(0.4, "rgba(230, 150, 40, 0.45)");
+  grad.addColorStop(1, "rgba(200, 100, 20, 0)");
+  offCtx.fillStyle = grad;
+  offCtx.beginPath();
+  offCtx.arc(cx, cy, bucketed, 0, Math.PI * 2);
+  offCtx.fill();
+
+  const entry = { canvas, halfSize: cx };
+  shipLanternSpriteCache.set(bucketed, entry);
+  return entry;
+}
+
 const SHIP_SIZE_TIER_PRIORITY: Record<PharosVilleWorld["ships"][number]["visual"]["sizeTier"], number> = {
   titan: 7,
   unique: 6,
@@ -253,6 +292,16 @@ const drawWakeShipIdsScratch = new Set<string>();
 const cachedPlan: ShipRenderLodPlan = {
   drawOverlayShipIds: drawOverlayShipIdsScratch,
   drawWakeShipIds: drawWakeShipIdsScratch,
+};
+// Fast-path scratch: `planShipRenderLod` returns the same id set for both
+// overlay and wake when ship count is below the LOD threshold. Refilled in
+// place to avoid the `new Set(visibleShips.map(...))` allocation pair per
+// call. Distinct from the slow-path scratch above so a fast→slow transition
+// across frames doesn't clobber a still-referenced slow plan.
+const fastPathShipIdsScratch = new Set<string>();
+const fastPathPlan: ShipRenderLodPlan = {
+  drawOverlayShipIds: fastPathShipIdsScratch,
+  drawWakeShipIds: fastPathShipIdsScratch,
 };
 let cachedPlanKey: string | null = null;
 let cachedMoverHashSource: ReadonlySet<string> | null = null;
@@ -292,11 +341,9 @@ export function planShipRenderLod(
   visibleShips: readonly PharosVilleWorld["ships"][number][],
 ): ShipRenderLodPlan {
   if (visibleShips.length <= SHIP_LOD_SKIP_THRESHOLD) {
-    const allIds = new Set(visibleShips.map((ship) => ship.id));
-    return {
-      drawOverlayShipIds: allIds,
-      drawWakeShipIds: allIds,
-    };
+    fastPathShipIdsScratch.clear();
+    for (const ship of visibleShips) fastPathShipIdsScratch.add(ship.id);
+    return fastPathPlan;
   }
 
   const selectedId = input.selectedTarget?.id ?? null;
@@ -965,16 +1012,29 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
     const mast = shipMastTopScreenPoint(input, frame, ship);
     const lanternZoom = input.camera.zoom * ship.visual.scale;
     const lanternAlpha = lanternNight * 0.55;
+    const lanternRadius = 14 * lanternZoom;
+    const sprite = getShipLanternSprite(lanternRadius);
     input.ctx.save();
     input.ctx.globalCompositeOperation = "lighter";
-    const lg = input.ctx.createRadialGradient(mast.x, mast.y, 0, mast.x, mast.y, 14 * lanternZoom);
-    lg.addColorStop(0, `rgba(255, 200, 80, ${lanternAlpha})`);
-    lg.addColorStop(0.4, `rgba(230, 150, 40, ${lanternAlpha * 0.45})`);
-    lg.addColorStop(1, "rgba(200, 100, 20, 0)");
-    input.ctx.fillStyle = lg;
-    input.ctx.beginPath();
-    input.ctx.arc(mast.x, mast.y, 14 * lanternZoom, 0, Math.PI * 2);
-    input.ctx.fill();
+    if (sprite) {
+      input.ctx.globalAlpha = lanternAlpha;
+      input.ctx.drawImage(
+        sprite.canvas,
+        mast.x - sprite.halfSize,
+        mast.y - sprite.halfSize,
+        sprite.canvas.width,
+        sprite.canvas.height,
+      );
+    } else {
+      const lg = input.ctx.createRadialGradient(mast.x, mast.y, 0, mast.x, mast.y, lanternRadius);
+      lg.addColorStop(0, `rgba(255, 200, 80, ${lanternAlpha})`);
+      lg.addColorStop(0.4, `rgba(230, 150, 40, ${lanternAlpha * 0.45})`);
+      lg.addColorStop(1, "rgba(200, 100, 20, 0)");
+      input.ctx.fillStyle = lg;
+      input.ctx.beginPath();
+      input.ctx.arc(mast.x, mast.y, lanternRadius, 0, Math.PI * 2);
+      input.ctx.fill();
+    }
     input.ctx.restore();
   }
 }
@@ -1694,10 +1754,25 @@ function drawShipSailTint(
   ctx.restore();
 }
 
+// Per-livery memo of the lower-cased cache-key suffix. Liveries are
+// referentially stable across frames (constructed once in ship-visuals.ts),
+// so we can collapse `livery.sailColor.toLowerCase()` plus the two sibling
+// `.toLowerCase()` calls and the join into one WeakMap lookup per call site
+// after warmup. Per-asset prefix is concatenated below.
+const liveryLowerKeyCache = new WeakMap<ShipLivery, string>();
+
+function liveryLowerKey(livery: ShipLivery): string {
+  const cached = liveryLowerKeyCache.get(livery);
+  if (cached !== undefined) return cached;
+  const built = `${livery.sailColor.toLowerCase()}:${livery.primary.toLowerCase()}:${livery.accent.toLowerCase()}`;
+  liveryLowerKeyCache.set(livery, built);
+  return built;
+}
+
 function shipSailTintCanvasFor(asset: LoadedPharosVilleAsset, livery: ShipLivery): HTMLCanvasElement | null {
   const { entry, image } = asset;
   const spec = SHIP_SAIL_TINT_MASKS[entry.id];
-  const cacheKey = `${entry.id}:${livery.sailColor.toLowerCase()}:${livery.primary.toLowerCase()}:${livery.accent.toLowerCase()}`;
+  const cacheKey = `${entry.id}:${liveryLowerKey(livery)}`;
   if (shipSailTintCache.has(cacheKey)) {
     const cached = shipSailTintCache.get(cacheKey) ?? null;
     shipSailTintCache.delete(cacheKey);
