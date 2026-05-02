@@ -41,7 +41,7 @@ The bare plaza in `current-center.png` corresponds to the *interior* of the comp
 - Lighthouse clearance box: `x:14..24, y:23..32` (`world-layout.ts:247-249`).
 - Cemetery islet: `CEMETERY_CENTER = (8, 50)`, ~5.4×3.8 ellipse — already a separate islet, irrelevant to center.
 - North harbor shelf around (30.5, 24.8) and northeast shelf around (37.8, 24.8) — dock bodies + their `civic-*` cluttered fringe (see `scenery.ts:42-89`).
-- Southern quay shelf around (31.4, 37.8) — dock bodies + plaque signs.
+- Southern quay shelf around (31.4, 37.8) — dock bodies.
 - East / Ethereum cove around (38.8, 31.3) — `dock.ethereum-civic-cove` is a 400×320 sprite occupying most of that quadrant.
 - West harbor cove around (23.6, 32.0) — west-lamp/seawall/mooring/barrels/steps cluster.
 - Existing district overlay pads: (31.0, 23.3), (21.2, 32.6), (32.2, 39.6), (42.5, 31.7) — already painted by `drawDistrictPad` in `harbor-district.ts:13-16`.

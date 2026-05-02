@@ -194,7 +194,6 @@ generic water.
 - Ship risk routes expose both `riskWaterLabel` and `riskZone` in details and the accessibility ledger. Reduced-motion ships freeze at their current risk-water idle tile, or Ledger Mooring for NAV ledger assets; harbor moorings are route stops, not the static representative position. In normal motion, routed ships spend one third of each cycle moored; non-titan, non-unique ships are hidden while moored, while titan and heritage-hull ships remain visible.
 - Dock sprites are rank/preference selected through manifest IDs such as `dock.ethereum-harbor-hub`, `dock.harbor-ring-quay`, `dock.compact-harbor-pier`, `dock.rollup-ferry-slip`, and `dock.bridge-pontoon`; Ethereum's hub remains selectable while its dock body is drawn behind ships so harbor traffic sails over it.
 - Dock selection reserves the Ethereum/L2 harbor cluster (`ethereum`, `base`, `arbitrum`, `polygon`) when those chains are present, intentionally suppresses Optimism as a rendered harbor, then fills the remaining eight-dock cap by chain stablecoin supply.
-- The Ethereum/L2 cove prints `ETHEREUM HARBOR` and `L2 BAY` plaque signs using the same canvas label treatment as named DEWS water areas.
 - Ship class is derived from governance/backing metadata:
   - centralized -> treasury galleon
   - centralized-dependent -> chartered brigantine

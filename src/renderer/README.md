@@ -14,8 +14,7 @@ The renderer turns a pure `PharosVilleWorld` model into a Canvas 2D scene plus a
   and `layers/ambient.ts` draw non-entity scene layers.
 - `layers/docks.ts`, `layers/ships.ts`, `layers/graves.ts`, and
   `layers/scenery.ts` own entity drawing details used by the entity pass.
-- `layers/water-labels.ts` draws printed water labels and harbor signs as a
-  post-entity overlay.
+- `layers/water-labels.ts` draws printed water labels as a post-entity overlay.
 - `layers/selection.ts` draws hover/selection rings and selected ship/dock
   relationship overlays.
 - `geometry.ts` owns shared render geometry for sprite draw points, manifest

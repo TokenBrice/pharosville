@@ -10,7 +10,7 @@ This atlas defines what to look at when reviewing PharosVille pixels. It complem
 | --- | --- | --- | --- |
 | Desktop shell | `pharosville renders desktop canvas shell` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-desktop-shell-linux.png` | Nonblank sea-first map, water/land balance, separated DEWS sea labels, lighthouse mountain, harbor ring, cemetery separation, civic scenery, toolbar/detail surfaces, absence of retired building targets, and no asset load errors. |
 | Dense lighthouse crop | `pharosville dense visual fixture preserves districts, dense ships, and render budget` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-lighthouse-linux.png` | Lighthouse style anchor, beacon massing, headland clearance, surrounding water/shore texture, and nearby sprite scale. |
-| Dense EVM bay crop | `pharosville dense visual fixture preserves districts, dense ships, and render budget` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-evm-bay-linux.png` | Ethereum four-gate harbor hub with ships visually sailing over it, L2 extension slips, rollup causeways, `ETHEREUM HARBOR` and `L2 BAY` plaque signs, quay pads, harbor clutter, visible ships, and ledger basin separation. |
+| Dense EVM bay crop | `pharosville dense visual fixture preserves districts, dense ships, and render budget` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-evm-bay-linux.png` | Ethereum four-gate harbor hub with ships visually sailing over it, L2 extension slips, rollup causeways, quay pads, harbor clutter, visible ships, and ledger basin separation. |
 | Dense ship field crop | `pharosville dense visual fixture preserves districts, dense ships, and render budget` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-ship-flotillas-linux.png` | Dense individual ship stress near Watch Breakwater, coherent citizen-boat sprites, absence of aggregate markers, and risk-water readability. |
 | Dense cemetery crop | `pharosville dense visual fixture preserves districts, dense ships, and render budget` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-cemetery-linux.png` | Maritime memorial terrace, dedicated marker sprite set, cause plaques, selected/major stone-mounted logos, and separation from docks/harbors. |
 | Dense civic core crop | `pharosville dense visual fixture preserves districts, dense ships, and render budget` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-civic-core-linux.png` | Civic spine scenery, cemetery adjacency, lighthouse scale relationship, harbor support scenery, and no retired building selection targets. |
@@ -54,7 +54,7 @@ Use these notes for the compact main-island revamp:
 - Dense lighthouse crop should check the final lighthouse tile, beacon point,
   hitbox, selection ring, visual-clearance box, and nearby water labels together.
 - Dense EVM bay crop should verify re-authored dock coordinates, outward
-  mooring water, Ethereum hub backgrounding, L2 bay grouping, sign placement,
+  mooring water, Ethereum hub backgrounding, L2 bay grouping,
   and ship readability around the tighter coast.
 - Dense civic core crop should confirm the new central overlay matches the
   generated land mask, harbor slots, lighthouse socket, and depth sorting.
