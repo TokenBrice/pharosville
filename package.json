@@ -43,7 +43,7 @@
     "check:release-readiness": "npm run check:branch-protection && npm run check:security-headers && npm run test:visual:cross-browser && npm run test:visual:dist:accessibility && npm run smoke:live -- --url https://pharosville.pharos.watch",
     "validate:docs": "npm run test:guard-scripts && npm run check:doc-paths-and-scripts",
     "validate": "npm run check:committed-secrets && npm run validate:docs && npm run check:pharosville-assets && npm run check:pharosville-colors && npm run typecheck && npm test && npm run build && npm run check:bundle-size",
-    "validate:release": "npm run validate && npm run test:visual:dist",
+    "validate:release": "npm run validate && npm run test:visual:dist && npm run test:visual:dist:accessibility",
     "deploy": "wrangler pages deploy dist --project-name=pharosville"
   },
   "dependencies": {
