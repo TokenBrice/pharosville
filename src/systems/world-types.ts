@@ -204,7 +204,7 @@ export interface GraveNode {
   logoSrc: string | null;
   tile: { x: number; y: number };
   visual: {
-    marker: "headstone" | "cross" | "tablet" | "ledger" | "reliquary";
+    marker: "broken-keel" | "sinking-stern" | "grounded" | "shattered" | "skeletal";
     scale: number;
   };
   detailId: string;

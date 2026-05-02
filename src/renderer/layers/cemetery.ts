@@ -1,394 +1,458 @@
-import { CEMETERY_CENTER, CEMETERY_RADIUS } from "../../systems/world-layout";
-import { TILE_HEIGHT, TILE_WIDTH, tileToScreen, type IsoCamera, type ScreenPoint } from "../../systems/projection";
-import { drawAsset, drawDiamond } from "../canvas-primitives";
+import { CEMETERY_CENTER, CEMETERY_ISLAND_RADIUS, CEMETERY_RADIUS } from "../../systems/world-layout";
+import { tileToScreen, type IsoCamera, type ScreenPoint } from "../../systems/projection";
+import { drawDiamond } from "../canvas-primitives";
 import type { DrawPharosVilleInput } from "../render-types";
 
-const CEMETERY_GLOBAL_SCALE = 0.6;
-const CEMETERY_CONTEXT_SCALE = 0.82 * CEMETERY_GLOBAL_SCALE;
-const CEMETERY_CONTEXT_SOURCE_CENTER = { x: 22.15, y: 41.7 } as const;
+const COVE_GLOBAL_SCALE = 0.62;
+const COVE_CONTEXT_SCALE = 0.82 * COVE_GLOBAL_SCALE;
+const COVE_CONTEXT_SOURCE_CENTER = { x: 22.15, y: 41.7 } as const;
 
-const CEMETERY_SURFACE = {
-  grass: "rgba(90, 126, 72, 0.72)",
-  grassEdge: "rgba(64, 96, 63, 0.56)",
-  limestone: "rgba(198, 183, 142, 0.58)",
-  limestoneCore: "rgba(220, 202, 154, 0.44)",
-  limestoneEdge: "rgba(111, 93, 67, 0.7)",
-  path: "rgba(151, 122, 79, 0.74)",
-  pathLight: "rgba(232, 200, 136, 0.42)",
-  post: "#3a2a1d",
-  postCap: "#d2aa61",
-  quayDark: "rgba(24, 38, 39, 0.74)",
-  quayFoam: "rgba(194, 231, 222, 0.42)",
+// The cemetery islet is repainted as a shallow lagoon ringed by foam, with a
+// small central sandbar carrying the centerpiece flagship wreck. The world
+// model still treats these tiles as land (so ships don't sail through them and
+// graves can be scattered on them); only the paint changes.
+const COVE = {
+  // Lagoon water — a lighter shoal version of the surrounding calm-water
+  // palette (#27734f) so the cove reads as continuous with the sea, just
+  // shallower. Slight green-teal lift suggests shoal sand showing through.
+  shallow: "rgba(112, 188, 144, 0.78)",
+  shallowInner: "rgba(154, 218, 178, 0.62)",
+  shallowDeep: "rgba(58, 142, 100, 0.7)",
+  ripple: "rgba(232, 248, 232, 0.38)",
+  // Sandbar (limestone-ish, kept warm to contrast the teal lagoon).
+  sandBar: "rgba(218, 198, 144, 0.94)",
+  sandBarEdge: "rgba(176, 152, 102, 0.86)",
+  sandBarWet: "rgba(150, 132, 92, 0.78)",
+  // Foam.
+  foamLight: "rgba(232, 244, 232, 0.86)",
+  foamMid: "rgba(192, 218, 212, 0.66)",
+  // Submerged rocks (very dark, just-below-surface).
+  rockSubmerged: "rgba(34, 44, 38, 0.86)",
+  rockSubmergedEdge: "rgba(86, 90, 78, 0.62)",
+  // Wreck wood palette for centerpiece + decorative hulls.
+  hullDark: "#2c1f15",
+  hullMid: "#5a3f26",
+  hullLight: "#8c6638",
+  hullPlank: "#b58146",
+  hullShadow: "rgba(12, 16, 14, 0.46)",
+  outline: "#1b1410",
+  rib: "rgba(220, 204, 168, 0.92)",
+  ribShadow: "#352618",
+  metalHighlight: "#d2aa61",
+  sailRag: "rgba(228, 218, 184, 0.72)",
 } as const;
 
-export function drawCemeteryGround({ assets, camera, ctx, world }: DrawPharosVilleInput) {
+const SANDBAR_RADIUS = { x: 2.1, y: 1.3 } as const;
+
+export function drawCemeteryGround({ camera, ctx, world }: DrawPharosVilleInput) {
   ctx.save();
+  // Paint lagoon water over every cemetery-islet tile (the full islet
+  // footprint, not just the inner cove ellipse), then carve out a small
+  // sandbar at the centre. The world model still treats these tiles as land
+  // so ships won't sail through the wreck field.
   for (const tile of world.map.tiles) {
     if (tile.kind !== "land" && tile.kind !== "shore") continue;
-    const value = cemeteryValue(tile.x, tile.y);
-    if (value > 1.08) continue;
+    const value = isletValue(tile.x, tile.y);
+    if (value > 1.04) continue;
+    const sandValue = sandbarValue(tile.x, tile.y);
     const p = tileToScreen(tile, camera);
+    if (sandValue < 1) {
+      // Sandbar core. Diamond is bumped to 44x22 so it fully obscures the
+      // 64x64 limestone PNG underneath (rendered at scale 0.62 ≈ 40px wide).
+      const wet = sandValue > 0.62;
+      drawDiamond(
+        ctx,
+        p.x,
+        p.y,
+        44 * camera.zoom,
+        22 * camera.zoom,
+        wet ? COVE.sandBarEdge : COVE.sandBar,
+      );
+      if (!wet) {
+        drawDiamond(
+          ctx,
+          p.x,
+          p.y + 1 * camera.zoom,
+          24 * camera.zoom,
+          11 * camera.zoom,
+          COVE.sandBar,
+        );
+      }
+      continue;
+    }
+    // Lagoon water tile. Diamond oversized for the same reason — the
+    // underlying terrain.land/terrain.shore PNG renders ~40px wide.
     const edge = value > 0.78;
-    const inner = value < 0.52;
+    const inner = value < 0.5;
     drawDiamond(
       ctx,
       p.x,
       p.y,
-      32 * camera.zoom,
-      16 * camera.zoom,
-      edge ? CEMETERY_SURFACE.grassEdge : CEMETERY_SURFACE.grass,
+      44 * camera.zoom,
+      22 * camera.zoom,
+      edge ? COVE.shallowDeep : COVE.shallow,
     );
-    if (!edge) {
+    if (!edge && inner) {
       drawDiamond(
         ctx,
         p.x,
         p.y + 1 * camera.zoom,
-        26 * camera.zoom,
-        12 * camera.zoom,
-        inner ? CEMETERY_SURFACE.limestoneCore : CEMETERY_SURFACE.limestone,
+        20 * camera.zoom,
+        9 * camera.zoom,
+        COVE.shallowInner,
       );
     }
-    if ((tile.x * 17 + tile.y * 29) % 7 === 0) {
-      drawCemeteryTuft(
-        ctx,
-        p.x + ((tile.x % 3) - 1) * 4 * camera.zoom * CEMETERY_GLOBAL_SCALE,
-        p.y + 3 * camera.zoom * CEMETERY_GLOBAL_SCALE,
-        camera.zoom * CEMETERY_GLOBAL_SCALE,
+    // Subtle ripple — short horizontal dashes scattered on a stable hash.
+    if ((tile.x * 17 + tile.y * 29) % 4 === 0) {
+      ctx.fillStyle = COVE.ripple;
+      const rx = p.x + ((tile.x % 3) - 1) * 2.5 * camera.zoom;
+      const ry = p.y + 1.5 * camera.zoom;
+      ctx.fillRect(
+        Math.round(rx - 4 * camera.zoom),
+        Math.round(ry),
+        Math.max(2, Math.round(8 * camera.zoom * COVE_GLOBAL_SCALE)),
+        Math.max(1, Math.round(1 * camera.zoom)),
       );
     }
   }
 
-  drawCemeteryQuayEdge(ctx, camera);
-  drawCemeteryPath(ctx, camera);
-  const terraceAsset = assets?.get("prop.memorial-terrace") ?? null;
-  if (terraceAsset) {
-    const terracePoint = tileToScreen(CEMETERY_CENTER, camera);
-    drawAsset(
-      ctx,
-      terraceAsset,
-      terracePoint.x,
-      terracePoint.y + 7 * camera.zoom * CEMETERY_GLOBAL_SCALE,
-      camera.zoom * 0.92,
-    );
-  }
-  drawCemeteryFence(ctx, camera);
+  drawSubmergedRocks(ctx, camera);
+  drawDecorativeHulls(ctx, camera);
+  drawCenterpieceFlagshipWreck(ctx, camera);
   ctx.restore();
 }
 
-function cemeteryValue(x: number, y: number) {
+function isletValue(x: number, y: number) {
+  return ((x - CEMETERY_CENTER.x) / CEMETERY_ISLAND_RADIUS.x) ** 2
+    + ((y - CEMETERY_CENTER.y) / CEMETERY_ISLAND_RADIUS.y) ** 2;
+}
+
+function coveValue(x: number, y: number) {
   return ((x - CEMETERY_CENTER.x) / CEMETERY_RADIUS.x) ** 2
     + ((y - CEMETERY_CENTER.y) / CEMETERY_RADIUS.y) ** 2;
 }
 
-function cemeteryContextTile(tile: { x: number; y: number }) {
+function sandbarValue(x: number, y: number) {
+  return ((x - CEMETERY_CENTER.x) / SANDBAR_RADIUS.x) ** 2
+    + ((y - CEMETERY_CENTER.y) / SANDBAR_RADIUS.y) ** 2;
+}
+
+function coveContextTile(tile: { x: number; y: number }) {
   return {
-    x: CEMETERY_CENTER.x + (tile.x - CEMETERY_CONTEXT_SOURCE_CENTER.x) * CEMETERY_CONTEXT_SCALE,
-    y: CEMETERY_CENTER.y + (tile.y - CEMETERY_CONTEXT_SOURCE_CENTER.y) * CEMETERY_CONTEXT_SCALE,
+    x: CEMETERY_CENTER.x + (tile.x - COVE_CONTEXT_SOURCE_CENTER.x) * COVE_CONTEXT_SCALE,
+    y: CEMETERY_CENTER.y + (tile.y - COVE_CONTEXT_SOURCE_CENTER.y) * COVE_CONTEXT_SCALE,
   };
 }
 
-function cemeteryContextTiles(tiles: readonly { x: number; y: number }[]) {
-  return tiles.map(cemeteryContextTile);
-}
-
-function drawCemeteryPath(ctx: CanvasRenderingContext2D, camera: IsoCamera) {
-  const northPath = cemeteryContextTiles([
-    { x: 21.25, y: 35.55 },
-    { x: 21.75, y: 38.4 },
-    { x: 21.6, y: 41.75 },
-    { x: 22.15, y: 44.65 },
-    { x: 21.7, y: 47.7 },
-  ]);
-  drawIsoStroke(ctx, camera, northPath, CEMETERY_SURFACE.path, 10 * CEMETERY_GLOBAL_SCALE);
-  drawIsoStroke(ctx, camera, cemeteryContextTiles([
-    { x: 14.55, y: 41.7 },
-    { x: 17.65, y: 41.32 },
-    { x: 21.75, y: 41.78 },
-    { x: 25.85, y: 41.35 },
-    { x: 29.7, y: 41.85 },
-  ]), CEMETERY_SURFACE.limestoneEdge, 6.5 * CEMETERY_GLOBAL_SCALE);
-  drawIsoStroke(ctx, camera, cemeteryContextTiles([
-    { x: 16.7, y: 38.95 },
-    { x: 18.4, y: 39.6 },
-    { x: 19.85, y: 40.65 },
-  ]), CEMETERY_SURFACE.limestoneEdge, 5.8 * CEMETERY_GLOBAL_SCALE);
-  drawIsoStroke(ctx, camera, northPath, CEMETERY_SURFACE.pathLight, 2.5 * CEMETERY_GLOBAL_SCALE);
-}
-
-function drawCemeteryQuayEdge(ctx: CanvasRenderingContext2D, camera: IsoCamera) {
-  const lowerEdge = cemeteryContextTiles([
-    { x: 14.35, y: 44.0 },
-    { x: 17.75, y: 47.9 },
-    { x: 22.2, y: 48.8 },
-    { x: 27.3, y: 46.85 },
-    { x: 30.6, y: 42.95 },
-  ]);
-  const upperEdge = cemeteryContextTiles([
-    { x: 14.1, y: 40.05 },
-    { x: 16.8, y: 36.25 },
-    { x: 21.1, y: 34.95 },
-    { x: 26.2, y: 35.9 },
-    { x: 30.45, y: 40.08 },
-  ]);
-  drawIsoStroke(ctx, camera, lowerEdge, CEMETERY_SURFACE.quayDark, 7 * CEMETERY_GLOBAL_SCALE);
-  drawIsoStroke(ctx, camera, upperEdge, CEMETERY_SURFACE.limestoneEdge, 4.5 * CEMETERY_GLOBAL_SCALE);
-  drawIsoStroke(ctx, camera, lowerEdge, CEMETERY_SURFACE.quayFoam, 1.6 * CEMETERY_GLOBAL_SCALE);
-}
-
-function drawCemeteryFence(ctx: CanvasRenderingContext2D, camera: IsoCamera) {
-  const rails = [
-    cemeteryContextTiles([
-      { x: 14.05, y: 40.2 },
-      { x: 16.65, y: 36.7 },
-      { x: 20.95, y: 35.2 },
-      { x: 25.95, y: 36.15 },
-      { x: 30.15, y: 40.25 },
-    ]),
-    cemeteryContextTiles([
-      { x: 14.1, y: 43.35 },
-      { x: 17.55, y: 47.25 },
-      { x: 22.1, y: 48.05 },
-      { x: 26.85, y: 46.25 },
-      { x: 30.2, y: 42.75 },
-    ]),
+function drawSubmergedRocks(ctx: CanvasRenderingContext2D, camera: IsoCamera) {
+  // A few rocks just under the lagoon surface — analytical "shoals" between wrecks.
+  const rocks = [
+    { x: 17.4, y: 38.8, scale: 0.78 },
+    { x: 28.6, y: 38.6, scale: 0.7 },
+    { x: 27.8, y: 45.6, scale: 0.92 },
+    { x: 16.2, y: 45.0, scale: 0.74 },
+    { x: 21.8, y: 36.6, scale: 0.55 },
+    { x: 23.2, y: 47.8, scale: 0.6 },
   ] as const;
-
-  for (const rail of rails) {
-    drawIsoStroke(ctx, camera, rail, "rgba(63, 53, 38, 0.74)", 3 * CEMETERY_GLOBAL_SCALE);
-    for (const tile of rail) {
-      const p = tileToScreen(tile, camera);
-      ctx.fillStyle = CEMETERY_SURFACE.post;
-      ctx.fillRect(
-        Math.round(p.x - 1 * camera.zoom * CEMETERY_GLOBAL_SCALE),
-        Math.round(p.y - 7 * camera.zoom * CEMETERY_GLOBAL_SCALE),
-        Math.max(1, Math.round(2 * camera.zoom * CEMETERY_GLOBAL_SCALE)),
-        Math.max(3, Math.round(9 * camera.zoom * CEMETERY_GLOBAL_SCALE)),
-      );
-      ctx.fillStyle = CEMETERY_SURFACE.postCap;
-      ctx.fillRect(
-        Math.round(p.x - 1 * camera.zoom * CEMETERY_GLOBAL_SCALE),
-        Math.round(p.y - 8 * camera.zoom * CEMETERY_GLOBAL_SCALE),
-        Math.max(1, Math.round(2 * camera.zoom * CEMETERY_GLOBAL_SCALE)),
-        Math.max(1, Math.round(2 * camera.zoom * CEMETERY_GLOBAL_SCALE)),
-      );
-    }
+  for (const rock of rocks) {
+    const p = tileToScreen(coveContextTile(rock), camera);
+    drawSubmergedRock(ctx, p.x, p.y, camera.zoom * rock.scale * COVE_CONTEXT_SCALE);
   }
 }
 
-function drawIsoStroke(
+function drawSubmergedRock(ctx: CanvasRenderingContext2D, x: number, y: number, zoom: number) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(zoom, zoom);
+  ctx.fillStyle = COVE.rockSubmergedEdge;
+  ctx.beginPath();
+  ctx.ellipse(0, 1, 9, 3.6, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = COVE.rockSubmerged;
+  ctx.beginPath();
+  ctx.ellipse(-0.4, 0, 7, 2.8, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Subtle foam-cap from the rock breaking the surface.
+  ctx.strokeStyle = COVE.foamLight;
+  ctx.lineWidth = 0.7;
+  ctx.beginPath();
+  ctx.ellipse(0, 1, 9, 3.6, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawDecorativeHulls(ctx: CanvasRenderingContext2D, camera: IsoCamera) {
+  // A pair of larger half-sunken hulls flanking the centerpiece, suggesting
+  // a debris field deeper than the per-grave node count.
+  drawHalfSunkenHull(
+    ctx,
+    tileToScreen(coveContextTile({ x: 16.4, y: 40.0 }), camera),
+    camera.zoom * 1.35 * COVE_CONTEXT_SCALE,
+    -0.42,
+  );
+  drawHalfSunkenHull(
+    ctx,
+    tileToScreen(coveContextTile({ x: 28.4, y: 44.4 }), camera),
+    camera.zoom * 1.2 * COVE_CONTEXT_SCALE,
+    1.4,
+  );
+}
+
+function drawHalfSunkenHull(
   ctx: CanvasRenderingContext2D,
-  camera: IsoCamera,
-  tiles: readonly { x: number; y: number }[],
-  color: string,
-  width: number,
+  point: ScreenPoint,
+  zoom: number,
+  rotation: number,
 ) {
-  if (tiles.length === 0) return;
-  ctx.save();
-  ctx.strokeStyle = color;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.lineWidth = Math.max(1, width * camera.zoom);
-  tiles.forEach((tile, index) => {
-    const p = tileToScreen(tile, camera);
-    if (index === 0) {
-      ctx.beginPath();
-      ctx.moveTo(p.x, p.y);
-    } else {
-      ctx.lineTo(p.x, p.y);
-    }
-  });
-  ctx.stroke();
-  ctx.restore();
-}
-
-function drawCemeteryTuft(ctx: CanvasRenderingContext2D, x: number, y: number, zoom: number) {
-  ctx.fillStyle = "rgba(78, 126, 68, 0.58)";
-  ctx.fillRect(Math.round(x - 2 * zoom), Math.round(y), Math.max(1, Math.round(2 * zoom)), Math.max(1, Math.round(4 * zoom)));
-  ctx.fillStyle = "rgba(45, 88, 56, 0.64)";
-  ctx.fillRect(Math.round(x + 1 * zoom), Math.round(y + 1 * zoom), Math.max(1, Math.round(2 * zoom)), Math.max(1, Math.round(3 * zoom)));
-}
-
-export function drawCemeteryContext({ camera, ctx }: DrawPharosVilleInput) {
-  const contextZoom = camera.zoom * CEMETERY_CONTEXT_SCALE;
-  drawCemeteryShrubs(ctx, camera);
-  drawMausoleum(ctx, tileToScreen(cemeteryContextTile({ x: 16.85, y: 38.75 }), camera), contextZoom);
-  drawMemorialShrine(ctx, tileToScreen(CEMETERY_CENTER, camera), contextZoom);
-  drawCemeteryTree(ctx, tileToScreen(cemeteryContextTile({ x: 14.95, y: 39.05 }), camera), contextZoom, false);
-  drawCemeteryTree(ctx, tileToScreen(cemeteryContextTile({ x: 29.0, y: 43.35 }), camera), contextZoom, true);
-  drawStoneLantern(ctx, tileToScreen(cemeteryContextTile({ x: 24.95, y: 36.65 }), camera), contextZoom);
-  drawStoneLantern(ctx, tileToScreen(cemeteryContextTile({ x: 18.65, y: 46.1 }), camera), contextZoom);
-}
-
-function drawCemeteryShrubs(ctx: CanvasRenderingContext2D, camera: IsoCamera) {
-  const shrubs = [
-    { x: 15.35, y: 44.65, size: 0.9 },
-    { x: 17.6, y: 36.5, size: 0.72 },
-    { x: 20.5, y: 47.0, size: 0.78 },
-    { x: 24.8, y: 47.25, size: 0.85 },
-    { x: 28.3, y: 38.95, size: 0.7 },
-    { x: 28.95, y: 45.0, size: 0.92 },
-    { x: 14.7, y: 41.45, size: 0.72 },
-    { x: 23.8, y: 35.7, size: 0.68 },
-    { x: 16.05, y: 47.1, size: 0.74 },
-    { x: 29.25, y: 41.1, size: 0.76 },
-  ] as const;
-  for (const shrub of shrubs) {
-    const p = tileToScreen(cemeteryContextTile(shrub), camera);
-    drawShrub(ctx, p.x, p.y + 2 * camera.zoom, camera.zoom * shrub.size * CEMETERY_CONTEXT_SCALE);
-  }
-}
-
-function drawShrub(ctx: CanvasRenderingContext2D, x: number, y: number, zoom: number) {
-  ctx.save();
-  ctx.fillStyle = "#314f37";
-  ctx.beginPath();
-  ctx.ellipse(x, y + 2 * zoom, 9 * zoom, 4 * zoom, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "#6f8f58";
-  for (let index = 0; index < 3; index += 1) {
-    ctx.beginPath();
-    ctx.arc(x + (index - 1) * 5 * zoom, y - index * zoom, (4 + index) * zoom, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.restore();
-}
-
-function drawMausoleum(ctx: CanvasRenderingContext2D, point: ScreenPoint, zoom: number) {
   ctx.save();
   ctx.translate(point.x, point.y);
+  ctx.rotate(rotation);
   ctx.scale(zoom, zoom);
-  ctx.fillStyle = "rgba(18, 20, 18, 0.34)";
+  // Foam ring around the waterline.
+  ctx.fillStyle = COVE.foamLight;
   ctx.beginPath();
-  ctx.ellipse(0, 7, 28, 9, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 1.5, 18, 5, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = "#6f6f64";
-  ctx.fillRect(-18, -32, 36, 28);
-  ctx.fillStyle = "#b7aa88";
-  ctx.fillRect(-14, -29, 28, 23);
-  ctx.fillStyle = "#4e4030";
-  ctx.fillRect(-7, -18, 14, 14);
-  ctx.fillStyle = "#d3bf86";
-  ctx.fillRect(-21, -5, 42, 6);
-  ctx.fillStyle = "#7b5a3f";
+  ctx.fillStyle = COVE.foamMid;
   ctx.beginPath();
-  ctx.moveTo(-21, -32);
-  ctx.lineTo(0, -48);
-  ctx.lineTo(21, -32);
+  ctx.ellipse(0, 1.5, 14, 3.6, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Hull silhouette (only top half visible above water).
+  ctx.fillStyle = COVE.hullDark;
+  ctx.beginPath();
+  ctx.moveTo(-13, 1);
+  ctx.quadraticCurveTo(-12, -3, -7, -4);
+  ctx.lineTo(7, -4);
+  ctx.quadraticCurveTo(12, -3, 13, 1);
   ctx.closePath();
   ctx.fill();
-  ctx.fillStyle = "#d9c58c";
-  ctx.fillRect(-2, -57, 4, 12);
-  ctx.fillRect(-7, -53, 14, 4);
-  ctx.restore();
-}
-
-function drawMemorialShrine(ctx: CanvasRenderingContext2D, point: ScreenPoint, zoom: number) {
-  ctx.save();
-  ctx.translate(point.x, point.y);
-  ctx.scale(zoom, zoom);
-  ctx.fillStyle = "rgba(16, 19, 16, 0.32)";
+  ctx.strokeStyle = COVE.outline;
+  ctx.lineWidth = 0.6;
+  ctx.stroke();
+  // Deck.
+  ctx.fillStyle = COVE.hullMid;
   ctx.beginPath();
-  ctx.ellipse(0, 8, 30, 8, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = "#6c6554";
-  ctx.fillRect(-20, -1, 40, 7);
-  ctx.fillStyle = "#d4c089";
-  ctx.fillRect(-16, -7, 32, 7);
-  ctx.fillStyle = "#8e836a";
-  ctx.fillRect(-14, -27, 28, 22);
-  ctx.fillStyle = "#c7b78f";
-  ctx.beginPath();
-  ctx.moveTo(-11, -6);
-  ctx.lineTo(-11, -20);
-  ctx.quadraticCurveTo(-10, -31, 0, -35);
-  ctx.quadraticCurveTo(10, -31, 11, -20);
-  ctx.lineTo(11, -6);
+  ctx.moveTo(-11, 0.4);
+  ctx.quadraticCurveTo(-10, -2.4, -6, -3);
+  ctx.lineTo(6, -3);
+  ctx.quadraticCurveTo(10, -2.4, 11, 0.4);
   ctx.closePath();
   ctx.fill();
-  ctx.strokeStyle = "#3b3023";
-  ctx.lineWidth = 1.1;
-  ctx.stroke();
-
-  ctx.fillStyle = "#71664f";
-  ctx.fillRect(-16, -26, 5, 21);
-  ctx.fillRect(11, -26, 5, 21);
-  ctx.fillStyle = "#eee0a8";
-  ctx.fillRect(-8, -15, 16, 2);
-  ctx.fillRect(-7, -11, 14, 2);
-  ctx.fillStyle = "#d6aa5d";
-  ctx.fillRect(-5, -22, 10, 3);
-  ctx.restore();
-}
-
-function drawCemeteryTree(ctx: CanvasRenderingContext2D, point: ScreenPoint, zoom: number, bare: boolean) {
-  ctx.save();
-  ctx.translate(point.x, point.y);
-  ctx.scale(zoom, zoom);
-  ctx.fillStyle = "rgba(14, 18, 13, 0.32)";
-  ctx.beginPath();
-  ctx.ellipse(2, 6, 18, 6, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = "#5b3a24";
-  ctx.lineWidth = 4;
-  ctx.beginPath();
-  ctx.moveTo(0, 6);
-  ctx.lineTo(1, -28);
-  ctx.stroke();
-  ctx.lineWidth = 2;
-  for (const branch of bare ? [-1, 1, 2, -2] : [-1, 1]) {
+  // Plank lines.
+  ctx.strokeStyle = COVE.outline;
+  ctx.lineWidth = 0.45;
+  for (let i = -8; i <= 8; i += 2.4) {
     ctx.beginPath();
-    ctx.moveTo(0, -18 + Math.abs(branch) * 2);
-    ctx.lineTo(branch * 10, -31 - Math.abs(branch) * 4);
+    ctx.moveTo(i, -2.6);
+    ctx.lineTo(i + 0.3, 0.2);
     ctx.stroke();
   }
-  if (!bare) {
-    ctx.fillStyle = "#78915b";
-    ctx.beginPath();
-    ctx.arc(-5, -35, 12, 0, Math.PI * 2);
-    ctx.arc(7, -32, 13, 0, Math.PI * 2);
-    ctx.arc(1, -45, 10, 0, Math.PI * 2);
-    ctx.fill();
-  }
+  // Snapped mast lying across.
+  ctx.fillStyle = COVE.hullPlank;
+  ctx.fillRect(-10, -7, 18, 1.2);
+  ctx.fillStyle = COVE.outline;
+  ctx.fillRect(-10, -7, 18, 0.4);
   ctx.restore();
 }
 
-function drawStoneLantern(ctx: CanvasRenderingContext2D, point: ScreenPoint, zoom: number) {
+function drawCenterpieceFlagshipWreck(ctx: CanvasRenderingContext2D, camera: IsoCamera) {
+  // Large half-sunken flagship anchoring the wreck-cove on the sandbar.
+  const center = tileToScreen(CEMETERY_CENTER, camera);
+  const zoom = camera.zoom * 1.7;
   ctx.save();
-  ctx.translate(point.x, point.y);
+  ctx.translate(center.x, center.y - 2 * camera.zoom);
   ctx.scale(zoom, zoom);
-  ctx.fillStyle = "rgba(14, 17, 14, 0.28)";
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+
+  // Foam halo around the centerpiece.
+  ctx.fillStyle = COVE.foamLight;
   ctx.beginPath();
-  ctx.ellipse(0, 5, 8, 3, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 8, 38, 11, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = "#91846b";
-  ctx.fillRect(-2, -12, 4, 15);
-  ctx.fillRect(-7, 1, 14, 4);
-  ctx.fillStyle = "#c9b88a";
-  ctx.fillRect(-6, -18, 12, 6);
-  ctx.fillStyle = "#d4b663";
-  ctx.fillRect(-3, -17, 6, 3);
+  ctx.fillStyle = COVE.foamMid;
+  ctx.beginPath();
+  ctx.ellipse(0, 8, 32, 8, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Ground shadow.
+  ctx.fillStyle = COVE.hullShadow;
+  ctx.beginPath();
+  ctx.ellipse(0, 11, 30, 6, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Stern (right) — listing slightly upward.
+  ctx.save();
+  ctx.translate(14, -1);
+  ctx.rotate(-0.16);
+  ctx.fillStyle = COVE.hullDark;
+  ctx.beginPath();
+  ctx.moveTo(-8, 5);
+  ctx.lineTo(-7, -7);
+  ctx.quadraticCurveTo(-3, -10, 5, -10);
+  ctx.quadraticCurveTo(11, -9, 13, -3);
+  ctx.lineTo(13, 5);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = COVE.outline;
+  ctx.lineWidth = 0.7;
+  ctx.stroke();
+  ctx.fillStyle = COVE.hullMid;
+  ctx.beginPath();
+  ctx.moveTo(-6, 3);
+  ctx.lineTo(-5.4, -6);
+  ctx.quadraticCurveTo(-2, -8, 4.6, -8);
+  ctx.quadraticCurveTo(9, -7, 11, -2.4);
+  ctx.lineTo(11, 3);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = COVE.outline;
+  ctx.lineWidth = 0.45;
+  for (let i = -4; i <= 8; i += 2.4) {
+    ctx.beginPath();
+    ctx.moveTo(i, -7.2);
+    ctx.lineTo(i + 0.3, 2.6);
+    ctx.stroke();
+  }
+  ctx.fillStyle = COVE.metalHighlight;
+  ctx.beginPath();
+  ctx.arc(8.4, -10.4, 1.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = COVE.outline;
+  ctx.lineWidth = 0.4;
+  ctx.beginPath();
+  ctx.moveTo(8.4, -9.4);
+  ctx.lineTo(8.4, -8.2);
+  ctx.stroke();
   ctx.restore();
+
+  // Bow (left) — sunken deeper, only the prow visible.
+  ctx.save();
+  ctx.translate(-14, 2);
+  ctx.rotate(0.08);
+  ctx.fillStyle = COVE.hullDark;
+  ctx.beginPath();
+  ctx.moveTo(-13, 2);
+  ctx.quadraticCurveTo(-12, -4, -7, -5);
+  ctx.lineTo(0, -5);
+  ctx.lineTo(2, 4);
+  ctx.lineTo(-11, 4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = COVE.outline;
+  ctx.lineWidth = 0.7;
+  ctx.stroke();
+  ctx.fillStyle = COVE.hullMid;
+  ctx.beginPath();
+  ctx.moveTo(-11, 1);
+  ctx.quadraticCurveTo(-10.4, -3.4, -6.6, -4);
+  ctx.lineTo(-0.4, -4);
+  ctx.lineTo(0.6, 1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = COVE.hullPlank;
+  ctx.fillRect(-15, -5, 5, 1.1);
+  ctx.fillStyle = COVE.hullDark;
+  ctx.fillRect(-15, -4.6, 5, 0.4);
+  ctx.strokeStyle = COVE.outline;
+  ctx.lineWidth = 0.45;
+  for (let i = -8; i <= 0; i += 2.2) {
+    ctx.beginPath();
+    ctx.moveTo(i, -3.6);
+    ctx.lineTo(i + 0.3, 0.6);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Cracked midship gap with exposed ribs.
+  for (const rx of [-3.6, -1.2, 1.2, 3.6]) {
+    ctx.strokeStyle = COVE.rib;
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(rx, 4);
+    ctx.quadraticCurveTo(rx + 0.3, -2, rx - 0.4, -6);
+    ctx.stroke();
+    ctx.strokeStyle = COVE.ribShadow;
+    ctx.lineWidth = 0.7;
+    ctx.beginPath();
+    ctx.moveTo(rx + 0.4, 4);
+    ctx.quadraticCurveTo(rx + 0.7, -2, rx, -6);
+    ctx.stroke();
+  }
+  ctx.fillStyle = COVE.hullDark;
+  ctx.fillRect(-6, 3.6, 12, 1.4);
+
+  // Snapped main mast lying diagonally.
+  ctx.save();
+  ctx.rotate(-0.32);
+  ctx.fillStyle = COVE.hullPlank;
+  ctx.fillRect(-22, -14, 36, 2);
+  ctx.fillStyle = COVE.outline;
+  ctx.fillRect(-22, -14, 36, 0.6);
+  ctx.fillStyle = COVE.hullDark;
+  ctx.beginPath();
+  ctx.moveTo(-22, -14);
+  ctx.lineTo(-24.2, -12.8);
+  ctx.lineTo(-22, -11.5);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(14, -14);
+  ctx.lineTo(16.4, -12.6);
+  ctx.lineTo(14, -11.5);
+  ctx.fill();
+  ctx.fillStyle = COVE.hullPlank;
+  ctx.fillRect(-12, -10, 16, 1.4);
+  ctx.fillStyle = COVE.sailRag;
+  ctx.beginPath();
+  ctx.moveTo(-10, -10);
+  ctx.lineTo(-4, -10);
+  ctx.lineTo(-3, -6);
+  ctx.lineTo(-9, -5);
+  ctx.lineTo(-10.5, -8);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = COVE.outline;
+  ctx.lineWidth = 0.45;
+  ctx.stroke();
+  ctx.restore();
+
+  // Captain's seal — bronze medallion.
+  ctx.fillStyle = COVE.metalHighlight;
+  ctx.beginPath();
+  ctx.arc(0, -0.4, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = COVE.outline;
+  ctx.lineWidth = 0.45;
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+export function drawCemeteryContext(_input: DrawPharosVilleInput) {
+  // The cove is now drawn entirely from drawCemeteryGround. Decorative hulls,
+  // submerged rocks, and the centerpiece are painted there so they share the
+  // sandbar/lagoon paint pass; nothing else needs to render at the context
+  // layer. The export is kept for renderer-pass stability.
 }
 
 export function drawCemeteryMist({ camera, ctx, motion }: DrawPharosVilleInput) {
-  const drift = motion.reducedMotion ? 0 : Math.sin(motion.timeSeconds * 0.38) * 8 * camera.zoom;
+  // Sea-spray drift across the cove surface.
+  const drift = motion.reducedMotion ? 0 : Math.sin(motion.timeSeconds * 0.42) * 7 * camera.zoom;
   const bands = [
-    { alpha: 0.13, rx: 45, ry: 4.2, tile: { x: 18.9, y: 44.8 } },
-    { alpha: 0.1, rx: 58, ry: 4.2, tile: { x: 22.8, y: 45.4 } },
-    { alpha: 0.09, rx: 42, ry: 3.6, tile: { x: 26.7, y: 39.2 } },
-    { alpha: 0.08, rx: 37, ry: 3, tile: { x: 17.25, y: 39.0 } },
+    { alpha: 0.1, rx: 48, ry: 4.4, tile: { x: 18.9, y: 44.8 } },
+    { alpha: 0.08, rx: 60, ry: 4.4, tile: { x: 22.8, y: 45.4 } },
+    { alpha: 0.07, rx: 44, ry: 3.6, tile: { x: 26.7, y: 39.2 } },
+    { alpha: 0.06, rx: 38, ry: 3.0, tile: { x: 17.25, y: 39.0 } },
   ] as const;
 
   ctx.save();
   for (const band of bands) {
-    const p = tileToScreen(cemeteryContextTile(band.tile), camera);
-    ctx.strokeStyle = `rgba(205, 218, 194, ${band.alpha})`;
-    ctx.lineWidth = Math.max(1, 3 * camera.zoom);
+    const p = tileToScreen(coveContextTile(band.tile), camera);
+    ctx.strokeStyle = `rgba(214, 226, 218, ${band.alpha})`;
+    ctx.lineWidth = Math.max(1, 2.4 * camera.zoom);
     ctx.beginPath();
     ctx.ellipse(p.x + drift, p.y, band.rx * camera.zoom, band.ry * camera.zoom, -0.08, 0, Math.PI * 2);
     ctx.stroke();
   }
   ctx.restore();
 }
-

@@ -2,38 +2,55 @@ import { CAUSE_HEX, type CauseOfDeath } from "@shared/lib/cause-of-death";
 import type { ScreenPoint } from "../../systems/projection";
 import type { PharosVilleWorld } from "../../systems/world-types";
 import type { PharosVilleAssetManager } from "../asset-manager";
-import { drawAsset, hexToRgba, roundedRectPath, stableVisualVariant } from "../canvas-primitives";
+import { hexToRgba, roundedRectPath } from "../canvas-primitives";
 import type { RenderFrameCache } from "../frame-cache";
 import type { ResolvedEntityGeometry } from "../geometry";
 import type { DrawPharosVilleInput } from "../render-types";
 
 const GRAVE_CAUSE_COLORS: Record<CauseOfDeath, string> = CAUSE_HEX;
 
-type GraveNodeMarker = PharosVilleWorld["graves"][number]["visual"]["marker"];
+type WreckMarker = PharosVilleWorld["graves"][number]["visual"]["marker"];
 
-const GRAVE_ASSET_IDS: Record<GraveNodeMarker, string> = {
-  cross: "prop.regulatory-obelisk",
-  headstone: "prop.memorial-headstone",
-  ledger: "prop.ledger-slab",
-  reliquary: "prop.reliquary-marker",
-  tablet: "prop.ledger-slab",
+// Logo plaque vertical offset above the wreck silhouette, in coordinate-space units.
+const WRECK_LOGO_OFFSET: Record<WreckMarker, number> = {
+  "broken-keel": 11,
+  "sinking-stern": 13,
+  grounded: 14,
+  shattered: 11,
+  skeletal: 10,
 };
 
-const GRAVE_ASSET_SCALE: Record<GraveNodeMarker, number> = {
-  cross: 0.6,
-  headstone: 0.64,
-  ledger: 0.7,
-  reliquary: 0.58,
-  tablet: 0.68,
-};
+// Visual abstraction tier — many small dead coins should not each render a
+// full wreck silhouette; the cove reads as a debris field by tiering the
+// per-grave visual into:
+//   major   — distinct half-sunken wreck silhouette (one of 5 cause variants)
+//   medium  — partial hull stub (bow or stern only)
+//   debris  — a couple of floating planks
+type WreckTier = "major" | "medium" | "debris";
 
-const GRAVE_LOGO_OFFSET: Record<GraveNodeMarker, number> = {
-  cross: 13.2,
-  headstone: 8.6,
-  ledger: 5.7,
-  reliquary: 10.4,
-  tablet: 6.2,
-};
+function wreckTier(scale: number): WreckTier {
+  if (scale >= 0.41) return "major";
+  if (scale >= 0.33) return "medium";
+  return "debris";
+}
+
+const WRECK_PALETTE = {
+  hullDark: "#2c1f15",
+  hullMid: "#5a3f26",
+  hullLight: "#8c6638",
+  hullPlank: "#b58146",
+  hullShadow: "rgba(12, 16, 14, 0.46)",
+  outline: "#1b1410",
+  rib: "rgba(220, 204, 168, 0.92)",
+  ribShadow: "#352618",
+  metal: "#7d6a3a",
+  metalHighlight: "#d2aa61",
+  foam: "rgba(232, 244, 232, 0.78)",
+  foamCore: "rgba(186, 214, 206, 0.62)",
+  rock: "#5a5246",
+  rockHighlight: "#a39074",
+  sailRag: "rgba(228, 218, 184, 0.7)",
+} as const;
 
 export interface GraveRenderState {
   causeColor: string;
@@ -65,81 +82,58 @@ function graveRenderState(input: DrawPharosVilleInput, frame: GraveRenderFrame, 
 export function drawGraveUnderlay(input: DrawPharosVilleInput, frame: GraveRenderFrame, grave: PharosVilleWorld["graves"][number]) {
   const { ctx } = input;
   const { causeColor, emphasized, geometry, graveZoom } = graveRenderState(input, frame, grave);
-  drawGraveShadow(ctx, geometry.drawPoint.x, geometry.drawPoint.y, graveZoom, causeColor, emphasized);
+  drawWreckGroundShadow(ctx, geometry.drawPoint.x, geometry.drawPoint.y, graveZoom, causeColor, emphasized);
 }
 
 export function drawGraveBody(input: DrawPharosVilleInput, frame: GraveRenderFrame, grave: PharosVilleWorld["graves"][number]) {
-  const { assets, camera, ctx } = input;
-  const { causeColor, emphasized, geometry, p } = graveRenderState(input, frame, grave);
-  const graveAsset = assets?.get(GRAVE_ASSET_IDS[grave.visual.marker]) ?? null;
-  if (graveAsset) {
-    ctx.save();
-    ctx.globalAlpha = emphasized || grave.visual.scale >= 0.41 ? 1 : 0.84;
-    drawAsset(
-      ctx,
-      graveAsset,
-      geometry.drawPoint.x,
-      geometry.drawPoint.y + graveAssetYOffset(grave.visual.marker, camera.zoom),
-      camera.zoom * grave.visual.scale * GRAVE_ASSET_SCALE[grave.visual.marker],
-    );
-    ctx.restore();
-    drawGraveCauseChip(
-      ctx,
-      geometry.drawPoint.x,
-      geometry.drawPoint.y - (GRAVE_LOGO_OFFSET[grave.visual.marker] + 3.4) * camera.zoom * grave.visual.scale,
-      causeColor,
-      camera.zoom * grave.visual.scale,
-    );
+  const { camera, ctx } = input;
+  const { causeColor, geometry } = graveRenderState(input, frame, grave);
+  const tier = wreckTier(grave.visual.scale);
+  if (tier === "debris") {
+    drawFloatingDebris(ctx, geometry.drawPoint.x, geometry.drawPoint.y, camera.zoom * grave.visual.scale, causeColor, grave.id);
     return;
   }
-  drawProceduralGrave(
+  if (tier === "medium") {
+    drawHullStub(ctx, geometry.drawPoint.x, geometry.drawPoint.y, camera.zoom * grave.visual.scale, causeColor, grave.visual.marker, grave.id);
+    return;
+  }
+  drawProceduralWreck(
     ctx,
-    p.x,
-    p.y,
+    geometry.drawPoint.x,
+    geometry.drawPoint.y,
     camera.zoom,
     causeColor,
     grave.visual.marker,
     grave.visual.scale,
-    grave.entry.causeOfDeath,
   );
-}
-
-function graveAssetYOffset(marker: GraveNodeMarker, zoom: number) {
-  if (marker === "ledger" || marker === "tablet") return 3.2 * zoom;
-  if (marker === "reliquary") return 1.2 * zoom;
-  return 1.8 * zoom;
-}
-
-function drawGraveCauseChip(ctx: CanvasRenderingContext2D, x: number, y: number, causeColor: string, scale: number) {
-  ctx.save();
-  ctx.fillStyle = hexToRgba(causeColor, 0.68);
-  ctx.strokeStyle = "rgba(52, 42, 28, 0.58)";
-  ctx.lineWidth = Math.max(0.7, 0.8 * scale);
-  roundedRectPath(ctx, x - 2.9 * scale, y - 1.6 * scale, 5.8 * scale, 3.2 * scale, 1.1 * scale);
-  ctx.fill();
-  ctx.stroke();
-  ctx.restore();
 }
 
 export function drawGraveOverlay(input: DrawPharosVilleInput, frame: GraveRenderFrame, grave: PharosVilleWorld["graves"][number]) {
   const { assets, camera, ctx } = input;
   const { causeColor, emphasized, geometry } = graveRenderState(input, frame, grave);
-  const major = grave.visual.scale >= 0.41;
-  if (!emphasized && !major) return;
+  const tier = wreckTier(grave.visual.scale);
+  // Only major wrecks always carry a logo plaque; medium/debris only show one
+  // when hovered/selected so the cove doesn't turn into a wall of plaques.
+  if (!emphasized && tier !== "major") return;
+  const offsetUnits = tier === "major"
+    ? WRECK_LOGO_OFFSET[grave.visual.marker]
+    : tier === "medium"
+      ? 8
+      : 5;
   drawGraveLogo({
     ctx,
     causeColor,
     emphasized,
-    major,
+    major: tier === "major",
     logo: assets?.getLogo(grave.logoSrc) ?? null,
     mark: grave.label,
     radius: Math.max(1, 2.05 * camera.zoom * Math.sqrt(grave.visual.scale)),
     x: geometry.drawPoint.x,
-    y: geometry.drawPoint.y - GRAVE_LOGO_OFFSET[grave.visual.marker] * camera.zoom * grave.visual.scale,
+    y: geometry.drawPoint.y - offsetUnits * camera.zoom * grave.visual.scale,
   });
 }
 
-function drawGraveShadow(
+function drawWreckGroundShadow(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -148,312 +142,640 @@ function drawGraveShadow(
   emphasized: boolean,
 ) {
   ctx.save();
-  ctx.fillStyle = emphasized ? `${causeColor}66` : "rgba(13, 18, 14, 0.38)";
+  // Foam ring around the waterline — wrecks now sit IN water.
+  ctx.fillStyle = WRECK_PALETTE.foam;
   ctx.beginPath();
-  ctx.ellipse(x, y + 5 * zoom, 12 * zoom, 5 * zoom, 0, 0, Math.PI * 2);
+  ctx.ellipse(x, y + 3 * zoom, 17 * zoom, 5.5 * zoom, 0, 0, Math.PI * 2);
   ctx.fill();
+  ctx.fillStyle = WRECK_PALETTE.foamCore;
+  ctx.beginPath();
+  ctx.ellipse(x, y + 3 * zoom, 13 * zoom, 4 * zoom, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Hover/selection halo overrides foam.
+  if (emphasized) {
+    ctx.fillStyle = `${causeColor}55`;
+    ctx.beginPath();
+    ctx.ellipse(x, y + 3 * zoom, 18 * zoom, 6 * zoom, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.restore();
 }
 
-const GRAVE_STONE = {
-  cap: "#9aa49a",
-  dark: "#35413f",
-  face: "#748078",
-  highlight: "rgba(224, 232, 215, 0.28)",
-  moss: "#416c3f",
-  outline: "#1b2021",
-  side: "#52605c",
-  weather: "rgba(17, 23, 21, 0.26)",
-} as const;
-
-function drawProceduralGrave(
+function drawProceduralWreck(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
   zoom: number,
   causeColor: string,
-  marker: GraveNodeMarker,
+  marker: WreckMarker,
   markerScale: number,
-  causeOfDeath: CauseOfDeath,
 ) {
   ctx.save();
-  ctx.translate(x, y + 2 * zoom);
-  ctx.scale(zoom * markerScale, zoom * markerScale);
-  ctx.scale(1.1, 1.06);
+  ctx.translate(x, y + 1 * zoom);
+  ctx.scale(zoom * markerScale * 2.2, zoom * markerScale * 2.2);
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
 
-  drawGraveTufts(ctx, marker);
-  if (marker === "cross") {
-    drawCrossMarker(ctx, causeColor, causeOfDeath);
-  } else if (marker === "reliquary") {
-    drawReliquaryMarker(ctx, causeColor, causeOfDeath);
-  } else if (marker === "tablet") {
-    drawTabletMarker(ctx, causeColor, causeOfDeath);
-  } else if (marker === "ledger") {
-    drawLedgerMarker(ctx, causeColor, causeOfDeath);
-  } else {
-    drawHeadstoneMarker(ctx, causeColor, causeOfDeath);
-  }
+  if (marker === "broken-keel") drawBrokenKeel(ctx, causeColor);
+  else if (marker === "sinking-stern") drawSinkingStern(ctx, causeColor);
+  else if (marker === "grounded") drawGroundedWreck(ctx, causeColor);
+  else if (marker === "shattered") drawShatteredWreck(ctx, causeColor);
+  else drawSkeletalWreck(ctx, causeColor);
+
   ctx.restore();
 }
 
-function drawHeadstoneMarker(ctx: CanvasRenderingContext2D, causeColor: string, causeOfDeath: CauseOfDeath) {
-  drawGraveBase(ctx, 19);
-  drawStonePolygon(ctx, [[8.2, -4], [10.8, -6], [10.8, -13.2], [8.2, -12.6]], GRAVE_STONE.side);
-
+function drawBrokenKeel(ctx: CanvasRenderingContext2D, causeColor: string) {
+  // Hull split clean across midship, halves nudged apart, broken mast lying across the gap.
+  ctx.fillStyle = WRECK_PALETTE.hullDark;
+  // Left half hull.
   ctx.beginPath();
-  ctx.moveTo(-8.2, -4);
-  ctx.lineTo(-8.2, -12.6);
-  ctx.quadraticCurveTo(-7.6, -18.6, 0, -19.8);
-  ctx.quadraticCurveTo(7.6, -18.6, 8.2, -12.6);
-  ctx.lineTo(8.2, -4);
+  ctx.moveTo(-13, 3);
+  ctx.quadraticCurveTo(-12.5, -2.5, -8, -3.4);
+  ctx.lineTo(-2.4, -3.0);
+  ctx.lineTo(-1.6, 3);
   ctx.closePath();
-  fillStone(ctx, GRAVE_STONE.face);
+  ctx.fill();
+  strokeOutline(ctx);
 
-  drawStoneHighlight(ctx, -4.8, -15, 9.6);
-  drawWeatherCracks(ctx, "headstone");
-  drawCausePlaque(ctx, -5.6, -8.3, 11.2, 3.4, causeColor, causeOfDeath);
-}
-
-function drawTabletMarker(ctx: CanvasRenderingContext2D, causeColor: string, causeOfDeath: CauseOfDeath) {
-  drawGraveBase(ctx, 22);
-  drawStonePolygon(ctx, [[8.8, -4.4], [11.6, -6.4], [11.6, -20.6], [8.8, -19]], GRAVE_STONE.side);
-
+  // Right half hull.
+  ctx.fillStyle = WRECK_PALETTE.hullDark;
   ctx.beginPath();
-  ctx.moveTo(-8.8, -4.4);
-  ctx.lineTo(-8.8, -20.8);
-  ctx.lineTo(5.6, -20.8);
-  ctx.lineTo(8.8, -18.4);
-  ctx.lineTo(8.8, -4.4);
+  ctx.moveTo(2.0, 3);
+  ctx.lineTo(2.6, -3.0);
+  ctx.lineTo(8, -3.4);
+  ctx.quadraticCurveTo(12.5, -2.5, 13, 3);
   ctx.closePath();
-  fillStone(ctx, GRAVE_STONE.face);
+  ctx.fill();
+  strokeOutline(ctx);
 
-  drawStonePolygon(ctx, [[-8.8, -20.8], [-5.5, -20.8], [-8.8, -17.8]], GRAVE_STONE.dark, "rgba(27, 32, 33, 0.74)");
-  drawStoneHighlight(ctx, -5.2, -15.6, 10.2);
-  drawStoneHighlight(ctx, -4.3, -12.9, 8.2);
-  drawWeatherCracks(ctx, "tablet");
-  drawCausePlaque(ctx, -6, -8.9, 12, 3.3, causeColor, causeOfDeath);
-}
-
-function drawReliquaryMarker(ctx: CanvasRenderingContext2D, causeColor: string, causeOfDeath: CauseOfDeath) {
-  drawGraveBase(ctx, 24);
-
+  // Decks (lighter).
+  ctx.fillStyle = WRECK_PALETTE.hullMid;
   ctx.beginPath();
-  ctx.moveTo(-10.4, -4.4);
-  ctx.lineTo(-10.4, -14.4);
-  ctx.quadraticCurveTo(-9.7, -21.2, 0, -23.8);
-  ctx.quadraticCurveTo(9.7, -21.2, 10.4, -14.4);
-  ctx.lineTo(10.4, -4.4);
+  ctx.moveTo(-11.5, 1.6);
+  ctx.quadraticCurveTo(-11, -2, -7.6, -2.6);
+  ctx.lineTo(-2.6, -2.4);
+  ctx.lineTo(-2.0, 1.6);
   ctx.closePath();
-  fillStone(ctx, GRAVE_STONE.dark);
-
+  ctx.fill();
   ctx.beginPath();
-  ctx.moveTo(-6.8, -4.6);
-  ctx.lineTo(-6.8, -13.2);
-  ctx.quadraticCurveTo(-6, -18.2, 0, -20.4);
-  ctx.quadraticCurveTo(6, -18.2, 6.8, -13.2);
-  ctx.lineTo(6.8, -4.6);
+  ctx.moveTo(2.4, 1.6);
+  ctx.lineTo(2.8, -2.4);
+  ctx.lineTo(7.6, -2.6);
+  ctx.quadraticCurveTo(11, -2, 11.5, 1.6);
   ctx.closePath();
-  fillStone(ctx, GRAVE_STONE.face, "rgba(27, 32, 33, 0.8)");
+  ctx.fill();
 
-  drawStonePolygon(ctx, [[-11.6, -4.2], [-8.2, -4.2], [-8.2, -15.2], [-11.6, -14.1]], GRAVE_STONE.side);
-  drawStonePolygon(ctx, [[8.2, -4.2], [11.6, -4.2], [11.6, -14.1], [8.2, -15.2]], GRAVE_STONE.side);
-  drawStoneHighlight(ctx, -4.3, -14, 8.6);
-  drawWeatherCracks(ctx, "reliquary");
-  drawCausePlaque(ctx, -5.9, -8.8, 11.8, 3.4, causeColor, causeOfDeath);
-}
-
-function drawCrossMarker(ctx: CanvasRenderingContext2D, causeColor: string, causeOfDeath: CauseOfDeath) {
-  drawGraveBase(ctx, 19);
-  drawGraveBase(ctx, 13, -4.2);
-
-  ctx.beginPath();
-  ctx.moveTo(-3.4, -23);
-  ctx.lineTo(3.4, -23);
-  ctx.lineTo(3.4, -17.6);
-  ctx.lineTo(10.2, -18.2);
-  ctx.lineTo(10.2, -12.8);
-  ctx.lineTo(3.4, -12.8);
-  ctx.lineTo(3.4, -4.4);
-  ctx.lineTo(-3.4, -4.4);
-  ctx.lineTo(-3.4, -12.8);
-  ctx.lineTo(-10.2, -12.8);
-  ctx.lineTo(-10.2, -18.2);
-  ctx.lineTo(-3.4, -17.6);
-  ctx.closePath();
-  fillStone(ctx, GRAVE_STONE.face);
-
-  drawStonePolygon(ctx, [[3.4, -23], [5.8, -21.3], [5.8, -16.4], [10.2, -16.4], [10.2, -12.8], [3.4, -12.8]], GRAVE_STONE.side, "rgba(27, 32, 33, 0.74)");
-  drawWeatherCracks(ctx, "cross");
-  drawCausePlaque(ctx, -5.8, -7.5, 11.6, 3.2, causeColor, causeOfDeath);
-}
-
-function drawLedgerMarker(ctx: CanvasRenderingContext2D, causeColor: string, causeOfDeath: CauseOfDeath) {
-  drawGraveBase(ctx, 21);
-  drawStonePolygon(ctx, [[8.8, -4.2], [11.4, -6.1], [11.4, -16.6], [8.8, -15.7]], GRAVE_STONE.side);
-
-  ctx.beginPath();
-  ctx.moveTo(-8.8, -4.2);
-  ctx.lineTo(-8.8, -17.4);
-  ctx.lineTo(8.8, -16.1);
-  ctx.lineTo(8.8, -4.2);
-  ctx.closePath();
-  fillStone(ctx, GRAVE_STONE.face);
-
-  drawStoneHighlight(ctx, -5.4, -12.8, 10.8);
-  drawStoneHighlight(ctx, -4.5, -10.1, 9.2);
-  drawWeatherCracks(ctx, "ledger");
-  drawCausePlaque(ctx, -6.2, -7.7, 12.4, 3.3, causeColor, causeOfDeath);
-}
-
-function drawGraveBase(ctx: CanvasRenderingContext2D, width: number, y = 0) {
-  const half = width / 2;
-  drawStonePolygon(ctx, [[-half, y - 1.5], [half, y - 1.5], [half + 2.4, y + 0.8], [-half + 2.2, y + 2.8]], GRAVE_STONE.dark);
-  drawStonePolygon(ctx, [[-half + 2.2, y - 3.8], [half - 2.2, y - 3.8], [half + 1.5, y - 1.5], [-half, y - 1.5]], GRAVE_STONE.cap);
-  drawStonePolygon(ctx, [[half - 2.2, y - 3.8], [half + 1.5, y - 1.5], [half + 2.4, y + 0.8], [half, y - 1.5]], GRAVE_STONE.side, "rgba(27, 32, 33, 0.78)");
-}
-
-function drawGraveTufts(ctx: CanvasRenderingContext2D, marker: GraveNodeMarker) {
-  const left = marker === "ledger" ? -12 : -11;
-  const right = marker === "ledger" ? 11 : 10;
-  ctx.save();
-  ctx.strokeStyle = GRAVE_STONE.moss;
-  ctx.lineWidth = 1.1;
-  for (const [tuftX, tuftY, height] of [[left, 3.3, 3.8], [left + 2.4, 2.6, 2.7], [right, 3.1, 3.4], [right - 2.7, 2.4, 2.5]] as const) {
+  // Plank lines.
+  ctx.strokeStyle = WRECK_PALETTE.outline;
+  ctx.lineWidth = 0.5;
+  for (let i = -10; i <= -3; i += 2.5) {
     ctx.beginPath();
-    ctx.moveTo(tuftX, tuftY);
-    ctx.lineTo(tuftX - 1.6, tuftY - height);
-    ctx.moveTo(tuftX, tuftY);
-    ctx.lineTo(tuftX + 1.4, tuftY - height * 0.86);
+    ctx.moveTo(i, -2.4);
+    ctx.lineTo(i + 0.4, 1.4);
     ctx.stroke();
   }
-  ctx.restore();
-}
-
-function drawStonePolygon(
-  ctx: CanvasRenderingContext2D,
-  points: ReadonlyArray<readonly [number, number]>,
-  fill: string,
-  stroke: string = GRAVE_STONE.outline,
-) {
-  ctx.beginPath();
-  points.forEach(([pointX, pointY], index) => {
-    if (index === 0) ctx.moveTo(pointX, pointY);
-    else ctx.lineTo(pointX, pointY);
-  });
-  ctx.closePath();
-  fillStone(ctx, fill, stroke);
-}
-
-function fillStone(ctx: CanvasRenderingContext2D, fill: string, stroke: string = GRAVE_STONE.outline) {
-  ctx.fillStyle = fill;
-  ctx.fill();
-  ctx.strokeStyle = stroke;
-  ctx.lineWidth = 0.95;
-  ctx.stroke();
-}
-
-function drawStoneHighlight(ctx: CanvasRenderingContext2D, x: number, y: number, width: number) {
-  ctx.save();
-  ctx.strokeStyle = GRAVE_STONE.highlight;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(x, y);
-  ctx.lineTo(x + width * 0.56, y - 0.7);
-  ctx.moveTo(x + width * 0.2, y + 3.1);
-  ctx.lineTo(x + width, y + 2.1);
-  ctx.stroke();
-  ctx.restore();
-}
-
-function drawWeatherCracks(ctx: CanvasRenderingContext2D, marker: GraveNodeMarker) {
-  ctx.save();
-  ctx.strokeStyle = GRAVE_STONE.weather;
-  ctx.lineWidth = 0.85;
-  ctx.beginPath();
-  if (marker === "cross") {
-    ctx.moveTo(-0.8, -22.4);
-    ctx.lineTo(1.1, -19.6);
-    ctx.lineTo(-0.5, -17.6);
-  } else if (marker === "ledger") {
-    ctx.moveTo(3.2, -14.2);
-    ctx.lineTo(1.1, -11.7);
-    ctx.lineTo(3, -9.4);
-  } else {
-    ctx.moveTo(2.4, -20.2);
-    ctx.lineTo(0.8, -17.8);
-    ctx.lineTo(2.2, -15.4);
-    ctx.moveTo(-4.2, -12.2);
-    ctx.lineTo(-1.4, -13.2);
+  for (let i = 3; i <= 10; i += 2.5) {
+    ctx.beginPath();
+    ctx.moveTo(i, -2.4);
+    ctx.lineTo(i + 0.4, 1.4);
+    ctx.stroke();
   }
+
+  // Snapped mast lying across the gap.
+  ctx.save();
+  ctx.rotate(-0.15);
+  ctx.fillStyle = WRECK_PALETTE.hullPlank;
+  ctx.fillRect(-9, -6.4, 18, 1.4);
+  ctx.fillStyle = WRECK_PALETTE.outline;
+  ctx.fillRect(-9, -6.4, 18, 0.4);
+  // Splintered ends.
+  ctx.fillStyle = WRECK_PALETTE.hullDark;
+  ctx.beginPath();
+  ctx.moveTo(-9, -6.4);
+  ctx.lineTo(-10.4, -5.4);
+  ctx.lineTo(-9, -4.8);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(9, -6.4);
+  ctx.lineTo(10.4, -5.0);
+  ctx.lineTo(9, -4.8);
+  ctx.fill();
+  ctx.restore();
+
+  // Debris in the gap.
+  ctx.fillStyle = WRECK_PALETTE.hullPlank;
+  ctx.fillRect(-1.4, 0.6, 2.8, 0.8);
+  ctx.fillRect(-0.8, -1.4, 1.6, 0.6);
+
+  drawCausePennant(ctx, -8, -3.6, causeColor);
+}
+
+function drawSinkingStern(ctx: CanvasRenderingContext2D, causeColor: string) {
+  // Stern protruding from sand/water at an angle, foam ring around the bow side.
+  // Foam ring underneath.
+  ctx.fillStyle = WRECK_PALETTE.foamCore;
+  ctx.beginPath();
+  ctx.ellipse(-2, 4.2, 14, 3.6, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = WRECK_PALETTE.foam;
+  ctx.beginPath();
+  ctx.ellipse(-2, 4, 11, 2.4, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Sunken bow (just hint of curve).
+  ctx.fillStyle = WRECK_PALETTE.hullDark;
+  ctx.beginPath();
+  ctx.moveTo(-12, 4);
+  ctx.quadraticCurveTo(-11.5, 3, -8, 3.2);
+  ctx.lineTo(-7, 4.2);
+  ctx.closePath();
+  ctx.fill();
+
+  // Stern emerging — tilted upward.
+  ctx.save();
+  ctx.translate(6, -1);
+  ctx.rotate(-0.34);
+  ctx.fillStyle = WRECK_PALETTE.hullDark;
+  ctx.beginPath();
+  ctx.moveTo(-7, 4);
+  ctx.lineTo(-6, -4);
+  ctx.quadraticCurveTo(-3, -7, 3, -7);
+  ctx.quadraticCurveTo(6, -6.5, 7, -3);
+  ctx.lineTo(7, 4);
+  ctx.closePath();
+  ctx.fill();
+  strokeOutline(ctx);
+
+  ctx.fillStyle = WRECK_PALETTE.hullMid;
+  ctx.beginPath();
+  ctx.moveTo(-5.4, 3);
+  ctx.lineTo(-4.6, -3.4);
+  ctx.quadraticCurveTo(-2.6, -5.6, 2.8, -5.6);
+  ctx.quadraticCurveTo(5, -5.2, 5.6, -2.6);
+  ctx.lineTo(5.6, 3);
+  ctx.closePath();
+  ctx.fill();
+
+  // Stern transom plank lines.
+  ctx.strokeStyle = WRECK_PALETTE.outline;
+  ctx.lineWidth = 0.5;
+  for (let i = -4; i <= 4; i += 2) {
+    ctx.beginPath();
+    ctx.moveTo(i, -5);
+    ctx.lineTo(i, 2.6);
+    ctx.stroke();
+  }
+
+  // Lantern hanging from the stern.
+  ctx.fillStyle = WRECK_PALETTE.metalHighlight;
+  ctx.beginPath();
+  ctx.arc(0, -7.6, 0.8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = WRECK_PALETTE.outline;
+  ctx.lineWidth = 0.4;
+  ctx.beginPath();
+  ctx.moveTo(0, -7);
+  ctx.lineTo(0, -5.6);
+  ctx.stroke();
+  ctx.restore();
+
+  drawCausePennant(ctx, 7.4, -6, causeColor);
+}
+
+function drawGroundedWreck(ctx: CanvasRenderingContext2D, causeColor: string) {
+  // Hull listing on rocks, exposed keel on one side, mast leaning at angle.
+  // Rocks underneath.
+  ctx.fillStyle = WRECK_PALETTE.rock;
+  ctx.beginPath();
+  ctx.ellipse(-7, 3, 5, 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(7, 3.4, 6, 2.2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = WRECK_PALETTE.rockHighlight;
+  ctx.beginPath();
+  ctx.ellipse(-7.6, 2.4, 3, 1, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(6.4, 2.8, 4, 1.2, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Tilted hull.
+  ctx.save();
+  ctx.rotate(-0.22);
+  ctx.fillStyle = WRECK_PALETTE.hullDark;
+  ctx.beginPath();
+  ctx.moveTo(-13, 1.4);
+  ctx.quadraticCurveTo(-12, -3, -7, -3.8);
+  ctx.lineTo(7, -3.8);
+  ctx.quadraticCurveTo(12, -3, 13, 1.4);
+  ctx.lineTo(11, 3);
+  ctx.lineTo(-11, 3);
+  ctx.closePath();
+  ctx.fill();
+  strokeOutline(ctx);
+
+  // Exposed keel underside (lighter wood).
+  ctx.fillStyle = WRECK_PALETTE.hullPlank;
+  ctx.beginPath();
+  ctx.moveTo(-13, 1.4);
+  ctx.lineTo(-11, 3);
+  ctx.lineTo(11, 3);
+  ctx.lineTo(13, 1.4);
+  ctx.closePath();
+  ctx.fill();
+
+  // Deck.
+  ctx.fillStyle = WRECK_PALETTE.hullMid;
+  ctx.beginPath();
+  ctx.moveTo(-11, -0.4);
+  ctx.quadraticCurveTo(-10, -3, -6.5, -3);
+  ctx.lineTo(6.5, -3);
+  ctx.quadraticCurveTo(10, -3, 11, -0.4);
+  ctx.closePath();
+  ctx.fill();
+
+  // Plank lines.
+  ctx.strokeStyle = WRECK_PALETTE.outline;
+  ctx.lineWidth = 0.5;
+  for (let i = -8; i <= 8; i += 2.5) {
+    ctx.beginPath();
+    ctx.moveTo(i, -2.6);
+    ctx.lineTo(i + 0.3, -0.6);
+    ctx.stroke();
+  }
+
+  // Leaning mast.
+  ctx.save();
+  ctx.translate(-1.5, -3);
+  ctx.rotate(-0.45);
+  ctx.fillStyle = WRECK_PALETTE.hullPlank;
+  ctx.fillRect(-0.7, -10, 1.4, 11);
+  ctx.fillStyle = WRECK_PALETTE.outline;
+  ctx.fillRect(-0.7, -10, 0.5, 11);
+  // Tattered sail.
+  ctx.fillStyle = WRECK_PALETTE.sailRag;
+  ctx.beginPath();
+  ctx.moveTo(0.7, -8);
+  ctx.lineTo(4.2, -6.5);
+  ctx.lineTo(3.4, -3.5);
+  ctx.lineTo(1.6, -4.4);
+  ctx.lineTo(0.7, -5.4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = WRECK_PALETTE.outline;
+  ctx.lineWidth = 0.45;
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.restore();
+
+  drawCausePennant(ctx, -8.6, -4.8, causeColor);
+}
+
+function drawShatteredWreck(ctx: CanvasRenderingContext2D, causeColor: string) {
+  // Destroyed hull with planks scattered radially.
+  // Scattered planks first (under the hull).
+  const debris = [
+    { x: -10, y: 3.4, angle: 0.4, len: 5 },
+    { x: 9, y: 3.6, angle: -0.3, len: 4.5 },
+    { x: -7, y: -2.6, angle: -0.9, len: 3.6 },
+    { x: 7, y: -2.4, angle: 1.0, len: 3.8 },
+    { x: 0, y: 4.2, angle: 0.0, len: 5.5 },
+    { x: -2, y: -4.4, angle: 1.4, len: 3.2 },
+  ] as const;
+  for (const piece of debris) {
+    ctx.save();
+    ctx.translate(piece.x, piece.y);
+    ctx.rotate(piece.angle);
+    ctx.fillStyle = WRECK_PALETTE.hullPlank;
+    ctx.fillRect(-piece.len / 2, -0.6, piece.len, 1.2);
+    ctx.fillStyle = WRECK_PALETTE.outline;
+    ctx.fillRect(-piece.len / 2, -0.6, piece.len, 0.4);
+    ctx.restore();
+  }
+
+  // Central destroyed hull — splayed open like a cracked nut.
+  ctx.fillStyle = WRECK_PALETTE.hullDark;
+  ctx.beginPath();
+  ctx.moveTo(-9, 2.4);
+  ctx.lineTo(-6, -3);
+  ctx.lineTo(-2.4, -1.6);
+  ctx.lineTo(-1, -3.6);
+  ctx.lineTo(1.4, -3.4);
+  ctx.lineTo(2.6, -1.6);
+  ctx.lineTo(6, -2.6);
+  ctx.lineTo(9, 2.6);
+  ctx.lineTo(6, 3.2);
+  ctx.lineTo(-6, 3);
+  ctx.closePath();
+  ctx.fill();
+  strokeOutline(ctx);
+
+  // Inner cracked deck.
+  ctx.fillStyle = WRECK_PALETTE.hullMid;
+  ctx.beginPath();
+  ctx.moveTo(-7, 2);
+  ctx.lineTo(-5, -1.6);
+  ctx.lineTo(-1.6, 0.4);
+  ctx.lineTo(0, -1.2);
+  ctx.lineTo(1.6, 0.4);
+  ctx.lineTo(5, -1.4);
+  ctx.lineTo(7, 2.2);
+  ctx.lineTo(5, 2.6);
+  ctx.lineTo(-5, 2.4);
+  ctx.closePath();
+  ctx.fill();
+
+  // Crack lines radiating.
+  ctx.strokeStyle = WRECK_PALETTE.outline;
+  ctx.lineWidth = 0.6;
+  ctx.beginPath();
+  ctx.moveTo(0, 2.6);
+  ctx.lineTo(0, -2.4);
+  ctx.moveTo(-3, 2.4);
+  ctx.lineTo(-1, -1);
+  ctx.moveTo(3, 2.4);
+  ctx.lineTo(1, -1);
+  ctx.stroke();
+
+  // Snapped mast stub jammed in the deck.
+  ctx.fillStyle = WRECK_PALETTE.hullPlank;
+  ctx.fillRect(-0.6, -6, 1.2, 4);
+  ctx.fillStyle = WRECK_PALETTE.outline;
+  ctx.fillRect(-0.6, -6, 0.4, 4);
+  ctx.fillStyle = WRECK_PALETTE.hullDark;
+  ctx.beginPath();
+  ctx.moveTo(-0.6, -6);
+  ctx.lineTo(-1, -7.4);
+  ctx.lineTo(0.4, -6.6);
+  ctx.lineTo(0.8, -7.6);
+  ctx.lineTo(0.6, -6);
+  ctx.closePath();
+  ctx.fill();
+
+  drawCausePennant(ctx, -7.5, -4.5, causeColor);
+}
+
+function drawSkeletalWreck(ctx: CanvasRenderingContext2D, causeColor: string) {
+  // Bare ribbed hull frame (no planking), broken stub mast, weathered.
+  ctx.fillStyle = WRECK_PALETTE.hullDark;
+  // Keel beam.
+  ctx.fillRect(-12, 2.0, 24, 1.2);
+  ctx.strokeStyle = WRECK_PALETTE.outline;
+  ctx.lineWidth = 0.5;
+  ctx.strokeRect(-12, 2.0, 24, 1.2);
+
+  // Curved ribs (alternating tall + short).
+  const ribs = [-10, -7.5, -5, -2.5, 0, 2.5, 5, 7.5, 10];
+  for (const rx of ribs) {
+    const tall = Math.abs(rx) <= 5.5;
+    const top = tall ? -4 : -2.6;
+    ctx.strokeStyle = WRECK_PALETTE.rib;
+    ctx.lineWidth = 1.1;
+    ctx.beginPath();
+    ctx.moveTo(rx, 2.0);
+    ctx.quadraticCurveTo(rx + 0.4, top + 1, rx + 0.2, top);
+    ctx.stroke();
+    // Rib shadow side.
+    ctx.strokeStyle = WRECK_PALETTE.ribShadow;
+    ctx.lineWidth = 0.6;
+    ctx.beginPath();
+    ctx.moveTo(rx + 0.4, 2.0);
+    ctx.quadraticCurveTo(rx + 0.8, top + 1, rx + 0.6, top);
+    ctx.stroke();
+  }
+
+  // Bow stem post.
+  ctx.fillStyle = WRECK_PALETTE.hullMid;
+  ctx.beginPath();
+  ctx.moveTo(-12, 2.0);
+  ctx.lineTo(-13.2, -3);
+  ctx.lineTo(-11.6, -3);
+  ctx.lineTo(-10.4, 2.0);
+  ctx.closePath();
+  ctx.fill();
+  strokeOutline(ctx);
+
+  // Stern post.
+  ctx.fillStyle = WRECK_PALETTE.hullMid;
+  ctx.beginPath();
+  ctx.moveTo(12, 2.0);
+  ctx.lineTo(13.2, -2.4);
+  ctx.lineTo(11.4, -2.4);
+  ctx.lineTo(10.2, 2.0);
+  ctx.closePath();
+  ctx.fill();
+  strokeOutline(ctx);
+
+  // Stub mast.
+  ctx.fillStyle = WRECK_PALETTE.hullPlank;
+  ctx.fillRect(-0.6, -5.4, 1.2, 3.4);
+  ctx.fillStyle = WRECK_PALETTE.outline;
+  ctx.fillRect(-0.6, -5.4, 0.4, 3.4);
+  // Splintered top.
+  ctx.fillStyle = WRECK_PALETTE.hullDark;
+  ctx.beginPath();
+  ctx.moveTo(-0.6, -5.4);
+  ctx.lineTo(-1, -6.4);
+  ctx.lineTo(0.6, -6);
+  ctx.lineTo(0.8, -7);
+  ctx.lineTo(0.6, -5.4);
+  ctx.closePath();
+  ctx.fill();
+
+  drawCausePennant(ctx, -8, -4, causeColor);
+}
+
+function strokeOutline(ctx: CanvasRenderingContext2D) {
+  ctx.strokeStyle = WRECK_PALETTE.outline;
+  ctx.lineWidth = 0.6;
+  ctx.stroke();
+}
+
+function drawCausePennant(ctx: CanvasRenderingContext2D, x: number, y: number, causeColor: string) {
+  // Small cause-color pennant flying from a thin pole — replaces the old plaque chip.
+  ctx.save();
+  ctx.translate(x, y);
+  // Pole.
+  ctx.strokeStyle = WRECK_PALETTE.outline;
+  ctx.lineWidth = 0.55;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(0, -3.6);
+  ctx.stroke();
+  // Pennant flag.
+  ctx.fillStyle = causeColor;
+  ctx.beginPath();
+  ctx.moveTo(0, -3.4);
+  ctx.lineTo(3.4, -2.8);
+  ctx.lineTo(2.6, -2.0);
+  ctx.lineTo(3.2, -1.2);
+  ctx.lineTo(0, -1.6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = WRECK_PALETTE.outline;
+  ctx.lineWidth = 0.4;
   ctx.stroke();
   ctx.restore();
 }
 
-function drawCausePlaque(
+function stableUnit(seed: string): number {
+  // Cheap deterministic hash → unit float, kept local to avoid an import.
+  let hash = 2166136261;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = Math.imul(hash ^ seed.charCodeAt(i), 16777619);
+  }
+  return ((hash >>> 0) % 100000) / 100000;
+}
+
+function drawHullStub(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
-  width: number,
-  height: number,
+  zoom: number,
   causeColor: string,
-  causeOfDeath: CauseOfDeath,
+  marker: WreckMarker,
+  graveId: string,
 ) {
-  const chipWidth = Math.max(2.6, Math.min(3.8, height * 0.92));
-  const chipHeight = Math.max(4.2, Math.min(6.3, width * 0.48));
-  const chipX = x + width / 2 - chipWidth / 2;
-  const chipY = y + height / 2 - chipHeight / 2;
+  // Just a partial hull — bow or stern poking out of the lagoon, scale
+  // smaller than a major wreck so the cove reads as varied debris.
+  const showStern = stableUnit(graveId) > 0.5;
   ctx.save();
-  roundedRectPath(ctx, chipX, chipY, chipWidth, chipHeight, 1.2);
-  ctx.fillStyle = hexToRgba(causeColor, 0.88);
+  ctx.translate(x, y + 1 * zoom);
+  ctx.scale(zoom * 2.0, zoom * 2.0);
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+
+  // Skeletal markers render as ribs poking up from the water rather than a hull stub.
+  if (marker === "skeletal") {
+    for (const rx of [-3.5, -1.2, 1.2, 3.5]) {
+      ctx.strokeStyle = WRECK_PALETTE.rib;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(rx, 1.5);
+      ctx.quadraticCurveTo(rx + 0.3, -2, rx - 0.4, -4.5);
+      ctx.stroke();
+      ctx.strokeStyle = WRECK_PALETTE.ribShadow;
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(rx + 0.4, 1.5);
+      ctx.quadraticCurveTo(rx + 0.7, -2, rx, -4.5);
+      ctx.stroke();
+    }
+    drawCausePennant(ctx, -4.5, -3, causeColor);
+    ctx.restore();
+    return;
+  }
+
+  // Hull half (stern or bow).
+  ctx.fillStyle = WRECK_PALETTE.hullDark;
+  ctx.beginPath();
+  if (showStern) {
+    ctx.moveTo(-2, 2);
+    ctx.lineTo(-1.5, -3.5);
+    ctx.quadraticCurveTo(1, -5, 6, -5);
+    ctx.quadraticCurveTo(8.5, -4.4, 9, -1.6);
+    ctx.lineTo(9, 2);
+  } else {
+    ctx.moveTo(-9, 2);
+    ctx.quadraticCurveTo(-8.5, -4, -3, -4.6);
+    ctx.lineTo(2, -4.6);
+    ctx.lineTo(2, 2);
+  }
+  ctx.closePath();
   ctx.fill();
-  ctx.strokeStyle = "rgba(15, 17, 17, 0.65)";
-  ctx.lineWidth = 0.7;
-  ctx.stroke();
-  ctx.translate(chipX + chipWidth / 2, chipY + chipHeight / 2);
-  drawCauseGlyph(ctx, causeOfDeath, Math.min(chipWidth, chipHeight));
+  strokeOutline(ctx);
+
+  ctx.fillStyle = WRECK_PALETTE.hullMid;
+  ctx.beginPath();
+  if (showStern) {
+    ctx.moveTo(-1.4, 1.4);
+    ctx.lineTo(-0.9, -2.8);
+    ctx.quadraticCurveTo(1.4, -4, 5.4, -4);
+    ctx.quadraticCurveTo(7.4, -3.6, 7.8, -1.2);
+    ctx.lineTo(7.8, 1.4);
+  } else {
+    ctx.moveTo(-7.8, 1.4);
+    ctx.quadraticCurveTo(-7.4, -3.2, -2.8, -3.8);
+    ctx.lineTo(1.4, -3.8);
+    ctx.lineTo(1.4, 1.4);
+  }
+  ctx.closePath();
+  ctx.fill();
+
+  // Plank lines.
+  ctx.strokeStyle = WRECK_PALETTE.outline;
+  ctx.lineWidth = 0.4;
+  for (let i = showStern ? 0 : -7; i <= (showStern ? 6 : -1); i += 2) {
+    ctx.beginPath();
+    ctx.moveTo(i, -3.4);
+    ctx.lineTo(i + 0.2, 0.8);
+    ctx.stroke();
+  }
+
+  // Snapped mast stub.
+  if (marker !== "shattered") {
+    const mx = showStern ? 4 : -4;
+    ctx.fillStyle = WRECK_PALETTE.hullPlank;
+    ctx.fillRect(mx - 0.5, -7, 1, 4.5);
+    ctx.fillStyle = WRECK_PALETTE.outline;
+    ctx.fillRect(mx - 0.5, -7, 0.4, 4.5);
+  }
+
+  drawCausePennant(ctx, showStern ? -1.5 : -7.5, -4, causeColor);
   ctx.restore();
 }
 
-function drawCauseGlyph(ctx: CanvasRenderingContext2D, causeOfDeath: CauseOfDeath, size: number) {
-  const span = Math.max(1.8, size * 0.54);
+function drawFloatingDebris(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  causeColor: string,
+  graveId: string,
+) {
+  // Two or three floating planks + a small cause-color dot. Each grave still
+  // has an unique selectable position; visual is intentionally minimal.
+  const seed = stableUnit(graveId);
+  const orient = (seed * 6.28318) - Math.PI;
   ctx.save();
-  ctx.strokeStyle = "rgba(15, 17, 17, 0.72)";
-  ctx.fillStyle = "rgba(15, 17, 17, 0.72)";
-  ctx.lineWidth = 0.62;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.beginPath();
-  if (causeOfDeath === "algorithmic-failure") {
-    ctx.moveTo(-span, -0.5);
-    ctx.lineTo(-span * 0.35, 0.55);
-    ctx.lineTo(span * 0.15, -0.55);
-    ctx.lineTo(span, 0.55);
-    ctx.stroke();
-  } else if (causeOfDeath === "liquidity-drain") {
-    ctx.moveTo(0, -span * 0.75);
-    ctx.lineTo(0, span * 0.6);
-    ctx.moveTo(-span * 0.52, span * 0.1);
-    ctx.lineTo(0, span * 0.65);
-    ctx.lineTo(span * 0.52, span * 0.1);
-    ctx.stroke();
-  } else if (causeOfDeath === "counterparty-failure") {
-    ctx.rect(-span * 0.75, -span * 0.55, span * 1.5, span * 1.1);
-    ctx.moveTo(-span * 0.25, -span * 0.55);
-    ctx.lineTo(-span * 0.25, span * 0.55);
-    ctx.stroke();
-  } else if (causeOfDeath === "regulatory") {
-    ctx.moveTo(0, -span * 0.8);
-    ctx.lineTo(0, span * 0.78);
-    ctx.moveTo(-span * 0.7, -span * 0.16);
-    ctx.lineTo(span * 0.7, -span * 0.16);
-    ctx.stroke();
-  } else {
-    ctx.moveTo(-span * 0.7, 0);
-    ctx.lineTo(span * 0.7, 0);
-    ctx.stroke();
+  ctx.translate(x, y);
+  ctx.rotate(orient);
+  ctx.scale(zoom * 2.4, zoom * 2.4);
+
+  // Plank #1.
+  ctx.fillStyle = WRECK_PALETTE.hullPlank;
+  ctx.fillRect(-3.5, -0.6, 7, 1.2);
+  ctx.fillStyle = WRECK_PALETTE.outline;
+  ctx.fillRect(-3.5, -0.6, 7, 0.4);
+  // Plank #2.
+  ctx.save();
+  ctx.translate(0.5, 1.2);
+  ctx.rotate(0.6);
+  ctx.fillStyle = WRECK_PALETTE.hullMid;
+  ctx.fillRect(-2.5, -0.5, 5, 1);
+  ctx.fillStyle = WRECK_PALETTE.outline;
+  ctx.fillRect(-2.5, -0.5, 5, 0.3);
+  ctx.restore();
+  // Plank #3 (only sometimes).
+  if (seed > 0.5) {
+    ctx.save();
+    ctx.translate(-1.6, -0.8);
+    ctx.rotate(-0.3);
+    ctx.fillStyle = WRECK_PALETTE.hullDark;
+    ctx.fillRect(-2, -0.4, 4, 0.8);
+    ctx.restore();
   }
+  // Cause-color marker dot.
+  ctx.fillStyle = causeColor;
+  ctx.beginPath();
+  ctx.arc(2.4, -0.6, 0.7, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = WRECK_PALETTE.outline;
+  ctx.lineWidth = 0.4;
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -528,4 +850,3 @@ function drawGraveLogo(input: {
   }
   ctx.restore();
 }
-

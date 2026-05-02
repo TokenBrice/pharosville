@@ -328,8 +328,8 @@ describe("buildPharosVilleMap", () => {
     expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(4.5);
     expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(3.5);
     expect(new Set(graves.map((grave) => grave.visual.marker)).size).toBeGreaterThan(2);
-    expect(graves.filter((grave) => grave.entry.causeOfDeath === "regulatory").every((grave) => grave.visual.marker === "cross")).toBe(true);
-    expect(graves.filter((grave) => grave.entry.causeOfDeath === "liquidity-drain").some((grave) => grave.visual.marker === "ledger")).toBe(true);
+    expect(graves.filter((grave) => grave.entry.causeOfDeath === "regulatory").every((grave) => grave.visual.marker === "broken-keel")).toBe(true);
+    expect(graves.filter((grave) => grave.entry.causeOfDeath === "liquidity-drain").every((grave) => grave.visual.marker === "sinking-stern")).toBe(true);
     expect(Math.max(...graves.map((grave) => grave.visual.scale))).toBeGreaterThan(0.42);
     expect(Math.min(...graves.map((grave) => grave.visual.scale))).toBeLessThan(0.27);
     expect(graves.reduce((sum, grave) => sum + grave.visual.scale, 0) / graves.length).toBeLessThan(0.38);
