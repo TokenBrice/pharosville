@@ -21,9 +21,8 @@ const assetIdPattern = /^(building|dock|landmark|overlay|prop|ship|terrain)\.[a-
 const pharosVilleSourceExtensionPattern = /\.(?:ts|tsx)$/;
 const pharosVilleTestFilePattern = /(?:^|\/)(?:__tests__|tests?)\/|\.test\.(?:ts|tsx)$/;
 const publicImageExtensionPattern = /\.(?:png|svg|jpe?g|webp)$/i;
-// 2026-05-01: bumped for Maker squad titans (USDS, DAI, sUSDS, sDAI, stUSDS)
-// 2026-05-01: bumped from 40 to 45 to accommodate unique-ship category (+5 deferred sprites). Current actual count: 43.
-const maxManifestAssets = 45;
+// 2026-05-02: bumped for village-decor overlays and first-render scene density.
+const maxManifestAssets = 55;
 const firstRenderBudgets = {
   // 2026-05-01: bumped for Maker squad titans (USDS, DAI, sUSDS, sDAI, stUSDS)
   maxCount: 28,
@@ -31,8 +30,8 @@ const firstRenderBudgets = {
   maxDecodedPixels: 875_000,
 };
 const totalAssetBudgets = {
-  maxBytes: 625 * 1024,
-  maxDecodedPixels: 950_000,
+  maxBytes: 900 * 1024,
+  maxDecodedPixels: 1_300_000,
 };
 const imageBudgetsByCategory = {
   dock: { maxBytes: 128 * 1024, maxDecodedPixels: 150_000 },

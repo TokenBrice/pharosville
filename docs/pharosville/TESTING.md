@@ -58,6 +58,19 @@ Run Playwright when the change affects canvas drawing, interaction, viewport gat
 npx playwright test tests/visual/pharosville.spec.ts --grep "pharosville"
 ```
 
+Focus only on accessibility/semantic checks:
+
+```bash
+npm run test:visual:accessibility
+```
+
+Cross-browser accessibility smoke check (Chromium + Firefox):
+
+```bash
+npm run test:visual:cross-browser
+npm run test:visual:dist:accessibility
+```
+
 Useful narrower lanes:
 
 ```bash
@@ -76,8 +89,8 @@ Current executable budgets:
 - Desktop lazy chunk: `<= 950 KiB` raw and `<= 275 KiB` gzip.
 - Entry CSS: `<= 32 KiB` raw and `<= 8 KiB` gzip.
 - Total JS: `<= 1,250 KiB` raw and `<= 375 KiB` gzip.
-- First-render assets: `<= 24` PNGs, `<= 575 KiB` source bytes, and `<= 875,000` decoded pixels.
-- Total runtime PharosVille assets: `<= 625 KiB` source bytes and `<= 950,000` decoded pixels.
+- First-render assets: `<= 28` PNGs, `<= 575 KiB` source bytes, and `<= 875,000` decoded pixels.
+- Total runtime PharosVille assets: `<= 900 KiB` source bytes and `<= 1,300,000` decoded pixels.
 - Canvas backing store: capped by `MAX_MAIN_CANVAS_PIXELS` and `MAX_TOTAL_BACKING_PIXELS` in `src/systems/canvas-budget.ts`.
 
 Display-size waste in `npm run check:pharosville-assets` is warning-only unless an image decodes more than 4x its displayed pixel area. Treat warnings as optimization backlog and failures as release blockers.
@@ -103,6 +116,13 @@ Before claiming release-level confidence, run the broad release gate:
 
 ```bash
 npm run validate:release
+```
+
+For a production readiness gate (branch rules + security headers + cross-browser
+accessibility smoke + live smoke), run:
+
+```bash
+npm run check:release-readiness
 ```
 
 ## Docs-Only Maintenance Changes

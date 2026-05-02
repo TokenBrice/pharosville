@@ -11,7 +11,7 @@ This is the agent-facing workflow for PharosVille raster assets. Runtime asset t
 - Runtime code must reference local manifest asset IDs, not remote generation URLs, tokens, or prototype paths.
 - Every runtime PNG needs a manifest entry with accurate dimensions, anchor, footprint, hitbox, layer/category, load priority, semantic role when useful, and prompt provenance.
 - Load priority is part of the runtime budget: use `critical` only for assets needed to make the initial desktop canvas frame coherent, and `deferred` for supplemental scenery or alternate sprites that can arrive after the core scene.
-- Treat `public/pharosville/assets/manifest.json` as the runtime inventory source of truth and use `loadPriority` for the critical/deferred split. `npm run check:pharosville-assets` enforces the local PNG contract, the v0.1 manifest budget, first-render byte/decoded-pixel budgets, and per-image size ceilings.
+- Treat `public/pharosville/assets/manifest.json` as the runtime inventory source of truth and use `loadPriority` for the critical/deferred split. `npm run check:pharosville-assets` enforces the local PNG contract, first-render byte/decoded-pixel budgets, and per-image size ceilings.
 - Manifest schema v2 separates `style.cacheVersion` from `style.styleAnchorVersion`.
 - Bump `style.cacheVersion` whenever promoted asset bytes, manifest geometry, or animation frame assets change.
 - Keep `promptProvenance.jobId` and `promptProvenance.styleAnchorVersion` aligned with the selected asset's style anchor.
@@ -20,7 +20,7 @@ This is the agent-facing workflow for PharosVille raster assets. Runtime asset t
 ## Current Runtime Asset Areas
 
 - Terrain tiles: `public/pharosville/assets/terrain/`
-- Terrain overlays: `public/pharosville/assets/overlays/`, including `overlay.central-island`
+- Terrain overlays: `public/pharosville/assets/overlays/`
 - Landmark: `public/pharosville/assets/landmarks/lighthouse-alexandria.png` as `landmark.lighthouse`
 - Chain docks: `public/pharosville/assets/docks/`
 - Ships: `public/pharosville/assets/ships/`
@@ -33,12 +33,11 @@ Use `PIXELLAB_MCP.md` for PixelLab-specific tool selection, prompt construction,
 review-pack handling, provenance, and cleanup. The short guidance below remains
 the shared style contract for any image-generation path.
 
-## Main-Island Revamp Asset Handoff
+## Main-Island Revamp Asset Handoff (historical)
 
-For the main-island revamp, the selected production PNGs are promoted in place:
+For the historic main-island pass, the selected production PNGs were promoted in place:
 
-- Replace runtime assets in place first: `overlay.central-island`,
-  `landmark.lighthouse`, and only the dock IDs that are actually regenerated.
+- Replace runtime assets in place: `landmark.lighthouse`, regenerated docks, and updated overlay layers for new district/decoration work.
 - Do not add new runtime IDs or move extra assets into first-render loading
   unless a measured visual need and budget impact are recorded.
 - Prefer current manifest dimensions for replacements. If PixelLab returns
@@ -46,14 +45,10 @@ For the main-island revamp, the selected production PNGs are promoted in place:
   rather than silently increasing decoded-pixel cost.
 - Keep promoted files local under `public/pharosville/assets/**`; never commit
   PixelLab scratch output, remote URLs, tokens, or review-pack links.
-- Record accepted PixelLab object/job IDs in `promptProvenance.jobId` and set
-  `promptProvenance.styleAnchorVersion` to the manifest style anchor. Current
-  promoted IDs are `25ee8636-32f7-4aa1-bb29-f924cbb4fc01` for
-  `overlay.central-island`, `3b89b603-35ce-4b87-97fb-37a3fc8d913f` for
-  `landmark.lighthouse`, and `31155966-7d76-413a-bd7b-557f79cffc9f` for
-  `dock.compact-harbor-pier`. Current cache version is
-  `2026-05-01-lighthouse-eth-scale-v1`; the style anchor remains
-  `2026-04-29-lighthouse-hill-v5`.
+Use explicit provenance IDs in the manifest entries at the time of handoff and
+set `promptProvenance.styleAnchorVersion` to the manifest style anchor.
+Re-runs should derive values from `public/pharosville/assets/manifest.json` because
+these historical IDs are no longer authoritative.
 - Re-check renderer assumptions for central overlay placement, lighthouse crop,
   beacon point, hitbox, selection ring, and dock flag/logo offsets before
   updating screenshots.
@@ -132,8 +127,8 @@ Preferred constraints:
 
 Hard validator budgets:
 
-- Total runtime manifest: `<= 34` assets, `<= 625 KiB` source bytes, and `<= 950,000` decoded pixels.
-- First render: `<= 24` assets, `<= 575 KiB` source bytes, and `<= 875,000` decoded pixels.
+- Total runtime manifest: `<= 55` assets, `<= 900 KiB` source bytes, and `<= 1,300,000` decoded pixels.
+- First render: `<= 28` assets, `<= 575 KiB` source bytes, and `<= 875,000` decoded pixels.
 - Per-image ceilings:
   - terrain: `<= 8 KiB`, `<= 8,192` decoded pixels;
   - ship: `<= 32 KiB`, `<= 50,000` decoded pixels;
