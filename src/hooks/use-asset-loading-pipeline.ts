@@ -1,6 +1,6 @@
 // Owns the PharosVille asset manager, critical/deferred load lifecycle, and
 // per-world logo loading. Exposes readiness flags for the rendering hook.
-import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import { useEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import { PharosVilleAssetManager, type PharosVilleAssetLoadError } from "../renderer/asset-manager";
 import { SHIP_SAIL_EMBLEM_OVERRIDES } from "../renderer/layers/ships";
 import type { buildMotionPlan } from "../systems/motion";
@@ -122,7 +122,12 @@ export function useAssetLoadingPipeline(input: {
     };
   }, [assetManager, criticalAssetAttemptsSettled, criticalFramePainted, motionPlanRef]);
 
-  useEffect(() => {
+  // Hoist the logo-source set + signature so the effect can key on the
+  // signature string instead of three array refs. After a refetch produces a
+  // new `world`, identity-different but content-identical logo arrays now
+  // skip the effect body entirely (no controller abort/restart, no
+  // loadLogos call).
+  const uniqueLogoSrcs = useMemo(() => {
     const logoSrcs = [
       ...world.docks.map((dock) => dock.logoSrc),
       ...world.graves
@@ -132,14 +137,17 @@ export function useAssetLoadingPipeline(input: {
       ...Object.values(SHIP_SAIL_EMBLEM_OVERRIDES),
     ]
       .filter((src): src is string => typeof src === "string" && src.startsWith("/"));
-    const uniqueLogoSrcs = [...new Set(logoSrcs)].sort();
+    return [...new Set(logoSrcs)].sort();
+  }, [world.docks, world.graves, world.ships]);
+  const logoSourcesSignature = uniqueLogoSrcs.join("|");
+
+  useEffect(() => {
     if (uniqueLogoSrcs.length === 0) {
       logoSourcesSignatureRef.current = "";
       return;
     }
-    const nextSignature = uniqueLogoSrcs.join("|");
-    if (nextSignature === logoSourcesSignatureRef.current) return;
-    logoSourcesSignatureRef.current = nextSignature;
+    if (logoSourcesSignature === logoSourcesSignatureRef.current) return;
+    logoSourcesSignatureRef.current = logoSourcesSignature;
 
     const controller = new AbortController();
     assetManager.loadLogos(uniqueLogoSrcs, controller.signal)
@@ -148,7 +156,8 @@ export function useAssetLoadingPipeline(input: {
     return () => {
       controller.abort();
     };
-  }, [assetManager, world.docks, world.graves, world.ships]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assetManager, logoSourcesSignature]);
 
   return {
     assetLoadErrors,

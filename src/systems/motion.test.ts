@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { denseFixtureChains, denseFixturePegSummary, denseFixtureReportCards, denseFixtureStablecoins, denseFixtureStress, fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoins, fixtureStability, fixtureStress, fixtureWithFlagshipPlacement, makeAsset, makeChain, makePegCoin, makerSquadFixtureInputs } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
-import { buildBaseMotionPlan, buildMotionPlan, buildShipWaterRoute, isShipMapVisible, lighthouseFireFlickerSpeed, motionPlanSignature, resolveShipMotionSample, sampleShipWaterPath, shipWaterPathKey, stableMotionPhase, type ShipDockMotionStop } from "./motion";
+import { buildBaseMotionPlan, buildMotionPlan, buildShipWaterRoute, isShipMapVisible, lighthouseFireFlickerSpeed, motionPlanSignature, resolveShipMotionSample, sampleShipWaterPath, shipWaterPathKey, stableMotionPhase, type ShipDockMotionStop, type ShipMotionSample } from "./motion";
 import { getShipHeadingDelta } from "./motion-sampling";
 import { chaikinSmoothPath, ensureShoreDistanceMask, shoreDistance, warmAllWaterPaths } from "./motion-water";
 import { squadForMember, squadFormationOffsetForPlacement } from "./maker-squad";
@@ -1472,6 +1472,134 @@ describe("motion", () => {
         }
       }
     });
+  });
+
+  // NFS4 T1: smoothstep mooring blend C0-continuity. The departing/arriving
+  // transits add a `(1-easeIn)` / `easeOut` blend toward the moored Lissajous
+  // so the position at progress=0/1 must equal the moored sample at the same
+  // wallclock instant. Locks `applyMooringBlendInto` against any future
+  // regression that decouples the blend phase or seed from `mooredSampleInto`.
+  it("smoothstep mooring blend keeps tile position C0-continuous across moored↔transit transitions", () => {
+    const sampleWorld = worldForShip({
+      chainCirculating: chainCirculating(["Ethereum", "Tron", "Solana"]),
+      chains: ["ethereum", "tron", "solana"],
+    });
+    const ship = sampleWorld.ships[0]!;
+    const plan = buildMotionPlan(sampleWorld, ship.detailId);
+    const route = plan.shipRoutes.get(ship.id)!;
+    const epsilon = 1e-3; // sub-second offset; tile epsilon below is generous.
+    const tileEpsilon = 1e-2;
+
+    // Walk the full cycle, locate moored→departing and arriving→moored
+    // transitions by sampling on a fine grid, then assert continuity at the
+    // boundary in both directions.
+    const sampleAt = (t: number) => resolveShipMotionSample({
+      plan,
+      reducedMotion: false,
+      ship,
+      timeSeconds: t,
+    });
+
+    let sawDepartingBoundary = false;
+    let sawArrivingBoundary = false;
+    const stepCount = 800;
+
+    // Bisect within (lo, hi) until the state on the inside of `targetState`
+    // sits within `epsilon` of the boundary. Returns the boundary timestamp
+    // (the transition happens between t* and t*+epsilon).
+    const findBoundary = (lo: number, hi: number, targetAfterState: string): number => {
+      while (hi - lo > epsilon) {
+        const mid = (lo + hi) / 2;
+        if (sampleAt(mid).state === targetAfterState) {
+          hi = mid;
+        } else {
+          lo = mid;
+        }
+      }
+      return hi;
+    };
+
+    for (let i = 0; i < stepCount; i += 1) {
+      const t = route.cycleSeconds * (i / stepCount) - route.phaseSeconds;
+      const tNext = route.cycleSeconds * ((i + 1) / stepCount) - route.phaseSeconds;
+      const here = sampleAt(t);
+      const next = sampleAt(tNext);
+
+      if (here.state === "moored" && next.state === "departing") {
+        // Bisect to locate t* where state flips from moored→departing within
+        // `epsilon`, then assert tile position is C0 across the flip.
+        const tStar = findBoundary(t, tNext, "departing");
+        const before = sampleAt(tStar - epsilon);
+        const after = sampleAt(tStar);
+        expect(before.state).toBe("moored");
+        expect(after.state).toBe("departing");
+        expect(Math.abs(after.tile.x - before.tile.x)).toBeLessThan(tileEpsilon);
+        expect(Math.abs(after.tile.y - before.tile.y)).toBeLessThan(tileEpsilon);
+        sawDepartingBoundary = true;
+      }
+
+      if (here.state === "arriving" && next.state === "moored") {
+        const tStar = findBoundary(t, tNext, "moored");
+        const before = sampleAt(tStar - epsilon);
+        const after = sampleAt(tStar);
+        expect(before.state).toBe("arriving");
+        expect(after.state).toBe("moored");
+        expect(Math.abs(after.tile.x - before.tile.x)).toBeLessThan(tileEpsilon);
+        expect(Math.abs(after.tile.y - before.tile.y)).toBeLessThan(tileEpsilon);
+        sawArrivingBoundary = true;
+      }
+    }
+
+    // Sanity: the cycle must actually contain both transitions or the
+    // assertion above is vacuous.
+    expect(sawDepartingBoundary).toBe(true);
+    expect(sawArrivingBoundary).toBe(true);
+  });
+
+  // NFS4 T2: moored ships must not draw wake even when included in
+  // effectShipIds (e.g. selected, top-supply, recent-mover). The renderer's
+  // gate at `src/renderer/layers/ships.ts:433-435` requires
+  // state ∈ {departing, sailing, arriving} AND effect-set membership.
+  // Mirror that predicate here so any future regression that drops the
+  // state gate fails this test.
+  it("moored ships do not draw wake even when included in effectShipIds", () => {
+    const ship = world.ships[0]!;
+    const plan = buildMotionPlan(world, ship.detailId);
+    // Selected ship is appended to effectShipIds by buildMotionPlan; assert
+    // membership so the test predicate is exercising the real cue gate.
+    expect(plan.effectShipIds.has(ship.id)).toBe(true);
+
+    const mooredSample: ShipMotionSample = {
+      shipId: ship.id,
+      tile: { x: ship.tile.x, y: ship.tile.y },
+      state: "moored",
+      zone: ship.riskZone,
+      currentDockId: ship.dockVisits[0]?.dockId ?? null,
+      currentRouteStopId: ship.dockVisits[0]?.dockId ?? null,
+      currentRouteStopKind: "dock",
+      heading: { x: 0, y: 1 },
+      // motion-sampling.ts:615 — moored wake intensity is non-zero (0.05),
+      // so the renderer's state gate is the only thing keeping wake off.
+      wakeIntensity: 0.05,
+    };
+
+    const drawsWake = (
+      reducedMotion: boolean,
+      sample: ShipMotionSample,
+      selected: boolean,
+    ) => !reducedMotion
+      && (sample.state === "departing" || sample.state === "sailing" || sample.state === "arriving")
+      && (plan.effectShipIds.has(ship.id) || selected || plan.moverShipIds.has(ship.id));
+
+    // Effect-ship membership alone must not unlock wake on a moored sample.
+    expect(drawsWake(false, mooredSample, false)).toBe(false);
+    // Even the selected-ship escalation can't override the state gate.
+    expect(drawsWake(false, mooredSample, true)).toBe(false);
+    // Reduced motion blocks wake unconditionally — sanity check.
+    expect(drawsWake(true, mooredSample, true)).toBe(false);
+    // Sanity: a sailing sample with the same effect-set membership does draw.
+    const sailingSample: ShipMotionSample = { ...mooredSample, state: "sailing", wakeIntensity: 0.4 };
+    expect(drawsWake(false, sailingSample, false)).toBe(true);
   });
 });
 

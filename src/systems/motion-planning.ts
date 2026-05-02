@@ -131,16 +131,42 @@ export function buildBaseMotionPlan(world: PharosVilleWorld): PharosVilleBaseMot
   };
 }
 
+// Memoizes the per-(basePlan, selectedShipId) effectShipIds set so identity is
+// stable across `buildMotionPlan` calls with the same inputs. Without this,
+// every call rebuilds `new Set(...)`, which makes downstream identity-keyed
+// short-circuits (e.g., `hashIdSet` in renderer ship layers) miss every frame.
+const effectShipIdsCache = new WeakMap<PharosVilleBaseMotionPlan, Map<string, ReadonlySet<string>>>();
+
+function memoizedEffectShipIds(
+  basePlan: PharosVilleBaseMotionPlan,
+  selectedShipId: string,
+): ReadonlySet<string> {
+  let perPlan = effectShipIdsCache.get(basePlan);
+  if (!perPlan) {
+    perPlan = new Map();
+    effectShipIdsCache.set(basePlan, perPlan);
+  }
+  const cached = perPlan.get(selectedShipId);
+  if (cached) return cached;
+  const next = new Set(basePlan.baseEffectShipIds);
+  next.add(selectedShipId);
+  perPlan.set(selectedShipId, next);
+  return next;
+}
+
 export function buildMotionPlan(
   world: PharosVilleWorld,
   selectedDetailId: string | null,
   basePlan: PharosVilleBaseMotionPlan = buildBaseMotionPlan(world),
 ): PharosVilleMotionPlan {
-  const effectShipIds = new Set(basePlan.baseEffectShipIds);
   const selectedShip = selectedDetailId
     ? world.ships.find((ship) => ship.detailId === selectedDetailId)
     : null;
-  if (selectedShip) effectShipIds.add(selectedShip.id);
+  // When no selected ship needs to be added, return the base set directly so
+  // callers see stable identity across rebuilds (no Set allocation).
+  const effectShipIds = selectedShip
+    ? memoizedEffectShipIds(basePlan, selectedShip.id)
+    : basePlan.baseEffectShipIds;
 
   return {
     animatedShipIds: basePlan.animatedShipIds,

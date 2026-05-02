@@ -727,11 +727,16 @@ function mooredRouteStopSampleInto(
   out.wakeIntensity = 0.03;
 }
 
+const MOORED_RADIUS_DANGER = { x: 0.22, y: 0.14 };
+const MOORED_RADIUS_WARNING = { x: 0.24, y: 0.16 };
+const MOORED_RADIUS_ALERT = { x: 0.26, y: 0.17 };
+const MOORED_RADIUS_DEFAULT = { x: 0.28, y: 0.18 };
+
 function mooredRadiusForZone(zone: ShipWaterZone): { x: number; y: number } {
-  if (zone === "danger") return { x: 0.22, y: 0.14 };
-  if (zone === "warning") return { x: 0.24, y: 0.16 };
-  if (zone === "alert") return { x: 0.26, y: 0.17 };
-  return { x: 0.28, y: 0.18 };
+  if (zone === "danger") return MOORED_RADIUS_DANGER;
+  if (zone === "warning") return MOORED_RADIUS_WARNING;
+  if (zone === "alert") return MOORED_RADIUS_ALERT;
+  return MOORED_RADIUS_DEFAULT;
 }
 
 function riskDriftSampleInto(route: ShipMotionRoute, timeSeconds: number, progress: number, out: ShipMotionSample): void {
@@ -757,12 +762,18 @@ function clampMotionTileInto(x: number, y: number, out: { x: number; y: number }
   out.y = Math.max(0, Math.min(MAX_TILE_Y, y));
 }
 
+const DRIFT_RADIUS_DANGER = { x: 0.54, y: 0.36 };
+const DRIFT_RADIUS_WARNING = { x: 0.48, y: 0.32 };
+const DRIFT_RADIUS_ALERT = { x: 0.44, y: 0.3 };
+const DRIFT_RADIUS_WATCH = { x: 0.4, y: 0.28 };
+const DRIFT_RADIUS_DEFAULT = { x: 0.38, y: 0.26 };
+
 function driftRadiusForZone(zone: ShipWaterZone): { x: number; y: number } {
-  if (zone === "danger") return { x: 0.54, y: 0.36 };
-  if (zone === "warning") return { x: 0.48, y: 0.32 };
-  if (zone === "alert") return { x: 0.44, y: 0.3 };
-  if (zone === "watch") return { x: 0.4, y: 0.28 };
-  return { x: 0.38, y: 0.26 };
+  if (zone === "danger") return DRIFT_RADIUS_DANGER;
+  if (zone === "warning") return DRIFT_RADIUS_WARNING;
+  if (zone === "alert") return DRIFT_RADIUS_ALERT;
+  if (zone === "watch") return DRIFT_RADIUS_WATCH;
+  return DRIFT_RADIUS_DEFAULT;
 }
 
 function transitWakeIntensityForZone(zone: ShipWaterZone): number {

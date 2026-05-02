@@ -9,6 +9,7 @@ import { initialAdaptiveDprState, resolveCanvasBudget, type AdaptiveDprState } f
 import type { ShipMotionSample } from "../systems/motion";
 import { zoomCameraAt, type IsoCamera, type ScreenPoint } from "../systems/projection";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
+import { useLatestRef } from "./use-latest-ref";
 
 export interface UseCanvasResizeAndCameraInput {
   exitFullscreen: () => void;
@@ -84,12 +85,11 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   const [camera, setCamera] = useState<IsoCamera | null>(null);
   const [canvasSize, setCanvasSize] = useState<ScreenPoint>({ x: 0, y: 0 });
 
-  const cameraRef = useRef(camera);
-  const canvasSizeRef = useRef(canvasSize);
-  useEffect(() => {
-    cameraRef.current = camera;
-    canvasSizeRef.current = canvasSize;
-  }, [camera, canvasSize]);
+  // Mirrored via `useLatestRef` (synchronous render-time write) so consumers
+  // reading `.current` from event handlers / RAF observe the latest committed
+  // value without an extra effect tick or StrictMode desync.
+  const cameraRef = useLatestRef(camera);
+  const canvasSizeRef = useLatestRef(canvasSize);
 
   useEffect(() => {
     canvasRectRef.current = null;
