@@ -30,6 +30,7 @@ const base = new URL(baseUrl);
 base.pathname = "/";
 base.search = "";
 base.hash = "";
+const enforceSecurityHeaders = base.protocol === "https:";
 
 function isRecord(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -42,6 +43,54 @@ function assert(condition, message) {
 function assertArray(value, label, { nonEmpty = false } = {}) {
   assert(Array.isArray(value), `${label} must be an array`);
   if (nonEmpty) assert(value.length > 0, `${label} must not be empty`);
+}
+
+const REQUIRED_SECURITY_HEADERS = [
+  {
+    name: "strict-transport-security",
+    validate: (value) => /max-age=\d+/.test(value),
+  },
+  {
+    name: "content-security-policy",
+    validate: (value) => /default-src\s+'self'/.test(value) && /frame-ancestors\s+'none'/.test(value),
+  },
+  {
+    name: "cross-origin-opener-policy",
+    validate: (value) => /same-origin/i.test(value),
+  },
+  {
+    name: "cross-origin-resource-policy",
+    validate: (value) => /same-origin/i.test(value),
+  },
+  {
+    name: "permissions-policy",
+    validate: (value) => /autoplay=\(\)/i.test(value),
+  },
+  {
+    name: "x-content-type-options",
+    validate: (value) => /nosniff/i.test(value),
+  },
+  {
+    name: "x-frame-options",
+    validate: (value) => /deny/i.test(value),
+  },
+  {
+    name: "referrer-policy",
+    validate: (value) => /strict-origin-when-cross-origin/i.test(value),
+  },
+];
+
+function assertSecurityHeaders(response, path) {
+  if (!enforceSecurityHeaders) return;
+  for (const { name, validate } of REQUIRED_SECURITY_HEADERS) {
+    const value = response.headers.get(name);
+    if (!value) {
+      throw new Error(`${path} missing security header: ${name}`);
+    }
+    if (!validate(value)) {
+      throw new Error(`${path} has invalid ${name}: ${value}`);
+    }
+  }
 }
 
 function assertNumber(value, label) {
@@ -73,6 +122,7 @@ async function expectOk(path, init) {
   if (!response.ok) {
     throw new Error(`${new URL(path, base).toString()} returned ${response.status}`);
   }
+  assertSecurityHeaders(response, path);
   return response;
 }
 

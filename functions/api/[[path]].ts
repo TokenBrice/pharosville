@@ -27,13 +27,36 @@ const FORWARDED_RESPONSE_HEADERS = [
   "warning",
   "x-data-age",
 ] as const;
+const SECURITY_RESPONSE_HEADERS = {
+  "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "DENY",
+  "referrer-policy": "strict-origin-when-cross-origin",
+  "permissions-policy": "accelerometer=(), ambient-light-sensor=(), autoplay=(), battery=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
+  "cross-origin-opener-policy": "same-origin",
+  "cross-origin-resource-policy": "same-origin",
+  "content-security-policy": "default-src 'self'; base-uri 'self'; object-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' https://api.pharos.watch; frame-ancestors 'none'; form-action 'self'",
+} as const;
+
+function withSecurityHeaders(response: Response): Response {
+  const headers = new Headers(response.headers);
+  for (const [name, value] of Object.entries(SECURITY_RESPONSE_HEADERS)) {
+    if (!headers.has(name)) headers.set(name, value);
+  }
+
+  return new Response(response.body, {
+    headers,
+    status: response.status,
+    statusText: response.statusText,
+  });
+}
 
 const REQUIRED_PHAROS_API_ORIGIN = "https://api.pharos.watch";
 const CACHE_KEY_ORIGIN = "https://pharosville.pharos.watch";
 const UPSTREAM_TIMEOUT_MS = 8_000;
 
 function jsonError(message: string, status: number, headers?: HeadersInit): Response {
-  return Response.json({ error: message }, { status, headers });
+  return withSecurityHeaders(Response.json({ error: message }, { status, headers }));
 }
 
 function normalizeBaseUrl(base: string | undefined): string | null {
@@ -159,7 +182,7 @@ export async function onRequest(context: PagesContext): Promise<Response> {
   const cache = getEdgeCache();
   const cacheKey = buildCacheKey(url);
   const cached = await cache?.match(cacheKey);
-  if (cached) return cached;
+  if (cached) return withSecurityHeaders(cached);
 
   const upstream = await fetchUpstream(buildUpstreamUrl(base, url), apiKey);
   if (!upstream) {
@@ -172,5 +195,5 @@ export async function onRequest(context: PagesContext): Promise<Response> {
     headers: copyForwardedHeaders(upstream),
   }), endpoint.metaMaxAgeSec);
   maybeStoreEdgeCache(context, cache, cacheKey, response);
-  return response;
+  return withSecurityHeaders(response);
 }
