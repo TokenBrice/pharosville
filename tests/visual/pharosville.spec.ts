@@ -363,6 +363,27 @@ test("pharosville renders desktop canvas shell", async ({ page }) => {
   });
 });
 
+test("pharosville accessibility smoke validates keyboard focus and landmarks", async ({ page }) => {
+  await mockPharosVilleData(page);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await installWallClockOverride(page, 12);
+  await page.goto("/");
+
+  const shell = page.getByRole("main");
+  await expect(shell).toBeVisible();
+  await expect(shell).toHaveAttribute("tabindex", "0");
+  await shell.focus();
+  await expect(shell).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.locator(":focus")).toBeVisible();
+
+  await expect(page.locator(".pharosville-overlay")).toHaveAttribute("aria-label", "PharosVille controls and details");
+  await expect(page.getByRole("button", { name: "Enter fullscreen" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Go to Pharos homepage" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Close details" })).toHaveCount(0);
+});
+
 test("pharosville dense visual fixture preserves districts, dense ships, and render budget", async ({ page }) => {
   await mockDensePharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "no-preference" });
