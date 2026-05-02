@@ -19,8 +19,8 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 done
 
 if [[ "$needs_release_gate" == "1" ]]; then
-  echo "Running PharosVille release gate before pushing main..."
-  npm run validate:release
+  echo "Running PharosVille changed-files gate before pushing main..."
+  npm run validate:changed
 elif [[ "$needs_changed_gate" == "1" ]]; then
   echo "Running PharosVille changed-files gate before pushing non-main branches..."
   npm run validate:changed

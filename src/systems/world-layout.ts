@@ -576,22 +576,20 @@ function graveVisual(entry: CemeteryEntry, index: number): GraveNode["visual"] {
   return { marker, scale };
 }
 
-function graveMarkerFor(entry: CemeteryEntry, index: number, peakScale: number): GraveMarker {
-  const largeMemorial = peakScale > 0.72 && stableUnit(`${entry.id}.marker.major`) > 0.42;
-  if (entry.causeOfDeath === "regulatory") return "cross";
-  if (entry.causeOfDeath === "liquidity-drain") {
-    const roll = stableUnit(`${entry.id}.marker.liquidity`);
-    if (roll > 0.66) return "ledger";
-    return roll > 0.34 ? "tablet" : "headstone";
+function graveMarkerFor(entry: CemeteryEntry, _index: number, _peakScale: number): GraveMarker {
+  switch (entry.causeOfDeath) {
+    case "regulatory":
+      return "broken-keel";
+    case "liquidity-drain":
+      return "sinking-stern";
+    case "counterparty-failure":
+      return "grounded";
+    case "algorithmic-failure":
+      return "shattered";
+    case "abandoned":
+    default:
+      return "skeletal";
   }
-  if (entry.causeOfDeath === "counterparty-failure") {
-    return largeMemorial || stableUnit(`${entry.id}.marker.counterparty`) > 0.38 ? "tablet" : "reliquary";
-  }
-  if (entry.causeOfDeath === "algorithmic-failure") {
-    return largeMemorial || stableUnit(`${entry.id}.marker.algorithmic`) > 0.58 ? "reliquary" : "headstone";
-  }
-  const markers: GraveMarker[] = ["headstone", "headstone", "tablet", "reliquary"];
-  return markers[Math.floor(stableUnit(`${entry.id}.${index}.marker`) * markers.length)] ?? "headstone";
 }
 
 function cemeteryValue(x: number, y: number) {

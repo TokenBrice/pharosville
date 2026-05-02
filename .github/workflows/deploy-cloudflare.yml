@@ -123,6 +123,8 @@ jobs:
   visual:
     needs: build
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
     concurrency:
       group: ${{ github.workflow }}-visual-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: true
@@ -145,11 +147,6 @@ jobs:
         with:
           name: pharosville-dist
           path: dist
-      - uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-ms-playwright-${{ hashFiles('package-lock.json') }}
-      - run: npx --no-install playwright install --with-deps chromium
       - name: Built-dist visual tests
         run: npm run test:visual:dist
       - uses: actions/upload-artifact@v4
@@ -164,6 +161,8 @@ jobs:
   visual-cross-browser:
     needs: build
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
     concurrency:
       group: ${{ github.workflow }}-visual-cross-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: true
@@ -186,16 +185,8 @@ jobs:
         with:
           name: pharosville-dist
           path: dist
-      - uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-ms-playwright-${{ hashFiles('package-lock.json') }}-chromium-firefox
-          restore-keys: |
-            ${{ runner.os }}-ms-playwright-${{ hashFiles('package-lock.json') }}-
-            ${{ runner.os }}-ms-playwright-
-      - run: npx --no-install playwright install --with-deps chromium firefox
       - name: Built-dist cross-browser accessibility smoke
-        run: npm run test:visual:dist:accessibility
+        run: npm run test:visual:dist:accessibility:firefox
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

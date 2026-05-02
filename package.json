@@ -22,6 +22,7 @@
     "test:visual:accessibility": "playwright test tests/visual/pharosville.spec.ts --grep \"accessibility\"",
     "test:visual:cross-browser": "PHAROSVILLE_VISUAL_BROWSERS=\"chromium,firefox\" npx playwright test tests/visual/pharosville.spec.ts --grep \"accessibility\"",
     "test:visual:dist:accessibility": "PHAROSVILLE_VISUAL_BROWSERS=\"chromium,firefox\" npx playwright test tests/visual/pharosville.spec.ts --config=playwright.dist.config.ts --grep \"accessibility\"",
+    "test:visual:dist:accessibility:firefox": "PHAROSVILLE_VISUAL_BROWSERS=\"firefox\" npx playwright test tests/visual/pharosville.spec.ts --config=playwright.dist.config.ts --grep \"accessibility\"",
     "onboard:agent": "node scripts/pharosville/onboard-agent.mjs",
     "agent:init": "node scripts/pharosville/agent-init.mjs",
     "setup:local-api-key": "node scripts/pharosville/setup-local-api-key.mjs",
