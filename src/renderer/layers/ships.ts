@@ -40,7 +40,7 @@ export const SHIP_SAIL_MARKS: Record<string, { height: number; width: number; x:
   "treasury-galleon": { height: 16, width: 19, x: 10, y: -31 },
   "ship.usdc-titan": { height: 21, width: 25, x: 4, y: -52 },
   "ship.usds-titan": { height: 19, width: 23, x: 3, y: -45 },
-  "ship.usdt-titan": { height: 54, width: 84, x: 0, y: -52 },
+  "ship.usdt-titan": { height: 50, width: 78, x: -4, y: -52 },
   // Maker consorts seeded from ship.usds-titan; tuning in Task 7.5.
   "ship.dai-titan": { height: 19, width: 23, x: 3, y: -45 },
   "ship.susds-titan": { height: 19, width: 23, x: 3, y: -45 },
