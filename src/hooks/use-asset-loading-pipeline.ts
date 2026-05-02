@@ -34,6 +34,7 @@ export function useAssetLoadingPipeline(input: {
   const [criticalAssetAttemptsSettled, setCriticalAssetAttemptsSettled] = useState(false);
   const [criticalAssetsLoaded, setCriticalAssetsLoaded] = useState(false);
   const [deferredAssetsLoaded, setDeferredAssetsLoaded] = useState(false);
+  const logoSourcesSignatureRef = useRef("");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -129,10 +130,17 @@ export function useAssetLoadingPipeline(input: {
       ...world.ships.map((ship) => ship.logoSrc),
     ]
       .filter((src): src is string => typeof src === "string" && src.startsWith("/"));
-    if (logoSrcs.length === 0) return;
+    const uniqueLogoSrcs = [...new Set(logoSrcs)].sort();
+    if (uniqueLogoSrcs.length === 0) {
+      logoSourcesSignatureRef.current = "";
+      return;
+    }
+    const nextSignature = uniqueLogoSrcs.join("|");
+    if (nextSignature === logoSourcesSignatureRef.current) return;
+    logoSourcesSignatureRef.current = nextSignature;
 
     const controller = new AbortController();
-    assetManager.loadLogos(logoSrcs, controller.signal)
+    assetManager.loadLogos(uniqueLogoSrcs, controller.signal)
       .then(() => setAssetLoadTick((tick) => tick + 1))
       .catch(() => setAssetLoadTick((tick) => tick + 1));
     return () => {

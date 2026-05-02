@@ -16,7 +16,14 @@ import {
   type AdaptiveDprState,
   type DrawDurationWindow,
 } from "../systems/canvas-budget";
-import { buildMotionPlan, createShipMotionSample, isShipMapVisible, resolveShipMotionSampleInto, type ShipMotionSample } from "../systems/motion";
+import {
+  buildMotionPlan,
+  createShipMotionSample,
+  isShipMapVisible,
+  motionPlanSignature,
+  resolveShipMotionSampleInto,
+  type ShipMotionSample,
+} from "../systems/motion";
 import type { IsoCamera, ScreenPoint } from "../systems/projection";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
 
@@ -122,6 +129,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   const accSecondsRef = useRef(0);
   const pendingResumeRef = useRef(false);
   const motionFrameCountRef = useRef(0);
+  const reducedMotionSamplesSignatureRef = useRef<string | null>(null);
   const lastRenderMetricsRef = useRef<PharosVilleRenderMetrics & { drawDurationMs: number }>({
     drawableCount: 0,
     drawableCounts: { underlay: 0, body: 0, overlay: 0, selection: 0 },
@@ -151,6 +159,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     shipHitStateRef.current.clear();
     drawDurationWindowRef.current = createDrawDurationWindow();
     drawDurationStatsRef.current = { averageMs: 0, count: 0, p90Ms: 0 };
+    reducedMotionSamplesSignatureRef.current = null;
   }, [hitTargetSnapshotRef, hitTargetsRef, shipMotionSamplesRef, world]);
 
   // RAF effect — bound once per plumbing change (`world`, `canvasSize`,
@@ -236,14 +245,31 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       } else {
         wallClockHour = 12;
       }
-      const shipMotionSamples = collectShipMotionSamples({
-        motionPlan: activeMotionPlan,
-        reducedMotion,
-        samples: shipMotionSamplesRef.current,
-        timeSeconds,
-        world,
-      });
-      shipMotionSamplesRef.current = shipMotionSamples;
+      let shipMotionSamples = shipMotionSamplesRef.current;
+      if (reducedMotion) {
+        const nextSamplesSignature = motionPlanSignature(world);
+        if (reducedMotionSamplesSignatureRef.current !== nextSamplesSignature || shipMotionSamples.size === 0) {
+          shipMotionSamples = collectShipMotionSamples({
+            motionPlan: activeMotionPlan,
+            reducedMotion,
+            samples: shipMotionSamples,
+            timeSeconds,
+            world,
+          });
+          shipMotionSamplesRef.current = shipMotionSamples;
+          reducedMotionSamplesSignatureRef.current = nextSamplesSignature;
+        }
+      } else {
+        shipMotionSamples = collectShipMotionSamples({
+          motionPlan: activeMotionPlan,
+          reducedMotion,
+          samples: shipMotionSamples,
+          timeSeconds,
+          world,
+        });
+        shipMotionSamplesRef.current = shipMotionSamples;
+        reducedMotionSamplesSignatureRef.current = null;
+      }
       const changedShipIds = changedShipHitTargets({
         shipHitStateById: shipHitStateRef.current,
         samples: shipMotionSamples,

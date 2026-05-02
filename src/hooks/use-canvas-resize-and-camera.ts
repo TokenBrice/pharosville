@@ -39,6 +39,7 @@ export interface UseCanvasResizeAndCameraResult {
   handleFollowSelected: () => void;
   handleKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => void;
   handlePointerDown: (event: ReactPointerEvent<HTMLCanvasElement>) => void;
+  handlePointerLeave: () => void;
   handlePointerMove: (event: ReactPointerEvent<HTMLCanvasElement>) => void;
   handlePointerUp: (event: ReactPointerEvent<HTMLCanvasElement>) => void;
   handleResetView: () => void;
@@ -73,6 +74,8 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   const canvasRectRef = useRef<Pick<DOMRectReadOnly, "left" | "top"> | null>(null);
   const dragPanDeltaRef = useRef<ScreenPoint>({ x: 0, y: 0 });
   const dragPanFrameRef = useRef(0);
+  const hoverFrameRef = useRef(0);
+  const pendingHoverPointRef = useRef<ScreenPoint | null>(null);
   const adaptiveDprStateRef = useRef<AdaptiveDprState>(initialAdaptiveDprState(1));
   const adaptiveDprInitializedRef = useRef(false);
   const maximumRequestedDprRef = useRef(1);
@@ -91,6 +94,10 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   useEffect(() => {
     canvasRectRef.current = null;
   }, [fullscreenMode]);
+
+  useEffect(() => () => {
+    if (hoverFrameRef.current) cancelAnimationFrame(hoverFrameRef.current);
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -159,6 +166,16 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     setHoveredDetailId((previous) => previous === target?.detailId ? previous : (target?.detailId ?? null));
   }, [hitTargetSnapshotRef, hitTargetsRef, hoveredDetailIdRef, selectedDetailIdRef, setHoveredDetailId]);
 
+  const scheduleHoverUpdate = useCallback(() => {
+    if (hoverFrameRef.current) return;
+    hoverFrameRef.current = requestAnimationFrame(() => {
+      hoverFrameRef.current = 0;
+      const point = pendingHoverPointRef.current;
+      if (!point) return;
+      updateHover(point);
+    });
+  }, [updateHover]);
+
   const scheduleDragPan = useCallback((delta: ScreenPoint) => {
     dragPanDeltaRef.current = {
       x: dragPanDeltaRef.current.x + delta.x,
@@ -201,8 +218,18 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       drag.last = point;
       return;
     }
-    updateHover(point);
-  }, [canvasPoint, scheduleDragPan, updateHover]);
+    pendingHoverPointRef.current = point;
+    scheduleHoverUpdate();
+  }, [canvasPoint, scheduleDragPan, scheduleHoverUpdate]);
+
+  const handlePointerLeave = useCallback(() => {
+    if (hoverFrameRef.current) {
+      cancelAnimationFrame(hoverFrameRef.current);
+      hoverFrameRef.current = 0;
+    }
+    pendingHoverPointRef.current = null;
+    setHoveredDetailId(null);
+  }, [setHoveredDetailId]);
 
   const handlePointerUp = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
     const point = canvasPoint(event);
@@ -334,6 +361,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     handleFollowSelected,
     handleKeyDown,
     handlePointerDown,
+    handlePointerLeave,
     handlePointerMove,
     handlePointerUp,
     handleResetView,

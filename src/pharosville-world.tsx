@@ -209,7 +209,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         data-testid="pharosville-canvas"
         aria-hidden="true"
         onPointerDown={canvas.handlePointerDown}
-        onPointerLeave={() => setHoveredDetailId(null)}
+        onPointerLeave={canvas.handlePointerLeave}
         onPointerMove={canvas.handlePointerMove}
         onPointerUp={canvas.handlePointerUp}
         onWheel={canvas.handleWheel}
@@ -270,4 +270,3 @@ function detailAnchorForPoint(point: ScreenPoint, viewport: ScreenPoint): Detail
   const side = point.x > viewport.x * 0.6 ? "left" : "right";
   return { ...point, side };
 }
-
