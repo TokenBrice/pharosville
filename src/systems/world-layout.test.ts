@@ -34,24 +34,26 @@ describe("buildPharosVilleMap", () => {
     expect(map.width).toBe(PHAROSVILLE_MAP_WIDTH);
     expect(map.height).toBe(PHAROSVILLE_MAP_HEIGHT);
     expect(map.tiles).toHaveLength(PHAROSVILLE_MAP_WIDTH * PHAROSVILLE_MAP_HEIGHT);
-    // Sea zones now dominate more of the canvas after the compact-island revamp.
-    expect(map.waterRatio).toBeGreaterThanOrEqual(0.850);
-    expect(map.waterRatio).toBeLessThanOrEqual(0.856);
+    // After the horizontal-oval reshape, sea coverage rises slightly so the
+    // wall reads as a smooth ring around the new periphery.
+    expect(map.waterRatio).toBeGreaterThanOrEqual(0.857);
+    expect(map.waterRatio).toBeLessThanOrEqual(0.862);
     const mainIslandLandTiles = landTilesExcludingCemetery(map.tiles);
-    // Baseline was 592 main-island land tiles; 393 is a 33.6% reduction.
-    // +11 from absorbing the former west-seawall pocket into the lighthouse
-    // south flank (closes the visible BSC harbor pool).
-    expect(mainIslandLandTiles).toHaveLength(404);
+    // Baseline was 592 main-island land tiles; 377 is a 36.3% reduction
+    // resulting from the single-oval + lighthouse-promontory geometry.
+    expect(mainIslandLandTiles).toHaveLength(377);
     const mainIslandBounds = landBoundsExcludingCemetery(map.tiles);
-    expect(mainIslandBounds.minX).toBeGreaterThanOrEqual(16);
-    expect(mainIslandBounds.maxX).toBeLessThanOrEqual(43);
-    expect(mainIslandBounds.minY).toBeGreaterThanOrEqual(21);
-    expect(mainIslandBounds.maxY).toBeLessThanOrEqual(41);
+    expect(mainIslandBounds.minX).toBeGreaterThanOrEqual(15);
+    expect(mainIslandBounds.maxX).toBeLessThanOrEqual(42);
+    expect(mainIslandBounds.minY).toBeGreaterThanOrEqual(22);
+    expect(mainIslandBounds.maxY).toBeLessThanOrEqual(40);
     const mainCenter = {
       x: (mainIslandBounds.minX + mainIslandBounds.maxX) / 2,
       y: (mainIslandBounds.minY + mainIslandBounds.maxY) / 2,
     };
-    expect(Math.abs(mainCenter.x - CIVIC_CORE_CENTER.x)).toBeLessThan(2);
+    // The lighthouse promontory bulges west of the main oval, so the geometric
+    // center of the land mask sits ~2.5 tiles west of the civic core by design.
+    expect(Math.abs(mainCenter.x - CIVIC_CORE_CENTER.x)).toBeLessThan(3);
     expect(Math.abs(mainCenter.y - CIVIC_CORE_CENTER.y)).toBeLessThan(2);
     const counts = terrainCounts(map.tiles);
     expect((counts.get("deep-water") ?? 0) / map.tiles.length).toBeLessThanOrEqual(0.03);
@@ -99,7 +101,7 @@ describe("buildPharosVilleMap", () => {
     expect(terrainKindAt(32, 33)).toBe("rock");
     // Harbor ring slots stay natural coast, not roads.
     expect(terrainKindAt(23, 37)).toBe("shore");
-    expect(terrainKindAt(27, 40)).toBe("shore");
+    expect(terrainKindAt(26, 39)).toBe("shore");
     expect(terrainKindAt(Math.round(CEMETERY_CENTER.x), Math.round(CEMETERY_CENTER.y))).toBe("grass");
   });
 
@@ -210,8 +212,8 @@ describe("buildPharosVilleMap", () => {
     }
 
     for (const tile of [
-      { x: 14, y: 21 },
-      { x: 19, y: 40 },
+      { x: 17, y: 24 },
+      { x: 19, y: 39 },
     ]) {
       expect(terrainKindAt(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("water");
     }
@@ -230,22 +232,20 @@ describe("buildPharosVilleMap", () => {
 
   it("keeps dock slots on coastline edges with water access", () => {
     expect(EVM_BAY_DOCK_TILES).toEqual([
-      { x: 43, y: 31 },
+      { x: 42, y: 31 },
       BASE_HARBOR_DOCK_TILE,
-      { x: 32, y: 41 },
+      { x: 32, y: 40 },
       { x: 26, y: 39 },
     ]);
     expect(OUTER_HARBOR_DOCK_TILES).toEqual([
-      { x: 18, y: 35 },
+      { x: 21, y: 36 },
       { x: 28, y: 22 },
       { x: 34, y: 22 },
       HYPERLIQUID_HARBOR_DOCK_TILE,
-      { x: 33, y: 41 },
-      { x: 23, y: 37 },
-      { x: 25, y: 38 },
-      { x: 27, y: 40 },
-      { x: 43, y: 33 },
+      { x: 33, y: 40 },
       { x: 25, y: 23 },
+      { x: 42, y: 28 },
+      { x: 35, y: 39 },
     ]);
     expect(OUTER_HARBOR_DOCK_TILES.every((tile) => !isInLighthouseClearance(tile))).toBe(true);
     expect(DOCK_TILES.every((tile) => !isWaterTileKind(tileKindAt(tile.x, tile.y)))).toBe(true);
@@ -281,12 +281,15 @@ describe("buildPharosVilleMap", () => {
 
   it("keeps nearest-water helpers off the seawall barrier", () => {
     const north = nearestWaterTile({ x: 28, y: 22 });
-    const east = nearestAvailableWaterTile({ x: 44, y: 31 }, new Set());
+    const east = nearestAvailableWaterTile({ x: 43, y: 31 }, new Set());
 
     expect(isSeawallBarrierTile(north)).toBe(false);
     expect(isSeawallBarrierTile(east)).toBe(false);
-    expect(north.y).toBeLessThanOrEqual(20);
-    expect(east.x).toBeGreaterThanOrEqual(45);
+    // Nearest navigable water above the N shelf must clear the immediate
+    // seawall moat outside (28, 22). Open water resumes at y=21 because the
+    // perimeter only barriers tiles cardinally adjacent to land.
+    expect(north.y).toBeLessThanOrEqual(21);
+    expect(east.x).toBeGreaterThanOrEqual(44);
   });
 
   it("closes the seawall ring around the interior harbor pockets", () => {
