@@ -73,8 +73,8 @@ describe("buildPharosVilleWorld", () => {
     });
 
     expect(world.routeMode).toBe("world");
-    expect(world.map.waterRatio).toBeGreaterThanOrEqual(0.850);
-    expect(world.map.waterRatio).toBeLessThanOrEqual(0.856);
+    expect(world.map.waterRatio).toBeGreaterThanOrEqual(0.857);
+    expect(world.map.waterRatio).toBeLessThanOrEqual(0.862);
     expect(world.lighthouse.unavailable).toBe(false);
     expect(world.docks).toHaveLength(2);
     expect(world.ships.map((ship) => ship.id)).toEqual(["usdt-tether", "usdc-circle"]);

@@ -46,35 +46,32 @@ export const REGION_TILES: Record<ShipRiskPlacement, { x: number; y: number }> =
 export const ETHEREUM_L2_DOCK_CHAIN_IDS = ["base", "arbitrum", "polygon"] as const;
 export const ETHEREUM_HARBOR_PRIORITY_CHAIN_IDS = ["ethereum", ...ETHEREUM_L2_DOCK_CHAIN_IDS] as const;
 
-// Ethereum anchors the east cove. Base now sits west of Ethereum and between
-// Ethereum and Arbitrum so it reads as the middle slip in the cove without
-// covering neighboring ports. Optimism is intentionally not assigned a rendered
-// harbor.
-export const BASE_HARBOR_DOCK_TILE = { x: 38.5, y: 37.5 } as const;
+// All docks sit on the oval perimeter (or its lighthouse promontory),
+// arranged clockwise so the wall connects them as a smooth ring. Fractional
+// dock coordinates have been dropped — they were artifacts of the prior
+// irregular ellipse-union shape and required `terrainKindAt` shore overrides.
+export const BASE_HARBOR_DOCK_TILE = { x: 39, y: 38 } as const;
 export const EVM_BAY_DOCK_TILES = [
-  { x: 43, y: 31 },
-  BASE_HARBOR_DOCK_TILE,
-  { x: 32, y: 41 },
-  { x: 26, y: 39 },
+  { x: 42, y: 31 }, // ethereum (E periphery)
+  BASE_HARBOR_DOCK_TILE, // base (SE periphery)
+  { x: 32, y: 40 }, // arbitrum (S periphery)
+  { x: 26, y: 39 }, // polygon (SW periphery)
 ] as const;
 
-// Outer harbors wrap the north, west, south, and east coasts so the
-// island reads as a single inhabited harbor ring rather than a dock staircase.
-// Tron anchors the central north shelf and solana the north-east shelf to keep
-// them clear of the central lighthouse and ethereum harbors. HyperLiquid gets a
-// small northward nudge on the east shelf so it clears the neighboring cove.
-export const HYPERLIQUID_HARBOR_DOCK_TILE = { x: 39.5, y: 21.5 } as const;
+// Outer harbors are placed clockwise around the oval starting from the W
+// promontory. Each tile is a perimeter land tile with cardinal water access.
+// Slots [0..4] map to named chains (BSC, Tron, Solana, Aptos, Avalanche);
+// slots [5..7] are spare perimeter slips for unmapped chains.
+export const HYPERLIQUID_HARBOR_DOCK_TILE = { x: 37, y: 23 } as const;
 export const OUTER_HARBOR_DOCK_TILES = [
-  { x: 18, y: 35 },
-  { x: 28, y: 22 },
-  { x: 34, y: 22 },
-  HYPERLIQUID_HARBOR_DOCK_TILE,
-  { x: 33, y: 41 },
-  { x: 23, y: 37 },
-  { x: 25, y: 38 },
-  { x: 27, y: 40 },
-  { x: 43, y: 33 },
-  { x: 25, y: 23 },
+  { x: 21, y: 36 }, // bsc (SW promontory shoulder)
+  { x: 28, y: 22 }, // tron (N periphery, west)
+  { x: 34, y: 22 }, // solana (N periphery, east)
+  HYPERLIQUID_HARBOR_DOCK_TILE, // aptos (NE shoulder)
+  { x: 33, y: 40 }, // avalanche (S periphery, between Arbitrum and Base)
+  { x: 25, y: 23 }, // spare: NW shoulder
+  { x: 42, y: 28 }, // spare: E shoulder above Ethereum
+  { x: 35, y: 39 }, // spare: SE between Avalanche and Base
 ] as const;
 
 export const PREFERRED_DOCK_TILES: Record<string, { x: number; y: number }> = {
@@ -147,8 +144,6 @@ export function tileKindAt(x: number, y: number): TileKind {
 }
 
 export function terrainKindAt(x: number, y: number): TerrainKind {
-  if (x === BASE_HARBOR_DOCK_TILE.x && y === BASE_HARBOR_DOCK_TILE.y) return "shore";
-  if (x === HYPERLIQUID_HARBOR_DOCK_TILE.x && y === HYPERLIQUID_HARBOR_DOCK_TILE.y) return "shore";
   const island = islandValue(x, y);
   const cemetery = cemeteryValue(x, y);
   const nearIslandEdge = island > 0.82;
@@ -194,23 +189,13 @@ function islandValue(x: number, y: number): number {
 
 function mainIslandValue(x: number, y: number): number {
   return Math.min(
-    // Compact central island.
-    ellipseValue(x, y, 31.0, 31.2, 9.2, 7.6),
-    // North harbor shelf.
-    ellipseValue(x, y, 30.5, 24.8, 6.4, 3.9),
-    // West harbor cove.
-    ellipseValue(x, y, 23.6, 32.0, 4.4, 5.5),
-    // Raised lighthouse mountain shoulder.
-    ellipseValue(x, y, 18.9, 28.0, 3.7, 3.2),
-    // Land fill from the lighthouse south flank down to the southwest coast,
-    // absorbing the former west-seawall pocket.
-    ellipseValue(x, y, 19.0, 33.5, 1.7, 3.1),
-    // Southern quay shelf.
-    ellipseValue(x, y, 31.4, 37.8, 6.5, 3.4),
-    // East / Ethereum cove.
-    ellipseValue(x, y, 38.8, 31.3, 4.6, 5.2),
-    // Northeast harbor shelf.
-    ellipseValue(x, y, 37.8, 24.8, 4.2, 3.3),
+    // Main horizontal oval. The wall traces this perimeter as a smooth ring.
+    ellipseValue(x, y, 31.0, 31.0, 12.0, 9.5),
+    // Lighthouse promontory: bulges west so the lighthouse anchors the W
+    // coast. Sized to overlap the main oval enough that the union has no
+    // concavity at the junction (which would otherwise produce a small
+    // strait pocket and an "extra wall" inside the harbor area).
+    ellipseValue(x, y, 19.5, 28.5, 4.0, 3.0),
   );
 }
 
@@ -591,20 +576,22 @@ function graveVisual(entry: CemeteryEntry, index: number): GraveNode["visual"] {
   return { marker, scale };
 }
 
-function graveMarkerFor(entry: CemeteryEntry, _index: number, _peakScale: number): GraveMarker {
-  switch (entry.causeOfDeath) {
-    case "regulatory":
-      return "broken-keel";
-    case "liquidity-drain":
-      return "sinking-stern";
-    case "counterparty-failure":
-      return "grounded";
-    case "algorithmic-failure":
-      return "shattered";
-    case "abandoned":
-    default:
-      return "skeletal";
+function graveMarkerFor(entry: CemeteryEntry, index: number, peakScale: number): GraveMarker {
+  const largeMemorial = peakScale > 0.72 && stableUnit(`${entry.id}.marker.major`) > 0.42;
+  if (entry.causeOfDeath === "regulatory") return "cross";
+  if (entry.causeOfDeath === "liquidity-drain") {
+    const roll = stableUnit(`${entry.id}.marker.liquidity`);
+    if (roll > 0.66) return "ledger";
+    return roll > 0.34 ? "tablet" : "headstone";
   }
+  if (entry.causeOfDeath === "counterparty-failure") {
+    return largeMemorial || stableUnit(`${entry.id}.marker.counterparty`) > 0.38 ? "tablet" : "reliquary";
+  }
+  if (entry.causeOfDeath === "algorithmic-failure") {
+    return largeMemorial || stableUnit(`${entry.id}.marker.algorithmic`) > 0.58 ? "reliquary" : "headstone";
+  }
+  const markers: GraveMarker[] = ["headstone", "headstone", "tablet", "reliquary"];
+  return markers[Math.floor(stableUnit(`${entry.id}.${index}.marker`) * markers.length)] ?? "headstone";
 }
 
 function cemeteryValue(x: number, y: number) {
