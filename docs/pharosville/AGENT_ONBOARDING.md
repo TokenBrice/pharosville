@@ -39,6 +39,12 @@ Use this file as the fastest path to productive and safe PharosVille work.
    npm run validate:docs
    ```
 
+For release-readiness claim, run:
+
+```bash
+npm run check:release-readiness
+```
+
 ## Required Conventions
 
 - Work only in this repository unless explicitly authorized.

@@ -75,8 +75,34 @@ For direct `main` pushes, install the optional local pre-push hook once:
 npm run hooks:install
 ```
 
-The repository still needs GitHub branch protection or a ruleset requiring the
-`validate` job before `main` is considered protected server-side.
+Run `npm run check:branch-protection` to validate merge-gate controls before calling `main` protected.
+
+## Branch protection requirements
+
+Before declaring production readiness, enforce `main` merge control on the
+`pharosville` repository:
+
+- Require pull requests with at least one approval
+- Require all of these status checks to pass:
+  - `typecheck`
+  - `unit`
+  - `guards`
+  - `build`
+  - `visual`
+- Require branches to be up to date before merge and no direct bypass for `main`
+
+Recommended verification:
+
+```bash
+npm run check:branch-protection
+```
+
+This command verifies the required checks and merge controls and exits non-zero if any control is missing.
+Optionally pass explicit target context:
+
+```bash
+npm run check:branch-protection -- --branch release
+```
 
 ## Deploy
 
@@ -95,6 +121,11 @@ npx wrangler pages deploy dist --project-name=pharosville
 
 The current `npm run deploy` script also deploys `dist`, but release hardening is still tracked separately. Prefer the explicit command above when you need dirty-tree protection.
 
+CI now runs a dedicated post-deploy `release-readiness` job on production pushes. That gate runs:
+
+- `npm run check:release-readiness`
+- a production smoke against the configured live URL
+
 ## Live Smoke
 
 After production deploy, smoke the canonical URL:
@@ -109,6 +140,36 @@ At minimum, verify:
 - Narrow viewport fallback does not fetch world data or runtime assets.
 - Allowlisted `/api/*` endpoints respond through the Pages Function proxy.
 - Unexpected paths or query shapes fail closed.
+
+Run a full release checklist before release cut:
+
+```bash
+npm run check:release-readiness
+```
+
+### Security headers and health posture
+
+Use this matrix for routine production verification:
+
+- Security policy: docs/pharosville/SECURITY_HEADERS.md
+- Browser and static routes: `public/_headers`
+- API proxy routes: `functions/api/[[path]].ts`
+- Live smoke with security assertions: `npm run smoke:live -- --url https://pharosville.pharos.watch`
+
+For production monitoring, add alerts on:
+
+1. `5xx` error-rate for `/api/*`
+2. Upstream timeout / proxy `502` rates
+3. Scheduled smoke failures
+
+See also: docs/pharosville/OBSERVABILITY.md
+
+## Schedules
+
+Continuous health checks now run via:
+
+- `.github/workflows/pharosville-scheduled-smoke.yml` (every 4 hours, UTC, with manual dispatch)
+- `npm run smoke:live -- --url https://pharosville.pharos.watch`
 
 ## Rollback
 

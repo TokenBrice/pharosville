@@ -1,6 +1,7 @@
 name: Deploy to Cloudflare Pages
 
-# Visual policy: pull requests and main pushes must pass the built-dist Playwright lane.
+# Visual policy: pull requests and main pushes must pass built-dist Playwright lanes
+# (single-browser and cross-browser accessibility) before release gating.
 on:
   pull_request:
   push:
@@ -160,6 +161,50 @@ jobs:
             playwright-report
           if-no-files-found: ignore
 
+  visual-cross-browser:
+    needs: build
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-visual-cross-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/cache@v4
+        id: node-modules
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-${{ runner.arch }}-node24-modules-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-node24-modules-
+      - if: steps.node-modules.outputs.cache-hit != 'true'
+        run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: pharosville-dist
+          path: dist
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-ms-playwright-${{ hashFiles('package-lock.json') }}-chromium-firefox
+          restore-keys: |
+            ${{ runner.os }}-ms-playwright-${{ hashFiles('package-lock.json') }}-
+            ${{ runner.os }}-ms-playwright-
+      - run: npx --no-install playwright install --with-deps chromium firefox
+      - name: Built-dist cross-browser accessibility smoke
+        run: npm run test:visual:dist:accessibility
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: pharosville-visual-cross-browser-artifacts
+          path: |
+            test-results
+            playwright-report
+          if-no-files-found: ignore
+
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs:
@@ -168,6 +213,7 @@ jobs:
       - guards
       - build
       - visual
+      - visual-cross-browser
     runs-on: ubuntu-latest
     environment: production
     concurrency:
@@ -201,3 +247,46 @@ jobs:
         env:
           SMOKE_UI_URL: ${{ vars.SMOKE_UI_URL || 'https://pharosville.pharos.watch' }}
         run: npm run smoke:live -- --url "$SMOKE_UI_URL"
+
+  release-readiness:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: deploy
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-release-readiness-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/cache@v4
+        id: node-modules
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-${{ runner.arch }}-node24-modules-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-node24-modules-
+      - if: steps.node-modules.outputs.cache-hit != 'true'
+        run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-ms-playwright-${{ hashFiles('package-lock.json') }}-release
+          restore-keys: |
+            ${{ runner.os }}-ms-playwright-${{ hashFiles('package-lock.json') }}-
+            ${{ runner.os }}-ms-playwright-
+      - run: npx --no-install playwright install --with-deps chromium firefox
+      - name: Release-readiness gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: npm run check:release-readiness
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: pharosville-release-readiness-artifacts
+          path: |
+            test-results
+            playwright-report
+          if-no-files-found: ignore
