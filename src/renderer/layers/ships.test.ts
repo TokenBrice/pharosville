@@ -12,7 +12,6 @@ import {
   drawShipWake,
   drawSquadIdentityAccent,
   planShipRenderLod,
-  SHIP_PEG_MARKS,
   SHIP_SAIL_MARKS,
   SHIP_TRIM_MARKS,
   shipMastTopScreenPoint,
@@ -131,7 +130,6 @@ describe("Maker squad titan offset tables", () => {
     for (const titanId of titanIds) {
       expect(TITAN_SPRITE_IDS.has(titanId)).toBe(true);
       expect(SHIP_SAIL_MARKS[titanId]).toBeDefined();
-      expect(SHIP_PEG_MARKS[titanId]).toBeDefined();
       expect(SHIP_TRIM_MARKS[titanId]).toBeDefined();
       expect(SHIP_SAIL_TINT_MASKS[titanId]).toBeDefined();
     }
@@ -149,7 +147,6 @@ describe("Unique ship offset tables", () => {
     ];
     for (const uniqueId of uniqueIds) {
       expect(SHIP_SAIL_MARKS[uniqueId]).toBeDefined();
-      expect(SHIP_PEG_MARKS[uniqueId]).toBeDefined();
       expect(SHIP_TRIM_MARKS[uniqueId]).toBeDefined();
       expect(SHIP_SAIL_TINT_MASKS[uniqueId]).toBeDefined();
     }

@@ -78,7 +78,6 @@ describe("resolveShipVisual", () => {
     expect(visual.shipClass).toBe("cefi-dependent");
     expect(visual.classLabel).toBe("CeFi-Dep");
     expect(visual.rigging).toBe("dependent-rig");
-    expect(visual.pennant).toBe("emerald");
     expect(visual.overlay).toBe("nav");
     expect(visual.sizeTier).toBe("flagship");
     expect(visual.sizeLabel).toBe("Flagship");

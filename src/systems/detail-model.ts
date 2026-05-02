@@ -68,9 +68,6 @@ function shipLiveryLabel(node: ShipNode): string {
   return `${livery.label}; ${livery.logoShape} logo shape, ${livery.sailPanel} sail panel, ${livery.stripePattern} brand stripe`;
 }
 
-function shipPegLabel(node: ShipNode): string {
-  return `${node.visual.pegLabel}; ${node.visual.pegShape} pennant, ${node.visual.pegPattern} pattern`;
-}
 
 export function detailForLighthouse(node: LighthouseNode): DetailModel {
   return {
@@ -158,7 +155,6 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
       ? [{ label: "Cultural significance", value: node.visual.uniqueRationale }]
       : []),
     { label: "Ship livery", value: shipLiveryLabel(node) },
-    { label: "Peg marker", value: shipPegLabel(node) },
     { label: "Representative position", value: representativePositionLabel(node) },
     { label: "Risk water area", value: node.riskWaterLabel },
     { label: "Risk water zone", value: node.riskZone },

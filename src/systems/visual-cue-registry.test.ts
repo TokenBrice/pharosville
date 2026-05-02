@@ -29,7 +29,6 @@ describe("buildVisualCueRegistry", () => {
       "cue.ship.motion",
       "cue.ship.hull",
       "cue.ship.rigging",
-      "cue.ship.pennant",
       "cue.ship.scale",
       "cue.water.semantic-terrain",
     ]));

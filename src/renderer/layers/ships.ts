@@ -1,7 +1,7 @@
 import { squadForMember } from "../../systems/maker-squad";
 import type { ShipMotionSample } from "../../systems/motion";
 import type { ScreenPoint } from "../../systems/projection";
-import type { PharosVilleWorld, ShipLivery, ShipLogoShape, ShipPegPattern, ShipPegShape, ShipStripePattern, ShipWaterZone } from "../../systems/world-types";
+import type { PharosVilleWorld, ShipLivery, ShipLogoShape, ShipStripePattern, ShipWaterZone } from "../../systems/world-types";
 import type { LoadedPharosVilleAsset, PharosVilleAssetManager } from "../asset-manager";
 import { drawAnimatedAsset, drawAsset, hexToRgba, readableInkForFill, roundedRectPath, stableVisualVariant } from "../canvas-primitives";
 import type { RenderFrameCache } from "../frame-cache";
@@ -44,28 +44,6 @@ export const SHIP_SAIL_MARKS: Record<string, { height: number; width: number; x:
   "ship.paxg-unique": { height: 20, width: 22, x: 2, y: -47 },
 };
 
-export const SHIP_PEG_MARKS: Record<string, { size: number; x: number; y: number }> = {
-  "algo-junk": { size: 5.4, x: -18, y: -44 },
-  "chartered-brigantine": { size: 5.6, x: -18, y: -46 },
-  "crypto-caravel": { size: 5.3, x: -17, y: -42 },
-  "dao-schooner": { size: 5.3, x: -17, y: -43 },
-  "treasury-galleon": { size: 5.8, x: -19, y: -47 },
-  "ship.usdc-titan": { size: 7.6, x: -33, y: -73 },
-  "ship.usds-titan": { size: 7.2, x: -29, y: -65 },
-  "ship.usdt-titan": { size: 8.4, x: -41, y: -84 },
-  // Maker consorts seeded from ship.usds-titan; tuning in Task 7.5.
-  "ship.dai-titan": { size: 7.2, x: -29, y: -65 },
-  "ship.susds-titan": { size: 7.2, x: -29, y: -65 },
-  "ship.sdai-titan": { size: 7.2, x: -29, y: -65 },
-  "ship.stusds-titan": { size: 7.2, x: -29, y: -65 },
-  // Unique heritage hulls (136x100, anchor [68,92]). Peg pennant sits forward
-  // of the mainmast and below the masthead lantern.
-  "ship.crvusd-unique": { size: 6.6, x: -26, y: -58 },
-  "ship.bold-unique": { size: 6.5, x: -27, y: -60 },
-  "ship.fxusd-unique": { size: 6.4, x: -25, y: -57 },
-  "ship.xaut-unique": { size: 6.4, x: -25, y: -56 },
-  "ship.paxg-unique": { size: 6.8, x: -28, y: -60 },
-};
 
 interface ShipTrimSpec {
   deck: readonly { height: number; width: number; x: number; y: number }[];
@@ -182,14 +160,6 @@ export const SHIP_TRIM_MARKS: Record<string, ShipTrimSpec> = {
   },
 };
 
-const PENNANTS: Record<string, string> = {
-  emerald: "#d7f0df",
-  blue: "#d7e6f7",
-  cyan: "#d7f0ee",
-  gold: "#ffe1a0",
-  silver: "#e5e7eb",
-  slate: "#c7d0d8",
-};
 
 export const TITAN_SPRITE_IDS = new Set([
   "ship.usdc-titan",
@@ -899,16 +869,6 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
         });
       }
       if (titanSprite) return;
-      drawShipPegPennant(
-        ctx,
-        ship.visual.pennant,
-        ship.visual.pegShape,
-        ship.visual.pegPattern,
-        ship.visual.spriteAssetId ?? ship.visual.hull,
-        geometry.drawPoint.x,
-        drawY,
-        geometry.drawScale,
-      );
       drawShipSignalOverlay(ctx, ship.visual.overlay, geometry.drawPoint.x - 17 * geometry.drawScale, drawY - 36 * geometry.drawScale, geometry.drawScale);
     });
   } else {
@@ -927,7 +887,6 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
       x: p.x + 7 * proceduralScale,
       y: drawY - 10 * proceduralScale,
     });
-    drawProceduralShipPegPennant(ctx, ship.visual.pennant, ship.visual.pegShape, ship.visual.pegPattern, p.x, drawY, proceduralScale);
     drawShipSignalOverlay(ctx, ship.visual.overlay, p.x - 10 * proceduralScale, drawY - 20 * proceduralScale, proceduralScale);
   }
   const { nightFactor: lanternNight } = skyState(input.motion);
@@ -1502,240 +1461,6 @@ function drawRelativeLine(
   ctx.stroke();
 }
 
-function drawShipPegPennant(
-  ctx: CanvasRenderingContext2D,
-  pennant: string,
-  shape: ShipPegShape,
-  pattern: ShipPegPattern,
-  visualKey: string,
-  x: number,
-  y: number,
-  scale: number,
-) {
-  const mark = SHIP_PEG_MARKS[visualKey] ?? SHIP_PEG_MARKS["treasury-galleon"];
-  if (!mark) return;
-  drawPegPennant(ctx, pennant, shape, pattern, x + mark.x * scale, y + mark.y * scale, mark.size * scale);
-}
-
-function drawProceduralShipPegPennant(
-  ctx: CanvasRenderingContext2D,
-  pennant: string,
-  shape: ShipPegShape,
-  pattern: ShipPegPattern,
-  x: number,
-  y: number,
-  scale: number,
-) {
-  drawPegPennant(ctx, pennant, shape, pattern, x - 10 * scale, y - 27 * scale, 4.8 * scale);
-}
-
-// Sprite cache for peg pennants. Pennants are fully determined by
-// (pennant color key, shape, pattern, integer-bucketed size). With ~6
-// pennants × 5 shapes × 5 patterns and only a handful of size buckets at
-// any given camera zoom, cardinality stays well under the LRU cap.
-const PEG_PENNANT_SPRITE_CACHE_MAX = 256;
-interface PegPennantSprite {
-  canvas: HTMLCanvasElement;
-  // Pixel offset from sprite top-left to the pennant's mast-base anchor
-  // (the (x, y) the inline path treated as origin).
-  anchorX: number;
-  anchorY: number;
-}
-const pegPennantSpriteCache = new Map<string, PegPennantSprite | null>();
-
-function pegPennantSpriteKey(
-  pennant: string,
-  shape: ShipPegShape,
-  pattern: ShipPegPattern,
-  sizePx: number,
-): string {
-  return `${pennant}|${shape}|${pattern}|${sizePx}`;
-}
-
-function rememberPegPennantSprite(key: string, sprite: PegPennantSprite | null) {
-  pegPennantSpriteCache.set(key, sprite);
-  while (pegPennantSpriteCache.size > PEG_PENNANT_SPRITE_CACHE_MAX) {
-    const oldest = pegPennantSpriteCache.keys().next().value;
-    if (typeof oldest !== "string") break;
-    pegPennantSpriteCache.delete(oldest);
-  }
-}
-
-function buildPegPennantSprite(
-  pennant: string,
-  shape: ShipPegShape,
-  pattern: ShipPegPattern,
-  sizePx: number,
-): PegPennantSprite | null {
-  if (typeof document === "undefined") return null;
-  // Pennant geometry around its origin (the mast-base anchor passed by the
-  // caller as `(x, y)`):
-  //   pole stretches from (x, y + size*0.9) to (x, y - size*1.15)
-  //   flag center is at (x + size*0.62, y - size*0.72)
-  //   flag radius up to ~0.66*size; diamond reaches y - 1.34*size at top
-  // Pad by stroke half-width (lineWidth = max(1, size*0.18)).
-  const stroke = Math.max(1, sizePx * 0.18);
-  const padX = Math.ceil(stroke + 1);
-  const padY = Math.ceil(stroke + 1);
-  const left = padX; // mast-base x sits `padX` from the left edge.
-  const top = Math.ceil(sizePx * 1.34) + padY; // farthest point above origin.
-  const width = left + Math.ceil(sizePx * 1.32) + padX;
-  const height = top + Math.ceil(sizePx * 0.9) + padY;
-  if (width <= 0 || height <= 0) return null;
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const spriteCtx = canvas.getContext("2d");
-  if (!spriteCtx) return null;
-  drawPegPennantInline(spriteCtx, pennant, shape, pattern, left, top, sizePx);
-  return { canvas, anchorX: left, anchorY: top };
-}
-
-function drawPegPennant(
-  ctx: CanvasRenderingContext2D,
-  pennant: string,
-  shape: ShipPegShape,
-  pattern: ShipPegPattern,
-  x: number,
-  y: number,
-  size: number,
-) {
-  // Bucket size to integer pixels so consecutive frames at the same camera
-  // zoom share a sprite. Sub-pixel distance from `size` to `sizePx` is
-  // imperceptible (< 1px) and avoids cache thrash on continuous zoom.
-  const sizePx = Math.max(1, Math.round(size));
-  const key = pegPennantSpriteKey(pennant, shape, pattern, sizePx);
-  let sprite = pegPennantSpriteCache.get(key);
-  if (sprite === undefined) {
-    sprite = buildPegPennantSprite(pennant, shape, pattern, sizePx);
-    rememberPegPennantSprite(key, sprite);
-  } else {
-    // LRU touch: re-insert moves to most-recent position.
-    pegPennantSpriteCache.delete(key);
-    pegPennantSpriteCache.set(key, sprite);
-  }
-  if (sprite) {
-    ctx.drawImage(
-      sprite.canvas,
-      Math.floor(x - sprite.anchorX),
-      Math.floor(y - sprite.anchorY),
-    );
-    return;
-  }
-  // Fallback: jsdom or any context where sprite caching is unavailable.
-  drawPegPennantInline(ctx, pennant, shape, pattern, x, y, size);
-}
-
-function drawPegPennantInline(
-  ctx: CanvasRenderingContext2D,
-  pennant: string,
-  shape: ShipPegShape,
-  pattern: ShipPegPattern,
-  x: number,
-  y: number,
-  size: number,
-) {
-  const color = PENNANTS[pennant] ?? PENNANTS.slate;
-  ctx.save();
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.strokeStyle = "#2f2117";
-  ctx.lineWidth = Math.max(1, size * 0.18);
-  ctx.beginPath();
-  ctx.moveTo(x, y + size * 0.9);
-  ctx.lineTo(x, y - size * 1.15);
-  ctx.stroke();
-
-  const centerX = x + size * 0.62;
-  const centerY = y - size * 0.72;
-  ctx.fillStyle = color;
-  pegPennantPath(ctx, shape, centerX, centerY, size);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.save();
-  pegPennantPath(ctx, shape, centerX, centerY, size * 0.86);
-  ctx.clip();
-  drawPegPattern(ctx, pattern, centerX, centerY, size, readableInkForFill(color));
-  ctx.restore();
-  ctx.restore();
-}
-
-function pegPennantPath(ctx: CanvasRenderingContext2D, shape: ShipPegShape, x: number, y: number, size: number) {
-  if (shape === "diamond") {
-    ctx.beginPath();
-    ctx.moveTo(x, y - size * 0.58);
-    ctx.lineTo(x + size * 0.66, y);
-    ctx.lineTo(x, y + size * 0.58);
-    ctx.lineTo(x - size * 0.66, y);
-    ctx.closePath();
-  } else if (shape === "shield") {
-    ctx.beginPath();
-    ctx.moveTo(x - size * 0.58, y - size * 0.48);
-    ctx.lineTo(x + size * 0.58, y - size * 0.48);
-    ctx.lineTo(x + size * 0.48, y + size * 0.16);
-    ctx.lineTo(x, y + size * 0.62);
-    ctx.lineTo(x - size * 0.48, y + size * 0.16);
-    ctx.closePath();
-  } else if (shape === "crown") {
-    ctx.beginPath();
-    ctx.moveTo(x - size * 0.62, y + size * 0.42);
-    ctx.lineTo(x - size * 0.54, y - size * 0.36);
-    ctx.lineTo(x - size * 0.18, y - size * 0.08);
-    ctx.lineTo(x, y - size * 0.52);
-    ctx.lineTo(x + size * 0.18, y - size * 0.08);
-    ctx.lineTo(x + size * 0.54, y - size * 0.36);
-    ctx.lineTo(x + size * 0.62, y + size * 0.42);
-    ctx.closePath();
-  } else if (shape === "coin") {
-    roundedRectPath(ctx, x - size * 0.56, y - size * 0.5, size * 1.12, size, Math.max(1, size * 0.2));
-  } else {
-    ctx.beginPath();
-    ctx.ellipse(x, y, size * 0.58, size * 0.5, 0, 0, Math.PI * 2);
-  }
-}
-
-function drawPegPattern(
-  ctx: CanvasRenderingContext2D,
-  pattern: ShipPegPattern,
-  x: number,
-  y: number,
-  size: number,
-  ink: string,
-) {
-  ctx.strokeStyle = ink;
-  ctx.fillStyle = ink;
-  ctx.lineWidth = Math.max(1, size * 0.14);
-  if (pattern === "ring") {
-    ctx.beginPath();
-    ctx.ellipse(x, y, size * 0.28, size * 0.24, 0, 0, Math.PI * 2);
-    ctx.stroke();
-  } else if (pattern === "cross") {
-    ctx.beginPath();
-    ctx.moveTo(x - size * 0.34, y);
-    ctx.lineTo(x + size * 0.34, y);
-    ctx.moveTo(x, y - size * 0.32);
-    ctx.lineTo(x, y + size * 0.32);
-    ctx.stroke();
-  } else if (pattern === "grain") {
-    for (const offset of [-0.22, 0.08, 0.34]) {
-      ctx.beginPath();
-      ctx.ellipse(x + offset * size, y + size * 0.08, size * 0.08, size * 0.18, 0.5, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  } else if (pattern === "wave") {
-    ctx.beginPath();
-    ctx.moveTo(x - size * 0.36, y + size * 0.08);
-    ctx.quadraticCurveTo(x - size * 0.16, y - size * 0.18, x + size * 0.04, y + size * 0.08);
-    ctx.quadraticCurveTo(x + size * 0.22, y + size * 0.3, x + size * 0.38, y + size * 0.02);
-    ctx.stroke();
-  } else {
-    ctx.beginPath();
-    ctx.moveTo(x - size * 0.36, y);
-    ctx.lineTo(x + size * 0.36, y);
-    ctx.stroke();
-  }
-}
 
 function logoShapePath(ctx: CanvasRenderingContext2D, shape: ShipLogoShape, x: number, y: number, width: number, height: number) {
   if (shape === "circle" || shape === "ring") {

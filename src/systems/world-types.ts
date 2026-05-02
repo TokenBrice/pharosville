@@ -78,8 +78,6 @@ export type ShipSizeTier =
 export type ShipLogoShape = "circle" | "diamond" | "hex" | "pill" | "ring" | "slash" | "triangle";
 export type ShipSailPanel = "center" | "field" | "hoist" | "quartered";
 export type ShipStripePattern = "chevron" | "cross" | "diagonal" | "double" | "grain" | "ladder" | "single" | "wave";
-export type ShipPegShape = "coin" | "crown" | "diamond" | "disc" | "shield";
-export type ShipPegPattern = "bar" | "cross" | "grain" | "ring" | "wave";
 
 export interface ShipLivery {
   accent: string;
@@ -101,10 +99,6 @@ export interface ShipVisual {
   shipClass: ShipClass;
   classLabel: string;
   rigging: "issuer-rig" | "dependent-rig" | "dao-rig";
-  pennant: string;
-  pegLabel: string;
-  pegPattern: ShipPegPattern;
-  pegShape: ShipPegShape;
   livery: ShipLivery;
   sailColor: string;
   sailStripeColor: string;

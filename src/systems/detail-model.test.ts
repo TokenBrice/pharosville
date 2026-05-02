@@ -85,10 +85,6 @@ describe("detail-model analytical links", () => {
         shipClass: "cefi",
         classLabel: "CeFi",
         rigging: "issuer-rig",
-        pennant: "USDT",
-        pegLabel: "USD peg",
-        pegPattern: "ring",
-        pegShape: "disc",
         livery: {
           accent: "#27b6a5",
           label: "Tether logo livery",
@@ -145,10 +141,6 @@ describe("detail-model analytical links", () => {
         shipClass: "cefi",
         classLabel: "CeFi",
         rigging: "issuer-rig",
-        pennant: "sUSDe",
-        pegLabel: "USD peg",
-        pegPattern: "ring",
-        pegShape: "disc",
         livery: {
           accent: "#a9a68e",
           label: "Ethena staked livery",
@@ -217,10 +209,6 @@ describe("detail-model unique tier surfacing", () => {
         shipClass: "defi",
         classLabel: "DeFi",
         rigging: "dao-rig",
-        pennant: "emerald",
-        pegLabel: "USD peg",
-        pegPattern: "ring",
-        pegShape: "disc",
         livery: {
           accent: "#8bbf72",
           label: "Curve logo livery",

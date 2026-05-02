@@ -1,6 +1,6 @@
 import type { ReportCard, StablecoinData, StablecoinMeta } from "@shared/types";
 import { getCirculatingRaw } from "@/lib/supply";
-import type { ShipClass, ShipHull, ShipPegPattern, ShipPegShape, ShipSizeTier, ShipVisual } from "./world-types";
+import type { ShipClass, ShipHull, ShipSizeTier, ShipVisual } from "./world-types";
 import { resolveStablecoinShipBranding } from "./stablecoin-ship-branding";
 import { uniqueDefinitionFor } from "./unique-ships";
 
@@ -10,37 +10,6 @@ const GOVERNANCE_LABELS_SHORT = {
   decentralized: "DeFi",
 } as const;
 
-const PEG_PENNANTS: Record<string, string> = {
-  USD: "emerald",
-  EUR: "blue",
-  GBP: "cyan",
-  GOLD: "gold",
-  SILVER: "silver",
-};
-
-const PEG_SHAPES: Record<string, ShipPegShape> = {
-  USD: "disc",
-  EUR: "diamond",
-  GBP: "shield",
-  GOLD: "crown",
-  SILVER: "coin",
-};
-
-const PEG_PATTERNS: Record<string, ShipPegPattern> = {
-  USD: "ring",
-  EUR: "bar",
-  GBP: "cross",
-  GOLD: "grain",
-  SILVER: "bar",
-};
-
-const PEG_LABELS: Record<string, string> = {
-  USD: "USD peg",
-  EUR: "EUR peg",
-  GBP: "GBP peg",
-  GOLD: "Gold peg",
-  SILVER: "Silver peg",
-};
 
 interface ShipClassDefinition {
   hull: ShipHull;
@@ -156,10 +125,6 @@ export function resolveShipVisual(asset: StablecoinData, meta: StablecoinMeta, r
     shipClass: shipClass.shipClass,
     classLabel: shipClass.label,
     rigging: shipClass.rigging,
-    pennant: PEG_PENNANTS[meta.flags.pegCurrency] ?? "slate",
-    pegLabel: PEG_LABELS[meta.flags.pegCurrency] ?? `${meta.flags.pegCurrency} peg`,
-    pegPattern: PEG_PATTERNS[meta.flags.pegCurrency] ?? "bar",
-    pegShape: PEG_SHAPES[meta.flags.pegCurrency] ?? "disc",
     livery: branding,
     sailColor: branding.sailColor,
     sailStripeColor: branding.primary,
