@@ -163,6 +163,12 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright:v1.59.1-noble
+    # Firefox refuses to launch when $HOME isn't owned by the running user.
+    # The playwright container runs as root, but GH Actions injects
+    # HOME=/github/home (owned by uid 1000 on the host). Pin HOME to a
+    # root-owned path so Firefox's sandbox check passes.
+    env:
+      HOME: /root
     concurrency:
       group: ${{ github.workflow }}-visual-cross-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: true
