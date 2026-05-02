@@ -1,3 +1,4 @@
+import { dockOutwardVectorForTile } from "../../dock-layout";
 import { isSeawallBarrierTile, seawallBarrierDistance } from "../../seawall";
 import {
   clampMapTile,
@@ -19,10 +20,7 @@ function normalizeDockVisitWeights(visits: ShipDockVisit[]): ShipDockVisit[] {
 }
 
 function dockOutwardVector(dock: DockNode): { x: -1 | 0 | 1; y: -1 | 0 | 1 } {
-  const dx = dock.tile.x - MAX_TILE_X / 2;
-  const dy = dock.tile.y - MAX_TILE_Y / 2;
-  if (Math.abs(dx) >= Math.abs(dy)) return { x: dx < 0 ? -1 : 1, y: 0 };
-  return { x: 0, y: dy < 0 ? -1 : 1 };
+  return dockOutwardVectorForTile(dock.tile, MAX_TILE_X + 1);
 }
 
 function dockMooringDepthBonus(ship: ShipNode): number {

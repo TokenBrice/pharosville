@@ -1,4 +1,5 @@
 import { areaLabelPlacementForArea } from "../systems/area-labels";
+import { dockDrawTileOverride, dockOutwardVectorForTile } from "../systems/dock-layout";
 import type { ShipMotionSample } from "../systems/motion";
 import { tileToScreen, type IsoCamera, type ScreenPoint } from "../systems/projection";
 import type { PharosVilleWorld } from "../systems/world-types";
@@ -251,6 +252,8 @@ export function dockDrawPoint(
 }
 
 export function dockDrawTile(dock: PharosVilleWorld["docks"][number], mapWidth: number) {
+  const override = dockDrawTileOverride(dock.tile);
+  if (override) return override;
   const outward = dockOutwardVector(dock.tile, mapWidth);
   const reach = 0.72 + dock.size * 0.075;
   return {
@@ -260,11 +263,7 @@ export function dockDrawTile(dock: PharosVilleWorld["docks"][number], mapWidth: 
 }
 
 export function dockOutwardVector(tile: { x: number; y: number }, mapWidth: number): { x: -1 | 0 | 1; y: -1 | 0 | 1 } {
-  const center = (mapWidth - 1) / 2;
-  const dx = tile.x - center;
-  const dy = tile.y - center;
-  if (Math.abs(dx) >= Math.abs(dy)) return { x: dx < 0 ? -1 : 1, y: 0 };
-  return { x: 0, y: dy < 0 ? -1 : 1 };
+  return dockOutwardVectorForTile(tile, mapWidth);
 }
 
 export function dockRenderScale(size: number): number {
