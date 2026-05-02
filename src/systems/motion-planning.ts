@@ -210,6 +210,13 @@ function buildShipMotionRoute(
     : null;
   const homeDockId = primaryDockStop(ship, dockStops)?.dockId ?? null;
 
+  if (openWaterPatrol) {
+    const outbound = pathKey(openWaterPatrol.outbound.from, openWaterPatrol.outbound.to);
+    const inbound = pathKey(openWaterPatrol.inbound.from, openWaterPatrol.inbound.to);
+    waterPaths.setBuilder(outbound, () => openWaterPatrol!.outbound);
+    waterPaths.setBuilder(inbound, () => openWaterPatrol!.inbound);
+  }
+
   for (const stop of dockStops) {
     const outboundKey = pathKey(riskTile, stop.mooringTile);
     const inboundKey = pathKey(stop.mooringTile, riskTile);

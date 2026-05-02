@@ -3,7 +3,7 @@ import { denseFixtureChains, denseFixturePegSummary, denseFixtureReportCards, de
 import { buildPharosVilleWorld } from "./pharosville-world";
 import { buildBaseMotionPlan, buildMotionPlan, buildShipWaterRoute, isShipMapVisible, lighthouseFireFlickerSpeed, motionPlanSignature, resolveShipMotionSample, sampleShipWaterPath, shipWaterPathKey, stableMotionPhase, type ShipDockMotionStop } from "./motion";
 import { getShipHeadingDelta } from "./motion-sampling";
-import { chaikinSmoothPath, ensureShoreDistanceMask, shoreDistance } from "./motion-water";
+import { chaikinSmoothPath, ensureShoreDistanceMask, shoreDistance, warmAllWaterPaths } from "./motion-water";
 import { squadForMember, squadFormationOffsetForPlacement } from "./maker-squad";
 import { isSeawallBarrierTile, seawallBarrierDistance } from "./seawall";
 import { buildPharosVilleMap, isWaterTileKind, terrainKindAt, tileKindAt } from "./world-layout";
@@ -238,6 +238,32 @@ describe("motion", () => {
     const secondPath = secondRoute.waterPaths.get(key);
     expect(firstPath).toBeDefined();
     expect(secondPath).toBe(firstPath);
+  });
+
+  it("warms both docked and patrol water paths in the warmup pass", () => {
+    const patrolWorld = worldForShip({
+      chainCirculating: {},
+      chains: ["ethereum"],
+    });
+    const plan = buildBaseMotionPlan(patrolWorld);
+    const route = plan.shipRoutes.get(patrolWorld.ships[0]!.id)!;
+
+    warmAllWaterPaths(plan);
+    expect(route.openWaterPatrol).not.toBeNull();
+
+    for (const stop of route.dockStops) {
+      const dockKey = shipWaterPathKey(route.riskTile, stop.mooringTile);
+      const returnKey = shipWaterPathKey(stop.mooringTile, route.riskTile);
+      expect(route.waterPaths.get(dockKey)).toBeDefined();
+      expect(route.waterPaths.get(returnKey)).toBeDefined();
+    }
+
+    const outbound = route.openWaterPatrol?.outbound;
+    const inbound = route.openWaterPatrol?.inbound;
+    expect(outbound).toBeDefined();
+    expect(inbound).toBeDefined();
+    expect(route.waterPaths.get(shipWaterPathKey(outbound!.from, outbound!.to))).toBeDefined();
+    expect(route.waterPaths.get(shipWaterPathKey(inbound!.from, inbound!.to))).toBeDefined();
   });
 
   it("caches the squad formation offset on each consort route", () => {

@@ -87,6 +87,9 @@ export function warmAllWaterPaths(plan: PharosVilleMotionPlan | PharosVilleBaseM
       route.waterPaths.get(pathKey(stop.mooringTile, route.riskTile));
       route.waterPaths.get(pathKey(route.riskTile, stop.mooringTile));
     }
+    if (!route.openWaterPatrol) continue;
+    route.waterPaths.get(pathKey(route.openWaterPatrol.outbound.from, route.openWaterPatrol.outbound.to));
+    route.waterPaths.get(pathKey(route.openWaterPatrol.inbound.from, route.openWaterPatrol.inbound.to));
   }
 }
 
