@@ -12,7 +12,7 @@ const PEG_SAIL_COLORS: Record<string, StablecoinShipBranding> = {
 };
 
 const STABLECOIN_SAIL_COLORS: Record<string, StablecoinShipBranding> = {
-  "usdt-tether": livery("Tether logo livery", "#009393", "#d8efe7", "#27b6a5", "#005f61", "#f7fffb", "circle", "center", "double"),
+  "usdt-tether": livery("Tether logo livery", "#136649", "#2a8059", "#188660", "#063220", "#f7fffb", "circle", "center", "double"),
   "usdc-circle": livery("Circle logo livery", "#2775ca", "#dbe6f7", "#6ba3e8", "#143f7a", "#f8fbff", "ring", "center", "single"),
   "usde-ethena": livery("Ethena logo livery", "#393b3c", "#e2e2dd", "#8a8d87", "#151719", "#f5f2e8", "pill", "field", "diagonal"),
   "susde-ethena": livery("Ethena staked livery", "#686963", "#e8e6dc", "#a9a68e", "#34352f", "#f7f4e8", "pill", "hoist", "diagonal"),
@@ -33,7 +33,7 @@ const STABLECOIN_SAIL_COLORS: Record<string, StablecoinShipBranding> = {
   "crvusd-curve": livery("Curve logo livery", "#41956b", "#d9ecdf", "#8bbf72", "#27543e", "#f7fff5", "ring", "quartered", "wave"),
   "bold-liquity":         livery("Liquity BOLD livery",   "#1a1a3a", "#7ed87e", "#a8d8a8", "#0d0e1f", "#fff5e8", "diamond", "center", "cross"),
   "fxusd-f-x-protocol":   livery("f(x) USD livery",       "#5a8a5a", "#3d6b3d", "#a8c97a", "#1a3520", "#f7fff5", "slash",   "field",  "diagonal"),
-  "xaut-tether":          livery("Tether Gold livery",    "#009393", "#d6cfa6", "#d8b04a", "#005f61", "#fffbe5", "hex",     "center", "grain"),
+  "xaut-tether":          livery("Tether Gold livery",    "#b48a3a", "#d6cfa6", "#d8b04a", "#5e4318", "#fffbe5", "hex",     "center", "grain"),
   "paxg-paxos":           livery("PAX Gold livery",       "#b48a3a", "#f3e3a6", "#d9b65c", "#5a3d12", "#fffdec", "hex",     "field",  "grain"),
   "usdd-tron-dao-reserve": livery("USDD logo livery", "#2f8b7e", "#dcece8", "#62beb2", "#1b5850", "#f6fffc", "diamond", "center", "double"),
   "lusd-liquity": livery("Liquity logo livery", "#548bcf", "#dce8f7", "#8db4e3", "#285380", "#f5faff", "hex", "hoist", "single"),
