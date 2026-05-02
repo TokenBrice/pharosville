@@ -1,7 +1,9 @@
 "use client";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { Home, Maximize2, Minimize2 } from "lucide-react";
+import Home from "lucide-react/dist/esm/icons/home";
+import Maximize2 from "lucide-react/dist/esm/icons/maximize-2";
+import Minimize2 from "lucide-react/dist/esm/icons/minimize-2";
 import { AccessibilityLedger } from "./components/accessibility-ledger";
 import { DetailPanel } from "./components/detail-panel";
 import { WorldToolbar } from "./components/world-toolbar";

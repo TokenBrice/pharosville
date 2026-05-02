@@ -1,6 +1,6 @@
 "use client";
 
-import { X } from "lucide-react";
+import X from "lucide-react/dist/esm/icons/x";
 import type { DetailModel } from "../systems/world-types";
 import { compactCurrency, composeCurrently } from "../lib/format-detail";
 

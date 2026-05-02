@@ -101,6 +101,9 @@ const SCENERY_PROPS: readonly SceneryProp[] = [
 ] as const;
 
 const lampSeawardTileCache = new Map<string, { x: number; y: number } | null>();
+const lampLightConeSpriteCache = new Map<string, { canvas: HTMLCanvasElement; halfWidth: number; halfHeight: number }>();
+const LAMP_LIGHT_CONE_RADIUS_BUCKETS = 2;
+const LAMP_LIGHT_CONE_ALPHA_BUCKETS = 20;
 const DYNAMIC_SCENERY_KINDS = new Set<SceneryPropKind>(["buoy", "harbor-lamp"]);
 const staticSceneryDrawables = SCENERY_PROPS
   .filter((prop) => !DYNAMIC_SCENERY_KINDS.has(prop.kind))
@@ -109,6 +112,51 @@ const dynamicSceneryDrawables = SCENERY_PROPS
   .filter((prop) => DYNAMIC_SCENERY_KINDS.has(prop.kind))
   .map((prop) => createCachedSceneryDrawable(prop));
 const sceneryDrawablesScratch: WorldDrawable[] = [];
+
+function quantizeLampConeRadius(value: number): number {
+  return Math.max(0.5, Math.round(value * LAMP_LIGHT_CONE_RADIUS_BUCKETS) / LAMP_LIGHT_CONE_RADIUS_BUCKETS);
+}
+
+function quantizeLampConeAlpha(alpha: number): number {
+  return Math.min(1, Math.max(0, Math.round(alpha * LAMP_LIGHT_CONE_ALPHA_BUCKETS) / LAMP_LIGHT_CONE_ALPHA_BUCKETS));
+}
+
+function getLampLightConeSprite(
+  radiusX: number,
+  radiusY: number,
+  alpha: number,
+): { canvas: HTMLCanvasElement; halfWidth: number; halfHeight: number } | null {
+  if (typeof document === "undefined") return null;
+  const bucketedX = quantizeLampConeRadius(radiusX);
+  const bucketedY = quantizeLampConeRadius(radiusY);
+  const bucketedAlpha = quantizeLampConeAlpha(alpha);
+  const key = `${bucketedX}|${bucketedY}|${bucketedAlpha}`;
+  const cached = lampLightConeSpriteCache.get(key);
+  if (cached) return cached;
+
+  const width = Math.max(1, Math.ceil(bucketedX * 2) + 2);
+  const height = Math.max(1, Math.ceil(bucketedY * 2) + 2);
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const offCtx = canvas.getContext("2d");
+  if (!offCtx) return null;
+  const cx = width / 2;
+  const cy = height / 2;
+  const gradient = offCtx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(bucketedX, bucketedY));
+  gradient.addColorStop(0, `rgba(255, 196, 102, ${bucketedAlpha})`);
+  gradient.addColorStop(1, "rgba(255, 196, 102, 0)");
+  offCtx.save();
+  offCtx.fillStyle = gradient;
+  offCtx.beginPath();
+  offCtx.ellipse(cx, cy, bucketedX, bucketedY, 0, 0, Math.PI * 2);
+  offCtx.fill();
+  offCtx.restore();
+
+  const entry = { canvas, halfWidth: cx, halfHeight: cy };
+  lampLightConeSpriteCache.set(key, entry);
+  return entry;
+}
 
 function seawardTileForLamp(prop: SceneryProp): { x: number; y: number } | null {
   const cached = lampSeawardTileCache.get(prop.id);
@@ -148,15 +196,27 @@ function drawLampLightCone(input: DrawPharosVilleInput, prop: SceneryProp) {
     : baseAlpha + breath * Math.sin(motion.timeSeconds * 0.9 + prop.tile.y);
   const rx = TILE_WIDTH * 0.7 * camera.zoom;
   const ry = TILE_HEIGHT * 0.6 * camera.zoom;
-  const gradient = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, rx);
-  gradient.addColorStop(0, `rgba(255, 196, 102, ${alpha})`);
-  gradient.addColorStop(1, "rgba(255, 196, 102, 0)");
+  const sprite = getLampLightConeSprite(rx, ry, alpha);
+
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
-  ctx.fillStyle = gradient;
-  ctx.beginPath();
-  ctx.ellipse(center.x, center.y, rx, ry, 0, 0, Math.PI * 2);
-  ctx.fill();
+  if (sprite) {
+    ctx.drawImage(
+      sprite.canvas,
+      center.x - sprite.halfWidth,
+      center.y - sprite.halfHeight,
+      sprite.canvas.width,
+      sprite.canvas.height,
+    );
+  } else {
+    const fallback = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, rx);
+    fallback.addColorStop(0, `rgba(255, 196, 102, ${alpha})`);
+    fallback.addColorStop(1, "rgba(255, 196, 102, 0)");
+    ctx.fillStyle = fallback;
+    ctx.beginPath();
+    ctx.ellipse(center.x, center.y, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.restore();
 }
 

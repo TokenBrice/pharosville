@@ -2,7 +2,6 @@ import {
   useQuery,
   type QueryFunctionContext,
   type UseQueryOptions,
-  type UseQueryResult,
 } from "@tanstack/react-query";
 import { PHAROSVILLE_API_CLIENT_CONTRACT } from "@shared/lib/pharosville-api-client-contract";
 import type { PharosVilleApiEndpointKey, PharosVilleApiPayload } from "@shared/types/pharosville";
@@ -69,13 +68,21 @@ function createApiPollingQueryOptionsWithMeta<T>(
     retry: opts?.retry ?? 2,
     retryDelay: opts?.retryDelay ?? DEFAULT_RETRY_DELAY,
     enabled: opts?.enabled,
+    // Track only the fields that flow into downstream memoization and render
+    // behavior. Omitting `isFetching` prevents background polling ticks from
+    // retriggering world computations in the desktop shell.
+    notifyOnChangeProps: ["data", "error", "isLoading"],
   };
 }
 
-export interface ApiQueryWithMetaResult<T>
-  extends Omit<UseQueryResult<{ data: T; meta: ApiMeta | null }, Error>, "data"> {
+export interface ApiQueryWithMetaResult<T> {
   data: T | undefined;
   meta: ApiMeta | null;
+  error: Error | null;
+  isLoading: boolean;
+  isError: boolean;
+  isSuccess: boolean;
+  refetch: () => Promise<unknown>;
 }
 
 export function useApiQueryWithMeta<T>(
@@ -84,12 +91,23 @@ export function useApiQueryWithMeta<T>(
   cronInterval: number,
   opts?: ApiQueryOptions<T>,
 ): ApiQueryWithMetaResult<T> {
-  const { data, ...rest } = useQuery<{ data: T; meta: ApiMeta | null }, Error>(
+  const {
+    data,
+    error,
+    isError,
+    isLoading,
+    isSuccess,
+    refetch,
+  } = useQuery<{ data: T; meta: ApiMeta | null }, Error>(
     createApiPollingQueryOptionsWithMeta(key, path, cronInterval, opts),
   );
 
   return {
-    ...rest,
+    error,
+    isError,
+    isLoading,
+    isSuccess,
+    refetch: () => refetch().then(() => {}),
     data: data?.data,
     meta: data?.meta ?? null,
   };

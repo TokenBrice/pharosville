@@ -1,6 +1,9 @@
 "use client";
 
-import { LocateFixed, Moon, RotateCcw, Sun } from "lucide-react";
+import LocateFixed from "lucide-react/dist/esm/icons/locate-fixed";
+import Moon from "lucide-react/dist/esm/icons/moon";
+import RotateCcw from "lucide-react/dist/esm/icons/rotate-ccw";
+import Sun from "lucide-react/dist/esm/icons/sun";
 
 export interface WorldToolbarProps {
   headingId?: string;
