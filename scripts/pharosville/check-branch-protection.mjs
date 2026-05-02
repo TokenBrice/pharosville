@@ -328,24 +328,23 @@ function parseArgs(argv) {
 }
 
 function resolveRepository(repoArg) {
-  if (!repoArg) throw new Error("No repository context found. Set GITHUB_REPOSITORY or pass --repo owner/repo.");
   if (repoArg === ".") {
     throw new Error("Invalid repository argument: .");
   }
 
-  if (repoArg.includes("/")) {
+  if (repoArg?.includes("/")) {
     const [owner, repo] = repoArg.split("/");
     if (!owner || !repo) throw new Error(`Invalid repo format: ${repoArg}`);
-    return { owner, repo: repo.replace(/\\.git$/, "") };
+    return { owner, repo: repo.replace(/\.git$/, "") };
   }
 
   const gitUrl = execSync("git remote get-url origin", { encoding: "utf8" }).trim();
-  const httpsMatch = /^https?:\\/\\/github\\.com\\/([^/]+)\\/([^/]+?)(?:\\.git)?$/.exec(gitUrl);
+  const httpsMatch = /^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/.exec(gitUrl);
   if (httpsMatch) {
     return { owner: httpsMatch[1], repo: httpsMatch[2] };
   }
 
-  const sshMatch = /^git@github\\.com:([^/]+)\\/([^/]+?)(?:\\.git)?$/.exec(gitUrl);
+  const sshMatch = /^git@github\.com:([^/]+)\/([^/]+?)(?:\.git)?$/.exec(gitUrl);
   if (sshMatch) {
     return { owner: sshMatch[1], repo: sshMatch[2] };
   }
