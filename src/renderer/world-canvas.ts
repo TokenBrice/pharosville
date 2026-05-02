@@ -263,8 +263,8 @@ function drawStaticPassCached(
     ...input,
     camera: staticCamera.paintCamera,
   };
-  const sourceX = Math.max(0, Math.min(backingPadWidth, Math.round(staticCamera.residualOffsetX * dpr)));
-  const sourceY = Math.max(0, Math.min(backingPadHeight, Math.round(staticCamera.residualOffsetY * dpr)));
+  const sourceX = Math.max(0, Math.min(backingPadWidth, backingPadWidth - Math.round(staticCamera.residualOffsetX * dpr)));
+  const sourceY = Math.max(0, Math.min(backingPadHeight, backingPadHeight - Math.round(staticCamera.residualOffsetY * dpr)));
 
   const cached = staticLayerCache.entries.find((entry) => entry.key === key);
   if (cached) {
