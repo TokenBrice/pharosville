@@ -30,14 +30,14 @@ export function PharosVilleClient() {
     return (
       <>
         <DesktopOnlyFallback />
-        <div className="pharosville-loading pharosville-desktop" aria-busy="true">Preparing PharosVille</div>
+        <div className="pharosville-loading pharosville-desktop" aria-busy="true">Charting market winds…</div>
       </>
     );
   }
   if (!isDesktop) return <DesktopOnlyFallback />;
 
   return (
-    <Suspense fallback={<div className="pharosville-loading pharosville-desktop" aria-busy="true">Preparing PharosVille</div>}>
+    <Suspense fallback={<div className="pharosville-loading pharosville-desktop" aria-busy="true">Charting market winds…</div>}>
       <PharosVilleDesktopData />
     </Suspense>
   );

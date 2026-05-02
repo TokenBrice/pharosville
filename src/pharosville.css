@@ -1,3 +1,12 @@
+@font-face {
+  font-family: "PV Plaque";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/eb-garamond-700-latin.woff2") format("woff2");
+  unicode-range: U+0020-007F;
+}
+
 html,
 body,
 #root {
@@ -491,6 +500,13 @@ textarea {
   margin: 6px 0 0;
   color: var(--pv-ink-soft);
   font: italic 13px Georgia, serif;
+}
+.pharosville-detail-panel__heritage {
+  margin: 4px 0 0;
+  color: var(--pv-brass-edge);
+  font: 700 12px Georgia, serif;
+  font-style: normal;
+  letter-spacing: 0.04em;
 }
 
 .pharosville-detail-panel__section {

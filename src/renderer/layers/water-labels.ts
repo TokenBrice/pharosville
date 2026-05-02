@@ -71,7 +71,7 @@ function drawCartographicWaterLabel(input: {
   const fontSize = Math.max(8, Math.round(8.6 * scale));
   const text = label.toUpperCase();
   const width = maxWidth * scale;
-  const font = `700 ${fontSize}px Georgia, "Times New Roman", serif`;
+  const font = `700 ${fontSize}px "PV Plaque", Georgia, "Times New Roman", serif`;
 
   ctx.save();
   ctx.translate(Math.round(x), Math.round(y));

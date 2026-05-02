@@ -34,7 +34,10 @@ const KNOWN_LABELS = {
   riskWaterZone: /^risk\s*water\s*zone$/i,
   chainsPresent: /^chains?\s*present$/i,
   sailingInFormation: /^sailing\s*in\s*formation$/i,
+  culturalSignificance: /^cultural\s*significance$/i,
 } as const satisfies Record<string, RegExp>;
+
+const HERITAGE_LABEL = /^cultural\s*significance$/i;
 
 type LabelKey = keyof typeof KNOWN_LABELS;
 
@@ -98,6 +101,7 @@ export function DetailPanel({
   onClose,
 }: DetailPanelProps) {
   const sections = buildSections(detail.facts);
+  const heritage = detail.facts.find((fact) => HERITAGE_LABEL.test(fact.label))?.value;
 
   return (
     <aside
@@ -115,6 +119,7 @@ export function DetailPanel({
         <header className="pharosville-detail-panel__header">
           <p className="pharosville-detail-panel__kind">{detail.kind}</p>
           <h2 id={headingId}>{detail.title}</h2>
+          {heritage && <p className="pharosville-detail-panel__heritage">{heritage}</p>}
           <p>{detail.summary}</p>
         </header>
 
