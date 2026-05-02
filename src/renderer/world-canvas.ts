@@ -460,6 +460,6 @@ function countVisibleTiles(input: DrawPharosVilleInput): number {
     tileMargin: 2,
     viewportHeight: input.height,
     viewportWidth: input.width,
-  });
+  }, input.visibleTileBoundsCache);
   return tileBoundsTileCount(bounds);
 }

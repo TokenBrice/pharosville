@@ -31,7 +31,9 @@ export interface HitTargetSnapshot {
 
 export interface HitTargetSpatialIndex {
   cellSize: number;
-  cells: ReadonlyMap<string, readonly number[]>;
+  cells: ReadonlyMap<string, readonly string[]>;
+  targetById: ReadonlyMap<string, HitTarget>;
+  targetCellKeys: ReadonlyMap<string, readonly string[]>;
   targets: readonly HitTarget[];
 }
 
@@ -138,13 +140,20 @@ export function updateHitTargetSnapshotShips(input: {
   const changedShipIds = Array.from(new Set(input.changedShipIds));
   if (changedShipIds.length === 0) return input.snapshot;
   const changedShipIdSet = new Set(changedShipIds);
-  const recordsById = new Map(input.snapshot.recordsById);
+  let recordsById = input.snapshot.recordsById;
   const updatedRecordsByShipId = new Map<string, HitTargetRecord | null>();
   let snapshotMutated = false;
+  let recordsByIdCloned = false;
 
   for (const shipId of changedShipIds) {
     const previous = recordsById.get(shipId);
-    recordsById.delete(shipId);
+    if (previous && !recordsByIdCloned) {
+      recordsById = new Map(recordsById);
+      recordsByIdCloned = true;
+    }
+    if (recordsByIdCloned && previous) {
+      recordsById.delete(shipId);
+    }
     const ship = input.worldShipsById.get(shipId);
     if (!ship) {
       if (previous) snapshotMutated = true;
@@ -188,6 +197,10 @@ export function updateHitTargetSnapshotShips(input: {
     };
     if (!previous || !hitTargetRecordGeometryEquals(previous, nextRecord)) snapshotMutated = true;
     updatedRecordsByShipId.set(shipId, nextRecord);
+    if (!recordsByIdCloned && !previous) {
+      recordsById = new Map(recordsById);
+      recordsByIdCloned = true;
+    }
     recordsById.set(shipId, nextRecord);
   }
 
@@ -207,10 +220,24 @@ export function updateHitTargetSnapshotShips(input: {
     insertRecordBySortOrder(unchangedRecordsInOrder, updatedRecord);
   }
 
-  return snapshotFromSortedRecords(recordsById, unchangedRecordsInOrder, {
+  const nextSnapshot = snapshotFromSortedRecords(recordsById, unchangedRecordsInOrder, {
     hoveredDetailId: input.hoveredDetailId ?? null,
     selectedDetailId: input.selectedDetailId ?? null,
   });
+  const nextTargetsById = new Map<string, HitTarget>(nextSnapshot.targets.map((target) => [target.id, target]));
+  const nextSpatialIndex = updateHitTargetSpatialIndex({
+    changedShipIds: changedShipIdSet,
+    nextTargets: nextSnapshot.targets,
+    nextTargetsById,
+    previousSpatialIndex: input.snapshot.spatialIndex,
+  });
+  return {
+    ...nextSnapshot,
+    spatialIndex: {
+      ...nextSpatialIndex,
+      targets: nextSnapshot.targets,
+    },
+  };
 }
 
 export function collectHitTargets(input: {
@@ -233,38 +260,42 @@ export function collectHitTargets(input: {
 
 export function buildHitTargetSpatialIndex(targets: readonly HitTarget[], cellSize = HIT_TARGET_SPATIAL_CELL_SIZE): HitTargetSpatialIndex {
   const resolvedCellSize = Math.max(24, Math.floor(cellSize));
-  const cells = new Map<string, number[]>();
+  const cells = new Map<string, string[]>();
+  const targetById = new Map<string, HitTarget>();
+  const targetCellKeys = new Map<string, readonly string[]>();
   for (let index = 0; index < targets.length; index += 1) {
     const target = targets[index]!;
-    const minCellX = Math.floor(target.rect.x / resolvedCellSize);
-    const maxCellX = Math.floor((target.rect.x + target.rect.width) / resolvedCellSize);
-    const minCellY = Math.floor(target.rect.y / resolvedCellSize);
-    const maxCellY = Math.floor((target.rect.y + target.rect.height) / resolvedCellSize);
-    for (let cellX = minCellX; cellX <= maxCellX; cellX += 1) {
-      for (let cellY = minCellY; cellY <= maxCellY; cellY += 1) {
-        const key = `${cellX}:${cellY}`;
-        const existing = cells.get(key);
-        if (existing) {
-          existing.push(index);
-        } else {
-          cells.set(key, [index]);
-        }
+    targetById.set(target.id, target);
+    const keys = spatialCellKeysForTarget(target.rect, resolvedCellSize);
+    targetCellKeys.set(target.id, keys);
+    for (const key of keys) {
+      const existing = cells.get(key);
+      if (existing) {
+        existing.push(target.id);
+      } else {
+        cells.set(key, [target.id]);
       }
     }
   }
-  return { cellSize: resolvedCellSize, cells, targets };
+  return {
+    cellSize: resolvedCellSize,
+    cells,
+    targetById,
+    targetCellKeys,
+    targets,
+  };
 }
 
 export function hitTestSpatial(index: HitTargetSpatialIndex | null, point: ScreenPoint, context?: HitTargetPriorityContext): HitTarget | null {
   if (!index) return null;
   const cellX = Math.floor(point.x / index.cellSize);
   const cellY = Math.floor(point.y / index.cellSize);
-  const candidateIndices = index.cells.get(`${cellX}:${cellY}`);
-  if (!candidateIndices || candidateIndices.length === 0) return null;
+  const candidateIds = index.cells.get(`${cellX}:${cellY}`);
+  if (!candidateIds || candidateIds.length === 0) return null;
   let bestTarget: HitTarget | null = null;
   let bestPriority = Number.NEGATIVE_INFINITY;
-  for (const candidateIndex of candidateIndices) {
-    const target = index.targets[candidateIndex];
+  for (const targetId of candidateIds) {
+    const target = index.targetById.get(targetId);
     if (!target) continue;
     if (!containsPoint(target, point)) continue;
     const priority = effectiveTargetPriority(target, context);
@@ -326,6 +357,89 @@ function snapshotFromSortedRecords(
   };
 }
 
+function updateHitTargetSpatialIndex(input: {
+  changedShipIds: ReadonlySet<string>;
+  nextTargets: readonly HitTarget[];
+  nextTargetsById: ReadonlyMap<string, HitTarget>;
+  previousSpatialIndex: HitTargetSpatialIndex;
+}): {
+  cellSize: number;
+  cells: ReadonlyMap<string, readonly string[]>;
+  targetById: ReadonlyMap<string, HitTarget>;
+  targetCellKeys: ReadonlyMap<string, readonly string[]>;
+  targets: readonly HitTarget[];
+} {
+  const nextTargetById = new Map<string, HitTarget>(input.nextTargetsById);
+  const nextTargetCellKeys = new Map<string, readonly string[]>(
+    input.previousSpatialIndex.targetCellKeys,
+  );
+  const nextCells = new Map<string, string[]>(input.previousSpatialIndex.cells as Map<string, string[]>);
+  const ensureCopiedCell = (cellKey: string): string[] | null => {
+    const candidates = nextCells.get(cellKey);
+    if (!candidates) return null;
+    const sourceCandidates = input.previousSpatialIndex.cells.get(cellKey);
+    if (candidates === sourceCandidates) {
+      const copiedCandidates = [...candidates];
+      nextCells.set(cellKey, copiedCandidates);
+      return copiedCandidates;
+    }
+    return candidates;
+  };
+
+  for (const changedShipId of input.changedShipIds) {
+    const previousCellKeys = input.previousSpatialIndex.targetCellKeys.get(changedShipId);
+    nextTargetById.delete(changedShipId);
+    nextTargetCellKeys.delete(changedShipId);
+
+    const nextTarget = input.nextTargetsById.get(changedShipId);
+    if (!nextTarget) continue;
+    const nextCellKeys = spatialCellKeysForTarget(nextTarget.rect, input.previousSpatialIndex.cellSize);
+    nextTargetById.set(changedShipId, nextTarget);
+    nextTargetCellKeys.set(changedShipId, nextCellKeys);
+    const shouldUpdateCells = !areTargetCellKeysEqual(previousCellKeys, nextCellKeys);
+    if (shouldUpdateCells) {
+      if (previousCellKeys) {
+        for (const cellKey of previousCellKeys) {
+          const candidates = ensureCopiedCell(cellKey);
+          if (!candidates) continue;
+          const candidateIndex = candidates.indexOf(changedShipId);
+          if (candidateIndex < 0) continue;
+          candidates.splice(candidateIndex, 1);
+          if (candidates.length === 0) {
+            nextCells.delete(cellKey);
+          }
+        }
+      }
+      for (const cellKey of nextCellKeys) {
+        let candidates = ensureCopiedCell(cellKey);
+        if (!candidates) {
+          candidates = [changedShipId];
+          nextCells.set(cellKey, candidates);
+        } else if (!candidates.includes(changedShipId)) {
+          candidates.push(changedShipId);
+        }
+      }
+    }
+  }
+
+  return {
+    cellSize: input.previousSpatialIndex.cellSize,
+    cells: nextCells,
+    targetById: nextTargetById,
+    targetCellKeys: nextTargetCellKeys,
+    targets: input.nextTargets,
+  };
+}
+
+function areTargetCellKeysEqual(left: readonly string[] | undefined, right: readonly string[]): boolean {
+  if (!left || left.length !== right.length) return false;
+  const rightSet = new Set(right);
+  for (const key of left) {
+    if (!rightSet.has(key)) return false;
+  }
+  return true;
+}
+
 function shouldKeepHitTargetCandidate(input: {
   entity: WorldSelectableEntity;
   geometry: { targetRect: HitTarget["rect"] };
@@ -346,6 +460,20 @@ function rectIntersectsViewport(rect: HitTarget["rect"], viewport: HitTargetView
     && rect.y + rect.height >= -margin
     && rect.y <= viewport.height + margin
   );
+}
+
+function spatialCellKeysForTarget(targetRect: HitTarget["rect"], cellSize: number): readonly string[] {
+  const minCellX = Math.floor(targetRect.x / cellSize);
+  const maxCellX = Math.floor((targetRect.x + targetRect.width) / cellSize);
+  const minCellY = Math.floor(targetRect.y / cellSize);
+  const maxCellY = Math.floor((targetRect.y + targetRect.height) / cellSize);
+  const cellKeys = new Set<string>();
+  for (let cellX = minCellX; cellX <= maxCellX; cellX += 1) {
+    for (let cellY = minCellY; cellY <= maxCellY; cellY += 1) {
+      cellKeys.add(`${cellX}:${cellY}`);
+    }
+  }
+  return [...cellKeys];
 }
 
 function compareHitTargetRecords(left: HitTargetRecord, right: HitTargetRecord): number {

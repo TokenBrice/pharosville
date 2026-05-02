@@ -4,6 +4,7 @@ import type { PharosVilleWorld } from "../systems/world-types";
 import type { PharosVilleAssetManager } from "./asset-manager";
 import type { WorldDrawablePass } from "./drawable-pass";
 import type { HitTarget } from "./hit-testing";
+import type { VisibleTileBoundsCacheState } from "./viewport";
 
 export interface PharosVilleCanvasMotion {
   plan: PharosVilleMotionPlan;
@@ -29,6 +30,7 @@ export interface DrawPharosVilleInput {
   motion: PharosVilleCanvasMotion;
   selectedTarget: HitTarget | null;
   shipMotionSamples?: ReadonlyMap<string, ShipMotionSample>;
+  visibleTileBoundsCache?: VisibleTileBoundsCacheState;
   targets: readonly HitTarget[];
   width: number;
   world: PharosVilleWorld;

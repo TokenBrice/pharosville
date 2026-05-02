@@ -7,6 +7,7 @@ import type { PharosVilleAssetLoadError, PharosVilleAssetLoadStats, PharosVilleA
 import { createHitTargetSnapshot, updateHitTargetSnapshotShips, type HitTarget, type HitTargetSnapshot } from "../renderer/hit-testing";
 import { selectionDrawableCount } from "../renderer/layers/selection";
 import { drawPharosVille, type PharosVilleRenderMetrics } from "../renderer/world-canvas";
+import { createVisibleTileBoundsCacheState } from "../renderer/viewport";
 import { clampCameraToMap } from "../systems/camera";
 import {
   createDrawDurationWindow,
@@ -114,6 +115,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   const requestPaint = useCallback(() => {
     paintRequestRef.current();
   }, []);
+  const visibleTileBoundsCacheRef = useRef(createVisibleTileBoundsCacheState());
   // Tracks whether the canvas is currently visible enough to be worth drawing.
   // The RAF effect updates this from an IntersectionObserver + visibilitychange
   // handler and gates both the loop and on-demand paints.
@@ -162,6 +164,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     accSecondsRef.current = 0;
     pendingResumeRef.current = false;
     motionFrameCountRef.current = 0;
+    visibleTileBoundsCacheRef.current = createVisibleTileBoundsCacheState();
     shipMotionSamplesRef.current = new Map();
     hitTargetSnapshotRef.current = null;
     hitTargetsRef.current = [];
@@ -344,6 +347,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           timeSeconds,
           wallClockHour,
         },
+        visibleTileBoundsCache: visibleTileBoundsCacheRef.current,
         selectedTarget: nextSelectedTarget,
         shipMotionSamples,
         targets,

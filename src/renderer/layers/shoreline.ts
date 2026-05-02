@@ -64,7 +64,7 @@ function tilesByKeyForMap(map: PharosVilleMap): Map<string, PharosVilleTile> {
   return cached;
 }
 
-export function drawCoastalWaterDetails({ camera, ctx, height, motion, width, world }: DrawPharosVilleInput) {
+export function drawCoastalWaterDetails({ camera, ctx, height, motion, width, world, visibleTileBoundsCache }: DrawPharosVilleInput) {
   const bounds = visibleTileBoundsForCamera({
     camera,
     mapHeight: world.map.height,
@@ -72,7 +72,7 @@ export function drawCoastalWaterDetails({ camera, ctx, height, motion, width, wo
     tileMargin: 3,
     viewportHeight: height,
     viewportWidth: width,
-  });
+  }, visibleTileBoundsCache);
   const viewportMarginX = 46 * camera.zoom;
   const viewportMarginY = 28 * camera.zoom;
   if (!bounds) return 0;

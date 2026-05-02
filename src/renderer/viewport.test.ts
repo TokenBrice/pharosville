@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fitCameraToMap } from "../systems/projection";
-import { isScreenPointInViewport, tileBoundsTileCount, visibleTileBoundsForCamera } from "./viewport";
+import { createVisibleTileBoundsCacheState, isScreenPointInViewport, tileBoundsTileCount, visibleTileBoundsForCamera } from "./viewport";
 
 describe("renderer viewport helpers", () => {
   it("returns null when the projected viewport falls fully outside map bounds", () => {
@@ -58,5 +58,83 @@ describe("renderer viewport helpers", () => {
     expect(isScreenPointInViewport({ x: 105, y: 84 }, 100, 80, 10, 5)).toBe(true);
     expect(isScreenPointInViewport({ x: -11, y: 20 }, 100, 80, 10, 5)).toBe(false);
     expect(isScreenPointInViewport({ x: 105, y: 86 }, 100, 80, 10, 5)).toBe(false);
+  });
+
+  it("reuses exact camera bounds from cache", () => {
+    const cache = createVisibleTileBoundsCacheState();
+    const input = {
+      camera: { offsetX: -240, offsetY: -240, zoom: 1 },
+      mapHeight: 200,
+      mapWidth: 200,
+      tileMargin: 2,
+      viewportHeight: 140,
+      viewportWidth: 160,
+    };
+    const first = visibleTileBoundsForCamera(input, cache);
+    const second = visibleTileBoundsForCamera(input, cache);
+    expect(first).not.toBeNull();
+    expect(second).toBe(first);
+  });
+
+  it("reuses nearby camera movement with one-tile bound inflation", () => {
+    const cache = createVisibleTileBoundsCacheState();
+    const baseInput = {
+      camera: { offsetX: -240, offsetY: -240, zoom: 1 },
+      mapHeight: 200,
+      mapWidth: 200,
+      tileMargin: 2,
+      viewportHeight: 140,
+      viewportWidth: 160,
+    };
+
+    const base = visibleTileBoundsForCamera(baseInput, cache);
+    const nearCamera = visibleTileBoundsForCamera(
+      {
+        ...baseInput,
+        camera: { ...baseInput.camera, offsetX: -238 },
+      },
+      cache,
+    );
+
+    expect(base).not.toBeNull();
+    expect(nearCamera).not.toBeNull();
+    expect(nearCamera!.minX).toBeLessThanOrEqual(base!.minX);
+    expect(nearCamera!.minX).toBeGreaterThanOrEqual(base!.minX - 1);
+    expect(nearCamera!.maxX).toBeGreaterThanOrEqual(base!.maxX);
+    expect(nearCamera!.maxX).toBeLessThanOrEqual(base!.maxX + 1);
+    expect(nearCamera!.minY).toBeLessThanOrEqual(base!.minY);
+    expect(nearCamera!.minY).toBeGreaterThanOrEqual(base!.minY - 1);
+    expect(nearCamera!.maxY).toBeGreaterThanOrEqual(base!.maxY);
+    expect(nearCamera!.maxY).toBeLessThanOrEqual(base!.maxY + 1);
+  });
+
+  it("refreshes cache on larger camera changes", () => {
+    const cache = createVisibleTileBoundsCacheState();
+    const baseInput = {
+      camera: { offsetX: -240, offsetY: -240, zoom: 1 },
+      mapHeight: 200,
+      mapWidth: 200,
+      tileMargin: 2,
+      viewportHeight: 140,
+      viewportWidth: 160,
+    };
+    const base = visibleTileBoundsForCamera(baseInput, cache);
+    const far = visibleTileBoundsForCamera(
+      {
+        ...baseInput,
+        camera: { ...baseInput.camera, offsetX: -120, offsetY: -120 },
+      },
+      cache,
+    );
+    const farAgain = visibleTileBoundsForCamera(
+      {
+        ...baseInput,
+        camera: { ...baseInput.camera, offsetX: -120, offsetY: -120 },
+      },
+      cache,
+    );
+    expect(base).not.toBeNull();
+    expect(far).not.toBeNull();
+    expect(farAgain).toBe(far);
   });
 });
