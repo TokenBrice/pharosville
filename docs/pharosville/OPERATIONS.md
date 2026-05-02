@@ -121,10 +121,7 @@ npx wrangler pages deploy dist --project-name=pharosville
 
 The current `npm run deploy` script also deploys `dist`, but release hardening is still tracked separately. Prefer the explicit command above when you need dirty-tree protection.
 
-CI now runs a dedicated post-deploy `release-readiness` job on production pushes. That gate runs:
-
-- `npm run check:release-readiness`
-- a production smoke against the configured live URL
+CI now runs a dedicated post-deploy `release-readiness` job on production pushes. That runtime gate runs `npm run check:release-readiness` and a production smoke against the configured live URL. Repository admin hardening remains separately checkable with `npm run check:release-admin` until branch protection is configured.
 
 ## Live Smoke
 

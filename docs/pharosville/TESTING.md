@@ -118,7 +118,7 @@ Before claiming release-level confidence, run the broad release gate:
 npm run validate:release
 ```
 
-For a production readiness gate (branch rules + security headers + cross-browser
+For the post-deploy production readiness gate (security headers + cross-browser
 accessibility smoke + live smoke), run:
 
 ```bash
