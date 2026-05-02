@@ -608,17 +608,17 @@ function motionSample(
 function serializeSpatialIndex(index: {
   cellSize: number;
   targets: readonly HitTarget[];
-  cells: ReadonlyMap<string, readonly string[]>;
+  cells: ReadonlyMap<number, readonly string[]>;
 }): {
   cellSize: number;
   targetsLength: number;
-  cells: [string, string[]][];
+  cells: [number, string[]][];
 } {
   return {
     cellSize: index.cellSize,
     targetsLength: index.targets.length,
     cells: [...index.cells.entries()]
-      .sort((left, right) => (left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0))
+      .sort((left, right) => left[0] - right[0])
       .map(([key, values]) => [key, [...values].sort()]),
   };
 }

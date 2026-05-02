@@ -10,6 +10,10 @@ export interface WorldDrawableSortFields {
   pass: WorldDrawablePass;
   screenBounds: { height: number; width: number; x: number; y: number };
   tieBreaker: string;
+  // Optional numeric tie-breaker. When present, used in place of the
+  // string `tieBreaker` during sort to skip lexicographic comparison.
+  // Producers can leave this absent; the sort falls back to `tieBreaker`.
+  sortIndex?: number;
 }
 
 export interface WorldDrawable extends WorldDrawableSortFields {
@@ -22,6 +26,35 @@ const DRAWABLE_PASS_RANK: Record<WorldDrawablePass, number> = {
   overlay: 2,
   selection: 3,
 };
+
+// Intern `kind` strings to a small-int rank so the sort comparator avoids
+// the per-comparison lexicographic compare. Unknown kinds fall back to a
+// stable lazy interning bucket above the well-known set.
+const DRAWABLE_KIND_RANK: Record<string, number> = {
+  area: 0,
+  dock: 1,
+  ship: 2,
+  lighthouse: 3,
+  grave: 4,
+  scenery: 5,
+  district: 6,
+  cluster: 7,
+};
+const DRAWABLE_KIND_RANK_BASE = 100;
+const drawableKindRankLazy = new Map<string, number>();
+let drawableKindRankCursor = DRAWABLE_KIND_RANK_BASE;
+
+function drawableKindRank(kind: string): number {
+  const known = DRAWABLE_KIND_RANK[kind];
+  if (known !== undefined) return known;
+  let lazy = drawableKindRankLazy.get(kind);
+  if (lazy === undefined) {
+    lazy = drawableKindRankCursor;
+    drawableKindRankCursor += 1;
+    drawableKindRankLazy.set(kind, lazy);
+  }
+  return lazy;
+}
 
 export function sortByIsoDepth<T>(
   items: readonly T[],
@@ -54,9 +87,18 @@ function compareWorldDrawables(a: WorldDrawableSortFields, b: WorldDrawableSortF
     selectionRank(a) - selectionRank(b)
     || a.depth - b.depth
     || DRAWABLE_PASS_RANK[a.pass] - DRAWABLE_PASS_RANK[b.pass]
-    || compareText(a.kind, b.kind)
-    || compareText(a.tieBreaker, b.tieBreaker)
+    || drawableKindRank(a.kind) - drawableKindRank(b.kind)
+    || compareTieBreaker(a, b)
   );
+}
+
+function compareTieBreaker(a: WorldDrawableSortFields, b: WorldDrawableSortFields): number {
+  // Prefer the numeric tie-breaker when both descriptors carry one (cheaper
+  // than a per-comparison string compare). Fall back to the legacy string
+  // `tieBreaker` whenever either side omits the numeric variant so producers
+  // that haven't been migrated keep their existing ordering.
+  if (a.sortIndex !== undefined && b.sortIndex !== undefined) return a.sortIndex - b.sortIndex;
+  return compareText(a.tieBreaker, b.tieBreaker);
 }
 
 function selectionRank(drawable: WorldDrawableSortFields): number {

@@ -12,7 +12,7 @@ import { useCanvasResizeAndCamera } from "./hooks/use-canvas-resize-and-camera";
 import { useFullscreenMode } from "./hooks/use-fullscreen-mode";
 import { useLatestRef } from "./hooks/use-latest-ref";
 import { useWorldRenderLoop } from "./hooks/use-world-render-loop";
-import { createHitTargetSnapshot, type HitTarget, type HitTargetSnapshot } from "./renderer/hit-testing";
+import { createHitTargetSnapshot, recomputeHitTargetsForCameraOnly, type HitTarget, type HitTargetSnapshot } from "./renderer/hit-testing";
 import { buildBaseMotionPlan, buildMotionPlan, motionPlanSignature, type ShipMotionSample } from "./systems/motion";
 import type { ScreenPoint } from "./systems/projection";
 import { observeReducedMotion } from "./systems/reduced-motion";
@@ -35,7 +35,12 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const baseMotionPlanSignature = motionPlanSignature(world);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const baseMotionPlan = useMemo(() => buildBaseMotionPlan(world), [baseMotionPlanSignature]);
-  const motionPlan = useMemo(() => buildMotionPlan(world, selectedDetailId, baseMotionPlan), [baseMotionPlan, selectedDetailId, world]);
+  // `buildMotionPlan` only reads `world` to find the selected ship by id.
+  // `baseMotionPlan` identity already keys on `motionPlanSignature(world)`, so
+  // dropping `world` here avoids re-running the memo on world-ref churn that
+  // doesn't change the signature.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const motionPlan = useMemo(() => buildMotionPlan(world, selectedDetailId, baseMotionPlan), [baseMotionPlan, selectedDetailId]);
   const shipsById = useMemo(() => new Map(world.ships.map((ship) => [ship.id, ship])), [world.ships]);
   const selectedEntity = selectedDetailId ? world.entityById[selectedDetailId] ?? null : null;
   const selectedDetail = selectedDetailId ? world.detailIndex[selectedDetailId] ?? null : null;
@@ -60,6 +65,12 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   // ordering (the render-loop hook is bound after the canvas hook).
   const recomputeHitTargetsRef = useRef<() => HitTargetSnapshot | null>(() => null);
   const recomputeHitTargets = useCallback((): HitTargetSnapshot | null => recomputeHitTargetsRef.current(), []);
+  // Camera-only re-projection path: reuses the existing record list (no
+  // recordsById Map rebuild, no full sort, no per-entity asset/visibility
+  // re-evaluation) and only re-projects screen rects + re-bins them in the
+  // spatial index. Falls back to a full rebuild when no prior snapshot exists.
+  const recomputeHitTargetsForCameraRef = useRef<() => HitTargetSnapshot | null>(() => null);
+  const recomputeHitTargetsForCamera = useCallback((): HitTargetSnapshot | null => recomputeHitTargetsForCameraRef.current(), []);
 
   const assetPipeline = useAssetLoadingPipeline({ motionPlanRef, world });
 
@@ -120,6 +131,26 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     hitTargetsRef.current = snapshot.targets;
     return snapshot;
   };
+  recomputeHitTargetsForCameraRef.current = (): HitTargetSnapshot | null => {
+    const activeCamera = canvas.cameraRef.current;
+    if (!activeCamera) return hitTargetSnapshotRef.current;
+    const previous = hitTargetSnapshotRef.current;
+    if (!previous) return recomputeHitTargetsRef.current();
+    const activeCanvasSize = canvas.canvasSizeRef.current;
+    const snapshot = recomputeHitTargetsForCameraOnly({
+      assets: assetPipeline.assetManager,
+      camera: activeCamera,
+      hoveredDetailId: hoveredDetailIdRef.current,
+      selectedDetailId: selectedDetailIdRef.current,
+      shipMotionSamples: shipMotionSamplesRef.current,
+      snapshot: previous,
+      viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
+      world,
+    });
+    hitTargetSnapshotRef.current = snapshot;
+    hitTargetsRef.current = snapshot.targets;
+    return snapshot;
+  };
 
   const { requestPaint } = useWorldRenderLoop({
     adaptiveDprStateRef: canvas.adaptiveDprStateRef,
@@ -153,13 +184,31 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     world,
   });
 
-  // Keep hit-targets in sync with state-driven inputs that affect them:
-  // selection, camera (pan/zoom/follow), and canvas size. Ship-cell and
-  // visibility transitions are handled incrementally inside the RAF loop.
+  // Full hit-target rebuild on world swap, selection delta, canvas-size
+  // changes, or asset-pipeline ready transitions. Ship-cell and visibility
+  // transitions are handled incrementally inside the RAF loop.
   useEffect(() => {
     recomputeHitTargets();
     if (reducedMotion) requestPaint();
-  }, [canvas.camera, canvas.canvasSize.x, canvas.canvasSize.y, recomputeHitTargets, reducedMotion, requestPaint, selectedDetailId]);
+  }, [
+    assetPipeline.assetManager,
+    canvas.canvasSize.x,
+    canvas.canvasSize.y,
+    recomputeHitTargets,
+    reducedMotion,
+    requestPaint,
+    selectedDetailId,
+    world,
+  ]);
+
+  // Camera-only re-projection on drag pan / wheel zoom / follow. Reuses the
+  // existing record list and only re-projects screen rects + re-bins them in
+  // the spatial index; ~60×/sec during drag previously paid for a full
+  // recordsById rebuild + sort + spatial-index rebuild.
+  useEffect(() => {
+    recomputeHitTargetsForCamera();
+    if (reducedMotion) requestPaint();
+  }, [canvas.camera, recomputeHitTargetsForCamera, reducedMotion, requestPaint]);
 
   useEffect(() => {
     if (!reducedMotion) return;

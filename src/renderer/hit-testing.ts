@@ -31,9 +31,9 @@ export interface HitTargetSnapshot {
 
 export interface HitTargetSpatialIndex {
   cellSize: number;
-  cells: ReadonlyMap<string, readonly string[]>;
+  cells: ReadonlyMap<number, readonly string[]>;
   targetById: ReadonlyMap<string, HitTarget>;
-  targetCellKeys: ReadonlyMap<string, readonly string[]>;
+  targetCellKeys: ReadonlyMap<string, readonly number[]>;
   targets: readonly HitTarget[];
 }
 
@@ -52,8 +52,20 @@ interface HitTargetRecord {
 }
 
 const shipSortIndexByWorld = new WeakMap<PharosVilleWorld, Map<string, number>>();
+const staticHitTargetEntitiesByWorld = new WeakMap<PharosVilleWorld, readonly WorldSelectableEntity[]>();
 
 const HIT_TARGET_SPATIAL_CELL_SIZE = 96;
+
+// Numeric cell-key encoding: pack two int16-range cell coordinates into a
+// single number so the spatial-index Map can avoid per-lookup string allocs.
+// `cellX`/`cellY` are floor-divided pixel coords; with the 96 px cell size
+// this comfortably covers ±3M screen pixels.
+const SPATIAL_CELL_KEY_OFFSET = 32_768;
+const SPATIAL_CELL_KEY_STRIDE = 65_536;
+
+function encodeSpatialCellKey(cellX: number, cellY: number): number {
+  return (cellY + SPATIAL_CELL_KEY_OFFSET) * SPATIAL_CELL_KEY_STRIDE + (cellX + SPATIAL_CELL_KEY_OFFSET);
+}
 
 function targetPriorityBoost(target: Pick<HitTarget, "detailId" | "kind">, selectedDetailId: string | null, hoveredDetailId: string | null): number {
   let priority = 0;
@@ -80,16 +92,118 @@ export function createHitTargetSnapshot(input: {
   world: PharosVilleWorld;
 }): HitTargetSnapshot {
   const recordsById = new Map<string, HitTargetRecord>();
-  const entities: WorldSelectableEntity[] = [
-    input.world.lighthouse,
-    ...input.world.docks,
-    ...input.world.ships.filter((ship) => isShipMapVisible(ship, input.shipMotionSamples?.get(ship.id))),
-    ...input.world.areas,
-    ...input.world.graves,
-  ];
+  const staticPrefix = staticHitTargetPrefixForWorld(input.world);
+  const lighthouseCount = 1;
+  const dockCount = input.world.docks.length;
+  const shipsAfterStaticPrefixCount = lighthouseCount + dockCount;
 
-  for (let sortIndex = 0; sortIndex < entities.length; sortIndex += 1) {
-    const entity = entities[sortIndex]!;
+  // Iterate the cached static prefix `[lighthouse, ...docks]` followed by
+  // ships in place, then `[...areas, ...graves]`. `sortIndex` mirrors the
+  // legacy flat-array index so downstream sort semantics are preserved.
+  let sortIndex = 0;
+  // lighthouse + docks
+  while (sortIndex < shipsAfterStaticPrefixCount) {
+    const entity = staticPrefix[sortIndex]!;
+    appendHitTargetRecord(recordsById, entity, sortIndex, input);
+    sortIndex += 1;
+  }
+  // ships (filtered by map visibility — same predicate as the legacy filter)
+  for (let shipIndex = 0; shipIndex < input.world.ships.length; shipIndex += 1) {
+    const ship = input.world.ships[shipIndex]!;
+    if (!isShipMapVisible(ship, input.shipMotionSamples?.get(ship.id))) continue;
+    appendHitTargetRecord(recordsById, ship, shipsAfterStaticPrefixCount + shipIndex, input);
+  }
+  // areas + graves (sortIndex offsets past the ship slot range to mirror the
+  // legacy flat-array layout)
+  const trailingOffset = shipsAfterStaticPrefixCount + input.world.ships.length;
+  for (let trailingIndex = shipsAfterStaticPrefixCount; trailingIndex < staticPrefix.length; trailingIndex += 1) {
+    const entity = staticPrefix[trailingIndex]!;
+    appendHitTargetRecord(recordsById, entity, trailingOffset + (trailingIndex - shipsAfterStaticPrefixCount), input);
+  }
+
+  return snapshotFromRecords(recordsById, {
+    hoveredDetailId: input.hoveredDetailId ?? null,
+    selectedDetailId: input.selectedDetailId ?? null,
+  });
+}
+
+function appendHitTargetRecord(
+  recordsById: Map<string, HitTargetRecord>,
+  entity: WorldSelectableEntity,
+  sortIndex: number,
+  input: {
+    assets?: Pick<PharosVilleAssetManager, "get"> | null;
+    camera: IsoCamera;
+    hoveredDetailId?: string | null;
+    selectedDetailId?: string | null;
+    shipMotionSamples?: ReadonlyMap<string, ShipMotionSample>;
+    viewport?: HitTargetViewport | null;
+    world: PharosVilleWorld;
+  },
+): void {
+  const assetId = entityAssetId(entity);
+  const asset = assetId ? input.assets?.get(assetId) ?? null : null;
+  const resolved = resolveEntityGeometry({
+    asset,
+    camera: input.camera,
+    entity,
+    mapWidth: input.world.map.width,
+    shipMotionSamples: input.shipMotionSamples,
+  });
+  if (!shouldKeepHitTargetCandidate({
+    entity,
+    geometry: resolved,
+    hoveredDetailId: input.hoveredDetailId ?? null,
+    selectedDetailId: input.selectedDetailId ?? null,
+    viewport: input.viewport ?? null,
+  })) {
+    return;
+  }
+  recordsById.set(entity.id, {
+    entity,
+    geometry: {
+      depth: resolved.depth,
+      targetRect: resolved.targetRect,
+    },
+    sortIndex,
+  });
+}
+
+function staticHitTargetPrefixForWorld(world: PharosVilleWorld): readonly WorldSelectableEntity[] {
+  const cached = staticHitTargetEntitiesByWorld.get(world);
+  if (cached) return cached;
+  const entities: WorldSelectableEntity[] = [
+    world.lighthouse,
+    ...world.docks,
+    ...world.areas,
+    ...world.graves,
+  ];
+  staticHitTargetEntitiesByWorld.set(world, entities);
+  return entities;
+}
+
+/**
+ * Camera-only re-projection path. Reuses the existing record list (entities,
+ * sortIndex, visibility decisions) and only re-projects screen rects + re-bins
+ * them in the spatial index. Use during drag pan / wheel zoom where no
+ * entity additions/removals or selection-state changes have occurred.
+ *
+ * Falls back to a full rebuild when the existing snapshot is incompatible
+ * (different selection/hover boost, or no prior snapshot).
+ */
+export function recomputeHitTargetsForCameraOnly(input: {
+  assets?: Pick<PharosVilleAssetManager, "get"> | null;
+  camera: IsoCamera;
+  hoveredDetailId?: string | null;
+  selectedDetailId?: string | null;
+  shipMotionSamples?: ReadonlyMap<string, ShipMotionSample>;
+  snapshot: HitTargetSnapshot;
+  viewport?: HitTargetViewport | null;
+  world: PharosVilleWorld;
+}): HitTargetSnapshot {
+  const recordsById = new Map<string, HitTargetRecord>();
+  for (const previous of input.snapshot.recordsById.values()) {
+    const entity = previous.entity;
     const assetId = entityAssetId(entity);
     const asset = assetId ? input.assets?.get(assetId) ?? null : null;
     const resolved = resolveEntityGeometry({
@@ -114,10 +228,9 @@ export function createHitTargetSnapshot(input: {
         depth: resolved.depth,
         targetRect: resolved.targetRect,
       },
-      sortIndex,
+      sortIndex: previous.sortIndex,
     });
   }
-
   return snapshotFromRecords(recordsById, {
     hoveredDetailId: input.hoveredDetailId ?? null,
     selectedDetailId: input.selectedDetailId ?? null,
@@ -137,8 +250,15 @@ export function updateHitTargetSnapshotShips(input: {
   worldShipsById: ReadonlyMap<string, PharosVilleWorld["ships"][number]>;
 }): HitTargetSnapshot {
   if (input.changedShipIds.length === 0) return input.snapshot;
-  const changedShipIds = Array.from(new Set(input.changedShipIds));
-  if (changedShipIds.length === 0) return input.snapshot;
+  // Caller invariant: `changedShipIds` is already de-duplicated. Iterate the
+  // input directly. In dev, assert the invariant so regressions surface
+  // loudly rather than silently double-processing a ship.
+  const changedShipIds = input.changedShipIds;
+  if (process.env.NODE_ENV !== "production") {
+    if (new Set(changedShipIds).size !== changedShipIds.length) {
+      throw new Error("updateHitTargetSnapshotShips: changedShipIds contains duplicates");
+    }
+  }
   const changedShipIdSet = new Set(changedShipIds);
   let recordsById = input.snapshot.recordsById;
   const updatedRecordsByShipId = new Map<string, HitTargetRecord | null>();
@@ -260,15 +380,16 @@ export function collectHitTargets(input: {
 
 export function buildHitTargetSpatialIndex(targets: readonly HitTarget[], cellSize = HIT_TARGET_SPATIAL_CELL_SIZE): HitTargetSpatialIndex {
   const resolvedCellSize = Math.max(24, Math.floor(cellSize));
-  const cells = new Map<string, string[]>();
+  const cells = new Map<number, string[]>();
   const targetById = new Map<string, HitTarget>();
-  const targetCellKeys = new Map<string, readonly string[]>();
+  const targetCellKeys = new Map<string, readonly number[]>();
   for (let index = 0; index < targets.length; index += 1) {
     const target = targets[index]!;
     targetById.set(target.id, target);
     const keys = spatialCellKeysForTarget(target.rect, resolvedCellSize);
     targetCellKeys.set(target.id, keys);
-    for (const key of keys) {
+    for (let keyIndex = 0; keyIndex < keys.length; keyIndex += 1) {
+      const key = keys[keyIndex]!;
       const existing = cells.get(key);
       if (existing) {
         existing.push(target.id);
@@ -290,7 +411,7 @@ export function hitTestSpatial(index: HitTargetSpatialIndex | null, point: Scree
   if (!index) return null;
   const cellX = Math.floor(point.x / index.cellSize);
   const cellY = Math.floor(point.y / index.cellSize);
-  const candidateIds = index.cells.get(`${cellX}:${cellY}`);
+  const candidateIds = index.cells.get(encodeSpatialCellKey(cellX, cellY));
   if (!candidateIds || candidateIds.length === 0) return null;
   let bestTarget: HitTarget | null = null;
   let bestPriority = Number.NEGATIVE_INFINITY;
@@ -364,17 +485,17 @@ function updateHitTargetSpatialIndex(input: {
   previousSpatialIndex: HitTargetSpatialIndex;
 }): {
   cellSize: number;
-  cells: ReadonlyMap<string, readonly string[]>;
+  cells: ReadonlyMap<number, readonly string[]>;
   targetById: ReadonlyMap<string, HitTarget>;
-  targetCellKeys: ReadonlyMap<string, readonly string[]>;
+  targetCellKeys: ReadonlyMap<string, readonly number[]>;
   targets: readonly HitTarget[];
 } {
   const nextTargetById = new Map<string, HitTarget>(input.nextTargetsById);
-  const nextTargetCellKeys = new Map<string, readonly string[]>(
+  const nextTargetCellKeys = new Map<string, readonly number[]>(
     input.previousSpatialIndex.targetCellKeys,
   );
-  const nextCells = new Map<string, string[]>(input.previousSpatialIndex.cells as Map<string, string[]>);
-  const ensureCopiedCell = (cellKey: string): string[] | null => {
+  const nextCells = new Map<number, string[]>(input.previousSpatialIndex.cells as Map<number, string[]>);
+  const ensureCopiedCell = (cellKey: number): string[] | null => {
     const candidates = nextCells.get(cellKey);
     if (!candidates) return null;
     const sourceCandidates = input.previousSpatialIndex.cells.get(cellKey);
@@ -399,7 +520,8 @@ function updateHitTargetSpatialIndex(input: {
     const shouldUpdateCells = !areTargetCellKeysEqual(previousCellKeys, nextCellKeys);
     if (shouldUpdateCells) {
       if (previousCellKeys) {
-        for (const cellKey of previousCellKeys) {
+        for (let i = 0; i < previousCellKeys.length; i += 1) {
+          const cellKey = previousCellKeys[i]!;
           const candidates = ensureCopiedCell(cellKey);
           if (!candidates) continue;
           const candidateIndex = candidates.indexOf(changedShipId);
@@ -410,7 +532,8 @@ function updateHitTargetSpatialIndex(input: {
           }
         }
       }
-      for (const cellKey of nextCellKeys) {
+      for (let i = 0; i < nextCellKeys.length; i += 1) {
+        const cellKey = nextCellKeys[i]!;
         let candidates = ensureCopiedCell(cellKey);
         if (!candidates) {
           candidates = [changedShipId];
@@ -431,11 +554,12 @@ function updateHitTargetSpatialIndex(input: {
   };
 }
 
-function areTargetCellKeysEqual(left: readonly string[] | undefined, right: readonly string[]): boolean {
+function areTargetCellKeysEqual(left: readonly number[] | undefined, right: readonly number[]): boolean {
   if (!left || left.length !== right.length) return false;
-  const rightSet = new Set(right);
-  for (const key of left) {
-    if (!rightSet.has(key)) return false;
+  // Cell-key arrays are short (typically 1-4 entries for a hit-rect), so a
+  // direct membership scan beats the per-call Set allocation.
+  for (let i = 0; i < left.length; i += 1) {
+    if (right.indexOf(left[i]!) < 0) return false;
   }
   return true;
 }
@@ -462,18 +586,22 @@ function rectIntersectsViewport(rect: HitTarget["rect"], viewport: HitTargetView
   );
 }
 
-function spatialCellKeysForTarget(targetRect: HitTarget["rect"], cellSize: number): readonly string[] {
+function spatialCellKeysForTarget(targetRect: HitTarget["rect"], cellSize: number): readonly number[] {
   const minCellX = Math.floor(targetRect.x / cellSize);
   const maxCellX = Math.floor((targetRect.x + targetRect.width) / cellSize);
   const minCellY = Math.floor(targetRect.y / cellSize);
   const maxCellY = Math.floor((targetRect.y + targetRect.height) / cellSize);
-  const cellKeys = new Set<string>();
+  // Bounded by min/max derived from `Math.floor`, so the (cellX, cellY)
+  // grid pairs are inherently unique — no Set needed for de-dup. Inline
+  // array push avoids the Set+spread allocation churn seen on every drag
+  // re-projection.
+  const cellKeys: number[] = [];
   for (let cellX = minCellX; cellX <= maxCellX; cellX += 1) {
     for (let cellY = minCellY; cellY <= maxCellY; cellY += 1) {
-      cellKeys.add(`${cellX}:${cellY}`);
+      cellKeys.push(encodeSpatialCellKey(cellX, cellY));
     }
   }
-  return [...cellKeys];
+  return cellKeys;
 }
 
 function compareHitTargetRecords(left: HitTargetRecord, right: HitTargetRecord): number {

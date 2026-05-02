@@ -8,6 +8,11 @@ import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-ty
 
 const docksByChainCache = new WeakMap<PharosVilleWorld, Map<string, PharosVilleWorld["docks"][number]>>();
 const renderedDockShipsByChainCache = new WeakMap<PharosVilleWorld, Map<string, PharosVilleWorld["ships"][number][]>>();
+// Per-(world, chainId) cache of the chain-ship list pre-sorted by descending
+// market cap. The selected-dock relationship pass runs every frame while a
+// dock is selected; the static rank is identical across frames and only
+// depends on world identity + chainId, so we precompute it once per world.
+const renderedDockShipsByChainSortedCache = new WeakMap<PharosVilleWorld, Map<string, readonly PharosVilleWorld["ships"][number][]>>();
 
 export function drawSelection(input: DrawPharosVilleInput): number {
   const { ctx, hoveredTarget, selectedTarget } = input;
@@ -101,11 +106,12 @@ function drawSelectedDockRelationships(
   { camera, ctx, motion, shipMotionSamples, world }: DrawPharosVilleInput,
   dock: PharosVilleWorld["docks"][number],
 ) {
-  const chainShips = renderedShipsByChain(world, dock.chainId);
-  const visibleShips = chainShips
-    .filter((ship) => isShipMapVisible(ship, shipMotionSamples?.get(ship.id)))
-    .toSorted((a, b) => b.marketCapUsd - a.marketCapUsd)
-    .slice(0, 10);
+  const chainShips = renderedShipsByChainSortedByMarketCap(world, dock.chainId);
+  const visibleShips: PharosVilleWorld["ships"][number][] = [];
+  for (let i = 0; i < chainShips.length && visibleShips.length < 10; i += 1) {
+    const ship = chainShips[i]!;
+    if (isShipMapVisible(ship, shipMotionSamples?.get(ship.id))) visibleShips.push(ship);
+  }
   if (visibleShips.length === 0) return;
 
   const dockPoint = dockDrawPoint(dock, camera, world.map.width);
@@ -158,6 +164,23 @@ function renderedShipsByChain(world: PharosVilleWorld, chainId: string): readonl
     renderedDockShipsByChainCache.set(world, shipsByChain);
   }
   return shipsByChain.get(chainId) ?? [];
+}
+
+function renderedShipsByChainSortedByMarketCap(
+  world: PharosVilleWorld,
+  chainId: string,
+): readonly PharosVilleWorld["ships"][number][] {
+  let sortedByChain = renderedDockShipsByChainSortedCache.get(world);
+  if (!sortedByChain) {
+    sortedByChain = new Map<string, readonly PharosVilleWorld["ships"][number][]>();
+    renderedDockShipsByChainSortedCache.set(world, sortedByChain);
+  }
+  const cached = sortedByChain.get(chainId);
+  if (cached) return cached;
+  const sorted = renderedShipsByChain(world, chainId)
+    .toSorted((a, b) => b.marketCapUsd - a.marketCapUsd);
+  sortedByChain.set(chainId, sorted);
+  return sorted;
 }
 
 function relationshipPulse(motion: PharosVilleCanvasMotion) {

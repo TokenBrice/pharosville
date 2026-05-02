@@ -319,24 +319,37 @@ function drawDockNameRibbon(ctx: CanvasRenderingContext2D, label: string, x: num
   ctx.restore();
 }
 
+// Hoisted to module scope so the per-frame `dockFlagMark` lookup avoids
+// allocating a fresh Record literal for every dock×frame.
+const DOCK_FLAG_EXPLICIT_MARKS: Record<string, string> = {
+  aptos: "APT",
+  arbitrum: "ARB",
+  avalanche: "AVAX",
+  base: "B",
+  bsc: "BSC",
+  ethereum: "ETH",
+  hyperliquid: "HYPE",
+  polygon: "POL",
+  solana: "SOL",
+  tron: "TRX",
+};
+
+// Memoize the fallback (regex+split+slice) result per chainId so repeated
+// frames over the same set of docks reuse the previously computed mark.
+const DOCK_FLAG_FALLBACK_MARK_CACHE = new Map<string, string>();
+
 function dockFlagMark(dock: PharosVilleWorld["docks"][number]) {
-  const explicit: Record<string, string> = {
-    aptos: "APT",
-    arbitrum: "ARB",
-    avalanche: "AVAX",
-    base: "B",
-    bsc: "BSC",
-    ethereum: "ETH",
-    hyperliquid: "HYPE",
-    polygon: "POL",
-    solana: "SOL",
-    tron: "TRX",
-  };
-  if (explicit[dock.chainId]) return explicit[dock.chainId];
+  const explicit = DOCK_FLAG_EXPLICIT_MARKS[dock.chainId];
+  if (explicit) return explicit;
+  const cached = DOCK_FLAG_FALLBACK_MARK_CACHE.get(dock.chainId);
+  if (cached) return cached;
   const words = dock.label
     .replace(/[^A-Za-z0-9 ]/g, " ")
     .split(" ")
     .filter(Boolean);
-  if (words.length > 1) return words.map((word) => word[0]).join("").slice(0, 3);
-  return (words[0] ?? dock.chainId).slice(0, 3);
+  const mark = words.length > 1
+    ? words.map((word) => word[0]).join("").slice(0, 3)
+    : (words[0] ?? dock.chainId).slice(0, 3);
+  DOCK_FLAG_FALLBACK_MARK_CACHE.set(dock.chainId, mark);
+  return mark;
 }
