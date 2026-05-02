@@ -12,14 +12,18 @@ type SceneryPropKind =
   | "bollards"
   | "bougainvillea-arch"
   | "buoy"
+  | "cargo-stack"
   | "citrus-tree"
   | "crate-stack"
   | "cypress"
   | "date-palm"
   | "fig-tree"
   | "grass-tuft"
+  | "harbor-bell"
   | "harbor-lamp"
   | "mooring-posts"
+  | "moored-dinghy-east"
+  | "moored-dinghy-north"
   | "net-rack"
   | "olive-tree"
   | "planter-lavender"
@@ -98,6 +102,12 @@ const SCENERY_PROPS: readonly SceneryProp[] = [
   { id: "cemetery-reef", kind: "reef", tile: { x: 10.4, y: 47.8 }, scale: 0.62 },
   { id: "cemetery-reeds", kind: "reed-bed", tile: { x: 6.2, y: 48.2 }, scale: 0.52 },
   { id: "lighthouse-lamp", kind: "harbor-lamp", tile: { x: 17.2, y: 29.0 }, scale: 0.7 },
+  { id: "harbor-dinghy-east", kind: "moored-dinghy-east", tile: { x: 43.6, y: 32.4 }, scale: 0.62 },
+  { id: "harbor-dinghy-south", kind: "moored-dinghy-north", tile: { x: 30.4, y: 41.6 }, scale: 0.6 },
+  { id: "harbor-bell-bsc", kind: "harbor-bell", tile: { x: 22.4, y: 35.2 }, scale: 0.66 },
+  { id: "harbor-bell-lighthouse", kind: "harbor-bell", tile: { x: 19.6, y: 27.8 }, scale: 0.6 },
+  { id: "harbor-cargo-bsc", kind: "cargo-stack", tile: { x: 21.6, y: 37.4 }, scale: 0.62 },
+  { id: "harbor-cargo-base", kind: "cargo-stack", tile: { x: 40.2, y: 37.6 }, scale: 0.6 },
 ] as const;
 
 const lampSeawardTileCache = new Map<string, { x: number; y: number } | null>();
@@ -329,6 +339,18 @@ function drawSceneryProp(input: DrawPharosVilleInput, prop: SceneryProp) {
     if (sprite) drawAsset(ctx, sprite, p.x, p.y, scale);
   } else if (prop.kind === "agave-cluster") {
     const sprite = input.assets?.get("prop.agave-cluster");
+    if (sprite) drawAsset(ctx, sprite, p.x, p.y, scale);
+  } else if (prop.kind === "moored-dinghy-north") {
+    const sprite = input.assets?.get("prop.moored-dinghy-north");
+    if (sprite) drawAsset(ctx, sprite, p.x, p.y, scale);
+  } else if (prop.kind === "moored-dinghy-east") {
+    const sprite = input.assets?.get("prop.moored-dinghy-east");
+    if (sprite) drawAsset(ctx, sprite, p.x, p.y, scale);
+  } else if (prop.kind === "harbor-bell") {
+    const sprite = input.assets?.get("prop.harbor-bell");
+    if (sprite) drawAsset(ctx, sprite, p.x, p.y, scale);
+  } else if (prop.kind === "cargo-stack") {
+    const sprite = input.assets?.get("prop.cargo-stack");
     if (sprite) drawAsset(ctx, sprite, p.x, p.y, scale);
   } else if (prop.kind === "timber-pile") {
     drawTimberPile(ctx, p.x, p.y, scale);

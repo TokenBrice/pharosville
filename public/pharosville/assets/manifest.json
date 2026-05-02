@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-05-02-ethereum-yggdrasil-v1",
+    "cacheVersion": "2026-05-03-harbor-life-v1",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": [
@@ -2151,6 +2151,191 @@
       "tool": "mcp:create_object+select_object_frames",
       "promptProvenance": {
         "jobId": "8a4a8dc0-1603-415f-ba09-e35129306032",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "landmark.lighthouse-pyre",
+      "path": "landmarks/lighthouse-pyre.png",
+      "category": "landmark",
+      "layer": "landmarks",
+      "width": 64,
+      "height": 64,
+      "displayScale": 1,
+      "anchor": [
+        32,
+        56
+      ],
+      "footprint": [
+        24,
+        8
+      ],
+      "hitbox": [
+        16,
+        8,
+        32,
+        48
+      ],
+      "loadPriority": "deferred",
+      "promptKey": "landmark.lighthouse-pyre",
+      "semanticRole": "static brazier flame sprite for the PSI lighthouse beacon point",
+      "paletteKeys": [
+        "bronze beacon",
+        "warm orange",
+        "gold",
+        "ember red"
+      ],
+      "tool": "mcp:create_object+select_object_frames",
+      "promptProvenance": {
+        "jobId": "1e67ff76-b163-4bc8-9c54-f55a77c2876d",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "prop.moored-dinghy-north",
+      "path": "props/moored-dinghy-north.png",
+      "category": "prop",
+      "layer": "props",
+      "width": 96,
+      "height": 80,
+      "displayScale": 1,
+      "anchor": [
+        48,
+        62
+      ],
+      "footprint": [
+        40,
+        18
+      ],
+      "hitbox": [
+        12,
+        18,
+        72,
+        46
+      ],
+      "loadPriority": "deferred",
+      "promptKey": "prop.moored-dinghy-north",
+      "semanticRole": "moored wooden dinghy with coiled rope (north-facing prow)",
+      "paletteKeys": [
+        "weathered wood",
+        "harbor teal",
+        "rope",
+        "barnacle"
+      ],
+      "tool": "mcp:create_map_object",
+      "promptProvenance": {
+        "jobId": "57e05277-ef77-458e-93dd-de28724a1bec",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "prop.moored-dinghy-east",
+      "path": "props/moored-dinghy-east.png",
+      "category": "prop",
+      "layer": "props",
+      "width": 96,
+      "height": 80,
+      "displayScale": 1,
+      "anchor": [
+        48,
+        62
+      ],
+      "footprint": [
+        40,
+        18
+      ],
+      "hitbox": [
+        12,
+        18,
+        72,
+        46
+      ],
+      "loadPriority": "deferred",
+      "promptKey": "prop.moored-dinghy-east",
+      "semanticRole": "moored wooden dinghy with coiled rope (east-facing prow)",
+      "paletteKeys": [
+        "weathered wood",
+        "harbor teal",
+        "rope",
+        "barnacle"
+      ],
+      "tool": "mcp:create_map_object",
+      "promptProvenance": {
+        "jobId": "a1331c8b-8d2f-48d1-8850-aa8116a7fd73",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "prop.harbor-bell",
+      "path": "props/harbor-bell.png",
+      "category": "prop",
+      "layer": "props",
+      "width": 64,
+      "height": 80,
+      "displayScale": 1,
+      "anchor": [
+        32,
+        72
+      ],
+      "footprint": [
+        18,
+        12
+      ],
+      "hitbox": [
+        18,
+        8,
+        28,
+        66
+      ],
+      "loadPriority": "deferred",
+      "promptKey": "prop.harbor-bell",
+      "semanticRole": "hanging bronze ship's bell on weathered wooden post",
+      "paletteKeys": [
+        "bronze beacon",
+        "verdigris",
+        "weathered wood",
+        "limestone"
+      ],
+      "tool": "mcp:create_map_object",
+      "promptProvenance": {
+        "jobId": "e9599c08-be05-4a54-b2b6-9e7d7d2a890b",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "prop.cargo-stack",
+      "path": "props/cargo-stack.png",
+      "category": "prop",
+      "layer": "props",
+      "width": 80,
+      "height": 96,
+      "displayScale": 1,
+      "anchor": [
+        40,
+        88
+      ],
+      "footprint": [
+        44,
+        20
+      ],
+      "hitbox": [
+        12,
+        18,
+        56,
+        70
+      ],
+      "loadPriority": "deferred",
+      "promptKey": "prop.cargo-stack",
+      "semanticRole": "stacked wooden cargo crates with rope bindings",
+      "paletteKeys": [
+        "weathered wood",
+        "rope",
+        "moss",
+        "iron nail"
+      ],
+      "tool": "mcp:create_map_object",
+      "promptProvenance": {
+        "jobId": "6c8e24ef-13fc-4449-b53c-c4ea2aebe56c",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     }

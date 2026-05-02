@@ -24,7 +24,9 @@ const pharosVilleTestFilePattern = /(?:^|\/)(?:__tests__|tests?)\/|\.test\.(?:ts
 const publicImageExtensionPattern = /\.(?:png|svg|jpe?g|webp)$/i;
 // 2026-05-02: bumped for village-decor overlays and first-render scene density.
 // 2026-05-02: bumped 55 -> 56 for landmark.yggdrasil (Ethereum harbor world-tree).
-const maxManifestAssets = 56;
+// 2026-05-03: bumped 56 -> 61 for harbor-life decor (lighthouse-pyre, moored-dinghy
+// north/east, harbor-bell, cargo-stack).
+const maxManifestAssets = 61;
 const firstRenderBudgets = {
   // 2026-05-01: bumped for Maker squad titans (USDS, DAI, sUSDS, sDAI, stUSDS)
   maxCount: 28,
