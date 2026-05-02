@@ -319,8 +319,8 @@ test("pharosville renders desktop canvas shell", async ({ page }) => {
   const waterRatioText = ledgerText?.split(" tiles, ")[1]?.split("% water.")[0];
   expect(waterRatioText).toBeDefined();
   const waterPercent = Number(waterRatioText);
-  expect(waterPercent).toBeGreaterThanOrEqual(85.0);
-  expect(waterPercent).toBeLessThanOrEqual(85.6);
+  expect(waterPercent).toBeGreaterThanOrEqual(85.7);
+  expect(waterPercent).toBeLessThanOrEqual(86.2);
   await page.waitForFunction(() => {
     const debug = (window as typeof window & {
       __pharosVilleDebug?: PharosVilleVisualDebug;

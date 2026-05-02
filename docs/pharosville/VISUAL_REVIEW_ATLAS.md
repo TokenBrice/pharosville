@@ -50,7 +50,7 @@ Use focused entries while developing:
 Use these notes for the compact main-island revamp:
 
 - Desktop shell should prove the new compact island is intentionally smaller,
-  with the 85.2-85.6% water-ratio target documented in tests and docs.
+  with the 85.7-86.2% water-ratio target documented in tests and docs.
 - Dense lighthouse crop should check the final lighthouse tile, beacon point,
   hitbox, selection ring, visual-clearance box, and nearby water labels together.
 - Dense EVM bay crop should verify re-authored dock coordinates, outward
@@ -78,7 +78,7 @@ Use this checklist when approving screenshot changes:
 - The lighthouse, EVM bay, cemetery, civic spine, DEWS water areas, and Ledger Mooring are all visually distinguishable.
 - The revamp quality comes from authored material detail, local lighting, shoreline/harbor texture, sprite density, draw ordering, and UI polish; it must not rely on decorative copy or unexplained scenery.
 - The DEWS sea reads as a clear escalation route matching the current compound masks: Calm Anchorage fills the large left-edge basin, Watch Breakwater owns the south and reclaimed southeast basins, Alert Channel, Warning Shoals, and Danger Strait occupy overlapping eastern-corner rings with Danger snapped to the angled shelf, and Ledger Mooring reads as quiet ledger water on the top shelf beside but not over the alert stack.
-- The default composition currently stays around 85.2-85.6% water while still showing enough coast, piers, islets, and districts to feel authored rather than empty.
+- The default composition currently stays around 85.7-86.2% water while still showing enough coast, piers, islets, and districts to feel authored rather than empty.
 - Terrain sprites add texture, but semantic overlay colors still make calm/watch/alert/warning/danger/ledger water distinguishable.
 - Ships remain readable at default zoom; very large stablecoins are capped rather than overwhelming the map.
 - Dock flags/logos identify chain harbors without becoming large label boards.

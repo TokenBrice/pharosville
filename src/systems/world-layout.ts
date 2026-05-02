@@ -146,7 +146,7 @@ export function tileKindAt(x: number, y: number): TileKind {
 export function terrainKindAt(x: number, y: number): TerrainKind {
   const island = islandValue(x, y);
   const cemetery = cemeteryValue(x, y);
-  const nearIslandEdge = island > 0.82;
+  const nearIslandEdge = island > 0.9;
 
   if (isOutOfBounds(x, y) || island >= 1) {
     const inIslandPeriphery = isWithinIslandPeriphery(x, y);

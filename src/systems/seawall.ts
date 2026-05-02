@@ -1,5 +1,4 @@
 import {
-  DOCK_TILES,
   getMainIslandLandMask,
   PHAROSVILLE_MAP_HEIGHT,
   PHAROSVILLE_MAP_WIDTH,
@@ -191,76 +190,6 @@ export function seawallBarrierDistance(tile: { x: number; y: number }): number {
   return computeSeawallBarrierDistance(tile);
 }
 
-// Visual gates: skip rendering a wall sprite at the perimeter edge directly
-// seaward of each dock tile so piers can extend through. We pick the dock's
-// outward side as the cardinal direction whose 2-step ray reaches deepest into
-// open sea — the coarse `|dx| vs |dy|` shortcut misroutes docks like Solana
-// (34, 22) into the strait at (35, 22) instead of the open sea above.
-function dockGateSide(dock: { x: number; y: number }, mask: Uint8Array): Side | null {
-  const center = (PHAROSVILLE_MAP_WIDTH - 1) / 2;
-  const W = PHAROSVILLE_MAP_WIDTH;
-  const H = PHAROSVILLE_MAP_HEIGHT;
-  const isWater = (x: number, y: number): boolean => {
-    if (x < 0 || y < 0 || x >= W || y >= H) return true; // beyond bounds = open sea
-    return mask[y * W + x] !== 1;
-  };
-  const tileX = Math.round(dock.x);
-  const tileY = Math.round(dock.y);
-  const dockDist = Math.hypot(dock.x - center, dock.y - center);
-  let bestSide: Side | null = null;
-  let bestDist = -Infinity;
-  const sides: Side[] = ["N", "E", "S", "W"];
-  for (const side of sides) {
-    const { dx, dy } = offsetForSide(side);
-    const wx = tileX + dx;
-    const wy = tileY + dy;
-    const mx = tileX + dx * 2;
-    const my = tileY + dy * 2;
-    if (!isWater(wx, wy) || !isWater(mx, my)) continue;
-    const waterDist = Math.hypot(wx - center, wy - center);
-    if (waterDist <= dockDist) continue;
-    if (waterDist > bestDist) {
-      bestDist = waterDist;
-      bestSide = side;
-    }
-  }
-  return bestSide;
-}
-
-function gateEdgeKeys(): Set<string> {
-  const mask = getMainIslandLandMask();
-  const gates = new Set<string>();
-  for (const dock of DOCK_TILES) {
-    const side = dockGateSide(dock, mask);
-    if (!side) continue;
-    const tileX = Math.round(dock.x);
-    const tileY = Math.round(dock.y);
-    gates.add(`${tileX}.${tileY}.${side}`);
-  }
-  return gates;
-}
-
-// Open-coast raycast: a perimeter edge faces open sea if a ray cast outward
-// in its cardinal direction reaches the map boundary within ~OPEN_COAST_REACH
-// tiles without hitting land. Edges that hit land within that distance face
-// straits or enclosed pockets — placing a wall there reads as an "extra wall"
-// inside what should be a passable inlet.
-// 5 not 4: the shallow inlet between the lighthouse mountain and the north
-// shelf is 4 tiles wide, so a 4-tile reach just misses it.
-const OPEN_COAST_REACH = 5;
-function isOpenCoast(tile: { x: number; y: number }, side: Side, mask: Uint8Array): boolean {
-  const { dx, dy } = offsetForSide(side);
-  const W = PHAROSVILLE_MAP_WIDTH;
-  const H = PHAROSVILLE_MAP_HEIGHT;
-  for (let step = 1; step <= OPEN_COAST_REACH; step += 1) {
-    const x = tile.x + dx * step;
-    const y = tile.y + dy * step;
-    if (x < 0 || y < 0 || x >= W || y >= H) return true;
-    if (mask[y * W + x] === 1) return false;
-  }
-  return true;
-}
-
 // Stable pseudo-random alpha jitter so wall stones don't read as a uniform
 // stripe. Hash keyed on (x,y,side) so output is deterministic.
 function jitter(seed: number): number {
@@ -268,137 +197,88 @@ function jitter(seed: number): number {
   return (s - Math.floor(s)) * 2 - 1;
 }
 
-// Pick the most "outward-facing" side for a tile when it has several perimeter
-// edges. Sides whose outward ray reaches open sea win over sides facing into
-// straits/concavities; among open-coast sides we still pick the one furthest
-// from the civic core so the sprite sits on the visible iso-front of the tile.
-function dominantSide(
-  tile: { x: number; y: number },
-  sides: readonly Side[],
-  mask: Uint8Array,
-): Side | null {
-  const center = (PHAROSVILLE_MAP_WIDTH - 1) / 2;
-  let bestSide: Side | null = null;
-  let bestScore = -Infinity;
-  for (const side of sides) {
-    if (!isOpenCoast(tile, side, mask)) continue;
-    const { dx, dy } = offsetForSide(side);
-    const score = (tile.x - center) * dx + (tile.y - center) * dy;
-    if (score > bestScore) {
-      bestScore = score;
-      bestSide = side;
-    }
-  }
-  return bestSide;
-}
-
-// Trace the perimeter as an ordered clockwise loop using a Moore-neighbor walk
-// over the perimeter set. This gives us a stable arclength order so the sprite
-// subsampling produces an evenly-spaced ring rather than the dense clumps that
-// per-tile emission produces along long straight runs.
-function tracePerimeterLoop(): { x: number; y: number; sides: Side[] }[] {
-  const W = PHAROSVILLE_MAP_WIDTH;
-  const sidesByTile = new Map<number, Side[]>();
-  for (const edge of computePerimeter()) {
-    const key = edge.y * W + edge.x;
-    const list = sidesByTile.get(key);
-    if (list) list.push(edge.side); else sidesByTile.set(key, [edge.side]);
-  }
-
-  // Start from the topmost-leftmost perimeter tile, then walk clockwise. The
-  // priority order biases the next step to follow the boundary; for our
-  // simply-connected island this is sufficient without a strict Moore-neighbor
-  // implementation.
-  const candidateKeys = [...sidesByTile.keys()].sort((a, b) => {
-    const ay = Math.floor(a / W), ax = a % W;
-    const by = Math.floor(b / W), bx = b % W;
-    if (ay !== by) return ay - by;
-    return ax - bx;
-  });
-  if (candidateKeys.length === 0) return [];
-
-  const visited = new Set<number>();
-  const loop: { x: number; y: number; sides: Side[] }[] = [];
-  const directions: Array<{ dx: number; dy: number }> = [
-    { dx: 1, dy: 0 }, { dx: 1, dy: 1 }, { dx: 0, dy: 1 }, { dx: -1, dy: 1 },
-    { dx: -1, dy: 0 }, { dx: -1, dy: -1 }, { dx: 0, dy: -1 }, { dx: 1, dy: -1 },
-  ];
-  let currentKey = candidateKeys[0];
-  // Initial step direction: toward the right (clockwise from top-left is east).
-  let lastDirIndex = 0;
-  while (currentKey !== undefined && !visited.has(currentKey)) {
-    visited.add(currentKey);
-    const cx = currentKey % W;
-    const cy = Math.floor(currentKey / W);
-    loop.push({ x: cx, y: cy, sides: sidesByTile.get(currentKey)! });
-    // Next perimeter tile: prefer the direction that continues clockwise.
-    // Start the search from (lastDir - 2) to favor a slight right turn.
-    let next: number | undefined;
-    let nextDirIndex = -1;
-    for (let i = 0; i < directions.length; i += 1) {
-      const idx = (lastDirIndex + 6 + i) % directions.length;
-      const d = directions[idx];
-      const nk = (cy + d.dy) * W + (cx + d.dx);
-      if (sidesByTile.has(nk) && !visited.has(nk)) {
-        next = nk;
-        nextDirIndex = idx;
-        break;
-      }
-    }
-    currentKey = next!;
-    lastDirIndex = nextDirIndex;
-  }
-  return loop;
-}
-
-// Subsampled perimeter: emit one sprite every ~SAMPLE_STRIDE tiles around the
-// loop so wall sprites tile cleanly without piling on each other. The straight
-// sprite is ~4.2 tile-units wide at scale 0.84, so a stride of 2 leaves ~50%
-// overlap — enough for continuity, not so much that the wall reads as a thick
-// band on long runs like the south quay.
-const SAMPLE_STRIDE = 2;
-
 // Use the existing pale-limestone seawall-straight sprite for every side and
 // rotate it to the iso edge angle (±atan(0.5) ≈ ±26.57° from screen-horizontal).
 // The pre-generated diagonal variants were darker and had baked end-cap features
 // that broke seamless tiling; rotation accepts a small nearest-neighbor pixel
 // softness in exchange for one cohesive limestone style and no visible joints.
 const ISO_EDGE_ANGLE_DEG = (Math.atan2(1, 2) * 180) / Math.PI;
+const SEAWALL_RENDER_SCALE = 0.48;
 
-function spriteForSide(side: Side): {
-  assetId: SeawallPlacement["assetId"];
+function makePlacement(input: {
+  assetId?: SeawallPlacement["assetId"];
   rotation: number;
-} {
-  if (side === "N") return { assetId: "overlay.seawall-straight", rotation: ISO_EDGE_ANGLE_DEG };
-  if (side === "S") return { assetId: "overlay.seawall-straight", rotation: -ISO_EDGE_ANGLE_DEG };
-  if (side === "E") return { assetId: "overlay.seawall-straight", rotation: -ISO_EDGE_ANGLE_DEG };
-  return { assetId: "overlay.seawall-straight", rotation: ISO_EDGE_ANGLE_DEG }; // W
+  scale?: number;
+  seed: number;
+  tile: { x: number; y: number };
+}): SeawallPlacement {
+  return {
+    assetId: input.assetId ?? "overlay.seawall-straight",
+    flipX: false,
+    rotation: input.rotation,
+    scale: input.scale ?? SEAWALL_RENDER_SCALE,
+    tile: input.tile,
+    yOffset: 1,
+    alphaJitter: jitter(input.seed) * 0.04,
+  };
+}
+
+interface AuthoredSeawallSegment {
+  end: { x: number; y: number };
+  rotation: number;
+  scale?: number;
+  start: { x: number; y: number };
+}
+
+const AUTHORED_SEAWALL_SEGMENTS: readonly AuthoredSeawallSegment[] = [
+  // Northern lighthouse harbor: one authored spine ties the lighthouse apron
+  // into the northern slips, then hands off to the eastern harbor wall.
+  { start: { x: 15.4, y: 25.3 }, end: { x: 17.6, y: 31.8 }, rotation: -ISO_EDGE_ANGLE_DEG },
+  { start: { x: 15.4, y: 25.3 }, end: { x: 25, y: 23 },    rotation: ISO_EDGE_ANGLE_DEG },
+  { start: { x: 25, y: 23 },    end: { x: 28, y: 22 },    rotation: ISO_EDGE_ANGLE_DEG },
+  { start: { x: 28, y: 22 },    end: { x: 34, y: 22 },    rotation: ISO_EDGE_ANGLE_DEG },
+  { start: { x: 34, y: 22 },    end: { x: 37, y: 23 },    rotation: ISO_EDGE_ANGLE_DEG },
+  { start: { x: 37, y: 23 },    end: { x: 41.4, y: 24.4 }, rotation: ISO_EDGE_ANGLE_DEG },
+  { start: { x: 41.4, y: 24.4 }, end: { x: 42.1, y: 26.3 }, rotation: -ISO_EDGE_ANGLE_DEG },
+  // Southwest and south quays that connect the market slips to the central pier.
+  // The south quay dips to meet the Arbitrum dock at (32,40) then rises back east.
+  { start: { x: 20.4, y: 36.6 }, end: { x: 24.4, y: 38.0 }, rotation: ISO_EDGE_ANGLE_DEG },
+  { start: { x: 24.2, y: 39.2 }, end: { x: 32, y: 40 },    rotation: ISO_EDGE_ANGLE_DEG },
+  { start: { x: 32, y: 40 },    end: { x: 39.2, y: 39.2 }, rotation: ISO_EDGE_ANGLE_DEG },
+  // Eastern harbor edge around the observatory gate and Ethereum pier.
+  { start: { x: 42.1, y: 26.3 }, end: { x: 42.1, y: 34.5 }, rotation: -ISO_EDGE_ANGLE_DEG },
+] as const;
+
+function placementsForSegment(segment: AuthoredSeawallSegment, segmentIndex: number): SeawallPlacement[] {
+  const dx = segment.end.x - segment.start.x;
+  const dy = segment.end.y - segment.start.y;
+  const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy))));
+  const placements: SeawallPlacement[] = [];
+  for (let step = 0; step <= steps; step += 1) {
+    const t = step / steps;
+    placements.push(makePlacement({
+      rotation: segment.rotation,
+      scale: segment.scale,
+      seed: 10_000 + segmentIndex * 101 + step,
+      tile: {
+        x: segment.start.x + dx * t,
+        y: segment.start.y + dy * t,
+      },
+    }));
+  }
+  return placements;
 }
 
 function computePlacements(): SeawallPlacement[] {
-  const gates = gateEdgeKeys();
-  const mask = getMainIslandLandMask();
-  const loop = tracePerimeterLoop();
   const placements: SeawallPlacement[] = [];
-  for (let i = 0; i < loop.length; i += 1) {
-    if (i % SAMPLE_STRIDE !== 0) continue;
-    const node = loop[i];
-    const side = dominantSide({ x: node.x, y: node.y }, node.sides, mask);
-    if (!side) continue; // every side faces a strait/concavity — no wall here
-    if (gates.has(`${node.x}.${node.y}.${side}`)) continue;
-    const { dx, dy } = offsetForSide(side);
-    const tile = { x: node.x + dx * 0.5, y: node.y + dy * 0.5 };
-    const sprite = spriteForSide(side);
-    const seed = node.x * 53 + node.y * 131 + side.charCodeAt(0);
-    placements.push({
-      assetId: sprite.assetId,
-      flipX: false,
-      rotation: sprite.rotation,
-      scale: 0.84,
-      tile,
-      yOffset: 1,
-      alphaJitter: jitter(seed) * 0.04,
-    });
+  const seen = new Set<string>();
+  for (const [segmentIndex, segment] of AUTHORED_SEAWALL_SEGMENTS.entries()) {
+    for (const placement of placementsForSegment(segment, segmentIndex)) {
+      const key = `${placement.tile.x.toFixed(2)}.${placement.tile.y.toFixed(2)}.${placement.rotation.toFixed(2)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      placements.push(placement);
+    }
   }
   return placements;
 }

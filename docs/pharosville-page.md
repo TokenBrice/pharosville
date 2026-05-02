@@ -40,7 +40,7 @@ The current implementation includes the desktop PharosVille v0.1 baseline:
 - desktop-gated route, with a short-screen fallback as well as the narrow-screen fallback
 - route shell escapes the global page padding and sizes against the actual post-sidebar content pane, so the desktop canvas uses the full available viewport area whether the sidebar is expanded or collapsed
 - executed visual revamp target: a dense dark-first maritime observatory diorama, using local pixel-art terrain, harbor, ship, lighthouse, and memorial sprites to make the existing Pharos stablecoin signals more legible without adding new analytical meanings
-- Canvas 2D island-sea map on eligible desktop viewports, with the authored world reduced to `56 x 56` tiles and a compact main island so the first view reads as roughly 85.2-85.6% water while retaining authored coast, harbors, and lighthouse context
+- Canvas 2D island-sea map on eligible desktop viewports, with the authored world reduced to `56 x 56` tiles and a compact main island so the first view reads as roughly 85.7-86.2% water while retaining authored coast, harbors, and lighthouse context
 - authored terrain metadata layered over canonical movement tiles, including harbor water, calm DEWS anchorage water, watch breakwater water, alert water, warning shoals water, storm water, ledger water, deep outer-shelf water, beach, grass, rock, cliff, hill, and shore variants; manifest terrain sprites render first and semantic overlays add shoals, foam, current streaks, storm chop, ledger glow, and reef/buoy cues without changing analytical color meaning
 - named DEWS water-zone labels attach to cartographic plaques, buoys, reefs, or breakwater markers on semantic water areas, with live band counts retained in details and the accessibility ledger, plus subtle dock mast flags using chain logos or short crest marks
 - Pharos lighthouse placed on the generated island mountain at tile `{ x: 18, y: 28 }`, sitting on elevated terrain inside the central island silhouette
@@ -76,7 +76,7 @@ The current implementation includes the desktop PharosVille v0.1 baseline:
 - no production fixture/default market data
 
 The compact main-island revamp preserves the current sea zones, ships, API
-boundary, and desktop gate while reducing the main island from 592 to 393 land
+boundary, and desktop gate while reducing the main island from 592 to 377 land
 tiles, excluding the cemetery islet. The lighthouse remains at `{ x: 18, y: 28
 }` with the same visual-clearance box, and harbors are re-authored around the
 smaller coastline.
@@ -162,9 +162,9 @@ The combined unit and visual regression suite covers:
 
 - desktop canvas shell at `1440 x 1000`
 - nonblank canvas pixels, terrain/water pixel coverage, and backing-store budget
-- reduced `56 x 56` map size, 85.2-85.6% water ratio, deep-water
+- reduced `56 x 56` map size, 85.7-86.2% water ratio, deep-water
   perimeter cap, terrain metadata coverage, generated mountain lighthouse
-  placement, 592-to-393 main-island land-tile shrink assertion, updated dock
+  placement, 592-to-377 main-island land-tile shrink assertion, updated dock
   coastline assertions, lighthouse geometry assertions, harbor/cemetery
   separation invariants, and preserved named sea-zone semantics across
   `tests/visual/pharosville.spec.ts` and focused system/renderer unit tests

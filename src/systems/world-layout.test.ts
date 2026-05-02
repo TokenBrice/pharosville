@@ -24,7 +24,7 @@ import {
   terrainKindAt,
   tileKindAt,
 } from "./world-layout";
-import { SEAWALL_BARRIER_TILES, isSeawallBarrierTile } from "./seawall";
+import { SEAWALL_BARRIER_TILES, SEAWALL_RENDER_PLACEMENTS, isSeawallBarrierTile } from "./seawall";
 import type { PharosVilleTile } from "./world-types";
 
 describe("buildPharosVilleMap", () => {
@@ -99,9 +99,9 @@ describe("buildPharosVilleMap", () => {
     expect(terrainKindAt(31, 29)).toBe("rock");
     expect(terrainKindAt(30, 35)).toBe("rock");
     expect(terrainKindAt(32, 33)).toBe("rock");
-    // Harbor ring slots stay natural coast, not roads.
-    expect(terrainKindAt(23, 37)).toBe("shore");
-    expect(terrainKindAt(26, 39)).toBe("shore");
+    // Harbor ring slots stay natural land/coast, not roads.
+    expect(isLandTileKind(terrainKindAt(23, 37))).toBe(true);
+    expect(isLandTileKind(terrainKindAt(26, 39))).toBe(true);
     expect(terrainKindAt(Math.round(CEMETERY_CENTER.x), Math.round(CEMETERY_CENTER.y))).toBe("grass");
   });
 
@@ -263,6 +263,64 @@ describe("buildPharosVilleMap", () => {
       expect(isWaterTileKind(tileKindAt(tile.x, tile.y)), `${tile.x}.${tile.y}`).toBe(true);
       expect(DOCK_TILES.some((dock) => dock.x === tile.x && dock.y === tile.y), `${tile.x}.${tile.y}`).toBe(false);
     }
+  });
+
+  it("renders an authored seawall route that visually connects dock bases without duplicate runs", () => {
+    expect(SEAWALL_RENDER_PLACEMENTS.length).toBeGreaterThanOrEqual(65);
+    expect(SEAWALL_RENDER_PLACEMENTS.length).toBeLessThanOrEqual(75);
+    const southQuay = SEAWALL_RENDER_PLACEMENTS.filter((placement) => (
+      placement.tile.x >= 23 && placement.tile.x <= 38 && placement.tile.y >= 38
+    ));
+    const westFace = SEAWALL_RENDER_PLACEMENTS.filter((placement) => (
+      placement.tile.x <= 21 && placement.tile.y >= 27 && placement.tile.y <= 35
+    ));
+    const northWestConnection = SEAWALL_RENDER_PLACEMENTS.filter((placement) => (
+      placement.tile.x >= 15
+      && placement.tile.x <= 18
+      && placement.tile.y >= 25
+      && placement.tile.y <= 32
+      && placement.rotation < 0
+    ));
+    const northHarborSpine = SEAWALL_RENDER_PLACEMENTS.filter((placement) => (
+      placement.tile.x >= 24
+      && placement.tile.x <= 35
+      && placement.tile.y >= 21
+      && placement.tile.y <= 24
+      && placement.rotation > 0
+    ));
+    const northEastConnection = SEAWALL_RENDER_PLACEMENTS.filter((placement) => (
+      placement.tile.x >= 34
+      && placement.tile.x <= 42
+      && placement.tile.y >= 22
+      && placement.tile.y <= 25
+      && placement.rotation > 0
+    ));
+    const southeastExtra = SEAWALL_RENDER_PLACEMENTS.filter((placement) => (
+      placement.tile.x >= 39 && placement.tile.x <= 43 && placement.tile.y >= 35 && placement.tile.y <= 38
+    ));
+    const innerWestDuplicates = SEAWALL_RENDER_PLACEMENTS.filter((placement) => (
+      placement.tile.x >= 18.5
+      && placement.tile.x <= 20.5
+      && placement.tile.y >= 31
+      && placement.tile.y <= 35.5
+    ));
+    const westHarborConnectors = SEAWALL_RENDER_PLACEMENTS.filter((placement) => (
+      placement.tile.x >= 18
+      && placement.tile.x <= 21
+      && placement.tile.y >= 33
+      && placement.tile.y <= 37
+      && placement.rotation > 0
+    ));
+    expect(southQuay.length).toBeGreaterThanOrEqual(8);
+    expect(southQuay.every((placement) => placement.rotation > 0)).toBe(true);
+    expect(westFace.length).toBeGreaterThanOrEqual(6);
+    expect(westFace.filter((placement) => placement.rotation < 0).length).toBeGreaterThanOrEqual(5);
+    expect(northWestConnection.length).toBeGreaterThanOrEqual(7);
+    expect(northHarborSpine.length).toBeGreaterThanOrEqual(10);
+    expect(northEastConnection.length).toBeGreaterThanOrEqual(7);
+    expect(southeastExtra).toHaveLength(0);
+    expect(innerWestDuplicates.length).toBeLessThanOrEqual(2);
+    expect(westHarborConnectors.length).toBeGreaterThanOrEqual(1);
   });
 
   it("resolves inland placement anchors back to water", () => {

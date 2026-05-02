@@ -21,8 +21,8 @@ These are the non-negotiable visual/data contracts for the PharosVille world. A 
 
 ## Geography
 
-- The current map acceptance target is a sea-first isometric island with roughly 85.2-85.6% water by tile count after the compact main-island revamp.
-- The compact main island is pinned to 393 main-island land tiles, excluding the cemetery islet, down from the 592-tile baseline. This shrink must preserve the authored `56 x 56` map, current named DEWS sea-zone semantics, Ledger Mooring as the only non-DEWS named risk-water area, ship route semantics, same-origin `/api/*`, and the desktop gate.
+- The current map acceptance target is a sea-first isometric island with roughly 85.7-86.2% water by tile count after the compact main-island revamp.
+- The compact main island is pinned to 377 main-island land tiles, excluding the cemetery islet, down from the 592-tile baseline. This shrink must preserve the authored `56 x 56` map, current named DEWS sea-zone semantics, Ledger Mooring as the only non-DEWS named risk-water area, ship route semantics, same-origin `/api/*`, and the desktop gate.
 - The lighthouse stays at `LIGHTHOUSE_TILE = { x: 18, y: 28 }` and visually rests on `overlay.lighthouse-headland`, the limestone outcrop drawn beneath it from `drawLighthouseHeadland`. The retired `overlay.central-island` diorama is no longer painted; the headland sprite plus the limestone-family land tile pack (`terrain.land`, `terrain.land-scrub`, `terrain.shore`) carry the central island ground.
 - The eastern and southern coves keep Ethereum, Base, Arbitrum, Optimism, Polygon, and Mantle in preferred dock positions when those chains are rendered.
 - Docks are capped by `MAX_CHAIN_HARBORS`; they reserve the Ethereum/L2 harbor cluster when present, then fill remaining slots by chain stablecoin supply.

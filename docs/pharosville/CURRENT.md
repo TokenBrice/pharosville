@@ -19,10 +19,10 @@ The current main-island revamp from
 `agents/completed/pharosville-main-island-revamp-plan.md` is implemented as a coordinated
 layout, asset, renderer, test, and docs change:
 
-- The accepted water-ratio target is 85.2-85.6% by tile count; the measured map
-  ratio is about 85.4%.
+- The accepted water-ratio target is 85.7-86.2% by tile count; the measured map
+  ratio is about 85.9%.
 - Baseline main-island land tiles were 592, excluding the cemetery islet. The
-  compact island has 393 main-island land tiles, a 33.6% reduction.
+  compact island has 377 main-island land tiles, a 36.3% reduction.
 - `LIGHTHOUSE_TILE` remains `{ x: 18, y: 28 }` and the visual-clearance box
   remains `x:14..24, y:23..32`.
 - Runtime asset cache version is
@@ -170,7 +170,7 @@ generic water.
 
 - Chain harbors are built from top chain supply and capped by `MAX_CHAIN_HARBORS` in `chain-docks.ts`.
 - The authored map is `56 x 56` tiles. Deep outer water is intentionally a narrow perimeter shelf, not a large default border.
-- The current composition target is 85.2-85.6% water by tile count after the compact main-island revamp. Tests pin both water ratio and the 393-tile main-island land count, excluding the cemetery islet.
+- The current composition target is 85.7-86.2% water by tile count after the compact main-island revamp. Tests pin both water ratio and the 377-tile main-island land count, excluding the cemetery islet.
 - Named sea areas use printed cartographic water labels backed by
   `systems/area-labels.ts`; renderer drawing, hit targets, and follow-selected
   behavior must use the same placement metadata.
