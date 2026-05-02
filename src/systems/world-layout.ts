@@ -300,15 +300,23 @@ function isDeepSeaShelf(x: number, y: number): boolean {
 }
 
 function isTopShelfOpenWaterGap(x: number, y: number): boolean {
-  return x >= 31 && x <= 39 && y >= 0 && y <= 7;
+  if (y < 0 || y > 7) return false;
+  if (x >= 31 && x <= 39) return true;
+  // Visual buffer between Ledger Mooring's east flank and the Alert ring
+  // along the top two rows; without this strip the carved tiles would fall
+  // through to deep-water and read as the outer shelf.
+  if (x >= 23 && x <= 30 && y <= 1) return true;
+  return false;
 }
 
 function isLedgerMooring(x: number, y: number): boolean {
-  // Top mooring shelf: covers the entire upper edge of the diamond from the
-  // western corner down to where Calm Anchorage begins, across to just before
-  // the eastern Alert ring. Alert/Warning/Danger checks run first, so this
-  // simple rectangle never steals their tiles.
-  return y >= 0 && y <= 9 && x >= 0 && x <= 30;
+  // Top mooring shelf: covers the upper edge of the diamond from the western
+  // corner across to just before the eastern Alert ring. The two top rows
+  // taper east at x=22 so NAV ships do not crowd the Alert/Warning/Danger
+  // ring at y=0..1; deeper rows keep the full shelf width.
+  if (y < 0 || y > 9 || x < 0) return false;
+  if (y <= 1) return x <= 22;
+  return x <= 30;
 }
 
 function getNavigableWaterMask(): Uint8Array {

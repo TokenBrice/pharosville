@@ -157,7 +157,7 @@ describe("buildPharosVilleMap", () => {
       { x: 7, y: 0 },
       { x: 14, y: 0 },
       { x: 22, y: 0 },
-      { x: 30, y: 0 },
+      { x: 30, y: 5 },
       { x: 10, y: 5 },
       { x: 15, y: 4 },
       { x: 20, y: 5 },
@@ -184,7 +184,10 @@ describe("buildPharosVilleMap", () => {
     expect(terrainKindAt(0, 10)).toBe("calm-water");
     expect(terrainKindAt(15, 10)).toBe("calm-water");
     // Tiles between the new Ledger shelf and the eastern Alert ring fall back
-    // to generic navigable water; the eastern rings stay intact.
+    // to generic navigable water; the eastern rings stay intact. The top two
+    // rows of the shelf taper east at x=22, widening that buffer at y∈[0,1].
+    expect(terrainKindAt(25, 0)).toBe("water");
+    expect(terrainKindAt(30, 1)).toBe("water");
     expect(terrainKindAt(31, 0)).toBe("water");
     expect(terrainKindAt(34, 2)).toBe("water");
     expect(terrainKindAt(37, 5)).toBe("water");
@@ -319,7 +322,9 @@ describe("buildPharosVilleMap", () => {
     expect(northHarborSpine.length).toBeGreaterThanOrEqual(10);
     expect(northEastConnection.length).toBeGreaterThanOrEqual(7);
     expect(southeastExtra).toHaveLength(0);
-    expect(innerWestDuplicates.length).toBeLessThanOrEqual(2);
+    // The west lighthouse wall now reaches the BSC shoulder in one continuous
+    // run, so one extra descending sample in this overlap window is expected.
+    expect(innerWestDuplicates.length).toBeLessThanOrEqual(3);
     expect(westHarborConnectors.length).toBeGreaterThanOrEqual(1);
   });
 

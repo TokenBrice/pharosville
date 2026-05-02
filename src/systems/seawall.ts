@@ -232,13 +232,16 @@ interface AuthoredSeawallSegment {
 
 const AUTHORED_SEAWALL_SEGMENTS: readonly AuthoredSeawallSegment[] = [
   // Northern lighthouse harbor: one authored spine ties the lighthouse apron
-  // into the northern slips, then hands off to the eastern harbor wall.
-  { start: { x: 15.4, y: 25.3 }, end: { x: 17.6, y: 31.8 }, rotation: -ISO_EDGE_ANGLE_DEG },
+  // into the BSC shoulder in one continuous run, then hands off to the
+  // northern slips and eastern harbor wall.
+  { start: { x: 15.4, y: 25.3 }, end: { x: 20.4, y: 36.6 }, rotation: -ISO_EDGE_ANGLE_DEG },
   { start: { x: 15.4, y: 25.3 }, end: { x: 25, y: 23 },    rotation: ISO_EDGE_ANGLE_DEG },
   { start: { x: 25, y: 23 },    end: { x: 28, y: 22 },    rotation: ISO_EDGE_ANGLE_DEG },
   { start: { x: 28, y: 22 },    end: { x: 34, y: 22 },    rotation: ISO_EDGE_ANGLE_DEG },
   { start: { x: 34, y: 22 },    end: { x: 37, y: 23 },    rotation: ISO_EDGE_ANGLE_DEG },
-  { start: { x: 37, y: 23 },    end: { x: 41.4, y: 24.4 }, rotation: ISO_EDGE_ANGLE_DEG },
+  // Leave a cleaner opening for the Solana / Hyperliquid slips before the
+  // wall turns into the east harbor face.
+  { start: { x: 39.2, y: 23.7 }, end: { x: 41.4, y: 24.4 }, rotation: ISO_EDGE_ANGLE_DEG },
   { start: { x: 41.4, y: 24.4 }, end: { x: 42.1, y: 26.3 }, rotation: -ISO_EDGE_ANGLE_DEG },
   // Southwest and south quays that connect the market slips to the central pier.
   // The south quay dips to meet the Arbitrum dock at (32,40) then rises back east.

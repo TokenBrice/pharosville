@@ -176,7 +176,6 @@ export const RISK_WATER_AREAS: Record<ShipRiskPlacement, RiskWaterAreaDefinition
       { x: 10, y: 0 },
       { x: 15, y: 0 },
       { x: 20, y: 0 },
-      { x: 25, y: 0 },
       { x: 3, y: 4 },
       { x: 10, y: 5 },
       { x: 18, y: 5 },

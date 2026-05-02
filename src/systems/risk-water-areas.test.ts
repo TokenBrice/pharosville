@@ -206,7 +206,7 @@ describe("risk water areas", () => {
     expect(terrainKindAt(10, 5)).toBe("ledger-water");
     expect(terrainKindAt(15, 4)).toBe("ledger-water");
     expect(terrainKindAt(20, 5)).toBe("ledger-water");
-    expect(terrainKindAt(30, 0)).toBe("ledger-water");
+    expect(terrainKindAt(30, 5)).toBe("ledger-water");
     expect(terrainKindAt(47, 52)).toBe("watch-water");
     expect(terrainKindAt(50, 55)).toBe("watch-water");
   });
