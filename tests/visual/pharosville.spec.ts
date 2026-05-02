@@ -381,7 +381,7 @@ test("pharosville accessibility smoke validates keyboard focus and landmarks", a
   await expect(page.locator(".pharosville-overlay")).toHaveAttribute("aria-label", "PharosVille controls and details");
   await expect(page.getByRole("button", { name: "Enter fullscreen" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Go to Pharos homepage" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Close details" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Close details" })).toBeVisible();
 });
 
 test("pharosville dense visual fixture preserves districts, dense ships, and render budget", async ({ page }) => {
