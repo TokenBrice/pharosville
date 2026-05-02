@@ -6,6 +6,9 @@ import { dockDrawPoint } from "../geometry";
 import type { HitTarget } from "../hit-testing";
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
 
+const docksByChainCache = new WeakMap<PharosVilleWorld, Map<string, PharosVilleWorld["docks"][number]>>();
+const renderedDockShipsByChainCache = new WeakMap<PharosVilleWorld, Map<string, PharosVilleWorld["ships"][number][]>>();
+
 export function drawSelection(input: DrawPharosVilleInput): number {
   const { ctx, hoveredTarget, selectedTarget } = input;
   let drawableCount = 0;
@@ -39,11 +42,15 @@ function hasSelectedRelationships(target: HitTarget | null): target is HitTarget
 
 function drawSelectedRelationships(input: DrawPharosVilleInput, target: HitTarget) {
   if (target.kind === "ship") {
-    const ship = input.world.ships.find((candidate) => candidate.id === target.id);
-    if (ship) drawSelectedShipRelationships(input, ship);
+    const selectedShip = input.world.entityById[target.detailId];
+    if (selectedShip?.kind === "ship") {
+      drawSelectedShipRelationships(input, selectedShip);
+    }
   } else if (target.kind === "dock") {
-    const dock = input.world.docks.find((candidate) => candidate.id === target.id);
-    if (dock) drawSelectedDockRelationships(input, dock);
+    const selectedDock = input.world.entityById[target.detailId];
+    if (selectedDock?.kind === "dock") {
+      drawSelectedDockRelationships(input, selectedDock);
+    }
   }
 }
 
@@ -55,7 +62,7 @@ function drawSelectedShipRelationships(
   const currentPoint = tileToScreen(sample?.tile ?? ship.tile, camera);
   const riskPoint = tileToScreen(ship.riskTile, camera);
   const homeDock = ship.homeDockChainId
-    ? world.docks.find((dock) => dock.chainId === ship.homeDockChainId) ?? null
+    ? dockForChain(world, ship.homeDockChainId)
     : null;
   const homePoint = homeDock ? dockDrawPoint(homeDock, camera, world.map.width) : null;
   const route = motion.plan.shipRoutes.get(ship.id) ?? null;
@@ -94,8 +101,8 @@ function drawSelectedDockRelationships(
   { camera, ctx, motion, shipMotionSamples, world }: DrawPharosVilleInput,
   dock: PharosVilleWorld["docks"][number],
 ) {
-  const visibleShips = world.ships
-    .filter((ship) => ship.chainPresence.some((presence) => presence.chainId === dock.chainId && presence.hasRenderedDock))
+  const chainShips = renderedShipsByChain(world, dock.chainId);
+  const visibleShips = chainShips
     .filter((ship) => isShipMapVisible(ship, shipMotionSamples?.get(ship.id)))
     .toSorted((a, b) => b.marketCapUsd - a.marketCapUsd)
     .slice(0, 10);
@@ -115,6 +122,42 @@ function drawSelectedDockRelationships(
   ctx.setLineDash([]);
   drawRelationshipMarker(ctx, dockPoint.x, dockPoint.y - 9 * camera.zoom, camera.zoom, "home", "#ffe0a0", pulse);
   ctx.restore();
+}
+
+function dockForChain(
+  world: PharosVilleWorld,
+  chainId: string,
+): PharosVilleWorld["docks"][number] | null {
+  let docksByChain = docksByChainCache.get(world);
+  if (!docksByChain) {
+    docksByChain = new Map<string, PharosVilleWorld["docks"][number]>();
+    for (const dock of world.docks) {
+      if (docksByChain.has(dock.chainId)) continue;
+      docksByChain.set(dock.chainId, dock);
+    }
+    docksByChainCache.set(world, docksByChain);
+  }
+  return docksByChain.get(chainId) ?? null;
+}
+
+function renderedShipsByChain(world: PharosVilleWorld, chainId: string): readonly PharosVilleWorld["ships"][number][] {
+  let shipsByChain = renderedDockShipsByChainCache.get(world);
+  if (!shipsByChain) {
+    shipsByChain = new Map<string, PharosVilleWorld["ships"][number][]>();
+    for (const ship of world.ships) {
+      for (const presence of ship.chainPresence) {
+        if (!presence.hasRenderedDock) continue;
+        const existing = shipsByChain.get(presence.chainId);
+        if (existing) {
+          existing.push(ship);
+          continue;
+        }
+        shipsByChain.set(presence.chainId, [ship]);
+      }
+    }
+    renderedDockShipsByChainCache.set(world, shipsByChain);
+  }
+  return shipsByChain.get(chainId) ?? [];
 }
 
 function relationshipPulse(motion: PharosVilleCanvasMotion) {
