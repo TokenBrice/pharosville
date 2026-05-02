@@ -83,14 +83,26 @@ fantasy town:
   cloth, teal harbor water, pale foam, restrained red/blue roof accents.
 - **Scale:** readable silhouettes at default `/pharosville/` zoom before detail
   is visible.
-- **Ships:** each hull needs a clear sail or pennant area for runtime logo marks;
-  do not bake logos, token badges, text, counts, UI panels, or chain names into
-  the PNG. Standard hulls are 104×80; titan hulls are 144×104 to 160×112 with
-  4-frame animation sheets; **heritage-hull (unique tier) sprites are 136×100
-  single-frame transparent PNGs at `loadPriority: "deferred"` with no
-  `animation` block** — themes are conveyed by silhouette, sail painting, and
-  figurehead, plus a shared oxidized-bronze masthead lantern + cream bowsprit
-  pennant tier-unifier.
+- **Ships:** sail/pennant treatment is tier-aware.
+  - **Standard hulls (104×80)** reserve a clean sail or pennant area for the
+    runtime SVG-logo overlay drawn at render time.
+  - **Unique-tier heritage hulls (136×100)** and **titan-tier hulls
+    (144×104 to 192×128)** carry a single iconographic silhouette painted
+    directly into the mainsail at heraldic scale (~1/4 sail) — sail-cloth
+    tint provides brand color, the silhouette provides brand metaphor
+    (Curve → llama, Tether → kraken, Circle → compass rose). The
+    painted-emblem ships are excluded from `drawSailLogo` via an explicit
+    ship-id allowlist in `src/renderer/layers/ships.ts`.
+  - **Across all tiers, do not bake logos, token badges, text, numerals,
+    counts, UI panels, or chain names into the PNG.**
+  - Heritage hulls are single-frame transparent PNGs at
+    `loadPriority: "deferred"` with no `animation` block. Titan hulls may
+    include a 4-frame animation sheet, but newer titans may ship static
+    (single-frame) when the painted emblem requires frame consistency
+    (current Phase 1 state for USDT/USDC; see
+    `agents/2026-05-02-iconographic-sail-emblem-plan.md`).
+  - All unique- and titan-tier hulls carry the shared oxidized-bronze
+    masthead lantern + cream bowsprit pennant tier-unifier.
 - **Docks/landmarks:** include built-in mass, posts, stairs, rope/crate clutter,
   lanterns, and waterline contact so they read as districts rather than floating
   stickers.

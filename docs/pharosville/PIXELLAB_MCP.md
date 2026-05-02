@@ -55,7 +55,12 @@ Then add object-specific constraints:
 - Specify transparent background for standalone objects.
 - Keep analytical overlays out of the PNG. No text, token badges, chain names,
   UI panels, counts, labels, logos, or status colors baked into sprites.
-- For ships, reserve a clean sail or pennant area for runtime logo marks.
+- For standard ships (104×80), reserve a clean sail or pennant area for the
+  runtime SVG-logo overlay. For unique- and titan-tier ships, paint a single
+  iconographic silhouette directly into the mainsail at heraldic scale
+  (~1/4 sail); sail-cloth tint provides brand color, silhouette provides
+  brand metaphor (Curve → llama, Tether → kraken, Circle → compass rose).
+  Never bake text, letters, numerals, or corporate logos at any tier.
 - For docks, include waterline contact, posts, stairs, rope/crate clutter, and
   dark contact shadow so the sprite reads as infrastructure, not a sticker.
 - For terrain, keep texture subtle because renderer overlays preserve DEWS and
@@ -127,6 +132,8 @@ Reject candidates that have:
 - insufficient transparent margin for the manifest anchor and hitbox
 - baked analytical colors that would compete with renderer-controlled DEWS,
   ledger, ship-risk, or cemetery semantics
-- ship sails/pennants too busy for runtime logo marks
+- ship sails/pennants too busy for runtime logo marks (standard hulls), or
+  painted iconographic emblem too detailed/illegible at sail scale (unique
+  + titan hulls)
 
 When in doubt, keep the asset out of runtime and document what failed.

@@ -99,6 +99,20 @@ layout, asset, renderer, test, and docs change:
   `isSailTintPixel`'s recognised range — these ships render their painted
   identity directly by design.
 
+- **Iconographic sail emblem rule (unique + titan tiers).** Every unique-
+  and titan-tier ship carries a single iconographic silhouette painted
+  directly into the mainsail at heraldic scale (~1/4 sail). Marks are
+  silhouette-only — no text, no numerals, no literal logos. Brand identity
+  reads through sail-cloth tint × emblem silhouette together (Curve →
+  llama, Tether → kraken, Circle → compass rose). Standard hulls keep the
+  runtime SVG-logo overlay drawn at render time. The painted-emblem ships
+  are excluded from `drawSailLogo` via an explicit ship-id allowlist in
+  `src/renderer/layers/ships.ts`. Per Phase 1
+  (`agents/2026-05-02-iconographic-sail-emblem-plan.md`), USDT and USDC
+  ship as static (single-frame) titans while their painted emblems land;
+  future titans re-introduce frame animation once the generation pipeline
+  guarantees per-frame emblem consistency.
+
 Historical plans in this directory are context, not live instructions. If they conflict with this file, follow this file and the verified docs.
 
 ## Runtime Entry Points
@@ -147,7 +161,7 @@ Edge-anchored compound masks (current iteration as of 2026-04-30):
 |------|--------------|--------|-------------:|
 | WATCH | y=55 / east shelf | south breakwater basin plus the entire eastern shelf below the Alert ring | ~786 |
 | CALM | x=0 | large left-edge vertical anchorage | ~665 |
-| LEDGER | top edge | non-DEWS NAV mooring shelf spanning the entire top of the diamond, touching Calm at the western flank | ~310 |
+| LEDGER | top edge | non-DEWS NAV mooring shelf spanning the top of the diamond, touching Calm at the western flank; top two rows (y∈[0,1]) taper east at x=22 to widen the buffer to the Alert ring | ~294 |
 | ALERT | x=55/eastern corner | upper outer eastern ring at the (55, 0) corner | ~150 |
 | WARNING | x=55/eastern corner | middle eastern ring bridged into Danger Strait | ~65 |
 | DANGER | x=55/eastern corner | inner/right storm strait on the angled shelf | ~48 |
@@ -192,7 +206,7 @@ generic water.
 - Asset loading is intentionally staged: the route loads the manifest and critical/first-render sprites before the initial canvas frame, then loads deferred sprite families after the core scene can render. Do not move visual-only sprites into the critical set without checking first-render need and the manifest cap.
 - The current lighthouse asset is `landmark.lighthouse` at `public/pharosville/assets/landmarks/lighthouse-alexandria.png`, with manifest cache version `2026-05-02-village-decor-v1` and style anchor `2026-04-29-lighthouse-hill-v5`.
 - The central plaza is filled by the ambient `overlay.center-cluster` observatory citadel — a dense limestone+terracotta residential cluster anchored at `CIVIC_CORE_CENTER (31, 31)`, drawn between the district-pad and lighthouse-headland passes via `src/renderer/layers/center-cluster.ts`. It carries no analytical signal and no detail-panel parity. A single `prop.sundial` at tile (35, 31) reinforces the observatory identity. The lighthouse remains the dominant vertical anchor; the cluster's silhouette caps at ≈ 110 px in 1× zoom.
-- Current ship sprites share the lighthouse style anchor, keep logo-safe sail/pennant zones, and treat overlays as small lanterns/pennants/signals rather than badges. Standard class hulls use 104 x 80 transparent PNGs; USDC, USDS, and USDT use dedicated titan hull PNGs, with USDS a bit smaller than USDC and USDT allowed to read larger than both.
+- Current ship sprites share the lighthouse style anchor. Standard class hulls (104×80) reserve a logo-safe sail/pennant zone for the runtime SVG-logo overlay; unique- and titan-tier hulls carry an iconographic silhouette painted directly into the mainsail (no runtime overlay). Secondary `ShipVisual.overlay` cues render as small lanterns, pennants, or signal flags rather than badges. USDC, USDS, and USDT use dedicated titan hull PNGs, with USDS a bit smaller than USDC and USDT allowed to read larger than both.
 - Current cemetery props share the same style anchor and use a local memorial sprite set under `public/pharosville/assets/props/`: `memorial-terrace`, `memorial-headstone`, `ledger-slab`, `reliquary-marker`, and `regulatory-obelisk`.
 
 ## Agent Workflow
