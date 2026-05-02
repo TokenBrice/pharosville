@@ -13,7 +13,7 @@ Priority alerts are:
 
 1. `/api/*` `5xx` ratio
 2. Upstream timeout and proxy `502` responses on API relay
-3. Scheduled production smoke failures
+3. Post-deploy production smoke failures
 
 ## Recommended Cloudflare alert setup
 
@@ -26,23 +26,25 @@ Use Cloudflare Analytics dashboards/alerts for Pages traffic and Workers/Functio
   - `>= 3` events in 10 minutes
 - Alert if a deployment succeeds and is followed by a live smoke failure within 30 minutes.
 
-## Scheduled smoke alerting
+## Production smoke alerting
 
-Scheduled smoke is now runnable every 4 hours and via manual dispatch in:
+Production smoke currently runs on every successful production deploy in:
 
-- `.github/workflows/pharosville-scheduled-smoke.yml`
+- `.github/workflows/deploy-cloudflare.yml`
 
-On failure, the workflow is expected to raise a release incident artifact:
+The deploy workflow checks live security headers and then runs live smoke against
+`https://pharosville.pharos.watch`. A failure blocks the deploy workflow status.
 
-- one `pharosville-smoke-alert` labeled issue (auto-created when possible)
-- optional manual escalation on primary on-call channel per team SOP
-
-Use this command to replay the health check:
+Use this command to replay the health checks:
 
 ```bash
-gh workflow run pharosville-scheduled-smoke.yml
-gh run watch
+npm run check:security-headers
+npm run smoke:live -- --url https://pharosville.pharos.watch
 ```
+
+External scheduled monitoring is not configured in this repository. If operations
+requires checks independent of deploys, prefer a Cloudflare or uptime-monitoring
+alert rather than a second GitHub workflow status on every push.
 
 ## On-call runbook
 

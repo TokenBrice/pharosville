@@ -157,15 +157,15 @@ For production monitoring, add alerts on:
 
 1. `5xx` error-rate for `/api/*`
 2. Upstream timeout / proxy `502` rates
-3. Scheduled smoke failures
+3. Post-deploy smoke failures
 
 See also: docs/pharosville/OBSERVABILITY.md
 
 ## Schedules
 
-Continuous health checks now run via:
+Production health checks currently run via:
 
-- `.github/workflows/pharosville-scheduled-smoke.yml` (every 4 hours, UTC, with manual dispatch)
+- `.github/workflows/deploy-cloudflare.yml` after Cloudflare Pages deploy
 - `npm run smoke:live -- --url https://pharosville.pharos.watch`
 
 ## Rollback
