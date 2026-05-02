@@ -4,8 +4,10 @@ import LocateFixed from "lucide-react/dist/esm/icons/locate-fixed";
 import Moon from "lucide-react/dist/esm/icons/moon";
 import RotateCcw from "lucide-react/dist/esm/icons/rotate-ccw";
 import Sun from "lucide-react/dist/esm/icons/sun";
+import SunMoon from "lucide-react/dist/esm/icons/sun-moon";
 
 export interface WorldToolbarProps {
+  autoNightCycle?: boolean;
   headingId?: string;
   ledgerVisible?: boolean;
   nightMode?: boolean;
@@ -13,11 +15,13 @@ export interface WorldToolbarProps {
   zoomLabel?: string;
   onFollowSelected?: () => void;
   onResetView?: () => void;
+  onToggleAutoNightCycle?: () => void;
   onToggleLedger?: () => void;
   onToggleNightMode?: () => void;
 }
 
 export function WorldToolbar({
+  autoNightCycle = false,
   headingId = "pharosville-world-toolbar-title",
   ledgerVisible = false,
   nightMode = false,
@@ -25,6 +29,7 @@ export function WorldToolbar({
   zoomLabel = "100%",
   onFollowSelected,
   onResetView,
+  onToggleAutoNightCycle,
   onToggleLedger,
   onToggleNightMode,
 }: WorldToolbarProps) {
@@ -75,6 +80,19 @@ export function WorldToolbar({
       >
         {nightMode ? <Sun aria-hidden="true" size={18} /> : <Moon aria-hidden="true" size={18} />}
       </button>
+
+      {onToggleAutoNightCycle && (
+        <button
+          type="button"
+          className="pv-brass-button"
+          onClick={onToggleAutoNightCycle}
+          aria-pressed={autoNightCycle}
+          aria-label={autoNightCycle ? "Disable auto day-night cycle" : "Enable auto day-night cycle"}
+          title={autoNightCycle ? "Auto day-night: on" : "Auto day-night: off"}
+        >
+          <SunMoon aria-hidden="true" size={18} />
+        </button>
+      )}
 
       {onToggleLedger && (
         <button

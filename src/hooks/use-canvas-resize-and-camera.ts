@@ -21,6 +21,7 @@ export interface UseCanvasResizeAndCameraInput {
   onClearSelection: () => void;
   onSelectTarget: (target: HitTarget, point: ScreenPoint, viewport: ScreenPoint) => void;
   recomputeHitTargets: () => HitTargetSnapshot | null;
+  reducedMotion: boolean;
   selectedDetailIdRef: MutableRefObject<string | null>;
   selectedEntity: WorldSelectableEntity | null;
   setHoveredDetailId: Dispatch<SetStateAction<string | null>>;
@@ -63,6 +64,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     onClearSelection,
     onSelectTarget,
     recomputeHitTargets,
+    reducedMotion,
     selectedDetailIdRef,
     selectedEntity,
     setHoveredDetailId,
@@ -81,6 +83,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   const adaptiveDprInitializedRef = useRef(false);
   const maximumRequestedDprRef = useRef(1);
   const canvasBudgetRef = useRef<ReturnType<typeof resolveCanvasBudget> | null>(null);
+  const followTweenFrameRef = useRef(0);
 
   const [camera, setCamera] = useState<IsoCamera | null>(null);
   const [canvasSize, setCanvasSize] = useState<ScreenPoint>({ x: 0, y: 0 });
@@ -299,17 +302,46 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       mapWidth: world.map.width,
       shipMotionSamples: shipMotionSamplesRef.current,
     });
-    setCamera((previous) => {
-      if (!previous) return previous;
-      const next = followTile({
-        camera: previous,
-        map: world.map,
-        tile: sampledTile,
-        viewport: canvasSize,
-      });
-      return sameCamera(previous, next) ? previous : next;
+    const start = cameraRef.current;
+    if (!start) return;
+    const target = followTile({
+      camera: start,
+      map: world.map,
+      tile: sampledTile,
+      viewport: canvasSize,
     });
-  }, [canvasSize, selectedEntity, shipMotionSamplesRef, world.map]);
+    if (followTweenFrameRef.current) {
+      cancelAnimationFrame(followTweenFrameRef.current);
+      followTweenFrameRef.current = 0;
+    }
+    if (sameCamera(start, target)) return;
+    if (reducedMotion) {
+      setCamera(target);
+      return;
+    }
+    const duration = 400;
+    const startTime = performance.now();
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - startTime) / duration);
+      const eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      const next: IsoCamera = {
+        offsetX: start.offsetX + (target.offsetX - start.offsetX) * eased,
+        offsetY: start.offsetY + (target.offsetY - start.offsetY) * eased,
+        zoom: start.zoom + (target.zoom - start.zoom) * eased,
+      };
+      setCamera(next);
+      if (t < 1) {
+        followTweenFrameRef.current = requestAnimationFrame(tick);
+      } else {
+        followTweenFrameRef.current = 0;
+      }
+    };
+    followTweenFrameRef.current = requestAnimationFrame(tick);
+  }, [cameraRef, canvasSize, reducedMotion, selectedEntity, shipMotionSamplesRef, world.map]);
+
+  useEffect(() => () => {
+    if (followTweenFrameRef.current) cancelAnimationFrame(followTweenFrameRef.current);
+  }, []);
 
   const handleKeyDown = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
     if (!camera) return;

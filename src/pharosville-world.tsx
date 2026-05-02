@@ -25,6 +25,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const [announcement, setAnnouncement] = useState("PharosVille ready.");
   const [reducedMotion, setReducedMotion] = useState(true);
   const [nightMode, setNightMode] = useState(false);
+  const [autoNightCycle, setAutoNightCycle] = useState(false);
   const shellRef = useRef<HTMLElement | null>(null);
   const { exitFullscreen, fullscreenMode, toggleFullscreen } = useFullscreenMode(shellRef);
 
@@ -103,6 +104,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     onClearSelection: clearSelection,
     onSelectTarget: handleSelectTarget,
     recomputeHitTargets,
+    reducedMotion,
     selectedDetailIdRef,
     selectedEntity,
     setHoveredDetailId,
@@ -235,6 +237,12 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
 
   useEffect(() => observeReducedMotion(setReducedMotion), []);
 
+  useEffect(() => {
+    if (!autoNightCycle) return;
+    const id = setInterval(() => setNightMode((n) => !n), 60_000);
+    return () => clearInterval(id);
+  }, [autoNightCycle]);
+
   const detailDockStyle = selectedDetailAnchor
     ? ({
         "--pv-detail-x": `${selectedDetailAnchor.x}px`,
@@ -274,6 +282,8 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
             onResetView={canvas.handleResetView}
             nightMode={nightMode}
             onToggleNightMode={() => setNightMode((n) => !n)}
+            autoNightCycle={autoNightCycle}
+            onToggleAutoNightCycle={() => setAutoNightCycle((a) => !a)}
           />
         </div>
         {selectedDetail && (
