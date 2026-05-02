@@ -145,7 +145,7 @@ function drawDockQuayUnderlay(
 }
 
 export function drawDockOverlay(input: DrawPharosVilleInput, frame: DockRenderFrame, dock: PharosVilleWorld["docks"][number]) {
-  const { assets, camera, ctx, hoveredTarget, selectedTarget, world } = input;
+  const { assets, camera, ctx, hoveredTarget, motion, selectedTarget, world } = input;
   const { harbor } = dockRenderState(input, frame, dock);
   drawHarborFlag({
     accent: dockHealthColor(dock.healthBand),
@@ -154,6 +154,7 @@ export function drawDockOverlay(input: DrawPharosVilleInput, frame: DockRenderFr
     emphasized: hoveredTarget?.detailId === dock.detailId || selectedTarget?.detailId === dock.detailId,
     logo: assets?.getLogo(dock.logoSrc) ?? null,
     mapWidth: world.map.width,
+    motion,
     outward: dockOutwardVector(dock.tile, world.map.width),
     x: harbor.x,
     y: harbor.y - 12 * camera.zoom,
@@ -176,12 +177,13 @@ function drawHarborFlag(input: {
   emphasized: boolean;
   logo: ReturnType<PharosVilleAssetManager["getLogo"]>;
   mapWidth: number;
+  motion: DrawPharosVilleInput["motion"];
   outward: { x: -1 | 0 | 1; y: -1 | 0 | 1 };
   x: number;
   y: number;
   zoom: number;
 }) {
-  const { accent, ctx, dock, emphasized, logo, mapWidth, outward, x, y, zoom } = input;
+  const { accent, ctx, dock, emphasized, logo, mapWidth, motion, outward, x, y, zoom } = input;
   const scale = Math.max(0.72, zoom);
   const flagScale = scale * 1.84;
   const side = outward.x === 0 ? (dock.tile.x < (mapWidth - 1) / 2 ? -1 : 1) : -outward.x;
@@ -215,12 +217,21 @@ function drawHarborFlag(input: {
   ctx.lineTo(Math.round(mastX + direction * 0.6 * scale), Math.round(mastTopY - 2 * scale));
   ctx.stroke();
 
+  const time = motion.reducedMotion ? 0 : motion.timeSeconds;
+  const phaseBase = (dock.tile.x * 0.7 + dock.tile.y * 0.4) % (Math.PI * 2);
+  const primary = motion.reducedMotion ? 0 : Math.sin(time * 2.4 + phaseBase);
+  const secondary = motion.reducedMotion ? 0 : Math.sin(time * 0.9 + phaseBase * 1.7);
+  const flutterAmp = 1.6 * flagScale;
+  const topFlutter = primary * flutterAmp + secondary * flutterAmp * 0.4;
+  const midFlutter = primary * flutterAmp * 0.55 - secondary * flutterAmp * 0.35;
+  const botFlutter = primary * flutterAmp * 0.85 + secondary * flutterAmp * 0.5;
+
   const flagPath = () => {
     ctx.beginPath();
     ctx.moveTo(mastX, flagY);
-    ctx.lineTo(mastX + direction * flagWidth, flagY + 2 * scale);
-    ctx.lineTo(mastX + direction * (flagWidth - 5 * flagScale), flagY + flagHeight * 0.5);
-    ctx.lineTo(mastX + direction * flagWidth, flagY + flagHeight - 2 * scale);
+    ctx.lineTo(mastX + direction * flagWidth + direction * topFlutter, flagY + 2 * scale);
+    ctx.lineTo(mastX + direction * (flagWidth - 5 * flagScale) + direction * midFlutter, flagY + flagHeight * 0.5);
+    ctx.lineTo(mastX + direction * flagWidth + direction * botFlutter, flagY + flagHeight - 2 * scale);
     ctx.lineTo(mastX, flagY + flagHeight);
     ctx.closePath();
   };

@@ -22,7 +22,7 @@ import { drawHarborDistrictGround } from "./layers/harbor-district";
 import { drawTerrainBase, drawWaterTerrainOverlays } from "./layers/terrain";
 import { drawWaterAreaLabels } from "./layers/water-labels";
 import { drawCenterCluster } from "./layers/center-cluster";
-import { drawLighthouseBeamRim, drawLighthouseBody, drawLighthouseHeadland, drawLighthouseNightHighlights, drawLighthouseOverlay, drawLighthouseSurf, lighthouseOverlayScreenBounds, lighthouseRenderState, type LighthouseRenderState } from "./layers/lighthouse";
+import { drawLighthouseBeamRim, drawLighthouseBody, drawLighthouseGodRays, drawLighthouseHeadland, drawLighthouseNightHighlights, drawLighthouseOverlay, drawLighthouseSurf, lighthouseOverlayScreenBounds, lighthouseRenderState, type LighthouseRenderState } from "./layers/lighthouse";
 import { drawSelection } from "./layers/selection";
 import { drawCoastalWaterDetails } from "./layers/shoreline";
 import { drawSky } from "./layers/sky";
@@ -413,6 +413,7 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   drawSeaMist(input, nightFactor);
   drawDecorativeLights(input);
   drawLighthouseBeamRim(input, frame.visibleShips, frame.lighthouseRender, nightFactor);
+  drawLighthouseGodRays(input.ctx, frame.lighthouseRender.firePoint, input.camera.zoom * 1.35, input.motion, nightFactor);
   drawCemeteryMist(input);
   drawBirds(input);
   drawNightVignette(input, nightFactor);

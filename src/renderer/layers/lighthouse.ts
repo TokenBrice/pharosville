@@ -581,6 +581,52 @@ function drawBrazierSmoke(
   ctx.restore();
 }
 
+const GOD_RAY_COUNT = 8;
+const GOD_RAY_HALF_SPREAD = (3.5 * Math.PI) / 180;
+const GOD_RAY_LENGTH = SWEEP_LENGTH * 0.62;
+const GOD_RAY_BASE_ALPHA = 0.085;
+
+export function drawLighthouseGodRays(
+  ctx: CanvasRenderingContext2D,
+  firePoint: ScreenPoint,
+  beamZoom: number,
+  motion: PharosVilleCanvasMotion,
+  nightFactor: number,
+) {
+  if (nightFactor <= 0) return;
+  const time = motion.reducedMotion ? 0 : motion.timeSeconds;
+  const sweepAngle = motion.reducedMotion
+    ? SWEEP_REDUCED_ANGLE
+    : (time / SWEEP_PERIOD) * Math.PI * 2 + Math.sin((time / SWEEP_PERIOD) * Math.PI * 2) * 0.15;
+  const length = GOD_RAY_LENGTH * beamZoom;
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (const armOffset of [0, Math.PI]) {
+    for (let i = 0; i < GOD_RAY_COUNT; i += 1) {
+      const t = (i + 0.5) / GOD_RAY_COUNT;
+      const offset = (t - 0.5) * 2 * GOD_RAY_HALF_SPREAD;
+      const breath = 0.78 + 0.22 * Math.sin(time * 0.35 + i * 1.31 + armOffset);
+      const angle = sweepAngle + armOffset + offset;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const tipX = firePoint.x + cos * length;
+      const tipY = firePoint.y + sin * length;
+      const grad = ctx.createLinearGradient(firePoint.x, firePoint.y, tipX, tipY);
+      const alpha = GOD_RAY_BASE_ALPHA * breath * nightFactor;
+      grad.addColorStop(0, `rgba(255, 220, 150, ${alpha})`);
+      grad.addColorStop(0.55, `rgba(245, 185, 105, ${alpha * 0.55})`);
+      grad.addColorStop(1, "rgba(240, 160, 80, 0)");
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = Math.max(1, 2.2 * beamZoom);
+      ctx.beginPath();
+      ctx.moveTo(firePoint.x, firePoint.y);
+      ctx.lineTo(tipX, tipY);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
 function drawSweepEmberTrail(
   ctx: CanvasRenderingContext2D,
   firePoint: ScreenPoint,

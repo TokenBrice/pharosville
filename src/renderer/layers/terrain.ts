@@ -1,11 +1,27 @@
 import { waterTerrainStyle, zoneThemeForTerrain, type WaterTextureKind, type ZoneVisualTheme } from "../../systems/palette";
-import { TILE_HEIGHT, TILE_WIDTH } from "../../systems/projection";
+import { TILE_HEIGHT, TILE_WIDTH, tileToScreen } from "../../systems/projection";
 import { isElevatedTileKind, isShoreTileKind, isWaterTileKind } from "../../systems/world-layout";
 import type { TerrainKind } from "../../systems/world-types";
 import type { PharosVilleAssetManager } from "../asset-manager";
 import { drawAsset, drawDiamond, drawTileLowerFacet, withAlpha } from "../canvas-primitives";
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
 import { visibleTileBoundsForCamera, type VisibleTileBounds } from "../viewport";
+
+// Replicated from lighthouse.ts (read-only reference): one revolution per
+// SWEEP_PERIOD seconds with the same easing term. Mirrored locally so terrain
+// caustics tint water tiles within the beam arc without coupling to lighthouse
+// shared state.
+const BEAM_SWEEP_PERIOD = 48;
+const BEAM_CAUSTIC_HALF_ARC = (20 * Math.PI) / 180;
+// Mooring corners hand-picked from AUTHORED_SEAWALL_SEGMENTS in
+// src/systems/seawall.ts: NW lighthouse apron, SW market quay, E observatory
+// gate. Looping concentric ripples emanate from each.
+const SEAWALL_RIPPLE_ANCHORS: ReadonlyArray<{ x: number; y: number }> = [
+  { x: 15.4, y: 25.3 },
+  { x: 20.4, y: 36.6 },
+  { x: 42.1, y: 26.3 },
+];
+const SEAWALL_RIPPLE_PERIOD = 3;
 
 const TILE_COLORS: Record<string, string> = {
   beach: "#dcb978",
@@ -74,7 +90,7 @@ export function drawTerrain(input: DrawPharosVilleInput) {
 }
 
 export function drawTerrainBase(input: DrawPharosVilleInput, bounds: VisibleTileBounds | null = null) {
-  const { assets, camera, ctx, height, width, world } = input;
+  const { assets, camera, ctx, height, motion, width, world } = input;
   if (!bounds) bounds = resolveVisibleTileBounds(input, 2);
   const { width: mapWidth, tiles } = world.map;
 
@@ -98,7 +114,7 @@ export function drawTerrainBase(input: DrawPharosVilleInput, bounds: VisibleTile
         if (isTileInViewport(screenX, screenY, width, height, viewportMarginX, viewportMarginY)) {
           visibleTileCount += 1;
           if (isWaterTileKind(terrain)) {
-            drawWaterTileBase(ctx, screenX, screenY, camera.zoom, terrain, tile.x, tile.y, waterAssetFor(assets, terrain));
+            drawWaterTileBase(ctx, screenX, screenY, camera.zoom, terrain, tile.x, tile.y, waterAssetFor(assets, terrain), motion);
           } else {
             drawLandTile(ctx, screenX, screenY, camera.zoom, terrain, tile.x, tile.y, landAssetFor(assets, terrain, tile.x, tile.y));
           }
@@ -135,6 +151,8 @@ export function drawWaterTerrainOverlays(input: DrawPharosVilleInput, bounds: Vi
 
   let visibleWaterTileCount = 0;
 
+  const beam = world.lighthouse.unavailable ? null : computeBeamCausticState(input);
+
   let rowScreenX = (bounds.minX - bounds.minY) * deltaX + camera.offsetX;
   let rowScreenY = (bounds.minX + bounds.minY) * deltaY + camera.offsetY;
   for (let y = bounds.minY; y <= bounds.maxY; y += 1) {
@@ -147,7 +165,7 @@ export function drawWaterTerrainOverlays(input: DrawPharosVilleInput, bounds: Vi
         const terrain = tile.terrain ?? tile.kind;
         if (isWaterTileKind(terrain) && isTileInViewport(screenX, screenY, width, height, viewportMarginX, viewportMarginY)) {
           visibleWaterTileCount += 1;
-          drawWaterTileOverlay(ctx, screenX, screenY, camera.zoom, terrain, tile.x, tile.y, motion);
+          drawWaterTileOverlay(ctx, screenX, screenY, camera.zoom, terrain, tile.x, tile.y, motion, beam);
         }
       }
       screenX += deltaX;
@@ -156,6 +174,7 @@ export function drawWaterTerrainOverlays(input: DrawPharosVilleInput, bounds: Vi
     rowScreenX -= deltaX;
     rowScreenY += deltaY;
   }
+  drawSeawallRipples(ctx, camera, motion);
   return visibleWaterTileCount;
 }
 
@@ -222,6 +241,7 @@ function drawWaterTileBase(
   tileX: number,
   tileY: number,
   asset: NonNullable<ReturnType<PharosVilleAssetManager["get"]>> | null,
+  motion: PharosVilleCanvasMotion,
 ) {
   const value = String(kind);
   const width = 32 * zoom;
@@ -231,7 +251,7 @@ function drawWaterTileBase(
   if (asset) {
     drawTerrainAsset(ctx, asset, x, y, zoom, 0.18);
   }
-  drawWaterDepthOverlay(ctx, x, y, zoom, width, height, tileX, tileY, theme.inner);
+  drawWaterDepthOverlay(ctx, x, y, zoom, width, height, tileX, tileY, theme.inner, motion);
 }
 
 function drawWaterTileOverlay(
@@ -243,10 +263,12 @@ function drawWaterTileOverlay(
   tileX: number,
   tileY: number,
   motion: PharosVilleCanvasMotion,
+  beam: BeamCausticState | null,
 ) {
   const value = String(kind);
   const theme = zoneThemeForTerrain(value);
   drawWaterTerrainTexture(ctx, x, y, zoom, theme, tileX, tileY, motion);
+  drawBeamCaustic(ctx, x, y, zoom, beam);
   if ((tileX * 13 + tileY * 17) % 9 !== 0) return;
   const wave = motion.reducedMotion
     ? 0.13
@@ -278,16 +300,104 @@ function drawWaterDepthOverlay(
   tileX: number,
   tileY: number,
   fill: string,
+  motion: PharosVilleCanvasMotion,
 ) {
   drawDiamond(ctx, x, y + 1 * zoom, width * 0.88, height * 0.76, fill);
   const shimmer = ((tileX * 11 + tileY * 7) % 9 - 4) / 4;
   if (shimmer === 0) return;
+  // Slow alpha breath so the static shimmer modulates instead of staying flat.
+  const breath = motion.reducedMotion ? 1 : 0.85 + 0.15 * Math.sin(motion.timeSeconds * 0.4);
   ctx.save();
   const overlayFill = shimmer > 0
-    ? `rgba(218, 236, 224, ${0.01 * shimmer})`
-    : `rgba(1, 8, 18, ${-0.012 * shimmer})`;
+    ? `rgba(218, 236, 224, ${0.01 * shimmer * breath})`
+    : `rgba(1, 8, 18, ${-0.012 * shimmer * breath})`;
   ctx.fillStyle = overlayFill;
   drawDiamond(ctx, x, y, width * 0.98, height * 0.9, overlayFill);
+  ctx.restore();
+}
+
+// Beam caustics: tile is tinted with a soft gold-cyan radial wash when its
+// bearing from the lighthouse falls within the current sweep arc. Beam-angle
+// math mirrors lighthouse.ts (read-only reference).
+interface BeamCausticState {
+  firePoint: { x: number; y: number };
+  cos: number;
+  sin: number;
+}
+
+function computeBeamCausticState(input: DrawPharosVilleInput): BeamCausticState | null {
+  const { camera, motion, world } = input;
+  const time = motion.reducedMotion ? 0 : motion.timeSeconds;
+  const tCycle = time / BEAM_SWEEP_PERIOD;
+  // Same easing term as lighthouse.ts sweep angle.
+  const angle = motion.reducedMotion
+    ? Math.PI / 4
+    : tCycle * Math.PI * 2 + Math.sin(tCycle * Math.PI * 2) * 0.15;
+  const center = tileToScreen(world.lighthouse.tile, camera);
+  return { firePoint: center, cos: Math.cos(angle), sin: Math.sin(angle) };
+}
+
+function drawBeamCaustic(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  beam: BeamCausticState | null,
+) {
+  if (!beam) return;
+  const dx = x - beam.firePoint.x;
+  const dy = y - beam.firePoint.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 1) return;
+  // cos(angle between tile bearing and beam) = dot(unit-tile, unit-beam).
+  const dot = (dx * beam.cos + dy * beam.sin) / dist;
+  if (dot < Math.cos(BEAM_CAUSTIC_HALF_ARC)) return;
+  // Soften toward the arc edges so the band fades smoothly.
+  const fall = (dot - Math.cos(BEAM_CAUSTIC_HALF_ARC)) / (1 - Math.cos(BEAM_CAUSTIC_HALF_ARC));
+  const alpha = 0.18 * fall;
+  const radius = 18 * zoom;
+  ctx.save();
+  const grad = ctx.createRadialGradient(x, y, 1, x, y, radius);
+  grad.addColorStop(0, `rgba(255, 220, 140, ${alpha})`);
+  grad.addColorStop(0.6, `rgba(150, 220, 220, ${alpha * 0.55})`);
+  grad.addColorStop(1, "rgba(150, 220, 220, 0)");
+  ctx.fillStyle = grad;
+  const halfW = 16 * zoom;
+  const halfH = 8 * zoom;
+  ctx.beginPath();
+  ctx.moveTo(x, y - halfH);
+  ctx.lineTo(x + halfW, y);
+  ctx.lineTo(x, y + halfH);
+  ctx.lineTo(x - halfW, y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+// Seawall ripples: looping concentric rings expanding from authored mooring
+// anchors. One pass per anchor; each anchor's phase is staggered so they
+// don't pulse in lockstep.
+function drawSeawallRipples(
+  ctx: CanvasRenderingContext2D,
+  camera: DrawPharosVilleInput["camera"],
+  motion: PharosVilleCanvasMotion,
+) {
+  if (motion.reducedMotion) return;
+  ctx.save();
+  for (let i = 0; i < SEAWALL_RIPPLE_ANCHORS.length; i += 1) {
+    const anchor = SEAWALL_RIPPLE_ANCHORS[i]!;
+    const phase = ((motion.timeSeconds + i * 0.9) % SEAWALL_RIPPLE_PERIOD) / SEAWALL_RIPPLE_PERIOD;
+    const screen = tileToScreen(anchor, camera);
+    // 0.5–1 tile/sec growth: radius reaches 3 tile-widths over 3s.
+    const radius = (4 + phase * 3 * TILE_WIDTH) * camera.zoom;
+    const alpha = 0.8 * (1 - phase);
+    if (alpha < 0.02) continue;
+    ctx.strokeStyle = `rgba(232, 243, 233, ${alpha})`;
+    ctx.lineWidth = Math.max(1, 1.1 * camera.zoom);
+    ctx.beginPath();
+    ctx.ellipse(screen.x, screen.y, radius, radius * 0.5, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
   ctx.restore();
 }
 

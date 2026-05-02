@@ -179,7 +179,16 @@ export function drawDecorativeLights({ camera, ctx, motion }: DrawPharosVilleInp
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
   for (const light of VILLAGE_LIGHTS) {
     const p = tileToScreen(light, camera);
-    drawLamp(ctx, p.x, p.y, camera.zoom * light.size, time + light.x * 0.31 + light.y * 0.17);
+    const phase = time + light.x * 0.31 + light.y * 0.17;
+    const swayPhase = (light.x * 0.7 + light.y * 0.4) % (Math.PI * 2);
+    const sway = motion.reducedMotion ? 0 : Math.sin(time * 0.9 + swayPhase);
+    const swayX = sway * 1.6 * camera.zoom * light.size;
+    const swayRot = sway * 0.04;
+    ctx.save();
+    ctx.translate(p.x + swayX, p.y);
+    ctx.rotate(swayRot);
+    drawLamp(ctx, 0, 0, camera.zoom * light.size, phase);
+    ctx.restore();
   }
 }
 
@@ -218,7 +227,7 @@ export function drawBioluminescentSparkles(
     const distSq = dx * dx + dy * dy;
     const haloSuppress = distSq < haloRadiusSq ? Math.sqrt(distSq) * invHaloRadius : 1;
     const twinkle = 0.5 + 0.5 * Math.sin(time * 1.4 + sp.phase);
-    const alpha = twinkle * twinkle * nightFactor * 0.55 * haloSuppress;
+    const alpha = twinkle * twinkle * nightFactor * 0.7 * haloSuppress;
     if (alpha < 0.01) continue;
     const r = Math.max(1, sp.baseRadius * zoom);
     ctx.fillStyle = `rgba(140, 230, 215, ${alpha})`;

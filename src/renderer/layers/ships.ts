@@ -1012,7 +1012,7 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
     const mast = shipMastTopScreenPoint(input, frame, ship);
     const lanternZoom = input.camera.zoom * ship.visual.scale;
     const lanternAlpha = lanternNight * 0.55;
-    const lanternRadius = 14 * lanternZoom;
+    const lanternRadius = 18 * lanternZoom;
     const sprite = getShipLanternSprite(lanternRadius);
     input.ctx.save();
     input.ctx.globalCompositeOperation = "lighter";

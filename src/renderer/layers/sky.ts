@@ -233,6 +233,7 @@ export function drawSky(input: DrawPharosVilleInput, lighthouse?: LighthouseRend
   drawSun(ctx, width, height, camera.zoom, state);
   drawMoon(ctx, width, height, camera.zoom, state);
   drawStars(ctx, width, height, camera.zoom, state, motion);
+  drawHorizonShips(ctx, width, height, camera.zoom, state, motion);
   drawSkyClouds(ctx, width, height, camera.zoom, state, motion);
   ctx.restore();
 }
@@ -378,24 +379,36 @@ function drawStars(
 ) {
   if (state.mood.starAlpha <= 0) return;
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
+  // Parallax: slow horizontal drift (depth-modulated) wrapped over the
+  // viewport width so stars never leave the sky band.
+  const driftBase = motion.reducedMotion ? 0 : time * 1.6 * 0.3 * zoom;
   ctx.save();
   ctx.globalAlpha = state.mood.starAlpha;
   ctx.strokeStyle = "rgba(245, 231, 184, 0.22)";
   ctx.lineWidth = Math.max(1, zoom * 0.75);
+  const starX = (index: number) => {
+    const star = SKY_STARS[index]!;
+    const depth = 0.6 + ((index * 37) % 100) / 250;
+    const raw = width * star.x + driftBase * depth;
+    return ((raw % width) + width) % width;
+  };
   for (const [from, to] of SKY_CONSTELLATIONS) {
     const start = SKY_STARS[from];
     const end = SKY_STARS[to];
     if (!start || !end) continue;
+    const sx = starX(from);
+    const ex = starX(to);
+    if (Math.abs(ex - sx) > width * 0.5) continue;
     ctx.beginPath();
-    ctx.moveTo(width * start.x, height * start.y);
-    ctx.lineTo(width * end.x, height * end.y);
+    ctx.moveTo(sx, height * start.y);
+    ctx.lineTo(ex, height * end.y);
     ctx.stroke();
   }
 
   for (const [index, star] of SKY_STARS.entries()) {
     const twinkle = motion.reducedMotion ? 1 : 0.78 + Math.sin(time * 0.9 + index * 1.7) * 0.22;
-    const size = Math.max(1, star.size * zoom * twinkle);
-    const x = Math.round(width * star.x);
+    const size = Math.max(1, star.size * zoom * twinkle * (0.85 + zoom * 0.3));
+    const x = Math.round(starX(index));
     const y = Math.round(height * star.y);
     ctx.fillStyle = index % 4 === 0 ? "#fff3c7" : "#e9f0d8";
     ctx.fillRect(x, y, size, size);
@@ -403,6 +416,44 @@ function drawStars(
       ctx.fillRect(x - Math.round(size), y, size, Math.max(1, size * 0.45));
       ctx.fillRect(x, y - Math.round(size), Math.max(1, size * 0.45), size);
     }
+  }
+  ctx.restore();
+}
+
+function drawHorizonShips(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  zoom: number,
+  state: ReturnType<typeof skyState>,
+  motion: PharosVilleCanvasMotion,
+) {
+  const count = 10;
+  const time = motion.reducedMotion ? 0 : motion.timeSeconds;
+  const orbit = (time / 300) * Math.PI * 2;
+  const cx = width * 0.5;
+  const cy = height * 0.52;
+  const rx = width * 0.46;
+  const ry = height * 0.06;
+  const hullAlpha = 0.18 + state.nightFactor * 0.08;
+  const sailAlpha = 0.26 + state.nightFactor * 0.1;
+  ctx.save();
+  for (let i = 0; i < count; i += 1) {
+    const phase = (i / count) * Math.PI * 2 + orbit + (i * 0.37);
+    const x = cx + Math.cos(phase) * rx;
+    const y = cy + Math.sin(phase) * ry;
+    if (y < height * 0.46 || y > height * 0.58) continue;
+    const dir = Math.cos(phase) >= 0 ? 1 : -1;
+    const s = Math.max(1, zoom * 0.9);
+    ctx.fillStyle = `rgba(28, 38, 54, ${hullAlpha})`;
+    ctx.fillRect(Math.round(x - 2 * s), Math.round(y), Math.round(4 * s), Math.max(1, s));
+    ctx.fillStyle = `rgba(232, 222, 196, ${sailAlpha})`;
+    ctx.beginPath();
+    ctx.moveTo(Math.round(x), Math.round(y));
+    ctx.lineTo(Math.round(x + dir * 2 * s), Math.round(y - 3 * s));
+    ctx.lineTo(Math.round(x), Math.round(y - 3 * s));
+    ctx.closePath();
+    ctx.fill();
   }
   ctx.restore();
 }
@@ -417,13 +468,15 @@ function drawSkyClouds(
 ) {
   ctx.save();
   const strokes = SKY_CLOUD_STROKES[moodKeyFor(state.mood)];
+  const time = motion.reducedMotion ? 0 : motion.timeSeconds;
   for (let i = 0; i < SKY_CLOUDS.length; i += 1) {
     const cloud = SKY_CLOUDS[i]!;
     const drift = ambientWindPhase(motion, cloud.x * 8) * 22 * zoom;
+    const horizontalDrift = Math.sin(time * 0.12 + i * 1.3) * 8 * zoom;
     ctx.strokeStyle = strokes[i]!;
     ctx.lineWidth = Math.max(1, 5 * zoom);
     ctx.beginPath();
-    ctx.ellipse(width * cloud.x + drift, height * cloud.y, cloud.rx * zoom, cloud.ry * zoom, -0.08, 0, Math.PI * 2);
+    ctx.ellipse(width * cloud.x + drift + horizontalDrift, height * cloud.y, cloud.rx * zoom, cloud.ry * zoom, -0.08, 0, Math.PI * 2);
     ctx.stroke();
   }
   ctx.restore();
