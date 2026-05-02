@@ -533,19 +533,25 @@ describe("hit-testing", () => {
     }
   });
 
-  it("updates only changed ship targets incrementally while preserving hit semantics", () => {
-    const ship = world.ships[0]!;
-    const initialSamples = new Map([[ship.id, motionSample(ship.id, ship.tile)]]);
+  it("matches full rebuild semantics when updating changed ship targets", () => {
+    const firstShip = world.ships[0]!;
+    const secondShip = world.ships[1]!;
+    const initialSamples = new Map([
+      [firstShip.id, motionSample(firstShip.id, firstShip.tile)],
+      [secondShip.id, motionSample(secondShip.id, secondShip.tile)],
+    ]);
     const initialSnapshot = createHitTargetSnapshot({
       camera,
       shipMotionSamples: initialSamples,
       world,
     });
-    const movedTile = { x: ship.tile.x + 2, y: ship.tile.y + 3 };
-    const movedSamples = new Map([[ship.id, motionSample(ship.id, movedTile)]]);
+    const movedSamples = new Map([
+      [firstShip.id, motionSample(firstShip.id, { x: firstShip.tile.x + 14, y: firstShip.tile.y + 7 })],
+      [secondShip.id, motionSample(secondShip.id, { x: secondShip.tile.x - 11, y: secondShip.tile.y - 6 })],
+    ]);
     const updatedSnapshot = updateHitTargetSnapshotShips({
       camera,
-      changedShipIds: [ship.id],
+      changedShipIds: [firstShip.id, secondShip.id],
       shipMotionSamples: movedSamples,
       snapshot: initialSnapshot,
       viewport: null,
@@ -557,17 +563,27 @@ describe("hit-testing", () => {
       shipMotionSamples: movedSamples,
       world,
     });
-    const updatedShipTarget = updatedSnapshot.targets.find((target) => target.id === ship.id);
-    const fullShipTarget = fullRebuild.targets.find((target) => target.id === ship.id);
-    expect(updatedShipTarget).toBeDefined();
-    expect(fullShipTarget).toBeDefined();
-    expect(updatedShipTarget!.rect).toEqual(fullShipTarget!.rect);
+    const updatedTargetsById = new Map(updatedSnapshot.targets.map((target) => [target.id, target]));
+    const fullTargetsById = new Map(fullRebuild.targets.map((target) => [target.id, target]));
+    const sampleTargets = fullRebuild.targets.slice(0, 32);
 
-    const point = {
-      x: updatedShipTarget!.rect.x + updatedShipTarget!.rect.width / 2,
-      y: updatedShipTarget!.rect.y + updatedShipTarget!.rect.height / 2,
-    };
-    expect(hitTestSpatial(updatedSnapshot.spatialIndex, point)?.detailId).toBe(hitTest(fullRebuild.targets, point)?.detailId);
+    expect(Array.from(updatedSnapshot.targets, (target) => target.id)).toEqual(fullRebuild.targets.map((target) => target.id));
+    expect(updatedSnapshot.targetsByDetailId).toEqual(fullRebuild.targetsByDetailId);
+    expect(updatedSnapshot.recordsById).toEqual(fullRebuild.recordsById);
+    expect(serializeSpatialIndex(updatedSnapshot.spatialIndex)).toEqual(serializeSpatialIndex(fullRebuild.spatialIndex));
+
+    for (const target of sampleTargets) {
+      const fullTarget = fullTargetsById.get(target.id);
+      const updatedTarget = updatedTargetsById.get(target.id);
+      expect(updatedTarget).toEqual(fullTarget);
+
+      const point = {
+        x: target.rect.x + target.rect.width / 2,
+        y: target.rect.y + target.rect.height / 2,
+      };
+      expect(hitTest(updatedSnapshot.targets, point)?.detailId ?? null).toBe(hitTest(fullRebuild.targets, point)?.detailId ?? null);
+      expect(hitTestSpatial(updatedSnapshot.spatialIndex, point)?.detailId ?? null).toBe(hitTestSpatial(fullRebuild.spatialIndex, point)?.detailId ?? null);
+    }
   });
 });
 
@@ -586,6 +602,24 @@ function motionSample(
     currentRouteStopKind: state === "moored" ? "dock" : null,
     heading: { x: 1, y: 0 },
     wakeIntensity: 0.4,
+  };
+}
+
+function serializeSpatialIndex(index: {
+  cellSize: number;
+  targets: readonly HitTarget[];
+  cells: ReadonlyMap<string, readonly number[]>;
+}): {
+  cellSize: number;
+  targetsLength: number;
+  cells: [string, number[]][];
+} {
+  return {
+    cellSize: index.cellSize,
+    targetsLength: index.targets.length,
+    cells: [...index.cells.entries()]
+      .sort((left, right) => (left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0))
+      .map(([key, values]) => [key, [...values]]),
   };
 }
 

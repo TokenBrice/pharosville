@@ -135,12 +135,29 @@ export function updateHitTargetSnapshotShips(input: {
   worldShipsById: ReadonlyMap<string, PharosVilleWorld["ships"][number]>;
 }): HitTargetSnapshot {
   if (input.changedShipIds.length === 0) return input.snapshot;
+  const changedShipIds = Array.from(new Set(input.changedShipIds));
+  if (changedShipIds.length === 0) return input.snapshot;
+  const changedShipIdSet = new Set(changedShipIds);
   const recordsById = new Map(input.snapshot.recordsById);
-  for (const shipId of input.changedShipIds) {
+  const updatedRecordsByShipId = new Map<string, HitTargetRecord | null>();
+  let snapshotMutated = false;
+
+  for (const shipId of changedShipIds) {
+    const previous = recordsById.get(shipId);
     recordsById.delete(shipId);
     const ship = input.worldShipsById.get(shipId);
-    if (!ship) continue;
-    if (!isShipMapVisible(ship, input.shipMotionSamples?.get(ship.id))) continue;
+    if (!ship) {
+      if (previous) snapshotMutated = true;
+      updatedRecordsByShipId.set(shipId, null);
+      continue;
+    }
+
+    if (!isShipMapVisible(ship, input.shipMotionSamples?.get(ship.id))) {
+      if (previous) snapshotMutated = true;
+      updatedRecordsByShipId.set(shipId, null);
+      continue;
+    }
+
     const assetId = entityAssetId(ship);
     const asset = assetId ? input.assets?.get(assetId) ?? null : null;
     const resolved = resolveEntityGeometry({
@@ -157,20 +174,40 @@ export function updateHitTargetSnapshotShips(input: {
       selectedDetailId: input.selectedDetailId ?? null,
       viewport: input.viewport ?? null,
     })) {
+      if (previous) snapshotMutated = true;
+      updatedRecordsByShipId.set(shipId, null);
       continue;
     }
-    const previous = input.snapshot.recordsById.get(shipId);
-    recordsById.set(shipId, {
+    const nextRecord = {
       entity: ship,
       geometry: {
         depth: resolved.depth,
         targetRect: resolved.targetRect,
       },
       sortIndex: previous?.sortIndex ?? shipSortIndex(input.world, shipId),
-    });
+    };
+    if (!previous || !hitTargetRecordGeometryEquals(previous, nextRecord)) snapshotMutated = true;
+    updatedRecordsByShipId.set(shipId, nextRecord);
+    recordsById.set(shipId, nextRecord);
   }
 
-  return snapshotFromRecords(recordsById, {
+  if (!snapshotMutated) return input.snapshot;
+
+  const unchangedRecordsInOrder: HitTargetRecord[] = [];
+  for (const target of input.snapshot.targets) {
+    if (changedShipIdSet.has(target.id)) continue;
+    const record = recordsById.get(target.id);
+    if (record) unchangedRecordsInOrder.push(record);
+  }
+
+  const updatedRecords = Array.from(updatedRecordsByShipId.values()).filter(
+    (record): record is HitTargetRecord => Boolean(record),
+  );
+  for (const updatedRecord of updatedRecords) {
+    insertRecordBySortOrder(unchangedRecordsInOrder, updatedRecord);
+  }
+
+  return snapshotFromSortedRecords(recordsById, unchangedRecordsInOrder, {
     hoveredDetailId: input.hoveredDetailId ?? null,
     selectedDetailId: input.selectedDetailId ?? null,
   });
@@ -257,11 +294,15 @@ function snapshotFromRecords(
   recordsById: Map<string, HitTargetRecord>,
   _context: Required<HitTargetPriorityContext>,
 ): HitTargetSnapshot {
-  const sortedRecords = [...recordsById.values()].sort((left, right) => (
-    left.geometry.depth - right.geometry.depth
-    || (left.entity.kind < right.entity.kind ? -1 : left.entity.kind > right.entity.kind ? 1 : 0)
-    || left.sortIndex - right.sortIndex
-  ));
+  const sortedRecords = [...recordsById.values()].sort(compareHitTargetRecords);
+  return snapshotFromSortedRecords(recordsById, sortedRecords, _context);
+}
+
+function snapshotFromSortedRecords(
+  recordsById: Map<string, HitTargetRecord>,
+  sortedRecords: readonly HitTargetRecord[],
+  _context: Required<HitTargetPriorityContext>,
+): HitTargetSnapshot {
   const targets = sortedRecords.map((record, visualIndex) => {
     const basePriority = visualPriorityForHitTarget(record.entity, visualIndex) * 10;
     return {
@@ -305,6 +346,40 @@ function rectIntersectsViewport(rect: HitTarget["rect"], viewport: HitTargetView
     && rect.y + rect.height >= -margin
     && rect.y <= viewport.height + margin
   );
+}
+
+function compareHitTargetRecords(left: HitTargetRecord, right: HitTargetRecord): number {
+  return (
+    left.geometry.depth - right.geometry.depth
+    || (left.entity.kind < right.entity.kind ? -1 : left.entity.kind > right.entity.kind ? 1 : 0)
+    || left.sortIndex - right.sortIndex
+  );
+}
+
+function hitTargetRecordGeometryEquals(left: HitTargetRecord, right: HitTargetRecord): boolean {
+  return (
+    left.entity.id === right.entity.id
+    && left.sortIndex === right.sortIndex
+    && left.geometry.depth === right.geometry.depth
+    && left.geometry.targetRect.x === right.geometry.targetRect.x
+    && left.geometry.targetRect.y === right.geometry.targetRect.y
+    && left.geometry.targetRect.width === right.geometry.targetRect.width
+    && left.geometry.targetRect.height === right.geometry.targetRect.height
+  );
+}
+
+function insertRecordBySortOrder(records: HitTargetRecord[], target: HitTargetRecord): void {
+  let low = 0;
+  let high = records.length;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (compareHitTargetRecords(target, records[mid]!) < 0) {
+      high = mid;
+    } else {
+      low = mid + 1;
+    }
+  }
+  records.splice(low, 0, target);
 }
 
 function shipSortIndex(world: PharosVilleWorld, shipId: string): number {

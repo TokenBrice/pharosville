@@ -192,6 +192,10 @@ export interface ShipRenderState {
   pose: ShipPose;
   sample: ShipMotionSample | null;
   selected: boolean;
+  animationFrame: number;
+  isTitanSprite: boolean;
+  isUniqueSprite: boolean;
+  drawsWake: boolean;
   shipAsset: LoadedPharosVilleAsset | null;
 }
 
@@ -223,6 +227,7 @@ const SHIP_OVERLAY_BUDGET_RATIO = 0.64;
 const SHIP_WAKE_BUDGET_MIN = 12;
 const SHIP_WAKE_BUDGET_RATIO = 0.44;
 const SHIP_LOD_SKIP_THRESHOLD = 24;
+const SHIP_ANIMATION_FRAME_CACHE_MAX = 144;
 
 const SHIP_SIZE_TIER_PRIORITY: Record<PharosVilleWorld["ships"][number]["visual"]["sizeTier"], number> = {
   titan: 7,
@@ -421,7 +426,13 @@ function shipRenderState(input: DrawPharosVilleInput, frame: ShipRenderFrame, sh
   const geometry = frame.cache.geometryForEntity(ship);
   const p = geometry.screenPoint;
   const phase = motion.plan.shipPhases.get(ship.id) ?? 0;
+  const selected = selectedTarget?.id === ship.id;
+  const titanSprite = isTitanSprite(ship);
+  const uniqueSprite = isUniqueSprite(ship);
   const animated = !motion.reducedMotion && motion.plan.animatedShipIds.has(ship.id);
+  const drawsWake = !motion.reducedMotion
+    && (sample?.state === "departing" || sample?.state === "sailing" || sample?.state === "arriving")
+    && (motion.plan.effectShipIds.has(ship.id) || selected || motion.plan.moverShipIds.has(ship.id));
   const pose = animated
     ? resolveShipPose({
       phase,
@@ -434,8 +445,22 @@ function shipRenderState(input: DrawPharosVilleInput, frame: ShipRenderFrame, sh
     })
     : zeroShipPose();
   const bob = Math.round(pose.bobPixels);
-  const selected = selectedTarget?.id === ship.id;
-  const state = { bob, geometry, p, pose, sample, selected, shipAsset };
+  const animationFrame = shipAsset && titanSprite
+    ? shipAnimationFrameIndex(shipAsset, motion.timeSeconds, ship.id)
+    : 0;
+  const state: ShipRenderState = {
+    bob,
+    geometry,
+    p,
+    pose,
+    sample,
+    selected,
+    animationFrame,
+    isTitanSprite: titanSprite,
+    isUniqueSprite: uniqueSprite,
+    drawsWake,
+    shipAsset,
+  };
   frame.shipRenderStates.set(ship.id, state);
   return state;
 }
@@ -500,9 +525,16 @@ export function drawShipWake(input: DrawPharosVilleInput, frame: ShipRenderFrame
 
 function drawShipWakeRaw(input: DrawPharosVilleInput, frame: ShipRenderFrame, ship: PharosVilleWorld["ships"][number]) {
   const { camera, ctx, motion } = input;
-  const { geometry, p, pose, sample, selected } = shipRenderState(input, frame, ship);
+  const {
+    drawsWake,
+    geometry,
+    isTitanSprite,
+    p,
+    pose,
+    sample,
+  } = shipRenderState(input, frame, ship);
   drawShipContactShadow(ctx, geometry.drawPoint.x, geometry.drawPoint.y, geometry.drawScale);
-  if (isTitanSprite(ship)) {
+  if (isTitanSprite) {
     drawTitanHullFoam(
       ctx,
       geometry.drawPoint.x,
@@ -516,14 +548,6 @@ function drawShipWakeRaw(input: DrawPharosVilleInput, frame: ShipRenderFrame, sh
       drawTitanMooringDetails(ctx, geometry.drawPoint.x, geometry.drawPoint.y, geometry.drawScale, pose);
     }
   }
-  const isTransit = sample?.state === "departing" || sample?.state === "sailing" || sample?.state === "arriving";
-  const drawsWake = !motion.reducedMotion
-    && isTransit
-    && (
-      motion.plan.effectShipIds.has(ship.id)
-      || selected
-      || motion.plan.moverShipIds.has(ship.id)
-    );
   if (drawsWake) {
     const changeIntensity = Math.min(1, Math.abs(ship.change24hPct ?? 0) * 18 + 0.2);
     const sampleIntensity = sample?.wakeIntensity ?? 0;
@@ -531,7 +555,7 @@ function drawShipWakeRaw(input: DrawPharosVilleInput, frame: ShipRenderFrame, sh
     drawWake(ctx, p.x, p.y + 8 * camera.zoom, camera.zoom, intensity, sample?.heading ?? { x: -1, y: 0 }, sample?.zone ?? ship.riskZone);
     const { nightFactor } = skyState(motion);
     drawNightWakeGlow(ctx, p.x, p.y + 8 * camera.zoom, camera.zoom, intensity, sample?.heading ?? { x: -1, y: 0 }, nightFactor);
-    if (isTitanSprite(ship)) {
+    if (isTitanSprite) {
       drawTitanBowSpray(
         ctx,
         geometry.drawPoint.x,
@@ -686,19 +710,26 @@ function drawTitanBowSpray(
 
 export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame, ship: PharosVilleWorld["ships"][number]) {
   const { camera, ctx, motion } = input;
-  const { bob, geometry, p, pose, shipAsset } = shipRenderState(input, frame, ship);
+  const {
+    animationFrame,
+    bob,
+    geometry,
+    isTitanSprite,
+    p,
+    pose,
+    shipAsset,
+  } = shipRenderState(input, frame, ship);
   if (shipAsset) {
-    const titanSprite = isTitanSprite(ship);
     const drawY = geometry.drawPoint.y + bob;
     drawWithShipPose(ctx, geometry.drawPoint.x, drawY, pose, () => {
-      if (titanSprite) {
+      if (isTitanSprite) {
         drawAnimatedAsset(
           ctx,
           shipAsset,
           geometry.drawPoint.x,
           drawY,
           geometry.drawScale,
-          shipAnimationFrameIndex(shipAsset, motion.timeSeconds, ship.id),
+          animationFrame,
           motion.reducedMotion,
         );
       } else {
@@ -706,7 +737,7 @@ export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame
       }
       const visualKey = ship.visual.spriteAssetId ?? ship.visual.hull;
       drawShipSailTint(ctx, shipAsset, geometry.drawPoint.x, drawY, geometry.drawScale, ship.visual.livery);
-      if (!titanSprite) {
+      if (!isTitanSprite) {
         drawShipLiveryTrim(ctx, ship.id, ship.visual.livery, visualKey, geometry.drawPoint.x, drawY, geometry.drawScale);
       }
       drawSquadIdentityAccent(ctx, ship.id, geometry.drawPoint.x, drawY, geometry.drawScale);
@@ -838,24 +869,50 @@ function shipAnimationFrameIndex(asset: LoadedPharosVilleAsset, timeSeconds: num
   if (!animation || animation.frameCount <= 1) return 0;
   const fps = animation.fps
     ?? (animation.durationMs && animation.durationMs > 0 ? animation.frameCount / (animation.durationMs / 1000) : 4);
-  const phase = stableVisualVariant(`${shipId}:${asset.entry.id}:animation-frame`) % animation.frameCount;
+  const phase = shipAnimationFrameOffset(asset, shipId);
   return Math.floor(Math.max(0, timeSeconds) * fps + phase);
+}
+
+const shipAnimationFrameOffsetCache = new Map<string, number>();
+
+function shipAnimationFrameOffset(asset: LoadedPharosVilleAsset, shipId: string): number {
+  const frameCount = asset.entry.animation?.frameCount ?? 0;
+  const animation = asset.entry.animation;
+  if (!animation || frameCount <= 1) return 0;
+  const key = `${shipId}|${asset.entry.id}|${frameCount}`;
+  const cached = shipAnimationFrameOffsetCache.get(key);
+  if (cached !== undefined) return cached;
+  const phase = stableVisualVariant(`${shipId}:${asset.entry.id}:animation-frame`) % frameCount;
+  shipAnimationFrameOffsetCache.set(key, phase);
+  while (shipAnimationFrameOffsetCache.size > SHIP_ANIMATION_FRAME_CACHE_MAX) {
+    const oldest = shipAnimationFrameOffsetCache.keys().next().value;
+    if (typeof oldest !== "string") break;
+    shipAnimationFrameOffsetCache.delete(oldest);
+  }
+  return phase;
 }
 
 export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFrame, ship: PharosVilleWorld["ships"][number]) {
   const { assets, camera, ctx } = input;
-  const { bob, geometry, p, pose, selected, shipAsset } = shipRenderState(input, frame, ship);
+  const {
+    bob,
+    geometry,
+    isTitanSprite,
+    isUniqueSprite,
+    p,
+    pose,
+    selected,
+    shipAsset,
+  } = shipRenderState(input, frame, ship);
   if (shipAsset) {
-    const titanSprite = isTitanSprite(ship);
-    const uniqueSprite = isUniqueSprite(ship);
     const overrideEmblemSrc = SHIP_SAIL_EMBLEM_OVERRIDES[ship.id];
     const overrideEmblemLogo = overrideEmblemSrc ? assets?.getLogo(overrideEmblemSrc) ?? null : null;
-    const dyedEmblem = (!titanSprite && !uniqueSprite) || overrideEmblemLogo !== null;
+    const dyedEmblem = (!isTitanSprite && !isUniqueSprite) || overrideEmblemLogo !== null;
     const drawY = geometry.drawPoint.y + bob;
     drawWithShipPose(ctx, geometry.drawPoint.x, drawY, pose, () => {
       if (selected) drawSelectedShipOutline(ctx, geometry.drawPoint.x, drawY, geometry.drawScale);
       const mark = SHIP_SAIL_MARKS[ship.visual.spriteAssetId ?? ship.visual.hull] ?? SHIP_SAIL_MARKS[ship.visual.hull];
-      const flutterY = titanSprite ? pose.sailFlutter * geometry.drawScale : 0;
+      const flutterY = isTitanSprite ? pose.sailFlutter * geometry.drawScale : 0;
       if (dyedEmblem) {
         drawDyedSailEmblem({
           ctx,
@@ -882,7 +939,7 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
           y: drawY + mark.y * geometry.drawScale + flutterY,
         });
       }
-      if (titanSprite) return;
+      if (isTitanSprite) return;
       drawShipSignalOverlay(ctx, ship.visual.overlay, geometry.drawPoint.x - 17 * geometry.drawScale, drawY - 36 * geometry.drawScale, geometry.drawScale);
     });
   } else {

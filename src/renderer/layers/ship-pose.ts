@@ -8,6 +8,9 @@ const BANK_MAX = 0.06;
 
 const TWO_PI = Math.PI * 2;
 const NON_TITAN_BOB_PIXELS = 2;
+const poseSeedCache = new Map<string, number>();
+const phaseSeedCache = new Map<string, number>();
+const SHIP_POSE_SEED_CACHE_MAX = 1024;
 
 const ZONE_ROUGHNESS = {
   alert: 1,
@@ -58,7 +61,7 @@ export function resolveShipPose(input: ShipPoseInput): ShipPose {
   const sizeTier = input.visualSizeTier ?? input.sizeTier;
   const timeSeconds = finiteOr(input.timeSeconds, 0);
   const zoom = Math.max(0, finiteOr(input.zoom, 1));
-  const phase = finiteOr(input.phase ?? stableUnit(`${input.shipId}.pose-phase`) * TWO_PI, 0);
+  const phase = finiteOr(input.phase ?? phaseSeed(input.shipId), 0);
   if (sizeTier !== "titan") {
     return {
       ...STATIC_SHIP_POSE,
@@ -74,7 +77,7 @@ export function resolveShipPose(input: ShipPoseInput): ShipPose {
   const wakeIntensity = clamp(sample.wakeIntensity, 0, 1);
   const headingMagnitude = clamp(Math.hypot(sample.heading.x, sample.heading.y), 0, 1);
   const headingLean = clamp((sample.heading.x - sample.heading.y) * 0.32, -0.45, 0.45);
-  const seedPhase = phase + stableUnit(`${input.shipId}.pose`) * TWO_PI;
+  const seedPhase = phase + poseSeed(input.shipId);
   const sea = Math.sin(timeSeconds * 1.18 + seedPhase);
   const swell = Math.sin(timeSeconds * 0.74 + seedPhase * 0.7);
   const flutter = Math.sin(timeSeconds * 3.2 + seedPhase * 1.3) * 0.5 + 0.5;
@@ -137,6 +140,34 @@ function isTransitState(state: ShipMotionState): boolean {
 
 function finiteOr(value: number, fallback: number): number {
   return Number.isFinite(value) ? value : fallback;
+}
+
+function poseSeed(shipId: string): number {
+  let seed = poseSeedCache.get(shipId);
+  if (seed === undefined) {
+    seed = stableUnit(`${shipId}.pose`) * TWO_PI;
+    poseSeedCache.set(shipId, seed);
+    while (poseSeedCache.size > SHIP_POSE_SEED_CACHE_MAX) {
+      const oldest = poseSeedCache.keys().next().value;
+      if (typeof oldest !== "string") break;
+      poseSeedCache.delete(oldest);
+    }
+  }
+  return seed;
+}
+
+function phaseSeed(shipId: string): number {
+  let phase = phaseSeedCache.get(shipId);
+  if (phase === undefined) {
+    phase = stableUnit(`${shipId}.pose-phase`) * TWO_PI;
+    phaseSeedCache.set(shipId, phase);
+    while (phaseSeedCache.size > SHIP_POSE_SEED_CACHE_MAX) {
+      const oldest = phaseSeedCache.keys().next().value;
+      if (typeof oldest !== "string") break;
+      phaseSeedCache.delete(oldest);
+    }
+  }
+  return phase;
 }
 
 function clamp(value: number, min: number, max: number): number {

@@ -49,16 +49,28 @@ export interface PharosVilleAssetLoadStats {
 export const PHAROSVILLE_DEFERRED_ASSET_CONCURRENCY = 6;
 export const PHAROSVILLE_LOGO_CONCURRENCY = 6;
 
+interface AssetManifestSummary {
+  criticalAssetCount: number;
+  criticalIds: ReadonlySet<string>;
+  deferredAssetCount: number;
+  deferredIds: ReadonlySet<string>;
+  requiredForFirstRenderCount: number;
+  totalAssetCount: number;
+}
+
 export class PharosVilleAssetManager {
   private assets = new Map<string, LoadedPharosVilleAsset>();
   private failedAssets = new Map<string, PharosVilleAssetLoadError>();
   private failedLogos = new Set<string>();
   private logos = new Map<string, LoadedPharosVilleLogo>();
   private manifest: PharosVilleAssetManifest | null = null;
+  private manifestSummary: AssetManifestSummary | null = null;
   private activeDeferredLoads = 0;
   private deferredBatchesStarted = 0;
   private deferredCompletedAt: number | null = null;
   private deferredStartedAt: number | null = null;
+  private criticalLoadedCount = 0;
+  private deferredLoadedCount = 0;
   private peakDeferredConcurrency = 0;
 
   get(id: string): LoadedPharosVilleAsset | null {
@@ -70,23 +82,17 @@ export class PharosVilleAssetManager {
   }
 
   getLoadStats(): PharosVilleAssetLoadStats {
-    const manifest = this.manifest;
-    const criticalIds = new Set<string>();
-    for (const asset of manifest?.assets ?? []) {
-      if (asset.loadPriority === "critical" || manifest?.requiredForFirstRender.includes(asset.id)) {
-        criticalIds.add(asset.id);
-      }
-    }
-    const deferredAssets = manifest?.assets.filter((asset) => asset.loadPriority === "deferred") ?? [];
+    const summary = this.getManifestSummary();
+    const failedDeferredCount = countFailedAssets(this.failedAssets, summary?.deferredIds);
     return {
       activeDeferredLoads: this.activeDeferredLoads,
-      criticalAssetCount: criticalIds.size,
-      criticalLoadedCount: countLoaded(this.assets, criticalIds),
-      deferredAssetCount: deferredAssets.length,
+      criticalAssetCount: summary?.criticalAssetCount ?? 0,
+      criticalLoadedCount: this.criticalLoadedCount,
+      deferredAssetCount: summary?.deferredAssetCount ?? 0,
       deferredBatchesStarted: this.deferredBatchesStarted,
       deferredCompletedAt: this.deferredCompletedAt,
-      deferredLoadedCount: deferredAssets.filter((asset) => this.assets.has(asset.id)).length,
-      deferredQueuedCount: deferredAssets.filter((asset) => !this.assets.has(asset.id) && !this.failedAssets.has(asset.id)).length,
+      deferredLoadedCount: this.deferredLoadedCount,
+      deferredQueuedCount: Math.max(0, (summary?.deferredAssetCount ?? 0) - this.deferredLoadedCount - failedDeferredCount),
       deferredStartedAt: this.deferredStartedAt,
       failedAssetCount: this.failedAssets.size,
       failedLogoCount: this.failedLogos.size,
@@ -94,25 +100,25 @@ export class PharosVilleAssetManager {
       loadedLogoCount: this.logos.size,
       maxDeferredConcurrency: PHAROSVILLE_DEFERRED_ASSET_CONCURRENCY,
       peakDeferredConcurrency: this.peakDeferredConcurrency,
-      requiredForFirstRenderCount: manifest?.requiredForFirstRender.length ?? 0,
-      totalAssetCount: manifest?.assets.length ?? 0,
+      requiredForFirstRenderCount: summary?.requiredForFirstRenderCount ?? 0,
+      totalAssetCount: summary?.totalAssetCount ?? 0,
     };
   }
 
+  getAssetLoadProgressKey(): number {
+    return this.criticalLoadedCount * 1_000_003 + this.deferredLoadedCount;
+  }
+
   areCriticalAssetsLoaded(): boolean {
-    const manifest = this.manifest;
-    if (!manifest) return false;
-    return manifest.assets
-      .filter((asset) => asset.loadPriority === "critical" || manifest.requiredForFirstRender.includes(asset.id))
-      .every((asset) => this.assets.has(asset.id));
+    const summary = this.getManifestSummary();
+    if (!summary) return false;
+    return this.criticalLoadedCount >= summary.criticalAssetCount;
   }
 
   areDeferredAssetsSettled(): boolean {
-    const manifest = this.manifest;
-    if (!manifest) return false;
-    return manifest.assets
-      .filter((asset) => asset.loadPriority === "deferred")
-      .every((asset) => this.assets.has(asset.id) || this.failedAssets.has(asset.id));
+    const summary = this.getManifestSummary();
+    if (!summary) return false;
+    return this.deferredLoadedCount + countFailedAssets(this.failedAssets, summary.deferredIds) >= summary.deferredAssetCount;
   }
 
   getLogo(src: string | null | undefined): LoadedPharosVilleLogo | null {
@@ -142,6 +148,7 @@ export class PharosVilleAssetManager {
     const response = await fetch(PHAROSVILLE_ASSET_MANIFEST_PATH, { signal });
     if (!response.ok) throw new Error(`Failed to load PharosVille asset manifest: ${response.status}`);
     this.manifest = await response.json() as PharosVilleAssetManifest;
+    this.manifestSummary = summarizeManifest(this.manifest);
     return this.manifest;
   }
 
@@ -159,6 +166,7 @@ export class PharosVilleAssetManager {
         ? { entry: asset, image }
         : { entry: asset, frameSource, image };
       this.assets.set(asset.id, loaded);
+      this.trackLoadedAsset(asset.id);
       this.failedAssets.delete(asset.id);
       return loaded;
     } catch (error) {
@@ -247,6 +255,19 @@ export class PharosVilleAssetManager {
       this.activeDeferredLoads -= 1;
     }
   }
+
+  private getManifestSummary(): AssetManifestSummary | null {
+    if (!this.manifest) return null;
+    this.manifestSummary ??= summarizeManifest(this.manifest);
+    return this.manifestSummary;
+  }
+
+  private trackLoadedAsset(assetId: string) {
+    const summary = this.getManifestSummary();
+    if (!summary) return;
+    if (summary.criticalIds.has(assetId)) this.criticalLoadedCount += 1;
+    if (summary.deferredIds.has(assetId)) this.deferredLoadedCount += 1;
+  }
 }
 
 async function settleQueuedLoads<TItem, TResult>(
@@ -300,6 +321,23 @@ function deferredAssetRank(asset: PharosVilleAssetManifestEntry, required: Reado
   return categoryRank[asset.category] ?? 10;
 }
 
+function summarizeManifest(manifest: PharosVilleAssetManifest): AssetManifestSummary {
+  const criticalIds = new Set(manifest.requiredForFirstRender);
+  const deferredIds = new Set<string>();
+  for (const asset of manifest.assets) {
+    if (asset.loadPriority === "critical") criticalIds.add(asset.id);
+    if (asset.loadPriority === "deferred") deferredIds.add(asset.id);
+  }
+  return {
+    criticalAssetCount: criticalIds.size,
+    criticalIds,
+    deferredAssetCount: deferredIds.size,
+    deferredIds,
+    requiredForFirstRenderCount: manifest.requiredForFirstRender.length,
+    totalAssetCount: manifest.assets.length,
+  };
+}
+
 async function loadAssetFrameSource(
   asset: PharosVilleAssetManifestEntry,
   manifest: PharosVilleAssetManifest,
@@ -315,12 +353,16 @@ async function loadAssetFrameSource(
   }
 }
 
-function countLoaded(assets: ReadonlyMap<string, LoadedPharosVilleAsset>, ids: ReadonlySet<string>) {
-  let loaded = 0;
-  ids.forEach((id) => {
-    if (assets.has(id)) loaded += 1;
+function countFailedAssets(
+  failedAssets: ReadonlyMap<string, PharosVilleAssetLoadError>,
+  ids: ReadonlySet<string> | undefined,
+) {
+  if (!ids || ids.size === 0 || failedAssets.size === 0) return 0;
+  let failed = 0;
+  failedAssets.forEach((_error, id) => {
+    if (ids.has(id)) failed += 1;
   });
-  return loaded;
+  return failed;
 }
 
 function errorMessage(reason: unknown) {

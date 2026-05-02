@@ -34,7 +34,9 @@ import { tileBoundsTileCount, visibleTileBoundsForCamera } from "./viewport";
 export type { DrawPharosVilleInput, PharosVilleCanvasMotion, PharosVilleRenderMetrics } from "./render-types";
 
 interface WorldCanvasFrame {
+  cameraCacheKeySegment: string;
   cache: RenderFrameCache;
+  dpr: number;
   dockRenderStates: Map<string, DockRenderState>;
   flagshipById: Map<string, PharosVilleWorld["ships"][number]>;
   graveRenderStates: Map<string, GraveRenderState>;
@@ -48,6 +50,16 @@ interface StaticLayerCacheEntry {
   canvas: HTMLCanvasElement;
   key: string;
   lastUsed: number;
+}
+
+interface CameraCacheKeyInput {
+  dprBucket: number;
+  height: number;
+  offsetX: number;
+  offsetY: number;
+  width: number;
+  worldId: number;
+  zoomBucket: number;
 }
 
 interface DynamicLayerCacheEntry {
@@ -64,6 +76,7 @@ const STATIC_CACHE_MAX = 4;
 const DYNAMIC_CACHE_MAX = 4;
 const staticLayerCache: { entries: StaticLayerCacheEntry[] } = { entries: [] };
 const dynamicLayerCache: { entries: DynamicLayerCacheEntry[] } = { entries: [] };
+let cameraCacheKeyCache: { key: string; input: CameraCacheKeyInput } | null = null;
 
 const shipRenderStatesScratch = new Map<string, ShipRenderState>();
 const wakeDrawnShipIdsScratch = new Set<string>();
@@ -85,29 +98,45 @@ function worldIdFor(world: PharosVilleWorld): number {
 }
 
 function assetLoadTickFor(input: DrawPharosVilleInput): number {
-  const stats = input.assets?.getLoadStats();
-  if (!stats) return 0;
-  return stats.criticalLoadedCount * 1_000_003 + stats.deferredLoadedCount;
+  return input.assets?.getAssetLoadProgressKey() ?? 0;
 }
 
 function cameraCacheKeySegment(input: DrawPharosVilleInput, dpr: number): string {
-  const zoomBucket = (input.camera.zoom * 100) | 0;
-  const offsetX = input.camera.offsetX | 0;
-  const offsetY = input.camera.offsetY | 0;
-  const dprBucket = Math.max(1, Math.round(dpr * 100));
-  const width = input.width | 0;
-  const height = input.height | 0;
-  return `${worldIdFor(input.world)}|${width}x${height}|z${zoomBucket}|o${offsetX},${offsetY}|d${dprBucket}`;
+  const inputKey: CameraCacheKeyInput = {
+    dprBucket: Math.max(1, Math.round(dpr * 100)),
+    height: input.height | 0,
+    offsetX: input.camera.offsetX | 0,
+    offsetY: input.camera.offsetY | 0,
+    width: input.width | 0,
+    worldId: worldIdFor(input.world),
+    zoomBucket: (input.camera.zoom * 100) | 0,
+  };
+  const cached = cameraCacheKeyCache;
+  if (
+    cached
+    && cached.input.dprBucket === inputKey.dprBucket
+    && cached.input.height === inputKey.height
+    && cached.input.offsetX === inputKey.offsetX
+    && cached.input.offsetY === inputKey.offsetY
+    && cached.input.width === inputKey.width
+    && cached.input.worldId === inputKey.worldId
+    && cached.input.zoomBucket === inputKey.zoomBucket
+  ) {
+    return cached.key;
+  }
+  const key = `${inputKey.worldId}|${inputKey.width}x${inputKey.height}|z${inputKey.zoomBucket}|o${inputKey.offsetX},${inputKey.offsetY}|d${inputKey.dprBucket}`;
+  cameraCacheKeyCache = { input: inputKey, key };
+  return key;
 }
 
-function staticCacheKey(input: DrawPharosVilleInput, dpr: number, scope: StaticCacheScope): string {
+function staticCacheKey(input: DrawPharosVilleInput, scope: StaticCacheScope, cameraCacheKeySegment: string): string {
   const manifest = input.assets?.getManifest();
   const cv = manifest ? manifestCacheVersion(manifest) : "0";
-  return `${scope}|${cameraCacheKeySegment(input, dpr)}|a${assetLoadTickFor(input)}|cv${cv}`;
+  return `${scope}|${cameraCacheKeySegment}|a${assetLoadTickFor(input)}|cv${cv}`;
 }
 
-function dynamicCacheKey(input: DrawPharosVilleInput, dpr: number, scope: DynamicCacheScope): string {
-  return `${scope}|${cameraCacheKeySegment(input, dpr)}`;
+function dynamicCacheKey(scope: DynamicCacheScope, cameraCacheKeySegment: string): string {
+  return `${scope}|${cameraCacheKeySegment}`;
 }
 
 function dynamicWaterPhaseBucket(input: DrawPharosVilleInput): number {
@@ -158,10 +187,10 @@ function drawStaticPassCached(
   paint: (input: DrawPharosVilleInput, frame: WorldCanvasFrame) => void,
 ) {
   const { ctx, width, height } = input;
-  const dpr = input.dpr && input.dpr > 0 ? input.dpr : 1;
+  const { cameraCacheKeySegment, dpr } = frame;
   const backingWidth = Math.max(1, Math.round(width * dpr));
   const backingHeight = Math.max(1, Math.round(height * dpr));
-  const key = staticCacheKey(input, dpr, scope);
+  const key = staticCacheKey(input, scope, cameraCacheKeySegment);
 
   const cached = staticLayerCache.entries.find((entry) => entry.key === key);
   if (cached) {
@@ -195,14 +224,15 @@ function drawStaticPassCached(
 
 function drawDynamicPassCached(
   input: DrawPharosVilleInput,
+  frame: WorldCanvasFrame,
   scope: DynamicCacheScope,
   paint: (input: DrawPharosVilleInput) => void,
 ) {
   const { ctx, width, height } = input;
-  const dpr = input.dpr && input.dpr > 0 ? input.dpr : 1;
+  const { cameraCacheKeySegment, dpr } = frame;
   const backingWidth = Math.max(1, Math.round(width * dpr));
   const backingHeight = Math.max(1, Math.round(height * dpr));
-  const key = dynamicCacheKey(input, dpr, scope);
+  const key = dynamicCacheKey(scope, cameraCacheKeySegment);
   const phaseBucket = dynamicWaterPhaseBucket(input);
 
   const cached = dynamicLayerCache.entries.find((entry) => entry.key === key);
@@ -291,7 +321,7 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
 
   const visibleTileCount = countVisibleTiles(input);
   drawStaticPassCached(input, frame, "terrain", paintStaticTerrainPass);
-  drawDynamicPassCached(input, "water-overlays", paintDynamicWaterPass);
+  drawDynamicPassCached(input, frame, "water-overlays", paintDynamicWaterPass);
   drawStaticPassCached(input, frame, "scene", paintStaticScenePass);
   drawLighthouseSurf(input);
   const entityMetrics = drawEntityPass(input, frame, nightFactor);
@@ -331,6 +361,7 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
 }
 
 function createWorldCanvasFrame(input: DrawPharosVilleInput): WorldCanvasFrame {
+  const dpr = input.dpr && input.dpr > 0 ? input.dpr : 1;
   shipRenderStatesScratch.clear();
   wakeDrawnShipIdsScratch.clear();
   flagshipByIdScratch.clear();
@@ -341,6 +372,8 @@ function createWorldCanvasFrame(input: DrawPharosVilleInput): WorldCanvasFrame {
     }
   }
   return {
+    cameraCacheKeySegment: cameraCacheKeySegment(input, dpr),
+    dpr,
     cache: createRenderFrameCache(input),
     dockRenderStates: new Map(),
     graveRenderStates: new Map(),

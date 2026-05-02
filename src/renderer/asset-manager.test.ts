@@ -93,6 +93,7 @@ describe("PharosVilleAssetManager", () => {
       requiredForFirstRenderCount: 2,
       totalAssetCount: 3,
     });
+    expect(manager.getAssetLoadProgressKey()).toBe(0);
 
     const criticalResult = await manager.loadCritical();
     expect(criticalResult.stats).toMatchObject({
@@ -101,6 +102,7 @@ describe("PharosVilleAssetManager", () => {
       deferredLoadedCount: 1,
       loadedAssetCount: 2,
     });
+    expect(manager.getAssetLoadProgressKey()).toBe(2_000_007);
     expect(manager.areCriticalAssetsLoaded()).toBe(true);
 
     const deferredResult = await manager.loadDeferred();
@@ -111,6 +113,7 @@ describe("PharosVilleAssetManager", () => {
       loadedAssetCount: 3,
       maxDeferredConcurrency: PHAROSVILLE_DEFERRED_ASSET_CONCURRENCY,
     });
+    expect(manager.getAssetLoadProgressKey()).toBe(2_000_008);
     expect(manager.getLoadStats().deferredCompletedAt).toEqual(expect.any(Number));
   });
 
