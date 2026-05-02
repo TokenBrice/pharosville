@@ -2,6 +2,7 @@
 // per-world logo loading. Exposes readiness flags for the rendering hook.
 import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import { PharosVilleAssetManager, type PharosVilleAssetLoadError } from "../renderer/asset-manager";
+import { SHIP_SAIL_EMBLEM_OVERRIDES } from "../renderer/layers/ships";
 import type { buildMotionPlan } from "../systems/motion";
 import { warmAllWaterPaths } from "../systems/motion-water";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
@@ -128,6 +129,7 @@ export function useAssetLoadingPipeline(input: {
         .filter((grave) => grave.visual.scale >= 0.41)
         .map((grave) => grave.logoSrc),
       ...world.ships.map((ship) => ship.logoSrc),
+      ...Object.values(SHIP_SAIL_EMBLEM_OVERRIDES),
     ]
       .filter((src): src is string => typeof src === "string" && src.startsWith("/"));
     const uniqueLogoSrcs = [...new Set(logoSrcs)].sort();

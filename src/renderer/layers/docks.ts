@@ -1,7 +1,7 @@
 import type { PharosVilleWorld } from "../../systems/world-types";
 import { tileToScreen, type ScreenPoint } from "../../systems/projection";
 import type { LoadedPharosVilleAsset, PharosVilleAssetManager } from "../asset-manager";
-import { drawAsset, drawDiamond, drawFittedText, drawSignBoard, hexToRgba, roundedRectPath } from "../canvas-primitives";
+import { drawAsset, drawDiamond, drawFittedText, drawSignBoard, hexToRgba } from "../canvas-primitives";
 import type { RenderFrameCache } from "../frame-cache";
 import { dockOutwardVector, type ResolvedEntityGeometry } from "../geometry";
 import type { DrawPharosVilleInput } from "../render-types";
@@ -19,6 +19,61 @@ export interface DockRenderFrame {
 
 export function isBackgroundedHarborDock(dock: PharosVilleWorld["docks"][number]) {
   return dock.chainId === "ethereum";
+}
+
+// Per-chain flag fill overrides for chains where the sampled logo average
+// produces too little contrast with the logo's own ink. Solana's tri-band
+// gradient (green→purple) averages to a muted teal that swallows the mark
+// itself, so we lock the flag to the brand purple instead.
+const CHAIN_FLAG_COLOR_OVERRIDES: Record<string, string> = {
+  solana: "#9945ff",
+};
+
+const LOGO_FLAG_COLOR_CACHE = new Map<string, string>();
+
+// Sample a logo image down to a single representative cloth color so the dock
+// flag fabric can match the logo's brand palette instead of the dock health
+// band. Average the visible (alpha > 200) pixels on a 16x16 grid; if the logo
+// has no opaque pixels (rare) fall back to the caller-provided accent.
+function logoFlagColor(logo: { image: HTMLImageElement; src: string }, fallback: string): string {
+  const cached = LOGO_FLAG_COLOR_CACHE.get(logo.src);
+  if (cached) return cached;
+  if (typeof document === "undefined" || !logo.image.complete) return fallback;
+  const sourceWidth = logo.image.naturalWidth || logo.image.width;
+  const sourceHeight = logo.image.naturalHeight || logo.image.height;
+  if (sourceWidth <= 0 || sourceHeight <= 0) return fallback;
+  const sampleSize = 16;
+  const canvas = document.createElement("canvas");
+  canvas.width = sampleSize;
+  canvas.height = sampleSize;
+  const sampleCtx = canvas.getContext("2d");
+  if (!sampleCtx) return fallback;
+  try {
+    sampleCtx.drawImage(logo.image, 0, 0, sampleSize, sampleSize);
+    const { data } = sampleCtx.getImageData(0, 0, sampleSize, sampleSize);
+    let r = 0, g = 0, b = 0, count = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const alpha = data[i + 3];
+      if (alpha < 200) continue;
+      r += data[i];
+      g += data[i + 1];
+      b += data[i + 2];
+      count += 1;
+    }
+    if (count === 0) {
+      LOGO_FLAG_COLOR_CACHE.set(logo.src, fallback);
+      return fallback;
+    }
+    const color = rgbToHex(Math.round(r / count), Math.round(g / count), Math.round(b / count));
+    LOGO_FLAG_COLOR_CACHE.set(logo.src, color);
+    return color;
+  } catch {
+    return fallback;
+  }
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  return `#${[r, g, b].map((v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, "0")).join("")}`;
 }
 
 function dockRenderState(input: DrawPharosVilleInput, frame: DockRenderFrame, dock: PharosVilleWorld["docks"][number]): DockRenderState {
@@ -128,7 +183,7 @@ function drawHarborFlag(input: {
 }) {
   const { accent, ctx, dock, emphasized, logo, mapWidth, outward, x, y, zoom } = input;
   const scale = Math.max(0.72, zoom);
-  const flagScale = scale * 1.65;
+  const flagScale = scale * 1.84;
   const side = outward.x === 0 ? (dock.tile.x < (mapWidth - 1) / 2 ? -1 : 1) : -outward.x;
   const direction = side < 0 ? -1 : 1;
   const mastX = x + side * (22 + dock.size * 0.55) * scale;
@@ -160,28 +215,40 @@ function drawHarborFlag(input: {
   ctx.lineTo(Math.round(mastX + direction * 0.6 * scale), Math.round(mastTopY - 2 * scale));
   ctx.stroke();
 
-  ctx.fillStyle = hexToRgba(accent, emphasized ? 0.94 : 0.78);
-  ctx.beginPath();
-  ctx.moveTo(mastX, flagY);
-  ctx.lineTo(mastX + direction * flagWidth, flagY + 2 * scale);
-  ctx.lineTo(mastX + direction * (flagWidth - 5 * flagScale), flagY + flagHeight * 0.5);
-  ctx.lineTo(mastX + direction * flagWidth, flagY + flagHeight - 2 * scale);
-  ctx.lineTo(mastX, flagY + flagHeight);
-  ctx.closePath();
-  ctx.fill();
-  ctx.strokeStyle = "#2f2117";
-  ctx.lineWidth = Math.max(1, 0.85 * scale);
-  ctx.stroke();
+  const flagPath = () => {
+    ctx.beginPath();
+    ctx.moveTo(mastX, flagY);
+    ctx.lineTo(mastX + direction * flagWidth, flagY + 2 * scale);
+    ctx.lineTo(mastX + direction * (flagWidth - 5 * flagScale), flagY + flagHeight * 0.5);
+    ctx.lineTo(mastX + direction * flagWidth, flagY + flagHeight - 2 * scale);
+    ctx.lineTo(mastX, flagY + flagHeight);
+    ctx.closePath();
+  };
 
-  drawDockFlagCrest({
-    accent,
+  const flagFill = CHAIN_FLAG_COLOR_OVERRIDES[dock.chainId]
+    ?? (logo ? logoFlagColor(logo, accent) : accent);
+  ctx.fillStyle = hexToRgba(flagFill, emphasized ? 0.96 : 0.88);
+  flagPath();
+  ctx.fill();
+
+  drawDockFlagLogo({
     ctx,
+    direction,
+    flagHeight,
+    flagPath,
+    flagWidth,
+    flagX: mastX,
+    flagY,
+    flagScale,
     logo,
     mark: dockFlagMark(dock),
-    radius: flagHeight * 0.32,
-    x: mastX + direction * flagWidth * 0.44,
-    y: flagY + flagHeight * 0.52,
+    scale,
   });
+
+  ctx.strokeStyle = "#2f2117";
+  ctx.lineWidth = Math.max(1, 0.85 * scale);
+  flagPath();
+  ctx.stroke();
 
   if (emphasized) {
     drawDockNameRibbon(ctx, dock.label, mastX + direction * 14 * flagScale, mastTopY - 15 * scale, scale);
@@ -189,72 +256,49 @@ function drawHarborFlag(input: {
   ctx.restore();
 }
 
-function drawDockFlagCrest(input: {
-  accent: string;
+function drawDockFlagLogo(input: {
   ctx: CanvasRenderingContext2D;
+  direction: 1 | -1;
+  flagHeight: number;
+  flagPath: () => void;
+  flagWidth: number;
+  flagX: number;
+  flagY: number;
+  flagScale: number;
   logo: ReturnType<PharosVilleAssetManager["getLogo"]>;
   mark: string;
-  radius: number;
-  x: number;
-  y: number;
+  scale: number;
 }) {
-  const { accent, ctx, logo, mark, radius, x, y } = input;
-  const safeRadius = Math.max(3, radius);
-  const width = safeRadius * 1.9;
-  const height = safeRadius * 1.72;
+  const { ctx, direction, flagHeight, flagPath, flagWidth, flagX, flagY, flagScale, logo, mark, scale } = input;
+  const cx = flagX + direction * flagWidth * 0.42;
+  const cy = flagY + flagHeight * 0.5;
+  const logoSize = Math.round(flagHeight * 0.94);
+
   ctx.save();
-  ctx.translate(Math.round(x), Math.round(y));
-
-  ctx.fillStyle = "rgba(248, 231, 190, 0.72)";
-  ctx.strokeStyle = "rgba(47, 33, 23, 0.62)";
-  ctx.lineWidth = Math.max(1, safeRadius * 0.1);
-  ctx.beginPath();
-  ctx.moveTo(-width * 0.42, -height * 0.42);
-  ctx.lineTo(width * 0.42, -height * 0.42);
-  ctx.quadraticCurveTo(width * 0.5, -height * 0.06, width * 0.32, height * 0.17);
-  ctx.lineTo(0, height * 0.46);
-  ctx.lineTo(-width * 0.32, height * 0.17);
-  ctx.quadraticCurveTo(-width * 0.5, -height * 0.06, -width * 0.42, -height * 0.42);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.strokeStyle = hexToRgba(accent, 0.56);
-  ctx.lineWidth = Math.max(1, safeRadius * 0.08);
-  ctx.beginPath();
-  ctx.moveTo(-width * 0.28, -height * 0.25);
-  ctx.quadraticCurveTo(0, -height * 0.32, width * 0.28, -height * 0.25);
-  ctx.stroke();
+  flagPath();
+  ctx.clip();
 
   if (logo) {
-    ctx.save();
-    roundedRectPath(ctx, -safeRadius * 0.68, -safeRadius * 0.68, safeRadius * 1.36, safeRadius * 1.36, safeRadius * 0.22);
-    ctx.clip();
-    ctx.globalAlpha = 0.92;
-    const size = Math.max(2, Math.round(safeRadius * 1.36));
-    ctx.drawImage(logo.image, -size / 2, -size / 2, size, size);
-    ctx.globalCompositeOperation = "source-atop";
-    ctx.fillStyle = hexToRgba(accent, 0.1);
-    ctx.fillRect(-size / 2, -size / 2, size, size);
-    ctx.restore();
-
-    ctx.save();
-    ctx.strokeStyle = "rgba(255, 244, 214, 0.22)";
-    ctx.lineWidth = Math.max(1, safeRadius * 0.07);
-    ctx.beginPath();
-    ctx.moveTo(-safeRadius * 0.72, -safeRadius * 0.12);
-    ctx.quadraticCurveTo(0, -safeRadius * 0.25, safeRadius * 0.72, -safeRadius * 0.08);
-    ctx.stroke();
-    ctx.restore();
+    ctx.globalAlpha = 1;
+    ctx.drawImage(logo.image, Math.round(cx - logoSize / 2), Math.round(cy - logoSize / 2), logoSize, logoSize);
   } else {
-    ctx.fillStyle = "#152334";
-    ctx.font = `800 ${Math.max(4, safeRadius * (mark.length > 2 ? 0.72 : 0.96))}px ui-sans-serif, system-ui, sans-serif`;
+    ctx.fillStyle = "rgba(20, 14, 8, 0.78)";
+    ctx.font = `800 ${Math.max(6, Math.round(flagHeight * 0.62))}px ui-sans-serif, system-ui, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(mark.slice(0, 3).toUpperCase(), 0, 0.35);
+    ctx.fillText(mark.slice(0, 3).toUpperCase(), cx, cy + 0.5 * scale);
     ctx.textAlign = "start";
     ctx.textBaseline = "alphabetic";
   }
+
+  // Vertical fold shadow down the middle of the flag (under the logo) — sells
+  // the cloth texture and matches the natural drape of the swallowtail notch.
+  ctx.globalCompositeOperation = "source-atop";
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = "rgba(20, 14, 8, 0.18)";
+  const foldX = flagX + direction * flagWidth * 0.62;
+  const foldHalf = Math.max(0.6, 0.7 * flagScale);
+  ctx.fillRect(foldX - foldHalf, flagY, foldHalf * 2, flagHeight);
   ctx.restore();
 }
 

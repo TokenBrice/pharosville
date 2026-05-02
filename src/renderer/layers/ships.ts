@@ -20,6 +20,18 @@ const SHIP_COLORS = {
   "algo-junk": "#774734",
 };
 
+// Per-ship sail-emblem override: paints a custom silhouette into the dyed
+// sail cloth instead of the issuer logo. Applies to titan-tier ships that
+// would otherwise fall through to the white-matte sticker overlay.
+export const SHIP_SAIL_EMBLEM_OVERRIDES: Record<string, string> = {
+  "usdt-tether": "/sail-emblems/usdt-kraken.png",
+};
+
+export const SHIP_SAIL_EMBLEM_PAINTED: ReadonlySet<string> = new Set([
+  "crvusd-curve",
+  ...Object.keys(SHIP_SAIL_EMBLEM_OVERRIDES),
+]);
+
 export const SHIP_SAIL_MARKS: Record<string, { height: number; width: number; x: number; y: number }> = {
   "algo-junk": { height: 15, width: 18, x: 8, y: -28 },
   "chartered-brigantine": { height: 15, width: 18, x: 9, y: -29 },
@@ -28,7 +40,7 @@ export const SHIP_SAIL_MARKS: Record<string, { height: number; width: number; x:
   "treasury-galleon": { height: 16, width: 19, x: 10, y: -31 },
   "ship.usdc-titan": { height: 21, width: 25, x: 4, y: -52 },
   "ship.usds-titan": { height: 19, width: 23, x: 3, y: -45 },
-  "ship.usdt-titan": { height: 24, width: 28, x: 8, y: -58 },
+  "ship.usdt-titan": { height: 54, width: 84, x: 0, y: -52 },
   // Maker consorts seeded from ship.usds-titan; tuning in Task 7.5.
   "ship.dai-titan": { height: 19, width: 23, x: 3, y: -45 },
   "ship.susds-titan": { height: 19, width: 23, x: 3, y: -45 },
@@ -836,7 +848,9 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
   if (shipAsset) {
     const titanSprite = isTitanSprite(ship);
     const uniqueSprite = isUniqueSprite(ship);
-    const dyedEmblem = !titanSprite && !uniqueSprite;
+    const overrideEmblemSrc = SHIP_SAIL_EMBLEM_OVERRIDES[ship.id];
+    const overrideEmblemLogo = overrideEmblemSrc ? assets?.getLogo(overrideEmblemSrc) ?? null : null;
+    const dyedEmblem = (!titanSprite && !uniqueSprite) || overrideEmblemLogo !== null;
     const drawY = geometry.drawPoint.y + bob;
     drawWithShipPose(ctx, geometry.drawPoint.x, drawY, pose, () => {
       if (selected) drawSelectedShipOutline(ctx, geometry.drawPoint.x, drawY, geometry.drawScale);
@@ -851,10 +865,10 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
           drawScale: geometry.drawScale,
           sailMark: mark,
           livery: ship.visual.livery,
-          logo: assets?.getLogo(ship.logoSrc) ?? null,
+          logo: overrideEmblemLogo ?? assets?.getLogo(ship.logoSrc) ?? null,
           mark: ship.symbol,
         });
-      } else if (ship.id !== "crvusd-curve") {
+      } else if (!SHIP_SAIL_EMBLEM_PAINTED.has(ship.id)) {
         drawSailLogo({
           ctx,
           logo: assets?.getLogo(ship.logoSrc) ?? null,
@@ -1187,7 +1201,7 @@ function drawDyedSailEmblem(input: {
   const widthPx = Math.max(8, Math.round(sailMark.width * drawScale * 1.05));
   const heightPx = Math.max(8, Math.round(sailMark.height * drawScale * 1.05));
   const ink = pickSailEmblemInk(livery);
-  const sprite = getSailEmblemSilhouetteSprite(livery, logo, mark, ink, widthPx, heightPx);
+  const sprite = getSailEmblemSilhouetteSprite(asset, livery, logo, mark, ink, widthPx, heightPx, sailMark);
   if (!sprite) return;
 
   const [anchorX, anchorY] = asset.entry.anchor;
@@ -1226,33 +1240,38 @@ const SAIL_EMBLEM_SPRITE_CACHE_MAX = 128;
 const sailEmblemSpriteCache = new Map<string, SailLogoSprite | null>();
 
 function sailEmblemSpriteKey(
+  asset: LoadedPharosVilleAsset,
   livery: ShipLivery,
   logo: ReturnType<PharosVilleAssetManager["getLogo"]>,
   mark: string,
   ink: string,
   widthPx: number,
   heightPx: number,
+  sailMark: { height: number; width: number; x: number; y: number },
 ): string {
   const logoKey = logo ? `img:${logo.src}` : `txt:${mark.slice(0, 3).toUpperCase()}`;
-  return `${livery.logoMatte}|${livery.primary}|${ink}|${widthPx}x${heightPx}|${logoKey}`;
+  const markKey = `${sailMark.x},${sailMark.y},${sailMark.width},${sailMark.height}`;
+  return `${asset.entry.id}|${livery.logoMatte}|${livery.primary}|${ink}|${widthPx}x${heightPx}|${logoKey}|${markKey}`;
 }
 
 function getSailEmblemSilhouetteSprite(
+  asset: LoadedPharosVilleAsset,
   livery: ShipLivery,
   logo: ReturnType<PharosVilleAssetManager["getLogo"]>,
   mark: string,
   ink: string,
   widthPx: number,
   heightPx: number,
+  sailMark: { height: number; width: number; x: number; y: number },
 ): SailLogoSprite | null {
-  const key = sailEmblemSpriteKey(livery, logo, mark, ink, widthPx, heightPx);
+  const key = sailEmblemSpriteKey(asset, livery, logo, mark, ink, widthPx, heightPx, sailMark);
   const cached = sailEmblemSpriteCache.get(key);
   if (cached !== undefined) {
     sailEmblemSpriteCache.delete(key);
     sailEmblemSpriteCache.set(key, cached);
     return cached;
   }
-  const sprite = buildSailEmblemSilhouetteSprite(logo, mark, ink, widthPx, heightPx);
+  const sprite = buildSailEmblemSilhouetteSprite(asset, logo, mark, ink, widthPx, heightPx, sailMark);
   sailEmblemSpriteCache.set(key, sprite);
   while (sailEmblemSpriteCache.size > SAIL_EMBLEM_SPRITE_CACHE_MAX) {
     const oldest = sailEmblemSpriteCache.keys().next().value;
@@ -1263,11 +1282,13 @@ function getSailEmblemSilhouetteSprite(
 }
 
 function buildSailEmblemSilhouetteSprite(
+  asset: LoadedPharosVilleAsset,
   logo: ReturnType<PharosVilleAssetManager["getLogo"]>,
   mark: string,
   ink: string,
   widthPx: number,
   heightPx: number,
+  sailMark: { height: number; width: number; x: number; y: number },
 ): SailLogoSprite | null {
   if (typeof document === "undefined") return null;
   const canvas = document.createElement("canvas");
@@ -1276,12 +1297,7 @@ function buildSailEmblemSilhouetteSprite(
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
   if (logo) {
-    // Paint the logo at its native colors (no silhouette extraction);
-    // most stablecoin logos are filled discs whose alpha mask collapses
-    // to a plain circle, while the few shaped marks like crvUSD's llama
-    // already read as silhouettes. Drawing at native colors preserves
-    // brand identity and reads as a decal on cloth once the surrounding
-    // matte/circle is removed.
+    ctx.imageSmoothingEnabled = false;
     const size = Math.round(Math.min(widthPx, heightPx) * 0.96);
     const offsetX = Math.round((widthPx - size) / 2);
     const offsetY = Math.round((heightPx - size) / 2);
@@ -1293,7 +1309,73 @@ function buildSailEmblemSilhouetteSprite(
     ctx.textBaseline = "middle";
     ctx.fillText(mark.slice(0, 3).toUpperCase(), widthPx / 2, heightPx / 2, widthPx * 0.92);
   }
+  bakeSailFoldShading(ctx, asset, sailMark, widthPx, heightPx);
   return { canvas, anchorX: Math.round(widthPx / 2), anchorY: Math.round(heightPx / 2) };
+}
+
+// Modulate the silhouette's RGB by the underlying source-PNG sail luminance so
+// the emblem inherits cloth fold-darkening — same effect crvUSD got by hand
+// painting its llama with fold-aware shading. Done at sprite-build time so
+// the runtime path stays a single drawImage.
+function bakeSailFoldShading(
+  spriteCtx: CanvasRenderingContext2D,
+  asset: LoadedPharosVilleAsset,
+  sailMark: { height: number; width: number; x: number; y: number },
+  widthPx: number,
+  heightPx: number,
+) {
+  const sailCanvas = document.createElement("canvas");
+  sailCanvas.width = widthPx;
+  sailCanvas.height = heightPx;
+  const sailCtx = sailCanvas.getContext("2d");
+  if (!sailCtx) return;
+  // Source PNG region under the emblem: hull-anchor + sailMark center,
+  // extent matches the runtime 1.05× safety margin so source/sprite align.
+  const [anchorX, anchorY] = asset.entry.anchor;
+  const srcW = sailMark.width * 1.05;
+  const srcH = sailMark.height * 1.05;
+  const srcX = anchorX + sailMark.x - srcW / 2;
+  const srcY = anchorY + sailMark.y - srcH / 2;
+  sailCtx.imageSmoothingEnabled = false;
+  sailCtx.drawImage(asset.image, srcX, srcY, srcW, srcH, 0, 0, widthPx, heightPx);
+
+  let sailData: ImageData;
+  let spriteData: ImageData;
+  try {
+    sailData = sailCtx.getImageData(0, 0, widthPx, heightPx);
+    spriteData = spriteCtx.getImageData(0, 0, widthPx, heightPx);
+  } catch {
+    return;
+  }
+  // Survey sail luminance to anchor the modulation range. Brightest sail
+  // pixel becomes 1.0 (no darkening); darker folds darken the kraken
+  // proportionally, floored at 0.55 so the silhouette still reads.
+  let maxLum = 0;
+  let sumLum = 0;
+  let count = 0;
+  for (let i = 0; i < sailData.data.length; i += 4) {
+    if (sailData.data[i + 3]! === 0) continue;
+    const lum = 0.2126 * sailData.data[i]! + 0.7152 * sailData.data[i + 1]! + 0.0722 * sailData.data[i + 2]!;
+    if (lum > maxLum) maxLum = lum;
+    sumLum += lum;
+    count += 1;
+  }
+  if (maxLum <= 0) return;
+  const meanLum = count > 0 ? sumLum / count : maxLum;
+
+  for (let i = 0; i < spriteData.data.length; i += 4) {
+    if (spriteData.data[i + 3]! === 0) continue;
+    const sailA = sailData.data[i + 3]!;
+    const sl = sailA === 0
+      ? meanLum
+      : 0.2126 * sailData.data[i]! + 0.7152 * sailData.data[i + 1]! + 0.0722 * sailData.data[i + 2]!;
+    const ratio = sl / maxLum;
+    const mod = ratio < 0.55 ? 0.55 : ratio > 1 ? 1 : ratio;
+    spriteData.data[i] = Math.round(spriteData.data[i]! * mod);
+    spriteData.data[i + 1] = Math.round(spriteData.data[i + 1]! * mod);
+    spriteData.data[i + 2] = Math.round(spriteData.data[i + 2]! * mod);
+  }
+  spriteCtx.putImageData(spriteData, 0, 0);
 }
 
 function drawLiverySailPanel(ctx: CanvasRenderingContext2D, livery: ShipLivery, width: number, height: number) {
