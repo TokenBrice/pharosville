@@ -6,7 +6,11 @@ import {
 } from "./world-layout";
 
 export interface SeawallPlacement {
-  assetId: "overlay.seawall-corner" | "overlay.seawall-straight";
+  assetId:
+    | "overlay.seawall-corner"
+    | "overlay.seawall-straight"
+    | "overlay.seawall-edge-ne"
+    | "overlay.seawall-edge-nw";
   flipX: boolean;
   rotation: number;
   scale: number;
@@ -354,18 +358,21 @@ function tracePerimeterLoop(): { x: number; y: number; sides: Side[] }[] {
 // band on long runs like the south quay.
 const SAMPLE_STRIDE = 2;
 
-// Iso-edge angle: a tile-edge in tile space projects to a screen line at
-// arctan(TILE_HEIGHT/2 / TILE_WIDTH/2) = arctan(0.5) ≈ 26.57° from horizontal.
-// N/S tile-edges run down-right (+angle); E/W tile-edges run up-right (-angle).
-// Rotating the screen-horizontal straight sprite by these angles aligns it
-// with the actual iso coast direction, replacing the stair-step look.
-const ISO_EDGE_ANGLE_DEG = (Math.atan2(1, 2) * 180) / Math.PI;
-
-function rotationForSide(side: Side): number {
-  if (side === "N") return ISO_EDGE_ANGLE_DEG;
-  if (side === "S") return -ISO_EDGE_ANGLE_DEG;
-  if (side === "E") return -ISO_EDGE_ANGLE_DEG;
-  return ISO_EDGE_ANGLE_DEG; // W
+// Pre-rotated diagonal sprites: seawall-edge-nw runs down-right (matches
+// N/S tile-edges in iso); seawall-edge-ne runs down-left/up-right (matches
+// E/W tile-edges). For each diagonal, the sprite has its wall face on one
+// side; rotating 180° flips it to the opposite outward side without changing
+// the long-axis direction. This replaces the canvas-rotated screen-horizontal
+// sprite, giving us crisp diagonal pixel art instead of nearest-neighbor
+// staircase artifacts.
+function spriteForSide(side: Side): {
+  assetId: SeawallPlacement["assetId"];
+  rotation: number;
+} {
+  if (side === "N") return { assetId: "overlay.seawall-edge-nw", rotation: 180 };
+  if (side === "S") return { assetId: "overlay.seawall-edge-nw", rotation: 0 };
+  if (side === "E") return { assetId: "overlay.seawall-edge-ne", rotation: 0 };
+  return { assetId: "overlay.seawall-edge-ne", rotation: 180 }; // W
 }
 
 function computePlacements(): SeawallPlacement[] {
@@ -381,12 +388,12 @@ function computePlacements(): SeawallPlacement[] {
     if (gates.has(`${node.x}.${node.y}.${side}`)) continue;
     const { dx, dy } = offsetForSide(side);
     const tile = { x: node.x + dx * 0.5, y: node.y + dy * 0.5 };
-    const flipX = side === "E" || side === "S";
+    const sprite = spriteForSide(side);
     const seed = node.x * 53 + node.y * 131 + side.charCodeAt(0);
     placements.push({
-      assetId: "overlay.seawall-straight",
-      flipX,
-      rotation: rotationForSide(side),
+      assetId: sprite.assetId,
+      flipX: false,
+      rotation: sprite.rotation,
       scale: 0.84,
       tile,
       yOffset: 1,

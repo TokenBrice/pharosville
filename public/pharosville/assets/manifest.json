@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-05-01-island-center-build-v1",
+    "cacheVersion": "2026-05-02-village-decor-v1",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": [
@@ -25,6 +25,8 @@
     "overlay.lighthouse-headland",
     "overlay.seawall-straight",
     "overlay.seawall-corner",
+    "overlay.seawall-edge-ne",
+    "overlay.seawall-edge-nw",
     "dock.ethereum-civic-cove",
     "dock.tron-arena-wharf",
     "dock.bsc-mercantile-wharf",
@@ -463,6 +465,80 @@
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
         "jobId": "febb7bca-ed6a-42b3-b4ce-ff30789a887e",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "overlay.seawall-edge-ne",
+      "path": "overlays/seawall-edge-ne.png",
+      "category": "overlay",
+      "layer": "terrain",
+      "width": 160,
+      "height": 96,
+      "displayScale": 1,
+      "anchor": [
+        80,
+        86
+      ],
+      "footprint": [
+        128,
+        56
+      ],
+      "hitbox": [
+        4,
+        14,
+        152,
+        76
+      ],
+      "loadPriority": "critical",
+      "criticalReason": "Pre-rotated diagonal seawall section for the iso NE/SW coast — replaces canvas-rotated screen-horizontal sprite.",
+      "promptKey": "overlay.seawall-edge-ne",
+      "semanticRole": "decorative raised harbor seawall diagonal segment, NE-aligned",
+      "paletteKeys": [
+        "limestone",
+        "terracotta",
+        "teal sea"
+      ],
+      "tool": "mcp:create_map_object",
+      "promptProvenance": {
+        "jobId": "279c8b0e-6e5a-4c8d-addb-16e54a5fe35d",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "overlay.seawall-edge-nw",
+      "path": "overlays/seawall-edge-nw.png",
+      "category": "overlay",
+      "layer": "terrain",
+      "width": 160,
+      "height": 96,
+      "displayScale": 1,
+      "anchor": [
+        80,
+        86
+      ],
+      "footprint": [
+        128,
+        56
+      ],
+      "hitbox": [
+        4,
+        14,
+        152,
+        76
+      ],
+      "loadPriority": "critical",
+      "criticalReason": "Pre-rotated diagonal seawall section for the iso NW/SE coast — replaces canvas-rotated screen-horizontal sprite.",
+      "promptKey": "overlay.seawall-edge-nw",
+      "semanticRole": "decorative raised harbor seawall diagonal segment, NW-aligned",
+      "paletteKeys": [
+        "limestone",
+        "terracotta",
+        "teal sea"
+      ],
+      "tool": "mcp:create_map_object",
+      "promptProvenance": {
+        "jobId": "a7a27ea0-3958-4f21-8e59-45b43d15f351",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },
@@ -1750,6 +1826,132 @@
       "tool": "mcp:create_object",
       "promptProvenance": {
         "jobId": "94047e66-fdb9-4f02-b141-17f2748521ac",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "overlay.village-lighthouse-approach",
+      "path": "overlays/village-lighthouse-approach.png",
+      "category": "overlay",
+      "layer": "terrain",
+      "width": 192,
+      "height": 144,
+      "displayScale": 1,
+      "anchor": [96, 110],
+      "footprint": [128, 64],
+      "hitbox": [16, 12, 160, 124],
+      "loadPriority": "deferred",
+      "promptKey": "overlay.village-lighthouse-approach",
+      "semanticRole": "decorative tea-house garden plaza between the lighthouse headland and central residential cluster",
+      "paletteKeys": ["limestone", "terracotta", "scrub"],
+      "tool": "mcp:create_map_object",
+      "promptProvenance": {
+        "jobId": "9f8f72f8-1cd5-484c-9477-54569131e039",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "overlay.village-sw-orchard",
+      "path": "overlays/village-sw-orchard.png",
+      "category": "overlay",
+      "layer": "terrain",
+      "width": 256,
+      "height": 176,
+      "displayScale": 1,
+      "anchor": [128, 142],
+      "footprint": [176, 88],
+      "hitbox": [20, 16, 220, 152],
+      "loadPriority": "deferred",
+      "promptKey": "overlay.village-sw-orchard",
+      "semanticRole": "decorative coastal village orchard with farmhouse, olive and lemon trees, raised garden beds",
+      "paletteKeys": ["limestone", "terracotta", "scrub", "warm amber"],
+      "tool": "mcp:create_map_object",
+      "promptProvenance": {
+        "jobId": "a0b27646-2fb6-42c8-b90f-76e2f60c7d79",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "overlay.village-sundial-gardens",
+      "path": "overlays/village-sundial-gardens.png",
+      "category": "overlay",
+      "layer": "terrain",
+      "width": 256,
+      "height": 176,
+      "displayScale": 1,
+      "anchor": [128, 142],
+      "footprint": [176, 88],
+      "hitbox": [20, 16, 220, 152],
+      "loadPriority": "deferred",
+      "promptKey": "overlay.village-sundial-gardens",
+      "semanticRole": "decorative ornamental parterre garden plaza with central fountain near the sundial monument",
+      "paletteKeys": ["limestone", "scrub", "bronze beacon"],
+      "tool": "mcp:create_map_object",
+      "promptProvenance": {
+        "jobId": "b7686b50-2b11-4f3f-9770-a2724754a151",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "overlay.village-bay-terraces",
+      "path": "overlays/village-bay-terraces.png",
+      "category": "overlay",
+      "layer": "terrain",
+      "width": 256,
+      "height": 192,
+      "displayScale": 1,
+      "anchor": [128, 156],
+      "footprint": [176, 88],
+      "hitbox": [20, 24, 220, 168],
+      "loadPriority": "deferred",
+      "promptKey": "overlay.village-bay-terraces",
+      "semanticRole": "decorative terraced hillside garden with gazebo and grape vines facing the eastern bay",
+      "paletteKeys": ["limestone", "terracotta", "scrub"],
+      "tool": "mcp:create_map_object",
+      "promptProvenance": {
+        "jobId": "62a22669-0c70-4a31-9620-a898bc0346e1",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "overlay.village-ne-market",
+      "path": "overlays/village-ne-market.png",
+      "category": "overlay",
+      "layer": "terrain",
+      "width": 256,
+      "height": 176,
+      "displayScale": 1,
+      "anchor": [128, 142],
+      "footprint": [176, 88],
+      "hitbox": [20, 16, 220, 152],
+      "loadPriority": "deferred",
+      "promptKey": "overlay.village-ne-market",
+      "semanticRole": "decorative open-air market with awning stalls, fruit and vegetable baskets, water trough",
+      "paletteKeys": ["limestone", "terracotta", "scrub"],
+      "tool": "mcp:create_map_object",
+      "promptProvenance": {
+        "jobId": "57ee19a3-a882-41d8-a917-fddccf3cf624",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "overlay.village-n-plaza",
+      "path": "overlays/village-n-plaza.png",
+      "category": "overlay",
+      "layer": "terrain",
+      "width": 256,
+      "height": 176,
+      "displayScale": 1,
+      "anchor": [128, 142],
+      "footprint": [176, 88],
+      "hitbox": [20, 16, 220, 152],
+      "loadPriority": "deferred",
+      "promptKey": "overlay.village-n-plaza",
+      "semanticRole": "decorative public plaza green with olive trees, palm, obelisk monument, reflecting pool, benches",
+      "paletteKeys": ["limestone", "scrub", "bronze beacon"],
+      "tool": "mcp:create_map_object",
+      "promptProvenance": {
+        "jobId": "64e5ff46-2b0c-43d2-b661-225d5f54bd47",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     }
