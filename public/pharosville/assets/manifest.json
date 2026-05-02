@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-05-02-vegetation-v1",
+    "cacheVersion": "2026-05-02-vegetation-v2",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": [
@@ -1910,6 +1910,90 @@
       "tool": "mcp:create_object+select_object_frames",
       "promptProvenance": {
         "jobId": "5522cc2a-6eaf-497a-9c70-73146593f1ba",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "prop.fig-tree",
+      "path": "props/fig-tree.png",
+      "category": "prop",
+      "layer": "props",
+      "width": 160,
+      "height": 160,
+      "displayScale": 1,
+      "anchor": [78, 155],
+      "footprint": [32, 16],
+      "hitbox": [5, 5, 150, 150],
+      "loadPriority": "deferred",
+      "promptKey": "prop.fig-tree",
+      "semanticRole": "civic plaza massive fig tree",
+      "paletteKeys": ["scrub", "limestone"],
+      "tool": "mcp:create_object+select_object_frames",
+      "promptProvenance": {
+        "jobId": "c8fe6059-16ce-4fd9-8cff-ba3e521b0b05",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "prop.citrus-tree",
+      "path": "props/citrus-tree.png",
+      "category": "prop",
+      "layer": "props",
+      "width": 160,
+      "height": 160,
+      "displayScale": 1,
+      "anchor": [78, 155],
+      "footprint": [40, 20],
+      "hitbox": [5, 5, 150, 150],
+      "loadPriority": "deferred",
+      "promptKey": "prop.citrus-tree",
+      "semanticRole": "civic plaza citrus tree with fruit",
+      "paletteKeys": ["scrub", "limestone", "bronze beacon"],
+      "tool": "mcp:create_object+select_object_frames",
+      "promptProvenance": {
+        "jobId": "e45bb4f7-24d9-43b0-8fcc-ddbf79768852",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "prop.bougainvillea-arch",
+      "path": "props/bougainvillea-arch.png",
+      "category": "prop",
+      "layer": "props",
+      "width": 160,
+      "height": 160,
+      "displayScale": 1,
+      "anchor": [78, 155],
+      "footprint": [40, 20],
+      "hitbox": [10, 5, 140, 150],
+      "loadPriority": "deferred",
+      "promptKey": "prop.bougainvillea-arch",
+      "semanticRole": "civic plaza bougainvillea stone archway",
+      "paletteKeys": ["limestone", "terracotta"],
+      "tool": "mcp:create_object+select_object_frames",
+      "promptProvenance": {
+        "jobId": "ec959e96-fc0e-498f-a085-d5d277d911de",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "prop.agave-cluster",
+      "path": "props/agave-cluster.png",
+      "category": "prop",
+      "layer": "props",
+      "width": 128,
+      "height": 128,
+      "displayScale": 1,
+      "anchor": [62, 123],
+      "footprint": [24, 14],
+      "hitbox": [5, 5, 118, 118],
+      "loadPriority": "deferred",
+      "promptKey": "prop.agave-cluster",
+      "semanticRole": "civic plaza agave succulent with flowering spike",
+      "paletteKeys": ["limestone", "scrub"],
+      "tool": "mcp:create_object+select_object_frames",
+      "promptProvenance": {
+        "jobId": "8a4a8dc0-1603-415f-ba09-e35129306032",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     }

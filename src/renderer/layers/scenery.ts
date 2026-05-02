@@ -6,13 +6,17 @@ import { drawLamp } from "./ambient";
 import type { DrawPharosVilleInput } from "../render-types";
 
 type SceneryPropKind =
+  | "agave-cluster"
   | "barrel"
   | "beacon"
   | "bollards"
+  | "bougainvillea-arch"
   | "buoy"
+  | "citrus-tree"
   | "crate-stack"
   | "cypress"
   | "date-palm"
+  | "fig-tree"
   | "grass-tuft"
   | "harbor-lamp"
   | "mooring-posts"
@@ -81,15 +85,15 @@ const SCENERY_PROPS: readonly SceneryProp[] = [
   { id: "watch-east-reef", kind: "reef", tile: { x: 52.5, y: 47.2 }, scale: 0.72 },
   { id: "civic-sundial", kind: "sundial", tile: { x: 35.0, y: 31.0 }, scale: 0.9 },
   { id: "civic-olive-nw", kind: "olive-tree", tile: { x: 26.5, y: 27.5 }, scale: 0.82 },
-  { id: "civic-olive-sw", kind: "olive-tree", tile: { x: 26.5, y: 34.5 }, scale: 0.82 },
-  { id: "civic-olive-ne", kind: "olive-tree", tile: { x: 35.5, y: 27.5 }, scale: 0.78 },
   { id: "civic-palm-north", kind: "date-palm", tile: { x: 30.5, y: 25.0 }, scale: 0.72 },
   { id: "civic-palm-se", kind: "date-palm", tile: { x: 35.5, y: 34.5 }, scale: 0.75 },
-  { id: "civic-palm-south", kind: "date-palm", tile: { x: 28.0, y: 36.5 }, scale: 0.70 },
   { id: "civic-lavender-w", kind: "planter-lavender", tile: { x: 25.5, y: 31.0 }, scale: 0.88 },
-  { id: "civic-lavender-se", kind: "planter-lavender", tile: { x: 33.5, y: 35.5 }, scale: 0.82 },
   { id: "civic-roses-e", kind: "planter-roses", tile: { x: 37.5, y: 29.0 }, scale: 0.85 },
   { id: "civic-roses-nw", kind: "planter-roses", tile: { x: 28.0, y: 26.5 }, scale: 0.80 },
+  { id: "civic-fig-sw", kind: "fig-tree", tile: { x: 26.5, y: 34.0 }, scale: 0.66 },
+  { id: "civic-olive-s", kind: "olive-tree", tile: { x: 30.0, y: 37.5 }, scale: 0.80 },
+  { id: "civic-citrus-se", kind: "citrus-tree", tile: { x: 36.5, y: 36.0 }, scale: 0.65 },
+  { id: "civic-bougainvillea-ne", kind: "bougainvillea-arch", tile: { x: 39.5, y: 27.5 }, scale: 0.60 },
   { id: "cemetery-buoy", kind: "buoy", tile: { x: 4.2, y: 49.4 }, scale: 0.7 },
   { id: "cemetery-rock", kind: "rock", tile: { x: 12.2, y: 51.4 }, scale: 0.66 },
   { id: "cemetery-reef", kind: "reef", tile: { x: 10.4, y: 47.8 }, scale: 0.62 },
@@ -254,6 +258,18 @@ function drawSceneryProp(input: DrawPharosVilleInput, prop: SceneryProp) {
     if (sprite) drawAsset(ctx, sprite, p.x, p.y, scale);
   } else if (prop.kind === "planter-roses") {
     const sprite = input.assets?.get("prop.planter-roses");
+    if (sprite) drawAsset(ctx, sprite, p.x, p.y, scale);
+  } else if (prop.kind === "fig-tree") {
+    const sprite = input.assets?.get("prop.fig-tree");
+    if (sprite) drawAsset(ctx, sprite, p.x, p.y, scale);
+  } else if (prop.kind === "citrus-tree") {
+    const sprite = input.assets?.get("prop.citrus-tree");
+    if (sprite) drawAsset(ctx, sprite, p.x, p.y, scale);
+  } else if (prop.kind === "bougainvillea-arch") {
+    const sprite = input.assets?.get("prop.bougainvillea-arch");
+    if (sprite) drawAsset(ctx, sprite, p.x, p.y, scale);
+  } else if (prop.kind === "agave-cluster") {
+    const sprite = input.assets?.get("prop.agave-cluster");
     if (sprite) drawAsset(ctx, sprite, p.x, p.y, scale);
   } else if (prop.kind === "timber-pile") {
     drawTimberPile(ctx, p.x, p.y, scale);
