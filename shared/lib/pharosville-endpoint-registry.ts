@@ -1,7 +1,9 @@
 import { PHAROSVILLE_API_ENDPOINT_KEYS, type PharosVilleApiEndpointKey } from "../types/pharosville";
 import { API_FRESHNESS_MAX_AGE_SEC } from "./api-freshness";
 import { API_PATHS } from "./api-endpoints/paths";
-import { CRON_INTERVALS } from "./cron-jobs";
+// NFS4 #4: import cadence from the curated client map instead of `cron-jobs.ts`
+// so the desktop chunk never pulls the full server-only cron job catalog.
+import { CRON_INTERVALS_CLIENT as CRON_INTERVALS } from "./cron-intervals-client";
 
 export interface PharosVilleEndpointRegistryEntry<K extends PharosVilleApiEndpointKey = PharosVilleApiEndpointKey> {
   key: K;

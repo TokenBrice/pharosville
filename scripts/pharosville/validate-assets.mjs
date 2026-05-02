@@ -16,6 +16,7 @@ const placeholderPattern = /(placeholder|checker|debug|sample)/i;
 const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const allowedCategories = new Set(["terrain", "landmark", "dock", "ship", "prop", "overlay"]);
 const allowedPriorities = new Set(["critical", "deferred"]);
+const allowedPhases = new Set(["shellCritical", "visibleCritical", "deferred"]);
 const hexColorPattern = /^#[0-9a-f]{6}$/i;
 const assetIdPattern = /^(building|dock|landmark|overlay|prop|ship|terrain)\.[a-z0-9-]+$/;
 const pharosVilleSourceExtensionPattern = /\.(?:ts|tsx)$/;
@@ -29,6 +30,22 @@ const firstRenderBudgets = {
   maxCount: 28,
   maxBytes: 575 * 1024,
   maxDecodedPixels: 875_000,
+};
+// NFS4 #16: tighter sub-budgets for the world-silhouette shell so the canvas
+// can paint a coherent first frame before the rest of the critical bucket
+// finishes loading. visibleCritical absorbs whatever is left from the overall
+// first-render envelope above.
+const shellCriticalBudgets = {
+  maxCount: 10,
+  maxBytes: 120 * 1024,
+  // 256x256 lighthouse + 384x192 headland + 4x 160x96 seawalls leaves a
+  // small headroom for one extra silhouette asset.
+  maxDecodedPixels: 220_000,
+};
+const visibleCriticalBudgets = {
+  maxCount: firstRenderBudgets.maxCount,
+  maxBytes: firstRenderBudgets.maxBytes,
+  maxDecodedPixels: firstRenderBudgets.maxDecodedPixels,
 };
 const totalAssetBudgets = {
   maxBytes: 900 * 1024,
@@ -114,6 +131,15 @@ function validateAsset(asset, ids, referenced) {
   if (!allowedCategories.has(asset.category)) errors.push(`${id} category is invalid: ${asset.category}`);
   if (!asset.layer || typeof asset.layer !== "string") errors.push(`${id} layer is required.`);
   if (!allowedPriorities.has(asset.loadPriority)) errors.push(`${id} loadPriority is invalid: ${asset.loadPriority}`);
+  if (asset.phase != null) {
+    if (!allowedPhases.has(asset.phase)) errors.push(`${id} phase is invalid: ${asset.phase}`);
+    if (asset.phase === "shellCritical" && asset.loadPriority !== "critical") {
+      errors.push(`${id} phase shellCritical requires loadPriority critical.`);
+    }
+    if (asset.phase === "deferred" && asset.loadPriority !== "deferred") {
+      errors.push(`${id} phase deferred requires loadPriority deferred.`);
+    }
+  }
   if (!Number.isFinite(asset.displayScale) || asset.displayScale <= 0 || asset.displayScale > 4) {
     errors.push(`${id} displayScale must be a positive number <= 4.`);
   }
@@ -210,6 +236,14 @@ function validateManifestBudgets(manifestIds, metrics) {
   let firstRenderBytes = 0;
   let firstRenderDecodedPixels = 0;
   let firstRenderCount = 0;
+  // NFS4 #16: per-phase totals so the shell silhouette enforces a tighter
+  // budget than the rest of the critical bucket.
+  let shellCriticalBytes = 0;
+  let shellCriticalDecodedPixels = 0;
+  let shellCriticalCount = 0;
+  let visibleCriticalBytes = 0;
+  let visibleCriticalDecodedPixels = 0;
+  let visibleCriticalCount = 0;
 
   for (const asset of manifest.assets ?? []) {
     const metric = metrics.get(asset.id);
@@ -221,6 +255,16 @@ function validateManifestBudgets(manifestIds, metrics) {
       firstRenderCount += 1;
       firstRenderBytes += metric.byteSize;
       firstRenderDecodedPixels += metric.decodedPixels;
+      const phase = asset.phase === "shellCritical" ? "shellCritical" : "visibleCritical";
+      if (phase === "shellCritical") {
+        shellCriticalCount += 1;
+        shellCriticalBytes += metric.byteSize;
+        shellCriticalDecodedPixels += metric.decodedPixels;
+      } else {
+        visibleCriticalCount += 1;
+        visibleCriticalBytes += metric.byteSize;
+        visibleCriticalDecodedPixels += metric.decodedPixels;
+      }
     }
     if (asset.loadPriority === "critical" && !isFirstRender) {
       errors.push(`${asset.id} is critical but missing from requiredForFirstRender.`);
@@ -238,6 +282,24 @@ function validateManifestBudgets(manifestIds, metrics) {
   }
   if (firstRenderDecodedPixels > firstRenderBudgets.maxDecodedPixels) {
     errors.push(`First-render decoded pixels are ${formatNumber(firstRenderDecodedPixels)}; budget is ${formatNumber(firstRenderBudgets.maxDecodedPixels)}.`);
+  }
+  if (shellCriticalCount > shellCriticalBudgets.maxCount) {
+    errors.push(`shellCritical asset count is ${shellCriticalCount}; budget is ${shellCriticalBudgets.maxCount}.`);
+  }
+  if (shellCriticalBytes > shellCriticalBudgets.maxBytes) {
+    errors.push(`shellCritical asset bytes are ${formatBytes(shellCriticalBytes)}; budget is ${formatBytes(shellCriticalBudgets.maxBytes)}.`);
+  }
+  if (shellCriticalDecodedPixels > shellCriticalBudgets.maxDecodedPixels) {
+    errors.push(`shellCritical decoded pixels are ${formatNumber(shellCriticalDecodedPixels)}; budget is ${formatNumber(shellCriticalBudgets.maxDecodedPixels)}.`);
+  }
+  if (visibleCriticalCount > visibleCriticalBudgets.maxCount) {
+    errors.push(`visibleCritical asset count is ${visibleCriticalCount}; budget is ${visibleCriticalBudgets.maxCount}.`);
+  }
+  if (visibleCriticalBytes > visibleCriticalBudgets.maxBytes) {
+    errors.push(`visibleCritical asset bytes are ${formatBytes(visibleCriticalBytes)}; budget is ${formatBytes(visibleCriticalBudgets.maxBytes)}.`);
+  }
+  if (visibleCriticalDecodedPixels > visibleCriticalBudgets.maxDecodedPixels) {
+    errors.push(`visibleCritical decoded pixels are ${formatNumber(visibleCriticalDecodedPixels)}; budget is ${formatNumber(visibleCriticalBudgets.maxDecodedPixels)}.`);
   }
   if (totalBytes > totalAssetBudgets.maxBytes) {
     errors.push(`Runtime asset bytes are ${formatBytes(totalBytes)}; budget is ${formatBytes(totalAssetBudgets.maxBytes)}.`);

@@ -1,4 +1,5 @@
-import { CRON_INTERVALS } from "./cron-jobs";
+// NFS4 #4: client-safe cadence map; full `cron-jobs.ts` stays server-only.
+import { CRON_INTERVALS_CLIENT as CRON_INTERVALS } from "./cron-intervals-client";
 import { DAY_SECONDS } from "./time-constants";
 
 export interface CacheFreshnessLaneConfig {

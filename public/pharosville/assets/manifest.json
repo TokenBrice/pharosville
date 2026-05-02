@@ -317,7 +317,8 @@
       "promptProvenance": {
         "jobId": "3b89b603-35ce-4b87-97fb-37a3fc8d913f",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "phase": "shellCritical"
     },
     {
       "id": "landmark.yggdrasil",
@@ -392,7 +393,8 @@
       "promptProvenance": {
         "jobId": "be1f0841-b378-48b5-9fb4-7f3e8749c92d",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "phase": "shellCritical"
     },
     {
       "id": "overlay.center-cluster",
@@ -466,7 +468,8 @@
       "promptProvenance": {
         "jobId": "3ff6e65f-e080-4971-ae3e-70dd9f0fb8b2",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "phase": "shellCritical"
     },
     {
       "id": "overlay.seawall-corner",
@@ -503,7 +506,8 @@
       "promptProvenance": {
         "jobId": "febb7bca-ed6a-42b3-b4ce-ff30789a887e",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "phase": "shellCritical"
     },
     {
       "id": "overlay.seawall-edge-ne",
@@ -540,7 +544,8 @@
       "promptProvenance": {
         "jobId": "279c8b0e-6e5a-4c8d-addb-16e54a5fe35d",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "phase": "shellCritical"
     },
     {
       "id": "overlay.seawall-edge-nw",
@@ -577,7 +582,8 @@
       "promptProvenance": {
         "jobId": "a7a27ea0-3958-4f21-8e59-45b43d15f351",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "phase": "shellCritical"
     },
     {
       "id": "dock.wooden-pier",
@@ -1874,13 +1880,28 @@
       "width": 96,
       "height": 96,
       "displayScale": 1,
-      "anchor": [44, 90],
-      "footprint": [32, 16],
-      "hitbox": [5, 1, 86, 91],
+      "anchor": [
+        44,
+        90
+      ],
+      "footprint": [
+        32,
+        16
+      ],
+      "hitbox": [
+        5,
+        1,
+        86,
+        91
+      ],
       "loadPriority": "deferred",
       "promptKey": "prop.olive-tree",
       "semanticRole": "civic plaza olive tree",
-      "paletteKeys": ["limestone", "scrub", "bronze beacon"],
+      "paletteKeys": [
+        "limestone",
+        "scrub",
+        "bronze beacon"
+      ],
       "tool": "mcp:create_object+select_object_frames",
       "promptProvenance": {
         "jobId": "92f76d4e-c452-4de6-926e-19ef99337862",
@@ -1895,13 +1916,27 @@
       "width": 96,
       "height": 96,
       "displayScale": 1,
-      "anchor": [45, 95],
-      "footprint": [18, 10],
-      "hitbox": [4, 1, 86, 95],
+      "anchor": [
+        45,
+        95
+      ],
+      "footprint": [
+        18,
+        10
+      ],
+      "hitbox": [
+        4,
+        1,
+        86,
+        95
+      ],
       "loadPriority": "deferred",
       "promptKey": "prop.date-palm",
       "semanticRole": "civic plaza date palm",
-      "paletteKeys": ["limestone", "scrub"],
+      "paletteKeys": [
+        "limestone",
+        "scrub"
+      ],
       "tool": "mcp:create_object+select_object_frames",
       "promptProvenance": {
         "jobId": "19a8290e-5021-4077-8d23-4c2a244ae15a",
@@ -1916,13 +1951,27 @@
       "width": 64,
       "height": 64,
       "displayScale": 1,
-      "anchor": [31, 63],
-      "footprint": [18, 10],
-      "hitbox": [3, 6, 61, 58],
+      "anchor": [
+        31,
+        63
+      ],
+      "footprint": [
+        18,
+        10
+      ],
+      "hitbox": [
+        3,
+        6,
+        61,
+        58
+      ],
       "loadPriority": "deferred",
       "promptKey": "prop.planter-lavender",
       "semanticRole": "civic plaza terracotta lavender planter",
-      "paletteKeys": ["terracotta", "limestone"],
+      "paletteKeys": [
+        "terracotta",
+        "limestone"
+      ],
       "tool": "mcp:create_object+select_object_frames",
       "promptProvenance": {
         "jobId": "f84fe26c-3de0-4f46-8b03-b59f163905d3",
@@ -1937,13 +1986,27 @@
       "width": 64,
       "height": 64,
       "displayScale": 1,
-      "anchor": [31, 63],
-      "footprint": [18, 10],
-      "hitbox": [3, 8, 61, 56],
+      "anchor": [
+        31,
+        63
+      ],
+      "footprint": [
+        18,
+        10
+      ],
+      "hitbox": [
+        3,
+        8,
+        61,
+        56
+      ],
       "loadPriority": "deferred",
       "promptKey": "prop.planter-roses",
       "semanticRole": "civic plaza terracotta rose planter",
-      "paletteKeys": ["terracotta", "limestone"],
+      "paletteKeys": [
+        "terracotta",
+        "limestone"
+      ],
       "tool": "mcp:create_object+select_object_frames",
       "promptProvenance": {
         "jobId": "5522cc2a-6eaf-497a-9c70-73146593f1ba",
@@ -1958,13 +2021,27 @@
       "width": 160,
       "height": 160,
       "displayScale": 1,
-      "anchor": [78, 155],
-      "footprint": [32, 16],
-      "hitbox": [5, 5, 150, 150],
+      "anchor": [
+        78,
+        155
+      ],
+      "footprint": [
+        32,
+        16
+      ],
+      "hitbox": [
+        5,
+        5,
+        150,
+        150
+      ],
       "loadPriority": "deferred",
       "promptKey": "prop.fig-tree",
       "semanticRole": "civic plaza massive fig tree",
-      "paletteKeys": ["scrub", "limestone"],
+      "paletteKeys": [
+        "scrub",
+        "limestone"
+      ],
       "tool": "mcp:create_object+select_object_frames",
       "promptProvenance": {
         "jobId": "c8fe6059-16ce-4fd9-8cff-ba3e521b0b05",
@@ -1979,13 +2056,28 @@
       "width": 160,
       "height": 160,
       "displayScale": 1,
-      "anchor": [78, 155],
-      "footprint": [40, 20],
-      "hitbox": [5, 5, 150, 150],
+      "anchor": [
+        78,
+        155
+      ],
+      "footprint": [
+        40,
+        20
+      ],
+      "hitbox": [
+        5,
+        5,
+        150,
+        150
+      ],
       "loadPriority": "deferred",
       "promptKey": "prop.citrus-tree",
       "semanticRole": "civic plaza citrus tree with fruit",
-      "paletteKeys": ["scrub", "limestone", "bronze beacon"],
+      "paletteKeys": [
+        "scrub",
+        "limestone",
+        "bronze beacon"
+      ],
       "tool": "mcp:create_object+select_object_frames",
       "promptProvenance": {
         "jobId": "e45bb4f7-24d9-43b0-8fcc-ddbf79768852",
@@ -2000,13 +2092,27 @@
       "width": 160,
       "height": 160,
       "displayScale": 1,
-      "anchor": [78, 155],
-      "footprint": [40, 20],
-      "hitbox": [10, 5, 140, 150],
+      "anchor": [
+        78,
+        155
+      ],
+      "footprint": [
+        40,
+        20
+      ],
+      "hitbox": [
+        10,
+        5,
+        140,
+        150
+      ],
       "loadPriority": "deferred",
       "promptKey": "prop.bougainvillea-arch",
       "semanticRole": "civic plaza bougainvillea stone archway",
-      "paletteKeys": ["limestone", "terracotta"],
+      "paletteKeys": [
+        "limestone",
+        "terracotta"
+      ],
       "tool": "mcp:create_object+select_object_frames",
       "promptProvenance": {
         "jobId": "ec959e96-fc0e-498f-a085-d5d277d911de",
@@ -2021,13 +2127,27 @@
       "width": 128,
       "height": 128,
       "displayScale": 1,
-      "anchor": [62, 123],
-      "footprint": [24, 14],
-      "hitbox": [5, 5, 118, 118],
+      "anchor": [
+        62,
+        123
+      ],
+      "footprint": [
+        24,
+        14
+      ],
+      "hitbox": [
+        5,
+        5,
+        118,
+        118
+      ],
       "loadPriority": "deferred",
       "promptKey": "prop.agave-cluster",
       "semanticRole": "civic plaza agave succulent with flowering spike",
-      "paletteKeys": ["limestone", "scrub"],
+      "paletteKeys": [
+        "limestone",
+        "scrub"
+      ],
       "tool": "mcp:create_object+select_object_frames",
       "promptProvenance": {
         "jobId": "8a4a8dc0-1603-415f-ba09-e35129306032",

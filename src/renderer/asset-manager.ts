@@ -1,5 +1,9 @@
-import type { PharosVilleAssetManifest, PharosVilleAssetManifestEntry } from "../systems/asset-manifest";
-import { assetUrl, manifestCacheVersion, PHAROSVILLE_ASSET_MANIFEST_PATH } from "../systems/asset-manifest";
+import type {
+  PharosVilleAssetManifest,
+  PharosVilleAssetManifestEntry,
+  PharosVilleAssetPhase,
+} from "../systems/asset-manifest";
+import { assetPhase, assetUrl, manifestCacheVersion, PHAROSVILLE_ASSET_MANIFEST_PATH } from "../systems/asset-manifest";
 
 export interface LoadedPharosVilleAsset {
   entry: PharosVilleAssetManifestEntry;
@@ -40,12 +44,18 @@ export interface PharosVilleAssetLoadStats {
   failedLogoCount: number;
   loadedAssetCount: number;
   loadedLogoCount: number;
+  maxCriticalConcurrency: number;
   maxDeferredConcurrency: number;
   peakDeferredConcurrency: number;
   requiredForFirstRenderCount: number;
+  shellCriticalAssetCount: number;
+  shellCriticalLoadedCount: number;
   totalAssetCount: number;
+  visibleCriticalAssetCount: number;
+  visibleCriticalLoadedCount: number;
 }
 
+export const PHAROSVILLE_CRITICAL_ASSET_CONCURRENCY = 6;
 export const PHAROSVILLE_DEFERRED_ASSET_CONCURRENCY = 6;
 export const PHAROSVILLE_LOGO_CONCURRENCY = 6;
 
@@ -55,7 +65,11 @@ interface AssetManifestSummary {
   deferredAssetCount: number;
   deferredIds: ReadonlySet<string>;
   requiredForFirstRenderCount: number;
+  shellCriticalAssetCount: number;
+  shellCriticalIds: ReadonlySet<string>;
   totalAssetCount: number;
+  visibleCriticalAssetCount: number;
+  visibleCriticalIds: ReadonlySet<string>;
 }
 
 export class PharosVilleAssetManager {
@@ -72,6 +86,8 @@ export class PharosVilleAssetManager {
   private criticalLoadedCount = 0;
   private deferredLoadedCount = 0;
   private peakDeferredConcurrency = 0;
+  private shellCriticalLoadedCount = 0;
+  private visibleCriticalLoadedCount = 0;
 
   get(id: string): LoadedPharosVilleAsset | null {
     return this.assets.get(id) ?? null;
@@ -98,10 +114,15 @@ export class PharosVilleAssetManager {
       failedLogoCount: this.failedLogos.size,
       loadedAssetCount: this.assets.size,
       loadedLogoCount: this.logos.size,
+      maxCriticalConcurrency: PHAROSVILLE_CRITICAL_ASSET_CONCURRENCY,
       maxDeferredConcurrency: PHAROSVILLE_DEFERRED_ASSET_CONCURRENCY,
       peakDeferredConcurrency: this.peakDeferredConcurrency,
       requiredForFirstRenderCount: summary?.requiredForFirstRenderCount ?? 0,
+      shellCriticalAssetCount: summary?.shellCriticalAssetCount ?? 0,
+      shellCriticalLoadedCount: this.shellCriticalLoadedCount,
       totalAssetCount: summary?.totalAssetCount ?? 0,
+      visibleCriticalAssetCount: summary?.visibleCriticalAssetCount ?? 0,
+      visibleCriticalLoadedCount: this.visibleCriticalLoadedCount,
     };
   }
 
@@ -128,10 +149,34 @@ export class PharosVilleAssetManager {
 
   async loadCritical(signal?: AbortSignal): Promise<PharosVilleAssetLoadResult> {
     const manifest = await this.loadManifest(signal);
-    const critical = manifest.assets.filter((asset) => (
-      asset.loadPriority === "critical" || manifest.requiredForFirstRender.includes(asset.id)
-    ));
-    return this.loadAssetGroup(critical, manifest, signal);
+    const requiredIds = new Set(manifest.requiredForFirstRender);
+    const isCritical = (asset: PharosVilleAssetManifestEntry) => (
+      asset.loadPriority === "critical" || requiredIds.has(asset.id)
+    );
+    const shellCritical: PharosVilleAssetManifestEntry[] = [];
+    const visibleCritical: PharosVilleAssetManifestEntry[] = [];
+    for (const asset of manifest.assets) {
+      if (!isCritical(asset)) continue;
+      if (assetPhase(asset) === "shellCritical") shellCritical.push(asset);
+      else visibleCritical.push(asset);
+    }
+    // NFS4 #16: load the world silhouette first so the canvas can paint a
+    // coherent shell, then fill in the rest of the visible-critical bucket.
+    // areCriticalAssetsLoaded() still gates on the union (no semantic change),
+    // so existing callers continue to wait for both phases before unblocking.
+    const shellResult = await this.loadAssetGroup(shellCritical, manifest, signal, {
+      concurrency: PHAROSVILLE_CRITICAL_ASSET_CONCURRENCY,
+    });
+    if (signal?.aborted) return shellResult;
+    const visibleResult = await this.loadAssetGroup(visibleCritical, manifest, signal, {
+      concurrency: PHAROSVILLE_CRITICAL_ASSET_CONCURRENCY,
+    });
+    return {
+      errors: [...shellResult.errors, ...visibleResult.errors],
+      loaded: [...shellResult.loaded, ...visibleResult.loaded],
+      manifest,
+      stats: this.getLoadStats(),
+    };
   }
 
   async loadDeferred(signal?: AbortSignal): Promise<PharosVilleAssetLoadResult> {
@@ -267,6 +312,8 @@ export class PharosVilleAssetManager {
     if (!summary) return;
     if (summary.criticalIds.has(assetId)) this.criticalLoadedCount += 1;
     if (summary.deferredIds.has(assetId)) this.deferredLoadedCount += 1;
+    if (summary.shellCriticalIds.has(assetId)) this.shellCriticalLoadedCount += 1;
+    if (summary.visibleCriticalIds.has(assetId)) this.visibleCriticalLoadedCount += 1;
   }
 }
 
@@ -324,9 +371,16 @@ function deferredAssetRank(asset: PharosVilleAssetManifestEntry, required: Reado
 function summarizeManifest(manifest: PharosVilleAssetManifest): AssetManifestSummary {
   const criticalIds = new Set(manifest.requiredForFirstRender);
   const deferredIds = new Set<string>();
+  const shellCriticalIds = new Set<string>();
+  const visibleCriticalIds = new Set<string>();
   for (const asset of manifest.assets) {
     if (asset.loadPriority === "critical") criticalIds.add(asset.id);
     if (asset.loadPriority === "deferred") deferredIds.add(asset.id);
+  }
+  for (const asset of manifest.assets) {
+    if (!criticalIds.has(asset.id)) continue;
+    if (assetPhase(asset) === "shellCritical") shellCriticalIds.add(asset.id);
+    else visibleCriticalIds.add(asset.id);
   }
   return {
     criticalAssetCount: criticalIds.size,
@@ -334,7 +388,11 @@ function summarizeManifest(manifest: PharosVilleAssetManifest): AssetManifestSum
     deferredAssetCount: deferredIds.size,
     deferredIds,
     requiredForFirstRenderCount: manifest.requiredForFirstRender.length,
+    shellCriticalAssetCount: shellCriticalIds.size,
+    shellCriticalIds,
     totalAssetCount: manifest.assets.length,
+    visibleCriticalAssetCount: visibleCriticalIds.size,
+    visibleCriticalIds,
   };
 }
 

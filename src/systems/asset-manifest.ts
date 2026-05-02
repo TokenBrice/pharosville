@@ -1,5 +1,13 @@
 export type PharosVilleAssetCategory = "terrain" | "landmark" | "dock" | "ship" | "prop" | "overlay";
 export type PharosVilleAssetPriority = "critical" | "deferred";
+/**
+ * NFS4 #16: per-entry phase that orders critical loading.
+ * `shellCritical` paints the world silhouette (lighthouse + main island) first,
+ * then `visibleCritical` fills in the docks/ships/props the user sees on first
+ * paint, then `deferred` everything else. Optional — when absent, the phase is
+ * inferred from `loadPriority` (critical → visibleCritical, deferred → deferred).
+ */
+export type PharosVilleAssetPhase = "shellCritical" | "visibleCritical" | "deferred";
 export type PharosVilleAssetManifestSchemaVersion = 1 | 2;
 
 export interface PharosVilleAssetAnimation {
@@ -31,6 +39,7 @@ export interface PharosVilleAssetManifestEntry {
   layer: string;
   loadPriority: PharosVilleAssetPriority;
   paletteKeys?: string[];
+  phase?: PharosVilleAssetPhase;
   path: string;
   promptKey?: string;
   promptProvenance?: {
@@ -80,7 +89,14 @@ export interface PharosVilleAssetManifestV2 {
 
 export type PharosVilleAssetManifest = PharosVilleAssetManifestV1 | PharosVilleAssetManifestV2;
 
-export const PHAROSVILLE_ASSET_MANIFEST_PATH = "/pharosville/assets/manifest.json";
+/**
+ * NFS4 #15: runtime variant of the manifest, stripped of authoring-only fields
+ * (prompt*, semanticRole, criticalReason, paletteKeys, tool). The full
+ * `manifest.json` is preserved for the validator and offline tooling. The
+ * runtime variant is emitted by the Vite plugin in `vite.config.ts` (build) and
+ * the dev middleware (serve), so the path is identical in both modes.
+ */
+export const PHAROSVILLE_ASSET_MANIFEST_PATH = "/pharosville/assets/manifest.runtime.json";
 
 export function manifestCacheVersion(manifest: PharosVilleAssetManifest): string {
   return manifest.schemaVersion === 2 ? manifest.style.cacheVersion : manifest.style.assetVersion;
@@ -92,4 +108,13 @@ export function manifestStyleAnchorVersion(manifest: PharosVilleAssetManifest): 
 
 export function assetUrl(asset: PharosVilleAssetManifestEntry, manifest: PharosVilleAssetManifest): string {
   return `/pharosville/assets/${asset.path}?v=${encodeURIComponent(manifestCacheVersion(manifest))}`;
+}
+
+/**
+ * NFS4 #16: resolve the asset's load phase, falling back to a sensible default
+ * derived from `loadPriority` for entries that have not been annotated yet.
+ */
+export function assetPhase(asset: PharosVilleAssetManifestEntry): PharosVilleAssetPhase {
+  if (asset.phase) return asset.phase;
+  return asset.loadPriority === "critical" ? "visibleCritical" : "deferred";
 }

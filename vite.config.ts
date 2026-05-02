@@ -1,10 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath, URL } from "node:url";
 import { onRequest as pharosVilleApiProxy } from "./functions/api/[[path]]";
+import { stripAuthoringFields } from "./scripts/pharosville/build-runtime-manifest.mjs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const pharosVilleDesktopQuery = "(min-width: 1280px) and (min-height: 760px)";
@@ -101,6 +102,55 @@ function localPharosVilleApiProxy(env: { PHAROS_API_BASE?: string; PHAROS_API_KE
   };
 }
 
+/**
+ * NFS4 #15: serve and emit a slim `manifest.runtime.json` next to
+ * `manifest.json` so the desktop chunk fetches a manifest stripped of
+ * authoring-only fields (prompt*, semanticRole, criticalReason, paletteKeys,
+ * tool, style.anchor, style.generationDefaults). The full manifest stays the
+ * source of truth for the validator and offline tooling.
+ */
+function pharosVilleRuntimeManifest(): Plugin {
+  const sourceManifestPath = resolve(root, "public/pharosville/assets/manifest.json");
+  const runtimeManifestRoute = "/pharosville/assets/manifest.runtime.json";
+  const runtimeManifestRelative = "pharosville/assets/manifest.runtime.json";
+  const buildRuntimeBytes = (): Buffer => {
+    const text = readFileSync(sourceManifestPath, "utf8");
+    return Buffer.from(JSON.stringify(stripAuthoringFields(JSON.parse(text))));
+  };
+  return {
+    name: "pharosville-runtime-manifest",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const url = req.url?.split("?")[0];
+        if (url !== runtimeManifestRoute) {
+          next();
+          return;
+        }
+        try {
+          const bytes = buildRuntimeBytes();
+          res.setHeader("content-type", "application/json");
+          res.setHeader("cache-control", "no-store");
+          res.end(bytes);
+        } catch (error) {
+          server.config.logger.error(error instanceof Error ? error.stack ?? error.message : String(error));
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: "Failed to build runtime manifest" }));
+        }
+      });
+    },
+    apply(_config, env) {
+      // Active in both dev (middleware above) and build (writeBundle below).
+      return env.command === "serve" || env.command === "build";
+    },
+    writeBundle(options) {
+      const distRoot = options.dir ?? resolve(root, "dist");
+      const target = join(distRoot, runtimeManifestRelative);
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, buildRuntimeBytes());
+    },
+  };
+}
+
 function desktopChunkModulePreload(): Plugin {
   return {
     name: "pharosville-desktop-chunk-modulepreload",
@@ -142,6 +192,7 @@ export default defineConfig(({ mode }) => {
         PHAROS_API_BASE: env.PHAROS_API_BASE ?? "https://api.pharos.watch",
         PHAROS_API_KEY: env.PHAROS_API_KEY,
       }),
+      pharosVilleRuntimeManifest(),
       desktopChunkModulePreload(),
       react(),
     ],

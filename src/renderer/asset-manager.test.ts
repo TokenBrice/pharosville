@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PharosVilleAssetManifest, PharosVilleAssetManifestEntry } from "../systems/asset-manifest";
 import {
   type LoadedPharosVilleAsset,
+  PHAROSVILLE_CRITICAL_ASSET_CONCURRENCY,
   PHAROSVILLE_DEFERRED_ASSET_CONCURRENCY,
   PHAROSVILLE_LOGO_CONCURRENCY,
   PharosVilleAssetManager,
@@ -289,6 +290,74 @@ describe("PharosVilleAssetManager", () => {
 
     expect(loaded.src).toBe("/logos/decoded.png");
     expect(resolved).toBe(true);
+  });
+
+  it("caps critical asset loading at PHAROSVILLE_CRITICAL_ASSET_CONCURRENCY", async () => {
+    const criticals = Array.from({ length: PHAROSVILLE_CRITICAL_ASSET_CONCURRENCY + 4 }, (_, index) => (
+      makeEntry(`ship.critical-${index}`, "ship", index, "critical")
+    ));
+    const manifest = makeManifest(criticals, criticals.map((entry) => entry.id));
+    stubManifestFetch(manifest);
+    let activeLoads = 0;
+    let peakLoads = 0;
+    stubImageLoader(() => {
+      activeLoads += 1;
+      peakLoads = Math.max(peakLoads, activeLoads);
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          activeLoads -= 1;
+          resolve();
+        }, 1);
+      });
+    });
+
+    const manager = new PharosVilleAssetManager();
+    const result = await manager.loadCritical();
+
+    expect(result.errors).toEqual([]);
+    expect(result.loaded).toHaveLength(criticals.length);
+    expect(peakLoads).toBeLessThanOrEqual(PHAROSVILLE_CRITICAL_ASSET_CONCURRENCY);
+    expect(result.stats.maxCriticalConcurrency).toBe(PHAROSVILLE_CRITICAL_ASSET_CONCURRENCY);
+  });
+
+  it("loads shellCritical entries before visibleCritical and tracks both buckets", async () => {
+    const shellOne = { ...makeEntry("overlay.shell-one", "overlay", 0, "critical"), phase: "shellCritical" as const };
+    const shellTwo = { ...makeEntry("landmark.shell-two", "landmark", 1, "critical"), phase: "shellCritical" as const };
+    const visibleOne = { ...makeEntry("dock.visible-one", "dock", 2, "critical"), phase: "visibleCritical" as const };
+    const visibleTwo = makeEntry("ship.visible-two", "ship", 3, "critical");
+    const manifest = makeManifest([shellOne, shellTwo, visibleOne, visibleTwo], [
+      shellOne.id,
+      shellTwo.id,
+      visibleOne.id,
+      visibleTwo.id,
+    ]);
+    stubManifestFetch(manifest);
+    const starts: string[] = [];
+    stubImageLoader((src) => {
+      starts.push(src);
+      return Promise.resolve();
+    });
+
+    const manager = new PharosVilleAssetManager();
+    const result = await manager.loadCritical();
+
+    expect(result.errors).toEqual([]);
+    expect(result.loaded).toHaveLength(4);
+    // Shell PNGs must finish before any visible PNG starts.
+    const shellSrcs = starts.filter((src) => src.includes("/shell-"));
+    const visibleSrcs = starts.filter((src) => src.includes("/visible-") || src.includes("/asset-3"));
+    expect(shellSrcs.length).toBe(2);
+    expect(visibleSrcs.length).toBe(2);
+    const lastShellIndex = Math.max(...shellSrcs.map((src) => starts.indexOf(src)));
+    const firstVisibleIndex = Math.min(...visibleSrcs.map((src) => starts.indexOf(src)));
+    expect(lastShellIndex).toBeLessThan(firstVisibleIndex);
+    expect(result.stats).toMatchObject({
+      shellCriticalAssetCount: 2,
+      shellCriticalLoadedCount: 2,
+      visibleCriticalAssetCount: 2,
+      visibleCriticalLoadedCount: 2,
+    });
+    expect(manager.areCriticalAssetsLoaded()).toBe(true);
   });
 
   it("falls back to a loaded logo when image decode rejects", async () => {
