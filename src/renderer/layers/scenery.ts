@@ -12,10 +12,14 @@ type SceneryPropKind =
   | "buoy"
   | "crate-stack"
   | "cypress"
+  | "date-palm"
   | "grass-tuft"
   | "harbor-lamp"
   | "mooring-posts"
   | "net-rack"
+  | "olive-tree"
+  | "planter-lavender"
+  | "planter-roses"
   | "reed-bed"
   | "reef"
   | "rock"
@@ -76,6 +80,16 @@ const SCENERY_PROPS: readonly SceneryProp[] = [
   { id: "watch-east-signal", kind: "signal-post", tile: { x: 55.0, y: 44.0 }, scale: 0.82 },
   { id: "watch-east-reef", kind: "reef", tile: { x: 52.5, y: 47.2 }, scale: 0.72 },
   { id: "civic-sundial", kind: "sundial", tile: { x: 35.0, y: 31.0 }, scale: 0.9 },
+  { id: "civic-olive-nw", kind: "olive-tree", tile: { x: 26.5, y: 27.5 }, scale: 0.82 },
+  { id: "civic-olive-sw", kind: "olive-tree", tile: { x: 26.5, y: 34.5 }, scale: 0.82 },
+  { id: "civic-olive-ne", kind: "olive-tree", tile: { x: 35.5, y: 27.5 }, scale: 0.78 },
+  { id: "civic-palm-north", kind: "date-palm", tile: { x: 30.5, y: 25.0 }, scale: 0.72 },
+  { id: "civic-palm-se", kind: "date-palm", tile: { x: 35.5, y: 34.5 }, scale: 0.75 },
+  { id: "civic-palm-south", kind: "date-palm", tile: { x: 28.0, y: 36.5 }, scale: 0.70 },
+  { id: "civic-lavender-w", kind: "planter-lavender", tile: { x: 25.5, y: 31.0 }, scale: 0.88 },
+  { id: "civic-lavender-se", kind: "planter-lavender", tile: { x: 33.5, y: 35.5 }, scale: 0.82 },
+  { id: "civic-roses-e", kind: "planter-roses", tile: { x: 37.5, y: 29.0 }, scale: 0.85 },
+  { id: "civic-roses-nw", kind: "planter-roses", tile: { x: 28.0, y: 26.5 }, scale: 0.80 },
   { id: "cemetery-buoy", kind: "buoy", tile: { x: 4.2, y: 49.4 }, scale: 0.7 },
   { id: "cemetery-rock", kind: "rock", tile: { x: 12.2, y: 51.4 }, scale: 0.66 },
   { id: "cemetery-reef", kind: "reef", tile: { x: 10.4, y: 47.8 }, scale: 0.62 },
@@ -229,6 +243,18 @@ function drawSceneryProp(input: DrawPharosVilleInput, prop: SceneryProp) {
     drawStoneSteps(ctx, p.x, p.y, scale);
   } else if (prop.kind === "sundial") {
     drawSundial(input, p.x, p.y, scale);
+  } else if (prop.kind === "olive-tree") {
+    const sprite = input.assets?.get("prop.olive-tree");
+    if (sprite) drawAsset(ctx, sprite, p.x, p.y, scale);
+  } else if (prop.kind === "date-palm") {
+    const sprite = input.assets?.get("prop.date-palm");
+    if (sprite) drawAsset(ctx, sprite, p.x, p.y, scale);
+  } else if (prop.kind === "planter-lavender") {
+    const sprite = input.assets?.get("prop.planter-lavender");
+    if (sprite) drawAsset(ctx, sprite, p.x, p.y, scale);
+  } else if (prop.kind === "planter-roses") {
+    const sprite = input.assets?.get("prop.planter-roses");
+    if (sprite) drawAsset(ctx, sprite, p.x, p.y, scale);
   } else if (prop.kind === "timber-pile") {
     drawTimberPile(ctx, p.x, p.y, scale);
   }

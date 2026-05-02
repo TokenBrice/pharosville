@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-05-01-island-center-build-v1",
+    "cacheVersion": "2026-05-02-vegetation-v1",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": [
@@ -1826,6 +1826,90 @@
       "tool": "mcp:create_object",
       "promptProvenance": {
         "jobId": "94047e66-fdb9-4f02-b141-17f2748521ac",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "prop.olive-tree",
+      "path": "props/olive-tree.png",
+      "category": "prop",
+      "layer": "props",
+      "width": 96,
+      "height": 96,
+      "displayScale": 1,
+      "anchor": [44, 90],
+      "footprint": [32, 16],
+      "hitbox": [5, 1, 86, 91],
+      "loadPriority": "deferred",
+      "promptKey": "prop.olive-tree",
+      "semanticRole": "civic plaza olive tree",
+      "paletteKeys": ["limestone", "scrub", "bronze beacon"],
+      "tool": "mcp:create_object+select_object_frames",
+      "promptProvenance": {
+        "jobId": "92f76d4e-c452-4de6-926e-19ef99337862",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "prop.date-palm",
+      "path": "props/date-palm.png",
+      "category": "prop",
+      "layer": "props",
+      "width": 96,
+      "height": 96,
+      "displayScale": 1,
+      "anchor": [45, 95],
+      "footprint": [18, 10],
+      "hitbox": [4, 1, 86, 95],
+      "loadPriority": "deferred",
+      "promptKey": "prop.date-palm",
+      "semanticRole": "civic plaza date palm",
+      "paletteKeys": ["limestone", "scrub"],
+      "tool": "mcp:create_object+select_object_frames",
+      "promptProvenance": {
+        "jobId": "19a8290e-5021-4077-8d23-4c2a244ae15a",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "prop.planter-lavender",
+      "path": "props/planter-lavender.png",
+      "category": "prop",
+      "layer": "props",
+      "width": 64,
+      "height": 64,
+      "displayScale": 1,
+      "anchor": [31, 63],
+      "footprint": [18, 10],
+      "hitbox": [3, 6, 61, 58],
+      "loadPriority": "deferred",
+      "promptKey": "prop.planter-lavender",
+      "semanticRole": "civic plaza terracotta lavender planter",
+      "paletteKeys": ["terracotta", "limestone"],
+      "tool": "mcp:create_object+select_object_frames",
+      "promptProvenance": {
+        "jobId": "f84fe26c-3de0-4f46-8b03-b59f163905d3",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "prop.planter-roses",
+      "path": "props/planter-roses.png",
+      "category": "prop",
+      "layer": "props",
+      "width": 64,
+      "height": 64,
+      "displayScale": 1,
+      "anchor": [31, 63],
+      "footprint": [18, 10],
+      "hitbox": [3, 8, 61, 56],
+      "loadPriority": "deferred",
+      "promptKey": "prop.planter-roses",
+      "semanticRole": "civic plaza terracotta rose planter",
+      "paletteKeys": ["terracotta", "limestone"],
+      "tool": "mcp:create_object+select_object_frames",
+      "promptProvenance": {
+        "jobId": "5522cc2a-6eaf-497a-9c70-73146593f1ba",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     }
