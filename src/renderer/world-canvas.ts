@@ -34,7 +34,14 @@ import { tileBoundsTileCount, visibleTileBoundsForCamera } from "./viewport";
 export type { DrawPharosVilleInput, PharosVilleCanvasMotion, PharosVilleRenderMetrics } from "./render-types";
 
 interface WorldCanvasFrame {
-  cameraCacheKeySegment: string;
+  dynamicCameraCacheKeySegment: string;
+  staticCameraCache: {
+    keySegment: string;
+    paintCamera: DrawPharosVilleInput["camera"];
+    paddingDprPx: number;
+    residualOffsetX: number;
+    residualOffsetY: number;
+  };
   cache: RenderFrameCache;
   dpr: number;
   dockRenderStates: Map<string, DockRenderState>;
@@ -74,9 +81,11 @@ type DynamicCacheScope = "water-overlays";
 
 const STATIC_CACHE_MAX = 4;
 const DYNAMIC_CACHE_MAX = 4;
+const STATIC_CAMERA_OFFSET_BUCKET = 16;
 const staticLayerCache: { entries: StaticLayerCacheEntry[] } = { entries: [] };
 const dynamicLayerCache: { entries: DynamicLayerCacheEntry[] } = { entries: [] };
 let cameraCacheKeyCache: { key: string; input: CameraCacheKeyInput } | null = null;
+let staticCameraCacheKeyCache: { key: string; input: CameraCacheKeyInput } | null = null;
 
 const shipRenderStatesScratch = new Map<string, ShipRenderState>();
 const wakeDrawnShipIdsScratch = new Set<string>();
@@ -127,6 +136,60 @@ function cameraCacheKeySegment(input: DrawPharosVilleInput, dpr: number): string
   const key = `${inputKey.worldId}|${inputKey.width}x${inputKey.height}|z${inputKey.zoomBucket}|o${inputKey.offsetX},${inputKey.offsetY}|d${inputKey.dprBucket}`;
   cameraCacheKeyCache = { input: inputKey, key };
   return key;
+}
+
+function staticCameraCacheForFrame(input: DrawPharosVilleInput, dpr: number) {
+  const offsetX = Math.floor(input.camera.offsetX / STATIC_CAMERA_OFFSET_BUCKET) * STATIC_CAMERA_OFFSET_BUCKET;
+  const offsetY = Math.floor(input.camera.offsetY / STATIC_CAMERA_OFFSET_BUCKET) * STATIC_CAMERA_OFFSET_BUCKET;
+  const residualOffsetX = input.camera.offsetX - offsetX;
+  const residualOffsetY = input.camera.offsetY - offsetY;
+  const inputKey: CameraCacheKeyInput = {
+    dprBucket: Math.max(1, Math.round(dpr * 100)),
+    height: input.height | 0,
+    offsetX,
+    offsetY,
+    width: input.width | 0,
+    worldId: worldIdFor(input.world),
+    zoomBucket: (input.camera.zoom * 100) | 0,
+  };
+  const cached = staticCameraCacheKeyCache;
+  if (
+    cached
+    && cached.input.dprBucket === inputKey.dprBucket
+    && cached.input.height === inputKey.height
+    && cached.input.offsetX === inputKey.offsetX
+    && cached.input.offsetY === inputKey.offsetY
+    && cached.input.width === inputKey.width
+    && cached.input.worldId === inputKey.worldId
+    && cached.input.zoomBucket === inputKey.zoomBucket
+  ) {
+    return {
+      ...cached,
+      keySegment: cached.key,
+      paintCamera: {
+        ...input.camera,
+        offsetX,
+        offsetY,
+      },
+      paddingDprPx: STATIC_CAMERA_OFFSET_BUCKET * Math.max(1, Math.round(dpr * 100)) / 100,
+      residualOffsetX,
+      residualOffsetY,
+    };
+  }
+  const key = `${inputKey.worldId}|${inputKey.width}x${inputKey.height}|z${inputKey.zoomBucket}|o${inputKey.offsetX},${inputKey.offsetY}|d${inputKey.dprBucket}`;
+  const keySegment = key;
+  staticCameraCacheKeyCache = { input: inputKey, key };
+  return {
+    keySegment,
+    paintCamera: {
+      ...input.camera,
+      offsetX,
+      offsetY,
+    },
+    paddingDprPx: STATIC_CAMERA_OFFSET_BUCKET * Math.max(1, Math.round(dpr * 100)) / 100,
+    residualOffsetX,
+    residualOffsetY,
+  };
 }
 
 function staticCacheKey(input: DrawPharosVilleInput, scope: StaticCacheScope, cameraCacheKeySegment: string): string {
@@ -187,38 +250,49 @@ function drawStaticPassCached(
   paint: (input: DrawPharosVilleInput, frame: WorldCanvasFrame) => void,
 ) {
   const { ctx, width, height } = input;
-  const { cameraCacheKeySegment, dpr } = frame;
+  const { staticCameraCache: staticCamera, dpr } = frame;
   const backingWidth = Math.max(1, Math.round(width * dpr));
   const backingHeight = Math.max(1, Math.round(height * dpr));
-  const key = staticCacheKey(input, scope, cameraCacheKeySegment);
+  const key = staticCacheKey(input, scope, staticCamera.keySegment);
+  const cachedPad = staticCamera.paddingDprPx;
+  const backingPadWidth = Math.max(0, Math.round(cachedPad));
+  const backingPadHeight = Math.max(0, Math.round(cachedPad));
+  const cachedWidth = backingWidth + backingPadWidth * 2;
+  const cachedHeight = backingHeight + backingPadHeight * 2;
+  const paintInput = {
+    ...input,
+    camera: staticCamera.paintCamera,
+  };
+  const sourceX = Math.max(0, Math.min(backingPadWidth, Math.round(staticCamera.residualOffsetX * dpr)));
+  const sourceY = Math.max(0, Math.min(backingPadHeight, Math.round(staticCamera.residualOffsetY * dpr)));
 
   const cached = staticLayerCache.entries.find((entry) => entry.key === key);
   if (cached) {
     cached.lastUsed = performance.now();
-    blitStaticCanvas(ctx, cached.canvas, backingWidth, backingHeight);
+    blitStaticCanvas(ctx, cached.canvas, backingWidth, backingHeight, sourceX, sourceY);
     return;
   }
 
   const reusableEntry = staticLayerCache.entries.length >= STATIC_CACHE_MAX
     ? evictOldestStaticEntry()
     : null;
-  const offCanvas = reusableEntry?.canvas ?? createStaticCacheCanvas(backingWidth, backingHeight);
+  const offCanvas = reusableEntry?.canvas ?? createStaticCacheCanvas(cachedWidth, cachedHeight);
   if (!offCanvas) {
-    paint(input, frame);
+    paint(paintInput, frame);
     return;
   }
-  if (offCanvas.width !== backingWidth) offCanvas.width = backingWidth;
-  if (offCanvas.height !== backingHeight) offCanvas.height = backingHeight;
+  if (offCanvas.width !== cachedWidth) offCanvas.width = cachedWidth;
+  if (offCanvas.height !== cachedHeight) offCanvas.height = cachedHeight;
   const offCtx = offCanvas.getContext("2d", { alpha: true });
   if (!offCtx) {
-    paint(input, frame);
+    paint(paintInput, frame);
     return;
   }
   offCtx.setTransform(1, 0, 0, 1, 0, 0);
-  offCtx.clearRect(0, 0, backingWidth, backingHeight);
-  offCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  paint({ ...input, ctx: offCtx }, frame);
-  blitStaticCanvas(ctx, offCanvas, backingWidth, backingHeight);
+  offCtx.clearRect(0, 0, cachedWidth, cachedHeight);
+  offCtx.setTransform(dpr, 0, 0, dpr, backingPadWidth, backingPadHeight);
+  paint({ ...paintInput, ctx: offCtx }, frame);
+  blitStaticCanvas(ctx, offCanvas, backingWidth, backingHeight, sourceX, sourceY);
   staticLayerCache.entries.push({ canvas: offCanvas, key, lastUsed: performance.now() });
 }
 
@@ -229,10 +303,10 @@ function drawDynamicPassCached(
   paint: (input: DrawPharosVilleInput) => void,
 ) {
   const { ctx, width, height } = input;
-  const { cameraCacheKeySegment, dpr } = frame;
+  const { dynamicCameraCacheKeySegment, dpr } = frame;
   const backingWidth = Math.max(1, Math.round(width * dpr));
   const backingHeight = Math.max(1, Math.round(height * dpr));
-  const key = dynamicCacheKey(scope, cameraCacheKeySegment);
+  const key = dynamicCacheKey(scope, dynamicCameraCacheKeySegment);
   const phaseBucket = dynamicWaterPhaseBucket(input);
 
   const cached = dynamicLayerCache.entries.find((entry) => entry.key === key);
@@ -283,10 +357,12 @@ function blitStaticCanvas(
   canvas: HTMLCanvasElement,
   backingWidth: number,
   backingHeight: number,
+  sourceX = 0,
+  sourceY = 0,
 ) {
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.drawImage(canvas, 0, 0, backingWidth, backingHeight);
+  ctx.drawImage(canvas, sourceX, sourceY, backingWidth, backingHeight, 0, 0, backingWidth, backingHeight);
   ctx.restore();
 }
 
@@ -372,7 +448,8 @@ function createWorldCanvasFrame(input: DrawPharosVilleInput): WorldCanvasFrame {
     }
   }
   return {
-    cameraCacheKeySegment: cameraCacheKeySegment(input, dpr),
+    dynamicCameraCacheKeySegment: cameraCacheKeySegment(input, dpr),
+    staticCameraCache: staticCameraCacheForFrame(input, dpr),
     dpr,
     cache: createRenderFrameCache(input),
     dockRenderStates: new Map(),
