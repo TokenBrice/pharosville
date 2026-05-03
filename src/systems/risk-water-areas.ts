@@ -68,7 +68,7 @@ export const RISK_WATER_AREAS: Record<ShipRiskPlacement, RiskWaterAreaDefinition
     label: "Watch Breakwater",
     band: "WATCH",
     regionTile: { x: 48, y: 44 },
-    labelTile: { x: 42, y: 39 },
+    labelTile: { x: 51, y: 45 },
     terrain: "watch-water",
     validTerrains: ["watch-water"],
     waterStyle: "south-basin and east-shelf watch breakwater",
