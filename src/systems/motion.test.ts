@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { denseFixtureChains, denseFixturePegSummary, denseFixtureReportCards, denseFixtureStablecoins, denseFixtureStress, fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoins, fixtureStability, fixtureStress, fixtureWithFlagshipPlacement, makeAsset, makeChain, makePegCoin, makerSquadFixtureInputs } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
-import { buildBaseMotionPlan, buildMotionPlan, buildShipWaterRoute, isShipMapVisible, lighthouseFireFlickerSpeed, motionPlanSignature, resolveShipMotionSample, sampleShipWaterPath, shipWaterPathKey, stableMotionPhase, type ShipDockMotionStop, type ShipMotionSample } from "./motion";
+import { buildBaseMotionPlan, buildMotionPlan, buildShipWaterRoute, createShipMotionSample, isShipMapVisible, lighthouseFireFlickerSpeed, motionPlanSignature, resolveShipMotionSample, resolveShipMotionSampleInto, sampleShipWaterPath, shipWaterPathKey, stableMotionPhase, type ShipDockMotionStop, type ShipMotionSample } from "./motion";
 import { getShipHeadingDelta } from "./motion-sampling";
 import { chaikinSmoothPath, ensureShoreDistanceMask, shoreDistance, warmAllWaterPaths } from "./motion-water";
 import { squadForMember, squadFormationOffsetForPlacement } from "./maker-squad";
@@ -206,6 +206,88 @@ describe("motion", () => {
     // Reference equality proves the second call hit the WeakMap cache rather
     // than re-running the sort + join (which always allocates a fresh string).
     expect(second).toBe(first);
+  });
+
+  it("mutates a single ShipMotionSample in place across consecutive resolves", () => {
+    // Phase 4.1: helpers take an out-parameter (`resolveShipMotionSampleInto`)
+    // so the per-frame sampler can reuse one stable sample object per ship
+    // instead of allocating a fresh literal every call. This is the contract
+    // the render loop relies on to keep the systems layer alloc-free per frame.
+    const ship = world.ships[0]!;
+    const plan = buildMotionPlan(world, ship.detailId);
+    const route = plan.shipRoutes.get(ship.id)!;
+
+    const sample = createShipMotionSample();
+    const tileRef = sample.tile;
+    const headingRef = sample.heading;
+
+    resolveShipMotionSampleInto({ plan, reducedMotion: false, ship, timeSeconds: 0 }, sample);
+    const firstX = sample.tile.x;
+    const firstY = sample.tile.y;
+
+    resolveShipMotionSampleInto({
+      plan,
+      reducedMotion: false,
+      ship,
+      timeSeconds: route.cycleSeconds / 2,
+    }, sample);
+
+    // The sample object identity is preserved — only its fields change.
+    expect(sample.tile).toBe(tileRef);
+    expect(sample.heading).toBe(headingRef);
+    expect(sample.shipId).toBe(ship.id);
+    // And the second call did mutate state (otherwise the render loop would
+    // be reading stale fields).
+    expect(sample.tile.x === firstX && sample.tile.y === firstY).toBe(false);
+  });
+
+  it("derives consort samples from a precomputed flagship sample without re-sampling", () => {
+    // Phase 4.2: when the per-frame map already carries the flagship's sample
+    // (flagships are written first by `collectShipMotionSamples`), the consort
+    // branch must reuse it instead of re-running `sampleRouteCycleInto` on the
+    // flagship route. We assert this by passing a hand-crafted flagship sample
+    // through `flagshipSamples` and verifying the consort tile equals
+    // flagship-tile + cached formation offset (within breathing tolerance).
+    const squadWorld = buildPharosVilleWorld(makerSquadFixtureInputs());
+    const plan = buildMotionPlan(squadWorld, null);
+    const flagshipShip = squadWorld.ships.find((ship) => ship.id === "usds-sky")!;
+    const consortShip = squadWorld.ships.find((ship) => ship.id === "susds-sky")!;
+    const consortRoute = plan.shipRoutes.get(consortShip.id)!;
+
+    expect(consortRoute.formationOffset).not.toBeNull();
+    const offset = consortRoute.formationOffset!;
+
+    // Synthesize a moored flagship sample so breathing perturbation is skipped
+    // (deterministic comparison). Pin it well clear of the map edges so the
+    // consort offset doesn't get clamped by `clampMotionTileInto`.
+    const flagshipSample = createShipMotionSample();
+    flagshipSample.shipId = flagshipShip.id;
+    flagshipSample.tile.x = 30;
+    flagshipSample.tile.y = 30;
+    flagshipSample.state = "moored";
+    flagshipSample.zone = flagshipShip.riskZone;
+    flagshipSample.heading.x = 1;
+    flagshipSample.heading.y = 0;
+
+    const flagshipSamples = new Map<string, ShipMotionSample>([[flagshipShip.id, flagshipSample]]);
+
+    const consortSample = createShipMotionSample();
+    resolveShipMotionSampleInto({
+      plan,
+      reducedMotion: false,
+      ship: consortShip,
+      timeSeconds: 0,
+      flagshipSamples,
+    }, consortSample);
+
+    // Consort tile is purely flagship + cached offset (moored => no breathing).
+    expect(consortSample.tile.x).toBeCloseTo(flagshipSample.tile.x + offset.dx, 5);
+    expect(consortSample.tile.y).toBeCloseTo(flagshipSample.tile.y + offset.dy, 5);
+    // Consort inherits flagship heading + state, but never claims the dock.
+    expect(consortSample.heading.x).toBe(flagshipSample.heading.x);
+    expect(consortSample.heading.y).toBe(flagshipSample.heading.y);
+    expect(consortSample.state).toBe("moored");
+    expect(consortSample.currentDockId).toBeNull();
   });
 
   it("reuses cached water paths across plan rebuilds when the map identity is stable", () => {
@@ -1206,6 +1288,53 @@ describe("motion", () => {
         }
       }
       expect(observedBreathing).toBe(true);
+    });
+
+    // Plan item 1.5: docked ships in busy harbors must not depart/arrive in
+    // lockstep. With a stable-hash phase per ship the moored windows fall on
+    // distinct cycle offsets, so picking a single wallclock instant should
+    // catch the fleet in a mix of states (some moored, some sailing) instead
+    // of all in the same phase. Locks the desync invariant against any future
+    // collapse of `phaseSeconds` to a shared value.
+    it("docked-fleet phaseSeconds desynchronize so harbors do not moor in lockstep", () => {
+      // Many docked ships at once: the dense fixture exercises the harbor
+      // crowd path that motivated this invariant.
+      const denseWorld = buildPharosVilleWorld({
+        stablecoins: denseFixtureStablecoins,
+        chains: denseFixtureChains,
+        stability: fixtureStability,
+        pegSummary: denseFixturePegSummary,
+        stress: denseFixtureStress,
+        reportCards: denseFixtureReportCards,
+        cemeteryEntries: [],
+        freshness: {},
+      });
+      const plan = buildMotionPlan(denseWorld, null);
+      const dockedShips = denseWorld.ships.filter((ship) => ship.dockVisits.length > 0);
+      expect(dockedShips.length).toBeGreaterThan(8);
+
+      // Phase determinism + stable-hash jitter: same ship id always yields the
+      // same phaseSeconds; distinct ship ids almost never collide.
+      const phaseValues = dockedShips
+        .map((ship) => plan.shipRoutes.get(ship.id)!.phaseSeconds);
+      const uniquePhaseCount = new Set(phaseValues).size;
+      expect(uniquePhaseCount).toBeGreaterThanOrEqual(Math.floor(dockedShips.length * 0.9));
+
+      // At a single wallclock instant the docked fleet must NOT all be in the
+      // same state — the Phase 1.5 lockstep regression would manifest as every
+      // ship reporting the same state (all moored, or all departing).
+      const sampleTime = 47; // arbitrary; a regression would fail at any t.
+      const stateCounts = new Map<string, number>();
+      for (const ship of dockedShips) {
+        const sample = resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds: sampleTime });
+        stateCounts.set(sample.state, (stateCounts.get(sample.state) ?? 0) + 1);
+      }
+      // At least two distinct states observed across the fleet, and no single
+      // state dominates the entire fleet.
+      expect(stateCounts.size).toBeGreaterThanOrEqual(2);
+      for (const count of stateCounts.values()) {
+        expect(count).toBeLessThan(dockedShips.length);
+      }
     });
   });
 
