@@ -1,6 +1,57 @@
 import { memo } from "react";
+import { CAUSE_HEX, CAUSE_META, type CauseOfDeath } from "@shared/lib/cause-of-death";
+import type { HealthBand } from "@shared/types/chains";
 import { formationLabel, squadRole, STABLECOIN_SQUADS, type StablecoinSquad } from "../systems/maker-squad";
-import type { PharosVilleWorld, ShipNode } from "../systems/world-types";
+import { SQUAD_DISTRESS_FLAG_HEX } from "../renderer/layers/maker-squad-chrome";
+import type { AreaNode, DewsAreaBand, PharosVilleWorld, ShipNode } from "../systems/world-types";
+
+// Dock health-band swatches mirror the renderer's `dockHealthColor()` table in
+// `src/renderer/layers/docks.ts`. Robust and healthy share the same green
+// since the renderer treats them identically; both are listed for ledger
+// parity with the textual `healthBand` value the dock row already prints.
+// Update both sites if the palette drifts.
+const DOCK_HEALTH_BAND_LEGEND: ReadonlyArray<{
+  band: HealthBand;
+  hex: string;
+  label: string;
+}> = [
+  { band: "robust", hex: "#78b689", label: "Robust — diversified, healthy stablecoin mix" },
+  { band: "healthy", hex: "#78b689", label: "Healthy — well-distributed supply" },
+  { band: "mixed", hex: "#dfb95a", label: "Mixed — moderate concentration risk" },
+  { band: "fragile", hex: "#d98b54", label: "Fragile — single-stablecoin dominance" },
+  { band: "concentrated", hex: "#c9675c", label: "Concentrated — extreme single-issuer dependence" },
+];
+
+// Wreck cause-color swatches are sourced from the canonical `CAUSE_HEX` table
+// in `shared/lib/cause-of-death.ts`, which the renderer's `graves.ts` also
+// reads via `GRAVE_CAUSE_COLORS`. Single source of truth — adding a cause
+// upstream will require an entry here.
+const WRECK_CAUSE_LEGEND: ReadonlyArray<{
+  cause: CauseOfDeath;
+  hex: string;
+  label: string;
+}> = (Object.keys(CAUSE_HEX) as CauseOfDeath[]).map((cause) => ({
+  cause,
+  hex: CAUSE_HEX[cause],
+  label: CAUSE_META[cause]?.label ?? cause,
+}));
+
+// Mirrors the per-band atmosphere descriptor in `src/systems/detail-model.ts`
+// (Phase 2.6 DOM parity). When a banded area's renderer treatment escalates,
+// the ledger row escalates with it. Lightning suffix gates on the same
+// `band >= WARNING` threshold the renderer uses.
+const ATMOSPHERE_DESCRIPTORS: Record<DewsAreaBand, string> = {
+  CALM: "clear sky, calm sea",
+  WATCH: "thin clouds, light chop",
+  ALERT: "broken clouds, moderate chop",
+  WARNING: "thickening clouds, rough sea, lightning active",
+  DANGER: "heavy storm clouds, heavy chop, lightning active",
+};
+
+function atmosphereLineForArea(area: AreaNode): string {
+  if (!area.band) return "Atmosphere: calm waters; no DEWS atmosphere modulation";
+  return `Atmosphere: ${area.band}, ${ATMOSPHERE_DESCRIPTORS[area.band]}`;
+}
 
 const compactUsd = new Intl.NumberFormat("en-US", {
   currency: "USD",
@@ -64,6 +115,7 @@ function AccessibilityLedgerContent({
           <li key={area.id}>
             {area.label}
             {area.riskPlacement ? `: ${area.band ? `DEWS ${area.band}, ${area.count ?? 0} stablecoins` : `risk water zone ${area.riskZone ?? "unavailable"}`}, placement ${area.riskPlacement}. ${area.summary ?? ""} Facts: ${area.facts?.map((fact) => `${fact.label} ${fact.value}`).join("; ") ?? "unavailable"}. Source fields ${area.sourceFields?.join(", ") || "unavailable"}.` : "."}
+            {area.riskPlacement ? ` ${atmosphereLineForArea(area)}.` : ""}
           </li>
         ))}
       </ol>
@@ -113,6 +165,18 @@ function AccessibilityLedgerContent({
                   <ul>
                     {overrideShips.map((ship) => (
                       <li key={ship.id}>
+                        <span
+                          aria-hidden="true"
+                          data-testid="squad-distress-swatch"
+                          style={{
+                            background: SQUAD_DISTRESS_FLAG_HEX,
+                            display: "inline-block",
+                            height: "0.7em",
+                            marginRight: "0.3em",
+                            width: "0.7em",
+                          }}
+                        />
+                        <span>distress signal flag</span>{" "}
                         {ship.symbol} in distress — squad sheltering at flagship&apos;s position
                         {ship.placementEvidence.squadOverride?.ownReason
                           ? `; consort signal ${ship.placementEvidence.squadOverride.ownReason}`
@@ -139,6 +203,48 @@ function AccessibilityLedgerContent({
           </li>
         ))}
       </ol>
+
+      <section data-testid="dock-health-band-legend">
+        <h3>Dock health-band color legend</h3>
+        <ul>
+          {DOCK_HEALTH_BAND_LEGEND.map((entry) => (
+            <li key={entry.band}>
+              <span
+                aria-hidden="true"
+                style={{
+                  background: entry.hex,
+                  display: "inline-block",
+                  height: "0.7em",
+                  marginRight: "0.3em",
+                  width: "0.7em",
+                }}
+              />
+              {entry.band}: {entry.label} ({entry.hex}).
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section data-testid="wreck-cause-color-legend">
+        <h3>Wreck cause-color swatch legend</h3>
+        <ul>
+          {WRECK_CAUSE_LEGEND.map((entry) => (
+            <li key={entry.cause}>
+              <span
+                aria-hidden="true"
+                style={{
+                  background: entry.hex,
+                  display: "inline-block",
+                  height: "0.7em",
+                  marginRight: "0.3em",
+                  width: "0.7em",
+                }}
+              />
+              {entry.cause}: {entry.label} ({entry.hex}).
+            </li>
+          ))}
+        </ul>
+      </section>
 
       <h3>Visual cues</h3>
       <ol>

@@ -1,5 +1,5 @@
 import { CHAIN_META } from "@shared/lib/chains";
-import type { AreaNode, DetailModel, DockNode, GraveNode, LighthouseNode, ShipNode } from "./world-types";
+import type { AreaNode, DetailModel, DewsAreaBand, DockNode, GraveNode, LighthouseNode, ShipNode } from "./world-types";
 import { ETHEREUM_L2_DOCK_CHAIN_IDS } from "./world-layout";
 import { analyticalRouteHref } from "./route-links";
 import { formationLabel, squadForMember, squadRole } from "./maker-squad";
@@ -20,6 +20,24 @@ function chainLabel(chainId: string): string {
 }
 
 const ETHEREUM_L2_DOCK_CHAIN_ID_SET = new Set<string>(ETHEREUM_L2_DOCK_CHAIN_IDS);
+
+// Per-band atmospheric descriptor used by the area detail panel. Mirrors the
+// renderer's per-zone treatment in `src/renderer/layers/weather.ts` (Phase
+// 2.6 DOM parity): cloud + chop wording escalates with the DEWS band, and
+// WARNING+/DANGER receive a "lightning active" suffix matching the
+// `bandReceivesLightning` gate (threat >= 3).
+const ATMOSPHERE_DESCRIPTORS: Record<DewsAreaBand, string> = {
+  CALM: "Clear sky, calm sea",
+  WATCH: "Thin clouds, light chop",
+  ALERT: "Broken clouds, moderate chop",
+  WARNING: "Thickening clouds, rough sea, lightning active",
+  DANGER: "Heavy storm clouds, heavy chop, lightning active",
+};
+
+function atmosphereForArea(area: AreaNode): string {
+  if (!area.band) return "Calm waters; no DEWS atmosphere modulation";
+  return `${area.label} — ${area.band}, ${ATMOSPHERE_DESCRIPTORS[area.band]}`;
+}
 
 function dockHarborGroupLabel(node: DockNode): string {
   if (node.chainId === "ethereum") return "Ethereum anchor harbor";
@@ -207,6 +225,7 @@ export function detailForArea(node: AreaNode): DetailModel {
       ...(node.count != null ? [{ label: "Stablecoins", value: String(node.count) }] : []),
       ...(node.riskZone ? [{ label: "Risk water zone", value: node.riskZone }] : []),
       ...(node.riskPlacement ? [{ label: "Risk placement", value: node.riskPlacement }] : []),
+      { label: "Atmosphere", value: atmosphereForArea(node) },
       ...(node.facts ?? []),
       ...(node.sourceFields?.length ? [{ label: "Source fields", value: node.sourceFields.join(", ") }] : []),
     ],

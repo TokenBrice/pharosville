@@ -54,6 +54,49 @@ describe("AccessibilityLedger", () => {
     expect(markup).toContain("squad sheltering at flagship");
   });
 
+  it("renders an inline distress swatch alongside the textual mention", () => {
+    const world = buildPharosVilleWorld(fixtureWithDepegOn(makerSquadFixtureInputs(), "susds-sky"));
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    // Swatch span carries the canonical chrome hex; textual cue stays
+    // screen-reader visible.
+    expect(markup).toContain("data-testid=\"squad-distress-swatch\"");
+    expect(markup.toLowerCase()).toContain("background:#a02018");
+    expect(markup).toContain("distress signal flag");
+  });
+
+  it("renders a dock health-band color legend with all five bands and hex values", () => {
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorld()} />);
+
+    expect(markup).toContain("Dock health-band color legend");
+    expect(markup).toContain("data-testid=\"dock-health-band-legend\"");
+    expect(markup).toContain("robust");
+    expect(markup).toContain("healthy");
+    expect(markup).toContain("mixed");
+    expect(markup).toContain("fragile");
+    expect(markup).toContain("concentrated");
+    // Renderer-canonical hex values from src/renderer/layers/docks.ts.
+    expect(markup.toLowerCase()).toContain("#78b689");
+    expect(markup.toLowerCase()).toContain("#dfb95a");
+    expect(markup.toLowerCase()).toContain("#d98b54");
+    expect(markup.toLowerCase()).toContain("#c9675c");
+  });
+
+  it("renders a wreck cause-color swatch legend with each CAUSE_HEX entry", () => {
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorld()} />);
+
+    expect(markup).toContain("Wreck cause-color swatch legend");
+    expect(markup).toContain("data-testid=\"wreck-cause-color-legend\"");
+    expect(markup).toContain("algorithmic-failure");
+    expect(markup).toContain("counterparty-failure");
+    expect(markup).toContain("liquidity-drain");
+    expect(markup).toContain("regulatory");
+    expect(markup).toContain("abandoned");
+    // Sample of CAUSE_HEX-canonical values.
+    expect(markup.toLowerCase()).toContain("#ef4444");
+    expect(markup.toLowerCase()).toContain("#71717a");
+  });
+
   it("appends a heritage-hull clause for ships carrying uniqueRationale", () => {
     const world = sampleWorldWithUniqueShip();
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
