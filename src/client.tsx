@@ -1,6 +1,8 @@
 "use client";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { DesktopOnlyFallback } from "./desktop-only-fallback";
+import { RotateToLandscape } from "./rotate-to-landscape";
+import { observeOrientation } from "./systems/orientation";
 import "./pharosville.css";
 
 const MIN_LONG_SIDE_PX = 1000;
@@ -38,10 +40,25 @@ function useScreenCapability() {
   return canFit;
 }
 
+function isPortraitNow(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return window.matchMedia("(orientation: portrait)").matches;
+}
+
+function useIsPortrait() {
+  const [isPortrait, setIsPortrait] = useState<boolean>(() => isPortraitNow());
+
+  useEffect(() => observeOrientation(setIsPortrait), []);
+
+  return isPortrait;
+}
+
 export function PharosVilleClient() {
   const canFit = useScreenCapability();
+  const isPortrait = useIsPortrait();
 
   if (!canFit) return <DesktopOnlyFallback />;
+  if (isPortrait) return <RotateToLandscape />;
 
   return (
     <Suspense fallback={<div className="pharosville-loading pharosville-desktop" aria-busy="true">Charting market winds…</div>}>

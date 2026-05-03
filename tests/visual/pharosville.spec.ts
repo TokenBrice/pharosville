@@ -708,6 +708,44 @@ test("pharosville desktop gate passes at threshold screen and falls back below i
   }
 });
 
+test("pharosville prompts to rotate when a wide-enough screen is held in portrait", async ({ page }) => {
+  // Foldable / tablet held in portrait: the screen could fit the map, but the
+  // current viewport is taller than wide. Show the rotate prompt instead of
+  // the desktop-only fallback or the cramped map. The manifest is allowed to
+  // preload (it's a cached fetch ready for when the user rotates) — only the
+  // world runtime (API + canvas) must stay dormant.
+  const deniedRequests = await denyPharosVilleViewportGatedRequests(page);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await mockScreenSize(page, 1080, 1920);
+  await page.setViewportSize({ width: 800, height: 1200 });
+  await installWallClockOverride(page, 12);
+  await page.goto("/");
+
+  await expect(page.getByText("Turn the harbor sideways.")).toBeVisible();
+  await expect(page.getByText("PharosVille needs a wider harbor.")).toHaveCount(0);
+  await expect(page.getByTestId("pharosville-canvas")).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "PSI" })).toBeVisible();
+  const runtimeRequests = deniedRequests.filter((path) => (
+    path !== "/pharosville/assets/manifest.runtime.json"
+  ));
+  expect(runtimeRequests).toEqual([]);
+});
+
+test("pharosville rotates from prompt to map when viewport becomes landscape", async ({ page }) => {
+  await mockPharosVilleData(page);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await mockScreenSize(page, 1920, 1080);
+  await page.setViewportSize({ width: 800, height: 1200 });
+  await installWallClockOverride(page, 12);
+  await page.goto("/");
+
+  await expect(page.getByText("Turn the harbor sideways.")).toBeVisible();
+
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await expect(page.getByTestId("pharosville-canvas")).toBeVisible();
+  await expect(page.getByText("Turn the harbor sideways.")).toHaveCount(0);
+});
+
 test("pharosville keeps world runtime mounted when the browser window is resized below the old viewport gate", async ({ page }) => {
   // Under the screen-capability gate, only the device's screen size matters;
   // shrinking the browser window must NOT unmount the world runtime.
