@@ -39,6 +39,6 @@ Current source of truth for future maintainers:
 
 ## Original Verdict
 
-Feasible, but it should be treated as a product surface, not a decorative map. The current implementation target is a full visual replacement using the standalone world model and renderer under `src/`, inspired by ClaudeVille's Canvas 2D architecture and sprite workflow. Screens below `1280px` are a desktop-only fallback for v0.1, not a mobile/tablet canvas. Existing Pharos endpoints are sufficient through the Pages Function proxy without client-side cross-origin API calls.
+Feasible, but it should be treated as a product surface, not a decorative map. The current implementation target is a full visual replacement using the standalone world model and renderer under `src/`, inspired by ClaudeVille's Canvas 2D architecture and sprite workflow. Screens below `1000px` are a desktop-only fallback for v0.1, not a mobile/tablet canvas. Existing Pharos endpoints are sufficient through the Pages Function proxy without client-side cross-origin API calls.
 
 Independent review originally returned "conditional go" and identified data-contract, accessibility, and performance gaps. Those fixes have been folded into the current route contract and maintenance docs.

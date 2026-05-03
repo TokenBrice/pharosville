@@ -643,7 +643,7 @@ test("pharosville narrow fallback avoids world runtime requests", async ({ page 
   await page.emulateMedia({ reducedMotion: "reduce" });
   const deniedRequests = await denyPharosVilleViewportGatedRequests(page);
 
-  await page.setViewportSize({ width: 1279, height: 900 });
+  await page.setViewportSize({ width: 999, height: 900 });
   await installWallClockOverride(page, 12);
   await page.goto("/");
 
@@ -658,7 +658,7 @@ test("pharosville short desktop fallback avoids clipped map", async ({ page }) =
   await page.emulateMedia({ reducedMotion: "reduce" });
   const deniedRequests = await denyPharosVilleViewportGatedRequests(page);
 
-  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.setViewportSize({ width: 1000, height: 639 });
   await installWallClockOverride(page, 12);
   await page.goto("/");
 
@@ -671,17 +671,17 @@ test("pharosville desktop gate includes threshold viewport and excludes edge-bel
   await mockPharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
 
-  await page.setViewportSize({ width: 1280, height: 760 });
+  await page.setViewportSize({ width: 1000, height: 640 });
   await installWallClockOverride(page, 12);
   await page.goto("/");
   await expect(page.getByTestId("pharosville-canvas")).toBeVisible();
   await waitForRuntimeDebug(page, true);
 
-  await page.setViewportSize({ width: 1279, height: 760 });
+  await page.setViewportSize({ width: 999, height: 640 });
   await expect(page.getByText("PharosVille needs a wider harbor.")).toBeVisible();
   await expect(page.getByTestId("pharosville-canvas")).toHaveCount(0);
 
-  await page.setViewportSize({ width: 1280, height: 759 });
+  await page.setViewportSize({ width: 1000, height: 639 });
   await expect(page.getByText("PharosVille needs a wider harbor.")).toBeVisible();
   await expect(page.getByTestId("pharosville-canvas")).toHaveCount(0);
 });
@@ -705,7 +705,7 @@ test("pharosville resizing below desktop gate unmounts world runtime and stops g
     }
   });
 
-  await page.setViewportSize({ width: 1279, height: 759 });
+  await page.setViewportSize({ width: 999, height: 639 });
   await expect(page.getByText("PharosVille needs a wider harbor.")).toBeVisible();
   await expect(page.getByTestId("pharosville-canvas")).toHaveCount(0);
   await page.waitForTimeout(150);

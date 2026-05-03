@@ -3,7 +3,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { DesktopOnlyFallback } from "./desktop-only-fallback";
 import "./pharosville.css";
 
-const DESKTOP_QUERY = "(min-width: 1280px) and (min-height: 760px)";
+const DESKTOP_QUERY = "(min-width: 1000px) and (min-height: 640px)";
 
 const PharosVilleDesktopData = lazy(() => (
   import("./pharosville-desktop-data").then((mod) => ({ default: mod.PharosVilleDesktopData }))

@@ -38,8 +38,8 @@ Use focused entries while developing:
 | Dense visual fixture | `npx playwright test tests/visual/pharosville.spec.ts --grep "dense visual fixture"` | 8 rendered chain docks, 132 dense-fixture ship motion samples, rotating normal-motion visible ship targets, no ship-cluster targets, crop atlas coverage, and p95 draw-duration budget under normal motion. |
 | Named risk-water areas | `npx playwright test tests/visual/pharosville.spec.ts --grep "named risk water"` | Calm, Watch, Alert, Warning, Danger, and Ledger Mooring labels all remain visible, win label clicks, and select browser details with matching risk-water zones. |
 | Stressed ship detail | `npx playwright test tests/visual/pharosville.spec.ts --grep "stressed ship"` | USDT active-depeg fixture selects a ship, shows Danger Strait/storm-shelf risk water, risk zone `danger`, and evidence fields. |
-| Narrow fallback | `npx playwright test tests/visual/pharosville.spec.ts --grep "narrow fallback"` | No canvas/runtime requests under `1280px` width. |
-| Short fallback | `npx playwright test tests/visual/pharosville.spec.ts --grep "short desktop"` | DOM-only fallback, no clipped canvas, and no world/runtime requests under `760px` height. |
+| Narrow fallback | `npx playwright test tests/visual/pharosville.spec.ts --grep "narrow fallback"` | No canvas/runtime requests under `1000px` width. |
+| Short fallback | `npx playwright test tests/visual/pharosville.spec.ts --grep "short desktop"` | DOM-only fallback, no clipped canvas, and no world/runtime requests under `640px` height. |
 | Ultrawide canvas | `npx playwright test tests/visual/pharosville.spec.ts --grep "ultrawide"` | DPR/backing-store caps at `2560 x 1440` with device scale factor 3. |
 | Interactions | `npx playwright test tests/visual/pharosville.spec.ts --grep "interactions"` | Click selection, detail anchors, blank-map clearing, pan/zoom, fullscreen, and camera bounds. |
 | Reduced motion | `npx playwright test tests/visual/pharosville.spec.ts --grep "reduced motion"` | Static ship samples, no RAF loop, and live reduced-motion preference changes. |
@@ -64,7 +64,7 @@ Use these notes for the compact main-island revamp:
   periphery is recalibrated.
 - Narrow fallback screenshots should remain unchanged, and short fallback
   assertions should stay DOM-only: no world data, manifest, canvas, or sprite
-  decode below `1280 x 760`.
+  decode below `1000 x 640`.
 
 ## Historical Review Images
 

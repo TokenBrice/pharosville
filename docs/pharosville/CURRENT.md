@@ -143,7 +143,7 @@ Historical plans in this directory are context, not live instructions. If they c
 
 ## Current Route Invariants
 
-- The desktop world must not mount below `1280px` width or `760px` height. Below that gate, keep the DOM fallback and avoid world queries, manifest fetches, canvas setup, and sprite decoding.
+- The desktop world must not mount below `1000px` width or `640px` height. Below that gate, keep the DOM fallback and avoid world queries, manifest fetches, canvas setup, and sprite decoding.
 - PharosVille uses same-origin `/api/*` requests proxied by the Cloudflare Pages Function. Do not add client-side cross-origin API calls or expose `PHAROS_API_KEY`.
 - The world model should stay pure and deterministic. Canvas drawing, hit testing, selected rings, follow-selected behavior, and debug frame state must sample the same motion model.
 - Reduced-motion users get a deterministic non-animated frame without a running RAF loop.

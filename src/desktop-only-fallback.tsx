@@ -14,7 +14,7 @@ export function DesktopOnlyFallback() {
         <p className="pharosville-narrow__kicker">Desktop map</p>
         <h2 id="pharosville-narrow-title">PharosVille needs a wider harbor.</h2>
         <p>
-          PharosVille is a desktop-only map for now. Open this page on a screen at least 1280px wide and 760px tall.
+          PharosVille is a desktop-only map for now. Open this page on a screen at least 1000px wide and 640px tall.
         </p>
         <nav className="pharosville-narrow__links" aria-label="Pharos analytics">
           {FALLBACK_LINKS.map((link) => (

@@ -79,7 +79,7 @@ npx playwright test tests/visual/pharosville.spec.ts --grep "reduced motion"
 npx playwright test tests/visual/pharosville.spec.ts --grep "narrow fallback"
 ```
 
-The visual suite covers desktop shell rendering, narrow/short fallback behavior, canvas interaction, reduced-motion behavior, normal-motion movement, and backing-store budget checks. The narrow fallback has a committed screenshot baseline; the short fallback is DOM-only coverage that confirms no clipped canvas and no world/runtime requests below `760px` height.
+The visual suite covers desktop shell rendering, narrow/short fallback behavior, canvas interaction, reduced-motion behavior, normal-motion movement, and backing-store budget checks. The narrow fallback has a committed screenshot baseline; the short fallback is DOM-only coverage that confirms no clipped canvas and no world/runtime requests below `640px` height.
 
 ## Budget Guards
 
@@ -145,7 +145,7 @@ Run `rg` over `README.md`, `docs/pharosville`, `docs/pharosville-page.md`, and s
 
 ## What To Verify Manually
 
-- The desktop gate still prevents world data, manifest, canvas, and sprite loading below `1280px` by `760px`.
+- The desktop gate still prevents world data, manifest, canvas, and sprite loading below `1000px` by `640px`.
 - Normal motion visibly moves ships without turning route semantics into game mechanics.
 - Reduced motion stays deterministic and does not run a RAF loop.
 - Detail panel and accessibility ledger describe any new visual encoding.
