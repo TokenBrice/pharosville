@@ -59,7 +59,7 @@ describe("buildPharosVilleMap", () => {
     expect(Math.abs(mainCenter.y - CIVIC_CORE_CENTER.y)).toBeLessThan(2);
     const counts = terrainCounts(map.tiles);
     expect((counts.get("deep-water") ?? 0) / map.tiles.length).toBeLessThanOrEqual(0.03);
-    expect(counts.get("watch-water") ?? 0).toBeGreaterThan(counts.get("calm-water") ?? 0);
+    expect(counts.get("calm-water") ?? 0).toBeGreaterThan(counts.get("watch-water") ?? 0);
     expect(counts.get("calm-water") ?? 0).toBeGreaterThan(counts.get("ledger-water") ?? 0);
     expect(counts.get("ledger-water") ?? 0).toBeGreaterThanOrEqual(280);
     expect(counts.get("watch-water") ?? 0).toBeGreaterThanOrEqual(80);
@@ -145,20 +145,23 @@ describe("buildPharosVilleMap", () => {
       { x: 0, y: 55 },
       { x: 6, y: 20 },
       { x: 14, y: 42 },
+      { x: 18, y: 47 },
+      { x: 28, y: 50 },
+      { x: 34, y: 44 },
+      { x: 37, y: 55 },
+      { x: 44, y: 34 },
+      { x: 45, y: 35 },
     ];
     const watchSamples = [
-      { x: 18, y: 47 },
-      { x: 22, y: 49 },
-      { x: 28, y: 50 },
-      { x: 34, y: 52 },
+      { x: 38, y: 52 },
+      { x: 38, y: 55 },
       { x: 48, y: 44 },
       { x: 52, y: 42 },
       { x: 55, y: 38 },
       { x: 55, y: 25 },
       { x: 50, y: 30 },
-      { x: 45, y: 35 },
-      { x: 22, y: 55 },
-      { x: 38, y: 55 },
+      { x: 43, y: 54 },
+      { x: 49, y: 50 },
     ];
 
     for (const tile of calmSamples) {
@@ -176,6 +179,8 @@ describe("buildPharosVilleMap", () => {
       { x: 7, y: 0 },
       { x: 14, y: 0 },
       { x: 22, y: 0 },
+      { x: 25, y: 0 },
+      { x: 30, y: 1 },
       { x: 30, y: 5 },
       { x: 10, y: 5 },
       { x: 15, y: 4 },
@@ -195,24 +200,33 @@ describe("buildPharosVilleMap", () => {
     for (const tile of southeastWatchSamples) {
       expect(terrainKindAt(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("watch-water");
     }
-    // The south basin previously held by Calm now reads as Watch Breakwater.
-    expect(terrainKindAt(28, 50)).toBe("watch-water");
+    // Calm claims the southwest south basin plus the two circled pockets;
+    // Watch resumes east/southeast of those reclaimed areas.
+    expect(terrainKindAt(28, 50)).toBe("calm-water");
+    expect(terrainKindAt(34, 44)).toBe("calm-water");
+    expect(terrainKindAt(44, 34)).toBe("calm-water");
+    expect(terrainKindAt(37, 55)).toBe("calm-water");
+    expect(terrainKindAt(38, 55)).toBe("watch-water");
     expect(terrainKindAt(43, 54)).toBe("watch-water");
     // Ledger ends at y=9; Calm picks up at y=10 along the western flank so
     // the two zones touch without overlap.
     expect(terrainKindAt(0, 10)).toBe("calm-water");
     expect(terrainKindAt(15, 10)).toBe("calm-water");
-    // Tiles between the new Ledger shelf and the eastern Alert ring fall back
-    // to generic navigable water; the eastern rings stay intact. The top two
-    // rows of the shelf taper east at x=22, widening that buffer at y∈[0,1].
-    expect(terrainKindAt(25, 0)).toBe("water");
-    expect(terrainKindAt(30, 1)).toBe("water");
-    expect(terrainKindAt(31, 0)).toBe("water");
-    expect(terrainKindAt(34, 2)).toBe("water");
-    expect(terrainKindAt(37, 5)).toBe("water");
+    // Ledger is snapped to the top-left corner; freed water immediately east
+    // of x=30 belongs to Watch before the Alert ring takes over.
+    expect(terrainKindAt(25, 0)).toBe("ledger-water");
+    expect(terrainKindAt(30, 1)).toBe("ledger-water");
+    expect(terrainKindAt(31, 0)).toBe("watch-water");
+    expect(terrainKindAt(34, 2)).toBe("watch-water");
+    expect(terrainKindAt(37, 5)).toBe("watch-water");
+    expect(terrainKindAt(39, 7)).toBe("alert-water");
+    expect(terrainKindAt(40, 5)).toBe("alert-water");
     expect(terrainKindAt(40, 0)).toBe("alert-water");
+    expect(terrainKindAt(47, 14)).toBe("alert-water");
+    expect(terrainKindAt(52, 14)).toBe("alert-water");
     expect(terrainKindAt(55, 17)).toBe("alert-water");
     expect(terrainKindAt(55, 18)).toBe("watch-water");
+    expect(terrainKindAt(43, 34)).toBe("calm-water");
     expect(terrainKindAt(55, 38)).toBe("watch-water");
     expect(terrainKindAt(45, 0)).toBe("warning-water");
     expect(terrainKindAt(55, 0)).toBe("storm-water");

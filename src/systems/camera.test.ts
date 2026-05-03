@@ -30,12 +30,15 @@ describe("camera", () => {
     const map = buildPharosVilleMap();
     const centerTile = landBoundsCenter(map.tiles);
 
-    for (const viewport of [{ x: 1440, y: 1000 }, { x: 1280, y: 760 }]) {
+    for (const viewport of [{ x: 1440, y: 1000 }, { x: 1280, y: 760 }, { x: 1000, y: 640 }]) {
       const camera = defaultCamera({ height: viewport.y, map, width: viewport.x });
       const center = tileToScreen(centerTile, camera);
 
       expect(camera.zoom).toBeCloseTo(0.8136);
-      expect(center.x).toBeGreaterThanOrEqual(viewport.x * 0.4);
+      // Lower bound is 0.39 (not 0.4) so the constant 128 px right-gutter
+      // reservation still falls inside the "left-of-center" band at the
+      // 1000-wide gate floor, where the gutter is proportionally larger.
+      expect(center.x).toBeGreaterThanOrEqual(viewport.x * 0.39);
       expect(center.x).toBeLessThanOrEqual(viewport.x * 0.55);
       expect(center.y).toBeGreaterThanOrEqual(viewport.y * 0.45);
       expect(center.y).toBeLessThanOrEqual(viewport.y * 0.65);

@@ -17,27 +17,30 @@ describe("renderer viewport helpers", () => {
     expect(tileBoundsTileCount(bounds)).toBe(0);
   });
 
-  it("expands and clamps tile bounds by the requested tile margin", () => {
+  it.each([
+    { width: 1280, height: 760 },
+    { width: 1000, height: 640 },
+  ])("expands and clamps tile bounds by the requested tile margin at $width x $height", ({ width, height }) => {
     const camera = fitCameraToMap({
-      height: 760,
+      height,
       map: { height: 56, width: 56 },
-      width: 1280,
+      width,
     });
     const noMargin = visibleTileBoundsForCamera({
       camera,
       mapHeight: 56,
       mapWidth: 56,
       tileMargin: 0,
-      viewportHeight: 760,
-      viewportWidth: 1280,
+      viewportHeight: height,
+      viewportWidth: width,
     });
     const expanded = visibleTileBoundsForCamera({
       camera,
       mapHeight: 56,
       mapWidth: 56,
       tileMargin: 2,
-      viewportHeight: 760,
-      viewportWidth: 1280,
+      viewportHeight: height,
+      viewportWidth: width,
     });
 
     expect(noMargin).not.toBeNull();

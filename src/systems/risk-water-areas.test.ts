@@ -158,7 +158,7 @@ describe("risk water areas", () => {
   it("matches the authored DEWS placement diagram", () => {
     const expectedSamples = [
       { band: "CALM", tile: { x: 8, y: 35 }, terrain: "calm-water" },
-      { band: "WATCH", tile: { x: 28, y: 50 }, terrain: "watch-water" },
+      { band: "WATCH", tile: { x: 48, y: 44 }, terrain: "watch-water" },
       { band: "ALERT", tile: { x: 47, y: 14 }, terrain: "alert-water" },
       { band: "WARNING", tile: { x: 50, y: 8 }, terrain: "warning-water" },
       { band: "DANGER", tile: { x: 54, y: 1 }, terrain: "storm-water" },
@@ -176,19 +176,21 @@ describe("risk water areas", () => {
     // ALERT/WARNING/DANGER form concentric rings anchored at the east corner.
     expect(terrainKindAt(0, 27)).toBe("calm-water");
     expect(terrainKindAt(14, 42)).toBe("calm-water");
-    expect(terrainKindAt(28, 50)).toBe("watch-water");
-    expect(terrainKindAt(22, 47)).toBe("watch-water");
+    expect(terrainKindAt(28, 50)).toBe("calm-water");
+    expect(terrainKindAt(22, 47)).toBe("calm-water");
+    expect(terrainKindAt(34, 44)).toBe("calm-water");
+    expect(terrainKindAt(44, 34)).toBe("calm-water");
     expect(terrainKindAt(38, 52)).toBe("watch-water");
     expect(terrainKindAt(48, 44)).toBe("watch-water");
     expect(terrainKindAt(52, 42)).toBe("watch-water");
     expect(terrainKindAt(55, 38)).toBe("watch-water");
-    expect(terrainKindAt(30, 55)).toBe("watch-water");
+    expect(terrainKindAt(30, 55)).toBe("calm-water");
     // East shelf below the Alert ring also reads as Watch Breakwater now.
     expect(terrainKindAt(55, 25)).toBe("watch-water");
     expect(terrainKindAt(55, 30)).toBe("watch-water");
     expect(terrainKindAt(55, 37)).toBe("watch-water");
     expect(terrainKindAt(50, 30)).toBe("watch-water");
-    expect(terrainKindAt(45, 35)).toBe("watch-water");
+    expect(terrainKindAt(45, 35)).toBe("calm-water");
     // Watch east bridge absorbs the strip between the south basin and the
     // southeast Calm corner that previously read as un-attributed water.
     expect(terrainKindAt(45, 44)).toBe("watch-water");
@@ -329,7 +331,7 @@ describe("risk water areas", () => {
 
   it("sizes each zone proportionally to ship count", () => {
     const counts = terrainCounts();
-    expect(counts["watch-water"]).toBeGreaterThan(counts["calm-water"]);
+    expect(counts["calm-water"]).toBeGreaterThan(counts["watch-water"]);
     expect(counts["watch-water"]).toBeGreaterThanOrEqual(80);
     expect(counts["alert-water"]).toBeGreaterThan(counts["warning-water"] ?? 0);
     expect(counts["alert-water"]).toBeGreaterThan(counts["storm-water"] ?? 0);

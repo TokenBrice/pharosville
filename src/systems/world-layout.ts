@@ -32,14 +32,16 @@ const ALERT_RING_OUTER = 1.63;
 
 // South breakwater basin shared between Watch Breakwater (primary) and the
 // Calm Anchorage southBay fallback.
-const SOUTH_BASIN_BOUNDS = { minX: 16, maxX: 43, minY: 45 } as const;
+const SOUTH_BASIN_BOUNDS = { minX: 16, maxX: 44, minY: 45 } as const;
 
-// Compact upper Alert ring covers the eastern shelf above this threshold;
-// tiles beyond it on the eastern edge belong to Watch Breakwater.
-const EAST_SHELF_MIN_X = 45;
-const EAST_SHELF_MIN_Y = 18;
-const SOUTH_SHELF_MIN_Y = 38;
+// WATCH is the next east-corner ring outside Alert before the map transitions
+// into the south/southeast breakwater basin.
+const WATCH_RING_OUTER = 7.0;
+const SOUTH_SHELF_MIN_Y = 37;
 const SOUTH_SHELF_DIAGONAL_THRESHOLD = 78;
+const CALM_SOUTH_BASIN_PATCH = { minX: 16, maxX: 37, minY: 45, maxY: MAX_TILE_Y } as const;
+const CALM_EAST_SHOULDER_PATCH = { minX: 40, maxX: 47, minY: 31, maxY: 38 } as const;
+const CALM_LOWER_BREAKWATER_PATCH = { minX: 30, maxX: 42, minY: 42, maxY: 47 } as const;
 
 export const REGION_TILES: Record<ShipRiskPlacement, { x: number; y: number }> = RISK_WATER_REGION_TILES;
 
@@ -107,12 +109,6 @@ export const CEMETERY_ISLAND_RADIUS = { x: 5.4, y: 3.8 } as const;
 // sprite + plaque only.
 export const PIGEON_ISLAND_CENTER = { x: 50, y: 50 } as const;
 export const PIGEON_ISLAND_RADIUS = { x: 0.7, y: 0.7 } as const;
-
-// Pigeonnier-attached harbor for the Telegram TON chain. Sits one tile west of
-// the pigeonnier islet — a floating wharf in watch-water rather than a
-// land-perimeter dock. Selected through a separate pigeonnier-harbor track in
-// `chain-docks.ts`, so it does not consume one of the eight standard chain
-// harbor slots.
 export const PIGEONNIER_HARBOR_DOCK_TILE = { x: PIGEON_ISLAND_CENTER.x - 1, y: PIGEON_ISLAND_CENTER.y } as const;
 export const PIGEONNIER_HARBOR_CHAIN_IDS = ["ton"] as const;
 
@@ -169,18 +165,20 @@ export function terrainKindAt(x: number, y: number): TerrainKind {
 
   if (isOutOfBounds(x, y) || island >= 1) {
     const inIslandPeriphery = isWithinIslandPeriphery(x, y);
-    if (!isLighthouseVisualClearance(x, y) && isSoutheastWatchShelf(x, y)) return "watch-water";
+    if (!isLighthouseVisualClearance(x, y) && isCalmAnchoragePeripheryOverride(x, y)) return "calm-water";
+    if (!isLighthouseVisualClearance(x, y) && isWatchBreakwaterPeripheryOverride(x, y)) return "watch-water";
     if (!inIslandPeriphery && !isLighthouseVisualClearance(x, y)) {
       if (isDangerStrait(x, y)) return "storm-water";
       if (isWarningShoals(x, y)) return "warning-water";
-      if (isAlertChannel(x, y)) return "alert-water";
       if (isLedgerMooring(x, y)) return "ledger-water";
+      if (isAlertChannel(x, y)) return "alert-water";
       if (isWatchBreakwater(x, y)) return "watch-water";
       if (isCalmAnchorage(x, y)) return "calm-water";
     }
-    if (isTopShelfOpenWaterGap(x, y)) return "water";
+    if (isTopShelfOpenWaterGap(x, y)) return "watch-water";
     if (isDeepSeaShelf(x, y)) return "deep-water";
-    return "water";
+    if (inIslandPeriphery || isLighthouseVisualClearance(x, y)) return "water";
+    return "calm-water";
   }
 
   if (cemetery < 1) return "grass";
@@ -245,27 +243,28 @@ function isLighthouseVisualClearance(x: number, y: number): boolean {
 }
 
 function isWatchBreakwater(x: number, y: number): boolean {
-  // South breakwater basin plus the southeast/east shelf below the Alert Channel.
-  const southBasin =
-    x >= SOUTH_BASIN_BOUNDS.minX && x <= SOUTH_BASIN_BOUNDS.maxX && y >= SOUTH_BASIN_BOUNDS.minY;
-  const eastBridge =
-    isSoutheastWatchShelf(x, y)
-    && ellipseValue(x, y, SOUTHEAST_CORNER_CENTER.x, SOUTHEAST_CORNER_CENTER.y, CORNER_RADIUS, CORNER_RADIUS) >= 1.0;
-  const southeastBasin =
-    ellipseValue(x, y, SOUTHEAST_CORNER_CENTER.x, SOUTHEAST_CORNER_CENTER.y, CORNER_RADIUS, CORNER_RADIUS) < 1.0;
-  return southBasin || eastBridge || southeastBasin;
+  // South breakwater basin plus the outer east-corner WATCH ring.
+  return isEastCornerWatchRing(x, y) || isWatchBreakwaterPeripheryOverride(x, y);
 }
 
-function isSoutheastWatchShelf(x: number, y: number): boolean {
-  if (x < 28 || x > MAX_TILE_X || y < EAST_SHELF_MIN_Y || y > MAX_TILE_Y) return false;
-  // Stay clear of the east-corner Alert/Warning/Danger ring stack.
-  if (eastCornerRiskValue(x, y) < ALERT_RING_OUTER) return false;
-  // Eastern shelf: tiles below the Alert ring along the x=55 edge.
-  const easternShelf = x >= EAST_SHELF_MIN_X;
+function isWatchBreakwaterPeripheryOverride(x: number, y: number): boolean {
+  const southBasin =
+    x >= SOUTH_BASIN_BOUNDS.minX && x <= SOUTH_BASIN_BOUNDS.maxX && y >= SOUTH_BASIN_BOUNDS.minY;
+  const southeastBasin =
+    ellipseValue(x, y, SOUTHEAST_CORNER_CENTER.x, SOUTHEAST_CORNER_CENTER.y, CORNER_RADIUS, CORNER_RADIUS) < 1.0;
+  const exposedEastRing = x >= 44 && isEastCornerWatchRing(x, y);
+  return southBasin || exposedEastRing || isSouthernWatchShelf(x, y) || southeastBasin;
+}
+
+function isEastCornerWatchRing(x: number, y: number): boolean {
+  if (x < 28 || x > MAX_TILE_X || y < 0 || y > MAX_TILE_Y) return false;
+  const eastValue = eastCornerRiskValue(x, y);
+  return eastValue >= ALERT_RING_OUTER && eastValue < WATCH_RING_OUTER;
+}
+
+function isSouthernWatchShelf(x: number, y: number): boolean {
   // Southern shelf: tiles south of the harbor that bridge into the south basin.
-  const southernShelf =
-    y >= SOUTH_SHELF_MIN_Y && x + y >= SOUTH_SHELF_DIAGONAL_THRESHOLD;
-  return easternShelf || southernShelf;
+  return x >= 28 && x <= MAX_TILE_X && y >= SOUTH_SHELF_MIN_Y && y <= MAX_TILE_Y && x + y >= SOUTH_SHELF_DIAGONAL_THRESHOLD;
 }
 
 function isCalmAnchorage(x: number, y: number): boolean {
@@ -274,6 +273,25 @@ function isCalmAnchorage(x: number, y: number): boolean {
   const southBay =
     x >= SOUTH_BASIN_BOUNDS.minX && x <= SOUTH_BASIN_BOUNDS.maxX && y >= SOUTH_BASIN_BOUNDS.minY;
   return leftEdge || leftBasin || southBay;
+}
+
+function isCalmAnchoragePeripheryOverride(x: number, y: number): boolean {
+  const southBasinPatch =
+    x >= CALM_SOUTH_BASIN_PATCH.minX
+    && x <= CALM_SOUTH_BASIN_PATCH.maxX
+    && y >= CALM_SOUTH_BASIN_PATCH.minY
+    && y <= CALM_SOUTH_BASIN_PATCH.maxY;
+  const eastShoulderPatch =
+    x >= CALM_EAST_SHOULDER_PATCH.minX
+    && x <= CALM_EAST_SHOULDER_PATCH.maxX
+    && y >= CALM_EAST_SHOULDER_PATCH.minY
+    && y <= CALM_EAST_SHOULDER_PATCH.maxY;
+  const lowerBreakwaterPatch =
+    x >= CALM_LOWER_BREAKWATER_PATCH.minX
+    && x <= CALM_LOWER_BREAKWATER_PATCH.maxX
+    && y >= CALM_LOWER_BREAKWATER_PATCH.minY
+    && y <= CALM_LOWER_BREAKWATER_PATCH.maxY;
+  return southBasinPatch || eastShoulderPatch || lowerBreakwaterPatch;
 }
 
 function isOutOfBounds(x: number, y: number): boolean {
@@ -324,19 +342,16 @@ function isTopShelfOpenWaterGap(x: number, y: number): boolean {
   if (y < 0 || y > 7) return false;
   if (x >= 31 && x <= 39) return true;
   // Visual buffer between Ledger Mooring's east flank and the Alert ring
-  // along the top two rows; without this strip the carved tiles would fall
-  // through to deep-water and read as the outer shelf.
+  // along the top two rows; this is now folded into Watch Breakwater so no
+  // neutral water remains between Ledger and Alert.
   if (x >= 23 && x <= 30 && y <= 1) return true;
   return false;
 }
 
 function isLedgerMooring(x: number, y: number): boolean {
-  // Top mooring shelf: covers the upper edge of the diamond from the western
-  // corner across to just before the eastern Alert ring. The two top rows
-  // taper east at x=22 so NAV ships do not crowd the Alert/Warning/Danger
-  // ring at y=0..1; deeper rows keep the full shelf width.
+  // Top-left mooring shelf snapped to the map corner. The east/top freed
+  // water beyond x=30 belongs to Watch Breakwater before the Alert stack.
   if (y < 0 || y > 9 || x < 0) return false;
-  if (y <= 1) return x <= 22;
   return x <= 30;
 }
 

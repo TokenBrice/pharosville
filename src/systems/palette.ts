@@ -83,11 +83,11 @@ export const WATER_TERRAIN_STYLES = {
     wave: "rgba(225, 214, 162, 0.18)",
   },
   "calm-water": {
-    accent: "rgba(165, 222, 202, 0.2)",
-    base: "#27734f",
-    inner: "rgba(80, 162, 114, 0.2)",
+    accent: "rgba(188, 245, 233, 0.22)",
+    base: "#0f6f8d",
+    inner: "rgba(64, 164, 184, 0.24)",
     texture: "calm",
-    wave: "rgba(198, 235, 220, 0.14)",
+    wave: "rgba(213, 243, 236, 0.16)",
   },
   "deep-water": {
     accent: "rgba(96, 138, 162, 0.16)",
@@ -104,15 +104,13 @@ export const WATER_TERRAIN_STYLES = {
     wave: "rgba(207, 240, 231, 0.16)",
   },
   "ledger-water": {
-    // Parchment-shadow tone in the timber family, kept clear of warning's
-    // olive (>18 hex distance). Honors the "warm, off the DEWS ladder" intent
-    // from agents/pharosville-zone-themes-research.md by pulling the base
-    // out of the green axis entirely.
-    accent: "rgba(212, 154, 62, 0.28)",
-    base: "#3a2e22",
-    inner: "rgba(58, 42, 30, 0.22)",
+    // Cool, green-blue tone for Ledger Mooring while staying distinct from the
+    // Calm/Watch ladder.
+    accent: "rgba(123, 198, 207, 0.25)",
+    base: "#2b5966",
+    inner: "rgba(88, 151, 164, 0.22)",
     texture: "ledger",
-    wave: "rgba(232, 218, 175, 0.18)",
+    wave: "rgba(175, 235, 242, 0.16)",
   },
   "storm-water": {
     // Near-black storm, kept >18 hex distance from deep-water #06131d so the
