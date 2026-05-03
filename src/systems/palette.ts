@@ -77,7 +77,7 @@ export interface WaterTerrainStyle {
 export const WATER_TERRAIN_STYLES = {
   "alert-water": {
     accent: "rgba(230, 190, 105, 0.22)",
-    base: "#276f78",
+    base: "#286f78",
     inner: "rgba(82, 150, 145, 0.24)",
     texture: "alert",
     wave: "rgba(225, 214, 162, 0.18)",
@@ -98,7 +98,7 @@ export const WATER_TERRAIN_STYLES = {
   },
   "harbor-water": {
     accent: "rgba(169, 218, 204, 0.2)",
-    base: "#126c74",
+    base: "#006f6f",
     inner: "rgba(80, 165, 154, 0.22)",
     texture: "harbor",
     wave: "rgba(207, 240, 231, 0.16)",

@@ -273,7 +273,7 @@ describe("buildPharosVilleWorld", () => {
     });
     expect(world.areas.find((area) => area.band === "CALM")?.label).toBe("Calm Anchorage");
     expect(watchArea?.label).toBe("Watch Breakwater");
-    expect(watchArea?.tile).toEqual({ x: 48, y: 44 });
+    expect(watchArea?.tile).toEqual({ x: 51, y: 45 });
     expect(watchArea?.tile ? terrainKindAt(watchArea.tile.x, watchArea.tile.y) : null).toBe("watch-water");
     expect(alertArea?.label).toBe("Alert Channel");
     expect(alertArea?.riskPlacement).toBe("harbor-mouth-watch");
