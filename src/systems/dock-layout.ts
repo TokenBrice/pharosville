@@ -10,9 +10,9 @@ const DOCK_OUTWARD_VECTOR_OVERRIDES: Record<string, { x: -1 | 0 | 1; y: -1 | 0 |
 };
 
 const DOCK_DRAW_TILE_OVERRIDES: Record<string, TilePoint> = {
-  // The Ethereum flag sits at the foot of the Yggdrasil world-tree inside the
-  // civic cove, rather than pushed out to the seawall.
-  "42.31": { x: 42.5, y: 29.2 },
+  // Ethereum's civic-cove harbor body is offset southeast so the rotunda wraps
+  // around the fixed Yggdrasil world-tree instead of sharing the tree anchor.
+  "42.31": { x: 44.9, y: 32.15 },
 };
 
 function tileKey(tile: TilePoint): string {
