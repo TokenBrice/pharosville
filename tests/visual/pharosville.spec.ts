@@ -326,7 +326,7 @@ test("pharosville renders desktop canvas shell", async ({ page }) => {
   await expect(page.getByTestId("pharosville-minimap")).toHaveCount(0);
   await expect(page.locator('aside[aria-label="Main navigation"]')).toHaveCount(0);
   await expect(page.locator("footer")).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "Go to Pharos homepage" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Recenter map" })).toBeVisible();
   const ledgerText = await page.getByTestId("pharosville-accessibility-ledger").textContent();
   expect(ledgerText).toContain("56 by 56 tiles");
   const waterRatioText = ledgerText?.split(" tiles, ")[1]?.split("% water.")[0];
@@ -393,7 +393,7 @@ test("pharosville accessibility smoke validates keyboard focus and landmarks", a
 
   await expect(page.locator(".pharosville-overlay")).toHaveAttribute("aria-label", "PharosVille controls and details");
   await expect(page.getByRole("button", { name: "Enter fullscreen" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Go to Pharos homepage" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Recenter map" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Close details" })).toBeVisible();
 });
 

@@ -304,16 +304,19 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       >
         {fullscreenMode ? <Minimize2 aria-hidden="true" size={24} /> : <Maximize2 aria-hidden="true" size={24} />}
       </button>
-      <a
-        href="https://pharos.watch/"
+      <button
+        type="button"
         className="pharosville-home-button"
-        aria-label="Go to Pharos homepage"
-        title="Go to Pharos homepage"
+        aria-label="Recenter map"
+        title="Recenter map"
+        onClick={canvas.handleResetView}
       >
         <Home aria-hidden="true" size={24} />
-      </a>
-      <p className="pharosville-beta-tag" aria-label="PharosVille beta v0.1 — interpretive view, not financial advice">
+      </button>
+      <p className="pharosville-beta-tag">
         PharosVille beta v0.1 - Interpretive view, not financial advice
+        <span aria-hidden="true"> · </span>
+        <a href="https://pharos.watch/">Pharos</a>
       </p>
       <p className="sr-only" aria-live="polite">{announcement}</p>
       <AccessibilityLedger world={world} />
