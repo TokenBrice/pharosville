@@ -31,7 +31,7 @@ and canvas-only data truth remain out of scope.
 
 `index.html` owns document metadata and the Vite entrypoint. `src/App.tsx` owns the screen-reader H1 and route error boundary. `src/client.tsx` performs the desktop viewport gate before mounting the browser-only world module.
 
-PharosVille is a desktop-only experience. Mobile and tablet compatibility is explicitly out of scope: there is no responsive canvas layout, no touch-first toolbar, and no mobile-specific UX work. Screens below `1000px` wide or `640px` tall render a DOM fallback with links to the main analytical pages and must not mount the canvas, world queries, asset manifest loader, or sprite decode path. Mobile/narrow-viewport bugs in the world surface are not regressions — the fallback is the supported mobile contract.
+PharosVille is a desktop-only experience. Mobile and tablet compatibility is explicitly out of scope: there is no responsive canvas layout, no touch-first toolbar, and no mobile-specific UX work. Screens below `720px` wide or `360px` tall render a DOM fallback with links to the main analytical pages and must not mount the canvas, world queries, asset manifest loader, or sprite decode path. Mobile/narrow-viewport bugs in the world surface are not regressions — the fallback is the supported mobile contract.
 
 ## Current Phase
 
@@ -138,8 +138,8 @@ Compensating gates:
 - DOM ledger/detail parity for encoded signals
 - reduced-motion deterministic render
 - canvas nonblank, semantic terrain/water, and backing-pixel budget tests
-- no canvas/runtime work below `1000px`
-- no canvas/runtime work below `640px` viewport height
+- no canvas/runtime work below `720px`
+- no canvas/runtime work below `360px` viewport height
 - no CSP relaxation
 
 ## Motion Budget
@@ -170,7 +170,7 @@ The combined unit and visual regression suite covers:
   `tests/visual/pharosville.spec.ts` and focused system/renderer unit tests
 - dense atlas fixture with 10 docks, all 132 current dense-fixture active ships processed individually, rotating normal-motion visible ship targets, no ship-cluster targets, cemetery/civic/risk-water crops, and normal-motion draw-duration p95 budget
 - stressed ship detail semantics for active depeg, Danger Strait/storm-shelf placement, named risk water, and evidence fields
-- `<1000px` fallback
+- `<720px` fallback
 - short desktop fallback
 - visible toolbar/detail surfaces, click-anchored detail placement, blank-map click-to-close behavior, and canvas click/selection/camera interaction
 - fullscreen control visibility and mode toggle

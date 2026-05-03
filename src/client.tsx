@@ -5,8 +5,8 @@ import { RotateToLandscape } from "./rotate-to-landscape";
 import { observeOrientation } from "./systems/orientation";
 import "./pharosville.css";
 
-const MIN_LONG_SIDE_PX = 1000;
-const MIN_SHORT_SIDE_PX = 640;
+const MIN_LONG_SIDE_PX = 720;
+const MIN_SHORT_SIDE_PX = 360;
 
 const PharosVilleDesktopData = lazy(() => (
   import("./pharosville-desktop-data").then((mod) => ({ default: mod.PharosVilleDesktopData }))

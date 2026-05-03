@@ -52,7 +52,7 @@ npm run check:release-readiness
 - Keep `PHAROS_API_KEY` server-side only.
 - Ensure `PHAROS_API_KEY` is discoverable for local `/api/*` dev proxy from one of: current `.env.local`, main worktree `.env.local`, `.git/pharosville.env.local`, or shell env.
 - Browser must use same-origin `/api/*` (no client cross-origin API calls).
-- Keep world runtime unmounted below `1000x640`.
+- Keep world runtime unmounted below `720x360`.
 - Use `agents/` for plans and handoff artifacts.
 - Use `outputs/` for temporary screenshots, renders, and generation scratch files.
 

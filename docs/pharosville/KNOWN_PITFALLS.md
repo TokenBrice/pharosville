@@ -24,7 +24,7 @@ These are repeat-risk areas for agents working on PharosVille.
 
 ## Viewport And Accessibility
 
-- Do not mount the world below `1000px` width or `640px` height.
+- Do not mount the world below `720px` width or `360px` height.
 - Do not fetch world data, manifest, sprites, or logos in the fallback viewport.
 - Do not start a RAF loop under reduced motion.
 - Do not remove keyboard pan, Escape clear, toolbar controls, blank-map clear, or DOM detail parity when changing interactions.

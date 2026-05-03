@@ -656,7 +656,9 @@ test("pharosville narrow fallback avoids world runtime requests", async ({ page 
   await page.emulateMedia({ reducedMotion: "reduce" });
   const deniedRequests = await denyPharosVilleViewportGatedRequests(page);
 
-  await mockScreenSize(page, 999, 900);
+  // Mocked screen long-side (719) sits below the 720px gate; viewport keeps
+  // the previous landscape-ish 999x900 so the snapshot baseline still matches.
+  await mockScreenSize(page, 719, 500);
   await page.setViewportSize({ width: 999, height: 900 });
   await installWallClockOverride(page, 12);
   await page.goto("/");
@@ -664,7 +666,14 @@ test("pharosville narrow fallback avoids world runtime requests", async ({ page 
   await expect(page.getByText("PharosVille needs a wider harbor.")).toBeVisible();
   await expect(page.getByTestId("pharosville-canvas")).toHaveCount(0);
   await expect(page.getByRole("link", { name: "PSI" })).toBeVisible();
-  expect(deniedRequests).toEqual([]);
+  // The HTML manifest preload is gated by `device-width`/`device-height`
+  // media queries (which JS-mocked `screen.{width,height}` can't override),
+  // so it may fire on the test viewport. The cached fetch is harmless — only
+  // the world runtime (API + canvas) must stay dormant on the fallback.
+  const runtimeRequests = deniedRequests.filter((path) => (
+    path !== "/pharosville/assets/manifest.runtime.json"
+  ));
+  expect(runtimeRequests).toEqual([]);
   await expect(page).toHaveScreenshot("pharosville-narrow-fallback.png");
 });
 
@@ -672,22 +681,27 @@ test("pharosville short desktop fallback avoids clipped map", async ({ page }) =
   await page.emulateMedia({ reducedMotion: "reduce" });
   const deniedRequests = await denyPharosVilleViewportGatedRequests(page);
 
-  await mockScreenSize(page, 1000, 639);
+  await mockScreenSize(page, 720, 359);
   await page.setViewportSize({ width: 1000, height: 639 });
   await installWallClockOverride(page, 12);
   await page.goto("/");
 
   await expect(page.getByText("PharosVille needs a wider harbor.")).toBeVisible();
   await expect(page.getByTestId("pharosville-canvas")).toHaveCount(0);
-  expect(deniedRequests).toEqual([]);
+  const runtimeRequests = deniedRequests.filter((path) => (
+    path !== "/pharosville/assets/manifest.runtime.json"
+  ));
+  expect(runtimeRequests).toEqual([]);
 });
 
 test("pharosville desktop gate passes at threshold screen and falls back below it", async ({ page }) => {
   await mockPharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
 
-  await mockScreenSize(page, 1000, 640);
-  await page.setViewportSize({ width: 1000, height: 640 });
+  // Threshold pass: 720x360 screen (the floor) with a roomy landscape viewport
+  // so the canvas has space to draw.
+  await mockScreenSize(page, 720, 360);
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await installWallClockOverride(page, 12);
   await page.goto("/");
   await expect(page.getByTestId("pharosville-canvas")).toBeVisible();
@@ -695,11 +709,11 @@ test("pharosville desktop gate passes at threshold screen and falls back below i
 
   // Edge-below screen sizes go to the fallback. Use a fresh page for each
   // assertion since `screen.{width,height}` is fixed at navigation time.
-  for (const [w, h] of [[999, 640], [1000, 639]] as const) {
+  for (const [w, h] of [[719, 360], [720, 359]] as const) {
     const edgePage = await page.context().newPage();
     await edgePage.emulateMedia({ reducedMotion: "reduce" });
     await mockScreenSize(edgePage, w, h);
-    await edgePage.setViewportSize({ width: w, height: h });
+    await edgePage.setViewportSize({ width: 1440, height: 1000 });
     await installWallClockOverride(edgePage, 12);
     await edgePage.goto("/");
     await expect(edgePage.getByText("PharosVille needs a wider harbor.")).toBeVisible();

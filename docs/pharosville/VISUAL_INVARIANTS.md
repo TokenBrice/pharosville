@@ -6,7 +6,7 @@ These are the non-negotiable visual/data contracts for the PharosVille world. A 
 
 ## Route And Runtime
 
-- `/pharosville/` is desktop-only. The world must not mount below `1000px` width or `640px` height.
+- `/pharosville/` is desktop-only. The world must not mount below `720px` width or `360px` height.
 - The fallback must avoid world API queries, `/_site-data` world queries, asset manifest fetches, canvas setup, and sprite/logo decode work.
 - The route uses existing Pharos frontend hooks and API payloads. Visual-only work must not add Worker/API contracts unless explicitly requested.
 - No production fixture/default market data is allowed.
