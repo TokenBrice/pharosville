@@ -110,6 +110,31 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
 const FALLBACK_LANTERN_TIP_RGB = { r: 240, g: 140, b: 70 };
 const LANTERN_TIP_RGB_CACHE = new Map<string, { r: number; g: number; b: number }>();
 
+// Per-frame memoization for values that are computed in multiple draw functions
+// on the same frame. Keyed on time so they auto-invalidate when time advances.
+let _sweepAngleTime = NaN;
+let _sweepAngleValue = 0;
+let _fireFlickerTime = NaN;
+let _fireFlickerValue = 0;
+
+function getSweepAngle(time: number, reducedMotion: boolean): number {
+  if (reducedMotion) return SWEEP_REDUCED_ANGLE;
+  if (time === _sweepAngleTime) return _sweepAngleValue;
+  const tCycle = time / SWEEP_PERIOD;
+  _sweepAngleValue = tCycle * Math.PI * 2 + Math.sin(tCycle * Math.PI * 2) * 0.15;
+  _sweepAngleTime = time;
+  return _sweepAngleValue;
+}
+
+function getFireFlicker(time: number, flickerSpeed: number, reducedMotion: boolean): number {
+  if (reducedMotion) return 0;
+  // Key on time; flickerSpeed is constant per-session so no need to fold it in.
+  if (time === _fireFlickerTime) return _fireFlickerValue;
+  _fireFlickerValue = Math.sin(time * 14 * flickerSpeed) * 0.12 + Math.sin(time * 21 * flickerSpeed) * 0.06;
+  _fireFlickerTime = time;
+  return _fireFlickerValue;
+}
+
 type NightGradientBundle = {
   diffuse: CanvasGradient;
   core: CanvasGradient;
@@ -341,8 +366,7 @@ function drawLighthouseFire(
 ) {
   const flickerSpeed = motion.plan.lighthouseFireFlickerPerSecond;
   const time = motion.timeSeconds;
-  const flicker = motion.reducedMotion ? 0 : Math.sin(time * 14 * flickerSpeed) * 0.12
-    + Math.sin(time * 21 * flickerSpeed) * 0.06;
+  const flicker = getFireFlicker(time, flickerSpeed, motion.reducedMotion);
   const scale = zoom * (1 + flicker);
   ctx.save();
   ctx.translate(point.x, point.y);
@@ -486,12 +510,13 @@ function drawLighthouseBeam(
 function drawPixelFlame(ctx: CanvasRenderingContext2D, points: ReadonlyArray<[number, number]>, color: string) {
   ctx.fillStyle = color;
   ctx.beginPath();
-  points.forEach(([x, y], index) => {
-    const px = Math.round(x);
-    const py = Math.round(y);
-    if (index === 0) ctx.moveTo(px, py);
+  for (let i = 0; i < points.length; i += 1) {
+    const point = points[i]!;
+    const px = Math.round(point[0]!);
+    const py = Math.round(point[1]!);
+    if (i === 0) ctx.moveTo(px, py);
     else ctx.lineTo(px, py);
-  });
+  }
   ctx.closePath();
   ctx.fill();
 }
@@ -509,16 +534,19 @@ function drawLivingFlame(
 ) {
   ctx.fillStyle = color;
   ctx.beginPath();
-  points.forEach(([x, y], index) => {
-    const phase = index * 1.27;
+  for (let i = 0; i < points.length; i += 1) {
+    const point = points[i]!;
+    const x = point[0]!;
+    const y = point[1]!;
+    const phase = i * 1.27;
     const tipFactor = Math.max(0, Math.min(1, -y / 22));
     const dx = Math.sin(time * 6.2 * flickerSpeed + phase) * swayAmount * tipFactor;
     const dy = Math.sin(time * 8.4 * flickerSpeed + phase * 0.81) * swayAmount * 0.7 * tipFactor;
     const px = Math.round(x + dx);
     const py = Math.round(y + dy);
-    if (index === 0) ctx.moveTo(px, py);
+    if (i === 0) ctx.moveTo(px, py);
     else ctx.lineTo(px, py);
-  });
+  }
   ctx.closePath();
   ctx.fill();
 }
@@ -595,9 +623,7 @@ export function drawLighthouseGodRays(
 ) {
   if (nightFactor <= 0) return;
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
-  const sweepAngle = motion.reducedMotion
-    ? SWEEP_REDUCED_ANGLE
-    : (time / SWEEP_PERIOD) * Math.PI * 2 + Math.sin((time / SWEEP_PERIOD) * Math.PI * 2) * 0.15;
+  const sweepAngle = getSweepAngle(time, motion.reducedMotion);
   const length = GOD_RAY_LENGTH * beamZoom;
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
@@ -748,9 +774,7 @@ export function drawLighthouseNightHighlights(
   ctx.fill();
 
   const flickerSpeed = motion.plan.lighthouseFireFlickerPerSecond;
-  const fireFlicker = motion.reducedMotion
-    ? 0
-    : Math.sin(time * 14 * flickerSpeed) * 0.12 + Math.sin(time * 21 * flickerSpeed) * 0.06;
+  const fireFlicker = getFireFlicker(time, flickerSpeed, motion.reducedMotion);
 
   // Sweep beams — long, slow rotation, one or two arms 180° apart. The angle
   // is eased so it briefly accelerates through the cardinal sweep and slows
@@ -759,16 +783,10 @@ export function drawLighthouseNightHighlights(
   const sweepLen = SWEEP_LENGTH * beamZoom;
   const sweepApex = SWEEP_APEX_HALF * beamZoom;
   const sweepFar = SWEEP_FAR_HALF * beamZoom;
-  let sweepAngle: number;
-  let sweepAlpha: number;
-  if (motion.reducedMotion) {
-    sweepAngle = SWEEP_REDUCED_ANGLE;
-    sweepAlpha = SWEEP_REDUCED_ALPHA * nightFactor;
-  } else {
-    const tCycle = time / SWEEP_PERIOD;
-    sweepAngle = tCycle * Math.PI * 2 + Math.sin(tCycle * Math.PI * 2) * 0.15;
-    sweepAlpha = (SWEEP_PEAK_ALPHA + fireFlicker * 0.06) * nightFactor;
-  }
+  const sweepAngle = getSweepAngle(time, motion.reducedMotion);
+  const sweepAlpha = motion.reducedMotion
+    ? SWEEP_REDUCED_ALPHA * nightFactor
+    : (SWEEP_PEAK_ALPHA + fireFlicker * 0.06) * nightFactor;
   const beamArms = SWEEP_PAIRED ? [0, Math.PI] : [0];
   const tip = hexToRgb(input.world.lighthouse.color);
   const beamSprite = getSweepBeamSprite(tip, beamZoom);
@@ -815,6 +833,7 @@ export function drawLighthouseNightHighlights(
   // Beam-tail water glints — small specks near the far end of each sweep arm,
   // moving with the rotation. Flicker is keyed off the same fire frequency so
   // they sparkle in time with the flame.
+  const flickerFreq = flickerSpeed * Math.PI * 2;
   for (let armIdx = 0; armIdx < beamArms.length; armIdx += 1) {
     const angle = sweepAngle + beamArms[armIdx]!;
     const cos = Math.cos(angle);
@@ -828,7 +847,7 @@ export function drawLighthouseNightHighlights(
       const cy = firePoint.y + sin * sweepLen * along + py * perp;
       const flicker = motion.reducedMotion
         ? 0.7
-        : Math.max(0, Math.min(1, 0.5 + 0.5 * Math.sin(time * flickerSpeed * Math.PI * 2 + (armIdx * GLINT_ALONG.length + i) * 1.7)));
+        : Math.max(0, Math.min(1, 0.5 + 0.5 * Math.sin(time * flickerFreq + (armIdx * GLINT_ALONG.length + i) * 1.7)));
       ctx.fillStyle = `rgba(255, 225, 170, ${flicker * 0.55 * nightFactor})`;
       ctx.beginPath();
       ctx.arc(cx, cy, 2 * beamZoom, 0, Math.PI * 2);

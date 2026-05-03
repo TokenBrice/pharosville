@@ -446,10 +446,10 @@ export function drawCemeteryMist({ camera, ctx, motion }: DrawPharosVilleInput) 
   ] as const;
 
   ctx.save();
+  ctx.lineWidth = Math.max(1, 2.4 * camera.zoom);
   for (const band of bands) {
     const p = tileToScreen(coveContextTile(band.tile), camera);
     ctx.strokeStyle = `rgba(214, 226, 218, ${band.alpha})`;
-    ctx.lineWidth = Math.max(1, 2.4 * camera.zoom);
     ctx.beginPath();
     ctx.ellipse(p.x + drift, p.y, band.rx * camera.zoom, band.ry * camera.zoom, -0.08, 0, Math.PI * 2);
     ctx.stroke();

@@ -1,10 +1,58 @@
 import type { PharosVilleWorld } from "../../systems/world-types";
 import { tileToScreen, type ScreenPoint } from "../../systems/projection";
 import type { LoadedPharosVilleAsset, PharosVilleAssetManager } from "../asset-manager";
-import { drawAsset, drawDiamond, drawFittedText, drawSignBoard, hexToRgba } from "../canvas-primitives";
+import { drawAsset, drawDiamond, drawFittedText, drawSignBoard } from "../canvas-primitives";
 import type { RenderFrameCache } from "../frame-cache";
 import { dockOutwardVector, type ResolvedEntityGeometry } from "../geometry";
 import type { DrawPharosVilleInput } from "../render-types";
+
+// C6: Two-level parse cache: hex → {r,g,b}, then (hex,alpha) → rgbaString.
+const HEX_RGB_CACHE = new Map<string, { r: number; g: number; b: number }>();
+const RGBA_STRING_CACHE = new Map<string, string>();
+
+function cachedHexToRgba(hex: string, alpha: number): string {
+  const key = `${hex}@${alpha}`;
+  const cached = RGBA_STRING_CACHE.get(key);
+  if (cached) return cached;
+  let rgb = HEX_RGB_CACHE.get(hex);
+  if (!rgb) {
+    const normalized = hex.replace("#", "");
+    rgb = {
+      r: Number.parseInt(normalized.slice(0, 2), 16),
+      g: Number.parseInt(normalized.slice(2, 4), 16),
+      b: Number.parseInt(normalized.slice(4, 6), 16),
+    };
+    if (HEX_RGB_CACHE.size >= 64) HEX_RGB_CACHE.delete(HEX_RGB_CACHE.keys().next().value!);
+    HEX_RGB_CACHE.set(hex, rgb);
+  }
+  const result = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+  if (RGBA_STRING_CACHE.size >= 64) RGBA_STRING_CACHE.delete(RGBA_STRING_CACHE.keys().next().value!);
+  RGBA_STRING_CACHE.set(key, result);
+  return result;
+}
+
+// C5: Free function replacing the per-frame flagPath closure.
+function paintFlagPath(
+  ctx: CanvasRenderingContext2D,
+  mastX: number,
+  direction: 1 | -1,
+  flagWidth: number,
+  flagScale: number,
+  topFlutter: number,
+  midFlutter: number,
+  botFlutter: number,
+  flagY: number,
+  flagHeight: number,
+  scale: number,
+) {
+  ctx.beginPath();
+  ctx.moveTo(mastX, flagY);
+  ctx.lineTo(mastX + direction * flagWidth + direction * topFlutter, flagY + 2 * scale);
+  ctx.lineTo(mastX + direction * (flagWidth - 5 * flagScale) + direction * midFlutter, flagY + flagHeight * 0.5);
+  ctx.lineTo(mastX + direction * flagWidth + direction * botFlutter, flagY + flagHeight - 2 * scale);
+  ctx.lineTo(mastX, flagY + flagHeight);
+  ctx.closePath();
+}
 
 export interface DockRenderState {
   dockAsset: LoadedPharosVilleAsset | null;
@@ -229,39 +277,32 @@ function drawHarborFlag(input: {
   const midFlutter = primary * flutterAmp * 0.55 - secondary * flutterAmp * 0.35;
   const botFlutter = primary * flutterAmp * 0.85 + secondary * flutterAmp * 0.5;
 
-  const flagPath = () => {
-    ctx.beginPath();
-    ctx.moveTo(mastX, flagY);
-    ctx.lineTo(mastX + direction * flagWidth + direction * topFlutter, flagY + 2 * scale);
-    ctx.lineTo(mastX + direction * (flagWidth - 5 * flagScale) + direction * midFlutter, flagY + flagHeight * 0.5);
-    ctx.lineTo(mastX + direction * flagWidth + direction * botFlutter, flagY + flagHeight - 2 * scale);
-    ctx.lineTo(mastX, flagY + flagHeight);
-    ctx.closePath();
-  };
-
   const flagFill = CHAIN_FLAG_COLOR_OVERRIDES[dock.chainId]
     ?? (logo ? logoFlagColor(logo, accent) : accent);
-  ctx.fillStyle = hexToRgba(flagFill, emphasized ? 0.96 : 0.88);
-  flagPath();
+  ctx.fillStyle = cachedHexToRgba(flagFill, emphasized ? 0.96 : 0.88);
+  paintFlagPath(ctx, mastX, direction, flagWidth, flagScale, topFlutter, midFlutter, botFlutter, flagY, flagHeight, scale);
   ctx.fill();
 
   drawDockFlagLogo({
     ctx,
     direction,
     flagHeight,
-    flagPath,
+    flagScale,
     flagWidth,
     flagX: mastX,
     flagY,
-    flagScale,
     logo,
     mark: dockFlagMark(dock),
+    mastX,
+    midFlutter,
+    botFlutter,
+    topFlutter,
     scale,
   });
 
   ctx.strokeStyle = "#2f2117";
   ctx.lineWidth = Math.max(1, 0.85 * scale);
-  flagPath();
+  paintFlagPath(ctx, mastX, direction, flagWidth, flagScale, topFlutter, midFlutter, botFlutter, flagY, flagHeight, scale);
   ctx.stroke();
 
   if (zoom >= 0.5) {
@@ -274,22 +315,25 @@ function drawDockFlagLogo(input: {
   ctx: CanvasRenderingContext2D;
   direction: 1 | -1;
   flagHeight: number;
-  flagPath: () => void;
+  flagScale: number;
   flagWidth: number;
   flagX: number;
   flagY: number;
-  flagScale: number;
   logo: ReturnType<PharosVilleAssetManager["getLogo"]>;
   mark: string;
+  mastX: number;
+  midFlutter: number;
+  botFlutter: number;
+  topFlutter: number;
   scale: number;
 }) {
-  const { ctx, direction, flagHeight, flagPath, flagWidth, flagX, flagY, flagScale, logo, mark, scale } = input;
+  const { ctx, direction, flagHeight, flagScale, flagWidth, flagX, flagY, logo, mark, mastX, midFlutter, botFlutter, topFlutter, scale } = input;
   const cx = flagX + direction * flagWidth * 0.42;
   const cy = flagY + flagHeight * 0.5;
   const logoSize = Math.round(flagHeight * 0.94);
 
   ctx.save();
-  flagPath();
+  paintFlagPath(ctx, mastX, direction, flagWidth, flagScale, topFlutter, midFlutter, botFlutter, flagY, flagHeight, scale);
   ctx.clip();
 
   if (logo) {
@@ -318,8 +362,9 @@ function drawDockFlagLogo(input: {
 
 function drawDockNameRibbon(ctx: CanvasRenderingContext2D, label: string, x: number, y: number, scale: number, emphasized: boolean) {
   const fontSize = emphasized ? Math.max(7, Math.round(7.4 * scale)) : Math.max(6, Math.round(5.6 * scale));
+  const font = `${emphasized ? "700" : "600"} ${fontSize}px ui-sans-serif, system-ui, sans-serif`;
   ctx.save();
-  ctx.font = `${emphasized ? "700" : "600"} ${fontSize}px ui-sans-serif, system-ui, sans-serif`;
+  ctx.font = font;
   const width = Math.min(82 * scale, Math.max(34 * scale, ctx.measureText(label).width + 11 * scale));
   const height = (emphasized ? 13 : 10) * scale;
   const left = x - width / 2;
@@ -338,7 +383,6 @@ function drawDockNameRibbon(ctx: CanvasRenderingContext2D, label: string, x: num
     ctx.lineJoin = "round";
     ctx.strokeStyle = "rgba(20, 14, 8, 0.55)";
     ctx.lineWidth = Math.max(1, 1.1 * scale);
-    ctx.font = `600 ${fontSize}px ui-sans-serif, system-ui, sans-serif`;
     ctx.strokeText(label, x, y + 0.5 * scale, width - 4 * scale);
     ctx.fillStyle = "#f0e0b8";
     ctx.fillText(label, x, y + 0.5 * scale, width - 4 * scale);

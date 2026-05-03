@@ -13,6 +13,24 @@ import { visibleTileBoundsForCamera, type VisibleTileBounds } from "../viewport"
 // shared state.
 const BEAM_SWEEP_PERIOD = 48;
 const BEAM_CAUSTIC_HALF_ARC = (20 * Math.PI) / 180;
+// C3: hoisted so the 3 per-tile call sites resolve a module-scope constant.
+const BEAM_CAUSTIC_COS = Math.cos(BEAM_CAUSTIC_HALF_ARC);
+
+// C1: gradient coords bake tile pixel position, so we cache color-stop params
+// only (zoomBucket × alphaBucket), then reconstruct the gradient per tile.
+// This avoids the string-parsing cost while keeping coordinates correct.
+type BeamCausticColorStops = [string, string]; // [warm, cool]
+const BEAM_CAUSTIC_STOP_CACHE = new Map<string, BeamCausticColorStops>();
+const BEAM_CAUSTIC_STOP_CACHE_CAP = 256;
+
+// C8: 256-entry sin LUT for per-tile water-texture renderers.
+const SIN_LUT = new Float32Array(256);
+for (let _i = 0; _i < 256; _i++) {
+  SIN_LUT[_i] = Math.sin(_i * ((2 * Math.PI) / 256));
+}
+function fastSin(x: number): number {
+  return SIN_LUT[((x * (256 / (2 * Math.PI))) | 0) & 255]!;
+}
 // Mooring corners hand-picked from AUTHORED_SEAWALL_SEGMENTS in
 // src/systems/seawall.ts: NW lighthouse apron, SW market quay, E observatory
 // gate. Looping concentric ripples emanate from each.
@@ -272,7 +290,7 @@ function drawWaterTileOverlay(
   if ((tileX * 13 + tileY * 17) % 9 !== 0) return;
   const wave = motion.reducedMotion
     ? 0.13
-    : 0.1 + Math.sin(motion.timeSeconds * 1.05 + tileX * 0.27 + tileY * 0.19) * 0.035;
+    : 0.1 + fastSin(motion.timeSeconds * 1.05 + tileX * 0.27 + tileY * 0.19) * 0.035;
   ctx.save();
   ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.08, wave));
   ctx.lineWidth = Math.max(1, zoom);
@@ -306,7 +324,7 @@ function drawWaterDepthOverlay(
   const shimmer = ((tileX * 11 + tileY * 7) % 9 - 4) / 4;
   if (shimmer === 0) return;
   // Slow alpha breath so the static shimmer modulates instead of staying flat.
-  const breath = motion.reducedMotion ? 1 : 0.85 + 0.15 * Math.sin(motion.timeSeconds * 0.4);
+  const breath = motion.reducedMotion ? 1 : 0.85 + 0.15 * fastSin(motion.timeSeconds * 0.4);
   ctx.save();
   const overlayFill = shimmer > 0
     ? `rgba(218, 236, 224, ${0.01 * shimmer * breath})`
@@ -351,15 +369,30 @@ function drawBeamCaustic(
   if (dist < 1) return;
   // cos(angle between tile bearing and beam) = dot(unit-tile, unit-beam).
   const dot = (dx * beam.cos + dy * beam.sin) / dist;
-  if (dot < Math.cos(BEAM_CAUSTIC_HALF_ARC)) return;
+  if (dot < BEAM_CAUSTIC_COS) return;
   // Soften toward the arc edges so the band fades smoothly.
-  const fall = (dot - Math.cos(BEAM_CAUSTIC_HALF_ARC)) / (1 - Math.cos(BEAM_CAUSTIC_HALF_ARC));
+  const fall = (dot - BEAM_CAUSTIC_COS) / (1 - BEAM_CAUSTIC_COS);
   const alpha = 0.18 * fall;
   const radius = 18 * zoom;
   ctx.save();
+  const zoomBucket = Math.round(zoom * 4) / 4;
+  const alphaBucket = Math.round(alpha * 20) / 20;
+  const stopKey = `${zoomBucket}:${alphaBucket}`;
+  let stops = BEAM_CAUSTIC_STOP_CACHE.get(stopKey);
+  if (!stops) {
+    stops = [`rgba(255, 220, 140, ${alphaBucket})`, `rgba(150, 220, 220, ${alphaBucket * 0.55})`];
+    if (BEAM_CAUSTIC_STOP_CACHE.size >= BEAM_CAUSTIC_STOP_CACHE_CAP) {
+      BEAM_CAUSTIC_STOP_CACHE.delete(BEAM_CAUSTIC_STOP_CACHE.keys().next().value!);
+    }
+    BEAM_CAUSTIC_STOP_CACHE.set(stopKey, stops);
+  } else {
+    // LRU: move to end on hit.
+    BEAM_CAUSTIC_STOP_CACHE.delete(stopKey);
+    BEAM_CAUSTIC_STOP_CACHE.set(stopKey, stops);
+  }
   const grad = ctx.createRadialGradient(x, y, 1, x, y, radius);
-  grad.addColorStop(0, `rgba(255, 220, 140, ${alpha})`);
-  grad.addColorStop(0.6, `rgba(150, 220, 220, ${alpha * 0.55})`);
+  grad.addColorStop(0, stops[0]);
+  grad.addColorStop(0.6, stops[1]);
   grad.addColorStop(1, "rgba(150, 220, 220, 0)");
   ctx.fillStyle = grad;
   const halfW = 16 * zoom;
@@ -431,7 +464,7 @@ function drawLedgerWaterTexture(
 ) {
   const ledgerPulse = motion.reducedMotion
     ? 0.18
-    : 0.15 + Math.sin(motion.timeSeconds * 0.62 + tileX * 0.25 + tileY * 0.37) * 0.04 * theme.motion.amplitudeScale;
+    : 0.15 + fastSin(motion.timeSeconds * 0.62 + tileX * 0.25 + tileY * 0.37) * 0.04 * theme.motion.amplitudeScale;
   ctx.save();
   if ((tileX + tileY) % 2 === 0) {
     drawMooringRule(ctx, x, y, zoom, -10, -2, 9, 3, theme.accent, 0.16);
@@ -478,7 +511,7 @@ function drawHarborWaterTexture(
   motion: PharosVilleCanvasMotion,
   theme: ZoneVisualTheme,
 ) {
-  const pulse = motion.reducedMotion ? 0.16 : 0.13 + Math.sin(motion.timeSeconds * 0.85 + tileX * 0.23 + tileY * 0.17) * 0.04;
+  const pulse = motion.reducedMotion ? 0.16 : 0.13 + fastSin(motion.timeSeconds * 0.85 + tileX * 0.23 + tileY * 0.17) * 0.04;
   ctx.save();
   ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.1, pulse));
   ctx.lineWidth = Math.max(1, zoom);
@@ -510,7 +543,7 @@ function drawCalmWaterTexture(
 ) {
   const hush = motion.reducedMotion
     ? 0.13
-    : 0.11 + Math.sin(motion.timeSeconds * 0.48 + tileX * 0.19 + tileY * 0.13) * 0.025 * theme.motion.amplitudeScale;
+    : 0.11 + fastSin(motion.timeSeconds * 0.48 + tileX * 0.19 + tileY * 0.13) * 0.025 * theme.motion.amplitudeScale;
   ctx.save();
   ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.08, hush) * theme.motion.strokeAlphaScale);
   ctx.lineWidth = Math.max(1, 0.85 * zoom);
@@ -547,7 +580,7 @@ function drawDeepSeaTexture(
   theme: ZoneVisualTheme,
 ) {
   if ((tileX * 5 + tileY * 7) % 6 !== 0) return;
-  const glint = motion.reducedMotion ? 0.08 : 0.06 + Math.sin(motion.timeSeconds * 0.6 + tileX * 0.2 + tileY * 0.31) * 0.025;
+  const glint = motion.reducedMotion ? 0.08 : 0.06 + fastSin(motion.timeSeconds * 0.6 + tileX * 0.2 + tileY * 0.31) * 0.025;
   ctx.save();
   ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.04, glint));
   ctx.lineWidth = Math.max(1, zoom);
@@ -570,9 +603,9 @@ function drawAlertChannelTexture(
 ) {
   const pulse = motion.reducedMotion
     ? 0.16
-    : 0.14 + Math.sin(motion.timeSeconds * 1.1 + tileX * 0.31) * 0.04 * theme.motion.amplitudeScale;
+    : 0.14 + fastSin(motion.timeSeconds * 1.1 + tileX * 0.31) * 0.04 * theme.motion.amplitudeScale;
   ctx.save();
-  const drift = motion.reducedMotion ? 0 : Math.sin(motion.timeSeconds * 0.7 + tileY * 0.23) * 1.5 * zoom;
+  const drift = motion.reducedMotion ? 0 : fastSin(motion.timeSeconds * 0.7 + tileY * 0.23) * 1.5 * zoom;
   ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.12, pulse - 0.03) * theme.motion.strokeAlphaScale);
   ctx.lineWidth = Math.max(1, 0.9 * zoom);
   ctx.beginPath();
@@ -614,7 +647,7 @@ function drawWatchWaterTexture(
 ) {
   const crosswind = motion.reducedMotion
     ? 0.16
-    : 0.14 + Math.sin(motion.timeSeconds * 0.95 + tileY * 0.29) * 0.04 * theme.motion.amplitudeScale;
+    : 0.14 + fastSin(motion.timeSeconds * 0.95 + tileY * 0.29) * 0.04 * theme.motion.amplitudeScale;
   ctx.save();
   if ((tileX * 7 + tileY * 2) % 4 !== 1) {
     ctx.strokeStyle = withAlpha(theme.accent, 0.16);
@@ -658,7 +691,7 @@ function drawWarningShoalTexture(
 ) {
   const chop = motion.reducedMotion
     ? 0.2
-    : 0.18 + Math.sin(motion.timeSeconds * 1.6 + tileY * 0.37) * 0.05 * theme.motion.amplitudeScale;
+    : 0.18 + fastSin(motion.timeSeconds * 1.6 + tileY * 0.37) * 0.05 * theme.motion.amplitudeScale;
   ctx.save();
   if ((tileX + tileY) % 2 === 0) {
     const shoalFill = withAlpha(theme.accent, 0.22);
@@ -706,7 +739,7 @@ function drawDangerStraitTexture(
 ) {
   const whitecap = motion.reducedMotion
     ? 0.22
-    : 0.18 + Math.sin(motion.timeSeconds * 2.1 + tileX * 0.43 + tileY * 0.29) * 0.08 * theme.motion.amplitudeScale;
+    : 0.18 + fastSin(motion.timeSeconds * 2.1 + tileX * 0.43 + tileY * 0.29) * 0.08 * theme.motion.amplitudeScale;
   ctx.save();
   if ((tileX * 3 + tileY * 5) % 4 !== 2) {
     ctx.strokeStyle = "rgba(7, 12, 21, 0.34)";
@@ -760,7 +793,7 @@ function drawOpenWaterTexture(
   theme: ZoneVisualTheme,
 ) {
   if ((tileX * 7 + tileY * 13) % 4 !== 0) return;
-  const drift = motion.reducedMotion ? 0.12 : 0.1 + Math.sin(motion.timeSeconds * 0.72 + tileX * 0.17 + tileY * 0.21) * 0.03;
+  const drift = motion.reducedMotion ? 0.12 : 0.1 + fastSin(motion.timeSeconds * 0.72 + tileX * 0.17 + tileY * 0.21) * 0.03;
   ctx.save();
   ctx.strokeStyle = withAlpha(theme.accent, Math.max(0.08, drift));
   ctx.lineWidth = Math.max(1, 0.9 * zoom);
@@ -876,7 +909,7 @@ function drawCalmReflectionRing(
 ) {
   const phase = motion.reducedMotion
     ? 0.5
-    : (Math.sin(motion.timeSeconds * 0.42 + tileX * 0.31 + tileY * 0.23) + 1) * 0.5;
+    : (fastSin(motion.timeSeconds * 0.42 + tileX * 0.31 + tileY * 0.23) + 1) * 0.5;
   const radius = (4 + phase * 2.4) * zoom * theme.motion.amplitudeScale;
   ctx.save();
   ctx.strokeStyle = withAlpha(theme.wave, 0.55 * (1 - phase * 0.4) * theme.motion.strokeAlphaScale);
@@ -907,7 +940,7 @@ function drawWatchChannelBuoy(
 ) {
   const bob = motion.reducedMotion
     ? 0
-    : Math.sin(motion.timeSeconds * 0.95 + tileX * 0.41 + tileY * 0.27) * 0.7 * zoom;
+    : fastSin(motion.timeSeconds * 0.95 + tileX * 0.41 + tileY * 0.27) * 0.7 * zoom;
   const cx = x + 3 * zoom;
   const cy = y - 1 * zoom + bob;
   ctx.save();
@@ -1033,7 +1066,7 @@ function drawDangerStormBurst(
 ) {
   const flicker = motion.reducedMotion
     ? 1.0
-    : Math.sin(motion.timeSeconds * 2.4 + tileX * 0.61 + tileY * 0.43);
+    : fastSin(motion.timeSeconds * 2.4 + tileX * 0.61 + tileY * 0.43);
   if (!motion.reducedMotion && flicker < 0.45) return;
   const intensity = motion.reducedMotion ? 0.7 : Math.min(1, 0.55 + (flicker - 0.45) * 1.6);
   ctx.save();

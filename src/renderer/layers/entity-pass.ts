@@ -222,7 +222,7 @@ function shouldDrawWorldDrawable(input: DrawPharosVilleInput, drawable: WorldDra
   )) {
     return true;
   }
-  return isScreenRectInViewport(drawable.screenBounds, input.width, input.height, Math.max(64, 128 * input.camera.zoom));
+  return isScreenRectInViewport(drawable.screenBounds, input.width, input.height, Math.min(256, Math.max(64, 128 * input.camera.zoom)));
 }
 
 function isScreenRectInViewport(

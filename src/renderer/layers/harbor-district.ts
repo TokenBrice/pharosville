@@ -8,6 +8,7 @@ import { dockDrawPoint } from "../geometry";
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
 
 const docksByChainCache = new WeakMap<PharosVilleWorld, Map<string, PharosVilleWorld["docks"][number]>>();
+const l2DocksByWorld = new WeakMap<PharosVilleWorld, readonly PharosVilleWorld["docks"][number][]>();
 
 export function drawHarborDistrictGround(input: DrawPharosVilleInput) {
   const { camera, ctx } = input;
@@ -44,9 +45,16 @@ export function drawEthereumHarborExtensions({ camera, ctx, motion, world }: Dra
   const ethereumDock = dockForChain(world, "ethereum");
   if (!ethereumDock) return;
 
-  const extensionDocks = ETHEREUM_L2_DOCK_CHAIN_IDS
-    .map((chainId) => dockForChain(world, chainId))
-    .filter((dock): dock is PharosVilleWorld["docks"][number] => dock != null);
+  let extensionDocks = l2DocksByWorld.get(world);
+  if (!extensionDocks) {
+    const built: PharosVilleWorld["docks"][number][] = [];
+    for (const chainId of ETHEREUM_L2_DOCK_CHAIN_IDS) {
+      const dock = dockForChain(world, chainId);
+      if (dock != null) built.push(dock);
+    }
+    extensionDocks = built;
+    l2DocksByWorld.set(world, extensionDocks);
+  }
   if (extensionDocks.length === 0) return;
 
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;

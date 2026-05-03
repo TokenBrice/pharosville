@@ -36,26 +36,49 @@ export interface PennantWindContext {
   squadId: string;
 }
 
+// Module-scope scratch storage — reset at the start of each call.
+const _scratchByIdMap = new Map<string, { x: number; y: number }>();
+const _scratchOrdered: { x: number; y: number }[] = [];
+
 export function computeSquadPennantPath(
   anchors: readonly SquadAnchor[],
   order: readonly string[],
 ): { x: number; y: number }[] | null {
   if (anchors.length < 2) return null;
-  const byId = new Map(anchors.map((anchor) => [anchor.id, anchor.mastTop]));
-  const ordered = order
-    .map((id) => byId.get(id))
-    .filter((point): point is { x: number; y: number } => Boolean(point));
-  return ordered.length >= 2 ? ordered : null;
+  _scratchByIdMap.clear();
+  for (const anchor of anchors) {
+    _scratchByIdMap.set(anchor.id, anchor.mastTop);
+  }
+  _scratchOrdered.length = 0;
+  for (const id of order) {
+    const pt = _scratchByIdMap.get(id);
+    if (pt) _scratchOrdered.push(pt);
+  }
+  return _scratchOrdered.length >= 2 ? _scratchOrdered.slice() : null;
 }
+
+// Module-scope scratch arrays for bounding-ellipse min/max scan.
+const _scratchXs: number[] = [];
+const _scratchYs: number[] = [];
 
 export function computeSquadBoundingEllipse(anchors: readonly SquadAnchor[]) {
   if (anchors.length === 0) return null;
-  const xs = anchors.map((anchor) => anchor.mastTop.x);
-  const ys = anchors.map((anchor) => anchor.mastTop.y);
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
+  _scratchXs.length = 0;
+  _scratchYs.length = 0;
+  for (const anchor of anchors) {
+    _scratchXs.push(anchor.mastTop.x);
+    _scratchYs.push(anchor.mastTop.y);
+  }
+  let minX = _scratchXs[0]!;
+  let maxX = _scratchXs[0]!;
+  let minY = _scratchYs[0]!;
+  let maxY = _scratchYs[0]!;
+  for (let i = 1; i < _scratchXs.length; i++) {
+    if (_scratchXs[i]! < minX) minX = _scratchXs[i]!;
+    if (_scratchXs[i]! > maxX) maxX = _scratchXs[i]!;
+    if (_scratchYs[i]! < minY) minY = _scratchYs[i]!;
+    if (_scratchYs[i]! > maxY) maxY = _scratchYs[i]!;
+  }
   return {
     center: { x: (minX + maxX) / 2, y: (minY + maxY) / 2 + 16 },
     radiusX: Math.max(40, (maxX - minX) / 2 + 36),

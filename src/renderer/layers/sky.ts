@@ -407,18 +407,14 @@ function drawStars(
   ctx.globalAlpha = state.mood.starAlpha;
   ctx.strokeStyle = "rgba(245, 231, 184, 0.22)";
   ctx.lineWidth = Math.max(1, zoom * 0.75);
-  const starX = (index: number) => {
-    const star = SKY_STARS[index]!;
-    const depth = 0.6 + ((index * 37) % 100) / 250;
-    const raw = width * star.x + driftBase * depth;
-    return ((raw % width) + width) % width;
-  };
   for (const [from, to] of SKY_CONSTELLATIONS) {
     const start = SKY_STARS[from];
     const end = SKY_STARS[to];
     if (!start || !end) continue;
-    const sx = starX(from);
-    const ex = starX(to);
+    const fromDepth = 0.6 + ((from * 37) % 100) / 250;
+    const sx = ((width * start.x + driftBase * fromDepth) % width + width) % width;
+    const toDepth = 0.6 + ((to * 37) % 100) / 250;
+    const ex = ((width * end.x + driftBase * toDepth) % width + width) % width;
     if (Math.abs(ex - sx) > width * 0.5) continue;
     ctx.beginPath();
     ctx.moveTo(sx, height * start.y);
@@ -429,7 +425,8 @@ function drawStars(
   for (const [index, star] of SKY_STARS.entries()) {
     const twinkle = motion.reducedMotion ? 1 : 0.78 + Math.sin(time * 0.9 + index * 1.7) * 0.22;
     const size = Math.max(1, star.size * zoom * twinkle * (0.85 + zoom * 0.3));
-    const x = Math.round(starX(index));
+    const depth = 0.6 + ((index * 37) % 100) / 250;
+    const x = Math.round(((width * star.x + driftBase * depth) % width + width) % width);
     const y = Math.round(height * star.y);
     ctx.fillStyle = index % 4 === 0 ? "#fff3c7" : "#e9f0d8";
     ctx.fillRect(x, y, size, size);

@@ -8,6 +8,7 @@ import type { DrawPharosVilleInput } from "../render-types";
 
 const placementByArea = new WeakMap<AreaNode, ResolvedAreaLabelPlacement>();
 const measuredTextWidth = new Map<string, number>();
+const fontBySize = new Map<number, string>();
 
 function cachedAreaLabelPlacement(area: AreaNode): ResolvedAreaLabelPlacement {
   let cached = placementByArea.get(area);
@@ -71,7 +72,11 @@ function drawCartographicWaterLabel(input: {
   const fontSize = Math.max(8, Math.round(8.6 * scale));
   const text = label.toUpperCase();
   const width = maxWidth * scale;
-  const font = `700 ${fontSize}px "PV Plaque", Georgia, "Times New Roman", serif`;
+  let font = fontBySize.get(fontSize);
+  if (font === undefined) {
+    font = `700 ${fontSize}px "PV Plaque", Georgia, "Times New Roman", serif`;
+    fontBySize.set(fontSize, font);
+  }
 
   ctx.save();
   ctx.translate(Math.round(x), Math.round(y));
