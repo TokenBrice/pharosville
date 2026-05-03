@@ -55,6 +55,10 @@ type DebugRenderMetrics = {
   movingShipCount: number;
   visibleShipCount: number;
   visibleTileCount: number;
+  shipMaxHeadingDeltaDeg?: number;
+  shipMaxPositionDeltaTile?: number;
+  routeCacheStats?: { hitRatio: number; evictionRate: number; size: number; capacity: number };
+  longtask?: { count: number; maxDurationMs: number };
 };
 
 type PharosVilleVisualDebug = {
@@ -1185,15 +1189,16 @@ test.describe("pharosville normal motion", () => {
     expect(runtime.motionCueCounts?.effectShips ?? 0).toBeLessThanOrEqual(runtime.motionCueCounts?.animatedShips ?? 0);
     expect(runtime.renderMetrics?.drawableCount).toBeGreaterThan(0);
     expect(runtime.renderMetrics?.drawableCounts.body).toBeGreaterThan(0);
-    // Single-sample budget. Comment at the dense-fixture site documents 100ms
-    // as already absorbing 4-vCPU CI variance over the 90ms target; raised to
-    // 120ms after observing 113ms on a CI run that was otherwise within the
-    // perf envelope (NFS4 sprite-bake caches added an initial-paint sprite-bake
-    // cost the second time the page loads under the same worker). Raised again
-    // to 200ms after CI run 25283670916 observed 166ms on a single frame —
-    // headline regressions still trip at >2x the 90ms target while routine
-    // single-sample variance no longer flakes the deploy.
-    expect(runtime.renderMetrics?.drawDurationMs ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(200);
+    // Single-sample budget. History: 90 → 100 → 120 → 200ms (raised after CI
+    // run 25283670916 observed 166ms on a single frame from cold sprite-bake
+    // variance). Tightened back to 160ms (Q3 of perf-anim-routing follow-up
+    // plan, 2026-05-03) after Phase A–E landed: terrain gradient cache (C1),
+    // night-tint vignette cache (C2), sail-tint cache, sin LUT (C8), per-pass
+    // savings in lighthouse/docks/maker-squad-chrome combined to recover
+    // measurable headroom. The dedicated sustained-motion perf lane
+    // (`npm run test:perf`) remains the rigorous guard against regressions
+    // (median ≤ 140ms, p95 ≤ 200ms over a 5s window).
+    expect(runtime.renderMetrics?.drawDurationMs ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(160);
     expect(runtime.renderMetrics?.movingShipCount).toBeGreaterThan(0);
     expect(runtime.renderMetrics?.visibleTileCount).toBeGreaterThan(0);
     const movingDetailId = `ship.${movedSample.id}`;
