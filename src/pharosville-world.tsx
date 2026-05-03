@@ -13,7 +13,7 @@ import { useFullscreenMode } from "./hooks/use-fullscreen-mode";
 import { useLatestRef } from "./hooks/use-latest-ref";
 import { useWorldRenderLoop } from "./hooks/use-world-render-loop";
 import { createHitTargetSnapshot, recomputeHitTargetsForCameraOnly, type HitTarget, type HitTargetSnapshot } from "./renderer/hit-testing";
-import { buildBaseMotionPlan, buildMotionPlan, motionPlanSignature, type ShipMotionSample } from "./systems/motion";
+import { buildBaseMotionPlan, buildMotionPlan, disposePathCacheForMap, motionPlanSignature, type ShipMotionSample } from "./systems/motion";
 import type { ScreenPoint } from "./systems/projection";
 import { observeReducedMotion } from "./systems/reduced-motion";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "./systems/world-types";
@@ -29,13 +29,15 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const shellRef = useRef<HTMLElement | null>(null);
   const { exitFullscreen, fullscreenMode, toggleFullscreen } = useFullscreenMode(shellRef);
 
+  const [motionBucket, setMotionBucket] = useState(0);
+
   // Memoize on a content signature instead of `world` identity so live data
   // refetches that don't change ship/dock/map/lighthouse-flicker fields reuse
   // the prior plan (and skip A* warmups). `world` is still passed to the
   // builder; the signature only gates re-memo.
   const baseMotionPlanSignature = motionPlanSignature(world);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const baseMotionPlan = useMemo(() => buildBaseMotionPlan(world), [baseMotionPlanSignature]);
+  const baseMotionPlan = useMemo(() => buildBaseMotionPlan(world, motionBucket * 600), [baseMotionPlanSignature, motionBucket]);
   // `buildMotionPlan` only reads `world` to find the selected ship by id.
   // `baseMotionPlan` identity already keys on `motionPlanSignature(world)`, so
   // dropping `world` here avoids re-running the memo on world-ref churn that
@@ -155,6 +157,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   };
 
   const { requestPaint } = useWorldRenderLoop({
+    onBucketFlip: setMotionBucket,
     adaptiveDprStateRef: canvas.adaptiveDprStateRef,
     assetLoadErrors: assetPipeline.assetLoadErrors,
     assetLoadTick: assetPipeline.assetLoadTick,
@@ -236,6 +239,9 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   }, [clearSelection, selectedDetailId]);
 
   useEffect(() => observeReducedMotion(setReducedMotion), []);
+
+  // world.map is a module singleton; this fires once on full teardown.
+  useEffect(() => () => disposePathCacheForMap(world.map), [world.map]);
 
   useEffect(() => {
     if (!autoNightCycle) return;

@@ -212,6 +212,72 @@ describe("useWorldRenderLoop", () => {
     expect(rafSpy.mock.calls.length).toBe(beforeRepeats);
   });
 
+  it("accepts onBucketFlip callback without error and does not call it on initial mount (B2)", () => {
+    // B2 lifecycle wiring: verify onBucketFlip is wired into the interface and
+    // does not fire on the initial frame (accSeconds starts at 0, bucket=0,
+    // which equals lastBucketRef=0 so no flip). A full bucket-flip integration
+    // test (requiring 600s of simulated clock) is deferred to a Playwright lane
+    // because the jsdom RAF mock only runs drawFrame once at mount.
+    const bucketFlipSpy = vi.fn();
+    function HarnessWithBucketFlip() {
+      const [assetManager] = useState(() => new PharosVilleAssetManager());
+      const [canvasRef] = useState(() => ({ current: document.createElement("canvas") }));
+      const [adaptiveDprStateRef] = useState(() => ({ current: initialAdaptiveDprState(1) }));
+      const [maximumRequestedDprRef] = useState(() => ({ current: 1 }));
+      const [canvasBudgetRef] = useState(() => ({
+        current: resolveCanvasBudget({ cssHeight: canvasSize.y, cssWidth: canvasSize.x, requestedDpr: 1 }),
+      }));
+      const [cameraRef] = useState(() => ({ current: camera }));
+      const [canvasSizeRef] = useState(() => ({ current: canvasSize }));
+      const [hoveredDetailIdRef] = useState<{ current: string | null }>(() => ({ current: null }));
+      const [selectedDetailIdRef] = useState<{ current: string | null }>(() => ({ current: null }));
+      const [hitTargetSnapshotRef] = useState<{ current: HitTargetSnapshot | null }>(() => ({ current: null }));
+      const [hitTargetsRef] = useState<{ current: readonly HitTarget[] }>(() => ({ current: [] }));
+      const [shipMotionSamplesRef] = useState<{ current: ReadonlyMap<string, ShipMotionSample> }>(() => ({ current: new Map() }));
+      const [shipsById] = useState(() => new Map(world.ships.map((ship) => [ship.id, ship])));
+      const [baseMotionPlan] = useState(() => buildBaseMotionPlan(world));
+      const [motionPlan] = useState(() => buildMotionPlan(world, null, baseMotionPlan));
+      const [motionPlanRef] = useState(() => ({ current: motionPlan }));
+      useWorldRenderLoop({
+        onBucketFlip: bucketFlipSpy,
+        adaptiveDprStateRef,
+        assetLoadErrors: [],
+        assetLoadTick: 0,
+        assetManager,
+        camera,
+        cameraRef,
+        canvasBudgetRef,
+        canvasRef,
+        canvasSize,
+        canvasSizeRef,
+        criticalAssetAttemptsSettled: true,
+        criticalAssetsLoaded: true,
+        deferredAssetsLoaded: true,
+        hitTargetSnapshotRef,
+        hitTargetsRef,
+        hoveredDetailId: null,
+        hoveredDetailIdRef,
+        maximumRequestedDprRef,
+        motionPlan,
+        motionPlanRef,
+        nightMode: false,
+        reducedMotion: false,
+        selectedDetailAnchor: null,
+        selectedDetailId: null,
+        selectedDetailIdRef,
+        setCriticalFramePainted: () => {},
+        shipMotionSamplesRef,
+        shipsById,
+        world,
+      });
+      return null;
+    }
+    const { unmount } = render(<HarnessWithBucketFlip />);
+    // Initial drawFrame runs with accSeconds=0 (bucket 0 = lastBucket 0): no flip.
+    expect(bucketFlipSpy).not.toHaveBeenCalled();
+    unmount();
+  });
+
   it("pauses RAF when canvas reports intersectionRatio 0 and resumes when it goes back to 1", () => {
     let latest: UseWorldRenderLoopResult | null = null;
     const onResult = (r: UseWorldRenderLoopResult) => { latest = r; };

@@ -19,6 +19,7 @@
     "test:visual:dist:static": "playwright test tests/visual/pharosville.spec.ts --config=playwright.dist.config.ts --grep \"desktop canvas shell|dense visual|stressed ship|named risk water|narrow fallback|short desktop fallback|desktop gate|resizing below|ultrawide\"",
     "test:visual:dist:interaction": "playwright test tests/visual/pharosville.spec.ts --config=playwright.dist.config.ts --grep \"canvas interactions|reduced motion keeps|live reduced-motion\"",
     "test:visual:dist:motion": "playwright test tests/visual/pharosville.spec.ts --config=playwright.dist.config.ts --grep \"normal motion\"",
+    "test:perf": "playwright test --config playwright.perf.config.ts",
     "test:visual:accessibility": "playwright test tests/visual/pharosville.spec.ts --grep \"accessibility\"",
     "test:visual:cross-browser": "PHAROSVILLE_VISUAL_BROWSERS=\"chromium,firefox\" npx playwright test tests/visual/pharosville.spec.ts --grep \"accessibility\"",
     "test:visual:dist:accessibility": "PHAROSVILLE_VISUAL_BROWSERS=\"chromium,firefox\" npx playwright test tests/visual/pharosville.spec.ts --config=playwright.dist.config.ts --grep \"accessibility\"",

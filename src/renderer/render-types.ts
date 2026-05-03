@@ -42,4 +42,14 @@ export interface PharosVilleRenderMetrics {
   movingShipCount: number;
   visibleShipCount: number;
   visibleTileCount: number;
+  /** Max |heading delta| in degrees across all ships this frame. */
+  shipMaxHeadingDeltaDeg?: number;
+  /** Max Euclidean position delta in tiles across all ships since last frame. */
+  shipMaxPositionDeltaTile?: number;
+  /** Route-cache hit ratio and eviction rate at time of read. */
+  routeCacheStats?: { hitRatio: number; evictionRate: number; size: number; capacity: number };
+  /** PerformanceObserver longtask counts over the last 60-frame window. */
+  longtask?: { count: number; maxDurationMs: number };
+  /** Total number of 600-second bucket flips since world mount. */
+  bucketFlipCount?: number;
 }

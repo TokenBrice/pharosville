@@ -20,11 +20,13 @@ import {
 import {
   buildMotionPlan,
   createShipMotionSample,
+  getCurrentMapPathCacheStats,
   isShipMapVisible,
   motionPlanSignature,
   resolveShipMotionSampleInto,
   type ShipMotionSample,
 } from "../systems/motion";
+import { getShipHeadingDelta } from "../systems/motion-sampling";
 import type { IsoCamera, ScreenPoint } from "../systems/projection";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
 
@@ -35,6 +37,7 @@ interface DetailAnchor extends ScreenPoint {
 }
 
 export interface UseWorldRenderLoopInput {
+  onBucketFlip?: (bucket: number) => void;
   adaptiveDprStateRef: MutableRefObject<AdaptiveDprState>;
   assetLoadErrors: PharosVilleAssetLoadError[];
   assetLoadTick: number;
@@ -72,6 +75,7 @@ export interface UseWorldRenderLoopResult {
 
 export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRenderLoopResult {
   const {
+    onBucketFlip,
     adaptiveDprStateRef,
     assetLoadErrors,
     assetLoadTick,
@@ -140,6 +144,19 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     visibleShipCount: 0,
     visibleTileCount: 0,
   });
+  // A1/A2 rolling window: last 60 frames of heading delta and position delta.
+  const headingDeltaWindowRef = useRef<number[]>([]);
+  // A2: scratch map tracking each ship's last-known tile position.
+  const lastTilePosRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+  const positionDeltaWindowRef = useRef<number[]>([]);
+  // A5: longtask rolling window over last 60 frames.
+  const longtaskWindowRef = useRef<{ count: number; maxDurationMs: number }[]>([]);
+  // A5: accumulator for longtasks seen since the last frame flush.
+  const longtaskAccRef = useRef<{ count: number; maxDurationMs: number }>({ count: 0, maxDurationMs: 0 });
+  // A5: PerformanceObserver disconnect handle (set when observer is created).
+  const longtaskObserverRef = useRef<PerformanceObserver | null>(null);
+  const lastBucketRef = useRef(0);
+  const bucketFlipCountRef = useRef(0);
   const shipHitStateRef = useRef(new Map<string, { cellX: number; cellY: number; visible: boolean }>());
   const frameStateRef = useRef<{
     samples: ReadonlyMap<string, ShipMotionSample>;
@@ -172,6 +189,13 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     drawDurationWindowRef.current = createDrawDurationWindow();
     drawDurationStatsRef.current = { averageMs: 0, count: 0, p90Ms: 0 };
     reducedMotionSamplesSignatureRef.current = null;
+    headingDeltaWindowRef.current = [];
+    positionDeltaWindowRef.current = [];
+    lastTilePosRef.current.clear();
+    longtaskWindowRef.current = [];
+    longtaskAccRef.current = { count: 0, maxDurationMs: 0 };
+    lastBucketRef.current = 0;
+    bucketFlipCountRef.current = 0;
   }, [hitTargetSnapshotRef, hitTargetsRef, shipMotionSamplesRef, world]);
 
   // RAF effect — bound once per plumbing change (`world`, `canvasSize`,
@@ -243,6 +267,12 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         accSecondsRef.current += dt;
         lastWallRef.current = time;
         timeSeconds = accSecondsRef.current;
+        const newBucket = Math.floor(accSecondsRef.current / 600);
+        if (newBucket !== lastBucketRef.current) {
+          lastBucketRef.current = newBucket;
+          bucketFlipCountRef.current += 1;
+          onBucketFlip?.(newBucket);
+        }
       }
       let wallClockHour: number;
       const testOverride = (globalThis as { __pharosVilleTestWallClockHour?: number }).__pharosVilleTestWallClockHour;
@@ -395,6 +425,63 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         scheduleFrame();
       }
       if (isVisualDebugAllowed()) {
+        // A1: max |heading delta| in degrees across all ships this frame.
+        let frameMaxHeadingDeg = 0;
+        for (const ship of world.ships) {
+          const absRad = Math.abs(getShipHeadingDelta(ship.id));
+          const deg = absRad * (180 / Math.PI);
+          if (deg > frameMaxHeadingDeg) frameMaxHeadingDeg = deg;
+        }
+        const hdWindow = headingDeltaWindowRef.current;
+        hdWindow.push(frameMaxHeadingDeg);
+        if (hdWindow.length > 60) hdWindow.shift();
+        const shipMaxHeadingDeltaDeg = hdWindow.reduce((m, v) => (v > m ? v : m), 0);
+
+        // A2: max Euclidean position delta in tiles across all ships this frame.
+        let frameMaxPosDelta = 0;
+        const lastTilePos = lastTilePosRef.current;
+        for (const [id, sample] of nextFrameState.samples) {
+          const prev = lastTilePos.get(id);
+          if (prev) {
+            const d = Math.hypot(sample.tile.x - prev.x, sample.tile.y - prev.y);
+            if (d > frameMaxPosDelta) frameMaxPosDelta = d;
+          }
+          lastTilePos.set(id, { x: sample.tile.x, y: sample.tile.y });
+        }
+        const pdWindow = positionDeltaWindowRef.current;
+        pdWindow.push(frameMaxPosDelta);
+        if (pdWindow.length > 60) pdWindow.shift();
+        const shipMaxPositionDeltaTile = pdWindow.reduce((m, v) => (v > m ? v : m), 0);
+
+        // A3: route cache stats.
+        let routeCacheStats: { hitRatio: number; evictionRate: number; size: number; capacity: number } | undefined;
+        const rawStats = getCurrentMapPathCacheStats(world.map);
+        if (rawStats) {
+          const total = rawStats.hits + rawStats.misses;
+          const hitRatio = total > 0 ? rawStats.hits / total : 0;
+          const allOps = rawStats.hits + rawStats.misses + rawStats.evictions;
+          const evictionRate = allOps > 0 ? rawStats.evictions / allOps : 0;
+          routeCacheStats = { hitRatio, evictionRate, size: rawStats.size, capacity: rawStats.capacity };
+        }
+
+        // A5: flush longtask accumulator into the rolling window.
+        const ltAcc = longtaskAccRef.current;
+        const ltWindow = longtaskWindowRef.current;
+        ltWindow.push({ count: ltAcc.count, maxDurationMs: ltAcc.maxDurationMs });
+        if (ltWindow.length > 60) ltWindow.shift();
+        longtaskAccRef.current = { count: 0, maxDurationMs: 0 };
+        const longtaskCount = ltWindow.reduce((sum, f) => sum + f.count, 0);
+        const longtaskMaxMs = ltWindow.reduce((m, f) => (f.maxDurationMs > m ? f.maxDurationMs : m), 0);
+
+        lastRenderMetricsRef.current = {
+          ...lastRenderMetricsRef.current,
+          shipMaxHeadingDeltaDeg,
+          shipMaxPositionDeltaTile,
+          routeCacheStats,
+          longtask: { count: longtaskCount, maxDurationMs: longtaskMaxMs },
+          bucketFlipCount: bucketFlipCountRef.current,
+        };
+
         updateDebugFrame({
           animationFramePending: animationFramePendingRef.current,
           frameCount: motionFrameCountRef.current,
@@ -450,6 +537,23 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       document.addEventListener("visibilitychange", handleVisibilityChange);
     }
 
+    // A5: register a PerformanceObserver for longtask entries inside the debug
+    // branch. Guards against jsdom / environments without longtask support.
+    if (isVisualDebugAllowed()
+      && typeof PerformanceObserver !== "undefined"
+      && PerformanceObserver.supportedEntryTypes?.includes("longtask")) {
+      const ltObserver = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          longtaskAccRef.current.count += 1;
+          if (entry.duration > longtaskAccRef.current.maxDurationMs) {
+            longtaskAccRef.current.maxDurationMs = entry.duration;
+          }
+        }
+      });
+      ltObserver.observe({ entryTypes: ["longtask"] });
+      longtaskObserverRef.current = ltObserver;
+    }
+
     drawFrame(performance.now());
     return () => {
       paintRequestRef.current = () => {};
@@ -457,6 +561,10 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       lastWallRef.current = null;
       if (frameId) cancelAnimationFrame(frameId);
       if (observer) observer.disconnect();
+      if (longtaskObserverRef.current) {
+        longtaskObserverRef.current.disconnect();
+        longtaskObserverRef.current = null;
+      }
       if (typeof document !== "undefined") {
         document.removeEventListener("visibilitychange", handleVisibilityChange);
       }
