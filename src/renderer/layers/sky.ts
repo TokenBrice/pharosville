@@ -1,6 +1,14 @@
 import { ambientWindPhase } from "../../systems/motion-types";
+import type { PharosVilleWorld } from "../../systems/world-types";
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
 import { lighthouseRenderState, type LighthouseRenderState } from "./lighthouse";
+import {
+  cloudScalarsForThreat,
+  maxActiveThreatLevel,
+  windMultiplier,
+  type CloudThreatScalars,
+  type ThreatLevel,
+} from "./weather";
 
 const SKY_MOODS = {
   dawn: {
@@ -88,18 +96,26 @@ function moodKeyFor(mood: typeof SKY_MOODS[SkyMoodKey]): SkyMoodKey {
   return "day";
 }
 
-// Pre-baked cloud stroke colors per (mood × cloud index). Replaces a
-// per-frame `state.mood.mist.replace(/[\d.]+\)$/, ...)` regex inside
-// `drawSkyClouds`. The mist string template is `rgba(R, G, B, A)`; the
-// cloud-alpha replaces only the trailing alpha.
-const SKY_CLOUD_STROKES: Record<SkyMoodKey, readonly string[]> = (() => {
-  const result: Record<SkyMoodKey, string[]> = {
+// Pre-baked cloud stroke colors per (mood × threat × cloud index). At threat
+// 0 the matrix matches the legacy table exactly (so default-zone scenes are
+// byte-identical). Higher threat scales the per-cloud alpha by
+// `cloudScalarsForThreat(...).alphaScale` and keeps the original per-mood
+// mist tint. The matrix is fully static — built once at module init — so the
+// per-frame draw path only needs an O(1) array lookup.
+const SKY_CLOUD_STROKES: Record<SkyMoodKey, readonly (readonly string[])[]> = (() => {
+  const result: Record<SkyMoodKey, string[][]> = {
     dawn: [], day: [], dusk: [], night: [],
   };
   for (const moodKey of SKY_MOOD_KEYS) {
     const mist = SKY_MOODS[moodKey].mist;
-    for (const cloud of SKY_CLOUDS) {
-      result[moodKey].push(mist.replace(/[\d.]+\)$/, `${cloud.alpha})`));
+    for (let threat = 0 as ThreatLevel; threat <= 4; threat = (threat + 1) as ThreatLevel) {
+      const { alphaScale } = cloudScalarsForThreat(threat);
+      const row: string[] = [];
+      for (const cloud of SKY_CLOUDS) {
+        const alpha = Math.min(0.95, cloud.alpha * alphaScale);
+        row.push(mist.replace(/[\d.]+\)$/, `${alpha.toFixed(3)})`));
+      }
+      result[moodKey].push(row);
     }
   }
   return result;
@@ -214,12 +230,14 @@ function getSkyBackdropCanvas(
 }
 
 export function drawSky(input: DrawPharosVilleInput, lighthouse?: LighthouseRenderState) {
-  const { camera, ctx, height, motion, width } = input;
+  const { camera, ctx, height, motion, width, world } = input;
   const state = skyState(motion);
   const mood = state.mood;
   const { firePoint } = lighthouse ?? lighthouseRenderState(input);
   const firePointX = firePoint.x | 0;
   const firePointY = firePoint.y | 0;
+  const threat = maxActiveThreatLevel(world);
+  const wind = windMultiplier(threat);
 
   const cached = getSkyBackdropCanvas(width, height, mood, firePointX, firePointY, camera.zoom, state.nightFactor);
   if (cached) {
@@ -232,9 +250,9 @@ export function drawSky(input: DrawPharosVilleInput, lighthouse?: LighthouseRend
   drawCelestialArc(ctx, width, height, camera.zoom, state);
   drawSun(ctx, width, height, camera.zoom, state);
   drawMoon(ctx, width, height, camera.zoom, state);
-  drawStars(ctx, width, height, camera.zoom, state, motion);
+  drawStars(ctx, width, height, camera.zoom, state, motion, wind);
   drawHorizonShips(ctx, width, height, camera.zoom, state, motion);
-  drawSkyClouds(ctx, width, height, camera.zoom, state, motion);
+  drawSkyClouds(ctx, width, height, camera.zoom, state, motion, threat, wind);
   ctx.restore();
 }
 
@@ -376,12 +394,15 @@ function drawStars(
   zoom: number,
   state: ReturnType<typeof skyState>,
   motion: PharosVilleCanvasMotion,
+  windScale: number,
 ) {
   if (state.mood.starAlpha <= 0) return;
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
   // Parallax: slow horizontal drift (depth-modulated) wrapped over the
-  // viewport width so stars never leave the sky band.
-  const driftBase = motion.reducedMotion ? 0 : time * 1.6 * 0.3 * zoom;
+  // viewport width so stars never leave the sky band. Wind multiplier scales
+  // the drift speed based on the active DEWS threat across visible zones —
+  // higher threat → ambient air moves faster.
+  const driftBase = motion.reducedMotion ? 0 : time * 1.6 * 0.3 * zoom * windScale;
   ctx.save();
   ctx.globalAlpha = state.mood.starAlpha;
   ctx.strokeStyle = "rgba(245, 231, 184, 0.22)";
@@ -465,18 +486,33 @@ function drawSkyClouds(
   zoom: number,
   state: ReturnType<typeof skyState>,
   motion: PharosVilleCanvasMotion,
+  threat: ThreatLevel,
+  windScale: number,
 ) {
   ctx.save();
-  const strokes = SKY_CLOUD_STROKES[moodKeyFor(state.mood)];
+  const strokes = SKY_CLOUD_STROKES[moodKeyFor(state.mood)][threat]!;
+  const scalars: CloudThreatScalars = cloudScalarsForThreat(threat);
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
+  // Reduced-motion: clouds render in their threat-modulated state but do not
+  // animate over time. We zero the per-cloud drift terms so the ellipses sit
+  // at their nominal X.
+  const driftScale = motion.reducedMotion ? 0 : 1;
   for (let i = 0; i < SKY_CLOUDS.length; i += 1) {
     const cloud = SKY_CLOUDS[i]!;
-    const drift = ambientWindPhase(motion, cloud.x * 8) * 22 * zoom;
-    const horizontalDrift = Math.sin(time * 0.12 + i * 1.3) * 8 * zoom;
+    const drift = ambientWindPhase(motion, cloud.x * 8) * 22 * zoom * windScale * driftScale;
+    const horizontalDrift = motion.reducedMotion ? 0 : Math.sin(time * 0.12 * windScale + i * 1.3) * 8 * zoom;
     ctx.strokeStyle = strokes[i]!;
-    ctx.lineWidth = Math.max(1, 5 * zoom);
+    ctx.lineWidth = Math.max(1, 5 * zoom * scalars.thicknessScale);
     ctx.beginPath();
-    ctx.ellipse(width * cloud.x + drift + horizontalDrift, height * cloud.y, cloud.rx * zoom, cloud.ry * zoom, -0.08, 0, Math.PI * 2);
+    ctx.ellipse(
+      width * cloud.x + drift + horizontalDrift,
+      height * (cloud.y + scalars.yBias),
+      cloud.rx * zoom * scalars.thicknessScale,
+      cloud.ry * zoom * scalars.thicknessScale,
+      -0.08,
+      0,
+      Math.PI * 2,
+    );
     ctx.stroke();
   }
   ctx.restore();

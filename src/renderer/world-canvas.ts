@@ -28,6 +28,7 @@ import { drawCoastalWaterDetails } from "./layers/shoreline";
 import { drawSky } from "./layers/sky";
 import { drawNightTint, drawNightVignette } from "./layers/night-tint";
 import { skyState } from "./layers/sky";
+import { drawWeather } from "./layers/weather";
 import type { DrawPharosVilleInput, PharosVilleRenderMetrics } from "./render-types";
 import { tileBoundsTileCount, visibleTileBoundsForCamera } from "./viewport";
 
@@ -416,6 +417,10 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   drawLighthouseGodRays(input.ctx, frame.lighthouseRender.firePoint, input.camera.zoom * 1.35, input.motion, nightFactor);
   drawCemeteryMist(input);
   drawBirds(input);
+  // Lightning flashes over WARNING/DANGER zones. Placed after night-tint and
+  // ambient atmosphere so the flash visibly punches through the dim, but
+  // before the night vignette / selection chrome which are UI overlays.
+  drawWeather(input);
   drawNightVignette(input, nightFactor);
   const selectionDrawableCount = drawSelection(input);
   const drawableCounts = {

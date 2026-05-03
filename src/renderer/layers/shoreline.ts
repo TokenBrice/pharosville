@@ -1,5 +1,11 @@
 import { ambientSeaPhase } from "../../systems/motion-types";
-import { waterTerrainStyle, type WaterTerrainStyle, type WaterTextureKind } from "../../systems/palette";
+import {
+  waterTerrainStyle,
+  zoneThemeForTerrain,
+  type WaterTerrainStyle,
+  type WaterTextureKind,
+  type ZoneMotionTheme,
+} from "../../systems/palette";
 import { TILE_HEIGHT, TILE_WIDTH, tileToScreen } from "../../systems/projection";
 import { isWaterTileKind } from "../../systems/world-layout";
 import type { PharosVilleMap, PharosVilleTile, TerrainKind } from "../../systems/world-types";
@@ -33,6 +39,12 @@ const dashScratch: number[] = [0, 0, 0, 0];
 interface CoastalWaterCandidate {
   coastEdges: CoastEdge[];
   style: WaterTerrainStyle;
+  /**
+   * `ZONE_THEMES` motion scalars for this tile's terrain. Defaults to
+   * `{ amplitudeScale: 1, strokeAlphaScale: 1 }` so terrains without zone
+   * tuning render byte-identical to the pre-Phase-2.7 path.
+   */
+  motion: ZoneMotionTheme;
   tile: PharosVilleTile;
 }
 
@@ -43,6 +55,7 @@ type NearshoreMotifRenderer = (
   zoom: number,
   seed: number,
   style: WaterTerrainStyle,
+  motion: ZoneMotionTheme,
 ) => void;
 
 const NEARSHORE_MOTIF_RENDERERS: Partial<Record<WaterTextureKind, NearshoreMotifRenderer>> = {
@@ -89,8 +102,28 @@ export function drawCoastalWaterDetails({ camera, ctx, height, motion, width, wo
     if (!isScreenPointInViewport(point, width, height, viewportMarginX, viewportMarginY)) continue;
 
     drawnTileCount += 1;
-    drawCoastEdgeWash(ctx, point.x, point.y, camera.zoom, candidate.style, candidate.coastEdges, tile.x, tile.y);
-    drawNearshoreWaterMotif(ctx, point.x, point.y, camera.zoom, candidate.style, tile.x, tile.y, motion);
+    drawCoastEdgeWash(
+      ctx,
+      point.x,
+      point.y,
+      camera.zoom,
+      candidate.style,
+      candidate.coastEdges,
+      tile.x,
+      tile.y,
+      candidate.motion,
+    );
+    drawNearshoreWaterMotif(
+      ctx,
+      point.x,
+      point.y,
+      camera.zoom,
+      candidate.style,
+      tile.x,
+      tile.y,
+      motion,
+      candidate.motion,
+    );
   }
   ctx.restore();
   return drawnTileCount;
@@ -115,9 +148,11 @@ function coastalCandidatesForMap(map: PharosVilleMap): CoastalWaterCandidate[] {
     if (!isWaterTileKind(terrain)) continue;
     const coastEdges = computeCoastalEdges(tile, tilesByKey);
     if (coastEdges.length === 0) continue;
+    const terrainKey = String(terrain);
     candidates.push({
       coastEdges,
-      style: waterTerrainStyle(String(terrain)) ?? waterTerrainStyle("water")!,
+      style: waterTerrainStyle(terrainKey) ?? waterTerrainStyle("water")!,
+      motion: zoneThemeForTerrain(terrainKey).motion,
       tile,
     });
   }
@@ -145,11 +180,16 @@ function drawCoastEdgeWash(
   coastEdges: readonly CoastEdge[],
   tileX: number,
   tileY: number,
+  motion: ZoneMotionTheme,
 ) {
   const settings = foamSettings(style.texture);
   const width = TILE_WIDTH * zoom;
   const height = TILE_HEIGHT * zoom;
   const jitter = ((tileX * 7 + tileY * 11) % 5 - 2) * 0.45 * zoom;
+  // Defaults are 1.0, so multiplying preserves the legacy dash/alpha math
+  // for terrains without zone tuning.
+  const ampScale = motion.amplitudeScale;
+  const alphaScale = motion.strokeAlphaScale;
 
   for (const edge of coastEdges) {
     const [from, to] = edgePoints(x, y + jitter, width, height, edge, 1.8 * zoom);
@@ -159,22 +199,27 @@ function drawCoastEdgeWash(
     ctx.lineWidth = Math.max(1.5, (settings.lineWidth + 1) * zoom);
     ctx.beginPath();
     ctx.moveTo(from.x, from.y + 1.6 * zoom);
-    ctx.quadraticCurveTo(x, y + 2.8 * zoom, to.x, to.y + 1.2 * zoom);
+    ctx.quadraticCurveTo(x, y + 2.8 * zoom * ampScale, to.x, to.y + 1.2 * zoom);
     ctx.stroke();
 
     if (dashScratch.length !== settings.dash.length) dashScratch.length = settings.dash.length;
     for (let i = 0; i < settings.dash.length; i += 1) dashScratch[i] = settings.dash[i]! * zoom;
     ctx.setLineDash(dashScratch);
-    ctx.strokeStyle = withAlpha(style.wave, settings.alpha);
+    ctx.strokeStyle = withAlpha(style.wave, settings.alpha * alphaScale);
     ctx.lineWidth = Math.max(1, settings.lineWidth * zoom);
     ctx.beginPath();
     ctx.moveTo(from.x, from.y);
-    ctx.quadraticCurveTo(x, y + (edge === "north" || edge === "west" ? -1.5 : 2.2) * zoom, to.x, to.y);
+    ctx.quadraticCurveTo(
+      x,
+      y + (edge === "north" || edge === "west" ? -1.5 : 2.2) * zoom * ampScale,
+      to.x,
+      to.y,
+    );
     ctx.stroke();
 
     if ((tileX * 3 + tileY * 5 + edge.length) % 3 === 0) {
       ctx.setLineDash([]);
-      ctx.strokeStyle = withAlpha(style.accent, settings.alpha * 0.72);
+      ctx.strokeStyle = withAlpha(style.accent, settings.alpha * 0.72 * alphaScale);
       ctx.lineWidth = Math.max(1, 0.85 * zoom);
       ctx.beginPath();
       ctx.moveTo(from.x * 0.58 + to.x * 0.42, from.y * 0.58 + to.y * 0.42 + 3 * zoom);
@@ -224,16 +269,24 @@ function drawNearshoreWaterMotif(
   tileX: number,
   tileY: number,
   motion: PharosVilleCanvasMotion,
+  zoneMotion: ZoneMotionTheme,
 ) {
-  const drift = ambientSeaPhase(motion, tileX * 0.23 + tileY * 0.31) * 0.9 * zoom;
+  // Default scalars are (1, 1); multiplying them through preserves byte-
+  // identical output for zones without tuning. Amplitude scales the sea-
+  // phase drift; strokeAlphaScale rides on the parent globalAlpha so every
+  // motif's per-stroke alpha is uniformly attenuated/boosted.
+  const drift = ambientSeaPhase(motion, tileX * 0.23 + tileY * 0.31) * 0.9 * zoom * zoneMotion.amplitudeScale;
   const seed = (tileX * 19 + tileY * 23) % 6;
 
   ctx.save();
+  if (zoneMotion.strokeAlphaScale !== 1) {
+    ctx.globalAlpha = ctx.globalAlpha * zoneMotion.strokeAlphaScale;
+  }
   ctx.strokeStyle = withAlpha(style.accent, 0.28);
   ctx.fillStyle = withAlpha(style.accent, 0.22);
   ctx.lineWidth = Math.max(1, 0.9 * zoom);
   const renderMotif = NEARSHORE_MOTIF_RENDERERS[style.texture] ?? drawOpenEddy;
-  renderMotif(ctx, x, y + drift, zoom, seed, style);
+  renderMotif(ctx, x, y + drift, zoom, seed, style, zoneMotion);
   ctx.restore();
 }
 
@@ -244,6 +297,7 @@ function drawCalmSandbar(
   zoom: number,
   seed: number,
   style: WaterTerrainStyle,
+  _motion: ZoneMotionTheme,
 ) {
   ctx.strokeStyle = withAlpha(style.accent, 0.2);
   ctx.lineWidth = Math.max(1, 0.8 * zoom);
@@ -259,6 +313,7 @@ function drawWatchCrosswind(
   zoom: number,
   seed: number,
   style: WaterTerrainStyle,
+  _motion: ZoneMotionTheme,
 ) {
   ctx.strokeStyle = withAlpha(style.wave, 0.32);
   ctx.beginPath();
@@ -276,6 +331,7 @@ function drawAlertCurrentChevron(
   zoom: number,
   seed: number,
   style: WaterTerrainStyle,
+  _motion: ZoneMotionTheme,
 ) {
   ctx.strokeStyle = withAlpha(style.accent, 0.34);
   ctx.lineWidth = Math.max(1, zoom);
@@ -294,6 +350,7 @@ function drawWarningShoalFlecks(
   zoom: number,
   seed: number,
   style: WaterTerrainStyle,
+  _motion: ZoneMotionTheme,
 ) {
   ctx.fillStyle = withAlpha(style.accent, 0.32);
   for (let index = 0; index < 3; index += 1) {
@@ -310,6 +367,7 @@ function drawStormWhitecap(
   zoom: number,
   seed: number,
   style: WaterTerrainStyle,
+  _motion: ZoneMotionTheme,
 ) {
   ctx.strokeStyle = withAlpha(style.wave, 0.48);
   ctx.lineWidth = Math.max(1, 1.25 * zoom);
@@ -330,6 +388,7 @@ function drawLedgerTally(
   zoom: number,
   seed: number,
   style: WaterTerrainStyle,
+  _motion: ZoneMotionTheme,
 ) {
   ctx.strokeStyle = withAlpha(style.accent, 0.3);
   ctx.lineWidth = Math.max(1, 0.85 * zoom);
@@ -352,6 +411,7 @@ function drawHarborRipples(
   zoom: number,
   seed: number,
   style: WaterTerrainStyle,
+  _motion: ZoneMotionTheme,
 ) {
   ctx.strokeStyle = withAlpha(style.wave, 0.3);
   ctx.beginPath();
@@ -369,6 +429,7 @@ function drawOpenEddy(
   zoom: number,
   seed: number,
   style: WaterTerrainStyle,
+  _motion: ZoneMotionTheme,
 ) {
   ctx.strokeStyle = withAlpha(style.accent, 0.24);
   ctx.beginPath();

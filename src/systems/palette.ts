@@ -90,7 +90,7 @@ export const WATER_TERRAIN_STYLES = {
     wave: "rgba(198, 235, 220, 0.14)",
   },
   "deep-water": {
-    accent: "rgba(96, 138, 162, 0.1)",
+    accent: "rgba(96, 138, 162, 0.16)",
     base: "#06131d",
     inner: "rgba(1, 7, 14, 0.28)",
     texture: "deep",
@@ -120,7 +120,7 @@ export const WATER_TERRAIN_STYLES = {
     // blue than the research-proposed #06192d while preserving the
     // "one step darker than #08243b" intent.
     accent: "rgba(232, 238, 240, 0.26)",
-    base: "#091a30",
+    base: "#0a1f35",
     inner: "rgba(2, 9, 18, 0.36)",
     texture: "storm",
     wave: "rgba(218, 232, 224, 0.22)",
@@ -133,7 +133,7 @@ export const WATER_TERRAIN_STYLES = {
     wave: "rgba(182, 222, 235, 0.16)",
   },
   "warning-water": {
-    accent: "rgba(215, 174, 100, 0.30)",
+    accent: "rgba(215, 174, 100, 0.35)",
     base: "#3d4332",
     inner: "rgba(82, 70, 42, 0.28)",
     texture: "warning",
@@ -228,11 +228,14 @@ export const ZONE_THEMES = {
   "harbor-water": {
     ...WATER_TERRAIN_STYLES["harbor-water"],
     label: defaultLabelTheme("#d8b56a"),
-    motion: DEFAULT_MOTION,
+    motion: { amplitudeScale: 0.85, strokeAlphaScale: 0.95 },
   },
   "ledger-water": {
     ...WATER_TERRAIN_STYLES["ledger-water"],
     label: defaultLabelTheme("#d9b974"), // bronze ink — off THREAT_BAND_HEX axis
+    // Ledger motion is intentionally asymmetric: amplitudeScale 0.5 keeps the
+    // water itself quiet (parchment-still), while strokeAlphaScale 1.05 keeps
+    // the mooring/rule lines crisp against that calm background.
     motion: { amplitudeScale: 0.5, strokeAlphaScale: 1.05 },
   },
   "storm-water": {

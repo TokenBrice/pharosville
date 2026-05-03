@@ -2,6 +2,11 @@ import { tileToScreen } from "../../systems/projection";
 import type { DrawPharosVilleInput } from "../render-types";
 import { lighthouseRenderState, type LighthouseRenderState } from "./lighthouse";
 import { skyState } from "./sky";
+import {
+  maxActiveThreatLevel,
+  threatForPoint,
+  windMultiplier,
+} from "./weather";
 
 const VILLAGE_LIGHTS = [
   { x: 16.7, y: 29.4, size: 0.52 },
@@ -133,9 +138,12 @@ export function drawAtmosphere(input: DrawPharosVilleInput, lighthouse?: Lightho
 export function drawBirds({ camera, ctx, motion, world }: DrawPharosVilleInput) {
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
   const origin = world.lighthouse.tile;
+  // Wind multiplier scales the bird path frequency by the active DEWS threat
+  // — birds beat their circuits faster when storms loom.
+  const windScale = motion.reducedMotion ? 1 : windMultiplier(maxActiveThreatLevel(world));
   ctx.save();
   for (const bird of BIRDS) {
-    const angle = time * bird.speed + bird.phase;
+    const angle = time * bird.speed * windScale + bird.phase;
     const tile = {
       x: origin.x + bird.anchorX + Math.cos(angle) * bird.radiusX,
       y: origin.y + bird.anchorY + Math.sin(angle) * bird.radiusY,
@@ -204,7 +212,6 @@ export function drawBioluminescentSparkles(
   // and wash both effects out. Match the lighthouse pool radius.
   const haloRadius = 900 * camera.zoom;
   const haloRadiusSq = haloRadius * haloRadius;
-  const invHaloRadius = 1 / haloRadius;
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
   const zoom = camera.zoom;
   const offsetX = camera.offsetX;
@@ -225,9 +232,9 @@ export function drawBioluminescentSparkles(
     const dx = px - firePoint.x;
     const dy = py - firePoint.y;
     const distSq = dx * dx + dy * dy;
-    const haloSuppress = distSq < haloRadiusSq ? Math.sqrt(distSq) * invHaloRadius : 1;
+    if (distSq < haloRadiusSq) continue;
     const twinkle = 0.5 + 0.5 * Math.sin(time * 1.4 + sp.phase);
-    const alpha = twinkle * twinkle * nightFactor * 0.7 * haloSuppress;
+    const alpha = twinkle * twinkle * nightFactor * 0.7;
     if (alpha < 0.01) continue;
     const r = Math.max(1, sp.baseRadius * zoom);
     ctx.fillStyle = `rgba(140, 230, 215, ${alpha})`;
@@ -352,9 +359,9 @@ export function drawMoonReflection(input: DrawPharosVilleInput, nightFactor: num
   const cx = width * 0.28;
   const cy = height * 0.38;
   const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.hypot(width, height) * 0.42);
-  grad.addColorStop(0, `rgba(170, 195, 225, ${0.10 * nightFactor})`);
-  grad.addColorStop(0.35, `rgba(145, 175, 210, ${0.045 * nightFactor})`);
-  grad.addColorStop(1, "rgba(130, 160, 200, 0)");
+  grad.addColorStop(0, `rgba(140, 170, 220, ${0.075 * nightFactor})`);
+  grad.addColorStop(0.35, `rgba(115, 150, 205, ${0.034 * nightFactor})`);
+  grad.addColorStop(1, "rgba(100, 135, 200, 0)");
   ctx.fillStyle = grad;
   ctx.save();
   ctx.translate(cx, cy);
@@ -383,17 +390,38 @@ function seaMistFillFor(alpha: number): string {
 }
 
 export function drawSeaMist(input: DrawPharosVilleInput, nightFactor: number): void {
+  // Mist still gates on `nightFactor > 0` — same as Phase-0 invariant. The
+  // per-patch threat modulation only scales density / alpha / drift speed
+  // within the existing nightFactor envelope.
   if (nightFactor <= 0) return;
-  const { camera, ctx, motion } = input;
+  const { camera, ctx, motion, world } = input;
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
   ctx.save();
-  for (const patch of SEA_MIST_PATCHES) {
-    const drift = Math.sin(time * patch.speed + patch.phase) * 0.4;
+  for (let i = 0; i < SEA_MIST_PATCHES.length; i += 1) {
+    const patch = SEA_MIST_PATCHES[i]!;
+    const threat = threatForPoint(world, patch.x, patch.y);
+    const wind = windMultiplier(threat);
+    const driftSpeed = patch.speed * wind;
+    const drift = Math.sin(time * driftSpeed + patch.phase) * 0.4;
     const p = tileToScreen({ x: patch.x + drift, y: patch.y + drift * 0.3 }, camera);
-    const alpha = (0.042 + Math.sin(time * patch.speed * 1.8 + patch.phase) * 0.012) * nightFactor;
+    // Alpha multiplier: 1.0 at CALM, scales up to ~1.7 at DANGER so storm
+    // patches read as denser fog.
+    const alphaScale = 1 + threat * 0.18;
+    const baseAlpha = 0.042 + Math.sin(time * driftSpeed * 1.8 + patch.phase) * 0.012;
+    const alpha = baseAlpha * alphaScale * nightFactor;
     ctx.fillStyle = seaMistFillFor(alpha);
     ctx.beginPath();
-    ctx.ellipse(p.x, p.y, patch.rx * camera.zoom * 12, patch.ry * camera.zoom * 12, -0.12, 0, Math.PI * 2);
+    // Patches over banded zones thicken slightly (max +12% radius at DANGER).
+    const radiusScale = 1 + threat * 0.03;
+    ctx.ellipse(
+      p.x,
+      p.y,
+      patch.rx * camera.zoom * 12 * radiusScale,
+      patch.ry * camera.zoom * 12 * radiusScale,
+      -0.12,
+      0,
+      Math.PI * 2,
+    );
     ctx.fill();
   }
   ctx.restore();
