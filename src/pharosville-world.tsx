@@ -312,6 +312,9 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       >
         <Home aria-hidden="true" size={24} />
       </a>
+      <p className="pharosville-beta-tag" aria-label="PharosVille is a beta interpretive view, not financial advice">
+        Beta — interpretive view, not financial advice
+      </p>
       <p className="sr-only" aria-live="polite">{announcement}</p>
       <AccessibilityLedger world={world} />
     </main>

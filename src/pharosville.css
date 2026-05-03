@@ -922,3 +922,21 @@ textarea {
 @media (prefers-reduced-motion: reduce) {
   .pv-beacon-pulse::after { animation: none; }
 }
+
+.pharosville-beta-tag {
+  position: absolute;
+  bottom: 30px;
+  left: 30px;
+  z-index: 6;
+  margin: 0;
+  padding: 4px 10px;
+  border-radius: 3px;
+  background: rgba(10, 16, 22, 0.6);
+  color: rgba(232, 220, 196, 0.78);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 0.72rem;
+  font-style: italic;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  user-select: none;
+}

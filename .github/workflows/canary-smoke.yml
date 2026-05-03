@@ -1,0 +1,43 @@
+name: Canary smoke
+
+# Periodically pings the live PharosVille URL to surface regressions
+# between deploys. GitHub emails repo admins on failure by default.
+# Tune the cron cadence below to your traffic and budget tolerance.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: canary-smoke
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/cache@v4
+        id: node-modules
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-${{ runner.arch }}-node24-modules-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-node24-modules-
+      - if: steps.node-modules.outputs.cache-hit != 'true'
+        run: npm ci
+      - name: Check live security headers
+        env:
+          SMOKE_UI_URL: ${{ vars.SMOKE_UI_URL || 'https://pharosville.pharos.watch' }}
+        run: node scripts/pharosville/check-security-headers.mjs --url "$SMOKE_UI_URL"
+      - name: Smoke live
+        env:
+          SMOKE_UI_URL: ${{ vars.SMOKE_UI_URL || 'https://pharosville.pharos.watch' }}
+        run: npm run smoke:live -- --url "$SMOKE_UI_URL"
