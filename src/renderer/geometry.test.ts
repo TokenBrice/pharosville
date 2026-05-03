@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import { dockDrawTile, dockOutwardVector } from "./geometry";
 
 describe("dock geometry overrides", () => {
-  it("pushes the Ethereum rotunda harbor farther seaward than the generic east anchor", () => {
+  it("places the Ethereum rotunda harbor at the Yggdrasil tree base inside the civic cove", () => {
     const ethereumDock: Parameters<typeof dockDrawTile>[0] = {
       tile: { x: 42, y: 31 },
       size: 8,
     } as Parameters<typeof dockDrawTile>[0];
 
-    expect(dockDrawTile(ethereumDock, 56)).toEqual({ x: 44.9, y: 32.15 });
+    expect(dockDrawTile(ethereumDock, 56)).toEqual({ x: 42.5, y: 29.2 });
   });
 
   it("anchors the Solana slip on the NW shoulder near the lighthouse", () => {

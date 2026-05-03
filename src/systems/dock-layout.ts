@@ -10,9 +10,9 @@ const DOCK_OUTWARD_VECTOR_OVERRIDES: Record<string, { x: -1 | 0 | 1; y: -1 | 0 |
 };
 
 const DOCK_DRAW_TILE_OVERRIDES: Record<string, TilePoint> = {
-  // The concept-C Ethereum rotunda reads too far inland at the generic east
-  // dock anchor, so push it slightly seaward.
-  "42.31": { x: 44.9, y: 32.15 },
+  // The Ethereum flag sits at the foot of the Yggdrasil world-tree inside the
+  // civic cove, rather than pushed out to the seawall.
+  "42.31": { x: 42.5, y: 29.2 },
 };
 
 function tileKey(tile: TilePoint): string {
