@@ -29,6 +29,7 @@ export const SHIP_SAIL_EMBLEM_OVERRIDES: Record<string, string> = {
 
 export const SHIP_SAIL_EMBLEM_PAINTED: ReadonlySet<string> = new Set([
   "crvusd-curve",
+  "usdc-circle",
   ...Object.keys(SHIP_SAIL_EMBLEM_OVERRIDES),
 ]);
 
@@ -38,7 +39,7 @@ export const SHIP_SAIL_MARKS: Record<string, { height: number; width: number; x:
   "crypto-caravel": { height: 14, width: 17, x: 8, y: -26 },
   "dao-schooner": { height: 14, width: 17, x: 8, y: -27 },
   "treasury-galleon": { height: 16, width: 19, x: 10, y: -31 },
-  "ship.usdc-titan": { height: 21, width: 25, x: 4, y: -52 },
+  "ship.usdc-titan": { height: 28, width: 28, x: -14, y: -52 },
   "ship.usds-titan": { height: 19, width: 23, x: 3, y: -45 },
   "ship.usdt-titan": { height: 50, width: 78, x: -4, y: -52 },
   // Maker consorts seeded from ship.usds-titan; tuning in Task 7.5.
@@ -96,10 +97,10 @@ export const SHIP_TRIM_MARKS: Record<string, ShipTrimSpec> = {
     deck: [{ x: -10, y: -23, width: 8, height: 4 }, { x: 8, y: -21, width: 7, height: 3 }],
   },
   "ship.usdc-titan": {
-    rail: [-53, -20, 48, -11],
-    keel: [-48, -5, 42, 0],
-    stern: { x: -60, y: -27, width: 16, height: 7 },
-    deck: [{ x: -17, y: -31, width: 13, height: 6 }, { x: 13, y: -27, width: 11, height: 5 }],
+    rail: [-64, -22, 58, -12],
+    keel: [-58, -5, 52, 0],
+    stern: { x: -72, y: -30, width: 17, height: 7 },
+    deck: [{ x: -20, y: -34, width: 14, height: 6 }, { x: 16, y: -30, width: 12, height: 5 }],
   },
   "ship.usds-titan": {
     rail: [-44, -18, 40, -8],

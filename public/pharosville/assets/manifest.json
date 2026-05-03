@@ -1105,22 +1105,22 @@
       "path": "ships/usdc-titan.png",
       "category": "ship",
       "layer": "ships",
-      "width": 160,
-      "height": 112,
+      "width": 192,
+      "height": 144,
       "displayScale": 1,
       "anchor": [
-        80,
-        102
+        96,
+        128
       ],
       "footprint": [
-        54,
-        24
+        72,
+        28
       ],
       "hitbox": [
-        34,
-        2,
-        102,
-        102
+        16,
+        4,
+        176,
+        132
       ],
       "loadPriority": "critical",
       "criticalReason": "USDC uses a dedicated titan hull on the first coherent ship frame.",
@@ -1133,8 +1133,8 @@
         "spriteSheet": {
           "columns": 4,
           "rows": 1,
-          "frameWidth": 160,
-          "frameHeight": 112
+          "frameWidth": 192,
+          "frameHeight": 144
         }
       },
       "promptKey": "ship.usdc-titan",
@@ -1147,7 +1147,7 @@
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "af346d52-0c92-4476-9b24-1af45022afaf",
+        "jobId": "072956fc-8012-4494-958e-9bc238fdd22a",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },

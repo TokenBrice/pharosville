@@ -54,17 +54,11 @@ export const SHIP_SAIL_TINT_MASKS: Record<string, SailMaskSpec> = {
       [[58, 23], [73, 34], [67, 64], [58, 61]],
     ],
   },
-  "ship.usdc-titan": {
-    bounds: { x: 34, y: 8, width: 96, height: 90 },
-    polygons: [
-      [[34, 57], [70, 15], [78, 84], [43, 78]],
-      [[36, 52], [53, 19], [68, 17], [57, 47], [46, 57]],
-      [[70, 25], [96, 16], [97, 76], [74, 73]],
-      [[95, 28], [125, 43], [116, 84], [96, 76]],
-      [[101, 60], [126, 72], [116, 93], [99, 83]],
-      [[73, 79], [96, 76], [105, 94], [81, 91]],
-    ],
-  },
+  // ship.usdc-titan intentionally absent: the sprite ships with USDC-blue
+  // sail cloth and a white $ glyph baked directly into the PNG (mirrors the
+  // crvUSD heritage-hull pattern). Runtime tinting would over-paint the
+  // white emblem and is therefore disabled by omission. Marked in
+  // ship-sail-tint.test.ts::UNTUNED_TITAN_IDS so the coverage gate is skipped.
   "ship.usds-titan": {
     bounds: { x: 26, y: 15, width: 96, height: 79 },
     polygons: [

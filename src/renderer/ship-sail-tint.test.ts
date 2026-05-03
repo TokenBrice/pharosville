@@ -37,7 +37,6 @@ const MIN_SAIL_COVERAGE: Record<string, number> = {
   "ship.dao-schooner": 0.34,
   "ship.sdai-titan": 0.38,
   "ship.treasury-galleon": 0.34,
-  "ship.usdc-titan": 0.38,
   "ship.usds-titan": 0.34,
   "ship.usdt-titan": 0.38,
 };
@@ -47,9 +46,15 @@ const MIN_SAIL_COVERAGE: Record<string, number> = {
 // the strict coverage gate without sprite regeneration or heuristic
 // widening. Their masks are still tuned (see SHIP_SAIL_TINT_MASKS) but the
 // per-pixel gate is skipped until the underlying sprites are fixed.
+//
+// ship.usdc-titan ships with USDC-blue sail cloth and a white $ glyph baked
+// directly into the sprite (mirrors crvUSD's heritage hull). It has no
+// SHIP_SAIL_TINT_MASKS entry so runtime tinting is a no-op by design;
+// listed here so the equality check filters it from both sides.
 const UNTUNED_TITAN_IDS = new Set([
   "ship.susds-titan",
   "ship.stusds-titan",
+  "ship.usdc-titan",
 ]);
 
 // Heritage hulls (unique tier) whose painted sail color falls outside
@@ -98,8 +103,10 @@ describe("ship sail tint masks", () => {
   });
 
   it("does not leave large titan sail fragments outside the tint mask", () => {
+    // ship.usdc-titan is omitted: its sails are baked USDC blue + painted
+    // white $ glyph (see UNTUNED_TITAN_IDS), so there is no tint mask to
+    // verify against — the sprite ships its own colorway end to end.
     for (const assetId of [
-      "ship.usdc-titan",
       "ship.usds-titan",
       "ship.usdt-titan",
       "ship.dai-titan",
