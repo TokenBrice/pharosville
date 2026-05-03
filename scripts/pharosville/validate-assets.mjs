@@ -28,10 +28,11 @@ const publicImageExtensionPattern = /\.(?:png|svg|jpe?g|webp)$/i;
 // north/east, harbor-bell, cargo-stack).
 // 2026-05-03: bumped 61 -> 62 for landmark.pigeonnier (PharosWatch Telegram dispatch islet).
 // 2026-05-03: bumped 62 -> 63 for dock.ton-pigeonnier-pier (Telegram TON wharf attached to the pigeonnier islet).
-const maxManifestAssets = 63;
+// 2026-05-03: bumped 63 -> 69 for new first-render stablecoin squad additions (Ethena + USYC/USD1/BUIDL/BUIDL).
+const maxManifestAssets = 69;
 const firstRenderBudgets = {
   // 2026-05-01: bumped for Maker squad titans (USDS, DAI, sUSDS, sDAI, stUSDS)
-  maxCount: 28,
+  maxCount: 33,
   maxBytes: 575 * 1024,
   maxDecodedPixels: 875_000,
 };
@@ -53,7 +54,7 @@ const visibleCriticalBudgets = {
 };
 const totalAssetBudgets = {
   maxBytes: 900 * 1024,
-  maxDecodedPixels: 1_300_000,
+  maxDecodedPixels: 1_320_000,
 };
 const imageBudgetsByCategory = {
   dock: { maxBytes: 128 * 1024, maxDecodedPixels: 150_000 },

@@ -178,7 +178,7 @@ generic water.
 - Stale or missing peg evidence maps to Calm Anchorage with an evidence caveat unless a fresher risk signal exists; it must not create a separate sea zone or masquerade as storm/depeg risk.
 - Stablecoin supply values from the list payload are already USD-denominated. Use `getCirculatingRaw()` for market-cap visual tiers.
 - Local runtime assets come from `public/pharosville/assets/` and `manifest.json`. Do not reference remote prototype URLs at runtime.
-- Treat `public/pharosville/assets/manifest.json` and `npm run check:pharosville-assets` as the asset inventory source of truth. The validator's `maxManifestAssets` cap is currently 62 (see `scripts/pharosville/validate-assets.mjs`); rerun the validator instead of hand-maintaining prose counts.
+- Treat `public/pharosville/assets/manifest.json` and `npm run check:pharosville-assets` as the asset inventory source of truth. The validator's `maxManifestAssets` cap is currently 69 (see `scripts/pharosville/validate-assets.mjs`); rerun the validator instead of hand-maintaining prose counts.
 
 ## Current Visual Model
 
