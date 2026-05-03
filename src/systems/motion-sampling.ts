@@ -14,6 +14,8 @@ interface RouteSamplingRuntime {
   laneMagnitude: number;
   laneSign: -1 | 1;
   mooredSeedByStopId: ReadonlyMap<string, number>;
+  mooredPhaseByStopId: ReadonlyMap<string, number>;
+  mooredRadiusMultiplierByStopId: ReadonlyMap<string, number>;
   riskToStopPathByDockId: ReadonlyMap<string, ShipWaterPath | undefined>;
   scheduledNonHomeStops: readonly ShipMotionRoute["dockStops"][number][];
   scheduledStopCount: number;
@@ -30,12 +32,21 @@ function routeSamplingRuntime(route: ShipMotionRoute): RouteSamplingRuntime {
 
   const dockStopByDockId = new Map<string, ShipMotionRoute["dockStops"][number]>();
   const mooredSeedByStopId = new Map<string, number>();
+  const mooredPhaseByStopId = new Map<string, number>();
+  const mooredRadiusMultiplierByStopId = new Map<string, number>();
+  const radiusStableUnitSigned = (stableUnit(`${route.shipId}.moored-radius`) - 0.5) * 2;
+  const radiusMultiplier = 1 + 0.15 * radiusStableUnitSigned;
+  const phaseOffset = (stableHash(`${route.shipId}.moored-phase`) % 1000) / 1000 * Math.PI * 2;
   for (const stop of route.dockStops) {
     dockStopByDockId.set(stop.dockId, stop);
     mooredSeedByStopId.set(stop.id, stableHash(`${route.shipId}.${stop.dockId}.moored`));
+    mooredPhaseByStopId.set(stop.id, phaseOffset);
+    mooredRadiusMultiplierByStopId.set(stop.id, radiusMultiplier);
   }
   if (route.riskStop) {
     mooredSeedByStopId.set(route.riskStop.id, stableHash(`${route.shipId}.${route.riskStop.id}.moored`));
+    mooredPhaseByStopId.set(route.riskStop.id, phaseOffset);
+    mooredRadiusMultiplierByStopId.set(route.riskStop.id, radiusMultiplier);
   }
 
   const homeStop = route.homeDockId ? dockStopByDockId.get(route.homeDockId) ?? null : null;
@@ -62,12 +73,14 @@ function routeSamplingRuntime(route: ShipMotionRoute): RouteSamplingRuntime {
     laneMagnitude: 0.11 + (route.routeSeed % 7) * 0.012,
     laneSign: stableHash(`${route.shipId}.lane`) % 2 === 0 ? 1 : -1,
     mooredSeedByStopId,
+    mooredPhaseByStopId,
+    mooredRadiusMultiplierByStopId,
     riskToStopPathByDockId,
     scheduledNonHomeStops: effectiveNonHomeStops,
     scheduledStopCount,
     stopSlotsExcludingHome,
     stopToRiskPathByDockId,
-    zoneDwell: dockedShipZoneDwell(route.zone),
+    zoneDwell: dockedShipZoneDwell(route.zone, route.dockDwellShareOverride),
   };
   routeSamplingRuntimeCache.set(route, runtime);
   return runtime;
@@ -91,6 +104,17 @@ export function createShipMotionSample(): ShipMotionSample {
 // Safe because resolveShipMotionSampleInto is synchronous and not re-entrant.
 const flagshipScratch: ShipMotionSample = createShipMotionSample();
 
+// D3: per-ship formation offset cache. Tracks the last-seen formationOffset for
+// each consort so placement changes can be detected at sample time.
+interface FormationOffsetEntry {
+  dx: number;
+  dy: number;
+  lastFormationChangeAt: number;
+  prevDx: number;
+  prevDy: number;
+}
+const formationOffsetCacheByShipId = new Map<string, FormationOffsetEntry>();
+
 // Per-ship heading low-pass memory. Keyed by shipId (string) instead of ShipNode
 // because the ship object can be replaced across re-renders while the id is
 // stable. headingDelta caches angular velocity (rad/sec) so ship-pose can derive
@@ -105,6 +129,49 @@ const headingMemoryByShipId = new Map<string, HeadingMemory>();
 
 export function getShipHeadingDelta(shipId: string): number {
   return headingMemoryByShipId.get(shipId)?.headingDelta ?? 0;
+}
+
+// D3: flush per-ship heading memory (and wake memory) when formation offset
+// changes so heading converges fresh from the new position.
+export function clearShipHeadingMemory(shipId: string): void {
+  headingMemoryByShipId.delete(shipId);
+  wakeIntensityMemoryByShipId.delete(shipId);
+}
+
+// D1: per-ship wake intensity low-pass memory. Mirrors headingMemoryByShipId.
+// Prevents a one-frame jump from full baseWake (sailing) to 0 (arriving at
+// progress=0, where 4*0*(1-0)=0).
+interface WakeMemory {
+  wake: number;
+  lastT: number;
+}
+const wakeIntensityMemoryByShipId = new Map<string, WakeMemory>();
+
+export function getShipWakeIntensityMemory(shipId: string): WakeMemory | undefined {
+  return wakeIntensityMemoryByShipId.get(shipId);
+}
+
+function applyWakeSmoothing(shipId: string, timeSeconds: number, rawWake: number): number {
+  const memory = wakeIntensityMemoryByShipId.get(shipId);
+  if (!memory) {
+    wakeIntensityMemoryByShipId.set(shipId, { wake: rawWake, lastT: timeSeconds });
+    return rawWake;
+  }
+  const rawDt = timeSeconds - memory.lastT;
+  // Cold-start: tab-resume, very long pause, or time went backward (new sampling
+  // session in tests). Write rawWake directly to avoid cross-session leakage.
+  if (rawDt > 1.0 || rawDt < 0) {
+    memory.wake = rawWake;
+    memory.lastT = timeSeconds;
+    return rawWake;
+  }
+  const dt = Math.min(0.5, rawDt);
+  const tau = 0.15;
+  const alpha = 1 - Math.exp(-dt / tau);
+  const smoothed = memory.wake + (rawWake - memory.wake) * alpha;
+  memory.wake = smoothed;
+  memory.lastT = timeSeconds;
+  return smoothed;
 }
 
 // Forward-difference scratch buffers used by transitSampleInto for the
@@ -173,8 +240,43 @@ export function resolveShipMotionSampleInto(input: {
       const offset = route.formationOffset
         ?? squadFormationOffsetForPlacement(input.ship.id, squad, input.ship.riskPlacement)
         ?? { dx: 0, dy: 0 };
-      let tileX = flagshipSample.tile.x + offset.dx;
-      let tileY = flagshipSample.tile.y + offset.dy;
+
+      // D3: detect formation offset changes at sample time. When riskPlacement
+      // changes, the new formationOffset applies but heading memory persists
+      // stale. Detect the change via a per-ship cache and blend over 1.5s.
+      const shipId = input.ship.id;
+      const cachedOffset = formationOffsetCacheByShipId.get(shipId);
+      const BLEND_DURATION = 1.5;
+      let effectiveDx = offset.dx;
+      let effectiveDy = offset.dy;
+      if (!cachedOffset) {
+        // First sample: seed the cache.
+        formationOffsetCacheByShipId.set(shipId, {
+          dx: offset.dx,
+          dy: offset.dy,
+          lastFormationChangeAt: input.timeSeconds,
+          prevDx: offset.dx,
+          prevDy: offset.dy,
+        });
+      } else if (cachedOffset.dx !== offset.dx || cachedOffset.dy !== offset.dy) {
+        // Offset changed: flush heading/wake memory so convergence starts fresh.
+        clearShipHeadingMemory(shipId);
+        cachedOffset.prevDx = cachedOffset.dx;
+        cachedOffset.prevDy = cachedOffset.dy;
+        cachedOffset.dx = offset.dx;
+        cachedOffset.dy = offset.dy;
+        cachedOffset.lastFormationChangeAt = input.timeSeconds;
+      } else {
+        // No change: check if we're still in the blend window.
+        const blendProgress = clamp((input.timeSeconds - cachedOffset.lastFormationChangeAt) / BLEND_DURATION, 0, 1);
+        if (blendProgress < 1) {
+          effectiveDx = cachedOffset.prevDx + (offset.dx - cachedOffset.prevDx) * blendProgress;
+          effectiveDy = cachedOffset.prevDy + (offset.dy - cachedOffset.prevDy) * blendProgress;
+        }
+      }
+
+      let tileX = flagshipSample.tile.x + effectiveDx;
+      let tileY = flagshipSample.tile.y + effectiveDy;
       // #8: sub-tile breathing perturbation while the flagship is actively
       // moving; skipped when moored/idle so docked formations stay glued.
       if (flagshipSample.state !== "moored" && flagshipSample.state !== "idle") {
@@ -313,12 +415,14 @@ function dockStopCount(renderedDockCount: number) {
   return 3;
 }
 
-function dockedShipZoneDwell(zone: ShipWaterZone): { dockDwell: number; riskDwell: number; transit: number } {
+function dockedShipZoneDwell(zone: ShipWaterZone, dockDwellShareOverride?: number): { dockDwell: number; riskDwell: number; transit: number } {
   const base = ZONE_DWELL[zone];
-  const transit = Math.min(base.transit, 1 - DOCKED_SHIP_DWELL_SHARE - 0.08);
+  // E3: use per-route dockDwellShare if provided (broad chain-presence bonus).
+  const dwellShare = dockDwellShareOverride ?? DOCKED_SHIP_DWELL_SHARE;
+  const transit = Math.min(base.transit, 1 - dwellShare - 0.08);
   return {
-    dockDwell: DOCKED_SHIP_DWELL_SHARE,
-    riskDwell: 1 - DOCKED_SHIP_DWELL_SHARE - transit,
+    dockDwell: dwellShare,
+    riskDwell: 1 - dwellShare - transit,
     transit,
   };
 }
@@ -326,6 +430,31 @@ function dockedShipZoneDwell(zone: ShipWaterZone): { dockDwell: number; riskDwel
 // Scratch tile reused inside transitSampleInto: holds the lane-adjusted point
 // before mooring blend writes it into out.tile.
 const transitTileScratch: { x: number; y: number } = { x: 0, y: 0 };
+
+// D2: scratch samples for the ledger-roaming blend window. Reused across calls
+// (zero allocation). Safe: ledgerRoamingSampleInto is not re-entrant.
+const ledgerOrbitScratch: ShipMotionSample = {
+  shipId: "",
+  tile: { x: 0, y: 0 },
+  state: "idle",
+  zone: "calm",
+  currentDockId: null,
+  currentRouteStopId: null,
+  currentRouteStopKind: null,
+  heading: { x: 0, y: 0 },
+  wakeIntensity: 0,
+};
+const ledgerTransitScratch: ShipMotionSample = {
+  shipId: "",
+  tile: { x: 0, y: 0 },
+  state: "idle",
+  zone: "calm",
+  currentDockId: null,
+  currentRouteStopId: null,
+  currentRouteStopKind: null,
+  heading: { x: 0, y: 0 },
+  wakeIntensity: 0,
+};
 
 function transitSampleInto(input: {
   route: ShipMotionRoute;
@@ -377,13 +506,20 @@ function transitSampleInto(input: {
   // #5: speed-aware wake. departing/arriving accelerate from rest and decelerate
   // back to rest, so wake should peak mid-leg. sailing (open-water patrol) is
   // mid-leg by construction and stays at full intensity.
+  // D1: applyWakeSmoothing prevents the one-frame step when transitioning between
+  // sailing (rawWake=baseWake) and arriving (rawWake=0 at progress=0).
+  // E2: multiply raw wake by the pre-computed wakeMultiplier (1.0 baseline;
+  // boosted when |change24hPct| ≥ 2%). Smoothing is applied after the multiplier
+  // so the smoother damps the already-scaled value — no smoothing-induced flicker.
   const baseWake = transitWakeIntensityForZone(input.route.zone);
+  let rawWake: number;
   if (input.state === "departing" || input.state === "arriving") {
     const speedEnvelope = 4 * input.progress * (1 - input.progress);
-    out.wakeIntensity = baseWake * speedEnvelope;
+    rawWake = baseWake * speedEnvelope * input.route.wakeMultiplier;
   } else {
-    out.wakeIntensity = baseWake;
+    rawWake = baseWake * input.route.wakeMultiplier;
   }
+  out.wakeIntensity = applyWakeSmoothing(input.route.shipId, input.timeSeconds, rawWake);
 
   // #4: per-ship heading low-pass filter. Path-segment tangents jump at every
   // internal waypoint vertex; without smoothing ships visibly twitch when
@@ -418,9 +554,25 @@ function applyHeadingSmoothing(
 ): void {
   const memory = headingMemoryByShipId.get(shipId);
   if (memory) {
+    const rawDt = timeSeconds - memory.lastT;
+    // Cold-start: if the gap is > 0.5s (tab-resume or very long pause), skip
+    // the lerp entirely and write the target directly into heading/memory so
+    // the filter doesn't produce a phantom heading snap or spurious bank.
+    if (rawDt > 0.5) {
+      if (alignmentTangent && alignmentT > 0) {
+        const lerpX = heading.x + (alignmentTangent.x - heading.x) * alignmentT;
+        const lerpY = heading.y + (alignmentTangent.y - heading.y) * alignmentT;
+        normalizeHeadingInto(lerpX, lerpY, heading);
+      }
+      memory.hx = heading.x;
+      memory.hy = heading.y;
+      memory.lastT = timeSeconds;
+      memory.headingDelta = 0;
+      return;
+    }
     // Clamp dt: defends against tab-resume jumps where timeSeconds advances
     // by minutes and the filter would otherwise snap straight to the target.
-    const dt = Math.max(0, Math.min(0.1, timeSeconds - memory.lastT));
+    const dt = Math.max(0, Math.min(0.2, rawDt));
     // "arriving" turns sharper into the mooring; sailing/departing breathe.
     const tau = state === "arriving" ? 0.06 : 0.18;
     const alpha = 1 - Math.exp(-dt / tau);
@@ -474,23 +626,30 @@ function applyMooringBlendInto(input: {
   toMooringStop: ShipMotionRoute["dockStops"][number] | null;
   timeSeconds: number;
 }, tile: { x: number; y: number }): void {
+  // E1: stale evidence → wider orbit (×1.35) and slower angular speed (×0.65).
+  const staleRadiusFactor = input.route.staleEvidence ? 1.35 : 1.0;
+  const staleAngularFactor = input.route.staleEvidence ? 0.65 : 1.0;
   let dx = 0;
   let dy = 0;
   if (input.fromMooringStop) {
     const easeIn = smoothstepRange(0, 0.15, input.progress);
     const seed = mooredSeedFor(input.route, input.fromMooringStop, input.runtime);
-    const angle = input.timeSeconds * 0.027 + seed * 0.0001;
+    const phaseOffset = mooredPhaseFor(input.route, input.fromMooringStop, input.runtime);
+    const radiusMultiplier = mooredRadiusMultiplierFor(input.route, input.fromMooringStop, input.runtime);
+    const angle = input.timeSeconds * 0.027 * staleAngularFactor + seed * 0.0001 + phaseOffset;
     const radius = mooredRadiusForZone(input.route.zone);
-    dx += Math.cos(angle) * radius.x * (1 - easeIn);
-    dy += Math.sin(angle * 0.9) * radius.y * (1 - easeIn);
+    dx += Math.cos(angle) * radius.x * radiusMultiplier * staleRadiusFactor * (1 - easeIn);
+    dy += Math.sin(angle * 0.9) * radius.y * radiusMultiplier * staleRadiusFactor * (1 - easeIn);
   }
   if (input.toMooringStop) {
     const easeOut = smoothstepRange(0.85, 1, input.progress);
     const seed = mooredSeedFor(input.route, input.toMooringStop, input.runtime);
-    const angle = input.timeSeconds * 0.027 + seed * 0.0001;
+    const phaseOffset = mooredPhaseFor(input.route, input.toMooringStop, input.runtime);
+    const radiusMultiplier = mooredRadiusMultiplierFor(input.route, input.toMooringStop, input.runtime);
+    const angle = input.timeSeconds * 0.027 * staleAngularFactor + seed * 0.0001 + phaseOffset;
     const radius = mooredRadiusForZone(input.route.zone);
-    dx += Math.cos(angle) * radius.x * easeOut;
-    dy += Math.sin(angle * 0.9) * radius.y * easeOut;
+    dx += Math.cos(angle) * radius.x * radiusMultiplier * staleRadiusFactor * easeOut;
+    dy += Math.sin(angle * 0.9) * radius.y * radiusMultiplier * staleRadiusFactor * easeOut;
   }
   if (dx === 0 && dy === 0) return;
   clampMotionTileInto(tile.x + dx, tile.y + dy, tile);
@@ -580,8 +739,11 @@ function openWaterWaypointDriftSampleInto(route: ShipMotionRoute, timeSeconds: n
   }
   const angle = timeSeconds * 0.023 + route.routeSeed * 0.00013 + progress * Math.PI * 2;
   out.shipId = route.shipId;
-  out.tile.x = route.openWaterPatrol.waypoint.x + Math.cos(angle) * 0.32;
-  out.tile.y = route.openWaterPatrol.waypoint.y + Math.sin(angle * 0.85) * 0.22;
+  clampMotionTileInto(
+    route.openWaterPatrol.waypoint.x + Math.cos(angle) * 0.32,
+    route.openWaterPatrol.waypoint.y + Math.sin(angle * 0.85) * 0.22,
+    out.tile,
+  );
   out.state = "sailing";
   out.zone = route.zone;
   out.currentDockId = null;
@@ -599,11 +761,16 @@ function mooredSampleInto(
   out: ShipMotionSample,
 ): void {
   const seed = mooredSeedFor(route, stop, runtime);
-  const angle = timeSeconds * 0.027 + seed * 0.0001;
+  const phaseOffset = mooredPhaseFor(route, stop, runtime);
+  const radiusMultiplier = mooredRadiusMultiplierFor(route, stop, runtime);
+  // E1: stale evidence → wider orbit (×1.35) and slower angular speed (×0.65).
+  const staleRadiusFactor = route.staleEvidence ? 1.35 : 1.0;
+  const staleAngularFactor = route.staleEvidence ? 0.65 : 1.0;
+  const angle = timeSeconds * 0.027 * staleAngularFactor + seed * 0.0001 + phaseOffset;
   const radius = mooredRadiusForZone(route.zone);
   out.shipId = route.shipId;
-  out.tile.x = stop.mooringTile.x + Math.cos(angle) * radius.x;
-  out.tile.y = stop.mooringTile.y + Math.sin(angle * 0.9) * radius.y;
+  out.tile.x = stop.mooringTile.x + Math.cos(angle) * radius.x * radiusMultiplier * staleRadiusFactor;
+  out.tile.y = stop.mooringTile.y + Math.sin(angle * 0.9) * radius.y * radiusMultiplier * staleRadiusFactor;
   out.state = "moored";
   out.zone = route.zone;
   out.currentDockId = stop.dockId;
@@ -641,6 +808,19 @@ function mooredSeedFor(
   return stableHash(`${route.shipId}.${dockKey}.moored`);
 }
 
+function mooredPhaseFor(route: ShipMotionRoute, stop: ShipMotionRouteStop, runtime: RouteSamplingRuntime): number {
+  const cached = runtime.mooredPhaseByStopId.get(stop.id);
+  if (cached !== undefined) return cached;
+  return (stableHash(`${route.shipId}.moored-phase`) % 1000) / 1000 * Math.PI * 2;
+}
+
+function mooredRadiusMultiplierFor(route: ShipMotionRoute, stop: ShipMotionRouteStop, runtime: RouteSamplingRuntime): number {
+  const cached = runtime.mooredRadiusMultiplierByStopId.get(stop.id);
+  if (cached !== undefined) return cached;
+  const stableUnitSigned = (stableUnit(`${route.shipId}.moored-radius`) - 0.5) * 2;
+  return 1 + 0.15 * stableUnitSigned;
+}
+
 function riskWaterSampleInto(route: ShipMotionRoute, timeSeconds: number, progress: number, out: ShipMotionSample): void {
   if (route.riskStop?.kind === "ledger") {
     if (route.openWaterPatrol) {
@@ -667,12 +847,54 @@ function ledgerRoamingSampleInto(
   }
 
   const idleShare = 0.58;
-  if (progress <= idleShare) {
+  const blendStart = 0.55;
+
+  if (progress <= blendStart) {
     mooredRouteStopSampleInto(route, stop, timeSeconds, out);
     return;
   }
 
   const runtime = routeSamplingRuntime(route);
+
+  // D2: blend window [0.55, 0.58] — smoothstep the orbit displacement toward
+  // zero before transit takes over, preventing the ~0.14–0.20 tile position jump.
+  if (progress < idleShare) {
+    // Sample orbit (moored) into scratch.
+    mooredRouteStopSampleInto(route, stop, timeSeconds, ledgerOrbitScratch);
+    // Sample transit at patrolProgress=0 into scratch (start of outbound).
+    transitSampleInto({
+      route,
+      path: patrol.outbound,
+      progress: 0,
+      state: "sailing",
+      routeStop: null,
+      fromMooringStop: null,
+      toMooringStop: null,
+      timeSeconds,
+      runtime,
+    }, ledgerTransitScratch);
+    // Blend factor: 0 at blendStart, 1 at idleShare.
+    const easeOut = smoothstepRange(blendStart, idleShare, progress);
+    out.shipId = route.shipId;
+    clampMotionTileInto(
+      ledgerOrbitScratch.tile.x * (1 - easeOut) + ledgerTransitScratch.tile.x * easeOut,
+      ledgerOrbitScratch.tile.y * (1 - easeOut) + ledgerTransitScratch.tile.y * easeOut,
+      out.tile,
+    );
+    // State: use orbit state until easeOut > 0.5, then transit.
+    out.state = easeOut > 0.5 ? "sailing" : "moored";
+    out.zone = route.zone;
+    out.currentDockId = null;
+    out.currentRouteStopId = easeOut > 0.5 ? null : ledgerOrbitScratch.currentRouteStopId;
+    out.currentRouteStopKind = easeOut > 0.5 ? null : ledgerOrbitScratch.currentRouteStopKind;
+    // Blend heading via component lerp then renormalize.
+    const blendHx = ledgerOrbitScratch.heading.x * (1 - easeOut) + ledgerTransitScratch.heading.x * easeOut;
+    const blendHy = ledgerOrbitScratch.heading.y * (1 - easeOut) + ledgerTransitScratch.heading.y * easeOut;
+    normalizeHeadingInto(blendHx, blendHy, out.heading);
+    out.wakeIntensity = ledgerOrbitScratch.wakeIntensity * (1 - easeOut) + ledgerTransitScratch.wakeIntensity * easeOut;
+    return;
+  }
+
   const patrolProgress = (progress - idleShare) / Math.max(0.0001, 1 - idleShare);
   if (patrolProgress < 0.5) {
     transitSampleInto({
@@ -710,12 +932,17 @@ function mooredRouteStopSampleInto(
 ): void {
   const runtime = routeSamplingRuntime(route);
   const seed = mooredSeedFor(route, stop, runtime);
-  const angle = timeSeconds * 0.018 + seed * 0.0001;
+  const phaseOffset = mooredPhaseFor(route, stop, runtime);
+  const radiusMultiplier = mooredRadiusMultiplierFor(route, stop, runtime);
+  // E1: stale evidence → wider orbit (×1.35) and slower angular speed (×0.65).
+  const staleRadiusFactor = route.staleEvidence ? 1.35 : 1.0;
+  const staleAngularFactor = route.staleEvidence ? 0.65 : 1.0;
+  const angle = timeSeconds * 0.018 * staleAngularFactor + seed * 0.0001 + phaseOffset;
   const radius = mooredRadiusForZone(route.zone);
   out.shipId = route.shipId;
   clampMotionTileInto(
-    stop.mooringTile.x + Math.cos(angle) * radius.x * 0.72,
-    stop.mooringTile.y + Math.sin(angle * 0.9) * radius.y * 0.72,
+    stop.mooringTile.x + Math.cos(angle) * radius.x * 0.72 * radiusMultiplier * staleRadiusFactor,
+    stop.mooringTile.y + Math.sin(angle * 0.9) * radius.y * 0.72 * radiusMultiplier * staleRadiusFactor,
     out.tile,
   );
   out.state = "moored";
@@ -740,12 +967,20 @@ function mooredRadiusForZone(zone: ShipWaterZone): { x: number; y: number } {
 }
 
 function riskDriftSampleInto(route: ShipMotionRoute, timeSeconds: number, progress: number, out: ShipMotionSample): void {
-  const angle = timeSeconds * 0.017 + route.routeSeed * 0.0001 + progress * Math.PI * 2;
+  // E1: stale evidence → wider orbit (×1.35) and slower angular speed (×0.65).
+  const staleRadiusFactor = route.staleEvidence ? 1.35 : 1.0;
+  const staleAngularFactor = route.staleEvidence ? 0.65 : 1.0;
+  const angle = timeSeconds * 0.017 * staleAngularFactor + route.routeSeed * 0.0001 + progress * Math.PI * 2;
   const radius = driftRadiusForZone(route.zone);
+  // Smooth the drift radius to zero at the entry (progress=0) and exit
+  // (progress=1) of the risk-water window. Without this, the departing→risk-drift
+  // and risk-drift→arriving boundaries have a visible position jump equal to the
+  // full drift offset (~0.54 tiles for danger zone).
+  const radiusScale = smoothstepRange(0, 0.12, progress) * smoothstepRange(0, 0.12, 1 - progress);
   out.shipId = route.shipId;
   clampMotionTileInto(
-    route.riskTile.x + Math.cos(angle) * radius.x,
-    route.riskTile.y + Math.sin(angle * 0.8) * radius.y,
+    route.riskTile.x + Math.cos(angle) * radius.x * radiusScale * staleRadiusFactor,
+    route.riskTile.y + Math.sin(angle * 0.8) * radius.y * radiusScale * staleRadiusFactor,
     out.tile,
   );
   out.state = "risk-drift";

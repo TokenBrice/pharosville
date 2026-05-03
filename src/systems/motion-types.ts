@@ -1,6 +1,17 @@
 import { AMBIENT_SEA_HZ, AMBIENT_WIND_HZ } from "./motion-config";
 import type { ShipWaterZone } from "./world-types";
 
+/**
+ * Speed scalars indexed by marketCap quartile (0 = lowest, 3 = highest).
+ * Divide cycleSeconds by the scalar so higher-quartile (larger) ships complete
+ * cycles faster — a 1.15 scalar yields ~15% shorter cycle than baseline.
+ * The resulting range stays within the 780–1560s clamp in shipCycleSeconds.
+ *
+ * Q0 → 0.85 (Languid)  Q1 → 0.95 (Steady)
+ * Q2 → 1.05 (Brisk)    Q3 → 1.15 (Lively)
+ */
+export const SPEED_QUARTILE_SCALARS = [0.85, 0.95, 1.05, 1.15] as const;
+
 const TWO_PI = Math.PI * 2;
 
 interface AmbientPhaseSource {
@@ -79,6 +90,18 @@ export interface ShipMotionRoute {
   // so the per-frame sampler doesn't repeat the squad/placement lookups.
   // `null` for non-consort routes (flagships and unsquaded ships).
   formationOffset: { dx: number; dy: number } | null;
+  // E1: true when ship.placementEvidence.stale. Widens mooring orbit radius
+  // (×1.35) and slows angular speed (×0.65) so stale-evidence ships sway
+  // larger and slower — "uncertain position" visual signal.
+  staleEvidence: boolean;
+  // E2: wake intensity multiplier derived from ship.change24hPct at plan time.
+  // Baseline 1.0; formula: 1 + clamp(|pct| / 20, 0, 0.6) when |pct| ≥ 2
+  // (change24hPct is in percent units — e.g. 10 means 10% — per recent-change.ts:16).
+  wakeMultiplier: number;
+  // E3: dock-dwell share override for ships with broad chain presence.
+  // chainPresence.length ≥ 4 → base × 1.15; otherwise the DOCKED_SHIP_DWELL_SHARE
+  // constant applies. undefined means "use the base constant".
+  dockDwellShareOverride?: number;
 }
 
 export interface ShipMotionSample {

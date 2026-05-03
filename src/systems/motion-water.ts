@@ -10,10 +10,12 @@ export function buildShipWaterRoute(input: {
   to: { x: number; y: number };
   map: PharosVilleMap;
   zone?: ShipWaterZone;
+  shipId?: string;
+  bucket?: number;
 }): ShipWaterPath {
   const from = nearestMapWaterTile(input.from, input.map);
   const to = nearestMapWaterTile(input.to, input.map);
-  return buildShipWaterRouteFromWaterTiles({ from, to, map: input.map, zone: input.zone });
+  return buildShipWaterRouteFromWaterTiles({ from, to, map: input.map, zone: input.zone, shipId: input.shipId, bucket: input.bucket });
 }
 
 export function buildCachedShipWaterRoute(input: {
@@ -21,14 +23,16 @@ export function buildCachedShipWaterRoute(input: {
   to: { x: number; y: number };
   map: PharosVilleMap;
   zone: ShipWaterZone;
+  shipId: string;
+  bucket: number;
 }, cache: ShipWaterRouteCache): ShipWaterPath {
   const from = nearestMapWaterTile(input.from, input.map);
   const to = nearestMapWaterTile(input.to, input.map);
-  const key = `${input.zone}:${pathKey(from, to)}`;
+  const key = `${input.zone}:${input.shipId}:${input.bucket}:${pathKey(from, to)}`;
   const cached = cache.get(key);
   if (cached) return cached;
 
-  const route = buildShipWaterRouteFromWaterTiles({ from, to, map: input.map, zone: input.zone });
+  const route = buildShipWaterRouteFromWaterTiles({ from, to, map: input.map, zone: input.zone, shipId: input.shipId, bucket: input.bucket });
   cache.set(key, route);
   return route;
 }
@@ -157,11 +161,13 @@ function buildShipWaterRouteFromWaterTiles(input: {
   to: { x: number; y: number };
   map: PharosVilleMap;
   zone?: ShipWaterZone;
+  shipId?: string;
+  bucket?: number;
 }): ShipWaterPath {
   const { from, to } = input;
   if (sameTile(from, to)) return waterPathFromPoints(from, to, [from]);
 
-  const detouredPoints = findDetouredWaterPath(from, to, input.map, input.zone);
+  const detouredPoints = findDetouredWaterPath(from, to, input.map, input.zone, input.shipId, input.bucket);
   if (detouredPoints.length > 0) return waterPathFromPoints(from, to, chaikinSmoothPath(detouredPoints));
 
   const points = findWaterPath(from, to, input.map, input.zone);
@@ -180,27 +186,85 @@ function buildShipWaterRouteFromWaterTiles(input: {
 // Open Chaikin (1 iteration), endpoints preserved. Each interior segment p_i→p_{i+1}
 // emits Q_i = 0.75 p_i + 0.25 p_{i+1} and R_i = 0.25 p_i + 0.75 p_{i+1}, so an N-point
 // input becomes a 2N-point output. N <= 2 passes through unchanged.
+//
+// Quadratic-Bezier corner blend (T1.4): for interior triplets where the turn is
+// non-trivial (|cross|/(|d1|*|d2|) > 0.1, i.e. sin θ > ~5.7°), 4 additional interior
+// Bezier samples are inserted between the two Chaikin points around the apex. The
+// Bezier uses B0 = R_{k-1} (last Chaikin point of the incoming segment), B1 = p_k
+// (apex), B2 = Q_k (first Chaikin point of the outgoing segment). Both B0 and B2 are
+// still emitted by the standard Chaikin logic; the 4 samples fill the arc between them.
+// Near-collinear legs fall through unchanged so straight runs are not subdivided.
+const BEZIER_CORNER_THRESHOLD = 0.1; // sin θ threshold (~5.7°)
+const BEZIER_SAMPLES = 4; // interior t values inserted per corner
+
 export function chaikinSmoothPath(points: ReadonlyArray<{ x: number; y: number }>): Array<{ x: number; y: number }> {
   const n = points.length;
   if (n <= 2) return points.map((point) => ({ x: point.x, y: point.y }));
 
-  const result = new Array<{ x: number; y: number }>(2 * n);
-  result[0] = { x: points[0]!.x, y: points[0]!.y };
-  let writeIndex = 1;
-  for (let i = 0; i < n - 1; i += 1) {
-    const current = points[i]!;
+  // Classify each interior apex as a corner that warrants Bezier blending.
+  const isCorner = new Uint8Array(n);
+  for (let i = 1; i < n - 1; i += 1) {
+    const prev = points[i - 1]!;
+    const cur = points[i]!;
     const next = points[i + 1]!;
-    result[writeIndex] = { x: 0.75 * current.x + 0.25 * next.x, y: 0.75 * current.y + 0.25 * next.y };
-    writeIndex += 1;
-    result[writeIndex] = { x: 0.25 * current.x + 0.75 * next.x, y: 0.25 * current.y + 0.75 * next.y };
-    writeIndex += 1;
+    const d1x = cur.x - prev.x;
+    const d1y = cur.y - prev.y;
+    const d2x = next.x - cur.x;
+    const d2y = next.y - cur.y;
+    const cross = Math.abs(d1x * d2y - d1y * d2x);
+    const len1 = Math.hypot(d1x, d1y);
+    const len2 = Math.hypot(d2x, d2y);
+    if (len1 > 0 && len2 > 0 && cross / (len1 * len2) > BEZIER_CORNER_THRESHOLD) {
+      isCorner[i] = 1;
+    }
   }
-  result[writeIndex] = { x: points[n - 1]!.x, y: points[n - 1]!.y };
+
+  // Build output. For each segment i→i+1 we emit the standard Chaikin pair (Q_i, R_i).
+  // When points[i+1] is a corner apex with a successor points[i+2], the arc between
+  // R_i (=B0) and Q_{i+1} (=B2) is augmented with 4 interior Bezier samples. Those
+  // samples are inserted immediately after R_i; Q_{i+1} is then emitted normally by
+  // the next iteration, completing the arc without any skip logic.
+  const result: Array<{ x: number; y: number }> = [];
+  result.push({ x: points[0]!.x, y: points[0]!.y });
+
+  for (let i = 0; i < n - 1; i += 1) {
+    const cur = points[i]!;
+    const next = points[i + 1]!;
+
+    const qx = 0.75 * cur.x + 0.25 * next.x;
+    const qy = 0.75 * cur.y + 0.25 * next.y;
+    const rx = 0.25 * cur.x + 0.75 * next.x;
+    const ry = 0.25 * cur.y + 0.75 * next.y;
+
+    result.push({ x: qx, y: qy });
+
+    if (isCorner[i + 1] && i + 1 < n - 1) {
+      // Apex at next = points[i+1]. B0=(rx,ry), B1=next, B2=Q_{i+1}.
+      const afterNext = points[i + 2]!;
+      const b2x = 0.75 * next.x + 0.25 * afterNext.x;
+      const b2y = 0.75 * next.y + 0.25 * afterNext.y;
+      // Emit B0 first (standard R_i), then insert interior arc samples.
+      result.push({ x: rx, y: ry });
+      for (let s = 1; s <= BEZIER_SAMPLES; s += 1) {
+        const t = s / (BEZIER_SAMPLES + 1);
+        const u = 1 - t;
+        result.push({
+          x: u * u * rx + 2 * u * t * next.x + t * t * b2x,
+          y: u * u * ry + 2 * u * t * next.y + t * t * b2y,
+        });
+      }
+      // B2 (= Q_{i+1}) will be emitted as the Q of the next iteration.
+    } else {
+      result.push({ x: rx, y: ry });
+    }
+  }
+
+  result.push({ x: points[n - 1]!.x, y: points[n - 1]!.y });
   return result;
 }
 
-function findDetouredWaterPath(from: { x: number; y: number }, to: { x: number; y: number }, map: PharosVilleMap, zone?: ShipWaterZone): Array<{ x: number; y: number }> {
-  const waypoints = detourWaterWaypoints(from, to, map);
+function findDetouredWaterPath(from: { x: number; y: number }, to: { x: number; y: number }, map: PharosVilleMap, zone?: ShipWaterZone, shipId = "", bucket = 0): Array<{ x: number; y: number }> {
+  const waypoints = detourWaterWaypoints(from, to, map, shipId, bucket);
   if (waypoints.length === 0) return [];
   return findWaterPathThroughPoints([from, ...waypoints, to], map, zone);
 }
@@ -215,13 +279,13 @@ function findWaterPathThroughPoints(points: Array<{ x: number; y: number }>, map
   return route;
 }
 
-function detourWaterWaypoints(from: { x: number; y: number }, to: { x: number; y: number }, map: PharosVilleMap): Array<{ x: number; y: number }> {
+function detourWaterWaypoints(from: { x: number; y: number }, to: { x: number; y: number }, map: PharosVilleMap, shipId = "", bucket = 0): Array<{ x: number; y: number }> {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const distance = Math.hypot(dx, dy);
   if (distance < 8) return [];
 
-  const seed = stableHash(`${from.x}.${from.y}->${to.x}.${to.y}.wander`);
+  const seed = stableHash(`${shipId}.${bucket}.${from.x}.${from.y}->${to.x}.${to.y}.wander`);
   const waypointCount = distance > 24 ? 2 : 1;
   const primarySign = seed % 2 === 0 ? 1 : -1;
   const perpendicular = { x: -dy / distance, y: dx / distance };

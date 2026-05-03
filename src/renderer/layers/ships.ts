@@ -917,7 +917,7 @@ function shipAnimationFrameIndex(asset: LoadedPharosVilleAsset, timeSeconds: num
   const fps = animation.fps
     ?? (animation.durationMs && animation.durationMs > 0 ? animation.frameCount / (animation.durationMs / 1000) : 4);
   const phase = shipAnimationFrameOffset(asset, shipId);
-  return Math.floor(Math.max(0, timeSeconds) * fps + phase);
+  return Math.floor(timeSeconds * fps + phase);
 }
 
 const shipAnimationFrameOffsetCache = new Map<string, number>();
@@ -1097,8 +1097,8 @@ function drawSailLogo(input: {
   if (sprite) {
     ctx.drawImage(
       sprite.canvas,
-      Math.floor(Math.round(x) - sprite.anchorX),
-      Math.floor(Math.round(y) - sprite.anchorY),
+      Math.round(x - sprite.anchorX),
+      Math.round(y - sprite.anchorY),
     );
     return;
   }

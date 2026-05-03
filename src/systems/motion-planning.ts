@@ -1,6 +1,6 @@
 import { clampMapTile, nearestWaterTile } from "./world-layout";
 import { stableHash, stableOffset, stableUnit } from "./stable-random";
-import { BAND_FIRE_FLICKER_SPEED, OPEN_WATER_PATROL_WAYPOINTS } from "./motion-config";
+import { BAND_FIRE_FLICKER_SPEED, DOCKED_SHIP_DWELL_SHARE, OPEN_WATER_PATROL_WAYPOINTS } from "./motion-config";
 import { buildCachedShipWaterRoute, LazyShipWaterPathMap, nearestMapWaterTile, reverseWaterPath, waterPathFromPoints } from "./motion-water";
 import { clamp, pathKey } from "./motion-utils";
 import {
@@ -12,6 +12,7 @@ import { nearestRiskPlacementWaterTile } from "./risk-water-placement";
 import { SEAWALL_BARRIER_TILES } from "./seawall";
 import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipDockMotionStop, ShipMotionRoute, ShipMotionRouteStop, ShipMotionSample, ShipWaterPath, ShipWaterRouteCache } from "./motion-types";
 import type { DockNode, PharosVilleMap, PharosVilleWorld, ShipDockVisit, ShipNode } from "./world-types";
+import { shipCycleTempo } from "./ship-cycle-tempo";
 
 // World identity is stable across React re-renders for the same TanStack
 // payload, so memoizing the signature on the world reference turns ~1000
@@ -22,15 +23,130 @@ const signatureByWorld = new WeakMap<PharosVilleWorld, string>();
 // motion plan signature changes (new ship, marketCap reshuffle), only the
 // route shapes need to rebuild — the underlying A* paths from waypoint X to Y
 // on a stable map remain valid and shouldn't be recomputed.
-const pathCacheByMap = new WeakMap<PharosVilleMap, ShipWaterRouteCache>();
+//
+// Regular Map (not WeakMap) so we can apply an LRU bound per entry.
+// Call disposePathCacheForMap(map) when the world/map is torn down so the
+// entry is released. As of this writing no dispose hook wires this call
+// automatically — see T3.4 in PLAN.md for follow-up.
+const pathCacheByMap = new Map<PharosVilleMap, BoundedShipWaterRouteCache>();
 
-function getMapPathCache(map: PharosVilleMap): ShipWaterRouteCache {
+/** Drop the per-map path cache when the world is disposed. */
+export function disposePathCacheForMap(map: PharosVilleMap): void {
+  pathCacheByMap.delete(map);
+}
+
+/**
+ * LRU-bounded cache for A* ship water routes, keyed by zone:shipId:bucket:from→to string.
+ * Capacity = min(4096, max(512, 16 × shipCount)) — sized to absorb per-bucket entries
+ * across multiple 10-minute windows without thrashing.
+ * LRU discipline: on get() the hit entry is moved to the end (most-recently
+ * used); the entry at the start (least-recently used) is evicted when full.
+ * Implements the same surface as Map<string, ShipWaterPath> so callers in
+ * motion-water.ts need no changes.
+ */
+export class BoundedShipWaterRouteCache implements Map<string, ShipWaterPath> {
+  private readonly _map = new Map<string, ShipWaterPath>();
+  private readonly _capacity: number;
+  private _hits = 0;
+  private _misses = 0;
+  private _evictions = 0;
+  readonly [Symbol.toStringTag] = "BoundedShipWaterRouteCache";
+
+  constructor(capacity: number) {
+    this._capacity = Math.max(1, capacity);
+  }
+
+  get size(): number {
+    return this._map.size;
+  }
+
+  has(key: string): boolean {
+    return this._map.has(key);
+  }
+
+  get(key: string): ShipWaterPath | undefined {
+    if (!this._map.has(key)) {
+      this._misses += 1;
+      return undefined;
+    }
+    this._hits += 1;
+    // Move to end (most-recently used).
+    const value = this._map.get(key)!;
+    this._map.delete(key);
+    this._map.set(key, value);
+    return value;
+  }
+
+  set(key: string, value: ShipWaterPath): this {
+    if (this._map.has(key)) {
+      this._map.delete(key);
+    } else if (this._map.size >= this._capacity) {
+      // Evict least-recently used (first key in insertion order).
+      this._map.delete(this._map.keys().next().value!);
+      this._evictions += 1;
+    }
+    this._map.set(key, value);
+    return this;
+  }
+
+  getStats(): { hits: number; misses: number; evictions: number; size: number; capacity: number } {
+    return {
+      hits: this._hits,
+      misses: this._misses,
+      evictions: this._evictions,
+      size: this._map.size,
+      capacity: this._capacity,
+    };
+  }
+
+  delete(key: string): boolean {
+    return this._map.delete(key);
+  }
+
+  clear(): void {
+    this._map.clear();
+  }
+
+  forEach(callbackfn: (value: ShipWaterPath, key: string, map: Map<string, ShipWaterPath>) => void, thisArg?: unknown): void {
+    this._map.forEach(callbackfn, thisArg);
+  }
+
+  keys(): ReturnType<Map<string, ShipWaterPath>["keys"]> {
+    return this._map.keys();
+  }
+
+  values(): ReturnType<Map<string, ShipWaterPath>["values"]> {
+    return this._map.values();
+  }
+
+  entries(): ReturnType<Map<string, ShipWaterPath>["entries"]> {
+    return this._map.entries();
+  }
+
+  [Symbol.iterator](): ReturnType<Map<string, ShipWaterPath>["entries"]> {
+    return this._map.entries();
+  }
+}
+
+function getMapPathCache(map: PharosVilleMap, shipCount: number): BoundedShipWaterRouteCache {
   let cache = pathCacheByMap.get(map);
   if (!cache) {
-    cache = new Map();
+    const capacity = Math.min(4096, Math.max(512, 16 * shipCount));
+    cache = new BoundedShipWaterRouteCache(capacity);
     pathCacheByMap.set(map, cache);
   }
   return cache;
+}
+
+/**
+ * Read current hit/miss/eviction stats for the route cache associated with the
+ * given map. Returns null before the first plan build (no cache yet).
+ * Intended for the render-loop debug telemetry path only.
+ */
+export function getCurrentMapPathCacheStats(
+  map: PharosVilleMap,
+): { hits: number; misses: number; evictions: number; size: number; capacity: number } | null {
+  return pathCacheByMap.get(map)?.getStats() ?? null;
 }
 
 // Stable, content-aware signature for the inputs `buildBaseMotionPlan` actually
@@ -74,7 +190,8 @@ export function motionPlanSignature(world: PharosVilleWorld): string {
   return signature;
 }
 
-export function buildBaseMotionPlan(world: PharosVilleWorld): PharosVilleBaseMotionPlan {
+export function buildBaseMotionPlan(world: PharosVilleWorld, timeSeconds = 0): PharosVilleBaseMotionPlan {
+  const bucket = Math.floor(timeSeconds / 600);
   const topShips = world.ships
     .toSorted((a, b) => b.marketCapUsd - a.marketCapUsd)
     .slice(0, 48);
@@ -85,7 +202,14 @@ export function buildBaseMotionPlan(world: PharosVilleWorld): PharosVilleBaseMot
   const baseEffectShipIds = new Set<string>();
   for (const ship of topShips) baseEffectShipIds.add(ship.id);
   for (const ship of moverShips) baseEffectShipIds.add(ship.id);
-  const waterRouteCache = getMapPathCache(world.map);
+  const waterRouteCache = getMapPathCache(world.map, world.ships.length);
+
+  // Compute per-ship speed scalars from marketCap quartiles once, at plan-build
+  // time, so the per-ship route builder doesn't repeat the fleet-wide sort.
+  const speedScalarById = new Map<string, number>();
+  for (const ship of world.ships) {
+    speedScalarById.set(ship.id, shipCycleTempo(ship, world.ships).scalar);
+  }
 
   // Build flagship route per squad first, so each squad's consorts can inherit
   // their own flagship's cycle/phase/zone. When a squad's flagship is missing,
@@ -98,7 +222,7 @@ export function buildBaseMotionPlan(world: PharosVilleWorld): PharosVilleBaseMot
     ));
     if (!flagship) continue;
     flagshipShipBySquad.set(squad.id, flagship);
-    flagshipRouteBySquad.set(squad.id, buildShipMotionRoute(flagship, world.map, world.docks, waterRouteCache));
+    flagshipRouteBySquad.set(squad.id, buildShipMotionRoute(flagship, world.map, world.docks, waterRouteCache, bucket, speedScalarById.get(flagship.id) ?? 1));
   }
 
   const shipRoutes = new Map<string, ShipMotionRoute>();
@@ -118,7 +242,7 @@ export function buildBaseMotionPlan(world: PharosVilleWorld): PharosVilleBaseMot
         continue;
       }
     }
-    shipRoutes.set(ship.id, buildShipMotionRoute(ship, world.map, world.docks, waterRouteCache));
+    shipRoutes.set(ship.id, buildShipMotionRoute(ship, world.map, world.docks, waterRouteCache, bucket, speedScalarById.get(ship.id) ?? 1));
   }
 
   return {
@@ -206,6 +330,8 @@ function buildShipMotionRoute(
   map: PharosVilleMap,
   docks: readonly DockNode[] = [],
   waterRouteCache: ShipWaterRouteCache = new Map(),
+  bucket = 0,
+  speedScalar = 1,
 ): ShipMotionRoute {
   const riskTile = nearestWaterTile(ship.riskTile);
   const dockStops: ShipDockMotionStop[] = ship.dockVisits.map((visit) => ({
@@ -229,10 +355,10 @@ function buildShipMotionRoute(
       dockTangent: null,
     }
     : null;
-  const cycleSeconds = shipCycleSeconds(ship);
+  const cycleSeconds = shipCycleSeconds(ship, speedScalar);
   const waterPaths = new LazyShipWaterPathMap();
   const openWaterPatrol = dockStops.length === 0 || ship.riskPlacement === "ledger-mooring"
-    ? buildOpenWaterPatrol(ship, riskTile, map, waterRouteCache)
+    ? buildOpenWaterPatrol(ship, riskTile, map, waterRouteCache, bucket)
     : null;
   const homeDockId = primaryDockStop(ship, dockStops)?.dockId ?? null;
 
@@ -246,10 +372,18 @@ function buildShipMotionRoute(
   for (const stop of dockStops) {
     const outboundKey = pathKey(riskTile, stop.mooringTile);
     const inboundKey = pathKey(stop.mooringTile, riskTile);
-    const outbound = () => buildCachedShipWaterRoute({ from: riskTile, to: stop.mooringTile, map, zone: ship.riskZone }, waterRouteCache);
+    const outbound = () => buildCachedShipWaterRoute({ from: riskTile, to: stop.mooringTile, map, zone: ship.riskZone, shipId: ship.id, bucket }, waterRouteCache);
     waterPaths.setBuilder(outboundKey, outbound);
     waterPaths.setBuilder(inboundKey, () => reverseWaterPath(outbound()));
   }
+
+  // E2: change24hPct is in percent units (e.g. 10 means 10%) per recent-change.ts:16
+  // formula: (usd / previous) * 100. Threshold 2 = 2%, scale 20 keeps the same shape.
+  const wakeMultiplier = computeWakeMultiplier(ship.change24hPct);
+  // E3: broad chain presence (≥4 positive chains) earns +15% dock-dwell share.
+  const dockDwellShareOverride = ship.chainPresence.length >= 4
+    ? DOCKED_SHIP_DWELL_SHARE * 1.15
+    : undefined;
 
   return {
     shipId: ship.id,
@@ -265,7 +399,19 @@ function buildShipMotionRoute(
     waterPaths,
     routeSeed: stableHash(ship.id),
     formationOffset: null,
+    staleEvidence: ship.placementEvidence.stale,
+    wakeMultiplier,
+    dockDwellShareOverride,
   };
+}
+
+// E2: compute wake multiplier from change24hPct (percent units, e.g. 10 = 10%).
+// Threshold: |pct| ≥ 2 (i.e. 2%). Scale: 20. Clamp: [0, 0.6].
+function computeWakeMultiplier(change24hPct: number | null): number {
+  if (change24hPct == null) return 1.0;
+  const absPct = Math.abs(change24hPct);
+  if (absPct < 2) return 1.0;
+  return 1.0 + clamp(absPct / 20, 0, 0.6);
 }
 
 function buildConsortMotionRoute(
@@ -319,6 +465,13 @@ function buildConsortMotionRoute(
     waterPaths: new LazyShipWaterPathMap(),
     routeSeed: flagshipRoute.routeSeed,
     formationOffset,
+    // E1/E2/E3: consorts use their own ship's signals (not the flagship's),
+    // so each consort's stale evidence and change24hPct are reflected independently.
+    staleEvidence: ship.placementEvidence.stale,
+    wakeMultiplier: computeWakeMultiplier(ship.change24hPct),
+    dockDwellShareOverride: ship.chainPresence.length >= 4
+      ? DOCKED_SHIP_DWELL_SHARE * 1.15
+      : undefined,
   };
 }
 
@@ -387,13 +540,13 @@ function primaryDockStop(ship: ShipNode, dockStops: readonly ShipMotionRoute["do
     ?? null;
 }
 
-function shipCycleSeconds(ship: ShipNode): number {
+function shipCycleSeconds(ship: ShipNode, speedScalar = 1): number {
   const positiveChainCount = ship.chainPresence.length;
   const renderedDockCount = ship.dockVisits.length;
   const base = 1260;
   const breadthBonus = Math.min(360, positiveChainCount * 30 + renderedDockCount * 24);
   const jitter = stableOffset(`${ship.id}.cycle`, 84);
-  return clamp(base - breadthBonus + jitter, 780, 1560);
+  return clamp(base / speedScalar - breadthBonus + jitter, 780, 1560);
 }
 
 function weightedDockStopSchedule(shipId: string, visits: readonly ShipDockVisit[]): string[] {
@@ -422,9 +575,10 @@ function buildOpenWaterPatrol(
   riskTile: { x: number; y: number },
   map: PharosVilleMap,
   waterRouteCache: ShipWaterRouteCache,
+  bucket = 0,
 ): ShipMotionRoute["openWaterPatrol"] {
   const waypoint = openWaterPatrolWaypoint(ship, riskTile, map);
-  const outbound = buildCachedShipWaterRoute({ from: riskTile, to: waypoint, map, zone: ship.riskZone }, waterRouteCache);
+  const outbound = buildCachedShipWaterRoute({ from: riskTile, to: waypoint, map, zone: ship.riskZone, shipId: ship.id, bucket }, waterRouteCache);
   if (outbound.points.length <= 1 || outbound.totalLength <= 0) return null;
   return {
     waypoint,
@@ -454,4 +608,9 @@ function openWaterPatrolWaypoint(
   }
 
   return fallback;
+}
+
+/** Test-only — do not use in production. */
+export function __testPathCacheSize(map: PharosVilleMap): number {
+  return pathCacheByMap.get(map)?.size ?? -1;
 }
