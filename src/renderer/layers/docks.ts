@@ -261,8 +261,8 @@ function drawHarborFlag(input: {
   flagPath();
   ctx.stroke();
 
-  if (emphasized) {
-    drawDockNameRibbon(ctx, dock.label, mastX + direction * 14 * flagScale, mastTopY - 15 * scale, scale);
+  if (zoom >= 0.5) {
+    drawDockNameRibbon(ctx, dock.label, mastX + direction * 14 * flagScale, mastTopY - 15 * scale, scale, emphasized);
   }
   ctx.restore();
 }
@@ -313,20 +313,33 @@ function drawDockFlagLogo(input: {
   ctx.restore();
 }
 
-function drawDockNameRibbon(ctx: CanvasRenderingContext2D, label: string, x: number, y: number, scale: number) {
-  const fontSize = Math.max(7, Math.round(7.4 * scale));
+function drawDockNameRibbon(ctx: CanvasRenderingContext2D, label: string, x: number, y: number, scale: number, emphasized: boolean) {
+  const fontSize = emphasized ? Math.max(7, Math.round(7.4 * scale)) : Math.max(6, Math.round(5.6 * scale));
   ctx.save();
-  ctx.font = `700 ${fontSize}px ui-sans-serif, system-ui, sans-serif`;
+  ctx.font = `${emphasized ? "700" : "600"} ${fontSize}px ui-sans-serif, system-ui, sans-serif`;
   const width = Math.min(82 * scale, Math.max(34 * scale, ctx.measureText(label).width + 11 * scale));
-  const height = 13 * scale;
+  const height = (emphasized ? 13 : 10) * scale;
   const left = x - width / 2;
   const top = y - height / 2;
-  ctx.globalAlpha = 0.88;
-  drawSignBoard(ctx, left, top, width, height, scale * 0.82, "#654323", "#2e1e14");
-  ctx.fillStyle = "#f7e5ba";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  drawFittedText(ctx, label, x, y + 0.7 * scale, width - 7 * scale, fontSize, 5.8 * scale, "700");
+  if (emphasized) {
+    ctx.globalAlpha = 0.88;
+    drawSignBoard(ctx, left, top, width, height, scale * 0.82, "#654323", "#2e1e14");
+    ctx.fillStyle = "#f7e5ba";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    drawFittedText(ctx, label, x, y + 0.7 * scale, width - 7 * scale, fontSize, 5.8 * scale, "700");
+  } else {
+    ctx.globalAlpha = 0.6;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "rgba(20, 14, 8, 0.55)";
+    ctx.lineWidth = Math.max(1, 1.1 * scale);
+    ctx.font = `600 ${fontSize}px ui-sans-serif, system-ui, sans-serif`;
+    ctx.strokeText(label, x, y + 0.5 * scale, width - 4 * scale);
+    ctx.fillStyle = "#f0e0b8";
+    ctx.fillText(label, x, y + 0.5 * scale, width - 4 * scale);
+  }
   ctx.restore();
 }
 
