@@ -19,9 +19,9 @@ describe("UNIQUE_SHIP_DEFINITIONS", () => {
     }
   });
 
-  it("uses scales in the heritage hull range [1.23, 1.32]", () => {
+  it("uses scales in the heritage hull range [1.20, 1.32]", () => {
     for (const [id, def] of entries) {
-      expect(def.scale, id).toBeGreaterThanOrEqual(1.23);
+      expect(def.scale, id).toBeGreaterThanOrEqual(1.20);
       expect(def.scale, id).toBeLessThanOrEqual(1.32);
     }
   });
@@ -33,8 +33,8 @@ describe("UNIQUE_SHIP_DEFINITIONS", () => {
     }
   });
 
-  it("exposes 5 distinct sprite ids in UNIQUE_SPRITE_IDS", () => {
-    expect(UNIQUE_SPRITE_IDS.size).toBe(5);
+  it("exposes 6 distinct sprite ids in UNIQUE_SPRITE_IDS", () => {
+    expect(UNIQUE_SPRITE_IDS.size).toBe(6);
     expect(UNIQUE_SPRITE_IDS.size).toBe(entries.length);
   });
 });

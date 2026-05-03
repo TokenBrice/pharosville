@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ETHENA_SQUAD,
   MAKER_SQUAD,
   SKY_SQUAD,
   STABLECOIN_SQUADS,
@@ -11,15 +12,18 @@ import {
 } from "./maker-squad";
 
 describe("stablecoin squads", () => {
-  it("defines two squads: Sky (USDS+sUSDS+stUSDS) and Maker (DAI+sDAI)", () => {
-    expect(STABLECOIN_SQUADS).toHaveLength(2);
+  it("defines three squads: Sky (USDS+sUSDS+stUSDS), Maker (DAI+sDAI), and Ethena (USDe+sUSDe)", () => {
+    expect(STABLECOIN_SQUADS).toHaveLength(3);
     expect(SKY_SQUAD.id).toBe("sky");
     expect(SKY_SQUAD.flagshipId).toBe("usds-sky");
     expect([...SKY_SQUAD.memberIds].sort()).toEqual(["stusds-sky", "susds-sky", "usds-sky"]);
     expect(MAKER_SQUAD.id).toBe("maker");
     expect(MAKER_SQUAD.flagshipId).toBe("dai-makerdao");
     expect([...MAKER_SQUAD.memberIds].sort()).toEqual(["dai-makerdao", "sdai-sky"]);
-    expect(STABLECOIN_SQUAD_MEMBER_IDS).toHaveLength(5);
+    expect(ETHENA_SQUAD.id).toBe("ethena");
+    expect(ETHENA_SQUAD.flagshipId).toBe("usde-ethena");
+    expect([...ETHENA_SQUAD.memberIds].sort()).toEqual(["susde-ethena", "usde-ethena"]);
+    expect(STABLECOIN_SQUAD_MEMBER_IDS).toHaveLength(7);
   });
 
   it("identifies members and non-members", () => {

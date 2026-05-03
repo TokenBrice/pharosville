@@ -69,7 +69,7 @@ describe("resolveShipVisual", () => {
       navToken: true,
     });
     const visual = resolveShipVisual(makeAsset({
-      id: "susde-ethena",
+      id: "synthetic-placeholder",
       symbol: "sUSDe",
       circulating: { peggedUSD: 11_000_000_000 },
     }), meta, null);

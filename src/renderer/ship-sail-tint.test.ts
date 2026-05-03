@@ -24,6 +24,12 @@ const SHIP_ASSET_FILES: Record<string, string> = {
   "ship.sdai-titan": "sdai-titan.png",
   "ship.treasury-galleon": "treasury-galleon.png",
   "ship.usdc-titan": "usdc-titan.png",
+  "ship.usde-titan": "usde-titan.png",
+  "ship.susde-titan": "susde-titan.png",
+  "ship.pyusd-titan": "pyusd-titan.png",
+  "ship.usd1-titan": "usd1-titan.png",
+  "ship.buidl-titan": "buidl-titan.png",
+  "ship.usyc-unique": "usyc-unique.png",
   "ship.usds-titan": "usds-titan.png",
   "ship.usdt-titan": "usdt-titan.png",
   "ship.xaut-unique": "xaut-unique.png",
@@ -51,10 +57,20 @@ const MIN_SAIL_COVERAGE: Record<string, number> = {
 // directly into the sprite (mirrors crvUSD's heritage hull). It has no
 // SHIP_SAIL_TINT_MASKS entry so runtime tinting is a no-op by design;
 // listed here so the equality check filters it from both sides.
+//
+// ship.usde-titan, ship.susde-titan, ship.pyusd-titan, ship.usd1-titan, and
+// ship.buidl-titan follow the same baked-blue pattern as ship.usdc-titan:
+// each ships with its brand-baked sail dye and painted-in logo, so runtime
+// sail-tinting is a no-op and the coverage gate is skipped here.
 const UNTUNED_TITAN_IDS = new Set([
   "ship.susds-titan",
   "ship.stusds-titan",
   "ship.usdc-titan",
+  "ship.usde-titan",
+  "ship.susde-titan",
+  "ship.pyusd-titan",
+  "ship.usd1-titan",
+  "ship.buidl-titan",
 ]);
 
 // Heritage hulls (unique tier) whose painted sail color falls outside
@@ -77,6 +93,7 @@ const UNTUNED_UNIQUE_IDS = new Set<string>([
   "ship.xaut-unique",
   "ship.bold-unique",
   "ship.fxusd-unique",
+  "ship.usyc-unique",
 ]);
 
 describe("ship sail tint masks", () => {

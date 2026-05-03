@@ -12,6 +12,7 @@ export const UNIQUE_SHIP_DEFINITIONS = {
   "fxusd-f-x-protocol": { spriteAssetId: "ship.fxusd-unique",  rationale: "Mathematical livery — f(x) Protocol's analytic identity.",                       scale: 1.23 },
   "xaut-tether":        { spriteAssetId: "ship.xaut-unique",   rationale: "Bullion barge — Tether's gold treasury reserve.",                                scale: 1.28 },
   "paxg-paxos":         { spriteAssetId: "ship.paxg-unique",   rationale: "Gilded merchantman — Paxos institutional gold custody.",                         scale: 1.32 },
+  "usyc-hashnote":      { spriteAssetId: "ship.usyc-unique",   rationale: "Yield-bearing tokenised treasury vessel — Hashnote's institutional cash carrier.", scale: 1.20 },
 } as const satisfies Record<string, UniqueShipDefinition>;
 
 export const UNIQUE_SPRITE_IDS: ReadonlySet<string> = new Set(

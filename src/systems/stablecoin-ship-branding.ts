@@ -43,6 +43,9 @@ const STABLECOIN_SAIL_COLORS: Record<string, StablecoinShipBranding> = {
   "usd-overnight": livery("Overnight logo livery", "#b9863f", "#f2e4ca", "#d9ad68", "#6e4a20", "#fff8e8", "diamond", "field", "diagonal"),
   "dola-inverse-finance": livery("DOLA logo livery", "#536d95", "#e0e5f1", "#899dc0", "#2d3d59", "#f7f9ff", "slash", "hoist", "single"),
   "usdl-lift-dollar": livery("Lift Dollar livery", "#ae7b3b", "#f0e0c8", "#d2a05a", "#6c4823", "#fff7e9", "triangle", "field", "chevron"),
+  "usd1-world-liberty-financial": livery("World Liberty Financial logo livery", "#d4a838", "#f5e6b8", "#e6c570", "#7a5e1c", "#fffaeb", "diamond", "field", "single"),
+  "buidl-blackrock":              livery("BlackRock BUIDL logo livery",         "#1a1a1a", "#3a3a3a", "#9c9c9a", "#000000", "#f6f6f1", "hex",     "center", "ladder"),
+  "usyc-hashnote":                livery("Hashnote USYC logo livery",           "#0d8a8c", "#cfe6e6", "#4cb5b6", "#063638", "#f0fbfb", "ring",   "field",  "wave"),
 };
 
 export function resolveStablecoinShipBranding(id: string, meta: StablecoinMeta): StablecoinShipBranding {

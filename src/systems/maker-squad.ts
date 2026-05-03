@@ -3,7 +3,7 @@
 // risk placement and motion route; consorts snap to a placement-aware
 // formation offset around the flagship's tile.
 
-export type SquadId = "sky" | "maker";
+export type SquadId = "sky" | "maker" | "ethena";
 export type SquadRole = "flagship" | "consort";
 
 export interface StablecoinSquad {
@@ -45,7 +45,21 @@ export const MAKER_SQUAD: StablecoinSquad = {
   },
 };
 
-export const STABLECOIN_SQUADS: readonly StablecoinSquad[] = [SKY_SQUAD, MAKER_SQUAD];
+// Ethena squad — synthetic dollar + its staked savings vault, mirroring
+// the Maker DAI/sDAI shape.
+export const ETHENA_SQUAD: StablecoinSquad = {
+  id: "ethena",
+  label: "Ethena",
+  flagshipId: "usde-ethena",
+  memberIds: ["usde-ethena", "susde-ethena"],
+  displayOrder: ["usde-ethena", "susde-ethena"],
+  formationOffsets: {
+    "usde-ethena": { dx: 0, dy: 0 },
+    "susde-ethena": { dx: -2, dy: -2 },
+  },
+};
+
+export const STABLECOIN_SQUADS: readonly StablecoinSquad[] = [SKY_SQUAD, MAKER_SQUAD, ETHENA_SQUAD];
 
 const SQUAD_BY_MEMBER: ReadonlyMap<string, StablecoinSquad> = new Map(
   STABLECOIN_SQUADS.flatMap((squad) => squad.memberIds.map((id) => [id, squad] as const)),

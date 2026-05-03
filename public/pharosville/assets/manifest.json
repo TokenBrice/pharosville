@@ -41,6 +41,12 @@
     "ship.dai-titan",
     "ship.stusds-titan",
     "ship.usdc-titan",
+    "ship.usde-titan",
+    "ship.susde-titan",
+    "ship.pyusd-titan",
+    "ship.usd1-titan",
+    "ship.buidl-titan",
+    "ship.usyc-unique",
     "ship.usds-titan",
     "ship.usdt-titan",
     "prop.memorial-terrace",
@@ -1148,6 +1154,312 @@
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
         "jobId": "072956fc-8012-4494-958e-9bc238fdd22a",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "ship.usde-titan",
+      "path": "ships/usde-titan.png",
+      "category": "ship",
+      "layer": "ships",
+      "width": 128,
+      "height": 96,
+      "displayScale": 1,
+      "anchor": [
+        64,
+        85
+      ],
+      "footprint": [
+        48,
+        19
+      ],
+      "hitbox": [
+        11,
+        3,
+        117,
+        88
+      ],
+      "loadPriority": "critical",
+      "criticalReason": "Ethena flagship launches on first frame.",
+      "animation": {
+        "frameCount": 4,
+        "frameSource": "ships/usde-titan-frames.png",
+        "fps": 4,
+        "loop": true,
+        "reducedMotionFrame": 0,
+        "spriteSheet": {
+          "columns": 4,
+          "rows": 1,
+          "frameWidth": 128,
+          "frameHeight": 96
+        }
+      },
+      "promptKey": "ship.usde-titan",
+      "semanticRole": "Ethena synthetic-dollar titan frigate",
+      "paletteKeys": [
+        "limestone",
+        "deep navy",
+        "bronze beacon",
+        "teal sea"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
+      "promptProvenance": {
+        "jobId": "reuse:imperial-A:072956fc-8012-4494-958e-9bc238fdd22a",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "ship.susde-titan",
+      "path": "ships/susde-titan.png",
+      "category": "ship",
+      "layer": "ships",
+      "width": 128,
+      "height": 96,
+      "displayScale": 1,
+      "anchor": [
+        64,
+        85
+      ],
+      "footprint": [
+        48,
+        19
+      ],
+      "hitbox": [
+        11,
+        3,
+        117,
+        88
+      ],
+      "loadPriority": "critical",
+      "criticalReason": "Ethena savings consort launches with squad.",
+      "animation": {
+        "frameCount": 4,
+        "frameSource": "ships/susde-titan-frames.png",
+        "fps": 4,
+        "loop": true,
+        "reducedMotionFrame": 0,
+        "spriteSheet": {
+          "columns": 4,
+          "rows": 1,
+          "frameWidth": 128,
+          "frameHeight": 96
+        }
+      },
+      "promptKey": "ship.susde-titan",
+      "semanticRole": "Ethena staked savings titan consort",
+      "paletteKeys": [
+        "limestone",
+        "deep navy",
+        "bronze beacon",
+        "teal sea"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
+      "promptProvenance": {
+        "jobId": "reuse:imperial-A:072956fc-8012-4494-958e-9bc238fdd22a",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "ship.pyusd-titan",
+      "path": "ships/pyusd-titan.png",
+      "category": "ship",
+      "layer": "ships",
+      "width": 128,
+      "height": 96,
+      "displayScale": 1,
+      "anchor": [
+        64,
+        85
+      ],
+      "footprint": [
+        48,
+        19
+      ],
+      "hitbox": [
+        11,
+        3,
+        117,
+        88
+      ],
+      "loadPriority": "critical",
+      "criticalReason": "PayPal stablecoin launches on first frame.",
+      "animation": {
+        "frameCount": 4,
+        "frameSource": "ships/pyusd-titan-frames.png",
+        "fps": 4,
+        "loop": true,
+        "reducedMotionFrame": 0,
+        "spriteSheet": {
+          "columns": 4,
+          "rows": 1,
+          "frameWidth": 128,
+          "frameHeight": 96
+        }
+      },
+      "promptKey": "ship.pyusd-titan",
+      "semanticRole": "PayPal PYUSD titan frigate",
+      "paletteKeys": [
+        "limestone",
+        "deep navy",
+        "bronze beacon",
+        "teal sea"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
+      "promptProvenance": {
+        "jobId": "reuse:imperial-A:072956fc-8012-4494-958e-9bc238fdd22a",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "ship.usd1-titan",
+      "path": "ships/usd1-titan.png",
+      "category": "ship",
+      "layer": "ships",
+      "width": 128,
+      "height": 96,
+      "displayScale": 1,
+      "anchor": [
+        64,
+        85
+      ],
+      "footprint": [
+        48,
+        19
+      ],
+      "hitbox": [
+        11,
+        3,
+        117,
+        88
+      ],
+      "loadPriority": "critical",
+      "criticalReason": "World Liberty Financial titan launches on first frame.",
+      "animation": {
+        "frameCount": 4,
+        "frameSource": "ships/usd1-titan-frames.png",
+        "fps": 4,
+        "loop": true,
+        "reducedMotionFrame": 0,
+        "spriteSheet": {
+          "columns": 4,
+          "rows": 1,
+          "frameWidth": 128,
+          "frameHeight": 96
+        }
+      },
+      "promptKey": "ship.usd1-titan",
+      "semanticRole": "WLFI USD1 titan frigate",
+      "paletteKeys": [
+        "limestone",
+        "deep navy",
+        "bronze beacon",
+        "teal sea"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
+      "promptProvenance": {
+        "jobId": "reuse:imperial-A:072956fc-8012-4494-958e-9bc238fdd22a",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "ship.buidl-titan",
+      "path": "ships/buidl-titan.png",
+      "category": "ship",
+      "layer": "ships",
+      "width": 128,
+      "height": 96,
+      "displayScale": 1,
+      "anchor": [
+        64,
+        85
+      ],
+      "footprint": [
+        48,
+        19
+      ],
+      "hitbox": [
+        11,
+        3,
+        117,
+        88
+      ],
+      "loadPriority": "critical",
+      "criticalReason": "BlackRock BUIDL launches on first frame.",
+      "animation": {
+        "frameCount": 4,
+        "frameSource": "ships/buidl-titan-frames.png",
+        "fps": 4,
+        "loop": true,
+        "reducedMotionFrame": 0,
+        "spriteSheet": {
+          "columns": 4,
+          "rows": 1,
+          "frameWidth": 128,
+          "frameHeight": 96
+        }
+      },
+      "promptKey": "ship.buidl-titan",
+      "semanticRole": "BlackRock BUIDL titan frigate",
+      "paletteKeys": [
+        "limestone",
+        "deep navy",
+        "bronze beacon",
+        "teal sea"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
+      "promptProvenance": {
+        "jobId": "reuse:imperial-A:072956fc-8012-4494-958e-9bc238fdd22a",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "ship.usyc-unique",
+      "path": "ships/usyc-unique.png",
+      "category": "ship",
+      "layer": "ships",
+      "width": 128,
+      "height": 96,
+      "displayScale": 1,
+      "anchor": [
+        64,
+        85
+      ],
+      "footprint": [
+        48,
+        19
+      ],
+      "hitbox": [
+        11,
+        3,
+        117,
+        88
+      ],
+      "loadPriority": "critical",
+      "criticalReason": "Hashnote heritage hull launches on first frame.",
+      "animation": {
+        "frameCount": 4,
+        "frameSource": "ships/usyc-unique-frames.png",
+        "fps": 4,
+        "loop": true,
+        "reducedMotionFrame": 0,
+        "spriteSheet": {
+          "columns": 4,
+          "rows": 1,
+          "frameWidth": 128,
+          "frameHeight": 96
+        }
+      },
+      "promptKey": "ship.usyc-unique",
+      "semanticRole": "Hashnote USYC heritage frigate",
+      "paletteKeys": [
+        "limestone",
+        "deep navy",
+        "bronze beacon",
+        "teal sea"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
+      "promptProvenance": {
+        "jobId": "reuse:imperial-A:072956fc-8012-4494-958e-9bc238fdd22a",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },

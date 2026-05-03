@@ -457,14 +457,16 @@ export const denseFixtureStress = {
 } satisfies StressSignalsAllResponse;
 
 // --- Maker squad fixtures ---------------------------------------------------
-// Compose minimal inputs that contain all 5 Maker squad members as active
-// assets, so squad-aware placement logic can be exercised in isolation.
+// Compose minimal inputs that contain all squad members as active assets,
+// so squad-aware placement logic can be exercised in isolation.
 const MAKER_SQUAD_FIXTURE_IDS = [
   "usds-sky",
   "dai-makerdao",
   "susds-sky",
   "sdai-sky",
   "stusds-sky",
+  "usde-ethena",
+  "susde-ethena",
 ] as const;
 
 function makerSquadFixtureMetas(): StablecoinMeta[] {

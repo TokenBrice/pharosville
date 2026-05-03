@@ -39,6 +39,11 @@ export const TITAN_SHIP_ASSET_IDS: Record<string, string> = {
   "susds-sky": "ship.susds-titan",
   "sdai-sky": "ship.sdai-titan",
   "stusds-sky": "ship.stusds-titan",
+  "usde-ethena": "ship.usde-titan",
+  "susde-ethena": "ship.susde-titan",
+  "pyusd-paypal": "ship.pyusd-titan",
+  "usd1-world-liberty-financial": "ship.usd1-titan",
+  "buidl-blackrock": "ship.buidl-titan",
 };
 
 // Squad members reduced by ~20% from prior tuning to relieve formation overlap
@@ -52,6 +57,11 @@ const TITAN_SHIP_SCALES: Record<string, number> = {
   "susds-sky": 0.94,
   "sdai-sky": 0.94,
   "stusds-sky": 0.98,
+  "usde-ethena": 1.20,
+  "susde-ethena": 0.95,
+  "pyusd-paypal": 1.40,
+  "usd1-world-liberty-financial": 1.35,
+  "buidl-blackrock": 1.40,
 };
 
 export function resolveShipClass(meta: StablecoinMeta): ShipClassDefinition {

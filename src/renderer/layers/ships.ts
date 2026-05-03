@@ -30,6 +30,12 @@ export const SHIP_SAIL_EMBLEM_OVERRIDES: Record<string, string> = {
 export const SHIP_SAIL_EMBLEM_PAINTED: ReadonlySet<string> = new Set([
   "crvusd-curve",
   "usdc-circle",
+  "usde-ethena",
+  "susde-ethena",
+  "pyusd-paypal",
+  "usd1-world-liberty-financial",
+  "buidl-blackrock",
+  "usyc-hashnote",
   ...Object.keys(SHIP_SAIL_EMBLEM_OVERRIDES),
 ]);
 
@@ -40,6 +46,12 @@ export const SHIP_SAIL_MARKS: Record<string, { height: number; width: number; x:
   "dao-schooner": { height: 14, width: 17, x: 8, y: -27 },
   "treasury-galleon": { height: 16, width: 19, x: 10, y: -31 },
   "ship.usdc-titan": { height: 19, width: 19, x: -9, y: -35 },
+  "ship.usde-titan": { height: 19, width: 19, x: -9, y: -35 },
+  "ship.susde-titan": { height: 19, width: 19, x: -9, y: -35 },
+  "ship.pyusd-titan": { height: 19, width: 19, x: -9, y: -35 },
+  "ship.usd1-titan": { height: 19, width: 19, x: -9, y: -35 },
+  "ship.buidl-titan": { height: 19, width: 19, x: -9, y: -35 },
+  "ship.usyc-unique": { height: 19, width: 19, x: -9, y: -35 },
   "ship.usds-titan": { height: 19, width: 23, x: 3, y: -45 },
   "ship.usdt-titan": { height: 50, width: 78, x: -4, y: -52 },
   // Maker consorts seeded from ship.usds-titan; tuning in Task 7.5.
@@ -97,6 +109,42 @@ export const SHIP_TRIM_MARKS: Record<string, ShipTrimSpec> = {
     deck: [{ x: -10, y: -23, width: 8, height: 4 }, { x: 8, y: -21, width: 7, height: 3 }],
   },
   "ship.usdc-titan": {
+    rail: [-43, -15, 39, -8],
+    keel: [-39, -3, 35, 0],
+    stern: { x: -48, y: -20, width: 11, height: 5 },
+    deck: [{ x: -13, y: -23, width: 9, height: 4 }, { x: 11, y: -20, width: 8, height: 3 }],
+  },
+  "ship.usde-titan": {
+    rail: [-43, -15, 39, -8],
+    keel: [-39, -3, 35, 0],
+    stern: { x: -48, y: -20, width: 11, height: 5 },
+    deck: [{ x: -13, y: -23, width: 9, height: 4 }, { x: 11, y: -20, width: 8, height: 3 }],
+  },
+  "ship.susde-titan": {
+    rail: [-43, -15, 39, -8],
+    keel: [-39, -3, 35, 0],
+    stern: { x: -48, y: -20, width: 11, height: 5 },
+    deck: [{ x: -13, y: -23, width: 9, height: 4 }, { x: 11, y: -20, width: 8, height: 3 }],
+  },
+  "ship.pyusd-titan": {
+    rail: [-43, -15, 39, -8],
+    keel: [-39, -3, 35, 0],
+    stern: { x: -48, y: -20, width: 11, height: 5 },
+    deck: [{ x: -13, y: -23, width: 9, height: 4 }, { x: 11, y: -20, width: 8, height: 3 }],
+  },
+  "ship.usd1-titan": {
+    rail: [-43, -15, 39, -8],
+    keel: [-39, -3, 35, 0],
+    stern: { x: -48, y: -20, width: 11, height: 5 },
+    deck: [{ x: -13, y: -23, width: 9, height: 4 }, { x: 11, y: -20, width: 8, height: 3 }],
+  },
+  "ship.buidl-titan": {
+    rail: [-43, -15, 39, -8],
+    keel: [-39, -3, 35, 0],
+    stern: { x: -48, y: -20, width: 11, height: 5 },
+    deck: [{ x: -13, y: -23, width: 9, height: 4 }, { x: 11, y: -20, width: 8, height: 3 }],
+  },
+  "ship.usyc-unique": {
     rail: [-43, -15, 39, -8],
     keel: [-39, -3, 35, 0],
     stern: { x: -48, y: -20, width: 11, height: 5 },
@@ -182,6 +230,11 @@ export const TITAN_SPRITE_IDS = new Set([
   "ship.susds-titan",
   "ship.sdai-titan",
   "ship.stusds-titan",
+  "ship.usde-titan",
+  "ship.susde-titan",
+  "ship.pyusd-titan",
+  "ship.usd1-titan",
+  "ship.buidl-titan",
 ]);
 const SHIP_SAIL_TINT_CACHE_MAX = 48;
 const shipSailTintCache = new Map<string, HTMLCanvasElement | null>();
