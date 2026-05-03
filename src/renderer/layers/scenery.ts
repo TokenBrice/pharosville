@@ -1,5 +1,6 @@
 import { tileKindAt } from "../../systems/world-layout";
 import { TILE_HEIGHT, TILE_WIDTH, tileToScreen } from "../../systems/projection";
+import type { LoadedPharosVilleAsset } from "../asset-manager";
 import { drawAsset, drawDiamond, drawSignBoard } from "../canvas-primitives";
 import { drawableDepth, type WorldDrawable } from "../drawable-pass";
 import { drawLamp } from "./ambient";
@@ -277,6 +278,9 @@ function drawSceneryProp(input: DrawPharosVilleInput, prop: SceneryProp) {
   const p = tileToScreen(prop.tile, camera);
   const scale = camera.zoom * (prop.scale ?? 1);
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
+  const wobble = motion.reducedMotion
+    ? 0
+    : Math.sin(time * 3.4 + prop.tile.x * 1.7 + prop.tile.y * 2.3);
   ctx.save();
   if (prop.kind === "buoy") {
     const bob = Math.sin(time * 0.9 + prop.tile.x) * 1.2 * scale;
@@ -285,9 +289,9 @@ function drawSceneryProp(input: DrawPharosVilleInput, prop: SceneryProp) {
     drawLampLightCone(input, prop);
     drawLamp(ctx, p.x, p.y, scale, time * 0.9 + prop.tile.y);
   } else if (prop.kind === "crate-stack") {
-    drawCrateStack(ctx, p.x, p.y, scale);
+    drawCrateStack(ctx, p.x + wobble, p.y, scale);
   } else if (prop.kind === "barrel") {
-    drawBarrels(ctx, p.x, p.y, scale);
+    drawBarrels(ctx, p.x + wobble, p.y, scale);
   } else if (prop.kind === "bollards") {
     drawBollards(ctx, p.x, p.y, scale);
   } else if (prop.kind === "cypress") {
@@ -297,7 +301,7 @@ function drawSceneryProp(input: DrawPharosVilleInput, prop: SceneryProp) {
   } else if (prop.kind === "mooring-posts") {
     drawMooringPosts(ctx, p.x, p.y, scale);
   } else if (prop.kind === "net-rack") {
-    drawNetRack(ctx, p.x, p.y, scale);
+    drawNetRack(ctx, p.x + wobble, p.y, scale);
   } else if (prop.kind === "reed-bed") {
     drawReedBed(ctx, p.x, p.y, scale);
   } else if (prop.kind === "reef") {
@@ -305,7 +309,7 @@ function drawSceneryProp(input: DrawPharosVilleInput, prop: SceneryProp) {
   } else if (prop.kind === "rock") {
     drawHarborRock(ctx, p.x, p.y, scale);
   } else if (prop.kind === "rope-coil") {
-    drawRopeCoil(ctx, p.x, p.y, scale);
+    drawRopeCoil(ctx, p.x + wobble, p.y, scale);
   } else if (prop.kind === "sea-wall") {
     drawSeaWallPiece(ctx, p.x, p.y, scale);
   } else if (prop.kind === "signal-post" || prop.kind === "beacon") {
@@ -342,19 +346,62 @@ function drawSceneryProp(input: DrawPharosVilleInput, prop: SceneryProp) {
     if (sprite) drawAsset(ctx, sprite, p.x, p.y, scale);
   } else if (prop.kind === "moored-dinghy-north") {
     const sprite = input.assets?.get("prop.moored-dinghy-north");
-    if (sprite) drawAsset(ctx, sprite, p.x, p.y, scale);
+    if (sprite) drawDinghy(ctx, sprite, p.x, p.y, scale, time, prop.tile);
   } else if (prop.kind === "moored-dinghy-east") {
     const sprite = input.assets?.get("prop.moored-dinghy-east");
-    if (sprite) drawAsset(ctx, sprite, p.x, p.y, scale);
+    if (sprite) drawDinghy(ctx, sprite, p.x, p.y, scale, time, prop.tile);
   } else if (prop.kind === "harbor-bell") {
     const sprite = input.assets?.get("prop.harbor-bell");
-    if (sprite) drawAsset(ctx, sprite, p.x, p.y, scale);
+    if (sprite) drawHarborBell(ctx, sprite, p.x, p.y, scale, time, prop.tile);
   } else if (prop.kind === "cargo-stack") {
     const sprite = input.assets?.get("prop.cargo-stack");
-    if (sprite) drawAsset(ctx, sprite, p.x, p.y, scale);
+    if (sprite) drawAsset(ctx, sprite, p.x + wobble, p.y, scale);
   } else if (prop.kind === "timber-pile") {
     drawTimberPile(ctx, p.x, p.y, scale);
   }
+  ctx.restore();
+}
+
+function drawDinghy(
+  ctx: CanvasRenderingContext2D,
+  sprite: LoadedPharosVilleAsset,
+  x: number,
+  y: number,
+  scale: number,
+  time: number,
+  tile: { x: number; y: number },
+) {
+  const bob = time === 0 ? 0 : Math.sin(time * 0.9 + tile.x + 0.7) * 1.2 * scale;
+  const roll = time === 0 ? 0 : Math.sin(time * 0.6 + tile.y + 1.3) * 0.04;
+  if (roll === 0) {
+    drawAsset(ctx, sprite, x, y + bob, scale);
+    return;
+  }
+  ctx.save();
+  ctx.translate(x, y + bob);
+  ctx.rotate(roll);
+  drawAsset(ctx, sprite, 0, 0, scale);
+  ctx.restore();
+}
+
+function drawHarborBell(
+  ctx: CanvasRenderingContext2D,
+  sprite: LoadedPharosVilleAsset,
+  x: number,
+  y: number,
+  scale: number,
+  time: number,
+  tile: { x: number; y: number },
+) {
+  const sway = time === 0 ? 0 : Math.sin(time * 1.4 + tile.x * 0.9 + tile.y * 1.3) * 0.08;
+  if (sway === 0) {
+    drawAsset(ctx, sprite, x, y, scale);
+    return;
+  }
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(sway);
+  drawAsset(ctx, sprite, 0, 0, scale);
   ctx.restore();
 }
 
@@ -634,6 +681,23 @@ function drawStoneSteps(ctx: CanvasRenderingContext2D, x: number, y: number, sca
 function drawSundial(input: DrawPharosVilleInput, x: number, y: number, scale: number) {
   const sprite = input.assets?.get("prop.sundial");
   if (!sprite) return;
+  const hour = ((input.motion.wallClockHour % 24) + 24) % 24;
+  if (hour >= 6 && hour <= 18) {
+    const angle = Math.PI + Math.PI * ((hour - 6) / 12);
+    const ctx = input.ctx;
+    const length = 12 * scale;
+    const gnomonX = x;
+    const gnomonY = y - 4 * scale;
+    ctx.save();
+    ctx.strokeStyle = "rgba(20, 16, 10, 0.42)";
+    ctx.lineWidth = Math.max(1, 1.4 * scale);
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(gnomonX, gnomonY);
+    ctx.lineTo(gnomonX + Math.cos(angle) * length, gnomonY + Math.sin(angle) * length * 0.55);
+    ctx.stroke();
+    ctx.restore();
+  }
   drawAsset(input.ctx, sprite, x, y, scale);
 }
 
