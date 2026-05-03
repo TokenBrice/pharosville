@@ -20,7 +20,7 @@ import type { PharosVilleWorld as PharosVilleWorldModel } from "./systems/world-
 
 function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const [hoveredDetailId, setHoveredDetailId] = useState<string | null>(null);
-  const [selectedDetailId, setSelectedDetailId] = useState<string | null>("lighthouse");
+  const [selectedDetailId, setSelectedDetailId] = useState<string | null>(null);
   const [selectedDetailAnchor, setSelectedDetailAnchor] = useState<DetailAnchor | null>(null);
   const [announcement, setAnnouncement] = useState("PharosVille ready.");
   const [reducedMotion, setReducedMotion] = useState(true);
