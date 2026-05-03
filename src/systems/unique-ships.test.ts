@@ -19,10 +19,10 @@ describe("UNIQUE_SHIP_DEFINITIONS", () => {
     }
   });
 
-  it("uses scales in the heritage hull range [1.45, 1.55]", () => {
+  it("uses scales in the heritage hull range [1.23, 1.32]", () => {
     for (const [id, def] of entries) {
-      expect(def.scale, id).toBeGreaterThanOrEqual(1.45);
-      expect(def.scale, id).toBeLessThanOrEqual(1.55);
+      expect(def.scale, id).toBeGreaterThanOrEqual(1.23);
+      expect(def.scale, id).toBeLessThanOrEqual(1.32);
     }
   });
 

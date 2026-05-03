@@ -45,13 +45,13 @@ export const TITAN_SHIP_ASSET_IDS: Record<string, string> = {
 // at common zoom levels (Sky: USDS+sUSDS+stUSDS; Maker: DAI+sDAI). USDC and
 // USDT remain at their solo titan scales since they don't sail in formation.
 const TITAN_SHIP_SCALES: Record<string, number> = {
-  "usdc-circle": 1.8,
-  "usdt-tether": 2,
-  "usds-sky": 1.35,    // 1.7 * 0.8
-  "dai-makerdao": 1.25, // 1.55 * 0.8
-  "susds-sky": 1.1,    // 1.35 * 0.8
-  "sdai-sky": 1.1,     // 1.35 * 0.8
-  "stusds-sky": 1.15,  // 1.45 * 0.8
+  "usdc-circle": 1.53,
+  "usdt-tether": 1.7,
+  "usds-sky": 1.15,
+  "dai-makerdao": 1.06,
+  "susds-sky": 0.94,
+  "sdai-sky": 0.94,
+  "stusds-sky": 0.98,
 };
 
 export function resolveShipClass(meta: StablecoinMeta): ShipClassDefinition {
