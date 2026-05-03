@@ -3,6 +3,7 @@ import type { AreaNode, DetailModel, DewsAreaBand, DockNode, GraveNode, Lighthou
 import { ETHEREUM_L2_DOCK_CHAIN_IDS } from "./world-layout";
 import { analyticalRouteHref } from "./route-links";
 import { formationLabel, squadForMember, squadRole } from "./maker-squad";
+import { shipCycleTempo } from "./ship-cycle-tempo";
 
 const usd = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0, style: "currency", currency: "USD" });
 const percent = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1, style: "percent" });
@@ -69,7 +70,16 @@ function dockingCadenceLabel(node: ShipNode): string {
   } else if (renderedDockCount === 1) {
     cadence = "Occasional";
   }
-  return `${cadence}; ${pluralize(chainCount, "positive chain deployment")}, ${pluralize(renderedDockCount, "rendered dock stop")}`;
+  // E3: signal extended dock dwell when chain breadth qualifies (≥4 positive chains).
+  const dwellSuffix = chainCount >= 4 ? " (extended dwell)" : "";
+  return `${cadence}${dwellSuffix}; ${pluralize(chainCount, "positive chain deployment")}, ${pluralize(renderedDockCount, "rendered dock stop")}`;
+}
+
+// E2: format change24hPct (percent units, e.g. 10 = +10%) for the detail panel.
+function change24hPctLabel(change24hPct: number | null): string {
+  if (change24hPct == null) return "—";
+  const sign = change24hPct >= 0 ? "+" : "";
+  return `${sign}${change24hPct.toFixed(1)}%`;
 }
 
 function representativePositionLabel(node: ShipNode): string {
@@ -148,6 +158,7 @@ export function detailForDock(node: DockNode): DetailModel {
 
 export interface ShipDetailContext {
   squadShips?: readonly ShipNode[];
+  allShips?: readonly ShipNode[];
 }
 
 export function squadFormationLine(squadShips: readonly ShipNode[]): string {
@@ -181,9 +192,13 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
   const squadShips = isSquadShip ? context.squadShips ?? [] : [];
   const formationLine = isSquadShip && squadShips.length > 0 ? squadFormationLine(squadShips) : "";
   const overrideBanner = isSquadShip ? squadOverrideBanner(node) : null;
+  const allShips = context.allShips ?? [node];
+  const cycleTempo = shipCycleTempo(node, allShips);
 
   const facts = [
     { label: "Market cap", value: marketCapLabel(node.marketCapUsd) },
+    { label: "24h supply change", value: change24hPctLabel(node.change24hPct) },
+    { label: "Cycle tempo", value: cycleTempo.label },
     { label: "Ship class", value: node.visual.classLabel },
     { label: "Size tier", value: node.visual.sizeLabel },
     ...(node.visual.uniqueRationale

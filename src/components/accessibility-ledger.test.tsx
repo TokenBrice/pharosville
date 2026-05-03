@@ -105,12 +105,55 @@ describe("AccessibilityLedger", () => {
     expect(markup).toContain("llama mascot");
   });
 
+  it("appends a cycle tempo clause for each ship", () => {
+    const world = sampleWorldWithLedgerShip();
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    // Single-ship fleet → always Q0 → Languid.
+    expect(markup).toContain("cycle tempo Languid");
+  });
+
+  it("cycle tempo label is one of the four canonical values", () => {
+    const world = sampleWorldWithLedgerShip();
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    const validLabels = ["Languid", "Steady", "Brisk", "Lively"];
+    const found = validLabels.some((label) => markup.includes(`cycle tempo ${label}`));
+    expect(found).toBe(true);
+  });
+
   it("hides the Sky squad section when its flagship is missing; Maker squad still renders", () => {
     const world = buildPharosVilleWorld(fixtureWithoutAsset(makerSquadFixtureInputs(), "usds-sky"));
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
 
     expect(markup).not.toContain("Sky squad");
     expect(markup).toContain("Maker squad");
+  });
+
+  describe("E2 — 24h supply change in ledger ship rows", () => {
+    it("shows formatted positive change when change24hPct is positive", () => {
+      const world: PharosVilleWorld = {
+        ...sampleWorldWithLedgerShip(),
+        ships: [{ ...sampleWorldWithLedgerShip().ships[0]!, change24hPct: 5.4, change24hUsd: 1_000_000 }],
+      };
+      const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+      expect(markup).toContain("24h supply change +5.4%");
+    });
+
+    it("shows formatted negative change when change24hPct is negative", () => {
+      const world: PharosVilleWorld = {
+        ...sampleWorldWithLedgerShip(),
+        ships: [{ ...sampleWorldWithLedgerShip().ships[0]!, change24hPct: -3.2, change24hUsd: -800_000 }],
+      };
+      const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+      expect(markup).toContain("24h supply change -3.2%");
+    });
+
+    it("shows unavailable when change24hPct is null", () => {
+      const world = sampleWorldWithLedgerShip(); // change24hPct: null
+      const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+      expect(markup).toContain("24h supply change unavailable");
+    });
   });
 });
 

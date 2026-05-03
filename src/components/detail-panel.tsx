@@ -28,6 +28,8 @@ const KNOWN_LABELS = {
   shipClass: /^ship\s*class$/i,
   sizeTier: /^size\s*tier$/i,
   marketCap: /^market\s*cap$/i,
+  cycle24h: /^24h\s*supply\s*change$/i,
+  cycleTempo: /^cycle\s*tempo$/i,
   homeDock: /^home\s*dock$/i,
   representativePosition: /^representative\s*position$/i,
   riskWaterArea: /^risk\s*water\s*area$/i,
@@ -76,6 +78,10 @@ function buildSections(facts: DetailModel["facts"]): Sections {
   }
   const marketCap = lookup.get("marketCap");
   if (marketCap) identity.push({ key: "marketCap", label: "Market cap", value: compactCurrency(marketCap) });
+  const cycle24h = lookup.get("cycle24h");
+  if (cycle24h) identity.push({ key: "cycle24h", label: "24h change", value: cycle24h });
+  const cycleTempo = lookup.get("cycleTempo");
+  if (cycleTempo) identity.push({ key: "cycleTempo", label: "Cycle tempo", value: cycleTempo });
   const homeDock = lookup.get("homeDock");
   if (homeDock) identity.push({ key: "homeDock", label: "Home dock", value: homeDock });
 

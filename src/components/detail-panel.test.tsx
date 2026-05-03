@@ -48,10 +48,19 @@ describe("DetailPanel structure (old-school revamp)", () => {
     expect(markup).toMatch(/<dt[^>]*>Class<\/dt>\s*<dd[^>]*>[\s\S]*? · [\s\S]*?<\/dd>/);
   });
 
-  it("does not render more than 7 fact rows in total", () => {
+  it("does not render more than 8 fact rows in total", () => {
     const markup = renderShipPanel("susds-sky", "susds-sky");
     const dts = markup.match(/<dt[^>]*>/g) ?? [];
-    expect(dts.length).toBeLessThanOrEqual(7);
+    expect(dts.length).toBeLessThanOrEqual(8);
+  });
+
+  it("renders Cycle tempo in the identity section", () => {
+    const markup = renderShipPanel("susds-sky", "susds-sky");
+    expect(markup).toMatch(/Cycle tempo/i);
+    // Must have one of the four canonical labels.
+    const validLabels = ["Languid", "Steady", "Brisk", "Lively"];
+    const found = validLabels.some((label) => markup.includes(label));
+    expect(found).toBe(true);
   });
 });
 

@@ -24,8 +24,8 @@ function buildDetailIndex(world: PharosVilleWorldBase): DetailIndexStage["detail
     ...world.docks.map(detailForDock),
     ...world.ships.map((ship) => (
       ship.squadId
-        ? detailForShip(ship, { squadShips: shipsBySquad.get(ship.squadId) ?? [] })
-        : detailForShip(ship)
+        ? detailForShip(ship, { squadShips: shipsBySquad.get(ship.squadId) ?? [], allShips: world.ships })
+        : detailForShip(ship, { allShips: world.ships })
     )),
     ...world.areas.map(detailForArea),
     ...world.graves.map(detailForGrave),

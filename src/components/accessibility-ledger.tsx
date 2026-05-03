@@ -4,6 +4,7 @@ import type { HealthBand } from "@shared/types/chains";
 import { formationLabel, squadRole, STABLECOIN_SQUADS, type StablecoinSquad } from "../systems/maker-squad";
 import { SQUAD_DISTRESS_FLAG_HEX } from "../renderer/layers/maker-squad-chrome";
 import type { AreaNode, DewsAreaBand, PharosVilleWorld, ShipNode } from "../systems/world-types";
+import { shipCycleTempo } from "../systems/ship-cycle-tempo";
 
 // Dock health-band swatches mirror the renderer's `dockHealthColor()` table in
 // `src/renderer/layers/docks.ts`. Robust and healthy share the same green
@@ -139,17 +140,20 @@ function AccessibilityLedgerContent({
 
       <h3>Ships</h3>
       <ol>
-        {world.ships.map((ship) => (
-          <li key={ship.id}>
-            {ship.label} ({ship.symbol}): {compactUsd.format(ship.marketCapUsd)} market cap, placed at{" "}
-            {ship.riskPlacement === "ledger-mooring" ? "Ledger Mooring idle" : `${ship.riskWaterLabel} idle`}; risk anchor{" "}
-            {ship.riskPlacement}; route summary: {pluralize(ship.chainPresence.length, "positive chain deployment")},{" "}
-            {pluralize(ship.dockVisits.length, "rendered dock stop")}, risk water {ship.riskWaterLabel}, risk zone{" "}
-            {ship.riskZone}; livery {ship.visual.livery.label}, {ship.visual.livery.logoShape} logo shape,{" "}
-            {ship.visual.livery.sailPanel} sail panel, {ship.visual.livery.stripePattern} brand stripe; placement evidence{" "}
-            {ship.placementEvidence.reason}; evidence status {ship.placementEvidence.stale ? "caveat" : "fresh"}; source fields {ship.placementEvidence.sourceFields.join(", ") || "unavailable"}{ship.visual.uniqueRationale ? ` — heritage hull: ${ship.visual.uniqueRationale}` : ""}.
-          </li>
-        ))}
+        {world.ships.map((ship) => {
+          const tempo = shipCycleTempo(ship, world.ships);
+          return (
+            <li key={ship.id}>
+              {ship.label} ({ship.symbol}): {compactUsd.format(ship.marketCapUsd)} market cap, placed at{" "}
+              {ship.riskPlacement === "ledger-mooring" ? "Ledger Mooring idle" : `${ship.riskWaterLabel} idle`}; risk anchor{" "}
+              {ship.riskPlacement}; route summary: {pluralize(ship.chainPresence.length, "positive chain deployment")},{" "}
+              {pluralize(ship.dockVisits.length, "rendered dock stop")}, risk water {ship.riskWaterLabel}, risk zone{" "}
+              {ship.riskZone}; livery {ship.visual.livery.label}, {ship.visual.livery.logoShape} logo shape,{" "}
+              {ship.visual.livery.sailPanel} sail panel, {ship.visual.livery.stripePattern} brand stripe; placement evidence{" "}
+              {ship.placementEvidence.reason}; evidence status {ship.placementEvidence.stale ? "caveat" : "fresh"}; source fields {ship.placementEvidence.sourceFields.join(", ") || "unavailable"}{ship.visual.uniqueRationale ? ` — heritage hull: ${ship.visual.uniqueRationale}` : ""}; cycle tempo {tempo.label}; 24h supply change {ship.change24hPct != null ? `${ship.change24hPct >= 0 ? "+" : ""}${ship.change24hPct.toFixed(1)}%` : "unavailable"}.
+            </li>
+          );
+        })}
       </ol>
 
       {STABLECOIN_SQUADS.map((squad) => {

@@ -128,6 +128,62 @@ describe("detail-model analytical links", () => {
     ]);
   });
 
+  it("exposes a Cycle tempo fact with one of the four canonical labels", () => {
+    const ship: import("./world-types").ShipNode = {
+      id: "usdt-tether",
+      kind: "ship",
+      label: "Tether",
+      symbol: "USDT",
+      asset: {} as import("./world-types").ShipNode["asset"],
+      meta: {} as import("./world-types").ShipNode["meta"],
+      reportCard: null,
+      logoSrc: null,
+      tile: { x: 1, y: 1 },
+      riskTile: { x: 2, y: 2 },
+      chainPresence: [],
+      dockVisits: [],
+      dominantChainId: null,
+      homeDockChainId: null,
+      dockChainId: null,
+      marketCapUsd: 1_000_000_000,
+      riskPlacement: "safe-harbor",
+      riskZone: "calm",
+      riskWaterLabel: "Calm Anchorage",
+      placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
+      visual: {
+        hull: "treasury-galleon",
+        shipClass: "cefi",
+        classLabel: "CeFi",
+        rigging: "issuer-rig",
+        livery: {
+          accent: "#27b6a5",
+          label: "Tether logo livery",
+          logoMatte: "#f7fffb",
+          logoShape: "circle",
+          primary: "#009393",
+          sailColor: "#d8efe7",
+          sailPanel: "center",
+          secondary: "#005f61",
+          source: "stablecoin-logo",
+          stripePattern: "double",
+        },
+        sailColor: "#d8efe7",
+        sailStripeColor: "#009393",
+        overlay: "none",
+        sizeTier: "major",
+        sizeLabel: "Major",
+        scale: 1,
+      },
+      change24hUsd: null,
+      change24hPct: null,
+      detailId: "ship.usdt-tether",
+    };
+    const detail = detailForShip(ship);
+    const tempoFact = detail.facts.find((fact) => fact.label === "Cycle tempo");
+    expect(tempoFact).toBeDefined();
+    expect(["Languid", "Steady", "Brisk", "Lively"]).toContain(tempoFact!.value);
+  });
+
   it("exposes ship route and Ledger Mooring placement facts", () => {
     const detail = detailForShip({
       id: "susde-ethena",
@@ -324,5 +380,116 @@ describe("detail-model squad surfacing", () => {
     const formationFact = sdaiDetail.facts.find((fact) => fact.label === "Sailing in formation");
     expect(formationFact).toBeDefined();
     expect(formationFact!.value).toContain("DAI (flagship)");
+  });
+});
+
+// E2/E3 DOM parity tests
+describe("detail-model E2/E3 behavioral richness facts", () => {
+  function baseShipNode(overrides: Partial<ShipNode> = {}): ShipNode {
+    return {
+      id: "usdc-circle",
+      kind: "ship",
+      label: "USD Coin",
+      symbol: "USDC",
+      asset: {} as ShipNode["asset"],
+      meta: {} as ShipNode["meta"],
+      reportCard: null,
+      logoSrc: null,
+      tile: { x: 1, y: 1 },
+      riskTile: { x: 2, y: 2 },
+      chainPresence: [],
+      dockVisits: [],
+      dominantChainId: null,
+      homeDockChainId: null,
+      dockChainId: null,
+      marketCapUsd: 1_000_000_000,
+      riskPlacement: "safe-harbor",
+      riskZone: "calm",
+      riskWaterLabel: "Calm Anchorage",
+      placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
+      visual: {
+        hull: "treasury-galleon",
+        shipClass: "cefi",
+        classLabel: "CeFi",
+        rigging: "issuer-rig",
+        livery: {
+          accent: "#2775ca",
+          label: "USDC logo livery",
+          logoMatte: "#f0f4ff",
+          logoShape: "circle",
+          primary: "#2775ca",
+          sailColor: "#dce8f5",
+          sailPanel: "center",
+          secondary: "#1a4f8a",
+          source: "stablecoin-logo",
+          stripePattern: "single",
+        },
+        sailColor: "#dce8f5",
+        sailStripeColor: "#2775ca",
+        overlay: "none",
+        sizeTier: "major",
+        sizeLabel: "Major",
+        scale: 1,
+      },
+      change24hUsd: null,
+      change24hPct: null,
+      detailId: "ship.usdc-circle",
+      ...overrides,
+    };
+  }
+
+  describe("E2 — 24h supply change fact", () => {
+    it("shows formatted positive percentage when change24hPct is positive", () => {
+      const ship = baseShipNode({ change24hPct: 5.4 });
+      const detail = detailForShip(ship);
+      const fact = detail.facts.find((f) => f.label === "24h supply change");
+      expect(fact).toBeDefined();
+      expect(fact!.value).toBe("+5.4%");
+    });
+
+    it("shows formatted negative percentage when change24hPct is negative", () => {
+      const ship = baseShipNode({ change24hPct: -3.2 });
+      const detail = detailForShip(ship);
+      const fact = detail.facts.find((f) => f.label === "24h supply change");
+      expect(fact).toBeDefined();
+      expect(fact!.value).toBe("-3.2%");
+    });
+
+    it("shows em-dash when change24hPct is null", () => {
+      const ship = baseShipNode({ change24hPct: null });
+      const detail = detailForShip(ship);
+      const fact = detail.facts.find((f) => f.label === "24h supply change");
+      expect(fact).toBeDefined();
+      expect(fact!.value).toBe("—");
+    });
+  });
+
+  describe("E3 — docking cadence extended dwell label", () => {
+    it("appends (extended dwell) suffix when chainPresence.length ≥ 4", () => {
+      const ship = baseShipNode({
+        chainPresence: [
+          { chainId: "ethereum", currentUsd: 100, hasRenderedDock: true, share: 0.4 },
+          { chainId: "tron", currentUsd: 80, hasRenderedDock: false, share: 0.3 },
+          { chainId: "solana", currentUsd: 60, hasRenderedDock: false, share: 0.2 },
+          { chainId: "bsc", currentUsd: 30, hasRenderedDock: false, share: 0.1 },
+        ],
+      });
+      const detail = detailForShip(ship);
+      const fact = detail.facts.find((f) => f.label === "Docking cadence");
+      expect(fact).toBeDefined();
+      expect(fact!.value).toContain("(extended dwell)");
+    });
+
+    it("does not append (extended dwell) when chainPresence.length < 4", () => {
+      const ship = baseShipNode({
+        chainPresence: [
+          { chainId: "ethereum", currentUsd: 100, hasRenderedDock: true, share: 1 },
+        ],
+      });
+      const detail = detailForShip(ship);
+      const fact = detail.facts.find((f) => f.label === "Docking cadence");
+      expect(fact).toBeDefined();
+      expect(fact!.value).not.toContain("(extended dwell)");
+    });
   });
 });
