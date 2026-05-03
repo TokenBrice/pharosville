@@ -50,6 +50,8 @@ export default defineConfig({
   expect: {
     timeout: 15_000,
   },
+  snapshotPathTemplate:
+    "{testDir}/{testFileName}-snapshots-built-dist/{arg}{-projectName}{-snapshotSuffix}{ext}",
   use: {
     baseURL: BASE_URL,
     viewport: BASE_VIEWPORT,
