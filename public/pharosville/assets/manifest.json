@@ -1105,22 +1105,22 @@
       "path": "ships/usdc-titan.png",
       "category": "ship",
       "layer": "ships",
-      "width": 192,
-      "height": 144,
+      "width": 128,
+      "height": 96,
       "displayScale": 1,
       "anchor": [
-        96,
-        128
+        64,
+        85
       ],
       "footprint": [
-        72,
-        28
+        48,
+        19
       ],
       "hitbox": [
-        16,
-        4,
-        176,
-        132
+        11,
+        3,
+        117,
+        88
       ],
       "loadPriority": "critical",
       "criticalReason": "USDC uses a dedicated titan hull on the first coherent ship frame.",
@@ -1133,8 +1133,8 @@
         "spriteSheet": {
           "columns": 4,
           "rows": 1,
-          "frameWidth": 192,
-          "frameHeight": 144
+          "frameWidth": 128,
+          "frameHeight": 96
         }
       },
       "promptKey": "ship.usdc-titan",
