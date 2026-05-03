@@ -117,7 +117,7 @@ describe("AccessibilityLedger", () => {
     const world = sampleWorldWithLedgerShip();
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
 
-    const validLabels = ["Languid", "Steady", "Brisk", "Lively"];
+    const validLabels = ["Languid", "Steady", "Brisk", "Active"];
     const found = validLabels.some((label) => markup.includes(`cycle tempo ${label}`));
     expect(found).toBe(true);
   });

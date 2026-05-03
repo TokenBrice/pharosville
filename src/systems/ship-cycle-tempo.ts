@@ -2,11 +2,15 @@ import type { ShipNode } from "./world-types";
 
 /**
  * Four human-readable tempo labels corresponding to marketCap quartiles.
- * Q0 (lowest marketCap) → "Languid"; Q3 (highest) → "Lively".
+ * Q0 (lowest marketCap) → "Languid"; Q3 (highest) → "Active".
  * These labels surface in the detail panel and accessibility ledger so any
  * data-driven speed difference on the canvas has a DOM-parity equivalent.
+ *
+ * "Active" replaces an earlier "Lively" because screen-reader playback of
+ * "cycle tempo lively" reads as a fashion adjective rather than a speed
+ * cue (see DOM-parity review 2026-05-03).
  */
-export const CYCLE_TEMPO_LABELS = ["Languid", "Steady", "Brisk", "Lively"] as const;
+export const CYCLE_TEMPO_LABELS = ["Languid", "Steady", "Brisk", "Active"] as const;
 
 export type CycleTempoLabel = typeof CYCLE_TEMPO_LABELS[number];
 

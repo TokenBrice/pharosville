@@ -21,7 +21,14 @@ export function drawNightTint(input: DrawPharosVilleInput, nightFactor: number):
 export function drawNightVignette(input: DrawPharosVilleInput, nightFactor: number): void {
   if (nightFactor <= 0) return;
   const { ctx, height, width } = input;
-  const key = `${width | 0}:${height | 0}:${Math.round(nightFactor * 20)}`;
+  // Bucket nightFactor at 0.05 resolution (Math.round(* 20) / 20) and use the
+  // bucketed value to compute the gradient alpha so the cached gradient's
+  // canonical alpha matches its key. Without this, the first nightFactor seen
+  // within a bucket freezes the alpha for all subsequent hits in that bucket,
+  // producing visibly stepped vignette transitions.
+  const bucket = Math.round(nightFactor * 20);
+  const bucketedNightFactor = bucket / 20;
+  const key = `${width | 0}:${height | 0}:${bucket}`;
   let vignette = vignetteGradientCache.get(key);
   if (!vignette) {
     const cx = width * 0.5;
@@ -31,7 +38,7 @@ export function drawNightVignette(input: DrawPharosVilleInput, nightFactor: numb
     const outerR = diagonal * 0.78;
     vignette = ctx.createRadialGradient(cx, cy, innerR, cx, cy, outerR);
     vignette.addColorStop(0, "rgba(5, 3, 18, 0)");
-    vignette.addColorStop(1, `rgba(5, 3, 18, ${0.82 * nightFactor})`);
+    vignette.addColorStop(1, `rgba(5, 3, 18, ${0.82 * bucketedNightFactor})`);
     vignetteGradientCache.set(key, vignette);
     if (vignetteGradientCache.size > VIGNETTE_GRADIENT_CACHE_LIMIT) {
       const oldest = vignetteGradientCache.keys().next().value;

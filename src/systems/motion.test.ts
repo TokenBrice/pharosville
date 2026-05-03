@@ -2237,7 +2237,7 @@ describe("motion", () => {
       // Q0 threshold is <25th percentile of [1M, 100B] sorted = <1M so 1M is Q0;
       // Actually with 2 ships: sorted=[1M,100B], q1=sorted[0]=1M, q2=sorted[1]=100B.
       // smallShip marketCap=1M < q1=1M is false; 1M < q2=100B → Q1 (Steady).
-      // bigShip 100B >= q2=100B → Q3 (Lively).
+      // bigShip 100B >= q2=100B → Q3 (Active).
       // The important assertion is that big gets a higher scalar.
       expect(tempoBig.scalar).toBeGreaterThan(tempoSmall.scalar);
 
@@ -2290,7 +2290,7 @@ describe("motion", () => {
       expect(tempos).toContain("Languid");
       expect(tempos).toContain("Steady");
       expect(tempos).toContain("Brisk");
-      expect(tempos).toContain("Lively");
+      expect(tempos).toContain("Active");
     });
 
     it("top-quartile ship in a plan has strictly shorter cycleSeconds than bottom-quartile under matched chain breadth", () => {

@@ -225,15 +225,19 @@ test.describe("sustained-motion perf telemetry", () => {
     // 0.40 leaves headroom over the observed 0.50 baseline.
     if (lastRouteCacheStats) {
       expect(lastRouteCacheStats.hitRatio).toBeGreaterThanOrEqual(0.40);
-      // Eviction rate stays at 0 in a 5s window (LRU bound far exceeds the
-      // working set); allow a small ceiling for CI variance.
-      expect(lastRouteCacheStats.evictionRate).toBeLessThanOrEqual(0.10);
+      // Eviction rate is the real signal for bucket-flip thrash. The LRU is
+      // capped at min(4096, max(512, 16 × shipCount)) which dwarfs the working
+      // set in any 5s window, so eviction count should be ~0. 0.02 (2%)
+      // catches genuine cache thrash without fighting CI variance.
+      expect(lastRouteCacheStats.evictionRate).toBeLessThanOrEqual(0.02);
     }
 
-    // A5: longtask count — any longtask in a 5s sustained window indicates a
-    // regression. Allow up to 2 to tolerate occasional CI noise.
+    // A5: longtask count — every longtask in a 5s sustained window is a real
+    // regression signal (GC pauses, synchronous layout, blocking work). 0
+    // ceiling; CI noise should surface as a flake to investigate, not be
+    // normalised by an allowance.
     if (lastLongtask !== undefined) {
-      expect(lastLongtask.count).toBeLessThanOrEqual(2);
+      expect(lastLongtask.count).toBeLessThanOrEqual(0);
     }
   });
 });

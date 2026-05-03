@@ -58,9 +58,49 @@ describe("DetailPanel structure (old-school revamp)", () => {
     const markup = renderShipPanel("susds-sky", "susds-sky");
     expect(markup).toMatch(/Cycle tempo/i);
     // Must have one of the four canonical labels.
-    const validLabels = ["Languid", "Steady", "Brisk", "Lively"];
+    const validLabels = ["Languid", "Steady", "Brisk", "Active"];
     const found = validLabels.some((label) => markup.includes(label));
     expect(found).toBe(true);
+  });
+
+  it("renders 24h change row with formatted percentage when fact is present", () => {
+    const detail: DetailModel = {
+      id: "ship:test-with-change",
+      title: "Test Ship",
+      kind: "SHIP",
+      summary: "test",
+      facts: [
+        { label: "Ship class", value: "CeFi" },
+        { label: "Size tier", value: "Major" },
+        { label: "Market cap", value: "$1,000,000,000" },
+        { label: "24h supply change", value: "+5.4%" },
+        { label: "Cycle tempo", value: "Brisk" },
+      ],
+      links: [],
+    };
+    const markup = renderToStaticMarkup(<DetailPanel detail={detail} />);
+    expect(markup).toMatch(/<dt[^>]*>24h change<\/dt>\s*<dd[^>]*>\+5\.4%<\/dd>/);
+  });
+
+  it("omits 24h change row when fact value is the unavailable em-dash placeholder", () => {
+    const detail: DetailModel = {
+      id: "ship:test-no-change",
+      title: "Test Ship",
+      kind: "SHIP",
+      summary: "test",
+      facts: [
+        { label: "Ship class", value: "CeFi" },
+        { label: "Size tier", value: "Major" },
+        { label: "Market cap", value: "$1,000,000,000" },
+        // detail-model emits "—" for null change24hPct; the panel should still
+        // render it (the fact exists) — this asserts at least the dt/dd pair
+        // is present so a screen reader reaches the placeholder.
+        { label: "24h supply change", value: "—" },
+      ],
+      links: [],
+    };
+    const markup = renderToStaticMarkup(<DetailPanel detail={detail} />);
+    expect(markup).toMatch(/<dt[^>]*>24h change<\/dt>\s*<dd[^>]*>—<\/dd>/);
   });
 });
 

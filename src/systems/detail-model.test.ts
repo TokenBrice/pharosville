@@ -181,7 +181,82 @@ describe("detail-model analytical links", () => {
     const detail = detailForShip(ship);
     const tempoFact = detail.facts.find((fact) => fact.label === "Cycle tempo");
     expect(tempoFact).toBeDefined();
-    expect(["Languid", "Steady", "Brisk", "Lively"]).toContain(tempoFact!.value);
+    expect(["Languid", "Steady", "Brisk", "Active"]).toContain(tempoFact!.value);
+  });
+
+  it("computes Cycle tempo per quartile when allShips context is supplied (BLOCKER fix from DOM-parity review)", () => {
+    // Without `allShips` the helper falls back to a 1-ship fleet that always
+    // returns Q0 / "Languid". This test exercises the multi-ship path through
+    // `detailForShip` so the Q1/Q2/Q3 paths are not silently untested.
+    const baseShip: import("./world-types").ShipNode = {
+      id: "base",
+      kind: "ship",
+      label: "Base",
+      symbol: "BASE",
+      asset: {} as import("./world-types").ShipNode["asset"],
+      meta: {} as import("./world-types").ShipNode["meta"],
+      reportCard: null,
+      logoSrc: null,
+      tile: { x: 1, y: 1 },
+      riskTile: { x: 2, y: 2 },
+      chainPresence: [],
+      dockVisits: [],
+      dominantChainId: null,
+      homeDockChainId: null,
+      dockChainId: null,
+      marketCapUsd: 0,
+      riskPlacement: "safe-harbor",
+      riskZone: "calm",
+      riskWaterLabel: "Calm Anchorage",
+      placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
+      visual: {
+        hull: "treasury-galleon",
+        shipClass: "cefi",
+        classLabel: "CeFi",
+        rigging: "issuer-rig",
+        livery: {
+          accent: "#000",
+          label: "test",
+          logoMatte: "#fff",
+          logoShape: "circle",
+          primary: "#000",
+          sailColor: "#fff",
+          sailPanel: "center",
+          secondary: "#000",
+          source: "stablecoin-logo",
+          stripePattern: "double",
+        },
+        sailColor: "#fff",
+        sailStripeColor: "#000",
+        overlay: "none",
+        sizeTier: "major",
+        sizeLabel: "Major",
+        scale: 1,
+      },
+      change24hUsd: null,
+      change24hPct: null,
+      detailId: "ship.base",
+    };
+    const ships = [
+      { ...baseShip, id: "q0", detailId: "ship.q0", marketCapUsd: 1_000 },
+      { ...baseShip, id: "q1", detailId: "ship.q1", marketCapUsd: 10_000 },
+      { ...baseShip, id: "q2", detailId: "ship.q2", marketCapUsd: 100_000 },
+      { ...baseShip, id: "q3", detailId: "ship.q3", marketCapUsd: 1_000_000 },
+    ];
+    const tempoLabels = ships.map((ship) => {
+      const detail = detailForShip(ship, { allShips: ships });
+      const fact = detail.facts.find((f) => f.label === "Cycle tempo");
+      return fact?.value;
+    });
+    // Each quartile path must be exercised — all four labels must appear.
+    expect(tempoLabels).toContain("Languid");
+    expect(tempoLabels).toContain("Steady");
+    expect(tempoLabels).toContain("Brisk");
+    expect(tempoLabels).toContain("Active");
+    // Without context the helper degrades to Q0 — guard against silent regression.
+    const detailWithoutContext = detailForShip(ships[3]!);
+    const tempoWithoutContext = detailWithoutContext.facts.find((f) => f.label === "Cycle tempo");
+    expect(tempoWithoutContext?.value).toBe("Languid");
   });
 
   it("exposes ship route and Ledger Mooring placement facts", () => {

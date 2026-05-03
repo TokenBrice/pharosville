@@ -1191,14 +1191,14 @@ test.describe("pharosville normal motion", () => {
     expect(runtime.renderMetrics?.drawableCounts.body).toBeGreaterThan(0);
     // Single-sample budget. History: 90 → 100 → 120 → 200ms (raised after CI
     // run 25283670916 observed 166ms on a single frame from cold sprite-bake
-    // variance). Tightened back to 160ms (Q3 of perf-anim-routing follow-up
-    // plan, 2026-05-03) after Phase A–E landed: terrain gradient cache (C1),
-    // night-tint vignette cache (C2), sail-tint cache, sin LUT (C8), per-pass
-    // savings in lighthouse/docks/maker-squad-chrome combined to recover
-    // measurable headroom. The dedicated sustained-motion perf lane
-    // (`npm run test:perf`) remains the rigorous guard against regressions
+    // variance). Tightened to 180ms (perf-anim-routing follow-up, 2026-05-03)
+    // after Phase A–E landed: terrain gradient cache (C1), night-tint vignette
+    // cache (C2), sin LUT (C8), per-pass savings in lighthouse/docks/maker-
+    // squad-chrome. The 180ms ceiling sits above the 166ms cold-start spike
+    // with headroom for CI worker variance; sustained-motion regressions
+    // (post-warmup) are caught by the dedicated `npm run test:perf` lane
     // (median ≤ 140ms, p95 ≤ 200ms over a 5s window).
-    expect(runtime.renderMetrics?.drawDurationMs ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(160);
+    expect(runtime.renderMetrics?.drawDurationMs ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(180);
     expect(runtime.renderMetrics?.movingShipCount).toBeGreaterThan(0);
     expect(runtime.renderMetrics?.visibleTileCount).toBeGreaterThan(0);
     const movingDetailId = `ship.${movedSample.id}`;
