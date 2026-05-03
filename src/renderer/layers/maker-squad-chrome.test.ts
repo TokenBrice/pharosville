@@ -103,6 +103,7 @@ describe("maker-squad-chrome", () => {
         freshness: {},
         map: { width: 0, height: 0, tiles: [], waterRatio: 0 },
         lighthouse: {} as PharosVilleWorld["lighthouse"],
+        pigeonnier: {} as PharosVilleWorld["pigeonnier"],
         docks: [],
         areas: [area],
         ships: [],

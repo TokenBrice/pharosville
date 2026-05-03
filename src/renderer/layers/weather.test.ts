@@ -29,6 +29,7 @@ function worldWith(areas: AreaNode[]): PharosVilleWorld {
     freshness: {},
     map: { width: 0, height: 0, tiles: [], waterRatio: 0 },
     lighthouse: {} as PharosVilleWorld["lighthouse"],
+    pigeonnier: {} as PharosVilleWorld["pigeonnier"],
     docks: [],
     areas,
     ships: [],

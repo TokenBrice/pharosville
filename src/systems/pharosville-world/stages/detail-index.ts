@@ -3,6 +3,7 @@ import {
   detailForGrave,
   detailForLighthouse,
   detailForArea,
+  detailForPigeonnier,
   detailForShip,
 } from "../../detail-model";
 import type { SelectableWorldEntity, ShipNode } from "../../world-types";
@@ -19,6 +20,7 @@ function buildDetailIndex(world: PharosVilleWorldBase): DetailIndexStage["detail
   }
   const details = [
     detailForLighthouse(world.lighthouse),
+    detailForPigeonnier(world.pigeonnier),
     ...world.docks.map(detailForDock),
     ...world.ships.map((ship) => (
       ship.squadId
@@ -45,6 +47,7 @@ function buildEntityById(world: PharosVilleWorldBase): DetailIndexStage["entityB
     entityById[entity.detailId] = entity;
   };
   assign(world.lighthouse);
+  assign(world.pigeonnier);
   for (const dock of world.docks) assign(dock);
   for (const ship of world.ships) assign(ship);
   for (const area of world.areas) assign(area);

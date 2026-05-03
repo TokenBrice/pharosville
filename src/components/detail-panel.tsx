@@ -152,7 +152,13 @@ export function DetailPanel({
             <ul className="pv-formation-list">
               {detail.links.map((link) => (
                 <li key={link.href}>
-                  <a className="pv-panel-link" href={link.href}>
+                  <a
+                    className="pv-panel-link"
+                    href={link.href}
+                    {...(link.target === "_blank"
+                      ? { target: "_blank", rel: "noopener noreferrer" }
+                      : {})}
+                  >
                     {link.label} →
                   </a>
                 </li>

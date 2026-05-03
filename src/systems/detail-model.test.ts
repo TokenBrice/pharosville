@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { detailForArea, detailForDock, detailForLighthouse, detailForShip } from "./detail-model";
-import type { AreaNode, DockNode, LighthouseNode, ShipNode } from "./world-types";
+import { detailForArea, detailForDock, detailForLighthouse, detailForPigeonnier, detailForShip, PHAROS_WATCH_TELEGRAM_HREF } from "./detail-model";
+import type { AreaNode, DockNode, LighthouseNode, PigeonnierNode, ShipNode } from "./world-types";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import {
   fixtureWithDepegOn,
@@ -43,6 +43,20 @@ describe("detail-model analytical links", () => {
       label: "Chain",
       href: "https://pharos.watch/chains/ethereum/",
     });
+  });
+
+  it("opens the pigeonnier Telegram link in a new tab", () => {
+    const detail = detailForPigeonnier({
+      id: "pigeonnier",
+      kind: "pigeonnier",
+      label: "Pigeonnier",
+      tile: { x: 50, y: 50 },
+      detailId: "pigeonnier",
+    } satisfies PigeonnierNode);
+    expect(detail.links).toEqual([
+      { label: "Subscribe on Telegram", href: PHAROS_WATCH_TELEGRAM_HREF, target: "_blank" },
+    ]);
+    expect(PHAROS_WATCH_TELEGRAM_HREF).toBe("https://pharos.watch/telegram/");
   });
 
   it("rewrites member and custom area analytical links", () => {

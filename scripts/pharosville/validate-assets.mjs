@@ -26,7 +26,8 @@ const publicImageExtensionPattern = /\.(?:png|svg|jpe?g|webp)$/i;
 // 2026-05-02: bumped 55 -> 56 for landmark.yggdrasil (Ethereum harbor world-tree).
 // 2026-05-03: bumped 56 -> 61 for harbor-life decor (lighthouse-pyre, moored-dinghy
 // north/east, harbor-bell, cargo-stack).
-const maxManifestAssets = 61;
+// 2026-05-03: bumped 61 -> 62 for landmark.pigeonnier (PharosWatch Telegram dispatch islet).
+const maxManifestAssets = 62;
 const firstRenderBudgets = {
   // 2026-05-01: bumped for Maker squad titans (USDS, DAI, sUSDS, sDAI, stUSDS)
   maxCount: 28,

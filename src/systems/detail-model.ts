@@ -1,5 +1,5 @@
 import { CHAIN_META } from "@shared/lib/chains";
-import type { AreaNode, DetailModel, DewsAreaBand, DockNode, GraveNode, LighthouseNode, ShipNode } from "./world-types";
+import type { AreaNode, DetailModel, DewsAreaBand, DockNode, GraveNode, LighthouseNode, PigeonnierNode, ShipNode } from "./world-types";
 import { ETHEREUM_L2_DOCK_CHAIN_IDS } from "./world-layout";
 import { analyticalRouteHref } from "./route-links";
 import { formationLabel, squadForMember, squadRole } from "./maker-squad";
@@ -86,6 +86,23 @@ function shipLiveryLabel(node: ShipNode): string {
   return `${livery.label}; ${livery.logoShape} logo shape, ${livery.sailPanel} sail panel, ${livery.stripePattern} brand stripe`;
 }
 
+
+export const PHAROS_WATCH_TELEGRAM_HREF = "https://pharos.watch/telegram/";
+
+export function detailForPigeonnier(node: PigeonnierNode): DetailModel {
+  return {
+    id: node.detailId,
+    kind: node.kind,
+    title: `${node.label} — PharosWatch dispatch`,
+    summary:
+      "Carrier-pigeon loft of the harbor watch. Subscribe to receive stablecoin depeg and safety-score alerts via the PharosWatch Telegram bot.",
+    facts: [
+      { label: "Channel", value: "PharosWatch" },
+      { label: "Alerts", value: "Stablecoin depegs and safety-score changes" },
+    ],
+    links: [{ label: "Subscribe on Telegram", href: PHAROS_WATCH_TELEGRAM_HREF, target: "_blank" }],
+  };
+}
 
 export function detailForLighthouse(node: LighthouseNode): DetailModel {
   return {

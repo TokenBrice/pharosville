@@ -15,6 +15,7 @@ import {
 } from "./layers/maker-squad-chrome";
 import { sceneryDrawables } from "./layers/scenery";
 import { drawYggdrasil } from "./layers/yggdrasil";
+import { drawPigeonnier } from "./layers/pigeonnier";
 import { drawShipBody, drawShipOverlay, drawShipWake, shipMastTopScreenPoint, type ShipRenderState } from "./layers/ships";
 import { drawEntityLayer } from "./layers/entity-pass";
 import { drawCemeteryContext, drawCemeteryGround, drawCemeteryMist } from "./layers/cemetery";
@@ -517,6 +518,7 @@ function drawEntityPass(input: DrawPharosVilleInput, frame: WorldCanvasFrame, ni
       drawGraveUnderlay: (grave) => drawGraveUnderlay(input, frame, grave),
       drawLighthouseBody: () => drawLighthouseBody(input, frame.lighthouseRender),
       drawLighthouseOverlay: () => drawLighthouseOverlay(input, frame.lighthouseRender, nightFactor),
+      drawPigeonnierBody: () => drawPigeonnier(input),
       drawShipBody: (ship) => drawShipBody(input, frame, ship),
       drawShipOverlay: (ship) => drawShipOverlay(input, frame, ship),
       drawShipWake: (ship) => drawShipWake(input, frame, ship),

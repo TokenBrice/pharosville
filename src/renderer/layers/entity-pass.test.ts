@@ -65,17 +65,20 @@ describe("drawEntityLayer", () => {
     const ship = makeShip({ id: "ship.a", tile: { x: 2, y: 2 } });
     const grave = { id: "grave.a", kind: "grave", detailId: "grave.a", label: "grave-a" } as unknown as PharosVilleWorld["graves"][number];
     const lighthouse = { id: "lighthouse", kind: "lighthouse", detailId: "lighthouse", label: "lighthouse" } as unknown as PharosVilleWorld["lighthouse"];
+    const pigeonnier = { id: "pigeonnier", kind: "pigeonnier", detailId: "pigeonnier", label: "pigeonnier" } as unknown as PharosVilleWorld["pigeonnier"];
     const geometryById = new Map<string, ResolvedEntityGeometry>([
       [dock.id, makeGeometry(100, 120, 120)],
       [ship.id, makeGeometry(120, 220, 150)],
       [grave.id, makeGeometry(130, 280, 180)],
       [lighthouse.id, makeGeometry(125, 240, 140)],
+      [pigeonnier.id, makeGeometry(135, 200, 170)],
     ]);
 
     const world = {
       docks: [dock],
       graves: [grave],
       lighthouse,
+      pigeonnier,
       ships: [ship],
     } as unknown as PharosVilleWorld;
     const input = {
@@ -122,6 +125,7 @@ describe("drawEntityLayer", () => {
         drawGraveUnderlay: () => calls.push("grave-underlay"),
         drawLighthouseBody: () => calls.push("lighthouse-body"),
         drawLighthouseOverlay: () => calls.push("lighthouse-overlay"),
+        drawPigeonnierBody: () => calls.push("pigeonnier-body"),
         drawShipBody: () => calls.push("ship-body"),
         drawShipOverlay: () => calls.push("ship-overlay"),
         drawShipWake: () => calls.push("ship-wake"),
@@ -143,6 +147,7 @@ describe("drawEntityLayer", () => {
       "grave-underlay",
       "grave-body",
       "grave-overlay",
+      "pigeonnier-body",
     ]);
   });
 
@@ -169,10 +174,12 @@ describe("drawEntityLayer", () => {
     const docks: PharosVilleWorld["docks"] = [];
     const graves: PharosVilleWorld["graves"] = [];
     const lighthouse = { id: "lighthouse", kind: "lighthouse", detailId: "lighthouse", label: "lighthouse" } as unknown as PharosVilleWorld["lighthouse"];
+    const pigeonnier = { id: "pigeonnier", kind: "pigeonnier", detailId: "pigeonnier", label: "pigeonnier" } as unknown as PharosVilleWorld["pigeonnier"];
     const world = {
       docks,
       graves,
       lighthouse,
+      pigeonnier,
       ships: visibleShips,
     } as unknown as PharosVilleWorld;
     const geometryById = new Map<string, ResolvedEntityGeometry>();
@@ -182,6 +189,7 @@ describe("drawEntityLayer", () => {
       geometryById.set(ship.id, makeGeometry(200 + index, x, y));
     }
     geometryById.set(lighthouse.id, makeGeometry(150, 260, 200));
+    geometryById.set(pigeonnier.id, makeGeometry(160, 280, 220));
     const cache = {
       geometryForEntity: (entity: { id: string }) => geometryById.get(entity.id) ?? makeGeometry(0, 0, 0),
     } as unknown as RenderFrameCache;
@@ -224,6 +232,7 @@ describe("drawEntityLayer", () => {
         drawGraveUnderlay: () => undefined,
         drawLighthouseBody: () => undefined,
         drawLighthouseOverlay: () => undefined,
+        drawPigeonnierBody: () => undefined,
         drawShipBody: () => undefined,
         drawShipOverlay: (ship) => overlayCalls.push(ship.id),
         drawShipWake: (ship) => wakeCalls.push(ship.id),

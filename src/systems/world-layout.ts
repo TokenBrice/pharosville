@@ -101,6 +101,13 @@ export const CEMETERY_CENTER = { x: 8.0, y: 50.0 } as const;
 export const CEMETERY_RADIUS = { x: 3.3, y: 2.1 } as const;
 export const CEMETERY_ISLAND_RADIUS = { x: 5.4, y: 3.8 } as const;
 
+// Pigeonnier islet in the southeast Watch Breakwater shelf — a single-tile
+// messenger-tower platform far enough from the main shipping lanes that
+// ships rarely overlap the silhouette. Carries the PharosWatch dispatch
+// sprite + plaque only.
+export const PIGEON_ISLAND_CENTER = { x: 50, y: 50 } as const;
+export const PIGEON_ISLAND_RADIUS = { x: 0.7, y: 0.7 } as const;
+
 type GraveMarker = GraveNode["visual"]["marker"];
 
 function ellipseValue(x: number, y: number, cx: number, cy: number, rx: number, ry: number): number {
@@ -186,6 +193,8 @@ function islandValue(x: number, y: number): number {
     mainIslandValue(x, y),
     // Detached bottom-left cemetery islet.
     ellipseValue(x, y, CEMETERY_CENTER.x, CEMETERY_CENTER.y, CEMETERY_ISLAND_RADIUS.x, CEMETERY_ISLAND_RADIUS.y),
+    // Detached southeast pigeonnier islet (PharosWatch dispatch).
+    ellipseValue(x, y, PIGEON_ISLAND_CENTER.x, PIGEON_ISLAND_CENTER.y, PIGEON_ISLAND_RADIUS.x, PIGEON_ISLAND_RADIUS.y),
   );
 }
 

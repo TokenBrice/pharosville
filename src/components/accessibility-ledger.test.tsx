@@ -136,6 +136,13 @@ function sampleWorld(): PharosVilleWorld {
       unavailable: false,
       detailId: "lighthouse",
     },
+    pigeonnier: {
+      id: "pigeonnier",
+      kind: "pigeonnier",
+      label: "Pigeonnier",
+      tile: { x: 50, y: 50 },
+      detailId: "pigeonnier",
+    },
     docks: [],
     areas: [],
     ships: [],

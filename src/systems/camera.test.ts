@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { cameraZoomLabel, clampCameraToMap, defaultCamera, followTile, panCamera, zoomIn, zoomOut } from "./camera";
 import { tileToScreen } from "./projection";
-import { buildPharosVilleMap, CEMETERY_CENTER, isWaterTileKind, PHAROSVILLE_MAP_HEIGHT, PHAROSVILLE_MAP_WIDTH } from "./world-layout";
+import { buildPharosVilleMap, CEMETERY_CENTER, isWaterTileKind, PHAROSVILLE_MAP_HEIGHT, PHAROSVILLE_MAP_WIDTH, PIGEON_ISLAND_CENTER } from "./world-layout";
 import type { TerrainKind } from "./world-types";
 
 describe("camera", () => {
@@ -80,11 +80,14 @@ describe("camera", () => {
 });
 
 function landBoundsCenter(tiles: Array<{ x: number; y: number; kind: TerrainKind }>) {
-  // Cemetery sits on its own western islet — exclude its tiles when computing the
-  // main-island visual focal point so the framing test reflects the dominant mass.
+  // Cemetery and pigeonnier sit on their own detached islets — exclude their
+  // tiles when computing the main-island visual focal point so the framing
+  // test reflects the dominant mass.
   const landTiles = tiles.filter((tile) => {
     if (isWaterTileKind(tile.kind)) return false;
-    return Math.hypot(tile.x - CEMETERY_CENTER.x, tile.y - CEMETERY_CENTER.y) > 6;
+    if (Math.hypot(tile.x - CEMETERY_CENTER.x, tile.y - CEMETERY_CENTER.y) <= 6) return false;
+    if (Math.hypot(tile.x - PIGEON_ISLAND_CENTER.x, tile.y - PIGEON_ISLAND_CENTER.y) <= 2) return false;
+    return true;
   });
   const xs = landTiles.map((tile) => tile.x);
   const ys = landTiles.map((tile) => tile.y);

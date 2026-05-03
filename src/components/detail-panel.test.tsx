@@ -83,4 +83,32 @@ describe("DetailPanel composer paths (synthetic fixtures)", () => {
     const markup = renderToStaticMarkup(<DetailPanel detail={calmShip} />);
     expect(markup).toMatch(/<dt[^>]*>Market cap<\/dt>\s*<dd[^>]*>\$2\.1B<\/dd>/);
   });
+
+  it("renders external links with target=_blank and rel=noopener noreferrer", () => {
+    const detail: DetailModel = {
+      id: "pigeonnier",
+      title: "Pigeonnier",
+      kind: "pigeonnier",
+      summary: "test",
+      facts: [],
+      links: [{ label: "Subscribe on Telegram", href: "https://pharos.watch/telegram/", target: "_blank" }],
+    };
+    const markup = renderToStaticMarkup(<DetailPanel detail={detail} />);
+    expect(markup).toMatch(/href="https:\/\/pharos\.watch\/telegram\/"/);
+    expect(markup).toMatch(/target="_blank"/);
+    expect(markup).toMatch(/rel="noopener noreferrer"/);
+  });
+
+  it("renders internal links without target attribute", () => {
+    const detail: DetailModel = {
+      id: "lighthouse",
+      title: "Lighthouse",
+      kind: "lighthouse",
+      summary: "test",
+      facts: [],
+      links: [{ label: "PSI", href: "https://pharos.watch/stability-index/" }],
+    };
+    const markup = renderToStaticMarkup(<DetailPanel detail={detail} />);
+    expect(markup).not.toMatch(/target="_blank"/);
+  });
 });

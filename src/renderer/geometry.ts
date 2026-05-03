@@ -18,6 +18,7 @@ export interface ScreenRect {
 
 export type WorldSelectableEntity =
   | PharosVilleWorld["lighthouse"]
+  | PharosVilleWorld["pigeonnier"]
   | PharosVilleWorld["docks"][number]
   | PharosVilleWorld["ships"][number]
   | PharosVilleWorld["areas"][number]
@@ -51,6 +52,7 @@ export interface ResolvedEntityGeometry {
 
 export function entityAssetId(entity: WorldSelectableEntity) {
   if (entity.kind === "lighthouse") return "landmark.lighthouse";
+  if (entity.kind === "pigeonnier") return "landmark.pigeonnier";
   if (entity.kind === "dock") return entity.assetId;
   if (entity.kind === "ship") return entity.visual.spriteAssetId ?? `ship.${entity.visual.hull}`;
   return null;
@@ -272,6 +274,7 @@ export function dockRenderScale(size: number): number {
 
 function targetSize(entity: WorldSelectableEntity): { height: number; width: number; yOffset: number } {
   if (entity.kind === "lighthouse") return { height: 224, width: 160, yOffset: -94 };
+  if (entity.kind === "pigeonnier") return { height: 96, width: 64, yOffset: -32 };
   if (entity.kind === "dock") return { height: 38, width: 96, yOffset: 0 };
   if (entity.kind === "area") return { height: 28, width: 112, yOffset: 0 };
   if (entity.kind === "ship") return { height: 48, width: 56, yOffset: -16 };

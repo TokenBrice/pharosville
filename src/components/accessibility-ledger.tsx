@@ -107,6 +107,12 @@ function AccessibilityLedgerContent({
             {world.lighthouse.psiBand ?? "unavailable"}.
           </dd>
         </div>
+        <div>
+          <dt>Pigeonnier</dt>
+          <dd>
+            {world.pigeonnier.label}: PharosWatch Telegram dispatch for stablecoin depeg and safety-score alerts.
+          </dd>
+        </div>
       </dl>
 
       <h3>Named areas</h3>

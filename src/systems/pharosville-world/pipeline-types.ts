@@ -14,6 +14,7 @@ import type {
   PharosVilleFreshness,
   PharosVilleMap,
   PharosVilleWorld,
+  PigeonnierNode,
   SelectableWorldEntity,
   ShipNode,
 } from "../world-types";
@@ -36,6 +37,7 @@ export type PharosVilleWorldBase = Omit<PharosVilleWorld, "detailIndex" | "entit
 export interface BuildWorldScaffoldStage {
   map: PharosVilleMap;
   lighthouse: LighthouseNode;
+  pigeonnier: PigeonnierNode;
   docks: DockNode[];
   areas: PharosVilleWorld["areas"];
   graves: PharosVilleWorld["graves"];

@@ -18,6 +18,7 @@ export interface EntityPassCallbacks {
   drawGraveUnderlay(grave: PharosVilleWorld["graves"][number]): void;
   drawLighthouseBody(): void;
   drawLighthouseOverlay(): void;
+  drawPigeonnierBody(): void;
   drawShipBody(ship: PharosVilleWorld["ships"][number]): void;
   drawShipOverlay(ship: PharosVilleWorld["ships"][number]): void;
   drawShipWake(ship: PharosVilleWorld["ships"][number]): void;
@@ -39,6 +40,7 @@ type EntityDrawAction =
   | "grave-underlay"
   | "lighthouse-body"
   | "lighthouse-overlay"
+  | "pigeonnier-body"
   | "ship-body"
   | "ship-overlay"
   | "ship-wake";
@@ -98,6 +100,9 @@ export function drawEntityLayer(
   const lighthouseGeometry = cache.geometryForEntity(input.world.lighthouse);
   pushEntityDrawable(input, callbacks, visibleDrawables, lighthouseGeometry, input.world.lighthouse, "body", "lighthouse-body");
   pushEntityDrawable(input, callbacks, visibleDrawables, lighthouseGeometry, input.world.lighthouse, "overlay", "lighthouse-overlay");
+
+  const pigeonnierGeometry = cache.geometryForEntity(input.world.pigeonnier);
+  pushEntityDrawable(input, callbacks, visibleDrawables, pigeonnierGeometry, input.world.pigeonnier, "body", "pigeonnier-body");
 
   const sorted = sortWorldDrawablesInPlace(visibleDrawables);
   const drawableCounts: Record<WorldDrawablePass, number> = {
@@ -194,6 +199,9 @@ function drawEntityPassDrawable(
       return;
     case "lighthouse-overlay":
       callbacks.drawLighthouseOverlay();
+      return;
+    case "pigeonnier-body":
+      callbacks.drawPigeonnierBody();
       return;
     case "ship-body":
       callbacks.drawShipBody(drawable.entity as PharosVilleWorld["ships"][number]);

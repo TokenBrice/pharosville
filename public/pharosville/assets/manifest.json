@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-05-03-harbor-life-v1",
+    "cacheVersion": "2026-05-03-pigeonnier-v2",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": [
@@ -354,6 +354,44 @@
       "tool": "mcp:create_map_object+pillow",
       "promptProvenance": {
         "jobId": "750b6527-b69f-4411-88a0-cebb41434015",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "landmark.pigeonnier",
+      "path": "landmarks/pigeonnier.png",
+      "category": "landmark",
+      "layer": "landmarks",
+      "width": 160,
+      "height": 192,
+      "displayScale": 0.825,
+      "anchor": [
+        80,
+        168
+      ],
+      "footprint": [
+        70,
+        30
+      ],
+      "hitbox": [
+        40,
+        30,
+        80,
+        150
+      ],
+      "loadPriority": "deferred",
+      "promptKey": "landmark.pigeonnier",
+      "semanticRole": "PharosWatch Telegram dispatch landmark (signal-bearing flavor)",
+      "paletteKeys": [
+        "limestone",
+        "terracotta slate",
+        "warm lantern",
+        "oxidized bronze",
+        "ivy"
+      ],
+      "tool": "mcp:create_map_object",
+      "promptProvenance": {
+        "jobId": "2cfc7405-1b10-4a90-8521-0d0e53b6e92a",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },

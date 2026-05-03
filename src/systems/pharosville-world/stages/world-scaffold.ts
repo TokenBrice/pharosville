@@ -6,6 +6,7 @@ import {
   buildPharosVilleMap,
   graveNodesFromEntries,
   LIGHTHOUSE_TILE,
+  PIGEON_ISLAND_CENTER,
 } from "../../world-layout";
 import {
   SHIP_RISK_PLACEMENTS,
@@ -15,6 +16,7 @@ import type {
   DewsAreaBand,
   LighthouseNode,
   PharosVilleWorld,
+  PigeonnierNode,
   ShipNode,
 } from "../../world-types";
 import type {
@@ -47,6 +49,16 @@ export function resolveGeneratedAt(inputs: PharosVilleInputs): number {
 
 function isConditionBand(value: string | null | undefined): value is keyof typeof PSI_HEX_COLORS {
   return !!value && value in PSI_HEX_COLORS;
+}
+
+function buildPigeonnier(): PigeonnierNode {
+  return {
+    id: "pigeonnier",
+    kind: "pigeonnier",
+    label: "Pigeonnier",
+    tile: { ...PIGEON_ISLAND_CENTER },
+    detailId: "pigeonnier",
+  };
 }
 
 function buildLighthouse(stability: StabilityIndexResponse | null | undefined): LighthouseNode {
@@ -132,6 +144,7 @@ export function buildWorldScaffoldStage(inputs: PharosVilleInputs): BuildWorldSc
   return {
     map: buildPharosVilleMap(),
     lighthouse: buildLighthouse(inputs.stability),
+    pigeonnier: buildPigeonnier(),
     docks: buildChainDocks(inputs.chains),
     areas: buildAreas(inputs.stress),
     graves: graveNodesFromEntries(inputs.cemeteryEntries ?? RUNTIME_CEMETERY_ENTRIES),

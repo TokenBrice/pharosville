@@ -18,6 +18,7 @@ import {
   OUTER_HARBOR_DOCK_TILES,
   PHAROSVILLE_MAP_HEIGHT,
   PHAROSVILLE_MAP_WIDTH,
+  PIGEON_ISLAND_CENTER,
   nearestAvailableWaterTile,
   nearestWaterTile,
   REGION_TILES,
@@ -89,6 +90,18 @@ describe("buildPharosVilleMap", () => {
     expect(LIGHTHOUSE_TILE.x).toBeLessThan(CIVIC_CORE_CENTER.x);
     expect(LIGHTHOUSE_TILE.y).toBeLessThan(CIVIC_CORE_CENTER.y);
     expect(isLandTileKind(tileKindAt(LIGHTHOUSE_TILE.x, LIGHTHOUSE_TILE.y))).toBe(true);
+  });
+
+  it("places the pigeonnier on a tiny islet in the southeast Watch shelf", () => {
+    expect(PIGEON_ISLAND_CENTER).toEqual({ x: 50, y: 50 });
+    // The center tile is land (grass), and the islet is detached: cardinal
+    // neighbors are watch-water, so the pigeonnier reads as a single-tile
+    // platform off the south coast rather than fused to the main island.
+    expect(terrainKindAt(PIGEON_ISLAND_CENTER.x, PIGEON_ISLAND_CENTER.y)).toBe("grass");
+    expect(terrainKindAt(PIGEON_ISLAND_CENTER.x - 1, PIGEON_ISLAND_CENTER.y)).toBe("watch-water");
+    expect(terrainKindAt(PIGEON_ISLAND_CENTER.x + 1, PIGEON_ISLAND_CENTER.y)).toBe("watch-water");
+    expect(terrainKindAt(PIGEON_ISLAND_CENTER.x, PIGEON_ISLAND_CENTER.y - 1)).toBe("watch-water");
+    expect(terrainKindAt(PIGEON_ISLAND_CENTER.x, PIGEON_ISLAND_CENTER.y + 1)).toBe("watch-water");
   });
 
   it("keeps the civic core natural without road terrain", () => {
@@ -428,11 +441,14 @@ function landBoundsExcludingCemetery(tiles: PharosVilleTile[]) {
 
 function landTilesExcludingCemetery(tiles: PharosVilleTile[]) {
   const cemeteryRadius = 6;
+  const pigeonRadius = 2;
   return tiles.filter((tile) => {
     if (isWaterTileKind(tile.kind)) return false;
-    const dx = tile.x - CEMETERY_CENTER.x;
-    const dy = tile.y - CEMETERY_CENTER.y;
-    return Math.hypot(dx, dy) > cemeteryRadius;
+    const dCem = Math.hypot(tile.x - CEMETERY_CENTER.x, tile.y - CEMETERY_CENTER.y);
+    if (dCem <= cemeteryRadius) return false;
+    const dPigeon = Math.hypot(tile.x - PIGEON_ISLAND_CENTER.x, tile.y - PIGEON_ISLAND_CENTER.y);
+    if (dPigeon <= pigeonRadius) return false;
+    return true;
   });
 }
 

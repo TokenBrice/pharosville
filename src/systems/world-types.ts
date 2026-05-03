@@ -137,6 +137,14 @@ export interface LighthouseNode {
   detailId: string;
 }
 
+export interface PigeonnierNode {
+  id: "pigeonnier";
+  kind: "pigeonnier";
+  label: string;
+  tile: { x: number; y: number };
+  detailId: string;
+}
+
 export interface DockNode {
   id: string;
   kind: "dock";
@@ -253,7 +261,7 @@ export interface DetailModel {
   kind: string;
   summary: string;
   facts: Array<{ label: string; value: string }>;
-  links: Array<{ label: string; href: string }>;
+  links: Array<{ label: string; href: string; target?: "_blank" }>;
   membersHeading?: string;
   members?: Array<{ id: string; label: string; href: string; value?: string }>;
 }
@@ -300,7 +308,8 @@ export type SelectableWorldEntity =
   | DockNode
   | ShipNode
   | AreaNode
-  | GraveNode;
+  | GraveNode
+  | PigeonnierNode;
 
 export interface PharosVilleWorld {
   generatedAt: number;
@@ -308,6 +317,7 @@ export interface PharosVilleWorld {
   freshness: PharosVilleFreshness;
   map: PharosVilleMap;
   lighthouse: LighthouseNode;
+  pigeonnier: PigeonnierNode;
   docks: DockNode[];
   areas: AreaNode[];
   ships: ShipNode[];

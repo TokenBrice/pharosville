@@ -21,6 +21,7 @@ export function buildPharosVilleWorld(inputs: PharosVilleInputs): PharosVilleWor
     freshness: inputs.freshness,
     map: scaffold.map,
     lighthouse: scaffold.lighthouse,
+    pigeonnier: scaffold.pigeonnier,
     docks: scaffold.docks,
     areas: scaffold.areas,
     ships: dockAssignmentStage.ships,
@@ -31,6 +32,7 @@ export function buildPharosVilleWorld(inputs: PharosVilleInputs): PharosVilleWor
       { id: "legend.docks", label: "Docks", description: "Top chain harbors by stablecoin supply" },
       { id: "legend.ships", label: "Ships", description: "Active stablecoins" },
       { id: "legend.cemetery", label: "Cemetery", description: "Dead and frozen assets" },
+      { id: "legend.pigeonnier", label: "Pigeonnier", description: "PharosWatch alert dispatch" },
     ],
   };
 

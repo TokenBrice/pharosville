@@ -177,6 +177,7 @@ function staticHitTargetPrefixForWorld(world: PharosVilleWorld): readonly WorldS
     ...world.docks,
     ...world.areas,
     ...world.graves,
+    world.pigeonnier,
   ];
   staticHitTargetEntitiesByWorld.set(world, entities);
   return entities;

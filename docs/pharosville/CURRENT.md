@@ -1,6 +1,6 @@
 # Current PharosVille Agent Source Of Truth
 
-Last updated: 2026-05-02
+Last updated: 2026-05-03
 
 Use this file before changing PharosVille. It summarizes the current standalone Vite implementation shape for maintainers; the verified product contract remains `docs/pharosville-page.md`.
 
@@ -26,7 +26,7 @@ layout, asset, renderer, test, and docs change:
 - `LIGHTHOUSE_TILE` remains `{ x: 18, y: 28 }` and the visual-clearance box
   remains `x:14..24, y:23..32`.
 - Runtime asset cache version is
-  `2026-05-02-ethereum-yggdrasil-v1`; the manifest-wide style
+  `2026-05-03-pigeonnier-v1`; the manifest-wide style
   anchor remains `2026-04-29-lighthouse-hill-v5` so all asset provenance stays
   validator-aligned. The static-scene cache key in `src/renderer/world-canvas.ts`
   includes `manifestCacheVersion`, so bumping `style.cacheVersion` invalidates
@@ -178,7 +178,7 @@ generic water.
 - Stale or missing peg evidence maps to Calm Anchorage with an evidence caveat unless a fresher risk signal exists; it must not create a separate sea zone or masquerade as storm/depeg risk.
 - Stablecoin supply values from the list payload are already USD-denominated. Use `getCirculatingRaw()` for market-cap visual tiers.
 - Local runtime assets come from `public/pharosville/assets/` and `manifest.json`. Do not reference remote prototype URLs at runtime.
-- Treat `public/pharosville/assets/manifest.json` and `npm run check:pharosville-assets` as the asset inventory source of truth. At this update, the manifest contains 56 runtime assets, split by `loadPriority` into 27 critical/first-render entries and 29 deferred entries; the validator's `maxManifestAssets` cap is 56. Rerun the validator instead of hand-maintaining prose counts.
+- Treat `public/pharosville/assets/manifest.json` and `npm run check:pharosville-assets` as the asset inventory source of truth. The validator's `maxManifestAssets` cap is currently 62 (see `scripts/pharosville/validate-assets.mjs`); rerun the validator instead of hand-maintaining prose counts.
 
 ## Current Visual Model
 
@@ -205,6 +205,23 @@ generic water.
 - Asset loading is intentionally staged: the route loads the manifest and critical/first-render sprites before the initial canvas frame, then loads deferred sprite families after the core scene can render. Do not move visual-only sprites into the critical set without checking first-render need and the manifest cap.
 - The current lighthouse asset is `landmark.lighthouse` at `public/pharosville/assets/landmarks/lighthouse-alexandria.png`, with manifest cache version `2026-05-02-ethereum-yggdrasil-v1` and style anchor `2026-04-29-lighthouse-hill-v5`.
 - The central plaza is filled by the ambient `overlay.center-cluster` observatory citadel — a dense limestone+terracotta residential cluster anchored at `CIVIC_CORE_CENTER (31, 31)`, drawn between the district-pad and lighthouse-headland passes via `src/renderer/layers/center-cluster.ts`. It carries no analytical signal and no detail-panel parity. A single `prop.sundial` at tile (35, 31) reinforces the observatory identity. The lighthouse remains the dominant vertical anchor; the cluster's silhouette caps at ≈ 110 px in 1× zoom.
+- A `landmark.pigeonnier` carrier-pigeon dovecote sits on a single-tile islet
+  at `(42, 48)` in the south Watch Breakwater basin (mirroring the cemetery
+  islet across the south coast). Sprite is a 128×160 PixelLab map object
+  (`mcp:create_map_object` job `2eb5872c-416d-4708-b746-7cb4ee8328bc`) at
+  `displayScale 0.55`. The islet is geometry-only — `PIGEON_ISLAND_CENTER` and
+  `PIGEON_ISLAND_RADIUS` extend `islandValue()` in
+  `src/systems/world-layout.ts` so it is excluded from the 377-tile main-island
+  count, matching the cemetery pattern. The pigeonnier is a
+  signal-bearing-flavor entity: it carries a `PigeonnierNode` (kind
+  `"pigeonnier"`) with a detail panel + accessibility-ledger row that
+  advertises the PharosWatch Telegram bot for stablecoin depeg and
+  safety-score alerts. The detail link (`https://pharos.watch/telegram/`) is
+  the route's first external destination and renders with
+  `target="_blank" rel="noopener noreferrer"` via an optional `target` field
+  on `DetailModel.links`. Renderer pass lives in
+  `src/renderer/layers/pigeonnier.ts`, called between `drawYggdrasil` and
+  `drawCemeteryGround` in `world-canvas.ts`.
 - The Ethereum civic-cove rotunda's inner plaza is anchored by the `landmark.yggdrasil` world-tree (256×320 PixelLab job `750b6527`, displayScale `0.6`) at tile `(42.5, 29.2)` — pure-flavor mythic landmark drawn in the static-scene pass after the cove dock body and before the lighthouse-headland pass, so harbor traffic sails over its canopy. The cove dock displayScale was bumped from 0.8 to 0.9 (+12%) so the rotunda holds the tree without crowding; the surrounding `civic-*` plant/decoration props are scaled down ~12% to balance. Lighthouse silhouette remains the dominant vertical anchor. The Yggdrasil carries no analytical signal and no detail-panel parity, matching the `overlay.center-cluster` precedent. Validator `maxManifestAssets` was bumped from 55 to 56 to fit `landmark.yggdrasil`.
 - Solana and Hyperliquid harbors were relocated off the prior north-wall pairing: Solana sits at the NW shoulder `(25, 23)` near the lighthouse, Hyperliquid sits on the south periphery `(36, 39)` between Base and Arbitrum. Aptos slid west into Solana's old N-wall slot at `(32, 22)`. Hyperliquid is now an explicit entry in `PREFERRED_DOCK_TILES` (was previously placed dynamically into a spare slot).
 - Current ship sprites share the lighthouse style anchor. Standard class hulls (104×80) reserve a logo-safe sail/pennant zone for the runtime SVG-logo overlay; unique- and titan-tier hulls carry an iconographic silhouette painted directly into the mainsail (no runtime overlay). Secondary `ShipVisual.overlay` cues render as small lanterns, pennants, or signal flags rather than badges. USDC, USDS, and USDT use dedicated titan hull PNGs, with USDS a bit smaller than USDC and USDT allowed to read larger than both.
