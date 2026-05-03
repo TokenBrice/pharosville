@@ -1,4 +1,5 @@
 import { tileToScreen } from "../../systems/projection";
+import type { PharosVilleWorld } from "../../systems/world-types";
 import type { DrawPharosVilleInput } from "../render-types";
 import { lighthouseRenderState, type LighthouseRenderState } from "./lighthouse";
 import { skyState } from "./sky";
@@ -6,6 +7,7 @@ import {
   maxActiveThreatLevel,
   threatForPoint,
   windMultiplier,
+  type ThreatLevel,
 } from "./weather";
 
 const VILLAGE_LIGHTS = [
@@ -95,17 +97,146 @@ const SPARKLE_POINTS = SPARKLE_POINT_DEFS.map((p) => ({
   baseRadius: 0.9 + Math.sin(p.phase * 2.1) * 0.4,
 })) as readonly BioluminescentSparkle[];
 
-const BIRDS = [
-  { anchorX: -4.2, anchorY: -3.2, radiusX: 3.8, radiusY: 1.4, scale: 1.14, speed: 0.24, phase: 0.1 },
-  { anchorX: -1.4, anchorY: -5.2, radiusX: 4.4, radiusY: 1.7, scale: 0.98, speed: 0.2, phase: 1.9 },
-  { anchorX: 2.8, anchorY: -4.3, radiusX: 3.2, radiusY: 1.2, scale: 0.9, speed: 0.23, phase: 3.4 },
-  { anchorX: -18.5, anchorY: -10.8, radiusX: 8.5, radiusY: 2.2, scale: 0.76, speed: 0.13, phase: 0.6 },
-  { anchorX: -29.5, anchorY: 4.4, radiusX: 7.4, radiusY: 1.8, scale: 0.68, speed: 0.15, phase: 2.8 },
-  { anchorX: 10.5, anchorY: -15.5, radiusX: 8.8, radiusY: 2.6, scale: 0.72, speed: 0.12, phase: 4.2 },
-  { anchorX: 18.2, anchorY: 2.2, radiusX: 6.2, radiusY: 1.6, scale: 0.62, speed: 0.18, phase: 5.3 },
-  { anchorX: 7.2, anchorY: -7.6, radiusX: 5.2, radiusY: 1.5, scale: 0.84, speed: 0.19, phase: 2.2 },
-  { anchorX: -9.8, anchorY: -8.2, radiusX: 5.8, radiusY: 1.7, scale: 0.82, speed: 0.17, phase: 4.9 },
-] as const;
+export type BirdSpecies = "gull" | "pigeon";
+export type BirdAnchor = "lighthouse" | "pigeonnier";
+
+export interface BirdOrbitRoute {
+  kind: "orbit";
+  anchor: BirdAnchor;
+  anchorX: number;
+  anchorY: number;
+  radiusX: number;
+  radiusY: number;
+  speed: number;
+}
+
+export interface BirdShuttleRoute {
+  kind: "shuttle";
+  from: BirdAnchor;
+  to: BirdAnchor;
+  // Seconds for one full out-and-back cycle at threat 0.
+  basePeriod: number;
+  // Tiles of vertical lift at the arc midpoint.
+  arcLift: number;
+}
+
+export interface BirdDispatchRoute {
+  kind: "dispatch";
+  origin: BirdAnchor;
+  // Off-map destination tile; the pigeon disappears past the map edge.
+  destination: { x: number; y: number };
+  // Seconds for one outbound flight.
+  flightDuration: number;
+  // Seconds between successive launches at threat 0; threat scales this down.
+  baseGapSeconds: number;
+  arcLift: number;
+}
+
+export type BirdRoute = BirdOrbitRoute | BirdShuttleRoute | BirdDispatchRoute;
+
+export interface BirdConfig {
+  species: BirdSpecies;
+  scale: number;
+  phase: number;
+  route: BirdRoute;
+}
+
+// Dispatch-cadence multiplier per threat level. CALM = baseline, DANGER ≈ 5×
+// faster — a stronger ramp than the smoother `windMultiplier` so an active
+// stress event reads as a flurry of carrier pigeons leaving the loft.
+const DISPATCH_GAP_FACTOR: readonly number[] = [1.0, 0.66, 0.45, 0.30, 0.18];
+
+export function dispatchGapForThreat(baseSeconds: number, threat: ThreatLevel): number {
+  return baseSeconds * (DISPATCH_GAP_FACTOR[threat] ?? 1);
+}
+
+export const BIRDS: readonly BirdConfig[] = [
+  // Lighthouse harbor gulls — the existing 9 ambient flocks.
+  { species: "gull", scale: 1.14, phase: 0.1, route: { kind: "orbit", anchor: "lighthouse", anchorX: -4.2, anchorY: -3.2, radiusX: 3.8, radiusY: 1.4, speed: 0.24 } },
+  { species: "gull", scale: 0.98, phase: 1.9, route: { kind: "orbit", anchor: "lighthouse", anchorX: -1.4, anchorY: -5.2, radiusX: 4.4, radiusY: 1.7, speed: 0.2 } },
+  { species: "gull", scale: 0.9,  phase: 3.4, route: { kind: "orbit", anchor: "lighthouse", anchorX: 2.8, anchorY: -4.3, radiusX: 3.2, radiusY: 1.2, speed: 0.23 } },
+  { species: "gull", scale: 0.76, phase: 0.6, route: { kind: "orbit", anchor: "lighthouse", anchorX: -18.5, anchorY: -10.8, radiusX: 8.5, radiusY: 2.2, speed: 0.13 } },
+  { species: "gull", scale: 0.68, phase: 2.8, route: { kind: "orbit", anchor: "lighthouse", anchorX: -29.5, anchorY: 4.4, radiusX: 7.4, radiusY: 1.8, speed: 0.15 } },
+  { species: "gull", scale: 0.72, phase: 4.2, route: { kind: "orbit", anchor: "lighthouse", anchorX: 10.5, anchorY: -15.5, radiusX: 8.8, radiusY: 2.6, speed: 0.12 } },
+  { species: "gull", scale: 0.62, phase: 5.3, route: { kind: "orbit", anchor: "lighthouse", anchorX: 18.2, anchorY: 2.2, radiusX: 6.2, radiusY: 1.6, speed: 0.18 } },
+  { species: "gull", scale: 0.84, phase: 2.2, route: { kind: "orbit", anchor: "lighthouse", anchorX: 7.2, anchorY: -7.6, radiusX: 5.2, radiusY: 1.5, speed: 0.19 } },
+  { species: "gull", scale: 0.82, phase: 4.9, route: { kind: "orbit", anchor: "lighthouse", anchorX: -9.8, anchorY: -8.2, radiusX: 5.8, radiusY: 1.7, speed: 0.17 } },
+  // Resident carrier pigeons orbiting the dovecote — tighter, faster radii.
+  { species: "pigeon", scale: 0.62, phase: 0.0, route: { kind: "orbit", anchor: "pigeonnier", anchorX: -1.0, anchorY: -1.8, radiusX: 1.8, radiusY: 0.7, speed: 0.42 } },
+  { species: "pigeon", scale: 0.58, phase: 1.7, route: { kind: "orbit", anchor: "pigeonnier", anchorX: 0.6, anchorY: -1.4, radiusX: 1.4, radiusY: 0.55, speed: 0.5 } },
+  { species: "pigeon", scale: 0.54, phase: 3.6, route: { kind: "orbit", anchor: "pigeonnier", anchorX: -0.2, anchorY: -2.4, radiusX: 2.2, radiusY: 0.85, speed: 0.36 } },
+  // Closed shuttle courier — back-and-forth between lighthouse and dovecote,
+  // visually linking the two watch landmarks. Period scales with threat.
+  { species: "pigeon", scale: 0.66, phase: 0.0, route: { kind: "shuttle", from: "pigeonnier", to: "lighthouse", basePeriod: 36, arcLift: 4.0 } },
+  // Open-sea dispatch — periodic carrier pigeon launching SE off-map. Cadence
+  // accelerates with active DEWS threat to mirror the bot's role: more alerts
+  // when stablecoins wobble.
+  { species: "pigeon", scale: 0.6, phase: 0.0, route: { kind: "dispatch", origin: "pigeonnier", destination: { x: 65, y: 60 }, flightDuration: 6, baseGapSeconds: 45, arcLift: 3.0 } },
+];
+
+export interface BirdSample {
+  tile: { x: number; y: number };
+  bank: number;
+  visible: boolean;
+}
+
+export function birdAnchorTile(anchor: BirdAnchor, world: PharosVilleWorld): { x: number; y: number } {
+  return anchor === "lighthouse" ? world.lighthouse.tile : world.pigeonnier.tile;
+}
+
+export function sampleBird(
+  bird: BirdConfig,
+  time: number,
+  world: PharosVilleWorld,
+  windScale: number,
+  threat: ThreatLevel,
+): BirdSample {
+  const { route } = bird;
+  if (route.kind === "orbit") {
+    const origin = birdAnchorTile(route.anchor, world);
+    const angle = time * route.speed * windScale + bird.phase;
+    return {
+      tile: {
+        x: origin.x + route.anchorX + Math.cos(angle) * route.radiusX,
+        y: origin.y + route.anchorY + Math.sin(angle) * route.radiusY,
+      },
+      bank: Math.cos(angle),
+      visible: true,
+    };
+  }
+  if (route.kind === "shuttle") {
+    const a = birdAnchorTile(route.from, world);
+    const b = birdAnchorTile(route.to, world);
+    const period = Math.max(1, route.basePeriod / Math.max(0.5, windScale));
+    const cyclePhase = ((time / period) + bird.phase) % 1;
+    const cycle = cyclePhase < 0 ? cyclePhase + 1 : cyclePhase;
+    const outbound = cycle < 0.5;
+    const t = outbound ? cycle * 2 : (1 - cycle) * 2;
+    const tile = {
+      x: a.x + (b.x - a.x) * t,
+      y: a.y + (b.y - a.y) * t - Math.sin(t * Math.PI) * route.arcLift,
+    };
+    const dx = b.x - a.x;
+    const bankSign = outbound ? Math.sign(dx) : -Math.sign(dx);
+    return { tile, bank: bankSign === 0 ? 1 : bankSign, visible: true };
+  }
+  // dispatch
+  const origin = birdAnchorTile(route.origin, world);
+  const dest = route.destination;
+  const gap = Math.max(2, dispatchGapForThreat(route.baseGapSeconds, threat));
+  const cycleLength = gap + route.flightDuration;
+  const cyclePosition = ((time + bird.phase * cycleLength) % cycleLength + cycleLength) % cycleLength;
+  if (cyclePosition < gap) {
+    return { tile: { x: origin.x, y: origin.y }, bank: 1, visible: false };
+  }
+  const t = (cyclePosition - gap) / route.flightDuration;
+  const tile = {
+    x: origin.x + (dest.x - origin.x) * t,
+    y: origin.y + (dest.y - origin.y) * t - Math.sin(t * Math.PI) * route.arcLift,
+  };
+  const dx = dest.x - origin.x;
+  return { tile, bank: dx >= 0 ? 1 : -1, visible: true };
+}
 
 const SEA_MIST_PATCHES = [
   { x: 22.5, y: 16.2, rx: 5.8, ry: 1.8, phase: 0.3, speed: 0.018 },
@@ -135,27 +266,54 @@ export function drawAtmosphere(input: DrawPharosVilleInput, lighthouse?: Lightho
   ctx.restore();
 }
 
+// Asymmetric flap: power downstroke spends ~60% of the cycle, recovery
+// upstroke spends ~40% with reduced amplitude — gives birds a rhythm closer
+// to real wing kinematics than the previous symmetric sin pulse.
+function wingStroke(time: number, phase: number, speedMul: number): number {
+  const cycle = (time * 5.2 * speedMul + phase) % (Math.PI * 2);
+  const wrapped = cycle < 0 ? cycle + Math.PI * 2 : cycle;
+  if (wrapped < Math.PI) {
+    // Downstroke — slower, larger sweep.
+    return 0.18 + Math.sin(wrapped) * 0.42;
+  }
+  // Upstroke — faster (sharpen the curve), smaller sweep, slight tuck.
+  const upPhase = (wrapped - Math.PI) * 1.6;
+  return 0.32 - Math.sin(Math.min(Math.PI, upPhase)) * 0.18;
+}
+
 export function drawBirds({ camera, ctx, motion, world }: DrawPharosVilleInput) {
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
-  const origin = world.lighthouse.tile;
-  // Wind multiplier scales the bird path frequency by the active DEWS threat
-  // — birds beat their circuits faster when storms loom.
-  const windScale = motion.reducedMotion ? 1 : windMultiplier(maxActiveThreatLevel(world));
+  const threat = maxActiveThreatLevel(world);
+  const windScale = motion.reducedMotion ? 1 : windMultiplier(threat);
   ctx.save();
   for (const bird of BIRDS) {
-    const angle = time * bird.speed * windScale + bird.phase;
-    const tile = {
-      x: origin.x + bird.anchorX + Math.cos(angle) * bird.radiusX,
-      y: origin.y + bird.anchorY + Math.sin(angle) * bird.radiusY,
-    };
-    const p = tileToScreen(tile, camera);
-    const wing = motion.reducedMotion ? 0.34 : 0.34 + Math.sin(time * 5.2 + bird.phase) * 0.18;
-    drawBird(ctx, p.x, p.y - 46 * camera.zoom * bird.scale, camera.zoom * bird.scale, wing, Math.cos(angle));
+    const sample = sampleBird(bird, time, world, windScale, threat);
+    if (!sample.visible) continue;
+    const p = tileToScreen(sample.tile, camera);
+    const speciesScale = camera.zoom * bird.scale;
+    // Pigeons flap at a faster cadence than gulls.
+    const flapSpeed = bird.species === "pigeon" ? 1.45 : 1;
+    const wing = motion.reducedMotion ? 0.34 : wingStroke(time, bird.phase, flapSpeed);
+    drawBirdShadow(ctx, p.x, p.y, speciesScale);
+    if (bird.species === "gull") {
+      drawGull(ctx, p.x, p.y - 46 * speciesScale, speciesScale, wing, sample.bank);
+    } else {
+      drawPigeon(ctx, p.x, p.y - 38 * speciesScale, speciesScale, wing, sample.bank);
+    }
   }
   ctx.restore();
 }
 
-function drawBird(ctx: CanvasRenderingContext2D, x: number, y: number, zoom: number, wing: number, bank: number) {
+function drawBirdShadow(ctx: CanvasRenderingContext2D, x: number, y: number, zoom: number) {
+  ctx.save();
+  ctx.fillStyle = "rgba(8, 16, 22, 0.18)";
+  ctx.beginPath();
+  ctx.ellipse(x, y, 7 * zoom, 1.7 * zoom, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawGull(ctx: CanvasRenderingContext2D, x: number, y: number, zoom: number, wing: number, bank: number) {
   const direction = bank >= 0 ? 1 : -1;
   ctx.save();
   ctx.translate(x, y);
@@ -180,6 +338,36 @@ function drawBird(ctx: CanvasRenderingContext2D, x: number, y: number, zoom: num
   ctx.moveTo(-5 * zoom, 1 * zoom);
   ctx.lineTo(6 * zoom, 1 * zoom);
   ctx.stroke();
+  ctx.restore();
+}
+
+function drawPigeon(ctx: CanvasRenderingContext2D, x: number, y: number, zoom: number, wing: number, bank: number) {
+  const direction = bank >= 0 ? 1 : -1;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(direction, 1);
+
+  // Shorter, rounder wings than the gull arc.
+  ctx.strokeStyle = "rgba(196, 168, 138, 0.92)";
+  ctx.lineWidth = Math.max(1, 1.7 * zoom);
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(-8 * zoom, 0.5 * zoom);
+  ctx.quadraticCurveTo(-4 * zoom, -9 * zoom * wing, 0, 0.5 * zoom);
+  ctx.quadraticCurveTo(4 * zoom, -9 * zoom * wing, 8 * zoom, -0.2 * zoom);
+  ctx.stroke();
+
+  // Compact sepia body — pigeons are stockier than gulls.
+  ctx.fillStyle = "rgba(94, 70, 52, 0.86)";
+  ctx.beginPath();
+  ctx.ellipse(0.5 * zoom, 1.1 * zoom, 2.6 * zoom, 1.7 * zoom, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Pale chest highlight to read at zoom-out.
+  ctx.fillStyle = "rgba(232, 212, 188, 0.55)";
+  ctx.beginPath();
+  ctx.ellipse(1.4 * zoom, 1.3 * zoom, 1.4 * zoom, 0.9 * zoom, 0, 0, Math.PI * 2);
+  ctx.fill();
   ctx.restore();
 }
 
