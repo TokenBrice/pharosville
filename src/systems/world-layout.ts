@@ -108,6 +108,16 @@ export const CEMETERY_ISLAND_RADIUS = { x: 5.4, y: 3.8 } as const;
 export const PIGEON_ISLAND_CENTER = { x: 50, y: 50 } as const;
 export const PIGEON_ISLAND_RADIUS = { x: 0.7, y: 0.7 } as const;
 
+// Pigeonnier-attached harbor for the Telegram TON chain. Sits one tile west of
+// the pigeonnier islet — a floating wharf in watch-water rather than a
+// land-perimeter dock. Selected through a separate pigeonnier-harbor track in
+// `chain-docks.ts`, so it does not consume one of the eight standard chain
+// harbor slots.
+export const PIGEONNIER_HARBOR_DOCK_TILE = { x: PIGEON_ISLAND_CENTER.x - 1, y: PIGEON_ISLAND_CENTER.y } as const;
+export const PIGEONNIER_HARBOR_CHAIN_IDS = ["ton"] as const;
+
+PREFERRED_DOCK_TILES.ton = PIGEONNIER_HARBOR_DOCK_TILE;
+
 type GraveMarker = GraveNode["visual"]["marker"];
 
 function ellipseValue(x: number, y: number, cx: number, cy: number, rx: number, ry: number): number {

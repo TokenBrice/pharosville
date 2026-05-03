@@ -24,9 +24,12 @@ export function isBackgroundedHarborDock(dock: PharosVilleWorld["docks"][number]
 // Per-chain flag fill overrides for chains where the sampled logo average
 // produces too little contrast with the logo's own ink. Solana's tri-band
 // gradient (green→purple) averages to a muted teal that swallows the mark
-// itself, so we lock the flag to the brand purple instead.
+// itself, so we lock the flag to the brand purple instead. TON's logo is a
+// pale-blue diamond on a transparent field; the low ink-to-pixel ratio lets
+// the dock-health fallback bleed through, so we lock it to TON brand blue.
 const CHAIN_FLAG_COLOR_OVERRIDES: Record<string, string> = {
   solana: "#9945ff",
+  ton: "#0098ea",
 };
 
 const LOGO_FLAG_COLOR_CACHE = new Map<string, string>();

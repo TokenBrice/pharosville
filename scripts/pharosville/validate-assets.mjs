@@ -27,7 +27,8 @@ const publicImageExtensionPattern = /\.(?:png|svg|jpe?g|webp)$/i;
 // 2026-05-03: bumped 56 -> 61 for harbor-life decor (lighthouse-pyre, moored-dinghy
 // north/east, harbor-bell, cargo-stack).
 // 2026-05-03: bumped 61 -> 62 for landmark.pigeonnier (PharosWatch Telegram dispatch islet).
-const maxManifestAssets = 62;
+// 2026-05-03: bumped 62 -> 63 for dock.ton-pigeonnier-pier (Telegram TON wharf attached to the pigeonnier islet).
+const maxManifestAssets = 63;
 const firstRenderBudgets = {
   // 2026-05-01: bumped for Maker squad titans (USDS, DAI, sUSDS, sDAI, stUSDS)
   maxCount: 28,

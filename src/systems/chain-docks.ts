@@ -6,6 +6,7 @@ import {
   EVM_BAY_DOCK_TILES,
   ETHEREUM_HARBOR_PRIORITY_CHAIN_IDS,
   OUTER_HARBOR_DOCK_TILES,
+  PIGEONNIER_HARBOR_CHAIN_IDS,
   PREFERRED_DOCK_TILES,
 } from "./world-layout";
 
@@ -22,6 +23,7 @@ const DOCK_ASSET_IDS = [
   "dock.polygon-hexmarket",
   "dock.aptos-jade-pagoda",
   "dock.avalanche-alpine-watch",
+  "dock.ton-pigeonnier-pier",
 ] as const;
 
 const PREFERRED_DOCK_ASSET_IDS: Record<string, (typeof DOCK_ASSET_IDS)[number]> = {
@@ -34,9 +36,16 @@ const PREFERRED_DOCK_ASSET_IDS: Record<string, (typeof DOCK_ASSET_IDS)[number]> 
   polygon: "dock.polygon-hexmarket",
   aptos: "dock.aptos-jade-pagoda",
   avalanche: "dock.avalanche-alpine-watch",
+  ton: "dock.ton-pigeonnier-pier",
 };
 
 const SUPPRESSED_CHAIN_HARBOR_IDS = new Set<string>(["optimism"]);
+
+// TON renders on its own pigeonnier-attached track and must not consume one of
+// the eight standard chain harbor slots. Excluding it from `selectChainHarbors`
+// keeps the existing harbor balance untouched while the pigeonnier dock is
+// appended as a separately-built ninth node.
+const PIGEONNIER_HARBOR_CHAIN_ID_SET = new Set<string>(PIGEONNIER_HARBOR_CHAIN_IDS);
 
 function dockSize(chain: ChainSummary, globalTotalUsd: number): number {
   const shareSize = globalTotalUsd > 0
@@ -79,30 +88,47 @@ function harboredStablecoins(chain: ChainSummary): DockStablecoin[] {
 export function buildChainDocks(chains: ChainsResponse | null | undefined): DockNode[] {
   if (!chains?.chains?.length) return [];
   const occupiedTiles = new Set<string>();
-  return selectChainHarbors(chains.chains)
-    .map((chain, index) => {
-      const tile = dockTileForChain(chain.id, index, occupiedTiles);
-      return {
-        id: `dock.${chain.id}`,
-        kind: "dock" as const,
-        label: chain.name,
-        chainId: chain.id,
-        logoSrc: chain.logoPath || null,
-        assetId: PREFERRED_DOCK_ASSET_IDS[chain.id] ?? "dock.wooden-pier",
-        tile,
-        totalUsd: chain.totalUsd,
-        size: dockSize(chain, chains.globalTotalUsd),
-        healthBand: chain.healthBand,
-        stablecoinCount: chain.stablecoinCount,
-        concentration: chain.healthFactors?.concentration ?? null,
-        harboredStablecoins: harboredStablecoins(chain),
-        detailId: `dock.${chain.id}`,
-      };
+  const standardDocks = selectChainHarbors(chains.chains)
+    .map((chain, index) => buildDockNode(chain, dockTileForChain(chain.id, index, occupiedTiles), chains.globalTotalUsd));
+
+  const pigeonnierDocks = selectPigeonnierHarbors(chains.chains)
+    .map((chain) => {
+      const tile = PREFERRED_DOCK_TILES[chain.id] ?? PIGEON_FALLBACK_TILE;
+      occupiedTiles.add(`${tile.x}.${tile.y}`);
+      return buildDockNode(chain, tile, chains.globalTotalUsd);
     });
+
+  return [...standardDocks, ...pigeonnierDocks];
 }
 
+function buildDockNode(chain: ChainSummary, tile: { x: number; y: number }, globalTotalUsd: number): DockNode {
+  return {
+    id: `dock.${chain.id}`,
+    kind: "dock" as const,
+    label: chain.name,
+    chainId: chain.id,
+    logoSrc: chain.logoPath || null,
+    assetId: PREFERRED_DOCK_ASSET_IDS[chain.id] ?? "dock.wooden-pier",
+    tile,
+    totalUsd: chain.totalUsd,
+    size: dockSize(chain, globalTotalUsd),
+    healthBand: chain.healthBand,
+    stablecoinCount: chain.stablecoinCount,
+    concentration: chain.healthFactors?.concentration ?? null,
+    harboredStablecoins: harboredStablecoins(chain),
+    detailId: `dock.${chain.id}`,
+  };
+}
+
+// Defensive fallback only — every PIGEONNIER_HARBOR_CHAIN_IDS entry has a
+// PREFERRED_DOCK_TILES entry by construction.
+const PIGEON_FALLBACK_TILE = { x: 49, y: 50 } as const;
+
 function selectChainHarbors(chains: readonly ChainSummary[]): ChainSummary[] {
-  const harborEligibleChains = chains.filter((chain) => !SUPPRESSED_CHAIN_HARBOR_IDS.has(chain.id));
+  const harborEligibleChains = chains.filter((chain) => (
+    !SUPPRESSED_CHAIN_HARBOR_IDS.has(chain.id)
+    && !PIGEONNIER_HARBOR_CHAIN_ID_SET.has(chain.id)
+  ));
   const byId = new Map(harborEligibleChains.map((chain) => [chain.id, chain]));
   const selected = new Map<string, ChainSummary>();
 
@@ -119,6 +145,13 @@ function selectChainHarbors(chains: readonly ChainSummary[]): ChainSummary[] {
   return [...selected.values()]
     .toSorted((a, b) => b.totalUsd - a.totalUsd || a.id.localeCompare(b.id))
     .slice(0, MAX_CHAIN_HARBORS);
+}
+
+function selectPigeonnierHarbors(chains: readonly ChainSummary[]): ChainSummary[] {
+  const byId = new Map(chains.map((chain) => [chain.id, chain]));
+  return PIGEONNIER_HARBOR_CHAIN_IDS
+    .map((chainId) => byId.get(chainId))
+    .filter((chain): chain is ChainSummary => !!chain && chain.totalUsd > 0);
 }
 
 function dockTileForChain(chainId: string, rankIndex: number, occupiedTiles: Set<string>): { x: number; y: number } {

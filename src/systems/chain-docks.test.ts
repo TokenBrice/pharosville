@@ -8,6 +8,7 @@ import {
   isWaterTileKind,
   OUTER_HARBOR_DOCK_TILES,
   PHAROSVILLE_MAP_WIDTH,
+  PIGEONNIER_HARBOR_DOCK_TILE,
   PREFERRED_DOCK_TILES,
   tileKindAt,
 } from "./world-layout";
@@ -173,6 +174,71 @@ describe("buildChainDocks", () => {
     expect(docks.map((dock) => dock.tile)).toEqual(OUTER_HARBOR_DOCK_TILES.slice(0, 8));
     expect(docks.map((dock) => dock.assetId)).toEqual(Array(8).fill("dock.wooden-pier"));
     expect(docks[0]?.harboredStablecoins.map((coin) => coin.symbol)).toEqual(["A0", "B0"]);
+  });
+
+  it("builds the TON pigeonnier wharf as a separate ninth dock attached to the pigeonnier islet", () => {
+    const docks = buildChainDocks({
+      ...fixtureChains,
+      chains: [
+        makeChain({ id: "ethereum", totalUsd: 100 }),
+        makeChain({ id: "tron", totalUsd: 90 }),
+        makeChain({ id: "bsc", totalUsd: 80 }),
+        makeChain({ id: "solana", totalUsd: 70 }),
+        makeChain({ id: "base", totalUsd: 60 }),
+        makeChain({ id: "arbitrum", totalUsd: 50 }),
+        makeChain({ id: "polygon", totalUsd: 40 }),
+        makeChain({ id: "aptos", totalUsd: 30 }),
+        makeChain({ id: "ton", name: "TON", totalUsd: 5, logoPath: "/chains/ton.png" }),
+      ],
+      globalTotalUsd: 525,
+    });
+
+    expect(docks).toHaveLength(9);
+    const ton = docks.find((dock) => dock.chainId === "ton");
+    expect(ton).toBeDefined();
+    expect(ton?.tile).toEqual(PIGEONNIER_HARBOR_DOCK_TILE);
+    expect(ton?.assetId).toBe("dock.ton-pigeonnier-pier");
+    expect(ton?.logoSrc).toBe("/chains/ton.png");
+    expect(isWaterTileKind(tileKindAt(ton!.tile.x, ton!.tile.y))).toBe(true);
+
+    expect(docks.filter((dock) => dock.chainId !== "ton").every((dock) => (
+      isLandTileKind(tileKindAt(dock.tile.x, dock.tile.y))
+    ))).toBe(true);
+  });
+
+  it("omits the TON pigeonnier wharf when the chains feed has no TON entry", () => {
+    const docks = buildChainDocks({
+      ...fixtureChains,
+      chains: [
+        makeChain({ id: "ethereum", totalUsd: 100 }),
+        makeChain({ id: "tron", totalUsd: 90 }),
+      ],
+      globalTotalUsd: 190,
+    });
+
+    expect(docks.map((dock) => dock.chainId)).not.toContain("ton");
+  });
+
+  it("does not let TON consume one of the eight standard chain harbor slots when chains overflow", () => {
+    const docks = buildChainDocks({
+      ...fixtureChains,
+      chains: [
+        makeChain({ id: "ethereum", totalUsd: 100 }),
+        makeChain({ id: "tron", totalUsd: 90 }),
+        makeChain({ id: "bsc", totalUsd: 80 }),
+        makeChain({ id: "solana", totalUsd: 70 }),
+        makeChain({ id: "hyperliquid", totalUsd: 60 }),
+        makeChain({ id: "base", totalUsd: 50 }),
+        makeChain({ id: "arbitrum", totalUsd: 40 }),
+        makeChain({ id: "polygon", totalUsd: 30 }),
+        makeChain({ id: "aptos", totalUsd: 20 }),
+        makeChain({ id: "ton", name: "TON", totalUsd: 1_000_000_000 }),
+      ],
+      globalTotalUsd: 540 + 1_000_000_000,
+    });
+
+    expect(docks.filter((dock) => dock.chainId !== "ton")).toHaveLength(8);
+    expect(docks.find((dock) => dock.chainId === "ton")?.tile).toEqual(PIGEONNIER_HARBOR_DOCK_TILE);
   });
 });
 

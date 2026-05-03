@@ -19,6 +19,7 @@ import {
   PHAROSVILLE_MAP_HEIGHT,
   PHAROSVILLE_MAP_WIDTH,
   PIGEON_ISLAND_CENTER,
+  PIGEONNIER_HARBOR_DOCK_TILE,
   nearestAvailableWaterTile,
   nearestWaterTile,
   REGION_TILES,
@@ -102,6 +103,11 @@ describe("buildPharosVilleMap", () => {
     expect(terrainKindAt(PIGEON_ISLAND_CENTER.x + 1, PIGEON_ISLAND_CENTER.y)).toBe("watch-water");
     expect(terrainKindAt(PIGEON_ISLAND_CENTER.x, PIGEON_ISLAND_CENTER.y - 1)).toBe("watch-water");
     expect(terrainKindAt(PIGEON_ISLAND_CENTER.x, PIGEON_ISLAND_CENTER.y + 1)).toBe("watch-water");
+  });
+
+  it("anchors the TON pigeonnier wharf in watch-water immediately west of the pigeonnier islet", () => {
+    expect(PIGEONNIER_HARBOR_DOCK_TILE).toEqual({ x: PIGEON_ISLAND_CENTER.x - 1, y: PIGEON_ISLAND_CENTER.y });
+    expect(terrainKindAt(PIGEONNIER_HARBOR_DOCK_TILE.x, PIGEONNIER_HARBOR_DOCK_TILE.y)).toBe("watch-water");
   });
 
   it("keeps the civic core natural without road terrain", () => {

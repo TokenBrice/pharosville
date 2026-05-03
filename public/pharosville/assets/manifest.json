@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-05-03-pigeonnier-v2",
+    "cacheVersion": "2026-05-03-ton-pigeonnier-pier-v3",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": [
@@ -989,6 +989,43 @@
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
         "jobId": "36f21810-9335-47da-8516-09ea6fd1d9f7",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      }
+    },
+    {
+      "id": "dock.ton-pigeonnier-pier",
+      "path": "docks/ton-pigeonnier-pier.png",
+      "category": "dock",
+      "layer": "docks",
+      "width": 176,
+      "height": 128,
+      "displayScale": 1,
+      "anchor": [
+        88,
+        100
+      ],
+      "footprint": [
+        80,
+        36
+      ],
+      "hitbox": [
+        12,
+        14,
+        152,
+        100
+      ],
+      "loadPriority": "deferred",
+      "promptKey": "dock.ton-pigeonnier-pier",
+      "semanticRole": "TON Telegram dispatch wharf attached to the pigeonnier islet",
+      "paletteKeys": [
+        "weathered wood",
+        "oxidized bronze",
+        "ice blue glass",
+        "teal sea"
+      ],
+      "tool": "mcp:create_map_object",
+      "promptProvenance": {
+        "jobId": "53b354dc-b41c-4768-b2c4-b64c5c932490",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       }
     },
