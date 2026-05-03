@@ -4,7 +4,7 @@ import type { HealthBand } from "@shared/types/chains";
 import { formationLabel, squadRole, STABLECOIN_SQUADS, type StablecoinSquad } from "../systems/maker-squad";
 import { SQUAD_DISTRESS_FLAG_HEX } from "../renderer/layers/maker-squad-chrome";
 import type { AreaNode, DewsAreaBand, PharosVilleWorld, ShipNode } from "../systems/world-types";
-import { shipCycleTempo } from "../systems/ship-cycle-tempo";
+import { precomputeShipTempos } from "../systems/ship-cycle-tempo";
 
 // Dock health-band swatches mirror the renderer's `dockHealthColor()` table in
 // `src/renderer/layers/docks.ts`. Robust and healthy share the same green
@@ -79,6 +79,11 @@ function AccessibilityLedgerContent({
     .filter((entry) => entry.stale)
     .map((entry) => entry.label);
 
+  // Precompute cycle tempos once for the whole fleet so the ship <li> loop
+  // doesn't redo the O(N log N) sort per ship. Hoisted from the inline call
+  // (review-noted O(N² log N) hot spot).
+  const cycleTempoById = precomputeShipTempos(world.ships);
+
   return (
     <section className="sr-only" aria-labelledby={headingId} data-testid="pharosville-accessibility-ledger">
       <h2 id={headingId}>PharosVille accessibility ledger</h2>
@@ -141,7 +146,7 @@ function AccessibilityLedgerContent({
       <h3>Ships</h3>
       <ol>
         {world.ships.map((ship) => {
-          const tempo = shipCycleTempo(ship, world.ships);
+          const tempo = cycleTempoById.get(ship.id)!;
           return (
             <li key={ship.id}>
               {ship.label} ({ship.symbol}): {compactUsd.format(ship.marketCapUsd)} market cap, placed at{" "}

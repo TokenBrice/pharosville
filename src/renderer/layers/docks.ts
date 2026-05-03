@@ -22,11 +22,14 @@ function cachedHexToRgba(hex: string, alpha: number): string {
       g: Number.parseInt(normalized.slice(2, 4), 16),
       b: Number.parseInt(normalized.slice(4, 6), 16),
     };
-    if (HEX_RGB_CACHE.size >= 64) HEX_RGB_CACHE.delete(HEX_RGB_CACHE.keys().next().value!);
+    // 128 cap covers ~30-dock fixtures with two alpha variants (≤60 working
+    // set in dense fixture). Raised from 64 as preventive maintenance against
+    // future fleets adding more chains.
+    if (HEX_RGB_CACHE.size >= 128) HEX_RGB_CACHE.delete(HEX_RGB_CACHE.keys().next().value!);
     HEX_RGB_CACHE.set(hex, rgb);
   }
   const result = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
-  if (RGBA_STRING_CACHE.size >= 64) RGBA_STRING_CACHE.delete(RGBA_STRING_CACHE.keys().next().value!);
+  if (RGBA_STRING_CACHE.size >= 128) RGBA_STRING_CACHE.delete(RGBA_STRING_CACHE.keys().next().value!);
   RGBA_STRING_CACHE.set(key, result);
   return result;
 }

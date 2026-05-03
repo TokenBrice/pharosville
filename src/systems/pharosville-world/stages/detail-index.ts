@@ -6,6 +6,7 @@ import {
   detailForPigeonnier,
   detailForShip,
 } from "../../detail-model";
+import { precomputeShipTempos } from "../../ship-cycle-tempo";
 import type { SelectableWorldEntity, ShipNode } from "../../world-types";
 import type { DetailIndexStage, PharosVilleWorldBase } from "../pipeline-types";
 
@@ -18,14 +19,17 @@ function buildDetailIndex(world: PharosVilleWorldBase): DetailIndexStage["detail
     list.push(ship);
     shipsBySquad.set(ship.squadId, list);
   }
+  // Precompute the per-ship cycle-tempo descriptor once (single fleet sort)
+  // so detailForShip's call doesn't redo the O(N log N) work N times.
+  const tempoById = precomputeShipTempos(world.ships);
   const details = [
     detailForLighthouse(world.lighthouse),
     detailForPigeonnier(world.pigeonnier),
     ...world.docks.map(detailForDock),
     ...world.ships.map((ship) => (
       ship.squadId
-        ? detailForShip(ship, { squadShips: shipsBySquad.get(ship.squadId) ?? [], allShips: world.ships })
-        : detailForShip(ship, { allShips: world.ships })
+        ? detailForShip(ship, { squadShips: shipsBySquad.get(ship.squadId) ?? [], allShips: world.ships, cycleTempo: tempoById.get(ship.id) })
+        : detailForShip(ship, { allShips: world.ships, cycleTempo: tempoById.get(ship.id) })
     )),
     ...world.areas.map(detailForArea),
     ...world.graves.map(detailForGrave),

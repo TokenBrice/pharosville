@@ -243,10 +243,14 @@ export function resolveShipMotionSampleInto(input: {
 
       // D3: detect formation offset changes at sample time. When riskPlacement
       // changes, the new formationOffset applies but heading memory persists
-      // stale. Detect the change via a per-ship cache and blend over 1.5s.
+      // stale. Detect the change via a per-ship cache and blend over 3.0s
+      // (motion-behavior review 2026-05-03: the prior 1.5s pushed the largest
+      // diagonal offsets at ~1.9 tiles/s — ~2.5× peak sail speed — visibly a
+      // lurch; 3.0s gives ~0.94 tiles/s mean (peak ~1.4 with smoothstep), so
+      // distress-recovery reads as a deliberate transit instead of a snap).
       const shipId = input.ship.id;
       const cachedOffset = formationOffsetCacheByShipId.get(shipId);
-      const BLEND_DURATION = 1.5;
+      const BLEND_DURATION = 3.0;
       let effectiveDx = offset.dx;
       let effectiveDy = offset.dy;
       if (!cachedOffset) {

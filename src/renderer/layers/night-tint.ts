@@ -5,7 +5,12 @@ const NIGHT_TINT_R = 14;
 const NIGHT_TINT_G = 8;
 const NIGHT_TINT_B = 38;
 
-const VIGNETTE_GRADIENT_CACHE_LIMIT = 5;
+// 25 entries cover all 21 reachable nightFactor buckets (0.05 step, 0..1) at
+// one viewport size without thrash, even under fast dev-tool scrubbing of
+// time-of-day. Production cycles transition at most 2-3 buckets at a time;
+// the prior cap of 5 was sufficient for natural play but caused constant
+// recreation under scrubbing.
+const VIGNETTE_GRADIENT_CACHE_LIMIT = 25;
 const vignetteGradientCache = new Map<string, CanvasGradient>();
 
 export function drawNightTint(input: DrawPharosVilleInput, nightFactor: number): void {

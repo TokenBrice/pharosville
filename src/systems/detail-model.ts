@@ -3,7 +3,7 @@ import type { AreaNode, DetailModel, DewsAreaBand, DockNode, GraveNode, Lighthou
 import { ETHEREUM_L2_DOCK_CHAIN_IDS } from "./world-layout";
 import { analyticalRouteHref } from "./route-links";
 import { formationLabel, squadForMember, squadRole } from "./maker-squad";
-import { shipCycleTempo } from "./ship-cycle-tempo";
+import { shipCycleTempo, type ShipCycleTempoResult } from "./ship-cycle-tempo";
 
 const usd = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0, style: "currency", currency: "USD" });
 const percent = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1, style: "percent" });
@@ -159,6 +159,13 @@ export function detailForDock(node: DockNode): DetailModel {
 export interface ShipDetailContext {
   squadShips?: readonly ShipNode[];
   allShips?: readonly ShipNode[];
+  /**
+   * Optional precomputed cycle-tempo descriptor for this ship. When supplied,
+   * it bypasses the internal `shipCycleTempo` call and the per-call sort.
+   * Use `precomputeShipTempos(world.ships)` once at world build to amortize
+   * the sort across many `detailForShip` calls.
+   */
+  cycleTempo?: ShipCycleTempoResult;
 }
 
 export function squadFormationLine(squadShips: readonly ShipNode[]): string {
@@ -193,7 +200,7 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
   const formationLine = isSquadShip && squadShips.length > 0 ? squadFormationLine(squadShips) : "";
   const overrideBanner = isSquadShip ? squadOverrideBanner(node) : null;
   const allShips = context.allShips ?? [node];
-  const cycleTempo = shipCycleTempo(node, allShips);
+  const cycleTempo = context.cycleTempo ?? shipCycleTempo(node, allShips);
 
   const facts = [
     { label: "Market cap", value: marketCapLabel(node.marketCapUsd) },

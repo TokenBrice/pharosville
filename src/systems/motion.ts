@@ -10,7 +10,7 @@ export {
   motionPlanSignature,
   stableMotionPhase,
 } from "./motion-planning";
-export { shipCycleTempo, SPEED_QUARTILE_SCALARS, CYCLE_TEMPO_LABELS } from "./ship-cycle-tempo";
+export { shipCycleTempo, precomputeShipTempos, SPEED_QUARTILE_SCALARS, CYCLE_TEMPO_LABELS } from "./ship-cycle-tempo";
 export { buildShipWaterRoute } from "./motion-water";
 export {
   clearShipHeadingMemory,

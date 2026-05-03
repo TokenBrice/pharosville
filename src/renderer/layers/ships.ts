@@ -600,9 +600,16 @@ function drawShipWakeRaw(input: DrawPharosVilleInput, frame: ShipRenderFrame, sh
     const changeIntensity = Math.min(1, Math.abs(ship.change24hPct ?? 0) * 18 + 0.2);
     const sampleIntensity = sample?.wakeIntensity ?? 0;
     const intensity = Math.max(sampleIntensity, motion.plan.moverShipIds.has(ship.id) ? changeIntensity : 0);
-    drawWake(ctx, p.x, p.y + 8 * camera.zoom, camera.zoom, intensity, sample?.heading ?? { x: -1, y: 0 }, sample?.zone ?? ship.riskZone);
+    // E2: wakeMultiplier (0.85–1.6 from the route, populated from
+    // change24hPct at plan-build) modulates wake stroke *width*, not alpha.
+    // The alpha formula `0.22 + intensity × style.alphaScale` has alphaScale
+    // 0.10–0.22 by zone, so a 1.5× multiplier on intensity moves alpha by
+    // ~3% — invisible. Threading the multiplier into lineWidth produces a
+    // visibly thicker wake for high-mover ships at any zoom.
+    const wakeMultiplier = motion.plan.shipRoutes.get(ship.id)?.wakeMultiplier ?? 1;
+    drawWake(ctx, p.x, p.y + 8 * camera.zoom, camera.zoom, intensity, sample?.heading ?? { x: -1, y: 0 }, sample?.zone ?? ship.riskZone, wakeMultiplier);
     const { nightFactor } = skyState(motion);
-    drawNightWakeGlow(ctx, p.x, p.y + 8 * camera.zoom, camera.zoom, intensity, sample?.heading ?? { x: -1, y: 0 }, nightFactor);
+    drawNightWakeGlow(ctx, p.x, p.y + 8 * camera.zoom, camera.zoom, intensity, sample?.heading ?? { x: -1, y: 0 }, nightFactor, wakeMultiplier);
     if (isTitanSprite) {
       drawTitanBowSpray(
         ctx,
@@ -1828,6 +1835,7 @@ function drawWake(
   intensity: number,
   heading: { x: number; y: number },
   zone: ShipWaterZone,
+  wakeMultiplier: number = 1,
 ) {
   const style = wakeStyleForZone(zone);
   const headingMagnitude = Math.sqrt(heading.x * heading.x + heading.y * heading.y);
@@ -1839,7 +1847,7 @@ function drawWake(
   const cy = fx;
   ctx.save();
   ctx.strokeStyle = wakeRgba(style, 0.22 + intensity * style.alphaScale);
-  ctx.lineWidth = Math.max(1, zoom * style.lineScale);
+  ctx.lineWidth = Math.max(1, zoom * style.lineScale * wakeMultiplier);
   for (let index = 0; index < 3; index += 1) {
     const offset = index * style.spacing * zoom;
     const baseDistance = (14 + offset) * zoom;
@@ -1867,6 +1875,7 @@ function drawNightWakeGlow(
   intensity: number,
   heading: { x: number; y: number },
   nightFactor: number,
+  wakeMultiplier: number = 1,
 ) {
   if (nightFactor <= 0) return;
   const headingMagnitude = Math.sqrt(heading.x * heading.x + heading.y * heading.y);
@@ -1880,7 +1889,7 @@ function drawNightWakeGlow(
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
   ctx.strokeStyle = `rgba(80, 215, 195, ${Math.min(0.45, glowAlpha)})`;
-  ctx.lineWidth = Math.max(1, zoom * 1.4);
+  ctx.lineWidth = Math.max(1, zoom * 1.4 * wakeMultiplier);
   ctx.lineCap = "round";
   for (let index = 0; index < 3; index += 1) {
     const offset = index * 6 * zoom;

@@ -211,10 +211,20 @@ test.describe("sustained-motion perf telemetry", () => {
       expect(maxHeadingDelta).toBeLessThanOrEqual(720);
     }
 
-    // A2: position delta guard — no ship should jump more than 0.5 tiles/frame.
+    // A2: position delta guard. Two-tier check:
+    //   - Hard ceiling 0.5 tiles/frame across all polls (catches teleports).
+    //   - Tighter post-warmup ceiling 0.15 tiles/frame on samples after the
+    //     first 20 polls (~1s) — catches D2/D3-class seam regressions that
+    //     produce sub-tile jumps. 0.15 still leaves wide headroom over typical
+    //     sail speeds (~0.0017 tiles/frame at 60fps).
     if (positionDeltas.length > 0) {
       const maxPositionDelta = positionDeltas.reduce((m, v) => (v > m ? v : m), 0);
       expect(maxPositionDelta).toBeLessThanOrEqual(0.5);
+      const postWarmup = positionDeltas.slice(20);
+      if (postWarmup.length > 0) {
+        const maxPostWarmup = postWarmup.reduce((m, v) => (v > m ? v : m), 0);
+        expect(maxPostWarmup).toBeLessThanOrEqual(0.15);
+      }
     }
 
     // A3: route cache hit ratio — observed ~0.5 over a 5s harbor sustained

@@ -43,6 +43,10 @@ export interface ShipCycleTempoResult {
  * Single source of truth used by motion-planning, detail-model, and
  * accessibility-ledger so the quartile logic is never duplicated.
  *
+ * Each call sorts the full marketCap array (O(N log N)). When you need
+ * tempos for many ships in the same fleet, prefer `precomputeShipTempos` —
+ * it amortizes the sort to a single pass.
+ *
  * @param ship - The ship to compute tempo for.
  * @param allShips - All ships in the world (including `ship`).
  */
@@ -54,6 +58,46 @@ export function shipCycleTempo(ship: ShipNode, allShips: readonly ShipNode[]): S
     label: CYCLE_TEMPO_LABELS[quartile],
     scalar: SPEED_QUARTILE_SCALARS[quartile],
   };
+}
+
+/**
+ * Precompute cycle-tempo descriptors for every ship in a fleet with one sort.
+ * Returns a Map keyed on ship id. O(N log N) total instead of O(N² log N) for
+ * naive `ships.map(s => shipCycleTempo(s, ships))`.
+ *
+ * Use this whenever you need tempos for more than one ship in the same fleet:
+ * plan-build (`buildBaseMotionPlan`), detail-index, accessibility-ledger.
+ */
+export function precomputeShipTempos(allShips: readonly ShipNode[]): Map<string, ShipCycleTempoResult> {
+  const result = new Map<string, ShipCycleTempoResult>();
+  if (allShips.length === 0) return result;
+  if (allShips.length === 1) {
+    const ship = allShips[0]!;
+    result.set(ship.id, {
+      quartile: 0,
+      label: CYCLE_TEMPO_LABELS[0],
+      scalar: SPEED_QUARTILE_SCALARS[0],
+    });
+    return result;
+  }
+  const sorted = allShips.map((s) => s.marketCapUsd).sort((a, b) => a - b);
+  const n = sorted.length;
+  const q1 = sorted[Math.floor(n * 0.25)]!;
+  const q2 = sorted[Math.floor(n * 0.5)]!;
+  const q3 = sorted[Math.floor(n * 0.75)]!;
+  for (const ship of allShips) {
+    let quartile: 0 | 1 | 2 | 3;
+    if (ship.marketCapUsd < q1) quartile = 0;
+    else if (ship.marketCapUsd < q2) quartile = 1;
+    else if (ship.marketCapUsd < q3) quartile = 2;
+    else quartile = 3;
+    result.set(ship.id, {
+      quartile,
+      label: CYCLE_TEMPO_LABELS[quartile],
+      scalar: SPEED_QUARTILE_SCALARS[quartile],
+    });
+  }
+  return result;
 }
 
 /**

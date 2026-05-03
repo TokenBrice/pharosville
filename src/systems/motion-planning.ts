@@ -12,7 +12,7 @@ import { nearestRiskPlacementWaterTile } from "./risk-water-placement";
 import { SEAWALL_BARRIER_TILES } from "./seawall";
 import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipDockMotionStop, ShipMotionRoute, ShipMotionRouteStop, ShipMotionSample, ShipWaterPath, ShipWaterRouteCache } from "./motion-types";
 import type { DockNode, PharosVilleMap, PharosVilleWorld, ShipDockVisit, ShipNode } from "./world-types";
-import { shipCycleTempo } from "./ship-cycle-tempo";
+import { precomputeShipTempos } from "./ship-cycle-tempo";
 
 // World identity is stable across React re-renders for the same TanStack
 // payload, so memoizing the signature on the world reference turns ~1000
@@ -205,10 +205,12 @@ export function buildBaseMotionPlan(world: PharosVilleWorld, timeSeconds = 0): P
   const waterRouteCache = getMapPathCache(world.map, world.ships.length);
 
   // Compute per-ship speed scalars from marketCap quartiles once, at plan-build
-  // time, so the per-ship route builder doesn't repeat the fleet-wide sort.
+  // time. `precomputeShipTempos` does a single sort over the fleet (O(N log N))
+  // instead of N independent sorts (O(N² log N)) that the prior loop incurred.
+  const tempoById = precomputeShipTempos(world.ships);
   const speedScalarById = new Map<string, number>();
-  for (const ship of world.ships) {
-    speedScalarById.set(ship.id, shipCycleTempo(ship, world.ships).scalar);
+  for (const [shipId, tempo] of tempoById) {
+    speedScalarById.set(shipId, tempo.scalar);
   }
 
   // Build flagship route per squad first, so each squad's consorts can inherit
