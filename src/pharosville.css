@@ -167,18 +167,6 @@ textarea {
   outline-offset: 3px;
 }
 
-@media (max-width: 999px), (max-height: 639px) {
-  .pharosville-desktop {
-    display: none;
-  }
-}
-
-@media (min-width: 1000px) and (min-height: 640px) {
-  .pharosville-narrow {
-    display: none;
-  }
-}
-
 .pharosville-narrow {
   min-height: 100svh;
   padding: 32px 18px;

@@ -103,6 +103,19 @@ const RISK_WATER_AREA_DETAILS = [
   { detailId: "area.dews.danger", label: "Danger Strait", zone: "danger" },
   { detailId: "area.risk-water.ledger-mooring", label: "Ledger Mooring", zone: "ledger" },
 ] as const;
+async function mockScreenSize(page: Page, width: number, height: number): Promise<void> {
+  // The desktop gate now reads `window.screen.width/height` rather than
+  // viewport dimensions. Playwright's `setViewportSize` only changes the
+  // viewport, so screen-gate tests need to override `screen.{width,height}`
+  // before navigation.
+  await page.addInitScript(({ w, h }) => {
+    Object.defineProperty(window.screen, "width", { configurable: true, get: () => w });
+    Object.defineProperty(window.screen, "height", { configurable: true, get: () => h });
+    Object.defineProperty(window.screen, "availWidth", { configurable: true, get: () => w });
+    Object.defineProperty(window.screen, "availHeight", { configurable: true, get: () => h });
+  }, { w: width, h: height });
+}
+
 async function installWallClockOverride(page: Page, hour: number): Promise<void> {
   // Set a global the renderer reads BEFORE its reduced-motion noon pin (see
   // pharosville-world.tsx). Also override Date.prototype.getHours/getMinutes
@@ -643,6 +656,7 @@ test("pharosville narrow fallback avoids world runtime requests", async ({ page 
   await page.emulateMedia({ reducedMotion: "reduce" });
   const deniedRequests = await denyPharosVilleViewportGatedRequests(page);
 
+  await mockScreenSize(page, 999, 900);
   await page.setViewportSize({ width: 999, height: 900 });
   await installWallClockOverride(page, 12);
   await page.goto("/");
@@ -658,6 +672,7 @@ test("pharosville short desktop fallback avoids clipped map", async ({ page }) =
   await page.emulateMedia({ reducedMotion: "reduce" });
   const deniedRequests = await denyPharosVilleViewportGatedRequests(page);
 
+  await mockScreenSize(page, 1000, 639);
   await page.setViewportSize({ width: 1000, height: 639 });
   await installWallClockOverride(page, 12);
   await page.goto("/");
@@ -667,28 +682,38 @@ test("pharosville short desktop fallback avoids clipped map", async ({ page }) =
   expect(deniedRequests).toEqual([]);
 });
 
-test("pharosville desktop gate includes threshold viewport and excludes edge-below viewports", async ({ page }) => {
+test("pharosville desktop gate passes at threshold screen and falls back below it", async ({ page }) => {
   await mockPharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
 
+  await mockScreenSize(page, 1000, 640);
   await page.setViewportSize({ width: 1000, height: 640 });
   await installWallClockOverride(page, 12);
   await page.goto("/");
   await expect(page.getByTestId("pharosville-canvas")).toBeVisible();
   await waitForRuntimeDebug(page, true);
 
-  await page.setViewportSize({ width: 999, height: 640 });
-  await expect(page.getByText("PharosVille needs a wider harbor.")).toBeVisible();
-  await expect(page.getByTestId("pharosville-canvas")).toHaveCount(0);
-
-  await page.setViewportSize({ width: 1000, height: 639 });
-  await expect(page.getByText("PharosVille needs a wider harbor.")).toBeVisible();
-  await expect(page.getByTestId("pharosville-canvas")).toHaveCount(0);
+  // Edge-below screen sizes go to the fallback. Use a fresh page for each
+  // assertion since `screen.{width,height}` is fixed at navigation time.
+  for (const [w, h] of [[999, 640], [1000, 639]] as const) {
+    const edgePage = await page.context().newPage();
+    await edgePage.emulateMedia({ reducedMotion: "reduce" });
+    await mockScreenSize(edgePage, w, h);
+    await edgePage.setViewportSize({ width: w, height: h });
+    await installWallClockOverride(edgePage, 12);
+    await edgePage.goto("/");
+    await expect(edgePage.getByText("PharosVille needs a wider harbor.")).toBeVisible();
+    await expect(edgePage.getByTestId("pharosville-canvas")).toHaveCount(0);
+    await edgePage.close();
+  }
 });
 
-test("pharosville resizing below desktop gate unmounts world runtime and stops gated requests", async ({ page }) => {
+test("pharosville keeps world runtime mounted when the browser window is resized below the old viewport gate", async ({ page }) => {
+  // Under the screen-capability gate, only the device's screen size matters;
+  // shrinking the browser window must NOT unmount the world runtime.
   await mockPharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "no-preference" });
+  await mockScreenSize(page, 1920, 1080);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await installWallClockOverride(page, 12);
   await page.goto("/");
@@ -697,25 +722,17 @@ test("pharosville resizing below desktop gate unmounts world runtime and stops g
   const beforeResize = await readRuntimeSnapshot(page);
   expect(beforeResize.activeMotionLoopCount).toBe(1);
 
-  const postResizeGatedRequests: string[] = [];
-  page.on("request", (request) => {
-    const url = new URL(request.url());
-    if (isPharosVilleViewportGatedRequest(url)) {
-      postResizeGatedRequests.push(`${url.pathname}${url.search}`);
-    }
-  });
-
   await page.setViewportSize({ width: 999, height: 639 });
-  await expect(page.getByText("PharosVille needs a wider harbor.")).toBeVisible();
-  await expect(page.getByTestId("pharosville-canvas")).toHaveCount(0);
+  await expect(page.getByTestId("pharosville-canvas")).toBeVisible();
+  await expect(page.getByText("PharosVille needs a wider harbor.")).toHaveCount(0);
   await page.waitForTimeout(150);
 
   const debugAfterResize = await page.evaluate(() => {
     const debug = (window as typeof window & { __pharosVilleDebug?: PharosVilleVisualDebug }).__pharosVilleDebug;
     return debug ?? null;
   });
-  expect(debugAfterResize).toBeNull();
-  expect(postResizeGatedRequests).toEqual([]);
+  expect(debugAfterResize).not.toBeNull();
+  expect(debugAfterResize?.activeMotionLoopCount).toBe(1);
 });
 
 test("pharosville ultrawide canvas keeps DPR backing store capped", async ({ baseURL, browser }) => {
