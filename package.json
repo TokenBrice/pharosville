@@ -12,7 +12,7 @@
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint . --max-warnings=50",
+    "lint": "eslint . --max-warnings=0",
     "lint:fix": "eslint . --fix",
     "test": "vitest run",
     "test:visual": "playwright test tests/visual/pharosville.spec.ts",
@@ -48,7 +48,7 @@
     "check:release-admin": "npm run check:branch-protection",
     "check:release-readiness": "npm run check:security-headers && npm run test:visual:cross-browser && npm run test:visual:dist:accessibility && npm run smoke:live -- --url https://pharosville.pharos.watch",
     "validate:docs": "npm run test:guard-scripts && npm run check:doc-paths-and-scripts && npm run check:viewport-gate",
-    "validate": "npm run check:committed-secrets && npm run validate:docs && npm run check:pharosville-assets && npm run check:pharosville-colors && npm run typecheck && npm test && npm run build && npm run check:bundle-size",
+    "validate": "npm run check:committed-secrets && npm run validate:docs && npm run check:pharosville-assets && npm run check:pharosville-colors && npm run typecheck && npm run lint && npm test && npm run build && npm run check:bundle-size",
     "validate:release": "npm run validate && npm run test:visual:dist && npm run test:visual:dist:accessibility",
     "deploy": "wrangler pages deploy dist --project-name=pharosville"
   },

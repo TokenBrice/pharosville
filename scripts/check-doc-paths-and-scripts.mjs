@@ -29,7 +29,7 @@ const onboardingLintRules = [
   },
 ];
 const repoRootPathPattern =
-  /\b(?:README\.md|AGENTS\.md|CLAUDE\.md|package\.json|package-lock\.json|wrangler\.toml|vite\.config\.ts|vitest\.config\.ts|playwright\.config\.ts|tsconfig\.json|(?:agent|agents|data|docs|functions|public|scripts|shared|src|tests)\/[A-Za-z0-9._~!$&'()+,;=:@%/\-[\]\*{}]+)(?=$|[\s`),.;])/g;
+  /\b(?:README\.md|AGENTS\.md|CLAUDE\.md|package\.json|package-lock\.json|wrangler\.toml|vite\.config\.ts|vitest\.config\.ts|playwright\.config\.ts|tsconfig\.json|(?:agent|agents|data|docs|functions|public|scripts|shared|src|tests)\/[A-Za-z0-9._~!$&'()+,;=:@%/\-[\]*{}]+)(?=$|[\s`),.;])/g;
 const repoRootPathStartPattern =
   /^(?:README\.md|AGENTS\.md|CLAUDE\.md|package\.json|package-lock\.json|wrangler\.toml|vite\.config\.ts|vitest\.config\.ts|playwright\.config\.ts|tsconfig\.json|(?:agent|agents|data|docs|functions|public|scripts|shared|src|tests)\/)/;
 
@@ -75,6 +75,33 @@ export function isOnboardingMarkdownPath(filePath) {
   return onboardingScopePrefixes.some((prefix) => filePath === prefix || filePath.startsWith(prefix));
 }
 
+// Maximum age of a "Last updated:" date in onboarding-scope docs before we
+// emit a warning. Set to 0 to disable. Override with PV_DOC_STALENESS_DAYS env.
+const DOC_STALENESS_DAYS = Number.parseInt(
+  process.env.PV_DOC_STALENESS_DAYS ?? "30",
+  10,
+);
+
+const lastUpdatedDatePattern = /^Last updated:\s*(\d{4}-\d{2}-\d{2})/m;
+
+function staleDocFindings(filePath, text) {
+  if (DOC_STALENESS_DAYS <= 0) return [];
+  const match = text.match(lastUpdatedDatePattern);
+  if (!match) return [];
+  const stamp = new Date(`${match[1]}T00:00:00Z`);
+  if (Number.isNaN(stamp.getTime())) return [];
+  const ageDays = Math.floor((Date.now() - stamp.getTime()) / 86_400_000);
+  if (ageDays <= DOC_STALENESS_DAYS) return [];
+  return [{
+    filePath,
+    line: lineNumberForIndex(text, match.index ?? 0),
+    id: "doc-staleness",
+    severity: "warning",
+    message: `"Last updated: ${match[1]}" is ${ageDays} days old (threshold ${DOC_STALENESS_DAYS}). Refresh this doc or rotate the date if still accurate.`,
+    snippet: match[0],
+  }];
+}
+
 export function findOnboardingDocFindings(filePath, text) {
   const findings = [];
 
@@ -90,6 +117,8 @@ export function findOnboardingDocFindings(filePath, text) {
       });
     }
   }
+
+  findings.push(...staleDocFindings(filePath, text));
 
   if (filePath === "AGENTS.md" && !text.includes("docs/pharosville/AGENT_ONBOARDING.md")) {
     findings.push({
@@ -310,12 +339,24 @@ function main() {
     }
   }
 
-  if (onboardingFindings.length > 0) {
+  const onboardingWarnings = onboardingFindings.filter((f) => f.severity === "warning");
+  const onboardingErrors = onboardingFindings.filter((f) => f.severity !== "warning");
+
+  if (onboardingErrors.length > 0) {
     failed = true;
     console.error("Agent onboarding doc check failed:");
-    for (const finding of onboardingFindings) {
+    for (const finding of onboardingErrors) {
       console.error(
         `- ${finding.filePath}:${finding.line} [${finding.id}] ${finding.message} (${finding.snippet})`,
+      );
+    }
+  }
+
+  if (onboardingWarnings.length > 0) {
+    console.warn("Agent onboarding doc warnings (non-blocking):");
+    for (const finding of onboardingWarnings) {
+      console.warn(
+        `- ${finding.filePath}:${finding.line} [${finding.id}] ${finding.message}`,
       );
     }
   }
@@ -325,7 +366,7 @@ function main() {
   }
 
   console.log(`Documentation path/script check passed for ${markdownFiles.length} markdown files.`);
-  console.log(`Agent onboarding doc check passed for ${onboardingFiles.length} markdown files.`);
+  console.log(`Agent onboarding doc check passed for ${onboardingFiles.length} markdown files (${onboardingWarnings.length} warnings).`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
