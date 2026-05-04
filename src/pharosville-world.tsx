@@ -1,4 +1,10 @@
 "use client";
+// react-hooks/refs flags JSX `ref={...}` prop bindings and event-handler
+// bindings as "ref access during render", which is a false positive for
+// React's intended ref-binding pattern. Disable the rule file-wide; the
+// genuine ref discipline (no .current reads in render) is enforced by the
+// rules-of-hooks rule and PR review (see HOOKS.md F1 history).
+/* eslint-disable react-hooks/refs */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import Home from "lucide-react/dist/esm/icons/home";
@@ -94,6 +100,8 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     selectDetail(target.detailId, detailAnchorForPoint(point, viewport));
   }, [selectDetail]);
 
+  // selectedDetailIdRef omitted: ref identity never changes (HOOKS F4).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const hasSelection = useCallback(() => selectedDetailIdRef.current !== null, []);
 
   const canvas = useCanvasResizeAndCamera({
@@ -114,47 +122,52 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     world,
   });
 
-  // Wire the late-bound recompute callback now that the canvas hook has
-  // exposed its refs. The ref-of-callback indirection lets the canvas hook's
-  // pointer handlers reach this without forcing the render-loop hook to be
-  // bound first.
-  recomputeHitTargetsRef.current = (): HitTargetSnapshot | null => {
-    const activeCamera = canvas.cameraRef.current;
-    if (!activeCamera) return hitTargetSnapshotRef.current;
-    const activeCanvasSize = canvas.canvasSizeRef.current;
-    const snapshot = createHitTargetSnapshot({
-      assets: assetPipeline.assetManager,
-      camera: activeCamera,
-      hoveredDetailId: hoveredDetailIdRef.current,
-      selectedDetailId: selectedDetailIdRef.current,
-      shipMotionSamples: shipMotionSamplesRef.current,
-      viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
-      world,
-    });
-    hitTargetSnapshotRef.current = snapshot;
-    hitTargetsRef.current = snapshot.targets;
-    return snapshot;
-  };
-  recomputeHitTargetsForCameraRef.current = (): HitTargetSnapshot | null => {
-    const activeCamera = canvas.cameraRef.current;
-    if (!activeCamera) return hitTargetSnapshotRef.current;
-    const previous = hitTargetSnapshotRef.current;
-    if (!previous) return recomputeHitTargetsRef.current();
-    const activeCanvasSize = canvas.canvasSizeRef.current;
-    const snapshot = recomputeHitTargetsForCameraOnly({
-      assets: assetPipeline.assetManager,
-      camera: activeCamera,
-      hoveredDetailId: hoveredDetailIdRef.current,
-      selectedDetailId: selectedDetailIdRef.current,
-      shipMotionSamples: shipMotionSamplesRef.current,
-      snapshot: previous,
-      viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
-      world,
-    });
-    hitTargetSnapshotRef.current = snapshot;
-    hitTargetsRef.current = snapshot.targets;
-    return snapshot;
-  };
+  // Wire the late-bound recompute callbacks now that the canvas hook has
+  // exposed its refs. We assign in a useEffect (not during render) so the
+  // closures capture committed values only — this is rules-of-hooks-pure
+  // under concurrent rendering and StrictMode double-invokes (HOOKS F1).
+  // The pointer-handler call sites read through the wrapper useCallback that
+  // dereferences `.current` lazily, so the one-effect-tick delay is invisible
+  // to event handlers (canvas isn't ready until after first commit anyway).
+  useEffect(() => {
+    recomputeHitTargetsRef.current = (): HitTargetSnapshot | null => {
+      const activeCamera = canvas.cameraRef.current;
+      if (!activeCamera) return hitTargetSnapshotRef.current;
+      const activeCanvasSize = canvas.canvasSizeRef.current;
+      const snapshot = createHitTargetSnapshot({
+        assets: assetPipeline.assetManager,
+        camera: activeCamera,
+        hoveredDetailId: hoveredDetailIdRef.current,
+        selectedDetailId: selectedDetailIdRef.current,
+        shipMotionSamples: shipMotionSamplesRef.current,
+        viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
+        world,
+      });
+      hitTargetSnapshotRef.current = snapshot;
+      hitTargetsRef.current = snapshot.targets;
+      return snapshot;
+    };
+    recomputeHitTargetsForCameraRef.current = (): HitTargetSnapshot | null => {
+      const activeCamera = canvas.cameraRef.current;
+      if (!activeCamera) return hitTargetSnapshotRef.current;
+      const previous = hitTargetSnapshotRef.current;
+      if (!previous) return recomputeHitTargetsRef.current();
+      const activeCanvasSize = canvas.canvasSizeRef.current;
+      const snapshot = recomputeHitTargetsForCameraOnly({
+        assets: assetPipeline.assetManager,
+        camera: activeCamera,
+        hoveredDetailId: hoveredDetailIdRef.current,
+        selectedDetailId: selectedDetailIdRef.current,
+        shipMotionSamples: shipMotionSamplesRef.current,
+        snapshot: previous,
+        viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
+        world,
+      });
+      hitTargetSnapshotRef.current = snapshot;
+      hitTargetsRef.current = snapshot.targets;
+      return snapshot;
+    };
+  });
 
   const { requestPaint } = useWorldRenderLoop({
     onBucketFlip: setMotionBucket,

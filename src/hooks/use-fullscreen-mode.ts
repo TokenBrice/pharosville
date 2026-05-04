@@ -3,13 +3,16 @@ import { useCallback, useEffect, useState, type RefObject } from "react";
 export function useFullscreenMode(shellRef: RefObject<HTMLElement | null>) {
   const [fullscreenMode, setFullscreenMode] = useState(false);
 
+  // shellRef is omitted from every dep array below: ref identity never
+  // changes, so listing it is dep-list noise (HOOKS F4).
   const exitFullscreen = useCallback(() => {
     const shell = shellRef.current;
     setFullscreenMode(false);
     if (shell && document.fullscreenElement === shell) {
       void document.exitFullscreen?.();
     }
-  }, [shellRef]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const toggleFullscreen = useCallback(() => {
     const shell = shellRef.current;
@@ -27,7 +30,8 @@ export function useFullscreenMode(shellRef: RefObject<HTMLElement | null>) {
         });
       }
     }
-  }, [exitFullscreen, fullscreenMode, shellRef]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exitFullscreen, fullscreenMode]);
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -41,7 +45,8 @@ export function useFullscreenMode(shellRef: RefObject<HTMLElement | null>) {
     };
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
-  }, [shellRef]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return { exitFullscreen, fullscreenMode, toggleFullscreen };
 }

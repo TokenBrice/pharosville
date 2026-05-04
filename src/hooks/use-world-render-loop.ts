@@ -37,6 +37,14 @@ interface DetailAnchor extends ScreenPoint {
 }
 
 export interface UseWorldRenderLoopInput {
+  /**
+   * Called when the deterministic time bucket flips (every ~10 minutes of
+   * wall clock). MUST be reference-stable across renders — the RAF effect
+   * captures it once via an exhaustive-deps disable, so passing a fresh
+   * arrow function each render will silently strand the callback at the
+   * first-rendered identity. The current call site passes
+   * `setMotionBucket` directly (a useState dispatcher, which IS stable).
+   */
   onBucketFlip?: (bucket: number) => void;
   adaptiveDprStateRef: MutableRefObject<AdaptiveDprState>;
   assetLoadErrors: PharosVilleAssetLoadError[];
@@ -819,9 +827,20 @@ function isCameraWithinBounds(camera: IsoCamera | null, map: PharosVilleWorldMod
   );
 }
 
-function isVisualDebugAllowed() {
-  if (!import.meta.env.PROD) return true;
-  return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+// Cached at module scope: PROD vs dev never changes inside a session, and
+// hostname doesn't change for a SPA. The lazy initialiser keeps SSR / module
+// load safe by deferring the window read until first call. Evaluating once
+// (not on every effect-rebind tick) makes the per-render guard cost trivial
+// even when the body short-circuits (HOOKS F3).
+let cachedDebugAllowed: boolean | null = null;
+function isVisualDebugAllowed(): boolean {
+  if (cachedDebugAllowed === null) {
+    cachedDebugAllowed = !import.meta.env.PROD
+      || (typeof window !== "undefined"
+        && (window.location.hostname === "localhost"
+          || window.location.hostname === "127.0.0.1"));
+  }
+  return cachedDebugAllowed;
 }
 
 function motionCueCounts(input: {

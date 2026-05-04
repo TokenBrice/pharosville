@@ -170,7 +170,11 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       selectedDetailId: selectedDetailIdRef.current,
     });
     setHoveredDetailId((previous) => previous === target?.detailId ? previous : (target?.detailId ?? null));
-  }, [hitTargetSnapshotRef, hitTargetsRef, hoveredDetailIdRef, selectedDetailIdRef, setHoveredDetailId]);
+    // Refs (hitTargetSnapshotRef, hitTargetsRef, hoveredDetailIdRef,
+    // selectedDetailIdRef) are deliberately omitted: their identity never
+    // changes, so listing them is dep-list noise (HOOKS F4).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setHoveredDetailId]);
 
   const scheduleHoverUpdate = useCallback(() => {
     if (hoverFrameRef.current) return;
@@ -200,6 +204,8 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
         return sameCamera(previous, next) ? previous : next;
       });
     });
+    // canvasSizeRef omitted: ref identity never changes (HOOKS F4).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [world.map]);
 
   useEffect(() => () => {
@@ -280,6 +286,9 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     }
     pendingHoverPointRef.current = point;
     scheduleHoverUpdate();
+    // canvasSizeRef + pendingHoverPointRef omitted: ref identity never
+    // changes (HOOKS F4).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canvasPoint, scheduleDragPan, scheduleHoverUpdate, world.map]);
 
   const handlePointerLeave = useCallback(() => {
@@ -343,7 +352,10 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       return;
     }
     if (hasSelection()) onClearSelection();
-  }, [canvasPoint, hasSelection, hitTargetsRef, hoveredDetailIdRef, onClearSelection, onSelectTarget, recomputeHitTargets, resetPointerGesture, selectedDetailIdRef]);
+    // hitTargetsRef, hoveredDetailIdRef, selectedDetailIdRef omitted: ref
+    // identity never changes (HOOKS F4).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canvasPoint, hasSelection, onClearSelection, onSelectTarget, recomputeHitTargets, resetPointerGesture]);
 
   const handleWheel = useCallback((event: ReactWheelEvent<HTMLCanvasElement>) => {
     if (!camera) return;
@@ -427,7 +439,10 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       }
     };
     followTweenFrameRef.current = requestAnimationFrame(tick);
-  }, [cameraRef, canvasSize, reducedMotion, selectedEntity, shipMotionSamplesRef, world.map]);
+    // cameraRef, shipMotionSamplesRef omitted: ref identity never changes
+    // (HOOKS F4).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canvasSize, reducedMotion, selectedEntity, world.map]);
 
   useEffect(() => () => {
     if (followTweenFrameRef.current) cancelAnimationFrame(followTweenFrameRef.current);
