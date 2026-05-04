@@ -3,10 +3,8 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { DesktopOnlyFallback } from "./desktop-only-fallback";
 import { RotateToLandscape } from "./rotate-to-landscape";
 import { observeOrientation } from "./systems/orientation";
+import { isWidescreenViewport } from "./systems/viewport-gate";
 import "./pharosville.css";
-
-const MIN_LONG_SIDE_PX = 720;
-const MIN_SHORT_SIDE_PX = 360;
 
 const PharosVilleDesktopData = lazy(() => (
   import("./pharosville-desktop-data").then((mod) => ({ default: mod.PharosVilleDesktopData }))
@@ -14,10 +12,7 @@ const PharosVilleDesktopData = lazy(() => (
 
 function screenCanFitMap(): boolean {
   if (typeof window === "undefined" || !window.screen) return false;
-  const w = window.screen.width;
-  const h = window.screen.height;
-  if (!w || !h) return false;
-  return Math.max(w, h) >= MIN_LONG_SIDE_PX && Math.min(w, h) >= MIN_SHORT_SIDE_PX;
+  return isWidescreenViewport(window.screen.width, window.screen.height);
 }
 
 function useScreenCapability() {

@@ -2,6 +2,7 @@ node_modules/
 dist/
 .wrangler/
 .cache/
+.eslintcache
 test-results/
 playwright-report/
 .playwright-mcp/
