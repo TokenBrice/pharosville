@@ -40,19 +40,6 @@ describe("WorldToolbar (streamlined)", () => {
     expect(screen.queryByLabelText(/selected detail/i)).toBeNull();
   });
 
-  it("renders ledger toggle when handler provided, with aria-pressed reflecting visibility", () => {
-    render(
-      <WorldToolbar
-        zoomLabel="100%"
-        onResetView={vi.fn()}
-        onToggleLedger={vi.fn()}
-        ledgerVisible={true}
-      />,
-    );
-    const toggle = screen.getByRole("button", { name: /ledger/i });
-    expect(toggle.getAttribute("aria-pressed")).toBe("true");
-  });
-
   it("disables follow-selected when no handler is supplied", () => {
     render(<WorldToolbar zoomLabel="100%" onResetView={vi.fn()} />);
     const follow = screen.getByLabelText(/follow selected/i) as HTMLButtonElement;

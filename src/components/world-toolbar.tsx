@@ -9,28 +9,24 @@ import SunMoon from "lucide-react/dist/esm/icons/sun-moon";
 export interface WorldToolbarProps {
   autoNightCycle?: boolean;
   headingId?: string;
-  ledgerVisible?: boolean;
   nightMode?: boolean;
   selectedDetailId?: string | null;
   zoomLabel?: string;
   onFollowSelected?: () => void;
   onResetView?: () => void;
   onToggleAutoNightCycle?: () => void;
-  onToggleLedger?: () => void;
   onToggleNightMode?: () => void;
 }
 
 export function WorldToolbar({
   autoNightCycle = false,
   headingId = "pharosville-world-toolbar-title",
-  ledgerVisible = false,
   nightMode = false,
   selectedDetailId,
   zoomLabel = "100%",
   onFollowSelected,
   onResetView,
   onToggleAutoNightCycle,
-  onToggleLedger,
   onToggleNightMode,
 }: WorldToolbarProps) {
   return (
@@ -91,19 +87,6 @@ export function WorldToolbar({
           title={autoNightCycle ? "Auto day-night: on" : "Auto day-night: off"}
         >
           <SunMoon aria-hidden="true" size={18} />
-        </button>
-      )}
-
-      {onToggleLedger && (
-        <button
-          type="button"
-          className="pv-brass-button pharosville-world-toolbar__ledger-button"
-          aria-pressed={ledgerVisible}
-          onClick={onToggleLedger}
-          aria-label={ledgerVisible ? "Hide accessibility ledger" : "Show accessibility ledger"}
-          title="Ledger"
-        >
-          Ledger
         </button>
       )}
     </div>

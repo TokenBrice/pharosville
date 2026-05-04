@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import X from "lucide-react/dist/esm/icons/x";
 import type { DetailModel } from "../systems/world-types";
 import { compactCurrency, composeCurrently } from "../lib/format-detail";
@@ -108,13 +109,29 @@ export function DetailPanel({
 }: DetailPanelProps) {
   const sections = buildSections(detail.facts);
   const heritage = detail.facts.find((fact) => HERITAGE_LABEL.test(fact.label))?.value;
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  // Move focus to close button on mount; restore to the previously focused
+  // element on unmount. If that element is no longer in the DOM, fall back
+  // to the canvas shell so keyboard users land somewhere predictable.
+  useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeButtonRef.current?.focus();
+    return () => {
+      if (previouslyFocused && document.contains(previouslyFocused)) {
+        previouslyFocused.focus();
+        return;
+      }
+      const fallback = document.querySelector<HTMLElement>('[data-testid="pharosville-world"]');
+      fallback?.focus();
+    };
+  }, []);
 
   return (
     <aside
       id={panelId}
       className="pharosville-detail-panel"
       aria-labelledby={headingId}
-      aria-live="polite"
       data-testid="pharosville-detail-panel"
     >
       <span className="pv-corner-brass pv-corner-brass--tl" aria-hidden="true" />
@@ -175,7 +192,12 @@ export function DetailPanel({
 
         {onClose && (
           <div className="pharosville-detail-panel__close-wrap">
-            <button className="pharosville-detail-panel__close pv-panel-link" type="button" onClick={onClose}>
+            <button
+              ref={closeButtonRef}
+              className="pharosville-detail-panel__close pv-panel-link"
+              type="button"
+              onClick={onClose}
+            >
               <X size={14} aria-hidden="true" /> Close details
             </button>
           </div>

@@ -288,7 +288,7 @@ textarea {
   --pv-gold: #b99a62;
   --pv-gold-bright: #d8c58c;
   --pv-parchment: #d8d0b7;
-  --pv-muted: rgba(216, 208, 183, 0.72);
+  --pv-muted: rgba(216, 208, 183, 0.92);
   --pv-border: rgba(185, 154, 98, 0.62);
   --pv-border-dark: rgba(79, 104, 103, 0.38);
   --pv-ruby: #be6e55;
@@ -556,6 +556,8 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-height: 44px;
+  min-width: 44px;
   margin: 0;
 }
 
@@ -575,13 +577,6 @@ textarea {
 .pharosville-world-toolbar .pv-corner-brass--tr { top: -4px; right: -4px; }
 .pharosville-world-toolbar .pv-corner-brass--bl { bottom: -4px; left: -4px; }
 .pharosville-world-toolbar .pv-corner-brass--br { bottom: -4px; right: -4px; }
-.pharosville-world-toolbar__ledger-button {
-  width: auto;
-  padding: 0 12px;
-  font: 900 11px Georgia, serif;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
 
 .pharosville-fullscreen-button,
 .pharosville-home-button {
