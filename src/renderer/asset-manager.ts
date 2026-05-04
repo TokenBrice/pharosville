@@ -1,7 +1,6 @@
 import type {
   PharosVilleAssetManifest,
   PharosVilleAssetManifestEntry,
-  PharosVilleAssetPhase,
 } from "../systems/asset-manifest";
 import { assetPhase, assetUrl, manifestCacheVersion, PHAROSVILLE_ASSET_MANIFEST_PATH } from "../systems/asset-manifest";
 
@@ -53,6 +52,11 @@ export interface PharosVilleAssetLoadStats {
   totalAssetCount: number;
   visibleCriticalAssetCount: number;
   visibleCriticalLoadedCount: number;
+  /** Total count of `get(id)` calls that returned null. Diagnoses callers
+      blindly drawing assets that aren't loaded (or were never declared). */
+  totalAssetMisses: number;
+  /** Distinct asset ids that have ever been missed in this session. */
+  uniqueMissedAssetIds: number;
 }
 
 export const PHAROSVILLE_CRITICAL_ASSET_CONCURRENCY = 6;
@@ -89,8 +93,32 @@ export class PharosVilleAssetManager {
   private shellCriticalLoadedCount = 0;
   private visibleCriticalLoadedCount = 0;
 
+  // Telemetry: counts every `get()` call that returns null (asset isn't
+  // loaded yet, was never declared, or failed to load). Surfaced via
+  // `getMissStats()` and folded into `getLoadStats()`. Used to diagnose
+  // visual glitches caused by callers blindly drawing without a fallback.
+  private missCountsById = new Map<string, number>();
+
   get(id: string): LoadedPharosVilleAsset | null {
-    return this.assets.get(id) ?? null;
+    const hit = this.assets.get(id);
+    if (hit) return hit;
+    this.missCountsById.set(id, (this.missCountsById.get(id) ?? 0) + 1);
+    return null;
+  }
+
+  getMissStats(): { totalMisses: number; uniqueMissedIds: number; topMissedIds: ReadonlyArray<{ id: string; count: number }> } {
+    let totalMisses = 0;
+    const entries: Array<{ id: string; count: number }> = [];
+    for (const [id, count] of this.missCountsById) {
+      totalMisses += count;
+      entries.push({ id, count });
+    }
+    entries.sort((a, b) => b.count - a.count);
+    return {
+      totalMisses,
+      uniqueMissedIds: this.missCountsById.size,
+      topMissedIds: entries.slice(0, 10),
+    };
   }
 
   getManifest(): PharosVilleAssetManifest | null {
@@ -123,7 +151,15 @@ export class PharosVilleAssetManager {
       totalAssetCount: summary?.totalAssetCount ?? 0,
       visibleCriticalAssetCount: summary?.visibleCriticalAssetCount ?? 0,
       visibleCriticalLoadedCount: this.visibleCriticalLoadedCount,
+      totalAssetMisses: this.totalMissCount(),
+      uniqueMissedAssetIds: this.missCountsById.size,
     };
+  }
+
+  private totalMissCount(): number {
+    let total = 0;
+    for (const count of this.missCountsById.values()) total += count;
+    return total;
   }
 
   getAssetLoadProgressKey(): number {
