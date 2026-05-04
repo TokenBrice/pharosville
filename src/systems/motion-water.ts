@@ -108,11 +108,29 @@ export function sampleShipWaterPath(path: ShipWaterPath | undefined, progress: n
   return { point, heading };
 }
 
+// F10: Per-ship cache of the last `waterPathSegmentIndex` result. Path progress
+// is monotonically increasing during normal animation, so the next frame's
+// segment is almost always the same or the immediate successor. Using the cached
+// hint converts the per-frame binary search (O(log N)) into a near-O(1) check
+// with a short forward walk, falling back to binary search when the hint misses.
+const waterSegmentHintByShipId = new Map<string, number>();
+
+// Constant-bounded forward walk before falling back to binary search. Keeps the
+// hint useful when progress steps over a couple of short segments per frame
+// while bounding the worst-case linear scan when the hint is stale (e.g. after
+// a path swap or a long pause).
+const SEGMENT_HINT_FORWARD_WALK = 4;
+
+// NOTE: callers always consume `heading` (lane offset application in
+// transitSampleInto, then either ship-pose smoothing or forward-difference
+// derivation). Adding a `headingOnly`/`skipHeading` parameter would dead-code
+// in production, so the normalize stays unconditional. See Task #13 audit.
 export function sampleShipWaterPathInto(
   path: ShipWaterPath | undefined,
   progress: number,
   point: { x: number; y: number },
   heading: { x: number; y: number },
+  shipId?: string,
 ): void {
   if (!path || path.points.length === 0) {
     point.x = 0;
@@ -131,7 +149,9 @@ export function sampleShipWaterPathInto(
   }
 
   const distance = clamp(progress, 0, 1) * path.totalLength;
-  const index = waterPathSegmentIndex(path.cumulativeLengths, distance);
+  const hint = shipId !== undefined ? waterSegmentHintByShipId.get(shipId) : undefined;
+  const index = waterPathSegmentIndex(path.cumulativeLengths, distance, hint);
+  if (shipId !== undefined) waterSegmentHintByShipId.set(shipId, index);
   const segmentEnd = path.cumulativeLengths[index]!;
   const segmentStart = path.cumulativeLengths[index - 1]!;
   const previous = path.points[index - 1]!;
@@ -142,9 +162,33 @@ export function sampleShipWaterPathInto(
   normalizeHeadingInto(current.x - previous.x, current.y - previous.y, heading);
 }
 
-function waterPathSegmentIndex(cumulativeLengths: readonly number[], distance: number): number {
+// Drop the cached segment-index hint for a ship. Pair with heading-memory
+// resets so a path swap doesn't reuse a hint pointing at the old geometry.
+export function clearShipWaterSegmentHint(shipId: string): void {
+  waterSegmentHintByShipId.delete(shipId);
+}
+
+function waterPathSegmentIndex(cumulativeLengths: readonly number[], distance: number, hint?: number): number {
+  const last = cumulativeLengths.length - 1;
+  if (last < 1) return 1;
+
+  // Hint fast path: the cached index is valid when the distance falls inside
+  // [cumulative[hint-1], cumulative[hint]]. Test it first, then walk forward a
+  // bounded number of segments before giving up to the binary search.
+  if (hint !== undefined && hint >= 1 && hint <= last) {
+    if (distance <= cumulativeLengths[hint]! && distance >= cumulativeLengths[hint - 1]!) {
+      return hint;
+    }
+    if (distance > cumulativeLengths[hint]!) {
+      const limit = Math.min(last, hint + SEGMENT_HINT_FORWARD_WALK);
+      for (let i = hint + 1; i <= limit; i += 1) {
+        if (distance <= cumulativeLengths[i]!) return i;
+      }
+    }
+  }
+
   let low = 1;
-  let high = cumulativeLengths.length - 1;
+  let high = last;
   while (low < high) {
     const mid = low + Math.floor((high - low) / 2);
     if (distance > cumulativeLengths[mid]!) {

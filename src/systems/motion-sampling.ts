@@ -2,7 +2,7 @@ import { MAX_TILE_X, MAX_TILE_Y } from "./world-layout";
 import { stableHash, stableUnit } from "./stable-random";
 import { DOCKED_SHIP_DWELL_SHARE, ZONE_DWELL } from "./motion-config";
 import { squadForMember, squadFormationOffsetForPlacement } from "./maker-squad";
-import { sampleShipWaterPathInto as sampleWaterPathInto, sampleShipWaterPath as sampleWaterPath } from "./motion-water";
+import { sampleShipWaterPathInto as sampleWaterPathInto, sampleShipWaterPath as sampleWaterPath, clearShipWaterSegmentHint } from "./motion-water";
 import { clamp, normalizeHeadingInto, pathKey, positiveModulo, smoothstep, smoothstepRange } from "./motion-utils";
 import type { PharosVilleMotionPlan, ShipMotionRoute, ShipMotionRouteStop, ShipMotionSample, ShipMotionState, ShipWaterPath } from "./motion-types";
 import type { ShipNode, ShipWaterZone } from "./world-types";
@@ -136,6 +136,7 @@ export function getShipHeadingDelta(shipId: string): number {
 export function clearShipHeadingMemory(shipId: string): void {
   headingMemoryByShipId.delete(shipId);
   wakeIntensityMemoryByShipId.delete(shipId);
+  clearShipWaterSegmentHint(shipId);
 }
 
 // D1: per-ship wake intensity low-pass memory. Mirrors headingMemoryByShipId.
@@ -472,7 +473,10 @@ function transitSampleInto(input: {
   timeSeconds: number;
 }, out: ShipMotionSample): void {
   // Write water-path point/heading directly into out.tile / out.heading.
-  sampleWaterPathInto(input.path, input.progress, out.tile, out.heading);
+  // F10: pass shipId so sampleWaterPathInto can reuse the per-ship segment-index
+  // hint (progress is monotonic along a path, so the cached index is almost
+  // always still valid or one segment forward).
+  sampleWaterPathInto(input.path, input.progress, out.tile, out.heading, input.route.shipId);
   // Apply lane offset (uses heading); write through a scratch tile because
   // the lane formula reads the un-offset point.
   transitLanePointInto(out.tile, out.heading, input.progress, input.runtime, transitTileScratch);
@@ -484,7 +488,7 @@ function transitSampleInto(input: {
   // shifts position perpendicular while heading stays straight, producing a
   // visible "crab" sideways motion.
   const aheadProgress = Math.min(1, input.progress + 0.01);
-  sampleWaterPathInto(input.path, aheadProgress, aheadPointScratch, aheadHeadingScratch);
+  sampleWaterPathInto(input.path, aheadProgress, aheadPointScratch, aheadHeadingScratch, input.route.shipId);
   transitLanePointInto(aheadPointScratch, aheadHeadingScratch, aheadProgress, input.runtime, aheadLaneScratch);
   const fdx = aheadLaneScratch.x - out.tile.x;
   const fdy = aheadLaneScratch.y - out.tile.y;

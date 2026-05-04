@@ -1,10 +1,14 @@
-import type { IsoCamera, ScreenPoint } from "../systems/projection";
+import { tileToScreen, type IsoCamera, type ScreenPoint } from "../systems/projection";
 import { isShipMapVisible, type ShipMotionSample } from "../systems/motion";
 import type { PharosVilleWorld } from "../systems/world-types";
-import type { PharosVilleAssetManager } from "./asset-manager";
+import type { LoadedPharosVilleAsset, PharosVilleAssetManager } from "./asset-manager";
 import {
+  areaLabelTargetRect,
+  assetTargetRect,
   entityAssetId,
+  fallbackTargetRect,
   resolveEntityGeometry,
+  type ScreenRect,
   type WorldSelectableEntity,
 } from "./geometry";
 
@@ -47,6 +51,14 @@ interface HitTargetRecord {
   geometry: {
     depth: number;
     targetRect: HitTarget["rect"];
+  };
+  // Cached world-space inputs reused by `recomputeHitTargetsForCameraOnly`
+  // so static entities skip the `entityFollowTile`/`entityDepthTile`/
+  // `drawableDepth` rebuild on every camera tick. Position-changing entities
+  // (ships) overwrite this when motion samples re-resolve their geometry.
+  worldGeometry: {
+    depthTile: { x: number; y: number };
+    followTile: { x: number; y: number };
   };
   sortIndex: number;
 }
@@ -165,6 +177,10 @@ function appendHitTargetRecord(
       depth: resolved.depth,
       targetRect: resolved.targetRect,
     },
+    worldGeometry: {
+      depthTile: resolved.depthTile,
+      followTile: resolved.followTile,
+    },
     sortIndex,
   });
 }
@@ -191,6 +207,11 @@ function staticHitTargetPrefixForWorld(world: PharosVilleWorld): readonly WorldS
  *
  * Falls back to a full rebuild when the existing snapshot is incompatible
  * (different selection/hover boost, or no prior snapshot).
+ *
+ * Performance: per-record world geometry (`followTile`, `depthTile`, `depth`)
+ * is reused from the previous snapshot — only the screen rect is re-projected
+ * for the new camera. The API contract guarantees positions are stable; ship
+ * motion changes route through `updateHitTargetSnapshotShips` instead.
  */
 export function recomputeHitTargetsForCameraOnly(input: {
   assets?: Pick<PharosVilleAssetManager, "get"> | null;
@@ -207,16 +228,16 @@ export function recomputeHitTargetsForCameraOnly(input: {
     const entity = previous.entity;
     const assetId = entityAssetId(entity);
     const asset = assetId ? input.assets?.get(assetId) ?? null : null;
-    const resolved = resolveEntityGeometry({
+    const targetRect = projectEntityTargetRect({
       asset,
       camera: input.camera,
       entity,
+      followTile: previous.worldGeometry.followTile,
       mapWidth: input.world.map.width,
-      shipMotionSamples: input.shipMotionSamples,
     });
     if (!shouldKeepHitTargetCandidate({
       entity,
-      geometry: resolved,
+      geometry: { targetRect },
       hoveredDetailId: input.hoveredDetailId ?? null,
       selectedDetailId: input.selectedDetailId ?? null,
       viewport: input.viewport ?? null,
@@ -226,9 +247,10 @@ export function recomputeHitTargetsForCameraOnly(input: {
     recordsById.set(entity.id, {
       entity,
       geometry: {
-        depth: resolved.depth,
-        targetRect: resolved.targetRect,
+        depth: previous.geometry.depth,
+        targetRect,
       },
+      worldGeometry: previous.worldGeometry,
       sortIndex: previous.sortIndex,
     });
   }
@@ -236,6 +258,30 @@ export function recomputeHitTargetsForCameraOnly(input: {
     hoveredDetailId: input.hoveredDetailId ?? null,
     selectedDetailId: input.selectedDetailId ?? null,
   });
+}
+
+// Re-project a record's cached world geometry to a new camera. Mirrors the
+// rect-selection branch in `resolveEntityGeometry`, but skips world-tile
+// resolution (cached) and the depth recompute (camera-independent).
+function projectEntityTargetRect(input: {
+  asset: LoadedPharosVilleAsset | null;
+  camera: IsoCamera;
+  entity: WorldSelectableEntity;
+  followTile: { x: number; y: number };
+  mapWidth: number;
+}): ScreenRect {
+  if (input.entity.kind === "area") return areaLabelTargetRect(input.entity, input.camera);
+  const screenPoint = tileToScreen(input.followTile, input.camera);
+  if (input.asset) {
+    return assetTargetRect({
+      asset: input.asset,
+      camera: input.camera,
+      entity: input.entity,
+      mapWidth: input.mapWidth,
+      point: screenPoint,
+    });
+  }
+  return fallbackTargetRect(input.entity, input.camera, screenPoint);
 }
 
 export function updateHitTargetSnapshotShips(input: {
@@ -261,29 +307,33 @@ export function updateHitTargetSnapshotShips(input: {
     }
   }
   const changedShipIdSet = new Set(changedShipIds);
-  let recordsById = input.snapshot.recordsById;
+  // Copy-on-write: keep a reference to the previous snapshot's recordsById
+  // and only allocate a new Map once we know an actual mutation will land.
+  // Pending writes (delete/set) are batched in `pendingDeletes`/`pendingSets`
+  // and flushed onto the cloned map in a single pass after the loop.
+  const previousRecordsById = input.snapshot.recordsById;
   const updatedRecordsByShipId = new Map<string, HitTargetRecord | null>();
+  const pendingSets = new Map<string, HitTargetRecord>();
+  const pendingDeletes = new Set<string>();
   let snapshotMutated = false;
-  let recordsByIdCloned = false;
 
   for (const shipId of changedShipIds) {
-    const previous = recordsById.get(shipId);
-    if (previous && !recordsByIdCloned) {
-      recordsById = new Map(recordsById);
-      recordsByIdCloned = true;
-    }
-    if (recordsByIdCloned && previous) {
-      recordsById.delete(shipId);
-    }
+    const previous = previousRecordsById.get(shipId);
     const ship = input.worldShipsById.get(shipId);
     if (!ship) {
-      if (previous) snapshotMutated = true;
+      if (previous) {
+        snapshotMutated = true;
+        pendingDeletes.add(shipId);
+      }
       updatedRecordsByShipId.set(shipId, null);
       continue;
     }
 
     if (!isShipMapVisible(ship, input.shipMotionSamples?.get(ship.id))) {
-      if (previous) snapshotMutated = true;
+      if (previous) {
+        snapshotMutated = true;
+        pendingDeletes.add(shipId);
+      }
       updatedRecordsByShipId.set(shipId, null);
       continue;
     }
@@ -304,28 +354,44 @@ export function updateHitTargetSnapshotShips(input: {
       selectedDetailId: input.selectedDetailId ?? null,
       viewport: input.viewport ?? null,
     })) {
-      if (previous) snapshotMutated = true;
+      if (previous) {
+        snapshotMutated = true;
+        pendingDeletes.add(shipId);
+      }
       updatedRecordsByShipId.set(shipId, null);
       continue;
     }
-    const nextRecord = {
+    const nextRecord: HitTargetRecord = {
       entity: ship,
       geometry: {
         depth: resolved.depth,
         targetRect: resolved.targetRect,
       },
+      worldGeometry: {
+        depthTile: resolved.depthTile,
+        followTile: resolved.followTile,
+      },
       sortIndex: previous?.sortIndex ?? shipSortIndex(input.world, shipId),
     };
-    if (!previous || !hitTargetRecordGeometryEquals(previous, nextRecord)) snapshotMutated = true;
-    updatedRecordsByShipId.set(shipId, nextRecord);
-    if (!recordsByIdCloned && !previous) {
-      recordsById = new Map(recordsById);
-      recordsByIdCloned = true;
+    if (!previous || !hitTargetRecordGeometryEquals(previous, nextRecord)) {
+      snapshotMutated = true;
+      pendingSets.set(shipId, nextRecord);
     }
-    recordsById.set(shipId, nextRecord);
+    updatedRecordsByShipId.set(shipId, nextRecord);
   }
 
   if (!snapshotMutated) return input.snapshot;
+
+  // First confirmed write: clone the records map and apply all batched
+  // deletes/sets in one pass. When no ships actually change geometry the
+  // early return above keeps the input snapshot's map intact.
+  const recordsById = new Map(previousRecordsById);
+  for (const shipId of pendingDeletes) {
+    recordsById.delete(shipId);
+  }
+  for (const [shipId, record] of pendingSets) {
+    recordsById.set(shipId, record);
+  }
 
   const unchangedRecordsInOrder: HitTargetRecord[] = [];
   for (const target of input.snapshot.targets) {

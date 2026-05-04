@@ -10,7 +10,7 @@ import type { ShipMotionSample } from "../systems/motion";
 import { areaLabelPlacementForArea } from "../systems/area-labels";
 import type { LoadedPharosVilleAsset } from "./asset-manager";
 import { dockDrawPoint, dockRenderScale, LIGHTHOUSE_DRAW_OFFSET, LIGHTHOUSE_DRAW_SCALE } from "./geometry";
-import { collectHitTargets, createHitTargetSnapshot, hitTest, hitTestSpatial, updateHitTargetSnapshotShips, type HitTarget } from "./hit-testing";
+import { collectHitTargets, createHitTargetSnapshot, hitTest, hitTestSpatial, recomputeHitTargetsForCameraOnly, updateHitTargetSnapshotShips, type HitTarget } from "./hit-testing";
 
 const TARGET_CLICK_POINTS = [
   [0.5, 0.5],
@@ -531,6 +531,60 @@ describe("hit-testing", () => {
       const indexed = hitTestSpatial(snapshot.spatialIndex, point);
       expect(indexed?.detailId ?? null).toBe(full?.detailId ?? null);
     }
+  });
+
+  it("matches full rebuild semantics on camera-only re-projection (positions stable)", () => {
+    // Validates the fast-path projection branch in
+    // `recomputeHitTargetsForCameraOnly`: when only the camera changes, the
+    // projected screen rects must match a from-scratch snapshot built with
+    // the new camera and the same world.
+    const initialSnapshot = createHitTargetSnapshot({ camera, world });
+    const pannedCamera = { ...camera, offsetX: camera.offsetX + 64, offsetY: camera.offsetY - 32, zoom: camera.zoom * 1.13 };
+    const fastSnapshot = recomputeHitTargetsForCameraOnly({
+      camera: pannedCamera,
+      snapshot: initialSnapshot,
+      world,
+    });
+    const fullRebuild = createHitTargetSnapshot({ camera: pannedCamera, world });
+
+    expect(fastSnapshot.targets.map((target) => target.id)).toEqual(fullRebuild.targets.map((target) => target.id));
+    const fastById = new Map(fastSnapshot.targets.map((target) => [target.id, target]));
+    for (const target of fullRebuild.targets) {
+      const fast = fastById.get(target.id);
+      expect(fast, `fast-path target for ${target.id}`).toBeDefined();
+      expect(fast!.rect.x).toBeCloseTo(target.rect.x);
+      expect(fast!.rect.y).toBeCloseTo(target.rect.y);
+      expect(fast!.rect.width).toBeCloseTo(target.rect.width);
+      expect(fast!.rect.height).toBeCloseTo(target.rect.height);
+    }
+  });
+
+  it("returns the same recordsById reference when zero ships change geometry", () => {
+    // Validates the copy-on-write deferral in `updateHitTargetSnapshotShips`:
+    // when every changed ship resolves to the same geometry it had before, no
+    // Map allocation should occur — the function returns the prior snapshot
+    // instance, preserving reference equality on every field.
+    const ship = world.ships[0]!;
+    const samples = new Map([[ship.id, motionSample(ship.id, ship.tile)]]);
+    const initialSnapshot = createHitTargetSnapshot({
+      camera,
+      shipMotionSamples: samples,
+      world,
+    });
+    const sameSamples = new Map([[ship.id, motionSample(ship.id, ship.tile)]]);
+    const nextSnapshot = updateHitTargetSnapshotShips({
+      camera,
+      changedShipIds: [ship.id],
+      shipMotionSamples: sameSamples,
+      snapshot: initialSnapshot,
+      viewport: null,
+      world,
+      worldShipsById: new Map(world.ships.map((entry) => [entry.id, entry])),
+    });
+
+    expect(nextSnapshot).toBe(initialSnapshot);
+    expect(nextSnapshot.recordsById).toBe(initialSnapshot.recordsById);
+    expect(nextSnapshot.spatialIndex).toBe(initialSnapshot.spatialIndex);
   });
 
   it("matches full rebuild semantics when updating changed ship targets", () => {
