@@ -273,6 +273,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         className={hoveredDetailId ? "pharosville-canvas pharosville-canvas--selectable" : "pharosville-canvas"}
         data-testid="pharosville-canvas"
         aria-hidden="true"
+        onPointerCancel={canvas.handlePointerCancel}
         onPointerDown={canvas.handlePointerDown}
         onPointerLeave={canvas.handlePointerLeave}
         onPointerMove={canvas.handlePointerMove}

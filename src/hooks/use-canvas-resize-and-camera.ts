@@ -41,6 +41,7 @@ export interface UseCanvasResizeAndCameraResult {
   handleFollowSelected: () => void;
   handleKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => void;
   handlePointerDown: (event: ReactPointerEvent<HTMLCanvasElement>) => void;
+  handlePointerCancel: (event: ReactPointerEvent<HTMLCanvasElement>) => void;
   handlePointerLeave: () => void;
   handlePointerMove: (event: ReactPointerEvent<HTMLCanvasElement>) => void;
   handlePointerUp: (event: ReactPointerEvent<HTMLCanvasElement>) => void;
@@ -74,6 +75,8 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dragRef = useRef<{ last: ScreenPoint; moved: boolean; pointerId: number } | null>(null);
+  const activePointersRef = useRef<Map<number, ScreenPoint>>(new Map());
+  const pinchRef = useRef<{ distance: number; midpoint: ScreenPoint; moved: boolean; pointerIds: [number, number] } | null>(null);
   const canvasRectRef = useRef<Pick<DOMRectReadOnly, "left" | "top"> | null>(null);
   const dragPanDeltaRef = useRef<ScreenPoint>({ x: 0, y: 0 });
   const dragPanFrameRef = useRef(0);
@@ -205,12 +208,66 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
 
   const handlePointerDown = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
     canvasRectRef.current = event.currentTarget.getBoundingClientRect();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    dragRef.current = { last: canvasPoint(event), moved: false, pointerId: event.pointerId };
+    const point = canvasPoint(event);
+    activePointersRef.current.set(event.pointerId, point);
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Synthetic browser tests and some interrupted platform gestures may not
+      // expose a capturable active pointer. The registry below still keeps the
+      // gesture coherent for events delivered to the canvas.
+    }
+    const pinch = pinchSnapshot(activePointersRef.current);
+    if (pinch) {
+      dragRef.current = null;
+      pinchRef.current = { ...pinch, moved: false };
+      return;
+    }
+    pinchRef.current = null;
+    dragRef.current = { last: point, moved: false, pointerId: event.pointerId };
   }, [canvasPoint]);
 
   const handlePointerMove = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
     const point = canvasPoint(event);
+    if (activePointersRef.current.has(event.pointerId)) {
+      activePointersRef.current.set(event.pointerId, point);
+    }
+    const pinch = pinchSnapshot(activePointersRef.current, pinchRef.current?.pointerIds);
+    if (pinch) {
+      const previousPinch = pinchRef.current;
+      dragRef.current = null;
+      if (!previousPinch) {
+        pinchRef.current = { ...pinch, moved: false };
+        return;
+      }
+      const midpointDelta = {
+        x: pinch.midpoint.x - previousPinch.midpoint.x,
+        y: pinch.midpoint.y - previousPinch.midpoint.y,
+      };
+      const distanceDelta = Math.abs(pinch.distance - previousPinch.distance);
+      const scale = previousPinch.distance > 0 ? pinch.distance / previousPinch.distance : 1;
+      const moved = previousPinch.moved
+        || Math.abs(midpointDelta.x) + Math.abs(midpointDelta.y) > 1
+        || distanceDelta > 1;
+      if (moved) {
+        setCamera((previous) => {
+          if (!previous) return previous;
+          const viewport = canvasSizeRef.current;
+          const panned = {
+            ...previous,
+            offsetX: previous.offsetX + midpointDelta.x,
+            offsetY: previous.offsetY + midpointDelta.y,
+          };
+          const next = clampCameraToMap(zoomCameraAt(panned, pinch.midpoint, panned.zoom * scale), {
+            map: world.map,
+            viewport,
+          });
+          return sameCamera(previous, next) ? previous : next;
+        });
+      }
+      pinchRef.current = { ...pinch, moved };
+      return;
+    }
     const drag = dragRef.current;
     if (drag?.pointerId === event.pointerId) {
       const delta = { x: point.x - drag.last.x, y: point.y - drag.last.y };
@@ -223,7 +280,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     }
     pendingHoverPointRef.current = point;
     scheduleHoverUpdate();
-  }, [canvasPoint, scheduleDragPan, scheduleHoverUpdate]);
+  }, [canvasPoint, scheduleDragPan, scheduleHoverUpdate, world.map]);
 
   const handlePointerLeave = useCallback(() => {
     if (hoverFrameRef.current) {
@@ -234,11 +291,44 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     setHoveredDetailId(null);
   }, [setHoveredDetailId]);
 
+  const releasePointerCapture = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture may already be gone after pointercancel/lost-capture.
+    }
+  }, []);
+
+  const resetPointerGesture = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const wasPinching = Boolean(pinchRef.current);
+    const pinchMoved = Boolean(pinchRef.current?.moved);
+    activePointersRef.current.delete(event.pointerId);
+    releasePointerCapture(event);
+
+    const nextPinch = pinchSnapshot(activePointersRef.current);
+    if (nextPinch) {
+      dragRef.current = null;
+      pinchRef.current = { ...nextPinch, moved: pinchMoved };
+      return { pinchMoved, wasPinching };
+    }
+
+    pinchRef.current = null;
+    const remaining = firstPointer(activePointersRef.current);
+    dragRef.current = remaining
+      ? { last: remaining.point, moved: wasPinching || pinchMoved, pointerId: remaining.pointerId }
+      : null;
+    return { pinchMoved, wasPinching };
+  }, [releasePointerCapture]);
+
+  const handlePointerCancel = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
+    resetPointerGesture(event);
+  }, [resetPointerGesture]);
+
   const handlePointerUp = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
     const point = canvasPoint(event);
     const drag = dragRef.current;
-    dragRef.current = null;
-    event.currentTarget.releasePointerCapture(event.pointerId);
+    const { pinchMoved, wasPinching } = resetPointerGesture(event);
+    if (wasPinching || pinchMoved) return;
     if (drag?.moved) return;
     const snapshot = recomputeHitTargets();
     const target = hitTestSpatial(snapshot?.spatialIndex ?? null, point, {
@@ -253,7 +343,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       return;
     }
     if (hasSelection()) onClearSelection();
-  }, [canvasPoint, hasSelection, hitTargetsRef, hoveredDetailIdRef, onClearSelection, onSelectTarget, recomputeHitTargets, selectedDetailIdRef]);
+  }, [canvasPoint, hasSelection, hitTargetsRef, hoveredDetailIdRef, onClearSelection, onSelectTarget, recomputeHitTargets, resetPointerGesture, selectedDetailIdRef]);
 
   const handleWheel = useCallback((event: ReactWheelEvent<HTMLCanvasElement>) => {
     if (!camera) return;
@@ -392,6 +482,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     canvasSizeRef,
     handleFollowSelected,
     handleKeyDown,
+    handlePointerCancel,
     handlePointerDown,
     handlePointerLeave,
     handlePointerMove,
@@ -417,4 +508,35 @@ function samePoint(left: ScreenPoint, right: ScreenPoint): boolean {
 
 function sameCamera(left: IsoCamera, right: IsoCamera): boolean {
   return left.offsetX === right.offsetX && left.offsetY === right.offsetY && left.zoom === right.zoom;
+}
+
+function firstPointer(points: ReadonlyMap<number, ScreenPoint>): { pointerId: number; point: ScreenPoint } | null {
+  const next = points.entries().next();
+  if (next.done) return null;
+  return { pointerId: next.value[0], point: next.value[1] };
+}
+
+function pinchSnapshot(
+  points: ReadonlyMap<number, ScreenPoint>,
+  preferredIds?: readonly [number, number],
+): { distance: number; midpoint: ScreenPoint; pointerIds: [number, number] } | null {
+  let pointerIds: [number, number] | null = null;
+  if (preferredIds && points.has(preferredIds[0]) && points.has(preferredIds[1])) {
+    pointerIds = [preferredIds[0], preferredIds[1]];
+  } else {
+    const ids = Array.from(points.keys()).slice(0, 2);
+    if (ids.length === 2) pointerIds = [ids[0], ids[1]];
+  }
+  if (!pointerIds) return null;
+  const first = points.get(pointerIds[0]);
+  const second = points.get(pointerIds[1]);
+  if (!first || !second) return null;
+  return {
+    distance: Math.hypot(second.x - first.x, second.y - first.y),
+    midpoint: {
+      x: (first.x + second.x) / 2,
+      y: (first.y + second.y) / 2,
+    },
+    pointerIds,
+  };
 }

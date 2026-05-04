@@ -910,6 +910,27 @@ test("pharosville canvas interactions update details and camera", async ({ page 
     }).__pharosVilleDebug;
     return Boolean(debug?.camera && previous && debug.camera.zoom !== previous.zoom);
   }, cameraBeforeZoom);
+  await waitForSelectedDetail(page, null);
+
+  const cameraBeforePinch = await readDebugCamera(page);
+  expect(cameraBeforePinch).not.toBeNull();
+  await performCanvasPinch(page, { endDistance: 260, startDistance: 160 });
+  await page.waitForFunction((previous) => {
+    const debug = (window as typeof window & {
+      __pharosVilleDebug?: {
+        camera: { offsetX: number; offsetY: number; zoom: number } | null;
+        cameraWithinBounds?: boolean;
+        selectedDetailId?: string | null;
+      };
+    }).__pharosVilleDebug;
+    return Boolean(
+      debug?.camera
+      && previous
+      && debug.camera.zoom > previous.zoom
+      && debug.cameraWithinBounds
+      && debug.selectedDetailId === null,
+    );
+  }, cameraBeforePinch);
 
   const fullscreenButton = page.getByRole("button", { name: "Enter fullscreen" });
   await expect(fullscreenButton).toBeVisible();
@@ -1237,6 +1258,52 @@ async function waitForRuntimeDebug(page: Page, reducedMotion: boolean) {
       && (expectedReducedMotion || (debug.motionFrameCount ?? 0) >= 2),
     );
   }, reducedMotion);
+}
+
+async function readDebugCamera(page: Page): Promise<DebugCamera | null> {
+  return page.evaluate(() => {
+    const debug = (window as typeof window & {
+      __pharosVilleDebug?: PharosVilleVisualDebug;
+    }).__pharosVilleDebug;
+    return debug?.camera ?? null;
+  });
+}
+
+async function performCanvasPinch(
+  page: Page,
+  input: { endDistance: number; startDistance: number },
+): Promise<void> {
+  await page.getByTestId("pharosville-canvas").evaluate((node, gesture) => {
+    const canvas = node as HTMLCanvasElement;
+    const rect = canvas.getBoundingClientRect();
+    const center = {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    };
+    const pointer = (type: string, pointerId: number, x: number, y: number) => {
+      canvas.dispatchEvent(new PointerEvent(type, {
+        bubbles: true,
+        buttons: type === "pointerup" || type === "pointercancel" ? 0 : 1,
+        cancelable: true,
+        clientX: x,
+        clientY: y,
+        composed: true,
+        height: 8,
+        isPrimary: pointerId === 41,
+        pointerId,
+        pointerType: "touch",
+        width: 8,
+      }));
+    };
+    const startHalf = gesture.startDistance / 2;
+    const endHalf = gesture.endDistance / 2;
+    pointer("pointerdown", 41, center.x - startHalf, center.y);
+    pointer("pointerdown", 42, center.x + startHalf, center.y);
+    pointer("pointermove", 41, center.x - endHalf, center.y);
+    pointer("pointermove", 42, center.x + endHalf, center.y);
+    pointer("pointerup", 41, center.x - endHalf, center.y);
+    pointer("pointerup", 42, center.x + endHalf, center.y);
+  }, input);
 }
 
 async function readRuntimeSnapshot(page: Page) {
