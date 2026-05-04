@@ -123,9 +123,9 @@ forces a repaint of the cached scene/terrain offscreens.
 ```
 public/pharosville/assets/manifest.json
         |
-        | (Vite plugin emits the runtime variant)
+        | (Vite plugin emits the runtime variant alongside)
         v
-public/pharosville/assets/manifest.runtime.json
+manifest.runtime.json (build-time output, served from /pharosville/assets/)
         |
         | loaded by AssetManager at boot
         v

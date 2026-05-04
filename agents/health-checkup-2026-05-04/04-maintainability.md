@@ -19,7 +19,7 @@ PharosVille's codebase demonstrates solid foundation practices (strict TypeScrip
 - **Impact:** Every ship visual feature addition (new sail emblem style, hull detail, animation) requires modifying one 1988-line file. Future refactors become risky (many untested edge cases in ship-pose, livery logic). Onboarding is slow—developers need full file context.
 - **Effort:** high
 - **Reward:** high
-- **Fix sketch:** Extract sail logo/emblem sprite management into `src/renderer/ship-visual-assets.ts`, move wake styling into a separate `src/renderer/layers/ship-wake.ts`, consolidate tint caching into shared `src/renderer/canvas-caches.ts`. Leave body rendering and LOD planning in main file.
+- **Fix sketch:** Extract sail logo/emblem sprite management into a new ship-visual-assets module under `src/renderer/`, move wake styling into a separate ship-wake layer module, consolidate tint caching into a shared canvas-caches module. Leave body rendering and LOD planning in main file.
 
 ### F2: Missing return type annotations on exported void-returning functions
 - **Where:** `src/renderer/layers/ships.ts:603, 819, 873, 1003` — `drawShipWake`, `drawShipBody`, `drawSquadIdentityAccent`, `drawShipOverlay`
@@ -53,7 +53,7 @@ PharosVille's codebase demonstrates solid foundation practices (strict TypeScrip
 - **Impact:** Visual tuning (sail emblem offsets, colors) requires source code edits. No centralized configuration dashboard. Versioning config changes is harder. Difficult to test config variations.
 - **Effort:** low
 - **Reward:** mid
-- **Fix sketch:** Create `src/renderer/visual-config.json` or export a config object from a dedicated module. Load at runtime or build time. Unblocks future art-driven updates without code deploys.
+- **Fix sketch:** Create a dedicated visual-config module under `src/renderer/` (TS or JSON), or export a config object that consumers import. Load at runtime or build time. Unblocks future art-driven updates without code deploys.
 
 ### F6: Test utilities under-invested (single 48-line file in `__test-utils__`)
 - **Where:** `src/renderer/__test-utils__/draw-input.ts` — single file with `createCanvasContextStub` and `createDrawInput`
@@ -64,7 +64,7 @@ PharosVille's codebase demonstrates solid foundation practices (strict TypeScrip
 - **Fix sketch:** Expand `__test-utils__/` with: `canvas-context-builder.ts` (fluent canvas mock builder), `render-context-factory.ts` (world/camera builders), `snapshot-assertions.ts` (canvas pixel comparison). Document in README.
 
 ### F7: Tight coupling between motion-sampling.ts and shipmotion types — 1034 lines with heavy WeakMap caching
-- **Where:** `src/systems/motion-sampling.ts:1-87, 89+` (RouteSamplingRuntime cache, complex shape computation)
+- **Where:** `src/systems/motion-sampling.ts` lines 1-87 and below (RouteSamplingRuntime cache, complex shape computation)
   - Cache hit detection: `routeSamplingRuntimeCache.get(route)` at line 30
   - Runtime rebuilding: 57 lines of route-to-cache-entry construction (lines 29-87)
 - **Impact:** Cache invalidation strategy is implicit (WeakMap auto-cleans if route is GC'd). Hard to debug cache misses. Coupling to ShipMotionRoute shape makes refactors risky.
@@ -106,7 +106,7 @@ PharosVille's codebase demonstrates solid foundation practices (strict TypeScrip
 - **Impact:** Tests for motion-sampling or motion-planning that need specific world layouts must copy-paste and edit fixture. Fixture maintenance is fragile (coordinates must match terrain bounds manually). Hard to generate parameterized test cases.
 - **Effort:** mid
 - **Reward:** low
-- **Fix sketch:** Create `src/__fixtures__/world-builder.ts` with fluent API (e.g., `new WorldBuilder().addShip(id).atTile(5, 10).inZone('calm').build()`). Use for all new tests.
+- **Fix sketch:** Create a world-builder module under `src/__fixtures__/` with fluent API (e.g., `new WorldBuilder().addShip(id).atTile(5, 10).inZone('calm').build()`). Use for all new tests.
 
 ### F12: Synchronous asset loading in renderer without explicit error recovery
 - **Where:** `src/renderer/asset-manager.ts:489` and getAsset/get methods
@@ -119,7 +119,7 @@ PharosVille's codebase demonstrates solid foundation practices (strict TypeScrip
 
 ### F13: Constants and magic numbers scattered across layer files — no centralized scale/offset config
 - **Where:** `src/renderer/layers/ships.ts:279-291` (ship LOD budgets, lantern radius bucket)
-  - `src/renderer/layers/lighthouse.ts:various` (LIGHTHOUSE_DRAW_OFFSET, LIGHTHOUSE_DRAW_SCALE imported from geometry.ts)
+  - `src/renderer/layers/lighthouse.ts` (multiple sites: LIGHTHOUSE_DRAW_OFFSET, LIGHTHOUSE_DRAW_SCALE imported from geometry.ts)
   - `src/renderer/geometry.ts` stores offsets but not all visual constants
 - **Impact:** Tweaking visual scale (e.g., "make all ships 10% larger") requires grep-and-edit across 5 files. Scale constants are inconsistently named and typed.
 - **Effort:** low
