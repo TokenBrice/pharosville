@@ -42,6 +42,11 @@ export function useAssetLoadingPipeline(input: {
     let active = true;
     criticalFramePaintedRef.current = false;
     deferredLoadStartedRef.current = false;
+    // Synchronous resets at the start of each load attempt: these are
+    // intentional "back to zero" before the async chain populates. They run
+    // exactly once per dep-change (asset manager identity), not in a loop —
+    // no cascading renders.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCriticalFramePainted(false);
     setCriticalAssetAttemptsSettled(false);
     setCriticalAssetsLoaded(false);

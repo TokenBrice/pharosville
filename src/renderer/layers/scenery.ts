@@ -1,7 +1,7 @@
 import { tileKindAt } from "../../systems/world-layout";
 import { TILE_HEIGHT, TILE_WIDTH, tileToScreen } from "../../systems/projection";
 import type { LoadedPharosVilleAsset } from "../asset-manager";
-import { drawAsset, drawDiamond, drawSignBoard } from "../canvas-primitives";
+import { drawAsset, drawDiamond } from "../canvas-primitives";
 import { drawableDepth, type WorldDrawable } from "../drawable-pass";
 import { drawLamp } from "./ambient";
 import type { DrawPharosVilleInput } from "../render-types";

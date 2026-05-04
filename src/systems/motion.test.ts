@@ -2298,7 +2298,6 @@ describe("motion", () => {
       const chains = ["ethereum"];
       const circulating = chainCirculating(["Ethereum"]);
       const worldSmall = worldForShip({ chainCirculating: circulating, chains });
-      const worldBig = worldForShip({ chainCirculating: circulating, chains });
 
       // Force distinct marketCaps so they land in different quartiles when
       // compared in a hypothetical 2-ship fleet. We test the scalar's effect

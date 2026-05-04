@@ -160,7 +160,7 @@ function parseApiMeta(value: unknown): ApiMeta | null {
 }
 
 async function buildFetchError(path: string, res: Response): Promise<ApiFetchError> {
-  let bodyText: string | null = null;
+  let bodyText: string | null;
   try {
     bodyText = await res.text();
   } catch {

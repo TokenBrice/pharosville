@@ -66,7 +66,6 @@ function buildSections(facts: DetailModel["facts"]): Sections {
   // Dev-mode warning: surface unmatched labels so allowlist drift is visible
   // during development. Spec: 2026-05-01-old-school-ui-design.md "Migration / risk".
   if (import.meta.env.DEV && unknown.length > 0) {
-    // eslint-disable-next-line no-console
     console.warn("[DetailPanel] dropped unmatched fact labels:", unknown);
   }
 

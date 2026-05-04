@@ -111,7 +111,7 @@ async function smokeFetch(path, init = {}) {
     });
   } catch (error) {
     if (error?.name === "TimeoutError" || error?.name === "AbortError") {
-      throw new Error(`${url.toString()} timed out after ${timeoutMs}ms`);
+      throw new Error(`${url.toString()} timed out after ${timeoutMs}ms`, { cause: error });
     }
     throw error;
   }

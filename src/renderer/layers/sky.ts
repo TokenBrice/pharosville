@@ -1,5 +1,4 @@
 import { ambientWindPhase } from "../../systems/motion-types";
-import type { PharosVilleWorld } from "../../systems/world-types";
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
 import { lighthouseRenderState, type LighthouseRenderState } from "./lighthouse";
 import {

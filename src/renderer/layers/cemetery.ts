@@ -1,4 +1,4 @@
-import { CEMETERY_CENTER, CEMETERY_ISLAND_RADIUS, CEMETERY_RADIUS } from "../../systems/world-layout";
+import { CEMETERY_CENTER, CEMETERY_ISLAND_RADIUS } from "../../systems/world-layout";
 import { tileToScreen, type IsoCamera, type ScreenPoint } from "../../systems/projection";
 import { drawDiamond } from "../canvas-primitives";
 import type { DrawPharosVilleInput } from "../render-types";
@@ -125,11 +125,6 @@ export function drawCemeteryGround({ camera, ctx, world }: DrawPharosVilleInput)
 function isletValue(x: number, y: number) {
   return ((x - CEMETERY_CENTER.x) / CEMETERY_ISLAND_RADIUS.x) ** 2
     + ((y - CEMETERY_CENTER.y) / CEMETERY_ISLAND_RADIUS.y) ** 2;
-}
-
-function coveValue(x: number, y: number) {
-  return ((x - CEMETERY_CENTER.x) / CEMETERY_RADIUS.x) ** 2
-    + ((y - CEMETERY_CENTER.y) / CEMETERY_RADIUS.y) ** 2;
 }
 
 function sandbarValue(x: number, y: number) {

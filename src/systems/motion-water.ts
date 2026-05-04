@@ -1,7 +1,7 @@
 import { isWaterTileKind } from "./world-layout";
 import { isSeawallBarrierTile, isSeawallBarrierTileXY } from "./seawall";
 import { stableHash, stableOffset, stableUnit } from "./stable-random";
-import { clamp, normalizeHeading, normalizeHeadingInto, pathKey, sameTile } from "./motion-utils";
+import { clamp, normalizeHeadingInto, pathKey, sameTile } from "./motion-utils";
 import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipWaterPath, ShipWaterPathBuilder, ShipWaterRouteCache } from "./motion-types";
 import type { PharosVilleMap, PharosVilleTile, ShipWaterZone } from "./world-types";
 
@@ -580,7 +580,7 @@ function reconstructPath(previous: ArrayLike<number>, endIndex: number, map: Pha
   return points.reverse();
 }
 
-function waterNeighbors(tile: { x: number; y: number }, map: PharosVilleMap): Array<{ x: number; y: number }> {
+function _waterNeighbors(tile: { x: number; y: number }, map: PharosVilleMap): Array<{ x: number; y: number }> {
   return [
     { x: tile.x + 1, y: tile.y },
     { x: tile.x, y: tile.y + 1 },

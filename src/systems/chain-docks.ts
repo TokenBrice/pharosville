@@ -13,7 +13,7 @@ import {
 export const MAX_CHAIN_HARBORS = 8;
 export const MAX_DOCK_SIZE = 10;
 
-const DOCK_ASSET_IDS = [
+const _DOCK_ASSET_IDS = [
   "dock.ethereum-civic-cove",
   "dock.tron-arena-wharf",
   "dock.bsc-mercantile-wharf",
@@ -26,7 +26,7 @@ const DOCK_ASSET_IDS = [
   "dock.ton-pigeonnier-pier",
 ] as const;
 
-const PREFERRED_DOCK_ASSET_IDS: Record<string, (typeof DOCK_ASSET_IDS)[number]> = {
+const PREFERRED_DOCK_ASSET_IDS: Record<string, (typeof _DOCK_ASSET_IDS)[number]> = {
   ethereum: "dock.ethereum-civic-cove",
   tron: "dock.tron-arena-wharf",
   bsc: "dock.bsc-mercantile-wharf",

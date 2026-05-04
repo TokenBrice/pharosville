@@ -25,8 +25,6 @@ import {
   makerSquadFixtureInputs,
 } from "../__fixtures__/pharosville-world";
 import {
-  MAKER_SQUAD,
-  SKY_SQUAD,
   STABLECOIN_SQUAD_MEMBER_IDS,
   squadFormationOffsetForPlacement,
   squadForMember,

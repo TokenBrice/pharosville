@@ -282,22 +282,14 @@ textarea {
 }
 
 .pharosville-shell {
-  --pv-ink: #061116;
+  /* Tokens read by the colour guard (scripts/check-pharosville-colors.mjs);
+     also kept for parity with the parchment fallback's contrast pairs. */
   --pv-panel: rgba(10, 29, 38, 0.92);
-  --pv-panel-dark: rgba(5, 14, 20, 0.96);
   --pv-gold: #b99a62;
   --pv-gold-bright: #d8c58c;
   --pv-parchment: #d8d0b7;
   --pv-muted: rgba(216, 208, 183, 0.92);
-  --pv-border: rgba(185, 154, 98, 0.62);
   --pv-border-dark: rgba(79, 104, 103, 0.38);
-  --pv-ruby: #be6e55;
-  --pv-teal: #6a9a97;
-  --pv-copper: #a5794f;
-  --pv-shadow: rgba(3, 8, 10, 0.36);
-  --pv-control: #0b222c;
-  --pv-control-dark: #071821;
-  --pv-chart-line: rgba(216, 208, 183, 0.075);
   /* Old-school chrome (timber, brass, parchment, ink, seal) is hoisted to
      `:root` so the fallback and loading state resolve the same tokens. */
   position: relative;
