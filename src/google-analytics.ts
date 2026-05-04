@@ -13,16 +13,25 @@ export function installGoogleAnalytics(): void {
   if (!gaId) return;
   installed = true;
 
-  const script = document.createElement("script");
-  script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(gaId)}`;
-  script.async = true;
-  document.head.appendChild(script);
+  const install = (): void => {
+    const script = document.createElement("script");
+    script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(gaId)}`;
+    script.async = true;
+    document.head.appendChild(script);
 
-  window.dataLayer = window.dataLayer ?? [];
-  function gtag(...args: unknown[]): void {
-    window.dataLayer!.push(args);
+    window.dataLayer = window.dataLayer ?? [];
+    function gtag(...args: unknown[]): void {
+      window.dataLayer!.push(args);
+    }
+    window.gtag = gtag;
+    gtag("js", new Date());
+    gtag("config", gaId);
+  };
+
+  // Defer past first paint to free critical-path bandwidth (bundle F5).
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(install, { timeout: 5_000 });
+  } else {
+    setTimeout(install, 1_000);
   }
-  window.gtag = gtag;
-  gtag("js", new Date());
-  gtag("config", gaId);
 }

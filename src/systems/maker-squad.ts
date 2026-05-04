@@ -23,11 +23,6 @@
  * See `docs/pharosville/CURRENT.md` for the broader squad narrative.
  */
 
-// Two stablecoin squads sail in fixed formation: Sky (USDS flagship + sUSDS +
-// stUSDS) and Maker (DAI flagship + sDAI). Each squad shares its flagship's
-// risk placement and motion route; consorts snap to a placement-aware
-// formation offset around the flagship's tile.
-
 export type SquadId = "sky" | "maker" | "ethena";
 export type SquadRole = "flagship" | "consort";
 

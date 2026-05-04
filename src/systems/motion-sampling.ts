@@ -24,6 +24,13 @@ interface RouteSamplingRuntime {
   zoneDwell: { dockDwell: number; riskDwell: number; transit: number };
 }
 
+// WeakMap (not a plain Map keyed by shipId) is intentional: the runtime is
+// derived from the ShipMotionRoute object and becomes invalid the moment a new
+// route replaces it (e.g. on motion-plan rebuild). WeakMap auto-evicts the
+// stale entry as soon as the route is garbage-collected, with no manual
+// cleanup required. A shipId-keyed Map would either leak runtimes across
+// rebuilds or need an explicit invalidation hook; either is worse than the
+// single-pointer indirection cost here. (perf F9 considered + skipped)
 const routeSamplingRuntimeCache = new WeakMap<ShipMotionRoute, RouteSamplingRuntime>();
 
 function routeSamplingRuntime(route: ShipMotionRoute): RouteSamplingRuntime {
