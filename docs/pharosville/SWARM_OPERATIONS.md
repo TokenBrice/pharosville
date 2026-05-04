@@ -48,9 +48,9 @@ spawn agents in the same working tree but **enforce that no two agents
 write to the same file**. The orchestrator brief must call out file
 ownership explicitly:
 
-> "You exclusively own `src/foo.ts` and `src/bar.ts`. NO other agent
-> will touch these files. Other agents are working on `src/baz.ts`,
-> etc. — do not read or edit their files."
+> "You exclusively own these two files (call out the real paths here).
+> NO other agent will touch them. Other agents are working on
+> different files in this run — do not read or edit theirs."
 
 This worked for ~13 of 15 agents in Round 1 of the Optimizantus swarm
 even with the external `git reset` events disrupting things. It does

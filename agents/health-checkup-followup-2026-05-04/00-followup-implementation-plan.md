@@ -156,4 +156,4 @@ A1's `--pv-muted` contrast bump (0.72 → 0.92) was defensive — the token is c
 
 ## Out of scope
 
-- Anything not surfaced by the original 5-dimension audit or by this pass's execution. New audits should use a fresh `agents/health-checkup-<DATE>/` folder, not append to this one.
+- Anything not surfaced by the original 5-dimension audit or by this pass's execution. New audits should land in their own fresh dated folder under `agents/` rather than appending to this one.
