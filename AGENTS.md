@@ -30,6 +30,8 @@ Legacy `/output/` content may exist, but new scratch artifacts should go under `
 - `docs/pharosville/CHANGE_CHECKLIST.md` before non-trivial UI, asset, renderer, or data-model changes.
 - `docs/pharosville/PIXELLAB_MCP.md` before PixelLab MCP sprite generation or review.
 - `docs/pharosville/TESTING.md` for focused validation and visual-review expectations.
+- `docs/pharosville/SWARM_OPERATIONS.md` before orchestrating multiple agents in parallel (worktree-per-agent or strict file ownership; the working tree is a shared resource).
+- `docs/pharosville/VISUAL_REGEN.md` when regenerating Playwright snapshots so they match CI.
 
 ## Change Rules
 
