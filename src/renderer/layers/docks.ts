@@ -308,7 +308,7 @@ function drawHarborFlag(input: {
   paintFlagPath(ctx, mastX, direction, flagWidth, flagScale, topFlutter, midFlutter, botFlutter, flagY, flagHeight, scale);
   ctx.stroke();
 
-  if (zoom >= 0.5) {
+  if (zoom >= 0.5 && emphasized) {
     drawDockNameRibbon(ctx, dock.label, mastX + direction * 14 * flagScale, mastTopY - 15 * scale, scale, emphasized);
   }
   ctx.restore();
