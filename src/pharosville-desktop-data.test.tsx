@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { act } from "react";
+import { act, useSyncExternalStore } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -17,6 +17,14 @@ import {
 } from "./__fixtures__/pharosville-world";
 import { PharosVilleDesktopData } from "./pharosville-desktop-data";
 
+// PharosVilleDesktopData is wrapped in React.memo. To exercise the
+// production codepath where the memoised component re-renders on internal
+// hook updates (TanStack Query subscriptions), the test replaces the simple
+// vi.fn() mocks with a notifier-backed pattern: each hook calls
+// useSyncExternalStore() to subscribe to a shared listener set, and
+// `notifyQueriesChanged()` flips a version that wakes every subscriber.
+// Tests that previously called `renderData()` twice now mutate
+// currentQueries + call `notifyQueriesChanged()` to update.
 const mocks = vi.hoisted(() => {
   let nextBuildId = 1;
   return {
@@ -157,6 +165,25 @@ let currentQueries: {
   reportCards: QueryState<typeof fixtureReportCards>;
 };
 
+// Shared subscription notifier. Each mocked hook subscribes via
+// useSyncExternalStore; notifyQueriesChanged() bumps the version, which fires
+// every subscribed listener and causes the memoised component to re-render.
+const queryListeners = new Set<() => void>();
+let queryVersion = 0;
+function subscribeQueries(listener: () => void): () => void {
+  queryListeners.add(listener);
+  return () => queryListeners.delete(listener);
+}
+function getQueryVersion(): number {
+  return queryVersion;
+}
+async function notifyQueriesChanged(): Promise<void> {
+  await act(async () => {
+    queryVersion += 1;
+    for (const listener of queryListeners) listener();
+  });
+}
+
 function setCompleteQueries() {
   currentQueries = {
     stablecoins: queryState(fixtureStablecoins),
@@ -166,6 +193,13 @@ function setCompleteQueries() {
     stress: queryState(fixtureStress),
     reportCards: queryState(fixtureReportCards),
   };
+}
+
+function useNotifierBackedQuery<T>(read: () => QueryState<T>): QueryState<T> {
+  // useSyncExternalStore re-runs `read` whenever notifyQueriesChanged() fires,
+  // mirroring how TanStack Query notifies subscribers when cache entries change.
+  useSyncExternalStore(subscribeQueries, getQueryVersion, getQueryVersion);
+  return read();
 }
 
 async function renderData() {
@@ -194,13 +228,15 @@ describe("PharosVilleDesktopData", () => {
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     mocks.resetBuildIds();
     mocks.buildPharosVilleWorld.mockClear();
+    queryListeners.clear();
+    queryVersion = 0;
     setCompleteQueries();
-    mocks.useStablecoins.mockImplementation(() => currentQueries.stablecoins);
-    mocks.useChains.mockImplementation(() => currentQueries.chains);
-    mocks.useStabilityIndexDetail.mockImplementation(() => currentQueries.stability);
-    mocks.usePegSummary.mockImplementation(() => currentQueries.pegSummary);
-    mocks.useStressSignals.mockImplementation(() => currentQueries.stress);
-    mocks.useReportCards.mockImplementation(() => currentQueries.reportCards);
+    mocks.useStablecoins.mockImplementation(() => useNotifierBackedQuery(() => currentQueries.stablecoins));
+    mocks.useChains.mockImplementation(() => useNotifierBackedQuery(() => currentQueries.chains));
+    mocks.useStabilityIndexDetail.mockImplementation(() => useNotifierBackedQuery(() => currentQueries.stability));
+    mocks.usePegSummary.mockImplementation(() => useNotifierBackedQuery(() => currentQueries.pegSummary));
+    mocks.useStressSignals.mockImplementation(() => useNotifierBackedQuery(() => currentQueries.stress));
+    mocks.useReportCards.mockImplementation(() => useNotifierBackedQuery(() => currentQueries.reportCards));
   });
 
   afterEach(async () => {
@@ -215,9 +251,9 @@ describe("PharosVilleDesktopData", () => {
     currentQueries.stablecoins = queryState(stableStablecoins);
     await renderData();
 
-    // Same reference returned on the next render (TanStack's no-change behavior).
+    // Same reference returned on the next notify (TanStack's no-change behavior).
     currentQueries.stablecoins = queryState(stableStablecoins);
-    await renderData();
+    await notifyQueriesChanged();
 
     expect(mocks.buildPharosVilleWorld).toHaveBeenCalledTimes(1);
     expect(renderedWorld().dataset.shipCount).toBe("2");
@@ -232,7 +268,7 @@ describe("PharosVilleDesktopData", () => {
         makeAsset({ id: "dai", symbol: "DAI", name: "Dai" }),
       ],
     });
-    await renderData();
+    await notifyQueriesChanged();
 
     expect(mocks.buildPharosVilleWorld).toHaveBeenCalledTimes(2);
     expect(renderedWorld().dataset.shipCount).toBe("3");
@@ -250,14 +286,14 @@ describe("PharosVilleDesktopData", () => {
     await renderData();
 
     currentQueries.stablecoins = queryState(fixtureStablecoins);
-    await renderData();
+    await notifyQueriesChanged();
 
     currentQueries.chains = queryState(fixtureChains);
     currentQueries.stability = queryState(fixtureStability);
     currentQueries.pegSummary = queryState(fixturePegSummary);
     currentQueries.stress = queryState(fixtureStress);
     currentQueries.reportCards = queryState(fixtureReportCards);
-    await renderData();
+    await notifyQueriesChanged();
 
     expect(mocks.buildPharosVilleWorld).toHaveBeenCalledTimes(2);
     expect(renderedWorld().dataset.routeMode).toBe("world");
@@ -268,7 +304,7 @@ describe("PharosVilleDesktopData", () => {
     expect(renderedWorld().dataset.buildId).toBe("1");
 
     currentQueries.stablecoins = queryState<typeof fixtureStablecoins>(undefined, true);
-    await renderData();
+    await notifyQueriesChanged();
 
     expect(mocks.buildPharosVilleWorld).toHaveBeenCalledTimes(1);
     expect(renderedWorld().dataset.buildId).toBe("1");
