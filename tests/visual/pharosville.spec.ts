@@ -1481,9 +1481,13 @@ test.describe("pharosville night atmosphere", () => {
     await page.setViewportSize({ width: 1440, height: 960 });
     await page.goto("/");
     await waitForRuntimeDebug(page, true);
+    // Slightly looser than the dawn/night siblings: the warming-lighthouse
+    // interpolation hits the lighthouse-hill + cemetery-islet sprites at the
+    // same time, and CI hardware/rasteriser differences accumulate ~1% of
+    // pixels there. Local + Docker container both stay well under this.
     await expect(page).toHaveScreenshot("pharosville-dusk.png", {
       animations: "disabled",
-      maxDiffPixelRatio: 0.005,
+      maxDiffPixelRatio: 0.012,
     });
   });
 
