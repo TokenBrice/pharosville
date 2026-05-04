@@ -401,6 +401,70 @@ test("pharosville accessibility smoke validates keyboard focus and landmarks", a
   await expect(page.getByRole("button", { name: "Close details" })).toBeVisible();
 });
 
+// Pinch-to-zoom is touch-only by design (the gesture dispatcher in
+// `use-canvas-resize-and-camera.ts` keys off two simultaneous PointerEvents).
+// Browser tests cannot synthesize trackpad pinch, so we exercise the gesture
+// via two synthetic `pointerType: "touch"` streams. The accessibility-grep
+// lane (test:visual:accessibility / test:visual:cross-browser) then covers
+// pinch on chromium + firefox, ensuring the gesture neither triggers a
+// spurious selection nor pulls focus out of the canvas shell.
+test("pharosville accessibility pinch-zoom does not steal focus or selection", async ({ page }) => {
+  await mockPharosVilleData(page);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await installWallClockOverride(page, 12);
+  await page.goto("/");
+  await expect(page.getByTestId("pharosville-canvas")).toBeVisible();
+  await waitForRuntimeDebug(page, true);
+
+  // Clear the default lighthouse selection so we can later assert that the
+  // pinch gesture itself did not open a detail panel.
+  await page.getByRole("button", { name: "Close details" }).click();
+  await waitForSelectedDetail(page, null);
+
+  // Park focus on the canvas shell so we can verify the pinch does not move
+  // activeElement to a different focusable region.
+  const shell = page.getByTestId("pharosville-world");
+  await shell.focus();
+  const focusedTestIdBefore = await page.evaluate(() => (
+    document.activeElement instanceof HTMLElement ? document.activeElement.dataset.testid ?? null : null
+  ));
+
+  const cameraBeforePinch = await readDebugCamera(page);
+  expect(cameraBeforePinch).not.toBeNull();
+
+  await performCanvasPinch(page, { endDistance: 260, startDistance: 160 });
+
+  await page.waitForFunction((previous) => {
+    const debug = (window as typeof window & {
+      __pharosVilleDebug?: {
+        camera: { offsetX: number; offsetY: number; zoom: number } | null;
+        cameraWithinBounds?: boolean;
+        selectedDetailId?: string | null;
+      };
+    }).__pharosVilleDebug;
+    return Boolean(
+      debug?.camera
+      && previous
+      && debug.camera.zoom > previous.zoom
+      && debug.cameraWithinBounds
+      && debug.selectedDetailId === null,
+    );
+  }, cameraBeforePinch);
+
+  const cameraAfterPinch = await readDebugCamera(page);
+  expect(cameraAfterPinch).not.toBeNull();
+  expect(cameraAfterPinch!.zoom).toBeGreaterThan(cameraBeforePinch!.zoom);
+
+  await waitForSelectedDetail(page, null);
+  await expect(page.getByTestId("pharosville-detail-panel")).toHaveCount(0);
+
+  const focusedTestIdAfter = await page.evaluate(() => (
+    document.activeElement instanceof HTMLElement ? document.activeElement.dataset.testid ?? null : null
+  ));
+  expect(focusedTestIdAfter).toBe(focusedTestIdBefore);
+});
+
 test("pharosville dense visual fixture preserves districts, dense ships, and render budget", async ({ page }) => {
   await mockDensePharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "no-preference" });
