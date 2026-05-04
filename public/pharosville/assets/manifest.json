@@ -331,22 +331,22 @@
       "path": "landmarks/yggdrasil.png",
       "category": "landmark",
       "layer": "landmarks",
-      "width": 256,
-      "height": 320,
-      "displayScale": 0.6,
+      "width": 154,
+      "height": 192,
+      "displayScale": 1.0,
       "anchor": [
-        128,
-        288
+        77,
+        173
       ],
       "footprint": [
         178,
         50
       ],
       "hitbox": [
-        80,
-        140,
-        96,
-        80
+        48,
+        84,
+        58,
+        48
       ],
       "loadPriority": "deferred",
       "promptKey": "landmark.yggdrasil",
