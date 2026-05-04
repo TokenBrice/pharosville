@@ -4,6 +4,8 @@ Last updated: 2026-05-02
 
 Use this file as the fastest path to productive and safe PharosVille work.
 
+For the canonical repo guide — scope rules, change rules, and validation lanes — see [`AGENTS.md`](../../AGENTS.md). This onboarding doc is the runway; `AGENTS.md` is the rulebook.
+
 ## 10-Minute Setup
 
 1. Install dependencies:
@@ -29,6 +31,7 @@ Use this file as the fastest path to productive and safe PharosVille work.
 4. Read in this order:
    - `AGENTS.md`
    - `docs/pharosville-page.md`
+   - `docs/pharosville/ARCHITECTURE.md`
    - `docs/pharosville/CHANGE_CHECKLIST.md`
    - `docs/pharosville/CURRENT.md`
    - `docs/pharosville/CHANGE_PLAYBOOK.md`

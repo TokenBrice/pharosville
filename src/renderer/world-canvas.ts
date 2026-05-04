@@ -33,6 +33,11 @@ import { drawWeather } from "./layers/weather";
 import type { DrawPharosVilleInput, PharosVilleRenderMetrics } from "./render-types";
 import { tileBoundsTileCount, visibleTileBoundsForCamera } from "./viewport";
 
+/**
+ * Public render-types re-exports. Kept in sync with `render-types.ts`; consumers
+ * (canvas host components, tests) import these from `world-canvas` so the
+ * module forms a single public surface for the renderer entry point.
+ */
 export type { DrawPharosVilleInput, PharosVilleCanvasMotion, PharosVilleRenderMetrics } from "./render-types";
 
 interface WorldCanvasFrame {
@@ -196,6 +201,14 @@ function staticCameraCacheForFrame(input: DrawPharosVilleInput, dpr: number) {
   };
 }
 
+/**
+ * Builds the static-layer cache key. `manifestCacheVersion` is folded in so a
+ * bump to `style.cacheVersion` in `public/pharosville/assets/manifest.json`
+ * invalidates the in-memory `staticLayerCache` (terrain + scene off-screen
+ * canvases) — without it, repromoted asset bytes would still be served from
+ * the browser HTTP cache miss path but rendered from a stale offscreen bitmap.
+ * See `docs/pharosville/ASSET_PIPELINE.md` (manifest schema v2).
+ */
 function staticCacheKey(input: DrawPharosVilleInput, scope: StaticCacheScope, cameraCacheKeySegment: string): string {
   const manifest = input.assets?.getManifest();
   const cv = manifest ? manifestCacheVersion(manifest) : "0";
@@ -392,6 +405,12 @@ function evictOldestDynamicEntry(): DynamicLayerCacheEntry | null {
   return dynamicLayerCache.entries.splice(oldestIndex, 1)[0] ?? null;
 }
 
+/**
+ * Renderer entry point: draws one PharosVille frame to `input.ctx` in layer
+ * order (sky, cached terrain + water + scene, lighthouse, entities, squad
+ * chrome, water labels, ambient/night/weather, selection) and returns metrics
+ * (drawable + visible counts) for HUD overlays and perf telemetry.
+ */
 export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderMetrics {
   const { ctx } = input;
   const frame = createWorldCanvasFrame(input);

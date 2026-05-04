@@ -1,3 +1,23 @@
+/**
+ * Seawall model: derives the perimeter masonry placements that ring the main
+ * island and exposes the blocked coastal-water ring that motion + path helpers
+ * treat as wall-capped water (un-navigable).
+ *
+ * Cross-file contracts:
+ * - `world-layout.ts` imports `isSeawallBarrierTile` to mark coastal water as
+ *   blocked. Module-scope state (placements, barrier tiles, distance mask) MUST
+ *   stay lazy to dodge a circular-import TDZ between the two modules.
+ * - `harbor-district.ts` consumes the placement list to render the actual
+ *   `overlay.seawall-*` sprites; do not draw masonry from anywhere else.
+ *
+ * Risk areas: any change to side detection or offset math shifts both visual
+ * placement AND motion blocking simultaneously — keep the two derivations in
+ * sync. The straight vs corner sprite choice depends on adjacency; bumping
+ * thresholds here can cause masonry "gaps" along diagonal coasts.
+ *
+ * See `docs/pharosville/CURRENT.md` → seawall paragraph.
+ */
+
 import {
   getMainIslandLandMask,
   PHAROSVILLE_MAP_HEIGHT,

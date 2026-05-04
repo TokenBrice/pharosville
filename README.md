@@ -1,8 +1,12 @@
 # PharosVille
 
+PharosVille is a Canvas 2D maritime analytics UI for Pharos stablecoin signals. It runs as a desktop-only web app at `https://pharosville.pharos.watch/` and renders real-time stablecoin supply, dock chain presence, and risk indicators with local pixel-art sprites driven by a pure world model.
+
 Standalone PharosVille frontend for `pharosville.pharos.watch`.
 
 The browser reads same-origin `/api/*` paths. Cloudflare Pages Functions allow only the six PharosVille read endpoints and inject `PHAROS_API_KEY` server-side, so no API key is shipped to the client bundle.
+
+For the data flow and rendering pipeline at a glance, see `docs/pharosville/ARCHITECTURE.md`. For agent-oriented entry points, see `AGENTS.md`.
 
 ## Agent Onboarding
 

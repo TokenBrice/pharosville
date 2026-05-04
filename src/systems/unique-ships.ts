@@ -1,3 +1,23 @@
+/**
+ * Heritage-tier ("unique") ship registry: maps a stablecoin asset id to its
+ * dedicated 136×100 PixelLab sprite, a per-ship cultural-significance
+ * rationale, and the render scale that places the hull between standard and
+ * titan tiers.
+ *
+ * Cross-file contracts:
+ * - `systems/ship-visuals.ts` calls `uniqueDefinitionFor` — when a definition
+ *   exists and the asset has no titan sprite, it stamps `sizeTier: "unique"`,
+ *   `sizeLabel: "Heritage hull"`, and uses `definition.scale` as the ship's
+ *   render scale.
+ * - `renderer/layers/ships.ts` reads `UNIQUE_SPRITE_IDS` to skip titan-only
+ *   chrome (foam, spray, full pose, sail flutter) on heritage hulls.
+ *
+ * Risk areas: scale must sit in the band ~1.20–1.32 (between standard and
+ * titan); pushing higher visually competes with titans and starves layout,
+ * lower drops below standard hull readability. Adding a new entry without a
+ * matching `ship.<id>-unique` sprite asset will silently fall back to default.
+ */
+
 import type { StablecoinData } from "@shared/types";
 
 export interface UniqueShipDefinition {

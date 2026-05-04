@@ -1,3 +1,28 @@
+/**
+ * Stablecoin squad model: small fleets of related stablecoins that sail in a
+ * shared formation, inheriting risk placement and motion route from their
+ * flagship.
+ *
+ * Three squads live here today: Sky (USDS flagship + sUSDS + stUSDS), Maker
+ * (DAI flagship + sDAI), and Ethena (USDe flagship + sUSDe). A squad
+ * activates iff its flagship is in `activeAssets`; consorts then snap to a
+ * placement-aware formation offset around the flagship's tile.
+ *
+ * Cross-file contracts:
+ * - `motion-planning.ts` and `ship-placement.ts` consume `flagshipId` /
+ *   `memberIds` to clone routes and place consorts.
+ * - The navToken → `ledger-mooring` short-circuit is OVERRIDDEN for any
+ *   consort whose flagship is active — see `pharosville-world.ts`.
+ * - `renderer/layers/maker-squad-chrome.ts` paints per-squad bunting and
+ *   selection halos; identifying a member uses `squadForMember`.
+ *
+ * Risk areas: changing `formationOffsets` shifts visual alignment but also
+ * collision footprint with the harbor; `displayOrder` controls render z-order
+ * within the squad and indirectly the chrome stacking.
+ *
+ * See `docs/pharosville/CURRENT.md` for the broader squad narrative.
+ */
+
 // Two stablecoin squads sail in fixed formation: Sky (USDS flagship + sUSDS +
 // stUSDS) and Maker (DAI flagship + sDAI). Each squad shares its flagship's
 // risk placement and motion route; consorts snap to a placement-aware

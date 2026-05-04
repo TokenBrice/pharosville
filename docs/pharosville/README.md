@@ -20,6 +20,13 @@ Goal: maintain durable maintenance, asset, and validation notes for `/pharosvill
 
 Historical plans were intentionally not migrated here. Current code, `CURRENT.md`, and `docs/pharosville-page.md` win over old planning artifacts.
 
+## Plan Artifact Lifecycle
+
+- Plans in `agents/` are active or recent. Treat them as in-flight unless an explicit completion note says otherwise.
+- When a plan is delivered or superseded, move the file to `agents/completed/` and prepend a one-line note: `Completed YYYY-MM-DD — <outcome>`.
+- Plans older than ten days with no completion note should be considered stale and may be archived or deleted opportunistically.
+- When starting new work, scan `agents/` first to avoid duplicating an in-flight plan.
+
 ## Historical Inputs
 
 This maintenance pack was originally informed by Pharos API/data documentation
