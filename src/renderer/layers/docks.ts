@@ -141,7 +141,7 @@ function dockRenderState(input: DrawPharosVilleInput, frame: DockRenderFrame, do
   return state;
 }
 
-export function drawDockBody(input: DrawPharosVilleInput, frame: DockRenderFrame, dock: PharosVilleWorld["docks"][number]) {
+export function drawDockBody(input: DrawPharosVilleInput, frame: DockRenderFrame, dock: PharosVilleWorld["docks"][number]): void {
   const { camera, ctx } = input;
   const p = tileToScreen(dock.tile, camera);
   const { dockAsset, geometry, harbor } = dockRenderState(input, frame, dock);
@@ -198,7 +198,7 @@ function drawDockQuayUnderlay(
   ctx.restore();
 }
 
-export function drawDockOverlay(input: DrawPharosVilleInput, frame: DockRenderFrame, dock: PharosVilleWorld["docks"][number]) {
+export function drawDockOverlay(input: DrawPharosVilleInput, frame: DockRenderFrame, dock: PharosVilleWorld["docks"][number]): void {
   const { assets, camera, ctx, hoveredTarget, motion, selectedTarget, world } = input;
   const { harbor } = dockRenderState(input, frame, dock);
   drawHarborFlag({

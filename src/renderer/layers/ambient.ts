@@ -251,7 +251,7 @@ const SEA_MIST_PATCHES = [
   { x: 36.7, y: 57.1, rx: 6.6, ry: 2.0, phase: 0.6, speed: 0.020 },
 ] as const;
 
-export function drawAtmosphere(input: DrawPharosVilleInput, lighthouse?: LighthouseRenderState) {
+export function drawAtmosphere(input: DrawPharosVilleInput, lighthouse?: LighthouseRenderState): void {
   const { camera, ctx, motion } = input;
   const sky = skyState(motion);
   // The new warm pool replaces this cool mist at night; drawing it would
@@ -281,7 +281,7 @@ function wingStroke(time: number, phase: number, speedMul: number): number {
   return 0.32 - Math.sin(Math.min(Math.PI, upPhase)) * 0.18;
 }
 
-export function drawBirds({ camera, ctx, motion, world }: DrawPharosVilleInput) {
+export function drawBirds({ camera, ctx, motion, world }: DrawPharosVilleInput): void {
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
   const threat = maxActiveThreatLevel(world);
   const windScale = motion.reducedMotion ? 1 : windMultiplier(threat);
@@ -371,7 +371,7 @@ function drawPigeon(ctx: CanvasRenderingContext2D, x: number, y: number, zoom: n
   ctx.restore();
 }
 
-export function drawDecorativeLights({ camera, ctx, motion }: DrawPharosVilleInput) {
+export function drawDecorativeLights({ camera, ctx, motion }: DrawPharosVilleInput): void {
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
   for (const light of VILLAGE_LIGHTS) {
     const p = tileToScreen(light, camera);
@@ -495,7 +495,7 @@ function getLampHaloSprite(zoom: number): { canvas: HTMLCanvasElement; centerX: 
   return entry;
 }
 
-export function drawLamp(ctx: CanvasRenderingContext2D, x: number, y: number, zoom: number, phase: number) {
+export function drawLamp(ctx: CanvasRenderingContext2D, x: number, y: number, zoom: number, phase: number): void {
   const glow = 0.22 + Math.sin(phase * 1.6) * 0.04;
   ctx.save();
   ctx.globalCompositeOperation = "lighter";

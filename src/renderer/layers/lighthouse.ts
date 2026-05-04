@@ -1,7 +1,7 @@
 import { tileToScreen, type ScreenPoint } from "../../systems/projection";
 import { drawAsset } from "../canvas-primitives";
-import { LIGHTHOUSE_DRAW_OFFSET, LIGHTHOUSE_DRAW_SCALE } from "../geometry";
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
+import { LIGHTHOUSE_DRAW_OFFSET, LIGHTHOUSE_DRAW_SCALE } from "../visual-scales";
 
 export type LighthouseRenderState = ReturnType<typeof lighthouseRenderState>;
 
@@ -35,7 +35,7 @@ const LIGHTHOUSE_SURF = [
   { x: 22.0, y: 27.0, length: 18, phase: 5.7, tilt: -0.18 },
 ] as const;
 
-export function drawLighthouseSurf({ camera, ctx, motion }: DrawPharosVilleInput) {
+export function drawLighthouseSurf({ camera, ctx, motion }: DrawPharosVilleInput): void {
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
   ctx.save();
   ctx.lineCap = "round";
@@ -213,7 +213,7 @@ function getSweepBeamSprite(
   return entry;
 }
 
-export function drawLighthouseHeadland(input: DrawPharosVilleInput) {
+export function drawLighthouseHeadland(input: DrawPharosVilleInput): void {
   const { assets, camera, ctx, world } = input;
   const headland = assets?.get("overlay.lighthouse-headland");
   if (!headland) return;
@@ -252,7 +252,7 @@ export function lighthouseOverlayScreenBounds(
   };
 }
 
-export function drawLighthouseBody(input: DrawPharosVilleInput, cached?: LighthouseRenderState) {
+export function drawLighthouseBody(input: DrawPharosVilleInput, cached?: LighthouseRenderState): void {
   const { camera, ctx, world } = input;
   const { center, lighthouseAsset, spriteAnchor, spriteScale } = cached ?? lighthouseRenderState(input);
   if (lighthouseAsset) {
@@ -316,7 +316,7 @@ export function drawLighthouseOverlay(
   input: DrawPharosVilleInput,
   cached?: LighthouseRenderState,
   nightFactor = 0,
-) {
+): void {
   const { camera, ctx, motion, world } = input;
   const { firePoint, lighthouseAsset } = cached ?? lighthouseRenderState(input);
   if (world.lighthouse.unavailable) return;
@@ -620,7 +620,7 @@ export function drawLighthouseGodRays(
   beamZoom: number,
   motion: PharosVilleCanvasMotion,
   nightFactor: number,
-) {
+): void {
   if (nightFactor <= 0) return;
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
   const sweepAngle = getSweepAngle(time, motion.reducedMotion);
@@ -693,7 +693,7 @@ export function drawLighthouseBeamRim(
   visibleShips: readonly DrawPharosVilleInput["world"]["ships"][number][],
   cached: LighthouseRenderState | undefined,
   nightFactor: number,
-) {
+): void {
   if (nightFactor <= 0) return;
   const { camera, ctx, motion, world } = input;
   if (motion.reducedMotion) return;

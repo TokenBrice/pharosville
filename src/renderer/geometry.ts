@@ -5,9 +5,12 @@ import { tileToScreen, type IsoCamera, type ScreenPoint } from "../systems/proje
 import type { PharosVilleWorld } from "../systems/world-types";
 import type { LoadedPharosVilleAsset } from "./asset-manager";
 import { drawableDepth } from "./drawable-pass";
+import { LIGHTHOUSE_DRAW_OFFSET, LIGHTHOUSE_DRAW_SCALE } from "./visual-scales";
 
-export const LIGHTHOUSE_DRAW_OFFSET = { x: 22, y: 36 } as const;
-export const LIGHTHOUSE_DRAW_SCALE = 1.224;
+// Re-exported for backwards-compatibility with consumers that import these
+// from `geometry.ts` (e.g. `hit-testing.test.ts`). Canonical home is now
+// `./visual-scales`.
+export { LIGHTHOUSE_DRAW_OFFSET, LIGHTHOUSE_DRAW_SCALE };
 
 export interface ScreenRect {
   height: number;

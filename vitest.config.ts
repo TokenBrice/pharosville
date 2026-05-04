@@ -18,5 +18,6 @@ export default defineConfig({
       "src/**/*.test.tsx",
       "functions/**/*.test.ts",
     ],
+    setupFiles: ["./src/test-setup.ts"],
   },
 });

@@ -6,19 +6,11 @@ import { hexToRgba, roundedRectPath } from "../canvas-primitives";
 import type { RenderFrameCache } from "../frame-cache";
 import type { ResolvedEntityGeometry } from "../geometry";
 import type { DrawPharosVilleInput } from "../render-types";
+import { WRECK_LOGO_OFFSET } from "../visual-config";
 
 const GRAVE_CAUSE_COLORS: Record<CauseOfDeath, string> = CAUSE_HEX;
 
 type WreckMarker = PharosVilleWorld["graves"][number]["visual"]["marker"];
-
-// Logo plaque vertical offset above the wreck silhouette, in coordinate-space units.
-const WRECK_LOGO_OFFSET: Record<WreckMarker, number> = {
-  "broken-keel": 11,
-  "sinking-stern": 13,
-  grounded: 14,
-  shattered: 11,
-  skeletal: 10,
-};
 
 // Visual abstraction tier — many small dead coins should not each render a
 // full wreck silhouette; the cove reads as a debris field by tiering the
@@ -79,13 +71,13 @@ function graveRenderState(input: DrawPharosVilleInput, frame: GraveRenderFrame, 
   return state;
 }
 
-export function drawGraveUnderlay(input: DrawPharosVilleInput, frame: GraveRenderFrame, grave: PharosVilleWorld["graves"][number]) {
+export function drawGraveUnderlay(input: DrawPharosVilleInput, frame: GraveRenderFrame, grave: PharosVilleWorld["graves"][number]): void {
   const { ctx } = input;
   const { causeColor, emphasized, geometry, graveZoom } = graveRenderState(input, frame, grave);
   drawWreckGroundShadow(ctx, geometry.drawPoint.x, geometry.drawPoint.y, graveZoom, causeColor, emphasized);
 }
 
-export function drawGraveBody(input: DrawPharosVilleInput, frame: GraveRenderFrame, grave: PharosVilleWorld["graves"][number]) {
+export function drawGraveBody(input: DrawPharosVilleInput, frame: GraveRenderFrame, grave: PharosVilleWorld["graves"][number]): void {
   const { camera, ctx } = input;
   const { causeColor, geometry } = graveRenderState(input, frame, grave);
   const tier = wreckTier(grave.visual.scale);
@@ -108,7 +100,7 @@ export function drawGraveBody(input: DrawPharosVilleInput, frame: GraveRenderFra
   );
 }
 
-export function drawGraveOverlay(input: DrawPharosVilleInput, frame: GraveRenderFrame, grave: PharosVilleWorld["graves"][number]) {
+export function drawGraveOverlay(input: DrawPharosVilleInput, frame: GraveRenderFrame, grave: PharosVilleWorld["graves"][number]): void {
   const { assets, camera, ctx } = input;
   const { causeColor, emphasized, geometry } = graveRenderState(input, frame, grave);
   const tier = wreckTier(grave.visual.scale);

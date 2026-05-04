@@ -5,6 +5,7 @@ import type { TerrainKind } from "../../systems/world-types";
 import type { PharosVilleAssetManager } from "../asset-manager";
 import { drawAsset, drawDiamond, drawTileLowerFacet, withAlpha } from "../canvas-primitives";
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
+import { TERRAIN_TEXTURE, TILE_COLORS } from "../visual-config";
 import { visibleTileBoundsForCamera, type VisibleTileBounds } from "../viewport";
 
 // Replicated from lighthouse.ts (read-only reference): one revolution per
@@ -31,6 +32,49 @@ for (let _i = 0; _i < 256; _i++) {
 function fastSin(x: number): number {
   return SIN_LUT[((x * (256 / (2 * Math.PI))) | 0) & 255]!;
 }
+
+// Task #11 (perf F3): memoize zoneThemeForTerrain since the underlying
+// ZONE_THEMES table is `as const` and returns stable singletons. Keyed by the
+// stringified terrain kind to avoid the per-tile function-call + lookup cost
+// in the ~200-water-tile-per-frame hot path.
+const TERRAIN_THEME_CACHE = new Map<string, ZoneVisualTheme>();
+function cachedZoneThemeForTerrain(value: string): ZoneVisualTheme {
+  let theme = TERRAIN_THEME_CACHE.get(value);
+  if (!theme) {
+    theme = zoneThemeForTerrain(value);
+    TERRAIN_THEME_CACHE.set(value, theme);
+  }
+  return theme;
+}
+
+// Task #31 (perf F2): unit-scale Path2D templates for the diagonal wave and
+// accent strokes drawn per visible water tile. Coordinates are in tile-local
+// pixels at zoom=1; the caller translate+scales the canvas, then strokes the
+// cached path. Two paths total instead of ~200 path rebuilds per frame.
+//
+// Lazily initialised so module load works in jsdom (which doesn't define
+// Path2D); the renderer only runs in browsers where Path2D exists.
+let waterOverlayWavePath: Path2D | null = null;
+let waterOverlayAccentPath: Path2D | null = null;
+function getWaterOverlayWavePath(): Path2D {
+  if (waterOverlayWavePath === null) {
+    const p = new Path2D();
+    p.moveTo(-9, -2);
+    p.lineTo(7, 2);
+    waterOverlayWavePath = p;
+  }
+  return waterOverlayWavePath;
+}
+function getWaterOverlayAccentPath(): Path2D {
+  if (waterOverlayAccentPath === null) {
+    const p = new Path2D();
+    p.moveTo(-3, 4);
+    p.lineTo(10, 7);
+    waterOverlayAccentPath = p;
+  }
+  return waterOverlayAccentPath;
+}
+
 // Mooring corners hand-picked from AUTHORED_SEAWALL_SEGMENTS in
 // src/systems/seawall.ts: NW lighthouse apron, SW market quay, E observatory
 // gate. Looping concentric ripples emanate from each.
@@ -40,23 +84,6 @@ const SEAWALL_RIPPLE_ANCHORS: ReadonlyArray<{ x: number; y: number }> = [
   { x: 42.1, y: 26.3 },
 ];
 const SEAWALL_RIPPLE_PERIOD = 3;
-
-const TILE_COLORS: Record<string, string> = {
-  beach: "#dcb978",
-  cliff: "#5c5240",
-  grass: "#d8c8a8",
-  hill: "#9c8a6c",
-  land: "#d8c8a8",
-  shore: "#dcb978",
-};
-
-const TERRAIN_TEXTURE = {
-  beachPebble: "rgba(82, 67, 47, 0.12)",
-  cliffFace: "rgba(92, 80, 60, 0.42)",
-  foam: "rgba(232, 243, 233, 0.56)",
-  groundGrain: "rgba(64, 56, 40, 0.14)",
-  sandLight: "rgba(240, 216, 160, 0.22)",
-} as const;
 
 const WATER_TERRAIN_ASSET_BY_KIND: Partial<Record<TerrainKind, string>> = {
   "alert-water": "terrain.harbor-water",
@@ -264,7 +291,7 @@ function drawWaterTileBase(
   const value = String(kind);
   const width = 32 * zoom;
   const height = 16 * zoom;
-  const theme = zoneThemeForTerrain(value);
+  const theme = cachedZoneThemeForTerrain(value);
   drawDiamond(ctx, x, y, width, height, theme.base);
   if (asset) {
     drawTerrainAsset(ctx, asset, x, y, zoom, 0.18);
@@ -284,26 +311,26 @@ function drawWaterTileOverlay(
   beam: BeamCausticState | null,
 ) {
   const value = String(kind);
-  const theme = zoneThemeForTerrain(value);
+  const theme = cachedZoneThemeForTerrain(value);
   drawWaterTerrainTexture(ctx, x, y, zoom, theme, tileX, tileY, motion);
   drawBeamCaustic(ctx, x, y, zoom, beam);
   if ((tileX * 13 + tileY * 17) % 9 !== 0) return;
   const wave = motion.reducedMotion
     ? 0.13
     : 0.1 + fastSin(motion.timeSeconds * 1.05 + tileX * 0.27 + tileY * 0.19) * 0.035;
+  // Task #31 (perf F2): translate+scale the ctx so cached unit-scale Path2D
+  // templates can be reused across all visible water tiles. lineWidth is
+  // affected by ctx.scale, so we divide the original `Math.max(1, zoom)` by
+  // zoom to keep the rendered stroke width identical to the previous logic.
   ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(zoom, zoom);
   ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.08, wave));
-  ctx.lineWidth = Math.max(1, zoom);
-  ctx.beginPath();
-  ctx.moveTo(x - 9 * zoom, y - 2 * zoom);
-  ctx.lineTo(x + 7 * zoom, y + 2 * zoom);
-  ctx.stroke();
+  ctx.lineWidth = Math.max(1, zoom) / zoom;
+  ctx.stroke(getWaterOverlayWavePath());
   if ((tileX + tileY) % 3 === 0) {
     ctx.strokeStyle = withAlpha(theme.accent, 0.18);
-    ctx.beginPath();
-    ctx.moveTo(x - 3 * zoom, y + 4 * zoom);
-    ctx.lineTo(x + 10 * zoom, y + 7 * zoom);
-    ctx.stroke();
+    ctx.stroke(getWaterOverlayAccentPath());
   }
   ctx.restore();
 }
@@ -390,6 +417,11 @@ function drawBeamCaustic(
     BEAM_CAUSTIC_STOP_CACHE.delete(stopKey);
     BEAM_CAUSTIC_STOP_CACHE.set(stopKey, stops);
   }
+  // Task #9 (perf F7) considered: caching the full gradient object keyed by
+  // (stopKey, x, y, radius). Skipped — radial gradients bake absolute screen
+  // coords, and (x, y) are unique per visible tile + shift every camera
+  // frame, so the cache hit rate is effectively zero. The colour-stop string
+  // cache above already captures the only reusable work.
   const grad = ctx.createRadialGradient(x, y, 1, x, y, radius);
   grad.addColorStop(0, stops[0]);
   grad.addColorStop(0.6, stops[1]);

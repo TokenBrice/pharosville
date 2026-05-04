@@ -152,7 +152,7 @@ export function drawSquadPennant(
   ctx: CanvasRenderingContext2D,
   path: readonly { x: number; y: number }[],
   wind?: PennantWindContext,
-) {
+): void {
   if (path.length < 2) return;
   const osc = wind && !wind.motion.reducedMotion ? pennantOscillation(wind) : null;
   ctx.save();
@@ -186,7 +186,7 @@ export function drawSquadPennant(
 export function drawSquadSelectionHalo(
   ctx: CanvasRenderingContext2D,
   ellipse: NonNullable<ReturnType<typeof computeSquadBoundingEllipse>>,
-) {
+): void {
   ctx.save();
   ctx.strokeStyle = "rgba(232, 187, 96, 0.42)";
   ctx.lineWidth = 1.2;
@@ -225,7 +225,7 @@ const DISTRESS_FLAG_VERTICAL_OFFSET_PX = 8; // above the mast-top point
 export function drawSquadDistressFlag(
   ctx: CanvasRenderingContext2D,
   mastTop: { x: number; y: number },
-) {
+): void {
   ctx.save();
   ctx.fillStyle = SQUAD_DISTRESS_FLAG_HEX;
   // Tiny mast (1px) so the triangle reads as a flag, not a free shape.
@@ -246,7 +246,7 @@ export function drawSquadDistressFlag(
 export function drawSquadDistressFlags(
   ctx: CanvasRenderingContext2D,
   anchors: readonly SquadAnchor[],
-) {
+): void {
   for (const anchor of anchors) {
     if (anchor.inDistress) drawSquadDistressFlag(ctx, anchor.mastTop);
   }

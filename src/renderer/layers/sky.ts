@@ -229,7 +229,7 @@ function getSkyBackdropCanvas(
   return canvas;
 }
 
-export function drawSky(input: DrawPharosVilleInput, lighthouse?: LighthouseRenderState) {
+export function drawSky(input: DrawPharosVilleInput, lighthouse?: LighthouseRenderState): void {
   const { camera, ctx, height, motion, width, world } = input;
   const state = skyState(motion);
   const mood = state.mood;

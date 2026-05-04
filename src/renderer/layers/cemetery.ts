@@ -44,7 +44,7 @@ const COVE = {
 
 const SANDBAR_RADIUS = { x: 2.1, y: 1.3 } as const;
 
-export function drawCemeteryGround({ camera, ctx, world }: DrawPharosVilleInput) {
+export function drawCemeteryGround({ camera, ctx, world }: DrawPharosVilleInput): void {
   ctx.save();
   // Paint lagoon water over every cemetery-islet tile (the full islet
   // footprint, not just the inner cove ellipse), then carve out a small
@@ -428,14 +428,14 @@ function drawCenterpieceFlagshipWreck(ctx: CanvasRenderingContext2D, camera: Iso
   ctx.restore();
 }
 
-export function drawCemeteryContext(_input: DrawPharosVilleInput) {
+export function drawCemeteryContext(_input: DrawPharosVilleInput): void {
   // The cove is now drawn entirely from drawCemeteryGround. Decorative hulls,
   // submerged rocks, and the centerpiece are painted there so they share the
   // sandbar/lagoon paint pass; nothing else needs to render at the context
   // layer. The export is kept for renderer-pass stability.
 }
 
-export function drawCemeteryMist({ camera, ctx, motion }: DrawPharosVilleInput) {
+export function drawCemeteryMist({ camera, ctx, motion }: DrawPharosVilleInput): void {
   // Sea-spray drift across the cove surface.
   const drift = motion.reducedMotion ? 0 : Math.sin(motion.timeSeconds * 0.42) * 7 * camera.zoom;
   const bands = [

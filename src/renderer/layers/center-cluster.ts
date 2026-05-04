@@ -5,7 +5,7 @@ import type { DrawPharosVilleInput } from "../render-types";
 
 const CENTER_CLUSTER_SCALE = 0.5;
 
-export function drawCenterCluster(input: DrawPharosVilleInput) {
+export function drawCenterCluster(input: DrawPharosVilleInput): void {
   const { assets, camera, ctx } = input;
   const cluster = assets?.get("overlay.center-cluster");
   if (!cluster) return;

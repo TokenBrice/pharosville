@@ -28,7 +28,7 @@ function cachedMeasureTextWidth(ctx: CanvasRenderingContext2D, text: string, fon
   return width;
 }
 
-export function drawWaterAreaLabels({ camera, ctx, world }: DrawPharosVilleInput) {
+export function drawWaterAreaLabels({ camera, ctx, world }: DrawPharosVilleInput): void {
   for (const area of world.areas) {
     const placement = cachedAreaLabelPlacement(area);
     const p = tileToScreen(placement.anchorTile, camera);

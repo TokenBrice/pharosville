@@ -4,7 +4,7 @@ import type { DrawPharosVilleInput } from "../render-types";
 
 export const YGGDRASIL_TILE = { x: 42.5, y: 29.2 } as const;
 
-export function drawYggdrasil(input: DrawPharosVilleInput) {
+export function drawYggdrasil(input: DrawPharosVilleInput): void {
   const asset = input.assets?.get("landmark.yggdrasil");
   if (!asset) return;
   const p = tileToScreen(YGGDRASIL_TILE, input.camera);

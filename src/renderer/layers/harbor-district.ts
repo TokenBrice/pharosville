@@ -10,7 +10,7 @@ import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-ty
 const docksByChainCache = new WeakMap<PharosVilleWorld, Map<string, PharosVilleWorld["docks"][number]>>();
 const l2DocksByWorld = new WeakMap<PharosVilleWorld, readonly PharosVilleWorld["docks"][number][]>();
 
-export function drawHarborDistrictGround(input: DrawPharosVilleInput) {
+export function drawHarborDistrictGround(input: DrawPharosVilleInput): void {
   const { camera, ctx } = input;
   ctx.save();
   drawDistrictPad(ctx, camera, { x: 31.0, y: 23.3 }, 88, 30, "rgba(55, 55, 47, 0.3)", "rgba(197, 176, 125, 0.16)");
@@ -41,7 +41,7 @@ function drawGeneratedSeawallAssets(input: DrawPharosVilleInput) {
   }
 }
 
-export function drawEthereumHarborExtensions({ camera, ctx, motion, world }: DrawPharosVilleInput) {
+export function drawEthereumHarborExtensions({ camera, ctx, motion, world }: DrawPharosVilleInput): void {
   const ethereumDock = dockForChain(world, "ethereum");
   if (!ethereumDock) return;
 
