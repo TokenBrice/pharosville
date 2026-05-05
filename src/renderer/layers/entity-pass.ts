@@ -8,6 +8,7 @@ import {
 import type { RenderFrameCache } from "../frame-cache";
 import type { ResolvedEntityGeometry, WorldSelectableEntity } from "../geometry";
 import type { DrawPharosVilleInput, PharosVilleRenderMetrics } from "../render-types";
+import type { SceneryProp } from "./scenery";
 import { planShipRenderLod } from "./ships";
 
 export interface EntityPassCallbacks {
@@ -19,6 +20,7 @@ export interface EntityPassCallbacks {
   drawLighthouseBody(): void;
   drawLighthouseOverlay(): void;
   drawPigeonnierBody(): void;
+  drawSceneryProp(prop: SceneryProp): void;
   drawShipBody(ship: PharosVilleWorld["ships"][number]): void;
   drawShipOverlay(ship: PharosVilleWorld["ships"][number]): void;
   drawShipWake(ship: PharosVilleWorld["ships"][number]): void;
@@ -173,6 +175,11 @@ function drawEntityPassDrawable(
   callbacks: EntityPassCallbacks,
   drawable: EntityPassDrawable,
 ) {
+  if (drawable.kind === "scenery" && "prop" in drawable) {
+    callbacks.drawSceneryProp(drawable.prop as SceneryProp);
+    return;
+  }
+
   if ("draw" in drawable) {
     drawable.draw(ctx);
     return;

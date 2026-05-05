@@ -13,7 +13,7 @@ import {
   drawSquadSelectionHalo,
   type SquadAnchor,
 } from "./layers/maker-squad-chrome";
-import { sceneryDrawables } from "./layers/scenery";
+import { drawSceneryProp, sceneryDrawables } from "./layers/scenery";
 import { drawYggdrasil } from "./layers/yggdrasil";
 import { drawPigeonnier } from "./layers/pigeonnier";
 import { drawShipBody, drawShipOverlay, drawShipWake, shipMastTopScreenPoint, type ShipRenderState } from "./layers/ships";
@@ -538,6 +538,7 @@ function drawEntityPass(input: DrawPharosVilleInput, frame: WorldCanvasFrame, ni
       drawLighthouseBody: () => drawLighthouseBody(input, frame.lighthouseRender),
       drawLighthouseOverlay: () => drawLighthouseOverlay(input, frame.lighthouseRender, nightFactor),
       drawPigeonnierBody: () => drawPigeonnier(input),
+      drawSceneryProp: (prop) => drawSceneryProp(input, prop),
       drawShipBody: (ship) => drawShipBody(input, frame, ship),
       drawShipOverlay: (ship) => drawShipOverlay(input, frame, ship),
       drawShipWake: (ship) => drawShipWake(input, frame, ship),

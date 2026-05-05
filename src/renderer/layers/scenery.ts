@@ -6,7 +6,7 @@ import { drawableDepth, type WorldDrawable } from "../drawable-pass";
 import { drawLamp } from "./ambient";
 import type { DrawPharosVilleInput } from "../render-types";
 
-type SceneryPropKind =
+export type SceneryPropKind =
   | "agave-cluster"
   | "barrel"
   | "beacon"
@@ -40,7 +40,7 @@ type SceneryPropKind =
   | "sundial"
   | "timber-pile";
 
-interface SceneryProp {
+export interface SceneryProp {
   id: string;
   kind: SceneryPropKind;
   scale?: number;
@@ -52,7 +52,28 @@ interface CachedSceneryDrawable extends WorldDrawable {
   readonly prop: SceneryProp;
 }
 
-const SCENERY_PROPS: readonly SceneryProp[] = [
+export const CIVIC_VEGETATION_KINDS: ReadonlySet<SceneryPropKind> = new Set([
+  "agave-cluster",
+  "bougainvillea-arch",
+  "citrus-tree",
+  "date-palm",
+  "fig-tree",
+  "olive-tree",
+  "planter-lavender",
+  "planter-roses",
+]);
+
+const TALL_VEGETATION_KINDS: ReadonlySet<SceneryPropKind> = new Set([
+  "bougainvillea-arch",
+  "citrus-tree",
+  "date-palm",
+  "fig-tree",
+  "olive-tree",
+]);
+
+const TALL_VEGETATION_DEPTH_BIAS = 4_200;
+
+export const SCENERY_PROPS: readonly SceneryProp[] = [
   { id: "north-buoy", kind: "buoy", tile: { x: 31.2, y: 16.8 }, scale: 0.78 },
   { id: "north-signal", kind: "signal-post", tile: { x: 36.8, y: 18.7 }, scale: 0.72 },
   { id: "north-net-rack", kind: "net-rack", tile: { x: 28.3, y: 22.1 }, scale: 0.7 },
@@ -89,15 +110,17 @@ const SCENERY_PROPS: readonly SceneryProp[] = [
   { id: "watch-east-signal", kind: "signal-post", tile: { x: 55.0, y: 44.0 }, scale: 0.82 },
   { id: "watch-east-reef", kind: "reef", tile: { x: 52.5, y: 47.2 }, scale: 0.72 },
   { id: "civic-sundial", kind: "sundial", tile: { x: 35.0, y: 31.0 }, scale: 0.9 },
-  { id: "civic-olive-nw", kind: "olive-tree", tile: { x: 26.5, y: 27.5 }, scale: 0.72 },
-  { id: "civic-palm-north", kind: "date-palm", tile: { x: 30.5, y: 25.0 }, scale: 0.63 },
-  { id: "civic-palm-se", kind: "date-palm", tile: { x: 35.5, y: 34.5 }, scale: 0.66 },
-  { id: "civic-lavender-w", kind: "planter-lavender", tile: { x: 25.5, y: 31.0 }, scale: 0.77 },
-  { id: "civic-roses-e", kind: "planter-roses", tile: { x: 23.8, y: 28.8 }, scale: 0.75 },
-  { id: "civic-roses-nw", kind: "planter-roses", tile: { x: 28.0, y: 26.5 }, scale: 0.70 },
-  { id: "civic-olive-s", kind: "olive-tree", tile: { x: 30.0, y: 37.5 }, scale: 0.70 },
-  { id: "civic-citrus-se", kind: "citrus-tree", tile: { x: 36.5, y: 36.0 }, scale: 0.57 },
-  { id: "civic-bougainvillea-ne", kind: "bougainvillea-arch", tile: { x: 24.5, y: 34.8 }, scale: 0.53 },
+  { id: "civic-olive-nw", kind: "olive-tree", tile: { x: 26.6, y: 29.2 }, scale: 0.62 },
+  { id: "civic-palm-north", kind: "date-palm", tile: { x: 29.4, y: 27.0 }, scale: 0.54 },
+  { id: "civic-palm-se", kind: "date-palm", tile: { x: 34.2, y: 33.0 }, scale: 0.56 },
+  { id: "civic-lavender-w", kind: "planter-lavender", tile: { x: 27.2, y: 32.4 }, scale: 0.66 },
+  { id: "civic-roses-e", kind: "planter-roses", tile: { x: 33.6, y: 30.6 }, scale: 0.62 },
+  { id: "civic-roses-nw", kind: "planter-roses", tile: { x: 28.0, y: 29.8 }, scale: 0.60 },
+  { id: "civic-olive-s", kind: "olive-tree", tile: { x: 29.4, y: 35.2 }, scale: 0.58 },
+  { id: "civic-citrus-se", kind: "citrus-tree", tile: { x: 32.3, y: 34.9 }, scale: 0.42 },
+  { id: "civic-fig-west", kind: "fig-tree", tile: { x: 27.1, y: 33.6 }, scale: 0.39 },
+  { id: "civic-agave-se", kind: "agave-cluster", tile: { x: 34.0, y: 32.9 }, scale: 0.46 },
+  { id: "civic-bougainvillea-ne", kind: "bougainvillea-arch", tile: { x: 31.7, y: 28.7 }, scale: 0.41 },
   { id: "cemetery-buoy", kind: "buoy", tile: { x: 4.2, y: 49.4 }, scale: 0.7 },
   { id: "cemetery-rock", kind: "rock", tile: { x: 12.2, y: 51.4 }, scale: 0.66 },
   { id: "cemetery-reef", kind: "reef", tile: { x: 10.4, y: 47.8 }, scale: 0.62 },
@@ -241,10 +264,9 @@ export function sceneryDrawables(input: DrawPharosVilleInput): WorldDrawable[] {
 function createCachedSceneryDrawable(prop: SceneryProp): CachedSceneryDrawable {
   const drawable: CachedSceneryDrawable = {
     currentInput: null,
-    depth: drawableDepth(prop.tile),
-    draw: (_ctx) => {
-      if (!drawable.currentInput) return;
-      drawSceneryProp(drawable.currentInput, drawable.prop);
+    depth: sceneryDrawableDepth(prop),
+    draw: (ctx) => {
+      drawCachedSceneryDrawable(ctx, drawable);
     },
     entityId: prop.id,
     kind: "scenery",
@@ -254,6 +276,16 @@ function createCachedSceneryDrawable(prop: SceneryProp): CachedSceneryDrawable {
     tieBreaker: prop.id,
   };
   return drawable;
+}
+
+function drawCachedSceneryDrawable(ctx: CanvasRenderingContext2D, drawable: CachedSceneryDrawable) {
+  const input = drawable.currentInput;
+  if (!input) return;
+  drawSceneryProp(input.ctx === ctx ? input : { ...input, ctx }, drawable.prop);
+}
+
+function sceneryDrawableDepth(prop: SceneryProp): number {
+  return drawableDepth(prop.tile) + (TALL_VEGETATION_KINDS.has(prop.kind) ? TALL_VEGETATION_DEPTH_BIAS : 0);
 }
 
 function updateSceneryDrawablesForFrame(
@@ -273,7 +305,7 @@ function updateSceneryDrawablesForFrame(
   }
 }
 
-function drawSceneryProp(input: DrawPharosVilleInput, prop: SceneryProp) {
+export function drawSceneryProp(input: DrawPharosVilleInput, prop: SceneryProp) {
   const { camera, ctx, motion } = input;
   const p = tileToScreen(prop.tile, camera);
   const scale = camera.zoom * (prop.scale ?? 1);
