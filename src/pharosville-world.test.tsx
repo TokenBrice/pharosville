@@ -1,0 +1,286 @@
+// @vitest-environment jsdom
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PharosVilleWorld } from "./pharosville-world";
+import type { HitTarget } from "./renderer/hit-testing";
+import type { PharosVilleWorld as PharosVilleWorldModel } from "./systems/world-types";
+
+const mocks = vi.hoisted(() => {
+  const canvasSizeRef = { current: { x: 800, y: 600 } };
+  const cameraRef = { current: { offsetX: 0, offsetY: 0, zoom: 1 } };
+  const targets: HitTarget[] = [];
+  return {
+    cameraRef,
+    canvasHandleKeyDown: vi.fn(),
+    canvasSizeRef,
+    requestPaint: vi.fn(),
+    targets,
+  };
+});
+
+vi.mock("./components/accessibility-ledger", () => ({
+  AccessibilityLedger: () => <div data-testid="pharosville-accessibility-ledger" />,
+}));
+
+vi.mock("./components/detail-panel", () => ({
+  DetailPanel: ({ detail, onClose }: { detail: { title: string }; onClose: () => void }) => (
+    <section data-testid="pharosville-detail-panel">
+      <h2>{detail.title}</h2>
+      <button type="button" aria-label="Close details" onClick={onClose}>Close</button>
+    </section>
+  ),
+}));
+
+vi.mock("./hooks/use-asset-loading-pipeline", () => ({
+  useAssetLoadingPipeline: () => ({
+    assetLoadErrors: [],
+    assetLoadTick: 0,
+    assetManager: {
+      get: () => null,
+      getLoadStats: () => ({ criticalLoaded: 0, deferredLoaded: 0, failed: 0, requested: 0 }),
+    },
+    criticalAssetAttemptsSettled: true,
+    criticalAssetsLoaded: true,
+    deferredAssetsLoaded: true,
+    setCriticalFramePainted: vi.fn(),
+  }),
+}));
+
+vi.mock("./hooks/use-canvas-resize-and-camera", () => ({
+  useCanvasResizeAndCamera: () => ({
+    adaptiveDprStateRef: { current: { requestedDpr: 1 } },
+    camera: mocks.cameraRef.current,
+    cameraRef: mocks.cameraRef,
+    cameraZoomLabel: "100%",
+    canvasBudgetRef: { current: null },
+    canvasRef: { current: null },
+    canvasSize: mocks.canvasSizeRef.current,
+    canvasSizeRef: mocks.canvasSizeRef,
+    handleFollowSelected: vi.fn(),
+    handleKeyDown: mocks.canvasHandleKeyDown,
+    handlePointerCancel: vi.fn(),
+    handlePointerDown: vi.fn(),
+    handlePointerLeave: vi.fn(),
+    handlePointerMove: vi.fn(),
+    handlePointerUp: vi.fn(),
+    handleResetView: vi.fn(),
+    handleToolbarPan: vi.fn(),
+    handleToolbarZoomIn: vi.fn(),
+    handleToolbarZoomOut: vi.fn(),
+    handleWheel: vi.fn(),
+    maximumRequestedDprRef: { current: 1 },
+    setCamera: vi.fn(),
+  }),
+}));
+
+vi.mock("./hooks/use-fullscreen-mode", () => ({
+  useFullscreenMode: () => ({
+    exitFullscreen: vi.fn(),
+    fullscreenMode: false,
+    toggleFullscreen: vi.fn(),
+  }),
+}));
+
+vi.mock("./hooks/use-world-render-loop", () => ({
+  useWorldRenderLoop: () => ({
+    requestPaint: mocks.requestPaint,
+  }),
+}));
+
+vi.mock("./renderer/hit-testing", () => {
+  const snapshot = () => ({
+    recordsById: new Map(),
+    spatialIndex: {
+      cellSize: 96,
+      cells: new Map(),
+      targetById: new Map(mocks.targets.map((target) => [target.id, target])),
+      targetCellKeys: new Map(),
+      targets: mocks.targets,
+    },
+    targets: mocks.targets,
+    targetsByDetailId: new Map(mocks.targets.map((target) => [target.detailId, target])),
+  });
+  return {
+    createHitTargetSnapshot: vi.fn(snapshot),
+    recomputeHitTargetsForCameraOnly: vi.fn(snapshot),
+  };
+});
+
+vi.mock("./systems/motion", () => ({
+  buildBaseMotionPlan: vi.fn(() => ({ effectShipIds: new Set(), moverShipIds: new Set() })),
+  buildMotionPlan: vi.fn(() => ({ effectShipIds: new Set(), moverShipIds: new Set() })),
+  disposePathCacheForMap: vi.fn(),
+  motionPlanSignature: vi.fn(() => "test-motion-plan"),
+}));
+
+vi.mock("./systems/reduced-motion", () => ({
+  observeReducedMotion: (callback: (matches: boolean) => void) => {
+    callback(true);
+    return () => undefined;
+  },
+}));
+
+beforeEach(() => {
+  mocks.canvasHandleKeyDown.mockClear();
+  mocks.requestPaint.mockClear();
+  mocks.targets.splice(0, mocks.targets.length, ...targetFixtures());
+  delete globalThis.__pharosVilleTestWallClockHour;
+});
+
+afterEach(() => {
+  cleanup();
+  delete globalThis.__pharosVilleTestWallClockHour;
+});
+
+describe("PharosVilleWorld UI accessibility controls", () => {
+  it("cycles canvas hit targets with Tab and selects the focused target with Enter", async () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    const shell = screen.getByTestId("pharosville-world");
+    fireEvent.keyDown(shell, { key: "Tab" });
+    expect(screen.getByText("Focused Ethereum Dock. Press Enter to select.")).toBeTruthy();
+
+    fireEvent.keyDown(shell, { key: "Enter" });
+    await waitFor(() => {
+      expect(screen.getByTestId("pharosville-selection-strip").textContent).toContain("Ethereum Dock");
+    });
+    expect(screen.getByTestId("pharosville-selection-strip").textContent).toContain("Ethereum chain harbor summary.");
+  });
+
+  it("cycles backward with Shift Tab and keeps Escape delegated to existing canvas shortcuts", () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    const shell = screen.getByTestId("pharosville-world");
+    fireEvent.keyDown(shell, { key: "Tab", shiftKey: true });
+    expect(screen.getByText("Focused USDC. Press Enter to select.")).toBeTruthy();
+
+    fireEvent.keyDown(shell, { key: "Escape" });
+    expect(mocks.canvasHandleKeyDown).toHaveBeenCalled();
+  });
+
+  it("auto-hides the lower-third caption when selection is cleared", () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    expect(screen.getByTestId("pharosville-selection-strip").textContent).toContain("Pharos Lighthouse");
+    fireEvent.click(screen.getByLabelText("Close details"));
+    expect(screen.queryByTestId("pharosville-selection-strip")).toBeNull();
+  });
+
+  it("routes manual time scrub changes through the wall-clock override", async () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    const scrubber = screen.getByLabelText("Set session hour");
+    fireEvent.change(scrubber, { target: { value: "6.5" } });
+
+    await waitFor(() => expect(globalThis.__pharosVilleTestWallClockHour).toBe(6.5));
+    expect(mocks.requestPaint).toHaveBeenCalled();
+
+    fireEvent.click(screen.getByLabelText("Return to day-night preset"));
+    await waitFor(() => expect(globalThis.__pharosVilleTestWallClockHour).toBeUndefined());
+  });
+});
+
+function targetFixtures(): HitTarget[] {
+  return [
+    {
+      detailId: "dock.ethereum",
+      id: "dock.ethereum",
+      kind: "dock",
+      label: "Ethereum Dock",
+      priority: 10,
+      rect: { height: 20, width: 20, x: 100, y: 100 },
+    },
+    {
+      detailId: "lighthouse",
+      id: "lighthouse",
+      kind: "lighthouse",
+      label: "Pharos Lighthouse",
+      priority: 20,
+      rect: { height: 20, width: 20, x: 300, y: 140 },
+    },
+    {
+      detailId: "ship.usdc",
+      id: "ship.usdc",
+      kind: "ship",
+      label: "USDC",
+      priority: 30,
+      rect: { height: 20, width: 20, x: 420, y: 200 },
+    },
+  ];
+}
+
+function worldFixture(): PharosVilleWorldModel {
+  return {
+    areas: [],
+    detailIndex: {
+      "dock.ethereum": detail("dock.ethereum", "Ethereum Dock", "dock", "Ethereum chain harbor summary."),
+      lighthouse: detail("lighthouse", "Pharos Lighthouse", "lighthouse", "Beacon summary."),
+      "ship.usdc": detail("ship.usdc", "USDC", "ship", "USDC ship summary."),
+    },
+    docks: [{
+      chainId: "ethereum",
+      detailId: "dock.ethereum",
+      id: "dock.ethereum",
+      kind: "dock",
+      label: "Ethereum Dock",
+    }],
+    effects: [],
+    entityById: {
+      "dock.ethereum": {
+        chainId: "ethereum",
+        detailId: "dock.ethereum",
+        id: "dock.ethereum",
+        kind: "dock",
+        label: "Ethereum Dock",
+      },
+      lighthouse: {
+        detailId: "lighthouse",
+        id: "lighthouse",
+        kind: "lighthouse",
+        label: "Pharos Lighthouse",
+      },
+      "ship.usdc": {
+        detailId: "ship.usdc",
+        id: "ship.usdc",
+        kind: "ship",
+        label: "USDC",
+      },
+    },
+    freshness: {},
+    generatedAt: 1,
+    graves: [],
+    legends: [],
+    lighthouse: {
+      detailId: "lighthouse",
+      id: "lighthouse",
+      kind: "lighthouse",
+      label: "Pharos Lighthouse",
+    },
+    map: { height: 10, tiles: [], waterRatio: 1, width: 10 },
+    pigeonnier: {
+      detailId: "pigeonnier",
+      id: "pigeonnier",
+      kind: "pigeonnier",
+      label: "Pigeonnier",
+    },
+    routeMode: "world",
+    ships: [{
+      detailId: "ship.usdc",
+      id: "ship.usdc",
+      kind: "ship",
+      label: "USDC",
+    }],
+    visualCues: [],
+  } as unknown as PharosVilleWorldModel;
+}
+
+function detail(id: string, title: string, kind: string, summary: string) {
+  return {
+    facts: [],
+    id,
+    kind,
+    links: [],
+    summary,
+    title,
+  };
+}

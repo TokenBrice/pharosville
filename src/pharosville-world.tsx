@@ -6,7 +6,7 @@
 // rules-of-hooks rule and PR review (see HOOKS.md F1 history).
 /* eslint-disable react-hooks/refs */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import Home from "lucide-react/dist/esm/icons/home";
 import Maximize2 from "lucide-react/dist/esm/icons/maximize-2";
 import Minimize2 from "lucide-react/dist/esm/icons/minimize-2";
@@ -26,12 +26,18 @@ import type { PharosVilleWorld as PharosVilleWorldModel } from "./systems/world-
 
 function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const [hoveredDetailId, setHoveredDetailId] = useState<string | null>(null);
+  const [keyboardFocusedDetailId, setKeyboardFocusedDetailId] = useState<string | null>(null);
   const [selectedDetailId, setSelectedDetailId] = useState<string | null>("lighthouse");
   const [selectedDetailAnchor, setSelectedDetailAnchor] = useState<DetailAnchor | null>(null);
   const [announcement, setAnnouncement] = useState("PharosVille ready.");
   const [reducedMotion, setReducedMotion] = useState(true);
   const [nightMode, setNightMode] = useState(false);
   const [autoNightCycle, setAutoNightCycle] = useState(false);
+  const [manualTimeOverrideHour, setManualTimeOverrideHour] = useState<number | null>(null);
+  const manualWallClockRestoreRef = useRef<{ active: boolean; previous: number | undefined }>({
+    active: false,
+    previous: undefined,
+  });
   const shellRef = useRef<HTMLElement | null>(null);
   const { exitFullscreen, fullscreenMode, toggleFullscreen } = useFullscreenMode(shellRef);
 
@@ -85,12 +91,16 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
 
   const selectDetail = useCallback((detailId: string, anchor: DetailAnchor | null = null) => {
     const detail = world.detailIndex[detailId];
+    setKeyboardFocusedDetailId(null);
+    setHoveredDetailId(null);
     setSelectedDetailId(detailId);
     setSelectedDetailAnchor(anchor);
     setAnnouncement(detail ? `Selected ${detail.title}.` : "Selected map entity.");
   }, [world.detailIndex]);
 
   const clearSelection = useCallback(() => {
+    setKeyboardFocusedDetailId(null);
+    setHoveredDetailId(null);
     setSelectedDetailId(null);
     setSelectedDetailAnchor(null);
     setAnnouncement("Selection cleared.");
@@ -272,12 +282,96 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     return () => clearInterval(id);
   }, [autoNightCycle]);
 
+  useEffect(() => {
+    if (manualTimeOverrideHour === null) {
+      if (manualWallClockRestoreRef.current.active) {
+        const previous = manualWallClockRestoreRef.current.previous;
+        if (previous === undefined) {
+          delete globalThis.__pharosVilleTestWallClockHour;
+        } else {
+          globalThis.__pharosVilleTestWallClockHour = previous;
+        }
+        manualWallClockRestoreRef.current = { active: false, previous: undefined };
+        requestPaint();
+      }
+      return;
+    }
+
+    if (!manualWallClockRestoreRef.current.active) {
+      manualWallClockRestoreRef.current = {
+        active: true,
+        previous: globalThis.__pharosVilleTestWallClockHour,
+      };
+    }
+    globalThis.__pharosVilleTestWallClockHour = manualTimeOverrideHour;
+    requestPaint();
+  }, [manualTimeOverrideHour, requestPaint]);
+
+  useEffect(() => () => {
+    if (!manualWallClockRestoreRef.current.active) return;
+    const previous = manualWallClockRestoreRef.current.previous;
+    if (previous === undefined) {
+      delete globalThis.__pharosVilleTestWallClockHour;
+    } else {
+      globalThis.__pharosVilleTestWallClockHour = previous;
+    }
+  }, []);
+
+  const cycleKeyboardTarget = useCallback((backwards: boolean) => {
+    const snapshot = recomputeHitTargets();
+    const targets = keyboardTargetOrder(snapshot?.targets ?? hitTargetsRef.current);
+    const nextTarget = nextKeyboardTarget(targets, keyboardFocusedDetailId ?? selectedDetailId, backwards);
+    if (!nextTarget) {
+      setKeyboardFocusedDetailId(null);
+      setHoveredDetailId(null);
+      setAnnouncement("No map targets available.");
+      return;
+    }
+
+    setKeyboardFocusedDetailId(nextTarget.detailId);
+    setHoveredDetailId(nextTarget.detailId);
+    const detail = world.detailIndex[nextTarget.detailId];
+    setAnnouncement(`Focused ${detail?.title ?? nextTarget.label}. Press Enter to select.`);
+    if (reducedMotion) requestPaint();
+  }, [hitTargetsRef, keyboardFocusedDetailId, recomputeHitTargets, reducedMotion, requestPaint, selectedDetailId, world.detailIndex]);
+
+  const selectKeyboardTarget = useCallback((): boolean => {
+    if (!keyboardFocusedDetailId) return false;
+    const snapshot = recomputeHitTargets();
+    const target = snapshot?.targetsByDetailId.get(keyboardFocusedDetailId)
+      ?? hitTargetsRef.current.find((entry) => entry.detailId === keyboardFocusedDetailId)
+      ?? null;
+    const viewport = canvas.canvasSizeRef.current;
+    const anchor = target
+      ? detailAnchorForPoint(centerPointForTarget(target), viewport)
+      : null;
+    selectDetail(keyboardFocusedDetailId, anchor);
+    if (reducedMotion) requestPaint();
+    return true;
+  }, [canvas.canvasSizeRef, hitTargetsRef, keyboardFocusedDetailId, recomputeHitTargets, reducedMotion, requestPaint, selectDetail]);
+
+  const handleWorldKeyDown = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
+    if (!isInteractiveEventTarget(event.target) && event.key === "Tab") {
+      event.preventDefault();
+      cycleKeyboardTarget(event.shiftKey);
+      return;
+    }
+    if (!isInteractiveEventTarget(event.target) && event.key === "Enter" && selectKeyboardTarget()) {
+      event.preventDefault();
+      return;
+    }
+    canvas.handleKeyDown(event);
+  }, [canvas, cycleKeyboardTarget, selectKeyboardTarget]);
+
   const detailDockStyle = selectedDetailAnchor
     ? ({
         "--pv-detail-x": `${selectedDetailAnchor.x}px`,
         "--pv-detail-y": `${selectedDetailAnchor.y}px`,
       } as CSSProperties)
     : undefined;
+  const timeOfDayHour = manualTimeOverrideHour
+    ?? wallClockOverrideHour()
+    ?? (nightMode ? 22 : 12);
 
   return (
     <main
@@ -285,11 +379,11 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       className={fullscreenMode ? "pharosville-desktop pharosville-shell pharosville-shell--fullscreen" : "pharosville-desktop pharosville-shell"}
       data-testid="pharosville-world"
       aria-describedby="pharosville-world-instructions"
-      onKeyDown={canvas.handleKeyDown}
+      onKeyDown={handleWorldKeyDown}
       tabIndex={0}
     >
       <p id="pharosville-world-instructions" className="sr-only">
-        Use the visible toolbar, wheel zoom, drag pan, arrow keys, and canvas selection to inspect PharosVille map data.
+        Use the visible toolbar, wheel zoom, drag pan, arrow keys, Tab and Shift Tab target cycling, Enter selection, and canvas selection to inspect PharosVille map data.
       </p>
       <canvas
         ref={canvas.canvasRef}
@@ -311,9 +405,19 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
             {...(selectedEntity ? { onFollowSelected: canvas.handleFollowSelected } : {})}
             onResetView={canvas.handleResetView}
             nightMode={nightMode}
-            onToggleNightMode={() => setNightMode((n) => !n)}
+            onToggleNightMode={() => {
+              setManualTimeOverrideHour(null);
+              setNightMode((n) => !n);
+            }}
             autoNightCycle={autoNightCycle}
-            onToggleAutoNightCycle={() => setAutoNightCycle((a) => !a)}
+            onToggleAutoNightCycle={() => {
+              setManualTimeOverrideHour(null);
+              setAutoNightCycle((a) => !a);
+            }}
+            timeOfDayHour={timeOfDayHour}
+            manualTimeOverrideHour={manualTimeOverrideHour}
+            onTimeOfDayChange={setManualTimeOverrideHour}
+            onClearTimeOverride={() => setManualTimeOverrideHour(null)}
           />
         </div>
         {selectedDetail && (
@@ -323,6 +427,18 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
           >
             <DetailPanel detail={selectedDetail} onClose={clearSelection} />
           </div>
+        )}
+        {selectedDetail && (
+          <aside
+            className="pharosville-selection-strip"
+            data-testid="pharosville-selection-strip"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            <strong>{selectedDetail.title}</strong>
+            <span>{selectedDetail.summary}</span>
+          </aside>
         )}
       </div>
       <button
@@ -366,4 +482,55 @@ interface DetailAnchor extends ScreenPoint {
 function detailAnchorForPoint(point: ScreenPoint, viewport: ScreenPoint): DetailAnchor {
   const side = point.x > viewport.x * 0.6 ? "left" : "right";
   return { ...point, side };
+}
+
+function centerPointForTarget(target: HitTarget): ScreenPoint {
+  return {
+    x: target.rect.x + target.rect.width / 2,
+    y: target.rect.y + target.rect.height / 2,
+  };
+}
+
+function keyboardTargetOrder(targets: readonly HitTarget[]): HitTarget[] {
+  const seenDetailIds = new Set<string>();
+  const ordered: HitTarget[] = [];
+  const byVisualPriority = targets
+    .map((target, index) => ({ index, target }))
+    .sort((left, right) => (
+      right.target.priority - left.target.priority
+      || right.index - left.index
+    ));
+
+  for (const entry of byVisualPriority) {
+    if (seenDetailIds.has(entry.target.detailId)) continue;
+    seenDetailIds.add(entry.target.detailId);
+    ordered.push(entry.target);
+  }
+  return ordered;
+}
+
+function nextKeyboardTarget(
+  targets: readonly HitTarget[],
+  currentDetailId: string | null,
+  backwards: boolean,
+): HitTarget | null {
+  if (targets.length === 0) return null;
+  const currentIndex = currentDetailId
+    ? targets.findIndex((target) => target.detailId === currentDetailId)
+    : -1;
+  if (currentIndex === -1) return backwards ? targets[targets.length - 1]! : targets[0]!;
+  const delta = backwards ? -1 : 1;
+  const nextIndex = (currentIndex + delta + targets.length) % targets.length;
+  return targets[nextIndex]!;
+}
+
+function wallClockOverrideHour(): number | null {
+  const override = globalThis.__pharosVilleTestWallClockHour;
+  if (typeof override !== "number" || !Number.isFinite(override)) return null;
+  return ((override % 24) + 24) % 24;
+}
+
+function isInteractiveEventTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement
+    && Boolean(target.closest("a, button, input, select, textarea, summary, [role='button']"));
 }

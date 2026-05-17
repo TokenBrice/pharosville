@@ -1,21 +1,25 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 afterEach(cleanup);
 import { WorldToolbar } from "./world-toolbar";
 
 describe("WorldToolbar (streamlined)", () => {
-  it("renders only zoom%, reset, and follow controls", () => {
+  it("renders zoom, time, reset, and follow controls", () => {
     render(
       <WorldToolbar
         zoomLabel="112%"
+        timeOfDayHour={18.5}
         selectedDetailId="ship-x"
         onResetView={vi.fn()}
         onFollowSelected={vi.fn()}
+        onTimeOfDayChange={vi.fn()}
       />,
     );
     expect(screen.getByText("112%")).toBeTruthy();
+    expect(screen.getByLabelText(/time of day/i).textContent).toBe("18:30");
+    expect(screen.getByLabelText(/set session hour/i)).toBeTruthy();
     expect(screen.getByLabelText(/reset view/i)).toBeTruthy();
     expect(screen.getByLabelText(/follow selected/i)).toBeTruthy();
     expect(screen.queryByLabelText(/zoom in/i)).toBeNull();
@@ -50,5 +54,28 @@ describe("WorldToolbar (streamlined)", () => {
     render(<WorldToolbar zoomLabel="100%" onResetView={vi.fn()} onFollowSelected={vi.fn()} />);
     const follow = screen.getByLabelText(/follow selected/i) as HTMLButtonElement;
     expect(follow.disabled).toBe(true);
+  });
+
+  it("emits manual time changes and exposes reset while override is active", () => {
+    const onTimeOfDayChange = vi.fn();
+    const onClearTimeOverride = vi.fn();
+    render(
+      <WorldToolbar
+        zoomLabel="100%"
+        manualTimeOverrideHour={6.25}
+        timeOfDayHour={6.25}
+        onClearTimeOverride={onClearTimeOverride}
+        onResetView={vi.fn()}
+        onTimeOfDayChange={onTimeOfDayChange}
+      />,
+    );
+
+    const scrubber = screen.getByLabelText(/set session hour/i) as HTMLInputElement;
+    expect(screen.getByLabelText(/time of day/i).textContent).toBe("06:15");
+    fireEvent.change(scrubber, { target: { value: "21.5" } });
+    expect(onTimeOfDayChange).toHaveBeenCalledWith(21.5);
+
+    fireEvent.click(screen.getByLabelText(/return to day-night preset/i));
+    expect(onClearTimeOverride).toHaveBeenCalledOnce();
   });
 });
