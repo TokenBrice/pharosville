@@ -2,6 +2,14 @@
 // node) don't provide. The polyfills are minimal stubs — tests exercise call
 // shape, not raster output.
 
+declare global {
+  /**
+   * Visual tests set this to force a deterministic wall-clock hour while the
+   * normal motion clock remains owned by the route RAF loop.
+   */
+  var __pharosVilleTestWallClockHour: number | undefined;
+}
+
 if (typeof globalThis.Path2D === "undefined") {
   class Path2DStub {
     moveTo(): void {}
@@ -17,3 +25,5 @@ if (typeof globalThis.Path2D === "undefined") {
   }
   (globalThis as unknown as { Path2D: typeof Path2DStub }).Path2D = Path2DStub;
 }
+
+export {};

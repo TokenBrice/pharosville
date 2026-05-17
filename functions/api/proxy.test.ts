@@ -14,11 +14,12 @@ function makeContext(url: string, init?: {
   method?: string;
   waitUntilPromises?: Promise<unknown>[];
 }) {
+  const requestInit: RequestInit = {
+    method: init?.method ?? "GET",
+  };
+  if (init?.headers) requestInit.headers = init.headers;
   return {
-    request: new Request(url, {
-      headers: init?.headers,
-      method: init?.method ?? "GET",
-    }),
+    request: new Request(url, requestInit),
     env: {
       PHAROS_API_BASE: "https://api.pharos.watch",
       PHAROS_API_KEY: "test-proxy-key",
@@ -326,18 +327,32 @@ describe("PharosVille API proxy", () => {
   });
 
   it("returns a controlled 502 when upstream fetch fails", async () => {
+    const logSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("sensitive upstream detail"));
 
     const response = await onRequest(makeContext("https://pharosville.pharos.watch/api/stablecoins"));
     const body = await response.text();
+    const logEntry = JSON.parse(String(logSpy.mock.calls[0]?.[0]));
 
     expect(response.status).toBe(502);
     expect(body).toContain("PharosVille API upstream request failed");
     expect(body).not.toContain("sensitive upstream detail");
+    expect(logEntry).toMatchObject({
+      source: "pharosville-api-proxy",
+      event: "upstream_fetch_failed",
+      level: "error",
+      status: 502,
+      errorKind: "fetch-error",
+      endpointPath: "/api/stablecoins",
+      upstreamOrigin: "https://api.pharos.watch",
+    });
+    expect(logEntry.durationMs).toEqual(expect.any(Number));
+    expect(JSON.stringify(logEntry)).not.toContain("sensitive upstream detail");
   });
 
   it("aborts slow upstream fetches and returns a controlled 502", async () => {
     vi.useFakeTimers();
+    const logSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementationOnce((_url, init) => {
       const signal = (init as RequestInit).signal;
       return new Promise<Response>((_resolve, reject) => {
@@ -349,9 +364,21 @@ describe("PharosVille API proxy", () => {
     await vi.advanceTimersByTimeAsync(8_000);
     const response = await responsePromise;
     const body = await response.text();
+    const logEntry = JSON.parse(String(logSpy.mock.calls[0]?.[0]));
 
     expect(response.status).toBe(502);
     expect(body).toContain("PharosVille API upstream request failed");
+    expect(logEntry).toMatchObject({
+      source: "pharosville-api-proxy",
+      event: "upstream_timeout",
+      level: "error",
+      status: 502,
+      errorKind: "timeout",
+      endpointPath: "/api/stablecoins",
+      upstreamOrigin: "https://api.pharos.watch",
+      timeoutMs: 8_000,
+    });
+    expect(logEntry.durationMs).toEqual(expect.any(Number));
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.pharos.watch/api/stablecoins",
       expect.objectContaining({ signal: expect.any(AbortSignal) }),

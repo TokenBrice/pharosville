@@ -56,7 +56,9 @@ const CACHE_KEY_ORIGIN = "https://pharosville.pharos.watch";
 const UPSTREAM_TIMEOUT_MS = 8_000;
 
 function jsonError(message: string, status: number, headers?: HeadersInit): Response {
-  return withSecurityHeaders(Response.json({ error: message }, { status, headers }));
+  const init: ResponseInit = { status };
+  if (headers) init.headers = headers;
+  return withSecurityHeaders(Response.json({ error: message }, init));
 }
 
 function normalizeBaseUrl(base: string | undefined): string | null {
@@ -143,11 +145,20 @@ function maybeStoreEdgeCache(
   }
 }
 
-async function fetchUpstream(url: string, apiKey: string): Promise<Response | null> {
+type UpstreamFetchResult =
+  | { durationMs: number; ok: true; response: Response }
+  | { durationMs: number; errorKind: "fetch-error" | "timeout"; ok: false };
+
+async function fetchUpstream(url: string, apiKey: string): Promise<UpstreamFetchResult> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  const startedAt = Date.now();
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, UPSTREAM_TIMEOUT_MS);
   try {
-    return await fetch(url, {
+    const response = await fetch(url, {
       headers: {
         Accept: "application/json",
         "X-API-Key": apiKey,
@@ -155,11 +166,32 @@ async function fetchUpstream(url: string, apiKey: string): Promise<Response | nu
       redirect: "manual",
       signal: controller.signal,
     });
+    return { durationMs: Date.now() - startedAt, ok: true, response };
   } catch {
-    return null;
+    return {
+      durationMs: Date.now() - startedAt,
+      errorKind: timedOut || controller.signal.aborted ? "timeout" : "fetch-error",
+      ok: false,
+    };
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+function logUpstreamFailure(context: PagesContext, endpointPath: string, failure: Extract<UpstreamFetchResult, { ok: false }>): void {
+  console.error(JSON.stringify({
+    source: "pharosville-api-proxy",
+    event: failure.errorKind === "timeout" ? "upstream_timeout" : "upstream_fetch_failed",
+    level: "error",
+    status: 502,
+    errorKind: failure.errorKind,
+    durationMs: failure.durationMs,
+    timeoutMs: UPSTREAM_TIMEOUT_MS,
+    endpointPath,
+    upstreamOrigin: REQUIRED_PHAROS_API_ORIGIN,
+    ray: context.request.headers.get("cf-ray") ?? "",
+    country: context.request.headers.get("cf-ipcountry") ?? "",
+  }));
 }
 
 export async function onRequest(context: PagesContext): Promise<Response> {
@@ -185,14 +217,15 @@ export async function onRequest(context: PagesContext): Promise<Response> {
   if (cached) return withSecurityHeaders(cached);
 
   const upstream = await fetchUpstream(buildUpstreamUrl(base, url), apiKey);
-  if (!upstream) {
+  if (!upstream.ok) {
+    logUpstreamFailure(context, endpoint.path, upstream);
     return jsonError("PharosVille API upstream request failed", 502);
   }
 
-  const response = prepareProxyResponseForCache(new Response(upstream.body, {
-    status: upstream.status,
-    statusText: upstream.statusText,
-    headers: copyForwardedHeaders(upstream),
+  const response = prepareProxyResponseForCache(new Response(upstream.response.body, {
+    status: upstream.response.status,
+    statusText: upstream.response.statusText,
+    headers: copyForwardedHeaders(upstream.response),
   }), endpoint.metaMaxAgeSec);
   maybeStoreEdgeCache(context, cache, cacheKey, response);
   return withSecurityHeaders(response);

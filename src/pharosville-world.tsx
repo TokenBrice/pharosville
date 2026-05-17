@@ -167,7 +167,17 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       hitTargetsRef.current = snapshot.targets;
       return snapshot;
     };
-  });
+  }, [
+    assetPipeline.assetManager,
+    canvas.cameraRef,
+    canvas.canvasSizeRef,
+    hitTargetSnapshotRef,
+    hitTargetsRef,
+    hoveredDetailIdRef,
+    selectedDetailIdRef,
+    shipMotionSamplesRef,
+    world,
+  ]);
 
   const { requestPaint } = useWorldRenderLoop({
     onBucketFlip: setMotionBucket,
@@ -298,7 +308,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
           <WorldToolbar
             selectedDetailId={selectedDetailId}
             zoomLabel={canvas.cameraZoomLabel}
-            onFollowSelected={selectedEntity ? canvas.handleFollowSelected : undefined}
+            {...(selectedEntity ? { onFollowSelected: canvas.handleFollowSelected } : {})}
             onResetView={canvas.handleResetView}
             nightMode={nightMode}
             onToggleNightMode={() => setNightMode((n) => !n)}

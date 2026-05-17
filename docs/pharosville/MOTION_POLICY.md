@@ -60,6 +60,11 @@ validation:
 - `motionFrameCount`
 - `reducedMotion`
 
+Visual tests may also set `globalThis.__pharosVilleTestWallClockHour` to a
+finite hour in `[0, 24)`. That override controls only the rendered
+time-of-day frame; it does not create a second motion clock or advance route
+animation state.
+
 Reduced motion should report `activeMotionLoopCount = 0` and
 `motionClockSource = "reduced-motion-static-frame"`. Normal motion should report
 `activeMotionLoopCount = 1` and `motionClockSource = "requestAnimationFrame"`.

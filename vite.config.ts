@@ -220,6 +220,7 @@ export default defineConfig(({ mode }) => {
             if (id.includes("/node_modules/@tanstack/react-query/")) {
               return "vendor-query";
             }
+            return undefined;
           },
         },
       },

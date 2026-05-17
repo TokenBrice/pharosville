@@ -283,7 +283,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         }
       }
       let wallClockHour: number;
-      const testOverride = (globalThis as { __pharosVilleTestWallClockHour?: number }).__pharosVilleTestWallClockHour;
+      const testOverride = globalThis.__pharosVilleTestWallClockHour;
       if (typeof testOverride === "number" && Number.isFinite(testOverride)) {
         // Visual tests inject this global to render at a specific hour. Takes
         // precedence over the reduced-motion noon pin so dawn/dusk/night
@@ -481,14 +481,15 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         const longtaskCount = ltWindow.reduce((sum, f) => sum + f.count, 0);
         const longtaskMaxMs = ltWindow.reduce((m, f) => (f.maxDurationMs > m ? f.maxDurationMs : m), 0);
 
-        lastRenderMetricsRef.current = {
+        const nextRenderMetrics: PharosVilleRenderMetrics & { drawDurationMs: number } = {
           ...lastRenderMetricsRef.current,
           shipMaxHeadingDeltaDeg,
           shipMaxPositionDeltaTile,
-          routeCacheStats,
           longtask: { count: longtaskCount, maxDurationMs: longtaskMaxMs },
           bucketFlipCount: bucketFlipCountRef.current,
         };
+        if (routeCacheStats) nextRenderMetrics.routeCacheStats = routeCacheStats;
+        lastRenderMetricsRef.current = nextRenderMetrics;
 
         updateDebugFrame({
           animationFramePending: animationFramePendingRef.current,
@@ -559,6 +560,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         }
       });
       ltObserver.observe({ entryTypes: ["longtask"] });
+      longtaskObserverRef.current?.disconnect();
       longtaskObserverRef.current = ltObserver;
     }
 

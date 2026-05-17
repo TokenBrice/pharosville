@@ -580,15 +580,6 @@ function reconstructPath(previous: ArrayLike<number>, endIndex: number, map: Pha
   return points.reverse();
 }
 
-function _waterNeighbors(tile: { x: number; y: number }, map: PharosVilleMap): Array<{ x: number; y: number }> {
-  return [
-    { x: tile.x + 1, y: tile.y },
-    { x: tile.x, y: tile.y + 1 },
-    { x: tile.x - 1, y: tile.y },
-    { x: tile.x, y: tile.y - 1 },
-  ].filter((candidate) => isWaterTile(candidate.x, candidate.y, map));
-}
-
 function waterPathCost(tile: PharosVilleTile | undefined, zone: ShipWaterZone | undefined): number {
   if (!tile) return Number.POSITIVE_INFINITY;
   const terrain = tile.terrain ?? tile.kind;

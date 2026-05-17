@@ -130,7 +130,7 @@ function rgbToHex(r: number, g: number, b: number): string {
   return `#${[r, g, b].map((v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, "0")).join("")}`;
 }
 
-function dockRenderState(input: DrawPharosVilleInput, frame: DockRenderFrame, dock: PharosVilleWorld["docks"][number]): DockRenderState {
+function dockRenderState(frame: DockRenderFrame, dock: PharosVilleWorld["docks"][number]): DockRenderState {
   const cached = frame.dockRenderStates.get(dock.id);
   if (cached) return cached;
   const dockAsset = frame.cache.assetForEntity(dock);
@@ -144,7 +144,7 @@ function dockRenderState(input: DrawPharosVilleInput, frame: DockRenderFrame, do
 export function drawDockBody(input: DrawPharosVilleInput, frame: DockRenderFrame, dock: PharosVilleWorld["docks"][number]): void {
   const { camera, ctx } = input;
   const p = tileToScreen(dock.tile, camera);
-  const { dockAsset, geometry, harbor } = dockRenderState(input, frame, dock);
+  const { dockAsset, geometry, harbor } = dockRenderState(frame, dock);
   drawDockQuayUnderlay(ctx, dock, harbor, camera.zoom);
   if (dockAsset) {
     drawAsset(
@@ -200,7 +200,7 @@ function drawDockQuayUnderlay(
 
 export function drawDockOverlay(input: DrawPharosVilleInput, frame: DockRenderFrame, dock: PharosVilleWorld["docks"][number]): void {
   const { assets, camera, ctx, hoveredTarget, motion, selectedTarget, world } = input;
-  const { harbor } = dockRenderState(input, frame, dock);
+  const { harbor } = dockRenderState(frame, dock);
   drawHarborFlag({
     accent: dockHealthColor(dock.healthBand),
     ctx,
