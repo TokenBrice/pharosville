@@ -9,6 +9,30 @@ interface ShipTrimSpec {
   stern: { height: number; width: number; x: number; y: number };
 }
 
+export interface ShipTrimColorStory {
+  deckFill: string;
+  deckStroke: string;
+  keel: string;
+  rail: string;
+  railDash?: readonly [number, number];
+  secondaryRail?: string;
+  sternFill: string;
+  sternStroke: string;
+}
+
+export interface ShipPennantSpec {
+  bowLogoSize: number;
+  bowLogoX: number;
+  bowLogoY: number;
+  lanternX: number;
+  lanternY: number;
+  mastTopX: number;
+  mastTopY: number;
+  pennantHeight: number;
+  pennantWidth: number;
+  poleHeight: number;
+}
+
 export const SHIP_COLORS = {
   "treasury-galleon": "#8a4f2b",
   "chartered-brigantine": "#735233",
@@ -64,6 +88,82 @@ export const SHIP_SAIL_MARKS: Record<string, { height: number; width: number; x:
   "ship.fxusd-unique": { height: 18, width: 20, x: 3, y: -50 },
   "ship.xaut-unique": { height: 17, width: 20, x: -7, y: -57 },
   "ship.paxg-unique": { height: 20, width: 22, x: 2, y: -47 },
+};
+
+export const SHIP_PENNANT_MARKS: Record<string, ShipPennantSpec> = {
+  "algo-junk": {
+    mastTopX: 1,
+    mastTopY: -38,
+    poleHeight: 13,
+    pennantWidth: 14,
+    pennantHeight: 7,
+    lanternX: 0,
+    lanternY: -29,
+    bowLogoX: 22,
+    bowLogoY: -8,
+    bowLogoSize: 8,
+  },
+  "chartered-brigantine": {
+    mastTopX: 1,
+    mastTopY: -40,
+    poleHeight: 14,
+    pennantWidth: 15,
+    pennantHeight: 7,
+    lanternX: 0,
+    lanternY: -31,
+    bowLogoX: 23,
+    bowLogoY: -9,
+    bowLogoSize: 8,
+  },
+  "crypto-caravel": {
+    mastTopX: 0,
+    mastTopY: -37,
+    poleHeight: 12,
+    pennantWidth: 13,
+    pennantHeight: 6,
+    lanternX: 0,
+    lanternY: -28,
+    bowLogoX: 21,
+    bowLogoY: -8,
+    bowLogoSize: 7,
+  },
+  "dao-schooner": {
+    mastTopX: 0,
+    mastTopY: -38,
+    poleHeight: 13,
+    pennantWidth: 14,
+    pennantHeight: 6,
+    lanternX: 0,
+    lanternY: -29,
+    bowLogoX: 21,
+    bowLogoY: -8,
+    bowLogoSize: 7,
+  },
+  "treasury-galleon": {
+    mastTopX: 1,
+    mastTopY: -42,
+    poleHeight: 15,
+    pennantWidth: 16,
+    pennantHeight: 7,
+    lanternX: 0,
+    lanternY: -32,
+    bowLogoX: 24,
+    bowLogoY: -10,
+    bowLogoSize: 8,
+  },
+};
+
+export const PROCEDURAL_SHIP_PENNANT_MARK: ShipPennantSpec = {
+  mastTopX: 0,
+  mastTopY: -25,
+  poleHeight: 9,
+  pennantWidth: 10,
+  pennantHeight: 5,
+  lanternX: 0,
+  lanternY: -18,
+  bowLogoX: 15,
+  bowLogoY: -4,
+  bowLogoSize: 5.5,
 };
 
 export const SHIP_TRIM_MARKS: Record<string, ShipTrimSpec> = {
@@ -207,6 +307,65 @@ export const SHIP_TRIM_MARKS: Record<string, ShipTrimSpec> = {
     keel: [-36, -4, 32, 0],
     stern: { x: -42, y: -23, width: 12, height: 5 },
     deck: [{ x: -12, y: -26, width: 10, height: 4 }, { x: 10, y: -23, width: 9, height: 4 }],
+  },
+};
+
+export const SHIP_TRIM_COLOR_STORIES: Record<string, ShipTrimColorStory> = {
+  "ship.usdc-titan": {
+    rail: "#b77a3d",
+    secondaryRail: "#f0c47c",
+    keel: "#6d4931",
+    sternFill: "#d49a3e",
+    sternStroke: "#5b3a24",
+    deckFill: "#f0d28c",
+    deckStroke: "#9a662f",
+  },
+  "ship.usdt-titan": {
+    rail: "#009393",
+    secondaryRail: "#78d7c8",
+    keel: "#006a69",
+    sternFill: "#d6c08b",
+    sternStroke: "#005252",
+    deckFill: "#efe4c2",
+    deckStroke: "#007d7b",
+  },
+  "ship.usde-titan": {
+    rail: "#7e58c8",
+    secondaryRail: "#d8c7ff",
+    railDash: [5, 3],
+    keel: "#342451",
+    sternFill: "#b99af2",
+    sternStroke: "#221736",
+    deckFill: "#e6dbff",
+    deckStroke: "#6d4bb0",
+  },
+  "ship.pyusd-titan": {
+    rail: "#1f477a",
+    secondaryRail: "#88b7e8",
+    keel: "#172a44",
+    sternFill: "#7fa6d8",
+    sternStroke: "#14233a",
+    deckFill: "#dbe9f8",
+    deckStroke: "#1f477a",
+  },
+  "ship.buidl-titan": {
+    rail: "#141414",
+    secondaryRail: "#d8b15f",
+    keel: "#070707",
+    sternFill: "#2a2a28",
+    sternStroke: "#c8a75b",
+    deckFill: "#d8b15f",
+    deckStroke: "#15110a",
+  },
+  "ship.usd1-titan": {
+    rail: "#c89a2f",
+    secondaryRail: "#f4df8f",
+    railDash: [4, 2],
+    keel: "#6b4c16",
+    sternFill: "#f1c95f",
+    sternStroke: "#5c4317",
+    deckFill: "#fff0a8",
+    deckStroke: "#b7821e",
   },
 };
 

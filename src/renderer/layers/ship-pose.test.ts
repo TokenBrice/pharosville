@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ShipMotionSample, ShipMotionState } from "../../systems/motion";
-import { resolveShipPose, type ShipPose } from "./ship-pose";
+import { resolveShipPose, shipPosePersonalityBias, type ShipPose } from "./ship-pose";
 
 describe("ship pose", () => {
   it("returns zeroed pose values for reduced motion", () => {
@@ -95,6 +95,35 @@ describe("ship pose", () => {
     expect(resolveShipPose(input)).toEqual(resolveShipPose(input));
   });
 
+  it("keeps per-ship personality bias deterministic and within tuned ranges", () => {
+    const usdc = shipPosePersonalityBias("usdc-circle");
+    const usdt = shipPosePersonalityBias("usdt-tether");
+
+    expect(shipPosePersonalityBias("usdc-circle")).toEqual(usdc);
+    expect(usdc.rollAmplitudeBias).toBeGreaterThanOrEqual(0.8);
+    expect(usdc.rollAmplitudeBias).toBeLessThanOrEqual(1.2);
+    expect(usdc.bobAmplitudeBias).toBeGreaterThanOrEqual(0.85);
+    expect(usdc.bobAmplitudeBias).toBeLessThanOrEqual(1.15);
+    expect(usdc.lanternRateBias).toBeGreaterThanOrEqual(0.75);
+    expect(usdc.lanternRateBias).toBeLessThanOrEqual(1.25);
+    expect(usdc).not.toEqual(usdt);
+  });
+
+  it("uses the stable bob personality for non-titan ships", () => {
+    const bias = shipPosePersonalityBias("dai-maker");
+    const pose = resolveShipPose({
+      phase: 0.4,
+      reducedMotion: false,
+      sample: sample({ state: "sailing", wakeIntensity: 0.8, zone: "danger" }),
+      shipId: "dai-maker",
+      timeSeconds: 1.1,
+      sizeTier: "major",
+      zoom: 2,
+    });
+
+    expect(pose.bobPixels).toBe(Math.round(Math.sin(1.1 * 0.7 + 0.4) * 2 * 2 * bias.bobAmplitudeBias));
+  });
+
   it("keeps non-titan ships compatible with the existing tiny bob", () => {
     const pose = resolveShipPose({
       phase: 0.4,
@@ -106,8 +135,8 @@ describe("ship pose", () => {
       zoom: 2,
     });
 
-    expect(pose).toEqual({
-      bobPixels: Math.round(Math.sin(1.1 * 0.7 + 0.4) * 2 * 2),
+    expect(Math.abs(pose.bobPixels)).toBeLessThanOrEqual(Math.ceil(2 * 2 * 1.15));
+    expect(pose).toMatchObject({
       bowWake: 0,
       lanternAlpha: 0,
       mooringTension: 0,

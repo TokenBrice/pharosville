@@ -1,7 +1,7 @@
 import { squadForMember } from "../../systems/maker-squad";
 import type { ShipMotionSample } from "../../systems/motion";
 import type { ScreenPoint } from "../../systems/projection";
-import type { PharosVilleWorld, ShipLivery, ShipLogoShape, ShipStripePattern, ShipWaterZone } from "../../systems/world-types";
+import type { PharosVilleWorld, ShipHull, ShipLivery, ShipLogoShape, ShipSizeTier, ShipStripePattern, ShipWaterZone } from "../../systems/world-types";
 import type { LoadedPharosVilleAsset, PharosVilleAssetManager } from "../asset-manager";
 import { drawAnimatedAsset, drawAsset, hexToRgba, readableInkForFill, roundedRectPath, stableVisualVariant } from "../canvas-primitives";
 import type { RenderFrameCache } from "../frame-cache";
@@ -10,11 +10,16 @@ import type { DrawPharosVilleInput } from "../render-types";
 import { pickSailEmblemInk, recolorSailImageData, SHIP_SAIL_TINT_MASKS } from "../ship-sail-tint";
 import {
   SHIP_COLORS,
+  PROCEDURAL_SHIP_PENNANT_MARK,
+  SHIP_PENNANT_MARKS,
   SHIP_SAIL_EMBLEM_OVERRIDES,
   SHIP_SAIL_EMBLEM_PAINTED,
   SHIP_SAIL_MARKS,
+  SHIP_TRIM_COLOR_STORIES,
   SHIP_TRIM_MARKS,
   TITAN_SPRITE_IDS,
+  type ShipPennantSpec,
+  type ShipTrimColorStory,
 } from "../ship-visual-config";
 import { UNIQUE_SPRITE_IDS } from "../../systems/unique-ships";
 import {
@@ -32,9 +37,12 @@ import { skyState } from "./sky";
 // (`use-asset-loading-pipeline.ts`, `ships.test.ts`). New code should import
 // from `../ship-visual-config` directly.
 export {
+  PROCEDURAL_SHIP_PENNANT_MARK,
+  SHIP_PENNANT_MARKS,
   SHIP_SAIL_EMBLEM_OVERRIDES,
   SHIP_SAIL_EMBLEM_PAINTED,
   SHIP_SAIL_MARKS,
+  SHIP_TRIM_COLOR_STORIES,
   SHIP_TRIM_MARKS,
   TITAN_SPRITE_IDS,
 };
@@ -48,6 +56,7 @@ export interface ShipRenderState {
   pose: ShipPose;
   sample: ShipMotionSample | null;
   selected: boolean;
+  hovered: boolean;
   animationFrame: number;
   isTitanSprite: boolean;
   isUniqueSprite: boolean;
@@ -326,13 +335,14 @@ function isShipRectInViewport(
 function shipRenderState(input: DrawPharosVilleInput, frame: ShipRenderFrame, ship: PharosVilleWorld["ships"][number]): ShipRenderState {
   const cached = frame.shipRenderStates.get(ship.id);
   if (cached) return cached;
-  const { camera, motion, selectedTarget, shipMotionSamples } = input;
+  const { camera, hoveredTarget, motion, selectedTarget, shipMotionSamples } = input;
   const sample = shipMotionSamples?.get(ship.id) ?? null;
   const shipAsset = frame.cache.assetForEntity(ship);
   const geometry = frame.cache.geometryForEntity(ship);
   const p = geometry.screenPoint;
   const phase = motion.plan.shipPhases.get(ship.id) ?? 0;
-  const selected = selectedTarget?.id === ship.id;
+  const selected = selectedTarget?.id === ship.id || selectedTarget?.detailId === ship.detailId;
+  const hovered = hoveredTarget?.id === ship.id || hoveredTarget?.detailId === ship.detailId;
   const titanSprite = isTitanSprite(ship);
   const uniqueSprite = isUniqueSprite(ship);
   const animated = !motion.reducedMotion && motion.plan.animatedShipIds.has(ship.id);
@@ -361,6 +371,7 @@ function shipRenderState(input: DrawPharosVilleInput, frame: ShipRenderFrame, sh
     pose,
     sample,
     selected,
+    hovered,
     animationFrame,
     isTitanSprite: titanSprite,
     isUniqueSprite: uniqueSprite,
@@ -465,9 +476,9 @@ function drawShipWakeRaw(input: DrawPharosVilleInput, frame: ShipRenderFrame, sh
     // ~3% — invisible. Threading the multiplier into lineWidth produces a
     // visibly thicker wake for high-mover ships at any zoom.
     const wakeMultiplier = motion.plan.shipRoutes.get(ship.id)?.wakeMultiplier ?? 1;
-    drawWake(ctx, p.x, p.y + 8 * camera.zoom, camera.zoom, intensity, sample?.heading ?? { x: -1, y: 0 }, sample?.zone ?? ship.riskZone, wakeMultiplier);
+    drawWake(ctx, p.x, p.y + 8 * camera.zoom, camera.zoom, intensity, sample?.heading ?? { x: -1, y: 0 }, sample?.zone ?? ship.riskZone, wakeMultiplier, ship.visual.hull);
     const { nightFactor } = skyState(motion);
-    drawNightWakeGlow(ctx, p.x, p.y + 8 * camera.zoom, camera.zoom, intensity, sample?.heading ?? { x: -1, y: 0 }, nightFactor, wakeMultiplier);
+    drawNightWakeGlow(ctx, p.x, p.y + 8 * camera.zoom, camera.zoom, intensity, sample?.heading ?? { x: -1, y: 0 }, nightFactor, wakeMultiplier, ship.visual.hull);
     if (isTitanSprite) {
       drawTitanBowSpray(
         ctx,
@@ -650,9 +661,7 @@ export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame
       }
       const visualKey = ship.visual.spriteAssetId ?? ship.visual.hull;
       drawShipSailTint(ctx, shipAsset, geometry.drawPoint.x, drawY, geometry.drawScale, ship.visual.livery);
-      if (!isTitanSprite) {
-        drawShipLiveryTrim(ctx, ship.id, ship.visual.livery, visualKey, geometry.drawPoint.x, drawY, geometry.drawScale);
-      }
+      drawShipLiveryTrim(ctx, ship.id, ship.visual.livery, visualKey, geometry.drawPoint.x, drawY, geometry.drawScale);
       drawSquadIdentityAccent(ctx, ship.id, geometry.drawPoint.x, drawY, geometry.drawScale);
     });
   } else {
@@ -690,21 +699,33 @@ export function drawSquadIdentityAccent(
   if (shipId === "dai-makerdao") drawWeatheredPatches(ctx, x, y, scale);
 }
 
-// Narrow rectangular pennant just above the mast tip; flagship-only.
+// Forked admiral banner raised above the mast tip; flagship-only.
 function drawAdmiralBanner(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
+  const mastX = x - 2 * scale;
+  const topY = y - 72 * scale;
+  const width = 18 * scale;
+  const height = 6 * scale;
   ctx.save();
+  ctx.strokeStyle = "rgba(18, 12, 8, 0.72)";
+  ctx.lineWidth = Math.max(1, 1.2 * scale);
+  ctx.beginPath();
+  ctx.moveTo(mastX - 1 * scale, topY + height + 3 * scale);
+  ctx.lineTo(mastX - 1 * scale, topY - 1 * scale);
+  ctx.stroke();
+
   ctx.fillStyle = "#e8bb60";
   ctx.strokeStyle = "rgba(43, 28, 18, 0.78)";
-  ctx.lineWidth = Math.max(1, 0.6 * scale);
+  ctx.lineWidth = Math.max(1, 0.8 * scale);
   ctx.beginPath();
-  ctx.rect(x - 1 * scale, y - 60 * scale, 11 * scale, 3.4 * scale);
+  ctx.rect(mastX, topY, width, height);
   ctx.fill();
   ctx.stroke();
   // Forked tip for admiral's banner.
   ctx.beginPath();
-  ctx.moveTo(x + 10 * scale, y - 60 * scale);
-  ctx.lineTo(x + 13.5 * scale, y - 58.3 * scale);
-  ctx.lineTo(x + 10 * scale, y - 56.6 * scale);
+  ctx.moveTo(mastX + width, topY);
+  ctx.lineTo(mastX + width + 5 * scale, topY + height * 0.5);
+  ctx.lineTo(mastX + width, topY + height);
+  ctx.lineTo(mastX + width - 3.5 * scale, topY + height * 0.5);
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
@@ -810,6 +831,7 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
   const {
     bob,
     geometry,
+    hovered,
     isTitanSprite,
     isUniqueSprite,
     p,
@@ -821,12 +843,31 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
     const overrideEmblemSrc = SHIP_SAIL_EMBLEM_OVERRIDES[ship.id];
     const overrideEmblemLogo = overrideEmblemSrc ? assets?.getLogo(overrideEmblemSrc) ?? null : null;
     const dyedEmblem = (!isTitanSprite && !isUniqueSprite) || overrideEmblemLogo !== null;
+    const standardSprite = !isTitanSprite && !isUniqueSprite;
     const drawY = geometry.drawPoint.y + bob;
     drawWithShipPose(ctx, geometry.drawPoint.x, drawY, pose, () => {
-      if (selected) drawSelectedShipOutline(ctx, geometry.drawPoint.x, drawY, geometry.drawScale);
+      if (selected) {
+        drawSelectedShipOutline(ctx, geometry.drawPoint.x, drawY, geometry.drawScale, input.motion);
+      } else if (hovered) {
+        drawHoverShipOutline(ctx, geometry.drawPoint.x, drawY, geometry.drawScale);
+      }
       const mark = SHIP_SAIL_MARKS[ship.visual.spriteAssetId ?? ship.visual.hull] ?? SHIP_SAIL_MARKS[ship.visual.hull];
       const flutterY = isTitanSprite ? pose.sailFlutter * geometry.drawScale : 0;
-      if (dyedEmblem) {
+      if (standardSprite) {
+        drawMastPennantChrome(ctx, ship.visual.livery, ship.symbol, geometry.drawPoint.x, drawY, geometry.drawScale, pennantSpecForShip(ship, true));
+        if (shouldDrawBowspritLogoMark(ship.visual.sizeTier)) {
+          drawBowspritLogoMark({
+            ctx,
+            logo: assets?.getLogo(ship.logoSrc) ?? null,
+            livery: ship.visual.livery,
+            mark: ship.symbol,
+            spec: pennantSpecForShip(ship, true),
+            scale: geometry.drawScale,
+            x: geometry.drawPoint.x,
+            y: drawY,
+          });
+        }
+      } else if (dyedEmblem) {
         drawDyedSailEmblem({
           ctx,
           asset: shipAsset,
@@ -852,25 +893,30 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
           y: drawY + mark.y * geometry.drawScale + flutterY,
         });
       }
-      if (isTitanSprite) return;
-      drawShipSignalOverlay(ctx, ship.visual.overlay, geometry.drawPoint.x - 17 * geometry.drawScale, drawY - 36 * geometry.drawScale, geometry.drawScale);
+      const signalAnchor = signalOverlayAnchor(ship, geometry.drawPoint.x, drawY, geometry.drawScale, standardSprite);
+      drawShipSignalOverlay(ctx, ship.visual.overlay, signalAnchor.x, signalAnchor.y, geometry.drawScale);
     });
   } else {
     const proceduralScale = camera.zoom * ship.visual.scale;
     const drawY = p.y - 4 * camera.zoom + bob;
-    if (selected) drawSelectedShipOutline(ctx, p.x, drawY, proceduralScale * 0.7);
-    drawSailLogo({
-      ctx,
-      logo: assets?.getLogo(ship.logoSrc) ?? null,
-      livery: ship.visual.livery,
-      mark: ship.symbol,
-      sailColor: ship.visual.sailColor,
-      stripeColor: ship.visual.sailStripeColor,
-      height: 12 * proceduralScale,
-      width: 14 * proceduralScale,
-      x: p.x + 7 * proceduralScale,
-      y: drawY - 10 * proceduralScale,
-    });
+    if (selected) {
+      drawSelectedShipOutline(ctx, p.x, drawY, proceduralScale * 0.7, input.motion);
+    } else if (hovered) {
+      drawHoverShipOutline(ctx, p.x, drawY, proceduralScale * 0.7);
+    }
+    drawMastPennantChrome(ctx, ship.visual.livery, ship.symbol, p.x, drawY, proceduralScale, PROCEDURAL_SHIP_PENNANT_MARK);
+    if (shouldDrawBowspritLogoMark(ship.visual.sizeTier)) {
+      drawBowspritLogoMark({
+        ctx,
+        logo: assets?.getLogo(ship.logoSrc) ?? null,
+        livery: ship.visual.livery,
+        mark: ship.symbol,
+        spec: PROCEDURAL_SHIP_PENNANT_MARK,
+        scale: proceduralScale,
+        x: p.x,
+        y: drawY,
+      });
+    }
     drawShipSignalOverlay(ctx, ship.visual.overlay, p.x - 10 * proceduralScale, drawY - 20 * proceduralScale, proceduralScale);
   }
   const { nightFactor: lanternNight } = skyState(input.motion);
@@ -905,13 +951,173 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
   }
 }
 
-function drawSelectedShipOutline(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
+function drawHoverShipOutline(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
   ctx.save();
-  ctx.strokeStyle = "rgba(255, 229, 160, 0.92)";
+  ctx.strokeStyle = "rgba(255, 214, 122, 0.86)";
+  ctx.lineWidth = Math.max(1, 1.15 * scale);
+  ctx.setLineDash([Math.max(2, 4 * scale), Math.max(2, 3 * scale)]);
+  ctx.beginPath();
+  ctx.ellipse(x, y - 18 * scale, 35 * scale, 24 * scale, -0.08, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawSelectedShipOutline(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  scale: number,
+  motion: DrawPharosVilleInput["motion"],
+) {
+  const pulse = motion.reducedMotion ? 1 : (Math.sin(motion.timeSeconds * Math.PI * 4) * 0.5 + 0.5);
+  const alpha = 0.72 + pulse * 0.22;
+  ctx.save();
+  ctx.strokeStyle = `rgba(255, 229, 160, ${alpha.toFixed(3)})`;
   ctx.lineWidth = Math.max(1, 2 * scale);
   ctx.beginPath();
   ctx.ellipse(x, y - 18 * scale, 34 * scale, 23 * scale, -0.08, 0, Math.PI * 2);
   ctx.stroke();
+  ctx.strokeStyle = `rgba(98, 226, 207, ${(0.5 + pulse * 0.22).toFixed(3)})`;
+  ctx.lineWidth = Math.max(1, 1.05 * scale);
+  ctx.beginPath();
+  ctx.ellipse(x, y - 18 * scale, 42 * scale, 28 * scale, -0.08, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function pennantSpecForShip(ship: PharosVilleWorld["ships"][number], hasAsset: boolean): ShipPennantSpec {
+  if (!hasAsset) return PROCEDURAL_SHIP_PENNANT_MARK;
+  return SHIP_PENNANT_MARKS[ship.visual.spriteAssetId ?? ship.visual.hull]
+    ?? SHIP_PENNANT_MARKS[ship.visual.hull]
+    ?? SHIP_PENNANT_MARKS["treasury-galleon"]!;
+}
+
+function signalOverlayAnchor(
+  ship: PharosVilleWorld["ships"][number],
+  x: number,
+  y: number,
+  scale: number,
+  standardSprite: boolean,
+): { x: number; y: number } {
+  if (standardSprite) {
+    const spec = pennantSpecForShip(ship, true);
+    return {
+      x: x + (spec.mastTopX - 7) * scale,
+      y: y + (spec.mastTopY + 9) * scale,
+    };
+  }
+  const sail = SHIP_SAIL_MARKS[ship.visual.spriteAssetId ?? ship.visual.hull]
+    ?? SHIP_SAIL_MARKS[ship.visual.hull]
+    ?? SHIP_SAIL_MARKS["treasury-galleon"]!;
+  return {
+    x: x + (sail.x - sail.width * 0.72) * scale,
+    y: y + (sail.y - sail.height * 0.62) * scale,
+  };
+}
+
+function shouldDrawBowspritLogoMark(sizeTier: ShipSizeTier): boolean {
+  return sizeTier === "regional" || sizeTier === "major" || sizeTier === "flagship";
+}
+
+function drawMastPennantChrome(
+  ctx: CanvasRenderingContext2D,
+  livery: ShipLivery,
+  mark: string,
+  x: number,
+  y: number,
+  scale: number,
+  spec: ShipPennantSpec,
+) {
+  const mastX = x + spec.mastTopX * scale;
+  const mastY = y + spec.mastTopY * scale;
+  const width = spec.pennantWidth * scale;
+  const height = spec.pennantHeight * scale;
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.strokeStyle = "rgba(36, 25, 18, 0.82)";
+  ctx.lineWidth = Math.max(1, 1 * scale);
+  ctx.beginPath();
+  ctx.moveTo(mastX, mastY + spec.poleHeight * scale);
+  ctx.lineTo(mastX, mastY - 1 * scale);
+  ctx.stroke();
+
+  ctx.fillStyle = hexToRgba(livery.primary, 0.94);
+  ctx.strokeStyle = "rgba(37, 25, 16, 0.76)";
+  ctx.lineWidth = Math.max(1, 0.8 * scale);
+  ctx.beginPath();
+  ctx.moveTo(mastX, mastY);
+  ctx.lineTo(mastX + width, mastY + height * 0.16);
+  ctx.lineTo(mastX + width * 0.72, mastY + height * 0.5);
+  ctx.lineTo(mastX + width, mastY + height * 0.84);
+  ctx.lineTo(mastX, mastY + height);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = hexToRgba(readableInkForFill(livery.primary), 0.52);
+  ctx.font = `800 ${Math.max(5, height * 0.76)}px ui-sans-serif, system-ui, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(mark.slice(0, 3).toUpperCase(), mastX + width * 0.42, mastY + height * 0.52, width * 0.58);
+
+  drawMastLantern(ctx, x + spec.lanternX * scale, y + spec.lanternY * scale, scale);
+  ctx.restore();
+}
+
+function drawMastLantern(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
+  const radius = Math.max(1.6, 2.6 * scale);
+  ctx.save();
+  ctx.fillStyle = "rgba(63, 41, 22, 0.82)";
+  ctx.beginPath();
+  ctx.ellipse(x, y, radius * 0.82, radius * 1.12, 0.05, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "rgba(248, 210, 126, 0.92)";
+  ctx.beginPath();
+  ctx.ellipse(x, y, radius * 0.42, radius * 0.58, 0.05, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(19, 13, 8, 0.7)";
+  ctx.lineWidth = Math.max(1, 0.65 * scale);
+  ctx.beginPath();
+  ctx.ellipse(x, y, radius * 0.82, radius * 1.12, 0.05, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawBowspritLogoMark(input: {
+  ctx: CanvasRenderingContext2D;
+  livery: ShipLivery;
+  logo: ReturnType<PharosVilleAssetManager["getLogo"]>;
+  mark: string;
+  scale: number;
+  spec: ShipPennantSpec;
+  x: number;
+  y: number;
+}) {
+  const { ctx, livery, logo, mark, scale, spec, x, y } = input;
+  const size = Math.max(4, spec.bowLogoSize * scale);
+  const cx = x + spec.bowLogoX * scale;
+  const cy = y + spec.bowLogoY * scale;
+  ctx.save();
+  logoShapePath(ctx, livery.logoShape, cx, cy, size, size * 0.82);
+  ctx.fillStyle = hexToRgba(livery.primary, 0.86);
+  ctx.fill();
+  ctx.strokeStyle = hexToRgba(livery.accent, 0.82);
+  ctx.lineWidth = Math.max(1, 0.7 * scale);
+  ctx.stroke();
+  if (logo) {
+    ctx.save();
+    logoShapePath(ctx, livery.logoShape, cx, cy, size * 0.78, size * 0.66);
+    ctx.clip();
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(logo.image, cx - size * 0.36, cy - size * 0.36, size * 0.72, size * 0.72);
+    ctx.restore();
+  } else {
+    ctx.fillStyle = hexToRgba(readableInkForFill(livery.primary), 0.78);
+    ctx.font = `800 ${Math.max(4, size * 0.48)}px ui-sans-serif, system-ui, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(mark.slice(0, 2).toUpperCase(), cx, cy, size * 0.8);
+  }
   ctx.restore();
 }
 
@@ -1437,26 +1643,31 @@ function drawShipLiveryTrim(
   const spec = SHIP_TRIM_MARKS[visualKey];
   if (!spec) return;
   const variant = stableVisualVariant(stablecoinId);
+  const story = SHIP_TRIM_COLOR_STORIES[visualKey];
   ctx.save();
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  ctx.strokeStyle = hexToRgba(livery.primary, 0.88);
+  ctx.strokeStyle = trimRgba(story, "rail", livery.primary, 0.88);
   ctx.lineWidth = Math.max(1, 1.15 * scale);
-  if (variant % 3 === 1) ctx.setLineDash([Math.max(2, 3 * scale), Math.max(1, 1.6 * scale)]);
+  if (story?.railDash) {
+    ctx.setLineDash(story.railDash.map((value) => Math.max(1, value * scale)));
+  } else if (variant % 3 === 1) {
+    ctx.setLineDash([Math.max(2, 3 * scale), Math.max(1, 1.6 * scale)]);
+  }
   drawRelativeLine(ctx, x, y, scale, spec.rail);
   ctx.setLineDash([]);
-  if (variant % 3 === 2) {
-    ctx.strokeStyle = hexToRgba(livery.accent, 0.78);
+  if (story?.secondaryRail || variant % 3 === 2) {
+    ctx.strokeStyle = story?.secondaryRail ? hexToRgba(story.secondaryRail, 0.82) : hexToRgba(livery.accent, 0.78);
     ctx.lineWidth = Math.max(1, 0.82 * scale);
     drawRelativeLine(ctx, x, y + 2 * scale, scale, spec.rail);
   }
 
-  ctx.strokeStyle = hexToRgba(livery.secondary, 0.5);
+  ctx.strokeStyle = trimRgba(story, "keel", livery.secondary, 0.5);
   ctx.lineWidth = Math.max(1, 0.85 * scale);
   drawRelativeLine(ctx, x, y, scale, spec.keel);
 
   const stern = spec.stern;
-  ctx.fillStyle = hexToRgba(livery.accent, 0.88);
+  ctx.fillStyle = trimRgba(story, "sternFill", livery.accent, 0.88);
   roundedRectPath(
     ctx,
     x + stern.x * scale,
@@ -1466,12 +1677,14 @@ function drawShipLiveryTrim(
     Math.max(1, stern.height * scale * 0.25),
   );
   ctx.fill();
-  ctx.strokeStyle = hexToRgba(livery.secondary, 0.64);
+  ctx.strokeStyle = trimRgba(story, "sternStroke", livery.secondary, 0.64);
   ctx.stroke();
 
   const deck = spec.deck[variant % spec.deck.length];
   if (deck) {
-    ctx.fillStyle = hexToRgba(variant % 2 === 0 ? livery.logoMatte : livery.accent, 0.86);
+    ctx.fillStyle = story
+      ? hexToRgba(story.deckFill, 0.88)
+      : hexToRgba(variant % 2 === 0 ? livery.logoMatte : livery.accent, 0.86);
     roundedRectPath(
       ctx,
       x + deck.x * scale,
@@ -1481,11 +1694,20 @@ function drawShipLiveryTrim(
       Math.max(1, deck.height * scale * 0.25),
     );
     ctx.fill();
-    ctx.strokeStyle = hexToRgba(livery.primary, 0.78);
+    ctx.strokeStyle = story ? hexToRgba(story.deckStroke, 0.82) : hexToRgba(livery.primary, 0.78);
     ctx.lineWidth = Math.max(1, 0.7 * scale);
     ctx.stroke();
   }
   ctx.restore();
+}
+
+function trimRgba(
+  story: ShipTrimColorStory | undefined,
+  key: "deckFill" | "deckStroke" | "keel" | "rail" | "sternFill" | "sternStroke",
+  fallback: string,
+  alpha: number,
+): string {
+  return hexToRgba(story?.[key] ?? fallback, alpha);
 }
 
 function drawProceduralShipLiveryTrim(
@@ -1573,30 +1795,50 @@ function drawShipSignalOverlay(
   scale: number,
 ) {
   if (overlay === "none") return;
-  const color = overlay === "nav" ? "#d9b974" : overlay === "yield" ? "#78b689" : "#9fb0aa";
   ctx.save();
   ctx.strokeStyle = "#2f2117";
   ctx.lineWidth = Math.max(1, 1 * scale);
   ctx.beginPath();
-  ctx.moveTo(x, y + 10 * scale);
-  ctx.lineTo(x, y - 8 * scale);
+  ctx.moveTo(x, y - 1 * scale);
+  ctx.lineTo(x, y + 17 * scale);
   ctx.stroke();
-  ctx.fillStyle = color;
+
+  const squareSize = Math.max(3, 6 * scale);
+  const triangleWidth = Math.max(4, 8 * scale);
+  const triangleHeight = Math.max(3, 6 * scale);
+  const squareX = x + 1 * scale;
+  const squareY = y;
+  const triangleX = x + 1 * scale;
+  const triangleY = y + 8 * scale;
+
+  if (overlay === "watch") {
+    drawCheckerSignalSquare(ctx, squareX, squareY, squareSize);
+  } else {
+    ctx.fillStyle = overlay === "nav" ? "#2866b5" : "#2c8b57";
+    ctx.fillRect(squareX, squareY, squareSize, squareSize);
+  }
+  ctx.strokeStyle = "rgba(24, 16, 10, 0.8)";
+  ctx.lineWidth = Math.max(1, 0.72 * scale);
+  ctx.strokeRect(squareX, squareY, squareSize, squareSize);
+
+  ctx.fillStyle = overlay === "nav" ? "#f5f4e8" : overlay === "yield" ? "#f0cf4f" : "#cf3f32";
   ctx.beginPath();
-  ctx.moveTo(x, y - 8 * scale);
-  ctx.lineTo(x + 10 * scale, y - 5 * scale);
-  ctx.lineTo(x + 7 * scale, y);
-  ctx.lineTo(x, y - 1 * scale);
+  ctx.moveTo(triangleX, triangleY);
+  ctx.lineTo(triangleX + triangleWidth, triangleY + triangleHeight * 0.5);
+  ctx.lineTo(triangleX, triangleY + triangleHeight);
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
-  if (overlay === "nav") {
-    ctx.fillStyle = "rgba(255, 241, 191, 0.48)";
-    ctx.beginPath();
-    ctx.ellipse(x + 5 * scale, y - 3 * scale, 6 * scale, 2.4 * scale, -0.08, 0, Math.PI * 2);
-    ctx.fill();
-  }
   ctx.restore();
+}
+
+function drawCheckerSignalSquare(ctx: CanvasRenderingContext2D, x: number, y: number, size: number) {
+  const cell = size / 2;
+  ctx.fillStyle = "#1a1712";
+  ctx.fillRect(x, y, size, size);
+  ctx.fillStyle = "#e2bd42";
+  ctx.fillRect(x + cell, y, cell, cell);
+  ctx.fillRect(x, y + cell, cell, cell);
 }
 
 function drawShipSailTint(
@@ -1694,8 +1936,10 @@ function drawWake(
   heading: { x: number; y: number },
   zone: ShipWaterZone,
   wakeMultiplier: number = 1,
+  hull: ShipHull = "crypto-caravel",
 ) {
   const style = wakeStyleForZone(zone);
+  const personality = wakePersonalityForHull(hull);
   const headingMagnitude = Math.sqrt(heading.x * heading.x + heading.y * heading.y);
   const fx = headingMagnitude > 0 ? heading.x / headingMagnitude : -1;
   const fy = headingMagnitude > 0 ? heading.y / headingMagnitude : 0;
@@ -1704,13 +1948,14 @@ function drawWake(
   const cx = -fy;
   const cy = fx;
   ctx.save();
-  ctx.strokeStyle = wakeRgba(style, 0.22 + intensity * style.alphaScale);
-  ctx.lineWidth = Math.max(1, zoom * style.lineScale * wakeMultiplier);
+  ctx.strokeStyle = wakeRgba(style, (0.22 + intensity * style.alphaScale) * personality.alphaScale);
+  ctx.lineWidth = Math.max(1, zoom * style.lineScale * wakeMultiplier * personality.lineScale);
   for (let index = 0; index < 3; index += 1) {
-    const offset = index * style.spacing * zoom;
+    const strand = wakeStrandModifier(personality, index);
+    const offset = index * style.spacing * zoom * personality.spacingScale * strand.spacingScale;
     const baseDistance = (14 + offset) * zoom;
-    const spread = (style.spread + index * style.spreadStep) * zoom;
-    const length = (style.length + index * style.lengthStep) * zoom;
+    const spread = (style.spread + index * style.spreadStep) * zoom * personality.spreadScale * strand.spreadScale;
+    const length = (style.length + index * style.lengthStep) * zoom * personality.lengthScale * strand.lengthScale;
     ctx.beginPath();
     ctx.moveTo(
       x + wx * baseDistance + cx * spread,
@@ -1734,8 +1979,10 @@ function drawNightWakeGlow(
   heading: { x: number; y: number },
   nightFactor: number,
   wakeMultiplier: number = 1,
+  hull: ShipHull = "crypto-caravel",
 ) {
   if (nightFactor <= 0) return;
+  const personality = wakePersonalityForHull(hull);
   const headingMagnitude = Math.sqrt(heading.x * heading.x + heading.y * heading.y);
   const fx = headingMagnitude > 0 ? heading.x / headingMagnitude : -1;
   const fy = headingMagnitude > 0 ? heading.y / headingMagnitude : 0;
@@ -1746,14 +1993,15 @@ function drawNightWakeGlow(
   const glowAlpha = (0.14 + intensity * 0.18) * nightFactor;
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
-  ctx.strokeStyle = `rgba(80, 215, 195, ${Math.min(0.45, glowAlpha)})`;
-  ctx.lineWidth = Math.max(1, zoom * 1.4 * wakeMultiplier);
+  ctx.strokeStyle = `rgba(80, 215, 195, ${Math.min(0.45, glowAlpha * personality.alphaScale)})`;
+  ctx.lineWidth = Math.max(1, zoom * 1.4 * wakeMultiplier * personality.lineScale);
   ctx.lineCap = "round";
   for (let index = 0; index < 3; index += 1) {
-    const offset = index * 6 * zoom;
+    const strand = wakeStrandModifier(personality, index);
+    const offset = index * 6 * zoom * personality.spacingScale * strand.spacingScale;
     const baseDistance = (14 + offset) * zoom;
-    const spread = (4 + index * 2) * zoom;
-    const length = (10 + index * 3) * zoom;
+    const spread = (4 + index * 2) * zoom * personality.spreadScale * strand.spreadScale;
+    const length = (10 + index * 3) * zoom * personality.lengthScale * strand.lengthScale;
     ctx.beginPath();
     ctx.moveTo(
       x + wx * baseDistance + cx * spread,
@@ -1766,6 +2014,42 @@ function drawNightWakeGlow(
     ctx.stroke();
   }
   ctx.restore();
+}
+
+export interface WakePersonality {
+  alphaScale: number;
+  irregular: boolean;
+  lengthScale: number;
+  lineScale: number;
+  spacingScale: number;
+  spreadScale: number;
+}
+
+export function wakePersonalityForHull(hull: ShipHull): WakePersonality {
+  if (hull === "treasury-galleon") {
+    return { alphaScale: 1.04, irregular: false, lengthScale: 0.92, lineScale: 1.16, spacingScale: 1.2, spreadScale: 1.34 };
+  }
+  if (hull === "chartered-brigantine") {
+    return { alphaScale: 1, irregular: false, lengthScale: 1.02, lineScale: 1.02, spacingScale: 1, spreadScale: 1.06 };
+  }
+  if (hull === "dao-schooner") {
+    return { alphaScale: 0.9, irregular: false, lengthScale: 1.28, lineScale: 0.82, spacingScale: 0.92, spreadScale: 0.72 };
+  }
+  if (hull === "algo-junk") {
+    return { alphaScale: 1.1, irregular: true, lengthScale: 0.88, lineScale: 1.08, spacingScale: 0.82, spreadScale: 1.08 };
+  }
+  return { alphaScale: 1, irregular: false, lengthScale: 1, lineScale: 1, spacingScale: 1, spreadScale: 1 };
+}
+
+function wakeStrandModifier(
+  personality: WakePersonality,
+  index: number,
+): { lengthScale: number; spacingScale: number; spreadScale: number } {
+  if (!personality.irregular) return { lengthScale: 1, spacingScale: 1, spreadScale: 1 };
+  const lengthScale = index === 0 ? 0.72 : index === 1 ? 1.08 : 0.84;
+  const spreadScale = index === 0 ? 1.22 : index === 1 ? 0.88 : 1.08;
+  const spacingScale = index === 0 ? 0.86 : index === 1 ? 1.12 : 0.94;
+  return { lengthScale, spacingScale, spreadScale };
 }
 
 function wakeStyleForZone(zone: ShipWaterZone): {

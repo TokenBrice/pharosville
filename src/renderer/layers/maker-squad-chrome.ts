@@ -5,6 +5,7 @@
 // fallback. Pennant order is supplied per squad so each squad gets its own
 // streamer.
 
+import { squadForMember, type SquadId } from "../../systems/maker-squad";
 import type { PharosVilleWorld } from "../../systems/world-types";
 import type { PharosVilleCanvasMotion } from "../render-types";
 import { windMultiplierForMotion } from "./weather";
@@ -69,6 +70,14 @@ export function computeSquadBoundingEllipse(anchors: readonly SquadAnchor[]) {
     _scratchXs.push(anchor.mastTop.x);
     _scratchYs.push(anchor.mastTop.y);
   }
+  let squadId: SquadId | null = null;
+  for (const anchor of anchors) {
+    const squad = squadForMember(anchor.id);
+    if (squad) {
+      squadId = squad.id;
+      break;
+    }
+  }
   let minX = _scratchXs[0]!;
   let maxX = _scratchXs[0]!;
   let minY = _scratchYs[0]!;
@@ -83,6 +92,7 @@ export function computeSquadBoundingEllipse(anchors: readonly SquadAnchor[]) {
     center: { x: (minX + maxX) / 2, y: (minY + maxY) / 2 + 16 },
     radiusX: Math.max(40, (maxX - minX) / 2 + 36),
     radiusY: Math.max(28, (maxY - minY) / 2 + 24),
+    squadId,
   };
 }
 
@@ -156,9 +166,21 @@ export function drawSquadPennant(
   if (path.length < 2) return;
   const osc = wind && !wind.motion.reducedMotion ? pennantOscillation(wind) : null;
   ctx.save();
-  ctx.strokeStyle = "rgba(232, 187, 96, 0.78)";
-  ctx.lineWidth = 1.4;
   ctx.lineCap = "round";
+  strokeSquadPennantPath(ctx, path, osc, "rgba(13, 9, 6, 0.72)", 3.6);
+  strokeSquadPennantPath(ctx, path, osc, "rgba(232, 187, 96, 0.92)", 2);
+  ctx.restore();
+}
+
+function strokeSquadPennantPath(
+  ctx: CanvasRenderingContext2D,
+  path: readonly { x: number; y: number }[],
+  osc: PennantOscillation | null,
+  strokeStyle: string,
+  lineWidth: number,
+) {
+  ctx.strokeStyle = strokeStyle;
+  ctx.lineWidth = lineWidth;
   ctx.beginPath();
   ctx.moveTo(path[0]!.x, path[0]!.y);
   for (let i = 1; i < path.length; i += 1) {
@@ -178,7 +200,6 @@ export function drawSquadPennant(
     ctx.quadraticCurveTo(midX, midY, b.x, b.y);
   }
   ctx.stroke();
-  ctx.restore();
 }
 
 // Drawn AFTER hulls; thinner and lower-alpha than the per-ship selected ring
@@ -187,9 +208,23 @@ export function drawSquadSelectionHalo(
   ctx: CanvasRenderingContext2D,
   ellipse: NonNullable<ReturnType<typeof computeSquadBoundingEllipse>>,
 ): void {
+  const stroke = squadHaloStroke(ellipse.squadId);
   ctx.save();
-  ctx.strokeStyle = "rgba(232, 187, 96, 0.42)";
-  ctx.lineWidth = 1.2;
+  ctx.strokeStyle = "rgba(10, 7, 5, 0.5)";
+  ctx.lineWidth = 2.8;
+  ctx.beginPath();
+  ctx.ellipse(
+    ellipse.center.x,
+    ellipse.center.y,
+    ellipse.radiusX,
+    ellipse.radiusY,
+    0,
+    0,
+    Math.PI * 2,
+  );
+  ctx.stroke();
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 1.4;
   ctx.beginPath();
   ctx.ellipse(
     ellipse.center.x,
@@ -202,6 +237,12 @@ export function drawSquadSelectionHalo(
   );
   ctx.stroke();
   ctx.restore();
+}
+
+function squadHaloStroke(squadId: SquadId | null): string {
+  if (squadId === "sky") return "rgba(255, 151, 72, 0.56)";
+  if (squadId === "ethena") return "rgba(54, 52, 62, 0.62)";
+  return "rgba(232, 187, 96, 0.52)";
 }
 
 // ---------------------------------------------------------------------------

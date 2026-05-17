@@ -81,6 +81,7 @@ describe("maker-squad-chrome", () => {
     expect(ellipse!.center.x).toBeCloseTo(15, 1);
     expect(ellipse!.radiusX).toBeGreaterThanOrEqual(15);
     expect(ellipse!.radiusY).toBeGreaterThanOrEqual(10);
+    expect(ellipse!.squadId).toBe("sky");
   });
 
   it("returns null bounding ellipse when no anchors are supplied", () => {
@@ -170,6 +171,16 @@ describe("maker-squad-chrome", () => {
       // Static midpoint: midX=50, midY=0 + 100*0.1 = 10.
       expect(quad!.args[0]).toBeCloseTo(50, 5);
       expect(quad!.args[1]).toBeCloseTo(10, 5);
+    });
+
+    it("paints an outlined main pennant stroke for visual separation", () => {
+      const { ctx, recorded } = makeStubCtx();
+      drawSquadPennant(ctx, [
+        { x: 0, y: 0 },
+        { x: 100, y: 0 },
+      ]);
+      expect(recorded.filter((r) => r.method === "stroke")).toHaveLength(2);
+      expect(recorded.filter((r) => r.method === "quadraticCurveTo")).toHaveLength(2);
     });
 
     it("short-circuits to static catenary when reducedMotion is set", () => {
@@ -332,4 +343,3 @@ describe("maker-squad-chrome", () => {
     });
   });
 });
-

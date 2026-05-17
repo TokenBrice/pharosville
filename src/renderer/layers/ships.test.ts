@@ -9,13 +9,17 @@ import type { DrawPharosVilleInput } from "../render-types";
 import { SHIP_SAIL_TINT_MASKS } from "../ship-sail-tint";
 import {
   drawShipBody,
+  drawShipOverlay,
   drawShipWake,
   drawSquadIdentityAccent,
   planShipRenderLod,
+  SHIP_PENNANT_MARKS,
   SHIP_SAIL_MARKS,
+  SHIP_TRIM_COLOR_STORIES,
   SHIP_TRIM_MARKS,
   shipMastTopScreenPoint,
   TITAN_SPRITE_IDS,
+  wakePersonalityForHull,
   type ShipRenderFrame,
 } from "./ships";
 
@@ -55,6 +59,8 @@ function makeRecordingCtx(): CanvasRenderingContext2D & RecordingCtx {
     fill: record("fill"),
     stroke: record("stroke"),
     fillRect: record("fillRect"),
+    strokeRect: record("strokeRect"),
+    clip: record("clip"),
     setLineDash: record("setLineDash"),
     translate: record("translate"),
     rotate: record("rotate"),
@@ -67,6 +73,19 @@ function makeRecordingCtx(): CanvasRenderingContext2D & RecordingCtx {
   };
   return ctx as unknown as CanvasRenderingContext2D & RecordingCtx;
 }
+
+const TEST_LIVERY: ShipNode["visual"]["livery"] = {
+  label: "Test livery",
+  source: "stablecoin-logo",
+  sailColor: "#d9ecdf",
+  primary: "#327f70",
+  accent: "#e8bb60",
+  secondary: "#21483f",
+  logoMatte: "#f7eed6",
+  logoShape: "circle",
+  sailPanel: "center",
+  stripePattern: "single",
+};
 
 // These tests verify that the right helper fires for the right ship.id and
 // that calls hit the canvas (counts of fills/strokes/rects). They do NOT
@@ -84,6 +103,9 @@ describe("drawSquadIdentityAccent", () => {
     expect(strokeCount).toBeGreaterThanOrEqual(2);
     // Rect is unique to the banner among the three accents.
     expect(ctx.calls.some((call) => call.method === "rect")).toBe(true);
+    const rect = ctx.calls.find((call) => call.method === "rect")!;
+    expect(rect.args[2]).toBe(18);
+    expect(rect.args[3]).toBe(6);
   });
 
   it("renders a forge-glow radial gradient only for stUSDS", () => {
@@ -132,6 +154,36 @@ describe("Maker squad titan offset tables", () => {
       expect(SHIP_SAIL_MARKS[titanId]).toBeDefined();
       expect(SHIP_TRIM_MARKS[titanId]).toBeDefined();
       expect(SHIP_SAIL_TINT_MASKS[titanId]).toBeDefined();
+    }
+  });
+});
+
+describe("titan trim color stories", () => {
+  it("registers the procedural trim story for every Wave 2 titan target", () => {
+    for (const titanId of [
+      "ship.usdc-titan",
+      "ship.usdt-titan",
+      "ship.usde-titan",
+      "ship.pyusd-titan",
+      "ship.buidl-titan",
+      "ship.usd1-titan",
+    ]) {
+      expect(SHIP_TRIM_MARKS[titanId]).toBeDefined();
+      expect(SHIP_TRIM_COLOR_STORIES[titanId]).toBeDefined();
+    }
+    expect(SHIP_TRIM_COLOR_STORIES["ship.usdt-titan"]!.rail).toBe("#009393");
+    expect(SHIP_TRIM_COLOR_STORIES["ship.usde-titan"]!.railDash).toEqual([5, 3]);
+    expect(SHIP_TRIM_COLOR_STORIES["ship.usd1-titan"]!.secondaryRail).toBe("#f4df8f");
+  });
+});
+
+describe("standard hull pennant config", () => {
+  it("defines mast pennant geometry for every standard hull", () => {
+    for (const hull of ["treasury-galleon", "chartered-brigantine", "dao-schooner", "crypto-caravel", "algo-junk"]) {
+      const spec = SHIP_PENNANT_MARKS[hull];
+      expect(spec).toBeDefined();
+      expect(spec!.pennantWidth).toBeGreaterThan(spec!.pennantHeight);
+      expect(spec!.bowLogoSize).toBeGreaterThan(0);
     }
   });
 });
@@ -232,6 +284,177 @@ describe("drawShipBody for unique sprites", () => {
 
     expect(drawAnimatedAssetMock).not.toHaveBeenCalled();
     expect(drawAssetMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("drawShipBody titan trim", () => {
+  it("draws procedural trim over titan sprites without changing asset bytes", () => {
+    const drawAnimatedAssetMock = vi.mocked(canvasPrimitives.drawAnimatedAsset);
+    drawAnimatedAssetMock.mockClear();
+
+    const titan = makeShipNode({
+      id: "usdc-circle",
+      tile: { x: 10, y: 10 },
+      visual: {
+        hull: "treasury-galleon",
+        sizeTier: "titan",
+        spriteAssetId: "ship.usdc-titan",
+        scale: 1.53,
+        livery: TEST_LIVERY,
+      },
+    });
+
+    const fakeAsset: LoadedPharosVilleAsset = {
+      entry: {
+        anchor: [80, 104],
+        category: "ship",
+        displayScale: 1,
+        footprint: [52, 24],
+        height: 112,
+        hitbox: [30, 4, 120, 96],
+        id: "ship.usdc-titan",
+        layer: "ships",
+        loadPriority: "deferred",
+        path: "ships/usdc-titan.png",
+        width: 160,
+      },
+      image: {} as HTMLImageElement,
+    };
+
+    const ctx = makeRecordingCtx();
+    const input = {
+      assets: null,
+      camera: { offsetX: 0, offsetY: 0, zoom: 1 },
+      ctx,
+      height: 600,
+      hoveredTarget: null,
+      motion: {
+        plan: makeMotionPlan([]),
+        reducedMotion: false,
+        timeSeconds: 0,
+        wallClockHour: 12,
+      },
+      selectedTarget: null,
+      shipMotionSamples: new Map<string, ShipMotionSample>(),
+      targets: [],
+      width: 800,
+      world: { ships: [titan] } as unknown as PharosVilleWorld,
+    } satisfies DrawPharosVilleInput;
+
+    const frame: ShipRenderFrame = {
+      cache: {
+        assetForEntity: () => fakeAsset,
+        geometryForEntity: () => makeGeometry(200, 100),
+      },
+      shipRenderStates: new Map(),
+    };
+
+    drawShipBody(input, frame, titan);
+
+    expect(drawAnimatedAssetMock).toHaveBeenCalledTimes(1);
+    expect(ctx.calls.some((call) => call.method === "lineTo")).toBe(true);
+    expect(ctx.calls.filter((call) => call.method === "stroke").length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("drawShipOverlay standard procedural chrome", () => {
+  function drawProceduralOverlay(overrides: Partial<ShipNode["visual"]> = {}, target: Partial<Pick<DrawPharosVilleInput, "hoveredTarget" | "selectedTarget">> = {}) {
+    const ship = makeShipNode({
+      id: "test-standard",
+      detailId: "ship.test-standard",
+      tile: { x: 8, y: 8 },
+      visual: {
+        hull: "dao-schooner",
+        sizeTier: "regional",
+        scale: 1,
+        livery: TEST_LIVERY,
+        sailColor: TEST_LIVERY.sailColor,
+        sailStripeColor: TEST_LIVERY.primary,
+        overlay: "none",
+        ...overrides,
+      },
+    });
+    const ctx = makeRecordingCtx();
+    const input = {
+      assets: null,
+      camera: { offsetX: 0, offsetY: 0, zoom: 1 },
+      ctx,
+      height: 600,
+      hoveredTarget: target.hoveredTarget ?? null,
+      motion: {
+        plan: makeMotionPlan([]),
+        reducedMotion: false,
+        timeSeconds: 0.125,
+        wallClockHour: 12,
+      },
+      selectedTarget: target.selectedTarget ?? null,
+      shipMotionSamples: new Map<string, ShipMotionSample>(),
+      targets: [],
+      width: 800,
+      world: { ships: [ship] } as unknown as PharosVilleWorld,
+    } satisfies DrawPharosVilleInput;
+    const frame: ShipRenderFrame = {
+      cache: {
+        assetForEntity: () => null,
+        geometryForEntity: () => makeGeometry(200, 100),
+      },
+      shipRenderStates: new Map(),
+    };
+
+    drawShipOverlay(input, frame, ship);
+    return { ctx, ship };
+  }
+
+  it("renders a mast pennant, mast lantern, and regional bowsprit mark instead of the sail sticker", () => {
+    const { ctx } = drawProceduralOverlay();
+    const text = ctx.calls.filter((call) => call.method === "fillText").map((call) => call.args[0]);
+    expect(text).toContain("TES");
+    expect(text).toContain("TE");
+    expect(ctx.calls.filter((call) => call.method === "ellipse").length).toBeGreaterThanOrEqual(3);
+    expect(ctx.calls.some((call) => call.method === "clip")).toBe(false);
+  });
+
+  it("drops the bowsprit logo mark below regional tier", () => {
+    const { ctx } = drawProceduralOverlay({ sizeTier: "skiff" });
+    const text = ctx.calls.filter((call) => call.method === "fillText").map((call) => call.args[0]);
+    expect(text).toEqual(["TES"]);
+  });
+
+  it("uses selected detailId matching and draws a pulsing double ring", () => {
+    const { ctx } = drawProceduralOverlay({ sizeTier: "local" }, {
+      selectedTarget: {
+        detailId: "ship.test-standard",
+        id: "other-hit-id",
+        kind: "ship",
+        label: "test-standard",
+        priority: 0,
+        rect: { height: 20, width: 20, x: 0, y: 0 },
+      },
+    });
+    const ellipses = ctx.calls.filter((call) => call.method === "ellipse");
+    expect(ellipses[0]!.args[2]).toBeCloseTo(34 * 0.7, 5);
+    expect(ellipses[1]!.args[2]).toBeCloseTo(42 * 0.7, 5);
+  });
+
+  it("draws a dashed hover outline when the ship is hovered but not selected", () => {
+    const { ctx } = drawProceduralOverlay({ sizeTier: "local" }, {
+      hoveredTarget: {
+        detailId: "ship.test-standard",
+        id: "test-standard",
+        kind: "ship",
+        label: "test-standard",
+        priority: 0,
+        rect: { height: 20, width: 20, x: 0, y: 0 },
+      },
+    });
+    expect(ctx.calls.some((call) => call.method === "setLineDash" && (call.args[0] as number[]).length === 2)).toBe(true);
+  });
+
+  it("renders watch as checker square plus red triangle signal flags", () => {
+    const { ctx } = drawProceduralOverlay({ overlay: "watch", sizeTier: "local" });
+    expect(ctx.calls.filter((call) => call.method === "strokeRect")).toHaveLength(1);
+    expect(ctx.calls.filter((call) => call.method === "fillRect").length).toBeGreaterThanOrEqual(3);
+    expect(ctx.calls.filter((call) => call.method === "lineTo").length).toBeGreaterThanOrEqual(3);
   });
 });
 
@@ -447,6 +670,21 @@ describe("drawShipWake squad ordering", () => {
     // a single ellipse at the flagship's x means the flagship was painted
     // exactly once even though both consort and flagship draw calls ran.
     expect(flagshipPaints).toBe(1);
+  });
+});
+
+describe("wakePersonalityForHull", () => {
+  it("gives each standard hull class a distinct wake profile", () => {
+    const caravel = wakePersonalityForHull("crypto-caravel");
+    const galleon = wakePersonalityForHull("treasury-galleon");
+    const schooner = wakePersonalityForHull("dao-schooner");
+    const junk = wakePersonalityForHull("algo-junk");
+
+    expect(galleon.spreadScale).toBeGreaterThan(caravel.spreadScale);
+    expect(galleon.spacingScale).toBeGreaterThan(caravel.spacingScale);
+    expect(schooner.spreadScale).toBeLessThan(caravel.spreadScale);
+    expect(schooner.lengthScale).toBeGreaterThan(caravel.lengthScale);
+    expect(junk.irregular).toBe(true);
   });
 });
 

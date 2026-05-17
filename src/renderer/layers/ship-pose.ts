@@ -10,6 +10,7 @@ const TWO_PI = Math.PI * 2;
 const NON_TITAN_BOB_PIXELS = 2;
 const poseSeedCache = new Map<string, number>();
 const phaseSeedCache = new Map<string, number>();
+const personalityBiasCache = new Map<string, ShipPosePersonalityBias>();
 const SHIP_POSE_SEED_CACHE_MAX = 1024;
 
 const ZONE_ROUGHNESS = {
@@ -41,6 +42,12 @@ export interface ShipPose {
   lanternAlpha: number;
 }
 
+export interface ShipPosePersonalityBias {
+  bobAmplitudeBias: number;
+  lanternRateBias: number;
+  rollAmplitudeBias: number;
+}
+
 interface ShipPoseInputBase {
   shipId: string;
   sample?: ShipMotionSample | null;
@@ -62,10 +69,11 @@ export function resolveShipPose(input: ShipPoseInput): ShipPose {
   const timeSeconds = finiteOr(input.timeSeconds, 0);
   const zoom = Math.max(0, finiteOr(input.zoom, 1));
   const phase = finiteOr(input.phase ?? phaseSeed(input.shipId), 0);
+  const bias = shipPosePersonalityBias(input.shipId);
   if (sizeTier !== "titan") {
     return {
       ...STATIC_SHIP_POSE,
-      bobPixels: Math.round(Math.sin(timeSeconds * 0.7 + phase) * NON_TITAN_BOB_PIXELS * zoom),
+      bobPixels: Math.round(Math.sin(timeSeconds * 0.7 + phase) * NON_TITAN_BOB_PIXELS * zoom * bias.bobAmplitudeBias),
     };
   }
 
@@ -81,7 +89,7 @@ export function resolveShipPose(input: ShipPoseInput): ShipPose {
   const sea = Math.sin(timeSeconds * 1.18 + seedPhase);
   const swell = Math.sin(timeSeconds * 0.74 + seedPhase * 0.7);
   const flutter = Math.sin(timeSeconds * 3.2 + seedPhase * 1.3) * 0.5 + 0.5;
-  const lantern = Math.sin(timeSeconds * 1.7 + seedPhase * 1.9) * 0.5 + 0.5;
+  const lantern = Math.sin(timeSeconds * 1.7 * bias.lanternRateBias + seedPhase * 1.9) * 0.5 + 0.5;
 
   if (isTransitState(state)) {
     const wake = clamp((0.18 + wakeIntensity * 0.82) * (0.86 + roughness * 0.14) * (0.9 + headingMagnitude * 0.1), 0, 1);
@@ -92,8 +100,8 @@ export function resolveShipPose(input: ShipPoseInput): ShipPose {
     const headingDelta = getShipHeadingDelta(input.shipId);
     const bank = Math.max(-BANK_MAX, Math.min(BANK_MAX, headingDelta * BANK_GAIN));
     return {
-      rollRadians: sea * 0.026 * roughness * (0.82 + wakeIntensity * 0.46) + headingLean * 0.012 + bank,
-      bobPixels: swell * 3.1 * zoom * roughness * (0.82 + wakeIntensity * 0.34),
+      rollRadians: sea * 0.026 * roughness * (0.82 + wakeIntensity * 0.46) * bias.rollAmplitudeBias + headingLean * 0.012 + bank,
+      bobPixels: swell * 3.1 * zoom * roughness * (0.82 + wakeIntensity * 0.34) * bias.bobAmplitudeBias,
       sailFlutter: clamp(0.52 + flutter * 0.24 + wakeIntensity * 0.08, 0, 1),
       bowWake: wake,
       sternChurn: clamp(0.24 + wakeIntensity * 0.54 + roughness * 0.06, 0, 1),
@@ -105,8 +113,8 @@ export function resolveShipPose(input: ShipPoseInput): ShipPose {
   if (state === "moored") {
     const tension = clamp(0.42 + roughness * 0.12 + Math.abs(sea) * 0.1, 0, 1);
     return {
-      rollRadians: sea * 0.008 * roughness + headingLean * 0.004,
-      bobPixels: swell * 0.9 * zoom * roughness,
+      rollRadians: sea * 0.008 * roughness * bias.rollAmplitudeBias + headingLean * 0.004,
+      bobPixels: swell * 0.9 * zoom * roughness * bias.bobAmplitudeBias,
       sailFlutter: clamp(0.15 + flutter * 0.08 + roughness * 0.02, 0, 1),
       bowWake: 0,
       sternChurn: clamp(0.05 + roughness * 0.04, 0, 1),
@@ -117,8 +125,8 @@ export function resolveShipPose(input: ShipPoseInput): ShipPose {
 
   if (state === "risk-drift") {
     return {
-      rollRadians: sea * 0.0025 * roughness + headingLean * 0.001,
-      bobPixels: swell * 0.28 * zoom * roughness,
+      rollRadians: sea * 0.0025 * roughness * bias.rollAmplitudeBias + headingLean * 0.001,
+      bobPixels: swell * 0.28 * zoom * roughness * bias.bobAmplitudeBias,
       sailFlutter: clamp(0.03 + flutter * 0.025 + wakeIntensity * 0.01, 0, 1),
       bowWake: 0,
       sternChurn: clamp(0.012 + roughness * 0.012, 0, 1),
@@ -132,6 +140,23 @@ export function resolveShipPose(input: ShipPoseInput): ShipPose {
 
 export function zeroShipPose(): ShipPose {
   return STATIC_SHIP_POSE;
+}
+
+export function shipPosePersonalityBias(shipId: string): ShipPosePersonalityBias {
+  const cached = personalityBiasCache.get(shipId);
+  if (cached) return cached;
+  const bias = {
+    rollAmplitudeBias: lerp(0.8, 1.2, stableUnit(`${shipId}.roll-amplitude-bias`)),
+    bobAmplitudeBias: lerp(0.85, 1.15, stableUnit(`${shipId}.bob-amplitude-bias`)),
+    lanternRateBias: lerp(0.75, 1.25, stableUnit(`${shipId}.lantern-rate-bias`)),
+  };
+  personalityBiasCache.set(shipId, bias);
+  while (personalityBiasCache.size > SHIP_POSE_SEED_CACHE_MAX) {
+    const oldest = personalityBiasCache.keys().next().value;
+    if (typeof oldest !== "string") break;
+    personalityBiasCache.delete(oldest);
+  }
+  return bias;
 }
 
 function isTransitState(state: ShipMotionState): boolean {
@@ -172,4 +197,8 @@ function phaseSeed(shipId: string): number {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function lerp(min: number, max: number, t: number): number {
+  return min + (max - min) * clamp(t, 0, 1);
 }
