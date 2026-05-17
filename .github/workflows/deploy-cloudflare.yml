@@ -8,11 +8,6 @@ on:
     branches:
       - main
 
-env:
-  # Opt JS actions (cache, setup-node, etc.) into Node 24 ahead of the
-  # September 2026 Node 20 removal. Remove once GitHub flips the default.
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
 jobs:
   typecheck:
     runs-on: ubuntu-latest
@@ -25,7 +20,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         id: node-modules
         with:
           path: node_modules
@@ -48,7 +43,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         id: node-modules
         with:
           path: node_modules
@@ -71,7 +66,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         id: node-modules
         with:
           path: node_modules
@@ -102,7 +97,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         id: node-modules
         with:
           path: node_modules
@@ -115,7 +110,7 @@ jobs:
         run: npm run build
       - name: Bundle size guard
         run: npm run check:bundle-size
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: pharosville-dist
           path: dist
@@ -134,7 +129,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         id: node-modules
         with:
           path: node_modules
@@ -143,13 +138,13 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-node24-modules-
       - if: steps.node-modules.outputs.cache-hit != 'true'
         run: npm ci
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: pharosville-dist
           path: dist
       - name: Built-dist visual tests
         run: npm run test:visual:dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: failure()
         with:
           name: pharosville-visual-artifacts
@@ -178,7 +173,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         id: node-modules
         with:
           path: node_modules
@@ -187,13 +182,13 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-node24-modules-
       - if: steps.node-modules.outputs.cache-hit != 'true'
         run: npm ci
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: pharosville-dist
           path: dist
       - name: Built-dist cross-browser accessibility smoke
         run: npm run test:visual:dist:accessibility:firefox
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: failure()
         with:
           name: pharosville-visual-cross-browser-artifacts
@@ -222,7 +217,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         id: node-modules
         with:
           path: node_modules
@@ -231,7 +226,7 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-node24-modules-
       - if: steps.node-modules.outputs.cache-hit != 'true'
         run: npm ci
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: pharosville-dist
           path: dist
