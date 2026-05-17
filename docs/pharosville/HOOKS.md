@@ -1,7 +1,7 @@
 # PharosVille Hooks — Memoization Conventions
 
 Created: 2026-05-04
-Source: maint F8 audit (`agents/health-checkup-2026-05-04/04-maintainability.md:75`)
+Source: maint F8 audit from the May 4 Optimizantus health-checkup.
 
 This doc captures the memoization rules used (and to be used) across
 `src/hooks/` and the canvas-side consumers in `src/pharosville-world.tsx`.

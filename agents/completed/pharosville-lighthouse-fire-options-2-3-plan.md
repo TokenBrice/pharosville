@@ -405,7 +405,7 @@ with an inline comment, mirroring the precedent in
 | `lighthouse-pyre-frames.png` | new file | 512×64 strip |
 | `src/renderer/layers/lighthouse.ts` | 8-25 (lighthouseRenderState), 172-182 (drawLighthouseOverlay), new helper | sprite acquisition, frame-index, sprite draw |
 | `scripts/pharosville/validate-assets.mjs` | `maxManifestAssets` constant (~line 25) | conditional bump if 45-cap is exceeded |
-| `agents/pharosville-lighthouse-fire-options-2-3-plan.md` | this file | (delete on completion or move to `agents/completed/`) |
+| `agents/completed/pharosville-lighthouse-fire-options-2-3-plan.md` | this file | completed archive |
 
 ### Implementation effort
 

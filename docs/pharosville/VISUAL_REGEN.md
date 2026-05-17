@@ -74,9 +74,8 @@ hardware-acceleration flag differences. Two options:
 1. Loosen `maxDiffPixelRatio` for the affected test, with an inline
    comment explaining why. The pinch-to-keep tightness on sibling
    tests; only loosen the offender.
-2. Open a follow-up to investigate root cause (see
-   `agents/health-checkup-followup-2026-05-04/00-followup-implementation-plan.md`
-   task #47).
+2. Open a follow-up to investigate root cause; the May 4 health-checkup
+   follow-up tracked this as task #47.
 
 ## See also
 

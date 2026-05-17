@@ -360,7 +360,7 @@ The council explicitly chose not to do the following — record the reasoning so
 
 - **Audio.** LATER. Web Audio is technically feasible (~78 KB gzip for 3 WAVs + 80-LoC mixer) but current priorities (ships, visuals, motion, perf, a11y) return more user-visible delta per engineering hour. When it ships: off-by-default, gated by `prefers-reduced-motion`, persisted in localStorage, toggle in `world-toolbar.tsx`. Revisit after Wave 4.
 - **Bloom / CSS filters on canvas.** Bilinears the pixel art. Hard no.
-- **OffscreenCanvas + Worker rendering / sprite-atlas texture packing / WebGL migration.** Already evaluated NO-GO in `agents/perf-anim-routing-2026-05-03/PLAN_FOLLOWUP.md` Phase F. Revisit alongside WebGL only.
+- **OffscreenCanvas + Worker rendering / sprite-atlas texture packing / WebGL migration.** Already evaluated NO-GO in the May 3 perf/animation/routing follow-up, Phase F. Revisit alongside WebGL only.
 - **Dirty-rect rendering.** Incompatible with water shimmer + sub-pixel ship motion.
 - **Velocity-physics ship-avoidance.** Out of deterministic-decorative scope. The W3.20 relaxation pass is the deterministic substitute.
 - **Hand-authored named voyages.** Breaks the pure data-driven contract. Use detail-panel narratives instead.

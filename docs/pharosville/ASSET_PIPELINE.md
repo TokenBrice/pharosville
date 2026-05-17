@@ -99,8 +99,7 @@ fantasy town:
     `loadPriority: "deferred"` with no `animation` block. Titan hulls may
     include a 4-frame animation sheet, but newer titans may ship static
     (single-frame) when the painted emblem requires frame consistency
-    (current Phase 1 state for USDT/USDC; see
-    `agents/2026-05-02-iconographic-sail-emblem-plan.md`).
+    (current Phase 1 state for USDT/USDC).
   - All unique- and titan-tier hulls carry the shared oxidized-bronze
     masthead lantern + cream bowsprit pennant tier-unifier.
 - **Docks/landmarks:** include built-in mass, posts, stairs, rope/crate clutter,

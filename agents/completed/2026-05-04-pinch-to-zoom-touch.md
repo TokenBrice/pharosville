@@ -136,7 +136,7 @@ Date: 2026-05-04
 ## Handoff
 
 - Files changed:
-  - `agents/2026-05-04-pinch-to-zoom-touch.md`
+  - `agents/completed/2026-05-04-pinch-to-zoom-touch.md`
   - `src/hooks/use-canvas-resize-and-camera.ts`
   - `src/pharosville-world.tsx`
   - `tests/visual/pharosville.spec.ts`

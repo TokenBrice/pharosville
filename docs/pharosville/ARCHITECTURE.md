@@ -2,8 +2,8 @@
 
 Text + ASCII overview of the four moving parts an agent needs in their head before
 editing the renderer, world model, Pages Function, or asset manifest. This is the
-deliberately lightweight version; a full SVG/Mermaid upgrade is deferred (see
-`agents/health-checkup-2026-05-04/00-implementation-plan.md` § Deferred).
+deliberately lightweight version; a full SVG/Mermaid upgrade was deferred by
+the May 4 Optimizantus health-checkup plan.
 
 For runtime-state details, see `docs/pharosville/CURRENT.md`. For asset/cache
 specifics, see `docs/pharosville/ASSET_PIPELINE.md`.

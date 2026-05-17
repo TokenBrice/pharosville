@@ -107,9 +107,8 @@ layout, asset, renderer, test, and docs change:
   llama, Tether → kraken, Circle → compass rose). Standard hulls keep the
   runtime SVG-logo overlay drawn at render time. The painted-emblem ships
   are excluded from `drawSailLogo` via an explicit ship-id allowlist in
-  `src/renderer/layers/ships.ts`. Per Phase 1
-  (`agents/2026-05-02-iconographic-sail-emblem-plan.md`), USDT and USDC
-  ship as static (single-frame) titans while their painted emblems land;
+  `src/renderer/layers/ships.ts`. Per the Phase 1 painted-emblem pass, USDT
+  and USDC ship as static (single-frame) titans while their painted emblems land;
   future titans re-introduce frame animation once the generation pipeline
   guarantees per-frame emblem consistency.
 

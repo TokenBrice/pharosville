@@ -7,8 +7,7 @@ How to safely orchestrate multiple agents working on PharosVille in parallel.
 ## The hazard
 
 Multiple agents writing to the same git working tree race each other.
-During the Optimizantus health-checkup swarm (see
-`agents/health-checkup-2026-05-04/`), four `git reset: moving to HEAD`
+During the May 4 Optimizantus health-checkup swarm, four `git reset: moving to HEAD`
 events fired in the working tree mid-run and silently wiped the work of
 six agents that had already reported "completed". Some agents detected
 the revert and re-applied; others did not. The final reconciliation cost
@@ -84,5 +83,5 @@ their work was reverted; re-apply directly or re-spawn the agent.
 
 - `docs/pharosville/VISUAL_REGEN.md` — how to regenerate visual
   snapshots in the same Docker image CI uses.
-- `agents/health-checkup-2026-05-04/00-implementation-plan.md` — the
-  Optimizantus run that surfaced these lessons.
+- May 4 Optimizantus health-checkup plan — the run that surfaced these
+  lessons.

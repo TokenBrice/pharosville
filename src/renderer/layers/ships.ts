@@ -4,7 +4,7 @@ import { getShipHeadingDelta } from "../../systems/motion-sampling";
 import type { ScreenPoint } from "../../systems/projection";
 import type { PharosVilleWorld, ShipHull, ShipLivery, ShipLogoShape, ShipSizeTier, ShipStripePattern, ShipWaterZone } from "../../systems/world-types";
 import type { LoadedPharosVilleAsset, PharosVilleAssetManager } from "../asset-manager";
-import { drawAnimatedAssetSubpixel, drawAssetSubpixel, hexToRgba, readableInkForFill, roundedRectPath, stableVisualVariant } from "../canvas-primitives";
+import { drawAnimatedAsset, drawAnimatedAssetSubpixel, drawAsset, drawAssetSubpixel, hexToRgba, readableInkForFill, roundedRectPath, stableVisualVariant } from "../canvas-primitives";
 import type { RenderFrameCache } from "../frame-cache";
 import type { ResolvedEntityGeometry } from "../geometry";
 import type { DrawPharosVilleInput } from "../render-types";
@@ -825,9 +825,11 @@ export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame
   } = shipRenderState(input, frame, ship);
   if (shipAsset) {
     const drawY = geometry.drawPoint.y + bob;
+    const useLiveSubpixelDraw = !motion.reducedMotion;
     drawWithShipPose(ctx, geometry.drawPoint.x, drawY, pose, orientation, () => {
       if (isTitanSprite) {
-        drawAnimatedAssetSubpixel(
+        const drawAnimated = useLiveSubpixelDraw ? drawAnimatedAssetSubpixel : drawAnimatedAsset;
+        drawAnimated(
           ctx,
           shipAsset,
           geometry.drawPoint.x,
@@ -837,10 +839,11 @@ export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame
           motion.reducedMotion,
         );
       } else {
-        drawAssetSubpixel(ctx, shipAsset, geometry.drawPoint.x, drawY, geometry.drawScale);
+        const drawStatic = useLiveSubpixelDraw ? drawAssetSubpixel : drawAsset;
+        drawStatic(ctx, shipAsset, geometry.drawPoint.x, drawY, geometry.drawScale);
       }
       const visualKey = ship.visual.spriteAssetId ?? ship.visual.hull;
-      drawShipSailTint(ctx, shipAsset, geometry.drawPoint.x, drawY, geometry.drawScale, ship.visual.livery);
+      drawShipSailTint(ctx, shipAsset, geometry.drawPoint.x, drawY, geometry.drawScale, ship.visual.livery, useLiveSubpixelDraw);
       drawShipLiveryTrim(ctx, ship.id, ship.visual.livery, visualKey, geometry.drawPoint.x, drawY, geometry.drawScale);
       drawSquadIdentityAccent(ctx, ship.id, geometry.drawPoint.x, drawY, geometry.drawScale);
     });
@@ -2034,14 +2037,17 @@ function drawShipSailTint(
   y: number,
   scale: number,
   livery: ShipLivery,
+  subpixel: boolean,
 ) {
   const tint = shipSailTintCanvasFor(asset, livery);
   if (!tint) return;
   const { entry } = asset;
   const width = entry.width * entry.displayScale * scale;
   const height = entry.height * entry.displayScale * scale;
-  const left = x - entry.anchor[0] * entry.displayScale * scale;
-  const top = y - entry.anchor[1] * entry.displayScale * scale;
+  const destinationX = x - entry.anchor[0] * entry.displayScale * scale;
+  const destinationY = y - entry.anchor[1] * entry.displayScale * scale;
+  const left = subpixel ? destinationX : Math.round(destinationX);
+  const top = subpixel ? destinationY : Math.round(destinationY);
   ctx.save();
   ctx.globalAlpha = 1;
   ctx.drawImage(tint, left, top, Math.round(width), Math.round(height));
