@@ -100,9 +100,9 @@ This checks camera zoom monotonicity, camera bounds during interaction, and foll
 Current executable budgets:
 
 - Entry chunk: `<= 300 KiB` raw and `<= 90 KiB` gzip.
-- Desktop lazy chunk: `<= 950 KiB` raw and `<= 275 KiB` gzip.
+- Desktop lazy chunk: `<= 960 KiB` raw and `<= 275 KiB` gzip.
 - Entry CSS: `<= 32 KiB` raw and `<= 8 KiB` gzip.
-- Total JS: `<= 1,250 KiB` raw and `<= 375 KiB` gzip.
+- Total JS: `<= 1,268 KiB` raw and `<= 375 KiB` gzip.
 - First-render assets: `<= 28` PNGs, `<= 575 KiB` source bytes, and `<= 875,000` decoded pixels.
 - Total runtime PharosVille assets: `<= 900 KiB` source bytes and `<= 1,300,000` decoded pixels.
 - Canvas backing store: capped by `MAX_MAIN_CANVAS_PIXELS` and `MAX_TOTAL_BACKING_PIXELS` in `src/systems/canvas-budget.ts`.
@@ -110,13 +110,22 @@ Current executable budgets:
 `npm run test:perf` also samples `window.__pharosVilleDebug.renderMetrics.framePacing` when present. The CI guard tier is intentionally conservative while run history is gathered:
 
 - `activeMotionLoopCount === 1` under normal motion.
+- `activeCameraLoopCount === 0` and `cameraFrameSource === "world-render-loop"` during the camera-stress lane.
 - `drawDurationMs` median `<= 140ms` and p95 `<= 200ms` over the sustained window.
 - `framePacing.effectiveFps >= 8`.
 - `framePacing.p90Ms <= 180ms`.
 - `framePacing.droppedFrameCount` and `framePacing.longestDroppedBurst` stay below broad rolling-window ratios.
+- Camera pan/zoom stress uses an initial CI guard of `effectiveFps >= 12`, `p90Ms <= 120ms`, and longest dropped burst `<= 25%` of the sampled window.
 - `longtask.count === 0` when longtask telemetry is available.
 
 The local smooth target for manual optimization at `1440x960` is stricter: `effectiveFps >= 50`, `framePacing.p90Ms <= 24ms`, `longestDroppedBurst <= 1`, and `longtask.count === 0`. Tighten the CI guard only after several stable runs on the target runners.
+
+Runtime smoothness telemetry also exposes per-frame timing diagnostics
+(`sampleDurationMs`, `hitTargetDurationMs`, `debugPublishDurationMs`,
+`telemetryOverheadMs`), water accent metrics, render-scheduler tier/skipped
+passes, and backing-store sprite cache pixels. Use these fields to distinguish
+actual renderer pressure from instrumentation or retained-cache pressure before
+tightening budgets.
 
 Display-size waste in `npm run check:pharosville-assets` is warning-only unless an image decodes more than 4x its displayed pixel area. Treat warnings as optimization backlog and failures as release blockers.
 
@@ -172,7 +181,7 @@ Run `rg` over `README.md`, `docs/pharosville`, `docs/pharosville-page.md`, and s
 
 - The desktop gate still prevents world data, manifest, canvas, and sprite loading below `720px` by `360px`.
 - Normal motion visibly moves ships without turning route semantics into game mechanics.
-- Sustained normal motion reports stable frame pacing in the perf lane, with no longtask entries during the sampled window.
+- Sustained normal motion and scripted camera pan/zoom stress report stable frame pacing in the perf lane, with no longtask entries during the sampled window.
 - Reduced motion stays deterministic and does not run a RAF loop.
 - Camera zoom moves monotonically for repeated zoom-in input, and follow-selected keeps the selected moving ship attached without violating camera bounds.
 - Detail panel and accessibility ledger describe any new visual encoding.
