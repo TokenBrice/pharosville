@@ -106,7 +106,9 @@ const DYNAMIC_WATER_CADENCE_HZ = 0;
 const DEFAULT_RENDER_CACHE_MODE: PharosVilleRenderCacheMode = "exact-zoom";
 const SHIP_BODY_CACHE_WARMUP_PER_FRAME = 6;
 const SHIP_BODY_CACHE_INTERACTION_WARMUP_PER_FRAME = 1;
-const staticLayerCache: { entries: StaticLayerCacheEntry[] } = { entries: [] };
+// W1.05: keyed lookup so eviction/scan paths run in Map.values() / Map.get()
+// rather than O(n) array scans. External API and behaviour unchanged.
+const staticLayerCache = new Map<string, StaticLayerCacheEntry>();
 const shipBodyCache = createShipBodyCache({ maxPixels: MAX_TOTAL_BACKING_PIXELS });
 let staticCameraCacheKeyCache: { key: string; input: CameraCacheKeyInput } | null = null;
 let cacheGenerationKey: string | null = null;
@@ -267,7 +269,7 @@ function cacheCanvasPixels(canvas: HTMLCanvasElement): number {
 
 function staticCachePixels(): number {
   let pixels = 0;
-  for (const entry of staticLayerCache.entries) pixels += cacheCanvasPixels(entry.canvas);
+  for (const entry of staticLayerCache.values()) pixels += cacheCanvasPixels(entry.canvas);
   return pixels;
 }
 
@@ -300,7 +302,7 @@ function ensureRendererCacheGeneration(input: DrawPharosVilleInput, dpr: number)
 }
 
 function clearRendererCaches(): void {
-  staticLayerCache.entries = [];
+  staticLayerCache.clear();
   shipBodyCache.clear();
   staticCameraCacheKeyCache = null;
 }
@@ -374,7 +376,7 @@ function drawStaticPassCached(
   const sourceX = Math.max(0, Math.min(backingPadWidth, backingPadWidth - Math.round(staticCamera.residualOffsetX * dpr)));
   const sourceY = Math.max(0, Math.min(backingPadHeight, backingPadHeight - Math.round(staticCamera.residualOffsetY * dpr)));
 
-  const cached = staticLayerCache.entries.find((entry) => entry.key === key);
+  const cached = staticLayerCache.get(key);
   if (cached) {
     cached.lastUsed = performance.now();
     frame.cacheStats.staticHitCount += 1;
@@ -406,7 +408,7 @@ function drawStaticPassCached(
   offCtx.setTransform(dpr, 0, 0, dpr, backingPadWidth, backingPadHeight);
   paint({ ...paintInput, ctx: offCtx }, frame);
   blitStaticCanvas(ctx, offCanvas, backingWidth, backingHeight, sourceX, sourceY);
-  staticLayerCache.entries.push({ canvas: offCanvas, key, lastUsed: performance.now() });
+  staticLayerCache.set(key, { canvas: offCanvas, key, lastUsed: performance.now() });
   frame.protectedCacheEntryKeys.add(cacheEntryId("static", key));
 }
 
@@ -425,19 +427,18 @@ function blitStaticCanvas(
 }
 
 function evictOldestCacheEntry(protectedEntryKeys: ReadonlySet<string>): { canvas: HTMLCanvasElement } | null {
-  let oldestIndex = -1;
+  let oldestEntry: StaticLayerCacheEntry | null = null;
   let oldestLastUsed = Number.POSITIVE_INFINITY;
-  for (let index = 0; index < staticLayerCache.entries.length; index += 1) {
-    const entry = staticLayerCache.entries[index]!;
+  for (const entry of staticLayerCache.values()) {
     if (protectedEntryKeys.has(cacheEntryId("static", entry.key))) continue;
     if (entry.lastUsed < oldestLastUsed) {
-      oldestIndex = index;
+      oldestEntry = entry;
       oldestLastUsed = entry.lastUsed;
     }
   }
-  if (oldestIndex >= 0) {
-    const entry = staticLayerCache.entries.splice(oldestIndex, 1)[0];
-    return entry ? { canvas: entry.canvas } : null;
+  if (oldestEntry) {
+    staticLayerCache.delete(oldestEntry.key);
+    return { canvas: oldestEntry.canvas };
   }
   return null;
 }
@@ -474,7 +475,7 @@ function backingMetricsForInput(input: DrawPharosVilleInput, dpr: number) {
     maxTotalBackingPixels: MAX_TOTAL_BACKING_PIXELS,
     spriteCacheEntryCount: shipBodyCache.stats().entryCount,
     spriteCachePixels: shipBodyCache.stats().pixelCount,
-    staticCacheEntryCount: staticLayerCache.entries.length,
+    staticCacheEntryCount: staticLayerCache.size,
     staticCachePixels: staticCachePixels(),
   });
 }
