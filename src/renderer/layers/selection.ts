@@ -2,7 +2,7 @@ import { isShipMapVisible, shipWaterPathKey, type ShipWaterPath } from "../../sy
 import { tileToScreen, type IsoCamera, type ScreenPoint } from "../../systems/projection";
 import type { PharosVilleWorld } from "../../systems/world-types";
 import { drawDiamond } from "../canvas-primitives";
-import { dockDrawPoint } from "../geometry";
+import { dockDrawPoint, entityAssetId, resolveEntityGeometry } from "../geometry";
 import type { HitTarget } from "../hit-testing";
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
 
@@ -19,17 +19,19 @@ const renderedDockShipsByChainSortedCache = new WeakMap<PharosVilleWorld, Map<st
 
 export function drawSelection(input: DrawPharosVilleInput): number {
   const { ctx, hoveredTarget, selectedTarget } = input;
+  const currentHoveredTarget = hoveredTarget ? currentFrameTarget(input, hoveredTarget) : null;
+  const currentSelectedTarget = selectedTarget ? currentFrameTarget(input, selectedTarget) : null;
   let drawableCount = 0;
-  if (hasSelectedRelationships(selectedTarget)) {
-    drawSelectedRelationships(input, selectedTarget);
+  if (hasSelectedRelationships(currentSelectedTarget)) {
+    drawSelectedRelationships(input, currentSelectedTarget);
     drawableCount += 1;
   }
-  if (hoveredTarget) {
-    drawSelectionRing(ctx, hoveredTarget, HOVER_SELECTION_STROKE);
+  if (currentHoveredTarget) {
+    drawSelectionRing(ctx, currentHoveredTarget, HOVER_SELECTION_STROKE);
     drawableCount += 1;
   }
-  if (selectedTarget) {
-    drawSelectionRing(ctx, selectedTarget, SELECTED_SELECTION_STROKE, SELECTED_SELECTION_HALO);
+  if (currentSelectedTarget) {
+    drawSelectionRing(ctx, currentSelectedTarget, SELECTED_SELECTION_STROKE, SELECTED_SELECTION_HALO);
     drawableCount += 1;
   }
   return drawableCount;
@@ -46,6 +48,30 @@ export function selectionDrawableCount(input: {
 
 function hasSelectedRelationships(target: HitTarget | null): target is HitTarget {
   return target?.kind === "ship" || target?.kind === "dock";
+}
+
+function currentFrameTarget(input: DrawPharosVilleInput, target: HitTarget): HitTarget {
+  const entity = input.world.entityById[target.detailId];
+  if (!entity) return target;
+  const assetId = entityAssetId(entity);
+  const asset = assetId ? input.assets?.get(assetId) ?? null : null;
+  const geometry = resolveEntityGeometry({
+    asset,
+    camera: input.camera,
+    entity,
+    mapWidth: input.world.map.width,
+    shipMotionSamples: input.shipMotionSamples,
+  });
+  const rect = geometry.targetRect;
+  if (
+    rect.x === target.rect.x
+    && rect.y === target.rect.y
+    && rect.width === target.rect.width
+    && rect.height === target.rect.height
+  ) {
+    return target;
+  }
+  return { ...target, rect };
 }
 
 function drawSelectedRelationships(input: DrawPharosVilleInput, target: HitTarget) {

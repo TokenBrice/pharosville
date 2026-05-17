@@ -1,5 +1,96 @@
 import { describe, expect, it } from "vitest";
-import { dampFollowCamera, leadFollowTile } from "./use-canvas-resize-and-camera";
+import { screenToIso } from "../systems/projection";
+import {
+  advanceCameraIntent,
+  cameraModeCancelsFollow,
+  dampFollowCamera,
+  leadFollowTile,
+  normalizeWheelDeltaY,
+  wheelZoomScaleFromDelta,
+  zoomCameraByWheelDelta,
+} from "./use-canvas-resize-and-camera";
+
+describe("wheel camera helpers", () => {
+  it("normalizes wheel deltas by delta mode", () => {
+    expect(normalizeWheelDeltaY(48, 0)).toBe(48);
+    expect(normalizeWheelDeltaY(3, 1)).toBe(48);
+    expect(normalizeWheelDeltaY(2, 2, 900)).toBe(240);
+    expect(normalizeWheelDeltaY(Number.NaN, 0)).toBe(0);
+  });
+
+  it("maps wheel deltas to monotonic exponential zoom scales", () => {
+    const trackpadScale = wheelZoomScaleFromDelta(4, 0);
+    const wheelScale = wheelZoomScaleFromDelta(100, 0);
+    const zoomInScale = wheelZoomScaleFromDelta(-100, 0);
+
+    expect(trackpadScale).toBeLessThan(1);
+    expect(trackpadScale).toBeGreaterThan(wheelScale);
+    expect(wheelScale).toBeLessThan(1);
+    expect(zoomInScale).toBeGreaterThan(1);
+    expect(zoomInScale).toBeCloseTo(1 / wheelScale);
+  });
+
+  it("keeps the pointer focal point stable while wheel zooming", () => {
+    const camera = { offsetX: 240, offsetY: 140, zoom: 1 };
+    const point = { x: 320, y: 220 };
+    const before = screenToIso(point, camera);
+    const next = zoomCameraByWheelDelta({
+      camera,
+      deltaMode: 0,
+      deltaY: -80,
+      point,
+      viewport: { x: 960, y: 640 },
+    });
+    const after = screenToIso(point, next);
+
+    expect(after.x).toBeCloseTo(before.x, 8);
+    expect(after.y).toBeCloseTo(before.y, 8);
+    expect(next.zoom).toBeGreaterThan(camera.zoom);
+  });
+});
+
+describe("camera intent helpers", () => {
+  it("damps camera intent toward the target without overshooting", () => {
+    const current = { offsetX: 0, offsetY: 0, zoom: 1 };
+    const target = { offsetX: 100, offsetY: -50, zoom: 1.5 };
+    const first = advanceCameraIntent(current, target, 1 / 60, "wheel");
+
+    expect(first.settled).toBe(false);
+    expect(first.camera.offsetX).toBeGreaterThan(current.offsetX);
+    expect(first.camera.offsetX).toBeLessThan(target.offsetX);
+    expect(first.camera.offsetY).toBeLessThan(current.offsetY);
+    expect(first.camera.offsetY).toBeGreaterThan(target.offsetY);
+    expect(first.camera.zoom).toBeGreaterThan(current.zoom);
+    expect(first.camera.zoom).toBeLessThan(target.zoom);
+  });
+
+  it("converges intent to an exact settled camera", () => {
+    const target = { offsetX: 100, offsetY: -50, zoom: 1.5 };
+    let camera = { offsetX: 0, offsetY: 0, zoom: 1 };
+    let settled = false;
+
+    for (let frame = 0; frame < 90 && !settled; frame += 1) {
+      const next = advanceCameraIntent(camera, target, 1 / 60, "toolbar");
+      camera = next.camera;
+      settled = next.settled;
+    }
+
+    expect(settled).toBe(true);
+    expect(camera).toEqual(target);
+  });
+
+  it("marks manual camera modes as follow-cancelling", () => {
+    expect(cameraModeCancelsFollow("drag")).toBe(true);
+    expect(cameraModeCancelsFollow("wheel")).toBe(true);
+    expect(cameraModeCancelsFollow("pinch")).toBe(true);
+    expect(cameraModeCancelsFollow("keyboard")).toBe(true);
+    expect(cameraModeCancelsFollow("toolbar")).toBe(true);
+    expect(cameraModeCancelsFollow("reset")).toBe(true);
+    expect(cameraModeCancelsFollow("external")).toBe(true);
+    expect(cameraModeCancelsFollow("follow-selected")).toBe(false);
+    expect(cameraModeCancelsFollow("resize")).toBe(false);
+  });
+});
 
 describe("follow camera helpers", () => {
   it("leads the followed tile by sampled velocity", () => {

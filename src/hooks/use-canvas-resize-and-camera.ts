@@ -7,7 +7,7 @@ import { hitTest, hitTestSpatial, type HitTarget, type HitTargetSnapshot } from 
 import { cameraZoomLabel, clampCameraToMap, defaultCamera, followTile, panCamera, zoomIn, zoomOut } from "../systems/camera";
 import { initialAdaptiveDprState, resolveCanvasBudget, type AdaptiveDprState } from "../systems/canvas-budget";
 import type { ShipMotionSample } from "../systems/motion";
-import { zoomCameraAt, type IsoCamera, type ScreenPoint } from "../systems/projection";
+import { zoomCameraAt, type IsoCamera, type MapLike, type ScreenPoint } from "../systems/projection";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
 import { useLatestRef } from "./use-latest-ref";
 
@@ -15,6 +15,31 @@ const FOLLOW_CAMERA_DAMPING = 4;
 const FOLLOW_LEAD_SECONDS = 0.45;
 const FOLLOW_MAX_DELTA_SECONDS = 0.25;
 const FOLLOW_INITIAL_DELTA_SECONDS = 1 / 60;
+const CAMERA_INTERACTION_DAMPING = 26;
+const CAMERA_COMMAND_DAMPING = 12;
+const CAMERA_RESIZE_DAMPING = 18;
+const WHEEL_DELTA_LINE_HEIGHT_PX = 16;
+const WHEEL_DELTA_DEFAULT_PAGE_PX = 800;
+const WHEEL_DELTA_CLAMP_PX = 240;
+const WHEEL_ZOOM_EXPONENT_PER_PIXEL = 0.00145;
+
+export type CameraIntentMode =
+  | "idle"
+  | "drag"
+  | "wheel"
+  | "pinch"
+  | "keyboard"
+  | "toolbar"
+  | "reset"
+  | "follow-selected"
+  | "resize"
+  | "external";
+
+interface CameraIntentState {
+  lastFrameTime: number | null;
+  mode: CameraIntentMode;
+  targetCamera: IsoCamera | null;
+}
 
 export interface UseCanvasResizeAndCameraInput {
   exitFullscreen: () => void;
@@ -83,26 +108,27 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   const activePointersRef = useRef<Map<number, ScreenPoint>>(new Map());
   const pinchRef = useRef<{ distance: number; midpoint: ScreenPoint; moved: boolean; pointerIds: [number, number] } | null>(null);
   const canvasRectRef = useRef<Pick<DOMRectReadOnly, "left" | "top"> | null>(null);
-  const dragPanDeltaRef = useRef<ScreenPoint>({ x: 0, y: 0 });
-  const dragPanFrameRef = useRef(0);
+  const cameraFrameRef = useRef(0);
+  const cameraIntentRef = useRef<CameraIntentState>({ lastFrameTime: null, mode: "idle", targetCamera: null });
+  const displayCameraRef = useRef<IsoCamera | null>(null);
   const hoverFrameRef = useRef(0);
   const pendingHoverPointRef = useRef<ScreenPoint | null>(null);
   const adaptiveDprStateRef = useRef<AdaptiveDprState>(initialAdaptiveDprState(1));
   const adaptiveDprInitializedRef = useRef(false);
   const maximumRequestedDprRef = useRef(1);
   const canvasBudgetRef = useRef<ReturnType<typeof resolveCanvasBudget> | null>(null);
-  const followFrameRef = useRef(0);
   const followChaseDetailIdRef = useRef<string | null>(null);
   const followChaseLastTileRef = useRef<ScreenPoint | null>(null);
   const followChaseLastTimeRef = useRef<number | null>(null);
-  const runFollowChaseRef = useRef<(now: number) => void>(() => {});
+  const runCameraFrameRef = useRef<(now: number) => void>(() => {});
 
-  const [camera, setCamera] = useState<IsoCamera | null>(null);
+  const [camera, setCameraState] = useState<IsoCamera | null>(null);
   const [canvasSize, setCanvasSize] = useState<ScreenPoint>({ x: 0, y: 0 });
 
   // Mirrored via `useLatestRef` (synchronous render-time write) so consumers
   // reading `.current` from event handlers / RAF observe the latest committed
-  // value without an extra effect tick or StrictMode desync.
+  // value without an extra effect tick or StrictMode desync. The camera
+  // controller also writes this ref before React commits a render.
   const cameraRef = useLatestRef(camera);
   const canvasSizeRef = useLatestRef(canvasSize);
   const selectedEntityRef = useLatestRef(selectedEntity);
@@ -116,6 +142,73 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   useEffect(() => () => {
     if (hoverFrameRef.current) cancelAnimationFrame(hoverFrameRef.current);
   }, []);
+
+  const cancelCameraFrame = useCallback(() => {
+    if (!cameraFrameRef.current) return;
+    cancelAnimationFrame(cameraFrameRef.current);
+    cameraFrameRef.current = 0;
+  }, []);
+
+  const commitCameraState = useCallback((next: IsoCamera | null) => {
+    displayCameraRef.current = next;
+    cameraRef.current = next;
+    setCameraState((previous) => {
+      if (previous === null || next === null) return previous === next ? previous : next;
+      return sameCamera(previous, next) ? previous : next;
+    });
+  }, [cameraRef]);
+
+  const applyCameraImmediately = useCallback((next: IsoCamera | null) => {
+    cancelCameraFrame();
+    cameraIntentRef.current = { lastFrameTime: null, mode: "idle", targetCamera: next };
+    commitCameraState(next);
+  }, [cancelCameraFrame, commitCameraState]);
+
+  const requestCameraFrame = useCallback(() => {
+    if (reducedMotion || cameraFrameRef.current) return;
+    cameraFrameRef.current = requestAnimationFrame((now) => runCameraFrameRef.current(now));
+  }, [reducedMotion]);
+
+  const stopFollowChase = useCallback(() => {
+    followChaseDetailIdRef.current = null;
+    followChaseLastTileRef.current = null;
+    followChaseLastTimeRef.current = null;
+    if (cameraIntentRef.current.mode === "follow-selected") {
+      cameraIntentRef.current = {
+        lastFrameTime: null,
+        mode: "idle",
+        targetCamera: displayCameraRef.current,
+      };
+    }
+  }, []);
+
+  const currentCameraBase = useCallback(() => (
+    cameraIntentRef.current.targetCamera ?? displayCameraRef.current ?? cameraRef.current
+  ), [cameraRef]);
+
+  const queueCameraTarget = useCallback((targetCamera: IsoCamera, mode: CameraIntentMode) => {
+    if (cameraModeCancelsFollow(mode)) stopFollowChase();
+    const displayCamera = displayCameraRef.current ?? cameraRef.current;
+    if (!displayCamera || reducedMotion || sameCamera(displayCamera, targetCamera)) {
+      applyCameraImmediately(targetCamera);
+      return;
+    }
+    cameraIntentRef.current = {
+      lastFrameTime: null,
+      mode,
+      targetCamera,
+    };
+    requestCameraFrame();
+  }, [applyCameraImmediately, cameraRef, reducedMotion, requestCameraFrame, stopFollowChase]);
+
+  const setCamera: Dispatch<SetStateAction<IsoCamera | null>> = useCallback((value) => {
+    stopFollowChase();
+    const previous = displayCameraRef.current ?? cameraRef.current;
+    const next = typeof value === "function"
+      ? (value as (previousCamera: IsoCamera | null) => IsoCamera | null)(previous)
+      : value;
+    applyCameraImmediately(next);
+  }, [applyCameraImmediately, cameraRef, stopFollowChase]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -149,19 +242,19 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       if (canvas.height !== nextHeight) canvas.height = nextHeight;
       const nextCanvasSize = { x: cssWidth, y: cssHeight };
       setCanvasSize((previous) => samePoint(previous, nextCanvasSize) ? previous : nextCanvasSize);
-      setCamera((previous) => {
-        const next = previous
-          ? clampCameraToMap(previous, { map: world.map, viewport: nextCanvasSize })
-          : defaultCamera({ width: cssWidth, height: cssHeight, map: world.map });
-        return previous && sameCamera(previous, next) ? previous : next;
-      });
+      const previousCamera = currentCameraBase();
+      const nextCamera = previousCamera
+        ? clampCameraToMap(previousCamera, { map: world.map, viewport: nextCanvasSize })
+        : defaultCamera({ width: cssWidth, height: cssHeight, map: world.map });
+      applyCameraImmediately(nextCamera);
+      if (followChaseDetailIdRef.current) requestCameraFrame();
     };
 
     resize();
     const observer = new ResizeObserver(resize);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [world.map]);
+  }, [applyCameraImmediately, currentCameraBase, requestCameraFrame, world.map]);
 
   const canvasPoint = useCallback((event: ReactPointerEvent<HTMLCanvasElement> | ReactWheelEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -171,20 +264,6 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       x: event.clientX - (rect?.left ?? 0),
       y: event.clientY - (rect?.top ?? 0),
     };
-  }, []);
-
-  const stopFollowChase = useCallback(() => {
-    if (followFrameRef.current) {
-      cancelAnimationFrame(followFrameRef.current);
-      followFrameRef.current = 0;
-    }
-    followChaseDetailIdRef.current = null;
-    followChaseLastTileRef.current = null;
-    followChaseLastTimeRef.current = null;
-  }, []);
-
-  const scheduleFollowChaseFrame = useCallback(() => {
-    followFrameRef.current = requestAnimationFrame((now) => runFollowChaseRef.current(now));
   }, []);
 
   const updateHover = useCallback((point: ScreenPoint) => {
@@ -211,33 +290,6 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       updateHover(point);
     });
   }, [updateHover]);
-
-  const scheduleDragPan = useCallback((delta: ScreenPoint) => {
-    stopFollowChase();
-    dragPanDeltaRef.current = {
-      x: dragPanDeltaRef.current.x + delta.x,
-      y: dragPanDeltaRef.current.y + delta.y,
-    };
-    if (dragPanFrameRef.current) return;
-    dragPanFrameRef.current = requestAnimationFrame(() => {
-      dragPanFrameRef.current = 0;
-      const queuedDelta = dragPanDeltaRef.current;
-      dragPanDeltaRef.current = { x: 0, y: 0 };
-      if (queuedDelta.x === 0 && queuedDelta.y === 0) return;
-      setCamera((previous) => {
-        if (!previous) return previous;
-        const viewport = canvasSizeRef.current;
-        const next = panCamera(previous, queuedDelta, { map: world.map, viewport });
-        return sameCamera(previous, next) ? previous : next;
-      });
-    });
-    // canvasSizeRef omitted: ref identity never changes (HOOKS F4).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stopFollowChase, world.map]);
-
-  useEffect(() => () => {
-    if (dragPanFrameRef.current) cancelAnimationFrame(dragPanFrameRef.current);
-  }, []);
 
   const handlePointerDown = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
     canvasRectRef.current = event.currentTarget.getBoundingClientRect();
@@ -283,9 +335,8 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
         || Math.abs(midpointDelta.x) + Math.abs(midpointDelta.y) > 1
         || distanceDelta > 1;
       if (moved) {
-        stopFollowChase();
-        setCamera((previous) => {
-          if (!previous) return previous;
+        const previous = currentCameraBase();
+        if (previous) {
           const viewport = canvasSizeRef.current;
           const panned = {
             ...previous,
@@ -296,8 +347,8 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
             map: world.map,
             viewport,
           });
-          return sameCamera(previous, next) ? previous : next;
-        });
+          queueCameraTarget(next, "pinch");
+        }
       }
       pinchRef.current = { ...pinch, moved };
       return;
@@ -307,7 +358,11 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       const delta = { x: point.x - drag.last.x, y: point.y - drag.last.y };
       if (Math.abs(delta.x) + Math.abs(delta.y) > 1) {
         drag.moved = true;
-        scheduleDragPan(delta);
+        const previous = currentCameraBase();
+        if (previous) {
+          const next = panCamera(previous, delta, { map: world.map, viewport: canvasSizeRef.current });
+          queueCameraTarget(next, "drag");
+        }
       }
       drag.last = point;
       return;
@@ -317,7 +372,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     // canvasSizeRef + pendingHoverPointRef omitted: ref identity never
     // changes (HOOKS F4).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canvasPoint, scheduleDragPan, scheduleHoverUpdate, stopFollowChase, world.map]);
+  }, [canvasPoint, currentCameraBase, queueCameraTarget, scheduleHoverUpdate, world.map]);
 
   const handlePointerLeave = useCallback(() => {
     if (hoverFrameRef.current) {
@@ -390,99 +445,138 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   }, [canvasPoint, hasSelection, onClearSelection, onSelectTarget, recomputeHitTargets, resetPointerGesture, stopFollowChase]);
 
   const handleWheel = useCallback((event: ReactWheelEvent<HTMLCanvasElement>) => {
-    if (!camera) return;
+    const previous = currentCameraBase();
+    if (!previous) return;
     event.preventDefault();
-    stopFollowChase();
-    const direction = event.deltaY < 0 ? 1.12 : 1 / 1.12;
-    const next = clampCameraToMap(zoomCameraAt(camera, canvasPoint(event), camera.zoom * direction), { map: world.map, viewport: canvasSize });
-    if (!sameCamera(camera, next)) setCamera(next);
-  }, [camera, canvasPoint, canvasSize, stopFollowChase, world.map]);
+    const next = zoomCameraByWheelDelta({
+      camera: previous,
+      deltaMode: event.deltaMode,
+      deltaY: event.deltaY,
+      map: world.map,
+      point: canvasPoint(event),
+      viewport: canvasSizeRef.current,
+    });
+    queueCameraTarget(next, "wheel");
+  }, [canvasPoint, canvasSizeRef, currentCameraBase, queueCameraTarget, world.map]);
 
   const handleToolbarPan = useCallback((delta: ScreenPoint) => {
-    stopFollowChase();
-    setCamera((previous) => {
-      if (!previous) return previous;
-      const next = panCamera(previous, delta, { map: world.map, viewport: canvasSize });
-      return sameCamera(previous, next) ? previous : next;
-    });
-  }, [canvasSize, stopFollowChase, world.map]);
+    const previous = currentCameraBase();
+    if (!previous) return;
+    const next = panCamera(previous, delta, { map: world.map, viewport: canvasSizeRef.current });
+    queueCameraTarget(next, "toolbar");
+  }, [canvasSizeRef, currentCameraBase, queueCameraTarget, world.map]);
 
   const handleResetView = useCallback(() => {
-    if (canvasSize.x <= 0 || canvasSize.y <= 0) return;
-    stopFollowChase();
-    setCamera((previous) => {
-      const next = defaultCamera({ height: canvasSize.y, map: world.map, width: canvasSize.x });
-      return previous && sameCamera(previous, next) ? previous : next;
-    });
-  }, [canvasSize, stopFollowChase, world.map]);
+    const viewport = canvasSizeRef.current;
+    if (viewport.x <= 0 || viewport.y <= 0) return;
+    const next = defaultCamera({ height: viewport.y, map: world.map, width: viewport.x });
+    queueCameraTarget(next, "reset");
+  }, [canvasSizeRef, queueCameraTarget, world.map]);
 
   const handleToolbarZoomIn = useCallback(() => {
-    stopFollowChase();
-    setCamera((previous) => {
-      if (!previous) return previous;
-      const next = zoomIn(previous, canvasSize, world.map);
-      return sameCamera(previous, next) ? previous : next;
-    });
-  }, [canvasSize, stopFollowChase, world.map]);
+    const previous = currentCameraBase();
+    if (!previous) return;
+    queueCameraTarget(zoomIn(previous, canvasSizeRef.current, world.map), "toolbar");
+  }, [canvasSizeRef, currentCameraBase, queueCameraTarget, world.map]);
 
   const handleToolbarZoomOut = useCallback(() => {
-    stopFollowChase();
-    setCamera((previous) => {
-      if (!previous) return previous;
-      const next = zoomOut(previous, canvasSize, world.map);
-      return sameCamera(previous, next) ? previous : next;
-    });
-  }, [canvasSize, stopFollowChase, world.map]);
+    const previous = currentCameraBase();
+    if (!previous) return;
+    queueCameraTarget(zoomOut(previous, canvasSizeRef.current, world.map), "toolbar");
+  }, [canvasSizeRef, currentCameraBase, queueCameraTarget, world.map]);
 
-  const runFollowChase = useCallback((now: number) => {
-    followFrameRef.current = 0;
-    const activeDetailId = followChaseDetailIdRef.current;
-    const entity = selectedEntityRef.current;
-    const viewport = canvasSizeRef.current;
-    if (
-      !activeDetailId
-      || !entity
-      || entity.detailId !== activeDetailId
-      || selectedDetailIdRef.current !== activeDetailId
-      || entity.kind !== "ship"
-      || reducedMotion
-      || viewport.x <= 0
-      || viewport.y <= 0
-    ) {
-      stopFollowChase();
+  const runCameraFrame = useCallback((now: number) => {
+    cameraFrameRef.current = 0;
+    const displayCamera = displayCameraRef.current ?? cameraRef.current;
+    if (!displayCamera) {
+      cameraIntentRef.current = { lastFrameTime: null, mode: "idle", targetCamera: null };
       return;
     }
 
-    const sampledTile = entityFollowTile({
-      entity,
-      mapWidth: world.map.width,
-      shipMotionSamples: shipMotionSamplesRef.current,
-    });
-    const previousTime = followChaseLastTimeRef.current;
-    const rawDeltaSeconds = previousTime === null ? FOLLOW_INITIAL_DELTA_SECONDS : (now - previousTime) / 1000;
+    const activeDetailId = followChaseDetailIdRef.current;
+    if (activeDetailId) {
+      const entity = selectedEntityRef.current;
+      const viewport = canvasSizeRef.current;
+      if (
+        !entity
+        || entity.detailId !== activeDetailId
+        || selectedDetailIdRef.current !== activeDetailId
+        || entity.kind !== "ship"
+        || reducedMotion
+        || viewport.x <= 0
+        || viewport.y <= 0
+      ) {
+        stopFollowChase();
+      } else {
+        const sampledTile = entityFollowTile({
+          entity,
+          mapWidth: world.map.width,
+          shipMotionSamples: shipMotionSamplesRef.current,
+        });
+        const sample = shipMotionSamplesRef.current.get(entity.id);
+        const previousTime = followChaseLastTimeRef.current;
+        const rawDeltaSeconds = previousTime === null ? FOLLOW_INITIAL_DELTA_SECONDS : (now - previousTime) / 1000;
+        const deltaSeconds = Math.max(0, Math.min(FOLLOW_MAX_DELTA_SECONDS, rawDeltaSeconds));
+        const leadTile = leadFollowTile(sampledTile, followChaseLastTileRef.current, deltaSeconds, FOLLOW_LEAD_SECONDS, sample);
+
+        followChaseLastTileRef.current = sampledTile;
+        followChaseLastTimeRef.current = now;
+        cameraIntentRef.current = {
+          lastFrameTime: cameraIntentRef.current.mode === "follow-selected"
+            ? cameraIntentRef.current.lastFrameTime
+            : null,
+          mode: "follow-selected",
+          targetCamera: followTile({
+            camera: displayCamera,
+            map: world.map,
+            tile: leadTile,
+            viewport,
+          }),
+        };
+      }
+    }
+
+    const intent = cameraIntentRef.current;
+    const targetCamera = intent.targetCamera;
+    if (!targetCamera) {
+      cameraIntentRef.current = { lastFrameTime: null, mode: "idle", targetCamera: null };
+      return;
+    }
+    const rawDeltaSeconds = intent.lastFrameTime === null
+      ? FOLLOW_INITIAL_DELTA_SECONDS
+      : (now - intent.lastFrameTime) / 1000;
     const deltaSeconds = Math.max(0, Math.min(FOLLOW_MAX_DELTA_SECONDS, rawDeltaSeconds));
-    const leadTile = leadFollowTile(sampledTile, followChaseLastTileRef.current, deltaSeconds);
+    const advanced = advanceCameraIntent(displayCamera, targetCamera, deltaSeconds, intent.mode);
+    commitCameraState(advanced.camera);
 
-    followChaseLastTileRef.current = sampledTile;
-    followChaseLastTimeRef.current = now;
+    if (followChaseDetailIdRef.current) {
+      cameraIntentRef.current = {
+        ...cameraIntentRef.current,
+        lastFrameTime: now,
+      };
+      requestCameraFrame();
+      return;
+    }
 
-    setCamera((previous) => {
-      if (!previous) return previous;
-      const target = followTile({
-        camera: previous,
-        map: world.map,
-        tile: leadTile,
-        viewport,
-      });
-      const next = dampFollowCamera(previous, target, deltaSeconds);
-      return nearlySameCamera(previous, next) ? previous : next;
-    });
-    scheduleFollowChaseFrame();
-  }, [canvasSizeRef, reducedMotion, scheduleFollowChaseFrame, selectedDetailIdRef, selectedEntityRef, shipMotionSamplesRef, stopFollowChase, world.map]);
+    if (advanced.settled) {
+      cameraIntentRef.current = {
+        lastFrameTime: null,
+        mode: "idle",
+        targetCamera: advanced.camera,
+      };
+      return;
+    }
+
+    cameraIntentRef.current = {
+      ...cameraIntentRef.current,
+      lastFrameTime: now,
+    };
+    requestCameraFrame();
+  }, [cameraRef, canvasSizeRef, commitCameraState, reducedMotion, requestCameraFrame, selectedDetailIdRef, selectedEntityRef, shipMotionSamplesRef, stopFollowChase, world.map]);
 
   useEffect(() => {
-    runFollowChaseRef.current = runFollowChase;
-  }, [runFollowChase]);
+    runCameraFrameRef.current = runCameraFrame;
+  }, [runCameraFrame]);
 
   const handleFollowSelected = useCallback(() => {
     if (!selectedEntity) return;
@@ -492,48 +586,31 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       mapWidth: world.map.width,
       shipMotionSamples: shipMotionSamplesRef.current,
     });
-    const start = cameraRef.current;
+    const start = currentCameraBase();
     if (!start) return;
     const target = followTile({
       camera: start,
       map: world.map,
       tile: sampledTile,
-      viewport: canvasSize,
+      viewport: canvasSizeRef.current,
     });
     if (reducedMotion) {
-      if (!sameCamera(start, target)) setCamera(target);
+      applyCameraImmediately(target);
       return;
     }
     if (selectedEntity.kind === "ship" && selectedDetailId) {
       followChaseDetailIdRef.current = selectedDetailId;
       followChaseLastTileRef.current = sampledTile;
       followChaseLastTimeRef.current = null;
-      scheduleFollowChaseFrame();
+      queueCameraTarget(target, "follow-selected");
+      requestCameraFrame();
       return;
     }
-    if (sameCamera(start, target)) return;
-    const duration = 400;
-    const startTime = performance.now();
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - startTime) / duration);
-      const eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-      const next: IsoCamera = {
-        offsetX: start.offsetX + (target.offsetX - start.offsetX) * eased,
-        offsetY: start.offsetY + (target.offsetY - start.offsetY) * eased,
-        zoom: start.zoom + (target.zoom - start.zoom) * eased,
-      };
-      setCamera(next);
-      if (t < 1) {
-        followFrameRef.current = requestAnimationFrame(tick);
-      } else {
-        followFrameRef.current = 0;
-      }
-    };
-    followFrameRef.current = requestAnimationFrame(tick);
+    queueCameraTarget(target, "follow-selected");
     // cameraRef, shipMotionSamplesRef omitted: ref identity never changes
     // (HOOKS F4).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canvasSize, reducedMotion, scheduleFollowChaseFrame, selectedDetailId, selectedEntity, stopFollowChase, world.map]);
+  }, [applyCameraImmediately, canvasSizeRef, currentCameraBase, queueCameraTarget, reducedMotion, requestCameraFrame, selectedDetailId, selectedEntity, stopFollowChase, world.map]);
 
   useEffect(() => {
     if (lastSelectedDetailIdRef.current !== selectedDetailId) {
@@ -542,12 +619,25 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     }
   }, [selectedDetailId, stopFollowChase]);
 
-  useEffect(() => () => {
+  useEffect(() => {
+    if (!reducedMotion) return;
+    const targetCamera = cameraIntentRef.current.targetCamera;
     stopFollowChase();
-  }, [stopFollowChase]);
+    if (targetCamera) {
+      applyCameraImmediately(targetCamera);
+      return;
+    }
+    cancelCameraFrame();
+  }, [applyCameraImmediately, cancelCameraFrame, reducedMotion, stopFollowChase]);
+
+  useEffect(() => () => {
+    cancelCameraFrame();
+    stopFollowChase();
+  }, [cancelCameraFrame, stopFollowChase]);
 
   const handleKeyDown = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
-    if (!camera) return;
+    const activeCamera = currentCameraBase();
+    if (!activeCamera) return;
     if (event.key === "Escape") {
       if (fullscreenMode) {
         event.preventDefault();
@@ -580,13 +670,10 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
         ArrowRight: { x: -step, y: 0 },
         ArrowUp: { x: 0, y: step },
       };
-      const next = panCamera(camera, deltas[event.key], { map: world.map, viewport: canvasSize });
-      if (!sameCamera(camera, next)) {
-        stopFollowChase();
-        setCamera(next);
-      }
+      const next = panCamera(activeCamera, deltas[event.key], { map: world.map, viewport: canvasSizeRef.current });
+      queueCameraTarget(next, "keyboard");
     }
-  }, [camera, canvasSize, exitFullscreen, fullscreenMode, handleToolbarZoomIn, handleToolbarZoomOut, onClearSelection, stopFollowChase, world.map]);
+  }, [canvasSizeRef, currentCameraBase, exitFullscreen, fullscreenMode, handleToolbarZoomIn, handleToolbarZoomOut, onClearSelection, queueCameraTarget, stopFollowChase, world.map]);
 
   return {
     adaptiveDprStateRef,
@@ -633,12 +720,87 @@ function nearlySameCamera(left: IsoCamera, right: IsoCamera): boolean {
     && Math.abs(left.zoom - right.zoom) < 0.0001;
 }
 
+export function normalizeWheelDeltaY(deltaY: number, deltaMode: number, pageSize = WHEEL_DELTA_DEFAULT_PAGE_PX): number {
+  const pixelDelta = deltaMode === 1
+    ? deltaY * WHEEL_DELTA_LINE_HEIGHT_PX
+    : deltaMode === 2
+      ? deltaY * Math.max(1, pageSize)
+      : deltaY;
+  if (!Number.isFinite(pixelDelta)) return 0;
+  return Math.max(-WHEEL_DELTA_CLAMP_PX, Math.min(WHEEL_DELTA_CLAMP_PX, pixelDelta));
+}
+
+export function wheelZoomScaleFromDelta(deltaY: number, deltaMode: number, pageSize = WHEEL_DELTA_DEFAULT_PAGE_PX): number {
+  return Math.exp(-normalizeWheelDeltaY(deltaY, deltaMode, pageSize) * WHEEL_ZOOM_EXPONENT_PER_PIXEL);
+}
+
+export function zoomCameraByWheelDelta(input: {
+  camera: IsoCamera;
+  deltaMode: number;
+  deltaY: number;
+  map?: MapLike;
+  point: ScreenPoint;
+  viewport: ScreenPoint;
+}): IsoCamera {
+  const next = zoomCameraAt(
+    input.camera,
+    input.point,
+    input.camera.zoom * wheelZoomScaleFromDelta(input.deltaY, input.deltaMode, input.viewport.y),
+  );
+  return input.map ? clampCameraToMap(next, { map: input.map, viewport: input.viewport }) : next;
+}
+
+export function advanceCameraIntent(
+  current: IsoCamera,
+  target: IsoCamera,
+  deltaSeconds: number,
+  mode: CameraIntentMode = "toolbar",
+): { camera: IsoCamera; settled: boolean } {
+  if (nearlySameCamera(current, target)) return { camera: target, settled: true };
+  const next = dampFollowCamera(current, target, deltaSeconds, cameraDampingForMode(mode));
+  if (nearlySameCamera(next, target)) return { camera: target, settled: true };
+  return { camera: next, settled: false };
+}
+
+export function cameraModeCancelsFollow(mode: CameraIntentMode): boolean {
+  return mode === "drag"
+    || mode === "wheel"
+    || mode === "pinch"
+    || mode === "keyboard"
+    || mode === "toolbar"
+    || mode === "reset"
+    || mode === "external";
+}
+
+function cameraDampingForMode(mode: CameraIntentMode): number {
+  if (mode === "follow-selected") return FOLLOW_CAMERA_DAMPING;
+  if (mode === "resize") return CAMERA_RESIZE_DAMPING;
+  if (mode === "drag" || mode === "wheel" || mode === "pinch" || mode === "keyboard") {
+    return CAMERA_INTERACTION_DAMPING;
+  }
+  return CAMERA_COMMAND_DAMPING;
+}
+
 export function leadFollowTile(
   currentTile: ScreenPoint,
   previousTile: ScreenPoint | null,
   deltaSeconds: number,
   leadSeconds = FOLLOW_LEAD_SECONDS,
+  sample?: Pick<ShipMotionSample, "speedTilesPerSecond" | "velocity"> | null,
 ): ScreenPoint {
+  const velocity = sample?.velocity;
+  if (
+    velocity
+    && leadSeconds > 0
+    && Number.isFinite(velocity.x)
+    && Number.isFinite(velocity.y)
+    && (sample.speedTilesPerSecond ?? Math.hypot(velocity.x, velocity.y)) > 0
+  ) {
+    return {
+      x: currentTile.x + velocity.x * leadSeconds,
+      y: currentTile.y + velocity.y * leadSeconds,
+    };
+  }
   if (!previousTile || deltaSeconds <= 0 || leadSeconds <= 0) return currentTile;
   const velocityX = (currentTile.x - previousTile.x) / deltaSeconds;
   const velocityY = (currentTile.y - previousTile.y) / deltaSeconds;

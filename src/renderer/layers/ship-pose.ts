@@ -3,12 +3,12 @@ import { getShipHeadingDelta } from "../../systems/motion-sampling";
 import type { ShipMotionSample, ShipMotionState } from "../../systems/motion";
 import { seaStateRoughnessMultiplier, type SeaState } from "../../systems/sea-state";
 import type { ShipSizeTier, ShipWaterZone } from "../../systems/world-types";
+import { SHIP_CONTINUOUS_MOTION } from "../ship-visual-config";
 
 const BANK_GAIN = 0.18;
 const BANK_MAX = 0.06;
 
 const TWO_PI = Math.PI * 2;
-const NON_TITAN_BOB_PIXELS = 2;
 const poseSeedCache = new Map<string, number>();
 const phaseSeedCache = new Map<string, number>();
 const personalityBiasCache = new Map<string, ShipPosePersonalityBias>();
@@ -68,14 +68,54 @@ export function resolveShipPose(input: ShipPoseInput): ShipPose {
   if (input.reducedMotion) return zeroShipPose();
 
   const sizeTier = input.visualSizeTier ?? input.sizeTier;
+  const rendererVisualTier = input.visualSizeTier !== undefined;
   const timeSeconds = finiteOr(input.timeSeconds, 0);
   const zoom = Math.max(0, finiteOr(input.zoom, 1));
   const phase = finiteOr(input.phase ?? phaseSeed(input.shipId), 0);
   const bias = shipPosePersonalityBias(input.shipId);
   if (sizeTier !== "titan") {
+    const bobPixels = Math.sin(timeSeconds * 0.7 + phase)
+      * SHIP_CONTINUOUS_MOTION.standardBobPixels
+      * zoom
+      * bias.bobAmplitudeBias;
+    if (sizeTier === "unique" || !rendererVisualTier || !input.sample || !isTransitState(input.sample.state)) {
+      return {
+        ...STATIC_SHIP_POSE,
+        bobPixels,
+      };
+    }
+    const sample = input.sample;
+    const seaState = input.seaState ?? sample.seaState ?? null;
+    const roughness = (ZONE_ROUGHNESS[sample.zone] ?? 0.8) * seaStateRoughnessMultiplier(seaState);
+    const speedRatio = sampleSpeedRatio(sample);
+    const wakeIntensity = clamp(sample.wakeIntensity, 0, 1);
+    const headingLean = clamp((sample.heading.x - sample.heading.y) * 0.26, -0.36, 0.36);
+    const seedPhase = phase + poseSeed(input.shipId);
+    const sea = Math.sin(timeSeconds * 1.04 + seedPhase);
+    const flutter = Math.sin(timeSeconds * (2.35 + speedRatio * 0.9) + seedPhase * 1.1) * 0.5 + 0.5;
+    const bank = clamp(
+      getShipHeadingDelta(input.shipId) * SHIP_CONTINUOUS_MOTION.standardBankGain,
+      -SHIP_CONTINUOUS_MOTION.standardBankMaxRadians,
+      SHIP_CONTINUOUS_MOTION.standardBankMaxRadians,
+    );
     return {
       ...STATIC_SHIP_POSE,
-      bobPixels: Math.sin(timeSeconds * 0.7 + phase) * NON_TITAN_BOB_PIXELS * zoom * bias.bobAmplitudeBias,
+      bobPixels,
+      rollRadians: sea
+        * SHIP_CONTINUOUS_MOTION.standardRollMaxRadians
+        * roughness
+        * (0.72 + speedRatio * 0.28)
+        * bias.rollAmplitudeBias
+        + headingLean * 0.006
+        + bank,
+      sailFlutter: clamp(
+        SHIP_CONTINUOUS_MOTION.standardSailFlutterBase
+          + flutter * SHIP_CONTINUOUS_MOTION.standardSailFlutterRange * (0.45 + speedRatio * 0.55)
+          + wakeIntensity * 0.06,
+        0,
+        0.48,
+      ),
+      sternChurn: clamp(0.04 + wakeIntensity * 0.16 + speedRatio * 0.08, 0, 0.34),
     };
   }
 
@@ -164,6 +204,20 @@ export function shipPosePersonalityBias(shipId: string): ShipPosePersonalityBias
 
 function isTransitState(state: ShipMotionState): boolean {
   return state === "departing" || state === "sailing" || state === "arriving";
+}
+
+function sampleSpeedRatio(sample: ShipMotionSample): number {
+  const optional = sample as ShipMotionSample & {
+    speedRatio?: number;
+    speedTilesPerSecond?: number;
+    velocity?: { x: number; y: number };
+  };
+  if (Number.isFinite(optional.speedRatio)) return clamp(optional.speedRatio!, 0, 1.6);
+  if (Number.isFinite(optional.speedTilesPerSecond)) return clamp(optional.speedTilesPerSecond! / 1.8, 0, 1.6);
+  if (optional.velocity && Number.isFinite(optional.velocity.x) && Number.isFinite(optional.velocity.y)) {
+    return clamp(Math.hypot(optional.velocity.x, optional.velocity.y) / 1.8, 0, 1.6);
+  }
+  return clamp(sample.wakeIntensity, 0, 1.2);
 }
 
 function finiteOr(value: number, fallback: number): number {

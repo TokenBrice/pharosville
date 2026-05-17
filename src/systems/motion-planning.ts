@@ -363,6 +363,18 @@ function buildShipMotionRoute(
     ? buildOpenWaterPatrol(ship, riskTile, map, waterRouteCache, bucket)
     : null;
   const homeDockId = primaryDockStop(ship, dockStops)?.dockId ?? null;
+  const dockStopSchedule = weightedDockStopSchedule(ship.id, dockStops);
+  const routeKey = motionRouteKey({
+    bucket,
+    dockStops,
+    dockStopSchedule,
+    homeDockId,
+    openWaterPatrol,
+    riskStop,
+    riskTile,
+    shipId: ship.id,
+    zone: ship.riskZone,
+  });
 
   if (openWaterPatrol) {
     const outbound = pathKey(openWaterPatrol.outbound.from, openWaterPatrol.outbound.to);
@@ -389,13 +401,15 @@ function buildShipMotionRoute(
 
   return {
     shipId: ship.id,
+    routeEpoch: bucket,
+    routeKey,
     cycleSeconds,
     phaseSeconds: stableUnit(`${ship.id}.phase`) * cycleSeconds,
     riskTile,
     dockStops,
     riskStop,
     zone: ship.riskZone,
-    dockStopSchedule: weightedDockStopSchedule(ship.id, dockStops),
+    dockStopSchedule,
     homeDockId,
     openWaterPatrol,
     waterPaths,
@@ -455,6 +469,8 @@ function buildConsortMotionRoute(
 
   return {
     shipId: ship.id,
+    routeEpoch: flagshipRoute.routeEpoch,
+    routeKey: `${flagshipRoute.routeKey ?? fallbackRouteKey(flagshipRoute)}:consort:${ship.id}:${offset.dx},${offset.dy}`,
     cycleSeconds: flagshipRoute.cycleSeconds,
     phaseSeconds: flagshipRoute.phaseSeconds,
     riskTile,
@@ -475,6 +491,66 @@ function buildConsortMotionRoute(
       ? DOCKED_SHIP_DWELL_SHARE * 1.15
       : undefined,
   };
+}
+
+function motionRouteKey(input: {
+  bucket: number;
+  dockStops: readonly ShipDockMotionStop[];
+  dockStopSchedule: readonly string[];
+  homeDockId: string | null;
+  openWaterPatrol: ShipMotionRoute["openWaterPatrol"];
+  riskStop: ShipMotionRouteStop | null;
+  riskTile: { x: number; y: number };
+  shipId: string;
+  zone: ShipMotionRoute["zone"];
+}): string {
+  const stops = input.dockStops
+    .map((stop) => `${stop.id}:${stop.chainId}:${stop.dockId}:${stop.mooringTile.x},${stop.mooringTile.y}`)
+    .join("|");
+  const riskStop = input.riskStop
+    ? `${input.riskStop.kind}:${input.riskStop.id}:${input.riskStop.mooringTile.x},${input.riskStop.mooringTile.y}`
+    : "-";
+  const patrol = input.openWaterPatrol
+    ? [
+      `${input.openWaterPatrol.waypoint.x},${input.openWaterPatrol.waypoint.y}`,
+      waterPathSignature(input.openWaterPatrol.outbound),
+      waterPathSignature(input.openWaterPatrol.inbound),
+    ].join("/")
+    : "-";
+
+  return [
+    input.shipId,
+    `epoch=${input.bucket}`,
+    input.zone,
+    `risk=${input.riskTile.x},${input.riskTile.y}`,
+    `home=${input.homeDockId ?? "-"}`,
+    `schedule=${input.dockStopSchedule.join(",")}`,
+    `stops=${stops}`,
+    `riskStop=${riskStop}`,
+    `patrol=${patrol}`,
+  ].join(";");
+}
+
+function fallbackRouteKey(route: ShipMotionRoute): string {
+  return [
+    route.shipId,
+    `epoch=${route.routeEpoch ?? "legacy"}`,
+    route.zone,
+    `risk=${route.riskTile.x},${route.riskTile.y}`,
+    `home=${route.homeDockId ?? "-"}`,
+  ].join(";");
+}
+
+function waterPathSignature(path: ShipWaterPath): string {
+  const first = path.points[0] ?? path.from;
+  const last = path.points[path.points.length - 1] ?? path.to;
+  return [
+    `${path.from.x},${path.from.y}->${path.to.x},${path.to.y}`,
+    `n=${path.points.length}`,
+    `len=${path.totalLength.toFixed(3)}`,
+    `first=${first.x},${first.y}`,
+    `last=${last.x},${last.y}`,
+  ].join(":");
 }
 
 function offsetOpenWaterPatrol(

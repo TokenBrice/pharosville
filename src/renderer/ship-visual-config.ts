@@ -41,6 +41,19 @@ export const SHIP_COLORS = {
   "algo-junk": "#774734",
 } as const;
 
+export const SHIP_CONTINUOUS_MOTION = {
+  standardBankGain: 0.075,
+  standardBankMaxRadians: 0.024,
+  standardBobPixels: 2,
+  standardRollMaxRadians: 0.014,
+  standardSailFlutterBase: 0.08,
+  standardSailFlutterRange: 0.28,
+  titanStaticAnimationFrameCountMax: 4,
+  trailingWakeMinIntensity: 0.18,
+  trailingWakeSegmentCount: 3,
+  trailingWakeSpacingPixels: 13,
+} as const;
+
 // Per-ship sail-emblem override: paints a custom silhouette into the dyed
 // sail cloth instead of the issuer logo. Applies to titan-tier ships that
 // would otherwise fall through to the white-matte sticker overlay.

@@ -24,6 +24,7 @@ import {
   wakePersonalityForHull,
   type ShipRenderFrame,
 } from "./ships";
+import { resolveShipPose } from "./ship-pose";
 
 vi.mock("../canvas-primitives", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../canvas-primitives")>();
@@ -301,6 +302,50 @@ describe("ship visual orientation", () => {
   });
 });
 
+describe("continuous ship pose", () => {
+  it("adds subtle speed-aware roll and flutter for standard hulls on the renderer path", () => {
+    const lowSpeed = resolveShipPose({
+      phase: 0,
+      reducedMotion: false,
+      sample: { ...makeMotionSample("standard-low"), wakeIntensity: 0.1, speedRatio: 0.05 } as ShipMotionSample & { speedRatio: number },
+      shipId: "standard-low",
+      timeSeconds: 0,
+      visualSizeTier: "major",
+      zoom: 1,
+    });
+    const highSpeed = resolveShipPose({
+      phase: 0,
+      reducedMotion: false,
+      sample: { ...makeMotionSample("standard-high"), wakeIntensity: 0.7, speedRatio: 1.1 } as ShipMotionSample & { speedRatio: number },
+      shipId: "standard-high",
+      timeSeconds: 0,
+      visualSizeTier: "major",
+      zoom: 1,
+    });
+
+    expect(Math.abs(highSpeed.rollRadians)).toBeGreaterThan(0);
+    expect(highSpeed.sailFlutter).toBeGreaterThan(lowSpeed.sailFlutter);
+    expect(highSpeed.sternChurn).toBeGreaterThan(lowSpeed.sternChurn);
+    expect(highSpeed.bowWake).toBe(0);
+  });
+
+  it("keeps unique hulls out of standard flutter treatment", () => {
+    const pose = resolveShipPose({
+      phase: 0,
+      reducedMotion: false,
+      sample: { ...makeMotionSample("unique-moving"), wakeIntensity: 1, speedRatio: 1.2 } as ShipMotionSample & { speedRatio: number },
+      shipId: "unique-moving",
+      timeSeconds: 0,
+      visualSizeTier: "unique",
+      zoom: 1,
+    });
+
+    expect(pose.rollRadians).toBe(0);
+    expect(pose.sailFlutter).toBe(0);
+    expect(pose.sternChurn).toBe(0);
+  });
+});
+
 describe("titan bow spray orientation", () => {
   it("lengthens and brightens the outer rail while damping the inner rail", () => {
     const strands = resolveTitanBowSprayStrands({
@@ -547,6 +592,88 @@ describe("drawShipBody titan trim", () => {
     expect(drawAnimatedAssetMock).toHaveBeenCalledTimes(1);
     expect(ctx.calls.some((call) => call.method === "lineTo")).toBe(true);
     expect(ctx.calls.filter((call) => call.method === "stroke").length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("holds four-frame titan sheets on a deterministic frame and lets pose carry motion", () => {
+    const drawAnimatedAssetMock = vi.mocked(canvasPrimitives.drawAnimatedAssetSubpixel);
+    drawAnimatedAssetMock.mockClear();
+
+    const titan = makeShipNode({
+      id: "usdc-circle",
+      tile: { x: 10, y: 10 },
+      visual: {
+        hull: "treasury-galleon",
+        sizeTier: "titan",
+        spriteAssetId: "ship.usdc-titan",
+        scale: 1.53,
+        livery: TEST_LIVERY,
+      },
+    });
+
+    const fakeAsset: LoadedPharosVilleAsset = {
+      entry: {
+        anchor: [80, 104],
+        animation: {
+          frameCount: 4,
+          fps: 4,
+          frameSource: "sheet",
+          loop: true,
+          reducedMotionFrame: 0,
+        },
+        category: "ship",
+        displayScale: 1,
+        footprint: [52, 24],
+        height: 112,
+        hitbox: [30, 4, 120, 96],
+        id: "ship.usdc-titan",
+        layer: "ships",
+        loadPriority: "deferred",
+        path: "ships/usdc-titan.png",
+        width: 160,
+      },
+      image: {} as HTMLImageElement,
+    };
+
+    const ctx = makeRecordingCtx();
+    const baseInput = {
+      assets: null,
+      camera: { offsetX: 0, offsetY: 0, zoom: 1 },
+      ctx,
+      height: 600,
+      hoveredTarget: null,
+      motion: {
+        plan: makeMotionPlan([titan.id]),
+        reducedMotion: false,
+        timeSeconds: 0,
+        wallClockHour: 12,
+      },
+      selectedTarget: null,
+      shipMotionSamples: new Map<string, ShipMotionSample>([
+        [titan.id, makeMotionSample(titan.id)],
+      ]),
+      targets: [],
+      width: 800,
+      world: { ships: [titan] } as unknown as PharosVilleWorld,
+    } satisfies DrawPharosVilleInput;
+    const frameFor = (): ShipRenderFrame => ({
+      cache: {
+        assetForEntity: () => fakeAsset,
+        geometryForEntity: () => makeGeometry(200, 100),
+      },
+      shipRenderStates: new Map(),
+    });
+
+    drawShipBody(baseInput, frameFor(), titan);
+    drawShipBody({
+      ...baseInput,
+      motion: {
+        ...baseInput.motion,
+        timeSeconds: 12.75,
+      },
+    }, frameFor(), titan);
+
+    expect(drawAnimatedAssetMock).toHaveBeenCalledTimes(2);
+    expect(drawAnimatedAssetMock.mock.calls[1]![5]).toBe(drawAnimatedAssetMock.mock.calls[0]![5]);
   });
 });
 

@@ -74,7 +74,73 @@ describe("visual motion smoothing", () => {
     expect(staticDisplay).toEqual(staticTarget);
   });
 
-  it("snaps on state changes instead of smearing between incompatible poses", () => {
+  it("smooths compatible state transitions instead of snapping", () => {
+    const state = createVisualMotionSmoothingState();
+    smoothAt(state, 0, sample({
+      state: "moored",
+      tile: { x: 2, y: 2 },
+      heading: { x: 0, y: -1 },
+      routeKey: "route-a",
+      routePathKey: "route-a|moored:dock.ethereum",
+      currentDockId: "dock.ethereum",
+      currentRouteStopId: "dock.ethereum:ship-a",
+      currentRouteStopKind: "dock",
+      mooringSubPhase: "cast-off-prep",
+    }));
+
+    const target = sample({
+      state: "departing",
+      tile: { x: 2.75, y: 2 },
+      heading: { x: 1, y: 0 },
+      routeKey: "route-a",
+      routePathKey: "route-a|departing:dock.ethereum",
+      currentDockId: "dock.ethereum",
+      currentRouteStopId: "dock.ethereum:ship-a",
+      currentRouteStopKind: "dock",
+      mooringSubPhase: null,
+      wakeIntensity: 0.2,
+    });
+    const display = smoothAt(state, 1 / 60, target, { snapDistanceTiles: 100 });
+
+    expect(display.state).toBe("departing");
+    expect(display.tile.x).toBeGreaterThan(2);
+    expect(display.tile.x).toBeLessThan(target.tile.x);
+    expect(display).not.toEqual(target);
+    expect(display.velocity?.x).toBeGreaterThan(0);
+    expect(display.speedTilesPerSecond).toBeGreaterThan(0);
+  });
+
+  it("smooths risk-drift into arriving when the route remains continuous", () => {
+    const state = createVisualMotionSmoothingState();
+    smoothAt(state, 0, sample({
+      state: "risk-drift",
+      tile: { x: 18, y: 20 },
+      routeKey: "route-a",
+      routePathKey: "route-a|risk-drift",
+      currentDockId: null,
+      currentRouteStopId: null,
+      currentRouteStopKind: null,
+    }));
+
+    const target = sample({
+      state: "arriving",
+      tile: { x: 18.5, y: 20.25 },
+      routeKey: "route-a",
+      routePathKey: "route-a|arriving:dock.ethereum",
+      currentDockId: "dock.ethereum",
+      currentRouteStopId: "dock.ethereum:ship-a",
+      currentRouteStopKind: "dock",
+      wakeIntensity: 0.4,
+    });
+    const display = smoothAt(state, 1 / 60, target, { snapDistanceTiles: 100 });
+
+    expect(display.state).toBe("arriving");
+    expect(display.tile.x).toBeGreaterThan(18);
+    expect(display.tile.x).toBeLessThan(target.tile.x);
+    expect(display.currentRouteStopId).toBe(target.currentRouteStopId);
+  });
+
+  it("snaps on incompatible state changes instead of smearing between unrelated poses", () => {
     const state = createVisualMotionSmoothingState();
     smoothAt(state, 0, sample({
       state: "moored",
@@ -95,6 +161,24 @@ describe("visual motion smoothing", () => {
       currentRouteStopKind: null,
     });
     const display = smoothAt(state, 1 / 60, target, { snapDistanceTiles: 1000 });
+
+    expect(display).toEqual(target);
+  });
+
+  it("snaps when the same display key resolves to a different ship identity", () => {
+    const state = createVisualMotionSmoothingState();
+    smoothShipMotionSamples({
+      targetSamples: new Map([["display-key", sample({ shipId: "ship-a", tile: { x: 1, y: 1 } })]]),
+      state,
+      timeSeconds: 0,
+    });
+    const target = sample({ shipId: "ship-b", tile: { x: 2, y: 2 }, wakeIntensity: 0.9 });
+    const display = smoothShipMotionSamples({
+      targetSamples: new Map([["display-key", target]]),
+      state,
+      timeSeconds: 1 / 60,
+      config: { snapDistanceTiles: 100 },
+    }).get("display-key");
 
     expect(display).toEqual(target);
   });
@@ -187,10 +271,14 @@ function sample(overrides: Partial<ShipMotionSample> = {}): ShipMotionSample {
     tile: { x: tile.x, y: tile.y },
     state: "sailing",
     zone: "calm",
+    routeKey: "route-a",
+    routePathKey: "route-a|sailing",
     currentDockId: null,
     currentRouteStopId: null,
     currentRouteStopKind: null,
     heading: { x: 1, y: 0 },
+    velocity: { x: 0, y: 0 },
+    speedTilesPerSecond: 0,
     wakeIntensity: 0.5,
     mooringSubPhase: null,
     mooringSwayAmplitude: 1,

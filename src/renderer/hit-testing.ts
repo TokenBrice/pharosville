@@ -31,6 +31,7 @@ export interface HitTargetSnapshot {
   targetsByDetailId: Map<string, HitTarget>;
   spatialIndex: HitTargetSpatialIndex;
   targets: HitTarget[];
+  worldRecordsById?: Map<string, HitTargetRecord>;
 }
 
 export interface HitTargetSpatialIndex {
@@ -94,6 +95,15 @@ function visualPriorityForHitTarget(entity: WorldSelectableEntity, priority: num
   return priority;
 }
 
+function isShipHitTargetVisible(
+  ship: PharosVilleWorld["ships"][number],
+  sample: ShipMotionSample | null | undefined,
+  context: Required<HitTargetPriorityContext>,
+): boolean {
+  if (ship.detailId === context.selectedDetailId || ship.detailId === context.hoveredDetailId) return true;
+  return isShipMapVisible(ship, sample);
+}
+
 export function createHitTargetSnapshot(input: {
   assets?: Pick<PharosVilleAssetManager, "get"> | null;
   camera: IsoCamera;
@@ -103,11 +113,15 @@ export function createHitTargetSnapshot(input: {
   viewport?: HitTargetViewport | null;
   world: PharosVilleWorld;
 }): HitTargetSnapshot {
-  const recordsById = new Map<string, HitTargetRecord>();
+  const worldRecordsById = new Map<string, HitTargetRecord>();
   const staticPrefix = staticHitTargetPrefixForWorld(input.world);
   const lighthouseCount = 1;
   const dockCount = input.world.docks.length;
   const shipsAfterStaticPrefixCount = lighthouseCount + dockCount;
+  const context = {
+    hoveredDetailId: input.hoveredDetailId ?? null,
+    selectedDetailId: input.selectedDetailId ?? null,
+  };
 
   // Iterate the cached static prefix `[lighthouse, ...docks]` followed by
   // ships in place, then `[...areas, ...graves]`. `sortIndex` mirrors the
@@ -116,27 +130,24 @@ export function createHitTargetSnapshot(input: {
   // lighthouse + docks
   while (sortIndex < shipsAfterStaticPrefixCount) {
     const entity = staticPrefix[sortIndex]!;
-    appendHitTargetRecord(recordsById, entity, sortIndex, input);
+    appendHitTargetRecord(worldRecordsById, entity, sortIndex, input);
     sortIndex += 1;
   }
-  // ships (filtered by map visibility — same predicate as the legacy filter)
+  // ships (filtered by display visibility, except active detail targets)
   for (let shipIndex = 0; shipIndex < input.world.ships.length; shipIndex += 1) {
     const ship = input.world.ships[shipIndex]!;
-    if (!isShipMapVisible(ship, input.shipMotionSamples?.get(ship.id))) continue;
-    appendHitTargetRecord(recordsById, ship, shipsAfterStaticPrefixCount + shipIndex, input);
+    if (!isShipHitTargetVisible(ship, input.shipMotionSamples?.get(ship.id), context)) continue;
+    appendHitTargetRecord(worldRecordsById, ship, shipsAfterStaticPrefixCount + shipIndex, input);
   }
   // areas + graves (sortIndex offsets past the ship slot range to mirror the
   // legacy flat-array layout)
   const trailingOffset = shipsAfterStaticPrefixCount + input.world.ships.length;
   for (let trailingIndex = shipsAfterStaticPrefixCount; trailingIndex < staticPrefix.length; trailingIndex += 1) {
     const entity = staticPrefix[trailingIndex]!;
-    appendHitTargetRecord(recordsById, entity, trailingOffset + (trailingIndex - shipsAfterStaticPrefixCount), input);
+    appendHitTargetRecord(worldRecordsById, entity, trailingOffset + (trailingIndex - shipsAfterStaticPrefixCount), input);
   }
 
-  return snapshotFromRecords(recordsById, {
-    hoveredDetailId: input.hoveredDetailId ?? null,
-    selectedDetailId: input.selectedDetailId ?? null,
-  });
+  return snapshotFromWorldRecords(worldRecordsById, context, input.viewport ?? null);
 }
 
 function appendHitTargetRecord(
@@ -162,15 +173,6 @@ function appendHitTargetRecord(
     mapWidth: input.world.map.width,
     shipMotionSamples: input.shipMotionSamples,
   });
-  if (!shouldKeepHitTargetCandidate({
-    entity,
-    geometry: resolved,
-    hoveredDetailId: input.hoveredDetailId ?? null,
-    selectedDetailId: input.selectedDetailId ?? null,
-    viewport: input.viewport ?? null,
-  })) {
-    return;
-  }
   recordsById.set(entity.id, {
     entity,
     geometry: {
@@ -223,9 +225,40 @@ export function recomputeHitTargetsForCameraOnly(input: {
   viewport?: HitTargetViewport | null;
   world: PharosVilleWorld;
 }): HitTargetSnapshot {
-  const recordsById = new Map<string, HitTargetRecord>();
-  for (const previous of input.snapshot.recordsById.values()) {
+  const sourceRecords = input.snapshot.worldRecordsById ?? input.snapshot.recordsById;
+  const worldRecordsById = new Map<string, HitTargetRecord>();
+  const context = {
+    hoveredDetailId: input.hoveredDetailId ?? null,
+    selectedDetailId: input.selectedDetailId ?? null,
+  };
+  for (const previous of sourceRecords.values()) {
     const entity = previous.entity;
+    if (entity.kind === "ship") {
+      const sample = input.shipMotionSamples?.get(entity.id);
+      if (!isShipHitTargetVisible(entity, sample, context)) continue;
+      const assetId = entityAssetId(entity);
+      const asset = assetId ? input.assets?.get(assetId) ?? null : null;
+      const resolved = resolveEntityGeometry({
+        asset,
+        camera: input.camera,
+        entity,
+        mapWidth: input.world.map.width,
+        shipMotionSamples: input.shipMotionSamples,
+      });
+      worldRecordsById.set(entity.id, {
+        entity,
+        geometry: {
+          depth: resolved.depth,
+          targetRect: resolved.targetRect,
+        },
+        worldGeometry: {
+          depthTile: resolved.depthTile,
+          followTile: resolved.followTile,
+        },
+        sortIndex: previous.sortIndex,
+      });
+      continue;
+    }
     const assetId = entityAssetId(entity);
     const asset = assetId ? input.assets?.get(assetId) ?? null : null;
     const targetRect = projectEntityTargetRect({
@@ -235,16 +268,7 @@ export function recomputeHitTargetsForCameraOnly(input: {
       followTile: previous.worldGeometry.followTile,
       mapWidth: input.world.map.width,
     });
-    if (!shouldKeepHitTargetCandidate({
-      entity,
-      geometry: { targetRect },
-      hoveredDetailId: input.hoveredDetailId ?? null,
-      selectedDetailId: input.selectedDetailId ?? null,
-      viewport: input.viewport ?? null,
-    })) {
-      continue;
-    }
-    recordsById.set(entity.id, {
+    worldRecordsById.set(entity.id, {
       entity,
       geometry: {
         depth: previous.geometry.depth,
@@ -254,10 +278,7 @@ export function recomputeHitTargetsForCameraOnly(input: {
       sortIndex: previous.sortIndex,
     });
   }
-  return snapshotFromRecords(recordsById, {
-    hoveredDetailId: input.hoveredDetailId ?? null,
-    selectedDetailId: input.selectedDetailId ?? null,
-  });
+  return snapshotFromWorldRecords(worldRecordsById, context, input.viewport ?? null);
 }
 
 // Re-project a record's cached world geometry to a new camera. Mirrors the
@@ -306,13 +327,15 @@ export function updateHitTargetSnapshotShips(input: {
       throw new Error("updateHitTargetSnapshotShips: changedShipIds contains duplicates");
     }
   }
-  const changedShipIdSet = new Set(changedShipIds);
-  // Copy-on-write: keep a reference to the previous snapshot's recordsById
+  // Copy-on-write: keep a reference to the previous snapshot's uncullable records
   // and only allocate a new Map once we know an actual mutation will land.
   // Pending writes (delete/set) are batched in `pendingDeletes`/`pendingSets`
   // and flushed onto the cloned map in a single pass after the loop.
-  const previousRecordsById = input.snapshot.recordsById;
-  const updatedRecordsByShipId = new Map<string, HitTargetRecord | null>();
+  const previousRecordsById = input.snapshot.worldRecordsById ?? input.snapshot.recordsById;
+  const context = {
+    hoveredDetailId: input.hoveredDetailId ?? null,
+    selectedDetailId: input.selectedDetailId ?? null,
+  };
   const pendingSets = new Map<string, HitTargetRecord>();
   const pendingDeletes = new Set<string>();
   let snapshotMutated = false;
@@ -325,16 +348,14 @@ export function updateHitTargetSnapshotShips(input: {
         snapshotMutated = true;
         pendingDeletes.add(shipId);
       }
-      updatedRecordsByShipId.set(shipId, null);
       continue;
     }
 
-    if (!isShipMapVisible(ship, input.shipMotionSamples?.get(ship.id))) {
+    if (!isShipHitTargetVisible(ship, input.shipMotionSamples?.get(ship.id), context)) {
       if (previous) {
         snapshotMutated = true;
         pendingDeletes.add(shipId);
       }
-      updatedRecordsByShipId.set(shipId, null);
       continue;
     }
 
@@ -347,20 +368,6 @@ export function updateHitTargetSnapshotShips(input: {
       mapWidth: input.world.map.width,
       shipMotionSamples: input.shipMotionSamples,
     });
-    if (!shouldKeepHitTargetCandidate({
-      entity: ship,
-      geometry: resolved,
-      hoveredDetailId: input.hoveredDetailId ?? null,
-      selectedDetailId: input.selectedDetailId ?? null,
-      viewport: input.viewport ?? null,
-    })) {
-      if (previous) {
-        snapshotMutated = true;
-        pendingDeletes.add(shipId);
-      }
-      updatedRecordsByShipId.set(shipId, null);
-      continue;
-    }
     const nextRecord: HitTargetRecord = {
       entity: ship,
       geometry: {
@@ -377,7 +384,6 @@ export function updateHitTargetSnapshotShips(input: {
       snapshotMutated = true;
       pendingSets.set(shipId, nextRecord);
     }
-    updatedRecordsByShipId.set(shipId, nextRecord);
   }
 
   if (!snapshotMutated) return input.snapshot;
@@ -393,38 +399,85 @@ export function updateHitTargetSnapshotShips(input: {
     recordsById.set(shipId, record);
   }
 
-  const unchangedRecordsInOrder: HitTargetRecord[] = [];
-  for (const target of input.snapshot.targets) {
-    if (changedShipIdSet.has(target.id)) continue;
-    const record = recordsById.get(target.id);
-    if (record) unchangedRecordsInOrder.push(record);
-  }
+  return snapshotFromWorldRecords(recordsById, context, input.viewport ?? null);
+}
 
-  const updatedRecords = Array.from(updatedRecordsByShipId.values()).filter(
-    (record): record is HitTargetRecord => Boolean(record),
-  );
-  for (const updatedRecord of updatedRecords) {
-    insertRecordBySortOrder(unchangedRecordsInOrder, updatedRecord);
-  }
-
-  const nextSnapshot = snapshotFromSortedRecords(recordsById, unchangedRecordsInOrder, {
+export function collectDisplaySampleHitTargetChanges(input: {
+  assets?: Pick<PharosVilleAssetManager, "get"> | null;
+  camera: IsoCamera;
+  hoveredDetailId?: string | null;
+  minScreenDeltaPx?: number;
+  selectedDetailId?: string | null;
+  shipIds?: readonly string[];
+  shipMotionSamples?: ReadonlyMap<string, ShipMotionSample>;
+  snapshot: HitTargetSnapshot;
+  world: PharosVilleWorld;
+  worldShipsById: ReadonlyMap<string, PharosVilleWorld["ships"][number]>;
+}): string[] {
+  const sourceRecords = input.snapshot.worldRecordsById ?? input.snapshot.recordsById;
+  const minDelta = Math.max(0, input.minScreenDeltaPx ?? 0.5);
+  const minAreaDelta = minDelta * minDelta;
+  const changedShipIds: string[] = [];
+  const shipIds = input.shipIds ?? input.world.ships.map((ship) => ship.id);
+  const context = {
     hoveredDetailId: input.hoveredDetailId ?? null,
     selectedDetailId: input.selectedDetailId ?? null,
-  });
-  const nextTargetsById = new Map<string, HitTarget>(nextSnapshot.targets.map((target) => [target.id, target]));
-  const nextSpatialIndex = updateHitTargetSpatialIndex({
-    changedShipIds: changedShipIdSet,
-    nextTargets: nextSnapshot.targets,
-    nextTargetsById,
-    previousSpatialIndex: input.snapshot.spatialIndex,
-  });
-  return {
-    ...nextSnapshot,
-    spatialIndex: {
-      ...nextSpatialIndex,
-      targets: nextSnapshot.targets,
-    },
   };
+
+  for (const shipId of shipIds) {
+    const ship = input.worldShipsById.get(shipId);
+    const previous = sourceRecords.get(shipId);
+    if (!ship) {
+      if (previous) changedShipIds.push(shipId);
+      continue;
+    }
+
+    const visible = isShipHitTargetVisible(ship, input.shipMotionSamples?.get(ship.id), context);
+    if (!visible) {
+      if (previous) changedShipIds.push(shipId);
+      continue;
+    }
+    if (!previous) {
+      changedShipIds.push(shipId);
+      continue;
+    }
+
+    const assetId = entityAssetId(ship);
+    const asset = assetId ? input.assets?.get(assetId) ?? null : null;
+    const resolved = resolveEntityGeometry({
+      asset,
+      camera: input.camera,
+      entity: ship,
+      mapWidth: input.world.map.width,
+      shipMotionSamples: input.shipMotionSamples,
+    });
+    if (ship.detailId === context.selectedDetailId || ship.detailId === context.hoveredDetailId) {
+      if (!hitTargetRecordGeometryEquals(previous, {
+        entity: ship,
+        geometry: {
+          depth: resolved.depth,
+          targetRect: resolved.targetRect,
+        },
+        worldGeometry: {
+          depthTile: resolved.depthTile,
+          followTile: resolved.followTile,
+        },
+        sortIndex: previous.sortIndex,
+      })) {
+        changedShipIds.push(shipId);
+      }
+      continue;
+    }
+
+    if (
+      previous.geometry.depth !== resolved.depth
+      || rectScreenDeltaArea(previous.geometry.targetRect, resolved.targetRect) >= minAreaDelta
+    ) {
+      changedShipIds.push(shipId);
+    }
+  }
+
+  return changedShipIds;
 }
 
 export function collectHitTargets(input: {
@@ -512,15 +565,38 @@ export function hitTest(targets: readonly HitTarget[], point: ScreenPoint, conte
 function snapshotFromRecords(
   recordsById: Map<string, HitTargetRecord>,
   _context: Required<HitTargetPriorityContext>,
+  worldRecordsById: Map<string, HitTargetRecord> = recordsById,
 ): HitTargetSnapshot {
   const sortedRecords = [...recordsById.values()].sort(compareHitTargetRecords);
-  return snapshotFromSortedRecords(recordsById, sortedRecords, _context);
+  return snapshotFromSortedRecords(recordsById, sortedRecords, _context, worldRecordsById);
+}
+
+function snapshotFromWorldRecords(
+  worldRecordsById: Map<string, HitTargetRecord>,
+  context: Required<HitTargetPriorityContext>,
+  viewport: HitTargetViewport | null,
+): HitTargetSnapshot {
+  const recordsById = new Map<string, HitTargetRecord>();
+  for (const record of worldRecordsById.values()) {
+    if (!shouldKeepHitTargetCandidate({
+      entity: record.entity,
+      geometry: record.geometry,
+      hoveredDetailId: context.hoveredDetailId,
+      selectedDetailId: context.selectedDetailId,
+      viewport,
+    })) {
+      continue;
+    }
+    recordsById.set(record.entity.id, record);
+  }
+  return snapshotFromRecords(recordsById, context, worldRecordsById);
 }
 
 function snapshotFromSortedRecords(
   recordsById: Map<string, HitTargetRecord>,
   sortedRecords: readonly HitTargetRecord[],
   _context: Required<HitTargetPriorityContext>,
+  worldRecordsById: Map<string, HitTargetRecord> = recordsById,
 ): HitTargetSnapshot {
   const targets = sortedRecords.map((record, visualIndex) => {
     const basePriority = visualPriorityForHitTarget(record.entity, visualIndex) * 10;
@@ -542,93 +618,8 @@ function snapshotFromSortedRecords(
     targetsByDetailId,
     spatialIndex: buildHitTargetSpatialIndex(targets),
     targets,
+    worldRecordsById,
   };
-}
-
-function updateHitTargetSpatialIndex(input: {
-  changedShipIds: ReadonlySet<string>;
-  nextTargets: readonly HitTarget[];
-  nextTargetsById: ReadonlyMap<string, HitTarget>;
-  previousSpatialIndex: HitTargetSpatialIndex;
-}): {
-  cellSize: number;
-  cells: ReadonlyMap<number, readonly string[]>;
-  targetById: ReadonlyMap<string, HitTarget>;
-  targetCellKeys: ReadonlyMap<string, readonly number[]>;
-  targets: readonly HitTarget[];
-} {
-  const nextTargetById = new Map<string, HitTarget>(input.nextTargetsById);
-  const nextTargetCellKeys = new Map<string, readonly number[]>(
-    input.previousSpatialIndex.targetCellKeys,
-  );
-  const nextCells = new Map<number, string[]>(input.previousSpatialIndex.cells as Map<number, string[]>);
-  const ensureCopiedCell = (cellKey: number): string[] | null => {
-    const candidates = nextCells.get(cellKey);
-    if (!candidates) return null;
-    const sourceCandidates = input.previousSpatialIndex.cells.get(cellKey);
-    if (candidates === sourceCandidates) {
-      const copiedCandidates = [...candidates];
-      nextCells.set(cellKey, copiedCandidates);
-      return copiedCandidates;
-    }
-    return candidates;
-  };
-
-  for (const changedShipId of input.changedShipIds) {
-    const previousCellKeys = input.previousSpatialIndex.targetCellKeys.get(changedShipId);
-    nextTargetById.delete(changedShipId);
-    nextTargetCellKeys.delete(changedShipId);
-
-    const nextTarget = input.nextTargetsById.get(changedShipId);
-    if (!nextTarget) continue;
-    const nextCellKeys = spatialCellKeysForTarget(nextTarget.rect, input.previousSpatialIndex.cellSize);
-    nextTargetById.set(changedShipId, nextTarget);
-    nextTargetCellKeys.set(changedShipId, nextCellKeys);
-    const shouldUpdateCells = !areTargetCellKeysEqual(previousCellKeys, nextCellKeys);
-    if (shouldUpdateCells) {
-      if (previousCellKeys) {
-        for (let i = 0; i < previousCellKeys.length; i += 1) {
-          const cellKey = previousCellKeys[i]!;
-          const candidates = ensureCopiedCell(cellKey);
-          if (!candidates) continue;
-          const candidateIndex = candidates.indexOf(changedShipId);
-          if (candidateIndex < 0) continue;
-          candidates.splice(candidateIndex, 1);
-          if (candidates.length === 0) {
-            nextCells.delete(cellKey);
-          }
-        }
-      }
-      for (let i = 0; i < nextCellKeys.length; i += 1) {
-        const cellKey = nextCellKeys[i]!;
-        let candidates = ensureCopiedCell(cellKey);
-        if (!candidates) {
-          candidates = [changedShipId];
-          nextCells.set(cellKey, candidates);
-        } else if (!candidates.includes(changedShipId)) {
-          candidates.push(changedShipId);
-        }
-      }
-    }
-  }
-
-  return {
-    cellSize: input.previousSpatialIndex.cellSize,
-    cells: nextCells,
-    targetById: nextTargetById,
-    targetCellKeys: nextTargetCellKeys,
-    targets: input.nextTargets,
-  };
-}
-
-function areTargetCellKeysEqual(left: readonly number[] | undefined, right: readonly number[]): boolean {
-  if (!left || left.length !== right.length) return false;
-  // Cell-key arrays are short (typically 1-4 entries for a hit-rect), so a
-  // direct membership scan beats the per-call Set allocation.
-  for (let i = 0; i < left.length; i += 1) {
-    if (right.indexOf(left[i]!) < 0) return false;
-  }
-  return true;
 }
 
 function shouldKeepHitTargetCandidate(input: {
@@ -691,18 +682,16 @@ function hitTargetRecordGeometryEquals(left: HitTargetRecord, right: HitTargetRe
   );
 }
 
-function insertRecordBySortOrder(records: HitTargetRecord[], target: HitTargetRecord): void {
-  let low = 0;
-  let high = records.length;
-  while (low < high) {
-    const mid = (low + high) >> 1;
-    if (compareHitTargetRecords(target, records[mid]!) < 0) {
-      high = mid;
-    } else {
-      low = mid + 1;
-    }
-  }
-  records.splice(low, 0, target);
+function rectScreenDeltaArea(left: ScreenRect, right: ScreenRect): number {
+  const leftCenterX = left.x + left.width / 2;
+  const leftCenterY = left.y + left.height / 2;
+  const rightCenterX = right.x + right.width / 2;
+  const rightCenterY = right.y + right.height / 2;
+  const dx = leftCenterX - rightCenterX;
+  const dy = leftCenterY - rightCenterY;
+  const dw = left.width - right.width;
+  const dh = left.height - right.height;
+  return Math.max(dx * dx + dy * dy, dw * dw, dh * dh);
 }
 
 function shipSortIndex(world: PharosVilleWorld, shipId: string): number {

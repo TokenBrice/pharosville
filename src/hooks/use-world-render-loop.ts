@@ -4,7 +4,13 @@
 // canvas size, hit-targets, samples) are passed in.
 import { useCallback, useEffect, useRef, type Dispatch, type MutableRefObject, type RefObject, type SetStateAction } from "react";
 import type { PharosVilleAssetLoadError, PharosVilleAssetLoadStats, PharosVilleAssetManager } from "../renderer/asset-manager";
-import { createHitTargetSnapshot, updateHitTargetSnapshotShips, type HitTarget, type HitTargetSnapshot } from "../renderer/hit-testing";
+import {
+  collectDisplaySampleHitTargetChanges,
+  createHitTargetSnapshot,
+  updateHitTargetSnapshotShips,
+  type HitTarget,
+  type HitTargetSnapshot,
+} from "../renderer/hit-testing";
 import { selectionDrawableCount } from "../renderer/layers/selection";
 import { drawPharosVille, type PharosVilleRenderMetrics } from "../renderer/world-canvas";
 import { createVisibleTileBoundsCacheState } from "../renderer/viewport";
@@ -194,7 +200,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   const bucketFlipCountRef = useRef(0);
   const semanticShipMotionSamplesRef = useRef<ReadonlyMap<string, ShipMotionSample>>(new Map());
   const visualMotionStateRef = useRef(createVisualMotionSmoothingState());
-  const shipHitStateRef = useRef(new Map<string, { cellX: number; cellY: number; visible: boolean }>());
+  const shipHitRefreshCursorRef = useRef(0);
   const frameStateRef = useRef<{
     samples: ReadonlyMap<string, ShipMotionSample>;
     hoveredTarget: HitTarget | null;
@@ -222,9 +228,9 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     semanticShipMotionSamplesRef.current = new Map();
     shipMotionSamplesRef.current = new Map();
     resetVisualMotionSmoothingState(visualMotionStateRef.current);
+    shipHitRefreshCursorRef.current = 0;
     hitTargetSnapshotRef.current = null;
     hitTargetsRef.current = [];
-    shipHitStateRef.current.clear();
     drawDurationWindowRef.current = createDrawDurationWindow();
     drawDurationStatsRef.current = { averageMs: 0, count: 0, p90Ms: 0 };
     frameIntervalWindowRef.current = createFrameIntervalWindow();
@@ -369,30 +375,6 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         timeSeconds,
       });
       shipMotionSamplesRef.current = shipMotionSamples;
-      const changedShipIds = collectDisplayShipHitChanges({
-        samples: shipMotionSamples,
-        shipHitStateById: shipHitStateRef.current,
-        world,
-      });
-      if (changedShipIds.length > 0) {
-        const snapshot = hitTargetSnapshotRef.current;
-        if (snapshot) {
-          const nextSnapshot = updateHitTargetSnapshotShips({
-            assets: assetManager,
-            camera: activeCamera,
-            changedShipIds,
-            hoveredDetailId: activeHoveredDetailId,
-            selectedDetailId: activeSelectedDetailId,
-            shipMotionSamples,
-            snapshot,
-            viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
-            world,
-            worldShipsById: shipsById,
-          });
-          hitTargetSnapshotRef.current = nextSnapshot;
-          hitTargetsRef.current = nextSnapshot.targets;
-        }
-      }
       if (!hitTargetSnapshotRef.current) {
         const nextSnapshot = createHitTargetSnapshot({
           assets: assetManager,
@@ -404,6 +386,41 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         });
         hitTargetSnapshotRef.current = nextSnapshot;
         hitTargetsRef.current = nextSnapshot.targets;
+      } else {
+        const shipIdsForHitRefresh = collectShipHitRefreshIds({
+          cursorRef: shipHitRefreshCursorRef,
+          hoveredDetailId: activeHoveredDetailId,
+          selectedDetailId: activeSelectedDetailId,
+          world,
+        });
+        const changedShipIds = collectDisplaySampleHitTargetChanges({
+          assets: assetManager,
+          camera: activeCamera,
+          hoveredDetailId: activeHoveredDetailId,
+          minScreenDeltaPx: 0.35,
+          selectedDetailId: activeSelectedDetailId,
+          shipIds: shipIdsForHitRefresh,
+          shipMotionSamples,
+          snapshot: hitTargetSnapshotRef.current,
+          world,
+          worldShipsById: shipsById,
+        });
+        if (changedShipIds.length > 0) {
+          const nextSnapshot = updateHitTargetSnapshotShips({
+            assets: assetManager,
+            camera: activeCamera,
+            changedShipIds,
+            hoveredDetailId: activeHoveredDetailId,
+            selectedDetailId: activeSelectedDetailId,
+            shipMotionSamples,
+            snapshot: hitTargetSnapshotRef.current,
+            viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
+            world,
+            worldShipsById: shipsById,
+          });
+          hitTargetSnapshotRef.current = nextSnapshot;
+          hitTargetsRef.current = nextSnapshot.targets;
+        }
       }
       const targets = hitTargetsRef.current;
       const nextFrameState = frameStateRef.current;
@@ -734,6 +751,7 @@ type MotionCueCounts = {
 
 const PHAROSVILLE_AMBIENT_BIRD_CAP = 9;
 const PHAROSVILLE_HARBOR_LIGHT_CAP = 3;
+const SHIP_HIT_TARGET_REFRESH_PER_FRAME = 32;
 const FRAME_INTERVAL_WINDOW_SIZE = 120;
 const DROPPED_FRAME_INTERVAL_MS = 34;
 
@@ -820,13 +838,9 @@ function collectShipMotionSamples(input: {
   samples: ReadonlyMap<string, ShipMotionSample>;
   timeSeconds: number;
   world: PharosVilleWorldModel;
-  shipHitStateById?: Map<string, { cellX: number; cellY: number; visible: boolean }>;
   trackShipHitState?: boolean;
 }) {
   const samples = input.samples as Map<string, ShipMotionSample>;
-  const trackShipHitState = Boolean(input.trackShipHitState && input.shipHitStateById);
-  const shipHitStateById = input.shipHitStateById;
-  const changedShipIds: string[] = [];
   // Process flagships/solo ships before consorts so consorts can read their
   // flagship's already-computed sample from the map instead of re-sampling
   // the flagship's route. Two passes keeps allocation-free; ordering inside
@@ -849,16 +863,6 @@ function collectShipMotionSamples(input: {
         timeSeconds: input.timeSeconds,
         flagshipSamples: samples,
       }, sample);
-      if (trackShipHitState && shipHitStateById) {
-        const visible = isShipMapVisible(ship, sample);
-        const cellX = Math.floor(sample.tile.x);
-        const cellY = Math.floor(sample.tile.y);
-        const previous = shipHitStateById.get(ship.id);
-        if (!previous || previous.cellX !== cellX || previous.cellY !== cellY || previous.visible !== visible) {
-          shipHitStateById.set(ship.id, { cellX, cellY, visible });
-          changedShipIds.push(ship.id);
-        }
-      }
     }
   }
   if (samples.size !== input.world.ships.length) {
@@ -867,36 +871,7 @@ function collectShipMotionSamples(input: {
       if (!liveIds.has(id)) samples.delete(id);
     }
   }
-  return { samples, changedShipIds };
-}
-
-function collectDisplayShipHitChanges(input: {
-  samples: ReadonlyMap<string, ShipMotionSample>;
-  shipHitStateById: Map<string, { cellX: number; cellY: number; visible: boolean }>;
-  world: PharosVilleWorldModel;
-}): string[] {
-  const changedShipIds: string[] = [];
-  for (const ship of input.world.ships) {
-    const sample = input.samples.get(ship.id);
-    const visible = isShipMapVisible(ship, sample);
-    const cellX = Math.floor(sample?.tile.x ?? ship.tile.x);
-    const cellY = Math.floor(sample?.tile.y ?? ship.tile.y);
-    const previous = input.shipHitStateById.get(ship.id);
-    if (!previous || previous.cellX !== cellX || previous.cellY !== cellY || previous.visible !== visible) {
-      input.shipHitStateById.set(ship.id, { cellX, cellY, visible });
-      changedShipIds.push(ship.id);
-    }
-  }
-  if (input.shipHitStateById.size !== input.world.ships.length) {
-    const liveIds = new Set(input.world.ships.map((ship) => ship.id));
-    for (const id of input.shipHitStateById.keys()) {
-      if (!liveIds.has(id)) {
-        input.shipHitStateById.delete(id);
-        changedShipIds.push(id);
-      }
-    }
-  }
-  return changedShipIds;
+  return { samples };
 }
 
 function seaStateMotionSignature(seaState: SeaState): string {
@@ -910,6 +885,29 @@ function seaStateMotionSignature(seaState: SeaState): string {
     seaState.source.nightFactor.toFixed(3),
     seaState.source.psiStress.toFixed(3),
   ].join(":");
+}
+
+function collectShipHitRefreshIds(input: {
+  cursorRef: MutableRefObject<number>;
+  hoveredDetailId: string | null;
+  selectedDetailId: string | null;
+  world: PharosVilleWorldModel;
+}): string[] {
+  const ships = input.world.ships;
+  if (ships.length <= SHIP_HIT_TARGET_REFRESH_PER_FRAME) return ships.map((ship) => ship.id);
+  const ids = new Set<string>();
+  for (const ship of ships) {
+    if (ship.detailId === input.selectedDetailId || ship.detailId === input.hoveredDetailId) {
+      ids.add(ship.id);
+    }
+  }
+  const start = input.cursorRef.current % ships.length;
+  const count = Math.min(SHIP_HIT_TARGET_REFRESH_PER_FRAME, ships.length);
+  for (let offset = 0; offset < count; offset += 1) {
+    ids.add(ships[(start + offset) % ships.length]!.id);
+  }
+  input.cursorRef.current = (start + count) % ships.length;
+  return [...ids];
 }
 
 function compactShipMotionSamples(

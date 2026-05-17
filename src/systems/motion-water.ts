@@ -108,7 +108,7 @@ export function sampleShipWaterPath(path: ShipWaterPath | undefined, progress: n
   return { point, heading };
 }
 
-// F10: Per-ship cache of the last `waterPathSegmentIndex` result. Path progress
+// F10: Per-ship/cache-key cache of the last `waterPathSegmentIndex` result. Path progress
 // is monotonically increasing during normal animation, so the next frame's
 // segment is almost always the same or the immediate successor. Using the cached
 // hint converts the per-frame binary search (O(log N)) into a near-O(1) check
@@ -130,7 +130,7 @@ export function sampleShipWaterPathInto(
   progress: number,
   point: { x: number; y: number },
   heading: { x: number; y: number },
-  shipId?: string,
+  hintKey?: string,
 ): void {
   if (!path || path.points.length === 0) {
     point.x = 0;
@@ -149,9 +149,9 @@ export function sampleShipWaterPathInto(
   }
 
   const distance = clamp(progress, 0, 1) * path.totalLength;
-  const hint = shipId !== undefined ? waterSegmentHintByShipId.get(shipId) : undefined;
+  const hint = hintKey !== undefined ? waterSegmentHintByShipId.get(hintKey) : undefined;
   const index = waterPathSegmentIndex(path.cumulativeLengths, distance, hint);
-  if (shipId !== undefined) waterSegmentHintByShipId.set(shipId, index);
+  if (hintKey !== undefined) waterSegmentHintByShipId.set(hintKey, index);
   const segmentEnd = path.cumulativeLengths[index]!;
   const segmentStart = path.cumulativeLengths[index - 1]!;
   const previous = path.points[index - 1]!;
@@ -166,6 +166,10 @@ export function sampleShipWaterPathInto(
 // resets so a path swap doesn't reuse a hint pointing at the old geometry.
 export function clearShipWaterSegmentHint(shipId: string): void {
   waterSegmentHintByShipId.delete(shipId);
+  const prefix = `${shipId}|`;
+  for (const key of waterSegmentHintByShipId.keys()) {
+    if (key.startsWith(prefix)) waterSegmentHintByShipId.delete(key);
+  }
 }
 
 function waterPathSegmentIndex(cumulativeLengths: readonly number[], distance: number, hint?: number): number {

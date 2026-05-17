@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { denseFixtureChains, denseFixturePegSummary, denseFixtureReportCards, denseFixtureStablecoins, denseFixtureStress, fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoins, fixtureStability, fixtureStress, fixtureWithFlagshipPlacement, makeAsset, makeChain, makePegCoin, makerSquadFixtureInputs } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
-import { __testPathCacheSize, buildBaseMotionPlan, buildMotionPlan, BoundedShipWaterRouteCache, buildShipWaterRoute, clearShipHeadingMemory, createShipMotionSample, disposePathCacheForMap, isShipMapVisible, lighthouseFireFlickerSpeed, motionPlanSignature, resolveShipMotionSample, resolveShipMotionSampleInto, sampleShipWaterPath, shipCycleTempo, shipWaterPathKey, SPEED_QUARTILE_SCALARS, stableMotionPhase, type ShipDockMotionStop, type ShipMotionSample } from "./motion";
+import { __testPathCacheSize, buildBaseMotionPlan, buildMotionPlan, BoundedShipWaterRouteCache, buildShipWaterRoute, clearShipHeadingMemory, createShipMotionSample, disposePathCacheForMap, isShipMapVisible, lighthouseFireFlickerSpeed, motionPlanSignature, resolveShipMotionSample, resolveShipMotionSampleInto, sampleShipWaterPath, shipCycleTempo, shipMapVisibilityAlpha, shipWaterPathKey, SPEED_QUARTILE_SCALARS, stableMotionPhase, type ShipDockMotionStop, type ShipMotionSample } from "./motion";
 import { ARRIVING_DECEL_END, ARRIVING_FULL_TRANSIT_END, CAST_OFF_ACCEL_END, CAST_OFF_LINE_RELEASE_END, MOORING_QUIET_END, MOORING_WORKING_END } from "./motion-config";
 import { getShipHeadingDelta } from "./motion-sampling";
 import { chaikinSmoothPath, ensureShoreDistanceMask, shoreDistance, warmAllWaterPaths } from "./motion-water";
@@ -420,6 +420,8 @@ describe("motion", () => {
       expect(sample.heading).toEqual(primaryStop.dockTangent);
     }
     expect(sample.wakeIntensity).toBe(0);
+    expect(sample.velocity).toEqual({ x: 0, y: 0 });
+    expect(sample.speedTilesPerSecond).toBe(0);
   });
 
   it("changes ship samples over time in normal motion", () => {
@@ -430,6 +432,34 @@ describe("motion", () => {
     const second = resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds: route.cycleSeconds / 2 });
 
     expect(second.tile).not.toEqual(first.tile);
+  });
+
+  it("populates transit velocity and speed on normal-motion samples", () => {
+    const sampleWorld = worldForShip({
+      chainCirculating: chainCirculating(["Ethereum", "Tron", "Solana"]),
+      chains: ["ethereum", "tron", "solana"],
+    });
+    const ship = sampleWorld.ships[0]!;
+    const plan = buildMotionPlan(sampleWorld, ship.detailId);
+    const route = plan.shipRoutes.get(ship.id)!;
+    let transitSample: ShipMotionSample | null = null;
+
+    for (let index = 0; index < 600; index += 1) {
+      const timeSeconds = route.cycleSeconds * (index / 600) - route.phaseSeconds;
+      const sample = resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds });
+      if ((sample.state === "departing" || sample.state === "arriving" || sample.state === "sailing")
+        && (sample.speedTilesPerSecond ?? 0) > 0) {
+        transitSample = sample;
+        break;
+      }
+    }
+
+    expect(transitSample).not.toBeNull();
+    expect(transitSample!.velocity).toBeDefined();
+    expect(Math.hypot(transitSample!.velocity!.x, transitSample!.velocity!.y)).toBeCloseTo(transitSample!.speedTilesPerSecond ?? 0, 8);
+    expect(transitSample!.speedTilesPerSecond).toBeGreaterThan(0);
+    expect(transitSample!.routeKey).toBeDefined();
+    expect(transitSample!.routePathKey).toContain(transitSample!.state);
   });
 
   it("docks routed ships for one third of their motion cycle", () => {
@@ -605,6 +635,7 @@ describe("motion", () => {
     expect(sample.currentRouteStopId).toBeNull();
     expect(sample.currentRouteStopKind).toBeNull();
     expect(sample.wakeIntensity).toBe(0);
+    expect(sample.mapVisibilityAlpha).toBe(1);
     expect(terrainKindAt(Math.round(sample.tile.x), Math.round(sample.tile.y))).toBe("ledger-water");
   });
 
@@ -649,7 +680,56 @@ describe("motion", () => {
     expect(isShipMapVisible(nonTitanShip, mooredSample)).toBe(false);
     expect(isShipMapVisible(nonTitanShip, ledgerSample)).toBe(true);
     expect(isShipMapVisible(nonTitanShip, { ...mooredSample, state: "departing" })).toBe(true);
+    expect(isShipMapVisible(nonTitanShip, { ...mooredSample, state: "departing", mapVisibilityAlpha: 0.08 })).toBe(false);
+    expect(isShipMapVisible(nonTitanShip, { ...mooredSample, state: "departing", mapVisibilityAlpha: 0.24 })).toBe(true);
+    expect(shipMapVisibilityAlpha(nonTitanShip, { ...mooredSample, mooringTension: 0.35 })).toBeCloseTo(0.65);
     expect(isShipMapVisible(nonTitanShip, null)).toBe(true);
+  });
+
+  it("bounds display visibility alpha across moored, cast-off, and berth transitions", () => {
+    const sampleWorld = worldForShip({
+      chainCirculating: chainCirculating(["Ethereum", "Tron", "Solana"]),
+      chains: ["ethereum", "tron", "solana"],
+    });
+    const ship = sampleWorld.ships[0]!;
+    const plan = buildMotionPlan(sampleWorld, ship.detailId);
+    const route = plan.shipRoutes.get(ship.id)!;
+    const samples = Array.from({ length: 2400 }, (_, index) => resolveShipMotionSample({
+      plan,
+      reducedMotion: false,
+      ship,
+      timeSeconds: route.cycleSeconds * (index / 2400) - route.phaseSeconds,
+    }));
+
+    const quietMoored = samples.find((sample) => (
+      sample.state === "moored"
+      && sample.currentDockId
+      && sample.mooringSubPhase === "quiet"
+    ));
+    const castOffPrep = samples.filter((sample) => (
+      sample.state === "moored"
+      && sample.currentDockId
+      && sample.mooringSubPhase === "cast-off-prep"
+    ));
+    const departingFade = samples.find((sample) => (
+      sample.state === "departing"
+      && (sample.mapVisibilityAlpha ?? 1) > 0
+      && (sample.mapVisibilityAlpha ?? 1) < 1
+    ));
+    const arrivingFade = samples.find((sample) => (
+      sample.state === "arriving"
+      && (sample.fenderContact ?? 0) > 0
+      && (sample.mapVisibilityAlpha ?? 1) > 0
+      && (sample.mapVisibilityAlpha ?? 1) < 1
+    ));
+
+    expect(quietMoored?.mapVisibilityAlpha).toBe(0);
+    expect(castOffPrep.length).toBeGreaterThan(0);
+    expect(Math.max(...castOffPrep.map((sample) => sample.mapVisibilityAlpha ?? 0))).toBeGreaterThan(0.75);
+    expect(departingFade?.mapVisibilityAlpha).toBeGreaterThan(0);
+    expect(departingFade?.mapVisibilityAlpha).toBeLessThan(1);
+    expect(arrivingFade?.mapVisibilityAlpha).toBeGreaterThan(0);
+    expect(arrivingFade?.mapVisibilityAlpha).toBeLessThan(1);
   });
 
   it("keeps routed calm ships in transit for a visible share of the cycle", () => {
@@ -1971,6 +2051,12 @@ describe("motion", () => {
       // Both plans cover all ships.
       expect(plan0.shipRoutes.size).toBe(testWorld.ships.length);
       expect(plan1.shipRoutes.size).toBe(testWorld.ships.length);
+      for (const [shipId, route0] of plan0.shipRoutes) {
+        const route1 = plan1.shipRoutes.get(shipId)!;
+        expect(route0.routeEpoch).toBe(0);
+        expect(route1.routeEpoch).toBe(1);
+        expect(route1.routeKey).not.toBe(route0.routeKey);
+      }
       // At least one ship with dock stops must have a different path shape
       // between the two buckets (bucket-keyed jitter guarantee).
       let foundDiff = false;
@@ -2107,6 +2193,57 @@ describe("motion", () => {
       // The filter ran with dt=0.4 (not cold-start), so headingDelta is computed.
       // We can't assert a specific value (depends on path), but it must be finite.
       expect(Number.isFinite(getShipHeadingDelta(freshShip.id))).toBe(true);
+    });
+
+    it("does not carry heading or wake memory across route-key changes", () => {
+      const sampleWorld = buildLongDtWorld();
+      const ship = sampleWorld.ships[0]!;
+      const plan = buildMotionPlan(sampleWorld, ship.detailId);
+      const route = plan.shipRoutes.get(ship.id)!;
+      let transitT: number | null = null;
+      for (let index = 0; index < 800; index += 1) {
+        const timeSeconds = route.cycleSeconds * (index / 800) - route.phaseSeconds;
+        const sample = resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds });
+        if ((sample.state === "departing" || sample.state === "arriving" || sample.state === "sailing")
+          && sample.wakeIntensity > 0.05) {
+          transitT = timeSeconds;
+          break;
+        }
+      }
+      expect(transitT).not.toBeNull();
+
+      const baseRouteKey = route.routeKey ?? `${route.shipId}:test-route`;
+      const quietRoute = { ...route, routeKey: `${baseRouteKey}:quiet`, wakeMultiplier: 1 };
+      const loudRoute = { ...route, routeKey: `${baseRouteKey}:loud`, wakeMultiplier: 2 };
+      const planWithRoute = (patchedRoute: typeof route) => ({
+        ...plan,
+        shipRoutes: new Map([[ship.id, patchedRoute]]),
+      });
+
+      clearShipHeadingMemory(ship.id);
+      const baseline = resolveShipMotionSample({
+        plan: planWithRoute(quietRoute),
+        reducedMotion: false,
+        ship,
+        timeSeconds: transitT!,
+      });
+
+      clearShipHeadingMemory(ship.id);
+      resolveShipMotionSample({
+        plan: planWithRoute(loudRoute),
+        reducedMotion: false,
+        ship,
+        timeSeconds: transitT!,
+      });
+      const afterRouteChange = resolveShipMotionSample({
+        plan: planWithRoute(quietRoute),
+        reducedMotion: false,
+        ship,
+        timeSeconds: transitT!,
+      });
+
+      expect(afterRouteChange.wakeIntensity).toBeCloseTo(baseline.wakeIntensity, 8);
+      expect(getShipHeadingDelta(ship.id)).toBe(0);
     });
   });
 

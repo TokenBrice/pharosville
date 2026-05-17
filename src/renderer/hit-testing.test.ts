@@ -4,13 +4,13 @@ import { fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoin
 import { MAKER_SQUAD_MEMBER_IDS } from "../systems/maker-squad";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import { defaultCamera } from "../systems/camera";
-import { fitCameraToMap, tileToScreen } from "../systems/projection";
+import { fitCameraToMap, tileToScreen, type IsoCamera } from "../systems/projection";
 import type { PharosVilleAssetManifestEntry } from "../systems/asset-manifest";
 import type { ShipMotionSample } from "../systems/motion";
 import { areaLabelPlacementForArea } from "../systems/area-labels";
 import type { LoadedPharosVilleAsset } from "./asset-manager";
 import { dockDrawPoint, dockRenderScale, LIGHTHOUSE_DRAW_OFFSET, LIGHTHOUSE_DRAW_SCALE } from "./geometry";
-import { collectHitTargets, createHitTargetSnapshot, hitTest, hitTestSpatial, recomputeHitTargetsForCameraOnly, updateHitTargetSnapshotShips, type HitTarget } from "./hit-testing";
+import { collectDisplaySampleHitTargetChanges, collectHitTargets, createHitTargetSnapshot, hitTest, hitTestSpatial, recomputeHitTargetsForCameraOnly, updateHitTargetSnapshotShips, type HitTarget } from "./hit-testing";
 
 const TARGET_CLICK_POINTS = [
   [0.5, 0.5],
@@ -371,6 +371,100 @@ describe("hit-testing", () => {
     expect(targets.some((target) => target.detailId === nonTitanShip.detailId)).toBe(false);
   });
 
+  it("hides faded ship targets below the display alpha threshold unless active", () => {
+    const sourceShip = world.ships[0]!;
+    const nonTitanShip = {
+      ...sourceShip,
+      detailId: "ship.non-titan-faded",
+      id: "non-titan-faded",
+      visual: {
+        ...sourceShip.visual,
+        sizeTier: "major" as const,
+        spriteAssetId: undefined,
+      },
+    };
+    const fadedSamples = new Map([
+      [nonTitanShip.id, motionSample(nonTitanShip.id, nonTitanShip.tile, "departing", { mapVisibilityAlpha: 0.08 })],
+    ]);
+    const sparseWorld = {
+      ...world,
+      areas: [],
+      docks: [],
+      graves: [],
+      ships: [nonTitanShip],
+    };
+
+    const hiddenTargets = collectHitTargets({
+      camera,
+      shipMotionSamples: fadedSamples,
+      world: sparseWorld,
+    });
+    const selectedTargets = collectHitTargets({
+      camera,
+      selectedDetailId: nonTitanShip.detailId,
+      shipMotionSamples: fadedSamples,
+      world: sparseWorld,
+    });
+
+    expect(hiddenTargets.some((target) => target.detailId === nonTitanShip.detailId)).toBe(false);
+    expect(selectedTargets.some((target) => target.detailId === nonTitanShip.detailId)).toBe(true);
+  });
+
+  it("updates hit targets when display alpha crosses the targetability threshold", () => {
+    const sourceShip = world.ships[0]!;
+    const nonTitanShip = {
+      ...sourceShip,
+      detailId: "ship.non-titan-alpha-crossing",
+      id: "non-titan-alpha-crossing",
+      visual: {
+        ...sourceShip.visual,
+        sizeTier: "major" as const,
+        spriteAssetId: undefined,
+      },
+    };
+    const sparseWorld = {
+      ...world,
+      areas: [],
+      docks: [],
+      graves: [],
+      ships: [nonTitanShip],
+    };
+    const worldShipsById = new Map(sparseWorld.ships.map((entry) => [entry.id, entry]));
+    const visibleSamples = new Map([
+      [nonTitanShip.id, motionSample(nonTitanShip.id, nonTitanShip.tile, "departing", { mapVisibilityAlpha: 0.28 })],
+    ]);
+    const fadedSamples = new Map([
+      [nonTitanShip.id, motionSample(nonTitanShip.id, nonTitanShip.tile, "departing", { mapVisibilityAlpha: 0.04 })],
+    ]);
+    const initialSnapshot = createHitTargetSnapshot({
+      camera,
+      shipMotionSamples: visibleSamples,
+      world: sparseWorld,
+    });
+
+    const changedShipIds = collectDisplaySampleHitTargetChanges({
+      camera,
+      shipIds: [nonTitanShip.id],
+      shipMotionSamples: fadedSamples,
+      snapshot: initialSnapshot,
+      world: sparseWorld,
+      worldShipsById,
+    });
+    const updatedSnapshot = updateHitTargetSnapshotShips({
+      camera,
+      changedShipIds,
+      shipMotionSamples: fadedSamples,
+      snapshot: initialSnapshot,
+      viewport: null,
+      world: sparseWorld,
+      worldShipsById,
+    });
+
+    expect(initialSnapshot.targets.some((target) => target.detailId === nonTitanShip.detailId)).toBe(true);
+    expect(changedShipIds).toEqual([nonTitanShip.id]);
+    expect(updatedSnapshot.targets.some((target) => target.detailId === nonTitanShip.detailId)).toBe(false);
+  });
+
   it("keeps ships above the backgrounded Ethereum harbor hub hitbox", () => {
     const usdt = world.ships.find((entry) => entry.detailId === "ship.usdt-tether");
     const ethereumDock = world.docks.find((entry) => entry.detailId === "dock.ethereum");
@@ -559,6 +653,58 @@ describe("hit-testing", () => {
     }
   });
 
+  it("re-enters camera-only targets from the uncullable world record base", () => {
+    const dock = world.docks.find((entry) => entry.detailId === "dock.ethereum");
+    expect(dock).toBeDefined();
+    const sparseWorld = {
+      ...world,
+      areas: [],
+      docks: [dock!],
+      graves: [],
+      ships: [],
+    };
+    const viewport = { height: 120, width: 120 };
+    const centeredCamera = cameraCenteredOnTarget({
+      camera,
+      target: createHitTargetSnapshot({ camera, world: sparseWorld }).targets
+        .find((entry) => entry.detailId === dock!.detailId)!,
+      x: 60,
+      y: 60,
+    });
+    const offscreenCamera = {
+      ...centeredCamera,
+      offsetX: centeredCamera.offsetX - 900,
+      offsetY: centeredCamera.offsetY - 600,
+    };
+    const initialSnapshot = createHitTargetSnapshot({
+      camera: offscreenCamera,
+      viewport,
+      world: sparseWorld,
+    });
+    expect(initialSnapshot.targets.some((target) => target.detailId === dock!.detailId)).toBe(false);
+    expect(initialSnapshot.worldRecordsById?.has(dock!.id)).toBe(true);
+
+    const fastSnapshot = recomputeHitTargetsForCameraOnly({
+      camera: centeredCamera,
+      snapshot: initialSnapshot,
+      viewport,
+      world: sparseWorld,
+    });
+    const fullRebuild = createHitTargetSnapshot({
+      camera: centeredCamera,
+      viewport,
+      world: sparseWorld,
+    });
+    const dockTarget = fastSnapshot.targets.find((target) => target.detailId === dock!.detailId);
+
+    expect(dockTarget).toBeDefined();
+    expect(fastSnapshot.targets.map((target) => target.id)).toEqual(fullRebuild.targets.map((target) => target.id));
+    expect(hitTestSpatial(fastSnapshot.spatialIndex, {
+      x: dockTarget!.rect.x + dockTarget!.rect.width / 2,
+      y: dockTarget!.rect.y + dockTarget!.rect.height / 2,
+    })?.detailId).toBe(dock!.detailId);
+  });
+
   it("returns the same recordsById reference when zero ships change geometry", () => {
     // Validates the copy-on-write deferral in `updateHitTargetSnapshotShips`:
     // when every changed ship resolves to the same geometry it had before, no
@@ -585,6 +731,58 @@ describe("hit-testing", () => {
     expect(nextSnapshot).toBe(initialSnapshot);
     expect(nextSnapshot.recordsById).toBe(initialSnapshot.recordsById);
     expect(nextSnapshot.spatialIndex).toBe(initialSnapshot.spatialIndex);
+  });
+
+  it("detects and updates sub-tile moving ship target rect changes from display samples", () => {
+    const ship = world.ships[0]!;
+    const startTile = { x: Math.floor(ship.tile.x) + 0.12, y: Math.floor(ship.tile.y) + 0.18 };
+    const movedTile = { x: startTile.x + 0.22, y: startTile.y + 0.19 };
+    expect(Math.floor(movedTile.x)).toBe(Math.floor(startTile.x));
+    expect(Math.floor(movedTile.y)).toBe(Math.floor(startTile.y));
+    const initialSamples = new Map([[ship.id, motionSample(ship.id, startTile)]]);
+    const movedSamples = new Map([[ship.id, motionSample(ship.id, movedTile)]]);
+    const initialSnapshot = createHitTargetSnapshot({
+      camera,
+      shipMotionSamples: initialSamples,
+      world,
+    });
+    const changedShipIds = collectDisplaySampleHitTargetChanges({
+      camera,
+      minScreenDeltaPx: 0.01,
+      selectedDetailId: ship.detailId,
+      shipIds: [ship.id],
+      shipMotionSamples: movedSamples,
+      snapshot: initialSnapshot,
+      world,
+      worldShipsById: new Map(world.ships.map((entry) => [entry.id, entry])),
+    });
+
+    expect(changedShipIds).toEqual([ship.id]);
+
+    const updatedSnapshot = updateHitTargetSnapshotShips({
+      camera,
+      changedShipIds,
+      selectedDetailId: ship.detailId,
+      shipMotionSamples: movedSamples,
+      snapshot: initialSnapshot,
+      viewport: null,
+      world,
+      worldShipsById: new Map(world.ships.map((entry) => [entry.id, entry])),
+    });
+    const initialTarget = initialSnapshot.targets.find((target) => target.id === ship.id);
+    const updatedTarget = updatedSnapshot.targets.find((target) => target.id === ship.id);
+    const sampledPoint = tileToScreen(movedTile, camera);
+
+    expect(initialTarget).toBeDefined();
+    expect(updatedTarget).toBeDefined();
+    expect(updatedTarget!.rect.x).not.toBeCloseTo(initialTarget!.rect.x);
+    expect(updatedTarget!.rect.y).not.toBeCloseTo(initialTarget!.rect.y);
+    expect(updatedTarget!.rect.x + updatedTarget!.rect.width / 2).toBeCloseTo(sampledPoint.x);
+    expect(updatedTarget!.rect.y + updatedTarget!.rect.height / 2).toBeCloseTo(sampledPoint.y - 16 * camera.zoom);
+    expect(hitTestSpatial(updatedSnapshot.spatialIndex, {
+      x: updatedTarget!.rect.x + updatedTarget!.rect.width / 2,
+      y: updatedTarget!.rect.y + updatedTarget!.rect.height / 2,
+    })?.detailId).toBe(ship.detailId);
   });
 
   it("matches full rebuild semantics when updating changed ship targets", () => {
@@ -645,6 +843,7 @@ function motionSample(
   shipId: string,
   tile: { x: number; y: number },
   state: ShipMotionSample["state"] = "sailing",
+  overrides: Partial<ShipMotionSample> = {},
 ): ShipMotionSample {
   return {
     shipId,
@@ -656,6 +855,7 @@ function motionSample(
     currentRouteStopKind: state === "moored" ? "dock" : null,
     heading: { x: 1, y: 0 },
     wakeIntensity: 0.4,
+    ...overrides,
   };
 }
 
@@ -712,5 +912,18 @@ function padRect(rect: HitTarget["rect"], padding: number): HitTarget["rect"] {
     width: rect.width + padding * 2,
     x: rect.x - padding,
     y: rect.y - padding,
+  };
+}
+
+function cameraCenteredOnTarget(input: {
+  camera: IsoCamera;
+  target: HitTarget;
+  x: number;
+  y: number;
+}): IsoCamera {
+  return {
+    ...input.camera,
+    offsetX: input.camera.offsetX + input.x - (input.target.rect.x + input.target.rect.width / 2),
+    offsetY: input.camera.offsetY + input.y - (input.target.rect.y + input.target.rect.height / 2),
   };
 }

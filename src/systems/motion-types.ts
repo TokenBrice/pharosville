@@ -73,6 +73,8 @@ export type ShipMotionRouteStop = ShipDockMotionStop | ShipLedgerMotionStop;
 
 export interface ShipMotionRoute {
   shipId: string;
+  routeEpoch?: number;
+  routeKey?: string;
   cycleSeconds: number;
   phaseSeconds: number;
   riskTile: { x: number; y: number };
@@ -111,10 +113,15 @@ export interface ShipMotionSample {
   tile: { x: number; y: number };
   state: ShipMotionState;
   zone: ShipWaterZone;
+  routeKey?: string | null;
+  routePathKey?: string | null;
   currentDockId: string | null;
   currentRouteStopId: string | null;
   currentRouteStopKind: ShipMotionStopKind | null;
   heading: { x: number; y: number };
+  velocity?: { x: number; y: number };
+  speedTilesPerSecond?: number;
+  mapVisibilityAlpha?: number;
   wakeIntensity: number;
   mooringSubPhase?: ShipMooringSubPhase | null;
   mooringSwayAmplitude?: number;

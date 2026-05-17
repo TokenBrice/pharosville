@@ -109,10 +109,15 @@ export function createShipMotionSample(): ShipMotionSample {
     tile: { x: 0, y: 0 },
     state: "idle",
     zone: "calm",
+    routeKey: null,
+    routePathKey: null,
     currentDockId: null,
     currentRouteStopId: null,
     currentRouteStopKind: null,
     heading: { x: 0, y: 0 },
+    velocity: { x: 0, y: 0 },
+    speedTilesPerSecond: 0,
+    mapVisibilityAlpha: 1,
     wakeIntensity: 0,
     mooringSubPhase: null,
     mooringSwayAmplitude: 1,
@@ -130,6 +135,7 @@ function resetSampleChoreography(out: ShipMotionSample): void {
   out.lanternAlpha = 0;
   out.fenderContact = 0;
   out.seaState = null;
+  out.mapVisibilityAlpha = 1;
 }
 
 // Module-scope scratch sample reused for the consort branch (flagship lookup).
@@ -147,47 +153,55 @@ interface FormationOffsetEntry {
 }
 const formationOffsetCacheByShipId = new Map<string, FormationOffsetEntry>();
 
-// Per-ship heading low-pass memory. Keyed by shipId (string) instead of ShipNode
-// because the ship object can be replaced across re-renders while the id is
-// stable. headingDelta caches angular velocity (rad/sec) so ship-pose can derive
-// bank-into-turn without recomputing.
+// Per-route-path heading low-pass memory. The active key still starts with the
+// ship id for cheap cleanup, but also carries route/path identity so bucket
+// swaps or leg changes never inherit a stale tangent.
 interface HeadingMemory {
   hx: number;
   hy: number;
   lastT: number;
   headingDelta: number;
 }
-const headingMemoryByShipId = new Map<string, HeadingMemory>();
+const headingMemoryByMotionKey = new Map<string, HeadingMemory>();
+const activeMotionMemoryKeyByShipId = new Map<string, string>();
+const latestHeadingDeltaByShipId = new Map<string, number>();
 
 export function getShipHeadingDelta(shipId: string): number {
-  return headingMemoryByShipId.get(shipId)?.headingDelta ?? 0;
+  return latestHeadingDeltaByShipId.get(shipId) ?? 0;
 }
 
 // D3: flush per-ship heading memory (and wake memory) when formation offset
 // changes so heading converges fresh from the new position.
 export function clearShipHeadingMemory(shipId: string): void {
-  headingMemoryByShipId.delete(shipId);
-  wakeIntensityMemoryByShipId.delete(shipId);
+  deleteMotionMemoryForShip(shipId);
+  activeMotionMemoryKeyByShipId.delete(shipId);
+  latestHeadingDeltaByShipId.delete(shipId);
   clearShipWaterSegmentHint(shipId);
 }
 
-// D1: per-ship wake intensity low-pass memory. Mirrors headingMemoryByShipId.
+// D1/T15: wake intensity low-pass memory mirrors the route-path heading memory.
 // Prevents a one-frame jump from full baseWake (sailing) to 0 (arriving at
 // progress=0, where 4*0*(1-0)=0).
 interface WakeMemory {
   wake: number;
   lastT: number;
 }
-const wakeIntensityMemoryByShipId = new Map<string, WakeMemory>();
+const wakeIntensityMemoryByMotionKey = new Map<string, WakeMemory>();
 
 export function getShipWakeIntensityMemory(shipId: string): WakeMemory | undefined {
-  return wakeIntensityMemoryByShipId.get(shipId);
+  const activeKey = activeMotionMemoryKeyByShipId.get(shipId);
+  if (activeKey) return wakeIntensityMemoryByMotionKey.get(activeKey);
+  const prefix = `${shipId}|`;
+  for (const [key, memory] of wakeIntensityMemoryByMotionKey) {
+    if (key.startsWith(prefix)) return memory;
+  }
+  return undefined;
 }
 
-function applyWakeSmoothing(shipId: string, timeSeconds: number, rawWake: number): number {
-  const memory = wakeIntensityMemoryByShipId.get(shipId);
+function applyWakeSmoothing(memoryKey: string, timeSeconds: number, rawWake: number): number {
+  const memory = wakeIntensityMemoryByMotionKey.get(memoryKey);
   if (!memory) {
-    wakeIntensityMemoryByShipId.set(shipId, { wake: rawWake, lastT: timeSeconds });
+    wakeIntensityMemoryByMotionKey.set(memoryKey, { wake: rawWake, lastT: timeSeconds });
     return rawWake;
   }
   const rawDt = timeSeconds - memory.lastT;
@@ -205,6 +219,106 @@ function applyWakeSmoothing(shipId: string, timeSeconds: number, rawWake: number
   memory.wake = smoothed;
   memory.lastT = timeSeconds;
   return smoothed;
+}
+
+function deleteMotionMemoryForShip(shipId: string): void {
+  const prefix = `${shipId}|`;
+  for (const key of headingMemoryByMotionKey.keys()) {
+    if (key.startsWith(prefix)) headingMemoryByMotionKey.delete(key);
+  }
+  for (const key of wakeIntensityMemoryByMotionKey.keys()) {
+    if (key.startsWith(prefix)) wakeIntensityMemoryByMotionKey.delete(key);
+  }
+}
+
+function beginRoutePathSample(route: ShipMotionRoute, routePathKey: string | null): string {
+  const memoryKey = motionMemoryKey(route.shipId, routePathKey ?? routeIdentityKey(route));
+  const previousKey = activeMotionMemoryKeyByShipId.get(route.shipId);
+  if (previousKey !== memoryKey) {
+    if (previousKey) {
+      headingMemoryByMotionKey.delete(previousKey);
+      wakeIntensityMemoryByMotionKey.delete(previousKey);
+    }
+    activeMotionMemoryKeyByShipId.set(route.shipId, memoryKey);
+    latestHeadingDeltaByShipId.set(route.shipId, 0);
+    clearShipWaterSegmentHint(route.shipId);
+  }
+  return memoryKey;
+}
+
+function routeIdentityKey(route: ShipMotionRoute): string {
+  return route.routeKey ?? [
+    route.shipId,
+    `epoch=${route.routeEpoch ?? "legacy"}`,
+    route.zone,
+    `${route.riskTile.x},${route.riskTile.y}`,
+  ].join(":");
+}
+
+function routePathIdentityKey(route: ShipMotionRoute, kind: string, detail: string | null = null): string {
+  return `${routeIdentityKey(route)}|${kind}${detail ? `:${detail}` : ""}`;
+}
+
+function transitRoutePathIdentityKey(
+  route: ShipMotionRoute,
+  path: ShipWaterPath | undefined,
+  state: Extract<ShipMotionState, "arriving" | "departing" | "sailing">,
+  routeStop: ShipMotionRoute["dockStops"][number] | null,
+): string {
+  const legKey = path ? pathKey(path.from, path.to) : "missing-path";
+  return routePathIdentityKey(route, state, `${routeStop?.id ?? "open"}:${legKey}`);
+}
+
+function motionMemoryKey(shipId: string, routePathKey: string): string {
+  return `${shipId}|${routePathKey}`;
+}
+
+function writeRouteContextInto(route: ShipMotionRoute, routePathKey: string | null, out: ShipMotionSample): void {
+  out.routeKey = routeIdentityKey(route);
+  out.routePathKey = routePathKey;
+}
+
+function writeZeroVelocityInto(out: ShipMotionSample): void {
+  writeVelocityInto(out, 0, 0);
+}
+
+function writeVelocityInto(out: ShipMotionSample, x: number, y: number): void {
+  const vx = Number.isFinite(x) ? x : 0;
+  const vy = Number.isFinite(y) ? y : 0;
+  if (!out.velocity) {
+    out.velocity = { x: vx, y: vy };
+  } else {
+    out.velocity.x = vx;
+    out.velocity.y = vy;
+  }
+  out.speedTilesPerSecond = Math.hypot(vx, vy);
+}
+
+function copyVelocityInto(source: ShipMotionSample, out: ShipMotionSample): void {
+  writeVelocityInto(out, source.velocity?.x ?? 0, source.velocity?.y ?? 0);
+}
+
+function writeMapVisibilityAlphaInto(out: ShipMotionSample, alpha: number): void {
+  out.mapVisibilityAlpha = clamp(alpha, 0, 1);
+}
+
+const MOORED_MAP_VISIBILITY_FADE_IN_START = 0.84;
+
+function mooredMapVisibilityAlpha(dwellProgress: number): number {
+  return smoothstepRange(MOORED_MAP_VISIBILITY_FADE_IN_START, 1, dwellProgress);
+}
+
+function transitMapVisibilityAlpha(
+  state: Extract<ShipMotionState, "arriving" | "departing" | "sailing">,
+  progress: number,
+): number {
+  if (state === "departing") {
+    return smoothstepRange(CAST_OFF_LINE_RELEASE_END, CAST_OFF_ACCEL_END, progress);
+  }
+  if (state === "arriving") {
+    return 1 - smoothstepRange(ARRIVING_FULL_TRANSIT_END, 1, progress);
+  }
+  return 1;
 }
 
 // Forward-difference scratch buffers used by transitSampleInto for the
@@ -323,6 +437,10 @@ export function resolveShipMotionSampleInto(input: {
       out.currentRouteStopKind = null;
       out.heading.x = flagshipSample.heading.x;
       out.heading.y = flagshipSample.heading.y;
+      out.routeKey = routeIdentityKey(route);
+      out.routePathKey = flagshipSample.routePathKey ?? routePathIdentityKey(route, "consort", flagshipRoute.shipId);
+      copyVelocityInto(flagshipSample, out);
+      writeMapVisibilityAlphaInto(out, flagshipSample.mapVisibilityAlpha ?? 1);
       out.wakeIntensity = flagshipSample.wakeIntensity;
       out.mooringSubPhase = flagshipSample.mooringSubPhase ?? null;
       out.mooringSwayAmplitude = flagshipSample.mooringSwayAmplitude ?? 1;
@@ -354,11 +472,15 @@ function reducedMotionSampleInto(
   out.shipId = ship.id;
   out.state = "idle";
   out.zone = ship.riskZone;
+  out.routeKey = route ? routeIdentityKey(route) : null;
+  out.routePathKey = route ? routePathIdentityKey(route, "reduced") : null;
   out.currentDockId = null;
   out.currentRouteStopId = null;
   out.currentRouteStopKind = null;
   out.heading.x = 0;
   out.heading.y = 0;
+  writeZeroVelocityInto(out);
+  writeMapVisibilityAlphaInto(out, 1);
   out.wakeIntensity = 0;
   resetSampleChoreography(out);
   out.seaState = seaState;
@@ -487,6 +609,7 @@ function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number, seaSt
         route,
         path: runtime.stopToRiskPathByDockId.get(stop.dockId),
         progress: cursor / Math.max(1, transitSecondsEach),
+        transitSeconds: transitSecondsEach,
         state: "departing",
         routeStop: stop,
         seaState,
@@ -511,6 +634,7 @@ function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number, seaSt
         route,
         path: runtime.riskToStopPathByDockId.get(nextStop.dockId),
         progress: cursor / Math.max(1, transitSecondsEach),
+        transitSeconds: transitSecondsEach,
         state: "arriving",
         routeStop: nextStop,
         seaState,
@@ -697,6 +821,7 @@ function transitSampleInto(input: {
   route: ShipMotionRoute;
   path: ShipWaterPath | undefined;
   progress: number;
+  transitSeconds?: number;
   routeStop: ShipMotionRoute["dockStops"][number] | null;
   runtime: RouteSamplingRuntime;
   seaState?: SeaState | null;
@@ -707,11 +832,12 @@ function transitSampleInto(input: {
 }, out: ShipMotionSample): void {
   const linearProgress = clamp(input.progress, 0, 1);
   const profile = transitPhaseProfile(input.state, linearProgress);
+  const routePathKey = transitRoutePathIdentityKey(input.route, input.path, input.state, input.routeStop);
+  const memoryKey = beginRoutePathSample(input.route, routePathKey);
   // Write water-path point/heading directly into out.tile / out.heading.
-  // F10: pass shipId so sampleWaterPathInto can reuse the per-ship segment-index
-  // hint (progress is monotonic along a path, so the cached index is almost
-  // always still valid or one segment forward).
-  sampleWaterPathInto(input.path, profile.pathProgress, out.tile, out.heading, input.route.shipId);
+  // F10/T15: pass a route-path key so segment-index hints stay hot within a leg
+  // but cannot survive route bucket or path swaps.
+  sampleWaterPathInto(input.path, profile.pathProgress, out.tile, out.heading, memoryKey);
   // Apply lane offset (uses heading); write through a scratch tile because
   // the lane formula reads the un-offset point.
   transitLanePointInto(out.tile, out.heading, profile.pathProgress, input.runtime, transitTileScratch);
@@ -723,7 +849,7 @@ function transitSampleInto(input: {
   // shifts position perpendicular while heading stays straight, producing a
   // visible "crab" sideways motion.
   const aheadProgress = Math.min(1, profile.pathProgress + 0.01);
-  sampleWaterPathInto(input.path, aheadProgress, aheadPointScratch, aheadHeadingScratch, input.route.shipId);
+  sampleWaterPathInto(input.path, aheadProgress, aheadPointScratch, aheadHeadingScratch, memoryKey);
   transitLanePointInto(aheadPointScratch, aheadHeadingScratch, aheadProgress, input.runtime, aheadLaneScratch);
   const fdx = aheadLaneScratch.x - out.tile.x;
   const fdy = aheadLaneScratch.y - out.tile.y;
@@ -747,6 +873,7 @@ function transitSampleInto(input: {
   out.shipId = input.route.shipId;
   out.state = input.state;
   out.zone = input.route.zone;
+  writeRouteContextInto(input.route, routePathKey, out);
   out.currentDockId = input.routeStop?.dockId ?? null;
   out.currentRouteStopId = input.routeStop?.id ?? null;
   out.currentRouteStopKind = input.routeStop?.kind ?? null;
@@ -756,6 +883,7 @@ function transitSampleInto(input: {
   out.lanternAlpha = 0;
   out.fenderContact = profile.fenderContact;
   out.seaState = input.seaState ?? null;
+  writeMapVisibilityAlphaInto(out, transitMapVisibilityAlpha(input.state, linearProgress));
 
   // #5: speed-aware wake. departing/arriving accelerate from rest and decelerate
   // back to rest, so wake should peak mid-leg. sailing (open-water patrol) is
@@ -772,7 +900,7 @@ function transitSampleInto(input: {
   } else {
     rawWake = baseWake * input.route.wakeMultiplier;
   }
-  out.wakeIntensity = applyWakeSmoothing(input.route.shipId, input.timeSeconds, rawWake);
+  out.wakeIntensity = applyWakeSmoothing(memoryKey, input.timeSeconds, rawWake);
 
   // #4: per-ship heading low-pass filter. Path-segment tangents jump at every
   // internal waypoint vertex; without smoothing ships visibly twitch when
@@ -785,6 +913,7 @@ function transitSampleInto(input: {
   const alignmentTangent = transitAlignmentTangent(input, profile);
   const alignmentT = alignmentTangent ? profile.alignmentToDockTangent : 0;
   applyHeadingSmoothing(
+    memoryKey,
     input.route.shipId,
     input.state,
     input.timeSeconds,
@@ -792,6 +921,8 @@ function transitSampleInto(input: {
     alignmentTangent,
     alignmentT,
   );
+  const speed = transitSpeedTilesPerSecond(input.path, input.transitSeconds, profile.speedRatio);
+  writeVelocityInto(out, out.heading.x * speed, out.heading.y * speed);
 }
 
 const fenderHeadingScratch: { x: number; y: number } = { x: 0, y: 0 };
@@ -814,6 +945,17 @@ function transitAlignmentTangent(input: {
   return input.state === "departing" && input.fromMooringStop?.dockTangent
     ? input.fromMooringStop.dockTangent
     : null;
+}
+
+function transitSpeedTilesPerSecond(
+  path: ShipWaterPath | undefined,
+  transitSeconds: number | undefined,
+  speedRatio: number,
+): number {
+  const seconds = transitSeconds && transitSeconds > 0 ? transitSeconds : 1;
+  const length = path?.totalLength ?? 0;
+  const speed = length / seconds * speedRatio;
+  return Number.isFinite(speed) ? speed : 0;
 }
 
 function writeFenderYawedTangentInto(
@@ -872,6 +1014,7 @@ function applyFenderContactClampInto(
 }
 
 function applyHeadingSmoothing(
+  memoryKey: string,
   shipId: string,
   state: ShipMotionState,
   timeSeconds: number,
@@ -879,7 +1022,7 @@ function applyHeadingSmoothing(
   alignmentTangent: { x: number; y: number } | null,
   alignmentT: number,
 ): void {
-  const memory = headingMemoryByShipId.get(shipId);
+  const memory = headingMemoryByMotionKey.get(memoryKey);
   if (memory) {
     const rawDt = timeSeconds - memory.lastT;
     // Cold-start: if the gap is > 0.5s (tab-resume or very long pause), skip
@@ -895,6 +1038,7 @@ function applyHeadingSmoothing(
       memory.hy = heading.y;
       memory.lastT = timeSeconds;
       memory.headingDelta = 0;
+      latestHeadingDeltaByShipId.set(shipId, 0);
       return;
     }
     // Clamp dt: defends against tab-resume jumps where timeSeconds advances
@@ -928,6 +1072,7 @@ function applyHeadingSmoothing(
     memory.hy = heading.y;
     memory.lastT = timeSeconds;
     memory.headingDelta = headingDelta;
+    latestHeadingDeltaByShipId.set(shipId, headingDelta);
     return;
   }
   // First sample for this ship: seed memory directly (skip the lerp). Apply the
@@ -937,12 +1082,13 @@ function applyHeadingSmoothing(
     const hy = heading.y + (alignmentTangent.y - heading.y) * alignmentT;
     normalizeHeadingInto(hx, hy, heading);
   }
-  headingMemoryByShipId.set(shipId, {
+  headingMemoryByMotionKey.set(memoryKey, {
     hx: heading.x,
     hy: heading.y,
     lastT: timeSeconds,
     headingDelta: 0,
   });
+  latestHeadingDeltaByShipId.set(shipId, 0);
 }
 
 function applyMooringBlendInto(input: {
@@ -1031,6 +1177,7 @@ function openWaterPatrolSampleInto(route: ShipMotionRoute, timeSeconds: number, 
       route,
       path: route.openWaterPatrol.outbound,
       progress: smoothstep(cursor / Math.max(1, transitSecondsEach)),
+      transitSeconds: transitSecondsEach,
       routeStop: null,
       runtime,
       state: "sailing",
@@ -1052,6 +1199,7 @@ function openWaterPatrolSampleInto(route: ShipMotionRoute, timeSeconds: number, 
     route,
     path: route.openWaterPatrol.inbound,
     progress: smoothstep(cursor / Math.max(1, transitSecondsEach)),
+    transitSeconds: transitSecondsEach,
     routeStop: null,
     runtime,
     state: "sailing",
@@ -1066,6 +1214,8 @@ function openWaterWaypointDriftSampleInto(route: ShipMotionRoute, timeSeconds: n
     riskDriftSampleInto(route, timeSeconds, progress, out);
     return;
   }
+  const routePathKey = routePathIdentityKey(route, "waypoint", pathKey(route.openWaterPatrol.waypoint, route.openWaterPatrol.waypoint));
+  beginRoutePathSample(route, routePathKey);
   const angle = timeSeconds * 0.023 + route.routeSeed * 0.00013 + progress * Math.PI * 2;
   out.shipId = route.shipId;
   clampMotionTileInto(
@@ -1075,10 +1225,17 @@ function openWaterWaypointDriftSampleInto(route: ShipMotionRoute, timeSeconds: n
   );
   out.state = "sailing";
   out.zone = route.zone;
+  writeRouteContextInto(route, routePathKey, out);
+  writeMapVisibilityAlphaInto(out, 1);
   out.currentDockId = null;
   out.currentRouteStopId = null;
   out.currentRouteStopKind = null;
   normalizeHeadingInto(-Math.sin(angle), Math.cos(angle * 0.85), out.heading);
+  writeVelocityInto(
+    out,
+    -Math.sin(angle) * 0.32 * 0.023,
+    Math.cos(angle * 0.85) * 0.22 * 0.85 * 0.023,
+  );
   out.wakeIntensity = patrolWakeIntensityForZone(route.zone);
 }
 
@@ -1138,6 +1295,8 @@ function mooredSampleInto(input: {
   timeSeconds: number;
   runtime: RouteSamplingRuntime;
 }, out: ShipMotionSample): void {
+  const routePathKey = routePathIdentityKey(input.route, "moored", input.stop.id);
+  beginRoutePathSample(input.route, routePathKey);
   const phase = mooringPhaseInfo(input.route, input.dwellProgress, input.secondsRemaining, input.timeSeconds);
   const seed = mooredSeedFor(input.route, input.stop, input.runtime);
   const phaseOffset = mooredPhaseFor(input.route, input.stop, input.runtime);
@@ -1154,6 +1313,7 @@ function mooredSampleInto(input: {
   out.tile.y = input.stop.mooringTile.y + Math.sin(angle * 0.9) * radius.y * radiusMultiplier * staleRadiusFactor * swayAmplitude;
   out.state = "moored";
   out.zone = input.route.zone;
+  writeRouteContextInto(input.route, routePathKey, out);
   out.currentDockId = input.stop.dockId;
   out.currentRouteStopId = input.stop.id;
   out.currentRouteStopKind = input.stop.kind;
@@ -1171,6 +1331,8 @@ function mooredSampleInto(input: {
     }
   }
   out.wakeIntensity = 0.05;
+  writeZeroVelocityInto(out);
+  writeMapVisibilityAlphaInto(out, mooredMapVisibilityAlpha(input.dwellProgress));
   out.mooringSubPhase = phase.subPhase;
   out.mooringSwayAmplitude = swayAmplitude;
   out.mooringTension = phase.tension;
@@ -1245,6 +1407,8 @@ function ledgerRoamingSampleInto(
 
   const idleShare = 0.58;
   const blendStart = 0.55;
+  const riskSeconds = route.cycleSeconds * ZONE_DWELL[route.zone].riskDwell;
+  const ledgerTransitSecondsEach = riskSeconds * (1 - idleShare) / 2;
 
   if (progress <= blendStart) {
     mooredRouteStopSampleInto(route, stop, timeSeconds, out);
@@ -1256,6 +1420,7 @@ function ledgerRoamingSampleInto(
   // D2: blend window [0.55, 0.58] — smoothstep the orbit displacement toward
   // zero before transit takes over, preventing the ~0.14–0.20 tile position jump.
   if (progress < idleShare) {
+    const routePathKey = routePathIdentityKey(route, "ledger-blend", stop.id);
     // Sample orbit (moored) into scratch.
     mooredRouteStopSampleInto(route, stop, timeSeconds, ledgerOrbitScratch);
     // Sample transit at patrolProgress=0 into scratch (start of outbound).
@@ -1263,6 +1428,7 @@ function ledgerRoamingSampleInto(
       route,
       path: patrol.outbound,
       progress: 0,
+      transitSeconds: ledgerTransitSecondsEach,
       state: "sailing",
       routeStop: null,
       fromMooringStop: null,
@@ -1272,6 +1438,7 @@ function ledgerRoamingSampleInto(
     }, ledgerTransitScratch);
     // Blend factor: 0 at blendStart, 1 at idleShare.
     const easeOut = smoothstepRange(blendStart, idleShare, progress);
+    beginRoutePathSample(route, routePathKey);
     out.shipId = route.shipId;
     clampMotionTileInto(
       ledgerOrbitScratch.tile.x * (1 - easeOut) + ledgerTransitScratch.tile.x * easeOut,
@@ -1281,6 +1448,7 @@ function ledgerRoamingSampleInto(
     // State: use orbit state until easeOut > 0.5, then transit.
     out.state = easeOut > 0.5 ? "sailing" : "moored";
     out.zone = route.zone;
+    writeRouteContextInto(route, routePathKey, out);
     out.currentDockId = null;
     out.currentRouteStopId = easeOut > 0.5 ? null : ledgerOrbitScratch.currentRouteStopId;
     out.currentRouteStopKind = easeOut > 0.5 ? null : ledgerOrbitScratch.currentRouteStopKind;
@@ -1289,6 +1457,12 @@ function ledgerRoamingSampleInto(
     const blendHy = ledgerOrbitScratch.heading.y * (1 - easeOut) + ledgerTransitScratch.heading.y * easeOut;
     normalizeHeadingInto(blendHx, blendHy, out.heading);
     out.wakeIntensity = ledgerOrbitScratch.wakeIntensity * (1 - easeOut) + ledgerTransitScratch.wakeIntensity * easeOut;
+    writeVelocityInto(
+      out,
+      (ledgerOrbitScratch.velocity?.x ?? 0) * (1 - easeOut) + (ledgerTransitScratch.velocity?.x ?? 0) * easeOut,
+      (ledgerOrbitScratch.velocity?.y ?? 0) * (1 - easeOut) + (ledgerTransitScratch.velocity?.y ?? 0) * easeOut,
+    );
+    writeMapVisibilityAlphaInto(out, 1);
     out.mooringSubPhase = null;
     out.mooringTension = 0;
     out.lanternAlpha = 0;
@@ -1302,6 +1476,7 @@ function ledgerRoamingSampleInto(
       route,
       path: patrol.outbound,
       progress: smoothstep(patrolProgress * 2),
+      transitSeconds: ledgerTransitSecondsEach,
       state: "sailing",
       routeStop: null,
       fromMooringStop: null,
@@ -1316,6 +1491,7 @@ function ledgerRoamingSampleInto(
     route,
     path: patrol.inbound,
     progress: smoothstep((patrolProgress - 0.5) * 2),
+    transitSeconds: ledgerTransitSecondsEach,
     state: "sailing",
     routeStop: null,
     fromMooringStop: null,
@@ -1331,6 +1507,8 @@ function mooredRouteStopSampleInto(
   timeSeconds: number,
   out: ShipMotionSample,
 ): void {
+  const routePathKey = routePathIdentityKey(route, "route-stop", stop.id);
+  beginRoutePathSample(route, routePathKey);
   const runtime = routeSamplingRuntime(route);
   const seed = mooredSeedFor(route, stop, runtime);
   const phaseOffset = mooredPhaseFor(route, stop, runtime);
@@ -1348,11 +1526,14 @@ function mooredRouteStopSampleInto(
   );
   out.state = "moored";
   out.zone = route.zone;
+  writeRouteContextInto(route, routePathKey, out);
   out.currentDockId = null;
   out.currentRouteStopId = stop.id;
   out.currentRouteStopKind = stop.kind;
   writeMooredHeading(stop.dockTangent, angle, out.heading);
   out.wakeIntensity = 0.03;
+  writeZeroVelocityInto(out);
+  writeMapVisibilityAlphaInto(out, 1);
   out.mooringSubPhase = null;
   out.mooringTension = 0;
   out.lanternAlpha = 0;
@@ -1372,6 +1553,8 @@ function mooredRadiusForZone(zone: ShipWaterZone): { x: number; y: number } {
 }
 
 function riskDriftSampleInto(route: ShipMotionRoute, timeSeconds: number, progress: number, out: ShipMotionSample): void {
+  const routePathKey = routePathIdentityKey(route, "risk-drift");
+  beginRoutePathSample(route, routePathKey);
   // E1: stale evidence → wider orbit (×1.35) and slower angular speed (×0.65).
   const staleRadiusFactor = route.staleEvidence ? 1.35 : 1.0;
   const staleAngularFactor = route.staleEvidence ? 0.65 : 1.0;
@@ -1390,10 +1573,17 @@ function riskDriftSampleInto(route: ShipMotionRoute, timeSeconds: number, progre
   );
   out.state = "risk-drift";
   out.zone = route.zone;
+  writeRouteContextInto(route, routePathKey, out);
   out.currentDockId = null;
   out.currentRouteStopId = null;
   out.currentRouteStopKind = null;
   normalizeHeadingInto(-Math.sin(angle), Math.cos(angle * 0.8), out.heading);
+  writeVelocityInto(
+    out,
+    -Math.sin(angle) * radius.x * radiusScale * staleRadiusFactor * staleAngularFactor * 0.017,
+    Math.cos(angle * 0.8) * radius.y * radiusScale * staleRadiusFactor * staleAngularFactor * 0.8 * 0.017,
+  );
+  writeMapVisibilityAlphaInto(out, 1);
   out.wakeIntensity = 0.08;
 }
 

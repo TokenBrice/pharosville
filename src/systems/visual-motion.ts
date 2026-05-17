@@ -16,6 +16,8 @@ export interface VisualShipMotionMemory {
   lastShipId: string | null;
   lastState: ShipMotionSample["state"] | null;
   lastZone: ShipMotionSample["zone"] | null;
+  lastRouteKey: string | null;
+  lastRoutePathKey: string | null;
   lastCurrentDockId: string | null;
   lastCurrentRouteStopId: string | null;
   lastCurrentRouteStopKind: ShipMotionSample["currentRouteStopKind"];
@@ -110,6 +112,7 @@ export function smoothShipMotionSamplesInto(input: SmoothShipMotionSamplesIntoIn
       smoothSampleInto(
         target,
         entry.sample,
+        deltaSeconds,
         dampingAlpha(deltaSeconds, tileDampingSeconds),
         dampingAlpha(deltaSeconds, headingDampingSeconds),
         dampingAlpha(deltaSeconds, numericDampingSeconds),
@@ -142,6 +145,8 @@ function ensureShipMemory(
     lastShipId: null,
     lastState: null,
     lastZone: null,
+    lastRouteKey: null,
+    lastRoutePathKey: null,
     lastCurrentDockId: null,
     lastCurrentRouteStopId: null,
     lastCurrentRouteStopKind: null,
@@ -164,7 +169,7 @@ function shouldSnapToTarget(
   if (rawDeltaSeconds < 0) return true;
   if (rawDeltaSeconds > maxGapSeconds) return true;
   if (entry.lastShipId !== target.shipId) return true;
-  if (entry.lastState !== target.state) return true;
+  if (!isCompatibleStateTransition(entry, target)) return true;
 
   const targetDistance = Math.hypot(entry.sample.tile.x - target.tile.x, entry.sample.tile.y - target.tile.y);
   if (targetDistance > snapDistanceTiles) return true;
@@ -184,23 +189,49 @@ function hasMetadataDiscontinuity(entry: VisualShipMotionMemory, target: ShipMot
     || entry.lastMooringSubPhase !== target.mooringSubPhase;
 }
 
+function isCompatibleStateTransition(entry: VisualShipMotionMemory, target: ShipMotionSample): boolean {
+  if (entry.lastState === target.state) return true;
+  if (!entry.lastState) return false;
+
+  if (entry.lastState === "moored" && target.state === "departing") return true;
+  if (entry.lastState === "departing" && (target.state === "risk-drift" || target.state === "sailing")) return true;
+  if ((entry.lastState === "risk-drift" || entry.lastState === "sailing") && target.state === "arriving") return true;
+  if (entry.lastState === "arriving" && target.state === "moored") return true;
+
+  const ledgerRoute = entry.lastZone === "ledger"
+    || target.zone === "ledger"
+    || entry.lastCurrentRouteStopKind === "ledger"
+    || target.currentRouteStopKind === "ledger";
+  if (ledgerRoute) {
+    if (entry.lastState === "moored" && target.state === "sailing") return true;
+    if (entry.lastState === "sailing" && target.state === "moored") return true;
+  }
+
+  return false;
+}
+
 function smoothSampleInto(
   target: ShipMotionSample,
   out: ShipMotionSample,
+  deltaSeconds: number,
   tileAlpha: number,
   headingAlpha: number,
   numericAlpha: number,
 ): void {
   copyTargetMetadata(target, out);
 
+  const previousX = out.tile.x;
+  const previousY = out.tile.y;
   out.tile.x += (target.tile.x - out.tile.x) * tileAlpha;
   out.tile.y += (target.tile.y - out.tile.y) * tileAlpha;
   smoothHeadingInto(target, out, headingAlpha);
+  writeDisplayVelocityInto(out, out.tile.x - previousX, out.tile.y - previousY, deltaSeconds);
   out.wakeIntensity += (target.wakeIntensity - out.wakeIntensity) * numericAlpha;
   smoothOptionalNumberInto(target, out, "mooringSwayAmplitude", numericAlpha);
   smoothOptionalNumberInto(target, out, "mooringTension", numericAlpha);
   smoothOptionalNumberInto(target, out, "lanternAlpha", numericAlpha);
   smoothOptionalNumberInto(target, out, "fenderContact", numericAlpha);
+  smoothOptionalNumberInto(target, out, "mapVisibilityAlpha", numericAlpha);
 }
 
 function smoothHeadingInto(target: ShipMotionSample, out: ShipMotionSample, alpha: number): void {
@@ -230,7 +261,12 @@ function smoothHeadingInto(target: ShipMotionSample, out: ShipMotionSample, alph
   out.heading.y = nextY / nextLength;
 }
 
-type OptionalNumberSampleKey = "mooringSwayAmplitude" | "mooringTension" | "lanternAlpha" | "fenderContact";
+type OptionalNumberSampleKey =
+  | "mooringSwayAmplitude"
+  | "mooringTension"
+  | "lanternAlpha"
+  | "fenderContact"
+  | "mapVisibilityAlpha";
 
 function smoothOptionalNumberInto(
   target: ShipMotionSample,
@@ -263,17 +299,21 @@ function copyExactSample(target: ShipMotionSample, out: ShipMotionSample): void 
   out.tile.y = target.tile.y;
   out.heading.x = target.heading.x;
   out.heading.y = target.heading.y;
+  copyVelocity(target, out);
   out.wakeIntensity = target.wakeIntensity;
   copyOptionalNumber(target, out, "mooringSwayAmplitude");
   copyOptionalNumber(target, out, "mooringTension");
   copyOptionalNumber(target, out, "lanternAlpha");
   copyOptionalNumber(target, out, "fenderContact");
+  copyOptionalNumber(target, out, "mapVisibilityAlpha");
 }
 
 function copyTargetMetadata(target: ShipMotionSample, out: ShipMotionSample): void {
   out.shipId = target.shipId;
   out.state = target.state;
   out.zone = target.zone;
+  out.routeKey = target.routeKey ?? null;
+  out.routePathKey = target.routePathKey ?? null;
   out.currentDockId = target.currentDockId;
   out.currentRouteStopId = target.currentRouteStopId;
   out.currentRouteStopKind = target.currentRouteStopKind;
@@ -301,12 +341,38 @@ function copyOptionalNumber(target: ShipMotionSample, out: ShipMotionSample, key
   }
 }
 
+function copyVelocity(target: ShipMotionSample, out: ShipMotionSample): void {
+  writeVelocity(out, target.velocity?.x ?? 0, target.velocity?.y ?? 0);
+}
+
+function writeDisplayVelocityInto(out: ShipMotionSample, dx: number, dy: number, deltaSeconds: number): void {
+  if (deltaSeconds <= 0) {
+    writeVelocity(out, 0, 0);
+    return;
+  }
+  writeVelocity(out, dx / deltaSeconds, dy / deltaSeconds);
+}
+
+function writeVelocity(out: ShipMotionSample, x: number, y: number): void {
+  const vx = Number.isFinite(x) ? x : 0;
+  const vy = Number.isFinite(y) ? y : 0;
+  if (!out.velocity) {
+    out.velocity = { x: vx, y: vy };
+  } else {
+    out.velocity.x = vx;
+    out.velocity.y = vy;
+  }
+  out.speedTilesPerSecond = Math.hypot(vx, vy);
+}
+
 function syncShipMemory(entry: VisualShipMotionMemory, target: ShipMotionSample, timeSeconds: number): void {
   entry.initialized = true;
   entry.lastTimeSeconds = timeSeconds;
   entry.lastShipId = target.shipId;
   entry.lastState = target.state;
   entry.lastZone = target.zone;
+  entry.lastRouteKey = target.routeKey ?? null;
+  entry.lastRoutePathKey = target.routePathKey ?? null;
   entry.lastCurrentDockId = target.currentDockId;
   entry.lastCurrentRouteStopId = target.currentRouteStopId;
   entry.lastCurrentRouteStopKind = target.currentRouteStopKind;
@@ -342,16 +408,21 @@ function createDisplaySample(): ShipMotionSample {
     tile: { x: 0, y: 0 },
     state: "idle",
     zone: "calm",
+    routeKey: null,
+    routePathKey: null,
     currentDockId: null,
     currentRouteStopId: null,
     currentRouteStopKind: null,
     heading: { x: 0, y: 0 },
+    velocity: { x: 0, y: 0 },
+    speedTilesPerSecond: 0,
     wakeIntensity: 0,
     mooringSubPhase: null,
     mooringSwayAmplitude: 1,
     mooringTension: 0,
     lanternAlpha: 0,
     fenderContact: 0,
+    mapVisibilityAlpha: 1,
     seaState: null,
   };
 }
