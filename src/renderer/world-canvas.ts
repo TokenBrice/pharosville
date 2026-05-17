@@ -30,6 +30,7 @@ import { drawSky } from "./layers/sky";
 import { drawNightTint, drawNightVignette } from "./layers/night-tint";
 import { skyState } from "./layers/sky";
 import { drawWeather } from "./layers/weather";
+import { drawAtmosphericFade, drawCloudShadowDrift, drawEstablishingShotLetterbox, drawFilmGrainPass } from "./layers/cinematic-atmosphere";
 import type { DrawPharosVilleInput, PharosVilleRenderMetrics } from "./render-types";
 import { tileBoundsTileCount, visibleTileBoundsForCamera } from "./viewport";
 
@@ -421,11 +422,13 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   const visibleTileCount = countVisibleTiles(input);
   drawStaticPassCached(input, frame, "terrain", paintStaticTerrainPass);
   drawDynamicPassCached(input, frame, "water-overlays", paintDynamicWaterPass);
+  drawAtmosphericFade(input, nightFactor);
   drawStaticPassCached(input, frame, "scene", paintStaticScenePass);
   drawLighthouseSurf(input);
   drawLighthouseReflection(input, frame.lighthouseRender, nightFactor);
   const entityMetrics = drawEntityPass(input, frame, nightFactor);
   drawSquadChrome(input, frame);
+  drawCloudShadowDrift(input, nightFactor);
   drawWaterAreaLabels(input);
   drawNightTint(input, nightFactor);
   drawAtmosphere(input, frame.lighthouseRender);
@@ -445,6 +448,8 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   drawLighthouseThunderRim(input, frame.lighthouseRender, nightFactor);
   drawNightVignette(input, nightFactor);
   const selectionDrawableCount = drawSelection(input);
+  drawEstablishingShotLetterbox(input);
+  drawFilmGrainPass(input);
   const drawableCounts = {
     ...entityMetrics.drawableCounts,
     selection: selectionDrawableCount,
