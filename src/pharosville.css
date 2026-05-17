@@ -1031,6 +1031,163 @@ textarea {
   .pv-beacon-pulse::after { animation: none; }
 }
 
+.pharosville-changelog-panel {
+  position: absolute;
+  bottom: 68px;
+  left: 30px;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100% - 154px));
+  max-height: min(620px, calc(100% - 120px));
+  overflow: hidden;
+  border: 3px solid var(--pv-timber-edge);
+  background:
+    linear-gradient(180deg, rgba(58, 38, 20, 0.96), rgba(26, 14, 8, 0.97));
+  color: var(--pv-parchment);
+  font-family: Georgia, "Times New Roman", serif;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 235, 180, 0.18),
+    0 18px 38px rgba(0, 0, 0, 0.56);
+  pointer-events: auto;
+}
+.pharosville-changelog-panel::before {
+  content: "";
+  position: absolute;
+  inset: 9px;
+  border: 1px solid rgba(216, 184, 122, 0.34);
+  pointer-events: none;
+}
+.pharosville-changelog-panel--loading {
+  min-height: 96px;
+  justify-content: center;
+  padding: 22px;
+  color: rgba(248, 229, 178, 0.84);
+  font-style: italic;
+}
+.pharosville-changelog-panel--loading p {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+}
+.pharosville-changelog-panel__header {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 22px 12px;
+  border-bottom: 1px solid rgba(216, 184, 122, 0.28);
+}
+.pharosville-changelog-panel__eyebrow {
+  margin: 0 0 4px;
+  color: rgba(248, 229, 178, 0.66);
+  font-size: 0.64rem;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.pharosville-changelog-panel h2 {
+  margin: 0;
+  color: var(--pv-brass-highlight);
+  font-size: 1.28rem;
+  line-height: 1;
+}
+.pharosville-changelog-panel__close {
+  display: grid;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid rgba(216, 184, 122, 0.55);
+  border-radius: 2px;
+  background: rgba(10, 16, 22, 0.62);
+  color: var(--pv-brass-highlight);
+  cursor: pointer;
+}
+.pharosville-changelog-panel__close:hover {
+  background: rgba(93, 62, 28, 0.72);
+}
+.pharosville-changelog-panel__close:focus-visible {
+  outline: 2px solid var(--pv-brass-highlight);
+  outline-offset: 2px;
+}
+.pharosville-changelog-panel__entries {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0 22px 18px;
+  overflow: auto;
+  list-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--pv-brass-dark) rgba(10, 16, 22, 0.32);
+}
+.pharosville-changelog-entry {
+  padding: 16px 0 14px;
+  border-bottom: 1px dotted rgba(216, 184, 122, 0.28);
+}
+.pharosville-changelog-entry:last-child {
+  border-bottom: none;
+}
+.pharosville-changelog-entry__mast {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 14px;
+  align-items: baseline;
+}
+.pharosville-changelog-entry__meta {
+  display: grid;
+  gap: 3px;
+}
+.pharosville-changelog-entry__version {
+  width: fit-content;
+  padding: 2px 6px;
+  border: 1px solid rgba(216, 184, 122, 0.46);
+  border-radius: 2px;
+  background: rgba(10, 16, 22, 0.38);
+  color: var(--pv-brass-highlight);
+  font-size: 0.68rem;
+  font-style: normal;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+.pharosville-changelog-entry time {
+  color: rgba(248, 229, 178, 0.66);
+  font-size: 0.72rem;
+  font-style: italic;
+}
+.pharosville-changelog-entry h3 {
+  margin: 0;
+  color: #fff0c8;
+  font-size: 1rem;
+  line-height: 1.15;
+}
+.pharosville-changelog-entry__summary {
+  margin: 8px 0 10px;
+  color: rgba(232, 220, 196, 0.84);
+  font-size: 0.82rem;
+  font-style: italic;
+  line-height: 1.35;
+}
+.pharosville-changelog-entry ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 18px;
+  color: rgba(248, 229, 178, 0.86);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+.pharosville-changelog-entry__source {
+  margin: 10px 0 0;
+  color: rgba(232, 220, 196, 0.58);
+  font-size: 0.68rem;
+  font-style: italic;
+}
+
 .pharosville-beta-tag {
   position: absolute;
   bottom: 30px;
@@ -1070,6 +1227,18 @@ textarea {
   color: rgba(248, 229, 178, 0.52);
   font-style: normal;
 }
+.pharosville-beta-tag__button {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pv-brass-highlight);
+  font: inherit;
+  font-style: normal;
+  pointer-events: auto;
+  cursor: pointer;
+}
 .pharosville-beta-tag a {
   flex: 0 0 auto;
   pointer-events: auto;
@@ -1077,7 +1246,9 @@ textarea {
   text-decoration: none;
   font-style: normal;
 }
+.pharosville-beta-tag__button:hover,
 .pharosville-beta-tag a:hover { color: #fff0c8; }
+.pharosville-beta-tag__button:focus-visible,
 .pharosville-beta-tag a:focus-visible {
   outline: 2px solid var(--pv-brass-highlight);
   outline-offset: 2px;

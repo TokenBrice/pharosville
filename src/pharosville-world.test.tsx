@@ -134,9 +134,26 @@ afterEach(() => {
 
 describe("PharosVilleWorld UI accessibility controls", () => {
   it("shows the current docked ship count in the beta footer", () => {
-    render(<PharosVilleWorld world={worldFixture()} />);
+    const { container } = render(<PharosVilleWorld world={worldFixture()} />);
 
     expect(screen.getByTestId("pharosville-ship-counter").textContent).toBe("1 ship docked / 1 total");
+    expect(container.querySelector(".pharosville-beta-tag")?.textContent).toContain("PharosVille beta v0.1.3");
+    expect(container.querySelector(".pharosville-beta-tag")?.textContent?.replace(/\s+/g, " ").trim()).toMatch(
+      /Changelog\|1 ship docked \/ 1 total\|Pharos$/,
+    );
+  });
+
+  it("opens the commit-collected changelog from the beta footer", async () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Changelog" }));
+    const panel = await screen.findByTestId("pharosville-changelog-panel");
+    expect(panel.textContent).toContain("v0.1.3");
+    expect(panel.textContent).toContain("Harbor motion and atmosphere");
+    expect(panel.textContent).toContain("Collected from commits");
+
+    fireEvent.click(screen.getByLabelText("Close changelog"));
+    expect(screen.queryByTestId("pharosville-changelog-panel")).toBeNull();
   });
 
   it("cycles canvas hit targets with Tab and selects the focused target with Enter", async () => {

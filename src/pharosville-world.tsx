@@ -5,7 +5,7 @@
 // genuine ref discipline (no .current reads in render) is enforced by the
 // rules-of-hooks rule and PR review (see HOOKS.md F1 history).
 /* eslint-disable react-hooks/refs */
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import Home from "lucide-react/dist/esm/icons/home";
 import Maximize2 from "lucide-react/dist/esm/icons/maximize-2";
@@ -13,6 +13,7 @@ import Minimize2 from "lucide-react/dist/esm/icons/minimize-2";
 import { AccessibilityLedger } from "./components/accessibility-ledger";
 import { DetailPanel } from "./components/detail-panel";
 import { WorldToolbar } from "./components/world-toolbar";
+import { PHAROSVILLE_LATEST_VERSION } from "./content/pharosville-version";
 import { useAssetLoadingPipeline } from "./hooks/use-asset-loading-pipeline";
 import { useCanvasResizeAndCamera } from "./hooks/use-canvas-resize-and-camera";
 import { useFullscreenMode } from "./hooks/use-fullscreen-mode";
@@ -24,6 +25,10 @@ import type { ScreenPoint } from "./systems/projection";
 import { observeReducedMotion } from "./systems/reduced-motion";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "./systems/world-types";
 
+const LazyChangelogPanel = lazy(() => (
+  import("./components/changelog-panel").then((module) => ({ default: module.ChangelogPanel }))
+));
+
 function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const [hoveredDetailId, setHoveredDetailId] = useState<string | null>(null);
   const [keyboardFocusedDetailId, setKeyboardFocusedDetailId] = useState<string | null>(null);
@@ -33,6 +38,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const [reducedMotion, setReducedMotion] = useState(true);
   const [nightMode, setNightMode] = useState(false);
   const [autoNightCycle, setAutoNightCycle] = useState(false);
+  const [changelogOpen, setChangelogOpen] = useState(false);
   const [manualTimeOverrideHour, setManualTimeOverrideHour] = useState<number | null>(null);
   const manualWallClockRestoreRef = useRef<{ active: boolean; previous: number | undefined }>({
     active: false,
@@ -105,6 +111,16 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     setSelectedDetailId(null);
     setSelectedDetailAnchor(null);
     setAnnouncement("Selection cleared.");
+  }, []);
+
+  const openChangelog = useCallback(() => {
+    setChangelogOpen(true);
+    setAnnouncement("Opened PharosVille changelog.");
+  }, []);
+
+  const closeChangelog = useCallback(() => {
+    setChangelogOpen(false);
+    setAnnouncement("Closed PharosVille changelog.");
   }, []);
 
   const handleSelectTarget = useCallback((target: HitTarget, point: ScreenPoint, viewport: ScreenPoint) => {
@@ -273,6 +289,17 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   }, [clearSelection, selectedDetailId]);
 
   useEffect(() => observeReducedMotion(setReducedMotion), []);
+
+  useEffect(() => {
+    if (!changelogOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setChangelogOpen(false);
+      setAnnouncement("Closed PharosVille changelog.");
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [changelogOpen]);
 
   // world.map is a module singleton; this fires once on full teardown.
   useEffect(() => () => disposePathCacheForMap(world.map), [world.map]);
@@ -460,8 +487,15 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       >
         <Home aria-hidden="true" size={24} />
       </button>
+      {changelogOpen && (
+        <Suspense fallback={<ChangelogPanelLoading />}>
+          <LazyChangelogPanel onClose={closeChangelog} />
+        </Suspense>
+      )}
       <p className="pharosville-beta-tag">
-        <span className="pharosville-beta-tag__notice">PharosVille beta v0.1 - Interpretive view, not financial advice</span>
+        <span className="pharosville-beta-tag__notice">PharosVille beta {PHAROSVILLE_LATEST_VERSION} - Interpretive view, not financial advice</span>
+        <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
+        <button className="pharosville-beta-tag__button" type="button" onClick={openChangelog}>Changelog</button>
         <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
         <span className="pharosville-beta-tag__counter" data-testid="pharosville-ship-counter">{shipCounterLabel}</span>
         <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
@@ -479,6 +513,14 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
 export const PharosVilleWorld = memo(PharosVilleWorldInner);
 
 const integerFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+
+function ChangelogPanelLoading() {
+  return (
+    <aside className="pharosville-changelog-panel pharosville-changelog-panel--loading" role="status">
+      <p>Loading changelog...</p>
+    </aside>
+  );
+}
 
 function fleetCounterLabel(ships: PharosVilleWorldModel["ships"]): string {
   const dockedShips = ships.filter((ship) => ship.dockVisits.length > 0).length;

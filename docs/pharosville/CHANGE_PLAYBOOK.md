@@ -1,6 +1,6 @@
 # PharosVille Change Playbook
 
-Last updated: 2026-05-01
+Last updated: 2026-05-17
 
 Use this playbook to choose the smallest safe path for `/pharosville/` work. The verified product contract remains `docs/pharosville-page.md`; this file is for maintenance execution.
 
@@ -16,6 +16,7 @@ Start by classifying the change:
 | Canvas drawing or animation | `src/renderer/README.md`, `VISUAL_INVARIANTS.md`, `TESTING.md` | `src/renderer/world-canvas.ts`, `src/renderer/hit-testing.ts`, `src/pharosville-world.tsx`, `src/systems/motion.ts`, `src/systems/canvas-budget.ts` | Keep reduced motion deterministic, hit targets aligned, and backing pixels capped. Run Playwright visual checks. |
 | Asset addition or replacement | `ASSET_PIPELINE.md`, `VISUAL_REVIEW_ATLAS.md`, `src/renderer/README.md` | `public/pharosville/assets/**`, `public/pharosville/assets/manifest.json`, `src/systems/asset-manifest.ts`, renderer draw/hitbox logic if geometry changes | Bump manifest cache/style provenance fields per `ASSET_PIPELINE.md`, validate PNG dimensions and manifest references, run asset/color checks and visual tests. |
 | Fixture, scenario, or visual test update | `SCENARIO_CATALOG.md`, `VISUAL_REVIEW_ATLAS.md`, `TESTING.md` | `src/__fixtures__/pharosville-world.ts`, `tests/visual/pharosville.spec.ts`, focused `*.test.ts` files | Keep scenarios realistic and fixture-only. Do not introduce production fallback data. |
+| Changelog update | `docs/pharosville-page.md`, `CURRENT.md`, local `$changelog-collect` skill | `src/content/pharosville-changelog.ts`, `src/components/changelog-panel.tsx`, `src/pharosville-world.tsx` | Use Git commits as the evidence base. Record the version number and selected commit range in each entry. Run the focused importing test and typecheck. |
 | Maintenance guidance | `README.md`, `AGENT_ONBOARDING.md`, `CURRENT.md`, this file | `README.md`, `AGENTS.md`, `CLAUDE.md`, `agents/*.md`, `docs/pharosville/*.md`, `docs/pharosville-page.md`, `src/renderer/README.md`, `src/systems/README.md` | Run docs validation when verified docs changed. Keep historical context subordinate to `CURRENT.md`. |
 
 ## Edit Loop
