@@ -8,6 +8,9 @@ import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-ty
 
 const docksByChainCache = new WeakMap<PharosVilleWorld, Map<string, PharosVilleWorld["docks"][number]>>();
 const renderedDockShipsByChainCache = new WeakMap<PharosVilleWorld, Map<string, PharosVilleWorld["ships"][number][]>>();
+const HOVER_SELECTION_STROKE = "rgba(128, 214, 206, 0.85)";
+const SELECTED_SELECTION_STROKE = "rgba(255, 226, 160, 0.92)";
+const SELECTED_SELECTION_HALO = "rgba(248,229,178,0.45)";
 // Per-(world, chainId) cache of the chain-ship list pre-sorted by descending
 // market cap. The selected-dock relationship pass runs every frame while a
 // dock is selected; the static rank is identical across frames and only
@@ -22,11 +25,11 @@ export function drawSelection(input: DrawPharosVilleInput): number {
     drawableCount += 1;
   }
   if (hoveredTarget) {
-    drawSelectionRing(ctx, hoveredTarget, "rgba(128, 214, 206, 0.85)");
+    drawSelectionRing(ctx, hoveredTarget, HOVER_SELECTION_STROKE);
     drawableCount += 1;
   }
   if (selectedTarget) {
-    drawSelectionRing(ctx, selectedTarget, "rgba(255, 204, 98, 0.95)");
+    drawSelectionRing(ctx, selectedTarget, SELECTED_SELECTION_STROKE, SELECTED_SELECTION_HALO);
     drawableCount += 1;
   }
   return drawableCount;
@@ -258,7 +261,7 @@ function drawRelationshipMarker(
   ctx.restore();
 }
 
-function drawSelectionRing(ctx: CanvasRenderingContext2D, target: HitTarget, color: string) {
+function drawSelectionRing(ctx: CanvasRenderingContext2D, target: HitTarget, color: string, haloColor?: string) {
   const cx = target.rect.x + target.rect.width / 2;
   const bottom = target.rect.y + target.rect.height;
   const width = Math.max(28, Math.min(target.rect.width * 0.82, target.kind === "lighthouse" ? 118 : 76));
@@ -274,6 +277,14 @@ function drawSelectionRing(ctx: CanvasRenderingContext2D, target: HitTarget, col
     drawLabelBrackets(ctx, target, color);
     ctx.restore();
     return;
+  }
+
+  if (haloColor) {
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = haloColor;
+    ctx.beginPath();
+    ctx.ellipse(cx, bottom - height * 0.58, width * 0.58, height * 0.78, -0.08, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   ctx.globalAlpha = target.kind === "lighthouse" ? 0.94 : 0.86;

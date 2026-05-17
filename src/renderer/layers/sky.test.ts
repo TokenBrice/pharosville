@@ -51,12 +51,36 @@ describe("skyState", () => {
   });
 
   describe("mood selection", () => {
+    it("returns night before the predawn boundary", () => {
+      expect(skyState(motionAt(4.99)).mood.top).toBe("#100b12");
+    });
+
+    it("returns predawn from 05:00 until 06:00", () => {
+      expect(skyState(motionAt(5)).mood.top).toBe("#151a31");
+      expect(skyState(motionAt(5.99)).mood.top).toBe("#151a31");
+    });
+
     it("returns dawn at 06:00", () => {
       expect(skyState(motionAt(6)).mood.top).toBe("#223b57");
     });
 
+    it("returns day from 07:00 until golden hour", () => {
+      expect(skyState(motionAt(7)).mood.top).toBe("#496f8b");
+      expect(skyState(motionAt(16.99)).mood.top).toBe("#496f8b");
+    });
+
     it("returns day at 12:00", () => {
       expect(skyState(motionAt(12)).mood.top).toBe("#496f8b");
+    });
+
+    it("returns golden from 17:00 until dusk", () => {
+      expect(skyState(motionAt(17)).mood.top).toBe("#385f78");
+      expect(skyState(motionAt(17.99)).mood.top).toBe("#385f78");
+    });
+
+    it("returns dusk from 18:00 until night", () => {
+      expect(skyState(motionAt(18)).mood.top).toBe("#151a32");
+      expect(skyState(motionAt(19.99)).mood.top).toBe("#151a32");
     });
 
     it("returns dusk at 19:00", () => {

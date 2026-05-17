@@ -1,12 +1,16 @@
-import { describe, expect, it } from "vitest";
-import { drawNightTint } from "./night-tint";
+import { describe, expect, it, vi } from "vitest";
+import { drawNightTint, drawNightVignette, drawSceneVignette } from "./night-tint";
 import { createCanvasContextStub, createDrawInput } from "../__test-utils__/draw-input";
 import type { DrawPharosVilleInput } from "../render-types";
 
 function makeInput(width = 800, height = 600): DrawPharosVilleInput {
+  const gradient = { addColorStop: vi.fn() };
   const ctx = createCanvasContextStub(
     ["fillRect", "save", "restore"],
-    { fillStyle: "" },
+    {
+      createRadialGradient: vi.fn(() => gradient),
+      fillStyle: "",
+    },
   );
   return createDrawInput({
     ctx,
@@ -39,5 +43,30 @@ describe("drawNightTint", () => {
     const input = makeInput();
     drawNightTint(input, 0.5);
     expect(input.ctx.fillRect).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("drawSceneVignette", () => {
+  it("paints a deterministic day vignette even when nightFactor is 0", () => {
+    const input = makeInput(810, 610);
+    drawSceneVignette(input, 0);
+    expect(input.ctx.fillRect).toHaveBeenCalledTimes(1);
+    expect(input.ctx.fillRect).toHaveBeenCalledWith(0, 0, 810, 610);
+  });
+
+  it("keeps the drawNightVignette export compatible", () => {
+    const input = makeInput(811, 611);
+    drawNightVignette(input, 0);
+    expect(input.ctx.fillRect).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the full cinematic edge alpha at night", () => {
+    const gradient = { addColorStop: vi.fn() };
+    const input = makeInput(812, 612);
+    (input.ctx as unknown as { createRadialGradient: ReturnType<typeof vi.fn> }).createRadialGradient = vi.fn(() => gradient);
+
+    drawSceneVignette(input, 1);
+
+    expect(gradient.addColorStop).toHaveBeenCalledWith(1, "rgba(5, 3, 18, 0.82)");
   });
 });

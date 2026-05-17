@@ -10,8 +10,20 @@ import {
 } from "./weather";
 
 const SKY_MOODS = {
+  predawn: {
+    horizon: "#b76758",
+    horizonBleedAlpha: 0.16,
+    lower: "#0a1424",
+    mist: "rgba(244, 184, 126, 0.18)",
+    moonAlpha: 0.56,
+    starAlpha: 0.44,
+    sunAlpha: 0.1,
+    top: "#151a31",
+    waterVeil: "rgba(18, 55, 72, 0.2)",
+  },
   dawn: {
     horizon: "#d07d55",
+    horizonBleedAlpha: 0.28,
     lower: "#0d2035",
     mist: "rgba(255, 211, 154, 0.22)",
     moonAlpha: 0.12,
@@ -22,6 +34,7 @@ const SKY_MOODS = {
   },
   day: {
     horizon: "#d9ad67",
+    horizonBleedAlpha: 0.24,
     lower: "#123a53",
     mist: "rgba(255, 225, 164, 0.18)",
     moonAlpha: 0,
@@ -30,8 +43,20 @@ const SKY_MOODS = {
     top: "#496f8b",
     waterVeil: "rgba(43, 128, 132, 0.14)",
   },
+  golden: {
+    horizon: "#df9a55",
+    horizonBleedAlpha: 0.34,
+    lower: "#153349",
+    mist: "rgba(255, 210, 146, 0.2)",
+    moonAlpha: 0,
+    starAlpha: 0,
+    sunAlpha: 0.72,
+    top: "#385f78",
+    waterVeil: "rgba(56, 116, 118, 0.16)",
+  },
   dusk: {
     horizon: "#d36e56",
+    horizonBleedAlpha: 0.24,
     lower: "#0b1222",
     mist: "rgba(246, 177, 126, 0.22)",
     moonAlpha: 0.34,
@@ -42,6 +67,7 @@ const SKY_MOODS = {
   },
   night: {
     horizon: "#183154",
+    horizonBleedAlpha: 0.08,
     lower: "#050812",
     mist: "rgba(200, 219, 205, 0.12)",
     moonAlpha: 0.74,
@@ -86,7 +112,7 @@ const SKY_CLOUDS = [
 
 type SkyMoodKey = keyof typeof SKY_MOODS;
 
-const SKY_MOOD_KEYS: readonly SkyMoodKey[] = ["dawn", "day", "dusk", "night"];
+const SKY_MOOD_KEYS: readonly SkyMoodKey[] = ["predawn", "dawn", "day", "golden", "dusk", "night"];
 
 function moodKeyFor(mood: typeof SKY_MOODS[SkyMoodKey]): SkyMoodKey {
   for (const key of SKY_MOOD_KEYS) {
@@ -103,7 +129,12 @@ function moodKeyFor(mood: typeof SKY_MOODS[SkyMoodKey]): SkyMoodKey {
 // per-frame draw path only needs an O(1) array lookup.
 const SKY_CLOUD_STROKES: Record<SkyMoodKey, readonly (readonly string[])[]> = (() => {
   const result: Record<SkyMoodKey, string[][]> = {
-    dawn: [], day: [], dusk: [], night: [],
+    dawn: [],
+    day: [],
+    dusk: [],
+    golden: [],
+    night: [],
+    predawn: [],
   };
   for (const moodKey of SKY_MOOD_KEYS) {
     const mist = SKY_MOODS[moodKey].mist;
@@ -175,6 +206,17 @@ function paintSkyBackdrop(
   target.fillStyle = gradient;
   target.fillRect(0, 0, width, height);
 
+  const horizonBleedAlpha = mood.horizonBleedAlpha * (0.72 + 0.28 * (1 - nightFactor));
+  if (horizonBleedAlpha > 0) {
+    const haze = target.createLinearGradient(0, 0, 0, height);
+    haze.addColorStop(0.38, "rgba(255, 223, 156, 0)");
+    haze.addColorStop(0.5, `rgba(255, 223, 156, ${horizonBleedAlpha})`);
+    haze.addColorStop(0.58, `rgba(212, 154, 74, ${horizonBleedAlpha * 0.54})`);
+    haze.addColorStop(0.72, "rgba(212, 154, 74, 0)");
+    target.fillStyle = haze;
+    target.fillRect(0, 0, width, height);
+  }
+
   target.save();
   // Reduce sky-glow alpha at night so the new ground-level warm aura doesn't
   // stack with a sky halo to read as "two halos."
@@ -210,7 +252,8 @@ function getSkyBackdropCanvas(
   zoom: number,
   nightFactor: number,
 ): HTMLCanvasElement | null {
-  const key = `${width}x${height}|${moodKeyFor(mood)}|${firePointX},${firePointY}|z${(zoom * 100) | 0}|n${(nightFactor * 20) | 0}`;
+  const horizonBleedBucket = (mood.horizonBleedAlpha * 100) | 0;
+  const key = `${width}x${height}|${moodKeyFor(mood)}|h${horizonBleedBucket}|${firePointX},${firePointY}|z${(zoom * 100) | 0}|n${(nightFactor * 20) | 0}`;
   if (skyBackdropCache && skyBackdropCache.key === key) {
     return skyBackdropCache.canvas;
   }
@@ -257,15 +300,22 @@ export function drawSky(input: DrawPharosVilleInput, lighthouse?: LighthouseRend
 
 export function skyState(motion: PharosVilleCanvasMotion) {
   const hour = ((motion.wallClockHour % 24) + 24) % 24;
-  const mood = hour < 5
-    ? SKY_MOODS.night
-    : hour < 7
-      ? SKY_MOODS.dawn
-      : hour < 18
-        ? SKY_MOODS.day
-        : hour < 20
-          ? SKY_MOODS.dusk
-          : SKY_MOODS.night;
+  let mood: typeof SKY_MOODS[SkyMoodKey];
+  if (hour < 5) {
+    mood = SKY_MOODS.night;
+  } else if (hour < 6) {
+    mood = SKY_MOODS.predawn;
+  } else if (hour < 7) {
+    mood = SKY_MOODS.dawn;
+  } else if (hour < 17) {
+    mood = SKY_MOODS.day;
+  } else if (hour < 18) {
+    mood = SKY_MOODS.golden;
+  } else if (hour < 20) {
+    mood = SKY_MOODS.dusk;
+  } else {
+    mood = SKY_MOODS.night;
+  }
   const progress = (((hour - 6) / 24) % 1 + 1) % 1;
   const nightFactor = computeNightFactor(hour);
   return { mood, progress, nightFactor };
