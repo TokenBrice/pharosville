@@ -552,6 +552,38 @@ function drawMooringPosts(ctx: CanvasRenderingContext2D, x: number, y: number, s
   ctx.moveTo(x - 10 * scale, y - 9 * scale);
   ctx.quadraticCurveTo(x, y - 4 * scale, x + 10 * scale, y - 9 * scale);
   ctx.stroke();
+  drawMooringBunting(ctx, x, y, scale);
+  ctx.restore();
+}
+
+function drawMooringBunting(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
+  const flags = [
+    { fill: "#d9b974", x: -6.4, y: -9.3 },
+    { fill: "#a95842", x: -2.2, y: -7.3 },
+    { fill: "#6fae8b", x: 2.2, y: -7.3 },
+    { fill: "#e7d6a3", x: 6.4, y: -9.3 },
+  ] as const;
+  ctx.save();
+  ctx.strokeStyle = "rgba(214, 184, 118, 0.58)";
+  ctx.lineWidth = Math.max(1, 0.72 * scale);
+  ctx.beginPath();
+  ctx.moveTo(x - 10 * scale, y - 12 * scale);
+  ctx.quadraticCurveTo(x, y - 7.4 * scale, x + 10 * scale, y - 12 * scale);
+  ctx.stroke();
+  for (const flag of flags) {
+    const fx = x + flag.x * scale;
+    const fy = y + flag.y * scale;
+    ctx.fillStyle = flag.fill;
+    ctx.beginPath();
+    ctx.moveTo(fx - 1.8 * scale, fy);
+    ctx.lineTo(fx + 2 * scale, fy + 0.2 * scale);
+    ctx.lineTo(fx + 0.2 * scale, fy + 5.2 * scale);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "rgba(38, 25, 16, 0.55)";
+    ctx.lineWidth = Math.max(1, 0.46 * scale);
+    ctx.stroke();
+  }
   ctx.restore();
 }
 

@@ -1,5 +1,6 @@
 import type { PharosVilleWorld } from "../../systems/world-types";
 import { tileToScreen, type ScreenPoint } from "../../systems/projection";
+import { isLandTileKind, tileKindAt } from "../../systems/world-layout";
 import type { LoadedPharosVilleAsset, PharosVilleAssetManager } from "../asset-manager";
 import { drawAsset, drawDiamond, drawFittedText, drawSignBoard } from "../canvas-primitives";
 import type { RenderFrameCache } from "../frame-cache";
@@ -201,15 +202,29 @@ function drawDockQuayUnderlay(
 export function drawDockOverlay(input: DrawPharosVilleInput, frame: DockRenderFrame, dock: PharosVilleWorld["docks"][number]): void {
   const { assets, camera, ctx, hoveredTarget, motion, selectedTarget, world } = input;
   const { harbor } = dockRenderState(frame, dock);
+  const logo = assets?.getLogo(dock.logoSrc) ?? null;
+  const accent = dockHealthColor(dock.healthBand);
+  const outward = dockOutwardVector(dock.tile, world.map.width);
+  drawHarborLandMarkers({
+    accent,
+    camera,
+    ctx,
+    dock,
+    logo,
+    mapWidth: world.map.width,
+    motion,
+    outward,
+    zoom: camera.zoom,
+  });
   drawHarborFlag({
-    accent: dockHealthColor(dock.healthBand),
+    accent,
     ctx,
     dock,
     emphasized: hoveredTarget?.detailId === dock.detailId || selectedTarget?.detailId === dock.detailId,
-    logo: assets?.getLogo(dock.logoSrc) ?? null,
+    logo,
     mapWidth: world.map.width,
     motion,
-    outward: dockOutwardVector(dock.tile, world.map.width),
+    outward,
     x: harbor.x,
     y: harbor.y - 12 * camera.zoom,
     zoom: camera.zoom,
@@ -222,6 +237,178 @@ function dockHealthColor(healthBand: PharosVilleWorld["docks"][number]["healthBa
   if (healthBand === "fragile") return "#d98b54";
   if (healthBand === "concentrated") return "#c9675c";
   return "#9fb0aa";
+}
+
+function drawHarborLandMarkers(input: {
+  accent: string;
+  camera: DrawPharosVilleInput["camera"];
+  ctx: CanvasRenderingContext2D;
+  dock: PharosVilleWorld["docks"][number];
+  logo: ReturnType<PharosVilleAssetManager["getLogo"]>;
+  mapWidth: number;
+  motion: DrawPharosVilleInput["motion"];
+  outward: { x: -1 | 0 | 1; y: -1 | 0 | 1 };
+  zoom: number;
+}) {
+  const { accent, camera, ctx, dock, logo, mapWidth, motion, outward, zoom } = input;
+  const tangent = dockLandMarkerTangent(outward, dock.tile, mapWidth);
+  const baseTile = dockLandMarkerBaseTile(dock.tile, outward);
+  const tile = {
+    x: baseTile.x - outward.x * 0.18 + tangent.x * 0.22,
+    y: baseTile.y - outward.y * 0.18 + tangent.y * 0.22,
+  };
+  const point = tileToScreen(tile, camera);
+  const scale = Math.max(0.62, zoom);
+  const mark = dockFlagMark(dock);
+  const fill = CHAIN_FLAG_COLOR_OVERRIDES[dock.chainId] ?? (logo ? logoFlagColor(logo, accent) : accent);
+  const side = outward.x !== 0
+    ? -outward.x
+    : dock.tile.x < (mapWidth - 1) / 2 ? 1 : -1;
+  const direction = side < 0 ? -1 : 1;
+
+  ctx.save();
+  drawWaystonePlaque(ctx, mark, point.x + tangent.x * 8 * scale, point.y + 5 * scale, scale);
+  drawLandChainFlag({
+    ctx,
+    direction,
+    fill,
+    logo,
+    mark,
+    motion,
+    scale,
+    tile: dock.tile,
+    x: point.x - tangent.x * 6 * scale,
+    y: point.y - 2 * scale,
+  });
+  ctx.restore();
+}
+
+function dockLandMarkerTangent(
+  outward: { x: -1 | 0 | 1; y: -1 | 0 | 1 },
+  tile: { x: number; y: number },
+  mapWidth: number,
+): { x: -1 | 0 | 1; y: -1 | 0 | 1 } {
+  const center = (mapWidth - 1) / 2;
+  if (outward.x !== 0) return { x: 0, y: tile.y < center ? 1 : -1 };
+  return { x: tile.x < center ? 1 : -1, y: 0 };
+}
+
+function dockLandMarkerBaseTile(
+  tile: { x: number; y: number },
+  outward: { x: -1 | 0 | 1; y: -1 | 0 | 1 },
+): { x: number; y: number } {
+  const candidates = [
+    tile,
+    { x: tile.x - outward.x, y: tile.y - outward.y },
+    { x: tile.x + 1, y: tile.y },
+    { x: tile.x - 1, y: tile.y },
+    { x: tile.x, y: tile.y + 1 },
+    { x: tile.x, y: tile.y - 1 },
+  ];
+  return candidates.find((candidate) => (
+    isLandTileKind(tileKindAt(Math.round(candidate.x), Math.round(candidate.y)))
+  )) ?? tile;
+}
+
+function drawWaystonePlaque(
+  ctx: CanvasRenderingContext2D,
+  mark: string,
+  x: number,
+  y: number,
+  scale: number,
+) {
+  const width = 19 * scale;
+  const height = 12 * scale;
+  ctx.save();
+  ctx.fillStyle = "rgba(7, 10, 12, 0.28)";
+  ctx.beginPath();
+  ctx.ellipse(x, y + 4.5 * scale, width * 0.58, height * 0.3, -0.08, 0, Math.PI * 2);
+  ctx.fill();
+  drawSignBoard(ctx, x - width / 2, y - height, width, height, scale * 0.54, "#a99a7b", "#4d4639");
+  ctx.fillStyle = "rgba(55, 42, 29, 0.68)";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  drawFittedText(ctx, mark.slice(0, 4).toUpperCase(), x, y - height * 0.48, width - 5 * scale, 5.8 * scale, 4 * scale, "800");
+  ctx.textAlign = "start";
+  ctx.textBaseline = "alphabetic";
+  ctx.restore();
+}
+
+function drawLandChainFlag(input: {
+  ctx: CanvasRenderingContext2D;
+  direction: 1 | -1;
+  fill: string;
+  logo: ReturnType<PharosVilleAssetManager["getLogo"]>;
+  mark: string;
+  motion: DrawPharosVilleInput["motion"];
+  scale: number;
+  tile: { x: number; y: number };
+  x: number;
+  y: number;
+}) {
+  const { ctx, direction, fill, logo, mark, motion, scale, tile, x, y } = input;
+  const time = motion.reducedMotion ? 0 : motion.timeSeconds;
+  const flutter = motion.reducedMotion ? 0 : Math.sin(time * 1.7 + tile.x * 0.4 + tile.y * 0.61) * 1.1 * scale;
+  const mastTop = y - 24 * scale;
+  const mastBase = y + 2 * scale;
+  const flagWidth = 15 * scale;
+  const flagHeight = 9 * scale;
+  const flagY = mastTop + 2 * scale;
+
+  ctx.save();
+  ctx.fillStyle = "rgba(7, 10, 12, 0.28)";
+  ctx.beginPath();
+  ctx.ellipse(x + direction * 4 * scale, mastBase + 2 * scale, 8 * scale, 2.2 * scale, -0.08, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#281b12";
+  ctx.lineWidth = Math.max(1, 1.05 * scale);
+  ctx.beginPath();
+  ctx.moveTo(Math.round(x), Math.round(mastBase));
+  ctx.lineTo(Math.round(x), Math.round(mastTop));
+  ctx.stroke();
+  ctx.strokeStyle = "#7d603a";
+  ctx.lineWidth = Math.max(1, 0.62 * scale);
+  ctx.beginPath();
+  ctx.moveTo(Math.round(x + direction * 0.6 * scale), Math.round(mastBase - 1 * scale));
+  ctx.lineTo(Math.round(x + direction * 0.6 * scale), Math.round(mastTop));
+  ctx.stroke();
+
+  ctx.fillStyle = cachedHexToRgba(fill, 0.9);
+  ctx.beginPath();
+  ctx.moveTo(x, flagY);
+  ctx.lineTo(x + direction * (flagWidth + flutter), flagY + 2 * scale);
+  ctx.lineTo(x + direction * (flagWidth * 0.72 - flutter * 0.3), flagY + flagHeight * 0.55);
+  ctx.lineTo(x + direction * (flagWidth + flutter * 0.6), flagY + flagHeight);
+  ctx.lineTo(x, flagY + flagHeight);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "rgba(47, 33, 23, 0.88)";
+  ctx.lineWidth = Math.max(1, 0.58 * scale);
+  ctx.stroke();
+
+  const logoSize = Math.max(4, flagHeight * 0.72);
+  const logoX = x + direction * flagWidth * 0.42;
+  const logoY = flagY + flagHeight * 0.55;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(
+    Math.min(x, x + direction * flagWidth) - 1 * scale,
+    flagY - 1 * scale,
+    flagWidth + 2 * scale,
+    flagHeight + 2 * scale,
+  );
+  ctx.clip();
+  if (logo) {
+    ctx.drawImage(logo.image, logoX - logoSize / 2, logoY - logoSize / 2, logoSize, logoSize);
+  } else {
+    ctx.fillStyle = "rgba(20, 14, 8, 0.74)";
+    ctx.font = `800 ${Math.max(4, Math.round(flagHeight * 0.56))}px ui-sans-serif, system-ui, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(mark.slice(0, 2).toUpperCase(), logoX, logoY + 0.3 * scale, flagWidth * 0.58);
+  }
+  ctx.restore();
+  ctx.restore();
 }
 
 function drawHarborFlag(input: {

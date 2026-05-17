@@ -119,6 +119,7 @@ export function drawCemeteryGround({ camera, ctx, world }: DrawPharosVilleInput)
   drawSubmergedRocks(ctx, camera);
   drawDecorativeHulls(ctx, camera);
   drawCenterpieceFlagshipWreck(ctx, camera);
+  drawCoveMemorialProps(ctx, camera);
   ctx.restore();
 }
 
@@ -420,6 +421,123 @@ function drawCenterpieceFlagshipWreck(ctx: CanvasRenderingContext2D, camera: Iso
   ctx.lineWidth = 0.45;
   ctx.stroke();
 
+  ctx.restore();
+}
+
+const COVE_MEMORIAL_PROPS = [
+  { kind: "votive-row", scale: 0.72, tile: { x: 6.55, y: 49.25 } },
+  { kind: "keel-marker", scale: 0.78, tile: { x: 9.85, y: 49.1 } },
+  { kind: "wreath", scale: 0.82, tile: { x: 5.65, y: 50.85 } },
+  { kind: "votive-row", scale: 0.64, tile: { x: 8.55, y: 51.55 } },
+  { kind: "bell-buoy", scale: 0.66, tile: { x: 11.1, y: 50.45 } },
+] as const;
+
+function drawCoveMemorialProps(ctx: CanvasRenderingContext2D, camera: IsoCamera) {
+  for (const prop of COVE_MEMORIAL_PROPS) {
+    const p = tileToScreen(prop.tile, camera);
+    const scale = camera.zoom * prop.scale;
+    if (prop.kind === "votive-row") {
+      drawMemorialVotiveRow(ctx, p.x, p.y, scale);
+    } else if (prop.kind === "keel-marker") {
+      drawMemorialKeelMarker(ctx, p.x, p.y, scale);
+    } else if (prop.kind === "wreath") {
+      drawMemorialWreath(ctx, p.x, p.y, scale);
+    } else {
+      drawMemorialBellBuoy(ctx, p.x, p.y, scale);
+    }
+  }
+}
+
+function drawMemorialVotiveRow(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
+  ctx.save();
+  ctx.fillStyle = "rgba(7, 10, 12, 0.22)";
+  drawDiamond(ctx, x, y + 3.5 * scale, 24 * scale, 7 * scale, ctx.fillStyle);
+  ctx.strokeStyle = "rgba(120, 95, 58, 0.78)";
+  ctx.lineWidth = Math.max(1, 0.68 * scale);
+  ctx.beginPath();
+  ctx.moveTo(x - 10 * scale, y);
+  ctx.lineTo(x + 10 * scale, y + 1 * scale);
+  ctx.stroke();
+  for (const [dx, flame] of [[-7, 0.55], [-2.3, 0.72], [2.6, 0.62], [7.4, 0.5]] as const) {
+    ctx.fillStyle = "#d8c693";
+    ctx.fillRect(Math.round(x + dx * scale - 1.4 * scale), Math.round(y - 2 * scale), Math.max(1, Math.round(2.8 * scale)), Math.max(1, Math.round(3.6 * scale)));
+    ctx.fillStyle = `rgba(247, 194, 95, ${flame})`;
+    ctx.beginPath();
+    ctx.ellipse(x + dx * scale, y - 4 * scale, 2.2 * scale, 3.3 * scale, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawMemorialKeelMarker(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
+  ctx.save();
+  ctx.fillStyle = "rgba(7, 10, 12, 0.24)";
+  drawDiamond(ctx, x, y + 5 * scale, 22 * scale, 7 * scale, ctx.fillStyle);
+  ctx.fillStyle = "#8f866f";
+  ctx.beginPath();
+  ctx.moveTo(x - 5 * scale, y + 3 * scale);
+  ctx.lineTo(x - 2 * scale, y - 17 * scale);
+  ctx.quadraticCurveTo(x, y - 21 * scale, x + 2 * scale, y - 17 * scale);
+  ctx.lineTo(x + 5 * scale, y + 3 * scale);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "#40372b";
+  ctx.lineWidth = Math.max(1, 0.74 * scale);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(225, 210, 166, 0.72)";
+  ctx.lineWidth = Math.max(1, 0.58 * scale);
+  ctx.beginPath();
+  ctx.moveTo(x, y - 14 * scale);
+  ctx.lineTo(x, y - 2 * scale);
+  ctx.moveTo(x - 3 * scale, y - 8 * scale);
+  ctx.lineTo(x + 3 * scale, y - 8 * scale);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawMemorialWreath(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
+  ctx.save();
+  ctx.fillStyle = "rgba(7, 10, 12, 0.18)";
+  ctx.beginPath();
+  ctx.ellipse(x, y + 3 * scale, 12 * scale, 3.5 * scale, -0.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#5f7b59";
+  ctx.lineWidth = Math.max(1, 2.6 * scale);
+  ctx.beginPath();
+  ctx.ellipse(x, y, 9 * scale, 4.2 * scale, -0.18, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.strokeStyle = "#a86b54";
+  ctx.lineWidth = Math.max(1, 0.9 * scale);
+  for (const [dx, dy] of [[-5, -1.3], [0, 2.3], [5, -0.9]] as const) {
+    ctx.beginPath();
+    ctx.moveTo(x + dx * scale - 1.8 * scale, y + dy * scale);
+    ctx.lineTo(x + dx * scale + 1.8 * scale, y + dy * scale);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawMemorialBellBuoy(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
+  ctx.save();
+  ctx.fillStyle = "rgba(7, 10, 12, 0.2)";
+  ctx.beginPath();
+  ctx.ellipse(x, y + 5 * scale, 10 * scale, 2.8 * scale, -0.08, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#2f2117";
+  ctx.lineWidth = Math.max(1, 1.1 * scale);
+  ctx.beginPath();
+  ctx.moveTo(x - 6 * scale, y + 3 * scale);
+  ctx.lineTo(x, y - 15 * scale);
+  ctx.lineTo(x + 6 * scale, y + 3 * scale);
+  ctx.stroke();
+  ctx.fillStyle = "#b58a4a";
+  ctx.beginPath();
+  ctx.ellipse(x, y - 2 * scale, 4.6 * scale, 5.6 * scale, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#f0d69a";
+  ctx.beginPath();
+  ctx.arc(x, y - 14.5 * scale, 2.4 * scale, 0, Math.PI * 2);
+  ctx.fill();
   ctx.restore();
 }
 
