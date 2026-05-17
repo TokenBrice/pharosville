@@ -25,6 +25,9 @@ const files = trackedFiles
   .filter((file) => existsSync(file) && sourceExtensionPattern.test(file) && !testFilePattern.test(file))
   .sort();
 
+const LANTERN_WARM_HEX = "#d49a3e";
+const PALETTE_SOURCE_PATH = "src/systems/palette.ts";
+
 const bannedPatterns = [
   { pattern: /checkerboard/i, message: "checkerboard placeholder text is not allowed in production route files" },
   { pattern: /#(?:a855f7|9333ea|7c3aed|8b5cf6)/i, message: "avoid default purple accent drift in PharosVille" },
@@ -41,6 +44,14 @@ for (const file of files) {
   for (const { pattern, message } of bannedPatterns) {
     if (pattern.test(source)) failures.push(`${file}: ${message}`);
   }
+}
+
+const paletteSource = readFileSync(resolve(REPO_ROOT, PALETTE_SOURCE_PATH), "utf8");
+const lanternWarmMatch = paletteSource.match(/\blantern_warm:\s*["'](#[0-9a-f]{6})["']/i);
+if (!lanternWarmMatch) {
+  failures.push(`${PALETTE_SOURCE_PATH}: HARBOR_PALETTE.lantern_warm anchor is missing`);
+} else if (lanternWarmMatch[1].toLowerCase() !== LANTERN_WARM_HEX) {
+  failures.push(`${PALETTE_SOURCE_PATH}: HARBOR_PALETTE.lantern_warm must remain ${LANTERN_WARM_HEX}`);
 }
 
 // ---------------------------------------------------------------------------

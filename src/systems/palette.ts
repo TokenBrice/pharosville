@@ -77,14 +77,14 @@ export interface WaterTerrainStyle {
 export const WATER_TERRAIN_STYLES = {
   "alert-water": {
     accent: "rgba(230, 190, 105, 0.22)",
-    base: "#286f78",
+    base: "#3d6e58",
     inner: "rgba(82, 150, 145, 0.24)",
     texture: "alert",
     wave: "rgba(225, 214, 162, 0.18)",
   },
   "calm-water": {
     accent: "rgba(188, 245, 233, 0.22)",
-    base: "#0f6f8d",
+    base: "#125e7e",
     inner: "rgba(64, 164, 184, 0.24)",
     texture: "calm",
     wave: "rgba(213, 243, 236, 0.16)",
@@ -104,35 +104,29 @@ export const WATER_TERRAIN_STYLES = {
     wave: "rgba(207, 240, 231, 0.16)",
   },
   "ledger-water": {
-    // Cool, green-blue tone for Ledger Mooring while staying distinct from the
-    // Calm/Watch ladder.
-    accent: "rgba(123, 198, 207, 0.25)",
-    base: "#2b5966",
+    accent: "rgba(180,210,196,0.24)",
+    base: "#3d4860",
     inner: "rgba(88, 151, 164, 0.22)",
     texture: "ledger",
     wave: "rgba(175, 235, 242, 0.16)",
   },
   "storm-water": {
-    // Near-black storm, kept >18 hex distance from deep-water #06131d so the
-    // overlapping rings stay distinct on the ultrawide lane. Slightly more
-    // blue than the research-proposed #06192d while preserving the
-    // "one step darker than #08243b" intent.
     accent: "rgba(232, 238, 240, 0.26)",
-    base: "#0a1f35",
+    base: "#1a1428",
     inner: "rgba(2, 9, 18, 0.36)",
     texture: "storm",
     wave: "rgba(218, 232, 224, 0.22)",
   },
   "watch-water": {
     accent: "rgba(150, 196, 218, 0.22)",
-    base: "#194d6e",
+    base: "#1c4d6d",
     inner: "rgba(70, 126, 160, 0.22)",
     texture: "watch",
     wave: "rgba(182, 222, 235, 0.16)",
   },
   "warning-water": {
     accent: "rgba(215, 174, 100, 0.35)",
-    base: "#3d4332",
+    base: "#5e5535",
     inner: "rgba(82, 70, 42, 0.28)",
     texture: "warning",
     wave: "rgba(224, 214, 174, 0.20)",
