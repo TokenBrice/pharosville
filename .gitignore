@@ -9,7 +9,11 @@ playwright-report/
 output/
 outputs/
 .worktrees/
-.claude/
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/changelog-collect/
+!.claude/skills/changelog-collect/SKILL.md
 .superpowers/
 .DS_Store
 .env

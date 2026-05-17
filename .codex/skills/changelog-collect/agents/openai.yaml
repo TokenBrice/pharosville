@@ -1,0 +1,4 @@
+interface:
+  display_name: "Changelog Collect"
+  short_description: "Write changelogs from Git commits"
+  default_prompt: "Use $changelog-collect to update this project's changelog from the latest meaningful commits."
