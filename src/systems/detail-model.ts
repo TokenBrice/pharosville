@@ -7,6 +7,7 @@ import { shipCycleTempo, type ShipCycleTempoResult } from "./ship-cycle-tempo";
 
 const usd = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0, style: "currency", currency: "USD" });
 const percent = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1, style: "percent" });
+const ELEVATED_DEWS_BANDS = new Set<DewsAreaBand>(["ALERT", "WARNING", "DANGER"]);
 
 function marketCapLabel(value: number): string {
   return Number.isFinite(value) && value > 0 ? usd.format(value) : "Unavailable";
@@ -14,6 +15,20 @@ function marketCapLabel(value: number): string {
 
 function pluralize(count: number, singular: string, plural: string = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
+}
+
+export function lighthouseBeamWarmCueLabel(areas?: readonly AreaNode[]): string {
+  if (!areas) {
+    return "Beam warms amber when active DEWS reaches ALERT, WARNING, or DANGER.";
+  }
+  const elevatedAreas = areas.filter((area) => area.band && ELEVATED_DEWS_BANDS.has(area.band) && (area.count ?? 0) > 0);
+  if (elevatedAreas.length === 0) {
+    return "Beam at standard warmth; no active elevated DEWS stablecoins.";
+  }
+  const areaList = elevatedAreas
+    .map((area) => `${area.label} ${area.band}${area.count != null ? ` (${pluralize(area.count, "stablecoin")})` : ""}`)
+    .join(", ");
+  return `Beam warming amber under elevated DEWS: ${areaList}.`;
 }
 
 function chainLabel(chainId: string): string {
@@ -123,6 +138,7 @@ export function detailForLighthouse(node: LighthouseNode): DetailModel {
     facts: [
       { label: "Score", value: node.score == null ? "Unavailable" : String(node.score) },
       { label: "Band", value: node.psiBand ?? "Unavailable" },
+      { label: "Beam warmth cue", value: lighthouseBeamWarmCueLabel() },
     ],
     links: [{ label: "PSI", href: analyticalRouteHref("/stability-index/") }],
   };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detailForArea, detailForDock, detailForLighthouse, detailForPigeonnier, detailForShip, PHAROS_WATCH_TELEGRAM_HREF } from "./detail-model";
+import { detailForArea, detailForDock, detailForLighthouse, detailForPigeonnier, detailForShip, lighthouseBeamWarmCueLabel, PHAROS_WATCH_TELEGRAM_HREF } from "./detail-model";
 import type { AreaNode, DockNode, LighthouseNode, PigeonnierNode, ShipNode } from "./world-types";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import {
@@ -10,7 +10,7 @@ import {
 
 describe("detail-model analytical links", () => {
   it("points built-in detail links at canonical Pharos Watch routes", () => {
-    expect(detailForLighthouse({
+    const lighthouseDetail = detailForLighthouse({
       id: "lighthouse",
       kind: "lighthouse",
       label: "Pharos lighthouse",
@@ -20,9 +20,14 @@ describe("detail-model analytical links", () => {
       color: "#ffffff",
       unavailable: false,
       detailId: "lighthouse",
-    } satisfies LighthouseNode).links).toEqual([
+    } satisfies LighthouseNode);
+    expect(lighthouseDetail.links).toEqual([
       { label: "PSI", href: "https://pharos.watch/stability-index/" },
     ]);
+    expect(lighthouseDetail.facts).toContainEqual({
+      label: "Beam warmth cue",
+      value: "Beam warms amber when active DEWS reaches ALERT, WARNING, or DANGER.",
+    });
 
     expect(detailForDock({
       id: "dock.ethereum",
@@ -70,6 +75,33 @@ describe("detail-model analytical links", () => {
     } satisfies AreaNode).links).toEqual([
       { label: "Custom DEWS", href: "https://pharos.watch/depeg/" },
     ]);
+  });
+
+  it("describes active elevated DEWS as the lighthouse warm-beam cue", () => {
+    const cue = lighthouseBeamWarmCueLabel([
+      {
+        id: "area.dews.alert",
+        kind: "area",
+        label: "Alert Channel",
+        tile: { x: 1, y: 1 },
+        band: "ALERT",
+        count: 2,
+        detailId: "area.dews.alert",
+      },
+      {
+        id: "area.dews.watch",
+        kind: "area",
+        label: "Watch Breakwater",
+        tile: { x: 1, y: 1 },
+        band: "WATCH",
+        count: 8,
+        detailId: "area.dews.watch",
+      },
+    ]);
+
+    expect(cue).toContain("Beam warming amber under elevated DEWS");
+    expect(cue).toContain("Alert Channel ALERT (2 stablecoins)");
+    expect(cue).not.toContain("Watch Breakwater");
   });
 
   it("points ship detail links at canonical stablecoin pages", () => {

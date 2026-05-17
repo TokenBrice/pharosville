@@ -5,6 +5,7 @@ import { formationLabel, squadRole, STABLECOIN_SQUADS, type StablecoinSquad } fr
 import { SQUAD_DISTRESS_FLAG_HEX } from "../renderer/layers/maker-squad-chrome";
 import type { AreaNode, DewsAreaBand, PharosVilleWorld, ShipNode } from "../systems/world-types";
 import { precomputeShipTempos } from "../systems/ship-cycle-tempo";
+import { lighthouseBeamWarmCueLabel } from "../systems/detail-model";
 
 // Dock health-band swatches mirror the renderer's `dockHealthColor()` table in
 // `src/renderer/layers/docks.ts`. Robust and healthy share the same green
@@ -110,7 +111,7 @@ function AccessibilityLedgerContent({
           <dt>Lighthouse</dt>
           <dd>
             {world.lighthouse.label}: PSI {world.lighthouse.score ?? "unavailable"}, band{" "}
-            {world.lighthouse.psiBand ?? "unavailable"}.
+            {world.lighthouse.psiBand ?? "unavailable"}. {lighthouseBeamWarmCueLabel(world.areas)}
           </dd>
         </div>
         <div>

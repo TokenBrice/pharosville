@@ -1,7 +1,7 @@
 import { tileToScreen } from "../../systems/projection";
 import type { PharosVilleWorld } from "../../systems/world-types";
 import type { DrawPharosVilleInput } from "../render-types";
-import { lighthouseRenderState, type LighthouseRenderState } from "./lighthouse";
+import { lighthouseRenderState, NIGHT_WATER_POOL_RADIUS, type LighthouseRenderState } from "./lighthouse";
 import { skyState } from "./sky";
 import {
   maxActiveThreatLevel,
@@ -26,6 +26,7 @@ const VILLAGE_LIGHTS = [
 ] as const;
 
 type BioluminescentSparkle = {
+  easternShelf: boolean;
   isoX: number;
   isoY: number;
   phase: number;
@@ -90,12 +91,52 @@ const SPARKLE_POINT_DEFS = [
   { x: 52.7, y: 36.2, phase: 4.23 },
 ] as const;
 
-const SPARKLE_POINTS = SPARKLE_POINT_DEFS.map((p) => ({
-  isoX: (p.x - p.y) * 16,
-  isoY: (p.x + p.y) * 8,
-  phase: p.phase,
-  baseRadius: 0.9 + Math.sin(p.phase * 2.1) * 0.4,
-})) as readonly BioluminescentSparkle[];
+const EASTERN_SHELF_SPARKLE_SOURCE_ISO_X_THRESHOLD = 32 * 16;
+
+function sparkleSourceIsoX(point: { x: number }): number {
+  return point.x * 16;
+}
+
+function isEasternShelfSparkle(point: { x: number }): boolean {
+  return sparkleSourceIsoX(point) > EASTERN_SHELF_SPARKLE_SOURCE_ISO_X_THRESHOLD;
+}
+
+function buildSparklePoints(): readonly BioluminescentSparkle[] {
+  const points: BioluminescentSparkle[] = [];
+  let easternShelfIndex = 0;
+  for (const p of SPARKLE_POINT_DEFS) {
+    const easternShelf = isEasternShelfSparkle(p);
+    if (easternShelf) {
+      const keep = easternShelfIndex % 2 === 0;
+      easternShelfIndex += 1;
+      if (!keep) continue;
+    }
+    points.push({
+      easternShelf,
+      isoX: (p.x - p.y) * 16,
+      isoY: (p.x + p.y) * 8,
+      phase: p.phase,
+      baseRadius: 0.9 + Math.sin(p.phase * 2.1) * 0.4,
+    });
+  }
+  return points;
+}
+
+const SPARKLE_POINTS = buildSparklePoints();
+
+export function sparklePointDensityStatsForTest(): {
+  authoredEastern: number;
+  authoredTotal: number;
+  renderedEastern: number;
+  renderedTotal: number;
+} {
+  return {
+    authoredEastern: SPARKLE_POINT_DEFS.filter(isEasternShelfSparkle).length,
+    authoredTotal: SPARKLE_POINT_DEFS.length,
+    renderedEastern: SPARKLE_POINTS.filter((point) => point.easternShelf).length,
+    renderedTotal: SPARKLE_POINTS.length,
+  };
+}
 
 export type BirdSpecies = "gull" | "pigeon";
 export type BirdAnchor = "lighthouse" | "pigeonnier";
@@ -398,7 +439,7 @@ export function drawBioluminescentSparkles(
   const { firePoint } = lighthouse ?? lighthouseRenderState(input);
   // Suppress sparkles inside the warm pool — cyan + warm amber stack to white
   // and wash both effects out. Match the lighthouse pool radius.
-  const haloRadius = 900 * camera.zoom;
+  const haloRadius = NIGHT_WATER_POOL_RADIUS * camera.zoom;
   const haloRadiusSq = haloRadius * haloRadius;
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
   const zoom = camera.zoom;

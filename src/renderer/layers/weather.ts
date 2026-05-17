@@ -140,6 +140,8 @@ function hashString(input: string): number {
 const LIGHTNING_MIN_INTERVAL_S = 6;
 const LIGHTNING_MAX_INTERVAL_S = 12;
 const LIGHTNING_FLASH_DURATION_S = 0.32;
+const LIGHTNING_THUNDER_RIM_APEX_PROGRESS = 0.18;
+const LIGHTNING_THUNDER_RIM_HALF_WIDTH = 0.03;
 
 interface LightningPlan {
   area: AreaNode;
@@ -185,6 +187,7 @@ function activeLightningPlans(
 }
 
 const lightningPlanScratch: LightningPlan[] = [];
+const thunderRimPlanScratch: LightningPlan[] = [];
 
 /**
  * Drawn after night-tint and before any UI overlays. Two pieces per active
@@ -228,10 +231,10 @@ export function drawWeather(input: DrawPharosVilleInput): void {
       centroid.y,
       radius,
     );
-    const coreAlpha = (plan.threat >= 4 ? 0.16 : 0.10) * env;
-    highlight.addColorStop(0, `rgba(232, 240, 255, ${coreAlpha.toFixed(3)})`);
-    highlight.addColorStop(0.45, `rgba(180, 200, 255, ${(coreAlpha * 0.35).toFixed(3)})`);
-    highlight.addColorStop(1, "rgba(180, 200, 255, 0)");
+    const coreAlpha = (plan.threat >= 4 ? 0.17 : 0.11) * env;
+    highlight.addColorStop(0, `rgba(255, 245, 214, ${coreAlpha.toFixed(3)})`);
+    highlight.addColorStop(0.45, `rgba(255, 218, 160, ${(coreAlpha * 0.38).toFixed(3)})`);
+    highlight.addColorStop(1, "rgba(255, 194, 120, 0)");
     ctx.fillStyle = highlight;
     ctx.beginPath();
     ctx.arc(centroid.x, centroid.y, radius, 0, Math.PI * 2);
@@ -247,6 +250,24 @@ function lightningEnvelope(progress: number): number {
   if (progress < 0.30) return 1;
   const decay = (progress - 0.30) / 0.70;
   return Math.exp(-decay * 4);
+}
+
+export function lightningThunderRimIntensityForWorld(
+  world: PharosVilleWorld,
+  timeSeconds: number,
+  reducedMotion: boolean,
+): number {
+  if (reducedMotion) return 0;
+  activeLightningPlans(world, timeSeconds, thunderRimPlanScratch);
+  let intensity = 0;
+  for (const plan of thunderRimPlanScratch) {
+    const apexDistance = Math.abs(plan.progress - LIGHTNING_THUNDER_RIM_APEX_PROGRESS);
+    if (apexDistance > LIGHTNING_THUNDER_RIM_HALF_WIDTH) continue;
+    const apex = 1 - apexDistance / LIGHTNING_THUNDER_RIM_HALF_WIDTH;
+    const threatScale = plan.threat >= 4 ? 1 : 0.72;
+    intensity = Math.max(intensity, apex * threatScale);
+  }
+  return intensity;
 }
 
 /**

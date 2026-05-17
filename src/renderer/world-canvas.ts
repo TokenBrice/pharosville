@@ -23,7 +23,7 @@ import { drawHarborDistrictGround } from "./layers/harbor-district";
 import { drawTerrainBase, drawWaterTerrainOverlays } from "./layers/terrain";
 import { drawWaterAreaLabels } from "./layers/water-labels";
 import { drawCenterCluster } from "./layers/center-cluster";
-import { drawLighthouseBeamRim, drawLighthouseBody, drawLighthouseGodRays, drawLighthouseHeadland, drawLighthouseNightHighlights, drawLighthouseOverlay, drawLighthouseSurf, lighthouseOverlayScreenBounds, lighthouseRenderState, type LighthouseRenderState } from "./layers/lighthouse";
+import { drawLighthouseBeamRim, drawLighthouseBody, drawLighthouseGodRays, drawLighthouseHeadland, drawLighthouseNightHighlights, drawLighthouseOverlay, drawLighthouseReflection, drawLighthouseSurf, drawLighthouseThunderRim, lighthouseOverlayScreenBounds, lighthouseRenderState, type LighthouseRenderState } from "./layers/lighthouse";
 import { drawSelection } from "./layers/selection";
 import { drawCoastalWaterDetails } from "./layers/shoreline";
 import { drawSky } from "./layers/sky";
@@ -423,6 +423,7 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   drawDynamicPassCached(input, frame, "water-overlays", paintDynamicWaterPass);
   drawStaticPassCached(input, frame, "scene", paintStaticScenePass);
   drawLighthouseSurf(input);
+  drawLighthouseReflection(input, frame.lighthouseRender, nightFactor);
   const entityMetrics = drawEntityPass(input, frame, nightFactor);
   drawSquadChrome(input, frame);
   drawWaterAreaLabels(input);
@@ -441,6 +442,7 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   // ambient atmosphere so the flash visibly punches through the dim, but
   // before the night vignette / selection chrome which are UI overlays.
   drawWeather(input);
+  drawLighthouseThunderRim(input, frame.lighthouseRender, nightFactor);
   drawNightVignette(input, nightFactor);
   const selectionDrawableCount = drawSelection(input);
   const drawableCounts = {

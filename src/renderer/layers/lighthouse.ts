@@ -2,6 +2,7 @@ import { tileToScreen, type ScreenPoint } from "../../systems/projection";
 import { drawAsset } from "../canvas-primitives";
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
 import { LIGHTHOUSE_DRAW_OFFSET, LIGHTHOUSE_DRAW_SCALE } from "../visual-scales";
+import { lightningThunderRimIntensityForWorld } from "./weather";
 
 export type LighthouseRenderState = ReturnType<typeof lighthouseRenderState>;
 
@@ -64,10 +65,107 @@ export function drawLighthouseSurf({ camera, ctx, motion }: DrawPharosVilleInput
   ctx.restore();
 }
 
+const LIGHTHOUSE_REFLECTION_CLIP = [
+  { x: 15.0, y: 29.2 },
+  { x: 16.8, y: 33.5 },
+  { x: 20.8, y: 34.1 },
+  { x: 22.5, y: 30.1 },
+  { x: 20.6, y: 27.6 },
+  { x: 16.4, y: 27.7 },
+] as const;
+
+export function drawLighthouseReflection(
+  input: DrawPharosVilleInput,
+  cached?: LighthouseRenderState,
+  nightFactor = 0,
+): void {
+  const { camera, ctx, motion, world } = input;
+  if (world.lighthouse.unavailable) return;
+  const { firePoint } = cached ?? lighthouseRenderState(input);
+  const zoom = camera.zoom;
+  const time = motion.reducedMotion ? 0 : motion.timeSeconds;
+  const anchor = tileToScreen({ x: world.lighthouse.tile.x + 0.4, y: world.lighthouse.tile.y + 3.2 }, camera);
+  const alphaBase = 0.055 + nightFactor * 0.16;
+
+  ctx.save();
+  ctx.beginPath();
+  for (let index = 0; index < LIGHTHOUSE_REFLECTION_CLIP.length; index += 1) {
+    const p = tileToScreen(LIGHTHOUSE_REFLECTION_CLIP[index]!, camera);
+    if (index === 0) ctx.moveTo(p.x, p.y);
+    else ctx.lineTo(p.x, p.y);
+  }
+  ctx.closePath();
+  ctx.clip();
+
+  ctx.globalCompositeOperation = "lighter";
+  ctx.lineCap = "round";
+  for (let index = 0; index < 7; index += 1) {
+    const t = index / 6;
+    const shimmer = motion.reducedMotion ? 0 : Math.sin(time * 0.9 + index * 1.37) * 2.2 * zoom;
+    const y = anchor.y + (16 + t * 92) * zoom;
+    const centerX = anchor.x + shimmer + Math.sin(index * 1.9) * 4 * zoom;
+    const width = (48 - t * 31) * zoom;
+    const alpha = alphaBase * (1 - t * 0.72) * (0.84 + 0.16 * Math.sin(time * 1.2 + index));
+    if (alpha < 0.01) continue;
+    ctx.strokeStyle = `rgba(255, 199, 118, ${alpha})`;
+    ctx.lineWidth = Math.max(1, (2.7 - t * 1.3) * zoom);
+    ctx.beginPath();
+    ctx.moveTo(centerX - width * 0.5, y);
+    ctx.quadraticCurveTo(firePoint.x + shimmer * 0.4, y + 4 * zoom, centerX + width * 0.5, y + 1.5 * zoom);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+export function drawLighthouseThunderRim(
+  input: DrawPharosVilleInput,
+  cached?: LighthouseRenderState,
+  nightFactor = 0,
+): void {
+  const { camera, ctx, motion, world } = input;
+  if (world.lighthouse.unavailable) return;
+  const intensity = lightningThunderRimIntensityForWorld(world, motion.timeSeconds, motion.reducedMotion);
+  if (intensity <= 0) return;
+  const { center, firePoint } = cached ?? lighthouseRenderState(input);
+  const zoom = camera.zoom;
+  const alpha = Math.min(0.62, intensity * (0.36 + nightFactor * 0.16));
+
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = `rgba(255, 244, 208, ${alpha})`;
+  ctx.lineWidth = Math.max(1, 2.2 * zoom);
+
+  ctx.beginPath();
+  ctx.moveTo(firePoint.x - 18 * zoom, firePoint.y - 2 * zoom);
+  ctx.lineTo(firePoint.x - 25 * zoom, firePoint.y + 66 * zoom);
+  ctx.lineTo(center.x - 18 * zoom, center.y - 26 * zoom);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(firePoint.x + 18 * zoom, firePoint.y - 2 * zoom);
+  ctx.lineTo(firePoint.x + 24 * zoom, firePoint.y + 66 * zoom);
+  ctx.lineTo(center.x + 18 * zoom, center.y - 26 * zoom);
+  ctx.stroke();
+
+  ctx.globalAlpha = alpha * 0.72;
+  ctx.beginPath();
+  ctx.arc(firePoint.x, firePoint.y, 21 * zoom, -0.12, Math.PI + 0.12);
+  ctx.stroke();
+  ctx.restore();
+}
+
 const LIGHTHOUSE_HEADLAND_SCALE = 0.5;
 
-const NIGHT_WATER_POOL_RADIUS = 900;       // sprite units — warm pool centered slightly below firePoint
+export const DAY_BEAM_BASE_ALPHA = 0.08;
+export const NIGHT_WATER_POOL_RADIUS = 1000;       // sprite units — warm pool centered slightly below firePoint
 const NIGHT_WATER_POOL_MAX_ALPHA = 0.42;
+const NIGHT_DIRECTIONAL_SPILL_MAX_ALPHA = 0.18;
+const NIGHT_DIRECTIONAL_SPILL_OFFSET = { x: 330, y: 86 };
+const NIGHT_DIRECTIONAL_SPILL_RADIUS = 560;
+const NIGHT_ALERT_SPILL_OFFSET = { x: 610, y: 28 };
+const NIGHT_ALERT_SPILL_RADIUS = 310;
 
 // Sweep beams. Tweak these to taste; module-top so A/B is one edit.
 const SWEEP_PAIRED = true;
@@ -139,6 +237,8 @@ type NightGradientBundle = {
   diffuse: CanvasGradient;
   core: CanvasGradient;
   pool: CanvasGradient;
+  directionalSpill: CanvasGradient;
+  alertSpill: CanvasGradient;
 };
 
 const NIGHT_GRADIENT_CACHE_LIMIT = 16;
@@ -479,7 +579,7 @@ function drawLighthouseBeam(
   const fade = 1 - nightFactor;
   if (fade <= 0) return;
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
-  const pulse = (0.11 + Math.sin(time * 0.7) * 0.025) * fade;
+  const pulse = (DAY_BEAM_BASE_ALPHA + Math.sin(time * 0.7) * 0.025) * fade;
   ctx.save();
   ctx.globalAlpha = pulse;
   ctx.fillStyle = "#f5d176";
@@ -874,6 +974,36 @@ export function drawLighthouseNightHighlights(
   ctx.beginPath();
   ctx.ellipse(firePoint.x, poolY, poolRadius, poolRadius * 0.55, 0, 0, Math.PI * 2);
   ctx.fill();
+
+  const spillCenterX = firePoint.x + NIGHT_DIRECTIONAL_SPILL_OFFSET.x * zoom;
+  const spillCenterY = poolY + NIGHT_DIRECTIONAL_SPILL_OFFSET.y * zoom;
+  ctx.fillStyle = gradients.directionalSpill;
+  ctx.beginPath();
+  ctx.ellipse(
+    spillCenterX,
+    spillCenterY,
+    NIGHT_DIRECTIONAL_SPILL_RADIUS * zoom,
+    132 * zoom,
+    0.38,
+    0,
+    Math.PI * 2,
+  );
+  ctx.fill();
+
+  const alertCenterX = firePoint.x + NIGHT_ALERT_SPILL_OFFSET.x * zoom;
+  const alertCenterY = poolY + NIGHT_ALERT_SPILL_OFFSET.y * zoom;
+  ctx.fillStyle = gradients.alertSpill;
+  ctx.beginPath();
+  ctx.ellipse(
+    alertCenterX,
+    alertCenterY,
+    NIGHT_ALERT_SPILL_RADIUS * zoom,
+    84 * zoom,
+    0.18,
+    0,
+    Math.PI * 2,
+  );
+  ctx.fill();
   ctx.restore();
 }
 
@@ -919,7 +1049,29 @@ function getNightGradientBundle(
   pool.addColorStop(0.4, `rgba(245, 150, 65, ${poolAlpha * 0.45})`);
   pool.addColorStop(1, "rgba(245, 150, 65, 0)");
 
-  const bundle: NightGradientBundle = { diffuse, core, pool };
+  const spillCenterX = firePoint.x + NIGHT_DIRECTIONAL_SPILL_OFFSET.x * zoom;
+  const spillCenterY = poolY + NIGHT_DIRECTIONAL_SPILL_OFFSET.y * zoom;
+  const spillAlpha = Math.min(NIGHT_DIRECTIONAL_SPILL_MAX_ALPHA, 0.16 * nightFactor);
+  const directionalSpill = ctx.createRadialGradient(
+    spillCenterX, spillCenterY, 18 * zoom,
+    spillCenterX, spillCenterY, NIGHT_DIRECTIONAL_SPILL_RADIUS * zoom,
+  );
+  directionalSpill.addColorStop(0, `rgba(255, 188, 105, ${spillAlpha})`);
+  directionalSpill.addColorStop(0.44, `rgba(234, 142, 74, ${spillAlpha * 0.38})`);
+  directionalSpill.addColorStop(1, "rgba(234, 142, 74, 0)");
+
+  const alertCenterX = firePoint.x + NIGHT_ALERT_SPILL_OFFSET.x * zoom;
+  const alertCenterY = poolY + NIGHT_ALERT_SPILL_OFFSET.y * zoom;
+  const alertAlpha = Math.min(0.1, 0.085 * nightFactor);
+  const alertSpill = ctx.createRadialGradient(
+    alertCenterX, alertCenterY, 14 * zoom,
+    alertCenterX, alertCenterY, NIGHT_ALERT_SPILL_RADIUS * zoom,
+  );
+  alertSpill.addColorStop(0, `rgba(255, 202, 128, ${alertAlpha})`);
+  alertSpill.addColorStop(0.5, `rgba(224, 138, 76, ${alertAlpha * 0.36})`);
+  alertSpill.addColorStop(1, "rgba(224, 138, 76, 0)");
+
+  const bundle: NightGradientBundle = { diffuse, core, pool, directionalSpill, alertSpill };
   nightGradientCache.set(key, bundle);
   if (nightGradientCache.size > NIGHT_GRADIENT_CACHE_LIMIT) {
     const oldest = nightGradientCache.keys().next().value;

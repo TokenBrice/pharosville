@@ -5,6 +5,7 @@ import {
   birdAnchorTile,
   dispatchGapForThreat,
   sampleBird,
+  sparklePointDensityStatsForTest,
   type BirdConfig,
 } from "./ambient";
 
@@ -141,5 +142,15 @@ describe("ambient birds", () => {
     const a = sampleBird(bird, 0, world, 1, 0);
     expect(a.tile.x).toBeCloseTo(18 + 4 * Math.cos(0.5));
     expect(a.tile.y).toBeCloseTo(28 + 1 * Math.sin(0.5));
+  });
+});
+
+describe("ambient sparkle density", () => {
+  it("culls every other authored eastern-shelf sparkle", () => {
+    const stats = sparklePointDensityStatsForTest();
+
+    expect(stats.authoredEastern).toBeGreaterThan(0);
+    expect(stats.renderedEastern).toBe(Math.ceil(stats.authoredEastern / 2));
+    expect(stats.renderedTotal).toBe(stats.authoredTotal - Math.floor(stats.authoredEastern / 2));
   });
 });

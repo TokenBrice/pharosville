@@ -113,6 +113,37 @@ describe("AccessibilityLedger", () => {
     expect(markup).toContain("cycle tempo Languid");
   });
 
+  it("adds a non-time-dependent lighthouse warm-beam cue from active elevated DEWS counts", () => {
+    const world: PharosVilleWorld = {
+      ...sampleWorld(),
+      areas: [
+        {
+          id: "area.dews.danger",
+          kind: "area",
+          label: "Danger Strait",
+          tile: { x: 55, y: 4 },
+          band: "DANGER",
+          count: 1,
+          detailId: "area.dews.danger",
+        },
+        {
+          id: "area.dews.watch",
+          kind: "area",
+          label: "Watch Breakwater",
+          tile: { x: 48, y: 28 },
+          band: "WATCH",
+          count: 4,
+          detailId: "area.dews.watch",
+        },
+      ],
+    };
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("Beam warming amber under elevated DEWS");
+    expect(markup).toContain("Danger Strait DANGER (1 stablecoin)");
+    expect(markup).not.toContain("Watch Breakwater WATCH (4 stablecoins)");
+  });
+
   it("cycle tempo label is one of the four canonical values", () => {
     const world = sampleWorldWithLedgerShip();
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);

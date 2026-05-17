@@ -1,15 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   THREAT_LEVEL_FOR_BAND,
   atmosphereDescriptionForArea,
   bandReceivesLightning,
   cloudScalarsForThreat,
+  drawWeather,
+  lightningThunderRimIntensityForWorld,
   maxActiveThreatLevel,
   threatForPoint,
   threatLevelForArea,
   windMultiplier,
 } from "./weather";
 import type { AreaNode, PharosVilleWorld } from "../../systems/world-types";
+import { createCanvasContextStub, createDrawInput } from "../__test-utils__/draw-input";
 
 function makeArea(id: string, band: AreaNode["band"], tile = { x: 0, y: 0 }): AreaNode {
   return {
@@ -40,6 +43,13 @@ function worldWith(areas: AreaNode[]): PharosVilleWorld {
     legends: [],
     visualCues: [],
   };
+}
+
+function findThunderRimTime(world: PharosVilleWorld): number {
+  for (let time = 0; time < 8; time += 0.005) {
+    if (lightningThunderRimIntensityForWorld(world, time, false) > 0.8) return time;
+  }
+  throw new Error("Could not find deterministic lightning apex time");
 }
 
 describe("weather", () => {
@@ -134,6 +144,54 @@ describe("weather", () => {
       expect(bandReceivesLightning("ALERT")).toBe(false);
       expect(bandReceivesLightning("WARNING")).toBe(true);
       expect(bandReceivesLightning("DANGER")).toBe(true);
+    });
+  });
+
+  describe("lightningThunderRimIntensityForWorld", () => {
+    it("returns a narrow deterministic apex pulse and disables it for reduced motion", () => {
+      const world = worldWith([makeArea("danger", "DANGER", { x: 55, y: 4 })]);
+      const apexTime = findThunderRimTime(world);
+
+      expect(lightningThunderRimIntensityForWorld(world, apexTime, false)).toBeGreaterThan(0.8);
+      expect(lightningThunderRimIntensityForWorld(world, apexTime + 0.1, false)).toBe(0);
+      expect(lightningThunderRimIntensityForWorld(world, apexTime, true)).toBe(0);
+    });
+  });
+
+  describe("drawWeather", () => {
+    it("uses warm cream lightning highlights", () => {
+      const world = worldWith([makeArea("danger", "DANGER", { x: 55, y: 4 })]);
+      const stops: string[] = [];
+      const gradient = { addColorStop: vi.fn((_offset: number, color: string) => stops.push(color)) };
+      const ctx = createCanvasContextStub(
+        ["save", "restore", "fill", "beginPath", "arc"],
+        {
+          createRadialGradient: vi.fn(() => gradient),
+          fillStyle: "",
+        },
+      );
+      const input = createDrawInput({
+        ctx,
+        world,
+        motion: {
+          plan: {
+            animatedShipIds: new Set(),
+            effectShipIds: new Set(),
+            lighthouseFireFlickerPerSecond: 1,
+            moverShipIds: new Set(),
+            shipPhases: new Map(),
+            shipRoutes: new Map(),
+          },
+          reducedMotion: false,
+          timeSeconds: findThunderRimTime(world),
+          wallClockHour: 0,
+        },
+      });
+
+      drawWeather(input);
+
+      expect(stops.some((color) => color.includes("255, 245, 214"))).toBe(true);
+      expect(stops.some((color) => color.includes("255, 218, 160"))).toBe(true);
     });
   });
 
