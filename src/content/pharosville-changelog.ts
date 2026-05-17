@@ -12,6 +12,22 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-05-17-need-for-speed",
+    version: PHAROSVILLE_RELEASE_VERSIONS.needForSpeed,
+    date: "2026-05-17",
+    title: "Need For Speed",
+    summary: "PharosVille became a smoother, faster maritime observatory with richer motion, steadier camera control, stronger rendering budgets, and a real release-history surface.",
+    bullets: [
+      "Added continuous follow-camera behavior, keyboard target cycling, time controls, and stricter canvas interaction coverage for zoom, bounds, and selected-ship tracking.",
+      "Reworked ship motion sampling with route-path continuity, speed-aware wakes, display velocity, smoother state transitions, map-visibility fades, and reduced heading snap during docking, sailing, and ledger patrols.",
+      "Improved live frame pacing with visual-motion smoothing, a single active motion loop guard, browser perf telemetry, longtask checks, and sustained-motion budget documentation.",
+      "Raised renderer throughput with pan-tolerant static and dynamic layer caches, backing-store budget metrics, cache eviction accounting, deferred asset loading during idle time, and incremental hit-target updates.",
+      "Expanded harbor atmosphere with deterministic sea state, cinematic weather passes, richer lighthouse and ambient drama, water-zone plaques, tighter palette controls, ship identity chrome, and refreshed visual baselines.",
+      "Added the in-app changelog panel and footer fleet counter, then aligned local push, visual, CI, and deploy gates so release checks match the Cloudflare Pages workflow.",
+    ],
+    source: "Collected from commits 009ef1a through a538b9f, plus the 2026-05-17 workspace motion and renderer performance batch.",
+  },
+  {
     id: "2026-05-17-harbor-motion-atmosphere",
     version: PHAROSVILLE_RELEASE_VERSIONS.harborMotionAtmosphere,
     date: "2026-05-17",
