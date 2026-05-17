@@ -79,22 +79,26 @@ Key points:
 ## 3. Renderer Pass Order
 
 `drawPharosVille` (`src/renderer/world-canvas.ts`) runs every frame in this
-order. Static and dynamic passes are cached separately to keep the per-frame
-cost predictable on desktop.
+order. Heavy static scene work is cached, while motion-critical water accents,
+ships, hit targets, and selection cues stay live so camera and ship motion share
+one displayed frame.
 
 ```
 sky                          [drawSky]
 ├── static pass: terrain     [paintStaticTerrainPass — cached]
-├── dynamic pass: water      [paintDynamicWaterPass — phase-bucketed cache]
+├── continuous water accents [drawWaterTerrainAccents + shoreline details]
+├── atmospheric fade
 ├── static pass: scene       [paintStaticScenePass — cached]
 │     harbor ground -> backgrounded docks -> yggdrasil ->
 │     cemetery ground -> center cluster -> lighthouse headland ->
 │     cemetery context
 ├── lighthouse surf
+├── lighthouse reflection
 ├── entity pass               [drawEntityLayer — z-sorted]
 │     scenery, foreground docks, ships (body/wake/overlay),
 │     graves, lighthouse body/overlay, pigeonnier
 ├── squad chrome              [pennants + selection halo per squad]
+├── scheduled cloud shadows
 ├── water area labels
 ├── night tint                [drawNightTint, by skyState.nightFactor]
 ├── ambient atmosphere        [atmosphere, lighthouse highlights,
@@ -110,10 +114,26 @@ sky                          [drawSky]
 
 Cache layers:
 
-- **Static caches** (`STATIC_CACHE_MAX = 4`): `terrain`, `scene`. Keyed by
-  camera bucket, dpr, world id, asset-load tick, and `manifestCacheVersion`.
-- **Dynamic cache** (`DYNAMIC_CACHE_MAX = 4`): `water-overlays`. Same camera
-  key plus a phase bucket (10 Hz under normal motion, 0 with reduced motion).
+- **Static caches**: `terrain` and `scene`. They are keyed by camera bucket,
+  dpr, world id, asset-load tick, and `manifestCacheVersion`. The terrain cache
+  includes static water texture/detail; only wave, shimmer, caustic, and
+  shoreline accents draw live.
+- **Sprite cache**: precomposed ship bodies for base hull, tint, trim, and
+  stable identity accent. Pose, wake, selection, hover, route, and data-state
+  overlays remain live.
+- **Shared backing budget**: main canvas, static offscreens, dynamic offscreens
+  if any return, and ship-body sprite cache pixels all count against
+  `MAX_TOTAL_BACKING_PIXELS` in `src/systems/canvas-budget.ts`. The render
+  metrics expose `staticCachePixels`, `dynamicCachePixels`, `spriteCachePixels`,
+  cache entry counts, total backing pixels, and over-budget pixels.
+
+The render scheduler in `src/renderer/render-scheduler.ts` derives
+`full | interaction | constrained | recovery` from camera intent, recent draw
+duration, frame-pacing p90, and reduced-motion state. It only degrades or skips
+decorative passes such as film grain, birds, cloud shadows, sparkles, moon
+reflection, sea mist, decorative lights, and god rays. Analytical layers,
+interaction-critical overlays, water accents, entities, labels, selection, and
+weather stay live.
 
 ## 4. Asset / Cache Invalidation
 
