@@ -4,6 +4,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   runtimeHardening: "v0.1.2",
   harborMotionAtmosphere: "v0.1.3",
   needForSpeed: "v0.2.0",
+  curtainUp: "v0.2.1",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.needForSpeed;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.curtainUp;

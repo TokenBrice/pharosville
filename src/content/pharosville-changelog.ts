@@ -12,6 +12,22 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-05-18-curtain-up",
+    version: PHAROSVILLE_RELEASE_VERSIONS.curtainUp,
+    date: "2026-05-18",
+    title: "Curtain Up",
+    summary: "PharosVille opens with a cinematic reveal, fleets that move with intent, and a village that finally feels lived-in.",
+    bullets: [
+      "Added a 1.8-second first-load reveal beat: sky and outer water fade in, the headland slides up, then the lighthouse turns on with a slowed first sweep — reduced-motion users still get the deterministic final frame instantly.",
+      "Re-skinned the loading state to the canvas palette, with horizon-ship silhouettes and a warm pulsing halo, so the wait between routes matches the world that follows.",
+      "Brought the civic core to life with three procedural chimney-smoke wisps on the central village, reshuffled vegetation to clear the future agora footprint, and retired the redundant selection-strip caption now that the detail panel carries the same load.",
+      "Reworked fleet movement: ships in calm waters cycle deterministic 2- or 3-anchor patrol itineraries, squads fan out at sea and pull tight in port with consort headings lagging the flagship by 0.6s, and risk-band changes show as a 3-second tack-out before the next dock cycle.",
+      "Stopped harbor pile-ups with a swell-aware sea-room separation pass that nudges crowded ships apart, and added a cue-priority arbiter so active-risk and recent-supply ships win overlay and wake slots first when render budgets bind.",
+      "Tightened renderer hot paths: lighthouse god-ray gradients now hit a bucketed sprite cache, titan foam/spray/mooring strokes share a Path2D template cache, the static layer cache moved from array scan to Map lookup, and idle-warmup yields cooperatively to keep zoom gestures smooth.",
+    ],
+    source: "Collected from commits adf3993 through a585208 (the 2026-05-17 wow-revamp wave). Earlier commits between v0.2.0 and adf3993 executed the smoothness batch already described in v0.2.0's bullets.",
+  },
+  {
     id: "2026-05-17-need-for-speed",
     version: PHAROSVILLE_RELEASE_VERSIONS.needForSpeed,
     date: "2026-05-17",
