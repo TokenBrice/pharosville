@@ -1,6 +1,6 @@
 # PharosVille Scenario Catalog
 
-Last updated: 2026-04-30
+Last updated: 2026-05-17
 
 Use these scenarios to validate visual-world changes without rediscovering the fixture surface. The canonical fixture helpers live in `src/__fixtures__/pharosville-world.ts`.
 
@@ -35,9 +35,10 @@ active metadata coverage to exercise the current ship visual classes.
 | Narrow viewport fallback | Playwright `pharosville narrow fallback avoids world runtime requests` | Sub-1000 viewport renders DOM fallback and avoids world/runtime requests | `npx playwright test tests/visual/pharosville.spec.ts --grep "narrow fallback"` |
 | Short desktop fallback | Playwright `pharosville short desktop fallback avoids clipped map` | Short desktop height renders fallback and avoids world/runtime requests | `npx playwright test tests/visual/pharosville.spec.ts --grep "short desktop"` |
 | Ultrawide backing budget | Playwright `pharosville ultrawide canvas keeps DPR backing store capped` | DPR/backing pixels stay within budget on large screens | `npx playwright test tests/visual/pharosville.spec.ts --grep "ultrawide"` |
-| Interaction and camera | Playwright `pharosville canvas interactions update details and camera` | Selection, detail anchors, blank-map clearing, zoom, pan, fullscreen, and camera bounds | `npx playwright test tests/visual/pharosville.spec.ts --grep "interactions"` |
+| Interaction and camera | Playwright `pharosville canvas interactions update details and camera` | Selection, detail anchors, blank-map clearing, monotonic wheel zoom, pinch zoom, pan, fullscreen, and camera bounds | `npx playwright test tests/visual/pharosville.spec.ts --grep "interactions"` |
 | Reduced motion | Playwright `pharosville reduced motion keeps ship samples static without RAF`; `responds to live reduced-motion preference transitions` | Static samples, no RAF loop, and live preference transitions | `npx playwright test tests/visual/pharosville.spec.ts --grep "reduced motion"` |
-| Normal motion | Playwright `starts bounded world animation and keeps moving ship targets selectable` | Bounded RAF startup, moving ship samples, moving target hitboxes, and route facts in detail/ledger | `npx playwright test tests/visual/pharosville.spec.ts --grep "normal motion"` |
+| Normal motion | Playwright `starts bounded world animation and keeps moving ship targets selectable` | Bounded RAF startup, moving ship samples, moving target hitboxes, follow-selected attachment to a moving ship, camera bounds, and route facts in detail/ledger | `npx playwright test tests/visual/pharosville.spec.ts --grep "normal motion"` |
+| Sustained frame pacing | Playwright perf lane `harbor scene keeps drawDurationMs within budget over sustained animation` | Dense normal-motion animation samples draw-duration distribution, optional frame pacing (`effectiveFps`, `p90Ms`, dropped-frame count, longest dropped burst), route-cache health, and longtask count | `npm run test:perf` |
 
 ## Adding A Scenario
 

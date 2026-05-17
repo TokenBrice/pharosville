@@ -1,6 +1,6 @@
 # PharosVille Testing Guide
 
-Last updated: 2026-05-01
+Last updated: 2026-05-17
 
 Use this guide to choose focused checks for the standalone PharosVille Vite app.
 
@@ -42,6 +42,12 @@ Focused motion changes:
 npm test -- src/systems/motion.test.ts
 ```
 
+Sustained animation performance and frame pacing:
+
+```bash
+npm run test:perf
+```
+
 Local API/dev-proxy sanity (recommended before debugging missing ships/data):
 
 ```bash
@@ -81,6 +87,14 @@ npx playwright test tests/visual/pharosville.spec.ts --grep "narrow fallback"
 
 The visual suite covers desktop shell rendering, narrow/short fallback behavior, canvas interaction, reduced-motion behavior, normal-motion movement, and backing-store budget checks. The narrow fallback has a committed screenshot baseline; the short fallback is DOM-only coverage that confirms no clipped canvas and no world/runtime requests below `360px` height.
 
+Temporal smoothness coverage lives in the browser lane, not the screenshot baselines:
+
+```bash
+npx playwright test tests/visual/pharosville.spec.ts --grep "interactions|normal motion"
+```
+
+This checks camera zoom monotonicity, camera bounds during interaction, and follow-selected attachment to a moving ship using `window.__pharosVilleDebug` fields. Keep visual snapshot updates out of this lane unless the rendered pixels intentionally change.
+
 ## Budget Guards
 
 Current executable budgets:
@@ -92,6 +106,17 @@ Current executable budgets:
 - First-render assets: `<= 28` PNGs, `<= 575 KiB` source bytes, and `<= 875,000` decoded pixels.
 - Total runtime PharosVille assets: `<= 900 KiB` source bytes and `<= 1,300,000` decoded pixels.
 - Canvas backing store: capped by `MAX_MAIN_CANVAS_PIXELS` and `MAX_TOTAL_BACKING_PIXELS` in `src/systems/canvas-budget.ts`.
+
+`npm run test:perf` also samples `window.__pharosVilleDebug.renderMetrics.framePacing` when present. The CI guard tier is intentionally conservative while run history is gathered:
+
+- `activeMotionLoopCount === 1` under normal motion.
+- `drawDurationMs` median `<= 140ms` and p95 `<= 200ms` over the sustained window.
+- `framePacing.effectiveFps >= 8`.
+- `framePacing.p90Ms <= 180ms`.
+- `framePacing.droppedFrameCount` and `framePacing.longestDroppedBurst` stay below broad rolling-window ratios.
+- `longtask.count === 0` when longtask telemetry is available.
+
+The local smooth target for manual optimization at `1440x960` is stricter: `effectiveFps >= 50`, `framePacing.p90Ms <= 24ms`, `longestDroppedBurst <= 1`, and `longtask.count === 0`. Tighten the CI guard only after several stable runs on the target runners.
 
 Display-size waste in `npm run check:pharosville-assets` is warning-only unless an image decodes more than 4x its displayed pixel area. Treat warnings as optimization backlog and failures as release blockers.
 
@@ -147,7 +172,9 @@ Run `rg` over `README.md`, `docs/pharosville`, `docs/pharosville-page.md`, and s
 
 - The desktop gate still prevents world data, manifest, canvas, and sprite loading below `720px` by `360px`.
 - Normal motion visibly moves ships without turning route semantics into game mechanics.
+- Sustained normal motion reports stable frame pacing in the perf lane, with no longtask entries during the sampled window.
 - Reduced motion stays deterministic and does not run a RAF loop.
+- Camera zoom moves monotonically for repeated zoom-in input, and follow-selected keeps the selected moving ship attached without violating camera bounds.
 - Detail panel and accessibility ledger describe any new visual encoding.
 - Hit targets align with sprites after scale, anchor, or motion changes.
 - Docking cadence reads as chain presence, not transfers or activity.
