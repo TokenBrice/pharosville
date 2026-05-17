@@ -8,8 +8,8 @@ import { pathKey } from "../systems/motion-utils";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
 
 type MotionPlan = ReturnType<typeof buildMotionPlan>;
-const WATER_PATH_WARMUP_IDLE_CHUNK_SIZE = 3;
-const WATER_PATH_WARMUP_IDLE_TIMEOUT_MS = 800;
+export const WATER_PATH_WARMUP_IDLE_CHUNK_SIZE = 3;
+export const WATER_PATH_WARMUP_IDLE_TIMEOUT_MS = 800;
 
 export interface UseAssetLoadingPipelineResult {
   assetLoadErrors: PharosVilleAssetLoadError[];
@@ -165,7 +165,7 @@ export function useAssetLoadingPipeline(input: {
   };
 }
 
-async function warmWaterPathsAcrossIdleChunks(plan: MotionPlan, signal?: AbortSignal): Promise<void> {
+export async function warmWaterPathsAcrossIdleChunks(plan: MotionPlan, signal?: AbortSignal): Promise<void> {
   const warmups: Array<() => void> = [];
   for (const route of plan.shipRoutes.values()) {
     for (const stop of route.dockStops) {
