@@ -87,13 +87,14 @@ export function useAssetLoadingPipeline(input: {
     deferredLoadStartedRef.current = true;
     const startDeferredLoad = async () => {
       const planForWarmup = motionPlanRef.current;
-      if (planForWarmup) await warmWaterPathsAcrossIdleChunks(planForWarmup, controller.signal);
-      if (!active || controller.signal.aborted) return;
       const deferredResult = await assetManager.loadDeferred(controller.signal);
       if (!active) return;
       setAssetLoadErrors((previous) => [...previous, ...deferredResult.errors]);
       setDeferredAssetsLoaded(assetManager.areDeferredAssetsSettled() && deferredResult.errors.length === 0);
       setAssetLoadTick((tick) => tick + 1);
+      if (planForWarmup && !controller.signal.aborted) {
+        void warmWaterPathsAcrossIdleChunks(planForWarmup, controller.signal);
+      }
     };
     void startDeferredLoad().catch((error) => {
       if (!active) return;
