@@ -407,63 +407,6 @@ textarea {
 }
 .pharosville-detail-dock > * { pointer-events: auto; }
 
-.pharosville-selection-strip {
-  position: absolute;
-  left: 50%;
-  bottom: 86px;
-  z-index: 6;
-  display: grid;
-  grid-template-columns: minmax(8ch, 0.38fr) minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  width: min(640px, max(280px, calc(100% - 440px)));
-  min-height: 38px;
-  padding: 7px 14px;
-  transform: translateX(-50%);
-  border: 1.5px solid var(--pv-brass-edge);
-  background:
-    repeating-linear-gradient(90deg, rgba(40, 22, 12, 0.34) 0 1px, transparent 1px 9px),
-    linear-gradient(180deg, rgba(58, 38, 20, 0.92), rgba(26, 14, 8, 0.94));
-  color: var(--pv-parchment-light);
-  font-family: Georgia, "Times New Roman", serif;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 210, 140, 0.18),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.62),
-    0 10px 24px rgba(0, 0, 0, 0.45);
-  pointer-events: none;
-}
-.pharosville-selection-strip::before,
-.pharosville-selection-strip::after {
-  content: "";
-  position: absolute;
-  top: 8px;
-  bottom: 8px;
-  width: 2px;
-  background: linear-gradient(180deg, var(--pv-brass-highlight), var(--pv-brass-edge));
-}
-.pharosville-selection-strip::before { left: 6px; }
-.pharosville-selection-strip::after { right: 6px; }
-.pharosville-selection-strip strong {
-  min-width: 0;
-  color: var(--pv-brass-highlight);
-  font-size: 0.83rem;
-  font-weight: 900;
-  line-height: 1.1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.pharosville-selection-strip span {
-  min-width: 0;
-  color: rgba(248, 229, 178, 0.84);
-  font-size: 0.75rem;
-  font-style: italic;
-  line-height: 1.2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* Outer aside: timber frame + brass corner caps via absolute spans */
 .pharosville-detail-panel {
   position: relative;

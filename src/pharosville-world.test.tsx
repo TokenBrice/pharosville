@@ -167,9 +167,9 @@ describe("PharosVilleWorld UI accessibility controls", () => {
 
     fireEvent.keyDown(shell, { key: "Enter" });
     await waitFor(() => {
-      expect(screen.getByTestId("pharosville-selection-strip").textContent).toContain("Ethereum Dock");
+      expect(screen.getByTestId("pharosville-detail-panel").textContent).toContain("Ethereum Dock");
     });
-    expect(screen.getByTestId("pharosville-selection-strip").textContent).toContain("Ethereum chain harbor summary.");
+    expect(screen.queryByTestId("pharosville-selection-strip")).toBeNull();
   });
 
   it("cycles backward with Shift Tab and keeps Escape delegated to existing canvas shortcuts", () => {
@@ -183,10 +183,10 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     expect(mocks.canvasHandleKeyDown).toHaveBeenCalled();
   });
 
-  it("auto-hides the lower-third caption when selection is cleared", () => {
+  it("does not render the lower-third caption while details are selected", () => {
     render(<PharosVilleWorld world={worldFixture()} />);
 
-    expect(screen.getByTestId("pharosville-selection-strip").textContent).toContain("Pharos Lighthouse");
+    expect(screen.queryByTestId("pharosville-selection-strip")).toBeNull();
     fireEvent.click(screen.getByLabelText("Close details"));
     expect(screen.queryByTestId("pharosville-selection-strip")).toBeNull();
   });

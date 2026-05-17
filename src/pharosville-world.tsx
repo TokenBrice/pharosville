@@ -436,18 +436,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
             <DetailPanel detail={selectedDetail} onClose={clearSelection} />
           </div>
         )}
-        {selectedDetail && (
-          <aside
-            className="pharosville-selection-strip"
-            data-testid="pharosville-selection-strip"
-            role="status"
-            aria-live="polite"
-            aria-atomic="true"
-          >
-            <strong>{selectedDetail.title}</strong>
-            <span>{selectedDetail.summary}</span>
-          </aside>
-        )}
       </div>
       <button
         type="button"
