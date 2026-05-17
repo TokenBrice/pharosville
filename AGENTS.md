@@ -5,7 +5,7 @@ Applies to the whole standalone `pharosville` repository.
 Use `/agents/` for planning artifacts, with subfolder organization as needed.
 Use `/outputs/` to store screenshots, renders, test sprites, and other temporary files.
 Legacy `/output/` content may exist, but new scratch artifacts should go under `/outputs/`.
-
+Local dev server (maintained): http://localhost:5173/
 
 ## Scope
 

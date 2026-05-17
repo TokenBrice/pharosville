@@ -2,6 +2,7 @@
 
 Canonical instructions for this repository live in `AGENTS.md`.
 Use this file only as a compatibility pointer.
+Local dev server (maintained): http://localhost:5173/
 
 ## Fast Start
 
