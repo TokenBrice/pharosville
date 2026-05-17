@@ -84,6 +84,10 @@ const SEAWALL_RIPPLE_ANCHORS: ReadonlyArray<{ x: number; y: number }> = [
   { x: 42.1, y: 26.3 },
 ];
 const SEAWALL_RIPPLE_PERIOD = 3;
+const DANGER_RIP_PERIOD_SECONDS = 6;
+const CALM_MIRROR_PERIOD_SECONDS = 20;
+const OPEN_WATER_PLANKTON_PERIOD_SECONDS = 12;
+const LEDGER_ROW_HEADERS = ["I", "V", "X"] as const;
 
 const WATER_TERRAIN_ASSET_BY_KIND: Partial<Record<TerrainKind, string>> = {
   "alert-water": "terrain.harbor-water",
@@ -101,6 +105,18 @@ function landAssetIdFor(kind: TerrainKind, x: number, y: number): string {
   if (kind === "beach" || kind === "shore" || kind === "cliff") return "terrain.shore";
   const h = ((x * 374761393) ^ (y * 668265263)) >>> 0;
   return (h % 5 < 2) ? "terrain.land-scrub" : "terrain.land";
+}
+
+function tileHash(tileX: number, tileY: number, salt = 0): number {
+  let h = (
+    Math.imul(tileX + 101, 374761393)
+    ^ Math.imul(tileY + 211, 668265263)
+    ^ Math.imul(salt + 17, 2246822519)
+  ) >>> 0;
+  h ^= h >>> 13;
+  h = Math.imul(h, 1274126177) >>> 0;
+  h ^= h >>> 16;
+  return h >>> 0;
 }
 
 const TERRAIN_ASSET_SCALE = 0.5;
@@ -210,7 +226,7 @@ export function drawWaterTerrainOverlays(input: DrawPharosVilleInput, bounds: Vi
         const terrain = tile.terrain ?? tile.kind;
         if (isWaterTileKind(terrain) && isTileInViewport(screenX, screenY, width, height, viewportMarginX, viewportMarginY)) {
           visibleWaterTileCount += 1;
-          drawWaterTileOverlay(ctx, screenX, screenY, camera.zoom, terrain, tile.x, tile.y, motion, beam);
+          drawWaterTileOverlay(ctx, screenX, screenY, camera.zoom, terrain, tile.x, tile.y, mapWidth, mapHeight, motion, beam);
         }
       }
       screenX += deltaX;
@@ -307,13 +323,18 @@ function drawWaterTileOverlay(
   kind: TerrainKind,
   tileX: number,
   tileY: number,
+  mapWidth: number,
+  mapHeight: number,
   motion: PharosVilleCanvasMotion,
   beam: BeamCausticState | null,
 ) {
   const value = String(kind);
   const theme = cachedZoneThemeForTerrain(value);
+  if (value === "deep-water") {
+    drawDeepShelfEdgeDarkening(ctx, x, y, zoom, tileX, tileY, mapWidth, mapHeight);
+  }
   drawWaterTerrainTexture(ctx, x, y, zoom, theme, tileX, tileY, motion);
-  drawBeamCaustic(ctx, x, y, zoom, beam);
+  drawBeamCaustic(ctx, x, y, zoom, tileX, tileY, beam);
   if ((tileX * 13 + tileY * 17) % 9 !== 0) return;
   const wave = motion.reducedMotion
     ? 0.13
@@ -368,6 +389,8 @@ interface BeamCausticState {
   firePoint: { x: number; y: number };
   cos: number;
   sin: number;
+  reducedMotion: boolean;
+  timeSeconds: number;
 }
 
 function computeBeamCausticState(input: DrawPharosVilleInput): BeamCausticState | null {
@@ -379,7 +402,13 @@ function computeBeamCausticState(input: DrawPharosVilleInput): BeamCausticState 
     ? Math.PI / 4
     : tCycle * Math.PI * 2 + Math.sin(tCycle * Math.PI * 2) * 0.15;
   const center = tileToScreen(world.lighthouse.tile, camera);
-  return { firePoint: center, cos: Math.cos(angle), sin: Math.sin(angle) };
+  return {
+    cos: Math.cos(angle),
+    firePoint: center,
+    reducedMotion: motion.reducedMotion,
+    sin: Math.sin(angle),
+    timeSeconds: time,
+  };
 }
 
 function drawBeamCaustic(
@@ -387,6 +416,8 @@ function drawBeamCaustic(
   x: number,
   y: number,
   zoom: number,
+  tileX: number,
+  tileY: number,
   beam: BeamCausticState | null,
 ) {
   if (!beam) return;
@@ -436,7 +467,55 @@ function drawBeamCaustic(
   ctx.lineTo(x - halfW, y);
   ctx.closePath();
   ctx.fill();
+  drawBeamAxisGlitter(ctx, x, y, zoom, tileX, tileY, beam, dot, dist);
   ctx.restore();
+}
+
+function drawBeamAxisGlitter(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  tileX: number,
+  tileY: number,
+  beam: BeamCausticState,
+  dot: number,
+  dist: number,
+) {
+  const axisFalloff = Math.max(0, (dot - 0.985) / 0.015);
+  if (axisFalloff > 0) {
+    ctx.strokeStyle = `rgba(255, 242, 182, ${0.09 * Math.min(1, axisFalloff)})`;
+    ctx.lineWidth = Math.max(1, 0.65 * zoom);
+    ctx.beginPath();
+    ctx.moveTo(x - beam.cos * 9 * zoom, y - beam.sin * 9 * zoom);
+    ctx.lineTo(x + beam.cos * 12 * zoom, y + beam.sin * 12 * zoom);
+    ctx.stroke();
+  }
+
+  const tileDist = dist / Math.max(1, TILE_WIDTH * zoom);
+  const travel = beam.reducedMotion ? 4.5 : beam.timeSeconds * 2;
+  const phase = ((tileDist - travel) % 8 + 8) % 8;
+  const pulse = Math.max(0, 1 - Math.abs(phase - 1.5) / 1.5);
+  const coneCenter = Math.max(0, (dot - BEAM_CAUSTIC_COS) / (1 - BEAM_CAUSTIC_COS));
+  const alpha = 0.2 * pulse * Math.min(1, coneCenter * 1.6);
+  if (alpha < 0.025) return;
+
+  const hash = tileHash(tileX, tileY, 811);
+  const count = 1 + (hash % 3);
+  const lateralX = -beam.sin;
+  const lateralY = beam.cos;
+  const px = Math.max(1, Math.round(1.2 * zoom));
+  ctx.fillStyle = `rgba(255, 250, 220, ${alpha})`;
+  for (let i = 0; i < count; i += 1) {
+    const forward = ((((hash >>> (i * 5)) & 7) - 3) * 1.35) * zoom;
+    const lateral = ((((hash >>> (i * 5 + 3)) & 7) - 3) * 1.05) * zoom;
+    ctx.fillRect(
+      Math.round(x + beam.cos * forward + lateralX * lateral),
+      Math.round(y + beam.sin * forward + lateralY * lateral),
+      px,
+      px,
+    );
+  }
 }
 
 // Seawall ripples: looping concentric rings expanding from authored mooring
@@ -498,6 +577,7 @@ function drawLedgerWaterTexture(
     ? 0.18
     : 0.15 + fastSin(motion.timeSeconds * 0.62 + tileX * 0.25 + tileY * 0.37) * 0.04 * theme.motion.amplitudeScale;
   ctx.save();
+  drawLedgerParchmentUnderbase(ctx, x, y, zoom, tileX, tileY, theme);
   if ((tileX + tileY) % 2 === 0) {
     drawMooringRule(ctx, x, y, zoom, -10, -2, 9, 3, theme.accent, 0.16);
     drawMooringRule(ctx, x, y, zoom, -8, 5, 7, 8, theme.wave, 0.18);
@@ -577,6 +657,7 @@ function drawCalmWaterTexture(
     ? 0.13
     : 0.11 + fastSin(motion.timeSeconds * 0.48 + tileX * 0.19 + tileY * 0.13) * 0.025 * theme.motion.amplitudeScale;
   ctx.save();
+  drawCalmMirrorBands(ctx, x, y, zoom, motion, theme, tileX, tileY);
   ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.08, hush) * theme.motion.strokeAlphaScale);
   ctx.lineWidth = Math.max(1, 0.85 * zoom);
   ctx.beginPath();
@@ -595,7 +676,7 @@ function drawCalmWaterTexture(
     ctx.fillStyle = reflection;
     drawDiamond(ctx, x, y + 2 * zoom, 9 * zoom, 2.5 * zoom, reflection);
   }
-  if ((tileX * 17 + tileY * 11) % 9 === 0) {
+  if (tileHash(tileX, tileY, 233) % 5 < 2) {
     drawCalmReflectionRing(ctx, x, y, zoom, motion, theme, tileX, tileY);
   }
   ctx.restore();
@@ -611,16 +692,50 @@ function drawDeepSeaTexture(
   motion: PharosVilleCanvasMotion,
   theme: ZoneVisualTheme,
 ) {
-  if ((tileX * 5 + tileY * 7) % 6 !== 0) return;
-  const glint = motion.reducedMotion ? 0.08 : 0.06 + fastSin(motion.timeSeconds * 0.6 + tileX * 0.2 + tileY * 0.31) * 0.025;
+  const hash = tileHash(tileX, tileY, 419);
+  if (hash % 7 !== 0 && hash % 13 !== 0) return;
+  const glint = motion.reducedMotion ? 0.08 : 0.06 + fastSin(motion.timeSeconds * 0.42 + tileX * 0.2 + tileY * 0.31) * 0.025;
   ctx.save();
-  ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.04, glint));
-  ctx.lineWidth = Math.max(1, zoom);
-  ctx.beginPath();
-  ctx.moveTo(x - 8 * zoom, y);
-  ctx.lineTo(x + 6 * zoom, y + 3 * zoom);
-  ctx.stroke();
+  if (hash % 7 === 0) {
+    ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.035, glint * 0.7));
+    ctx.lineWidth = Math.max(1, 0.8 * zoom);
+    ctx.beginPath();
+    ctx.moveTo(x - 8 * zoom, y);
+    ctx.lineTo(x + 6 * zoom, y + 3 * zoom);
+    ctx.stroke();
+  }
+  if (hash % 13 === 0) {
+    const breathe = motion.reducedMotion
+      ? 0.62
+      : 0.5 + 0.5 * fastSin(motion.timeSeconds * 0.32 + (hash % 97) * 0.11);
+    const alpha = 0.12 + breathe * 0.16;
+    const px = Math.max(1, Math.round(1.15 * zoom));
+    const offsetX = ((((hash >>> 5) % 11) - 5) * 1.6) * zoom;
+    const offsetY = ((((hash >>> 11) % 7) - 3) * 1.2) * zoom;
+    ctx.fillStyle = `rgba(236, 248, 255, ${alpha})`;
+    ctx.fillRect(Math.round(x + offsetX), Math.round(y + offsetY), px, px);
+  }
   ctx.restore();
+}
+
+function drawDeepShelfEdgeDarkening(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  tileX: number,
+  tileY: number,
+  mapWidth: number,
+  mapHeight: number,
+) {
+  const centerX = (mapWidth - 1) / 2;
+  const centerY = (mapHeight - 1) / 2;
+  const maxDist = Math.hypot(centerX, centerY);
+  if (maxDist <= 0) return;
+  const dist = Math.hypot(tileX - centerX, tileY - centerY);
+  const edge = Math.max(0, (dist / maxDist - 0.56) / 0.44);
+  if (edge <= 0) return;
+  drawDiamond(ctx, x, y, 32 * zoom, 16 * zoom, `rgba(0, 3, 10, ${Math.min(0.18, edge * 0.18)})`);
 }
 
 function drawAlertChannelTexture(
@@ -746,15 +861,9 @@ function drawWarningShoalTexture(
   ctx.moveTo(x + 3 * zoom, y + 5 * zoom);
   ctx.lineTo(x + 11 * zoom, y + 8 * zoom);
   ctx.stroke();
-  if ((tileX * 5 + tileY * 7) % 4 === 0) {
-    ctx.fillStyle = withAlpha(theme.accent, 0.3);
-    ctx.fillRect(Math.round(x - 2 * zoom), Math.round(y + 1 * zoom), Math.max(1, Math.round(4 * zoom)), Math.max(1, Math.round(2 * zoom)));
-  }
+  drawWarningReefIdentity(ctx, x, y, zoom, theme, tileX, tileY);
   if ((tileX * 11 + tileY * 13) % 9 === 0) {
     drawDepthSounding(ctx, x + 7 * zoom, y + 3 * zoom, zoom, theme.wave, 0.26);
-  }
-  if ((tileX * 11 + tileY * 5) % 5 === 0) {
-    drawWarningReefCluster(ctx, x, y, zoom, theme);
   }
   ctx.restore();
 }
@@ -781,6 +890,9 @@ function drawDangerStraitTexture(
     ctx.lineTo(x + 12 * zoom, y - 5 * zoom);
     ctx.stroke();
   }
+  drawDangerRipRibbon(ctx, x, y, zoom, motion, theme, tileX, tileY);
+  drawDangerWhitecapCurl(ctx, x, y, zoom, motion, theme, tileX, tileY);
+  drawDangerSprayStreaks(ctx, x, y, zoom, motion, theme, tileX, tileY);
   ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.14, whitecap) * theme.motion.strokeAlphaScale);
   ctx.lineWidth = Math.max(1, 1.4 * zoom);
   ctx.beginPath();
@@ -824,21 +936,62 @@ function drawOpenWaterTexture(
   motion: PharosVilleCanvasMotion,
   theme: ZoneVisualTheme,
 ) {
-  if ((tileX * 7 + tileY * 13) % 4 !== 0) return;
+  const hash = tileHash(tileX, tileY, 503);
+  const windFetch = hash % 10 < 3;
   const drift = motion.reducedMotion ? 0.12 : 0.1 + fastSin(motion.timeSeconds * 0.72 + tileX * 0.17 + tileY * 0.21) * 0.03;
   ctx.save();
-  ctx.strokeStyle = withAlpha(theme.accent, Math.max(0.08, drift));
-  ctx.lineWidth = Math.max(1, 0.9 * zoom);
-  ctx.beginPath();
-  ctx.moveTo(x - 11 * zoom, y + 1 * zoom);
-  ctx.lineTo(x - 2 * zoom, y + 4 * zoom);
-  ctx.lineTo(x + 9 * zoom, y + 1 * zoom);
-  if ((tileX + tileY) % 5 === 0) {
-    ctx.moveTo(x - 5 * zoom, y - 4 * zoom);
-    ctx.lineTo(x + 7 * zoom, y - 1 * zoom);
+  if (windFetch) {
+    const fetchLength = Math.max(16, 22 * zoom);
+    const fetchRise = Math.max(4, 5 * zoom);
+    const windShift = motion.reducedMotion
+      ? 0
+      : fastSin(motion.timeSeconds * 0.36 + (hash % 31) * 0.19) * 1.4 * zoom;
+    ctx.strokeStyle = withAlpha(theme.accent, Math.max(0.09, drift));
+    ctx.lineWidth = Math.max(1, 0.85 * zoom);
+    ctx.beginPath();
+    ctx.moveTo(x - fetchLength * 0.5 + windShift, y + fetchRise * 0.5);
+    ctx.lineTo(x + fetchLength * 0.5 + windShift, y - fetchRise * 0.5);
+    if (hash % 5 === 0) {
+      ctx.moveTo(x - fetchLength * 0.35 - windShift * 0.5, y + fetchRise * 0.85);
+      ctx.lineTo(x + fetchLength * 0.32 - windShift * 0.5, y + fetchRise * 0.2);
+    }
+    ctx.stroke();
+  } else {
+    const breathe = motion.reducedMotion
+      ? 0.55
+      : 0.5 + 0.5 * fastSin((motion.timeSeconds / OPEN_WATER_PLANKTON_PERIOD_SECONDS) * Math.PI * 2 + (hash % 89) * 0.17);
+    const glintX = x + ((((hash >>> 8) % 15) - 7) * 1.2) * zoom;
+    const glintY = y + ((((hash >>> 13) % 9) - 4) * 0.9) * zoom;
+    ctx.fillStyle = withAlpha(theme.wave, 0.05 + breathe * 0.11);
+    ctx.fillRect(Math.round(glintX), Math.round(glintY), 1, 1);
   }
-  ctx.stroke();
   ctx.restore();
+}
+
+function drawLedgerParchmentUnderbase(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  tileX: number,
+  tileY: number,
+  theme: ZoneVisualTheme,
+) {
+  drawDiamond(ctx, x, y, 29 * zoom, 13 * zoom, "rgba(214, 176, 112, 0.055)");
+  const grainHash = tileHash(tileX, tileY, 631);
+  if (grainHash % 3 !== 0) {
+    drawMooringRule(ctx, x, y, zoom, -12, -1.5, 11, 4.5, "#d7b06c", 0.045);
+  }
+  if ((tileX % 10 === 0 || tileX % 10 === 5) && tileY % 3 === 0) {
+    const header = LEDGER_ROW_HEADERS[Math.floor(tileY / 3) % LEDGER_ROW_HEADERS.length]!;
+    ctx.save();
+    ctx.font = `${Math.max(5, Math.round(6 * zoom))}px Georgia, "Times New Roman", serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = withAlpha(theme.label.fill, 0.18);
+    ctx.fillText(header, x - 5 * zoom, y + 1 * zoom, 12 * zoom);
+    ctx.restore();
+  }
 }
 
 function drawMooringRule(
@@ -923,6 +1076,37 @@ function drawBreakwaterFoam(
   ctx.quadraticCurveTo(x - 8 * zoom, y + 1 * zoom, x - 4 * zoom, y + 5 * zoom);
   ctx.quadraticCurveTo(x, y + 9 * zoom, x + 4 * zoom, y + 5 * zoom);
   ctx.quadraticCurveTo(x + 8 * zoom, y + 1 * zoom, x + 12 * zoom, y + 5 * zoom);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawCalmMirrorBands(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  motion: PharosVilleCanvasMotion,
+  theme: ZoneVisualTheme,
+  tileX: number,
+  tileY: number,
+) {
+  const hash = tileHash(tileX, tileY, 307);
+  const phase = motion.reducedMotion
+    ? ((hash % 100) / 100)
+    : ((motion.timeSeconds / CALM_MIRROR_PERIOD_SECONDS + ((hash % 100) / 100)) % 1);
+  const bandY = y + (-4 + phase * 8) * zoom;
+  const alpha = (0.1 + ((hash >>> 9) % 5) * 0.012) * theme.motion.strokeAlphaScale;
+  ctx.save();
+  ctx.strokeStyle = withAlpha(theme.accent, alpha);
+  ctx.lineWidth = Math.max(1, 0.55 * zoom);
+  ctx.beginPath();
+  ctx.moveTo(x - 13 * zoom, bandY);
+  ctx.lineTo(x + 13 * zoom, bandY);
+  if (hash % 4 === 0) {
+    const lowerY = bandY + 2.2 * zoom;
+    ctx.moveTo(x - 9 * zoom, lowerY);
+    ctx.lineTo(x + 10 * zoom, lowerY);
+  }
   ctx.stroke();
   ctx.restore();
 }
@@ -1037,6 +1221,32 @@ function drawAlertCurrentChevron(
 
 // Warning Shoals signature: a cluster of three exposed reef triangles —
 // submerged rocks breaking the surface. Static (rocks don't move).
+function drawWarningReefIdentity(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  theme: ZoneVisualTheme,
+  tileX: number,
+  tileY: number,
+) {
+  const variant = tileHash(tileX, tileY, 557) % 10;
+  if (variant < 2) {
+    drawWarningReefCluster(ctx, x, y, zoom, theme);
+    drawWarningBreachPip(ctx, x - 7 * zoom, y + 5 * zoom, zoom, theme);
+    return;
+  }
+  if (variant < 6) {
+    const offsetX = ((tileHash(tileX, tileY, 563) % 5) - 2) * zoom;
+    drawWarningSingleRockFoam(ctx, x + offsetX, y + 2 * zoom, zoom, theme);
+    drawWarningBreachPip(ctx, x + 7 * zoom - offsetX, y - 1 * zoom, zoom, theme);
+    return;
+  }
+  if ((tileX * 5 + tileY * 7) % 4 === 0) {
+    drawWarningBreachPip(ctx, x - 2 * zoom, y + 2 * zoom, zoom, theme);
+  }
+}
+
 function drawWarningReefCluster(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -1083,9 +1293,141 @@ function drawWarningReefCluster(
   ctx.restore();
 }
 
-// Danger Strait signature: animated whitecap-spray bursts. Fires more
-// readily than the original, with a fallback for reduced motion so the
-// zone still reads in static frames.
+function drawWarningSingleRockFoam(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  theme: ZoneVisualTheme,
+) {
+  ctx.save();
+  ctx.fillStyle = "rgba(28, 24, 20, 0.72)";
+  ctx.strokeStyle = withAlpha(theme.wave, 0.6);
+  ctx.lineJoin = "round";
+  ctx.lineWidth = Math.max(1, 0.9 * zoom);
+  ctx.beginPath();
+  ctx.moveTo(x - 4 * zoom, y + 2 * zoom);
+  ctx.lineTo(x + 1 * zoom, y - 4 * zoom);
+  ctx.lineTo(x + 5 * zoom, y + 3 * zoom);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.strokeStyle = withAlpha(theme.wave, 0.48);
+  ctx.lineWidth = Math.max(1, 0.75 * zoom);
+  ctx.beginPath();
+  ctx.ellipse(x + 1 * zoom, y + 1 * zoom, 8 * zoom, 2.6 * zoom, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawWarningBreachPip(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  theme: ZoneVisualTheme,
+) {
+  const size = Math.max(2, Math.round(2 * zoom));
+  ctx.save();
+  ctx.strokeStyle = withAlpha(theme.wave, 0.44);
+  ctx.lineWidth = Math.max(1, 0.65 * zoom);
+  ctx.beginPath();
+  ctx.ellipse(x, y, 4.2 * zoom, 1.7 * zoom, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = "rgba(22, 19, 17, 0.78)";
+  ctx.fillRect(Math.round(x - size / 2), Math.round(y - size / 2), size, size);
+  ctx.restore();
+}
+
+function drawDangerWhitecapCurl(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  motion: PharosVilleCanvasMotion,
+  theme: ZoneVisualTheme,
+  tileX: number,
+  tileY: number,
+) {
+  const bend = motion.reducedMotion
+    ? 0
+    : fastSin(motion.timeSeconds * 1.35 + tileX * 0.47 + tileY * 0.31) * 1.4 * zoom * theme.motion.amplitudeScale;
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = "rgba(5, 8, 15, 0.48)";
+  ctx.lineWidth = Math.max(2, 2.6 * zoom);
+  ctx.beginPath();
+  ctx.moveTo(x - 11 * zoom, y - 1 * zoom + bend * 0.25);
+  ctx.quadraticCurveTo(x - 2 * zoom, y - 7 * zoom + bend, x + 7 * zoom, y - 2 * zoom);
+  ctx.quadraticCurveTo(x + 11 * zoom, y + 1 * zoom, x + 6 * zoom, y + 5 * zoom);
+  ctx.stroke();
+  ctx.strokeStyle = withAlpha(theme.wave, 0.65);
+  ctx.lineWidth = Math.max(1.8, 2.2 * zoom);
+  ctx.beginPath();
+  ctx.moveTo(x - 10 * zoom, y - 2 * zoom + bend * 0.2);
+  ctx.quadraticCurveTo(x - 2 * zoom, y - 6 * zoom + bend, x + 6 * zoom, y - 2 * zoom);
+  ctx.quadraticCurveTo(x + 10 * zoom, y + 1 * zoom, x + 5 * zoom, y + 4 * zoom);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawDangerSprayStreaks(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  motion: PharosVilleCanvasMotion,
+  theme: ZoneVisualTheme,
+  tileX: number,
+  tileY: number,
+) {
+  const hash = tileHash(tileX, tileY, 673);
+  const gust = motion.reducedMotion ? 0 : fastSin(motion.timeSeconds * 1.8 + (hash % 41) * 0.13) * 1.2 * zoom;
+  const count = 3 + (hash % 2);
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.strokeStyle = withAlpha(theme.wave, 0.55);
+  ctx.lineWidth = Math.max(1, 0.9 * zoom);
+  ctx.beginPath();
+  for (let i = 0; i < count; i += 1) {
+    const sx = x + ((((hash >>> (i * 5)) & 15) - 8) * 1.7) * zoom + gust;
+    const sy = y + ((((hash >>> (i * 5 + 4)) & 7) - 3) * 1.5) * zoom;
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(sx + (3.4 + i * 0.45) * zoom, sy - (1.7 + (i % 2) * 0.8) * zoom);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawDangerRipRibbon(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  motion: PharosVilleCanvasMotion,
+  theme: ZoneVisualTheme,
+  tileX: number,
+  tileY: number,
+) {
+  const travel = motion.reducedMotion ? 0.38 : (motion.timeSeconds % DANGER_RIP_PERIOD_SECONDS) / DANGER_RIP_PERIOD_SECONDS;
+  const phase = ((tileX * 0.17 + tileY * 0.29 - travel) % 1 + 1) % 1;
+  const alpha = Math.max(0, 1 - Math.abs(phase - 0.5) / 0.12) * 0.34;
+  if (alpha <= 0.02) return;
+  ctx.save();
+  ctx.strokeStyle = withAlpha(theme.accent, alpha * theme.motion.strokeAlphaScale);
+  ctx.lineWidth = Math.max(1, 1.05 * zoom);
+  ctx.setLineDash([4.5 * zoom, 2.5 * zoom]);
+  ctx.beginPath();
+  ctx.moveTo(x - 15 * zoom, y + 6 * zoom);
+  ctx.quadraticCurveTo(x - 3 * zoom, y - 5 * zoom, x + 15 * zoom, y - 4 * zoom);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+// Danger Strait signature: animated whitecap-spray bursts, with a static
+// fallback for reduced motion so the zone still reads in static frames.
 function drawDangerStormBurst(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -1099,8 +1441,8 @@ function drawDangerStormBurst(
   const flicker = motion.reducedMotion
     ? 1.0
     : fastSin(motion.timeSeconds * 2.4 + tileX * 0.61 + tileY * 0.43);
-  if (!motion.reducedMotion && flicker < 0.45) return;
-  const intensity = motion.reducedMotion ? 0.7 : Math.min(1, 0.55 + (flicker - 0.45) * 1.6);
+  if (!motion.reducedMotion && flicker < 0.6) return;
+  const intensity = motion.reducedMotion ? 0.7 : Math.min(1, 0.6 + (flicker - 0.6) * 1.9);
   ctx.save();
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
