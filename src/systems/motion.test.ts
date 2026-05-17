@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { denseFixtureChains, denseFixturePegSummary, denseFixtureReportCards, denseFixtureStablecoins, denseFixtureStress, fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoins, fixtureStability, fixtureStress, fixtureWithFlagshipPlacement, makeAsset, makeChain, makePegCoin, makerSquadFixtureInputs } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import { __testPathCacheSize, buildBaseMotionPlan, buildMotionPlan, BoundedShipWaterRouteCache, buildShipWaterRoute, clearShipHeadingMemory, createShipMotionSample, disposePathCacheForMap, isShipMapVisible, lighthouseFireFlickerSpeed, motionPlanSignature, resolveShipMotionSample, resolveShipMotionSampleInto, sampleShipWaterPath, shipCycleTempo, shipWaterPathKey, SPEED_QUARTILE_SCALARS, stableMotionPhase, type ShipDockMotionStop, type ShipMotionSample } from "./motion";
+import { ARRIVING_DECEL_END, ARRIVING_FULL_TRANSIT_END, CAST_OFF_ACCEL_END, CAST_OFF_LINE_RELEASE_END, MOORING_QUIET_END, MOORING_WORKING_END } from "./motion-config";
 import { getShipHeadingDelta } from "./motion-sampling";
 import { chaikinSmoothPath, ensureShoreDistanceMask, shoreDistance, warmAllWaterPaths } from "./motion-water";
 import { squadForMember, squadFormationOffsetForPlacement } from "./maker-squad";
@@ -399,15 +400,22 @@ describe("motion", () => {
     expect(new Set(multiRoute.dockStopSchedule).size).toBeGreaterThan(new Set(singleRoute.dockStopSchedule).size);
   });
 
-  it("returns a static risk-water idle position for reduced-motion docked samples", () => {
+  it("returns a static primary-dock berth for reduced-motion docked samples", () => {
     const ship = world.ships[0]!;
     const plan = buildMotionPlan(world, ship.detailId);
+    const route = plan.shipRoutes.get(ship.id)!;
+    const primaryStop = route.dockStops.find((stop) => stop.dockId === route.homeDockId) ?? route.dockStops[0]!;
     const sample = resolveShipMotionSample({ plan, reducedMotion: true, ship, timeSeconds: 120 });
 
-    expect(sample.tile).toEqual(ship.riskTile);
+    expect(sample.tile).toEqual(primaryStop.mooringTile);
     expect(sample.state).toBe("idle");
-    expect(sample.currentDockId).toBeNull();
+    expect(sample.currentDockId).toBe(primaryStop.dockId);
+    expect(sample.currentRouteStopId).toBe(primaryStop.id);
+    expect(sample.currentRouteStopKind).toBe("dock");
     expect(sample.zone).toBe(ship.riskZone);
+    if (primaryStop.dockTangent) {
+      expect(sample.heading).toEqual(primaryStop.dockTangent);
+    }
     expect(sample.wakeIntensity).toBe(0);
   });
 
@@ -1457,7 +1465,7 @@ describe("motion", () => {
       expect(dot).toBeLessThan(0.95);
     });
 
-    it("aligns heading to dockTangent at the very end of the arriving phase", () => {
+    it("holds heading within fender-yaw tolerance at the very end of the arriving phase", () => {
       const sampleWorld = buildAlignmentWorld();
       const ship = sampleWorld.ships[0]!;
       const plan = buildMotionPlan(sampleWorld, ship.detailId);
@@ -1472,8 +1480,9 @@ describe("motion", () => {
       // cycle the last arriving sample sits at progress ≈ 1 within float eps.
       const endSample = resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds: bounds.endSeconds });
       expect(endSample.state).toBe("arriving");
-      expect(endSample.heading.x).toBeCloseTo(tangent.x, 2);
-      expect(endSample.heading.y).toBeCloseTo(tangent.y, 2);
+      const dot = endSample.heading.x * tangent.x + endSample.heading.y * tangent.y;
+      expect(dot).toBeGreaterThan(Math.cos(0.05));
+      expect(endSample.fenderContact).toBeGreaterThan(0.8);
     });
 
     it("partially aligns heading mid-ramp (between smoothed transit heading and dockTangent)", () => {
@@ -1495,12 +1504,11 @@ describe("motion", () => {
       });
       const preRampHeading = { x: preRampSample.heading.x, y: preRampSample.heading.y };
 
-      // Mid-ramp: linear time fraction ~0.85 within the arriving window. The
-      // smoothstep maps 0.85 → ~0.939, which lands at ramp_t ≈ 0.48 — squarely
-      // mid-blend. We expect dot(heading, tangent) strictly between the
+      // Mid-decel: halfway between the 0.85 alignment start and 0.96 fender
+      // contact threshold. We expect dot(heading, tangent) strictly between the
       // pre-ramp dot and 1.
       const window = bounds.endSeconds - bounds.startSeconds;
-      const midRampSeconds = bounds.startSeconds + window * 0.85;
+      const midRampSeconds = bounds.startSeconds + window * ((ARRIVING_FULL_TRANSIT_END + ARRIVING_DECEL_END) / 2);
       const midRampSample = resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds: midRampSeconds });
       expect(midRampSample.state).toBe("arriving");
 
@@ -1546,17 +1554,13 @@ describe("motion", () => {
       }
     });
 
-    it("does not align departing transits", () => {
+    it("rotates departing heading off the dock tangent during cast-off", () => {
       const sampleWorld = buildAlignmentWorld();
       const ship = sampleWorld.ships[0]!;
       const plan = buildMotionPlan(sampleWorld, ship.detailId);
       const route = plan.shipRoutes.get(ship.id)!;
 
-      // Find a departing sample late in its phase. Departing has fromMooringStop
-      // set, toMooringStop = null, so the alignment branch is skipped.
       const samples = 4800;
-      let lateDeparting: ReturnType<typeof resolveShipMotionSample> | null = null;
-      let lateDepartingFromStopId: string | null = null;
       const departingByStop = new Map<string, Array<{ timeSeconds: number; sample: ReturnType<typeof resolveShipMotionSample> }>>();
       for (let index = 0; index < samples; index += 1) {
         const timeSeconds = route.cycleSeconds * (index / samples) - route.phaseSeconds;
@@ -1567,24 +1571,103 @@ describe("motion", () => {
         list.push({ timeSeconds, sample });
         departingByStop.set(stopId, list);
       }
-      // Pick the last entry of any stop window — that's progress closest to 1.
-      for (const [stopId, list] of departingByStop) {
-        const last = list[list.length - 1]!;
-        if (!lateDeparting) {
-          lateDeparting = last.sample;
-          lateDepartingFromStopId = stopId;
-        }
+      const entry = [...departingByStop.entries()].find(([stopId]) => route.dockStops.find((stop) => stop.id === stopId)?.dockTangent);
+      expect(entry).toBeDefined();
+      const [stopId, window] = entry!;
+      const fromStop = route.dockStops.find((stop) => stop.id === stopId)!;
+      const tangent = fromStop.dockTangent!;
+      const start = window[0]!.timeSeconds;
+      const end = window[window.length - 1]!.timeSeconds;
+      const sampleAt = (fraction: number) => {
+        clearShipHeadingMemory(ship.id);
+        return resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds: start + (end - start) * fraction });
+      };
+
+      const lineRelease = sampleAt(CAST_OFF_LINE_RELEASE_END / 2);
+      const slowBuild = sampleAt((CAST_OFF_LINE_RELEASE_END + CAST_OFF_ACCEL_END) / 2);
+      const normalTransit = sampleAt(0.3);
+
+      const releaseDot = lineRelease.heading.x * tangent.x + lineRelease.heading.y * tangent.y;
+      const normalDot = normalTransit.heading.x * tangent.x + normalTransit.heading.y * tangent.y;
+      expect(releaseDot).toBeGreaterThan(0.98);
+      expect(normalDot).toBeLessThan(releaseDot);
+      expect(slowBuild.wakeIntensity).toBeGreaterThan(lineRelease.wakeIntensity);
+      expect(normalTransit.wakeIntensity).toBeGreaterThan(slowBuild.wakeIntensity);
+      expect(Math.hypot(normalTransit.heading.x, normalTransit.heading.y)).toBeCloseTo(1, 5);
+    });
+
+    it("decelerates into fender contact while staying close to the berth", () => {
+      const sampleWorld = buildAlignmentWorld();
+      const ship = sampleWorld.ships[0]!;
+      const plan = buildMotionPlan(sampleWorld, ship.detailId);
+      const arriving = arrivingSamplesAcrossCycle(plan, ship, 4800);
+      const target = arriving.find((entry) => entry.toMooringStop?.dockTangent);
+      expect(target).toBeDefined();
+      const stop = target!.toMooringStop!;
+      const tangent = stop.dockTangent!;
+      const bounds = arrivingPhaseBoundsForRouteStop(arriving, target!.sample.currentRouteStopId!)!;
+      const window = bounds.endSeconds - bounds.startSeconds;
+      const sampleAt = (fraction: number) => {
+        clearShipHeadingMemory(ship.id);
+        return resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds: bounds.startSeconds + window * fraction });
+      };
+
+      const fullTransit = sampleAt(ARRIVING_FULL_TRANSIT_END * 0.9);
+      const decel = sampleAt((ARRIVING_FULL_TRANSIT_END + ARRIVING_DECEL_END) / 2);
+      const contact = sampleAt((ARRIVING_DECEL_END + 1) / 2);
+
+      expect(fullTransit.wakeIntensity).toBeGreaterThan(decel.wakeIntensity);
+      expect(decel.wakeIntensity).toBeGreaterThan(contact.wakeIntensity);
+      expect(contact.fenderContact).toBeGreaterThan(0);
+      expect(distance(contact.tile, stop.mooringTile)).toBeLessThanOrEqual(0.55);
+      const contactDot = contact.heading.x * tangent.x + contact.heading.y * tangent.y;
+      expect(contactDot).toBeGreaterThan(Math.cos(0.06));
+    });
+
+    it("splits dock dwell into working, quiet, and cast-off-prep sub-phases", () => {
+      const sampleWorld = buildAlignmentWorld();
+      const ship = sampleWorld.ships[0]!;
+      const plan = buildMotionPlan(sampleWorld, ship.detailId);
+      const route = plan.shipRoutes.get(ship.id)!;
+      const mooredByStop = new Map<string, Array<{ timeSeconds: number; sample: ReturnType<typeof resolveShipMotionSample> }>>();
+      for (let index = 0; index < 4800; index += 1) {
+        const timeSeconds = route.cycleSeconds * (index / 4800) - route.phaseSeconds;
+        const sample = resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds });
+        if (sample.state !== "moored" || !sample.currentRouteStopId) continue;
+        const list = mooredByStop.get(sample.currentRouteStopId) ?? [];
+        list.push({ timeSeconds, sample });
+        mooredByStop.set(sample.currentRouteStopId, list);
       }
-      expect(lateDeparting).not.toBeNull();
-      const fromStop = route.dockStops.find((stop) => stop.id === lateDepartingFromStopId);
-      // If the departing fromStop has a non-null dockTangent, confirm heading
-      // does NOT match it. The ramp must skip departing entirely.
-      if (fromStop?.dockTangent) {
-        const dot = lateDeparting!.heading.x * fromStop.dockTangent.x + lateDeparting!.heading.y * fromStop.dockTangent.y;
-        expect(dot).toBeLessThan(0.95);
-      }
-      // Heading stays well-formed.
-      expect(Math.hypot(lateDeparting!.heading.x, lateDeparting!.heading.y)).toBeCloseTo(1, 5);
+
+      const entry = [...mooredByStop.entries()].find(([stopId]) => {
+        const stop = route.dockStops.find((candidate) => candidate.id === stopId);
+        return Boolean(stop?.dockTangent);
+      });
+      expect(entry).toBeDefined();
+      const [stopId, window] = entry!;
+      const stop = route.dockStops.find((candidate) => candidate.id === stopId)!;
+      const start = window[0]!.timeSeconds;
+      const end = window[window.length - 1]!.timeSeconds;
+      const sampleAt = (fraction: number) => resolveShipMotionSample({
+        plan,
+        reducedMotion: false,
+        ship,
+        timeSeconds: start + (end - start) * fraction,
+      });
+
+      const working = sampleAt(MOORING_WORKING_END / 2);
+      const quiet = sampleAt((MOORING_WORKING_END + MOORING_QUIET_END) / 2);
+      const prep = sampleAt((MOORING_QUIET_END + 1) / 2);
+
+      expect(working.mooringSubPhase).toBe("working");
+      expect(quiet.mooringSubPhase).toBe("quiet");
+      expect(prep.mooringSubPhase).toBe("cast-off-prep");
+      expect(working.lanternAlpha).toBeGreaterThan(0);
+      expect(quiet.lanternAlpha).toBe(0);
+      expect(prep.mooringTension).toBeLessThan(quiet.mooringTension ?? 0);
+      const prepDot = prep.heading.x * stop.dockTangent!.x + prep.heading.y * stop.dockTangent!.y;
+      const quietDot = quiet.heading.x * stop.dockTangent!.x + quiet.heading.y * stop.dockTangent!.y;
+      expect(prepDot).toBeLessThan(quietDot);
     });
   });
 
@@ -2475,12 +2558,16 @@ describe("motion", () => {
         const baselinePlan = fakePlan(basePlan, new Map([[ship.id, baseRoute]]));
         const boostedPlan = fakePlan(basePlan, new Map([[ship.id, boostedRoute]]));
 
-        // Find a sailing/departing window.
+        // Find a transit window with non-zero wake (cast-off line-release now
+        // intentionally reports zero before acceleration starts).
         let transitT: number | null = null;
         for (let i = 0; i < 400; i += 1) {
           const t = (baseRoute.cycleSeconds * i) / 400 - baseRoute.phaseSeconds + 200;
           const s = resolveShipMotionSample({ plan: baselinePlan, reducedMotion: false, ship, timeSeconds: t });
-          if (s.state === "sailing" || s.state === "departing") { transitT = t; break; }
+          if ((s.state === "sailing" || s.state === "departing" || s.state === "arriving") && s.wakeIntensity > 0.05) {
+            transitT = t;
+            break;
+          }
         }
         if (transitT === null) return;
 

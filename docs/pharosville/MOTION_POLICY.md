@@ -45,7 +45,12 @@ renders deterministic static frames and must not keep a RAF loop alive.
 
 - `calm`, `watch`, `alert`, `warning`, and `danger` map to the separated DEWS sea districts from Calm Anchorage through Danger Strait. Watch Breakwater now sits in the south basin and southeast reclaimed corner basin; `ledger` maps to Ledger Mooring spanning the entire top shelf and touching Calm Anchorage along the western flank.
 - Higher DEWS turbulence should increase risk-water dwell, drift radius, and sailing wake intensity in this order: calm < watch < alert < warning < danger.
-- Reduced-motion ships freeze at their risk-water idle tile, or Ledger Mooring for NAV ledger assets. Details and the accessibility ledger must expose named risk-water area, risk-water zone, home dock, chain presence, docking cadence, and evidence caveats.
+- Reduced-motion routed ships freeze at their primary rendered dock berth with
+  berth heading from `dockTangent` when available. NAV ledger assets keep the
+  Ledger Mooring freeze required by the non-DEWS NAV policy. Dockless ships
+  freeze at their risk-water idle tile. Details and the accessibility ledger
+  must expose named risk-water area, risk-water zone, home dock, chain presence,
+  docking cadence, and evidence caveats.
 - Routed normal-motion ships spend one third of each cycle moored at rendered docks. Non-titan ships are hidden while moored to rotate map-visible ship load; titan ships remain visible while docked.
 - Dockless normal-motion patrols must not collapse to a near-static loop. If a named area is too small for meaningful travel, use current or adjacent same-purpose sea anchors while keeping samples on water tiles.
 

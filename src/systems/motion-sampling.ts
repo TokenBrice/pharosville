@@ -1,10 +1,19 @@
 import { MAX_TILE_X, MAX_TILE_Y } from "./world-layout";
 import { stableHash, stableUnit } from "./stable-random";
-import { DOCKED_SHIP_DWELL_SHARE, ZONE_DWELL } from "./motion-config";
+import {
+  ARRIVING_DECEL_END,
+  ARRIVING_FULL_TRANSIT_END,
+  CAST_OFF_ACCEL_END,
+  CAST_OFF_LINE_RELEASE_END,
+  DOCKED_SHIP_DWELL_SHARE,
+  MOORING_QUIET_END,
+  MOORING_WORKING_END,
+  ZONE_DWELL,
+} from "./motion-config";
 import { squadForMember, squadFormationOffsetForPlacement } from "./maker-squad";
 import { sampleShipWaterPathInto as sampleWaterPathInto, sampleShipWaterPath as sampleWaterPath, clearShipWaterSegmentHint } from "./motion-water";
 import { clamp, normalizeHeadingInto, pathKey, positiveModulo, smoothstep, smoothstepRange } from "./motion-utils";
-import type { PharosVilleMotionPlan, ShipMotionRoute, ShipMotionRouteStop, ShipMotionSample, ShipMotionState, ShipWaterPath } from "./motion-types";
+import type { PharosVilleMotionPlan, ShipMooringSubPhase, ShipMotionRoute, ShipMotionRouteStop, ShipMotionSample, ShipMotionState, ShipWaterPath } from "./motion-types";
 import type { ShipNode, ShipWaterZone } from "./world-types";
 
 interface RouteSamplingRuntime {
@@ -104,7 +113,18 @@ export function createShipMotionSample(): ShipMotionSample {
     currentRouteStopKind: null,
     heading: { x: 0, y: 0 },
     wakeIntensity: 0,
+    mooringSubPhase: null,
+    mooringTension: 0,
+    lanternAlpha: 0,
+    fenderContact: 0,
   };
+}
+
+function resetSampleChoreography(out: ShipMotionSample): void {
+  out.mooringSubPhase = null;
+  out.mooringTension = 0;
+  out.lanternAlpha = 0;
+  out.fenderContact = 0;
 }
 
 // Module-scope scratch sample reused for the consort branch (flagship lookup).
@@ -211,19 +231,9 @@ export function resolveShipMotionSampleInto(input: {
   flagshipSamples?: ReadonlyMap<string, ShipMotionSample>;
 }, out: ShipMotionSample): void {
   const route = input.plan.shipRoutes.get(input.ship.id);
+  resetSampleChoreography(out);
   if (input.reducedMotion || !route) {
-    out.shipId = input.ship.id;
-    const tile = route?.riskTile ?? input.ship.riskTile;
-    out.tile.x = tile.x;
-    out.tile.y = tile.y;
-    out.state = "idle";
-    out.zone = input.ship.riskZone;
-    out.currentDockId = null;
-    out.currentRouteStopId = null;
-    out.currentRouteStopKind = null;
-    out.heading.x = 0;
-    out.heading.y = 0;
-    out.wakeIntensity = 0;
+    reducedMotionSampleInto(input.plan, input.ship, route, out);
     return;
   }
 
@@ -314,6 +324,106 @@ export function resolveShipMotionSampleInto(input: {
   sampleRouteCycleInto(route, input.timeSeconds, out);
 }
 
+interface ReducedMotionRouteFrame {
+  tile: { x: number; y: number };
+  heading: { x: number; y: number };
+  dockStop: ShipMotionRoute["dockStops"][number] | null;
+  ledgerStop: ShipMotionRouteStop | null;
+}
+
+function reducedMotionSampleInto(
+  plan: PharosVilleMotionPlan,
+  ship: ShipNode,
+  route: ShipMotionRoute | undefined,
+  out: ShipMotionSample,
+): void {
+  out.shipId = ship.id;
+  out.state = "idle";
+  out.zone = ship.riskZone;
+  out.currentDockId = null;
+  out.currentRouteStopId = null;
+  out.currentRouteStopKind = null;
+  out.heading.x = 0;
+  out.heading.y = 0;
+  out.wakeIntensity = 0;
+  resetSampleChoreography(out);
+
+  if (!route) {
+    out.tile.x = ship.riskTile.x;
+    out.tile.y = ship.riskTile.y;
+    return;
+  }
+
+  if (ship.squadRole === "consort" && ship.squadId) {
+    const squad = squadForMember(ship.id);
+    const flagshipRoute = squad ? plan.shipRoutes.get(squad.flagshipId) : undefined;
+    if (flagshipRoute) {
+      const flagshipFrame = reducedMotionRouteFrame(flagshipRoute);
+      const offset = route.formationOffset
+        ?? squadFormationOffsetForPlacement(ship.id, squad!, ship.riskPlacement)
+        ?? { dx: 0, dy: 0 };
+      clampMotionTileInto(flagshipFrame.tile.x + offset.dx, flagshipFrame.tile.y + offset.dy, out.tile);
+      out.heading.x = flagshipFrame.heading.x;
+      out.heading.y = flagshipFrame.heading.y;
+      return;
+    }
+  }
+
+  const frame = reducedMotionRouteFrame(route);
+  out.tile.x = frame.tile.x;
+  out.tile.y = frame.tile.y;
+  out.heading.x = frame.heading.x;
+  out.heading.y = frame.heading.y;
+
+  if (frame.ledgerStop) {
+    // Existing NAV policy treats Ledger Mooring as the static representative
+    // frame rather than a rendered chain dock visit.
+    return;
+  }
+
+  if (frame.dockStop) {
+    out.currentDockId = frame.dockStop.dockId;
+    out.currentRouteStopId = frame.dockStop.id;
+    out.currentRouteStopKind = frame.dockStop.kind;
+    out.mooringSubPhase = "quiet";
+    out.mooringTension = 1;
+  }
+}
+
+function reducedMotionRouteFrame(route: ShipMotionRoute): ReducedMotionRouteFrame {
+  if (route.riskStop?.kind === "ledger") {
+    return {
+      tile: route.riskStop.mooringTile,
+      heading: route.riskStop.dockTangent ?? { x: 0, y: 0 },
+      dockStop: null,
+      ledgerStop: route.riskStop,
+    };
+  }
+
+  const dockStop = primaryRouteDockStop(route);
+  if (dockStop) {
+    return {
+      tile: dockStop.mooringTile,
+      heading: dockStop.dockTangent ?? { x: 0, y: 0 },
+      dockStop,
+      ledgerStop: null,
+    };
+  }
+
+  return {
+    tile: route.riskTile,
+    heading: { x: 0, y: 0 },
+    dockStop: null,
+    ledgerStop: null,
+  };
+}
+
+function primaryRouteDockStop(route: ShipMotionRoute): ShipMotionRoute["dockStops"][number] | null {
+  return (route.homeDockId ? route.dockStops.find((stop) => stop.dockId === route.homeDockId) : null)
+    ?? route.dockStops[0]
+    ?? null;
+}
+
 function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number, out: ShipMotionSample): void {
   const runtime = routeSamplingRuntime(route);
   if (runtime.scheduledStopCount === 0) {
@@ -341,7 +451,16 @@ function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number, out: 
     if (!stop || !nextStop) break;
 
     if (cursor < dockSecondsEach) {
-      mooredSampleInto(route, stop, timeSeconds, runtime, out);
+      const dwellProgress = cursor / Math.max(1, dockSecondsEach);
+      mooredSampleInto({
+        route,
+        stop,
+        dwellProgress,
+        secondsRemaining: dockSecondsEach - cursor,
+        outgoingPath: runtime.stopToRiskPathByDockId.get(stop.dockId),
+        timeSeconds,
+        runtime,
+      }, out);
       return;
     }
     cursor -= dockSecondsEach;
@@ -350,7 +469,7 @@ function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number, out: 
       transitSampleInto({
         route,
         path: runtime.stopToRiskPathByDockId.get(stop.dockId),
-        progress: smoothstep(cursor / Math.max(1, transitSecondsEach)),
+        progress: cursor / Math.max(1, transitSecondsEach),
         state: "departing",
         routeStop: stop,
         fromMooringStop: stop,
@@ -372,7 +491,7 @@ function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number, out: 
       transitSampleInto({
         route,
         path: runtime.riskToStopPathByDockId.get(nextStop.dockId),
-        progress: smoothstep(cursor / Math.max(1, transitSecondsEach)),
+        progress: cursor / Math.max(1, transitSecondsEach),
         state: "arriving",
         routeStop: nextStop,
         fromMooringStop: null,
@@ -455,6 +574,10 @@ const ledgerOrbitScratch: ShipMotionSample = {
   currentRouteStopKind: null,
   heading: { x: 0, y: 0 },
   wakeIntensity: 0,
+  mooringSubPhase: null,
+  mooringTension: 0,
+  lanternAlpha: 0,
+  fenderContact: 0,
 };
 const ledgerTransitScratch: ShipMotionSample = {
   shipId: "",
@@ -466,7 +589,88 @@ const ledgerTransitScratch: ShipMotionSample = {
   currentRouteStopKind: null,
   heading: { x: 0, y: 0 },
   wakeIntensity: 0,
+  mooringSubPhase: null,
+  mooringTension: 0,
+  lanternAlpha: 0,
+  fenderContact: 0,
 };
+
+interface TransitPhaseProfile {
+  alignmentToDockTangent: number;
+  fenderContact: number;
+  pathProgress: number;
+  speedRatio: number;
+}
+
+const ARRIVING_DECEL_DISTANCE_SHARE = (ARRIVING_DECEL_END - ARRIVING_FULL_TRANSIT_END) * (2 / Math.PI);
+const ARRIVING_CONTACT_PATH_START = ARRIVING_FULL_TRANSIT_END + ARRIVING_DECEL_DISTANCE_SHARE;
+const CAST_OFF_ACCEL_DISTANCE_SHARE = (CAST_OFF_ACCEL_END - CAST_OFF_LINE_RELEASE_END) * (2 / Math.PI);
+
+function transitPhaseProfile(state: Extract<ShipMotionState, "arriving" | "departing" | "sailing">, progress: number): TransitPhaseProfile {
+  const p = clamp(progress, 0, 1);
+  if (state === "departing") {
+    if (p <= CAST_OFF_LINE_RELEASE_END) {
+      return {
+        alignmentToDockTangent: 1,
+        fenderContact: 0,
+        pathProgress: 0,
+        speedRatio: 0,
+      };
+    }
+    if (p < CAST_OFF_ACCEL_END) {
+      const local = (p - CAST_OFF_LINE_RELEASE_END) / (CAST_OFF_ACCEL_END - CAST_OFF_LINE_RELEASE_END);
+      const easedDistance = CAST_OFF_ACCEL_DISTANCE_SHARE * (1 - Math.cos(local * Math.PI / 2));
+      return {
+        alignmentToDockTangent: 1 - smoothstep(local),
+        fenderContact: 0,
+        pathProgress: easedDistance,
+        speedRatio: Math.sin(local * Math.PI / 2),
+      };
+    }
+    const normalProgress = (p - CAST_OFF_ACCEL_END) / (1 - CAST_OFF_ACCEL_END);
+    return {
+      alignmentToDockTangent: 0,
+      fenderContact: 0,
+      pathProgress: CAST_OFF_ACCEL_DISTANCE_SHARE + (1 - CAST_OFF_ACCEL_DISTANCE_SHARE) * normalProgress,
+      speedRatio: 1,
+    };
+  }
+
+  if (state === "arriving") {
+    if (p <= ARRIVING_FULL_TRANSIT_END) {
+      return {
+        alignmentToDockTangent: 0,
+        fenderContact: 0,
+        pathProgress: p,
+        speedRatio: 1,
+      };
+    }
+    if (p < ARRIVING_DECEL_END) {
+      const local = (p - ARRIVING_FULL_TRANSIT_END) / (ARRIVING_DECEL_END - ARRIVING_FULL_TRANSIT_END);
+      return {
+        alignmentToDockTangent: smoothstep(local),
+        fenderContact: 0,
+        pathProgress: ARRIVING_FULL_TRANSIT_END + ARRIVING_DECEL_DISTANCE_SHARE * Math.sin(local * Math.PI / 2),
+        speedRatio: 0.1 + 0.9 * Math.cos(local * Math.PI / 2),
+      };
+    }
+    const local = (p - ARRIVING_DECEL_END) / (1 - ARRIVING_DECEL_END);
+    const contactT = smoothstep(local);
+    return {
+      alignmentToDockTangent: 1,
+      fenderContact: contactT,
+      pathProgress: ARRIVING_CONTACT_PATH_START + (1 - ARRIVING_CONTACT_PATH_START) * contactT,
+      speedRatio: 0.1 * (1 - contactT),
+    };
+  }
+
+  return {
+    alignmentToDockTangent: 0,
+    fenderContact: 0,
+    pathProgress: p,
+    speedRatio: 1,
+  };
+}
 
 function transitSampleInto(input: {
   route: ShipMotionRoute;
@@ -479,14 +683,16 @@ function transitSampleInto(input: {
   toMooringStop: ShipMotionRoute["dockStops"][number] | null;
   timeSeconds: number;
 }, out: ShipMotionSample): void {
+  const linearProgress = clamp(input.progress, 0, 1);
+  const profile = transitPhaseProfile(input.state, linearProgress);
   // Write water-path point/heading directly into out.tile / out.heading.
   // F10: pass shipId so sampleWaterPathInto can reuse the per-ship segment-index
   // hint (progress is monotonic along a path, so the cached index is almost
   // always still valid or one segment forward).
-  sampleWaterPathInto(input.path, input.progress, out.tile, out.heading, input.route.shipId);
+  sampleWaterPathInto(input.path, profile.pathProgress, out.tile, out.heading, input.route.shipId);
   // Apply lane offset (uses heading); write through a scratch tile because
   // the lane formula reads the un-offset point.
-  transitLanePointInto(out.tile, out.heading, input.progress, input.runtime, transitTileScratch);
+  transitLanePointInto(out.tile, out.heading, profile.pathProgress, input.runtime, transitTileScratch);
   out.tile.x = transitTileScratch.x;
   out.tile.y = transitTileScratch.y;
 
@@ -494,7 +700,7 @@ function transitSampleInto(input: {
   // trajectory rather than the raw path tangent. Without this, the lane bulge
   // shifts position perpendicular while heading stays straight, producing a
   // visible "crab" sideways motion.
-  const aheadProgress = Math.min(1, input.progress + 0.01);
+  const aheadProgress = Math.min(1, profile.pathProgress + 0.01);
   sampleWaterPathInto(input.path, aheadProgress, aheadPointScratch, aheadHeadingScratch, input.route.shipId);
   transitLanePointInto(aheadPointScratch, aheadHeadingScratch, aheadProgress, input.runtime, aheadLaneScratch);
   const fdx = aheadLaneScratch.x - out.tile.x;
@@ -503,20 +709,28 @@ function transitSampleInto(input: {
     normalizeHeadingInto(fdx, fdy, out.heading);
   }
 
+  applyFenderContactClampInto(input.toMooringStop, linearProgress, out.tile);
   applyMooringBlendInto({
-    progress: input.progress,
+    progress: linearProgress,
     route: input.route,
     fromMooringStop: input.fromMooringStop,
     toMooringStop: input.toMooringStop,
     timeSeconds: input.timeSeconds,
     runtime: input.runtime,
   }, out.tile);
+  if (input.toMooringStop && linearProgress >= ARRIVING_DECEL_END) {
+    clampAroundPointInto(out.tile, input.toMooringStop.mooringTile, 0.5, out.tile);
+  }
   out.shipId = input.route.shipId;
   out.state = input.state;
   out.zone = input.route.zone;
   out.currentDockId = input.routeStop?.dockId ?? null;
   out.currentRouteStopId = input.routeStop?.id ?? null;
   out.currentRouteStopKind = input.routeStop?.kind ?? null;
+  out.mooringSubPhase = null;
+  out.mooringTension = input.state === "arriving" ? profile.fenderContact : 0;
+  out.lanternAlpha = 0;
+  out.fenderContact = profile.fenderContact;
 
   // #5: speed-aware wake. departing/arriving accelerate from rest and decelerate
   // back to rest, so wake should peak mid-leg. sailing (open-water patrol) is
@@ -529,8 +743,7 @@ function transitSampleInto(input: {
   const baseWake = transitWakeIntensityForZone(input.route.zone);
   let rawWake: number;
   if (input.state === "departing" || input.state === "arriving") {
-    const speedEnvelope = 4 * input.progress * (1 - input.progress);
-    rawWake = baseWake * speedEnvelope * input.route.wakeMultiplier;
+    rawWake = baseWake * profile.speedRatio * input.route.wakeMultiplier;
   } else {
     rawWake = baseWake * input.route.wakeMultiplier;
   }
@@ -540,15 +753,12 @@ function transitSampleInto(input: {
   // internal waypoint vertex; without smoothing ships visibly twitch when
   // crossing 4-connected A* corners. Skipped for moored/risk-drift (those have
   // intentional orbital headings) and for reduced-motion (deterministic snapshot).
-  // #2: during the final 12% of an arriving transit, blend the smoothed heading
-  // toward the destination dock's natural tangent so the bow tucks into the
-  // berth instead of sliding sideways. The ramp is applied inside the smoothing
-  // step so headingDelta (memory) captures the ramp contribution — ship-pose
-  // reads it for bank-into-turn, producing an incidental bank into the dock.
-  const alignmentTangent = input.state === "arriving" && input.toMooringStop?.dockTangent
-    ? input.toMooringStop.dockTangent
-    : null;
-  const alignmentT = alignmentTangent ? smoothstepRange(0.88, 1, input.progress) : 0;
+  // Docking choreography: arriving transits start heading alignment during the
+  // decel phase and finish with a tiny deterministic fender-contact yaw;
+  // departing transits mirror that by holding the dock tangent through line
+  // release before rotating back onto the path tangent.
+  const alignmentTangent = transitAlignmentTangent(input, profile);
+  const alignmentT = alignmentTangent ? profile.alignmentToDockTangent : 0;
   applyHeadingSmoothing(
     input.route.shipId,
     input.state,
@@ -557,6 +767,83 @@ function transitSampleInto(input: {
     alignmentTangent,
     alignmentT,
   );
+}
+
+const fenderHeadingScratch: { x: number; y: number } = { x: 0, y: 0 };
+
+function transitAlignmentTangent(input: {
+  route: ShipMotionRoute;
+  state: Extract<ShipMotionState, "arriving" | "departing" | "sailing">;
+  fromMooringStop: ShipMotionRoute["dockStops"][number] | null;
+  toMooringStop: ShipMotionRoute["dockStops"][number] | null;
+  timeSeconds: number;
+}, profile: TransitPhaseProfile): { x: number; y: number } | null {
+  if (input.state === "arriving" && input.toMooringStop?.dockTangent) {
+    if (profile.fenderContact > 0) {
+      writeFenderYawedTangentInto(input.toMooringStop.dockTangent, input.route, input.timeSeconds, profile.fenderContact, fenderHeadingScratch);
+      return fenderHeadingScratch;
+    }
+    return input.toMooringStop.dockTangent;
+  }
+
+  return input.state === "departing" && input.fromMooringStop?.dockTangent
+    ? input.fromMooringStop.dockTangent
+    : null;
+}
+
+function writeFenderYawedTangentInto(
+  dockTangent: { x: number; y: number },
+  route: ShipMotionRoute,
+  timeSeconds: number,
+  fenderContact: number,
+  out: { x: number; y: number },
+): void {
+  const yaw = Math.sin(timeSeconds * 2.7 + route.routeSeed * 0.00017) * 0.04 * fenderContact;
+  const cos = Math.cos(yaw);
+  const sin = Math.sin(yaw);
+  normalizeHeadingInto(
+    dockTangent.x * cos - dockTangent.y * sin,
+    dockTangent.x * sin + dockTangent.y * cos,
+    out,
+  );
+}
+
+function applyFenderContactClampInto(
+  stop: ShipMotionRoute["dockStops"][number] | null,
+  progress: number,
+  tile: { x: number; y: number },
+): void {
+  if (!stop?.dockTangent || progress < ARRIVING_FULL_TRANSIT_END) return;
+  const contactT = smoothstepRange(ARRIVING_FULL_TRANSIT_END, ARRIVING_DECEL_END, progress);
+  if (contactT <= 0) return;
+
+  const tangent = stop.dockTangent;
+  const normal = { x: -tangent.y, y: tangent.x };
+  const dx = tile.x - stop.mooringTile.x;
+  const dy = tile.y - stop.mooringTile.y;
+  const tangentDistance = dx * tangent.x + dy * tangent.y;
+  const normalDistance = dx * normal.x + dy * normal.y;
+  let targetDx = tangent.x * clamp(tangentDistance, -0.5, 0.5)
+    + normal.x * clamp(normalDistance, -0.5, 0.5);
+  let targetDy = tangent.y * clamp(tangentDistance, -0.5, 0.5)
+    + normal.y * clamp(normalDistance, -0.5, 0.5);
+  const targetDistance = Math.hypot(targetDx, targetDy);
+  if (targetDistance > 0.5) {
+    const scale = 0.5 / targetDistance;
+    targetDx *= scale;
+    targetDy *= scale;
+  }
+  const targetX = stop.mooringTile.x + targetDx;
+  const targetY = stop.mooringTile.y + targetDy;
+  clampMotionTileInto(
+    tile.x + (targetX - tile.x) * contactT,
+    tile.y + (targetY - tile.y) * contactT,
+    tile,
+  );
+
+  if (progress >= ARRIVING_DECEL_END) {
+    clampAroundPointInto(tile, stop.mooringTile, 0.5, tile);
+  }
 }
 
 function applyHeadingSmoothing(
@@ -647,24 +934,24 @@ function applyMooringBlendInto(input: {
   let dx = 0;
   let dy = 0;
   if (input.fromMooringStop) {
-    const easeIn = smoothstepRange(0, 0.15, input.progress);
+    const releaseT = smoothstepRange(CAST_OFF_LINE_RELEASE_END, CAST_OFF_ACCEL_END, input.progress);
     const seed = mooredSeedFor(input.route, input.fromMooringStop, input.runtime);
     const phaseOffset = mooredPhaseFor(input.route, input.fromMooringStop, input.runtime);
     const radiusMultiplier = mooredRadiusMultiplierFor(input.route, input.fromMooringStop, input.runtime);
     const angle = input.timeSeconds * 0.027 * staleAngularFactor + seed * 0.0001 + phaseOffset;
     const radius = mooredRadiusForZone(input.route.zone);
-    dx += Math.cos(angle) * radius.x * radiusMultiplier * staleRadiusFactor * (1 - easeIn);
-    dy += Math.sin(angle * 0.9) * radius.y * radiusMultiplier * staleRadiusFactor * (1 - easeIn);
+    dx += Math.cos(angle) * radius.x * radiusMultiplier * staleRadiusFactor * (1 - releaseT);
+    dy += Math.sin(angle * 0.9) * radius.y * radiusMultiplier * staleRadiusFactor * (1 - releaseT);
   }
   if (input.toMooringStop) {
-    const easeOut = smoothstepRange(0.85, 1, input.progress);
+    const mooringTension = smoothstepRange(ARRIVING_DECEL_END, 1, input.progress);
     const seed = mooredSeedFor(input.route, input.toMooringStop, input.runtime);
     const phaseOffset = mooredPhaseFor(input.route, input.toMooringStop, input.runtime);
     const radiusMultiplier = mooredRadiusMultiplierFor(input.route, input.toMooringStop, input.runtime);
     const angle = input.timeSeconds * 0.027 * staleAngularFactor + seed * 0.0001 + phaseOffset;
     const radius = mooredRadiusForZone(input.route.zone);
-    dx += Math.cos(angle) * radius.x * radiusMultiplier * staleRadiusFactor * easeOut;
-    dy += Math.sin(angle * 0.9) * radius.y * radiusMultiplier * staleRadiusFactor * easeOut;
+    dx += Math.cos(angle) * radius.x * radiusMultiplier * staleRadiusFactor * mooringTension;
+    dy += Math.sin(angle * 0.9) * radius.y * radiusMultiplier * staleRadiusFactor * mooringTension;
   }
   if (dx === 0 && dy === 0) return;
   clampMotionTileInto(tile.x + dx, tile.y + dy, tile);
@@ -768,33 +1055,96 @@ function openWaterWaypointDriftSampleInto(route: ShipMotionRoute, timeSeconds: n
   out.wakeIntensity = patrolWakeIntensityForZone(route.zone);
 }
 
-function mooredSampleInto(
-  route: ShipMotionRoute,
-  stop: ShipMotionRoute["dockStops"][number],
-  timeSeconds: number,
-  runtime: RouteSamplingRuntime,
-  out: ShipMotionSample,
-): void {
-  const seed = mooredSeedFor(route, stop, runtime);
-  const phaseOffset = mooredPhaseFor(route, stop, runtime);
-  const radiusMultiplier = mooredRadiusMultiplierFor(route, stop, runtime);
+const mooringPathPointScratch: { x: number; y: number } = { x: 0, y: 0 };
+const mooringPathHeadingScratch: { x: number; y: number } = { x: 0, y: 0 };
+
+interface MooringPhaseInfo {
+  headingPrepT: number;
+  lanternAlpha: number;
+  subPhase: ShipMooringSubPhase;
+  swayMultiplier: number;
+  tension: number;
+}
+
+function mooringPhaseInfo(route: ShipMotionRoute, dwellProgress: number, secondsRemaining: number, timeSeconds: number): MooringPhaseInfo {
+  const progress = clamp(dwellProgress, 0, 1);
+  if (progress < MOORING_WORKING_END) {
+    const warmedSway = smoothstepRange(CAST_OFF_LINE_RELEASE_END, MOORING_WORKING_END, progress);
+    return {
+      headingPrepT: 0,
+      lanternAlpha: 0.35 + 0.25 * Math.max(0, Math.sin(timeSeconds * 1.7 + route.routeSeed * 0.00011)),
+      subPhase: "working",
+      swayMultiplier: 1 + 0.2 * warmedSway,
+      tension: 1,
+    };
+  }
+
+  if (progress < MOORING_QUIET_END) {
+    return {
+      headingPrepT: 0,
+      lanternAlpha: 0,
+      subPhase: "quiet",
+      swayMultiplier: 1,
+      tension: 1,
+    };
+  }
+
+  const phasePrepT = smoothstepRange(MOORING_QUIET_END, 1, progress);
+  const finalSecondsPrepT = smoothstepRange(4, 0, secondsRemaining);
+  const headingPrepT = Math.max(phasePrepT, finalSecondsPrepT);
+  return {
+    headingPrepT,
+    lanternAlpha: 0,
+    subPhase: "cast-off-prep",
+    swayMultiplier: 1,
+    tension: 1 - headingPrepT,
+  };
+}
+
+function mooredSampleInto(input: {
+  route: ShipMotionRoute;
+  stop: ShipMotionRoute["dockStops"][number];
+  dwellProgress: number;
+  secondsRemaining: number;
+  outgoingPath: ShipWaterPath | undefined;
+  timeSeconds: number;
+  runtime: RouteSamplingRuntime;
+}, out: ShipMotionSample): void {
+  const phase = mooringPhaseInfo(input.route, input.dwellProgress, input.secondsRemaining, input.timeSeconds);
+  const seed = mooredSeedFor(input.route, input.stop, input.runtime);
+  const phaseOffset = mooredPhaseFor(input.route, input.stop, input.runtime);
+  const radiusMultiplier = mooredRadiusMultiplierFor(input.route, input.stop, input.runtime);
   // E1: stale evidence → wider orbit (×1.35) and slower angular speed (×0.65).
-  const staleRadiusFactor = route.staleEvidence ? 1.35 : 1.0;
-  const staleAngularFactor = route.staleEvidence ? 0.65 : 1.0;
-  const angle = timeSeconds * 0.027 * staleAngularFactor + seed * 0.0001 + phaseOffset;
-  const radius = mooredRadiusForZone(route.zone);
-  out.shipId = route.shipId;
-  out.tile.x = stop.mooringTile.x + Math.cos(angle) * radius.x * radiusMultiplier * staleRadiusFactor;
-  out.tile.y = stop.mooringTile.y + Math.sin(angle * 0.9) * radius.y * radiusMultiplier * staleRadiusFactor;
+  const staleRadiusFactor = input.route.staleEvidence ? 1.35 : 1.0;
+  const staleAngularFactor = input.route.staleEvidence ? 0.65 : 1.0;
+  const angle = input.timeSeconds * 0.027 * staleAngularFactor + seed * 0.0001 + phaseOffset;
+  const radius = mooredRadiusForZone(input.route.zone);
+  out.shipId = input.route.shipId;
+  out.tile.x = input.stop.mooringTile.x + Math.cos(angle) * radius.x * radiusMultiplier * staleRadiusFactor * phase.swayMultiplier;
+  out.tile.y = input.stop.mooringTile.y + Math.sin(angle * 0.9) * radius.y * radiusMultiplier * staleRadiusFactor * phase.swayMultiplier;
   out.state = "moored";
-  out.zone = route.zone;
-  out.currentDockId = stop.dockId;
-  out.currentRouteStopId = stop.id;
-  out.currentRouteStopKind = stop.kind;
+  out.zone = input.route.zone;
+  out.currentDockId = input.stop.dockId;
+  out.currentRouteStopId = input.stop.id;
+  out.currentRouteStopKind = input.stop.kind;
   // Anchor heading around the dock's natural mooring axis when available so
   // moored boats sway around their berth instead of sweeping full-circle.
-  writeMooredHeading(stop.dockTangent, angle, out.heading);
+  writeMooredHeading(input.stop.dockTangent, angle, out.heading);
+  if (phase.headingPrepT > 0 && input.outgoingPath) {
+    sampleWaterPathInto(input.outgoingPath, 0.01, mooringPathPointScratch, mooringPathHeadingScratch);
+    if (mooringPathHeadingScratch.x !== 0 || mooringPathHeadingScratch.y !== 0) {
+      normalizeHeadingInto(
+        out.heading.x + (mooringPathHeadingScratch.x - out.heading.x) * phase.headingPrepT,
+        out.heading.y + (mooringPathHeadingScratch.y - out.heading.y) * phase.headingPrepT,
+        out.heading,
+      );
+    }
+  }
   out.wakeIntensity = 0.05;
+  out.mooringSubPhase = phase.subPhase;
+  out.mooringTension = phase.tension;
+  out.lanternAlpha = phase.lanternAlpha;
+  out.fenderContact = 0;
 }
 
 function writeMooredHeading(
@@ -907,6 +1257,10 @@ function ledgerRoamingSampleInto(
     const blendHy = ledgerOrbitScratch.heading.y * (1 - easeOut) + ledgerTransitScratch.heading.y * easeOut;
     normalizeHeadingInto(blendHx, blendHy, out.heading);
     out.wakeIntensity = ledgerOrbitScratch.wakeIntensity * (1 - easeOut) + ledgerTransitScratch.wakeIntensity * easeOut;
+    out.mooringSubPhase = null;
+    out.mooringTension = 0;
+    out.lanternAlpha = 0;
+    out.fenderContact = 0;
     return;
   }
 
@@ -967,6 +1321,10 @@ function mooredRouteStopSampleInto(
   out.currentRouteStopKind = stop.kind;
   writeMooredHeading(stop.dockTangent, angle, out.heading);
   out.wakeIntensity = 0.03;
+  out.mooringSubPhase = null;
+  out.mooringTension = 0;
+  out.lanternAlpha = 0;
+  out.fenderContact = 0;
 }
 
 const MOORED_RADIUS_DANGER = { x: 0.22, y: 0.14 };
@@ -1010,6 +1368,23 @@ function riskDriftSampleInto(route: ShipMotionRoute, timeSeconds: number, progre
 function clampMotionTileInto(x: number, y: number, out: { x: number; y: number }): void {
   out.x = Math.max(0, Math.min(MAX_TILE_X, x));
   out.y = Math.max(0, Math.min(MAX_TILE_Y, y));
+}
+
+function clampAroundPointInto(
+  point: { x: number; y: number },
+  center: { x: number; y: number },
+  radius: number,
+  out: { x: number; y: number },
+): void {
+  const dx = point.x - center.x;
+  const dy = point.y - center.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance <= radius || distance === 0) {
+    clampMotionTileInto(point.x, point.y, out);
+    return;
+  }
+  const scale = radius / distance;
+  clampMotionTileInto(center.x + dx * scale, center.y + dy * scale, out);
 }
 
 const DRIFT_RADIUS_DANGER = { x: 0.54, y: 0.36 };

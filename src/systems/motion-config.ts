@@ -24,6 +24,13 @@ export const ZONE_DWELL = {
 
 export const DOCKED_SHIP_DWELL_SHARE = 1 / 3;
 
+export const ARRIVING_FULL_TRANSIT_END = 0.85;
+export const ARRIVING_DECEL_END = 0.96;
+export const CAST_OFF_LINE_RELEASE_END = 0.04;
+export const CAST_OFF_ACCEL_END = 0.18;
+export const MOORING_WORKING_END = 0.25;
+export const MOORING_QUIET_END = 0.75;
+
 export const OPEN_WATER_PATROL_WAYPOINTS = {
   alert: [...SHIP_WATER_ANCHORS["harbor-mouth-watch"], ...SHIP_WATER_ANCHORS["outer-rough-water"]],
   calm: SHIP_WATER_ANCHORS["safe-harbor"],

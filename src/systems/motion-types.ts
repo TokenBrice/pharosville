@@ -38,6 +38,7 @@ export interface ShipWaterPath {
 }
 
 export type ShipMotionState = "idle" | "moored" | "departing" | "sailing" | "risk-drift" | "arriving";
+export type ShipMooringSubPhase = "working" | "quiet" | "cast-off-prep";
 export type ShipMotionStopKind = "dock" | "ledger";
 export type ShipWaterRouteCache = Map<string, ShipWaterPath>;
 export type ShipWaterPathBuilder = () => ShipWaterPath;
@@ -114,6 +115,10 @@ export interface ShipMotionSample {
   currentRouteStopKind: ShipMotionStopKind | null;
   heading: { x: number; y: number };
   wakeIntensity: number;
+  mooringSubPhase?: ShipMooringSubPhase | null;
+  mooringTension?: number;
+  lanternAlpha?: number;
+  fenderContact?: number;
 }
 
 export interface PharosVilleMotionPlan {
