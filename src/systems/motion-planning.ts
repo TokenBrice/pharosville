@@ -35,6 +35,33 @@ export function disposePathCacheForMap(map: PharosVilleMap): void {
   pathCacheByMap.delete(map);
 }
 
+// ---------------------------------------------------------------------------
+// W4.25 — Risk-transition tack-out
+// ---------------------------------------------------------------------------
+//
+// At plan-build time we remember the last riskTile/riskPlacement we saw for
+// each ship. When the placement or tile changes between builds, the new
+// route records `previousRiskTile` for one cycle so the sampler can blend
+// the risk-drift center from previous → new over a 3-second "tack-out"
+// window. Detail-panel parity reads the same data via
+// `ShipMotionSample.riskTransition`.
+//
+// The cache survives across plan builds within the same process. Cleared
+// when the per-map path cache is disposed.
+
+interface PreviousRiskEntry {
+  tile: { x: number; y: number };
+  placement: string;
+  /** Cycle count for which `previousRiskTile` should remain on the route. */
+  cyclesRemaining: number;
+}
+const previousRiskByShipId = new Map<string, PreviousRiskEntry>();
+
+/** Test-only — reset the per-ship previous-risk cache. */
+export function __resetPreviousRiskCache(): void {
+  previousRiskByShipId.clear();
+}
+
 /**
  * LRU-bounded cache for A* ship water routes, keyed by zone:shipId:bucket:from→to string.
  * Capacity = min(4096, max(512, 16 × shipCount)) — sized to absorb per-bucket entries
@@ -403,6 +430,10 @@ function buildShipMotionRoute(
     ? DOCKED_SHIP_DWELL_SHARE * 1.15
     : undefined;
 
+  // W4.25 — capture previousRiskTile when the ship's riskPlacement or
+  // riskTile differs from the last build. Survives one cycle then clears.
+  const previousRiskTile = capturePreviousRiskTile(ship, riskTile);
+
   return {
     shipId: ship.id,
     routeEpoch: bucket,
@@ -422,7 +453,43 @@ function buildShipMotionRoute(
     staleEvidence: ship.placementEvidence.stale,
     wakeMultiplier,
     dockDwellShareOverride,
+    ...(previousRiskTile ? { previousRiskTile } : {}),
   };
+}
+
+/**
+ * W4.25 — returns the previous risk tile when the ship's riskPlacement or
+ * riskTile has changed since the last plan build, otherwise undefined.
+ * Surfaces the previous tile exactly once per change so the sampler's 3s
+ * tack-out fires for the build immediately following the placement change.
+ */
+function capturePreviousRiskTile(
+  ship: ShipNode,
+  newTile: { x: number; y: number },
+): { x: number; y: number } | undefined {
+  const cached = previousRiskByShipId.get(ship.id);
+  if (!cached) {
+    previousRiskByShipId.set(ship.id, {
+      tile: { x: newTile.x, y: newTile.y },
+      placement: ship.riskPlacement,
+      cyclesRemaining: 0,
+    });
+    return undefined;
+  }
+
+  const tileChanged = cached.tile.x !== newTile.x || cached.tile.y !== newTile.y;
+  const placementChanged = cached.placement !== ship.riskPlacement;
+  if (tileChanged || placementChanged) {
+    // Transition observed: surface the previous tile, then update the cache
+    // to the new tile so the next steady-state build returns undefined.
+    const previousTile = { x: cached.tile.x, y: cached.tile.y };
+    cached.tile = { x: newTile.x, y: newTile.y };
+    cached.placement = ship.riskPlacement;
+    cached.cyclesRemaining = 0;
+    return previousTile;
+  }
+
+  return undefined;
 }
 
 // E2: compute wake multiplier from change24hPct (percent units, e.g. 10 = 10%).

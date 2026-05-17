@@ -17,10 +17,12 @@ import {
 } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import {
+  __resetPreviousRiskCache,
   buildMotionPlan,
   openWaterPatrolItineraryIndex,
   openWaterPatrolItineraryLength,
 } from "./motion-planning";
+import { resolveShipMotionSample } from "./motion-sampling";
 import { stableUnit } from "./stable-random";
 import type { PharosVilleWorld } from "./world-types";
 
@@ -186,5 +188,148 @@ describe("W4.23 calm patrol itineraries", () => {
     // dense fixture sits well below the 512-entry cache floor, so the ~6×
     // headroom margin called out in the plan is preserved without a cap bump.
     expect(docklessShips * 6).toBeLessThan(512);
+  });
+});
+
+describe("W4.25 risk-transition tack-out", () => {
+  // Build the same usdc-circle ship at two different DEWS placements to
+  // exercise the previousRiskTile cache.
+  function worldAtCurrentDeviationBps(deviationBps: number | null): PharosVilleWorld {
+    return buildPharosVilleWorld({
+      stablecoins: {
+        peggedAssets: [
+          makeAsset({
+            id: "usdc-circle",
+            symbol: "USDC",
+            chainCirculating: { ethereum: { current: 1, circulatingPrevDay: 1, circulatingPrevWeek: 1, circulatingPrevMonth: 1 } },
+          }),
+        ],
+      },
+      chains: {
+        ...fixtureChains,
+        chains: [makeChain({ id: "ethereum", name: "Ethereum", totalUsd: 1_000_000_000 })],
+      },
+      stability: fixtureStability,
+      pegSummary: {
+        ...fixturePegSummary,
+        coins: [makePegCoin({ id: "usdc-circle", symbol: "USDC", currentDeviationBps: deviationBps })],
+      },
+      stress: fixtureStress,
+      reportCards: fixtureReportCards,
+      cemeteryEntries: [],
+      freshness: {},
+    });
+  }
+
+  it("does not record previousRiskTile on the first plan build (no transition)", () => {
+    __resetPreviousRiskCache();
+    const world = worldAtCurrentDeviationBps(0);
+    const ship = world.ships[0]!;
+    const route = buildMotionPlan(world, ship.detailId).shipRoutes.get(ship.id)!;
+    expect(route.previousRiskTile).toBeUndefined();
+  });
+
+  it("records previousRiskTile on the build immediately after a placement change", () => {
+    __resetPreviousRiskCache();
+    const calmWorld = worldAtCurrentDeviationBps(0);
+    const calmShip = calmWorld.ships[0]!;
+    const calmRoute = buildMotionPlan(calmWorld, calmShip.detailId).shipRoutes.get(calmShip.id)!;
+    const calmRiskTile = calmRoute.riskTile;
+
+    // Now build a route with a stress-escalated placement → riskTile shifts.
+    const stressedWorld = worldAtCurrentDeviationBps(800);
+    const stressedShip = stressedWorld.ships[0]!;
+    const stressedRoute = buildMotionPlan(stressedWorld, stressedShip.detailId).shipRoutes.get(stressedShip.id)!;
+    expect(stressedRoute.riskTile).not.toEqual(calmRiskTile);
+    expect(stressedRoute.previousRiskTile).toEqual(calmRiskTile);
+  });
+
+  it("clears previousRiskTile after one cycle (steady-state placement)", () => {
+    __resetPreviousRiskCache();
+    const calmWorld = worldAtCurrentDeviationBps(0);
+    const calmShip = calmWorld.ships[0]!;
+    buildMotionPlan(calmWorld, calmShip.detailId).shipRoutes.get(calmShip.id);
+
+    const stressedWorld = worldAtCurrentDeviationBps(800);
+    const stressedShip = stressedWorld.ships[0]!;
+    const stressedRoute = buildMotionPlan(stressedWorld, stressedShip.detailId).shipRoutes.get(stressedShip.id)!;
+    expect(stressedRoute.previousRiskTile).toBeDefined();
+
+    // Second build at the same placement: transition is over, no more
+    // previousRiskTile surfaced.
+    const stressedWorld2 = worldAtCurrentDeviationBps(800);
+    const stressedShip2 = stressedWorld2.ships[0]!;
+    const stressedRoute2 = buildMotionPlan(stressedWorld2, stressedShip2.detailId).shipRoutes.get(stressedShip2.id)!;
+    expect(stressedRoute2.previousRiskTile).toBeUndefined();
+  });
+
+  it("blends the risk-drift center from previous → current over the 3s tack-out window", () => {
+    __resetPreviousRiskCache();
+    const calmWorld = worldAtCurrentDeviationBps(0);
+    const calmShip = calmWorld.ships[0]!;
+    buildMotionPlan(calmWorld, calmShip.detailId);
+
+    // Force a different placement: warning band.
+    const warningWorld = worldAtCurrentDeviationBps(300);
+    const warningShip = warningWorld.ships[0]!;
+    const warningPlan = buildMotionPlan(warningWorld, warningShip.detailId);
+    const warningRoute = warningPlan.shipRoutes.get(warningShip.id)!;
+    expect(warningRoute.previousRiskTile).toBeDefined();
+    const prev = warningRoute.previousRiskTile!;
+    const next = warningRoute.riskTile;
+
+    // Walk the cycle at high resolution so we catch the 3-second tack-out
+    // window at the start of the risk-drift phase. The window is small
+    // compared to the full cycle (≤3s out of ~1170s), so we need finely-
+    // spaced samples to hit it. Step through ~1s per sample to cover the
+    // full cycle.
+    let observedTransition = false;
+    const sampleSeconds = Math.max(1, Math.ceil(warningRoute.cycleSeconds));
+    for (let second = 0; second < sampleSeconds; second += 1) {
+      const sample = resolveShipMotionSample({
+        plan: warningPlan,
+        reducedMotion: false,
+        ship: warningShip,
+        timeSeconds: second - warningRoute.phaseSeconds,
+      });
+      if (sample.riskTransition) {
+        observedTransition = true;
+        expect(sample.riskTransition.fromTile).toEqual(prev);
+        expect(sample.riskTransition.toTile).toEqual(next);
+        expect(sample.riskTransition.progress).toBeGreaterThanOrEqual(0);
+        expect(sample.riskTransition.progress).toBeLessThan(1);
+        break;
+      }
+    }
+    expect(observedTransition).toBe(true);
+  });
+
+  it("clears riskTransition on the sample after the tack-out completes", () => {
+    __resetPreviousRiskCache();
+    const calmWorld = worldAtCurrentDeviationBps(0);
+    const calmShip = calmWorld.ships[0]!;
+    buildMotionPlan(calmWorld, calmShip.detailId);
+    const warningWorld = worldAtCurrentDeviationBps(300);
+    const warningShip = warningWorld.ships[0]!;
+    const warningPlan = buildMotionPlan(warningWorld, warningShip.detailId);
+    const warningRoute = warningPlan.shipRoutes.get(warningShip.id)!;
+
+    // Sample late in the risk-drift window: well past the 3s tack-out.
+    let lateSampleSeen = false;
+    for (let step = 0; step < 240; step += 1) {
+      const sample = resolveShipMotionSample({
+        plan: warningPlan,
+        reducedMotion: false,
+        ship: warningShip,
+        timeSeconds: warningRoute.cycleSeconds * (step / 240) - warningRoute.phaseSeconds,
+      });
+      if (sample.state === "risk-drift" && (!sample.riskTransition || sample.riskTransition.progress >= 1)) {
+        // After the 3s window the sampler must clear riskTransition.
+        expect(sample.riskTransition ?? null).toBeNull();
+        lateSampleSeen = true;
+        break;
+      }
+    }
+    expect(lateSampleSeen).toBe(true);
   });
 });

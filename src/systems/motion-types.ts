@@ -128,6 +128,15 @@ export interface ShipMotionRoute {
   // chainPresence.length ≥ 4 → base × 1.15; otherwise the DOCKED_SHIP_DWELL_SHARE
   // constant applies. undefined means "use the base constant".
   dockDwellShareOverride?: number;
+  /**
+   * W4.25 — when the ship's risk tile changed since the previous plan build,
+   * the previous risk tile is preserved for one cycle. The sampler blends
+   * the risk-drift center from previous → current over the first 3 seconds
+   * of the next risk-drift phase ("tack-out") so the visual reads as a
+   * deliberate transit toward the new risk band instead of a snap.
+   * `undefined` when the placement is unchanged.
+   */
+  previousRiskTile?: { x: number; y: number };
 }
 
 export interface ShipMotionSample {
@@ -151,6 +160,22 @@ export interface ShipMotionSample {
   lanternAlpha?: number;
   fenderContact?: number;
   seaState?: SeaState | null;
+  /**
+   * W4.25 — when the sampler is mid-tack-out (the 3-second blended transit
+   * from a previous risk tile to the current one), this surfaces the
+   * transition state for downstream consumers.
+   *
+   * Detail-panel parity: when present and `progress < 1`, the detail panel
+   * should render a "tracking new risk band" line so DOM viewers see the
+   * same data event canvas viewers do.
+   *
+   * `null` outside the tack-out window.
+   */
+  riskTransition?: {
+    fromTile: { x: number; y: number };
+    toTile: { x: number; y: number };
+    progress: number;
+  } | null;
 }
 
 export interface PharosVilleMotionPlan {

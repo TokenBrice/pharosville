@@ -131,6 +131,7 @@ export function createShipMotionSample(): ShipMotionSample {
     lanternAlpha: 0,
     fenderContact: 0,
     seaState: null,
+    riskTransition: null,
   };
 }
 
@@ -142,6 +143,7 @@ function resetSampleChoreography(out: ShipMotionSample): void {
   out.fenderContact = 0;
   out.seaState = null;
   out.mapVisibilityAlpha = 1;
+  out.riskTransition = null;
 }
 
 // Module-scope scratch sample reused for the consort branch (flagship lookup).
@@ -497,6 +499,9 @@ export function resolveShipMotionSampleInto(input: {
       out.lanternAlpha = flagshipSample.lanternAlpha ?? 0;
       out.fenderContact = flagshipSample.fenderContact ?? 0;
       out.seaState = input.seaState ?? flagshipSample.seaState ?? null;
+      // W4.25 — consorts mirror their flagship's risk-transition state so the
+      // whole squad reads as "tracking new risk band" together in DOM parity.
+      out.riskTransition = flagshipSample.riskTransition ?? null;
       return;
     }
   }
@@ -1670,6 +1675,11 @@ function mooredRadiusForZone(zone: ShipWaterZone): { x: number; y: number } {
   return MOORED_RADIUS_DEFAULT;
 }
 
+// W4.25 — fixed-duration tack-out window at the start of the risk-drift phase.
+// After 3 seconds the sampler considers the transition complete and the ship
+// orbits the new risk tile normally.
+export const RISK_TRANSITION_TACK_OUT_SECONDS = 3;
+
 function riskDriftSampleInto(route: ShipMotionRoute, timeSeconds: number, progress: number, out: ShipMotionSample): void {
   const routePathKey = routePathIdentityKey(route, "risk-drift");
   beginRoutePathSample(route, routePathKey);
@@ -1683,10 +1693,25 @@ function riskDriftSampleInto(route: ShipMotionRoute, timeSeconds: number, progre
   // and risk-drift→arriving boundaries have a visible position jump equal to the
   // full drift offset (~0.54 tiles for danger zone).
   const radiusScale = smoothstepRange(0, 0.12, progress) * smoothstepRange(0, 0.12, 1 - progress);
+  // W4.25 — when the route has previousRiskTile set, blend the drift center
+  // from previous → current over the first RISK_TRANSITION_TACK_OUT_SECONDS
+  // of the risk-drift phase. progress is the fraction of risk-drift elapsed,
+  // and the absolute risk-drift seconds = progress × riskSecondsEach.
+  const riskSecondsEach = route.cycleSeconds * ZONE_DWELL[route.zone].riskDwell;
+  const elapsedRiskSeconds = progress * Math.max(1, riskSecondsEach);
+  const tackOutT = route.previousRiskTile && elapsedRiskSeconds < RISK_TRANSITION_TACK_OUT_SECONDS
+    ? smoothstep(elapsedRiskSeconds / RISK_TRANSITION_TACK_OUT_SECONDS)
+    : 1;
+  const centerX = route.previousRiskTile
+    ? route.previousRiskTile.x + (route.riskTile.x - route.previousRiskTile.x) * tackOutT
+    : route.riskTile.x;
+  const centerY = route.previousRiskTile
+    ? route.previousRiskTile.y + (route.riskTile.y - route.previousRiskTile.y) * tackOutT
+    : route.riskTile.y;
   out.shipId = route.shipId;
   clampMotionTileInto(
-    route.riskTile.x + Math.cos(angle) * radius.x * radiusScale * staleRadiusFactor,
-    route.riskTile.y + Math.sin(angle * 0.8) * radius.y * radiusScale * staleRadiusFactor,
+    centerX + Math.cos(angle) * radius.x * radiusScale * staleRadiusFactor,
+    centerY + Math.sin(angle * 0.8) * radius.y * radiusScale * staleRadiusFactor,
     out.tile,
   );
   out.state = "risk-drift";
@@ -1703,6 +1728,16 @@ function riskDriftSampleInto(route: ShipMotionRoute, timeSeconds: number, progre
   );
   writeMapVisibilityAlphaInto(out, 1);
   out.wakeIntensity = 0.08;
+  // W4.25 — surface the transition for detail-panel parity.
+  if (route.previousRiskTile && tackOutT < 1) {
+    out.riskTransition = {
+      fromTile: route.previousRiskTile,
+      toTile: route.riskTile,
+      progress: tackOutT,
+    };
+  } else {
+    out.riskTransition = null;
+  }
 }
 
 function clampMotionTileInto(x: number, y: number, out: { x: number; y: number }): void {

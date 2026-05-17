@@ -4,6 +4,7 @@ import { buildPharosVilleWorld } from "./pharosville-world";
 import { __testPathCacheSize, buildBaseMotionPlan, buildMotionPlan, BoundedShipWaterRouteCache, buildShipWaterRoute, clearShipHeadingMemory, createShipMotionSample, disposePathCacheForMap, isShipMapVisible, lighthouseFireFlickerSpeed, motionPlanSignature, resolveShipMotionSample, resolveShipMotionSampleInto, sampleShipWaterPath, shipCycleTempo, shipMapVisibilityAlpha, shipWaterPathKey, SPEED_QUARTILE_SCALARS, stableMotionPhase, type ShipDockMotionStop, type ShipMotionSample } from "./motion";
 import { ARRIVING_DECEL_END, ARRIVING_FULL_TRANSIT_END, CAST_OFF_ACCEL_END, CAST_OFF_LINE_RELEASE_END, MOORING_QUIET_END, MOORING_WORKING_END } from "./motion-config";
 import { getShipHeadingDelta } from "./motion-sampling";
+import { __resetPreviousRiskCache } from "./motion-planning";
 import { chaikinSmoothPath, ensureShoreDistanceMask, shoreDistance, warmAllWaterPaths } from "./motion-water";
 import { squadForMember, squadFormationOffsetForPlacement } from "./maker-squad";
 import { isSeawallBarrierTile, seawallBarrierDistance } from "./seawall";
@@ -3064,6 +3065,12 @@ function stateCountsOverCycle(sampleWorld: PharosVilleWorld): { transitSamples: 
 }
 
 function cycleStats(sampleWorld: PharosVilleWorld): { maxRiskDistance: number; maxSailingWake: number; riskDriftSamples: number } {
+  // W4.25 — each cycleStats() call builds a NEW hypothetical world for the
+  // same ship id with a different DEWS placement. The process-wide
+  // previousRiskTile cache would otherwise see this as a placement
+  // transition and inject a 3s tack-out, blowing up max-risk-distance.
+  // Resetting here keeps the test isolated to the route's static drift radius.
+  __resetPreviousRiskCache();
   const ship = sampleWorld.ships[0]!;
   const plan = buildMotionPlan(sampleWorld, ship.detailId);
   const route = plan.shipRoutes.get(ship.id)!;
