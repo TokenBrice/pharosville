@@ -84,9 +84,31 @@ export interface ShipMotionRoute {
   dockStopSchedule: string[];
   homeDockId: string | null;
   openWaterPatrol: {
+    /**
+     * Primary (cycle 0) waypoint and paths. Kept for backwards-compat and
+     * the reduced-motion fallback; the per-cycle sampler now picks from
+     * `itinerary` instead.
+     */
     outbound: ShipWaterPath;
     inbound: ShipWaterPath;
     waypoint: { x: number; y: number };
+    /**
+     * W4.23 — per-ship 2- or 3-anchor itinerary. Each cycle, the sampler
+     * picks one anchor from this array via a deterministic Latin-square mod
+     * (`stableHash(${shipId}.itinerary-cycle.${cycleIndex}) % itinerary.length`),
+     * so consecutive cycles produce different waypoint orderings.
+     *
+     * Length: 2 when `stableUnit(shipId) < 0.5`, else 3. Anchors are picked
+     * from `OPEN_WATER_PATROL_WAYPOINTS[zone]` deterministically by ship id.
+     *
+     * The first entry mirrors `waypoint`/`outbound`/`inbound` above for
+     * backwards-compat callers.
+     */
+    itinerary: ReadonlyArray<{
+      waypoint: { x: number; y: number };
+      outbound: ShipWaterPath;
+      inbound: ShipWaterPath;
+    }>;
   } | null;
   waterPaths: ReadonlyMap<string, ShipWaterPath>;
   routeSeed: number;

@@ -1160,10 +1160,15 @@ function openWaterPatrolSampleInto(route: ShipMotionRoute, timeSeconds: number, 
 
   const cyclePosition = timeSeconds + route.phaseSeconds;
   const elapsedSeconds = positiveModulo(cyclePosition, route.cycleSeconds);
+  const cycleIndex = Math.floor(cyclePosition / route.cycleSeconds);
   const zoneDwell = ZONE_DWELL[route.zone];
   const riskSeconds = route.cycleSeconds * zoneDwell.riskDwell;
   const waypointSeconds = route.cycleSeconds * zoneDwell.dockDwell;
   const transitSecondsEach = (route.cycleSeconds - riskSeconds - waypointSeconds) / 2;
+  // W4.23 — pick this cycle's itinerary leg deterministically. Uses
+  // stable-hash on (shipId, cycleIndex) so adjacent cycles produce different
+  // anchors (Latin-square rotation across cycles).
+  const leg = openWaterPatrolLegForCycle(route, cycleIndex);
   let cursor = elapsedSeconds;
 
   if (cursor < riskSeconds) {
@@ -1175,7 +1180,7 @@ function openWaterPatrolSampleInto(route: ShipMotionRoute, timeSeconds: number, 
   if (cursor < transitSecondsEach) {
     transitSampleInto({
       route,
-      path: route.openWaterPatrol.outbound,
+      path: leg.outbound,
       progress: smoothstep(cursor / Math.max(1, transitSecondsEach)),
       transitSeconds: transitSecondsEach,
       routeStop: null,
@@ -1190,14 +1195,14 @@ function openWaterPatrolSampleInto(route: ShipMotionRoute, timeSeconds: number, 
   cursor -= transitSecondsEach;
 
   if (cursor < waypointSeconds) {
-    openWaterWaypointDriftSampleInto(route, timeSeconds, cursor / Math.max(1, waypointSeconds), out);
+    openWaterWaypointDriftSampleInto(route, timeSeconds, cursor / Math.max(1, waypointSeconds), leg.waypoint, out);
     return;
   }
   cursor -= waypointSeconds;
 
   transitSampleInto({
     route,
-    path: route.openWaterPatrol.inbound,
+    path: leg.inbound,
     progress: smoothstep(cursor / Math.max(1, transitSecondsEach)),
     transitSeconds: transitSecondsEach,
     routeStop: null,
@@ -1209,18 +1214,46 @@ function openWaterPatrolSampleInto(route: ShipMotionRoute, timeSeconds: number, 
   }, out);
 }
 
-function openWaterWaypointDriftSampleInto(route: ShipMotionRoute, timeSeconds: number, progress: number, out: ShipMotionSample): void {
-  if (!route.openWaterPatrol) {
+/**
+ * W4.23 — pick this cycle's itinerary leg via a deterministic stable hash on
+ * (shipId, cycleIndex). The result rotates across cycles so consecutive
+ * cycles produce different waypoint orderings while remaining stable for the
+ * same (ship, cycle) pair.
+ */
+function openWaterPatrolLegForCycle(route: ShipMotionRoute, cycleIndex: number): {
+  waypoint: { x: number; y: number };
+  outbound: ShipWaterPath;
+  inbound: ShipWaterPath;
+} {
+  const patrol = route.openWaterPatrol!;
+  const itinerary = patrol.itinerary;
+  if (itinerary.length === 0) {
+    return { waypoint: patrol.waypoint, outbound: patrol.outbound, inbound: patrol.inbound };
+  }
+  const index = stableHash(`${route.shipId}.itinerary-cycle.${cycleIndex}`) % itinerary.length;
+  return itinerary[index]!;
+}
+
+function openWaterWaypointDriftSampleInto(
+  route: ShipMotionRoute,
+  timeSeconds: number,
+  progress: number,
+  waypoint: { x: number; y: number } | null,
+  out: ShipMotionSample,
+): void {
+  const patrol = route.openWaterPatrol;
+  if (!patrol) {
     riskDriftSampleInto(route, timeSeconds, progress, out);
     return;
   }
-  const routePathKey = routePathIdentityKey(route, "waypoint", pathKey(route.openWaterPatrol.waypoint, route.openWaterPatrol.waypoint));
+  const driftWaypoint = waypoint ?? patrol.waypoint;
+  const routePathKey = routePathIdentityKey(route, "waypoint", pathKey(driftWaypoint, driftWaypoint));
   beginRoutePathSample(route, routePathKey);
   const angle = timeSeconds * 0.023 + route.routeSeed * 0.00013 + progress * Math.PI * 2;
   out.shipId = route.shipId;
   clampMotionTileInto(
-    route.openWaterPatrol.waypoint.x + Math.cos(angle) * 0.32,
-    route.openWaterPatrol.waypoint.y + Math.sin(angle * 0.85) * 0.22,
+    driftWaypoint.x + Math.cos(angle) * 0.32,
+    driftWaypoint.y + Math.sin(angle * 0.85) * 0.22,
     out.tile,
   );
   out.state = "sailing";

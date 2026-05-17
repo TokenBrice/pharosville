@@ -377,10 +377,14 @@ function buildShipMotionRoute(
   });
 
   if (openWaterPatrol) {
-    const outbound = pathKey(openWaterPatrol.outbound.from, openWaterPatrol.outbound.to);
-    const inbound = pathKey(openWaterPatrol.inbound.from, openWaterPatrol.inbound.to);
-    waterPaths.setBuilder(outbound, () => openWaterPatrol!.outbound);
-    waterPaths.setBuilder(inbound, () => openWaterPatrol!.inbound);
+    // W4.23 — register each itinerary leg's outbound/inbound paths so the
+    // sampler can resolve any cycle's path via the shared LazyShipWaterPathMap.
+    for (const leg of openWaterPatrol.itinerary) {
+      const outboundKey = pathKey(leg.outbound.from, leg.outbound.to);
+      const inboundKey = pathKey(leg.inbound.from, leg.inbound.to);
+      waterPaths.setBuilder(outboundKey, () => leg.outbound);
+      waterPaths.setBuilder(inboundKey, () => leg.inbound);
+    }
   }
 
   for (const stop of dockStops) {
@@ -515,6 +519,9 @@ function motionRouteKey(input: {
       `${input.openWaterPatrol.waypoint.x},${input.openWaterPatrol.waypoint.y}`,
       waterPathSignature(input.openWaterPatrol.outbound),
       waterPathSignature(input.openWaterPatrol.inbound),
+      // W4.23 — itinerary anchors so cycle-rotation variations register in
+      // the route key. The first entry mirrors the primary waypoint above.
+      `itinerary=${input.openWaterPatrol.itinerary.map((leg) => `${leg.waypoint.x},${leg.waypoint.y}`).join("|")}`,
     ].join("/")
     : "-";
 
@@ -557,11 +564,23 @@ function offsetOpenWaterPatrol(
   patrol: NonNullable<ShipMotionRoute["openWaterPatrol"]>,
   offsetTile: (tile: { x: number; y: number }) => { x: number; y: number },
 ): ShipMotionRoute["openWaterPatrol"] {
-  const outbound = offsetWaterPath(patrol.outbound, offsetTile);
+  // W4.23 — translate every itinerary leg, then derive the primary
+  // waypoint/outbound/inbound from itinerary[0] so consort cycles rotate
+  // through the same anchor set (offset) as their flagship.
+  const itinerary = patrol.itinerary.map((leg) => {
+    const outbound = offsetWaterPath(leg.outbound, offsetTile);
+    return {
+      waypoint: offsetTile(leg.waypoint),
+      outbound,
+      inbound: reverseWaterPath(outbound),
+    };
+  });
+  const primary = itinerary[0]!;
   return {
-    waypoint: offsetTile(patrol.waypoint),
-    outbound,
-    inbound: reverseWaterPath(outbound),
+    waypoint: primary.waypoint,
+    outbound: primary.outbound,
+    inbound: primary.inbound,
+    itinerary,
   };
 }
 
@@ -655,14 +674,87 @@ function buildOpenWaterPatrol(
   waterRouteCache: ShipWaterRouteCache,
   bucket = 0,
 ): ShipMotionRoute["openWaterPatrol"] {
-  const waypoint = openWaterPatrolWaypoint(ship, riskTile, map);
-  const outbound = buildCachedShipWaterRoute({ from: riskTile, to: waypoint, map, zone: ship.riskZone, shipId: ship.id, bucket }, waterRouteCache);
-  if (outbound.points.length <= 1 || outbound.totalLength <= 0) return null;
+  // W4.23 — build the per-ship 2- or 3-anchor itinerary. The first anchor is
+  // the legacy single waypoint (cycle 0); the remaining anchors are visited
+  // on subsequent cycles via openWaterPatrolItineraryIndex.
+  const anchors = openWaterPatrolItineraryAnchors(ship, riskTile, map);
+  if (anchors.length === 0) return null;
+
+  const itinerary = anchors
+    .map((waypoint) => {
+      const outbound = buildCachedShipWaterRoute({ from: riskTile, to: waypoint, map, zone: ship.riskZone, shipId: ship.id, bucket }, waterRouteCache);
+      if (outbound.points.length <= 1 || outbound.totalLength <= 0) return null;
+      return { waypoint, outbound, inbound: reverseWaterPath(outbound) };
+    })
+    .filter((leg): leg is { waypoint: { x: number; y: number }; outbound: ShipWaterPath; inbound: ShipWaterPath } => leg !== null);
+  if (itinerary.length === 0) return null;
+
+  const primary = itinerary[0]!;
   return {
-    waypoint,
-    outbound,
-    inbound: reverseWaterPath(outbound),
+    waypoint: primary.waypoint,
+    outbound: primary.outbound,
+    inbound: primary.inbound,
+    itinerary,
   };
+}
+
+/**
+ * W4.23 — pick N (2 or 3) deterministic patrol anchors for the ship from the
+ * zone's anchor pool. The legacy single-waypoint pick used
+ * `stableHash(${id}.open-water-patrol) % waypoints.length`; this function
+ * extends that to a small rotation that yields 2-3 distinct, well-spaced
+ * anchors. The first anchor preserves the legacy choice for backwards-compat
+ * with route-key signatures and the reduced-motion fallback.
+ *
+ * N = 2 when `stableUnit(shipId) < 0.5`, else N = 3 — gives roughly half/half
+ * itinerary length distribution across the fleet.
+ */
+export function openWaterPatrolItineraryLength(shipId: string): 2 | 3 {
+  return stableUnit(`${shipId}.itinerary-length`) < 0.5 ? 2 : 3;
+}
+
+/**
+ * Deterministically choose which itinerary anchor to use for a given cycle.
+ * Latin-square mod: stable hash on (shipId, cycleIndex) modulo itineraryLength.
+ * Across cycles this rotates through different anchors with low autocorrelation,
+ * so adjacent cycles produce different waypoint orderings.
+ */
+export function openWaterPatrolItineraryIndex(shipId: string, cycleIndex: number, itineraryLength: number): number {
+  if (itineraryLength <= 0) return 0;
+  return stableHash(`${shipId}.itinerary-cycle.${cycleIndex}`) % itineraryLength;
+}
+
+function openWaterPatrolItineraryAnchors(
+  ship: ShipNode,
+  riskTile: { x: number; y: number },
+  map: PharosVilleMap,
+): { x: number; y: number }[] {
+  const length = openWaterPatrolItineraryLength(ship.id);
+  const anchors: { x: number; y: number }[] = [];
+  const seen = new Set<string>();
+  // Cycle through the zone's anchor pool starting at the legacy offset so the
+  // first picked anchor matches the prior single-waypoint behaviour exactly.
+  // We accumulate N distinct tiles, skipping duplicates that the
+  // nearestMapWaterTile snap can produce in dense pools.
+  const pool = OPEN_WATER_PATROL_WAYPOINTS[ship.riskZone];
+  const baseOffset = stableHash(`${ship.id}.open-water-patrol`) % pool.length;
+  // First anchor mirrors the legacy single-waypoint pick exactly so cycle 0
+  // and the route-key signature stay stable.
+  const primary = openWaterPatrolWaypoint(ship, riskTile, map);
+  anchors.push(primary);
+  seen.add(`${primary.x},${primary.y}`);
+  // Subsequent anchors rotate through the pool with a coprime stride per ship
+  // so the spacing varies but stays deterministic.
+  const stride = 1 + (stableHash(`${ship.id}.itinerary-stride`) % Math.max(1, pool.length - 1));
+  for (let probe = 1; probe < pool.length * 2 && anchors.length < length; probe += 1) {
+    const index = (baseOffset + probe * stride) % pool.length;
+    const candidate = nearestMapWaterTile(pool[index]!, map);
+    const key = `${candidate.x},${candidate.y}`;
+    if (seen.has(key)) continue;
+    anchors.push(candidate);
+    seen.add(key);
+  }
+  return anchors;
 }
 
 function openWaterPatrolWaypoint(
