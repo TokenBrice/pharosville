@@ -1,6 +1,7 @@
 import { stableUnit } from "../../systems/stable-random";
 import { getShipHeadingDelta } from "../../systems/motion-sampling";
 import type { ShipMotionSample, ShipMotionState } from "../../systems/motion";
+import { seaStateRoughnessMultiplier, type SeaState } from "../../systems/sea-state";
 import type { ShipSizeTier, ShipWaterZone } from "../../systems/world-types";
 
 const BANK_GAIN = 0.18;
@@ -55,6 +56,7 @@ interface ShipPoseInputBase {
   timeSeconds: number;
   zoom: number;
   phase?: number;
+  seaState?: SeaState | null;
 }
 
 export type ShipPoseInput = ShipPoseInputBase & (
@@ -81,7 +83,8 @@ export function resolveShipPose(input: ShipPoseInput): ShipPose {
   if (!sample) return zeroShipPose();
 
   const state = sample.state;
-  const roughness = ZONE_ROUGHNESS[sample.zone] ?? 0.8;
+  const seaState = input.seaState ?? sample.seaState ?? null;
+  const roughness = (ZONE_ROUGHNESS[sample.zone] ?? 0.8) * seaStateRoughnessMultiplier(seaState);
   const wakeIntensity = clamp(sample.wakeIntensity, 0, 1);
   const headingMagnitude = clamp(Math.hypot(sample.heading.x, sample.heading.y), 0, 1);
   const headingLean = clamp((sample.heading.x - sample.heading.y) * 0.32, -0.45, 0.45);

@@ -1,4 +1,10 @@
 import { tileToScreen, type ScreenPoint } from "../../systems/projection";
+import {
+  seaStateForWorld,
+  seaStateLighthouseFlickerMultiplier,
+  seaStateSmokeCadenceMultiplier,
+  type SeaState,
+} from "../../systems/sea-state";
 import { drawAsset } from "../canvas-primitives";
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
 import { LIGHTHOUSE_DRAW_OFFSET, LIGHTHOUSE_DRAW_SCALE } from "../visual-scales";
@@ -212,7 +218,7 @@ const LANTERN_TIP_RGB_CACHE = new Map<string, { r: number; g: number; b: number 
 // on the same frame. Keyed on time so they auto-invalidate when time advances.
 let _sweepAngleTime = NaN;
 let _sweepAngleValue = 0;
-let _fireFlickerTime = NaN;
+let _fireFlickerKey = "";
 let _fireFlickerValue = 0;
 
 function getSweepAngle(time: number, reducedMotion: boolean): number {
@@ -226,10 +232,10 @@ function getSweepAngle(time: number, reducedMotion: boolean): number {
 
 function getFireFlicker(time: number, flickerSpeed: number, reducedMotion: boolean): number {
   if (reducedMotion) return 0;
-  // Key on time; flickerSpeed is constant per-session so no need to fold it in.
-  if (time === _fireFlickerTime) return _fireFlickerValue;
+  const key = `${time}:${flickerSpeed}`;
+  if (key === _fireFlickerKey) return _fireFlickerValue;
   _fireFlickerValue = Math.sin(time * 14 * flickerSpeed) * 0.12 + Math.sin(time * 21 * flickerSpeed) * 0.06;
-  _fireFlickerTime = time;
+  _fireFlickerKey = key;
   return _fireFlickerValue;
 }
 
@@ -420,11 +426,15 @@ export function drawLighthouseOverlay(
   const { camera, ctx, motion, world } = input;
   const { firePoint, lighthouseAsset } = cached ?? lighthouseRenderState(input);
   if (world.lighthouse.unavailable) return;
+  const seaState = seaStateForWorld(world, {
+    reducedMotion: motion.reducedMotion,
+    wallClockHour: motion.wallClockHour,
+  });
   drawLighthouseBeam(ctx, firePoint, camera.zoom * 1.35, motion, nightFactor);
   // Fire always renders. With the sprite loaded, skip the procedural brazier
   // base (the asset already has one); without it, draw the full fallback.
-  drawLighthouseFire(ctx, firePoint, camera.zoom * 1.32, motion, !lighthouseAsset);
-  drawBrazierSmoke(ctx, firePoint, camera.zoom * 1.32, motion, nightFactor);
+  drawLighthouseFire(ctx, firePoint, camera.zoom * 1.32, motion, !lighthouseAsset, seaState);
+  drawBrazierSmoke(ctx, firePoint, camera.zoom * 1.32, motion, nightFactor, seaState);
 }
 
 const FLAME_OUTER: ReadonlyArray<[number, number]> = [
@@ -463,8 +473,9 @@ function drawLighthouseFire(
   zoom: number,
   motion: PharosVilleCanvasMotion,
   withBrazierBase: boolean,
+  seaState: SeaState | null,
 ) {
-  const flickerSpeed = motion.plan.lighthouseFireFlickerPerSecond;
+  const flickerSpeed = motion.plan.lighthouseFireFlickerPerSecond * seaStateLighthouseFlickerMultiplier(seaState);
   const time = motion.timeSeconds;
   const flicker = getFireFlicker(time, flickerSpeed, motion.reducedMotion);
   const scale = zoom * (1 + flicker);
@@ -686,9 +697,11 @@ function drawBrazierSmoke(
   zoom: number,
   motion: PharosVilleCanvasMotion,
   nightFactor: number,
+  seaState: SeaState | null,
 ) {
   if (motion.reducedMotion) return;
-  const time = motion.timeSeconds;
+  const smokeCadence = seaStateSmokeCadenceMultiplier(seaState);
+  const time = motion.timeSeconds * smokeCadence;
   const peakBase = 0.18 * (0.55 + 0.45 * (1 - nightFactor));
   ctx.save();
   for (let i = 0; i < SMOKE_PUFF_COUNT; i += 1) {
@@ -696,7 +709,7 @@ function drawBrazierSmoke(
     const t = ((time + offset) % SMOKE_LIFETIME) / SMOKE_LIFETIME;
     const seed = i * 1.913;
     const dy = -t * 120 * zoom;
-    const dx = Math.sin(time * 0.4 + seed) * 14 * zoom * t;
+    const dx = Math.sin(time * 0.4 + seed) * 14 * zoom * t * (0.85 + smokeCadence * 0.15);
     const r = (3 + t * 6) * zoom;
     const aShape = t < 0.25 ? t / 0.25 : (1 - t) / 0.75;
     const alpha = peakBase * aShape;
@@ -853,6 +866,11 @@ export function drawLighthouseNightHighlights(
   const { firePoint } = cached ?? lighthouseRenderState(input);
   const zoom = camera.zoom;
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
+  const seaState = seaStateForWorld(input.world, {
+    reducedMotion: motion.reducedMotion,
+    wallClockHour: motion.wallClockHour,
+  });
+  const lighthouseTempo = seaStateLighthouseFlickerMultiplier(seaState);
 
   const gradients = getNightGradientBundle(ctx, firePoint, zoom, nightFactor);
 
@@ -873,7 +891,7 @@ export function drawLighthouseNightHighlights(
   ctx.arc(firePoint.x, firePoint.y, 68 * zoom, 0, Math.PI * 2);
   ctx.fill();
 
-  const flickerSpeed = motion.plan.lighthouseFireFlickerPerSecond;
+  const flickerSpeed = motion.plan.lighthouseFireFlickerPerSecond * lighthouseTempo;
   const fireFlicker = getFireFlicker(time, flickerSpeed, motion.reducedMotion);
 
   // Sweep beams — long, slow rotation, one or two arms 180° apart. The angle

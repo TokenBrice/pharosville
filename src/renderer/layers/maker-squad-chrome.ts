@@ -6,9 +6,9 @@
 // streamer.
 
 import { squadForMember, type SquadId } from "../../systems/maker-squad";
+import { seaStateForWorld, seaStateWindMultiplier } from "../../systems/sea-state";
 import type { PharosVilleWorld } from "../../systems/world-types";
 import type { PharosVilleCanvasMotion } from "../render-types";
-import { windMultiplierForMotion } from "./weather";
 
 export interface SquadAnchor {
   id: string;
@@ -100,8 +100,8 @@ export function computeSquadBoundingEllipse(anchors: readonly SquadAnchor[]) {
 // Pennant snap (Phase 3.4) — wind-driven oscillation calibration
 // ---------------------------------------------------------------------------
 //
-// `windMultiplierForMotion` returns 1.0 at CALM, ~1.85 at DANGER (and 1.0
-// when reducedMotion is set). We map that scalar to a normalized [0..1]
+// `seaStateWindMultiplier` returns 1.0 at flat/reduced motion and approaches
+// ~1.85 at DANGER + elevated PSI. We map that scalar to a normalized [0..1]
 // wind term and drive amplitude + frequency linearly:
 //
 //   amplitude (px) = MIN_AMP + (MAX_AMP - MIN_AMP) * t    -> 0.4..3.9 px
@@ -114,7 +114,7 @@ const PENNANT_MIN_AMPLITUDE_PX = 0.4;
 const PENNANT_MAX_AMPLITUDE_PX = 3.9;
 const PENNANT_MIN_FREQ_RAD_S = 0.8;
 const PENNANT_MAX_FREQ_RAD_S = 2.4;
-const WIND_MULTIPLIER_RANGE = 0.85; // windMultiplier(4) - windMultiplier(0) ≈ 0.85
+const WIND_MULTIPLIER_RANGE = 0.85; // seaStateWindMultiplier caps at 1.85.
 
 /** Stable 32-bit hash → fractional phase in [0, 2π). Pure function. */
 function pennantPhaseSeed(input: string): number {
@@ -140,7 +140,11 @@ interface PennantOscillation {
 }
 
 function pennantOscillation(wind: PennantWindContext): PennantOscillation {
-  const w = windMultiplierForMotion(wind.motion, wind.world);
+  const seaState = seaStateForWorld(wind.world, {
+    reducedMotion: wind.motion.reducedMotion,
+    wallClockHour: wind.motion.wallClockHour,
+  });
+  const w = seaStateWindMultiplier(seaState);
   const t = pennantWindTerm(w);
   return {
     amplitude: PENNANT_MIN_AMPLITUDE_PX + (PENNANT_MAX_AMPLITUDE_PX - PENNANT_MIN_AMPLITUDE_PX) * t,

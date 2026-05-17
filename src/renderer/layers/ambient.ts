@@ -1,4 +1,5 @@
 import { tileToScreen } from "../../systems/projection";
+import { seaStateForWorld, seaStateTempoMultiplier, seaStateWindMultiplier } from "../../systems/sea-state";
 import type { PharosVilleWorld } from "../../systems/world-types";
 import type { DrawPharosVilleInput } from "../render-types";
 import { lighthouseRenderState, NIGHT_WATER_POOL_RADIUS, type LighthouseRenderState } from "./lighthouse";
@@ -6,7 +7,6 @@ import { skyState } from "./sky";
 import {
   maxActiveThreatLevel,
   threatForPoint,
-  windMultiplier,
   type ThreatLevel,
 } from "./weather";
 
@@ -325,7 +325,11 @@ function wingStroke(time: number, phase: number, speedMul: number): number {
 export function drawBirds({ camera, ctx, motion, world }: DrawPharosVilleInput): void {
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
   const threat = maxActiveThreatLevel(world);
-  const windScale = motion.reducedMotion ? 1 : windMultiplier(threat);
+  const seaState = seaStateForWorld(world, {
+    reducedMotion: motion.reducedMotion,
+    wallClockHour: motion.wallClockHour,
+  });
+  const windScale = seaStateWindMultiplier(seaState);
   ctx.save();
   for (const bird of BIRDS) {
     const sample = sampleBird(bird, time, world, windScale, threat);
@@ -442,6 +446,11 @@ export function drawBioluminescentSparkles(
   const haloRadius = NIGHT_WATER_POOL_RADIUS * camera.zoom;
   const haloRadiusSq = haloRadius * haloRadius;
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
+  const seaState = seaStateForWorld(input.world, {
+    reducedMotion: motion.reducedMotion,
+    wallClockHour: motion.wallClockHour,
+  });
+  const tempo = seaStateTempoMultiplier(seaState);
   const zoom = camera.zoom;
   const offsetX = camera.offsetX;
   const offsetY = camera.offsetY;
@@ -462,7 +471,7 @@ export function drawBioluminescentSparkles(
     const dy = py - firePoint.y;
     const distSq = dx * dx + dy * dy;
     if (distSq < haloRadiusSq) continue;
-    const twinkle = 0.5 + 0.5 * Math.sin(time * 1.4 + sp.phase);
+    const twinkle = 0.5 + 0.5 * Math.sin(time * 1.4 * tempo + sp.phase);
     const alpha = twinkle * twinkle * nightFactor * 0.7;
     if (alpha < 0.01) continue;
     const r = Math.max(1, sp.baseRadius * zoom);
@@ -625,11 +634,15 @@ export function drawSeaMist(input: DrawPharosVilleInput, nightFactor: number): v
   if (nightFactor <= 0) return;
   const { camera, ctx, motion, world } = input;
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
+  const seaState = seaStateForWorld(world, {
+    reducedMotion: motion.reducedMotion,
+    wallClockHour: motion.wallClockHour,
+  });
+  const wind = seaStateWindMultiplier(seaState);
   ctx.save();
   for (let i = 0; i < SEA_MIST_PATCHES.length; i += 1) {
     const patch = SEA_MIST_PATCHES[i]!;
     const threat = threatForPoint(world, patch.x, patch.y);
-    const wind = windMultiplier(threat);
     const driftSpeed = patch.speed * wind;
     const drift = Math.sin(time * driftSpeed + patch.phase) * 0.4;
     const p = tileToScreen({ x: patch.x + drift, y: patch.y + drift * 0.3 }, camera);

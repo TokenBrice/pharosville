@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ShipMotionSample, ShipMotionState } from "../../systems/motion";
+import { seaStateForSources } from "../../systems/sea-state";
 import { resolveShipPose, shipPosePersonalityBias, type ShipPose } from "./ship-pose";
 
 describe("ship pose", () => {
@@ -93,6 +94,34 @@ describe("ship pose", () => {
     };
 
     expect(resolveShipPose(input)).toEqual(resolveShipPose(input));
+  });
+
+  it("uses sea-state swell as a roughness multiplier for titan pose", () => {
+    const base = {
+      phase: 0,
+      reducedMotion: false,
+      sample: sample({ state: "sailing", wakeIntensity: 0.4, zone: "danger" }),
+      shipId: "usdc-circle",
+      timeSeconds: 1.2,
+      visualSizeTier: "titan" as const,
+      zoom: 1,
+    };
+    const calmSea = seaStateForSources({
+      areas: [{ band: "CALM", count: 1 }],
+      lighthouse: { psiBand: "STEADY", score: 12, unavailable: false },
+      wallClockHour: 12,
+    });
+    const stormSea = seaStateForSources({
+      areas: [{ band: "DANGER", count: 1 }],
+      lighthouse: { psiBand: "DANGER", score: 90, unavailable: false },
+      wallClockHour: 23,
+    });
+
+    const calmPose = resolveShipPose({ ...base, seaState: calmSea });
+    const stormPose = resolveShipPose({ ...base, seaState: stormSea });
+
+    expect(stormPose.bowWake).toBeGreaterThan(calmPose.bowWake);
+    expect(stormPose.sternChurn).toBeGreaterThan(calmPose.sternChurn);
   });
 
   it("keeps per-ship personality bias deterministic and within tuned ranges", () => {

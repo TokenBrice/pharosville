@@ -13,6 +13,7 @@ import {
 import { squadForMember, squadFormationOffsetForPlacement } from "./maker-squad";
 import { sampleShipWaterPathInto as sampleWaterPathInto, sampleShipWaterPath as sampleWaterPath, clearShipWaterSegmentHint } from "./motion-water";
 import { clamp, normalizeHeadingInto, pathKey, positiveModulo, smoothstep, smoothstepRange } from "./motion-utils";
+import { seaStateMooringSwayMultiplier, type SeaState } from "./sea-state";
 import type { PharosVilleMotionPlan, ShipMooringSubPhase, ShipMotionRoute, ShipMotionRouteStop, ShipMotionSample, ShipMotionState, ShipWaterPath } from "./motion-types";
 import type { ShipNode, ShipWaterZone } from "./world-types";
 
@@ -114,17 +115,21 @@ export function createShipMotionSample(): ShipMotionSample {
     heading: { x: 0, y: 0 },
     wakeIntensity: 0,
     mooringSubPhase: null,
+    mooringSwayAmplitude: 1,
     mooringTension: 0,
     lanternAlpha: 0,
     fenderContact: 0,
+    seaState: null,
   };
 }
 
 function resetSampleChoreography(out: ShipMotionSample): void {
   out.mooringSubPhase = null;
+  out.mooringSwayAmplitude = 1;
   out.mooringTension = 0;
   out.lanternAlpha = 0;
   out.fenderContact = 0;
+  out.seaState = null;
 }
 
 // Module-scope scratch sample reused for the consort branch (flagship lookup).
@@ -212,6 +217,7 @@ const aheadLaneScratch: { x: number; y: number } = { x: 0, y: 0 };
 export function resolveShipMotionSample(input: {
   plan: PharosVilleMotionPlan;
   reducedMotion: boolean;
+  seaState?: SeaState | null;
   ship: ShipNode;
   timeSeconds: number;
 }): ShipMotionSample {
@@ -223,6 +229,7 @@ export function resolveShipMotionSample(input: {
 export function resolveShipMotionSampleInto(input: {
   plan: PharosVilleMotionPlan;
   reducedMotion: boolean;
+  seaState?: SeaState | null;
   ship: ShipNode;
   timeSeconds: number;
   // Optional already-computed flagship samples by ship id. When the consort
@@ -233,7 +240,7 @@ export function resolveShipMotionSampleInto(input: {
   const route = input.plan.shipRoutes.get(input.ship.id);
   resetSampleChoreography(out);
   if (input.reducedMotion || !route) {
-    reducedMotionSampleInto(input.plan, input.ship, route, out);
+    reducedMotionSampleInto(input.plan, input.ship, route, input.seaState ?? null, out);
     return;
   }
 
@@ -252,7 +259,7 @@ export function resolveShipMotionSampleInto(input: {
       const cachedFlagshipSample = input.flagshipSamples?.get(squad.flagshipId);
       const flagshipSample = cachedFlagshipSample ?? flagshipScratch;
       if (!cachedFlagshipSample) {
-        sampleRouteCycleInto(flagshipRoute, input.timeSeconds, flagshipScratch);
+        sampleRouteCycleInto(flagshipRoute, input.timeSeconds, input.seaState ?? null, flagshipScratch);
       }
       // Prefer the route's cached formation offset over live computation.
       const offset = route.formationOffset
@@ -317,11 +324,17 @@ export function resolveShipMotionSampleInto(input: {
       out.heading.x = flagshipSample.heading.x;
       out.heading.y = flagshipSample.heading.y;
       out.wakeIntensity = flagshipSample.wakeIntensity;
+      out.mooringSubPhase = flagshipSample.mooringSubPhase ?? null;
+      out.mooringSwayAmplitude = flagshipSample.mooringSwayAmplitude ?? 1;
+      out.mooringTension = flagshipSample.mooringTension ?? 0;
+      out.lanternAlpha = flagshipSample.lanternAlpha ?? 0;
+      out.fenderContact = flagshipSample.fenderContact ?? 0;
+      out.seaState = input.seaState ?? flagshipSample.seaState ?? null;
       return;
     }
   }
 
-  sampleRouteCycleInto(route, input.timeSeconds, out);
+  sampleRouteCycleInto(route, input.timeSeconds, input.seaState ?? null, out);
 }
 
 interface ReducedMotionRouteFrame {
@@ -335,6 +348,7 @@ function reducedMotionSampleInto(
   plan: PharosVilleMotionPlan,
   ship: ShipNode,
   route: ShipMotionRoute | undefined,
+  seaState: SeaState | null,
   out: ShipMotionSample,
 ): void {
   out.shipId = ship.id;
@@ -347,6 +361,7 @@ function reducedMotionSampleInto(
   out.heading.y = 0;
   out.wakeIntensity = 0;
   resetSampleChoreography(out);
+  out.seaState = seaState;
 
   if (!route) {
     out.tile.x = ship.riskTile.x;
@@ -424,10 +439,11 @@ function primaryRouteDockStop(route: ShipMotionRoute): ShipMotionRoute["dockStop
     ?? null;
 }
 
-function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number, out: ShipMotionSample): void {
+function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number, seaState: SeaState | null, out: ShipMotionSample): void {
   const runtime = routeSamplingRuntime(route);
   if (runtime.scheduledStopCount === 0) {
     openWaterPatrolSampleInto(route, timeSeconds, out);
+    out.seaState = seaState;
     return;
   }
 
@@ -458,6 +474,7 @@ function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number, out: 
         dwellProgress,
         secondsRemaining: dockSecondsEach - cursor,
         outgoingPath: runtime.stopToRiskPathByDockId.get(stop.dockId),
+        seaState,
         timeSeconds,
         runtime,
       }, out);
@@ -472,6 +489,7 @@ function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number, out: 
         progress: cursor / Math.max(1, transitSecondsEach),
         state: "departing",
         routeStop: stop,
+        seaState,
         fromMooringStop: stop,
         toMooringStop: null,
         timeSeconds,
@@ -483,6 +501,7 @@ function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number, out: 
 
     if (cursor < riskSecondsEach) {
       riskWaterSampleInto(route, timeSeconds, cursor / Math.max(1, riskSecondsEach), out);
+      out.seaState = seaState;
       return;
     }
     cursor -= riskSecondsEach;
@@ -494,6 +513,7 @@ function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number, out: 
         progress: cursor / Math.max(1, transitSecondsEach),
         state: "arriving",
         routeStop: nextStop,
+        seaState,
         fromMooringStop: null,
         toMooringStop: nextStop,
         timeSeconds,
@@ -505,6 +525,7 @@ function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number, out: 
   }
 
   riskWaterSampleInto(route, timeSeconds, 1, out);
+  out.seaState = seaState;
 }
 
 export function sampleShipWaterPath(path: ShipWaterPath | undefined, progress: number): { point: { x: number; y: number }; heading: { x: number; y: number } } {
@@ -678,6 +699,7 @@ function transitSampleInto(input: {
   progress: number;
   routeStop: ShipMotionRoute["dockStops"][number] | null;
   runtime: RouteSamplingRuntime;
+  seaState?: SeaState | null;
   state: Extract<ShipMotionState, "arriving" | "departing" | "sailing">;
   fromMooringStop: ShipMotionRoute["dockStops"][number] | null;
   toMooringStop: ShipMotionRoute["dockStops"][number] | null;
@@ -715,6 +737,7 @@ function transitSampleInto(input: {
     route: input.route,
     fromMooringStop: input.fromMooringStop,
     toMooringStop: input.toMooringStop,
+    seaState: input.seaState ?? null,
     timeSeconds: input.timeSeconds,
     runtime: input.runtime,
   }, out.tile);
@@ -728,9 +751,11 @@ function transitSampleInto(input: {
   out.currentRouteStopId = input.routeStop?.id ?? null;
   out.currentRouteStopKind = input.routeStop?.kind ?? null;
   out.mooringSubPhase = null;
+  out.mooringSwayAmplitude = seaStateMooringSwayMultiplier(input.seaState);
   out.mooringTension = input.state === "arriving" ? profile.fenderContact : 0;
   out.lanternAlpha = 0;
   out.fenderContact = profile.fenderContact;
+  out.seaState = input.seaState ?? null;
 
   // #5: speed-aware wake. departing/arriving accelerate from rest and decelerate
   // back to rest, so wake should peak mid-leg. sailing (open-water patrol) is
@@ -925,12 +950,14 @@ function applyMooringBlendInto(input: {
   route: ShipMotionRoute;
   fromMooringStop: ShipMotionRoute["dockStops"][number] | null;
   runtime: RouteSamplingRuntime;
+  seaState: SeaState | null;
   toMooringStop: ShipMotionRoute["dockStops"][number] | null;
   timeSeconds: number;
 }, tile: { x: number; y: number }): void {
   // E1: stale evidence → wider orbit (×1.35) and slower angular speed (×0.65).
   const staleRadiusFactor = input.route.staleEvidence ? 1.35 : 1.0;
   const staleAngularFactor = input.route.staleEvidence ? 0.65 : 1.0;
+  const seaSway = seaStateMooringSwayMultiplier(input.seaState);
   let dx = 0;
   let dy = 0;
   if (input.fromMooringStop) {
@@ -940,8 +967,8 @@ function applyMooringBlendInto(input: {
     const radiusMultiplier = mooredRadiusMultiplierFor(input.route, input.fromMooringStop, input.runtime);
     const angle = input.timeSeconds * 0.027 * staleAngularFactor + seed * 0.0001 + phaseOffset;
     const radius = mooredRadiusForZone(input.route.zone);
-    dx += Math.cos(angle) * radius.x * radiusMultiplier * staleRadiusFactor * (1 - releaseT);
-    dy += Math.sin(angle * 0.9) * radius.y * radiusMultiplier * staleRadiusFactor * (1 - releaseT);
+    dx += Math.cos(angle) * radius.x * radiusMultiplier * staleRadiusFactor * seaSway * (1 - releaseT);
+    dy += Math.sin(angle * 0.9) * radius.y * radiusMultiplier * staleRadiusFactor * seaSway * (1 - releaseT);
   }
   if (input.toMooringStop) {
     const mooringTension = smoothstepRange(ARRIVING_DECEL_END, 1, input.progress);
@@ -950,8 +977,8 @@ function applyMooringBlendInto(input: {
     const radiusMultiplier = mooredRadiusMultiplierFor(input.route, input.toMooringStop, input.runtime);
     const angle = input.timeSeconds * 0.027 * staleAngularFactor + seed * 0.0001 + phaseOffset;
     const radius = mooredRadiusForZone(input.route.zone);
-    dx += Math.cos(angle) * radius.x * radiusMultiplier * staleRadiusFactor * mooringTension;
-    dy += Math.sin(angle * 0.9) * radius.y * radiusMultiplier * staleRadiusFactor * mooringTension;
+    dx += Math.cos(angle) * radius.x * radiusMultiplier * staleRadiusFactor * seaSway * mooringTension;
+    dy += Math.sin(angle * 0.9) * radius.y * radiusMultiplier * staleRadiusFactor * seaSway * mooringTension;
   }
   if (dx === 0 && dy === 0) return;
   clampMotionTileInto(tile.x + dx, tile.y + dy, tile);
@@ -1107,6 +1134,7 @@ function mooredSampleInto(input: {
   dwellProgress: number;
   secondsRemaining: number;
   outgoingPath: ShipWaterPath | undefined;
+  seaState: SeaState | null;
   timeSeconds: number;
   runtime: RouteSamplingRuntime;
 }, out: ShipMotionSample): void {
@@ -1119,9 +1147,11 @@ function mooredSampleInto(input: {
   const staleAngularFactor = input.route.staleEvidence ? 0.65 : 1.0;
   const angle = input.timeSeconds * 0.027 * staleAngularFactor + seed * 0.0001 + phaseOffset;
   const radius = mooredRadiusForZone(input.route.zone);
+  const seaSway = seaStateMooringSwayMultiplier(input.seaState);
+  const swayAmplitude = phase.swayMultiplier * seaSway;
   out.shipId = input.route.shipId;
-  out.tile.x = input.stop.mooringTile.x + Math.cos(angle) * radius.x * radiusMultiplier * staleRadiusFactor * phase.swayMultiplier;
-  out.tile.y = input.stop.mooringTile.y + Math.sin(angle * 0.9) * radius.y * radiusMultiplier * staleRadiusFactor * phase.swayMultiplier;
+  out.tile.x = input.stop.mooringTile.x + Math.cos(angle) * radius.x * radiusMultiplier * staleRadiusFactor * swayAmplitude;
+  out.tile.y = input.stop.mooringTile.y + Math.sin(angle * 0.9) * radius.y * radiusMultiplier * staleRadiusFactor * swayAmplitude;
   out.state = "moored";
   out.zone = input.route.zone;
   out.currentDockId = input.stop.dockId;
@@ -1142,9 +1172,11 @@ function mooredSampleInto(input: {
   }
   out.wakeIntensity = 0.05;
   out.mooringSubPhase = phase.subPhase;
+  out.mooringSwayAmplitude = swayAmplitude;
   out.mooringTension = phase.tension;
   out.lanternAlpha = phase.lanternAlpha;
   out.fenderContact = 0;
+  out.seaState = input.seaState;
 }
 
 function writeMooredHeading(

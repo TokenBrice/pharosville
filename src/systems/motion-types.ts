@@ -1,4 +1,5 @@
 import { AMBIENT_SEA_HZ, AMBIENT_WIND_HZ } from "./motion-config";
+import type { SeaState } from "./sea-state";
 import type { ShipWaterZone } from "./world-types";
 
 /**
@@ -116,9 +117,11 @@ export interface ShipMotionSample {
   heading: { x: number; y: number };
   wakeIntensity: number;
   mooringSubPhase?: ShipMooringSubPhase | null;
+  mooringSwayAmplitude?: number;
   mooringTension?: number;
   lanternAlpha?: number;
   fenderContact?: number;
+  seaState?: SeaState | null;
 }
 
 export interface PharosVilleMotionPlan {

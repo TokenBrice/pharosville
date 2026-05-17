@@ -144,6 +144,35 @@ describe("AccessibilityLedger", () => {
     expect(markup).not.toContain("Watch Breakwater WATCH (4 stablecoins)");
   });
 
+  it("exposes the deterministic sea-state summary for DOM parity", () => {
+    const world: PharosVilleWorld = {
+      ...sampleWorld(),
+      lighthouse: {
+        ...sampleWorld().lighthouse,
+        psiBand: "DANGER",
+        score: 90,
+      },
+      areas: [
+        {
+          id: "area.dews.danger",
+          kind: "area",
+          label: "Danger Strait",
+          tile: { x: 55, y: 4 },
+          band: "DANGER",
+          count: 1,
+          detailId: "area.dews.danger",
+        },
+      ],
+    };
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("Sea state");
+    expect(markup).toContain("DANGER");
+    expect(markup).toContain("swell");
+    expect(markup).toContain("wind");
+    expect(markup).toContain("tempo");
+  });
+
   it("cycle tempo label is one of the four canonical values", () => {
     const world = sampleWorldWithLedgerShip();
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);

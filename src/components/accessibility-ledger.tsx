@@ -6,6 +6,7 @@ import { SQUAD_DISTRESS_FLAG_HEX } from "../renderer/layers/maker-squad-chrome";
 import type { AreaNode, DewsAreaBand, PharosVilleWorld, ShipNode } from "../systems/world-types";
 import { precomputeShipTempos } from "../systems/ship-cycle-tempo";
 import { lighthouseBeamWarmCueLabel } from "../systems/detail-model";
+import { seaStateForWorld, seaStateSummary } from "../systems/sea-state";
 
 // Dock health-band swatches mirror the renderer's `dockHealthColor()` table in
 // `src/renderer/layers/docks.ts`. Robust and healthy share the same green
@@ -84,6 +85,7 @@ function AccessibilityLedgerContent({
   // doesn't redo the O(N log N) sort per ship. Hoisted from the inline call
   // (review-noted O(N² log N) hot spot).
   const cycleTempoById = precomputeShipTempos(world.ships);
+  const seaState = seaStateForWorld(world);
 
   return (
     <section className="sr-only" aria-labelledby={headingId} data-testid="pharosville-accessibility-ledger">
@@ -113,6 +115,10 @@ function AccessibilityLedgerContent({
             {world.lighthouse.label}: PSI {world.lighthouse.score ?? "unavailable"}, band{" "}
             {world.lighthouse.psiBand ?? "unavailable"}. {lighthouseBeamWarmCueLabel(world.areas)}
           </dd>
+        </div>
+        <div>
+          <dt>Sea state</dt>
+          <dd>{seaStateSummary(seaState)}.</dd>
         </div>
         <div>
           <dt>Pigeonnier</dt>

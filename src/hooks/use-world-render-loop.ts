@@ -28,6 +28,7 @@ import {
 } from "../systems/motion";
 import { getShipHeadingDelta } from "../systems/motion-sampling";
 import type { IsoCamera, ScreenPoint } from "../systems/projection";
+import { seaStateForWorld, type SeaState } from "../systems/sea-state";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
 
 type MotionPlan = ReturnType<typeof buildMotionPlan>;
@@ -295,14 +296,16 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       } else {
         wallClockHour = 12;
       }
+      const seaState = seaStateForWorld(world, { reducedMotion, wallClockHour });
       let shipMotionSamples = shipMotionSamplesRef.current;
       let changedShipIds: string[] = [];
       if (reducedMotion) {
-        const nextSamplesSignature = motionPlanSignature(world);
+        const nextSamplesSignature = `${motionPlanSignature(world)}|sea:${seaStateMotionSignature(seaState)}`;
         if (reducedMotionSamplesSignatureRef.current !== nextSamplesSignature || shipMotionSamples.size === 0) {
           const collected = collectShipMotionSamples({
             motionPlan: activeMotionPlan,
             reducedMotion,
+            seaState,
             samples: shipMotionSamples,
             timeSeconds,
             world,
@@ -314,6 +317,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         const collected = collectShipMotionSamples({
           motionPlan: activeMotionPlan,
           reducedMotion,
+          seaState,
           samples: shipMotionSamples,
           timeSeconds,
           world,
@@ -688,6 +692,7 @@ const PHAROSVILLE_HARBOR_LIGHT_CAP = 3;
 function collectShipMotionSamples(input: {
   motionPlan: MotionPlan;
   reducedMotion: boolean;
+  seaState: SeaState;
   samples: ReadonlyMap<string, ShipMotionSample>;
   timeSeconds: number;
   world: PharosVilleWorldModel;
@@ -715,6 +720,7 @@ function collectShipMotionSamples(input: {
       resolveShipMotionSampleInto({
         plan: input.motionPlan,
         reducedMotion: input.reducedMotion,
+        seaState: input.seaState,
         ship,
         timeSeconds: input.timeSeconds,
         flagshipSamples: samples,
@@ -738,6 +744,19 @@ function collectShipMotionSamples(input: {
     }
   }
   return { samples, changedShipIds };
+}
+
+function seaStateMotionSignature(seaState: SeaState): string {
+  return [
+    seaState.label,
+    seaState.reducedMotion ? "rm" : "anim",
+    seaState.swell.toFixed(3),
+    seaState.wind.toFixed(3),
+    seaState.tempo.toFixed(3),
+    seaState.source.maxDewsBand ?? "none",
+    seaState.source.nightFactor.toFixed(3),
+    seaState.source.psiStress.toFixed(3),
+  ].join(":");
 }
 
 function compactShipMotionSamples(

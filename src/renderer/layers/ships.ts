@@ -490,7 +490,7 @@ function drawWithShipPose(
   if (needsRoll) ctx.rotate(pose.rollRadians);
   if (needsOrientation) {
     ctx.scale(orientation.flipX ? -1 : 1, orientation.titanScaleY);
-    if (Math.abs(orientation.titanSkewX) >= 0.0005) {
+    if (Math.abs(orientation.titanSkewX) >= 0.0005 && typeof ctx.transform === "function") {
       ctx.transform(1, 0, orientation.titanSkewX, 1, 0, 0);
     }
   }
