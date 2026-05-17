@@ -138,7 +138,7 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-node24-modules-
       - if: steps.node-modules.outputs.cache-hit != 'true'
         run: npm ci
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v6
         with:
           name: pharosville-dist
           path: dist
@@ -182,7 +182,7 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-node24-modules-
       - if: steps.node-modules.outputs.cache-hit != 'true'
         run: npm ci
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v6
         with:
           name: pharosville-dist
           path: dist
@@ -226,7 +226,7 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-node24-modules-
       - if: steps.node-modules.outputs.cache-hit != 'true'
         run: npm ci
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v6
         with:
           name: pharosville-dist
           path: dist
