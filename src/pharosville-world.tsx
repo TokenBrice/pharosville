@@ -57,7 +57,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const motionPlan = useMemo(() => buildMotionPlan(world, selectedDetailId, baseMotionPlan), [baseMotionPlan, selectedDetailId]);
   const shipsById = useMemo(() => new Map(world.ships.map((ship) => [ship.id, ship])), [world.ships]);
-  const shipCounterLabel = useMemo(() => fleetCounterLabel(world), [world.ships]);
+  const shipCounterLabel = useMemo(() => fleetCounterLabel(world.ships), [world.ships]);
   const selectedEntity = selectedDetailId ? world.entityById[selectedDetailId] ?? null : null;
   const selectedDetail = selectedDetailId ? world.detailIndex[selectedDetailId] ?? null : null;
 
@@ -480,9 +480,9 @@ export const PharosVilleWorld = memo(PharosVilleWorldInner);
 
 const integerFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 
-function fleetCounterLabel(world: PharosVilleWorldModel): string {
-  const dockedShips = world.ships.filter((ship) => ship.dockVisits.length > 0).length;
-  const totalShips = world.ships.length;
+function fleetCounterLabel(ships: PharosVilleWorldModel["ships"]): string {
+  const dockedShips = ships.filter((ship) => ship.dockVisits.length > 0).length;
+  const totalShips = ships.length;
   const shipNoun = dockedShips === 1 ? "ship" : "ships";
   return `${integerFormatter.format(dockedShips)} ${shipNoun} docked / ${integerFormatter.format(totalShips)} total`;
 }
