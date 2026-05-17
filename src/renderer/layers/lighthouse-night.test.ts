@@ -1,14 +1,18 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DAY_BEAM_BASE_ALPHA,
   NIGHT_WATER_POOL_RADIUS,
+  drawLighthouseGodRays,
   drawLighthouseNightHighlights,
   drawLighthouseReflection,
   drawLighthouseThunderRim,
+  godRayCacheKey,
+  godRayCacheSize,
   lighthouseOverlayScreenBounds,
+  resetGodRayCache,
 } from "./lighthouse";
 import { createCanvasContextStub, createDrawInput } from "../__test-utils__/draw-input";
-import type { DrawPharosVilleInput } from "../render-types";
+import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
 import { lightningThunderRimIntensityForWorld } from "./weather";
 
 function makeCtx() {
@@ -183,5 +187,148 @@ describe("lighthouseOverlayScreenBounds contracts with nightFactor", () => {
     const noon = lighthouseOverlayScreenBounds(input, selectionRect, undefined, 0);
     const night = lighthouseOverlayScreenBounds(input, selectionRect, undefined, 1);
     expect(night.width).toBeLessThan(noon.width);
+  });
+});
+
+describe("godRayCacheKey bucketing", () => {
+  it("returns the same key for inputs in the same bucket", () => {
+    // Angles within the same 32-bucket slice (≈11.25° each) collapse.
+    const tau = Math.PI * 2;
+    const bucketWidth = tau / 32;
+    const a = bucketWidth * 4.0;
+    const b = bucketWidth * 4.0 + bucketWidth * 0.2;
+    expect(godRayCacheKey(a, 1.35, 0.8)).toBe(godRayCacheKey(b, 1.35, 0.8));
+  });
+
+  it("returns distinct keys when angle, zoom, or night bucket differs", () => {
+    const base = godRayCacheKey(0.5, 1.35, 0.8);
+    const tau = Math.PI * 2;
+    const distinctAngle = godRayCacheKey(0.5 + tau / 32, 1.35, 0.8);
+    const distinctZoom = godRayCacheKey(0.5, 0.5, 0.8);
+    const distinctNight = godRayCacheKey(0.5, 1.35, 0.1);
+    expect(distinctAngle).not.toBe(base);
+    expect(distinctZoom).not.toBe(base);
+    expect(distinctNight).not.toBe(base);
+  });
+
+  it("wraps angles modulo 2π so equivalent rotations share a key", () => {
+    const tau = Math.PI * 2;
+    expect(godRayCacheKey(0.3, 1.35, 0.8)).toBe(godRayCacheKey(0.3 + tau, 1.35, 0.8));
+    expect(godRayCacheKey(0.3, 1.35, 0.8)).toBe(godRayCacheKey(0.3 - tau, 1.35, 0.8));
+  });
+
+  it("clamps night factor into [0,1] before bucketing", () => {
+    expect(godRayCacheKey(0, 1, 0)).toBe(godRayCacheKey(0, 1, -0.5));
+    expect(godRayCacheKey(0, 1, 1)).toBe(godRayCacheKey(0, 1, 1.5));
+  });
+});
+
+describe("godRaySpriteCache eviction", () => {
+  type DocumentStub = {
+    createElement: ReturnType<typeof vi.fn>;
+  };
+  let originalDocument: unknown;
+  let documentDefinedBefore: boolean;
+
+  beforeEach(() => {
+    resetGodRayCache();
+    documentDefinedBefore = "document" in globalThis;
+    originalDocument = (globalThis as { document?: unknown }).document;
+    const stubContext = {
+      createLinearGradient: () => ({ addColorStop: () => undefined }),
+      beginPath: () => undefined,
+      moveTo: () => undefined,
+      lineTo: () => undefined,
+      stroke: () => undefined,
+      strokeStyle: "",
+      lineWidth: 1,
+    } as unknown as CanvasRenderingContext2D;
+    const documentStub: DocumentStub = {
+      createElement: vi.fn(() => ({
+        width: 0,
+        height: 0,
+        getContext: () => stubContext,
+      })),
+    };
+    (globalThis as { document?: unknown }).document = documentStub;
+  });
+
+  afterEach(() => {
+    resetGodRayCache();
+    if (documentDefinedBefore) {
+      (globalThis as { document?: unknown }).document = originalDocument;
+    } else {
+      delete (globalThis as { document?: unknown }).document;
+    }
+  });
+
+  function makeMotion(time = 0): PharosVilleCanvasMotion {
+    return {
+      plan: {
+        animatedShipIds: new Set(),
+        effectShipIds: new Set(),
+        lighthouseFireFlickerPerSecond: 1,
+        moverShipIds: new Set(),
+        shipPhases: new Map(),
+        shipRoutes: new Map(),
+      },
+      reducedMotion: false,
+      timeSeconds: time,
+      wallClockHour: 0,
+    } as unknown as PharosVilleCanvasMotion;
+  }
+
+  function makeStrokeCtx(): CanvasRenderingContext2D {
+    return createCanvasContextStub(
+      [
+        "save", "restore", "beginPath", "moveTo", "lineTo", "stroke", "translate",
+        "rotate", "drawImage",
+      ],
+      {
+        fillStyle: "",
+        globalAlpha: 1,
+        globalCompositeOperation: "source-over",
+        lineCap: "butt",
+        lineJoin: "miter",
+        lineWidth: 1,
+        strokeStyle: "",
+        createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+      },
+    );
+  }
+
+  it("populates the sprite cache and caps it at the LRU limit", () => {
+    expect(godRayCacheSize()).toBe(0);
+
+    // A single night-frame populates a handful of buckets (zoom + a few
+    // angle/night bucket combinations for the 16 rays).
+    const ctx = makeStrokeCtx();
+    drawLighthouseGodRays(ctx, { x: 100, y: 100 }, 1.35, makeMotion(0), 0.8);
+    const firstCallCount = godRayCacheSize();
+    expect(firstCallCount).toBeGreaterThan(0);
+
+    // Repeating the same call shouldn't grow the cache — every bucket hits.
+    drawLighthouseGodRays(ctx, { x: 100, y: 100 }, 1.35, makeMotion(0), 0.8);
+    expect(godRayCacheSize()).toBe(firstCallCount);
+
+    // Sweeping through 300+ distinct (angle, night) combinations should keep
+    // the cache pinned at the 256-entry LRU cap.
+    for (let i = 0; i < 320; i += 1) {
+      const time = i * 0.5;
+      const night = ((i % 20) + 1) / 21;
+      drawLighthouseGodRays(ctx, { x: 100, y: 100 }, 1.35, makeMotion(time), night);
+    }
+    expect(godRayCacheSize()).toBeLessThanOrEqual(256);
+  });
+
+  it("uses the cached sprite path instead of per-frame createLinearGradient", () => {
+    const ctx = makeStrokeCtx();
+    drawLighthouseGodRays(ctx, { x: 100, y: 100 }, 1.35, makeMotion(0), 0.8);
+    const firstLinearGradientCalls = (ctx.createLinearGradient as unknown as ReturnType<typeof vi.fn>).mock.calls.length;
+    // Warm-up populates the cache via offscreen-canvas baking; the main ctx
+    // shouldn't see any createLinearGradient calls.
+    expect(firstLinearGradientCalls).toBe(0);
+    // drawImage should fire for each of the 16 rays now that the sprite is cached.
+    expect((ctx.drawImage as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(16);
   });
 });

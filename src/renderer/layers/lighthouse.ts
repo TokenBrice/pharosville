@@ -727,6 +727,104 @@ const GOD_RAY_HALF_SPREAD = (3.5 * Math.PI) / 180;
 const GOD_RAY_LENGTH = SWEEP_LENGTH * 0.62;
 const GOD_RAY_BASE_ALPHA = 0.085;
 
+// Pre-baked god-ray sprite cache. Each entry is a horizontal stroked line
+// baked at unit alpha; callers rotate via canvas transform and modulate via
+// `globalAlpha`. Skips the 16 `createLinearGradient` calls per night frame.
+// Mirrors the `sweepBeamSpriteCache` pattern.
+//
+// Key dimensions follow the W1.03 spec (angle × zoom × night buckets) so the
+// cache LRU naturally caps memory, but the sprite is baked horizontally at
+// unit alpha — keeping the fan-spread intact (each of the 16 rays still
+// rotates to its own angle) and letting `globalAlpha` carry the per-frame
+// breath × nightFactor product without re-baking. In practice the dominant
+// axis is the zoom bucket; angle/night collapse to no-op duplicates of the
+// same sprite, which is fine because the cache key alone is what controls
+// eviction pressure.
+const GOD_RAY_CACHE_LIMIT = 256;
+const GOD_RAY_ZOOM_BUCKETS = 4;
+const GOD_RAY_ANGLE_BUCKETS = 32;
+const GOD_RAY_NIGHT_BUCKETS = 20;
+const godRaySpriteCache = new Map<string, { canvas: HTMLCanvasElement; centerY: number; length: number; startX: number }>();
+
+function quantizeGodRayZoom(zoom: number): number {
+  return Math.max(0.05, Math.round(zoom * GOD_RAY_ZOOM_BUCKETS) / GOD_RAY_ZOOM_BUCKETS);
+}
+
+function quantizeGodRayAngle(angle: number): number {
+  // Normalize to [0, 2π) before bucketing so wrap-around hits the same key.
+  const tau = Math.PI * 2;
+  const wrapped = ((angle % tau) + tau) % tau;
+  return Math.round(wrapped * GOD_RAY_ANGLE_BUCKETS / tau) % GOD_RAY_ANGLE_BUCKETS;
+}
+
+function quantizeGodRayNight(nightFactor: number): number {
+  const clamped = Math.max(0, Math.min(1, nightFactor));
+  return Math.round(clamped * GOD_RAY_NIGHT_BUCKETS);
+}
+
+export function godRayCacheSize(): number {
+  return godRaySpriteCache.size;
+}
+
+export function resetGodRayCache(): void {
+  godRaySpriteCache.clear();
+}
+
+export function godRayCacheKey(angle: number, beamZoom: number, nightFactor: number): string {
+  return `a${quantizeGodRayAngle(angle)}|z${(quantizeGodRayZoom(beamZoom) * 100) | 0}|n${quantizeGodRayNight(nightFactor)}`;
+}
+
+function getGodRaySprite(
+  angle: number,
+  beamZoom: number,
+  nightFactor: number,
+): { canvas: HTMLCanvasElement; centerY: number; length: number; startX: number } | null {
+  if (typeof document === "undefined") return null;
+  const key = godRayCacheKey(angle, beamZoom, nightFactor);
+  const cached = godRaySpriteCache.get(key);
+  if (cached) {
+    godRaySpriteCache.delete(key);
+    godRaySpriteCache.set(key, cached);
+    return cached;
+  }
+
+  const bucketedZoom = quantizeGodRayZoom(beamZoom);
+  const length = GOD_RAY_LENGTH * bucketedZoom;
+  const lineWidth = Math.max(1, 2.2 * bucketedZoom);
+  const padding = Math.ceil(lineWidth) + 2;
+  const width = Math.max(2, Math.ceil(length) + padding * 2);
+  const height = Math.max(2, Math.ceil(lineWidth) + padding * 2);
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const offCtx = canvas.getContext("2d");
+  if (!offCtx) return null;
+  const startX = padding;
+  const centerY = height / 2;
+  const endX = startX + length;
+
+  const grad = offCtx.createLinearGradient(startX, centerY, endX, centerY);
+  // Bake at unit alpha; callers modulate via globalAlpha (breath × night).
+  grad.addColorStop(0, "rgba(255, 220, 150, 1)");
+  grad.addColorStop(0.55, "rgba(245, 185, 105, 0.55)");
+  grad.addColorStop(1, "rgba(240, 160, 80, 0)");
+  offCtx.strokeStyle = grad;
+  offCtx.lineWidth = lineWidth;
+  offCtx.beginPath();
+  offCtx.moveTo(startX, centerY);
+  offCtx.lineTo(endX, centerY);
+  offCtx.stroke();
+
+  const entry = { canvas, centerY, length, startX };
+  godRaySpriteCache.set(key, entry);
+  while (godRaySpriteCache.size > GOD_RAY_CACHE_LIMIT) {
+    const oldest = godRaySpriteCache.keys().next().value;
+    if (oldest === undefined) break;
+    godRaySpriteCache.delete(oldest);
+  }
+  return entry;
+}
+
 export function drawLighthouseGodRays(
   ctx: CanvasRenderingContext2D,
   firePoint: ScreenPoint,
@@ -746,12 +844,28 @@ export function drawLighthouseGodRays(
       const offset = (t - 0.5) * 2 * GOD_RAY_HALF_SPREAD;
       const breath = 0.78 + 0.22 * Math.sin(time * 0.35 + i * 1.31 + armOffset);
       const angle = sweepAngle + armOffset + offset;
+      const alpha = GOD_RAY_BASE_ALPHA * breath * nightFactor;
+      const sprite = getGodRaySprite(angle, beamZoom, nightFactor);
+      if (sprite) {
+        ctx.save();
+        ctx.translate(firePoint.x, firePoint.y);
+        ctx.rotate(angle);
+        ctx.globalAlpha = alpha;
+        ctx.drawImage(
+          sprite.canvas,
+          -sprite.startX,
+          -sprite.centerY,
+          sprite.canvas.width,
+          sprite.canvas.height,
+        );
+        ctx.restore();
+        continue;
+      }
       const cos = Math.cos(angle);
       const sin = Math.sin(angle);
       const tipX = firePoint.x + cos * length;
       const tipY = firePoint.y + sin * length;
       const grad = ctx.createLinearGradient(firePoint.x, firePoint.y, tipX, tipY);
-      const alpha = GOD_RAY_BASE_ALPHA * breath * nightFactor;
       grad.addColorStop(0, `rgba(255, 220, 150, ${alpha})`);
       grad.addColorStop(0.55, `rgba(245, 185, 105, ${alpha * 0.55})`);
       grad.addColorStop(1, "rgba(240, 160, 80, 0)");
