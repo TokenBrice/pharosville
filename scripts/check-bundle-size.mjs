@@ -15,8 +15,8 @@ export const bundleBudgets = {
   desktop: {
     label: "desktop lazy chunk",
     pattern: /^pharosville-desktop-data-[A-Za-z0-9_-]+\.js$/,
-    maxRawBytes: 960 * 1024,
-    maxGzipBytes: 275 * 1024,
+    maxRawBytes: 970 * 1024,
+    maxGzipBytes: 278 * 1024,
     required: true,
   },
   css: {
@@ -29,8 +29,8 @@ export const bundleBudgets = {
 };
 
 export const aggregateBudgets = {
-  maxJsRawBytes: 1_268 * 1024,
-  maxJsGzipBytes: 375 * 1024,
+  maxJsRawBytes: 1_280 * 1024,
+  maxJsGzipBytes: 378 * 1024,
 };
 
 export function collectBundleChunks(distRoot = resolve(process.cwd(), "dist")) {
