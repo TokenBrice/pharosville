@@ -9,6 +9,7 @@ import {
 import { isShipMapVisible } from "../systems/motion";
 import type { PharosVilleWorld } from "../systems/world-types";
 import { createRenderFrameCache, type RenderFrameCache } from "./frame-cache";
+import { createShipBodyCache } from "./ship-body-cache";
 import { drawAtmosphere, drawBirds, drawBioluminescentSparkles, drawDecorativeLights, drawMoonReflection, drawSeaMist } from "./layers/ambient";
 import { drawDockBody, drawDockOverlay, isBackgroundedHarborDock, type DockRenderState } from "./layers/docks";
 import { drawGraveBody, drawGraveOverlay, drawGraveUnderlay, type GraveRenderState } from "./layers/graves";
@@ -26,7 +27,7 @@ import { drawShipBody, drawShipOverlay, drawShipWake, shipMastTopScreenPoint, ty
 import { drawEntityLayer } from "./layers/entity-pass";
 import { drawCemeteryContext, drawCemeteryGround, drawCemeteryMist } from "./layers/cemetery";
 import { drawHarborDistrictGround } from "./layers/harbor-district";
-import { drawTerrainBase, drawWaterTerrainOverlays } from "./layers/terrain";
+import { drawTerrainBase, drawWaterTerrainAccents, drawWaterTerrainStaticDetails } from "./layers/terrain";
 import { drawWaterAreaLabels } from "./layers/water-labels";
 import { drawCenterCluster } from "./layers/center-cluster";
 import { drawLighthouseBeamRim, drawLighthouseBody, drawLighthouseGodRays, drawLighthouseHeadland, drawLighthouseNightHighlights, drawLighthouseOverlay, drawLighthouseReflection, drawLighthouseSurf, drawLighthouseThunderRim, lighthouseOverlayScreenBounds, lighthouseRenderState, type LighthouseRenderState } from "./layers/lighthouse";
@@ -44,6 +45,7 @@ import type {
   PharosVilleRenderMetrics,
   PharosVilleRenderZoomKeyMode,
 } from "./render-types";
+import { isScheduledPassDegraded, shouldDrawScheduledPass } from "./render-scheduler";
 import { tileBoundsTileCount, visibleTileBoundsForCamera } from "./viewport";
 
 /**
@@ -65,12 +67,16 @@ interface WorldCanvasFrame {
   cacheStats: RenderCacheFrameStats;
   cache: RenderFrameCache;
   dpr: number;
-  dynamicCameraCache: CameraCacheFrame;
   dockRenderStates: Map<string, DockRenderState>;
   flagshipById: Map<string, PharosVilleWorld["ships"][number]>;
   graveRenderStates: Map<string, GraveRenderState>;
   lighthouseRender: LighthouseRenderState;
   protectedCacheEntryKeys: Set<string>;
+  protectedShipBodyCacheKeys: Set<string>;
+  shipBodyCache: ReturnType<typeof createShipBodyCache>;
+  shipBodyCacheManifestVersion: string;
+  shipBodyCacheMaxPixels: number;
+  shipBodyCacheWarmupBudget: { remaining: number };
   shipRenderStates: Map<string, ShipRenderState>;
   staticCameraCache: CameraCacheFrame;
   visibleShips: PharosVilleWorld["ships"];
@@ -94,24 +100,15 @@ interface CameraCacheKeyInput {
   zoomKey: string;
 }
 
-interface DynamicLayerCacheEntry {
-  canvas: HTMLCanvasElement;
-  key: string;
-  lastPhaseBucket: number;
-  lastUsed: number;
-}
-
 type StaticCacheScope = "scene" | "terrain";
-type DynamicCacheScope = "water-overlays";
-
 const STATIC_CAMERA_OFFSET_BUCKET = 16;
-const DYNAMIC_CAMERA_OFFSET_BUCKET = 16;
-const DYNAMIC_WATER_CADENCE_HZ = 15;
+const DYNAMIC_WATER_CADENCE_HZ = 0;
 const DEFAULT_RENDER_CACHE_MODE: PharosVilleRenderCacheMode = "exact-zoom";
+const SHIP_BODY_CACHE_WARMUP_PER_FRAME = 6;
+const SHIP_BODY_CACHE_INTERACTION_WARMUP_PER_FRAME = 1;
 const staticLayerCache: { entries: StaticLayerCacheEntry[] } = { entries: [] };
-const dynamicLayerCache: { entries: DynamicLayerCacheEntry[] } = { entries: [] };
+const shipBodyCache = createShipBodyCache({ maxPixels: MAX_TOTAL_BACKING_PIXELS });
 let staticCameraCacheKeyCache: { key: string; input: CameraCacheKeyInput } | null = null;
-let dynamicCameraCacheKeyCache: { key: string; input: CameraCacheKeyInput } | null = null;
 let cacheGenerationKey: string | null = null;
 
 interface CameraCacheFrame {
@@ -177,7 +174,6 @@ function cameraCacheKeySegment(
   dpr: number,
   cacheMode: PharosVilleRenderCacheMode,
   offsetBucketPx: number,
-  cacheRef: "dynamic" | "static",
 ): CameraCacheFrame {
   const offsetX = Math.floor(input.camera.offsetX / offsetBucketPx) * offsetBucketPx;
   const offsetY = Math.floor(input.camera.offsetY / offsetBucketPx) * offsetBucketPx;
@@ -192,9 +188,7 @@ function cameraCacheKeySegment(
     worldId: worldIdFor(input.world),
     zoomKey: zoomCacheKey(input.camera.zoom, cacheMode),
   };
-  const cached = cacheRef === "static"
-    ? staticCameraCacheKeyCache
-    : dynamicCameraCacheKeyCache;
+  const cached = staticCameraCacheKeyCache;
   if (
     cached
     && cached.input.dprBucket === inputKey.dprBucket
@@ -219,11 +213,7 @@ function cameraCacheKeySegment(
     };
   }
   const key = `${inputKey.worldId}|${inputKey.width}x${inputKey.height}|z${inputKey.zoomKey}|o${inputKey.offsetX},${inputKey.offsetY}|d${inputKey.dprBucket}`;
-  if (cacheRef === "static") {
-    staticCameraCacheKeyCache = { input: inputKey, key };
-  } else {
-    dynamicCameraCacheKeyCache = { input: inputKey, key };
-  }
+  staticCameraCacheKeyCache = { input: inputKey, key };
   return {
     keySegment: key,
     offsetBucketPx,
@@ -243,15 +233,7 @@ function staticCameraCacheForFrame(
   dpr: number,
   cacheMode: PharosVilleRenderCacheMode,
 ): CameraCacheFrame {
-  return cameraCacheKeySegment(input, dpr, cacheMode, STATIC_CAMERA_OFFSET_BUCKET, "static");
-}
-
-function dynamicCameraCacheForFrame(
-  input: DrawPharosVilleInput,
-  dpr: number,
-  cacheMode: PharosVilleRenderCacheMode,
-): CameraCacheFrame {
-  return cameraCacheKeySegment(input, dpr, cacheMode, DYNAMIC_CAMERA_OFFSET_BUCKET, "dynamic");
+  return cameraCacheKeySegment(input, dpr, cacheMode, STATIC_CAMERA_OFFSET_BUCKET);
 }
 
 /**
@@ -265,18 +247,6 @@ function dynamicCameraCacheForFrame(
 function staticCacheKey(input: DrawPharosVilleInput, scope: StaticCacheScope, cameraCacheKeySegment: string): string {
   const cv = manifestCacheVersionForInput(input);
   return `${scope}|${cameraCacheKeySegment}|a${assetLoadTickFor(input)}|cv${cv}`;
-}
-
-function dynamicCacheKey(scope: DynamicCacheScope, cameraCacheKeySegment: string): string {
-  return `${scope}|${cameraCacheKeySegment}`;
-}
-
-function dynamicWaterPhaseBucket(input: DrawPharosVilleInput): number {
-  if (input.motion.reducedMotion) return 0;
-  // Pan-friendly cache bucketing keeps small camera moves from repainting this
-  // layer, which leaves enough headroom to raise the whole-water cadence above
-  // the old 10 Hz step without touching terrain internals.
-  return Math.floor(input.motion.timeSeconds * DYNAMIC_WATER_CADENCE_HZ);
 }
 
 function createStaticCacheCanvas(width: number, height: number): HTMLCanvasElement | null {
@@ -301,17 +271,11 @@ function staticCachePixels(): number {
   return pixels;
 }
 
-function dynamicCachePixels(): number {
-  let pixels = 0;
-  for (const entry of dynamicLayerCache.entries) pixels += cacheCanvasPixels(entry.canvas);
-  return pixels;
-}
-
 function totalOffscreenCachePixels(): number {
-  return staticCachePixels() + dynamicCachePixels();
+  return staticCachePixels() + shipBodyCache.stats().pixelCount;
 }
 
-function cacheEntryId(kind: "dynamic" | "static", key: string): string {
+function cacheEntryId(kind: "static", key: string): string {
   return `${kind}:${key}`;
 }
 
@@ -337,9 +301,8 @@ function ensureRendererCacheGeneration(input: DrawPharosVilleInput, dpr: number)
 
 function clearRendererCaches(): void {
   staticLayerCache.entries = [];
-  dynamicLayerCache.entries = [];
+  shipBodyCache.clear();
   staticCameraCacheKeyCache = null;
-  dynamicCameraCacheKeyCache = null;
 }
 
 function reserveCacheCanvas(input: {
@@ -373,6 +336,7 @@ function paintStaticTerrainPass(input: DrawPharosVilleInput) {
   const { ctx } = input;
   ctx.imageSmoothingEnabled = false;
   drawTerrainBase(input);
+  drawWaterTerrainStaticDetails(input);
 }
 
 function paintStaticScenePass(input: DrawPharosVilleInput, frame: WorldCanvasFrame) {
@@ -385,13 +349,6 @@ function paintStaticScenePass(input: DrawPharosVilleInput, frame: WorldCanvasFra
   drawCenterCluster(input);
   drawLighthouseHeadland(input);
   drawCemeteryContext(input);
-}
-
-function paintDynamicWaterPass(input: DrawPharosVilleInput) {
-  const { ctx } = input;
-  ctx.imageSmoothingEnabled = false;
-  drawWaterTerrainOverlays(input);
-  drawCoastalWaterDetails(input);
 }
 
 function drawStaticPassCached(
@@ -453,84 +410,6 @@ function drawStaticPassCached(
   frame.protectedCacheEntryKeys.add(cacheEntryId("static", key));
 }
 
-function drawDynamicPassCached(
-  input: DrawPharosVilleInput,
-  frame: WorldCanvasFrame,
-  scope: DynamicCacheScope,
-  paint: (input: DrawPharosVilleInput) => void,
-) {
-  const { ctx, width, height } = input;
-  const { dynamicCameraCache: dynamicCamera, dpr } = frame;
-  const backingWidth = Math.max(1, Math.round(width * dpr));
-  const backingHeight = Math.max(1, Math.round(height * dpr));
-  const key = dynamicCacheKey(scope, dynamicCamera.keySegment);
-  const phaseBucket = dynamicWaterPhaseBucket(input);
-  const cachedPad = dynamicCamera.paddingDprPx;
-  const backingPadWidth = Math.max(0, Math.round(cachedPad));
-  const backingPadHeight = Math.max(0, Math.round(cachedPad));
-  const cachedWidth = backingWidth + backingPadWidth * 2;
-  const cachedHeight = backingHeight + backingPadHeight * 2;
-  const paintInput = {
-    ...input,
-    camera: dynamicCamera.paintCamera,
-  };
-  const sourceX = Math.max(0, Math.min(backingPadWidth, backingPadWidth - Math.round(dynamicCamera.residualOffsetX * dpr)));
-  const sourceY = Math.max(0, Math.min(backingPadHeight, backingPadHeight - Math.round(dynamicCamera.residualOffsetY * dpr)));
-
-  const cached = dynamicLayerCache.entries.find((entry) => entry.key === key);
-  if (cached && cached.lastPhaseBucket === phaseBucket) {
-    cached.lastUsed = performance.now();
-    frame.cacheStats.dynamicHitCount += 1;
-    frame.protectedCacheEntryKeys.add(cacheEntryId("dynamic", cached.key));
-    blitStaticCanvas(ctx, cached.canvas, backingWidth, backingHeight, sourceX, sourceY);
-    return;
-  }
-  frame.cacheStats.dynamicMissCount += 1;
-
-  const targetEntry = cached ?? prepareDynamicCacheEntry(key, cachedWidth, cachedHeight, frame, mainBackingPixelsForInput(input, dpr));
-  if (!targetEntry) {
-    paint(input);
-    return;
-  }
-  frame.protectedCacheEntryKeys.add(cacheEntryId("dynamic", targetEntry.key));
-
-  const offCtx = targetEntry.canvas.getContext("2d", { alpha: true });
-  if (!offCtx) {
-    paint(input);
-    return;
-  }
-  offCtx.setTransform(1, 0, 0, 1, 0, 0);
-  offCtx.clearRect(0, 0, cachedWidth, cachedHeight);
-  offCtx.setTransform(dpr, 0, 0, dpr, backingPadWidth, backingPadHeight);
-  paint({ ...paintInput, ctx: offCtx });
-
-  targetEntry.lastPhaseBucket = phaseBucket;
-  targetEntry.lastUsed = performance.now();
-  frame.cacheStats.dynamicRepaintCount += 1;
-  blitStaticCanvas(ctx, targetEntry.canvas, backingWidth, backingHeight, sourceX, sourceY);
-}
-
-function prepareDynamicCacheEntry(
-  key: string,
-  backingWidth: number,
-  backingHeight: number,
-  frame: WorldCanvasFrame,
-  mainCanvasPixels: number,
-): DynamicLayerCacheEntry | null {
-  const offCanvas = reserveCacheCanvas({
-    candidateHeight: backingHeight,
-    candidateWidth: backingWidth,
-    frame,
-    mainCanvasPixels,
-  });
-  if (!offCanvas) return null;
-  if (offCanvas.width !== backingWidth) offCanvas.width = backingWidth;
-  if (offCanvas.height !== backingHeight) offCanvas.height = backingHeight;
-  const nextEntry: DynamicLayerCacheEntry = { canvas: offCanvas, key, lastPhaseBucket: Number.NaN, lastUsed: performance.now() };
-  dynamicLayerCache.entries.push(nextEntry);
-  return nextEntry;
-}
-
 function blitStaticCanvas(
   ctx: CanvasRenderingContext2D,
   canvas: HTMLCanvasElement,
@@ -546,33 +425,18 @@ function blitStaticCanvas(
 }
 
 function evictOldestCacheEntry(protectedEntryKeys: ReadonlySet<string>): { canvas: HTMLCanvasElement } | null {
-  let oldestKind: "dynamic" | "static" | null = null;
   let oldestIndex = -1;
   let oldestLastUsed = Number.POSITIVE_INFINITY;
   for (let index = 0; index < staticLayerCache.entries.length; index += 1) {
     const entry = staticLayerCache.entries[index]!;
     if (protectedEntryKeys.has(cacheEntryId("static", entry.key))) continue;
     if (entry.lastUsed < oldestLastUsed) {
-      oldestKind = "static";
       oldestIndex = index;
       oldestLastUsed = entry.lastUsed;
     }
   }
-  for (let index = 0; index < dynamicLayerCache.entries.length; index += 1) {
-    const entry = dynamicLayerCache.entries[index]!;
-    if (protectedEntryKeys.has(cacheEntryId("dynamic", entry.key))) continue;
-    if (entry.lastUsed < oldestLastUsed) {
-      oldestKind = "dynamic";
-      oldestIndex = index;
-      oldestLastUsed = entry.lastUsed;
-    }
-  }
-  if (oldestKind === "static") {
+  if (oldestIndex >= 0) {
     const entry = staticLayerCache.entries.splice(oldestIndex, 1)[0];
-    return entry ? { canvas: entry.canvas } : null;
-  }
-  if (oldestKind === "dynamic") {
-    const entry = dynamicLayerCache.entries.splice(oldestIndex, 1)[0];
     return entry ? { canvas: entry.canvas } : null;
   }
   return null;
@@ -594,7 +458,7 @@ function renderCacheMetricsForFrame(frame: WorldCanvasFrame): PharosVilleRenderC
   return {
     ...frame.cacheStats,
     cacheMode: frame.cacheMode,
-    dynamicCameraOffsetBucketPx: DYNAMIC_CAMERA_OFFSET_BUCKET,
+    dynamicCameraOffsetBucketPx: 0,
     dynamicWaterCadenceHz: DYNAMIC_WATER_CADENCE_HZ,
     staticCameraOffsetBucketPx: STATIC_CAMERA_OFFSET_BUCKET,
     zoomKeyMode: frame.zoomKeyMode,
@@ -603,11 +467,13 @@ function renderCacheMetricsForFrame(frame: WorldCanvasFrame): PharosVilleRenderC
 
 function backingMetricsForInput(input: DrawPharosVilleInput, dpr: number) {
   return resolveCanvasBackingPixelMetrics({
-    dynamicCacheEntryCount: dynamicLayerCache.entries.length,
-    dynamicCachePixels: dynamicCachePixels(),
+    dynamicCacheEntryCount: 0,
+    dynamicCachePixels: 0,
     mainCanvasPixels: mainBackingPixelsForInput(input, dpr),
     maxMainCanvasPixels: MAX_MAIN_CANVAS_PIXELS,
     maxTotalBackingPixels: MAX_TOTAL_BACKING_PIXELS,
+    spriteCacheEntryCount: shipBodyCache.stats().entryCount,
+    spriteCachePixels: shipBodyCache.stats().pixelCount,
     staticCacheEntryCount: staticLayerCache.entries.length,
     staticCachePixels: staticCachePixels(),
   });
@@ -628,26 +494,37 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
 
   const visibleTileCount = countVisibleTiles(input);
   drawStaticPassCached(input, frame, "terrain", paintStaticTerrainPass);
-  drawDynamicPassCached(input, frame, "water-overlays", paintDynamicWaterPass);
+  const waterAccentStart = performance.now();
+  input.ctx.imageSmoothingEnabled = false;
+  const waterAccentTileCount = drawWaterTerrainAccents(input);
+  drawCoastalWaterDetails(input);
+  const waterAccentDrawMs = performance.now() - waterAccentStart;
   drawAtmosphericFade(input, nightFactor);
   drawStaticPassCached(input, frame, "scene", paintStaticScenePass);
   drawLighthouseSurf(input);
   drawLighthouseReflection(input, frame.lighthouseRender, nightFactor);
   const entityMetrics = drawEntityPass(input, frame, nightFactor);
   drawSquadChrome(input, frame);
-  drawCloudShadowDrift(input, nightFactor);
+  if (shouldDrawScheduledPass(input.renderScheduler, "cloud-shadow")) {
+    drawCloudShadowDrift(input, isScheduledPassDegraded(input.renderScheduler, "cloud-shadow") ? nightFactor * 0.65 : nightFactor);
+  }
   drawWaterAreaLabels(input);
   drawNightTint(input, nightFactor);
   drawAtmosphere(input, frame.lighthouseRender);
   drawLighthouseNightHighlights(input, frame.lighthouseRender, nightFactor);
-  drawBioluminescentSparkles(input, nightFactor, frame.lighthouseRender);
-  drawMoonReflection(input, nightFactor);
-  drawSeaMist(input, nightFactor);
-  drawDecorativeLights(input);
+  if (shouldDrawScheduledPass(input.renderScheduler, "bioluminescent-sparkles")) {
+    drawBioluminescentSparkles(input, nightFactor, frame.lighthouseRender);
+  }
+  if (shouldDrawScheduledPass(input.renderScheduler, "moon-reflection")) drawMoonReflection(input, nightFactor);
+  if (shouldDrawScheduledPass(input.renderScheduler, "sea-mist")) drawSeaMist(input, nightFactor);
+  if (shouldDrawScheduledPass(input.renderScheduler, "decorative-lights")) drawDecorativeLights(input);
   drawLighthouseBeamRim(input, frame.visibleShips, frame.lighthouseRender, nightFactor);
-  drawLighthouseGodRays(input.ctx, frame.lighthouseRender.firePoint, input.camera.zoom * 1.35, input.motion, nightFactor);
+  if (shouldDrawScheduledPass(input.renderScheduler, "god-rays")) {
+    const godRayNightFactor = isScheduledPassDegraded(input.renderScheduler, "god-rays") ? nightFactor * 0.7 : nightFactor;
+    drawLighthouseGodRays(input.ctx, frame.lighthouseRender.firePoint, input.camera.zoom * 1.35, input.motion, godRayNightFactor);
+  }
   drawCemeteryMist(input);
-  drawBirds(input);
+  if (shouldDrawScheduledPass(input.renderScheduler, "birds")) drawBirds(input);
   // Lightning flashes over WARNING/DANGER zones. Placed after night-tint and
   // ambient atmosphere so the flash visibly punches through the dim, but
   // before the night vignette / selection chrome which are UI overlays.
@@ -656,7 +533,7 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   drawNightVignette(input, nightFactor);
   const selectionDrawableCount = drawSelection(input);
   drawEstablishingShotLetterbox(input);
-  drawFilmGrainPass(input);
+  if (shouldDrawScheduledPass(input.renderScheduler, "film-grain")) drawFilmGrainPass(input);
   const drawableCounts = {
     ...entityMetrics.drawableCounts,
     selection: selectionDrawableCount,
@@ -677,12 +554,22 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
     movingShipCount,
     visibleShipCount: frame.visibleShips.length,
     visibleTileCount,
+    waterAccentDrawMs,
+    waterAccentMode: input.motion.reducedMotion ? "reduced-motion-direct" : "direct",
+    waterAccentTileCount,
+    renderBudgetTargetMs: input.renderScheduler?.targetFrameMs,
+    schedulerDegradedPasses: input.renderScheduler?.degradedPasses,
+    schedulerSkippedPasses: input.renderScheduler?.skippedPasses,
+    schedulerTier: input.renderScheduler?.tier,
   };
 }
 
 function createWorldCanvasFrame(input: DrawPharosVilleInput): WorldCanvasFrame {
   const dpr = input.dpr && input.dpr > 0 ? input.dpr : 1;
   ensureRendererCacheGeneration(input, dpr);
+  const mainCanvasPixels = mainBackingPixelsForInput(input, dpr);
+  const nonSpriteCachePixels = staticCachePixels();
+  const shipBodyCacheMaxPixels = Math.max(0, MAX_TOTAL_BACKING_PIXELS - mainCanvasPixels - nonSpriteCachePixels);
   const cacheMode = resolveRenderCacheMode(input);
   shipRenderStatesScratch.clear();
   wakeDrawnShipIdsScratch.clear();
@@ -699,12 +586,20 @@ function createWorldCanvasFrame(input: DrawPharosVilleInput): WorldCanvasFrame {
     cacheMode,
     cacheStats: createRenderCacheFrameStats(),
     dpr,
-    dynamicCameraCache: dynamicCameraCacheForFrame(input, dpr, cacheMode),
     cache: createRenderFrameCache(input),
     dockRenderStates: dockRenderStatesScratch,
     graveRenderStates: graveRenderStatesScratch,
     lighthouseRender: lighthouseRenderState(input),
     protectedCacheEntryKeys: new Set<string>(),
+    protectedShipBodyCacheKeys: new Set<string>(),
+    shipBodyCache,
+    shipBodyCacheManifestVersion: manifestCacheVersionForInput(input),
+    shipBodyCacheMaxPixels,
+    shipBodyCacheWarmupBudget: {
+      remaining: input.renderScheduler?.tier === "full"
+        ? SHIP_BODY_CACHE_WARMUP_PER_FRAME
+        : SHIP_BODY_CACHE_INTERACTION_WARMUP_PER_FRAME,
+    },
     shipRenderStates: shipRenderStatesScratch,
     staticCameraCache: staticCameraCacheForFrame(input, dpr, cacheMode),
     visibleShips,

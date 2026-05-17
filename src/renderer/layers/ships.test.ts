@@ -7,6 +7,7 @@ import * as canvasPrimitives from "../canvas-primitives";
 import type { ResolvedEntityGeometry } from "../geometry";
 import type { DrawPharosVilleInput } from "../render-types";
 import { SHIP_SAIL_TINT_MASKS } from "../ship-sail-tint";
+import { createShipBodyCache } from "../ship-body-cache";
 import {
   drawShipBody,
   drawShipOverlay,
@@ -299,6 +300,79 @@ describe("ship visual orientation", () => {
 
     expect(drawAssetMock).toHaveBeenCalledTimes(1);
     expect(ctx.calls.some((call) => call.method === "scale" && call.args[0] === -1 && call.args[1] === 1)).toBe(true);
+  });
+
+  it("uses the precomposed body cache when a frame provides one", () => {
+    const ship = makeShipNode({
+      id: "cached-standard",
+      tile: { x: 10, y: 10 },
+      visual: {
+        hull: "treasury-galleon",
+        sizeTier: "major",
+        scale: 1,
+        livery: TEST_LIVERY,
+        spriteAssetId: "ship.treasury-galleon",
+      },
+    });
+    const fakeAsset: LoadedPharosVilleAsset = {
+      entry: {
+        anchor: [52, 68],
+        category: "ship",
+        displayScale: 1,
+        footprint: [30, 14],
+        height: 80,
+        hitbox: [12, 8, 80, 60],
+        id: "ship.treasury-galleon",
+        layer: "ships",
+        loadPriority: "deferred",
+        path: "ships/treasury-galleon.png",
+        width: 104,
+      },
+      image: {} as HTMLImageElement,
+    };
+    const ctx = makeRecordingCtx();
+    const input = makeDrawInput(ctx, ship);
+    const cache = createShipBodyCache({
+      canvasFactory: (width, height) => ({
+        height,
+        width,
+        getContext: () => ({
+          beginPath: vi.fn(),
+          clearRect: vi.fn(),
+          drawImage: vi.fn(),
+          fill: vi.fn(),
+          fillRect: vi.fn(),
+          lineTo: vi.fn(),
+          moveTo: vi.fn(),
+          rect: vi.fn(),
+          restore: vi.fn(),
+          save: vi.fn(),
+          setLineDash: vi.fn(),
+          setTransform: vi.fn(),
+          stroke: vi.fn(),
+        }),
+      }) as unknown as HTMLCanvasElement,
+      maxEntries: 4,
+      maxPixels: 100_000,
+    });
+    const frame: ShipRenderFrame = {
+      cache: {
+        assetForEntity: () => fakeAsset,
+        geometryForEntity: () => makeGeometry(200, 100),
+      },
+      protectedShipBodyCacheKeys: new Set<string>(),
+      shipBodyCache: cache,
+      shipBodyCacheManifestVersion: "test-cache",
+      shipBodyCacheMaxPixels: 100_000,
+      shipRenderStates: new Map(),
+    };
+
+    drawShipBody(input, frame, ship);
+    drawShipBody(input, frame, ship);
+
+    expect(cache.stats()).toMatchObject({ hitCount: 1, missCount: 1, entryCount: 1 });
+    expect(frame.protectedShipBodyCacheKeys?.size).toBe(1);
+    expect(ctx.calls.filter((call) => call.method === "drawImage").length).toBe(2);
   });
 });
 
@@ -779,6 +853,29 @@ describe("drawShipOverlay standard procedural chrome", () => {
 });
 
 // --- Synchronised squad wake ordering --------------------------------------
+
+function makeDrawInput(ctx: CanvasRenderingContext2D, ship: ShipNode): DrawPharosVilleInput {
+  return {
+    assets: null,
+    camera: { offsetX: 0, offsetY: 0, zoom: 1 },
+    ctx,
+    height: 600,
+    hoveredTarget: null,
+    motion: {
+      plan: makeMotionPlan([]),
+      reducedMotion: false,
+      timeSeconds: 0,
+      wallClockHour: 12,
+    },
+    selectedTarget: null,
+    shipMotionSamples: new Map<string, ShipMotionSample>([
+      [ship.id, makeMotionSample(ship.id)],
+    ]),
+    targets: [],
+    width: 800,
+    world: { ships: [ship] } as unknown as PharosVilleWorld,
+  };
+}
 
 function makeShipNode(
   overrides: Omit<Partial<ShipNode>, "visual"> & Pick<ShipNode, "id" | "tile"> & { visual?: Partial<ShipNode["visual"]> },

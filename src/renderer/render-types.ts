@@ -22,6 +22,14 @@ export interface PharosVilleCanvasMotion {
 
 export type PharosVilleRenderCacheMode = "bucketed" | "exact-zoom";
 export type PharosVilleRenderZoomKeyMode = "bucketed-percent" | "exact";
+export type PharosVilleRenderSchedulerTier = "full" | "interaction" | "constrained" | "recovery";
+
+export interface PharosVilleRenderSchedulerState {
+  degradedPasses: readonly string[];
+  skippedPasses: readonly string[];
+  targetFrameMs: number;
+  tier: PharosVilleRenderSchedulerTier;
+}
 
 export interface DrawPharosVilleInput {
   assets: PharosVilleAssetManager | null;
@@ -32,6 +40,7 @@ export interface DrawPharosVilleInput {
   height: number;
   hoveredTarget: HitTarget | null;
   motion: PharosVilleCanvasMotion;
+  renderScheduler?: PharosVilleRenderSchedulerState;
   selectedTarget: HitTarget | null;
   shipMotionSamples?: ReadonlyMap<string, ShipMotionSample>;
   visibleTileBoundsCache?: VisibleTileBoundsCacheState;
@@ -49,6 +58,8 @@ export interface PharosVilleBackingMetrics {
   offscreenCachePixels: number;
   overBudgetPixels: number;
   remainingOffscreenPixels: number;
+  spriteCacheEntryCount: number;
+  spriteCachePixels: number;
   staticCacheEntryCount: number;
   staticCachePixels: number;
   totalBackingPixels: number;
@@ -78,6 +89,20 @@ export interface PharosVilleRenderMetrics {
   movingShipCount: number;
   visibleShipCount: number;
   visibleTileCount: number;
+  /** Number of visible water tiles touched by the direct continuous accent pass. */
+  waterAccentTileCount?: number;
+  /** Wall-clock draw duration for the direct continuous water accent pass. */
+  waterAccentDrawMs?: number;
+  /** Rendering strategy for water accents. */
+  waterAccentMode?: "direct" | "reduced-motion-direct";
+  /** Current renderer quality tier for low-priority visual effects. */
+  schedulerTier?: PharosVilleRenderSchedulerTier;
+  /** Decorative passes reduced by the render scheduler this frame. */
+  schedulerDegradedPasses?: readonly string[];
+  /** Decorative passes skipped by the render scheduler this frame. */
+  schedulerSkippedPasses?: readonly string[];
+  /** Scheduler frame-time target used for this frame. */
+  renderBudgetTargetMs?: number;
   /** Max |heading delta| in degrees across all ships this frame. */
   shipMaxHeadingDeltaDeg?: number;
   /** Max Euclidean position delta in tiles across all ships since last frame. */

@@ -62,10 +62,13 @@ type DebugRenderMetrics = {
 };
 
 type PharosVilleVisualDebug = {
+  activeCameraLoopCount?: number;
   activeMotionLoopCount?: number;
   animationFramePending?: boolean;
   camera?: unknown;
+  cameraFrameSource?: string;
   criticalAssetsLoaded?: boolean;
+  deferredAssetsLoaded?: boolean;
   motionFrameCount?: number;
   reducedMotion?: boolean;
   renderMetrics?: DebugRenderMetrics;
@@ -128,12 +131,26 @@ async function waitForMotionActive(page: Page): Promise<void> {
       .__pharosVilleDebug;
     return Boolean(
       debug?.criticalAssetsLoaded
+        && debug.deferredAssetsLoaded
         && debug.camera
         && debug.reducedMotion === false
         && (debug.shipMotionSamples?.length ?? 0) > 0
         && (debug.motionFrameCount ?? 0) >= 2,
     );
   });
+}
+
+async function waitForSteadyTelemetry(page: Page): Promise<void> {
+  await page.waitForFunction(() => {
+    const debug = (window as typeof window & { __pharosVilleDebug?: PharosVilleVisualDebug })
+      .__pharosVilleDebug;
+    const metrics = debug?.renderMetrics;
+    if (!metrics) return false;
+    const longtaskClear = metrics.longtask ? metrics.longtask.count === 0 : true;
+    const headingClear = metrics.shipMaxHeadingDeltaDeg === undefined || metrics.shipMaxHeadingDeltaDeg <= 720;
+    const positionClear = metrics.shipMaxPositionDeltaTile === undefined || metrics.shipMaxPositionDeltaTile <= 0.15;
+    return longtaskClear && headingClear && positionClear && (metrics.framePacing?.sampleCount ?? 0) >= 5;
+  }, null, { timeout: 15_000 });
 }
 
 // ---------------------------------------------------------------------------
@@ -146,6 +163,9 @@ const CI_FRAME_PACING_MIN_EFFECTIVE_FPS = 8;
 const CI_FRAME_PACING_P90_MS = 180;
 const CI_FRAME_PACING_DROPPED_FRAME_RATIO = 1;
 const CI_FRAME_PACING_LONGEST_DROPPED_BURST_RATIO = 1;
+const CI_CAMERA_STRESS_MIN_EFFECTIVE_FPS = 12;
+const CI_CAMERA_STRESS_P90_MS = 120;
+const CI_CAMERA_STRESS_LONGEST_DROPPED_BURST_RATIO = 0.25;
 const POLL_INTERVAL_MS = 50;
 const POLL_SAMPLES = 100; // 100 × 50ms = 5s of telemetry
 const MIN_VALID_SAMPLES = 30;
@@ -155,6 +175,55 @@ const MIN_VALID_SAMPLES = 30;
 // ---------------------------------------------------------------------------
 
 test.describe("sustained-motion perf telemetry", () => {
+  test("camera pan and zoom stress stays on the world-owned frame loop", async ({ page }) => {
+    await mockDensePharosVilleData(page);
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await page.setViewportSize({ width: 1440, height: 960 });
+    await page.goto("/");
+    await waitForMotionActive(page);
+    await waitForSteadyTelemetry(page);
+
+    const initial = await readDebug(page);
+    expect(initial.activeMotionLoopCount).toBe(1);
+    expect(initial.activeCameraLoopCount).toBe(0);
+    expect(initial.cameraFrameSource).toBe("world-render-loop");
+
+    const canvasBox = await page.getByTestId("pharosville-canvas").boundingBox();
+    expect(canvasBox).not.toBeNull();
+    const box = canvasBox!;
+    const centerX = box.x + box.width * 0.52;
+    const centerY = box.y + box.height * 0.48;
+    let lastFramePacing: DebugRenderMetrics["framePacing"] | undefined;
+
+    for (let i = 0; i < 24; i += 1) {
+      const direction = i % 2 === 0 ? 1 : -1;
+      await page.mouse.move(centerX + direction * 120, centerY - direction * 48);
+      await page.mouse.wheel(0, direction > 0 ? -90 : 70);
+      await page.mouse.down();
+      await page.mouse.move(centerX - direction * 180, centerY + direction * 72, { steps: 5 });
+      await page.mouse.up();
+      await page.waitForTimeout(POLL_INTERVAL_MS);
+
+      const debug = await readDebug(page);
+      const framePacing = debug.renderMetrics?.framePacing;
+      if (framePacing && framePacing.sampleCount > 0) {
+        lastFramePacing = framePacing;
+      }
+      expect(debug.activeMotionLoopCount).toBe(1);
+      expect(debug.activeCameraLoopCount).toBe(0);
+      expect(debug.cameraFrameSource).toBe("world-render-loop");
+    }
+
+    if (lastFramePacing !== undefined) {
+      expect(lastFramePacing.sampleCount).toBeGreaterThan(0);
+      expect(lastFramePacing.effectiveFps).toBeGreaterThanOrEqual(CI_CAMERA_STRESS_MIN_EFFECTIVE_FPS);
+      expect(lastFramePacing.p90Ms).toBeLessThanOrEqual(CI_CAMERA_STRESS_P90_MS);
+      expect(lastFramePacing.longestDroppedBurst).toBeLessThanOrEqual(
+        Math.ceil(lastFramePacing.sampleCount * CI_CAMERA_STRESS_LONGEST_DROPPED_BURST_RATIO),
+      );
+    }
+  });
+
   test("harbor scene keeps drawDurationMs within budget over sustained animation", async ({
     page,
   }) => {
@@ -169,6 +238,7 @@ test.describe("sustained-motion perf telemetry", () => {
 
     // Wait until the motion loop is live and ships are tracked.
     await waitForMotionActive(page);
+    await waitForSteadyTelemetry(page);
 
     // Confirm the motion loop is actually running before sampling.
     const initial = await readDebug(page);

@@ -46,6 +46,7 @@ describe("canvas budget", () => {
     expect(metrics.mainCanvasPixels).toBe(10_000);
     expect(metrics.staticCachePixels).toBe(3_000);
     expect(metrics.dynamicCachePixels).toBe(2_000);
+    expect(metrics.spriteCachePixels).toBe(0);
     expect(metrics.offscreenCachePixels).toBe(5_000);
     expect(metrics.totalBackingPixels).toBe(15_000);
     expect(metrics.totalCacheEntryCount).toBe(3);
@@ -56,11 +57,30 @@ describe("canvas budget", () => {
     const metrics = resolveCanvasBackingPixelMetrics({
       dynamicCachePixels: 6,
       mainCanvasPixels: MAX_TOTAL_BACKING_PIXELS - 10,
+      spriteCachePixels: 3,
       staticCachePixels: 8,
     });
 
     expect(metrics.remainingOffscreenPixels).toBe(0);
-    expect(metrics.overBudgetPixels).toBe(4);
+    expect(metrics.overBudgetPixels).toBe(7);
+  });
+
+  it("includes sprite cache pixels in total backing metrics", () => {
+    const metrics = resolveCanvasBackingPixelMetrics({
+      dynamicCacheEntryCount: 1,
+      dynamicCachePixels: 20,
+      mainCanvasPixels: 100,
+      spriteCacheEntryCount: 3,
+      spriteCachePixels: 40,
+      staticCacheEntryCount: 2,
+      staticCachePixels: 30,
+    });
+
+    expect(metrics.offscreenCachePixels).toBe(90);
+    expect(metrics.spriteCacheEntryCount).toBe(3);
+    expect(metrics.spriteCachePixels).toBe(40);
+    expect(metrics.totalBackingPixels).toBe(190);
+    expect(metrics.totalCacheEntryCount).toBe(6);
   });
 
   it("checks whether an offscreen canvas can be retained under total budget", () => {
@@ -72,6 +92,7 @@ describe("canvas budget", () => {
     })).toBe(true);
     expect(canRetainOffscreenCanvas({
       candidatePixels: 1_001,
+      currentSpriteCachePixels: 0,
       mainCanvasPixels,
     })).toBe(false);
   });

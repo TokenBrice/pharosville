@@ -1,14 +1,30 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+import { act, renderHook } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { HitTargetSnapshot } from "../renderer/hit-testing";
+import { defaultCamera } from "../systems/camera";
+import type { ShipMotionSample } from "../systems/motion";
+import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import { screenToIso } from "../systems/projection";
+import { makePharosVilleWorldInput } from "../__fixtures__/pharosville-world";
 import {
   advanceCameraIntent,
   cameraModeCancelsFollow,
   dampFollowCamera,
   leadFollowTile,
   normalizeWheelDeltaY,
+  useCanvasResizeAndCamera,
+  type CameraStepResult,
+  type UseCanvasResizeAndCameraInput,
   wheelZoomScaleFromDelta,
   zoomCameraByWheelDelta,
 } from "./use-canvas-resize-and-camera";
+
+const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("wheel camera helpers", () => {
   it("normalizes wheel deltas by delta mode", () => {
@@ -90,6 +106,65 @@ describe("camera intent helpers", () => {
     expect(cameraModeCancelsFollow("follow-selected")).toBe(false);
     expect(cameraModeCancelsFollow("resize")).toBe(false);
   });
+
+  it("routes animated camera intent through the world frame requester instead of a hook-local RAF", () => {
+    const requestWorldFrame = vi.fn();
+    const rafSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+    const { result } = renderHook(() => useCanvasResizeAndCamera(makeCanvasInput({ requestWorldFrame, reducedMotion: false })));
+    const startCamera = defaultCamera({ height: 600, map: world.map, width: 800 });
+
+    act(() => {
+      result.current.setCamera(startCamera);
+    });
+    requestWorldFrame.mockClear();
+    rafSpy.mockClear();
+
+    act(() => {
+      result.current.handleToolbarZoomIn();
+    });
+
+    expect(requestWorldFrame).toHaveBeenCalledTimes(1);
+    expect(rafSpy).not.toHaveBeenCalled();
+
+    let stepResult: CameraStepResult | null = null;
+    act(() => {
+      stepResult = result.current.stepCamera(1_000, new Map());
+    });
+
+    const resolvedStepResult = requireStepResult(stepResult);
+    expect(resolvedStepResult.cameraChanged).toBe(true);
+    expect(resolvedStepResult.cameraIntentActive).toBe(true);
+    expect(result.current.cameraRef.current?.zoom).not.toBe(startCamera.zoom);
+  });
+
+  it("keeps reduced-motion camera commands immediate and one-shot", () => {
+    const requestWorldFrame = vi.fn();
+    const rafSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+    const { result } = renderHook(() => useCanvasResizeAndCamera(makeCanvasInput({ requestWorldFrame, reducedMotion: true })));
+    const startCamera = defaultCamera({ height: 600, map: world.map, width: 800 });
+
+    act(() => {
+      result.current.setCamera(startCamera);
+    });
+    requestWorldFrame.mockClear();
+    rafSpy.mockClear();
+
+    act(() => {
+      result.current.handleToolbarZoomIn();
+    });
+
+    expect(requestWorldFrame).toHaveBeenCalledTimes(1);
+    expect(rafSpy).not.toHaveBeenCalled();
+    expect(result.current.cameraRef.current?.zoom).not.toBe(startCamera.zoom);
+
+    let stepResult: CameraStepResult | null = null;
+    act(() => {
+      stepResult = result.current.stepCamera(1_000, new Map());
+    });
+    const resolvedStepResult = requireStepResult(stepResult);
+    expect(resolvedStepResult.cameraChanged).toBe(false);
+    expect(resolvedStepResult.cameraIntentActive).toBe(false);
+  });
 });
 
 describe("follow camera helpers", () => {
@@ -132,3 +207,31 @@ describe("follow camera helpers", () => {
     expect(dampFollowCamera(current, target, 1, 0)).toBe(current);
   });
 });
+
+function makeCanvasInput(overrides: Partial<UseCanvasResizeAndCameraInput> = {}): UseCanvasResizeAndCameraInput {
+  const hitTargetSnapshotRef = { current: null as HitTargetSnapshot | null };
+  return {
+    exitFullscreen: vi.fn(),
+    fullscreenMode: false,
+    hasSelection: () => false,
+    hitTargetSnapshotRef,
+    hitTargetsRef: { current: [] },
+    hoveredDetailIdRef: { current: null },
+    onClearSelection: vi.fn(),
+    onSelectTarget: vi.fn(),
+    recomputeHitTargets: () => hitTargetSnapshotRef.current,
+    reducedMotion: false,
+    requestWorldFrame: vi.fn(),
+    selectedDetailIdRef: { current: null },
+    selectedEntity: null,
+    setHoveredDetailId: vi.fn(),
+    shipMotionSamplesRef: { current: new Map<string, ShipMotionSample>() },
+    world,
+    ...overrides,
+  };
+}
+
+function requireStepResult(result: CameraStepResult | null): CameraStepResult {
+  if (result === null) throw new Error("Expected stepCamera to return a result");
+  return result;
+}

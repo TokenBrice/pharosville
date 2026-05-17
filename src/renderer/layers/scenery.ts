@@ -47,6 +47,8 @@ export interface SceneryProp {
   tile: { x: number; y: number };
 }
 
+export type SceneryMotionClass = "static" | "dynamic";
+
 interface CachedSceneryDrawable extends WorldDrawable {
   currentInput: DrawPharosVilleInput | null;
   readonly prop: SceneryProp;
@@ -138,14 +140,68 @@ const lampSeawardTileCache = new Map<string, { x: number; y: number } | null>();
 const lampLightConeSpriteCache = new Map<string, { canvas: HTMLCanvasElement; halfWidth: number; halfHeight: number }>();
 const LAMP_LIGHT_CONE_RADIUS_BUCKETS = 2;
 const LAMP_LIGHT_CONE_ALPHA_BUCKETS = 20;
-const DYNAMIC_SCENERY_KINDS = new Set<SceneryPropKind>(["buoy", "harbor-lamp"]);
-const staticSceneryDrawables = SCENERY_PROPS
-  .filter((prop) => !DYNAMIC_SCENERY_KINDS.has(prop.kind))
-  .map((prop) => createCachedSceneryDrawable(prop));
-const dynamicSceneryDrawables = SCENERY_PROPS
-  .filter((prop) => DYNAMIC_SCENERY_KINDS.has(prop.kind))
-  .map((prop) => createCachedSceneryDrawable(prop));
+export const SCENERY_MOTION_CLASS_BY_KIND = {
+  "agave-cluster": "static",
+  barrel: "dynamic",
+  beacon: "static",
+  bollards: "static",
+  "bougainvillea-arch": "static",
+  buoy: "dynamic",
+  "cargo-stack": "dynamic",
+  "citrus-tree": "static",
+  "crate-stack": "dynamic",
+  cypress: "static",
+  "date-palm": "static",
+  "fig-tree": "static",
+  "grass-tuft": "static",
+  "harbor-bell": "dynamic",
+  "harbor-lamp": "dynamic",
+  "mooring-posts": "static",
+  "moored-dinghy-east": "dynamic",
+  "moored-dinghy-north": "dynamic",
+  "net-rack": "dynamic",
+  "olive-tree": "static",
+  "planter-lavender": "static",
+  "planter-roses": "static",
+  "reed-bed": "static",
+  reef: "static",
+  rock: "static",
+  "rope-coil": "dynamic",
+  "sea-wall": "static",
+  "signal-post": "static",
+  skiff: "static",
+  "stone-steps": "static",
+  sundial: "dynamic",
+  "timber-pile": "static",
+} as const satisfies Record<SceneryPropKind, SceneryMotionClass>;
+
+export const STATIC_SCENERY_KINDS: ReadonlySet<SceneryPropKind> = sceneryKindsByMotionClass("static");
+export const DYNAMIC_SCENERY_KINDS: ReadonlySet<SceneryPropKind> = sceneryKindsByMotionClass("dynamic");
+export const STATIC_SCENERY_PROPS: readonly SceneryProp[] = SCENERY_PROPS.filter(isStaticSceneryProp);
+export const DYNAMIC_SCENERY_PROPS: readonly SceneryProp[] = SCENERY_PROPS.filter(isDynamicSceneryProp);
+const staticSceneryDrawables = STATIC_SCENERY_PROPS.map((prop) => createCachedSceneryDrawable(prop));
+const dynamicSceneryDrawables = DYNAMIC_SCENERY_PROPS.map((prop) => createCachedSceneryDrawable(prop));
 const sceneryDrawablesScratch: WorldDrawable[] = [];
+
+function sceneryKindsByMotionClass(motionClass: SceneryMotionClass): ReadonlySet<SceneryPropKind> {
+  return new Set(
+    Object.entries(SCENERY_MOTION_CLASS_BY_KIND)
+      .filter(([, kindMotionClass]) => kindMotionClass === motionClass)
+      .map(([kind]) => kind as SceneryPropKind),
+  );
+}
+
+export function sceneryMotionClassForKind(kind: SceneryPropKind): SceneryMotionClass {
+  return SCENERY_MOTION_CLASS_BY_KIND[kind];
+}
+
+export function isStaticSceneryProp(prop: SceneryProp): boolean {
+  return sceneryMotionClassForKind(prop.kind) === "static";
+}
+
+export function isDynamicSceneryProp(prop: SceneryProp): boolean {
+  return sceneryMotionClassForKind(prop.kind) === "dynamic";
+}
 
 function quantizeLampConeRadius(value: number): number {
   return Math.max(0.5, Math.round(value * LAMP_LIGHT_CONE_RADIUS_BUCKETS) / LAMP_LIGHT_CONE_RADIUS_BUCKETS);

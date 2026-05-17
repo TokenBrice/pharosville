@@ -7,12 +7,14 @@ import type { PharosVilleAssetLoadError, PharosVilleAssetLoadStats, PharosVilleA
 import {
   collectDisplaySampleHitTargetChanges,
   createHitTargetSnapshot,
+  recomputeHitTargetsForCameraOnly,
   updateHitTargetSnapshotShips,
   type HitTarget,
   type HitTargetSnapshot,
 } from "../renderer/hit-testing";
 import { selectionDrawableCount } from "../renderer/layers/selection";
 import { drawPharosVille, type PharosVilleRenderMetrics } from "../renderer/world-canvas";
+import { resolveRenderSchedulerState } from "../renderer/render-scheduler";
 import { createVisibleTileBoundsCacheState } from "../renderer/viewport";
 import { clampCameraToMap } from "../systems/camera";
 import {
@@ -32,7 +34,6 @@ import {
   resolveShipMotionSampleInto,
   type ShipMotionSample,
 } from "../systems/motion";
-import { getShipHeadingDelta } from "../systems/motion-sampling";
 import type { IsoCamera, ScreenPoint } from "../systems/projection";
 import { seaStateForWorld, type SeaState } from "../systems/sea-state";
 import { createVisualMotionSmoothingState, resetVisualMotionSmoothingState, smoothShipMotionSamples } from "../systems/visual-motion";
@@ -54,13 +55,45 @@ type FramePacingMetrics = {
 type DebugRenderMetrics = PharosVilleRenderMetrics & {
   drawDurationMs: number;
   framePacing: FramePacingMetrics;
+  debugPublishDurationMs?: number;
+  hitTargetChangedShipCount?: number;
+  hitTargetDurationMs?: number;
+  sampleDurationMs?: number;
+  snapshotRebuildCount?: number;
+  telemetryOverheadMs?: number;
 };
 
 type FrameIntervalWindow = {
   count: number;
   samples: number[];
+  sortedScratch: number[];
   writeIndex: number;
 };
+
+type NumericMaxWindow = {
+  count: number;
+  samples: number[];
+  writeIndex: number;
+};
+
+type LongtaskWindow = {
+  count: number;
+  counts: number[];
+  maxDurations: number[];
+  writeIndex: number;
+};
+
+interface LastTilePositionSample {
+  currentRouteStopId: string | null;
+  headingX: number;
+  headingY: number;
+  routePathKey: string | null | undefined;
+  state: ShipMotionSample["state"];
+  timeSeconds: number;
+  visibilityAlpha: number;
+  x: number;
+  y: number;
+}
 
 interface DetailAnchor extends ScreenPoint {
   side: "left" | "right";
@@ -104,11 +137,18 @@ export interface UseWorldRenderLoopInput {
   setCriticalFramePainted: Dispatch<SetStateAction<boolean>>;
   shipMotionSamplesRef: MutableRefObject<ReadonlyMap<string, ShipMotionSample>>;
   shipsById: ReadonlyMap<string, PharosVilleWorldModel["ships"][number]>;
+  stepCamera: (now: number, shipMotionSamples: ReadonlyMap<string, ShipMotionSample>) => WorldCameraStepResult;
   world: PharosVilleWorldModel;
 }
 
 export interface UseWorldRenderLoopResult {
   requestPaint: () => void;
+}
+
+export interface WorldCameraStepResult {
+  camera: IsoCamera | null;
+  cameraChanged: boolean;
+  cameraIntentActive: boolean;
 }
 
 export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRenderLoopResult {
@@ -142,6 +182,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     setCriticalFramePainted,
     shipMotionSamplesRef,
     shipsById,
+    stepCamera,
     world,
   } = input;
 
@@ -151,6 +192,10 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   useEffect(() => {
     criticalAssetAttemptsSettledRef.current = criticalAssetAttemptsSettled;
   }, [criticalAssetAttemptsSettled]);
+  const stepCameraRef = useRef(stepCamera);
+  useEffect(() => {
+    stepCameraRef.current = stepCamera;
+  }, [stepCamera]);
 
   const animationFramePendingRef = useRef(false);
   const paintRequestRef = useRef<() => void>(() => {});
@@ -172,6 +217,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   const lastWallRef = useRef<number | null>(null);
   const frameIntervalWindowRef = useRef<FrameIntervalWindow>(createFrameIntervalWindow());
   const framePacingStatsRef = useRef<FramePacingMetrics>(emptyFramePacingMetrics());
+  const compactShipMotionSampleCacheRef = useRef<CompactShipMotionSampleCache>(createCompactShipMotionSampleCache());
   const accSecondsRef = useRef(0);
   const pendingResumeRef = useRef(false);
   const motionFrameCountRef = useRef(0);
@@ -185,13 +231,13 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     visibleShipCount: 0,
     visibleTileCount: 0,
   });
-  // A1/A2 rolling window: last 60 frames of heading delta and position delta.
-  const headingDeltaWindowRef = useRef<number[]>([]);
+  // A1/A2/A5 rolling debug windows. Fixed-size rings avoid per-frame
+  // push/shift/copy churn while preserving the debug fields used by perf tests.
+  const headingDeltaWindowRef = useRef<NumericMaxWindow>(createNumericMaxWindow(60));
   // A2: scratch map tracking each ship's last-known tile position.
-  const lastTilePosRef = useRef<Map<string, { x: number; y: number }>>(new Map());
-  const positionDeltaWindowRef = useRef<number[]>([]);
-  // A5: longtask rolling window over last 60 frames.
-  const longtaskWindowRef = useRef<{ count: number; maxDurationMs: number }[]>([]);
+  const lastTilePosRef = useRef<Map<string, LastTilePositionSample>>(new Map());
+  const positionDeltaWindowRef = useRef<NumericMaxWindow>(createNumericMaxWindow(60));
+  const longtaskWindowRef = useRef<LongtaskWindow>(createLongtaskWindow(60));
   // A5: accumulator for longtasks seen since the last frame flush.
   const longtaskAccRef = useRef<{ count: number; maxDurationMs: number }>({ count: 0, maxDurationMs: 0 });
   // A5: PerformanceObserver disconnect handle (set when observer is created).
@@ -201,6 +247,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   const semanticShipMotionSamplesRef = useRef<ReadonlyMap<string, ShipMotionSample>>(new Map());
   const visualMotionStateRef = useRef(createVisualMotionSmoothingState());
   const shipHitRefreshCursorRef = useRef(0);
+  const hitTargetCameraRef = useRef<IsoCamera | null>(null);
   const frameStateRef = useRef<{
     samples: ReadonlyMap<string, ShipMotionSample>;
     hoveredTarget: HitTarget | null;
@@ -229,6 +276,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     shipMotionSamplesRef.current = new Map();
     resetVisualMotionSmoothingState(visualMotionStateRef.current);
     shipHitRefreshCursorRef.current = 0;
+    hitTargetCameraRef.current = null;
     hitTargetSnapshotRef.current = null;
     hitTargetsRef.current = [];
     drawDurationWindowRef.current = createDrawDurationWindow();
@@ -236,10 +284,11 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     frameIntervalWindowRef.current = createFrameIntervalWindow();
     framePacingStatsRef.current = emptyFramePacingMetrics();
     reducedMotionSamplesSignatureRef.current = null;
-    headingDeltaWindowRef.current = [];
-    positionDeltaWindowRef.current = [];
+    compactShipMotionSampleCacheRef.current = createCompactShipMotionSampleCache();
+    headingDeltaWindowRef.current = createNumericMaxWindow(60);
+    positionDeltaWindowRef.current = createNumericMaxWindow(60);
     lastTilePosRef.current.clear();
-    longtaskWindowRef.current = [];
+    longtaskWindowRef.current = createLongtaskWindow(60);
     longtaskAccRef.current = { count: 0, maxDurationMs: 0 };
     lastBucketRef.current = 0;
     bucketFlipCountRef.current = 0;
@@ -308,12 +357,15 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         if (previousWall !== null && !pendingResumeRef.current) {
           framePacingStatsRef.current = pushFrameIntervalSample(frameIntervalWindowRef.current, Math.max(time - previousWall, 0));
         }
-        // Skip accumulating across known tab-pause transitions: the
-        // visibilitychange handler raises pendingResumeRef when the page goes
-        // hidden, so the first frame after resume drops its (large) dt. For all
-        // other gaps — including Playwright fake-clock fastForward — accept the
-        // raw dt so motion advances naturally.
-        const dt = pendingResumeRef.current ? 0 : rawDt;
+        // Skip accumulating across known tab-pause transitions. For ordinary
+        // RAF stalls, cap the world-clock step so ships do not visually hop
+        // across a delayed frame; very large deltas are reserved for Playwright
+        // fake-clock jumps used by visual tests.
+        const dt = pendingResumeRef.current
+          ? 0
+          : rawDt >= TEST_CLOCK_JUMP_DELTA_SECONDS
+            ? rawDt
+            : Math.min(rawDt, MAX_WORLD_FRAME_DELTA_SECONDS);
         pendingResumeRef.current = false;
         accSecondsRef.current += dt;
         lastWallRef.current = time;
@@ -338,6 +390,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       } else {
         wallClockHour = 12;
       }
+      const sampleStartedAt = performance.now();
       const seaState = seaStateForWorld(world, { reducedMotion, wallClockHour });
       let semanticShipMotionSamples = semanticShipMotionSamplesRef.current;
       if (reducedMotion) {
@@ -375,10 +428,18 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         timeSeconds,
       });
       shipMotionSamplesRef.current = shipMotionSamples;
+      const sampleDurationMs = performance.now() - sampleStartedAt;
+      const hitTargetStartedAt = performance.now();
+      let hitTargetChangedShipCount = 0;
+      let snapshotRebuildCount = 0;
+      const cameraStep = stepCameraRef.current(time, shipMotionSamples);
+      const frameCamera = cameraStep.camera ?? cameraRef.current;
+      if (!frameCamera) return;
+      const hitTargetsNeedCameraProjection = cameraStep.cameraChanged || !sameCamera(hitTargetCameraRef.current, frameCamera);
       if (!hitTargetSnapshotRef.current) {
         const nextSnapshot = createHitTargetSnapshot({
           assets: assetManager,
-          camera: activeCamera,
+          camera: frameCamera,
           selectedDetailId: activeSelectedDetailId,
           shipMotionSamples,
           viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
@@ -386,6 +447,23 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         });
         hitTargetSnapshotRef.current = nextSnapshot;
         hitTargetsRef.current = nextSnapshot.targets;
+        hitTargetCameraRef.current = frameCamera;
+        snapshotRebuildCount += 1;
+      } else if (hitTargetsNeedCameraProjection) {
+        const nextSnapshot = recomputeHitTargetsForCameraOnly({
+          assets: assetManager,
+          camera: frameCamera,
+          hoveredDetailId: activeHoveredDetailId,
+          selectedDetailId: activeSelectedDetailId,
+          shipMotionSamples,
+          snapshot: hitTargetSnapshotRef.current,
+          viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
+          world,
+        });
+        hitTargetSnapshotRef.current = nextSnapshot;
+        hitTargetsRef.current = nextSnapshot.targets;
+        hitTargetCameraRef.current = frameCamera;
+        snapshotRebuildCount += 1;
       } else {
         const shipIdsForHitRefresh = collectShipHitRefreshIds({
           cursorRef: shipHitRefreshCursorRef,
@@ -395,7 +473,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         });
         const changedShipIds = collectDisplaySampleHitTargetChanges({
           assets: assetManager,
-          camera: activeCamera,
+          camera: frameCamera,
           hoveredDetailId: activeHoveredDetailId,
           minScreenDeltaPx: 0.35,
           selectedDetailId: activeSelectedDetailId,
@@ -405,10 +483,11 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           world,
           worldShipsById: shipsById,
         });
+        hitTargetChangedShipCount = changedShipIds.length;
         if (changedShipIds.length > 0) {
           const nextSnapshot = updateHitTargetSnapshotShips({
             assets: assetManager,
-            camera: activeCamera,
+            camera: frameCamera,
             changedShipIds,
             hoveredDetailId: activeHoveredDetailId,
             selectedDetailId: activeSelectedDetailId,
@@ -420,8 +499,10 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           });
           hitTargetSnapshotRef.current = nextSnapshot;
           hitTargetsRef.current = nextSnapshot.targets;
+          snapshotRebuildCount += 1;
         }
       }
+      const hitTargetDurationMs = performance.now() - hitTargetStartedAt;
       const targets = hitTargetsRef.current;
       const nextFrameState = frameStateRef.current;
       const targetByDetailId = hitTargetSnapshotRef.current?.targetsByDetailId;
@@ -439,8 +520,14 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       const nextSelectedTarget = nextFrameState.selectedTarget;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const drawStartedAt = performance.now();
+      const renderScheduler = resolveRenderSchedulerState({
+        cameraIntentActive: cameraStep.cameraIntentActive,
+        drawDurationMs: lastRenderMetricsRef.current.drawDurationMs,
+        framePacingP90Ms: framePacingStatsRef.current.p90Ms,
+        reducedMotion,
+      });
       const renderMetrics = drawPharosVille({
-        camera: activeCamera,
+        camera: frameCamera,
         ctx,
         dpr,
         height: activeCanvasSize.y,
@@ -451,6 +538,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           timeSeconds,
           wallClockHour,
         },
+        renderScheduler,
         visibleTileBoundsCache: visibleTileBoundsCacheRef.current,
         selectedTarget: nextSelectedTarget,
         shipMotionSamples,
@@ -461,8 +549,12 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       });
       lastRenderMetricsRef.current = {
         ...renderMetrics,
+        hitTargetChangedShipCount,
+        hitTargetDurationMs,
         drawDurationMs: performance.now() - drawStartedAt,
         framePacing: framePacingStatsRef.current,
+        sampleDurationMs,
+        snapshotRebuildCount,
       };
       if (!reducedMotion) {
         drawDurationStatsRef.current = pushDrawDurationSample(drawDurationWindowRef.current, lastRenderMetricsRef.current.drawDurationMs);
@@ -500,33 +592,27 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         scheduleFrame();
       }
       if (isVisualDebugAllowed()) {
-        // A1: max |heading delta| in degrees across all ships this frame.
+        const telemetryStartedAt = performance.now();
+        // A1/A2: max continuous display heading and position deltas this frame.
         let frameMaxHeadingDeg = 0;
-        for (const ship of world.ships) {
-          const absRad = Math.abs(getShipHeadingDelta(ship.id));
-          const deg = absRad * (180 / Math.PI);
-          if (deg > frameMaxHeadingDeg) frameMaxHeadingDeg = deg;
-        }
-        const hdWindow = headingDeltaWindowRef.current;
-        hdWindow.push(frameMaxHeadingDeg);
-        if (hdWindow.length > 60) hdWindow.shift();
-        const shipMaxHeadingDeltaDeg = hdWindow.reduce((m, v) => (v > m ? v : m), 0);
-
-        // A2: max Euclidean position delta in tiles across all ships this frame.
         let frameMaxPosDelta = 0;
         const lastTilePos = lastTilePosRef.current;
         for (const [id, sample] of nextFrameState.samples) {
           const prev = lastTilePos.get(id);
           if (prev) {
-            const d = Math.hypot(sample.tile.x - prev.x, sample.tile.y - prev.y);
-            if (d > frameMaxPosDelta) frameMaxPosDelta = d;
+            if (isContinuousPositionDiagnosticSample(prev, sample)) {
+              const headingDelta = headingDeltaDegreesPerSecond(prev, sample, nextFrameState.timeSeconds);
+              if (headingDelta > frameMaxHeadingDeg) frameMaxHeadingDeg = headingDelta;
+              const d = Math.hypot(sample.tile.x - prev.x, sample.tile.y - prev.y);
+              if (d > frameMaxPosDelta) frameMaxPosDelta = d;
+            }
+            writeLastTilePositionSample(prev, sample, nextFrameState.timeSeconds);
+          } else {
+            lastTilePos.set(id, createLastTilePositionSample(sample, nextFrameState.timeSeconds));
           }
-          lastTilePos.set(id, { x: sample.tile.x, y: sample.tile.y });
         }
-        const pdWindow = positionDeltaWindowRef.current;
-        pdWindow.push(frameMaxPosDelta);
-        if (pdWindow.length > 60) pdWindow.shift();
-        const shipMaxPositionDeltaTile = pdWindow.reduce((m, v) => (v > m ? v : m), 0);
+        const shipMaxHeadingDeltaDeg = pushNumericMaxWindow(headingDeltaWindowRef.current, frameMaxHeadingDeg);
+        const shipMaxPositionDeltaTile = pushNumericMaxWindow(positionDeltaWindowRef.current, frameMaxPosDelta);
 
         // A3: route cache stats.
         let routeCacheStats: { hitRatio: number; evictionRate: number; size: number; capacity: number } | undefined;
@@ -541,35 +627,40 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
 
         // A5: flush longtask accumulator into the rolling window.
         const ltAcc = longtaskAccRef.current;
-        const ltWindow = longtaskWindowRef.current;
-        ltWindow.push({ count: ltAcc.count, maxDurationMs: ltAcc.maxDurationMs });
-        if (ltWindow.length > 60) ltWindow.shift();
+        const longtask = pushLongtaskWindow(longtaskWindowRef.current, ltAcc.count, ltAcc.maxDurationMs);
         longtaskAccRef.current = { count: 0, maxDurationMs: 0 };
-        const longtaskCount = ltWindow.reduce((sum, f) => sum + f.count, 0);
-        const longtaskMaxMs = ltWindow.reduce((m, f) => (f.maxDurationMs > m ? f.maxDurationMs : m), 0);
 
         const nextRenderMetrics: DebugRenderMetrics = {
           ...lastRenderMetricsRef.current,
           shipMaxHeadingDeltaDeg,
           shipMaxPositionDeltaTile,
-          longtask: { count: longtaskCount, maxDurationMs: longtaskMaxMs },
+          longtask,
           bucketFlipCount: bucketFlipCountRef.current,
         };
         if (routeCacheStats) nextRenderMetrics.routeCacheStats = routeCacheStats;
+        nextRenderMetrics.telemetryOverheadMs = performance.now() - telemetryStartedAt;
         lastRenderMetricsRef.current = nextRenderMetrics;
 
+        const debugPublishStartedAt = performance.now();
         updateDebugFrame({
           animationFramePending: animationFramePendingRef.current,
           frameCount: motionFrameCountRef.current,
           frameState: nextFrameState,
+          camera: frameCamera,
+          canvasSize: activeCanvasSize,
           motionPlan: activeMotionPlan,
           reducedMotion,
           renderMetrics: lastRenderMetricsRef.current,
           assetLoadStats: assetManager.getLoadStats(),
           selectedDetailId: activeSelectedDetailId,
           shipsById,
+          compactSampleCache: compactShipMotionSampleCacheRef.current,
           world,
         });
+        lastRenderMetricsRef.current = {
+          ...lastRenderMetricsRef.current,
+          debugPublishDurationMs: performance.now() - debugPublishStartedAt,
+        };
       }
     };
     paintRequestRef.current = scheduleFrame;
@@ -678,9 +769,11 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       criticalAssetsLoaded,
       deferredAssetsLoaded,
       activeMotionLoopCount: reducedMotion || !animationFramePendingRef.current ? 0 : 1,
+      activeCameraLoopCount: 0,
       animationFramePending: animationFramePendingRef.current,
       canvasBudget: canvasBudgetRef.current,
       canvasSize,
+      cameraFrameSource: "world-render-loop",
       motionClockSource: reducedMotion ? "reduced-motion-static-frame" : "requestAnimationFrame",
       motionCueCounts: motionCueCounts({ motionPlan, selectedDetailId, world }),
       motionFrameCount: motionFrameCountRef.current,
@@ -688,7 +781,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       reducedMotion,
       selectedDetailAnchor,
       selectedDetailId,
-      shipMotionSamples: compactShipMotionSamples(frameState.samples, shipsById),
+      shipMotionSamples: compactShipMotionSamples(frameState.samples, shipsById, compactShipMotionSampleCacheRef.current),
       targets: frameState.targets,
       timeSeconds: frameState.timeSeconds,
       wallClockHour: frameState.wallClockHour,
@@ -714,11 +807,19 @@ type CompactShipMotionSample = {
   zone: ShipMotionSample["zone"];
 };
 
+type CompactShipMotionSampleCache = {
+  byId: Map<string, CompactShipMotionSample>;
+  liveIds: Set<string>;
+  output: CompactShipMotionSample[];
+};
+
 type PharosVilleDebugState = {
+  activeCameraLoopCount: number;
   activeMotionLoopCount: number;
   assetLoadErrors: PharosVilleAssetLoadError[];
   assetLoadStats: PharosVilleAssetLoadStats;
   camera: IsoCamera | null;
+  cameraFrameSource: "world-render-loop";
   cameraWithinBounds: boolean;
   assetsLoaded: boolean;
   criticalAssetAttemptsSettled: boolean;
@@ -754,6 +855,8 @@ const PHAROSVILLE_HARBOR_LIGHT_CAP = 3;
 const SHIP_HIT_TARGET_REFRESH_PER_FRAME = 32;
 const FRAME_INTERVAL_WINDOW_SIZE = 120;
 const DROPPED_FRAME_INTERVAL_MS = 34;
+const MAX_WORLD_FRAME_DELTA_SECONDS = 1 / 30;
+const TEST_CLOCK_JUMP_DELTA_SECONDS = 1;
 
 function emptyFramePacingMetrics(): FramePacingMetrics {
   return {
@@ -772,6 +875,7 @@ function createFrameIntervalWindow(): FrameIntervalWindow {
   return {
     count: 0,
     samples: new Array<number>(FRAME_INTERVAL_WINDOW_SIZE),
+    sortedScratch: new Array<number>(FRAME_INTERVAL_WINDOW_SIZE),
     writeIndex: 0,
   };
 }
@@ -786,13 +890,13 @@ function pushFrameIntervalSample(window: FrameIntervalWindow, intervalMs: number
 
 function resolveFramePacingMetrics(window: FrameIntervalWindow): FramePacingMetrics {
   if (window.count <= 0) return emptyFramePacingMetrics();
-  const intervals = frameIntervalsInOrder(window);
   let sum = 0;
   let maxMs = 0;
   let droppedFrameCount = 0;
   let currentDroppedBurst = 0;
   let longestDroppedBurst = 0;
-  for (const interval of intervals) {
+  for (let index = 0; index < window.count; index += 1) {
+    const interval = frameIntervalAt(window, index);
     sum += interval;
     if (interval > maxMs) maxMs = interval;
     if (interval > DROPPED_FRAME_INTERVAL_MS) {
@@ -802,33 +906,89 @@ function resolveFramePacingMetrics(window: FrameIntervalWindow): FramePacingMetr
     } else {
       currentDroppedBurst = 0;
     }
+    window.sortedScratch[index] = interval;
   }
-  const sorted = [...intervals].sort((a, b) => a - b);
-  const averageMs = sum / intervals.length;
+  sortFirstNumbers(window.sortedScratch, window.count);
+  const averageMs = sum / window.count;
   return {
     averageMs,
     droppedFrameCount,
     effectiveFps: averageMs > 0 ? 1000 / averageMs : 0,
     longestDroppedBurst,
     maxMs,
-    p50Ms: percentile(sorted, 0.5),
-    p90Ms: percentile(sorted, 0.9),
-    sampleCount: intervals.length,
+    p50Ms: percentile(window.sortedScratch, 0.5, window.count),
+    p90Ms: percentile(window.sortedScratch, 0.9, window.count),
+    sampleCount: window.count,
   };
 }
 
-function frameIntervalsInOrder(window: FrameIntervalWindow): number[] {
-  if (window.count < FRAME_INTERVAL_WINDOW_SIZE) return window.samples.slice(0, window.count);
-  return [
-    ...window.samples.slice(window.writeIndex),
-    ...window.samples.slice(0, window.writeIndex),
-  ];
+function frameIntervalAt(window: FrameIntervalWindow, chronologicalIndex: number): number {
+  if (window.count < FRAME_INTERVAL_WINDOW_SIZE) return window.samples[chronologicalIndex] ?? 0;
+  return window.samples[(window.writeIndex + chronologicalIndex) % FRAME_INTERVAL_WINDOW_SIZE] ?? 0;
 }
 
-function percentile(sortedValues: number[], percentileValue: number): number {
-  if (sortedValues.length === 0) return 0;
-  const index = Math.min(sortedValues.length - 1, Math.max(0, Math.floor((sortedValues.length - 1) * percentileValue)));
+function createNumericMaxWindow(capacity: number): NumericMaxWindow {
+  const safeCapacity = Math.max(1, Math.floor(capacity));
+  return {
+    count: 0,
+    samples: new Array<number>(safeCapacity),
+    writeIndex: 0,
+  };
+}
+
+function pushNumericMaxWindow(window: NumericMaxWindow, value: number): number {
+  window.samples[window.writeIndex] = Number.isFinite(value) ? value : 0;
+  window.writeIndex = (window.writeIndex + 1) % window.samples.length;
+  window.count = Math.min(window.count + 1, window.samples.length);
+  let max = 0;
+  for (let index = 0; index < window.count; index += 1) {
+    const sample = window.samples[index] ?? 0;
+    if (sample > max) max = sample;
+  }
+  return max;
+}
+
+function createLongtaskWindow(capacity: number): LongtaskWindow {
+  const safeCapacity = Math.max(1, Math.floor(capacity));
+  return {
+    count: 0,
+    counts: new Array<number>(safeCapacity),
+    maxDurations: new Array<number>(safeCapacity),
+    writeIndex: 0,
+  };
+}
+
+function pushLongtaskWindow(window: LongtaskWindow, count: number, maxDurationMs: number): { count: number; maxDurationMs: number } {
+  window.counts[window.writeIndex] = Math.max(0, Math.floor(Number.isFinite(count) ? count : 0));
+  window.maxDurations[window.writeIndex] = Math.max(0, Number.isFinite(maxDurationMs) ? maxDurationMs : 0);
+  window.writeIndex = (window.writeIndex + 1) % window.counts.length;
+  window.count = Math.min(window.count + 1, window.counts.length);
+  let totalCount = 0;
+  let maxMs = 0;
+  for (let index = 0; index < window.count; index += 1) {
+    totalCount += window.counts[index] ?? 0;
+    const duration = window.maxDurations[index] ?? 0;
+    if (duration > maxMs) maxMs = duration;
+  }
+  return { count: totalCount, maxDurationMs: maxMs };
+}
+
+function percentile(sortedValues: number[], percentileValue: number, count = sortedValues.length): number {
+  if (count === 0) return 0;
+  const index = Math.min(count - 1, Math.max(0, Math.floor((count - 1) * percentileValue)));
   return sortedValues[index];
+}
+
+function sortFirstNumbers(values: number[], count: number): void {
+  for (let index = 1; index < count; index += 1) {
+    const value = values[index] ?? 0;
+    let scan = index - 1;
+    while (scan >= 0 && (values[scan] ?? 0) > value) {
+      values[scan + 1] = values[scan] ?? 0;
+      scan -= 1;
+    }
+    values[scan + 1] = value;
+  }
 }
 
 function collectShipMotionSamples(input: {
@@ -913,21 +1073,112 @@ function collectShipHitRefreshIds(input: {
 function compactShipMotionSamples(
   samples: ReadonlyMap<string, ShipMotionSample>,
   shipsById: ReadonlyMap<string, PharosVilleWorldModel["ships"][number]>,
+  cache: CompactShipMotionSampleCache,
 ): CompactShipMotionSample[] {
-  return Array.from(samples.values(), (sample) => {
+  const output = cache.output;
+  const liveIds = cache.liveIds;
+  output.length = 0;
+  liveIds.clear();
+  for (const sample of samples.values()) {
+    liveIds.add(sample.shipId);
     const ship = shipsById.get(sample.shipId);
-    return {
-      currentDockId: sample.currentDockId,
-      currentRouteStopId: sample.currentRouteStopId,
-      currentRouteStopKind: sample.currentRouteStopKind,
-      id: sample.shipId,
-      mapVisible: ship ? isShipMapVisible(ship, sample) : true,
-      state: sample.state,
-      x: sample.tile.x,
-      y: sample.tile.y,
-      zone: sample.zone,
-    };
-  });
+    let compact = cache.byId.get(sample.shipId);
+    if (!compact) {
+      compact = {
+        currentDockId: null,
+        currentRouteStopId: null,
+        currentRouteStopKind: null,
+        id: sample.shipId,
+        mapVisible: true,
+        state: sample.state,
+        x: 0,
+        y: 0,
+        zone: sample.zone,
+      };
+      cache.byId.set(sample.shipId, compact);
+    }
+    compact.currentDockId = sample.currentDockId;
+    compact.currentRouteStopId = sample.currentRouteStopId;
+    compact.currentRouteStopKind = sample.currentRouteStopKind;
+    compact.mapVisible = ship ? isShipMapVisible(ship, sample) : true;
+    compact.state = sample.state;
+    compact.x = sample.tile.x;
+    compact.y = sample.tile.y;
+    compact.zone = sample.zone;
+    output.push(compact);
+  }
+  for (const id of cache.byId.keys()) {
+    if (!liveIds.has(id)) cache.byId.delete(id);
+  }
+  return output;
+}
+
+function createCompactShipMotionSampleCache(): CompactShipMotionSampleCache {
+  return {
+    byId: new Map(),
+    liveIds: new Set(),
+    output: [],
+  };
+}
+
+function createLastTilePositionSample(sample: ShipMotionSample, timeSeconds: number): LastTilePositionSample {
+  return {
+    currentRouteStopId: sample.currentRouteStopId,
+    headingX: sample.heading.x,
+    headingY: sample.heading.y,
+    routePathKey: sample.routePathKey,
+    state: sample.state,
+    timeSeconds,
+    visibilityAlpha: sample.mapVisibilityAlpha ?? 1,
+    x: sample.tile.x,
+    y: sample.tile.y,
+  };
+}
+
+function writeLastTilePositionSample(target: LastTilePositionSample, sample: ShipMotionSample, timeSeconds: number): void {
+  target.currentRouteStopId = sample.currentRouteStopId;
+  target.headingX = sample.heading.x;
+  target.headingY = sample.heading.y;
+  target.routePathKey = sample.routePathKey;
+  target.state = sample.state;
+  target.timeSeconds = timeSeconds;
+  target.visibilityAlpha = sample.mapVisibilityAlpha ?? 1;
+  target.x = sample.tile.x;
+  target.y = sample.tile.y;
+}
+
+function isContinuousPositionDiagnosticSample(previous: LastTilePositionSample, sample: ShipMotionSample): boolean {
+  const visibilityAlpha = sample.mapVisibilityAlpha ?? 1;
+  return previous.visibilityAlpha >= 0.2
+    && visibilityAlpha >= 0.2
+    && previous.routePathKey === sample.routePathKey
+    && previous.currentRouteStopId === sample.currentRouteStopId
+    && isCompatiblePositionDiagnosticState(previous.state, sample.state);
+}
+
+function isCompatiblePositionDiagnosticState(
+  previous: ShipMotionSample["state"],
+  current: ShipMotionSample["state"],
+): boolean {
+  if (previous === current) return true;
+  if (previous === "departing" && (current === "sailing" || current === "risk-drift")) return true;
+  if ((previous === "sailing" || previous === "risk-drift") && current === "arriving") return true;
+  return false;
+}
+
+function headingDeltaDegreesPerSecond(
+  previous: LastTilePositionSample,
+  sample: ShipMotionSample,
+  timeSeconds: number,
+): number {
+  const dt = Math.max(0, timeSeconds - previous.timeSeconds);
+  if (dt <= 0) return 0;
+  const previousAngle = Math.atan2(previous.headingY, previous.headingX);
+  const nextAngle = Math.atan2(sample.heading.y, sample.heading.x);
+  let delta = nextAngle - previousAngle;
+  while (delta > Math.PI) delta -= Math.PI * 2;
+  while (delta < -Math.PI) delta += Math.PI * 2;
+  return Math.abs(delta) * (180 / Math.PI) / dt;
 }
 
 function renderMetricsWithCurrentSelection(input: {
@@ -949,6 +1200,8 @@ function renderMetricsWithCurrentSelection(input: {
 
 function updateDebugFrame(input: {
   animationFramePending: boolean;
+  camera: IsoCamera | null;
+  canvasSize: ScreenPoint;
   frameCount: number;
   frameState: {
     samples: ReadonlyMap<string, ShipMotionSample>;
@@ -962,6 +1215,7 @@ function updateDebugFrame(input: {
   assetLoadStats: PharosVilleAssetLoadStats;
   selectedDetailId: string | null;
   shipsById: ReadonlyMap<string, PharosVilleWorldModel["ships"][number]>;
+  compactSampleCache: CompactShipMotionSampleCache;
   world: PharosVilleWorldModel;
 }) {
   if (!isVisualDebugAllowed()) return;
@@ -970,9 +1224,13 @@ function updateDebugFrame(input: {
   };
   if (!debugWindow.__pharosVilleDebug) return;
   Object.assign(debugWindow.__pharosVilleDebug, {
+    activeCameraLoopCount: 0,
     activeMotionLoopCount: input.reducedMotion || !input.animationFramePending ? 0 : 1,
     animationFramePending: input.animationFramePending,
     assetLoadStats: input.assetLoadStats,
+    camera: input.camera,
+    cameraFrameSource: "world-render-loop",
+    cameraWithinBounds: isCameraWithinBounds(input.camera, input.world.map, input.canvasSize),
     motionClockSource: input.reducedMotion ? "reduced-motion-static-frame" : "requestAnimationFrame",
     motionCueCounts: motionCueCounts({
       motionPlan: input.motionPlan,
@@ -982,11 +1240,16 @@ function updateDebugFrame(input: {
     motionFrameCount: input.frameCount,
     renderMetrics: input.renderMetrics,
     reducedMotion: input.reducedMotion,
-    shipMotionSamples: compactShipMotionSamples(input.frameState.samples, input.shipsById),
+    shipMotionSamples: compactShipMotionSamples(input.frameState.samples, input.shipsById, input.compactSampleCache),
     targets: input.frameState.targets,
     timeSeconds: input.frameState.timeSeconds,
     wallClockHour: input.frameState.wallClockHour,
   });
+}
+
+function sameCamera(left: IsoCamera | null, right: IsoCamera | null): boolean {
+  if (left === null || right === null) return left === right;
+  return left.offsetX === right.offsetX && left.offsetY === right.offsetY && left.zoom === right.zoom;
 }
 
 function isCameraWithinBounds(camera: IsoCamera | null, map: PharosVilleWorldModel["map"], viewport: ScreenPoint) {

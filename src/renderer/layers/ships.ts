@@ -7,6 +7,7 @@ import type { LoadedPharosVilleAsset, PharosVilleAssetManager } from "../asset-m
 import { drawAnimatedAsset, drawAnimatedAssetSubpixel, drawAsset, drawAssetSubpixel, hexToRgba, readableInkForFill, roundedRectPath, stableVisualVariant } from "../canvas-primitives";
 import type { RenderFrameCache } from "../frame-cache";
 import type { ResolvedEntityGeometry } from "../geometry";
+import { buildShipBodyCacheKey, type ShipBodyCache, type ShipBodyPrecomposeRequest } from "../ship-body-cache";
 import type { DrawPharosVilleInput } from "../render-types";
 import { pickSailEmblemInk, recolorSailImageData, SHIP_SAIL_TINT_MASKS } from "../ship-sail-tint";
 import {
@@ -84,6 +85,11 @@ export interface ShipRenderFrame {
   // `visibleShips` once per frame. Avoids O(N) `.find()` inside the
   // per-ship wake loop. World-canvas frames provide this; tests may omit it.
   flagshipById?: Map<string, PharosVilleWorld["ships"][number]>;
+  protectedShipBodyCacheKeys?: Set<string>;
+  shipBodyCache?: ShipBodyCache;
+  shipBodyCacheManifestVersion?: string;
+  shipBodyCacheMaxPixels?: number;
+  shipBodyCacheWarmupBudget?: { remaining: number };
 }
 
 export interface ShipRenderLodPlan {
@@ -888,25 +894,33 @@ export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame
       const drawY = geometry.drawPoint.y + bob;
       const useLiveSubpixelDraw = !motion.reducedMotion;
       drawWithShipPose(ctx, geometry.drawPoint.x, drawY, pose, orientation, () => {
-        if (isTitanSprite) {
-          const drawAnimated = useLiveSubpixelDraw ? drawAnimatedAssetSubpixel : drawAnimatedAsset;
-          drawAnimated(
-            ctx,
-            shipAsset,
-            geometry.drawPoint.x,
-            drawY,
-            geometry.drawScale,
+        if (!drawPrecomposedShipBody({
+          animationFrame,
+          frame,
+          input,
+          ship,
+          shipAsset,
+          useLiveSubpixelDraw,
+          x: geometry.drawPoint.x,
+          y: drawY,
+          scale: geometry.drawScale,
+          visualKey: ship.visual.spriteAssetId ?? ship.visual.hull,
+        })) {
+          drawShipBodyInline({
             animationFrame,
-            motion.reducedMotion,
-          );
-        } else {
-          const drawStatic = useLiveSubpixelDraw ? drawAssetSubpixel : drawAsset;
-          drawStatic(ctx, shipAsset, geometry.drawPoint.x, drawY, geometry.drawScale);
+            ctx,
+            isTitanSprite,
+            livery: ship.visual.livery,
+            shipAsset,
+            shipId: ship.id,
+            useLiveSubpixelDraw,
+            visualKey: ship.visual.spriteAssetId ?? ship.visual.hull,
+            x: geometry.drawPoint.x,
+            y: drawY,
+            scale: geometry.drawScale,
+            reducedMotion: motion.reducedMotion,
+          });
         }
-        const visualKey = ship.visual.spriteAssetId ?? ship.visual.hull;
-        drawShipSailTint(ctx, shipAsset, geometry.drawPoint.x, drawY, geometry.drawScale, ship.visual.livery, useLiveSubpixelDraw);
-        drawShipLiveryTrim(ctx, ship.id, ship.visual.livery, visualKey, geometry.drawPoint.x, drawY, geometry.drawScale);
-        drawSquadIdentityAccent(ctx, ship.id, geometry.drawPoint.x, drawY, geometry.drawScale);
       });
     } else {
       const drawY = p.y - 4 * camera.zoom + bob;
@@ -927,6 +941,125 @@ export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame
       });
     }
   });
+}
+
+function drawShipBodyInline(input: {
+  animationFrame: number;
+  ctx: CanvasRenderingContext2D;
+  isTitanSprite: boolean;
+  livery: ShipLivery;
+  reducedMotion: boolean;
+  scale: number;
+  shipAsset: LoadedPharosVilleAsset;
+  shipId: string;
+  useLiveSubpixelDraw: boolean;
+  visualKey: string;
+  x: number;
+  y: number;
+}): void {
+  if (input.isTitanSprite) {
+    const drawAnimated = input.useLiveSubpixelDraw ? drawAnimatedAssetSubpixel : drawAnimatedAsset;
+    drawAnimated(
+      input.ctx,
+      input.shipAsset,
+      input.x,
+      input.y,
+      input.scale,
+      input.animationFrame,
+      input.reducedMotion,
+    );
+  } else {
+    const drawStatic = input.useLiveSubpixelDraw ? drawAssetSubpixel : drawAsset;
+    drawStatic(input.ctx, input.shipAsset, input.x, input.y, input.scale);
+  }
+  drawShipSailTint(input.ctx, input.shipAsset, input.x, input.y, input.scale, input.livery, input.useLiveSubpixelDraw);
+  drawShipLiveryTrim(input.ctx, input.shipId, input.livery, input.visualKey, input.x, input.y, input.scale);
+  drawSquadIdentityAccent(input.ctx, input.shipId, input.x, input.y, input.scale);
+}
+
+function drawPrecomposedShipBody(input: {
+  animationFrame: number;
+  frame: ShipRenderFrame;
+  input: DrawPharosVilleInput;
+  scale: number;
+  ship: PharosVilleWorld["ships"][number];
+  shipAsset: LoadedPharosVilleAsset;
+  useLiveSubpixelDraw: boolean;
+  visualKey: string;
+  x: number;
+  y: number;
+}): boolean {
+  const cache = input.frame.shipBodyCache;
+  const manifestCacheVersion = input.frame.shipBodyCacheManifestVersion;
+  if (!cache || !manifestCacheVersion) return false;
+  const entry = input.shipAsset.entry;
+  const displayScale = entry.displayScale;
+  const logicalSize = {
+    height: entry.height * displayScale,
+    width: entry.width * displayScale,
+  };
+  const request: ShipBodyPrecomposeRequest = {
+    animationFrameKey: input.frame.shipRenderStates.get(input.ship.id)?.isTitanSprite ? input.animationFrame : 0,
+    assetId: entry.id,
+    dpr: 1,
+    liveryKey: liveryCacheKey(input.ship.visual.livery),
+    logicalSize,
+    manifestCacheVersion,
+    shipId: input.ship.id,
+    sourceSize: { height: entry.height, width: entry.width },
+    tintKey: input.ship.visual.livery.sailColor,
+  };
+  const key = buildShipBodyCacheKey(request);
+  const cacheHit = cache.has(key);
+  const warmupBudget = input.frame.shipBodyCacheWarmupBudget;
+  if (!cacheHit && warmupBudget && warmupBudget.remaining <= 0) return false;
+  const result = cache.getOrCreate(request, ({ ctx }) => {
+    const anchorX = entry.anchor[0] * displayScale;
+    const anchorY = entry.anchor[1] * displayScale;
+    drawShipBodyInline({
+      animationFrame: input.animationFrame,
+      ctx,
+      isTitanSprite: input.frame.shipRenderStates.get(input.ship.id)?.isTitanSprite ?? false,
+      livery: input.ship.visual.livery,
+      reducedMotion: input.input.motion.reducedMotion,
+      scale: 1,
+      shipAsset: input.shipAsset,
+      shipId: input.ship.id,
+      useLiveSubpixelDraw: false,
+      visualKey: input.visualKey,
+      x: anchorX,
+      y: anchorY,
+    });
+  }, {
+    maxPixels: input.frame.shipBodyCacheMaxPixels,
+    protectedKeys: input.frame.protectedShipBodyCacheKeys,
+  });
+  if (!cacheHit && warmupBudget && result.status === "miss") {
+    warmupBudget.remaining = Math.max(0, warmupBudget.remaining - 1);
+  }
+  input.frame.protectedShipBodyCacheKeys?.add(key);
+  if (!result.canvas) return false;
+  const destinationX = input.x - entry.anchor[0] * displayScale * input.scale;
+  const destinationY = input.y - entry.anchor[1] * displayScale * input.scale;
+  input.input.ctx.drawImage(
+    result.canvas,
+    input.useLiveSubpixelDraw ? destinationX : Math.round(destinationX),
+    input.useLiveSubpixelDraw ? destinationY : Math.round(destinationY),
+    Math.round(logicalSize.width * input.scale),
+    Math.round(logicalSize.height * input.scale),
+  );
+  return true;
+}
+
+function liveryCacheKey(livery: ShipLivery): string {
+  return [
+    livery.primary,
+    livery.secondary,
+    livery.accent,
+    livery.sailColor,
+    livery.stripePattern,
+    livery.sailPanel,
+  ].join(":");
 }
 
 // Per-hull identity accents, drawn after sprite blit and livery trim but

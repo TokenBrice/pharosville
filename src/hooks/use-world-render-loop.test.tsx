@@ -8,8 +8,23 @@ import { defaultCamera } from "../systems/camera";
 import { initialAdaptiveDprState, resolveCanvasBudget } from "../systems/canvas-budget";
 import { buildBaseMotionPlan, buildMotionPlan, type ShipMotionSample } from "../systems/motion";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
+import type { IsoCamera } from "../systems/projection";
 import { makePharosVilleWorldInput } from "../__fixtures__/pharosville-world";
-import { useWorldRenderLoop, type UseWorldRenderLoopResult } from "./use-world-render-loop";
+import { useWorldRenderLoop, type UseWorldRenderLoopResult, type WorldCameraStepResult } from "./use-world-render-loop";
+
+const { drawPharosVilleMock } = vi.hoisted(() => ({
+  drawPharosVilleMock: vi.fn(() => ({
+    drawableCount: 0,
+    drawableCounts: { underlay: 0, body: 0, overlay: 0, selection: 0 },
+    movingShipCount: 0,
+    visibleShipCount: 0,
+    visibleTileCount: 0,
+  })),
+}));
+
+vi.mock("../renderer/world-canvas", () => ({
+  drawPharosVille: drawPharosVilleMock,
+}));
 
 function makeStubCanvasContext(): CanvasRenderingContext2D {
   const noop = () => {};
@@ -47,6 +62,7 @@ describe("useWorldRenderLoop", () => {
   }> = [];
 
   beforeEach(() => {
+    drawPharosVilleMock.mockClear();
     // Don't fire scheduled callbacks during the test — we only care about
     // counts of cancel/request calls unless a test explicitly invokes one.
     let nextFrameId = 1;
@@ -105,10 +121,16 @@ describe("useWorldRenderLoop", () => {
 
   function Harness({
     hoveredDetailId,
+    onStepCamera,
     onResult,
     reducedMotion = true,
   }: {
     hoveredDetailId: string | null;
+    onStepCamera?: (input: {
+      cameraRef: { current: IsoCamera | null };
+      now: number;
+      samples: ReadonlyMap<string, ShipMotionSample>;
+    }) => WorldCameraStepResult;
     onResult: (result: UseWorldRenderLoopResult) => void;
     reducedMotion?: boolean;
   }) {
@@ -144,6 +166,10 @@ describe("useWorldRenderLoop", () => {
       hitTargetSnapshotRef.current = snapshot;
       hitTargetsRef.current = snapshot.targets;
     }
+    const stepCamera = (now: number, samples: ReadonlyMap<string, ShipMotionSample>): WorldCameraStepResult => {
+      if (onStepCamera) return onStepCamera({ cameraRef, now, samples });
+      return { camera: cameraRef.current, cameraChanged: false, cameraIntentActive: false };
+    };
 
     const result = useWorldRenderLoop({
       adaptiveDprStateRef,
@@ -174,6 +200,7 @@ describe("useWorldRenderLoop", () => {
       setCriticalFramePainted: () => {},
       shipMotionSamplesRef,
       shipsById,
+      stepCamera,
       world,
     });
     onResult(result);
@@ -348,6 +375,7 @@ describe("useWorldRenderLoop", () => {
         setCriticalFramePainted: () => {},
         shipMotionSamplesRef,
         shipsById,
+        stepCamera: () => ({ camera: cameraRef.current, cameraChanged: false, cameraIntentActive: false }),
         world,
       });
       return null;
@@ -377,5 +405,67 @@ describe("useWorldRenderLoop", () => {
     // schedule a one-shot frame to repaint the current state.
     act(() => observer!.fire(1));
     expect(rafSpy.mock.calls.length).toBeGreaterThan(rafsAfterOffscreen);
+  });
+
+  it("steps camera after ship samples and draws with the updated camera", () => {
+    const nextCamera = { ...camera, offsetX: camera.offsetX + 48, offsetY: camera.offsetY - 12 };
+    let samplesAtStep = 0;
+    render(
+      <Harness
+        hoveredDetailId={null}
+        onResult={() => {}}
+        reducedMotion={false}
+        onStepCamera={({ cameraRef, samples }) => {
+          samplesAtStep = samples.size;
+          cameraRef.current = nextCamera;
+          return { camera: nextCamera, cameraChanged: true, cameraIntentActive: true };
+        }}
+      />,
+    );
+
+    expect(samplesAtStep).toBe(world.ships.length);
+    expect(drawPharosVilleMock).toHaveBeenCalled();
+    const drawCalls = drawPharosVilleMock.mock.calls as unknown as Array<[{
+      camera: IsoCamera;
+      targets: readonly HitTarget[];
+    }]>;
+    const lastCall = drawCalls[drawCalls.length - 1]![0];
+    expect(lastCall.camera).toEqual(nextCamera);
+
+    const originalSnapshot = createHitTargetSnapshot({
+      assets: new PharosVilleAssetManager(),
+      camera,
+      shipMotionSamples: new Map(),
+      viewport: { height: canvasSize.y, width: canvasSize.x },
+      world,
+    });
+    const shiftedSnapshot = createHitTargetSnapshot({
+      assets: new PharosVilleAssetManager(),
+      camera: nextCamera,
+      shipMotionSamples: new Map(),
+      viewport: { height: canvasSize.y, width: canvasSize.x },
+      world,
+    });
+    const drawnLighthouse = lastCall.targets.find((target) => target.detailId === "lighthouse");
+    const originalLighthouse = originalSnapshot.targetsByDetailId.get("lighthouse");
+    const shiftedLighthouse = shiftedSnapshot.targetsByDetailId.get("lighthouse");
+
+    expect(drawnLighthouse?.rect.x).not.toBe(originalLighthouse?.rect.x);
+    expect(drawnLighthouse?.rect.x).toBeCloseTo(shiftedLighthouse!.rect.x);
+    expect(drawnLighthouse?.rect.y).toBeCloseTo(shiftedLighthouse!.rect.y);
+  });
+
+  it("publishes camera loop proof fields", () => {
+    render(<Harness hoveredDetailId={null} onResult={() => {}} reducedMotion={false} />);
+
+    const debug = (window as typeof window & {
+      __pharosVilleDebug?: {
+        activeCameraLoopCount?: number;
+        cameraFrameSource?: string;
+      };
+    }).__pharosVilleDebug;
+
+    expect(debug?.activeCameraLoopCount).toBe(0);
+    expect(debug?.cameraFrameSource).toBe("world-render-loop");
   });
 });

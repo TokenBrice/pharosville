@@ -144,30 +144,42 @@ type WaterTextureRenderer = (
   zoom: number,
   tileX: number,
   tileY: number,
-  motion: PharosVilleCanvasMotion,
+  _motion: PharosVilleCanvasMotion,
   theme: ZoneVisualTheme,
 ) => void;
 
-const WATER_TEXTURE_RENDERERS: Partial<Record<WaterTextureKind, WaterTextureRenderer>> = {
-  alert: drawAlertChannelTexture,
-  calm: drawCalmWaterTexture,
-  deep: drawDeepSeaTexture,
-  harbor: drawHarborWaterTexture,
-  ledger: drawLedgerWaterTexture,
-  storm: drawDangerStraitTexture,
-  warning: drawWarningShoalTexture,
-  watch: drawWatchWaterTexture,
+const WATER_STATIC_TEXTURE_RENDERERS: Partial<Record<WaterTextureKind, WaterTextureRenderer>> = {
+  alert: drawAlertChannelStaticTexture,
+  calm: drawCalmWaterStaticTexture,
+  deep: drawDeepSeaStaticTexture,
+  harbor: drawHarborWaterStaticTexture,
+  ledger: drawLedgerWaterStaticTexture,
+  storm: drawDangerStraitStaticTexture,
+  warning: drawWarningShoalStaticTexture,
+  watch: drawWatchWaterStaticTexture,
+};
+
+const WATER_ACCENT_TEXTURE_RENDERERS: Partial<Record<WaterTextureKind, WaterTextureRenderer>> = {
+  alert: drawAlertChannelAccentTexture,
+  calm: drawCalmWaterAccentTexture,
+  deep: drawDeepSeaAccentTexture,
+  harbor: drawHarborWaterAccentTexture,
+  ledger: drawLedgerWaterAccentTexture,
+  storm: drawDangerStraitAccentTexture,
+  warning: drawWarningShoalAccentTexture,
+  watch: drawWatchWaterAccentTexture,
 };
 
 export function drawTerrain(input: DrawPharosVilleInput) {
   const bounds = resolveVisibleTileBounds(input, 2);
   const visibleTileCount = drawTerrainBase(input, bounds);
-  drawWaterTerrainOverlays(input, bounds);
+  drawWaterTerrainStaticDetails(input, bounds);
+  drawWaterTerrainAccents(input, bounds);
   return visibleTileCount;
 }
 
 export function drawTerrainBase(input: DrawPharosVilleInput, bounds: VisibleTileBounds | null = null) {
-  const { assets, camera, ctx, height, motion, width, world } = input;
+  const { assets, camera, ctx, height, width, world } = input;
   if (!bounds) bounds = resolveVisibleTileBounds(input, 2);
   const { width: mapWidth, tiles } = world.map;
 
@@ -191,7 +203,7 @@ export function drawTerrainBase(input: DrawPharosVilleInput, bounds: VisibleTile
         if (isTileInViewport(screenX, screenY, width, height, viewportMarginX, viewportMarginY)) {
           visibleTileCount += 1;
           if (isWaterTileKind(terrain)) {
-            drawWaterTileBase(ctx, screenX, screenY, camera.zoom, terrain, tile.x, tile.y, waterAssetFor(assets, terrain), motion);
+            drawWaterTileBase(ctx, screenX, screenY, camera.zoom, terrain, tile.x, tile.y, waterAssetFor(assets, terrain));
           } else {
             drawLandTile(ctx, screenX, screenY, camera.zoom, terrain, tile.x, tile.y, landAssetFor(assets, terrain, tile.x, tile.y));
           }
@@ -207,6 +219,11 @@ export function drawTerrainBase(input: DrawPharosVilleInput, bounds: VisibleTile
 }
 
 export function drawWaterTerrainOverlays(input: DrawPharosVilleInput, bounds: VisibleTileBounds | null = null) {
+  drawWaterTerrainStaticDetails(input, bounds);
+  return drawWaterTerrainAccents(input, bounds);
+}
+
+export function drawWaterTerrainStaticDetails(input: DrawPharosVilleInput, bounds: VisibleTileBounds | null = null) {
   const { camera, ctx, height, motion, width, world, visibleTileBoundsCache } = input;
   const { width: mapWidth, height: mapHeight, tiles } = world.map;
   if (!bounds) bounds = visibleTileBoundsForCamera(
@@ -228,7 +245,6 @@ export function drawWaterTerrainOverlays(input: DrawPharosVilleInput, bounds: Vi
 
   let visibleWaterTileCount = 0;
 
-  const beam = world.lighthouse.unavailable ? null : computeBeamCausticState(input);
   const zoneBorderFeathers = waterZoneBorderFeathersForMap(world.map);
 
   let rowScreenX = (bounds.minX - bounds.minY) * deltaX + camera.offsetX;
@@ -243,7 +259,7 @@ export function drawWaterTerrainOverlays(input: DrawPharosVilleInput, bounds: Vi
         const terrain = tile.terrain ?? tile.kind;
         if (isWaterTileKind(terrain) && isTileInViewport(screenX, screenY, width, height, viewportMarginX, viewportMarginY)) {
           visibleWaterTileCount += 1;
-          drawWaterTileOverlay(
+          drawWaterTileStaticDetail(
             ctx,
             screenX,
             screenY,
@@ -254,7 +270,6 @@ export function drawWaterTerrainOverlays(input: DrawPharosVilleInput, bounds: Vi
             mapWidth,
             mapHeight,
             motion,
-            beam,
             zoneBorderFeathers.get(rowOffset + x),
           );
         }
@@ -265,8 +280,68 @@ export function drawWaterTerrainOverlays(input: DrawPharosVilleInput, bounds: Vi
     rowScreenX -= deltaX;
     rowScreenY += deltaY;
   }
-  drawSeawallRipples(ctx, camera, motion);
   return visibleWaterTileCount;
+}
+
+export function drawWaterTerrainAccents(input: DrawPharosVilleInput, bounds: VisibleTileBounds | null = null) {
+  const { camera, ctx, height, motion, width, world, visibleTileBoundsCache } = input;
+  const { width: mapWidth, height: mapHeight, tiles } = world.map;
+  if (!bounds) bounds = visibleTileBoundsForCamera(
+    {
+      camera,
+      mapHeight,
+      mapWidth,
+      tileMargin: 2,
+      viewportHeight: height,
+      viewportWidth: width,
+    },
+    visibleTileBoundsCache,
+  );
+  const viewportMarginX = 36 * camera.zoom;
+  const viewportMarginY = 22 * camera.zoom;
+  const deltaX = (TILE_WIDTH / 2) * camera.zoom;
+  const deltaY = (TILE_HEIGHT / 2) * camera.zoom;
+  if (!bounds) return 0;
+
+  let accentTileCount = 0;
+
+  const beam = world.lighthouse.unavailable ? null : computeBeamCausticState(input);
+
+  let rowScreenX = (bounds.minX - bounds.minY) * deltaX + camera.offsetX;
+  let rowScreenY = (bounds.minX + bounds.minY) * deltaY + camera.offsetY;
+  for (let y = bounds.minY; y <= bounds.maxY; y += 1) {
+    let screenX = rowScreenX;
+    let screenY = rowScreenY;
+    const rowOffset = y * mapWidth;
+    for (let x = bounds.minX; x <= bounds.maxX; x += 1) {
+      const tile = tiles[rowOffset + x];
+      if (tile) {
+        const terrain = tile.terrain ?? tile.kind;
+        if (isWaterTileKind(terrain) && isTileInViewport(screenX, screenY, width, height, viewportMarginX, viewportMarginY)) {
+          if (shouldDrawContinuousWaterAccent(terrain, tile.x, tile.y, motion)) {
+            accentTileCount += 1;
+            drawWaterTileAccent(
+              ctx,
+              screenX,
+              screenY,
+              camera.zoom,
+              terrain,
+              tile.x,
+              tile.y,
+              motion,
+              beam,
+            );
+          }
+        }
+      }
+      screenX += deltaX;
+      screenY += deltaY;
+    }
+    rowScreenX -= deltaX;
+    rowScreenY += deltaY;
+  }
+  drawSeawallRipples(ctx, camera, motion);
+  return accentTileCount;
 }
 
 export function waterZoneBorderFeathersForMap(map: PharosVilleMap): WaterZoneBorderLookup {
@@ -405,7 +480,6 @@ function drawWaterTileBase(
   tileX: number,
   tileY: number,
   asset: NonNullable<ReturnType<PharosVilleAssetManager["get"]>> | null,
-  motion: PharosVilleCanvasMotion,
 ) {
   const value = String(kind);
   const width = 32 * zoom;
@@ -415,10 +489,10 @@ function drawWaterTileBase(
   if (asset) {
     drawTerrainAsset(ctx, asset, x, y, zoom, 0.18);
   }
-  drawWaterDepthOverlay(ctx, x, y, zoom, width, height, tileX, tileY, theme.inner, motion);
+  drawWaterDepthOverlay(ctx, x, y, zoom, width, height, tileX, tileY, theme.inner);
 }
 
-function drawWaterTileOverlay(
+function drawWaterTileStaticDetail(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -429,7 +503,6 @@ function drawWaterTileOverlay(
   mapWidth: number,
   mapHeight: number,
   motion: PharosVilleCanvasMotion,
-  beam: BeamCausticState | null,
   zoneFeathers: readonly WaterZoneBorderFeather[] | undefined,
 ) {
   const value = String(kind);
@@ -440,7 +513,23 @@ function drawWaterTileOverlay(
   if (zoneFeathers?.length) {
     drawWaterZoneBorderFeathering(ctx, x, y, zoom, zoneFeathers);
   }
-  drawWaterTerrainTexture(ctx, x, y, zoom, theme, tileX, tileY, motion);
+  drawWaterTerrainStaticTexture(ctx, x, y, zoom, theme, tileX, tileY, motion);
+}
+
+function drawWaterTileAccent(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  kind: TerrainKind,
+  tileX: number,
+  tileY: number,
+  motion: PharosVilleCanvasMotion,
+  beam: BeamCausticState | null,
+) {
+  const value = String(kind);
+  const theme = cachedZoneThemeForTerrain(value);
+  drawWaterTerrainAccentTexture(ctx, x, y, zoom, theme, tileX, tileY, motion);
   drawBeamCaustic(ctx, x, y, zoom, tileX, tileY, beam);
   if ((tileX * 13 + tileY * 17) % 9 !== 0) return;
   const wave = motion.reducedMotion
@@ -461,6 +550,23 @@ function drawWaterTileOverlay(
     ctx.stroke(getWaterOverlayAccentPath());
   }
   ctx.restore();
+}
+
+function shouldDrawContinuousWaterAccent(
+  kind: TerrainKind,
+  tileX: number,
+  tileY: number,
+  motion: PharosVilleCanvasMotion,
+): boolean {
+  if (motion.reducedMotion) return true;
+  const value = String(kind);
+  if (value === "danger-water" || value === "warning-water" || value === "alert-water" || value === "ledger-water") {
+    return true;
+  }
+  const hash = tileHash(tileX, tileY, 977);
+  if (value === "watch-water") return hash % 2 === 0;
+  if (value === "deep-water") return hash % 4 === 0;
+  return hash % 3 === 0;
 }
 
 function drawWaterZoneBorderFeathering(
@@ -533,17 +639,14 @@ function drawWaterDepthOverlay(
   tileX: number,
   tileY: number,
   fill: string,
-  motion: PharosVilleCanvasMotion,
 ) {
   drawDiamond(ctx, x, y + 1 * zoom, width * 0.88, height * 0.76, fill);
   const shimmer = ((tileX * 11 + tileY * 7) % 9 - 4) / 4;
   if (shimmer === 0) return;
-  // Slow alpha breath so the static shimmer modulates instead of staying flat.
-  const breath = motion.reducedMotion ? 1 : 0.85 + 0.15 * fastSin(motion.timeSeconds * 0.4);
   ctx.save();
   const overlayFill = shimmer > 0
-    ? `rgba(218, 236, 224, ${0.01 * shimmer * breath})`
-    : `rgba(1, 8, 18, ${-0.012 * shimmer * breath})`;
+    ? `rgba(218, 236, 224, ${0.01 * shimmer})`
+    : `rgba(1, 8, 18, ${-0.012 * shimmer})`;
   ctx.fillStyle = overlayFill;
   drawDiamond(ctx, x, y, width * 0.98, height * 0.9, overlayFill);
   ctx.restore();
@@ -721,7 +824,7 @@ function seawallRippleAnchorsForRender(): readonly { x: number; y: number }[] {
   return cachedSeawallRippleAnchors;
 }
 
-function drawWaterTerrainTexture(
+function drawWaterTerrainStaticTexture(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -731,27 +834,42 @@ function drawWaterTerrainTexture(
   tileY: number,
   motion: PharosVilleCanvasMotion,
 ) {
-  const renderTexture = WATER_TEXTURE_RENDERERS[theme.texture];
+  const renderTexture = WATER_STATIC_TEXTURE_RENDERERS[theme.texture];
   if (renderTexture) {
     renderTexture(ctx, x, y, zoom, tileX, tileY, motion, theme);
     return;
   }
-  drawOpenWaterTexture(ctx, x, y, zoom, tileX, tileY, motion, theme);
+  drawOpenWaterStaticTexture(ctx, x, y, zoom, tileX, tileY, motion, theme);
 }
 
-function drawLedgerWaterTexture(
+function drawWaterTerrainAccentTexture(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  theme: ZoneVisualTheme,
+  tileX: number,
+  tileY: number,
+  motion: PharosVilleCanvasMotion,
+) {
+  const renderTexture = WATER_ACCENT_TEXTURE_RENDERERS[theme.texture];
+  if (renderTexture) {
+    renderTexture(ctx, x, y, zoom, tileX, tileY, motion, theme);
+    return;
+  }
+  drawOpenWaterAccentTexture(ctx, x, y, zoom, tileX, tileY, motion, theme);
+}
+
+function drawLedgerWaterStaticTexture(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
   zoom: number,
   tileX: number,
   tileY: number,
-  motion: PharosVilleCanvasMotion,
+  _motion: PharosVilleCanvasMotion,
   theme: ZoneVisualTheme,
 ) {
-  const ledgerPulse = motion.reducedMotion
-    ? 0.18
-    : 0.15 + fastSin(motion.timeSeconds * 0.62 + tileX * 0.25 + tileY * 0.37) * 0.04 * theme.motion.amplitudeScale;
   ctx.save();
   drawLedgerParchmentUnderbase(ctx, x, y, zoom, tileX, tileY, theme);
   if ((tileX + tileY) % 2 === 0) {
@@ -768,14 +886,6 @@ function drawLedgerWaterTexture(
       Math.max(1, Math.round(4 * zoom)),
     );
   }
-  ctx.strokeStyle = withAlpha(theme.accent, Math.max(0.12, ledgerPulse) * theme.motion.strokeAlphaScale);
-  ctx.lineWidth = Math.max(1, zoom);
-  ctx.beginPath();
-  ctx.moveTo(x - 11 * zoom, y - 2 * zoom);
-  ctx.lineTo(x + 10 * zoom, y + 3 * zoom);
-  ctx.moveTo(x - 8 * zoom, y + 5 * zoom);
-  ctx.lineTo(x + 7 * zoom, y + 8 * zoom);
-  ctx.stroke();
   if ((tileX * 7 + tileY * 5) % 5 === 0) {
     ctx.fillStyle = withAlpha(theme.wave, 0.24);
     drawDiamond(ctx, x - 1 * zoom, y + 2 * zoom, 8 * zoom, 3 * zoom, ctx.fillStyle);
@@ -789,7 +899,50 @@ function drawLedgerWaterTexture(
   ctx.restore();
 }
 
-function drawHarborWaterTexture(
+function drawLedgerWaterAccentTexture(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  tileX: number,
+  tileY: number,
+  motion: PharosVilleCanvasMotion,
+  theme: ZoneVisualTheme,
+) {
+  const ledgerPulse = motion.reducedMotion
+    ? 0.18
+    : 0.15 + fastSin(motion.timeSeconds * 0.62 + tileX * 0.25 + tileY * 0.37) * 0.04 * theme.motion.amplitudeScale;
+  ctx.save();
+  ctx.strokeStyle = withAlpha(theme.accent, Math.max(0.12, ledgerPulse) * theme.motion.strokeAlphaScale);
+  ctx.lineWidth = Math.max(1, zoom);
+  ctx.beginPath();
+  ctx.moveTo(x - 11 * zoom, y - 2 * zoom);
+  ctx.lineTo(x + 10 * zoom, y + 3 * zoom);
+  ctx.moveTo(x - 8 * zoom, y + 5 * zoom);
+  ctx.lineTo(x + 7 * zoom, y + 8 * zoom);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawHarborWaterStaticTexture(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  tileX: number,
+  tileY: number,
+  _motion: PharosVilleCanvasMotion,
+  theme: ZoneVisualTheme,
+) {
+  if ((tileX * 7 + tileY * 5) % 6 !== 0) return;
+  ctx.save();
+  const reflection = withAlpha(theme.accent, 0.24);
+  ctx.fillStyle = reflection;
+  drawDiamond(ctx, x + 2 * zoom, y + 2 * zoom, 8 * zoom, 3 * zoom, reflection);
+  ctx.restore();
+}
+
+function drawHarborWaterAccentTexture(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -811,15 +964,33 @@ function drawHarborWaterTexture(
     ctx.lineTo(x + 5 * zoom, y + 1 * zoom);
   }
   ctx.stroke();
-  if ((tileX * 7 + tileY * 5) % 6 === 0) {
-    const reflection = withAlpha(theme.accent, 0.24);
-    ctx.fillStyle = reflection;
-    drawDiamond(ctx, x + 2 * zoom, y + 2 * zoom, 8 * zoom, 3 * zoom, reflection);
-  }
   ctx.restore();
 }
 
-function drawCalmWaterTexture(
+function drawCalmWaterStaticTexture(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  tileX: number,
+  tileY: number,
+  motion: PharosVilleCanvasMotion,
+  theme: ZoneVisualTheme,
+) {
+  ctx.save();
+  if ((tileX * 7 + tileY * 3) % 8 === 0) {
+    drawDepthSounding(ctx, x - 5 * zoom, y + 1 * zoom, zoom, theme.accent, 0.18);
+  }
+  if ((tileX + tileY) % 6 === 0) {
+    const reflection = withAlpha(theme.accent, 0.2);
+    ctx.fillStyle = reflection;
+    drawDiamond(ctx, x, y + 2 * zoom, 9 * zoom, 2.5 * zoom, reflection);
+  }
+  drawCalmMirrorBands(ctx, x, y, zoom, { ...motion, reducedMotion: true }, theme, tileX, tileY);
+  ctx.restore();
+}
+
+function drawCalmWaterAccentTexture(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -844,21 +1015,34 @@ function drawCalmWaterTexture(
     ctx.quadraticCurveTo(x, y - 2 * zoom, x + 6 * zoom, y - 1 * zoom);
   }
   ctx.stroke();
-  if ((tileX * 7 + tileY * 3) % 8 === 0) {
-    drawDepthSounding(ctx, x - 5 * zoom, y + 1 * zoom, zoom, theme.accent, 0.18);
-  }
-  if ((tileX + tileY) % 6 === 0) {
-    const reflection = withAlpha(theme.accent, 0.2);
-    ctx.fillStyle = reflection;
-    drawDiamond(ctx, x, y + 2 * zoom, 9 * zoom, 2.5 * zoom, reflection);
-  }
   if (tileHash(tileX, tileY, 233) % 5 < 2) {
     drawCalmReflectionRing(ctx, x, y, zoom, motion, theme, tileX, tileY);
   }
   ctx.restore();
 }
 
-function drawDeepSeaTexture(
+function drawDeepSeaStaticTexture(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  tileX: number,
+  tileY: number,
+  _motion: PharosVilleCanvasMotion,
+  theme: ZoneVisualTheme,
+) {
+  const hash = tileHash(tileX, tileY, 419);
+  if (hash % 13 !== 0) return;
+  ctx.save();
+  const px = Math.max(1, Math.round(1.15 * zoom));
+  const offsetX = ((((hash >>> 5) % 11) - 5) * 1.6) * zoom;
+  const offsetY = ((((hash >>> 11) % 7) - 3) * 1.2) * zoom;
+  ctx.fillStyle = withAlpha(theme.wave, 0.15);
+  ctx.fillRect(Math.round(x + offsetX), Math.round(y + offsetY), px, px);
+  ctx.restore();
+}
+
+function drawDeepSeaAccentTexture(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -884,7 +1068,7 @@ function drawDeepSeaTexture(
     const breathe = motion.reducedMotion
       ? 0.62
       : 0.5 + 0.5 * fastSin(motion.timeSeconds * 0.32 + (hash % 97) * 0.11);
-    const alpha = 0.12 + breathe * 0.16;
+    const alpha = 0.04 + breathe * 0.08;
     const px = Math.max(1, Math.round(1.15 * zoom));
     const offsetX = ((((hash >>> 5) % 11) - 5) * 1.6) * zoom;
     const offsetY = ((((hash >>> 11) % 7) - 3) * 1.2) * zoom;
@@ -914,7 +1098,27 @@ function drawDeepShelfEdgeDarkening(
   drawDiamond(ctx, x, y, 32 * zoom, 16 * zoom, `rgba(0, 3, 10, ${Math.min(0.18, edge * 0.18)})`);
 }
 
-function drawAlertChannelTexture(
+function drawAlertChannelStaticTexture(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  tileX: number,
+  tileY: number,
+  _motion: PharosVilleCanvasMotion,
+  theme: ZoneVisualTheme,
+) {
+  ctx.save();
+  if ((tileX * 13 + tileY * 5) % 7 === 0) {
+    drawCurrentWakeMark(ctx, x, y, zoom, theme.accent, 0.28);
+  }
+  if ((tileX * 7 + tileY * 13) % 6 === 0) {
+    drawAlertCurrentChevron(ctx, x, y, zoom, theme);
+  }
+  ctx.restore();
+}
+
+function drawAlertChannelAccentTexture(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -949,16 +1153,38 @@ function drawAlertChannelTexture(
     ctx.lineTo(x + 8 * zoom, y + 8 * zoom);
   }
   ctx.stroke();
-  if ((tileX * 13 + tileY * 5) % 7 === 0) {
-    drawCurrentWakeMark(ctx, x, y, zoom, theme.accent, 0.28);
+  ctx.restore();
+}
+
+function drawWatchWaterStaticTexture(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  tileX: number,
+  tileY: number,
+  _motion: PharosVilleCanvasMotion,
+  theme: ZoneVisualTheme,
+) {
+  const subzone = watchBreakwaterSubzoneForTile(tileX, tileY);
+  ctx.save();
+  if (subzone === "south-basin" && (tileX * 7 + tileY * 2) % 4 !== 1) {
+    ctx.strokeStyle = withAlpha(theme.accent, 0.16);
+    ctx.lineWidth = Math.max(1, 0.8 * zoom);
+    ctx.setLineDash([2.8 * zoom, 3.4 * zoom]);
+    ctx.beginPath();
+    ctx.moveTo(x - 13 * zoom, y - 1 * zoom);
+    ctx.lineTo(x + 11 * zoom, y + 5 * zoom);
+    ctx.stroke();
+    ctx.setLineDash([]);
   }
-  if ((tileX * 7 + tileY * 13) % 6 === 0) {
-    drawAlertCurrentChevron(ctx, x, y, zoom, theme);
+  if (subzone === "south-basin" && (tileX + tileY * 5) % 7 === 0) {
+    drawBreakwaterFoam(ctx, x, y, zoom, theme.wave, 0.22);
   }
   ctx.restore();
 }
 
-function drawWatchWaterTexture(
+function drawWatchWaterAccentTexture(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -973,16 +1199,6 @@ function drawWatchWaterTexture(
     ? 0.16
     : 0.14 + fastSin(motion.timeSeconds * 0.95 + tileY * 0.29) * 0.04 * theme.motion.amplitudeScale;
   ctx.save();
-  if (subzone === "south-basin" && (tileX * 7 + tileY * 2) % 4 !== 1) {
-    ctx.strokeStyle = withAlpha(theme.accent, 0.16);
-    ctx.lineWidth = Math.max(1, 0.8 * zoom);
-    ctx.setLineDash([2.8 * zoom, 3.4 * zoom]);
-    ctx.beginPath();
-    ctx.moveTo(x - 13 * zoom, y - 1 * zoom);
-    ctx.lineTo(x + 11 * zoom, y + 5 * zoom);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
   if (subzone === "east-shelf") {
     drawWatchEastShelfCurrentArrows(ctx, x, y, zoom, motion, theme, tileX, tileY);
   }
@@ -997,28 +1213,22 @@ function drawWatchWaterTexture(
     ctx.lineTo(x + 9 * zoom, y + 5 * zoom);
   }
   ctx.stroke();
-  if (subzone === "south-basin" && (tileX + tileY * 5) % 7 === 0) {
-    drawBreakwaterFoam(ctx, x, y, zoom, theme.wave, 0.22);
-  }
   if (subzone === "south-basin" && (tileX * 13 + tileY * 7) % 7 === 0) {
     drawWatchChannelBuoy(ctx, x, y, zoom, motion, theme, tileX, tileY);
   }
   ctx.restore();
 }
 
-function drawWarningShoalTexture(
+function drawWarningShoalStaticTexture(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
   zoom: number,
   tileX: number,
   tileY: number,
-  motion: PharosVilleCanvasMotion,
+  _motion: PharosVilleCanvasMotion,
   theme: ZoneVisualTheme,
 ) {
-  const chop = motion.reducedMotion
-    ? 0.2
-    : 0.18 + fastSin(motion.timeSeconds * 1.6 + tileY * 0.37) * 0.05 * theme.motion.amplitudeScale;
   ctx.save();
   if ((tileX + tileY) % 2 === 0) {
     const shoalFill = withAlpha(theme.accent, 0.22);
@@ -1032,6 +1242,27 @@ function drawWarningShoalTexture(
     ctx.lineTo(x + 10 * zoom, y + 1 * zoom);
     ctx.stroke();
   }
+  drawWarningReefIdentity(ctx, x, y, zoom, theme, tileX, tileY);
+  if ((tileX * 11 + tileY * 13) % 9 === 0) {
+    drawDepthSounding(ctx, x + 7 * zoom, y + 3 * zoom, zoom, theme.wave, 0.26);
+  }
+  ctx.restore();
+}
+
+function drawWarningShoalAccentTexture(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  _tileX: number,
+  tileY: number,
+  motion: PharosVilleCanvasMotion,
+  theme: ZoneVisualTheme,
+) {
+  const chop = motion.reducedMotion
+    ? 0.2
+    : 0.18 + fastSin(motion.timeSeconds * 1.6 + tileY * 0.37) * 0.05 * theme.motion.amplitudeScale;
+  ctx.save();
   ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.16, chop) * theme.motion.strokeAlphaScale);
   ctx.lineWidth = Math.max(1, 1.2 * zoom);
   ctx.beginPath();
@@ -1041,26 +1272,19 @@ function drawWarningShoalTexture(
   ctx.moveTo(x + 3 * zoom, y + 5 * zoom);
   ctx.lineTo(x + 11 * zoom, y + 8 * zoom);
   ctx.stroke();
-  drawWarningReefIdentity(ctx, x, y, zoom, theme, tileX, tileY);
-  if ((tileX * 11 + tileY * 13) % 9 === 0) {
-    drawDepthSounding(ctx, x + 7 * zoom, y + 3 * zoom, zoom, theme.wave, 0.26);
-  }
   ctx.restore();
 }
 
-function drawDangerStraitTexture(
+function drawDangerStraitStaticTexture(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
   zoom: number,
   tileX: number,
   tileY: number,
-  motion: PharosVilleCanvasMotion,
+  _motion: PharosVilleCanvasMotion,
   theme: ZoneVisualTheme,
 ) {
-  const whitecap = motion.reducedMotion
-    ? 0.22
-    : 0.18 + fastSin(motion.timeSeconds * 2.1 + tileX * 0.43 + tileY * 0.29) * 0.08 * theme.motion.amplitudeScale;
   ctx.save();
   if ((tileX * 3 + tileY * 5) % 4 !== 2) {
     ctx.strokeStyle = "rgba(7, 12, 21, 0.34)";
@@ -1070,19 +1294,6 @@ function drawDangerStraitTexture(
     ctx.lineTo(x + 12 * zoom, y - 5 * zoom);
     ctx.stroke();
   }
-  drawDangerRipRibbon(ctx, x, y, zoom, motion, theme, tileX, tileY);
-  drawDangerWhitecapCurl(ctx, x, y, zoom, motion, theme, tileX, tileY);
-  drawDangerSprayStreaks(ctx, x, y, zoom, motion, theme, tileX, tileY);
-  ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.14, whitecap) * theme.motion.strokeAlphaScale);
-  ctx.lineWidth = Math.max(1, 1.4 * zoom);
-  ctx.beginPath();
-  ctx.moveTo(x - 12 * zoom, y - 4 * zoom);
-  ctx.lineTo(x - 6 * zoom, y - 1 * zoom);
-  ctx.lineTo(x - 1 * zoom, y - 5 * zoom);
-  ctx.moveTo(x + 2 * zoom, y + 4 * zoom);
-  ctx.lineTo(x + 8 * zoom, y + 7 * zoom);
-  ctx.lineTo(x + 13 * zoom, y + 3 * zoom);
-  ctx.stroke();
   if ((tileX + tileY) % 3 === 0) {
     ctx.strokeStyle = withAlpha(theme.accent, 0.22);
     ctx.lineWidth = Math.max(1, 0.85 * zoom);
@@ -1100,13 +1311,64 @@ function drawDangerStraitTexture(
     ctx.fillRect(Math.round(x - 1 * zoom), Math.round(y - 5 * zoom), Math.max(1, Math.round(2 * zoom)), Math.max(1, Math.round(2 * zoom)));
     ctx.fillRect(Math.round(x + 5 * zoom), Math.round(y + 3 * zoom), Math.max(1, Math.round(2 * zoom)), Math.max(1, Math.round(2 * zoom)));
   }
+  ctx.restore();
+}
+
+function drawDangerStraitAccentTexture(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  tileX: number,
+  tileY: number,
+  motion: PharosVilleCanvasMotion,
+  theme: ZoneVisualTheme,
+) {
+  const whitecap = motion.reducedMotion
+    ? 0.22
+    : 0.18 + fastSin(motion.timeSeconds * 2.1 + tileX * 0.43 + tileY * 0.29) * 0.08 * theme.motion.amplitudeScale;
+  ctx.save();
+  drawDangerRipRibbon(ctx, x, y, zoom, motion, theme, tileX, tileY);
+  drawDangerWhitecapCurl(ctx, x, y, zoom, motion, theme, tileX, tileY);
+  drawDangerSprayStreaks(ctx, x, y, zoom, motion, theme, tileX, tileY);
+  ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.14, whitecap) * theme.motion.strokeAlphaScale);
+  ctx.lineWidth = Math.max(1, 1.4 * zoom);
+  ctx.beginPath();
+  ctx.moveTo(x - 12 * zoom, y - 4 * zoom);
+  ctx.lineTo(x - 6 * zoom, y - 1 * zoom);
+  ctx.lineTo(x - 1 * zoom, y - 5 * zoom);
+  ctx.moveTo(x + 2 * zoom, y + 4 * zoom);
+  ctx.lineTo(x + 8 * zoom, y + 7 * zoom);
+  ctx.lineTo(x + 13 * zoom, y + 3 * zoom);
+  ctx.stroke();
   if ((tileX * 19 + tileY * 23) % 11 === 0) {
     drawDangerStormBurst(ctx, x, y, zoom, motion, theme, tileX, tileY);
   }
   ctx.restore();
 }
 
-function drawOpenWaterTexture(
+function drawOpenWaterStaticTexture(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  tileX: number,
+  tileY: number,
+  _motion: PharosVilleCanvasMotion,
+  theme: ZoneVisualTheme,
+) {
+  const hash = tileHash(tileX, tileY, 503);
+  const windFetch = hash % 10 < 3;
+  if (windFetch) return;
+  const glintX = x + ((((hash >>> 8) % 15) - 7) * 1.2) * zoom;
+  const glintY = y + ((((hash >>> 13) % 9) - 4) * 0.9) * zoom;
+  ctx.save();
+  ctx.fillStyle = withAlpha(theme.wave, 0.09);
+  ctx.fillRect(Math.round(glintX), Math.round(glintY), 1, 1);
+  ctx.restore();
+}
+
+function drawOpenWaterAccentTexture(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,

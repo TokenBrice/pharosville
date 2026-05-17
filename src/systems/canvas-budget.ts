@@ -15,6 +15,7 @@ export interface DrawDurationWindow {
   capacity: number;
   cursor: number;
   entries: number[];
+  sortedScratch: number[];
   size: number;
 }
 
@@ -40,6 +41,8 @@ export interface CanvasBackingPixelMetrics {
   offscreenCachePixels: number;
   overBudgetPixels: number;
   remainingOffscreenPixels: number;
+  spriteCacheEntryCount: number;
+  spriteCachePixels: number;
   staticCacheEntryCount: number;
   staticCachePixels: number;
   totalBackingPixels: number;
@@ -47,37 +50,52 @@ export interface CanvasBackingPixelMetrics {
 }
 
 export function createDrawDurationWindow(capacity = ADAPTIVE_DPR_WINDOW_SIZE): DrawDurationWindow {
+  const normalizedCapacity = Math.max(1, Math.floor(capacity));
   return {
-    capacity: Math.max(1, Math.floor(capacity)),
+    capacity: normalizedCapacity,
     cursor: 0,
-    entries: [],
+    entries: new Array<number>(normalizedCapacity),
+    sortedScratch: new Array<number>(normalizedCapacity),
     size: 0,
   };
 }
 
 export function pushDrawDurationSample(window: DrawDurationWindow, drawDurationMs: number): DrawDurationStats {
   const sample = Number.isFinite(drawDurationMs) ? Math.max(0, drawDurationMs) : 0;
-  if (window.size < window.capacity) {
-    window.entries.push(sample);
-    window.size += 1;
-  } else {
-    window.entries[window.cursor] = sample;
-    window.cursor = (window.cursor + 1) % window.capacity;
-  }
+  window.entries[window.cursor] = sample;
+  window.cursor = (window.cursor + 1) % window.capacity;
+  window.size = Math.min(window.size + 1, window.capacity);
 
   if (window.size === 0) {
     return { averageMs: 0, count: 0, p90Ms: 0 };
   }
 
   let total = 0;
-  for (let index = 0; index < window.size; index += 1) total += window.entries[index] ?? 0;
-  const sorted = window.entries.slice(0, window.size).sort((left, right) => left - right);
+  const sorted = window.sortedScratch;
+  for (let index = 0; index < window.size; index += 1) {
+    const value = window.entries[index] ?? 0;
+    total += value;
+    sorted[index] = value;
+  }
+  sortFirstNumbers(sorted, window.size);
   const percentileIndex = Math.max(0, Math.ceil(window.size * 0.9) - 1);
   return {
     averageMs: total / window.size,
     count: window.size,
     p90Ms: sorted[percentileIndex] ?? 0,
   };
+}
+
+function sortFirstNumbers(values: number[], count: number): void {
+  for (let index = 1; index < count; index += 1) {
+    const value = values[index] ?? 0;
+    let scan = index - 1;
+    while (scan >= 0 && (values[scan] ?? 0) > value) {
+      values[scan + 1] = values[scan] ?? 0;
+      scan -= 1;
+    }
+    values[scan + 1] = value;
+  }
 }
 
 export function initialAdaptiveDprState(requestedDpr: number): AdaptiveDprState {
@@ -160,13 +178,16 @@ export function resolveCanvasBackingPixelMetrics(input: {
   maxTotalBackingPixels?: number;
   staticCacheEntryCount?: number;
   staticCachePixels?: number;
+  spriteCacheEntryCount?: number;
+  spriteCachePixels?: number;
 }): CanvasBackingPixelMetrics {
   const mainCanvasPixels = Math.max(0, Math.floor(input.mainCanvasPixels));
   const staticCachePixels = Math.max(0, Math.floor(input.staticCachePixels ?? 0));
   const dynamicCachePixels = Math.max(0, Math.floor(input.dynamicCachePixels ?? 0));
+  const spriteCachePixels = Math.max(0, Math.floor(input.spriteCachePixels ?? 0));
   const maxMainCanvasPixels = Math.max(1, Math.floor(input.maxMainCanvasPixels ?? MAX_MAIN_CANVAS_PIXELS));
   const maxTotalBackingPixels = Math.max(maxMainCanvasPixels, Math.floor(input.maxTotalBackingPixels ?? MAX_TOTAL_BACKING_PIXELS));
-  const offscreenCachePixels = staticCachePixels + dynamicCachePixels;
+  const offscreenCachePixels = staticCachePixels + dynamicCachePixels + spriteCachePixels;
   const totalBackingPixels = mainCanvasPixels + offscreenCachePixels;
   const remainingOffscreenPixels = Math.max(0, maxTotalBackingPixels - mainCanvasPixels - offscreenCachePixels);
   return {
@@ -178,16 +199,19 @@ export function resolveCanvasBackingPixelMetrics(input: {
     offscreenCachePixels,
     overBudgetPixels: Math.max(0, totalBackingPixels - maxTotalBackingPixels),
     remainingOffscreenPixels,
+    spriteCacheEntryCount: Math.max(0, Math.floor(input.spriteCacheEntryCount ?? 0)),
+    spriteCachePixels,
     staticCacheEntryCount: Math.max(0, Math.floor(input.staticCacheEntryCount ?? 0)),
     staticCachePixels,
     totalBackingPixels,
-    totalCacheEntryCount: Math.max(0, Math.floor((input.staticCacheEntryCount ?? 0) + (input.dynamicCacheEntryCount ?? 0))),
+    totalCacheEntryCount: Math.max(0, Math.floor((input.staticCacheEntryCount ?? 0) + (input.dynamicCacheEntryCount ?? 0) + (input.spriteCacheEntryCount ?? 0))),
   };
 }
 
 export function canRetainOffscreenCanvas(input: {
   candidatePixels: number;
   currentDynamicCachePixels?: number;
+  currentSpriteCachePixels?: number;
   currentStaticCachePixels?: number;
   mainCanvasPixels: number;
   maxTotalBackingPixels?: number;
@@ -198,6 +222,7 @@ export function canRetainOffscreenCanvas(input: {
     dynamicCachePixels: input.currentDynamicCachePixels ?? 0,
     mainCanvasPixels: input.mainCanvasPixels,
     maxTotalBackingPixels: input.maxTotalBackingPixels,
+    spriteCachePixels: input.currentSpriteCachePixels ?? 0,
     staticCachePixels: input.currentStaticCachePixels ?? 0,
   });
   return candidatePixels <= metrics.remainingOffscreenPixels;

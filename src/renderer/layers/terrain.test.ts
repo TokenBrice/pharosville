@@ -1,6 +1,10 @@
-import { describe, expect, it } from "vitest";
-import type { PharosVilleMap, TerrainKind } from "../../systems/world-types";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { PharosVilleMap, PharosVilleWorld, TerrainKind } from "../../systems/world-types";
+import { buildRecordingCanvasContext } from "../__test-utils__/canvas-context-builder";
+import { createDrawInput } from "../__test-utils__/draw-input";
 import {
+  drawWaterTerrainAccents,
+  drawWaterTerrainStaticDetails,
   seawallRippleAnchorsFromPlacements,
   watchBreakwaterSubzoneForTile,
   waterZoneBorderFeathersForMap,
@@ -19,6 +23,84 @@ function makeMap(rows: TerrainKind[][]): PharosVilleMap {
     width: rows[0]?.length ?? 0,
   };
 }
+
+function makeWaterWorld(terrain: TerrainKind): PharosVilleWorld {
+  return {
+    docks: [],
+    effects: [],
+    graves: [],
+    lighthouse: {
+      color: "#fff",
+      detailId: "lighthouse",
+      id: "lighthouse",
+      kind: "lighthouse",
+      label: "Lighthouse",
+      psiBand: null,
+      score: null,
+      tile: { x: 10, y: 10 },
+      unavailable: true,
+    },
+    map: makeMap([[terrain]]),
+    ships: [],
+  } as unknown as PharosVilleWorld;
+}
+
+function waterDrawInput(terrain: TerrainKind, timeSeconds: number, reducedMotion = false) {
+  const recording = buildRecordingCanvasContext();
+  return {
+    recording,
+    input: createDrawInput({
+      camera: { offsetX: 120, offsetY: 96, zoom: 1 },
+      ctx: recording.ctx,
+      height: 240,
+      motion: {
+        plan: {
+          animatedShipIds: new Set(),
+          effectShipIds: new Set(),
+          lighthouseFireFlickerPerSecond: 0,
+          moverShipIds: new Set(),
+          shipPhases: new Map(),
+          shipRoutes: new Map(),
+        },
+        reducedMotion,
+        timeSeconds,
+        wallClockHour: 12,
+      },
+      width: 320,
+      world: makeWaterWorld(terrain),
+    }),
+  };
+}
+
+function serializableCalls(calls: readonly { method: string; args: readonly unknown[] }[]) {
+  return calls.map((call) => ({
+    args: call.args.map((arg) => {
+      if (typeof arg === "object" && arg !== null) return "[object]";
+      return arg;
+    }),
+    method: call.method,
+  }));
+}
+
+class TestPath2D {
+  commands: string[] = [];
+
+  moveTo(x: number, y: number) {
+    this.commands.push(`M${x},${y}`);
+  }
+
+  lineTo(x: number, y: number) {
+    this.commands.push(`L${x},${y}`);
+  }
+}
+
+beforeEach(() => {
+  vi.stubGlobal("Path2D", TestPath2D);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("water zone feathering", () => {
   it("caches direct cross-zone water borders by map identity", () => {
@@ -78,5 +160,32 @@ describe("seawall ripple anchors", () => {
     expect(new Set(anchors.map((anchor) => `${anchor.x}.${anchor.y}`)).size).toBe(anchors.length);
     expect(anchors[0]).toEqual({ x: 15, y: 24 });
     expect(anchors.at(-1)).toEqual({ x: 29.5, y: 27.5 });
+  });
+});
+
+describe("water terrain pass split", () => {
+  it("keeps static water details deterministic across clock time", () => {
+    const early = waterDrawInput("warning-water", 1);
+    const late = waterDrawInput("warning-water", 37);
+
+    expect(drawWaterTerrainStaticDetails(early.input)).toBe(1);
+    expect(drawWaterTerrainStaticDetails(late.input)).toBe(1);
+
+    expect(serializableCalls(late.recording.calls)).toEqual(serializableCalls(early.recording.calls));
+  });
+
+  it("draws water accents directly with continuous time while reduced motion remains pinned", () => {
+    const first = waterDrawInput("alert-water", 0);
+    const later = waterDrawInput("alert-water", 4);
+    const reducedFirst = waterDrawInput("alert-water", 0, true);
+    const reducedLater = waterDrawInput("alert-water", 4, true);
+
+    expect(drawWaterTerrainAccents(first.input)).toBe(1);
+    expect(drawWaterTerrainAccents(later.input)).toBe(1);
+    expect(drawWaterTerrainAccents(reducedFirst.input)).toBe(1);
+    expect(drawWaterTerrainAccents(reducedLater.input)).toBe(1);
+
+    expect(serializableCalls(later.recording.calls)).not.toEqual(serializableCalls(first.recording.calls));
+    expect(serializableCalls(reducedLater.recording.calls)).toEqual(serializableCalls(reducedFirst.recording.calls));
   });
 });
