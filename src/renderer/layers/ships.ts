@@ -1,4 +1,9 @@
 import { squadForMember } from "../../systems/maker-squad";
+import {
+  CUE_PRIORITY_ACTIVE_RISK,
+  CUE_PRIORITY_RECENT_SUPPLY,
+  cuePriority,
+} from "../../systems/cue-priority";
 import { shipMapVisibilityAlpha, type ShipMotionSample } from "../../systems/motion";
 import { getShipHeadingDelta } from "../../systems/motion-sampling";
 import type { ScreenPoint } from "../../systems/projection";
@@ -504,12 +509,22 @@ export function planShipRenderLod(
     }
 
     const visibilityScore = inViewport ? 2.2 : -2.4;
+    // W4.27: cue-priority arbiter — break cap-bound ties by MOTION_POLICY tier.
+    // `selected`/`hovered`/preserve tiers already short-circuited above, so
+    // here we only need to distinguish active-risk vs recent-supply vs scenery.
+    const priorityTier = cuePriority({ ship, sample, selected: false });
+    const priorityBonus = priorityTier === CUE_PRIORITY_ACTIVE_RISK
+      ? 3.0
+      : priorityTier === CUE_PRIORITY_RECENT_SUPPLY
+        ? 1.4
+        : 0;
     const overlayScore = proximityScore * 5.6
       + visibilityScore
       + sizePriority
       + (effect ? 2.1 : 0)
       + (mover ? 2.8 : 0)
-      + (transit ? 0.8 : -0.4);
+      + (transit ? 0.8 : -0.4)
+      + priorityBonus;
     overlayCandidatesScratch.push({ score: overlayScore, shipId: ship.id });
 
     const wakeScore = proximityScore * 5.1
@@ -518,7 +533,8 @@ export function planShipRenderLod(
       + (topRecent ? 3.5 : 0)
       + (mover ? 5.8 : 0)
       + (transit ? 4.4 : -3.6)
-      + sizePriority * 0.4;
+      + sizePriority * 0.4
+      + priorityBonus;
     wakeCandidatesScratch.push({ score: wakeScore, shipId: ship.id });
   }
 

@@ -34,6 +34,7 @@ import {
   resolveShipMotionSampleInto,
   type ShipMotionSample,
 } from "../systems/motion";
+import { applySeaRoomSeparationPass } from "../systems/motion-sampling";
 import type { IsoCamera, ScreenPoint } from "../systems/projection";
 import { seaStateForWorld, type SeaState } from "../systems/sea-state";
 import { createVisualMotionSmoothingState, resetVisualMotionSmoothingState, smoothShipMotionSamples } from "../systems/visual-motion";
@@ -1042,6 +1043,10 @@ function collectShipMotionSamples(input: {
       if (!liveIds.has(id)) samples.delete(id);
     }
   }
+  applySeaRoomSeparationPass(samples, input.world.ships, {
+    reducedMotion: input.reducedMotion,
+    seaState: input.seaState,
+  });
   return { samples };
 }
 
