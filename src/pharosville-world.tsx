@@ -525,6 +525,23 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
 // is stable. Pairs with the structural-compare cache in `pharosville-desktop-data.tsx`.
 export const PharosVilleWorld = memo(PharosVilleWorldInner);
 
+/**
+ * W4.07 canvas-palette loading state. Renders the same className the
+ * top-level `client.tsx` Suspense fallback uses (`pharosville-loading`), so
+ * the CSS re-skin (deep `#050d13` background, warm spinner halo, distant
+ * horizon-ship silhouettes mirroring `drawHorizonShips`) applies whether
+ * the shell mounts this directly or the legacy inline `<div>` is hit. The
+ * loading frame is designed to read as the first envelope <= 0.33 reveal
+ * frame so the transition into the W4.01 reveal beat feels continuous.
+ */
+export function PharosVilleLoading({ message = "Charting market winds…" }: { message?: string }) {
+  return (
+    <div className="pharosville-loading pharosville-desktop" role="status" aria-busy="true" aria-live="polite">
+      {message}
+    </div>
+  );
+}
+
 const integerFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 
 function ChangelogPanelLoading() {

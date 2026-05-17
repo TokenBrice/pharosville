@@ -61,45 +61,80 @@ textarea {
   border: 0;
 }
 
+/* W4.07 loading state — re-skinned to match the canvas palette so the cold-load
+   reveal reads as one continuous beat. The deep-night background and horizon-ship
+   silhouettes mirror `drawHorizonShips` in `src/renderer/layers/sky.ts`; the
+   silhouettes are inline-SVG (data URI) so the loading state doesn't depend on
+   the renderer being mounted. The warm spinner halo previews the lighthouse
+   lantern that ignites at envelope >= 0.66 in W4.01. */
 .pharosville-loading {
+  position: relative;
   display: grid;
   min-height: 100svh;
   place-items: center;
-  background:
-    repeating-linear-gradient(123deg, rgba(108, 74, 20, 0.04) 0 1px, transparent 1px 5px),
-    repeating-linear-gradient(57deg, rgba(108, 74, 20, 0.04) 0 1px, transparent 1px 5px),
-    radial-gradient(ellipse at 30% 20%,
-      var(--pv-parchment-light) 0%,
-      var(--pv-parchment-warm) 50%,
-      var(--pv-parchment-dark) 100%);
-  color: var(--pv-ink-text);
+  overflow: hidden;
+  background: #050d13;
+  color: rgba(248, 229, 178, 0.86);
   font-family: Georgia, "Times New Roman", serif;
   font-size: 0.92rem;
   font-weight: 700;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 0 rgba(5, 8, 12, 0.7);
 }
+/* Sky-to-sea gradient so the empty viewport reads as the same horizon line
+   that `drawHorizonShips` paints — band of slightly warmer night at the
+   horizon (cf. sky.ts SKY_MOODS.night). */
+.pharosville-loading::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg,
+      #050d13 0%,
+      #07111a 36%,
+      #0b1b29 50%,
+      #07121b 64%,
+      #050d13 100%),
+    /* horizon ship silhouettes — 10 ships placed along y = 50%, sized to match
+       the renderer's 0.18/0.26 alphas on hull/sail. */
+    url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 200' preserveAspectRatio='xMidYMid slice'%3E%3Cg fill='%231c2636' fill-opacity='0.18'%3E%3Crect x='80' y='100' width='6' height='2'/%3E%3Crect x='200' y='99' width='6' height='2'/%3E%3Crect x='310' y='100' width='5' height='2'/%3E%3Crect x='430' y='100' width='6' height='2'/%3E%3Crect x='535' y='100' width='5' height='2'/%3E%3Crect x='650' y='99' width='6' height='2'/%3E%3Crect x='755' y='100' width='6' height='2'/%3E%3Crect x='870' y='100' width='5' height='2'/%3E%3Crect x='990' y='100' width='6' height='2'/%3E%3Crect x='1100' y='100' width='5' height='2'/%3E%3C/g%3E%3Cg fill='%23e8dec4' fill-opacity='0.26'%3E%3Cpolygon points='82,100 86,96 82,96'/%3E%3Cpolygon points='200,99 196,95 200,95'/%3E%3Cpolygon points='312,100 316,96 312,96'/%3E%3Cpolygon points='432,100 436,96 432,96'/%3E%3Cpolygon points='536,100 532,96 536,96'/%3E%3Cpolygon points='650,99 654,95 650,95'/%3E%3Cpolygon points='757,100 761,96 757,96'/%3E%3Cpolygon points='870,100 866,96 870,96'/%3E%3Cpolygon points='991,100 995,96 991,96'/%3E%3Cpolygon points='1100,100 1104,96 1100,96'/%3E%3C/g%3E%3C/svg%3E");
+  background-blend-mode: screen, normal;
+  background-size: cover, cover;
+  background-position: center, center;
+  background-repeat: no-repeat, no-repeat;
+}
+/* Warm spinner halo (canvas-light style). Mirrors the lighthouse lantern's
+   warm gradient (HARBOR_PALETTE.lantern_warm #d49a3e family). */
 .pharosville-loading::before {
   content: "";
+  position: relative;
+  z-index: 1;
   display: block;
-  width: 56px;
-  height: 56px;
-  margin: 0 auto 14px;
-  border: 2px solid var(--pv-timber-edge);
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 18px;
   border-radius: 50%;
   background: radial-gradient(circle at 50% 50%,
-    #fff0c8 0%,
-    #f3d49a 30%,
-    var(--pv-brass-mid) 60%,
-    var(--pv-brass-edge) 100%);
+    #fff3c7 0%,
+    #f8d59a 28%,
+    #d49a3e 58%,
+    rgba(212, 154, 62, 0.14) 88%,
+    transparent 100%);
   box-shadow:
-    0 0 0 4px rgba(248, 229, 178, 0.2),
-    0 0 24px rgba(248, 229, 178, 0.5);
-  animation: pv-loading-beacon 1.4s ease-in-out infinite;
+    0 0 0 1px rgba(248, 229, 178, 0.32),
+    0 0 32px rgba(248, 229, 178, 0.42),
+    0 0 60px rgba(212, 154, 62, 0.32);
+  animation: pv-loading-beacon 2.4s ease-in-out infinite;
 }
 @keyframes pv-loading-beacon {
-  0%, 100% { box-shadow: 0 0 0 4px rgba(248, 229, 178, 0.18), 0 0 14px rgba(248, 229, 178, 0.35); }
-  50%      { box-shadow: 0 0 0 4px rgba(248, 229, 178, 0.30), 0 0 28px rgba(248, 229, 178, 0.65); }
+  0%, 100% { box-shadow: 0 0 0 1px rgba(248, 229, 178, 0.24), 0 0 20px rgba(248, 229, 178, 0.30), 0 0 40px rgba(212, 154, 62, 0.18); }
+  50%      { box-shadow: 0 0 0 1px rgba(248, 229, 178, 0.40), 0 0 38px rgba(248, 229, 178, 0.52), 0 0 70px rgba(212, 154, 62, 0.38); }
 }
+/* Lift the caption above the gradient ::after layer. */
+.pharosville-loading > * { position: relative; z-index: 1; }
 @media (prefers-reduced-motion: reduce) {
   .pharosville-loading::before { animation: none; }
 }

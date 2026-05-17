@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PharosVilleWorld } from "./pharosville-world";
+import { PharosVilleLoading, PharosVilleWorld } from "./pharosville-world";
 import type { HitTarget } from "./renderer/hit-testing";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "./systems/world-types";
 
@@ -202,6 +202,25 @@ describe("PharosVilleWorld UI accessibility controls", () => {
 
     fireEvent.click(screen.getByLabelText("Return to day-night preset"));
     await waitFor(() => expect(globalThis.__pharosVilleTestWallClockHour).toBeUndefined());
+  });
+});
+
+describe("PharosVilleLoading (W4.07)", () => {
+  it("renders the canvas-palette loading shell with default copy", () => {
+    const { container } = render(<PharosVilleLoading />);
+
+    const root = container.querySelector(".pharosville-loading");
+    expect(root).not.toBeNull();
+    expect(root?.classList.contains("pharosville-desktop")).toBe(true);
+    expect(root?.getAttribute("role")).toBe("status");
+    expect(root?.getAttribute("aria-busy")).toBe("true");
+    expect(root?.getAttribute("aria-live")).toBe("polite");
+    expect(root?.textContent).toBe("Charting market winds…");
+  });
+
+  it("accepts a custom loading message", () => {
+    render(<PharosVilleLoading message="Loading fixture" />);
+    expect(screen.getByText("Loading fixture")).toBeTruthy();
   });
 });
 
