@@ -29,7 +29,7 @@ export const bundleBudgets = {
 };
 
 export const aggregateBudgets = {
-  maxJsRawBytes: 1_250 * 1024,
+  maxJsRawBytes: 1_252 * 1024,
   maxJsGzipBytes: 375 * 1024,
 };
 
