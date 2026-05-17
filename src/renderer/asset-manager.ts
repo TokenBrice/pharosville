@@ -63,6 +63,8 @@ export const PHAROSVILLE_CRITICAL_ASSET_CONCURRENCY = 6;
 export const PHAROSVILLE_DEFERRED_ASSET_CONCURRENCY = 6;
 export const PHAROSVILLE_LOGO_CONCURRENCY = 6;
 
+const PHAROSVILLE_DEFERRED_IDLE_TIMEOUT_MS = 800;
+
 interface AssetManifestSummary {
   criticalAssetCount: number;
   criticalIds: ReadonlySet<string>;
@@ -295,12 +297,13 @@ export class PharosVilleAssetManager {
       this.deferredStartedAt ??= performanceNow();
       this.deferredCompletedAt = null;
     }
-    const settled = await settleQueuedLoads(
-      assets,
-      (asset) => this.loadTrackedAsset(asset, manifest, signal, options.deferred === true),
-      options.concurrency ?? assets.length,
-      signal,
+    const loadTracked = (asset: PharosVilleAssetManifestEntry) => (
+      this.loadTrackedAsset(asset, manifest, signal, options.deferred === true)
     );
+    const concurrency = options.concurrency ?? assets.length;
+    const settled = options.deferred
+      ? await settleIdleChunkedQueuedLoads(assets, loadTracked, concurrency, signal)
+      : await settleQueuedLoads(assets, loadTracked, concurrency, signal);
     if (options.deferred) this.deferredCompletedAt = performanceNow();
     const loaded: LoadedPharosVilleAsset[] = [];
     const errors: PharosVilleAssetLoadError[] = [];
@@ -351,6 +354,38 @@ export class PharosVilleAssetManager {
     if (summary.shellCriticalIds.has(assetId)) this.shellCriticalLoadedCount += 1;
     if (summary.visibleCriticalIds.has(assetId)) this.visibleCriticalLoadedCount += 1;
   }
+}
+
+async function settleIdleChunkedQueuedLoads<TItem, TResult>(
+  items: TItem[],
+  load: (item: TItem) => Promise<TResult>,
+  chunkSize: number,
+  signal?: AbortSignal,
+): Promise<PromiseSettledResult<TResult>[]> {
+  if (items.length === 0) return [];
+  const limit = Math.max(1, Math.min(chunkSize, items.length));
+  const settled: PromiseSettledResult<TResult>[] = new Array(items.length);
+  let nextIndex = 0;
+  while (nextIndex < items.length && !signal?.aborted) {
+    await waitForIdleChunk(signal);
+    if (signal?.aborted) break;
+    const chunkStart = nextIndex;
+    const chunkEnd = Math.min(items.length, chunkStart + limit);
+    nextIndex = chunkEnd;
+    const chunkSettled = await Promise.all(
+      items.slice(chunkStart, chunkEnd).map(async (item): Promise<PromiseSettledResult<TResult>> => {
+        try {
+          return { status: "fulfilled", value: await load(item) };
+        } catch (reason) {
+          return { reason, status: "rejected" };
+        }
+      }),
+    );
+    chunkSettled.forEach((result, offset) => {
+      settled[chunkStart + offset] = result;
+    });
+  }
+  return settled;
 }
 
 async function settleQueuedLoads<TItem, TResult>(
@@ -469,6 +504,39 @@ function isAbortError(error: unknown) {
 
 function performanceNow() {
   return typeof performance === "undefined" ? Date.now() : performance.now();
+}
+
+type IdleSchedulerGlobal = typeof globalThis & {
+  cancelIdleCallback?: (handle: number) => void;
+  requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+};
+
+function waitForIdleChunk(signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const idleGlobal = globalThis as IdleSchedulerGlobal;
+    let settled = false;
+    let idleHandle: number | null = null;
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    const cleanup = () => {
+      signal?.removeEventListener("abort", abort);
+      if (idleHandle != null) idleGlobal.cancelIdleCallback?.(idleHandle);
+      if (timeoutHandle != null) clearTimeout(timeoutHandle);
+    };
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+    const abort = () => finish();
+    signal?.addEventListener("abort", abort, { once: true });
+    if (idleGlobal.requestIdleCallback) {
+      idleHandle = idleGlobal.requestIdleCallback(finish, { timeout: PHAROSVILLE_DEFERRED_IDLE_TIMEOUT_MS });
+      return;
+    }
+    timeoutHandle = setTimeout(finish, 0);
+  });
 }
 
 function loadImage(src: string, signal?: AbortSignal): Promise<HTMLImageElement> {

@@ -92,6 +92,9 @@ const SPARKLE_POINT_DEFS = [
 ] as const;
 
 const EASTERN_SHELF_SPARKLE_SOURCE_ISO_X_THRESHOLD = 32 * 16;
+const MOON_REFLECTION_GRADIENT_CACHE_LIMIT = 24;
+const MOON_REFLECTION_NIGHT_BUCKETS = 256;
+const moonReflectionGradientCacheByContext = new WeakMap<CanvasRenderingContext2D, Map<string, CanvasGradient>>();
 
 function sparkleSourceIsoX(point: { x: number }): number {
   return point.x * 16;
@@ -596,19 +599,80 @@ export function drawMoonReflection(input: DrawPharosVilleInput, nightFactor: num
   ctx.globalCompositeOperation = "lighter";
   const cx = width * 0.28;
   const cy = height * 0.38;
-  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.hypot(width, height) * 0.42);
-  grad.addColorStop(0, `rgba(140, 170, 220, ${0.075 * nightFactor})`);
-  grad.addColorStop(0.35, `rgba(115, 150, 205, ${0.034 * nightFactor})`);
-  grad.addColorStop(1, "rgba(100, 135, 200, 0)");
+  const radius = Math.hypot(width, height) * 0.42;
+  const grad = moonReflectionGradient(ctx, {
+    cx,
+    cy,
+    dpr: input.dpr,
+    height,
+    nightFactor,
+    radius,
+    width,
+  });
   ctx.fillStyle = grad;
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate(-0.55);
   ctx.beginPath();
-  ctx.ellipse(0, 0, Math.hypot(width, height) * 0.42, Math.hypot(width, height) * 0.09, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, radius, Math.hypot(width, height) * 0.09, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
   ctx.restore();
+}
+
+function moonReflectionGradient(
+  ctx: CanvasRenderingContext2D,
+  params: {
+    cx: number;
+    cy: number;
+    dpr?: number;
+    height: number;
+    nightFactor: number;
+    radius: number;
+    width: number;
+  },
+): CanvasGradient {
+  const nightBucket = Math.max(0, Math.min(MOON_REFLECTION_NIGHT_BUCKETS, Math.round(params.nightFactor * MOON_REFLECTION_NIGHT_BUCKETS)));
+  const key = [
+    Math.round(params.width),
+    Math.round(params.height),
+    dprBucket(params.dpr),
+    Math.round(params.cx),
+    Math.round(params.cy),
+    Math.round(params.radius),
+    nightBucket,
+  ].join(":");
+  const cache = moonReflectionCacheForContext(ctx);
+  const cached = cache.get(key);
+  if (cached) return cached;
+
+  const nightFactor = nightBucket / MOON_REFLECTION_NIGHT_BUCKETS;
+  const grad = ctx.createRadialGradient(
+    params.cx,
+    params.cy,
+    0,
+    params.cx,
+    params.cy,
+    Math.max(1, params.radius),
+  );
+  grad.addColorStop(0, `rgba(140, 170, 220, ${0.075 * nightFactor})`);
+  grad.addColorStop(0.35, `rgba(115, 150, 205, ${0.034 * nightFactor})`);
+  grad.addColorStop(1, "rgba(100, 135, 200, 0)");
+  cache.set(key, grad);
+  if (cache.size > MOON_REFLECTION_GRADIENT_CACHE_LIMIT) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  return grad;
+}
+
+function moonReflectionCacheForContext(ctx: CanvasRenderingContext2D): Map<string, CanvasGradient> {
+  let cache = moonReflectionGradientCacheByContext.get(ctx);
+  if (!cache) {
+    cache = new Map();
+    moonReflectionGradientCacheByContext.set(ctx, cache);
+  }
+  return cache;
 }
 
 // Alpha-bucketed `rgba(165, 178, 195, ...)` template strings for `drawSeaMist`.
@@ -625,6 +689,10 @@ function seaMistFillFor(alpha: number): string {
   const next = `rgba(165, 178, 195, ${bucket / SEA_MIST_FILL_BUCKETS})`;
   seaMistFillCache[bucket] = next;
   return next;
+}
+
+function dprBucket(dpr?: number): number {
+  return Math.max(1, Math.round((dpr && dpr > 0 ? dpr : 1) * 100));
 }
 
 export function drawSeaMist(input: DrawPharosVilleInput, nightFactor: number): void {

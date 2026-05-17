@@ -1,5 +1,11 @@
 import { STABLECOIN_SQUADS } from "../systems/maker-squad";
 import { manifestCacheVersion } from "../systems/asset-manifest";
+import {
+  MAX_MAIN_CANVAS_PIXELS,
+  MAX_TOTAL_BACKING_PIXELS,
+  canvasPixelArea,
+  resolveCanvasBackingPixelMetrics,
+} from "../systems/canvas-budget";
 import { isShipMapVisible } from "../systems/motion";
 import type { PharosVilleWorld } from "../systems/world-types";
 import { createRenderFrameCache, type RenderFrameCache } from "./frame-cache";
@@ -31,7 +37,13 @@ import { drawNightTint, drawNightVignette } from "./layers/night-tint";
 import { skyState } from "./layers/sky";
 import { drawWeather } from "./layers/weather";
 import { drawAtmosphericFade, drawCloudShadowDrift, drawEstablishingShotLetterbox, drawFilmGrainPass } from "./layers/cinematic-atmosphere";
-import type { DrawPharosVilleInput, PharosVilleRenderMetrics } from "./render-types";
+import type {
+  DrawPharosVilleInput,
+  PharosVilleRenderCacheMetrics,
+  PharosVilleRenderCacheMode,
+  PharosVilleRenderMetrics,
+  PharosVilleRenderZoomKeyMode,
+} from "./render-types";
 import { tileBoundsTileCount, visibleTileBoundsForCamera } from "./viewport";
 
 /**
@@ -39,26 +51,31 @@ import { tileBoundsTileCount, visibleTileBoundsForCamera } from "./viewport";
  * (canvas host components, tests) import these from `world-canvas` so the
  * module forms a single public surface for the renderer entry point.
  */
-export type { DrawPharosVilleInput, PharosVilleCanvasMotion, PharosVilleRenderMetrics } from "./render-types";
+export type {
+  DrawPharosVilleInput,
+  PharosVilleBackingMetrics,
+  PharosVilleCanvasMotion,
+  PharosVilleRenderCacheMetrics,
+  PharosVilleRenderCacheMode,
+  PharosVilleRenderMetrics,
+} from "./render-types";
 
 interface WorldCanvasFrame {
-  dynamicCameraCacheKeySegment: string;
-  staticCameraCache: {
-    keySegment: string;
-    paintCamera: DrawPharosVilleInput["camera"];
-    paddingDprPx: number;
-    residualOffsetX: number;
-    residualOffsetY: number;
-  };
+  cacheMode: PharosVilleRenderCacheMode;
+  cacheStats: RenderCacheFrameStats;
   cache: RenderFrameCache;
   dpr: number;
+  dynamicCameraCache: CameraCacheFrame;
   dockRenderStates: Map<string, DockRenderState>;
   flagshipById: Map<string, PharosVilleWorld["ships"][number]>;
   graveRenderStates: Map<string, GraveRenderState>;
   lighthouseRender: LighthouseRenderState;
+  protectedCacheEntryKeys: Set<string>;
   shipRenderStates: Map<string, ShipRenderState>;
+  staticCameraCache: CameraCacheFrame;
   visibleShips: PharosVilleWorld["ships"];
   wakeDrawnShipIds: Set<string>;
+  zoomKeyMode: PharosVilleRenderZoomKeyMode;
 }
 
 interface StaticLayerCacheEntry {
@@ -74,7 +91,7 @@ interface CameraCacheKeyInput {
   offsetY: number;
   width: number;
   worldId: number;
-  zoomBucket: number;
+  zoomKey: string;
 }
 
 interface DynamicLayerCacheEntry {
@@ -87,13 +104,34 @@ interface DynamicLayerCacheEntry {
 type StaticCacheScope = "scene" | "terrain";
 type DynamicCacheScope = "water-overlays";
 
-const STATIC_CACHE_MAX = 4;
-const DYNAMIC_CACHE_MAX = 4;
 const STATIC_CAMERA_OFFSET_BUCKET = 16;
+const DYNAMIC_CAMERA_OFFSET_BUCKET = 16;
+const DYNAMIC_WATER_CADENCE_HZ = 15;
+const DEFAULT_RENDER_CACHE_MODE: PharosVilleRenderCacheMode = "exact-zoom";
 const staticLayerCache: { entries: StaticLayerCacheEntry[] } = { entries: [] };
 const dynamicLayerCache: { entries: DynamicLayerCacheEntry[] } = { entries: [] };
-let cameraCacheKeyCache: { key: string; input: CameraCacheKeyInput } | null = null;
 let staticCameraCacheKeyCache: { key: string; input: CameraCacheKeyInput } | null = null;
+let dynamicCameraCacheKeyCache: { key: string; input: CameraCacheKeyInput } | null = null;
+let cacheGenerationKey: string | null = null;
+
+interface CameraCacheFrame {
+  keySegment: string;
+  offsetBucketPx: number;
+  paddingDprPx: number;
+  paintCamera: DrawPharosVilleInput["camera"];
+  residualOffsetX: number;
+  residualOffsetY: number;
+}
+
+interface RenderCacheFrameStats {
+  budgetEvictionCount: number;
+  budgetSkipCount: number;
+  dynamicHitCount: number;
+  dynamicMissCount: number;
+  dynamicRepaintCount: number;
+  staticHitCount: number;
+  staticMissCount: number;
+}
 
 const shipRenderStatesScratch = new Map<string, ShipRenderState>();
 const wakeDrawnShipIdsScratch = new Set<string>();
@@ -120,37 +158,29 @@ function assetLoadTickFor(input: DrawPharosVilleInput): number {
   return input.assets?.getAssetLoadProgressKey() ?? 0;
 }
 
-function cameraCacheKeySegment(input: DrawPharosVilleInput, dpr: number): string {
-  const inputKey: CameraCacheKeyInput = {
-    dprBucket: Math.max(1, Math.round(dpr * 100)),
-    height: input.height | 0,
-    offsetX: input.camera.offsetX | 0,
-    offsetY: input.camera.offsetY | 0,
-    width: input.width | 0,
-    worldId: worldIdFor(input.world),
-    zoomBucket: (input.camera.zoom * 100) | 0,
-  };
-  const cached = cameraCacheKeyCache;
-  if (
-    cached
-    && cached.input.dprBucket === inputKey.dprBucket
-    && cached.input.height === inputKey.height
-    && cached.input.offsetX === inputKey.offsetX
-    && cached.input.offsetY === inputKey.offsetY
-    && cached.input.width === inputKey.width
-    && cached.input.worldId === inputKey.worldId
-    && cached.input.zoomBucket === inputKey.zoomBucket
-  ) {
-    return cached.key;
-  }
-  const key = `${inputKey.worldId}|${inputKey.width}x${inputKey.height}|z${inputKey.zoomBucket}|o${inputKey.offsetX},${inputKey.offsetY}|d${inputKey.dprBucket}`;
-  cameraCacheKeyCache = { input: inputKey, key };
-  return key;
+function resolveRenderCacheMode(input: DrawPharosVilleInput): PharosVilleRenderCacheMode {
+  return input.cacheMode ?? DEFAULT_RENDER_CACHE_MODE;
 }
 
-function staticCameraCacheForFrame(input: DrawPharosVilleInput, dpr: number) {
-  const offsetX = Math.floor(input.camera.offsetX / STATIC_CAMERA_OFFSET_BUCKET) * STATIC_CAMERA_OFFSET_BUCKET;
-  const offsetY = Math.floor(input.camera.offsetY / STATIC_CAMERA_OFFSET_BUCKET) * STATIC_CAMERA_OFFSET_BUCKET;
+function zoomCacheKey(zoom: number, cacheMode: PharosVilleRenderCacheMode): string {
+  const safeZoom = Number.isFinite(zoom) ? Math.max(0, zoom) : 1;
+  if (cacheMode === "bucketed") return `b${(safeZoom * 100) | 0}`;
+  return `x${safeZoom.toFixed(5)}`;
+}
+
+function zoomKeyModeFor(cacheMode: PharosVilleRenderCacheMode): PharosVilleRenderZoomKeyMode {
+  return cacheMode === "bucketed" ? "bucketed-percent" : "exact";
+}
+
+function cameraCacheKeySegment(
+  input: DrawPharosVilleInput,
+  dpr: number,
+  cacheMode: PharosVilleRenderCacheMode,
+  offsetBucketPx: number,
+  cacheRef: "dynamic" | "static",
+): CameraCacheFrame {
+  const offsetX = Math.floor(input.camera.offsetX / offsetBucketPx) * offsetBucketPx;
+  const offsetY = Math.floor(input.camera.offsetY / offsetBucketPx) * offsetBucketPx;
   const residualOffsetX = input.camera.offsetX - offsetX;
   const residualOffsetY = input.camera.offsetY - offsetY;
   const inputKey: CameraCacheKeyInput = {
@@ -160,9 +190,11 @@ function staticCameraCacheForFrame(input: DrawPharosVilleInput, dpr: number) {
     offsetY,
     width: input.width | 0,
     worldId: worldIdFor(input.world),
-    zoomBucket: (input.camera.zoom * 100) | 0,
+    zoomKey: zoomCacheKey(input.camera.zoom, cacheMode),
   };
-  const cached = staticCameraCacheKeyCache;
+  const cached = cacheRef === "static"
+    ? staticCameraCacheKeyCache
+    : dynamicCameraCacheKeyCache;
   if (
     cached
     && cached.input.dprBucket === inputKey.dprBucket
@@ -171,35 +203,55 @@ function staticCameraCacheForFrame(input: DrawPharosVilleInput, dpr: number) {
     && cached.input.offsetY === inputKey.offsetY
     && cached.input.width === inputKey.width
     && cached.input.worldId === inputKey.worldId
-    && cached.input.zoomBucket === inputKey.zoomBucket
+    && cached.input.zoomKey === inputKey.zoomKey
   ) {
     return {
-      ...cached,
       keySegment: cached.key,
+      offsetBucketPx,
+      paddingDprPx: offsetBucketPx * inputKey.dprBucket / 100,
       paintCamera: {
         ...input.camera,
         offsetX,
         offsetY,
       },
-      paddingDprPx: STATIC_CAMERA_OFFSET_BUCKET * Math.max(1, Math.round(dpr * 100)) / 100,
       residualOffsetX,
       residualOffsetY,
     };
   }
-  const key = `${inputKey.worldId}|${inputKey.width}x${inputKey.height}|z${inputKey.zoomBucket}|o${inputKey.offsetX},${inputKey.offsetY}|d${inputKey.dprBucket}`;
-  const keySegment = key;
-  staticCameraCacheKeyCache = { input: inputKey, key };
+  const key = `${inputKey.worldId}|${inputKey.width}x${inputKey.height}|z${inputKey.zoomKey}|o${inputKey.offsetX},${inputKey.offsetY}|d${inputKey.dprBucket}`;
+  if (cacheRef === "static") {
+    staticCameraCacheKeyCache = { input: inputKey, key };
+  } else {
+    dynamicCameraCacheKeyCache = { input: inputKey, key };
+  }
   return {
-    keySegment,
+    keySegment: key,
+    offsetBucketPx,
+    paddingDprPx: offsetBucketPx * inputKey.dprBucket / 100,
     paintCamera: {
       ...input.camera,
       offsetX,
       offsetY,
     },
-    paddingDprPx: STATIC_CAMERA_OFFSET_BUCKET * Math.max(1, Math.round(dpr * 100)) / 100,
     residualOffsetX,
     residualOffsetY,
   };
+}
+
+function staticCameraCacheForFrame(
+  input: DrawPharosVilleInput,
+  dpr: number,
+  cacheMode: PharosVilleRenderCacheMode,
+): CameraCacheFrame {
+  return cameraCacheKeySegment(input, dpr, cacheMode, STATIC_CAMERA_OFFSET_BUCKET, "static");
+}
+
+function dynamicCameraCacheForFrame(
+  input: DrawPharosVilleInput,
+  dpr: number,
+  cacheMode: PharosVilleRenderCacheMode,
+): CameraCacheFrame {
+  return cameraCacheKeySegment(input, dpr, cacheMode, DYNAMIC_CAMERA_OFFSET_BUCKET, "dynamic");
 }
 
 /**
@@ -211,8 +263,7 @@ function staticCameraCacheForFrame(input: DrawPharosVilleInput, dpr: number) {
  * See `docs/pharosville/ASSET_PIPELINE.md` (manifest schema v2).
  */
 function staticCacheKey(input: DrawPharosVilleInput, scope: StaticCacheScope, cameraCacheKeySegment: string): string {
-  const manifest = input.assets?.getManifest();
-  const cv = manifest ? manifestCacheVersion(manifest) : "0";
+  const cv = manifestCacheVersionForInput(input);
   return `${scope}|${cameraCacheKeySegment}|a${assetLoadTickFor(input)}|cv${cv}`;
 }
 
@@ -222,10 +273,10 @@ function dynamicCacheKey(scope: DynamicCacheScope, cameraCacheKeySegment: string
 
 function dynamicWaterPhaseBucket(input: DrawPharosVilleInput): number {
   if (input.motion.reducedMotion) return 0;
-  // 10 Hz is visually indistinguishable from 24 Hz for the sin-modulated
-  // water overlays but cuts dynamic-cache repaint cost by ~58%.
-  const cadenceHz = 10;
-  return Math.floor(input.motion.timeSeconds * cadenceHz);
+  // Pan-friendly cache bucketing keeps small camera moves from repainting this
+  // layer, which leaves enough headroom to raise the whole-water cadence above
+  // the old 10 Hz step without touching terrain internals.
+  return Math.floor(input.motion.timeSeconds * DYNAMIC_WATER_CADENCE_HZ);
 }
 
 function createStaticCacheCanvas(width: number, height: number): HTMLCanvasElement | null {
@@ -234,6 +285,88 @@ function createStaticCacheCanvas(width: number, height: number): HTMLCanvasEleme
   canvas.width = Math.max(1, width);
   canvas.height = Math.max(1, height);
   return canvas;
+}
+
+function mainBackingPixelsForInput(input: DrawPharosVilleInput, dpr: number): number {
+  return canvasPixelArea(Math.max(1, Math.round(input.width * dpr)), Math.max(1, Math.round(input.height * dpr)));
+}
+
+function cacheCanvasPixels(canvas: HTMLCanvasElement): number {
+  return canvasPixelArea(canvas.width, canvas.height);
+}
+
+function staticCachePixels(): number {
+  let pixels = 0;
+  for (const entry of staticLayerCache.entries) pixels += cacheCanvasPixels(entry.canvas);
+  return pixels;
+}
+
+function dynamicCachePixels(): number {
+  let pixels = 0;
+  for (const entry of dynamicLayerCache.entries) pixels += cacheCanvasPixels(entry.canvas);
+  return pixels;
+}
+
+function totalOffscreenCachePixels(): number {
+  return staticCachePixels() + dynamicCachePixels();
+}
+
+function cacheEntryId(kind: "dynamic" | "static", key: string): string {
+  return `${kind}:${key}`;
+}
+
+function manifestCacheVersionForInput(input: DrawPharosVilleInput): string {
+  const manifest = input.assets?.getManifest();
+  return manifest ? manifestCacheVersion(manifest) : "0";
+}
+
+function ensureRendererCacheGeneration(input: DrawPharosVilleInput, dpr: number): void {
+  const dprBucket = Math.max(1, Math.round(dpr * 100));
+  const nextGenerationKey = [
+    worldIdFor(input.world),
+    `${input.width | 0}x${input.height | 0}`,
+    `d${dprBucket}`,
+    `m${resolveRenderCacheMode(input)}`,
+    `a${assetLoadTickFor(input)}`,
+    `cv${manifestCacheVersionForInput(input)}`,
+  ].join("|");
+  if (cacheGenerationKey === nextGenerationKey) return;
+  clearRendererCaches();
+  cacheGenerationKey = nextGenerationKey;
+}
+
+function clearRendererCaches(): void {
+  staticLayerCache.entries = [];
+  dynamicLayerCache.entries = [];
+  staticCameraCacheKeyCache = null;
+  dynamicCameraCacheKeyCache = null;
+}
+
+function reserveCacheCanvas(input: {
+  candidateHeight: number;
+  candidateWidth: number;
+  frame: WorldCanvasFrame;
+  mainCanvasPixels: number;
+}): HTMLCanvasElement | null {
+  const candidatePixels = canvasPixelArea(input.candidateWidth, input.candidateHeight);
+  const availableOffscreenPixels = Math.max(0, MAX_TOTAL_BACKING_PIXELS - input.mainCanvasPixels);
+  if (candidatePixels <= 0 || candidatePixels > availableOffscreenPixels) {
+    input.frame.cacheStats.budgetSkipCount += 1;
+    return null;
+  }
+
+  let reusableCanvas: HTMLCanvasElement | null = null;
+  while (input.mainCanvasPixels + totalOffscreenCachePixels() + candidatePixels > MAX_TOTAL_BACKING_PIXELS) {
+    const evicted = evictOldestCacheEntry(input.frame.protectedCacheEntryKeys);
+    if (!evicted) {
+      input.frame.cacheStats.budgetSkipCount += 1;
+      return null;
+    }
+    input.frame.cacheStats.budgetEvictionCount += 1;
+    if (!reusableCanvas) reusableCanvas = evicted.canvas;
+  }
+
+  return reusableCanvas ?? createStaticCacheCanvas(input.candidateWidth, input.candidateHeight);
 }
 
 function paintStaticTerrainPass(input: DrawPharosVilleInput) {
@@ -287,14 +420,19 @@ function drawStaticPassCached(
   const cached = staticLayerCache.entries.find((entry) => entry.key === key);
   if (cached) {
     cached.lastUsed = performance.now();
+    frame.cacheStats.staticHitCount += 1;
+    frame.protectedCacheEntryKeys.add(cacheEntryId("static", cached.key));
     blitStaticCanvas(ctx, cached.canvas, backingWidth, backingHeight, sourceX, sourceY);
     return;
   }
+  frame.cacheStats.staticMissCount += 1;
 
-  const reusableEntry = staticLayerCache.entries.length >= STATIC_CACHE_MAX
-    ? evictOldestStaticEntry()
-    : null;
-  const offCanvas = reusableEntry?.canvas ?? createStaticCacheCanvas(cachedWidth, cachedHeight);
+  const offCanvas = reserveCacheCanvas({
+    candidateHeight: cachedHeight,
+    candidateWidth: cachedWidth,
+    frame,
+    mainCanvasPixels: mainBackingPixelsForInput(input, dpr),
+  });
   if (!offCanvas) {
     paint(paintInput, frame);
     return;
@@ -312,6 +450,7 @@ function drawStaticPassCached(
   paint({ ...paintInput, ctx: offCtx }, frame);
   blitStaticCanvas(ctx, offCanvas, backingWidth, backingHeight, sourceX, sourceY);
   staticLayerCache.entries.push({ canvas: offCanvas, key, lastUsed: performance.now() });
+  frame.protectedCacheEntryKeys.add(cacheEntryId("static", key));
 }
 
 function drawDynamicPassCached(
@@ -321,24 +460,39 @@ function drawDynamicPassCached(
   paint: (input: DrawPharosVilleInput) => void,
 ) {
   const { ctx, width, height } = input;
-  const { dynamicCameraCacheKeySegment, dpr } = frame;
+  const { dynamicCameraCache: dynamicCamera, dpr } = frame;
   const backingWidth = Math.max(1, Math.round(width * dpr));
   const backingHeight = Math.max(1, Math.round(height * dpr));
-  const key = dynamicCacheKey(scope, dynamicCameraCacheKeySegment);
+  const key = dynamicCacheKey(scope, dynamicCamera.keySegment);
   const phaseBucket = dynamicWaterPhaseBucket(input);
+  const cachedPad = dynamicCamera.paddingDprPx;
+  const backingPadWidth = Math.max(0, Math.round(cachedPad));
+  const backingPadHeight = Math.max(0, Math.round(cachedPad));
+  const cachedWidth = backingWidth + backingPadWidth * 2;
+  const cachedHeight = backingHeight + backingPadHeight * 2;
+  const paintInput = {
+    ...input,
+    camera: dynamicCamera.paintCamera,
+  };
+  const sourceX = Math.max(0, Math.min(backingPadWidth, backingPadWidth - Math.round(dynamicCamera.residualOffsetX * dpr)));
+  const sourceY = Math.max(0, Math.min(backingPadHeight, backingPadHeight - Math.round(dynamicCamera.residualOffsetY * dpr)));
 
   const cached = dynamicLayerCache.entries.find((entry) => entry.key === key);
   if (cached && cached.lastPhaseBucket === phaseBucket) {
     cached.lastUsed = performance.now();
-    blitStaticCanvas(ctx, cached.canvas, backingWidth, backingHeight);
+    frame.cacheStats.dynamicHitCount += 1;
+    frame.protectedCacheEntryKeys.add(cacheEntryId("dynamic", cached.key));
+    blitStaticCanvas(ctx, cached.canvas, backingWidth, backingHeight, sourceX, sourceY);
     return;
   }
+  frame.cacheStats.dynamicMissCount += 1;
 
-  const targetEntry = cached ?? prepareDynamicCacheEntry(key, backingWidth, backingHeight);
+  const targetEntry = cached ?? prepareDynamicCacheEntry(key, cachedWidth, cachedHeight, frame, mainBackingPixelsForInput(input, dpr));
   if (!targetEntry) {
     paint(input);
     return;
   }
+  frame.protectedCacheEntryKeys.add(cacheEntryId("dynamic", targetEntry.key));
 
   const offCtx = targetEntry.canvas.getContext("2d", { alpha: true });
   if (!offCtx) {
@@ -346,26 +500,33 @@ function drawDynamicPassCached(
     return;
   }
   offCtx.setTransform(1, 0, 0, 1, 0, 0);
-  offCtx.clearRect(0, 0, backingWidth, backingHeight);
-  offCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  paint({ ...input, ctx: offCtx });
+  offCtx.clearRect(0, 0, cachedWidth, cachedHeight);
+  offCtx.setTransform(dpr, 0, 0, dpr, backingPadWidth, backingPadHeight);
+  paint({ ...paintInput, ctx: offCtx });
 
   targetEntry.lastPhaseBucket = phaseBucket;
   targetEntry.lastUsed = performance.now();
-  blitStaticCanvas(ctx, targetEntry.canvas, backingWidth, backingHeight);
+  frame.cacheStats.dynamicRepaintCount += 1;
+  blitStaticCanvas(ctx, targetEntry.canvas, backingWidth, backingHeight, sourceX, sourceY);
 }
 
-function prepareDynamicCacheEntry(key: string, backingWidth: number, backingHeight: number): DynamicLayerCacheEntry | null {
-  const reusableEntry = dynamicLayerCache.entries.length >= DYNAMIC_CACHE_MAX
-    ? evictOldestDynamicEntry()
-    : null;
-  const offCanvas = reusableEntry?.canvas ?? createStaticCacheCanvas(backingWidth, backingHeight);
+function prepareDynamicCacheEntry(
+  key: string,
+  backingWidth: number,
+  backingHeight: number,
+  frame: WorldCanvasFrame,
+  mainCanvasPixels: number,
+): DynamicLayerCacheEntry | null {
+  const offCanvas = reserveCacheCanvas({
+    candidateHeight: backingHeight,
+    candidateWidth: backingWidth,
+    frame,
+    mainCanvasPixels,
+  });
   if (!offCanvas) return null;
   if (offCanvas.width !== backingWidth) offCanvas.width = backingWidth;
   if (offCanvas.height !== backingHeight) offCanvas.height = backingHeight;
-  const nextEntry: DynamicLayerCacheEntry = reusableEntry
-    ? { ...reusableEntry, canvas: offCanvas, key, lastPhaseBucket: Number.NaN, lastUsed: performance.now() }
-    : { canvas: offCanvas, key, lastPhaseBucket: Number.NaN, lastUsed: performance.now() };
+  const nextEntry: DynamicLayerCacheEntry = { canvas: offCanvas, key, lastPhaseBucket: Number.NaN, lastUsed: performance.now() };
   dynamicLayerCache.entries.push(nextEntry);
   return nextEntry;
 }
@@ -384,26 +545,72 @@ function blitStaticCanvas(
   ctx.restore();
 }
 
-function evictOldestStaticEntry(): StaticLayerCacheEntry | null {
-  if (staticLayerCache.entries.length === 0) return null;
-  let oldestIndex = 0;
-  for (let index = 1; index < staticLayerCache.entries.length; index += 1) {
-    if (staticLayerCache.entries[index]!.lastUsed < staticLayerCache.entries[oldestIndex]!.lastUsed) {
+function evictOldestCacheEntry(protectedEntryKeys: ReadonlySet<string>): { canvas: HTMLCanvasElement } | null {
+  let oldestKind: "dynamic" | "static" | null = null;
+  let oldestIndex = -1;
+  let oldestLastUsed = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < staticLayerCache.entries.length; index += 1) {
+    const entry = staticLayerCache.entries[index]!;
+    if (protectedEntryKeys.has(cacheEntryId("static", entry.key))) continue;
+    if (entry.lastUsed < oldestLastUsed) {
+      oldestKind = "static";
       oldestIndex = index;
+      oldestLastUsed = entry.lastUsed;
     }
   }
-  return staticLayerCache.entries.splice(oldestIndex, 1)[0] ?? null;
+  for (let index = 0; index < dynamicLayerCache.entries.length; index += 1) {
+    const entry = dynamicLayerCache.entries[index]!;
+    if (protectedEntryKeys.has(cacheEntryId("dynamic", entry.key))) continue;
+    if (entry.lastUsed < oldestLastUsed) {
+      oldestKind = "dynamic";
+      oldestIndex = index;
+      oldestLastUsed = entry.lastUsed;
+    }
+  }
+  if (oldestKind === "static") {
+    const entry = staticLayerCache.entries.splice(oldestIndex, 1)[0];
+    return entry ? { canvas: entry.canvas } : null;
+  }
+  if (oldestKind === "dynamic") {
+    const entry = dynamicLayerCache.entries.splice(oldestIndex, 1)[0];
+    return entry ? { canvas: entry.canvas } : null;
+  }
+  return null;
 }
 
-function evictOldestDynamicEntry(): DynamicLayerCacheEntry | null {
-  if (dynamicLayerCache.entries.length === 0) return null;
-  let oldestIndex = 0;
-  for (let index = 1; index < dynamicLayerCache.entries.length; index += 1) {
-    if (dynamicLayerCache.entries[index]!.lastUsed < dynamicLayerCache.entries[oldestIndex]!.lastUsed) {
-      oldestIndex = index;
-    }
-  }
-  return dynamicLayerCache.entries.splice(oldestIndex, 1)[0] ?? null;
+function createRenderCacheFrameStats(): RenderCacheFrameStats {
+  return {
+    budgetEvictionCount: 0,
+    budgetSkipCount: 0,
+    dynamicHitCount: 0,
+    dynamicMissCount: 0,
+    dynamicRepaintCount: 0,
+    staticHitCount: 0,
+    staticMissCount: 0,
+  };
+}
+
+function renderCacheMetricsForFrame(frame: WorldCanvasFrame): PharosVilleRenderCacheMetrics {
+  return {
+    ...frame.cacheStats,
+    cacheMode: frame.cacheMode,
+    dynamicCameraOffsetBucketPx: DYNAMIC_CAMERA_OFFSET_BUCKET,
+    dynamicWaterCadenceHz: DYNAMIC_WATER_CADENCE_HZ,
+    staticCameraOffsetBucketPx: STATIC_CAMERA_OFFSET_BUCKET,
+    zoomKeyMode: frame.zoomKeyMode,
+  };
+}
+
+function backingMetricsForInput(input: DrawPharosVilleInput, dpr: number) {
+  return resolveCanvasBackingPixelMetrics({
+    dynamicCacheEntryCount: dynamicLayerCache.entries.length,
+    dynamicCachePixels: dynamicCachePixels(),
+    mainCanvasPixels: mainBackingPixelsForInput(input, dpr),
+    maxMainCanvasPixels: MAX_MAIN_CANVAS_PIXELS,
+    maxTotalBackingPixels: MAX_TOTAL_BACKING_PIXELS,
+    staticCacheEntryCount: staticLayerCache.entries.length,
+    staticCachePixels: staticCachePixels(),
+  });
 }
 
 /**
@@ -463,6 +670,8 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
     }
   }
   return {
+    backing: backingMetricsForInput(input, frame.dpr),
+    cache: renderCacheMetricsForFrame(frame),
     drawableCount: entityMetrics.drawableCount + selectionDrawableCount,
     drawableCounts,
     movingShipCount,
@@ -473,6 +682,8 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
 
 function createWorldCanvasFrame(input: DrawPharosVilleInput): WorldCanvasFrame {
   const dpr = input.dpr && input.dpr > 0 ? input.dpr : 1;
+  ensureRendererCacheGeneration(input, dpr);
+  const cacheMode = resolveRenderCacheMode(input);
   shipRenderStatesScratch.clear();
   wakeDrawnShipIdsScratch.clear();
   flagshipByIdScratch.clear();
@@ -485,17 +696,21 @@ function createWorldCanvasFrame(input: DrawPharosVilleInput): WorldCanvasFrame {
     }
   }
   return {
-    dynamicCameraCacheKeySegment: cameraCacheKeySegment(input, dpr),
-    staticCameraCache: staticCameraCacheForFrame(input, dpr),
+    cacheMode,
+    cacheStats: createRenderCacheFrameStats(),
     dpr,
+    dynamicCameraCache: dynamicCameraCacheForFrame(input, dpr, cacheMode),
     cache: createRenderFrameCache(input),
     dockRenderStates: dockRenderStatesScratch,
     graveRenderStates: graveRenderStatesScratch,
     lighthouseRender: lighthouseRenderState(input),
+    protectedCacheEntryKeys: new Set<string>(),
     shipRenderStates: shipRenderStatesScratch,
+    staticCameraCache: staticCameraCacheForFrame(input, dpr, cacheMode),
     visibleShips,
     wakeDrawnShipIds: wakeDrawnShipIdsScratch,
     flagshipById: flagshipByIdScratch,
+    zoomKeyMode: zoomKeyModeFor(cacheMode),
   };
 }
 

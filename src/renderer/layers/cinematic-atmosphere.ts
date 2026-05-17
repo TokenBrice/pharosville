@@ -49,6 +49,12 @@ const BAYER_8 = [
 
 let scanlineTileCanvas: HTMLCanvasElement | null | undefined;
 let grainTileCanvas: HTMLCanvasElement | null | undefined;
+const ATMOSPHERIC_FADE_GRADIENT_CACHE_LIMIT = 24;
+const atmosphericFadeGradientCacheByContext = new WeakMap<CanvasRenderingContext2D, Map<string, CanvasGradient>>();
+const patternCacheByContext = new WeakMap<CanvasRenderingContext2D, {
+  grain?: CanvasPattern | null;
+  scanlines?: CanvasPattern | null;
+}>();
 
 export function drawAtmosphericFade(input: DrawPharosVilleInput, nightFactor: number): void {
   if (input.width <= 0 || input.height <= 0) return;
@@ -57,17 +63,16 @@ export function drawAtmosphericFade(input: DrawPharosVilleInput, nightFactor: nu
 
   const anchor = atmosphericFadeAnchorScreen(input);
   const radius = Math.max(1, farthestViewportCornerDistance(anchor, input.width, input.height));
-  const gradient = input.ctx.createRadialGradient(
-    anchor.x,
-    anchor.y,
-    Math.max(36, 84 * input.camera.zoom),
-    anchor.x,
-    anchor.y,
-    radius,
-  );
-  gradient.addColorStop(0, rgba(ATMOSPHERIC_FADE_COLOR, 0));
-  gradient.addColorStop(0.58, rgba(ATMOSPHERIC_FADE_COLOR, alpha * 0.34));
-  gradient.addColorStop(1, rgba(ATMOSPHERIC_FADE_COLOR, alpha));
+  const gradient = atmosphericFadeGradient(input.ctx, {
+    alpha,
+    anchorX: anchor.x,
+    anchorY: anchor.y,
+    dpr: input.dpr,
+    height: input.height,
+    innerRadius: Math.max(36, 84 * input.camera.zoom),
+    outerRadius: radius,
+    width: input.width,
+  });
 
   input.ctx.save();
   input.ctx.fillStyle = gradient;
@@ -211,7 +216,7 @@ export function orderedDitherThreshold(x: number, y: number): number {
 function drawScanlines(ctx: CanvasRenderingContext2D, width: number, height: number): void {
   ctx.save();
   ctx.globalCompositeOperation = "multiply";
-  const pattern = patternFromCanvas(ctx, scanlineTile());
+  const pattern = cachedPattern(ctx, "scanlines", scanlineTile());
   if (pattern) {
     ctx.fillStyle = pattern;
     ctx.fillRect(0, 0, width, height);
@@ -225,7 +230,7 @@ function drawScanlines(ctx: CanvasRenderingContext2D, width: number, height: num
 }
 
 function drawOrderedDitherGrain(ctx: CanvasRenderingContext2D, width: number, height: number): void {
-  const pattern = patternFromCanvas(ctx, grainTile());
+  const pattern = cachedPattern(ctx, "grain", grainTile());
   if (!pattern) return;
   ctx.save();
   ctx.globalAlpha = FILM_GRAIN_ALPHA;
@@ -330,6 +335,88 @@ function createTileCanvas(width: number, height: number): HTMLCanvasElement | nu
 function patternFromCanvas(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement | null): CanvasPattern | null {
   if (!canvas) return null;
   return ctx.createPattern(canvas, "repeat");
+}
+
+function cachedPattern(
+  ctx: CanvasRenderingContext2D,
+  kind: "grain" | "scanlines",
+  canvas: HTMLCanvasElement | null,
+): CanvasPattern | null {
+  if (!canvas) return null;
+  let cache = patternCacheByContext.get(ctx);
+  if (!cache) {
+    cache = {};
+    patternCacheByContext.set(ctx, cache);
+  }
+  const cached = cache[kind];
+  if (cached !== undefined) return cached;
+  const pattern = patternFromCanvas(ctx, canvas);
+  cache[kind] = pattern;
+  return pattern;
+}
+
+function atmosphericFadeGradient(
+  ctx: CanvasRenderingContext2D,
+  params: {
+    alpha: number;
+    anchorX: number;
+    anchorY: number;
+    dpr?: number;
+    height: number;
+    innerRadius: number;
+    outerRadius: number;
+    width: number;
+  },
+): CanvasGradient {
+  const alphaBucket = Math.round(clamp01(params.alpha) * 1000);
+  const key = [
+    Math.round(params.width),
+    Math.round(params.height),
+    dprBucket(params.dpr),
+    Math.round(params.anchorX),
+    Math.round(params.anchorY),
+    Math.round(params.innerRadius),
+    Math.round(params.outerRadius),
+    alphaBucket,
+  ].join(":");
+  const cache = atmosphericFadeCacheForContext(ctx);
+  const cached = cache.get(key);
+  if (cached) return cached;
+
+  const alpha = alphaBucket / 1000;
+  const gradient = ctx.createRadialGradient(
+    params.anchorX,
+    params.anchorY,
+    Math.max(1, params.innerRadius),
+    params.anchorX,
+    params.anchorY,
+    Math.max(1, params.outerRadius),
+  );
+  gradient.addColorStop(0, rgba(ATMOSPHERIC_FADE_COLOR, 0));
+  gradient.addColorStop(0.58, rgba(ATMOSPHERIC_FADE_COLOR, alpha * 0.34));
+  gradient.addColorStop(1, rgba(ATMOSPHERIC_FADE_COLOR, alpha));
+  cache.set(key, gradient);
+  trimOldest(cache, ATMOSPHERIC_FADE_GRADIENT_CACHE_LIMIT);
+  return gradient;
+}
+
+function atmosphericFadeCacheForContext(ctx: CanvasRenderingContext2D): Map<string, CanvasGradient> {
+  let cache = atmosphericFadeGradientCacheByContext.get(ctx);
+  if (!cache) {
+    cache = new Map();
+    atmosphericFadeGradientCacheByContext.set(ctx, cache);
+  }
+  return cache;
+}
+
+function trimOldest<TKey, TValue>(cache: Map<TKey, TValue>, limit: number): void {
+  if (cache.size <= limit) return;
+  const oldest = cache.keys().next().value;
+  if (oldest !== undefined) cache.delete(oldest);
+}
+
+function dprBucket(dpr?: number): number {
+  return Math.max(1, Math.round((dpr && dpr > 0 ? dpr : 1) * 100));
 }
 
 function rgba(color: typeof ATMOSPHERIC_FADE_COLOR, alpha: number): string {

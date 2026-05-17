@@ -20,8 +20,12 @@ export interface PharosVilleCanvasMotion {
   wallClockHour: number;
 }
 
+export type PharosVilleRenderCacheMode = "bucketed" | "exact-zoom";
+export type PharosVilleRenderZoomKeyMode = "bucketed-percent" | "exact";
+
 export interface DrawPharosVilleInput {
   assets: PharosVilleAssetManager | null;
+  cacheMode?: PharosVilleRenderCacheMode;
   camera: IsoCamera;
   ctx: CanvasRenderingContext2D;
   dpr?: number;
@@ -36,7 +40,39 @@ export interface DrawPharosVilleInput {
   world: PharosVilleWorld;
 }
 
+export interface PharosVilleBackingMetrics {
+  dynamicCacheEntryCount: number;
+  dynamicCachePixels: number;
+  mainCanvasPixels: number;
+  maxMainCanvasPixels: number;
+  maxTotalBackingPixels: number;
+  offscreenCachePixels: number;
+  overBudgetPixels: number;
+  remainingOffscreenPixels: number;
+  staticCacheEntryCount: number;
+  staticCachePixels: number;
+  totalBackingPixels: number;
+  totalCacheEntryCount: number;
+}
+
+export interface PharosVilleRenderCacheMetrics {
+  budgetEvictionCount: number;
+  budgetSkipCount: number;
+  cacheMode: PharosVilleRenderCacheMode;
+  dynamicCameraOffsetBucketPx: number;
+  dynamicHitCount: number;
+  dynamicMissCount: number;
+  dynamicRepaintCount: number;
+  dynamicWaterCadenceHz: number;
+  staticCameraOffsetBucketPx: number;
+  staticHitCount: number;
+  staticMissCount: number;
+  zoomKeyMode: PharosVilleRenderZoomKeyMode;
+}
+
 export interface PharosVilleRenderMetrics {
+  backing?: PharosVilleBackingMetrics;
+  cache?: PharosVilleRenderCacheMetrics;
   drawableCounts: Record<WorldDrawablePass, number>;
   drawableCount: number;
   movingShipCount: number;

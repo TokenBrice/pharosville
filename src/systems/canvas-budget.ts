@@ -31,6 +31,21 @@ export interface AdaptiveDprState {
   upshiftStreak: number;
 }
 
+export interface CanvasBackingPixelMetrics {
+  dynamicCacheEntryCount: number;
+  dynamicCachePixels: number;
+  mainCanvasPixels: number;
+  maxMainCanvasPixels: number;
+  maxTotalBackingPixels: number;
+  offscreenCachePixels: number;
+  overBudgetPixels: number;
+  remainingOffscreenPixels: number;
+  staticCacheEntryCount: number;
+  staticCachePixels: number;
+  totalBackingPixels: number;
+  totalCacheEntryCount: number;
+}
+
 export function createDrawDurationWindow(capacity = ADAPTIVE_DPR_WINDOW_SIZE): DrawDurationWindow {
   return {
     capacity: Math.max(1, Math.floor(capacity)),
@@ -129,6 +144,63 @@ export function resolveAdaptiveDprState(input: {
 
 function quantizeDpr(value: number): number {
   return Math.round(value / ADAPTIVE_DPR_STEP) * ADAPTIVE_DPR_STEP;
+}
+
+export function canvasPixelArea(width: number, height: number): number {
+  const safeWidth = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 0;
+  const safeHeight = Number.isFinite(height) ? Math.max(0, Math.floor(height)) : 0;
+  return safeWidth * safeHeight;
+}
+
+export function resolveCanvasBackingPixelMetrics(input: {
+  dynamicCacheEntryCount?: number;
+  dynamicCachePixels?: number;
+  mainCanvasPixels: number;
+  maxMainCanvasPixels?: number;
+  maxTotalBackingPixels?: number;
+  staticCacheEntryCount?: number;
+  staticCachePixels?: number;
+}): CanvasBackingPixelMetrics {
+  const mainCanvasPixels = Math.max(0, Math.floor(input.mainCanvasPixels));
+  const staticCachePixels = Math.max(0, Math.floor(input.staticCachePixels ?? 0));
+  const dynamicCachePixels = Math.max(0, Math.floor(input.dynamicCachePixels ?? 0));
+  const maxMainCanvasPixels = Math.max(1, Math.floor(input.maxMainCanvasPixels ?? MAX_MAIN_CANVAS_PIXELS));
+  const maxTotalBackingPixels = Math.max(maxMainCanvasPixels, Math.floor(input.maxTotalBackingPixels ?? MAX_TOTAL_BACKING_PIXELS));
+  const offscreenCachePixels = staticCachePixels + dynamicCachePixels;
+  const totalBackingPixels = mainCanvasPixels + offscreenCachePixels;
+  const remainingOffscreenPixels = Math.max(0, maxTotalBackingPixels - mainCanvasPixels - offscreenCachePixels);
+  return {
+    dynamicCacheEntryCount: Math.max(0, Math.floor(input.dynamicCacheEntryCount ?? 0)),
+    dynamicCachePixels,
+    mainCanvasPixels,
+    maxMainCanvasPixels,
+    maxTotalBackingPixels,
+    offscreenCachePixels,
+    overBudgetPixels: Math.max(0, totalBackingPixels - maxTotalBackingPixels),
+    remainingOffscreenPixels,
+    staticCacheEntryCount: Math.max(0, Math.floor(input.staticCacheEntryCount ?? 0)),
+    staticCachePixels,
+    totalBackingPixels,
+    totalCacheEntryCount: Math.max(0, Math.floor((input.staticCacheEntryCount ?? 0) + (input.dynamicCacheEntryCount ?? 0))),
+  };
+}
+
+export function canRetainOffscreenCanvas(input: {
+  candidatePixels: number;
+  currentDynamicCachePixels?: number;
+  currentStaticCachePixels?: number;
+  mainCanvasPixels: number;
+  maxTotalBackingPixels?: number;
+}): boolean {
+  const candidatePixels = Math.max(0, Math.floor(input.candidatePixels));
+  if (candidatePixels <= 0) return true;
+  const metrics = resolveCanvasBackingPixelMetrics({
+    dynamicCachePixels: input.currentDynamicCachePixels ?? 0,
+    mainCanvasPixels: input.mainCanvasPixels,
+    maxTotalBackingPixels: input.maxTotalBackingPixels,
+    staticCachePixels: input.currentStaticCachePixels ?? 0,
+  });
+  return candidatePixels <= metrics.remainingOffscreenPixels;
 }
 
 export function resolveCanvasBudget(input: {

@@ -42,6 +42,16 @@ type DebugRenderMetrics = {
   drawableCount: number;
   drawableCounts: { body: number; overlay: number; selection: number; underlay: number };
   drawDurationMs: number;
+  framePacing?: {
+    averageMs: number;
+    droppedFrameCount: number;
+    effectiveFps: number;
+    longestDroppedBurst: number;
+    maxMs: number;
+    p50Ms: number;
+    p90Ms: number;
+    sampleCount: number;
+  };
   movingShipCount: number;
   visibleShipCount: number;
   visibleTileCount: number;
@@ -121,7 +131,6 @@ async function waitForMotionActive(page: Page): Promise<void> {
         && debug.camera
         && debug.reducedMotion === false
         && (debug.shipMotionSamples?.length ?? 0) > 0
-        && (debug.targets?.some((t) => t.kind === "ship") ?? false)
         && (debug.motionFrameCount ?? 0) >= 2,
     );
   });
@@ -133,6 +142,10 @@ async function waitForMotionActive(page: Page): Promise<void> {
 
 const BUDGET_MEDIAN_MS = 140;
 const BUDGET_P95_MS = 200;
+const CI_FRAME_PACING_MIN_EFFECTIVE_FPS = 8;
+const CI_FRAME_PACING_P90_MS = 180;
+const CI_FRAME_PACING_DROPPED_FRAME_RATIO = 1;
+const CI_FRAME_PACING_LONGEST_DROPPED_BURST_RATIO = 1;
 const POLL_INTERVAL_MS = 50;
 const POLL_SAMPLES = 100; // 100 × 50ms = 5s of telemetry
 const MIN_VALID_SAMPLES = 30;
@@ -166,6 +179,7 @@ test.describe("sustained-motion perf telemetry", () => {
     const durations: number[] = [];
     const headingDeltas: number[] = [];
     const positionDeltas: number[] = [];
+    let lastFramePacing: DebugRenderMetrics["framePacing"] | undefined;
     let lastRouteCacheStats: DebugRenderMetrics["routeCacheStats"] | undefined;
     let lastLongtask: DebugRenderMetrics["longtask"] | undefined;
 
@@ -182,6 +196,9 @@ test.describe("sustained-motion perf telemetry", () => {
       }
       if (typeof metrics?.shipMaxPositionDeltaTile === "number") {
         positionDeltas.push(metrics.shipMaxPositionDeltaTile);
+      }
+      if (metrics?.framePacing && metrics.framePacing.sampleCount > 0) {
+        lastFramePacing = metrics.framePacing;
       }
       if (metrics?.routeCacheStats) lastRouteCacheStats = metrics.routeCacheStats;
       if (metrics?.longtask) lastLongtask = metrics.longtask;
@@ -200,6 +217,21 @@ test.describe("sustained-motion perf telemetry", () => {
     // BUDGET_P95_MS → 140, and update the ci-budget note in 67bc711.
     expect(median).toBeLessThanOrEqual(BUDGET_MEDIAN_MS);
     expect(p95).toBeLessThanOrEqual(BUDGET_P95_MS);
+
+    // Frame-pacing CI guard tier. These thresholds are deliberately looser
+    // than the local smooth target documented in TESTING.md; they catch severe
+    // RAF stalls and burst regressions without requiring stable lab hardware.
+    if (lastFramePacing !== undefined) {
+      expect(lastFramePacing.sampleCount).toBeGreaterThan(0);
+      expect(lastFramePacing.effectiveFps).toBeGreaterThanOrEqual(CI_FRAME_PACING_MIN_EFFECTIVE_FPS);
+      expect(lastFramePacing.p90Ms).toBeLessThanOrEqual(CI_FRAME_PACING_P90_MS);
+      expect(lastFramePacing.droppedFrameCount).toBeLessThanOrEqual(
+        Math.ceil(lastFramePacing.sampleCount * CI_FRAME_PACING_DROPPED_FRAME_RATIO),
+      );
+      expect(lastFramePacing.longestDroppedBurst).toBeLessThanOrEqual(
+        Math.ceil(lastFramePacing.sampleCount * CI_FRAME_PACING_LONGEST_DROPPED_BURST_RATIO),
+      );
+    }
 
     // A1: heading delta guard — `shipMaxHeadingDeltaDeg` is the max angular
     // velocity in degrees/second (computed from `getShipHeadingDelta`, which

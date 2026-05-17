@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { initialAdaptiveDprState, MAX_MAIN_CANVAS_PIXELS, pushDrawDurationSample, resolveAdaptiveDprState, resolveCanvasBudget, createDrawDurationWindow } from "./canvas-budget";
+import {
+  canRetainOffscreenCanvas,
+  canvasPixelArea,
+  createDrawDurationWindow,
+  initialAdaptiveDprState,
+  MAX_MAIN_CANVAS_PIXELS,
+  MAX_TOTAL_BACKING_PIXELS,
+  pushDrawDurationSample,
+  resolveAdaptiveDprState,
+  resolveCanvasBackingPixelMetrics,
+  resolveCanvasBudget,
+} from "./canvas-budget";
 
 describe("canvas budget", () => {
   it("caps effective DPR by main canvas backing pixels", () => {
@@ -21,6 +32,54 @@ describe("canvas budget", () => {
     });
 
     expect(budget.effectiveDpr).toBe(1);
+  });
+
+  it("tracks main plus static and dynamic backing pixels", () => {
+    const metrics = resolveCanvasBackingPixelMetrics({
+      dynamicCacheEntryCount: 1,
+      dynamicCachePixels: 2_000,
+      mainCanvasPixels: 10_000,
+      staticCacheEntryCount: 2,
+      staticCachePixels: 3_000,
+    });
+
+    expect(metrics.mainCanvasPixels).toBe(10_000);
+    expect(metrics.staticCachePixels).toBe(3_000);
+    expect(metrics.dynamicCachePixels).toBe(2_000);
+    expect(metrics.offscreenCachePixels).toBe(5_000);
+    expect(metrics.totalBackingPixels).toBe(15_000);
+    expect(metrics.totalCacheEntryCount).toBe(3);
+    expect(metrics.maxTotalBackingPixels).toBe(MAX_TOTAL_BACKING_PIXELS);
+  });
+
+  it("reports remaining offscreen budget and over-budget pixels", () => {
+    const metrics = resolveCanvasBackingPixelMetrics({
+      dynamicCachePixels: 6,
+      mainCanvasPixels: MAX_TOTAL_BACKING_PIXELS - 10,
+      staticCachePixels: 8,
+    });
+
+    expect(metrics.remainingOffscreenPixels).toBe(0);
+    expect(metrics.overBudgetPixels).toBe(4);
+  });
+
+  it("checks whether an offscreen canvas can be retained under total budget", () => {
+    const mainCanvasPixels = MAX_TOTAL_BACKING_PIXELS - 1_000;
+
+    expect(canRetainOffscreenCanvas({
+      candidatePixels: 999,
+      mainCanvasPixels,
+    })).toBe(true);
+    expect(canRetainOffscreenCanvas({
+      candidatePixels: 1_001,
+      mainCanvasPixels,
+    })).toBe(false);
+  });
+
+  it("normalizes canvas pixel area inputs", () => {
+    expect(canvasPixelArea(10.9, 4.2)).toBe(40);
+    expect(canvasPixelArea(-10, 4)).toBe(0);
+    expect(canvasPixelArea(Number.NaN, 4)).toBe(0);
   });
 
   it("tracks rolling draw-duration stats across a bounded window", () => {

@@ -69,4 +69,15 @@ describe("drawSceneVignette", () => {
 
     expect(gradient.addColorStop).toHaveBeenCalledWith(1, "rgba(5, 3, 18, 0.82)");
   });
+
+  it("reuses the vignette gradient within the same size, DPR, and night bucket", () => {
+    const input = makeInput(820, 620);
+    input.dpr = 2;
+
+    drawSceneVignette(input, 0.51);
+    drawSceneVignette(input, 0.52);
+
+    expect((input.ctx as unknown as { createRadialGradient: ReturnType<typeof vi.fn> }).createRadialGradient)
+      .toHaveBeenCalledTimes(1);
+  });
 });

@@ -77,6 +77,46 @@ describe("PharosVilleAssetManager", () => {
     ]);
   });
 
+  it("slices deferred asset starts across idle chunks", async () => {
+    const deferredAssets = Array.from({ length: PHAROSVILLE_DEFERRED_ASSET_CONCURRENCY + 2 }, (_, index) => (
+      makeEntry(`ship.deferred-${index}`, "ship", index)
+    ));
+    const manifest = makeManifest(deferredAssets);
+    stubManifestFetch(manifest);
+    const starts: string[] = [];
+    stubImageLoader((src) => {
+      starts.push(src);
+      return Promise.resolve();
+    });
+    const idleCallbacks: Array<() => void> = [];
+    vi.stubGlobal("requestIdleCallback", vi.fn((callback: () => void) => {
+      idleCallbacks.push(callback);
+      return idleCallbacks.length;
+    }));
+    vi.stubGlobal("cancelIdleCallback", vi.fn());
+
+    const manager = new PharosVilleAssetManager();
+    const pending = manager.loadDeferred();
+    await flushAsyncWork();
+
+    expect(starts).toEqual([]);
+    expect(idleCallbacks).toHaveLength(1);
+
+    idleCallbacks.shift()?.();
+    await flushAsyncWork();
+
+    expect(starts).toHaveLength(PHAROSVILLE_DEFERRED_ASSET_CONCURRENCY);
+    expect(idleCallbacks).toHaveLength(1);
+
+    idleCallbacks.shift()?.();
+    const result = await pending;
+
+    expect(result.errors).toEqual([]);
+    expect(starts).toHaveLength(deferredAssets.length);
+    expect(result.stats.deferredBatchesStarted).toBe(1);
+    expect(result.stats.deferredLoadedCount).toBe(deferredAssets.length);
+  });
+
   it("reports manifest and readiness stats for critical and deferred assets", async () => {
     const critical = makeEntry("dock.critical", "dock", 0, "critical");
     const requiredDeferred = makeEntry("ship.required", "ship", 1, "deferred");
@@ -463,4 +503,8 @@ function nextTask() {
   return new Promise((resolve) => {
     setTimeout(resolve, 0);
   });
+}
+
+async function flushAsyncWork() {
+  for (let index = 0; index < 20; index += 1) await Promise.resolve();
 }

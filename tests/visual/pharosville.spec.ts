@@ -67,6 +67,7 @@ type PharosVilleVisualDebug = {
   assetLoadErrors?: unknown[];
   assetsLoaded?: boolean;
   camera?: DebugCamera | null;
+  cameraWithinBounds?: boolean;
   canvasBudget?: unknown;
   canvasSize?: { x: number; y: number };
   criticalAssetsLoaded?: boolean;
@@ -966,6 +967,7 @@ test("pharosville canvas interactions update details and camera", async ({ page 
     }).__pharosVilleDebug;
     return debug?.camera ?? null;
   });
+  expect(cameraBeforeZoom).not.toBeNull();
   await page.mouse.move(canvasBoxForZoom!.x + canvasBoxForZoom!.width / 2, canvasBoxForZoom!.y + canvasBoxForZoom!.height / 2);
   await page.mouse.wheel(0, -320);
   await page.waitForFunction((previous) => {
@@ -974,6 +976,28 @@ test("pharosville canvas interactions update details and camera", async ({ page 
     }).__pharosVilleDebug;
     return Boolean(debug?.camera && previous && debug.camera.zoom !== previous.zoom);
   }, cameraBeforeZoom);
+  const cameraAfterFirstWheel = await readDebugCamera(page);
+  expect(cameraAfterFirstWheel).not.toBeNull();
+  expect(cameraAfterFirstWheel!.zoom).toBeGreaterThan(cameraBeforeZoom!.zoom);
+
+  const wheelZoomSamples = [cameraBeforeZoom!.zoom, cameraAfterFirstWheel!.zoom];
+  for (let step = 0; step < 3; step += 1) {
+    const previousZoom = wheelZoomSamples[wheelZoomSamples.length - 1]!;
+    await page.mouse.wheel(0, -160);
+    await page.waitForFunction((zoom) => {
+      const debug = (window as typeof window & {
+        __pharosVilleDebug?: {
+          camera: { offsetX: number; offsetY: number; zoom: number } | null;
+          cameraWithinBounds?: boolean;
+        };
+      }).__pharosVilleDebug;
+      return Boolean(debug?.camera && debug.cameraWithinBounds && debug.camera.zoom > zoom);
+    }, previousZoom);
+    const nextCamera = await readDebugCamera(page);
+    expect(nextCamera).not.toBeNull();
+    wheelZoomSamples.push(nextCamera!.zoom);
+  }
+  expect(wheelZoomSamples).toEqual([...wheelZoomSamples].sort((a, b) => a - b));
   await waitForSelectedDetail(page, null);
 
   const cameraBeforePinch = await readDebugCamera(page);
@@ -1305,6 +1329,30 @@ test.describe("pharosville normal motion", () => {
     await expect(page.getByTestId("pharosville-accessibility-ledger")).toContainText("route summary:");
     await expect(page.getByTestId("pharosville-accessibility-ledger")).toContainText("risk water Calm Anchorage");
     await expect(page.getByTestId("pharosville-accessibility-ledger")).toContainText("risk zone");
+
+    const followDistances: number[] = [];
+    const firstFollowSnapshot = await readSelectedTargetFollowSnapshot(page, movingDetailId);
+    expect(firstFollowSnapshot.targetCenter).not.toBeNull();
+    if (firstFollowSnapshot.targetCenter) {
+      followDistances.push(distance(firstFollowSnapshot.targetCenter, firstFollowSnapshot.viewportCenter));
+    }
+    const followButton = page.getByRole("button", { name: "Follow selected" });
+    await expect(followButton).toBeEnabled();
+    await followButton.click();
+    for (let step = 0; step < 5; step += 1) {
+      await page.clock.fastForward(250);
+      const snapshot = await readSelectedTargetFollowSnapshot(page, movingDetailId);
+      expect(snapshot.selectedDetailId).toBe(movingDetailId);
+      expect(snapshot.cameraWithinBounds).toBe(true);
+      expect(snapshot.targetCenter).not.toBeNull();
+      if (snapshot.targetCenter) {
+        followDistances.push(distance(snapshot.targetCenter, snapshot.viewportCenter));
+      }
+    }
+    expect(followDistances.length).toBeGreaterThanOrEqual(4);
+    const initialFollowDistance = followDistances[0]!;
+    const finalFollowDistance = followDistances[followDistances.length - 1]!;
+    expect(finalFollowDistance).toBeLessThanOrEqual(Math.max(220, initialFollowDistance * 1.05));
   });
 });
 
@@ -1331,6 +1379,30 @@ async function readDebugCamera(page: Page): Promise<DebugCamera | null> {
     }).__pharosVilleDebug;
     return debug?.camera ?? null;
   });
+}
+
+async function readSelectedTargetFollowSnapshot(page: Page, detailId: string) {
+  return page.evaluate((targetDetailId) => {
+    const debug = (window as typeof window & {
+      __pharosVilleDebug?: PharosVilleVisualDebug;
+    }).__pharosVilleDebug;
+    const target = debug?.targets?.find((entry) => entry.detailId === targetDetailId) ?? null;
+    return {
+      cameraWithinBounds: debug?.cameraWithinBounds ?? null,
+      selectedDetailId: debug?.selectedDetailId ?? null,
+      targetCenter: target
+        ? {
+            x: target.rect.x + target.rect.width / 2,
+            y: target.rect.y + target.rect.height / 2,
+          }
+        : null,
+      viewportCenter: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
+    };
+  }, detailId);
+}
+
+function distance(first: { x: number; y: number }, second: { x: number; y: number }) {
+  return Math.hypot(first.x - second.x, first.y - second.y);
 }
 
 async function performCanvasPinch(

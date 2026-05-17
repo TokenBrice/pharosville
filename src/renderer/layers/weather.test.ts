@@ -193,6 +193,42 @@ describe("weather", () => {
       expect(stops.some((color) => color.includes("255, 245, 214"))).toBe(true);
       expect(stops.some((color) => color.includes("255, 218, 160"))).toBe(true);
     });
+
+    it("reuses lightning highlight gradients for matching screen and alpha buckets", () => {
+      const world = worldWith([makeArea("danger", "DANGER", { x: 55, y: 4 })]);
+      const gradient = { addColorStop: vi.fn() };
+      const ctx = createCanvasContextStub(
+        ["arc", "beginPath", "fill", "restore", "save"],
+        {
+          createRadialGradient: vi.fn(() => gradient),
+          fillStyle: "",
+        },
+      );
+      const input = createDrawInput({
+        ctx,
+        dpr: 2,
+        world,
+        motion: {
+          plan: {
+            animatedShipIds: new Set(),
+            effectShipIds: new Set(),
+            lighthouseFireFlickerPerSecond: 1,
+            moverShipIds: new Set(),
+            shipPhases: new Map(),
+            shipRoutes: new Map(),
+          },
+          reducedMotion: false,
+          timeSeconds: findThunderRimTime(world),
+          wallClockHour: 0,
+        },
+      });
+
+      drawWeather(input);
+      drawWeather(input);
+
+      expect(ctx.createRadialGradient).toHaveBeenCalledTimes(1);
+      expect(ctx.fill).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe("atmosphereDescriptionForArea", () => {

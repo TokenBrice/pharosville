@@ -1,8 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { defaultCamera } from "../../systems/camera";
 import type { AreaNode, DewsAreaBand, PharosVilleWorld } from "../../systems/world-types";
 import type { DrawPharosVilleInput } from "../render-types";
-import { createDrawInput } from "../__test-utils__/draw-input";
+import { createCanvasContextStub, createDrawInput } from "../__test-utils__/draw-input";
 import {
   ATMOSPHERIC_FADE_MAX_ALPHA,
   CLOUD_SHADOW_PERIOD_SECONDS,
@@ -11,6 +11,8 @@ import {
   cloudShadowAlpha,
   cloudShadowPhase,
   cloudShadowSamples,
+  drawAtmosphericFade,
+  drawFilmGrainPass,
   establishingShotCaption,
   isEstablishingShotEligible,
   orderedDitherThreshold,
@@ -69,6 +71,24 @@ describe("cinematic atmospheric fade", () => {
     expect(atmosphericFadeMaxAlpha(0)).toBeCloseTo(ATMOSPHERIC_FADE_MAX_ALPHA);
     expect(atmosphericFadeMaxAlpha(1)).toBeCloseTo(ATMOSPHERIC_FADE_MAX_ALPHA * 0.6);
     expect(atmosphericFadeMaxAlpha(3)).toBeCloseTo(ATMOSPHERIC_FADE_MAX_ALPHA * 0.6);
+  });
+
+  it("reuses the radial gradient for an unchanged viewport bucket", () => {
+    const gradient = { addColorStop: vi.fn() };
+    const ctx = createCanvasContextStub(
+      ["save", "restore", "fillRect"],
+      {
+        createRadialGradient: vi.fn(() => gradient),
+        fillStyle: "",
+      },
+    );
+    const input = { ...makeInput(), ctx, dpr: 2 };
+
+    drawAtmosphericFade(input, 0);
+    drawAtmosphericFade(input, 0);
+
+    expect(ctx.createRadialGradient).toHaveBeenCalledTimes(1);
+    expect(ctx.fillRect).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -141,5 +161,52 @@ describe("cinematic film pass helpers", () => {
     expect(orderedDitherThreshold(7, 7)).toBeLessThan(1);
     expect(orderedDitherThreshold(8, 8)).toBe(orderedDitherThreshold(0, 0));
     expect(orderedDitherThreshold(1, 0)).toBeGreaterThan(orderedDitherThreshold(0, 0));
+  });
+
+  it("caches reusable grain and scanline patterns per drawing context", () => {
+    const previousDocument = (globalThis as { document?: unknown }).document;
+    const createElement = vi.fn(() => {
+      const tileCtx = {
+        createImageData: vi.fn((width: number, height: number) => ({
+          data: new Uint8ClampedArray(width * height * 4),
+        })),
+        fillRect: vi.fn(),
+        fillStyle: "",
+        putImageData: vi.fn(),
+      };
+      return {
+        getContext: vi.fn(() => tileCtx),
+        height: 0,
+        width: 0,
+      };
+    });
+    (globalThis as { document?: unknown }).document = { createElement };
+    const pattern = {};
+    const ctx = createCanvasContextStub(
+      ["fillRect", "restore", "save"],
+      {
+        createPattern: vi.fn(() => pattern),
+        fillStyle: "",
+      },
+    );
+    const input = createDrawInput({
+      ctx,
+      dpr: FILM_GRAIN_DPR_GATE,
+      motion: { ...makeInput().motion, reducedMotion: false },
+    });
+
+    try {
+      drawFilmGrainPass(input);
+      drawFilmGrainPass(input);
+    } finally {
+      if (previousDocument === undefined) {
+        delete (globalThis as { document?: unknown }).document;
+      } else {
+        (globalThis as { document?: unknown }).document = previousDocument;
+      }
+    }
+
+    expect(ctx.createPattern).toHaveBeenCalledTimes(2);
+    expect(createElement).toHaveBeenCalledTimes(2);
   });
 });

@@ -4,10 +4,12 @@ import { useEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObj
 import { PharosVilleAssetManager, type PharosVilleAssetLoadError } from "../renderer/asset-manager";
 import { SHIP_SAIL_EMBLEM_OVERRIDES } from "../renderer/layers/ships";
 import type { buildMotionPlan } from "../systems/motion";
-import { warmAllWaterPaths } from "../systems/motion-water";
+import { pathKey } from "../systems/motion-utils";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
 
 type MotionPlan = ReturnType<typeof buildMotionPlan>;
+const WATER_PATH_WARMUP_IDLE_CHUNK_SIZE = 3;
+const WATER_PATH_WARMUP_IDLE_TIMEOUT_MS = 800;
 
 export interface UseAssetLoadingPipelineResult {
   assetLoadErrors: PharosVilleAssetLoadError[];
@@ -83,47 +85,32 @@ export function useAssetLoadingPipeline(input: {
     const controller = new AbortController();
     let active = true;
     deferredLoadStartedRef.current = true;
-    const startDeferredLoad = () => {
+    const startDeferredLoad = async () => {
       const planForWarmup = motionPlanRef.current;
-      if (planForWarmup) warmAllWaterPaths(planForWarmup);
-      assetManager.loadDeferred(controller.signal)
-        .then((deferredResult) => {
-          if (!active) return;
-          setAssetLoadErrors((previous) => [...previous, ...deferredResult.errors]);
-          setDeferredAssetsLoaded(assetManager.areDeferredAssetsSettled() && deferredResult.errors.length === 0);
-          setAssetLoadTick((tick) => tick + 1);
-        })
-        .catch((error) => {
-          if (!active) return;
-          setAssetLoadErrors((previous) => [
-            ...previous,
-            {
-              id: "deferred-assets",
-              message: error instanceof Error ? error.message : String(error),
-              path: "manifest.json",
-              priority: "deferred",
-            },
-          ]);
-          setAssetLoadTick((tick) => tick + 1);
-        });
+      if (planForWarmup) await warmWaterPathsAcrossIdleChunks(planForWarmup, controller.signal);
+      if (!active || controller.signal.aborted) return;
+      const deferredResult = await assetManager.loadDeferred(controller.signal);
+      if (!active) return;
+      setAssetLoadErrors((previous) => [...previous, ...deferredResult.errors]);
+      setDeferredAssetsLoaded(assetManager.areDeferredAssetsSettled() && deferredResult.errors.length === 0);
+      setAssetLoadTick((tick) => tick + 1);
     };
-
-    const requestIdleCallback = window.requestIdleCallback?.bind(window);
-    const cancelIdleCallback = window.cancelIdleCallback?.bind(window);
-    if (requestIdleCallback && cancelIdleCallback) {
-      const idleId = requestIdleCallback(startDeferredLoad, { timeout: 800 });
-      return () => {
-        active = false;
-        controller.abort();
-        cancelIdleCallback(idleId);
-      };
-    }
-
-    const timeoutId = globalThis.setTimeout(startDeferredLoad, 0);
+    void startDeferredLoad().catch((error) => {
+      if (!active) return;
+      setAssetLoadErrors((previous) => [
+        ...previous,
+        {
+          id: "deferred-assets",
+          message: error instanceof Error ? error.message : String(error),
+          path: "manifest.json",
+          priority: "deferred",
+        },
+      ]);
+      setAssetLoadTick((tick) => tick + 1);
+    });
     return () => {
       active = false;
       controller.abort();
-      globalThis.clearTimeout(timeoutId);
     };
   }, [assetManager, criticalAssetAttemptsSettled, criticalFramePainted, motionPlanRef]);
 
@@ -175,4 +162,59 @@ export function useAssetLoadingPipeline(input: {
     deferredAssetsLoaded,
     setCriticalFramePainted,
   };
+}
+
+async function warmWaterPathsAcrossIdleChunks(plan: MotionPlan, signal?: AbortSignal): Promise<void> {
+  const warmups: Array<() => void> = [];
+  for (const route of plan.shipRoutes.values()) {
+    for (const stop of route.dockStops) {
+      const outboundKey = pathKey(stop.mooringTile, route.riskTile);
+      const inboundKey = pathKey(route.riskTile, stop.mooringTile);
+      warmups.push(() => route.waterPaths.get(outboundKey));
+      warmups.push(() => route.waterPaths.get(inboundKey));
+    }
+    if (!route.openWaterPatrol) continue;
+    const outboundKey = pathKey(route.openWaterPatrol.outbound.from, route.openWaterPatrol.outbound.to);
+    const inboundKey = pathKey(route.openWaterPatrol.inbound.from, route.openWaterPatrol.inbound.to);
+    warmups.push(() => route.waterPaths.get(outboundKey));
+    warmups.push(() => route.waterPaths.get(inboundKey));
+  }
+  for (let index = 0; index < warmups.length && !signal?.aborted; index += WATER_PATH_WARMUP_IDLE_CHUNK_SIZE) {
+    await waitForIdleChunk(signal, WATER_PATH_WARMUP_IDLE_TIMEOUT_MS);
+    if (signal?.aborted) return;
+    for (const warmup of warmups.slice(index, index + WATER_PATH_WARMUP_IDLE_CHUNK_SIZE)) warmup();
+  }
+}
+
+type IdleSchedulerGlobal = typeof globalThis & {
+  cancelIdleCallback?: (handle: number) => void;
+  requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+};
+
+function waitForIdleChunk(signal: AbortSignal | undefined, timeout: number): Promise<void> {
+  if (signal?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const idleGlobal = globalThis as IdleSchedulerGlobal;
+    let settled = false;
+    let idleHandle: number | null = null;
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    const cleanup = () => {
+      signal?.removeEventListener("abort", abort);
+      if (idleHandle != null) idleGlobal.cancelIdleCallback?.(idleHandle);
+      if (timeoutHandle != null) clearTimeout(timeoutHandle);
+    };
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+    const abort = () => finish();
+    signal?.addEventListener("abort", abort, { once: true });
+    if (idleGlobal.requestIdleCallback) {
+      idleHandle = idleGlobal.requestIdleCallback(finish, { timeout });
+      return;
+    }
+    timeoutHandle = setTimeout(finish, 0);
+  });
 }

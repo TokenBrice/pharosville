@@ -9,6 +9,8 @@ const NIGHT_VIGNETTE_EDGE_ALPHA = 0.82;
 const VIGNETTE_R = 5;
 const VIGNETTE_G = 3;
 const VIGNETTE_B = 18;
+const NIGHT_TINT_ALPHA_BUCKETS = 1000;
+const nightTintFillCache = new Map<number, string>();
 
 // 25 entries cover all 21 reachable nightFactor buckets (0.05 step, 0..1) at
 // one viewport size without thrash, even under fast dev-tool scrubbing of
@@ -16,14 +18,14 @@ const VIGNETTE_B = 18;
 // the prior cap of 5 was sufficient for natural play but caused constant
 // recreation under scrubbing.
 const VIGNETTE_GRADIENT_CACHE_LIMIT = 25;
-const vignetteGradientCache = new Map<string, CanvasGradient>();
+const vignetteGradientCacheByContext = new WeakMap<CanvasRenderingContext2D, Map<string, CanvasGradient>>();
 
 export function drawNightTint(input: DrawPharosVilleInput, nightFactor: number): void {
   if (nightFactor <= 0) return;
   const { ctx, height, width } = input;
   const alpha = MAX_NIGHT_DARKNESS * nightFactor;
   ctx.save();
-  ctx.fillStyle = `rgba(${NIGHT_TINT_R}, ${NIGHT_TINT_G}, ${NIGHT_TINT_B}, ${alpha})`;
+  ctx.fillStyle = nightTintFillFor(alpha);
   ctx.fillRect(0, 0, width, height);
   ctx.restore();
 }
@@ -42,7 +44,8 @@ export function drawSceneVignette(input: DrawPharosVilleInput, nightFactor: numb
   const clampedNightFactor = Math.min(1, Math.max(0, nightFactor));
   const bucket = Math.round(clampedNightFactor * 20);
   const bucketedNightFactor = bucket / 20;
-  const key = `${width | 0}:${height | 0}:${bucket}`;
+  const key = `${width | 0}:${height | 0}:d${dprBucket(input.dpr)}:${bucket}`;
+  const vignetteGradientCache = vignetteCacheForContext(ctx);
   let vignette = vignetteGradientCache.get(key);
   if (!vignette) {
     const cx = width * 0.5;
@@ -65,4 +68,26 @@ export function drawSceneVignette(input: DrawPharosVilleInput, nightFactor: numb
   ctx.fillStyle = vignette;
   ctx.fillRect(0, 0, width, height);
   ctx.restore();
+}
+
+function nightTintFillFor(alpha: number): string {
+  const bucket = Math.max(0, Math.min(NIGHT_TINT_ALPHA_BUCKETS, Math.round(alpha * NIGHT_TINT_ALPHA_BUCKETS)));
+  const cached = nightTintFillCache.get(bucket);
+  if (cached) return cached;
+  const next = `rgba(${NIGHT_TINT_R}, ${NIGHT_TINT_G}, ${NIGHT_TINT_B}, ${bucket / NIGHT_TINT_ALPHA_BUCKETS})`;
+  nightTintFillCache.set(bucket, next);
+  return next;
+}
+
+function vignetteCacheForContext(ctx: CanvasRenderingContext2D): Map<string, CanvasGradient> {
+  let cache = vignetteGradientCacheByContext.get(ctx);
+  if (!cache) {
+    cache = new Map();
+    vignetteGradientCacheByContext.set(ctx, cache);
+  }
+  return cache;
+}
+
+function dprBucket(dpr?: number): number {
+  return Math.max(1, Math.round((dpr && dpr > 0 ? dpr : 1) * 100));
 }

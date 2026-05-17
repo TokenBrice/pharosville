@@ -142,6 +142,9 @@ const LIGHTNING_MAX_INTERVAL_S = 12;
 const LIGHTNING_FLASH_DURATION_S = 0.32;
 const LIGHTNING_THUNDER_RIM_APEX_PROGRESS = 0.18;
 const LIGHTNING_THUNDER_RIM_HALF_WIDTH = 0.03;
+const LIGHTNING_GRADIENT_CACHE_LIMIT = 64;
+const LIGHTNING_ALPHA_BUCKETS = 1000;
+const lightningGradientCacheByContext = new WeakMap<CanvasRenderingContext2D, Map<string, CanvasGradient>>();
 
 interface LightningPlan {
   area: AreaNode;
@@ -223,18 +226,15 @@ export function drawWeather(input: DrawPharosVilleInput): void {
 
     const centroid = tileToScreen(plan.area.tile, camera);
     const radius = Math.max(width, height) * 0.22;
-    const highlight = ctx.createRadialGradient(
-      centroid.x,
-      centroid.y,
-      Math.max(6, 18 * camera.zoom),
-      centroid.x,
-      centroid.y,
-      radius,
-    );
     const coreAlpha = (plan.threat >= 4 ? 0.17 : 0.11) * env;
-    highlight.addColorStop(0, `rgba(255, 245, 214, ${coreAlpha.toFixed(3)})`);
-    highlight.addColorStop(0.45, `rgba(255, 218, 160, ${(coreAlpha * 0.38).toFixed(3)})`);
-    highlight.addColorStop(1, "rgba(255, 194, 120, 0)");
+    const highlight = lightningHighlightGradient(ctx, {
+      coreAlpha,
+      cx: centroid.x,
+      cy: centroid.y,
+      dpr: input.dpr,
+      innerRadius: Math.max(6, 18 * camera.zoom),
+      radius,
+    });
     ctx.fillStyle = highlight;
     ctx.beginPath();
     ctx.arc(centroid.x, centroid.y, radius, 0, Math.PI * 2);
@@ -250,6 +250,63 @@ function lightningEnvelope(progress: number): number {
   if (progress < 0.30) return 1;
   const decay = (progress - 0.30) / 0.70;
   return Math.exp(-decay * 4);
+}
+
+function lightningHighlightGradient(
+  ctx: CanvasRenderingContext2D,
+  params: {
+    coreAlpha: number;
+    cx: number;
+    cy: number;
+    dpr?: number;
+    innerRadius: number;
+    radius: number;
+  },
+): CanvasGradient {
+  const coreAlphaBucket = Math.max(0, Math.min(LIGHTNING_ALPHA_BUCKETS, Math.round(params.coreAlpha * LIGHTNING_ALPHA_BUCKETS)));
+  const key = [
+    dprBucket(params.dpr),
+    Math.round(params.cx),
+    Math.round(params.cy),
+    Math.round(params.innerRadius),
+    Math.round(params.radius),
+    coreAlphaBucket,
+  ].join(":");
+  const cache = lightningCacheForContext(ctx);
+  const cached = cache.get(key);
+  if (cached) return cached;
+
+  const coreAlpha = coreAlphaBucket / LIGHTNING_ALPHA_BUCKETS;
+  const highlight = ctx.createRadialGradient(
+    params.cx,
+    params.cy,
+    Math.max(1, params.innerRadius),
+    params.cx,
+    params.cy,
+    Math.max(1, params.radius),
+  );
+  highlight.addColorStop(0, `rgba(255, 245, 214, ${coreAlpha.toFixed(3)})`);
+  highlight.addColorStop(0.45, `rgba(255, 218, 160, ${(coreAlpha * 0.38).toFixed(3)})`);
+  highlight.addColorStop(1, "rgba(255, 194, 120, 0)");
+  cache.set(key, highlight);
+  if (cache.size > LIGHTNING_GRADIENT_CACHE_LIMIT) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  return highlight;
+}
+
+function lightningCacheForContext(ctx: CanvasRenderingContext2D): Map<string, CanvasGradient> {
+  let cache = lightningGradientCacheByContext.get(ctx);
+  if (!cache) {
+    cache = new Map();
+    lightningGradientCacheByContext.set(ctx, cache);
+  }
+  return cache;
+}
+
+function dprBucket(dpr?: number): number {
+  return Math.max(1, Math.round((dpr && dpr > 0 ? dpr : 1) * 100));
 }
 
 export function lightningThunderRimIntensityForWorld(

@@ -9,6 +9,10 @@ import type { DrawPharosVilleInput } from "../render-types";
 const placementByArea = new WeakMap<AreaNode, ResolvedAreaLabelPlacement>();
 const measuredTextWidth = new Map<string, number>();
 const fontBySize = new Map<number, string>();
+const waterLabelBitmapCache = new Map<string, WaterLabelBitmapCacheEntry>();
+
+const MAX_WATER_LABEL_BITMAP_CACHE_ENTRIES = 96;
+const WATER_LABEL_CACHE_PADDING = 14;
 
 export type WaterLabelChromeStyle = "calm-parchment" | "charred-wax" | "generic-board" | "ledger-vellum" | "weathered-wood";
 
@@ -16,6 +20,40 @@ export interface WaterLabelPlaqueMetrics {
   height: number;
   plaqueWidth: number;
   plaqueX: number;
+  top: number;
+  width: number;
+}
+
+interface WaterLabelBitmapCacheEntry {
+  bitmap: OffscreenCanvas;
+  height: number;
+  key: string;
+  lastUsed: number;
+  left: number;
+  top: number;
+  width: number;
+}
+
+interface WaterLabelRenderBasis {
+  bounds: WaterLabelBitmapBounds;
+  font: string;
+  fontSize: number;
+  measuredWidthRaw: number;
+  metrics: WaterLabelPlaqueMetrics;
+  scale: number;
+  text: string;
+  width: number;
+  zoomBucket: number;
+}
+
+export interface WaterLabelBitmapCacheKeyBasis {
+  fontSize: number;
+  zoomBucket: number;
+}
+
+interface WaterLabelBitmapBounds {
+  height: number;
+  left: number;
   top: number;
   width: number;
 }
@@ -38,7 +76,7 @@ function cachedMeasureTextWidth(ctx: CanvasRenderingContext2D, text: string, fon
   return width;
 }
 
-export function drawWaterAreaLabels({ camera, ctx, world }: DrawPharosVilleInput): void {
+export function drawWaterAreaLabels({ camera, ctx, dpr, world }: DrawPharosVilleInput): void {
   for (const area of world.areas) {
     const placement = cachedAreaLabelPlacement(area);
     const p = tileToScreen(placement.anchorTile, camera);
@@ -49,6 +87,7 @@ export function drawWaterAreaLabels({ camera, ctx, world }: DrawPharosVilleInput
       align: placement.align,
       chromeStyle: waterLabelChromeStyleForTerrain(terrainKind),
       ctx,
+      dpr,
       fill: theme.label.fill,
       label: area.label,
       maxWidth: placement.maxWidth,
@@ -61,6 +100,14 @@ export function drawWaterAreaLabels({ camera, ctx, world }: DrawPharosVilleInput
       zoom: camera.zoom,
     });
   }
+}
+
+export function clearWaterLabelBitmapCache(): void {
+  waterLabelBitmapCache.clear();
+}
+
+export function waterLabelBitmapCacheStats(): { entryCount: number } {
+  return { entryCount: waterLabelBitmapCache.size };
 }
 
 export function waterLabelChromeStyleForTerrain(terrain: TerrainKind | string): WaterLabelChromeStyle {
@@ -286,11 +333,12 @@ function drawSplitRivetPennant(
   ctx.fill();
 }
 
-function drawCartographicWaterLabel(input: {
+export function drawCartographicWaterLabel(input: {
   accent: string;
   align: "center" | "left" | "right";
   chromeStyle: WaterLabelChromeStyle;
   ctx: CanvasRenderingContext2D;
+  dpr?: number;
   fill: string;
   label: string;
   maxWidth: number;
@@ -302,26 +350,111 @@ function drawCartographicWaterLabel(input: {
   y: number;
   zoom: number;
 }) {
-  const { accent, align, chromeStyle, ctx, fill, label, maxWidth, outline, plaqueDark, plaqueLight, rotation, x, y, zoom } = input;
-  const scale = Math.max(0.72, zoom);
+  const { accent, align, chromeStyle, ctx, fill, label, maxWidth, outline, plaqueDark, plaqueLight, rotation, x, y } = input;
+  const dprBucket = waterLabelDprBucket(input.dpr);
+  const basis = waterLabelRenderBasis(ctx, input);
+  ctx.save();
+  ctx.translate(Math.round(x), Math.round(y));
+  ctx.rotate(rotation);
+  const cached = retainedWaterLabelBitmap({
+    accent,
+    align,
+    basis,
+    chromeStyle,
+    dprBucket,
+    fill,
+    label,
+    maxWidth,
+    outline,
+    plaqueDark,
+    plaqueLight,
+  });
+  if (cached) {
+    ctx.drawImage(cached.bitmap, cached.left, cached.top, cached.width, cached.height);
+    drawWaterLabelTextLocal(ctx, { accent, align, basis, fill, outline });
+  } else {
+    drawWaterLabelLocal(ctx, {
+      accent,
+      align,
+      basis,
+      chromeStyle,
+      fill,
+      outline,
+      plaqueDark,
+      plaqueLight,
+    });
+  }
+  ctx.restore();
+}
+
+function waterLabelRenderBasis(
+  ctx: CanvasRenderingContext2D,
+  input: {
+    align: "center" | "left" | "right";
+    label: string;
+    maxWidth: number;
+    zoom: number;
+  },
+): WaterLabelRenderBasis {
+  const scale = Math.max(0.72, Number.isFinite(input.zoom) ? input.zoom : 1);
   const fontSize = Math.max(8, Math.round(8.6 * scale));
-  const text = label.toUpperCase();
-  const width = maxWidth * scale;
+  const text = input.label.toUpperCase();
+  const width = input.maxWidth * scale;
   let font = fontBySize.get(fontSize);
   if (font === undefined) {
     font = `700 ${fontSize}px "PV Plaque", Georgia, "Times New Roman", serif`;
     fontBySize.set(fontSize, font);
   }
-
-  ctx.save();
-  ctx.translate(Math.round(x), Math.round(y));
-  ctx.rotate(rotation);
-  ctx.font = font;
-  ctx.textAlign = align;
-  ctx.textBaseline = "middle";
-  ctx.lineJoin = "round";
   const measuredWidthRaw = cachedMeasureTextWidth(ctx, text, font);
-  const metrics = waterLabelPlaqueMetrics({ align, maxWidth, measuredWidthRaw, scale });
+  const metrics = waterLabelPlaqueMetrics({
+    align: input.align,
+    maxWidth: input.maxWidth,
+    measuredWidthRaw,
+    scale,
+  });
+  return {
+    bounds: waterLabelBitmapBounds(input.align, metrics, measuredWidthRaw, scale, width),
+    font,
+    fontSize,
+    measuredWidthRaw,
+    metrics,
+    scale,
+    text,
+    width,
+    zoomBucket: waterLabelZoomBucket(input.zoom),
+  };
+}
+
+function drawWaterLabelLocal(
+  ctx: CanvasRenderingContext2D,
+  input: {
+    accent: string;
+    align: "center" | "left" | "right";
+    basis: WaterLabelRenderBasis;
+    chromeStyle: WaterLabelChromeStyle;
+    fill: string;
+    outline: string;
+    plaqueDark: string;
+    plaqueLight: string;
+  },
+): void {
+  const { accent, align, basis, chromeStyle, fill, outline, plaqueDark, plaqueLight } = input;
+  drawWaterLabelChromeLocal(ctx, { accent, basis, chromeStyle, plaqueDark, plaqueLight });
+  drawWaterLabelTextLocal(ctx, { accent, align, basis, fill, outline });
+}
+
+function drawWaterLabelChromeLocal(
+  ctx: CanvasRenderingContext2D,
+  input: {
+    accent: string;
+    basis: WaterLabelRenderBasis;
+    chromeStyle: WaterLabelChromeStyle;
+    plaqueDark: string;
+    plaqueLight: string;
+  },
+): void {
+  const { accent, basis, chromeStyle, plaqueDark, plaqueLight } = input;
+  const { metrics, scale } = basis;
   drawWaterLabelPlaqueChrome(ctx, {
     accent,
     chromeStyle,
@@ -330,6 +463,24 @@ function drawCartographicWaterLabel(input: {
     scale,
     ...metrics,
   });
+}
+
+function drawWaterLabelTextLocal(
+  ctx: CanvasRenderingContext2D,
+  input: {
+    accent: string;
+    align: "center" | "left" | "right";
+    basis: WaterLabelRenderBasis;
+    fill: string;
+    outline: string;
+  },
+): void {
+  const { accent, align, basis, fill, outline } = input;
+  const { font, measuredWidthRaw, scale, text, width } = basis;
+  ctx.font = font;
+  ctx.textAlign = align;
+  ctx.textBaseline = "middle";
+  ctx.lineJoin = "round";
   ctx.globalAlpha = 0.88;
   ctx.strokeStyle = outline;
   ctx.lineWidth = Math.max(1.2, 2.2 * scale);
@@ -347,5 +498,124 @@ function drawCartographicWaterLabel(input: {
   ctx.moveTo(lineStart, 8.2 * scale);
   ctx.lineTo(lineEnd, 8.2 * scale);
   ctx.stroke();
-  ctx.restore();
+}
+
+function retainedWaterLabelBitmap(input: {
+  accent: string;
+  align: "center" | "left" | "right";
+  basis: WaterLabelRenderBasis;
+  chromeStyle: WaterLabelChromeStyle;
+  dprBucket: number;
+  fill: string;
+  label: string;
+  maxWidth: number;
+  outline: string;
+  plaqueDark: string;
+  plaqueLight: string;
+}): WaterLabelBitmapCacheEntry | null {
+  if (typeof OffscreenCanvas === "undefined") return null;
+
+  const key = waterLabelBitmapCacheKey(input);
+  const cached = waterLabelBitmapCache.get(key);
+  if (cached) {
+    cached.lastUsed = performance.now();
+    return cached;
+  }
+
+  const { bounds } = input.basis;
+  const dpr = input.dprBucket / 100;
+  const pixelWidth = Math.max(1, Math.ceil(bounds.width * dpr));
+  const pixelHeight = Math.max(1, Math.ceil(bounds.height * dpr));
+  const bitmap = new OffscreenCanvas(pixelWidth, pixelHeight);
+  const offscreenCtx = bitmap.getContext("2d", { alpha: true });
+  if (!offscreenCtx) return null;
+
+  offscreenCtx.setTransform(dpr, 0, 0, dpr, -bounds.left * dpr, -bounds.top * dpr);
+  drawWaterLabelChromeLocal(offscreenCtx as unknown as CanvasRenderingContext2D, input);
+
+  const entry = {
+    bitmap,
+    height: bounds.height,
+    key,
+    lastUsed: performance.now(),
+    left: bounds.left,
+    top: bounds.top,
+    width: bounds.width,
+  };
+  waterLabelBitmapCache.set(key, entry);
+  evictWaterLabelBitmapCache();
+  return entry;
+}
+
+export function waterLabelBitmapCacheKey(input: {
+  accent: string;
+  align: "center" | "left" | "right";
+  basis: WaterLabelBitmapCacheKeyBasis;
+  chromeStyle: WaterLabelChromeStyle;
+  dprBucket: number;
+  fill: string;
+  label: string;
+  maxWidth: number;
+  outline: string;
+  plaqueDark: string;
+  plaqueLight: string;
+}): string {
+  return [
+    input.label.toUpperCase(),
+    `theme:${input.chromeStyle}:${input.fill}:${input.outline}:${input.accent}:${input.plaqueLight}:${input.plaqueDark}`,
+    `align:${input.align}`,
+    `max:${Math.round(input.maxWidth * 10) / 10}`,
+    `font:${input.basis.fontSize}`,
+    `z:${input.basis.zoomBucket}`,
+    `dpr:${input.dprBucket}`,
+  ].join("|");
+}
+
+function waterLabelBitmapBounds(
+  align: "center" | "left" | "right",
+  metrics: WaterLabelPlaqueMetrics,
+  measuredWidthRaw: number,
+  scale: number,
+  width: number,
+): WaterLabelBitmapBounds {
+  const measuredWidth = Math.min(width, measuredWidthRaw);
+  const textLeft = align === "left" ? 0 : align === "right" ? -width : -width / 2;
+  const textRight = align === "left" ? width : align === "right" ? 0 : width / 2;
+  const underlineLeft = align === "left" ? 0 : align === "right" ? -measuredWidth : -measuredWidth / 2;
+  const underlineRight = align === "left" ? measuredWidth : align === "right" ? 0 : measuredWidth / 2;
+  const padding = WATER_LABEL_CACHE_PADDING * scale;
+  const left = Math.min(metrics.plaqueX, textLeft, underlineLeft) - padding;
+  const right = Math.max(metrics.plaqueX + metrics.plaqueWidth, textRight, underlineRight) + padding;
+  const top = metrics.top - padding;
+  const bottom = metrics.top + metrics.height + padding;
+  return {
+    height: Math.max(1, bottom - top),
+    left,
+    top,
+    width: Math.max(1, right - left),
+  };
+}
+
+function waterLabelZoomBucket(zoom: number): number {
+  const scale = Math.max(0.72, Number.isFinite(zoom) ? zoom : 1);
+  return Math.max(720, Math.round(scale * 1000));
+}
+
+function waterLabelDprBucket(dpr: number | undefined): number {
+  return Math.max(100, Math.round((dpr && dpr > 0 ? dpr : 1) * 100));
+}
+
+function evictWaterLabelBitmapCache(): void {
+  while (waterLabelBitmapCache.size > MAX_WATER_LABEL_BITMAP_CACHE_ENTRIES) {
+    let oldestKey: string | null = null;
+    let oldestUsed = Number.POSITIVE_INFINITY;
+    for (const [key, entry] of waterLabelBitmapCache) {
+      if (entry.lastUsed < oldestUsed) {
+        oldestKey = key;
+        oldestUsed = entry.lastUsed;
+      }
+    }
+    if (!oldestKey) return;
+    waterLabelBitmapCache.delete(oldestKey);
+  }
 }

@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { PharosVilleWorld } from "../../systems/world-types";
+import { createCanvasContextStub, createDrawInput } from "../__test-utils__/draw-input";
 import {
   BIRDS,
   birdAnchorTile,
   dispatchGapForThreat,
+  drawMoonReflection,
   sampleBird,
   sparklePointDensityStatsForTest,
   type BirdConfig,
@@ -152,5 +154,25 @@ describe("ambient sparkle density", () => {
     expect(stats.authoredEastern).toBeGreaterThan(0);
     expect(stats.renderedEastern).toBe(Math.ceil(stats.authoredEastern / 2));
     expect(stats.renderedTotal).toBe(stats.authoredTotal - Math.floor(stats.authoredEastern / 2));
+  });
+});
+
+describe("ambient moon reflection", () => {
+  it("reuses the fullscreen reflection gradient for the same size and night bucket", () => {
+    const gradient = { addColorStop: vi.fn() };
+    const ctx = createCanvasContextStub(
+      ["beginPath", "ellipse", "fill", "restore", "rotate", "save", "translate"],
+      {
+        createRadialGradient: vi.fn(() => gradient),
+        fillStyle: "",
+      },
+    );
+    const input = createDrawInput({ ctx, dpr: 2, height: 600, width: 800 });
+
+    drawMoonReflection(input, 0.6);
+    drawMoonReflection(input, 0.6);
+
+    expect(ctx.createRadialGradient).toHaveBeenCalledTimes(1);
+    expect(ctx.fill).toHaveBeenCalledTimes(2);
   });
 });
