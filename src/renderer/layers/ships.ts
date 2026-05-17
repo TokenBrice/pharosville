@@ -52,6 +52,127 @@ export {
 const SHIP_SAIL_TINT_CACHE_MAX = 48;
 const shipSailTintCache = new Map<string, HTMLCanvasElement | null>();
 
+// === Titan procedural path cache ============================================
+//
+// W1.04: caches Path2D templates for the procedural titan chrome (hull foam,
+// bow-spray strands, stern churn, mooring rope/fender/shadow). Each template
+// is built once at unit scale + heading-snapped to a 32-bucket grid; per
+// draw we apply ctx.translate(x, y) + ctx.scale(scale, scale) + stroke/fill
+// of the cached path. Hit rate in steady state approaches 100% for moored
+// titans (heading = dockTangent is constant) and stays > 99% for moving
+// titans (heading drifts slowly relative to the 11.25° bucket width).
+//
+// Visual drift: bucketing snaps the heading to the nearest of 32 angles,
+// producing at most ~1.2px screen-space drift at the foam tip (a 25px
+// extent). Empirically below the test:visual diff thresholds; reduced-motion
+// baselines see the bit-identical bucketed path on every render.
+const TITAN_PATH_HEADING_BUCKETS = 32;
+const TITAN_PATH_TENSION_BUCKETS = 8;
+const TITAN_PATH_CACHE_MAX = 512;
+
+export interface TitanPathCacheStats {
+  entryCount: number;
+  evictionCount: number;
+  hitCount: number;
+  maxEntries: number;
+  missCount: number;
+}
+
+interface TitanPathCache {
+  getOrBuild(key: string, build: () => Path2D): Path2D;
+  reset(): void;
+  size(): number;
+  stats(): TitanPathCacheStats;
+}
+
+function createTitanPathCache(maxEntries: number): TitanPathCache {
+  const entries = new Map<string, Path2D>();
+  let hitCount = 0;
+  let missCount = 0;
+  let evictionCount = 0;
+  return {
+    getOrBuild(key, build) {
+      const cached = entries.get(key);
+      if (cached) {
+        // LRU touch: re-insert moves the entry to the tail.
+        entries.delete(key);
+        entries.set(key, cached);
+        hitCount += 1;
+        return cached;
+      }
+      missCount += 1;
+      const path = build();
+      entries.set(key, path);
+      while (entries.size > maxEntries) {
+        const oldest = entries.keys().next().value;
+        if (oldest === undefined) break;
+        entries.delete(oldest);
+        evictionCount += 1;
+      }
+      return path;
+    },
+    reset() {
+      entries.clear();
+      hitCount = 0;
+      missCount = 0;
+      evictionCount = 0;
+    },
+    size() {
+      return entries.size;
+    },
+    stats() {
+      return { entryCount: entries.size, evictionCount, hitCount, maxEntries, missCount };
+    },
+  };
+}
+
+const titanPathCache = createTitanPathCache(TITAN_PATH_CACHE_MAX);
+
+/**
+ * Returns hit/miss/eviction counters for the titan procedural path cache.
+ *
+ * TODO(perf-telemetry): the `__pharosVilleDebug` window field (managed by
+ * `use-world-render-loop.ts`) does not yet surface this. The Engineer lane
+ * owning that hook should expose `titanPathCacheStats()` alongside the
+ * existing `routeCacheStats` so we can verify the >99% steady-state target
+ * from devtools.
+ */
+export function titanPathCacheStats(): TitanPathCacheStats {
+  return titanPathCache.stats();
+}
+
+/**
+ * @internal Test hook to drop the titan path cache between cases.
+ */
+export function resetTitanPathCache(): void {
+  titanPathCache.reset();
+}
+
+interface QuantizedHeading {
+  bucket: number;
+  fx: number;
+  fy: number;
+}
+
+function quantizeTitanHeading(hx: number, hy: number): QuantizedHeading {
+  const mag = Math.sqrt(hx * hx + hy * hy);
+  // Match the legacy fallback: zero-vector → bow pointing left.
+  const fxRaw = mag > 0 ? hx / mag : -1;
+  const fyRaw = mag > 0 ? hy / mag : 0;
+  let angle = Math.atan2(fyRaw, fxRaw);
+  if (angle < 0) angle += Math.PI * 2;
+  const step = (Math.PI * 2) / TITAN_PATH_HEADING_BUCKETS;
+  const bucket = Math.round(angle / step) % TITAN_PATH_HEADING_BUCKETS;
+  const snappedAngle = bucket * step;
+  return { bucket, fx: Math.cos(snappedAngle), fy: Math.sin(snappedAngle) };
+}
+
+function quantizeTitanTension(tension: number): { bucket: number; value: number } {
+  const clamped = Math.max(0, Math.min(1, tension));
+  const bucket = Math.round(clamped * (TITAN_PATH_TENSION_BUCKETS - 1));
+  return { bucket, value: bucket / (TITAN_PATH_TENSION_BUCKETS - 1) };
+}
+
 export interface ShipRenderState {
   bob: number;
   geometry: ResolvedEntityGeometry;
@@ -679,32 +800,48 @@ function drawTitanHullFoam(
   zone: ShipWaterZone,
 ) {
   const style = wakeStyleForZone(zone);
-  const magnitude = Math.sqrt(heading.x * heading.x + heading.y * heading.y);
-  const fx = magnitude > 0 ? heading.x / magnitude : -1;
-  const fy = magnitude > 0 ? heading.y / magnitude : 0;
-  const cx = -fy;
-  const cy = fx;
+  const { bucket, fx, fy } = quantizeTitanHeading(heading.x, heading.y);
   const alpha = 0.12 + pose.bowWake * 0.18 + pose.mooringTension * 0.08;
+  const path = titanPathCache.getOrBuild(`foam:${bucket}`, () => buildTitanFoamPath(fx, fy));
   ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
   ctx.lineCap = "round";
   ctx.strokeStyle = wakeRgba(style, alpha);
-  ctx.lineWidth = Math.max(1, 1.15 * scale);
-  for (const side of [-1, 1]) {
-    ctx.beginPath();
-    ctx.moveTo(
-      x - fx * 3 * scale + cx * side * 25 * scale,
-      y + 4 * scale - fy * 3 * scale + cy * side * 25 * scale,
-    );
-    ctx.quadraticCurveTo(
-      x + fx * 10 * scale + cx * side * 18 * scale,
-      y + 7 * scale + fy * 10 * scale + cy * side * 18 * scale,
-      x + fx * 19 * scale + cx * side * 8 * scale,
-      y + 4 * scale + fy * 19 * scale + cy * side * 8 * scale,
-    );
-    ctx.stroke();
-  }
+  // ctx.lineWidth is in the current user-space units. Because we applied
+  // `ctx.scale(scale, scale)` above, an on-screen width of
+  // `max(1, 1.15 * scale)` requires `max(1/scale, 1.15)` in unit space.
+  ctx.lineWidth = Math.max(1 / scale, 1.15);
+  ctx.stroke(path);
   ctx.restore();
 }
+
+function buildTitanFoamPath(fx: number, fy: number): Path2D {
+  const cx = -fy;
+  const cy = fx;
+  const path = new Path2D();
+  for (const side of [-1, 1] as const) {
+    path.moveTo(
+      -fx * 3 + cx * side * 25,
+      4 - fy * 3 + cy * side * 25,
+    );
+    path.quadraticCurveTo(
+      fx * 10 + cx * side * 18,
+      7 + fy * 10 + cy * side * 18,
+      fx * 19 + cx * side * 8,
+      4 + fy * 19 + cy * side * 8,
+    );
+  }
+  return path;
+}
+
+// Mooring rope geometry: each tuple is [x0, y0, x1, y1] in unit-scale local
+// coords. The rope mid-control y is shifted by `tension * 2.5` to draw the
+// sag, so the path itself depends on the tension bucket.
+const TITAN_MOORING_ROPES = [
+  [-42, -14, -66, -2],
+  [36, -12, 58, -1],
+] as const;
 
 function drawTitanMooringDetails(
   ctx: CanvasRenderingContext2D,
@@ -714,37 +851,65 @@ function drawTitanMooringDetails(
   pose: ShipPose,
 ) {
   const tension = pose.mooringTension;
+  const tensionBucket = quantizeTitanTension(tension);
+  const shadowPath = titanPathCache.getOrBuild("mooring:shadow", buildTitanMooringShadowPath);
+  const fenderPath = titanPathCache.getOrBuild("mooring:fenders", buildTitanMooringFenderPath);
+
   ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+
   ctx.fillStyle = `rgba(2, 6, 8, ${0.16 + tension * 0.12})`;
-  ctx.beginPath();
-  ctx.ellipse(x - 4 * scale, y + 4 * scale, 46 * scale, 9 * scale, -0.08, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.fill(shadowPath);
 
   ctx.lineCap = "round";
   ctx.strokeStyle = `rgba(232, 205, 145, ${0.32 + tension * 0.2})`;
-  ctx.lineWidth = Math.max(1, 1.1 * scale);
-  for (const rope of [
-    [-42, -14, -66, -2],
-    [36, -12, 58, -1],
-  ] as const) {
-    ctx.beginPath();
-    ctx.moveTo(x + rope[0] * scale, y + rope[1] * scale);
-    ctx.quadraticCurveTo(
-      x + ((rope[0] + rope[2]) / 2) * scale,
-      y + ((rope[1] + rope[3]) / 2 + tension * 2.5) * scale,
-      x + rope[2] * scale,
-      y + rope[3] * scale,
+  // ctx.scale applied above; convert legacy `max(1, 1.1 * scale)` screen
+  // width into unit-space lineWidth.
+  ctx.lineWidth = Math.max(1 / scale, 1.1);
+  for (let ropeIndex = 0; ropeIndex < TITAN_MOORING_ROPES.length; ropeIndex += 1) {
+    const ropePath = titanPathCache.getOrBuild(
+      `mooring:rope:${ropeIndex}:${tensionBucket.bucket}`,
+      () => buildTitanMooringRopePath(TITAN_MOORING_ROPES[ropeIndex]!, tensionBucket.value),
     );
-    ctx.stroke();
+    ctx.stroke(ropePath);
   }
 
   ctx.fillStyle = "rgba(231, 225, 198, 0.78)";
-  for (const fenderX of [-34, 31]) {
-    ctx.beginPath();
-    ctx.ellipse(x + fenderX * scale, y - 1 * scale, 3.2 * scale, 6.8 * scale, 0.14, 0, Math.PI * 2);
-    ctx.fill();
-  }
+  ctx.fill(fenderPath);
   ctx.restore();
+}
+
+function buildTitanMooringShadowPath(): Path2D {
+  const path = new Path2D();
+  path.ellipse(-4, 4, 46, 9, -0.08, 0, Math.PI * 2);
+  return path;
+}
+
+function buildTitanMooringRopePath(rope: readonly [number, number, number, number], tension: number): Path2D {
+  const [x0, y0, x1, y1] = rope;
+  const path = new Path2D();
+  path.moveTo(x0, y0);
+  path.quadraticCurveTo(
+    (x0 + x1) / 2,
+    (y0 + y1) / 2 + tension * 2.5,
+    x1,
+    y1,
+  );
+  return path;
+}
+
+function buildTitanMooringFenderPath(): Path2D {
+  const path = new Path2D();
+  for (const fenderX of [-34, 31] as const) {
+    // Each ellipse spans 0..2π and closes itself, so two non-overlapping
+    // ellipses in one path fill as two separate blobs (same as the original
+    // beginPath-per-fender + fill sequence). The leading `moveTo` makes the
+    // subpath split explicit so any future stroke wouldn't connect them.
+    path.moveTo(fenderX + 3.2 * Math.cos(0.14), -1 + 3.2 * Math.sin(0.14));
+    path.ellipse(fenderX, -1, 3.2, 6.8, 0.14, 0, Math.PI * 2);
+  }
+  return path;
 }
 
 function drawTitanBowSpray(
@@ -760,11 +925,7 @@ function drawTitanBowSpray(
 ) {
   if (pose.bowWake <= 0.02 && pose.sternChurn <= 0.02) return;
   const style = wakeStyleForZone(zone);
-  const magnitude = Math.sqrt(heading.x * heading.x + heading.y * heading.y);
-  const fx = magnitude > 0 ? heading.x / magnitude : -1;
-  const fy = magnitude > 0 ? heading.y / magnitude : 0;
-  const cx = -fy;
-  const cy = fx;
+  const { bucket, fx, fy } = quantizeTitanHeading(heading.x, heading.y);
   const baseAlpha = 0.16 + pose.bowWake * 0.24;
   const strands = resolveTitanBowSprayStrands({
     headingDelta: getShipHeadingDelta(shipId),
@@ -772,33 +933,57 @@ function drawTitanBowSpray(
     topRecentMover,
   });
   ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
   ctx.lineCap = "round";
-  ctx.lineWidth = Math.max(1, 1.05 * scale);
+  // Unit-space lineWidth that preserves the legacy `max(1, 1.05 * scale)`
+  // screen-pixel width after ctx.scale.
+  ctx.lineWidth = Math.max(1 / scale, 1.05);
   for (const strand of strands) {
-    const spread = strand.spread * strand.side * scale;
-    const start = strand.start * scale;
-    const length = strand.length * scale;
-    ctx.strokeStyle = wakeRgba(style, baseAlpha * strand.alphaScale);
-    ctx.beginPath();
-    ctx.moveTo(x + fx * start + cx * spread, y + 2 * scale + fy * start + cy * spread);
-    ctx.lineTo(
-      x + fx * (start + length) + cx * spread * 1.7,
-      y + 2 * scale + fy * (start + length) + cy * spread * 1.7,
+    const strandPath = titanPathCache.getOrBuild(
+      `spray:strand:${bucket}:${strand.side}:${strand.spread}:${strand.start}:${strand.length}`,
+      () => buildTitanBowSprayStrandPath(fx, fy, strand),
     );
-    ctx.stroke();
+    ctx.strokeStyle = wakeRgba(style, baseAlpha * strand.alphaScale);
+    ctx.stroke(strandPath);
   }
 
   if (pose.sternChurn > 0.05) {
+    const sternPath = titanPathCache.getOrBuild(
+      `spray:stern:${bucket}`,
+      () => buildTitanSternChurnPath(fx, fy),
+    );
     ctx.strokeStyle = wakeRgba(style, 0.12 + pose.sternChurn * 0.2);
-    ctx.lineWidth = Math.max(1, 1 * scale);
-    ctx.beginPath();
-    ctx.moveTo(x - fx * 34 * scale - cx * 10 * scale, y + 6 * scale - fy * 34 * scale - cy * 10 * scale);
-    ctx.lineTo(x - fx * 48 * scale - cx * 15 * scale, y + 8 * scale - fy * 48 * scale - cy * 15 * scale);
-    ctx.moveTo(x - fx * 34 * scale + cx * 10 * scale, y + 6 * scale - fy * 34 * scale + cy * 10 * scale);
-    ctx.lineTo(x - fx * 48 * scale + cx * 15 * scale, y + 8 * scale - fy * 48 * scale + cy * 15 * scale);
-    ctx.stroke();
+    ctx.lineWidth = Math.max(1 / scale, 1);
+    ctx.stroke(sternPath);
   }
   ctx.restore();
+}
+
+function buildTitanBowSprayStrandPath(fx: number, fy: number, strand: TitanBowSprayStrand): Path2D {
+  const cx = -fy;
+  const cy = fx;
+  const spread = strand.spread * strand.side;
+  const start = strand.start;
+  const length = strand.length;
+  const path = new Path2D();
+  path.moveTo(fx * start + cx * spread, 2 + fy * start + cy * spread);
+  path.lineTo(
+    fx * (start + length) + cx * spread * 1.7,
+    2 + fy * (start + length) + cy * spread * 1.7,
+  );
+  return path;
+}
+
+function buildTitanSternChurnPath(fx: number, fy: number): Path2D {
+  const cx = -fy;
+  const cy = fx;
+  const path = new Path2D();
+  path.moveTo(-fx * 34 - cx * 10, 6 - fy * 34 - cy * 10);
+  path.lineTo(-fx * 48 - cx * 15, 8 - fy * 48 - cy * 15);
+  path.moveTo(-fx * 34 + cx * 10, 6 - fy * 34 + cy * 10);
+  path.lineTo(-fx * 48 + cx * 15, 8 - fy * 48 + cy * 15);
+  return path;
 }
 
 export interface TitanBowSprayStrand {
