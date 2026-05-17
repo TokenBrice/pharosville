@@ -118,6 +118,82 @@ export function squadFormationOffsetForPlacement(
   return { dx: Math.trunc(base.dx / 2), dy: Math.trunc(base.dy / 2) };
 }
 
+// ---------------------------------------------------------------------------
+// W4.24 — Squad formation gain
+// ---------------------------------------------------------------------------
+//
+// Multiplies the consort {dx, dy} offset based on the flagship's current
+// state and zone so squads visibly fan out during calm cruising and collapse
+// into single-file during arrival approaches. Tight-placement consorts
+// (storm-shelf / harbor-mouth-watch) keep their halved offset by clamping
+// the gain at 1.0 — never expanding beyond what
+// `squadFormationOffsetForPlacement` already considered safe.
+
+export type SquadFormationFlagshipState =
+  | "idle"
+  | "moored"
+  | "departing"
+  | "sailing"
+  | "risk-drift"
+  | "arriving";
+
+export const SQUAD_FORMATION_GAIN_CALM_CRUISING = 1.4;
+export const SQUAD_FORMATION_GAIN_ARRIVING = 0.55;
+export const SQUAD_FORMATION_GAIN_DEFAULT = 1.0;
+const SQUAD_FORMATION_CALM_SPEED_THRESHOLD_TILES_PER_SECOND = 0.01;
+
+/**
+ * W4.24 — gain factor multiplied into the consort's {dx, dy} offset.
+ *
+ *   - flagship arriving → 0.55 (single-file approach so consorts queue behind)
+ *   - flagship cruising the calm zone → 1.4 (fan out for the wide-anchor look)
+ *   - otherwise → 1.0
+ *
+ * Tight placements (`storm-shelf` / `harbor-mouth-watch`) keep the existing
+ * halved offset — they never fan beyond 1.0 so consorts can't spill out of
+ * the small water pocket the placement guarantees.
+ */
+export function formationGain(input: {
+  zone: string;
+  flagshipSpeed: number;
+  flagshipState: SquadFormationFlagshipState;
+  placement: string;
+}): number {
+  const isTight = TIGHT_PLACEMENT_IDS.has(input.placement);
+  if (input.flagshipState === "arriving") {
+    return isTight
+      ? Math.min(SQUAD_FORMATION_GAIN_ARRIVING, SQUAD_FORMATION_GAIN_DEFAULT)
+      : SQUAD_FORMATION_GAIN_ARRIVING;
+  }
+  if (
+    input.zone === "calm"
+    && input.flagshipState === "sailing"
+    && input.flagshipSpeed > SQUAD_FORMATION_CALM_SPEED_THRESHOLD_TILES_PER_SECOND
+  ) {
+    return isTight ? SQUAD_FORMATION_GAIN_DEFAULT : SQUAD_FORMATION_GAIN_CALM_CRUISING;
+  }
+  return SQUAD_FORMATION_GAIN_DEFAULT;
+}
+
+// ---------------------------------------------------------------------------
+// W4.24 — Lagged consort heading
+// ---------------------------------------------------------------------------
+//
+// Time constant matching the task spec: 0.6s lerp toward the flagship's
+// heading. Per-sample callers convert dt into an alpha via:
+//   alpha = 1 - exp(-dt / TAU)
+// and the standard component-lerp + renormalize pattern used elsewhere in
+// motion-sampling. Exposed as a constant + helper so tests can verify the
+// time constant without poking the sampler internals.
+
+export const SQUAD_CONSORT_HEADING_LAG_TAU_SECONDS = 0.6;
+
+export function squadConsortHeadingLerpAlpha(deltaSeconds: number): number {
+  if (!Number.isFinite(deltaSeconds) || deltaSeconds <= 0) return 0;
+  if (deltaSeconds >= 10 * SQUAD_CONSORT_HEADING_LAG_TAU_SECONDS) return 1;
+  return 1 - Math.exp(-deltaSeconds / SQUAD_CONSORT_HEADING_LAG_TAU_SECONDS);
+}
+
 export function formationLabel(id: string, role: SquadRole, symbol: string): string {
   if (role === "flagship") return `${symbol} (flagship)`;
   if (id === "stusds-sky") return `${symbol} (vanguard)`;

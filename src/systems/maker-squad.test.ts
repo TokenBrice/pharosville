@@ -5,7 +5,13 @@ import {
   SKY_SQUAD,
   STABLECOIN_SQUADS,
   STABLECOIN_SQUAD_MEMBER_IDS,
+  SQUAD_CONSORT_HEADING_LAG_TAU_SECONDS,
+  SQUAD_FORMATION_GAIN_ARRIVING,
+  SQUAD_FORMATION_GAIN_CALM_CRUISING,
+  SQUAD_FORMATION_GAIN_DEFAULT,
+  formationGain,
   isSquadMember,
+  squadConsortHeadingLerpAlpha,
   squadForMember,
   squadFormationOffsetForPlacement,
   squadRole,
@@ -73,5 +79,93 @@ describe("stablecoin squads", () => {
     expect(Math.abs(tightDai!.dy)).toBeLessThanOrEqual(Math.abs(baseDai.dy));
     // open water passes through unchanged
     expect(squadFormationOffsetForPlacement("sdai-sky", MAKER_SQUAD, "safe-harbor")).toEqual(baseDai);
+  });
+});
+
+describe("W4.24 formationGain", () => {
+  it("fans out the formation while the flagship cruises the calm zone", () => {
+    expect(formationGain({
+      zone: "calm",
+      flagshipSpeed: 0.5,
+      flagshipState: "sailing",
+      placement: "safe-harbor",
+    })).toBe(SQUAD_FORMATION_GAIN_CALM_CRUISING);
+    expect(SQUAD_FORMATION_GAIN_CALM_CRUISING).toBeCloseTo(1.4, 6);
+  });
+
+  it("tightens the formation into single-file while arriving", () => {
+    expect(formationGain({
+      zone: "calm",
+      flagshipSpeed: 0.3,
+      flagshipState: "arriving",
+      placement: "safe-harbor",
+    })).toBe(SQUAD_FORMATION_GAIN_ARRIVING);
+    expect(SQUAD_FORMATION_GAIN_ARRIVING).toBeCloseTo(0.55, 6);
+  });
+
+  it("returns the default gain in other zones and states", () => {
+    expect(formationGain({
+      zone: "warning",
+      flagshipSpeed: 0.5,
+      flagshipState: "sailing",
+      placement: "outer-rough-water",
+    })).toBe(SQUAD_FORMATION_GAIN_DEFAULT);
+    expect(formationGain({
+      zone: "calm",
+      flagshipSpeed: 0,
+      flagshipState: "moored",
+      placement: "safe-harbor",
+    })).toBe(SQUAD_FORMATION_GAIN_DEFAULT);
+    expect(formationGain({
+      zone: "calm",
+      flagshipSpeed: 0,
+      flagshipState: "departing",
+      placement: "safe-harbor",
+    })).toBe(SQUAD_FORMATION_GAIN_DEFAULT);
+  });
+
+  it("clamps the gain at 1.0 in tight placements so consorts cannot fan beyond their water set", () => {
+    // Tight placement keeps the existing halved offset; gain must not push
+    // it back outward beyond the cap.
+    expect(formationGain({
+      zone: "calm",
+      flagshipSpeed: 0.5,
+      flagshipState: "sailing",
+      placement: "storm-shelf",
+    })).toBe(SQUAD_FORMATION_GAIN_DEFAULT);
+    expect(formationGain({
+      zone: "calm",
+      flagshipSpeed: 0.5,
+      flagshipState: "sailing",
+      placement: "harbor-mouth-watch",
+    })).toBe(SQUAD_FORMATION_GAIN_DEFAULT);
+    // Arriving under tight placement: keep the existing tight cap (1.0) so
+    // we never expand and never collapse beyond it either.
+    expect(formationGain({
+      zone: "calm",
+      flagshipSpeed: 0.3,
+      flagshipState: "arriving",
+      placement: "storm-shelf",
+    })).toBeLessThanOrEqual(SQUAD_FORMATION_GAIN_DEFAULT);
+  });
+});
+
+describe("W4.24 squadConsortHeadingLerpAlpha (lagged heading)", () => {
+  it("uses a 0.6s time constant", () => {
+    expect(SQUAD_CONSORT_HEADING_LAG_TAU_SECONDS).toBeCloseTo(0.6, 6);
+  });
+
+  it("returns 0 for non-positive dt and converges to 1 over long dt", () => {
+    expect(squadConsortHeadingLerpAlpha(0)).toBe(0);
+    expect(squadConsortHeadingLerpAlpha(-0.1)).toBe(0);
+    expect(squadConsortHeadingLerpAlpha(60)).toBe(1);
+  });
+
+  it("at dt = TAU returns 1 - 1/e ≈ 0.632", () => {
+    expect(squadConsortHeadingLerpAlpha(SQUAD_CONSORT_HEADING_LAG_TAU_SECONDS)).toBeCloseTo(1 - Math.exp(-1), 6);
+  });
+
+  it("converges to within 1% after about 5 time constants", () => {
+    expect(squadConsortHeadingLerpAlpha(5 * SQUAD_CONSORT_HEADING_LAG_TAU_SECONDS)).toBeGreaterThan(0.99);
   });
 });

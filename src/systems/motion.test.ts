@@ -511,12 +511,27 @@ describe("motion", () => {
 
         if (flagshipSample.state === "moored" || flagshipSample.state === "idle") {
           // Moored/idle: consort holds an exact integer offset (no breathing).
+          // W4.24 formation gain is 1.0 in moored/idle, so offset is unchanged.
           expect(consortSample.tile.x - flagshipSample.tile.x).toBeCloseTo(offset.dx, 5);
           expect(consortSample.tile.y - flagshipSample.tile.y).toBeCloseTo(offset.dy, 5);
         } else {
-          // Transit: sub-tile breathing perturbation may be added; tolerate it.
-          expect(consortSample.tile.x - flagshipSample.tile.x).toBeCloseTo(offset.dx, 0);
-          expect(consortSample.tile.y - flagshipSample.tile.y).toBeCloseTo(offset.dy, 0);
+          // Transit: sub-tile breathing perturbation may be added, and W4.24
+          // formation gain scales the offset (×1.4 for calm cruising, ×0.55
+          // for arriving, ×1.0 otherwise). Tolerate the gained offset + breath.
+          const dx = consortSample.tile.x - flagshipSample.tile.x;
+          const dy = consortSample.tile.y - flagshipSample.tile.y;
+          // |dx| ≤ |offset.dx * 1.4| + 1 (breathing budget); same for dy.
+          // Sign is preserved by the gain since gain > 0.
+          if (offset.dx !== 0) {
+            expect(Math.sign(dx)).toBe(Math.sign(offset.dx));
+            expect(Math.abs(dx)).toBeLessThanOrEqual(Math.abs(offset.dx) * 1.4 + 1);
+            expect(Math.abs(dx)).toBeGreaterThanOrEqual(Math.abs(offset.dx) * 0.55 - 1);
+          }
+          if (offset.dy !== 0) {
+            expect(Math.sign(dy)).toBe(Math.sign(offset.dy));
+            expect(Math.abs(dy)).toBeLessThanOrEqual(Math.abs(offset.dy) * 1.4 + 1);
+            expect(Math.abs(dy)).toBeGreaterThanOrEqual(Math.abs(offset.dy) * 0.55 - 1);
+          }
         }
         // Consort doesn't actually visit chain docks even when shadowing a moored flagship.
         expect(consortSample.currentDockId).toBeNull();
@@ -1419,13 +1434,20 @@ describe("motion", () => {
 
       let observedBreathing = false;
       const samples = 480;
+      // W4.24 formation gain scales the base offset by 0.55..1.4 depending on
+      // the flagship state/zone. The breathing signal is the residual after
+      // subtracting the gained offset, so we recover the per-state gain from
+      // the consort sample directly via cue priority on flagshipState.
       for (let index = 0; index < samples; index += 1) {
         const timeSeconds = flagshipRoute.cycleSeconds * (index / samples) - flagshipRoute.phaseSeconds;
         const flagshipSample = resolveShipMotionSample({ plan, reducedMotion: false, ship: flagship, timeSeconds });
         if (flagshipSample.state === "moored" || flagshipSample.state === "idle") continue;
         const consortSample = resolveShipMotionSample({ plan, reducedMotion: false, ship: consort, timeSeconds });
-        const breathDx = consortSample.tile.x - flagshipSample.tile.x - offset.dx;
-        const breathDy = consortSample.tile.y - flagshipSample.tile.y - offset.dy;
+        const gain = flagshipSample.state === "arriving"
+          ? 0.55
+          : (flagshipSample.zone === "calm" && flagshipSample.state === "sailing" ? 1.4 : 1.0);
+        const breathDx = consortSample.tile.x - flagshipSample.tile.x - offset.dx * gain;
+        const breathDy = consortSample.tile.y - flagshipSample.tile.y - offset.dy * gain;
         if (Math.hypot(breathDx, breathDy) > 0.02) {
           observedBreathing = true;
           // Breathing must stay sub-tile (well below 1 tile).

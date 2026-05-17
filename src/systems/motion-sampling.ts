@@ -10,7 +10,13 @@ import {
   MOORING_WORKING_END,
   ZONE_DWELL,
 } from "./motion-config";
-import { squadForMember, squadFormationOffsetForPlacement } from "./maker-squad";
+import {
+  formationGain,
+  squadConsortHeadingLerpAlpha,
+  squadForMember,
+  squadFormationOffsetForPlacement,
+  type SquadFormationFlagshipState,
+} from "./maker-squad";
 import { sampleShipWaterPathInto as sampleWaterPathInto, sampleShipWaterPath as sampleWaterPath, clearShipWaterSegmentHint } from "./motion-water";
 import { clamp, normalizeHeadingInto, pathKey, positiveModulo, smoothstep, smoothstepRange } from "./motion-utils";
 import { seaStateMooringSwayMultiplier, type SeaState } from "./sea-state";
@@ -152,6 +158,21 @@ interface FormationOffsetEntry {
   prevDy: number;
 }
 const formationOffsetCacheByShipId = new Map<string, FormationOffsetEntry>();
+
+// W4.24: per-consort heading-lag memory. Records the previous heading and the
+// timestamp it was written; consorts lerp from prev toward the flagship's
+// current heading with TAU = 0.6s so heading changes trail the flagship.
+interface ConsortHeadingLagEntry {
+  hx: number;
+  hy: number;
+  lastT: number;
+}
+const consortHeadingLagByShipId = new Map<string, ConsortHeadingLagEntry>();
+
+/** Test-only — flushes the consort heading-lag memory. */
+export function __resetConsortHeadingLagMemory(): void {
+  consortHeadingLagByShipId.clear();
+}
 
 // Per-route-path heading low-pass memory. The active key still starts with the
 // ship id for cheap cleanup, but also carries route/path identity so bucket
@@ -418,8 +439,28 @@ export function resolveShipMotionSampleInto(input: {
         }
       }
 
-      let tileX = flagshipSample.tile.x + effectiveDx;
-      let tileY = flagshipSample.tile.y + effectiveDy;
+      // W4.24 — formation gain: fan consorts out during calm cruising (×1.4),
+      // tighten into single-file during arriving (×0.55), preserving the
+      // tight-placement cap so consorts can't spill outside their water set.
+      const gain = formationGain({
+        zone: input.ship.riskZone,
+        flagshipSpeed: flagshipSample.speedTilesPerSecond ?? 0,
+        flagshipState: flagshipSample.state as SquadFormationFlagshipState,
+        placement: input.ship.riskPlacement,
+      });
+      const gainedDx = effectiveDx * gain;
+      const gainedDy = effectiveDy * gain;
+      let tileX = flagshipSample.tile.x + gainedDx;
+      let tileY = flagshipSample.tile.y + gainedDy;
+      // TODO(W4.24): non-water-tile fallback. If gain pushes a consort onto a
+      // non-water tile, clamp back to the flagship's tile so the consort
+      // never visibly sails on land. A tile-validation helper exists in
+      // motion-water.ts (nearestRiskPlacementWaterTile) but the per-frame
+      // sampler doesn't currently have map/world access — pulling it in
+      // would expand the sampler signature. For now the tight-placement
+      // cap keeps the gained offset within the placement's water pocket,
+      // which prevents the worst cases. Wire a proper tile check in a
+      // follow-up wave that has the map accessible at sample time.
       // #8: sub-tile breathing perturbation while the flagship is actively
       // moving; skipped when moored/idle so docked formations stay glued.
       if (flagshipSample.state !== "moored" && flagshipSample.state !== "idle") {
@@ -435,8 +476,16 @@ export function resolveShipMotionSampleInto(input: {
       out.currentDockId = null;
       out.currentRouteStopId = null;
       out.currentRouteStopKind = null;
-      out.heading.x = flagshipSample.heading.x;
-      out.heading.y = flagshipSample.heading.y;
+      // W4.24 — lagged consort heading: lerp prevHeading → flagshipHeading
+      // over TAU = 0.6s so heading changes trail the flagship instead of
+      // snapping. Per-consort cache; cold-start writes flagship heading
+      // directly so the first frame is correct.
+      writeLaggedConsortHeadingInto(
+        input.ship.id,
+        input.timeSeconds,
+        flagshipSample.heading,
+        out.heading,
+      );
       out.routeKey = routeIdentityKey(route);
       out.routePathKey = flagshipSample.routePathKey ?? routePathIdentityKey(route, "consort", flagshipRoute.shipId);
       copyVelocityInto(flagshipSample, out);
@@ -453,6 +502,42 @@ export function resolveShipMotionSampleInto(input: {
   }
 
   sampleRouteCycleInto(route, input.timeSeconds, input.seaState ?? null, out);
+}
+
+function writeLaggedConsortHeadingInto(
+  consortId: string,
+  timeSeconds: number,
+  flagshipHeading: { x: number; y: number },
+  out: { x: number; y: number },
+): void {
+  const memory = consortHeadingLagByShipId.get(consortId);
+  if (!memory) {
+    consortHeadingLagByShipId.set(consortId, {
+      hx: flagshipHeading.x,
+      hy: flagshipHeading.y,
+      lastT: timeSeconds,
+    });
+    out.x = flagshipHeading.x;
+    out.y = flagshipHeading.y;
+    return;
+  }
+  const dt = timeSeconds - memory.lastT;
+  // Cold-start: tab-resume or time-jump → skip the lerp and seed memory.
+  if (dt < 0 || dt > 1.5) {
+    memory.hx = flagshipHeading.x;
+    memory.hy = flagshipHeading.y;
+    memory.lastT = timeSeconds;
+    out.x = flagshipHeading.x;
+    out.y = flagshipHeading.y;
+    return;
+  }
+  const alpha = squadConsortHeadingLerpAlpha(Math.min(dt, 0.2));
+  const hx = memory.hx + (flagshipHeading.x - memory.hx) * alpha;
+  const hy = memory.hy + (flagshipHeading.y - memory.hy) * alpha;
+  normalizeHeadingInto(hx, hy, out);
+  memory.hx = out.x;
+  memory.hy = out.y;
+  memory.lastT = timeSeconds;
 }
 
 interface ReducedMotionRouteFrame {
