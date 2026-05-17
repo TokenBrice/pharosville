@@ -13,6 +13,8 @@ import {
   drawShipWake,
   drawSquadIdentityAccent,
   planShipRenderLod,
+  resolveShipVisualOrientation,
+  resolveTitanBowSprayStrands,
   SHIP_PENNANT_MARKS,
   SHIP_SAIL_MARKS,
   SHIP_TRIM_COLOR_STORIES,
@@ -65,6 +67,7 @@ function makeRecordingCtx(): CanvasRenderingContext2D & RecordingCtx {
     translate: record("translate"),
     rotate: record("rotate"),
     scale: record("scale"),
+    transform: record("transform"),
     drawImage: record("drawImage"),
     fillText: record("fillText"),
     createRadialGradient: vi.fn(() => ({
@@ -185,6 +188,194 @@ describe("standard hull pennant config", () => {
       expect(spec!.pennantWidth).toBeGreaterThan(spec!.pennantHeight);
       expect(spec!.bowLogoSize).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("ship visual orientation", () => {
+  it("flips standard hulls for leftward sampled headings without flipping unique sprites", () => {
+    expect(resolveShipVisualOrientation({
+      heading: { x: -1, y: 0 },
+      isTitanSprite: false,
+      shipId: "standard-left",
+    }).flipX).toBe(true);
+
+    expect(resolveShipVisualOrientation({
+      heading: { x: 1, y: 0 },
+      isTitanSprite: false,
+      shipId: "standard-right",
+    }).flipX).toBe(false);
+
+    expect(resolveShipVisualOrientation({
+      heading: { x: -1, y: 0 },
+      isTitanSprite: false,
+      isUniqueSprite: true,
+      shipId: "unique-left",
+    }).flipX).toBe(false);
+  });
+
+  it("resolves deterministic titan pose buckets instead of horizontal flips", () => {
+    const first = resolveShipVisualOrientation({
+      heading: { x: -1, y: 0.2 },
+      isTitanSprite: true,
+      shipId: "usdc-circle",
+    });
+    const second = resolveShipVisualOrientation({
+      heading: { x: -1, y: 0.2 },
+      isTitanSprite: true,
+      shipId: "usdc-circle",
+    });
+
+    expect(first).toEqual(second);
+    expect(first.flipX).toBe(false);
+    expect(first.titanPoseBucket).toBeLessThan(0);
+    expect(Math.abs(first.titanSkewX)).toBeLessThanOrEqual(0.035);
+    expect(first.titanScaleY).toBeLessThan(1);
+  });
+
+  it("applies the mirrored transform when a standard sprite body heads left", () => {
+    const drawAssetMock = vi.mocked(canvasPrimitives.drawAsset);
+    drawAssetMock.mockClear();
+
+    const ship = makeShipNode({
+      id: "standard-left-render",
+      tile: { x: 10, y: 10 },
+      visual: {
+        hull: "treasury-galleon",
+        sizeTier: "major",
+        spriteAssetId: "ship.treasury-galleon",
+        scale: 1,
+        livery: TEST_LIVERY,
+      },
+    });
+    const fakeAsset: LoadedPharosVilleAsset = {
+      entry: {
+        anchor: [52, 68],
+        category: "ship",
+        displayScale: 1,
+        footprint: [30, 14],
+        height: 80,
+        hitbox: [12, 8, 80, 60],
+        id: "ship.treasury-galleon",
+        layer: "ships",
+        loadPriority: "deferred",
+        path: "ships/treasury-galleon.png",
+        width: 104,
+      },
+      image: {} as HTMLImageElement,
+    };
+    const ctx = makeRecordingCtx();
+    const input = {
+      assets: null,
+      camera: { offsetX: 0, offsetY: 0, zoom: 1 },
+      ctx,
+      height: 600,
+      hoveredTarget: null,
+      motion: {
+        plan: makeMotionPlan([]),
+        reducedMotion: false,
+        timeSeconds: 0,
+        wallClockHour: 12,
+      },
+      selectedTarget: null,
+      shipMotionSamples: new Map<string, ShipMotionSample>([
+        [ship.id, makeMotionSample(ship.id)],
+      ]),
+      targets: [],
+      width: 800,
+      world: { ships: [ship] } as unknown as PharosVilleWorld,
+    } satisfies DrawPharosVilleInput;
+    const frame: ShipRenderFrame = {
+      cache: {
+        assetForEntity: () => fakeAsset,
+        geometryForEntity: () => makeGeometry(200, 100),
+      },
+      shipRenderStates: new Map(),
+    };
+
+    drawShipBody(input, frame, ship);
+
+    expect(drawAssetMock).toHaveBeenCalledTimes(1);
+    expect(ctx.calls.some((call) => call.method === "scale" && call.args[0] === -1 && call.args[1] === 1)).toBe(true);
+  });
+});
+
+describe("titan bow spray orientation", () => {
+  it("lengthens and brightens the outer rail while damping the inner rail", () => {
+    const strands = resolveTitanBowSprayStrands({
+      headingDelta: 0.2,
+      shipId: "usdc-circle",
+      topRecentMover: false,
+    });
+
+    expect(strands).toHaveLength(3);
+    for (const strand of strands) {
+      if (strand.side === 1) {
+        expect(strand.length).toBe(18);
+        expect(strand.alphaScale).toBe(1.2);
+      } else {
+        expect(strand.length).toBe(12);
+        expect(strand.alphaScale).toBe(0.7);
+      }
+    }
+  });
+
+  it("adds a fourth outer strand for top recent movers", () => {
+    const strands = resolveTitanBowSprayStrands({
+      headingDelta: -0.2,
+      shipId: "usdc-circle",
+      topRecentMover: true,
+    });
+
+    expect(strands).toHaveLength(4);
+    expect(strands[3]).toMatchObject({
+      alphaScale: 1.2,
+      length: 21,
+      side: -1,
+    });
+  });
+
+  it("keeps zero-turn spray side deterministic per ship id", () => {
+    const first = resolveTitanBowSprayStrands({
+      headingDelta: 0,
+      shipId: "deterministic-titan",
+      topRecentMover: true,
+    });
+    const second = resolveTitanBowSprayStrands({
+      headingDelta: 0,
+      shipId: "deterministic-titan",
+      topRecentMover: true,
+    });
+    expect(first).toEqual(second);
+  });
+
+  it("derives the fourth titan spray strand from top-three 24h world movers", () => {
+    const tracked = makeShipNode({
+      id: "usdc-circle",
+      tile: { x: 8, y: 8 },
+      change24hUsd: 25,
+      visual: {
+        hull: "treasury-galleon",
+        spriteAssetId: "ship.usdc-titan",
+        sizeTier: "titan",
+        scale: 1.53,
+        livery: TEST_LIVERY,
+      },
+    });
+    const largerMovers = [100, 90, 80].map((change, index) => makeShipNode({
+      id: `larger-mover-${index}`,
+      tile: { x: 9 + index, y: 9 },
+      change24hUsd: change,
+    }));
+    const smallerMovers = [20, 10, 5].map((change, index) => makeShipNode({
+      id: `smaller-mover-${index}`,
+      tile: { x: 9 + index, y: 9 },
+      change24hUsd: change,
+    }));
+
+    const topMoverLineToCount = drawTitanWakeLineToCount(tracked, [tracked, ...smallerMovers]);
+    const nonTopMoverLineToCount = drawTitanWakeLineToCount(tracked, [tracked, ...largerMovers]);
+
+    expect(topMoverLineToCount).toBe(nonTopMoverLineToCount + 1);
   });
 });
 
@@ -528,6 +719,48 @@ function makeMotionSample(shipId: string): ShipMotionSample {
     heading: { x: -1, y: 0 },
     wakeIntensity: 0.4,
   };
+}
+
+function drawTitanWakeLineToCount(ship: ShipNode, ships: readonly ShipNode[]): number {
+  const ctx = makeRecordingCtx();
+  const plan = makeMotionPlan([ship.id]);
+  const input = {
+    assets: null,
+    camera: { offsetX: 0, offsetY: 0, zoom: 1 },
+    ctx,
+    height: 600,
+    hoveredTarget: null,
+    motion: {
+      plan: {
+        ...plan,
+        animatedShipIds: new Set<string>([ship.id]),
+        effectShipIds: new Set<string>([ship.id]),
+      },
+      reducedMotion: false,
+      timeSeconds: 0,
+      wallClockHour: 12,
+    },
+    selectedTarget: null,
+    shipMotionSamples: new Map<string, ShipMotionSample>([
+      [ship.id, { ...makeMotionSample(ship.id), wakeIntensity: 1 }],
+    ]),
+    targets: [],
+    width: 800,
+    world: { ships } as unknown as PharosVilleWorld,
+  } satisfies DrawPharosVilleInput;
+  const frame: ShipRenderFrame = {
+    cache: {
+      assetForEntity: () => null,
+      geometryForEntity: () => makeGeometry(200, 100),
+    },
+    shipRenderStates: new Map(),
+    visibleShips: ships,
+    wakeDrawnShipIds: new Set<string>(),
+  };
+
+  drawShipWake(input, frame, ship);
+
+  return ctx.calls.filter((call) => call.method === "lineTo").length;
 }
 
 describe("drawShipWake squad ordering", () => {

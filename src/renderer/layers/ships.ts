@@ -1,5 +1,6 @@
 import { squadForMember } from "../../systems/maker-squad";
 import type { ShipMotionSample } from "../../systems/motion";
+import { getShipHeadingDelta } from "../../systems/motion-sampling";
 import type { ScreenPoint } from "../../systems/projection";
 import type { PharosVilleWorld, ShipHull, ShipLivery, ShipLogoShape, ShipSizeTier, ShipStripePattern, ShipWaterZone } from "../../systems/world-types";
 import type { LoadedPharosVilleAsset, PharosVilleAssetManager } from "../asset-manager";
@@ -55,6 +56,7 @@ export interface ShipRenderState {
   p: ScreenPoint;
   pose: ShipPose;
   sample: ShipMotionSample | null;
+  orientation: ShipVisualOrientation;
   selected: boolean;
   hovered: boolean;
   animationFrame: number;
@@ -168,6 +170,26 @@ let cachedMoverHash = "";
 let cachedEffectHashSource: ReadonlySet<string> | null = null;
 let cachedEffectHash = "";
 
+export type TitanPoseBucket = -2 | -1 | 0 | 1 | 2;
+
+export interface ShipVisualOrientation {
+  flipX: boolean;
+  titanPoseBucket: TitanPoseBucket;
+  titanScaleY: number;
+  titanSkewX: number;
+}
+
+const STATIC_SHIP_ORIENTATION: ShipVisualOrientation = Object.freeze({
+  flipX: false,
+  titanPoseBucket: 0,
+  titanScaleY: 1,
+  titanSkewX: 0,
+});
+
+const HEADING_FLIP_THRESHOLD = -0.05;
+const TITAN_YAW_SKEW_MAX = 0.035;
+const topRecentMoverCache = new WeakMap<PharosVilleWorld, { ids: ReadonlySet<string>; signature: string }>();
+
 function compareShipLodCandidates(a: ShipLodCandidate, b: ShipLodCandidate): number {
   const scoreDelta = b.score - a.score;
   if (Math.abs(scoreDelta) > 0.0001) return scoreDelta;
@@ -184,6 +206,56 @@ function hashIdSet(set: ReadonlySet<string>, prevSource: ReadonlySet<string> | n
   for (const id of set) ids.push(id);
   ids.sort();
   return { hash: ids.join("|"), source: set };
+}
+
+export function resolveShipVisualOrientation(input: {
+  heading?: { x: number; y: number } | null;
+  isTitanSprite: boolean;
+  isUniqueSprite?: boolean;
+  shipId: string;
+}): ShipVisualOrientation {
+  const heading = normalizedHeading(input.heading);
+  if (!heading) return STATIC_SHIP_ORIENTATION;
+
+  if (!input.isTitanSprite) {
+    return {
+      ...STATIC_SHIP_ORIENTATION,
+      flipX: input.isUniqueSprite ? false : heading.x < HEADING_FLIP_THRESHOLD,
+    };
+  }
+
+  const bucket = titanPoseBucketForHeading(heading);
+  const stableBias = ((stableVisualVariant(`${input.shipId}:titan-yaw`) % 5) - 2) * 0.0025;
+  const skew = clamp(heading.y * 0.018 + bucket * 0.004 + stableBias, -TITAN_YAW_SKEW_MAX, TITAN_YAW_SKEW_MAX);
+  return {
+    flipX: false,
+    titanPoseBucket: bucket,
+    titanScaleY: 1 - Math.abs(bucket) * 0.007,
+    titanSkewX: skew,
+  };
+}
+
+function normalizedHeading(heading: { x: number; y: number } | null | undefined): { x: number; y: number } | null {
+  if (!heading || !Number.isFinite(heading.x) || !Number.isFinite(heading.y)) return null;
+  const magnitude = Math.hypot(heading.x, heading.y);
+  if (magnitude <= 0.0001) return null;
+  return {
+    x: heading.x / magnitude,
+    y: heading.y / magnitude,
+  };
+}
+
+function titanPoseBucketForHeading(heading: { x: number; y: number }): TitanPoseBucket {
+  const lateral = clamp(heading.x * 0.72 + heading.y * 0.28, -1, 1);
+  if (lateral <= -0.62) return -2;
+  if (lateral <= -0.18) return -1;
+  if (lateral >= 0.62) return 2;
+  if (lateral >= 0.18) return 1;
+  return 0;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
 }
 
 /**
@@ -364,12 +436,19 @@ function shipRenderState(input: DrawPharosVilleInput, frame: ShipRenderFrame, sh
   const animationFrame = shipAsset && titanSprite
     ? shipAnimationFrameIndex(shipAsset, motion.timeSeconds, ship.id)
     : 0;
+  const orientation = resolveShipVisualOrientation({
+    heading: sample?.heading,
+    isTitanSprite: titanSprite,
+    isUniqueSprite: uniqueSprite,
+    shipId: ship.id,
+  });
   const state: ShipRenderState = {
     bob,
     geometry,
     p,
     pose,
     sample,
+    orientation,
     selected,
     hovered,
     animationFrame,
@@ -395,18 +474,41 @@ function drawWithShipPose(
   x: number,
   y: number,
   pose: ShipPose,
+  orientation: ShipVisualOrientation,
   draw: () => void,
 ) {
-  if (Math.abs(pose.rollRadians) < 0.0005) {
+  const needsRoll = Math.abs(pose.rollRadians) >= 0.0005;
+  const needsOrientation = orientation.flipX
+    || Math.abs(orientation.titanSkewX) >= 0.0005
+    || Math.abs(orientation.titanScaleY - 1) >= 0.0005;
+  if (!needsRoll && !needsOrientation) {
     draw();
     return;
   }
   ctx.save();
   ctx.translate(x, y);
-  ctx.rotate(pose.rollRadians);
+  if (needsRoll) ctx.rotate(pose.rollRadians);
+  if (needsOrientation) {
+    ctx.scale(orientation.flipX ? -1 : 1, orientation.titanScaleY);
+    if (Math.abs(orientation.titanSkewX) >= 0.0005) {
+      ctx.transform(1, 0, orientation.titanSkewX, 1, 0, 0);
+    }
+  }
   ctx.translate(-x, -y);
   draw();
   ctx.restore();
+}
+
+function applyShipOrientationToLocalPoint(
+  localX: number,
+  localY: number,
+  orientation: ShipVisualOrientation,
+): { x: number; y: number } {
+  const skewedX = localX + orientation.titanSkewX * localY;
+  return {
+    x: skewedX * (orientation.flipX ? -1 : 1),
+    y: localY * orientation.titanScaleY,
+  };
 }
 
 /**
@@ -486,8 +588,10 @@ function drawShipWakeRaw(input: DrawPharosVilleInput, frame: ShipRenderFrame, sh
         geometry.drawPoint.y,
         geometry.drawScale,
         pose,
+        ship.id,
         sample?.heading ?? { x: -1, y: 0 },
         sample?.zone ?? ship.riskZone,
+        isTopRecentMoverShip(input.world, ship.id),
       );
     }
   }
@@ -592,8 +696,10 @@ function drawTitanBowSpray(
   y: number,
   scale: number,
   pose: ShipPose,
+  shipId: string,
   heading: { x: number; y: number },
   zone: ShipWaterZone,
+  topRecentMover: boolean,
 ) {
   if (pose.bowWake <= 0.02 && pose.sternChurn <= 0.02) return;
   const style = wakeStyleForZone(zone);
@@ -602,19 +708,25 @@ function drawTitanBowSpray(
   const fy = magnitude > 0 ? heading.y / magnitude : 0;
   const cx = -fy;
   const cy = fx;
+  const baseAlpha = 0.16 + pose.bowWake * 0.24;
+  const strands = resolveTitanBowSprayStrands({
+    headingDelta: getShipHeadingDelta(shipId),
+    shipId,
+    topRecentMover,
+  });
   ctx.save();
   ctx.lineCap = "round";
-  ctx.strokeStyle = wakeRgba(style, 0.16 + pose.bowWake * 0.24);
   ctx.lineWidth = Math.max(1, 1.05 * scale);
-  for (let index = 0; index < 3; index += 1) {
-    const side = index % 2 === 0 ? 1 : -1;
-    const spread = (5 + index * 4) * side * scale;
-    const start = (24 + index * 3) * scale;
+  for (const strand of strands) {
+    const spread = strand.spread * strand.side * scale;
+    const start = strand.start * scale;
+    const length = strand.length * scale;
+    ctx.strokeStyle = wakeRgba(style, baseAlpha * strand.alphaScale);
     ctx.beginPath();
     ctx.moveTo(x + fx * start + cx * spread, y + 2 * scale + fy * start + cy * spread);
     ctx.lineTo(
-      x + fx * (start + 12 * scale) + cx * spread * 1.7,
-      y + 2 * scale + fy * (start + 12 * scale) + cy * spread * 1.7,
+      x + fx * (start + length) + cx * spread * 1.7,
+      y + 2 * scale + fy * (start + length) + cy * spread * 1.7,
     );
     ctx.stroke();
   }
@@ -632,6 +744,73 @@ function drawTitanBowSpray(
   ctx.restore();
 }
 
+export interface TitanBowSprayStrand {
+  alphaScale: number;
+  length: number;
+  side: -1 | 1;
+  spread: number;
+  start: number;
+}
+
+export function resolveTitanBowSprayStrands(input: {
+  headingDelta: number;
+  shipId: string;
+  topRecentMover: boolean;
+}): readonly TitanBowSprayStrand[] {
+  const outerSide = titanOuterRailSide(input.shipId, input.headingDelta);
+  const strands: TitanBowSprayStrand[] = [
+    titanBowSprayStrand({ side: 1, spread: 5, start: 24 }, outerSide),
+    titanBowSprayStrand({ side: -1, spread: 9, start: 27 }, outerSide),
+    titanBowSprayStrand({ side: 1, spread: 13, start: 30 }, outerSide),
+  ];
+  if (input.topRecentMover) {
+    strands.push(titanBowSprayStrand({ side: outerSide, spread: 17, start: 33, length: 14 }, outerSide));
+  }
+  return strands;
+}
+
+function titanBowSprayStrand(
+  base: { length?: number; side: -1 | 1; spread: number; start: number },
+  outerSide: -1 | 1,
+): TitanBowSprayStrand {
+  const outer = base.side === outerSide;
+  return {
+    alphaScale: outer ? 1.2 : 0.7,
+    length: (base.length ?? 12) * (outer ? 1.5 : 1),
+    side: base.side,
+    spread: base.spread,
+    start: base.start,
+  };
+}
+
+function titanOuterRailSide(shipId: string, headingDelta: number): -1 | 1 {
+  if (Number.isFinite(headingDelta) && Math.abs(headingDelta) >= 0.015) {
+    return headingDelta > 0 ? 1 : -1;
+  }
+  return stableVisualVariant(`${shipId}:titan-bow-spray-side`) % 2 === 0 ? 1 : -1;
+}
+
+function isTopRecentMoverShip(world: PharosVilleWorld, shipId: string): boolean {
+  return topRecentMoverShipIds(world).has(shipId);
+}
+
+function topRecentMoverShipIds(world: PharosVilleWorld): ReadonlySet<string> {
+  const signature = world.ships
+    .map((ship) => `${ship.id}:${ship.change24hUsd ?? ""}`)
+    .join("|");
+  const cached = topRecentMoverCache.get(world);
+  if (cached?.signature === signature) return cached.ids;
+  const ids = new Set(
+    world.ships
+      .filter((ship) => Math.abs(ship.change24hUsd ?? 0) > 0)
+      .toSorted((a, b) => Math.abs(b.change24hUsd ?? 0) - Math.abs(a.change24hUsd ?? 0) || a.id.localeCompare(b.id))
+      .slice(0, 3)
+      .map((ship) => ship.id),
+  );
+  topRecentMoverCache.set(world, { ids, signature });
+  return ids;
+}
+
 export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame, ship: PharosVilleWorld["ships"][number]): void {
   const { camera, ctx, motion } = input;
   const {
@@ -639,13 +818,14 @@ export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame
     bob,
     geometry,
     isTitanSprite,
+    orientation,
     p,
     pose,
     shipAsset,
   } = shipRenderState(input, frame, ship);
   if (shipAsset) {
     const drawY = geometry.drawPoint.y + bob;
-    drawWithShipPose(ctx, geometry.drawPoint.x, drawY, pose, () => {
+    drawWithShipPose(ctx, geometry.drawPoint.x, drawY, pose, orientation, () => {
       if (isTitanSprite) {
         drawAnimatedAsset(
           ctx,
@@ -667,17 +847,19 @@ export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame
   } else {
     const drawY = p.y - 4 * camera.zoom + bob;
     const proceduralScale = camera.zoom * ship.visual.scale;
-    drawShip(
-      ctx,
-      p.x,
-      drawY,
-      ship.visual.scale,
-      ship.visual.livery.sailColor,
-      SHIP_COLORS[ship.visual.hull],
-      camera.zoom,
-    );
-    drawProceduralShipLiveryTrim(ctx, ship.id, ship.visual.livery, p.x, drawY, proceduralScale);
-    drawSquadIdentityAccent(ctx, ship.id, p.x, drawY, proceduralScale);
+    drawWithShipPose(ctx, p.x, drawY, pose, orientation, () => {
+      drawShip(
+        ctx,
+        p.x,
+        drawY,
+        ship.visual.scale,
+        ship.visual.livery.sailColor,
+        SHIP_COLORS[ship.visual.hull],
+        camera.zoom,
+      );
+      drawProceduralShipLiveryTrim(ctx, ship.id, ship.visual.livery, p.x, drawY, proceduralScale);
+      drawSquadIdentityAccent(ctx, ship.id, p.x, drawY, proceduralScale);
+    });
   }
 }
 
@@ -778,7 +960,7 @@ export function shipMastTopScreenPoint(
   frame: ShipRenderFrame,
   ship: PharosVilleWorld["ships"][number],
 ): { x: number; y: number } {
-  const { bob, geometry, pose } = shipRenderState(input, frame, ship);
+  const { bob, geometry, orientation, pose } = shipRenderState(input, frame, ship);
   const drawX = geometry.drawPoint.x;
   const drawY = geometry.drawPoint.y + bob;
   const sailKey = ship.visual.spriteAssetId ?? ship.visual.hull;
@@ -792,9 +974,10 @@ export function shipMastTopScreenPoint(
   // Apply pose roll about the hull origin (drawX, drawY).
   const cos = Math.cos(pose.rollRadians);
   const sin = Math.sin(pose.rollRadians);
+  const oriented = applyShipOrientationToLocalPoint(localX, localY, orientation);
   return {
-    x: drawX + localX * cos - localY * sin,
-    y: drawY + localX * sin + localY * cos,
+    x: drawX + oriented.x * cos - oriented.y * sin,
+    y: drawY + oriented.x * sin + oriented.y * cos,
   };
 }
 
@@ -834,6 +1017,7 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
     hovered,
     isTitanSprite,
     isUniqueSprite,
+    orientation,
     p,
     pose,
     selected,
@@ -845,7 +1029,7 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
     const dyedEmblem = (!isTitanSprite && !isUniqueSprite) || overrideEmblemLogo !== null;
     const standardSprite = !isTitanSprite && !isUniqueSprite;
     const drawY = geometry.drawPoint.y + bob;
-    drawWithShipPose(ctx, geometry.drawPoint.x, drawY, pose, () => {
+    drawWithShipPose(ctx, geometry.drawPoint.x, drawY, pose, orientation, () => {
       if (selected) {
         drawSelectedShipOutline(ctx, geometry.drawPoint.x, drawY, geometry.drawScale, input.motion);
       } else if (hovered) {
@@ -899,25 +1083,27 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
   } else {
     const proceduralScale = camera.zoom * ship.visual.scale;
     const drawY = p.y - 4 * camera.zoom + bob;
-    if (selected) {
-      drawSelectedShipOutline(ctx, p.x, drawY, proceduralScale * 0.7, input.motion);
-    } else if (hovered) {
-      drawHoverShipOutline(ctx, p.x, drawY, proceduralScale * 0.7);
-    }
-    drawMastPennantChrome(ctx, ship.visual.livery, ship.symbol, p.x, drawY, proceduralScale, PROCEDURAL_SHIP_PENNANT_MARK);
-    if (shouldDrawBowspritLogoMark(ship.visual.sizeTier)) {
-      drawBowspritLogoMark({
-        ctx,
-        logo: assets?.getLogo(ship.logoSrc) ?? null,
-        livery: ship.visual.livery,
-        mark: ship.symbol,
-        spec: PROCEDURAL_SHIP_PENNANT_MARK,
-        scale: proceduralScale,
-        x: p.x,
-        y: drawY,
-      });
-    }
-    drawShipSignalOverlay(ctx, ship.visual.overlay, p.x - 10 * proceduralScale, drawY - 20 * proceduralScale, proceduralScale);
+    drawWithShipPose(ctx, p.x, drawY, pose, orientation, () => {
+      if (selected) {
+        drawSelectedShipOutline(ctx, p.x, drawY, proceduralScale * 0.7, input.motion);
+      } else if (hovered) {
+        drawHoverShipOutline(ctx, p.x, drawY, proceduralScale * 0.7);
+      }
+      drawMastPennantChrome(ctx, ship.visual.livery, ship.symbol, p.x, drawY, proceduralScale, PROCEDURAL_SHIP_PENNANT_MARK);
+      if (shouldDrawBowspritLogoMark(ship.visual.sizeTier)) {
+        drawBowspritLogoMark({
+          ctx,
+          logo: assets?.getLogo(ship.logoSrc) ?? null,
+          livery: ship.visual.livery,
+          mark: ship.symbol,
+          spec: PROCEDURAL_SHIP_PENNANT_MARK,
+          scale: proceduralScale,
+          x: p.x,
+          y: drawY,
+        });
+      }
+      drawShipSignalOverlay(ctx, ship.visual.overlay, p.x - 10 * proceduralScale, drawY - 20 * proceduralScale, proceduralScale);
+    });
   }
   const { nightFactor: lanternNight } = skyState(input.motion);
   if (lanternNight > 0) {
