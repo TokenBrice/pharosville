@@ -1096,11 +1096,11 @@ test("pharosville reduced motion keeps ship samples static without RAF", async (
   expect(second.timeSeconds).toBe(0);
   expect(first.shipMotionSamples.length).toBeGreaterThan(0);
   expect(second.shipMotionSamples).toEqual(first.shipMotionSamples);
-  expect(first.shipMotionSamples.every((sample) => (
-    sample.state === "idle"
-    && sample.currentDockId === null
-    && sample.currentRouteStopId === null
-    && sample.currentRouteStopKind === null
+  expect(first.shipMotionSamples.every((sample) => sample.state === "idle")).toBe(true);
+  expect(first.shipMotionSamples.some((sample) => (
+    sample.currentDockId !== null
+    && sample.currentRouteStopId !== null
+    && sample.currentRouteStopKind === "dock"
   ))).toBe(true);
   expect(first.renderMetrics?.drawableCount).toBeGreaterThan(0);
   expect(first.renderMetrics?.visibleTileCount).toBeGreaterThan(0);
