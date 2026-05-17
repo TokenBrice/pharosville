@@ -75,7 +75,7 @@ export function resolveShipPose(input: ShipPoseInput): ShipPose {
   if (sizeTier !== "titan") {
     return {
       ...STATIC_SHIP_POSE,
-      bobPixels: Math.round(Math.sin(timeSeconds * 0.7 + phase) * NON_TITAN_BOB_PIXELS * zoom * bias.bobAmplitudeBias),
+      bobPixels: Math.sin(timeSeconds * 0.7 + phase) * NON_TITAN_BOB_PIXELS * zoom * bias.bobAmplitudeBias,
     };
   }
 

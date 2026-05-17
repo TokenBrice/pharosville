@@ -7,13 +7,37 @@ export function drawAsset(
   y: number,
   scale: number,
 ) {
+  drawAssetWithDestination(ctx, asset, x, y, scale, "rounded");
+}
+
+export function drawAssetSubpixel(
+  ctx: CanvasRenderingContext2D,
+  asset: LoadedPharosVilleAsset,
+  x: number,
+  y: number,
+  scale: number,
+) {
+  drawAssetWithDestination(ctx, asset, x, y, scale, "subpixel");
+}
+
+function drawAssetWithDestination(
+  ctx: CanvasRenderingContext2D,
+  asset: LoadedPharosVilleAsset,
+  x: number,
+  y: number,
+  scale: number,
+  destinationMode: AssetDestinationMode,
+) {
   const { entry, image } = asset;
   const width = entry.width * entry.displayScale * scale;
   const height = entry.height * entry.displayScale * scale;
+  const drawScale = entry.displayScale * scale;
+  const destinationX = x - entry.anchor[0] * drawScale;
+  const destinationY = y - entry.anchor[1] * drawScale;
   ctx.drawImage(
     image,
-    Math.round(x - entry.anchor[0] * entry.displayScale * scale),
-    Math.round(y - entry.anchor[1] * entry.displayScale * scale),
+    resolveDestinationCoordinate(destinationX, destinationMode),
+    resolveDestinationCoordinate(destinationY, destinationMode),
     Math.round(width),
     Math.round(height),
   );
@@ -37,6 +61,24 @@ export function drawAnimatedAsset(
   return false;
 }
 
+export function drawAnimatedAssetSubpixel(
+  ctx: CanvasRenderingContext2D,
+  asset: LoadedPharosVilleAsset,
+  x: number,
+  y: number,
+  scale: number,
+  frameIndex: number,
+  reducedMotion: boolean,
+): boolean {
+  const animation = asset.entry.animation;
+  const resolvedFrameIndex = reducedMotion
+    ? animation?.reducedMotionFrame ?? 0
+    : frameIndex;
+  if (drawAssetFrameSubpixel(ctx, asset, x, y, scale, resolvedFrameIndex)) return true;
+  drawAssetSubpixel(ctx, asset, x, y, scale);
+  return false;
+}
+
 export function drawAssetFrame(
   ctx: CanvasRenderingContext2D,
   asset: LoadedPharosVilleAsset,
@@ -44,6 +86,29 @@ export function drawAssetFrame(
   y: number,
   scale: number,
   frameIndex: number,
+): boolean {
+  return drawAssetFrameWithDestination(ctx, asset, x, y, scale, frameIndex, "rounded");
+}
+
+export function drawAssetFrameSubpixel(
+  ctx: CanvasRenderingContext2D,
+  asset: LoadedPharosVilleAsset,
+  x: number,
+  y: number,
+  scale: number,
+  frameIndex: number,
+): boolean {
+  return drawAssetFrameWithDestination(ctx, asset, x, y, scale, frameIndex, "subpixel");
+}
+
+function drawAssetFrameWithDestination(
+  ctx: CanvasRenderingContext2D,
+  asset: LoadedPharosVilleAsset,
+  x: number,
+  y: number,
+  scale: number,
+  frameIndex: number,
+  destinationMode: AssetDestinationMode,
 ): boolean {
   const { entry, frameSource } = asset;
   const animation = entry.animation;
@@ -64,14 +129,16 @@ export function drawAssetFrame(
   const drawScale = entry.displayScale * scale;
   const width = sheet.frameWidth * drawScale;
   const height = sheet.frameHeight * drawScale;
+  const destinationX = x - entry.anchor[0] * drawScale;
+  const destinationY = y - entry.anchor[1] * drawScale;
   ctx.drawImage(
     frameSource,
     column * sheet.frameWidth,
     row * sheet.frameHeight,
     sheet.frameWidth,
     sheet.frameHeight,
-    Math.round(x - entry.anchor[0] * drawScale),
-    Math.round(y - entry.anchor[1] * drawScale),
+    resolveDestinationCoordinate(destinationX, destinationMode),
+    resolveDestinationCoordinate(destinationY, destinationMode),
     Math.round(width),
     Math.round(height),
   );
@@ -194,4 +261,10 @@ function normalizeFrameIndex(frameIndex: number, frameCount: number, loop: boole
 
 function isPositiveInteger(value: number): boolean {
   return Number.isInteger(value) && value > 0;
+}
+
+type AssetDestinationMode = "rounded" | "subpixel";
+
+function resolveDestinationCoordinate(value: number, mode: AssetDestinationMode): number {
+  return mode === "rounded" ? Math.round(value) : value;
 }

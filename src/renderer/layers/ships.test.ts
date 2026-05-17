@@ -30,7 +30,9 @@ vi.mock("../canvas-primitives", async (importOriginal) => {
   return {
     ...actual,
     drawAsset: vi.fn(actual.drawAsset),
+    drawAssetSubpixel: vi.fn(actual.drawAssetSubpixel),
     drawAnimatedAsset: vi.fn(actual.drawAnimatedAsset),
+    drawAnimatedAssetSubpixel: vi.fn(actual.drawAnimatedAssetSubpixel),
   };
 });
 
@@ -233,7 +235,7 @@ describe("ship visual orientation", () => {
   });
 
   it("applies the mirrored transform when a standard sprite body heads left", () => {
-    const drawAssetMock = vi.mocked(canvasPrimitives.drawAsset);
+    const drawAssetMock = vi.mocked(canvasPrimitives.drawAssetSubpixel);
     drawAssetMock.mockClear();
 
     const ship = makeShipNode({
@@ -400,8 +402,8 @@ describe("Unique ship offset tables", () => {
 
 describe("drawShipBody for unique sprites", () => {
   it("renders unique ships through the static drawAsset path, not drawAnimatedAsset", () => {
-    const drawAssetMock = vi.mocked(canvasPrimitives.drawAsset);
-    const drawAnimatedAssetMock = vi.mocked(canvasPrimitives.drawAnimatedAsset);
+    const drawAssetMock = vi.mocked(canvasPrimitives.drawAssetSubpixel);
+    const drawAnimatedAssetMock = vi.mocked(canvasPrimitives.drawAnimatedAssetSubpixel);
     drawAssetMock.mockClear();
     drawAnimatedAssetMock.mockClear();
 
@@ -480,7 +482,7 @@ describe("drawShipBody for unique sprites", () => {
 
 describe("drawShipBody titan trim", () => {
   it("draws procedural trim over titan sprites without changing asset bytes", () => {
-    const drawAnimatedAssetMock = vi.mocked(canvasPrimitives.drawAnimatedAsset);
+    const drawAnimatedAssetMock = vi.mocked(canvasPrimitives.drawAnimatedAssetSubpixel);
     drawAnimatedAssetMock.mockClear();
 
     const titan = makeShipNode({

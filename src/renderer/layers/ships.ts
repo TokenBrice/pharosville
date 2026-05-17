@@ -4,7 +4,7 @@ import { getShipHeadingDelta } from "../../systems/motion-sampling";
 import type { ScreenPoint } from "../../systems/projection";
 import type { PharosVilleWorld, ShipHull, ShipLivery, ShipLogoShape, ShipSizeTier, ShipStripePattern, ShipWaterZone } from "../../systems/world-types";
 import type { LoadedPharosVilleAsset, PharosVilleAssetManager } from "../asset-manager";
-import { drawAnimatedAsset, drawAsset, hexToRgba, readableInkForFill, roundedRectPath, stableVisualVariant } from "../canvas-primitives";
+import { drawAnimatedAssetSubpixel, drawAssetSubpixel, hexToRgba, readableInkForFill, roundedRectPath, stableVisualVariant } from "../canvas-primitives";
 import type { RenderFrameCache } from "../frame-cache";
 import type { ResolvedEntityGeometry } from "../geometry";
 import type { DrawPharosVilleInput } from "../render-types";
@@ -432,7 +432,7 @@ function shipRenderState(input: DrawPharosVilleInput, frame: ShipRenderFrame, sh
       zoom: camera.zoom,
     })
     : zeroShipPose();
-  const bob = Math.round(pose.bobPixels);
+  const bob = pose.bobPixels;
   const animationFrame = shipAsset && titanSprite
     ? shipAnimationFrameIndex(shipAsset, motion.timeSeconds, ship.id)
     : 0;
@@ -827,7 +827,7 @@ export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame
     const drawY = geometry.drawPoint.y + bob;
     drawWithShipPose(ctx, geometry.drawPoint.x, drawY, pose, orientation, () => {
       if (isTitanSprite) {
-        drawAnimatedAsset(
+        drawAnimatedAssetSubpixel(
           ctx,
           shipAsset,
           geometry.drawPoint.x,
@@ -837,7 +837,7 @@ export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame
           motion.reducedMotion,
         );
       } else {
-        drawAsset(ctx, shipAsset, geometry.drawPoint.x, drawY, geometry.drawScale);
+        drawAssetSubpixel(ctx, shipAsset, geometry.drawPoint.x, drawY, geometry.drawScale);
       }
       const visualKey = ship.visual.spriteAssetId ?? ship.visual.hull;
       drawShipSailTint(ctx, shipAsset, geometry.drawPoint.x, drawY, geometry.drawScale, ship.visual.livery);
@@ -2040,8 +2040,8 @@ function drawShipSailTint(
   const { entry } = asset;
   const width = entry.width * entry.displayScale * scale;
   const height = entry.height * entry.displayScale * scale;
-  const left = Math.round(x - entry.anchor[0] * entry.displayScale * scale);
-  const top = Math.round(y - entry.anchor[1] * entry.displayScale * scale);
+  const left = x - entry.anchor[0] * entry.displayScale * scale;
+  const top = y - entry.anchor[1] * entry.displayScale * scale;
   ctx.save();
   ctx.globalAlpha = 1;
   ctx.drawImage(tint, left, top, Math.round(width), Math.round(height));

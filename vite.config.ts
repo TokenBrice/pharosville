@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath, URL } from "node:url";
+import type { OutputBundle, OutputChunk } from "rollup";
 import { onRequest as pharosVilleApiProxy } from "./functions/api/[[path]]";
 import { stripAuthoringFields } from "./scripts/pharosville/build-runtime-manifest.mjs";
 
@@ -159,24 +160,43 @@ function desktopChunkModulePreload(): Plugin {
       const bundle = context.bundle;
       if (!bundle) return [];
 
-      const desktopChunk = Object.values(bundle).find((entry) => (
-        entry.type === "chunk"
+      const desktopChunk = Object.values(bundle).find((entry): entry is OutputChunk => (
+        isOutputChunk(entry)
         && entry.isDynamicEntry
-        && entry.facadeModuleId?.endsWith("/src/pharosville-desktop-data.tsx")
+        && Boolean(entry.facadeModuleId?.endsWith("/src/pharosville-desktop-data.tsx"))
       ));
-      if (!desktopChunk || desktopChunk.type !== "chunk") return [];
+      if (!desktopChunk) return [];
 
-      return [{
+      return desktopModulePreloadFileNames(bundle, desktopChunk).map((fileName) => ({
         tag: "link",
         attrs: {
           rel: "modulepreload",
-          href: `/${desktopChunk.fileName}`,
+          href: `/${fileName}`,
           media: pharosVilleDesktopQuery,
         },
         injectTo: "head",
-      }];
+      }));
     },
   };
+}
+
+function isOutputChunk(entry: OutputBundle[string]): entry is OutputChunk {
+  return entry.type === "chunk";
+}
+
+function desktopModulePreloadFileNames(bundle: OutputBundle, desktopChunk: OutputChunk): string[] {
+  const fileNames: string[] = [];
+  const seen = new Set<string>();
+  const visit = (fileName: string) => {
+    if (seen.has(fileName)) return;
+    seen.add(fileName);
+    const entry = bundle[fileName];
+    if (!entry || !isOutputChunk(entry)) return;
+    fileNames.push(fileName);
+    for (const importedFileName of entry.imports) visit(importedFileName);
+  };
+  visit(desktopChunk.fileName);
+  return fileNames;
 }
 
 export default defineConfig(({ mode }) => {
@@ -219,6 +239,12 @@ export default defineConfig(({ mode }) => {
             }
             if (id.includes("/node_modules/@tanstack/react-query/")) {
               return "vendor-query";
+            }
+            if (id.includes("/node_modules/zod/")) {
+              return "vendor-zod";
+            }
+            if (id.includes("/node_modules/lucide-react/")) {
+              return "vendor-icons";
             }
             return undefined;
           },

@@ -150,7 +150,7 @@ describe("ship pose", () => {
       zoom: 2,
     });
 
-    expect(pose.bobPixels).toBe(Math.round(Math.sin(1.1 * 0.7 + 0.4) * 2 * 2 * bias.bobAmplitudeBias));
+    expect(pose.bobPixels).toBeCloseTo(Math.sin(1.1 * 0.7 + 0.4) * 2 * 2 * bias.bobAmplitudeBias, 6);
   });
 
   it("keeps non-titan ships compatible with the existing tiny bob", () => {

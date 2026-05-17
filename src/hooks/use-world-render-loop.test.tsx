@@ -38,6 +38,8 @@ describe("useWorldRenderLoop", () => {
 
   let rafSpy: ReturnType<typeof vi.spyOn>;
   let cafSpy: ReturnType<typeof vi.spyOn>;
+  let rafCallbacks: Map<number, FrameRequestCallback>;
+  let latestRafId = 0;
   let intersectionObservers: Array<{
     callback: IntersectionObserverCallback;
     target: Element | null;
@@ -46,10 +48,19 @@ describe("useWorldRenderLoop", () => {
 
   beforeEach(() => {
     // Don't fire scheduled callbacks during the test — we only care about
-    // counts of cancel/request calls, not actually running another draw.
+    // counts of cancel/request calls unless a test explicitly invokes one.
     let nextFrameId = 1;
-    rafSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => (nextFrameId += 1));
-    cafSpy = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+    rafCallbacks = new Map();
+    latestRafId = 0;
+    rafSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      nextFrameId += 1;
+      latestRafId = nextFrameId;
+      rafCallbacks.set(nextFrameId, callback);
+      return nextFrameId;
+    });
+    cafSpy = vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
+      rafCallbacks.delete(id);
+    });
     HTMLCanvasElement.prototype.getContext = (function getContext() {
       return makeStubCanvasContext();
     }) as unknown as HTMLCanvasElement["getContext"];
@@ -95,9 +106,11 @@ describe("useWorldRenderLoop", () => {
   function Harness({
     hoveredDetailId,
     onResult,
+    reducedMotion = true,
   }: {
     hoveredDetailId: string | null;
     onResult: (result: UseWorldRenderLoopResult) => void;
+    reducedMotion?: boolean;
   }) {
     const [assetManager] = useState(() => new PharosVilleAssetManager());
     const [canvasRef] = useState(() => ({ current: document.createElement("canvas") }));
@@ -154,7 +167,7 @@ describe("useWorldRenderLoop", () => {
       motionPlan,
       motionPlanRef,
       nightMode: false,
-      reducedMotion: true,
+      reducedMotion,
       selectedDetailAnchor: null,
       selectedDetailId: null,
       selectedDetailIdRef,
@@ -165,6 +178,15 @@ describe("useWorldRenderLoop", () => {
     });
     onResult(result);
     return null;
+  }
+
+  function fireLatestRaf(time: number) {
+    const callback = rafCallbacks.get(latestRafId);
+    expect(callback).toBeDefined();
+    rafCallbacks.delete(latestRafId);
+    act(() => {
+      callback!(time);
+    });
   }
 
   it("does not rebind RAF effect across many hover changes under reduced motion", () => {
@@ -210,6 +232,64 @@ describe("useWorldRenderLoop", () => {
       latest!.requestPaint();
     });
     expect(rafSpy.mock.calls.length).toBe(beforeRepeats);
+  });
+
+  it("publishes frame pacing metrics from normal-motion RAF intervals", () => {
+    const onResult = () => {};
+    render(<Harness hoveredDetailId={null} onResult={onResult} reducedMotion={false} />);
+
+    const base = performance.now() + 100;
+    fireLatestRaf(base);
+    fireLatestRaf(base + 16);
+    fireLatestRaf(base + 56);
+    fireLatestRaf(base + 96);
+    fireLatestRaf(base + 112);
+
+    const debug = (window as typeof window & {
+      __pharosVilleDebug?: {
+        renderMetrics?: {
+          framePacing?: {
+            averageMs: number;
+            droppedFrameCount: number;
+            effectiveFps: number;
+            longestDroppedBurst: number;
+            maxMs: number;
+            p50Ms: number;
+            p90Ms: number;
+            sampleCount: number;
+          };
+        };
+      };
+    }).__pharosVilleDebug;
+    const framePacing = debug?.renderMetrics?.framePacing;
+
+    expect(framePacing).toBeDefined();
+    expect(framePacing!.sampleCount).toBe(5);
+    expect(framePacing!.averageMs).toBeGreaterThan(0);
+    expect(framePacing!.effectiveFps).toBeGreaterThan(0);
+    expect(framePacing!.p50Ms).toBeGreaterThan(0);
+    expect(framePacing!.p90Ms).toBeGreaterThanOrEqual(framePacing!.p50Ms);
+    expect(framePacing!.maxMs).toBeGreaterThanOrEqual(40);
+    expect(framePacing!.droppedFrameCount).toBeGreaterThanOrEqual(2);
+    expect(framePacing!.longestDroppedBurst).toBe(2);
+  });
+
+  it("does not turn reduced-motion paints into a continuous frame-pacing loop", () => {
+    const onResult = () => {};
+    render(<Harness hoveredDetailId={null} onResult={onResult} />);
+
+    const beforePaint = rafSpy.mock.calls.length;
+    fireLatestRaf(performance.now() + 100);
+    expect(rafSpy.mock.calls.length).toBe(beforePaint);
+
+    const debug = (window as typeof window & {
+      __pharosVilleDebug?: {
+        renderMetrics?: {
+          framePacing?: { sampleCount: number };
+        };
+      };
+    }).__pharosVilleDebug;
+    expect(debug?.renderMetrics?.framePacing?.sampleCount).toBe(0);
   });
 
   it("accepts onBucketFlip callback without error and does not call it on initial mount (B2)", () => {

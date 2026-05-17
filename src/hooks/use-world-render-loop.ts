@@ -29,9 +29,32 @@ import {
 import { getShipHeadingDelta } from "../systems/motion-sampling";
 import type { IsoCamera, ScreenPoint } from "../systems/projection";
 import { seaStateForWorld, type SeaState } from "../systems/sea-state";
+import { createVisualMotionSmoothingState, resetVisualMotionSmoothingState, smoothShipMotionSamples } from "../systems/visual-motion";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
 
 type MotionPlan = ReturnType<typeof buildMotionPlan>;
+
+type FramePacingMetrics = {
+  averageMs: number;
+  droppedFrameCount: number;
+  effectiveFps: number;
+  longestDroppedBurst: number;
+  maxMs: number;
+  p50Ms: number;
+  p90Ms: number;
+  sampleCount: number;
+};
+
+type DebugRenderMetrics = PharosVilleRenderMetrics & {
+  drawDurationMs: number;
+  framePacing: FramePacingMetrics;
+};
+
+type FrameIntervalWindow = {
+  count: number;
+  samples: number[];
+  writeIndex: number;
+};
 
 interface DetailAnchor extends ScreenPoint {
   side: "left" | "right";
@@ -141,14 +164,17 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   });
   const criticalFramePaintedRef = useRef(false);
   const lastWallRef = useRef<number | null>(null);
+  const frameIntervalWindowRef = useRef<FrameIntervalWindow>(createFrameIntervalWindow());
+  const framePacingStatsRef = useRef<FramePacingMetrics>(emptyFramePacingMetrics());
   const accSecondsRef = useRef(0);
   const pendingResumeRef = useRef(false);
   const motionFrameCountRef = useRef(0);
   const reducedMotionSamplesSignatureRef = useRef<string | null>(null);
-  const lastRenderMetricsRef = useRef<PharosVilleRenderMetrics & { drawDurationMs: number }>({
+  const lastRenderMetricsRef = useRef<DebugRenderMetrics>({
     drawableCount: 0,
     drawableCounts: { underlay: 0, body: 0, overlay: 0, selection: 0 },
     drawDurationMs: 0,
+    framePacing: emptyFramePacingMetrics(),
     movingShipCount: 0,
     visibleShipCount: 0,
     visibleTileCount: 0,
@@ -166,6 +192,8 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   const longtaskObserverRef = useRef<PerformanceObserver | null>(null);
   const lastBucketRef = useRef(0);
   const bucketFlipCountRef = useRef(0);
+  const semanticShipMotionSamplesRef = useRef<ReadonlyMap<string, ShipMotionSample>>(new Map());
+  const visualMotionStateRef = useRef(createVisualMotionSmoothingState());
   const shipHitStateRef = useRef(new Map<string, { cellX: number; cellY: number; visible: boolean }>());
   const frameStateRef = useRef<{
     samples: ReadonlyMap<string, ShipMotionSample>;
@@ -191,12 +219,16 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     pendingResumeRef.current = false;
     motionFrameCountRef.current = 0;
     visibleTileBoundsCacheRef.current = createVisibleTileBoundsCacheState();
+    semanticShipMotionSamplesRef.current = new Map();
     shipMotionSamplesRef.current = new Map();
+    resetVisualMotionSmoothingState(visualMotionStateRef.current);
     hitTargetSnapshotRef.current = null;
     hitTargetsRef.current = [];
     shipHitStateRef.current.clear();
     drawDurationWindowRef.current = createDrawDurationWindow();
     drawDurationStatsRef.current = { averageMs: 0, count: 0, p90Ms: 0 };
+    frameIntervalWindowRef.current = createFrameIntervalWindow();
+    framePacingStatsRef.current = emptyFramePacingMetrics();
     reducedMotionSamplesSignatureRef.current = null;
     headingDeltaWindowRef.current = [];
     positionDeltaWindowRef.current = [];
@@ -264,8 +296,12 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       if (reducedMotion) {
         timeSeconds = 0;
       } else {
-        const last = lastWallRef.current ?? time;
+        const previousWall = lastWallRef.current;
+        const last = previousWall ?? time;
         const rawDt = Math.max((time - last) / 1000, 0);
+        if (previousWall !== null && !pendingResumeRef.current) {
+          framePacingStatsRef.current = pushFrameIntervalSample(frameIntervalWindowRef.current, Math.max(time - previousWall, 0));
+        }
         // Skip accumulating across known tab-pause transitions: the
         // visibilitychange handler raises pendingResumeRef when the page goes
         // hidden, so the first frame after resume drops its (large) dt. For all
@@ -297,20 +333,19 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         wallClockHour = 12;
       }
       const seaState = seaStateForWorld(world, { reducedMotion, wallClockHour });
-      let shipMotionSamples = shipMotionSamplesRef.current;
-      let changedShipIds: string[] = [];
+      let semanticShipMotionSamples = semanticShipMotionSamplesRef.current;
       if (reducedMotion) {
         const nextSamplesSignature = `${motionPlanSignature(world)}|sea:${seaStateMotionSignature(seaState)}`;
-        if (reducedMotionSamplesSignatureRef.current !== nextSamplesSignature || shipMotionSamples.size === 0) {
+        if (reducedMotionSamplesSignatureRef.current !== nextSamplesSignature || semanticShipMotionSamples.size === 0) {
           const collected = collectShipMotionSamples({
             motionPlan: activeMotionPlan,
             reducedMotion,
             seaState,
-            samples: shipMotionSamples,
+            samples: semanticShipMotionSamples,
             timeSeconds,
             world,
           });
-          shipMotionSamples = collected.samples;
+          semanticShipMotionSamples = collected.samples;
           reducedMotionSamplesSignatureRef.current = nextSamplesSignature;
         }
       } else {
@@ -318,17 +353,27 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           motionPlan: activeMotionPlan,
           reducedMotion,
           seaState,
-          samples: shipMotionSamples,
+          samples: semanticShipMotionSamples,
           timeSeconds,
           world,
-          shipHitStateById: shipHitStateRef.current,
-          trackShipHitState: true,
         });
-        shipMotionSamples = collected.samples;
-        changedShipIds = collected.changedShipIds;
+        semanticShipMotionSamples = collected.samples;
         reducedMotionSamplesSignatureRef.current = null;
       }
+      semanticShipMotionSamplesRef.current = semanticShipMotionSamples;
+      const shipMotionSamples = smoothShipMotionSamples({
+        reducedMotion,
+        state: visualMotionStateRef.current,
+        staticMode: reducedMotion,
+        targetSamples: semanticShipMotionSamples,
+        timeSeconds,
+      });
       shipMotionSamplesRef.current = shipMotionSamples;
+      const changedShipIds = collectDisplayShipHitChanges({
+        samples: shipMotionSamples,
+        shipHitStateById: shipHitStateRef.current,
+        world,
+      });
       if (changedShipIds.length > 0) {
         const snapshot = hitTargetSnapshotRef.current;
         if (snapshot) {
@@ -400,6 +445,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       lastRenderMetricsRef.current = {
         ...renderMetrics,
         drawDurationMs: performance.now() - drawStartedAt,
+        framePacing: framePacingStatsRef.current,
       };
       if (!reducedMotion) {
         drawDurationStatsRef.current = pushDrawDurationSample(drawDurationWindowRef.current, lastRenderMetricsRef.current.drawDurationMs);
@@ -485,7 +531,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         const longtaskCount = ltWindow.reduce((sum, f) => sum + f.count, 0);
         const longtaskMaxMs = ltWindow.reduce((m, f) => (f.maxDurationMs > m ? f.maxDurationMs : m), 0);
 
-        const nextRenderMetrics: PharosVilleRenderMetrics & { drawDurationMs: number } = {
+        const nextRenderMetrics: DebugRenderMetrics = {
           ...lastRenderMetricsRef.current,
           shipMaxHeadingDeltaDeg,
           shipMaxPositionDeltaTile,
@@ -667,7 +713,7 @@ type PharosVilleDebugState = {
   motionClockSource: "requestAnimationFrame" | "reduced-motion-static-frame";
   motionCueCounts: MotionCueCounts;
   motionFrameCount: number;
-  renderMetrics: PharosVilleRenderMetrics & { drawDurationMs: number };
+  renderMetrics: DebugRenderMetrics;
   reducedMotion: boolean;
   selectedDetailAnchor: DetailAnchor | null;
   selectedDetailId: string | null;
@@ -688,6 +734,84 @@ type MotionCueCounts = {
 
 const PHAROSVILLE_AMBIENT_BIRD_CAP = 9;
 const PHAROSVILLE_HARBOR_LIGHT_CAP = 3;
+const FRAME_INTERVAL_WINDOW_SIZE = 120;
+const DROPPED_FRAME_INTERVAL_MS = 34;
+
+function emptyFramePacingMetrics(): FramePacingMetrics {
+  return {
+    averageMs: 0,
+    droppedFrameCount: 0,
+    effectiveFps: 0,
+    longestDroppedBurst: 0,
+    maxMs: 0,
+    p50Ms: 0,
+    p90Ms: 0,
+    sampleCount: 0,
+  };
+}
+
+function createFrameIntervalWindow(): FrameIntervalWindow {
+  return {
+    count: 0,
+    samples: new Array<number>(FRAME_INTERVAL_WINDOW_SIZE),
+    writeIndex: 0,
+  };
+}
+
+function pushFrameIntervalSample(window: FrameIntervalWindow, intervalMs: number): FramePacingMetrics {
+  if (!Number.isFinite(intervalMs) || intervalMs <= 0) return resolveFramePacingMetrics(window);
+  window.samples[window.writeIndex] = intervalMs;
+  window.writeIndex = (window.writeIndex + 1) % FRAME_INTERVAL_WINDOW_SIZE;
+  window.count = Math.min(window.count + 1, FRAME_INTERVAL_WINDOW_SIZE);
+  return resolveFramePacingMetrics(window);
+}
+
+function resolveFramePacingMetrics(window: FrameIntervalWindow): FramePacingMetrics {
+  if (window.count <= 0) return emptyFramePacingMetrics();
+  const intervals = frameIntervalsInOrder(window);
+  let sum = 0;
+  let maxMs = 0;
+  let droppedFrameCount = 0;
+  let currentDroppedBurst = 0;
+  let longestDroppedBurst = 0;
+  for (const interval of intervals) {
+    sum += interval;
+    if (interval > maxMs) maxMs = interval;
+    if (interval > DROPPED_FRAME_INTERVAL_MS) {
+      droppedFrameCount += 1;
+      currentDroppedBurst += 1;
+      if (currentDroppedBurst > longestDroppedBurst) longestDroppedBurst = currentDroppedBurst;
+    } else {
+      currentDroppedBurst = 0;
+    }
+  }
+  const sorted = [...intervals].sort((a, b) => a - b);
+  const averageMs = sum / intervals.length;
+  return {
+    averageMs,
+    droppedFrameCount,
+    effectiveFps: averageMs > 0 ? 1000 / averageMs : 0,
+    longestDroppedBurst,
+    maxMs,
+    p50Ms: percentile(sorted, 0.5),
+    p90Ms: percentile(sorted, 0.9),
+    sampleCount: intervals.length,
+  };
+}
+
+function frameIntervalsInOrder(window: FrameIntervalWindow): number[] {
+  if (window.count < FRAME_INTERVAL_WINDOW_SIZE) return window.samples.slice(0, window.count);
+  return [
+    ...window.samples.slice(window.writeIndex),
+    ...window.samples.slice(0, window.writeIndex),
+  ];
+}
+
+function percentile(sortedValues: number[], percentileValue: number): number {
+  if (sortedValues.length === 0) return 0;
+  const index = Math.min(sortedValues.length - 1, Math.max(0, Math.floor((sortedValues.length - 1) * percentileValue)));
+  return sortedValues[index];
+}
 
 function collectShipMotionSamples(input: {
   motionPlan: MotionPlan;
@@ -746,6 +870,35 @@ function collectShipMotionSamples(input: {
   return { samples, changedShipIds };
 }
 
+function collectDisplayShipHitChanges(input: {
+  samples: ReadonlyMap<string, ShipMotionSample>;
+  shipHitStateById: Map<string, { cellX: number; cellY: number; visible: boolean }>;
+  world: PharosVilleWorldModel;
+}): string[] {
+  const changedShipIds: string[] = [];
+  for (const ship of input.world.ships) {
+    const sample = input.samples.get(ship.id);
+    const visible = isShipMapVisible(ship, sample);
+    const cellX = Math.floor(sample?.tile.x ?? ship.tile.x);
+    const cellY = Math.floor(sample?.tile.y ?? ship.tile.y);
+    const previous = input.shipHitStateById.get(ship.id);
+    if (!previous || previous.cellX !== cellX || previous.cellY !== cellY || previous.visible !== visible) {
+      input.shipHitStateById.set(ship.id, { cellX, cellY, visible });
+      changedShipIds.push(ship.id);
+    }
+  }
+  if (input.shipHitStateById.size !== input.world.ships.length) {
+    const liveIds = new Set(input.world.ships.map((ship) => ship.id));
+    for (const id of input.shipHitStateById.keys()) {
+      if (!liveIds.has(id)) {
+        input.shipHitStateById.delete(id);
+        changedShipIds.push(id);
+      }
+    }
+  }
+  return changedShipIds;
+}
+
 function seaStateMotionSignature(seaState: SeaState): string {
   return [
     seaState.label,
@@ -781,9 +934,9 @@ function compactShipMotionSamples(
 
 function renderMetricsWithCurrentSelection(input: {
   hoveredTarget: HitTarget | null;
-  metrics: PharosVilleRenderMetrics & { drawDurationMs: number };
+  metrics: DebugRenderMetrics;
   selectedTarget: HitTarget | null;
-}): PharosVilleRenderMetrics & { drawDurationMs: number } {
+}): DebugRenderMetrics {
   const selectionCount = selectionDrawableCount({ hoveredTarget: input.hoveredTarget, selectedTarget: input.selectedTarget });
   if (selectionCount === input.metrics.drawableCounts.selection) return input.metrics;
   return {
@@ -807,7 +960,7 @@ function updateDebugFrame(input: {
   };
   motionPlan: MotionPlan;
   reducedMotion: boolean;
-  renderMetrics: PharosVilleRenderMetrics & { drawDurationMs: number };
+  renderMetrics: DebugRenderMetrics;
   assetLoadStats: PharosVilleAssetLoadStats;
   selectedDetailId: string | null;
   shipsById: ReadonlyMap<string, PharosVilleWorldModel["ships"][number]>;

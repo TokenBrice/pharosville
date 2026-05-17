@@ -545,10 +545,10 @@ function primaryDockStop(ship: ShipNode, dockStops: readonly ShipMotionRoute["do
 function shipCycleSeconds(ship: ShipNode, speedScalar = 1): number {
   const positiveChainCount = ship.chainPresence.length;
   const renderedDockCount = ship.dockVisits.length;
-  const base = 1260;
+  const base = 1020;
   const breadthBonus = Math.min(360, positiveChainCount * 30 + renderedDockCount * 24);
   const jitter = stableOffset(`${ship.id}.cycle`, 84);
-  return clamp(base / speedScalar - breadthBonus + jitter, 780, 1560);
+  return clamp(base / speedScalar - breadthBonus + jitter, 660, 1320);
 }
 
 function weightedDockStopSchedule(shipId: string, visits: readonly ShipDockVisit[]): string[] {

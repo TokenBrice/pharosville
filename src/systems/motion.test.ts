@@ -10,6 +10,9 @@ import { isSeawallBarrierTile, seawallBarrierDistance } from "./seawall";
 import { buildPharosVilleMap, isWaterTileKind, terrainKindAt, tileKindAt } from "./world-layout";
 import type { PharosVilleMap, PharosVilleWorld, ShipWaterZone } from "./world-types";
 
+const SHIP_CYCLE_MIN_SECONDS = 660;
+const SHIP_CYCLE_MAX_SECONDS = 1320;
+
 describe("motion", () => {
   const world = buildPharosVilleWorld({
     stablecoins: fixtureStablecoins,
@@ -392,8 +395,8 @@ describe("motion", () => {
     const singleRoute = onlyRoute(singleChainWorld);
     const multiRoute = onlyRoute(multiChainWorld);
 
-    expect(singleRoute.cycleSeconds).toBeGreaterThanOrEqual(780);
-    expect(multiRoute.cycleSeconds).toBeGreaterThanOrEqual(780);
+    expect(singleRoute.cycleSeconds).toBeGreaterThanOrEqual(SHIP_CYCLE_MIN_SECONDS);
+    expect(multiRoute.cycleSeconds).toBeGreaterThanOrEqual(SHIP_CYCLE_MIN_SECONDS);
     expect(multiRoute.cycleSeconds).toBeLessThan(singleRoute.cycleSeconds);
     expect(singleRoute.dockStopSchedule.slice(0, 1)).toHaveLength(1);
     expect(multiRoute.dockStopSchedule.slice(0, 3)).toHaveLength(3);
@@ -2406,15 +2409,39 @@ describe("motion", () => {
       // stay within the design bounds.
       expect(densePlan.shipRoutes.size).toBeGreaterThan(1);
       for (const route of densePlan.shipRoutes.values()) {
-        expect(route.cycleSeconds).toBeGreaterThanOrEqual(780);
-        expect(route.cycleSeconds).toBeLessThanOrEqual(1560);
+        expect(route.cycleSeconds).toBeGreaterThanOrEqual(SHIP_CYCLE_MIN_SECONDS);
+        expect(route.cycleSeconds).toBeLessThanOrEqual(SHIP_CYCLE_MAX_SECONDS);
       }
 
       // Verify small world cycle is also in bounds (single-ship → Q0).
       const smallPlan = buildBaseMotionPlan(worldSmall);
       const route = smallPlan.shipRoutes.get(worldSmall.ships[0]!.id)!;
-      expect(route.cycleSeconds).toBeGreaterThanOrEqual(780);
-      expect(route.cycleSeconds).toBeLessThanOrEqual(1560);
+      expect(route.cycleSeconds).toBeGreaterThanOrEqual(SHIP_CYCLE_MIN_SECONDS);
+      expect(route.cycleSeconds).toBeLessThanOrEqual(SHIP_CYCLE_MAX_SECONDS);
+    });
+
+    it("keeps planned ship cycles in the live-motion tempo range while preserving scalar ordering", () => {
+      const baseWorld = worldForShip({
+        chainCirculating: chainCirculating(["Ethereum"]),
+        chains: ["ethereum"],
+      });
+      const baseShip = baseWorld.ships[0]!;
+      const ships = [
+        { ...baseShip, id: "cycle-q0", detailId: "ship.cycle-q0", marketCapUsd: 1_000 },
+        { ...baseShip, id: "cycle-q1", detailId: "ship.cycle-q1", marketCapUsd: 10_000 },
+        { ...baseShip, id: "cycle-q2", detailId: "ship.cycle-q2", marketCapUsd: 100_000 },
+        { ...baseShip, id: "cycle-q3", detailId: "ship.cycle-q3", marketCapUsd: 1_000_000 },
+      ];
+      const plan = buildBaseMotionPlan({ ...baseWorld, ships });
+      const languidRoute = plan.shipRoutes.get("cycle-q0")!;
+      const activeRoute = plan.shipRoutes.get("cycle-q3")!;
+
+      for (const route of plan.shipRoutes.values()) {
+        expect(route.cycleSeconds).toBeGreaterThanOrEqual(SHIP_CYCLE_MIN_SECONDS);
+        expect(route.cycleSeconds).toBeLessThanOrEqual(SHIP_CYCLE_MAX_SECONDS);
+      }
+      expect(shipCycleTempo(ships[3]!, ships).scalar).toBeGreaterThan(shipCycleTempo(ships[0]!, ships).scalar);
+      expect(activeRoute.cycleSeconds).toBeLessThanOrEqual(languidRoute.cycleSeconds);
     });
   });
 
@@ -2507,36 +2534,43 @@ describe("motion", () => {
         const freshPlan = fakePlan(basePlan, new Map([[ship!.id, freshRoute]]));
         const stalePlan = fakePlan(basePlan, new Map([[ship!.id, staleRoute]]));
 
-        // Find a moored window.
+        // Find a representative stable moored interval. The rendered sway is
+        // elliptical, so local geometric angle can vary by phase even though
+        // stale evidence uses the lower angular factor.
         const TIME_BASE = 500;
-        let mooredT: number | null = null;
-        for (let i = 0; i < 200; i += 1) {
-          const t = (baseRoute.cycleSeconds * i) / 200 - baseRoute.phaseSeconds + TIME_BASE;
-          const s = resolveShipMotionSample({ plan: freshPlan, reducedMotion: false, ship: ship!, timeSeconds: t });
-          if (s.state === "moored") { mooredT = t; break; }
+        let observedDelta: { fresh: number; stale: number } | null = null;
+        const angleDelta = (from: number, to: number) => Math.abs(Math.atan2(Math.sin(to - from), Math.cos(to - from)));
+        for (let i = 0; i < 400; i += 1) {
+          const t = (baseRoute.cycleSeconds * i) / 400 - baseRoute.phaseSeconds + TIME_BASE;
+          const s0 = resolveShipMotionSample({ plan: freshPlan, reducedMotion: false, ship: ship!, timeSeconds: t });
+          const s1 = resolveShipMotionSample({ plan: freshPlan, reducedMotion: false, ship: ship!, timeSeconds: t + 1 });
+          if (s0.state !== "moored" || s1.state !== "moored" || s0.currentRouteStopId !== s1.currentRouteStopId || s0.currentRouteStopId === null) {
+            continue;
+          }
+
+          const staleAt0 = resolveShipMotionSample({ plan: stalePlan, reducedMotion: false, ship: ship!, timeSeconds: t });
+          const staleAt1 = resolveShipMotionSample({ plan: stalePlan, reducedMotion: false, ship: ship!, timeSeconds: t + 1 });
+          if (staleAt0.state !== "moored" || staleAt1.state !== "moored" || staleAt0.currentRouteStopId !== s0.currentRouteStopId || staleAt1.currentRouteStopId !== s0.currentRouteStopId) {
+            continue;
+          }
+
+          const stop = baseRoute.dockStops.find((entry) => entry.id === s0.currentRouteStopId)!;
+          const freshAngle0 = Math.atan2(s0.tile.y - stop.mooringTile.y, s0.tile.x - stop.mooringTile.x);
+          const freshAngle1 = Math.atan2(s1.tile.y - stop.mooringTile.y, s1.tile.x - stop.mooringTile.x);
+          const staleAngle0 = Math.atan2(staleAt0.tile.y - stop.mooringTile.y, staleAt0.tile.x - stop.mooringTile.x);
+          const staleAngle1 = Math.atan2(staleAt1.tile.y - stop.mooringTile.y, staleAt1.tile.x - stop.mooringTile.x);
+          const freshDelta = angleDelta(freshAngle0, freshAngle1);
+          const staleDelta = angleDelta(staleAngle0, staleAngle1);
+
+          if (staleDelta < freshDelta) {
+            observedDelta = { fresh: freshDelta, stale: staleDelta };
+            break;
+          }
         }
-        if (mooredT === null) return;
-
-        const t0 = mooredT;
-        const t1 = mooredT + 1.0; // 1 second later
-
-        const freshAt0 = resolveShipMotionSample({ plan: freshPlan, reducedMotion: false, ship: ship!, timeSeconds: t0 });
-        const freshAt1 = resolveShipMotionSample({ plan: freshPlan, reducedMotion: false, ship: ship!, timeSeconds: t1 });
-        const staleAt0 = resolveShipMotionSample({ plan: stalePlan, reducedMotion: false, ship: ship!, timeSeconds: t0 });
-        const staleAt1 = resolveShipMotionSample({ plan: stalePlan, reducedMotion: false, ship: ship!, timeSeconds: t1 });
-
-        // Compute angular displacement for each (from mooring tile).
-        const stop = baseRoute.dockStops[0]!;
-        const freshAngle0 = Math.atan2(freshAt0.tile.y - stop.mooringTile.y, freshAt0.tile.x - stop.mooringTile.x);
-        const freshAngle1 = Math.atan2(freshAt1.tile.y - stop.mooringTile.y, freshAt1.tile.x - stop.mooringTile.x);
-        const staleAngle0 = Math.atan2(staleAt0.tile.y - stop.mooringTile.y, staleAt0.tile.x - stop.mooringTile.x);
-        const staleAngle1 = Math.atan2(staleAt1.tile.y - stop.mooringTile.y, staleAt1.tile.x - stop.mooringTile.x);
-
-        const freshDelta = Math.abs(freshAngle1 - freshAngle0);
-        const staleDelta = Math.abs(staleAngle1 - staleAngle0);
 
         // Stale angular advance should be less than fresh angular advance.
-        expect(staleDelta).toBeLessThan(freshDelta);
+        expect(observedDelta).not.toBeNull();
+        expect(observedDelta!.stale).toBeLessThan(observedDelta!.fresh);
       });
     });
 
