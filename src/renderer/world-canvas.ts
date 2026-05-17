@@ -37,7 +37,7 @@ import { drawSky } from "./layers/sky";
 import { drawNightTint, drawNightVignette } from "./layers/night-tint";
 import { skyState } from "./layers/sky";
 import { drawWeather } from "./layers/weather";
-import { drawAtmosphericFade, drawCloudShadowDrift, drawEstablishingShotLetterbox, drawFilmGrainPass } from "./layers/cinematic-atmosphere";
+import { applyRevealEnvelope, drawAtmosphericFade, drawCloudShadowDrift, drawEstablishingShotLetterbox, drawFilmGrainPass, type RevealEnvelopePhase } from "./layers/cinematic-atmosphere";
 import type {
   DrawPharosVilleInput,
   PharosVilleRenderCacheMetrics,
@@ -489,6 +489,19 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   const { ctx } = input;
   const frame = createWorldCanvasFrame(input);
   const { nightFactor } = skyState(input.motion);
+  // W4.01 first-load reveal beat. Resolves to identity (sceneAlpha=1, no
+  // offset, lighthouse on, sweepScale=1) at steady state; phases shape the
+  // first ~1.8s of cold-mount draws driven by `pharosville-world.tsx`.
+  const reveal = applyRevealEnvelope(input.revealEnvelope);
+  // Lighthouse-aware motion that slows the first sweep by 2.2× during phase 3.
+  // We use a wrapper rather than mutating the input motion so the rest of the
+  // frame (ships, ambient) keeps real time.
+  const lighthouseMotion = reveal.lighthouseSweepScale !== 1
+    ? { ...input.motion, timeSeconds: input.motion.timeSeconds / reveal.lighthouseSweepScale }
+    : input.motion;
+  const lighthouseInput = lighthouseMotion === input.motion
+    ? input
+    : { ...input, motion: lighthouseMotion };
   ctx.imageSmoothingEnabled = false;
   drawSky(input, frame.lighthouseRender);
 
@@ -500,10 +513,12 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   drawCoastalWaterDetails(input);
   const waterAccentDrawMs = performance.now() - waterAccentStart;
   drawAtmosphericFade(input, nightFactor);
-  drawStaticPassCached(input, frame, "scene", paintStaticScenePass);
-  drawLighthouseSurf(input);
-  drawLighthouseReflection(input, frame.lighthouseRender, nightFactor);
-  const entityMetrics = drawEntityPass(input, frame, nightFactor);
+  drawRevealGatedScene(input, frame, reveal);
+  if (reveal.drawLighthouse) {
+    drawLighthouseSurf(lighthouseInput);
+    drawLighthouseReflection(lighthouseInput, frame.lighthouseRender, nightFactor);
+  }
+  const entityMetrics = drawRevealGatedEntities(input, frame, nightFactor, reveal, lighthouseInput);
   drawSquadChrome(input, frame);
   if (shouldDrawScheduledPass(input.renderScheduler, "cloud-shadow")) {
     drawCloudShadowDrift(input, isScheduledPassDegraded(input.renderScheduler, "cloud-shadow") ? nightFactor * 0.65 : nightFactor);
@@ -511,17 +526,21 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   drawWaterAreaLabels(input);
   drawNightTint(input, nightFactor);
   drawAtmosphere(input, frame.lighthouseRender);
-  drawLighthouseNightHighlights(input, frame.lighthouseRender, nightFactor);
+  if (reveal.drawLighthouse) {
+    drawLighthouseNightHighlights(lighthouseInput, frame.lighthouseRender, nightFactor);
+  }
   if (shouldDrawScheduledPass(input.renderScheduler, "bioluminescent-sparkles")) {
     drawBioluminescentSparkles(input, nightFactor, frame.lighthouseRender);
   }
   if (shouldDrawScheduledPass(input.renderScheduler, "moon-reflection")) drawMoonReflection(input, nightFactor);
   if (shouldDrawScheduledPass(input.renderScheduler, "sea-mist")) drawSeaMist(input, nightFactor);
   if (shouldDrawScheduledPass(input.renderScheduler, "decorative-lights")) drawDecorativeLights(input);
-  drawLighthouseBeamRim(input, frame.visibleShips, frame.lighthouseRender, nightFactor);
-  if (shouldDrawScheduledPass(input.renderScheduler, "god-rays")) {
+  if (reveal.drawLighthouse) {
+    drawLighthouseBeamRim(lighthouseInput, frame.visibleShips, frame.lighthouseRender, nightFactor);
+  }
+  if (reveal.drawLighthouse && shouldDrawScheduledPass(input.renderScheduler, "god-rays")) {
     const godRayNightFactor = isScheduledPassDegraded(input.renderScheduler, "god-rays") ? nightFactor * 0.7 : nightFactor;
-    drawLighthouseGodRays(input.ctx, frame.lighthouseRender.firePoint, input.camera.zoom * 1.35, input.motion, godRayNightFactor);
+    drawLighthouseGodRays(lighthouseInput.ctx, frame.lighthouseRender.firePoint, lighthouseInput.camera.zoom * 1.35, lighthouseMotion, godRayNightFactor);
   }
   drawCemeteryMist(input);
   if (shouldDrawScheduledPass(input.renderScheduler, "birds")) drawBirds(input);
@@ -529,7 +548,9 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   // ambient atmosphere so the flash visibly punches through the dim, but
   // before the night vignette / selection chrome which are UI overlays.
   drawWeather(input);
-  drawLighthouseThunderRim(input, frame.lighthouseRender, nightFactor);
+  if (reveal.drawLighthouse) {
+    drawLighthouseThunderRim(lighthouseInput, frame.lighthouseRender, nightFactor);
+  }
   drawNightVignette(input, nightFactor);
   const selectionDrawableCount = drawSelection(input);
   drawEstablishingShotLetterbox(input);
@@ -641,7 +662,8 @@ function drawSquadChrome(input: DrawPharosVilleInput, frame: WorldCanvasFrame) {
   }
 }
 
-function drawEntityPass(input: DrawPharosVilleInput, frame: WorldCanvasFrame, nightFactor: number): Pick<PharosVilleRenderMetrics, "drawableCount" | "drawableCounts"> {
+function drawEntityPass(input: DrawPharosVilleInput, frame: WorldCanvasFrame, nightFactor: number, lighthouseInput?: DrawPharosVilleInput): Pick<PharosVilleRenderMetrics, "drawableCount" | "drawableCounts"> {
+  const lhInput = lighthouseInput ?? input;
   return drawEntityLayer(
     input,
     frame.cache,
@@ -652,8 +674,8 @@ function drawEntityPass(input: DrawPharosVilleInput, frame: WorldCanvasFrame, ni
       drawGraveBody: (grave) => drawGraveBody(input, frame, grave),
       drawGraveOverlay: (grave) => drawGraveOverlay(input, frame, grave),
       drawGraveUnderlay: (grave) => drawGraveUnderlay(input, frame, grave),
-      drawLighthouseBody: () => drawLighthouseBody(input, frame.lighthouseRender),
-      drawLighthouseOverlay: () => drawLighthouseOverlay(input, frame.lighthouseRender, nightFactor),
+      drawLighthouseBody: () => drawLighthouseBody(lhInput, frame.lighthouseRender),
+      drawLighthouseOverlay: () => drawLighthouseOverlay(lhInput, frame.lighthouseRender, nightFactor),
       drawPigeonnierBody: () => drawPigeonnier(input),
       drawSceneryProp: (prop) => drawSceneryProp(input, prop),
       drawShipBody: (ship) => drawShipBody(input, frame, ship),
@@ -664,6 +686,58 @@ function drawEntityPass(input: DrawPharosVilleInput, frame: WorldCanvasFrame, ni
       visibleShips: frame.visibleShips,
     },
   );
+}
+
+/**
+ * Wraps the static scene pass with the reveal-beat alpha and headland slide.
+ * When `reveal.envelope >= 1` (steady state), the cached static path is used
+ * unchanged. While the envelope is in flight, the scene paints directly
+ * (skipping the cache) so the offset/alpha don't leak into reusable cache
+ * entries — the reveal beat is short (~1.8s on cold mount) so the cache miss
+ * window is negligible.
+ */
+function drawRevealGatedScene(input: DrawPharosVilleInput, frame: WorldCanvasFrame, reveal: RevealEnvelopePhase): void {
+  if (reveal.envelope >= 1) {
+    drawStaticPassCached(input, frame, "scene", paintStaticScenePass);
+    return;
+  }
+  if (reveal.sceneAlpha <= 0) return;
+  const ctx = input.ctx;
+  ctx.save();
+  ctx.globalAlpha = reveal.sceneAlpha;
+  if (reveal.headlandYOffset !== 0) ctx.translate(0, reveal.headlandYOffset);
+  paintStaticScenePass(input, frame);
+  ctx.restore();
+}
+
+/**
+ * Wraps the entity pass with the reveal-beat alpha and headland slide so
+ * ships/docks/scenery fade in aligned with the scene. The lighthouse body
+ * is drawn inside the entity pass; during phase 1+2 the lighthouse light
+ * passes (beam, god rays, surf, reflection, highlights, rim, thunder rim)
+ * are still gated off by callers, so the body reads as "unlit silhouette"
+ * even though the entity pass itself is not lighthouse-aware.
+ */
+function drawRevealGatedEntities(
+  input: DrawPharosVilleInput,
+  frame: WorldCanvasFrame,
+  nightFactor: number,
+  reveal: RevealEnvelopePhase,
+  lighthouseInput: DrawPharosVilleInput,
+): Pick<PharosVilleRenderMetrics, "drawableCount" | "drawableCounts"> {
+  if (reveal.envelope >= 1) {
+    return drawEntityPass(input, frame, nightFactor, lighthouseInput);
+  }
+  if (reveal.sceneAlpha <= 0) {
+    return { drawableCount: 0, drawableCounts: { underlay: 0, body: 0, overlay: 0, selection: 0 } };
+  }
+  const ctx = input.ctx;
+  ctx.save();
+  ctx.globalAlpha = reveal.sceneAlpha;
+  if (reveal.headlandYOffset !== 0) ctx.translate(0, reveal.headlandYOffset);
+  const metrics = drawEntityPass(input, frame, nightFactor, lighthouseInput);
+  ctx.restore();
+  return metrics;
 }
 
 function visibleShipsForFrame(input: DrawPharosVilleInput): PharosVilleWorld["ships"] {

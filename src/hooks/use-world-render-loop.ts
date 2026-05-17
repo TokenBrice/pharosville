@@ -131,6 +131,13 @@ export interface UseWorldRenderLoopInput {
   motionPlanRef: MutableRefObject<MotionPlan>;
   nightMode: boolean;
   reducedMotion: boolean;
+  /**
+   * W4.01 reveal envelope in [0, 1]. The render loop reads `.current` per
+   * frame; owners drive it from `pharosville-world.tsx` with a RAF tween on
+   * cold mount. When omitted, the loop passes `1` (steady state). Reduced
+   * motion clients should keep this at `1` (no tween).
+   */
+  revealEnvelopeRef?: MutableRefObject<number>;
   selectedDetailAnchor: DetailAnchor | null;
   selectedDetailId: string | null;
   selectedDetailIdRef: MutableRefObject<string | null>;
@@ -176,6 +183,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     motionPlanRef,
     nightMode,
     reducedMotion,
+    revealEnvelopeRef,
     selectedDetailAnchor,
     selectedDetailId,
     selectedDetailIdRef,
@@ -539,6 +547,9 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           wallClockHour,
         },
         renderScheduler,
+        // W4.01 reveal envelope: owner drives via a RAF tween on cold mount;
+        // when omitted (or once steady state), draw at full reveal.
+        revealEnvelope: revealEnvelopeRef?.current ?? 1,
         visibleTileBoundsCache: visibleTileBoundsCacheRef.current,
         selectedTarget: nextSelectedTarget,
         shipMotionSamples,

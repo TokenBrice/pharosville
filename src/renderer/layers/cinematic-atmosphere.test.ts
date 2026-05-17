@@ -7,6 +7,11 @@ import {
   ATMOSPHERIC_FADE_MAX_ALPHA,
   CLOUD_SHADOW_PERIOD_SECONDS,
   FILM_GRAIN_DPR_GATE,
+  REVEAL_HEADLAND_OFFSET_PX,
+  REVEAL_LIGHTHOUSE_SWEEP_SCALE,
+  REVEAL_PHASE_LIGHTHOUSE,
+  REVEAL_PHASE_SCENE,
+  applyRevealEnvelope,
   atmosphericFadeMaxAlpha,
   cloudShadowAlpha,
   cloudShadowPhase,
@@ -208,5 +213,76 @@ describe("cinematic film pass helpers", () => {
 
     expect(ctx.createPattern).toHaveBeenCalledTimes(2);
     expect(createElement).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("reveal envelope (W4.01)", () => {
+  it("resolves to the steady-state frame when envelope is undefined or >= 1", () => {
+    const steady = applyRevealEnvelope(1);
+    expect(steady.envelope).toBe(1);
+    expect(steady.sceneAlpha).toBe(1);
+    expect(steady.headlandYOffset).toBe(0);
+    expect(steady.drawLighthouse).toBe(true);
+    expect(steady.lighthouseSweepScale).toBe(1);
+
+    const omitted = applyRevealEnvelope();
+    expect(omitted).toEqual(steady);
+
+    const overshoot = applyRevealEnvelope(1.5);
+    expect(overshoot).toEqual(steady);
+  });
+
+  it("phase 1: hides scene and lighthouse for envelope < 0.33", () => {
+    const phase1 = applyRevealEnvelope(0.1);
+    expect(phase1.sceneAlpha).toBe(0);
+    expect(phase1.headlandYOffset).toBe(REVEAL_HEADLAND_OFFSET_PX);
+    expect(phase1.drawLighthouse).toBe(false);
+    expect(phase1.lighthouseSweepScale).toBe(1);
+
+    const boundary = applyRevealEnvelope(REVEAL_PHASE_SCENE);
+    expect(boundary.sceneAlpha).toBe(0);
+    expect(boundary.drawLighthouse).toBe(false);
+  });
+
+  it("phase 2: scene fades in via cubic-out and headland slides up", () => {
+    const start = applyRevealEnvelope(REVEAL_PHASE_SCENE + 0.001);
+    expect(start.sceneAlpha).toBeGreaterThan(0);
+    expect(start.sceneAlpha).toBeLessThan(0.05);
+    expect(start.headlandYOffset).toBeGreaterThan(0);
+    expect(start.drawLighthouse).toBe(false);
+
+    const mid = applyRevealEnvelope((REVEAL_PHASE_SCENE + REVEAL_PHASE_LIGHTHOUSE) / 2);
+    expect(mid.sceneAlpha).toBeGreaterThan(0.4);
+    expect(mid.sceneAlpha).toBeLessThan(1);
+    expect(mid.headlandYOffset).toBeGreaterThan(0);
+    expect(mid.headlandYOffset).toBeLessThan(REVEAL_HEADLAND_OFFSET_PX);
+    expect(mid.drawLighthouse).toBe(false);
+
+    const end = applyRevealEnvelope(REVEAL_PHASE_LIGHTHOUSE);
+    expect(end.sceneAlpha).toBe(1);
+    expect(end.headlandYOffset).toBe(0);
+    expect(end.drawLighthouse).toBe(true);
+    expect(end.lighthouseSweepScale).toBe(REVEAL_LIGHTHOUSE_SWEEP_SCALE);
+  });
+
+  it("phase 3: lighthouse is on and sweep is slowed by 2.2x", () => {
+    const phase3 = applyRevealEnvelope(0.8);
+    expect(phase3.sceneAlpha).toBe(1);
+    expect(phase3.headlandYOffset).toBe(0);
+    expect(phase3.drawLighthouse).toBe(true);
+    expect(phase3.lighthouseSweepScale).toBe(REVEAL_LIGHTHOUSE_SWEEP_SCALE);
+  });
+
+  it("treats reduced-motion clients identically to envelope 1 (immediate final frame)", () => {
+    // Reduced-motion callers should pass `1` directly; the helper has the same
+    // shape either way, ensuring the static frame is always the revealed one.
+    expect(applyRevealEnvelope(1)).toEqual(applyRevealEnvelope(undefined));
+  });
+
+  it("clamps negative and NaN inputs to a deterministic phase-1 start", () => {
+    const negative = applyRevealEnvelope(-0.5);
+    expect(negative.envelope).toBe(0);
+    expect(negative.sceneAlpha).toBe(0);
+    expect(negative.headlandYOffset).toBe(REVEAL_HEADLAND_OFFSET_PX);
   });
 });

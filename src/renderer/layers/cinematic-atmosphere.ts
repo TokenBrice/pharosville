@@ -12,6 +12,16 @@ export const FILM_GRAIN_DPR_GATE = 1.25;
 export const FILM_GRAIN_TILE_SIZE = 64;
 export const FILM_GRAIN_ALPHA = 0.04;
 export const SCANLINE_ALPHA = 0.05;
+// W4.01 first-load reveal beat. Three phases over 1.8s:
+//   0.00 – 0.33: sky + outer water + unlit lighthouse
+//   0.33 – 0.66: scene fades in + headland slides up 6px (cubic-out)
+//   0.66 – 1.00: lighthouse first-sweep at 2.2× nominal duration
+// Reduced-motion clients pass envelope = 1 directly so the static frame is
+// always the fully-revealed one.
+export const REVEAL_PHASE_SCENE = 0.33;
+export const REVEAL_PHASE_LIGHTHOUSE = 0.66;
+export const REVEAL_HEADLAND_OFFSET_PX = 6;
+export const REVEAL_LIGHTHOUSE_SWEEP_SCALE = 2.2;
 
 interface CinematicFrameInput {
   camera: DrawPharosVilleInput["camera"];
@@ -46,6 +56,79 @@ const BAYER_8 = [
   [10, 58, 6, 54, 9, 57, 5, 53],
   [42, 26, 38, 22, 41, 25, 37, 21],
 ] as const;
+
+/**
+ * Output of {@link applyRevealEnvelope}. Per-phase gates and modifiers that
+ * `world-canvas.ts` consults at composition time so the reveal beat is
+ * encoded once and read from every layer rather than scattered as inline
+ * comparisons. `envelope === 1` corresponds to the steady state — every gate
+ * resolves to its "fully revealed" value.
+ */
+export interface RevealEnvelopePhase {
+  /** Resolved envelope, clamped to [0, 1]. */
+  envelope: number;
+  /** Scene + entity pass alpha multiplier (0..1). 0 hides them entirely. */
+  sceneAlpha: number;
+  /** Vertical translation applied to the scene pass (CSS pixels, positive = down). */
+  headlandYOffset: number;
+  /** True once the lighthouse body and beam are eligible to draw. */
+  drawLighthouse: boolean;
+  /**
+   * Time scale applied to the lighthouse beam sweep during the third phase.
+   * `1` = normal speed; the reveal beat slows the first sweep to 2.2×
+   * duration so it reads as a deliberate ignition. Always `1` outside the
+   * sweep window.
+   */
+  lighthouseSweepScale: number;
+}
+
+/**
+ * Compute reveal envelope phase data from a single progress scalar in [0, 1].
+ *
+ * - Phase 1 (0 → 0.33): scene hidden, lighthouse unlit. The sky + outer water
+ *   draw at their normal alpha so the canvas is never blank.
+ * - Phase 2 (0.33 → 0.66): scene fades in via cubic-out alpha curve; the
+ *   headland's vertical translation slides from `REVEAL_HEADLAND_OFFSET_PX`
+ *   up to 0 on the same curve.
+ * - Phase 3 (0.66 → 1.0): lighthouse becomes eligible; its first sweep is
+ *   slowed to `REVEAL_LIGHTHOUSE_SWEEP_SCALE × nominal` duration.
+ */
+export function applyRevealEnvelope(revealEnvelope?: number): RevealEnvelopePhase {
+  const envelope = revealEnvelope === undefined ? 1 : clamp01(revealEnvelope);
+  if (envelope >= 1) {
+    return {
+      envelope: 1,
+      sceneAlpha: 1,
+      headlandYOffset: 0,
+      drawLighthouse: true,
+      lighthouseSweepScale: 1,
+    };
+  }
+  const sceneProgress = phaseProgress(envelope, REVEAL_PHASE_SCENE, REVEAL_PHASE_LIGHTHOUSE);
+  const sceneEase = cubicOut(sceneProgress);
+  const sceneAlpha = sceneEase;
+  const headlandYOffset = REVEAL_HEADLAND_OFFSET_PX * (1 - sceneEase);
+  const drawLighthouse = envelope >= REVEAL_PHASE_LIGHTHOUSE;
+  const lighthouseSweepScale = drawLighthouse ? REVEAL_LIGHTHOUSE_SWEEP_SCALE : 1;
+  return {
+    envelope,
+    sceneAlpha,
+    headlandYOffset,
+    drawLighthouse,
+    lighthouseSweepScale,
+  };
+}
+
+function phaseProgress(envelope: number, start: number, end: number): number {
+  if (envelope <= start) return 0;
+  if (envelope >= end) return 1;
+  return (envelope - start) / (end - start);
+}
+
+function cubicOut(t: number): number {
+  const inv = 1 - t;
+  return 1 - inv * inv * inv;
+}
 
 let scanlineTileCanvas: HTMLCanvasElement | null | undefined;
 let grainTileCanvas: HTMLCanvasElement | null | undefined;

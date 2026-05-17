@@ -29,6 +29,10 @@ const LazyChangelogPanel = lazy(() => (
   import("./components/changelog-panel").then((module) => ({ default: module.ChangelogPanel }))
 ));
 
+// W4.01 first-load reveal beat duration (ms). Three phases of ~600ms each,
+// spec'd by VD #3 in `agents/2026-05-17-pharosville-wow-revamp-plan.md`.
+const REVEAL_DURATION_MS = 1800;
+
 function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const [hoveredDetailId, setHoveredDetailId] = useState<string | null>(null);
   const [keyboardFocusedDetailId, setKeyboardFocusedDetailId] = useState<string | null>(null);
@@ -50,6 +54,12 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const requestWorldFrame = useCallback(() => {
     requestWorldFrameRef.current();
   }, []);
+
+  // W4.01 first-load reveal envelope. Drives 1 → 1 by default; the cold-mount
+  // effect below tweens 0 → 1 over 1.8s exactly once per page load. The
+  // render loop reads `.current` per frame (no React rerender churn).
+  const revealEnvelopeRef = useRef(1);
+  const revealHasStartedRef = useRef(false);
 
   const [motionBucket, setMotionBucket] = useState(0);
 
@@ -209,6 +219,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     motionPlanRef,
     nightMode,
     reducedMotion,
+    revealEnvelopeRef,
     selectedDetailAnchor,
     selectedDetailId,
     selectedDetailIdRef,
@@ -227,6 +238,40 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       }
     };
   }, [requestPaint]);
+
+  // W4.01 first-load reveal beat. Runs once per cold mount (the
+  // `revealHasStartedRef` guard skips client-side route reloads); reduced
+  // motion clients jump straight to envelope = 1 (final frame immediately,
+  // no animation). The tween writes into `revealEnvelopeRef.current` so the
+  // render loop picks it up via `revealEnvelopeRef`.
+  useEffect(() => {
+    if (revealHasStartedRef.current) return;
+    revealHasStartedRef.current = true;
+    if (reducedMotion) {
+      revealEnvelopeRef.current = 1;
+      requestPaint();
+      return;
+    }
+    revealEnvelopeRef.current = 0;
+    requestPaint();
+    let frameId = 0;
+    let startTime: number | null = null;
+    const tween = (now: number) => {
+      if (startTime === null) startTime = now;
+      const elapsed = now - startTime;
+      const progress = Math.min(1, elapsed / REVEAL_DURATION_MS);
+      revealEnvelopeRef.current = progress;
+      requestPaint();
+      if (progress < 1) {
+        frameId = requestAnimationFrame(tween);
+      }
+    };
+    frameId = requestAnimationFrame(tween);
+    return () => {
+      if (frameId) cancelAnimationFrame(frameId);
+      revealEnvelopeRef.current = 1;
+    };
+  }, [reducedMotion, requestPaint]);
 
   // Full hit-target rebuild on world swap, selection delta, canvas-size
   // changes, or asset-pipeline ready transitions. Ship-cell and visibility

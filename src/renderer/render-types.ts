@@ -40,6 +40,13 @@ export interface DrawPharosVilleInput {
   height: number;
   hoveredTarget: HitTarget | null;
   motion: PharosVilleCanvasMotion;
+  /**
+   * First-load reveal beat progress in [0, 1]. Default `1` means fully
+   * revealed (steady state). The render loop ramps this from 0 → 1 over
+   * ~1.8s on cold mount, then leaves it at 1. Reduced-motion clients skip the
+   * tween and pass `1` immediately. See `applyRevealEnvelope` and W4.01.
+   */
+  revealEnvelope?: number;
   renderScheduler?: PharosVilleRenderSchedulerState;
   selectedTarget: HitTarget | null;
   shipMotionSamples?: ReadonlyMap<string, ShipMotionSample>;
