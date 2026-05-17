@@ -12,47 +12,119 @@
   - `outputs/council/05-motion/report.md`
   - `outputs/council/06-engineering/report.md`
 
-## 0. Implementation status — updated 2026-05-17 by Codex
+## 0. Implementation status — updated 2026-05-17 by Claude (Opus 4.7 swarm)
 
-This plan started as a proposed council roadmap. The first implementation batch has since landed on `main` in commits `4940b86` through `30569c8`, with a small pre-existing footer commit `800e184` now at HEAD before this update. The current follow-up pass implements W4.26.
+This plan started as a proposed council roadmap. Two batches and a third
+swarm-orchestrated pass have now landed on `main`:
 
-Validation already run for the prior batch:
+- **Batch 1** (commits `4940b86`–`30569c8`): palette, atmosphere, water identity,
+  runtime hardening, motion substrate, ship/harbor liveliness.
+- **Batch 2** (commit `8267f1f`): W4.26 selection follow-cam.
+- **Batch 3** (commits `31cac81`–`eb371e3`, this pass): five parallel swarm
+  agents shipped W3.20, W4.23–W4.25, W4.27, plus W1.03–W1.05, W4.01, W4.07,
+  W4.11, W4.12, W4.29, W1.04, including call-site wiring for W3.20/W4.27 and
+  one baseline rebake.
+
+Validation already run for batch 3:
 
 - `npm run typecheck`
-- `npm test`
+- `npm test` (766 tests across 76 files)
 - `npm run check:pharosville-assets`
 - `npm run check:pharosville-colors`
-- `npm run build`
-- `npm run test:visual`
-- `npm run smoke:api-local`
-- `npm run smoke:dev-proxy`
 - `npm run validate:docs`
+- `npm run build`
+- `npm run test:visual` (20 / 20 passing)
+- Both local + `playwright.dist.config.ts` baselines rebaked for the
+  6 intentionally drifted snapshots (chimney smoke wisps + civic vegetation
+  reshuffle + minor cue-priority/Path2D bucket pixel shifts).
 
-Implemented highlights from the prior batch:
+Implemented highlights from batches 1 + 2:
 
 - **Palette / atmosphere / water identity:** W1.13–W1.18, W3.01–W3.16, W4.02–W4.06.
-- **Runtime hardening and a11y controls:** W1.07–W1.12, W2.19, plus W4.04 time controls.
-- **Motion substrate and choreography:** W1.20–W1.21, W2.14–W2.16, W3.17–W3.19.
-- **Ship and harbor liveliness:** W2.07, W2.09–W2.13, W2.17, W4.14–W4.16, W4.20–W4.22.
-- **Visual baselines:** refreshed in `30569c8` after intentional render drift.
+- **Runtime hardening and a11y controls:** W1.07–W1.12, W2.19, W4.04 time controls.
+- **Motion substrate and choreography:** W1.20–W1.21, W2.14–W2.16, W3.17–W3.19, W4.26.
+- **Ship and harbor liveliness:** W2.07, W2.09–W2.13, W4.14–W4.16, W4.20–W4.22.
+  W2.17 (lower-thirds selection strip) was shipped then retired in `adf3993`
+  because it duplicated the detail panel.
+
+Implemented in batch 3 (parallel swarm):
+
+- **W3.20 Sea-room separation pass** — relaxation nudges non-moored, non-consort
+  ships within a swell-modulated radius (base 0.7 tile) by `(d − radius)/2`, capped
+  0.15 tile/frame. Wired into `collectShipMotionSamples` per frame; reduced-motion
+  is a hard no-op.
+- **W4.23 Calm patrol itineraries** — single-anchor `stableHash % N` waypoint pick
+  replaced with deterministic 2- or 3-anchor Latin-square itinerary per ship; each
+  cycle visits a different ordered pair.
+- **W4.24 Squad formation gain + lagged heading** — `formationGain(zone, flagshipSpeed)`
+  fans Calm cruisers to 1.4 and tightens arriving consorts to 0.55; consort heading
+  lags via 0.6 s lerp toward the flagship's heading.
+- **W4.25 Risk-transition tack-out** — on `riskPlacement` change at plan build the
+  previous risk tile is captured for one cycle and a 3 s blended transit is inserted
+  before the next dock cycle. `ShipMotionSample.riskTransition` exposes the live
+  data; the detail-panel DOM parity is the one open follow-up below.
+- **W4.27 Cue-priority arbiter** — `cuePriority` + `awardCueSlots` exported from
+  `src/systems/cue-priority.ts`; wired into `planShipRenderLod` so active-risk +
+  recent-supply ships win cap-bound overlay/wake slots over scenery while
+  preserving the proximity-based ordering within tiers.
+- **W4.01 1.8 s first-load reveal beat** — `revealEnvelope` plumbed through
+  `DrawPharosVilleInput` and `useWorldRenderLoop`; cold-mount RAF tween over three
+  phases (sky-only → scene fade-in + headland slide → lighthouse first sweep at
+  2.2× duration). Reduced-motion → envelope = 1 immediately.
+- **W4.07 Loading-state re-skin** — `.pharosville-loading` reskinned to the canvas
+  palette: deep `#050d13` background, horizon gradient + inline-SVG ship silhouettes
+  mirroring `drawHorizonShips`, warm `lantern_warm`-anchored pulsing halo.
+- **W1.03 God-ray gradient cache** — 32 angle × 4 zoom × 20 night bucket sprite
+  cache, 256-entry LRU. Drops ~16 `createLinearGradient` calls per night frame.
+- **W1.04 Titan Path2D cache** — bucketed `Path2D` template cache (32 heading × 8
+  tension) for foam, mooring detail, and bow-spray. Steady-state hit rate 100 % on
+  the moored 5-path working set.
+- **W1.05 Static layer cache: array → Map** — `staticLayerCache.entries[]` replaced
+  with `Map<string, StaticLayerCacheEntry>`; behavior unchanged.
+- **W4.11 Civic vegetation reshuffle** — 3 entries crowding the future agora
+  footprint removed; bougainvillea-arch + agave-cluster repositioned to flank the
+  south-facing entrance.
+- **W4.12 Chimney smoke wisps** — three procedural wisps at fixed offsets on the
+  center cluster, peak alpha 0.10, ~80 px rise. Day-visible; suppressed at
+  `nightFactor > 0.7`. Reduced-motion frame deterministic.
+- **W4.29 requestIdleCallback budgeting (tests)** — the runtime contract for
+  cooperative-yield warmup was already shipped in `685ddbd`; this pass adds the
+  manual-scheduler test coverage and exports needed to validate it.
 
 Partial / deferred:
 
-- **W1.02** is partial: strict flags landed except `exactOptionalPropertyTypes`.
-- **W1.01, W1.03–W1.06, W1.19, W2.01–W2.06, W2.08, W2.18, W2.20, W3.20, W4.01, W4.07–W4.13, W4.17–W4.19, W4.23–W4.25, W4.27–W4.29** remain candidates unless a later note says otherwise.
-- Asset regeneration and WebP work are intentionally deferred until a dedicated asset wave because they require PixelLab/provenance review and manifest cap coordination.
-
-Implemented in this update:
-
-- **W4.26 Selection follow-cam:** `use-canvas-resize-and-camera.ts` now starts a continuous selected-ship chase loop with a 0.45s velocity lead and damped camera convergence. Manual pan, zoom, reset, clear, and new selection release the chase; reduced-motion still snaps once. Focused helper tests cover the lead and damping math.
+- **W1.02** remains partial: strict flags landed except `exactOptionalPropertyTypes`.
+- **W1.01** (`ships.ts` split) skipped: the Wave 2 sprite regens that required it
+  are themselves deferred, so the split's hard dependency does not bind yet.
+- **W1.06** ring-buffer telemetry: deferred — `DrawDurationWindow` already is a
+  ring buffer; the remaining three windows in `use-world-render-loop.ts`
+  (frame-interval, numeric-max, longtask) can be consolidated in a follow-up
+  hygiene pass.
+- **W1.19** reduced-motion audit: not done as a discrete pass, but every batch-3
+  task individually documented and tested its reduced-motion behavior.
+- **W2.01–W2.06, W2.08, W2.18** ship sprite regens + per-ship mast lantern +
+  partial WebP migration: deferred to a coordinated PixelLab/provenance batch.
+- **W2.20** sail-cache telemetry counters: deferred with the rest of W2 sprite work.
+- **W4.08–W4.10, W4.13, W4.17–W4.18** sprite/asset regens: deferred to the same
+  asset wave.
+- **W4.28** WebP migration close-out: deferred until the sprite regen wave lands.
+- **W4.25 detail-panel + accessibility-ledger parity** for the live `riskTransition`
+  state: deferred — needs per-frame detail-panel rebuild infrastructure that does
+  not fit a surgical edit (the detail index is built once per world refresh). The
+  motion-sampling side is shipped; a future Visual-lane pass should add a
+  "tracking new risk band" row to `src/systems/detail-model.ts` and
+  `src/components/accessibility-ledger.tsx` reading `sample.riskTransition` for
+  the selected ship.
 
 Most impactful next candidates:
 
-- **W4.23 Calm patrol itineraries** — high visible motion variety with no new assets.
-- **W3.20 Sea-room separation** — improves dense-harbor readability and helps screenshots.
-- **W4.24 Squad formation gain / lagged heading** — makes squads read as fleets rather than stacked ships.
-- **W4.01 First-load reveal** — high perceived polish, but touches render input and visual baselines.
-- **W4.08–W4.18 asset regeneration wave** — largest remaining identity lift, but should be run as a coordinated sprite/WebP/provenance batch.
+- **W4.08–W4.18 asset regeneration wave** — largest remaining identity lift; needs
+  PixelLab/provenance coordination + manifest cap bumps.
+- **W4.25 detail-panel parity** — close out the wired-but-silent risk-transit data
+  event so it reads on canvas AND in the panel.
+- **W1.01** ship layer split if the sprite-regen wave lands.
+- **W1.06** ring-buffer telemetry consolidation when the next Engineer hygiene
+  pass kicks off.
 
 ## 1. North star
 
