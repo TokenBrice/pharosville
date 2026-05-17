@@ -6,7 +6,7 @@ Last updated: 2026-05-02
 
 | Item | Owner | Due | Status | Acceptance Criteria | Commands / Proof |
 | --- | --- | --- | --- | --- | --- |
-| 1) Enforce merge gate on `main` | Repo admin | Immediate | Not configured | Branch protection/ruleset requires `typecheck`, `unit`, `guards`, `build`, `visual` before merge | `npm run check:branch-protection` |
+| 1) Enforce merge gate on `main` | Repo admin | Immediate | Not configured | Branch protection/ruleset requires `typecheck`, `unit`, `guards`, `build`, `visual`, `visual-cross-browser` before merge | `npm run check:branch-protection` |
 | 2) Security headers policy rollout | Frontend + platform | Immediate | Done | CSP, HSTS, frame, referrer, COOP/CORP, permissions, X-Content-Type-Options returned on HTML and API responses | `npm run smoke:live -- --url https://pharosville.pharos.watch` (security assertions enabled) |
 | 3) Security header verification | Security | Immediate | Done | Policy + runtime response header checks are codified and runnable in command form | `npm run check:security-headers` |
 | 4) Observability + alerting | Platform | Immediate | In progress | Production monitors alert on `/api/*` 5xx, timeout/upstream `502`, and post-deploy smoke failures | `docs/pharosville/OBSERVABILITY.md` |

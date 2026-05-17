@@ -3,7 +3,7 @@ import { execSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 const REQUIRED_BRANCH = "main";
-const REQUIRED_STATUS_CHECKS = ["typecheck", "unit", "guards", "build", "visual"];
+const REQUIRED_STATUS_CHECKS = ["typecheck", "unit", "guards", "build", "visual", "visual-cross-browser"];
 const REQUIRED_APPROVALS = 1;
 const RULESET_STATUS_CHECK_KEYS = [
   "required_status_checks",

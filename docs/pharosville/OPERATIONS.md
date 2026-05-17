@@ -69,6 +69,12 @@ Before publishing or claiming release-level confidence:
 npm run validate:release
 ```
 
+To locally mirror the GitHub deploy workflow pre-deploy jobs exactly:
+
+```bash
+npm run validate:deploy-gate
+```
+
 For direct `main` pushes, install the optional local pre-push hook once:
 
 ```bash
@@ -89,6 +95,7 @@ Before declaring production readiness, enforce `main` merge control on the
   - `guards`
   - `build`
   - `visual`
+  - `visual-cross-browser`
 - Require branches to be up to date before merge and no direct bypass for `main`
 
 Recommended verification:

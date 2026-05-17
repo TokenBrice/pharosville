@@ -34,6 +34,7 @@
     "worktree:new": "node scripts/pharosville/new-worktree.mjs",
     "agent:plan:new": "node scripts/pharosville/new-agent-plan.mjs",
     "validate:changed": "node scripts/pharosville/validate-changed.mjs",
+    "validate:deploy-gate": "node scripts/pharosville/validate-deploy-gate.mjs",
     "check:pharosville-assets": "node scripts/pharosville/validate-assets.mjs",
     "check:pharosville-colors": "node scripts/check-pharosville-colors.mjs",
     "check:bundle-size": "node scripts/check-bundle-size.mjs",
@@ -49,7 +50,7 @@
     "check:release-readiness": "npm run check:security-headers && npm run test:visual:cross-browser && npm run test:visual:dist:accessibility && npm run smoke:live -- --url https://pharosville.pharos.watch",
     "validate:docs": "npm run test:guard-scripts && npm run check:doc-paths-and-scripts && npm run check:viewport-gate",
     "validate": "npm run check:committed-secrets && npm run validate:docs && npm run check:pharosville-assets && npm run check:pharosville-colors && npm run typecheck && npm run lint && npm test && npm run build && npm run check:bundle-size",
-    "validate:release": "npm run validate && npm run test:visual:dist && npm run test:visual:dist:accessibility",
+    "validate:release": "npm run validate:deploy-gate && npm run lint && npm run check:viewport-gate",
     "deploy": "wrangler pages deploy dist --project-name=pharosville"
   },
   "dependencies": {

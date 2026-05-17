@@ -92,13 +92,19 @@ Auto-select validation lane from current diff (`validate:docs` for docs-only cha
 npm run validate:changed
 ```
 
+Run the local equivalent of the Cloudflare deploy workflow's pre-deploy jobs:
+
+```bash
+npm run validate:deploy-gate
+```
+
 To install the optional local pre-push gate for direct `main` pushes:
 
 ```bash
 npm run hooks:install
 ```
 
-The hook runs `npm run validate:release` only when pushing to `main`.
+The hook runs `npm run validate:deploy-gate` when pushing to `main`.
 For non-main branch pushes, the hook runs `npm run validate:changed`.
 
 ## Cloudflare Pages
