@@ -7,6 +7,7 @@ import {
   type ZoneMotionTheme,
 } from "../../systems/palette";
 import { TILE_HEIGHT, TILE_WIDTH, tileToScreen } from "../../systems/projection";
+import { SEAWALL_RENDER_PLACEMENTS, seawallBarrierDistance, type SeawallPlacement } from "../../systems/seawall";
 import { isWaterTileKind } from "../../systems/world-layout";
 import type { PharosVilleMap, PharosVilleTile, TerrainKind } from "../../systems/world-types";
 import { withAlpha } from "../canvas-primitives";
@@ -30,6 +31,7 @@ interface FoamSettings {
 
 const tilesByKeyCache = new WeakMap<PharosVilleMap, Map<string, PharosVilleTile>>();
 const coastalCandidatesCache = new WeakMap<PharosVilleMap, CoastalWaterCandidate[]>();
+let cachedSeawallSprayAnchors: readonly SeawallSprayAnchor[] | null = null;
 
 // Scratch dash buffer reused across drawCoastEdgeWash calls. The longest
 // dash pattern in foamSettings is 4 entries; we reuse this Array (resizing
@@ -46,6 +48,13 @@ interface CoastalWaterCandidate {
    */
   motion: ZoneMotionTheme;
   tile: PharosVilleTile;
+}
+
+export interface SeawallSprayAnchor {
+  intensity: number;
+  phase: number;
+  rotation: number;
+  tile: { x: number; y: number };
 }
 
 type NearshoreMotifRenderer = (
@@ -125,8 +134,124 @@ export function drawCoastalWaterDetails({ camera, ctx, height, motion, width, wo
       candidate.motion,
     );
   }
+  drawSeawallSprayPlumes(ctx, camera, motion, width, height);
   ctx.restore();
   return drawnTileCount;
+}
+
+export function seawallSprayAnchorsFromPlacements(
+  placements: readonly Pick<SeawallPlacement, "rotation" | "tile">[],
+  distanceForTile: (tile: { x: number; y: number }) => number = seawallBarrierDistance,
+): readonly SeawallSprayAnchor[] {
+  const anchors: SeawallSprayAnchor[] = [];
+  const seen = new Set<string>();
+  for (let index = 0; index < placements.length; index += 1) {
+    const placement = placements[index]!;
+    const tile = {
+      x: Math.round(placement.tile.x * 10) / 10,
+      y: Math.round(placement.tile.y * 10) / 10,
+    };
+    const key = `${tile.x}.${tile.y}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const distance = distanceForTile(tile);
+    const intensity = Math.max(0.18, Math.min(1, 1.05 - distance * 0.28));
+    anchors.push({
+      intensity,
+      phase: ((index * 0.173) % 1 + 1) % 1,
+      rotation: placement.rotation,
+      tile,
+    });
+  }
+  return anchors;
+}
+
+export function seawallSprayPulse(phase: number, timeSeconds: number, reducedMotion: boolean): number {
+  if (reducedMotion) return 0.72;
+  return 0.55 + 0.45 * ((Math.sin(timeSeconds * 1.45 + phase * Math.PI * 2) + 1) * 0.5);
+}
+
+function seawallSprayAnchorsForRender(): readonly SeawallSprayAnchor[] {
+  if (!cachedSeawallSprayAnchors) {
+    cachedSeawallSprayAnchors = seawallSprayAnchorsFromPlacements(SEAWALL_RENDER_PLACEMENTS);
+  }
+  return cachedSeawallSprayAnchors;
+}
+
+function drawSeawallSprayPlumes(
+  ctx: CanvasRenderingContext2D,
+  camera: DrawPharosVilleInput["camera"],
+  motion: PharosVilleCanvasMotion,
+  viewportWidth: number,
+  viewportHeight: number,
+) {
+  const anchors = seawallSprayAnchorsForRender();
+  if (anchors.length === 0) return;
+  const islandCenter = tileToScreen({ x: 31, y: 31 }, camera);
+  const viewportMarginX = 44 * camera.zoom;
+  const viewportMarginY = 32 * camera.zoom;
+
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  for (const anchor of anchors) {
+    const point = tileToScreen(anchor.tile, camera);
+    if (!isScreenPointInViewport(point, viewportWidth, viewportHeight, viewportMarginX, viewportMarginY)) continue;
+    const dx = point.x - islandCenter.x;
+    const dy = point.y - islandCenter.y;
+    const len = Math.max(1, Math.hypot(dx, dy));
+    drawSeawallSprayPlume(ctx, point.x, point.y, dx / len, dy / len, camera.zoom, anchor, motion);
+  }
+  ctx.restore();
+}
+
+function drawSeawallSprayPlume(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  outwardX: number,
+  outwardY: number,
+  zoom: number,
+  anchor: SeawallSprayAnchor,
+  motion: PharosVilleCanvasMotion,
+) {
+  const pulse = seawallSprayPulse(anchor.phase, motion.timeSeconds, motion.reducedMotion);
+  const intensity = anchor.intensity * pulse;
+  const tangentX = -outwardY;
+  const tangentY = outwardX;
+  const rotationBias = Math.sin((anchor.rotation * Math.PI) / 180) * 0.8 * zoom;
+  const baseX = x + outwardX * 2.4 * zoom;
+  const baseY = y + outwardY * 2.4 * zoom;
+
+  ctx.strokeStyle = withAlpha("#e8eef0", 0.22 * intensity);
+  ctx.lineWidth = Math.max(1, 0.85 * zoom);
+  ctx.beginPath();
+  for (let index = 0; index < 3; index += 1) {
+    const lateral = (index - 1) * 2.7 * zoom + rotationBias;
+    const reach = (4.5 + index * 1.1) * zoom;
+    const startX = baseX + tangentX * lateral;
+    const startY = baseY + tangentY * lateral;
+    ctx.moveTo(startX, startY);
+    ctx.quadraticCurveTo(
+      startX + outwardX * reach * 0.5 + tangentX * 1.2 * zoom,
+      startY + outwardY * reach * 0.5 + tangentY * 1.2 * zoom,
+      startX + outwardX * reach,
+      startY + outwardY * reach,
+    );
+  }
+  ctx.stroke();
+
+  ctx.fillStyle = withAlpha("#e8eef0", 0.28 * intensity);
+  const dot = Math.max(1, Math.round(1.4 * zoom));
+  ctx.fillRect(Math.round(baseX + outwardX * 5.5 * zoom), Math.round(baseY + outwardY * 5.5 * zoom), dot, dot);
+  if (intensity > 0.42) {
+    ctx.fillRect(
+      Math.round(baseX + outwardX * 7 * zoom + tangentX * 2.3 * zoom),
+      Math.round(baseY + outwardY * 7 * zoom + tangentY * 2.3 * zoom),
+      dot,
+      dot,
+    );
+  }
 }
 
 function tileKey(x: number, y: number) {

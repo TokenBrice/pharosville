@@ -1,7 +1,8 @@
 import { waterTerrainStyle, zoneThemeForTerrain, type WaterTextureKind, type ZoneVisualTheme } from "../../systems/palette";
 import { TILE_HEIGHT, TILE_WIDTH, tileToScreen } from "../../systems/projection";
+import { SEAWALL_RENDER_PLACEMENTS } from "../../systems/seawall";
 import { isElevatedTileKind, isShoreTileKind, isWaterTileKind } from "../../systems/world-layout";
-import type { TerrainKind } from "../../systems/world-types";
+import type { PharosVilleMap, PharosVilleTile, TerrainKind } from "../../systems/world-types";
 import type { PharosVilleAssetManager } from "../asset-manager";
 import { drawAsset, drawDiamond, drawTileLowerFacet, withAlpha } from "../canvas-primitives";
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
@@ -75,19 +76,34 @@ function getWaterOverlayAccentPath(): Path2D {
   return waterOverlayAccentPath;
 }
 
-// Mooring corners hand-picked from AUTHORED_SEAWALL_SEGMENTS in
-// src/systems/seawall.ts: NW lighthouse apron, SW market quay, E observatory
-// gate. Looping concentric ripples emanate from each.
-const SEAWALL_RIPPLE_ANCHORS: ReadonlyArray<{ x: number; y: number }> = [
-  { x: 15.4, y: 25.3 },
-  { x: 20.4, y: 36.6 },
-  { x: 42.1, y: 26.3 },
-];
 const SEAWALL_RIPPLE_PERIOD = 3;
+const SEAWALL_RIPPLE_ANCHOR_COUNT = 12;
 const DANGER_RIP_PERIOD_SECONDS = 6;
 const CALM_MIRROR_PERIOD_SECONDS = 20;
 const OPEN_WATER_PLANKTON_PERIOD_SECONDS = 12;
 const LEDGER_ROW_HEADERS = ["I", "V", "X"] as const;
+
+type ZoneFeatherEdge = "east" | "north" | "south" | "west";
+const ZONE_FEATHER_ALPHA = 0.25;
+const ZONE_FEATHER_INSET_RATIO = 0.36;
+const ZONE_FEATHER_OFFSETS: Record<ZoneFeatherEdge, { x: number; y: number }> = {
+  east: { x: 1, y: 0 },
+  north: { x: 0, y: -1 },
+  south: { x: 0, y: 1 },
+  west: { x: -1, y: 0 },
+};
+
+export interface WaterZoneBorderFeather {
+  color: string;
+  edge: ZoneFeatherEdge;
+  terrain: TerrainKind;
+}
+
+type WaterZoneBorderLookup = ReadonlyMap<number, readonly WaterZoneBorderFeather[]>;
+const zoneBorderLookupByMap = new WeakMap<PharosVilleMap, WaterZoneBorderLookup>();
+let cachedSeawallRippleAnchors: readonly { x: number; y: number }[] | null = null;
+
+export type WatchBreakwaterSubzone = "east-shelf" | "south-basin";
 
 const WATER_TERRAIN_ASSET_BY_KIND: Partial<Record<TerrainKind, string>> = {
   "alert-water": "terrain.harbor-water",
@@ -213,6 +229,7 @@ export function drawWaterTerrainOverlays(input: DrawPharosVilleInput, bounds: Vi
   let visibleWaterTileCount = 0;
 
   const beam = world.lighthouse.unavailable ? null : computeBeamCausticState(input);
+  const zoneBorderFeathers = waterZoneBorderFeathersForMap(world.map);
 
   let rowScreenX = (bounds.minX - bounds.minY) * deltaX + camera.offsetX;
   let rowScreenY = (bounds.minX + bounds.minY) * deltaY + camera.offsetY;
@@ -226,7 +243,20 @@ export function drawWaterTerrainOverlays(input: DrawPharosVilleInput, bounds: Vi
         const terrain = tile.terrain ?? tile.kind;
         if (isWaterTileKind(terrain) && isTileInViewport(screenX, screenY, width, height, viewportMarginX, viewportMarginY)) {
           visibleWaterTileCount += 1;
-          drawWaterTileOverlay(ctx, screenX, screenY, camera.zoom, terrain, tile.x, tile.y, mapWidth, mapHeight, motion, beam);
+          drawWaterTileOverlay(
+            ctx,
+            screenX,
+            screenY,
+            camera.zoom,
+            terrain,
+            tile.x,
+            tile.y,
+            mapWidth,
+            mapHeight,
+            motion,
+            beam,
+            zoneBorderFeathers.get(rowOffset + x),
+          );
         }
       }
       screenX += deltaX;
@@ -237,6 +267,70 @@ export function drawWaterTerrainOverlays(input: DrawPharosVilleInput, bounds: Vi
   }
   drawSeawallRipples(ctx, camera, motion);
   return visibleWaterTileCount;
+}
+
+export function waterZoneBorderFeathersForMap(map: PharosVilleMap): WaterZoneBorderLookup {
+  const cached = zoneBorderLookupByMap.get(map);
+  if (cached) return cached;
+
+  const lookup = new Map<number, readonly WaterZoneBorderFeather[]>();
+  for (const tile of map.tiles) {
+    const terrain = tileTerrain(tile);
+    if (!isWaterTileKind(terrain)) continue;
+
+    const feathers: WaterZoneBorderFeather[] = [];
+    for (const edge of Object.keys(ZONE_FEATHER_OFFSETS) as ZoneFeatherEdge[]) {
+      const offset = ZONE_FEATHER_OFFSETS[edge];
+      const neighbor = tileAt(map, tile.x + offset.x, tile.y + offset.y);
+      if (!neighbor) continue;
+      const neighborTerrain = tileTerrain(neighbor);
+      if (!isWaterTileKind(neighborTerrain) || neighborTerrain === terrain) continue;
+      feathers.push({
+        color: cachedZoneThemeForTerrain(String(neighborTerrain)).base,
+        edge,
+        terrain: neighborTerrain,
+      });
+    }
+    if (feathers.length > 0) lookup.set(tile.y * map.width + tile.x, feathers);
+  }
+
+  zoneBorderLookupByMap.set(map, lookup);
+  return lookup;
+}
+
+export function watchBreakwaterSubzoneForTile(tileX: number, tileY: number): WatchBreakwaterSubzone {
+  return tileX >= 31 && tileY <= 38 ? "east-shelf" : "south-basin";
+}
+
+export function seawallRippleAnchorsFromPlacements(
+  placements: readonly { tile: { x: number; y: number } }[],
+): readonly { x: number; y: number }[] {
+  if (placements.length === 0) {
+    return [
+      { x: 15.4, y: 25.3 },
+      { x: 20.4, y: 36.6 },
+      { x: 42.1, y: 26.3 },
+    ];
+  }
+
+  const targetCount = Math.min(SEAWALL_RIPPLE_ANCHOR_COUNT, placements.length);
+  const anchors: { x: number; y: number }[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < targetCount; i += 1) {
+    const placementIndex = targetCount === 1
+      ? 0
+      : Math.round((i / (targetCount - 1)) * (placements.length - 1));
+    const tile = placements[placementIndex]!.tile;
+    const anchor = {
+      x: Math.round(tile.x * 10) / 10,
+      y: Math.round(tile.y * 10) / 10,
+    };
+    const key = `${anchor.x}.${anchor.y}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    anchors.push(anchor);
+  }
+  return anchors;
 }
 
 function resolveVisibleTileBounds(input: DrawPharosVilleInput, tileMargin: number): VisibleTileBounds | null {
@@ -277,6 +371,15 @@ function waterAssetFor(assets: PharosVilleAssetManager | null, terrain: TerrainK
 
 function landAssetFor(assets: PharosVilleAssetManager | null, terrain: TerrainKind, x: number, y: number) {
   return assets?.get(landAssetIdFor(terrain, x, y)) ?? null;
+}
+
+function tileAt(map: PharosVilleMap, x: number, y: number): PharosVilleTile | null {
+  if (x < 0 || y < 0 || x >= map.width || y >= map.height) return null;
+  return map.tiles[y * map.width + x] ?? null;
+}
+
+function tileTerrain(tile: PharosVilleTile): TerrainKind {
+  return tile.terrain ?? tile.kind;
 }
 
 function terrainColor(kind: TerrainKind) {
@@ -327,11 +430,15 @@ function drawWaterTileOverlay(
   mapHeight: number,
   motion: PharosVilleCanvasMotion,
   beam: BeamCausticState | null,
+  zoneFeathers: readonly WaterZoneBorderFeather[] | undefined,
 ) {
   const value = String(kind);
   const theme = cachedZoneThemeForTerrain(value);
   if (value === "deep-water") {
     drawDeepShelfEdgeDarkening(ctx, x, y, zoom, tileX, tileY, mapWidth, mapHeight);
+  }
+  if (zoneFeathers?.length) {
+    drawWaterZoneBorderFeathering(ctx, x, y, zoom, zoneFeathers);
   }
   drawWaterTerrainTexture(ctx, x, y, zoom, theme, tileX, tileY, motion);
   drawBeamCaustic(ctx, x, y, zoom, tileX, tileY, beam);
@@ -354,6 +461,66 @@ function drawWaterTileOverlay(
     ctx.stroke(getWaterOverlayAccentPath());
   }
   ctx.restore();
+}
+
+function drawWaterZoneBorderFeathering(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  feathers: readonly WaterZoneBorderFeather[],
+) {
+  const width = TILE_WIDTH * zoom;
+  const height = TILE_HEIGHT * zoom;
+  const top = { x, y: y - height / 2 };
+  const right = { x: x + width / 2, y };
+  const bottom = { x, y: y + height / 2 };
+  const left = { x: x - width / 2, y };
+  const center = { x, y };
+
+  ctx.save();
+  for (const feather of feathers) {
+    const [from, to] = zoneFeatherEdgePoints(feather.edge, top, right, bottom, left);
+    const innerFrom = lerpPoint(from, center, ZONE_FEATHER_INSET_RATIO);
+    const innerTo = lerpPoint(to, center, ZONE_FEATHER_INSET_RATIO);
+    const mid = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
+    const gradient = ctx.createLinearGradient(mid.x, mid.y, center.x, center.y);
+    gradient.addColorStop(0, withAlpha(feather.color, ZONE_FEATHER_ALPHA));
+    gradient.addColorStop(1, withAlpha(feather.color, 0));
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.lineTo(innerTo.x, innerTo.y);
+    ctx.lineTo(innerFrom.x, innerFrom.y);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function zoneFeatherEdgePoints(
+  edge: ZoneFeatherEdge,
+  top: { x: number; y: number },
+  right: { x: number; y: number },
+  bottom: { x: number; y: number },
+  left: { x: number; y: number },
+): [{ x: number; y: number }, { x: number; y: number }] {
+  if (edge === "north") return [top, right];
+  if (edge === "east") return [right, bottom];
+  if (edge === "south") return [left, bottom];
+  return [top, left];
+}
+
+function lerpPoint(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  ratio: number,
+): { x: number; y: number } {
+  return {
+    x: from.x + (to.x - from.x) * ratio,
+    y: from.y + (to.y - from.y) * ratio,
+  };
 }
 
 function drawWaterDepthOverlay(
@@ -526,15 +693,17 @@ function drawSeawallRipples(
   camera: DrawPharosVilleInput["camera"],
   motion: PharosVilleCanvasMotion,
 ) {
-  if (motion.reducedMotion) return;
+  const anchors = seawallRippleAnchorsForRender();
   ctx.save();
-  for (let i = 0; i < SEAWALL_RIPPLE_ANCHORS.length; i += 1) {
-    const anchor = SEAWALL_RIPPLE_ANCHORS[i]!;
-    const phase = ((motion.timeSeconds + i * 0.9) % SEAWALL_RIPPLE_PERIOD) / SEAWALL_RIPPLE_PERIOD;
+  for (let i = 0; i < anchors.length; i += 1) {
+    const anchor = anchors[i]!;
+    const phase = motion.reducedMotion
+      ? ((i * 0.31) % 1)
+      : ((motion.timeSeconds + i * 0.9) % SEAWALL_RIPPLE_PERIOD) / SEAWALL_RIPPLE_PERIOD;
     const screen = tileToScreen(anchor, camera);
     // 0.5–1 tile/sec growth: radius reaches 3 tile-widths over 3s.
     const radius = (4 + phase * 3 * TILE_WIDTH) * camera.zoom;
-    const alpha = 0.8 * (1 - phase);
+    const alpha = (motion.reducedMotion ? 0.18 : 0.8) * (1 - phase);
     if (alpha < 0.02) continue;
     ctx.strokeStyle = `rgba(232, 243, 233, ${alpha})`;
     ctx.lineWidth = Math.max(1, 1.1 * camera.zoom);
@@ -543,6 +712,13 @@ function drawSeawallRipples(
     ctx.stroke();
   }
   ctx.restore();
+}
+
+function seawallRippleAnchorsForRender(): readonly { x: number; y: number }[] {
+  if (!cachedSeawallRippleAnchors) {
+    cachedSeawallRippleAnchors = seawallRippleAnchorsFromPlacements(SEAWALL_RENDER_PLACEMENTS);
+  }
+  return cachedSeawallRippleAnchors;
 }
 
 function drawWaterTerrainTexture(
@@ -792,11 +968,12 @@ function drawWatchWaterTexture(
   motion: PharosVilleCanvasMotion,
   theme: ZoneVisualTheme,
 ) {
+  const subzone = watchBreakwaterSubzoneForTile(tileX, tileY);
   const crosswind = motion.reducedMotion
     ? 0.16
     : 0.14 + fastSin(motion.timeSeconds * 0.95 + tileY * 0.29) * 0.04 * theme.motion.amplitudeScale;
   ctx.save();
-  if ((tileX * 7 + tileY * 2) % 4 !== 1) {
+  if (subzone === "south-basin" && (tileX * 7 + tileY * 2) % 4 !== 1) {
     ctx.strokeStyle = withAlpha(theme.accent, 0.16);
     ctx.lineWidth = Math.max(1, 0.8 * zoom);
     ctx.setLineDash([2.8 * zoom, 3.4 * zoom]);
@@ -805,6 +982,9 @@ function drawWatchWaterTexture(
     ctx.lineTo(x + 11 * zoom, y + 5 * zoom);
     ctx.stroke();
     ctx.setLineDash([]);
+  }
+  if (subzone === "east-shelf") {
+    drawWatchEastShelfCurrentArrows(ctx, x, y, zoom, motion, theme, tileX, tileY);
   }
   ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.12, crosswind) * theme.motion.strokeAlphaScale);
   ctx.lineWidth = Math.max(1, zoom);
@@ -817,10 +997,10 @@ function drawWatchWaterTexture(
     ctx.lineTo(x + 9 * zoom, y + 5 * zoom);
   }
   ctx.stroke();
-  if ((tileX + tileY * 5) % 7 === 0) {
+  if (subzone === "south-basin" && (tileX + tileY * 5) % 7 === 0) {
     drawBreakwaterFoam(ctx, x, y, zoom, theme.wave, 0.22);
   }
-  if ((tileX * 13 + tileY * 7) % 7 === 0) {
+  if (subzone === "south-basin" && (tileX * 13 + tileY * 7) % 7 === 0) {
     drawWatchChannelBuoy(ctx, x, y, zoom, motion, theme, tileX, tileY);
   }
   ctx.restore();
@@ -1185,6 +1365,45 @@ function drawWatchChannelBuoy(
   ctx.beginPath();
   ctx.moveTo(cx - 4 * zoom, cy + 2.5 * zoom);
   ctx.quadraticCurveTo(cx, cy + 1.4 * zoom, cx + 4 * zoom, cy + 2.5 * zoom);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawWatchEastShelfCurrentArrows(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  zoom: number,
+  motion: PharosVilleCanvasMotion,
+  theme: ZoneVisualTheme,
+  tileX: number,
+  tileY: number,
+) {
+  const hash = tileHash(tileX, tileY, 719);
+  if (hash % 5 === 0) return;
+  const drift = motion.reducedMotion ? 0 : fastSin(motion.timeSeconds * 0.42 + (hash % 37) * 0.11) * 0.8 * zoom;
+  const yOffset = (((hash >>> 5) % 5) - 2) * 0.6 * zoom;
+  const startX = x - 11 * zoom + drift;
+  const startY = y + yOffset - 1.5 * zoom;
+  const endX = x + 10 * zoom + drift;
+  const endY = y + yOffset + 2.6 * zoom;
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = withAlpha(theme.accent, 0.18 * theme.motion.strokeAlphaScale);
+  ctx.lineWidth = Math.max(1, 0.75 * zoom);
+  ctx.beginPath();
+  ctx.moveTo(startX, startY);
+  ctx.lineTo(endX, endY);
+  ctx.moveTo(endX - 4.5 * zoom, endY - 2.8 * zoom);
+  ctx.lineTo(endX, endY);
+  ctx.lineTo(endX - 5.2 * zoom, endY + 1.4 * zoom);
+  if (hash % 3 === 0) {
+    const lowerY = y + 4.8 * zoom;
+    ctx.moveTo(x - 7 * zoom - drift * 0.3, lowerY);
+    ctx.lineTo(x + 5 * zoom - drift * 0.3, lowerY + 2.4 * zoom);
+    ctx.lineTo(x + 1 * zoom - drift * 0.3, lowerY - 0.1 * zoom);
+  }
   ctx.stroke();
   ctx.restore();
 }
