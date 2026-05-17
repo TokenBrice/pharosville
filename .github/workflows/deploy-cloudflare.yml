@@ -110,7 +110,7 @@ jobs:
         run: npm run build
       - name: Bundle size guard
         run: npm run check:bundle-size
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: pharosville-dist
           path: dist
@@ -138,13 +138,13 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-node24-modules-
       - if: steps.node-modules.outputs.cache-hit != 'true'
         run: npm ci
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v7
         with:
           name: pharosville-dist
           path: dist
       - name: Built-dist visual tests
         run: npm run test:visual:dist
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         if: failure()
         with:
           name: pharosville-visual-artifacts
@@ -182,13 +182,13 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-node24-modules-
       - if: steps.node-modules.outputs.cache-hit != 'true'
         run: npm ci
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v7
         with:
           name: pharosville-dist
           path: dist
       - name: Built-dist cross-browser accessibility smoke
         run: npm run test:visual:dist:accessibility:firefox
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         if: failure()
         with:
           name: pharosville-visual-cross-browser-artifacts
@@ -226,7 +226,7 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-node24-modules-
       - if: steps.node-modules.outputs.cache-hit != 'true'
         run: npm ci
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v7
         with:
           name: pharosville-dist
           path: dist
