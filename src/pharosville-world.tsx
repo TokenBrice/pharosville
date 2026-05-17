@@ -57,6 +57,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const motionPlan = useMemo(() => buildMotionPlan(world, selectedDetailId, baseMotionPlan), [baseMotionPlan, selectedDetailId]);
   const shipsById = useMemo(() => new Map(world.ships.map((ship) => [ship.id, ship])), [world.ships]);
+  const shipCounterLabel = useMemo(() => fleetCounterLabel(world), [world.ships]);
   const selectedEntity = selectedDetailId ? world.entityById[selectedDetailId] ?? null : null;
   const selectedDetail = selectedDetailId ? world.detailIndex[selectedDetailId] ?? null : null;
 
@@ -460,8 +461,10 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         <Home aria-hidden="true" size={24} />
       </button>
       <p className="pharosville-beta-tag">
-        PharosVille beta v0.1 - Interpretive view, not financial advice
-        <span aria-hidden="true"> · </span>
+        <span className="pharosville-beta-tag__notice">PharosVille beta v0.1 - Interpretive view, not financial advice</span>
+        <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
+        <span className="pharosville-beta-tag__counter" data-testid="pharosville-ship-counter">{shipCounterLabel}</span>
+        <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
         <a href="https://pharos.watch/">Pharos</a>
       </p>
       <p className="sr-only" aria-live="polite">{announcement}</p>
@@ -474,6 +477,15 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
 // produce identical payloads) don't reach the canvas component when `world` reference
 // is stable. Pairs with the structural-compare cache in `pharosville-desktop-data.tsx`.
 export const PharosVilleWorld = memo(PharosVilleWorldInner);
+
+const integerFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+
+function fleetCounterLabel(world: PharosVilleWorldModel): string {
+  const dockedShips = world.ships.filter((ship) => ship.dockVisits.length > 0).length;
+  const totalShips = world.ships.length;
+  const shipNoun = dockedShips === 1 ? "ship" : "ships";
+  return `${integerFormatter.format(dockedShips)} ${shipNoun} docked / ${integerFormatter.format(totalShips)} total`;
+}
 
 interface DetailAnchor extends ScreenPoint {
   side: "left" | "right";

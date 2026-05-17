@@ -133,6 +133,12 @@ afterEach(() => {
 });
 
 describe("PharosVilleWorld UI accessibility controls", () => {
+  it("shows the current docked ship count in the beta footer", () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    expect(screen.getByTestId("pharosville-ship-counter").textContent).toBe("1 ship docked / 1 total");
+  });
+
   it("cycles canvas hit targets with Tab and selects the focused target with Enter", async () => {
     render(<PharosVilleWorld world={worldFixture()} />);
 
@@ -266,6 +272,7 @@ function worldFixture(): PharosVilleWorldModel {
     routeMode: "world",
     ships: [{
       detailId: "ship.usdc",
+      dockVisits: [{ chainId: "ethereum", dockId: "dock.ethereum", weight: 1, mooringTile: { x: 2, y: 3 } }],
       id: "ship.usdc",
       kind: "ship",
       label: "USDC",

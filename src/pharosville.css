@@ -1036,6 +1036,9 @@ textarea {
   bottom: 30px;
   left: 30px;
   z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  max-width: calc(100% - 142px);
   margin: 0;
   padding: 4px 10px;
   border-radius: 3px;
@@ -1045,10 +1048,30 @@ textarea {
   font-size: 0.72rem;
   font-style: italic;
   letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
   pointer-events: none;
   user-select: none;
 }
+.pharosville-beta-tag__notice,
+.pharosville-beta-tag__counter {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pharosville-beta-tag__counter {
+  flex: 0 0 auto;
+  color: rgba(248, 229, 178, 0.88);
+  font-style: normal;
+}
+.pharosville-beta-tag__separator {
+  flex: 0 0 auto;
+  margin: 0 8px;
+  color: rgba(248, 229, 178, 0.52);
+  font-style: normal;
+}
 .pharosville-beta-tag a {
+  flex: 0 0 auto;
   pointer-events: auto;
   color: var(--pv-brass-highlight);
   text-decoration: none;
