@@ -172,6 +172,21 @@ export function detailForDock(node: DockNode): DetailModel {
   };
 }
 
+/**
+ * W5.01 — Risk-band tack-out for the detail panel. Mirrors
+ * `ShipMotionSample.riskTransition` from `motion-types.ts`, but with the
+ * raw tile coordinates pre-resolved to risk-water-area labels by the
+ * caller so detail-model.ts has no dependency on tile→label lookup.
+ *
+ * When supplied with `progress < 1`, the detail panel emits a "Tracking
+ * new risk band" fact row at world-refresh cadence.
+ */
+export interface ShipRiskTransitionContext {
+  fromLabel: string;
+  toLabel: string;
+  progress: number;
+}
+
 export interface ShipDetailContext {
   squadShips?: readonly ShipNode[];
   allShips?: readonly ShipNode[];
@@ -182,6 +197,18 @@ export interface ShipDetailContext {
    * the sort across many `detailForShip` calls.
    */
   cycleTempo?: ShipCycleTempoResult;
+  /**
+   * W5.01 — Active risk-band tack-out for this ship, sourced from
+   * `ShipMotionSample.riskTransition` at world-refresh cadence (not
+   * per-frame). The detail panel surfaces a "Tracking new risk band"
+   * fact row when `progress < 1`. Null or `progress >= 1` suppresses
+   * the row.
+   */
+  riskTransition?: ShipRiskTransitionContext | null;
+}
+
+export function riskTransitionLabel(transition: ShipRiskTransitionContext): string {
+  return `from ${transition.fromLabel} to ${transition.toLabel}`;
 }
 
 export function squadFormationLine(squadShips: readonly ShipNode[]): string {
@@ -218,6 +245,15 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
   const allShips = context.allShips ?? [node];
   const cycleTempo = context.cycleTempo ?? shipCycleTempo(node, allShips);
 
+  const riskTransition = context.riskTransition ?? null;
+  // W5.01 — surface the wired-but-silent risk-band tack-out from
+  // `ShipMotionSample.riskTransition` (see `motion-types.ts:174`). The row
+  // is suppressed when the transition is null or has completed
+  // (progress >= 1) so the panel matches the canvas tack-out window.
+  const riskTransitionFact = riskTransition && riskTransition.progress < 1
+    ? [{ label: "Tracking new risk band", value: riskTransitionLabel(riskTransition) }]
+    : [];
+
   const facts = [
     { label: "Market cap", value: marketCapLabel(node.marketCapUsd) },
     { label: "24h supply change", value: change24hPctLabel(node.change24hPct) },
@@ -232,6 +268,7 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
     { label: "Risk water area", value: node.riskWaterLabel },
     { label: "Risk water zone", value: node.riskZone },
     { label: "Risk placement key", value: node.riskPlacement },
+    ...riskTransitionFact,
     { label: "Home dock", value: node.homeDockChainId ? chainLabel(node.homeDockChainId) : "No rendered dock" },
     { label: "Chains present", value: chainsPresentLabel(node) },
     { label: "Docking cadence", value: dockingCadenceLabel(node) },

@@ -215,6 +215,48 @@ describe("AccessibilityLedger", () => {
       expect(markup).toContain("24h supply change unavailable");
     });
   });
+
+  describe("W5.01 — Tracking new risk band sentence", () => {
+    it("appends the transition sentence when the ship has an active riskTransition (progress < 1)", () => {
+      const world = sampleWorldWithLedgerShip();
+      const ship = world.ships[0]!;
+      const riskTransitionByShipId = new Map([
+        [ship.id, { fromLabel: "Calm Anchorage", toLabel: "Alert Channel", progress: 0.5 }],
+      ]);
+      const markup = renderToStaticMarkup(
+        <AccessibilityLedger world={world} riskTransitionByShipId={riskTransitionByShipId} />,
+      );
+      expect(markup).toContain("Tracking new risk band: from Calm Anchorage to Alert Channel.");
+    });
+
+    it("omits the transition sentence when progress is 1.0", () => {
+      const world = sampleWorldWithLedgerShip();
+      const ship = world.ships[0]!;
+      const riskTransitionByShipId = new Map([
+        [ship.id, { fromLabel: "Calm Anchorage", toLabel: "Alert Channel", progress: 1.0 }],
+      ]);
+      const markup = renderToStaticMarkup(
+        <AccessibilityLedger world={world} riskTransitionByShipId={riskTransitionByShipId} />,
+      );
+      expect(markup).not.toContain("Tracking new risk band");
+    });
+
+    it("omits the transition sentence when riskTransition entry is null", () => {
+      const world = sampleWorldWithLedgerShip();
+      const ship = world.ships[0]!;
+      const riskTransitionByShipId = new Map([[ship.id, null]]);
+      const markup = renderToStaticMarkup(
+        <AccessibilityLedger world={world} riskTransitionByShipId={riskTransitionByShipId} />,
+      );
+      expect(markup).not.toContain("Tracking new risk band");
+    });
+
+    it("omits the transition sentence when riskTransitionByShipId is not provided", () => {
+      const world = sampleWorldWithLedgerShip();
+      const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+      expect(markup).not.toContain("Tracking new risk band");
+    });
+  });
 });
 
 function sampleWorld(): PharosVilleWorld {

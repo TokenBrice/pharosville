@@ -599,4 +599,32 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       expect(fact!.value).not.toContain("(extended dwell)");
     });
   });
+
+  describe("W5.01 — Tracking new risk band fact", () => {
+    it("surfaces 'Tracking new risk band' when riskTransition is active (progress < 1)", () => {
+      const ship = baseShipNode();
+      const detail = detailForShip(ship, {
+        riskTransition: { fromLabel: "Calm Anchorage", toLabel: "Alert Channel", progress: 0.5 },
+      });
+      const fact = detail.facts.find((f) => f.label === "Tracking new risk band");
+      expect(fact).toBeDefined();
+      expect(fact!.value).toBe("from Calm Anchorage to Alert Channel");
+    });
+
+    it("suppresses the row when riskTransition.progress is 1.0", () => {
+      const ship = baseShipNode();
+      const detail = detailForShip(ship, {
+        riskTransition: { fromLabel: "Calm Anchorage", toLabel: "Alert Channel", progress: 1.0 },
+      });
+      const fact = detail.facts.find((f) => f.label === "Tracking new risk band");
+      expect(fact).toBeUndefined();
+    });
+
+    it("suppresses the row when riskTransition is null", () => {
+      const ship = baseShipNode();
+      const detail = detailForShip(ship, { riskTransition: null });
+      const fact = detail.facts.find((f) => f.label === "Tracking new risk band");
+      expect(fact).toBeUndefined();
+    });
+  });
 });

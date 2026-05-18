@@ -68,14 +68,29 @@ const percent = new Intl.NumberFormat("en-US", {
   style: "percent",
 });
 
+/**
+ * W5.01 — Active risk-band tack-out per ship, sourced from
+ * `ShipMotionSample.riskTransition` at world-refresh cadence (not
+ * per-frame). The ledger appends "Tracking new risk band: from X to Y."
+ * to the ship narrative when `progress < 1`. Pre-resolved labels keep
+ * the ledger decoupled from tile→label lookup.
+ */
+export interface ShipRiskTransitionEntry {
+  fromLabel: string;
+  toLabel: string;
+  progress: number;
+}
+
 export interface AccessibilityLedgerProps {
   world: PharosVilleWorld;
   headingId?: string;
+  riskTransitionByShipId?: ReadonlyMap<string, ShipRiskTransitionEntry | null>;
 }
 
 function AccessibilityLedgerContent({
   world,
   headingId = "pharosville-accessibility-ledger-title",
+  riskTransitionByShipId,
 }: AccessibilityLedgerProps) {
   const staleSources = freshnessEntries(world)
     .filter((entry) => entry.stale)
@@ -154,6 +169,13 @@ function AccessibilityLedgerContent({
       <ol>
         {world.ships.map((ship) => {
           const tempo = cycleTempoById.get(ship.id)!;
+          // W5.01 — surface the wired-but-silent risk-band tack-out at
+          // world-refresh cadence. Suppressed when the transition is
+          // null or has completed (progress >= 1).
+          const transition = riskTransitionByShipId?.get(ship.id) ?? null;
+          const transitionClause = transition && transition.progress < 1
+            ? ` Tracking new risk band: from ${transition.fromLabel} to ${transition.toLabel}.`
+            : "";
           return (
             <li key={ship.id}>
               {ship.label} ({ship.symbol}): {compactUsd.format(ship.marketCapUsd)} market cap, placed at{" "}
@@ -162,7 +184,7 @@ function AccessibilityLedgerContent({
               {pluralize(ship.dockVisits.length, "rendered dock stop")}, risk water {ship.riskWaterLabel}, risk zone{" "}
               {ship.riskZone}; livery {ship.visual.livery.label}, {ship.visual.livery.logoShape} logo shape,{" "}
               {ship.visual.livery.sailPanel} sail panel, {ship.visual.livery.stripePattern} brand stripe; placement evidence{" "}
-              {ship.placementEvidence.reason}; evidence status {ship.placementEvidence.stale ? "caveat" : "fresh"}; source fields {ship.placementEvidence.sourceFields.join(", ") || "unavailable"}{ship.visual.uniqueRationale ? ` — heritage hull: ${ship.visual.uniqueRationale}` : ""}; cycle tempo {tempo.label}; 24h supply change {ship.change24hPct != null ? `${ship.change24hPct >= 0 ? "+" : ""}${ship.change24hPct.toFixed(1)}%` : "unavailable"}.
+              {ship.placementEvidence.reason}; evidence status {ship.placementEvidence.stale ? "caveat" : "fresh"}; source fields {ship.placementEvidence.sourceFields.join(", ") || "unavailable"}{ship.visual.uniqueRationale ? ` — heritage hull: ${ship.visual.uniqueRationale}` : ""}; cycle tempo {tempo.label}; 24h supply change {ship.change24hPct != null ? `${ship.change24hPct >= 0 ? "+" : ""}${ship.change24hPct.toFixed(1)}%` : "unavailable"}.{transitionClause}
             </li>
           );
         })}
