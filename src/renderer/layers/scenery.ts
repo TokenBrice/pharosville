@@ -4,6 +4,7 @@ import type { LoadedPharosVilleAsset } from "../asset-manager";
 import { drawAsset, drawDiamond } from "../canvas-primitives";
 import { drawableDepth, type WorldDrawable } from "../drawable-pass";
 import { drawLamp } from "./ambient";
+import { skyState } from "./sky";
 import type { DrawPharosVilleInput } from "../render-types";
 
 export type SceneryPropKind =
@@ -18,10 +19,13 @@ export type SceneryPropKind =
   | "crate-stack"
   | "cypress"
   | "date-palm"
+  | "dock-awning"
+  | "dock-figures"
   | "fig-tree"
   | "grass-tuft"
   | "harbor-bell"
   | "harbor-lamp"
+  | "lantern-string"
   | "mooring-posts"
   | "moored-dinghy-east"
   | "moored-dinghy-north"
@@ -131,6 +135,35 @@ export const SCENERY_PROPS: readonly SceneryProp[] = [
   { id: "harbor-bell-lighthouse", kind: "harbor-bell", tile: { x: 19.6, y: 27.8 }, scale: 0.6 },
   { id: "harbor-cargo-bsc", kind: "cargo-stack", tile: { x: 21.6, y: 37.4 }, scale: 0.62 },
   { id: "harbor-cargo-base", kind: "cargo-stack", tile: { x: 40.2, y: 37.6 }, scale: 0.6 },
+  // W6.12 — dock-side ambient prop pack. Awning + stevedore figures +
+  // festoon lantern garland sprinkled across the six major chain harbors
+  // (Ethereum / Tron / BSC / Base / Arbitrum / Polygon). Cemetery cove +
+  // pigeonnier islet are skipped per followup §5. Awning ships neutral cream
+  // and is rendered as-is for now (per-chain tint deferred).
+  { id: "ethereum-awning-n", kind: "dock-awning", tile: { x: 42.7, y: 30.6 }, scale: 0.62 },
+  { id: "ethereum-awning-s", kind: "dock-awning", tile: { x: 42.7, y: 32.6 }, scale: 0.62 },
+  { id: "ethereum-figures", kind: "dock-figures", tile: { x: 43.4, y: 31.6 }, scale: 0.55 },
+  { id: "ethereum-lanterns", kind: "lantern-string", tile: { x: 43.2, y: 31.0 }, scale: 0.7 },
+  { id: "tron-awning-w", kind: "dock-awning", tile: { x: 27.0, y: 21.7 }, scale: 0.6 },
+  { id: "tron-awning-e", kind: "dock-awning", tile: { x: 29.4, y: 21.7 }, scale: 0.6 },
+  { id: "tron-figures", kind: "dock-figures", tile: { x: 28.2, y: 22.1 }, scale: 0.55 },
+  { id: "tron-lanterns", kind: "lantern-string", tile: { x: 28.4, y: 21.4 }, scale: 0.7 },
+  { id: "bsc-awning-n", kind: "dock-awning", tile: { x: 20.7, y: 35.6 }, scale: 0.6 },
+  { id: "bsc-awning-s", kind: "dock-awning", tile: { x: 20.7, y: 37.4 }, scale: 0.6 },
+  { id: "bsc-figures", kind: "dock-figures", tile: { x: 21.3, y: 36.4 }, scale: 0.55 },
+  { id: "bsc-lanterns", kind: "lantern-string", tile: { x: 21.1, y: 35.8 }, scale: 0.7 },
+  { id: "base-awning-w", kind: "dock-awning", tile: { x: 40.0, y: 37.6 }, scale: 0.6 },
+  { id: "base-awning-e", kind: "dock-awning", tile: { x: 40.0, y: 39.4 }, scale: 0.6 },
+  { id: "base-figures", kind: "dock-figures", tile: { x: 40.6, y: 38.4 }, scale: 0.55 },
+  { id: "base-lanterns", kind: "lantern-string", tile: { x: 40.4, y: 37.7 }, scale: 0.7 },
+  { id: "arbitrum-awning-w", kind: "dock-awning", tile: { x: 32.0, y: 40.6 }, scale: 0.6 },
+  { id: "arbitrum-awning-e", kind: "dock-awning", tile: { x: 33.8, y: 40.6 }, scale: 0.6 },
+  { id: "arbitrum-figures", kind: "dock-figures", tile: { x: 32.8, y: 40.2 }, scale: 0.55 },
+  { id: "arbitrum-lanterns", kind: "lantern-string", tile: { x: 33.0, y: 39.7 }, scale: 0.7 },
+  { id: "polygon-awning-w", kind: "dock-awning", tile: { x: 25.4, y: 39.6 }, scale: 0.6 },
+  { id: "polygon-awning-e", kind: "dock-awning", tile: { x: 27.2, y: 39.6 }, scale: 0.6 },
+  { id: "polygon-figures", kind: "dock-figures", tile: { x: 26.2, y: 39.2 }, scale: 0.55 },
+  { id: "polygon-lanterns", kind: "lantern-string", tile: { x: 26.4, y: 38.8 }, scale: 0.7 },
 ] as const;
 
 const lampSeawardTileCache = new Map<string, { x: number; y: number } | null>();
@@ -149,10 +182,13 @@ export const SCENERY_MOTION_CLASS_BY_KIND = {
   "crate-stack": "dynamic",
   cypress: "static",
   "date-palm": "static",
+  "dock-awning": "static",
+  "dock-figures": "static",
   "fig-tree": "static",
   "grass-tuft": "static",
   "harbor-bell": "dynamic",
   "harbor-lamp": "dynamic",
+  "lantern-string": "dynamic",
   "mooring-posts": "static",
   "moored-dinghy-east": "dynamic",
   "moored-dinghy-north": "dynamic",
@@ -441,6 +477,25 @@ export function drawSceneryProp(input: DrawPharosVilleInput, prop: SceneryProp) 
   } else if (prop.kind === "cargo-stack") {
     const sprite = input.assets?.get("prop.cargo-stack");
     if (sprite) drawAsset(ctx, sprite, p.x + wobble, p.y, scale);
+  } else if (prop.kind === "dock-awning") {
+    const sprite = input.assets?.get("prop.dock-awning");
+    if (sprite) drawAsset(ctx, sprite, p.x, p.y, scale);
+  } else if (prop.kind === "dock-figures") {
+    const sprite = input.assets?.get("prop.dock-figures");
+    if (sprite) drawAsset(ctx, sprite, p.x, p.y, scale);
+  } else if (prop.kind === "lantern-string") {
+    // W6.12 — festoon-lantern garland fades in proportional to `nightFactor`
+    // so daylight frames keep the dock unobstructed.
+    const sprite = input.assets?.get("prop.lantern-string");
+    if (sprite) {
+      const nightFactor = skyState(input.motion).nightFactor;
+      if (nightFactor > 0) {
+        ctx.save();
+        ctx.globalAlpha = ctx.globalAlpha * nightFactor;
+        drawAsset(ctx, sprite, p.x, p.y, scale);
+        ctx.restore();
+      }
+    }
   } else if (prop.kind === "timber-pile") {
     drawTimberPile(ctx, p.x, p.y, scale);
   }

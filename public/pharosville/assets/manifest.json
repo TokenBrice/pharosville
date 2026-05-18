@@ -886,9 +886,10 @@
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "ad891780-d921-4cc9-9c08-443821c7d6e7",
+        "jobId": "bb22774a-f7f8-46f1-ae02-3dea2c33afcc",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "docks/base-modular-slip.webp"
     },
     {
       "id": "dock.arbitrum-arch-bridge",
@@ -923,9 +924,10 @@
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "9224794f-dda9-4301-86be-628e1025b85e",
+        "jobId": "a96fdea6-4205-4e1a-bdce-067addcb4be7",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "docks/arbitrum-arch-bridge.webp"
     },
     {
       "id": "dock.polygon-hexmarket",
@@ -960,9 +962,10 @@
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "67f5d383-a12a-4b10-a6a8-4822274319f1",
+        "jobId": "df3d47ce-1694-41a9-86d8-139694bf3674",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "docks/polygon-hexmarket.webp"
     },
     {
       "id": "dock.aptos-jade-pagoda",
@@ -1034,9 +1037,10 @@
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "36f21810-9335-47da-8516-09ea6fd1d9f7",
+        "jobId": "651ef250-0df5-492b-bca4-fc53d7271c6f",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "docks/avalanche-alpine-watch.webp"
     },
     {
       "id": "dock.ton-pigeonnier-pier",
@@ -2282,22 +2286,22 @@
       "path": "props/sundial.png",
       "category": "prop",
       "layer": "props",
-      "width": 64,
-      "height": 64,
+      "width": 96,
+      "height": 96,
       "displayScale": 1,
       "anchor": [
-        32,
-        56
+        48,
+        84
       ],
       "footprint": [
-        20,
-        12
+        30,
+        18
       ],
       "hitbox": [
-        16,
-        14,
-        32,
-        42
+        24,
+        21,
+        48,
+        63
       ],
       "loadPriority": "deferred",
       "promptKey": "prop.sundial",
@@ -2308,9 +2312,118 @@
       ],
       "tool": "mcp:create_object",
       "promptProvenance": {
-        "jobId": "94047e66-fdb9-4f02-b141-17f2748521ac",
+        "jobId": "f3f55995-e97f-4720-874a-d43d2f5ecf90",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "props/sundial.webp"
+    },
+    {
+      "id": "prop.dock-awning",
+      "path": "props/dock-awning.png",
+      "category": "prop",
+      "layer": "props",
+      "width": 64,
+      "height": 48,
+      "displayScale": 1,
+      "anchor": [
+        32,
+        42
+      ],
+      "footprint": [
+        18,
+        8
+      ],
+      "hitbox": [
+        8,
+        6,
+        48,
+        36
+      ],
+      "loadPriority": "deferred",
+      "promptKey": "prop.dock-awning",
+      "semanticRole": "Canvas tarp awning over two timber posts; tinted per-chain at draw time.",
+      "paletteKeys": [
+        "weathered wood",
+        "limestone"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
+      "promptProvenance": {
+        "jobId": "2a01fad9-807f-4f6f-b9c9-02c9cc545fd3",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      },
+      "webpPath": "props/dock-awning.webp"
+    },
+    {
+      "id": "prop.dock-figures",
+      "path": "props/dock-figures.png",
+      "category": "prop",
+      "layer": "props",
+      "width": 48,
+      "height": 64,
+      "displayScale": 1,
+      "anchor": [
+        24,
+        60
+      ],
+      "footprint": [
+        14,
+        10
+      ],
+      "hitbox": [
+        10,
+        18,
+        28,
+        42
+      ],
+      "loadPriority": "deferred",
+      "promptKey": "prop.dock-figures",
+      "semanticRole": "Silhouette pair of two stevedore figures handling a crate.",
+      "paletteKeys": [
+        "weathered wood",
+        "limestone"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
+      "promptProvenance": {
+        "jobId": "578ee05e-da59-4aac-be98-a6d31bdd53f2",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      },
+      "webpPath": "props/dock-figures.webp"
+    },
+    {
+      "id": "prop.lantern-string",
+      "path": "props/lantern-string.png",
+      "category": "prop",
+      "layer": "props",
+      "width": 96,
+      "height": 32,
+      "displayScale": 1,
+      "anchor": [
+        48,
+        28
+      ],
+      "footprint": [
+        30,
+        4
+      ],
+      "hitbox": [
+        4,
+        4,
+        88,
+        24
+      ],
+      "loadPriority": "deferred",
+      "promptKey": "prop.lantern-string",
+      "semanticRole": "Horizontal festoon-lantern garland between two timber posts; night-only.",
+      "paletteKeys": [
+        "weathered wood",
+        "limestone"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
+      "promptProvenance": {
+        "jobId": "42c0969c-6872-400e-b008-c262852fa926",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      },
+      "webpPath": "props/lantern-string.webp"
     },
     {
       "id": "prop.olive-tree",
