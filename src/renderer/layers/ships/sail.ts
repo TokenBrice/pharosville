@@ -9,6 +9,7 @@ import {
   type ShipPennantSpec,
 } from "../../ship-visual-config";
 import { clamp, multiplyGlobalAlpha } from "./draw-ship";
+import type { CacheStats } from "./livery";
 
 export function pennantSpecForShip(ship: PharosVilleWorld["ships"][number], hasAsset: boolean): ShipPennantSpec {
   if (!hasAsset) return PROCEDURAL_SHIP_PENNANT_MARK;
@@ -200,6 +201,17 @@ interface SailLogoSprite {
   anchorY: number;
 }
 const sailLogoSpriteCache = new Map<string, SailLogoSprite | null>();
+const sailLogoSpriteCacheStats = { hits: 0, misses: 0, evictions: 0 };
+
+export function getSailLogoSpriteCacheStats(): CacheStats {
+  return {
+    hits: sailLogoSpriteCacheStats.hits,
+    misses: sailLogoSpriteCacheStats.misses,
+    evictions: sailLogoSpriteCacheStats.evictions,
+    size: sailLogoSpriteCache.size,
+    capacity: SAIL_LOGO_SPRITE_CACHE_MAX,
+  };
+}
 
 function liverySpriteFingerprint(livery: ShipLivery): string {
   return `${livery.sailPanel}|${livery.stripePattern}|${livery.logoShape}|${livery.logoMatte}|${livery.primary}|${livery.accent}`;
@@ -225,6 +237,7 @@ function rememberSailLogoSprite(key: string, sprite: SailLogoSprite | null) {
     const oldest = sailLogoSpriteCache.keys().next().value;
     if (typeof oldest !== "string") break;
     sailLogoSpriteCache.delete(oldest);
+    sailLogoSpriteCacheStats.evictions += 1;
   }
 }
 
@@ -243,8 +256,10 @@ function getSailLogoSprite(
     // LRU touch.
     sailLogoSpriteCache.delete(key);
     sailLogoSpriteCache.set(key, cached);
+    sailLogoSpriteCacheStats.hits += 1;
     return cached;
   }
+  sailLogoSpriteCacheStats.misses += 1;
   const sprite = buildSailLogoSprite(livery, sailColor, stripeColor, mark, logo, widthPx, heightPx);
   rememberSailLogoSprite(key, sprite);
   return sprite;
@@ -427,6 +442,17 @@ export function drawDyedSailEmblem(input: {
 
 const SAIL_EMBLEM_SPRITE_CACHE_MAX = 128;
 const sailEmblemSpriteCache = new Map<string, SailLogoSprite | null>();
+const sailEmblemSpriteCacheStats = { hits: 0, misses: 0, evictions: 0 };
+
+export function getSailEmblemSpriteCacheStats(): CacheStats {
+  return {
+    hits: sailEmblemSpriteCacheStats.hits,
+    misses: sailEmblemSpriteCacheStats.misses,
+    evictions: sailEmblemSpriteCacheStats.evictions,
+    size: sailEmblemSpriteCache.size,
+    capacity: SAIL_EMBLEM_SPRITE_CACHE_MAX,
+  };
+}
 
 function sailEmblemSpriteKey(
   asset: LoadedPharosVilleAsset,
@@ -458,14 +484,17 @@ function getSailEmblemSilhouetteSprite(
   if (cached !== undefined) {
     sailEmblemSpriteCache.delete(key);
     sailEmblemSpriteCache.set(key, cached);
+    sailEmblemSpriteCacheStats.hits += 1;
     return cached;
   }
+  sailEmblemSpriteCacheStats.misses += 1;
   const sprite = buildSailEmblemSilhouetteSprite(asset, logo, mark, ink, widthPx, heightPx, sailMark);
   sailEmblemSpriteCache.set(key, sprite);
   while (sailEmblemSpriteCache.size > SAIL_EMBLEM_SPRITE_CACHE_MAX) {
     const oldest = sailEmblemSpriteCache.keys().next().value;
     if (typeof oldest !== "string") break;
     sailEmblemSpriteCache.delete(oldest);
+    sailEmblemSpriteCacheStats.evictions += 1;
   }
   return sprite;
 }

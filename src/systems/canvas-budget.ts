@@ -19,6 +19,34 @@ export interface DrawDurationWindow {
   size: number;
 }
 
+// Generic fixed-allocation numeric ring buffer. Used by telemetry windows
+// (`FrameIntervalWindow`, `NumericMaxWindow`, `LongtaskWindow`) that share the
+// same write-cursor/size/wrap pattern as `DrawDurationWindow` above. `values`
+// is pre-allocated once at construction so per-frame pushes stay
+// allocation-free.
+export interface RingBuffer {
+  capacity: number;
+  cursor: number;
+  size: number;
+  values: number[];
+}
+
+export function createRingBuffer(capacity: number): RingBuffer {
+  const normalizedCapacity = Math.max(1, Math.floor(capacity));
+  return {
+    capacity: normalizedCapacity,
+    cursor: 0,
+    size: 0,
+    values: new Array<number>(normalizedCapacity),
+  };
+}
+
+export function pushRingBuffer(ring: RingBuffer, value: number): void {
+  ring.values[ring.cursor] = value;
+  ring.cursor = (ring.cursor + 1) % ring.capacity;
+  ring.size = Math.min(ring.size + 1, ring.capacity);
+}
+
 export interface DrawDurationStats {
   averageMs: number;
   count: number;

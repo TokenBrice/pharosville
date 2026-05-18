@@ -19,12 +19,21 @@ import { createVisibleTileBoundsCacheState } from "../renderer/viewport";
 import { clampCameraToMap } from "../systems/camera";
 import {
   createDrawDurationWindow,
+  createRingBuffer,
   pushDrawDurationSample,
+  pushRingBuffer,
   resolveAdaptiveDprState,
   resolveCanvasBudget,
   type AdaptiveDprState,
   type DrawDurationWindow,
+  type RingBuffer,
 } from "../systems/canvas-budget";
+import {
+  getSailEmblemSpriteCacheStats,
+  getSailLogoSpriteCacheStats,
+  getShipSailTintCacheStats,
+  type CacheStats,
+} from "../renderer/layers/ships";
 import {
   buildMotionPlan,
   createShipMotionSample,
@@ -65,23 +74,15 @@ type DebugRenderMetrics = PharosVilleRenderMetrics & {
 };
 
 type FrameIntervalWindow = {
-  count: number;
-  samples: number[];
+  samples: RingBuffer;
   sortedScratch: number[];
-  writeIndex: number;
 };
 
-type NumericMaxWindow = {
-  count: number;
-  samples: number[];
-  writeIndex: number;
-};
+type NumericMaxWindow = RingBuffer;
 
 type LongtaskWindow = {
-  count: number;
-  counts: number[];
-  maxDurations: number[];
-  writeIndex: number;
+  counts: RingBuffer;
+  maxDurations: RingBuffer;
 };
 
 interface LastTilePositionSample {
@@ -791,6 +792,11 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       motionFrameCount: motionFrameCountRef.current,
       renderMetrics,
       reducedMotion,
+      sailCacheStats: {
+        sailLogo: getSailLogoSpriteCacheStats(),
+        sailEmblem: getSailEmblemSpriteCacheStats(),
+        sailTint: getShipSailTintCacheStats(),
+      },
       selectedDetailAnchor,
       selectedDetailId,
       shipMotionSamples: compactShipMotionSamples(frameState.samples, shipsById, compactShipMotionSampleCacheRef.current),
@@ -845,6 +851,11 @@ type PharosVilleDebugState = {
   motionFrameCount: number;
   renderMetrics: DebugRenderMetrics;
   reducedMotion: boolean;
+  sailCacheStats?: {
+    sailLogo: CacheStats;
+    sailEmblem: CacheStats;
+    sailTint: CacheStats;
+  };
   selectedDetailAnchor: DetailAnchor | null;
   selectedDetailId: string | null;
   shipMotionSamples: CompactShipMotionSample[];
@@ -885,30 +896,27 @@ function emptyFramePacingMetrics(): FramePacingMetrics {
 
 function createFrameIntervalWindow(): FrameIntervalWindow {
   return {
-    count: 0,
-    samples: new Array<number>(FRAME_INTERVAL_WINDOW_SIZE),
+    samples: createRingBuffer(FRAME_INTERVAL_WINDOW_SIZE),
     sortedScratch: new Array<number>(FRAME_INTERVAL_WINDOW_SIZE),
-    writeIndex: 0,
   };
 }
 
 function pushFrameIntervalSample(window: FrameIntervalWindow, intervalMs: number): FramePacingMetrics {
   if (!Number.isFinite(intervalMs) || intervalMs <= 0) return resolveFramePacingMetrics(window);
-  window.samples[window.writeIndex] = intervalMs;
-  window.writeIndex = (window.writeIndex + 1) % FRAME_INTERVAL_WINDOW_SIZE;
-  window.count = Math.min(window.count + 1, FRAME_INTERVAL_WINDOW_SIZE);
+  pushRingBuffer(window.samples, intervalMs);
   return resolveFramePacingMetrics(window);
 }
 
 function resolveFramePacingMetrics(window: FrameIntervalWindow): FramePacingMetrics {
-  if (window.count <= 0) return emptyFramePacingMetrics();
+  const ring = window.samples;
+  if (ring.size <= 0) return emptyFramePacingMetrics();
   let sum = 0;
   let maxMs = 0;
   let droppedFrameCount = 0;
   let currentDroppedBurst = 0;
   let longestDroppedBurst = 0;
-  for (let index = 0; index < window.count; index += 1) {
-    const interval = frameIntervalAt(window, index);
+  for (let index = 0; index < ring.size; index += 1) {
+    const interval = frameIntervalAt(ring, index);
     sum += interval;
     if (interval > maxMs) maxMs = interval;
     if (interval > DROPPED_FRAME_INTERVAL_MS) {
@@ -920,66 +928,55 @@ function resolveFramePacingMetrics(window: FrameIntervalWindow): FramePacingMetr
     }
     window.sortedScratch[index] = interval;
   }
-  sortFirstNumbers(window.sortedScratch, window.count);
-  const averageMs = sum / window.count;
+  sortFirstNumbers(window.sortedScratch, ring.size);
+  const averageMs = sum / ring.size;
   return {
     averageMs,
     droppedFrameCount,
     effectiveFps: averageMs > 0 ? 1000 / averageMs : 0,
     longestDroppedBurst,
     maxMs,
-    p50Ms: percentile(window.sortedScratch, 0.5, window.count),
-    p90Ms: percentile(window.sortedScratch, 0.9, window.count),
-    sampleCount: window.count,
+    p50Ms: percentile(window.sortedScratch, 0.5, ring.size),
+    p90Ms: percentile(window.sortedScratch, 0.9, ring.size),
+    sampleCount: ring.size,
   };
 }
 
-function frameIntervalAt(window: FrameIntervalWindow, chronologicalIndex: number): number {
-  if (window.count < FRAME_INTERVAL_WINDOW_SIZE) return window.samples[chronologicalIndex] ?? 0;
-  return window.samples[(window.writeIndex + chronologicalIndex) % FRAME_INTERVAL_WINDOW_SIZE] ?? 0;
+function frameIntervalAt(ring: RingBuffer, chronologicalIndex: number): number {
+  if (ring.size < ring.capacity) return ring.values[chronologicalIndex] ?? 0;
+  return ring.values[(ring.cursor + chronologicalIndex) % ring.capacity] ?? 0;
 }
 
 function createNumericMaxWindow(capacity: number): NumericMaxWindow {
-  const safeCapacity = Math.max(1, Math.floor(capacity));
-  return {
-    count: 0,
-    samples: new Array<number>(safeCapacity),
-    writeIndex: 0,
-  };
+  return createRingBuffer(capacity);
 }
 
 function pushNumericMaxWindow(window: NumericMaxWindow, value: number): number {
-  window.samples[window.writeIndex] = Number.isFinite(value) ? value : 0;
-  window.writeIndex = (window.writeIndex + 1) % window.samples.length;
-  window.count = Math.min(window.count + 1, window.samples.length);
+  pushRingBuffer(window, Number.isFinite(value) ? value : 0);
   let max = 0;
-  for (let index = 0; index < window.count; index += 1) {
-    const sample = window.samples[index] ?? 0;
+  for (let index = 0; index < window.size; index += 1) {
+    const sample = window.values[index] ?? 0;
     if (sample > max) max = sample;
   }
   return max;
 }
 
 function createLongtaskWindow(capacity: number): LongtaskWindow {
-  const safeCapacity = Math.max(1, Math.floor(capacity));
   return {
-    count: 0,
-    counts: new Array<number>(safeCapacity),
-    maxDurations: new Array<number>(safeCapacity),
-    writeIndex: 0,
+    counts: createRingBuffer(capacity),
+    maxDurations: createRingBuffer(capacity),
   };
 }
 
 function pushLongtaskWindow(window: LongtaskWindow, count: number, maxDurationMs: number): { count: number; maxDurationMs: number } {
-  window.counts[window.writeIndex] = Math.max(0, Math.floor(Number.isFinite(count) ? count : 0));
-  window.maxDurations[window.writeIndex] = Math.max(0, Number.isFinite(maxDurationMs) ? maxDurationMs : 0);
-  window.writeIndex = (window.writeIndex + 1) % window.counts.length;
-  window.count = Math.min(window.count + 1, window.counts.length);
+  pushRingBuffer(window.counts, Math.max(0, Math.floor(Number.isFinite(count) ? count : 0)));
+  pushRingBuffer(window.maxDurations, Math.max(0, Number.isFinite(maxDurationMs) ? maxDurationMs : 0));
+  const size = window.counts.size;
   let totalCount = 0;
   let maxMs = 0;
-  for (let index = 0; index < window.count; index += 1) {
-    totalCount += window.counts[index] ?? 0;
-    const duration = window.maxDurations[index] ?? 0;
+  for (let index = 0; index < size; index += 1) {
+    totalCount += window.counts.values[index] ?? 0;
+    const duration = window.maxDurations.values[index] ?? 0;
     if (duration > maxMs) maxMs = duration;
   }
   return { count: totalCount, maxDurationMs: maxMs };
@@ -1256,6 +1253,11 @@ function updateDebugFrame(input: {
     motionFrameCount: input.frameCount,
     renderMetrics: input.renderMetrics,
     reducedMotion: input.reducedMotion,
+    sailCacheStats: {
+      sailLogo: getSailLogoSpriteCacheStats(),
+      sailEmblem: getSailEmblemSpriteCacheStats(),
+      sailTint: getShipSailTintCacheStats(),
+    },
     shipMotionSamples: compactShipMotionSamples(input.frameState.samples, input.shipsById, input.compactSampleCache),
     targets: input.frameState.targets,
     timeSeconds: input.frameState.timeSeconds,

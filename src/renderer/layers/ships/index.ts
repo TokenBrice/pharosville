@@ -37,3 +37,13 @@ export {
   type TitanPathCacheStats,
   type WakePersonality,
 } from "./wake";
+
+export {
+  getSailEmblemSpriteCacheStats,
+  getSailLogoSpriteCacheStats,
+} from "./sail";
+
+export {
+  getShipSailTintCacheStats,
+  type CacheStats,
+} from "./livery";
