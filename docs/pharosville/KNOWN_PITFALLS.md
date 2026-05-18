@@ -1,6 +1,6 @@
 # PharosVille Known Pitfalls
 
-Last updated: 2026-04-29
+Last updated: 2026-05-18
 
 These are repeat-risk areas for agents working on PharosVille.
 
@@ -24,8 +24,8 @@ These are repeat-risk areas for agents working on PharosVille.
 
 ## Viewport And Accessibility
 
-- Do not mount the world below `720px` width or `360px` height.
-- Do not fetch world data, manifest, sprites, or logos in the fallback viewport.
+- Do not mount the world when the device screen long side is below `720px`, the short side is below `360px`, or a capable screen is in portrait orientation.
+- Do not fetch world data, decode sprites/logos, or start runtime asset loading in the fallback viewport. The HTML `manifest.runtime.json` preload may still occur.
 - Do not start a RAF loop under reduced motion.
 - Do not remove keyboard pan, Escape clear, toolbar controls, blank-map clear, or DOM detail parity when changing interactions.
 

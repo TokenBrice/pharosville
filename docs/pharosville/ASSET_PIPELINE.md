@@ -1,30 +1,31 @@
 # PharosVille Asset Pipeline
 
-Last updated: 2026-04-30
+Last updated: 2026-05-18
 
-This is the agent-facing workflow for PharosVille raster assets. Runtime asset truth is `public/pharosville/assets/manifest.json`.
+This is the agent-facing workflow for PharosVille raster assets. Runtime asset truth is `public/pharosville/assets/manifest.json`; the built app loads the slim `manifest.runtime.json` emitted from that source manifest.
 
 ## Asset Rules
 
 - Generate or stage candidates under local scratch space first, such as `outputs/pharosville/pixellab-prototypes/`.
-- Promote selected PNGs to `public/pharosville/assets/` only after they are chosen for runtime use.
+- Promote selected PNGs to `public/pharosville/assets/` only after they are chosen for runtime use. Primary PNG paths remain required even when a WebP twin is added.
 - Runtime code must reference local manifest asset IDs, not remote generation URLs, tokens, or prototype paths.
-- Every runtime PNG needs a manifest entry with accurate dimensions, anchor, footprint, hitbox, layer/category, load priority, semantic role when useful, and prompt provenance.
+- Every runtime primary image needs a manifest entry with accurate dimensions, anchor, footprint, hitbox, layer/category, load priority, semantic role when useful, and prompt provenance.
 - Load priority is part of the runtime budget: use `critical` only for assets needed to make the initial desktop canvas frame coherent, and `deferred` for supplemental scenery or alternate sprites that can arrive after the core scene.
-- Treat `public/pharosville/assets/manifest.json` as the runtime inventory source of truth and use `loadPriority` for the critical/deferred split. `npm run check:pharosville-assets` enforces the local PNG contract, first-render byte/decoded-pixel budgets, and per-image size ceilings.
+- Treat `public/pharosville/assets/manifest.json` as the runtime inventory source of truth and use `loadPriority` for the critical/deferred split. `npm run check:pharosville-assets` enforces the local PNG/WebP twin contract, first-render byte/decoded-pixel budgets, and per-image size ceilings.
 - Manifest schema v2 separates `style.cacheVersion` from `style.styleAnchorVersion`.
 - Bump `style.cacheVersion` whenever promoted asset bytes, manifest geometry, or animation frame assets change.
 - Keep `promptProvenance.jobId` and `promptProvenance.styleAnchorVersion` aligned with the selected asset's style anchor.
-- Optional frame-based animation metadata belongs in `asset.animation`; keep `path` as the static/reduced-motion source unless a future renderer change says otherwise.
+- Optional WebP twins belong in `webpPath` and `animation.webpFrameSource`; optional frame-based animation metadata belongs in `asset.animation`. Keep `path` as the static/reduced-motion PNG fallback unless a future renderer change says otherwise.
 
 ## Current Runtime Asset Areas
 
-- Terrain tiles: `public/pharosville/assets/terrain/`
-- Terrain overlays: `public/pharosville/assets/overlays/`
-- Landmark: `public/pharosville/assets/landmarks/lighthouse-alexandria.png` as `landmark.lighthouse`
-- Chain docks: `public/pharosville/assets/docks/`
-- Ships: `public/pharosville/assets/ships/`
-- Props: `public/pharosville/assets/props/`, including the cemetery memorial terrace and marker sprite set
+- Terrain tiles: `public/pharosville/assets/terrain/` (7 manifest entries)
+- Terrain overlays: `public/pharosville/assets/overlays/` (6 manifest entries)
+- Landmarks: `public/pharosville/assets/landmarks/` (4 manifest entries, including lighthouse, Yggdrasil, and dispatch-islet landmarks)
+- Chain docks: `public/pharosville/assets/docks/` (12 manifest entries, including Ethereum/L2 cove assets, Solana/Hyperliquid, and TON dispatch wharf)
+- Ships: `public/pharosville/assets/ships/` (23 manifest entries, including standard hulls, heritage hulls, and titan hulls)
+- Props: `public/pharosville/assets/props/` (21 manifest entries, including cemetery markers and harbor/civic ambient prop kinds)
+- WebP twins: optional sidecar paths declared on manifest entries; they do not add manifest entries but are counted by asset validation
 - Manifest: `public/pharosville/assets/manifest.json`
 
 ## PixelLab MCP Workflow
@@ -81,7 +82,7 @@ fantasy town:
   antialiased edges.
 - **Materials:** weathered limestone, oxidized bronze, dark timber, cream sail
   cloth, teal harbor water, pale foam, restrained red/blue roof accents.
-- **Scale:** readable silhouettes at default `/pharosville/` zoom before detail
+- **Scale:** readable silhouettes at default route zoom before detail
   is visible.
 - **Ships:** sail/pennant treatment is tier-aware.
   - **Standard hulls (104×80)** reserve a clean sail or pennant area for the
@@ -91,15 +92,16 @@ fantasy town:
     directly into the mainsail at heraldic scale (~1/4 sail) — sail-cloth
     tint provides brand color, the silhouette provides brand metaphor
     (Curve → llama, Tether → kraken, Circle → compass rose). The
-    painted-emblem ships are excluded from `drawSailLogo` via an explicit
-    ship-id allowlist in `src/renderer/layers/ships.ts`.
+    painted-emblem ships are excluded from `drawSailLogo` via
+    `SHIP_SAIL_EMBLEM_PAINTED` in `src/renderer/ship-visual-config.ts`,
+    consumed by `src/renderer/layers/ships/draw-ship.ts`.
   - **Across all tiers, do not bake logos, token badges, text, numerals,
     counts, UI panels, or chain names into the PNG.**
-  - Heritage hulls are single-frame transparent PNGs at
-    `loadPriority: "deferred"` with no `animation` block. Titan hulls may
-    include a 4-frame animation sheet, but newer titans may ship static
-    (single-frame) when the painted emblem requires frame consistency
-    (current Phase 1 state for USDT/USDC).
+  - Heritage hulls and titan hulls may include animation frame sheets, but
+    the static `path` image must remain complete for reduced motion and as the
+    PNG fallback. Some heritage/titan assets are critical when required for the
+    first coherent frame; use the manifest and validator instead of assuming all
+    special hulls are deferred.
   - All unique- and titan-tier hulls carry the shared oxidized-bronze
     masthead lantern + cream bowsprit pennant tier-unifier.
 - **Docks/landmarks:** include built-in mass, posts, stairs, rope/crate clutter,
@@ -138,8 +140,10 @@ Preferred constraints:
 
 Hard validator budgets:
 
-- Total runtime manifest: `<= 56` assets, `<= 900 KiB` source bytes, and `<= 1,300,000` decoded pixels.
-- First render: `<= 28` assets, `<= 575 KiB` source bytes, and `<= 875,000` decoded pixels.
+- Total runtime manifest: `<= 75` assets, `<= 1,100 KiB` source bytes, and `<= 1,440,000` decoded pixels.
+- First render: `<= 33` assets, `<= 575 KiB` source bytes, and `<= 875,000` decoded pixels.
+- Shell-critical first render: `<= 10` assets, `<= 120 KiB` source bytes, and `<= 220,000` decoded pixels.
+- Visible-critical uses the overall first-render envelope. WebP twins are counted for payload bytes when present but do not consume extra manifest entries.
 - Per-image ceilings:
   - terrain: `<= 8 KiB`, `<= 8,192` decoded pixels;
   - ship: `<= 32 KiB`, `<= 50,000` decoded pixels;
@@ -161,9 +165,10 @@ diffs:
 npm run check:pharosville-assets
 ```
 
-Optimized formats beyond PNG require browser-support review and intentional
-renderer/manifest changes. Do not convert runtime assets to WebP or PNG8 as a
-drive-by change.
+Optimized formats beyond the required PNG fallback require browser-support
+review and intentional renderer/manifest changes. WebP twins are supported only
+through validated `webpPath` / `animation.webpFrameSource` manifest fields; do
+not replace primary PNG paths or convert runtime assets as a drive-by change.
 
 ## Required Checks For Asset Changes
 

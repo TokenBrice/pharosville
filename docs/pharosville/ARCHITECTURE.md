@@ -71,10 +71,13 @@ Key points:
 
 - The hook holds the **last complete world** in a ref so transient incomplete
   fetches don't flicker the canvas (`completeWorldRef`).
-- `routeMode` ∈ `loading | error | world`. The renderer only paints the full
-  scene when `routeMode === "world"` and data is complete.
-- `world` is recomputed via `useMemo`; TanStack Query returns stable `data`
-  references on unchanged content, so the memo hits across re-renders.
+- `routeMode` in `loading | error | world` drives the DOM loading/error chrome
+  and detail facts. The desktop wrapper still passes the retained `world` value
+  into the renderer so the base scaffold can remain painted during transient
+  loading or error states.
+- `world` is recomputed via `useMemo` keyed on `worldInputSignature`; TanStack
+  Query returns stable `data` references on unchanged content, so the signature
+  and memo avoid route-loop churn across background polling.
 
 ## 3. Renderer Pass Order
 
@@ -163,6 +166,9 @@ Implications:
   requires bumping `style.cacheVersion` in `manifest.json`. The asset URL also
   carries `?v=<cacheVersion>` so the browser HTTP cache invalidates in step
   (`assetUrl()` in `src/systems/asset-manifest.ts`).
+- `AssetManager` prefers validated WebP twins when present and falls back to the
+  required PNG path. The runtime manifest is generated from the authoring
+  manifest, so edit `manifest.json`, not `manifest.runtime.json`.
 - `assetLoadTick` (from `getAssetLoadProgressKey()`) bumps as new sprites
   finish decoding, so the cache repaints once per progress step during boot
   and then settles.

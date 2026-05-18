@@ -1,6 +1,6 @@
 # PharosVille Visual Review Atlas
 
-Last updated: 2026-04-30
+Last updated: 2026-05-18
 
 This atlas defines what to look at when reviewing PharosVille pixels. It complements tests; it does not replace the verified route contract in `docs/pharosville-page.md`.
 
@@ -8,15 +8,15 @@ This atlas defines what to look at when reviewing PharosVille pixels. It complem
 
 | Baseline | Source test | Path | Review focus |
 | --- | --- | --- | --- |
-| Desktop shell | `pharosville renders desktop canvas shell` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-desktop-shell-linux.png` | Nonblank sea-first map, water/land balance, separated DEWS sea labels, lighthouse mountain, harbor ring, cemetery separation, civic scenery, toolbar/detail surfaces, absence of retired building targets, and no asset load errors. |
-| Dense lighthouse crop | `pharosville dense visual fixture preserves districts, dense ships, and render budget` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-lighthouse-linux.png` | Lighthouse style anchor, beacon massing, headland clearance, surrounding water/shore texture, and nearby sprite scale. |
-| Dense EVM bay crop | `pharosville dense visual fixture preserves districts, dense ships, and render budget` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-evm-bay-linux.png` | Ethereum four-gate harbor hub with ships visually sailing over it, L2 extension slips, rollup causeways, quay pads, harbor clutter, visible ships, and ledger basin separation. |
-| Dense ship field crop | `pharosville dense visual fixture preserves districts, dense ships, and render budget` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-ship-flotillas-linux.png` | Dense individual ship stress near Watch Breakwater, coherent citizen-boat sprites, absence of aggregate markers, and risk-water readability. |
-| Dense cemetery crop | `pharosville dense visual fixture preserves districts, dense ships, and render budget` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-cemetery-linux.png` | Maritime memorial terrace, dedicated marker sprite set, cause plaques, selected/major stone-mounted logos, and separation from docks/harbors. |
-| Dense civic core crop | `pharosville dense visual fixture preserves districts, dense ships, and render budget` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-civic-core-linux.png` | Civic spine scenery, cemetery adjacency, lighthouse scale relationship, harbor support scenery, and no retired building selection targets. |
-| Dense risk-water crop | `pharosville dense visual fixture preserves districts, dense ships, and render budget` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-risk-water-linux.png` | Alert/Warning/Danger organic water masks, plaques, buoys/reefs, storm chop, and label selectability. |
-| Dense Ledger north crop | `pharosville dense visual fixture preserves districts, dense ships, and render budget` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-ledger-north-linux.png` | Ledger Mooring spanning the entire top mooring shelf, touching Calm Anchorage along the western flank, with NAV ships visibly moored and labels readable. |
-| Narrow fallback | `pharosville narrow fallback avoids world runtime requests` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-narrow-fallback-linux.png` | DOM fallback copy and links, no canvas, and no world data/asset requests below the desktop gate. |
+| Desktop shell | `pharosville renders desktop canvas shell` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-desktop-shell-desktop-chromium-linux.png` | Nonblank sea-first map, water/land balance, separated DEWS sea labels, lighthouse mountain, harbor ring, cemetery separation, civic scenery, toolbar/detail surfaces, absence of retired building targets, and no asset load errors. |
+| Dense lighthouse crop | `pharosville dense visual fixture preserves districts, dense ships, and render budget` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-lighthouse-desktop-chromium-linux.png` | Lighthouse style anchor, beacon massing, headland clearance, surrounding water/shore texture, and nearby sprite scale. |
+| Dense EVM bay crop | `pharosville dense visual fixture preserves districts, dense ships, and render budget` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-evm-bay-desktop-chromium-linux.png` | Ethereum four-gate harbor hub with ships visually sailing over it, L2 extension slips, rollup causeways, quay pads, harbor clutter, visible ships, and ledger basin separation. |
+| Dense ship field crop | `pharosville dense visual fixture preserves districts, dense ships, and render budget` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-ship-flotillas-desktop-chromium-linux.png` | Dense individual ship stress near Watch Breakwater, coherent citizen-boat sprites, absence of aggregate markers, and risk-water readability. |
+| Dense cemetery crop | `pharosville dense visual fixture preserves districts, dense ships, and render budget` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-cemetery-desktop-chromium-linux.png` | Maritime memorial terrace, dedicated marker sprite set, cause plaques, selected/major stone-mounted logos, and separation from docks/harbors. |
+| Dense civic core crop | `pharosville dense visual fixture preserves districts, dense ships, and render budget` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-civic-core-desktop-chromium-linux.png` | Civic spine scenery, cemetery adjacency, lighthouse scale relationship, harbor support scenery, and no retired building selection targets. |
+| Dense risk-water crop | `pharosville dense visual fixture preserves districts, dense ships, and render budget` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-risk-water-desktop-chromium-linux.png` | Alert/Warning/Danger organic water masks, plaques, buoys/reefs, storm chop, and label selectability. |
+| Dense Ledger north crop | `pharosville dense visual fixture preserves districts, dense ships, and render budget` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-ledger-north-desktop-chromium-linux.png` | Ledger Mooring spanning the entire top mooring shelf, touching Calm Anchorage along the western flank, with NAV ships visibly moored and labels readable. |
+| Narrow fallback | `pharosville narrow fallback avoids world runtime requests` | `tests/visual/pharosville.spec.ts-snapshots/pharosville-narrow-fallback-desktop-chromium-linux.png` | DOM fallback copy and links, no canvas, and no world data/sprite runtime requests when the screen misses the desktop gate. |
 
 The short-height fallback is covered by Playwright assertions but does not have
 a committed screenshot baseline; review it as DOM-only behavior unless the
@@ -38,8 +38,8 @@ Use focused entries while developing:
 | Dense visual fixture | `npx playwright test tests/visual/pharosville.spec.ts --grep "dense visual fixture"` | 8 rendered chain docks, 132 dense-fixture ship motion samples, rotating normal-motion visible ship targets, no ship-cluster targets, crop atlas coverage, and p95 draw-duration budget under normal motion. |
 | Named risk-water areas | `npx playwright test tests/visual/pharosville.spec.ts --grep "named risk water"` | Calm, Watch, Alert, Warning, Danger, and Ledger Mooring labels all remain visible, win label clicks, and select browser details with matching risk-water zones. |
 | Stressed ship detail | `npx playwright test tests/visual/pharosville.spec.ts --grep "stressed ship"` | USDT active-depeg fixture selects a ship, shows Danger Strait/storm-shelf risk water, risk zone `danger`, and evidence fields. |
-| Narrow fallback | `npx playwright test tests/visual/pharosville.spec.ts --grep "narrow fallback"` | No canvas/runtime requests under `720px` width. |
-| Short fallback | `npx playwright test tests/visual/pharosville.spec.ts --grep "short desktop"` | DOM-only fallback, no clipped canvas, and no world/runtime requests under `360px` height. |
+| Narrow fallback | `npx playwright test tests/visual/pharosville.spec.ts --grep "narrow fallback"` | No canvas/world/sprite runtime requests when the device screen misses the `720` long-side or `360` short-side gate. |
+| Short fallback | `npx playwright test tests/visual/pharosville.spec.ts --grep "short desktop"` | DOM-only fallback, no clipped canvas, and no world/runtime requests when the screen misses the short-side gate. |
 | Ultrawide canvas | `npx playwright test tests/visual/pharosville.spec.ts --grep "ultrawide"` | DPR/backing-store caps at `2560 x 1440` with device scale factor 3. |
 | Interactions | `npx playwright test tests/visual/pharosville.spec.ts --grep "interactions"` | Click selection, detail anchors, blank-map clearing, pan/zoom, fullscreen, and camera bounds. |
 | Reduced motion | `npx playwright test tests/visual/pharosville.spec.ts --grep "reduced motion"` | Static ship samples, no RAF loop, and live reduced-motion preference changes. |
@@ -63,8 +63,9 @@ Use these notes for the compact main-island revamp:
   Mooring keep their labels, hit targets, and semantic colors after the island
   periphery is recalibrated.
 - Narrow fallback screenshots should remain unchanged, and short fallback
-  assertions should stay DOM-only: no world data, manifest, canvas, or sprite
-  decode below `720 x 360`.
+  assertions should stay DOM-only: no world data, canvas, sprite, or logo runtime
+  work below the screen-size gate. The HTML `manifest.runtime.json` preload may
+  still occur.
 
 ## Historical Review Images
 

@@ -1,6 +1,6 @@
 # PharosVille Testing Guide
 
-Last updated: 2026-05-17
+Last updated: 2026-05-18
 
 Use this guide to choose focused checks for the standalone PharosVille Vite app.
 
@@ -12,7 +12,7 @@ World model, route facts, ship visual classes, risk placement, map layout, and m
 npm test -- src
 ```
 
-Asset manifest and local PNG contract:
+Asset manifest and local PNG/WebP twin contract:
 
 ```bash
 npm run check:pharosville-assets
@@ -85,7 +85,7 @@ npx playwright test tests/visual/pharosville.spec.ts --grep "reduced motion"
 npx playwright test tests/visual/pharosville.spec.ts --grep "narrow fallback"
 ```
 
-The visual suite covers desktop shell rendering, narrow/short fallback behavior, canvas interaction, reduced-motion behavior, normal-motion movement, and backing-store budget checks. The narrow fallback has a committed screenshot baseline; the short fallback is DOM-only coverage that confirms no clipped canvas and no world/runtime requests below `360px` height.
+The visual suite covers desktop shell rendering, narrow/short fallback behavior, rotate prompt behavior where applicable, canvas interaction, reduced-motion behavior, normal-motion movement, and backing-store budget checks. The narrow fallback has a committed screenshot baseline; the short fallback is DOM-only coverage that confirms no clipped canvas and no world/runtime requests when the screen is below the short-side gate.
 
 Temporal smoothness coverage lives in the browser lane, not the screenshot baselines:
 
@@ -100,11 +100,11 @@ This checks camera zoom monotonicity, camera bounds during interaction, and foll
 Current executable budgets:
 
 - Entry chunk: `<= 300 KiB` raw and `<= 90 KiB` gzip.
-- Desktop lazy chunk: `<= 960 KiB` raw and `<= 275 KiB` gzip.
+- Desktop lazy chunk: `<= 970 KiB` raw and `<= 278 KiB` gzip.
 - Entry CSS: `<= 32 KiB` raw and `<= 8 KiB` gzip.
-- Total JS: `<= 1,268 KiB` raw and `<= 375 KiB` gzip.
-- First-render assets: `<= 28` PNGs, `<= 575 KiB` source bytes, and `<= 875,000` decoded pixels.
-- Total runtime PharosVille assets: `<= 900 KiB` source bytes and `<= 1,300,000` decoded pixels.
+- Total JS: `<= 1,280 KiB` raw and `<= 378 KiB` gzip.
+- First-render assets: `<= 33` primary assets, `<= 575 KiB` source bytes, and `<= 875,000` decoded pixels.
+- Total runtime PharosVille manifest: `<= 75` entries, `<= 1,100 KiB` source bytes, and `<= 1,440,000` decoded pixels.
 - Canvas backing store: capped by `MAX_MAIN_CANVAS_PIXELS` and `MAX_TOTAL_BACKING_PIXELS` in `src/systems/canvas-budget.ts`.
 
 `npm run test:perf` also samples `window.__pharosVilleDebug.renderMetrics.framePacing` when present. The CI guard tier is intentionally conservative while run history is gathered:
@@ -144,7 +144,7 @@ npm run build
 npm run check:bundle-size
 ```
 
-`npm test` is the default Vitest lane and includes `src`, `functions`, and the PharosVille shared contract tests so the split app keeps the copied shared contracts under validation.
+`npm test` is the default Vitest lane and includes `src/**/*.test.*` and `functions/**/*.test.ts`. Shared runtime-neutral contracts are validated when covered by those route and function tests; add explicit shared tests to the Vitest include list before claiming direct shared-file coverage.
 
 Before claiming release-level confidence, run the broad release gate:
 
@@ -179,7 +179,7 @@ Run `rg` over `README.md`, `docs/pharosville`, `docs/pharosville-page.md`, and s
 
 ## What To Verify Manually
 
-- The desktop gate still prevents world data, manifest, canvas, and sprite loading below `720px` by `360px`.
+- The desktop gate still prevents world data, canvas, sprite/logo runtime loading, and world mounting when the device screen long side is below `720px`, the short side is below `360px`, or a capable screen is portrait. The HTML `manifest.runtime.json` preload may still occur.
 - Normal motion visibly moves ships without turning route semantics into game mechanics.
 - Sustained normal motion and scripted camera pan/zoom stress report stable frame pacing in the perf lane, with no longtask entries during the sampled window.
 - Reduced motion stays deterministic and does not run a RAF loop.

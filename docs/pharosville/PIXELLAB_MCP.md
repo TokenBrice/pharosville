@@ -1,6 +1,6 @@
 # PharosVille PixelLab MCP Workflow
 
-Last updated: 2026-04-30
+Last updated: 2026-05-18
 
 Use this when generating or regenerating PharosVille sprites with PixelLab MCP.
 It extends `ASSET_PIPELINE.md`; it does not replace the manifest, renderer, or
@@ -75,10 +75,11 @@ shading: medium shading
 detail: medium detail
 ```
 
-Use explicit dimensions that match the intended manifest footprint. Current
-common sizes are 64x64 terrain tiles, 96x64 compact docks, 104x80 ships, 224x160
-large harbor pieces, and 320x320 landmarks, but verify against the actual sprite
-slot before generating.
+Use explicit dimensions that match the intended manifest footprint. Verify the
+target manifest slot first; current examples include 64x64 terrain tiles, 104x80
+standard ships, 136x100 heritage hulls, 192x136 or 280x180 chain docks, 256x256
+or 256x320 landmarks, and 64x64 small prop assets. Treat those as examples, not
+normative sizes.
 
 ## Generation Loop
 

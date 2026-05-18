@@ -1,6 +1,6 @@
 # PharosVille Observability and Alerting
 
-Last updated: 2026-05-02
+Last updated: 2026-05-18
 
 ## Production signals to monitor
 
@@ -13,7 +13,7 @@ Priority alerts are:
 
 1. `/api/*` `5xx` ratio
 2. Upstream timeout and proxy `502` responses on API relay
-3. Post-deploy production smoke failures
+3. Post-deploy or scheduled production smoke failures
 
 ## Recommended Cloudflare alert setup
 
@@ -25,12 +25,15 @@ Use Cloudflare Analytics dashboards/alerts for Pages traffic and Workers/Functio
 - Alert if upstream timeout or Pages Functions `502` for `/api/*` exceeds:
   - `>= 3` events in 10 minutes
 - Alert if a deployment succeeds and is followed by a live smoke failure within 30 minutes.
+- Alert if the scheduled canary smoke workflow fails.
 
 ## Production smoke alerting
 
-Production smoke currently runs on every successful production deploy in:
+Production smoke currently runs on every successful production deploy and on a
+scheduled canary:
 
 - `.github/workflows/deploy-cloudflare.yml`
+- `.github/workflows/canary-smoke.yml` (`*/30 * * * *` and manual dispatch)
 
 The deploy workflow checks live security headers and then runs live smoke against
 `https://pharosville.pharos.watch`. A failure blocks the deploy workflow status.
@@ -42,9 +45,9 @@ npm run check:security-headers
 npm run smoke:live -- --url https://pharosville.pharos.watch
 ```
 
-External scheduled monitoring is not configured in this repository. If operations
-requires checks independent of deploys, prefer a Cloudflare or uptime-monitoring
-alert rather than a second GitHub workflow status on every push.
+The scheduled GitHub canary is a repository-level smoke check. If operations
+requires checks independent of GitHub Actions, add a Cloudflare or external
+uptime-monitoring alert in addition to the workflow.
 
 ## On-call runbook
 

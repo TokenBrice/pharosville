@@ -1,6 +1,6 @@
 # PharosVille Systems
 
-The `systems/` directory owns the pure data-to-world layer for `/pharosville/`. Prefer adding semantics here before touching the renderer.
+The `systems/` directory owns the pure data-to-world layer for the standalone PharosVille app. Prefer adding semantics here before touching the renderer.
 
 ## Primary Flow
 

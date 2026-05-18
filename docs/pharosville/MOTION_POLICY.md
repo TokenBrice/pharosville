@@ -1,6 +1,6 @@
 # PharosVille Motion Policy
 
-Last updated: 2026-04-30
+Last updated: 2026-05-18
 
 PharosVille uses one route-owned motion clock. Normal motion is driven by the
 canvas `requestAnimationFrame` loop in `pharosville-world.tsx`; reduced motion
@@ -51,7 +51,7 @@ renders deterministic static frames and must not keep a RAF loop alive.
   freeze at their risk-water idle tile. Details and the accessibility ledger
   must expose named risk-water area, risk-water zone, home dock, chain presence,
   docking cadence, and evidence caveats.
-- Routed normal-motion ships spend one third of each cycle moored at rendered docks. Non-titan ships are hidden while moored to rotate map-visible ship load; titan ships remain visible while docked.
+- Routed normal-motion ships spend a base one third of each cycle moored at rendered docks. Ships with at least four positive chain deployments receive extended dock dwell. Non-titan, non-unique ships are hidden while moored to rotate map-visible ship load; titan and heritage-hull ships remain visible while docked.
 - Dockless normal-motion patrols must not collapse to a near-static loop. If a named area is too small for meaningful travel, use current or adjacent same-purpose sea anchors while keeping samples on water tiles.
 
 ## Debug Contract

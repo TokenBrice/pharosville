@@ -1,8 +1,8 @@
 # PharosVille Scenery Brief
 
-Date: 2026-04-29
+Date: 2026-05-18
 Status: Phase 0 contract
-Scope: `/pharosville/` visual-world grammar only
+Scope: standalone PharosVille visual-world grammar only
 
 ## Purpose
 
@@ -30,8 +30,8 @@ PharosVille remains dark-first, precise, semantic, maritime, and analytical. Avo
 Mint/burn pressure, exit liquidity, redemption routes, Yield Intelligence,
 Dependency Map, and freeze/blacklist monitoring remain standard Pharos
 analytical surfaces, but they are not represented as PharosVille landmarks or
-risk-water areas. Freeze/blacklist monitoring stays on the `/blacklist/`
-product surface.
+risk-water areas. Freeze/blacklist monitoring stays on
+`https://pharos.watch/blacklist/`.
 
 ## Actors
 

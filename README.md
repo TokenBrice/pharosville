@@ -1,6 +1,6 @@
 # PharosVille
 
-PharosVille is a Canvas 2D maritime analytics UI for Pharos stablecoin signals. It runs as a desktop-only web app at `https://pharosville.pharos.watch/` and renders real-time stablecoin supply, dock chain presence, and risk indicators with local pixel-art sprites driven by a pure world model.
+PharosVille is a Canvas 2D maritime analytics UI for Pharos stablecoin signals. It runs as a desktop-only web app at `https://pharosville.pharos.watch/` and renders live, polled stablecoin supply, dock chain presence, and risk indicators with local pixel-art sprites driven by a pure world model.
 
 Standalone PharosVille frontend for `pharosville.pharos.watch`.
 

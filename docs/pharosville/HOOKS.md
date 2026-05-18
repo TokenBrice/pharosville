@@ -130,35 +130,31 @@ query layer and respects the same identity-stable contract.
 
 ---
 
-## Audit findings (deferred — TODO)
+## Audit findings
 
-The following sites are inconsistent or fragile. Listed in audit-priority
-order; each is independently shippable.
+The following sites came from the original audit. Keep the resolved items as
+examples of the project convention and use the remaining deferred items as
+independently shippable cleanup candidates.
 
-### F1 (P1) — Render-side mutation of `recomputeHitTargets*Ref.current`
+### F1 (P1) — Resolved: render-side mutation of `recomputeHitTargets*Ref.current`
 
-- **Where:** `src/pharosville-world.tsx:121-157`
-- **Issue:** Both ref `.current` assignments happen inline during render,
-  not inside `useEffect` or `useLayoutEffect`. Works today because the
-  consumer reads through the ref at event-time, but it violates React's
-  "render must be pure" contract and is fragile under concurrent
-  rendering / `Suspense` retry passes.
-- **Fix sketch:** Wrap in `useLayoutEffect` keyed on the closed-over
-  inputs (`assetPipeline.assetManager`, `world`, etc.), or encapsulate in
-  a dedicated hook that owns the ref and the assignment.
+- **Where:** `src/pharosville-world.tsx`
+- **Resolution:** `recomputeHitTargetsRef` and the sync wrapper are assigned from
+  effects, not by mutating `.current` during render. Keep future ref updates on
+  the effect side of the render boundary unless the ref follows the
+  `useLatestRef` pattern documented above.
 
-### F2 (P2) — `useWorldRenderLoop` RAF effect silently ignores `onBucketFlip` identity
+### F2 (P2) — Documented contract: `useWorldRenderLoop` and `onBucketFlip` identity
 
 - **Where:** `src/hooks/use-world-render-loop.ts:572-573` (eslint-disable),
   callback site at `:274`
-- **Issue:** `onBucketFlip` is read out of the input object once per
-  re-bind. If a caller ever passes a non-stable callback, only the first
-  identity is captured (silent staleness). The current caller passes
-  `setMotionBucket` (stable from `useState`), so this works — but the
-  contract is undocumented.
-- **Fix sketch:** Mirror `onBucketFlip` through a `useLatestRef` and call
-  `onBucketFlipRef.current?.(newBucket)` from the RAF closure. Document
-  in the hook's input typedef that the callback need not be stable.
+- **Current contract:** `onBucketFlip` is read out of the input object once per
+  re-bind. The current caller passes `setMotionBucket` from `useState`, so the
+  callback identity is stable. The hook input documents that `onBucketFlip`
+  must be stable.
+- **Optional hardening:** Mirror `onBucketFlip` through `useLatestRef` and call
+  `onBucketFlipRef.current?.(newBucket)` from the RAF closure if a future caller
+  needs non-stable callback support.
 
 ### F3 (P2) — Debug telemetry `useEffect` dep list churns on every interaction
 
@@ -189,27 +185,19 @@ order; each is independently shippable.
   doesn't flag it. Same fix applies to `use-fullscreen-mode.ts:6,14,44`
   (`shellRef` in deps).
 
-### F5 (P3) — `usePharosVilleWorldData` 14-item `useMemo` dep array
+### F5 (P3) — Resolved: `usePharosVilleWorldData` world memo signature
 
-- **Where:** `src/hooks/use-pharosville-world-data.ts:162-178`
-- **Issue:** The `world` memo has 14 deps (5 payloads + 6 staleness flags
-  + routeMode + 2 derived booleans). Hard to audit and easy to break.
-  Compare with the cleaner `motionPlanSignature`-keyed memo at
-  `src/pharosville-world.tsx:38-40`.
-- **Fix sketch:** Hash the inputs into a single signature string (or
-  leverage TanStack's `select` per query to push staleness/payload
-  derivation upstream), then key the memo on that single signature.
-  Document the contract with `// eslint-disable-next-line
-  react-hooks/exhaustive-deps`.
+- **Where:** `src/hooks/use-pharosville-world-data.ts`
+- **Resolution:** The world memo now keys on `worldInputSignature`, which
+  captures payload and freshness inputs in a single auditable dependency. Keep
+  changes to that signature close to the world-build inputs it represents.
 
 ---
 
 ## Cross-references
 
-- Repository conventions live in `AGENTS.md`. This doc should be linked
-  from the **"Subsystem docs"** section of `docs/pharosville/README.md`
-  once a new section is added there (A11/A12 own that file in the
-  current swarm; cross-link is left as a follow-up).
+- Repository conventions live in `AGENTS.md`; `docs/pharosville/README.md`
+  links this memoization guide from the start-here list.
 - Hook ownership boundaries and the canvas/render-loop split are
   documented in `docs/pharosville/CURRENT.md`.
 - `CLAUDE.md` (top-level) intentionally minimal — see `AGENTS.md` for

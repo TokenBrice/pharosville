@@ -1,12 +1,12 @@
 # Current PharosVille Agent Source Of Truth
 
-Last updated: 2026-05-03
+Last updated: 2026-05-18
 
 Use this file before changing PharosVille. It summarizes the current standalone Vite implementation shape for maintainers; the verified product contract remains `docs/pharosville-page.md`.
 
 ## Status
 
-PharosVille is an implemented desktop-only standalone app served at `https://pharosville.pharos.watch/`. It is an old-school maritime isometric analytics surface backed by existing Pharos APIs, local PNG sprites, a pure world model, a Canvas 2D renderer, and DOM-accessible details.
+PharosVille is an implemented desktop-only standalone app served at `https://pharosville.pharos.watch/`. It is an old-school maritime isometric analytics surface backed by existing Pharos APIs, local manifest-backed raster assets, a pure world model, a Canvas 2D renderer, and DOM-accessible details.
 
 The current visual revamp target is a dense dark-first maritime observatory
 diorama: richer local sprites, textured sea/coast/harbor materials, warm
@@ -26,7 +26,7 @@ layout, asset, renderer, test, and docs change:
 - `LIGHTHOUSE_TILE` remains `{ x: 18, y: 28 }` and the visual-clearance box
   remains `x:14..24, y:23..32`.
 - Runtime asset cache version is
-  `2026-05-03-pigeonnier-v1`; the manifest-wide style
+  `2026-06-W6-identity-pass`; the manifest-wide style
   anchor remains `2026-04-29-lighthouse-hill-v5` so all asset provenance stays
   validator-aligned. The static-scene cache key in `src/renderer/world-canvas.ts`
   includes `manifestCacheVersion`, so bumping `style.cacheVersion` invalidates
@@ -56,61 +56,49 @@ layout, asset, renderer, test, and docs change:
   diorama PNG was already dead code (no callers), and removing it lets the
   limestone tile pack carry the visible ground without a competing overlay.
 
-- The five Maker-family stables form two distinct squads that sail
-  independently. **Sky squad**: USDS flagship + sUSDS savings cutter + stUSDS
-  vanguard icebreaker. **Maker squad**: DAI flagship + sDAI savings cutter.
-  Each squad activates iff its own flagship is in `activeAssets`; consorts
-  inherit their squad's flagship risk placement and motion route, snap to a
-  placement-aware formation offset around their flagship's tile, and render
-  with a per-squad world-space golden bunting plus a per-squad bounding
-  selection halo. The navToken→`ledger-mooring` short-circuit is overridden
-  for any consort whose flagship is active. The squad data model lives in
+- The squad model currently has three independent squads. **Sky squad**:
+  USDS flagship + sUSDS savings cutter + stUSDS vanguard icebreaker.
+  **Maker squad**: DAI flagship + sDAI savings cutter. **Ethena squad**:
+  USDe flagship + sUSDe consort. Each squad activates iff its own flagship
+  is in `activeAssets`; consorts inherit their squad's flagship risk
+  placement and motion route, snap to a placement-aware formation offset
+  around their flagship's tile, and render with a per-squad world-space
+  golden bunting plus a per-squad bounding selection halo. The
+  navToken->`ledger-mooring` short-circuit is overridden for any consort
+  whose flagship is active. The squad data model lives in
   `src/systems/maker-squad.ts` (exports `SKY_SQUAD`, `MAKER_SQUAD`,
-  `STABLECOIN_SQUADS`, `squadForMember`); chrome in
-  `src/renderer/layers/maker-squad-chrome.ts`. Per-hull identity accents
-  (admiral's banner on each squad flagship, forge-glow at hull joints on
-  stUSDS, weathered patches on DAI) and synchronised wake interference live
-  in `src/renderer/layers/ships.ts`. Squad-member titan scales are reduced
-  ~20% from solo titans (USDS 1.35, DAI 1.25, sUSDS/sDAI 1.1, stUSDS 1.15)
-  to relieve formation overlap; USDC and USDT remain at solo scales (1.8 /
-  2.0). Each titan sprite has a dedicated PixelLab asset; sail-tint masks
-  are tuned for DAI and sDAI, seeded for sUSDS/stUSDS whose painted sail
-  colours fall outside `isSailTintPixel`'s recognised range (sprites render
-  their painted colour without runtime livery tinting; see
-  `UNTUNED_TITAN_IDS` in `src/renderer/ship-sail-tint.test.ts`).
+  `ETHENA_SQUAD`, `STABLECOIN_SQUADS`, `squadForMember`); chrome lives in
+  `src/renderer/layers/maker-squad-chrome.ts`.
+
+- Titan sprite IDs and scales are owned by `TITAN_SHIP_ASSET_IDS` and
+  `TITAN_SHIP_SCALES` in `src/systems/ship-visuals.ts`. The current titan
+  registry covers USDC, USDT, USDS, DAI, sUSDS, sDAI, stUSDS, USDe, sUSDe,
+  PYUSD, USD1, and BUIDL. Current scales are USDC 1.53, USDT 1.7, USDS 1.15,
+  DAI 1.06, sUSDS/sDAI 0.94, stUSDS 0.98, USDe 1.20, sUSDe 0.95, PYUSD
+  1.40, USD1 1.35, and BUIDL 1.40.
 
 - Heritage hulls (unique tier) sit between titans and standard hulls and are
   curated by cultural significance rather than market cap. Members get
-  dedicated 136×100 PixelLab sprites (single-frame, deferred load) and stay
-  visible/selectable while moored, but skip titan-only chrome (foam, spray,
-  full pose, sail flutter). The current registry in
-  `src/systems/unique-ships.ts` covers crvUSD (Curve / llama), BOLD (Liquity
-  / spartan), fxUSD (f(x) Protocol / mathematical livery), xAUT (Tether gold
-  barge), and PAXG (Paxos gilded merchantman). All five sprites share an
-  oxidized-bronze masthead lantern and cream bowsprit pennant as a tier-
-  unifying device. Each carries a per-ship rationale string surfaced as a
-  "Cultural significance" line in the detail panel and accessibility
-  ledger. The user-facing `sizeLabel` is `"Heritage hull"` while the
-  internal `sizeTier === "unique"` discriminator drives all rendering and
-  routing. Mooring uses flagship-tier dock placement (depth bonus 2,
-  barrier clearance 3.3). Sail-tint masks are tuned for paxg-unique; the
-  remaining four (`crvusd`/`bold`/`fxusd`/`xaut`) sit in
-  `UNTUNED_UNIQUE_IDS` because their painted brand colors fall outside
-  `isSailTintPixel`'s recognised range — these ships render their painted
-  identity directly by design.
+  dedicated PixelLab sprites and stay visible/selectable while moored, but
+  skip titan-only chrome. The current registry in `src/systems/unique-ships.ts`
+  covers crvUSD (Curve / llama), BOLD (Liquity / spartan), fxUSD (f(x)
+  Protocol / mathematical livery), xAUT (Tether gold barge), PAXG (Paxos
+  gilded merchantman), and USYC (Hashnote treasury vessel). Each carries a
+  per-ship rationale string surfaced as a "Cultural significance" line in the
+  detail panel and accessibility ledger. The user-facing `sizeLabel` is
+  `"Heritage hull"` while the internal `sizeTier === "unique"` discriminator
+  drives rendering and routing.
 
 - **Iconographic sail emblem rule (unique + titan tiers).** Every unique-
   and titan-tier ship carries a single iconographic silhouette painted
   directly into the mainsail at heraldic scale (~1/4 sail). Marks are
-  silhouette-only — no text, no numerals, no literal logos. Brand identity
-  reads through sail-cloth tint × emblem silhouette together (Curve →
-  llama, Tether → kraken, Circle → compass rose). Standard hulls keep the
-  runtime SVG-logo overlay drawn at render time. The painted-emblem ships
-  are excluded from `drawSailLogo` via an explicit ship-id allowlist in
-  `src/renderer/layers/ships.ts`. Per the Phase 1 painted-emblem pass, USDT
-  and USDC ship as static (single-frame) titans while their painted emblems land;
-  future titans re-introduce frame animation once the generation pipeline
-  guarantees per-frame emblem consistency.
+  silhouette-only: no text, no numerals, no literal logos. Brand identity
+  reads through sail-cloth tint and emblem silhouette together. Standard hulls
+  keep the runtime SVG-logo overlay drawn at render time. The painted-emblem
+  ships are excluded from sail-logo drawing via `SHIP_SAIL_EMBLEM_PAINTED`
+  in `src/renderer/ship-visual-config.ts`, consumed by
+  `src/renderer/layers/ships/draw-ship.ts`. Titan and some unique assets may
+  include animation frame sheets; reduced motion uses the static `path`.
 
 Historical plans in this directory are context, not live instructions. If they conflict with this file, follow this file and the verified docs.
 
@@ -121,6 +109,7 @@ Historical plans in this directory are context, not live instructions. If they c
 - App shell and screen-reader H1: `src/App.tsx`
 - Viewport gate and dynamic desktop mount: `src/client.tsx`
 - Desktop fallback: `src/desktop-only-fallback.tsx`
+- Rotate fallback: `src/rotate-to-landscape.tsx`
 - Data hook aggregation: `src/pharosville-desktop-data.tsx`
 - Canvas/runtime shell: `src/pharosville-world.tsx`
 - Route styles: `src/pharosville.css`
@@ -143,7 +132,7 @@ Historical plans in this directory are context, not live instructions. If they c
 
 ## Current Route Invariants
 
-- The desktop world must not mount below `720px` width or `360px` height. Below that gate, keep the DOM fallback and avoid world queries, manifest fetches, canvas setup, and sprite decoding.
+- The desktop world must not mount when the device screen long side is below `720px`, the short side is below `360px`, or a capable screen is currently portrait. Below the size gate, keep the DOM fallback and avoid world queries, canvas setup, sprite/logo decoding, and runtime asset loading. Portrait-capable screens show the rotate prompt before mounting the world.
 - PharosVille uses same-origin `/api/*` requests proxied by the Cloudflare Pages Function. Do not add client-side cross-origin API calls or expose `PHAROS_API_KEY`.
 - The world model should stay pure and deterministic. Canvas drawing, hit testing, selected rings, follow-selected behavior, and debug frame state must sample the same motion model.
 - Reduced-motion users get a deterministic non-animated frame without a running RAF loop.
@@ -177,12 +166,12 @@ the coast; the lighthouse visual-clearance box (x:14..24, y:23..32) remains
 generic water.
 - Stale or missing peg evidence maps to Calm Anchorage with an evidence caveat unless a fresher risk signal exists; it must not create a separate sea zone or masquerade as storm/depeg risk.
 - Stablecoin supply values from the list payload are already USD-denominated. Use `getCirculatingRaw()` for market-cap visual tiers.
-- Local runtime assets come from `public/pharosville/assets/` and `manifest.json`. Do not reference remote prototype URLs at runtime.
-- Treat `public/pharosville/assets/manifest.json` and `npm run check:pharosville-assets` as the asset inventory source of truth. The validator's `maxManifestAssets` cap is currently 69 (see `scripts/pharosville/validate-assets.mjs`); rerun the validator instead of hand-maintaining prose counts.
+- Local runtime assets come from `public/pharosville/assets/` and `manifest.json`. Primary PNG paths are required; optional WebP twins may be declared through `webpPath` and `animation.webpFrameSource`. Do not reference remote prototype URLs at runtime.
+- Treat `public/pharosville/assets/manifest.json` and `npm run check:pharosville-assets` as the asset inventory source of truth. As of 2026-05-18 the manifest has 73 entries and the validator cap is 75 (see `scripts/pharosville/validate-assets.mjs`); rerun the validator instead of hand-maintaining prose counts.
 
 ## Current Visual Model
 
-- Chain harbors are built from top chain supply and capped by `MAX_CHAIN_HARBORS` in `chain-docks.ts`.
+- Standard chain harbors are built from top chain supply and capped by `MAX_CHAIN_HARBORS` in `chain-docks.ts`; TON, when present, appends a detached dispatch wharf and does not consume the standard cap.
 - The authored map is `56 x 56` tiles. Deep outer water is intentionally a narrow perimeter shelf, not a large default border.
 - The current composition target is 85.7-86.2% water by tile count after the compact main-island revamp. Tests pin both water ratio and the 377-tile main-island land count, excluding the cemetery islet.
 - Named sea areas use printed cartographic water labels backed by
@@ -191,9 +180,9 @@ generic water.
 - Printed water labels render above entity sprites, so label visibility and label hit targets intentionally win over overlapping ships or tall landmarks.
 - Sea terrain is semantic: harbor water, calm DEWS anchorage water, watch breakwater water, alert current, warning shoals, storm strait, ledger water, generic navigable water, and deep outer shelf each have distinct palette/texture handling. Manifest terrain sprites draw first; renderer overlays preserve analytical color semantics while adding shoals, foam, current streaks, storm chop, ledger glow, and reef/buoy context.
 - Per-zone visual styling lives in a single `ZONE_THEMES` table in `src/systems/palette.ts`. Each entry bundles base/inner/wave/accent water colors, the procedural texture kind, label outline/fill/plaque colors, and motion amplitude/stroke-alpha scalars. `drawWaterAreaLabels` (`src/renderer/layers/water-labels.ts`) reads the theme via `RISK_WATER_AREAS[area.riskPlacement].terrain` so it routes Danger Strait through `storm-water` rather than a non-existent `danger-water` key. The exhaustiveness invariant (`SHIP_WATER_ZONES` ↔ `ZONE_THEMES`) is enforced both by `as const satisfies Record<...>` constraints on `ZONE_THEMES`, `ZONE_DWELL`, `OPEN_WATER_PATROL_WAYPOINTS`, and `ZONE_ROUGHNESS`, and by `src/systems/palette.test.ts`. Adjusting a zone's color, label styling, wave amplitude, or accent stroke alpha is a one-table edit; texture geometry, frequency, and procedural cadence still live inside the per-zone draw functions in `src/renderer/layers/terrain.ts`.
-- Ship risk routes expose both `riskWaterLabel` and `riskZone` in details and the accessibility ledger. Reduced-motion ships freeze at their current risk-water idle tile, or Ledger Mooring for NAV ledger assets; harbor moorings are route stops, not the static representative position. In normal motion, routed ships spend one third of each cycle moored; non-titan, non-unique ships are hidden while moored, while titan and heritage-hull ships remain visible.
-- Dock sprites are rank/preference selected through manifest IDs such as `dock.ethereum-harbor-hub`, `dock.harbor-ring-quay`, `dock.compact-harbor-pier`, `dock.rollup-ferry-slip`, and `dock.bridge-pontoon`; Ethereum's hub remains selectable while its dock body is drawn behind ships so harbor traffic sails over it.
-- Dock selection reserves the Ethereum/L2 harbor cluster (`ethereum`, `base`, `arbitrum`, `polygon`) when those chains are present, intentionally suppresses Optimism as a rendered harbor, then fills the remaining eight-dock cap by chain stablecoin supply.
+- Ship risk routes expose both `riskWaterLabel` and `riskZone` in details and the accessibility ledger. Reduced-motion routed ships freeze at their primary rendered dock berth with berth heading from `dockTangent` when available. NAV ledger assets keep the Ledger Mooring freeze required by the non-DEWS NAV policy, and dockless ships freeze at their risk-water idle tile. In normal motion, routed ships spend a base one third of each cycle moored; ships with at least four positive chain deployments receive extended dock dwell. Non-titan, non-unique ships are hidden while moored, while titan and heritage-hull ships remain visible.
+- Dock sprites are rank/preference selected through manifest IDs such as `dock.ethereum-civic-cove`, `dock.base-modular-slip`, `dock.arbitrum-arch-bridge`, `dock.polygon-hexmarket`, `dock.tron-arena-wharf`, `dock.bsc-mercantile-wharf`, `dock.solana-prism-stilt`, `dock.aptos-jade-pagoda`, `dock.avalanche-alpine-watch`, `dock.hyperliquid-trading-floor`, and `dock.ton-pigeonnier-pier`; Ethereum's hub remains selectable while its dock body is drawn behind ships so harbor traffic sails over it.
+- Dock selection reserves the Ethereum/L2 harbor cluster (`ethereum`, `base`, `arbitrum`, `polygon`) when those chains are present, intentionally suppresses Optimism as a rendered harbor, then fills the remaining standard eight-dock cap by chain stablecoin supply. TON is handled as a separate dispatch wharf when present.
 - Ship class is derived from governance/backing metadata:
   - centralized -> treasury galleon
   - centralized-dependent -> chartered brigantine
@@ -203,11 +192,11 @@ generic water.
 - Ship size is a compressed market-cap tier, not linear area.
 - The current runtime manifest uses schema v2. `style.cacheVersion` controls image cache busting; `style.styleAnchorVersion` is the provenance/style anchor for generated assets.
 - Asset loading is intentionally staged: the route loads the manifest and critical/first-render sprites before the initial canvas frame, then loads deferred sprite families after the core scene can render. Do not move visual-only sprites into the critical set without checking first-render need and the manifest cap.
-- The current lighthouse asset is `landmark.lighthouse` at `public/pharosville/assets/landmarks/lighthouse-alexandria.png`, with manifest cache version `2026-05-02-ethereum-yggdrasil-v1` and style anchor `2026-04-29-lighthouse-hill-v5`.
+- The current lighthouse asset is `landmark.lighthouse` at `public/pharosville/assets/landmarks/lighthouse-alexandria.png`, with manifest cache version `2026-06-W6-identity-pass` and style anchor `2026-04-29-lighthouse-hill-v5`.
 - The central plaza is filled by the ambient `overlay.center-cluster` observatory citadel — a dense limestone+terracotta residential cluster anchored at `CIVIC_CORE_CENTER (31, 31)`, drawn between the district-pad and lighthouse-headland passes via `src/renderer/layers/center-cluster.ts`. It carries no analytical signal and no detail-panel parity. A single `prop.sundial` at tile (35, 31) reinforces the observatory identity. The lighthouse remains the dominant vertical anchor; the cluster's silhouette caps at ≈ 110 px in 1× zoom.
 - A `landmark.pigeonnier` carrier-pigeon dovecote sits on a single-tile islet
-  at `(42, 48)` in the south Watch Breakwater basin (mirroring the cemetery
-  islet across the south coast). Sprite is a 128×160 PixelLab map object
+  centered at `(50, 50)` in the south Watch Breakwater basin, with its adjacent
+  TON dispatch dock at `(49, 50)`. Sprite is a 128×160 PixelLab map object
   (`mcp:create_map_object` job `2eb5872c-416d-4708-b746-7cb4ee8328bc`) at
   `displayScale 0.55`. The islet is geometry-only — `PIGEON_ISLAND_CENTER` and
   `PIGEON_ISLAND_RADIUS` extend `islandValue()` in
@@ -222,9 +211,9 @@ generic water.
   on `DetailModel.links`. Renderer pass lives in
   `src/renderer/layers/pigeonnier.ts`, called between `drawYggdrasil` and
   `drawCemeteryGround` in `world-canvas.ts`.
-- The Ethereum civic-cove rotunda's inner plaza is anchored by the `landmark.yggdrasil` world-tree (256×320 PixelLab job `750b6527`, displayScale `0.6`) at tile `(42.5, 29.2)` — pure-flavor mythic landmark drawn in the static-scene pass after the cove dock body and before the lighthouse-headland pass, so harbor traffic sails over its canopy. The cove dock displayScale was bumped from 0.8 to 0.9 (+12%) so the rotunda holds the tree without crowding; the surrounding `civic-*` plant/decoration props now use protected interior garden placements away from live harbor slots, with tall flora receiving a small draw-depth lift so dense production traffic does not erase the whole canopy. Lighthouse silhouette remains the dominant vertical anchor. The Yggdrasil and civic vegetation carry no analytical signal and no detail-panel parity, matching the `overlay.center-cluster` precedent. Validator `maxManifestAssets` was bumped from 55 to 56 to fit `landmark.yggdrasil`.
+- The Ethereum civic-cove rotunda's inner plaza is anchored by the `landmark.yggdrasil` world-tree (256×320 PixelLab job `750b6527`, displayScale `0.6`) at tile `(42.5, 29.2)` — pure-flavor mythic landmark drawn in the static-scene pass after the cove dock body and before the lighthouse-headland pass, so harbor traffic sails over its canopy. The cove dock displayScale was bumped from 0.8 to 0.9 (+12%) so the rotunda holds the tree without crowding; the surrounding `civic-*` plant/decoration props now use protected interior garden placements away from live harbor slots, with tall flora receiving a small draw-depth lift so dense production traffic does not erase the whole canopy. Lighthouse silhouette remains the dominant vertical anchor. The Yggdrasil and civic vegetation carry no analytical signal and no detail-panel parity, matching the `overlay.center-cluster` precedent.
 - Solana and Hyperliquid harbors were relocated off the prior north-wall pairing: Solana sits at the NW shoulder `(25, 23)` near the lighthouse, Hyperliquid sits on the south periphery `(36, 39)` between Base and Arbitrum. Aptos slid west into Solana's old N-wall slot at `(32, 22)`. Hyperliquid is now an explicit entry in `PREFERRED_DOCK_TILES` (was previously placed dynamically into a spare slot).
-- Current ship sprites share the lighthouse style anchor. Standard class hulls (104×80) reserve a logo-safe sail/pennant zone for the runtime SVG-logo overlay; unique- and titan-tier hulls carry an iconographic silhouette painted directly into the mainsail (no runtime overlay). Secondary `ShipVisual.overlay` cues render as small lanterns, pennants, or signal flags rather than badges. USDC, USDS, and USDT use dedicated titan hull PNGs, with USDS a bit smaller than USDC and USDT allowed to read larger than both.
+- Current ship sprites share the lighthouse style anchor. Standard class hulls (104×80) reserve a logo-safe sail/pennant zone for the runtime SVG-logo overlay; unique- and titan-tier hulls carry an iconographic silhouette painted directly into the mainsail (no runtime overlay). Secondary `ShipVisual.overlay` cues render as small lanterns, pennants, or signal flags rather than badges. The titan registry is USDC, USDT, USDS, DAI, sUSDS, sDAI, stUSDS, USDe, sUSDe, PYUSD, USD1, and BUIDL.
 - Current cemetery props share the same style anchor and use a local memorial sprite set under `public/pharosville/assets/props/`: `memorial-terrace`, `memorial-headstone`, `ledger-slab`, `reliquary-marker`, and `regulatory-obelisk`.
 
 ## Agent Workflow

@@ -1,4 +1,4 @@
-// Ship visual configuration tables. Extracted from `layers/ships.ts` so that
+// Ship visual configuration tables. Extracted from the ship drawing layer so that
 // art-driven tuning lives apart from rendering logic. See
 // agents/health-checkup-2026-05-04/04-maintainability.md (F5).
 

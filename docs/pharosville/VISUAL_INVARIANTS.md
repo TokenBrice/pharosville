@@ -1,13 +1,13 @@
 # PharosVille Visual Invariants
 
-Last updated: 2026-05-01
+Last updated: 2026-05-18
 
 These are the non-negotiable visual/data contracts for the PharosVille world. A change that violates one of these is a product behavior change and needs explicit intent plus matching tests and docs.
 
 ## Route And Runtime
 
-- `/pharosville/` is desktop-only. The world must not mount below `720px` width or `360px` height.
-- The fallback must avoid world API queries, `/_site-data` world queries, asset manifest fetches, canvas setup, and sprite/logo decode work.
+- PharosVille is served from the standalone root at `https://pharosville.pharos.watch/` and is desktop-only. The world must not mount when the device screen long side is below `720px`, the short side is below `360px`, or a capable screen is in portrait orientation.
+- The fallback must avoid world API queries, `/_site-data` world queries, canvas setup, sprite/logo decode work, and runtime asset loading. The HTML `manifest.runtime.json` preload may still occur because it is declared in `index.html`.
 - The route uses existing Pharos frontend hooks and API payloads. Visual-only work must not add Worker/API contracts unless explicitly requested.
 - No production fixture/default market data is allowed.
 - The visual target is a Pharos maritime observatory diorama, not a ClaudeVille clone. Do not import ClaudeVille lore, fantasy-village scenery, agent mechanics, decorative copy, or unrelated entities into the route.
@@ -24,8 +24,8 @@ These are the non-negotiable visual/data contracts for the PharosVille world. A 
 - The current map acceptance target is a sea-first isometric island with roughly 85.7-86.2% water by tile count after the compact main-island revamp.
 - The compact main island is pinned to 377 main-island land tiles, excluding the cemetery islet, down from the 592-tile baseline. This shrink must preserve the authored `56 x 56` map, current named DEWS sea-zone semantics, Ledger Mooring as the only non-DEWS named risk-water area, ship route semantics, same-origin `/api/*`, and the desktop gate.
 - The lighthouse stays at `LIGHTHOUSE_TILE = { x: 18, y: 28 }` and visually rests on `overlay.lighthouse-headland`, the limestone outcrop drawn beneath it from `drawLighthouseHeadland`. The retired `overlay.central-island` diorama is no longer painted; the headland sprite plus the limestone-family land tile pack (`terrain.land`, `terrain.land-scrub`, `terrain.shore`) carry the central island ground.
-- The eastern and southern coves keep Ethereum, Base, Arbitrum, Optimism, Polygon, and Mantle in preferred dock positions when those chains are rendered.
-- Docks are capped by `MAX_CHAIN_HARBORS`; they reserve the Ethereum/L2 harbor cluster when present, then fill remaining slots by chain stablecoin supply.
+- The eastern and southern coves keep Ethereum, Base, Arbitrum, and Polygon in preferred EVM/L2 dock positions when those chains are rendered. Other preferred outer-coast slots currently include BSC, Tron, Solana, Hyperliquid, Aptos, and Avalanche; Optimism is intentionally suppressed as a rendered harbor.
+- Standard docks are capped by `MAX_CHAIN_HARBORS`; they reserve the Ethereum/L2 harbor cluster when present, then fill remaining slots by chain stablecoin supply. TON, when present, appends a detached dispatch wharf and does not consume the standard cap.
 - Ethereum's harbor may be selected as a dock, but its four-gate hub body must read as backgrounded water infrastructure with ships rendering over it.
 - The cemetery remains a compact memorial precinct separated from the EVM bay and lighthouse approach.
 - The inland civic spine does not host Pharos data buildings. Mint/burn flows, DEX liquidity, and redemption-route backstops stay on their dedicated analytical surfaces outside PharosVille.
@@ -38,7 +38,7 @@ These are the non-negotiable visual/data contracts for the PharosVille world. A 
 - The eastern corner is covered by overlapping ALERT/WARNING/DANGER water at the (55, 0) corner only
 - Four-tile Chebyshev island periphery is reserved as generic water except for the Watch Breakwater shelf, which reaches the eastern coast
 - Water tiles inside lighthouse visual clearance (x:14..24, y:23..32) stay generic water (lighthouse sprite breathing room)
-- Ledger Mooring spans the entire top mooring shelf (y≤9, x≤30) and touches Calm Anchorage along the western flank at the y=9/y=10 boundary, sitting clear of Watch Breakwater and the eastern Alert/Warning/Danger ring without stealing their tiles. Freeze/blacklist tracker activity remains outside PharosVille and belongs to the `/blacklist/` product surface.
+- Ledger Mooring spans the entire top mooring shelf (y≤9, x≤30) and touches Calm Anchorage along the western flank at the y=9/y=10 boundary, sitting clear of Watch Breakwater and the eastern Alert/Warning/Danger ring without stealing their tiles. Freeze/blacklist tracker activity remains outside PharosVille and belongs to `https://pharos.watch/blacklist/`.
 
 ## Entity Semantics
 
@@ -63,15 +63,15 @@ These are the non-negotiable visual/data contracts for the PharosVille world. A 
 - Ledger Mooring is the only non-DEWS named risk-water area. If ships can reference it, it must also have a printed label, area hit target, detail facts, and accessibility-ledger row.
 - Printed water-area labels render above entity sprites and their hit targets win inside the printed label rectangle. This keeps all zone names visible and selectable even near tall landmarks.
 - Reduced-motion representative placement uses deterministic static positions and no RAF loop.
-- Reduced-motion ships freeze at risk-water idle tiles, or Ledger Mooring for NAV ledger assets. Details and the accessibility ledger must still expose the named risk-water area and risk zone.
-- Normal motion samples, hit testing, selected rings, follow-selected behavior, and debug state must use the same motion model. Non-titan ships that are currently `moored` are not map-visible or hit-testable; titan ships remain map-visible while moored.
+- Reduced-motion routed ships freeze at their primary rendered dock berth with berth heading from `dockTangent` when available. NAV ledger assets keep the Ledger Mooring freeze required by the non-DEWS NAV policy, and dockless ships freeze at their risk-water idle tile. Details and the accessibility ledger must still expose the named risk-water area, risk zone, home dock, chain presence, and evidence caveats.
+- Normal motion samples, hit testing, selected rings, follow-selected behavior, and debug state must use the same motion model. Non-titan, non-unique ships that are currently `moored` are not map-visible or hit-testable; titan and heritage-hull ships remain map-visible while moored.
 - Water routes must stay on water tiles where tests assert that contract.
 
 ## Renderer Rules
 
 - Local runtime art comes from `public/pharosville/assets/manifest.json`; no generated remote URLs or prototype paths at runtime.
-- Manifest assets must stay local PNGs with `critical` or `deferred` load priority, accurate dimensions, anchors, footprints, hitboxes, category/layer metadata, and prompt provenance when generated.
-- The current v0.1 manifest budget is 56 total runtime assets (27 critical + 29 deferred); first-render/critical membership should stay narrow and justified by visible initial-frame need.
+- Manifest assets must stay local with required PNG fallback paths, optional validated WebP twins, `critical` or `deferred` load priority, accurate dimensions, anchors, footprints, hitboxes, category/layer metadata, and prompt provenance when generated.
+- As of 2026-05-18 the manifest has 73 entries and the validator cap is 75. Treat `scripts/pharosville/validate-assets.mjs` and `npm run check:pharosville-assets` as the budget source of truth; first-render/critical membership should stay narrow and justified by visible initial-frame need.
 - The main-island revamp replaces existing island, lighthouse, and dock asset IDs in place. Keep critical/first-render membership stable unless a visible initial-frame need is documented.
 - Hit boxes must track rendered geometry, not just tile centers.
 - Asset geometry changes require manifest updates and hit-testing/visual validation.

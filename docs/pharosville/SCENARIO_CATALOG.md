@@ -1,6 +1,6 @@
 # PharosVille Scenario Catalog
 
-Last updated: 2026-05-17
+Last updated: 2026-05-18
 
 Use these scenarios to validate visual-world changes without rediscovering the fixture surface. The canonical fixture helpers live in `src/__fixtures__/pharosville-world.ts`.
 
@@ -26,13 +26,13 @@ active metadata coverage to exercise the current ship visual classes.
 | Dock visits and home dock | `systems/pharosville-world.test.ts` `assigns rendered dock visits while preserving the representative risk tile`; `uses the largest rendered positive chain as home dock` | Chain presence, home dock, rendered dock visits, and risk placement stay separate | `npm test -- src/systems/pharosville-world.test.ts` |
 | Dense active catalog | `systems/pharosville-world.test.ts` `renders every dense active stablecoin as an individual ship without clusters` | The current dense active catalog stays inspectable as individual ships with named risk-water area, risk zone, and detail entries rather than ship-cluster targets | `npm test -- src/systems/pharosville-world.test.ts` |
 | Authored geography | `systems/world-layout.test.ts` | Sea-first ratio, generated-mountain lighthouse placement, risk anchors, cemetery scatter, and civic placement invariants | `npm test -- src/systems/world-layout.test.ts` |
-| Dock atlas placement | `systems/chain-docks.test.ts` | Ethereum/L2 preferred harbors and top-eight chain harbor cap | `npm test -- src/systems/chain-docks.test.ts` |
+| Dock atlas placement | `systems/chain-docks.test.ts` | Ethereum/L2 preferred harbors, Optimism suppression, top-eight standard chain harbor cap, and detached TON dispatch wharf behavior | `npm test -- src/systems/chain-docks.test.ts` |
 | Ship visual channels | `systems/ship-visuals.test.ts` | Hull, rigging, pennant, overlay, and market-cap tier mapping | `npm test -- src/systems/ship-visuals.test.ts` |
 | Visual cue auditability | `systems/visual-cue-registry.test.ts` | Visual cues have source fields and DOM equivalents | `npm test -- src/systems/visual-cue-registry.test.ts` |
-| Motion route behavior | `systems/motion.test.ts` | Normal-motion routes, one-third docked dwell, titan-only moored visibility, all six risk-water zones, meaningful dockless patrols, ordered DEWS dwell/wake/drift, danger/Ledger visits, and water-only samples | `npm test -- src/systems/motion.test.ts` |
+| Motion route behavior | `systems/motion.test.ts` | Normal-motion routes, base one-third dock dwell plus broad-chain extended dwell, titan/heritage moored visibility, all six risk-water zones, meaningful dockless patrols, ordered DEWS dwell/wake/drift, danger/Ledger visits, and water-only samples | `npm test -- src/systems/motion.test.ts` |
 | Risk precedence | `systems/risk-placement.test.ts` | Active depeg, NAV ledger mooring, fresh DEWS, stale evidence, and fallback placement precedence | `npm test -- src/systems/risk-placement.test.ts` |
 | Hit target alignment | `renderer/hit-testing.test.ts` | Manifest hitboxes, moving ship targets, titan moored targets, hidden non-titan moored targets, and absence of retired building selection targets | `npm test -- src/renderer/hit-testing.test.ts` |
-| Narrow viewport fallback | Playwright `pharosville narrow fallback avoids world runtime requests` | Sub-1000 viewport renders DOM fallback and avoids world/runtime requests | `npx playwright test tests/visual/pharosville.spec.ts --grep "narrow fallback"` |
+| Narrow viewport fallback | Playwright `pharosville narrow fallback avoids world runtime requests` | Device screen below the `720` long-side or `360` short-side gate renders DOM fallback and avoids world/runtime requests | `npx playwright test tests/visual/pharosville.spec.ts --grep "narrow fallback"` |
 | Short desktop fallback | Playwright `pharosville short desktop fallback avoids clipped map` | Short desktop height renders fallback and avoids world/runtime requests | `npx playwright test tests/visual/pharosville.spec.ts --grep "short desktop"` |
 | Ultrawide backing budget | Playwright `pharosville ultrawide canvas keeps DPR backing store capped` | DPR/backing pixels stay within budget on large screens | `npx playwright test tests/visual/pharosville.spec.ts --grep "ultrawide"` |
 | Interaction and camera | Playwright `pharosville canvas interactions update details and camera` | Selection, detail anchors, blank-map clearing, monotonic wheel zoom, pinch zoom, pan, fullscreen, and camera bounds | `npx playwright test tests/visual/pharosville.spec.ts --grep "interactions"` |

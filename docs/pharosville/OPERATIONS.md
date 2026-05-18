@@ -1,6 +1,6 @@
 # PharosVille Operations
 
-Last updated: 2026-05-01
+Last updated: 2026-05-18
 
 This runbook covers the standalone Cloudflare Pages app at `https://pharosville.pharos.watch/`.
 
@@ -35,8 +35,9 @@ npm run dev
 Use it for canvas, layout, and React behavior that does not require a live `/api/*` proxy.
 
 For linked-worktree development, the Vite `/api/*` proxy can read `PHAROS_API_KEY`
-from either the current worktree `.env.local`, the main worktree `.env.local`,
-or `.git/pharosville.env.local` as a shared local secret file.
+from `process.env.PHAROS_API_KEY`, the current worktree `.env.local`, the main
+worktree `.env.local`, or `.git/pharosville.env.local` as a shared local secret
+file.
 Run these before debugging missing ships/data:
 
 ```bash
@@ -128,7 +129,7 @@ npx wrangler pages deploy dist --project-name=pharosville
 
 The current `npm run deploy` script also deploys `dist`, but release hardening is still tracked separately. Prefer the explicit command above when you need dirty-tree protection.
 
-CI now runs a dedicated post-deploy `release-readiness` job on production pushes. That runtime gate runs `npm run check:release-readiness` and a production smoke against the configured live URL. Repository admin hardening remains separately checkable with `npm run check:release-admin` until branch protection is configured.
+The production deploy workflow runs live security-header checks and live smoke immediately after Cloudflare Pages deploy. Repository admin hardening remains separately checkable with `npm run check:release-admin` until branch protection is configured.
 
 ## Live Smoke
 
@@ -173,6 +174,7 @@ See also: docs/pharosville/OBSERVABILITY.md
 Production health checks currently run via:
 
 - `.github/workflows/deploy-cloudflare.yml` after Cloudflare Pages deploy
+- `.github/workflows/canary-smoke.yml` every 30 minutes and on manual dispatch
 - `npm run smoke:live -- --url https://pharosville.pharos.watch`
 
 ## Rollback

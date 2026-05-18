@@ -12,7 +12,7 @@ The renderer turns a pure `PharosVilleWorld` model into a Canvas 2D scene plus a
 - `layers/sky.ts`, `layers/terrain.ts`, `layers/shoreline.ts`,
   `layers/harbor-district.ts`, `layers/lighthouse.ts`, `layers/cemetery.ts`,
   and `layers/ambient.ts` draw non-entity scene layers.
-- `layers/docks.ts`, `layers/ships.ts`, `layers/graves.ts`, and
+- `layers/docks.ts`, `layers/ships/`, `layers/graves.ts`, and
   `layers/scenery.ts` own entity drawing details used by the entity pass.
 - `layers/water-labels.ts` draws printed water labels as a post-entity overlay.
 - `layers/selection.ts` draws hover/selection rings and selected ship/dock
@@ -23,7 +23,8 @@ The renderer turns a pure `PharosVilleWorld` model into a Canvas 2D scene plus a
 - `drawable-pass.ts` owns stable isometric depth ordering and pass helpers for
   overlap-prone entity groups.
 - `hit-testing.ts` builds selectable rectangles for lighthouse, docks, ships, graves, and named areas.
-- `asset-manager.ts` loads the local manifest-backed PNG assets and logo images.
+- `asset-manager.ts` loads the runtime manifest, prefers validated WebP twins
+  when present, falls back to required PNG paths, and loads logo images.
 - `hit-testing.test.ts` protects target ordering, manifest hitboxes, moving ship target rectangles, and building selectability.
 
 ## Data Flow
@@ -47,7 +48,9 @@ The renderer turns a pure `PharosVilleWorld` model into a Canvas 2D scene plus a
   new overlay-specific drawing out of `world-canvas.ts`.
 - The renderer must remain a consumer of world data. Add new semantics in `systems/` first, then draw them.
 - Reduced motion draws a deterministic static frame and must not require a running RAF loop.
-- Asset IDs must resolve through `public/pharosville/assets/manifest.json`; runtime code must not use prototype paths or remote image URLs.
+- Asset IDs must resolve through the runtime manifest emitted from
+  `public/pharosville/assets/manifest.json`; runtime code must not use prototype
+  paths or remote image URLs.
 - Manifest geometry changes must keep anchors, hitboxes, scale, and selection rings aligned.
 - Canvas backing size must go through `resolveCanvasBudget()`.
 

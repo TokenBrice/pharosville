@@ -1,6 +1,6 @@
 # Image Tooling Notes
 
-Last updated: 2026-04-30
+Last updated: 2026-05-18
 
 Concise reference of what we learned about asset generation/editing tooling
 during the lighthouse-integration iteration. Companion to `PIXELLAB_MCP.md`
@@ -53,11 +53,9 @@ captures *gotchas* we paid for so future passes don't pay them again.
 
 ## OpenAI Images API gotchas
 
-- Available models on the account: `dall-e-2`, `dall-e-3`, `gpt-image-1`,
-  `gpt-image-1-mini`, `gpt-image-1.5`, `gpt-image-2`,
-  `gpt-image-2-2026-04-21` (latest dated snapshot), `chatgpt-image-latest`.
-  **Use the latest dated snapshot when image quality matters** —
-  `gpt-image-1` is superseded.
+- This repo does not pin an OpenAI Images model inventory or SDK dependency.
+  Before using OpenAI image generation or editing, verify the current model and
+  endpoint support in the official OpenAI docs and the active account.
 - `POST /v1/images/edits` is the inpaint endpoint. Send `image` + `mask` +
   `prompt`. Response: JSON with `data[0].b64_json` (base64-encoded PNG).
 - **Mask convention is the OPPOSITE of PixelLab's**:
