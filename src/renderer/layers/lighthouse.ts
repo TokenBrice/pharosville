@@ -15,6 +15,7 @@ export type LighthouseRenderState = ReturnType<typeof lighthouseRenderState>;
 export function lighthouseRenderState({ assets, camera, world }: DrawPharosVilleInput) {
   const center = tileToScreen(world.lighthouse.tile, camera);
   const lighthouseAsset = assets?.get("landmark.lighthouse");
+  const pyreAsset = assets?.get("landmark.lighthouse-pyre");
   const spriteScale = camera.zoom * LIGHTHOUSE_DRAW_SCALE;
   const spriteAnchor = {
     x: center.x + LIGHTHOUSE_DRAW_OFFSET.x * camera.zoom,
@@ -28,18 +29,18 @@ export function lighthouseRenderState({ assets, camera, world }: DrawPharosVille
         - lighthouseAsset.entry.anchor[1] * lighthouseAsset.entry.displayScale * spriteScale,
     }
     : { x: center.x, y: center.y - 148 * camera.zoom };
-  return { center, firePoint, lighthouseAsset, spriteAnchor, spriteScale };
+  return { center, firePoint, lighthouseAsset, pyreAsset, spriteAnchor, spriteScale };
 }
 
 const LIGHTHOUSE_SURF = [
-  { x: 15.2, y: 27.8, length: 18, phase: 5.1, tilt: 0.12 },
-  { x: 15.9, y: 28.9, length: 22, phase: 0.1, tilt: -0.14 },
-  { x: 16.8, y: 31.2, length: 28, phase: 1.7, tilt: 0.02 },
-  { x: 18.1, y: 32.2, length: 25, phase: 4.8, tilt: 0.18 },
-  { x: 19.8, y: 32.0, length: 31, phase: 2.6, tilt: 0.16 },
-  { x: 21.4, y: 30.9, length: 24, phase: 3.4, tilt: -0.12 },
-  { x: 20.7, y: 25.7, length: 20, phase: 4.1, tilt: 0.1 },
-  { x: 22.0, y: 27.0, length: 18, phase: 5.7, tilt: -0.18 },
+  [15.2, 27.8, 18, 5.1, 0.12],
+  [15.9, 28.9, 22, 0.1, -0.14],
+  [16.8, 31.2, 28, 1.7, 0.02],
+  [18.1, 32.2, 25, 4.8, 0.18],
+  [19.8, 32, 31, 2.6, 0.16],
+  [21.4, 30.9, 24, 3.4, -0.12],
+  [20.7, 25.7, 20, 4.1, 0.1],
+  [22, 27, 18, 5.7, -0.18],
 ] as const;
 
 export function drawLighthouseSurf({ camera, ctx, motion }: DrawPharosVilleInput): void {
@@ -47,16 +48,16 @@ export function drawLighthouseSurf({ camera, ctx, motion }: DrawPharosVilleInput
   ctx.save();
   ctx.lineCap = "round";
   for (const surf of LIGHTHOUSE_SURF) {
-    const p = tileToScreen(surf, camera);
-    const wash = motion.reducedMotion ? 0.66 : 0.58 + Math.sin(time * 1.4 + surf.phase) * 0.12;
+    const p = tileToScreen({ x: surf[0], y: surf[1] }, camera);
+    const wash = motion.reducedMotion ? 0.66 : 0.58 + Math.sin(time * 1.4 + surf[3]) * 0.12;
     ctx.strokeStyle = `rgba(232, 243, 233, ${wash})`;
     ctx.lineWidth = Math.max(1, 1.8 * camera.zoom);
     ctx.beginPath();
-    ctx.moveTo(p.x - surf.length * camera.zoom * 0.5, p.y);
+    ctx.moveTo(p.x - surf[2] * camera.zoom * 0.5, p.y);
     ctx.quadraticCurveTo(
       p.x,
-      p.y + surf.tilt * surf.length * camera.zoom,
-      p.x + surf.length * camera.zoom * 0.5,
+      p.y + surf[4] * surf[2] * camera.zoom,
+      p.x + surf[2] * camera.zoom * 0.5,
       p.y + 4 * camera.zoom,
     );
     ctx.stroke();
@@ -64,8 +65,8 @@ export function drawLighthouseSurf({ camera, ctx, motion }: DrawPharosVilleInput
     ctx.strokeStyle = "rgba(130, 216, 204, 0.26)";
     ctx.lineWidth = Math.max(1, 0.9 * camera.zoom);
     ctx.beginPath();
-    ctx.moveTo(p.x - surf.length * camera.zoom * 0.35, p.y + 5 * camera.zoom);
-    ctx.lineTo(p.x + surf.length * camera.zoom * 0.32, p.y + 8 * camera.zoom);
+    ctx.moveTo(p.x - surf[2] * camera.zoom * 0.35, p.y + 5 * camera.zoom);
+    ctx.lineTo(p.x + surf[2] * camera.zoom * 0.32, p.y + 8 * camera.zoom);
     ctx.stroke();
   }
   ctx.restore();
@@ -91,7 +92,7 @@ export function drawLighthouseReflection(
   const zoom = camera.zoom;
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
   const anchor = tileToScreen({ x: world.lighthouse.tile.x + 0.4, y: world.lighthouse.tile.y + 3.2 }, camera);
-  const alphaBase = 0.055 + nightFactor * 0.16;
+  const alphaBase = 0.05 + nightFactor * 0.18;
 
   ctx.save();
   ctx.beginPath();
@@ -103,21 +104,36 @@ export function drawLighthouseReflection(
   ctx.closePath();
   ctx.clip();
 
+  if (nightFactor > 0) {
+    ctx.globalCompositeOperation = "multiply";
+    ctx.fillStyle = `rgba(5, 8, 12, ${0.11 * nightFactor})`;
+    ctx.beginPath();
+    ctx.ellipse(anchor.x + 10 * zoom, anchor.y + 72 * zoom, 92 * zoom, 46 * zoom, 0.12, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   ctx.globalCompositeOperation = "lighter";
   ctx.lineCap = "round";
-  for (let index = 0; index < 7; index += 1) {
-    const t = index / 6;
-    const shimmer = motion.reducedMotion ? 0 : Math.sin(time * 0.9 + index * 1.37) * 2.2 * zoom;
-    const y = anchor.y + (16 + t * 92) * zoom;
-    const centerX = anchor.x + shimmer + Math.sin(index * 1.9) * 4 * zoom;
-    const width = (48 - t * 31) * zoom;
-    const alpha = alphaBase * (1 - t * 0.72) * (0.84 + 0.16 * Math.sin(time * 1.2 + index));
+  for (let index = 0; index < 9; index += 1) {
+    const t = index / 8;
+    const shimmer = motion.reducedMotion ? 0 : Math.sin(time * 0.9 + index * 1.37) * 2.4 * zoom;
+    const y = anchor.y + (13 + t * 106) * zoom;
+    const centerX = anchor.x + shimmer + Math.sin(index * 1.9) * (3 + t * 8) * zoom;
+    const width = (36 + Math.sin(index * 2.2) * 5 - t * 18) * zoom;
+    const alpha = alphaBase * (1 - t * 0.78) * (0.82 + 0.18 * Math.sin(time * 1.2 + index));
     if (alpha < 0.01) continue;
-    ctx.strokeStyle = `rgba(255, 199, 118, ${alpha})`;
-    ctx.lineWidth = Math.max(1, (2.7 - t * 1.3) * zoom);
+    ctx.strokeStyle = index % 3 === 0
+      ? `rgba(255, 226, 164, ${alpha * 0.72})`
+      : `rgba(238, 145, 72, ${alpha})`;
+    ctx.lineWidth = Math.max(1, (2.4 - t * 1.15) * zoom);
     ctx.beginPath();
     ctx.moveTo(centerX - width * 0.5, y);
-    ctx.quadraticCurveTo(firePoint.x + shimmer * 0.4, y + 4 * zoom, centerX + width * 0.5, y + 1.5 * zoom);
+    ctx.quadraticCurveTo(
+      firePoint.x + shimmer * 0.28,
+      y + (3 + Math.sin(index) * 2) * zoom,
+      centerX + width * 0.5,
+      y + (1 + Math.cos(index * 1.7) * 2) * zoom,
+    );
     ctx.stroke();
   }
   ctx.restore();
@@ -166,8 +182,8 @@ const LIGHTHOUSE_HEADLAND_SCALE = 0.5;
 
 export const DAY_BEAM_BASE_ALPHA = 0.08;
 export const NIGHT_WATER_POOL_RADIUS = 1000;       // sprite units — warm pool centered slightly below firePoint
-const NIGHT_WATER_POOL_MAX_ALPHA = 0.42;
-const NIGHT_DIRECTIONAL_SPILL_MAX_ALPHA = 0.18;
+const NIGHT_WATER_POOL_MAX_ALPHA = 0.34;
+const NIGHT_DIRECTIONAL_SPILL_MAX_ALPHA = 0.14;
 const NIGHT_DIRECTIONAL_SPILL_OFFSET = { x: 330, y: 86 };
 const NIGHT_DIRECTIONAL_SPILL_RADIUS = 560;
 const NIGHT_ALERT_SPILL_OFFSET = { x: 610, y: 28 };
@@ -177,11 +193,13 @@ const NIGHT_ALERT_SPILL_RADIUS = 310;
 const SWEEP_PAIRED = true;
 const SWEEP_LENGTH = 1200;       // sprite-units; reaches all map corners with margin
 const SWEEP_APEX_HALF = 6;
-const SWEEP_FAR_HALF = 90;
+const SWEEP_FAR_HALF = 64;
 const SWEEP_PERIOD = 48;         // seconds per revolution
-const SWEEP_PEAK_ALPHA = 0.22;
-const SWEEP_REDUCED_ALPHA = 0.10;
+const SWEEP_PEAK_ALPHA = 0.18;
+const SWEEP_REDUCED_ALPHA = 0.08;
 const SWEEP_REDUCED_ANGLE = Math.PI / 4;
+
+const SWEEP_RIB_OFFSETS: ReadonlyArray<number> = [-0.56, -0.22, 0.16, 0.48];
 
 // Beam-tail glints — placed near the far end of each sweep beam.
 const GLINT_ALONG: ReadonlyArray<number> = [0.78, 0.85, 0.88, 0.92, 0.94, 0.97];
@@ -295,10 +313,10 @@ function getSweepBeamSprite(
   const tipX = apexX + sweepLen;
 
   const grad = offCtx.createLinearGradient(apexX, centerY, tipX, centerY);
-  grad.addColorStop(0, "rgba(255, 240, 195, 1)");
-  grad.addColorStop(0.25, "rgba(255, 200, 110, 0.78)");
-  grad.addColorStop(0.65, "rgba(240, 140, 70, 0.36)");
-  grad.addColorStop(0.88, `rgba(${tip.r}, ${tip.g}, ${tip.b}, 0.22)`);
+  grad.addColorStop(0, "rgba(255, 232, 176, 1)");
+  grad.addColorStop(0.22, "rgba(244, 170, 86, 0.62)");
+  grad.addColorStop(0.58, "rgba(156, 77, 43, 0.24)");
+  grad.addColorStop(0.86, `rgba(${tip.r}, ${tip.g}, ${tip.b}, 0.16)`);
   grad.addColorStop(1, `rgba(${tip.r}, ${tip.g}, ${tip.b}, 0)`);
   offCtx.fillStyle = grad;
   offCtx.beginPath();
@@ -308,6 +326,23 @@ function getSweepBeamSprite(
   offCtx.lineTo(apexX, centerY + sweepApex);
   offCtx.closePath();
   offCtx.fill();
+
+  const ribGrad = offCtx.createLinearGradient(apexX, centerY, tipX, centerY);
+  ribGrad.addColorStop(0, "rgba(255, 244, 202, 0.72)");
+  ribGrad.addColorStop(0.36, "rgba(255, 196, 112, 0.34)");
+  ribGrad.addColorStop(1, "rgba(115, 58, 42, 0)");
+  offCtx.strokeStyle = ribGrad;
+  offCtx.lineCap = "round";
+  offCtx.lineWidth = Math.max(1, 1.15 * bucketedZoom);
+  for (let i = 0; i < SWEEP_RIB_OFFSETS.length; i += 1) {
+    const offset = SWEEP_RIB_OFFSETS[i]!;
+    offCtx.globalAlpha = 0.58 - i * 0.06;
+    offCtx.beginPath();
+    offCtx.moveTo(apexX + 4 * bucketedZoom, centerY + offset * sweepApex * 0.9);
+    offCtx.lineTo(tipX, centerY + offset * sweepFar);
+    offCtx.stroke();
+  }
+  offCtx.globalAlpha = 1;
 
   const entry = { canvas, apexX, centerY };
   sweepBeamSpriteCache.set(key, entry);
@@ -424,16 +459,17 @@ export function drawLighthouseOverlay(
   nightFactor = 0,
 ): void {
   const { camera, ctx, motion, world } = input;
-  const { firePoint, lighthouseAsset } = cached ?? lighthouseRenderState(input);
+  const { firePoint, lighthouseAsset, pyreAsset } = cached ?? lighthouseRenderState(input);
   if (world.lighthouse.unavailable) return;
   const seaState = seaStateForWorld(world, {
     reducedMotion: motion.reducedMotion,
     wallClockHour: motion.wallClockHour,
   });
   drawLighthouseBeam(ctx, firePoint, camera.zoom * 1.35, motion, nightFactor);
-  // Fire always renders. With the sprite loaded, skip the procedural brazier
-  // base (the asset already has one); without it, draw the full fallback.
-  drawLighthouseFire(ctx, firePoint, camera.zoom * 1.32, motion, !lighthouseAsset, seaState);
+  // Fire always renders. With the pyre sprite loaded, keep the procedural
+  // warmth, embers, and shimmer but let the authored fire-bowl carry the
+  // silhouette; without it, draw the full procedural fallback.
+  drawLighthouseFire(ctx, firePoint, camera.zoom * 1.32, motion, !lighthouseAsset && !pyreAsset, seaState, pyreAsset);
   drawBrazierSmoke(ctx, firePoint, camera.zoom * 1.32, motion, nightFactor, seaState);
 }
 
@@ -474,6 +510,7 @@ function drawLighthouseFire(
   motion: PharosVilleCanvasMotion,
   withBrazierBase: boolean,
   seaState: SeaState | null,
+  pyreAsset?: LighthouseRenderState["pyreAsset"],
 ) {
   const flickerSpeed = motion.plan.lighthouseFireFlickerPerSecond * seaStateLighthouseFlickerMultiplier(seaState);
   const time = motion.timeSeconds;
@@ -495,24 +532,33 @@ function drawLighthouseFire(
   ctx.arc(0, -6, 15, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.globalAlpha = 1;
-  if (motion.reducedMotion) {
-    drawPixelFlame(ctx, FLAME_OUTER, FIRE_OUTER_COLOR);
-    drawPixelFlame(ctx, FLAME_MID, "#ffcc62");
-    drawPixelFlame(ctx, FLAME_INNER, "#fff2a8");
-  } else {
-    drawLivingFlame(ctx, FLAME_OUTER, FIRE_OUTER_COLOR, time, flickerSpeed, 1.7);
-    drawLivingFlame(ctx, FLAME_MID, "#ffcc62", time, flickerSpeed, 1.3);
-    drawLivingFlame(ctx, FLAME_INNER, "#fff2a8", time, flickerSpeed, 0.8);
-  }
+  if (!pyreAsset) {
+    ctx.globalAlpha = 1;
+    if (motion.reducedMotion) {
+      drawPixelFlame(ctx, FLAME_OUTER, FIRE_OUTER_COLOR);
+      drawPixelFlame(ctx, FLAME_MID, "#ffcc62");
+      drawPixelFlame(ctx, FLAME_INNER, "#fff2a8");
+    } else {
+      drawLivingFlame(ctx, FLAME_OUTER, FIRE_OUTER_COLOR, time, flickerSpeed, 1.7);
+      drawLivingFlame(ctx, FLAME_MID, "#ffcc62", time, flickerSpeed, 1.3);
+      drawLivingFlame(ctx, FLAME_INNER, "#fff2a8", time, flickerSpeed, 0.8);
+    }
 
-  if (withBrazierBase) {
-    ctx.fillStyle = "#4b2d1d";
-    ctx.fillRect(-12, 8, 24, 5);
-    ctx.fillStyle = "#9a5a2a";
-    ctx.fillRect(-9, 6, 18, 3);
+    if (withBrazierBase) {
+      ctx.fillStyle = "#4b2d1d";
+      ctx.fillRect(-12, 8, 24, 5);
+      ctx.fillStyle = "#9a5a2a";
+      ctx.fillRect(-9, 6, 18, 3);
+    }
   }
   ctx.restore();
+
+  if (pyreAsset) {
+    ctx.save();
+    ctx.globalAlpha = motion.reducedMotion ? 0.94 : 0.9 + Math.max(0, flicker) * 0.18;
+    drawAsset(ctx, pyreAsset, point.x, point.y, zoom);
+    ctx.restore();
+  }
 
   drawBrazierHeatShimmer(ctx, point, zoom, motion);
   drawHearthEmbers(ctx, point, zoom, motion);
@@ -1062,9 +1108,9 @@ export function drawLighthouseNightHighlights(
     }
   }
 
-  // Beam-tail water glints — small specks near the far end of each sweep arm,
-  // moving with the rotation. Flicker is keyed off the same fire frequency so
-  // they sparkle in time with the flame.
+  // Beam-tail caustics — broken strokes near the far end of each sweep arm,
+  // moving with the rotation. They read as light tearing across water rather
+  // than floating UI dots.
   const flickerFreq = flickerSpeed * Math.PI * 2;
   for (let armIdx = 0; armIdx < beamArms.length; armIdx += 1) {
     const angle = sweepAngle + beamArms[armIdx]!;
@@ -1080,10 +1126,13 @@ export function drawLighthouseNightHighlights(
       const flicker = motion.reducedMotion
         ? 0.7
         : Math.max(0, Math.min(1, 0.5 + 0.5 * Math.sin(time * flickerFreq + (armIdx * GLINT_ALONG.length + i) * 1.7)));
-      ctx.fillStyle = `rgba(255, 225, 170, ${flicker * 0.55 * nightFactor})`;
+      ctx.strokeStyle = `rgba(255, 218, 150, ${flicker * 0.42 * nightFactor})`;
+      ctx.lineWidth = Math.max(1, (1.2 + (i % 2) * 0.5) * beamZoom);
+      ctx.lineCap = "round";
       ctx.beginPath();
-      ctx.arc(cx, cy, 2 * beamZoom, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.moveTo(cx - px * 3.5 * beamZoom, cy - py * 3.5 * beamZoom);
+      ctx.lineTo(cx + px * (6 + i * 0.6) * beamZoom, cy + py * (6 + i * 0.6) * beamZoom);
+      ctx.stroke();
     }
   }
 
@@ -1157,18 +1206,18 @@ function getNightGradientBundle(
     firePoint.x, firePoint.y, 60 * zoom,
     firePoint.x, firePoint.y, 1500 * zoom,
   );
-  diffuse.addColorStop(0, `rgba(215, 210, 192, ${0.13 * nightFactor})`);
-  diffuse.addColorStop(0.6, `rgba(190, 200, 180, ${0.045 * nightFactor})`);
-  diffuse.addColorStop(1, "rgba(160, 180, 160, 0)");
+  diffuse.addColorStop(0, `rgba(238, 176, 108, ${0.09 * nightFactor})`);
+  diffuse.addColorStop(0.48, `rgba(156, 88, 58, ${0.032 * nightFactor})`);
+  diffuse.addColorStop(1, "rgba(78, 42, 38, 0)");
 
   const coreAlpha = 0.17 * nightFactor;
   const core = ctx.createRadialGradient(
     firePoint.x, firePoint.y, 0,
-    firePoint.x, firePoint.y, 68 * zoom,
+    firePoint.x, firePoint.y, 56 * zoom,
   );
   core.addColorStop(0, `rgba(255, 255, 248, ${coreAlpha})`);
-  core.addColorStop(0.4, `rgba(255, 248, 210, ${coreAlpha * 0.50})`);
-  core.addColorStop(1, "rgba(255, 230, 150, 0)");
+  core.addColorStop(0.38, `rgba(255, 214, 134, ${coreAlpha * 0.58})`);
+  core.addColorStop(1, "rgba(241, 116, 54, 0)");
 
   const poolY = firePoint.y + 36 * zoom;
   const poolRadius = NIGHT_WATER_POOL_RADIUS * zoom;
@@ -1177,9 +1226,10 @@ function getNightGradientBundle(
     firePoint.x, poolY, 18 * zoom,
     firePoint.x, poolY, poolRadius,
   );
-  pool.addColorStop(0, `rgba(255, 175, 90, ${poolAlpha})`);
-  pool.addColorStop(0.4, `rgba(245, 150, 65, ${poolAlpha * 0.45})`);
-  pool.addColorStop(1, "rgba(245, 150, 65, 0)");
+  pool.addColorStop(0, `rgba(255, 182, 94, ${poolAlpha})`);
+  pool.addColorStop(0.34, `rgba(221, 111, 55, ${poolAlpha * 0.46})`);
+  pool.addColorStop(0.76, `rgba(108, 48, 42, ${poolAlpha * 0.16})`);
+  pool.addColorStop(1, "rgba(108, 48, 42, 0)");
 
   const spillCenterX = firePoint.x + NIGHT_DIRECTIONAL_SPILL_OFFSET.x * zoom;
   const spillCenterY = poolY + NIGHT_DIRECTIONAL_SPILL_OFFSET.y * zoom;
@@ -1188,9 +1238,9 @@ function getNightGradientBundle(
     spillCenterX, spillCenterY, 18 * zoom,
     spillCenterX, spillCenterY, NIGHT_DIRECTIONAL_SPILL_RADIUS * zoom,
   );
-  directionalSpill.addColorStop(0, `rgba(255, 188, 105, ${spillAlpha})`);
-  directionalSpill.addColorStop(0.44, `rgba(234, 142, 74, ${spillAlpha * 0.38})`);
-  directionalSpill.addColorStop(1, "rgba(234, 142, 74, 0)");
+  directionalSpill.addColorStop(0, `rgba(255, 190, 111, ${spillAlpha})`);
+  directionalSpill.addColorStop(0.44, `rgba(207, 103, 62, ${spillAlpha * 0.38})`);
+  directionalSpill.addColorStop(1, "rgba(92, 42, 38, 0)");
 
   const alertCenterX = firePoint.x + NIGHT_ALERT_SPILL_OFFSET.x * zoom;
   const alertCenterY = poolY + NIGHT_ALERT_SPILL_OFFSET.y * zoom;
@@ -1199,9 +1249,9 @@ function getNightGradientBundle(
     alertCenterX, alertCenterY, 14 * zoom,
     alertCenterX, alertCenterY, NIGHT_ALERT_SPILL_RADIUS * zoom,
   );
-  alertSpill.addColorStop(0, `rgba(255, 202, 128, ${alertAlpha})`);
-  alertSpill.addColorStop(0.5, `rgba(224, 138, 76, ${alertAlpha * 0.36})`);
-  alertSpill.addColorStop(1, "rgba(224, 138, 76, 0)");
+  alertSpill.addColorStop(0, `rgba(255, 207, 134, ${alertAlpha})`);
+  alertSpill.addColorStop(0.5, `rgba(196, 94, 68, ${alertAlpha * 0.34})`);
+  alertSpill.addColorStop(1, "rgba(196, 94, 68, 0)");
 
   const bundle: NightGradientBundle = { diffuse, core, pool, directionalSpill, alertSpill };
   nightGradientCache.set(key, bundle);

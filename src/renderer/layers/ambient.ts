@@ -2,7 +2,7 @@ import { tileToScreen } from "../../systems/projection";
 import { seaStateForWorld, seaStateTempoMultiplier, seaStateWindMultiplier } from "../../systems/sea-state";
 import type { PharosVilleWorld } from "../../systems/world-types";
 import type { DrawPharosVilleInput } from "../render-types";
-import { lighthouseRenderState, NIGHT_WATER_POOL_RADIUS, type LighthouseRenderState } from "./lighthouse";
+import { lighthouseRenderState, type LighthouseRenderState } from "./lighthouse";
 import { skyState } from "./sky";
 import {
   maxActiveThreatLevel,
@@ -11,18 +11,18 @@ import {
 } from "./weather";
 
 const VILLAGE_LIGHTS = [
-  { x: 16.7, y: 29.4, size: 0.52 },
-  { x: 18.4, y: 27.9, size: 0.58 },
-  { x: 19.8, y: 29.0, size: 0.48 },
-  { x: 20.8, y: 30.8, size: 0.44 },
-  { x: 24.6, y: 23.4, size: 0.42 },
-  { x: 28.8, y: 22.3, size: 0.46 },
-  { x: 30.1, y: 31.8, size: 0.54 },
-  { x: 33.2, y: 30.1, size: 0.5 },
-  { x: 35.4, y: 42.5, size: 0.48 },
-  { x: 37.2, y: 29.5, size: 0.52 },
-  { x: 41.1, y: 28.9, size: 0.5 },
-  { x: 44.2, y: 33.7, size: 0.52 },
+  [16.7, 29.4, 0.52],
+  [18.4, 27.9, 0.58],
+  [19.8, 29, 0.48],
+  [20.8, 30.8, 0.44],
+  [24.6, 23.4, 0.42],
+  [28.8, 22.3, 0.46],
+  [30.1, 31.8, 0.54],
+  [33.2, 30.1, 0.5],
+  [35.4, 42.5, 0.48],
+  [37.2, 29.5, 0.52],
+  [41.1, 28.9, 0.5],
+  [44.2, 33.7, 0.52],
 ] as const;
 
 type BioluminescentSparkle = {
@@ -34,61 +34,61 @@ type BioluminescentSparkle = {
 };
 
 const SPARKLE_POINT_DEFS = [
-  { x: 8.3, y: 28.4, phase: 0.0 },
-  { x: 9.7, y: 31.2, phase: 0.72 },
-  { x: 10.4, y: 33.8, phase: 1.44 },
-  { x: 11.1, y: 30.1, phase: 2.16 },
-  { x: 12.6, y: 35.4, phase: 2.88 },
-  { x: 13.2, y: 27.9, phase: 3.60 },
-  { x: 8.8, y: 24.6, phase: 4.32 },
-  { x: 11.9, y: 26.3, phase: 5.04 },
-  { x: 9.2, y: 29.7, phase: 5.76 },
-  { x: 13.8, y: 32.9, phase: 0.38 },
-  { x: 15.3, y: 36.8, phase: 1.10 },
-  { x: 17.2, y: 39.4, phase: 1.82 },
-  { x: 18.8, y: 41.7, phase: 2.54 },
-  { x: 20.4, y: 43.2, phase: 3.26 },
-  { x: 22.1, y: 44.8, phase: 3.98 },
-  { x: 24.3, y: 45.9, phase: 4.70 },
-  { x: 26.7, y: 46.5, phase: 5.42 },
-  { x: 28.9, y: 47.1, phase: 0.19 },
-  { x: 31.2, y: 47.4, phase: 0.91 },
-  { x: 33.5, y: 46.8, phase: 1.63 },
-  { x: 35.8, y: 45.6, phase: 2.35 },
-  { x: 37.4, y: 44.1, phase: 3.07 },
-  { x: 16.1, y: 38.2, phase: 3.79 },
-  { x: 19.6, y: 40.8, phase: 4.51 },
-  { x: 23.4, y: 43.0, phase: 5.23 },
-  { x: 29.7, y: 45.3, phase: 0.57 },
-  { x: 14.8, y: 35.1, phase: 1.29 },
-  { x: 21.8, y: 42.4, phase: 2.01 },
-  { x: 27.3, y: 46.0, phase: 2.73 },
-  { x: 32.4, y: 47.2, phase: 3.45 },
-  { x: 39.1, y: 34.2, phase: 4.17 },
-  { x: 40.8, y: 31.7, phase: 4.89 },
-  { x: 42.3, y: 29.4, phase: 5.61 },
-  { x: 44.1, y: 27.2, phase: 0.45 },
-  { x: 45.9, y: 25.1, phase: 1.17 },
-  { x: 47.6, y: 23.3, phase: 1.89 },
-  { x: 49.2, y: 26.8, phase: 2.61 },
-  { x: 50.7, y: 28.9, phase: 3.33 },
-  { x: 51.4, y: 31.5, phase: 4.05 },
-  { x: 52.1, y: 33.8, phase: 4.77 },
-  { x: 43.5, y: 32.6, phase: 5.49 },
-  { x: 46.4, y: 30.1, phase: 0.83 },
-  { x: 48.8, y: 24.7, phase: 1.55 },
-  { x: 38.3, y: 36.1, phase: 2.27 },
-  { x: 41.7, y: 22.4, phase: 2.99 },
-  { x: 4.2, y: 29.3, phase: 3.71 },
-  { x: 5.1, y: 31.8, phase: 4.43 },
-  { x: 6.4, y: 28.7, phase: 5.15 },
-  { x: 7.3, y: 30.9, phase: 5.87 },
-  { x: 5.8, y: 33.4, phase: 0.63 },
-  { x: 53.2, y: 29.7, phase: 1.35 },
-  { x: 54.1, y: 32.4, phase: 2.07 },
-  { x: 55.3, y: 35.1, phase: 2.79 },
-  { x: 54.8, y: 37.6, phase: 3.51 },
-  { x: 52.7, y: 36.2, phase: 4.23 },
+  [8.3, 28.4, 0],
+  [9.7, 31.2, 0.72],
+  [10.4, 33.8, 1.44],
+  [11.1, 30.1, 2.16],
+  [12.6, 35.4, 2.88],
+  [13.2, 27.9, 3.6],
+  [8.8, 24.6, 4.32],
+  [11.9, 26.3, 5.04],
+  [9.2, 29.7, 5.76],
+  [13.8, 32.9, 0.38],
+  [15.3, 36.8, 1.1],
+  [17.2, 39.4, 1.82],
+  [18.8, 41.7, 2.54],
+  [20.4, 43.2, 3.26],
+  [22.1, 44.8, 3.98],
+  [24.3, 45.9, 4.7],
+  [26.7, 46.5, 5.42],
+  [28.9, 47.1, 0.19],
+  [31.2, 47.4, 0.91],
+  [33.5, 46.8, 1.63],
+  [35.8, 45.6, 2.35],
+  [37.4, 44.1, 3.07],
+  [16.1, 38.2, 3.79],
+  [19.6, 40.8, 4.51],
+  [23.4, 43, 5.23],
+  [29.7, 45.3, 0.57],
+  [14.8, 35.1, 1.29],
+  [21.8, 42.4, 2.01],
+  [27.3, 46, 2.73],
+  [32.4, 47.2, 3.45],
+  [39.1, 34.2, 4.17],
+  [40.8, 31.7, 4.89],
+  [42.3, 29.4, 5.61],
+  [44.1, 27.2, 0.45],
+  [45.9, 25.1, 1.17],
+  [47.6, 23.3, 1.89],
+  [49.2, 26.8, 2.61],
+  [50.7, 28.9, 3.33],
+  [51.4, 31.5, 4.05],
+  [52.1, 33.8, 4.77],
+  [43.5, 32.6, 5.49],
+  [46.4, 30.1, 0.83],
+  [48.8, 24.7, 1.55],
+  [38.3, 36.1, 2.27],
+  [41.7, 22.4, 2.99],
+  [4.2, 29.3, 3.71],
+  [5.1, 31.8, 4.43],
+  [6.4, 28.7, 5.15],
+  [7.3, 30.9, 5.87],
+  [5.8, 33.4, 0.63],
+  [53.2, 29.7, 1.35],
+  [54.1, 32.4, 2.07],
+  [55.3, 35.1, 2.79],
+  [54.8, 37.6, 3.51],
+  [52.7, 36.2, 4.23],
 ] as const;
 
 const EASTERN_SHELF_SPARKLE_SOURCE_ISO_X_THRESHOLD = 32 * 16;
@@ -96,11 +96,19 @@ const MOON_REFLECTION_GRADIENT_CACHE_LIMIT = 24;
 const MOON_REFLECTION_NIGHT_BUCKETS = 256;
 const moonReflectionGradientCacheByContext = new WeakMap<CanvasRenderingContext2D, Map<string, CanvasGradient>>();
 
-function sparkleSourceIsoX(point: { x: number }): number {
-  return point.x * 16;
+const PYRE_WATER_PATHS = [
+  [-92, 118, 260, 100, -0.2],
+  [330, 122, 560, 170, 0.38],
+] as const;
+const PYRE_WATER_PATH_CORE_CUTOFF = 0.86;
+const PYRE_WATER_PATH_EDGE_CUTOFF = 1.24;
+const PYRE_WATER_PATH_OUTER_CUTOFF = 1.44;
+
+function sparkleSourceIsoX(point: readonly [number, number, number]): number {
+  return point[0] * 16;
 }
 
-function isEasternShelfSparkle(point: { x: number }): boolean {
+function isEasternShelfSparkle(point: readonly [number, number, number]): boolean {
   return sparkleSourceIsoX(point) > EASTERN_SHELF_SPARKLE_SOURCE_ISO_X_THRESHOLD;
 }
 
@@ -116,16 +124,60 @@ function buildSparklePoints(): readonly BioluminescentSparkle[] {
     }
     points.push({
       easternShelf,
-      isoX: (p.x - p.y) * 16,
-      isoY: (p.x + p.y) * 8,
-      phase: p.phase,
-      baseRadius: 0.9 + Math.sin(p.phase * 2.1) * 0.4,
+      isoX: (p[0] - p[1]) * 16,
+      isoY: (p[0] + p[1]) * 8,
+      phase: p[2],
+      baseRadius: 0.9 + Math.sin(p[2] * 2.1) * 0.4,
     });
   }
   return points;
 }
 
 const SPARKLE_POINTS = buildSparklePoints();
+
+function pyreWaterPathSparkleScale(
+  point: { x: number; y: number },
+  firePoint: { x: number; y: number },
+  zoom: number,
+): number {
+  const safeZoom = Math.max(0.001, zoom);
+  let best = Number.POSITIVE_INFINITY;
+  for (const path of PYRE_WATER_PATHS) {
+    const centerX = firePoint.x + path[0] * safeZoom;
+    const centerY = firePoint.y + path[1] * safeZoom;
+    const dx = point.x - centerX;
+    const dy = point.y - centerY;
+    const cos = Math.cos(path[4]);
+    const sin = Math.sin(path[4]);
+    const localX = dx * cos + dy * sin;
+    const localY = -dx * sin + dy * cos;
+    const distance = Math.hypot(
+      localX / (path[2] * safeZoom),
+      localY / (path[3] * safeZoom),
+    );
+    if (distance < best) best = distance;
+  }
+  const normalized = best;
+  if (normalized <= PYRE_WATER_PATH_CORE_CUTOFF) return 0.04;
+  if (normalized <= PYRE_WATER_PATH_EDGE_CUTOFF) {
+    return 0.08 + ((normalized - PYRE_WATER_PATH_CORE_CUTOFF)
+      / (PYRE_WATER_PATH_EDGE_CUTOFF - PYRE_WATER_PATH_CORE_CUTOFF)) * 0.34;
+  }
+  if (normalized <= PYRE_WATER_PATH_OUTER_CUTOFF) {
+    return 1 - ((PYRE_WATER_PATH_OUTER_CUTOFF - normalized)
+      / (PYRE_WATER_PATH_OUTER_CUTOFF - PYRE_WATER_PATH_EDGE_CUTOFF)) * 0.12;
+  }
+  return 1;
+}
+
+export function bioluminescentSparkleWarmPathScaleForTest(
+  point: { x: number; y: number },
+  firePoint: { x: number; y: number },
+  zoom: number,
+  _phase: number,
+): number {
+  return pyreWaterPathSparkleScale(point, firePoint, zoom);
+}
 
 export function sparklePointDensityStatsForTest(): {
   authoredEastern: number;
@@ -185,6 +237,45 @@ export interface BirdConfig {
   route: BirdRoute;
 }
 
+function orbitBird(
+  species: BirdSpecies,
+  scale: number,
+  phase: number,
+  anchor: BirdAnchor,
+  anchorX: number,
+  anchorY: number,
+  radiusX: number,
+  radiusY: number,
+  speed: number,
+): BirdConfig {
+  return { species, scale, phase, route: { kind: "orbit", anchor, anchorX, anchorY, radiusX, radiusY, speed } };
+}
+
+function shuttleBird(scale: number, basePeriod: number, arcLift: number): BirdConfig {
+  return {
+    species: "pigeon",
+    scale,
+    phase: 0,
+    route: { kind: "shuttle", from: "pigeonnier", to: "lighthouse", basePeriod, arcLift },
+  };
+}
+
+function dispatchBird(scale: number, flightDuration: number, baseGapSeconds: number, arcLift: number): BirdConfig {
+  return {
+    species: "pigeon",
+    scale,
+    phase: 0,
+    route: {
+      kind: "dispatch",
+      origin: "pigeonnier",
+      destination: { x: 65, y: 60 },
+      flightDuration,
+      baseGapSeconds,
+      arcLift,
+    },
+  };
+}
+
 // Dispatch-cadence multiplier per threat level. CALM = baseline, DANGER ≈ 5×
 // faster — a stronger ramp than the smoother `windMultiplier` so an active
 // stress event reads as a flurry of carrier pigeons leaving the loft.
@@ -196,26 +287,26 @@ export function dispatchGapForThreat(baseSeconds: number, threat: ThreatLevel): 
 
 export const BIRDS: readonly BirdConfig[] = [
   // Lighthouse harbor gulls — the existing 9 ambient flocks.
-  { species: "gull", scale: 1.14, phase: 0.1, route: { kind: "orbit", anchor: "lighthouse", anchorX: -4.2, anchorY: -3.2, radiusX: 3.8, radiusY: 1.4, speed: 0.24 } },
-  { species: "gull", scale: 0.98, phase: 1.9, route: { kind: "orbit", anchor: "lighthouse", anchorX: -1.4, anchorY: -5.2, radiusX: 4.4, radiusY: 1.7, speed: 0.2 } },
-  { species: "gull", scale: 0.9,  phase: 3.4, route: { kind: "orbit", anchor: "lighthouse", anchorX: 2.8, anchorY: -4.3, radiusX: 3.2, radiusY: 1.2, speed: 0.23 } },
-  { species: "gull", scale: 0.76, phase: 0.6, route: { kind: "orbit", anchor: "lighthouse", anchorX: -18.5, anchorY: -10.8, radiusX: 8.5, radiusY: 2.2, speed: 0.13 } },
-  { species: "gull", scale: 0.68, phase: 2.8, route: { kind: "orbit", anchor: "lighthouse", anchorX: -29.5, anchorY: 4.4, radiusX: 7.4, radiusY: 1.8, speed: 0.15 } },
-  { species: "gull", scale: 0.72, phase: 4.2, route: { kind: "orbit", anchor: "lighthouse", anchorX: 10.5, anchorY: -15.5, radiusX: 8.8, radiusY: 2.6, speed: 0.12 } },
-  { species: "gull", scale: 0.62, phase: 5.3, route: { kind: "orbit", anchor: "lighthouse", anchorX: 18.2, anchorY: 2.2, radiusX: 6.2, radiusY: 1.6, speed: 0.18 } },
-  { species: "gull", scale: 0.84, phase: 2.2, route: { kind: "orbit", anchor: "lighthouse", anchorX: 7.2, anchorY: -7.6, radiusX: 5.2, radiusY: 1.5, speed: 0.19 } },
-  { species: "gull", scale: 0.82, phase: 4.9, route: { kind: "orbit", anchor: "lighthouse", anchorX: -9.8, anchorY: -8.2, radiusX: 5.8, radiusY: 1.7, speed: 0.17 } },
+  orbitBird("gull", 1.14, 0.1, "lighthouse", -4.2, -3.2, 3.8, 1.4, 0.24),
+  orbitBird("gull", 0.98, 1.9, "lighthouse", -1.4, -5.2, 4.4, 1.7, 0.2),
+  orbitBird("gull", 0.9, 3.4, "lighthouse", 2.8, -4.3, 3.2, 1.2, 0.23),
+  orbitBird("gull", 0.76, 0.6, "lighthouse", -18.5, -10.8, 8.5, 2.2, 0.13),
+  orbitBird("gull", 0.68, 2.8, "lighthouse", -29.5, 4.4, 7.4, 1.8, 0.15),
+  orbitBird("gull", 0.72, 4.2, "lighthouse", 10.5, -15.5, 8.8, 2.6, 0.12),
+  orbitBird("gull", 0.62, 5.3, "lighthouse", 18.2, 2.2, 6.2, 1.6, 0.18),
+  orbitBird("gull", 0.84, 2.2, "lighthouse", 7.2, -7.6, 5.2, 1.5, 0.19),
+  orbitBird("gull", 0.82, 4.9, "lighthouse", -9.8, -8.2, 5.8, 1.7, 0.17),
   // Resident carrier pigeons orbiting the dovecote — tighter, faster radii.
-  { species: "pigeon", scale: 0.62, phase: 0.0, route: { kind: "orbit", anchor: "pigeonnier", anchorX: -1.0, anchorY: -1.8, radiusX: 1.8, radiusY: 0.7, speed: 0.42 } },
-  { species: "pigeon", scale: 0.58, phase: 1.7, route: { kind: "orbit", anchor: "pigeonnier", anchorX: 0.6, anchorY: -1.4, radiusX: 1.4, radiusY: 0.55, speed: 0.5 } },
-  { species: "pigeon", scale: 0.54, phase: 3.6, route: { kind: "orbit", anchor: "pigeonnier", anchorX: -0.2, anchorY: -2.4, radiusX: 2.2, radiusY: 0.85, speed: 0.36 } },
+  orbitBird("pigeon", 0.62, 0, "pigeonnier", -1, -1.8, 1.8, 0.7, 0.42),
+  orbitBird("pigeon", 0.58, 1.7, "pigeonnier", 0.6, -1.4, 1.4, 0.55, 0.5),
+  orbitBird("pigeon", 0.54, 3.6, "pigeonnier", -0.2, -2.4, 2.2, 0.85, 0.36),
   // Closed shuttle courier — back-and-forth between lighthouse and dovecote,
   // visually linking the two watch landmarks. Period scales with threat.
-  { species: "pigeon", scale: 0.66, phase: 0.0, route: { kind: "shuttle", from: "pigeonnier", to: "lighthouse", basePeriod: 36, arcLift: 4.0 } },
+  shuttleBird(0.66, 36, 4),
   // Open-sea dispatch — periodic carrier pigeon launching SE off-map. Cadence
   // accelerates with active DEWS threat to mirror the bot's role: more alerts
   // when stablecoins wobble.
-  { species: "pigeon", scale: 0.6, phase: 0.0, route: { kind: "dispatch", origin: "pigeonnier", destination: { x: 65, y: 60 }, flightDuration: 6, baseGapSeconds: 45, arcLift: 3.0 } },
+  dispatchBird(0.6, 6, 45, 3),
 ];
 
 export interface BirdSample {
@@ -283,16 +374,16 @@ export function sampleBird(
 }
 
 const SEA_MIST_PATCHES = [
-  { x: 22.5, y: 16.2, rx: 5.8, ry: 1.8, phase: 0.3, speed: 0.018 },
-  { x: 28.1, y: 18.5, rx: 7.2, ry: 2.1, phase: 1.7, speed: 0.014 },
-  { x: 33.6, y: 15.8, rx: 6.1, ry: 1.9, phase: 3.1, speed: 0.021 },
-  { x: 44.2, y: 24.3, rx: 6.8, ry: 2.0, phase: 0.9, speed: 0.016 },
-  { x: 50.1, y: 29.8, rx: 8.0, ry: 2.4, phase: 2.4, speed: 0.013 },
-  { x: 47.5, y: 33.1, rx: 5.5, ry: 1.7, phase: 4.2, speed: 0.019 },
-  { x: 6.8,  y: 26.4, rx: 6.3, ry: 1.9, phase: 1.2, speed: 0.017 },
-  { x: 10.2, y: 30.2, rx: 7.5, ry: 2.2, phase: 5.1, speed: 0.015 },
-  { x: 20.4, y: 54.3, rx: 7.8, ry: 2.3, phase: 2.8, speed: 0.012 },
-  { x: 36.7, y: 57.1, rx: 6.6, ry: 2.0, phase: 0.6, speed: 0.020 },
+  [22.5, 16.2, 5.8, 1.8, 0.3, 0.018],
+  [28.1, 18.5, 7.2, 2.1, 1.7, 0.014],
+  [33.6, 15.8, 6.1, 1.9, 3.1, 0.021],
+  [44.2, 24.3, 6.8, 2, 0.9, 0.016],
+  [50.1, 29.8, 8, 2.4, 2.4, 0.013],
+  [47.5, 33.1, 5.5, 1.7, 4.2, 0.019],
+  [6.8, 26.4, 6.3, 1.9, 1.2, 0.017],
+  [10.2, 30.2, 7.5, 2.2, 5.1, 0.015],
+  [20.4, 54.3, 7.8, 2.3, 2.8, 0.012],
+  [36.7, 57.1, 6.6, 2, 0.6, 0.02],
 ] as const;
 
 export function drawAtmosphere(input: DrawPharosVilleInput, lighthouse?: LighthouseRenderState): void {
@@ -422,16 +513,16 @@ function drawPigeon(ctx: CanvasRenderingContext2D, x: number, y: number, zoom: n
 export function drawDecorativeLights({ camera, ctx, motion }: DrawPharosVilleInput): void {
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
   for (const light of VILLAGE_LIGHTS) {
-    const p = tileToScreen(light, camera);
-    const phase = time + light.x * 0.31 + light.y * 0.17;
-    const swayPhase = (light.x * 0.7 + light.y * 0.4) % (Math.PI * 2);
+    const p = tileToScreen({ x: light[0], y: light[1] }, camera);
+    const phase = time + light[0] * 0.31 + light[1] * 0.17;
+    const swayPhase = (light[0] * 0.7 + light[1] * 0.4) % (Math.PI * 2);
     const sway = motion.reducedMotion ? 0 : Math.sin(time * 0.9 + swayPhase);
-    const swayX = sway * 1.6 * camera.zoom * light.size;
+    const swayX = sway * 1.6 * camera.zoom * light[2];
     const swayRot = sway * 0.04;
     ctx.save();
     ctx.translate(p.x + swayX, p.y);
     ctx.rotate(swayRot);
-    drawLamp(ctx, 0, 0, camera.zoom * light.size, phase);
+    drawLamp(ctx, 0, 0, camera.zoom * light[2], phase);
     ctx.restore();
   }
 }
@@ -444,10 +535,6 @@ export function drawBioluminescentSparkles(
   if (nightFactor <= 0) return;
   const { camera, ctx, motion, width, height } = input;
   const { firePoint } = lighthouse ?? lighthouseRenderState(input);
-  // Suppress sparkles inside the warm pool — cyan + warm amber stack to white
-  // and wash both effects out. Match the lighthouse pool radius.
-  const haloRadius = NIGHT_WATER_POOL_RADIUS * camera.zoom;
-  const haloRadiusSq = haloRadius * haloRadius;
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
   const seaState = seaStateForWorld(input.world, {
     reducedMotion: motion.reducedMotion,
@@ -470,12 +557,9 @@ export function drawBioluminescentSparkles(
     const py = sp.isoY * zoom + offsetY;
     if (px < minX || px > maxX || py < minY || py > maxY) continue;
 
-    const dx = px - firePoint.x;
-    const dy = py - firePoint.y;
-    const distSq = dx * dx + dy * dy;
-    if (distSq < haloRadiusSq) continue;
+    const pathScale = pyreWaterPathSparkleScale({ x: px, y: py }, firePoint, zoom);
     const twinkle = 0.5 + 0.5 * Math.sin(time * 1.4 * tempo + sp.phase);
-    const alpha = twinkle * twinkle * nightFactor * 0.7;
+    const alpha = twinkle * twinkle * nightFactor * 0.7 * pathScale;
     if (alpha < 0.01) continue;
     const r = Math.max(1, sp.baseRadius * zoom);
     ctx.fillStyle = `rgba(140, 230, 215, ${alpha})`;
@@ -599,7 +683,8 @@ export function drawMoonReflection(input: DrawPharosVilleInput, nightFactor: num
   ctx.globalCompositeOperation = "lighter";
   const cx = width * 0.28;
   const cy = height * 0.38;
-  const radius = Math.hypot(width, height) * 0.42;
+  const diagonal = Math.hypot(width, height);
+  const radius = diagonal * 0.32;
   const grad = moonReflectionGradient(ctx, {
     cx,
     cy,
@@ -614,7 +699,7 @@ export function drawMoonReflection(input: DrawPharosVilleInput, nightFactor: num
   ctx.translate(cx, cy);
   ctx.rotate(-0.55);
   ctx.beginPath();
-  ctx.ellipse(0, 0, radius, Math.hypot(width, height) * 0.09, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, radius, diagonal * 0.055, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
   ctx.restore();
@@ -655,9 +740,9 @@ function moonReflectionGradient(
     params.cy,
     Math.max(1, params.radius),
   );
-  grad.addColorStop(0, `rgba(140, 170, 220, ${0.075 * nightFactor})`);
-  grad.addColorStop(0.35, `rgba(115, 150, 205, ${0.034 * nightFactor})`);
-  grad.addColorStop(1, "rgba(100, 135, 200, 0)");
+  grad.addColorStop(0, `rgba(108, 152, 214, ${0.034 * nightFactor})`);
+  grad.addColorStop(0.38, `rgba(78, 116, 178, ${0.014 * nightFactor})`);
+  grad.addColorStop(1, "rgba(52, 86, 146, 0)");
   cache.set(key, grad);
   if (cache.size > MOON_REFLECTION_GRADIENT_CACHE_LIMIT) {
     const oldest = cache.keys().next().value;
@@ -710,14 +795,14 @@ export function drawSeaMist(input: DrawPharosVilleInput, nightFactor: number): v
   ctx.save();
   for (let i = 0; i < SEA_MIST_PATCHES.length; i += 1) {
     const patch = SEA_MIST_PATCHES[i]!;
-    const threat = threatForPoint(world, patch.x, patch.y);
-    const driftSpeed = patch.speed * wind;
-    const drift = Math.sin(time * driftSpeed + patch.phase) * 0.4;
-    const p = tileToScreen({ x: patch.x + drift, y: patch.y + drift * 0.3 }, camera);
+    const threat = threatForPoint(world, patch[0], patch[1]);
+    const driftSpeed = patch[5] * wind;
+    const drift = Math.sin(time * driftSpeed + patch[4]) * 0.4;
+    const p = tileToScreen({ x: patch[0] + drift, y: patch[1] + drift * 0.3 }, camera);
     // Alpha multiplier: 1.0 at CALM, scales up to ~1.7 at DANGER so storm
     // patches read as denser fog.
     const alphaScale = 1 + threat * 0.18;
-    const baseAlpha = 0.042 + Math.sin(time * driftSpeed * 1.8 + patch.phase) * 0.012;
+    const baseAlpha = 0.042 + Math.sin(time * driftSpeed * 1.8 + patch[4]) * 0.012;
     const alpha = baseAlpha * alphaScale * nightFactor;
     ctx.fillStyle = seaMistFillFor(alpha);
     ctx.beginPath();
@@ -726,8 +811,8 @@ export function drawSeaMist(input: DrawPharosVilleInput, nightFactor: number): v
     ctx.ellipse(
       p.x,
       p.y,
-      patch.rx * camera.zoom * 12 * radiusScale,
-      patch.ry * camera.zoom * 12 * radiusScale,
+      patch[2] * camera.zoom * 12 * radiusScale,
+      patch[3] * camera.zoom * 12 * radiusScale,
       -0.12,
       0,
       Math.PI * 2,

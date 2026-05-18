@@ -66,48 +66,76 @@ const SKY_MOODS = {
     waterVeil: "rgba(16, 86, 99, 0.2)",
   },
   night: {
-    horizon: "#183154",
-    horizonBleedAlpha: 0.08,
-    lower: "#050812",
-    mist: "rgba(200, 219, 205, 0.12)",
-    moonAlpha: 0.74,
-    starAlpha: 0.58,
+    horizon: "#102f30",
+    horizonBleedAlpha: 0.05,
+    lower: "#03070d",
+    mist: "rgba(96, 145, 132, 0.08)",
+    moonAlpha: 0.42,
+    starAlpha: 0.68,
     sunAlpha: 0,
-    top: "#100b12",
-    waterVeil: "rgba(7, 9, 16, 0.22)",
+    top: "#050308",
+    waterVeil: "rgba(2, 7, 10, 0.3)",
   },
 } as const;
 
 const SKY_STARS = [
-  { x: 0.11, y: 0.1, size: 1.1 },
-  { x: 0.14, y: 0.31, size: 0.7 },
-  { x: 0.18, y: 0.22, size: 0.8 },
-  { x: 0.23, y: 0.07, size: 0.6 },
-  { x: 0.31, y: 0.14, size: 1 },
-  { x: 0.36, y: 0.28, size: 0.65 },
-  { x: 0.44, y: 0.08, size: 0.7 },
-  { x: 0.51, y: 0.24, size: 0.9 },
-  { x: 0.58, y: 0.18, size: 1.2 },
-  { x: 0.63, y: 0.06, size: 0.6 },
-  { x: 0.69, y: 0.09, size: 0.8 },
-  { x: 0.75, y: 0.25, size: 0.75 },
-  { x: 0.83, y: 0.16, size: 1 },
-  { x: 0.92, y: 0.26, size: 0.7 },
+  [0.06, 0.09, 0.85],
+  [0.1, 0.16, 0.5],
+  [0.14, 0.28, 0.65],
+  [0.18, 0.1, 0.75],
+  [0.22, 0.21, 0.55],
+  [0.27, 0.06, 0.95],
+  [0.31, 0.15, 0.7],
+  [0.35, 0.31, 0.5],
+  [0.4, 0.1, 0.8],
+  [0.44, 0.23, 0.6],
+  [0.48, 0.16, 1.05],
+  [0.52, 0.29, 0.55],
+  [0.56, 0.08, 0.7],
+  [0.6, 0.19, 0.6],
+  [0.64, 0.32, 0.85],
+  [0.68, 0.12, 0.55],
+  [0.72, 0.24, 0.75],
+  [0.76, 0.07, 1.1],
+  [0.81, 0.17, 0.7],
+  [0.86, 0.3, 0.55],
+  [0.91, 0.12, 0.9],
+  [0.95, 0.23, 0.55],
+  [0.08, 0.36, 0.45],
+  [0.24, 0.34, 0.6],
+  [0.38, 0.36, 0.55],
+  [0.5, 0.38, 0.7],
+  [0.62, 0.36, 0.55],
+  [0.74, 0.35, 0.6],
+  [0.88, 0.38, 0.5],
+  [0.16, 0.05, 0.5],
+  [0.33, 0.24, 0.65],
+  [0.46, 0.06, 0.55],
+  [0.58, 0.26, 0.8],
+  [0.7, 0.18, 0.55],
+  [0.82, 0.06, 0.65],
+  [0.12, 0.24, 0.75],
+  [0.54, 0.13, 0.65],
+  [0.94, 0.34, 0.45],
 ] as const;
 
-const SKY_CONSTELLATIONS = [
-  [0, 2],
-  [2, 4],
-  [4, 7],
-  [8, 10],
-  [10, 11],
-  [11, 13],
+const SKY_CONSTELLATION_ROUTES = [
+  [0, 3, 6, 9],
+  [5, 8, 10, 13],
+  [17, 15, 16, 14],
+  [34, 18, 21, 28],
 ] as const;
 
 const SKY_CLOUDS = [
-  { alpha: 0.22, rx: 170, ry: 18, x: 0.2, y: 0.36 },
-  { alpha: 0.16, rx: 210, ry: 22, x: 0.62, y: 0.33 },
-  { alpha: 0.14, rx: 140, ry: 16, x: 0.84, y: 0.43 },
+  [0.22, 170, 18, 0.2, 0.36],
+  [0.16, 210, 22, 0.62, 0.33],
+  [0.14, 140, 16, 0.84, 0.43],
+] as const;
+
+const SKY_NIGHT_VEILS = [
+  [0.13, 340, 20, -0.05, 0.24, 0.2],
+  [0.11, 300, 18, 0.04, 0.7, 0.31],
+  [0.08, 260, 14, -0.02, 0.5, 0.39],
 ] as const;
 
 type SkyMoodKey = keyof typeof SKY_MOODS;
@@ -142,7 +170,7 @@ const SKY_CLOUD_STROKES: Record<SkyMoodKey, readonly (readonly string[])[]> = ((
       const { alphaScale } = cloudScalarsForThreat(threat);
       const row: string[] = [];
       for (const cloud of SKY_CLOUDS) {
-        const alpha = Math.min(0.95, cloud.alpha * alphaScale);
+        const alpha = Math.min(0.95, cloud[0] * alphaScale);
         row.push(mist.replace(/[\d.]+\)$/, `${alpha.toFixed(3)})`));
       }
       result[moodKey].push(row);
@@ -292,7 +320,8 @@ export function drawSky(input: DrawPharosVilleInput, lighthouse?: LighthouseRend
   drawCelestialArc(ctx, width, height, camera.zoom, state);
   drawSun(ctx, width, height, camera.zoom, state);
   drawMoon(ctx, width, height, camera.zoom, state);
-  drawStars(ctx, width, height, camera.zoom, state, motion, wind);
+  drawStars(ctx, width, height, camera.zoom, state, motion, wind, firePointX, firePointY);
+  drawNightCloudVeils(ctx, width, height, camera.zoom, state);
   drawHorizonShips(ctx, width, height, camera.zoom, state, motion);
   drawSkyClouds(ctx, width, height, camera.zoom, state, motion, threat, wind);
   ctx.restore();
@@ -401,23 +430,45 @@ function drawMoon(
   state: ReturnType<typeof skyState>,
 ) {
   if (state.mood.moonAlpha <= 0) return;
+  const isNight = moodKeyFor(state.mood) === "night";
   const point = skyPathPoint(width, height, state.progress, 0.5);
-  const radius = 14 * zoom;
+  const radius = (isNight ? 11 : 14) * zoom;
   ctx.save();
   const zoomBucket = (zoom * 100) | 0;
   const phaseBucket = quantizeSkyProgress(state.progress);
   const moonKey = `${width|0}x${height|0}|${moodKeyFor(state.mood)}|z${zoomBucket}|p${phaseBucket}`;
   let glow = moonGlowGradientCache.get(moonKey);
   if (!glow) {
-    glow = ctx.createRadialGradient(point.x, point.y, radius * 0.5, point.x, point.y, radius * 4.2);
-    glow.addColorStop(0, `rgba(220, 231, 220, ${0.32 * state.mood.moonAlpha})`);
-    glow.addColorStop(1, "rgba(220, 231, 220, 0)");
+    const glowRadius = isNight ? radius * 3.1 : radius * 4.2;
+    glow = ctx.createRadialGradient(point.x, point.y, radius * 0.5, point.x, point.y, glowRadius);
+    glow.addColorStop(0, isNight
+      ? `rgba(154, 178, 157, ${0.14 * state.mood.moonAlpha})`
+      : `rgba(220, 231, 220, ${0.32 * state.mood.moonAlpha})`);
+    glow.addColorStop(1, isNight ? "rgba(154, 178, 157, 0)" : "rgba(220, 231, 220, 0)");
     rememberGradient(moonGlowGradientCache, moonKey, glow);
   }
   ctx.fillStyle = glow;
   ctx.beginPath();
-  ctx.arc(point.x, point.y, radius * 4.2, 0, Math.PI * 2);
+  ctx.arc(point.x, point.y, isNight ? radius * 3.1 : radius * 4.2, 0, Math.PI * 2);
   ctx.fill();
+
+  if (isNight) {
+    ctx.fillStyle = `rgba(185, 186, 145, ${0.5 * state.mood.moonAlpha})`;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = `rgba(4, 6, 10, ${0.88 * state.mood.moonAlpha})`;
+    ctx.beginPath();
+    ctx.arc(point.x + radius * 0.38, point.y - radius * 0.04, radius * 1.06, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = `rgba(193, 112, 69, ${0.36 * state.mood.moonAlpha})`;
+    ctx.lineWidth = Math.max(1, 1.1 * zoom);
+    ctx.beginPath();
+    ctx.arc(point.x - radius * 0.04, point.y, radius * 0.98, Math.PI * 0.58, Math.PI * 1.38);
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
 
   ctx.globalAlpha = state.mood.moonAlpha;
   ctx.fillStyle = "#e5dcc0";
@@ -444,8 +495,11 @@ function drawStars(
   state: ReturnType<typeof skyState>,
   motion: PharosVilleCanvasMotion,
   windScale: number,
+  focusX: number,
+  focusY: number,
 ) {
   if (state.mood.starAlpha <= 0) return;
+  const isNight = moodKeyFor(state.mood) === "night";
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
   // Parallax: slow horizontal drift (depth-modulated) wrapped over the
   // viewport width so stars never leave the sky band. Wind multiplier scales
@@ -454,35 +508,107 @@ function drawStars(
   const driftBase = motion.reducedMotion ? 0 : time * 1.6 * 0.3 * zoom * windScale;
   ctx.save();
   ctx.globalAlpha = state.mood.starAlpha;
-  ctx.strokeStyle = "rgba(245, 231, 184, 0.22)";
+  ctx.strokeStyle = isNight ? "rgba(137, 185, 166, 0.2)" : "rgba(245, 231, 184, 0.22)";
   ctx.lineWidth = Math.max(1, zoom * 0.75);
-  for (const [from, to] of SKY_CONSTELLATIONS) {
-    const start = SKY_STARS[from];
-    const end = SKY_STARS[to];
-    if (!start || !end) continue;
-    const fromDepth = 0.6 + ((from * 37) % 100) / 250;
-    const sx = ((width * start.x + driftBase * fromDepth) % width + width) % width;
-    const toDepth = 0.6 + ((to * 37) % 100) / 250;
-    const ex = ((width * end.x + driftBase * toDepth) % width + width) % width;
-    if (Math.abs(ex - sx) > width * 0.5) continue;
-    ctx.beginPath();
-    ctx.moveTo(sx, height * start.y);
-    ctx.lineTo(ex, height * end.y);
-    ctx.stroke();
+  for (const route of SKY_CONSTELLATION_ROUTES) {
+    for (let i = 0; i < route.length - 1; i += 1) {
+      drawStarRouteSegment(ctx, width, height, driftBase, route[i]!, route[i + 1]!);
+    }
+  }
+  if (isNight) {
+    const target = {
+      x: Math.max(width * 0.18, Math.min(width * 0.82, focusX)),
+      y: Math.max(height * 0.1, Math.min(height * 0.42, focusY - 116 * zoom)),
+    };
+    ctx.strokeStyle = `rgba(111, 174, 154, ${0.18 + state.nightFactor * 0.1})`;
+    ctx.setLineDash([3 * zoom, 7 * zoom]);
+    for (const route of SKY_CONSTELLATION_ROUTES) {
+      const end = starScreenPoint(route[route.length - 1]!, width, height, driftBase);
+      if (!end || Math.abs(target.x - end.x) > width * 0.5) continue;
+      const pullX = end.x + (target.x - end.x) * 0.62;
+      const pullY = end.y + (target.y - end.y) * 0.62;
+      ctx.beginPath();
+      ctx.moveTo(end.x, end.y);
+      ctx.lineTo(pullX, pullY);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
   }
 
   for (const [index, star] of SKY_STARS.entries()) {
     const twinkle = motion.reducedMotion ? 1 : 0.78 + Math.sin(time * 0.9 + index * 1.7) * 0.22;
-    const size = Math.max(1, star.size * zoom * twinkle * (0.85 + zoom * 0.3));
+    const baseSize = star[2];
+    const size = Math.max(1, baseSize * zoom * twinkle * (0.85 + zoom * 0.3));
     const depth = 0.6 + ((index * 37) % 100) / 250;
-    const x = Math.round(((width * star.x + driftBase * depth) % width + width) % width);
-    const y = Math.round(height * star.y);
-    ctx.fillStyle = index % 4 === 0 ? "#fff3c7" : "#e9f0d8";
+    const x = Math.round(((width * star[0] + driftBase * depth) % width + width) % width);
+    const y = Math.round(height * star[1]);
+    ctx.fillStyle = isNight
+      ? (index % 5 === 0 ? "#d5c68f" : index % 3 === 0 ? "#b8d7c8" : "#dce8cf")
+      : (index % 4 === 0 ? "#fff3c7" : "#e9f0d8");
     ctx.fillRect(x, y, size, size);
-    if (star.size > 0.95) {
+    if (baseSize > 0.95) {
       ctx.fillRect(x - Math.round(size), y, size, Math.max(1, size * 0.45));
       ctx.fillRect(x, y - Math.round(size), Math.max(1, size * 0.45), size);
     }
+  }
+  ctx.restore();
+}
+
+function starScreenPoint(
+  index: number,
+  width: number,
+  height: number,
+  driftBase: number,
+): { x: number; y: number } | null {
+  const star = SKY_STARS[index];
+  if (!star) return null;
+  const depth = 0.6 + ((index * 37) % 100) / 250;
+  return {
+    x: ((width * star[0] + driftBase * depth) % width + width) % width,
+    y: height * star[1],
+  };
+}
+
+function drawStarRouteSegment(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  driftBase: number,
+  from: number,
+  to: number,
+): void {
+  const start = starScreenPoint(from, width, height, driftBase);
+  const end = starScreenPoint(to, width, height, driftBase);
+  if (!start || !end || Math.abs(end.x - start.x) > width * 0.5) return;
+  ctx.beginPath();
+  ctx.moveTo(start.x, start.y);
+  ctx.lineTo(end.x, end.y);
+  ctx.stroke();
+}
+
+function drawNightCloudVeils(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  zoom: number,
+  state: ReturnType<typeof skyState>,
+): void {
+  if (state.nightFactor <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = state.nightFactor;
+  for (const [alpha, rx, ry, tilt, x, y] of SKY_NIGHT_VEILS) {
+    ctx.fillStyle = `rgba(1, 5, 9, ${alpha})`;
+    ctx.beginPath();
+    ctx.ellipse(
+      width * x,
+      height * y,
+      rx * zoom,
+      ry * zoom,
+      tilt,
+      0,
+      Math.PI * 2,
+    );
+    ctx.fill();
   }
   ctx.restore();
 }
@@ -545,16 +671,16 @@ function drawSkyClouds(
   const driftScale = motion.reducedMotion ? 0 : 1;
   for (let i = 0; i < SKY_CLOUDS.length; i += 1) {
     const cloud = SKY_CLOUDS[i]!;
-    const drift = ambientWindPhase(motion, cloud.x * 8) * 22 * zoom * windScale * driftScale;
+    const drift = ambientWindPhase(motion, cloud[3] * 8) * 22 * zoom * windScale * driftScale;
     const horizontalDrift = motion.reducedMotion ? 0 : Math.sin(time * 0.12 * windScale + i * 1.3) * 8 * zoom;
     ctx.strokeStyle = strokes[i]!;
     ctx.lineWidth = Math.max(1, 5 * zoom * scalars.thicknessScale);
     ctx.beginPath();
     ctx.ellipse(
-      width * cloud.x + drift + horizontalDrift,
-      height * (cloud.y + scalars.yBias),
-      cloud.rx * zoom * scalars.thicknessScale,
-      cloud.ry * zoom * scalars.thicknessScale,
+      width * cloud[3] + drift + horizontalDrift,
+      height * (cloud[4] + scalars.yBias),
+      cloud[1] * zoom * scalars.thicknessScale,
+      cloud[2] * zoom * scalars.thicknessScale,
       -0.08,
       0,
       Math.PI * 2,

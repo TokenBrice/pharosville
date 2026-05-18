@@ -1,10 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PharosVilleWorld } from "../../systems/world-types";
+import { buildRecordingCanvasContext } from "../__test-utils__/canvas-context-builder";
 import { createCanvasContextStub, createDrawInput } from "../__test-utils__/draw-input";
 import {
   BIRDS,
+  bioluminescentSparkleWarmPathScaleForTest,
   birdAnchorTile,
   dispatchGapForThreat,
+  drawBioluminescentSparkles,
   drawMoonReflection,
   sampleBird,
   sparklePointDensityStatsForTest,
@@ -155,6 +158,64 @@ describe("ambient sparkle density", () => {
     expect(stats.renderedEastern).toBe(Math.ceil(stats.authoredEastern / 2));
     expect(stats.renderedTotal).toBe(stats.authoredTotal - Math.floor(stats.authoredEastern / 2));
   });
+
+  it("attenuates sparkles in the warm pyre path while preserving edge contrast", () => {
+    const firePoint = { x: 100, y: 80 };
+    const core = bioluminescentSparkleWarmPathScaleForTest({ x: 8, y: 198 }, firePoint, 1, 0.5);
+    const edge = bioluminescentSparkleWarmPathScaleForTest({ x: -252, y: 198 }, firePoint, 1, 2.61);
+    const openWater = bioluminescentSparkleWarmPathScaleForTest({ x: -620, y: -220 }, firePoint, 1, 0.5);
+
+    expect(core).toBeLessThan(0.1);
+    expect(edge).toBeGreaterThan(core);
+    expect(edge).toBeLessThan(0.55);
+    expect(openWater).toBe(1);
+  });
+
+  it("keeps reduced-motion sparkle geometry deterministic across redraws", () => {
+    function drawAt(timeSeconds: number) {
+      const recording = buildRecordingCanvasContext({
+        initialValues: {
+          fillStyle: "",
+          globalCompositeOperation: "source-over",
+        },
+      });
+      const input = createDrawInput({
+        camera: { offsetX: 620, offsetY: 80, zoom: 1 },
+        ctx: recording.ctx,
+        height: 720,
+        motion: {
+          plan: {
+            animatedShipIds: new Set(),
+            effectShipIds: new Set(),
+            lighthouseFireFlickerPerSecond: 0,
+            moverShipIds: new Set(),
+            shipPhases: new Map(),
+            shipRoutes: new Map(),
+          },
+          reducedMotion: true,
+          timeSeconds,
+          wallClockHour: 22,
+        },
+        width: 1280,
+        world: makeWorld(),
+      });
+
+      drawBioluminescentSparkles(
+        input,
+        1,
+        { firePoint: { x: 180, y: 180 } } as NonNullable<Parameters<typeof drawBioluminescentSparkles>[2]>,
+      );
+      return {
+        calls: recording.calls.map((call) => ({
+          args: call.args.map((arg) => (typeof arg === "number" ? Number(arg.toFixed(4)) : arg)),
+          method: call.method,
+        })),
+        fillStyle: recording.setStyles.fillStyle,
+      };
+    }
+
+    expect(drawAt(4.2)).toEqual(drawAt(92.8));
+  });
 });
 
 describe("ambient moon reflection", () => {
@@ -174,5 +235,30 @@ describe("ambient moon reflection", () => {
 
     expect(ctx.createRadialGradient).toHaveBeenCalledTimes(1);
     expect(ctx.fill).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the moon reflection cool and weaker than the pyre light budget", () => {
+    const stops: string[] = [];
+    const gradient = {
+      addColorStop: vi.fn((_offset: number, color: string) => stops.push(color)),
+    };
+    const ctx = createCanvasContextStub(
+      ["beginPath", "ellipse", "fill", "restore", "rotate", "save", "translate"],
+      {
+        createRadialGradient: vi.fn(() => gradient),
+        fillStyle: "",
+      },
+    );
+    const input = createDrawInput({ ctx, dpr: 2, height: 600, width: 800 });
+
+    drawMoonReflection(input, 1);
+
+    const alphas = stops
+      .map((color) => /rgba\(\d+, \d+, \d+, ([\d.]+)\)/.exec(color)?.[1])
+      .filter((alpha): alpha is string => alpha !== undefined)
+      .map(Number);
+    expect(Math.max(...alphas)).toBeLessThanOrEqual(0.034);
+    expect(stops[0]).toContain("108, 152, 214");
+    expect(stops[1]).toContain("78, 116, 178");
   });
 });

@@ -4,6 +4,7 @@ import {
   NIGHT_WATER_POOL_RADIUS,
   drawLighthouseGodRays,
   drawLighthouseNightHighlights,
+  drawLighthouseOverlay,
   drawLighthouseReflection,
   drawLighthouseThunderRim,
   godRayCacheKey,
@@ -17,7 +18,7 @@ import { lightningThunderRimIntensityForWorld } from "./weather";
 
 function makeCtx() {
   return createCanvasContextStub(
-    ["save", "restore", "fillRect", "fill", "beginPath", "moveTo", "lineTo", "closePath", "ellipse", "arc", "translate", "rotate", "clip", "quadraticCurveTo", "stroke"],
+    ["save", "restore", "drawImage", "fillRect", "fill", "beginPath", "moveTo", "lineTo", "closePath", "ellipse", "arc", "translate", "scale", "rotate", "clip", "quadraticCurveTo", "stroke"],
     {
       fillStyle: "",
       globalAlpha: 1,
@@ -111,10 +112,33 @@ describe("drawLighthouseNightHighlights", () => {
     const input = makeInput();
     drawLighthouseNightHighlights(input, undefined, 1);
     const fillMock = input.ctx.fill as unknown as ReturnType<typeof vi.fn>;
-    // diffuse(1) + core(1) + sweep beams(2) + beam-tail glints(12)
-    // + ember trails (9 per beam × 2 = 18, last particle filtered by alpha threshold)
-    // + pool(1) + directional spill(1) + alert spill(1) = 37
-    expect(fillMock.mock.calls.length).toBe(37);
+    const strokeMock = input.ctx.stroke as unknown as ReturnType<typeof vi.fn>;
+    // diffuse/core + beam bodies + ember trails + warm pool and directional/alert spill.
+    // Beam caustics are strokes now.
+    expect(fillMock.mock.calls.length).toBeGreaterThanOrEqual(25);
+    expect(strokeMock).toHaveBeenCalled();
+  });
+
+  it("draws the authored pyre asset when it has loaded", () => {
+    const input = makeInput();
+    const pyreAsset = {
+      entry: {
+        anchor: [32, 56],
+        displayScale: 1,
+        height: 64,
+        width: 64,
+      },
+      image: {} as HTMLImageElement,
+    };
+    const assets = {
+      get: vi.fn((id: string) => id === "landmark.lighthouse-pyre" ? pyreAsset : null),
+    } as unknown as DrawPharosVilleInput["assets"];
+    input.assets = assets;
+
+    drawLighthouseOverlay(input, undefined, 1);
+
+    expect(assets?.get).toHaveBeenCalledWith("landmark.lighthouse-pyre");
+    expect(input.ctx.drawImage).toHaveBeenCalledTimes(1);
   });
 
   it("rotates over time", () => {

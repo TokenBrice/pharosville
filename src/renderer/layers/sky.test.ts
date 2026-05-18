@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { skyState } from "./sky";
+import { buildRecordingCanvasContext, createGradientStub } from "../__test-utils__/canvas-context-builder";
+import { createDrawInput } from "../__test-utils__/draw-input";
+import { drawSky, skyState } from "./sky";
 import type { PharosVilleCanvasMotion } from "../render-types";
 
 function motionAt(wallClockHour: number, reducedMotion = false): PharosVilleCanvasMotion {
@@ -52,7 +54,7 @@ describe("skyState", () => {
 
   describe("mood selection", () => {
     it("returns night before the predawn boundary", () => {
-      expect(skyState(motionAt(4.99)).mood.top).toBe("#100b12");
+      expect(skyState(motionAt(4.99)).mood.top).toBe("#050308");
     });
 
     it("returns predawn from 05:00 until 06:00", () => {
@@ -88,11 +90,23 @@ describe("skyState", () => {
     });
 
     it("returns night at 22:00", () => {
-      expect(skyState(motionAt(22)).mood.top).toBe("#100b12");
+      expect(skyState(motionAt(22)).mood.top).toBe("#050308");
     });
 
     it("returns night at midnight", () => {
-      expect(skyState(motionAt(0)).mood.top).toBe("#100b12");
+      expect(skyState(motionAt(0)).mood.top).toBe("#050308");
+    });
+
+    it("uses an inky mineral night palette with a quieter moon", () => {
+      const { mood } = skyState(motionAt(22));
+      expect(mood).toMatchObject({
+        horizon: "#102f30",
+        lower: "#03070d",
+        mist: "rgba(96, 145, 132, 0.08)",
+        moonAlpha: 0.42,
+        starAlpha: 0.68,
+        waterVeil: "rgba(2, 7, 10, 0.3)",
+      });
     });
   });
 
@@ -119,3 +133,51 @@ describe("skyState", () => {
     });
   });
 });
+
+describe("drawSky", () => {
+  it("renders a dense deterministic reduced-motion night star field", () => {
+    const first = recordReducedMotionNightStars();
+    const second = recordReducedMotionNightStars();
+
+    expect(first.length).toBeGreaterThanOrEqual(38);
+    expect(second).toEqual(first);
+  });
+});
+
+function recordReducedMotionNightStars(): readonly (readonly unknown[])[] {
+  const recording = buildRecordingCanvasContext({
+    returningMethods: {
+      createLinearGradient: createGradientStub,
+      createRadialGradient: createGradientStub,
+    },
+  });
+  const width = 1000;
+  const height = 600;
+  drawSky(
+    createDrawInput({
+      camera: { offsetX: 0, offsetY: 0, zoom: 1 },
+      ctx: recording.ctx,
+      height,
+      motion: motionAt(22, true),
+      width,
+      world: { areas: [], ships: [] } as unknown as ReturnType<typeof createDrawInput>["world"],
+    }),
+    {
+      center: { x: 500, y: 360 },
+      firePoint: { x: 530, y: 300 },
+      lighthouseAsset: undefined,
+      spriteAnchor: { x: 500, y: 360 },
+      spriteScale: 1,
+    } as NonNullable<Parameters<typeof drawSky>[1]>,
+  );
+
+  return recording.callsTo("fillRect").filter(([x, y, w, h]) => {
+    return typeof x === "number"
+      && typeof y === "number"
+      && typeof w === "number"
+      && typeof h === "number"
+      && y <= height * 0.4
+      && w <= 3
+      && h <= 3;
+  });
+}
