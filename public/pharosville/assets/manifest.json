@@ -1192,7 +1192,8 @@
           "rows": 1,
           "frameWidth": 128,
           "frameHeight": 96
-        }
+        },
+        "webpFrameSource": "ships/usde-titan-frames.webp"
       },
       "promptKey": "ship.usde-titan",
       "semanticRole": "Ethena synthetic-dollar titan frigate",
@@ -1204,9 +1205,10 @@
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "reuse:imperial-A:072956fc-8012-4494-958e-9bc238fdd22a",
+        "jobId": "7783b72e-9466-4a67-9e6d-1b405f2e57ce",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "ships/usde-titan.webp"
     },
     {
       "id": "ship.susde-titan",
@@ -1243,7 +1245,8 @@
           "rows": 1,
           "frameWidth": 128,
           "frameHeight": 96
-        }
+        },
+        "webpFrameSource": "ships/susde-titan-frames.webp"
       },
       "promptKey": "ship.susde-titan",
       "semanticRole": "Ethena staked savings titan consort",
@@ -1255,9 +1258,10 @@
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "reuse:imperial-A:072956fc-8012-4494-958e-9bc238fdd22a",
+        "jobId": "6b0ce9ce-3c10-491d-8fd4-834b1bdb79cf",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "ships/susde-titan.webp"
     },
     {
       "id": "ship.pyusd-titan",
@@ -1294,7 +1298,8 @@
           "rows": 1,
           "frameWidth": 128,
           "frameHeight": 96
-        }
+        },
+        "webpFrameSource": "ships/pyusd-titan-frames.webp"
       },
       "promptKey": "ship.pyusd-titan",
       "semanticRole": "PayPal PYUSD titan frigate",
@@ -1306,9 +1311,10 @@
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "reuse:imperial-A:072956fc-8012-4494-958e-9bc238fdd22a",
+        "jobId": "fd40c47d-9363-442a-8da2-ceefd9eb4729",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "ships/pyusd-titan.webp"
     },
     {
       "id": "ship.usd1-titan",
@@ -1345,7 +1351,8 @@
           "rows": 1,
           "frameWidth": 128,
           "frameHeight": 96
-        }
+        },
+        "webpFrameSource": "ships/usd1-titan-frames.webp"
       },
       "promptKey": "ship.usd1-titan",
       "semanticRole": "WLFI USD1 titan frigate",
@@ -1357,9 +1364,10 @@
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "reuse:imperial-A:072956fc-8012-4494-958e-9bc238fdd22a",
+        "jobId": "d0f2f27d-73e0-46ae-adef-88cae0869d17",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "ships/usd1-titan.webp"
     },
     {
       "id": "ship.buidl-titan",
@@ -1396,7 +1404,8 @@
           "rows": 1,
           "frameWidth": 128,
           "frameHeight": 96
-        }
+        },
+        "webpFrameSource": "ships/buidl-titan-frames.webp"
       },
       "promptKey": "ship.buidl-titan",
       "semanticRole": "BlackRock BUIDL titan frigate",
@@ -1408,9 +1417,10 @@
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "reuse:imperial-A:072956fc-8012-4494-958e-9bc238fdd22a",
+        "jobId": "ec37815f-4213-49a6-a8e5-980e17cdce7c",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "ships/buidl-titan.webp"
     },
     {
       "id": "ship.usyc-unique",
@@ -1938,7 +1948,8 @@
           "rows": 1,
           "frameWidth": 192,
           "frameHeight": 128
-        }
+        },
+        "webpFrameSource": "ships/usdt-titan-frames.webp"
       },
       "promptKey": "ship.usdt-titan",
       "semanticRole": "USDT supreme titan stablecoin ship hull",
@@ -1950,9 +1961,10 @@
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "c33f2297-b6ba-4d55-9e3a-1b6023365f06",
+        "jobId": "5f7718ac-4ad5-43a5-85bf-7da336731839",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "ships/usdt-titan.webp"
     },
     {
       "id": "ship.dao-schooner",

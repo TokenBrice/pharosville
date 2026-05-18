@@ -71,17 +71,12 @@ export const SHIP_SAIL_TINT_MASKS: Record<string, SailMaskSpec> = {
       [[69, 76], [96, 72], [106, 91], [78, 89]],
     ],
   },
-  "ship.usdt-titan": {
-    bounds: { x: 26, y: 4, width: 138, height: 112 },
-    polygons: [
-      [[28, 88], [83, 6], [92, 109]],
-      [[86, 13], [111, 9], [110, 91], [88, 83]],
-      [[112, 16], [141, 30], [135, 96], [111, 91]],
-      [[138, 31], [165, 50], [153, 100], [135, 96]],
-      [[54, 108], [82, 59], [95, 111], [64, 112]],
-      [[95, 84], [123, 91], [113, 111], [96, 105]],
-    ],
-  },
+  // W6.01 (decision D7 §6) — `ship.usdt-titan` intentionally absent.
+  // The kraken silhouette is baked into the sprite alongside Tether-teal
+  // sail cloth, so runtime tinting would overpaint the emblem with another
+  // saturated teal pass and erase it. Listed in `ship-sail-tint.test.ts`
+  // `UNTUNED_TITAN_IDS` so the coverage gate skips this id (mirrors the
+  // USDC pattern).
   // Maker consorts (Task 7.5). Polygons derived from per-sprite analysis of
   // sail-tint-eligible pixels (`outputs/task75/derive_masks.py`).
   "ship.dai-titan": {
