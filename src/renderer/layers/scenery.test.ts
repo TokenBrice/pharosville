@@ -20,7 +20,19 @@ const TIME_DEPENDENT_SCENERY_KINDS: readonly SceneryPropKind[] = [
   "harbor-bell",
   "harbor-lamp",
   "moored-dinghy-east",
-  "moored-dinghy-north",
+  "net-rack",
+  "rope-coil",
+  "sundial",
+];
+
+const EXPECTED_DYNAMIC_SCENERY_PLACEMENT_KINDS: readonly SceneryPropKind[] = [
+  "barrel",
+  "buoy",
+  "cargo-stack",
+  "crate-stack",
+  "harbor-bell",
+  "harbor-lamp",
+  "moored-dinghy-east",
   "net-rack",
   "rope-coil",
   "sundial",
@@ -51,11 +63,16 @@ describe("civic vegetation scenery", () => {
 
 describe("scenery motion classification", () => {
   it("classifies bobbing, swaying, wobbling, lit, and wall-clock scenery as dynamic", () => {
-    const dynamicPlacedKinds = new Set(DYNAMIC_SCENERY_PROPS.map((prop) => prop.kind));
-
     for (const kind of TIME_DEPENDENT_SCENERY_KINDS) {
       expect(sceneryMotionClassForKind(kind), `${kind} should be dynamic`).toBe("dynamic");
       expect(DYNAMIC_SCENERY_KINDS.has(kind), `${kind} is missing from dynamic kind set`).toBe(true);
+    }
+  });
+
+  it("places expected dynamic scenery families", () => {
+    const dynamicPlacedKinds = new Set(DYNAMIC_SCENERY_PROPS.map((prop) => prop.kind));
+
+    for (const kind of EXPECTED_DYNAMIC_SCENERY_PLACEMENT_KINDS) {
       expect(dynamicPlacedKinds.has(kind), `${kind} has no dynamic scenery placement`).toBe(true);
     }
   });

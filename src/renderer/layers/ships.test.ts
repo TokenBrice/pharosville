@@ -19,7 +19,6 @@ import {
   resolveTitanBowSprayStrands,
   SHIP_PENNANT_MARKS,
   SHIP_SAIL_MARKS,
-  SHIP_TRIM_COLOR_STORIES,
   SHIP_TRIM_MARKS,
   shipMastTopScreenPoint,
   titanPathCacheStats,
@@ -150,7 +149,7 @@ describe("drawSquadIdentityAccent", () => {
 // --- Per-titan offset table coverage ---------------------------------------
 
 describe("Maker squad titan offset tables", () => {
-  it("every Maker squad titan sprite is registered in all per-titan offset tables", () => {
+  it("every Maker squad titan sprite is registered in sail and tint offset tables", () => {
     const titanIds = [
       "ship.usds-titan",
       "ship.dai-titan",
@@ -161,28 +160,38 @@ describe("Maker squad titan offset tables", () => {
     for (const titanId of titanIds) {
       expect(TITAN_SPRITE_IDS.has(titanId)).toBe(true);
       expect(SHIP_SAIL_MARKS[titanId]).toBeDefined();
-      expect(SHIP_TRIM_MARKS[titanId]).toBeDefined();
       expect(SHIP_SAIL_TINT_MASKS[titanId]).toBeDefined();
     }
   });
 });
 
-describe("titan trim color stories", () => {
-  it("registers the procedural trim story for every Wave 2 titan target", () => {
-    for (const titanId of [
+describe("sprite trim config", () => {
+  it("keeps procedural trim on standard hull sprites only", () => {
+    for (const hull of ["treasury-galleon", "chartered-brigantine", "dao-schooner", "crypto-caravel", "algo-junk"]) {
+      expect(SHIP_TRIM_MARKS[hull]).toBeDefined();
+    }
+
+    for (const richSpriteId of [
       "ship.usdc-titan",
       "ship.usdt-titan",
       "ship.usde-titan",
       "ship.pyusd-titan",
       "ship.buidl-titan",
       "ship.usd1-titan",
+      "ship.usds-titan",
+      "ship.dai-titan",
+      "ship.susds-titan",
+      "ship.sdai-titan",
+      "ship.stusds-titan",
+      "ship.crvusd-unique",
+      "ship.bold-unique",
+      "ship.fxusd-unique",
+      "ship.xaut-unique",
+      "ship.paxg-unique",
+      "ship.usyc-unique",
     ]) {
-      expect(SHIP_TRIM_MARKS[titanId]).toBeDefined();
-      expect(SHIP_TRIM_COLOR_STORIES[titanId]).toBeDefined();
+      expect(SHIP_TRIM_MARKS[richSpriteId], `${richSpriteId} should rely on painted sprite detail`).toBeUndefined();
     }
-    expect(SHIP_TRIM_COLOR_STORIES["ship.usdt-titan"]!.rail).toBe("#009393");
-    expect(SHIP_TRIM_COLOR_STORIES["ship.usde-titan"]!.railDash).toEqual([5, 3]);
-    expect(SHIP_TRIM_COLOR_STORIES["ship.usd1-titan"]!.secondaryRail).toBe("#f4df8f");
   });
 });
 
@@ -507,7 +516,7 @@ describe("titan bow spray orientation", () => {
 // --- Per-unique offset table coverage --------------------------------------
 
 describe("Unique ship offset tables", () => {
-  it("every unique-tier sprite is registered in all per-sprite offset tables", () => {
+  it("every unique-tier sprite is registered in sail and tint offset tables", () => {
     const uniqueIds = [
       "ship.crvusd-unique",
       "ship.xaut-unique",
@@ -515,7 +524,6 @@ describe("Unique ship offset tables", () => {
     ];
     for (const uniqueId of uniqueIds) {
       expect(SHIP_SAIL_MARKS[uniqueId]).toBeDefined();
-      expect(SHIP_TRIM_MARKS[uniqueId]).toBeDefined();
       expect(SHIP_SAIL_TINT_MASKS[uniqueId]).toBeDefined();
     }
   });
@@ -604,7 +612,7 @@ describe("drawShipBody for unique sprites", () => {
 });
 
 describe("drawShipBody titan trim", () => {
-  it("draws procedural trim over titan sprites without changing asset bytes", () => {
+  it("renders titan sprites without runtime trim strokes or deck rectangles", () => {
     const drawAnimatedAssetMock = vi.mocked(canvasPrimitives.drawAnimatedAssetSubpixel);
     drawAnimatedAssetMock.mockClear();
 
@@ -668,8 +676,9 @@ describe("drawShipBody titan trim", () => {
     drawShipBody(input, frame, titan);
 
     expect(drawAnimatedAssetMock).toHaveBeenCalledTimes(1);
-    expect(ctx.calls.some((call) => call.method === "lineTo")).toBe(true);
-    expect(ctx.calls.filter((call) => call.method === "stroke").length).toBeGreaterThanOrEqual(3);
+    expect(ctx.calls.some((call) => call.method === "lineTo")).toBe(false);
+    expect(ctx.calls.some((call) => call.method === "stroke")).toBe(false);
+    expect(ctx.calls.some((call) => call.method === "rect")).toBe(false);
   });
 
   it("holds four-frame titan sheets on a deterministic frame and lets pose carry motion", () => {
