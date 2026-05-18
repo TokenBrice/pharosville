@@ -35,6 +35,9 @@ import {
 import {
   parseArgs as parseAgentInitArgs,
 } from "./pharosville/agent-init.mjs";
+import {
+  buildRuntimeFactsMarkdown,
+} from "./pharosville/generate-runtime-facts.mjs";
 
 const neutralValue = ["alpha", "beta", "gamma", "9876543210"].join("_");
 const guardedEnvKeys = [
@@ -201,6 +204,11 @@ assert.equal(chooseValidationLane(["README.md", "src/main.tsx"]), "full");
 assert.equal(chooseValidationLane([]), "none");
 assert.equal(chooseValidationLane(["AGENTS.md", "CLAUDE.md", "agents/new-plan.md"]), "docs");
 assert.equal(chooseValidationLane(["docs/pharosville/CURRENT.md", "functions/api/[[path]].ts"]), "full");
+
+const runtimeFactsMarkdown = buildRuntimeFactsMarkdown();
+assert.match(runtimeFactsMarkdown, /^# PharosVille Runtime Facts/);
+assert.match(runtimeFactsMarkdown, /## API Allowlist/);
+assert.match(runtimeFactsMarkdown, /## Asset Budgets/);
 
 assert.deepEqual(parseChangedPaths("AM src/index.ts\n D docs/pharosville/AGENT_ONBOARDING.md\n"), [
   "src/index.ts",

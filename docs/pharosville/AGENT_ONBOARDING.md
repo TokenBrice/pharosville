@@ -1,6 +1,6 @@
 # PharosVille Agent Onboarding
 
-Last updated: 2026-05-02
+Last updated: 2026-05-18
 
 Use this file as the fastest path to productive and safe PharosVille work.
 
@@ -34,6 +34,7 @@ For the canonical repo guide — scope rules, change rules, and validation lanes
    - `docs/pharosville/ARCHITECTURE.md`
    - `docs/pharosville/CHANGE_CHECKLIST.md`
    - `docs/pharosville/CURRENT.md`
+   - `docs/pharosville/RUNTIME_FACTS.md`
    - `docs/pharosville/CHANGE_PLAYBOOK.md`
    - `docs/pharosville/TESTING.md`
 
@@ -43,7 +44,13 @@ For the canonical repo guide — scope rules, change rules, and validation lanes
    npm run validate:docs
    ```
 
-For release-readiness claim, run:
+For local release-level confidence before publishing, run:
+
+```bash
+npm run validate:release
+```
+
+For post-deploy production readiness, run:
 
 ```bash
 npm run check:release-readiness
@@ -55,7 +62,7 @@ npm run check:release-readiness
 - Keep `PHAROS_API_KEY` server-side only.
 - Ensure `PHAROS_API_KEY` is discoverable for local `/api/*` dev proxy from one of: current `.env.local`, main worktree `.env.local`, `.git/pharosville.env.local`, or shell env.
 - Browser must use same-origin `/api/*` (no client cross-origin API calls).
-- Keep world runtime unmounted below `720x360`.
+- Keep world runtime unmounted when the device screen long side is below `720px`, the short side is below `360px`, or a capable screen is in portrait orientation.
 - Use `agents/` for plans and handoff artifacts.
 - Use `outputs/` for temporary screenshots, renders, and generation scratch files.
 

@@ -81,6 +81,8 @@ jobs:
         run: npm run check:committed-secrets
       - name: Documentation path and script guard
         run: npm run check:doc-paths-and-scripts
+      - name: Runtime facts guard
+        run: npm run check:runtime-facts
       - name: Asset manifest guard
         run: npm run check:pharosville-assets
       - name: Palette guard

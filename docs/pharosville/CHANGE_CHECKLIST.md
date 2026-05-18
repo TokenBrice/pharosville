@@ -1,6 +1,6 @@
 # PharosVille Change Checklist
 
-Last updated: 2026-05-02
+Last updated: 2026-05-18
 
 Use this checklist for future standalone PharosVille work. Keep it agent-facing and update it when the app workflow changes.
 
@@ -8,6 +8,7 @@ Use this checklist for future standalone PharosVille work. Keep it agent-facing 
 
 - Read `docs/pharosville/AGENT_ONBOARDING.md`.
 - Read `docs/pharosville-page.md`, `docs/pharosville/CURRENT.md`, and `docs/pharosville/TESTING.md`.
+- Use `docs/pharosville/RUNTIME_FACTS.md` for current generated constants, budgets, inventories, and workflow gates instead of copying those facts from older prose.
 - For asset work, also read `docs/pharosville/ASSET_PIPELINE.md`.
 - For PixelLab sprite generation, also read `docs/pharosville/PIXELLAB_MCP.md`.
 - Run `git status --short` and identify dirty files before touching anything.
@@ -67,13 +68,15 @@ npx playwright test tests/visual/pharosville.spec.ts --grep "pharosville"
 Before publishing or claiming broad release confidence:
 
 ```bash
-npm run typecheck
-npm test
-npm run check:pharosville-assets
-npm run check:pharosville-colors
-npm run build
-npm run test:visual
+npm run validate:release
 ```
+
+`validate:release` is the local broad gate for deployable confidence. It wraps
+the deploy gate (`typecheck`, unit tests, guard scripts, docs/script path checks,
+asset and color checks, build, bundle-size check, built-dist visual snapshots, and
+Firefox accessibility smoke). Use `npm run check:release-readiness` only after a
+deploy when you need the production readiness gate with live security headers,
+cross-browser accessibility smoke, and live smoke.
 
 ## Handoff Notes
 
