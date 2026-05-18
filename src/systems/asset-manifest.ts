@@ -23,6 +23,13 @@ export interface PharosVilleAssetAnimation {
     frameWidth: number;
     rows: number;
   };
+  /**
+   * Wave 6 W6.13 — optional WebP twin for `frameSource`. When present, the
+   * renderer prefers the WebP and falls back to the PNG at `frameSource` if
+   * the browser cannot decode WebP. Validator enforces signature + dimension
+   * parity with the PNG.
+   */
+  webpFrameSource?: string;
 }
 
 export interface PharosVilleAssetManifestEntry {
@@ -49,6 +56,14 @@ export interface PharosVilleAssetManifestEntry {
   };
   semanticRole?: string;
   tool?: string;
+  /**
+   * Wave 6 W6.13 — optional WebP twin for the primary `path` PNG. When
+   * present, the renderer prefers WebP and falls back to PNG if the browser
+   * cannot decode it. Validator enforces signature + dimension parity with
+   * the PNG and counts the WebP bytes (not the PNG) against the payload
+   * budget when both are available.
+   */
+  webpPath?: string;
   width: number;
 }
 
@@ -108,6 +123,26 @@ export function manifestStyleAnchorVersion(manifest: PharosVilleAssetManifest): 
 
 export function assetUrl(asset: PharosVilleAssetManifestEntry, manifest: PharosVilleAssetManifest): string {
   return `/pharosville/assets/${asset.path}?v=${encodeURIComponent(manifestCacheVersion(manifest))}`;
+}
+
+/**
+ * Wave 6 W6.13 — URL for the WebP twin, or `undefined` when the asset has no
+ * `webpPath`. Same cache-busting query as `assetUrl`. Renderer prefers this
+ * URL and falls back to `assetUrl` on decode failure.
+ */
+export function assetWebpUrl(asset: PharosVilleAssetManifestEntry, manifest: PharosVilleAssetManifest): string | undefined {
+  if (!asset.webpPath) return undefined;
+  return `/pharosville/assets/${asset.webpPath}?v=${encodeURIComponent(manifestCacheVersion(manifest))}`;
+}
+
+/**
+ * Wave 6 W6.13 — URL for the WebP twin of an animated asset's `frameSource`,
+ * or `undefined` when the animation has no `webpFrameSource`.
+ */
+export function assetWebpFrameSourceUrl(asset: PharosVilleAssetManifestEntry, manifest: PharosVilleAssetManifest): string | undefined {
+  const webpFrameSource = asset.animation?.webpFrameSource;
+  if (!webpFrameSource) return undefined;
+  return `/pharosville/assets/${webpFrameSource}?v=${encodeURIComponent(manifestCacheVersion(manifest))}`;
 }
 
 /**

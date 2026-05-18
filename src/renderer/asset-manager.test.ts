@@ -196,6 +196,81 @@ describe("PharosVilleAssetManager", () => {
     ]);
   });
 
+  it("W6.13 — prefers webpPath over the PNG when both are present", async () => {
+    const entry: PharosVilleAssetManifestEntry = {
+      ...makeEntry("ship.with-webp", "ship", 0),
+      webpPath: "ships/with-webp.webp",
+    };
+    const manifest = makeManifest([entry]);
+    const starts: string[] = [];
+    stubImageLoader((src) => {
+      starts.push(src);
+      return Promise.resolve();
+    });
+
+    const manager = new PharosVilleAssetManager();
+    await manager.loadAsset(entry, manifest);
+
+    expect(starts[0]).toBe("/pharosville/assets/ships/with-webp.webp?v=test-cache");
+    // No second request — the WebP succeeded, so PNG is never fetched.
+    expect(starts.filter((src) => src.endsWith(".png"))).toEqual([]);
+  });
+
+  it("W6.13 — falls back to the PNG when the webp load fails", async () => {
+    const entry: PharosVilleAssetManifestEntry = {
+      ...makeEntry("ship.webp-broken", "ship", 0),
+      webpPath: "ships/webp-broken.webp",
+    };
+    const manifest = makeManifest([entry]);
+    const starts: string[] = [];
+    stubImageLoader((src) => {
+      starts.push(src);
+      return src.includes(".webp")
+        ? Promise.reject(new Error("decode-fail"))
+        : Promise.resolve();
+    });
+
+    const manager = new PharosVilleAssetManager();
+    const loaded = await manager.loadAsset(entry, manifest);
+
+    expect(loaded.image).toBeDefined();
+    expect(starts).toEqual([
+      "/pharosville/assets/ships/webp-broken.webp?v=test-cache",
+      "/pharosville/assets/ships/webp-broken.png?v=test-cache",
+    ]);
+  });
+
+  it("W6.13 — prefers webpFrameSource for animated sprite-sheets", async () => {
+    const animated: PharosVilleAssetManifestEntry = {
+      ...makeEntry("ship.with-webp-frames", "ship", 0),
+      webpPath: "ships/with-webp-frames.webp",
+      animation: {
+        frameCount: 4,
+        frameSource: "ships/with-webp-frames-frames.png",
+        webpFrameSource: "ships/with-webp-frames-frames.webp",
+        fps: 8,
+        loop: true,
+        reducedMotionFrame: 0,
+        spriteSheet: { columns: 2, frameHeight: 48, frameWidth: 48, rows: 2 },
+      },
+    };
+    const manifest = makeManifest([animated]);
+    const starts: string[] = [];
+    stubImageLoader((src) => {
+      starts.push(src);
+      return Promise.resolve();
+    });
+
+    const manager = new PharosVilleAssetManager();
+    const loaded = await manager.loadAsset(animated, manifest);
+
+    expect(loaded.frameSource).toBeDefined();
+    expect(starts).toEqual([
+      "/pharosville/assets/ships/with-webp-frames.webp?v=test-cache",
+      "/pharosville/assets/ships/with-webp-frames-frames.webp?v=test-cache",
+    ]);
+  });
+
   it("keeps animated static image loading usable when the optional frame source fails", async () => {
     const animated = {
       ...makeEntry("ship.animated", "ship", 0),

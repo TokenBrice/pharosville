@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   assetUrl,
+  assetWebpFrameSourceUrl,
+  assetWebpUrl,
   manifestCacheVersion,
   manifestStyleAnchorVersion,
   type PharosVilleAssetManifest,
@@ -88,5 +90,56 @@ describe("PharosVille asset manifest helpers", () => {
     expect(entry.path).toBe("docks/wooden-pier.png");
     expect(entry.animation?.frameSource).toBe("docks/wooden-pier-frames.png");
     expect(entry.animation?.spriteSheet?.columns).toBe(3);
+  });
+
+  describe("W6.13 — WebP twin URL helpers", () => {
+    const manifest: PharosVilleAssetManifest = {
+      assets: [baseEntry],
+      requiredForFirstRender: [baseEntry.id],
+      schemaVersion: 2,
+      style: { ...baseStyle, cacheVersion: "cache-v2", styleAnchorVersion: "style-v2" },
+    };
+
+    it("returns the WebP URL when webpPath is set", () => {
+      const entry: PharosVilleAssetManifestEntry = { ...baseEntry, webpPath: "docks/wooden-pier.webp" };
+      expect(assetWebpUrl(entry, manifest)).toBe("/pharosville/assets/docks/wooden-pier.webp?v=cache-v2");
+    });
+
+    it("returns undefined when webpPath is absent", () => {
+      expect(assetWebpUrl(baseEntry, manifest)).toBeUndefined();
+    });
+
+    it("returns the frame-source WebP URL when animation.webpFrameSource is set", () => {
+      const entry: PharosVilleAssetManifestEntry = {
+        ...baseEntry,
+        animation: {
+          frameCount: 4,
+          frameSource: "docks/wooden-pier-frames.png",
+          fps: 6,
+          loop: true,
+          reducedMotionFrame: 0,
+          webpFrameSource: "docks/wooden-pier-frames.webp",
+        },
+      };
+      expect(assetWebpFrameSourceUrl(entry, manifest)).toBe("/pharosville/assets/docks/wooden-pier-frames.webp?v=cache-v2");
+    });
+
+    it("returns undefined when animation has no webpFrameSource", () => {
+      const entry: PharosVilleAssetManifestEntry = {
+        ...baseEntry,
+        animation: {
+          frameCount: 4,
+          frameSource: "docks/wooden-pier-frames.png",
+          fps: 6,
+          loop: true,
+          reducedMotionFrame: 0,
+        },
+      };
+      expect(assetWebpFrameSourceUrl(entry, manifest)).toBeUndefined();
+    });
+
+    it("returns undefined for assetWebpFrameSourceUrl when no animation block is present", () => {
+      expect(assetWebpFrameSourceUrl(baseEntry, manifest)).toBeUndefined();
+    });
   });
 });

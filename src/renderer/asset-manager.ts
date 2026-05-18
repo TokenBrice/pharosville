@@ -2,7 +2,7 @@ import type {
   PharosVilleAssetManifest,
   PharosVilleAssetManifestEntry,
 } from "../systems/asset-manifest";
-import { assetPhase, assetUrl, manifestCacheVersion, PHAROSVILLE_ASSET_MANIFEST_PATH } from "../systems/asset-manifest";
+import { assetPhase, assetUrl, assetWebpFrameSourceUrl, assetWebpUrl, manifestCacheVersion, PHAROSVILLE_ASSET_MANIFEST_PATH } from "../systems/asset-manifest";
 
 export interface LoadedPharosVilleAsset {
   entry: PharosVilleAssetManifestEntry;
@@ -243,7 +243,7 @@ export class PharosVilleAssetManager {
     const cached = this.assets.get(asset.id);
     if (cached) return cached;
     try {
-      const image = await loadImage(assetUrl(asset, manifest), signal);
+      const image = await loadImageWithFallback(assetWebpUrl(asset, manifest), assetUrl(asset, manifest), signal);
       const frameSource = await loadAssetFrameSource(asset, manifest, signal);
       const loaded = frameSource == null
         ? { entry: asset, image }
@@ -474,8 +474,9 @@ async function loadAssetFrameSource(
 ): Promise<HTMLImageElement | undefined> {
   const frameSource = asset.animation?.frameSource;
   if (!frameSource) return undefined;
+  const pngUrl = `/pharosville/assets/${frameSource}?v=${encodeURIComponent(manifestCacheVersion(manifest))}`;
   try {
-    return await loadImage(`/pharosville/assets/${frameSource}?v=${encodeURIComponent(manifestCacheVersion(manifest))}`, signal);
+    return await loadImageWithFallback(assetWebpFrameSourceUrl(asset, manifest), pngUrl, signal);
   } catch (error) {
     if (isAbortError(error)) throw error;
     return undefined;
@@ -537,6 +538,30 @@ function waitForIdleChunk(signal?: AbortSignal): Promise<void> {
     }
     timeoutHandle = setTimeout(finish, 0);
   });
+}
+
+/**
+ * Wave 6 W6.13 — tries the primary URL (typically a WebP twin) first and
+ * falls back to the secondary URL (the PNG) when the primary fails to load
+ * or decode. Browsers that can't decode WebP (effectively no longer a thing
+ * across the Chromium-linux matrix, but kept honest for older shells) will
+ * `onerror` the WebP `<img>` and we transparently retry the PNG. Abort
+ * signals are honored across both attempts.
+ */
+async function loadImageWithFallback(
+  primary: string | undefined,
+  fallback: string,
+  signal?: AbortSignal,
+): Promise<HTMLImageElement> {
+  if (primary) {
+    try {
+      return await loadImage(primary, signal);
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      // Primary failed (typically WebP decode error); fall through to the PNG.
+    }
+  }
+  return loadImage(fallback, signal);
 }
 
 function loadImage(src: string, signal?: AbortSignal): Promise<HTMLImageElement> {

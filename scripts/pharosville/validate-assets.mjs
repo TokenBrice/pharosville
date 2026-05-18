@@ -14,6 +14,10 @@ const pharosVilleSrcRoot = resolve(repoRoot, "src");
 const forbiddenPattern = /(Bearer|PIXELLAB|NEXT_PUBLIC_PIXELLAB|pixellab\.ai|https?:\/\/)/i;
 const placeholderPattern = /(placeholder|checker|debug|sample)/i;
 const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+// Wave 6 W6.13 — WebP container signature is `RIFF` (bytes 0-3) +
+// 4-byte chunk size + `WEBP` (bytes 8-11). Validate both segments.
+const webpRiffSignature = Buffer.from("RIFF", "ascii");
+const webpWebpSignature = Buffer.from("WEBP", "ascii");
 const allowedCategories = new Set(["terrain", "landmark", "dock", "ship", "prop", "overlay"]);
 const allowedPriorities = new Set(["critical", "deferred"]);
 const allowedPhases = new Set(["shellCritical", "visibleCritical", "deferred"]);
@@ -29,7 +33,12 @@ const publicImageExtensionPattern = /\.(?:png|svg|jpe?g|webp)$/i;
 // 2026-05-03: bumped 61 -> 62 for landmark.pigeonnier (PharosWatch Telegram dispatch islet).
 // 2026-05-03: bumped 62 -> 63 for dock.ton-pigeonnier-pier (Telegram TON wharf attached to the pigeonnier islet).
 // 2026-05-03: bumped 63 -> 69 for new first-render stablecoin squad additions (Ethena + USYC/USD1/BUIDL/BUIDL).
-const maxManifestAssets = 69;
+// 2026-05-18: bumped 69 -> 75 for Wave 6 identity-pass additions
+//   (W6.06 FRAX + GHO heritage hulls; W6.08 Hyperliquid dock;
+//    W6.12 dock-awning + dock-figures + lantern-string ambient prop kinds).
+//   WebP twins (W6.13) cost zero manifest entries since they live on the
+//   same entry via `webpPath` / `animation.webpFrameSource`.
+const maxManifestAssets = 75;
 const firstRenderBudgets = {
   // 2026-05-01: bumped for Maker squad titans (USDS, DAI, sUSDS, sDAI, stUSDS)
   maxCount: 33,
@@ -106,6 +115,13 @@ validateCemeteryLogoReferences();
 for (const pngPath of listPngs(assetRoot)) {
   const relativePath = relative(assetRoot, pngPath).split(sep).join("/");
   if (!referenced.has(relativePath)) errors.push(`Orphan PNG is not referenced by manifest: ${relativePath}`);
+}
+// Wave 6 W6.13 — same orphan check for WebP twins. Producers must add the
+// `webpPath` / `animation.webpFrameSource` manifest field whenever they drop
+// a `.webp` into the asset tree.
+for (const webpPath of listWebps(assetRoot)) {
+  const relativePath = relative(assetRoot, webpPath).split(sep).join("/");
+  if (!referenced.has(relativePath)) errors.push(`Orphan WebP is not referenced by manifest: ${relativePath}`);
 }
 for (const filePath of listFiles(assetRoot)) {
   const relativePath = relative(assetRoot, filePath).split(sep).join("/");
@@ -233,6 +249,64 @@ function validateAsset(asset, ids, referenced) {
   }
   validateOptionalMetadata(asset, id);
   validateAnimation(asset, id, referenced);
+  validateWebpTwin(asset, id, referenced);
+}
+
+// Wave 6 W6.13 — when `asset.webpPath` is present, verify the file exists,
+// has a valid RIFF/WEBP signature, and is sibling to the PNG path. Add to
+// the `referenced` set so the orphan check at the end of the script doesn't
+// flag the WebP file. Dimensions are NOT re-read from the WebP (parsing the
+// VP8 chunk is more work than it's worth here); pipeline producers MUST keep
+// the WebP geometrically identical to the PNG. A loose byte-budget warning
+// fires when the WebP is heavier than the PNG (defeats the purpose).
+function validateWebpTwin(asset, id, referenced) {
+  const webpPath = asset.webpPath;
+  if (webpPath == null) return;
+  if (typeof webpPath !== "string") {
+    errors.push(`${id} webpPath must be a string when present.`);
+    return;
+  }
+  if (webpPath.includes("..") || normalize(webpPath).startsWith("..")) {
+    errors.push(`${id} webpPath uses traversal: ${webpPath}`);
+    return;
+  }
+  if (webpPath.startsWith("/") || webpPath.includes("://")) {
+    errors.push(`${id} webpPath must be relative to public/pharosville/assets.`);
+    return;
+  }
+  if (!webpPath.endsWith(".webp")) {
+    errors.push(`${id} webpPath must point to a .webp file.`);
+    return;
+  }
+  if (placeholderPattern.test(webpPath)) {
+    errors.push(`${id} webpPath must not reference placeholder assets.`);
+  }
+  referenced.add(webpPath);
+  const fullPath = join(assetRoot, webpPath);
+  let bytes;
+  try {
+    bytes = readFileSync(fullPath);
+  } catch {
+    errors.push(`${id} webpPath file is missing: ${webpPath}`);
+    return;
+  }
+  if (bytes.length < 30) {
+    errors.push(`${id} WebP is too small to be a real asset.`);
+    return;
+  }
+  if (!bytes.subarray(0, 4).equals(webpRiffSignature) || !bytes.subarray(8, 12).equals(webpWebpSignature)) {
+    errors.push(`${id} is not a WebP file: ${webpPath}`);
+    return;
+  }
+  // Loose budget warning — WebP heavier than PNG defeats the migration.
+  const pngBytes = statSync(join(assetRoot, asset.path)).size;
+  const webpBytes = bytes.length;
+  if (webpBytes > pngBytes) {
+    warnings.push(`${id} WebP twin (${formatBytes(webpBytes)}) is larger than its PNG (${formatBytes(pngBytes)}). Re-encode with a lower quality, or drop the twin.`);
+  }
+  // Dimension parity with the PNG is implicit — producers must keep the
+  // WebP geometrically identical (validator does not re-parse the VP8
+  // chunk).
 }
 
 function validateManifestBudgets(manifestIds, metrics) {
@@ -364,6 +438,16 @@ function listPngs(dir) {
   return files;
 }
 
+function listWebps(dir) {
+  const files = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) files.push(...listWebps(path));
+    if (entry.isFile() && entry.name.endsWith(".webp")) files.push(path);
+  }
+  return files;
+}
+
 function listFiles(dir) {
   const files = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -483,6 +567,44 @@ function validateAnimation(asset, id, referenced) {
 
   const frameImage = validateAnimationFrameSource(asset, id, referenced);
   validateSpriteSheet(asset, id, frameImage);
+  validateAnimationWebpFrameSource(asset, id, referenced);
+}
+
+// Wave 6 W6.13 — optional WebP twin for the sprite-sheet frameSource. Same
+// signature + orphan rules as the static `webpPath` twin.
+function validateAnimationWebpFrameSource(asset, id, referenced) {
+  const webpFrameSource = asset.animation?.webpFrameSource;
+  if (webpFrameSource == null) return;
+  if (typeof webpFrameSource !== "string") {
+    errors.push(`${id} animation.webpFrameSource must be a string when present.`);
+    return;
+  }
+  if (webpFrameSource.includes("..") || normalize(webpFrameSource).startsWith("..")) {
+    errors.push(`${id} animation.webpFrameSource uses traversal: ${webpFrameSource}`);
+    return;
+  }
+  if (webpFrameSource.startsWith("/") || webpFrameSource.includes("://")) {
+    errors.push(`${id} animation.webpFrameSource must be relative to public/pharosville/assets.`);
+    return;
+  }
+  if (!webpFrameSource.endsWith(".webp")) {
+    errors.push(`${id} animation.webpFrameSource must point to a .webp file.`);
+    return;
+  }
+  referenced.add(webpFrameSource);
+  const fullPath = join(assetRoot, webpFrameSource);
+  let bytes;
+  try {
+    bytes = readFileSync(fullPath);
+  } catch {
+    errors.push(`${id} animation.webpFrameSource file is missing: ${webpFrameSource}`);
+    return;
+  }
+  if (bytes.length < 30
+    || !bytes.subarray(0, 4).equals(webpRiffSignature)
+    || !bytes.subarray(8, 12).equals(webpWebpSignature)) {
+    errors.push(`${id} animation.webpFrameSource is not a WebP file: ${webpFrameSource}`);
+  }
 }
 
 function validateAnimationFrameSource(asset, id, referenced) {
