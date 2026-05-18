@@ -107,8 +107,8 @@ vi.mock("./renderer/hit-testing", () => {
 });
 
 vi.mock("./systems/motion", () => ({
-  buildBaseMotionPlan: vi.fn(() => ({ effectShipIds: new Set(), moverShipIds: new Set() })),
-  buildMotionPlan: vi.fn(() => ({ effectShipIds: new Set(), moverShipIds: new Set() })),
+  buildBaseMotionPlan: vi.fn(() => ({ effectShipIds: new Set(), moverShipIds: new Set(), shipRoutes: new Map() })),
+  buildMotionPlan: vi.fn(() => ({ effectShipIds: new Set(), moverShipIds: new Set(), shipRoutes: new Map() })),
   disposePathCacheForMap: vi.fn(),
   motionPlanSignature: vi.fn(() => "test-motion-plan"),
 }));

@@ -52,6 +52,8 @@ export function disposePathCacheForMap(map: PharosVilleMap): void {
 interface PreviousRiskEntry {
   tile: { x: number; y: number };
   placement: string;
+  /** Last-seen `riskWaterLabel` so W5.01 consumers can render `from X to Y`. */
+  label: string;
   /** Cycle count for which `previousRiskTile` should remain on the route. */
   cyclesRemaining: number;
 }
@@ -432,7 +434,7 @@ function buildShipMotionRoute(
 
   // W4.25 — capture previousRiskTile when the ship's riskPlacement or
   // riskTile differs from the last build. Survives one cycle then clears.
-  const previousRiskTile = capturePreviousRiskTile(ship, riskTile);
+  const previousRisk = capturePreviousRiskTile(ship, riskTile);
 
   return {
     shipId: ship.id,
@@ -453,7 +455,9 @@ function buildShipMotionRoute(
     staleEvidence: ship.placementEvidence.stale,
     wakeMultiplier,
     dockDwellShareOverride,
-    ...(previousRiskTile ? { previousRiskTile } : {}),
+    ...(previousRisk
+      ? { previousRiskTile: previousRisk.tile, previousRiskLabel: previousRisk.label }
+      : {}),
   };
 }
 
@@ -466,12 +470,13 @@ function buildShipMotionRoute(
 function capturePreviousRiskTile(
   ship: ShipNode,
   newTile: { x: number; y: number },
-): { x: number; y: number } | undefined {
+): { tile: { x: number; y: number }; label: string } | undefined {
   const cached = previousRiskByShipId.get(ship.id);
   if (!cached) {
     previousRiskByShipId.set(ship.id, {
       tile: { x: newTile.x, y: newTile.y },
       placement: ship.riskPlacement,
+      label: ship.riskWaterLabel,
       cyclesRemaining: 0,
     });
     return undefined;
@@ -480,13 +485,15 @@ function capturePreviousRiskTile(
   const tileChanged = cached.tile.x !== newTile.x || cached.tile.y !== newTile.y;
   const placementChanged = cached.placement !== ship.riskPlacement;
   if (tileChanged || placementChanged) {
-    // Transition observed: surface the previous tile, then update the cache
-    // to the new tile so the next steady-state build returns undefined.
-    const previousTile = { x: cached.tile.x, y: cached.tile.y };
+    // Transition observed: surface the previous tile + label, then update
+    // the cache to the new state so the next steady-state build returns
+    // undefined.
+    const previous = { tile: { x: cached.tile.x, y: cached.tile.y }, label: cached.label };
     cached.tile = { x: newTile.x, y: newTile.y };
     cached.placement = ship.riskPlacement;
+    cached.label = ship.riskWaterLabel;
     cached.cyclesRemaining = 0;
-    return previousTile;
+    return previous;
   }
 
   return undefined;

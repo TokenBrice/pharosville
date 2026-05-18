@@ -10,8 +10,9 @@ import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import Home from "lucide-react/dist/esm/icons/home";
 import Maximize2 from "lucide-react/dist/esm/icons/maximize-2";
 import Minimize2 from "lucide-react/dist/esm/icons/minimize-2";
-import { AccessibilityLedger } from "./components/accessibility-ledger";
+import { AccessibilityLedger, type ShipRiskTransitionEntry } from "./components/accessibility-ledger";
 import { DetailPanel } from "./components/detail-panel";
+import { withRiskTransitionFact } from "./systems/detail-model";
 import { WorldToolbar } from "./components/world-toolbar";
 import { PHAROSVILLE_LATEST_VERSION } from "./content/pharosville-version";
 import { useAssetLoadingPipeline } from "./hooks/use-asset-loading-pipeline";
@@ -79,7 +80,36 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const shipsById = useMemo(() => new Map(world.ships.map((ship) => [ship.id, ship])), [world.ships]);
   const shipCounterLabel = useMemo(() => fleetCounterLabel(world.ships), [world.ships]);
   const selectedEntity = selectedDetailId ? world.entityById[selectedDetailId] ?? null : null;
-  const selectedDetail = selectedDetailId ? world.detailIndex[selectedDetailId] ?? null : null;
+  // W5.01 — derive the live risk-band tack-out per ship from the motion plan
+  // at world-refresh cadence. The detail panel and accessibility ledger both
+  // consume this; progress is a synthetic in-transit marker (the actual
+  // per-frame progress lives on the sample, but world-refresh cadence is
+  // acceptable per followup plan §5 W5.01). When the motion plan re-runs
+  // without `previousRiskTile`, the entry drops out and the row hides.
+  const riskTransitionByShipId = useMemo(() => {
+    const map = new Map<string, ShipRiskTransitionEntry>();
+    for (const route of motionPlan.shipRoutes.values()) {
+      if (!route.previousRiskTile || !route.previousRiskLabel) continue;
+      const ship = shipsById.get(route.shipId);
+      if (!ship) continue;
+      if (ship.riskWaterLabel === route.previousRiskLabel) continue;
+      map.set(route.shipId, {
+        fromLabel: route.previousRiskLabel,
+        toLabel: ship.riskWaterLabel,
+        progress: 0,
+      });
+    }
+    return map;
+  }, [motionPlan, shipsById]);
+  const selectedDetail = useMemo(() => {
+    if (!selectedDetailId) return null;
+    const baseDetail = world.detailIndex[selectedDetailId] ?? null;
+    if (!baseDetail) return null;
+    if (!selectedDetailId.startsWith("ship.")) return baseDetail;
+    const shipId = selectedDetailId.slice("ship.".length);
+    const transition = riskTransitionByShipId.get(shipId) ?? null;
+    return withRiskTransitionFact(baseDetail, transition);
+  }, [riskTransitionByShipId, selectedDetailId, world.detailIndex]);
 
   // Refs that mirror frequently-changing state so hook-internal effects/RAF can
   // read the latest values without rebinding on every hover/select/motionPlan
@@ -515,7 +545,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         <a href="https://pharos.watch/">Pharos</a>
       </p>
       <p className="sr-only" aria-live="polite">{announcement}</p>
-      <AccessibilityLedger world={world} />
+      <AccessibilityLedger world={world} riskTransitionByShipId={riskTransitionByShipId} />
     </main>
   );
 }

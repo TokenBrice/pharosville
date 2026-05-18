@@ -211,6 +211,32 @@ export function riskTransitionLabel(transition: ShipRiskTransitionContext): stri
   return `from ${transition.fromLabel} to ${transition.toLabel}`;
 }
 
+/**
+ * W5.01 — React-render-time patcher. The detail index is built at world-refresh
+ * cadence and does not see the live risk-transition signal that the motion
+ * planner surfaces per route. When a ship-kind detail is rendered with an
+ * active transition, this helper inserts the "Tracking new risk band" row in
+ * the same position `detailForShip` would have, without recomputing the rest
+ * of the ship detail. Suppressed when `progress >= 1`.
+ */
+export function withRiskTransitionFact(
+  baseDetail: DetailModel,
+  transition: ShipRiskTransitionContext | null,
+): DetailModel {
+  if (!transition || transition.progress >= 1) return baseDetail;
+  const insertAfter = baseDetail.facts.findIndex((fact) => fact.label === "Risk placement key");
+  if (insertAfter < 0) return baseDetail;
+  const factRow = { label: "Tracking new risk band", value: riskTransitionLabel(transition) };
+  return {
+    ...baseDetail,
+    facts: [
+      ...baseDetail.facts.slice(0, insertAfter + 1),
+      factRow,
+      ...baseDetail.facts.slice(insertAfter + 1),
+    ],
+  };
+}
+
 export function squadFormationLine(squadShips: readonly ShipNode[]): string {
   if (squadShips.length === 0) return "";
   // Use the squad's own display order so Sky and Maker each list their own

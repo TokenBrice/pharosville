@@ -137,6 +137,14 @@ export interface ShipMotionRoute {
    * `undefined` when the placement is unchanged.
    */
   previousRiskTile?: { x: number; y: number };
+  /**
+   * W5.01 — pre-resolved risk-water-area label for `previousRiskTile`,
+   * surfaced alongside it on the same plan build so detail-panel and
+   * accessibility-ledger consumers can render `from X to Y` without a
+   * geometric tile→area lookup. Populated when (and only when)
+   * `previousRiskTile` is populated.
+   */
+  previousRiskLabel?: string;
 }
 
 export interface ShipMotionSample {

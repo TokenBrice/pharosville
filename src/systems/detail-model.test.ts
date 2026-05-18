@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detailForArea, detailForDock, detailForLighthouse, detailForPigeonnier, detailForShip, lighthouseBeamWarmCueLabel, PHAROS_WATCH_TELEGRAM_HREF } from "./detail-model";
+import { detailForArea, detailForDock, detailForLighthouse, detailForPigeonnier, detailForShip, lighthouseBeamWarmCueLabel, PHAROS_WATCH_TELEGRAM_HREF, withRiskTransitionFact } from "./detail-model";
 import type { AreaNode, DockNode, LighthouseNode, PigeonnierNode, ShipNode } from "./world-types";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import {
@@ -625,6 +625,41 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       const detail = detailForShip(ship, { riskTransition: null });
       const fact = detail.facts.find((f) => f.label === "Tracking new risk band");
       expect(fact).toBeUndefined();
+    });
+  });
+
+  describe("W5.01 — withRiskTransitionFact (React-render-time patcher)", () => {
+    it("injects the row after 'Risk placement key' on an existing detail", () => {
+      const ship = baseShipNode();
+      const baseDetail = detailForShip(ship);
+      const patched = withRiskTransitionFact(baseDetail, {
+        fromLabel: "Calm Anchorage",
+        toLabel: "Warning Shoals",
+        progress: 0.25,
+      });
+      const placementIdx = patched.facts.findIndex((f) => f.label === "Risk placement key");
+      const trackingIdx = patched.facts.findIndex((f) => f.label === "Tracking new risk band");
+      expect(placementIdx).toBeGreaterThanOrEqual(0);
+      expect(trackingIdx).toBe(placementIdx + 1);
+      expect(patched.facts[trackingIdx]!.value).toBe("from Calm Anchorage to Warning Shoals");
+    });
+
+    it("returns the detail unchanged when transition is null", () => {
+      const ship = baseShipNode();
+      const baseDetail = detailForShip(ship);
+      const patched = withRiskTransitionFact(baseDetail, null);
+      expect(patched).toBe(baseDetail);
+    });
+
+    it("returns the detail unchanged when progress >= 1", () => {
+      const ship = baseShipNode();
+      const baseDetail = detailForShip(ship);
+      const patched = withRiskTransitionFact(baseDetail, {
+        fromLabel: "Calm Anchorage",
+        toLabel: "Alert Channel",
+        progress: 1.0,
+      });
+      expect(patched).toBe(baseDetail);
     });
   });
 });
