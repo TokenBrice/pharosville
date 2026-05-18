@@ -356,6 +356,8 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         requestedDpr: adaptiveDprStateRef.current.requestedDpr,
       });
       canvasBudgetRef.current = activeBudget;
+      if (canvas.width !== activeBudget.backingWidth) canvas.width = activeBudget.backingWidth;
+      if (canvas.height !== activeBudget.backingHeight) canvas.height = activeBudget.backingHeight;
       const dpr = activeBudget.effectiveDpr;
       let timeSeconds: number;
       if (reducedMotion) {
@@ -584,10 +586,6 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
             requestedDpr: nextAdaptiveDprState.requestedDpr,
           });
           canvasBudgetRef.current = nextBudget;
-          const nextBackingWidth = nextBudget.backingWidth;
-          const nextBackingHeight = nextBudget.backingHeight;
-          if (canvas.width !== nextBackingWidth) canvas.width = nextBackingWidth;
-          if (canvas.height !== nextBackingHeight) canvas.height = nextBackingHeight;
         } else if (
           nextAdaptiveDprState.cooldownFrames !== adaptiveDprStateRef.current.cooldownFrames
           || nextAdaptiveDprState.downshiftStreak !== adaptiveDprStateRef.current.downshiftStreak

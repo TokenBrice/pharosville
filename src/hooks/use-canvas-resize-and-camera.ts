@@ -232,10 +232,9 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
         requestedDpr: adaptiveDprStateRef.current.requestedDpr,
       });
       canvasBudgetRef.current = budget;
-      const nextWidth = budget.backingWidth;
-      const nextHeight = budget.backingHeight;
-      if (canvas.width !== nextWidth) canvas.width = nextWidth;
-      if (canvas.height !== nextHeight) canvas.height = nextHeight;
+      // Do not mutate canvas.width/height here: backing-store changes clear the
+      // bitmap immediately. The render loop syncs the backing store at the top
+      // of the next draw so resize clears and repaint happen in one RAF.
       const nextCanvasSize = { x: cssWidth, y: cssHeight };
       setCanvasSize((previous) => samePoint(previous, nextCanvasSize) ? previous : nextCanvasSize);
       const previousCamera = currentCameraBase();

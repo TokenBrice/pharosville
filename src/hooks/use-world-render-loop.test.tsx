@@ -121,11 +121,21 @@ describe("useWorldRenderLoop", () => {
 
   function Harness({
     hoveredDetailId,
+    initialRequestedDpr = 1,
+    maximumRequestedDpr = 1,
+    onInternals,
     onStepCamera,
     onResult,
     reducedMotion = true,
   }: {
     hoveredDetailId: string | null;
+    initialRequestedDpr?: number;
+    maximumRequestedDpr?: number;
+    onInternals?: (internals: {
+      adaptiveDprStateRef: { current: ReturnType<typeof initialAdaptiveDprState> };
+      canvasBudgetRef: { current: ReturnType<typeof resolveCanvasBudget> | null };
+      canvasRef: { current: HTMLCanvasElement };
+    }) => void;
     onStepCamera?: (input: {
       cameraRef: { current: IsoCamera | null };
       now: number;
@@ -136,10 +146,10 @@ describe("useWorldRenderLoop", () => {
   }) {
     const [assetManager] = useState(() => new PharosVilleAssetManager());
     const [canvasRef] = useState(() => ({ current: document.createElement("canvas") }));
-    const [adaptiveDprStateRef] = useState(() => ({ current: initialAdaptiveDprState(1) }));
-    const [maximumRequestedDprRef] = useState(() => ({ current: 1 }));
+    const [adaptiveDprStateRef] = useState(() => ({ current: initialAdaptiveDprState(initialRequestedDpr) }));
+    const [maximumRequestedDprRef] = useState(() => ({ current: maximumRequestedDpr }));
     const [canvasBudgetRef] = useState(() => ({
-      current: resolveCanvasBudget({ cssHeight: canvasSize.y, cssWidth: canvasSize.x, requestedDpr: 1 }),
+      current: resolveCanvasBudget({ cssHeight: canvasSize.y, cssWidth: canvasSize.x, requestedDpr: initialRequestedDpr }),
     }));
     const [cameraRef] = useState(() => ({ current: camera }));
     const [canvasSizeRef] = useState(() => ({ current: canvasSize }));
@@ -153,6 +163,8 @@ describe("useWorldRenderLoop", () => {
     const [motionPlan] = useState(() => buildMotionPlan(world, null, baseMotionPlan));
     const [motionPlanRef] = useState(() => ({ current: motionPlan }));
     hoveredDetailIdRef.current = hoveredDetailId;
+    maximumRequestedDprRef.current = maximumRequestedDpr;
+    onInternals?.({ adaptiveDprStateRef, canvasBudgetRef, canvasRef });
 
     // Pre-seed a snapshot so the loop's hit-target work has a target list.
     if (!hitTargetSnapshotRef.current) {
@@ -299,6 +311,77 @@ describe("useWorldRenderLoop", () => {
     expect(framePacing!.maxMs).toBeGreaterThanOrEqual(40);
     expect(framePacing!.droppedFrameCount).toBeGreaterThanOrEqual(2);
     expect(framePacing!.longestDroppedBurst).toBe(2);
+  });
+
+  it("defers adaptive DPR backing-store resize until the next frame can repaint", () => {
+    let internals: {
+      adaptiveDprStateRef: { current: ReturnType<typeof initialAdaptiveDprState> };
+      canvasBudgetRef: { current: ReturnType<typeof resolveCanvasBudget> | null };
+      canvasRef: { current: HTMLCanvasElement };
+    } | null = null;
+    let fakeNow = 0;
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => fakeNow);
+    drawPharosVilleMock.mockImplementation(() => {
+      fakeNow += 25;
+      return {
+        drawableCount: 0,
+        drawableCounts: { underlay: 0, body: 0, overlay: 0, selection: 0 },
+        movingShipCount: 0,
+        visibleShipCount: 0,
+        visibleTileCount: 0,
+      };
+    });
+
+    try {
+      render(
+        <Harness
+          hoveredDetailId={null}
+          initialRequestedDpr={2}
+          maximumRequestedDpr={2}
+          onInternals={(nextInternals) => {
+            internals = nextInternals;
+          }}
+          onResult={() => {}}
+          reducedMotion={false}
+        />,
+      );
+
+      expect(internals).not.toBeNull();
+      const canvas = internals!.canvasRef.current;
+      expect(canvas.width).toBe(1600);
+      expect(canvas.height).toBe(1200);
+
+      let downshifted = false;
+      for (let index = 0; index < 32; index += 1) {
+        fireLatestRaf(1_000 + index * 16);
+        if (internals!.adaptiveDprStateRef.current.requestedDpr < 2) {
+          downshifted = true;
+          break;
+        }
+      }
+
+      expect(downshifted).toBe(true);
+      expect(internals!.adaptiveDprStateRef.current.requestedDpr).toBe(1.875);
+      expect(internals!.canvasBudgetRef.current?.backingWidth).toBe(1500);
+      expect(internals!.canvasBudgetRef.current?.backingHeight).toBe(1125);
+      // The just-painted frame remains visible; resizing here would clear the
+      // canvas to black until the browser gets another RAF.
+      expect(canvas.width).toBe(1600);
+      expect(canvas.height).toBe(1200);
+
+      fireLatestRaf(2_000);
+      expect(canvas.width).toBe(1500);
+      expect(canvas.height).toBe(1125);
+    } finally {
+      nowSpy.mockRestore();
+      drawPharosVilleMock.mockImplementation(() => ({
+        drawableCount: 0,
+        drawableCounts: { underlay: 0, body: 0, overlay: 0, selection: 0 },
+        movingShipCount: 0,
+        visibleShipCount: 0,
+        visibleTileCount: 0,
+      }));
+    }
   });
 
   it("does not turn reduced-motion paints into a continuous frame-pacing loop", () => {
