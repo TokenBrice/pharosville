@@ -62,8 +62,13 @@ const visibleCriticalBudgets = {
   maxDecodedPixels: firstRenderBudgets.maxDecodedPixels,
 };
 const totalAssetBudgets = {
-  maxBytes: 900 * 1024,
-  maxDecodedPixels: 1_320_000,
+  // 2026-05-18: Wave 6 identity-pass bumps the byte + decoded-pixel ceilings
+  // to absorb the Solana scale-up (192x136 → 280x180), the new Hyperliquid
+  // dock, the FRAX + GHO heritage hulls, and 3 new ambient prop kinds.
+  // WebP twins ride alongside; counted separately as `webpPath` doesn't add
+  // a manifest entry.
+  maxBytes: 1100 * 1024,
+  maxDecodedPixels: 1_440_000,
 };
 const imageBudgetsByCategory = {
   dock: { maxBytes: 128 * 1024, maxDecodedPixels: 150_000 },

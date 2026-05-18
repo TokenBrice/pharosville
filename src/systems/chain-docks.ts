@@ -24,6 +24,9 @@ const _DOCK_ASSET_IDS = [
   "dock.aptos-jade-pagoda",
   "dock.avalanche-alpine-watch",
   "dock.ton-pigeonnier-pier",
+  // W6.08 — Hyperliquid harbor sprite. Deferred loadPriority per decision
+  // D5 §6, so no first-render budget bump required.
+  "dock.hyperliquid-trading-floor",
 ] as const;
 
 const PREFERRED_DOCK_ASSET_IDS: Record<string, (typeof _DOCK_ASSET_IDS)[number]> = {
@@ -37,6 +40,7 @@ const PREFERRED_DOCK_ASSET_IDS: Record<string, (typeof _DOCK_ASSET_IDS)[number]>
   aptos: "dock.aptos-jade-pagoda",
   avalanche: "dock.avalanche-alpine-watch",
   ton: "dock.ton-pigeonnier-pier",
+  hyperliquid: "dock.hyperliquid-trading-floor",
 };
 
 const SUPPRESSED_CHAIN_HARBOR_IDS = new Set<string>(["optimism"]);

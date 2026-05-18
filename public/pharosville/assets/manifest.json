@@ -464,7 +464,7 @@
       ],
       "loadPriority": "deferred",
       "promptKey": "overlay.center-cluster",
-      "semanticRole": "ambient observatory citadel cluster overlay",
+      "semanticRole": "civic-district overlay (agora pavilion + 7 residential roofs, lighthouse-shorter silhouette)",
       "paletteKeys": [
         "limestone",
         "terracotta",
@@ -473,9 +473,10 @@
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "1d65dd30-e8b2-439f-b98a-da1b99e34fb3",
+        "jobId": "bd858596-5e32-4ce3-82e0-29bcad680eb5",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "overlays/center-cluster.webp"
     },
     {
       "id": "overlay.seawall-straight",
@@ -781,6 +782,44 @@
       "path": "docks/solana-prism-stilt.png",
       "category": "dock",
       "layer": "docks",
+      "width": 280,
+      "height": 180,
+      "displayScale": 1,
+      "anchor": [
+        140,
+        140
+      ],
+      "footprint": [
+        143,
+        53
+      ],
+      "hitbox": [
+        15,
+        21,
+        250,
+        145
+      ],
+      "loadPriority": "critical",
+      "criticalReason": "Solana scaled-up stilt-pier with neon-cyan light strip and prism beacons; W6.09 280x180 regen.",
+      "promptKey": "dock.solana-prism-stilt",
+      "semanticRole": "solana prismatic stilt-pier",
+      "paletteKeys": [
+        "limestone",
+        "weathered wood",
+        "teal sea"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
+      "promptProvenance": {
+        "jobId": "656c6a0a-5573-4601-b875-f9f1c9c386d8",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      },
+      "webpPath": "docks/solana-prism-stilt.webp"
+    },
+    {
+      "id": "dock.hyperliquid-trading-floor",
+      "path": "docks/hyperliquid-trading-floor.png",
+      "category": "dock",
+      "layer": "docks",
       "width": 192,
       "height": 136,
       "displayScale": 1,
@@ -798,20 +837,21 @@
         172,
         110
       ],
-      "loadPriority": "critical",
-      "criticalReason": "Solana compact stilt-pier with crystal-glass column lamps; sized to clear tron and ethereum harbors.",
-      "promptKey": "dock.solana-prism-stilt",
-      "semanticRole": "solana prismatic stilt-pier",
+      "loadPriority": "deferred",
+      "promptKey": "dock.hyperliquid-trading-floor",
+      "semanticRole": "Hyperliquid obsidian trading-pit dock with teal terminal lamps and orange ticker-tape band",
       "paletteKeys": [
         "limestone",
         "weathered wood",
-        "teal sea"
+        "teal sea",
+        "obsidian"
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "b429c45f-cfd5-4845-a01d-1acc2342f1c7",
+        "jobId": "1908e642-17e7-4049-857a-eee399c225e0",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "docks/hyperliquid-trading-floor.webp"
     },
     {
       "id": "dock.base-modular-slip",
