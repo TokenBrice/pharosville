@@ -25,7 +25,10 @@ const STABLECOIN_SAIL_COLORS: Record<string, StablecoinShipBranding> = {
   "sfrxusd-frax": livery("Frax staked livery", "#464a4b", "#e6e6df", "#a4a196", "#1f2224", "#f6f2e8", "hex", "hoist", "double"),
   "pyusd-paypal": livery("PayPal logo livery", "#1f5f95", "#d9e3f0", "#4c9adb", "#123e6b", "#f4f8ff", "pill", "hoist", "wave"),
   "fdusd-first-digital": livery("First Digital logo livery", "#9d7c2f", "#eee2ba", "#d3b457", "#5f4718", "#fff8dc", "hex", "center", "single"),
-  "gho-aave": livery("GHO logo livery", "#3cae68", "#d9f0df", "#70c994", "#1f6d40", "#f7fff7", "circle", "quartered", "wave"),
+  // W6.06 decision D4 §6 — GHO sail-tint locked to Aave brand purple so the
+  // runtime tint pulse matches the painted ghost silhouette baked into the
+  // ship.gho-unique sprite added in the same PR.
+  "gho-aave": livery("GHO logo livery", "#7e2ecf", "#e6dcf5", "#a674e0", "#3b1768", "#faf6ff", "circle", "quartered", "wave"),
   "usdy-ondo-finance": livery("Ondo logo livery", "#2e4c7c", "#d9e2ef", "#6f89b2", "#172b4a", "#f5f8ff", "ring", "field", "single"),
   "usdm-mountain-protocol": livery("Mountain logo livery", "#575757", "#e3e3de", "#96938a", "#2a2a2a", "#f7f5ed", "triangle", "field", "chevron"),
   "usdp-paxos": livery("Paxos logo livery", "#4b9c63", "#dceee0", "#85c88d", "#265a37", "#f8fff7", "hex", "center", "double"),

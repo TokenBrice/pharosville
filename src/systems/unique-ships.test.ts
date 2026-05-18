@@ -33,8 +33,8 @@ describe("UNIQUE_SHIP_DEFINITIONS", () => {
     }
   });
 
-  it("exposes 6 distinct sprite ids in UNIQUE_SPRITE_IDS", () => {
-    expect(UNIQUE_SPRITE_IDS.size).toBe(6);
+  it("exposes 8 distinct sprite ids in UNIQUE_SPRITE_IDS (W6.06 adds FRAX + GHO)", () => {
+    expect(UNIQUE_SPRITE_IDS.size).toBe(8);
     expect(UNIQUE_SPRITE_IDS.size).toBe(entries.length);
   });
 });

@@ -36,6 +36,7 @@ import { skyState } from "../sky";
 import {
   drawBowspritLogoMark,
   drawDyedSailEmblem,
+  drawHeritageNameplate,
   drawMastPennantChrome,
   drawSailLogo,
   drawShipSignalOverlay,
@@ -1052,6 +1053,13 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
         }
         drawShipSignalOverlay(ctx, ship.visual.overlay, p.x - 10 * proceduralScale, drawY - 20 * proceduralScale, proceduralScale);
       });
+    }
+    // W6.04 — heritage-tier stern engraving. Runs OUTSIDE the pose transform
+    // so the label stays axis-aligned with the camera (no roll/bob). No-op
+    // when the ship isn't a heritage hull or the camera is too zoomed out.
+    if (isUniqueSprite && shipAsset) {
+      const drawY = geometry.drawPoint.y + bob;
+      drawHeritageNameplate(ctx, ship.visual.spriteAssetId ?? null, geometry.drawPoint.x, drawY, camera.zoom, geometry.drawScale);
     }
     const { nightFactor: lanternNight } = skyState(input.motion);
     if (lanternNight > 0) {

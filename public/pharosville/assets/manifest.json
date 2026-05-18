@@ -1795,9 +1795,88 @@
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "300440ce",
+        "jobId": "587aaaf0-5efd-4903-bc8b-edafac757ee9",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "ships/xaut-unique.webp"
+    },
+    {
+      "id": "ship.frax-unique",
+      "path": "ships/frax-unique.png",
+      "category": "ship",
+      "layer": "ships",
+      "width": 136,
+      "height": 100,
+      "displayScale": 1,
+      "anchor": [
+        68,
+        92
+      ],
+      "footprint": [
+        46,
+        22
+      ],
+      "hitbox": [
+        30,
+        4,
+        92,
+        90
+      ],
+      "loadPriority": "deferred",
+      "promptKey": "ship.frax-unique",
+      "semanticRole": "FRAX heritage hull (unique tier)",
+      "paletteKeys": [
+        "limestone",
+        "deep navy",
+        "bronze beacon",
+        "teal sea",
+        "frax graphite"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
+      "promptProvenance": {
+        "jobId": "43b1e35c-8490-40ae-b46d-1c8fe302340b",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      },
+      "webpPath": "ships/frax-unique.webp"
+    },
+    {
+      "id": "ship.gho-unique",
+      "path": "ships/gho-unique.png",
+      "category": "ship",
+      "layer": "ships",
+      "width": 136,
+      "height": 100,
+      "displayScale": 1,
+      "anchor": [
+        68,
+        92
+      ],
+      "footprint": [
+        46,
+        22
+      ],
+      "hitbox": [
+        30,
+        4,
+        92,
+        90
+      ],
+      "loadPriority": "deferred",
+      "promptKey": "ship.gho-unique",
+      "semanticRole": "GHO heritage hull (unique tier)",
+      "paletteKeys": [
+        "limestone",
+        "deep navy",
+        "bronze beacon",
+        "teal sea",
+        "aave purple"
+      ],
+      "tool": "mcp:create_map_object+imagemagick",
+      "promptProvenance": {
+        "jobId": "184ddef0-5ba3-4d12-b5bd-e62086c3473f",
+        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
+      },
+      "webpPath": "ships/gho-unique.webp"
     },
     {
       "id": "ship.paxg-unique",

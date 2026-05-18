@@ -2,7 +2,9 @@
 // (`use-asset-loading-pipeline.ts`, `ships.test.ts`). New code should import
 // from `../ship-visual-config` directly.
 export {
+  HERITAGE_NAMEPLATE_MIN_ZOOM,
   PROCEDURAL_SHIP_PENNANT_MARK,
+  SHIP_HERITAGE_NAMEPLATES,
   SHIP_PENNANT_MARKS,
   SHIP_SAIL_EMBLEM_OVERRIDES,
   SHIP_SAIL_EMBLEM_PAINTED,
@@ -39,6 +41,7 @@ export {
 } from "./wake";
 
 export {
+  drawHeritageNameplate,
   getSailEmblemSpriteCacheStats,
   getSailLogoSpriteCacheStats,
 } from "./sail";

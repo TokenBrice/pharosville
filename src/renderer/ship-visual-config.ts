@@ -63,6 +63,26 @@ export const SHIP_CONTINUOUS_MOTION = {
 // runtime overlay is no longer needed.
 export const SHIP_SAIL_EMBLEM_OVERRIDES: Record<string, string> = {};
 
+/**
+ * W6.04 (decision D8 §6) — Heritage-tier stern engraving. The drawer in
+ * `src/renderer/layers/ships/sail.ts` paints this label centered on the stern
+ * panel when `camera.zoom >= 0.7` (tighter than the dock-plaque gate at
+ * 0.55 — heritage nameplates are inspect-a-hull-level detail). Keyed by
+ * `ship.<assetId>-unique` to match `UNIQUE_SPRITE_IDS`.
+ */
+export const SHIP_HERITAGE_NAMEPLATES: Record<string, string> = {
+  "ship.crvusd-unique": "CURVE",
+  "ship.bold-unique":   "LIQUITY",
+  "ship.fxusd-unique":  "F(X)",
+  "ship.paxg-unique":   "PAXOS",
+  "ship.xaut-unique":   "TETHER GOLD",
+  "ship.usyc-unique":   "HASHNOTE",
+  "ship.frax-unique":   "FRAX",
+  "ship.gho-unique":    "GHO",
+};
+
+export const HERITAGE_NAMEPLATE_MIN_ZOOM = 0.7;
+
 export const SHIP_SAIL_EMBLEM_PAINTED: ReadonlySet<string> = new Set([
   "crvusd-curve",
   "usdc-circle",

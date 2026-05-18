@@ -3,6 +3,8 @@ import type { LoadedPharosVilleAsset, PharosVilleAssetManager } from "../../asse
 import { hexToRgba, readableInkForFill, roundedRectPath } from "../../canvas-primitives";
 import { pickSailEmblemInk, SHIP_SAIL_TINT_MASKS } from "../../ship-sail-tint";
 import {
+  HERITAGE_NAMEPLATE_MIN_ZOOM,
+  SHIP_HERITAGE_NAMEPLATES,
   SHIP_PENNANT_MARKS,
   PROCEDURAL_SHIP_PENNANT_MARK,
   SHIP_SAIL_MARKS,
@@ -10,6 +12,43 @@ import {
 } from "../../ship-visual-config";
 import { clamp, multiplyGlobalAlpha } from "./draw-ship";
 import type { CacheStats } from "./livery";
+
+/**
+ * W6.04 (decision D8 §6) — Heritage-tier stern engraving. Paints the
+ * `SHIP_HERITAGE_NAMEPLATES[spriteAssetId]` label as 4 px serif lettering
+ * along the lower stern. Gated on `camera.zoom >= 0.7` (tighter than the
+ * dock-plaque gate at 0.55 — heritage nameplates are inspect-a-hull-level
+ * detail). No-op for ships without a heritage entry. Designed to layer onto
+ * the existing heritage hull paint without obscuring the painted emblem.
+ */
+export function drawHeritageNameplate(
+  ctx: CanvasRenderingContext2D,
+  spriteAssetId: string | null | undefined,
+  shipScreenX: number,
+  shipScreenY: number,
+  zoom: number,
+  scale: number,
+): void {
+  if (!spriteAssetId) return;
+  if (zoom < HERITAGE_NAMEPLATE_MIN_ZOOM) return;
+  const label = SHIP_HERITAGE_NAMEPLATES[spriteAssetId];
+  if (!label) return;
+  ctx.save();
+  // 4 px serif lettering scaled with the ship; cream on dark-wood stern.
+  const fontPx = Math.max(4, Math.round(4 * zoom * 0.8));
+  ctx.font = `${fontPx}px "PV Plaque", "Times New Roman", serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  // Tiny outline so the engraving reads against any stern color.
+  ctx.lineWidth = Math.max(1, Math.round(zoom));
+  ctx.strokeStyle = "rgba(20, 14, 8, 0.85)";
+  ctx.fillStyle = "rgba(238, 220, 178, 0.92)";
+  // Stern offset: ~6 px below the ship anchor at 1.0 scale, scaled by ship + zoom.
+  const sternY = shipScreenY - 4 * zoom * scale;
+  ctx.strokeText(label, shipScreenX, sternY);
+  ctx.fillText(label, shipScreenX, sternY);
+  ctx.restore();
+}
 
 export function pennantSpecForShip(ship: PharosVilleWorld["ships"][number], hasAsset: boolean): ShipPennantSpec {
   if (!hasAsset) return PROCEDURAL_SHIP_PENNANT_MARK;
