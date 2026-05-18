@@ -175,11 +175,10 @@ table lookup, mirroring the existing dock-flag tint pattern):
 const maxManifestAssets = 75;
 ```
 
-**Assumption (FLAG):** dock-figures / dock-awning / lantern-string are
-**one PNG each**, shared across harbors, with per-harbor tint applied at
-render time. If the implementation instead bakes per-chain variants into
-separate PNGs (mirroring per-chain dock sprites), bump cap to 78–84
-accordingly. See §6 open question 1.
+**Locked (decision D1 §6):** dock-figures / dock-awning / lantern-string
+are **one PNG each**, shared across harbors. The awning is tinted per
+harbor at render time via `drawTintedAsset` (§1.6 step 3); figures and
+lantern strings are universal silhouettes.
 
 The cap raise must happen **exactly once at wave start**, in the first
 PR of the wave, before any new entries are added. The same comment line
@@ -213,7 +212,7 @@ Test-fixture literals in `src/systems/asset-manifest.test.ts:60-61` and `src/ren
 
 **WebP is not used at runtime.** Hard finding: no `webpPath` field anywhere in the manifest or renderer; no `<picture>` element; `loadImage` in `src/renderer/asset-manager.ts:542-584` does `new Image(); image.src = src;` unconditionally. The validator's orphan check at `validate-assets.mjs:106-108` lists `*.png` only — WebP files on disk are neither validated nor flagged. Grep for `webp` finds it only in (1) `validate-assets.mjs:24` regex for `/logos/...` external references and (2) `check-committed-secrets.mjs:31` binary skip list. Nothing in `src/` or `shared/`.
 
-**Required migration shape (single coordinated edit, W6.13):** (1) Add optional `webpPath?: string` to `PharosVilleAssetManifestEntry`. (2) Add `webpFrameSource?: string` to `PharosVilleAssetAnimation` for sprite-sheet twins. (3) Add `assetWebpUrl(asset, manifest)` returning `undefined` when absent. (4) Extend `loadImage` (or add `loadImageWithFallback`) to prefer WebP, fall back to PNG on `image.onerror`. `<img>.decode()` supports WebP across the Chromium-linux Playwright matrix. (5) Extend `validate-assets.mjs`: read WebP file, check 12-byte signature `RIFF????WEBP`, add to `referenced` set so orphan check sees it; add per-category WebP byte budget (≈ 60-70% of PNG; concrete numbers from USDT canary in §4.1); cap counts entries, not files. (6) Fallback is a **manifest-field** convention (canvas-paint renderer can't use DOM `<picture>`; fallback happens at decode time).
+**Locked migration shape (decision D2 in §6; single coordinated edit, W6.13):** (1) Add optional `webpPath?: string` to `PharosVilleAssetManifestEntry`. (2) Add `webpFrameSource?: string` to `PharosVilleAssetAnimation` for sprite-sheet twins. (3) Add `assetWebpUrl(asset, manifest)` returning `undefined` when absent. (4) Extend `loadImage` (or add `loadImageWithFallback`) to prefer WebP, fall back to PNG on `image.onerror`. `<img>.decode()` supports WebP across the Chromium-linux Playwright matrix. (5) Extend `validate-assets.mjs`: read WebP file, check 12-byte signature `RIFF????WEBP`, add to `referenced` set so orphan check sees it; add per-category WebP byte budget (≈ 60-70% of PNG; concrete numbers from USDT canary in §4.1); cap counts entries, not files. (6) Fallback is a **manifest-field** convention (canvas-paint renderer can't use DOM `<picture>`; fallback happens at decode time).
 
 Once the renderer fallback infra is in (PR 1), each subsequent W6 task adds two files + one manifest field.
 
@@ -248,7 +247,7 @@ Authoritative tables in `src/renderer/layers/scenery.ts`:
      }
    }
    ```
-   `drawTintedAsset` does not exist today — new utility in `src/renderer/canvas-primitives.ts` (composite sprite, then `globalCompositeOperation = "source-atop"` + fill harbor accent at low alpha). Alternative: preprocess per-chain via sail-tint-style recolor (see `recolorSailImageData` in `src/renderer/ship-sail-tint.ts`). See §6 open question 1.
+   `drawTintedAsset` does not exist today — new utility in `src/renderer/canvas-primitives.ts` (composite sprite, then `globalCompositeOperation = "source-atop"` + fill harbor accent at low alpha). Alternative: preprocess per-chain via sail-tint-style recolor (see `recolorSailImageData` in `src/renderer/ship-sail-tint.ts`). Decision D1 (§6) confirms one shared `dock-awning` sprite tinted at draw time — not per-chain variants.
 4. **Manifest entries** — three deferred prop entries (skeleton in §3 W6.12 below).
 5. **Placements** in `SCENERY_PROPS` (lines 78-134) — ~2 awnings + 1 figure pair + 1 lantern string per major harbor (Ethereum / Tron / BSC / Base / Arbitrum / Polygon). Skip cemetery cove and pigeonnier islet per followup §5.
 6. **Asset preload** — automatic via `loadDeferred()` (`asset-manager.ts:220-227`) once entries are in the manifest.
@@ -274,7 +273,7 @@ the renderer fallback. Prompts below merge the parent plan §6/§Wave 2
 | W6.02e | `ship.susde-titan` regen | 128 × 96 | `ships/susde-titan.png` + `ships/susde-titan-frames.png` | matching `.webp` | "isometric pixel-art stablecoin galleon, Ethena staked grey-violet `#686963` sail-cloth, **off-cream Greek-delta inside an oxidized-bronze vault ring painted into mainsail at ~1/4 sail** (no sUSDe wordmark, no letters elsewhere), oxidized-bronze masthead lantern; style anchor `2026-04-29-lighthouse-hill-v5`" | 4-frame sprite sheet | YES |
 | W6.03 | `ship.xaut-unique` regen | 136 × 100 | `ships/xaut-unique.png` | `ships/xaut-unique.webp` | "isometric pixel-art heritage bullion-barge silhouette, **gilded bronze `#b48a3a` hull** with **gold `#d8b04a` banded waterline trim**, cream sail-cloth, **single gold bullion-ingot silhouette painted into mainsail at ~1/4 sail** (no XAUT wordmark, no oz markings), oxidized-bronze masthead lantern, cream bowsprit pennant; style anchor `2026-04-29-lighthouse-hill-v5`" | static single-frame (heritage tier — no animation block); anchor 68,92 | YES (existing entry at `ship-sail-tint.ts:135-140` is a single rectangle; refresh after regen) |
 | W6.06a | `ship.frax-unique` net-new | 136 × 100 | `ships/frax-unique.png` | `ships/frax-unique.webp` | "isometric pixel-art heritage hull silhouette, **graphite `#2f3437` sail-cloth**, **off-cream fractal/binary octagon silhouette painted into mainsail at ~1/4 sail** (no FRAX wordmark, no numerals), oxidized-bronze masthead lantern, cream bowsprit pennant; style anchor `2026-04-29-lighthouse-hill-v5`" | static single-frame; anchor 68,92 | YES (new entry — derive polygons from generated PNG) |
-| W6.06b | `ship.gho-unique` net-new | 136 × 100 | `ships/gho-unique.png` | `ships/gho-unique.webp` | "isometric pixel-art heritage hull silhouette, **Aave purple-violet `#3cae68`** [PROMPT FLAG: the parent plan says "Aave purple", but `STABLECOIN_SAIL_COLORS["gho-aave"]` at `src/systems/stablecoin-ship-branding.ts:28` uses green `#3cae68` — pick one in handshake §6.3] sail-cloth, **off-cream ghost silhouette painted into mainsail at ~1/4 sail** (no GHO wordmark), oxidized-bronze masthead lantern, cream bowsprit pennant; style anchor `2026-04-29-lighthouse-hill-v5`" | static single-frame; anchor 68,92 | YES (new entry — derive polygons from generated PNG) |
+| W6.06b | `ship.gho-unique` net-new | 136 × 100 | `ships/gho-unique.png` | `ships/gho-unique.webp` | "isometric pixel-art heritage hull silhouette, **Aave purple-violet `#7e2ecf` sail-cloth**, **off-cream ghost silhouette painted into mainsail at ~1/4 sail** (no GHO wordmark), oxidized-bronze masthead lantern, cream bowsprit pennant; style anchor `2026-04-29-lighthouse-hill-v5`" | static single-frame; anchor 68,92 | YES (new entry — derive polygons from generated PNG) |
 | W6.07 | `overlay.center-cluster` regen | 384 × 224 | `overlays/center-cluster.png` | `overlays/center-cluster.webp` | "isometric pixel-art overlay of a Pharos civic district: **central open colonnaded agora pavilion (4 limestone columns, low terracotta hip roof, no walls, ~80×80 px)** flanked by **7 staggered residential terracotta-roof clusters**, weathered limestone walls, restrained scrub greenery; **cap silhouette ≤ 110 px so lighthouse remains the dominant vertical**; transparent background, dark contact shadow, low top-down view; style anchor `2026-04-29-lighthouse-hill-v5`" | imagemagick crop to 384×224 anchor 192,168 — same footprint/hitbox as current | NO |
 | W6.08 | `dock.hyperliquid-trading-floor` net-new | 192 × 136 | `docks/hyperliquid-trading-floor.png` | `docks/hyperliquid-trading-floor.webp` | "isometric pixel-art harbor dock: **obsidian-glass trading-pit silhouette** with **three teal `#15858c` terminal column lamps** and **horizontal orange `#d49a3e` ticker-tape band** running along the deck, dark timber waterline, weathered posts, rope/crate clutter, dark contact shadow, transparent background; style anchor `2026-04-29-lighthouse-hill-v5`" | imagemagick crop to 192×136 anchor 96,106 — match Solana original geometry footprint 98×40 | NO |
 | W6.09 | `dock.solana-prism-stilt` regen at new dims | 280 × 180 | `docks/solana-prism-stilt.png` | `docks/solana-prism-stilt.webp` | "isometric pixel-art compact stilt-pier with **deck-mounted neon-cyan `#3cd6c7` light strip** and **three crystalline prism beacons rising from the deck**, weathered timber posts, rope/crate clutter, dark contact shadow; style anchor `2026-04-29-lighthouse-hill-v5`" | imagemagick crop to 280×180; **anchor scales from 96,106 → 140,150** (proportional from 192×136 → 280×180); footprint 98×40 → 143×53; verify with `DOCK_OUTWARD_VECTOR_OVERRIDES` (§3 W6.09 below) and `seawall clip` | NO |
@@ -287,20 +286,21 @@ the renderer fallback. Prompts below merge the parent plan §6/§Wave 2
 | W6.12b | `prop.dock-figures` net-new | 48 × 64 [PROPOSE] | `props/dock-figures.png` | `props/dock-figures.webp` | "isometric pixel-art **silhouette pair of two stevedore figures handling a crate**, dark indigo silhouettes (no facial detail), dark contact shadow, transparent background; style anchor `2026-04-29-lighthouse-hill-v5`" | crop to 48×64 anchor 24,60 footprint ~14,10; non-selectable (hit detection disabled) | NO |
 | W6.12c | `prop.lantern-string` net-new | 96 × 32 [PROPOSE] | `props/lantern-string.png` | `props/lantern-string.webp` | "isometric pixel-art **horizontal festoon-lantern garland of 8 warm-yellow lanterns** strung between two timber posts, dark contact shadow under the posts, transparent background — designed to fade in proportional to `nightFactor`; style anchor `2026-04-29-lighthouse-hill-v5`" | crop to 96×32 anchor 48,28 footprint 30,4; static night-only sprite | NO |
 
-#### Flagged / proposed prompts
+#### Notes on the W6.12 ambient prop dimensions
 
 The parent plan does not provide explicit dimensions or prompts for
 W6.12 ambient props (`dock-awning`, `dock-figures`, `lantern-string`).
 Proposed dimensions and anchors above are extrapolations from
 comparable props (`prop.harbor-bell` 64×80 anchor 32,72 footprint 18,12;
-`prop.cargo-stack` 80×96 anchor 40,88 footprint 44,20). Confirm with
-Visual Director + Harbormaster handshake before generation.
+`prop.cargo-stack` 80×96 anchor 40,88 footprint 44,20). Decision D1
+(§6) locks one shared sprite per kind; the awning is tinted per chain
+at draw time.
 
-The W6.06b GHO color is flagged (`STABLECOIN_SAIL_COLORS["gho-aave"]`
-already declares green `#3cae68`, not "Aave purple" as the followup
-plan §5 suggests). Lock this in handshake before generation; rest of
-the Aave-purple branding has hex `#7e2ecf` in their site palette so
-the chosen value will drive both the sprite and the livery row.
+GHO color is locked at Aave purple `#7e2ecf` (decision D4 §6). The
+matching update to `STABLECOIN_SAIL_COLORS["gho-aave"]` at
+`src/systems/stablecoin-ship-branding.ts:28` lands in the same PR as
+the W6.06 heritage hull so the runtime sail-tint matches the painted
+emblem.
 
 ---
 
@@ -319,7 +319,7 @@ with the existing surrounding code shown for context.
 ### W6.02 — Paint emblems on PYUSD / USD1 / BUIDL / USDe / sUSDe
 
 - **Files:** 5 titan PNGs + 5 frame sheets + 10 WebP twins; manifest entries `manifest.json:1263-1416` (PYUSD/USD1/BUIDL) + `1161-1262` (USDe/sUSDe). Update `promptProvenance.jobId` per asset.
-- **Sail-tint:** All five are absent from `SHIP_SAIL_TINT_MASKS` (mirroring `ship.usdc-titan`'s explicit omission per comment at `ship-sail-tint.ts:57-61`). If the W6.01 canary confirms USDC's "white emblem baked into cloth, no runtime tint" approach reads well, leave these five omitted. Otherwise add polygons after regen.
+- **Sail-tint (decision D7 §6 — defer to USDT canary):** All five are absent from `SHIP_SAIL_TINT_MASKS` (mirroring `ship.usdc-titan`'s explicit omission per comment at `ship-sail-tint.ts:57-61`). The W6.01 USDT canary drives whether to leave omitted (bake emblem, no runtime tint) or to add polygons after regen. The PR 2 description records the canary outcome; PR 3 inherits the decision for the remaining five titans.
 - **Emblem set:** all five already in `SHIP_SAIL_EMBLEM_PAINTED` (`ship-visual-config.ts:64-74`). No change.
 - **Test impact:** if omission retained, mirror the USDC `UNTUNED_TITAN_IDS` pattern in `src/renderer/ship-sail-tint.test.ts:53-58`.
 
@@ -347,7 +347,7 @@ with the existing surrounding code shown for context.
   };
   ```
 
-- **Render integration:** new `drawHeritageNameplate` helper in `src/renderer/layers/ships.ts`, gated on `camera.zoom >= 0.7` per followup §5 W6.04. Re-export `SHIP_HERITAGE_NAMEPLATES` from `ships.ts:44-56` alongside existing re-exports.
+- **Render integration:** new `drawHeritageNameplate` helper in `src/renderer/layers/ships/sail.ts` (heritage chrome lives on the sail-side of the post-W5.02 split), gated on `camera.zoom >= 0.7` (locked, decision D8 §6 — tighter than the dock-plaque gate at 0.55 because nameplates are inspect-a-hull-level detail). Re-export `SHIP_HERITAGE_NAMEPLATES` from `ships/index.ts`.
 - **Tests:** add coverage row in `src/renderer/layers/ships.test.ts` asserting every id in `UNIQUE_SPRITE_IDS` (`unique-ships.ts:38-40`) has a nameplate.
 
 ### W6.05 — Per-ship mast-lantern color
@@ -360,7 +360,7 @@ with the existing surrounding code shown for context.
 
 ### W6.06 — FRAX + GHO heritage hulls
 
-- **New rows in `UNIQUE_SHIP_DEFINITIONS`** at `src/systems/unique-ships.ts:29-36`. Keys MUST match `STABLECOIN_SAIL_COLORS` keys in `src/systems/stablecoin-ship-branding.ts:14-49`. FRAX candidates are `frax-frax` / `frxusd-frax` / `sfrxusd-frax` (lines 23-25); GHO is `gho-aave` (line 28). Recommendation: heritage on `frxusd-frax` (current Frax USD product). See §6 open Q3.
+- **New rows in `UNIQUE_SHIP_DEFINITIONS`** at `src/systems/unique-ships.ts:29-36`. Keys MUST match `STABLECOIN_SAIL_COLORS` keys in `src/systems/stablecoin-ship-branding.ts:14-49`. **Locked (decision D3 §6): FRAX heritage keys on `frxusd-frax`** (the current Frax USD product). `frax-frax` and `sfrxusd-frax` rows remain as livery fallbacks but are not heritage-tiered. GHO heritage keys on `gho-aave` (line 28).
 
   ```ts
   "frxusd-frax": { spriteAssetId: "ship.frax-unique", rationale: "Fractal hull — Frax's algorithmic/binary octagon identity.", scale: 1.23 },
@@ -372,6 +372,7 @@ with the existing surrounding code shown for context.
 - **Sail-tint:** two new entries in `SHIP_SAIL_TINT_MASKS` (`ship-sail-tint.ts:23-159`) derived from the generated PNGs.
 - **Trim marks (optional):** rows in `SHIP_TRIM_MARKS` (`ship-visual-config.ts:182-324`) mirroring `ship.crvusd-unique` at lines 294-299.
 - **Nameplates:** two new rows in `SHIP_HERITAGE_NAMEPLATES` (lands with W6.04).
+- **STABLECOIN_SAIL_COLORS fix (decision D4 §6):** update `gho-aave` at `src/systems/stablecoin-ship-branding.ts:28` from green `#3cae68` to Aave purple `#7e2ecf` in the same PR. Without this the runtime sail-tint pulse fights the painted ghost silhouette.
 - **Doc:** update `docs/pharosville/CURRENT.md` (currently mentions heritage hulls at lines 181, 204-205, 225).
 - **Motion / wake:** no code change — heritage hulls inherit motion shape via `UNIQUE_SPRITE_IDS` derived at module load (`unique-ships.ts:38-40`).
 
@@ -382,7 +383,7 @@ with the existing surrounding code shown for context.
 
 ### W6.08 — Generate `dock.hyperliquid-trading-floor`
 
-- **Files:** new `docks/hyperliquid-trading-floor.png` + `.webp`; new manifest entry slotted in the docks block (current docks end at line 1002). Skeleton mirrors `dock.solana-prism-stilt` geometry (192×136, anchor [96,106], footprint [98,40], hitbox [10,16,172,110]). **`loadPriority: "deferred"` per §1.3** unless `firstRenderBudgets.maxCount` is also bumped 33→34.
+- **Files:** new `docks/hyperliquid-trading-floor.png` + `.webp`; new manifest entry slotted in the docks block (current docks end at line 1002). Skeleton mirrors `dock.solana-prism-stilt` geometry (192×136, anchor [96,106], footprint [98,40], hitbox [10,16,172,110]). **`loadPriority: "deferred"` (locked, decision D5 §6)** — no first-render budget bump; south-shore briefly empty before pop-in is acceptable.
 - **Chain-dock registration:** Hyperliquid is mapped to `HYPERLIQUID_HARBOR_DOCK_TILE = { x: 36, y: 39 }` (`src/systems/world-layout.ts:82, 90, 106`) but **`PREFERRED_DOCK_ASSET_IDS` in `src/systems/chain-docks.ts:29-40` does NOT list Hyperliquid yet.** Add `hyperliquid: "dock.hyperliquid-trading-floor"` row and add the asset id to `_DOCK_ASSET_IDS` at lines 16-27.
 - **`DOCK_FLAG_EXPLICIT_MARKS`** already has `hyperliquid: "HYPE"` at `src/renderer/layers/docks.ts:592`. No change.
 - **Manifest cap:** +1 entry. See §1.3.
@@ -409,7 +410,7 @@ with the existing surrounding code shown for context.
 ### W6.11 — Sundial bump to 96×96
 
 - **Files:** `props/sundial.png` replaced at 96×96; new `.webp`; manifest entry `manifest.json:2228-2261` updates `width: 64→96`, `height: 64→96`, `anchor: [32,56]→[48,84]`, `footprint: [20,12]→[30,18]`, `hitbox: [16,14,32,42]→[24,21,48,63]` (all proportional).
-- **Render scale:** `drawSundial` at `scenery.ts:406-407`; `civic-sundial` placement at `scenery.ts:114` uses `scale: 0.9` relative to 64×64 native — at 96×96 the rendered size grows ~1.5×. Either drop placement scale to ~0.6 to preserve visual size, or keep 0.9 to honor "bigger sundial" intent. See §6 open Q6.
+- **Render scale (locked, decision D6 §6):** keep `civic-sundial` placement at `scenery.ts:114` at `scale: 0.9`. Rendered sundial grows ~1.5× on screen — matches the parent plan's "bigger sundial" intent. No code change at the placement site; only the manifest geometry and PNG file change.
 
 ### W6.12 — Dock-side ambient prop pack
 
@@ -700,94 +701,66 @@ Every PR after PR 1 expects Wave 5 to be merged:
 
 ---
 
-## 6. Open questions to resolve before kickoff
+## 6. Decisions (resolved 2026-05-18)
 
-1. **`dock-awning`, `dock-figures`, `lantern-string` — one shared
-   sprite each or per-chain variants?** The parent plan §Wave 4
-   W4.13 says "per-chain tint" for awnings, "silhouette stevedore
-   pair" for figures (implies one shared sprite), and "festoon
-   lights, night-only" for lanterns (implies one shared sprite). The
-   followup plan §5 W6.12 says "+3 manifest entries" — implying one
-   shared sprite per kind. Manifest cap projection in §1.3 assumes
-   this. **If per-chain variants are preferred for awnings, cap rises
-   to 78–84.** Confirm with Harbormaster + Visual Director.
+All eight open questions from the original draft of this document
+were resolved on 2026-05-18 in a single human review pass. The
+decisions below are authoritative for Wave 6 kickoff — no further
+handshakes owed before PR 1.
 
-2. **WebP `<picture>` fallback vs manifest field?** The renderer
-   paints to canvas (`drawAsset` at
-   `src/renderer/canvas-primitives.ts` → `ctx.drawImage(…)`); the DOM
-   doesn't have a `<picture>` element to fall back through. The
-   §1.5 migration shape therefore uses a manifest field
-   (`webpPath?: string`) + a JS fallback in `loadImage`. Confirm this
-   convention is acceptable to the Engineer lane — the alternative
-   (e.g. preloading both, picking the decoded one based on whether
-   WebP decoded) doubles network traffic.
+**D1. Ambient prop variants (W6.12) — one shared sprite per kind.**
+`prop.dock-awning` is one sprite tinted per harbor at draw time via
+`drawTintedAsset` (§1.6 step 3); `prop.dock-figures` and
+`prop.lantern-string` are universal silhouettes. Manifest cap
+projection in §1.3 stands: 69 → 75. PixelLab budget: 3 sprites total
+for the prop pack.
 
-3. **FRAX heritage entry — which stablecoin id?** `STABLECOIN_SAIL_COLORS`
-   in `src/systems/stablecoin-ship-branding.ts:23-25` declares three
-   FRAX-adjacent ids: `frax-frax`, `frxusd-frax`, `sfrxusd-frax`. The
-   "Frax v2" canonical USD product today is `frxusd`. The followup
-   plan §5 W6.06 says "FRAX" but doesn't pin the id. **Recommendation:
-   key heritage on `frxusd-frax`** (Frax USD = current product) and
-   document the `frax-frax` / `sfrxusd-frax` ids as fallback-shaped
-   livery rows. Confirm with Visual Director.
+**D2. WebP fallback (W6.13) — manifest field + JS fallback.** Add
+`webpPath?: string` to `PharosVilleAssetManifestEntry` and
+`webpFrameSource?: string` to `PharosVilleAssetAnimation`. `loadImage`
+prefers WebP, falls back to PNG on `image.onerror`. No DOM `<picture>`
+element (the renderer paints to canvas). Migration shape spec'd in
+§1.5.
 
-4. **GHO color — green or purple?** `STABLECOIN_SAIL_COLORS["gho-aave"]`
-   at `stablecoin-ship-branding.ts:28` uses green `#3cae68`. The
-   followup plan §5 W6.06 says "ghost silhouette in Aave purple."
-   These are inconsistent. **Recommendation:** lock the GHO ship
-   livery to Aave's brand purple `#7e2ecf` for visual identity and
-   update `STABLECOIN_SAIL_COLORS["gho-aave"]` to a purple-based
-   livery in the same PR as the heritage hull. Otherwise the new
-   ship sail-tint won't match the brand metaphor.
+**D3. FRAX heritage stablecoin id (W6.06) — `frxusd-frax`.** The
+current Frax USD product. `UNIQUE_SHIP_DEFINITIONS["frxusd-frax"]`
+gets the heritage row + `spriteAssetId: "ship.frax-unique"`. The
+`frax-frax` and `sfrxusd-frax` ids stay in `STABLECOIN_SAIL_COLORS`
+as livery fallbacks but are not heritage-tiered.
 
-5. **W6.08 Hyperliquid load priority — critical or deferred?** Today's
-   `firstRenderBudgets.maxCount` is 33; 33 critical entries exist
-   already. A new critical entry overflows. Either:
-   - Bump first-render budget 33→34 (and rebudget bytes / pixels) in
-     the same wave-open PR, or
-   - Ship Hyperliquid as `deferred`, accepting one extra frame
-     before it paints.
+**D4. GHO color (W6.06) — Aave purple `#7e2ecf` + matching
+`STABLECOIN_SAIL_COLORS` fix.** The new heritage hull paints a ghost
+silhouette on a purple-violet `#7e2ecf` sail. The same PR updates
+`STABLECOIN_SAIL_COLORS["gho-aave"]` at
+`src/systems/stablecoin-ship-branding.ts:28` from green `#3cae68` to
+a purple-derived livery so the runtime sail-tint pulse stays
+consistent with the painted emblem.
 
-   The parent plan §Wave 4 W4.08 says "Bump validator
-   `maxManifestAssets` cap" — does not specify critical/deferred.
-   Recommendation: ship deferred unless the south-shore visual
-   pop-in is unacceptable. Confirm with Harbormaster.
+**D5. Hyperliquid load priority (W6.08) — deferred.** The new dock
+sprite ships with `loadPriority: "deferred"`. No bump to
+`firstRenderBudgets.maxCount` (stays 33). South-shore briefly empty
+before Hyperliquid pop-in is acceptable.
 
-6. **Sundial native scale strategy.** W6.11 bumps the sundial from
-   64×64 → 96×96. The existing `civic-sundial` placement
-   (`scenery.ts:114`) uses `scale: 0.9`. After the bump the rendered
-   size grows ~1.5×. **Options:**
-   - Drop placement scale to `0.6` to preserve visual size (lose the
-     "bigger sundial" feel).
-   - Keep `scale: 0.9` (the parent plan §Wave 4 W4.10 implies the
-     bump is intentional growth).
+**D6. Sundial scale (W6.11) — keep `scale: 0.9`.** The 96 × 96 PNG
+renders ~1.5× larger than today. Matches the parent plan §Wave 4
+W4.10 "bigger sundial" intent. No code change at the placement site
+(`scenery.ts:114`); only the manifest geometry and PNG file change.
 
-   The validator warns when `decoded ÷ displayed > 4` and `displayScale
-   < 0.8`; at 96×96 native with `displayScale: 1` and placement scale
-   0.9, the displayed area is `(96 × 0.9)² ≈ 7465` pixels — well under
-   the warning floor of 50000 (`validate-assets.mjs:68`). Either
-   choice passes validation. Confirm visual intent with Harbormaster.
+**D7. Sail-tint strategy for the six titan regens (W6.01–W6.02) —
+defer to USDT canary.** Bake USDT first under PR 2. If the q=85 WebP
+encoding preserves the kraken silhouette and the lit-from-above sail
+reads cleanly without runtime tint, the remaining five titans
+(PYUSD/USD1/BUIDL/USDe/sUSDe) follow the same omission pattern in
+PR 3. Otherwise PR 3 derives `SHIP_SAIL_TINT_MASKS` polygons for all
+five and updates `UNTUNED_TITAN_IDS` accordingly. The PR 2
+description records the canary outcome.
 
-7. **Sail-tint polygon strategy for the five non-USDT titans.** USDC's
-   current approach is white emblem baked into the cloth + omission
-   from `SHIP_SAIL_TINT_MASKS` (per the comment at
-   `ship-sail-tint.ts:57-61`). If W6.01's USDT kraken regen also bakes
-   the emblem fully (no runtime tint), and that approach reads well,
-   should the other five titans (PYUSD/USD1/BUIDL/USDe/sUSDe) follow
-   the same omission pattern, or should they retain runtime tint? The
-   answer drives whether five new polygon entries are added to
-   `SHIP_SAIL_TINT_MASKS` (and to `ship-sail-tint.test.ts`'s
-   `UNTUNED_TITAN_IDS`). Recommendation: defer to the USDT canary
-   outcome.
-
-8. **W6.04 zoom threshold for `SHIP_HERITAGE_NAMEPLATES`.** The
-   followup plan §5 W6.04 says "Render at `camera.zoom ≥ 0.7`." This
-   needs a small camera-zoom getter pattern. Today's nameplate-like
-   readability happens at the dock plaque (W4.15, parent §Wave 4)
-   which gates on `camera.zoom ≥ 0.55`. Confirm the heritage gate
-   should be tighter than dock plaques (suggests "this is only
-   visible when you zoom in to inspect a specific hull"). Visual
-   Director sign-off.
+**D8. Heritage nameplate zoom threshold (W6.04) — `camera.zoom ≥
+0.7`.** Tighter than the dock-plaque gate (`≥ 0.55`, W4.15) because
+the heritage nameplate is inspect-a-hull-level detail rather than
+general harbor signage. `drawHeritageNameplate` lives in
+`src/renderer/layers/ships/sail.ts` (heritage chrome is sail-layer
+work after the W5.02 split).
 
 ---
 
@@ -795,4 +768,5 @@ Every PR after PR 1 expects Wave 5 to be merged:
 6 proposed PRs, 1 manifest cap raise (69 → 75), 1 `cacheVersion`
 bump (`2026-05-03-ton-pigeonnier-pier-v3` → `2026-06-W6-identity-pass`),
 1 consolidated visual baseline rebake (≈ 35 PNGs across two fixture
-sets), and 8 open questions requiring human decision before kickoff.
+sets). All 8 prior open questions resolved as decisions D1–D8 in §6
+on 2026-05-18 — kickoff-ready.
