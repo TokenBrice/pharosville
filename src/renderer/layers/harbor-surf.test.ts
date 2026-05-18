@@ -6,7 +6,7 @@ import { createDrawInput } from "../__test-utils__/draw-input";
 import type { DrawPharosVilleInput } from "../render-types";
 import {
   drawHarborSurf,
-  HARBOR_SURF_BY_DOCK,
+  HARBOR_SURF_BY_CHAIN,
   HARBOR_SURF_PEAK_ALPHA,
 } from "./harbor-surf";
 
@@ -37,9 +37,9 @@ function makeWorld(docks: PharosVilleWorld["docks"]): PharosVilleWorld {
   } as unknown as PharosVilleWorld;
 }
 
-describe("HARBOR_SURF_BY_DOCK", () => {
+describe("HARBOR_SURF_BY_CHAIN", () => {
   it("defines a 6-segment ribbon for each chain harbor it covers", () => {
-    const ribbons = Object.values(HARBOR_SURF_BY_DOCK);
+    const ribbons = Object.values(HARBOR_SURF_BY_CHAIN);
     expect(ribbons.length).toBeGreaterThan(0);
     for (const ribbon of ribbons) {
       expect(ribbon).toHaveLength(6);
@@ -153,7 +153,7 @@ describe("drawHarborSurf", () => {
     expect(curveA).toEqual(curveB);
   });
 
-  it("skips docks without a HARBOR_SURF_BY_DOCK entry", () => {
+  it("skips docks without a HARBOR_SURF_BY_CHAIN entry", () => {
     const unknownDock = makeDock({
       id: "dock.not-in-table",
       detailId: "dock.not-in-table",

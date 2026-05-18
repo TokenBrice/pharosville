@@ -24,11 +24,13 @@ const FOAM_PEAK_ALPHA = 0.6;
 const FOAM_LINE_WIDTH = 3;
 
 /**
- * Per-dock foam ribbon definitions. Opt-in by dock id: docks whose seawall
+ * Per-chain foam ribbon definitions. Opt-in by chain id: docks whose seawall
  * geometry cannot be derived from existing layout data are simply omitted
- * (`drawHarborSurf` silently skips them). Keys match `DockNode.id`
- * (`dock.${chainId}`) so the runtime call site can look the ribbon up
- * directly without an extra mapping table.
+ * (`drawHarborSurf` silently skips them). Keys are bare chain ids (e.g.
+ * `ethereum`, `bsc`) — the lookup strips the `dock.` prefix off
+ * `DockNode.id`. Bare keys keep this table out of the asset-id static-check
+ * regex in `validate-assets.mjs` (which would otherwise mis-classify
+ * runtime DockNode id strings as manifest references).
  *
  * Each entry traces a 6-segment ribbon along the seaward edge of the dock's
  * landfall tile, slightly offset in the outward direction so the foam paints
@@ -36,9 +38,9 @@ const FOAM_LINE_WIDTH = 3;
  * tile coordinates here are tuned by hand to match each dock's silhouette;
  * length/phase/tilt values mirror the LIGHTHOUSE_SURF cadence.
  */
-export const HARBOR_SURF_BY_DOCK: Record<string, readonly DockSurfRibbonDef[]> = {
+export const HARBOR_SURF_BY_CHAIN: Record<string, readonly DockSurfRibbonDef[]> = {
   // Ethereum civic cove — east periphery, outward (+1, 0). Wall runs N-S.
-  "dock.ethereum": [
+  ethereum: [
     { x: 42.55, y: 29.7, length: 18, phase: 0.4, tilt: 0.10 },
     { x: 42.55, y: 30.4, length: 22, phase: 2.1, tilt: -0.12 },
     { x: 42.55, y: 31.1, length: 26, phase: 4.0, tilt: 0.02 },
@@ -47,7 +49,7 @@ export const HARBOR_SURF_BY_DOCK: Record<string, readonly DockSurfRibbonDef[]> =
     { x: 42.55, y: 33.2, length: 17, phase: 3.4, tilt: 0.08 },
   ],
   // Base modular slip — SE periphery, outward (+1, 0). Wall runs N-S.
-  "dock.base": [
+  base: [
     { x: 39.55, y: 36.7, length: 16, phase: 1.6, tilt: 0.08 },
     { x: 39.55, y: 37.4, length: 20, phase: 3.7, tilt: -0.14 },
     { x: 39.55, y: 38.1, length: 24, phase: 5.2, tilt: 0.04 },
@@ -56,7 +58,7 @@ export const HARBOR_SURF_BY_DOCK: Record<string, readonly DockSurfRibbonDef[]> =
     { x: 39.55, y: 40.2, length: 17, phase: 4.5, tilt: 0.10 },
   ],
   // Arbitrum arch bridge — south periphery, outward (0, +1). Wall runs E-W.
-  "dock.arbitrum": [
+  arbitrum: [
     { x: 30.7, y: 40.55, length: 16, phase: 0.9, tilt: 0.06 },
     { x: 31.4, y: 40.55, length: 20, phase: 2.7, tilt: -0.14 },
     { x: 32.1, y: 40.55, length: 24, phase: 4.4, tilt: 0.02 },
@@ -65,7 +67,7 @@ export const HARBOR_SURF_BY_DOCK: Record<string, readonly DockSurfRibbonDef[]> =
     { x: 34.2, y: 40.55, length: 17, phase: 3.2, tilt: 0.08 },
   ],
   // Polygon hexmarket — SW periphery, outward (0, +1). Wall runs E-W.
-  "dock.polygon": [
+  polygon: [
     { x: 24.7, y: 39.55, length: 16, phase: 1.1, tilt: 0.10 },
     { x: 25.4, y: 39.55, length: 20, phase: 2.9, tilt: -0.12 },
     { x: 26.1, y: 39.55, length: 24, phase: 4.6, tilt: 0.04 },
@@ -74,7 +76,7 @@ export const HARBOR_SURF_BY_DOCK: Record<string, readonly DockSurfRibbonDef[]> =
     { x: 28.2, y: 39.55, length: 17, phase: 3.7, tilt: 0.06 },
   ],
   // BSC mercantile wharf — SW shoulder, outward (-1, 0). Wall runs N-S.
-  "dock.bsc": [
+  bsc: [
     { x: 20.45, y: 34.7, length: 17, phase: 0.6, tilt: -0.08 },
     { x: 20.45, y: 35.4, length: 21, phase: 2.3, tilt: 0.12 },
     { x: 20.45, y: 36.1, length: 25, phase: 4.1, tilt: -0.02 },
@@ -83,7 +85,7 @@ export const HARBOR_SURF_BY_DOCK: Record<string, readonly DockSurfRibbonDef[]> =
     { x: 20.45, y: 38.2, length: 17, phase: 3.0, tilt: -0.06 },
   ],
   // Tron arena wharf — N periphery (west of center), outward (0, -1). Wall runs E-W.
-  "dock.tron": [
+  tron: [
     { x: 26.7, y: 21.45, length: 17, phase: 1.3, tilt: 0.08 },
     { x: 27.4, y: 21.45, length: 21, phase: 3.0, tilt: -0.12 },
     { x: 28.1, y: 21.45, length: 25, phase: 4.7, tilt: 0.02 },
@@ -93,7 +95,7 @@ export const HARBOR_SURF_BY_DOCK: Record<string, readonly DockSurfRibbonDef[]> =
   ],
   // Solana prism stilt — NW shoulder near lighthouse, outward (0, -1) per
   // DOCK_OUTWARD_VECTOR_OVERRIDES. Wall runs E-W.
-  "dock.solana": [
+  solana: [
     { x: 23.7, y: 22.45, length: 17, phase: 0.8, tilt: 0.10 },
     { x: 24.4, y: 22.45, length: 21, phase: 2.5, tilt: -0.14 },
     { x: 25.1, y: 22.45, length: 25, phase: 4.2, tilt: 0.04 },
@@ -102,7 +104,7 @@ export const HARBOR_SURF_BY_DOCK: Record<string, readonly DockSurfRibbonDef[]> =
     { x: 27.2, y: 22.45, length: 17, phase: 3.3, tilt: 0.08 },
   ],
   // Aptos jade pagoda — N periphery (east of Tron), outward (0, -1). Wall runs E-W.
-  "dock.aptos": [
+  aptos: [
     { x: 30.7, y: 21.45, length: 17, phase: 1.0, tilt: 0.06 },
     { x: 31.4, y: 21.45, length: 21, phase: 2.7, tilt: -0.12 },
     { x: 32.1, y: 21.45, length: 25, phase: 4.4, tilt: 0.02 },
@@ -111,7 +113,7 @@ export const HARBOR_SURF_BY_DOCK: Record<string, readonly DockSurfRibbonDef[]> =
     { x: 34.2, y: 21.45, length: 17, phase: 3.5, tilt: 0.06 },
   ],
   // Avalanche alpine watch — S periphery, outward (0, +1). Wall runs E-W.
-  "dock.avalanche": [
+  avalanche: [
     { x: 31.7, y: 40.55, length: 17, phase: 1.4, tilt: 0.10 },
     { x: 32.4, y: 40.55, length: 21, phase: 3.1, tilt: -0.14 },
     { x: 33.1, y: 40.55, length: 25, phase: 4.8, tilt: 0.02 },
@@ -120,7 +122,7 @@ export const HARBOR_SURF_BY_DOCK: Record<string, readonly DockSurfRibbonDef[]> =
     { x: 35.2, y: 40.55, length: 17, phase: 4.0, tilt: 0.08 },
   ],
   // Hyperliquid harbor — S periphery (between Base and Arbitrum), outward (0, +1).
-  "dock.hyperliquid": [
+  hyperliquid: [
     { x: 34.7, y: 39.55, length: 16, phase: 1.2, tilt: 0.08 },
     { x: 35.4, y: 39.55, length: 20, phase: 2.9, tilt: -0.12 },
     { x: 36.1, y: 39.55, length: 24, phase: 4.6, tilt: 0.04 },
@@ -131,7 +133,7 @@ export const HARBOR_SURF_BY_DOCK: Record<string, readonly DockSurfRibbonDef[]> =
   // TON pigeonnier pier — detached islet at (49,50), outward (-1, 0) (faces
   // west toward the main island). The pigeonnier islet is single-tile, so
   // the ribbon is narrower and centered tightly on its short west edge.
-  "dock.ton": [
+  ton: [
     { x: 48.45, y: 49.4, length: 14, phase: 0.7, tilt: -0.06 },
     { x: 48.45, y: 49.7, length: 17, phase: 2.2, tilt: 0.10 },
     { x: 48.45, y: 50.0, length: 20, phase: 3.9, tilt: -0.02 },
@@ -187,7 +189,8 @@ export function drawHarborSurf(input: DrawPharosVilleInput): void {
   ctx.lineCap = "round";
   const mapWidth = world.map.width;
   for (const dock of world.docks) {
-    const ribbon = HARBOR_SURF_BY_DOCK[dock.id];
+    const chainId = dock.id.startsWith("dock.") ? dock.id.slice("dock.".length) : dock.id;
+    const ribbon = HARBOR_SURF_BY_CHAIN[chainId];
     if (!ribbon || ribbon.length === 0) continue;
     const zoneMultiplier = dockFoamAlphaMultiplier(dock.tile, mapWidth);
     if (zoneMultiplier <= 0) continue;
