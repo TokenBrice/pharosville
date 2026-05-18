@@ -44,9 +44,9 @@ describe("HARBOR_SURF_BY_CHAIN", () => {
     for (const ribbon of ribbons) {
       expect(ribbon).toHaveLength(6);
       for (const segment of ribbon) {
-        expect(Number.isFinite(segment.x)).toBe(true);
-        expect(Number.isFinite(segment.y)).toBe(true);
-        expect(segment.length).toBeGreaterThan(0);
+        expect(Number.isFinite(segment[0])).toBe(true);
+        expect(Number.isFinite(segment[1])).toBe(true);
+        expect(segment[2]).toBeGreaterThan(0);
       }
     }
   });

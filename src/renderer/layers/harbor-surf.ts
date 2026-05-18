@@ -1,5 +1,4 @@
 import { paletteRgba, zoneThemeForTerrain } from "../../systems/palette";
-import { tileToScreen } from "../../systems/projection";
 import { isWaterTileKind, terrainKindAt } from "../../systems/world-layout";
 import { dockOutwardVector } from "../geometry";
 import type { DrawPharosVilleInput } from "../render-types";
@@ -10,13 +9,7 @@ import type { DrawPharosVilleInput } from "../render-types";
  * plus segment length (sprite-units), phase offset (radians), and a curve
  * tilt that sells the wave running along the wall.
  */
-export interface DockSurfRibbonDef {
-  x: number;
-  y: number;
-  length: number;
-  phase: number;
-  tilt: number;
-}
+export type DockSurfRibbonDef = readonly [x: number, y: number, length: number, phase: number, tilt: number];
 
 // Peak ribbon alpha at full intensity. Per-zone theme multipliers scale this
 // down (LEDGER, DANGER) or up (ALERT) — see ZONE_THEMES.beachFoamAlpha.
@@ -41,105 +34,105 @@ const FOAM_LINE_WIDTH = 3;
 export const HARBOR_SURF_BY_CHAIN: Record<string, readonly DockSurfRibbonDef[]> = {
   // Ethereum civic cove — east periphery, outward (+1, 0). Wall runs N-S.
   ethereum: [
-    { x: 42.55, y: 29.7, length: 18, phase: 0.4, tilt: 0.10 },
-    { x: 42.55, y: 30.4, length: 22, phase: 2.1, tilt: -0.12 },
-    { x: 42.55, y: 31.1, length: 26, phase: 4.0, tilt: 0.02 },
-    { x: 42.55, y: 31.8, length: 24, phase: 5.7, tilt: 0.14 },
-    { x: 42.55, y: 32.5, length: 20, phase: 1.3, tilt: -0.10 },
-    { x: 42.55, y: 33.2, length: 17, phase: 3.4, tilt: 0.08 },
+    [42.55, 29.7, 18, 0.4, 0.10],
+    [42.55, 30.4, 22, 2.1, -0.12],
+    [42.55, 31.1, 26, 4.0, 0.02],
+    [42.55, 31.8, 24, 5.7, 0.14],
+    [42.55, 32.5, 20, 1.3, -0.10],
+    [42.55, 33.2, 17, 3.4, 0.08],
   ],
   // Base modular slip — SE periphery, outward (+1, 0). Wall runs N-S.
   base: [
-    { x: 39.55, y: 36.7, length: 16, phase: 1.6, tilt: 0.08 },
-    { x: 39.55, y: 37.4, length: 20, phase: 3.7, tilt: -0.14 },
-    { x: 39.55, y: 38.1, length: 24, phase: 5.2, tilt: 0.04 },
-    { x: 39.55, y: 38.8, length: 22, phase: 0.7, tilt: 0.16 },
-    { x: 39.55, y: 39.5, length: 19, phase: 2.4, tilt: -0.08 },
-    { x: 39.55, y: 40.2, length: 17, phase: 4.5, tilt: 0.10 },
+    [39.55, 36.7, 16, 1.6, 0.08],
+    [39.55, 37.4, 20, 3.7, -0.14],
+    [39.55, 38.1, 24, 5.2, 0.04],
+    [39.55, 38.8, 22, 0.7, 0.16],
+    [39.55, 39.5, 19, 2.4, -0.08],
+    [39.55, 40.2, 17, 4.5, 0.10],
   ],
   // Arbitrum arch bridge — south periphery, outward (0, +1). Wall runs E-W.
   arbitrum: [
-    { x: 30.7, y: 40.55, length: 16, phase: 0.9, tilt: 0.06 },
-    { x: 31.4, y: 40.55, length: 20, phase: 2.7, tilt: -0.14 },
-    { x: 32.1, y: 40.55, length: 24, phase: 4.4, tilt: 0.02 },
-    { x: 32.8, y: 40.55, length: 22, phase: 5.9, tilt: 0.16 },
-    { x: 33.5, y: 40.55, length: 19, phase: 1.5, tilt: -0.10 },
-    { x: 34.2, y: 40.55, length: 17, phase: 3.2, tilt: 0.08 },
+    [30.7, 40.55, 16, 0.9, 0.06],
+    [31.4, 40.55, 20, 2.7, -0.14],
+    [32.1, 40.55, 24, 4.4, 0.02],
+    [32.8, 40.55, 22, 5.9, 0.16],
+    [33.5, 40.55, 19, 1.5, -0.10],
+    [34.2, 40.55, 17, 3.2, 0.08],
   ],
   // Polygon hexmarket — SW periphery, outward (0, +1). Wall runs E-W.
   polygon: [
-    { x: 24.7, y: 39.55, length: 16, phase: 1.1, tilt: 0.10 },
-    { x: 25.4, y: 39.55, length: 20, phase: 2.9, tilt: -0.12 },
-    { x: 26.1, y: 39.55, length: 24, phase: 4.6, tilt: 0.04 },
-    { x: 26.8, y: 39.55, length: 22, phase: 0.3, tilt: 0.14 },
-    { x: 27.5, y: 39.55, length: 19, phase: 2.0, tilt: -0.08 },
-    { x: 28.2, y: 39.55, length: 17, phase: 3.7, tilt: 0.06 },
+    [24.7, 39.55, 16, 1.1, 0.10],
+    [25.4, 39.55, 20, 2.9, -0.12],
+    [26.1, 39.55, 24, 4.6, 0.04],
+    [26.8, 39.55, 22, 0.3, 0.14],
+    [27.5, 39.55, 19, 2.0, -0.08],
+    [28.2, 39.55, 17, 3.7, 0.06],
   ],
   // BSC mercantile wharf — SW shoulder, outward (-1, 0). Wall runs N-S.
   bsc: [
-    { x: 20.45, y: 34.7, length: 17, phase: 0.6, tilt: -0.08 },
-    { x: 20.45, y: 35.4, length: 21, phase: 2.3, tilt: 0.12 },
-    { x: 20.45, y: 36.1, length: 25, phase: 4.1, tilt: -0.02 },
-    { x: 20.45, y: 36.8, length: 23, phase: 5.5, tilt: -0.14 },
-    { x: 20.45, y: 37.5, length: 19, phase: 1.0, tilt: 0.10 },
-    { x: 20.45, y: 38.2, length: 17, phase: 3.0, tilt: -0.06 },
+    [20.45, 34.7, 17, 0.6, -0.08],
+    [20.45, 35.4, 21, 2.3, 0.12],
+    [20.45, 36.1, 25, 4.1, -0.02],
+    [20.45, 36.8, 23, 5.5, -0.14],
+    [20.45, 37.5, 19, 1.0, 0.10],
+    [20.45, 38.2, 17, 3.0, -0.06],
   ],
   // Tron arena wharf — N periphery (west of center), outward (0, -1). Wall runs E-W.
   tron: [
-    { x: 26.7, y: 21.45, length: 17, phase: 1.3, tilt: 0.08 },
-    { x: 27.4, y: 21.45, length: 21, phase: 3.0, tilt: -0.12 },
-    { x: 28.1, y: 21.45, length: 25, phase: 4.7, tilt: 0.02 },
-    { x: 28.8, y: 21.45, length: 23, phase: 0.5, tilt: 0.14 },
-    { x: 29.5, y: 21.45, length: 19, phase: 2.2, tilt: -0.10 },
-    { x: 30.2, y: 21.45, length: 17, phase: 3.9, tilt: 0.06 },
+    [26.7, 21.45, 17, 1.3, 0.08],
+    [27.4, 21.45, 21, 3.0, -0.12],
+    [28.1, 21.45, 25, 4.7, 0.02],
+    [28.8, 21.45, 23, 0.5, 0.14],
+    [29.5, 21.45, 19, 2.2, -0.10],
+    [30.2, 21.45, 17, 3.9, 0.06],
   ],
   // Solana prism stilt — NW shoulder near lighthouse, outward (0, -1) per
   // DOCK_OUTWARD_VECTOR_OVERRIDES. Wall runs E-W.
   solana: [
-    { x: 23.7, y: 22.45, length: 17, phase: 0.8, tilt: 0.10 },
-    { x: 24.4, y: 22.45, length: 21, phase: 2.5, tilt: -0.14 },
-    { x: 25.1, y: 22.45, length: 25, phase: 4.2, tilt: 0.04 },
-    { x: 25.8, y: 22.45, length: 23, phase: 5.8, tilt: 0.16 },
-    { x: 26.5, y: 22.45, length: 19, phase: 1.6, tilt: -0.10 },
-    { x: 27.2, y: 22.45, length: 17, phase: 3.3, tilt: 0.08 },
+    [23.7, 22.45, 17, 0.8, 0.10],
+    [24.4, 22.45, 21, 2.5, -0.14],
+    [25.1, 22.45, 25, 4.2, 0.04],
+    [25.8, 22.45, 23, 5.8, 0.16],
+    [26.5, 22.45, 19, 1.6, -0.10],
+    [27.2, 22.45, 17, 3.3, 0.08],
   ],
   // Aptos jade pagoda — N periphery (east of Tron), outward (0, -1). Wall runs E-W.
   aptos: [
-    { x: 30.7, y: 21.45, length: 17, phase: 1.0, tilt: 0.06 },
-    { x: 31.4, y: 21.45, length: 21, phase: 2.7, tilt: -0.12 },
-    { x: 32.1, y: 21.45, length: 25, phase: 4.4, tilt: 0.02 },
-    { x: 32.8, y: 21.45, length: 23, phase: 0.1, tilt: 0.14 },
-    { x: 33.5, y: 21.45, length: 19, phase: 1.8, tilt: -0.08 },
-    { x: 34.2, y: 21.45, length: 17, phase: 3.5, tilt: 0.06 },
+    [30.7, 21.45, 17, 1.0, 0.06],
+    [31.4, 21.45, 21, 2.7, -0.12],
+    [32.1, 21.45, 25, 4.4, 0.02],
+    [32.8, 21.45, 23, 0.1, 0.14],
+    [33.5, 21.45, 19, 1.8, -0.08],
+    [34.2, 21.45, 17, 3.5, 0.06],
   ],
   // Avalanche alpine watch — S periphery, outward (0, +1). Wall runs E-W.
   avalanche: [
-    { x: 31.7, y: 40.55, length: 17, phase: 1.4, tilt: 0.10 },
-    { x: 32.4, y: 40.55, length: 21, phase: 3.1, tilt: -0.14 },
-    { x: 33.1, y: 40.55, length: 25, phase: 4.8, tilt: 0.02 },
-    { x: 33.8, y: 40.55, length: 23, phase: 0.6, tilt: 0.16 },
-    { x: 34.5, y: 40.55, length: 19, phase: 2.3, tilt: -0.10 },
-    { x: 35.2, y: 40.55, length: 17, phase: 4.0, tilt: 0.08 },
+    [31.7, 40.55, 17, 1.4, 0.10],
+    [32.4, 40.55, 21, 3.1, -0.14],
+    [33.1, 40.55, 25, 4.8, 0.02],
+    [33.8, 40.55, 23, 0.6, 0.16],
+    [34.5, 40.55, 19, 2.3, -0.10],
+    [35.2, 40.55, 17, 4.0, 0.08],
   ],
   // Hyperliquid harbor — S periphery (between Base and Arbitrum), outward (0, +1).
   hyperliquid: [
-    { x: 34.7, y: 39.55, length: 16, phase: 1.2, tilt: 0.08 },
-    { x: 35.4, y: 39.55, length: 20, phase: 2.9, tilt: -0.12 },
-    { x: 36.1, y: 39.55, length: 24, phase: 4.6, tilt: 0.04 },
-    { x: 36.8, y: 39.55, length: 22, phase: 0.4, tilt: 0.14 },
-    { x: 37.5, y: 39.55, length: 19, phase: 2.1, tilt: -0.10 },
-    { x: 38.2, y: 39.55, length: 17, phase: 3.8, tilt: 0.06 },
+    [34.7, 39.55, 16, 1.2, 0.08],
+    [35.4, 39.55, 20, 2.9, -0.12],
+    [36.1, 39.55, 24, 4.6, 0.04],
+    [36.8, 39.55, 22, 0.4, 0.14],
+    [37.5, 39.55, 19, 2.1, -0.10],
+    [38.2, 39.55, 17, 3.8, 0.06],
   ],
   // TON pigeonnier pier — detached islet at (49,50), outward (-1, 0) (faces
   // west toward the main island). The pigeonnier islet is single-tile, so
   // the ribbon is narrower and centered tightly on its short west edge.
   ton: [
-    { x: 48.45, y: 49.4, length: 14, phase: 0.7, tilt: -0.06 },
-    { x: 48.45, y: 49.7, length: 17, phase: 2.2, tilt: 0.10 },
-    { x: 48.45, y: 50.0, length: 20, phase: 3.9, tilt: -0.02 },
-    { x: 48.45, y: 50.3, length: 18, phase: 5.4, tilt: -0.12 },
-    { x: 48.45, y: 50.6, length: 16, phase: 1.1, tilt: 0.08 },
-    { x: 48.45, y: 50.9, length: 14, phase: 2.8, tilt: -0.06 },
+    [48.45, 49.4, 14, 0.7, -0.06],
+    [48.45, 49.7, 17, 2.2, 0.10],
+    [48.45, 50.0, 20, 3.9, -0.02],
+    [48.45, 50.3, 18, 5.4, -0.12],
+    [48.45, 50.6, 16, 1.1, 0.08],
+    [48.45, 50.9, 14, 2.8, -0.06],
   ],
 };
 
@@ -187,6 +180,8 @@ export function drawHarborSurf(input: DrawPharosVilleInput): void {
 
   ctx.save();
   ctx.lineCap = "round";
+  const zoom = camera.zoom;
+  ctx.lineWidth = Math.max(1, FOAM_LINE_WIDTH * zoom * 0.6);
   const mapWidth = world.map.width;
   for (const dock of world.docks) {
     const chainId = dock.id.startsWith("dock.") ? dock.id.slice("dock.".length) : dock.id;
@@ -194,20 +189,20 @@ export function drawHarborSurf(input: DrawPharosVilleInput): void {
     if (!ribbon || ribbon.length === 0) continue;
     const zoneMultiplier = dockFoamAlphaMultiplier(dock.tile, mapWidth);
     if (zoneMultiplier <= 0) continue;
-    for (const surf of ribbon) {
-      const p = tileToScreen(surf, camera);
-      const wash = dockSurfWash(surf.phase, time, motion.reducedMotion);
+    for (const [x, y, length, phase, tilt] of ribbon) {
+      const pX = (x - y) * 16 * zoom + camera.offsetX;
+      const pY = (x + y) * 8 * zoom + camera.offsetY;
+      const wash = dockSurfWash(phase, time, motion.reducedMotion);
       const alpha = wash * FOAM_PEAK_ALPHA * zoneMultiplier;
       if (alpha < 0.005) continue;
       ctx.strokeStyle = paletteRgba("foam_white", Math.min(1, alpha));
-      ctx.lineWidth = Math.max(1, FOAM_LINE_WIDTH * camera.zoom * 0.6);
       ctx.beginPath();
-      ctx.moveTo(p.x - surf.length * camera.zoom * 0.5, p.y);
+      ctx.moveTo(pX - length * zoom * 0.5, pY);
       ctx.quadraticCurveTo(
-        p.x,
-        p.y + surf.tilt * surf.length * camera.zoom,
-        p.x + surf.length * camera.zoom * 0.5,
-        p.y + 4 * camera.zoom,
+        pX,
+        pY + tilt * length * zoom,
+        pX + length * zoom * 0.5,
+        pY + 4 * zoom,
       );
       ctx.stroke();
     }
