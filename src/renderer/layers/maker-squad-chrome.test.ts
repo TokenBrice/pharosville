@@ -95,7 +95,7 @@ describe("maker-squad-chrome", () => {
         kind: "area",
         label: "Area 1",
         tile: { x: 0, y: 0 },
-        band,
+        ...(band !== undefined ? { band } : {}),
         detailId: "area-1",
       };
       return {

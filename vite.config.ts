@@ -80,7 +80,7 @@ function localPharosVilleApiProxy(env: { PHAROS_API_BASE?: string; PHAROS_API_KE
         try {
           const host = req.headers.host ?? "localhost";
           const request = new Request(new URL(req.url, `http://${host}`), {
-            method: req.method,
+            ...(req.method !== undefined ? { method: req.method } : {}),
           });
           const response = await pharosVilleApiProxy({
             request,
@@ -210,7 +210,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       localPharosVilleApiProxy({
         PHAROS_API_BASE: env.PHAROS_API_BASE ?? "https://api.pharos.watch",
-        PHAROS_API_KEY: env.PHAROS_API_KEY,
+        ...(env.PHAROS_API_KEY !== undefined ? { PHAROS_API_KEY: env.PHAROS_API_KEY } : {}),
       }),
       pharosVilleRuntimeManifest(),
       desktopChunkModulePreload(),
@@ -222,9 +222,9 @@ export default defineConfig(({ mode }) => {
         "@shared": fileURLToPath(new URL("./shared", import.meta.url)),
       },
     },
-    esbuild: mode === "production"
-      ? { drop: ["debugger"], pure: ["console.warn", "console.debug"] }
-      : undefined,
+    ...(mode === "production"
+      ? { esbuild: { drop: ["debugger" as const], pure: ["console.warn", "console.debug"] } }
+      : {}),
     build: {
       target: "es2022",
       outDir: "dist",

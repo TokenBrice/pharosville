@@ -109,8 +109,16 @@ describe("warmWaterPathsAcrossIdleChunks", () => {
 
   afterEach(() => {
     const idleGlobal = globalThis as unknown as IdleGlobalSlot;
-    idleGlobal.requestIdleCallback = originalRequestIdleCallback;
-    idleGlobal.cancelIdleCallback = originalCancelIdleCallback;
+    if (originalRequestIdleCallback) {
+      idleGlobal.requestIdleCallback = originalRequestIdleCallback;
+    } else {
+      delete idleGlobal.requestIdleCallback;
+    }
+    if (originalCancelIdleCallback) {
+      idleGlobal.cancelIdleCallback = originalCancelIdleCallback;
+    } else {
+      delete idleGlobal.cancelIdleCallback;
+    }
   });
 
   function flushPendingIdleCallbacks(): void {

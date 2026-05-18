@@ -8,7 +8,7 @@ export type YieldBenchmarkSelectionMode = "native" | "fallback-usd" | "manual-ov
 export interface AltYieldSource {
   sourceKey: string;
   yieldSource: string;
-  yieldSourceUrl?: string | null;
+  yieldSourceUrl?: string | null | undefined;
   yieldType: YieldType;
   currentApy: number;
   apy30d: number;
@@ -17,9 +17,9 @@ export interface AltYieldSource {
 }
 
 export interface YieldBenchmarkMeta {
-  key?: YieldBenchmarkKey;
-  label?: string;
-  currency?: string;
+  key?: YieldBenchmarkKey | undefined;
+  label?: string | undefined;
+  currency?: string | undefined;
   rate: number;
   recordDate: string | null;
   fetchedAt: number | null;
@@ -27,13 +27,13 @@ export interface YieldBenchmarkMeta {
   source: string;
   isFallback: boolean;
   fallbackMode: string | null;
-  isProxy?: boolean;
+  isProxy?: boolean | undefined;
 }
 
 export interface YieldBenchmarkRegistry {
   USD: YieldBenchmarkMeta;
-  EUR?: YieldBenchmarkMeta | null;
-  CHF?: YieldBenchmarkMeta | null;
+  EUR?: YieldBenchmarkMeta | null | undefined;
+  CHF?: YieldBenchmarkMeta | null | undefined;
 }
 
 export interface YieldSourceInputMeta {
@@ -56,8 +56,8 @@ export interface YieldRankingProvenance {
   sourceKey: string;
   sourceObservedAt: number;
   sourceAgeSeconds: number;
-  comparisonAnchorObservedAt?: number | null;
-  comparisonAnchorAgeSeconds?: number | null;
+  comparisonAnchorObservedAt?: number | null | undefined;
+  comparisonAnchorAgeSeconds?: number | null | undefined;
   confidenceTier: "deterministic" | "curated" | "discovered" | "fallback";
   selectionMethod: "confidence-weighted";
   selectionReason: string;
@@ -65,22 +65,22 @@ export interface YieldRankingProvenance {
   previousBestSourceKey: string | null;
   usedLegacyHistory: boolean;
   usedDefaultSafety: boolean;
-  benchmarkKey?: YieldBenchmarkKey;
-  benchmarkLabel?: string;
-  benchmarkCurrency?: string;
-  benchmarkRate?: number;
+  benchmarkKey?: YieldBenchmarkKey | undefined;
+  benchmarkLabel?: string | undefined;
+  benchmarkCurrency?: string | undefined;
+  benchmarkRate?: number | undefined;
   benchmarkRecordDate: string | null;
   benchmarkIsFallback: boolean;
   benchmarkFallbackMode: string | null;
-  benchmarkSelectionMode?: YieldBenchmarkSelectionMode;
-  benchmarkIsProxy?: boolean;
+  benchmarkSelectionMode?: YieldBenchmarkSelectionMode | undefined;
+  benchmarkIsProxy?: boolean | undefined;
   anomalies: string[];
 }
 
 export interface YieldRankingsProvenance {
   selectionMethod: "confidence-weighted";
   benchmark: YieldBenchmarkMeta;
-  benchmarks?: YieldBenchmarkRegistry;
+  benchmarks?: YieldBenchmarkRegistry | undefined;
   dlPools: YieldSourceInputMeta;
   safetySnapshot: YieldSafetySnapshotMeta;
 }
@@ -93,13 +93,13 @@ export interface YieldHistoryPoint {
   exchangeRate: number | null;
   sourceTvlUsd: number | null;
   warningSignals: string[];
-  sourceKey?: string | null;
-  yieldSource?: string | null;
-  yieldSourceUrl?: string | null;
-  yieldType?: YieldType | null;
-  dataSource?: string | null;
-  isBest?: boolean;
-  sourceSwitch?: boolean;
+  sourceKey?: string | null | undefined;
+  yieldSource?: string | null | undefined;
+  yieldSourceUrl?: string | null | undefined;
+  yieldType?: YieldType | null | undefined;
+  dataSource?: string | null | undefined;
+  isBest?: boolean | undefined;
+  sourceSwitch?: boolean | undefined;
 }
 
 const YieldHistoryPointSchema: z.ZodType<YieldHistoryPoint> = z.object({
@@ -209,7 +209,7 @@ export interface YieldRanking {
   apyBase: number | null;
   apyReward: number | null;
   yieldSource: string;
-  yieldSourceUrl?: string | null;
+  yieldSourceUrl?: string | null | undefined;
   yieldType: YieldType;
   dataSource: string;
   sourceTvlUsd: number | null;
@@ -218,22 +218,22 @@ export interface YieldRanking {
   safetyGrade: ReportCardGrade | null;
   yieldToRisk: number | null;
   excessYield: number | null;
-  benchmarkKey?: YieldBenchmarkKey;
-  benchmarkLabel?: string;
-  benchmarkCurrency?: string;
-  benchmarkRate?: number;
-  benchmarkRecordDate?: string | null;
-  benchmarkIsFallback?: boolean;
-  benchmarkFallbackMode?: string | null;
-  benchmarkSelectionMode?: YieldBenchmarkSelectionMode;
-  benchmarkIsProxy?: boolean;
+  benchmarkKey?: YieldBenchmarkKey | undefined;
+  benchmarkLabel?: string | undefined;
+  benchmarkCurrency?: string | undefined;
+  benchmarkRate?: number | undefined;
+  benchmarkRecordDate?: string | null | undefined;
+  benchmarkIsFallback?: boolean | undefined;
+  benchmarkFallbackMode?: string | null | undefined;
+  benchmarkSelectionMode?: YieldBenchmarkSelectionMode | undefined;
+  benchmarkIsProxy?: boolean | undefined;
   yieldStability: number | null;
   apyVariance30d: number | null;
   apyMin30d: number | null;
   apyMax30d: number | null;
   warningSignals: string[];
   altSources: AltYieldSource[];
-  provenance?: YieldRankingProvenance | null;
+  provenance?: YieldRankingProvenance | null | undefined;
 }
 
 const YieldRankingSchema = z.object({
@@ -276,11 +276,11 @@ const YieldRankingSchema = z.object({
 export interface YieldRankingsResponse {
   rankings: YieldRanking[];
   riskFreeRate: number;
-  benchmarks?: YieldBenchmarkRegistry;
+  benchmarks?: YieldBenchmarkRegistry | undefined;
   scalingFactor: number;
   medianApy: number;
   updatedAt: number;
-  provenance?: YieldRankingsProvenance | null;
+  provenance?: YieldRankingsProvenance | null | undefined;
 }
 
 export const YieldRankingsResponseSchema: z.ZodType<YieldRankingsResponse> = z.object({

@@ -67,7 +67,7 @@ function createApiPollingQueryOptionsWithMeta<T>(
     refetchInterval,
     retry: opts?.retry ?? 2,
     retryDelay: opts?.retryDelay ?? DEFAULT_RETRY_DELAY,
-    enabled: opts?.enabled,
+    ...(opts?.enabled !== undefined ? { enabled: opts.enabled } : {}),
     // Track only the fields that flow into downstream memoization and render
     // behavior. Omitting `isFetching` prevents background polling ticks from
     // retriggering world computations in the desktop shell.

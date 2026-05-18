@@ -121,7 +121,7 @@ function buildAreas(stress: StressSignalsAllResponse | null | undefined): Pharos
       kind: "area" as const,
       label: riskWaterArea.label,
       tile: riskWaterArea.labelTile,
-      band: band ?? undefined,
+      ...(band ? { band } : {}),
       count: band ? counts[band] : null,
       detailId: id,
       facts: [

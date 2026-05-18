@@ -249,7 +249,7 @@ export function canRetainOffscreenCanvas(input: {
   const metrics = resolveCanvasBackingPixelMetrics({
     dynamicCachePixels: input.currentDynamicCachePixels ?? 0,
     mainCanvasPixels: input.mainCanvasPixels,
-    maxTotalBackingPixels: input.maxTotalBackingPixels,
+    ...(input.maxTotalBackingPixels !== undefined ? { maxTotalBackingPixels: input.maxTotalBackingPixels } : {}),
     spriteCachePixels: input.currentSpriteCachePixels ?? 0,
     staticCachePixels: input.currentStaticCachePixels ?? 0,
   });

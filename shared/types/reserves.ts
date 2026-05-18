@@ -9,9 +9,9 @@ export interface ReserveSlice {
   name: string;
   pct: number;
   risk: ReserveRisk;
-  coinId?: string;
-  depType?: DependencyType;
-  blacklistable?: boolean;
+  coinId?: string | undefined;
+  depType?: DependencyType | undefined;
+  blacklistable?: boolean | undefined;
 }
 
 export const ReserveSliceSchema: z.ZodType<ReserveSlice> = z.object({

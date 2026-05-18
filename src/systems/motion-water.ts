@@ -15,7 +15,14 @@ export function buildShipWaterRoute(input: {
 }): ShipWaterPath {
   const from = nearestMapWaterTile(input.from, input.map);
   const to = nearestMapWaterTile(input.to, input.map);
-  return buildShipWaterRouteFromWaterTiles({ from, to, map: input.map, zone: input.zone, shipId: input.shipId, bucket: input.bucket });
+  return buildShipWaterRouteFromWaterTiles({
+    from,
+    to,
+    map: input.map,
+    ...(input.zone !== undefined ? { zone: input.zone } : {}),
+    ...(input.shipId !== undefined ? { shipId: input.shipId } : {}),
+    ...(input.bucket !== undefined ? { bucket: input.bucket } : {}),
+  });
 }
 
 export function buildCachedShipWaterRoute(input: {

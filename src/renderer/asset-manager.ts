@@ -228,7 +228,7 @@ export class PharosVilleAssetManager {
 
   async loadManifest(signal?: AbortSignal): Promise<PharosVilleAssetManifest> {
     if (this.manifest) return this.manifest;
-    const response = await fetch(PHAROSVILLE_ASSET_MANIFEST_PATH, { signal });
+    const response = await fetch(PHAROSVILLE_ASSET_MANIFEST_PATH, signal ? { signal } : {});
     if (!response.ok) throw new Error(`Failed to load PharosVille asset manifest: ${response.status}`);
     this.manifest = await response.json() as PharosVilleAssetManifest;
     this.manifestSummary = summarizeManifest(this.manifest);

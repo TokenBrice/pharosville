@@ -496,7 +496,7 @@ export function shipRenderState(input: DrawPharosVilleInput, frame: ShipRenderFr
     ? shipAnimationFrameIndex(shipAsset, motion.timeSeconds, ship.id)
     : 0;
   const orientation = resolveShipVisualOrientation({
-    heading: sample?.heading,
+    ...(sample?.heading ? { heading: sample.heading } : {}),
     isTitanSprite: titanSprite,
     isUniqueSprite: uniqueSprite,
     shipId: ship.id,
@@ -786,8 +786,8 @@ function drawPrecomposedShipBody(input: {
       y: anchorY,
     });
   }, {
-    maxPixels: input.frame.shipBodyCacheMaxPixels,
-    protectedKeys: input.frame.protectedShipBodyCacheKeys,
+    ...(input.frame.shipBodyCacheMaxPixels !== undefined ? { maxPixels: input.frame.shipBodyCacheMaxPixels } : {}),
+    ...(input.frame.protectedShipBodyCacheKeys ? { protectedKeys: input.frame.protectedShipBodyCacheKeys } : {}),
   });
   if (!cacheHit && warmupBudget && result.status === "miss") {
     warmupBudget.remaining = Math.max(0, warmupBudget.remaining - 1);

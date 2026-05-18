@@ -281,7 +281,7 @@ function placementsForSegment(segment: AuthoredSeawallSegment, segmentIndex: num
     const t = step / steps;
     placements.push(makePlacement({
       rotation: segment.rotation,
-      scale: segment.scale,
+      ...(segment.scale !== undefined ? { scale: segment.scale } : {}),
       seed: 10_000 + segmentIndex * 101 + step,
       tile: {
         x: segment.start.x + dx * t,

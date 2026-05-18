@@ -8,22 +8,22 @@ export interface CacheStatus {
   /** Availability budget used by /api/health and /api/status ratio bands. */
   maxAge: number;
   healthy: boolean;
-  freshnessSource?: "freshness-sentinel" | "table-fallback" | "cron-fallback";
-  sentinelValidationReason?: string | null;
-  producerJob?: string | null;
-  producerIntervalSec?: number | null;
-  endpointMaxAge?: number | null;
-  availabilityMaxAge?: number | null;
-  endpointBudgetReason?: string | null;
-  availabilityBudgetReason?: string | null;
-  mode?: "live" | "cached-fallback";
-  sourceUpdatedAt?: number | null;
-  sourceAgeSeconds?: number | null;
-  sourceStatus?: "fresh" | "degraded" | "stale" | "none";
-  warning?: string | null;
-  consecutiveFallbackRuns?: number;
+  freshnessSource?: "freshness-sentinel" | "table-fallback" | "cron-fallback" | undefined;
+  sentinelValidationReason?: string | null | undefined;
+  producerJob?: string | null | undefined;
+  producerIntervalSec?: number | null | undefined;
+  endpointMaxAge?: number | null | undefined;
+  availabilityMaxAge?: number | null | undefined;
+  endpointBudgetReason?: string | null | undefined;
+  availabilityBudgetReason?: string | null | undefined;
+  mode?: "live" | "cached-fallback" | undefined;
+  sourceUpdatedAt?: number | null | undefined;
+  sourceAgeSeconds?: number | null | undefined;
+  sourceStatus?: "fresh" | "degraded" | "stale" | "none" | undefined;
+  warning?: string | null | undefined;
+  consecutiveFallbackRuns?: number | undefined;
   /** Human-friendly upstream provider (Binance, CoinGecko, DefiLlama, on-chain RPC, …). */
-  upstreamProvider?: string | null;
+  upstreamProvider?: string | null | undefined;
 }
 
 const CacheStatusSchema = z.object({
@@ -638,7 +638,7 @@ export interface HealthResponse {
     };
   };
   circuits: Record<string, CircuitRecord>;
-  telegramSummary?: TelegramHealthSummary | null;
+  telegramSummary?: TelegramHealthSummary | null | undefined;
 }
 
 export const HealthResponseSchema: z.ZodType<HealthResponse> = z.object({

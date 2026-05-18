@@ -69,8 +69,8 @@ export function entityScreenPoint(input: {
 }): ScreenPoint {
   const tile = entityFollowTile({
     entity: input.entity,
-    mapWidth: input.mapWidth,
-    shipMotionSamples: input.shipMotionSamples,
+    ...(input.mapWidth !== undefined ? { mapWidth: input.mapWidth } : {}),
+    ...(input.shipMotionSamples ? { shipMotionSamples: input.shipMotionSamples } : {}),
   });
   return tileToScreen(tile, input.camera);
 }
@@ -85,7 +85,7 @@ export function resolveEntityGeometry(input: {
   const followTileValue = entityFollowTile({
     entity: input.entity,
     mapWidth: input.mapWidth,
-    shipMotionSamples: input.shipMotionSamples,
+    ...(input.shipMotionSamples ? { shipMotionSamples: input.shipMotionSamples } : {}),
   });
   const screenPoint = tileToScreen(followTileValue, input.camera);
   const draw = entityDrawGeometry({
@@ -108,7 +108,7 @@ export function resolveEntityGeometry(input: {
   const depthTile = entityDepthTile({
     entity: input.entity,
     mapWidth: input.mapWidth,
-    shipMotionSamples: input.shipMotionSamples,
+    ...(input.shipMotionSamples ? { shipMotionSamples: input.shipMotionSamples } : {}),
   });
 
   return {

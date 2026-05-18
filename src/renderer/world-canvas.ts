@@ -574,6 +574,7 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
       }
     }
   }
+  const scheduler = input.renderScheduler;
   return {
     backing: backingMetricsForInput(input, frame.dpr),
     cache: renderCacheMetricsForFrame(frame),
@@ -585,10 +586,10 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
     waterAccentDrawMs,
     waterAccentMode: input.motion.reducedMotion ? "reduced-motion-direct" : "direct",
     waterAccentTileCount,
-    renderBudgetTargetMs: input.renderScheduler?.targetFrameMs,
-    schedulerDegradedPasses: input.renderScheduler?.degradedPasses,
-    schedulerSkippedPasses: input.renderScheduler?.skippedPasses,
-    schedulerTier: input.renderScheduler?.tier,
+    ...(scheduler?.targetFrameMs !== undefined ? { renderBudgetTargetMs: scheduler.targetFrameMs } : {}),
+    ...(scheduler?.degradedPasses ? { schedulerDegradedPasses: scheduler.degradedPasses } : {}),
+    ...(scheduler?.skippedPasses ? { schedulerSkippedPasses: scheduler.skippedPasses } : {}),
+    ...(scheduler?.tier ? { schedulerTier: scheduler.tier } : {}),
   };
 }
 

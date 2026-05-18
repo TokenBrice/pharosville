@@ -252,10 +252,10 @@ function smoothAt(
     targetSamples: new Map([[target.shipId, target]]),
     state,
     timeSeconds,
-    reducedMotion: options.reducedMotion,
-    staticMode: options.staticMode,
+    ...(options.reducedMotion !== undefined ? { reducedMotion: options.reducedMotion } : {}),
+    ...(options.staticMode !== undefined ? { staticMode: options.staticMode } : {}),
     config: {
-      snapDistanceTiles: options.snapDistanceTiles,
+      ...(options.snapDistanceTiles !== undefined ? { snapDistanceTiles: options.snapDistanceTiles } : {}),
     },
   });
   const displaySample = display.get(target.shipId);

@@ -91,17 +91,17 @@ export interface DeadStablecoin {
   id: string;
   name: string;
   symbol: string;
-  llamaId?: string;
-  logo?: string;
+  llamaId?: string | undefined;
+  logo?: string | undefined;
   pegCurrency: PegCurrency;
   causeOfDeath: CauseOfDeath;
   deathDate: string;
-  peakMcap?: number;
-  epitaph?: string;
+  peakMcap?: number | undefined;
+  epitaph?: string | undefined;
   obituary: string;
   sourceUrl: string;
   sourceLabel: string;
-  contracts?: { chain: string; address: string }[];
+  contracts?: { chain: string; address: string }[] | undefined;
 }
 
 export interface BluechipSmidge {
@@ -610,7 +610,7 @@ export interface StressSignalEntry {
   score: number;
   band: string;
   signals: Record<string, { value: number; available: boolean; [key: string]: unknown }>;
-  amplifiers?: { psi: number; contagion: number };
+  amplifiers?: { psi: number; contagion: number } | undefined;
   computedAt: number;
   methodologyVersion: string;
 }
@@ -626,8 +626,8 @@ export const StressSignalsAllResponseSchema = z.object({
 export interface StressSignalsAllResponse {
   signals: Record<string, StressSignalEntry>;
   updatedAt: number;
-  oldestComputedAt?: number;
-  malformedRows?: number;
+  oldestComputedAt?: number | undefined;
+  malformedRows?: number | undefined;
   methodology: DepegDewsMethodology;
 }
 
@@ -654,7 +654,7 @@ export interface StressSignalDetailResponse {
     score: number;
     band: string;
     signals: Record<string, { value: number; available: boolean; [key: string]: unknown }>;
-    amplifiers?: { psi: number; contagion: number };
+    amplifiers?: { psi: number; contagion: number } | undefined;
     methodologyVersion: string;
   }[];
   methodology: DepegDewsMethodology;

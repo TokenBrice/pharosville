@@ -603,7 +603,7 @@ export function drawMoonReflection(input: DrawPharosVilleInput, nightFactor: num
   const grad = moonReflectionGradient(ctx, {
     cx,
     cy,
-    dpr: input.dpr,
+    ...(input.dpr !== undefined ? { dpr: input.dpr } : {}),
     height,
     nightFactor,
     radius,

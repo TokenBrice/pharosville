@@ -150,7 +150,7 @@ export function drawAtmosphericFade(input: DrawPharosVilleInput, nightFactor: nu
     alpha,
     anchorX: anchor.x,
     anchorY: anchor.y,
-    dpr: input.dpr,
+    ...(input.dpr !== undefined ? { dpr: input.dpr } : {}),
     height: input.height,
     innerRadius: Math.max(36, 84 * input.camera.zoom),
     outerRadius: radius,

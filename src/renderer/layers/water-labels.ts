@@ -87,7 +87,7 @@ export function drawWaterAreaLabels({ camera, ctx, dpr, world }: DrawPharosVille
       align: placement.align,
       chromeStyle: waterLabelChromeStyleForTerrain(terrainKind),
       ctx,
-      dpr,
+      ...(dpr !== undefined ? { dpr } : {}),
       fill: theme.label.fill,
       label: area.label,
       maxWidth: placement.maxWidth,

@@ -454,7 +454,7 @@ function buildShipMotionRoute(
     formationOffset: null,
     staleEvidence: ship.placementEvidence.stale,
     wakeMultiplier,
-    dockDwellShareOverride,
+    ...(dockDwellShareOverride !== undefined ? { dockDwellShareOverride } : {}),
     ...(previousRisk
       ? { previousRiskTile: previousRisk.tile, previousRiskLabel: previousRisk.label }
       : {}),
@@ -545,9 +545,12 @@ function buildConsortMotionRoute(
     ? offsetOpenWaterPatrol(flagshipRoute.openWaterPatrol, offsetTile)
     : null;
 
+  const consortDockDwellOverride = ship.chainPresence.length >= 4
+    ? DOCKED_SHIP_DWELL_SHARE * 1.15
+    : undefined;
   return {
     shipId: ship.id,
-    routeEpoch: flagshipRoute.routeEpoch,
+    ...(flagshipRoute.routeEpoch !== undefined ? { routeEpoch: flagshipRoute.routeEpoch } : {}),
     routeKey: `${flagshipRoute.routeKey ?? fallbackRouteKey(flagshipRoute)}:consort:${ship.id}:${offset.dx},${offset.dy}`,
     cycleSeconds: flagshipRoute.cycleSeconds,
     phaseSeconds: flagshipRoute.phaseSeconds,
@@ -565,9 +568,7 @@ function buildConsortMotionRoute(
     // so each consort's stale evidence and change24hPct are reflected independently.
     staleEvidence: ship.placementEvidence.stale,
     wakeMultiplier: computeWakeMultiplier(ship.change24hPct),
-    dockDwellShareOverride: ship.chainPresence.length >= 4
-      ? DOCKED_SHIP_DWELL_SHARE * 1.15
-      : undefined,
+    ...(consortDockDwellOverride !== undefined ? { dockDwellShareOverride: consortDockDwellOverride } : {}),
   };
 }
 

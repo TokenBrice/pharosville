@@ -1428,7 +1428,6 @@ describe("shipMastTopScreenPoint", () => {
     // Override visual to use a hull key that is NOT in SHIP_SAIL_MARKS.
     (ship as { visual: { hull: string; spriteAssetId?: string; sizeTier: string; scale: number; livery: unknown } }).visual = {
       hull: "fictional-hull",
-      spriteAssetId: undefined,
       sizeTier: "major",
       scale: 1,
       livery: {},

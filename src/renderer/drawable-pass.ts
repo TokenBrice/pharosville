@@ -4,8 +4,10 @@ export type WorldDrawablePass = "underlay" | "body" | "overlay" | "selection";
 
 export interface WorldDrawableSortFields {
   depth: number;
-  detailId?: string;
-  entityId?: string;
+  // Pool-reused descriptors reset these between frames; widened to
+  // `string | undefined` for `exactOptionalPropertyTypes` compatibility.
+  detailId?: string | undefined;
+  entityId?: string | undefined;
   kind: string;
   pass: WorldDrawablePass;
   screenBounds: { height: number; width: number; x: number; y: number };

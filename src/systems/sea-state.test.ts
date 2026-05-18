@@ -14,7 +14,7 @@ const lighthouse = {
 } satisfies Pick<LighthouseNode, "psiBand" | "score" | "unavailable">;
 
 function area(band: AreaNode["band"], count = 1): Pick<AreaNode, "band" | "count"> {
-  return { band, count };
+  return { ...(band !== undefined ? { band } : {}), count };
 }
 
 describe("sea-state master signal", () => {

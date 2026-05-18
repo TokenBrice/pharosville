@@ -32,7 +32,7 @@ export function createRenderFrameCache(input: DrawPharosVilleInput): RenderFrame
       camera: input.camera,
       entity,
       mapWidth: input.world.map.width,
-      shipMotionSamples: input.shipMotionSamples,
+      ...(input.shipMotionSamples ? { shipMotionSamples: input.shipMotionSamples } : {}),
     });
     geometryByEntity.set(entity, geometry);
     return geometry;

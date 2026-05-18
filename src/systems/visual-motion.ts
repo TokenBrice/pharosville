@@ -77,9 +77,9 @@ export function smoothShipMotionSamples(input: SmoothShipMotionSamplesInput): Re
     displaySamples: input.state.displaySamples,
     memory: input.state.memory,
     timeSeconds: input.timeSeconds,
-    reducedMotion: input.reducedMotion,
-    staticMode: input.staticMode,
-    config: input.config,
+    ...(input.reducedMotion !== undefined ? { reducedMotion: input.reducedMotion } : {}),
+    ...(input.staticMode !== undefined ? { staticMode: input.staticMode } : {}),
+    ...(input.config !== undefined ? { config: input.config } : {}),
   });
 }
 
@@ -283,7 +283,11 @@ function smoothOptionalNumberInto(
 
   const targetValue = readableTarget[key];
   if (typeof targetValue !== "number" || !Number.isFinite(targetValue)) {
-    mutableOut[key] = targetValue;
+    if (targetValue !== undefined) {
+      mutableOut[key] = targetValue;
+    } else {
+      delete mutableOut[key];
+    }
     return;
   }
 
@@ -319,13 +323,23 @@ function copyTargetMetadata(target: ShipMotionSample, out: ShipMotionSample): vo
   out.currentRouteStopKind = target.currentRouteStopKind;
 
   if (hasOwn(target, "mooringSubPhase")) {
-    out.mooringSubPhase = target.mooringSubPhase;
+    const mooringSubPhase = target.mooringSubPhase;
+    if (mooringSubPhase !== undefined) {
+      out.mooringSubPhase = mooringSubPhase;
+    } else {
+      delete out.mooringSubPhase;
+    }
   } else {
     delete out.mooringSubPhase;
   }
 
   if (hasOwn(target, "seaState")) {
-    out.seaState = target.seaState;
+    const seaState = target.seaState;
+    if (seaState !== undefined) {
+      out.seaState = seaState;
+    } else {
+      delete out.seaState;
+    }
   } else {
     delete out.seaState;
   }
@@ -335,7 +349,12 @@ function copyOptionalNumber(target: ShipMotionSample, out: ShipMotionSample, key
   const mutableOut = out as ShipMotionSample & Partial<Record<OptionalNumberSampleKey, number>>;
   const readableTarget = target as ShipMotionSample & Partial<Record<OptionalNumberSampleKey, number>>;
   if (hasOwn(target, key)) {
-    mutableOut[key] = readableTarget[key];
+    const value = readableTarget[key];
+    if (value !== undefined) {
+      mutableOut[key] = value;
+    } else {
+      delete mutableOut[key];
+    }
   } else {
     delete mutableOut[key];
   }

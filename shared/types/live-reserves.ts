@@ -160,44 +160,44 @@ export interface LiveReserveWarning {
 }
 
 export interface LiveReserveSnapshotMetadata extends Record<string, unknown> {
-  sourceTimestamp?: number;
-  freshnessMode?: LiveReserveFreshnessMode;
-  unknownExposurePct?: number;
-  yieldBasisCollateralUsd?: number;
-  yieldBasisCollateralPct?: number;
-  supplyUsd?: number;
-  totalReserveUsd?: number;
-  totalAssetsUsd?: number;
-  totalLiabilitiesUsd?: number;
-  shareholderEquityUsd?: number;
-  collateralizationRatio?: number;
-  immediateRedeemableUsd?: number;
-  immediateRedeemableRatio?: number;
-  redemptionFeeBps?: number;
-  buyFeeBpsMin?: number;
-  buyFeeBpsMax?: number;
-  redemption?: LiveReserveRedemptionTelemetry;
-  details?: Record<string, unknown>;
+  sourceTimestamp?: number | undefined;
+  freshnessMode?: LiveReserveFreshnessMode | undefined;
+  unknownExposurePct?: number | undefined;
+  yieldBasisCollateralUsd?: number | undefined;
+  yieldBasisCollateralPct?: number | undefined;
+  supplyUsd?: number | undefined;
+  totalReserveUsd?: number | undefined;
+  totalAssetsUsd?: number | undefined;
+  totalLiabilitiesUsd?: number | undefined;
+  shareholderEquityUsd?: number | undefined;
+  collateralizationRatio?: number | undefined;
+  immediateRedeemableUsd?: number | undefined;
+  immediateRedeemableRatio?: number | undefined;
+  redemptionFeeBps?: number | undefined;
+  buyFeeBpsMin?: number | undefined;
+  buyFeeBpsMax?: number | undefined;
+  redemption?: LiveReserveRedemptionTelemetry | undefined;
+  details?: Record<string, unknown> | undefined;
 }
 
 export interface LiveReserveRedemptionTelemetry extends Record<string, unknown> {
-  capacityUsd?: number;
-  capacityRatioOfSupply?: number;
-  capacityKind?: LiveReserveRedemptionCapacityKind;
-  freshnessKind?: LiveReserveRedemptionFreshnessKind;
-  sourceTimestamp?: number;
-  blockNumber?: number;
-  routeStatus?: LiveReserveRedemptionRouteStatus;
-  routeStatusSource?: LiveReserveRedemptionRouteStatusSource;
-  routeStatusReason?: string;
-  routeStatusReviewedAt?: string;
-  holderEligibility?: string;
-  settlementDelaySec?: number;
-  queueDepthUsd?: number;
-  dailyLimitUsd?: number;
-  minRedeemUsd?: number;
-  feeBps?: number;
-  sourceUrls?: string[];
+  capacityUsd?: number | undefined;
+  capacityRatioOfSupply?: number | undefined;
+  capacityKind?: LiveReserveRedemptionCapacityKind | undefined;
+  freshnessKind?: LiveReserveRedemptionFreshnessKind | undefined;
+  sourceTimestamp?: number | undefined;
+  blockNumber?: number | undefined;
+  routeStatus?: LiveReserveRedemptionRouteStatus | undefined;
+  routeStatusSource?: LiveReserveRedemptionRouteStatusSource | undefined;
+  routeStatusReason?: string | undefined;
+  routeStatusReviewedAt?: string | undefined;
+  holderEligibility?: string | undefined;
+  settlementDelaySec?: number | undefined;
+  queueDepthUsd?: number | undefined;
+  dailyLimitUsd?: number | undefined;
+  minRedeemUsd?: number | undefined;
+  feeBps?: number | undefined;
+  sourceUrls?: string[] | undefined;
 }
 
 export interface LiveReserveAdapterValidationPolicy {
@@ -236,16 +236,16 @@ export interface ReserveSyncStateView {
   status: "ok" | "degraded" | "error" | "skipped";
   stale: boolean;
   bootstrap: boolean;
-  lastAttemptedAt?: number;
-  lastSuccessAt?: number;
-  warnings?: string[];
-  lastError?: string;
+  lastAttemptedAt?: number | undefined;
+  lastSuccessAt?: number | undefined;
+  warnings?: string[] | undefined;
+  lastError?: string | undefined;
 }
 
 export interface ReserveProvenanceView {
   evidenceClass: LiveReserveEvidenceClass;
   sourceModel: LiveReserveSourceModel;
-  freshnessMode?: LiveReserveFreshnessMode;
+  freshnessMode?: LiveReserveFreshnessMode | undefined;
   scoringEligible: boolean;
 }
 
@@ -259,14 +259,14 @@ export interface StablecoinReservesResponse {
   mode: ReservePresentationMode;
   reserves: ReserveSlice[];
   estimated: boolean;
-  liveAt?: number;
-  source?: string;
-  displayUrl?: string;
-  evidenceUrls?: string[];
-  metadata?: LiveReserveSnapshotMetadata;
-  provenance?: ReserveProvenanceView;
-  displayBadge?: ReserveDisplayBadgeView;
-  sync?: ReserveSyncStateView;
+  liveAt?: number | undefined;
+  source?: string | undefined;
+  displayUrl?: string | undefined;
+  evidenceUrls?: string[] | undefined;
+  metadata?: LiveReserveSnapshotMetadata | undefined;
+  provenance?: ReserveProvenanceView | undefined;
+  displayBadge?: ReserveDisplayBadgeView | undefined;
+  sync?: ReserveSyncStateView | undefined;
 }
 
 const UnknownRecordSchema: z.ZodType<Record<string, unknown>> = z.record(z.string(), z.unknown());

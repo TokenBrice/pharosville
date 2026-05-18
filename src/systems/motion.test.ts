@@ -657,14 +657,13 @@ describe("motion", () => {
 
   it("hides only non-titan, non-unique ships while they are moored", () => {
     const titanShip = world.ships[0]!;
-    const nonTitanShip = {
-      ...titanShip,
-      visual: {
-        ...titanShip.visual,
-        sizeTier: "major" as const,
-        spriteAssetId: undefined,
-      },
-    };
+    const nonTitanShip = ((): typeof titanShip => {
+      const { spriteAssetId: _omit, ...restVisual } = titanShip.visual;
+      return {
+        ...titanShip,
+        visual: { ...restVisual, sizeTier: "major" as const },
+      };
+    })();
     const uniqueShip = {
       ...titanShip,
       visual: {

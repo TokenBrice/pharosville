@@ -20,7 +20,7 @@ function makeArea(id: string, band: AreaNode["band"], tile = { x: 0, y: 0 }): Ar
     kind: "area",
     label: id,
     tile,
-    band,
+    ...(band !== undefined ? { band } : {}),
     detailId: id,
   };
 }

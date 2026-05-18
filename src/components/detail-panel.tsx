@@ -86,10 +86,13 @@ function buildSections(facts: DetailModel["facts"]): Sections {
   if (homeDock) identity.push({ key: "homeDock", label: "Home dock", value: homeDock });
 
   const position: DisplayRow[] = [];
+  const position_ = lookup.get("representativePosition");
+  const area_ = lookup.get("riskWaterArea");
+  const zone_ = lookup.get("riskWaterZone");
   const currently = composeCurrently({
-    position: lookup.get("representativePosition"),
-    area: lookup.get("riskWaterArea"),
-    zone: lookup.get("riskWaterZone"),
+    ...(position_ !== undefined ? { position: position_ } : {}),
+    ...(area_ !== undefined ? { area: area_ } : {}),
+    ...(zone_ !== undefined ? { zone: zone_ } : {}),
   });
   if (currently) position.push({ key: "currently", label: "Currently", value: currently });
   const chains = lookup.get("chainsPresent");

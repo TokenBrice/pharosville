@@ -80,7 +80,7 @@ export interface ChainSummary {
   change30dPct: number;
   stablecoinCount: number;
   dominantStablecoin: ChainDominantStablecoin;
-  topStablecoins?: ChainTopStablecoin[];
+  topStablecoins?: ChainTopStablecoin[] | undefined;
   dominanceShare: number;
   healthScore: number | null;
   healthBand: HealthBand | null;

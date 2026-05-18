@@ -62,7 +62,7 @@ export type ProofOfReservesType = (typeof PROOF_OF_RESERVES_TYPE_VALUES)[number]
 export interface ProofOfReserves {
   type: ProofOfReservesType;
   url: string;
-  provider?: string;
+  provider?: string | undefined;
 }
 
 export interface StablecoinLink {
@@ -72,8 +72,8 @@ export interface StablecoinLink {
 
 export interface Jurisdiction {
   country: string;
-  regulator?: string;
-  license?: string;
+  regulator?: string | undefined;
+  license?: string | undefined;
 }
 
 export interface ContractDeployment {
@@ -85,7 +85,7 @@ export interface ContractDeployment {
 export interface DependencyWeight {
   id: string;
   weight: number;
-  type?: DependencyType;
+  type?: DependencyType | undefined;
 }
 
 export type ChainTier = "ethereum" | "stage1-l2" | "mature-alt-l1" | "established-alt-l1" | "unproven";
@@ -165,7 +165,7 @@ export const YIELD_TYPE_VALUES = [
 export const YieldTypeSchema = z.enum(YIELD_TYPE_VALUES);
 
 export interface YieldConfig {
-  defiLlamaPoolId?: string;
+  defiLlamaPoolId?: string | undefined;
   yieldSource: string;
   yieldType: YieldType;
 }
@@ -188,8 +188,8 @@ export interface LaunchMilestone {
   date: string;
   type: LaunchMilestoneType;
   title: string;
-  description?: string;
-  sourceUrl?: string;
+  description?: string | undefined;
+  sourceUrl?: string | undefined;
 }
 
 export interface DateHistoryEntry {
@@ -204,9 +204,9 @@ export interface FeaturedContent {
   type: FeaturedContentType;
   url: string;
   title: string;
-  description?: string;
-  image?: string;
-  source?: string;
+  description?: string | undefined;
+  image?: string | undefined;
+  source?: string | undefined;
 }
 
 export const STABLECOIN_STATUS_VALUES = ["pre-launch", "active", "frozen"] as const;

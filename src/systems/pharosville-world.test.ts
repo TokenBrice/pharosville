@@ -51,7 +51,7 @@ describe("buildPharosVilleWorld", () => {
   });
 
   it("derives generatedAt deterministically from input data when omitted", () => {
-    const input = makePharosVilleWorldInput({ generatedAt: undefined });
+    const input = makePharosVilleWorldInput({});
     const world = buildPharosVilleWorld(input);
 
     expect(world.generatedAt).toBe(1_700_000_000_000);

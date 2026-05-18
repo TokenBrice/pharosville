@@ -231,7 +231,7 @@ export function drawWeather(input: DrawPharosVilleInput): void {
       coreAlpha,
       cx: centroid.x,
       cy: centroid.y,
-      dpr: input.dpr,
+      ...(input.dpr !== undefined ? { dpr: input.dpr } : {}),
       innerRadius: Math.max(6, 18 * camera.zoom),
       radius,
     });

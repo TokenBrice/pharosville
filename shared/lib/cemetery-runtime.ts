@@ -2,7 +2,7 @@ import type { DeadStablecoin, StablecoinMeta } from "../types";
 import deadStablecoinAsset from "../data/dead-stablecoins.json";
 import { RUNTIME_FROZEN_STABLECOINS } from "./stablecoins/runtime-registry";
 
-export type CemeteryEntry = DeadStablecoin & { archivedDataAvailable?: boolean };
+export type CemeteryEntry = DeadStablecoin & { archivedDataAvailable?: boolean | undefined };
 
 function frozenToDeadShape(coin: StablecoinMeta): CemeteryEntry {
   if (!coin.obituary) {

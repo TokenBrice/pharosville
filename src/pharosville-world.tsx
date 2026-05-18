@@ -370,7 +370,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       if (manualWallClockRestoreRef.current.active) {
         const previous = manualWallClockRestoreRef.current.previous;
         if (previous === undefined) {
-          delete globalThis.__pharosVilleTestWallClockHour;
+          delete (globalThis as { __pharosVilleTestWallClockHour?: number }).__pharosVilleTestWallClockHour;
         } else {
           globalThis.__pharosVilleTestWallClockHour = previous;
         }
@@ -394,7 +394,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     if (!manualWallClockRestoreRef.current.active) return;
     const previous = manualWallClockRestoreRef.current.previous;
     if (previous === undefined) {
-      delete globalThis.__pharosVilleTestWallClockHour;
+      delete (globalThis as { __pharosVilleTestWallClockHour?: number }).__pharosVilleTestWallClockHour;
     } else {
       globalThis.__pharosVilleTestWallClockHour = previous;
     }

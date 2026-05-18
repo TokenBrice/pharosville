@@ -26,11 +26,13 @@ function buildDetailIndex(world: PharosVilleWorldBase): DetailIndexStage["detail
     detailForLighthouse(world.lighthouse),
     detailForPigeonnier(world.pigeonnier),
     ...world.docks.map(detailForDock),
-    ...world.ships.map((ship) => (
-      ship.squadId
-        ? detailForShip(ship, { squadShips: shipsBySquad.get(ship.squadId) ?? [], allShips: world.ships, cycleTempo: tempoById.get(ship.id) })
-        : detailForShip(ship, { allShips: world.ships, cycleTempo: tempoById.get(ship.id) })
-    )),
+    ...world.ships.map((ship) => {
+      const tempo = tempoById.get(ship.id);
+      const tempoContext = tempo !== undefined ? { cycleTempo: tempo } : {};
+      return ship.squadId
+        ? detailForShip(ship, { squadShips: shipsBySquad.get(ship.squadId) ?? [], allShips: world.ships, ...tempoContext })
+        : detailForShip(ship, { allShips: world.ships, ...tempoContext });
+    }),
     ...world.areas.map(detailForArea),
     ...world.graves.map(detailForGrave),
   ];

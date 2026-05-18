@@ -108,8 +108,8 @@ export interface RawDimensionInputs extends z.infer<typeof RawDimensionInputsSch
   governanceTier: GovernanceType;
   governanceQuality: GovernanceQuality;
   dependencies: DependencyWeight[];
-  variantParentId?: string | null;
-  variantKind?: VariantKind | null;
+  variantParentId?: string | null | undefined;
+  variantKind?: VariantKind | null | undefined;
 }
 
 export const ReportCardSchema = z.object({
@@ -135,8 +135,8 @@ export const ReportCardSchema = z.object({
 
 export interface ReportCard extends z.infer<typeof ReportCardSchema> {
   overallGrade: ReportCardGrade;
-  overallCapped?: boolean;
-  uncappedOverallScore?: number | null;
+  overallCapped?: boolean | undefined;
+  uncappedOverallScore?: number | null | undefined;
   dimensions: Record<DimensionKey, ReportCardDimension>;
   rawInputs: RawDimensionInputs;
 }
@@ -204,11 +204,11 @@ export interface ReportCardsResponse extends z.infer<typeof ReportCardsResponseS
     version: string;
     weights: Record<DimensionKey, number>;
     pegMultiplierExponent: number;
-    activeDepegSeveritySource?: string;
+    activeDepegSeveritySource?: string | undefined;
     activeDepegCaps?: {
       d: { thresholdBps: number; score: number };
       f: { thresholdBps: number; score: number };
-    };
+    } | undefined;
     thresholds: { grade: ReportCardGrade; min: number }[];
   };
 }

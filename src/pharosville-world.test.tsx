@@ -124,12 +124,12 @@ beforeEach(() => {
   mocks.canvasHandleKeyDown.mockClear();
   mocks.requestPaint.mockClear();
   mocks.targets.splice(0, mocks.targets.length, ...targetFixtures());
-  delete globalThis.__pharosVilleTestWallClockHour;
+  delete (globalThis as { __pharosVilleTestWallClockHour?: number }).__pharosVilleTestWallClockHour;
 });
 
 afterEach(() => {
   cleanup();
-  delete globalThis.__pharosVilleTestWallClockHour;
+  delete (globalThis as { __pharosVilleTestWallClockHour?: number }).__pharosVilleTestWallClockHour;
 });
 
 describe("PharosVilleWorld UI accessibility controls", () => {

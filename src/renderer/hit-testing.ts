@@ -171,7 +171,7 @@ function appendHitTargetRecord(
     camera: input.camera,
     entity,
     mapWidth: input.world.map.width,
-    shipMotionSamples: input.shipMotionSamples,
+    ...(input.shipMotionSamples ? { shipMotionSamples: input.shipMotionSamples } : {}),
   });
   recordsById.set(entity.id, {
     entity,
@@ -243,7 +243,7 @@ export function recomputeHitTargetsForCameraOnly(input: {
         camera: input.camera,
         entity,
         mapWidth: input.world.map.width,
-        shipMotionSamples: input.shipMotionSamples,
+        ...(input.shipMotionSamples ? { shipMotionSamples: input.shipMotionSamples } : {}),
       });
       worldRecordsById.set(entity.id, {
         entity,
@@ -366,7 +366,7 @@ export function updateHitTargetSnapshotShips(input: {
       camera: input.camera,
       entity: ship,
       mapWidth: input.world.map.width,
-      shipMotionSamples: input.shipMotionSamples,
+      ...(input.shipMotionSamples ? { shipMotionSamples: input.shipMotionSamples } : {}),
     });
     const nextRecord: HitTargetRecord = {
       entity: ship,
@@ -449,7 +449,7 @@ export function collectDisplaySampleHitTargetChanges(input: {
       camera: input.camera,
       entity: ship,
       mapWidth: input.world.map.width,
-      shipMotionSamples: input.shipMotionSamples,
+      ...(input.shipMotionSamples ? { shipMotionSamples: input.shipMotionSamples } : {}),
     });
     if (ship.detailId === context.selectedDetailId || ship.detailId === context.hoveredDetailId) {
       if (!hitTargetRecordGeometryEquals(previous, {

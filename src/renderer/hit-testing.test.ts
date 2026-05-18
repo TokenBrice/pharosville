@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PegSummaryResponse, ReportCardsResponse, StablecoinListResponse } from "@shared/types";
+import type { ShipNode } from "../systems/world-types";
 import { fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoins, fixtureStability, fixtureStress, makeAsset, makePegCoin, makeReportCard, makerSquadFixtureInputs } from "../__fixtures__/pharosville-world";
 import { MAKER_SQUAD_MEMBER_IDS } from "../systems/maker-squad";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
@@ -350,11 +351,10 @@ describe("hit-testing", () => {
       ...sourceShip,
       detailId: "ship.non-titan-docked",
       id: "non-titan-docked",
-      visual: {
-        ...sourceShip.visual,
-        sizeTier: "major" as const,
-        spriteAssetId: undefined,
-      },
+      visual: ((): ShipNode["visual"] => {
+        const { spriteAssetId: _omit, ...rest } = sourceShip.visual;
+        return { ...rest, sizeTier: "major" as const };
+      })(),
     };
     const targets = collectHitTargets({
       camera,
@@ -377,11 +377,10 @@ describe("hit-testing", () => {
       ...sourceShip,
       detailId: "ship.non-titan-faded",
       id: "non-titan-faded",
-      visual: {
-        ...sourceShip.visual,
-        sizeTier: "major" as const,
-        spriteAssetId: undefined,
-      },
+      visual: ((): ShipNode["visual"] => {
+        const { spriteAssetId: _omit, ...rest } = sourceShip.visual;
+        return { ...rest, sizeTier: "major" as const };
+      })(),
     };
     const fadedSamples = new Map([
       [nonTitanShip.id, motionSample(nonTitanShip.id, nonTitanShip.tile, "departing", { mapVisibilityAlpha: 0.08 })],
@@ -416,11 +415,10 @@ describe("hit-testing", () => {
       ...sourceShip,
       detailId: "ship.non-titan-alpha-crossing",
       id: "non-titan-alpha-crossing",
-      visual: {
-        ...sourceShip.visual,
-        sizeTier: "major" as const,
-        spriteAssetId: undefined,
-      },
+      visual: ((): ShipNode["visual"] => {
+        const { spriteAssetId: _omit, ...rest } = sourceShip.visual;
+        return { ...rest, sizeTier: "major" as const };
+      })(),
     };
     const sparseWorld = {
       ...world,

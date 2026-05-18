@@ -144,7 +144,7 @@ export class WorldBuilder {
       stress: this.stress,
       reportCards: this.reportCards,
       freshness: this.freshness,
-      routeMode: this.routeMode,
+      ...(this.routeMode !== undefined ? { routeMode: this.routeMode } : {}),
     };
     if (this.cemeteryEntries !== undefined) inputs.cemeteryEntries = this.cemeteryEntries;
     if (this.generatedAt !== undefined) inputs.generatedAt = this.generatedAt;

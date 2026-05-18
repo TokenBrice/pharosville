@@ -2,7 +2,7 @@ import type { DeadStablecoin } from "../types";
 import { DEAD_STABLECOINS } from "./dead-stablecoins";
 import { FROZEN_STABLECOINS } from "./stablecoins";
 
-export type CemeteryEntry = DeadStablecoin & { archivedDataAvailable?: boolean };
+export type CemeteryEntry = DeadStablecoin & { archivedDataAvailable?: boolean | undefined };
 
 type FrozenStablecoin = (typeof FROZEN_STABLECOINS)[number];
 
