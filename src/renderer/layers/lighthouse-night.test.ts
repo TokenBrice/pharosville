@@ -119,7 +119,7 @@ describe("drawLighthouseNightHighlights", () => {
     expect(strokeMock).toHaveBeenCalled();
   });
 
-  it("draws the authored pyre asset when it has loaded", () => {
+  it("ignores the authored pyre asset and keeps the procedural lighthouse flame", () => {
     const input = makeInput();
     const pyreAsset = {
       entry: {
@@ -137,8 +137,9 @@ describe("drawLighthouseNightHighlights", () => {
 
     drawLighthouseOverlay(input, undefined, 1);
 
-    expect(assets?.get).toHaveBeenCalledWith("landmark.lighthouse-pyre");
-    expect(input.ctx.drawImage).toHaveBeenCalledTimes(1);
+    expect(assets?.get).not.toHaveBeenCalledWith("landmark.lighthouse-pyre");
+    expect(input.ctx.drawImage).not.toHaveBeenCalled();
+    expect(input.ctx.fill).toHaveBeenCalled();
   });
 
   it("rotates over time", () => {

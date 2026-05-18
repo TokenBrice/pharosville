@@ -15,7 +15,6 @@ export type LighthouseRenderState = ReturnType<typeof lighthouseRenderState>;
 export function lighthouseRenderState({ assets, camera, world }: DrawPharosVilleInput) {
   const center = tileToScreen(world.lighthouse.tile, camera);
   const lighthouseAsset = assets?.get("landmark.lighthouse");
-  const pyreAsset = assets?.get("landmark.lighthouse-pyre");
   const spriteScale = camera.zoom * LIGHTHOUSE_DRAW_SCALE;
   const spriteAnchor = {
     x: center.x + LIGHTHOUSE_DRAW_OFFSET.x * camera.zoom,
@@ -29,7 +28,7 @@ export function lighthouseRenderState({ assets, camera, world }: DrawPharosVille
         - lighthouseAsset.entry.anchor[1] * lighthouseAsset.entry.displayScale * spriteScale,
     }
     : { x: center.x, y: center.y - 148 * camera.zoom };
-  return { center, firePoint, lighthouseAsset, pyreAsset, spriteAnchor, spriteScale };
+  return { center, firePoint, lighthouseAsset, spriteAnchor, spriteScale };
 }
 
 const LIGHTHOUSE_SURF = [
@@ -459,17 +458,14 @@ export function drawLighthouseOverlay(
   nightFactor = 0,
 ): void {
   const { camera, ctx, motion, world } = input;
-  const { firePoint, lighthouseAsset, pyreAsset } = cached ?? lighthouseRenderState(input);
+  const { firePoint, lighthouseAsset } = cached ?? lighthouseRenderState(input);
   if (world.lighthouse.unavailable) return;
   const seaState = seaStateForWorld(world, {
     reducedMotion: motion.reducedMotion,
     wallClockHour: motion.wallClockHour,
   });
   drawLighthouseBeam(ctx, firePoint, camera.zoom * 1.35, motion, nightFactor);
-  // Fire always renders. With the pyre sprite loaded, keep the procedural
-  // warmth, embers, and shimmer but let the authored fire-bowl carry the
-  // silhouette; without it, draw the full procedural fallback.
-  drawLighthouseFire(ctx, firePoint, camera.zoom * 1.32, motion, !lighthouseAsset && !pyreAsset, seaState, pyreAsset);
+  drawLighthouseFire(ctx, firePoint, camera.zoom * 1.32, motion, !lighthouseAsset, seaState);
   drawBrazierSmoke(ctx, firePoint, camera.zoom * 1.32, motion, nightFactor, seaState);
 }
 
@@ -510,7 +506,6 @@ function drawLighthouseFire(
   motion: PharosVilleCanvasMotion,
   withBrazierBase: boolean,
   seaState: SeaState | null,
-  pyreAsset?: LighthouseRenderState["pyreAsset"],
 ) {
   const flickerSpeed = motion.plan.lighthouseFireFlickerPerSecond * seaStateLighthouseFlickerMultiplier(seaState);
   const time = motion.timeSeconds;
@@ -532,33 +527,24 @@ function drawLighthouseFire(
   ctx.arc(0, -6, 15, 0, Math.PI * 2);
   ctx.fill();
 
-  if (!pyreAsset) {
-    ctx.globalAlpha = 1;
-    if (motion.reducedMotion) {
-      drawPixelFlame(ctx, FLAME_OUTER, FIRE_OUTER_COLOR);
-      drawPixelFlame(ctx, FLAME_MID, "#ffcc62");
-      drawPixelFlame(ctx, FLAME_INNER, "#fff2a8");
-    } else {
-      drawLivingFlame(ctx, FLAME_OUTER, FIRE_OUTER_COLOR, time, flickerSpeed, 1.7);
-      drawLivingFlame(ctx, FLAME_MID, "#ffcc62", time, flickerSpeed, 1.3);
-      drawLivingFlame(ctx, FLAME_INNER, "#fff2a8", time, flickerSpeed, 0.8);
-    }
+  ctx.globalAlpha = 1;
+  if (motion.reducedMotion) {
+    drawPixelFlame(ctx, FLAME_OUTER, FIRE_OUTER_COLOR);
+    drawPixelFlame(ctx, FLAME_MID, "#ffcc62");
+    drawPixelFlame(ctx, FLAME_INNER, "#fff2a8");
+  } else {
+    drawLivingFlame(ctx, FLAME_OUTER, FIRE_OUTER_COLOR, time, flickerSpeed, 1.7);
+    drawLivingFlame(ctx, FLAME_MID, "#ffcc62", time, flickerSpeed, 1.3);
+    drawLivingFlame(ctx, FLAME_INNER, "#fff2a8", time, flickerSpeed, 0.8);
+  }
 
-    if (withBrazierBase) {
-      ctx.fillStyle = "#4b2d1d";
-      ctx.fillRect(-12, 8, 24, 5);
-      ctx.fillStyle = "#9a5a2a";
-      ctx.fillRect(-9, 6, 18, 3);
-    }
+  if (withBrazierBase) {
+    ctx.fillStyle = "#4b2d1d";
+    ctx.fillRect(-12, 8, 24, 5);
+    ctx.fillStyle = "#9a5a2a";
+    ctx.fillRect(-9, 6, 18, 3);
   }
   ctx.restore();
-
-  if (pyreAsset) {
-    ctx.save();
-    ctx.globalAlpha = motion.reducedMotion ? 0.94 : 0.9 + Math.max(0, flicker) * 0.18;
-    drawAsset(ctx, pyreAsset, point.x, point.y, zoom);
-    ctx.restore();
-  }
 
   drawBrazierHeatShimmer(ctx, point, zoom, motion);
   drawHearthEmbers(ctx, point, zoom, motion);
