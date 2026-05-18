@@ -85,10 +85,14 @@ export const SOLANA_HARBOR_DOCK_TILE = { x: 25, y: 23 } as const;
 /** Clockwise outer-harbor dock tiles. Slots [0..5] map to bsc, tron, solana, hyperliquid, aptos, avalanche; [6..7] are spare slips for unmapped chains. */
 export const OUTER_HARBOR_DOCK_TILES = [
   { x: 21, y: 36 }, // bsc (SW promontory shoulder)
-  { x: 28, y: 22 }, // tron (N periphery, west)
+  // W6.09 Solana scale-up (192×136 → 280×180) nudged the dock larger; the
+  // prior Tron tile (28,22) sat inside the new Solana footprint. Tron and
+  // Aptos swap slots so Tron lands closer to the Yggdrasil tree (E shoulder)
+  // and clears the Solana silhouette.
+  { x: 32, y: 22 }, // tron (N periphery, east — closer to Yggdrasil)
   SOLANA_HARBOR_DOCK_TILE, // solana (NW shoulder, near lighthouse — paired-but-detached with Hyperliquid per user direction)
   HYPERLIQUID_HARBOR_DOCK_TILE, // hyperliquid (S periphery, between Base and Arbitrum — paired with the EVM bay's south-shore stretch per user direction)
-  { x: 32, y: 22 }, // aptos (N periphery, where Solana used to sit — leaves the Tron neighborhood populated)
+  { x: 28, y: 22 }, // aptos (N periphery, where Tron used to sit)
   { x: 33, y: 40 }, // avalanche (S periphery, between Arbitrum and Base)
   { x: 42, y: 28 }, // spare: E shoulder above Ethereum
   { x: 35, y: 39 }, // spare: SE between Avalanche and Base

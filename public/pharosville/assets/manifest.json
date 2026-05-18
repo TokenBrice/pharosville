@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "style": {
-    "cacheVersion": "2026-05-03-ton-pigeonnier-pier-v3",
+    "cacheVersion": "2026-06-W6-identity-pass",
     "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5",
     "anchor": "old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI",
     "palette": [
@@ -90,7 +90,8 @@
         "jobId": "96c4d9ac-c577-4120-a52e-3d6b3038c737",
         "seed": 42801,
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "terrain/deep-water.webp"
     },
     {
       "id": "terrain.harbor-water",
@@ -120,7 +121,8 @@
         "jobId": "96c4d9ac-c577-4120-a52e-3d6b3038c737",
         "seed": 42801,
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "terrain/harbor-water.webp"
     },
     {
       "id": "terrain.land",
@@ -187,7 +189,8 @@
         "jobId": "7b5aca9d-4984-4409-b1fe-76c1f781696f",
         "seed": 50501,
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "terrain/land-scrub.webp"
     },
     {
       "id": "terrain.shore",
@@ -221,7 +224,8 @@
         "jobId": "7b5aca9d-4984-4409-b1fe-76c1f781696f",
         "seed": 50501,
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "terrain/shore.webp"
     },
     {
       "id": "terrain.road",
@@ -251,7 +255,8 @@
         "jobId": "96c4d9ac-c577-4120-a52e-3d6b3038c737",
         "seed": 42801,
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "terrain/road.webp"
     },
     {
       "id": "terrain.storm-water",
@@ -281,7 +286,8 @@
         "jobId": "96c4d9ac-c577-4120-a52e-3d6b3038c737",
         "seed": 42801,
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "terrain/storm-water.webp"
     },
     {
       "id": "landmark.lighthouse",
@@ -324,7 +330,8 @@
         "jobId": "3b89b603-35ce-4b87-97fb-37a3fc8d913f",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       },
-      "phase": "shellCritical"
+      "phase": "shellCritical",
+      "webpPath": "landmarks/lighthouse-alexandria.webp"
     },
     {
       "id": "landmark.yggdrasil",
@@ -361,7 +368,8 @@
       "promptProvenance": {
         "jobId": "750b6527-b69f-4411-88a0-cebb41434015",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "landmarks/yggdrasil.webp"
     },
     {
       "id": "landmark.pigeonnier",
@@ -399,7 +407,8 @@
       "promptProvenance": {
         "jobId": "2cfc7405-1b10-4a90-8521-0d0e53b6e92a",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "landmarks/pigeonnier.webp"
     },
     {
       "id": "overlay.lighthouse-headland",
@@ -438,7 +447,8 @@
         "jobId": "be1f0841-b378-48b5-9fb4-7f3e8749c92d",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       },
-      "phase": "shellCritical"
+      "phase": "shellCritical",
+      "webpPath": "overlays/lighthouse-headland.webp"
     },
     {
       "id": "overlay.center-cluster",
@@ -514,7 +524,8 @@
         "jobId": "3ff6e65f-e080-4971-ae3e-70dd9f0fb8b2",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       },
-      "phase": "shellCritical"
+      "phase": "shellCritical",
+      "webpPath": "overlays/seawall-straight.webp"
     },
     {
       "id": "overlay.seawall-corner",
@@ -552,7 +563,8 @@
         "jobId": "febb7bca-ed6a-42b3-b4ce-ff30789a887e",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       },
-      "phase": "shellCritical"
+      "phase": "shellCritical",
+      "webpPath": "overlays/seawall-corner.webp"
     },
     {
       "id": "overlay.seawall-edge-ne",
@@ -590,7 +602,8 @@
         "jobId": "279c8b0e-6e5a-4c8d-addb-16e54a5fe35d",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       },
-      "phase": "shellCritical"
+      "phase": "shellCritical",
+      "webpPath": "overlays/seawall-edge-ne.webp"
     },
     {
       "id": "overlay.seawall-edge-nw",
@@ -628,7 +641,8 @@
         "jobId": "a7a27ea0-3958-4f21-8e59-45b43d15f351",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       },
-      "phase": "shellCritical"
+      "phase": "shellCritical",
+      "webpPath": "overlays/seawall-edge-nw.webp"
     },
     {
       "id": "dock.wooden-pier",
@@ -664,7 +678,8 @@
       "promptProvenance": {
         "jobId": "3af5f1a1-f579-43ed-850c-70dfa9051cac",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "docks/wooden-pier.webp"
     },
     {
       "id": "dock.ethereum-civic-cove",
@@ -701,7 +716,8 @@
       "promptProvenance": {
         "jobId": "5602e897-9e10-47ea-bdc1-4d74fb987b36",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "docks/ethereum-civic-cove.webp"
     },
     {
       "id": "dock.tron-arena-wharf",
@@ -710,7 +726,7 @@
       "layer": "docks",
       "width": 288,
       "height": 210,
-      "displayScale": 0.8333333333333334,
+      "displayScale": 0.733333,
       "anchor": [
         144,
         164
@@ -738,7 +754,8 @@
       "promptProvenance": {
         "jobId": "d8f037dc-5dd7-4be0-8594-4d147d023e9e",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "docks/tron-arena-wharf.webp"
     },
     {
       "id": "dock.bsc-mercantile-wharf",
@@ -775,7 +792,8 @@
       "promptProvenance": {
         "jobId": "ca075bad-fd53-4313-8b7e-fe5131431ee1",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "docks/bsc-mercantile-wharf.webp"
     },
     {
       "id": "dock.solana-prism-stilt",
@@ -784,7 +802,7 @@
       "layer": "docks",
       "width": 280,
       "height": 180,
-      "displayScale": 1,
+      "displayScale": 0.88,
       "anchor": [
         140,
         140
@@ -1002,7 +1020,8 @@
       "promptProvenance": {
         "jobId": "5cac51ba-85ee-48ff-b2c4-d890af01f455",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "docks/aptos-jade-pagoda.webp"
     },
     {
       "id": "dock.avalanche-alpine-watch",
@@ -1077,7 +1096,8 @@
       "promptProvenance": {
         "jobId": "53b354dc-b41c-4768-b2c4-b64c5c932490",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "docks/ton-pigeonnier-pier.webp"
     },
     {
       "id": "ship.treasury-galleon",
@@ -1113,7 +1133,8 @@
       "promptProvenance": {
         "jobId": "ad9c2829-2a63-44ba-a01f-e6614c1fa912",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "ships/treasury-galleon.webp"
     },
     {
       "id": "ship.chartered-brigantine",
@@ -1148,7 +1169,8 @@
       "promptProvenance": {
         "jobId": "4eff5e71-5d29-45dc-b891-4b5c1989c3ea",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "ships/chartered-brigantine.webp"
     },
     {
       "id": "ship.usdc-titan",
@@ -1185,7 +1207,8 @@
           "rows": 1,
           "frameWidth": 128,
           "frameHeight": 96
-        }
+        },
+        "webpFrameSource": "ships/usdc-titan-frames.webp"
       },
       "promptKey": "ship.usdc-titan",
       "semanticRole": "USDC titan stablecoin ship hull",
@@ -1199,7 +1222,8 @@
       "promptProvenance": {
         "jobId": "072956fc-8012-4494-958e-9bc238fdd22a",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "ships/usdc-titan.webp"
     },
     {
       "id": "ship.usde-titan",
@@ -1501,7 +1525,8 @@
           "rows": 1,
           "frameWidth": 128,
           "frameHeight": 96
-        }
+        },
+        "webpFrameSource": "ships/usyc-unique-frames.webp"
       },
       "promptKey": "ship.usyc-unique",
       "semanticRole": "Hashnote USYC heritage frigate",
@@ -1515,7 +1540,8 @@
       "promptProvenance": {
         "jobId": "reuse:imperial-A:072956fc-8012-4494-958e-9bc238fdd22a",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "ships/usyc-unique.webp"
     },
     {
       "id": "ship.usds-titan",
@@ -1552,7 +1578,8 @@
           "rows": 1,
           "frameWidth": 144,
           "frameHeight": 104
-        }
+        },
+        "webpFrameSource": "ships/usds-titan-frames.webp"
       },
       "promptKey": "ship.usds-titan",
       "semanticRole": "USDS Sky titan stablecoin ship hull",
@@ -1566,7 +1593,8 @@
       "promptProvenance": {
         "jobId": "abd84dde-c282-40a6-a762-85aafba0cc2e",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "ships/usds-titan.webp"
     },
     {
       "id": "ship.dai-titan",
@@ -1603,7 +1631,8 @@
           "rows": 1,
           "frameWidth": 144,
           "frameHeight": 104
-        }
+        },
+        "webpFrameSource": "ships/dai-titan-frames.webp"
       },
       "promptKey": "ship.dai-titan",
       "semanticRole": "DAI veteran Maker treasury titan ship hull",
@@ -1617,7 +1646,8 @@
       "promptProvenance": {
         "jobId": "89f2c771-18a5-49af-8f5c-8d12a41b51ae",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "ships/dai-titan.webp"
     },
     {
       "id": "ship.susds-titan",
@@ -1653,7 +1683,8 @@
           "rows": 1,
           "frameWidth": 128,
           "frameHeight": 92
-        }
+        },
+        "webpFrameSource": "ships/susds-titan-frames.webp"
       },
       "promptKey": "ship.susds-titan",
       "semanticRole": "sUSDS Sky savings cutter titan ship hull",
@@ -1666,7 +1697,8 @@
       "promptProvenance": {
         "jobId": "25f73b33-2eac-453c-859b-d8000d071361",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "ships/susds-titan.webp"
     },
     {
       "id": "ship.sdai-titan",
@@ -1702,7 +1734,8 @@
           "rows": 1,
           "frameWidth": 128,
           "frameHeight": 92
-        }
+        },
+        "webpFrameSource": "ships/sdai-titan-frames.webp"
       },
       "promptKey": "ship.sdai-titan",
       "semanticRole": "sDAI savings cutter titan ship hull",
@@ -1715,7 +1748,8 @@
       "promptProvenance": {
         "jobId": "49353421-dfc7-494d-b512-fb512aeb3ff2",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "ships/sdai-titan.webp"
     },
     {
       "id": "ship.stusds-titan",
@@ -1752,7 +1786,8 @@
           "rows": 1,
           "frameWidth": 136,
           "frameHeight": 96
-        }
+        },
+        "webpFrameSource": "ships/stusds-titan-frames.webp"
       },
       "promptKey": "ship.stusds-titan",
       "semanticRole": "stUSDS Sky risk-capital icebreaker titan ship hull",
@@ -1765,7 +1800,8 @@
       "promptProvenance": {
         "jobId": "53962ddf-5896-4f0d-aa3f-508723e70038",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "ships/stusds-titan.webp"
     },
     {
       "id": "ship.crvusd-unique",
@@ -1803,7 +1839,8 @@
       "promptProvenance": {
         "jobId": "d45afa07-b9ab-4773-8b9a-06d52e75350a",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "ships/crvusd-unique.webp"
     },
     {
       "id": "ship.xaut-unique",
@@ -1880,7 +1917,8 @@
       "promptProvenance": {
         "jobId": "3516e5c3",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "ships/paxg-unique.webp"
     },
     {
       "id": "ship.bold-unique",
@@ -1918,7 +1956,8 @@
       "promptProvenance": {
         "jobId": "6dc12a85-5d5c-4eb5-8815-a6fa6cc4e2ba",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "ships/bold-unique.webp"
     },
     {
       "id": "ship.fxusd-unique",
@@ -1956,7 +1995,8 @@
       "promptProvenance": {
         "jobId": "61402364-5f7e-4f9f-9319-9c96e28844e1",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "ships/fxusd-unique.webp"
     },
     {
       "id": "ship.usdt-titan",
@@ -2038,7 +2078,8 @@
       "promptProvenance": {
         "jobId": "811bb52d-5b2d-4378-8523-471b4014d64d",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "ships/dao-schooner.webp"
     },
     {
       "id": "ship.crypto-caravel",
@@ -2067,7 +2108,8 @@
       "promptProvenance": {
         "jobId": "87b41790-6c12-4567-a4c1-087c2df523a1",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "ships/crypto-caravel.webp"
     },
     {
       "id": "ship.algo-junk",
@@ -2096,7 +2138,8 @@
       "promptProvenance": {
         "jobId": "6532d40e-1521-4ab8-925f-89ff31fdf763",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "ships/algo-junk.webp"
     },
     {
       "id": "prop.memorial-terrace",
@@ -2133,7 +2176,8 @@
       "promptProvenance": {
         "jobId": "eea93024-37b7-4f86-aec9-b686e34c9ce5",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "props/memorial-terrace.webp"
     },
     {
       "id": "prop.memorial-headstone",
@@ -2169,7 +2213,8 @@
       "promptProvenance": {
         "jobId": "78e8c52c-f6a5-46fb-b574-b24d8f6bd560",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "props/memorial-headstone.webp"
     },
     {
       "id": "prop.ledger-slab",
@@ -2205,7 +2250,8 @@
       "promptProvenance": {
         "jobId": "e6b61b0b-b545-41cb-91b9-3c7fbe52ce9c",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "props/ledger-slab.webp"
     },
     {
       "id": "prop.reliquary-marker",
@@ -2242,7 +2288,8 @@
       "promptProvenance": {
         "jobId": "7f1a2911-8dc0-4d16-b61a-94d0e81dc8dd",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "props/reliquary-marker.webp"
     },
     {
       "id": "prop.regulatory-obelisk",
@@ -2279,7 +2326,8 @@
       "promptProvenance": {
         "jobId": "11370813-9fe6-4d3c-b1b3-502599e39ba2",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "props/regulatory-obelisk.webp"
     },
     {
       "id": "prop.sundial",
@@ -2459,7 +2507,8 @@
       "promptProvenance": {
         "jobId": "92f76d4e-c452-4de6-926e-19ef99337862",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "props/olive-tree.webp"
     },
     {
       "id": "prop.date-palm",
@@ -2494,7 +2543,8 @@
       "promptProvenance": {
         "jobId": "19a8290e-5021-4077-8d23-4c2a244ae15a",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "props/date-palm.webp"
     },
     {
       "id": "prop.planter-lavender",
@@ -2529,7 +2579,8 @@
       "promptProvenance": {
         "jobId": "f84fe26c-3de0-4f46-8b03-b59f163905d3",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "props/planter-lavender.webp"
     },
     {
       "id": "prop.planter-roses",
@@ -2564,7 +2615,8 @@
       "promptProvenance": {
         "jobId": "5522cc2a-6eaf-497a-9c70-73146593f1ba",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "props/planter-roses.webp"
     },
     {
       "id": "prop.fig-tree",
@@ -2599,7 +2651,8 @@
       "promptProvenance": {
         "jobId": "c8fe6059-16ce-4fd9-8cff-ba3e521b0b05",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "props/fig-tree.webp"
     },
     {
       "id": "prop.citrus-tree",
@@ -2635,7 +2688,8 @@
       "promptProvenance": {
         "jobId": "e45bb4f7-24d9-43b0-8fcc-ddbf79768852",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "props/citrus-tree.webp"
     },
     {
       "id": "prop.bougainvillea-arch",
@@ -2670,7 +2724,8 @@
       "promptProvenance": {
         "jobId": "ec959e96-fc0e-498f-a085-d5d277d911de",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "props/bougainvillea-arch.webp"
     },
     {
       "id": "prop.agave-cluster",
@@ -2705,7 +2760,8 @@
       "promptProvenance": {
         "jobId": "8a4a8dc0-1603-415f-ba09-e35129306032",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "props/agave-cluster.webp"
     },
     {
       "id": "landmark.lighthouse-pyre",
@@ -2742,7 +2798,8 @@
       "promptProvenance": {
         "jobId": "1e67ff76-b163-4bc8-9c54-f55a77c2876d",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "landmarks/lighthouse-pyre.webp"
     },
     {
       "id": "prop.moored-dinghy-north",
@@ -2779,7 +2836,8 @@
       "promptProvenance": {
         "jobId": "57e05277-ef77-458e-93dd-de28724a1bec",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "props/moored-dinghy-north.webp"
     },
     {
       "id": "prop.moored-dinghy-east",
@@ -2816,7 +2874,8 @@
       "promptProvenance": {
         "jobId": "a1331c8b-8d2f-48d1-8850-aa8116a7fd73",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "props/moored-dinghy-east.webp"
     },
     {
       "id": "prop.harbor-bell",
@@ -2853,7 +2912,8 @@
       "promptProvenance": {
         "jobId": "e9599c08-be05-4a54-b2b6-9e7d7d2a890b",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "props/harbor-bell.webp"
     },
     {
       "id": "prop.cargo-stack",
@@ -2890,7 +2950,8 @@
       "promptProvenance": {
         "jobId": "6c8e24ef-13fc-4449-b53c-c4ea2aebe56c",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      }
+      },
+      "webpPath": "props/cargo-stack.webp"
     }
   ]
 }

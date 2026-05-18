@@ -275,10 +275,10 @@ describe("buildPharosVilleMap", () => {
     ]);
     expect(OUTER_HARBOR_DOCK_TILES).toEqual([
       { x: 21, y: 36 },
-      { x: 28, y: 22 },
+      { x: 32, y: 22 }, // tron — slid east toward Yggdrasil to clear the new (W6.09) Solana footprint
       { x: 25, y: 23 }, // solana — NW shoulder near lighthouse (was the spare slot)
       HYPERLIQUID_HARBOR_DOCK_TILE, // (36, 39) — moved to S periphery between Base and Arbitrum
-      { x: 32, y: 22 }, // aptos — slid west into Solana's old N-wall slot
+      { x: 28, y: 22 }, // aptos — took Tron's previous N-wall slot
       { x: 33, y: 40 },
       { x: 42, y: 28 },
       { x: 35, y: 39 },
