@@ -175,7 +175,7 @@ export function checkMarkdownFiles({ repoRoot = process.cwd(), markdownFiles, pa
     for (const reference of findPathReferencesInMarkdown(file.path, text)) {
       const resolved = resolveReferencePath(repoRoot, file.path, reference.target);
       if (!resolved) continue;
-      if (!exists(resolved.checkPath)) {
+      if (!exists(resolved.checkPath) && !existsAsDirectoryImport(resolved.checkPath, exists)) {
         missingPaths.push({
           filePath: file.path,
           line: reference.line,
@@ -281,6 +281,15 @@ function resolveReferencePath(repoRoot, markdownPath, target) {
     checkPath: globCheckPath(basePath),
     displayPath: normalizeDisplayPath(repoRelative),
   };
+}
+
+// Falls back to TypeScript-style directory imports when a doc reference points
+// at `X.ts` but the module has been split into `X/index.ts`. Matches the
+// resolution behaviour of TS / Vite for bare directory imports.
+function existsAsDirectoryImport(checkPath, exists) {
+  if (!checkPath.endsWith(".ts") && !checkPath.endsWith(".tsx")) return false;
+  const withoutExt = checkPath.replace(/\.tsx?$/, "");
+  return exists(`${withoutExt}/index.ts`) || exists(`${withoutExt}/index.tsx`);
 }
 
 function globCheckPath(resolvedPath) {
