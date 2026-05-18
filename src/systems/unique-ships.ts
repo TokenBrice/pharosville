@@ -33,14 +33,6 @@ export const UNIQUE_SHIP_DEFINITIONS = {
   "xaut-tether":        { spriteAssetId: "ship.xaut-unique",   rationale: "Bullion barge — Tether's gold treasury reserve.",                                scale: 1.28 },
   "paxg-paxos":         { spriteAssetId: "ship.paxg-unique",   rationale: "Gilded merchantman — Paxos institutional gold custody.",                         scale: 1.32 },
   "usyc-hashnote":      { spriteAssetId: "ship.usyc-unique",   rationale: "Yield-bearing tokenised treasury vessel — Hashnote's institutional cash carrier.", scale: 1.20 },
-  // W6.06 (decision D3 §6) — FRAX heritage keys on `frxusd-frax` (current
-  // Frax USD product). The legacy `frax-frax` and savings `sfrxusd-frax` ids
-  // stay in `STABLECOIN_SAIL_COLORS` as livery fallbacks but are not
-  // heritage-tiered.
-  "frxusd-frax":        { spriteAssetId: "ship.frax-unique",   rationale: "Fractal-octagon hull — Frax's algorithmic/binary identity carried into Frax USD.", scale: 1.23 },
-  // W6.06 (decision D4 §6) — GHO is locked to Aave brand purple `#7e2ecf`,
-  // matched in `STABLECOIN_SAIL_COLORS` in the same PR.
-  "gho-aave":           { spriteAssetId: "ship.gho-unique",    rationale: "Ghost-veiled hull — Aave's overcollateralized GHO mint.",                          scale: 1.23 },
 } as const satisfies Record<string, UniqueShipDefinition>;
 
 export const UNIQUE_SPRITE_IDS: ReadonlySet<string> = new Set(

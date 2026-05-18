@@ -57,11 +57,9 @@ export const SHIP_CONTINUOUS_MOTION = {
 // Per-ship sail-emblem override: paints a custom silhouette into the dyed
 // sail cloth instead of the issuer logo. Applies to titan-tier ships that
 // would otherwise fall through to the white-matte sticker overlay.
-//
-// W6.01 (decision D7 §6) — `usdt-tether` removed: the kraken silhouette is
-// now baked directly into `ships/usdt-titan.png` (and the WebP twin), so the
-// runtime overlay is no longer needed.
-export const SHIP_SAIL_EMBLEM_OVERRIDES: Record<string, string> = {};
+export const SHIP_SAIL_EMBLEM_OVERRIDES: Record<string, string> = {
+  "usdt-tether": "/sail-emblems/usdt-kraken.png",
+};
 
 /**
  * W6.04 (decision D8 §6) — Heritage-tier stern engraving. The drawer in
@@ -77,8 +75,6 @@ export const SHIP_HERITAGE_NAMEPLATES: Record<string, string> = {
   "ship.paxg-unique":   "PAXOS",
   "ship.xaut-unique":   "TETHER GOLD",
   "ship.usyc-unique":   "HASHNOTE",
-  "ship.frax-unique":   "FRAX",
-  "ship.gho-unique":    "GHO",
 };
 
 export const HERITAGE_NAMEPLATE_MIN_ZOOM = 0.7;
@@ -92,12 +88,6 @@ export const SHIP_SAIL_EMBLEM_PAINTED: ReadonlySet<string> = new Set([
   "usd1-world-liberty-financial",
   "buidl-blackrock",
   "usyc-hashnote",
-  // W6.01 — USDT kraken now baked into the sprite. Per decision D7 §6, the
-  // canary outcome drives whether the five sibling titans (PYUSD / USD1 /
-  // BUIDL / USDe / sUSDe) also stay in `SHIP_SAIL_EMBLEM_PAINTED` without
-  // a `SHIP_SAIL_TINT_MASKS` polygon. They were already painted-set members
-  // pre-W6 so no change needed for the canary commit.
-  "usdt-tether",
   ...Object.keys(SHIP_SAIL_EMBLEM_OVERRIDES),
 ]);
 
@@ -238,9 +228,176 @@ export const SHIP_TRIM_MARKS: Record<string, ShipTrimSpec> = {
     stern: { x: -31, y: -19, width: 10, height: 5 },
     deck: [{ x: -10, y: -23, width: 8, height: 4 }, { x: 8, y: -21, width: 7, height: 3 }],
   },
+  "ship.usdc-titan": {
+    rail: [-43, -15, 39, -8],
+    keel: [-39, -3, 35, 0],
+    stern: { x: -48, y: -20, width: 11, height: 5 },
+    deck: [{ x: -13, y: -23, width: 9, height: 4 }, { x: 11, y: -20, width: 8, height: 3 }],
+  },
+  "ship.usde-titan": {
+    rail: [-43, -15, 39, -8],
+    keel: [-39, -3, 35, 0],
+    stern: { x: -48, y: -20, width: 11, height: 5 },
+    deck: [{ x: -13, y: -23, width: 9, height: 4 }, { x: 11, y: -20, width: 8, height: 3 }],
+  },
+  "ship.susde-titan": {
+    rail: [-43, -15, 39, -8],
+    keel: [-39, -3, 35, 0],
+    stern: { x: -48, y: -20, width: 11, height: 5 },
+    deck: [{ x: -13, y: -23, width: 9, height: 4 }, { x: 11, y: -20, width: 8, height: 3 }],
+  },
+  "ship.pyusd-titan": {
+    rail: [-43, -15, 39, -8],
+    keel: [-39, -3, 35, 0],
+    stern: { x: -48, y: -20, width: 11, height: 5 },
+    deck: [{ x: -13, y: -23, width: 9, height: 4 }, { x: 11, y: -20, width: 8, height: 3 }],
+  },
+  "ship.usd1-titan": {
+    rail: [-43, -15, 39, -8],
+    keel: [-39, -3, 35, 0],
+    stern: { x: -48, y: -20, width: 11, height: 5 },
+    deck: [{ x: -13, y: -23, width: 9, height: 4 }, { x: 11, y: -20, width: 8, height: 3 }],
+  },
+  "ship.buidl-titan": {
+    rail: [-43, -15, 39, -8],
+    keel: [-39, -3, 35, 0],
+    stern: { x: -48, y: -20, width: 11, height: 5 },
+    deck: [{ x: -13, y: -23, width: 9, height: 4 }, { x: 11, y: -20, width: 8, height: 3 }],
+  },
+  "ship.usyc-unique": {
+    rail: [-43, -15, 39, -8],
+    keel: [-39, -3, 35, 0],
+    stern: { x: -48, y: -20, width: 11, height: 5 },
+    deck: [{ x: -13, y: -23, width: 9, height: 4 }, { x: 11, y: -20, width: 8, height: 3 }],
+  },
+  "ship.usds-titan": {
+    rail: [-44, -18, 40, -8],
+    keel: [-40, -5, 35, 0],
+    stern: { x: -48, y: -26, width: 14, height: 6 },
+    deck: [{ x: -14, y: -29, width: 11, height: 5 }, { x: 12, y: -25, width: 10, height: 4 }],
+  },
+  "ship.usdt-titan": {
+    rail: [-66, -23, 61, -12],
+    keel: [-60, -5, 53, 0],
+    stern: { x: -74, y: -31, width: 18, height: 8 },
+    deck: [{ x: -23, y: -35, width: 15, height: 7 }, { x: 16, y: -30, width: 13, height: 6 }],
+  },
+  // Maker consorts seeded from ship.usds-titan; tuning in Task 7.5.
+  "ship.dai-titan": {
+    rail: [-44, -18, 40, -8],
+    keel: [-40, -5, 35, 0],
+    stern: { x: -48, y: -26, width: 14, height: 6 },
+    deck: [{ x: -14, y: -29, width: 11, height: 5 }, { x: 12, y: -25, width: 10, height: 4 }],
+  },
+  "ship.susds-titan": {
+    rail: [-44, -18, 40, -8],
+    keel: [-40, -5, 35, 0],
+    stern: { x: -48, y: -26, width: 14, height: 6 },
+    deck: [{ x: -14, y: -29, width: 11, height: 5 }, { x: 12, y: -25, width: 10, height: 4 }],
+  },
+  "ship.sdai-titan": {
+    rail: [-44, -18, 40, -8],
+    keel: [-40, -5, 35, 0],
+    stern: { x: -48, y: -26, width: 14, height: 6 },
+    deck: [{ x: -14, y: -29, width: 11, height: 5 }, { x: 12, y: -25, width: 10, height: 4 }],
+  },
+  "ship.stusds-titan": {
+    rail: [-44, -18, 40, -8],
+    keel: [-40, -5, 35, 0],
+    stern: { x: -48, y: -26, width: 14, height: 6 },
+    deck: [{ x: -14, y: -29, width: 11, height: 5 }, { x: 12, y: -25, width: 10, height: 4 }],
+  },
+  // Unique heritage hulls (136x100, anchor [68,92]). Trim offsets sit between
+  // the standard galleon (104x80) and the titan hulls (144x104+).
+  "ship.crvusd-unique": {
+    rail: [-38, -16, 36, -7],
+    keel: [-36, -4, 32, 0],
+    stern: { x: -42, y: -22, width: 12, height: 5 },
+    deck: [{ x: -12, y: -25, width: 10, height: 4 }, { x: 10, y: -22, width: 9, height: 4 }],
+  },
+  "ship.bold-unique": {
+    rail: [-38, -16, 36, -7],
+    keel: [-36, -4, 32, 0],
+    stern: { x: -42, y: -23, width: 12, height: 5 },
+    deck: [{ x: -12, y: -26, width: 10, height: 4 }, { x: 10, y: -23, width: 9, height: 4 }],
+  },
+  "ship.fxusd-unique": {
+    rail: [-38, -15, 36, -7],
+    keel: [-36, -4, 32, 0],
+    stern: { x: -42, y: -21, width: 12, height: 5 },
+    deck: [{ x: -12, y: -24, width: 10, height: 4 }, { x: 10, y: -21, width: 9, height: 4 }],
+  },
+  "ship.xaut-unique": {
+    rail: [-38, -14, 36, -6],
+    keel: [-36, -3, 32, 0],
+    stern: { x: -42, y: -19, width: 12, height: 5 },
+    deck: [{ x: -12, y: -22, width: 10, height: 4 }, { x: 10, y: -19, width: 9, height: 4 }],
+  },
+  "ship.paxg-unique": {
+    rail: [-38, -17, 36, -8],
+    keel: [-36, -4, 32, 0],
+    stern: { x: -42, y: -23, width: 12, height: 5 },
+    deck: [{ x: -12, y: -26, width: 10, height: 4 }, { x: 10, y: -23, width: 9, height: 4 }],
+  },
 };
 
 export const SHIP_TRIM_COLOR_STORIES: Record<string, ShipTrimColorStory> = {
+  "ship.usdc-titan": {
+    rail: "#b77a3d",
+    secondaryRail: "#f0c47c",
+    keel: "#6d4931",
+    sternFill: "#d49a3e",
+    sternStroke: "#5b3a24",
+    deckFill: "#f0d28c",
+    deckStroke: "#9a662f",
+  },
+  "ship.usdt-titan": {
+    rail: "#009393",
+    secondaryRail: "#78d7c8",
+    keel: "#006a69",
+    sternFill: "#d6c08b",
+    sternStroke: "#005252",
+    deckFill: "#efe4c2",
+    deckStroke: "#007d7b",
+  },
+  "ship.usde-titan": {
+    rail: "#7e58c8",
+    secondaryRail: "#d8c7ff",
+    railDash: [5, 3],
+    keel: "#342451",
+    sternFill: "#b99af2",
+    sternStroke: "#221736",
+    deckFill: "#e6dbff",
+    deckStroke: "#6d4bb0",
+  },
+  "ship.pyusd-titan": {
+    rail: "#1f477a",
+    secondaryRail: "#88b7e8",
+    keel: "#172a44",
+    sternFill: "#7fa6d8",
+    sternStroke: "#14233a",
+    deckFill: "#dbe9f8",
+    deckStroke: "#1f477a",
+  },
+  "ship.buidl-titan": {
+    rail: "#141414",
+    secondaryRail: "#d8b15f",
+    keel: "#070707",
+    sternFill: "#2a2a28",
+    sternStroke: "#c8a75b",
+    deckFill: "#d8b15f",
+    deckStroke: "#15110a",
+  },
+  "ship.usd1-titan": {
+    rail: "#c89a2f",
+    secondaryRail: "#f4df8f",
+    railDash: [4, 2],
+    keel: "#6b4c16",
+    sternFill: "#f1c95f",
+    sternStroke: "#5c4317",
+    deckFill: "#fff0a8",
+    deckStroke: "#b7821e",
+  },
 };
 
 export const TITAN_SPRITE_IDS: ReadonlySet<string> = new Set([

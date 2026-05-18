@@ -1245,7 +1245,7 @@
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "7783b72e-9466-4a67-9e6d-1b405f2e57ce",
+        "jobId": "reuse:imperial-A:072956fc-8012-4494-958e-9bc238fdd22a",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       },
       "webpPath": "ships/usde-titan.webp"
@@ -1298,7 +1298,7 @@
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "6b0ce9ce-3c10-491d-8fd4-834b1bdb79cf",
+        "jobId": "reuse:imperial-A:072956fc-8012-4494-958e-9bc238fdd22a",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       },
       "webpPath": "ships/susde-titan.webp"
@@ -1351,7 +1351,7 @@
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "fd40c47d-9363-442a-8da2-ceefd9eb4729",
+        "jobId": "reuse:imperial-A:072956fc-8012-4494-958e-9bc238fdd22a",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       },
       "webpPath": "ships/pyusd-titan.webp"
@@ -1404,7 +1404,7 @@
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "d0f2f27d-73e0-46ae-adef-88cae0869d17",
+        "jobId": "reuse:imperial-A:072956fc-8012-4494-958e-9bc238fdd22a",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       },
       "webpPath": "ships/usd1-titan.webp"
@@ -1457,7 +1457,7 @@
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "ec37815f-4213-49a6-a8e5-980e17cdce7c",
+        "jobId": "reuse:imperial-A:072956fc-8012-4494-958e-9bc238fdd22a",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       },
       "webpPath": "ships/buidl-titan.webp"
@@ -1835,88 +1835,10 @@
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "587aaaf0-5efd-4903-bc8b-edafac757ee9",
+        "jobId": "300440ce",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       },
       "webpPath": "ships/xaut-unique.webp"
-    },
-    {
-      "id": "ship.frax-unique",
-      "path": "ships/frax-unique.png",
-      "category": "ship",
-      "layer": "ships",
-      "width": 136,
-      "height": 100,
-      "displayScale": 1,
-      "anchor": [
-        68,
-        92
-      ],
-      "footprint": [
-        46,
-        22
-      ],
-      "hitbox": [
-        30,
-        4,
-        92,
-        90
-      ],
-      "loadPriority": "deferred",
-      "promptKey": "ship.frax-unique",
-      "semanticRole": "FRAX heritage hull (unique tier)",
-      "paletteKeys": [
-        "limestone",
-        "deep navy",
-        "bronze beacon",
-        "teal sea",
-        "frax graphite"
-      ],
-      "tool": "mcp:create_map_object+imagemagick",
-      "promptProvenance": {
-        "jobId": "43b1e35c-8490-40ae-b46d-1c8fe302340b",
-        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      },
-      "webpPath": "ships/frax-unique.webp"
-    },
-    {
-      "id": "ship.gho-unique",
-      "path": "ships/gho-unique.png",
-      "category": "ship",
-      "layer": "ships",
-      "width": 136,
-      "height": 100,
-      "displayScale": 1,
-      "anchor": [
-        68,
-        92
-      ],
-      "footprint": [
-        46,
-        22
-      ],
-      "hitbox": [
-        30,
-        4,
-        92,
-        90
-      ],
-      "loadPriority": "deferred",
-      "promptKey": "ship.gho-unique",
-      "semanticRole": "GHO heritage hull (unique tier)",
-      "paletteKeys": [
-        "limestone",
-        "deep navy",
-        "bronze beacon",
-        "teal sea",
-        "aave purple"
-      ],
-      "tool": "mcp:create_map_object+imagemagick",
-      "promptProvenance": {
-        "jobId": "184ddef0-5ba3-4d12-b5bd-e62086c3473f",
-        "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
-      },
-      "webpPath": "ships/gho-unique.webp"
     },
     {
       "id": "ship.paxg-unique",
@@ -2080,7 +2002,7 @@
       ],
       "tool": "mcp:create_map_object+imagemagick",
       "promptProvenance": {
-        "jobId": "5f7718ac-4ad5-43a5-85bf-7da336731839",
+        "jobId": "c33f2297-b6ba-4d55-9e3a-1b6023365f06",
         "styleAnchorVersion": "2026-04-29-lighthouse-hill-v5"
       },
       "webpPath": "ships/usdt-titan.webp"

@@ -44,6 +44,7 @@ const MIN_SAIL_COVERAGE: Record<string, number> = {
   "ship.sdai-titan": 0.38,
   "ship.treasury-galleon": 0.34,
   "ship.usds-titan": 0.34,
+  "ship.usdt-titan": 0.38,
 };
 
 // sUSDS and stUSDS sprites have sail colors (warm-orange / near-black) that
@@ -70,9 +71,6 @@ const UNTUNED_TITAN_IDS = new Set([
   "ship.pyusd-titan",
   "ship.usd1-titan",
   "ship.buidl-titan",
-  // W6.01 — USDT joins the baked-emblem set; kraken silhouette + Tether-teal
-  // sail cloth are now baked directly into the sprite. Decision D7 §6.
-  "ship.usdt-titan",
 ]);
 
 // Heritage hulls (unique tier) whose painted sail color falls outside
@@ -122,12 +120,12 @@ describe("ship sail tint masks", () => {
   });
 
   it("does not leave large titan sail fragments outside the tint mask", () => {
-    // ship.usdc-titan and ship.usdt-titan are omitted: their sails are
-    // baked at the issuer's brand color with the emblem painted into the
-    // sprite (see UNTUNED_TITAN_IDS), so there is no tint mask to verify
-    // against — the sprite ships its own colorway end to end.
+    // ship.usdc-titan is omitted: its sails are baked USDC blue + painted
+    // white $ glyph (see UNTUNED_TITAN_IDS), so there is no tint mask to
+    // verify against — the sprite ships its own colorway end to end.
     for (const assetId of [
       "ship.usds-titan",
+      "ship.usdt-titan",
       "ship.dai-titan",
       "ship.sdai-titan",
     ]) {
