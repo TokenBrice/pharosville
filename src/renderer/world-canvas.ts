@@ -12,6 +12,7 @@ import { createRenderFrameCache, type RenderFrameCache } from "./frame-cache";
 import { createShipBodyCache } from "./ship-body-cache";
 import { drawAtmosphere, drawBirds, drawBioluminescentSparkles, drawDecorativeLights, drawMoonReflection, drawSeaMist } from "./layers/ambient";
 import { drawDockBody, drawDockOverlay, isBackgroundedHarborDock, type DockRenderState } from "./layers/docks";
+import { drawHarborSurf } from "./layers/harbor-surf";
 import { drawGraveBody, drawGraveOverlay, drawGraveUnderlay, type GraveRenderState } from "./layers/graves";
 import {
   computeSquadBoundingEllipse,
@@ -519,6 +520,11 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
     drawLighthouseSurf(lighthouseInput);
     drawLighthouseReflection(lighthouseInput, frame.lighthouseRender, nightFactor);
   }
+  // Beach-foam ribbon along each chain harbor's seawall edge. Drawn after the
+  // backgrounded Ethereum dock body (painted in the static scene pass) and
+  // before the main entity pass so the foam sits over the water but under any
+  // dock sprite that the entity pass paints on top of the ribbon's anchor.
+  drawHarborSurf(input);
   const entityMetrics = drawRevealGatedEntities(input, frame, nightFactor, reveal, lighthouseInput);
   drawSquadChrome(input, frame);
   if (shouldDrawScheduledPass(input.renderScheduler, "cloud-shadow")) {

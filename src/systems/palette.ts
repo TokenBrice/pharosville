@@ -173,6 +173,14 @@ export interface ZoneMotionTheme {
 }
 
 export interface ZoneVisualTheme extends WaterTerrainStyle {
+  /**
+   * Per-zone alpha multiplier applied to the dock-pad beach-foam ribbon
+   * (`drawHarborSurf`). Peak ribbon alpha is 0.6 × this scalar; values >1
+   * brighten the foam (the ALERT zone is slightly punchier than CALM),
+   * <1 mute it (LEDGER is parchment-quiet at 0.4). Defaults to 1.0 when a
+   * theme is consumed before the W5.03 wave populates per-zone values.
+   */
+  beachFoamAlpha: number;
   label: ZoneLabelTheme;
   motion: ZoneMotionTheme;
 }
@@ -204,26 +212,33 @@ function defaultLabelTheme(accent: string): ZoneLabelTheme {
 export const ZONE_THEMES = {
   "alert-water": {
     ...WATER_TERRAIN_STYLES["alert-water"],
+    beachFoamAlpha: 1.05,
     label: defaultLabelTheme(DEWS_AREA_LABEL_COLORS.ALERT),
     motion: { amplitudeScale: 1, strokeAlphaScale: 1 },
   },
   "calm-water": {
     ...WATER_TERRAIN_STYLES["calm-water"],
+    beachFoamAlpha: 1.0,
     label: defaultLabelTheme(DEWS_AREA_LABEL_COLORS.CALM),
     motion: { amplitudeScale: 0.6, strokeAlphaScale: 0.85 },
   },
   "deep-water": {
     ...WATER_TERRAIN_STYLES["deep-water"],
+    beachFoamAlpha: 1.0,
     label: defaultLabelTheme("#d8b56a"), // matches riskWaterAreaColor fallback
     motion: DEFAULT_MOTION,
   },
   "harbor-water": {
     ...WATER_TERRAIN_STYLES["harbor-water"],
+    beachFoamAlpha: 1.0,
     label: defaultLabelTheme("#d8b56a"),
     motion: { amplitudeScale: 0.85, strokeAlphaScale: 0.95 },
   },
   "ledger-water": {
     ...WATER_TERRAIN_STYLES["ledger-water"],
+    // Ledger reads as parchment-and-ink; the foam ribbon is intentionally
+    // minimal here so the still ledger surface stays the dominant note.
+    beachFoamAlpha: 0.4,
     label: defaultLabelTheme("#d9b974"), // bronze ink — off THREAT_BAND_HEX axis
     // Ledger motion is intentionally asymmetric: amplitudeScale 0.5 keeps the
     // water itself quiet (parchment-still), while strokeAlphaScale 1.05 keeps
@@ -232,21 +247,27 @@ export const ZONE_THEMES = {
   },
   "storm-water": {
     ...WATER_TERRAIN_STYLES["storm-water"],
+    // DANGER zone — foam is largely scoured by the storm, leaving only a
+    // faint residual band against the dark water.
+    beachFoamAlpha: 0.55,
     label: defaultLabelTheme(DEWS_AREA_LABEL_COLORS.DANGER),
     motion: { amplitudeScale: 1.8, strokeAlphaScale: 1.35 },
   },
   "watch-water": {
     ...WATER_TERRAIN_STYLES["watch-water"],
+    beachFoamAlpha: 0.85,
     label: defaultLabelTheme(DEWS_AREA_LABEL_COLORS.WATCH),
     motion: { amplitudeScale: 0.85, strokeAlphaScale: 0.95 },
   },
   "warning-water": {
     ...WATER_TERRAIN_STYLES["warning-water"],
+    beachFoamAlpha: 0.75,
     label: defaultLabelTheme(DEWS_AREA_LABEL_COLORS.WARNING),
     motion: { amplitudeScale: 1.3, strokeAlphaScale: 1.15 },
   },
   water: {
     ...WATER_TERRAIN_STYLES.water,
+    beachFoamAlpha: 1.0,
     label: defaultLabelTheme("#d8b56a"),
     motion: DEFAULT_MOTION,
   },
