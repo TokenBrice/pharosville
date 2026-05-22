@@ -212,8 +212,8 @@ maintainability, LOC reduction, and code-health work.
     - Validation: affected renderer tests.
 
 37. [ ] Make runtime-manifest CLI output clearly generated/scratch.
-    - Evidence: `scripts/pharosville/build-runtime-manifest.mjs` writes `public/pharosville/assets/manifest.runtime.json`, while Vite already emits the runtime manifest and `.gitignore` does not ignore that public path.
-    - Tasks: remove/rename the CLI, write to `outputs/`, or ignore and document `public/pharosville/assets/manifest.runtime.json` as generated scratch.
+    - Evidence: `scripts/pharosville/build-runtime-manifest.mjs` writes a scratch manifest to `outputs/pharosville/manifest.runtime.json`, while Vite emits the shipped runtime manifest at `dist/pharosville/assets/manifest.runtime.json`.
+    - Tasks: keep the CLI output under `outputs/` so no public generated file is required.
     - Validation: `npm run build`; confirm `dist/pharosville/assets/manifest.runtime.json` is still emitted and no public generated file is required.
 
 38. [ ] Keep generated stablecoin data treated as copied artifacts.
