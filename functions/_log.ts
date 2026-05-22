@@ -1,25 +1,21 @@
-interface PagesContext {
-  request: Request;
-  waitUntil?: (promise: Promise<unknown>) => void;
-}
+import {
+  getEdgeCache,
+  jsonErrorResponse,
+  waitUntilOrVoid,
+  withSecurityHeaders,
+  type PagesContextWithWaitUntil,
+} from "./_shared";
 
-interface EdgeCache {
-  match(request: Request): Promise<Response | undefined>;
-  put(request: Request, response: Response): Promise<void>;
+interface PagesContext extends PagesContextWithWaitUntil {
+  request: Request;
 }
 
 const MAX_BODY_BYTES = 4 * 1024;
 const RATE_LIMIT_WINDOW_SECONDS = 10;
 const RATE_LIMIT_CACHE_ORIGIN = "https://pharosville-log-rate-limit.local";
-const SECURITY_RESPONSE_HEADERS = {
+const LOG_SECURITY_RESPONSE_HEADERS = {
   "cache-control": "no-store",
   "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
-  "cross-origin-resource-policy": "same-origin",
-  "permissions-policy": "accelerometer=(), ambient-light-sensor=(), autoplay=(), battery=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
-  "referrer-policy": "strict-origin-when-cross-origin",
-  "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
-  "x-content-type-options": "nosniff",
-  "x-frame-options": "DENY",
 } as const;
 
 const STRING_PAYLOAD_FIELDS = [
@@ -33,24 +29,12 @@ const STRING_PAYLOAD_FIELDS = [
 ] as const;
 const NUMBER_PAYLOAD_FIELDS = ["ts", "lineno", "colno"] as const;
 
-function withSecurityHeaders(response: Response): Response {
-  const headers = new Headers(response.headers);
-  for (const [name, value] of Object.entries(SECURITY_RESPONSE_HEADERS)) {
-    if (!headers.has(name)) headers.set(name, value);
-  }
-  return new Response(response.body, {
-    headers,
-    status: response.status,
-    statusText: response.statusText,
-  });
-}
-
 function noContent(): Response {
-  return withSecurityHeaders(new Response(null, { status: 204 }));
+  return withSecurityHeaders(new Response(null, { status: 204 }), LOG_SECURITY_RESPONSE_HEADERS);
 }
 
 function rejected(message: string, status: number): Response {
-  return withSecurityHeaders(Response.json({ error: message }, { status }));
+  return jsonErrorResponse(message, status, LOG_SECURITY_RESPONSE_HEADERS);
 }
 
 function sameOriginRequest(request: Request): boolean {
@@ -61,11 +45,6 @@ function sameOriginRequest(request: Request): boolean {
   } catch {
     return false;
   }
-}
-
-function getEdgeCache(): EdgeCache | null {
-  const maybeCaches = globalThis.caches as unknown as { default?: EdgeCache } | undefined;
-  return maybeCaches?.default ?? null;
 }
 
 function clientIp(request: Request): string {
@@ -95,11 +74,7 @@ async function isRateLimited(context: PagesContext): Promise<boolean> {
       headers: { "cache-control": `public, max-age=${RATE_LIMIT_WINDOW_SECONDS}` },
     }),
   ).catch(() => undefined);
-  if (context.waitUntil) {
-    context.waitUntil(cacheWrite);
-  } else {
-    void cacheWrite;
-  }
+  waitUntilOrVoid(context, cacheWrite);
   return false;
 }
 
@@ -137,6 +112,28 @@ function projectPayload(payload: unknown): Record<string, string | number> | nul
   return Object.keys(projected).length > 0 ? projected : null;
 }
 
+async function readLimitedText(request: Request, maxBytes: number): Promise<string | null> {
+  if (!request.body) return "";
+
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder();
+  let bytesRead = 0;
+  let text = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bytesRead += value.byteLength;
+    if (bytesRead > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+
+  return text + decoder.decode();
+}
+
 export async function onRequest(context: PagesContext): Promise<Response> {
   const { request } = context;
   if (request.method !== "POST") {
@@ -163,8 +160,8 @@ export async function onRequest(context: PagesContext): Promise<Response> {
 
   let payload: unknown;
   try {
-    const text = await request.text();
-    if (text.length > MAX_BODY_BYTES) return rejected("Payload too large", 413);
+    const text = await readLimitedText(request, MAX_BODY_BYTES);
+    if (text === null) return rejected("Payload too large", 413);
     payload = JSON.parse(text);
   } catch {
     return rejected("Bad request", 400);

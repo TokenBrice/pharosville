@@ -9,7 +9,7 @@ export function validateVariantRelationships(tracked: StablecoinMeta[]): string[
   const metaById = new Map(tracked.map((meta) => [meta.id, meta]));
   const activeIds = new Set(
     tracked
-      .filter((meta) => meta.status !== "pre-launch")
+      .filter((meta) => meta.status !== "pre-launch" && meta.status !== "frozen")
       .map((meta) => meta.id),
   );
 
@@ -21,7 +21,7 @@ export function validateVariantRelationships(tracked: StablecoinMeta[]): string[
       continue;
     }
 
-    if (meta.status === "pre-launch") {
+    if (meta.status === "pre-launch" || meta.status === "frozen") {
       errors.push(`${meta.id}: only active assets may declare variantOf / variantKind`);
     }
 

@@ -8,7 +8,7 @@ import { CRON_INTERVALS_CLIENT as CRON_INTERVALS } from "./cron-intervals-client
 export interface PharosVilleEndpointRegistryEntry<K extends PharosVilleApiEndpointKey = PharosVilleApiEndpointKey> {
   key: K;
   path: string;
-  queryKey: readonly string[];
+  queryKey: readonly [string, ...string[]];
   metaMaxAgeSec: number;
   producerIntervalSec: number;
 }
@@ -63,6 +63,16 @@ export const PHAROSVILLE_ENDPOINT_REGISTRY = {
 export const PHAROSVILLE_ENDPOINT_REGISTRY_LIST = PHAROSVILLE_API_ENDPOINT_KEYS.map(
   (key) => PHAROSVILLE_ENDPOINT_REGISTRY[key],
 ) as readonly PharosVilleEndpointRegistryEntry[];
+
+export const WORLD_ENDPOINT_KEYS = PHAROSVILLE_API_ENDPOINT_KEYS;
+
+export const PHAROSVILLE_WORLD_ENDPOINT_REGISTRY_LIST = WORLD_ENDPOINT_KEYS.map(
+  (key) => PHAROSVILLE_ENDPOINT_REGISTRY[key],
+) as readonly PharosVilleEndpointRegistryEntry[];
+
+export const PHAROSVILLE_WORLD_QUERY_KEY_ROOTS = PHAROSVILLE_WORLD_ENDPOINT_REGISTRY_LIST.map(
+  (endpoint) => endpoint.queryKey[0],
+) as readonly string[];
 
 export const PHAROSVILLE_ENDPOINT_PATHS_BY_KEY = Object.freeze(
   Object.fromEntries(

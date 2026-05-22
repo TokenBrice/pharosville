@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { apiFetch, ApiPathError, apiFetchWithMeta, SchemaValidationError } from "./api";
+import { ApiPathError, apiFetchWithMeta, SchemaValidationError } from "./api";
 
-describe("apiFetch path guard", () => {
+describe("apiFetchWithMeta path guard", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -11,7 +11,7 @@ describe("apiFetch path guard", () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true })));
     vi.stubGlobal("fetch", fetchMock);
 
-    const data = await apiFetch("/api/stablecoins?limit=1", z.object({ ok: z.boolean() }));
+    const { data } = await apiFetchWithMeta("/api/stablecoins?limit=1", z.object({ ok: z.boolean() }));
 
     expect(data).toEqual({ ok: true });
     expect(fetchMock).toHaveBeenCalledWith("/api/stablecoins?limit=1", undefined);
@@ -20,16 +20,21 @@ describe("apiFetch path guard", () => {
   it.each([
     "https://api.pharos.watch/stablecoins",
     "http://localhost/api/stablecoins",
+    "https://pharosville.local/api/stablecoins",
     "//api.pharos.watch/stablecoins",
     "/stablecoins",
     "api/stablecoins",
     "/_site-data/stablecoins",
     "/api",
+    "/api/../health",
+    "/api/%2e%2e/health",
+    "/api/%2E%2E/health",
+    "/api/%2e./health",
+    "/%2e%2e/api/stablecoins",
   ])("rejects non same-origin API path %s", async (path) => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(apiFetch(path)).rejects.toBeInstanceOf(ApiPathError);
     await expect(apiFetchWithMeta(path)).rejects.toBeInstanceOf(ApiPathError);
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -43,13 +48,13 @@ describe("apiFetch path guard", () => {
 
     const schema = z.object({ name: z.string(), count: z.number() });
 
-    const first = await apiFetch(path, schema, undefined, "warn");
-    expect(first).toEqual(payload);
+    const first = await apiFetchWithMeta(path, schema, undefined, 900, "warn");
+    expect(first.data).toEqual(payload);
     expect(warnSpy).toHaveBeenCalledTimes(1);
     expect(warnSpy.mock.calls[0]?.[0]).toContain("schema drift");
 
-    const second = await apiFetch(path, schema, undefined, "warn");
-    expect(second).toEqual(payload);
+    const second = await apiFetchWithMeta(path, schema, undefined, 900, "warn");
+    expect(second.data).toEqual(payload);
     expect(warnSpy).toHaveBeenCalledTimes(1);
 
     warnSpy.mockRestore();

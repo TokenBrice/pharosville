@@ -20,9 +20,33 @@ export const PRICING_SOURCE_REGISTRY = [
 
 export type PricingSourceKey = (typeof PRICING_SOURCE_REGISTRY)[number]["key"];
 
-const REGISTRY_MAP = new Map<string, PricingSourceRegistryEntry>(
-  PRICING_SOURCE_REGISTRY.map((entry): [string, PricingSourceRegistryEntry] => [entry.key, entry]),
-);
+export function assertUniqueRegistryKeys(
+  entries: readonly { key: string }[],
+  registryLabel: string,
+): void {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const entry of entries) {
+    if (seen.has(entry.key)) {
+      duplicates.add(entry.key);
+      continue;
+    }
+    seen.add(entry.key);
+  }
+  if (duplicates.size > 0) {
+    throw new Error(`${registryLabel} has duplicate keys: ${[...duplicates].sort().join(", ")}`);
+  }
+}
+
+export function buildRegistryMapByKey<T extends { key: string }>(
+  entries: readonly T[],
+  registryLabel: string,
+): Map<string, T> {
+  assertUniqueRegistryKeys(entries, registryLabel);
+  return new Map(entries.map((entry): [string, T] => [entry.key, entry]));
+}
+
+const REGISTRY_MAP = buildRegistryMapByKey(PRICING_SOURCE_REGISTRY, "pricing source registry");
 
 export function getPricingSourceRegistryEntry(sourceKey: string): PricingSourceRegistryEntry | undefined {
   return REGISTRY_MAP.get(sourceKey);

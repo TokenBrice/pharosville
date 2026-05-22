@@ -55,14 +55,27 @@ export class ApiPathError extends Error {
   }
 }
 
-function assertSameOriginApiPath(path: string): void {
+const CLIENT_API_BASE_URL = "https://pharosville.local";
+
+function assertSameOriginApiPath(path: string): string {
+  let url: URL;
+  try {
+    url = new URL(path, CLIENT_API_BASE_URL);
+  } catch {
+    throw new ApiPathError(path);
+  }
+
   if (
     !path.startsWith("/api/")
     || path.startsWith("//")
     || /^[a-z][a-z0-9+.-]*:/i.test(path)
+    || url.origin !== CLIENT_API_BASE_URL
+    || !url.pathname.startsWith("/api/")
   ) {
     throw new ApiPathError(path);
   }
+
+  return `${url.pathname}${url.search}`;
 }
 
 function formatIssues(
@@ -213,18 +226,18 @@ async function resolveApiSchema<T>(
   return PHAROSVILLE_API_CONTRACT[endpoint.key].schema as ApiSchema<T>;
 }
 
-export async function apiFetch<T>(
+async function fetchApiJson(
   path: string,
-  schema?: ApiSchema<T>,
   init?: RequestInit,
-  contractMode?: ApiContractMode,
-): Promise<T> {
-  assertSameOriginApiPath(path);
-  const res = await fetch(path, init);
+): Promise<{ data: unknown; normalizedPath: string; response: Response }> {
+  const normalizedPath = assertSameOriginApiPath(path);
+  const res = await fetch(normalizedPath, init);
   if (!res.ok) throw await buildFetchError(path, res);
-  const data: unknown = await res.json();
-  const validationSchema = await resolveApiSchema(path, schema);
-  return validateApiPayload(path, data, validationSchema, contractMode);
+  return {
+    data: await res.json(),
+    normalizedPath,
+    response: res,
+  };
 }
 
 export async function apiFetchWithMeta<T>(
@@ -234,11 +247,11 @@ export async function apiFetchWithMeta<T>(
   maxAgeSec = 900,
   contractMode?: ApiContractMode,
 ): Promise<{ data: T; meta: ApiMeta | null }> {
-  assertSameOriginApiPath(path);
-  const res = await fetch(path, init);
-  if (!res.ok) throw await buildFetchError(path, res);
-
-  const json: unknown = await res.json();
+  const {
+    data: json,
+    normalizedPath,
+    response: res,
+  } = await fetchApiJson(path, init);
   let meta: ApiMeta | null = null;
   let data = json;
 
@@ -281,6 +294,6 @@ export async function apiFetchWithMeta<T>(
     }
   }
 
-  const validationSchema = await resolveApiSchema(path, schema);
-  return { data: validateApiPayload(path, data, validationSchema, contractMode), meta };
+  const validationSchema = await resolveApiSchema(normalizedPath, schema);
+  return { data: validateApiPayload(normalizedPath, data, validationSchema, contractMode), meta };
 }

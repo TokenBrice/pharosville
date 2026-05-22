@@ -4,8 +4,10 @@ import { renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
+import { PHAROSVILLE_API_CLIENT_CONTRACT } from "@shared/lib/pharosville-api-client-contract";
+import { WORLD_ENDPOINT_KEYS } from "@shared/lib/pharosville-endpoint-registry";
 import type { ApiMeta } from "@/lib/api";
-import { useApiQueryWithMeta } from "./use-api-query";
+import { useApiQueryWithMeta, usePharosVilleEndpointQuery } from "./use-api-query";
 
 vi.mock("@tanstack/react-query", async () => {
   const actual = await vi.importActual<typeof import("@tanstack/react-query")>("@tanstack/react-query");
@@ -67,5 +69,26 @@ describe("useApiQueryWithMeta", () => {
       }),
     );
     expect(typeof result.current.refetch).toBe("function");
+  });
+
+  it.each(WORLD_ENDPOINT_KEYS)("derives %s query options from the endpoint registry", (endpointKey) => {
+    mockedUseQuery.mockReturnValueOnce({
+      data: undefined,
+      error: null,
+      isError: false,
+      isLoading: true,
+      isSuccess: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useQuery>);
+
+    renderHook(() => usePharosVilleEndpointQuery(endpointKey), { wrapper });
+
+    const endpoint = PHAROSVILLE_API_CLIENT_CONTRACT[endpointKey];
+    expect(mockedUseQuery).toHaveBeenCalledTimes(1);
+    expect(mockedUseQuery.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      queryKey: endpoint.queryKey,
+      staleTime: endpoint.producerIntervalSec * 1000,
+      refetchInterval: endpoint.producerIntervalSec * 2_000,
+    }));
   });
 });

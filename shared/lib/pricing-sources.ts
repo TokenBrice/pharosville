@@ -1,5 +1,6 @@
 import {
   PRICING_SOURCE_REGISTRY,
+  assertUniqueRegistryKeys,
   getPricingSourceRegistryEntry,
   type PricingSourceKey,
 } from "./pricing-source-registry";
@@ -17,6 +18,8 @@ const PRICE_SOURCE_HEALTH_BUCKET_DEFS = [
   })),
   { key: "missing", label: "Missing", shortLabel: "Missing" },
 ] as const;
+
+assertUniqueRegistryKeys(PRICE_SOURCE_HEALTH_BUCKET_DEFS, "price source health bucket registry");
 
 export const PRICE_SOURCE_HEALTH_BUCKET_KEYS = PRICE_SOURCE_HEALTH_BUCKET_DEFS.map((bucket) => bucket.key);
 const PRICE_SOURCE_HEALTH_BUCKET_KEY_SET = new Set<string>(PRICE_SOURCE_HEALTH_BUCKET_KEYS);

@@ -309,7 +309,7 @@ export const baseLiveReserveConfigSchema = z.object({
   semantics: LiveReserveSemanticsSchema,
   breakerScope: z.string().min(1).optional(),
   display: LiveReserveDisplaySchema.optional(),
-});
+}).strict();
 
 const abracadabraCauldronSchema = z.object({
   address: z.string(),

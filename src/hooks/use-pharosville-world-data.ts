@@ -7,6 +7,7 @@
 /* eslint-disable react-hooks/refs */
 import { useCallback, useMemo, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { PHAROSVILLE_WORLD_QUERY_KEY_ROOTS } from "@shared/lib/pharosville-endpoint-registry";
 import { usePegSummary, useReportCards, useStabilityIndexDetail, useStressSignals } from "@/hooks/api-hooks";
 import { useChains } from "@/hooks/use-chains";
 import { useStablecoins } from "@/hooks/use-stablecoins";
@@ -80,14 +81,7 @@ function refIdSignature(value: unknown): string {
   return String(nextRefId);
 }
 
-const PHAROSVILLE_QUERY_KEY_ROOTS = new Set<string>([
-  "stablecoins",
-  "chains",
-  "stability-index-detail",
-  "peg-summary",
-  "stress-signals",
-  "report-cards",
-]);
+const PHAROSVILLE_QUERY_KEY_ROOTS = new Set<string>(PHAROSVILLE_WORLD_QUERY_KEY_ROOTS);
 
 export function usePharosVilleWorldData(): PharosVilleWorldDataResult {
   const stablecoinsQuery = useStablecoins();

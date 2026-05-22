@@ -1,22 +1,26 @@
 import { PHAROSVILLE_API_CLIENT_ENDPOINTS } from "../../shared/lib/pharosville-api-client-contract";
+import {
+  buildPathCacheKey,
+  getEdgeCache,
+  jsonErrorResponse,
+  maybeStoreJsonEdgeCache,
+  withDefaultJsonCacheControl,
+  withSecurityHeaders,
+  type EdgeCache,
+  type PagesContextWithWaitUntil,
+} from "../_shared";
 
 interface Env {
   PHAROS_API_BASE?: string;
   PHAROS_API_KEY?: string;
 }
 
-interface EdgeCache {
-  match(request: Request): Promise<Response | undefined>;
-  put(request: Request, response: Response): Promise<void>;
-}
-
-interface PagesContext {
+interface PagesContext extends PagesContextWithWaitUntil {
   request: Request;
   env: Env;
   params: {
     path?: string | string[];
   };
-  waitUntil?: (promise: Promise<unknown>) => void;
 }
 
 const FORWARDED_RESPONSE_HEADERS = [
@@ -27,38 +31,17 @@ const FORWARDED_RESPONSE_HEADERS = [
   "warning",
   "x-data-age",
 ] as const;
-const SECURITY_RESPONSE_HEADERS = {
-  "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
-  "x-content-type-options": "nosniff",
-  "x-frame-options": "DENY",
-  "referrer-policy": "strict-origin-when-cross-origin",
-  "permissions-policy": "accelerometer=(), ambient-light-sensor=(), autoplay=(), battery=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
+const API_SECURITY_RESPONSE_HEADERS = {
   "cross-origin-opener-policy": "same-origin",
-  "cross-origin-resource-policy": "same-origin",
   "content-security-policy": "default-src 'self'; base-uri 'self'; object-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' https://api.pharos.watch; frame-ancestors 'none'; form-action 'self'",
 } as const;
-
-function withSecurityHeaders(response: Response): Response {
-  const headers = new Headers(response.headers);
-  for (const [name, value] of Object.entries(SECURITY_RESPONSE_HEADERS)) {
-    if (!headers.has(name)) headers.set(name, value);
-  }
-
-  return new Response(response.body, {
-    headers,
-    status: response.status,
-    statusText: response.statusText,
-  });
-}
 
 const REQUIRED_PHAROS_API_ORIGIN = "https://api.pharos.watch";
 const CACHE_KEY_ORIGIN = "https://pharosville.pharos.watch";
 const UPSTREAM_TIMEOUT_MS = 8_000;
 
 function jsonError(message: string, status: number, headers?: HeadersInit): Response {
-  const init: ResponseInit = { status };
-  if (headers) init.headers = headers;
-  return withSecurityHeaders(Response.json({ error: message }, init));
+  return jsonErrorResponse(message, status, API_SECURITY_RESPONSE_HEADERS, headers);
 }
 
 function normalizeBaseUrl(base: string | undefined): string | null {
@@ -103,32 +86,8 @@ function copyForwardedHeaders(upstream: Response): Headers {
   return headers;
 }
 
-function isJsonResponse(response: Response): boolean {
-  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
-  return contentType.includes("application/json") || contentType.includes("+json");
-}
-
-function getEdgeCache(): EdgeCache | null {
-  const maybeCaches = globalThis.caches as unknown as { default?: EdgeCache } | undefined;
-  return maybeCaches?.default ?? null;
-}
-
-function buildCacheKey(url: URL): Request {
-  return new Request(new URL(`${url.pathname}${url.search}`, CACHE_KEY_ORIGIN).toString(), {
-    method: "GET",
-  });
-}
-
 function prepareProxyResponseForCache(response: Response, maxAgeSec: number): Response {
-  const headers = new Headers(response.headers);
-  if (response.status === 200 && isJsonResponse(response) && !headers.has("cache-control")) {
-    headers.set("cache-control", `public, max-age=${maxAgeSec}`);
-  }
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
+  return withDefaultJsonCacheControl(response, maxAgeSec);
 }
 
 function maybeStoreEdgeCache(
@@ -137,12 +96,7 @@ function maybeStoreEdgeCache(
   cacheKey: Request,
   response: Response,
 ): void {
-  if (!cache || response.status !== 200 || !isJsonResponse(response)) return;
-
-  const cacheWrite = cache.put(cacheKey, response.clone()).catch(() => undefined);
-  if (context.waitUntil) {
-    context.waitUntil(cacheWrite);
-  }
+  maybeStoreJsonEdgeCache(context, cache, cacheKey, response);
 }
 
 type UpstreamFetchResult =
@@ -212,9 +166,9 @@ export async function onRequest(context: PagesContext): Promise<Response> {
   }
 
   const cache = getEdgeCache();
-  const cacheKey = buildCacheKey(url);
+  const cacheKey = buildPathCacheKey(url, CACHE_KEY_ORIGIN);
   const cached = await cache?.match(cacheKey);
-  if (cached) return withSecurityHeaders(cached);
+  if (cached) return withSecurityHeaders(cached, API_SECURITY_RESPONSE_HEADERS);
 
   const upstream = await fetchUpstream(buildUpstreamUrl(base, url), apiKey);
   if (!upstream.ok) {
@@ -228,5 +182,5 @@ export async function onRequest(context: PagesContext): Promise<Response> {
     headers: copyForwardedHeaders(upstream.response),
   }), endpoint.metaMaxAgeSec);
   maybeStoreEdgeCache(context, cache, cacheKey, response);
-  return withSecurityHeaders(response);
+  return withSecurityHeaders(response, API_SECURITY_RESPONSE_HEADERS);
 }
