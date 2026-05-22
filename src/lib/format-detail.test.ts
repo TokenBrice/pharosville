@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compactCurrency } from "./format-detail";
+import { compactCurrency, composeCurrently, formatChangePercent, formatCompactUsd } from "./format-detail";
 
 describe("compactCurrency", () => {
   it("compacts billions", () => {
@@ -22,7 +22,27 @@ describe("compactCurrency", () => {
   });
 });
 
-import { composeCurrently } from "./format-detail";
+describe("formatCompactUsd", () => {
+  it("formats numeric USD values with compact notation", () => {
+    expect(formatCompactUsd(8_438_840_589)).toBe("$8.4B");
+  });
+
+  it("returns unavailable for absent numeric values", () => {
+    expect(formatCompactUsd(null)).toBe("unavailable");
+    expect(formatCompactUsd(Number.NaN)).toBe("unavailable");
+  });
+});
+
+describe("formatChangePercent", () => {
+  it("formats signed percentage changes", () => {
+    expect(formatChangePercent(5.43)).toBe("+5.4%");
+    expect(formatChangePercent(-3.21)).toBe("-3.2%");
+  });
+
+  it("returns unavailable for absent percentage changes", () => {
+    expect(formatChangePercent(null)).toBe("unavailable");
+  });
+});
 
 describe("composeCurrently", () => {
   it("composes area + idle suffix when zone reads as calm", () => {

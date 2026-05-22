@@ -7,39 +7,33 @@ import { hitTest, hitTestSpatial, type HitTarget, type HitTargetSnapshot } from 
 import { cameraZoomLabel, clampCameraToMap, defaultCamera, followTile, panCamera, zoomIn, zoomOut } from "../systems/camera";
 import { initialAdaptiveDprState, resolveCanvasBudget, type AdaptiveDprState } from "../systems/canvas-budget";
 import type { ShipMotionSample } from "../systems/motion";
-import { zoomCameraAt, type IsoCamera, type MapLike, type ScreenPoint } from "../systems/projection";
+import { zoomCameraAt, type IsoCamera, type ScreenPoint } from "../systems/projection";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
+import { sameCamera, samePoint } from "../lib/camera-equality";
+import {
+  FOLLOW_INITIAL_DELTA_SECONDS,
+  FOLLOW_LEAD_SECONDS,
+  FOLLOW_MAX_DELTA_SECONDS,
+  advanceCameraIntent,
+  cameraModeCancelsFollow,
+  leadFollowTile,
+  zoomCameraByWheelDelta,
+  type CameraIntentMode,
+  type CameraIntentState,
+} from "./camera-intent";
+import { firstPointer, pinchSnapshot } from "./pointer-gesture";
 import { useLatestRef } from "./use-latest-ref";
 
-const FOLLOW_CAMERA_DAMPING = 4;
-const FOLLOW_LEAD_SECONDS = 0.45;
-const FOLLOW_MAX_DELTA_SECONDS = 0.25;
-const FOLLOW_INITIAL_DELTA_SECONDS = 1 / 60;
-const CAMERA_INTERACTION_DAMPING = 26;
-const CAMERA_COMMAND_DAMPING = 12;
-const CAMERA_RESIZE_DAMPING = 18;
-const WHEEL_DELTA_LINE_HEIGHT_PX = 16;
-const WHEEL_DELTA_DEFAULT_PAGE_PX = 800;
-const WHEEL_DELTA_CLAMP_PX = 240;
-const WHEEL_ZOOM_EXPONENT_PER_PIXEL = 0.00145;
-
-export type CameraIntentMode =
-  | "idle"
-  | "drag"
-  | "wheel"
-  | "pinch"
-  | "keyboard"
-  | "toolbar"
-  | "reset"
-  | "follow-selected"
-  | "resize"
-  | "external";
-
-interface CameraIntentState {
-  lastFrameTime: number | null;
-  mode: CameraIntentMode;
-  targetCamera: IsoCamera | null;
-}
+export {
+  advanceCameraIntent,
+  cameraModeCancelsFollow,
+  dampFollowCamera,
+  leadFollowTile,
+  normalizeWheelDeltaY,
+  wheelZoomScaleFromDelta,
+  zoomCameraByWheelDelta,
+} from "./camera-intent";
+export type { CameraIntentMode } from "./camera-intent";
 
 export interface UseCanvasResizeAndCameraInput {
   exitFullscreen: () => void;
@@ -705,155 +699,4 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
 function isInteractiveEventTarget(target: EventTarget | null) {
   return target instanceof HTMLElement
     && Boolean(target.closest("a, button, input, select, textarea, summary, [role='button']"));
-}
-
-function samePoint(left: ScreenPoint, right: ScreenPoint): boolean {
-  return left.x === right.x && left.y === right.y;
-}
-
-function sameCamera(left: IsoCamera, right: IsoCamera): boolean {
-  return left.offsetX === right.offsetX && left.offsetY === right.offsetY && left.zoom === right.zoom;
-}
-
-function nearlySameCamera(left: IsoCamera, right: IsoCamera): boolean {
-  return Math.abs(left.offsetX - right.offsetX) < 0.01
-    && Math.abs(left.offsetY - right.offsetY) < 0.01
-    && Math.abs(left.zoom - right.zoom) < 0.0001;
-}
-
-export function normalizeWheelDeltaY(deltaY: number, deltaMode: number, pageSize = WHEEL_DELTA_DEFAULT_PAGE_PX): number {
-  const pixelDelta = deltaMode === 1
-    ? deltaY * WHEEL_DELTA_LINE_HEIGHT_PX
-    : deltaMode === 2
-      ? deltaY * Math.max(1, pageSize)
-      : deltaY;
-  if (!Number.isFinite(pixelDelta)) return 0;
-  return Math.max(-WHEEL_DELTA_CLAMP_PX, Math.min(WHEEL_DELTA_CLAMP_PX, pixelDelta));
-}
-
-export function wheelZoomScaleFromDelta(deltaY: number, deltaMode: number, pageSize = WHEEL_DELTA_DEFAULT_PAGE_PX): number {
-  return Math.exp(-normalizeWheelDeltaY(deltaY, deltaMode, pageSize) * WHEEL_ZOOM_EXPONENT_PER_PIXEL);
-}
-
-export function zoomCameraByWheelDelta(input: {
-  camera: IsoCamera;
-  deltaMode: number;
-  deltaY: number;
-  map?: MapLike;
-  point: ScreenPoint;
-  viewport: ScreenPoint;
-}): IsoCamera {
-  const next = zoomCameraAt(
-    input.camera,
-    input.point,
-    input.camera.zoom * wheelZoomScaleFromDelta(input.deltaY, input.deltaMode, input.viewport.y),
-  );
-  return input.map ? clampCameraToMap(next, { map: input.map, viewport: input.viewport }) : next;
-}
-
-export function advanceCameraIntent(
-  current: IsoCamera,
-  target: IsoCamera,
-  deltaSeconds: number,
-  mode: CameraIntentMode = "toolbar",
-): { camera: IsoCamera; settled: boolean } {
-  if (nearlySameCamera(current, target)) return { camera: target, settled: true };
-  const next = dampFollowCamera(current, target, deltaSeconds, cameraDampingForMode(mode));
-  if (nearlySameCamera(next, target)) return { camera: target, settled: true };
-  return { camera: next, settled: false };
-}
-
-export function cameraModeCancelsFollow(mode: CameraIntentMode): boolean {
-  return mode === "drag"
-    || mode === "wheel"
-    || mode === "pinch"
-    || mode === "keyboard"
-    || mode === "toolbar"
-    || mode === "reset"
-    || mode === "external";
-}
-
-function cameraDampingForMode(mode: CameraIntentMode): number {
-  if (mode === "follow-selected") return FOLLOW_CAMERA_DAMPING;
-  if (mode === "resize") return CAMERA_RESIZE_DAMPING;
-  if (mode === "drag" || mode === "wheel" || mode === "pinch" || mode === "keyboard") {
-    return CAMERA_INTERACTION_DAMPING;
-  }
-  return CAMERA_COMMAND_DAMPING;
-}
-
-export function leadFollowTile(
-  currentTile: ScreenPoint,
-  previousTile: ScreenPoint | null,
-  deltaSeconds: number,
-  leadSeconds = FOLLOW_LEAD_SECONDS,
-  sample?: Pick<ShipMotionSample, "speedTilesPerSecond" | "velocity"> | null,
-): ScreenPoint {
-  const velocity = sample?.velocity;
-  if (
-    velocity
-    && leadSeconds > 0
-    && Number.isFinite(velocity.x)
-    && Number.isFinite(velocity.y)
-    && (sample.speedTilesPerSecond ?? Math.hypot(velocity.x, velocity.y)) > 0
-  ) {
-    return {
-      x: currentTile.x + velocity.x * leadSeconds,
-      y: currentTile.y + velocity.y * leadSeconds,
-    };
-  }
-  if (!previousTile || deltaSeconds <= 0 || leadSeconds <= 0) return currentTile;
-  const velocityX = (currentTile.x - previousTile.x) / deltaSeconds;
-  const velocityY = (currentTile.y - previousTile.y) / deltaSeconds;
-  if (!Number.isFinite(velocityX) || !Number.isFinite(velocityY)) return currentTile;
-  return {
-    x: currentTile.x + velocityX * leadSeconds,
-    y: currentTile.y + velocityY * leadSeconds,
-  };
-}
-
-export function dampFollowCamera(
-  current: IsoCamera,
-  target: IsoCamera,
-  deltaSeconds: number,
-  damping = FOLLOW_CAMERA_DAMPING,
-): IsoCamera {
-  if (deltaSeconds <= 0 || damping <= 0) return current;
-  const alpha = 1 - Math.exp(-damping * deltaSeconds);
-  return {
-    offsetX: current.offsetX + (target.offsetX - current.offsetX) * alpha,
-    offsetY: current.offsetY + (target.offsetY - current.offsetY) * alpha,
-    zoom: current.zoom + (target.zoom - current.zoom) * alpha,
-  };
-}
-
-function firstPointer(points: ReadonlyMap<number, ScreenPoint>): { pointerId: number; point: ScreenPoint } | null {
-  const next = points.entries().next();
-  if (next.done) return null;
-  return { pointerId: next.value[0], point: next.value[1] };
-}
-
-function pinchSnapshot(
-  points: ReadonlyMap<number, ScreenPoint>,
-  preferredIds?: readonly [number, number],
-): { distance: number; midpoint: ScreenPoint; pointerIds: [number, number] } | null {
-  let pointerIds: [number, number] | null = null;
-  if (preferredIds && points.has(preferredIds[0]) && points.has(preferredIds[1])) {
-    pointerIds = [preferredIds[0], preferredIds[1]];
-  } else {
-    const ids = Array.from(points.keys()).slice(0, 2);
-    if (ids.length === 2) pointerIds = [ids[0], ids[1]];
-  }
-  if (!pointerIds) return null;
-  const first = points.get(pointerIds[0]);
-  const second = points.get(pointerIds[1]);
-  if (!first || !second) return null;
-  return {
-    distance: Math.hypot(second.x - first.x, second.y - first.y),
-    midpoint: {
-      x: (first.x + second.x) / 2,
-      y: (first.y + second.y) / 2,
-    },
-    pointerIds,
-  };
 }

@@ -2,6 +2,7 @@ import type {
   PharosVilleAssetManifest,
   PharosVilleAssetManifestEntry,
 } from "../systems/asset-manifest";
+import { waitForIdleChunk } from "../lib/idle-scheduler";
 import { assetPhase, assetUrl, assetWebpFrameSourceUrl, assetWebpUrl, manifestCacheVersion, PHAROSVILLE_ASSET_MANIFEST_PATH } from "../systems/asset-manifest";
 
 export interface LoadedPharosVilleAsset {
@@ -367,7 +368,10 @@ async function settleIdleChunkedQueuedLoads<TItem, TResult>(
   const settled: PromiseSettledResult<TResult>[] = new Array(items.length);
   let nextIndex = 0;
   while (nextIndex < items.length && !signal?.aborted) {
-    await waitForIdleChunk(signal);
+    await waitForIdleChunk({
+      timeoutMs: PHAROSVILLE_DEFERRED_IDLE_TIMEOUT_MS,
+      ...(signal ? { signal } : {}),
+    });
     if (signal?.aborted) break;
     const chunkStart = nextIndex;
     const chunkEnd = Math.min(items.length, chunkStart + limit);
@@ -505,39 +509,6 @@ function isAbortError(error: unknown) {
 
 function performanceNow() {
   return typeof performance === "undefined" ? Date.now() : performance.now();
-}
-
-type IdleSchedulerGlobal = typeof globalThis & {
-  cancelIdleCallback?: (handle: number) => void;
-  requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
-};
-
-function waitForIdleChunk(signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) return Promise.resolve();
-  return new Promise((resolve) => {
-    const idleGlobal = globalThis as IdleSchedulerGlobal;
-    let settled = false;
-    let idleHandle: number | null = null;
-    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-    const cleanup = () => {
-      signal?.removeEventListener("abort", abort);
-      if (idleHandle != null) idleGlobal.cancelIdleCallback?.(idleHandle);
-      if (timeoutHandle != null) clearTimeout(timeoutHandle);
-    };
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      resolve();
-    };
-    const abort = () => finish();
-    signal?.addEventListener("abort", abort, { once: true });
-    if (idleGlobal.requestIdleCallback) {
-      idleHandle = idleGlobal.requestIdleCallback(finish, { timeout: PHAROSVILLE_DEFERRED_IDLE_TIMEOUT_MS });
-      return;
-    }
-    timeoutHandle = setTimeout(finish, 0);
-  });
 }
 
 /**

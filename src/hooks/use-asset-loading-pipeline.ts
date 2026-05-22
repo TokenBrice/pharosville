@@ -6,6 +6,7 @@ import { SHIP_SAIL_EMBLEM_OVERRIDES } from "../renderer/layers/ships";
 import type { buildMotionPlan } from "../systems/motion";
 import { pathKey } from "../systems/motion-utils";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
+import { waitForIdleChunk } from "../lib/idle-scheduler";
 
 type MotionPlan = ReturnType<typeof buildMotionPlan>;
 export const WATER_PATH_WARMUP_IDLE_CHUNK_SIZE = 3;
@@ -181,41 +182,8 @@ export async function warmWaterPathsAcrossIdleChunks(plan: MotionPlan, signal?: 
     warmups.push(() => route.waterPaths.get(inboundKey));
   }
   for (let index = 0; index < warmups.length && !signal?.aborted; index += WATER_PATH_WARMUP_IDLE_CHUNK_SIZE) {
-    await waitForIdleChunk(signal, WATER_PATH_WARMUP_IDLE_TIMEOUT_MS);
+    await waitForIdleChunk({ signal, timeoutMs: WATER_PATH_WARMUP_IDLE_TIMEOUT_MS });
     if (signal?.aborted) return;
     for (const warmup of warmups.slice(index, index + WATER_PATH_WARMUP_IDLE_CHUNK_SIZE)) warmup();
   }
-}
-
-type IdleSchedulerGlobal = typeof globalThis & {
-  cancelIdleCallback?: (handle: number) => void;
-  requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
-};
-
-function waitForIdleChunk(signal: AbortSignal | undefined, timeout: number): Promise<void> {
-  if (signal?.aborted) return Promise.resolve();
-  return new Promise((resolve) => {
-    const idleGlobal = globalThis as IdleSchedulerGlobal;
-    let settled = false;
-    let idleHandle: number | null = null;
-    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-    const cleanup = () => {
-      signal?.removeEventListener("abort", abort);
-      if (idleHandle != null) idleGlobal.cancelIdleCallback?.(idleHandle);
-      if (timeoutHandle != null) clearTimeout(timeoutHandle);
-    };
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      resolve();
-    };
-    const abort = () => finish();
-    signal?.addEventListener("abort", abort, { once: true });
-    if (idleGlobal.requestIdleCallback) {
-      idleHandle = idleGlobal.requestIdleCallback(finish, { timeout });
-      return;
-    }
-    timeoutHandle = setTimeout(finish, 0);
-  });
 }

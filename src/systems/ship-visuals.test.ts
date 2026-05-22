@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { BackingType, GovernanceType, PegCurrency, StablecoinMeta } from "@shared/types";
 import { makeAsset } from "../__fixtures__/pharosville-world";
-import { MAKER_SQUAD_MEMBER_IDS } from "./maker-squad";
-import { resolveShipClass, resolveShipSizeTier, resolveShipVisual } from "./ship-visuals";
+import { STABLECOIN_SQUAD_MEMBER_IDS } from "./maker-squad";
+import { TITAN_SHIP_ASSET_IDS, TITAN_SHIPS, resolveShipClass, resolveShipSizeTier, resolveShipVisual } from "./ship-visuals";
 import { UNIQUE_SHIP_DEFINITIONS } from "./unique-ships";
 
 function makeMeta(input: {
@@ -158,9 +158,9 @@ describe("resolveShipVisual", () => {
     expect(usdt.scale).toBeGreaterThan(usdc.scale);
   });
 
-  it("resolves a titan sprite for every Maker squad member", () => {
+  it("resolves a titan sprite for every stablecoin squad member", () => {
     const meta = makeMeta({ governance: "centralized-dependent" });
-    for (const id of MAKER_SQUAD_MEMBER_IDS) {
+    for (const id of STABLECOIN_SQUAD_MEMBER_IDS) {
       const visual = resolveShipVisual(makeAsset({
         id,
         symbol: id.toUpperCase(),
@@ -169,6 +169,15 @@ describe("resolveShipVisual", () => {
       expect(visual.spriteAssetId, `expected sprite for ${id}`).toBeDefined();
       expect(visual.sizeTier, `expected titan tier for ${id}`).toBe("titan");
     }
+  });
+
+  it("keeps titan asset-id and scale views derived from the combined registry", () => {
+    for (const [id, definition] of Object.entries(TITAN_SHIPS)) {
+      expect(definition.spriteAssetId, id).toBeTruthy();
+      expect(definition.scale, id).toBeGreaterThan(0);
+      expect(TITAN_SHIP_ASSET_IDS[id], id).toBe(definition.spriteAssetId);
+    }
+    expect(Object.keys(TITAN_SHIP_ASSET_IDS).sort()).toEqual(Object.keys(TITAN_SHIPS).sort());
   });
 
   it("resolves a unique sprite + 'Heritage hull' label for every cultural-significance stablecoin", () => {
@@ -239,7 +248,7 @@ describe("resolveShipVisual", () => {
     expect(titanVisual.uniqueRationale).toBeUndefined();
   });
 
-  it("uses the re-tuned scale band for Maker squad members", () => {
+  it("uses the re-tuned scale band for stablecoin squad members", () => {
     const meta = makeMeta({ governance: "centralized-dependent" });
     const expectedScales: Record<string, number> = {
       "usds-sky": 1.15,
@@ -247,6 +256,8 @@ describe("resolveShipVisual", () => {
       "susds-sky": 0.94,
       "sdai-sky": 0.94,
       "stusds-sky": 0.98,
+      "usde-ethena": 1.20,
+      "susde-ethena": 0.95,
     };
     for (const [id, expectedScale] of Object.entries(expectedScales)) {
       const visual = resolveShipVisual(makeAsset({

@@ -1,6 +1,7 @@
 import type { PharosVilleWorld, ShipLivery, ShipLogoShape, ShipSizeTier, ShipStripePattern } from "../../../systems/world-types";
 import type { LoadedPharosVilleAsset, PharosVilleAssetManager } from "../../asset-manager";
 import { hexToRgba, readableInkForFill, roundedRectPath } from "../../canvas-primitives";
+import { createStatsLruCache } from "../../lru-cache";
 import { pickSailEmblemInk, SHIP_SAIL_TINT_MASKS } from "../../ship-sail-tint";
 import {
   HERITAGE_NAMEPLATE_MIN_ZOOM,
@@ -239,17 +240,10 @@ interface SailLogoSprite {
   anchorX: number;
   anchorY: number;
 }
-const sailLogoSpriteCache = new Map<string, SailLogoSprite | null>();
-const sailLogoSpriteCacheStats = { hits: 0, misses: 0, evictions: 0 };
+const sailLogoSpriteCache = createStatsLruCache<string, SailLogoSprite | null>(SAIL_LOGO_SPRITE_CACHE_MAX);
 
 export function getSailLogoSpriteCacheStats(): CacheStats {
-  return {
-    hits: sailLogoSpriteCacheStats.hits,
-    misses: sailLogoSpriteCacheStats.misses,
-    evictions: sailLogoSpriteCacheStats.evictions,
-    size: sailLogoSpriteCache.size,
-    capacity: SAIL_LOGO_SPRITE_CACHE_MAX,
-  };
+  return sailLogoSpriteCache.stats();
 }
 
 function liverySpriteFingerprint(livery: ShipLivery): string {
@@ -272,12 +266,6 @@ function sailLogoSpriteKey(
 
 function rememberSailLogoSprite(key: string, sprite: SailLogoSprite | null) {
   sailLogoSpriteCache.set(key, sprite);
-  while (sailLogoSpriteCache.size > SAIL_LOGO_SPRITE_CACHE_MAX) {
-    const oldest = sailLogoSpriteCache.keys().next().value;
-    if (typeof oldest !== "string") break;
-    sailLogoSpriteCache.delete(oldest);
-    sailLogoSpriteCacheStats.evictions += 1;
-  }
 }
 
 function getSailLogoSprite(
@@ -292,13 +280,8 @@ function getSailLogoSprite(
   const key = sailLogoSpriteKey(livery, sailColor, stripeColor, mark, logo, widthPx, heightPx);
   const cached = sailLogoSpriteCache.get(key);
   if (cached !== undefined) {
-    // LRU touch.
-    sailLogoSpriteCache.delete(key);
-    sailLogoSpriteCache.set(key, cached);
-    sailLogoSpriteCacheStats.hits += 1;
     return cached;
   }
-  sailLogoSpriteCacheStats.misses += 1;
   const sprite = buildSailLogoSprite(livery, sailColor, stripeColor, mark, logo, widthPx, heightPx);
   rememberSailLogoSprite(key, sprite);
   return sprite;
@@ -480,17 +463,10 @@ export function drawDyedSailEmblem(input: {
 }
 
 const SAIL_EMBLEM_SPRITE_CACHE_MAX = 128;
-const sailEmblemSpriteCache = new Map<string, SailLogoSprite | null>();
-const sailEmblemSpriteCacheStats = { hits: 0, misses: 0, evictions: 0 };
+const sailEmblemSpriteCache = createStatsLruCache<string, SailLogoSprite | null>(SAIL_EMBLEM_SPRITE_CACHE_MAX);
 
 export function getSailEmblemSpriteCacheStats(): CacheStats {
-  return {
-    hits: sailEmblemSpriteCacheStats.hits,
-    misses: sailEmblemSpriteCacheStats.misses,
-    evictions: sailEmblemSpriteCacheStats.evictions,
-    size: sailEmblemSpriteCache.size,
-    capacity: SAIL_EMBLEM_SPRITE_CACHE_MAX,
-  };
+  return sailEmblemSpriteCache.stats();
 }
 
 function sailEmblemSpriteKey(
@@ -521,20 +497,10 @@ function getSailEmblemSilhouetteSprite(
   const key = sailEmblemSpriteKey(asset, livery, logo, mark, ink, widthPx, heightPx, sailMark);
   const cached = sailEmblemSpriteCache.get(key);
   if (cached !== undefined) {
-    sailEmblemSpriteCache.delete(key);
-    sailEmblemSpriteCache.set(key, cached);
-    sailEmblemSpriteCacheStats.hits += 1;
     return cached;
   }
-  sailEmblemSpriteCacheStats.misses += 1;
   const sprite = buildSailEmblemSilhouetteSprite(asset, logo, mark, ink, widthPx, heightPx, sailMark);
   sailEmblemSpriteCache.set(key, sprite);
-  while (sailEmblemSpriteCache.size > SAIL_EMBLEM_SPRITE_CACHE_MAX) {
-    const oldest = sailEmblemSpriteCache.keys().next().value;
-    if (typeof oldest !== "string") break;
-    sailEmblemSpriteCache.delete(oldest);
-    sailEmblemSpriteCacheStats.evictions += 1;
-  }
   return sprite;
 }
 

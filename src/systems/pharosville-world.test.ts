@@ -646,6 +646,15 @@ describe("buildPharosVilleWorld", () => {
     }
   });
 
+  it("labels consort placement evidence with each active squad name", () => {
+    const world = buildPharosVilleWorld(makerSquadFixtureInputs());
+    for (const memberId of ["susds-sky", "sdai-sky", "susde-ethena"]) {
+      const ship = world.ships.find((s) => s.id === memberId)!;
+      const squad = squadForMember(memberId)!;
+      expect(ship.placementEvidence.reason).toContain(`${squad.label} squad member; inherits flagship placement`);
+    }
+  });
+
   it("Sky-flagship-missing: Sky consorts revert to per-asset placement; Maker squad still active", () => {
     const inputs = fixtureWithoutAsset(makerSquadFixtureInputs(), "usds-sky");
     const world = buildPharosVilleWorld(inputs);

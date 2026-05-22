@@ -5,15 +5,12 @@ import { isElevatedTileKind, isShoreTileKind, isWaterTileKind } from "../../syst
 import type { PharosVilleMap, PharosVilleTile, TerrainKind } from "../../systems/world-types";
 import type { PharosVilleAssetManager } from "../asset-manager";
 import { drawAsset, drawDiamond, drawTileLowerFacet, withAlpha } from "../canvas-primitives";
+import { lighthouseBeamSweep, resolveLighthouseBeamRenderState } from "../lighthouse-beam";
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
+import { scanVisibleTiles, terrainKindForTile, visibleTileBoundsForMap } from "../visible-tiles";
 import { TERRAIN_TEXTURE, TILE_COLORS } from "../visual-config";
-import { visibleTileBoundsForCamera, type VisibleTileBounds } from "../viewport";
+import type { VisibleTileBounds } from "../viewport";
 
-// Replicated from lighthouse.ts (read-only reference): one revolution per
-// SWEEP_PERIOD seconds with the same easing term. Mirrored locally so terrain
-// caustics tint water tiles within the beam arc without coupling to lighthouse
-// shared state.
-const BEAM_SWEEP_PERIOD = 48;
 const BEAM_CAUSTIC_HALF_ARC = (20 * Math.PI) / 180;
 // C3: hoisted so the 3 per-tile call sites resolve a module-scope constant.
 const BEAM_CAUSTIC_COS = Math.cos(BEAM_CAUSTIC_HALF_ARC);
@@ -181,41 +178,24 @@ export function drawTerrain(input: DrawPharosVilleInput) {
 export function drawTerrainBase(input: DrawPharosVilleInput, bounds: VisibleTileBounds | null = null) {
   const { assets, camera, ctx, height, width, world } = input;
   if (!bounds) bounds = resolveVisibleTileBounds(input, 2);
-  const { width: mapWidth, tiles } = world.map;
-
   const viewportMarginX = 36 * camera.zoom;
   const viewportMarginY = 22 * camera.zoom;
-  const deltaX = (TILE_WIDTH / 2) * camera.zoom;
-  const deltaY = (TILE_HEIGHT / 2) * camera.zoom;
-
-  let visibleTileCount = 0;
-  if (!bounds) return visibleTileCount;
-  let rowScreenX = (bounds.minX - bounds.minY) * deltaX + camera.offsetX;
-  let rowScreenY = (bounds.minX + bounds.minY) * deltaY + camera.offsetY;
-  for (let y = bounds.minY; y <= bounds.maxY; y += 1) {
-    let screenX = rowScreenX;
-    let screenY = rowScreenY;
-    const rowOffset = y * mapWidth;
-    for (let x = bounds.minX; x <= bounds.maxX; x += 1) {
-      const tile = tiles[rowOffset + x];
-      if (tile) {
-        const terrain = tile.terrain ?? tile.kind;
-        if (isTileInViewport(screenX, screenY, width, height, viewportMarginX, viewportMarginY)) {
-          visibleTileCount += 1;
-          if (isWaterTileKind(terrain)) {
-            drawWaterTileBase(ctx, screenX, screenY, camera.zoom, terrain, tile.x, tile.y, waterAssetFor(assets, terrain));
-          } else {
-            drawLandTile(ctx, screenX, screenY, camera.zoom, terrain, tile.x, tile.y, landAssetFor(assets, terrain, tile.x, tile.y));
-          }
-        }
+  return scanVisibleTiles({
+    bounds,
+    camera,
+    map: world.map,
+    viewportHeight: height,
+    viewportMarginX,
+    viewportMarginY,
+    viewportWidth: width,
+    visit: (tile, terrain, screenX, screenY) => {
+      if (isWaterTileKind(terrain)) {
+        drawWaterTileBase(ctx, screenX, screenY, camera.zoom, terrain, tile.x, tile.y, waterAssetFor(assets, terrain));
+      } else {
+        drawLandTile(ctx, screenX, screenY, camera.zoom, terrain, tile.x, tile.y, landAssetFor(assets, terrain, tile.x, tile.y));
       }
-      screenX += deltaX;
-      screenY += deltaY;
-    }
-    rowScreenX -= deltaX;
-    rowScreenY += deltaY;
-  }
-  return visibleTileCount;
+    },
+  });
 }
 
 export function drawWaterTerrainOverlays(input: DrawPharosVilleInput, bounds: VisibleTileBounds | null = null) {
@@ -224,122 +204,82 @@ export function drawWaterTerrainOverlays(input: DrawPharosVilleInput, bounds: Vi
 }
 
 export function drawWaterTerrainStaticDetails(input: DrawPharosVilleInput, bounds: VisibleTileBounds | null = null) {
-  const { camera, ctx, height, motion, width, world, visibleTileBoundsCache } = input;
-  const { width: mapWidth, height: mapHeight, tiles } = world.map;
-  if (!bounds) bounds = visibleTileBoundsForCamera(
-    {
-      camera,
-      mapHeight,
-      mapWidth,
-      tileMargin: 2,
-      viewportHeight: height,
-      viewportWidth: width,
-    },
-    visibleTileBoundsCache,
-  );
+  const { camera, ctx, height, motion, width, world } = input;
+  const { width: mapWidth, height: mapHeight } = world.map;
+  if (!bounds) bounds = resolveVisibleTileBounds(input, 2);
   const viewportMarginX = 36 * camera.zoom;
   const viewportMarginY = 22 * camera.zoom;
-  const deltaX = (TILE_WIDTH / 2) * camera.zoom;
-  const deltaY = (TILE_HEIGHT / 2) * camera.zoom;
   if (!bounds) return 0;
 
   let visibleWaterTileCount = 0;
 
   const zoneBorderFeathers = waterZoneBorderFeathersForMap(world.map);
 
-  let rowScreenX = (bounds.minX - bounds.minY) * deltaX + camera.offsetX;
-  let rowScreenY = (bounds.minX + bounds.minY) * deltaY + camera.offsetY;
-  for (let y = bounds.minY; y <= bounds.maxY; y += 1) {
-    let screenX = rowScreenX;
-    let screenY = rowScreenY;
-    const rowOffset = y * mapWidth;
-    for (let x = bounds.minX; x <= bounds.maxX; x += 1) {
-      const tile = tiles[rowOffset + x];
-      if (tile) {
-        const terrain = tile.terrain ?? tile.kind;
-        if (isWaterTileKind(terrain) && isTileInViewport(screenX, screenY, width, height, viewportMarginX, viewportMarginY)) {
-          visibleWaterTileCount += 1;
-          drawWaterTileStaticDetail(
-            ctx,
-            screenX,
-            screenY,
-            camera.zoom,
-            terrain,
-            tile.x,
-            tile.y,
-            mapWidth,
-            mapHeight,
-            motion,
-            zoneBorderFeathers.get(rowOffset + x),
-          );
-        }
-      }
-      screenX += deltaX;
-      screenY += deltaY;
-    }
-    rowScreenX -= deltaX;
-    rowScreenY += deltaY;
-  }
+  scanVisibleTiles({
+    bounds,
+    camera,
+    map: world.map,
+    viewportHeight: height,
+    viewportMarginX,
+    viewportMarginY,
+    viewportWidth: width,
+    visit: (tile, terrain, screenX, screenY, tileIndex) => {
+      if (!isWaterTileKind(terrain)) return;
+      visibleWaterTileCount += 1;
+      drawWaterTileStaticDetail(
+        ctx,
+        screenX,
+        screenY,
+        camera.zoom,
+        terrain,
+        tile.x,
+        tile.y,
+        mapWidth,
+        mapHeight,
+        motion,
+        zoneBorderFeathers.get(tileIndex),
+      );
+    },
+  });
   return visibleWaterTileCount;
 }
 
 export function drawWaterTerrainAccents(input: DrawPharosVilleInput, bounds: VisibleTileBounds | null = null) {
-  const { camera, ctx, height, motion, width, world, visibleTileBoundsCache } = input;
-  const { width: mapWidth, height: mapHeight, tiles } = world.map;
-  if (!bounds) bounds = visibleTileBoundsForCamera(
-    {
-      camera,
-      mapHeight,
-      mapWidth,
-      tileMargin: 2,
-      viewportHeight: height,
-      viewportWidth: width,
-    },
-    visibleTileBoundsCache,
-  );
+  const { camera, ctx, height, motion, width, world } = input;
+  if (!bounds) bounds = resolveVisibleTileBounds(input, 2);
   const viewportMarginX = 36 * camera.zoom;
   const viewportMarginY = 22 * camera.zoom;
-  const deltaX = (TILE_WIDTH / 2) * camera.zoom;
-  const deltaY = (TILE_HEIGHT / 2) * camera.zoom;
   if (!bounds) return 0;
 
   let accentTileCount = 0;
 
   const beam = world.lighthouse.unavailable ? null : computeBeamCausticState(input);
 
-  let rowScreenX = (bounds.minX - bounds.minY) * deltaX + camera.offsetX;
-  let rowScreenY = (bounds.minX + bounds.minY) * deltaY + camera.offsetY;
-  for (let y = bounds.minY; y <= bounds.maxY; y += 1) {
-    let screenX = rowScreenX;
-    let screenY = rowScreenY;
-    const rowOffset = y * mapWidth;
-    for (let x = bounds.minX; x <= bounds.maxX; x += 1) {
-      const tile = tiles[rowOffset + x];
-      if (tile) {
-        const terrain = tile.terrain ?? tile.kind;
-        if (isWaterTileKind(terrain) && isTileInViewport(screenX, screenY, width, height, viewportMarginX, viewportMarginY)) {
-          if (shouldDrawContinuousWaterAccent(terrain, tile.x, tile.y, motion)) {
-            accentTileCount += 1;
-            drawWaterTileAccent(
-              ctx,
-              screenX,
-              screenY,
-              camera.zoom,
-              terrain,
-              tile.x,
-              tile.y,
-              motion,
-              beam,
-            );
-          }
-        }
-      }
-      screenX += deltaX;
-      screenY += deltaY;
-    }
-    rowScreenX -= deltaX;
-    rowScreenY += deltaY;
-  }
+  scanVisibleTiles({
+    bounds,
+    camera,
+    map: world.map,
+    viewportHeight: height,
+    viewportMarginX,
+    viewportMarginY,
+    viewportWidth: width,
+    visit: (tile, terrain, screenX, screenY) => {
+      if (!isWaterTileKind(terrain)) return;
+      if (!shouldDrawContinuousWaterAccent(terrain, tile.x, tile.y, motion)) return;
+      accentTileCount += 1;
+      drawWaterTileAccent(
+        ctx,
+        screenX,
+        screenY,
+        camera.zoom,
+        terrain,
+        tile.x,
+        tile.y,
+        motion,
+        beam,
+      );
+    },
+  });
   drawSeawallRipples(ctx, camera, motion);
   return accentTileCount;
 }
@@ -350,7 +290,7 @@ export function waterZoneBorderFeathersForMap(map: PharosVilleMap): WaterZoneBor
 
   const lookup = new Map<number, readonly WaterZoneBorderFeather[]>();
   for (const tile of map.tiles) {
-    const terrain = tileTerrain(tile);
+    const terrain = terrainKindForTile(tile);
     if (!isWaterTileKind(terrain)) continue;
 
     const feathers: WaterZoneBorderFeather[] = [];
@@ -358,7 +298,7 @@ export function waterZoneBorderFeathersForMap(map: PharosVilleMap): WaterZoneBor
       const offset = ZONE_FEATHER_OFFSETS[edge];
       const neighbor = tileAt(map, tile.x + offset.x, tile.y + offset.y);
       if (!neighbor) continue;
-      const neighborTerrain = tileTerrain(neighbor);
+      const neighborTerrain = terrainKindForTile(neighbor);
       if (!isWaterTileKind(neighborTerrain) || neighborTerrain === terrain) continue;
       feathers.push({
         color: cachedZoneThemeForTerrain(String(neighborTerrain)).base,
@@ -409,34 +349,15 @@ export function seawallRippleAnchorsFromPlacements(
 }
 
 function resolveVisibleTileBounds(input: DrawPharosVilleInput, tileMargin: number): VisibleTileBounds | null {
-  const { camera, height, world, width, visibleTileBoundsCache } = input;
-  return visibleTileBoundsForCamera(
-    {
-      camera,
-      mapHeight: world.map.height,
-      mapWidth: world.map.width,
-      tileMargin,
-      viewportHeight: height,
-      viewportWidth: width,
-    },
-    visibleTileBoundsCache,
-  );
-}
-
-function isTileInViewport(
-  screenX: number,
-  screenY: number,
-  viewportWidth: number,
-  viewportHeight: number,
-  marginX: number,
-  marginY: number,
-): boolean {
-  return (
-    screenX >= -marginX
-    && screenX <= viewportWidth + marginX
-    && screenY >= -marginY
-    && screenY <= viewportHeight + marginY
-  );
+  const { camera, height, world, width } = input;
+  return visibleTileBoundsForMap({
+    camera,
+    map: world.map,
+    tileMargin,
+    viewportHeight: height,
+    viewportWidth: width,
+    ...(input.visibleTileBoundsCache ? { cache: input.visibleTileBoundsCache } : {}),
+  });
 }
 
 function waterAssetFor(assets: PharosVilleAssetManager | null, terrain: TerrainKind) {
@@ -451,10 +372,6 @@ function landAssetFor(assets: PharosVilleAssetManager | null, terrain: TerrainKi
 function tileAt(map: PharosVilleMap, x: number, y: number): PharosVilleTile | null {
   if (x < 0 || y < 0 || x >= map.width || y >= map.height) return null;
   return map.tiles[y * map.width + x] ?? null;
-}
-
-function tileTerrain(tile: PharosVilleTile): TerrainKind {
-  return tile.terrain ?? tile.kind;
 }
 
 function terrainColor(kind: TerrainKind) {
@@ -664,19 +581,19 @@ interface BeamCausticState {
 }
 
 function computeBeamCausticState(input: DrawPharosVilleInput): BeamCausticState | null {
-  const { camera, motion, world } = input;
+  const { motion } = input;
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
-  const tCycle = time / BEAM_SWEEP_PERIOD;
-  // Same easing term as lighthouse.ts sweep angle.
-  const angle = motion.reducedMotion
-    ? Math.PI / 4
-    : tCycle * Math.PI * 2 + Math.sin(tCycle * Math.PI * 2) * 0.15;
-  const center = tileToScreen(world.lighthouse.tile, camera);
+  const sweep = lighthouseBeamSweep(time, motion.reducedMotion);
+  const { firePoint } = resolveLighthouseBeamRenderState({
+    assets: input.assets,
+    camera: input.camera,
+    lighthouse: input.world.lighthouse,
+  });
   return {
-    cos: Math.cos(angle),
-    firePoint: center,
+    cos: sweep.cos,
+    firePoint,
     reducedMotion: motion.reducedMotion,
-    sin: Math.sin(angle),
+    sin: sweep.sin,
     timeSeconds: time,
   };
 }

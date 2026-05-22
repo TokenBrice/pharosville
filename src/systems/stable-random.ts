@@ -6,6 +6,15 @@ export function stableHash(id: string): number {
   return hash;
 }
 
+export function stableFnv1aHash(id: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < id.length; index += 1) {
+    hash ^= id.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
 export function stableUnit(id: string): number {
   return stableHash(id) / 0xffffffff;
 }

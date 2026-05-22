@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { MAKER_SQUAD_FLAGSHIP_ID } from "../../systems/maker-squad";
+import { SKY_SQUAD } from "../../systems/maker-squad";
 import type { PharosVilleMotionPlan, ShipMotionSample } from "../../systems/motion";
 import type { PharosVilleWorld, ShipNode } from "../../systems/world-types";
 import type { LoadedPharosVilleAsset } from "../asset-manager";
+import { buildRecordingCanvasContext, createGradientStub, type RecordedCanvasCall } from "../__test-utils__/canvas-context-builder";
 import * as canvasPrimitives from "../canvas-primitives";
 import type { ResolvedEntityGeometry } from "../geometry";
 import type { DrawPharosVilleInput } from "../render-types";
@@ -42,44 +43,45 @@ vi.mock("../canvas-primitives", async (importOriginal) => {
 // --- Identity accent dispatch ----------------------------------------------
 
 interface RecordingCtx {
-  calls: Array<{ method: string; args: unknown[] }>;
+  calls: readonly RecordedCanvasCall[];
 }
 
 function makeRecordingCtx(): CanvasRenderingContext2D & RecordingCtx {
-  const calls: RecordingCtx["calls"] = [];
-  const record = (method: string) => (...args: unknown[]) => {
-    calls.push({ method, args });
-    return undefined;
-  };
-  const ctx: Record<string, unknown> = {
-    calls,
-    save: record("save"),
-    restore: record("restore"),
-    beginPath: record("beginPath"),
-    closePath: record("closePath"),
-    moveTo: record("moveTo"),
-    lineTo: record("lineTo"),
-    rect: record("rect"),
-    arc: record("arc"),
-    ellipse: record("ellipse"),
-    quadraticCurveTo: record("quadraticCurveTo"),
-    fill: record("fill"),
-    stroke: record("stroke"),
-    fillRect: record("fillRect"),
-    strokeRect: record("strokeRect"),
-    clip: record("clip"),
-    setLineDash: record("setLineDash"),
-    translate: record("translate"),
-    rotate: record("rotate"),
-    scale: record("scale"),
-    transform: record("transform"),
-    drawImage: record("drawImage"),
-    fillText: record("fillText"),
-    createRadialGradient: vi.fn(() => ({
-      addColorStop: () => undefined,
-    })),
-  };
-  return ctx as unknown as CanvasRenderingContext2D & RecordingCtx;
+  const recording = buildRecordingCanvasContext({
+    methods: [
+      "save",
+      "restore",
+      "beginPath",
+      "closePath",
+      "moveTo",
+      "lineTo",
+      "rect",
+      "arc",
+      "ellipse",
+      "quadraticCurveTo",
+      "fill",
+      "stroke",
+      "fillRect",
+      "strokeRect",
+      "clip",
+      "setLineDash",
+      "translate",
+      "rotate",
+      "scale",
+      "transform",
+      "drawImage",
+      "fillText",
+    ],
+    returningMethods: {
+      createRadialGradient: createGradientStub,
+    },
+  });
+  return new Proxy(recording.ctx, {
+    get(target, prop) {
+      if (prop === "calls") return recording.calls;
+      return Reflect.get(target, prop);
+    },
+  }) as CanvasRenderingContext2D & RecordingCtx;
 }
 
 const TEST_LIVERY: ShipNode["visual"]["livery"] = {
@@ -1011,7 +1013,7 @@ function drawTitanWakePath2DStrokeCount(ship: ShipNode, ships: readonly ShipNode
 describe("drawShipWake squad ordering", () => {
   it("draws the flagship's wake before a consort's when both are mover ships", () => {
     const flagship = makeShipNode({
-      id: MAKER_SQUAD_FLAGSHIP_ID, // "usds-sky"
+      id: SKY_SQUAD.flagshipId,
       tile: { x: 10, y: 10 },
       squadId: "sky",
       squadRole: "flagship",
@@ -1086,7 +1088,7 @@ describe("drawShipWake squad ordering", () => {
 
   it("does not double-draw the flagship's wake when its turn arrives", () => {
     const flagship = makeShipNode({
-      id: MAKER_SQUAD_FLAGSHIP_ID, // "usds-sky"
+      id: SKY_SQUAD.flagshipId,
       tile: { x: 10, y: 10 },
       squadId: "sky",
       squadRole: "flagship",

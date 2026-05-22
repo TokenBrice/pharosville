@@ -200,10 +200,12 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     fireEvent.change(scrubber, { target: { value: "6.5" } });
 
     await waitFor(() => expect(globalThis.__pharosVilleTestWallClockHour).toBe(6.5));
+    await waitFor(() => expect(screen.getByLabelText("Time of day").textContent).toBe("06:30"));
     expect(mocks.requestPaint).toHaveBeenCalled();
 
     fireEvent.click(screen.getByLabelText("Return to day-night preset"));
     await waitFor(() => expect(globalThis.__pharosVilleTestWallClockHour).toBeUndefined());
+    await waitFor(() => expect(screen.getByLabelText("Time of day").textContent).toBe("12:00"));
   });
 });
 

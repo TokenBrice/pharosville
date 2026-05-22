@@ -93,16 +93,16 @@ export function buildRecordingCanvasContext(
 
   const target: Record<string, unknown> = { ...initialValues };
   for (const method of methods) {
-    target[method] = (...args: unknown[]) => {
+    target[method] = vi.fn((...args: unknown[]) => {
       calls.push({ method, args });
       return undefined;
-    };
+    });
   }
   for (const [method, factory] of Object.entries(returningMethods)) {
-    target[method] = (...args: unknown[]) => {
+    target[method] = vi.fn((...args: unknown[]) => {
       calls.push({ method, args });
       return factory();
-    };
+    });
   }
 
   const proxy = new Proxy(target, {

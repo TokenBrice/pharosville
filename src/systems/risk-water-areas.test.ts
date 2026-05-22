@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  AREA_LABEL_TILES,
   DEWS_AREA_BANDS,
-  DEWS_AREA_LABELS,
   DEWS_AREA_PLACEMENTS,
-  DEWS_AREA_WATER_STYLE,
   RISK_WATER_AREAS,
   RISK_WATER_REGION_TILES,
   SHIP_RISK_PLACEMENTS,
@@ -63,9 +60,9 @@ describe("risk water areas", () => {
 
       expect(area.band).toBe(band);
       expect(dewsAreaPlacementForBand(band.toLowerCase())).toBe(placement);
-      expect(DEWS_AREA_LABELS[band]).toBe(expectedLabels[band]);
-      expect(AREA_LABEL_TILES[band]).toBe(area.labelTile);
-      expect(DEWS_AREA_WATER_STYLE[band]).toBe(area.waterStyle);
+      expect(area.label).toBe(expectedLabels[band]);
+      expect(riskWaterAreaForPlacement(placement).labelTile).toBe(area.labelTile);
+      expect(riskWaterAreaForPlacement(placement).waterStyle).toBe(area.waterStyle);
       expect(terrainKindAt(area.labelTile.x, area.labelTile.y)).toBe(area.terrain);
       expect(area.motionZone).toBe(band.toLowerCase());
     }

@@ -130,11 +130,22 @@ export function isScreenPointInViewport(
   marginX: number,
   marginY: number,
 ): boolean {
+  return isScreenCoordinateInViewport(point.x, point.y, viewportWidth, viewportHeight, marginX, marginY);
+}
+
+export function isScreenCoordinateInViewport(
+  x: number,
+  y: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  marginX: number,
+  marginY: number,
+): boolean {
   return (
-    point.x >= -marginX
-    && point.x <= viewportWidth + marginX
-    && point.y >= -marginY
-    && point.y <= viewportHeight + marginY
+    x >= -marginX
+    && x <= viewportWidth + marginX
+    && y >= -marginY
+    && y <= viewportHeight + marginY
   );
 }
 

@@ -199,31 +199,3 @@ export function formationLabel(id: string, role: SquadRole, symbol: string): str
   if (id === "stusds-sky") return `${symbol} (vanguard)`;
   return symbol;
 }
-
-// Backwards-compat aliases — preserved for the Sky squad's flagship/membership
-// API used by existing tests and DOM helpers. New code should prefer
-// `squadForMember()` and the squad objects directly.
-export const MAKER_SQUAD_FLAGSHIP_ID = SKY_SQUAD.flagshipId;
-export const MAKER_SQUAD_MEMBER_IDS: readonly string[] = STABLECOIN_SQUAD_MEMBER_IDS;
-
-export function isMakerSquadMember(id: string): boolean {
-  return isSquadMember(id);
-}
-
-export function makerSquadRole(id: string): SquadRole | null {
-  return squadRole(id);
-}
-
-export function makerSquadFormationOffsetForPlacement(
-  id: string,
-  placement: string,
-): { dx: number; dy: number } {
-  const squad = squadForMember(id);
-  if (!squad) return { dx: 0, dy: 0 };
-  return squadFormationOffsetForPlacement(id, squad, placement) ?? { dx: 0, dy: 0 };
-}
-
-// Display order across both squads, used by accessibility ledger fallback.
-export function makerSquadFormationOrder(): readonly string[] {
-  return STABLECOIN_SQUADS.flatMap((squad) => squad.displayOrder);
-}

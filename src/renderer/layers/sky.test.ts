@@ -165,7 +165,7 @@ function recordReducedMotionNightStars(): readonly (readonly unknown[])[] {
     {
       center: { x: 500, y: 360 },
       firePoint: { x: 530, y: 300 },
-      lighthouseAsset: undefined,
+      lighthouseAsset: null,
       spriteAnchor: { x: 500, y: 360 },
       spriteScale: 1,
     } as NonNullable<Parameters<typeof drawSky>[1]>,

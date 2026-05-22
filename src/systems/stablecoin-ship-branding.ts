@@ -1,4 +1,5 @@
 import type { StablecoinMeta } from "@shared/types";
+import { stableFnv1aHash } from "./stable-random";
 import type { ShipLivery, ShipLogoShape, ShipSailPanel, ShipStripePattern } from "./world-types";
 
 export type StablecoinShipBranding = ShipLivery;
@@ -119,7 +120,7 @@ const FALLBACK_STRIPES = ["single", "double", "diagonal", "chevron", "wave", "la
 function derivedFallbackLivery(id: string, meta: StablecoinMeta): StablecoinShipBranding {
   const peg = meta.flags.pegCurrency;
   const base = PEG_SAIL_COLORS[peg] ?? fallbackLivery("Unknown peg", "#8a98a3", "#e5e7eb", "#b6c0c8", "circle", "center", "single");
-  const hash = stableHash(id);
+  const hash = stableFnv1aHash(id);
   const accentSeed = FALLBACK_ACCENTS[hash % FALLBACK_ACCENTS.length];
   const nextAccent = FALLBACK_ACCENTS[(hash >>> 3) % FALLBACK_ACCENTS.length];
   const accent = mixHex(base.accent, accentSeed, 0.56);
@@ -139,15 +140,6 @@ function derivedFallbackLivery(id: string, meta: StablecoinMeta): StablecoinShip
     source: "peg-fallback",
     stripePattern: FALLBACK_STRIPES[(hash >>> 13) % FALLBACK_STRIPES.length],
   };
-}
-
-function stableHash(input: string): number {
-  let hash = 2166136261;
-  for (let index = 0; index < input.length; index += 1) {
-    hash ^= input.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
 }
 
 function mixHex(first: string, second: string, amount: number): string {

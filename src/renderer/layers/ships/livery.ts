@@ -1,6 +1,7 @@
 import type { ShipLivery } from "../../../systems/world-types";
 import type { LoadedPharosVilleAsset } from "../../asset-manager";
 import { hexToRgba, roundedRectPath, stableVisualVariant } from "../../canvas-primitives";
+import { createStatsLruCache, type LruCacheStats } from "../../lru-cache";
 import { recolorSailImageData, SHIP_SAIL_TINT_MASKS } from "../../ship-sail-tint";
 import {
   SHIP_TRIM_COLOR_STORIES,
@@ -11,26 +12,13 @@ import {
 // Telemetry shape shared across sail-related caches (sail logo sprites, sail
 // emblem sprites, sail tint canvases). Exposed via per-cache getters and merged
 // into `__pharosVilleDebug.sailCacheStats` for the perf-dev panel.
-export interface CacheStats {
-  hits: number;
-  misses: number;
-  evictions: number;
-  size: number;
-  capacity: number;
-}
+export type CacheStats = LruCacheStats;
 
 const SHIP_SAIL_TINT_CACHE_MAX = 48;
-const shipSailTintCache = new Map<string, HTMLCanvasElement | null>();
-const shipSailTintCacheStats = { hits: 0, misses: 0, evictions: 0 };
+const shipSailTintCache = createStatsLruCache<string, HTMLCanvasElement | null>(SHIP_SAIL_TINT_CACHE_MAX);
 
 export function getShipSailTintCacheStats(): CacheStats {
-  return {
-    hits: shipSailTintCacheStats.hits,
-    misses: shipSailTintCacheStats.misses,
-    evictions: shipSailTintCacheStats.evictions,
-    size: shipSailTintCache.size,
-    capacity: SHIP_SAIL_TINT_CACHE_MAX,
-  };
+  return shipSailTintCache.stats();
 }
 
 export function liveryCacheKey(livery: ShipLivery): string {
@@ -203,14 +191,10 @@ function shipSailTintCanvasFor(asset: LoadedPharosVilleAsset, livery: ShipLivery
   const { entry, image } = asset;
   const spec = SHIP_SAIL_TINT_MASKS[entry.id];
   const cacheKey = `${entry.id}:${liveryLowerKey(livery)}`;
-  if (shipSailTintCache.has(cacheKey)) {
-    const cached = shipSailTintCache.get(cacheKey) ?? null;
-    shipSailTintCache.delete(cacheKey);
-    shipSailTintCache.set(cacheKey, cached);
-    shipSailTintCacheStats.hits += 1;
+  const cached = shipSailTintCache.get(cacheKey);
+  if (cached !== undefined) {
     return cached;
   }
-  shipSailTintCacheStats.misses += 1;
   const canvas = spec ? createSailTintCanvas(entry.width, entry.height) : null;
   if (!canvas || !spec) {
     rememberShipSailTint(cacheKey, null);
@@ -236,12 +220,6 @@ function shipSailTintCanvasFor(asset: LoadedPharosVilleAsset, livery: ShipLivery
 
 function rememberShipSailTint(cacheKey: string, canvas: HTMLCanvasElement | null) {
   shipSailTintCache.set(cacheKey, canvas);
-  while (shipSailTintCache.size > SHIP_SAIL_TINT_CACHE_MAX) {
-    const oldest = shipSailTintCache.keys().next().value;
-    if (typeof oldest !== "string") break;
-    shipSailTintCache.delete(oldest);
-    shipSailTintCacheStats.evictions += 1;
-  }
 }
 
 function createSailTintCanvas(width: number, height: number): HTMLCanvasElement | null {

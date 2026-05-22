@@ -46,43 +46,6 @@ export function nearestRiskPlacementWaterTile(
   return null;
 }
 
-export function nearestAvailableRiskPlacementWaterTile(
-  tile: { x: number; y: number },
-  placement: ShipRiskPlacement,
-  occupied: ReadonlySet<string>,
-  maxRadius = 12,
-): { x: number; y: number } | null {
-  const initialKey = `${tile.x}.${tile.y}`;
-  if (isRiskPlacementWaterTile(tile, placement) && !occupied.has(initialKey)) return tile;
-
-  let bestTile: { x: number; y: number } | null = null;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  for (let radius = 1; radius <= maxRadius; radius += 1) {
-    for (let dx = -radius; dx <= radius; dx += 1) {
-      for (let dy = -radius; dy <= radius; dy += 1) {
-        if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue;
-        const candidate = {
-          ...clampMapTile({ x: tile.x + dx, y: tile.y + dy }),
-        };
-        if (occupied.has(`${candidate.x}.${candidate.y}`)) continue;
-        if (!isRiskPlacementWaterTile(candidate, placement)) continue;
-        const distance = Math.abs(dx) + Math.abs(dy);
-        if (distance < bestDistance) {
-          bestTile = candidate;
-          bestDistance = distance;
-        }
-      }
-    }
-    if (bestTile) return bestTile;
-  }
-
-  for (const candidate of riskPlacementWaterTilesByDistance(tile, placement)) {
-    if (!occupied.has(`${candidate.x}.${candidate.y}`)) return candidate;
-  }
-
-  return null;
-}
-
 export function riskPlacementWaterTiles(placement: ShipRiskPlacement): { x: number; y: number }[] {
   const candidates: { x: number; y: number }[] = [];
   for (let y = 0; y < PHAROSVILLE_MAP_HEIGHT; y += 1) {
@@ -92,17 +55,4 @@ export function riskPlacementWaterTiles(placement: ShipRiskPlacement): { x: numb
     }
   }
   return candidates;
-}
-
-function riskPlacementWaterTilesByDistance(
-  tile: { x: number; y: number },
-  placement: ShipRiskPlacement,
-): { x: number; y: number }[] {
-  return riskPlacementWaterTiles(placement)
-    .map((candidate) => ({
-      ...candidate,
-      distance: Math.abs(tile.x - candidate.x) + Math.abs(tile.y - candidate.y),
-    }))
-    .toSorted((a, b) => a.distance - b.distance || a.y - b.y || a.x - b.x)
-    .map(({ x, y }) => ({ x, y }));
 }

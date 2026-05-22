@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MAKER_SQUAD, SKY_SQUAD } from "../../systems/maker-squad";
 import type { AreaNode, PharosVilleWorld } from "../../systems/world-types";
+import { buildRecordingCanvasContext } from "../__test-utils__/canvas-context-builder";
 import type { PharosVilleCanvasMotion } from "../render-types";
 import {
   computeSquadBoundingEllipse,
@@ -127,28 +128,16 @@ describe("maker-squad-chrome", () => {
     }
 
     function makeStubCtx() {
-      const recorded: Array<{ method: string; args: unknown[] }> = [];
-      const record = (method: string) => (...args: unknown[]) => {
-        recorded.push({ method, args });
-      };
-      const ctx = {
-        save: record("save"),
-        restore: record("restore"),
-        beginPath: record("beginPath"),
-        moveTo: record("moveTo"),
-        quadraticCurveTo: record("quadraticCurveTo"),
-        stroke: record("stroke"),
-        fill: record("fill"),
-        fillRect: record("fillRect"),
-        lineTo: record("lineTo"),
-        closePath: record("closePath"),
-        ellipse: record("ellipse"),
-        strokeStyle: "",
-        fillStyle: "",
-        lineWidth: 0,
-        lineCap: "",
-      } as unknown as CanvasRenderingContext2D;
-      return { ctx, recorded };
+      const recording = buildRecordingCanvasContext({
+        initialValues: {
+          fillStyle: "",
+          lineCap: "",
+          lineWidth: 0,
+          strokeStyle: "",
+        },
+        methods: ["save", "restore", "beginPath", "moveTo", "quadraticCurveTo", "stroke", "fill", "fillRect", "lineTo", "closePath", "ellipse"],
+      });
+      return { ctx: recording.ctx, recorded: recording.calls };
     }
 
     it("pennantWindTerm normalizes CALM=0 and DANGER=1 within bounds", () => {
@@ -272,31 +261,14 @@ describe("maker-squad-chrome", () => {
 
   describe("distress flag (5.4)", () => {
     function makeStubCtx() {
-      const calls: Array<{ method: string; args: unknown[] }> = [];
-      const setStyles: Record<string, unknown> = {};
-      const ctx = new Proxy(
-        {
-          save: () => calls.push({ method: "save", args: [] }),
-          restore: () => calls.push({ method: "restore", args: [] }),
-          beginPath: () => calls.push({ method: "beginPath", args: [] }),
-          moveTo: (...args: unknown[]) => calls.push({ method: "moveTo", args }),
-          lineTo: (...args: unknown[]) => calls.push({ method: "lineTo", args }),
-          closePath: () => calls.push({ method: "closePath", args: [] }),
-          fill: () => calls.push({ method: "fill", args: [] }),
-          fillRect: (...args: unknown[]) => calls.push({ method: "fillRect", args }),
-        } as Record<string, unknown>,
-        {
-          get(target, prop) {
-            return target[prop as string];
-          },
-          set(target, prop, value) {
-            setStyles[prop as string] = value;
-            target[prop as string] = value;
-            return true;
-          },
+      const recording = buildRecordingCanvasContext({
+        initialValues: {
+          fillStyle: "",
+          strokeStyle: "",
         },
-      ) as unknown as CanvasRenderingContext2D;
-      return { ctx, calls, setStyles };
+        methods: ["save", "restore", "beginPath", "moveTo", "lineTo", "closePath", "fill", "fillRect"],
+      });
+      return { ctx: recording.ctx, calls: recording.calls, setStyles: recording.setStyles };
     }
 
     it("renders a small red triangular pennant above the mast-top", () => {

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { PegSummaryResponse, ReportCardsResponse, StablecoinListResponse } from "@shared/types";
 import type { ShipNode } from "../systems/world-types";
 import { fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoins, fixtureStability, fixtureStress, makeAsset, makePegCoin, makeReportCard, makerSquadFixtureInputs } from "../__fixtures__/pharosville-world";
-import { MAKER_SQUAD_MEMBER_IDS } from "../systems/maker-squad";
+import { STABLECOIN_SQUAD_MEMBER_IDS } from "../systems/maker-squad";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import { defaultCamera } from "../systems/camera";
 import { fitCameraToMap, tileToScreen, type IsoCamera } from "../systems/projection";
@@ -11,7 +11,7 @@ import type { ShipMotionSample } from "../systems/motion";
 import { areaLabelPlacementForArea } from "../systems/area-labels";
 import type { LoadedPharosVilleAsset } from "./asset-manager";
 import { dockDrawPoint, dockRenderScale, LIGHTHOUSE_DRAW_OFFSET, LIGHTHOUSE_DRAW_SCALE } from "./geometry";
-import { collectDisplaySampleHitTargetChanges, collectHitTargets, createHitTargetSnapshot, hitTest, hitTestSpatial, recomputeHitTargetsForCameraOnly, updateHitTargetSnapshotShips, type HitTarget } from "./hit-testing";
+import { collectDisplaySampleHitTargetChanges, collectHitTargets, createHitTargetSnapshot, hitTest, hitTestSpatial, orderedHitTargetEntities, recomputeHitTargetsForCameraOnly, updateHitTargetSnapshotShips, type HitTarget } from "./hit-testing";
 
 const TARGET_CLICK_POINTS = [
   [0.5, 0.5],
@@ -57,6 +57,21 @@ describe("hit-testing", () => {
     expect(targets.some((target) => target.kind === "building")).toBe(false);
     expect(targets.some((target) => target.kind === "area")).toBe(true);
     expect(targets.some((target) => target.detailId.startsWith("building."))).toBe(false);
+  });
+
+  it("exposes canonical hit-target entity order including pigeonnier after trailing static entities", () => {
+    const ordered = orderedHitTargetEntities(world);
+    const lighthouse = ordered.find((entry) => entry.group === "lighthouse");
+    const firstDock = ordered.find((entry) => entry.group === "dock");
+    const firstShip = ordered.find((entry) => entry.group === "ship");
+    const firstArea = ordered.find((entry) => entry.group === "area");
+    const pigeonnier = ordered.find((entry) => entry.group === "pigeonnier");
+
+    expect(lighthouse?.sortIndex).toBe(0);
+    expect(firstDock?.sortIndex).toBeGreaterThan(lighthouse!.sortIndex);
+    expect(firstShip?.sortIndex).toBeGreaterThan(firstDock!.sortIndex);
+    expect(firstArea?.sortIndex).toBeGreaterThan(firstShip!.sortIndex);
+    expect(pigeonnier?.sortIndex).toBe(ordered.length - 1);
   });
 
   it("culls offscreen hit target candidates while keeping labels and active targets", () => {
@@ -597,8 +612,8 @@ describe("hit-testing", () => {
     const squadWorld = buildPharosVilleWorld(makerSquadFixtureInputs());
     const squadCamera = fitCameraToMap({ width: 1440, height: 1000, map: squadWorld.map });
     const targets = collectHitTargets({ camera: squadCamera, world: squadWorld });
-    const squadIds = new Set<string>(MAKER_SQUAD_MEMBER_IDS);
-    for (const id of MAKER_SQUAD_MEMBER_IDS) {
+    const squadIds = new Set<string>(STABLECOIN_SQUAD_MEMBER_IDS);
+    for (const id of STABLECOIN_SQUAD_MEMBER_IDS) {
       const target = targets.find((candidate) => candidate.id === id);
       expect(target, `hit target for ${id}`).toBeDefined();
       const point = {

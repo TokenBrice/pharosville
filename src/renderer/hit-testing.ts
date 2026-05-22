@@ -64,8 +64,16 @@ interface HitTargetRecord {
   sortIndex: number;
 }
 
-const shipSortIndexByWorld = new WeakMap<PharosVilleWorld, Map<string, number>>();
-const staticHitTargetEntitiesByWorld = new WeakMap<PharosVilleWorld, readonly WorldSelectableEntity[]>();
+export type OrderedHitTargetEntityGroup = "area" | "dock" | "grave" | "lighthouse" | "pigeonnier" | "ship";
+
+export interface OrderedHitTargetEntity {
+  entity: WorldSelectableEntity;
+  group: OrderedHitTargetEntityGroup;
+  sortIndex: number;
+}
+
+const orderedHitTargetEntitiesByWorld = new WeakMap<PharosVilleWorld, readonly OrderedHitTargetEntity[]>();
+const hitTargetSortIndexByWorld = new WeakMap<PharosVilleWorld, Map<string, number>>();
 
 const HIT_TARGET_SPATIAL_CELL_SIZE = 96;
 
@@ -114,58 +122,62 @@ export function createHitTargetSnapshot(input: {
   world: PharosVilleWorld;
 }): HitTargetSnapshot {
   const worldRecordsById = new Map<string, HitTargetRecord>();
-  const staticPrefix = staticHitTargetPrefixForWorld(input.world);
-  const lighthouseCount = 1;
-  const dockCount = input.world.docks.length;
-  const shipsAfterStaticPrefixCount = lighthouseCount + dockCount;
   const context = {
     hoveredDetailId: input.hoveredDetailId ?? null,
     selectedDetailId: input.selectedDetailId ?? null,
   };
 
-  // Iterate the cached static prefix `[lighthouse, ...docks]` followed by
-  // ships in place, then `[...areas, ...graves]`. `sortIndex` mirrors the
-  // legacy flat-array index so downstream sort semantics are preserved.
-  let sortIndex = 0;
-  // lighthouse + docks
-  while (sortIndex < shipsAfterStaticPrefixCount) {
-    const entity = staticPrefix[sortIndex]!;
-    appendHitTargetRecord(worldRecordsById, entity, sortIndex, input);
-    sortIndex += 1;
-  }
-  // ships (filtered by display visibility, except active detail targets)
-  for (let shipIndex = 0; shipIndex < input.world.ships.length; shipIndex += 1) {
-    const ship = input.world.ships[shipIndex]!;
-    if (!isShipHitTargetVisible(ship, input.shipMotionSamples?.get(ship.id), context)) continue;
-    appendHitTargetRecord(worldRecordsById, ship, shipsAfterStaticPrefixCount + shipIndex, input);
-  }
-  // areas + graves (sortIndex offsets past the ship slot range to mirror the
-  // legacy flat-array layout)
-  const trailingOffset = shipsAfterStaticPrefixCount + input.world.ships.length;
-  for (let trailingIndex = shipsAfterStaticPrefixCount; trailingIndex < staticPrefix.length; trailingIndex += 1) {
-    const entity = staticPrefix[trailingIndex]!;
-    appendHitTargetRecord(worldRecordsById, entity, trailingOffset + (trailingIndex - shipsAfterStaticPrefixCount), input);
+  for (const ordered of orderedHitTargetEntities(input.world)) {
+    const entity = ordered.entity;
+    if (ordered.group === "ship") {
+      if (entity.kind !== "ship") continue;
+      if (!isShipHitTargetVisible(entity, input.shipMotionSamples?.get(entity.id), context)) continue;
+    }
+    worldRecordsById.set(entity.id, buildHitTargetRecord({
+      ...input,
+      entity,
+      sortIndex: ordered.sortIndex,
+    }));
   }
 
   return snapshotFromWorldRecords(worldRecordsById, context, input.viewport ?? null);
 }
 
-function appendHitTargetRecord(
-  recordsById: Map<string, HitTargetRecord>,
-  entity: WorldSelectableEntity,
-  sortIndex: number,
+function buildHitTargetRecord(
   input: {
     assets?: Pick<PharosVilleAssetManager, "get"> | null;
     camera: IsoCamera;
+    entity: WorldSelectableEntity;
     hoveredDetailId?: string | null;
+    previousGeometry?: HitTargetRecord["geometry"];
+    previousWorldGeometry?: HitTargetRecord["worldGeometry"];
     selectedDetailId?: string | null;
     shipMotionSamples?: ReadonlyMap<string, ShipMotionSample>;
+    sortIndex: number;
     viewport?: HitTargetViewport | null;
     world: PharosVilleWorld;
   },
-): void {
+): HitTargetRecord {
+  const { entity } = input;
   const assetId = entityAssetId(entity);
   const asset = assetId ? input.assets?.get(assetId) ?? null : null;
+  if (input.previousGeometry && input.previousWorldGeometry) {
+    return {
+      entity,
+      geometry: {
+        depth: input.previousGeometry.depth,
+        targetRect: projectEntityTargetRect({
+          asset,
+          camera: input.camera,
+          entity,
+          followTile: input.previousWorldGeometry.followTile,
+          mapWidth: input.world.map.width,
+        }),
+      },
+      worldGeometry: input.previousWorldGeometry,
+      sortIndex: input.sortIndex,
+    };
+  }
   const resolved = resolveEntityGeometry({
     asset,
     camera: input.camera,
@@ -173,7 +185,7 @@ function appendHitTargetRecord(
     mapWidth: input.world.map.width,
     ...(input.shipMotionSamples ? { shipMotionSamples: input.shipMotionSamples } : {}),
   });
-  recordsById.set(entity.id, {
+  return {
     entity,
     geometry: {
       depth: resolved.depth,
@@ -183,22 +195,26 @@ function appendHitTargetRecord(
       depthTile: resolved.depthTile,
       followTile: resolved.followTile,
     },
-    sortIndex,
-  });
+    sortIndex: input.sortIndex,
+  };
 }
 
-function staticHitTargetPrefixForWorld(world: PharosVilleWorld): readonly WorldSelectableEntity[] {
-  const cached = staticHitTargetEntitiesByWorld.get(world);
+export function orderedHitTargetEntities(world: PharosVilleWorld): readonly OrderedHitTargetEntity[] {
+  const cached = orderedHitTargetEntitiesByWorld.get(world);
   if (cached) return cached;
-  const entities: WorldSelectableEntity[] = [
-    world.lighthouse,
-    ...world.docks,
-    ...world.areas,
-    ...world.graves,
-    world.pigeonnier,
-  ];
-  staticHitTargetEntitiesByWorld.set(world, entities);
-  return entities;
+
+  const ordered: OrderedHitTargetEntity[] = [];
+  let sortIndex = 0;
+  ordered.push({ entity: world.lighthouse, group: "lighthouse", sortIndex: sortIndex++ });
+  for (const dock of world.docks) ordered.push({ entity: dock, group: "dock", sortIndex: sortIndex++ });
+  for (const ship of world.ships) ordered.push({ entity: ship, group: "ship", sortIndex: sortIndex++ });
+  for (const area of world.areas) ordered.push({ entity: area, group: "area", sortIndex: sortIndex++ });
+  for (const grave of world.graves) ordered.push({ entity: grave, group: "grave", sortIndex: sortIndex++ });
+  ordered.push({ entity: world.pigeonnier, group: "pigeonnier", sortIndex });
+
+  orderedHitTargetEntitiesByWorld.set(world, ordered);
+  hitTargetSortIndexByWorld.set(world, new Map(ordered.map((entry) => [entry.entity.id, entry.sortIndex])));
+  return ordered;
 }
 
 /**
@@ -236,47 +252,20 @@ export function recomputeHitTargetsForCameraOnly(input: {
     if (entity.kind === "ship") {
       const sample = input.shipMotionSamples?.get(entity.id);
       if (!isShipHitTargetVisible(entity, sample, context)) continue;
-      const assetId = entityAssetId(entity);
-      const asset = assetId ? input.assets?.get(assetId) ?? null : null;
-      const resolved = resolveEntityGeometry({
-        asset,
-        camera: input.camera,
+      worldRecordsById.set(entity.id, buildHitTargetRecord({
+        ...input,
         entity,
-        mapWidth: input.world.map.width,
-        ...(input.shipMotionSamples ? { shipMotionSamples: input.shipMotionSamples } : {}),
-      });
-      worldRecordsById.set(entity.id, {
-        entity,
-        geometry: {
-          depth: resolved.depth,
-          targetRect: resolved.targetRect,
-        },
-        worldGeometry: {
-          depthTile: resolved.depthTile,
-          followTile: resolved.followTile,
-        },
         sortIndex: previous.sortIndex,
-      });
+      }));
       continue;
     }
-    const assetId = entityAssetId(entity);
-    const asset = assetId ? input.assets?.get(assetId) ?? null : null;
-    const targetRect = projectEntityTargetRect({
-      asset,
-      camera: input.camera,
+    worldRecordsById.set(entity.id, buildHitTargetRecord({
+      ...input,
       entity,
-      followTile: previous.worldGeometry.followTile,
-      mapWidth: input.world.map.width,
-    });
-    worldRecordsById.set(entity.id, {
-      entity,
-      geometry: {
-        depth: previous.geometry.depth,
-        targetRect,
-      },
-      worldGeometry: previous.worldGeometry,
+      previousGeometry: previous.geometry,
+      previousWorldGeometry: previous.worldGeometry,
       sortIndex: previous.sortIndex,
-    });
+    }));
   }
   return snapshotFromWorldRecords(worldRecordsById, context, input.viewport ?? null);
 }
@@ -359,27 +348,11 @@ export function updateHitTargetSnapshotShips(input: {
       continue;
     }
 
-    const assetId = entityAssetId(ship);
-    const asset = assetId ? input.assets?.get(assetId) ?? null : null;
-    const resolved = resolveEntityGeometry({
-      asset,
-      camera: input.camera,
+    const nextRecord = buildHitTargetRecord({
+      ...input,
       entity: ship,
-      mapWidth: input.world.map.width,
-      ...(input.shipMotionSamples ? { shipMotionSamples: input.shipMotionSamples } : {}),
+      sortIndex: previous?.sortIndex ?? hitTargetSortIndex(input.world, shipId),
     });
-    const nextRecord: HitTargetRecord = {
-      entity: ship,
-      geometry: {
-        depth: resolved.depth,
-        targetRect: resolved.targetRect,
-      },
-      worldGeometry: {
-        depthTile: resolved.depthTile,
-        followTile: resolved.followTile,
-      },
-      sortIndex: previous?.sortIndex ?? shipSortIndex(input.world, shipId),
-    };
     if (!previous || !hitTargetRecordGeometryEquals(previous, nextRecord)) {
       snapshotMutated = true;
       pendingSets.set(shipId, nextRecord);
@@ -442,36 +415,21 @@ export function collectDisplaySampleHitTargetChanges(input: {
       continue;
     }
 
-    const assetId = entityAssetId(ship);
-    const asset = assetId ? input.assets?.get(assetId) ?? null : null;
-    const resolved = resolveEntityGeometry({
-      asset,
-      camera: input.camera,
+    const nextRecord = buildHitTargetRecord({
+      ...input,
       entity: ship,
-      mapWidth: input.world.map.width,
-      ...(input.shipMotionSamples ? { shipMotionSamples: input.shipMotionSamples } : {}),
+      sortIndex: previous.sortIndex,
     });
     if (ship.detailId === context.selectedDetailId || ship.detailId === context.hoveredDetailId) {
-      if (!hitTargetRecordGeometryEquals(previous, {
-        entity: ship,
-        geometry: {
-          depth: resolved.depth,
-          targetRect: resolved.targetRect,
-        },
-        worldGeometry: {
-          depthTile: resolved.depthTile,
-          followTile: resolved.followTile,
-        },
-        sortIndex: previous.sortIndex,
-      })) {
+      if (!hitTargetRecordGeometryEquals(previous, nextRecord)) {
         changedShipIds.push(shipId);
       }
       continue;
     }
 
     if (
-      previous.geometry.depth !== resolved.depth
-      || rectScreenDeltaArea(previous.geometry.targetRect, resolved.targetRect) >= minAreaDelta
+      previous.geometry.depth !== nextRecord.geometry.depth
+      || rectScreenDeltaArea(previous.geometry.targetRect, nextRecord.geometry.targetRect) >= minAreaDelta
     ) {
       changedShipIds.push(shipId);
     }
@@ -694,20 +652,13 @@ function rectScreenDeltaArea(left: ScreenRect, right: ScreenRect): number {
   return Math.max(dx * dx + dy * dy, dw * dw, dh * dh);
 }
 
-function shipSortIndex(world: PharosVilleWorld, shipId: string): number {
-  const lighthouseCount = 1;
-  const dockCount = world.docks.length;
-  let indexById = shipSortIndexByWorld.get(world);
-  if (!indexById) {
-    indexById = new Map<string, number>();
-    for (let shipIndex = 0; shipIndex < world.ships.length; shipIndex += 1) {
-      indexById.set(world.ships[shipIndex]!.id, shipIndex);
-    }
-    shipSortIndexByWorld.set(world, indexById);
+function hitTargetSortIndex(world: PharosVilleWorld, entityId: string): number {
+  let sortIndexById = hitTargetSortIndexByWorld.get(world);
+  if (!sortIndexById) {
+    orderedHitTargetEntities(world);
+    sortIndexById = hitTargetSortIndexByWorld.get(world);
   }
-  const shipIndex = indexById.get(shipId) ?? -1;
-  if (shipIndex < 0) return lighthouseCount + dockCount;
-  return lighthouseCount + dockCount + shipIndex;
+  return sortIndexById?.get(entityId) ?? 0;
 }
 
 function containsPoint(target: HitTarget, point: ScreenPoint): boolean {

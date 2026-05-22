@@ -8,6 +8,7 @@ import {
 } from "../../systems/palette";
 import { TILE_HEIGHT, TILE_WIDTH, tileToScreen } from "../../systems/projection";
 import { SEAWALL_RENDER_PLACEMENTS, seawallBarrierDistance, type SeawallPlacement } from "../../systems/seawall";
+import { tileKey } from "../../systems/tile-key";
 import { isWaterTileKind } from "../../systems/world-layout";
 import type { PharosVilleMap, PharosVilleTile, TerrainKind } from "../../systems/world-types";
 import { withAlpha } from "../canvas-primitives";
@@ -80,7 +81,7 @@ const NEARSHORE_MOTIF_RENDERERS: Partial<Record<WaterTextureKind, NearshoreMotif
 function tilesByKeyForMap(map: PharosVilleMap): Map<string, PharosVilleTile> {
   let cached = tilesByKeyCache.get(map);
   if (!cached) {
-    cached = new Map(map.tiles.map((tile) => [tileKey(tile.x, tile.y), tile]));
+    cached = new Map(map.tiles.map((tile) => [tileKey(tile), tile]));
     tilesByKeyCache.set(map, cached);
   }
   return cached;
@@ -254,10 +255,6 @@ function drawSeawallSprayPlume(
   }
 }
 
-function tileKey(x: number, y: number) {
-  return `${x}.${y}`;
-}
-
 function tileTerrain(tile: PharosVilleTile): TerrainKind {
   return tile.terrain ?? tile.kind;
 }
@@ -289,7 +286,7 @@ function computeCoastalEdges(tile: PharosVilleTile, tilesByKey: ReadonlyMap<stri
   const edges: CoastEdge[] = [];
   for (const edge of Object.keys(EDGE_OFFSETS) as CoastEdge[]) {
     const offset = EDGE_OFFSETS[edge];
-    const neighbor = tilesByKey.get(tileKey(tile.x + offset.x, tile.y + offset.y));
+    const neighbor = tilesByKey.get(tileKey({ x: tile.x + offset.x, y: tile.y + offset.y }));
     if (!neighbor) continue;
     if (!isWaterTileKind(tileTerrain(neighbor))) edges.push(edge);
   }

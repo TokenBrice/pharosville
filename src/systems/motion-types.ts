@@ -2,17 +2,6 @@ import { AMBIENT_SEA_HZ, AMBIENT_WIND_HZ } from "./motion-config";
 import type { SeaState } from "./sea-state";
 import type { ShipWaterZone } from "./world-types";
 
-/**
- * Speed scalars indexed by marketCap quartile (0 = lowest, 3 = highest).
- * Divide cycleSeconds by the scalar so higher-quartile (larger) ships complete
- * cycles faster — a 1.15 scalar yields ~15% shorter cycle than baseline.
- * The resulting range stays within the 780–1560s clamp in shipCycleSeconds.
- *
- * Q0 → 0.85 (Languid)  Q1 → 0.95 (Steady)
- * Q2 → 1.05 (Brisk)    Q3 → 1.15 (Lively)
- */
-export const SPEED_QUARTILE_SCALARS = [0.85, 0.95, 1.05, 1.15] as const;
-
 const TWO_PI = Math.PI * 2;
 
 interface AmbientPhaseSource {
@@ -41,7 +30,10 @@ export interface ShipWaterPath {
 export type ShipMotionState = "idle" | "moored" | "departing" | "sailing" | "risk-drift" | "arriving";
 export type ShipMooringSubPhase = "working" | "quiet" | "cast-off-prep";
 export type ShipMotionStopKind = "dock" | "ledger";
-export type ShipWaterRouteCache = Map<string, ShipWaterPath>;
+export interface ShipWaterRouteCache {
+  get(key: string): ShipWaterPath | undefined;
+  set(key: string, value: ShipWaterPath): void;
+}
 export type ShipWaterPathBuilder = () => ShipWaterPath;
 
 export interface ShipDockMotionStop {

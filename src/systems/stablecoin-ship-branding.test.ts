@@ -24,4 +24,19 @@ describe("resolveStablecoinShipBranding", () => {
       expect(branding.source, id).toBe("stablecoin-logo");
     }
   });
+
+  it("pins fallback livery generation to the shared FNV hash", () => {
+    expect(resolveStablecoinShipBranding("alpha-dollar", makeMeta())).toEqual({
+      accent: "#48a877",
+      label: "USD peg derived livery",
+      logoMatte: "#f4eddb",
+      logoShape: "hex",
+      primary: "#2e9568",
+      sailColor: "#d9e9db",
+      sailPanel: "hoist",
+      secondary: "#4c4c45",
+      source: "peg-fallback",
+      stripePattern: "double",
+    });
+  });
 });

@@ -6,6 +6,7 @@ import RotateCcw from "lucide-react/dist/esm/icons/rotate-ccw";
 import Sun from "lucide-react/dist/esm/icons/sun";
 import SunMoon from "lucide-react/dist/esm/icons/sun-moon";
 import Timer from "lucide-react/dist/esm/icons/timer";
+import { formatHourLabel, normalizeHour } from "../lib/pharosville-clock";
 
 export interface WorldToolbarProps {
   autoNightCycle?: boolean;
@@ -130,16 +131,4 @@ export function WorldToolbar({
       )}
     </div>
   );
-}
-
-function normalizeHour(hour: number): number {
-  if (!Number.isFinite(hour)) return 12;
-  return ((hour % 24) + 24) % 24;
-}
-
-function formatHourLabel(hour: number): string {
-  const totalMinutes = Math.round(normalizeHour(hour) * 60) % (24 * 60);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }

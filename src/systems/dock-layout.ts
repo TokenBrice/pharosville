@@ -1,3 +1,5 @@
+import { tileKey } from "./tile-key";
+
 interface TilePoint {
   x: number;
   y: number;
@@ -14,10 +16,6 @@ const DOCK_DRAW_TILE_OVERRIDES: Record<string, TilePoint> = {
   // around the fixed Yggdrasil world-tree instead of sharing the tree anchor.
   "42.31": { x: 44.9, y: 32.15 },
 };
-
-function tileKey(tile: TilePoint): string {
-  return `${tile.x}.${tile.y}`;
-}
 
 export function dockOutwardVectorForTile(
   tile: TilePoint,

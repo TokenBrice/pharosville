@@ -191,21 +191,9 @@ function mapRiskWaterAreas<T>(select: (area: RiskWaterAreaDefinition) => T): Rec
   ) as Record<ShipRiskPlacement, T>;
 }
 
-function mapDewsAreas<T>(select: (area: RiskWaterAreaDefinition, band: DewsAreaBand) => T): Record<DewsAreaBand, T> {
-  return Object.fromEntries(
-    DEWS_AREA_BANDS.map((band) => {
-      const placement = DEWS_AREA_PLACEMENTS[band];
-      return [band, select(RISK_WATER_AREAS[placement], band)];
-    }),
-  ) as Record<DewsAreaBand, T>;
-}
-
 export const RISK_WATER_REGION_TILES = mapRiskWaterAreas((area) => area.regionTile);
 export const SHIP_WATER_ANCHORS = mapRiskWaterAreas((area) => area.shipAnchors);
 export const SHIP_SCATTER_RADIUS = mapRiskWaterAreas((area) => area.scatterRadius);
-export const AREA_LABEL_TILES = mapDewsAreas((area) => area.labelTile);
-export const DEWS_AREA_LABELS = mapDewsAreas((area) => area.label);
-export const DEWS_AREA_WATER_STYLE = mapDewsAreas((area) => area.waterStyle);
 
 export function riskWaterAreaForPlacement(placement: ShipRiskPlacement): RiskWaterAreaDefinition {
   return RISK_WATER_AREAS[placement];

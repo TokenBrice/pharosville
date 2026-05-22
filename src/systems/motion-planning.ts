@@ -30,9 +30,10 @@ const signatureByWorld = new WeakMap<PharosVilleWorld, string>();
 // automatically — see T3.4 in PLAN.md for follow-up.
 const pathCacheByMap = new Map<PharosVilleMap, BoundedShipWaterRouteCache>();
 
-/** Drop the per-map path cache when the world is disposed. */
+/** Drop per-map motion state when the world is disposed. */
 export function disposePathCacheForMap(map: PharosVilleMap): void {
   pathCacheByMap.delete(map);
+  previousRiskByMap.delete(map);
 }
 
 // ---------------------------------------------------------------------------
@@ -46,22 +47,21 @@ export function disposePathCacheForMap(map: PharosVilleMap): void {
 // window. Detail-panel parity reads the same data via
 // `ShipMotionSample.riskTransition`.
 //
-// The cache survives across plan builds within the same process. Cleared
-// when the per-map path cache is disposed.
+// The cache survives across plan builds for the same map identity. Cleared
+// when the per-map path cache is disposed so separate worlds do not inherit
+// each other's previous-risk transition state.
 
 interface PreviousRiskEntry {
   tile: { x: number; y: number };
   placement: string;
   /** Last-seen `riskWaterLabel` so W5.01 consumers can render `from X to Y`. */
   label: string;
-  /** Cycle count for which `previousRiskTile` should remain on the route. */
-  cyclesRemaining: number;
 }
-const previousRiskByShipId = new Map<string, PreviousRiskEntry>();
+const previousRiskByMap = new Map<PharosVilleMap, Map<string, PreviousRiskEntry>>();
 
 /** Test-only — reset the per-ship previous-risk cache. */
 export function __resetPreviousRiskCache(): void {
-  previousRiskByShipId.clear();
+  previousRiskByMap.clear();
 }
 
 /**
@@ -70,16 +70,15 @@ export function __resetPreviousRiskCache(): void {
  * across multiple 10-minute windows without thrashing.
  * LRU discipline: on get() the hit entry is moved to the end (most-recently
  * used); the entry at the start (least-recently used) is evicted when full.
- * Implements the same surface as Map<string, ShipWaterPath> so callers in
- * motion-water.ts need no changes.
+ * The production cache contract intentionally exposes only get/set; tests and
+ * debug telemetry read size/has/stats from this concrete class.
  */
-export class BoundedShipWaterRouteCache implements Map<string, ShipWaterPath> {
+export class BoundedShipWaterRouteCache {
   private readonly _map = new Map<string, ShipWaterPath>();
   private readonly _capacity: number;
   private _hits = 0;
   private _misses = 0;
   private _evictions = 0;
-  readonly [Symbol.toStringTag] = "BoundedShipWaterRouteCache";
 
   constructor(capacity: number) {
     this._capacity = Math.max(1, capacity);
@@ -106,7 +105,7 @@ export class BoundedShipWaterRouteCache implements Map<string, ShipWaterPath> {
     return value;
   }
 
-  set(key: string, value: ShipWaterPath): this {
+  set(key: string, value: ShipWaterPath): void {
     if (this._map.has(key)) {
       this._map.delete(key);
     } else if (this._map.size >= this._capacity) {
@@ -115,7 +114,6 @@ export class BoundedShipWaterRouteCache implements Map<string, ShipWaterPath> {
       this._evictions += 1;
     }
     this._map.set(key, value);
-    return this;
   }
 
   getStats(): { hits: number; misses: number; evictions: number; size: number; capacity: number } {
@@ -128,33 +126,6 @@ export class BoundedShipWaterRouteCache implements Map<string, ShipWaterPath> {
     };
   }
 
-  delete(key: string): boolean {
-    return this._map.delete(key);
-  }
-
-  clear(): void {
-    this._map.clear();
-  }
-
-  forEach(callbackfn: (value: ShipWaterPath, key: string, map: Map<string, ShipWaterPath>) => void, thisArg?: unknown): void {
-    this._map.forEach(callbackfn, thisArg);
-  }
-
-  keys(): ReturnType<Map<string, ShipWaterPath>["keys"]> {
-    return this._map.keys();
-  }
-
-  values(): ReturnType<Map<string, ShipWaterPath>["values"]> {
-    return this._map.values();
-  }
-
-  entries(): ReturnType<Map<string, ShipWaterPath>["entries"]> {
-    return this._map.entries();
-  }
-
-  [Symbol.iterator](): ReturnType<Map<string, ShipWaterPath>["entries"]> {
-    return this._map.entries();
-  }
 }
 
 function getMapPathCache(map: PharosVilleMap, shipCount: number): BoundedShipWaterRouteCache {
@@ -434,7 +405,7 @@ function buildShipMotionRoute(
 
   // W4.25 — capture previousRiskTile when the ship's riskPlacement or
   // riskTile differs from the last build. Survives one cycle then clears.
-  const previousRisk = capturePreviousRiskTile(ship, riskTile);
+  const previousRisk = capturePreviousRiskTile(map, ship, riskTile);
 
   return {
     shipId: ship.id,
@@ -468,16 +439,22 @@ function buildShipMotionRoute(
  * tack-out fires for the build immediately following the placement change.
  */
 function capturePreviousRiskTile(
+  map: PharosVilleMap,
   ship: ShipNode,
   newTile: { x: number; y: number },
 ): { tile: { x: number; y: number }; label: string } | undefined {
+  let previousRiskByShipId = previousRiskByMap.get(map);
+  if (!previousRiskByShipId) {
+    previousRiskByShipId = new Map();
+    previousRiskByMap.set(map, previousRiskByShipId);
+  }
+
   const cached = previousRiskByShipId.get(ship.id);
   if (!cached) {
     previousRiskByShipId.set(ship.id, {
       tile: { x: newTile.x, y: newTile.y },
       placement: ship.riskPlacement,
       label: ship.riskWaterLabel,
-      cyclesRemaining: 0,
     });
     return undefined;
   }
@@ -492,7 +469,6 @@ function capturePreviousRiskTile(
     cached.tile = { x: newTile.x, y: newTile.y };
     cached.placement = ship.riskPlacement;
     cached.label = ship.riskWaterLabel;
-    cached.cyclesRemaining = 0;
     return previous;
   }
 

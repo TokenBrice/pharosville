@@ -7,6 +7,7 @@ import type { AreaNode, DewsAreaBand, PharosVilleWorld, ShipNode } from "../syst
 import { precomputeShipTempos } from "../systems/ship-cycle-tempo";
 import { lighthouseBeamWarmCueLabel } from "../systems/detail-model";
 import { seaStateForWorld, seaStateSummary } from "../systems/sea-state";
+import { formatChangePercent, formatCompactUsd } from "../lib/format-detail";
 
 // Dock health-band swatches mirror the renderer's `dockHealthColor()` table in
 // `src/renderer/layers/docks.ts`. Robust and healthy share the same green
@@ -55,13 +56,6 @@ function atmosphereLineForArea(area: AreaNode): string {
   if (!area.band) return "Atmosphere: calm waters; no DEWS atmosphere modulation";
   return `Atmosphere: ${area.band}, ${ATMOSPHERE_DESCRIPTORS[area.band]}`;
 }
-
-const compactUsd = new Intl.NumberFormat("en-US", {
-  currency: "USD",
-  maximumFractionDigits: 1,
-  notation: "compact",
-  style: "currency",
-});
 
 const percent = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 1,
@@ -158,9 +152,7 @@ function AccessibilityLedgerContent({
       <ol>
         {world.docks.map((dock) => (
           <li key={dock.id}>
-            {dock.label}: {compactUsd.format(dock.totalUsd)} stablecoin supply, {dock.stablecoinCount} stablecoins,
-            health {dock.healthBand ?? "unavailable"}, harboring{" "}
-            {dock.harboredStablecoins.map((coin) => `${coin.symbol} ${compactUsd.format(coin.supplyUsd)}`).join(", ") || "no listed stablecoins"}.
+            {dockLedgerLine(dock)}
           </li>
         ))}
       </ol>
@@ -173,18 +165,9 @@ function AccessibilityLedgerContent({
           // world-refresh cadence. Suppressed when the transition is
           // null or has completed (progress >= 1).
           const transition = riskTransitionByShipId?.get(ship.id) ?? null;
-          const transitionClause = transition && transition.progress < 1
-            ? ` Tracking new risk band: from ${transition.fromLabel} to ${transition.toLabel}.`
-            : "";
           return (
             <li key={ship.id}>
-              {ship.label} ({ship.symbol}): {compactUsd.format(ship.marketCapUsd)} market cap, placed at{" "}
-              {ship.riskPlacement === "ledger-mooring" ? "Ledger Mooring idle" : `${ship.riskWaterLabel} idle`}; risk anchor{" "}
-              {ship.riskPlacement}; route summary: {pluralize(ship.chainPresence.length, "positive chain deployment")},{" "}
-              {pluralize(ship.dockVisits.length, "rendered dock stop")}, risk water {ship.riskWaterLabel}, risk zone{" "}
-              {ship.riskZone}; livery {ship.visual.livery.label}, {ship.visual.livery.logoShape} logo shape,{" "}
-              {ship.visual.livery.sailPanel} sail panel, {ship.visual.livery.stripePattern} brand stripe; placement evidence{" "}
-              {ship.placementEvidence.reason}; evidence status {ship.placementEvidence.stale ? "caveat" : "fresh"}; source fields {ship.placementEvidence.sourceFields.join(", ") || "unavailable"}{ship.visual.uniqueRationale ? ` — heritage hull: ${ship.visual.uniqueRationale}` : ""}; cycle tempo {tempo.label}; 24h supply change {ship.change24hPct != null ? `${ship.change24hPct >= 0 ? "+" : ""}${ship.change24hPct.toFixed(1)}%` : "unavailable"}.{transitionClause}
+              {shipLedgerLine(ship, tempo.label, transition)}
             </li>
           );
         })}
@@ -209,17 +192,7 @@ function AccessibilityLedgerContent({
                   <ul>
                     {overrideShips.map((ship) => (
                       <li key={ship.id}>
-                        <span
-                          aria-hidden="true"
-                          data-testid="squad-distress-swatch"
-                          style={{
-                            background: SQUAD_DISTRESS_FLAG_HEX,
-                            display: "inline-block",
-                            height: "0.7em",
-                            marginRight: "0.3em",
-                            width: "0.7em",
-                          }}
-                        />
+                        {renderInlineSwatch(SQUAD_DISTRESS_FLAG_HEX, "squad-distress-swatch")}
                         <span>distress signal flag</span>{" "}
                         {ship.symbol} in distress — squad sheltering at flagship&apos;s position
                         {ship.placementEvidence.squadOverride?.ownReason
@@ -253,16 +226,7 @@ function AccessibilityLedgerContent({
         <ul>
           {DOCK_HEALTH_BAND_LEGEND.map((entry) => (
             <li key={entry.band}>
-              <span
-                aria-hidden="true"
-                style={{
-                  background: entry.hex,
-                  display: "inline-block",
-                  height: "0.7em",
-                  marginRight: "0.3em",
-                  width: "0.7em",
-                }}
-              />
+              {renderInlineSwatch(entry.hex)}
               {entry.band}: {entry.label} ({entry.hex}).
             </li>
           ))}
@@ -274,16 +238,7 @@ function AccessibilityLedgerContent({
         <ul>
           {WRECK_CAUSE_LEGEND.map((entry) => (
             <li key={entry.cause}>
-              <span
-                aria-hidden="true"
-                style={{
-                  background: entry.hex,
-                  display: "inline-block",
-                  height: "0.7em",
-                  marginRight: "0.3em",
-                  width: "0.7em",
-                }}
-              />
+              {renderInlineSwatch(entry.hex)}
               {entry.cause}: {entry.label} ({entry.hex}).
             </li>
           ))}
@@ -304,6 +259,51 @@ function AccessibilityLedgerContent({
 }
 
 export const AccessibilityLedger = memo(AccessibilityLedgerContent);
+
+function dockLedgerLine(dock: PharosVilleWorld["docks"][number]): string {
+  const harboredStablecoins = dock.harboredStablecoins
+    .map((coin) => `${coin.symbol} ${formatCompactUsd(coin.supplyUsd)}`)
+    .join(", ") || "no listed stablecoins";
+  return `${dock.label}: ${formatCompactUsd(dock.totalUsd)} stablecoin supply, ${dock.stablecoinCount} stablecoins, health ${dock.healthBand ?? "unavailable"}, harboring ${harboredStablecoins}.`;
+}
+
+function shipLedgerLine(
+  ship: ShipNode,
+  tempoLabel: string,
+  transition: ShipRiskTransitionEntry | null,
+): string {
+  const placement = ship.riskPlacement === "ledger-mooring" ? "Ledger Mooring idle" : `${ship.riskWaterLabel} idle`;
+  const transitionClause = transition && transition.progress < 1
+    ? ` Tracking new risk band: from ${transition.fromLabel} to ${transition.toLabel}.`
+    : "";
+  return [
+    `${ship.label} (${ship.symbol}): ${formatCompactUsd(ship.marketCapUsd)} market cap, placed at ${placement}`,
+    `risk anchor ${ship.riskPlacement}`,
+    `route summary: ${pluralize(ship.chainPresence.length, "positive chain deployment")}, ${pluralize(ship.dockVisits.length, "rendered dock stop")}, risk water ${ship.riskWaterLabel}, risk zone ${ship.riskZone}`,
+    `livery ${ship.visual.livery.label}, ${ship.visual.livery.logoShape} logo shape, ${ship.visual.livery.sailPanel} sail panel, ${ship.visual.livery.stripePattern} brand stripe`,
+    `placement evidence ${ship.placementEvidence.reason}`,
+    `evidence status ${ship.placementEvidence.stale ? "caveat" : "fresh"}`,
+    `source fields ${ship.placementEvidence.sourceFields.join(", ") || "unavailable"}${ship.visual.uniqueRationale ? ` — heritage hull: ${ship.visual.uniqueRationale}` : ""}`,
+    `cycle tempo ${tempoLabel}`,
+    `24h supply change ${formatChangePercent(ship.change24hPct)}`,
+  ].join("; ") + `.${transitionClause}`;
+}
+
+function renderInlineSwatch(hex: string, testId?: string) {
+  return (
+    <span
+      aria-hidden="true"
+      {...(testId ? { "data-testid": testId } : {})}
+      style={{
+        background: hex,
+        display: "inline-block",
+        height: "0.7em",
+        marginRight: "0.3em",
+        width: "0.7em",
+      }}
+    />
+  );
+}
 
 function pluralize(count: number, singular: string, plural: string = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;

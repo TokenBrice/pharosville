@@ -19,6 +19,7 @@ import { buildPharosVilleWorld } from "./pharosville-world";
 import {
   __resetPreviousRiskCache,
   buildMotionPlan,
+  disposePathCacheForMap,
   openWaterPatrolItineraryIndex,
   openWaterPatrolItineraryLength,
 } from "./motion-planning";
@@ -261,6 +262,24 @@ describe("W4.25 risk-transition tack-out", () => {
     const stressedShip2 = stressedWorld2.ships[0]!;
     const stressedRoute2 = buildMotionPlan(stressedWorld2, stressedShip2.detailId).shipRoutes.get(stressedShip2.id)!;
     expect(stressedRoute2.previousRiskTile).toBeUndefined();
+  });
+
+  it("clears previous-risk state when the map path cache is disposed", () => {
+    __resetPreviousRiskCache();
+    const calmWorld = worldAtCurrentDeviationBps(0);
+    const calmShip = calmWorld.ships[0]!;
+    buildMotionPlan(calmWorld, calmShip.detailId);
+
+    const stressedWorld = worldAtCurrentDeviationBps(800);
+    const stressedShip = stressedWorld.ships[0]!;
+    const stressedRoute = buildMotionPlan(stressedWorld, stressedShip.detailId).shipRoutes.get(stressedShip.id)!;
+    expect(stressedRoute.previousRiskTile).toBeDefined();
+
+    disposePathCacheForMap(stressedWorld.map);
+    const freshStressedWorld = worldAtCurrentDeviationBps(800);
+    const freshStressedShip = freshStressedWorld.ships[0]!;
+    const freshRoute = buildMotionPlan(freshStressedWorld, freshStressedShip.detailId).shipRoutes.get(freshStressedShip.id)!;
+    expect(freshRoute.previousRiskTile).toBeUndefined();
   });
 
   it("blends the risk-drift center from previous → current over the 3s tack-out window", () => {

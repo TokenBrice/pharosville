@@ -27,6 +27,7 @@ import {
 } from "../../risk-water-areas";
 import { resolveShipVisual } from "../../ship-visuals";
 import { stableHash, stableOffset, stableUnit } from "../../stable-random";
+import { tileKey } from "../../tile-key";
 import {
   clampMapTile,
   nearestAvailableWaterTile,
@@ -94,6 +95,7 @@ function stampSquad(id: string, squad: StablecoinSquad): { squadId: SquadId; rol
 function consortRisk(
   ownRisk: { placement: ShipRiskPlacement; evidence: PlacementEvidence },
   flagshipRisk: { placement: ShipRiskPlacement; evidence: PlacementEvidence },
+  squad: StablecoinSquad,
   consortHasNavToken: boolean,
 ): { placement: ShipRiskPlacement; evidence: PlacementEvidence } {
   const stricter = isStricterPlacement(ownRisk.placement, flagshipRisk.placement);
@@ -107,7 +109,7 @@ function consortRisk(
     }
   }
   const evidence: PlacementEvidence = {
-    reason: `Maker squad member; inherits flagship placement (${flagshipRisk.evidence.reason})`,
+    reason: `${squad.label} squad member; inherits flagship placement (${flagshipRisk.evidence.reason})`,
     sourceFields,
     stale: flagshipRisk.evidence.stale,
     ...(stricter
@@ -165,7 +167,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
     const flagshipRisk = squad ? flagshipRiskBySquad.get(squad.id) : undefined;
     const isConsort = !!squad && !!flagshipRisk && asset.id !== squad.flagshipId;
     const risk = isConsort && flagshipRisk
-      ? consortRisk(ownRisk, flagshipRisk, meta.flags.navToken === true)
+      ? consortRisk(ownRisk, flagshipRisk, squad, meta.flags.navToken === true)
       : ownRisk;
 
     const chainPresence = buildShipChainPresence(asset, renderedDockChainIds);
@@ -337,10 +339,6 @@ function minTileDistance(tile: { x: number; y: number }, others: readonly { x: n
     distance = Math.min(distance, Math.hypot(tile.x - other.x, tile.y - other.y));
   }
   return distance;
-}
-
-function tileKey(tile: { x: number; y: number }): string {
-  return `${tile.x}.${tile.y}`;
 }
 
 export function buildShipsStage(inputs: PharosVilleInputs, docks: readonly DockNode[]): BuildShipsStage {

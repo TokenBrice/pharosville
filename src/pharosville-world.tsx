@@ -6,20 +6,23 @@
 // rules-of-hooks rule and PR review (see HOOKS.md F1 history).
 /* eslint-disable react-hooks/refs */
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { CSSProperties } from "react";
 import Home from "lucide-react/dist/esm/icons/home";
 import Maximize2 from "lucide-react/dist/esm/icons/maximize-2";
 import Minimize2 from "lucide-react/dist/esm/icons/minimize-2";
 import { AccessibilityLedger, type ShipRiskTransitionEntry } from "./components/accessibility-ledger";
 import { DetailPanel } from "./components/detail-panel";
-import { withRiskTransitionFact } from "./systems/detail-model";
 import { WorldToolbar } from "./components/world-toolbar";
 import { PHAROSVILLE_LATEST_VERSION } from "./content/pharosville-version";
 import { useAssetLoadingPipeline } from "./hooks/use-asset-loading-pipeline";
+import { useChangelogDialog } from "./hooks/use-changelog-dialog";
 import { useCanvasResizeAndCamera } from "./hooks/use-canvas-resize-and-camera";
 import { useFullscreenMode } from "./hooks/use-fullscreen-mode";
 import { useLatestRef } from "./hooks/use-latest-ref";
+import { detailAnchorForPoint, useWorldKeyboardTargets } from "./hooks/use-world-keyboard-targets";
 import { useWorldRenderLoop } from "./hooks/use-world-render-loop";
+import { useWorldSelection, resolveSelectedDetail } from "./hooks/use-world-selection";
+import { useWorldTimeControls } from "./hooks/use-world-time-controls";
 import { createHitTargetSnapshot, type HitTarget, type HitTargetSnapshot } from "./renderer/hit-testing";
 import { buildBaseMotionPlan, buildMotionPlan, disposePathCacheForMap, motionPlanSignature, type ShipMotionSample } from "./systems/motion";
 import type { ScreenPoint } from "./systems/projection";
@@ -35,20 +38,7 @@ const LazyChangelogPanel = lazy(() => (
 const REVEAL_DURATION_MS = 1800;
 
 function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
-  const [hoveredDetailId, setHoveredDetailId] = useState<string | null>(null);
-  const [keyboardFocusedDetailId, setKeyboardFocusedDetailId] = useState<string | null>(null);
-  const [selectedDetailId, setSelectedDetailId] = useState<string | null>("lighthouse");
-  const [selectedDetailAnchor, setSelectedDetailAnchor] = useState<DetailAnchor | null>(null);
-  const [announcement, setAnnouncement] = useState("PharosVille ready.");
   const [reducedMotion, setReducedMotion] = useState(true);
-  const [nightMode, setNightMode] = useState(false);
-  const [autoNightCycle, setAutoNightCycle] = useState(false);
-  const [changelogOpen, setChangelogOpen] = useState(false);
-  const [manualTimeOverrideHour, setManualTimeOverrideHour] = useState<number | null>(null);
-  const manualWallClockRestoreRef = useRef<{ active: boolean; previous: number | undefined }>({
-    active: false,
-    previous: undefined,
-  });
   const shellRef = useRef<HTMLElement | null>(null);
   const { exitFullscreen, fullscreenMode, toggleFullscreen } = useFullscreenMode(shellRef);
   const requestWorldFrameRef = useRef<() => void>(() => {});
@@ -63,6 +53,22 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const revealHasStartedRef = useRef(false);
 
   const [motionBucket, setMotionBucket] = useState(0);
+  const selection = useWorldSelection({ world });
+  const {
+    announcement,
+    clearSelection,
+    hoveredDetailId,
+    keyboardFocusedDetailId,
+    selectDetail,
+    selectedDetailAnchor,
+    selectedDetailId,
+    selectedEntity,
+    setAnnouncement,
+    setHoveredDetailId,
+    setKeyboardFocusedDetailId,
+  } = selection;
+  const changelog = useChangelogDialog({ setAnnouncement });
+  const timeControls = useWorldTimeControls({ requestPaint: requestWorldFrame });
 
   // Memoize on a content signature instead of `world` identity so live data
   // refetches that don't change ship/dock/map/lighthouse-flicker fields reuse
@@ -79,7 +85,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const motionPlan = useMemo(() => buildMotionPlan(world, selectedDetailId, baseMotionPlan), [baseMotionPlan, selectedDetailId]);
   const shipsById = useMemo(() => new Map(world.ships.map((ship) => [ship.id, ship])), [world.ships]);
   const shipCounterLabel = useMemo(() => fleetCounterLabel(world.ships), [world.ships]);
-  const selectedEntity = selectedDetailId ? world.entityById[selectedDetailId] ?? null : null;
   // W5.01 — derive the live risk-band tack-out per ship from the motion plan
   // at world-refresh cadence. The detail panel and accessibility ledger both
   // consume this; progress is a synthetic in-transit marker (the actual
@@ -101,15 +106,11 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     }
     return map;
   }, [motionPlan, shipsById]);
-  const selectedDetail = useMemo(() => {
-    if (!selectedDetailId) return null;
-    const baseDetail = world.detailIndex[selectedDetailId] ?? null;
-    if (!baseDetail) return null;
-    if (!selectedDetailId.startsWith("ship.")) return baseDetail;
-    const shipId = selectedDetailId.slice("ship.".length);
-    const transition = riskTransitionByShipId.get(shipId) ?? null;
-    return withRiskTransitionFact(baseDetail, transition);
-  }, [riskTransitionByShipId, selectedDetailId, world.detailIndex]);
+  const selectedDetail = useMemo(() => resolveSelectedDetail({
+    riskTransitionByShipId,
+    selectedDetailId,
+    world,
+  }), [riskTransitionByShipId, selectedDetailId, world]);
 
   // Refs that mirror frequently-changing state so hook-internal effects/RAF can
   // read the latest values without rebinding on every hover/select/motionPlan
@@ -133,33 +134,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const recomputeHitTargets = useCallback((): HitTargetSnapshot | null => recomputeHitTargetsRef.current(), []);
 
   const assetPipeline = useAssetLoadingPipeline({ motionPlanRef, world });
-
-  const selectDetail = useCallback((detailId: string, anchor: DetailAnchor | null = null) => {
-    const detail = world.detailIndex[detailId];
-    setKeyboardFocusedDetailId(null);
-    setHoveredDetailId(null);
-    setSelectedDetailId(detailId);
-    setSelectedDetailAnchor(anchor);
-    setAnnouncement(detail ? `Selected ${detail.title}.` : "Selected map entity.");
-  }, [world.detailIndex]);
-
-  const clearSelection = useCallback(() => {
-    setKeyboardFocusedDetailId(null);
-    setHoveredDetailId(null);
-    setSelectedDetailId(null);
-    setSelectedDetailAnchor(null);
-    setAnnouncement("Selection cleared.");
-  }, []);
-
-  const openChangelog = useCallback(() => {
-    setChangelogOpen(true);
-    setAnnouncement("Opened PharosVille changelog.");
-  }, []);
-
-  const closeChangelog = useCallback(() => {
-    setChangelogOpen(false);
-    setAnnouncement("Closed PharosVille changelog.");
-  }, []);
 
   const handleSelectTarget = useCallback((target: HitTarget, point: ScreenPoint, viewport: ScreenPoint) => {
     selectDetail(target.detailId, detailAnchorForPoint(point, viewport));
@@ -247,7 +221,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     maximumRequestedDprRef: canvas.maximumRequestedDprRef,
     motionPlan,
     motionPlanRef,
-    nightMode,
     reducedMotion,
     revealEnvelopeRef,
     selectedDetailAnchor,
@@ -257,6 +230,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     shipMotionSamplesRef,
     shipsById,
     stepCamera: canvas.stepCamera,
+    wallClockHour: timeControls.wallClockHour,
     world,
   });
 
@@ -345,106 +319,24 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
 
   useEffect(() => observeReducedMotion(setReducedMotion), []);
 
-  useEffect(() => {
-    if (!changelogOpen) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      setChangelogOpen(false);
-      setAnnouncement("Closed PharosVille changelog.");
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [changelogOpen]);
-
   // world.map is a module singleton; this fires once on full teardown.
   useEffect(() => () => disposePathCacheForMap(world.map), [world.map]);
 
-  useEffect(() => {
-    if (!autoNightCycle) return;
-    const id = setInterval(() => setNightMode((n) => !n), 60_000);
-    return () => clearInterval(id);
-  }, [autoNightCycle]);
-
-  useEffect(() => {
-    if (manualTimeOverrideHour === null) {
-      if (manualWallClockRestoreRef.current.active) {
-        const previous = manualWallClockRestoreRef.current.previous;
-        if (previous === undefined) {
-          delete (globalThis as { __pharosVilleTestWallClockHour?: number }).__pharosVilleTestWallClockHour;
-        } else {
-          globalThis.__pharosVilleTestWallClockHour = previous;
-        }
-        manualWallClockRestoreRef.current = { active: false, previous: undefined };
-        requestPaint();
-      }
-      return;
-    }
-
-    if (!manualWallClockRestoreRef.current.active) {
-      manualWallClockRestoreRef.current = {
-        active: true,
-        previous: globalThis.__pharosVilleTestWallClockHour,
-      };
-    }
-    globalThis.__pharosVilleTestWallClockHour = manualTimeOverrideHour;
-    requestPaint();
-  }, [manualTimeOverrideHour, requestPaint]);
-
-  useEffect(() => () => {
-    if (!manualWallClockRestoreRef.current.active) return;
-    const previous = manualWallClockRestoreRef.current.previous;
-    if (previous === undefined) {
-      delete (globalThis as { __pharosVilleTestWallClockHour?: number }).__pharosVilleTestWallClockHour;
-    } else {
-      globalThis.__pharosVilleTestWallClockHour = previous;
-    }
-  }, []);
-
-  const cycleKeyboardTarget = useCallback((backwards: boolean) => {
-    const snapshot = recomputeHitTargets();
-    const targets = keyboardTargetOrder(snapshot?.targets ?? hitTargetsRef.current);
-    const nextTarget = nextKeyboardTarget(targets, keyboardFocusedDetailId ?? selectedDetailId, backwards);
-    if (!nextTarget) {
-      setKeyboardFocusedDetailId(null);
-      setHoveredDetailId(null);
-      setAnnouncement("No map targets available.");
-      return;
-    }
-
-    setKeyboardFocusedDetailId(nextTarget.detailId);
-    setHoveredDetailId(nextTarget.detailId);
-    const detail = world.detailIndex[nextTarget.detailId];
-    setAnnouncement(`Focused ${detail?.title ?? nextTarget.label}. Press Enter to select.`);
-    if (reducedMotion) requestPaint();
-  }, [hitTargetsRef, keyboardFocusedDetailId, recomputeHitTargets, reducedMotion, requestPaint, selectedDetailId, world.detailIndex]);
-
-  const selectKeyboardTarget = useCallback((): boolean => {
-    if (!keyboardFocusedDetailId) return false;
-    const snapshot = recomputeHitTargets();
-    const target = snapshot?.targetsByDetailId.get(keyboardFocusedDetailId)
-      ?? hitTargetsRef.current.find((entry) => entry.detailId === keyboardFocusedDetailId)
-      ?? null;
-    const viewport = canvas.canvasSizeRef.current;
-    const anchor = target
-      ? detailAnchorForPoint(centerPointForTarget(target), viewport)
-      : null;
-    selectDetail(keyboardFocusedDetailId, anchor);
-    if (reducedMotion) requestPaint();
-    return true;
-  }, [canvas.canvasSizeRef, hitTargetsRef, keyboardFocusedDetailId, recomputeHitTargets, reducedMotion, requestPaint, selectDetail]);
-
-  const handleWorldKeyDown = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
-    if (!isInteractiveEventTarget(event.target) && event.key === "Tab") {
-      event.preventDefault();
-      cycleKeyboardTarget(event.shiftKey);
-      return;
-    }
-    if (!isInteractiveEventTarget(event.target) && event.key === "Enter" && selectKeyboardTarget()) {
-      event.preventDefault();
-      return;
-    }
-    canvas.handleKeyDown(event);
-  }, [canvas, cycleKeyboardTarget, selectKeyboardTarget]);
+  const handleWorldKeyDown = useWorldKeyboardTargets({
+    canvasHandleKeyDown: canvas.handleKeyDown,
+    canvasSizeRef: canvas.canvasSizeRef,
+    hitTargetsRef,
+    keyboardFocusedDetailId,
+    recomputeHitTargets,
+    reducedMotion,
+    requestPaint,
+    selectDetail,
+    selectedDetailId,
+    setAnnouncement,
+    setHoveredDetailId,
+    setKeyboardFocusedDetailId,
+    world,
+  });
 
   const detailDockStyle = selectedDetailAnchor
     ? ({
@@ -452,10 +344,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         "--pv-detail-y": `${selectedDetailAnchor.y}px`,
       } as CSSProperties)
     : undefined;
-  const timeOfDayHour = manualTimeOverrideHour
-    ?? wallClockOverrideHour()
-    ?? (nightMode ? 22 : 12);
-
   return (
     <main
       ref={shellRef}
@@ -466,7 +354,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       tabIndex={0}
     >
       <p id="pharosville-world-instructions" className="sr-only">
-        Use the visible toolbar, wheel zoom, drag pan, arrow keys, Tab and Shift Tab target cycling, Enter selection, and canvas selection to inspect PharosVille map data.
+        Use toolbar, wheel, drag, arrows, Tab, Shift Tab, Enter, canvas.
       </p>
       <canvas
         ref={canvas.canvasRef}
@@ -487,20 +375,14 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
             zoomLabel={canvas.cameraZoomLabel}
             {...(selectedEntity ? { onFollowSelected: canvas.handleFollowSelected } : {})}
             onResetView={canvas.handleResetView}
-            nightMode={nightMode}
-            onToggleNightMode={() => {
-              setManualTimeOverrideHour(null);
-              setNightMode((n) => !n);
-            }}
-            autoNightCycle={autoNightCycle}
-            onToggleAutoNightCycle={() => {
-              setManualTimeOverrideHour(null);
-              setAutoNightCycle((a) => !a);
-            }}
-            timeOfDayHour={timeOfDayHour}
-            manualTimeOverrideHour={manualTimeOverrideHour}
-            onTimeOfDayChange={setManualTimeOverrideHour}
-            onClearTimeOverride={() => setManualTimeOverrideHour(null)}
+            nightMode={timeControls.nightMode}
+            onToggleNightMode={timeControls.toggleNightMode}
+            autoNightCycle={timeControls.autoNightCycle}
+            onToggleAutoNightCycle={timeControls.toggleAutoNightCycle}
+            timeOfDayHour={timeControls.wallClockHour}
+            manualTimeOverrideHour={timeControls.manualTimeOverrideHour}
+            onTimeOfDayChange={timeControls.setManualTimeOverrideHour}
+            onClearTimeOverride={timeControls.clearTimeOverride}
           />
         </div>
         {selectedDetail && (
@@ -530,15 +412,15 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       >
         <Home aria-hidden="true" size={24} />
       </button>
-      {changelogOpen && (
+      {changelog.changelogOpen && (
         <Suspense fallback={<ChangelogPanelLoading />}>
-          <LazyChangelogPanel onClose={closeChangelog} />
+          <LazyChangelogPanel onClose={changelog.closeChangelog} />
         </Suspense>
       )}
       <p className="pharosville-beta-tag">
         <span className="pharosville-beta-tag__notice">PharosVille beta {PHAROSVILLE_LATEST_VERSION} - Interpretive view, not financial advice</span>
         <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
-        <button className="pharosville-beta-tag__button" type="button" onClick={openChangelog}>Changelog</button>
+        <button className="pharosville-beta-tag__button" type="button" onClick={changelog.openChangelog}>Changelog</button>
         <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
         <span className="pharosville-beta-tag__counter" data-testid="pharosville-ship-counter">{shipCounterLabel}</span>
         <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
@@ -587,64 +469,4 @@ function fleetCounterLabel(ships: PharosVilleWorldModel["ships"]): string {
   const totalShips = ships.length;
   const shipNoun = dockedShips === 1 ? "ship" : "ships";
   return `${integerFormatter.format(dockedShips)} ${shipNoun} docked / ${integerFormatter.format(totalShips)} total`;
-}
-
-interface DetailAnchor extends ScreenPoint {
-  side: "left" | "right";
-}
-
-function detailAnchorForPoint(point: ScreenPoint, viewport: ScreenPoint): DetailAnchor {
-  const side = point.x > viewport.x * 0.6 ? "left" : "right";
-  return { ...point, side };
-}
-
-function centerPointForTarget(target: HitTarget): ScreenPoint {
-  return {
-    x: target.rect.x + target.rect.width / 2,
-    y: target.rect.y + target.rect.height / 2,
-  };
-}
-
-function keyboardTargetOrder(targets: readonly HitTarget[]): HitTarget[] {
-  const seenDetailIds = new Set<string>();
-  const ordered: HitTarget[] = [];
-  const byVisualPriority = targets
-    .map((target, index) => ({ index, target }))
-    .sort((left, right) => (
-      right.target.priority - left.target.priority
-      || right.index - left.index
-    ));
-
-  for (const entry of byVisualPriority) {
-    if (seenDetailIds.has(entry.target.detailId)) continue;
-    seenDetailIds.add(entry.target.detailId);
-    ordered.push(entry.target);
-  }
-  return ordered;
-}
-
-function nextKeyboardTarget(
-  targets: readonly HitTarget[],
-  currentDetailId: string | null,
-  backwards: boolean,
-): HitTarget | null {
-  if (targets.length === 0) return null;
-  const currentIndex = currentDetailId
-    ? targets.findIndex((target) => target.detailId === currentDetailId)
-    : -1;
-  if (currentIndex === -1) return backwards ? targets[targets.length - 1]! : targets[0]!;
-  const delta = backwards ? -1 : 1;
-  const nextIndex = (currentIndex + delta + targets.length) % targets.length;
-  return targets[nextIndex]!;
-}
-
-function wallClockOverrideHour(): number | null {
-  const override = globalThis.__pharosVilleTestWallClockHour;
-  if (typeof override !== "number" || !Number.isFinite(override)) return null;
-  return ((override % 24) + 24) % 24;
-}
-
-function isInteractiveEventTarget(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement
-    && Boolean(target.closest("a, button, input, select, textarea, summary, [role='button']"));
 }

@@ -2,6 +2,7 @@ import type { ShipMotionSample } from "../../../systems/motion";
 import { getShipHeadingDelta } from "../../../systems/motion-sampling";
 import type { PharosVilleWorld, ShipHull, ShipWaterZone } from "../../../systems/world-types";
 import { stableVisualVariant } from "../../canvas-primitives";
+import { createStatsLruCache } from "../../lru-cache";
 import type { DrawPharosVilleInput } from "../../render-types";
 import { SHIP_CONTINUOUS_MOTION } from "../../ship-visual-config";
 import type { ShipPose } from "../ship-pose";
@@ -40,67 +41,20 @@ export interface TitanPathCacheStats {
   missCount: number;
 }
 
-interface TitanPathCache {
-  getOrBuild(key: string, build: () => Path2D): Path2D;
-  reset(): void;
-  size(): number;
-  stats(): TitanPathCacheStats;
-}
-
-function createTitanPathCache(maxEntries: number): TitanPathCache {
-  const entries = new Map<string, Path2D>();
-  let hitCount = 0;
-  let missCount = 0;
-  let evictionCount = 0;
-  return {
-    getOrBuild(key, build) {
-      const cached = entries.get(key);
-      if (cached) {
-        // LRU touch: re-insert moves the entry to the tail.
-        entries.delete(key);
-        entries.set(key, cached);
-        hitCount += 1;
-        return cached;
-      }
-      missCount += 1;
-      const path = build();
-      entries.set(key, path);
-      while (entries.size > maxEntries) {
-        const oldest = entries.keys().next().value;
-        if (oldest === undefined) break;
-        entries.delete(oldest);
-        evictionCount += 1;
-      }
-      return path;
-    },
-    reset() {
-      entries.clear();
-      hitCount = 0;
-      missCount = 0;
-      evictionCount = 0;
-    },
-    size() {
-      return entries.size;
-    },
-    stats() {
-      return { entryCount: entries.size, evictionCount, hitCount, maxEntries, missCount };
-    },
-  };
-}
-
-const titanPathCache = createTitanPathCache(TITAN_PATH_CACHE_MAX);
+const titanPathCache = createStatsLruCache<string, Path2D>(TITAN_PATH_CACHE_MAX);
 
 /**
  * Returns hit/miss/eviction counters for the titan procedural path cache.
- *
- * TODO(perf-telemetry): the `__pharosVilleDebug` window field (managed by
- * `use-world-render-loop.ts`) does not yet surface this. The Engineer lane
- * owning that hook should expose `titanPathCacheStats()` alongside the
- * existing `routeCacheStats` so we can verify the >99% steady-state target
- * from devtools.
  */
 export function titanPathCacheStats(): TitanPathCacheStats {
-  return titanPathCache.stats();
+  const stats = titanPathCache.stats();
+  return {
+    entryCount: stats.size,
+    evictionCount: stats.evictions,
+    hitCount: stats.hits,
+    maxEntries: stats.capacity,
+    missCount: stats.misses,
+  };
 }
 
 /**

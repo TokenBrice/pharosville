@@ -10,6 +10,7 @@ import {
   MOORING_WORKING_END,
   ZONE_DWELL,
 } from "./motion-config";
+import { staleEvidenceMotionFactors } from "./motion-sampling-factors";
 import {
   formationGain,
   squadConsortHeadingLerpAlpha,
@@ -1190,9 +1191,7 @@ function applyMooringBlendInto(input: {
   toMooringStop: ShipMotionRoute["dockStops"][number] | null;
   timeSeconds: number;
 }, tile: { x: number; y: number }): void {
-  // E1: stale evidence → wider orbit (×1.35) and slower angular speed (×0.65).
-  const staleRadiusFactor = input.route.staleEvidence ? 1.35 : 1.0;
-  const staleAngularFactor = input.route.staleEvidence ? 0.65 : 1.0;
+  const staleFactors = staleEvidenceMotionFactors(input.route.staleEvidence);
   const seaSway = seaStateMooringSwayMultiplier(input.seaState);
   let dx = 0;
   let dy = 0;
@@ -1201,20 +1200,20 @@ function applyMooringBlendInto(input: {
     const seed = mooredSeedFor(input.route, input.fromMooringStop, input.runtime);
     const phaseOffset = mooredPhaseFor(input.route, input.fromMooringStop, input.runtime);
     const radiusMultiplier = mooredRadiusMultiplierFor(input.route, input.fromMooringStop, input.runtime);
-    const angle = input.timeSeconds * 0.027 * staleAngularFactor + seed * 0.0001 + phaseOffset;
+    const angle = input.timeSeconds * 0.027 * staleFactors.angularFactor + seed * 0.0001 + phaseOffset;
     const radius = mooredRadiusForZone(input.route.zone);
-    dx += Math.cos(angle) * radius.x * radiusMultiplier * staleRadiusFactor * seaSway * (1 - releaseT);
-    dy += Math.sin(angle * 0.9) * radius.y * radiusMultiplier * staleRadiusFactor * seaSway * (1 - releaseT);
+    dx += Math.cos(angle) * radius.x * radiusMultiplier * staleFactors.radiusFactor * seaSway * (1 - releaseT);
+    dy += Math.sin(angle * 0.9) * radius.y * radiusMultiplier * staleFactors.radiusFactor * seaSway * (1 - releaseT);
   }
   if (input.toMooringStop) {
     const mooringTension = smoothstepRange(ARRIVING_DECEL_END, 1, input.progress);
     const seed = mooredSeedFor(input.route, input.toMooringStop, input.runtime);
     const phaseOffset = mooredPhaseFor(input.route, input.toMooringStop, input.runtime);
     const radiusMultiplier = mooredRadiusMultiplierFor(input.route, input.toMooringStop, input.runtime);
-    const angle = input.timeSeconds * 0.027 * staleAngularFactor + seed * 0.0001 + phaseOffset;
+    const angle = input.timeSeconds * 0.027 * staleFactors.angularFactor + seed * 0.0001 + phaseOffset;
     const radius = mooredRadiusForZone(input.route.zone);
-    dx += Math.cos(angle) * radius.x * radiusMultiplier * staleRadiusFactor * seaSway * mooringTension;
-    dy += Math.sin(angle * 0.9) * radius.y * radiusMultiplier * staleRadiusFactor * seaSway * mooringTension;
+    dx += Math.cos(angle) * radius.x * radiusMultiplier * staleFactors.radiusFactor * seaSway * mooringTension;
+    dy += Math.sin(angle * 0.9) * radius.y * radiusMultiplier * staleFactors.radiusFactor * seaSway * mooringTension;
   }
   if (dx === 0 && dy === 0) return;
   clampMotionTileInto(tile.x + dx, tile.y + dy, tile);
@@ -1424,16 +1423,14 @@ function mooredSampleInto(input: {
   const seed = mooredSeedFor(input.route, input.stop, input.runtime);
   const phaseOffset = mooredPhaseFor(input.route, input.stop, input.runtime);
   const radiusMultiplier = mooredRadiusMultiplierFor(input.route, input.stop, input.runtime);
-  // E1: stale evidence → wider orbit (×1.35) and slower angular speed (×0.65).
-  const staleRadiusFactor = input.route.staleEvidence ? 1.35 : 1.0;
-  const staleAngularFactor = input.route.staleEvidence ? 0.65 : 1.0;
-  const angle = input.timeSeconds * 0.027 * staleAngularFactor + seed * 0.0001 + phaseOffset;
+  const staleFactors = staleEvidenceMotionFactors(input.route.staleEvidence);
+  const angle = input.timeSeconds * 0.027 * staleFactors.angularFactor + seed * 0.0001 + phaseOffset;
   const radius = mooredRadiusForZone(input.route.zone);
   const seaSway = seaStateMooringSwayMultiplier(input.seaState);
   const swayAmplitude = phase.swayMultiplier * seaSway;
   out.shipId = input.route.shipId;
-  out.tile.x = input.stop.mooringTile.x + Math.cos(angle) * radius.x * radiusMultiplier * staleRadiusFactor * swayAmplitude;
-  out.tile.y = input.stop.mooringTile.y + Math.sin(angle * 0.9) * radius.y * radiusMultiplier * staleRadiusFactor * swayAmplitude;
+  out.tile.x = input.stop.mooringTile.x + Math.cos(angle) * radius.x * radiusMultiplier * staleFactors.radiusFactor * swayAmplitude;
+  out.tile.y = input.stop.mooringTile.y + Math.sin(angle * 0.9) * radius.y * radiusMultiplier * staleFactors.radiusFactor * swayAmplitude;
   out.state = "moored";
   out.zone = input.route.zone;
   writeRouteContextInto(input.route, routePathKey, out);
@@ -1636,15 +1633,13 @@ function mooredRouteStopSampleInto(
   const seed = mooredSeedFor(route, stop, runtime);
   const phaseOffset = mooredPhaseFor(route, stop, runtime);
   const radiusMultiplier = mooredRadiusMultiplierFor(route, stop, runtime);
-  // E1: stale evidence → wider orbit (×1.35) and slower angular speed (×0.65).
-  const staleRadiusFactor = route.staleEvidence ? 1.35 : 1.0;
-  const staleAngularFactor = route.staleEvidence ? 0.65 : 1.0;
-  const angle = timeSeconds * 0.018 * staleAngularFactor + seed * 0.0001 + phaseOffset;
+  const staleFactors = staleEvidenceMotionFactors(route.staleEvidence);
+  const angle = timeSeconds * 0.018 * staleFactors.angularFactor + seed * 0.0001 + phaseOffset;
   const radius = mooredRadiusForZone(route.zone);
   out.shipId = route.shipId;
   clampMotionTileInto(
-    stop.mooringTile.x + Math.cos(angle) * radius.x * 0.72 * radiusMultiplier * staleRadiusFactor,
-    stop.mooringTile.y + Math.sin(angle * 0.9) * radius.y * 0.72 * radiusMultiplier * staleRadiusFactor,
+    stop.mooringTile.x + Math.cos(angle) * radius.x * 0.72 * radiusMultiplier * staleFactors.radiusFactor,
+    stop.mooringTile.y + Math.sin(angle * 0.9) * radius.y * 0.72 * radiusMultiplier * staleFactors.radiusFactor,
     out.tile,
   );
   out.state = "moored";
@@ -1683,10 +1678,8 @@ export const RISK_TRANSITION_TACK_OUT_SECONDS = 3;
 function riskDriftSampleInto(route: ShipMotionRoute, timeSeconds: number, progress: number, out: ShipMotionSample): void {
   const routePathKey = routePathIdentityKey(route, "risk-drift");
   beginRoutePathSample(route, routePathKey);
-  // E1: stale evidence → wider orbit (×1.35) and slower angular speed (×0.65).
-  const staleRadiusFactor = route.staleEvidence ? 1.35 : 1.0;
-  const staleAngularFactor = route.staleEvidence ? 0.65 : 1.0;
-  const angle = timeSeconds * 0.017 * staleAngularFactor + route.routeSeed * 0.0001 + progress * Math.PI * 2;
+  const staleFactors = staleEvidenceMotionFactors(route.staleEvidence);
+  const angle = timeSeconds * 0.017 * staleFactors.angularFactor + route.routeSeed * 0.0001 + progress * Math.PI * 2;
   const radius = driftRadiusForZone(route.zone);
   // Smooth the drift radius to zero at the entry (progress=0) and exit
   // (progress=1) of the risk-water window. Without this, the departing→risk-drift
@@ -1710,8 +1703,8 @@ function riskDriftSampleInto(route: ShipMotionRoute, timeSeconds: number, progre
     : route.riskTile.y;
   out.shipId = route.shipId;
   clampMotionTileInto(
-    centerX + Math.cos(angle) * radius.x * radiusScale * staleRadiusFactor,
-    centerY + Math.sin(angle * 0.8) * radius.y * radiusScale * staleRadiusFactor,
+    centerX + Math.cos(angle) * radius.x * radiusScale * staleFactors.radiusFactor,
+    centerY + Math.sin(angle * 0.8) * radius.y * radiusScale * staleFactors.radiusFactor,
     out.tile,
   );
   out.state = "risk-drift";
@@ -1723,8 +1716,8 @@ function riskDriftSampleInto(route: ShipMotionRoute, timeSeconds: number, progre
   normalizeHeadingInto(-Math.sin(angle), Math.cos(angle * 0.8), out.heading);
   writeVelocityInto(
     out,
-    -Math.sin(angle) * radius.x * radiusScale * staleRadiusFactor * staleAngularFactor * 0.017,
-    Math.cos(angle * 0.8) * radius.y * radiusScale * staleRadiusFactor * staleAngularFactor * 0.8 * 0.017,
+    -Math.sin(angle) * radius.x * radiusScale * staleFactors.radiusFactor * staleFactors.angularFactor * 0.017,
+    Math.cos(angle * 0.8) * radius.y * radiusScale * staleFactors.radiusFactor * staleFactors.angularFactor * 0.8 * 0.017,
   );
   writeMapVisibilityAlphaInto(out, 1);
   out.wakeIntensity = 0.08;

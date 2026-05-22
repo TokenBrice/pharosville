@@ -24,6 +24,11 @@ interface ShipSizeDefinition {
   tier: ShipSizeTier;
 }
 
+interface TitanShipDefinition {
+  spriteAssetId: string;
+  scale: number;
+}
+
 const UNKNOWN_CLASS: ShipClassDefinition = {
   hull: "crypto-caravel",
   label: "Unclassified",
@@ -31,38 +36,27 @@ const UNKNOWN_CLASS: ShipClassDefinition = {
   rigging: "issuer-rig",
 };
 
-export const TITAN_SHIP_ASSET_IDS: Record<string, string> = {
-  "usdc-circle": "ship.usdc-titan",
-  "usds-sky": "ship.usds-titan",
-  "usdt-tether": "ship.usdt-titan",
-  "dai-makerdao": "ship.dai-titan",
-  "susds-sky": "ship.susds-titan",
-  "sdai-sky": "ship.sdai-titan",
-  "stusds-sky": "ship.stusds-titan",
-  "usde-ethena": "ship.usde-titan",
-  "susde-ethena": "ship.susde-titan",
-  "pyusd-paypal": "ship.pyusd-titan",
-  "usd1-world-liberty-financial": "ship.usd1-titan",
-  "buidl-blackrock": "ship.buidl-titan",
-};
-
 // Squad members reduced by ~20% from prior tuning to relieve formation overlap
 // at common zoom levels (Sky: USDS+sUSDS+stUSDS; Maker: DAI+sDAI). USDC and
 // USDT remain at their solo titan scales since they don't sail in formation.
-const TITAN_SHIP_SCALES: Record<string, number> = {
-  "usdc-circle": 1.53,
-  "usdt-tether": 1.7,
-  "usds-sky": 1.15,
-  "dai-makerdao": 1.06,
-  "susds-sky": 0.94,
-  "sdai-sky": 0.94,
-  "stusds-sky": 0.98,
-  "usde-ethena": 1.20,
-  "susde-ethena": 0.95,
-  "pyusd-paypal": 1.40,
-  "usd1-world-liberty-financial": 1.35,
-  "buidl-blackrock": 1.40,
+export const TITAN_SHIPS: Record<string, TitanShipDefinition> = {
+  "usdc-circle": { spriteAssetId: "ship.usdc-titan", scale: 1.53 },
+  "usds-sky": { spriteAssetId: "ship.usds-titan", scale: 1.15 },
+  "usdt-tether": { spriteAssetId: "ship.usdt-titan", scale: 1.7 },
+  "dai-makerdao": { spriteAssetId: "ship.dai-titan", scale: 1.06 },
+  "susds-sky": { spriteAssetId: "ship.susds-titan", scale: 0.94 },
+  "sdai-sky": { spriteAssetId: "ship.sdai-titan", scale: 0.94 },
+  "stusds-sky": { spriteAssetId: "ship.stusds-titan", scale: 0.98 },
+  "usde-ethena": { spriteAssetId: "ship.usde-titan", scale: 1.20 },
+  "susde-ethena": { spriteAssetId: "ship.susde-titan", scale: 0.95 },
+  "pyusd-paypal": { spriteAssetId: "ship.pyusd-titan", scale: 1.40 },
+  "usd1-world-liberty-financial": { spriteAssetId: "ship.usd1-titan", scale: 1.35 },
+  "buidl-blackrock": { spriteAssetId: "ship.buidl-titan", scale: 1.40 },
 };
+
+export const TITAN_SHIP_ASSET_IDS: Record<string, string> = Object.fromEntries(
+  Object.entries(TITAN_SHIPS).map(([id, definition]) => [id, definition.spriteAssetId]),
+);
 
 export function resolveShipClass(meta: StablecoinMeta): ShipClassDefinition {
   const backing = meta.flags?.backing;
@@ -122,12 +116,12 @@ export function resolveShipVisual(asset: StablecoinData, meta: StablecoinMeta, r
   const marketCap = getCirculatingRaw(asset);
   const shipClass = resolveShipClass(meta);
   const size = resolveShipSizeTier(marketCap);
-  const titanSpriteAssetId = TITAN_SHIP_ASSET_IDS[asset.id];
+  const titan = TITAN_SHIPS[asset.id];
   // Titan registry wins if a stablecoin id ever appears in both. Unique
   // resolution only runs when the titan lookup misses.
-  const uniqueDef = !titanSpriteAssetId ? uniqueDefinitionFor(asset) : null;
+  const uniqueDef = !titan ? uniqueDefinitionFor(asset) : null;
   const branding = resolveStablecoinShipBranding(asset.id, meta);
-  const spriteAssetId = titanSpriteAssetId ?? uniqueDef?.spriteAssetId;
+  const spriteAssetId = titan?.spriteAssetId ?? uniqueDef?.spriteAssetId;
   return {
     hull: shipClass.hull,
     ...(spriteAssetId ? { spriteAssetId } : {}),
@@ -139,8 +133,8 @@ export function resolveShipVisual(asset: StablecoinData, meta: StablecoinMeta, r
     sailColor: branding.sailColor,
     sailStripeColor: branding.primary,
     overlay: meta.flags.navToken ? "nav" : meta.flags.yieldBearing ? "yield" : reportCard?.overallGrade === "D" || reportCard?.overallGrade === "F" ? "watch" : "none",
-    sizeTier: titanSpriteAssetId ? "titan" : uniqueDef ? "unique" : size.tier,
-    sizeLabel: titanSpriteAssetId ? "Titan" : uniqueDef ? "Heritage hull" : size.label,
-    scale: TITAN_SHIP_SCALES[asset.id] ?? uniqueDef?.scale ?? size.scale,
+    sizeTier: titan ? "titan" : uniqueDef ? "unique" : size.tier,
+    sizeLabel: titan ? "Titan" : uniqueDef ? "Heritage hull" : size.label,
+    scale: titan?.scale ?? uniqueDef?.scale ?? size.scale,
   };
 }

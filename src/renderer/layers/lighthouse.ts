@@ -6,29 +6,20 @@ import {
   type SeaState,
 } from "../../systems/sea-state";
 import { drawAsset } from "../canvas-primitives";
+import {
+  LIGHTHOUSE_BEAM_REDUCED_ANGLE,
+  LIGHTHOUSE_BEAM_SWEEP_PERIOD_SECONDS,
+  lighthouseBeamSweepAngle,
+  resolveLighthouseBeamRenderState,
+} from "../lighthouse-beam";
+import { createLruCache } from "../lru-cache";
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
-import { LIGHTHOUSE_DRAW_OFFSET, LIGHTHOUSE_DRAW_SCALE } from "../visual-scales";
 import { lightningThunderRimIntensityForWorld } from "./weather";
 
 export type LighthouseRenderState = ReturnType<typeof lighthouseRenderState>;
 
 export function lighthouseRenderState({ assets, camera, world }: DrawPharosVilleInput) {
-  const center = tileToScreen(world.lighthouse.tile, camera);
-  const lighthouseAsset = assets?.get("landmark.lighthouse");
-  const spriteScale = camera.zoom * LIGHTHOUSE_DRAW_SCALE;
-  const spriteAnchor = {
-    x: center.x + LIGHTHOUSE_DRAW_OFFSET.x * camera.zoom,
-    y: center.y + LIGHTHOUSE_DRAW_OFFSET.y * camera.zoom,
-  };
-  const firePoint = lighthouseAsset
-    ? {
-      x: spriteAnchor.x + (lighthouseAsset.entry.beacon?.[0] ?? lighthouseAsset.entry.anchor[0]) * lighthouseAsset.entry.displayScale * spriteScale
-        - lighthouseAsset.entry.anchor[0] * lighthouseAsset.entry.displayScale * spriteScale,
-      y: spriteAnchor.y + (lighthouseAsset.entry.beacon?.[1] ?? lighthouseAsset.entry.anchor[1]) * lighthouseAsset.entry.displayScale * spriteScale
-        - lighthouseAsset.entry.anchor[1] * lighthouseAsset.entry.displayScale * spriteScale,
-    }
-    : { x: center.x, y: center.y - 148 * camera.zoom };
-  return { center, firePoint, lighthouseAsset, spriteAnchor, spriteScale };
+  return resolveLighthouseBeamRenderState({ assets, camera, lighthouse: world.lighthouse });
 }
 
 const LIGHTHOUSE_SURF = [
@@ -193,10 +184,10 @@ const SWEEP_PAIRED = true;
 const SWEEP_LENGTH = 1200;       // sprite-units; reaches all map corners with margin
 const SWEEP_APEX_HALF = 6;
 const SWEEP_FAR_HALF = 64;
-const SWEEP_PERIOD = 48;         // seconds per revolution
+const SWEEP_PERIOD = LIGHTHOUSE_BEAM_SWEEP_PERIOD_SECONDS;         // seconds per revolution
 const SWEEP_PEAK_ALPHA = 0.18;
 const SWEEP_REDUCED_ALPHA = 0.08;
-const SWEEP_REDUCED_ANGLE = Math.PI / 4;
+const SWEEP_REDUCED_ANGLE = LIGHTHOUSE_BEAM_REDUCED_ANGLE;
 
 const SWEEP_RIB_OFFSETS: ReadonlyArray<number> = [-0.56, -0.22, 0.16, 0.48];
 
@@ -241,8 +232,7 @@ let _fireFlickerValue = 0;
 function getSweepAngle(time: number, reducedMotion: boolean): number {
   if (reducedMotion) return SWEEP_REDUCED_ANGLE;
   if (time === _sweepAngleTime) return _sweepAngleValue;
-  const tCycle = time / SWEEP_PERIOD;
-  _sweepAngleValue = tCycle * Math.PI * 2 + Math.sin(tCycle * Math.PI * 2) * 0.15;
+  _sweepAngleValue = lighthouseBeamSweepAngle(time, false);
   _sweepAngleTime = time;
   return _sweepAngleValue;
 }
@@ -263,10 +253,12 @@ type NightGradientBundle = {
   directionalSpill: CanvasGradient;
   alertSpill: CanvasGradient;
 };
+type SweepBeamSprite = { canvas: HTMLCanvasElement; apexX: number; centerY: number };
+type GodRaySprite = { canvas: HTMLCanvasElement; centerY: number; length: number; startX: number };
 
 const NIGHT_GRADIENT_CACHE_LIMIT = 16;
 // Camera-derived inputs make the working set tiny; LRU evicts on overflow.
-const nightGradientCache = new Map<string, NightGradientBundle>();
+const nightGradientCache = createLruCache<string, NightGradientBundle>(NIGHT_GRADIENT_CACHE_LIMIT);
 
 // Pre-baked sweep-beam sprite cache. Each entry is a horizontal trapezoidal
 // beam (apex at left, far end at right) baked at sweepAlpha=1; callers
@@ -276,7 +268,7 @@ const nightGradientCache = new Map<string, NightGradientBundle>();
 // two color stops carry the lighthouse tip color.
 const SWEEP_BEAM_CACHE_LIMIT = 8;
 const SWEEP_BEAM_ZOOM_BUCKETS = 4;
-const sweepBeamSpriteCache = new Map<string, { canvas: HTMLCanvasElement; apexX: number; centerY: number }>();
+const sweepBeamSpriteCache = createLruCache<string, SweepBeamSprite>(SWEEP_BEAM_CACHE_LIMIT);
 
 function quantizeSweepBeamZoom(zoom: number): number {
   return Math.max(0.05, Math.round(zoom * SWEEP_BEAM_ZOOM_BUCKETS) / SWEEP_BEAM_ZOOM_BUCKETS);
@@ -285,16 +277,12 @@ function quantizeSweepBeamZoom(zoom: number): number {
 function getSweepBeamSprite(
   tip: { r: number; g: number; b: number },
   beamZoom: number,
-): { canvas: HTMLCanvasElement; apexX: number; centerY: number } | null {
+): SweepBeamSprite | null {
   if (typeof document === "undefined") return null;
   const bucketedZoom = quantizeSweepBeamZoom(beamZoom);
   const key = `${tip.r},${tip.g},${tip.b}|z${(bucketedZoom * 100) | 0}`;
   const cached = sweepBeamSpriteCache.get(key);
-  if (cached) {
-    sweepBeamSpriteCache.delete(key);
-    sweepBeamSpriteCache.set(key, cached);
-    return cached;
-  }
+  if (cached) return cached;
 
   const sweepLen = SWEEP_LENGTH * bucketedZoom;
   const sweepApex = SWEEP_APEX_HALF * bucketedZoom;
@@ -345,11 +333,6 @@ function getSweepBeamSprite(
 
   const entry = { canvas, apexX, centerY };
   sweepBeamSpriteCache.set(key, entry);
-  while (sweepBeamSpriteCache.size > SWEEP_BEAM_CACHE_LIMIT) {
-    const oldest = sweepBeamSpriteCache.keys().next().value;
-    if (oldest === undefined) break;
-    sweepBeamSpriteCache.delete(oldest);
-  }
   return entry;
 }
 
@@ -776,7 +759,7 @@ const GOD_RAY_CACHE_LIMIT = 256;
 const GOD_RAY_ZOOM_BUCKETS = 4;
 const GOD_RAY_ANGLE_BUCKETS = 32;
 const GOD_RAY_NIGHT_BUCKETS = 20;
-const godRaySpriteCache = new Map<string, { canvas: HTMLCanvasElement; centerY: number; length: number; startX: number }>();
+const godRaySpriteCache = createLruCache<string, GodRaySprite>(GOD_RAY_CACHE_LIMIT);
 
 function quantizeGodRayZoom(zoom: number): number {
   return Math.max(0.05, Math.round(zoom * GOD_RAY_ZOOM_BUCKETS) / GOD_RAY_ZOOM_BUCKETS);
@@ -810,15 +793,11 @@ function getGodRaySprite(
   angle: number,
   beamZoom: number,
   nightFactor: number,
-): { canvas: HTMLCanvasElement; centerY: number; length: number; startX: number } | null {
+): GodRaySprite | null {
   if (typeof document === "undefined") return null;
   const key = godRayCacheKey(angle, beamZoom, nightFactor);
   const cached = godRaySpriteCache.get(key);
-  if (cached) {
-    godRaySpriteCache.delete(key);
-    godRaySpriteCache.set(key, cached);
-    return cached;
-  }
+  if (cached) return cached;
 
   const bucketedZoom = quantizeGodRayZoom(beamZoom);
   const length = GOD_RAY_LENGTH * bucketedZoom;
@@ -849,11 +828,6 @@ function getGodRaySprite(
 
   const entry = { canvas, centerY, length, startX };
   godRaySpriteCache.set(key, entry);
-  while (godRaySpriteCache.size > GOD_RAY_CACHE_LIMIT) {
-    const oldest = godRaySpriteCache.keys().next().value;
-    if (oldest === undefined) break;
-    godRaySpriteCache.delete(oldest);
-  }
   return entry;
 }
 
@@ -1182,11 +1156,7 @@ function getNightGradientBundle(
 ): NightGradientBundle {
   const key = `${firePoint.x | 0}:${firePoint.y | 0}:${(zoom * 100) | 0}:${(nightFactor * 20) | 0}`;
   const hit = nightGradientCache.get(key);
-  if (hit) {
-    nightGradientCache.delete(key);
-    nightGradientCache.set(key, hit);
-    return hit;
-  }
+  if (hit) return hit;
 
   const diffuse = ctx.createRadialGradient(
     firePoint.x, firePoint.y, 60 * zoom,
@@ -1241,9 +1211,5 @@ function getNightGradientBundle(
 
   const bundle: NightGradientBundle = { diffuse, core, pool, directionalSpill, alertSpill };
   nightGradientCache.set(key, bundle);
-  if (nightGradientCache.size > NIGHT_GRADIENT_CACHE_LIMIT) {
-    const oldest = nightGradientCache.keys().next().value;
-    if (oldest !== undefined) nightGradientCache.delete(oldest);
-  }
   return bundle;
 }

@@ -19,14 +19,11 @@ import { createVisibleTileBoundsCacheState } from "../renderer/viewport";
 import { clampCameraToMap } from "../systems/camera";
 import {
   createDrawDurationWindow,
-  createRingBuffer,
   pushDrawDurationSample,
-  pushRingBuffer,
   resolveAdaptiveDprState,
   resolveCanvasBudget,
   type AdaptiveDprState,
   type DrawDurationWindow,
-  type RingBuffer,
 } from "../systems/canvas-budget";
 import {
   getSailEmblemSpriteCacheStats,
@@ -48,19 +45,23 @@ import type { IsoCamera, ScreenPoint } from "../systems/projection";
 import { seaStateForWorld, type SeaState } from "../systems/sea-state";
 import { createVisualMotionSmoothingState, resetVisualMotionSmoothingState, smoothShipMotionSamples } from "../systems/visual-motion";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
+import { sameCamera } from "../lib/camera-equality";
+import { normalizeHour } from "../lib/pharosville-clock";
+import {
+  createFrameIntervalWindow,
+  createLongtaskWindow,
+  createNumericMaxWindow,
+  emptyFramePacingMetrics,
+  pushFrameIntervalSample,
+  pushLongtaskWindow,
+  pushNumericMaxWindow,
+  type FrameIntervalWindow,
+  type FramePacingMetrics,
+  type LongtaskWindow,
+  type NumericMaxWindow,
+} from "./world-render-loop-metrics";
 
 type MotionPlan = ReturnType<typeof buildMotionPlan>;
-
-type FramePacingMetrics = {
-  averageMs: number;
-  droppedFrameCount: number;
-  effectiveFps: number;
-  longestDroppedBurst: number;
-  maxMs: number;
-  p50Ms: number;
-  p90Ms: number;
-  sampleCount: number;
-};
 
 type DebugRenderMetrics = PharosVilleRenderMetrics & {
   drawDurationMs: number;
@@ -71,18 +72,6 @@ type DebugRenderMetrics = PharosVilleRenderMetrics & {
   sampleDurationMs?: number;
   snapshotRebuildCount?: number;
   telemetryOverheadMs?: number;
-};
-
-type FrameIntervalWindow = {
-  samples: RingBuffer;
-  sortedScratch: number[];
-};
-
-type NumericMaxWindow = RingBuffer;
-
-type LongtaskWindow = {
-  counts: RingBuffer;
-  maxDurations: RingBuffer;
 };
 
 interface LastTilePositionSample {
@@ -131,7 +120,6 @@ export interface UseWorldRenderLoopInput {
   maximumRequestedDprRef: MutableRefObject<number>;
   motionPlan: MotionPlan;
   motionPlanRef: MutableRefObject<MotionPlan>;
-  nightMode: boolean;
   reducedMotion: boolean;
   /**
    * W4.01 reveal envelope in [0, 1]. The render loop reads `.current` per
@@ -147,6 +135,7 @@ export interface UseWorldRenderLoopInput {
   shipMotionSamplesRef: MutableRefObject<ReadonlyMap<string, ShipMotionSample>>;
   shipsById: ReadonlyMap<string, PharosVilleWorldModel["ships"][number]>;
   stepCamera: (now: number, shipMotionSamples: ReadonlyMap<string, ShipMotionSample>) => WorldCameraStepResult;
+  wallClockHour: number;
   world: PharosVilleWorldModel;
 }
 
@@ -183,7 +172,6 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     maximumRequestedDprRef,
     motionPlan,
     motionPlanRef,
-    nightMode,
     reducedMotion,
     revealEnvelopeRef,
     selectedDetailAnchor,
@@ -193,6 +181,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     shipMotionSamplesRef,
     shipsById,
     stepCamera,
+    wallClockHour,
     world,
   } = input;
 
@@ -305,7 +294,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   }, [hitTargetSnapshotRef, hitTargetsRef, shipMotionSamplesRef, world]);
 
   // RAF effect — bound once per plumbing change (`world`, `canvasSize`,
-  // `reducedMotion`, `assetManager`, `cameraReady`, `nightMode`, `shipsById`).
+  // `reducedMotion`, `assetManager`, `cameraReady`, `wallClockHour`, `shipsById`).
   // All other inputs (hoveredDetailId, selectedDetailId, motionPlan, camera,
   // criticalAssetAttemptsSettled) are read through refs. Per-hover/select
   // repaints under reduced motion are routed through `requestPaint()` so the
@@ -389,21 +378,9 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           onBucketFlip?.(newBucket);
         }
       }
-      let wallClockHour: number;
-      const testOverride = globalThis.__pharosVilleTestWallClockHour;
-      if (typeof testOverride === "number" && Number.isFinite(testOverride)) {
-        // Visual tests inject this global to render at a specific hour. Takes
-        // precedence over the reduced-motion noon pin so dawn/dusk/night
-        // baselines are stable without losing reduced-motion's animation
-        // suppression.
-        wallClockHour = ((testOverride % 24) + 24) % 24;
-      } else if (nightMode) {
-        wallClockHour = 22;
-      } else {
-        wallClockHour = 12;
-      }
+      const frameWallClockHour = normalizeHour(wallClockHour);
       const sampleStartedAt = performance.now();
-      const seaState = seaStateForWorld(world, { reducedMotion, wallClockHour });
+      const seaState = seaStateForWorld(world, { reducedMotion, wallClockHour: frameWallClockHour });
       let semanticShipMotionSamples = semanticShipMotionSamplesRef.current;
       if (reducedMotion) {
         const nextSamplesSignature = `${motionPlanSignature(world)}|sea:${seaStateMotionSignature(seaState)}`;
@@ -527,7 +504,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         ? targetByDetailId?.get(activeSelectedDetailId) ?? null
         : null;
       nextFrameState.timeSeconds = timeSeconds;
-      nextFrameState.wallClockHour = wallClockHour;
+      nextFrameState.wallClockHour = frameWallClockHour;
       const nextHoveredTarget = nextFrameState.hoveredTarget;
       const nextSelectedTarget = nextFrameState.selectedTarget;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -548,7 +525,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           plan: activeMotionPlan,
           reducedMotion,
           timeSeconds,
-          wallClockHour,
+          wallClockHour: frameWallClockHour,
         },
         renderScheduler,
         // W4.01 reveal envelope: owner drives via a RAF tween on cold mount;
@@ -749,7 +726,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assetManager, cameraReady, canvasSize.x, canvasSize.y, nightMode, reducedMotion, shipsById, world]);
+  }, [assetManager, cameraReady, canvasSize.x, canvasSize.y, reducedMotion, shipsById, wallClockHour, world]);
 
   // Asset arrivals must trigger a repaint (especially under reduced motion
   // where the RAF loop is otherwise idle). Route through `requestPaint` so the
@@ -770,37 +747,33 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       metrics: lastRenderMetricsRef.current,
       selectedTarget: frameState.selectedTarget,
     });
-    debugWindow.__pharosVilleDebug = {
-      camera,
-      cameraWithinBounds: isCameraWithinBounds(camera, world.map, canvasSize),
-      assetLoadErrors,
+    const framePatch = debugFramePatch({
+      animationFramePending: animationFramePendingRef.current,
       assetLoadStats: assetManager.getLoadStats(),
+      camera,
+      canvasSize,
+      compactSampleCache: compactShipMotionSampleCacheRef.current,
+      frameCount: motionFrameCountRef.current,
+      frameState,
+      motionPlan,
+      reducedMotion,
+      renderMetrics,
+      selectedDetailId,
+      shipsById,
+      world,
+    });
+    debugWindow.__pharosVilleDebug = {
+      ...framePatch,
+      camera,
+      assetLoadErrors,
       assetsLoaded: criticalAssetsLoaded && deferredAssetsLoaded,
       criticalAssetAttemptsSettled,
       criticalAssetsLoaded,
       deferredAssetsLoaded,
-      activeMotionLoopCount: reducedMotion || !animationFramePendingRef.current ? 0 : 1,
-      activeCameraLoopCount: 0,
-      animationFramePending: animationFramePendingRef.current,
       canvasBudget: canvasBudgetRef.current,
       canvasSize,
-      cameraFrameSource: "world-render-loop",
-      motionClockSource: reducedMotion ? "reduced-motion-static-frame" : "requestAnimationFrame",
-      motionCueCounts: motionCueCounts({ motionPlan, selectedDetailId, world }),
-      motionFrameCount: motionFrameCountRef.current,
-      renderMetrics,
-      reducedMotion,
-      sailCacheStats: {
-        sailLogo: getSailLogoSpriteCacheStats(),
-        sailEmblem: getSailEmblemSpriteCacheStats(),
-        sailTint: getShipSailTintCacheStats(),
-      },
       selectedDetailAnchor,
       selectedDetailId,
-      shipMotionSamples: compactShipMotionSamples(frameState.samples, shipsById, compactShipMotionSampleCacheRef.current),
-      targets: frameState.targets,
-      timeSeconds: frameState.timeSeconds,
-      wallClockHour: frameState.wallClockHour,
     };
     return () => {
       delete debugWindow.__pharosVilleDebug;
@@ -874,129 +847,8 @@ type MotionCueCounts = {
 const PHAROSVILLE_AMBIENT_BIRD_CAP = 9;
 const PHAROSVILLE_HARBOR_LIGHT_CAP = 3;
 const SHIP_HIT_TARGET_REFRESH_PER_FRAME = 32;
-const FRAME_INTERVAL_WINDOW_SIZE = 120;
-const DROPPED_FRAME_INTERVAL_MS = 34;
 const MAX_WORLD_FRAME_DELTA_SECONDS = 1 / 30;
 const TEST_CLOCK_JUMP_DELTA_SECONDS = 1;
-
-function emptyFramePacingMetrics(): FramePacingMetrics {
-  return {
-    averageMs: 0,
-    droppedFrameCount: 0,
-    effectiveFps: 0,
-    longestDroppedBurst: 0,
-    maxMs: 0,
-    p50Ms: 0,
-    p90Ms: 0,
-    sampleCount: 0,
-  };
-}
-
-function createFrameIntervalWindow(): FrameIntervalWindow {
-  return {
-    samples: createRingBuffer(FRAME_INTERVAL_WINDOW_SIZE),
-    sortedScratch: new Array<number>(FRAME_INTERVAL_WINDOW_SIZE),
-  };
-}
-
-function pushFrameIntervalSample(window: FrameIntervalWindow, intervalMs: number): FramePacingMetrics {
-  if (!Number.isFinite(intervalMs) || intervalMs <= 0) return resolveFramePacingMetrics(window);
-  pushRingBuffer(window.samples, intervalMs);
-  return resolveFramePacingMetrics(window);
-}
-
-function resolveFramePacingMetrics(window: FrameIntervalWindow): FramePacingMetrics {
-  const ring = window.samples;
-  if (ring.size <= 0) return emptyFramePacingMetrics();
-  let sum = 0;
-  let maxMs = 0;
-  let droppedFrameCount = 0;
-  let currentDroppedBurst = 0;
-  let longestDroppedBurst = 0;
-  for (let index = 0; index < ring.size; index += 1) {
-    const interval = frameIntervalAt(ring, index);
-    sum += interval;
-    if (interval > maxMs) maxMs = interval;
-    if (interval > DROPPED_FRAME_INTERVAL_MS) {
-      droppedFrameCount += 1;
-      currentDroppedBurst += 1;
-      if (currentDroppedBurst > longestDroppedBurst) longestDroppedBurst = currentDroppedBurst;
-    } else {
-      currentDroppedBurst = 0;
-    }
-    window.sortedScratch[index] = interval;
-  }
-  sortFirstNumbers(window.sortedScratch, ring.size);
-  const averageMs = sum / ring.size;
-  return {
-    averageMs,
-    droppedFrameCount,
-    effectiveFps: averageMs > 0 ? 1000 / averageMs : 0,
-    longestDroppedBurst,
-    maxMs,
-    p50Ms: percentile(window.sortedScratch, 0.5, ring.size),
-    p90Ms: percentile(window.sortedScratch, 0.9, ring.size),
-    sampleCount: ring.size,
-  };
-}
-
-function frameIntervalAt(ring: RingBuffer, chronologicalIndex: number): number {
-  if (ring.size < ring.capacity) return ring.values[chronologicalIndex] ?? 0;
-  return ring.values[(ring.cursor + chronologicalIndex) % ring.capacity] ?? 0;
-}
-
-function createNumericMaxWindow(capacity: number): NumericMaxWindow {
-  return createRingBuffer(capacity);
-}
-
-function pushNumericMaxWindow(window: NumericMaxWindow, value: number): number {
-  pushRingBuffer(window, Number.isFinite(value) ? value : 0);
-  let max = 0;
-  for (let index = 0; index < window.size; index += 1) {
-    const sample = window.values[index] ?? 0;
-    if (sample > max) max = sample;
-  }
-  return max;
-}
-
-function createLongtaskWindow(capacity: number): LongtaskWindow {
-  return {
-    counts: createRingBuffer(capacity),
-    maxDurations: createRingBuffer(capacity),
-  };
-}
-
-function pushLongtaskWindow(window: LongtaskWindow, count: number, maxDurationMs: number): { count: number; maxDurationMs: number } {
-  pushRingBuffer(window.counts, Math.max(0, Math.floor(Number.isFinite(count) ? count : 0)));
-  pushRingBuffer(window.maxDurations, Math.max(0, Number.isFinite(maxDurationMs) ? maxDurationMs : 0));
-  const size = window.counts.size;
-  let totalCount = 0;
-  let maxMs = 0;
-  for (let index = 0; index < size; index += 1) {
-    totalCount += window.counts.values[index] ?? 0;
-    const duration = window.maxDurations.values[index] ?? 0;
-    if (duration > maxMs) maxMs = duration;
-  }
-  return { count: totalCount, maxDurationMs: maxMs };
-}
-
-function percentile(sortedValues: number[], percentileValue: number, count = sortedValues.length): number {
-  if (count === 0) return 0;
-  const index = Math.min(count - 1, Math.max(0, Math.floor((count - 1) * percentileValue)));
-  return sortedValues[index];
-}
-
-function sortFirstNumbers(values: number[], count: number): void {
-  for (let index = 1; index < count; index += 1) {
-    const value = values[index] ?? 0;
-    let scan = index - 1;
-    while (scan >= 0 && (values[scan] ?? 0) > value) {
-      values[scan + 1] = values[scan] ?? 0;
-      scan -= 1;
-    }
-    values[scan + 1] = value;
-  }
-}
 
 function collectShipMotionSamples(input: {
   motionPlan: MotionPlan;
@@ -1209,10 +1061,12 @@ function renderMetricsWithCurrentSelection(input: {
   };
 }
 
-function updateDebugFrame(input: {
+type DebugFramePatchInput = {
   animationFramePending: boolean;
+  assetLoadStats: PharosVilleAssetLoadStats;
   camera: IsoCamera | null;
   canvasSize: ScreenPoint;
+  compactSampleCache: CompactShipMotionSampleCache;
   frameCount: number;
   frameState: {
     samples: ReadonlyMap<string, ShipMotionSample>;
@@ -1223,18 +1077,26 @@ function updateDebugFrame(input: {
   motionPlan: MotionPlan;
   reducedMotion: boolean;
   renderMetrics: DebugRenderMetrics;
-  assetLoadStats: PharosVilleAssetLoadStats;
   selectedDetailId: string | null;
   shipsById: ReadonlyMap<string, PharosVilleWorldModel["ships"][number]>;
-  compactSampleCache: CompactShipMotionSampleCache;
   world: PharosVilleWorldModel;
-}) {
-  if (!isVisualDebugAllowed()) return;
-  const debugWindow = window as typeof window & {
-    __pharosVilleDebug?: Partial<PharosVilleDebugState>;
-  };
-  if (!debugWindow.__pharosVilleDebug) return;
-  Object.assign(debugWindow.__pharosVilleDebug, {
+};
+
+type DebugFramePatch = Omit<
+  PharosVilleDebugState,
+  | "assetLoadErrors"
+  | "assetsLoaded"
+  | "criticalAssetAttemptsSettled"
+  | "criticalAssetsLoaded"
+  | "deferredAssetsLoaded"
+  | "canvasBudget"
+  | "canvasSize"
+  | "selectedDetailAnchor"
+  | "selectedDetailId"
+>;
+
+function debugFramePatch(input: DebugFramePatchInput): DebugFramePatch {
+  return {
     activeCameraLoopCount: 0,
     activeMotionLoopCount: input.reducedMotion || !input.animationFramePending ? 0 : 1,
     animationFramePending: input.animationFramePending,
@@ -1260,12 +1122,16 @@ function updateDebugFrame(input: {
     targets: input.frameState.targets,
     timeSeconds: input.frameState.timeSeconds,
     wallClockHour: input.frameState.wallClockHour,
-  });
+  };
 }
 
-function sameCamera(left: IsoCamera | null, right: IsoCamera | null): boolean {
-  if (left === null || right === null) return left === right;
-  return left.offsetX === right.offsetX && left.offsetY === right.offsetY && left.zoom === right.zoom;
+function updateDebugFrame(input: DebugFramePatchInput) {
+  if (!isVisualDebugAllowed()) return;
+  const debugWindow = window as typeof window & {
+    __pharosVilleDebug?: Partial<PharosVilleDebugState>;
+  };
+  if (!debugWindow.__pharosVilleDebug) return;
+  Object.assign(debugWindow.__pharosVilleDebug, debugFramePatch(input));
 }
 
 function isCameraWithinBounds(camera: IsoCamera | null, map: PharosVilleWorldModel["map"], viewport: ScreenPoint) {

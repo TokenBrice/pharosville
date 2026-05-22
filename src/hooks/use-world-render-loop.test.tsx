@@ -127,6 +127,7 @@ describe("useWorldRenderLoop", () => {
     onStepCamera,
     onResult,
     reducedMotion = true,
+    wallClockHour = 12,
   }: {
     hoveredDetailId: string | null;
     initialRequestedDpr?: number;
@@ -143,6 +144,7 @@ describe("useWorldRenderLoop", () => {
     }) => WorldCameraStepResult;
     onResult: (result: UseWorldRenderLoopResult) => void;
     reducedMotion?: boolean;
+    wallClockHour?: number;
   }) {
     const [assetManager] = useState(() => new PharosVilleAssetManager());
     const [canvasRef] = useState(() => ({ current: document.createElement("canvas") }));
@@ -204,7 +206,6 @@ describe("useWorldRenderLoop", () => {
       maximumRequestedDprRef,
       motionPlan,
       motionPlanRef,
-      nightMode: false,
       reducedMotion,
       selectedDetailAnchor: null,
       selectedDetailId: null,
@@ -213,6 +214,7 @@ describe("useWorldRenderLoop", () => {
       shipMotionSamplesRef,
       shipsById,
       stepCamera,
+      wallClockHour,
       world,
     });
     onResult(result);
@@ -402,6 +404,17 @@ describe("useWorldRenderLoop", () => {
     expect(debug?.renderMetrics?.framePacing?.sampleCount).toBe(0);
   });
 
+  it("passes the resolved wall-clock hour into renderer motion state", () => {
+    render(<Harness hoveredDetailId={null} onResult={() => {}} wallClockHour={22.5} />);
+
+    expect(drawPharosVilleMock).toHaveBeenCalled();
+    const drawCalls = drawPharosVilleMock.mock.calls as unknown as Array<[{
+      motion: { wallClockHour: number };
+    }]>;
+    const lastCall = drawCalls[drawCalls.length - 1]![0];
+    expect(lastCall.motion.wallClockHour).toBe(22.5);
+  });
+
   it("accepts onBucketFlip callback without error and does not call it on initial mount (B2)", () => {
     // B2 lifecycle wiring: verify onBucketFlip is wired into the interface and
     // does not fire on the initial frame (accSeconds starts at 0, bucket=0,
@@ -450,7 +463,6 @@ describe("useWorldRenderLoop", () => {
         maximumRequestedDprRef,
         motionPlan,
         motionPlanRef,
-        nightMode: false,
         reducedMotion: false,
         selectedDetailAnchor: null,
         selectedDetailId: null,
@@ -459,6 +471,7 @@ describe("useWorldRenderLoop", () => {
         shipMotionSamplesRef,
         shipsById,
         stepCamera: () => ({ camera: cameraRef.current, cameraChanged: false, cameraIntentActive: false }),
+        wallClockHour: 12,
         world,
       });
       return null;
