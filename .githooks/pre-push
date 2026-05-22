@@ -3,8 +3,11 @@ set -euo pipefail
 
 needs_release_gate=0
 needs_changed_gate=0
+updates=()
 
 while read -r local_ref local_sha remote_ref remote_sha; do
+  updates+=("$local_ref $local_sha $remote_ref $remote_sha")
+
   if [[ "$local_sha" == "0000000000000000000000000000000000000000" ]]; then
     continue
   fi
@@ -23,7 +26,7 @@ if [[ "$needs_release_gate" == "1" ]]; then
   npm run validate:deploy-gate
 elif [[ "$needs_changed_gate" == "1" ]]; then
   echo "Running PharosVille changed-files gate before pushing non-main branches..."
-  npm run validate:changed
+  printf '%s\n' "${updates[@]}" | npm run validate:changed -- --pre-push --remote "${1:-origin}"
 else
   echo "No branch updates detected; skipping PharosVille pre-push validation gates."
 fi

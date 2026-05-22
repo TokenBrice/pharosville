@@ -1,10 +1,11 @@
 #!/usr/bin/env node
+import "tsx/cjs";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import net from "node:net";
 import { pathToFileURL } from "node:url";
 
-import { discoverPharosApiConfig } from "./setup-local-api-key.mjs";
+import { discoverPharosApiConfig } from "./local-api-env.mjs";
 
 const require = createRequire(import.meta.url);
 const { PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS } = require("../../shared/lib/pharosville-smoke-matrix.ts");

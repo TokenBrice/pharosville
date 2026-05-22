@@ -1,4 +1,9 @@
-import { defineConfig, devices } from "@playwright/test";
+import { defineConfig } from "@playwright/test";
+import {
+  PHAROSVILLE_BASE_VIEWPORT,
+  buildChromiumProject,
+  shouldReuseExistingServer,
+} from "./tests/helpers/playwright-config";
 
 /**
  * Playwright config for the performance telemetry lane (tests/perf/).
@@ -15,13 +20,6 @@ import { defineConfig, devices } from "@playwright/test";
  */
 
 const BASE_URL = "http://127.0.0.1:4173";
-const BASE_VIEWPORT = { width: 1440, height: 960 };
-
-function shouldReuseExistingServer() {
-  if (process.env.PHAROSVILLE_VISUAL_REUSE === "1") return true;
-  if (process.env.PHAROSVILLE_VISUAL_REUSE === "0") return false;
-  return !process.env.CI;
-}
 
 export default defineConfig({
   testDir: "./tests/perf",
@@ -32,7 +30,7 @@ export default defineConfig({
   },
   use: {
     baseURL: BASE_URL,
-    viewport: BASE_VIEWPORT,
+    viewport: PHAROSVILLE_BASE_VIEWPORT,
     // Perf tests require real animation; override the visual-spec default.
     contextOptions: {
       reducedMotion: "no-preference",
@@ -40,16 +38,12 @@ export default defineConfig({
     trace: "on-first-retry",
   },
   projects: [
-    {
-      name: "desktop-chromium",
-      use: {
-        ...devices["Desktop Chrome"],
-        baseURL: BASE_URL,
-        viewport: BASE_VIEWPORT,
-        contextOptions: { reducedMotion: "no-preference" },
-        trace: "on-first-retry" as const,
-      },
-    },
+    buildChromiumProject("desktop-chromium", {
+      baseURL: BASE_URL,
+      viewport: PHAROSVILLE_BASE_VIEWPORT,
+      contextOptions: { reducedMotion: "no-preference" },
+      trace: "on-first-retry",
+    }),
   ],
   webServer: {
     command: "npm run dev -- --host 127.0.0.1 --port 4173",

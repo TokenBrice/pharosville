@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+
+import { discoverLocalPharosApiKey } from "./local-api-env.mjs";
 
 const requiredPaths = [
   "AGENTS.md",
@@ -16,7 +18,6 @@ const requiredPaths = [
 ];
 
 const supportedNodeMajor = 24;
-const sharedEnvFileName = "pharosville.env.local";
 const writableScratchPaths = ["outputs"];
 
 function summarizeGitStatus(repoRoot) {
@@ -66,61 +67,6 @@ function detectExpectedNodeMajor(repoRoot) {
   } catch {
     return supportedNodeMajor;
   }
-}
-
-function parseLoosePharosEnvFile(filePath) {
-  try {
-    const file = readFileSync(filePath, "utf8");
-    return Object.fromEntries(file.split(/\r?\n/).flatMap((line) => {
-      const match = line.match(/^\s*(PHAROS_API_(?:BASE|KEY))\s*(?:=|:)\s*(.*?)\s*$/);
-      if (!match) return [];
-      const value = match[2].replace(/^([`'"])(.*)\1$/, "$2").trim();
-      return [[match[1], value]];
-    }));
-  } catch {
-    return {};
-  }
-}
-
-function resolveGitCommonDir(repoRoot) {
-  try {
-    const rawPath = execFileSync("git", ["rev-parse", "--git-common-dir"], { cwd: repoRoot })
-      .toString("utf8")
-      .trim();
-    if (!rawPath) return null;
-    return isAbsolute(rawPath) ? rawPath : resolve(repoRoot, rawPath);
-  } catch {
-    return null;
-  }
-}
-
-function discoverLocalPharosApiKey(repoRoot) {
-  const envKey = process.env.PHAROS_API_KEY?.trim();
-  if (envKey) return { source: "process.env.PHAROS_API_KEY", keyFound: true };
-
-  const worktreeEnvPath = resolve(repoRoot, ".env.local");
-  if (parseLoosePharosEnvFile(worktreeEnvPath).PHAROS_API_KEY?.trim()) {
-    return { source: ".env.local", keyFound: true };
-  }
-
-  const commonDir = resolveGitCommonDir(repoRoot);
-  if (!commonDir) return { source: null, keyFound: false };
-
-  const commonRootEnvPath = join(dirname(commonDir), ".env.local");
-  if (commonRootEnvPath !== worktreeEnvPath && parseLoosePharosEnvFile(commonRootEnvPath).PHAROS_API_KEY?.trim()) {
-    return { source: `${commonRootEnvPath} (main worktree)`, keyFound: true };
-  }
-
-  const sharedGitEnvPath = join(commonDir, sharedEnvFileName);
-  if (parseLoosePharosEnvFile(sharedGitEnvPath).PHAROS_API_KEY?.trim()) {
-    return { source: `${sharedGitEnvPath} (shared git env)`, keyFound: true };
-  }
-
-  return {
-    source: null,
-    keyFound: false,
-    hints: [".env.local", commonRootEnvPath, sharedGitEnvPath],
-  };
 }
 
 function main() {

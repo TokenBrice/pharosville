@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 
@@ -16,14 +16,24 @@ import {
   findPathReferencesInMarkdown,
 } from "./check-doc-paths-and-scripts.mjs";
 import { evaluateBundleBudgets } from "./check-bundle-size.mjs";
+import { bundleBudgets as sharedBundleBudgets } from "./bundle-budgets.mjs";
 import {
   discoverPharosApiConfig,
+  loadWorktreeSharedPharosEnv,
   parseLoosePharosEnvFile,
-} from "./pharosville/setup-local-api-key.mjs";
+} from "./pharosville/local-api-env.mjs";
 import {
+  changedValidationUpdatesFromPrePushInput,
   chooseValidationLane,
+  collectPrePushChangedPaths,
   parseChangedPaths,
+  parseGitNameStatusPaths,
+  parsePrePushUpdates,
 } from "./pharosville/validate-changed.mjs";
+import {
+  firstRenderBudgets,
+  maxManifestAssets,
+} from "./pharosville/asset-budgets.mjs";
 import {
   parseArgs as parseWorktreeArgs,
   sanitizeSegment,
@@ -197,18 +207,31 @@ assert.equal(onboardingCheck.findings.some((finding) => finding.id === "claude-c
 
 assert.deepEqual(
   parseChangedPaths(" M README.md\n?? docs/pharosville/AGENT_ONBOARDING.md\nR  docs/a.md -> docs/b.md\n"),
-  ["README.md", "docs/pharosville/AGENT_ONBOARDING.md", "docs/b.md"],
+  ["README.md", "docs/pharosville/AGENT_ONBOARDING.md", "docs/a.md", "docs/b.md"],
+);
+assert.deepEqual(
+  parseGitNameStatusPaths("A\tdocs/a.md\nD\tsrc/old.ts\nR100\tdocs/old.md\tdocs/new.md\n"),
+  ["docs/a.md", "src/old.ts", "docs/old.md", "docs/new.md"],
 );
 assert.equal(chooseValidationLane(["README.md", "docs/pharosville/CURRENT.md"]), "docs");
 assert.equal(chooseValidationLane(["README.md", "src/main.tsx"]), "full");
 assert.equal(chooseValidationLane([]), "none");
 assert.equal(chooseValidationLane(["AGENTS.md", "CLAUDE.md", "agents/new-plan.md"]), "docs");
 assert.equal(chooseValidationLane(["docs/pharosville/CURRENT.md", "functions/api/[[path]].ts"]), "full");
+assert.equal(chooseValidationLane(parseGitNameStatusPaths("D\tdocs/old.md\n")), "docs");
+assert.equal(chooseValidationLane(parseGitNameStatusPaths("R100\tsrc/old.ts\tdocs/old.md\n")), "full");
 
 const runtimeFactsMarkdown = buildRuntimeFactsMarkdown();
 assert.match(runtimeFactsMarkdown, /^# PharosVille Runtime Facts/);
 assert.match(runtimeFactsMarkdown, /## API Allowlist/);
 assert.match(runtimeFactsMarkdown, /## Asset Budgets/);
+assert.equal(maxManifestAssets, 75);
+assert.equal(firstRenderBudgets.maxCount, 33);
+assert.equal(sharedBundleBudgets.desktop.label, "desktop lazy chunk");
+
+const packageJson = JSON.parse(readFileSync(resolve("package.json"), "utf8"));
+assert.doesNotMatch(packageJson.scripts["test:visual:dist:static"], /resizing below/);
+assert.match(packageJson.scripts["test:visual:dist:static"], /@visual-static|resized below/);
 
 assert.deepEqual(parseChangedPaths("AM src/index.ts\n D docs/pharosville/AGENT_ONBOARDING.md\n"), [
   "src/index.ts",
@@ -216,6 +239,47 @@ assert.deepEqual(parseChangedPaths("AM src/index.ts\n D docs/pharosville/AGENT_O
 ]);
 assert.deepEqual(parseChangedPaths(""), []);
 assert.deepEqual(parseChangedPaths("?? docs/new guide.md\n"), ["docs/new guide.md"]);
+
+const zeroSha = "0000000000000000000000000000000000000000";
+const prePushInput = [
+  "refs/heads/feature aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa refs/heads/feature bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  `refs/heads/new cccccccccccccccccccccccccccccccccccccccc refs/heads/new ${zeroSha}`,
+  "refs/heads/main dddddddddddddddddddddddddddddddddddddddd refs/heads/main eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  `refs/heads/delete ${zeroSha} refs/heads/delete ffffffffffffffffffffffffffffffffffffffff`,
+  `refs/tags/v1 gggggggggggggggggggggggggggggggggggggggg refs/tags/v1 ${zeroSha}`,
+].join("\n");
+assert.equal(parsePrePushUpdates(prePushInput).length, 5);
+assert.deepEqual(
+  changedValidationUpdatesFromPrePushInput(prePushInput).map((update) => update.remoteRef),
+  ["refs/heads/feature", "refs/heads/new"],
+);
+
+const diffCalls = [];
+const prePushPaths = collectPrePushChangedPaths(prePushInput, {
+  remoteName: "upstream",
+  exec(_command, args) {
+    if (args[0] === "merge-base") {
+      assert.equal(args[2], "upstream/main");
+      return "main-base\n";
+    }
+    if (args[0] === "diff") {
+      diffCalls.push(args.slice(3));
+      if (args[3] === "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") {
+        return "A\tdocs/range.md\nR100\tdocs/old.md\tdocs/new.md\n";
+      }
+      if (args[3] === "main-base") {
+        return "D\tsrc/deleted.ts\n";
+      }
+    }
+    throw new Error(`Unexpected fake git call: ${args.join(" ")}`);
+  },
+});
+assert.deepEqual(diffCalls, [
+  ["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+  ["main-base", "cccccccccccccccccccccccccccccccccccccccc"],
+]);
+assert.deepEqual(prePushPaths, ["docs/range.md", "docs/old.md", "docs/new.md", "src/deleted.ts"]);
+assert.equal(chooseValidationLane(prePushPaths), "full");
 
 assert.equal(sanitizeSegment("  Feature Branch 42 "), "feature-branch-42");
 assert.deepEqual(
@@ -341,6 +405,17 @@ try {
     apiFixture.mainEnvPath,
     apiFixture.sharedEnvPath,
   ]);
+  const sharedEnv = withEnvPatch({
+    FAKE_GIT_COMMON_DIR: apiFixture.commonDir,
+    FAKE_GIT_EXIT_CODE: undefined,
+    PATH: fakePath,
+    PHAROS_API_BASE: undefined,
+    PHAROS_API_KEY: undefined,
+  }, () => loadWorktreeSharedPharosEnv(apiFixture.worktreeRoot));
+  assert.deepEqual(sharedEnv, {
+    PHAROS_API_BASE: "https://shared.example",
+    PHAROS_API_KEY: "shared-key",
+  });
 
   const noGitDiscovered = withEnvPatch({
     FAKE_GIT_COMMON_DIR: undefined,

@@ -3,6 +3,14 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { aggregateBudgets, bundleBudgets } from "../bundle-budgets.mjs";
+import {
+  firstRenderBudgets,
+  maxManifestAssets,
+  shellCriticalBudgets,
+  totalAssetBudgets,
+} from "./asset-budgets.mjs";
+
 const OUTPUT_PATH = "docs/pharosville/RUNTIME_FACTS.md";
 
 function readText(repoRoot, path) {
@@ -15,12 +23,6 @@ function readJson(repoRoot, path) {
 
 function normalizeNumber(value) {
   return Number(String(value).replaceAll("_", ""));
-}
-
-function parseByteExpression(expression) {
-  const product = expression.match(/([\d_]+)\s*\*\s*1024/);
-  if (product) return normalizeNumber(product[1]) * 1024;
-  return normalizeNumber(expression);
 }
 
 function formatBytes(bytes) {
@@ -88,14 +90,32 @@ function parseViewportFacts(repoRoot) {
 }
 
 function parseApiFacts(repoRoot) {
-  const smokeSource = readText(repoRoot, "shared/lib/pharosville-smoke-matrix.ts");
+  const registrySource = readText(repoRoot, "shared/lib/pharosville-endpoint-registry.ts");
+  const apiPathsSource = readText(repoRoot, "shared/lib/api-endpoints/paths.ts");
+  const pathExpressions = [...registrySource.matchAll(/path:\s*(API_PATHS\.[A-Za-z0-9_]+\([^)]*\))/g)]
+    .map((match) => match[1]);
+  if (pathExpressions.length === 0) throw new Error("Could not parse PharosVille endpoint registry paths.");
   return {
-    allowlist: parseQuotedArray(
-      smokeSource,
-      /PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS\s*=\s*\[([\s\S]*?)]\s*as const/,
-      "API smoke allowlist",
-    ),
+    allowlist: pathExpressions.map((expression) => resolveApiPathExpression(apiPathsSource, expression)),
   };
+}
+
+function resolveApiPathExpression(apiPathsSource, expression) {
+  const match = expression.match(/^API_PATHS\.([A-Za-z0-9_]+)\((.*?)\)$/);
+  if (!match) throw new Error(`Could not parse API path expression: ${expression}`);
+  const [, method, args] = match;
+  const basePath = resolveApiPathBase(apiPathsSource, method);
+  if (method === "stabilityIndex" && args.trim() === "true") {
+    return `${basePath}?detail=true`;
+  }
+  return basePath;
+}
+
+function resolveApiPathBase(apiPathsSource, method) {
+  const pattern = new RegExp(`${method}:\\s*\\([^)]*\\)\\s*=>\\s*(?:"([^"]+)"|buildQueryPath\\("([^"]+)")`);
+  const match = apiPathsSource.match(pattern);
+  if (!match) throw new Error(`Could not resolve API_PATHS.${method} base path.`);
+  return match[1] ?? match[2];
 }
 
 function parseManifestFacts(repoRoot) {
@@ -120,50 +140,30 @@ function parseManifestFacts(repoRoot) {
   };
 }
 
-function parseAssetBudgetFacts(repoRoot) {
-  const source = readText(repoRoot, "scripts/pharosville/validate-assets.mjs");
+function parseAssetBudgetFacts() {
   return {
-    firstRender: parseBudgetObject(source, "firstRenderBudgets"),
-    manifestMaxCount: normalizeNumber(matchRequired(source, /const maxManifestAssets\s*=\s*([\d_]+)/, "max manifest assets")[1]),
-    shellCritical: parseBudgetObject(source, "shellCriticalBudgets"),
-    totalAssets: parseBudgetObject(source, "totalAssetBudgets"),
+    firstRender: firstRenderBudgets,
+    manifestMaxCount: maxManifestAssets,
+    shellCritical: shellCriticalBudgets,
+    totalAssets: totalAssetBudgets,
   };
 }
 
-function parseBudgetObject(source, objectName) {
-  const block = matchRequired(
-    source,
-    new RegExp(`const ${objectName}\\s*=\\s*{([\\s\\S]*?)};`),
-    objectName,
-  )[1];
-  const maxCount = block.match(/maxCount:\s*([^,\n]+)/)?.[1];
-  const maxBytes = block.match(/maxBytes:\s*([^,\n]+)/)?.[1];
-  const maxDecodedPixels = block.match(/maxDecodedPixels:\s*([^,\n]+)/)?.[1];
+function parseBundleFacts() {
   return {
-    maxBytes: maxBytes ? parseByteExpression(maxBytes) : null,
-    maxCount: maxCount ? normalizeNumber(maxCount) : null,
-    maxDecodedPixels: maxDecodedPixels ? normalizeNumber(maxDecodedPixels) : null,
-  };
-}
-
-function parseBundleFacts(repoRoot) {
-  const source = readText(repoRoot, "scripts/check-bundle-size.mjs");
-  return {
-    chunks: ["entry", "desktop", "css"].map((key) => parseBundleChunkBudget(source, key)),
+    chunks: ["entry", "desktop", "css"].map((key) => {
+      const budget = bundleBudgets[key];
+      return {
+        key,
+        label: budget.label,
+        maxGzipBytes: budget.maxGzipBytes,
+        maxRawBytes: budget.maxRawBytes,
+      };
+    }),
     totalJs: {
-      maxGzipBytes: parseByteExpression(matchRequired(source, /maxJsGzipBytes:\s*([^,\n]+)/, "total JS gzip budget")[1]),
-      maxRawBytes: parseByteExpression(matchRequired(source, /maxJsRawBytes:\s*([^,\n]+)/, "total JS raw budget")[1]),
+      maxGzipBytes: aggregateBudgets.maxJsGzipBytes,
+      maxRawBytes: aggregateBudgets.maxJsRawBytes,
     },
-  };
-}
-
-function parseBundleChunkBudget(source, key) {
-  const block = matchRequired(source, new RegExp(`${key}:\\s*{([\\s\\S]*?)\\n\\s*},`), `${key} bundle budget`)[1];
-  return {
-    key,
-    label: matchRequired(block, /label:\s*"([^"]+)"/, `${key} bundle label`)[1],
-    maxGzipBytes: parseByteExpression(matchRequired(block, /maxGzipBytes:\s*([^,\n]+)/, `${key} gzip budget`)[1]),
-    maxRawBytes: parseByteExpression(matchRequired(block, /maxRawBytes:\s*([^,\n]+)/, `${key} raw budget`)[1]),
   };
 }
 
@@ -183,6 +183,13 @@ function parseSquadFacts(repoRoot) {
 
 function parseTitanFacts(repoRoot) {
   const source = readText(repoRoot, "src/systems/ship-visuals.ts");
+  const registryMatch = source.match(/TITAN_SHIPS:[\s\S]*?=\s*{([\s\S]*?)};/);
+  if (registryMatch) {
+    return [...registryMatch[1].matchAll(/"([^"]+)":\s*{\s*spriteAssetId:\s*"([^"]+)"\s*,\s*scale:\s*([\d.]+)/g)]
+      .map((match) => ({ assetId: match[2], id: match[1], scale: Number(match[3]) }))
+      .sort((a, b) => a.id.localeCompare(b.id));
+  }
+
   const assetBlock = matchRequired(source, /TITAN_SHIP_ASSET_IDS:[\s\S]*?=\s*{([\s\S]*?)};/, "titan asset IDs")[1];
   const scaleBlock = matchRequired(source, /TITAN_SHIP_SCALES:[\s\S]*?=\s*{([\s\S]*?)};/, "titan scales")[1];
   const scales = Object.fromEntries(
@@ -260,8 +267,8 @@ export function buildRuntimeFactsMarkdown({ repoRoot = process.cwd() } = {}) {
   const viewport = parseViewportFacts(repoRoot);
   const api = parseApiFacts(repoRoot);
   const manifest = parseManifestFacts(repoRoot);
-  const assetBudgets = parseAssetBudgetFacts(repoRoot);
-  const bundle = parseBundleFacts(repoRoot);
+  const assetBudgets = parseAssetBudgetFacts();
+  const bundle = parseBundleFacts();
   const squads = parseSquadFacts(repoRoot);
   const titans = parseTitanFacts(repoRoot);
   const heritage = parseHeritageFacts(repoRoot);

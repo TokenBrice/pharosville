@@ -1,60 +1,15 @@
-import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath, URL } from "node:url";
 import type { OutputBundle, OutputChunk } from "rollup";
 import { onRequest as pharosVilleApiProxy } from "./functions/api/[[path]]";
 import { stripAuthoringFields } from "./scripts/pharosville/build-runtime-manifest.mjs";
+import { loadWorktreeSharedPharosEnv } from "./scripts/pharosville/local-api-env.mjs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const pharosVilleDesktopQuery = "(min-width: 1280px) and (min-height: 760px)";
-const PHAROS_SHARED_ENV_FILE = "pharosville.env.local";
-
-function parseLoosePharosEnvFile(filePath: string): Record<string, string> {
-  try {
-    const file = readFileSync(filePath, "utf8");
-    return Object.fromEntries(file.split(/\r?\n/).flatMap((line) => {
-      const match = line.match(/^\s*(PHAROS_API_(?:BASE|KEY))\s*(?:=|:)\s*(.*?)\s*$/);
-      if (!match) return [];
-      const value = match[2].replace(/^([`'"])(.*)\1$/, "$2").trim();
-      return [[match[1], value]];
-    }));
-  } catch {
-    return {};
-  }
-}
-
-function resolveGitCommonDir(): string | null {
-  try {
-    const rawPath = execFileSync("git", ["rev-parse", "--git-common-dir"], { cwd: root })
-      .toString("utf8")
-      .trim();
-    if (!rawPath) return null;
-    return isAbsolute(rawPath) ? rawPath : resolve(root, rawPath);
-  } catch {
-    return null;
-  }
-}
-
-function loadWorktreeSharedPharosEnv(): Record<string, string> {
-  const commonDir = resolveGitCommonDir();
-  if (!commonDir) return {};
-
-  const commonRoot = dirname(commonDir);
-  const merged: Record<string, string> = {};
-  const candidateFiles = [
-    commonRoot !== root ? join(commonRoot, ".env.local") : null,
-    join(commonDir, PHAROS_SHARED_ENV_FILE),
-  ].filter((value): value is string => Boolean(value));
-
-  for (const filePath of candidateFiles) {
-    Object.assign(merged, parseLoosePharosEnvFile(filePath));
-  }
-
-  return merged;
-}
 
 function localPharosVilleApiProxy(env: { PHAROS_API_BASE?: string; PHAROS_API_KEY?: string }): Plugin {
   return {
@@ -201,7 +156,7 @@ function desktopModulePreloadFileNames(bundle: OutputBundle, desktopChunk: Outpu
 
 export default defineConfig(({ mode }) => {
   const env = {
-    ...loadWorktreeSharedPharosEnv(),
+    ...loadWorktreeSharedPharosEnv(root),
     ...loadEnv(mode, root, "PHAROS_API_"),
     ...process.env,
   };
