@@ -1,11 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import {
   fixtureChains,
-  denseFixtureChains,
-  denseFixturePegSummary,
-  denseFixtureReportCards,
   denseFixtureStablecoins,
-  denseFixtureStress,
   fixturePegSummary,
   fixtureReportCards,
   fixtureStability,
@@ -15,91 +11,23 @@ import {
 } from "../../src/__fixtures__/pharosville-world";
 import { MAX_MAIN_CANVAS_PIXELS, MAX_TOTAL_BACKING_PIXELS } from "../../src/systems/canvas-budget";
 import { tileToScreen } from "../../src/systems/projection";
-import { PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY } from "@shared/lib/pharosville-api-endpoints";
 import type { PegSummaryResponse, StressSignalsAllResponse } from "@shared/types";
+import {
+  collectRetiredSummaryRequests,
+  denyPharosVilleViewportGatedRequests,
+  installWallClockOverride,
+  mockDensePharosVilleData,
+  mockPharosVilleData,
+  mockPharosVillePayloads,
+  mockScreenSize,
+  readDebugCamera,
+  readRuntimeSnapshot,
+  readVisualDebug,
+  waitForRuntimeDebug,
+  type DebugTarget,
+  type PharosVilleVisualDebug,
+} from "../helpers/pharosville-debug";
 
-type DebugShipMotionSample = {
-  currentDockId: string | null;
-  currentRouteStopId: string | null;
-  currentRouteStopKind: string | null;
-  id: string;
-  mapVisible: boolean;
-  state: string;
-  x: number;
-  y: number;
-  zone: string;
-};
-
-type DebugTarget = {
-  detailId: string;
-  kind: string;
-  priority: number;
-  rect: { height: number; width: number; x: number; y: number };
-};
-
-type DebugCamera = {
-  offsetX: number;
-  offsetY: number;
-  zoom: number;
-};
-
-type DebugRenderMetrics = {
-  drawableCount: number;
-  drawableCounts: {
-    body: number;
-    overlay: number;
-    selection: number;
-    underlay: number;
-  };
-  drawDurationMs: number;
-  movingShipCount: number;
-  visibleShipCount: number;
-  visibleTileCount: number;
-  shipMaxHeadingDeltaDeg?: number;
-  shipMaxPositionDeltaTile?: number;
-  routeCacheStats?: { hitRatio: number; evictionRate: number; size: number; capacity: number };
-  longtask?: { count: number; maxDurationMs: number };
-};
-
-type PharosVilleVisualDebug = {
-  activeMotionLoopCount?: number;
-  animationFramePending?: boolean;
-  assetLoadErrors?: unknown[];
-  assetsLoaded?: boolean;
-  camera?: DebugCamera | null;
-  cameraWithinBounds?: boolean;
-  canvasBudget?: unknown;
-  canvasSize?: { x: number; y: number };
-  criticalAssetsLoaded?: boolean;
-  deferredAssetsLoaded?: boolean;
-  motionClockSource?: "requestAnimationFrame" | "reduced-motion-static-frame";
-  motionCueCounts?: {
-    ambientBirds: number;
-    animatedShips: number;
-    effectShips: number;
-    harborLights: number;
-    moverShips: number;
-    selectedRelationshipOverlays: number;
-  };
-  motionFrameCount?: number;
-  reducedMotion?: boolean;
-  renderMetrics?: DebugRenderMetrics;
-  selectedDetailId?: string | null;
-  shipMotionSamples?: DebugShipMotionSample[];
-  targets?: DebugTarget[];
-  timeSeconds?: number;
-  wallClockHour?: number;
-};
-
-const meta = { updatedAt: 1_700_000_000, ageSeconds: 60, status: "fresh" };
-const PHAROSVILLE_DESKTOP_DATA_ENDPOINTS = [
-  PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stablecoins,
-  PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.chains,
-  PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stability,
-  PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.pegSummary,
-  PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stress,
-  PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.reportCards,
-] as const;
 const RISK_WATER_AREA_DETAILS = [
   { detailId: "area.dews.calm", label: "Calm Anchorage", zone: "calm" },
   { detailId: "area.dews.watch", label: "Watch Breakwater", zone: "watch" },
@@ -108,96 +36,70 @@ const RISK_WATER_AREA_DETAILS = [
   { detailId: "area.dews.danger", label: "Danger Strait", zone: "danger" },
   { detailId: "area.risk-water.ledger-mooring", label: "Ledger Mooring", zone: "ledger" },
 ] as const;
-async function mockScreenSize(page: Page, width: number, height: number): Promise<void> {
-  // The desktop gate now reads `window.screen.width/height` rather than
-  // viewport dimensions. Playwright's `setViewportSize` only changes the
-  // viewport, so screen-gate tests need to override `screen.{width,height}`
-  // before navigation.
-  await page.addInitScript(({ w, h }) => {
-    Object.defineProperty(window.screen, "width", { configurable: true, get: () => w });
-    Object.defineProperty(window.screen, "height", { configurable: true, get: () => h });
-    Object.defineProperty(window.screen, "availWidth", { configurable: true, get: () => w });
-    Object.defineProperty(window.screen, "availHeight", { configurable: true, get: () => h });
-  }, { w: width, h: height });
+
+const VISUAL_LANE_TAGS = {
+  accessibility: "@visual-accessibility",
+  interaction: "@visual-interaction",
+  motion: "@visual-motion",
+  static: "@visual-static",
+} as const;
+
+type VisualLane = keyof typeof VISUAL_LANE_TAGS;
+
+const EXPECTED_VISUAL_LANE_TITLES: Record<VisualLane, readonly string[]> = {
+  accessibility: [
+    "pharosville accessibility smoke validates keyboard focus and landmarks",
+    "pharosville accessibility pinch-zoom does not steal focus or selection",
+  ],
+  interaction: [
+    "pharosville canvas interactions update details and camera",
+    "pharosville reduced motion keeps ship samples static without RAF",
+    "pharosville responds to live reduced-motion preference transitions",
+  ],
+  motion: [
+    "starts bounded world animation and keeps moving ship targets selectable",
+  ],
+  static: [
+    "pharosville renders desktop canvas shell",
+    "pharosville dense visual fixture preserves districts, dense ships, and render budget",
+    "pharosville renders a stressed ship in storm-shelf detail",
+    "pharosville exposes all named risk water areas in browser details",
+    "pharosville narrow fallback avoids world runtime requests",
+    "pharosville short desktop fallback avoids clipped map",
+    "pharosville desktop gate passes at threshold screen and falls back below it",
+    "pharosville keeps world runtime mounted when the browser window is resized below the old viewport gate",
+    "pharosville ultrawide canvas keeps DPR backing store capped",
+  ],
+};
+
+const registeredVisualLaneTitles: Record<VisualLane, string[]> = {
+  accessibility: [],
+  interaction: [],
+  motion: [],
+  static: [],
+};
+
+function visualLane(lane: VisualLane, title: string): [string, { tag: string }] {
+  registeredVisualLaneTitles[lane].push(title);
+  return [title, { tag: VISUAL_LANE_TAGS[lane] }];
 }
 
-async function installWallClockOverride(page: Page, hour: number): Promise<void> {
-  // Set a global the renderer reads BEFORE its reduced-motion noon pin (see
-  // pharosville-world.tsx). Also override Date.prototype.getHours/getMinutes
-  // for any non-reduced-motion paths and for code that constructs Date
-  // independently. Does NOT virtualize rAF (unlike page.clock.install), so
-  // requestAnimationFrame keeps advancing normally.
-  const flooredHour = Math.floor(hour);
-  const minutes = Math.round((hour - flooredHour) * 60);
-  const fractional = ((hour % 24) + 24) % 24;
-  await page.addInitScript(({ h, m, frac }) => {
-    (globalThis as { __pharosVilleTestWallClockHour?: number }).__pharosVilleTestWallClockHour = frac;
-    const origGetHours = Date.prototype.getHours;
-    const origGetMinutes = Date.prototype.getMinutes;
-    Date.prototype.getHours = function () { return h; };
-    Date.prototype.getMinutes = function () { return m; };
-    (Date.prototype as { __origGetHours?: typeof origGetHours }).__origGetHours = origGetHours;
-    (Date.prototype as { __origGetMinutes?: typeof origGetMinutes }).__origGetMinutes = origGetMinutes;
-  }, { h: flooredHour, m: minutes, frac: fractional });
-}
-
-async function mockPharosVilleData(page: Page) {
-  await mockPharosVillePayloads(page, {
-    stablecoins: fixtureStablecoins,
-    chains: fixtureChains,
-    stability: fixtureStability,
-    pegSummary: fixturePegSummary,
-    stress: fixtureStress,
-    reportCards: fixtureReportCards,
-  });
-}
-
-async function mockDensePharosVilleData(page: Page) {
-  await mockPharosVillePayloads(page, {
-    stablecoins: denseFixtureStablecoins,
-    chains: denseFixtureChains,
-    stability: {
-      ...fixtureStability,
-      current: {
-        ...fixtureStability.current,
-        band: "ELEVATED",
-        components: { breadth: 26, severity: 54, trend: 12 },
-        score: 72,
-      },
-    },
-    pegSummary: denseFixturePegSummary,
-    stress: denseFixtureStress,
-    reportCards: denseFixtureReportCards,
-  });
-}
-
-async function mockPharosVillePayloads(page: Page, payload: {
-  chains: unknown;
-  pegSummary: unknown;
-  reportCards: unknown;
-  stability: unknown;
-  stablecoins: unknown;
-  stress: unknown;
-}) {
-  const payloads: Array<{ path: string; body: unknown }> = [
-    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stablecoins, body: payload.stablecoins },
-    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.chains, body: payload.chains },
-    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stability, body: payload.stability },
-    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.pegSummary, body: payload.pegSummary },
-    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stress, body: payload.stress },
-    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.reportCards, body: payload.reportCards },
-  ];
-
-  for (const { path, body } of payloads) {
-    const endpoint = new URL(path, "http://localhost");
-    await page.route((url) => (
-      url.pathname === endpoint.pathname && url.search === endpoint.search
-    ), async (route) => {
-      await route.fulfill({
-        contentType: "application/json",
-        body: JSON.stringify({ ...(body as Record<string, unknown>), _meta: meta }),
-      });
-    });
+function assertVisualLaneCoverage(): void {
+  const failures: string[] = [];
+  for (const lane of Object.keys(EXPECTED_VISUAL_LANE_TITLES) as VisualLane[]) {
+    const expected = EXPECTED_VISUAL_LANE_TITLES[lane];
+    const registered = registeredVisualLaneTitles[lane];
+    const missing = expected.filter((title) => !registered.includes(title));
+    const unexpected = registered.filter((title) => !expected.includes(title));
+    if (missing.length > 0) {
+      failures.push(`${lane} missing: ${missing.join(", ")}`);
+    }
+    if (unexpected.length > 0) {
+      failures.push(`${lane} unexpected: ${unexpected.join(", ")}`);
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(`Visual lane coverage is stale. ${failures.join("; ")}`);
   }
 }
 
@@ -313,7 +215,7 @@ async function expectNoBuildingTargets(page: Page) {
   expect(buildingTargets).toEqual([]);
 }
 
-test("pharosville renders desktop canvas shell", async ({ page }) => {
+test(...visualLane("static", "pharosville renders desktop canvas shell"), async ({ page }) => {
   await mockPharosVilleData(page);
   const retiredSummaryRequests = collectRetiredSummaryRequests(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -381,7 +283,7 @@ test("pharosville renders desktop canvas shell", async ({ page }) => {
   });
 });
 
-test("pharosville accessibility smoke validates keyboard focus and landmarks", async ({ page }) => {
+test(...visualLane("accessibility", "pharosville accessibility smoke validates keyboard focus and landmarks"), async ({ page }) => {
   await mockPharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -409,7 +311,7 @@ test("pharosville accessibility smoke validates keyboard focus and landmarks", a
 // lane (test:visual:accessibility / test:visual:cross-browser) then covers
 // pinch on chromium + firefox, ensuring the gesture neither triggers a
 // spurious selection nor pulls focus out of the canvas shell.
-test("pharosville accessibility pinch-zoom does not steal focus or selection", async ({ page }) => {
+test(...visualLane("accessibility", "pharosville accessibility pinch-zoom does not steal focus or selection"), async ({ page }) => {
   await mockPharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -466,7 +368,7 @@ test("pharosville accessibility pinch-zoom does not steal focus or selection", a
   expect(focusedTestIdAfter).toBe(focusedTestIdBefore);
 });
 
-test("pharosville dense visual fixture preserves districts, dense ships, and render budget", async ({ page }) => {
+test(...visualLane("static", "pharosville dense visual fixture preserves districts, dense ships, and render budget"), async ({ page }) => {
   await mockDensePharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -583,7 +485,7 @@ test("pharosville dense visual fixture preserves districts, dense ships, and ren
   });
 });
 
-test("pharosville renders a stressed ship in storm-shelf detail", async ({ page }) => {
+test(...visualLane("static", "pharosville renders a stressed ship in storm-shelf detail"), async ({ page }) => {
   const stressedPegSummary: PegSummaryResponse = {
     ...fixturePegSummary,
     coins: [
@@ -646,7 +548,7 @@ test("pharosville renders a stressed ship in storm-shelf detail", async ({ page 
   await expect(detailPanel).toContainText("Danger Strait");
 });
 
-test("pharosville exposes all named risk water areas in browser details", async ({ page }) => {
+test(...visualLane("static", "pharosville exposes all named risk water areas in browser details"), async ({ page }) => {
   await mockPharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -671,57 +573,7 @@ test("pharosville exposes all named risk water areas in browser details", async 
   }
 });
 
-async function denyPharosVilleViewportGatedRequests(page: Page) {
-  const deniedRequests: string[] = [];
-  page.on("request", (request) => {
-    const url = new URL(request.url());
-    if (isPharosVilleViewportGatedRequest(url)) {
-      deniedRequests.push(`${url.pathname}${url.search}`);
-    }
-  });
-  await page.route("**/*", async (route) => {
-    const url = new URL(route.request().url());
-    if (isPharosVilleViewportGatedRequest(url)) {
-      await route.abort("blockedbyclient");
-      return;
-    }
-    await route.continue();
-  });
-  return deniedRequests;
-}
-
-function collectRetiredSummaryRequests(page: Page): string[] {
-  const retiredPath = ["blacklist", "summary"].join("-");
-  const requests: string[] = [];
-  page.on("request", (request) => {
-    const url = new URL(request.url());
-    if (url.pathname.endsWith(`/${retiredPath}`)) requests.push(`${url.pathname}${url.search}`);
-  });
-  return requests;
-}
-
-function isPharosVilleViewportGatedRequest(url: URL) {
-  const retiredPath = ["blacklist", "summary"].join("-");
-  if (url.pathname.endsWith(`/${retiredPath}`)) return true;
-  if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/_site-data/")) return true;
-  if (
-    url.pathname.startsWith("/pharosville/assets/")
-    || url.pathname.startsWith("/logos/")
-    || /^\/chains\/[^/]+\.(?:png|svg|jpe?g|webp)$/i.test(url.pathname)
-  ) {
-    return true;
-  }
-  if (
-    /(?:^|\/)(?:pharosville-desktop-data|pharosville-world)(?:[.-]|$)/.test(url.pathname)
-    || url.pathname.includes("/src/pharosville-desktop-data")
-    || url.pathname.includes("/src/pharosville-world")
-  ) {
-    return true;
-  }
-  return PHAROSVILLE_DESKTOP_DATA_ENDPOINTS.some((path) => `${url.pathname}${url.search}` === path);
-}
-
-test("pharosville narrow fallback avoids world runtime requests", async ({ page }) => {
+test(...visualLane("static", "pharosville narrow fallback avoids world runtime requests"), async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   const deniedRequests = await denyPharosVilleViewportGatedRequests(page);
 
@@ -746,7 +598,7 @@ test("pharosville narrow fallback avoids world runtime requests", async ({ page 
   await expect(page).toHaveScreenshot("pharosville-narrow-fallback.png");
 });
 
-test("pharosville short desktop fallback avoids clipped map", async ({ page }) => {
+test(...visualLane("static", "pharosville short desktop fallback avoids clipped map"), async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   const deniedRequests = await denyPharosVilleViewportGatedRequests(page);
 
@@ -763,7 +615,7 @@ test("pharosville short desktop fallback avoids clipped map", async ({ page }) =
   expect(runtimeRequests).toEqual([]);
 });
 
-test("pharosville desktop gate passes at threshold screen and falls back below it", async ({ page }) => {
+test(...visualLane("static", "pharosville desktop gate passes at threshold screen and falls back below it"), async ({ page }) => {
   await mockPharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
 
@@ -829,7 +681,7 @@ test("pharosville rotates from prompt to map when viewport becomes landscape", a
   await expect(page.getByText("Turn the harbor sideways.")).toHaveCount(0);
 });
 
-test("pharosville keeps world runtime mounted when the browser window is resized below the old viewport gate", async ({ page }) => {
+test(...visualLane("static", "pharosville keeps world runtime mounted when the browser window is resized below the old viewport gate"), async ({ page }) => {
   // Under the screen-capability gate, only the device's screen size matters;
   // shrinking the browser window must NOT unmount the world runtime.
   await mockPharosVilleData(page);
@@ -856,7 +708,7 @@ test("pharosville keeps world runtime mounted when the browser window is resized
   expect(debugAfterResize?.activeMotionLoopCount).toBe(1);
 });
 
-test("pharosville ultrawide canvas keeps DPR backing store capped", async ({ baseURL, browser }) => {
+test(...visualLane("static", "pharosville ultrawide canvas keeps DPR backing store capped"), async ({ baseURL, browser }) => {
   const context = await browser.newContext({
     deviceScaleFactor: 3,
     reducedMotion: "reduce",
@@ -915,7 +767,7 @@ test("pharosville ultrawide canvas keeps DPR backing store capped", async ({ bas
   }
 });
 
-test("pharosville canvas interactions update details and camera", async ({ page }) => {
+test(...visualLane("interaction", "pharosville canvas interactions update details and camera"), async ({ page }) => {
   test.setTimeout(45_000);
   await mockPharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -1085,7 +937,7 @@ test("pharosville canvas interactions update details and camera", async ({ page 
   expect(resizedDebug?.motionFrameCount ?? 0).toBe(0);
 });
 
-test("pharosville reduced motion keeps ship samples static without RAF", async ({ page }) => {
+test(...visualLane("interaction", "pharosville reduced motion keeps ship samples static without RAF"), async ({ page }) => {
   await mockPharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -1135,7 +987,7 @@ test("pharosville reduced motion keeps ship samples static without RAF", async (
   expect(second.renderMetrics?.visibleTileCount).toBe(first.renderMetrics?.visibleTileCount);
 });
 
-test("pharosville responds to live reduced-motion preference transitions", async ({ page }) => {
+test(...visualLane("interaction", "pharosville responds to live reduced-motion preference transitions"), async ({ page }) => {
   await mockPharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -1209,15 +1061,6 @@ async function expectDetailPanelClearOfFullscreenButton(page: Page) {
   expect(detailBox!.y).toBeGreaterThanOrEqual(fullscreenBox!.y + fullscreenBox!.height + 8);
 }
 
-async function readVisualDebug(page: Page): Promise<PharosVilleVisualDebug> {
-  return page.evaluate(() => {
-    const debug = (window as typeof window & {
-      __pharosVilleDebug?: PharosVilleVisualDebug;
-    }).__pharosVilleDebug;
-    return debug ?? {};
-  });
-}
-
 async function expectDrawDurationP95Within(page: Page, budgetMs: number, samples: number) {
   const durations: number[] = [];
   for (let index = 0; index < samples; index += 1) {
@@ -1279,7 +1122,7 @@ function clipAroundPoint(
 }
 
 test.describe("pharosville normal motion", () => {
-  test("starts bounded world animation and keeps moving ship targets selectable", async ({ page }) => {
+  test(...visualLane("motion", "starts bounded world animation and keeps moving ship targets selectable"), async ({ page }) => {
     await mockPharosVilleData(page);
     await installWallClockOverride(page, 12);
     await page.clock.install({ time: new Date("2026-04-28T00:00:00Z") });
@@ -1356,31 +1199,6 @@ test.describe("pharosville normal motion", () => {
   });
 });
 
-async function waitForRuntimeDebug(page: Page, reducedMotion: boolean) {
-  await page.waitForFunction((expectedReducedMotion) => {
-    const debug = (window as typeof window & {
-      __pharosVilleDebug?: PharosVilleVisualDebug;
-    }).__pharosVilleDebug;
-    return Boolean(
-      debug?.criticalAssetsLoaded
-      && debug.camera
-      && debug.reducedMotion === expectedReducedMotion
-      && (debug.shipMotionSamples?.length ?? 0) > 0
-      && (debug.targets?.some((target) => target.kind === "ship") ?? false)
-      && (expectedReducedMotion || (debug.motionFrameCount ?? 0) >= 2),
-    );
-  }, reducedMotion);
-}
-
-async function readDebugCamera(page: Page): Promise<DebugCamera | null> {
-  return page.evaluate(() => {
-    const debug = (window as typeof window & {
-      __pharosVilleDebug?: PharosVilleVisualDebug;
-    }).__pharosVilleDebug;
-    return debug?.camera ?? null;
-  });
-}
-
 async function readSelectedTargetFollowSnapshot(page: Page, detailId: string) {
   return page.evaluate((targetDetailId) => {
     const debug = (window as typeof window & {
@@ -1440,26 +1258,6 @@ async function performCanvasPinch(
     pointer("pointerup", 41, center.x - endHalf, center.y);
     pointer("pointerup", 42, center.x + endHalf, center.y);
   }, input);
-}
-
-async function readRuntimeSnapshot(page: Page) {
-  return page.evaluate(() => {
-    const debug = (window as typeof window & {
-      __pharosVilleDebug?: PharosVilleVisualDebug;
-    }).__pharosVilleDebug;
-    return {
-      activeMotionLoopCount: debug?.activeMotionLoopCount ?? -1,
-      animationFramePending: debug?.animationFramePending ?? true,
-      motionClockSource: debug?.motionClockSource ?? null,
-      motionCueCounts: debug?.motionCueCounts ?? null,
-      motionFrameCount: debug?.motionFrameCount ?? -1,
-      reducedMotion: debug?.reducedMotion ?? null,
-      renderMetrics: debug?.renderMetrics ?? null,
-      shipMotionSamples: debug?.shipMotionSamples ?? [],
-      timeSeconds: debug?.timeSeconds ?? -1,
-      wallClockHour: debug?.wallClockHour ?? -1,
-    };
-  });
 }
 
 async function waitForMovingShipSample(page: Page) {
@@ -1579,3 +1377,5 @@ test.describe("pharosville night atmosphere", () => {
     });
   });
 });
+
+assertVisualLaneCoverage();

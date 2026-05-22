@@ -23,135 +23,14 @@
  * of commit 67bc711). This comment is the authoritative pointer for that work.
  */
 
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 import {
-  denseFixtureChains,
-  denseFixturePegSummary,
-  denseFixtureReportCards,
-  denseFixtureStablecoins,
-  denseFixtureStress,
-  fixtureStability,
-} from "../../src/__fixtures__/pharosville-world";
-import { PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY } from "@shared/lib/pharosville-api-endpoints";
-
-// ---------------------------------------------------------------------------
-// Types (duplicated from the visual spec to avoid coupling test suites)
-// ---------------------------------------------------------------------------
-
-type DebugRenderMetrics = {
-  drawableCount: number;
-  drawableCounts: { body: number; overlay: number; selection: number; underlay: number };
-  drawDurationMs: number;
-  framePacing?: {
-    averageMs: number;
-    droppedFrameCount: number;
-    effectiveFps: number;
-    longestDroppedBurst: number;
-    maxMs: number;
-    p50Ms: number;
-    p90Ms: number;
-    sampleCount: number;
-  };
-  movingShipCount: number;
-  visibleShipCount: number;
-  visibleTileCount: number;
-  shipMaxHeadingDeltaDeg?: number;
-  shipMaxPositionDeltaTile?: number;
-  routeCacheStats?: { hitRatio: number; evictionRate: number; size: number; capacity: number };
-  longtask?: { count: number; maxDurationMs: number };
-};
-
-type PharosVilleVisualDebug = {
-  activeCameraLoopCount?: number;
-  activeMotionLoopCount?: number;
-  animationFramePending?: boolean;
-  camera?: unknown;
-  cameraFrameSource?: string;
-  criticalAssetsLoaded?: boolean;
-  deferredAssetsLoaded?: boolean;
-  motionFrameCount?: number;
-  reducedMotion?: boolean;
-  renderMetrics?: DebugRenderMetrics;
-  shipMotionSamples?: unknown[];
-  targets?: { kind: string }[];
-};
-
-// ---------------------------------------------------------------------------
-// Helpers (minimal — not shared with visual spec to avoid rippling refactors)
-// ---------------------------------------------------------------------------
-
-const meta = { updatedAt: 1_700_000_000, ageSeconds: 60, status: "fresh" };
-
-async function mockDensePharosVilleData(page: Page): Promise<void> {
-  const payloads = [
-    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stablecoins, body: denseFixtureStablecoins },
-    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.chains, body: denseFixtureChains },
-    {
-      path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stability,
-      body: {
-        ...fixtureStability,
-        current: {
-          ...fixtureStability.current,
-          band: "ELEVATED",
-          components: { breadth: 26, severity: 54, trend: 12 },
-          score: 72,
-        },
-      },
-    },
-    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.pegSummary, body: denseFixturePegSummary },
-    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stress, body: denseFixtureStress },
-    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.reportCards, body: denseFixtureReportCards },
-  ];
-
-  for (const { path, body } of payloads) {
-    const endpoint = new URL(path, "http://localhost");
-    await page.route(
-      (url) => url.pathname === endpoint.pathname && url.search === endpoint.search,
-      async (route) => {
-        await route.fulfill({
-          contentType: "application/json",
-          body: JSON.stringify({ ...(body as Record<string, unknown>), _meta: meta }),
-        });
-      },
-    );
-  }
-}
-
-async function readDebug(page: Page): Promise<PharosVilleVisualDebug> {
-  return page.evaluate(() => {
-    const debug = (window as typeof window & { __pharosVilleDebug?: PharosVilleVisualDebug })
-      .__pharosVilleDebug;
-    return debug ?? {};
-  });
-}
-
-async function waitForMotionActive(page: Page): Promise<void> {
-  await page.waitForFunction(() => {
-    const debug = (window as typeof window & { __pharosVilleDebug?: PharosVilleVisualDebug })
-      .__pharosVilleDebug;
-    return Boolean(
-      debug?.criticalAssetsLoaded
-        && debug.deferredAssetsLoaded
-        && debug.camera
-        && debug.reducedMotion === false
-        && (debug.shipMotionSamples?.length ?? 0) > 0
-        && (debug.motionFrameCount ?? 0) >= 2,
-    );
-  });
-}
-
-async function waitForSteadyTelemetry(page: Page): Promise<void> {
-  await page.waitForFunction(() => {
-    const debug = (window as typeof window & { __pharosVilleDebug?: PharosVilleVisualDebug })
-      .__pharosVilleDebug;
-    const metrics = debug?.renderMetrics;
-    if (!metrics) return false;
-    const longtaskClear = metrics.longtask ? metrics.longtask.count === 0 : true;
-    const headingClear = metrics.shipMaxHeadingDeltaDeg === undefined || metrics.shipMaxHeadingDeltaDeg <= 720;
-    const positionClear = metrics.shipMaxPositionDeltaTile === undefined || metrics.shipMaxPositionDeltaTile <= 0.15;
-    return longtaskClear && headingClear && positionClear && (metrics.framePacing?.sampleCount ?? 0) >= 5;
-  }, null, { timeout: 15_000 });
-}
+  mockDensePharosVilleData,
+  readVisualDebug,
+  waitForMotionActive,
+  waitForSteadyTelemetry,
+  type DebugRenderMetrics,
+} from "../helpers/pharosville-debug";
 
 // ---------------------------------------------------------------------------
 // Budget constants
@@ -183,7 +62,7 @@ test.describe("sustained-motion perf telemetry", () => {
     await waitForMotionActive(page);
     await waitForSteadyTelemetry(page);
 
-    const initial = await readDebug(page);
+    const initial = await readVisualDebug(page);
     expect(initial.activeMotionLoopCount).toBe(1);
     expect(initial.activeCameraLoopCount).toBe(0);
     expect(initial.cameraFrameSource).toBe("world-render-loop");
@@ -204,7 +83,7 @@ test.describe("sustained-motion perf telemetry", () => {
       await page.mouse.up();
       await page.waitForTimeout(POLL_INTERVAL_MS);
 
-      const debug = await readDebug(page);
+      const debug = await readVisualDebug(page);
       const framePacing = debug.renderMetrics?.framePacing;
       if (framePacing && framePacing.sampleCount > 0) {
         lastFramePacing = framePacing;
@@ -241,7 +120,7 @@ test.describe("sustained-motion perf telemetry", () => {
     await waitForSteadyTelemetry(page);
 
     // Confirm the motion loop is actually running before sampling.
-    const initial = await readDebug(page);
+    const initial = await readVisualDebug(page);
     expect(initial.activeMotionLoopCount).toBe(1);
     expect(initial.reducedMotion).toBe(false);
 
@@ -255,7 +134,7 @@ test.describe("sustained-motion perf telemetry", () => {
 
     for (let i = 0; i < POLL_SAMPLES; i += 1) {
       await page.waitForTimeout(POLL_INTERVAL_MS);
-      const debug = await readDebug(page);
+      const debug = await readVisualDebug(page);
       const metrics = debug.renderMetrics;
       const ms = metrics?.drawDurationMs;
       if (typeof ms === "number" && Number.isFinite(ms)) {
