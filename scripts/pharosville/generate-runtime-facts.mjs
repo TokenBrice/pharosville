@@ -92,12 +92,33 @@ function parseViewportFacts(repoRoot) {
 function parseApiFacts(repoRoot) {
   const registrySource = readText(repoRoot, "shared/lib/pharosville-endpoint-registry.ts");
   const apiPathsSource = readText(repoRoot, "shared/lib/api-endpoints/paths.ts");
+  const smokeMatrixSource = readText(repoRoot, "shared/lib/pharosville-smoke-matrix.ts");
   const pathExpressions = [...registrySource.matchAll(/path:\s*(API_PATHS\.[A-Za-z0-9_]+\([^)]*\))/g)]
     .map((match) => match[1]);
   if (pathExpressions.length === 0) throw new Error("Could not parse PharosVille endpoint registry paths.");
+  const allowlist = pathExpressions.map((expression) => resolveApiPathExpression(apiPathsSource, expression));
+  assertSameOrderedValues(
+    "PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS",
+    parseQuotedArray(
+      smokeMatrixSource,
+      /PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS\s*=\s*\[([\s\S]*?)]\s*as const/,
+      "smoke allowlist endpoints",
+    ),
+    allowlist,
+  );
   return {
-    allowlist: pathExpressions.map((expression) => resolveApiPathExpression(apiPathsSource, expression)),
+    allowlist,
   };
+}
+
+function assertSameOrderedValues(label, actual, expected) {
+  if (
+    actual.length === expected.length
+    && actual.every((value, index) => value === expected[index])
+  ) {
+    return;
+  }
+  throw new Error(`${label} must match the PharosVille endpoint registry.`);
 }
 
 function resolveApiPathExpression(apiPathsSource, expression) {

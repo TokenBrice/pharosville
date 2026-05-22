@@ -1,5 +1,3 @@
-import { PHAROSVILLE_ENDPOINT_PATHS } from "./pharosville-endpoint-registry";
-
 export interface PharosVilleSmokeBlockedVariant {
   path: string;
   statuses: readonly number[];
@@ -10,38 +8,15 @@ export interface PharosVilleSmokeBlockedVariant {
 
 type PharosVilleSmokeMethod = NonNullable<PharosVilleSmokeBlockedVariant["init"]>["method"];
 
-function endpointPathAt(index: number, runtimeFactsPathHint: string): string {
-  return PHAROSVILLE_ENDPOINT_PATHS[index] ?? runtimeFactsPathHint;
-}
-
+// `check:runtime-facts` compares this list to the endpoint registry.
 export const PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS = [
-  endpointPathAt(0, "/api/stablecoins"),
-  endpointPathAt(1, "/api/chains"),
-  endpointPathAt(2, "/api/stability-index?detail=true"),
-  endpointPathAt(3, "/api/peg-summary"),
-  endpointPathAt(4, "/api/stress-signals"),
-  endpointPathAt(5, "/api/report-cards"),
+  "/api/stablecoins",
+  "/api/chains",
+  "/api/stability-index?detail=true",
+  "/api/peg-summary",
+  "/api/stress-signals",
+  "/api/report-cards",
 ] as const;
-
-function assertSameOrderedPaths(
-  label: string,
-  actual: readonly string[],
-  expected: readonly string[],
-): void {
-  if (
-    actual.length === expected.length
-    && actual.every((path, index) => path === expected[index])
-  ) {
-    return;
-  }
-  throw new Error(`${label} must match the PharosVille endpoint registry`);
-}
-
-assertSameOrderedPaths(
-  "PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS",
-  PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS,
-  PHAROSVILLE_ENDPOINT_PATHS,
-);
 
 const SHARED_BLOCKED_404_PATHS = [
   "/api/health",
