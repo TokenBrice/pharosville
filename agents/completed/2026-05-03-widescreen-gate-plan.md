@@ -31,7 +31,7 @@ default (transparent / `currentColor`) on top of the `body { background:
 #050d13 }` body, producing the black panel and barely-visible black text.
 
 The committed visual baseline
-`tests/visual/pharosville.spec.ts-snapshots/pharosville-narrow-fallback-linux.png`
+`tests/visual/pharosville.spec.ts-snapshots/pharosville-narrow-fallback-desktop-chromium-linux.png`
 also captures the regressed state, so the test inadvertently locked the bug
 in. When the chrome tokens were originally written they sat at the top of
 the file; they were folded into `.pharosville-shell` at some later point. The
@@ -94,7 +94,7 @@ The remaining tasks form one cohesive change set behind the new gate.
 1. **Hoist chrome tokens to `:root`.**
    `src/pharosville.css`. Done in this session.
 2. **Regenerate the narrow-fallback visual baseline.**
-   `tests/visual/pharosville.spec.ts-snapshots/pharosville-narrow-fallback-linux.png`
+   `tests/visual/pharosville.spec.ts-snapshots/pharosville-narrow-fallback-desktop-chromium-linux.png`
    (and the `-desktop-chromium-` variant if present). Run
    `npx playwright test tests/visual/pharosville.spec.ts --grep "narrow
    fallback" --update-snapshots`, then review the new PNG before

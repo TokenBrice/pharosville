@@ -124,10 +124,10 @@ hit-testing.
 
 - `src/renderer/world-canvas.ts` — `LIGHTHOUSE_HEADLAND`,
   `HEADLAND_TERRAIN_ACCENTS`, `drawLighthouseHeadland` body.
-- `tests/visual/pharosville.spec.ts-snapshots/pharosville-desktop-shell-linux.png`
-- `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-lighthouse-linux.png`
-- `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-civic-core-linux.png`
-- `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-evm-bay-linux.png`
+- `tests/visual/pharosville.spec.ts-snapshots/pharosville-desktop-shell-desktop-chromium-linux.png`
+- `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-lighthouse-desktop-chromium-linux.png`
+- `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-civic-core-desktop-chromium-linux.png`
+- `tests/visual/pharosville.spec.ts-snapshots/pharosville-dense-evm-bay-desktop-chromium-linux.png`
 - `.gitignore` — added `output/` so PixelLab/OpenAI prototype scratch is
   not committable.
 - `agents/completed/pharosville-lighthouse-integration-plan.md` (this file).
