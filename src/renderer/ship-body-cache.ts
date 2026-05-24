@@ -1,7 +1,7 @@
 import { canvasPixelArea } from "../systems/canvas-budget";
 
 export const SHIP_BODY_CACHE_SCHEMA_VERSION = "ship-body-precompose-v1";
-export const DEFAULT_SHIP_BODY_CACHE_MAX_ENTRIES = 96;
+export const DEFAULT_SHIP_BODY_CACHE_MAX_ENTRIES = 256;
 export const DEFAULT_SHIP_BODY_CACHE_MAX_PIXELS = 2_000_000;
 
 export interface ShipBodyCacheSize {

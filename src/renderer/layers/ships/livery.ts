@@ -14,7 +14,7 @@ import {
 // into `__pharosVilleDebug.sailCacheStats` for the perf-dev panel.
 export type CacheStats = LruCacheStats;
 
-const SHIP_SAIL_TINT_CACHE_MAX = 48;
+const SHIP_SAIL_TINT_CACHE_MAX = 256;
 const shipSailTintCache = createStatsLruCache<string, HTMLCanvasElement | null>(SHIP_SAIL_TINT_CACHE_MAX);
 
 export function getShipSailTintCacheStats(): CacheStats {
