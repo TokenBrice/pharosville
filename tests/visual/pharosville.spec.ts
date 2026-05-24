@@ -466,7 +466,9 @@ test(...visualLane("static", "pharosville dense visual fixture preserves distric
   expect(stillDebug.camera).not.toBeNull();
   await expect(page).toHaveScreenshot("pharosville-dense-civic-core.png", {
     clip: clipAroundPoint(tileToScreen({ x: 34, y: 30 }, stillDebug.camera!), viewportSize, { height: 300, width: 420 }),
-    maxDiffPixels: 1800,
+    // GitHub-hosted runners rasterize the scenery-detail highlights slightly
+    // differently from the Playwright Docker image on local hosts.
+    maxDiffPixels: 2200,
   });
   await expect(page).toHaveScreenshot("pharosville-dense-risk-water.png", {
     clip: clipForTargets(stillTargets, (target) => (
