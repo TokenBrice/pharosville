@@ -441,11 +441,15 @@ test(...visualLane("static", "pharosville dense visual fixture preserves distric
     clip: clipForTargets(stillTargets, (target) => target.detailId === "lighthouse", viewportSize, 92, { height: 280, width: 260 }),
     maxDiffPixels: 1000,
   });
+  // GitHub-hosted runners rasterize the scenery-detail highlights slightly
+  // differently from the Playwright Docker image on local hosts.
+  const denseSceneryMaxDiffPixels = 2200;
+
   await expect(page).toHaveScreenshot("pharosville-dense-evm-bay.png", {
     clip: clipForTargets(stillTargets, (target) => (
       target.kind === "dock" && ["dock.ethereum", "dock.base", "dock.arbitrum", "dock.polygon"].includes(target.detailId)
     ), viewportSize, 88, { height: 300, width: 380 }),
-    maxDiffPixels: 1800,
+    maxDiffPixels: denseSceneryMaxDiffPixels,
   });
   await expect(page).toHaveScreenshot("pharosville-dense-ship-flotillas.png", {
     clip: clipForTargets(stillTargets, (target) => {
@@ -457,18 +461,16 @@ test(...visualLane("static", "pharosville dense visual fixture preserves distric
       };
       return Math.hypot(targetCenter.x - watchBreakwaterCenter.x, targetCenter.y - watchBreakwaterCenter.y) <= 260;
     }, viewportSize, 96, { height: 280, width: 420 }),
-    maxDiffPixels: 1800,
+    maxDiffPixels: denseSceneryMaxDiffPixels,
   });
   await expect(page).toHaveScreenshot("pharosville-dense-cemetery.png", {
     clip: clipForTargets(stillTargets, (target) => target.kind === "grave", viewportSize, 80, { height: 260, width: 360 }),
-    maxDiffPixels: 1800,
+    maxDiffPixels: denseSceneryMaxDiffPixels,
   });
   expect(stillDebug.camera).not.toBeNull();
   await expect(page).toHaveScreenshot("pharosville-dense-civic-core.png", {
     clip: clipAroundPoint(tileToScreen({ x: 34, y: 30 }, stillDebug.camera!), viewportSize, { height: 300, width: 420 }),
-    // GitHub-hosted runners rasterize the scenery-detail highlights slightly
-    // differently from the Playwright Docker image on local hosts.
-    maxDiffPixels: 2200,
+    maxDiffPixels: denseSceneryMaxDiffPixels,
   });
   await expect(page).toHaveScreenshot("pharosville-dense-risk-water.png", {
     clip: clipForTargets(stillTargets, (target) => (
@@ -476,14 +478,14 @@ test(...visualLane("static", "pharosville dense visual fixture preserves distric
       || target.detailId === "area.dews.danger"
       || target.detailId === "area.dews.alert"
     ), viewportSize, 104, { height: 320, width: 460 }),
-    maxDiffPixels: 1800,
+    maxDiffPixels: denseSceneryMaxDiffPixels,
   });
   await expect(page).toHaveScreenshot("pharosville-dense-ledger-north.png", {
     clip: clipForTargets(stillTargets, (target) => (
       target.detailId === "area.risk-water.ledger-mooring"
       || target.detailId === "area.dews.watch"
     ), viewportSize, 92, { height: 300, width: 460 }),
-    maxDiffPixels: 1800,
+    maxDiffPixels: denseSceneryMaxDiffPixels,
   });
 });
 
