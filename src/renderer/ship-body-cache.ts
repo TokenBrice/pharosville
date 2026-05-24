@@ -92,8 +92,8 @@ export interface ShipBodyCacheOptions {
 }
 
 export interface ShipBodyCacheLookupOptions {
-  maxPixels?: number;
-  protectedKeys?: ReadonlySet<string>;
+  maxPixels?: number | undefined;
+  protectedKeys?: ReadonlySet<string> | undefined;
 }
 
 export interface ShipBodyCache {

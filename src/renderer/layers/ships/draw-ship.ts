@@ -32,7 +32,6 @@ import {
   SHIP_WAKE_BUDGET_RATIO,
 } from "../../visual-scales";
 import { resolveShipPose, zeroShipPose, type ShipPose } from "../ship-pose";
-import { skyState } from "../sky";
 import {
   drawBowspritLogoMark,
   drawDyedSailEmblem,
@@ -48,7 +47,6 @@ import {
   drawShipLiveryTrim,
   drawProceduralShipLiveryTrim,
   drawShipSailTint,
-  liveryCacheKey,
 } from "./livery";
 import { drawShipWakeRaw } from "./wake";
 
@@ -211,7 +209,7 @@ const STATIC_SHIP_ORIENTATION: ShipVisualOrientation = Object.freeze({
 
 const HEADING_FLIP_THRESHOLD = -0.05;
 const TITAN_YAW_SKEW_MAX = 0.035;
-const topRecentMoverCache = new WeakMap<PharosVilleWorld, { ids: ReadonlySet<string>; signature: string }>();
+const topRecentMoverCache = new WeakMap<PharosVilleWorld["ships"], ReadonlySet<string>>();
 
 function compareShipLodCandidates(a: ShipLodCandidate, b: ShipLodCandidate): number {
   const scoreDelta = b.score - a.score;
@@ -608,11 +606,10 @@ export function isTopRecentMoverShip(world: PharosVilleWorld, shipId: string): b
 }
 
 function topRecentMoverShipIds(world: PharosVilleWorld): ReadonlySet<string> {
-  const signature = hashShipChangeSignature(world.ships);
-  const cached = topRecentMoverCache.get(world);
-  if (cached?.signature === signature) return cached.ids;
+  const cached = topRecentMoverCache.get(world.ships);
+  if (cached) return cached;
   const ids = topRecentMoverShipIdsForShips(world.ships);
-  topRecentMoverCache.set(world, { ids, signature });
+  topRecentMoverCache.set(world.ships, ids);
   return ids;
 }
 
@@ -758,12 +755,10 @@ function drawPrecomposedShipBody(input: {
     animationFrameKey: input.frame.shipRenderStates.get(input.ship.id)?.isTitanSprite ? input.animationFrame : 0,
     assetId: entry.id,
     dpr: 1,
-    liveryKey: liveryCacheKey(input.ship.visual.livery),
     logicalSize,
     manifestCacheVersion,
     shipId: input.ship.id,
     sourceSize: { height: entry.height, width: entry.width },
-    tintKey: input.ship.visual.livery.sailColor,
   };
   const key = buildShipBodyCacheKey(request);
   const cacheHit = cache.has(key);
@@ -787,8 +782,8 @@ function drawPrecomposedShipBody(input: {
       y: anchorY,
     });
   }, {
-    ...(input.frame.shipBodyCacheMaxPixels !== undefined ? { maxPixels: input.frame.shipBodyCacheMaxPixels } : {}),
-    ...(input.frame.protectedShipBodyCacheKeys ? { protectedKeys: input.frame.protectedShipBodyCacheKeys } : {}),
+    maxPixels: input.frame.shipBodyCacheMaxPixels,
+    protectedKeys: input.frame.protectedShipBodyCacheKeys,
   });
   if (!cacheHit && warmupBudget && result.status === "miss") {
     warmupBudget.remaining = Math.max(0, warmupBudget.remaining - 1);
@@ -956,7 +951,7 @@ function shipAnimationFrameOffset(asset: LoadedPharosVilleAsset, shipId: string)
   return phase;
 }
 
-export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFrame, ship: PharosVilleWorld["ships"][number]): void {
+export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFrame, ship: PharosVilleWorld["ships"][number], nightFactor: number): void {
   const { assets, camera, ctx } = input;
   const {
     bob,
@@ -987,14 +982,15 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
         const mark = SHIP_SAIL_MARKS[ship.visual.spriteAssetId ?? ship.visual.hull] ?? SHIP_SAIL_MARKS[ship.visual.hull];
         const flutterY = isTitanSprite ? pose.sailFlutter * geometry.drawScale : 0;
         if (standardSprite) {
-          drawMastPennantChrome(ctx, ship.visual.livery, ship.symbol, geometry.drawPoint.x, drawY, geometry.drawScale, pennantSpecForShip(ship, true), pose.sailFlutter);
+          const pennantSpec = pennantSpecForShip(ship, true);
+          drawMastPennantChrome(ctx, ship.visual.livery, ship.symbol, geometry.drawPoint.x, drawY, geometry.drawScale, pennantSpec, pose.sailFlutter);
           if (shouldDrawBowspritLogoMark(ship.visual.sizeTier)) {
             drawBowspritLogoMark({
               ctx,
               logo: assets?.getLogo(ship.logoSrc) ?? null,
               livery: ship.visual.livery,
               mark: ship.symbol,
-              spec: pennantSpecForShip(ship, true),
+              spec: pennantSpec,
               scale: geometry.drawScale,
               x: geometry.drawPoint.x,
               y: drawY,
@@ -1061,11 +1057,10 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
       const drawY = geometry.drawPoint.y + bob;
       drawHeritageNameplate(ctx, ship.visual.spriteAssetId ?? null, geometry.drawPoint.x, drawY, camera.zoom, geometry.drawScale);
     }
-    const { nightFactor: lanternNight } = skyState(input.motion);
-    if (lanternNight > 0) {
+    if (nightFactor > 0) {
       const mast = shipMastTopScreenPoint(input, frame, ship);
       const lanternZoom = input.camera.zoom * ship.visual.scale;
-      const lanternAlpha = lanternNight * 0.55;
+      const lanternAlpha = nightFactor * 0.55;
       const lanternRadius = 18 * lanternZoom;
       const sprite = getShipLanternSprite(lanternRadius);
       input.ctx.save();

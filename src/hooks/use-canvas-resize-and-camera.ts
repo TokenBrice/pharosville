@@ -1,7 +1,7 @@
 // Owns the canvas element ref, viewport size, isometric camera state, the
 // resize observer (with adaptive DPR plumbing), and DOM event handlers that
 // translate pointer/wheel/keyboard input into camera or selection deltas.
-import { useCallback, useEffect, useRef, useState, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type MutableRefObject, type PointerEvent as ReactPointerEvent, type RefObject, type SetStateAction, type WheelEvent as ReactWheelEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type MutableRefObject, type PointerEvent as ReactPointerEvent, type RefObject, type SetStateAction } from "react";
 import { entityFollowTile, type WorldSelectableEntity } from "../renderer/geometry";
 import { hitTest, hitTestSpatial, type HitTarget, type HitTargetSnapshot } from "../renderer/hit-testing";
 import { cameraZoomLabel, clampCameraToMap, defaultCamera, followTile, panCamera, zoomIn, zoomOut } from "../systems/camera";
@@ -80,7 +80,6 @@ export interface UseCanvasResizeAndCameraResult {
   handleToolbarPan: (delta: ScreenPoint) => void;
   handleToolbarZoomIn: () => void;
   handleToolbarZoomOut: () => void;
-  handleWheel: (event: ReactWheelEvent<HTMLCanvasElement>) => void;
   maximumRequestedDprRef: MutableRefObject<number>;
   setCamera: Dispatch<SetStateAction<IsoCamera | null>>;
   stepCamera: (now: number, shipMotionSamples: ReadonlyMap<string, ShipMotionSample>) => CameraStepResult;
@@ -245,7 +244,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     return () => observer.disconnect();
   }, [applyCameraImmediately, currentCameraBase, requestWorldFrame, world.map]);
 
-  const canvasPoint = useCallback((event: ReactPointerEvent<HTMLCanvasElement> | ReactWheelEvent<HTMLCanvasElement>) => {
+  const canvasPoint = useCallback((event: Pick<MouseEvent, "clientX" | "clientY">) => {
     const canvas = canvasRef.current;
     const rect = canvasRectRef.current ?? canvas?.getBoundingClientRect();
     if (rect) canvasRectRef.current = rect;
@@ -433,19 +432,25 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canvasPoint, hasSelection, onClearSelection, onSelectTarget, recomputeHitTargets, resetPointerGesture, stopFollowChase]);
 
-  const handleWheel = useCallback((event: ReactWheelEvent<HTMLCanvasElement>) => {
-    const previous = currentCameraBase();
-    if (!previous) return;
-    event.preventDefault();
-    const next = zoomCameraByWheelDelta({
-      camera: previous,
-      deltaMode: event.deltaMode,
-      deltaY: event.deltaY,
-      map: world.map,
-      point: canvasPoint(event),
-      viewport: canvasSizeRef.current,
-    });
-    queueCameraTarget(next, "wheel");
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const onWheel = (event: WheelEvent) => {
+      const previous = currentCameraBase();
+      if (!previous) return;
+      event.preventDefault();
+      const next = zoomCameraByWheelDelta({
+        camera: previous,
+        deltaMode: event.deltaMode,
+        deltaY: event.deltaY,
+        map: world.map,
+        point: canvasPoint(event),
+        viewport: canvasSizeRef.current,
+      });
+      queueCameraTarget(next, "wheel");
+    };
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", onWheel);
   }, [canvasPoint, canvasSizeRef, currentCameraBase, queueCameraTarget, world.map]);
 
   const handleToolbarPan = useCallback((delta: ScreenPoint) => {
@@ -689,7 +694,6 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     handleToolbarPan,
     handleToolbarZoomIn,
     handleToolbarZoomOut,
-    handleWheel,
     maximumRequestedDprRef,
     setCamera,
     stepCamera,

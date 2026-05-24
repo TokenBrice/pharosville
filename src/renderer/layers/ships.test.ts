@@ -810,7 +810,7 @@ describe("drawShipOverlay standard procedural chrome", () => {
       shipRenderStates: new Map(),
     };
 
-    drawShipOverlay(input, frame, ship);
+    drawShipOverlay(input, frame, ship, 0);
     return { ctx, ship };
   }
 

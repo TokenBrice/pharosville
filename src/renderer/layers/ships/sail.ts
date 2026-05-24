@@ -134,7 +134,6 @@ export function drawMastPennantChrome(
 
 function drawMastLantern(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
   const radius = Math.max(1.6, 2.6 * scale);
-  ctx.save();
   ctx.fillStyle = "rgba(63, 41, 22, 0.82)";
   ctx.beginPath();
   ctx.ellipse(x, y, radius * 0.82, radius * 1.12, 0.05, 0, Math.PI * 2);
@@ -148,7 +147,6 @@ function drawMastLantern(ctx: CanvasRenderingContext2D, x: number, y: number, sc
   ctx.beginPath();
   ctx.ellipse(x, y, radius * 0.82, radius * 1.12, 0.05, 0, Math.PI * 2);
   ctx.stroke();
-  ctx.restore();
 }
 
 export function drawBowspritLogoMark(input: {

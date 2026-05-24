@@ -21,17 +21,6 @@ export function getShipSailTintCacheStats(): CacheStats {
   return shipSailTintCache.stats();
 }
 
-export function liveryCacheKey(livery: ShipLivery): string {
-  return [
-    livery.primary,
-    livery.secondary,
-    livery.accent,
-    livery.sailColor,
-    livery.stripePattern,
-    livery.sailPanel,
-  ].join(":");
-}
-
 export function drawShipLiveryTrim(
   ctx: CanvasRenderingContext2D,
   stablecoinId: string,

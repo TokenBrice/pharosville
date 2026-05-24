@@ -9,11 +9,12 @@ import { lighthouseBeamSweep, resolveLighthouseBeamRenderState } from "../lighth
 import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-types";
 import { scanVisibleTiles, terrainKindForTile, visibleTileBoundsForMap } from "../visible-tiles";
 import { TERRAIN_TEXTURE, TILE_COLORS } from "../visual-config";
-import type { VisibleTileBounds } from "../viewport";
+import { isScreenCoordinateInViewport, type VisibleTileBounds } from "../viewport";
 
 const BEAM_CAUSTIC_HALF_ARC = (20 * Math.PI) / 180;
 // C3: hoisted so the 3 per-tile call sites resolve a module-scope constant.
 const BEAM_CAUSTIC_COS = Math.cos(BEAM_CAUSTIC_HALF_ARC);
+const BEAM_CAUSTIC_COS_SQ = BEAM_CAUSTIC_COS * BEAM_CAUSTIC_COS;
 
 // C1: gradient coords bake tile pixel position, so we cache color-stop params
 // only (zoomBucket × alphaBucket), then reconstruct the gradient per tile.
@@ -45,34 +46,6 @@ function cachedZoneThemeForTerrain(value: string): ZoneVisualTheme {
   return theme;
 }
 
-// Task #31 (perf F2): unit-scale Path2D templates for the diagonal wave and
-// accent strokes drawn per visible water tile. Coordinates are in tile-local
-// pixels at zoom=1; the caller translate+scales the canvas, then strokes the
-// cached path. Two paths total instead of ~200 path rebuilds per frame.
-//
-// Lazily initialised so module load works in jsdom (which doesn't define
-// Path2D); the renderer only runs in browsers where Path2D exists.
-let waterOverlayWavePath: Path2D | null = null;
-let waterOverlayAccentPath: Path2D | null = null;
-function getWaterOverlayWavePath(): Path2D {
-  if (waterOverlayWavePath === null) {
-    const p = new Path2D();
-    p.moveTo(-9, -2);
-    p.lineTo(7, 2);
-    waterOverlayWavePath = p;
-  }
-  return waterOverlayWavePath;
-}
-function getWaterOverlayAccentPath(): Path2D {
-  if (waterOverlayAccentPath === null) {
-    const p = new Path2D();
-    p.moveTo(-3, 4);
-    p.lineTo(10, 7);
-    waterOverlayAccentPath = p;
-  }
-  return waterOverlayAccentPath;
-}
-
 const SEAWALL_RIPPLE_PERIOD = 3;
 const SEAWALL_RIPPLE_ANCHOR_COUNT = 12;
 const DANGER_RIP_PERIOD_SECONDS = 6;
@@ -98,6 +71,7 @@ export interface WaterZoneBorderFeather {
 
 type WaterZoneBorderLookup = ReadonlyMap<number, readonly WaterZoneBorderFeather[]>;
 const zoneBorderLookupByMap = new WeakMap<PharosVilleMap, WaterZoneBorderLookup>();
+const waterAccentCandidateLookupByMap = new WeakMap<PharosVilleMap, WaterAccentCandidateLookup>();
 let cachedSeawallRippleAnchors: readonly { x: number; y: number }[] | null = null;
 
 export type WatchBreakwaterSubzone = "east-shelf" | "south-basin";
@@ -144,6 +118,17 @@ type WaterTextureRenderer = (
   _motion: PharosVilleCanvasMotion,
   theme: ZoneVisualTheme,
 ) => void;
+
+interface WaterAccentCandidate {
+  renderer: WaterTextureRenderer | undefined;
+  theme: ZoneVisualTheme;
+  tile: PharosVilleTile;
+}
+
+interface WaterAccentCandidateLookup {
+  all: WaterAccentCandidate[];
+  continuous: WaterAccentCandidate[];
+}
 
 const WATER_STATIC_TEXTURE_RENDERERS: Partial<Record<WaterTextureKind, WaterTextureRenderer>> = {
   alert: drawAlertChannelStaticTexture,
@@ -254,32 +239,28 @@ export function drawWaterTerrainAccents(input: DrawPharosVilleInput, bounds: Vis
   let accentTileCount = 0;
 
   const beam = world.lighthouse.unavailable ? null : computeBeamCausticState(input);
+  const candidates = waterAccentCandidatesForMap(world.map);
+  const activeCandidates = motion.reducedMotion ? candidates.all : candidates.continuous;
+  const deltaX = (TILE_WIDTH / 2) * camera.zoom;
+  const deltaY = (TILE_HEIGHT / 2) * camera.zoom;
 
-  scanVisibleTiles({
-    bounds,
-    camera,
-    map: world.map,
-    viewportHeight: height,
-    viewportMarginX,
-    viewportMarginY,
-    viewportWidth: width,
-    visit: (tile, terrain, screenX, screenY) => {
-      if (!isWaterTileKind(terrain)) return;
-      if (!shouldDrawContinuousWaterAccent(terrain, tile.x, tile.y, motion)) return;
-      accentTileCount += 1;
-      drawWaterTileAccent(
-        ctx,
-        screenX,
-        screenY,
-        camera.zoom,
-        terrain,
-        tile.x,
-        tile.y,
-        motion,
-        beam,
-      );
-    },
-  });
+  for (const candidate of activeCandidates) {
+    const tile = candidate.tile;
+    if (tile.x < bounds.minX || tile.x > bounds.maxX || tile.y < bounds.minY || tile.y > bounds.maxY) continue;
+    const screenX = (tile.x - tile.y) * deltaX + camera.offsetX;
+    const screenY = (tile.x + tile.y) * deltaY + camera.offsetY;
+    if (!isScreenCoordinateInViewport(screenX, screenY, width, height, viewportMarginX, viewportMarginY)) continue;
+    accentTileCount += 1;
+    drawWaterTileAccent(
+      ctx,
+      screenX,
+      screenY,
+      camera.zoom,
+      candidate,
+      motion,
+      beam,
+    );
+  }
   drawSeawallRipples(ctx, camera, motion);
   return accentTileCount;
 }
@@ -438,45 +419,66 @@ function drawWaterTileAccent(
   x: number,
   y: number,
   zoom: number,
-  kind: TerrainKind,
-  tileX: number,
-  tileY: number,
+  candidate: WaterAccentCandidate,
   motion: PharosVilleCanvasMotion,
   beam: BeamCausticState | null,
 ) {
-  const value = String(kind);
-  const theme = cachedZoneThemeForTerrain(value);
-  drawWaterTerrainAccentTexture(ctx, x, y, zoom, theme, tileX, tileY, motion);
+  const { renderer, theme, tile } = candidate;
+  const tileX = tile.x;
+  const tileY = tile.y;
+  drawWaterTerrainAccentTexture(ctx, x, y, zoom, theme, tileX, tileY, motion, renderer);
   drawBeamCaustic(ctx, x, y, zoom, tileX, tileY, beam);
   if ((tileX * 13 + tileY * 17) % 9 !== 0) return;
   const wave = motion.reducedMotion
     ? 0.13
     : 0.1 + fastSin(motion.timeSeconds * 1.05 + tileX * 0.27 + tileY * 0.19) * 0.035;
-  // Task #31 (perf F2): translate+scale the ctx so cached unit-scale Path2D
-  // templates can be reused across all visible water tiles. lineWidth is
-  // affected by ctx.scale, so we divide the original `Math.max(1, zoom)` by
-  // zoom to keep the rendered stroke width identical to the previous logic.
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.scale(zoom, zoom);
   ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.08, wave));
-  ctx.lineWidth = Math.max(1, zoom) / zoom;
-  ctx.stroke(getWaterOverlayWavePath());
+  ctx.lineWidth = Math.max(1, zoom);
+  ctx.beginPath();
+  ctx.moveTo(x - 9 * zoom, y - 2 * zoom);
+  ctx.lineTo(x + 7 * zoom, y + 2 * zoom);
+  ctx.stroke();
   if ((tileX + tileY) % 3 === 0) {
     ctx.strokeStyle = withAlpha(theme.accent, 0.18);
-    ctx.stroke(getWaterOverlayAccentPath());
+    ctx.beginPath();
+    ctx.moveTo(x - 3 * zoom, y + 4 * zoom);
+    ctx.lineTo(x + 10 * zoom, y + 7 * zoom);
+    ctx.stroke();
   }
-  ctx.restore();
 }
 
-function shouldDrawContinuousWaterAccent(
-  kind: TerrainKind,
+function waterAccentCandidatesForMap(map: PharosVilleMap): WaterAccentCandidateLookup {
+  const cached = waterAccentCandidateLookupByMap.get(map);
+  if (cached) return cached;
+
+  const all: WaterAccentCandidate[] = [];
+  const continuous: WaterAccentCandidate[] = [];
+  for (const tile of map.tiles) {
+    const terrain = terrainKindForTile(tile);
+    if (!isWaterTileKind(terrain)) continue;
+    const terrainKey = String(terrain);
+    const theme = cachedZoneThemeForTerrain(terrainKey);
+    const candidate: WaterAccentCandidate = {
+      renderer: WATER_ACCENT_TEXTURE_RENDERERS[theme.texture],
+      theme,
+      tile,
+    };
+    all.push(candidate);
+    if (shouldDrawContinuousWaterAccentForTerrain(terrainKey, tile.x, tile.y)) {
+      continuous.push(candidate);
+    }
+  }
+
+  const lookup = { all, continuous };
+  waterAccentCandidateLookupByMap.set(map, lookup);
+  return lookup;
+}
+
+function shouldDrawContinuousWaterAccentForTerrain(
+  value: string,
   tileX: number,
   tileY: number,
-  motion: PharosVilleCanvasMotion,
 ): boolean {
-  if (motion.reducedMotion) return true;
-  const value = String(kind);
   if (value === "danger-water" || value === "warning-water" || value === "alert-water" || value === "ledger-water") {
     return true;
   }
@@ -610,16 +612,18 @@ function drawBeamCaustic(
   if (!beam) return;
   const dx = x - beam.firePoint.x;
   const dy = y - beam.firePoint.y;
-  const dist = Math.hypot(dx, dy);
-  if (dist < 1) return;
+  const distSq = dx * dx + dy * dy;
+  if (distSq < 1) return;
   // cos(angle between tile bearing and beam) = dot(unit-tile, unit-beam).
-  const dot = (dx * beam.cos + dy * beam.sin) / dist;
+  const dotRaw = dx * beam.cos + dy * beam.sin;
+  if (dotRaw <= 0 || dotRaw * dotRaw < BEAM_CAUSTIC_COS_SQ * distSq) return;
+  const dist = Math.sqrt(distSq);
+  const dot = dotRaw / dist;
   if (dot < BEAM_CAUSTIC_COS) return;
   // Soften toward the arc edges so the band fades smoothly.
   const fall = (dot - BEAM_CAUSTIC_COS) / (1 - BEAM_CAUSTIC_COS);
   const alpha = 0.18 * fall;
   const radius = 18 * zoom;
-  ctx.save();
   const zoomBucket = Math.round(zoom * 4) / 4;
   const alphaBucket = Math.round(alpha * 20) / 20;
   const stopKey = `${zoomBucket}:${alphaBucket}`;
@@ -655,7 +659,6 @@ function drawBeamCaustic(
   ctx.closePath();
   ctx.fill();
   drawBeamAxisGlitter(ctx, x, y, zoom, tileX, tileY, beam, dot, dist);
-  ctx.restore();
 }
 
 function drawBeamAxisGlitter(
@@ -768,8 +771,9 @@ function drawWaterTerrainAccentTexture(
   tileX: number,
   tileY: number,
   motion: PharosVilleCanvasMotion,
+  renderer = WATER_ACCENT_TEXTURE_RENDERERS[theme.texture],
 ) {
-  const renderTexture = WATER_ACCENT_TEXTURE_RENDERERS[theme.texture];
+  const renderTexture = renderer;
   if (renderTexture) {
     renderTexture(ctx, x, y, zoom, tileX, tileY, motion, theme);
     return;
@@ -829,7 +833,6 @@ function drawLedgerWaterAccentTexture(
   const ledgerPulse = motion.reducedMotion
     ? 0.18
     : 0.15 + fastSin(motion.timeSeconds * 0.62 + tileX * 0.25 + tileY * 0.37) * 0.04 * theme.motion.amplitudeScale;
-  ctx.save();
   ctx.strokeStyle = withAlpha(theme.accent, Math.max(0.12, ledgerPulse) * theme.motion.strokeAlphaScale);
   ctx.lineWidth = Math.max(1, zoom);
   ctx.beginPath();
@@ -838,7 +841,6 @@ function drawLedgerWaterAccentTexture(
   ctx.moveTo(x - 8 * zoom, y + 5 * zoom);
   ctx.lineTo(x + 7 * zoom, y + 8 * zoom);
   ctx.stroke();
-  ctx.restore();
 }
 
 function drawHarborWaterStaticTexture(
@@ -870,7 +872,6 @@ function drawHarborWaterAccentTexture(
   theme: ZoneVisualTheme,
 ) {
   const pulse = motion.reducedMotion ? 0.16 : 0.13 + fastSin(motion.timeSeconds * 0.85 + tileX * 0.23 + tileY * 0.17) * 0.04;
-  ctx.save();
   ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.1, pulse));
   ctx.lineWidth = Math.max(1, zoom);
   ctx.beginPath();
@@ -881,7 +882,6 @@ function drawHarborWaterAccentTexture(
     ctx.lineTo(x + 5 * zoom, y + 1 * zoom);
   }
   ctx.stroke();
-  ctx.restore();
 }
 
 function drawCalmWaterStaticTexture(
@@ -920,7 +920,6 @@ function drawCalmWaterAccentTexture(
   const hush = motion.reducedMotion
     ? 0.13
     : 0.11 + fastSin(motion.timeSeconds * 0.48 + tileX * 0.19 + tileY * 0.13) * 0.025 * theme.motion.amplitudeScale;
-  ctx.save();
   drawCalmMirrorBands(ctx, x, y, zoom, motion, theme, tileX, tileY);
   ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.08, hush) * theme.motion.strokeAlphaScale);
   ctx.lineWidth = Math.max(1, 0.85 * zoom);
@@ -935,7 +934,6 @@ function drawCalmWaterAccentTexture(
   if (tileHash(tileX, tileY, 233) % 5 < 2) {
     drawCalmReflectionRing(ctx, x, y, zoom, motion, theme, tileX, tileY);
   }
-  ctx.restore();
 }
 
 function drawDeepSeaStaticTexture(
@@ -972,7 +970,6 @@ function drawDeepSeaAccentTexture(
   const hash = tileHash(tileX, tileY, 419);
   if (hash % 7 !== 0 && hash % 13 !== 0) return;
   const glint = motion.reducedMotion ? 0.08 : 0.06 + fastSin(motion.timeSeconds * 0.42 + tileX * 0.2 + tileY * 0.31) * 0.025;
-  ctx.save();
   if (hash % 7 === 0) {
     ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.035, glint * 0.7));
     ctx.lineWidth = Math.max(1, 0.8 * zoom);
@@ -992,7 +989,6 @@ function drawDeepSeaAccentTexture(
     ctx.fillStyle = `rgba(236, 248, 255, ${alpha})`;
     ctx.fillRect(Math.round(x + offsetX), Math.round(y + offsetY), px, px);
   }
-  ctx.restore();
 }
 
 function drawDeepShelfEdgeDarkening(
@@ -1048,7 +1044,6 @@ function drawAlertChannelAccentTexture(
   const pulse = motion.reducedMotion
     ? 0.16
     : 0.14 + fastSin(motion.timeSeconds * 1.1 + tileX * 0.31) * 0.04 * theme.motion.amplitudeScale;
-  ctx.save();
   const drift = motion.reducedMotion ? 0 : fastSin(motion.timeSeconds * 0.7 + tileY * 0.23) * 1.5 * zoom;
   ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.12, pulse - 0.03) * theme.motion.strokeAlphaScale);
   ctx.lineWidth = Math.max(1, 0.9 * zoom);
@@ -1070,7 +1065,6 @@ function drawAlertChannelAccentTexture(
     ctx.lineTo(x + 8 * zoom, y + 8 * zoom);
   }
   ctx.stroke();
-  ctx.restore();
 }
 
 function drawWatchWaterStaticTexture(
@@ -1115,7 +1109,6 @@ function drawWatchWaterAccentTexture(
   const crosswind = motion.reducedMotion
     ? 0.16
     : 0.14 + fastSin(motion.timeSeconds * 0.95 + tileY * 0.29) * 0.04 * theme.motion.amplitudeScale;
-  ctx.save();
   if (subzone === "east-shelf") {
     drawWatchEastShelfCurrentArrows(ctx, x, y, zoom, motion, theme, tileX, tileY);
   }
@@ -1133,7 +1126,6 @@ function drawWatchWaterAccentTexture(
   if (subzone === "south-basin" && (tileX * 13 + tileY * 7) % 7 === 0) {
     drawWatchChannelBuoy(ctx, x, y, zoom, motion, theme, tileX, tileY);
   }
-  ctx.restore();
 }
 
 function drawWarningShoalStaticTexture(
@@ -1179,7 +1171,6 @@ function drawWarningShoalAccentTexture(
   const chop = motion.reducedMotion
     ? 0.2
     : 0.18 + fastSin(motion.timeSeconds * 1.6 + tileY * 0.37) * 0.05 * theme.motion.amplitudeScale;
-  ctx.save();
   ctx.strokeStyle = withAlpha(theme.wave, Math.max(0.16, chop) * theme.motion.strokeAlphaScale);
   ctx.lineWidth = Math.max(1, 1.2 * zoom);
   ctx.beginPath();
@@ -1189,7 +1180,6 @@ function drawWarningShoalAccentTexture(
   ctx.moveTo(x + 3 * zoom, y + 5 * zoom);
   ctx.lineTo(x + 11 * zoom, y + 8 * zoom);
   ctx.stroke();
-  ctx.restore();
 }
 
 function drawDangerStraitStaticTexture(
@@ -1244,7 +1234,6 @@ function drawDangerStraitAccentTexture(
   const whitecap = motion.reducedMotion
     ? 0.22
     : 0.18 + fastSin(motion.timeSeconds * 2.1 + tileX * 0.43 + tileY * 0.29) * 0.08 * theme.motion.amplitudeScale;
-  ctx.save();
   drawDangerRipRibbon(ctx, x, y, zoom, motion, theme, tileX, tileY);
   drawDangerWhitecapCurl(ctx, x, y, zoom, motion, theme, tileX, tileY);
   drawDangerSprayStreaks(ctx, x, y, zoom, motion, theme, tileX, tileY);
@@ -1261,7 +1250,6 @@ function drawDangerStraitAccentTexture(
   if ((tileX * 19 + tileY * 23) % 11 === 0) {
     drawDangerStormBurst(ctx, x, y, zoom, motion, theme, tileX, tileY);
   }
-  ctx.restore();
 }
 
 function drawOpenWaterStaticTexture(
@@ -1298,7 +1286,6 @@ function drawOpenWaterAccentTexture(
   const hash = tileHash(tileX, tileY, 503);
   const windFetch = hash % 10 < 3;
   const drift = motion.reducedMotion ? 0.12 : 0.1 + fastSin(motion.timeSeconds * 0.72 + tileX * 0.17 + tileY * 0.21) * 0.03;
-  ctx.save();
   if (windFetch) {
     const fetchLength = Math.max(16, 22 * zoom);
     const fetchRise = Math.max(4, 5 * zoom);
@@ -1324,7 +1311,6 @@ function drawOpenWaterAccentTexture(
     ctx.fillStyle = withAlpha(theme.wave, 0.05 + breathe * 0.11);
     ctx.fillRect(Math.round(glintX), Math.round(glintY), 1, 1);
   }
-  ctx.restore();
 }
 
 function drawLedgerParchmentUnderbase(
@@ -1455,7 +1441,6 @@ function drawCalmMirrorBands(
     : ((motion.timeSeconds / CALM_MIRROR_PERIOD_SECONDS + ((hash % 100) / 100)) % 1);
   const bandY = y + (-4 + phase * 8) * zoom;
   const alpha = (0.1 + ((hash >>> 9) % 5) * 0.012) * theme.motion.strokeAlphaScale;
-  ctx.save();
   ctx.strokeStyle = withAlpha(theme.accent, alpha);
   ctx.lineWidth = Math.max(1, 0.55 * zoom);
   ctx.beginPath();
@@ -1467,7 +1452,6 @@ function drawCalmMirrorBands(
     ctx.lineTo(x + 10 * zoom, lowerY);
   }
   ctx.stroke();
-  ctx.restore();
 }
 
 // Calm Anchorage signature: pebble-in-still-water concentric rings whose
@@ -1486,7 +1470,6 @@ function drawCalmReflectionRing(
     ? 0.5
     : (fastSin(motion.timeSeconds * 0.42 + tileX * 0.31 + tileY * 0.23) + 1) * 0.5;
   const radius = (4 + phase * 2.4) * zoom * theme.motion.amplitudeScale;
-  ctx.save();
   ctx.strokeStyle = withAlpha(theme.wave, 0.55 * (1 - phase * 0.4) * theme.motion.strokeAlphaScale);
   ctx.lineWidth = Math.max(1, 1.05 * zoom);
   ctx.beginPath();
@@ -1498,7 +1481,6 @@ function drawCalmReflectionRing(
   const innerR = Math.max(1, radius - 2 * zoom);
   ctx.ellipse(x, y, innerR, innerR * 0.5, 0, 0, Math.PI * 2);
   ctx.stroke();
-  ctx.restore();
 }
 
 // Watch Breakwater signature: a small channel-marker buoy with a vertical
@@ -1518,7 +1500,6 @@ function drawWatchChannelBuoy(
     : fastSin(motion.timeSeconds * 0.95 + tileX * 0.41 + tileY * 0.27) * 0.7 * zoom;
   const cx = x + 3 * zoom;
   const cy = y - 1 * zoom + bob;
-  ctx.save();
   ctx.fillStyle = withAlpha(theme.accent, 0.82 * theme.motion.strokeAlphaScale);
   ctx.fillRect(
     Math.round(cx - 1 * zoom),
@@ -1545,7 +1526,6 @@ function drawWatchChannelBuoy(
   ctx.moveTo(cx - 4 * zoom, cy + 2.5 * zoom);
   ctx.quadraticCurveTo(cx, cy + 1.4 * zoom, cx + 4 * zoom, cy + 2.5 * zoom);
   ctx.stroke();
-  ctx.restore();
 }
 
 function drawWatchEastShelfCurrentArrows(

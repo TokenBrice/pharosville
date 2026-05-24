@@ -48,9 +48,9 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 ## Bundle Budgets
 
 - entry chunk: raw <= 300 KiB, gzip <= 90 KiB
-- desktop lazy chunk: raw <= 970 KiB, gzip <= 278 KiB
+- desktop lazy chunk: raw <= 971 KiB, gzip <= 279 KiB
 - entry CSS: raw <= 32 KiB, gzip <= 8 KiB
-- Total JS: raw <= 1,280 KiB, gzip <= 378 KiB
+- Total JS: raw <= 1,281 KiB, gzip <= 378 KiB
 
 ## Squads
 

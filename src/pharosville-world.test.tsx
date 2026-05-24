@@ -67,7 +67,6 @@ vi.mock("./hooks/use-canvas-resize-and-camera", () => ({
     handleToolbarPan: vi.fn(),
     handleToolbarZoomIn: vi.fn(),
     handleToolbarZoomOut: vi.fn(),
-    handleWheel: vi.fn(),
     maximumRequestedDprRef: { current: 1 },
     setCamera: vi.fn(),
   }),

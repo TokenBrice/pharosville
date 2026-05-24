@@ -367,7 +367,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         onPointerLeave={canvas.handlePointerLeave}
         onPointerMove={canvas.handlePointerMove}
         onPointerUp={canvas.handlePointerUp}
-        onWheel={canvas.handleWheel}
       />
       <div className="pharosville-overlay" aria-label="PharosVille controls and details">
         <div className="pharosville-hud">

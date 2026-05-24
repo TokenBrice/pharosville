@@ -9,8 +9,8 @@ export const bundleBudgets = {
   desktop: {
     label: "desktop lazy chunk",
     pattern: /^pharosville-desktop-data-[A-Za-z0-9_-]+\.js$/,
-    maxRawBytes: 970 * 1024,
-    maxGzipBytes: 278 * 1024,
+    maxRawBytes: 971 * 1024,
+    maxGzipBytes: 279 * 1024,
     required: true,
   },
   css: {
@@ -23,6 +23,6 @@ export const bundleBudgets = {
 };
 
 export const aggregateBudgets = {
-  maxJsRawBytes: 1_280 * 1024,
+  maxJsRawBytes: 1_281 * 1024,
   maxJsGzipBytes: 378 * 1024,
 };

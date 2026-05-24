@@ -112,7 +112,8 @@ const SHIP_BODY_CACHE_INTERACTION_WARMUP_PER_FRAME = 1;
 const staticLayerCache = new Map<string, StaticLayerCacheEntry>();
 const shipBodyCache = createShipBodyCache({ maxPixels: MAX_TOTAL_BACKING_PIXELS });
 let staticCameraCacheKeyCache: { key: string; input: CameraCacheKeyInput } | null = null;
-let cacheGenerationKey: string | null = null;
+let staticCacheGenerationKey: string | null = null;
+let shipBodyCacheGenerationKey: string | null = null;
 
 interface CameraCacheFrame {
   keySegment: string;
@@ -289,23 +290,32 @@ function manifestCacheVersionForInput(input: DrawPharosVilleInput): string {
 
 function ensureRendererCacheGeneration(input: DrawPharosVilleInput, dpr: number): void {
   const dprBucket = Math.max(1, Math.round(dpr * 100));
-  const nextGenerationKey = [
-    worldIdFor(input.world),
+  const worldId = worldIdFor(input.world);
+  const assetTick = assetLoadTickFor(input);
+  const manifestVersion = manifestCacheVersionForInput(input);
+  const nextStaticGenerationKey = [
+    worldId,
     `${input.width | 0}x${input.height | 0}`,
     `d${dprBucket}`,
     `m${resolveRenderCacheMode(input)}`,
-    `a${assetLoadTickFor(input)}`,
-    `cv${manifestCacheVersionForInput(input)}`,
+    `a${assetTick}`,
+    `cv${manifestVersion}`,
   ].join("|");
-  if (cacheGenerationKey === nextGenerationKey) return;
-  clearRendererCaches();
-  cacheGenerationKey = nextGenerationKey;
-}
+  if (staticCacheGenerationKey !== nextStaticGenerationKey) {
+    staticLayerCache.clear();
+    staticCameraCacheKeyCache = null;
+    staticCacheGenerationKey = nextStaticGenerationKey;
+  }
 
-function clearRendererCaches(): void {
-  staticLayerCache.clear();
-  shipBodyCache.clear();
-  staticCameraCacheKeyCache = null;
+  const nextShipBodyGenerationKey = [
+    worldId,
+    `a${assetTick}`,
+    `cv${manifestVersion}`,
+  ].join("|");
+  if (shipBodyCacheGenerationKey !== nextShipBodyGenerationKey) {
+    shipBodyCache.clear();
+    shipBodyCacheGenerationKey = nextShipBodyGenerationKey;
+  }
 }
 
 function reserveCacheCanvas(input: {
@@ -687,7 +697,7 @@ function drawEntityPass(input: DrawPharosVilleInput, frame: WorldCanvasFrame, ni
       drawPigeonnierBody: () => drawPigeonnier(input),
       drawSceneryProp: (prop) => drawSceneryProp(input, prop),
       drawShipBody: (ship) => drawShipBody(input, frame, ship),
-      drawShipOverlay: (ship) => drawShipOverlay(input, frame, ship),
+      drawShipOverlay: (ship) => drawShipOverlay(input, frame, ship, nightFactor),
       drawShipWake: (ship) => drawShipWake(input, frame, ship),
       isBackgroundedHarborDock,
       lighthouseOverlayScreenBounds: (selectionRect) => lighthouseOverlayScreenBounds(input, selectionRect, frame.lighthouseRender, nightFactor),

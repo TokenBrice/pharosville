@@ -206,20 +206,46 @@ export function drawTileLowerFacet(ctx: CanvasRenderingContext2D, x: number, y: 
   ctx.restore();
 }
 
-export function hexToRgba(hex: string, alpha: number) {
+const hexRgbaPrefixCache = new Map<string, string>();
+const rgbaPrefixCache = new Map<string, string>();
+const readableInkCache = new Map<string, string>();
+
+function rgbaPrefixForHex(hex: string): string {
+  const cached = hexRgbaPrefixCache.get(hex);
+  if (cached) return cached;
   const normalized = hex.replace("#", "");
   const red = Number.parseInt(normalized.slice(0, 2), 16);
   const green = Number.parseInt(normalized.slice(2, 4), 16);
   const blue = Number.parseInt(normalized.slice(4, 6), 16);
-  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+  const prefix = `rgba(${red}, ${green}, ${blue}, `;
+  hexRgbaPrefixCache.set(hex, prefix);
+  return prefix;
+}
+
+function rgbaPrefixForColor(color: string): string | null {
+  const cached = rgbaPrefixCache.get(color);
+  if (cached) return cached;
+  const alphaCommaIndex = color.lastIndexOf(",");
+  if (alphaCommaIndex < 0 || !color.endsWith(")")) return null;
+  const prefix = `${color.slice(0, alphaCommaIndex)}, `;
+  rgbaPrefixCache.set(color, prefix);
+  return prefix;
+}
+
+export function hexToRgba(hex: string, alpha: number) {
+  return `${rgbaPrefixForHex(hex)}${alpha})`;
 }
 
 export function readableInkForFill(hex: string) {
+  const cached = readableInkCache.get(hex);
+  if (cached) return cached;
   const normalized = hex.replace("#", "");
   const red = Number.parseInt(normalized.slice(0, 2), 16);
   const green = Number.parseInt(normalized.slice(2, 4), 16);
   const blue = Number.parseInt(normalized.slice(4, 6), 16);
-  return red * 0.299 + green * 0.587 + blue * 0.114 > 160 ? "#102333" : "#f8efd2";
+  const ink = red * 0.299 + green * 0.587 + blue * 0.114 > 160 ? "#102333" : "#f8efd2";
+  readableInkCache.set(hex, ink);
+  return ink;
 }
 
 export function roundedRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
@@ -247,8 +273,11 @@ export function stableVisualVariant(input: string): number {
 }
 
 export function withAlpha(color: string, alpha: number) {
-  if (color.startsWith("rgba(")) return color.replace(/,\s*[\d.]+\)$/, `, ${alpha})`);
-  if (color.startsWith("#")) return hexToRgba(color, alpha);
+  if (color.startsWith("rgba(")) {
+    const prefix = rgbaPrefixForColor(color);
+    return prefix ? `${prefix}${alpha})` : color;
+  }
+  if (color.startsWith("#")) return `${rgbaPrefixForHex(color)}${alpha})`;
   return color;
 }
 
