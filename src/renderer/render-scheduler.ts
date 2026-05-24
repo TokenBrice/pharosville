@@ -5,17 +5,27 @@ export const RENDER_SCHEDULER_TARGET_FRAME_MS = 16.7;
 const INTERACTION_SKIPS = ["film-grain"] as const;
 const INTERACTION_DEGRADES = ["cloud-shadow", "birds", "god-rays"] as const;
 const CONSTRAINED_SKIPS = [
+  "atmospheric-fade",
   "birds",
   "bioluminescent-sparkles",
+  "cemetery-mist",
   "cloud-shadow",
+  "coastal-water-motion",
   "decorative-lights",
+  "establishing-letterbox",
   "film-grain",
   "god-rays",
+  "harbor-surf",
+  "lighthouse-beam-rim",
+  "lighthouse-reflection",
+  "lighthouse-surf",
+  "lighthouse-thunder-rim",
   "moon-reflection",
+  "scene-atmosphere",
+  "scene-vignette",
   "sea-mist",
+  "weather",
 ] as const;
-const RECOVERY_SKIPS = ["film-grain"] as const;
-const RECOVERY_DEGRADES = ["birds", "cloud-shadow"] as const;
 
 export function resolveRenderSchedulerState(input: {
   cameraIntentActive: boolean;
@@ -63,13 +73,11 @@ function resolveRenderSchedulerTier(input: {
 
 function skippedPassesForTier(tier: PharosVilleRenderSchedulerTier): readonly string[] {
   if (tier === "interaction") return INTERACTION_SKIPS;
-  if (tier === "constrained") return CONSTRAINED_SKIPS;
-  if (tier === "recovery") return RECOVERY_SKIPS;
+  if (tier === "constrained" || tier === "recovery") return CONSTRAINED_SKIPS;
   return [];
 }
 
 function degradedPassesForTier(tier: PharosVilleRenderSchedulerTier): readonly string[] {
   if (tier === "interaction") return INTERACTION_DEGRADES;
-  if (tier === "recovery") return RECOVERY_DEGRADES;
   return [];
 }

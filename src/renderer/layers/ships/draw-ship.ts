@@ -193,10 +193,10 @@ let cachedEffectHashSource: ReadonlySet<string> | null = null;
 let cachedEffectHash = "";
 
 const SHIP_LOD_BUDGET_MULTIPLIERS: Record<ShipLodBudgetTier, { overlay: number; wake: number }> = {
-  constrained: { overlay: 0.4, wake: 0.35 },
+  constrained: { overlay: 0.15, wake: 0.12 },
   full: { overlay: 1, wake: 1 },
   interaction: { overlay: 0.5, wake: 0.42 },
-  recovery: { overlay: 0.58, wake: 0.5 },
+  recovery: { overlay: 0.15, wake: 0.12 },
 };
 
 export type TitanPoseBucket = -2 | -1 | 0 | 1 | 2;
@@ -501,8 +501,23 @@ export function shipRenderState(input: DrawPharosVilleInput, frame: ShipRenderFr
   const mapVisibilityAlpha = shipMapVisibilityAlpha(ship, sample);
   const titanSprite = isTitanSprite(ship);
   const uniqueSprite = isUniqueSprite(ship);
-  const animated = !motion.reducedMotion && motion.plan.animatedShipIds.has(ship.id);
   const topRecentMover = isTopRecentMoverShip(input.world, ship.id);
+  const tier = input.renderScheduler?.tier;
+  const pressureTier = tier && tier !== "full";
+  const animated = !motion.reducedMotion
+    && motion.plan.animatedShipIds.has(ship.id)
+    && (!pressureTier
+      || selected
+      || hovered
+      || titanSprite
+      || uniqueSprite
+      || motion.plan.moverShipIds.has(ship.id)
+      || topRecentMover
+      || (tier === "interaction" && (
+        motion.plan.effectShipIds.has(ship.id)
+        || ship.visual.sizeTier === "flagship"
+        || ship.visual.sizeTier === "major"
+      )));
   const drawsWake = !motion.reducedMotion
     && (sample?.state === "departing" || sample?.state === "sailing" || sample?.state === "arriving")
     && (motion.plan.effectShipIds.has(ship.id) || selected || motion.plan.moverShipIds.has(ship.id) || topRecentMover);

@@ -28,6 +28,7 @@ import {
   wakePersonalityForHull,
   type ShipRenderFrame,
 } from "./ships";
+import { shipRenderState } from "./ships/draw-ship";
 import { resolveShipPose } from "./ship-pose";
 
 vi.mock("../canvas-primitives", async (importOriginal) => {
@@ -431,6 +432,58 @@ describe("continuous ship pose", () => {
     expect(pose.rollRadians).toBe(0);
     expect(pose.sailFlutter).toBe(0);
     expect(pose.sternChurn).toBe(0);
+  });
+
+  it("freezes low-priority pose under constrained rendering while preserving movers", () => {
+    const lowPriority = makeShipNode({
+      id: "low-priority",
+      tile: { x: 10, y: 10 },
+      visual: { sizeTier: "local" },
+    });
+    const mover = makeShipNode({
+      id: "mover",
+      tile: { x: 11, y: 10 },
+      visual: { sizeTier: "local" },
+    });
+    const motionPlan = makeMotionPlan([mover.id]);
+    motionPlan.animatedShipIds = new Set([lowPriority.id, mover.id]);
+    const input = {
+      assets: null,
+      camera: { offsetX: 0, offsetY: 0, zoom: 1 },
+      ctx: makeRecordingCtx() as unknown as CanvasRenderingContext2D,
+      height: 600,
+      hoveredTarget: null,
+      motion: {
+        plan: motionPlan,
+        reducedMotion: false,
+        timeSeconds: 1,
+        wallClockHour: 12,
+      },
+      renderScheduler: {
+        degradedPasses: [],
+        skippedPasses: [],
+        targetFrameMs: 16.7,
+        tier: "constrained",
+      },
+      selectedTarget: null,
+      shipMotionSamples: new Map<string, ShipMotionSample>([
+        [lowPriority.id, { ...makeMotionSample(lowPriority.id), wakeIntensity: 0.8, speedRatio: 1.1 } as ShipMotionSample],
+        [mover.id, { ...makeMotionSample(mover.id), wakeIntensity: 0.8, speedRatio: 1.1 } as ShipMotionSample],
+      ]),
+      targets: [],
+      width: 800,
+      world: { ships: [lowPriority, mover] } as unknown as PharosVilleWorld,
+    } satisfies DrawPharosVilleInput;
+    const frame: ShipRenderFrame = {
+      cache: {
+        assetForEntity: () => null,
+        geometryForEntity: () => makeGeometry(200, 100),
+      },
+      shipRenderStates: new Map(),
+    };
+
+    expect(shipRenderState(input, frame, lowPriority).pose.rollRadians).toBe(0);
+    expect(Math.abs(shipRenderState(input, frame, mover).pose.rollRadians)).toBeGreaterThan(0);
   });
 });
 

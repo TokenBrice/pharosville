@@ -2,39 +2,27 @@ import { describe, expect, it } from "vitest";
 import { PREFERRED_DOCK_TILES } from "../../systems/world-layout";
 import {
   CIVIC_VEGETATION_KINDS,
-  DYNAMIC_SCENERY_KINDS,
-  DYNAMIC_SCENERY_PROPS,
   SCENERY_PROPS,
-  STATIC_SCENERY_KINDS,
-  STATIC_SCENERY_PROPS,
   sceneryMotionClassForKind,
+  isDynamicSceneryProp,
+  isStaticSceneryProp,
   type SceneryPropKind,
 } from "./scenery";
 
 const MIN_DISTANCE_FROM_LIVE_HARBOR_TILES = 4.75;
 const TIME_DEPENDENT_SCENERY_KINDS: readonly SceneryPropKind[] = [
-  "barrel",
   "buoy",
-  "cargo-stack",
-  "crate-stack",
   "harbor-bell",
   "harbor-lamp",
   "moored-dinghy-east",
-  "net-rack",
-  "rope-coil",
   "sundial",
 ];
 
 const EXPECTED_DYNAMIC_SCENERY_PLACEMENT_KINDS: readonly SceneryPropKind[] = [
-  "barrel",
   "buoy",
-  "cargo-stack",
-  "crate-stack",
   "harbor-bell",
   "harbor-lamp",
   "moored-dinghy-east",
-  "net-rack",
-  "rope-coil",
   "sundial",
 ];
 
@@ -65,12 +53,11 @@ describe("scenery motion classification", () => {
   it("classifies bobbing, swaying, wobbling, lit, and wall-clock scenery as dynamic", () => {
     for (const kind of TIME_DEPENDENT_SCENERY_KINDS) {
       expect(sceneryMotionClassForKind(kind), `${kind} should be dynamic`).toBe("dynamic");
-      expect(DYNAMIC_SCENERY_KINDS.has(kind), `${kind} is missing from dynamic kind set`).toBe(true);
     }
   });
 
   it("places expected dynamic scenery families", () => {
-    const dynamicPlacedKinds = new Set(DYNAMIC_SCENERY_PROPS.map((prop) => prop.kind));
+    const dynamicPlacedKinds = new Set(SCENERY_PROPS.filter(isDynamicSceneryProp).map((prop) => prop.kind));
 
     for (const kind of EXPECTED_DYNAMIC_SCENERY_PLACEMENT_KINDS) {
       expect(dynamicPlacedKinds.has(kind), `${kind} has no dynamic scenery placement`).toBe(true);
@@ -78,21 +65,21 @@ describe("scenery motion classification", () => {
   });
 
   it("keeps time-dependent scenery out of static classification", () => {
-    const staticPlacedKinds = new Set(STATIC_SCENERY_PROPS.map((prop) => prop.kind));
+    const staticPlacedKinds = new Set(SCENERY_PROPS.filter(isStaticSceneryProp).map((prop) => prop.kind));
 
     for (const kind of TIME_DEPENDENT_SCENERY_KINDS) {
-      expect(STATIC_SCENERY_KINDS.has(kind), `${kind} should not be a static kind`).toBe(false);
       expect(staticPlacedKinds.has(kind), `${kind} should not have static scenery placements`).toBe(false);
     }
   });
 
   it("places every scenery prop in exactly one motion class", () => {
     for (const prop of SCENERY_PROPS) {
-      const isStatic = STATIC_SCENERY_PROPS.includes(prop);
-      const isDynamic = DYNAMIC_SCENERY_PROPS.includes(prop);
+      const isStatic = isStaticSceneryProp(prop);
+      const isDynamic = isDynamicSceneryProp(prop);
       expect(Number(isStatic) + Number(isDynamic), `${prop.id} should have one motion class`).toBe(1);
     }
   });
+
 });
 
 function nearestDockDistance(tile: { x: number; y: number }): { distance: number; dockKey: string } {

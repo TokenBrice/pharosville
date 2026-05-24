@@ -21,7 +21,7 @@ import {
   drawSquadSelectionHalo,
   type SquadAnchor,
 } from "./layers/maker-squad-chrome";
-import { drawSceneryProp, sceneryDrawables } from "./layers/scenery";
+import { drawSceneryProp, drawStaticSceneScenery, sceneryDrawables } from "./layers/scenery";
 import { drawYggdrasil } from "./layers/yggdrasil";
 import { drawPigeonnier } from "./layers/pigeonnier";
 import { drawShipBody, drawShipOverlay, drawShipWake, shipMastTopScreenPoint, type ShipRenderState } from "./layers/ships";
@@ -139,6 +139,7 @@ const wakeDrawnShipIdsScratch = new Set<string>();
 const flagshipByIdScratch = new Map<string, PharosVilleWorld["ships"][number]>();
 const dockRenderStatesScratch = new Map<string, DockRenderState>();
 const graveRenderStatesScratch = new Map<string, GraveRenderState>();
+const staticGraveRenderStatesScratch = new Map<string, GraveRenderState>();
 const visibleShipsScratch: PharosVilleWorld["ships"][number][] = [];
 const squadAnchorsScratch: SquadAnchor[] = [];
 
@@ -363,6 +364,23 @@ function paintStaticScenePass(input: DrawPharosVilleInput, frame: WorldCanvasFra
   drawCenterCluster(input);
   drawLighthouseHeadland(input);
   drawCemeteryContext(input);
+  drawStaticSceneScenery(input);
+  drawNeutralStaticGraveBodies(input);
+}
+
+function drawNeutralStaticGraveBodies(input: DrawPharosVilleInput) {
+  staticGraveRenderStatesScratch.clear();
+  const neutralInput = input.hoveredTarget || input.selectedTarget
+    ? { ...input, hoveredTarget: null, selectedTarget: null }
+    : input;
+  const staticGraveFrame = {
+    cache: createRenderFrameCache(neutralInput),
+    graveRenderStates: staticGraveRenderStatesScratch,
+  };
+  for (const grave of neutralInput.world.graves) {
+    drawGraveUnderlay(neutralInput, staticGraveFrame, grave);
+    drawGraveBody(neutralInput, staticGraveFrame, grave);
+  }
 }
 
 function drawStaticPassCached(
@@ -523,19 +541,25 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   const waterAccentStart = performance.now();
   input.ctx.imageSmoothingEnabled = false;
   const waterAccentTileCount = drawWaterTerrainAccents(input);
-  const coastalWaterTileCount = drawCoastalWaterDetails(input);
+  const coastalWaterTileCount = shouldDrawScheduledPass(input.renderScheduler, "coastal-water-motion")
+    ? drawCoastalWaterDetails(input)
+    : 0;
   const waterAccentDrawMs = performance.now() - waterAccentStart;
-  drawAtmosphericFade(input, nightFactor);
+  if (shouldDrawScheduledPass(input.renderScheduler, "atmospheric-fade")) {
+    drawAtmosphericFade(input, nightFactor);
+  }
   drawRevealGatedScene(input, frame, reveal);
   if (reveal.drawLighthouse) {
-    drawLighthouseSurf(lighthouseInput);
-    drawLighthouseReflection(lighthouseInput, frame.lighthouseRender, nightFactor);
+    if (shouldDrawScheduledPass(input.renderScheduler, "lighthouse-surf")) drawLighthouseSurf(lighthouseInput);
+    if (shouldDrawScheduledPass(input.renderScheduler, "lighthouse-reflection")) {
+      drawLighthouseReflection(lighthouseInput, frame.lighthouseRender, nightFactor);
+    }
   }
   // Beach-foam ribbon along each chain harbor's seawall edge. Drawn after the
   // backgrounded Ethereum dock body (painted in the static scene pass) and
   // before the main entity pass so the foam sits over the water but under any
   // dock sprite that the entity pass paints on top of the ribbon's anchor.
-  drawHarborSurf(input);
+  if (shouldDrawScheduledPass(input.renderScheduler, "harbor-surf")) drawHarborSurf(input);
   const entityMetrics = drawRevealGatedEntities(input, frame, nightFactor, reveal, lighthouseInput);
   drawSquadChrome(input, frame);
   if (shouldDrawScheduledPass(input.renderScheduler, "cloud-shadow")) {
@@ -543,7 +567,9 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   }
   drawWaterAreaLabels(input);
   drawNightTint(input, nightFactor);
-  drawAtmosphere(input, frame.lighthouseRender);
+  if (shouldDrawScheduledPass(input.renderScheduler, "scene-atmosphere")) {
+    drawAtmosphere(input, frame.lighthouseRender);
+  }
   if (reveal.drawLighthouse) {
     drawLighthouseNightHighlights(lighthouseInput, frame.lighthouseRender, nightFactor);
   }
@@ -554,24 +580,28 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   if (shouldDrawScheduledPass(input.renderScheduler, "sea-mist")) drawSeaMist(input, nightFactor);
   if (shouldDrawScheduledPass(input.renderScheduler, "decorative-lights")) drawDecorativeLights(input);
   if (reveal.drawLighthouse) {
-    drawLighthouseBeamRim(lighthouseInput, frame.visibleShips, frame.lighthouseRender, nightFactor);
+    if (shouldDrawScheduledPass(input.renderScheduler, "lighthouse-beam-rim")) {
+      drawLighthouseBeamRim(lighthouseInput, frame.visibleShips, frame.lighthouseRender, nightFactor);
+    }
   }
   if (reveal.drawLighthouse && shouldDrawScheduledPass(input.renderScheduler, "god-rays")) {
     const godRayNightFactor = isScheduledPassDegraded(input.renderScheduler, "god-rays") ? nightFactor * 0.7 : nightFactor;
     drawLighthouseGodRays(lighthouseInput.ctx, frame.lighthouseRender.firePoint, lighthouseInput.camera.zoom * 1.35, lighthouseMotion, godRayNightFactor);
   }
-  drawCemeteryMist(input);
+  if (shouldDrawScheduledPass(input.renderScheduler, "cemetery-mist")) drawCemeteryMist(input);
   if (shouldDrawScheduledPass(input.renderScheduler, "birds")) drawBirds(input);
   // Lightning flashes over WARNING/DANGER zones. Placed after night-tint and
   // ambient atmosphere so the flash visibly punches through the dim, but
   // before the night vignette / selection chrome which are UI overlays.
-  drawWeather(input);
+  if (shouldDrawScheduledPass(input.renderScheduler, "weather")) drawWeather(input);
   if (reveal.drawLighthouse) {
-    drawLighthouseThunderRim(lighthouseInput, frame.lighthouseRender, nightFactor);
+    if (shouldDrawScheduledPass(input.renderScheduler, "lighthouse-thunder-rim")) {
+      drawLighthouseThunderRim(lighthouseInput, frame.lighthouseRender, nightFactor);
+    }
   }
-  drawNightVignette(input, nightFactor);
+  if (shouldDrawScheduledPass(input.renderScheduler, "scene-vignette")) drawNightVignette(input, nightFactor);
   const selectionDrawableCount = drawSelection(input);
-  drawEstablishingShotLetterbox(input);
+  if (shouldDrawScheduledPass(input.renderScheduler, "establishing-letterbox")) drawEstablishingShotLetterbox(input);
   if (shouldDrawScheduledPass(input.renderScheduler, "film-grain")) drawFilmGrainPass(input);
   const drawableCounts = {
     ...entityMetrics.drawableCounts,

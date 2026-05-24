@@ -64,7 +64,8 @@ function graveRenderState(input: DrawPharosVilleInput, frame: GraveRenderFrame, 
   const geometry = frame.cache.geometryForEntity(grave);
   const p = geometry.screenPoint;
   const causeColor = GRAVE_CAUSE_COLORS[grave.entry.causeOfDeath] ?? GRAVE_CAUSE_COLORS.abandoned;
-  const emphasized = hoveredTarget?.id === grave.id || selectedTarget?.id === grave.id;
+  const emphasized = hoveredTarget?.id === grave.id || hoveredTarget?.detailId === grave.detailId
+    || selectedTarget?.id === grave.id || selectedTarget?.detailId === grave.detailId;
   const graveZoom = camera.zoom * grave.visual.scale;
   const state = { causeColor, emphasized, geometry, graveZoom, p };
   frame.graveRenderStates.set(grave.id, state);

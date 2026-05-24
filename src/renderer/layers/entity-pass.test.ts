@@ -93,7 +93,14 @@ describe("drawEntityLayer", () => {
         timeSeconds: 0,
         wallClockHour: 12,
       },
-      selectedTarget: null,
+      selectedTarget: {
+        detailId: grave.detailId,
+        id: grave.id,
+        kind: "grave",
+        label: grave.label,
+        priority: 0,
+        rect: { x: 0, y: 0, width: 10, height: 10 },
+      },
       shipMotionSamples: new Map(),
       targets: [],
       width: 1280,
@@ -250,5 +257,83 @@ describe("drawEntityLayer", () => {
     expect(wakeCalls).toContain(titan.id);
     expect(overlayCalls.length).toBeLessThan(visibleShips.length);
     expect(wakeCalls.length).toBeLessThan(visibleShips.length);
+  });
+
+  it("leaves static grave bodies out of the dynamic entity pass until emphasized", () => {
+    const major = {
+      id: "grave.major",
+      kind: "grave",
+      detailId: "grave.major",
+      label: "major",
+      visual: { scale: 0.5 },
+    } as unknown as PharosVilleWorld["graves"][number];
+    const minor = {
+      id: "grave.minor",
+      kind: "grave",
+      detailId: "grave.minor",
+      label: "minor",
+      visual: { scale: 0.25 },
+    } as unknown as PharosVilleWorld["graves"][number];
+    const lighthouse = { id: "lighthouse", kind: "lighthouse", detailId: "lighthouse", label: "lighthouse" } as unknown as PharosVilleWorld["lighthouse"];
+    const pigeonnier = { id: "pigeonnier", kind: "pigeonnier", detailId: "pigeonnier", label: "pigeonnier" } as unknown as PharosVilleWorld["pigeonnier"];
+    const world = {
+      docks: [],
+      graves: [major, minor],
+      lighthouse,
+      pigeonnier,
+      ships: [],
+    } as unknown as PharosVilleWorld;
+    const geometryById = new Map<string, ResolvedEntityGeometry>([
+      [major.id, makeGeometry(120, 120, 120)],
+      [minor.id, makeGeometry(130, 150, 150)],
+      [lighthouse.id, makeGeometry(100, 80, 80)],
+      [pigeonnier.id, makeGeometry(140, 200, 200)],
+    ]);
+    const cache = {
+      geometryForEntity: (entity: { id: string }) => geometryById.get(entity.id) ?? makeGeometry(0, 0, 0),
+    } as unknown as RenderFrameCache;
+    const calls: string[] = [];
+
+    drawEntityLayer(
+      {
+        assets: null,
+        camera: { offsetX: 0, offsetY: 0, zoom: 1 },
+        ctx: {} as CanvasRenderingContext2D,
+        height: 760,
+        hoveredTarget: null,
+        motion: {
+          plan: motionPlan(),
+          reducedMotion: false,
+          timeSeconds: 0,
+          wallClockHour: 12,
+        },
+        selectedTarget: null,
+        shipMotionSamples: new Map(),
+        targets: [],
+        width: 1280,
+        world,
+      } satisfies DrawPharosVilleInput,
+      cache,
+      [],
+      {
+        drawDockBody: () => undefined,
+        drawDockOverlay: () => undefined,
+        drawGraveBody: (grave) => calls.push(`body:${grave.id}`),
+        drawGraveOverlay: (grave) => calls.push(`overlay:${grave.id}`),
+        drawGraveUnderlay: (grave) => calls.push(`underlay:${grave.id}`),
+        drawLighthouseBody: () => undefined,
+        drawLighthouseOverlay: () => undefined,
+        drawPigeonnierBody: () => undefined,
+        drawSceneryProp: () => undefined,
+        drawShipBody: () => undefined,
+        drawShipOverlay: () => undefined,
+        drawShipWake: () => undefined,
+        isBackgroundedHarborDock: () => false,
+        lighthouseOverlayScreenBounds: (rect) => rect,
+        visibleShips: [],
+      },
+    );
+
+    expect(calls).toEqual(["overlay:grave.major"]);
   });
 });

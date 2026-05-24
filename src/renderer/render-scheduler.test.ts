@@ -53,6 +53,7 @@ describe("render scheduler", () => {
 
     expect(scheduler.tier).toBe("recovery");
     expect(shouldDrawScheduledPass(scheduler, "film-grain")).toBe(false);
-    expect(isScheduledPassDegraded(scheduler, "cloud-shadow")).toBe(true);
+    expect(shouldDrawScheduledPass(scheduler, "moon-reflection")).toBe(false);
+    expect(isScheduledPassDegraded(scheduler, "cloud-shadow")).toBe(false);
   });
 });

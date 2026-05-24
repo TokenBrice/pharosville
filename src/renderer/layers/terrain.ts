@@ -129,7 +129,6 @@ interface WaterAccentCandidateLookup {
   all: WaterAccentCandidate[];
   constrained: WaterAccentCandidate[];
   continuous: WaterAccentCandidate[];
-  recovery: WaterAccentCandidate[];
 }
 
 const WATER_STATIC_TEXTURE_RENDERERS: Partial<Record<WaterTextureKind, WaterTextureRenderer>> = {
@@ -273,8 +272,7 @@ function activeWaterAccentCandidatesForFrame(
 ): WaterAccentCandidate[] {
   if (input.motion.reducedMotion) return candidates.all;
   const tier = input.renderScheduler?.tier;
-  if (tier === "interaction" || tier === "constrained") return candidates.constrained;
-  if (tier === "recovery") return candidates.recovery;
+  if (tier && tier !== "full") return candidates.constrained;
   return candidates.continuous;
 }
 
@@ -467,7 +465,6 @@ function waterAccentCandidatesForMap(map: PharosVilleMap): WaterAccentCandidateL
   const all: WaterAccentCandidate[] = [];
   const constrained: WaterAccentCandidate[] = [];
   const continuous: WaterAccentCandidate[] = [];
-  const recovery: WaterAccentCandidate[] = [];
   for (const tile of map.tiles) {
     const terrain = terrainKindForTile(tile);
     if (!isWaterTileKind(terrain)) continue;
@@ -482,20 +479,17 @@ function waterAccentCandidatesForMap(map: PharosVilleMap): WaterAccentCandidateL
     if (shouldDrawContinuousWaterAccentForTerrain(terrainKey, tile.x, tile.y, "full")) {
       continuous.push(candidate);
     }
-    if (shouldDrawContinuousWaterAccentForTerrain(terrainKey, tile.x, tile.y, "recovery")) {
-      recovery.push(candidate);
-    }
     if (shouldDrawContinuousWaterAccentForTerrain(terrainKey, tile.x, tile.y, "constrained")) {
       constrained.push(candidate);
     }
   }
 
-  const lookup = { all, constrained, continuous, recovery };
+  const lookup = { all, constrained, continuous };
   waterAccentCandidateLookupByMap.set(map, lookup);
   return lookup;
 }
 
-type WaterAccentLodTier = "constrained" | "full" | "recovery";
+type WaterAccentLodTier = "constrained" | "full";
 
 function shouldDrawContinuousWaterAccentForTerrain(
   value: string,
@@ -503,19 +497,19 @@ function shouldDrawContinuousWaterAccentForTerrain(
   tileY: number,
   tier: WaterAccentLodTier,
 ): boolean {
-  if (value === "storm-water" || value === "warning-water" || value === "alert-water" || value === "ledger-water") {
+  const hash = tileHash(tileX, tileY, 977);
+  if (value === "ledger-water") {
+    if (tier === "constrained") return hash % 8 === 0;
     return true;
   }
-  const hash = tileHash(tileX, tileY, 977);
-  if (tier === "constrained") {
-    if (value === "watch-water") return hash % 8 === 0;
-    if (value === "deep-water") return hash % 12 === 0;
-    return hash % 9 === 0;
+  if (value === "storm-water" || value === "warning-water" || value === "alert-water") {
+    if (tier === "constrained") return hash % 6 === 0;
+    return true;
   }
-  if (tier === "recovery") {
-    if (value === "watch-water") return hash % 4 === 0;
-    if (value === "deep-water") return hash % 8 === 0;
-    return hash % 6 === 0;
+  if (tier === "constrained") {
+    if (value === "watch-water") return hash % 24 === 0;
+    if (value === "deep-water") return hash % 32 === 0;
+    return hash % 28 === 0;
   }
   if (value === "watch-water") return hash % 2 === 0;
   if (value === "deep-water") return hash % 4 === 0;

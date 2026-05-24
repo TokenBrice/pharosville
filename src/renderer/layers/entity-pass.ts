@@ -94,9 +94,14 @@ export function drawEntityLayer(
 
   for (const grave of input.world.graves) {
     const geometry = cache.geometryForEntity(grave);
-    pushEntityDrawable(input, callbacks, visibleDrawables, geometry, grave, "underlay", "grave-underlay");
-    pushEntityDrawable(input, callbacks, visibleDrawables, geometry, grave, "body", "grave-body");
-    pushEntityDrawable(input, callbacks, visibleDrawables, geometry, grave, "overlay", "grave-overlay");
+    const emphasized = grave.detailId === input.hoveredTarget?.detailId || grave.detailId === input.selectedTarget?.detailId;
+    if (emphasized) {
+      pushEntityDrawable(input, callbacks, visibleDrawables, geometry, grave, "underlay", "grave-underlay");
+      pushEntityDrawable(input, callbacks, visibleDrawables, geometry, grave, "body", "grave-body");
+    }
+    if (emphasized || grave.visual.scale >= 0.41) {
+      pushEntityDrawable(input, callbacks, visibleDrawables, geometry, grave, "overlay", "grave-overlay");
+    }
   }
 
   const lighthouseGeometry = cache.geometryForEntity(input.world.lighthouse);

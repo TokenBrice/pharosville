@@ -168,61 +168,22 @@ const lampSeawardTileCache = new Map<string, { x: number; y: number } | null>();
 const lampLightConeSpriteCache = new Map<string, { canvas: HTMLCanvasElement; halfWidth: number; halfHeight: number }>();
 const LAMP_LIGHT_CONE_RADIUS_BUCKETS = 2;
 const LAMP_LIGHT_CONE_ALPHA_BUCKETS = 20;
-export const SCENERY_MOTION_CLASS_BY_KIND = {
-  "agave-cluster": "static",
-  barrel: "dynamic",
-  beacon: "static",
-  bollards: "static",
-  "bougainvillea-arch": "static",
-  buoy: "dynamic",
-  "cargo-stack": "dynamic",
-  "citrus-tree": "static",
-  "crate-stack": "dynamic",
-  cypress: "static",
-  "date-palm": "static",
-  "dock-awning": "static",
-  "dock-figures": "static",
-  "fig-tree": "static",
-  "grass-tuft": "static",
-  "harbor-bell": "dynamic",
-  "harbor-lamp": "dynamic",
-  "lantern-string": "dynamic",
-  "mooring-posts": "static",
-  "moored-dinghy-east": "dynamic",
-  "net-rack": "dynamic",
-  "olive-tree": "static",
-  "planter-lavender": "static",
-  "planter-roses": "static",
-  "reed-bed": "static",
-  reef: "static",
-  rock: "static",
-  "rope-coil": "dynamic",
-  "sea-wall": "static",
-  "signal-post": "static",
-  skiff: "static",
-  "stone-steps": "static",
-  sundial: "dynamic",
-  "timber-pile": "static",
-} as const satisfies Record<SceneryPropKind, SceneryMotionClass>;
 
-export const STATIC_SCENERY_KINDS: ReadonlySet<SceneryPropKind> = sceneryKindsByMotionClass("static");
-export const DYNAMIC_SCENERY_KINDS: ReadonlySet<SceneryPropKind> = sceneryKindsByMotionClass("dynamic");
-export const STATIC_SCENERY_PROPS: readonly SceneryProp[] = SCENERY_PROPS.filter(isStaticSceneryProp);
-export const DYNAMIC_SCENERY_PROPS: readonly SceneryProp[] = SCENERY_PROPS.filter(isDynamicSceneryProp);
-const staticSceneryDrawables = STATIC_SCENERY_PROPS.map((prop) => createCachedSceneryDrawable(prop));
-const dynamicSceneryDrawables = DYNAMIC_SCENERY_PROPS.map((prop) => createCachedSceneryDrawable(prop));
+const STATIC_SCENE_SCENERY_PROPS: readonly SceneryProp[] = SCENERY_PROPS.filter((prop) => isStaticSceneryProp(prop) && !isEntityPassStaticSceneryProp(prop));
+const entityPassSceneryDrawables = SCENERY_PROPS
+  .filter((prop) => isDynamicSceneryProp(prop) || isEntityPassStaticSceneryProp(prop))
+  .map((prop) => createCachedSceneryDrawable(prop));
 const sceneryDrawablesScratch: WorldDrawable[] = [];
 
-function sceneryKindsByMotionClass(motionClass: SceneryMotionClass): ReadonlySet<SceneryPropKind> {
-  return new Set(
-    Object.entries(SCENERY_MOTION_CLASS_BY_KIND)
-      .filter(([, kindMotionClass]) => kindMotionClass === motionClass)
-      .map(([kind]) => kind as SceneryPropKind),
-  );
-}
-
 export function sceneryMotionClassForKind(kind: SceneryPropKind): SceneryMotionClass {
-  return SCENERY_MOTION_CLASS_BY_KIND[kind];
+  return kind === "buoy"
+    || kind === "harbor-bell"
+    || kind === "harbor-lamp"
+    || kind === "lantern-string"
+    || kind === "moored-dinghy-east"
+    || kind === "sundial"
+    ? "dynamic"
+    : "static";
 }
 
 export function isStaticSceneryProp(prop: SceneryProp): boolean {
@@ -231,6 +192,10 @@ export function isStaticSceneryProp(prop: SceneryProp): boolean {
 
 export function isDynamicSceneryProp(prop: SceneryProp): boolean {
   return sceneryMotionClassForKind(prop.kind) === "dynamic";
+}
+
+function isEntityPassStaticSceneryProp(prop: SceneryProp): boolean {
+  return prop.kind === "dock-awning" || prop.kind === "dock-figures";
 }
 
 function quantizeLampConeRadius(value: number): number {
@@ -342,9 +307,12 @@ function drawLampLightCone(input: DrawPharosVilleInput, prop: SceneryProp) {
 
 export function sceneryDrawables(input: DrawPharosVilleInput): WorldDrawable[] {
   sceneryDrawablesScratch.length = 0;
-  updateSceneryDrawablesForFrame(input, staticSceneryDrawables, sceneryDrawablesScratch);
-  updateSceneryDrawablesForFrame(input, dynamicSceneryDrawables, sceneryDrawablesScratch);
+  updateSceneryDrawablesForFrame(input, entityPassSceneryDrawables, sceneryDrawablesScratch);
   return sceneryDrawablesScratch;
+}
+
+export function drawStaticSceneScenery(input: DrawPharosVilleInput): void {
+  for (const prop of STATIC_SCENE_SCENERY_PROPS) drawSceneryProp(input, prop);
 }
 
 function createCachedSceneryDrawable(prop: SceneryProp): CachedSceneryDrawable {
