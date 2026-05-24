@@ -87,7 +87,7 @@ function tilesByKeyForMap(map: PharosVilleMap): Map<string, PharosVilleTile> {
   return cached;
 }
 
-export function drawCoastalWaterDetails({ camera, ctx, height, motion, width, world, visibleTileBoundsCache }: DrawPharosVilleInput) {
+export function drawCoastalWaterStaticDetails({ camera, ctx, height, width, world, visibleTileBoundsCache }: DrawPharosVilleInput) {
   const bounds = visibleTileBoundsForCamera({
     camera,
     mapHeight: world.map.height,
@@ -123,6 +123,36 @@ export function drawCoastalWaterDetails({ camera, ctx, height, motion, width, wo
       tile.y,
       candidate.motion,
     );
+  }
+  ctx.restore();
+  return drawnTileCount;
+}
+
+export function drawCoastalWaterDetails({ camera, ctx, height, motion, width, world, visibleTileBoundsCache }: DrawPharosVilleInput) {
+  const bounds = visibleTileBoundsForCamera({
+    camera,
+    mapHeight: world.map.height,
+    mapWidth: world.map.width,
+    tileMargin: 3,
+    viewportHeight: height,
+    viewportWidth: width,
+  }, visibleTileBoundsCache);
+  const viewportMarginX = 46 * camera.zoom;
+  const viewportMarginY = 28 * camera.zoom;
+  if (!bounds) return 0;
+  const candidates = coastalCandidatesForMap(world.map);
+  let drawnTileCount = 0;
+
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  for (const candidate of candidates) {
+    const tile = candidate.tile;
+    if (tile.x < bounds.minX || tile.x > bounds.maxX || tile.y < bounds.minY || tile.y > bounds.maxY) continue;
+    const point = tileToScreen(tile, camera);
+    if (!isScreenPointInViewport(point, width, height, viewportMarginX, viewportMarginY)) continue;
+
+    drawnTileCount += 1;
     drawNearshoreWaterMotif(
       ctx,
       point.x,

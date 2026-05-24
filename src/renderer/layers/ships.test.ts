@@ -15,6 +15,7 @@ import {
   drawShipWake,
   drawSquadIdentityAccent,
   planShipRenderLod,
+  resetPlanCache,
   resetTitanPathCache,
   resolveShipVisualOrientation,
   resolveTitanBowSprayStrands,
@@ -1546,5 +1547,84 @@ describe("planShipRenderLod", () => {
     expect(lod.drawWakeShipIds.has(unique.id)).toBe(true);
     expect(lod.drawOverlayShipIds.size).toBeLessThan(visibleShips.length);
     expect(lod.drawWakeShipIds.size).toBeLessThan(visibleShips.length);
+  });
+
+  it("tightens overlay and wake budgets under scheduler pressure while preserving priority ships", () => {
+    const selected = makeShipNode({
+      id: "selected-local",
+      detailId: "ship.selected-local",
+      tile: { x: 8, y: 8 },
+      visual: { sizeTier: "local" },
+    });
+    const titan = makeShipNode({
+      id: "titan-major",
+      detailId: "ship.titan-major",
+      tile: { x: 10, y: 10 },
+      visual: { sizeTier: "titan", spriteAssetId: "ship.usdc-titan" },
+    });
+    const unique = makeShipNode({
+      id: "unique-major",
+      detailId: "ship.unique-major",
+      tile: { x: 11, y: 11 },
+      visual: { sizeTier: "unique", spriteAssetId: "ship.crvusd-unique" },
+    });
+    const filler = Array.from({ length: 72 }, (_unused, index) => makeShipNode({
+      id: `ship-${index}`,
+      detailId: `ship.ship-${index}`,
+      tile: { x: 12 + index * 0.2, y: 10 + index * 0.2 },
+      visual: { sizeTier: "local" },
+    }));
+    const visibleShips = [selected, titan, unique, ...filler];
+    const baseInput = {
+      camera: { offsetX: 0, offsetY: 0, zoom: 1 },
+      height: 760,
+      hoveredTarget: null,
+      motion: {
+        plan: makeMotionPlan([]),
+        reducedMotion: false,
+        timeSeconds: 0,
+        wallClockHour: 12,
+      },
+      selectedTarget: {
+        detailId: selected.detailId,
+        id: selected.id,
+        kind: "ship",
+        label: selected.label,
+        priority: 0,
+        rect: { height: 20, width: 20, x: 0, y: 0 },
+      },
+      shipMotionSamples: new Map<string, ShipMotionSample>(),
+      width: 1280,
+    } as const;
+    const cache = {
+      geometryForEntity: (entity: { id: string }) => {
+        const index = visibleShips.findIndex((ship) => ship.id === entity.id);
+        const x = 50 + index * 18;
+        const y = index % 2 === 0 ? 160 : 900;
+        return makeGeometry(x, y);
+      },
+    };
+
+    resetPlanCache();
+    const full = planShipRenderLod(baseInput, cache, visibleShips);
+    const fullOverlayCount = full.drawOverlayShipIds.size;
+    const fullWakeCount = full.drawWakeShipIds.size;
+    resetPlanCache();
+    const constrained = planShipRenderLod({
+      ...baseInput,
+      renderScheduler: {
+        degradedPasses: [],
+        skippedPasses: [],
+        targetFrameMs: 16.7,
+        tier: "constrained",
+      },
+    }, cache, visibleShips);
+
+    expect(constrained.drawOverlayShipIds.size).toBeLessThan(fullOverlayCount);
+    expect(constrained.drawWakeShipIds.size).toBeLessThan(fullWakeCount);
+    for (const ship of [selected, titan, unique]) {
+      expect(constrained.drawOverlayShipIds.has(ship.id)).toBe(true);
+      expect(constrained.drawWakeShipIds.has(ship.id)).toBe(true);
+    }
   });
 });

@@ -167,6 +167,7 @@ const SHIP_SIZE_TIER_PRIORITY: Record<PharosVilleWorld["ships"][number]["visual"
 // frames when key matches, then fully rebuilt on miss. `resetPlanCache()`
 // drops the cache when the world identity changes.
 type ShipLodCandidate = { score: number; shipId: string };
+type ShipLodBudgetTier = "constrained" | "full" | "interaction" | "recovery";
 const overlayCandidatesScratch: ShipLodCandidate[] = [];
 const wakeCandidatesScratch: ShipLodCandidate[] = [];
 const drawOverlayShipIdsScratch = new Set<string>();
@@ -190,6 +191,13 @@ let cachedMoverHashSource: ReadonlySet<string> | null = null;
 let cachedMoverHash = "";
 let cachedEffectHashSource: ReadonlySet<string> | null = null;
 let cachedEffectHash = "";
+
+const SHIP_LOD_BUDGET_MULTIPLIERS: Record<ShipLodBudgetTier, { overlay: number; wake: number }> = {
+  constrained: { overlay: 0.4, wake: 0.35 },
+  full: { overlay: 1, wake: 1 },
+  interaction: { overlay: 0.5, wake: 0.42 },
+  recovery: { overlay: 0.58, wake: 0.5 },
+};
 
 export type TitanPoseBucket = -2 | -1 | 0 | 1 | 2;
 
@@ -314,7 +322,7 @@ export function resetPlanCache(): void {
  * rendering.
  */
 export function planShipRenderLod(
-  input: Pick<DrawPharosVilleInput, "camera" | "height" | "hoveredTarget" | "motion" | "selectedTarget" | "shipMotionSamples" | "width">,
+  input: Pick<DrawPharosVilleInput, "camera" | "height" | "hoveredTarget" | "motion" | "renderScheduler" | "selectedTarget" | "shipMotionSamples" | "width">,
   cache: Pick<RenderFrameCache, "geometryForEntity">,
   visibleShips: readonly PharosVilleWorld["ships"][number][],
 ): ShipRenderLodPlan {
@@ -335,13 +343,14 @@ export function planShipRenderLod(
   const effectHashed = hashIdSet(effectIds, cachedEffectHashSource, cachedEffectHash);
   const topRecentIds = topRecentMoverShipIdsForShips(visibleShips);
   const topRecentHash = hashShipChangeSignature(visibleShips);
+  const budgetTier = shipLodBudgetTierForInput(input);
   cachedMoverHashSource = moverHashed.source;
   cachedMoverHash = moverHashed.hash;
   cachedEffectHashSource = effectHashed.source;
   cachedEffectHash = effectHashed.hash;
 
   const zoomBucket = (input.camera.zoom * 100) | 0;
-  const cacheKey = `${zoomBucket}|${input.width}|${input.height}|${visibleShips.length}|${selectedId ?? ""}|${selectedDetailId ?? ""}|${hoveredId ?? ""}|${hoveredDetailId ?? ""}|${moverHashed.hash}|${effectHashed.hash}|${topRecentHash}`;
+  const cacheKey = `${budgetTier}|${zoomBucket}|${input.width}|${input.height}|${visibleShips.length}|${selectedId ?? ""}|${selectedDetailId ?? ""}|${hoveredId ?? ""}|${hoveredDetailId ?? ""}|${moverHashed.hash}|${effectHashed.hash}|${topRecentHash}`;
   if (cacheKey === cachedPlanKey) {
     return cachedPlan;
   }
@@ -351,13 +360,20 @@ export function planShipRenderLod(
   const maxDistance = Math.max(320, Math.sqrt(centerX * centerX + centerY * centerY) + 220 * input.camera.zoom);
   const viewportMargin = Math.max(96, 160 * input.camera.zoom);
   const zoomFactor = Math.max(0.72, Math.min(1.2, input.camera.zoom));
+  const budgetMultiplier = SHIP_LOD_BUDGET_MULTIPLIERS[budgetTier];
   const overlayBudget = Math.min(
     visibleShips.length,
-    Math.max(SHIP_OVERLAY_BUDGET_MIN, Math.floor(visibleShips.length * SHIP_OVERLAY_BUDGET_RATIO * zoomFactor)),
+    Math.max(
+      Math.ceil(SHIP_OVERLAY_BUDGET_MIN * budgetMultiplier.overlay),
+      Math.floor(visibleShips.length * SHIP_OVERLAY_BUDGET_RATIO * zoomFactor * budgetMultiplier.overlay),
+    ),
   );
   const wakeBudget = Math.min(
     visibleShips.length,
-    Math.max(SHIP_WAKE_BUDGET_MIN, Math.floor(visibleShips.length * SHIP_WAKE_BUDGET_RATIO * zoomFactor)),
+    Math.max(
+      Math.ceil(SHIP_WAKE_BUDGET_MIN * budgetMultiplier.wake),
+      Math.floor(visibleShips.length * SHIP_WAKE_BUDGET_RATIO * zoomFactor * budgetMultiplier.wake),
+    ),
   );
 
   drawOverlayShipIdsScratch.clear();
@@ -430,6 +446,17 @@ export function planShipRenderLod(
 
   cachedPlanKey = cacheKey;
   return cachedPlan;
+}
+
+function shipLodBudgetTierForInput(
+  input: Pick<DrawPharosVilleInput, "motion" | "renderScheduler">,
+): ShipLodBudgetTier {
+  if (input.motion.reducedMotion) return "full";
+  const tier = input.renderScheduler?.tier;
+  if (tier === "interaction") return "interaction";
+  if (tier === "constrained") return "constrained";
+  if (tier === "recovery") return "recovery";
+  return "full";
 }
 
 function addTopBudgetedShips(

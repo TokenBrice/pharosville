@@ -98,6 +98,8 @@ export interface PharosVilleRenderMetrics {
   visibleTileCount: number;
   /** Number of visible water tiles touched by the direct continuous accent pass. */
   waterAccentTileCount?: number;
+  /** Number of nearshore tiles touched by the dynamic coastal motif/spray pass. */
+  coastalWaterTileCount?: number;
   /** Wall-clock draw duration for the direct continuous water accent pass. */
   waterAccentDrawMs?: number;
   /** Rendering strategy for water accents. */

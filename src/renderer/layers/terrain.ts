@@ -127,7 +127,9 @@ interface WaterAccentCandidate {
 
 interface WaterAccentCandidateLookup {
   all: WaterAccentCandidate[];
+  constrained: WaterAccentCandidate[];
   continuous: WaterAccentCandidate[];
+  recovery: WaterAccentCandidate[];
 }
 
 const WATER_STATIC_TEXTURE_RENDERERS: Partial<Record<WaterTextureKind, WaterTextureRenderer>> = {
@@ -240,7 +242,7 @@ export function drawWaterTerrainAccents(input: DrawPharosVilleInput, bounds: Vis
 
   const beam = world.lighthouse.unavailable ? null : computeBeamCausticState(input);
   const candidates = waterAccentCandidatesForMap(world.map);
-  const activeCandidates = motion.reducedMotion ? candidates.all : candidates.continuous;
+  const activeCandidates = activeWaterAccentCandidatesForFrame(input, candidates);
   const deltaX = (TILE_WIDTH / 2) * camera.zoom;
   const deltaY = (TILE_HEIGHT / 2) * camera.zoom;
 
@@ -263,6 +265,17 @@ export function drawWaterTerrainAccents(input: DrawPharosVilleInput, bounds: Vis
   }
   drawSeawallRipples(ctx, camera, motion);
   return accentTileCount;
+}
+
+function activeWaterAccentCandidatesForFrame(
+  input: DrawPharosVilleInput,
+  candidates: WaterAccentCandidateLookup,
+): WaterAccentCandidate[] {
+  if (input.motion.reducedMotion) return candidates.all;
+  const tier = input.renderScheduler?.tier;
+  if (tier === "interaction" || tier === "constrained") return candidates.constrained;
+  if (tier === "recovery") return candidates.recovery;
+  return candidates.continuous;
 }
 
 export function waterZoneBorderFeathersForMap(map: PharosVilleMap): WaterZoneBorderLookup {
@@ -452,7 +465,9 @@ function waterAccentCandidatesForMap(map: PharosVilleMap): WaterAccentCandidateL
   if (cached) return cached;
 
   const all: WaterAccentCandidate[] = [];
+  const constrained: WaterAccentCandidate[] = [];
   const continuous: WaterAccentCandidate[] = [];
+  const recovery: WaterAccentCandidate[] = [];
   for (const tile of map.tiles) {
     const terrain = terrainKindForTile(tile);
     if (!isWaterTileKind(terrain)) continue;
@@ -464,25 +479,44 @@ function waterAccentCandidatesForMap(map: PharosVilleMap): WaterAccentCandidateL
       tile,
     };
     all.push(candidate);
-    if (shouldDrawContinuousWaterAccentForTerrain(terrainKey, tile.x, tile.y)) {
+    if (shouldDrawContinuousWaterAccentForTerrain(terrainKey, tile.x, tile.y, "full")) {
       continuous.push(candidate);
+    }
+    if (shouldDrawContinuousWaterAccentForTerrain(terrainKey, tile.x, tile.y, "recovery")) {
+      recovery.push(candidate);
+    }
+    if (shouldDrawContinuousWaterAccentForTerrain(terrainKey, tile.x, tile.y, "constrained")) {
+      constrained.push(candidate);
     }
   }
 
-  const lookup = { all, continuous };
+  const lookup = { all, constrained, continuous, recovery };
   waterAccentCandidateLookupByMap.set(map, lookup);
   return lookup;
 }
+
+type WaterAccentLodTier = "constrained" | "full" | "recovery";
 
 function shouldDrawContinuousWaterAccentForTerrain(
   value: string,
   tileX: number,
   tileY: number,
+  tier: WaterAccentLodTier,
 ): boolean {
-  if (value === "danger-water" || value === "warning-water" || value === "alert-water" || value === "ledger-water") {
+  if (value === "storm-water" || value === "warning-water" || value === "alert-water" || value === "ledger-water") {
     return true;
   }
   const hash = tileHash(tileX, tileY, 977);
+  if (tier === "constrained") {
+    if (value === "watch-water") return hash % 8 === 0;
+    if (value === "deep-water") return hash % 12 === 0;
+    return hash % 9 === 0;
+  }
+  if (tier === "recovery") {
+    if (value === "watch-water") return hash % 4 === 0;
+    if (value === "deep-water") return hash % 8 === 0;
+    return hash % 6 === 0;
+  }
   if (value === "watch-water") return hash % 2 === 0;
   if (value === "deep-water") return hash % 4 === 0;
   return hash % 3 === 0;

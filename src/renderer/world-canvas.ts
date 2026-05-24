@@ -33,7 +33,7 @@ import { drawWaterAreaLabels } from "./layers/water-labels";
 import { drawCenterCluster } from "./layers/center-cluster";
 import { drawLighthouseBeamRim, drawLighthouseBody, drawLighthouseGodRays, drawLighthouseHeadland, drawLighthouseNightHighlights, drawLighthouseOverlay, drawLighthouseReflection, drawLighthouseSurf, drawLighthouseThunderRim, lighthouseOverlayScreenBounds, lighthouseRenderState, type LighthouseRenderState } from "./layers/lighthouse";
 import { drawSelection } from "./layers/selection";
-import { drawCoastalWaterDetails } from "./layers/shoreline";
+import { drawCoastalWaterDetails, drawCoastalWaterStaticDetails } from "./layers/shoreline";
 import { drawSky } from "./layers/sky";
 import { drawNightTint, drawNightVignette } from "./layers/night-tint";
 import { skyState } from "./layers/sky";
@@ -350,6 +350,7 @@ function paintStaticTerrainPass(input: DrawPharosVilleInput) {
   ctx.imageSmoothingEnabled = false;
   drawTerrainBase(input);
   drawWaterTerrainStaticDetails(input);
+  drawCoastalWaterStaticDetails(input);
 }
 
 function paintStaticScenePass(input: DrawPharosVilleInput, frame: WorldCanvasFrame) {
@@ -522,7 +523,7 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   const waterAccentStart = performance.now();
   input.ctx.imageSmoothingEnabled = false;
   const waterAccentTileCount = drawWaterTerrainAccents(input);
-  drawCoastalWaterDetails(input);
+  const coastalWaterTileCount = drawCoastalWaterDetails(input);
   const waterAccentDrawMs = performance.now() - waterAccentStart;
   drawAtmosphericFade(input, nightFactor);
   drawRevealGatedScene(input, frame, reveal);
@@ -596,6 +597,7 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
     waterAccentDrawMs,
     waterAccentMode: input.motion.reducedMotion ? "reduced-motion-direct" : "direct",
     waterAccentTileCount,
+    coastalWaterTileCount,
     ...(scheduler?.targetFrameMs !== undefined ? { renderBudgetTargetMs: scheduler.targetFrameMs } : {}),
     ...(scheduler?.degradedPasses ? { schedulerDegradedPasses: scheduler.degradedPasses } : {}),
     ...(scheduler?.skippedPasses ? { schedulerSkippedPasses: scheduler.skippedPasses } : {}),
