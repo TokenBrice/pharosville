@@ -168,10 +168,13 @@ const lampSeawardTileCache = new Map<string, { x: number; y: number } | null>();
 const lampLightConeSpriteCache = new Map<string, { canvas: HTMLCanvasElement; halfWidth: number; halfHeight: number }>();
 const LAMP_LIGHT_CONE_RADIUS_BUCKETS = 2;
 const LAMP_LIGHT_CONE_ALPHA_BUCKETS = 20;
+const STATIC_ENTITY_SCENERY_BOUNDS_BASE_SIZE = 160;
+const DYNAMIC_SCENERY_BOUNDS_BASE_SIZE = 42;
+const STATIC_ENTITY_SCENERY_CENTER_Y_RATIO = 0.7;
 
-const STATIC_SCENE_SCENERY_PROPS: readonly SceneryProp[] = SCENERY_PROPS.filter((prop) => isStaticSceneryProp(prop) && !isEntityPassStaticSceneryProp(prop));
+const STATIC_SCENE_SCENERY_PROPS: readonly SceneryProp[] = SCENERY_PROPS.filter(isStaticSceneSceneryProp);
 const entityPassSceneryDrawables = SCENERY_PROPS
-  .filter((prop) => isDynamicSceneryProp(prop) || isEntityPassStaticSceneryProp(prop))
+  .filter(isEntityPassSceneryProp)
   .map((prop) => createCachedSceneryDrawable(prop));
 const sceneryDrawablesScratch: WorldDrawable[] = [];
 
@@ -194,8 +197,17 @@ export function isDynamicSceneryProp(prop: SceneryProp): boolean {
   return sceneryMotionClassForKind(prop.kind) === "dynamic";
 }
 
-function isEntityPassStaticSceneryProp(prop: SceneryProp): boolean {
-  return prop.kind === "dock-awning" || prop.kind === "dock-figures";
+export function isStaticSceneSceneryProp(prop: SceneryProp): boolean {
+  return isStaticSceneryProp(prop) && (
+    prop.kind === "grass-tuft"
+    || prop.kind === "reed-bed"
+    || prop.kind === "reef"
+    || prop.kind === "rock"
+  );
+}
+
+export function isEntityPassSceneryProp(prop: SceneryProp): boolean {
+  return isDynamicSceneryProp(prop) || !isStaticSceneSceneryProp(prop);
 }
 
 function quantizeLampConeRadius(value: number): number {
@@ -335,7 +347,8 @@ function createCachedSceneryDrawable(prop: SceneryProp): CachedSceneryDrawable {
 function drawCachedSceneryDrawable(ctx: CanvasRenderingContext2D, drawable: CachedSceneryDrawable) {
   const input = drawable.currentInput;
   if (!input) return;
-  drawSceneryProp(input.ctx === ctx ? input : { ...input, ctx }, drawable.prop);
+  const drawInput = input.ctx === ctx ? input : { ...input, ctx };
+  drawSceneryProp(drawInput, drawable.prop);
 }
 
 function sceneryDrawableDepth(prop: SceneryProp): number {
@@ -349,14 +362,25 @@ function updateSceneryDrawablesForFrame(
 ) {
   for (const drawable of drawables) {
     const p = tileToScreen(drawable.prop.tile, input.camera);
-    const size = 26 * (drawable.prop.scale ?? 1) * input.camera.zoom;
+    const size = sceneryDrawableApproxSize(drawable.prop, input.camera.zoom);
+    const centerY = isStaticSceneryProp(drawable.prop)
+      ? size * STATIC_ENTITY_SCENERY_CENTER_Y_RATIO
+      : size / 2;
     drawable.currentInput = input;
     drawable.screenBounds.x = p.x - size / 2;
-    drawable.screenBounds.y = p.y - size / 2;
+    drawable.screenBounds.y = p.y - centerY;
     drawable.screenBounds.width = size;
     drawable.screenBounds.height = size;
     output.push(drawable);
   }
+}
+
+function sceneryDrawableApproxSize(prop: SceneryProp, zoom: number): number {
+  const scale = Math.max(0.05, zoom) * (prop.scale ?? 1);
+  const baseSize = isStaticSceneryProp(prop)
+    ? STATIC_ENTITY_SCENERY_BOUNDS_BASE_SIZE
+    : DYNAMIC_SCENERY_BOUNDS_BASE_SIZE;
+  return Math.max(26, baseSize * scale);
 }
 
 export function drawSceneryProp(input: DrawPharosVilleInput, prop: SceneryProp) {

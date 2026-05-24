@@ -5,7 +5,9 @@ import {
   SCENERY_PROPS,
   sceneryMotionClassForKind,
   isDynamicSceneryProp,
+  isEntityPassSceneryProp,
   isStaticSceneryProp,
+  isStaticSceneSceneryProp,
   type SceneryPropKind,
 } from "./scenery";
 
@@ -78,6 +80,23 @@ describe("scenery motion classification", () => {
       const isDynamic = isDynamicSceneryProp(prop);
       expect(Number(isStatic) + Number(isDynamic), `${prop.id} should have one motion class`).toBe(1);
     }
+  });
+
+  it("keeps occlusion-sensitive static scenery in the sorted entity pass", () => {
+    const staticSceneKinds = new Set(SCENERY_PROPS.filter(isStaticSceneSceneryProp).map((prop) => prop.kind));
+    expect(staticSceneKinds).toEqual(new Set(["grass-tuft", "reed-bed", "reef", "rock"]));
+
+    for (const prop of SCENERY_PROPS) {
+      expect(Number(isStaticSceneSceneryProp(prop)) + Number(isEntityPassSceneryProp(prop)), `${prop.id} should have one draw owner`).toBe(1);
+    }
+
+    const entitySortedKinds = new Set(SCENERY_PROPS.filter(isEntityPassSceneryProp).map((prop) => prop.kind));
+    for (const kind of CIVIC_VEGETATION_KINDS) {
+      expect(entitySortedKinds.has(kind), `${kind} should stay depth-sorted with ships and docks`).toBe(true);
+    }
+    expect(entitySortedKinds.has("dock-awning")).toBe(true);
+    expect(entitySortedKinds.has("signal-post")).toBe(true);
+    expect(entitySortedKinds.has("skiff")).toBe(true);
   });
 
 });

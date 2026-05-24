@@ -40,6 +40,9 @@ describe("render scheduler", () => {
 
     expect(scheduler.tier).toBe("constrained");
     expect(shouldDrawScheduledPass(scheduler, "moon-reflection")).toBe(false);
+    expect(shouldDrawScheduledPass(scheduler, "scene-vignette")).toBe(true);
+    expect(shouldDrawScheduledPass(scheduler, "coastal-water-motion")).toBe(true);
+    expect(shouldDrawScheduledPass(scheduler, "lighthouse-reflection")).toBe(true);
     expect(shouldDrawScheduledPass(scheduler, "selection")).toBe(true);
   });
 
@@ -54,6 +57,8 @@ describe("render scheduler", () => {
     expect(scheduler.tier).toBe("recovery");
     expect(shouldDrawScheduledPass(scheduler, "film-grain")).toBe(false);
     expect(shouldDrawScheduledPass(scheduler, "moon-reflection")).toBe(false);
+    expect(shouldDrawScheduledPass(scheduler, "scene-vignette")).toBe(true);
+    expect(shouldDrawScheduledPass(scheduler, "coastal-water-motion")).toBe(true);
     expect(isScheduledPassDegraded(scheduler, "cloud-shadow")).toBe(false);
   });
 });

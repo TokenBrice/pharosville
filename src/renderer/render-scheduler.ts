@@ -4,27 +4,14 @@ export const RENDER_SCHEDULER_TARGET_FRAME_MS = 16.7;
 
 const INTERACTION_SKIPS = ["film-grain"] as const;
 const INTERACTION_DEGRADES = ["cloud-shadow", "birds", "god-rays"] as const;
-const CONSTRAINED_SKIPS = [
-  "atmospheric-fade",
+const LOW_PRIORITY_EFFECT_SKIPS = [
   "birds",
   "bioluminescent-sparkles",
-  "cemetery-mist",
-  "cloud-shadow",
-  "coastal-water-motion",
   "decorative-lights",
-  "establishing-letterbox",
   "film-grain",
   "god-rays",
-  "harbor-surf",
-  "lighthouse-beam-rim",
-  "lighthouse-reflection",
-  "lighthouse-surf",
-  "lighthouse-thunder-rim",
   "moon-reflection",
-  "scene-atmosphere",
-  "scene-vignette",
   "sea-mist",
-  "weather",
 ] as const;
 
 export function resolveRenderSchedulerState(input: {
@@ -73,7 +60,7 @@ function resolveRenderSchedulerTier(input: {
 
 function skippedPassesForTier(tier: PharosVilleRenderSchedulerTier): readonly string[] {
   if (tier === "interaction") return INTERACTION_SKIPS;
-  if (tier === "constrained" || tier === "recovery") return CONSTRAINED_SKIPS;
+  if (tier === "recovery" || tier === "constrained") return LOW_PRIORITY_EFFECT_SKIPS;
   return [];
 }
 
