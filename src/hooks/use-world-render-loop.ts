@@ -2,7 +2,7 @@
 // hit-target snapshot maintenance during the frame, ship motion sample
 // collection, and visual debug telemetry. Shared cross-hook refs (camera,
 // canvas size, hit-targets, samples) are passed in.
-import { useCallback, useEffect, useRef, type Dispatch, type MutableRefObject, type RefObject, type SetStateAction } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRefObject, type RefObject, type SetStateAction } from "react";
 import type { PharosVilleAssetLoadError, PharosVilleAssetLoadStats, PharosVilleAssetManager } from "../renderer/asset-manager";
 import {
   collectDisplaySampleHitTargetChanges,
@@ -140,6 +140,7 @@ export interface UseWorldRenderLoopInput {
 }
 
 export interface UseWorldRenderLoopResult {
+  frameRateFps: number | null;
   requestPaint: () => void;
 }
 
@@ -201,6 +202,11 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   const requestPaint = useCallback(() => {
     paintRequestRef.current();
   }, []);
+  const [frameRateFps, setFrameRateFps] = useState<number | null>(null);
+  const frameRatePublishRef = useRef<{ fps: number | null; lastPublishedAtMs: number }>({
+    fps: null,
+    lastPublishedAtMs: 0,
+  });
   const visibleTileBoundsCacheRef = useRef(createVisibleTileBoundsCacheState());
   // Tracks whether the canvas is currently visible enough to be worth drawing.
   // The RAF effect updates this from an IntersectionObserver + visibilitychange
@@ -282,6 +288,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     drawDurationStatsRef.current = { averageMs: 0, count: 0, p90Ms: 0 };
     frameIntervalWindowRef.current = createFrameIntervalWindow();
     framePacingStatsRef.current = emptyFramePacingMetrics();
+    frameRatePublishRef.current = { fps: null, lastPublishedAtMs: 0 };
     reducedMotionSamplesSignatureRef.current = null;
     compactShipMotionSampleCacheRef.current = createCompactShipMotionSampleCache();
     headingDeltaWindowRef.current = createNumericMaxWindow(60);
@@ -292,6 +299,11 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     lastBucketRef.current = 0;
     bucketFlipCountRef.current = 0;
   }, [hitTargetSnapshotRef, hitTargetsRef, shipMotionSamplesRef, world]);
+
+  useEffect(() => {
+    if (!reducedMotion) return;
+    frameRatePublishRef.current = { fps: null, lastPublishedAtMs: 0 };
+  }, [reducedMotion]);
 
   // RAF effect — bound once per plumbing change (`world`, `canvasSize`,
   // `reducedMotion`, `assetManager`, `cameraReady`, `wallClockHour`, `shipsById`).
@@ -357,6 +369,20 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         const rawDt = Math.max((time - last) / 1000, 0);
         if (previousWall !== null && !pendingResumeRef.current) {
           framePacingStatsRef.current = pushFrameIntervalSample(frameIntervalWindowRef.current, Math.max(time - previousWall, 0));
+          const framePacing = framePacingStatsRef.current;
+          const roundedFps = framePacing.sampleCount > 0 && Number.isFinite(framePacing.effectiveFps)
+            ? Math.max(0, Math.round(framePacing.effectiveFps))
+            : null;
+          if (roundedFps !== null) {
+            const published = frameRatePublishRef.current;
+            if (
+              published.fps === null
+              || (roundedFps !== published.fps && time - published.lastPublishedAtMs >= FRAME_RATE_LABEL_UPDATE_MS)
+            ) {
+              frameRatePublishRef.current = { fps: roundedFps, lastPublishedAtMs: time };
+              setFrameRateFps(roundedFps);
+            }
+          }
         }
         // Skip accumulating across known tab-pause transitions. For ordinary
         // RAF stalls, cap the world-clock step so ships do not visually hop
@@ -781,7 +807,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assetLoadErrors, assetManager, camera, canvasSize, criticalAssetAttemptsSettled, criticalAssetsLoaded, deferredAssetsLoaded, hoveredDetailId, motionPlan, reducedMotion, selectedDetailAnchor, selectedDetailId, shipsById, world]);
 
-  return { requestPaint };
+  return { frameRateFps, requestPaint };
 }
 
 type CompactShipMotionSample = {
@@ -847,6 +873,7 @@ type MotionCueCounts = {
 const PHAROSVILLE_AMBIENT_BIRD_CAP = 9;
 const PHAROSVILLE_HARBOR_LIGHT_CAP = 3;
 const SHIP_HIT_TARGET_REFRESH_PER_FRAME = 32;
+const FRAME_RATE_LABEL_UPDATE_MS = 500;
 const MAX_WORLD_FRAME_DELTA_SECONDS = 1 / 30;
 const TEST_CLOCK_JUMP_DELTA_SECONDS = 1;
 

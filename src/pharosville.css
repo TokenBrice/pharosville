@@ -1191,15 +1191,20 @@ textarea {
   user-select: none;
 }
 .pharosville-beta-tag__notice,
-.pharosville-beta-tag__counter {
+.pharosville-beta-tag__counter,
+.pharosville-beta-tag__fps {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.pharosville-beta-tag__counter {
+.pharosville-beta-tag__counter,
+.pharosville-beta-tag__fps {
   flex: 0 0 auto;
   color: rgba(248, 229, 178, 0.88);
   font-style: normal;
+}
+.pharosville-beta-tag__fps {
+  color: rgba(181, 226, 211, 0.88);
 }
 .pharosville-beta-tag__separator {
   flex: 0 0 auto;

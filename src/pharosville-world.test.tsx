@@ -83,6 +83,7 @@ vi.mock("./hooks/use-fullscreen-mode", () => ({
 
 vi.mock("./hooks/use-world-render-loop", () => ({
   useWorldRenderLoop: () => ({
+    frameRateFps: null,
     requestPaint: mocks.requestPaint,
   }),
 }));
@@ -137,9 +138,10 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     const { container } = render(<PharosVilleWorld world={worldFixture()} />);
 
     expect(screen.getByTestId("pharosville-ship-counter").textContent).toBe("1 ship docked / 1 total");
+    expect(screen.getByTestId("pharosville-fps-counter").textContent).toBe("Static");
     expect(container.querySelector(".pharosville-beta-tag")?.textContent).toContain("PharosVille beta v0.2.1");
     expect(container.querySelector(".pharosville-beta-tag")?.textContent?.replace(/\s+/g, " ").trim()).toMatch(
-      /Changelog\|1 ship docked \/ 1 total\|Pharos$/,
+      /Changelog\|1 ship docked \/ 1 total\|Static\|Pharos$/,
     );
   });
 

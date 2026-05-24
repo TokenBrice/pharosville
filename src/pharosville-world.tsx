@@ -199,7 +199,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     world,
   ]);
 
-  const { requestPaint } = useWorldRenderLoop({
+  const { frameRateFps, requestPaint } = useWorldRenderLoop({
     onBucketFlip: setMotionBucket,
     adaptiveDprStateRef: canvas.adaptiveDprStateRef,
     assetLoadErrors: assetPipeline.assetLoadErrors,
@@ -344,6 +344,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         "--pv-detail-y": `${selectedDetailAnchor.y}px`,
       } as CSSProperties)
     : undefined;
+  const frameRateLabel = formatFrameRateLabel(frameRateFps, reducedMotion);
   return (
     <main
       ref={shellRef}
@@ -424,6 +425,8 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
         <span className="pharosville-beta-tag__counter" data-testid="pharosville-ship-counter">{shipCounterLabel}</span>
         <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
+        <span className="pharosville-beta-tag__fps" data-testid="pharosville-fps-counter" aria-label={`Frame rate: ${frameRateLabel}`}>{frameRateLabel}</span>
+        <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
         <a href="https://pharos.watch/">Pharos</a>
       </p>
       <p className="sr-only" aria-live="polite">{announcement}</p>
@@ -469,4 +472,10 @@ function fleetCounterLabel(ships: PharosVilleWorldModel["ships"]): string {
   const totalShips = ships.length;
   const shipNoun = dockedShips === 1 ? "ship" : "ships";
   return `${integerFormatter.format(dockedShips)} ${shipNoun} docked / ${integerFormatter.format(totalShips)} total`;
+}
+
+function formatFrameRateLabel(frameRateFps: number | null, reducedMotion: boolean): string {
+  if (reducedMotion) return "Static";
+  if (frameRateFps === null) return "FPS --";
+  return `${integerFormatter.format(frameRateFps)} fps`;
 }

@@ -276,7 +276,8 @@ describe("useWorldRenderLoop", () => {
   });
 
   it("publishes frame pacing metrics from normal-motion RAF intervals", () => {
-    const onResult = () => {};
+    let latest: UseWorldRenderLoopResult | null = null;
+    const onResult = (r: UseWorldRenderLoopResult) => { latest = r; };
     render(<Harness hoveredDetailId={null} onResult={onResult} reducedMotion={false} />);
 
     const base = performance.now() + 100;
@@ -313,6 +314,8 @@ describe("useWorldRenderLoop", () => {
     expect(framePacing!.maxMs).toBeGreaterThanOrEqual(40);
     expect(framePacing!.droppedFrameCount).toBeGreaterThanOrEqual(2);
     expect(framePacing!.longestDroppedBurst).toBe(2);
+    const latestResult = latest as UseWorldRenderLoopResult | null;
+    expect(latestResult?.frameRateFps ?? 0).toBeGreaterThan(0);
   });
 
   it("defers adaptive DPR backing-store resize until the next frame can repaint", () => {
