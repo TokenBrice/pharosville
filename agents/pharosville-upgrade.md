@@ -91,8 +91,8 @@ UI teaches the metaphor.
       `src/systems/palette.ts`), ship class/size key, lighthouse meaning,
       pointer/keyboard controls.
 - [ ] Reduced-motion: static panel, no entrance animation.
-- Files: new `src/components/onboarding-panel.tsx` + hook; `world-toolbar`;
-  `src/pharosville.css`.
+- Files: new onboarding-panel component (under `src/components/`) + hook;
+  `world-toolbar`; `src/pharosville.css`.
 - Verify: vitest for first-load/dismiss/persist logic; visual snapshot;
   keyboard + screen-reader pass.
 

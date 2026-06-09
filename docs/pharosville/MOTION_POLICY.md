@@ -1,6 +1,6 @@
 # PharosVille Motion Policy
 
-Last updated: 2026-05-18
+Last updated: 2026-06-09
 
 PharosVille uses one route-owned motion clock. Normal motion is driven by the
 canvas `requestAnimationFrame` loop in `pharosville-world.tsx`; reduced motion
@@ -53,6 +53,16 @@ renders deterministic static frames and must not keep a RAF loop alive.
   docking cadence, and evidence caveats.
 - Routed normal-motion ships spend a base one third of each cycle moored at rendered docks. Ships with at least four positive chain deployments receive extended dock dwell. Non-titan, non-unique ships are hidden while moored to rotate map-visible ship load; titan and heritage-hull ships remain visible while docked.
 - Dockless normal-motion patrols must not collapse to a near-static loop. If a named area is too small for meaningful travel, use current or adjacent same-purpose sea anchors while keeping samples on water tiles.
+- Risk repath (W4.25 tack-out): when a route's risk target changes, the drift
+  center blends previous → current over 3s and the ship's heading eases toward
+  the tack direction over the first 500ms (`RISK_TRANSITION_HEADING_EASE_SECONDS`),
+  relaxing back to the orbital heading as the tack-out completes. The easing is
+  a pure function of (shipId, route, time) — no wall clock, RNG, or memory —
+  and does not run under reduced motion (risk-drift sampling is bypassed there).
+- Docking choreography: arriving transits decelerate over the last ~15% of the
+  approach (`ARRIVING_FULL_TRANSIT_END` → `ARRIVING_DECEL_END`), then ease into
+  fender contact with `fenderContact`/`mooringTension` ramping to taut; wake
+  intensity scales with the phase's speed ratio.
 
 ## Debug Contract
 

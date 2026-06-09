@@ -38,6 +38,52 @@ Read first: `AGENTS.md`, `docs/pharosville/CURRENT.md`,
   edits and can trip the route error boundary; always re-verify on a fresh
   load before suspecting a code defect.
 
+## Execution status (2026-06-09, follow-up session)
+
+- **DONE F1** — `motion-sampling.ts` split into 13 concern modules under
+  `src/systems/motion-sampling/` (resolve, consort, reduced-motion,
+  route-cycle, transit, mooring, risk-water, risk-drift, open-water,
+  route-runtime, memory, sea-room, shared); the original path is now a pure
+  re-export barrel, every public export preserved (`sampleShipWaterPath` /
+  `shipWaterPathKey` re-export the underlying motion-water/motion-utils
+  functions — they were always thin wrappers). Verified: typecheck, full
+  unit suite, perf lane, visual static+motion lanes in an isolated worktree.
+  Note: the `pharosville-dense-evm-bay` dist-style fixture fails locally at
+  pristine HEAD too (render is not hash-reproducible run-to-run locally) —
+  pre-existing, not from this split.
+- **DONE F2 (recalibrated)** — the three-phase dock approach (cruise →
+  decel over the last ~15% → fender contact + taut mooring with
+  `mooringTension`, speed-scaled wake dampening) was already in-tree since
+  2026-05-17 ("Refine ship docking motion choreography"); the plan text
+  below is stale on that point. The genuinely missing piece — risk-repath
+  heading easing — is now implemented: during the W4.25 tack-out the
+  orbital heading eases toward the tack direction over 500ms
+  (`RISK_TRANSITION_HEADING_EASE_SECONDS`) and relaxes back as the blend
+  completes. Pure function of (route, time); no sample-shape change, so no
+  telemetry field changes were needed. MOTION_POLICY.md documents both
+  behaviors. Tests: 4 new cases in `motion-sampling.test.ts`.
+- **ALREADY IN-TREE F3 (verified, no work needed)** — both phases landed in
+  earlier sessions: camera stepping is world-RAF-owned (`stepCamera` intent
+  controller in `use-canvas-resize-and-camera.ts`, called per frame by
+  `use-world-render-loop.ts`, debug contract `activeCameraLoopCount: 0` /
+  `cameraFrameSource: "world-render-loop"`), and the water static/accent
+  split is complete (static water cached in the `"terrain"`
+  `drawStaticPassCached` scope via `paintStaticTerrainPass`; accents draw
+  direct each frame with scheduler gating and `waterAccentDrawMs`/
+  `waterAccentTileCount`/`waterAccentMode` metrics).
+- **ALREADY IN-TREE F6 (verified, no work needed)** — visible-tile traversal
+  was extracted to `src/renderer/visible-tiles.ts` (`scanVisibleTiles`,
+  commit 67467f8); `drawTerrainBase`/`drawWaterTerrainStaticDetails` use it,
+  and `drawWaterTerrainAccents` intentionally iterates a sparse precomputed
+  candidate list instead of scanning.
+- **BLOCKED THIS SESSION: F4, F5** — a concurrent session owns
+  `world-canvas.ts`, `draw-ship.ts`, `ship-visual-config.ts`, the ships
+  layers, and is regenerating dense visual baselines (ship-identity plan).
+  Zoom-gate centralization and dock caustics both land in those files; defer
+  until that work merges.
+- Session note: isolation for F1 verification used a temp git worktree
+  because of the concurrent edits above.
+
 ## P1 — Motion depth (the core deferred work)
 
 ### F1. Split `motion-sampling.ts` (~1900 LOC) by concern — Effort: M
