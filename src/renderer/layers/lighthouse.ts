@@ -379,6 +379,22 @@ export function drawLighthouseBody(input: DrawPharosVilleInput, cached?: Lightho
   const { camera, ctx, world } = input;
   const { center, lighthouseAsset, spriteAnchor, spriteScale } = cached ?? lighthouseRenderState(input);
   if (lighthouseAsset) {
+    // 2.2 — soft contact shadow grounds the tower on the headland; the
+    // procedural fallback below has always drawn its own base ellipse.
+    ctx.save();
+    ctx.fillStyle = "rgba(8, 10, 11, 0.3)";
+    ctx.beginPath();
+    ctx.ellipse(
+      center.x + 2 * camera.zoom,
+      center.y + 4 * camera.zoom,
+      40 * camera.zoom,
+      13 * camera.zoom,
+      0,
+      0,
+      Math.PI * 2,
+    );
+    ctx.fill();
+    ctx.restore();
     drawAsset(ctx, lighthouseAsset, spriteAnchor.x, spriteAnchor.y, spriteScale);
     return;
   }

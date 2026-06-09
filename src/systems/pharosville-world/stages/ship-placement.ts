@@ -38,6 +38,7 @@ import type {
   DockNode,
   PlacementEvidence,
   ShipChainPresence,
+  ShipDepegHistory,
   ShipNode,
   ShipRiskPlacement,
 } from "../../world-types";
@@ -124,6 +125,24 @@ function consortRisk(
   return { placement: flagshipRisk.placement, evidence };
 }
 
+// Epoch values in pegSummary arrive in seconds; normalize to ms so renderer
+// and detail formatting share one unit. Mirrors `toEpochMs` in world-scaffold.
+function depegEventEpochMs(value: number | null | undefined): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return null;
+  return value < 10_000_000_000 ? value * 1000 : value;
+}
+
+function shipDepegHistory(
+  pegCoin: { eventCount: number; worstDeviationBps: number | null; lastEventAt: number | null } | undefined,
+): ShipDepegHistory | null {
+  if (!pegCoin || pegCoin.eventCount <= 0) return null;
+  return {
+    eventCount: pegCoin.eventCount,
+    worstDeviationBps: pegCoin.worstDeviationBps ?? null,
+    lastEventAt: depegEventEpochMs(pegCoin.lastEventAt),
+  };
+}
+
 function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): ShipNode[] {
   const pegById = buildPegSummaryCoinMap(inputs.pegSummary?.coins);
   const reportCardById = buildReportCardMap(inputs.reportCards?.cards) ?? {};
@@ -153,10 +172,11 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
     const meta = RUNTIME_ACTIVE_META_BY_ID.get(asset.id);
     if (!meta) throw new Error(`Active asset ${asset.id} is missing metadata`);
     const reportCard = reportCardById[asset.id] ?? null;
+    const pegCoin = pegById.get(asset.id);
     const ownRisk = resolveShipRiskPlacement({
       asset,
       meta,
-      pegCoin: pegById.get(asset.id),
+      pegCoin,
       stress: stressById[asset.id],
       freshness: inputs.freshness,
     });
@@ -201,6 +221,9 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
       visual: resolveShipVisual(asset, meta, reportCard),
       change24hUsd: recent.change24hUsd,
       change24hPct: recent.change24hPct,
+      change7dPct: recent.change7dPct,
+      change30dPct: recent.change30dPct,
+      depegHistory: shipDepegHistory(pegCoin),
       detailId: `ship.${asset.id}`,
       ...(stamped ? { squadId: stamped.squadId, squadRole: stamped.role } : {}),
     };

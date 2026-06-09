@@ -10,6 +10,15 @@ declare global {
   var __pharosVilleTestWallClockHour: number | undefined;
 }
 
+// Seed the legend first-visit dismissal so component tests exercise the
+// steady-state world instead of the one-time onboarding overlay. Tests that
+// cover the auto-open path clear this key explicitly.
+try {
+  globalThis.localStorage?.setItem("pharosville.legend.dismissed", "1");
+} catch {
+  // Non-DOM test environments have no localStorage; nothing to seed.
+}
+
 if (typeof globalThis.Path2D === "undefined") {
   class Path2DStub {
     moveTo(): void {}

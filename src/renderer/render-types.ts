@@ -39,6 +39,10 @@ export interface DrawPharosVilleInput {
   dpr?: number;
   height: number;
   hoveredTarget: HitTarget | null;
+  /** True when the hovered target is the keyboard-focused entity (Tab
+      cycling); the selection layer renders a distinct focus beacon so
+      keyboard users can see where focus sits on the map. */
+  hoveredTargetKeyboardFocused?: boolean;
   motion: PharosVilleCanvasMotion;
   /**
    * First-load reveal beat progress in [0, 1]. Default `1` means fully

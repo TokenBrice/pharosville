@@ -9,8 +9,11 @@ import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-ty
 const docksByChainCache = new WeakMap<PharosVilleWorld, Map<string, PharosVilleWorld["docks"][number]>>();
 const renderedDockShipsByChainCache = new WeakMap<PharosVilleWorld, Map<string, PharosVilleWorld["ships"][number][]>>();
 const HOVER_SELECTION_STROKE = "rgba(128, 214, 206, 0.85)";
+const HOVER_SELECTION_HALO = "rgba(128, 214, 206, 0.18)";
 const SELECTED_SELECTION_STROKE = "rgba(255, 226, 160, 0.92)";
 const SELECTED_SELECTION_HALO = "rgba(248,229,178,0.45)";
+const KEYBOARD_FOCUS_STROKE = "rgba(186, 236, 255, 0.95)";
+const KEYBOARD_FOCUS_HALO = "rgba(128, 214, 206, 0.28)";
 // Per-(world, chainId) cache of the chain-ship list pre-sorted by descending
 // market cap. The selected-dock relationship pass runs every frame while a
 // dock is selected; the static rank is identical across frames and only
@@ -27,7 +30,11 @@ export function drawSelection(input: DrawPharosVilleInput): number {
     drawableCount += 1;
   }
   if (currentHoveredTarget) {
-    drawSelectionRing(ctx, currentHoveredTarget, HOVER_SELECTION_STROKE);
+    if (input.hoveredTargetKeyboardFocused) {
+      drawKeyboardFocusBeacon(ctx, currentHoveredTarget, input.motion);
+    } else {
+      drawSelectionRing(ctx, currentHoveredTarget, HOVER_SELECTION_STROKE, HOVER_SELECTION_HALO);
+    }
     drawableCount += 1;
   }
   if (currentSelectedTarget) {
@@ -287,11 +294,40 @@ function drawRelationshipMarker(
   ctx.restore();
 }
 
+function selectionRingGeometry(target: HitTarget) {
+  return {
+    cx: target.rect.x + target.rect.width / 2,
+    bottom: target.rect.y + target.rect.height,
+    width: Math.max(28, Math.min(target.rect.width * 0.82, target.kind === "lighthouse" ? 118 : 76)),
+    height: Math.max(12, Math.min(target.rect.height * 0.22, target.kind === "lighthouse" ? 28 : 22)),
+  };
+}
+
+// Distinct treatment for the keyboard-focused entity: the standard ring in a
+// brighter stroke plus a slow-pulsing outer ring, so Tab-cycling users can
+// find focus among hover/selection chrome. Reduced motion gets a static
+// outer ring (deterministic frame, no RAF dependency).
+function drawKeyboardFocusBeacon(
+  ctx: CanvasRenderingContext2D,
+  target: HitTarget,
+  motion: PharosVilleCanvasMotion,
+) {
+  drawSelectionRing(ctx, target, KEYBOARD_FOCUS_STROKE, KEYBOARD_FOCUS_HALO);
+  if (target.kind === "area") return;
+  const { cx, bottom, width, height } = selectionRingGeometry(target);
+  const pulse = motion.reducedMotion ? 1 : 0.86 + 0.14 * Math.sin(motion.timeSeconds * 3.2);
+  ctx.save();
+  ctx.strokeStyle = KEYBOARD_FOCUS_STROKE;
+  ctx.lineWidth = Math.max(1, 1.4);
+  ctx.globalAlpha = 0.52 * pulse;
+  ctx.beginPath();
+  ctx.ellipse(cx, bottom - height * 0.55, (width / 2) * 1.32 * pulse, (height / 2) * 1.32 * pulse, -0.08, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawSelectionRing(ctx: CanvasRenderingContext2D, target: HitTarget, color: string, haloColor?: string) {
-  const cx = target.rect.x + target.rect.width / 2;
-  const bottom = target.rect.y + target.rect.height;
-  const width = Math.max(28, Math.min(target.rect.width * 0.82, target.kind === "lighthouse" ? 118 : 76));
-  const height = Math.max(12, Math.min(target.rect.height * 0.22, target.kind === "lighthouse" ? 28 : 22));
+  const { cx, bottom, width, height } = selectionRingGeometry(target);
 
   ctx.save();
   ctx.lineJoin = "round";

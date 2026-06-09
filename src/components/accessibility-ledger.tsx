@@ -5,7 +5,7 @@ import { formationLabel, squadRole, STABLECOIN_SQUADS, type StablecoinSquad } fr
 import { SQUAD_DISTRESS_FLAG_HEX } from "../renderer/layers/maker-squad-chrome";
 import type { AreaNode, DewsAreaBand, PharosVilleWorld, ShipNode } from "../systems/world-types";
 import { precomputeShipTempos } from "../systems/ship-cycle-tempo";
-import { lighthouseBeamWarmCueLabel } from "../systems/detail-model";
+import { depegHistoryLabel, lighthouseBeamWarmCueLabel, supplyMomentumLabel } from "../systems/detail-model";
 import { seaStateForWorld, seaStateSummary } from "../systems/sea-state";
 import { formatChangePercent, formatCompactUsd } from "../lib/format-detail";
 
@@ -286,6 +286,8 @@ function shipLedgerLine(
     `source fields ${ship.placementEvidence.sourceFields.join(", ") || "unavailable"}${ship.visual.uniqueRationale ? ` — heritage hull: ${ship.visual.uniqueRationale}` : ""}`,
     `cycle tempo ${tempoLabel}`,
     `24h supply change ${formatChangePercent(ship.change24hPct)}`,
+    ...(supplyMomentumLabel(ship) ? [`supply momentum ${supplyMomentumLabel(ship)}`] : []),
+    ...(depegHistoryLabel(ship.depegHistory) ? [`depeg history ${depegHistoryLabel(ship.depegHistory)}`] : []),
   ].join("; ") + `.${transitionClause}`;
 }
 

@@ -12,3 +12,26 @@
 # Vite emits hashed filenames into /assets/, so these are safe to long-cache.
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
+
+# The runtime asset manifest is the cache-version root: a short TTL with
+# stale-while-revalidate avoids re-downloading ~70KB on every navigation while
+# still picking up asset waves within minutes.
+/pharosville/assets/manifest.runtime.json
+  Cache-Control: public, max-age=300, stale-while-revalidate=3600
+
+# Sprite files are cache-busted by the ?v=<manifest cacheVersion> query that
+# the runtime appends, so the underlying paths are safe to long-cache. Listed
+# per subdirectory (not /pharosville/assets/*) so the manifest rule above is
+# the only rule matching the manifest.
+/pharosville/assets/docks/*
+  Cache-Control: public, max-age=31536000, immutable
+/pharosville/assets/landmarks/*
+  Cache-Control: public, max-age=31536000, immutable
+/pharosville/assets/overlays/*
+  Cache-Control: public, max-age=31536000, immutable
+/pharosville/assets/props/*
+  Cache-Control: public, max-age=31536000, immutable
+/pharosville/assets/ships/*
+  Cache-Control: public, max-age=31536000, immutable
+/pharosville/assets/terrain/*
+  Cache-Control: public, max-age=31536000, immutable

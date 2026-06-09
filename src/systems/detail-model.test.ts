@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detailForArea, detailForDock, detailForLighthouse, detailForPigeonnier, detailForShip, lighthouseBeamWarmCueLabel, PHAROS_WATCH_TELEGRAM_HREF, withRiskTransitionFact } from "./detail-model";
+import { depegHistoryLabel, detailForArea, detailForDock, detailForLighthouse, detailForPigeonnier, detailForShip, lighthouseBeamWarmCueLabel, PHAROS_WATCH_TELEGRAM_HREF, supplyMomentumLabel, withRiskTransitionFact } from "./detail-model";
 import type { AreaNode, DockNode, LighthouseNode, PigeonnierNode, ShipNode } from "./world-types";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import {
@@ -661,5 +661,47 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       });
       expect(patched).toBe(baseDetail);
     });
+  });
+});
+
+describe("detail-model depeg history and supply momentum", () => {
+  it("labels depeg history with count, worst deviation, and last date", () => {
+    expect(depegHistoryLabel({
+      eventCount: 3,
+      worstDeviationBps: -820,
+      lastEventAt: Date.UTC(2026, 4, 30),
+    })).toBe("3 events on record; worst -8.2%; last 2026-05-30");
+    // Below the shared significance gate (3+ events or worst <= -3%) the
+    // record stays silent — matching the absent hull weathering.
+    expect(depegHistoryLabel({ eventCount: 1, worstDeviationBps: -120, lastEventAt: null })).toBeNull();
+    expect(depegHistoryLabel({ eventCount: 1, worstDeviationBps: -900, lastEventAt: null }))
+      .toBe("1 event on record; worst -9.0%");
+    expect(depegHistoryLabel(null)).toBeNull();
+    expect(depegHistoryLabel({ eventCount: 0, worstDeviationBps: -500, lastEventAt: null })).toBeNull();
+  });
+
+  it("labels supply momentum only when a longer window has data", () => {
+    expect(supplyMomentumLabel({ change7dPct: 2.42, change30dPct: -5.1 })).toBe("7d +2.4%, 30d -5.1%");
+    expect(supplyMomentumLabel({ change7dPct: null, change30dPct: 3 })).toBe("30d +3.0%");
+    expect(supplyMomentumLabel({ change7dPct: null, change30dPct: null })).toBeNull();
+  });
+
+  it("surfaces lighthouse last fleet depeg with a none fallback", () => {
+    const base: LighthouseNode = {
+      id: "lighthouse",
+      kind: "lighthouse",
+      label: "Pharos lighthouse",
+      tile: { x: 18, y: 28 },
+      psiBand: "BEDROCK",
+      score: 92,
+      color: "#3aa76d",
+      unavailable: false,
+      detailId: "lighthouse",
+      lastFleetDepegAt: Date.UTC(2026, 5, 2),
+    };
+    const withDate = detailForLighthouse(base);
+    expect(withDate.facts.find((fact) => fact.label === "Last fleet depeg")?.value).toBe("2026-06-02");
+    const without = detailForLighthouse({ ...base, lastFleetDepegAt: null });
+    expect(without.facts.find((fact) => fact.label === "Last fleet depeg")?.value).toBe("None on record");
   });
 });

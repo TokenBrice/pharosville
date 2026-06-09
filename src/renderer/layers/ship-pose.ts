@@ -57,6 +57,25 @@ interface ShipPoseInputBase {
   zoom: number;
   phase?: number;
   seaState?: SeaState | null;
+  /** 2.5 supply-volatility sails — [0,1] churn factor from
+      `supplySailMomentumFactor`; boosts sail-flutter amplitude up to +50%.
+      DOM parity is the "Supply momentum" detail/ledger line. */
+  supplyMomentumFactor?: number;
+}
+
+/**
+ * Supply-churn factor in [0,1] from the 7d/30d supply momentum (percent
+ * units). A ±10% weekly move (or ±20% monthly) saturates the factor, so the
+ * sails of fast-growing or fast-shrinking coins visibly strain while stable
+ * supplies sail with quiet canvas.
+ */
+export function supplySailMomentumFactor(
+  change7dPct: number | null | undefined,
+  change30dPct: number | null | undefined,
+): number {
+  const week = Math.abs(change7dPct ?? 0);
+  const month = Math.abs(change30dPct ?? 0) / 2;
+  return clamp(Math.max(week, month) / 10, 0, 1);
 }
 
 export type ShipPoseInput = ShipPoseInputBase & (
@@ -73,6 +92,7 @@ export function resolveShipPose(input: ShipPoseInput): ShipPose {
   const zoom = Math.max(0, finiteOr(input.zoom, 1));
   const phase = finiteOr(input.phase ?? phaseSeed(input.shipId), 0);
   const bias = shipPosePersonalityBias(input.shipId);
+  const flutterBoost = 1 + clamp(finiteOr(input.supplyMomentumFactor ?? 0, 0), 0, 1) * 0.5;
   if (sizeTier !== "titan") {
     const bobPixels = Math.sin(timeSeconds * 0.7 + phase)
       * SHIP_CONTINUOUS_MOTION.standardBobPixels
@@ -110,7 +130,7 @@ export function resolveShipPose(input: ShipPoseInput): ShipPose {
         + bank,
       sailFlutter: clamp(
         SHIP_CONTINUOUS_MOTION.standardSailFlutterBase
-          + flutter * SHIP_CONTINUOUS_MOTION.standardSailFlutterRange * (0.45 + speedRatio * 0.55)
+          + flutter * SHIP_CONTINUOUS_MOTION.standardSailFlutterRange * (0.45 + speedRatio * 0.55) * flutterBoost
           + wakeIntensity * 0.06,
         0,
         0.48,
@@ -145,7 +165,7 @@ export function resolveShipPose(input: ShipPoseInput): ShipPose {
     return {
       rollRadians: sea * 0.026 * roughness * (0.82 + wakeIntensity * 0.46) * bias.rollAmplitudeBias + headingLean * 0.012 + bank,
       bobPixels: swell * 3.1 * zoom * roughness * (0.82 + wakeIntensity * 0.34) * bias.bobAmplitudeBias,
-      sailFlutter: clamp(0.52 + flutter * 0.24 + wakeIntensity * 0.08, 0, 1),
+      sailFlutter: clamp(0.52 + flutter * 0.24 * flutterBoost + wakeIntensity * 0.08, 0, 1),
       bowWake: wake,
       sternChurn: clamp(0.24 + wakeIntensity * 0.54 + roughness * 0.06, 0, 1),
       mooringTension: 0,
@@ -158,7 +178,7 @@ export function resolveShipPose(input: ShipPoseInput): ShipPose {
     return {
       rollRadians: sea * 0.008 * roughness * bias.rollAmplitudeBias + headingLean * 0.004,
       bobPixels: swell * 0.9 * zoom * roughness * bias.bobAmplitudeBias,
-      sailFlutter: clamp(0.15 + flutter * 0.08 + roughness * 0.02, 0, 1),
+      sailFlutter: clamp(0.15 + flutter * 0.08 * flutterBoost + roughness * 0.02, 0, 1),
       bowWake: 0,
       sternChurn: clamp(0.05 + roughness * 0.04, 0, 1),
       mooringTension: tension,

@@ -97,6 +97,49 @@ function change24hPctLabel(change24hPct: number | null): string {
   return `${sign}${change24hPct.toFixed(1)}%`;
 }
 
+// Longer-window supply momentum, hidden when neither window has data.
+export function supplyMomentumLabel(node: Pick<ShipNode, "change7dPct" | "change30dPct">): string | null {
+  const week = node.change7dPct ?? null;
+  const month = node.change30dPct ?? null;
+  if (week == null && month == null) return null;
+  const parts: string[] = [];
+  if (week != null) parts.push(`7d ${change24hPctLabel(week)}`);
+  if (month != null) parts.push(`30d ${change24hPctLabel(month)}`);
+  return parts.join(", ");
+}
+
+function depegEventDateLabel(epochMs: number | null): string | null {
+  if (epochMs == null || !Number.isFinite(epochMs) || epochMs <= 0) return null;
+  return new Date(epochMs).toISOString().slice(0, 10);
+}
+
+/**
+ * Severity of a ship's depeg record in [0, 1]. Zero (insignificant) below the
+ * shared gate of 3+ events or a worst deviation beyond -3%. The same value
+ * drives the hull-weathering render intensity and the "Depeg history"
+ * detail/ledger row, so the canvas cue and its DOM parity always agree.
+ */
+export function depegHistorySeverity(history: ShipNode["depegHistory"]): number {
+  if (!history || history.eventCount <= 0) return 0;
+  const byCount = history.eventCount >= 3 ? Math.min(1, history.eventCount / 12) : 0;
+  const worst = history.worstDeviationBps ?? 0;
+  const byWorst = worst <= -300 ? Math.min(1, Math.abs(worst) / 2000) : 0;
+  return Math.max(byCount, byWorst);
+}
+
+// "3 events on record; worst -8.2%; last 2026-05-30" — null when the record
+// is empty or below the shared significance gate (see depegHistorySeverity).
+export function depegHistoryLabel(history: ShipNode["depegHistory"]): string | null {
+  if (!history || depegHistorySeverity(history) <= 0) return null;
+  const parts = [`${pluralize(history.eventCount, "event")} on record`];
+  if (history.worstDeviationBps != null) {
+    parts.push(`worst ${(history.worstDeviationBps / 100).toFixed(1)}%`);
+  }
+  const lastDate = depegEventDateLabel(history.lastEventAt);
+  if (lastDate) parts.push(`last ${lastDate}`);
+  return parts.join("; ");
+}
+
 function representativePositionLabel(node: ShipNode): string {
   if (node.riskPlacement === "ledger-mooring") return "Ledger Mooring idle";
   return `${node.riskWaterLabel} idle`;
@@ -139,6 +182,10 @@ export function detailForLighthouse(node: LighthouseNode): DetailModel {
       { label: "Score", value: node.score == null ? "Unavailable" : String(node.score) },
       { label: "Band", value: node.psiBand ?? "Unavailable" },
       { label: "Beam warmth cue", value: lighthouseBeamWarmCueLabel() },
+      {
+        label: "Last fleet depeg",
+        value: depegEventDateLabel(node.lastFleetDepegAt ?? null) ?? "None on record",
+      },
     ],
     links: [{ label: "PSI", href: analyticalRouteHref("/stability-index/") }],
   };
@@ -280,9 +327,13 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
     ? [{ label: "Tracking new risk band", value: riskTransitionLabel(riskTransition) }]
     : [];
 
+  const momentum = supplyMomentumLabel(node);
+  const depegHistory = depegHistoryLabel(node.depegHistory);
   const facts = [
     { label: "Market cap", value: marketCapLabel(node.marketCapUsd) },
     { label: "24h supply change", value: change24hPctLabel(node.change24hPct) },
+    ...(momentum ? [{ label: "Supply momentum", value: momentum }] : []),
+    ...(depegHistory ? [{ label: "Depeg history", value: depegHistory }] : []),
     { label: "Cycle tempo", value: cycleTempo.label },
     { label: "Ship class", value: node.visual.classLabel },
     { label: "Size tier", value: node.visual.sizeLabel },

@@ -1,4 +1,5 @@
 import { squadForMember } from "../../../systems/maker-squad";
+import { depegHistorySeverity } from "../../../systems/detail-model";
 import {
   CUE_PRIORITY_ACTIVE_RISK,
   CUE_PRIORITY_RECENT_SUPPLY,
@@ -31,7 +32,7 @@ import {
   SHIP_WAKE_BUDGET_MIN,
   SHIP_WAKE_BUDGET_RATIO,
 } from "../../visual-scales";
-import { resolveShipPose, zeroShipPose, type ShipPose } from "../ship-pose";
+import { resolveShipPose, supplySailMomentumFactor, zeroShipPose, type ShipPose } from "../ship-pose";
 import {
   drawBowspritLogoMark,
   drawDyedSailEmblem,
@@ -527,6 +528,7 @@ export function shipRenderState(input: DrawPharosVilleInput, frame: ShipRenderFr
       reducedMotion: motion.reducedMotion,
       sample,
       shipId: ship.id,
+      supplyMomentumFactor: supplySailMomentumFactor(ship.change7dPct ?? null, ship.change30dPct ?? null),
       timeSeconds: motion.timeSeconds,
       visualSizeTier: ship.visual.sizeTier,
       zoom: camera.zoom,
@@ -993,6 +995,42 @@ function shipAnimationFrameOffset(asset: LoadedPharosVilleAsset, shipId: string)
   return phase;
 }
 
+// ---------------------------------------------------------------------------
+// 1.2 depeg-history hull weathering — charcoal scour streaks above the
+// waterline for ships with a significant depeg record. Intensity and the
+// significance gate come from `depegHistorySeverity`, the same source the
+// "Depeg history" detail/ledger row uses, so cue and copy never disagree.
+// Deterministic per ship id, static under reduced motion.
+// ---------------------------------------------------------------------------
+
+function drawDepegWeathering(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  scale: number,
+  shipId: string,
+  intensity: number,
+): void {
+  if (intensity <= 0) return;
+  const seed = stableVisualVariant(`${shipId}:depeg-weathering`);
+  const streakCount = 2 + (seed % 2) + (intensity > 0.6 ? 1 : 0);
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.strokeStyle = "rgba(24, 16, 11, 0.85)";
+  ctx.globalAlpha = 0.26 + intensity * 0.3;
+  ctx.lineWidth = Math.max(1, 1.05 * scale);
+  for (let index = 0; index < streakCount; index += 1) {
+    const jitterX = (((seed >> (index * 3)) % 13) - 6) * 1.4 * scale;
+    const top = y - (11 - (index % 3) * 2.4) * scale;
+    const dripLength = (2.6 + ((seed >> (index * 5)) % 4)) * scale;
+    ctx.beginPath();
+    ctx.moveTo(x + jitterX, top);
+    ctx.lineTo(x + jitterX + dripLength * 0.3, top + dripLength);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFrame, ship: PharosVilleWorld["ships"][number], nightFactor: number): void {
   const { assets, camera, ctx } = input;
   const {
@@ -1024,6 +1062,17 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
         const mark = SHIP_SAIL_MARKS[ship.visual.spriteAssetId ?? ship.visual.hull] ?? SHIP_SAIL_MARKS[ship.visual.hull];
         const flutterY = isTitanSprite ? pose.sailFlutter * geometry.drawScale : 0;
         if (standardSprite) {
+          drawDyedSailEmblem({
+            ctx,
+            asset: shipAsset,
+            drawX: geometry.drawPoint.x,
+            drawY,
+            drawScale: geometry.drawScale,
+            sailMark: mark,
+            livery: ship.visual.livery,
+            logo: assets?.getLogo(ship.logoSrc) ?? null,
+            mark: ship.symbol,
+          });
           const pennantSpec = pennantSpecForShip(ship, true);
           drawMastPennantChrome(ctx, ship.visual.livery, ship.symbol, geometry.drawPoint.x, drawY, geometry.drawScale, pennantSpec, pose.sailFlutter);
           if (shouldDrawBowspritLogoMark(ship.visual.sizeTier)) {
@@ -1066,6 +1115,7 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
         }
         const signalAnchor = signalOverlayAnchor(ship, geometry.drawPoint.x, drawY, geometry.drawScale, standardSprite);
         drawShipSignalOverlay(ctx, ship.visual.overlay, signalAnchor.x, signalAnchor.y, geometry.drawScale);
+        drawDepegWeathering(ctx, geometry.drawPoint.x, drawY, geometry.drawScale, ship.id, depegHistorySeverity(ship.depegHistory));
       });
     } else {
       const proceduralScale = camera.zoom * ship.visual.scale;
@@ -1090,6 +1140,7 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
           });
         }
         drawShipSignalOverlay(ctx, ship.visual.overlay, p.x - 10 * proceduralScale, drawY - 20 * proceduralScale, proceduralScale);
+        drawDepegWeathering(ctx, p.x, drawY, proceduralScale, ship.id, depegHistorySeverity(ship.depegHistory));
       });
     }
     // W6.04 — heritage-tier stern engraving. Runs OUTSIDE the pose transform

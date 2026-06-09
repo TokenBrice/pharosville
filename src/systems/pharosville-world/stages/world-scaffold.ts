@@ -61,7 +61,10 @@ function buildPigeonnier(): PigeonnierNode {
   };
 }
 
-function buildLighthouse(stability: StabilityIndexResponse | null | undefined): LighthouseNode {
+function buildLighthouse(
+  stability: StabilityIndexResponse | null | undefined,
+  pegSummary: PharosVilleInputs["pegSummary"],
+): LighthouseNode {
   const current = stability?.current ?? null;
   const band = current?.band ?? null;
   return {
@@ -74,7 +77,18 @@ function buildLighthouse(stability: StabilityIndexResponse | null | undefined): 
     color: isConditionBand(band) ? PSI_HEX_COLORS[band] : "#8aa0a6",
     unavailable: !current || !isConditionBand(band),
     detailId: "lighthouse",
+    lastFleetDepegAt: lastFleetDepegAt(pegSummary),
   };
+}
+
+/** Most recent depeg event across the tracked fleet, epoch ms, or null. */
+function lastFleetDepegAt(pegSummary: PharosVilleInputs["pegSummary"]): number | null {
+  let latest: number | null = null;
+  for (const coin of pegSummary?.coins ?? []) {
+    const at = toEpochMs(coin.lastEventAt);
+    if (at !== null && (latest === null || at > latest)) latest = at;
+  }
+  return latest;
 }
 
 function buildDewsBandCounts(stress: StressSignalsAllResponse | null | undefined): Record<DewsAreaBand, number> {
@@ -143,7 +157,7 @@ function buildAreas(stress: StressSignalsAllResponse | null | undefined): Pharos
 export function buildWorldScaffoldStage(inputs: PharosVilleInputs): BuildWorldScaffoldStage {
   return {
     map: buildPharosVilleMap(),
-    lighthouse: buildLighthouse(inputs.stability),
+    lighthouse: buildLighthouse(inputs.stability, inputs.pegSummary),
     pigeonnier: buildPigeonnier(),
     docks: buildChainDocks(inputs.chains),
     areas: buildAreas(inputs.stress),

@@ -12,10 +12,12 @@ import Maximize2 from "lucide-react/dist/esm/icons/maximize-2";
 import Minimize2 from "lucide-react/dist/esm/icons/minimize-2";
 import { AccessibilityLedger, type ShipRiskTransitionEntry } from "./components/accessibility-ledger";
 import { DetailPanel } from "./components/detail-panel";
+import { ShipSearch } from "./components/ship-search";
 import { WorldToolbar } from "./components/world-toolbar";
 import { PHAROSVILLE_LATEST_VERSION } from "./content/pharosville-version";
 import { useAssetLoadingPipeline } from "./hooks/use-asset-loading-pipeline";
 import { useChangelogDialog } from "./hooks/use-changelog-dialog";
+import { useLegendDialog } from "./hooks/use-legend-dialog";
 import { useCanvasResizeAndCamera } from "./hooks/use-canvas-resize-and-camera";
 import { useFullscreenMode } from "./hooks/use-fullscreen-mode";
 import { useLatestRef } from "./hooks/use-latest-ref";
@@ -31,6 +33,10 @@ import type { PharosVilleWorld as PharosVilleWorldModel } from "./systems/world-
 
 const LazyChangelogPanel = lazy(() => (
   import("./components/changelog-panel").then((module) => ({ default: module.ChangelogPanel }))
+));
+
+const LazyLegendPanel = lazy(() => (
+  import("./components/legend-panel").then((module) => ({ default: module.LegendPanel }))
 ));
 
 // W4.01 first-load reveal beat duration (ms). Three phases of ~600ms each,
@@ -68,6 +74,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     setKeyboardFocusedDetailId,
   } = selection;
   const changelog = useChangelogDialog({ setAnnouncement });
+  const legend = useLegendDialog({ setAnnouncement });
   const timeControls = useWorldTimeControls({ requestPaint: requestWorldFrame });
 
   // Memoize on a content signature instead of `world` identity so live data
@@ -118,8 +125,25 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   // stay coherent without an extra sync effect (and survive StrictMode
   // double-invokes).
   const hoveredDetailIdRef = useLatestRef(hoveredDetailId);
+  const keyboardFocusedDetailIdRef = useLatestRef(keyboardFocusedDetailId);
   const selectedDetailIdRef = useLatestRef(selectedDetailId);
   const motionPlanRef = useLatestRef(motionPlan);
+  const hoverTooltipElRef = useRef<HTMLDivElement | null>(null);
+
+  // Hover tooltip content: a glanceable title + one-line reading for the
+  // hovered entity. Hidden for the selected entity (the detail panel already
+  // covers it) and skipped entirely when nothing is hovered. Position is
+  // written by the render loop (style.transform), not React.
+  const hoverTooltip = useMemo(() => {
+    if (!hoveredDetailId || hoveredDetailId === selectedDetailId) return null;
+    const detail = world.detailIndex[hoveredDetailId];
+    if (!detail) return null;
+    const entity = world.entityById[hoveredDetailId];
+    const meta = entity?.kind === "ship" && entity.visual?.sizeLabel && entity.riskWaterLabel
+      ? `${entity.visual.sizeLabel} · ${entity.riskWaterLabel}`
+      : detail.kind;
+    return { title: detail.title, meta };
+  }, [hoveredDetailId, selectedDetailId, world]);
 
   // Cross-hook shared refs: filled by the render loop, read by the canvas
   // hook (for hover/select hit-testing) and by the recompute callback.
@@ -137,6 +161,23 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
 
   const handleSelectTarget = useCallback((target: HitTarget, point: ScreenPoint, viewport: ScreenPoint) => {
     selectDetail(target.detailId, detailAnchorForPoint(point, viewport));
+  }, [selectDetail]);
+
+  // Search → select → follow. `handleFollowSelected` reads the committed
+  // `selectedEntity`, so the follow fires from the effect below once the
+  // searched ship's selection has actually landed.
+  const pendingFollowDetailIdRef = useRef<string | null>(null);
+  const shipSearchOptions = useMemo(() => (
+    world.ships
+      .map((ship) => ({
+        detailId: ship.detailId,
+        title: world.detailIndex[ship.detailId]?.title ?? ship.id,
+      }))
+      .sort((left, right) => left.title.localeCompare(right.title))
+  ), [world]);
+  const handleSearchSelect = useCallback((detailId: string) => {
+    pendingFollowDetailIdRef.current = detailId;
+    selectDetail(detailId, null);
   }, [selectDetail]);
 
   // selectedDetailIdRef omitted: ref identity never changes (HOOKS F4).
@@ -218,6 +259,8 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     hitTargetsRef,
     hoveredDetailId,
     hoveredDetailIdRef,
+    hoverTooltipElRef,
+    keyboardFocusedDetailIdRef,
     maximumRequestedDprRef: canvas.maximumRequestedDprRef,
     motionPlan,
     motionPlanRef,
@@ -317,6 +360,14 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     return () => document.removeEventListener("pointerdown", handleOutsidePointerDown, true);
   }, [clearSelection, selectedDetailId]);
 
+  const followSelectedFromCanvas = canvas.handleFollowSelected;
+  useEffect(() => {
+    if (!pendingFollowDetailIdRef.current || !selectedEntity) return;
+    if (selectedEntity.detailId !== pendingFollowDetailIdRef.current) return;
+    pendingFollowDetailIdRef.current = null;
+    followSelectedFromCanvas();
+  }, [followSelectedFromCanvas, selectedEntity]);
+
   useEffect(() => observeReducedMotion(setReducedMotion), []);
 
   // world.map is a module singleton; this fires once on full teardown.
@@ -369,6 +420,20 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         onPointerUp={canvas.handlePointerUp}
       />
       <div className="pharosville-overlay" aria-label="PharosVille controls and details">
+        <div
+          ref={hoverTooltipElRef}
+          className="pharosville-hover-tooltip"
+          data-visible="false"
+          data-testid="pharosville-hover-tooltip"
+          aria-hidden="true"
+        >
+          {hoverTooltip && (
+            <div className="pharosville-hover-tooltip__card">
+              <strong>{hoverTooltip.title}</strong>
+              <span>{hoverTooltip.meta}</span>
+            </div>
+          )}
+        </div>
         <div className="pharosville-hud">
           <WorldToolbar
             selectedDetailId={selectedDetailId}
@@ -385,6 +450,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
             onClearTimeOverride={timeControls.clearTimeOverride}
           />
         </div>
+        <ShipSearch options={shipSearchOptions} onSelect={handleSearchSelect} />
         {selectedDetail && (
           <div
             className={selectedDetailAnchor ? `pharosville-detail-dock pharosville-detail-dock--anchored pharosville-detail-dock--${selectedDetailAnchor.side}` : "pharosville-detail-dock"}
@@ -417,8 +483,15 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
           <LazyChangelogPanel onClose={changelog.closeChangelog} />
         </Suspense>
       )}
+      {legend.legendOpen && (
+        <Suspense fallback={<ChangelogPanelLoading />}>
+          <LazyLegendPanel onClose={legend.closeLegend} />
+        </Suspense>
+      )}
       <p className="pharosville-beta-tag">
         <span className="pharosville-beta-tag__notice">PharosVille beta {PHAROSVILLE_LATEST_VERSION} - Interpretive view, not financial advice</span>
+        <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
+        <button className="pharosville-beta-tag__button" type="button" onClick={legend.openLegend}>Legend</button>
         <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
         <button className="pharosville-beta-tag__button" type="button" onClick={changelog.openChangelog}>Changelog</button>
         <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>

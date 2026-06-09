@@ -2,7 +2,7 @@ import { areaLabelPlacementForArea, type ResolvedAreaLabelPlacement } from "../.
 import { zoneThemeForTerrain } from "../../systems/palette";
 import { tileToScreen } from "../../systems/projection";
 import { RISK_WATER_AREAS } from "../../systems/risk-water-areas";
-import type { AreaNode, TerrainKind } from "../../systems/world-types";
+import type { AreaNode, PharosVilleWorld, TerrainKind } from "../../systems/world-types";
 import { drawSignBoard, roundedRectPath } from "../canvas-primitives";
 import type { DrawPharosVilleInput } from "../render-types";
 
@@ -76,12 +76,18 @@ function cachedMeasureTextWidth(ctx: CanvasRenderingContext2D, text: string, fon
   return width;
 }
 
-export function drawWaterAreaLabels({ camera, ctx, dpr, world }: DrawPharosVilleInput): void {
+export function drawWaterAreaLabels(input: DrawPharosVilleInput): void {
+  const { camera, ctx, dpr, world } = input;
+  const arrivalPulses = arrivalPulseEnvelopeByLabel(input);
   for (const area of world.areas) {
     const placement = cachedAreaLabelPlacement(area);
     const p = tileToScreen(placement.anchorTile, camera);
     const terrainKind = area.riskPlacement ? RISK_WATER_AREAS[area.riskPlacement].terrain : "water";
     const theme = zoneThemeForTerrain(terrainKind);
+    const arrivalPulse = arrivalPulses?.get(area.label);
+    if (arrivalPulse) {
+      drawAreaArrivalPulse(ctx, p, placement, theme.label.accent, arrivalPulse, camera.zoom);
+    }
     drawCartographicWaterLabel({
       accent: theme.label.accent,
       align: placement.align,
@@ -100,6 +106,78 @@ export function drawWaterAreaLabels({ camera, ctx, dpr, world }: DrawPharosVille
       zoom: camera.zoom,
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Zone arrival pulse — when a ship's risk band changes between plan builds the
+// route carries `previousRiskLabel` (W4.25); the destination area's printed
+// label receives a one-shot expanding glow so live data updates read as
+// events. DOM parity comes from the existing risk-transition detail row, so
+// this is a re-expression of an already-announced signal, not a new one.
+// Reduced motion skips the pulse (the detail row is the stable equivalent).
+// ---------------------------------------------------------------------------
+
+const ARRIVAL_PULSE_SECONDS = 2.4;
+// Keyed by route identity: a transition surfaces on exactly one plan build, so
+// the WeakMap entry dies with the route and the pulse plays once per change.
+const arrivalPulseFirstSeenByRoute = new WeakMap<object, number>();
+const shipsByIdCache = new WeakMap<PharosVilleWorld, Map<string, PharosVilleWorld["ships"][number]>>();
+
+function shipById(world: PharosVilleWorld, shipId: string): PharosVilleWorld["ships"][number] | null {
+  let byId = shipsByIdCache.get(world);
+  if (!byId) {
+    byId = new Map(world.ships.map((ship) => [ship.id, ship]));
+    shipsByIdCache.set(world, byId);
+  }
+  return byId.get(shipId) ?? null;
+}
+
+function arrivalPulseEnvelopeByLabel(input: DrawPharosVilleInput): Map<string, number> | null {
+  const { motion, world } = input;
+  if (motion.reducedMotion) return null;
+  let result: Map<string, number> | null = null;
+  for (const route of motion.plan.shipRoutes.values()) {
+    if (!route.previousRiskLabel) continue;
+    const ship = shipById(world, route.shipId);
+    if (!ship || ship.riskWaterLabel === route.previousRiskLabel) continue;
+    let firstSeen = arrivalPulseFirstSeenByRoute.get(route);
+    if (firstSeen === undefined) {
+      firstSeen = motion.timeSeconds;
+      arrivalPulseFirstSeenByRoute.set(route, firstSeen);
+    }
+    const elapsed = motion.timeSeconds - firstSeen;
+    if (elapsed < 0 || elapsed > ARRIVAL_PULSE_SECONDS) continue;
+    const envelope = Math.pow(1 - elapsed / ARRIVAL_PULSE_SECONDS, 1.6);
+    result ??= new Map();
+    result.set(ship.riskWaterLabel, Math.max(result.get(ship.riskWaterLabel) ?? 0, envelope));
+  }
+  return result;
+}
+
+function drawAreaArrivalPulse(
+  ctx: CanvasRenderingContext2D,
+  p: { x: number; y: number },
+  placement: ResolvedAreaLabelPlacement,
+  accent: string,
+  envelope: number,
+  zoom: number,
+): void {
+  const scale = Math.max(0.72, Number.isFinite(zoom) ? zoom : 1);
+  const radiusX = (placement.maxWidth * 0.62 + 18) * scale * (1.25 - envelope * 0.25);
+  const radiusY = radiusX * 0.42;
+  ctx.save();
+  ctx.translate(Math.round(p.x), Math.round(p.y));
+  ctx.rotate(placement.rotation);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, radiusX, radiusY, 0, 0, Math.PI * 2);
+  ctx.globalAlpha = 0.1 * envelope;
+  ctx.fillStyle = accent;
+  ctx.fill();
+  ctx.globalAlpha = 0.42 * envelope;
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = Math.max(1.2, 1.8 * scale);
+  ctx.stroke();
+  ctx.restore();
 }
 
 export function clearWaterLabelBitmapCache(): void {

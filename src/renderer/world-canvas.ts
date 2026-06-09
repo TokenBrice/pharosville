@@ -540,7 +540,9 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   drawStaticPassCached(input, frame, "terrain", paintStaticTerrainPass);
   const waterAccentStart = performance.now();
   input.ctx.imageSmoothingEnabled = false;
-  const waterAccentTileCount = drawWaterTerrainAccents(input);
+  const waterAccentTileCount = shouldDrawScheduledPass(input.renderScheduler, "water-accents")
+    ? drawWaterTerrainAccents(input)
+    : 0;
   const coastalWaterTileCount = shouldDrawScheduledPass(input.renderScheduler, "coastal-water-motion")
     ? drawCoastalWaterDetails(input)
     : 0;

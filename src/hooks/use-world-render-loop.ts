@@ -14,7 +14,8 @@ import {
 } from "../renderer/hit-testing";
 import { selectionDrawableCount } from "../renderer/layers/selection";
 import { drawPharosVille, type PharosVilleRenderMetrics } from "../renderer/world-canvas";
-import { resolveRenderSchedulerState } from "../renderer/render-scheduler";
+import { createRenderSchedulerHysteresisState, resolveRenderSchedulerState } from "../renderer/render-scheduler";
+import type { RenderSchedulerHysteresisState } from "../renderer/render-scheduler";
 import { createVisibleTileBoundsCacheState } from "../renderer/viewport";
 import { clampCameraToMap } from "../systems/camera";
 import {
@@ -117,6 +118,13 @@ export interface UseWorldRenderLoopInput {
   hitTargetsRef: MutableRefObject<readonly HitTarget[]>;
   hoveredDetailId: string | null;
   hoveredDetailIdRef: MutableRefObject<string | null>;
+  /** Hover tooltip DOM node. The loop writes its position/visibility directly
+      (style.transform + data-visible) each frame so the tooltip tracks moving
+      ships without any React re-render in the RAF path. */
+  hoverTooltipElRef?: RefObject<HTMLDivElement | null>;
+  /** Latest keyboard-focused detail id; drives the canvas focus beacon when it
+      matches the hovered target (keyboard cycling sets hover = focus). */
+  keyboardFocusedDetailIdRef?: MutableRefObject<string | null>;
   maximumRequestedDprRef: MutableRefObject<number>;
   motionPlan: MotionPlan;
   motionPlanRef: MutableRefObject<MotionPlan>;
@@ -170,6 +178,8 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     hitTargetsRef,
     hoveredDetailId,
     hoveredDetailIdRef,
+    hoverTooltipElRef,
+    keyboardFocusedDetailIdRef,
     maximumRequestedDprRef,
     motionPlan,
     motionPlanRef,
@@ -222,6 +232,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   const lastWallRef = useRef<number | null>(null);
   const frameIntervalWindowRef = useRef<FrameIntervalWindow>(createFrameIntervalWindow());
   const framePacingStatsRef = useRef<FramePacingMetrics>(emptyFramePacingMetrics());
+  const renderSchedulerHysteresisRef = useRef<RenderSchedulerHysteresisState>(createRenderSchedulerHysteresisState());
   const compactShipMotionSampleCacheRef = useRef<CompactShipMotionSampleCache>(createCompactShipMotionSampleCache());
   const accSecondsRef = useRef(0);
   const pendingResumeRef = useRef(false);
@@ -533,6 +544,18 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       nextFrameState.wallClockHour = frameWallClockHour;
       const nextHoveredTarget = nextFrameState.hoveredTarget;
       const nextSelectedTarget = nextFrameState.selectedTarget;
+      const tooltipEl = hoverTooltipElRef?.current;
+      if (tooltipEl) {
+        if (nextHoveredTarget) {
+          const rect = nextHoveredTarget.rect;
+          const tooltipX = Math.round(rect.x + rect.width / 2);
+          const tooltipY = Math.round(rect.y);
+          tooltipEl.style.transform = `translate(${tooltipX}px, ${tooltipY}px)`;
+          tooltipEl.dataset.visible = "true";
+        } else if (tooltipEl.dataset.visible !== "false") {
+          tooltipEl.dataset.visible = "false";
+        }
+      }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const drawStartedAt = performance.now();
       const renderScheduler = resolveRenderSchedulerState({
@@ -540,13 +563,15 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         drawDurationMs: lastRenderMetricsRef.current.drawDurationMs,
         framePacingP90Ms: framePacingStatsRef.current.p90Ms,
         reducedMotion,
-      });
+      }, renderSchedulerHysteresisRef.current);
       const renderMetrics = drawPharosVille({
         camera: frameCamera,
         ctx,
         dpr,
         height: activeCanvasSize.y,
         hoveredTarget: nextHoveredTarget,
+        hoveredTargetKeyboardFocused: activeHoveredDetailId != null
+          && keyboardFocusedDetailIdRef?.current === activeHoveredDetailId,
         motion: {
           plan: activeMotionPlan,
           reducedMotion,

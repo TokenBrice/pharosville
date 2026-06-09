@@ -135,6 +135,9 @@ export interface LighthouseNode {
   color: string;
   unavailable: boolean;
   detailId: string;
+  /** Epoch ms of the most recent depeg event across the tracked fleet
+      (max `pegSummary.coins[].lastEventAt`), or null when none on record. */
+  lastFleetDepegAt?: number | null;
 }
 
 export interface PigeonnierNode {
@@ -193,9 +196,23 @@ export interface ShipNode {
   visual: ShipVisual;
   change24hUsd: number | null;
   change24hPct: number | null;
+  /** Supply momentum over longer windows (percent units, like change24hPct). */
+  change7dPct?: number | null;
+  change30dPct?: number | null;
+  /** Historical depeg record from `pegSummary.coins[]`; null/absent when the
+      coin has no events on record. Surfaced as hull weathering plus a
+      "Depeg history" detail/ledger line. */
+  depegHistory?: ShipDepegHistory | null;
   detailId: string;
   squadId?: "sky" | "maker" | "ethena";
   squadRole?: "flagship" | "consort";
+}
+
+export interface ShipDepegHistory {
+  eventCount: number;
+  worstDeviationBps: number | null;
+  /** Epoch ms (normalized) of the most recent depeg event, or null. */
+  lastEventAt: number | null;
 }
 
 export interface GraveNode {

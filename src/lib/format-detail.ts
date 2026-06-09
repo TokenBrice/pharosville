@@ -50,6 +50,9 @@ export type DetailFactKey =
   | "sizeTier"
   | "marketCap"
   | "cycle24h"
+  | "supplyMomentum"
+  | "depegHistory"
+  | "lastFleetDepeg"
   | "cycleTempo"
   | "homeDock"
   | "representativePosition"
@@ -80,6 +83,9 @@ const DETAIL_FACT_LABELS = {
   "size tier": "sizeTier",
   "market cap": "marketCap",
   "24h supply change": "cycle24h",
+  "supply momentum": "supplyMomentum",
+  "depeg history": "depegHistory",
+  "last fleet depeg": "lastFleetDepeg",
   "cycle tempo": "cycleTempo",
   "home dock": "homeDock",
   "representative position": "representativePosition",
@@ -119,8 +125,19 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   }
   const marketCap = lookup.get("marketCap");
   if (marketCap) identity.push({ key: "marketCap", label: "Market cap", value: formatCompactUsd(marketCap) });
+  // Momentum folds into the 24h row (not its own row) to respect the panel's
+  // <= 8 fact-row density contract; the full label still reaches the
+  // accessibility ledger as a standalone line.
   const cycle24h = lookup.get("cycle24h");
-  if (cycle24h) identity.push({ key: "cycle24h", label: "24h change", value: cycle24h });
+  const supplyMomentum = lookup.get("supplyMomentum");
+  if (cycle24h || supplyMomentum) {
+    const value = [cycle24h, supplyMomentum].filter(Boolean).join(" · ");
+    identity.push({ key: "cycle24h", label: "24h change", value });
+  }
+  const depegHistory = lookup.get("depegHistory");
+  if (depegHistory) identity.push({ key: "depegHistory", label: "Depeg history", value: depegHistory });
+  const lastFleetDepeg = lookup.get("lastFleetDepeg");
+  if (lastFleetDepeg) identity.push({ key: "lastFleetDepeg", label: "Last fleet depeg", value: lastFleetDepeg });
   const cycleTempo = lookup.get("cycleTempo");
   if (cycleTempo) identity.push({ key: "cycleTempo", label: "Cycle tempo", value: cycleTempo });
   const homeDock = lookup.get("homeDock");

@@ -138,6 +138,15 @@ export async function installWallClockOverride(page: Page, hour: number): Promis
   const minutes = Math.round((hour - flooredHour) * 60);
   const fractional = ((hour % 24) + 24) % 24;
   await page.addInitScript(({ h, m, frac }) => {
+    // Every visual/perf lane funnels through this helper before page.goto, so
+    // it doubles as the place to seed first-visit flags: baselines capture
+    // the steady-state world, not the one-time legend onboarding overlay.
+    // Legend-specific tests clear the key to exercise the auto-open path.
+    try {
+      window.localStorage.setItem("pharosville.legend.dismissed", "1");
+    } catch {
+      // Storage unavailable: the app treats that as dismissed anyway.
+    }
     (globalThis as { __pharosVilleTestWallClockHour?: number }).__pharosVilleTestWallClockHour = frac;
     const origGetHours = Date.prototype.getHours;
     const origGetMinutes = Date.prototype.getMinutes;
