@@ -252,9 +252,28 @@ export function recomputeHitTargetsForCameraOnly(input: {
     if (entity.kind === "ship") {
       const sample = input.shipMotionSamples?.get(entity.id);
       if (!isShipHitTargetVisible(entity, sample, context)) continue;
+      // P5: ships far outside the viewport reuse cached world geometry like
+      // static entities — one tile projection instead of a full
+      // `resolveEntityGeometry` per camera tick. Offscreen rects are culled
+      // from the hover set anyway, and the staleness is bounded: the
+      // round-robin display-sample probes rebuild every ship's record within
+      // a few frames once camera intent ends, while the generous margin
+      // keeps any ship that could drift on-screen mid-gesture on the full
+      // path. Selected/hovered ships always resolve fully — they stay
+      // hover-relevant even off-screen.
+      const cheapProjection = input.viewport
+        && entity.detailId !== context.selectedDetailId
+        && entity.detailId !== context.hoveredDetailId
+        && isCachedShipGeometryFarOffscreen(previous, input.camera, input.viewport);
       worldRecordsById.set(entity.id, buildHitTargetRecord({
         ...input,
         entity,
+        ...(cheapProjection
+          ? {
+            previousGeometry: previous.geometry,
+            previousWorldGeometry: previous.worldGeometry,
+          }
+          : {}),
         sortIndex: previous.sortIndex,
       }));
       continue;
@@ -578,6 +597,26 @@ function snapshotFromSortedRecords(
     targets,
     worldRecordsById,
   };
+}
+
+// Margin for the camera-only cheap-projection path. Generous relative to the
+// 48px hover-cull margin so a sailing ship (≤0.15 tiles/frame post-warmup)
+// cannot cross from "cheap" range into the visible viewport within the
+// handful of frames a camera gesture suspends the round-robin probes.
+const SHIP_CAMERA_ONLY_OFFSCREEN_MARGIN_PX = 384;
+
+function isCachedShipGeometryFarOffscreen(
+  record: HitTargetRecord,
+  camera: IsoCamera,
+  viewport: HitTargetViewport,
+): boolean {
+  const point = tileToScreen(record.worldGeometry.followTile, camera);
+  return (
+    point.x < -SHIP_CAMERA_ONLY_OFFSCREEN_MARGIN_PX
+    || point.x > viewport.width + SHIP_CAMERA_ONLY_OFFSCREEN_MARGIN_PX
+    || point.y < -SHIP_CAMERA_ONLY_OFFSCREEN_MARGIN_PX
+    || point.y > viewport.height + SHIP_CAMERA_ONLY_OFFSCREEN_MARGIN_PX
+  );
 }
 
 function shouldKeepHitTargetCandidate(input: {

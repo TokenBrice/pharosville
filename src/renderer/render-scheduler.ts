@@ -40,6 +40,7 @@ const CONSTRAINED_EFFECT_SKIPS = [
   ...LOW_PRIORITY_EFFECT_SKIPS,
   "water-accents",
   "coastal-water-motion",
+  "dock-caustics",
 ] as const;
 
 export function resolveRenderSchedulerState(

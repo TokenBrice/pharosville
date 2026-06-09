@@ -47,6 +47,7 @@ describe("render scheduler", () => {
     // Constrained (but not recovery) also sheds the per-frame water passes.
     expect(shouldDrawScheduledPass(scheduler, "coastal-water-motion")).toBe(false);
     expect(shouldDrawScheduledPass(scheduler, "water-accents")).toBe(false);
+    expect(shouldDrawScheduledPass(scheduler, "dock-caustics")).toBe(false);
     expect(shouldDrawScheduledPass(scheduler, "lighthouse-reflection")).toBe(true);
     expect(shouldDrawScheduledPass(scheduler, "selection")).toBe(true);
   });
@@ -65,6 +66,7 @@ describe("render scheduler", () => {
     expect(shouldDrawScheduledPass(scheduler, "scene-vignette")).toBe(true);
     expect(shouldDrawScheduledPass(scheduler, "coastal-water-motion")).toBe(true);
     expect(shouldDrawScheduledPass(scheduler, "water-accents")).toBe(true);
+    expect(shouldDrawScheduledPass(scheduler, "dock-caustics")).toBe(true);
     expect(isScheduledPassDegraded(scheduler, "cloud-shadow")).toBe(false);
   });
 });

@@ -718,6 +718,70 @@ describe("hit-testing", () => {
     })?.detailId).toBe(dock!.detailId);
   });
 
+  it("reuses cached world geometry for far-offscreen ships on camera-only re-projection", () => {
+    // P5 cheap-projection path: ships whose cached tile projects far outside
+    // viewport+margin skip the full `resolveEntityGeometry` rebuild and only
+    // re-project their cached world geometry — so a moved motion sample is
+    // intentionally ignored until the round-robin probes refresh the record.
+    const ship = world.ships[0]!;
+    const initialSamples = new Map([[ship.id, motionSample(ship.id, ship.tile)]]);
+    const movedSamples = new Map([[ship.id, motionSample(ship.id, { x: ship.tile.x + 6, y: ship.tile.y + 6 })]]);
+    const viewport = { height: 1000, width: 1440 };
+    const initialSnapshot = createHitTargetSnapshot({
+      camera,
+      shipMotionSamples: initialSamples,
+      viewport,
+      world,
+    });
+
+    // Pan so the ship's cached tile lands far outside viewport+margin.
+    const shipPoint = tileToScreen(ship.tile, camera);
+    const farCamera = {
+      ...camera,
+      offsetX: camera.offsetX - shipPoint.x - 2000,
+      offsetY: camera.offsetY - shipPoint.y - 2000,
+    };
+    const offscreenWithMoved = recomputeHitTargetsForCameraOnly({
+      camera: farCamera,
+      shipMotionSamples: movedSamples,
+      snapshot: initialSnapshot,
+      viewport,
+      world,
+    });
+    const offscreenWithOriginal = recomputeHitTargetsForCameraOnly({
+      camera: farCamera,
+      shipMotionSamples: initialSamples,
+      snapshot: initialSnapshot,
+      viewport,
+      world,
+    });
+    const movedRect = offscreenWithMoved.worldRecordsById?.get(ship.id)?.geometry.targetRect;
+    const originalRect = offscreenWithOriginal.worldRecordsById?.get(ship.id)?.geometry.targetRect;
+    expect(movedRect).toBeDefined();
+    expect(movedRect).toEqual(originalRect);
+
+    // Control: while the ship is on-screen the full path runs and the moved
+    // sample shifts the rect.
+    const onscreenWithMoved = recomputeHitTargetsForCameraOnly({
+      camera,
+      shipMotionSamples: movedSamples,
+      snapshot: initialSnapshot,
+      viewport,
+      world,
+    });
+    const onscreenWithOriginal = recomputeHitTargetsForCameraOnly({
+      camera,
+      shipMotionSamples: initialSamples,
+      snapshot: initialSnapshot,
+      viewport,
+      world,
+    });
+    const onscreenMovedRect = onscreenWithMoved.worldRecordsById?.get(ship.id)?.geometry.targetRect;
+    const onscreenOriginalRect = onscreenWithOriginal.worldRecordsById?.get(ship.id)?.geometry.targetRect;
+    expect(onscreenMovedRect).toBeDefined();
+    expect(onscreenMovedRect).not.toEqual(onscreenOriginalRect);
+  });
+
   it("returns the same recordsById reference when zero ships change geometry", () => {
     // Validates the copy-on-write deferral in `updateHitTargetSnapshotShips`:
     // when every changed ship resolves to the same geometry it had before, no

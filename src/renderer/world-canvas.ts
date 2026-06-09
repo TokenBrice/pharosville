@@ -12,6 +12,7 @@ import { createRenderFrameCache, type RenderFrameCache } from "./frame-cache";
 import { createShipBodyCache } from "./ship-body-cache";
 import { drawAtmosphere, drawBirds, drawBioluminescentSparkles, drawDecorativeLights, drawMoonReflection, drawSeaMist } from "./layers/ambient";
 import { drawDockBody, drawDockOverlay, isBackgroundedHarborDock, type DockRenderState } from "./layers/docks";
+import { drawDockCaustics } from "./layers/dock-caustics";
 import { drawHarborSurf } from "./layers/harbor-surf";
 import { drawGraveBody, drawGraveOverlay, drawGraveUnderlay, type GraveRenderState } from "./layers/graves";
 import {
@@ -89,7 +90,6 @@ interface WorldCanvasFrame {
 interface StaticLayerCacheEntry {
   canvas: HTMLCanvasElement;
   key: string;
-  lastUsed: number;
 }
 
 interface CameraCacheKeyInput {
@@ -108,6 +108,10 @@ const DYNAMIC_WATER_CADENCE_HZ = 0;
 const DEFAULT_RENDER_CACHE_MODE: PharosVilleRenderCacheMode = "exact-zoom";
 const SHIP_BODY_CACHE_WARMUP_PER_FRAME = 6;
 const SHIP_BODY_CACHE_INTERACTION_WARMUP_PER_FRAME = 1;
+// P5: warmup scales with scene density so dense fixtures fill the body cache
+// in proportionally as many frames as sparse scenes, while the divisor keeps
+// the per-frame precompose cost bounded (~10-16 entries on the dense fixture).
+const SHIP_BODY_CACHE_WARMUP_VISIBLE_DIVISOR = 16;
 // W1.05: keyed lookup so eviction/scan paths run in Map.values() / Map.get()
 // rather than O(n) array scans. External API and behaviour unchanged.
 const staticLayerCache = new Map<string, StaticLayerCacheEntry>();
@@ -409,7 +413,10 @@ function drawStaticPassCached(
 
   const cached = staticLayerCache.get(key);
   if (cached) {
-    cached.lastUsed = performance.now();
+    // O(1) LRU touch: re-insert so Map iteration order stays oldest-first
+    // and `evictOldestCacheEntry` can pop from the front without a scan.
+    staticLayerCache.delete(key);
+    staticLayerCache.set(key, cached);
     frame.cacheStats.staticHitCount += 1;
     frame.protectedCacheEntryKeys.add(cacheEntryId("static", cached.key));
     blitStaticCanvas(ctx, cached.canvas, backingWidth, backingHeight, sourceX, sourceY);
@@ -439,7 +446,7 @@ function drawStaticPassCached(
   offCtx.setTransform(dpr, 0, 0, dpr, backingPadWidth, backingPadHeight);
   paint({ ...paintInput, ctx: offCtx }, frame);
   blitStaticCanvas(ctx, offCanvas, backingWidth, backingHeight, sourceX, sourceY);
-  staticLayerCache.set(key, { canvas: offCanvas, key, lastUsed: performance.now() });
+  staticLayerCache.set(key, { canvas: offCanvas, key });
   frame.protectedCacheEntryKeys.add(cacheEntryId("static", key));
 }
 
@@ -457,19 +464,14 @@ function blitStaticCanvas(
   ctx.restore();
 }
 
+// Map iteration order is insertion order and `drawStaticPassCached` re-inserts
+// on every hit, so the first non-protected entry is the least-recently-used
+// one — eviction stops there instead of scanning the whole cache.
 function evictOldestCacheEntry(protectedEntryKeys: ReadonlySet<string>): { canvas: HTMLCanvasElement } | null {
-  let oldestEntry: StaticLayerCacheEntry | null = null;
-  let oldestLastUsed = Number.POSITIVE_INFINITY;
   for (const entry of staticLayerCache.values()) {
     if (protectedEntryKeys.has(cacheEntryId("static", entry.key))) continue;
-    if (entry.lastUsed < oldestLastUsed) {
-      oldestEntry = entry;
-      oldestLastUsed = entry.lastUsed;
-    }
-  }
-  if (oldestEntry) {
-    staticLayerCache.delete(oldestEntry.key);
-    return { canvas: oldestEntry.canvas };
+    staticLayerCache.delete(entry.key);
+    return { canvas: entry.canvas };
   }
   return null;
 }
@@ -563,6 +565,10 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   // before the main entity pass so the foam sits over the water but under any
   // dock sprite that the entity pass paints on top of the ribbon's anchor.
   if (shouldDrawScheduledPass(input.renderScheduler, "harbor-surf")) drawHarborSurf(input);
+  // Caustic shimmer fringe around the four major EVM-bay dock bodies. Same
+  // layering contract as harbor-surf: over the water, under the entity-pass
+  // dock sprites. Recovery keeps the pass; constrained sheds it.
+  if (shouldDrawScheduledPass(input.renderScheduler, "dock-caustics")) drawDockCaustics(input);
   const entityMetrics = drawRevealGatedEntities(input, frame, nightFactor, reveal, lighthouseInput);
   drawSquadChrome(input, frame);
   // Ticker nameplates draw as a fleet-wide pass after all entities so plates
@@ -675,7 +681,10 @@ function createWorldCanvasFrame(input: DrawPharosVilleInput): WorldCanvasFrame {
     shipBodyCacheMaxPixels,
     shipBodyCacheWarmupBudget: {
       remaining: input.renderScheduler?.tier === "full"
-        ? SHIP_BODY_CACHE_WARMUP_PER_FRAME
+        ? Math.max(
+          SHIP_BODY_CACHE_WARMUP_PER_FRAME,
+          Math.ceil(visibleShips.length / SHIP_BODY_CACHE_WARMUP_VISIBLE_DIVISOR),
+        )
         : SHIP_BODY_CACHE_INTERACTION_WARMUP_PER_FRAME,
     },
     shipRenderStates: shipRenderStatesScratch,
