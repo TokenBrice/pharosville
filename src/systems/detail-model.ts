@@ -1,4 +1,5 @@
 import { CHAIN_META } from "@shared/lib/chains";
+import type { BluechipGrade } from "@shared/types";
 import type { AreaNode, DetailModel, DewsAreaBand, DockNode, GraveNode, LighthouseNode, PigeonnierNode, ShipNode } from "./world-types";
 import { ETHEREUM_L2_DOCK_CHAIN_IDS } from "./world-layout";
 import { analyticalRouteHref } from "./route-links";
@@ -140,6 +141,87 @@ export function depegHistoryLabel(history: ShipNode["depegHistory"]): string | n
   return parts.join("; ");
 }
 
+/**
+ * Severity of a ship's price-feed degradation in [0, 1]. Zero (insignificant)
+ * when the feed reports "high" confidence or carries no confidence data. The
+ * same value drives the price-confidence render cue and the price-signal fold
+ * in the Market cap detail row, so the canvas cue and its DOM parity always
+ * agree.
+ */
+export function priceSignalSeverity(asset: Pick<ShipNode["asset"], "priceConfidence"> | null | undefined): number {
+  switch (asset?.priceConfidence) {
+    case "single-source": return 0.4;
+    case "low": return 0.7;
+    case "fallback": return 1;
+    default: return 0;
+  }
+}
+
+// "Low-confidence price feed" — null below the shared significance gate (see
+// priceSignalSeverity), so healthy feeds spend no panel space.
+const PRICE_CONFIDENCE_DESCRIPTORS: Partial<Record<NonNullable<ShipNode["asset"]["priceConfidence"]>, string>> = {
+  "single-source": "Single-source price feed",
+  low: "Low-confidence price feed",
+  fallback: "Fallback price feed",
+};
+
+export function priceConfidenceLabel(asset: Pick<ShipNode["asset"], "priceConfidence"> | null | undefined): string | null {
+  if (priceSignalSeverity(asset) <= 0 || !asset?.priceConfidence) return null;
+  return PRICE_CONFIDENCE_DESCRIPTORS[asset.priceConfidence] ?? null;
+}
+
+/**
+ * Source-consensus ratio for a ship's price feed: `agree / total` in [0, 1]
+ * with the underlying counts, or null when the feed reports no consensus
+ * sources. The same value drives the rigging-density render cue and the
+ * "Source consensus" fold in the Market cap detail row.
+ */
+export function sourceConsensusRatio(
+  asset: Pick<ShipNode["asset"], "consensusSources" | "agreeSources"> | null | undefined,
+): { agree: number; total: number; ratio: number } | null {
+  const total = asset?.consensusSources?.length ?? 0;
+  if (total <= 0) return null;
+  // agree ⊆ consensus upstream; clamp defensively so the ratio stays in [0, 1].
+  const agree = Math.min(asset?.agreeSources?.length ?? 0, total);
+  return { agree, total, ratio: agree / total };
+}
+
+// "2 of 3 price sources agree" — null when no consensus data or when every
+// source agrees, so fully-agreed ships spend no panel space.
+export function sourceConsensusLabel(
+  asset: Pick<ShipNode["asset"], "consensusSources" | "agreeSources"> | null | undefined,
+): string | null {
+  const consensus = sourceConsensusRatio(asset);
+  if (!consensus || consensus.ratio >= 1) return null;
+  return `${consensus.agree} of ${consensus.total} price sources agree`;
+}
+
+/**
+ * Audit shield for heritage-tier ships: non-null only for titan/unique hulls
+ * whose report card carries a Bluechip grade. The `smartContractAudit`
+ * boolean lives on `BluechipRating` (a separate bluechip-ratings payload not
+ * wired into the world inputs), so the shield surfaces the grade alone. The
+ * same state drives the audit-shield render cue and the Bluechip fold in the
+ * Class detail row.
+ */
+export function auditShieldState(
+  reportCard: ShipNode["reportCard"],
+  sizeTier: ShipNode["visual"]["sizeTier"],
+): { grade: BluechipGrade } | null {
+  if (sizeTier !== "titan" && sizeTier !== "unique") return null;
+  const grade = reportCard?.rawInputs.bluechipGrade ?? null;
+  return grade ? { grade } : null;
+}
+
+// "Bluechip A" — null outside the auditShieldState gate.
+export function auditShieldLabel(
+  reportCard: ShipNode["reportCard"],
+  sizeTier: ShipNode["visual"]["sizeTier"],
+): string | null {
+  const shield = auditShieldState(reportCard, sizeTier);
+  return shield ? `Bluechip ${shield.grade}` : null;
+}
+
 function representativePositionLabel(node: ShipNode): string {
   if (node.riskPlacement === "ledger-mooring") return "Ledger Mooring idle";
   return `${node.riskWaterLabel} idle`;
@@ -191,9 +273,36 @@ export function detailForLighthouse(node: LighthouseNode): DetailModel {
   };
 }
 
+// Healthy floor for a chain's backing-diversity health factor; below it the
+// dock congestion cue and the "Backing diversity" detail row escalate.
+const BACKING_DIVERSITY_HEALTHY_MIN = 0.5;
+
+/**
+ * Severity of a dock's backing-concentration signal in [0, 1]. Zero
+ * (insignificant) while the chain's `healthFactors.backingDiversity` score
+ * stays at or above the healthy floor; rises linearly to 1 as diversity
+ * approaches zero. The same value drives the dock congestion render cue and
+ * the "Backing diversity" detail-row wording, so the two always agree.
+ */
+export function backingDiversitySeverity(backingDiversity: DockNode["backingDiversity"]): number {
+  if (backingDiversity == null || !Number.isFinite(backingDiversity)) return 0;
+  if (backingDiversity >= BACKING_DIVERSITY_HEALTHY_MIN) return 0;
+  return Math.min(1, (BACKING_DIVERSITY_HEALTHY_MIN - backingDiversity) / BACKING_DIVERSITY_HEALTHY_MIN);
+}
+
+// "70% diversified" / "30% narrowing" / "10% concentrated" — null when the
+// chain reports no backing-diversity factor.
+export function backingDiversityLabel(backingDiversity: DockNode["backingDiversity"]): string | null {
+  if (backingDiversity == null || !Number.isFinite(backingDiversity)) return null;
+  const severity = backingDiversitySeverity(backingDiversity);
+  const descriptor = severity <= 0 ? "diversified" : severity < 0.5 ? "narrowing" : "concentrated";
+  return `${percent.format(Math.max(0, backingDiversity))} ${descriptor}`;
+}
+
 export function detailForDock(node: DockNode): DetailModel {
   const topSymbols = node.harboredStablecoins.map((coin) => coin.symbol).join(", ");
   const harborGroup = dockHarborGroupLabel(node);
+  const backingDiversity = backingDiversityLabel(node.backingDiversity);
   return {
     id: node.detailId,
     kind: node.kind,
@@ -205,6 +314,7 @@ export function detailForDock(node: DockNode): DetailModel {
       { label: "Stablecoin supply", value: usd.format(node.totalUsd) },
       { label: "Stablecoin count", value: String(node.stablecoinCount) },
       { label: "Health", value: node.healthBand ?? "Unavailable" },
+      ...(backingDiversity ? [{ label: "Backing diversity", value: backingDiversity }] : []),
       { label: "Harbor group", value: harborGroup },
       { label: "Harbor style", value: node.assetId.replace("dock.", "").replaceAll("-", " ") },
     ],
@@ -329,14 +439,23 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
 
   const momentum = supplyMomentumLabel(node);
   const depegHistory = depegHistoryLabel(node.depegHistory);
+  // P3 metaphor quick-wins — all significance-gated (see the label helpers),
+  // and folded into existing panel rows by `buildDetailFactSections` so the
+  // <= 8 fact-row density contract holds even when every gate fires.
+  const priceConfidence = priceConfidenceLabel(node.asset);
+  const sourceConsensus = sourceConsensusLabel(node.asset);
+  const auditShield = auditShieldLabel(node.reportCard, node.visual.sizeTier);
   const facts = [
     { label: "Market cap", value: marketCapLabel(node.marketCapUsd) },
+    ...(priceConfidence ? [{ label: "Price confidence", value: priceConfidence }] : []),
+    ...(sourceConsensus ? [{ label: "Source consensus", value: sourceConsensus }] : []),
     { label: "24h supply change", value: change24hPctLabel(node.change24hPct) },
     ...(momentum ? [{ label: "Supply momentum", value: momentum }] : []),
     ...(depegHistory ? [{ label: "Depeg history", value: depegHistory }] : []),
     { label: "Cycle tempo", value: cycleTempo.label },
     { label: "Ship class", value: node.visual.classLabel },
     { label: "Size tier", value: node.visual.sizeLabel },
+    ...(auditShield ? [{ label: "Bluechip audit", value: auditShield }] : []),
     ...(node.visual.uniqueRationale
       ? [{ label: "Cultural significance", value: node.visual.uniqueRationale }]
       : []),

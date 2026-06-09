@@ -54,6 +54,48 @@ describe("DetailPanel structure (old-school revamp)", () => {
     expect(dts.length).toBeLessThanOrEqual(8);
   });
 
+  it("respects the 8-row cap when every gated ship signal fires at once", () => {
+    // Worst-case ship: every fact detailForShip can emit toward the panel —
+    // squad formation, significant depeg record, supply momentum, degraded
+    // price signal, and the heritage Bluechip audit. The gated P3 signals
+    // must fold into existing rows (Class, Market cap, 24h change) rather
+    // than spend rows of their own.
+    const detail: DetailModel = {
+      id: "ship:test-worst-case",
+      title: "Test Ship",
+      kind: "SHIP",
+      summary: "test",
+      facts: [
+        { label: "Ship class", value: "DeFi" },
+        { label: "Size tier", value: "Heritage hull" },
+        { label: "Bluechip audit", value: "Bluechip A" },
+        { label: "Market cap", value: "$1,000,000,000" },
+        { label: "Price confidence", value: "Low-confidence price feed" },
+        { label: "Source consensus", value: "2 of 3 price sources agree" },
+        { label: "24h supply change", value: "+5.4%" },
+        { label: "Supply momentum", value: "7d +2.4%, 30d -5.1%" },
+        { label: "Depeg history", value: "3 events on record; worst -8.2%; last 2026-05-30" },
+        { label: "Cycle tempo", value: "Brisk" },
+        { label: "Home dock", value: "Ethereum" },
+        { label: "Representative position", value: "Calm Anchorage idle" },
+        { label: "Risk water area", value: "Calm Anchorage" },
+        { label: "Risk water zone", value: "calm" },
+        { label: "Chains present", value: "4 positive chain deployments: Ethereum 40%, Tron 30%, Solana 20%, +1 more" },
+        { label: "Sailing in formation", value: "DAI (flagship), sDAI" },
+        { label: "Cultural significance", value: "Heritage rationale" },
+      ],
+      links: [],
+    };
+    const markup = renderToStaticMarkup(<DetailPanel detail={detail} />);
+    const dts = markup.match(/<dt[^>]*>/g) ?? [];
+    expect(dts.length).toBeLessThanOrEqual(8);
+    // The gated signals must fold into host rows, not silently drop.
+    expect(markup).toContain("Bluechip A");
+    expect(markup).toContain("Low-confidence price feed");
+    expect(markup).toContain("2 of 3 price sources agree");
+    expect(markup).toContain("depeg history: 3 events on record");
+  });
+
   it("renders Cycle tempo in the identity section", () => {
     const markup = renderShipPanel("susds-sky", "susds-sky");
     expect(markup).toMatch(/Cycle tempo/i);

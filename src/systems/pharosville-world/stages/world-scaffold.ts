@@ -14,6 +14,7 @@ import {
 } from "../../risk-water-areas";
 import type {
   DewsAreaBand,
+  DockNode,
   LighthouseNode,
   PharosVilleWorld,
   PigeonnierNode,
@@ -154,12 +155,22 @@ function buildAreas(stress: StressSignalsAllResponse | null | undefined): Pharos
   });
 }
 
+// P3 metaphor quick-win: ride the chain's backing-diversity health factor on
+// the dock node so `detailForDock` and the dock congestion render cue read
+// one field instead of re-joining the chains payload.
+function withBackingDiversity(docks: DockNode[], chains: PharosVilleInputs["chains"]): DockNode[] {
+  const diversityByChainId = new Map(
+    (chains?.chains ?? []).map((chain) => [chain.id, chain.healthFactors?.backingDiversity ?? null] as const),
+  );
+  return docks.map((dock) => ({ ...dock, backingDiversity: diversityByChainId.get(dock.chainId) ?? null }));
+}
+
 export function buildWorldScaffoldStage(inputs: PharosVilleInputs): BuildWorldScaffoldStage {
   return {
     map: buildPharosVilleMap(),
     lighthouse: buildLighthouse(inputs.stability, inputs.pegSummary),
     pigeonnier: buildPigeonnier(),
-    docks: buildChainDocks(inputs.chains),
+    docks: withBackingDiversity(buildChainDocks(inputs.chains), inputs.chains),
     areas: buildAreas(inputs.stress),
     graves: graveNodesFromEntries(inputs.cemeteryEntries ?? RUNTIME_CEMETERY_ENTRIES),
   };

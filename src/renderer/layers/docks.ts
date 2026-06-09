@@ -1,3 +1,4 @@
+import { backingDiversitySeverity } from "../../systems/detail-model";
 import type { PharosVilleWorld } from "../../systems/world-types";
 import { tileToScreen, type ScreenPoint } from "../../systems/projection";
 import { isLandTileKind, tileKindAt } from "../../systems/world-layout";
@@ -6,6 +7,7 @@ import { drawAsset, drawDiamond, drawFittedText, drawSignBoard } from "../canvas
 import type { RenderFrameCache } from "../frame-cache";
 import { dockOutwardVector, type ResolvedEntityGeometry } from "../geometry";
 import type { DrawPharosVilleInput } from "../render-types";
+import { DOCK_NAME_RIBBON_MIN_ZOOM } from "../visual-scales";
 
 // C6: Two-level parse cache: hex → {r,g,b}, then (hex,alpha) → rgbaString.
 const HEX_RGB_CACHE = new Map<string, { r: number; g: number; b: number }>();
@@ -163,6 +165,66 @@ export function drawDockBody(input: DrawPharosVilleInput, frame: DockRenderFrame
     ctx.lineTo(harbor.x, harbor.y);
     ctx.stroke();
   }
+  drawDockCongestionCrates(ctx, dock, harbor, camera.zoom);
+}
+
+/**
+ * P3 metaphor — chain backing-diversity congestion. Docks whose chain
+ * backing is narrowing or concentrated stack identical cargo crates on the
+ * camera-facing quay edge: monoculture freight piling up with nowhere to go.
+ * Crate count derives from `backingDiversitySeverity` in `detail-model.ts`,
+ * the same source as the dock panel's "Backing diversity" row, so cue and
+ * copy never disagree. Static and deterministic per (dock, zoom).
+ */
+function drawDockCongestionCrates(
+  ctx: CanvasRenderingContext2D,
+  dock: PharosVilleWorld["docks"][number],
+  point: ScreenPoint,
+  zoom: number,
+) {
+  const severity = backingDiversitySeverity(dock.backingDiversity);
+  if (severity <= 0) return;
+  const crates = severity >= 0.5 ? 3 : 2;
+  for (let index = 0; index < crates; index += 1) {
+    const offsetX = (index * 7 - (crates - 1) * 3.5 - 14) * zoom;
+    const offsetY = (11 + (index % 2) * 2.6) * zoom;
+    drawCongestionCrate(ctx, point.x + offsetX, point.y + offsetY, zoom);
+  }
+}
+
+function drawCongestionCrate(ctx: CanvasRenderingContext2D, x: number, y: number, zoom: number) {
+  const half = 3.1 * zoom;
+  const depth = 2.6 * zoom;
+  ctx.save();
+  // Front faces first, then the lid diamond on top.
+  ctx.fillStyle = "#6b4d2e";
+  ctx.beginPath();
+  ctx.moveTo(x - half, y);
+  ctx.lineTo(x, y + half / 2);
+  ctx.lineTo(x, y + half / 2 + depth);
+  ctx.lineTo(x - half, y + depth);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#82603a";
+  ctx.beginPath();
+  ctx.moveTo(x + half, y);
+  ctx.lineTo(x, y + half / 2);
+  ctx.lineTo(x, y + half / 2 + depth);
+  ctx.lineTo(x + half, y + depth);
+  ctx.closePath();
+  ctx.fill();
+  drawDiamond(ctx, x, y, half * 2, half, "#a8835a");
+  ctx.strokeStyle = "rgba(43, 28, 16, 0.7)";
+  ctx.lineWidth = Math.max(1, 0.6 * zoom);
+  ctx.beginPath();
+  ctx.moveTo(x - half, y);
+  ctx.lineTo(x - half, y + depth);
+  ctx.moveTo(x + half, y);
+  ctx.lineTo(x + half, y + depth);
+  ctx.moveTo(x, y + half / 2);
+  ctx.lineTo(x, y + half / 2 + depth);
+  ctx.stroke();
+  ctx.restore();
 }
 
 function drawDockQuayUnderlay(
@@ -495,7 +557,7 @@ function drawHarborFlag(input: {
   paintFlagPath(ctx, mastX, direction, flagWidth, flagScale, topFlutter, midFlutter, botFlutter, flagY, flagHeight, scale);
   ctx.stroke();
 
-  if (zoom >= 0.5 && emphasized) {
+  if (zoom >= DOCK_NAME_RIBBON_MIN_ZOOM && emphasized) {
     drawDockNameRibbon(ctx, dock.label, mastX + direction * 14 * flagScale, mastTopY - 15 * scale, scale, emphasized);
   }
   ctx.restore();

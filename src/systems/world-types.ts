@@ -161,6 +161,11 @@ export interface DockNode {
   healthBand: ChainSummary["healthBand"];
   stablecoinCount: number;
   concentration: number | null;
+  /** Chain `healthFactors.backingDiversity` score (higher = more diversified
+      stablecoin backing), or null when unavailable. Attached by the world
+      scaffold stage; drives the dock congestion cue and the "Backing
+      diversity" detail row. */
+  backingDiversity?: number | null;
   harboredStablecoins: DockStablecoin[];
   detailId: string;
 }

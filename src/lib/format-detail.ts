@@ -48,13 +48,17 @@ export function composeCurrently(parts: CurrentlyParts): string {
 export type DetailFactKey =
   | "shipClass"
   | "sizeTier"
+  | "bluechipAudit"
   | "marketCap"
+  | "priceConfidence"
+  | "sourceConsensus"
   | "cycle24h"
   | "supplyMomentum"
   | "depegHistory"
   | "lastFleetDepeg"
   | "cycleTempo"
   | "homeDock"
+  | "backingDiversity"
   | "representativePosition"
   | "riskWaterArea"
   | "riskWaterZone"
@@ -81,13 +85,17 @@ export interface DetailFactSections {
 const DETAIL_FACT_LABELS = {
   "ship class": "shipClass",
   "size tier": "sizeTier",
+  "bluechip audit": "bluechipAudit",
   "market cap": "marketCap",
+  "price confidence": "priceConfidence",
+  "source consensus": "sourceConsensus",
   "24h supply change": "cycle24h",
   "supply momentum": "supplyMomentum",
   "depeg history": "depegHistory",
   "last fleet depeg": "lastFleetDepeg",
   "cycle tempo": "cycleTempo",
   "home dock": "homeDock",
+  "backing diversity": "backingDiversity",
   "representative position": "representativePosition",
   "risk water area": "riskWaterArea",
   "risk water zone": "riskWaterZone",
@@ -120,28 +128,44 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   const tier = lookup.get("sizeTier");
   const klass = lookup.get("shipClass");
   if (tier || klass) {
-    const composed = [tier, klass].filter(Boolean).join(" · ");
+    // The heritage-gated Bluechip audit folds into the Class row (not its own
+    // row) to respect the panel's <= 8 fact-row density contract.
+    const composed = [tier, klass, lookup.get("bluechipAudit")].filter(Boolean).join(" · ");
     identity.push({ key: "class", label: "Class", value: composed });
   }
   const marketCap = lookup.get("marketCap");
-  if (marketCap) identity.push({ key: "marketCap", label: "Market cap", value: formatCompactUsd(marketCap) });
-  // Momentum folds into the 24h row (not its own row) to respect the panel's
-  // <= 8 fact-row density contract; the full label still reaches the
-  // accessibility ledger as a standalone line.
+  if (marketCap) {
+    // Degraded price confidence and partial source consensus (both
+    // significance-gated upstream) fold into the Market cap row — the figure
+    // they qualify — instead of spending rows of their own.
+    const value = [formatCompactUsd(marketCap), lookup.get("priceConfidence"), lookup.get("sourceConsensus")]
+      .filter(Boolean)
+      .join(" · ");
+    identity.push({ key: "marketCap", label: "Market cap", value });
+  }
+  // Momentum and the (significance-gated) depeg record fold into the 24h row
+  // (not their own rows) to respect the panel's <= 8 fact-row density
+  // contract; the full labels still reach the accessibility ledger as
+  // standalone lines.
   const cycle24h = lookup.get("cycle24h");
   const supplyMomentum = lookup.get("supplyMomentum");
-  if (cycle24h || supplyMomentum) {
-    const value = [cycle24h, supplyMomentum].filter(Boolean).join(" · ");
+  const depegHistory = lookup.get("depegHistory");
+  if (cycle24h || supplyMomentum || depegHistory) {
+    const value = [cycle24h, supplyMomentum, depegHistory ? `depeg history: ${depegHistory}` : null]
+      .filter(Boolean)
+      .join(" · ");
     identity.push({ key: "cycle24h", label: "24h change", value });
   }
-  const depegHistory = lookup.get("depegHistory");
-  if (depegHistory) identity.push({ key: "depegHistory", label: "Depeg history", value: depegHistory });
   const lastFleetDepeg = lookup.get("lastFleetDepeg");
   if (lastFleetDepeg) identity.push({ key: "lastFleetDepeg", label: "Last fleet depeg", value: lastFleetDepeg });
   const cycleTempo = lookup.get("cycleTempo");
   if (cycleTempo) identity.push({ key: "cycleTempo", label: "Cycle tempo", value: cycleTempo });
   const homeDock = lookup.get("homeDock");
   if (homeDock) identity.push({ key: "homeDock", label: "Home dock", value: homeDock });
+  // Dock panels: chain backing-diversity row (gated upstream on data
+  // presence; dock panels carry far fewer rows than the ship cap).
+  const backingDiversity = lookup.get("backingDiversity");
+  if (backingDiversity) identity.push({ key: "backingDiversity", label: "Backing diversity", value: backingDiversity });
 
   const position: DetailDisplayRow[] = [];
   const position_ = lookup.get("representativePosition");

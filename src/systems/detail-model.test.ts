@@ -1,10 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { depegHistoryLabel, detailForArea, detailForDock, detailForLighthouse, detailForPigeonnier, detailForShip, lighthouseBeamWarmCueLabel, PHAROS_WATCH_TELEGRAM_HREF, supplyMomentumLabel, withRiskTransitionFact } from "./detail-model";
+import {
+  auditShieldLabel,
+  auditShieldState,
+  backingDiversityLabel,
+  backingDiversitySeverity,
+  depegHistoryLabel,
+  detailForArea,
+  detailForDock,
+  detailForLighthouse,
+  detailForPigeonnier,
+  detailForShip,
+  lighthouseBeamWarmCueLabel,
+  PHAROS_WATCH_TELEGRAM_HREF,
+  priceConfidenceLabel,
+  priceSignalSeverity,
+  sourceConsensusLabel,
+  sourceConsensusRatio,
+  supplyMomentumLabel,
+  withRiskTransitionFact,
+} from "./detail-model";
 import type { AreaNode, DockNode, LighthouseNode, PigeonnierNode, ShipNode } from "./world-types";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import {
   fixtureWithDepegOn,
   fixtureWithoutAsset,
+  makeReportCard,
   makerSquadFixtureInputs,
 } from "../__fixtures__/pharosville-world";
 
@@ -703,5 +723,191 @@ describe("detail-model depeg history and supply momentum", () => {
     expect(withDate.facts.find((fact) => fact.label === "Last fleet depeg")?.value).toBe("2026-06-02");
     const without = detailForLighthouse({ ...base, lastFleetDepegAt: null });
     expect(without.facts.find((fact) => fact.label === "Last fleet depeg")?.value).toBe("None on record");
+  });
+});
+
+// P3 metaphor quick-wins: price signal, source consensus, audit shield, dock
+// backing diversity.
+describe("detail-model P3 metaphor quick-win signals", () => {
+  function signalShipNode(overrides: Partial<ShipNode> = {}): ShipNode {
+    return {
+      id: "usdt-tether",
+      kind: "ship",
+      label: "Tether",
+      symbol: "USDT",
+      asset: {} as ShipNode["asset"],
+      meta: {} as ShipNode["meta"],
+      reportCard: null,
+      logoSrc: null,
+      tile: { x: 1, y: 1 },
+      riskTile: { x: 2, y: 2 },
+      chainPresence: [],
+      dockVisits: [],
+      dominantChainId: null,
+      homeDockChainId: null,
+      dockChainId: null,
+      marketCapUsd: 1_000_000_000,
+      riskPlacement: "safe-harbor",
+      riskZone: "calm",
+      riskWaterLabel: "Calm Anchorage",
+      placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
+      visual: {
+        hull: "treasury-galleon",
+        shipClass: "cefi",
+        classLabel: "CeFi",
+        rigging: "issuer-rig",
+        livery: {
+          accent: "#27b6a5",
+          label: "Tether logo livery",
+          logoMatte: "#f7fffb",
+          logoShape: "circle",
+          primary: "#009393",
+          sailColor: "#d8efe7",
+          sailPanel: "center",
+          secondary: "#005f61",
+          source: "stablecoin-logo",
+          stripePattern: "double",
+        },
+        sailColor: "#d8efe7",
+        sailStripeColor: "#009393",
+        overlay: "none",
+        sizeTier: "titan",
+        sizeLabel: "Titan class",
+        scale: 1,
+      },
+      change24hUsd: null,
+      change24hPct: null,
+      detailId: "ship.usdt-tether",
+      ...overrides,
+    };
+  }
+
+  it("priceSignalSeverity is zero for healthy or absent confidence and escalates per degraded tier", () => {
+    expect(priceSignalSeverity(null)).toBe(0);
+    expect(priceSignalSeverity(undefined)).toBe(0);
+    expect(priceSignalSeverity({ priceConfidence: null })).toBe(0);
+    expect(priceSignalSeverity({ priceConfidence: "high" })).toBe(0);
+    const singleSource = priceSignalSeverity({ priceConfidence: "single-source" });
+    const low = priceSignalSeverity({ priceConfidence: "low" });
+    const fallback = priceSignalSeverity({ priceConfidence: "fallback" });
+    expect(singleSource).toBeGreaterThan(0);
+    expect(low).toBeGreaterThan(singleSource);
+    expect(fallback).toBeGreaterThan(low);
+    expect(fallback).toBe(1);
+  });
+
+  it("priceConfidenceLabel describes only degraded feeds", () => {
+    expect(priceConfidenceLabel({ priceConfidence: "high" })).toBeNull();
+    expect(priceConfidenceLabel({ priceConfidence: null })).toBeNull();
+    expect(priceConfidenceLabel({ priceConfidence: "single-source" })).toBe("Single-source price feed");
+    expect(priceConfidenceLabel({ priceConfidence: "low" })).toBe("Low-confidence price feed");
+    expect(priceConfidenceLabel({ priceConfidence: "fallback" })).toBe("Fallback price feed");
+  });
+
+  it("sourceConsensusRatio returns counts and a clamped ratio, null without consensus data", () => {
+    expect(sourceConsensusRatio(null)).toBeNull();
+    expect(sourceConsensusRatio({ consensusSources: [], agreeSources: [] })).toBeNull();
+    expect(sourceConsensusRatio({ consensusSources: ["a", "b", "c"], agreeSources: ["a", "b"] }))
+      .toEqual({ agree: 2, total: 3, ratio: 2 / 3 });
+    // agree ⊆ consensus upstream; a malformed payload must not exceed 1.
+    expect(sourceConsensusRatio({ consensusSources: ["a"], agreeSources: ["a", "b"] }))
+      .toEqual({ agree: 1, total: 1, ratio: 1 });
+  });
+
+  it("sourceConsensusLabel stays silent at full agreement", () => {
+    expect(sourceConsensusLabel({ consensusSources: ["a", "b", "c"], agreeSources: ["a", "b", "c"] })).toBeNull();
+    expect(sourceConsensusLabel({ consensusSources: [], agreeSources: [] })).toBeNull();
+    expect(sourceConsensusLabel({ consensusSources: ["a", "b", "c"], agreeSources: ["a", "b"] }))
+      .toBe("2 of 3 price sources agree");
+  });
+
+  it("auditShieldState gates on heritage tiers and a Bluechip grade", () => {
+    const card = makeReportCard({ id: "usdt-tether", symbol: "USDT" });
+    expect(auditShieldState(card, "titan")).toEqual({ grade: "A" });
+    expect(auditShieldState(card, "unique")).toEqual({ grade: "A" });
+    expect(auditShieldState(card, "major")).toBeNull();
+    expect(auditShieldState(null, "titan")).toBeNull();
+    expect(auditShieldState({ ...card, rawInputs: { ...card.rawInputs, bluechipGrade: null } }, "titan")).toBeNull();
+  });
+
+  it("auditShieldLabel mirrors the shield gate", () => {
+    const card = makeReportCard({ id: "usdt-tether", symbol: "USDT" });
+    expect(auditShieldLabel(card, "titan")).toBe("Bluechip A");
+    expect(auditShieldLabel(card, "major")).toBeNull();
+    expect(auditShieldLabel(null, "unique")).toBeNull();
+  });
+
+  it("detailForShip surfaces price confidence and source consensus only when degraded", () => {
+    const degraded = detailForShip(signalShipNode({
+      asset: {
+        priceConfidence: "low",
+        consensusSources: ["a", "b", "c"],
+        agreeSources: ["a", "b"],
+      } as ShipNode["asset"],
+    }));
+    expect(degraded.facts).toContainEqual({ label: "Price confidence", value: "Low-confidence price feed" });
+    expect(degraded.facts).toContainEqual({ label: "Source consensus", value: "2 of 3 price sources agree" });
+
+    const healthy = detailForShip(signalShipNode({
+      asset: {
+        priceConfidence: "high",
+        consensusSources: ["a", "b"],
+        agreeSources: ["a", "b"],
+      } as ShipNode["asset"],
+    }));
+    expect(healthy.facts.find((fact) => fact.label === "Price confidence")).toBeUndefined();
+    expect(healthy.facts.find((fact) => fact.label === "Source consensus")).toBeUndefined();
+  });
+
+  it("detailForShip surfaces the Bluechip audit fact for heritage tiers only", () => {
+    const card = makeReportCard({ id: "usdt-tether", symbol: "USDT" });
+    const titan = detailForShip(signalShipNode({ reportCard: card }));
+    expect(titan.facts).toContainEqual({ label: "Bluechip audit", value: "Bluechip A" });
+
+    const major = detailForShip(signalShipNode({
+      reportCard: card,
+      visual: { ...signalShipNode().visual, sizeTier: "major", sizeLabel: "Major" },
+    }));
+    expect(major.facts.find((fact) => fact.label === "Bluechip audit")).toBeUndefined();
+  });
+
+  it("backingDiversitySeverity is zero at or above the healthy floor and rises below it", () => {
+    expect(backingDiversitySeverity(null)).toBe(0);
+    expect(backingDiversitySeverity(undefined)).toBe(0);
+    expect(backingDiversitySeverity(0.7)).toBe(0);
+    expect(backingDiversitySeverity(0.5)).toBe(0);
+    expect(backingDiversitySeverity(0.25)).toBeCloseTo(0.5);
+    expect(backingDiversitySeverity(0)).toBe(1);
+  });
+
+  it("backingDiversityLabel wording follows the shared severity", () => {
+    expect(backingDiversityLabel(null)).toBeNull();
+    expect(backingDiversityLabel(0.7)).toBe("70% diversified");
+    expect(backingDiversityLabel(0.3)).toBe("30% narrowing");
+    expect(backingDiversityLabel(0.1)).toBe("10% concentrated");
+  });
+
+  it("detailForDock surfaces Backing diversity only when the chain reports the factor", () => {
+    const dockNode: DockNode = {
+      id: "dock.ethereum",
+      kind: "dock",
+      label: "Ethereum",
+      chainId: "ethereum",
+      logoSrc: null,
+      assetId: "dock.ethereum-civic-cove",
+      tile: { x: 1, y: 1 },
+      totalUsd: 100,
+      size: 1,
+      healthBand: "healthy",
+      stablecoinCount: 1,
+      concentration: null,
+      backingDiversity: 0.7,
+      harboredStablecoins: [],
+      detailId: "dock.ethereum",
+    };
+    expect(detailForDock(dockNode).facts).toContainEqual({ label: "Backing diversity", value: "70% diversified" });
+
+    const withoutFactor = detailForDock({ ...dockNode, backingDiversity: null });
+    expect(withoutFactor.facts.find((fact) => fact.label === "Backing diversity")).toBeUndefined();
   });
 });
