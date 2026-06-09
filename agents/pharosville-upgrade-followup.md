@@ -81,6 +81,19 @@ Read first: `AGENTS.md`, `docs/pharosville/CURRENT.md`,
   layers, and is regenerating dense visual baselines (ship-identity plan).
   Zoom-gate centralization and dock caustics both land in those files; defer
   until that work merges.
+- **P5 P1 ladder audited — mostly stale (verified in-tree 2026-06-09):**
+  shared env discovery (`scripts/pharosville/local-api-env.mjs`, consumed by
+  vite.config/onboard/setup/smoke scripts), single payload schema map
+  (`PHAROSVILLE_API_PAYLOAD_SCHEMAS` in `shared/types/pharosville.ts`),
+  live-reserve adapter registry (`shared/lib/live-reserve-adapters-registry.ts`),
+  duplicate-key guards (`assertUniqueRegistryKeys`/`buildRegistryMapByKey` in
+  `pricing-source-registry.ts`), executable budget data module
+  (`scripts/bundle-budgets.mjs`). Endpoint metadata (item 7) is guarded
+  rather than derived (`check:runtime-facts` compares the smoke allowlist to
+  the endpoint registry) — full derivation remains optional. Remaining real
+  P5 items: static-cache LRU O(1), ship-body-cache warmup (both in
+  `world-canvas.ts` — blocked this session), hit-target culling, baseline
+  prune (defer while dense baselines are being regenerated).
 - Session note: isolation for F1 verification used a temp git worktree
   because of the concurrent edits above.
 
