@@ -1,6 +1,6 @@
 # Swarm Operations
 
-Last updated: 2026-05-04
+Last updated: 2026-06-09
 
 How to safely orchestrate multiple agents working on PharosVille in parallel.
 

@@ -1,6 +1,6 @@
 # Visual Snapshot Regeneration
 
-Last updated: 2026-05-04
+Last updated: 2026-06-09
 
 How to regenerate Playwright visual snapshots so they match the GitHub
 Actions CI environment. Local snapshots taken on a developer machine
