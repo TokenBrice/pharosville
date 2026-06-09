@@ -4,13 +4,13 @@ import { hexToRgba, readableInkForFill, roundedRectPath } from "../../canvas-pri
 import { createStatsLruCache } from "../../lru-cache";
 import { pickSailEmblemInk, SHIP_SAIL_TINT_MASKS } from "../../ship-sail-tint";
 import {
-  HERITAGE_NAMEPLATE_MIN_ZOOM,
   SHIP_HERITAGE_NAMEPLATES,
   SHIP_PENNANT_MARKS,
   PROCEDURAL_SHIP_PENNANT_MARK,
   SHIP_SAIL_MARKS,
   type ShipPennantSpec,
 } from "../../ship-visual-config";
+import { HERITAGE_NAMEPLATE_MIN_ZOOM } from "../../visual-scales";
 import { clamp, multiplyGlobalAlpha } from "./draw-ship";
 import type { CacheStats } from "./livery";
 
@@ -94,6 +94,7 @@ export function drawMastPennantChrome(
   scale: number,
   spec: ShipPennantSpec,
   sailFlutter = 0,
+  richDetail = false,
 ) {
   const mastX = x + spec.mastTopX * scale;
   const mastY = y + spec.mastTopY * scale;
@@ -122,6 +123,24 @@ export function drawMastPennantChrome(
   ctx.fill();
   ctx.stroke();
 
+  // Plan 2.7 zoom reveal — accent streamer below the main pennant once the
+  // camera passes SHIP_DETAIL_REVEAL_ZOOM. Reuses the pose flutter so it
+  // stays deterministic and freezes with reduced motion.
+  if (richDetail) {
+    const streamerY = mastY + height + 1.4 * scale;
+    ctx.strokeStyle = hexToRgba(livery.accent, 0.82);
+    ctx.lineWidth = Math.max(1, 0.85 * scale);
+    ctx.beginPath();
+    ctx.moveTo(mastX, streamerY);
+    ctx.quadraticCurveTo(
+      mastX + width * 0.55 + flutter * 1.6,
+      streamerY + height * 0.3 - flutter * 0.8,
+      mastX + width * 0.95 + flutter * 2.4,
+      streamerY + height * 0.08 + flutter * 0.6,
+    );
+    ctx.stroke();
+  }
+
   ctx.fillStyle = hexToRgba(readableInkForFill(livery.primary), 0.8);
   ctx.font = `800 ${Math.max(5, height * 0.76)}px ui-sans-serif, system-ui, sans-serif`;
   ctx.textAlign = "center";
@@ -129,6 +148,47 @@ export function drawMastPennantChrome(
   ctx.fillText(mark.slice(0, 3).toUpperCase(), mastX + width * 0.42, mastY + height * 0.52, width * 0.58);
 
   drawMastLantern(ctx, x + spec.lanternX * scale, y + spec.lanternY * scale, scale);
+  ctx.restore();
+}
+
+/**
+ * Plan 2.7 zoom reveal — anchor-chain glint. At inspect-a-hull zoom, resting
+ * ships (moored/idle) show a short hawse chain dropping from the bow toward
+ * the waterline with pale glints, so docked hulls read as physically tied to
+ * the harbor. Pure function of (spec, scale); no RNG or wall clock, so it is
+ * static under reduced motion by construction.
+ */
+export function drawAnchorChainGlow(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  scale: number,
+  spec: ShipPennantSpec,
+): void {
+  const hawseX = x + spec.bowLogoX * 0.82 * scale;
+  const hawseY = y + (spec.bowLogoY + 4) * scale;
+  const waterY = y + 2.4 * scale;
+  if (waterY <= hawseY) return;
+  const controlX = hawseX + 2.2 * scale;
+  const controlY = (hawseY + waterY) / 2 + 1.6 * scale;
+  const splashX = hawseX + 1.2 * scale;
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.strokeStyle = "rgba(58, 52, 44, 0.78)";
+  ctx.lineWidth = Math.max(1, 0.85 * scale);
+  ctx.beginPath();
+  ctx.moveTo(hawseX, hawseY);
+  ctx.quadraticCurveTo(controlX, controlY, splashX, waterY);
+  ctx.stroke();
+  ctx.fillStyle = "rgba(214, 226, 234, 0.66)";
+  for (const t of [0.22, 0.52, 0.82]) {
+    const mt = 1 - t;
+    const glintX = mt * mt * hawseX + 2 * mt * t * controlX + t * t * splashX;
+    const glintY = mt * mt * hawseY + 2 * mt * t * controlY + t * t * waterY;
+    ctx.beginPath();
+    ctx.arc(glintX, glintY, Math.max(0.6, 0.5 * scale), 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.restore();
 }
 
@@ -702,6 +762,78 @@ function logoShapePath(ctx: CanvasRenderingContext2D, shape: ShipLogoShape, x: n
   } else {
     roundedRectPath(ctx, x - width / 2, y - height / 2, width, height, Math.max(1, width * 0.2));
   }
+}
+
+/**
+ * P3 metaphor — source-consensus rigging density. At inspect zoom, standard
+ * hulls string extra shroud lines from the masthead down toward the deck
+ * rail: full source agreement rigs the full set of three, disagreement
+ * leaves the rig sparse. Derives from `sourceConsensusRatio` in
+ * `detail-model.ts`, the same source as the "Source consensus" detail/ledger
+ * row, so cue and copy never disagree. Static and deterministic per
+ * (spec, scale, ratio).
+ */
+export function drawConsensusRigging(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  scale: number,
+  spec: ShipPennantSpec,
+  ratio: number,
+): void {
+  const lines = ratio >= 1 ? 3 : ratio >= 0.67 ? 2 : 1;
+  const mastX = x + spec.mastTopX * scale;
+  const mastY = y + (spec.mastTopY + 3) * scale;
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.strokeStyle = "rgba(46, 34, 24, 0.62)";
+  ctx.lineWidth = Math.max(1, 0.55 * scale);
+  for (let index = 0; index < lines; index += 1) {
+    const reach = (7 + index * 4.5) * scale;
+    ctx.beginPath();
+    ctx.moveTo(mastX, mastY);
+    ctx.lineTo(mastX + reach, y - 2.5 * scale);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/**
+ * P3 metaphor — bluechip audit shield. Titan and heritage hulls whose report
+ * card carries a bluechip grade mount a small steel shield with a gold
+ * chevron beside the signal mast. Presence derives from `auditShieldState`
+ * in `detail-model.ts`, the same gate as the "Bluechip audit" detail row.
+ * Static and deterministic per (x, y, scale).
+ */
+export function drawAuditShield(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  scale: number,
+): void {
+  const width = 5.5 * scale;
+  const height = 7 * scale;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(x - width / 2, y);
+  ctx.lineTo(x + width / 2, y);
+  ctx.lineTo(x + width / 2, y + height * 0.45);
+  ctx.quadraticCurveTo(x + width / 2, y + height * 0.8, x, y + height);
+  ctx.quadraticCurveTo(x - width / 2, y + height * 0.8, x - width / 2, y + height * 0.45);
+  ctx.closePath();
+  ctx.fillStyle = "rgba(74, 86, 94, 0.92)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(24, 18, 12, 0.85)";
+  ctx.lineWidth = Math.max(1, 0.6 * scale);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(226, 189, 66, 0.95)";
+  ctx.lineWidth = Math.max(1, 0.8 * scale);
+  ctx.beginPath();
+  ctx.moveTo(x - width * 0.28, y + height * 0.4);
+  ctx.lineTo(x - width * 0.04, y + height * 0.62);
+  ctx.lineTo(x + width * 0.3, y + height * 0.26);
+  ctx.stroke();
+  ctx.restore();
 }
 
 export function drawShipSignalOverlay(

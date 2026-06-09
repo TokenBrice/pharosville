@@ -30,6 +30,7 @@ import {
 } from "./ships";
 import { shipRenderState } from "./ships/draw-ship";
 import { resolveShipPose } from "./ship-pose";
+import { SHIP_CHROME_MIN_ZOOM, SHIP_DETAIL_REVEAL_ZOOM } from "../visual-scales";
 
 vi.mock("../canvas-primitives", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../canvas-primitives")>();
@@ -388,6 +389,79 @@ describe("ship visual orientation", () => {
     expect(cache.stats()).toMatchObject({ hitCount: 1, missCount: 1, entryCount: 1 });
     expect(frame.protectedShipBodyCacheKeys?.size).toBe(1);
     expect(ctx.calls.filter((call) => call.method === "drawImage").length).toBe(2);
+  });
+
+  it("bypasses an exhausted warmup budget for flagship-tier hulls but not standard tiers", () => {
+    const visual = {
+      hull: "treasury-galleon",
+      sizeTier: "major",
+      scale: 1,
+      livery: TEST_LIVERY,
+      spriteAssetId: "ship.treasury-galleon",
+    } satisfies Partial<ShipNode["visual"]>;
+    const major = makeShipNode({ id: "warmup-major", tile: { x: 10, y: 10 }, visual });
+    const flagship = makeShipNode({
+      id: "warmup-flagship",
+      tile: { x: 11, y: 10 },
+      visual: { ...visual, sizeTier: "flagship" },
+    });
+    const fakeAsset: LoadedPharosVilleAsset = {
+      entry: {
+        anchor: [52, 68],
+        category: "ship",
+        displayScale: 1,
+        footprint: [30, 14],
+        height: 80,
+        hitbox: [12, 8, 80, 60],
+        id: "ship.treasury-galleon",
+        layer: "ships",
+        loadPriority: "deferred",
+        path: "ships/treasury-galleon.png",
+        width: 104,
+      },
+      image: {} as HTMLImageElement,
+    };
+    const cache = createShipBodyCache({
+      canvasFactory: (width, height) => ({
+        height,
+        width,
+        getContext: () => ({
+          beginPath: vi.fn(),
+          clearRect: vi.fn(),
+          drawImage: vi.fn(),
+          fill: vi.fn(),
+          fillRect: vi.fn(),
+          lineTo: vi.fn(),
+          moveTo: vi.fn(),
+          rect: vi.fn(),
+          restore: vi.fn(),
+          save: vi.fn(),
+          setLineDash: vi.fn(),
+          setTransform: vi.fn(),
+          stroke: vi.fn(),
+        }),
+      }) as unknown as HTMLCanvasElement,
+      maxEntries: 4,
+      maxPixels: 100_000,
+    });
+    const frameFor = (): ShipRenderFrame => ({
+      cache: {
+        assetForEntity: () => fakeAsset,
+        geometryForEntity: () => makeGeometry(200, 100),
+      },
+      protectedShipBodyCacheKeys: new Set<string>(),
+      shipBodyCache: cache,
+      shipBodyCacheManifestVersion: "test-cache",
+      shipBodyCacheMaxPixels: 100_000,
+      shipBodyCacheWarmupBudget: { remaining: 0 },
+      shipRenderStates: new Map(),
+    });
+
+    drawShipBody(makeDrawInput(makeRecordingCtx(), major), frameFor(), major);
+    expect(cache.stats().entryCount).toBe(0);
+
+    drawShipBody(makeDrawInput(makeRecordingCtx(), flagship), frameFor(), flagship);
+    expect(cache.stats().entryCount).toBe(1);
   });
 
   it("recomposes the body once the issuer logo finishes loading", () => {
@@ -901,11 +975,16 @@ describe("drawShipBody titan trim", () => {
 });
 
 describe("drawShipOverlay standard procedural chrome", () => {
-  function drawProceduralOverlay(overrides: Partial<ShipNode["visual"]> = {}, target: Partial<Pick<DrawPharosVilleInput, "hoveredTarget" | "selectedTarget">> = {}) {
+  function drawProceduralOverlay(
+    overrides: Partial<ShipNode["visual"]> = {},
+    target: Partial<Pick<DrawPharosVilleInput, "hoveredTarget" | "selectedTarget">> = {},
+    view: { sample?: ShipMotionSample; ship?: Omit<Partial<ShipNode>, "id" | "tile" | "visual">; zoom?: number } = {},
+  ) {
     const ship = makeShipNode({
       id: "test-standard",
       detailId: "ship.test-standard",
       tile: { x: 8, y: 8 },
+      ...view.ship,
       visual: {
         hull: "dao-schooner",
         sizeTier: "regional",
@@ -920,7 +999,7 @@ describe("drawShipOverlay standard procedural chrome", () => {
     const ctx = makeRecordingCtx();
     const input = {
       assets: null,
-      camera: { offsetX: 0, offsetY: 0, zoom: 1 },
+      camera: { offsetX: 0, offsetY: 0, zoom: view.zoom ?? 1 },
       ctx,
       height: 600,
       hoveredTarget: target.hoveredTarget ?? null,
@@ -931,7 +1010,9 @@ describe("drawShipOverlay standard procedural chrome", () => {
         wallClockHour: 12,
       },
       selectedTarget: target.selectedTarget ?? null,
-      shipMotionSamples: new Map<string, ShipMotionSample>(),
+      shipMotionSamples: new Map<string, ShipMotionSample>(
+        view.sample ? [[ship.id, view.sample]] : [],
+      ),
       targets: [],
       width: 800,
       world: { ships: [ship] } as unknown as PharosVilleWorld,
@@ -998,6 +1079,132 @@ describe("drawShipOverlay standard procedural chrome", () => {
     expect(ctx.calls.filter((call) => call.method === "strokeRect")).toHaveLength(1);
     expect(ctx.calls.filter((call) => call.method === "fillRect").length).toBeGreaterThanOrEqual(3);
     expect(ctx.calls.filter((call) => call.method === "lineTo").length).toBeGreaterThanOrEqual(3);
+  });
+
+  // Plan 2.7 progressive disclosure gates (SHIP_CHROME_MIN_ZOOM /
+  // SHIP_DETAIL_REVEAL_ZOOM in visual-scales.ts).
+  it("skips pennant chrome and the bowsprit mark below the chrome zoom gate", () => {
+    const { ctx } = drawProceduralOverlay({}, {}, { zoom: SHIP_CHROME_MIN_ZOOM - 0.05 });
+    expect(ctx.calls.filter((call) => call.method === "fillText")).toHaveLength(0);
+    expect(ctx.calls.filter((call) => call.method === "ellipse")).toHaveLength(0);
+  });
+
+  it("keeps streamer and anchor chain hidden between the chrome gate and the detail reveal", () => {
+    const moored: ShipMotionSample = { ...makeMotionSample("test-standard"), state: "moored" };
+    const { ctx } = drawProceduralOverlay({}, {}, { sample: moored, zoom: SHIP_DETAIL_REVEAL_ZOOM - 0.1 });
+    expect(ctx.calls.filter((call) => call.method === "quadraticCurveTo")).toHaveLength(0);
+    expect(ctx.calls.filter((call) => call.method === "arc")).toHaveLength(0);
+  });
+
+  it("reveals a pennant streamer and anchor-chain glints on resting hulls at the detail zoom", () => {
+    const moored: ShipMotionSample = { ...makeMotionSample("test-standard"), state: "moored" };
+    const { ctx } = drawProceduralOverlay({}, {}, { sample: moored, zoom: SHIP_DETAIL_REVEAL_ZOOM });
+    expect(ctx.calls.filter((call) => call.method === "quadraticCurveTo")).toHaveLength(2);
+    expect(ctx.calls.filter((call) => call.method === "arc")).toHaveLength(3);
+  });
+
+  it("draws the streamer but no anchor chain for sailing hulls at the detail zoom", () => {
+    const sailing = makeMotionSample("test-standard");
+    const { ctx } = drawProceduralOverlay({}, {}, { sample: sailing, zoom: SHIP_DETAIL_REVEAL_ZOOM });
+    expect(ctx.calls.filter((call) => call.method === "quadraticCurveTo")).toHaveLength(1);
+    expect(ctx.calls.filter((call) => call.method === "arc")).toHaveLength(0);
+  });
+
+  // P3 — source-consensus rigging density (cue.ship.consensus-rigging).
+  it("rigs shroud lines by source-consensus ratio at the detail zoom", () => {
+    const asset = { agreeSources: ["a", "b", "c"], consensusSources: ["a", "b", "c"] } as unknown as ShipNode["asset"];
+    const withConsensus = drawProceduralOverlay({}, {}, { ship: { asset }, zoom: SHIP_DETAIL_REVEAL_ZOOM });
+    const withoutConsensus = drawProceduralOverlay({}, {}, { zoom: SHIP_DETAIL_REVEAL_ZOOM });
+    const strokesWith = withConsensus.ctx.calls.filter((call) => call.method === "stroke").length;
+    const strokesWithout = withoutConsensus.ctx.calls.filter((call) => call.method === "stroke").length;
+    expect(strokesWith - strokesWithout).toBe(3);
+
+    const sparse = { agreeSources: ["a"], consensusSources: ["a", "b", "c"] } as unknown as ShipNode["asset"];
+    const sparseConsensus = drawProceduralOverlay({}, {}, { ship: { asset: sparse }, zoom: SHIP_DETAIL_REVEAL_ZOOM });
+    const sparseStrokes = sparseConsensus.ctx.calls.filter((call) => call.method === "stroke").length;
+    expect(sparseStrokes - strokesWithout).toBe(1);
+  });
+
+  it("keeps consensus rigging hidden below the detail zoom", () => {
+    const asset = { agreeSources: ["a", "b", "c"], consensusSources: ["a", "b", "c"] } as unknown as ShipNode["asset"];
+    const withConsensus = drawProceduralOverlay({}, {}, { ship: { asset }, zoom: SHIP_DETAIL_REVEAL_ZOOM - 0.1 });
+    const withoutConsensus = drawProceduralOverlay({}, {}, { zoom: SHIP_DETAIL_REVEAL_ZOOM - 0.1 });
+    expect(withConsensus.ctx.calls.filter((call) => call.method === "stroke").length)
+      .toBe(withoutConsensus.ctx.calls.filter((call) => call.method === "stroke").length);
+  });
+});
+
+// P3 — bluechip audit shield (cue.ship.audit-shield).
+describe("drawShipOverlay audit shield", () => {
+  function drawTitanOverlay(reportCard: ShipNode["reportCard"] | null) {
+    const ship = makeShipNode({
+      id: "audit-titan",
+      detailId: "ship.audit-titan",
+      tile: { x: 8, y: 8 },
+      reportCard,
+      visual: {
+        hull: "treasury-galleon",
+        sizeTier: "titan",
+        scale: 1,
+        livery: TEST_LIVERY,
+        sailColor: TEST_LIVERY.sailColor,
+        sailStripeColor: TEST_LIVERY.primary,
+        overlay: "none",
+        spriteAssetId: "ship.usdc-titan",
+      },
+    });
+    const fakeAsset: LoadedPharosVilleAsset = {
+      entry: {
+        anchor: [52, 68],
+        category: "ship",
+        displayScale: 1,
+        footprint: [30, 14],
+        height: 80,
+        hitbox: [12, 8, 80, 60],
+        id: "ship.usdc-titan",
+        layer: "ships",
+        loadPriority: "deferred",
+        path: "ships/usdc-titan.png",
+        width: 104,
+      },
+      image: {} as HTMLImageElement,
+    };
+    const ctx = makeRecordingCtx();
+    const input = {
+      assets: null,
+      camera: { offsetX: 0, offsetY: 0, zoom: 1 },
+      ctx,
+      height: 600,
+      hoveredTarget: null,
+      motion: {
+        plan: makeMotionPlan([]),
+        reducedMotion: false,
+        timeSeconds: 0.125,
+        wallClockHour: 12,
+      },
+      selectedTarget: null,
+      shipMotionSamples: new Map<string, ShipMotionSample>(),
+      targets: [],
+      width: 800,
+      world: { ships: [ship] } as unknown as PharosVilleWorld,
+    } satisfies DrawPharosVilleInput;
+    const frame: ShipRenderFrame = {
+      cache: {
+        assetForEntity: () => fakeAsset,
+        geometryForEntity: () => makeGeometry(200, 100),
+      },
+      shipRenderStates: new Map(),
+    };
+    drawShipOverlay(input, frame, ship, 0);
+    return ctx;
+  }
+
+  it("mounts the shield only when a titan's report card carries a bluechip grade", () => {
+    const graded = drawTitanOverlay({ rawInputs: { bluechipGrade: "A" } } as unknown as ShipNode["reportCard"]);
+    const ungraded = drawTitanOverlay(null);
+    const gradedQuads = graded.calls.filter((call) => call.method === "quadraticCurveTo").length;
+    const ungradedQuads = ungraded.calls.filter((call) => call.method === "quadraticCurveTo").length;
+    expect(gradedQuads - ungradedQuads).toBe(2);
   });
 });
 

@@ -1,8 +1,9 @@
 // Re-exported for backwards-compatibility with existing consumers
 // (`use-asset-loading-pipeline.ts`, `ships.test.ts`). New code should import
 // from `../ship-visual-config` directly.
+export { HERITAGE_NAMEPLATE_MIN_ZOOM } from "../../visual-scales";
+
 export {
-  HERITAGE_NAMEPLATE_MIN_ZOOM,
   PROCEDURAL_SHIP_PENNANT_MARK,
   SHIP_HERITAGE_NAMEPLATES,
   SHIP_PENNANT_MARKS,

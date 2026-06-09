@@ -1,5 +1,5 @@
 import { squadForMember } from "../../../systems/maker-squad";
-import { depegHistorySeverity } from "../../../systems/detail-model";
+import { auditShieldState, depegHistorySeverity, sourceConsensusRatio } from "../../../systems/detail-model";
 import {
   CUE_PRIORITY_ACTIVE_RISK,
   CUE_PRIORITY_RECENT_SUPPLY,
@@ -25,6 +25,8 @@ import {
 } from "../../ship-visual-config";
 import { UNIQUE_SPRITE_IDS } from "../../../systems/unique-ships";
 import {
+  SHIP_CHROME_MIN_ZOOM,
+  SHIP_DETAIL_REVEAL_ZOOM,
   SHIP_LANTERN_RADIUS_BUCKET,
   SHIP_LOD_SKIP_THRESHOLD,
   SHIP_OVERLAY_BUDGET_MIN,
@@ -34,7 +36,10 @@ import {
 } from "../../visual-scales";
 import { resolveShipPose, supplySailMomentumFactor, zeroShipPose, type ShipPose } from "../ship-pose";
 import {
+  drawAnchorChainGlow,
+  drawAuditShield,
   drawBowspritLogoMark,
+  drawConsensusRigging,
   drawDyedSailEmblem,
   drawHeritageNameplate,
   drawMastPennantChrome,
@@ -862,7 +867,15 @@ function drawPrecomposedShipBody(input: {
   const key = buildShipBodyCacheKey(request);
   const cacheHit = cache.has(key);
   const warmupBudget = input.frame.shipBodyCacheWarmupBudget;
-  if (!cacheHit && warmupBudget && warmupBudget.remaining <= 0) return false;
+  // P5: selected and flagship-tier ships warm even on budget-exhausted
+  // frames — the hero hulls must never render the un-cached fallback while
+  // skiffs ahead of them in iteration order drain the per-frame budget.
+  const priorityWarmup = input.ship.id === input.input.selectedTarget?.id
+    || (input.ship.detailId != null && input.ship.detailId === input.input.selectedTarget?.detailId)
+    || input.ship.visual.sizeTier === "flagship"
+    || input.ship.visual.sizeTier === "titan"
+    || input.ship.visual.sizeTier === "unique";
+  if (!cacheHit && warmupBudget && warmupBudget.remaining <= 0 && !priorityWarmup) return false;
   const result = cache.getOrCreate(request, ({ ctx }) => {
     const anchorX = entry.anchor[0] * displayScale;
     const anchorY = entry.anchor[1] * displayScale;
@@ -1099,9 +1112,17 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
     orientation,
     p,
     pose,
+    sample,
     selected,
     shipAsset,
   } = shipRenderState(input, frame, ship);
+  // Plan 2.7 progressive disclosure: far zoom drops standard-hull chrome
+  // (pennant + bowsprit mark); near zoom reveals streamers and, on resting
+  // hulls, an anchor-chain glint. Pure draw gates — hit-target geometry is
+  // computed in hit-testing.ts and never consults these thresholds.
+  const chromeVisible = camera.zoom >= SHIP_CHROME_MIN_ZOOM;
+  const detailRevealed = camera.zoom >= SHIP_DETAIL_REVEAL_ZOOM;
+  const resting = sample?.state === "moored" || sample?.state === "idle";
   withShipMapVisibilityAlpha(ctx, mapVisibilityAlpha, () => {
     if (shipAsset) {
       const overrideEmblemSrc = SHIP_SAIL_EMBLEM_OVERRIDES[ship.id];
@@ -1118,19 +1139,30 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
         const mark = SHIP_SAIL_MARKS[ship.visual.spriteAssetId ?? ship.visual.hull] ?? SHIP_SAIL_MARKS[ship.visual.hull];
         const flutterY = isTitanSprite ? pose.sailFlutter * geometry.drawScale : 0;
         if (standardSprite) {
-          const pennantSpec = pennantSpecForShip(ship, true);
-          drawMastPennantChrome(ctx, ship.visual.livery, ship.symbol, geometry.drawPoint.x, drawY, geometry.drawScale, pennantSpec, pose.sailFlutter);
-          if (shouldDrawBowspritLogoMark(ship.visual.sizeTier)) {
-            drawBowspritLogoMark({
-              ctx,
-              logo: assets?.getLogo(ship.logoSrc) ?? null,
-              livery: ship.visual.livery,
-              mark: ship.symbol,
-              spec: pennantSpec,
-              scale: geometry.drawScale,
-              x: geometry.drawPoint.x,
-              y: drawY,
-            });
+          if (chromeVisible) {
+            const pennantSpec = pennantSpecForShip(ship, true);
+            drawMastPennantChrome(ctx, ship.visual.livery, ship.symbol, geometry.drawPoint.x, drawY, geometry.drawScale, pennantSpec, pose.sailFlutter, detailRevealed);
+            if (shouldDrawBowspritLogoMark(ship.visual.sizeTier)) {
+              drawBowspritLogoMark({
+                ctx,
+                logo: assets?.getLogo(ship.logoSrc) ?? null,
+                livery: ship.visual.livery,
+                mark: ship.symbol,
+                spec: pennantSpec,
+                scale: geometry.drawScale,
+                x: geometry.drawPoint.x,
+                y: drawY,
+              });
+            }
+            if (detailRevealed && resting) {
+              drawAnchorChainGlow(ctx, geometry.drawPoint.x, drawY, geometry.drawScale, pennantSpec);
+            }
+            if (detailRevealed) {
+              const consensus = sourceConsensusRatio(ship.asset);
+              if (consensus) {
+                drawConsensusRigging(ctx, geometry.drawPoint.x, drawY, geometry.drawScale, pennantSpec, consensus.ratio);
+              }
+            }
           }
         } else if (dyedEmblem) {
           drawDyedSailEmblem({
@@ -1160,6 +1192,9 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
         }
         const signalAnchor = signalOverlayAnchor(ship, geometry.drawPoint.x, drawY, geometry.drawScale, standardSprite);
         drawShipSignalOverlay(ctx, ship.visual.overlay, signalAnchor.x, signalAnchor.y, geometry.drawScale);
+        if (auditShieldState(ship.reportCard, ship.visual.sizeTier)) {
+          drawAuditShield(ctx, signalAnchor.x - 6 * geometry.drawScale, signalAnchor.y + 2 * geometry.drawScale, geometry.drawScale);
+        }
         drawDepegWeathering(ctx, geometry.drawPoint.x, drawY, geometry.drawScale, ship.id, depegHistorySeverity(ship.depegHistory));
       });
     } else {
@@ -1171,18 +1206,29 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
         } else if (hovered) {
           drawHoverShipOutline(ctx, p.x, drawY, proceduralScale * 0.7);
         }
-        drawMastPennantChrome(ctx, ship.visual.livery, ship.symbol, p.x, drawY, proceduralScale, PROCEDURAL_SHIP_PENNANT_MARK, pose.sailFlutter);
-        if (shouldDrawBowspritLogoMark(ship.visual.sizeTier)) {
-          drawBowspritLogoMark({
-            ctx,
-            logo: assets?.getLogo(ship.logoSrc) ?? null,
-            livery: ship.visual.livery,
-            mark: ship.symbol,
-            spec: PROCEDURAL_SHIP_PENNANT_MARK,
-            scale: proceduralScale,
-            x: p.x,
-            y: drawY,
-          });
+        if (chromeVisible) {
+          drawMastPennantChrome(ctx, ship.visual.livery, ship.symbol, p.x, drawY, proceduralScale, PROCEDURAL_SHIP_PENNANT_MARK, pose.sailFlutter, detailRevealed);
+          if (shouldDrawBowspritLogoMark(ship.visual.sizeTier)) {
+            drawBowspritLogoMark({
+              ctx,
+              logo: assets?.getLogo(ship.logoSrc) ?? null,
+              livery: ship.visual.livery,
+              mark: ship.symbol,
+              spec: PROCEDURAL_SHIP_PENNANT_MARK,
+              scale: proceduralScale,
+              x: p.x,
+              y: drawY,
+            });
+          }
+          if (detailRevealed && resting) {
+            drawAnchorChainGlow(ctx, p.x, drawY, proceduralScale, PROCEDURAL_SHIP_PENNANT_MARK);
+          }
+          if (detailRevealed) {
+            const consensus = sourceConsensusRatio(ship.asset);
+            if (consensus) {
+              drawConsensusRigging(ctx, p.x, drawY, proceduralScale, PROCEDURAL_SHIP_PENNANT_MARK, consensus.ratio);
+            }
+          }
         }
         drawShipSignalOverlay(ctx, ship.visual.overlay, p.x - 10 * proceduralScale, drawY - 20 * proceduralScale, proceduralScale);
         drawDepegWeathering(ctx, p.x, drawY, proceduralScale, ship.id, depegHistorySeverity(ship.depegHistory));

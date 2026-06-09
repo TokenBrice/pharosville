@@ -10,7 +10,7 @@
 // duplicates it for glanceability, so no parity work is required.
 import type { PharosVilleWorld } from "../../../systems/world-types";
 import type { DrawPharosVilleInput } from "../../render-types";
-import { SHIP_NAMEPLATE_MIN_ZOOM } from "../../ship-visual-config";
+import { SHIP_NAMEPLATE_MIN_ZOOM } from "../../visual-scales";
 import { shipRenderState, type ShipRenderFrame } from "./draw-ship";
 
 const PLATE_FONT_WEIGHT = 700;
