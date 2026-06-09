@@ -46,6 +46,8 @@ export {
   getSailLogoSpriteCacheStats,
 } from "./sail";
 
+export { drawShipNameplates } from "./nameplates";
+
 export {
   getShipSailTintCacheStats,
   type CacheStats,

@@ -8,7 +8,7 @@ import {
 import { shipMapVisibilityAlpha, type ShipMotionSample } from "../../../systems/motion";
 import type { ScreenPoint } from "../../../systems/projection";
 import type { PharosVilleWorld, ShipLivery } from "../../../systems/world-types";
-import type { LoadedPharosVilleAsset } from "../../asset-manager";
+import type { LoadedPharosVilleAsset, LoadedPharosVilleLogo } from "../../asset-manager";
 import { drawAnimatedAsset, drawAnimatedAssetSubpixel, drawAsset, drawAssetSubpixel, stableVisualVariant } from "../../canvas-primitives";
 import type { RenderFrameCache } from "../../frame-cache";
 import type { ResolvedEntityGeometry } from "../../geometry";
@@ -680,6 +680,7 @@ export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame
     bob,
     geometry,
     isTitanSprite,
+    isUniqueSprite,
     orientation,
     mapVisibilityAlpha,
     p,
@@ -688,11 +689,13 @@ export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame
   } = shipRenderState(input, frame, ship);
   withShipMapVisibilityAlpha(ctx, mapVisibilityAlpha, () => {
     if (shipAsset) {
+      const emblem = shipBodyEmblemFor(input, ship, isTitanSprite, isUniqueSprite);
       const drawY = geometry.drawPoint.y + bob;
       const useLiveSubpixelDraw = !motion.reducedMotion;
       drawWithShipPose(ctx, geometry.drawPoint.x, drawY, pose, orientation, () => {
         if (!drawPrecomposedShipBody({
           animationFrame,
+          emblem,
           frame,
           input,
           ship,
@@ -706,6 +709,7 @@ export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame
           drawShipBodyInline({
             animationFrame,
             ctx,
+            emblem,
             isTitanSprite,
             livery: ship.visual.livery,
             shipAsset,
@@ -740,9 +744,43 @@ export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame
   });
 }
 
+// Identity emblem baked into the ship body: the issuer logo (or 3-char
+// symbol fallback) dyed into the recolored mainsail of standard hulls.
+// Drawn in the body pass — not the LOD-budgeted overlay — so every ship
+// carries its identity even under constrained scheduler tiers. Titan and
+// heritage hulls keep their painted/override emblems in the overlay path.
+interface ShipBodyEmblem {
+  logo: LoadedPharosVilleLogo | null;
+  mark: string;
+  sailMark: { height: number; width: number; x: number; y: number };
+}
+
+function shipBodyEmblemFor(
+  input: DrawPharosVilleInput,
+  ship: PharosVilleWorld["ships"][number],
+  isTitanSprite: boolean,
+  isUniqueSprite: boolean,
+): ShipBodyEmblem | null {
+  if (isTitanSprite || isUniqueSprite) return null;
+  if (SHIP_SAIL_EMBLEM_PAINTED.has(ship.id)) return null;
+  const sailMark = SHIP_SAIL_MARKS[ship.visual.spriteAssetId ?? ship.visual.hull] ?? SHIP_SAIL_MARKS[ship.visual.hull];
+  if (!sailMark) return null;
+  return {
+    logo: input.assets?.getLogo(ship.logoSrc) ?? null,
+    mark: ship.symbol,
+    sailMark,
+  };
+}
+
+function shipBodyEmblemKey(emblem: ShipBodyEmblem | null): string {
+  if (!emblem) return "emblem:none";
+  return emblem.logo ? `emblem:img:${emblem.logo.src}` : "emblem:txt";
+}
+
 function drawShipBodyInline(input: {
   animationFrame: number;
   ctx: CanvasRenderingContext2D;
+  emblem: ShipBodyEmblem | null;
   isTitanSprite: boolean;
   livery: ShipLivery;
   reducedMotion: boolean;
@@ -770,12 +808,26 @@ function drawShipBodyInline(input: {
     drawStatic(input.ctx, input.shipAsset, input.x, input.y, input.scale);
   }
   drawShipSailTint(input.ctx, input.shipAsset, input.x, input.y, input.scale, input.livery, input.useLiveSubpixelDraw);
+  if (input.emblem) {
+    drawDyedSailEmblem({
+      ctx: input.ctx,
+      asset: input.shipAsset,
+      drawX: input.x,
+      drawY: input.y,
+      drawScale: input.scale,
+      sailMark: input.emblem.sailMark,
+      livery: input.livery,
+      logo: input.emblem.logo,
+      mark: input.emblem.mark,
+    });
+  }
   drawShipLiveryTrim(input.ctx, input.shipId, input.livery, input.visualKey, input.x, input.y, input.scale);
   drawSquadIdentityAccent(input.ctx, input.shipId, input.x, input.y, input.scale);
 }
 
 function drawPrecomposedShipBody(input: {
   animationFrame: number;
+  emblem: ShipBodyEmblem | null;
   frame: ShipRenderFrame;
   input: DrawPharosVilleInput;
   scale: number;
@@ -799,6 +851,9 @@ function drawPrecomposedShipBody(input: {
     animationFrameKey: input.frame.shipRenderStates.get(input.ship.id)?.isTitanSprite ? input.animationFrame : 0,
     assetId: entry.id,
     dpr: 1,
+    // Logos load deferred; keying on the emblem identity recomposes the
+    // body once the issuer logo arrives (text fallback → logo emblem).
+    liveryKey: shipBodyEmblemKey(input.emblem),
     logicalSize,
     manifestCacheVersion,
     shipId: input.ship.id,
@@ -814,6 +869,7 @@ function drawPrecomposedShipBody(input: {
     drawShipBodyInline({
       animationFrame: input.animationFrame,
       ctx,
+      emblem: input.emblem,
       isTitanSprite: input.frame.shipRenderStates.get(input.ship.id)?.isTitanSprite ?? false,
       livery: input.ship.visual.livery,
       reducedMotion: input.input.motion.reducedMotion,
@@ -1062,17 +1118,6 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
         const mark = SHIP_SAIL_MARKS[ship.visual.spriteAssetId ?? ship.visual.hull] ?? SHIP_SAIL_MARKS[ship.visual.hull];
         const flutterY = isTitanSprite ? pose.sailFlutter * geometry.drawScale : 0;
         if (standardSprite) {
-          drawDyedSailEmblem({
-            ctx,
-            asset: shipAsset,
-            drawX: geometry.drawPoint.x,
-            drawY,
-            drawScale: geometry.drawScale,
-            sailMark: mark,
-            livery: ship.visual.livery,
-            logo: assets?.getLogo(ship.logoSrc) ?? null,
-            mark: ship.symbol,
-          });
           const pennantSpec = pennantSpecForShip(ship, true);
           drawMastPennantChrome(ctx, ship.visual.livery, ship.symbol, geometry.drawPoint.x, drawY, geometry.drawScale, pennantSpec, pose.sailFlutter);
           if (shouldDrawBowspritLogoMark(ship.visual.sizeTier)) {

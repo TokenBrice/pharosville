@@ -389,6 +389,86 @@ describe("ship visual orientation", () => {
     expect(frame.protectedShipBodyCacheKeys?.size).toBe(1);
     expect(ctx.calls.filter((call) => call.method === "drawImage").length).toBe(2);
   });
+
+  it("recomposes the body once the issuer logo finishes loading", () => {
+    // Identity emblems bake into the precomposed body; the cache key carries
+    // the emblem identity so the deferred logo load swaps the text-fallback
+    // composite for the logo composite instead of serving a stale body.
+    const ship = makeShipNode({
+      id: "emblem-recompose",
+      tile: { x: 10, y: 10 },
+      visual: {
+        hull: "treasury-galleon",
+        sizeTier: "major",
+        scale: 1,
+        livery: TEST_LIVERY,
+        spriteAssetId: "ship.treasury-galleon",
+      },
+    });
+    const fakeAsset: LoadedPharosVilleAsset = {
+      entry: {
+        anchor: [52, 68],
+        category: "ship",
+        displayScale: 1,
+        footprint: [30, 14],
+        height: 80,
+        hitbox: [12, 8, 80, 60],
+        id: "ship.treasury-galleon",
+        layer: "ships",
+        loadPriority: "deferred",
+        path: "ships/treasury-galleon.png",
+        width: 104,
+      },
+      image: {} as HTMLImageElement,
+    };
+    const cache = createShipBodyCache({
+      canvasFactory: (width, height) => ({
+        height,
+        width,
+        getContext: () => ({
+          beginPath: vi.fn(),
+          clearRect: vi.fn(),
+          clip: vi.fn(),
+          drawImage: vi.fn(),
+          fill: vi.fn(),
+          fillRect: vi.fn(),
+          fillText: vi.fn(),
+          lineTo: vi.fn(),
+          moveTo: vi.fn(),
+          rect: vi.fn(),
+          restore: vi.fn(),
+          save: vi.fn(),
+          setLineDash: vi.fn(),
+          setTransform: vi.fn(),
+          stroke: vi.fn(),
+        }),
+      }) as unknown as HTMLCanvasElement,
+      maxEntries: 4,
+      maxPixels: 100_000,
+    });
+    const frameFor = (): ShipRenderFrame => ({
+      cache: {
+        assetForEntity: () => fakeAsset,
+        geometryForEntity: () => makeGeometry(200, 100),
+      },
+      protectedShipBodyCacheKeys: new Set<string>(),
+      shipBodyCache: cache,
+      shipBodyCacheManifestVersion: "test-cache",
+      shipBodyCacheMaxPixels: 100_000,
+      shipRenderStates: new Map(),
+    });
+
+    drawShipBody(makeDrawInput(makeRecordingCtx(), ship), frameFor(), ship);
+    const withLogo = makeDrawInput(makeRecordingCtx(), ship);
+    const loadedLogo = { src: "/logos/test.png", image: {} as HTMLImageElement };
+    drawShipBody(
+      { ...withLogo, assets: { getLogo: () => loadedLogo } as unknown as DrawPharosVilleInput["assets"] },
+      frameFor(),
+      ship,
+    );
+
+    expect(cache.stats()).toMatchObject({ missCount: 2, entryCount: 2, hitCount: 0 });
+  });
 });
 
 describe("continuous ship pose", () => {

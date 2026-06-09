@@ -79,6 +79,11 @@ export const SHIP_HERITAGE_NAMEPLATES: Record<string, string> = {
 
 export const HERITAGE_NAMEPLATE_MIN_ZOOM = 0.7;
 
+// Identity pass P4 — fleet-wide ticker nameplates. Looser than the heritage
+// stern engraving (which is inspect-a-hull detail); plates appear once ships
+// are large enough that a ~9px label sits cleanly under the hull.
+export const SHIP_NAMEPLATE_MIN_ZOOM = 1.1;
+
 export const SHIP_SAIL_EMBLEM_PAINTED: ReadonlySet<string> = new Set([
   "crvusd-curve",
   "usdc-circle",
@@ -92,11 +97,14 @@ export const SHIP_SAIL_EMBLEM_PAINTED: ReadonlySet<string> = new Set([
 ]);
 
 export const SHIP_SAIL_MARKS: Record<string, { height: number; width: number; x: number; y: number }> = {
-  "algo-junk": { height: 15, width: 18, x: 8, y: -28 },
-  "chartered-brigantine": { height: 15, width: 18, x: 9, y: -29 },
-  "crypto-caravel": { height: 14, width: 17, x: 8, y: -26 },
-  "dao-schooner": { height: 14, width: 17, x: 8, y: -27 },
-  "treasury-galleon": { height: 16, width: 19, x: 10, y: -31 },
+  // Standard hulls sized up ~15% (identity pass): the dyed emblem clips to
+  // the painted sail polygon, so the larger mark fills more cloth without
+  // bleeding past the sail edge.
+  "algo-junk": { height: 17, width: 21, x: 8, y: -28 },
+  "chartered-brigantine": { height: 17, width: 21, x: 9, y: -29 },
+  "crypto-caravel": { height: 16, width: 20, x: 8, y: -26 },
+  "dao-schooner": { height: 16, width: 20, x: 8, y: -27 },
+  "treasury-galleon": { height: 18, width: 22, x: 10, y: -31 },
   "ship.usdc-titan": { height: 19, width: 19, x: -9, y: -35 },
   "ship.usde-titan": { height: 19, width: 19, x: -9, y: -35 },
   "ship.susde-titan": { height: 19, width: 19, x: -9, y: -35 },

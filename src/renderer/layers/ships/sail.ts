@@ -122,7 +122,7 @@ export function drawMastPennantChrome(
   ctx.fill();
   ctx.stroke();
 
-  ctx.fillStyle = hexToRgba(readableInkForFill(livery.primary), 0.52);
+  ctx.fillStyle = hexToRgba(readableInkForFill(livery.primary), 0.8);
   ctx.font = `800 ${Math.max(5, height * 0.76)}px ui-sans-serif, system-ui, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -451,7 +451,7 @@ export function drawDyedSailEmblem(input: {
   ctx.clip("evenodd");
   // Slight translucency so the recolored cloth shading reads through and
   // the emblem feels printed/dyed rather than glued on.
-  multiplyGlobalAlpha(ctx, 0.88);
+  multiplyGlobalAlpha(ctx, 0.95);
   ctx.drawImage(
     sprite.canvas,
     Math.round(drawX + sailMark.x * drawScale - sprite.anchorX),
@@ -460,7 +460,10 @@ export function drawDyedSailEmblem(input: {
   ctx.restore();
 }
 
-const SAIL_EMBLEM_SPRITE_CACHE_MAX = 128;
+// Sized for one emblem sprite per ship (~120 fleet-wide) plus zoom-bucket
+// churn; the body-precompose path bakes at scale 1 so steady-state
+// cardinality stays near the fleet size.
+const SAIL_EMBLEM_SPRITE_CACHE_MAX = 256;
 const sailEmblemSpriteCache = createStatsLruCache<string, SailLogoSprite | null>(SAIL_EMBLEM_SPRITE_CACHE_MAX);
 
 export function getSailEmblemSpriteCacheStats(): CacheStats {
@@ -570,7 +573,7 @@ function bakeSailFoldShading(
   }
   // Survey sail luminance to anchor the modulation range. Brightest sail
   // pixel becomes 1.0 (no darkening); darker folds darken the kraken
-  // proportionally, floored at 0.55 so the silhouette still reads.
+  // proportionally, floored at 0.7 so the silhouette still reads.
   let maxLum = 0;
   let sumLum = 0;
   let count = 0;
@@ -591,7 +594,7 @@ function bakeSailFoldShading(
       ? meanLum
       : 0.2126 * sailData.data[i]! + 0.7152 * sailData.data[i + 1]! + 0.0722 * sailData.data[i + 2]!;
     const ratio = sl / maxLum;
-    const mod = ratio < 0.55 ? 0.55 : ratio > 1 ? 1 : ratio;
+    const mod = ratio < 0.7 ? 0.7 : ratio > 1 ? 1 : ratio;
     spriteData.data[i] = Math.round(spriteData.data[i]! * mod);
     spriteData.data[i + 1] = Math.round(spriteData.data[i + 1]! * mod);
     spriteData.data[i + 2] = Math.round(spriteData.data[i + 2]! * mod);

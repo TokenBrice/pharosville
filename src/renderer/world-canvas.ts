@@ -25,6 +25,7 @@ import { drawSceneryProp, drawStaticSceneScenery, sceneryDrawables } from "./lay
 import { drawYggdrasil } from "./layers/yggdrasil";
 import { drawPigeonnier } from "./layers/pigeonnier";
 import { drawShipBody, drawShipOverlay, drawShipWake, shipMastTopScreenPoint, type ShipRenderState } from "./layers/ships";
+import { drawShipNameplates } from "./layers/ships/nameplates";
 import { drawEntityLayer } from "./layers/entity-pass";
 import { drawCemeteryContext, drawCemeteryGround, drawCemeteryMist } from "./layers/cemetery";
 import { drawHarborDistrictGround } from "./layers/harbor-district";
@@ -564,6 +565,10 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   if (shouldDrawScheduledPass(input.renderScheduler, "harbor-surf")) drawHarborSurf(input);
   const entityMetrics = drawRevealGatedEntities(input, frame, nightFactor, reveal, lighthouseInput);
   drawSquadChrome(input, frame);
+  // Ticker nameplates draw as a fleet-wide pass after all entities so plates
+  // sit above neighboring hulls, and before night tint / water labels so they
+  // dim with the scene like other in-world signage.
+  drawShipNameplates(input, frame, frame.visibleShips);
   if (shouldDrawScheduledPass(input.renderScheduler, "cloud-shadow")) {
     drawCloudShadowDrift(input, isScheduledPassDegraded(input.renderScheduler, "cloud-shadow") ? nightFactor * 0.65 : nightFactor);
   }

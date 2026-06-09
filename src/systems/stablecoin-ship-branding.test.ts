@@ -39,4 +39,23 @@ describe("resolveStablecoinShipBranding", () => {
       stripePattern: "double",
     });
   });
+
+  it("derives brand-color liveries from extracted issuer colors when present", () => {
+    // mim-abracadabra has no hand-tuned livery but does have an extracted
+    // brand color, so it must take the brand-color path, not the peg pastel.
+    const branding = resolveStablecoinShipBranding("mim-abracadabra", makeMeta());
+    expect(branding.source).toBe("brand-color");
+    expect(branding.label).toBe("Issuer brand livery");
+    // Deterministic: same id resolves to the identical livery.
+    expect(resolveStablecoinShipBranding("mim-abracadabra", makeMeta())).toEqual(branding);
+    // The brand primary must drive the colored surfaces (no peg-green drift).
+    expect(branding.primary).not.toBe("#2e8f66");
+    expect(branding.sailColor).not.toBe("#e4efe8");
+  });
+
+  it("keeps hand-tuned liveries ahead of brand-color derivation", () => {
+    // usdc-circle exists in both the hand-tuned table and brand-colors.json;
+    // the hand-tuned entry must win.
+    expect(resolveStablecoinShipBranding("usdc-circle", makeMeta()).source).toBe("stablecoin-logo");
+  });
 });
