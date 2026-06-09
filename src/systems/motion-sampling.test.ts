@@ -247,6 +247,80 @@ describe("W3.20 sea-room separation pass", () => {
   });
 });
 
+describe("F2 risk-repath heading easing", () => {
+  // makeRoute's calm docked cycle: dock [0,400) → departing [400,712) →
+  // risk-drift [712,888) → arriving [888,1200). W4.25 elapsed-risk seconds are
+  // progress × cycleSeconds × ZONE_DWELL.calm.riskDwell = progress × 288.
+  const RISK_WINDOW_START = 712;
+  const RISK_SECONDS_EACH = 176;
+  const W425_RISK_SECONDS = 288;
+
+  function planFor(route: ShipMotionRoute): PharosVilleMotionPlan {
+    return {
+      animatedShipIds: new Set(),
+      effectShipIds: new Set(),
+      lighthouseFireFlickerPerSecond: 1,
+      moverShipIds: new Set(),
+      shipPhases: new Map(),
+      shipRoutes: new Map([[route.shipId, route]]),
+    };
+  }
+
+  function sampleAt(route: ShipMotionRoute, timeSeconds: number) {
+    return resolveShipMotionSample({
+      plan: planFor(route),
+      reducedMotion: false,
+      ship: { id: route.shipId, riskZone: route.zone } as ShipNode,
+      timeSeconds,
+    });
+  }
+
+  function timeForElapsedRiskSeconds(elapsed: number): number {
+    return RISK_WINDOW_START + (elapsed / W425_RISK_SECONDS) * RISK_SECONDS_EACH;
+  }
+
+  // Tack direction previous {14,22} → current {20,22} is (1, 0).
+  function makeRepathRoute(): ShipMotionRoute {
+    return { ...makeRoute(), previousRiskTile: { x: 14, y: 22 } };
+  }
+
+  it("starts the risk-drift phase on the orbital heading (no snap at entry)", () => {
+    const eased = sampleAt(makeRepathRoute(), RISK_WINDOW_START);
+    const control = sampleAt(makeRoute(), RISK_WINDOW_START);
+    expect(eased.state).toBe("risk-drift");
+    expect(eased.heading.x).toBeCloseTo(control.heading.x, 12);
+    expect(eased.heading.y).toBeCloseTo(control.heading.y, 12);
+  });
+
+  it("eases the heading toward the tack direction while the tack-out is in motion", () => {
+    const t = timeForElapsedRiskSeconds(1.0);
+    const eased = sampleAt(makeRepathRoute(), t);
+    const control = sampleAt(makeRoute(), t);
+    expect(eased.state).toBe("risk-drift");
+    expect(eased.riskTransition).not.toBeNull();
+    // Tack direction is +x; the eased heading must be pulled toward it.
+    expect(eased.heading.x).toBeGreaterThan(control.heading.x);
+    expect(eased.heading.x).toBeGreaterThan(0.5);
+  });
+
+  it("returns to the pure orbital heading once the tack-out completes", () => {
+    const t = timeForElapsedRiskSeconds(4.0);
+    const eased = sampleAt(makeRepathRoute(), t);
+    const control = sampleAt(makeRoute(), t);
+    expect(eased.riskTransition).toBeNull();
+    expect(eased.heading.x).toBeCloseTo(control.heading.x, 12);
+    expect(eased.heading.y).toBeCloseTo(control.heading.y, 12);
+  });
+
+  it("is deterministic for the same (ship, route, time) inputs", () => {
+    const t = timeForElapsedRiskSeconds(1.0);
+    const first = sampleAt(makeRepathRoute(), t);
+    const second = sampleAt(makeRepathRoute(), t);
+    expect(second.heading).toEqual(first.heading);
+    expect(second.tile).toEqual(first.tile);
+  });
+});
+
 function makeRoute(): ShipMotionRoute {
   const stop: ShipMotionRoute["dockStops"][number] = {
     id: "dock.ethereum:usdc-circle",

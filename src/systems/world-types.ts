@@ -88,7 +88,7 @@ export interface ShipLivery {
   sailColor: string;
   sailPanel: ShipSailPanel;
   secondary: string;
-  source: "peg-fallback" | "stablecoin-logo";
+  source: "brand-color" | "peg-fallback" | "stablecoin-logo";
   stripePattern: ShipStripePattern;
 }
 
