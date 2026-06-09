@@ -97,6 +97,83 @@ Read first: `AGENTS.md`, `docs/pharosville/CURRENT.md`,
 - Session note: isolation for F1 verification used a temp git worktree
   because of the concurrent edits above.
 
+## Execution status (2026-06-10, completion session)
+
+The previously blocked/remaining items all landed this session (the
+ship-identity session that owned the renderer files has merged):
+
+- **DONE F4** — zoom gates centralised in `src/renderer/visual-scales.ts`
+  ("Zoom disclosure gates" section): `SHIP_CHROME_MIN_ZOOM = 0.6` (standard
+  hulls skip pennant chrome + bowsprit marks below it),
+  `SHIP_DETAIL_REVEAL_ZOOM = 1.0` (pennant accent streamer; anchor-chain
+  glints on resting moored/idle hulls), `DOCK_NAME_RIBBON_MIN_ZOOM = 0.5`
+  (was a docks.ts magic number), and the relocated
+  `HERITAGE_NAMEPLATE_MIN_ZOOM` / `SHIP_NAMEPLATE_MIN_ZOOM` (moved from
+  `ship-visual-config.ts`; importers updated). Hit-target geometry never
+  consults the gates. The default desktop fit (~0.88 zoom) sits between
+  both new gates, so static baselines were unaffected. Tests: 4 gate cases
+  in `ships.test.ts`; hover/selection suites unchanged-green.
+- **DONE F5** — `drawDockCaustics` (`src/renderer/layers/dock-caustics.ts`):
+  three wind-scaled (`windMultiplierForMotion`) breathing iso-ellipse rings
+  fringing the four EVM-bay docks, drawn between harbor-surf and the entity
+  pass. Scheduler pass `"dock-caustics"` added to `CONSTRAINED_EFFECT_SKIPS`
+  only (recovery keeps, constrained sheds — verified live in the browser
+  debug contract). Reduced motion freezes the time-zero frame
+  (harbor-surf pattern). MOTION_POLICY.md Slow class updated. Tests:
+  `dock-caustics.test.ts` (counts, shed skip-list, reduced-motion
+  determinism, full-motion animation) + scheduler test additions.
+- **DONE P3 (all four)** — shared severity/ratio functions exported from
+  `detail-model.ts` per the `depegHistorySeverity` pattern:
+  `priceSignalSeverity`/`priceConfidenceLabel`,
+  `sourceConsensusRatio`/`sourceConsensusLabel` (null at full agreement),
+  `auditShieldState`/`auditShieldLabel` (titan/unique + bluechip grade),
+  `backingDiversitySeverity`/`backingDiversityLabel` (healthy floor 0.5).
+  Panel folds keep the 8-row cap by construction: price confidence +
+  consensus fold into the Market-cap row, Bluechip audit folds into the
+  Class row, Backing diversity is a new dock-panel row
+  (`DockNode.backingDiversity` wired in `world-scaffold.ts`). Canvas cues:
+  consensus rigging density (standard hulls, gated at
+  `SHIP_DETAIL_REVEAL_ZOOM`), audit shield beside the signal mast
+  (titan/unique), congestion crates on concentrated-backing dock quays.
+  All three registered in `visual-cue-registry.ts`. **Plan-text corrections
+  discovered:** (1) `smartContractAudit` lives on `BluechipRating`, a
+  payload not wired into `PharosVilleInputs` — it is unreachable from
+  `ShipNode`; the shield carries the grade only. (2) A pre-existing 8-row
+  cap violation existed for depeg-scarred squad ships (9 rows); depeg
+  history now folds into the 24h row (momentum-fold precedent).
+- **DONE P5 remainder** — static-layer cache eviction is now O(1)
+  (Map insertion-order recency: hits re-insert, eviction pops the first
+  non-protected entry; `lastUsed` timestamps removed). Ship-body-cache
+  warmup scales with visible ship count
+  (`SHIP_BODY_CACHE_WARMUP_VISIBLE_DIVISOR = 16`, floor 6) and selected/
+  flagship/titan/unique hulls bypass an exhausted budget (sticky priority).
+  Hit-target camera-only re-projection reuses cached world geometry for
+  ships beyond a 384px viewport margin (one tile projection instead of
+  `resolveEntityGeometry`; round-robin probes self-heal staleness;
+  selected/hovered always resolve fully). **Baseline-prune item is stale:**
+  the legacy unnamed `*-linux.png` baselines were already deleted in
+  commit `4f48bdc`; all 24 current snapshots are named and referenced.
+- **DONE P4 (specs)** — `agents/2026-06-10-p4-larger-bets-specs.md`: minimap
+  (separate DOM canvas painted from the world RAF, desktop-gate-safe,
+  click-to-jump via a new `"minimap"` camera intent), collateral cargo deck
+  (Phase A unblocked via `collateralQuality`; Phase B needs the reserves
+  endpoint), attestation pennants (rider on Phase B), plus the
+  **endpoint-allowlisting decision memo** — recommendation: a
+  registry-driven parameterized path family for
+  `GET /api/stablecoin-reserves/{id}` landed as one lockstep PR (schema map,
+  endpoint registry, function matcher, smoke matrix, runtime-facts guard).
+  Operator decision still required before Phase B / pennants build.
+- **Validation** — full AGENTS.md gate: onboard, typecheck, lint
+  (one pre-existing warning at clean HEAD), 883 unit tests, asset/color/docs
+  checks, build, perf lane, smoke:api-local + smoke:dev-proxy, dev visual
+  lane (20/20), and the dist visual lane inside the CI Docker image
+  (`mcr.microsoft.com/playwright:v1.59.1-noble`, 20/20). All new cues land
+  within existing snapshot tolerances — **no baseline regeneration was
+  needed in either config**.
+- Still open (out of this plan's executable scope): Wave 6 asset pass
+  (`agents/2026-05-18-wave6-implementation-prep.md`) and the P4 builds
+  themselves (minimap; cargo deck/pennants pending the allowlist decision).
+
 ## P1 — Motion depth (the core deferred work)
 
 ### F1. Split `motion-sampling.ts` (~1900 LOC) by concern — Effort: M

@@ -1,6 +1,6 @@
 # PharosVille Motion Policy
 
-Last updated: 2026-06-09
+Last updated: 2026-06-10
 
 PharosVille uses one route-owned motion clock. Normal motion is driven by the
 canvas `requestAnimationFrame` loop in `pharosville-world.tsx`; reduced motion
@@ -11,7 +11,10 @@ renders deterministic static frames and must not keep a RAF loop alive.
 - Static: terrain, printed water labels, cemetery markers, dock footprints, and
   detail chrome.
 - Slow: lighthouse beam shimmer, semantic water shimmer, fog, selected
-  relationship pulse, harbor lamps, and lighthouse-attached birds.
+  relationship pulse, harbor lamps, lighthouse-attached birds, and the
+  wind-scaled caustic shimmer fringing the four major EVM-bay docks
+  (scheduler pass `dock-caustics`: recovery keeps, constrained sheds;
+  reduced motion freezes the time-zero frame).
 - Medium: ship movement along sampled water routes and bounded harbor/civic
   activity effects.
 - Fast: recent-change sparks and wake accents only, capped to selected, top, or
