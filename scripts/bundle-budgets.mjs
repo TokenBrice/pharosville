@@ -9,8 +9,10 @@ export const bundleBudgets = {
   desktop: {
     label: "desktop lazy chunk",
     pattern: /^pharosville-desktop-data-[A-Za-z0-9_-]+\.js$/,
-    maxRawBytes: 973 * 1024,
-    maxGzipBytes: 279 * 1024,
+    // 2026-06-09 ship-identity pass: +~10 KiB raw for the generated
+    // brand-color table (data/brand-colors.json) + emblem/nameplate drawers.
+    maxRawBytes: 1000 * 1024,
+    maxGzipBytes: 290 * 1024,
     required: true,
   },
   css: {
@@ -23,6 +25,7 @@ export const bundleBudgets = {
 };
 
 export const aggregateBudgets = {
-  maxJsRawBytes: 1_282 * 1024,
-  maxJsGzipBytes: 378 * 1024,
+  // 2026-06-09 ship-identity pass: see desktop chunk note above.
+  maxJsRawBytes: 1_315 * 1024,
+  maxJsGzipBytes: 388 * 1024,
 };
