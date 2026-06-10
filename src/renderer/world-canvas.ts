@@ -107,6 +107,13 @@ type StaticCacheScope = "scene" | "terrain";
 const STATIC_CAMERA_OFFSET_BUCKET = 16;
 const DYNAMIC_WATER_CADENCE_HZ = 0;
 const DEFAULT_RENDER_CACHE_MODE: PharosVilleRenderCacheMode = "exact-zoom";
+// V4.1 lever 2: under the `recovery` tier the water accent/swell group draws
+// at half cadence (alternate frames) instead of every frame — the strokes
+// are the dominant draw-call population (census: 918/frame fit, 1537 far
+// zoom) and recovery frames are exactly the ones with no headroom. Parity
+// toggles per drawn frame, so reduced motion (always `full` tier) and
+// constrained (pass fully shed) never reach this path.
+let waterAccentCadenceParity = false;
 const SHIP_BODY_CACHE_WARMUP_PER_FRAME = 6;
 const SHIP_BODY_CACHE_INTERACTION_WARMUP_PER_FRAME = 1;
 // P5: warmup scales with scene density so dense fixtures fill the body cache
@@ -551,7 +558,11 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   const terrainBlitMs = performance.now() - terrainBlitStartMs;
   const waterAccentStart = performance.now();
   input.ctx.imageSmoothingEnabled = false;
-  const waterAccentTileCount = shouldDrawScheduledPass(input.renderScheduler, "water-accents")
+  waterAccentCadenceParity = !waterAccentCadenceParity;
+  const waterAccentCadenceDraw = input.renderScheduler?.tier !== "recovery"
+    || input.motion.reducedMotion
+    || waterAccentCadenceParity;
+  const waterAccentTileCount = waterAccentCadenceDraw && shouldDrawScheduledPass(input.renderScheduler, "water-accents")
     ? drawWaterTerrainAccents(input)
     : 0;
   const coastalWaterTileCount = shouldDrawScheduledPass(input.renderScheduler, "coastal-water-motion")
