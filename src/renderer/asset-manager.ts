@@ -64,6 +64,19 @@ export const PHAROSVILLE_CRITICAL_ASSET_CONCURRENCY = 6;
 export const PHAROSVILLE_DEFERRED_ASSET_CONCURRENCY = 6;
 export const PHAROSVILLE_LOGO_CONCURRENCY = 6;
 
+/**
+ * V1.2 — deferred-progress batching for the renderer's asset load tick.
+ * The static-layer caches in `world-canvas.ts` embed
+ * `getAssetLoadProgressKey()` in their generation key, so every key change
+ * clears them and forces full offscreen repaints. Quantizing the in-flight
+ * deferred count means ~40 trickling sprite decodes cost a handful of
+ * repaints instead of one each; the exact count is restored when the
+ * deferred group settles so the final scene always repaints with every
+ * sprite present. Critical-phase progress stays exact: those sprites gate
+ * the first visible frame.
+ */
+export const PHAROSVILLE_DEFERRED_PROGRESS_BATCH = 8;
+
 const PHAROSVILLE_DEFERRED_IDLE_TIMEOUT_MS = 800;
 
 interface AssetManifestSummary {
@@ -166,7 +179,10 @@ export class PharosVilleAssetManager {
   }
 
   getAssetLoadProgressKey(): number {
-    return this.criticalLoadedCount * 1_000_003 + this.deferredLoadedCount;
+    const deferredKey = this.areDeferredAssetsSettled()
+      ? this.deferredLoadedCount
+      : Math.floor(this.deferredLoadedCount / PHAROSVILLE_DEFERRED_PROGRESS_BATCH) * PHAROSVILLE_DEFERRED_PROGRESS_BATCH;
+    return this.criticalLoadedCount * 1_000_003 + deferredKey;
   }
 
   areCriticalAssetsLoaded(): boolean {

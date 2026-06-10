@@ -126,14 +126,15 @@ V4.1 priority target; CI 4-vCPU scales these ~25-30× but proportions hold.
 Every deferred sprite arrival bumps the asset tick and invalidates both
 static caches (~40 full offscreen repaints during the first minute).
 
-- [ ] In `src/renderer/asset-manager.ts`, batch deferred-load completions
-      (e.g. invalidate on group completion or a 250ms debounce) before
-      bumping the progress key consumed by `assetLoadTickFor` in
-      `world-canvas.ts`.
-- [ ] Keep critical-phase behavior unchanged (first frame must still repaint
-      as critical sprites decode).
-- [ ] Verify: smoother reveal beat; no missing sprites after deferred phase;
-      `asset-manager.test.ts` extended for batch semantics.
+- [x] `getAssetLoadProgressKey()` now quantizes the in-flight deferred count
+      into `PHAROSVILLE_DEFERRED_PROGRESS_BATCH = 8` buckets and restores the
+      exact count once `areDeferredAssetsSettled()` — ~40 trickle decodes now
+      cost ≤ 6 static-cache clears instead of one each.
+- [x] Critical-phase behavior unchanged (exact per-asset progress; those
+      sprites gate the first visible frame).
+- [x] Verified: `asset-manager.test.ts` batch-boundary test (keys move only
+      at 0 → 8 → exact-on-settle for an 11-asset group); full renderer+hooks
+      unit lanes green.
 
 ### V1.3 Horizon & world-edge atmosphere — Effort M, Reward ★★★★★
 

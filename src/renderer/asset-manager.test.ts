@@ -4,6 +4,7 @@ import {
   type LoadedPharosVilleAsset,
   PHAROSVILLE_CRITICAL_ASSET_CONCURRENCY,
   PHAROSVILLE_DEFERRED_ASSET_CONCURRENCY,
+  PHAROSVILLE_DEFERRED_PROGRESS_BATCH,
   PHAROSVILLE_LOGO_CONCURRENCY,
   PharosVilleAssetManager,
 } from "./asset-manager";
@@ -143,7 +144,10 @@ describe("PharosVilleAssetManager", () => {
       deferredLoadedCount: 1,
       loadedAssetCount: 2,
     });
-    expect(manager.getAssetLoadProgressKey()).toBe(2_000_007);
+    // V1.2: the deferred group has not settled yet, so the single loaded
+    // required-deferred asset quantizes to batch 0 — the key reflects only
+    // the exact critical count until the deferred group settles.
+    expect(manager.getAssetLoadProgressKey()).toBe(2_000_006);
     expect(manager.areCriticalAssetsLoaded()).toBe(true);
 
     const deferredResult = await manager.loadDeferred();
@@ -156,6 +160,49 @@ describe("PharosVilleAssetManager", () => {
     });
     expect(manager.getAssetLoadProgressKey()).toBe(2_000_008);
     expect(manager.getLoadStats().deferredCompletedAt).toEqual(expect.any(Number));
+  });
+
+  it("batches in-flight deferred progress so the load tick only moves at batch boundaries and on settle (V1.2)", async () => {
+    const deferredAssets = Array.from(
+      { length: PHAROSVILLE_DEFERRED_PROGRESS_BATCH + 3 },
+      (_, index) => makeEntry(`ship.deferred-${index}`, "ship", index),
+    );
+    const manifest = makeManifest(deferredAssets);
+    stubManifestFetch(manifest);
+    const resolvers: Array<() => void> = [];
+    stubImageLoader(() => new Promise((resolve) => {
+      resolvers.push(() => resolve());
+    }));
+    // Fire idle chunks immediately so the deferred queue advances on
+    // microtask flushes instead of real 800ms idle timeouts.
+    vi.stubGlobal("requestIdleCallback", vi.fn((callback: () => void) => {
+      callback();
+      return 1;
+    }));
+    vi.stubGlobal("cancelIdleCallback", vi.fn());
+
+    const manager = new PharosVilleAssetManager();
+    await manager.loadManifest();
+    const pending = manager.loadDeferred();
+    await flushAsyncWork();
+
+    const observedKeys = new Set<number>([manager.getAssetLoadProgressKey()]);
+    // Resolve decodes one at a time; the key must stay frozen inside a batch.
+    for (let guard = 0; guard < deferredAssets.length * 4; guard += 1) {
+      if (resolvers.length === 0 && manager.getLoadStats().deferredLoadedCount >= deferredAssets.length) break;
+      const next = resolvers.shift();
+      if (next) next();
+      await flushAsyncWork();
+      observedKeys.add(manager.getAssetLoadProgressKey());
+    }
+    await pending;
+    observedKeys.add(manager.getAssetLoadProgressKey());
+
+    // 11 assets with batch 8 → keys 0, 8, and the exact 11 on settle. A
+    // per-asset key would have produced 12 distinct values.
+    expect(manager.areDeferredAssetsSettled()).toBe(true);
+    expect(manager.getAssetLoadProgressKey()).toBe(deferredAssets.length);
+    expect([...observedKeys].sort((a, b) => a - b)).toEqual([0, PHAROSVILLE_DEFERRED_PROGRESS_BATCH, deferredAssets.length]);
   });
 
   it("loads sprite-sheet frame sources for animated assets without changing static entries", async () => {
