@@ -138,6 +138,16 @@ const SKY_NIGHT_VEILS = [
   [0.08, 260, 14, -0.02, 0.5, 0.39],
 ] as const;
 
+// V1.3 horizon cloud bank: [centerX fraction, dy px, radiusX px, radiusY px].
+// Long flat silhouettes resting just above the sea-meets-sky line.
+const HORIZON_CLOUD_BANK = [
+  [0.12, -7, 150, 7],
+  [0.34, -4, 210, 9],
+  [0.55, -9, 120, 6],
+  [0.74, -5, 230, 10],
+  [0.93, -8, 140, 7],
+] as const;
+
 type SkyMoodKey = keyof typeof SKY_MOODS;
 
 const SKY_MOOD_KEYS: readonly SkyMoodKey[] = ["predawn", "dawn", "day", "golden", "dusk", "night"];
@@ -243,6 +253,26 @@ function paintSkyBackdrop(
     haze.addColorStop(0.72, "rgba(212, 154, 74, 0)");
     target.fillStyle = haze;
     target.fillRect(0, 0, width, height);
+  }
+
+  // V1.3 — distant cloud bank hugging the horizon line so the sea reads as
+  // extending past the world rim. Long flat silhouettes just above the
+  // water-veil boundary; static, so it lives in the cached backdrop. Night
+  // keeps a faint trace (the bank alpha follows the mood's horizon bleed).
+  const bankAlpha = (0.045 + mood.horizonBleedAlpha * 0.22) * (1 - 0.5 * nightFactor);
+  if (bankAlpha > 0.01) {
+    const horizonY = height * 0.505;
+    target.save();
+    target.fillStyle = mood.mist.replace(/[\d.]+\)$/, `${bankAlpha.toFixed(3)})`);
+    for (const [cx, dy, rx, ry] of HORIZON_CLOUD_BANK) {
+      target.beginPath();
+      target.ellipse(width * cx, horizonY + dy, rx, ry, 0, 0, Math.PI * 2);
+      target.fill();
+    }
+    // A whisper of a horizon line where sea meets sky.
+    target.fillStyle = `rgba(255, 235, 190, ${(bankAlpha * 0.8).toFixed(3)})`;
+    target.fillRect(0, Math.round(height * 0.52) - 1, width, 1);
+    target.restore();
   }
 
   target.save();
@@ -675,15 +705,26 @@ function drawSkyClouds(
     const horizontalDrift = motion.reducedMotion ? 0 : Math.sin(time * 0.12 * windScale + i * 1.3) * 8 * zoom;
     ctx.strokeStyle = strokes[i]!;
     ctx.lineWidth = Math.max(1, 5 * zoom * scalars.thicknessScale);
+    // V1.3 — clouds stroke as layered top-arc humps instead of full ellipse
+    // outlines, which read as wireframe rings against the open horizon at
+    // far zoom. Same colors, drift, and threat scaling; only the path shape
+    // changes.
+    const cloudX = width * cloud[3] + drift + horizontalDrift;
+    const cloudY = height * (cloud[4] + scalars.yBias);
+    const cloudRx = cloud[1] * zoom * scalars.thicknessScale;
+    const cloudRy = cloud[2] * zoom * scalars.thicknessScale;
+    ctx.beginPath();
+    ctx.ellipse(cloudX, cloudY, cloudRx, cloudRy, -0.08, Math.PI * 0.97, Math.PI * 2.03);
+    ctx.stroke();
     ctx.beginPath();
     ctx.ellipse(
-      width * cloud[3] + drift + horizontalDrift,
-      height * (cloud[4] + scalars.yBias),
-      cloud[1] * zoom * scalars.thicknessScale,
-      cloud[2] * zoom * scalars.thicknessScale,
+      cloudX - cloudRx * 0.34,
+      cloudY - cloudRy * 0.5,
+      cloudRx * 0.46,
+      cloudRy * 0.82,
       -0.08,
-      0,
-      Math.PI * 2,
+      Math.PI * 0.92,
+      Math.PI * 2.02,
     );
     ctx.stroke();
   }

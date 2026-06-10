@@ -41,6 +41,7 @@ import { drawNightTint, drawNightVignette } from "./layers/night-tint";
 import { skyState } from "./layers/sky";
 import { drawWeather } from "./layers/weather";
 import { applyRevealEnvelope, drawAtmosphericFade, drawCloudShadowDrift, drawEstablishingShotLetterbox, drawFilmGrainPass, type RevealEnvelopePhase } from "./layers/cinematic-atmosphere";
+import { drawWorldRimHaze } from "./layers/world-rim-haze";
 import type {
   DrawPharosVilleInput,
   PharosVilleRenderCacheMetrics,
@@ -558,6 +559,9 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
     : 0;
   const waterAccentDrawMs = performance.now() - waterAccentStart;
   const preSceneAmbientStartMs = performance.now();
+  // V1.3 — feather the map rim into the sky backdrop. Before the entity
+  // pass so edge-zone ships stay crisp above the haze.
+  drawWorldRimHaze(input);
   if (shouldDrawScheduledPass(input.renderScheduler, "atmospheric-fade")) {
     drawAtmosphericFade(input, nightFactor);
   }

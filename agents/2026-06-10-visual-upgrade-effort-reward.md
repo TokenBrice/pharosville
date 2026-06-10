@@ -143,17 +143,24 @@ against a flat gradient (clearly visible in the evidence screenshots). A
 horizon treatment makes the diorama read as a sea, not a game board — and it
 is fully static, so it bakes into cached passes for **zero per-frame cost**.
 
-- [ ] Deep-water perimeter fade: atmospheric-perspective haze on the outer
-      shelf tiles, strongest at the map rim (extend the existing deep-water
-      edge darkening in `src/renderer/layers/terrain.ts`, static pass).
-- [ ] Horizon band in the sky backdrop: low-contrast sea-meets-sky gradient
-      line with a faint distant cloud bank, mood-aware (6 sky moods) in
-      `src/renderer/layers/sky.ts`.
-- [ ] Optional warm beam glint on the horizon when the lighthouse sweep
-      points off-map (slow class, per-frame, cheap single gradient).
-- [ ] Reduced motion: identical static composition (no animation involved).
-- Risk: sky is visible in every baseline → broad-but-intentional snapshot
-  drift; regen per `VISUAL_REGEN.md` after diff inspection.
+- [x] World-rim haze (`src/renderer/layers/world-rim-haze.ts`): four soft
+      mood-tinted bands stroked along the projected map-diamond rim, drawn
+      before the entity pass so edge-zone ships stay crisp. Pure function of
+      (map, camera, mood) — reduced motion renders the identical frame.
+      Chosen over a static-pass bake so it can follow the sky mood without
+      staling the terrain cache (cost: 4 strokes/frame).
+- [x] Horizon band in the sky backdrop: 5-silhouette distant cloud bank +
+      sea-meets-sky line at the water-veil boundary, mood/night-scaled,
+      baked into the cached sky backdrop (zero per-frame cost).
+- [x] Bonus in-scope fix: `drawSkyClouds` now strokes layered top-arc humps
+      instead of full ellipse outlines, which read as wireframe rings
+      against the open horizon at far zoom.
+- [ ] (Deferred to V2.2) warm beam glint on the horizon when the sweep
+      points off-map — folds naturally into the beam-interaction work.
+- [x] Reduced motion: identical static composition (tested).
+- [x] Verified: 3 new rim-haze tests; sky/cinematic suites green; visual
+      lane 20/20 within tolerances (no regen needed); far-zoom eyeball
+      `outputs/visual-upgrade/v13-far.png`.
 
 ### V1.4 Hull chrome for standard + heritage tiers — Effort S, Reward ★★★★
 
