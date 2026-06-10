@@ -343,6 +343,37 @@ export function planShipRenderLod(
   const hoveredId = input.hoveredTarget?.id ?? null;
   const hoveredDetailId = input.hoveredTarget?.detailId ?? null;
 
+  // V4.1 far-zoom fleet LOD: below the chrome disclosure gate the standard
+  // fleet draws body-only — no overlay/wake candidate scoring, sorting, or
+  // per-ship draw work at all. This extends the P2.7 progressive-disclosure
+  // contract: pennants/bowsprit marks already gate on SHIP_CHROME_MIN_ZOOM,
+  // and this moves the remaining standard-hull overlay elements (signal
+  // flags, depeg weathering, night lantern, budget-arbitrary contact
+  // shadows) to the same ≥ 0.6 inspect-zoom tier. All of them keep
+  // detail-panel/ledger parity, and brand livery + class silhouette remain
+  // on the body for far-zoom identity. Preserve tiers (titan/unique sprites
+  // or size tiers) and the selected/hovered ship keep full chrome so hero
+  // hulls and the user's focus never lose grounding.
+  if (input.camera.zoom < SHIP_CHROME_MIN_ZOOM) {
+    drawOverlayShipIdsScratch.clear();
+    drawWakeShipIdsScratch.clear();
+    for (const ship of visibleShips) {
+      const preserve = ship.id === selectedId
+        || ship.detailId === selectedDetailId
+        || ship.id === hoveredId
+        || ship.detailId === hoveredDetailId
+        || ship.visual.sizeTier === "titan"
+        || ship.visual.sizeTier === "unique"
+        || isTitanSprite(ship)
+        || isUniqueSprite(ship);
+      if (!preserve) continue;
+      drawOverlayShipIdsScratch.add(ship.id);
+      drawWakeShipIdsScratch.add(ship.id);
+    }
+    cachedPlanKey = null;
+    return cachedPlan;
+  }
+
   const moverIds = input.motion.plan.moverShipIds;
   const effectIds = input.motion.plan.effectShipIds;
   const moverHashed = hashIdSet(moverIds, cachedMoverHashSource, cachedMoverHash);

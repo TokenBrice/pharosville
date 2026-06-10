@@ -44,6 +44,7 @@ async function samplePassBreakdown(page: import("@playwright/test").Page, label:
   const draws: number[] = [];
   let visibleShipCount = 0;
   let nameplateDrawCount = 0;
+  let waterAccentTileCount = 0;
   let zoom = 0;
   let tier: string | undefined;
   for (let i = 0; i < SAMPLES; i += 1) {
@@ -58,6 +59,10 @@ async function samplePassBreakdown(page: import("@playwright/test").Page, label:
     if (Number.isFinite(metrics.drawDurationMs)) draws.push(metrics.drawDurationMs);
     visibleShipCount = metrics.visibleShipCount;
     nameplateDrawCount = metrics.nameplateDrawCount ?? 0;
+    waterAccentTileCount = Math.max(
+      waterAccentTileCount,
+      (metrics as { waterAccentTileCount?: number }).waterAccentTileCount ?? 0,
+    );
     zoom = debug.camera?.zoom ?? zoom;
     tier = (metrics as { schedulerTier?: string }).schedulerTier ?? tier;
   }
@@ -70,11 +75,39 @@ async function samplePassBreakdown(page: import("@playwright/test").Page, label:
     sampleCount: draws.length,
     tier,
     visibleShipCount,
+    waterAccentTileCount,
     zoom: Number(zoom.toFixed(3)),
     ...breakdown,
   };
   console.info(`[v4.3-probe] ${label}: ${JSON.stringify(summary)}`);
   return summary;
+}
+
+async function zoomOutTo(page: import("@playwright/test").Page, targetZoom: number) {
+  const canvasBox = await page.getByTestId("pharosville-canvas").boundingBox();
+  expect(canvasBox).not.toBeNull();
+  const centerX = canvasBox!.x + canvasBox!.width * 0.5;
+  const centerY = canvasBox!.y + canvasBox!.height * 0.5;
+  for (let i = 0; i < 40; i += 1) {
+    const debug = await readVisualDebug(page);
+    const zoom = debug.camera?.zoom ?? 99;
+    if (zoom <= targetZoom) break;
+    await page.evaluate(({ x, y }) => {
+      const canvas = document.querySelector('[data-testid="pharosville-canvas"]');
+      canvas?.dispatchEvent(new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        clientX: x,
+        clientY: y,
+        deltaMode: 0,
+        deltaY: 320,
+      }));
+    }, { x: centerX, y: centerY });
+    await page.waitForTimeout(120);
+  }
+  const settled = await readVisualDebug(page);
+  console.info(`[v4.3-probe] zoomOutTo(${targetZoom}) done: zoom=${(settled.camera?.zoom ?? 0).toFixed(3)}`);
+  await page.waitForTimeout(2_000);
 }
 
 async function zoomTo(page: import("@playwright/test").Page, targetZoom: number) {
@@ -135,5 +168,11 @@ test.describe("V4.3 probe: zoom pass breakdown", () => {
     await zoomTo(page, 2.4);
     const deep = await samplePassBreakdown(page, "zoom-2.4");
     expect(deep.sampleCount).toBeGreaterThan(10);
+
+    // V4.1 far-zoom fleet LOD target scenario: whole map + whole fleet
+    // visible below the SHIP_CHROME_MIN_ZOOM (0.6) gate.
+    await zoomOutTo(page, 0.5);
+    const farOut = await samplePassBreakdown(page, "zoom-0.5");
+    expect(farOut.sampleCount).toBeGreaterThan(10);
   });
 });
