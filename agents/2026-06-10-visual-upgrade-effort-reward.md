@@ -459,13 +459,16 @@ candidate levers in expected-impact order:
       zoom 0.48 (93 ships): entity pass **1.9 → 1.5ms**. Disclosure-gate
       note: signal flags / depeg weathering / lanterns / contact shadows
       join the ≥ 0.6 inspect tier for standard hulls (parity intact).
-- [ ] Water accent cadence: render the accent/swell group at half cadence
-      under `recovery` (alternate frames; the eye can't tell at these
-      speeds) instead of binary keep/shed.
-      **Deferred until V2.1 swell lands (in flight on main)** — cadence
-      should cover the combined accent+swell group; same files. Probe
-      evidence: at zoom 0.48 water accents are the dominant pass (2.6ms vs
-      1.5ms entity).
+- [x] Water accent load shed (recalibrated from "half cadence"): recovery
+      tiers already use the sparse constrained candidate list, so the
+      measured win was at **full-tier far zoom** (probe: 1370 candidate
+      tiles at zoom 0.48). `activeWaterAccentCandidatesForFrame` now thins
+      full tier to the constrained set below `SHIP_CHROME_MIN_ZOOM`
+      (155 tiles on the same view; swell + static details carry the sea).
+      Skipping alternate frames was rejected: the canvas repaints fully per
+      frame, so true half-cadence would flicker without an accent overlay
+      cache that the backing-pixel budget doesn't justify. Unit-pinned in
+      `terrain.test.ts`; sustained lane accents avg 0.6ms.
 - [ ] Entity-pass draw-call audit: collapse per-ship save/restore pairs and
       gradient re-creation (hoist per-frame constants; reuse gradient
       objects per zone).
