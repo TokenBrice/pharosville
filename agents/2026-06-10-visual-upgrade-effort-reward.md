@@ -161,14 +161,17 @@ Titans get hull foam, bow spray, stern churn, mooring rope/fender
 (`src/renderer/layers/ships/wake.ts`); standard hulls get only a contact
 shadow and heritage hulls get nothing. The fleet's 85% reads as flat decals.
 
-- [ ] Extend the titan chrome path with simplified variants for `unique` and
-      standard tiers (smaller foam arc, single spray fleck, mooring shadow).
-- [ ] Reuse the cached Path2D template/bucket infra; keep separate LRU
-      budgets so cardinality stays bounded (heading buckets × tier).
-- [ ] Gate under the existing overlay LOD budget (`planShipRenderLod`) so
-      dense scenes shed gracefully; reduced motion keeps the static frame.
-- [ ] Verify: dense fixture perf lane unchanged (chrome is cached paths);
-      visual diff at mid zoom shows hulls sitting *in* the water.
+- [x] `HULL_CHROME_TIERS` in `wake.ts`: standard (0.68× geometry, foam only,
+      1 spray strand), unique (0.85×, foam + mooring details, 2 strands),
+      titan (unchanged). Stern churn stays titan+unique.
+- [x] Cached unit-scale Path2D templates are shared across tiers — the tier
+      factor rides ctx.scale, so zero path-cache cardinality growth.
+- [x] LOD-bounded by construction (wake-underlay only draws for
+      `planShipRenderLod().drawWakeShipIds`); standard hulls additionally
+      gate at `SHIP_CHROME_MIN_ZOOM` so far zoom stays clean.
+- [x] Verified: 4 new tier tests in `ships.test.ts` (51 green); full visual
+      lane 20/20 within existing tolerances (no baseline regen needed);
+      mid-zoom eyeball check `outputs/visual-upgrade/v14-mid.png`.
 
 ### V1.5 Nameplate sprite caching — Effort S–M, Reward ★★★
 
@@ -177,12 +180,14 @@ fills text for every visible ship every frame at zoom ≥ 1.1 — up to ~200
 `measureText`+`fillText` calls per frame exactly when zoomed-in scenes are
 heaviest.
 
-- [ ] Cache rendered plates as tiny offscreen sprites keyed by
-      `(symbol, fontPxBucket, dprBucket)` with an LRU cap (~256), reusing the
-      `lru-cache.ts` pattern; blit instead of filling text.
-- [ ] Keep greedy overlap rejection logic untouched (it operates on rects).
-- [ ] Verify: `nameplateDrawMs` (from V1.1) drops; plates pixel-match within
-      snapshot tolerance.
+- [x] Plates pre-render once per `(symbol, fontPx, dprBucket)` into padded
+      offscreen sprites (LRU 256, `plateSpriteCacheStats()` telemetry) and
+      blit via one drawImage; jsdom/no-2D environments keep the original
+      direct path as fallback.
+- [x] Greedy overlap rejection untouched (rect-based, sprite-agnostic).
+- [x] Verified: 6 nameplate tests including sprite-blit + fallback cases;
+      visual lane 20/20; live check at dpr 2 — 55 plates in ~0.3ms
+      (`outputs/visual-upgrade/v15-nameplates.png`, crisp).
 
 ---
 

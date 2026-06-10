@@ -1,10 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PharosVilleMotionPlan, ShipMotionSample } from "../../systems/motion";
 import type { PharosVilleWorld, ShipNode } from "../../systems/world-types";
 import { buildRecordingCanvasContext, type RecordedCanvasCall } from "../__test-utils__/canvas-context-builder";
 import type { ResolvedEntityGeometry } from "../geometry";
 import type { DrawPharosVilleInput } from "../render-types";
-import { drawShipNameplates } from "./ships/nameplates";
+import { drawShipNameplates, plateSpriteCacheStats, resetPlateSpriteCache } from "./ships/nameplates";
 import type { ShipRenderFrame } from "./ships/draw-ship";
 
 interface RecordingCtx {
@@ -22,6 +22,7 @@ function makeCtx(): CanvasRenderingContext2D & RecordingCtx {
       "fill",
       "stroke",
       "fillText",
+      "drawImage",
     ],
     returningMethods: {
       measureText: () => ({ width: 24 }),
@@ -121,6 +122,15 @@ function makeFrame(positions: ReadonlyMap<string, { x: number; y: number }>): Sh
 }
 
 describe("drawShipNameplates", () => {
+  beforeEach(() => {
+    resetPlateSpriteCache();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
   it("draws nothing below the zoom gate", () => {
     const ships = [makeShip("usdt-tether", "titan")];
     const ctx = makeCtx();
@@ -170,5 +180,58 @@ describe("drawShipNameplates", () => {
     const frame = makeFrame(new Map([["offmap-dollar", { x: -500, y: -500 }]]));
     const drawn = drawShipNameplates(makeInput(ctx, ships, 1.5), frame, ships);
     expect(drawn).toBe(0);
+  });
+
+  // --- V1.5 plate sprite cache ----------------------------------------------
+
+  it("blits cached plate sprites via drawImage when offscreen canvases are available", () => {
+    const offscreenRecorders: Array<{ calls: readonly RecordedCanvasCall[] }> = [];
+    // Node test env has no document; provide a canvas-factory stand-in so the
+    // sprite path activates.
+    vi.stubGlobal("document", {
+      createElement: (tag: string) => {
+        if (tag !== "canvas") throw new Error(`unexpected createElement(${tag})`);
+        const recording = buildRecordingCanvasContext({
+          methods: ["scale", "beginPath", "rect", "roundRect", "fill", "stroke", "fillText"],
+          returningMethods: { measureText: () => ({ width: 24 }) },
+        });
+        offscreenRecorders.push({ calls: recording.calls });
+        return {
+          width: 0,
+          height: 0,
+          getContext: () => recording.ctx,
+        } as unknown as HTMLCanvasElement;
+      },
+    });
+
+    const ships = [makeShip("alpha-dollar", "major")];
+    const ctx = makeCtx();
+    const frame = makeFrame(new Map([["alpha-dollar", { x: 150, y: 150 }]]));
+    const drawn = drawShipNameplates(makeInput(ctx, ships, 1.5), frame, ships);
+
+    expect(drawn).toBe(1);
+    // The main ctx blits the sprite instead of rasterizing text directly.
+    expect(ctx.calls.filter((call) => call.method === "drawImage")).toHaveLength(1);
+    expect(ctx.calls.filter((call) => call.method === "fillText")).toHaveLength(0);
+    // The sprite itself rendered the plate once.
+    expect(offscreenRecorders).toHaveLength(1);
+    expect(offscreenRecorders[0]!.calls.filter((call) => call.method === "fillText")).toHaveLength(1);
+
+    // Second draw of the same label reuses the cached sprite (no new canvas).
+    const ctx2 = makeCtx();
+    const frame2 = makeFrame(new Map([["alpha-dollar", { x: 150, y: 150 }]]));
+    drawShipNameplates(makeInput(ctx2, ships, 1.5), frame2, ships);
+    expect(offscreenRecorders).toHaveLength(1);
+    expect(plateSpriteCacheStats().hits).toBeGreaterThan(0);
+  });
+
+  it("falls back to direct text rendering when offscreen 2D contexts are unavailable", () => {
+    // jsdom default: createElement("canvas").getContext("2d") → null.
+    const ships = [makeShip("alpha-dollar", "major")];
+    const ctx = makeCtx();
+    const frame = makeFrame(new Map([["alpha-dollar", { x: 150, y: 150 }]]));
+    const drawn = drawShipNameplates(makeInput(ctx, ships, 1.5), frame, ships);
+    expect(drawn).toBe(1);
+    expect(ctx.calls.filter((call) => call.method === "fillText")).toHaveLength(1);
   });
 });

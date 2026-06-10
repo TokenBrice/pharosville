@@ -1606,6 +1606,98 @@ describe("titan foam scaling stays within hull bounds", () => {
   });
 });
 
+// --- Hull chrome tiers (V1.4) -----------------------------------------------
+//
+// Heritage and standard hulls now reuse the titan procedural chrome at
+// reduced geometry/alpha. Path2D-style calls (single-argument stroke/fill)
+// identify the cached chrome; bare-ctx calls belong to the legacy contact
+// shadow / zone wake primitives.
+
+describe("hull chrome tiers (V1.4)", () => {
+  function drawWakeRecording(options: {
+    moored?: boolean;
+    spriteAssetId?: string;
+    zoom?: number;
+  }): RecordingCtx & CanvasRenderingContext2D {
+    const ship = makeShipNode({
+      id: "tier-test-ship",
+      tile: { x: 8, y: 8 },
+      ...(options.spriteAssetId
+        ? { visual: { spriteAssetId: options.spriteAssetId, sizeTier: "unique" } }
+        : {}),
+    });
+    const ctx = makeRecordingCtx();
+    const baseSample = makeMotionSample(ship.id);
+    const sample: ShipMotionSample = {
+      ...baseSample,
+      ...(options.moored ? { state: "moored" as const, currentDockId: "dock-test" } : {}),
+    };
+    const plan = makeMotionPlan([ship.id]);
+    const input = {
+      assets: null,
+      camera: { offsetX: 0, offsetY: 0, zoom: options.zoom ?? 1 },
+      ctx,
+      height: 600,
+      hoveredTarget: null,
+      motion: {
+        plan: {
+          ...plan,
+          animatedShipIds: new Set<string>([ship.id]),
+          effectShipIds: new Set<string>([ship.id]),
+        },
+        reducedMotion: false,
+        timeSeconds: 0,
+        wallClockHour: 12,
+      },
+      selectedTarget: null,
+      shipMotionSamples: new Map<string, ShipMotionSample>([[ship.id, sample]]),
+      targets: [],
+      width: 800,
+      world: { ships: [ship] } as unknown as PharosVilleWorld,
+    } satisfies DrawPharosVilleInput;
+    const frame: ShipRenderFrame = {
+      cache: {
+        assetForEntity: () => null as LoadedPharosVilleAsset | null,
+        geometryForEntity: () => makeGeometry(200, 100),
+      },
+      shipRenderStates: new Map(),
+      visibleShips: [ship],
+      wakeDrawnShipIds: new Set<string>(),
+    };
+    drawShipWake(input, frame, ship);
+    return ctx;
+  }
+
+  function pathStrokeCount(ctx: RecordingCtx): number {
+    return ctx.calls.filter((call) => call.method === "stroke" && call.args.length === 1).length;
+  }
+
+  it("gives standard hulls cached foam chrome at chrome-gate zoom", () => {
+    const ctx = drawWakeRecording({ zoom: 1 });
+    expect(pathStrokeCount(ctx)).toBeGreaterThan(0);
+  });
+
+  it("skips standard-hull chrome below SHIP_CHROME_MIN_ZOOM", () => {
+    const ctx = drawWakeRecording({ zoom: 0.5 });
+    expect(pathStrokeCount(ctx)).toBe(0);
+  });
+
+  it("draws mooring details for moored heritage hulls but not moored standard hulls", () => {
+    const heritageCtx = drawWakeRecording({ moored: true, spriteAssetId: "ship.crvusd-unique" });
+    const heritagePathFills = heritageCtx.calls.filter((call) => call.method === "fill" && call.args.length === 1);
+    expect(heritagePathFills.length).toBeGreaterThan(0);
+
+    const standardCtx = drawWakeRecording({ moored: true, zoom: 1 });
+    const standardPathFills = standardCtx.calls.filter((call) => call.method === "fill" && call.args.length === 1);
+    expect(standardPathFills.length).toBe(0);
+  });
+
+  it("keeps heritage chrome active below the standard chrome zoom gate", () => {
+    const ctx = drawWakeRecording({ spriteAssetId: "ship.crvusd-unique", zoom: 0.5 });
+    expect(pathStrokeCount(ctx)).toBeGreaterThan(0);
+  });
+});
+
 // --- Titan procedural path cache (W1.04) -----------------------------------
 
 describe("titan procedural path cache", () => {
