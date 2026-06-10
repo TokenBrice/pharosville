@@ -1,9 +1,12 @@
 "use client";
 
-import { memo } from "react";
+import { lazy, memo, Suspense } from "react";
 import { QueryErrorNotice } from "@/components/query-error-notice";
 import { usePharosVilleWorldData } from "@/hooks/use-pharosville-world-data";
-import { PharosVilleWorld } from "./pharosville-world";
+
+const PharosVilleWorld = lazy(() => import("./pharosville-world").then((mod) => ({
+  default: mod.PharosVilleWorld,
+})));
 
 function PharosVilleDesktopDataComponent() {
   const { world, error, hasRenderableData, refetchAll } = usePharosVilleWorldData();
@@ -15,7 +18,9 @@ function PharosVilleDesktopDataComponent() {
         hasData={hasRenderableData}
         onRetry={refetchAll}
       />
-      <PharosVilleWorld world={world} />
+      <Suspense fallback={<div className="pharosville-loading pharosville-desktop" aria-busy="true" aria-live="polite">Charting market winds…</div>}>
+        <PharosVilleWorld world={world} />
+      </Suspense>
     </>
   );
 }
