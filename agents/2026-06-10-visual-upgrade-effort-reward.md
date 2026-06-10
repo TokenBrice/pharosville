@@ -386,13 +386,22 @@ Still-open items from the recovered Wave 6 prep, updated for current state:
 
 ### V3.5 Risk-zone hull weathering — Effort S–M, Reward ★★
 
-- [ ] Subtle procedural weathering on hulls by risk zone (salt streaks /
-      darkened waterline in Warning/Danger; clean in Calm) applied in the
-      precomposed body path so it's cache-friendly (`liveryKey` gains a
-      zone bucket).
-- [ ] Parity exists: risk zone is already a detail-panel/ledger field.
-      Register the cue in `visual-cue-registry.ts`.
-- Risk: body-cache cardinality ×6 zones — bucket to 3 weathering levels.
+- [x] Hull weathering by risk zone in the precomposed body path:
+      `hullWeatheringLevelForZone` buckets the six zones to 3 levels
+      (calm/ledger clean → watch light → alert/warning/danger heavy), the
+      level joins the body-cache `liveryKey` as `wz{level}` (×3 worst-case
+      cardinality, inside the V4.2-raised 512 cap), salt streaks +
+      darkened waterline drawn per level (`draw-ship.ts` V3.5 block).
+- [x] Cue registered as `cue.ship.zone-weathering` in
+      `visual-cue-registry.ts`; parity rides the existing risk-zone
+      detail-panel/ledger fields.
+- [x] Verified: 4 tests in `draw-ship-weathering.test.ts` (level mapping,
+      cache-key bucketing) green; ships suite 59 green.
+- Shared-tree note: implementation by the parallel agent; the code was
+  swept into commits `c2109a9` (V3.3) and `d1f9e67` (V3.5) by this
+  session's `git add -A` while both sessions shared the working tree.
+  Content verified green; attribution recorded here instead of rewriting
+  history.
 
 ---
 
