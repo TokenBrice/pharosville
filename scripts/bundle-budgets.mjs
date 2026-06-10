@@ -26,6 +26,7 @@ export const bundleBudgets = {
 
 export const aggregateBudgets = {
   // 2026-06-09 ship-identity pass: see desktop chunk note above.
-  maxJsRawBytes: 1_315 * 1024,
-  maxJsGzipBytes: 388 * 1024,
+  // 2026-06-11 V2.5 harbor ambient (quay lanterns + gull fishing dives): +~12 KiB raw / +5 KiB gzip.
+  maxJsRawBytes: 1_328 * 1024,
+  maxJsGzipBytes: 393 * 1024,
 };

@@ -30,11 +30,7 @@ export function useLegendDialog(input: {
   setAnnouncement: (message: string) => void;
 }) {
   const { setAnnouncement } = input;
-  const [legendOpen, setLegendOpen] = useState(false);
-
-  useEffect(() => {
-    if (!legendDismissed()) setLegendOpen(true);
-  }, []);
+  const [legendOpen, setLegendOpen] = useState(() => !legendDismissed());
 
   const openLegend = useCallback(() => {
     setLegendOpen(true);
