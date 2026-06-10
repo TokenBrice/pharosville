@@ -180,12 +180,14 @@ fills text for every visible ship every frame at zoom ≥ 1.1 — up to ~200
 `measureText`+`fillText` calls per frame exactly when zoomed-in scenes are
 heaviest.
 
-- [ ] Cache rendered plates as tiny offscreen sprites keyed by
-      `(symbol, fontPxBucket, dprBucket)` with an LRU cap (~256), reusing the
-      `lru-cache.ts` pattern; blit instead of filling text.
-- [ ] Keep greedy overlap rejection logic untouched (it operates on rects).
-- [ ] Verify: `nameplateDrawMs` (from V1.1) drops; plates pixel-match within
-      snapshot tolerance.
+- [x] Plates pre-render once per `(symbol, fontPx, dprBucket)` into padded
+      offscreen sprites (LRU 256, `plateSpriteCacheStats()` telemetry) and
+      blit via one drawImage; jsdom/no-2D environments keep the original
+      direct path as fallback.
+- [x] Greedy overlap rejection untouched (rect-based, sprite-agnostic).
+- [x] Verified: 6 nameplate tests including sprite-blit + fallback cases;
+      visual lane 20/20; live check at dpr 2 — 55 plates in ~0.3ms
+      (`outputs/visual-upgrade/v15-nameplates.png`, crisp).
 
 ---
 
