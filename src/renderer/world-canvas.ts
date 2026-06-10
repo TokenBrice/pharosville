@@ -537,10 +537,17 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
     ? input
     : { ...input, motion: lighthouseMotion };
   ctx.imageSmoothingEnabled = false;
+  // V1.1 per-pass instrumentation: coarse performance.now() pairs around the
+  // major pass groups only (never per entity) so dense-scene draw cost is
+  // attributable in `__pharosVilleDebug.renderMetrics`.
+  const skyStartMs = performance.now();
   drawSky(input, frame.lighthouseRender);
+  const skyDrawMs = performance.now() - skyStartMs;
 
   const visibleTileCount = countVisibleTiles(input);
+  const terrainBlitStartMs = performance.now();
   drawStaticPassCached(input, frame, "terrain", paintStaticTerrainPass);
+  const terrainBlitMs = performance.now() - terrainBlitStartMs;
   const waterAccentStart = performance.now();
   input.ctx.imageSmoothingEnabled = false;
   const waterAccentTileCount = shouldDrawScheduledPass(input.renderScheduler, "water-accents")
@@ -550,10 +557,14 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
     ? drawCoastalWaterDetails(input)
     : 0;
   const waterAccentDrawMs = performance.now() - waterAccentStart;
+  const preSceneAmbientStartMs = performance.now();
   if (shouldDrawScheduledPass(input.renderScheduler, "atmospheric-fade")) {
     drawAtmosphericFade(input, nightFactor);
   }
+  const sceneBlitStartMs = performance.now();
   drawRevealGatedScene(input, frame, reveal);
+  const sceneBlitEndMs = performance.now();
+  const staticBlitDrawMs = terrainBlitMs + (sceneBlitEndMs - sceneBlitStartMs);
   if (reveal.drawLighthouse) {
     if (shouldDrawScheduledPass(input.renderScheduler, "lighthouse-surf")) drawLighthouseSurf(lighthouseInput);
     if (shouldDrawScheduledPass(input.renderScheduler, "lighthouse-reflection")) {
@@ -569,12 +580,18 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   // layering contract as harbor-surf: over the water, under the entity-pass
   // dock sprites. Recovery keeps the pass; constrained sheds it.
   if (shouldDrawScheduledPass(input.renderScheduler, "dock-caustics")) drawDockCaustics(input);
+  const entityPassStartMs = performance.now();
+  const preEntityAmbientMs = (entityPassStartMs - preSceneAmbientStartMs) - (sceneBlitEndMs - sceneBlitStartMs);
   const entityMetrics = drawRevealGatedEntities(input, frame, nightFactor, reveal, lighthouseInput);
   drawSquadChrome(input, frame);
+  const entityPassEndMs = performance.now();
+  const entityPassDrawMs = entityPassEndMs - entityPassStartMs;
   // Ticker nameplates draw as a fleet-wide pass after all entities so plates
   // sit above neighboring hulls, and before night tint / water labels so they
   // dim with the scene like other in-world signage.
-  drawShipNameplates(input, frame, frame.visibleShips);
+  const nameplateDrawCount = drawShipNameplates(input, frame, frame.visibleShips);
+  const nameplateEndMs = performance.now();
+  const nameplateDrawMs = nameplateEndMs - entityPassEndMs;
   if (shouldDrawScheduledPass(input.renderScheduler, "cloud-shadow")) {
     drawCloudShadowDrift(input, isScheduledPassDegraded(input.renderScheduler, "cloud-shadow") ? nightFactor * 0.65 : nightFactor);
   }
@@ -613,9 +630,14 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
     }
   }
   if (shouldDrawScheduledPass(input.renderScheduler, "scene-vignette")) drawNightVignette(input, nightFactor);
+  const selectionStartMs = performance.now();
+  const postEntityAmbientMs = selectionStartMs - nameplateEndMs;
   const selectionDrawableCount = drawSelection(input);
+  const selectionEndMs = performance.now();
+  const selectionChromeDrawMs = selectionEndMs - selectionStartMs;
   if (shouldDrawScheduledPass(input.renderScheduler, "establishing-letterbox")) drawEstablishingShotLetterbox(input);
   if (shouldDrawScheduledPass(input.renderScheduler, "film-grain")) drawFilmGrainPass(input);
+  const ambientDrawMs = preEntityAmbientMs + postEntityAmbientMs + (performance.now() - selectionEndMs);
   const drawableCounts = {
     ...entityMetrics.drawableCounts,
     selection: selectionDrawableCount,
@@ -641,6 +663,13 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
     waterAccentMode: input.motion.reducedMotion ? "reduced-motion-direct" : "direct",
     waterAccentTileCount,
     coastalWaterTileCount,
+    skyDrawMs,
+    staticBlitDrawMs,
+    entityPassDrawMs,
+    nameplateDrawMs,
+    nameplateDrawCount,
+    ambientDrawMs,
+    selectionChromeDrawMs,
     ...(scheduler?.targetFrameMs !== undefined ? { renderBudgetTargetMs: scheduler.targetFrameMs } : {}),
     ...(scheduler?.degradedPasses ? { schedulerDegradedPasses: scheduler.degradedPasses } : {}),
     ...(scheduler?.skippedPasses ? { schedulerSkippedPasses: scheduler.skippedPasses } : {}),

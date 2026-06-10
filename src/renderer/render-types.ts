@@ -108,6 +108,21 @@ export interface PharosVilleRenderMetrics {
   waterAccentDrawMs?: number;
   /** Rendering strategy for water accents. */
   waterAccentMode?: "direct" | "reduced-motion-direct";
+  /** Wall-clock draw duration for the sky backdrop pass. */
+  skyDrawMs?: number;
+  /** Combined wall-clock blit duration for the cached terrain + scene static passes. */
+  staticBlitDrawMs?: number;
+  /** Wall-clock draw duration for the z-sorted entity pass plus squad chrome. */
+  entityPassDrawMs?: number;
+  /** Wall-clock draw duration for the fleet-wide ticker nameplate pass. */
+  nameplateDrawMs?: number;
+  /** Number of ticker nameplates drawn this frame (zoom-gated). */
+  nameplateDrawCount?: number;
+  /** Combined wall-clock duration for ambient/effect passes (surf, caustics,
+      labels, night, weather, birds, grain, …) outside entity/selection work. */
+  ambientDrawMs?: number;
+  /** Wall-clock draw duration for the selection chrome pass. */
+  selectionChromeDrawMs?: number;
   /** Current renderer quality tier for low-priority visual effects. */
   schedulerTier?: PharosVilleRenderSchedulerTier;
   /** Decorative passes reduced by the render scheduler this frame. */

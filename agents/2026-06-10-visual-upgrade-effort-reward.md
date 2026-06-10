@@ -103,16 +103,23 @@ Only `waterAccentDrawMs` is instrumented today (`src/renderer/render-types.ts`).
 Dense-scene draw cost is unattributed, so every perf decision below is a guess
 until this lands. Do this first.
 
-- [ ] Extend `RenderFrameMetrics` with `entityPassDrawMs`, `nameplateDrawMs`,
-      `staticBlitDrawMs`, `ambientDrawMs`, `selectionChromeDrawMs`, and a
-      `shipDrawCount`/`overlayDrawCount` pair.
-- [ ] Wire timers in `drawPharosVille` (`src/renderer/world-canvas.ts`) around
+- [x] Extend `PharosVilleRenderMetrics` with `skyDrawMs`, `staticBlitDrawMs`,
+      `entityPassDrawMs`, `nameplateDrawMs`, `nameplateDrawCount`,
+      `ambientDrawMs`, `selectionChromeDrawMs` (draw counts already covered by
+      `drawableCounts` + `visibleShipCount`).
+- [x] Wire timers in `drawPharosVille` (`src/renderer/world-canvas.ts`) around
       the existing pass boundaries; expose via `window.__pharosVilleDebug`.
-- [ ] Capture a before-baseline on the dense fixture and record the pass
+- [x] Capture a before-baseline on the dense fixture and record the pass
       breakdown in this file (table below this task when measured).
-- [ ] Optional: assert presence (not budgets) in `tests/perf/sustained-motion.spec.ts`.
+- [x] Presence guard + breakdown logging in `tests/perf/sustained-motion.spec.ts`.
 - Risk: timer overhead — use coarse `performance.now()` pairs per pass, not
   per entity.
+
+**Measured baseline (2026-06-10, local dev machine, dense fixture, 5s
+sustained, ~5ms median draw):** entity pass **2.01ms (~62%)**, water accents
+0.86ms (~26%), ambient 0.25ms, sky 0.11ms, staticBlit 0.01ms, selection
+0.01ms, nameplates 0 (default fit zoom 0.88 < 1.1 gate). Entity pass is the
+V4.1 priority target; CI 4-vCPU scales these ~25-30× but proportions hold.
 
 ### V1.2 Batched asset-load cache invalidation — Effort S, Reward ★★★
 

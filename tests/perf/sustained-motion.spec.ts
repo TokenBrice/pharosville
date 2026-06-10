@@ -131,6 +131,18 @@ test.describe("sustained-motion perf telemetry", () => {
     let lastFramePacing: DebugRenderMetrics["framePacing"] | undefined;
     let lastRouteCacheStats: DebugRenderMetrics["routeCacheStats"] | undefined;
     let lastLongtask: DebugRenderMetrics["longtask"] | undefined;
+    // V1.1 per-pass attribution: accumulate pass-group timings so the lane
+    // logs a draw-cost breakdown alongside the budget assertions.
+    const passSums = {
+      skyDrawMs: 0,
+      staticBlitDrawMs: 0,
+      waterAccentDrawMs: 0,
+      entityPassDrawMs: 0,
+      nameplateDrawMs: 0,
+      ambientDrawMs: 0,
+      selectionChromeDrawMs: 0,
+    };
+    let passSampleCount = 0;
 
     for (let i = 0; i < POLL_SAMPLES; i += 1) {
       await page.waitForTimeout(POLL_INTERVAL_MS);
@@ -151,10 +163,25 @@ test.describe("sustained-motion perf telemetry", () => {
       }
       if (metrics?.routeCacheStats) lastRouteCacheStats = metrics.routeCacheStats;
       if (metrics?.longtask) lastLongtask = metrics.longtask;
+      if (typeof metrics?.entityPassDrawMs === "number") {
+        passSampleCount += 1;
+        for (const key of Object.keys(passSums) as Array<keyof typeof passSums>) {
+          const value = metrics[key];
+          if (typeof value === "number" && Number.isFinite(value)) passSums[key] += value;
+        }
+      }
     }
 
     // Enough valid samples to make the distribution meaningful.
     expect(durations.length).toBeGreaterThanOrEqual(MIN_VALID_SAMPLES);
+
+    // V1.1 presence guard: the per-pass attribution fields must keep flowing
+    // through the debug contract (values are informational, not budgeted).
+    expect(passSampleCount).toBeGreaterThan(0);
+    const passAverages = Object.fromEntries(
+      Object.entries(passSums).map(([key, total]) => [key, Number((total / Math.max(1, passSampleCount)).toFixed(2))]),
+    );
+    console.info("[perf] per-pass draw-time averages (ms):", JSON.stringify(passAverages));
 
     const sorted = [...durations].sort((a, b) => a - b);
     const median = sorted[Math.floor(sorted.length / 2)] ?? Number.POSITIVE_INFINITY;

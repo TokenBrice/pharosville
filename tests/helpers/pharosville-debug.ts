@@ -67,6 +67,15 @@ export type DebugRenderMetrics = {
   shipMaxPositionDeltaTile?: number;
   routeCacheStats?: { hitRatio: number; evictionRate: number; size: number; capacity: number };
   longtask?: { count: number; maxDurationMs: number };
+  // V1.1 per-pass draw-time attribution (coarse pass-group timers).
+  skyDrawMs?: number;
+  staticBlitDrawMs?: number;
+  waterAccentDrawMs?: number;
+  entityPassDrawMs?: number;
+  nameplateDrawMs?: number;
+  nameplateDrawCount?: number;
+  ambientDrawMs?: number;
+  selectionChromeDrawMs?: number;
 };
 
 export type PharosVilleVisualDebug = {
