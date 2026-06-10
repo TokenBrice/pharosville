@@ -505,14 +505,81 @@ function drawWake(
   ctx.restore();
 }
 
+// === V2.3 persistent foam wake trails =======================================
+//
+// The old trailing wake extrapolated three synthetic dashes straight behind
+// the current heading, so a turning ship's "history" swung rigidly with the
+// bow. Trails are now real breadcrumbs: each eligible ship records its wake
+// point in iso-world coordinates (camera-independent) and the trail renders
+// as an age-faded polyline along the actual sailed path, curving through
+// turns and washing out over TRAIL_LIFETIME_SECONDS.
+//
+// Render-side state only (like the plate/body sprite caches): the buffer
+// never feeds motion, hit-testing, or analytics. Eligibility stays the
+// existing fast-class cap (selected / effect / mover / top-recent ships, ≤ a
+// handful per frame); reduced motion never reaches this code path because
+// `drawsWake` is false there, and `resetWakeTrails()` clears state for
+// tests.
+const TRAIL_LIFETIME_SECONDS = 2.6;
+const TRAIL_MIN_STEP_ISO = 3.5;
+const TRAIL_MAX_POINTS = 26;
+const TRAIL_MAX_SHIPS = 24;
+const TRAIL_AGE_BANDS = [
+  { alphaScale: 1, maxAge: 0.34, widthScale: 1 },
+  { alphaScale: 0.6, maxAge: 0.67, widthScale: 0.8 },
+  { alphaScale: 0.3, maxAge: 1, widthScale: 0.6 },
+] as const;
+
+interface WakeTrailPoint {
+  isoX: number;
+  isoY: number;
+  t: number;
+}
+
+const wakeTrailsByShip = new Map<string, WakeTrailPoint[]>();
+
+/** @internal Test hook to drop accumulated trail state between cases. */
+export function resetWakeTrails(): void {
+  wakeTrailsByShip.clear();
+}
+
+function pushWakeTrailPoint(shipId: string, isoX: number, isoY: number, time: number): WakeTrailPoint[] {
+  let points = wakeTrailsByShip.get(shipId);
+  if (!points) {
+    points = [];
+    // Re-insertion keeps Map insertion order ≈ recency; evict the oldest
+    // tracked ship beyond the cap.
+    if (wakeTrailsByShip.size >= TRAIL_MAX_SHIPS) {
+      const oldest = wakeTrailsByShip.keys().next().value;
+      if (oldest !== undefined) wakeTrailsByShip.delete(oldest);
+    }
+    wakeTrailsByShip.set(shipId, points);
+  }
+  const last = points[points.length - 1];
+  // Time went backwards (test fixtures, world remount) — restart the trail.
+  if (last && time < last.t) points.length = 0;
+  const tail = points[points.length - 1];
+  if (!tail || Math.hypot(isoX - tail.isoX, isoY - tail.isoY) >= TRAIL_MIN_STEP_ISO) {
+    points.push({ isoX, isoY, t: time });
+    if (points.length > TRAIL_MAX_POINTS) points.splice(0, points.length - TRAIL_MAX_POINTS);
+  }
+  // Age out stale breadcrumbs from the front.
+  let firstLive = 0;
+  while (firstLive < points.length && time - points[firstLive]!.t > TRAIL_LIFETIME_SECONDS) firstLive += 1;
+  if (firstLive > 0) points.splice(0, firstLive);
+  return points;
+}
+
 function drawTrailingWake(
   ctx: CanvasRenderingContext2D,
   input: {
+    camera: { offsetX: number; offsetY: number; zoom: number };
     heading: { x: number; y: number };
     hull: ShipHull;
     intensity: number;
     sample: ShipMotionSample | null;
     shipId: string;
+    timeSeconds: number;
     wakeMultiplier: number;
     x: number;
     y: number;
@@ -523,43 +590,55 @@ function drawTrailingWake(
   const speedRatio = sampleSpeedRatio(input.sample);
   const trailIntensity = clamp(input.intensity * (0.72 + speedRatio * 0.28), 0, 1.2);
   if (trailIntensity < SHIP_CONTINUOUS_MOTION.trailingWakeMinIntensity) return;
-  const headingMagnitude = Math.sqrt(input.heading.x * input.heading.x + input.heading.y * input.heading.y);
-  const fx = headingMagnitude > 0 ? input.heading.x / headingMagnitude : -1;
-  const fy = headingMagnitude > 0 ? input.heading.y / headingMagnitude : 0;
-  const wx = -fx;
-  const wy = -fy;
-  const cx = -fy;
-  const cy = fx;
+  const { camera } = input;
+  const isoX = (input.x - camera.offsetX) / camera.zoom;
+  const isoY = (input.y - camera.offsetY) / camera.zoom;
+  const points = pushWakeTrailPoint(input.shipId, isoX, isoY, input.timeSeconds);
+  if (points.length < 2) return;
+
   const style = wakeStyleForZone(input.zone);
   const personality = wakePersonalityForHull(input.hull);
-  const variant = stableVisualVariant(`${input.shipId}:trailing-wake`);
-  const sideBias = variant % 2 === 0 ? 1 : -1;
-  const phase = (variant % 11) * 0.17;
+  const baseAlpha = (0.10 + trailIntensity * 0.14) * personality.alphaScale;
+  const baseWidth = Math.max(1, input.zoom * 0.9 * input.wakeMultiplier * personality.lineScale);
   ctx.save();
   ctx.lineCap = "round";
-  ctx.lineWidth = Math.max(1, input.zoom * 0.74 * input.wakeMultiplier * personality.lineScale);
-  for (let index = 0; index < SHIP_CONTINUOUS_MOTION.trailingWakeSegmentCount; index += 1) {
-    const t = index / SHIP_CONTINUOUS_MOTION.trailingWakeSegmentCount;
-    const fade = 1 - t;
-    const baseDistance = (22 + index * SHIP_CONTINUOUS_MOTION.trailingWakeSpacingPixels * (0.85 + speedRatio * 0.22))
-      * input.zoom
-      * personality.spacingScale;
-    const lateral = (Math.sin(phase + index * 1.7) * 2.2 + sideBias * (2 + index * 0.85))
-      * input.zoom
-      * personality.spreadScale;
-    const length = (7 + speedRatio * 8 + index * 2.4)
-      * input.zoom
-      * personality.lengthScale;
-    ctx.strokeStyle = wakeRgba(style, (0.09 + trailIntensity * 0.12) * fade * personality.alphaScale);
+  ctx.lineJoin = "round";
+  // Stroke the trail in age bands (newest brightest) so per-segment fades
+  // stay batched: at most 3 strokes per trail.
+  for (let bandIndex = 0; bandIndex < TRAIL_AGE_BANDS.length; bandIndex += 1) {
+    const band = TRAIL_AGE_BANDS[bandIndex]!;
+    const bandFloor = bandIndex === 0 ? 0 : TRAIL_AGE_BANDS[bandIndex - 1]!.maxAge;
+    let bandHasSegment = false;
     ctx.beginPath();
-    ctx.moveTo(
-      input.x + wx * baseDistance + cx * lateral,
-      input.y + wy * baseDistance + cy * lateral,
-    );
-    ctx.lineTo(
-      input.x + wx * (baseDistance + length) + cx * lateral * 1.18,
-      input.y + wy * (baseDistance + length) + cy * lateral * 1.18,
-    );
+    let penDown = false;
+    for (let i = 0; i < points.length; i += 1) {
+      const point = points[i]!;
+      const age = (input.timeSeconds - point.t) / TRAIL_LIFETIME_SECONDS;
+      if (age > band.maxAge || age < bandFloor) {
+        penDown = false;
+        continue;
+      }
+      const screenX = point.isoX * camera.zoom + camera.offsetX;
+      const screenY = point.isoY * camera.zoom + camera.offsetY;
+      if (penDown) {
+        ctx.lineTo(screenX, screenY);
+        bandHasSegment = true;
+      } else {
+        // Bridge from the previous point so band boundaries stay connected.
+        const prev = points[i - 1];
+        if (prev) {
+          ctx.moveTo(prev.isoX * camera.zoom + camera.offsetX, prev.isoY * camera.zoom + camera.offsetY);
+          ctx.lineTo(screenX, screenY);
+          bandHasSegment = true;
+        } else {
+          ctx.moveTo(screenX, screenY);
+        }
+        penDown = true;
+      }
+    }
+    if (!bandHasSegment) continue;
+    ctx.strokeStyle = wakeRgba(style, baseAlpha * band.alphaScale);
+    ctx.lineWidth = Math.max(1, baseWidth * band.widthScale);
     ctx.stroke();
   }
   ctx.restore();

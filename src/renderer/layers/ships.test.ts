@@ -325,7 +325,12 @@ describe("drawShipBody sail trim", () => {
     const ctx = makeRecordingCtx();
     const input = makeDrawInput(ctx, ship);
     input.shipMotionSamples = new Map([[ship.id, { ...makeMotionSample(ship.id), ...sample }]]);
-    if (animated) input.motion.plan.animatedShipIds.add(ship.id);
+    if (animated) {
+      input.motion = {
+        ...input.motion,
+        plan: { ...input.motion.plan, animatedShipIds: new Set([ship.id]) },
+      };
+    }
     const cache = createShipBodyCache({
       canvasFactory: (width, height) => ({
         height,
