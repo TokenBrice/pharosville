@@ -8,13 +8,18 @@ renders deterministic static frames and must not keep a RAF loop alive.
 
 ## Speed Classes
 
-- Static: terrain, printed water labels, cemetery markers, dock footprints, and
-  detail chrome.
+- Static: terrain, printed water labels, cemetery markers, dock footprints,
+  detail chrome, and the world-rim haze (mood-tinted bands feathering the map
+  edge into the sky backdrop; pure function of map/camera/wall-clock mood).
 - Slow: lighthouse beam shimmer, semantic water shimmer, fog, selected
-  relationship pulse, harbor lamps, lighthouse-attached birds, and the
+  relationship pulse, harbor lamps, lighthouse-attached birds, the
   wind-scaled caustic shimmer fringing the four major EVM-bay docks
   (scheduler pass `dock-caustics`: recovery keeps, constrained sheds;
-  reduced motion freezes the time-zero frame).
+  reduced motion freezes the time-zero frame), and the V2.1 swell fronts —
+  three wind-scaled wave fronts travelling across the water field inside the
+  `water-accents` pass (inherits its constrained-tier shedding; reduced
+  motion freezes the time-zero frame; fronts part around land and carry no
+  analytical meaning beyond the existing wind/threat channel).
 - Medium: ship movement along sampled water routes and bounded harbor/civic
   activity effects.
 - Fast: recent-change sparks and wake accents only, capped to selected, top, or

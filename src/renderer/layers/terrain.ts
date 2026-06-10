@@ -10,6 +10,8 @@ import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-ty
 import { scanVisibleTiles, terrainKindForTile, visibleTileBoundsForMap } from "../visible-tiles";
 import { TERRAIN_TEXTURE, TILE_COLORS } from "../visual-config";
 import { isScreenCoordinateInViewport, type VisibleTileBounds } from "../viewport";
+import { drawSwellField } from "./swell-field";
+import { windMultiplierForMotion } from "./weather";
 
 const BEAM_CAUSTIC_HALF_ARC = (20 * Math.PI) / 180;
 // C3: hoisted so the 3 per-tile call sites resolve a module-scope constant.
@@ -262,6 +264,10 @@ export function drawWaterTerrainAccents(input: DrawPharosVilleInput, bounds: Vis
       beam,
     );
   }
+  // V2.1 — coherent swell fronts travel across the whole water field on top
+  // of the per-tile accents. Sharing this pass means the swell inherits the
+  // water-accents scheduler shedding and draw-time metric.
+  drawSwellField(input, windMultiplierForMotion(motion, world));
   drawSeawallRipples(ctx, camera, motion);
   return accentTileCount;
 }

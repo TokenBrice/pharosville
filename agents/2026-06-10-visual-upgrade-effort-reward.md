@@ -207,19 +207,24 @@ marks from a precomputed candidate list (`waterAccentCandidatesForMap` in
 `src/renderer/layers/terrain.ts`) — correct but visually incoherent: the sea
 never moves *as a body of water*.
 
-- [ ] Add a zone-aware swell pass: 2–3 long, slow wave fronts per visible
-      water region that drift across many tiles (single batched Path2D
-      stroke per front per frame — not per tile), amplitude/speed scaled by
-      `ZONE_THEMES` motion scalars and the sea-state wind multiplier.
-- [ ] Phase is a pure function of (tile, time) — deterministic, no state.
-- [ ] Keep zone base colors untouched; fronts are translucent highlights
-      using each zone's existing `wave`/accent colors.
-- [ ] Scheduler: join the `water-accents` shed group (constrained sheds,
-      recovery keeps); reduced motion freezes time-zero like dock caustics.
-- [ ] Danger/storm zones get steeper, shorter fronts; Calm gets long lazy
-      ones — reinforcing existing zone semantics without new meaning.
-- [ ] Verify: motion visual lane; `waterAccentDrawMs` stays within budget
-      (batched strokes should add ≤ 1–2ms); MOTION_POLICY.md Slow class note.
+- [x] `src/renderer/layers/swell-field.ts`: 3 wave fronts on iso rows
+      travelling down-screen, wrapping over the map; each front = one
+      batched crest stroke + one fainter trailing stroke (6 strokes/frame).
+      Fronts part around land/islets via per-sample tile lookups; speed
+      scales with the threat-aware wind multiplier.
+- [x] Phase is a pure function of (row, time, front) — no state; reduced
+      motion freezes the time-zero frame (tested).
+- [x] Zone base colors untouched — fronts are a neutral foam highlight;
+      per-segment waviness scales with each zone's
+      `ZONE_THEMES.motion.amplitudeScale` (steeper in storm water). Note:
+      front *color* stays uniform (a front crossing zones can't restyle
+      mid-stroke without unbatching), amplitude carries the zone feel.
+- [x] Called from inside `drawWaterTerrainAccents` → inherits the
+      `water-accents` scheduler shed group and `waterAccentDrawMs` metric.
+- [x] Verified: 5 swell tests (travel, land-parting, reduced-motion freeze,
+      wind scaling); visual lane 20/20; MOTION_POLICY.md Slow class updated;
+      live check `outputs/visual-upgrade/v21-swell-t0.png`. Also hardened
+      `maxActiveThreatLevel` for map-only test worlds.
 
 ### V2.2 Lighthouse beam sweeps ships & water — Effort M, Reward ★★★★
 

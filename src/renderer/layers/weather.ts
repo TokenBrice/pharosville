@@ -74,7 +74,8 @@ export function cloudScalarsForThreat(threat: ThreatLevel): CloudThreatScalars {
  */
 export function maxActiveThreatLevel(world: PharosVilleWorld): ThreatLevel {
   let max: ThreatLevel = 0;
-  for (const area of world.areas) {
+  // Tolerate partial world fixtures (tests build map-only worlds).
+  for (const area of world.areas ?? []) {
     const level = threatLevelForArea(area);
     if (level > max) max = level;
   }
