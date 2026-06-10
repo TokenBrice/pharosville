@@ -278,14 +278,22 @@ Clouds, mist, stars, and lightning are already threat-aware — the sky
 gradient itself is not. Extend the existing channel (precedent set, no new
 semantics class).
 
-- [ ] Modulate sky mood colors by max active DEWS threat (subtle: ≤ 15%
-      darkening + cool shift at WARNING+, in `sky.ts` mood resolution).
-- [ ] A drifting rain-squall curtain over Danger Strait while any ship holds
-      DANGER placement (slow class, localized, joins the weather pass next
-      to the existing lightning).
-- [ ] Document in `VISUAL_INVARIANTS.md` (sky/threat channel) — the ledger
-      already exposes per-ship risk zones; add a legend note for the squall.
-- [ ] Reduced motion: static squall texture, frozen drift.
+- [x] Sky gradient stages darker/cooler with max DEWS threat
+      (`SKY_THREAT_STAGE_ALPHA` ≤ 0.13 day, night-scaled; threat joins the
+      cached backdrop key so the stage costs nothing per frame).
+- [x] `drawDangerSqualls` in `weather.ts`: persistent localized rain curtain
+      (storm-gray wash + 16 slanted drifting streaks) over every
+      DANGER-banded area, drawn in the weather pass before lightning;
+      deterministic per (area id, time).
+- [x] Documented in `VISUAL_INVARIANTS.md` (sky/weather threat channel);
+      DOM parity via `atmosphereDescriptionForArea` "rain squall" wording;
+      cue registered as `cue.area.danger-squall`.
+- [x] Reduced motion: frozen time-zero squall frame (tested), and the RM
+      branch of `drawWeather` now renders the squall before the transient
+      lightning short-circuit.
+- [x] Verified: 51 weather/sky/registry tests; full src suite 873; visual
+      lane 20/20; docs lane green. Live fleet currently has no DANGER band
+      (calm market) so the live check shows no squall — correct.
 
 ### V2.5 Harbor ambient polish — Effort S–M, Reward ★★★
 

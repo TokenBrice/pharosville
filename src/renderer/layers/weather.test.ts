@@ -4,6 +4,7 @@ import {
   atmosphereDescriptionForArea,
   bandReceivesLightning,
   cloudScalarsForThreat,
+  drawDangerSqualls,
   drawWeather,
   lightningThunderRimIntensityForWorld,
   maxActiveThreatLevel,
@@ -164,7 +165,9 @@ describe("weather", () => {
       const stops: string[] = [];
       const gradient = { addColorStop: vi.fn((_offset: number, color: string) => stops.push(color)) };
       const ctx = createCanvasContextStub(
-        ["save", "restore", "fill", "beginPath", "arc"],
+        // ellipse/stroke/moveTo/lineTo: the V2.4 danger squall draws before
+        // the lightning highlight on DANGER fixtures.
+        ["save", "restore", "fill", "beginPath", "arc", "ellipse", "stroke", "moveTo", "lineTo"],
         {
           createRadialGradient: vi.fn(() => gradient),
           fillStyle: "",
@@ -198,7 +201,7 @@ describe("weather", () => {
       const world = worldWith([makeArea("danger", "DANGER", { x: 55, y: 4 })]);
       const gradient = { addColorStop: vi.fn() };
       const ctx = createCanvasContextStub(
-        ["arc", "beginPath", "fill", "restore", "save"],
+        ["arc", "beginPath", "fill", "restore", "save", "ellipse", "stroke", "moveTo", "lineTo"],
         {
           createRadialGradient: vi.fn(() => gradient),
           fillStyle: "",
@@ -227,7 +230,8 @@ describe("weather", () => {
       drawWeather(input);
 
       expect(ctx.createRadialGradient).toHaveBeenCalledTimes(1);
-      expect(ctx.fill).toHaveBeenCalledTimes(2);
+      // 2 lightning highlight fills + 2 squall curtain washes (V2.4).
+      expect(ctx.fill).toHaveBeenCalledTimes(4);
     });
   });
 
@@ -244,6 +248,55 @@ describe("weather", () => {
 
     it("includes 'lightning active' for WARNING", () => {
       expect(atmosphereDescriptionForArea(makeArea("a", "WARNING"))).toContain("lightning active");
+    });
+
+    it("includes 'rain squall' for DANGER only (V2.4 parity)", () => {
+      expect(atmosphereDescriptionForArea(makeArea("a", "DANGER"))).toContain("rain squall");
+      expect(atmosphereDescriptionForArea(makeArea("a", "WARNING"))).not.toContain("rain squall");
+    });
+  });
+
+  describe("drawDangerSqualls (V2.4)", () => {
+    function squallCtx() {
+      return createCanvasContextStub(
+        ["save", "restore", "beginPath", "ellipse", "fill", "moveTo", "lineTo", "stroke"],
+        { fillStyle: "", strokeStyle: "" },
+      );
+    }
+
+    it("draws one curtain per DANGER area and none below DANGER", () => {
+      const danger = worldWith([
+        makeArea("danger-a", "DANGER", { x: 55, y: 4 }),
+        makeArea("warning-b", "WARNING", { x: 50, y: 8 }),
+      ]);
+      const ctx = squallCtx();
+      const drawn = drawDangerSqualls(createDrawInput({ ctx, world: danger }));
+      expect(drawn).toBe(1);
+      expect(ctx.ellipse).toHaveBeenCalledTimes(1);
+      expect(ctx.stroke).toHaveBeenCalledTimes(1);
+    });
+
+    it("freezes the time-zero frame under reduced motion", () => {
+      const world = worldWith([makeArea("danger-a", "DANGER", { x: 55, y: 4 })]);
+      const motionAt = (timeSeconds: number, reducedMotion: boolean) => ({
+        plan: {
+          animatedShipIds: new Set<string>(),
+          effectShipIds: new Set<string>(),
+          lighthouseFireFlickerPerSecond: 1,
+          moverShipIds: new Set<string>(),
+          shipPhases: new Map<string, number>(),
+          shipRoutes: new Map(),
+        },
+        reducedMotion,
+        timeSeconds,
+        wallClockHour: 0,
+      });
+      const reduced = squallCtx();
+      drawDangerSqualls(createDrawInput({ ctx: reduced, world, motion: motionAt(42, true) }));
+      const zero = squallCtx();
+      drawDangerSqualls(createDrawInput({ ctx: zero, world, motion: motionAt(0, false) }));
+      expect(JSON.stringify((reduced.moveTo as ReturnType<typeof vi.fn>).mock.calls))
+        .toBe(JSON.stringify((zero.moveTo as ReturnType<typeof vi.fn>).mock.calls));
     });
   });
 });

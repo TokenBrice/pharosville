@@ -135,6 +135,17 @@ export function buildVisualCueRegistry(): VisualCue[] {
       reducedMotionEquivalent: "same static baked wear (deterministic per ship and zone bucket)",
     },
     {
+      id: "cue.area.danger-squall",
+      target: { kind: "area" },
+      primaryChannels: ["color", "motion"],
+      visual: "localized rain curtain (storm-gray wash + slanted drifting streaks) over every DANGER-banded sea area, persistent while the band holds; the sky gradient also stages darker as fleet threat climbs",
+      sourceField: "pegSummary/stress DEWS band on areas (band === DANGER); maxActiveThreatLevel for the sky stage",
+      questionAnswered: "Which named water is in active DANGER right now?",
+      failureState: "no squall; the area detail atmosphere row still names the band",
+      domEquivalent: "area detail atmosphere description ('rain squall' wording) and accessibility ledger area row",
+      reducedMotionEquivalent: "frozen time-zero squall frame (streaks static, wash identical)",
+    },
+    {
       id: "cue.cemetery",
       target: { kind: "grave" },
       primaryChannels: ["shape", "size", "color"],

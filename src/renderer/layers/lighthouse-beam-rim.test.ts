@@ -138,7 +138,7 @@ describe("drawLighthouseBeamRim (V2.2 sweep sync)", () => {
 
     const { ctx, calls } = makeCtx();
     const input = makeInput(ctx, [ship], time);
-    (input as { shipMotionSamples: Map<string, { tile: { x: number; y: number } }> }).shipMotionSamples =
+    (input as unknown as { shipMotionSamples: Map<string, { tile: { x: number; y: number } }> }).shipMotionSamples =
       new Map([[ship.id, { tile: beamTile }]]);
     drawLighthouseBeamRim(input, [ship], undefined, 1);
     expect(calls.filter((call) => call.method === "stroke").length).toBe(1);

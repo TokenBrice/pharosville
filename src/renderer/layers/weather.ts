@@ -205,6 +205,10 @@ const thunderRimPlanScratch: LightningPlan[] = [];
  */
 export function drawWeather(input: DrawPharosVilleInput): void {
   const { ctx, motion, world, width, height, camera } = input;
+  // V2.4 — the squall is persistent while a zone holds DANGER, so reduced
+  // motion renders its frozen time-zero frame (dock-caustics precedent)
+  // before the transient-lightning short-circuit below.
+  drawDangerSqualls(input);
   if (motion.reducedMotion) {
     activeLightningSnapshot.timeSeconds = motion.timeSeconds;
     activeLightningSnapshot.zones.length = 0;
@@ -251,6 +255,70 @@ function lightningEnvelope(progress: number): number {
   if (progress < 0.30) return 1;
   const decay = (progress - 0.30) / 0.70;
   return Math.exp(-decay * 4);
+}
+
+// ---------------------------------------------------------------------------
+// V2.4 Danger squall
+// ---------------------------------------------------------------------------
+//
+// A localized rain curtain over every DANGER-banded area: a faint slanted
+// wash plus drifting rain streaks around the zone centroid. Persistent while
+// the band holds (unlike the transient lightning flash), so it reads as
+// "that water is in a storm" even between strikes. Deterministic per
+// (area id, time); reduced motion renders the frozen time-zero frame.
+// DOM parity rides `atmosphereDescriptionForArea` ("rain squall" wording for
+// DANGER) and the registered `cue.area.danger-squall`.
+
+const SQUALL_STREAK_COUNT = 16;
+const SQUALL_RADIUS_X_TILES = 5.2;
+const SQUALL_RADIUS_Y_TILES = 3.0;
+const SQUALL_SLANT_X = -0.34; // screen-space rain slant (wind from the east)
+const SQUALL_WASH_ALPHA = 0.07;
+const SQUALL_STREAK_ALPHA = 0.16;
+const SQUALL_FALL_SPEED = 0.55; // wraps per second
+
+export function drawDangerSqualls(input: DrawPharosVilleInput): number {
+  const { camera, ctx, motion, world } = input;
+  const time = motion.reducedMotion ? 0 : motion.timeSeconds;
+  let drawnSqualls = 0;
+  for (const area of world.areas ?? []) {
+    if (!area.band || THREAT_LEVEL_FOR_BAND[area.band] < 4) continue;
+    const centroid = tileToScreen(area.tile, camera);
+    const radiusX = SQUALL_RADIUS_X_TILES * 32 * camera.zoom;
+    const radiusY = SQUALL_RADIUS_Y_TILES * 16 * camera.zoom;
+    const seed = hashString(area.id);
+    ctx.save();
+    // Curtain wash: a soft slanted ellipse of storm-gray.
+    ctx.fillStyle = `rgba(58, 72, 92, ${SQUALL_WASH_ALPHA})`;
+    ctx.beginPath();
+    ctx.ellipse(centroid.x, centroid.y, radiusX, radiusY, -0.06, 0, Math.PI * 2);
+    ctx.fill();
+    // Rain streaks: deterministic positions, drifting down-slant and
+    // wrapping over the curtain height.
+    ctx.strokeStyle = `rgba(196, 216, 232, ${SQUALL_STREAK_ALPHA})`;
+    ctx.lineWidth = Math.max(1, 0.9 * camera.zoom);
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    for (let i = 0; i < SQUALL_STREAK_COUNT; i += 1) {
+      const streakSeed = (seed >>> (i % 16)) ^ Math.imul(i + 1, 2654435761);
+      const u = ((streakSeed >>> 8) % 1000) / 1000;
+      const v0 = ((streakSeed >>> 18) % 1000) / 1000;
+      const fall = (v0 + time * SQUALL_FALL_SPEED * (0.8 + ((streakSeed % 7) / 14))) % 1;
+      const x = centroid.x + (u * 2 - 1) * radiusX * 0.9;
+      const y = centroid.y + (fall * 2 - 1) * radiusY * 0.9;
+      // Keep streaks inside the elliptical curtain.
+      const ex = (x - centroid.x) / radiusX;
+      const ey = (y - centroid.y) / radiusY;
+      if (ex * ex + ey * ey > 0.92) continue;
+      const length = (5 + (streakSeed % 5)) * camera.zoom;
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + length * SQUALL_SLANT_X, y + length);
+    }
+    ctx.stroke();
+    ctx.restore();
+    drawnSqualls += 1;
+  }
+  return drawnSqualls;
 }
 
 function lightningHighlightGradient(
@@ -380,8 +448,10 @@ export function atmosphereDescriptionForArea(area: AreaNode): string {
         : threat >= 1
           ? "light chop"
           : "calm sea";
+  // V2.4: DANGER zones carry a persistent rain squall in the renderer.
+  const squall = threat >= 4 ? ", rain squall" : "";
   const lightning = bandReceivesLightning(area.band) ? ", lightning active" : "";
-  return `${cloudWord}, ${seaWord}${lightning}`;
+  return `${cloudWord}, ${seaWord}${squall}${lightning}`;
 }
 
 /**

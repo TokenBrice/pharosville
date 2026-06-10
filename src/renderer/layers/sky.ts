@@ -227,6 +227,13 @@ function createSkyBackdropCanvas(width: number, height: number): HTMLCanvasEleme
   return canvas;
 }
 
+// V2.4 — threat-aware sky staging. The gradient itself now darkens and
+// cools as fleet threat climbs, extending the existing threat channel
+// (clouds/mist/stars/lightning are already threat-aware). Alphas stay
+// subtle (≤ 0.13 day) so mood identity and analytical water colors hold;
+// night scales the stage down since the scene is already dark.
+const SKY_THREAT_STAGE_ALPHA: readonly number[] = [0, 0.025, 0.055, 0.09, 0.13];
+
 function paintSkyBackdrop(
   target: CanvasRenderingContext2D,
   width: number,
@@ -236,6 +243,7 @@ function paintSkyBackdrop(
   firePointY: number,
   zoom: number,
   nightFactor: number,
+  threat: ThreatLevel = 0,
 ) {
   const gradient = target.createLinearGradient(0, 0, 0, height);
   gradient.addColorStop(0, mood.top);
@@ -243,6 +251,12 @@ function paintSkyBackdrop(
   gradient.addColorStop(1, mood.lower);
   target.fillStyle = gradient;
   target.fillRect(0, 0, width, height);
+
+  const threatStageAlpha = (SKY_THREAT_STAGE_ALPHA[threat] ?? 0) * (1 - 0.55 * nightFactor);
+  if (threatStageAlpha > 0.004) {
+    target.fillStyle = `rgba(22, 34, 52, ${threatStageAlpha.toFixed(3)})`;
+    target.fillRect(0, 0, width, height);
+  }
 
   const horizonBleedAlpha = mood.horizonBleedAlpha * (0.72 + 0.28 * (1 - nightFactor));
   if (horizonBleedAlpha > 0) {
@@ -309,9 +323,10 @@ function getSkyBackdropCanvas(
   firePointY: number,
   zoom: number,
   nightFactor: number,
+  threat: ThreatLevel,
 ): HTMLCanvasElement | null {
   const horizonBleedBucket = (mood.horizonBleedAlpha * 100) | 0;
-  const key = `${width}x${height}|${moodKeyFor(mood)}|h${horizonBleedBucket}|${firePointX},${firePointY}|z${(zoom * 100) | 0}|n${(nightFactor * 20) | 0}`;
+  const key = `${width}x${height}|${moodKeyFor(mood)}|h${horizonBleedBucket}|${firePointX},${firePointY}|z${(zoom * 100) | 0}|n${(nightFactor * 20) | 0}|t${threat}`;
   if (skyBackdropCache && skyBackdropCache.key === key) {
     return skyBackdropCache.canvas;
   }
@@ -324,7 +339,7 @@ function getSkyBackdropCanvas(
   const offCtx = canvas.getContext("2d");
   if (!offCtx) return null;
   offCtx.clearRect(0, 0, width, height);
-  paintSkyBackdrop(offCtx, width, height, mood, firePointX, firePointY, zoom, nightFactor);
+  paintSkyBackdrop(offCtx, width, height, mood, firePointX, firePointY, zoom, nightFactor, threat);
   skyBackdropCache = { canvas, key };
   return canvas;
 }
@@ -339,11 +354,11 @@ export function drawSky(input: DrawPharosVilleInput, lighthouse?: LighthouseRend
   const threat = maxActiveThreatLevel(world);
   const wind = windMultiplier(threat);
 
-  const cached = getSkyBackdropCanvas(width, height, mood, firePointX, firePointY, camera.zoom, state.nightFactor);
+  const cached = getSkyBackdropCanvas(width, height, mood, firePointX, firePointY, camera.zoom, state.nightFactor, threat);
   if (cached) {
     ctx.drawImage(cached, 0, 0);
   } else {
-    paintSkyBackdrop(ctx, width, height, mood, firePoint.x, firePoint.y, camera.zoom, state.nightFactor);
+    paintSkyBackdrop(ctx, width, height, mood, firePoint.x, firePoint.y, camera.zoom, state.nightFactor, threat);
   }
 
   ctx.save();
