@@ -195,6 +195,38 @@ describe("ship body cache", () => {
     expect(cache.stats().pixelCount).toBe(0);
   });
 
+  it("absorbs live-fleet + V3.1 pose cardinality under the default entry cap without eviction", () => {
+    // V4.2 guarantee: ~201 live-fleet ships (1 steady-state entry each;
+    // pose/zoom/dpr never enter the key) plus V3.1 pose columns (+4 per
+    // titan sheet, 13 sheets => +52) must fit the default cap with headroom
+    // for transient rebakes (emblem logo arrival, weathering zone changes).
+    const cache = createShipBodyCache({ canvasFactory: makeCanvasFactory(), maxPixels: 100_000_000 });
+    const paint = vi.fn();
+    for (let ship = 0; ship < 201; ship += 1) {
+      cache.getOrCreate(makeRequest({ shipId: `fleet-${ship}` }), paint);
+    }
+    for (let titan = 0; titan < 13; titan += 1) {
+      for (let pose = 1; pose <= 4; pose += 1) {
+        cache.getOrCreate(makeRequest({ shipId: `titan-${titan}`, poseKey: `octant-${pose}` }), paint);
+      }
+    }
+
+    expect(cache.stats()).toMatchObject({
+      entryCount: 253,
+      evictionCount: 0,
+      maxEntries: 512,
+    });
+
+    // Above the cap the LRU contract still holds: the oldest fleet entry
+    // goes first, the newest pose entries stay.
+    for (let extra = 0; extra < 260; extra += 1) {
+      cache.getOrCreate(makeRequest({ shipId: `transient-${extra}` }), paint);
+    }
+    expect(cache.stats().entryCount).toBe(512);
+    expect(cache.has(buildShipBodyCacheKey(makeRequest({ shipId: "fleet-0" })))).toBe(false);
+    expect(cache.has(buildShipBodyCacheKey(makeRequest({ shipId: "titan-12", poseKey: "octant-4" })))).toBe(true);
+  });
+
   it("returns a direct-source fallback when no canvas can be created", () => {
     const cache = createShipBodyCache({
       canvasFactory: () => null,

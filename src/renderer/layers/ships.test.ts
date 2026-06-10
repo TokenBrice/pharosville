@@ -2059,4 +2059,95 @@ describe("planShipRenderLod", () => {
       expect(constrained.drawWakeShipIds.has(ship.id)).toBe(true);
     }
   });
+
+  it("draws the standard fleet body-only below the chrome zoom gate, preserving hero and focused hulls", () => {
+    const selected = makeShipNode({
+      id: "selected-local",
+      detailId: "ship.selected-local",
+      tile: { x: 8, y: 8 },
+      visual: { sizeTier: "local" },
+    });
+    const hovered = makeShipNode({
+      id: "hovered-local",
+      detailId: "ship.hovered-local",
+      tile: { x: 9, y: 9 },
+      visual: { sizeTier: "local" },
+    });
+    const titan = makeShipNode({
+      id: "titan-major",
+      detailId: "ship.titan-major",
+      tile: { x: 10, y: 10 },
+      visual: { sizeTier: "titan", spriteAssetId: "ship.usdc-titan" },
+    });
+    const unique = makeShipNode({
+      id: "unique-major",
+      detailId: "ship.unique-major",
+      tile: { x: 11, y: 11 },
+      visual: { sizeTier: "unique", spriteAssetId: "ship.crvusd-unique" },
+    });
+    const filler = Array.from({ length: 60 }, (_unused, index) => makeShipNode({
+      id: `ship-${index}`,
+      detailId: `ship.ship-${index}`,
+      tile: { x: 12 + index * 0.2, y: 10 + index * 0.2 },
+      visual: { sizeTier: "local" },
+    }));
+    const visibleShips = [selected, hovered, titan, unique, ...filler];
+    const cache = {
+      geometryForEntity: (entity: { id: string }) => {
+        const index = visibleShips.findIndex((ship) => ship.id === entity.id);
+        return makeGeometry(50 + index * 18, index % 2 === 0 ? 160 : 900);
+      },
+    };
+    const farZoomInput = {
+      camera: { offsetX: 0, offsetY: 0, zoom: 0.55 },
+      height: 760,
+      hoveredTarget: {
+        detailId: hovered.detailId,
+        id: hovered.id,
+        kind: "ship",
+        label: hovered.label,
+        priority: 0,
+        rect: { height: 20, width: 20, x: 0, y: 0 },
+      },
+      motion: {
+        // Movers do NOT earn wake/overlay slots below the gate — only
+        // preserve tiers and the focused hulls do.
+        plan: makeMotionPlan(["ship-0", "ship-1"]),
+        reducedMotion: false,
+        timeSeconds: 0,
+        wallClockHour: 12,
+      },
+      selectedTarget: {
+        detailId: selected.detailId,
+        id: selected.id,
+        kind: "ship",
+        label: selected.label,
+        priority: 0,
+        rect: { height: 20, width: 20, x: 0, y: 0 },
+      },
+      shipMotionSamples: new Map<string, ShipMotionSample>(),
+      width: 1280,
+    } as const;
+
+    resetPlanCache();
+    const farZoom = planShipRenderLod(farZoomInput, cache, visibleShips);
+    expect(farZoom.drawOverlayShipIds.size).toBe(4);
+    expect(farZoom.drawWakeShipIds.size).toBe(4);
+    for (const ship of [selected, hovered, titan, unique]) {
+      expect(farZoom.drawOverlayShipIds.has(ship.id)).toBe(true);
+      expect(farZoom.drawWakeShipIds.has(ship.id)).toBe(true);
+    }
+    expect(farZoom.drawOverlayShipIds.has("ship-0")).toBe(false);
+    expect(farZoom.drawWakeShipIds.has("ship-0")).toBe(false);
+
+    // At or above the gate the budgeted slow path resumes (movers earn
+    // wake slots again).
+    resetPlanCache();
+    const atGate = planShipRenderLod({
+      ...farZoomInput,
+      camera: { offsetX: 0, offsetY: 0, zoom: 0.6 },
+    }, cache, visibleShips);
+    expect(atGate.drawWakeShipIds.has("ship-0")).toBe(true);
+    expect(atGate.drawOverlayShipIds.size).toBeGreaterThan(4);
+  });
 });

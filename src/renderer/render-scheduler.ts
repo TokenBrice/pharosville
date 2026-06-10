@@ -7,7 +7,11 @@ export const RENDER_SCHEDULER_TARGET_FRAME_MS = 16.7;
 // off when frame pacing hovers around a threshold. Downshifts (toward heavier
 // degradation) apply quickly; upshifts (restoring effects) require a longer
 // streak, mirroring the adaptive-DPR discipline in canvas-budget.ts.
-export const RENDER_SCHEDULER_DOWNSHIFT_STREAK = 3;
+// V4.1: downshift streak 3 → 2 so spike recovery starts one frame sooner —
+// at a 90ms+ constrained-trigger draw that single frame is worth more than
+// the flicker risk it adds (alternating-pressure flap is still suppressed:
+// any calm frame resets the streak, and upshift still needs 8).
+export const RENDER_SCHEDULER_DOWNSHIFT_STREAK = 2;
 export const RENDER_SCHEDULER_UPSHIFT_STREAK = 8;
 
 type RenderSchedulerLoadTier = Extract<PharosVilleRenderSchedulerTier, "full" | "recovery" | "constrained">;

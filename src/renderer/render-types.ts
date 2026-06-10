@@ -4,6 +4,7 @@ import type { PharosVilleWorld } from "../systems/world-types";
 import type { PharosVilleAssetManager } from "./asset-manager";
 import type { WorldDrawablePass } from "./drawable-pass";
 import type { HitTarget } from "./hit-testing";
+import type { ShipBodyCacheStats } from "./ship-body-cache";
 import type { VisibleTileBoundsCacheState } from "./viewport";
 
 export interface PharosVilleCanvasMotion {
@@ -137,6 +138,10 @@ export interface PharosVilleRenderMetrics {
   shipMaxPositionDeltaTile?: number;
   /** Route-cache hit ratio and eviction rate at time of read. */
   routeCacheStats?: { hitRatio: number; evictionRate: number; size: number; capacity: number };
+  /** Ship-body precompose cache counters (cumulative since cache creation).
+      V4.2: grounds cap/cardinality tuning before V3.1 poses and V3.5
+      weathering widen the key space. */
+  shipBodyCacheStats?: ShipBodyCacheStats;
   /** PerformanceObserver longtask counts over the last 60-frame window. */
   longtask?: { count: number; maxDurationMs: number };
   /** Total number of 600-second bucket flips since world mount. */

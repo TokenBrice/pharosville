@@ -844,7 +844,9 @@ export function drawShipSignalOverlay(
   scale: number,
 ) {
   if (overlay === "none") return;
-  ctx.save();
+  // V4.1 draw-call audit: no save/restore — runs for every flagged ship in
+  // the overlay budget and only mutates fill/stroke/lineWidth state that
+  // every subsequent draw sets for itself.
   ctx.strokeStyle = "#2f2117";
   ctx.lineWidth = Math.max(1, 1 * scale);
   ctx.beginPath();
@@ -878,7 +880,6 @@ export function drawShipSignalOverlay(
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
-  ctx.restore();
 }
 
 function drawCheckerSignalSquare(ctx: CanvasRenderingContext2D, x: number, y: number, size: number) {

@@ -382,34 +382,54 @@ Goal: hit the documented tightening target — dense-fixture draw **median
 `sustained-motion.spec.ts` to lock it in). Work the V1.1 data top-down;
 candidate levers in expected-impact order:
 
-- [ ] Far-zoom fleet LOD: below `SHIP_CHROME_MIN_ZOOM`, draw standard hulls
-      body-only (no overlay/wake/pennant evaluation at all — skip the plan,
-      not just the budget) via an early gate in the entity pass.
+- [x] Far-zoom fleet LOD: below `SHIP_CHROME_MIN_ZOOM` the LOD plan returns
+      only preserve tiers (titan/unique) + selected/hovered — no candidate
+      scoring, no wake/overlay drawables for the standard fleet. Probe at
+      zoom 0.48 (93 ships): entity pass **1.9 → 1.5ms**. Disclosure-gate
+      note: signal flags / depeg weathering / lanterns / contact shadows
+      join the ≥ 0.6 inspect tier for standard hulls (parity intact).
 - [ ] Water accent cadence: render the accent/swell group at half cadence
       under `recovery` (alternate frames; the eye can't tell at these
       speeds) instead of binary keep/shed.
+      **Deferred until V2.1 swell lands (in flight on main)** — cadence
+      should cover the combined accent+swell group; same files. Probe
+      evidence: at zoom 0.48 water accents are the dominant pass (2.6ms vs
+      1.5ms entity).
 - [ ] Entity-pass draw-call audit: collapse per-ship save/restore pairs and
       gradient re-creation (hoist per-frame constants; reuse gradient
       objects per zone).
 - [ ] Hover-only repaints: when only hover state changed (no camera/motion
       delta in reduced-motion or paused states), skip non-chrome passes.
-- [ ] Scheduler hysteresis tune: downshift streak 3 → 2 for faster recovery
-      under spikes (watch tier-flap in `render-scheduler.test.ts`).
+- [x] Scheduler hysteresis tune: downshift streak 3 → 2; tier-flap guards in
+      `render-scheduler.test.ts` stay green (calm frames reset the streak,
+      upshift still needs 8).
 - [ ] After each lever: re-run dense perf lane; record pass-time deltas in
       this file; stop when the target is met (avoid speculative churn).
+      Lever-by-lever local probe numbers recorded above; CI-budget
+      tightening still pending the full program.
 
 ### V4.2 Ship-body cache & pose-cardinality tuning — Effort M, Reward ★★★
 
 Prereq for V3.1/V3.5 at scale (cache keys gain pose/weathering dimensions).
 
-- [ ] Measure live hit-rate via existing cache stats in dense scenes; raise
-      `DEFAULT_SHIP_BODY_CACHE_MAX_ENTRIES` (256) / pixel cap only if data
-      shows churn (caps live in `ship-body-cache.ts`, budget in
-      `canvas-budget.ts` total backing pixels).
-- [ ] Quantize pose/zoom inputs into coarser buckets where invisible
-      (zoom dpr buckets, 5 pose buckets → verify against V3.1's octants).
-- [ ] Warmup: keep sticky priority (selected/titan) — verify it still holds
-      with higher cardinality.
+- [x] Measure live hit-rate via existing cache stats in dense scenes —
+      `shipBodyCacheStats` now exposed in `renderMetrics` (debug contract);
+      probe at `tests/probes/ship-body-cache.probe.spec.ts`. Dense fixture:
+      99 entries steady, **99.96% hit rate, 0 evictions, 0 budget skips,
+      6.5% pixel fill**; zoom adds zero new keys (keys are zoom-independent
+      by design). Cardinality math: ~201 live ships + V3.1 pose columns
+      (+52) ≈ 253 brushed the old 256 cap exactly when poses land →
+      `DEFAULT_SHIP_BODY_CACHE_MAX_ENTRIES` raised 256 → 512 (entry cap is
+      cheap; pixels stay the hard guard). Cardinality test added.
+- [x] Quantize pose/zoom inputs — verified nothing to quantize today: dpr is
+      hardcoded 1, logicalSize is zoom-independent, pose/orientation apply
+      via ctx transforms at draw (never baked). **V3.1 must key new poses as
+      octant-bucket `poseKey`** (modeled in the cardinality test), not raw
+      heading.
+- [x] Warmup sticky priority — covered by existing
+      `ships.test.ts` "bypasses an exhausted warmup budget" test; bypass is
+      unconditional on tier/selection so higher cardinality doesn't change
+      it. Probe showed zero budget skips under the dense fixture.
 
 ### V4.3 Decision memo: rendering substrate revisit — Effort S (memo only)
 
@@ -418,6 +438,16 @@ The May 3 NO-GO on atlas/worker/WebGL predates the 201-ship fleet and the
 pass-breakdown data answering: can Canvas 2D + the V4.1 program reach 60fps
 at dense zoom, or is the ceiling structural? Present keep/revisit options to
 the operator. Only revisit the NOT with explicit operator approval.
+
+**Done (2026-06-11):** memo at
+`agents/2026-06-11-v4.3-substrate-decision-memo.md`, awaiting operator
+decision (recommendation: keep NO-GO). Headline evidence: dense fixture at
+zoom 2.4 draws *faster* than fit zoom (3.4ms vs 4.2–4.8ms local median,
+~3.5× headroom vs 60fps); the 2–4 fps captures were automation-load
+artifacts. Measurement probe kept at
+`tests/probes/zoom-pass-breakdown.probe.spec.ts`
+(`npx playwright test --config playwright.probe.config.ts`, port 4179, not a
+CI lane).
 
 ---
 

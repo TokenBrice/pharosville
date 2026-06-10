@@ -1,7 +1,17 @@
 import { canvasPixelArea } from "../systems/canvas-budget";
 
 export const SHIP_BODY_CACHE_SCHEMA_VERSION = "ship-body-precompose-v1";
-export const DEFAULT_SHIP_BODY_CACHE_MAX_ENTRIES = 256;
+// V4.2 cap rationale: steady-state cardinality is ~1 entry per ship (titan
+// sheets are <= 4 frames, so animation frames resolve to a static per-ship
+// offset; pose/zoom/dpr never enter the key — measured 99 entries / 99.96%
+// hit rate / 0 evictions on the 132-ship dense fixture). The ~201-ship live
+// fleet (~201 entries) plus V3.1 titan pose columns (+4 per titan sheet,
+// ~+52) lands at ~253 — brushing the old 256 ceiling exactly when poses
+// roll out, where transient rebakes (emblem logo arrival, V3.5 weathering
+// zone changes) would start evicting live entries. 512 keeps eviction purely
+// transient; real memory stays governed by the pixel budget below and the
+// per-frame `shipBodyCacheMaxPixels` clamp in world-canvas.ts.
+export const DEFAULT_SHIP_BODY_CACHE_MAX_ENTRIES = 512;
 export const DEFAULT_SHIP_BODY_CACHE_MAX_PIXELS = 2_000_000;
 
 export interface ShipBodyCacheSize {

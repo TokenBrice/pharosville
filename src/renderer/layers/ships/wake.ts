@@ -198,8 +198,10 @@ export function drawShipWakeRaw(input: DrawPharosVilleInput, frame: ShipRenderFr
   });
 }
 
+// V4.1 draw-call audit: no save/restore — this runs for every wake-budgeted
+// ship every frame and only mutates fill/stroke/lineWidth, which every
+// subsequent draw sets for itself before painting.
 function drawShipContactShadow(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
-  ctx.save();
   ctx.fillStyle = "rgba(3, 7, 10, 0.34)";
   ctx.beginPath();
   ctx.ellipse(x, y - 1 * scale, 28 * scale, 7.5 * scale, -0.08, 0, Math.PI * 2);
@@ -210,7 +212,6 @@ function drawShipContactShadow(ctx: CanvasRenderingContext2D, x: number, y: numb
   ctx.moveTo(x - 25 * scale, y + 2 * scale);
   ctx.lineTo(x + 20 * scale, y + 3.5 * scale);
   ctx.stroke();
-  ctx.restore();
 }
 
 function drawHullFoam(
