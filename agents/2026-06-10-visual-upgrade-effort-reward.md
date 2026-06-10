@@ -1,0 +1,440 @@
+# PharosVille Visual Upgrade — Effort × Reward Implementation Plan
+
+Date: 2026-06-10
+
+## Goal
+
+A coordinated visual upgrade across three pillars, ranked by effort vs reward:
+
+1. **Ships** — more interesting, diversified, recognizable.
+2. **Sea & atmosphere** — more alive.
+3. **Performance** — PharosVille should feel seamless.
+
+This plan was produced from a broad exploration of the renderer, systems,
+asset pipeline, prior plan history (recovered from git: the wow-revamp
+council plan, ship-identity recognition plan, upgrade follow-up, Wave 6 prep,
+P4 specs), and live screenshots.
+
+## Scope
+
+- In scope: renderer layers, ship/water/sky visual systems, PixelLab sprite
+  campaigns, render-loop performance, manifest/asset pipeline work.
+- Out of scope: new API contracts (cargo deck / attestation pennants stay
+  blocked on the endpoint-allowlist operator decision in the recovered P4
+  specs), minimap (already specced separately), audio (decided LATER),
+  anything violating the Decided NOTs reaffirmed below.
+
+## Grounding — current state evidence
+
+- Live fleet: ~201 ships (123 docked) on a 56×56, ~86% water map.
+- Captured frames at 141%/240% zoom show **2–4 fps in the footer counter**
+  (`outputs/f5-caustics-default-view.png`, `outputs/f5-caustics-zoomed-evm-bay.png`).
+  Captures were taken under automation load, so treat as a ceiling indicator,
+  not a precise measurement — but the CI dense-fixture draw budget of
+  **median ≤ 140ms / p95 ≤ 200ms** (`tests/perf/sustained-motion.spec.ts`)
+  confirms dense-scene draw cost is the real bottleneck. The spec's own
+  comment records the tightening goal: **median → 100ms, p95 → 140ms**.
+- Ship identity P1–P5 already landed (brand-color liveries, dyed sail
+  emblems, ticker nameplates ≥ 1.1 zoom, legibility pass). P6 silhouette
+  variation was explicitly deferred — it is picked up here.
+- Sea already has: per-zone procedural textures from `ZONE_THEMES`, harbor
+  surf, dock caustics, lighthouse beam + god rays, threat-aware clouds/mist/
+  lightning, birds, bioluminescence, 6 sky moods, night lighting. What it
+  lacks is large-scale motion coherence (swell), edge/horizon treatment, and
+  beam–world interaction.
+
+## Constraints (hard rails — do not relitigate silently)
+
+- Manifest: **73/75 entries used; 2 slots free**
+  (`scripts/pharosville/validate-assets.mjs` is the source of truth).
+- Heritage hull tier: ~7 max (currently 6). Adding FRAX + GHO makes 8 —
+  needs operator sign-off or pick one.
+- Motion policy: one route-owned RAF clock; speed classes + cue caps per
+  `docs/pharosville/MOTION_POLICY.md`; every analytical cue needs
+  detail/ledger parity; reduced motion = deterministic static frame, no RAF.
+- Static-layer cache: terrain + scene passes are baked
+  (`drawStaticPassCached` in `src/renderer/world-canvas.ts`). Anything that
+  animates must live in a per-frame pass and respect scheduler tiers
+  (`full | interaction | recovery | constrained`).
+- Zone water colors are analytical semantics — style around them, never
+  repaint them (`ZONE_THEMES` in `src/systems/palette.ts`).
+- Decided NOTs still in force: no dirty-rect rendering, no sprite-atlas /
+  OffscreenCanvas-worker / WebGL migration (revisit only via the decision
+  memo below), no ambient non-data ships, no tidal animation, no new npm
+  deps, no bloom/CSS filters on canvas.
+
+## Effort × Reward matrix
+
+Effort: S < 1 day, M 1–3 days, L 3–7 days, XL multi-session campaign.
+Reward: ★ (nice) → ★★★★★ (transforms the product feel).
+
+| # | Item | Pillar | Effort | Reward | Ratio |
+|---|------|--------|:------:|:------:|:-----:|
+| V1.1 | Per-pass render instrumentation | Perf | S | ★★★★ (enabler) | Best |
+| V1.2 | Batched asset-load cache invalidation | Perf | S | ★★★ | Best |
+| V1.3 | Horizon & world-edge atmosphere | Sea | M | ★★★★★ | Best |
+| V1.4 | Hull chrome for standard + heritage tiers | Ships | S | ★★★★ | Best |
+| V1.5 | Nameplate sprite caching | Perf | S–M | ★★★ | Good |
+| V2.1 | Swell field — coherent crossing wave fronts | Sea | M | ★★★★★ | Best |
+| V2.2 | Lighthouse beam sweeps ships & water | Sea | M | ★★★★ | Good |
+| V2.3 | Persistent foam wake trails | Sea/Ships | M | ★★★ | Good |
+| V2.4 | Threat-aware sky staging + Danger squall | Sea | S–M | ★★★ | Good |
+| V2.5 | Harbor ambient polish (lanterns, gull dives) | Sea | S–M | ★★★ | Good |
+| V3.1 | Titan multi-pose sprite sets (turning ships) | Ships | XL | ★★★★★ | Ambitious |
+| V3.2 | Standard-hull silhouette variants (P6) | Ships | L | ★★★★ | Ambitious |
+| V3.3 | Heading-driven sail trim & billow | Ships | M | ★★★ | Good |
+| V3.4 | Wave 6 asset completion (heritage, regens, WebP) | Ships | M–L | ★★★ | Good |
+| V3.5 | Risk-zone hull weathering | Ships | S–M | ★★ | OK |
+| V4.1 | Dense-scene frame-budget program | Perf | M–L | ★★★★★ | Best |
+| V4.2 | Ship-body cache & pose-cardinality tuning | Perf | M | ★★★ | Good |
+| V4.3 | Decision memo: rendering substrate revisit | Perf | S (memo) | enabler | — |
+
+Recommended execution order: **V1 (foundations) → V2 (sea) → V4.1 (perf
+program, informed by V1.1 data) → V3 (ship campaigns)**. V3.1's sprite
+campaign can start in parallel early since PixelLab jobs have long lead time.
+
+---
+
+## Phase V1 — Foundations & quick wins
+
+### V1.1 Per-pass render instrumentation — Effort S, Reward ★★★★ (enabler)
+
+Only `waterAccentDrawMs` is instrumented today (`src/renderer/render-types.ts`).
+Dense-scene draw cost is unattributed, so every perf decision below is a guess
+until this lands. Do this first.
+
+- [ ] Extend `RenderFrameMetrics` with `entityPassDrawMs`, `nameplateDrawMs`,
+      `staticBlitDrawMs`, `ambientDrawMs`, `selectionChromeDrawMs`, and a
+      `shipDrawCount`/`overlayDrawCount` pair.
+- [ ] Wire timers in `drawPharosVille` (`src/renderer/world-canvas.ts`) around
+      the existing pass boundaries; expose via `window.__pharosVilleDebug`.
+- [ ] Capture a before-baseline on the dense fixture and record the pass
+      breakdown in this file (table below this task when measured).
+- [ ] Optional: assert presence (not budgets) in `tests/perf/sustained-motion.spec.ts`.
+- Risk: timer overhead — use coarse `performance.now()` pairs per pass, not
+  per entity.
+
+### V1.2 Batched asset-load cache invalidation — Effort S, Reward ★★★
+
+Every deferred sprite arrival bumps the asset tick and invalidates both
+static caches (~40 full offscreen repaints during the first minute).
+
+- [ ] In `src/renderer/asset-manager.ts`, batch deferred-load completions
+      (e.g. invalidate on group completion or a 250ms debounce) before
+      bumping the progress key consumed by `assetLoadTickFor` in
+      `world-canvas.ts`.
+- [ ] Keep critical-phase behavior unchanged (first frame must still repaint
+      as critical sprites decode).
+- [ ] Verify: smoother reveal beat; no missing sprites after deferred phase;
+      `asset-manager.test.ts` extended for batch semantics.
+
+### V1.3 Horizon & world-edge atmosphere — Effort M, Reward ★★★★★
+
+Highest reward-per-effort visual item. Today the world diamond ends abruptly
+against a flat gradient (clearly visible in the evidence screenshots). A
+horizon treatment makes the diorama read as a sea, not a game board — and it
+is fully static, so it bakes into cached passes for **zero per-frame cost**.
+
+- [ ] Deep-water perimeter fade: atmospheric-perspective haze on the outer
+      shelf tiles, strongest at the map rim (extend the existing deep-water
+      edge darkening in `src/renderer/layers/terrain.ts`, static pass).
+- [ ] Horizon band in the sky backdrop: low-contrast sea-meets-sky gradient
+      line with a faint distant cloud bank, mood-aware (6 sky moods) in
+      `src/renderer/layers/sky.ts`.
+- [ ] Optional warm beam glint on the horizon when the lighthouse sweep
+      points off-map (slow class, per-frame, cheap single gradient).
+- [ ] Reduced motion: identical static composition (no animation involved).
+- Risk: sky is visible in every baseline → broad-but-intentional snapshot
+  drift; regen per `VISUAL_REGEN.md` after diff inspection.
+
+### V1.4 Hull chrome for standard + heritage tiers — Effort S, Reward ★★★★
+
+Titans get hull foam, bow spray, stern churn, mooring rope/fender
+(`src/renderer/layers/ships/wake.ts`); standard hulls get only a contact
+shadow and heritage hulls get nothing. The fleet's 85% reads as flat decals.
+
+- [ ] Extend the titan chrome path with simplified variants for `unique` and
+      standard tiers (smaller foam arc, single spray fleck, mooring shadow).
+- [ ] Reuse the cached Path2D template/bucket infra; keep separate LRU
+      budgets so cardinality stays bounded (heading buckets × tier).
+- [ ] Gate under the existing overlay LOD budget (`planShipRenderLod`) so
+      dense scenes shed gracefully; reduced motion keeps the static frame.
+- [ ] Verify: dense fixture perf lane unchanged (chrome is cached paths);
+      visual diff at mid zoom shows hulls sitting *in* the water.
+
+### V1.5 Nameplate sprite caching — Effort S–M, Reward ★★★
+
+`drawShipNameplates` (`src/renderer/layers/ships/nameplates.ts`) measures and
+fills text for every visible ship every frame at zoom ≥ 1.1 — up to ~200
+`measureText`+`fillText` calls per frame exactly when zoomed-in scenes are
+heaviest.
+
+- [ ] Cache rendered plates as tiny offscreen sprites keyed by
+      `(symbol, fontPxBucket, dprBucket)` with an LRU cap (~256), reusing the
+      `lru-cache.ts` pattern; blit instead of filling text.
+- [ ] Keep greedy overlap rejection logic untouched (it operates on rects).
+- [ ] Verify: `nameplateDrawMs` (from V1.1) drops; plates pixel-match within
+      snapshot tolerance.
+
+---
+
+## Phase V2 — The sea comes alive
+
+### V2.1 Swell field — coherent crossing wave fronts — Effort M, Reward ★★★★★
+
+The single best "alive" upgrade. Current water accents are per-tile sparse
+marks from a precomputed candidate list (`waterAccentCandidatesForMap` in
+`src/renderer/layers/terrain.ts`) — correct but visually incoherent: the sea
+never moves *as a body of water*.
+
+- [ ] Add a zone-aware swell pass: 2–3 long, slow wave fronts per visible
+      water region that drift across many tiles (single batched Path2D
+      stroke per front per frame — not per tile), amplitude/speed scaled by
+      `ZONE_THEMES` motion scalars and the sea-state wind multiplier.
+- [ ] Phase is a pure function of (tile, time) — deterministic, no state.
+- [ ] Keep zone base colors untouched; fronts are translucent highlights
+      using each zone's existing `wave`/accent colors.
+- [ ] Scheduler: join the `water-accents` shed group (constrained sheds,
+      recovery keeps); reduced motion freezes time-zero like dock caustics.
+- [ ] Danger/storm zones get steeper, shorter fronts; Calm gets long lazy
+      ones — reinforcing existing zone semantics without new meaning.
+- [ ] Verify: motion visual lane; `waterAccentDrawMs` stays within budget
+      (batched strokes should add ≤ 1–2ms); MOTION_POLICY.md Slow class note.
+
+### V2.2 Lighthouse beam sweeps ships & water — Effort M, Reward ★★★★
+
+Completes the "lighthouse touches the sea" theme: today the beam washes tiles
+but ignores entities.
+
+- [ ] When the sweep arc crosses a ship, apply a brief warm rim-light pulse
+      (translucent overlay in `draw-ship.ts`, alpha from beam-angle distance,
+      reusing `computeBeamCausticState`).
+- [ ] A faint glitter trail on water tiles just behind the sweep edge
+      (slow class, capped to the existing beam-caustic tile set).
+- [ ] Reduced motion: beam angle is already frozen — apply the static
+      rim-light only to ships inside the frozen arc (deterministic).
+- [ ] No analytical meaning (beam = PSI band already documented; the rim is
+      flavor attached to an existing cue) — no parity work needed, confirm
+      via `visual-cue-registry.ts` note.
+- Risk: per-ship overlay cost in dense scenes — gate behind overlay LOD
+  budget; profile with V1.1 metrics.
+
+### V2.3 Persistent foam wake trails — Effort M, Reward ★★★
+
+Queued in the recovered upgrade plan as "wake trail upgrade (hot path —
+profile)". Fast speed class → capped to selected / top-supply / recent-mover
+ships per MOTION_POLICY.
+
+- [ ] Ring buffer of recent stern positions per eligible ship (≤ 5 ships,
+      ~60 samples) in the render-loop frame state; render a tapering,
+      fading polyline in `wake.ts` using the zone wave color.
+- [ ] Deterministic fallback: reduced motion renders no trail (matches
+      current wake behavior).
+- [ ] Profile before/after with V1.1; abort if entity pass regresses.
+
+### V2.4 Threat-aware sky staging + Danger squall — Effort S–M, Reward ★★★
+
+Clouds, mist, stars, and lightning are already threat-aware — the sky
+gradient itself is not. Extend the existing channel (precedent set, no new
+semantics class).
+
+- [ ] Modulate sky mood colors by max active DEWS threat (subtle: ≤ 15%
+      darkening + cool shift at WARNING+, in `sky.ts` mood resolution).
+- [ ] A drifting rain-squall curtain over Danger Strait while any ship holds
+      DANGER placement (slow class, localized, joins the weather pass next
+      to the existing lightning).
+- [ ] Document in `VISUAL_INVARIANTS.md` (sky/threat channel) — the ledger
+      already exposes per-ship risk zones; add a legend note for the squall.
+- [ ] Reduced motion: static squall texture, frozen drift.
+
+### V2.5 Harbor ambient polish — Effort S–M, Reward ★★★
+
+- [ ] Dock lanterns: 1–2 per rendered dock joining the fixed civic lantern
+      list (`drawDecorativeLights`), with per-lantern deterministic flicker
+      phase; respects the existing bounded-set cap and debug exposure.
+- [ ] Gull harbor dives: extend 2 of the 9 existing orbit gulls with an
+      occasional dive arc over the busiest harbor (pure function of time,
+      stays inside the capped bird set).
+- [ ] Awning/flag micro-sway on dock sprites at near zoom (slow class,
+      zoom-gated by `SHIP_DETAIL_REVEAL_ZOOM`-style constant in
+      `visual-scales.ts`).
+- All flavor-only: no detail-panel attachment (decided NOT), no new sets.
+
+---
+
+## Phase V3 — Ship identity: the ambitious bets
+
+### V3.1 Titan multi-pose sprite sets — Effort XL, Reward ★★★★★
+
+The queued W2.14 completion from the recovered wow plan §11, and the most
+ambitious ship upgrade available: ships that visibly **turn**. Today all
+sprites are single-facing; titans fake heading with ±0.035 skew and 5 pose
+buckets; standard hulls just X-flip.
+
+- [ ] PixelLab campaign: per titan, 4 directional variants (E, NE, N, NW) +
+      existing neutral; mirror for the W/SW/S/SE half. 12 titans × 4 new
+      poses. Run the USDT canary first (Wave 6 §4.1 precedent) to validate
+      style consistency and WebP encoding before the batch.
+- [ ] Pack poses as added frame columns in each titan's existing animation
+      sheet (manifest cost **0 entries**; sheet pixel budgets must be
+      re-checked against `scripts/pharosville/asset-budgets.mjs` caps).
+- [ ] Renderer: `resolveShipVisualOrientation` (`draw-ship.ts`) selects pose
+      column from heading octant, blending with the existing skew inside an
+      octant so transitions stay smooth; keep current behavior as fallback
+      for sheets without pose columns (incremental rollout per titan).
+- [ ] Ship-body cache key already carries pose/orientation — verify
+      cardinality with V4.2 before enabling all 12 titans.
+- [ ] Reduced motion: pose from frozen heading (`dockTangent` berth heading) —
+      deterministic.
+- [ ] Visual baselines: titan-heavy snapshots will drift intentionally;
+      regen per `VISUAL_REGEN.md`.
+- Sequencing: start PixelLab jobs early (long lead time); land renderer
+  support behind a per-asset capability check.
+
+### V3.2 Standard-hull silhouette variants (ship-identity P6) — Effort L, Reward ★★★★
+
+~85% of the fleet shares 5 class hulls. Brand liveries + emblems (landed)
+fixed color identity; silhouettes are still clones.
+
+- [ ] 2 additional hull variants per class (rig height, bow shape, stern
+      castle differences), same 104×80 box and anchor so footprints/hitboxes
+      hold. Pack as 3-column variant sheets replacing the 5 existing
+      standard-hull entries in place — manifest cost **0 entries**.
+- [ ] Deterministic variant assignment: `stableHash(shipId) % 3` in
+      `shipRenderState` (`draw-ship.ts`); sail-tint masks per variant in
+      `ship-sail-tint.ts` / `SHIP_SAIL_TINT_MASKS`.
+- [ ] Class must stay readable: variants share each class's distinctive
+      rigging silhouette (galleon vs schooner vs junk etc.) since class is
+      an analytical signal (`classification-to-boat.ts`).
+- [ ] Verify: class-recognition spot-check at mid zoom, hit-testing
+      unchanged, sail emblem legibility on all 15 variant×class combos.
+
+### V3.3 Heading-driven sail trim & billow — Effort M, Reward ★★★
+
+- [ ] Procedural mainsail deformation by (heading × wind): slight billow
+      skew downwind, luff flatten upwind — a 2-segment vertical shear on
+      the sail-tint region in `ship-sail-tint.ts`, deterministic per
+      (ship, time).
+- [ ] Amplitude small enough to keep painted/dyed emblems readable
+      (≤ 4–5% shear); reduced motion freezes neutral trim.
+- [ ] Pairs naturally with V3.1 poses; can land independently first.
+
+### V3.4 Wave 6 asset completion — Effort M–L, Reward ★★★
+
+Still-open items from the recovered Wave 6 prep, updated for current state:
+
+- [ ] FRAX + GHO heritage hulls — **fills the manifest exactly to 75/75**.
+      ⚠ Heritage count goes 6 → 8, exceeding the "~7 max" decided NOT:
+      **operator decision required** (pick one, or bless 8).
+- [ ] Remaining titan emblem/regen passes (W6.01–W6.03 set) if any are
+      still unpainted after the identity pass — re-audit first; CURRENT.md
+      suggests most landed.
+- [ ] Dock regens by visual-quality audit (Solana scale-up, AVAX/Base/
+      Polygon/Arbitrum) — replace-in-place, 0 manifest cost.
+- [ ] Dock-side ambient prop pack (W6.12) — needs cap raise decision if
+      pursued after FRAX/GHO; otherwise defer.
+- [ ] Full WebP migration + single atomic `cacheVersion` bump + baseline
+      rebake (W6.13/W6.14 discipline).
+
+### V3.5 Risk-zone hull weathering — Effort S–M, Reward ★★
+
+- [ ] Subtle procedural weathering on hulls by risk zone (salt streaks /
+      darkened waterline in Warning/Danger; clean in Calm) applied in the
+      precomposed body path so it's cache-friendly (`liveryKey` gains a
+      zone bucket).
+- [ ] Parity exists: risk zone is already a detail-panel/ledger field.
+      Register the cue in `visual-cue-registry.ts`.
+- Risk: body-cache cardinality ×6 zones — bucket to 3 weathering levels.
+
+---
+
+## Phase V4 — Performance program
+
+### V4.1 Dense-scene frame-budget program — Effort M–L, Reward ★★★★★
+
+Goal: hit the documented tightening target — dense-fixture draw **median
+≤ 100ms, p95 ≤ 140ms** (then lower the CI budgets in
+`sustained-motion.spec.ts` to lock it in). Work the V1.1 data top-down;
+candidate levers in expected-impact order:
+
+- [ ] Far-zoom fleet LOD: below `SHIP_CHROME_MIN_ZOOM`, draw standard hulls
+      body-only (no overlay/wake/pennant evaluation at all — skip the plan,
+      not just the budget) via an early gate in the entity pass.
+- [ ] Water accent cadence: render the accent/swell group at half cadence
+      under `recovery` (alternate frames; the eye can't tell at these
+      speeds) instead of binary keep/shed.
+- [ ] Entity-pass draw-call audit: collapse per-ship save/restore pairs and
+      gradient re-creation (hoist per-frame constants; reuse gradient
+      objects per zone).
+- [ ] Hover-only repaints: when only hover state changed (no camera/motion
+      delta in reduced-motion or paused states), skip non-chrome passes.
+- [ ] Scheduler hysteresis tune: downshift streak 3 → 2 for faster recovery
+      under spikes (watch tier-flap in `render-scheduler.test.ts`).
+- [ ] After each lever: re-run dense perf lane; record pass-time deltas in
+      this file; stop when the target is met (avoid speculative churn).
+
+### V4.2 Ship-body cache & pose-cardinality tuning — Effort M, Reward ★★★
+
+Prereq for V3.1/V3.5 at scale (cache keys gain pose/weathering dimensions).
+
+- [ ] Measure live hit-rate via existing cache stats in dense scenes; raise
+      `DEFAULT_SHIP_BODY_CACHE_MAX_ENTRIES` (256) / pixel cap only if data
+      shows churn (caps live in `ship-body-cache.ts`, budget in
+      `canvas-budget.ts` total backing pixels).
+- [ ] Quantize pose/zoom inputs into coarser buckets where invisible
+      (zoom dpr buckets, 5 pose buckets → verify against V3.1's octants).
+- [ ] Warmup: keep sticky priority (selected/titan) — verify it still holds
+      with higher cardinality.
+
+### V4.3 Decision memo: rendering substrate revisit — Effort S (memo only)
+
+The May 3 NO-GO on atlas/worker/WebGL predates the 201-ship fleet and the
+140ms dense medians. **Not a build item.** Write a one-page memo with V1.1
+pass-breakdown data answering: can Canvas 2D + the V4.1 program reach 60fps
+at dense zoom, or is the ceiling structural? Present keep/revisit options to
+the operator. Only revisit the NOT with explicit operator approval.
+
+---
+
+## Explicitly not in this plan (and why)
+
+- Minimap, collateral cargo deck, attestation pennants — specced/blocked in
+  the recovered P4 specs; cargo deck + pennants await the endpoint-allowlist
+  operator decision. Separate track.
+- Dirty-rect rendering, sprite atlas, OffscreenCanvas+worker, WebGL —
+  decided NOTs; only the V4.3 memo may reopen them.
+- Ambient non-data ships, tidal animation, kelp/wreckage props, aurora,
+  particle rain, compass rose on water — decided NOTs, reaffirmed.
+- Audio — decided LATER; unchanged.
+
+## Validation
+
+Per-phase while iterating:
+
+- [ ] `npm run validate:changed`
+- [ ] Perf work: `npx playwright test --config playwright.perf.config.ts`
+- [ ] Visual work: `npm run check:pharosville-assets`,
+      `npm run check:pharosville-colors`,
+      `npx playwright test tests/visual/pharosville.spec.ts --grep "pharosville"`
+- [ ] Motion-policy changes: update `docs/pharosville/MOTION_POLICY.md` +
+      `visual-cue-registry.ts` and verify the debug contract
+      (`activeMotionLoopCount`, `motionCueCounts`).
+- [ ] Baseline regen only after diff inspection, dist set from the CI Docker
+      image per `docs/pharosville/VISUAL_REGEN.md`.
+
+Before claiming any phase complete, run the full AGENTS.md gate
+(onboard, smoke, docs, typecheck, unit, assets, colors, build, visual).
+
+## Handoff
+
+- Files changed: this plan only (exploration session — no code changes).
+- Risks/notes:
+  - Operator decisions needed: (1) heritage count 6→8 for FRAX+GHO (V3.4),
+    (2) manifest cap raise beyond 75 if the prop pack is wanted (V3.4),
+    (3) substrate revisit memo outcome (V4.3).
+  - V1.3 and V3.1/V3.2 cause intentional broad baseline drift — schedule
+    regens once per phase, not per task.
+  - PixelLab campaigns (V3.1, V3.2, V3.4) have lead time — kick off the
+    USDT pose canary as soon as Phase V1 starts.
+- Follow-ups: record V1.1 pass-breakdown measurements in this file; tighten
+  CI perf budgets after V4.1 lands.

@@ -15,8 +15,9 @@ route-local chrome. It is not a ClaudeVille port; ClaudeVille contributed the
 quality bar and validation habits, not its lore, fantasy-village objects,
 agent mechanics, copy voice, or data semantics.
 
-The current main-island revamp from
-`agents/completed/pharosville-main-island-revamp-plan.md` is implemented as a coordinated
+The current main-island revamp from the completed
+`pharosville-main-island-revamp-plan` (archived; recoverable from git
+history) is implemented as a coordinated
 layout, asset, renderer, test, and docs change:
 
 - The accepted water-ratio target is 85.7-86.2% by tile count; the measured map
