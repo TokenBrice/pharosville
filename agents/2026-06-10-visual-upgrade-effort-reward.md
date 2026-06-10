@@ -371,16 +371,21 @@ fixed color identity; silhouettes are still clones.
 
 Still-open items from the recovered Wave 6 prep, updated for current state:
 
+**Operator decisions (2026-06-11): 8 heritage hulls blessed (FRAX + GHO
+both); manifest cap raise approved for the prop pack (75 → ~80) with the
+prop campaign queued after the ship campaigns.**
+
 - [ ] FRAX + GHO heritage hulls — **fills the manifest exactly to 75/75**.
-      ⚠ Heritage count goes 6 → 8, exceeding the "~7 max" decided NOT:
-      **operator decision required** (pick one, or bless 8).
+      ✓ Operator blessed heritage 6 → 8 (2026-06-11). PixelLab campaign can
+      start; run alongside the V3.1 USDT pose canary.
 - [ ] Remaining titan emblem/regen passes (W6.01–W6.03 set) if any are
       still unpainted after the identity pass — re-audit first; CURRENT.md
       suggests most landed.
 - [ ] Dock regens by visual-quality audit (Solana scale-up, AVAX/Base/
       Polygon/Arbitrum) — replace-in-place, 0 manifest cost.
-- [ ] Dock-side ambient prop pack (W6.12) — needs cap raise decision if
-      pursued after FRAX/GHO; otherwise defer.
+- [ ] Dock-side ambient prop pack (W6.12) — ✓ cap raise approved
+      (2026-06-11); sequence after FRAX/GHO + pose campaigns so the raise
+      lands once with the final entry count.
 - [ ] Full WebP migration + single atomic `cacheVersion` bump + baseline
       rebake (W6.13/W6.14 discipline).
 
@@ -432,6 +437,10 @@ candidate levers in expected-impact order:
       objects per zone).
 - [ ] Hover-only repaints: when only hover state changed (no camera/motion
       delta in reduced-motion or paused states), skip non-chrome passes.
+      **Deferred by operator decision (2026-06-11):** requires a
+      full-viewport snapshot buffer (~8MP backing) for a reduced-motion-only
+      win on infrequent hover repaints. Re-evaluate after CI shows the
+      post-V4.1 medians.
 - [x] Scheduler hysteresis tune: downshift streak 3 → 2; tier-flap guards in
       `render-scheduler.test.ts` stay green (calm frames reset the streak,
       upshift still needs 8).
