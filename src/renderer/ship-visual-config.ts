@@ -54,6 +54,22 @@ export const SHIP_CONTINUOUS_MOTION = {
   trailingWakeSpacingPixels: 13,
 } as const;
 
+// V3.3 heading-driven sail trim. The mainsail band of a standard hull in
+// transit shears toward the bow when sailing downwind (apparent following
+// wind fills the cloth) and stays at the neutral baked trim upwind or at
+// rest. The shear cap keeps dyed sail emblems readable per the plan's
+// <= 4-5% bound; the wind direction matches the cloud-shadow drift lane
+// (`cloudShadowDriftSamples` angle -0.48rad) so the whole scene shares one
+// wind. Slow motion class: amplitude breathes with the existing sail
+// flutter phase, no extra clocks, reduced motion stays at neutral trim by
+// construction (zeroShipPose + transit gate).
+export const SAIL_TRIM = {
+  maxShear: 0.045,
+  minVisibleShear: 0.006,
+  windScreenX: 0.887, // cos(-0.48)
+  windScreenY: -0.461, // sin(-0.48)
+} as const;
+
 // Per-ship sail-emblem override: paints a custom silhouette into the dyed
 // sail cloth instead of the issuer logo. Applies to titan-tier ships that
 // would otherwise fall through to the white-matte sticker overlay.

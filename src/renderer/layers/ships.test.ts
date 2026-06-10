@@ -17,6 +17,7 @@ import {
   planShipRenderLod,
   resetPlanCache,
   resetTitanPathCache,
+  resolveSailTrimShear,
   resolveShipVisualOrientation,
   resolveTitanBowSprayStrands,
   SHIP_PENNANT_MARKS,
@@ -208,6 +209,183 @@ describe("standard hull pennant config", () => {
       expect(spec!.pennantWidth).toBeGreaterThan(spec!.pennantHeight);
       expect(spec!.bowLogoSize).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("resolveSailTrimShear", () => {
+  const downwindHeading = { x: 1, y: 0 }; // screen (0.894, 0.447) · wind > 0
+  const upwindHeading = { x: -1, y: 0 };
+
+  it("returns zero for resting, reduced-motion, titan, and headingless ships", () => {
+    expect(resolveSailTrimShear({
+      animated: true,
+      heading: downwindHeading,
+      isStandardHull: true,
+      sailFlutter: 0.5,
+      state: "moored",
+    })).toBe(0);
+    expect(resolveSailTrimShear({
+      animated: false,
+      heading: downwindHeading,
+      isStandardHull: true,
+      sailFlutter: 0.5,
+      state: "sailing",
+    })).toBe(0);
+    expect(resolveSailTrimShear({
+      animated: true,
+      heading: downwindHeading,
+      isStandardHull: false,
+      sailFlutter: 0.5,
+      state: "sailing",
+    })).toBe(0);
+    expect(resolveSailTrimShear({
+      animated: true,
+      heading: null,
+      isStandardHull: true,
+      sailFlutter: 0.5,
+      state: "sailing",
+    })).toBe(0);
+  });
+
+  it("billows downwind within the emblem-readability cap and flattens upwind", () => {
+    const downwind = resolveSailTrimShear({
+      animated: true,
+      heading: downwindHeading,
+      isStandardHull: true,
+      sailFlutter: 0.5,
+      state: "sailing",
+    });
+    expect(downwind).toBeGreaterThan(0);
+    expect(downwind).toBeLessThanOrEqual(0.045);
+
+    expect(resolveSailTrimShear({
+      animated: true,
+      heading: upwindHeading,
+      isStandardHull: true,
+      sailFlutter: 0.5,
+      state: "sailing",
+    })).toBe(0);
+  });
+
+  it("is deterministic and breathes monotonically with the flutter phase", () => {
+    const low = resolveSailTrimShear({
+      animated: true,
+      heading: downwindHeading,
+      isStandardHull: true,
+      sailFlutter: 0,
+      state: "sailing",
+    });
+    const high = resolveSailTrimShear({
+      animated: true,
+      heading: downwindHeading,
+      isStandardHull: true,
+      sailFlutter: 1,
+      state: "sailing",
+    });
+    expect(high).toBeGreaterThan(low);
+    expect(resolveSailTrimShear({
+      animated: true,
+      heading: downwindHeading,
+      isStandardHull: true,
+      sailFlutter: 1,
+      state: "sailing",
+    })).toBe(high);
+  });
+});
+
+describe("drawShipBody sail trim", () => {
+  function trimTestSetup(sample: Partial<ShipMotionSample>, animated: boolean) {
+    const ship = makeShipNode({
+      id: "trim-standard",
+      tile: { x: 10, y: 10 },
+      visual: {
+        hull: "treasury-galleon",
+        sizeTier: "major",
+        scale: 1,
+        livery: TEST_LIVERY,
+        spriteAssetId: "ship.treasury-galleon",
+      },
+    });
+    const fakeAsset: LoadedPharosVilleAsset = {
+      entry: {
+        anchor: [52, 68],
+        category: "ship",
+        displayScale: 1,
+        footprint: [30, 14],
+        height: 80,
+        hitbox: [12, 8, 80, 60],
+        id: "ship.treasury-galleon",
+        layer: "ships",
+        loadPriority: "deferred",
+        path: "ships/treasury-galleon.png",
+        width: 104,
+      },
+      image: {} as HTMLImageElement,
+    };
+    const ctx = makeRecordingCtx();
+    const input = makeDrawInput(ctx, ship);
+    input.shipMotionSamples = new Map([[ship.id, { ...makeMotionSample(ship.id), ...sample }]]);
+    if (animated) input.motion.plan.animatedShipIds.add(ship.id);
+    const cache = createShipBodyCache({
+      canvasFactory: (width, height) => ({
+        height,
+        width,
+        getContext: () => ({
+          beginPath: vi.fn(),
+          clearRect: vi.fn(),
+          drawImage: vi.fn(),
+          fill: vi.fn(),
+          fillRect: vi.fn(),
+          lineTo: vi.fn(),
+          moveTo: vi.fn(),
+          rect: vi.fn(),
+          restore: vi.fn(),
+          save: vi.fn(),
+          setLineDash: vi.fn(),
+          setTransform: vi.fn(),
+          stroke: vi.fn(),
+        }),
+      }) as unknown as HTMLCanvasElement,
+      maxEntries: 4,
+      maxPixels: 100_000,
+    });
+    const frame: ShipRenderFrame = {
+      cache: {
+        assetForEntity: () => fakeAsset,
+        geometryForEntity: () => makeGeometry(200, 100),
+      },
+      protectedShipBodyCacheKeys: new Set<string>(),
+      shipBodyCache: cache,
+      shipBodyCacheManifestVersion: "test-cache",
+      shipBodyCacheMaxPixels: 100_000,
+      shipRenderStates: new Map(),
+    };
+    return { ctx, frame, input, ship };
+  }
+
+  it("draws the precomposed body as sheared bands for a downwind transit hull", () => {
+    const { ctx, frame, input, ship } = trimTestSetup({ heading: { x: 1, y: 0 }, state: "sailing" }, true);
+    drawShipBody(input, frame, ship);
+    // Hull + mast-tip bands rigid, two sail bands sheared: 4 blits, and the
+    // sheared bands carry transform(1, 0, shear, 1, 0, 0) wrappers.
+    expect(ctx.calls.filter((call) => call.method === "drawImage").length).toBe(4);
+    const shearTransforms = ctx.calls.filter((call) => call.method === "transform");
+    expect(shearTransforms.length).toBe(2);
+    const shears = shearTransforms.map((call) => call.args[2] as number);
+    expect(shears[1]).toBeGreaterThan(0);
+    expect(shears[0]).toBeCloseTo((shears[1] ?? 0) * 0.5, 5);
+    expect(shears[1]).toBeLessThanOrEqual(0.045);
+  });
+
+  it("keeps the single-blit path for moored hulls and upwind transits", () => {
+    const moored = trimTestSetup({ heading: { x: 1, y: 0 }, state: "moored" }, true);
+    drawShipBody(moored.input, moored.frame, moored.ship);
+    expect(moored.ctx.calls.filter((call) => call.method === "drawImage").length).toBe(1);
+
+    const upwind = trimTestSetup({ heading: { x: -1, y: 0 }, state: "sailing" }, true);
+    drawShipBody(upwind.input, upwind.frame, upwind.ship);
+    expect(upwind.ctx.calls.filter((call) => call.method === "drawImage").length).toBe(1);
+    expect(upwind.ctx.calls.filter((call) => call.method === "transform").length).toBe(0);
   });
 });
 

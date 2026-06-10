@@ -231,18 +231,27 @@ never moves *as a body of water*.
 Completes the "lighthouse touches the sea" theme: today the beam washes tiles
 but ignores entities.
 
-- [ ] When the sweep arc crosses a ship, apply a brief warm rim-light pulse
-      (translucent overlay in `draw-ship.ts`, alpha from beam-angle distance,
-      reusing `computeBeamCausticState`).
-- [ ] A faint glitter trail on water tiles just behind the sweep edge
-      (slow class, capped to the existing beam-caustic tile set).
-- [ ] Reduced motion: beam angle is already frozen — apply the static
-      rim-light only to ships inside the frozen arc (deterministic).
-- [ ] No analytical meaning (beam = PSI band already documented; the rim is
-      flavor attached to an existing cue) — no parity work needed, confirm
-      via `visual-cue-registry.ts` note.
-- Risk: per-ship overlay cost in dense scenes — gate behind overlay LOD
-  budget; profile with V1.1 metrics.
+- [x] `drawLighthouseBeamRim` rewritten sweep-synchronized: ships flare
+      with a warm rim line + soft catch-light exactly when a beam arm
+      (both arms, paired night beams) crosses their bearing — 16° angular
+      gate, reach follows the beam length (1000 units vs the old 380 tower
+      radius). Replaces the old always-on distance pulse.
+- [x] Water glitter behind the sweep already existed (beam caustics in the
+      accent pass) — no duplicate work.
+- [x] Reduced motion: kept the existing contract (beam rim is a motion cue
+      and stays off; the frozen sweep beams themselves still render via the
+      night-highlights pass). Deviation from plan text, noted: lighting
+      ships statically under reduced motion would have drifted RM baselines
+      for a cue users never see move.
+- [x] No analytical meaning — flavor on the existing PSI beam; angular gate
+      keeps the lit set at 0–4 ships so no LOD budget needed (verified
+      cheap: 2 draw ops per lit ship).
+- [x] Verified: 4 new tests in `lighthouse-beam-rim.test.ts` (arc gating,
+      paired arms, day/RM off, motion-sample tracking); 228 layer tests;
+      visual lane 20/20 incl. deep-night fixture; live night check
+      `outputs/visual-upgrade/v22-night-t0.png`. The V1.3-deferred horizon
+      beam glint was dropped — the god-ray pass already carries the
+      off-map beam read.
 
 ### V2.3 Persistent foam wake trails — Effort M, Reward ★★★
 
@@ -336,13 +345,21 @@ fixed color identity; silhouettes are still clones.
 
 ### V3.3 Heading-driven sail trim & billow — Effort M, Reward ★★★
 
-- [ ] Procedural mainsail deformation by (heading × wind): slight billow
-      skew downwind, luff flatten upwind — a 2-segment vertical shear on
-      the sail-tint region in `ship-sail-tint.ts`, deterministic per
-      (ship, time).
-- [ ] Amplitude small enough to keep painted/dyed emblems readable
-      (≤ 4–5% shear); reduced motion freezes neutral trim.
-- [ ] Pairs naturally with V3.1 poses; can land independently first.
+- [x] Procedural mainsail deformation by (heading × wind): 2-segment x-shear
+      of the sail-tint band, pivoted at the yard (foot billows, head stays
+      attached), applied at blit time to the precomposed body — zero
+      body-cache cardinality cost (`drawSailTrimmedBodyBands` in
+      `draw-ship.ts`; `resolveSailTrimShear` for the amplitude). Wind
+      direction = the cloud-shadow drift lane (one scene wind); downwind
+      billows, upwind/resting stays at the neutral baked trim. Implementation
+      note: the shear lives in `draw-ship.ts` (not `ship-sail-tint.ts` as
+      sketched) because trim must not invalidate or widen the body cache.
+- [x] Amplitude capped at 4.5% (`SAIL_TRIM.maxShear`); breathes with the
+      existing sail-flutter phase. Reduced motion / moored hulls take the
+      single-blit neutral path by construction (transit + animated gates).
+      MOTION_POLICY.md Slow class updated.
+- [x] Standard hulls only for now — titans/uniques excluded so V3.1 pose
+      skew composes cleanly later.
 
 ### V3.4 Wave 6 asset completion — Effort M–L, Reward ★★★
 

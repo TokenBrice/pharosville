@@ -15,6 +15,7 @@ import type { ResolvedEntityGeometry } from "../../geometry";
 import { buildShipBodyCacheKey, type ShipBodyCache, type ShipBodyPrecomposeRequest } from "../../ship-body-cache";
 import type { DrawPharosVilleInput } from "../../render-types";
 import {
+  SAIL_TRIM,
   SHIP_COLORS,
   SHIP_CONTINUOUS_MOTION,
   PROCEDURAL_SHIP_PENNANT_MARK,
@@ -23,6 +24,7 @@ import {
   SHIP_SAIL_MARKS,
   TITAN_SPRITE_IDS,
 } from "../../ship-visual-config";
+import { SHIP_SAIL_TINT_MASKS } from "../../ship-sail-tint";
 import { UNIQUE_SPRITE_IDS } from "../../../systems/unique-ships";
 import {
   SHIP_CHROME_MIN_ZOOM,
@@ -85,6 +87,9 @@ export interface ShipRenderState {
   isTitanSprite: boolean;
   isUniqueSprite: boolean;
   drawsWake: boolean;
+  /** V3.3 heading-driven sail trim: x-shear applied to the mainsail band of
+      standard hulls in transit (0 = neutral baked trim). */
+  sailTrimShear: number;
   shipAsset: LoadedPharosVilleAsset | null;
 }
 
@@ -278,6 +283,37 @@ function normalizedHeading(heading: { x: number; y: number } | null | undefined)
     x: heading.x / magnitude,
     y: heading.y / magnitude,
   };
+}
+
+/**
+ * V3.3 heading-driven sail trim. Returns the x-shear for the mainsail band:
+ * positive values lean the cloth toward the bow, scaled by how downwind the
+ * ship is sailing relative to the scene wind (the cloud-shadow drift lane).
+ * Upwind or resting hulls return 0 — the neutral baked trim. Deterministic
+ * per (heading, sailFlutter); reduced motion passes `animated=false` and
+ * always gets 0.
+ */
+export function resolveSailTrimShear(input: {
+  animated: boolean;
+  heading: { x: number; y: number } | null | undefined;
+  isStandardHull: boolean;
+  sailFlutter: number;
+  state: ShipMotionSample["state"] | undefined;
+}): number {
+  if (!input.animated || !input.isStandardHull) return 0;
+  if (input.state !== "departing" && input.state !== "sailing" && input.state !== "arriving") return 0;
+  const heading = normalizedHeading(input.heading);
+  if (!heading) return 0;
+  // Tile-space heading -> screen-space direction (iso projection collapses
+  // x/y into (x - y, (x + y) / 2)).
+  const screenX = heading.x - heading.y;
+  const screenY = (heading.x + heading.y) * 0.5;
+  const magnitude = Math.hypot(screenX, screenY);
+  if (magnitude <= 0.0001) return 0;
+  const downwind = (screenX / magnitude) * SAIL_TRIM.windScreenX + (screenY / magnitude) * SAIL_TRIM.windScreenY;
+  if (downwind <= 0) return 0;
+  const breathe = 0.8 + clamp(input.sailFlutter, 0, 1) * 0.2;
+  return clamp(SAIL_TRIM.maxShear * downwind * breathe, 0, SAIL_TRIM.maxShear);
 }
 
 function titanPoseBucketForHeading(heading: { x: number; y: number }): TitanPoseBucket {
@@ -580,6 +616,13 @@ export function shipRenderState(input: DrawPharosVilleInput, frame: ShipRenderFr
     isUniqueSprite: uniqueSprite,
     shipId: ship.id,
   });
+  const sailTrimShear = resolveSailTrimShear({
+    animated,
+    heading: sample?.heading ?? null,
+    isStandardHull: !titanSprite && !uniqueSprite,
+    sailFlutter: pose.sailFlutter,
+    state: sample?.state,
+  });
   const state: ShipRenderState = {
     bob,
     geometry,
@@ -594,6 +637,7 @@ export function shipRenderState(input: DrawPharosVilleInput, frame: ShipRenderFr
     isTitanSprite: titanSprite,
     isUniqueSprite: uniqueSprite,
     drawsWake,
+    sailTrimShear,
     shipAsset,
   };
   frame.shipRenderStates.set(ship.id, state);
@@ -721,6 +765,7 @@ export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame
     mapVisibilityAlpha,
     p,
     pose,
+    sailTrimShear,
     shipAsset,
   } = shipRenderState(input, frame, ship);
   withShipMapVisibilityAlpha(ctx, mapVisibilityAlpha, () => {
@@ -734,6 +779,7 @@ export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame
           emblem,
           frame,
           input,
+          sailTrimShear,
           ship,
           shipAsset,
           useLiveSubpixelDraw,
@@ -866,6 +912,7 @@ function drawPrecomposedShipBody(input: {
   emblem: ShipBodyEmblem | null;
   frame: ShipRenderFrame;
   input: DrawPharosVilleInput;
+  sailTrimShear?: number;
   scale: number;
   ship: PharosVilleWorld["ships"][number];
   shipAsset: LoadedPharosVilleAsset;
@@ -936,6 +983,22 @@ function drawPrecomposedShipBody(input: {
   if (!result.canvas) return false;
   const destinationX = input.x - entry.anchor[0] * displayScale * input.scale;
   const destinationY = input.y - entry.anchor[1] * displayScale * input.scale;
+  const trim = input.sailTrimShear ?? 0;
+  if (
+    trim >= SAIL_TRIM.minVisibleShear
+    && drawSailTrimmedBodyBands({
+      canvas: result.canvas,
+      ctx: input.input.ctx,
+      destinationX,
+      destinationY,
+      displayScale,
+      entryId: entry.id,
+      scale: input.scale,
+      shear: trim,
+    })
+  ) {
+    return true;
+  }
   input.input.ctx.drawImage(
     result.canvas,
     input.useLiveSubpixelDraw ? destinationX : Math.round(destinationX),
@@ -943,6 +1006,67 @@ function drawPrecomposedShipBody(input: {
     Math.round(logicalSize.width * input.scale),
     Math.round(logicalSize.height * input.scale),
   );
+  return true;
+}
+
+/**
+ * V3.3 banded sail-trim blit. Slices the precomposed body canvas into hull,
+ * lower-sail, and upper-sail bands and draws the sail bands with a 2-segment
+ * x-shear pivoted at the yard (sail top stays attached to the mast; the foot
+ * swings downwind, half amplitude near the yard, full at the foot). The
+ * sail band comes from the asset's sail-tint mask so the deformation never
+ * touches the hull. Returns false when the asset has no tint mask — the
+ * caller falls back to the single blit.
+ */
+function drawSailTrimmedBodyBands(input: {
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  destinationX: number;
+  destinationY: number;
+  displayScale: number;
+  entryId: string;
+  scale: number;
+  shear: number;
+}): boolean {
+  const mask = SHIP_SAIL_TINT_MASKS[input.entryId];
+  if (!mask) return false;
+  const { canvas, ctx, destinationX, destinationY, displayScale, scale, shear } = input;
+  const sourceWidth = canvas.width;
+  const sourceHeight = canvas.height;
+  const sailTop = Math.max(0, Math.round(mask.bounds.y * displayScale));
+  const sailBottom = Math.min(sourceHeight, Math.round((mask.bounds.y + mask.bounds.height) * displayScale));
+  if (sailBottom - sailTop < 4) return false;
+  const sailMid = Math.round((sailTop + sailBottom) / 2);
+  const destWidth = sourceWidth * scale;
+  const rowY = (sourceRow: number) => destinationY + sourceRow * scale;
+  const drawBand = (syStart: number, syEnd: number, bandShear: number, pivotY: number, offsetX: number) => {
+    if (syEnd <= syStart) return;
+    const bandHeight = syEnd - syStart;
+    if (bandShear === 0 && offsetX === 0) {
+      ctx.drawImage(canvas, 0, syStart, sourceWidth, bandHeight, destinationX, rowY(syStart), destWidth, bandHeight * scale);
+      return;
+    }
+    ctx.save();
+    ctx.translate(offsetX, 0);
+    if (bandShear !== 0) {
+      ctx.translate(0, pivotY);
+      ctx.transform(1, 0, bandShear, 1, 0, 0);
+      ctx.translate(0, -pivotY);
+    }
+    ctx.drawImage(canvas, 0, syStart, sourceWidth, bandHeight, destinationX, rowY(syStart), destWidth, bandHeight * scale);
+    ctx.restore();
+  };
+
+  // Mast tip above the sail and the hull below stay rigid.
+  drawBand(0, sailTop, 0, 0, 0);
+  drawBand(sailBottom, sourceHeight, 0, 0, 0);
+  // Upper sail: half shear about the yard. Lower sail: full shear about the
+  // mid seam, pre-offset by the upper band's displacement at that seam so
+  // the cloth stays continuous.
+  const upperShear = shear * 0.5;
+  const midDisplacement = upperShear * (sailMid - sailTop) * scale;
+  drawBand(sailTop, sailMid, upperShear, rowY(sailTop), 0);
+  drawBand(sailMid, sailBottom, shear, rowY(sailMid), midDisplacement);
   return true;
 }
 

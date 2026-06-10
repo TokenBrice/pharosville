@@ -15,11 +15,16 @@ renders deterministic static frames and must not keep a RAF loop alive.
   relationship pulse, harbor lamps, lighthouse-attached birds, the
   wind-scaled caustic shimmer fringing the four major EVM-bay docks
   (scheduler pass `dock-caustics`: recovery keeps, constrained sheds;
-  reduced motion freezes the time-zero frame), and the V2.1 swell fronts —
+  reduced motion freezes the time-zero frame), the V2.1 swell fronts —
   three wind-scaled wave fronts travelling across the water field inside the
   `water-accents` pass (inherits its constrained-tier shedding; reduced
   motion freezes the time-zero frame; fronts part around land and carry no
-  analytical meaning beyond the existing wind/threat channel).
+  analytical meaning beyond the existing wind/threat channel), and the V3.3
+  sail trim — standard hulls in transit shear their mainsail band toward the
+  bow when sailing downwind of the same scene wind (≤ 4.5% shear so dyed
+  emblems stay readable; rides the existing ship animation clock and sail
+  flutter phase, no new loops; reduced motion and moored hulls stay at the
+  neutral baked trim; flavor only, no analytical meaning).
 - Medium: ship movement along sampled water routes and bounded harbor/civic
   activity effects.
 - Fast: recent-change sparks and wake accents only, capped to selected, top, or

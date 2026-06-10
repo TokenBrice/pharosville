@@ -22,6 +22,7 @@ export {
   drawSquadIdentityAccent,
   planShipRenderLod,
   resetPlanCache,
+  resolveSailTrimShear,
   resolveShipVisualOrientation,
   shipMastTopScreenPoint,
   type ShipRenderFrame,

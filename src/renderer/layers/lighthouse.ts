@@ -8,7 +8,6 @@ import {
 import { drawAsset } from "../canvas-primitives";
 import {
   LIGHTHOUSE_BEAM_REDUCED_ANGLE,
-  LIGHTHOUSE_BEAM_SWEEP_PERIOD_SECONDS,
   lighthouseBeamSweepAngle,
   resolveLighthouseBeamRenderState,
 } from "../lighthouse-beam";
@@ -184,7 +183,6 @@ const SWEEP_PAIRED = true;
 const SWEEP_LENGTH = 1200;       // sprite-units; reaches all map corners with margin
 const SWEEP_APEX_HALF = 6;
 const SWEEP_FAR_HALF = 64;
-const SWEEP_PERIOD = LIGHTHOUSE_BEAM_SWEEP_PERIOD_SECONDS;         // seconds per revolution
 const SWEEP_PEAK_ALPHA = 0.18;
 const SWEEP_REDUCED_ALPHA = 0.08;
 const SWEEP_REDUCED_ANGLE = LIGHTHOUSE_BEAM_REDUCED_ANGLE;
@@ -204,8 +202,7 @@ const TRAIL_SPREAD_RAD = (15 * Math.PI) / 180;
 const SMOKE_PUFF_COUNT = 10;
 const SMOKE_LIFETIME = 4.5;
 
-// Distance-based ambient warm rim on ships near the lighthouse.
-const RIM_RADIUS = 380;
+// Sweep-synchronized warm rim on ships caught by the beam (V2.2).
 const RIM_PEAK_ALPHA = 0.45;
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
@@ -934,9 +931,16 @@ function drawSweepEmberTrail(
   ctx.restore();
 }
 
-// Distance-based ambient warm rim on ships near the lighthouse — replaces the
-// old static-wedge rim. No angular check; the dual phase pulses synced to the
-// sweep period give the rim a "the beam just passed" cadence anyway.
+// V2.2 — sweep-synchronized ship rim light. The rim used to pulse on a
+// timer for every ship near the tower regardless of where the beam pointed;
+// it now follows the actual sweep arms, so sails flare exactly when the
+// rotating light passes over them — the lighthouse visibly touches the
+// fleet. Both arms light (SWEEP_PAIRED night beams), the angular gate keeps
+// the lit set tiny (typically 0–4 ships), and reach follows the beam length
+// rather than a short tower radius.
+const BEAM_SHIP_HALF_ARC_COS = Math.cos((16 * Math.PI) / 180);
+const BEAM_SHIP_REACH = 1000; // sprite-units, ~SWEEP_LENGTH minus falloff tail
+
 export function drawLighthouseBeamRim(
   input: DrawPharosVilleInput,
   visibleShips: readonly DrawPharosVilleInput["world"]["ships"][number][],
@@ -950,9 +954,10 @@ export function drawLighthouseBeamRim(
 
   const { firePoint } = cached ?? lighthouseRenderState(input);
   const time = motion.timeSeconds;
-  const pulseA = 0.7 + 0.3 * Math.sin(time * (Math.PI * 2 / SWEEP_PERIOD) * 2);
-  const pulseB = 0.7 + 0.3 * Math.sin(time * (Math.PI * 2 / SWEEP_PERIOD) * 2 + Math.PI);
-  const rimRadius = RIM_RADIUS * camera.zoom * 1.35;
+  const sweepAngle = getSweepAngle(time, false);
+  const cosA = Math.cos(sweepAngle);
+  const sinA = Math.sin(sweepAngle);
+  const reach = BEAM_SHIP_REACH * camera.zoom;
 
   ctx.save();
   ctx.lineCap = "round";
@@ -965,10 +970,13 @@ export function drawLighthouseBeamRim(
     const dx = screen.x - firePoint.x;
     const dy = screen.y - firePoint.y;
     const dist = Math.hypot(dx, dy);
-    if (dist > rimRadius) continue;
-    const falloff = 1 - dist / rimRadius;
-    const pulse = dx >= 0 ? pulseA : pulseB;
-    const alpha = falloff * pulse * RIM_PEAK_ALPHA * nightFactor;
+    if (dist > reach || dist < 1) continue;
+    // Paired arms 180° apart → |cos of bearing-to-beam angle| gates both.
+    const dot = Math.abs(dx * cosA + dy * sinA) / dist;
+    if (dot < BEAM_SHIP_HALF_ARC_COS) continue;
+    const arcFalloff = (dot - BEAM_SHIP_HALF_ARC_COS) / (1 - BEAM_SHIP_HALF_ARC_COS);
+    const radialFalloff = Math.sqrt(Math.max(0, 1 - dist / reach));
+    const alpha = (0.25 + 0.75 * arcFalloff) * radialFalloff * RIM_PEAK_ALPHA * nightFactor;
     if (alpha < 0.02) continue;
     const shipScale = camera.zoom * ship.visual.scale * 0.7;
     const bboxWidth = 28 * shipScale;
@@ -976,6 +984,14 @@ export function drawLighthouseBeamRim(
     const bboxX = screen.x - bboxWidth / 2;
     const bboxY = screen.y + 12 * camera.zoom - 30 * shipScale;
     const facingLeft = dx >= 0;
+    // Soft warm catch-light over the sail area as the beam passes.
+    ctx.globalCompositeOperation = "lighter";
+    ctx.fillStyle = `rgba(255, 214, 150, ${(alpha * 0.28).toFixed(3)})`;
+    ctx.beginPath();
+    ctx.arc(screen.x, bboxY + bboxHeight * 0.45, Math.max(2, bboxWidth * 0.72), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalCompositeOperation = "source-over";
+    // Rim line on the side facing the tower.
     ctx.strokeStyle = `rgba(255, 210, 140, ${alpha})`;
     ctx.beginPath();
     if (facingLeft) {
