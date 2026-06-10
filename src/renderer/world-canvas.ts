@@ -654,6 +654,7 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   return {
     backing: backingMetricsForInput(input, frame.dpr),
     cache: renderCacheMetricsForFrame(frame),
+    shipBodyCacheStats: shipBodyCache.stats(),
     drawableCount: entityMetrics.drawableCount + selectionDrawableCount,
     drawableCounts,
     movingShipCount,

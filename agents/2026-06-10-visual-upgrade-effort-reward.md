@@ -385,14 +385,24 @@ candidate levers in expected-impact order:
 
 Prereq for V3.1/V3.5 at scale (cache keys gain pose/weathering dimensions).
 
-- [ ] Measure live hit-rate via existing cache stats in dense scenes; raise
-      `DEFAULT_SHIP_BODY_CACHE_MAX_ENTRIES` (256) / pixel cap only if data
-      shows churn (caps live in `ship-body-cache.ts`, budget in
-      `canvas-budget.ts` total backing pixels).
-- [ ] Quantize pose/zoom inputs into coarser buckets where invisible
-      (zoom dpr buckets, 5 pose buckets → verify against V3.1's octants).
-- [ ] Warmup: keep sticky priority (selected/titan) — verify it still holds
-      with higher cardinality.
+- [x] Measure live hit-rate via existing cache stats in dense scenes —
+      `shipBodyCacheStats` now exposed in `renderMetrics` (debug contract);
+      probe at `tests/probes/ship-body-cache.probe.spec.ts`. Dense fixture:
+      99 entries steady, **99.96% hit rate, 0 evictions, 0 budget skips,
+      6.5% pixel fill**; zoom adds zero new keys (keys are zoom-independent
+      by design). Cardinality math: ~201 live ships + V3.1 pose columns
+      (+52) ≈ 253 brushed the old 256 cap exactly when poses land →
+      `DEFAULT_SHIP_BODY_CACHE_MAX_ENTRIES` raised 256 → 512 (entry cap is
+      cheap; pixels stay the hard guard). Cardinality test added.
+- [x] Quantize pose/zoom inputs — verified nothing to quantize today: dpr is
+      hardcoded 1, logicalSize is zoom-independent, pose/orientation apply
+      via ctx transforms at draw (never baked). **V3.1 must key new poses as
+      octant-bucket `poseKey`** (modeled in the cardinality test), not raw
+      heading.
+- [x] Warmup sticky priority — covered by existing
+      `ships.test.ts` "bypasses an exhausted warmup budget" test; bypass is
+      unconditional on tier/selection so higher cardinality doesn't change
+      it. Probe showed zero budget skips under the dense fixture.
 
 ### V4.3 Decision memo: rendering substrate revisit — Effort S (memo only)
 

@@ -66,6 +66,17 @@ export type DebugRenderMetrics = {
   shipMaxHeadingDeltaDeg?: number;
   shipMaxPositionDeltaTile?: number;
   routeCacheStats?: { hitRatio: number; evictionRate: number; size: number; capacity: number };
+  shipBodyCacheStats?: {
+    budgetSkipCount: number;
+    entryCount: number;
+    evictionCount: number;
+    fallbackCount: number;
+    hitCount: number;
+    maxEntries: number;
+    maxPixels: number;
+    missCount: number;
+    pixelCount: number;
+  };
   longtask?: { count: number; maxDurationMs: number };
   // V1.1 per-pass draw-time attribution (coarse pass-group timers).
   skyDrawMs?: number;
