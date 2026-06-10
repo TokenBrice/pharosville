@@ -323,6 +323,15 @@ buckets; standard hulls just X-flip.
       existing neutral; mirror for the W/SW/S/SE half. 12 titans × 4 new
       poses. Run the USDT canary first (Wave 6 §4.1 precedent) to validate
       style consistency and WebP encoding before the batch.
+      **Canary finding (2026-06-11):** one-shot `create_map_object`
+      (192×128, NE-pose prompt, job
+      `d49cfdb4-79d7-4ee9-8178-387c72f6b6fc`, PNG in
+      `outputs/pharosville/pixellab-prototypes/2026-06-11-heritage-frax-gho/`)
+      does NOT yield reliable directional poses — result reads as a
+      side-view galleon without the kraken mainsail emblem. The pose batch
+      needs the style-matching/inpainting path with the existing sheet as
+      reference (or per-pose iteration with review packs), not basic-mode
+      one-shots. Budget lead time accordingly.
 - [ ] Pack poses as added frame columns in each titan's existing animation
       sheet (manifest cost **0 entries**; sheet pixel budgets must be
       re-checked against `scripts/pharosville/asset-budgets.mjs` caps).
@@ -384,8 +393,21 @@ both); manifest cap raise approved for the prop pack (75 → ~80) with the
 prop campaign queued after the ship campaigns.**
 
 - [ ] FRAX + GHO heritage hulls — **fills the manifest exactly to 75/75**.
-      ✓ Operator blessed heritage 6 → 8 (2026-06-11). PixelLab campaign can
-      start; run alongside the V3.1 USDT pose canary.
+      ✓ Operator blessed heritage 6 → 8 (2026-06-11). **Candidates
+      generated** (PixelLab `create_map_object`, 136×100, style-anchor
+      prompts; PNGs in
+      `outputs/pharosville/pixellab-prototypes/2026-06-11-heritage-frax-gho/`;
+      job IDs — FRAX `c630c8ae-ff49-4e0f-ae18-7133ed5571b9` (good: clean
+      silhouette, split-disc sail emblem, contact shadow), GHO
+      `b982623b-6545-4eb3-bff9-70908524b71f` (serviceable; ghost emblem
+      slightly blobby — consider one re-roll). PixelLab objects auto-delete
+      ~8h after 23:16/23:17 UTC. Remaining promotion steps: accept/re-roll →
+      copy under `public/pharosville/assets/ships/` → manifest entries
+      (mirror `ship.crvusd-unique` geometry: anchor [68,92], footprint
+      [46,22], hitbox [30,4,92,90]) + `style.cacheVersion` bump →
+      `UNIQUE_SHIP_DEFINITIONS` entries (`frax-frax`, `gho-aave`; scale
+      ~1.20–1.28) → sail-tint masks → heritage nameplates → asset/color
+      checks + visual lane.
 - [ ] Remaining titan emblem/regen passes (W6.01–W6.03 set) if any are
       still unpainted after the identity pass — re-audit first; CURRENT.md
       suggests most landed.
