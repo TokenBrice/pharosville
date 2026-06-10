@@ -10,6 +10,7 @@ import type { DrawPharosVilleInput, PharosVilleCanvasMotion } from "../render-ty
 import { scanVisibleTiles, terrainKindForTile, visibleTileBoundsForMap } from "../visible-tiles";
 import { TERRAIN_TEXTURE, TILE_COLORS } from "../visual-config";
 import { isScreenCoordinateInViewport, type VisibleTileBounds } from "../viewport";
+import { SHIP_CHROME_MIN_ZOOM } from "../visual-scales";
 import { drawSwellField } from "./swell-field";
 import { windMultiplierForMotion } from "./weather";
 
@@ -279,6 +280,13 @@ function activeWaterAccentCandidatesForFrame(
   if (input.motion.reducedMotion) return candidates.all;
   const tier = input.renderScheduler?.tier;
   if (tier && tier !== "full") return candidates.constrained;
+  // V4.1 far-zoom accent thinning: below the chrome-disclosure zoom the
+  // per-tile accent marks are sub-2px, and the probe showed the accent pass
+  // dominating the frame exactly there (1370 candidate tiles at zoom 0.48).
+  // The sparse constrained set plus the V2.1 swell fronts carry the sea at
+  // that distance; full density returns as soon as the camera crosses the
+  // disclosure gate.
+  if (input.camera.zoom < SHIP_CHROME_MIN_ZOOM) return candidates.constrained;
   return candidates.continuous;
 }
 

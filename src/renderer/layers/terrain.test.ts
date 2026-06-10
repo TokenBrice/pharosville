@@ -188,4 +188,41 @@ describe("water terrain pass split", () => {
     expect(serializableCalls(later.recording.calls)).not.toEqual(serializableCalls(first.recording.calls));
     expect(serializableCalls(reducedLater.recording.calls)).toEqual(serializableCalls(reducedFirst.recording.calls));
   });
+
+  it("thins full-tier accents to the constrained candidate set below the chrome zoom gate (V4.1)", () => {
+    const rows = Array.from({ length: 12 }, () => Array.from({ length: 12 }, () => "alert-water" as TerrainKind));
+    const world = {
+      ...makeWaterWorld("alert-water"),
+      map: makeMap(rows),
+    } as PharosVilleWorld;
+    const accentCountAtZoom = (zoom: number): number => {
+      const recording = buildRecordingCanvasContext();
+      const input = createDrawInput({
+        camera: { offsetX: 600, offsetY: 200, zoom },
+        ctx: recording.ctx,
+        height: 800,
+        motion: {
+          plan: {
+            animatedShipIds: new Set(),
+            effectShipIds: new Set(),
+            lighthouseFireFlickerPerSecond: 0,
+            moverShipIds: new Set(),
+            shipPhases: new Map(),
+            shipRoutes: new Map(),
+          },
+          reducedMotion: false,
+          timeSeconds: 1,
+          wallClockHour: 12,
+        },
+        width: 1200,
+        world,
+      });
+      return drawWaterTerrainAccents(input);
+    };
+
+    const farCount = accentCountAtZoom(0.5);
+    const nearCount = accentCountAtZoom(1);
+    expect(farCount).toBeLessThan(nearCount);
+    expect(farCount).toBeGreaterThan(0);
+  });
 });
