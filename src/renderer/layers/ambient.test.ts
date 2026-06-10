@@ -65,6 +65,40 @@ describe("ambient birds", () => {
     expect(b.tile.y).toBeCloseTo(50 + 1, 5);
   });
 
+  it("designated gulls plunge during their dive window and recover after (V2.5)", () => {
+    const world = makeWorld();
+    const bird: BirdConfig = {
+      species: "gull",
+      scale: 0.7,
+      phase: 0,
+      route: {
+        kind: "orbit",
+        anchor: "lighthouse",
+        anchorX: 0,
+        anchorY: 0,
+        radiusX: 0,
+        radiusY: 0,
+        speed: 0,
+        dive: { depth: 2.5, duration: 2, period: 20 },
+      },
+    };
+    // Mid-dive (t=1 → progress 0.5 → full depth).
+    const diving = sampleBird(bird, 1, world, 1, 0);
+    expect(diving.tile.y).toBeCloseTo(28 + 2.5, 5);
+    // Outside the window the orbit is unchanged.
+    const cruising = sampleBird(bird, 10, world, 1, 0);
+    expect(cruising.tile.y).toBeCloseTo(28, 5);
+    // Deterministic: same time → same plunge.
+    const again = sampleBird(bird, 1, world, 1, 0);
+    expect(again.tile.y).toBe(diving.tile.y);
+  });
+
+  it("ships exactly two diving gulls in the ambient set (V2.5 cap)", () => {
+    const divers = BIRDS.filter((bird) => bird.route.kind === "orbit" && bird.route.dive);
+    expect(divers.length).toBe(2);
+    expect(divers.every((bird) => bird.species === "gull")).toBe(true);
+  });
+
   it("shuttle hits both endpoints across one cycle", () => {
     const world = makeWorld();
     const bird: BirdConfig = {

@@ -297,16 +297,20 @@ semantics class).
 
 ### V2.5 Harbor ambient polish — Effort S–M, Reward ★★★
 
-- [ ] Dock lanterns: 1–2 per rendered dock joining the fixed civic lantern
-      list (`drawDecorativeLights`), with per-lantern deterministic flicker
-      phase; respects the existing bounded-set cap and debug exposure.
-- [ ] Gull harbor dives: extend 2 of the 9 existing orbit gulls with an
-      occasional dive arc over the busiest harbor (pure function of time,
-      stays inside the capped bird set).
-- [ ] Awning/flag micro-sway on dock sprites at near zoom (slow class,
-      zoom-gated by `SHIP_DETAIL_REVEAL_ZOOM`-style constant in
-      `visual-scales.ts`).
+- [x] Quay lanterns: one per rendered dock (bounded by the dock cap) joins
+      `drawDecorativeLights` with the same deterministic sway/flicker family
+      as the civic lamps; debug cap now reports civic 3 + docks
+      (`motionCueCounts.harborLights`, spec assertion 3 → 13), MOTION_POLICY
+      caps text updated.
+- [x] Gull fishing dives: 2 designated wide-radius gulls carry a periodic
+      half-sine plunge (`BirdOrbitRoute.dive`, pure function of time, bank
+      steepened mid-dive); capped-set tests pin exactly two divers.
+- [x] Flag micro-sway on docks: already in-tree (dock flags flutter with
+      time + per-tile phase in `docks.ts`); no duplicate work.
 - All flavor-only: no detail-panel attachment (decided NOT), no new sets.
+- [x] Verified: ambient + hooks suites 62 green; visual lane 20/20; night
+      eyeball `outputs/visual-upgrade/v22-night-t0.png` shows quay lanterns
+      and beam-lit ships.
 
 ---
 

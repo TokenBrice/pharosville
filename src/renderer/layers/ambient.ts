@@ -204,6 +204,13 @@ export interface BirdOrbitRoute {
   radiusX: number;
   radiusY: number;
   speed: number;
+  /**
+   * V2.5 — optional periodic fishing dive. Every `period` seconds the gull
+   * swoops `depth` tiles toward the water over `duration` seconds and pulls
+   * back up. Pure function of time, so reduced motion freezes whatever
+   * static pose time-zero lands on.
+   */
+  dive?: { depth: number; duration: number; period: number };
 }
 
 export interface BirdShuttleRoute {
@@ -247,8 +254,14 @@ function orbitBird(
   radiusX: number,
   radiusY: number,
   speed: number,
+  dive?: BirdOrbitRoute["dive"],
 ): BirdConfig {
-  return { species, scale, phase, route: { kind: "orbit", anchor, anchorX, anchorY, radiusX, radiusY, speed } };
+  return {
+    species,
+    scale,
+    phase,
+    route: { kind: "orbit", anchor, anchorX, anchorY, radiusX, radiusY, speed, ...(dive ? { dive } : {}) },
+  };
 }
 
 function shuttleBird(scale: number, basePeriod: number, arcLift: number): BirdConfig {
@@ -290,9 +303,10 @@ export const BIRDS: readonly BirdConfig[] = [
   orbitBird("gull", 1.14, 0.1, "lighthouse", -4.2, -3.2, 3.8, 1.4, 0.24),
   orbitBird("gull", 0.98, 1.9, "lighthouse", -1.4, -5.2, 4.4, 1.7, 0.2),
   orbitBird("gull", 0.9, 3.4, "lighthouse", 2.8, -4.3, 3.2, 1.2, 0.23),
-  orbitBird("gull", 0.76, 0.6, "lighthouse", -18.5, -10.8, 8.5, 2.2, 0.13),
+  // V2.5: the two wide-radius water gulls occasionally dive for fish.
+  orbitBird("gull", 0.76, 0.6, "lighthouse", -18.5, -10.8, 8.5, 2.2, 0.13, { depth: 2.6, duration: 2.4, period: 19 }),
   orbitBird("gull", 0.68, 2.8, "lighthouse", -29.5, 4.4, 7.4, 1.8, 0.15),
-  orbitBird("gull", 0.72, 4.2, "lighthouse", 10.5, -15.5, 8.8, 2.6, 0.12),
+  orbitBird("gull", 0.72, 4.2, "lighthouse", 10.5, -15.5, 8.8, 2.6, 0.12, { depth: 2.2, duration: 2.1, period: 27 }),
   orbitBird("gull", 0.62, 5.3, "lighthouse", 18.2, 2.2, 6.2, 1.6, 0.18),
   orbitBird("gull", 0.84, 2.2, "lighthouse", 7.2, -7.6, 5.2, 1.5, 0.19),
   orbitBird("gull", 0.82, 4.9, "lighthouse", -9.8, -8.2, 5.8, 1.7, 0.17),
@@ -330,12 +344,26 @@ export function sampleBird(
   if (route.kind === "orbit") {
     const origin = birdAnchorTile(route.anchor, world);
     const angle = time * route.speed * windScale + bird.phase;
+    // V2.5 fishing dive: a half-sine plunge toward the water inside the
+    // periodic dive window, with the bank steepened so the swoop reads.
+    let diveDrop = 0;
+    let diveBank = 0;
+    if (route.dive) {
+      const cycle = ((time + bird.phase * 7) % route.dive.period + route.dive.period) % route.dive.period;
+      if (cycle < route.dive.duration) {
+        const progress = cycle / route.dive.duration;
+        const plunge = Math.sin(progress * Math.PI);
+        diveDrop = plunge * route.dive.depth;
+        diveBank = plunge * 0.8;
+      }
+    }
+    const bank = Math.cos(angle);
     return {
       tile: {
         x: origin.x + route.anchorX + Math.cos(angle) * route.radiusX,
-        y: origin.y + route.anchorY + Math.sin(angle) * route.radiusY,
+        y: origin.y + route.anchorY + Math.sin(angle) * route.radiusY + diveDrop,
       },
-      bank: Math.cos(angle),
+      bank: bank + Math.sign(bank || 1) * diveBank,
       visible: true,
     };
   }
@@ -510,21 +538,39 @@ function drawPigeon(ctx: CanvasRenderingContext2D, x: number, y: number, zoom: n
   ctx.restore();
 }
 
-export function drawDecorativeLights({ camera, ctx, motion }: DrawPharosVilleInput): void {
+// V2.5 — quay lantern placement offset from each rendered dock's tile, in
+// tile units. One lamp per dock; the set stays bounded by the dock cap and
+// rides the same sway/flicker family as the civic lanterns.
+const DOCK_LANTERN_OFFSET = { x: 0.55, y: 0.45 } as const;
+const DOCK_LANTERN_SCALE = 0.4;
+
+export function drawDecorativeLights({ camera, ctx, motion, world }: DrawPharosVilleInput): void {
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
-  for (const light of VILLAGE_LIGHTS) {
-    const p = tileToScreen({ x: light[0], y: light[1] }, camera);
-    const phase = time + light[0] * 0.31 + light[1] * 0.17;
-    const swayPhase = (light[0] * 0.7 + light[1] * 0.4) % (Math.PI * 2);
+  const drawSwayingLamp = (tileX: number, tileY: number, scale: number) => {
+    const p = tileToScreen({ x: tileX, y: tileY }, camera);
+    const phase = time + tileX * 0.31 + tileY * 0.17;
+    const swayPhase = (tileX * 0.7 + tileY * 0.4) % (Math.PI * 2);
     const sway = motion.reducedMotion ? 0 : Math.sin(time * 0.9 + swayPhase);
-    const swayX = sway * 1.6 * camera.zoom * light[2];
+    const swayX = sway * 1.6 * camera.zoom * scale;
     const swayRot = sway * 0.04;
     ctx.save();
     ctx.translate(p.x + swayX, p.y);
     ctx.rotate(swayRot);
-    drawLamp(ctx, 0, 0, camera.zoom * light[2], phase);
+    drawLamp(ctx, 0, 0, camera.zoom * scale, phase);
     ctx.restore();
+  };
+  for (const light of VILLAGE_LIGHTS) {
+    drawSwayingLamp(light[0], light[1], light[2]);
   }
+  // V2.5 quay lanterns: one per rendered dock (bounded by the dock cap).
+  for (const dock of world.docks ?? []) {
+    drawSwayingLamp(dock.tile.x + DOCK_LANTERN_OFFSET.x, dock.tile.y + DOCK_LANTERN_OFFSET.y, DOCK_LANTERN_SCALE);
+  }
+}
+
+/** Bounded decorative-light count for the motion-cue debug contract. */
+export function decorativeLightCount(world: PharosVilleWorld): number {
+  return VILLAGE_LIGHTS.length + (world.docks?.length ?? 0);
 }
 
 export function drawBioluminescentSparkles(

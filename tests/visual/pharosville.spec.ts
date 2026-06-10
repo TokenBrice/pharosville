@@ -1141,7 +1141,8 @@ test.describe("pharosville normal motion", () => {
     expect(runtime.motionClockSource).toBe("requestAnimationFrame");
     expect(runtime.motionCueCounts?.selectedRelationshipOverlays).toBeLessThanOrEqual(1);
     expect(runtime.motionCueCounts?.ambientBirds).toBeLessThanOrEqual(9);
-    expect(runtime.motionCueCounts?.harborLights).toBeLessThanOrEqual(3);
+    // V2.5: civic cap (3) + one quay lantern per rendered dock (≤ 10).
+    expect(runtime.motionCueCounts?.harborLights).toBeLessThanOrEqual(13);
     expect(runtime.motionCueCounts?.effectShips ?? 0).toBeLessThanOrEqual(runtime.motionCueCounts?.animatedShips ?? 0);
     expect(runtime.renderMetrics?.drawableCount).toBeGreaterThan(0);
     expect(runtime.renderMetrics?.drawableCounts.body).toBeGreaterThan(0);

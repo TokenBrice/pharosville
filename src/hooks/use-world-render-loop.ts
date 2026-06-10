@@ -1223,7 +1223,9 @@ function motionCueCounts(input: {
     ambientBirds: PHAROSVILLE_AMBIENT_BIRD_CAP,
     animatedShips: input.motionPlan.animatedShipIds.size,
     effectShips: input.motionPlan.effectShipIds.size,
-    harborLights: PHAROSVILLE_HARBOR_LIGHT_CAP,
+    // V2.5: civic-core lamp cap plus one quay lantern per rendered dock
+    // (bounded by the dock cap, ≤ 10 with TON).
+    harborLights: PHAROSVILLE_HARBOR_LIGHT_CAP + input.world.docks.length,
     moverShips: input.motionPlan.moverShipIds.size,
     selectedRelationshipOverlays,
   };

@@ -43,8 +43,11 @@ renders deterministic static frames and must not keep a RAF loop alive.
 - Selected pulse: one selected entity family at a time.
 - Relationship overlays: selected ship or selected dock only.
 - Ship wake/effects: selected, top-supply, or recent-mover ships only.
-- Ambient birds: capped to the lighthouse/far-sea set exposed in debug state.
-- Harbor lights: fixed local civic-core list exposed in debug state.
+- Ambient birds: capped to the lighthouse/far-sea set exposed in debug state;
+  two designated wide-radius gulls carry a periodic deterministic fishing
+  dive (V2.5) within their existing orbits.
+- Harbor lights: fixed local civic-core list plus one quay lantern per
+  rendered dock (bounded by the dock cap), both exposed in debug state.
 - Harbor and civic effects: bounded local effect sets only.
 - No independent CSS animation, sprite loop, minimap loop, interval, or timer may
   encode analytical state outside the main motion clock.
