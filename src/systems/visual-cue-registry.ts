@@ -124,6 +124,17 @@ export function buildVisualCueRegistry(): VisualCue[] {
       reducedMotionEquivalent: "same static crate stack",
     },
     {
+      id: "cue.ship.zone-weathering",
+      target: { kind: "ship" },
+      primaryChannels: ["color", "shape"],
+      visual: "darkened waterline band and pale salt streaks on hulls holding Warning (light wear) or Danger (heavy wear) placements; Calm/Watch/Alert/Ledger hulls stay clean",
+      sourceField: "pegSummary.coins[], stress.signals[] (risk-zone placement)",
+      questionAnswered: "Has this ship been riding rough risk water?",
+      failureState: "clean hull; risk zone still named in the detail placement row",
+      domEquivalent: "ship detail placement explanation with named risk water area and accessibility ledger ship row",
+      reducedMotionEquivalent: "same static baked wear (deterministic per ship and zone bucket)",
+    },
+    {
       id: "cue.cemetery",
       target: { kind: "grave" },
       primaryChannels: ["shape", "size", "color"],

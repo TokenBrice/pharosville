@@ -285,6 +285,65 @@ function normalizedHeading(heading: { x: number; y: number } | null | undefined)
   };
 }
 
+// === V3.5 risk-zone hull weathering =========================================
+//
+// Ships holding Warning/Danger placements pick up procedural sea-wear: a
+// darkened waterline band and pale salt streaks above it, painted with
+// source-atop compositing inside the precomposed body bake so the cost is
+// one-time per (ship, zone bucket) instead of per frame. Calm/Watch/Alert/
+// Ledger hulls stay clean. The cue is registered in visual-cue-registry.ts
+// (`cue.ship.zone-weathering`) and mirrors the existing risk-zone detail
+// and ledger rows, so parity holds. Levels bucket 6 zones into 3 states to
+// bound body-cache cardinality (see DEFAULT_SHIP_BODY_CACHE_MAX_ENTRIES).
+
+export type HullWeatheringLevel = 0 | 1 | 2;
+
+export function hullWeatheringLevelForZone(zone: PharosVilleWorld["ships"][number]["riskZone"] | undefined): HullWeatheringLevel {
+  if (zone === "danger") return 2;
+  if (zone === "warning") return 1;
+  return 0;
+}
+
+export function drawRiskZoneHullWeathering(input: {
+  anchorY: number;
+  canvasHeight: number;
+  canvasWidth: number;
+  ctx: CanvasRenderingContext2D;
+  level: HullWeatheringLevel;
+  shipId: string;
+}): void {
+  if (input.level <= 0) return;
+  const { ctx, level, shipId } = input;
+  const seed = stableVisualVariant(`${shipId}:zone-weathering`);
+  const waterlineY = Math.min(input.canvasHeight - 1, input.anchorY);
+  const bandHeight = Math.max(2, Math.round(input.canvasHeight * 0.05)) + level;
+  ctx.save();
+  // Clip every stroke to existing sprite pixels so the wear never paints
+  // outside the hull silhouette.
+  ctx.globalCompositeOperation = "source-atop";
+
+  // Darkened waterline: grime concentrates where the sea meets the hull.
+  ctx.fillStyle = level >= 2 ? "rgba(16, 22, 20, 0.30)" : "rgba(16, 22, 20, 0.18)";
+  ctx.fillRect(0, waterlineY - bandHeight, input.canvasWidth, bandHeight * 2);
+
+  // Salt streaks: short pale drips rising from the waterline, deterministic
+  // per ship so reduced motion and re-bakes are bit-identical.
+  const streakCount = level >= 2 ? 4 : 2;
+  ctx.strokeStyle = level >= 2 ? "rgba(214, 222, 210, 0.17)" : "rgba(214, 222, 210, 0.11)";
+  ctx.lineWidth = 1;
+  ctx.lineCap = "round";
+  for (let index = 0; index < streakCount; index += 1) {
+    const jitter = (seed >> (index * 4)) % 23;
+    const x = (input.canvasWidth * (0.22 + 0.56 * (index / Math.max(1, streakCount - 1)))) + (jitter - 11) * 0.4;
+    const rise = 3 + ((seed >> (index * 3)) % 4) + level;
+    ctx.beginPath();
+    ctx.moveTo(x, waterlineY - bandHeight);
+    ctx.lineTo(x + 0.6, waterlineY - bandHeight - rise);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 /**
  * V3.3 heading-driven sail trim. Returns the x-shear for the mainsail band:
  * positive values lean the cloth toward the bow, scaled by how downwind the
@@ -766,6 +825,7 @@ export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame
     p,
     pose,
     sailTrimShear,
+    sample,
     shipAsset,
   } = shipRenderState(input, frame, ship);
   withShipMapVisibilityAlpha(ctx, mapVisibilityAlpha, () => {
@@ -783,6 +843,7 @@ export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame
           ship,
           shipAsset,
           useLiveSubpixelDraw,
+          weatheringLevel: hullWeatheringLevelForZone(sample?.zone ?? ship.riskZone),
           x: geometry.drawPoint.x,
           y: drawY,
           scale: geometry.drawScale,
@@ -918,6 +979,7 @@ function drawPrecomposedShipBody(input: {
   shipAsset: LoadedPharosVilleAsset;
   useLiveSubpixelDraw: boolean;
   visualKey: string;
+  weatheringLevel?: HullWeatheringLevel;
   x: number;
   y: number;
 }): boolean {
@@ -930,13 +992,17 @@ function drawPrecomposedShipBody(input: {
     height: entry.height * displayScale,
     width: entry.width * displayScale,
   };
+  const weatheringLevel = input.weatheringLevel ?? 0;
   const request: ShipBodyPrecomposeRequest = {
     animationFrameKey: input.frame.shipRenderStates.get(input.ship.id)?.isTitanSprite ? input.animationFrame : 0,
     assetId: entry.id,
     dpr: 1,
     // Logos load deferred; keying on the emblem identity recomposes the
     // body once the issuer logo arrives (text fallback → logo emblem).
-    liveryKey: shipBodyEmblemKey(input.emblem),
+    // V3.5: the weathering bucket joins the key — zone is single-valued per
+    // ship, so steady-state cardinality stays ~1 entry/ship and only zone
+    // *changes* trigger a transient rebake.
+    liveryKey: `${shipBodyEmblemKey(input.emblem)}|wz${weatheringLevel}`,
     logicalSize,
     manifestCacheVersion,
     shipId: input.ship.id,
@@ -954,7 +1020,7 @@ function drawPrecomposedShipBody(input: {
     || input.ship.visual.sizeTier === "titan"
     || input.ship.visual.sizeTier === "unique";
   if (!cacheHit && warmupBudget && warmupBudget.remaining <= 0 && !priorityWarmup) return false;
-  const result = cache.getOrCreate(request, ({ ctx }) => {
+  const result = cache.getOrCreate(request, ({ ctx, backingSize }) => {
     const anchorX = entry.anchor[0] * displayScale;
     const anchorY = entry.anchor[1] * displayScale;
     drawShipBodyInline({
@@ -971,6 +1037,14 @@ function drawPrecomposedShipBody(input: {
       visualKey: input.visualKey,
       x: anchorX,
       y: anchorY,
+    });
+    drawRiskZoneHullWeathering({
+      anchorY,
+      canvasHeight: backingSize.height,
+      canvasWidth: backingSize.width,
+      ctx,
+      level: weatheringLevel,
+      shipId: input.ship.id,
     });
   }, {
     maxPixels: input.frame.shipBodyCacheMaxPixels,

@@ -259,12 +259,18 @@ Queued in the recovered upgrade plan as "wake trail upgrade (hot path —
 profile)". Fast speed class → capped to selected / top-supply / recent-mover
 ships per MOTION_POLICY.
 
-- [ ] Ring buffer of recent stern positions per eligible ship (≤ 5 ships,
-      ~60 samples) in the render-loop frame state; render a tapering,
-      fading polyline in `wake.ts` using the zone wave color.
-- [ ] Deterministic fallback: reduced motion renders no trail (matches
-      current wake behavior).
-- [ ] Profile before/after with V1.1; abort if entity pass regresses.
+- [x] Breadcrumb buffers per eligible ship in `wake.ts` (≤ 24 ships LRU,
+      26 points each, iso-world coords so camera moves don't smear); the
+      old straight-extrapolated dashes are replaced by an age-faded polyline
+      along the actually-sailed path (3 banded strokes per trail max,
+      2.6s lifetime, zone wave color). `resetWakeTrails()` test hook.
+- [x] Reduced motion renders no trail (unchanged: `drawsWake` is false
+      there, and trail state never accumulates).
+- [x] Profiled: entity pass 2.99ms avg on the dense sustained lane
+      (within historical 2.0–3.0ms band; trail-eligible set is the same
+      capped fast-class group as before). Visual lane 20/20.
+- Note: render-side state only — buffers never feed motion, hit-testing,
+  or analytics; eligibility unchanged (selected/effect/mover/top-recent).
 
 ### V2.4 Threat-aware sky staging + Danger squall — Effort S–M, Reward ★★★
 

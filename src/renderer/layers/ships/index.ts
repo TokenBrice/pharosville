@@ -16,15 +16,18 @@ export {
 } from "../../ship-visual-config";
 
 export {
+  drawRiskZoneHullWeathering,
   drawShipBody,
   drawShipOverlay,
   drawShipWake,
   drawSquadIdentityAccent,
+  hullWeatheringLevelForZone,
   planShipRenderLod,
   resetPlanCache,
   resolveSailTrimShear,
   resolveShipVisualOrientation,
   shipMastTopScreenPoint,
+  type HullWeatheringLevel,
   type ShipRenderFrame,
   type ShipRenderLodPlan,
   type ShipRenderState,
@@ -34,6 +37,7 @@ export {
 
 export {
   resetTitanPathCache,
+  resetWakeTrails,
   resolveTitanBowSprayStrands,
   titanPathCacheStats,
   wakePersonalityForHull,

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SKY_SQUAD } from "../../systems/maker-squad";
 import type { PharosVilleMotionPlan, ShipMotionSample } from "../../systems/motion";
 import type { PharosVilleWorld, ShipNode } from "../../systems/world-types";
@@ -17,6 +17,7 @@ import {
   planShipRenderLod,
   resetPlanCache,
   resetTitanPathCache,
+  resetWakeTrails,
   resolveSailTrimShear,
   resolveShipVisualOrientation,
   resolveTitanBowSprayStrands,
@@ -1786,6 +1787,101 @@ describe("titan foam scaling stays within hull bounds", () => {
     // beginPath/stroke for foam/spray, no Path2D-style stroke would fire.
     const pathStrokeCalls = strokeCalls.filter((call) => call.args.length === 1);
     expect(pathStrokeCalls.length).toBeGreaterThan(0);
+  });
+});
+
+// --- Persistent wake trails (V2.3) -------------------------------------------
+//
+// Trails are breadcrumbs of the actually-sailed path. Drive the wake stack
+// across several frames with a moving sample tile and assert the polyline
+// grows, curves with the path, and resets via the test hook.
+
+describe("persistent wake trails (V2.3)", () => {
+  function drawWakeFrame(
+    ctx: CanvasRenderingContext2D,
+    shipId: string,
+    tile: { x: number; y: number },
+    timeSeconds: number,
+  ): void {
+    const ship = makeShipNode({ id: shipId, tile: { x: 8, y: 8 } });
+    const plan = makeMotionPlan([shipId]);
+    const sample: ShipMotionSample = {
+      ...makeMotionSample(shipId),
+      tile,
+      wakeIntensity: 1,
+    };
+    const input = {
+      assets: null,
+      camera: { offsetX: 0, offsetY: 0, zoom: 1 },
+      ctx,
+      height: 600,
+      hoveredTarget: null,
+      motion: {
+        plan: {
+          ...plan,
+          animatedShipIds: new Set<string>([shipId]),
+          effectShipIds: new Set<string>([shipId]),
+        },
+        reducedMotion: false,
+        timeSeconds,
+        wallClockHour: 12,
+      },
+      selectedTarget: null,
+      shipMotionSamples: new Map<string, ShipMotionSample>([[shipId, sample]]),
+      targets: [],
+      width: 800,
+      world: { ships: [ship] } as unknown as PharosVilleWorld,
+    } satisfies DrawPharosVilleInput;
+    const frame: ShipRenderFrame = {
+      cache: {
+        assetForEntity: () => null as LoadedPharosVilleAsset | null,
+        // Project the moving sample tile so trail points differ per frame.
+        geometryForEntity: () => makeGeometry(200 + (tile.x - tile.y) * 16, 100 + (tile.x + tile.y) * 8),
+      },
+      shipRenderStates: new Map(),
+      visibleShips: [ship],
+      wakeDrawnShipIds: new Set<string>(),
+    };
+    drawShipWake(input, frame, ship);
+  }
+
+  beforeEach(() => {
+    resetWakeTrails();
+  });
+
+  it("accumulates breadcrumbs across frames and strokes a multi-point trail", () => {
+    const shipId = "trail-ship";
+    // First frame: a single breadcrumb → no trail stroke yet.
+    const first = makeRecordingCtx();
+    drawWakeFrame(first, shipId, { x: 10, y: 10 }, 0);
+    const firstLineTos = first.calls.filter((call) => call.method === "lineTo").length;
+
+    // March the ship along a path; trail polyline grows.
+    const later = makeRecordingCtx();
+    drawWakeFrame(later, shipId, { x: 11, y: 10 }, 0.4);
+    drawWakeFrame(later, shipId, { x: 12, y: 10 }, 0.8);
+    drawWakeFrame(later, shipId, { x: 13, y: 11 }, 1.2);
+    const laterLineTos = later.calls.filter((call) => call.method === "lineTo").length;
+    expect(laterLineTos).toBeGreaterThan(firstLineTos);
+  });
+
+  it("drops breadcrumbs older than the trail lifetime", () => {
+    const shipId = "fading-ship";
+    const warm = makeRecordingCtx();
+    drawWakeFrame(warm, shipId, { x: 10, y: 10 }, 0);
+    drawWakeFrame(warm, shipId, { x: 11, y: 10 }, 0.4);
+    drawWakeFrame(warm, shipId, { x: 12, y: 10 }, 0.8);
+
+    // Long pause: every old breadcrumb ages out; only the fresh point stays.
+    const stale = makeRecordingCtx();
+    drawWakeFrame(stale, shipId, { x: 13, y: 10 }, 30);
+    const staleTrailStrokes = stale.calls.filter((call) => call.method === "stroke" && call.args.length === 0).length;
+    // Zone wake (3 strokes) still draws; the trail contributes nothing extra
+    // because a single live breadcrumb cannot form a segment.
+    const fresh = makeRecordingCtx();
+    drawWakeFrame(fresh, "fresh-ship", { x: 13, y: 10 }, 30);
+    const freshStrokes = fresh.calls.filter((call) => call.method === "stroke" && call.args.length === 0).length;
+    expect(staleTrailStrokes).toBe(freshStrokes);
   });
 });
 

@@ -168,11 +168,13 @@ export function drawShipWakeRaw(input: DrawPharosVilleInput, frame: ShipRenderFr
       drawNightWakeGlow(ctx, wakeX, wakeY, camera.zoom, intensity, heading, nightFactor, wakeMultiplier, ship.visual.hull);
       if (selected || motion.plan.effectShipIds.has(ship.id) || motion.plan.moverShipIds.has(ship.id) || isTopRecentMoverShip(input.world, ship.id)) {
         drawTrailingWake(ctx, {
+          camera,
           heading,
           hull: ship.visual.hull,
           intensity,
           sample,
           shipId: ship.id,
+          timeSeconds: motion.timeSeconds,
           wakeMultiplier,
           x: wakeX,
           y: wakeY,
