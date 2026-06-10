@@ -402,6 +402,16 @@ pass-breakdown data answering: can Canvas 2D + the V4.1 program reach 60fps
 at dense zoom, or is the ceiling structural? Present keep/revisit options to
 the operator. Only revisit the NOT with explicit operator approval.
 
+**Done (2026-06-11):** memo at
+`agents/2026-06-11-v4.3-substrate-decision-memo.md`, awaiting operator
+decision (recommendation: keep NO-GO). Headline evidence: dense fixture at
+zoom 2.4 draws *faster* than fit zoom (3.4ms vs 4.2–4.8ms local median,
+~3.5× headroom vs 60fps); the 2–4 fps captures were automation-load
+artifacts. Measurement probe kept at
+`tests/probes/zoom-pass-breakdown.probe.spec.ts`
+(`npx playwright test --config playwright.probe.config.ts`, port 4179, not a
+CI lane).
+
 ---
 
 ## Explicitly not in this plan (and why)
