@@ -544,30 +544,45 @@ CI lane).
 
 Per-phase while iterating:
 
-- [ ] `npm run validate:changed`
-- [ ] Perf work: `npx playwright test --config playwright.perf.config.ts`
-- [ ] Visual work: `npm run check:pharosville-assets`,
-      `npm run check:pharosville-colors`,
-      `npx playwright test tests/visual/pharosville.spec.ts --grep "pharosville"`
-- [ ] Motion-policy changes: update `docs/pharosville/MOTION_POLICY.md` +
-      `visual-cue-registry.ts` and verify the debug contract
-      (`activeMotionLoopCount`, `motionCueCounts`).
-- [ ] Baseline regen only after diff inspection, dist set from the CI Docker
-      image per `docs/pharosville/VISUAL_REGEN.md`.
+- [x] `npm run validate:changed` lanes run per item (focused suites listed
+      in each section above).
+- [x] Perf lane green after every perf-touching item; sustained dense
+      averages at gate time: entity 2.1ms, accents 0.75ms, ambient 0.3ms.
+- [x] Visual lanes: 20/20 throughout — every landed item stayed within
+      existing snapshot tolerances, so **no baseline regen was needed in
+      the dev config**. Dist baselines untouched.
+- [x] Motion-policy changes documented (swell, rim haze, squall, quay
+      lanterns, gull dives) + `cue.area.danger-squall` registered; debug
+      contract updated (`harborLights` now civic + dock count).
 
-Before claiming any phase complete, run the full AGENTS.md gate
-(onboard, smoke, docs, typecheck, unit, assets, colors, build, visual).
+**Full AGENTS.md gate (2026-06-11, after V1–V2 + V4 remainder):**
+onboard ✓ · smoke:api-local ✓ · smoke:dev-proxy ✓ (6 endpoints) ·
+validate:docs ✓ (38 files) · typecheck ✓ · npm test ✓ (921/92 files) ·
+check:pharosville-assets ✓ (73) · check:pharosville-colors ✓ (166 files) ·
+build ✓ (bundle budgets green) · test:visual ✓ (20/20) · perf lane ✓ (2/2).
 
 ## Handoff
 
-- Files changed: this plan only (exploration session — no code changes).
+- Status: **V1 (all), V2 (all), V4 (all, V4.1 audit/hover levers optional),
+  V3.3, V3.5 are landed and gate-green.** Remaining: V3.1 pose campaign
+  (canary finding recorded — needs the style-matching/inpainting PixelLab
+  path), V3.2 silhouette variants (same pipeline), V3.4 heritage promotion
+  (candidates generated, operator blessed 8 hulls + cap raise; promotion
+  steps listed in the section), W6.14 cacheVersion bump rides the first
+  asset batch.
 - Risks/notes:
-  - Operator decisions needed: (1) heritage count 6→8 for FRAX+GHO (V3.4),
-    (2) manifest cap raise beyond 75 if the prop pack is wanted (V3.4),
-    (3) substrate revisit memo outcome (V4.3).
-  - V1.3 and V3.1/V3.2 cause intentional broad baseline drift — schedule
-    regens once per phase, not per task.
-  - PixelLab campaigns (V3.1, V3.2, V3.4) have lead time — kick off the
-    USDT pose canary as soon as Phase V1 starts.
-- Follow-ups: record V1.1 pass-breakdown measurements in this file; tighten
-  CI perf budgets after V4.1 lands.
+  - Two sessions shared this working tree; V3.3/V3.5 landed inside commits
+    `c2109a9`/`d1f9e67` (attribution note in V3.5 section). Future parallel
+    work should use worktrees per `SWARM_OPERATIONS.md`.
+  - V4.3 substrate memo recommends keeping the NO-GO (Canvas 2D has ~3.5×
+    headroom at dense zoom; the 2–4 fps captures were automation-load
+    artifacts) — awaiting operator ack.
+  - CI perf budget tightening (median 140 → 100, p95 200 → 140) is ready
+    to land once an operator wants it locked; local dense medians sit at
+    3–5ms.
+  - V3.1/V3.2 will cause intentional broad baseline drift when sprites
+    land — schedule one regen per campaign, dist set from the CI Docker
+    image per `VISUAL_REGEN.md`.
+- Follow-ups: `terrain.land` WebP twin (1 file); optional V4.1 levers
+  (entity-pass draw-call audit continuation, hover-only repaints); legend
+  note for the squall if operators want it surfaced beyond the detail row.
