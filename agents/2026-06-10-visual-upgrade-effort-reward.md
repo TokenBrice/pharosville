@@ -161,14 +161,17 @@ Titans get hull foam, bow spray, stern churn, mooring rope/fender
 (`src/renderer/layers/ships/wake.ts`); standard hulls get only a contact
 shadow and heritage hulls get nothing. The fleet's 85% reads as flat decals.
 
-- [ ] Extend the titan chrome path with simplified variants for `unique` and
-      standard tiers (smaller foam arc, single spray fleck, mooring shadow).
-- [ ] Reuse the cached Path2D template/bucket infra; keep separate LRU
-      budgets so cardinality stays bounded (heading buckets × tier).
-- [ ] Gate under the existing overlay LOD budget (`planShipRenderLod`) so
-      dense scenes shed gracefully; reduced motion keeps the static frame.
-- [ ] Verify: dense fixture perf lane unchanged (chrome is cached paths);
-      visual diff at mid zoom shows hulls sitting *in* the water.
+- [x] `HULL_CHROME_TIERS` in `wake.ts`: standard (0.68× geometry, foam only,
+      1 spray strand), unique (0.85×, foam + mooring details, 2 strands),
+      titan (unchanged). Stern churn stays titan+unique.
+- [x] Cached unit-scale Path2D templates are shared across tiers — the tier
+      factor rides ctx.scale, so zero path-cache cardinality growth.
+- [x] LOD-bounded by construction (wake-underlay only draws for
+      `planShipRenderLod().drawWakeShipIds`); standard hulls additionally
+      gate at `SHIP_CHROME_MIN_ZOOM` so far zoom stays clean.
+- [x] Verified: 4 new tier tests in `ships.test.ts` (51 green); full visual
+      lane 20/20 within existing tolerances (no baseline regen needed);
+      mid-zoom eyeball check `outputs/visual-upgrade/v14-mid.png`.
 
 ### V1.5 Nameplate sprite caching — Effort S–M, Reward ★★★
 

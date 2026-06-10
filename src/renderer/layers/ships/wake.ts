@@ -5,6 +5,7 @@ import { stableVisualVariant } from "../../canvas-primitives";
 import { createStatsLruCache } from "../../lru-cache";
 import type { DrawPharosVilleInput } from "../../render-types";
 import { SHIP_CONTINUOUS_MOTION } from "../../ship-visual-config";
+import { SHIP_CHROME_MIN_ZOOM } from "../../visual-scales";
 import type { ShipPose } from "../ship-pose";
 import { skyState } from "../sky";
 import {
@@ -89,32 +90,62 @@ function quantizeTitanTension(tension: number): { bucket: number; value: number 
   return { bucket, value: bucket / (TITAN_PATH_TENSION_BUCKETS - 1) };
 }
 
+// === V1.4 hull-chrome tiers =================================================
+//
+// Heritage (unique) and standard hulls reuse the titan procedural chrome at
+// reduced geometry and alpha so the whole fleet sits *in* the water instead
+// of floating like flat decals. The cached unit-scale Path2D templates are
+// shared across tiers — the tier factor rides the existing ctx.scale — so
+// tiering adds zero path-cache cardinality. Draw cost stays LOD-bounded:
+// this code path only runs for wake-budgeted ships
+// (`planShipRenderLod().drawWakeShipIds`), so dense scenes shed standard
+// chrome exactly like wakes. Standard hulls additionally respect the
+// SHIP_CHROME_MIN_ZOOM disclosure gate so far-zoom views stay clean.
+interface HullChromeTier {
+  foamAlphaBase: number;
+  foamAlphaPose: number;
+  geometryScale: number;
+  mooringDetails: boolean;
+  sprayStrandLimit: number;
+}
+
+const HULL_CHROME_TIERS: Record<"standard" | "titan" | "unique", HullChromeTier> = {
+  standard: { foamAlphaBase: 0.07, foamAlphaPose: 0.12, geometryScale: 0.68, mooringDetails: false, sprayStrandLimit: 1 },
+  titan: { foamAlphaBase: 0.12, foamAlphaPose: 0.18, geometryScale: 1, mooringDetails: true, sprayStrandLimit: Number.POSITIVE_INFINITY },
+  unique: { foamAlphaBase: 0.1, foamAlphaPose: 0.15, geometryScale: 0.85, mooringDetails: true, sprayStrandLimit: 2 },
+};
+
 export function drawShipWakeRaw(input: DrawPharosVilleInput, frame: ShipRenderFrame, ship: PharosVilleWorld["ships"][number]) {
   const { camera, ctx, motion } = input;
   const {
     drawsWake,
     geometry,
     isTitanSprite,
+    isUniqueSprite,
     mapVisibilityAlpha,
     p,
     pose,
     sample,
     selected,
   } = shipRenderState(input, frame, ship);
+  const chrome = HULL_CHROME_TIERS[isTitanSprite ? "titan" : isUniqueSprite ? "unique" : "standard"];
+  const drawsHullChrome = isTitanSprite || isUniqueSprite || camera.zoom >= SHIP_CHROME_MIN_ZOOM;
+  const chromeScale = geometry.drawScale * chrome.geometryScale;
   withShipMapVisibilityAlpha(ctx, mapVisibilityAlpha, () => {
     drawShipContactShadow(ctx, geometry.drawPoint.x, geometry.drawPoint.y, geometry.drawScale);
-    if (isTitanSprite) {
-      drawTitanHullFoam(
+    if (drawsHullChrome) {
+      drawHullFoam(
         ctx,
         geometry.drawPoint.x,
         geometry.drawPoint.y,
-        geometry.drawScale,
+        chromeScale,
         pose,
         sample?.heading ?? { x: -1, y: 0 },
         sample?.zone ?? ship.riskZone,
+        chrome,
       );
-      if (sample?.state === "moored" && sample.currentDockId) {
-        drawTitanMooringDetails(ctx, geometry.drawPoint.x, geometry.drawPoint.y, geometry.drawScale, pose);
+      if (chrome.mooringDetails && sample?.state === "moored" && sample.currentDockId) {
+        drawTitanMooringDetails(ctx, geometry.drawPoint.x, geometry.drawPoint.y, chromeScale, pose);
       }
     }
     if (drawsWake) {
@@ -149,17 +180,18 @@ export function drawShipWakeRaw(input: DrawPharosVilleInput, frame: ShipRenderFr
           zoom: camera.zoom,
         });
       }
-      if (isTitanSprite) {
+      if (drawsHullChrome && chrome.sprayStrandLimit > 0) {
         drawTitanBowSpray(
           ctx,
           geometry.drawPoint.x,
           geometry.drawPoint.y,
-          geometry.drawScale,
+          chromeScale,
           pose,
           ship.id,
           sample?.heading ?? { x: -1, y: 0 },
           sample?.zone ?? ship.riskZone,
           isTopRecentMoverShip(input.world, ship.id),
+          chrome.sprayStrandLimit,
         );
       }
     }
@@ -181,7 +213,7 @@ function drawShipContactShadow(ctx: CanvasRenderingContext2D, x: number, y: numb
   ctx.restore();
 }
 
-function drawTitanHullFoam(
+function drawHullFoam(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -189,10 +221,11 @@ function drawTitanHullFoam(
   pose: ShipPose,
   heading: { x: number; y: number },
   zone: ShipWaterZone,
+  chrome: HullChromeTier,
 ) {
   const style = wakeStyleForZone(zone);
   const { bucket, fx, fy } = quantizeTitanHeading(heading.x, heading.y);
-  const alpha = 0.12 + pose.bowWake * 0.18 + pose.mooringTension * 0.08;
+  const alpha = chrome.foamAlphaBase + pose.bowWake * chrome.foamAlphaPose + pose.mooringTension * 0.08;
   const path = titanPathCache.getOrBuild(`foam:${bucket}`, () => buildTitanFoamPath(fx, fy));
   ctx.save();
   ctx.translate(x, y);
@@ -313,16 +346,20 @@ function drawTitanBowSpray(
   heading: { x: number; y: number },
   zone: ShipWaterZone,
   topRecentMover: boolean,
+  strandLimit: number = Number.POSITIVE_INFINITY,
 ) {
   if (pose.bowWake <= 0.02 && pose.sternChurn <= 0.02) return;
   const style = wakeStyleForZone(zone);
   const { bucket, fx, fy } = quantizeTitanHeading(heading.x, heading.y);
   const baseAlpha = 0.16 + pose.bowWake * 0.24;
-  const strands = resolveTitanBowSprayStrands({
+  const allStrands = resolveTitanBowSprayStrands({
     headingDelta: getShipHeadingDelta(shipId),
     shipId,
     topRecentMover,
   });
+  // V1.4: lower chrome tiers draw a subset of the strand set; the cache key
+  // is per strand so partial draws reuse the same Path2D templates.
+  const strands = Number.isFinite(strandLimit) ? allStrands.slice(0, Math.max(0, strandLimit)) : allStrands;
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(scale, scale);
@@ -339,7 +376,8 @@ function drawTitanBowSpray(
     ctx.stroke(strandPath);
   }
 
-  if (pose.sternChurn > 0.05) {
+  // Stern churn stays a two-tier-and-up flourish (titan + unique).
+  if (strandLimit >= 2 && pose.sternChurn > 0.05) {
     const sternPath = titanPathCache.getOrBuild(
       `spray:stern:${bucket}`,
       () => buildTitanSternChurnPath(fx, fy),
