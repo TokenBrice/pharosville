@@ -236,7 +236,29 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: npx --no-install wrangler pages deploy dist --project-name=pharosville --commit-message="$GITHUB_SHA"
+        run: |
+          for attempt in 1 2 3; do
+            echo "Cloudflare Pages deploy attempt ${attempt}/3"
+            if npx --no-install wrangler pages deploy dist --project-name=pharosville --commit-message="$GITHUB_SHA"; then
+              exit 0
+            fi
+
+            if [ "$attempt" -lt 3 ]; then
+              sleep_seconds=$((attempt * 30))
+              echo "Cloudflare Pages deploy failed; retrying in ${sleep_seconds}s."
+              sleep "$sleep_seconds"
+            fi
+          done
+
+          echo "Cloudflare Pages deploy failed after 3 attempts."
+          exit 1
+      - name: Upload Wrangler deploy logs
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: wrangler-deploy-logs
+          path: ~/.config/.wrangler/logs
+          if-no-files-found: ignore
       - name: Check live security headers
         env:
           SMOKE_UI_URL: ${{ vars.SMOKE_UI_URL || 'https://pharosville.pharos.watch' }}
