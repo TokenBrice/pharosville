@@ -1,12 +1,11 @@
 # PharosVille Agent Onboarding
 
-Last updated: 2026-05-18
+Last updated: 2026-06-11
 
-Use this file as the fastest path to productive and safe PharosVille work.
+Use this after `AGENTS.md` to route the current task. Keep startup small:
+read only the docs needed for the change in front of you.
 
-For the canonical repo guide — scope rules, change rules, and validation lanes — see [`AGENTS.md`](../../AGENTS.md). This onboarding doc is the runway; `AGENTS.md` is the rulebook.
-
-## 10-Minute Setup
+## Start
 
 1. Install dependencies:
 
@@ -14,13 +13,13 @@ For the canonical repo guide — scope rules, change rules, and validation lanes
    npm ci
    ```
 
-2. Run the onboarding check:
+2. Check local state and required files:
 
    ```bash
    npm run onboard:agent
    ```
 
-3. Ensure local API key and endpoint smoke are healthy before UI debugging:
+3. Before debugging missing ships/data:
 
    ```bash
    npm run setup:local-api-key
@@ -28,102 +27,51 @@ For the canonical repo guide — scope rules, change rules, and validation lanes
    npm run smoke:dev-proxy
    ```
 
-4. Read in this order:
-   - `AGENTS.md`
-   - `docs/pharosville-page.md`
-   - `docs/pharosville/ARCHITECTURE.md`
-   - `docs/pharosville/CHANGE_CHECKLIST.md`
-   - `docs/pharosville/CURRENT.md`
-   - `docs/pharosville/RUNTIME_FACTS.md`
-   - `docs/pharosville/CHANGE_PLAYBOOK.md`
-   - `docs/pharosville/TESTING.md`
-
-5. For docs/process-only work, run:
-
-   ```bash
-   npm run validate:docs
-   ```
-
-For local release-level confidence before publishing, run:
-
-```bash
-npm run validate:release
-```
-
-For post-deploy production readiness, run:
-
-```bash
-npm run check:release-readiness
-```
-
-## Required Conventions
+## Core Rules
 
 - Work only in this repository unless explicitly authorized.
-- Keep `PHAROS_API_KEY` server-side only.
-- Ensure `PHAROS_API_KEY` is discoverable for local `/api/*` dev proxy from one of: current `.env.local`, main worktree `.env.local`, `.git/pharosville.env.local`, or shell env.
 - Browser must use same-origin `/api/*` (no client cross-origin API calls).
+- Keep `PHAROS_API_KEY` server-side only.
 - Keep world runtime unmounted when the device screen long side is below `720px`, the short side is below `360px`, or a capable screen is in portrait orientation.
 - Use `agents/` for plans and handoff artifacts.
 - Use `outputs/` for temporary screenshots, renders, and generation scratch files.
 
-## Change-Type Command Lanes
+## Task Routing
 
-- Docs/process only:
+| Task | Read only if needed | First checks |
+| --- | --- | --- |
+| App shell, API proxy, metadata, viewport gate | `docs/pharosville/ARCHITECTURE.md`, `docs/pharosville-page.md` | `npm run validate:changed` |
+| World model, data semantics, layout, motion | `docs/pharosville/VISUAL_INVARIANTS.md`, `src/systems/README.md` | `npm test -- src` |
+| Canvas renderer, hit testing, interaction | `src/renderer/README.md`, `docs/pharosville/TESTING.md` | focused unit test, then visual lane if pixels changed |
+| Assets or PixelLab generation | `docs/pharosville/ASSET_PIPELINE.md`, `docs/pharosville/PIXELLAB_MCP.md` | `npm run check:pharosville-assets` |
+| Visual snapshots | `docs/pharosville/TESTING.md`, `docs/pharosville/VISUAL_REGEN.md` | matching Playwright grep |
+| Docs/process only | `docs/pharosville/README.md` | `npm run validate:docs` |
+| Unknown or mixed scope | this file, then exact source files | `npm run validate:changed` |
 
-  ```bash
-  npm run validate:docs
-  ```
+## Shortcuts
 
-- Mixed or unknown change scope (auto-select lane):
+Create a worktree:
 
-  ```bash
-  npm run validate:changed
-  ```
+```bash
+npm run worktree:new -- <name> --branch <branch-name> --install
+```
 
-- World/data semantics:
+One-shot bootstrap:
 
-  ```bash
-  npm test -- src
-  ```
+```bash
+npm run agent:init -- [worktree-name] --branch <branch-name> --install
+```
 
-- Asset/visual work:
+Plan scaffold:
 
-  ```bash
-  npm run check:pharosville-assets
-  npm run check:pharosville-colors
-  npx playwright test tests/visual/pharosville.spec.ts --grep "pharosville"
-  ```
+```bash
+npm run agent:plan:new -- <slug>
+```
 
-- Release-level confidence:
-
-  ```bash
-  npm run validate:release
-  ```
-
-## Worktree And Plan Shortcuts
-
-- Create and bootstrap a new worktree:
-
-  ```bash
-  npm run worktree:new -- <name> --branch <branch-name> --install
-  ```
-
-- Run full one-shot bootstrap (optional worktree + install + key setup + smoke + onboard):
-
-  ```bash
-  npm run agent:init -- [worktree-name] --branch <branch-name> --install
-  ```
-
-- Create a dated plan scaffold in `agents/`:
-
-  ```bash
-  npm run agent:plan:new -- <slug>
-  ```
-
-## High-Risk Mistakes To Avoid
+## Avoid
 
 - Exposing `PHAROS_API_KEY` through client code, docs, fixtures, or logs.
-- Treating old `agents/*plan*.md` files as authoritative over `CURRENT.md`.
+- Treating old `agents/*plan*.md` files as authoritative over current code and route docs.
 - Updating visual baselines for unintentional drift.
 - Adding runtime references to remote/prototype sprite URLs.
 - Encoding analytical meaning only in canvas without detail-panel and accessibility-ledger parity.

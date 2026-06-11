@@ -33,6 +33,6 @@ These are repeat-risk areas for agents working on PharosVille.
 
 - Do not rely on the desktop screenshot alone. Pair visual changes with focused world-model, hit-testing, asset, and palette checks.
 - Do not update snapshots for unintentional drift.
-- Do not treat historical `*-plan.md` files as authoritative when they conflict with `CURRENT.md`.
+- Do not treat historical `*-plan.md` files as authoritative when they conflict with current code, route docs, or generated runtime facts.
 - Do not forget `docs/pharosville-page.md` for user-visible route behavior changes.
 - Do not forget this agent pack when changing process, assets, scenarios, or validation workflow.

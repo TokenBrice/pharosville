@@ -5,7 +5,7 @@ editing the renderer, world model, Pages Function, or asset manifest. This is th
 deliberately lightweight version; a full SVG/Mermaid upgrade was deferred by
 the May 4 Optimizantus health-checkup plan.
 
-For runtime-state details, see `docs/pharosville/CURRENT.md`. For asset/cache
+For task routing, see `docs/pharosville/AGENT_ONBOARDING.md`. For asset/cache
 specifics, see `docs/pharosville/ASSET_PIPELINE.md`.
 
 ## 1. Request Flow

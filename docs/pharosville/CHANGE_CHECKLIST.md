@@ -1,30 +1,26 @@
 # PharosVille Change Checklist
 
-Last updated: 2026-05-18
+Last updated: 2026-06-11
 
-Use this checklist for future standalone PharosVille work. Keep it agent-facing and update it when the app workflow changes.
+Use this only when you need a pre-claim checklist. For task routing, start with
+`docs/pharosville/AGENT_ONBOARDING.md`.
 
 ## Before Editing
 
-- Read `docs/pharosville/AGENT_ONBOARDING.md`.
-- Read `docs/pharosville-page.md`, `docs/pharosville/CURRENT.md`, and `docs/pharosville/TESTING.md`.
-- Use `docs/pharosville/RUNTIME_FACTS.md` for current generated constants, budgets, inventories, and workflow gates instead of copying those facts from older prose.
-- For asset work, also read `docs/pharosville/ASSET_PIPELINE.md`.
-- For PixelLab sprite generation, also read `docs/pharosville/PIXELLAB_MCP.md`.
 - Run `git status --short` and identify dirty files before touching anything.
 - Inspect the exact files you plan to edit. Work with existing dirty changes; do not revert or overwrite unrelated work.
-- State whether the change affects app behavior, visual encoding, asset inventory, data/API contracts, operations, or agent docs only.
-- For local data/debug tasks, verify API key discovery and endpoint health first: `npm run onboard:agent` and `npm run smoke:api-local`.
+- Classify the change: docs/process, app/API, world model, renderer, assets, visual snapshots, or mixed.
+- Read the narrow docs named in `AGENT_ONBOARDING.md` for that class only.
 
 ## Scope Guardrails
 
-- Keep changes under `src/**`, `public/pharosville/assets/`, `functions/api/**`, route docs, and this agent pack only when those paths are in your assigned scope.
+- Keep changes narrowly scoped to the assigned PharosVille paths.
 - Do not change the Pages Function/API contract for a visual-only app change without explicit approval.
 - Do not change methodology, scoring thresholds, or classification semantics from a PharosVille task.
 - Do not move analytical meaning into canvas only; keep DOM parity for detail and accessibility.
 - Do not weaken the desktop viewport gate or reduced-motion contract.
 
-## Implementation Checks
+## Implementation
 
 - World-model changes should be pure and covered by focused system tests.
 - Renderer changes must keep hit testing, selected rings, follow-selected behavior, and debug samples aligned.
@@ -34,23 +30,19 @@ Use this checklist for future standalone PharosVille work. Keep it agent-facing 
 
 ## Pre-Claim Validation
 
-Choose the narrowest relevant checks from `TESTING.md`, then broaden when the change touches shared route behavior.
+Use the narrowest relevant check while iterating. For unknown or mixed scope:
 
-Minimum for docs/process-only changes:
+```bash
+npm run validate:changed
+```
 
-1. Run the automated docs lane:
+Docs/process only:
 
 ```bash
 npm run validate:docs
 ```
 
-2. Optionally, when you are specifically hunting for historical drift, run:
-
-```bash
-rg -n 'README.md|docs/pharosville|docs/pharosville-page.md|AGENTS.md|CLAUDE.md' .
-```
-
-Minimum for PharosVille implementation changes:
+Common implementation checks:
 
 ```bash
 npm test -- src
@@ -58,26 +50,21 @@ npm run check:pharosville-assets
 npm run check:pharosville-colors
 ```
 
-Add visual and build validation when UI, canvas, HTML metadata, screenshots, or deployable artifact behavior changes:
+UI, canvas, HTML metadata, screenshots, or deployable artifact behavior:
 
 ```bash
 npm run build
 npx playwright test tests/visual/pharosville.spec.ts --grep "pharosville"
 ```
 
-Before publishing or claiming broad release confidence:
+Broad release confidence:
 
 ```bash
 npm run validate:release
 ```
 
-`validate:release` is the local broad gate for deployable confidence. It wraps
-the deploy gate (`typecheck`, unit tests, guard scripts, docs/script path checks,
-asset and color checks, build, bundle-size check, built-dist visual snapshots, and
-Firefox accessibility smoke). Use `npm run check:release-readiness` only after a
-deploy when you need the production readiness gate with live security headers,
-cross-browser accessibility smoke, and live smoke.
-
 ## Handoff Notes
 
-Record exact commands and outcomes in the relevant plan/handoff file when work spans multiple sessions. If a command is skipped, state why. If validation is blocked by pre-existing dirty work, identify the file and failure without changing unrelated files.
+Record exact commands and outcomes in the relevant plan/handoff file when work
+spans multiple sessions. If validation is blocked by pre-existing dirty work,
+identify the file and failure without changing unrelated files.

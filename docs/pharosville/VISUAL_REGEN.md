@@ -80,5 +80,5 @@ hardware-acceleration flag differences. Two options:
 ## See also
 
 - `docs/pharosville/TESTING.md` — broader test lane guidance.
-- `docs/pharosville/SWARM_OPERATIONS.md` — how to safely orchestrate
-  parallel agent work that touches visual code.
+- `docs/pharosville/AGENT_ONBOARDING.md` — worktree helper and task-routing
+  shortcuts for parallel or isolated work.

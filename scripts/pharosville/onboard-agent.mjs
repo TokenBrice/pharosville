@@ -11,8 +11,7 @@ const requiredPaths = [
   "README.md",
   "docs/pharosville-page.md",
   "docs/pharosville/AGENT_ONBOARDING.md",
-  "docs/pharosville/CURRENT.md",
-  "docs/pharosville/CHANGE_PLAYBOOK.md",
+  "docs/pharosville/ARCHITECTURE.md",
   "docs/pharosville/TESTING.md",
   "agents",
 ];

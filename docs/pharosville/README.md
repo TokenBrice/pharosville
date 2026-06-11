@@ -2,25 +2,25 @@
 
 Created: 2026-04-28
 
-Goal: maintain durable maintenance, asset, and validation notes for the standalone PharosVille root app. This directory complements the public route contract in `docs/pharosville-page.md`; use `docs/pharosville/CURRENT.md` for the current implementation map.
+Goal: maintain durable maintenance, asset, and validation notes for the standalone PharosVille root app. This directory complements the public route contract in `docs/pharosville-page.md`.
 
 ## Start Here
 
-- `AGENT_ONBOARDING.md` — fast startup sequence, required conventions, and task-to-command lanes for agents.
-- `CURRENT.md` — current source of truth for PharosVille maintenance work, live route entrypoints, invariants, and known boundaries.
-- `CHANGE_CHECKLIST.md` — pre-edit and pre-claim checklist for future PharosVille changes.
-- `CHANGE_PLAYBOOK.md` — task-type decision tree from request to files, docs, and focused checks.
-- `RUNTIME_FACTS.md` — generated source-backed constants and inventories that tend to drift.
+- `AGENT_ONBOARDING.md` — task routing, required conventions, and command lanes.
+- `CHANGE_CHECKLIST.md` — short pre-edit and pre-claim checklist.
+- `RUNTIME_FACTS.md` — generated constants, budgets, inventories, and workflow facts.
+- `ARCHITECTURE.md` — API proxy, world model, renderer, and asset flow overview.
+- `TESTING.md` — focused checks, visual checks, and broader validation guidance.
 - `VISUAL_INVARIANTS.md` — non-negotiable visual/data contracts for the world representation.
 - `SCENARIO_CATALOG.md` — canonical fixture and test scenarios for semantic and visual validation.
 - `VISUAL_REVIEW_ATLAS.md` — screenshot baselines, browser review entries, and manual pixel checklist.
-- `KNOWN_PITFALLS.md` — repeat-risk issues maintainers should check before editing or claiming completion.
 - `ASSET_PIPELINE.md` — generated/prototype-to-manifest workflow and asset guardrails.
 - `PIXELLAB_MCP.md` — PixelLab MCP tool selection, prompting, review, provenance, and promotion workflow for sprite generation.
-- `TESTING.md` — route-specific focused checks, visual checks, and broader validation guidance.
 - `HOOKS.md` — memoization and callback conventions for route hooks and canvas consumers.
+- `KNOWN_PITFALLS.md` — repeat-risk issues maintainers should check before claiming completion.
 
-Historical plans were intentionally not migrated here. Current code, `CURRENT.md`, and `docs/pharosville-page.md` win over old planning artifacts.
+Historical plans are context only. Current code, `docs/pharosville-page.md`,
+`RUNTIME_FACTS.md`, and this maintenance pack win over old planning artifacts.
 
 ## Plan Artifact Lifecycle
 
@@ -43,9 +43,10 @@ PharosVille is now an implemented desktop-only standalone app at `https://pharos
 Current source of truth for future maintainers:
 
 1. `docs/pharosville-page.md` for verified user-facing route behavior.
-2. `docs/pharosville/CURRENT.md` for implementation orientation and maintenance guardrails.
-3. `docs/pharosville/RUNTIME_FACTS.md` for generated constants, budgets, inventories, and workflow facts.
-4. `docs/pharosville/CHANGE_CHECKLIST.md`, `ASSET_PIPELINE.md`, and `TESTING.md` for repeatable work.
+2. `docs/pharosville/AGENT_ONBOARDING.md` for task routing.
+3. `docs/pharosville/ARCHITECTURE.md` for implementation orientation.
+4. `docs/pharosville/RUNTIME_FACTS.md` for generated constants, budgets, inventories, and workflow facts.
+5. `docs/pharosville/CHANGE_CHECKLIST.md`, `ASSET_PIPELINE.md`, and `TESTING.md` for repeatable work.
 
 ## Original Verdict
 

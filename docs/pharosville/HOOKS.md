@@ -199,7 +199,7 @@ independently shippable cleanup candidates.
 - Repository conventions live in `AGENTS.md`; `docs/pharosville/README.md`
   links this memoization guide from the start-here list.
 - Hook ownership boundaries and the canvas/render-loop split are
-  documented in `docs/pharosville/CURRENT.md`.
+  summarized in `docs/pharosville/ARCHITECTURE.md`.
 - `CLAUDE.md` (top-level) intentionally minimal — see `AGENTS.md` for
   the canonical agent contract; memoization rules belong here, not
   there.
