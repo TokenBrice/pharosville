@@ -1,6 +1,7 @@
 # Agent Guide
 
 Applies to the whole standalone `pharosville` repository.
+`AGENTS.md` is the canonical agent guidance for this repository; keep this file aligned with it.
 
 Use `/agents/` for planning artifacts. Use `/outputs/` for screenshots,
 renders, test sprites, and other scratch files.
