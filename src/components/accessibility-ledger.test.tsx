@@ -83,6 +83,36 @@ describe("AccessibilityLedger", () => {
     expect(markup.toLowerCase()).toContain("#c9675c");
   });
 
+  it("mirrors dock rank, stablecoin-supply share, and concentration in dock rows", () => {
+    const world: PharosVilleWorld = {
+      ...sampleWorld(),
+      docks: [{
+        id: "dock.ethereum",
+        kind: "dock",
+        label: "Ethereum",
+        chainId: "ethereum",
+        logoSrc: null,
+        assetId: "dock.ethereum-civic-cove",
+        tile: { x: 1, y: 1 },
+        totalUsd: 8_000_000_000,
+        size: 7,
+        healthBand: "healthy",
+        stablecoinCount: 2,
+        concentration: 0.4,
+        harborRank: 1,
+        harborCount: 2,
+        shareOfGlobal: 8 / 11,
+        harboredStablecoins: [{ id: "usdc-circle", symbol: "USDC", share: 1, supplyUsd: 8_000_000_000 }],
+        detailId: "dock.ethereum",
+      }],
+    };
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("#1 of 2 rendered harbors");
+    expect(markup).toContain("72.7% of stablecoin supply");
+    expect(markup).toContain("concentration moderately concentrated (HHI 0.40)");
+  });
+
   it("renders a wreck cause-color swatch legend with each CAUSE_HEX entry", () => {
     const markup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorld()} />);
 
@@ -193,6 +223,22 @@ describe("AccessibilityLedger", () => {
     expect(markup).toContain("tempo");
   });
 
+  it("mirrors recent mover supply trends in the ledger", () => {
+    const world: PharosVilleWorld = {
+      ...sampleWorldWithLedgerShip(),
+      ships: [{
+        ...sampleWorldWithLedgerShip().ships[0]!,
+        symbol: "sUSDe",
+        change7dPct: 18,
+        riskZone: "danger",
+      }],
+    };
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("Recent movers");
+    expect(markup).toContain("sUSDe supply +18% (7d); 1 ships in elevated water");
+  });
+
   it("cycle tempo label is one of the four canonical values", () => {
     const world = sampleWorldWithLedgerShip();
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
@@ -249,6 +295,19 @@ describe("AccessibilityLedger", () => {
 
     expect(shipLine).not.toContain("safety grade");
     expect(shipLine).not.toContain("Peg stability");
+  });
+
+  it("mirrors ship stress drivers in ledger rows", () => {
+    const world: PharosVilleWorld = {
+      ...sampleWorldWithLedgerShip(),
+      ships: [{
+        ...sampleWorldWithLedgerShip().ships[0]!,
+        stressBreakdown: { signals: ["peg deviation"], contagionActive: true },
+      }],
+    };
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("stress driver Driven by: peg deviation; contagion amplifier active");
   });
 
   it("expands cemetery rows with cause label, compact peak market cap, and obituary", () => {

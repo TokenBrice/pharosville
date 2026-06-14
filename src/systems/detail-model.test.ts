@@ -11,7 +11,9 @@ import {
   detailForLighthouse,
   detailForPigeonnier,
   detailForShip,
+  dockConcentrationLabel,
   fleetRankLabel,
+  harborRankLabel,
   lighthouseBeamWarmCueLabel,
   PHAROS_WATCH_TELEGRAM_HREF,
   psiCompositionLabel,
@@ -22,6 +24,8 @@ import {
   shareOfFleetLabel,
   sourceConsensusLabel,
   sourceConsensusRatio,
+  stablecoinSupplyShareLabel,
+  stressBreakdownLabel,
   supplyMomentumLabel,
   withRiskTransitionFact,
 } from "./detail-model";
@@ -1089,5 +1093,56 @@ describe("detail-model P3 metaphor quick-win signals", () => {
 
     const withoutFactor = detailForDock({ ...dockNode, backingDiversity: null });
     expect(withoutFactor.facts.find((fact) => fact.label === "Backing diversity")).toBeUndefined();
+  });
+
+  it("surfaces stress drivers only when a ship has a material stress breakdown", () => {
+    expect(stressBreakdownLabel(signalShipNode())).toBeNull();
+    const detail = detailForShip(signalShipNode({
+      stressBreakdown: { signals: ["peg deviation", "liquidity depth"], contagionActive: true },
+    }));
+
+    expect(stressBreakdownLabel({
+      stressBreakdown: { signals: ["peg deviation"], contagionActive: true },
+    })).toBe("Driven by: peg deviation; contagion amplifier active");
+    expect(detail.facts).toContainEqual({
+      label: "Stress driver",
+      value: "Driven by: peg deviation; liquidity depth; contagion amplifier active",
+    });
+  });
+
+  it("formats rendered harbor rank, global supply share, and concentration for docks", () => {
+    expect(harborRankLabel(2, 9)).toBe("#2 of 9 rendered harbors");
+    expect(harborRankLabel(10, 9)).toBeNull();
+    expect(stablecoinSupplyShareLabel(0.1234)).toBe("12.3% of stablecoin supply");
+    expect(stablecoinSupplyShareLabel(0)).toBeNull();
+    expect(dockConcentrationLabel(0.2)).toBe("diversified (HHI 0.20)");
+    expect(dockConcentrationLabel(0.4)).toBe("moderately concentrated (HHI 0.40)");
+    expect(dockConcentrationLabel(0.7)).toBe("concentrated (HHI 0.70)");
+
+    const detail = detailForDock({
+      id: "dock.ethereum",
+      kind: "dock",
+      label: "Ethereum",
+      chainId: "ethereum",
+      logoSrc: null,
+      assetId: "dock.ethereum-civic-cove",
+      tile: { x: 1, y: 1 },
+      totalUsd: 100,
+      size: 1,
+      healthBand: "healthy",
+      stablecoinCount: 1,
+      concentration: 0.4,
+      harborRank: 2,
+      harborCount: 9,
+      shareOfGlobal: 0.1234,
+      harboredStablecoins: [],
+      detailId: "dock.ethereum",
+    } satisfies DockNode);
+
+    expect(detail.facts).toEqual(expect.arrayContaining([
+      { label: "Harbor rank", value: "#2 of 9 rendered harbors" },
+      { label: "Share of stablecoin supply", value: "12.3% of stablecoin supply" },
+      { label: "Concentration", value: "moderately concentrated (HHI 0.40)" },
+    ]));
   });
 });

@@ -1,6 +1,6 @@
 import { RUNTIME_ACTIVE_IDS, RUNTIME_ACTIVE_META_BY_ID } from "@shared/lib/stablecoins/runtime-registry";
 import { canonicalizeChainCirculating } from "@shared/lib/chain-circulating";
-import type { StablecoinData, StablecoinListResponse } from "@shared/types";
+import type { StablecoinData, StablecoinListResponse, StressSignalEntry } from "@shared/types";
 import { buildPegSummaryCoinMap, buildReportCardMap } from "@/lib/stablecoin-lookups";
 import { logosById } from "@/lib/logos";
 import { getCirculatingRaw } from "@/lib/supply";
@@ -143,6 +143,51 @@ function shipDepegHistory(
   };
 }
 
+const ELEVATED_STRESS_PLACEMENTS = new Set<ShipRiskPlacement>([
+  "harbor-mouth-watch",
+  "outer-rough-water",
+  "storm-shelf",
+]);
+
+const CONTAGION_AMPLIFIER_ACTIVE_MIN = 0.25;
+
+const STRESS_SIGNAL_LABELS: Record<string, string> = {
+  depeg: "peg deviation",
+  depth: "liquidity depth",
+  liquidity: "liquidity stress",
+  peg: "peg deviation",
+  peg_deviation: "peg deviation",
+  price: "price deviation",
+  redemption: "redemption stress",
+  spread: "spread stress",
+  volatility: "price volatility",
+};
+
+function stressSignalLabel(key: string): string {
+  const label = STRESS_SIGNAL_LABELS[key];
+  if (label) return label;
+  return key
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+export function shipStressBreakdown(
+  stress: StressSignalEntry | undefined,
+  placement: ShipRiskPlacement,
+): ShipNode["stressBreakdown"] {
+  if (!stress || !ELEVATED_STRESS_PLACEMENTS.has(placement)) return null;
+  const signals = Object.entries(stress.signals)
+    .filter(([, signal]) => signal.available && Number.isFinite(signal.value) && signal.value > 0)
+    .sort((left, right) => right[1].value - left[1].value || left[0].localeCompare(right[0]))
+    .slice(0, 2)
+    .map(([key]) => stressSignalLabel(key))
+    .filter((label, index, labels) => label.length > 0 && labels.indexOf(label) === index);
+  const contagionActive = (stress.amplifiers?.contagion ?? 0) >= CONTAGION_AMPLIFIER_ACTIVE_MIN;
+  return signals.length > 0 || contagionActive ? { signals, contagionActive } : null;
+}
+
 function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): ShipNode[] {
   const pegById = buildPegSummaryCoinMap(inputs.pegSummary?.coins);
   const reportCardById = buildReportCardMap(inputs.reportCards?.cards) ?? {};
@@ -173,11 +218,12 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
     if (!meta) throw new Error(`Active asset ${asset.id} is missing metadata`);
     const reportCard = reportCardById[asset.id] ?? null;
     const pegCoin = pegById.get(asset.id);
+    const stress = stressById[asset.id];
     const ownRisk = resolveShipRiskPlacement({
       asset,
       meta,
       pegCoin,
-      stress: stressById[asset.id],
+      stress,
       freshness: inputs.freshness,
     });
 
@@ -196,6 +242,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
     const recent = getRecentChange(asset);
     const riskTile = shipTile(asset, risk.placement);
     const riskWaterArea = riskWaterAreaForPlacement(risk.placement);
+    const stressBreakdown = shipStressBreakdown(stress, risk.placement);
     const stamped = squad && flagshipRisk ? stampSquad(asset.id, squad) : null;
     return {
       id: asset.id,
@@ -218,6 +265,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
       riskZone: riskWaterArea.motionZone,
       riskWaterLabel: riskWaterArea.label,
       placementEvidence: risk.evidence,
+      ...(stressBreakdown ? { stressBreakdown } : {}),
       visual: resolveShipVisual(asset, meta, reportCard),
       change24hUsd: recent.change24hUsd,
       change24hPct: recent.change24hPct,

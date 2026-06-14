@@ -1,5 +1,28 @@
 import type { VisualCue } from "./world-types";
 
+export const LEGEND_MARK_ROWS = [
+  {
+    cueId: "cue.ship.zone-weathering",
+    label: "Weathered hull",
+    text: "Warning and Danger water can darken the hull; it marks rough risk water, not permanent damage or safety.",
+  },
+  {
+    cueId: "cue.dock.congestion",
+    label: "Stacked crates",
+    text: "Cargo crates on a dock mean chain backing is narrowing or concentrated; empty quays do not certify safety.",
+  },
+  {
+    cueId: "cue.ship.consensus-rigging",
+    label: "Denser rigging",
+    text: "More shroud lines at inspect zoom mean stronger price-source agreement; sparse rigging means check the detail row.",
+  },
+  {
+    cueId: "cue.ship.audit-shield",
+    label: "Steel-and-gold shield",
+    text: "Major graded ships may carry a bluechip audit shield; the shield is a grade marker, not a blanket approval.",
+  },
+] as const;
+
 export function buildVisualCueRegistry(): VisualCue[] {
   return [
     {
@@ -21,7 +44,7 @@ export function buildVisualCueRegistry(): VisualCue[] {
       sourceField: "chains.chains[].id, chains.chains[].totalUsd, chains.chains[].topStablecoins",
       questionAnswered: "Which chains hold major stablecoin supply, which L2s belong to Ethereum harbor, and which stablecoins dominate each chain?",
       failureState: "dock unavailable state",
-      domEquivalent: "dock ledger rows",
+      domEquivalent: "dock detail Stablecoin supply, Harbor rank, Share of stablecoin supply, Concentration, and harbored-stablecoin rows plus dock ledger rows",
       reducedMotionEquivalent: "static dock footprint and dock ledger rows",
     },
     {
@@ -32,7 +55,7 @@ export function buildVisualCueRegistry(): VisualCue[] {
       sourceField: "pegSummary.coins[], stress.signals[]",
       questionAnswered: "Which stablecoins are under peg or DEWS stress?",
       failureState: "evidence caveat in ship detail",
-      domEquivalent: "ship detail placement explanation with named risk water area and zone",
+      domEquivalent: "ship detail placement explanation with named risk water area, zone, and Stress driver row plus accessibility ledger stress-driver clause",
       reducedMotionEquivalent: "static idle position in the current risk-water area with named risk-water facts in DOM",
     },
     {

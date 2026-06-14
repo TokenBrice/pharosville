@@ -181,6 +181,9 @@ export interface DockNode {
   healthBand: ChainSummary["healthBand"];
   stablecoinCount: number;
   concentration: number | null;
+  harborRank?: number;
+  harborCount?: number;
+  shareOfGlobal?: number | null;
   /** Chain `healthFactors.backingDiversity` score (higher = more diversified
       stablecoin backing), or null when unavailable. Attached by the world
       scaffold stage; drives the dock congestion cue and the "Backing
@@ -218,6 +221,7 @@ export interface ShipNode {
   riskZone: ShipWaterZone;
   riskWaterLabel: string;
   placementEvidence: PlacementEvidence;
+  stressBreakdown?: { signals: string[]; contagionActive: boolean } | null;
   visual: ShipVisual;
   change24hUsd: number | null;
   change24hPct: number | null;

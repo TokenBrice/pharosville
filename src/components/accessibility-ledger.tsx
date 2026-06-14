@@ -8,15 +8,19 @@ import { cycleTempoReadingClause, precomputeShipTempos } from "../systems/ship-c
 import {
   depegHistoryLabel,
   DIMENSION_KEY_LABELS,
+  dockConcentrationLabel,
+  harborRankLabel,
   lighthouseBeamWarmCueLabel,
   psiCompositionLabel,
   psiContributorLabel,
   psiTrendLabel,
   reportCardSafetyLabel,
   shareOfFleetLabel,
+  stablecoinSupplyShareLabel,
+  stressBreakdownLabel,
   supplyMomentumLabel,
 } from "../systems/detail-model";
-import { seaStateForWorld, seaStateSummary } from "../systems/sea-state";
+import { recentFleetTrendSummary, recentFleetTrendSummaryText, seaStateForWorld, seaStateSummary } from "../systems/sea-state";
 import { formatChangePercent, formatCompactUsd } from "../lib/format-detail";
 
 // Dock health-band swatches mirror the renderer's `dockHealthColor()` table in
@@ -108,6 +112,7 @@ function AccessibilityLedgerContent({
   const lighthouseTrend = psiTrendLabel(world.lighthouse);
   const lighthouseComposition = psiCompositionLabel(world.lighthouse);
   const lighthouseContributors = world.lighthouse.contributors?.map(psiContributorLabel).join(", ");
+  const recentFleetTrend = recentFleetTrendSummary(world);
 
   return (
     <section className="sr-only" aria-labelledby={headingId} data-testid="pharosville-accessibility-ledger">
@@ -144,6 +149,10 @@ function AccessibilityLedgerContent({
         <div>
           <dt>Sea state</dt>
           <dd>{seaStateSummary(seaState)}.</dd>
+        </div>
+        <div>
+          <dt>Recent movers</dt>
+          <dd>{recentFleetTrendSummaryText(recentFleetTrend)}.</dd>
         </div>
         <div>
           <dt>Pigeonnier</dt>
@@ -280,7 +289,18 @@ function dockLedgerLine(dock: PharosVilleWorld["docks"][number]): string {
   const harboredStablecoins = dock.harboredStablecoins
     .map((coin) => `${coin.symbol} ${formatCompactUsd(coin.supplyUsd)}`)
     .join(", ") || "no listed stablecoins";
-  return `${dock.label}: ${formatCompactUsd(dock.totalUsd)} stablecoin supply, ${dock.stablecoinCount} stablecoins, health ${dock.healthBand ?? "unavailable"}, harboring ${harboredStablecoins}.`;
+  const harborRank = harborRankLabel(dock.harborRank, dock.harborCount);
+  const supplyShare = stablecoinSupplyShareLabel(dock.shareOfGlobal);
+  const concentration = dockConcentrationLabel(dock.concentration);
+  return [
+    `${dock.label}: ${formatCompactUsd(dock.totalUsd)} stablecoin supply`,
+    harborRank,
+    supplyShare,
+    concentration ? `concentration ${concentration}` : null,
+    `${dock.stablecoinCount} stablecoins`,
+    `health ${dock.healthBand ?? "unavailable"}`,
+    `harboring ${harboredStablecoins}`,
+  ].filter((part): part is string => part !== null).join(", ") + ".";
 }
 
 function shipLedgerLine(
@@ -310,6 +330,7 @@ function shipLedgerLine(
         return [`${label} ${dimension.grade} — ${firstSentence(dimension.detail)}`];
       })
     : [];
+  const stressDriver = stressBreakdownLabel(ship);
   return [
     `${ship.label} (${ship.symbol}): ${formatCompactUsd(ship.marketCapUsd)} market cap${fleetMarketContext}, placed at ${placement}`,
     `risk anchor ${ship.riskPlacement}`,
@@ -322,6 +343,7 @@ function shipLedgerLine(
     `24h supply change ${formatChangePercent(ship.change24hPct)}`,
     ...(supplyMomentumLabel(ship) ? [`supply momentum ${supplyMomentumLabel(ship)}`] : []),
     ...(depegHistoryLabel(ship.depegHistory) ? [`depeg history ${depegHistoryLabel(ship.depegHistory)}`] : []),
+    ...(stressDriver ? [`stress driver ${stressDriver}`] : []),
     ...(safetyGrade ? [`safety grade ${safetyGrade.replace(/^Safety\s+/, "")}`] : []),
     ...safetyDimensionClauses,
   ].join("; ") + `.${transitionClause}`;

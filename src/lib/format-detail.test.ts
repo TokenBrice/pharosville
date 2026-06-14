@@ -68,6 +68,14 @@ describe("composeCurrently", () => {
   it("returns empty string when nothing is provided", () => {
     expect(composeCurrently({})).toBe("");
   });
+  it("appends stress driver context to the current position", () => {
+    expect(composeCurrently({
+      position: "Warning Shoals idle",
+      area: "Warning Shoals",
+      zone: "warning",
+      stressDriver: "Driven by: peg deviation",
+    })).toBe("Warning Shoals idle · Driven by: peg deviation");
+  });
 });
 
 // P3 metaphor quick-wins: the gated signals must FOLD into existing rows so
@@ -149,6 +157,23 @@ describe("buildDetailFactSections folds", () => {
     ]);
     expect(identity).toEqual([
       { key: "backingDiversity", label: "Backing diversity", value: "70% diversified" },
+    ]);
+  });
+
+  it("folds stress driver into the Currently row instead of spending its own row", () => {
+    const { position } = buildDetailFactSections([
+      { label: "Representative position", value: "Danger Strait idle" },
+      { label: "Risk water area", value: "Danger Strait" },
+      { label: "Risk water zone", value: "danger" },
+      { label: "Stress driver", value: "Driven by: peg deviation; contagion amplifier active" },
+    ]);
+
+    expect(position).toEqual([
+      {
+        key: "currently",
+        label: "Currently",
+        value: "Danger Strait idle · Driven by: peg deviation; contagion amplifier active",
+      },
     ]);
   });
 });

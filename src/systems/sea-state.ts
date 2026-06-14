@@ -1,4 +1,4 @@
-import type { AreaNode, DewsAreaBand, LighthouseNode, PharosVilleWorld } from "./world-types";
+import type { AreaNode, DewsAreaBand, LighthouseNode, PharosVilleWorld, ShipNode } from "./world-types";
 
 export const SEA_STATE_SMOOTHING_TAU_SECONDS = 8;
 
@@ -40,6 +40,18 @@ export interface SeaStateSmoothingInput {
   tauSeconds?: number;
 }
 
+export interface RecentFleetTrendEntry {
+  detailId: string;
+  symbol: string;
+  change7dPct: number;
+}
+
+export interface RecentFleetTrendSummary {
+  growers: RecentFleetTrendEntry[];
+  shrinkers: RecentFleetTrendEntry[];
+  elevatedShipCount: number;
+}
+
 const THREAT_LEVEL_FOR_BAND: Record<DewsAreaBand, SeaStateSource["threatLevel"]> = {
   CALM: 0,
   WATCH: 1,
@@ -58,6 +70,10 @@ const PSI_STRESS_FOR_BAND: Record<string, number> = {
   normal: 0.2,
   healthy: 0.12,
 };
+
+const ELEVATED_SHIP_ZONES = new Set<ShipNode["riskZone"]>(["alert", "warning", "danger"]);
+const RECENT_SUPPLY_MOVE_THRESHOLD_PCT = 5;
+const RECENT_SUPPLY_MOVE_LIMIT = 3;
 
 export function seaStateForWorld(
   world: Pick<PharosVilleWorld, "areas" | "lighthouse">,
@@ -123,6 +139,40 @@ export function seaStateSummary(state: SeaState): string {
   const band = state.source.maxDewsBand ?? "no active DEWS band";
   const reduced = state.reducedMotion ? "; reduced-motion holds animation phases flat" : "";
   return `${state.label}: swell ${formatScalar(state.swell)}, wind ${formatScalar(state.wind)}, tempo ${formatScalar(state.tempo)}; ${band}, PSI stress ${formatScalar(state.source.psiStress)}, night ${formatScalar(state.source.nightFactor)}${reduced}`;
+}
+
+export function recentFleetTrendSummary(
+  world: Pick<PharosVilleWorld, "ships">,
+): RecentFleetTrendSummary {
+  const eligible = world.ships
+    .filter((ship) => typeof ship.change7dPct === "number" && Number.isFinite(ship.change7dPct))
+    .filter((ship) => Math.abs(ship.change7dPct!) > RECENT_SUPPLY_MOVE_THRESHOLD_PCT);
+  const growers = eligible
+    .filter((ship) => ship.change7dPct! > 0)
+    .toSorted((left, right) => right.change7dPct! - left.change7dPct! || left.symbol.localeCompare(right.symbol))
+    .slice(0, RECENT_SUPPLY_MOVE_LIMIT)
+    .map(recentFleetTrendEntry);
+  const shrinkers = eligible
+    .filter((ship) => ship.change7dPct! < 0)
+    .toSorted((left, right) => left.change7dPct! - right.change7dPct! || left.symbol.localeCompare(right.symbol))
+    .slice(0, RECENT_SUPPLY_MOVE_LIMIT)
+    .map(recentFleetTrendEntry);
+
+  return {
+    growers,
+    shrinkers,
+    elevatedShipCount: world.ships.filter((ship) => ELEVATED_SHIP_ZONES.has(ship.riskZone)).length,
+  };
+}
+
+export function recentFleetTrendEntryLabel(entry: RecentFleetTrendEntry): string {
+  return `${entry.symbol} supply ${formatSignedPercent(entry.change7dPct)} (7d)`;
+}
+
+export function recentFleetTrendSummaryText(summary: RecentFleetTrendSummary): string {
+  const moves = [...summary.growers, ...summary.shrinkers].map(recentFleetTrendEntryLabel);
+  const moveText = moves.length > 0 ? moves.join("; ") : "no notable supply moves this week";
+  return `${moveText}; ${summary.elevatedShipCount} ships in elevated water`;
 }
 
 export function seaStateRoughnessMultiplier(state: SeaState | null | undefined): number {
@@ -199,6 +249,20 @@ function labelForIntensity(value: number): SeaStateLabel {
 
 function formatScalar(value: number): string {
   return clamp01(value).toFixed(2);
+}
+
+function recentFleetTrendEntry(ship: ShipNode): RecentFleetTrendEntry {
+  return {
+    detailId: ship.detailId,
+    symbol: ship.symbol,
+    change7dPct: ship.change7dPct!,
+  };
+}
+
+function formatSignedPercent(value: number): string {
+  const rounded = Math.round(value * 10) / 10;
+  const sign = rounded >= 0 ? "+" : "";
+  return `${sign}${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}%`;
 }
 
 function lerp(a: number, b: number, t: number): number {

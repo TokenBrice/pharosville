@@ -28,21 +28,25 @@ export interface CurrentlyParts {
   position?: string | null;
   area?: string | null;
   zone?: string | null;
+  stressDriver?: string | null;
 }
 
 export function composeCurrently(parts: CurrentlyParts): string {
   const position = parts.position?.trim() ?? "";
   const area = parts.area?.trim() ?? "";
   const zone = parts.zone?.trim() ?? "";
+  const stressDriver = parts.stressDriver?.trim() ?? "";
+
+  const appendStressDriver = (value: string) => [value, stressDriver].filter(Boolean).join(" · ");
 
   if (zone && CALM_ZONE.test(zone) && area) {
     const isIdle = position && IDLE_SUFFIX.test(position);
-    return isIdle ? `${area} (idle)` : area;
+    return appendStressDriver(isIdle ? `${area} (idle)` : area);
   }
 
-  if (position) return position;
-  if (area) return area;
-  return "";
+  if (position) return appendStressDriver(position);
+  if (area) return appendStressDriver(area);
+  return stressDriver;
 }
 
 export type DetailFactKey =
@@ -67,6 +71,7 @@ export type DetailFactKey =
   | "representativePosition"
   | "riskWaterArea"
   | "riskWaterZone"
+  | "stressDriver"
   | "chainsPresent"
   | "sailingInFormation"
   | "culturalSignificance";
@@ -109,6 +114,7 @@ const DETAIL_FACT_LABELS = {
   "representative position": "representativePosition",
   "risk water area": "riskWaterArea",
   "risk water zone": "riskWaterZone",
+  "stress driver": "stressDriver",
   "chain present": "chainsPresent",
   "chains present": "chainsPresent",
   "sailing in formation": "sailingInFormation",
@@ -194,10 +200,12 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   const position_ = lookup.get("representativePosition");
   const area_ = lookup.get("riskWaterArea");
   const zone_ = lookup.get("riskWaterZone");
+  const stressDriver = lookup.get("stressDriver");
   const currently = composeCurrently({
     ...(position_ !== undefined ? { position: position_ } : {}),
     ...(area_ !== undefined ? { area: area_ } : {}),
     ...(zone_ !== undefined ? { zone: zone_ } : {}),
+    ...(stressDriver !== undefined ? { stressDriver } : {}),
   });
   if (currently) position.push({ key: "currently", label: "Currently", value: currently });
   const chains = lookup.get("chainsPresent");

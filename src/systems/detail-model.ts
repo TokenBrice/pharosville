@@ -354,6 +354,14 @@ function evidenceStatusLabel(node: ShipNode): string {
   return node.placementEvidence.stale ? `Caveat: ${node.placementEvidence.reason}` : "Fresh current placement evidence";
 }
 
+export function stressBreakdownLabel(node: Pick<ShipNode, "stressBreakdown">): string | null {
+  const breakdown = node.stressBreakdown ?? null;
+  if (!breakdown || (breakdown.signals.length === 0 && !breakdown.contagionActive)) return null;
+  const parts = [...breakdown.signals];
+  if (breakdown.contagionActive) parts.push("contagion amplifier active");
+  return `Driven by: ${parts.join("; ")}`;
+}
+
 function shipLiveryLabel(node: ShipNode): string {
   const livery = node.visual.livery;
   return `${livery.label}; ${livery.logoShape} logo shape, ${livery.sailPanel} sail panel, ${livery.stripePattern} brand stripe`;
@@ -438,10 +446,40 @@ export function backingDiversityLabel(backingDiversity: DockNode["backingDiversi
   return `${percent.format(Math.max(0, backingDiversity))} ${descriptor}`;
 }
 
+export function harborRankLabel(rank: number | null | undefined, count: number | null | undefined): string | null {
+  if (
+    rank == null
+    || count == null
+    || !Number.isInteger(rank)
+    || !Number.isInteger(count)
+    || rank < 1
+    || count < 1
+    || rank > count
+  ) {
+    return null;
+  }
+  return `#${rank} of ${count} rendered harbors`;
+}
+
+export function stablecoinSupplyShareLabel(shareOfGlobal: number | null | undefined): string | null {
+  if (shareOfGlobal == null || !Number.isFinite(shareOfGlobal) || shareOfGlobal <= 0) return null;
+  return `${percent.format(shareOfGlobal)} of stablecoin supply`;
+}
+
+export function dockConcentrationLabel(concentration: DockNode["concentration"]): string | null {
+  if (concentration == null || !Number.isFinite(concentration)) return null;
+  const clamped = Math.max(0, Math.min(1, concentration));
+  const descriptor = clamped < 0.25 ? "diversified" : clamped < 0.45 ? "moderately concentrated" : "concentrated";
+  return `${descriptor} (HHI ${clamped.toFixed(2)})`;
+}
+
 export function detailForDock(node: DockNode): DetailModel {
   const topSymbols = node.harboredStablecoins.map((coin) => coin.symbol).join(", ");
   const harborGroup = dockHarborGroupLabel(node);
   const backingDiversity = backingDiversityLabel(node.backingDiversity);
+  const harborRank = harborRankLabel(node.harborRank, node.harborCount);
+  const supplyShare = stablecoinSupplyShareLabel(node.shareOfGlobal);
+  const concentration = dockConcentrationLabel(node.concentration);
   return {
     id: node.detailId,
     kind: node.kind,
@@ -451,6 +489,9 @@ export function detailForDock(node: DockNode): DetailModel {
       : `${harborGroup}; footprint is based on chain stablecoin supply.`,
     facts: [
       { label: "Stablecoin supply", value: usd.format(node.totalUsd) },
+      ...(harborRank ? [{ label: "Harbor rank", value: harborRank }] : []),
+      ...(supplyShare ? [{ label: "Share of stablecoin supply", value: supplyShare }] : []),
+      ...(concentration ? [{ label: "Concentration", value: concentration }] : []),
       { label: "Stablecoin count", value: String(node.stablecoinCount) },
       { label: "Health", value: node.healthBand ?? "Unavailable" },
       ...(backingDiversity ? [{ label: "Backing diversity", value: backingDiversity }] : []),
@@ -588,6 +629,7 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
   const sourceConsensus = sourceConsensusLabel(node.asset);
   const auditShield = auditShieldLabel(node.reportCard, node.visual.sizeTier);
   const safetyGrade = reportCardSafetyLabel(node.reportCard);
+  const stressDriver = stressBreakdownLabel(node);
   const facts = [
     { label: "Market cap", value: marketCapLabel(node.marketCapUsd) },
     ...(fleetRank ? [{ label: "Fleet rank", value: fleetRank }] : []),
@@ -610,6 +652,7 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
     { label: "Risk water area", value: node.riskWaterLabel },
     { label: "Risk water zone", value: node.riskZone },
     { label: "Risk placement key", value: node.riskPlacement },
+    ...(stressDriver ? [{ label: "Stress driver", value: stressDriver }] : []),
     ...riskTransitionFact,
     { label: "Home dock", value: node.homeDockChainId ? chainLabel(node.homeDockChainId) : "No rendered dock" },
     { label: "Chains present", value: chainsPresentLabel(node) },

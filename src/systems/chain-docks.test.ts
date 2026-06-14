@@ -20,6 +20,10 @@ describe("buildChainDocks", () => {
     expect(docks[0]?.chainId).toBe("ethereum");
     expect(docks[0]?.totalUsd).toBe(8_000_000_000);
     expect(docks[0]?.concentration).toBe(0.4);
+    expect(docks[0]?.harborRank).toBe(1);
+    expect(docks[0]?.harborCount).toBe(2);
+    expect(docks[0]?.shareOfGlobal).toBeCloseTo(8 / 11);
+    expect(docks[1]?.harborRank).toBe(2);
     expect(docks[0]?.size).toBeGreaterThan(docks[1]?.size ?? 0);
     expect(docks[0]?.size).toBeGreaterThanOrEqual(7);
     expect(docks[1]?.size).toBeGreaterThanOrEqual(6);
@@ -142,6 +146,16 @@ describe("buildChainDocks", () => {
     expect(docks.find((dock) => dock.chainId === "base")?.size).toBe(7);
     expect(docks.find((dock) => dock.chainId === "arbitrum")?.size).toBe(6);
     expect(docks.find((dock) => dock.chainId === "small")?.size).toBe(1);
+  });
+
+  it("suppresses global supply share when the chains feed has no positive global total", () => {
+    const docks = buildChainDocks({
+      ...fixtureChains,
+      globalTotalUsd: 0,
+    });
+
+    expect(docks[0]?.shareOfGlobal).toBeNull();
+    expect(docks[0]?.harborRank).toBe(1);
   });
 
   it("emits only the top eight chain harbors and preserves top stablecoin cargo", () => {

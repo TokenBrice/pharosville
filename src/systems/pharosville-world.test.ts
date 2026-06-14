@@ -30,6 +30,7 @@ import {
   squadForMember,
 } from "./maker-squad";
 import { buildPharosVilleWorld, SHIP_WATER_ANCHORS } from "./pharosville-world";
+import { shipStressBreakdown } from "./pharosville-world/stages/ship-placement";
 import { isRiskPlacementWaterTile, riskPlacementWaterTiles } from "./risk-water-placement";
 import { riskWaterAreaForPlacement } from "./risk-water-areas";
 import {
@@ -307,14 +308,23 @@ describe("buildPharosVilleWorld", () => {
           "usdc-circle": {
             score: 76,
             band: "WARNING",
-            signals: {},
+            signals: {
+              peg_deviation: { available: true, value: 0.7 },
+              exchange_depth: { available: true, value: 0.3 },
+            },
+            amplifiers: { psi: 0.1, contagion: 0.24 },
             computedAt: 1_700_000_000,
             methodologyVersion: "fixture",
           },
           "usdt-tether": {
             score: 94,
             band: "DANGER",
-            signals: {},
+            signals: {
+              custom_signal_key: { available: true, value: 0.9 },
+              peg: { available: true, value: 0.5 },
+              unavailable_signal: { available: false, value: 1 },
+            },
+            amplifiers: { psi: 0.1, contagion: 0.25 },
             computedAt: 1_700_000_000,
             methodologyVersion: "fixture",
           },
@@ -330,9 +340,39 @@ describe("buildPharosVilleWorld", () => {
     expect(usdc?.riskPlacement).toBe("outer-rough-water");
     expect(usdc?.riskZone).toBe("warning");
     expect(usdc?.riskTile ? terrainKindAt(usdc.riskTile.x, usdc.riskTile.y) : null).toBe("warning-water");
+    expect(usdc?.stressBreakdown).toEqual({ signals: ["peg deviation", "exchange depth"], contagionActive: false });
     expect(usdt?.riskPlacement).toBe("storm-shelf");
     expect(usdt?.riskZone).toBe("danger");
     expect(usdt?.riskTile ? terrainKindAt(usdt.riskTile.x, usdt.riskTile.y) : null).toBe("storm-water");
+    expect(usdt?.stressBreakdown).toEqual({ signals: ["custom signal key", "peg deviation"], contagionActive: true });
+  });
+
+  it("builds stress breakdowns only for elevated placements and humanizes fallback keys", () => {
+    const stress = {
+      score: 55,
+      band: "ALERT",
+      signals: {
+        snake_case_signal: { available: true, value: 0.6 },
+        peg: { available: true, value: 0.7 },
+        unavailable_signal: { available: false, value: 1 },
+      },
+      amplifiers: { psi: 0.1, contagion: 0.24 },
+      computedAt: 1_700_000_000,
+      methodologyVersion: "fixture",
+    };
+
+    expect(shipStressBreakdown(stress, "safe-harbor")).toBeNull();
+    expect(shipStressBreakdown(stress, "harbor-mouth-watch")).toEqual({
+      signals: ["peg deviation", "snake case signal"],
+      contagionActive: false,
+    });
+    expect(shipStressBreakdown({
+      ...stress,
+      amplifiers: { psi: 0.1, contagion: 0.25 },
+    }, "harbor-mouth-watch")).toEqual({
+      signals: ["peg deviation", "snake case signal"],
+      contagionActive: true,
+    });
   });
 
   it("maps NAV ships to fresh DEWS zones instead of pinning Ledger Mooring", () => {

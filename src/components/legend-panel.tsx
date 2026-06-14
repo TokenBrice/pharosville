@@ -3,10 +3,17 @@
 import X from "lucide-react/dist/esm/icons/x";
 import { zoneThemeForTerrain } from "../systems/palette";
 import { RISK_WATER_AREAS } from "../systems/risk-water-areas";
+import {
+  recentFleetTrendEntryLabel,
+  recentFleetTrendSummaryText,
+  type RecentFleetTrendSummary,
+} from "../systems/sea-state";
+import { LEGEND_MARK_ROWS } from "../systems/visual-cue-registry";
 import type { ShipRiskPlacement } from "../systems/world-types";
 
 export interface LegendPanelProps {
   onClose: () => void;
+  recentFleetTrend?: RecentFleetTrendSummary;
 }
 
 // Zone rows derive label + swatch color from the canonical tables
@@ -28,7 +35,10 @@ const LEGEND_SHIP_CLASSES: ReadonlyArray<{ name: string; reading: string }> = [
   { name: "Legacy junk", reading: "Algorithmic backing" },
 ];
 
-export function LegendPanel({ onClose }: LegendPanelProps) {
+export function LegendPanel({ onClose, recentFleetTrend }: LegendPanelProps) {
+  const hasRecentMoves = recentFleetTrend
+    ? recentFleetTrend.growers.length > 0 || recentFleetTrend.shrinkers.length > 0
+    : false;
   return (
     <aside
       id="pharosville-legend-panel"
@@ -56,7 +66,7 @@ export function LegendPanel({ onClose }: LegendPanelProps) {
           PharosVille is a live chart of the stablecoin seas: every ship is a
           stablecoin, every harbor a blockchain, and the water a coin sails in
           is its current peg-risk reading. It is an interpretive view, not
-          financial advice.
+          financial advice. Click a ship and read the water it sails in first.
         </p>
 
         <section aria-labelledby="pharosville-legend-zones">
@@ -106,6 +116,40 @@ export function LegendPanel({ onClose }: LegendPanelProps) {
             transfers). The Pharos lighthouse glows with the fleet-wide Peg
             Stability Index, and the cemetery islet remembers coins lost at
             sea.
+          </p>
+        </section>
+
+        {recentFleetTrend && (
+          <section aria-labelledby="pharosville-legend-recent-movers">
+            <h3 id="pharosville-legend-recent-movers">Recent movers</h3>
+            {hasRecentMoves ? (
+              <>
+                {recentFleetTrend.growers.length > 0 && (
+                  <p>Growing: {recentFleetTrend.growers.map(recentFleetTrendEntryLabel).join("; ")}.</p>
+                )}
+                {recentFleetTrend.shrinkers.length > 0 && (
+                  <p>Shrinking: {recentFleetTrend.shrinkers.map(recentFleetTrendEntryLabel).join("; ")}.</p>
+                )}
+                <p>{recentFleetTrend.elevatedShipCount} ships in elevated water.</p>
+              </>
+            ) : (
+              <p>{recentFleetTrendSummaryText(recentFleetTrend)}.</p>
+            )}
+          </section>
+        )}
+
+        <section aria-labelledby="pharosville-legend-marks">
+          <h3 id="pharosville-legend-marks">Marks to look for</h3>
+          <ul>
+            {LEGEND_MARK_ROWS.map((row) => (
+              <li key={row.cueId} data-cue-id={row.cueId}>
+                <strong>{row.label}</strong> — {row.text}
+              </li>
+            ))}
+          </ul>
+          <p>
+            Consensus rigging and audit shields are near-zoom marks; click a
+            ship for the exact source row.
           </p>
         </section>
 

@@ -102,7 +102,23 @@ export function buildChainDocks(chains: ChainsResponse | null | undefined): Dock
       return buildDockNode(chain, tile, chains.globalTotalUsd);
     });
 
-  return [...standardDocks, ...pigeonnierDocks];
+  return attachRenderedHarborContext([...standardDocks, ...pigeonnierDocks], chains.globalTotalUsd);
+}
+
+function attachRenderedHarborContext(docks: DockNode[], globalTotalUsd: number): DockNode[] {
+  const harborCount = docks.length;
+  const rankedIds = [...docks]
+    .sort((left, right) => right.totalUsd - left.totalUsd || left.chainId.localeCompare(right.chainId))
+    .map((dock) => dock.id);
+  const rankById = new Map(rankedIds.map((id, index) => [id, index + 1]));
+  const hasGlobalTotal = Number.isFinite(globalTotalUsd) && globalTotalUsd > 0;
+
+  return docks.map((dock) => ({
+    ...dock,
+    harborCount,
+    ...(rankById.has(dock.id) ? { harborRank: rankById.get(dock.id)! } : {}),
+    shareOfGlobal: hasGlobalTotal ? dock.totalUsd / globalTotalUsd : null,
+  }));
 }
 
 function buildDockNode(chain: ChainSummary, tile: { x: number; y: number }, globalTotalUsd: number): DockNode {

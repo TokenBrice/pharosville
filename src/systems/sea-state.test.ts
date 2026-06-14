@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   SEA_STATE_SMOOTHING_TAU_SECONDS,
+  recentFleetTrendEntryLabel,
+  recentFleetTrendSummary,
+  recentFleetTrendSummaryText,
   seaStateForSources,
   seaStateSummary,
   smoothSeaState,
 } from "./sea-state";
-import type { AreaNode, LighthouseNode } from "./world-types";
+import type { AreaNode, LighthouseNode, ShipNode } from "./world-types";
 
 const lighthouse = {
   psiBand: "STEADY",
@@ -107,3 +110,58 @@ describe("sea-state master signal", () => {
     expect(smoothSeaState({ current, target, deltaSeconds: 0 })).toBe(current);
   });
 });
+
+describe("recent fleet trend summary", () => {
+  it("selects top supply growers and shrinkers and labels every figure as 7d supply", () => {
+    const summary = recentFleetTrendSummary({
+      ships: [
+        ship({ symbol: "USDe", change7dPct: 18, riskZone: "alert" }),
+        ship({ symbol: "USDT", change7dPct: 7.4, riskZone: "calm" }),
+        ship({ symbol: "FRAX", change7dPct: 5.01, riskZone: "warning" }),
+        ship({ symbol: "DAI", change7dPct: -12.2, riskZone: "danger" }),
+        ship({ symbol: "GHO", change7dPct: -8, riskZone: "watch" }),
+        ship({ symbol: "QUIET", change7dPct: 4.9, riskZone: "calm" }),
+      ],
+    });
+
+    expect(summary.growers.map(recentFleetTrendEntryLabel)).toEqual([
+      "USDe supply +18% (7d)",
+      "USDT supply +7.4% (7d)",
+      "FRAX supply +5% (7d)",
+    ]);
+    expect(summary.shrinkers.map(recentFleetTrendEntryLabel)).toEqual([
+      "DAI supply -12.2% (7d)",
+      "GHO supply -8% (7d)",
+    ]);
+    expect(summary.elevatedShipCount).toBe(3);
+    expect(recentFleetTrendSummaryText(summary)).toContain("USDe supply +18% (7d)");
+    expect(recentFleetTrendSummaryText(summary)).toContain("3 ships in elevated water");
+  });
+
+  it("reports a flat or sparse week without bare percentages", () => {
+    const summary = recentFleetTrendSummary({
+      ships: [
+        ship({ symbol: "USDC", change7dPct: 0, riskZone: "calm" }),
+        ship({ symbol: "DAI", change7dPct: null, riskZone: "watch" }),
+      ],
+    });
+
+    expect(summary.growers).toEqual([]);
+    expect(summary.shrinkers).toEqual([]);
+    expect(recentFleetTrendSummaryText(summary)).toBe("no notable supply moves this week; 0 ships in elevated water");
+  });
+});
+
+function ship(input: {
+  symbol: string;
+  change7dPct: number | null;
+  riskZone: ShipNode["riskZone"];
+}): ShipNode {
+  return {
+    id: input.symbol.toLowerCase(),
+    detailId: `ship.${input.symbol.toLowerCase()}`,
+    symbol: input.symbol,
+    change7dPct: input.change7dPct,
+    riskZone: input.riskZone,
+  } as unknown as ShipNode;
+}

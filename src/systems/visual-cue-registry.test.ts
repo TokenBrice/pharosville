@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PharosVilleWorld, VisualCue, VisualCueChannel, WorldEffect } from "./world-types";
-import { buildVisualCueRegistry } from "./visual-cue-registry";
+import { buildVisualCueRegistry, LEGEND_MARK_ROWS } from "./visual-cue-registry";
 
 const ALLOWED_CHANNELS = [
   "color",
@@ -100,6 +100,23 @@ describe("buildVisualCueRegistry", () => {
     expect(motionCues).not.toHaveLength(0);
     for (const cue of motionCues) {
       expect(cue.reducedMotionEquivalent).toMatch(/static|without RAF|frozen|representative/i);
+    }
+  });
+
+  it("keeps legend mark rows one-to-one with registered click-only cues", () => {
+    const cues = buildVisualCueRegistry();
+    const cueIds = new Set(cues.map((cue) => cue.id));
+    const markCueIds = LEGEND_MARK_ROWS.map((row) => row.cueId);
+
+    expect(markCueIds).toEqual([
+      "cue.ship.zone-weathering",
+      "cue.dock.congestion",
+      "cue.ship.consensus-rigging",
+      "cue.ship.audit-shield",
+    ]);
+    expect(new Set(markCueIds).size).toBe(markCueIds.length);
+    for (const cueId of markCueIds) {
+      expect(cueIds.has(cueId)).toBe(true);
     }
   });
 
