@@ -15,6 +15,7 @@ import { BandKey } from "./components/band-key";
 import { DetailPanel } from "./components/detail-panel";
 import { FleetStateLine } from "./components/fleet-state-line";
 import { NotableMovers } from "./components/notable-movers";
+import { SinceLastVisitBanner } from "./components/since-last-visit";
 import { ShipSearch } from "./components/ship-search";
 import { WorldToolbar } from "./components/world-toolbar";
 import { PHAROSVILLE_LATEST_VERSION } from "./content/pharosville-version";
@@ -25,6 +26,7 @@ import { useCanvasResizeAndCamera } from "./hooks/use-canvas-resize-and-camera";
 import { useFullscreenMode } from "./hooks/use-fullscreen-mode";
 import { useLatestRef } from "./hooks/use-latest-ref";
 import { useLiveTitle } from "./hooks/use-live-title";
+import { useVisitSnapshot } from "./hooks/use-visit-snapshot";
 import { detailAnchorForPoint, useWorldKeyboardTargets } from "./hooks/use-world-keyboard-targets";
 import { useWorldRenderLoop } from "./hooks/use-world-render-loop";
 import { useWorldSelection, resolveSelectedDetail } from "./hooks/use-world-selection";
@@ -85,6 +87,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   } = selection;
   const changelog = useChangelogDialog({ setAnnouncement });
   const legend = useLegendDialog({ setAnnouncement });
+  const visitSnapshot = useVisitSnapshot({ world, setAnnouncement });
   const timeControls = useWorldTimeControls({ requestPaint: requestWorldFrame });
   useLiveTitle(world);
 
@@ -466,6 +469,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         </div>
         <ShipSearch options={shipSearchOptions} onSelect={handleSearchSelect} />
         <NotableMovers movers={notableMovers} onSelect={handleSearchSelect} />
+        <SinceLastVisitBanner delta={visitSnapshot.delta} onDismiss={visitSnapshot.dismiss} />
         <BandKey />
         {selectedDetail && (
           <div
