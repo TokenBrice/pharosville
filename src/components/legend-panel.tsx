@@ -114,8 +114,10 @@ export function LegendPanel({ onClose, recentFleetTrend }: LegendPanelProps) {
             Docks are blockchains; a ship calling at a dock means the coin has
             real supply on that chain (it does not imply bridge volume or
             transfers). The Pharos lighthouse glows with the fleet-wide Peg
-            Stability Index, and the cemetery islet remembers coins lost at
-            sea.
+            Stability Index. Its beam warmth tracks fleet-wide PSI; the colour
+            of the water and sky a ship sails in is that area&apos;s own DEWS
+            peg-risk reading — they are separate signals. The cemetery islet
+            remembers coins lost at sea.
           </p>
         </section>
 

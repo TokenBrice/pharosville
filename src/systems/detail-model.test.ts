@@ -56,8 +56,9 @@ describe("detail-model analytical links", () => {
     ]);
     expect(lighthouseDetail.facts).toContainEqual({
       label: "Beam warmth cue",
-      value: "Beam warms amber when active DEWS reaches ALERT, WARNING, or DANGER.",
+      value: "Beam warms amber when active DEWS reaches ALERT, WARNING, or DANGER; Fleet PSI cue (not a per-zone reading).",
     });
+    expect(lighthouseDetail.summary).toContain("Beam warmth tracks the fleet PSI composite");
 
     expect(detailForDock({
       id: "dock.ethereum",
@@ -198,6 +199,7 @@ describe("detail-model analytical links", () => {
 
     expect(cue).toContain("Beam warming amber under elevated DEWS");
     expect(cue).toContain("Alert Channel ALERT (2 stablecoins)");
+    expect(cue).toContain("Fleet PSI cue (not a per-zone reading)");
     expect(cue).not.toContain("Watch Breakwater");
   });
 

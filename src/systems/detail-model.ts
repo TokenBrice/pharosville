@@ -65,16 +65,16 @@ function pluralize(count: number, singular: string, plural: string = `${singular
 
 export function lighthouseBeamWarmCueLabel(areas?: readonly AreaNode[]): string {
   if (!areas) {
-    return "Beam warms amber when active DEWS reaches ALERT, WARNING, or DANGER.";
+    return "Beam warms amber when active DEWS reaches ALERT, WARNING, or DANGER; Fleet PSI cue (not a per-zone reading).";
   }
   const elevatedAreas = areas.filter((area) => area.band && ELEVATED_DEWS_BANDS.has(area.band) && (area.count ?? 0) > 0);
   if (elevatedAreas.length === 0) {
-    return "Beam at standard warmth; no active elevated DEWS stablecoins.";
+    return "Beam at standard warmth; no active elevated DEWS stablecoins; Fleet PSI cue (not a per-zone reading).";
   }
   const areaList = elevatedAreas
     .map((area) => `${area.label} ${area.band}${area.count != null ? ` (${pluralize(area.count, "stablecoin")})` : ""}`)
     .join(", ");
-  return `Beam warming amber under elevated DEWS: ${areaList}.`;
+  return `Beam warming amber under elevated DEWS: ${areaList}. Fleet PSI cue (not a per-zone reading).`;
 }
 
 function chainLabel(chainId: string): string {
@@ -393,7 +393,9 @@ export function detailForLighthouse(node: LighthouseNode): DetailModel {
     id: node.detailId,
     kind: node.kind,
     title: node.label,
-    summary: node.unavailable ? "PSI is unavailable, so the beacon is unlit." : `PSI band ${node.psiBand}.`,
+    summary: node.unavailable
+      ? "PSI is unavailable, so the beacon is unlit."
+      : `PSI band ${node.psiBand}. Beam warmth tracks the fleet PSI composite; per-zone storms show in the water and sky, not the beam.`,
     facts: [
       { label: "Score", value: node.score == null ? "Unavailable" : String(node.score) },
       { label: "Band", value: node.psiBand ?? "Unavailable" },

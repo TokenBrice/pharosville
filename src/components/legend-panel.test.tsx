@@ -8,6 +8,8 @@ describe("LegendPanel", () => {
     const markup = renderToStaticMarkup(<LegendPanel onClose={() => undefined} />);
 
     expect(markup).toContain("Marks to look for");
+    expect(markup).toContain("beam warmth tracks fleet-wide PSI");
+    expect(markup).toContain("they are separate signals");
     for (const row of LEGEND_MARK_ROWS) {
       expect(markup).toContain(`data-cue-id="${row.cueId}"`);
       expect(markup).toContain(row.label);
