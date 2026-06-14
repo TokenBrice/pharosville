@@ -108,6 +108,45 @@ describe("detail-model analytical links", () => {
     ]);
   });
 
+  it("keeps dock members external-only unless an explicit in-world ship detail exists", () => {
+    const dock = {
+      id: "dock.ethereum",
+      kind: "dock",
+      label: "Ethereum",
+      chainId: "ethereum",
+      logoSrc: "/chains/ethereum.png",
+      assetId: "dock.ethereum-civic-cove",
+      tile: { x: 1, y: 1 },
+      totalUsd: 300,
+      size: 1,
+      healthBand: "healthy",
+      stablecoinCount: 2,
+      concentration: null,
+      harboredStablecoins: [
+        { id: "usdc-circle", symbol: "USDC", share: 2 / 3, supplyUsd: 200 },
+        { id: "ust-terra", symbol: "UST", share: 1 / 3, supplyUsd: 100 },
+      ],
+      detailId: "dock.ethereum",
+    } satisfies DockNode;
+
+    const withoutContext = detailForDock(dock);
+    expect(withoutContext.members?.map((member) => member.inWorldDetailId)).toEqual([undefined, undefined]);
+
+    const withContext = detailForDock(dock, {
+      inWorldDetailIds: new Set(["ship.usdc-circle", "grave.ust-terra"]),
+    });
+    expect(withContext.members?.[0]).toMatchObject({
+      id: "usdc-circle",
+      href: "https://pharos.watch/stablecoin/usdc-circle/",
+      inWorldDetailId: "ship.usdc-circle",
+    });
+    expect(withContext.members?.[1]).toMatchObject({
+      id: "ust-terra",
+      href: "https://pharos.watch/stablecoin/ust-terra/",
+    });
+    expect(withContext.members?.[1]?.inWorldDetailId).toBeUndefined();
+  });
+
   it("deepens cemetery details with epitaph summary, obituary fact, peak market cap, cause label, and source link", () => {
     const detail = detailForGrave({
       id: "grave.ust-terra",

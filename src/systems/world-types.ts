@@ -301,6 +301,21 @@ export interface AreaNode {
   summary?: string;
 }
 
+export interface DetailModelLink {
+  label: string;
+  href: string;
+  target?: "_blank";
+  inWorldDetailId?: string;
+}
+
+export interface DetailModelMember {
+  id: string;
+  label: string;
+  href: string;
+  value?: string;
+  inWorldDetailId?: string;
+}
+
 export interface DetailModel {
   id: string;
   title: string;
@@ -308,9 +323,9 @@ export interface DetailModel {
   summary: string;
   paragraphs?: string[];
   facts: Array<{ label: string; value: string }>;
-  links: Array<{ label: string; href: string; target?: "_blank" }>;
+  links: DetailModelLink[];
   membersHeading?: string;
-  members?: Array<{ id: string; label: string; href: string; value?: string }>;
+  members?: DetailModelMember[];
 }
 
 export type VisualCueTarget =

@@ -475,7 +475,17 @@ export function dockConcentrationLabel(concentration: DockNode["concentration"])
   return `${descriptor} (HHI ${clamped.toFixed(2)})`;
 }
 
-export function detailForDock(node: DockNode): DetailModel {
+export interface DockDetailContext {
+  inWorldDetailIds?: ReadonlySet<string>;
+}
+
+function matchingShipDetailId(stablecoinId: string, inWorldDetailIds: ReadonlySet<string> | undefined): string | undefined {
+  const detailId = `ship.${stablecoinId}`;
+  return inWorldDetailIds?.has(detailId) ? detailId : undefined;
+}
+
+export function detailForDock(node: DockNode, context: DockDetailContext | number = {}): DetailModel {
+  const inWorldDetailIds = typeof context === "number" ? undefined : context.inWorldDetailIds;
   const topSymbols = node.harboredStablecoins.map((coin) => coin.symbol).join(", ");
   const harborGroup = dockHarborGroupLabel(node);
   const backingDiversity = backingDiversityLabel(node.backingDiversity);
@@ -502,12 +512,16 @@ export function detailForDock(node: DockNode): DetailModel {
     ],
     links: [{ label: "Chain", href: analyticalRouteHref(`/chains/${node.chainId}/`) }],
     membersHeading: "Harbored stablecoins",
-    members: node.harboredStablecoins.map((coin) => ({
-      id: coin.id,
-      label: `${coin.symbol} (${percent.format(coin.share)})`,
-      href: analyticalRouteHref(`/stablecoin/${coin.id}/`),
-      value: usd.format(coin.supplyUsd),
-    })),
+    members: node.harboredStablecoins.map((coin) => {
+      const inWorldDetailId = matchingShipDetailId(coin.id, inWorldDetailIds);
+      return {
+        id: coin.id,
+        label: `${coin.symbol} (${percent.format(coin.share)})`,
+        href: analyticalRouteHref(`/stablecoin/${coin.id}/`),
+        value: usd.format(coin.supplyUsd),
+        ...(inWorldDetailId ? { inWorldDetailId } : {}),
+      };
+    }),
   };
 }
 

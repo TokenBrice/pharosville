@@ -8,15 +8,19 @@ import { buildDetailFactSections, compactCurrency, detailFactValue, type DetailD
 export interface DetailPanelProps {
   detail: DetailModel;
   headingId?: string;
+  onSelectDetail?: (detailId: string) => void;
   panelId?: string;
   onClose?: () => void;
 }
 
 type SectionId = "identity" | "position";
+type DetailMember = NonNullable<DetailModel["members"]>[number];
+type DetailLink = DetailModel["links"][number];
 
 export function DetailPanel({
   detail,
   headingId = "pharosville-detail-panel-title",
+  onSelectDetail,
   panelId = "pharosville-detail-panel",
   onClose,
 }: DetailPanelProps) {
@@ -72,12 +76,7 @@ export function DetailPanel({
           >
             <h3 className="pv-section-title">{detail.membersHeading ?? "Members"}</h3>
             <ol className="pv-formation-list">
-              {detail.members.map((member) => (
-                <li key={member.id}>
-                  <a href={member.href}>{member.label}</a>
-                  {member.value ? <small>{compactCurrency(member.value)}</small> : null}
-                </li>
-              ))}
+              {detail.members.map((member) => renderMember(member, onSelectDetail))}
             </ol>
           </section>
         )}
@@ -89,19 +88,7 @@ export function DetailPanel({
           >
             <h3 className="pv-section-title">Links</h3>
             <ul className="pv-formation-list">
-              {detail.links.map((link) => (
-                <li key={link.href}>
-                  <a
-                    className="pv-panel-link"
-                    href={link.href}
-                    {...(link.target === "_blank"
-                      ? { target: "_blank", rel: "noopener noreferrer" }
-                      : {})}
-                  >
-                    {link.label} →
-                  </a>
-                </li>
-              ))}
+              {detail.links.map((link) => renderLink(link, onSelectDetail))}
             </ul>
           </nav>
         )}
@@ -121,6 +108,81 @@ export function DetailPanel({
       </div>
     </aside>
   );
+}
+
+function renderMember(member: DetailMember, onSelectDetail?: (detailId: string) => void) {
+  if (member.inWorldDetailId && onSelectDetail) {
+    const detailId = member.inWorldDetailId;
+    return (
+      <li key={member.id}>
+        <button
+          className="pv-panel-link"
+          type="button"
+          aria-label={`Select ${member.label} in PharosVille`}
+          onClick={() => onSelectDetail(detailId)}
+        >
+          {member.label}
+        </button>
+        <a
+          className="pv-panel-link"
+          href={member.href}
+          aria-label={`Open ${member.label} page`}
+        >
+          Open page →
+        </a>
+        {member.value ? <small>{compactCurrency(member.value)}</small> : null}
+      </li>
+    );
+  }
+  return (
+    <li key={member.id}>
+      <a href={member.href}>{member.label}</a>
+      {member.value ? <small>{compactCurrency(member.value)}</small> : null}
+    </li>
+  );
+}
+
+function renderLink(link: DetailLink, onSelectDetail?: (detailId: string) => void) {
+  if (link.inWorldDetailId && onSelectDetail) {
+    const detailId = link.inWorldDetailId;
+    return (
+      <li key={link.href}>
+        <button
+          className="pv-panel-link"
+          type="button"
+          aria-label={`Select ${link.label} in PharosVille`}
+          onClick={() => onSelectDetail(detailId)}
+        >
+          {link.label}
+        </button>
+        <a
+          className="pv-panel-link"
+          href={link.href}
+          aria-label={`Open ${link.label} page`}
+          {...externalLinkAttrs(link)}
+        >
+          Open page →
+        </a>
+      </li>
+    );
+  }
+  return (
+    <li key={link.href}>
+      <a
+        className="pv-panel-link"
+        href={link.href}
+        {...externalLinkAttrs(link)}
+      >
+        {link.label} →
+      </a>
+    </li>
+  );
+}
+
+function externalLinkAttrs(link: DetailLink) {
+  return link.target === "_blank"
+    ? { target: "_blank", rel: "noopener noreferrer" }
+    : {};
 }
 
 function renderSection(id: SectionId, title: string, rows: DetailDisplayRow[]) {

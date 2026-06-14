@@ -1,5 +1,7 @@
+// @vitest-environment jsdom
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import {
   fixtureWithDepegOn,
@@ -7,6 +9,10 @@ import {
 } from "../__fixtures__/pharosville-world";
 import type { DetailModel } from "../systems/world-types";
 import { DetailPanel } from "./detail-panel";
+
+afterEach(() => {
+  cleanup();
+});
 
 const renderShipPanel = (shipId: string, depegId: string | null = null) => {
   const inputs = makerSquadFixtureInputs();
@@ -201,5 +207,79 @@ describe("DetailPanel composer paths (synthetic fixtures)", () => {
     };
     const markup = renderToStaticMarkup(<DetailPanel detail={detail} />);
     expect(markup).not.toMatch(/target="_blank"/);
+  });
+
+  it("renders in-world member buttons and keeps the external page as a secondary affordance", () => {
+    const onSelectDetail = vi.fn();
+    const detail: DetailModel = {
+      id: "dock.ethereum",
+      title: "Ethereum",
+      kind: "dock",
+      summary: "test",
+      facts: [],
+      links: [],
+      membersHeading: "Harbored stablecoins",
+      members: [{
+        id: "usdc-circle",
+        label: "USDC (100%)",
+        href: "https://pharos.watch/stablecoin/usdc-circle/",
+        value: "$1,000",
+        inWorldDetailId: "ship.usdc-circle",
+      }],
+    };
+
+    render(<DetailPanel detail={detail} onSelectDetail={onSelectDetail} />);
+
+    const button = screen.getByRole("button", { name: "Select USDC (100%) in PharosVille" });
+    expect(button.className).toContain("pv-panel-link");
+    fireEvent.click(button);
+    expect(onSelectDetail).toHaveBeenCalledWith("ship.usdc-circle");
+    expect(screen.getByRole("link", { name: "Open USDC (100%) page" }).getAttribute("href"))
+      .toBe("https://pharos.watch/stablecoin/usdc-circle/");
+  });
+
+  it("renders in-world link buttons and keeps the href as a secondary affordance", () => {
+    const onSelectDetail = vi.fn();
+    const detail: DetailModel = {
+      id: "dock.ethereum",
+      title: "Ethereum",
+      kind: "dock",
+      summary: "test",
+      facts: [],
+      links: [{
+        label: "Stablecoin",
+        href: "https://pharos.watch/stablecoin/usdc-circle/",
+        inWorldDetailId: "ship.usdc-circle",
+      }],
+    };
+
+    render(<DetailPanel detail={detail} onSelectDetail={onSelectDetail} />);
+
+    const button = screen.getByRole("button", { name: "Select Stablecoin in PharosVille" });
+    expect(button.className).toContain("pv-panel-link");
+    fireEvent.click(button);
+    expect(onSelectDetail).toHaveBeenCalledWith("ship.usdc-circle");
+    expect(screen.getByRole("link", { name: "Open Stablecoin page" }).getAttribute("href"))
+      .toBe("https://pharos.watch/stablecoin/usdc-circle/");
+  });
+
+  it("keeps in-world metadata dormant when no selector callback is present", () => {
+    const detail: DetailModel = {
+      id: "dock.ethereum",
+      title: "Ethereum",
+      kind: "dock",
+      summary: "test",
+      facts: [],
+      links: [{
+        label: "Stablecoin",
+        href: "https://pharos.watch/stablecoin/usdc-circle/",
+        inWorldDetailId: "ship.usdc-circle",
+      }],
+    };
+
+    const markup = renderToStaticMarkup(<DetailPanel detail={detail} />);
+    expect(markup).toMatch(/href="https:\/\/pharos\.watch\/stablecoin\/usdc-circle\/"/);
+    expect(markup).not.toMatch(/<button/);
+    expect(markup).toContain("Stablecoin →");
   });
 });
