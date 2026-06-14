@@ -8,6 +8,7 @@ import {
 } from "../maker-squad";
 import { clamp, normalizeHeadingInto } from "../motion-utils";
 import type { ShipMotionRoute, ShipMotionSample } from "../motion-types";
+import { isWaterTileKind, tileKindAt } from "../world-layout";
 import {
   clampMotionTileInto,
   copyVelocityInto,
@@ -133,15 +134,9 @@ export function consortShadowSampleInto(
   const gainedDy = effectiveDy * gain;
   let tileX = flagshipSample.tile.x + gainedDx;
   let tileY = flagshipSample.tile.y + gainedDy;
-  // TODO(W4.24): non-water-tile fallback. If gain pushes a consort onto a
-  // non-water tile, clamp back to the flagship's tile so the consort
-  // never visibly sails on land. A tile-validation helper exists in
-  // motion-water.ts (nearestRiskPlacementWaterTile) but the per-frame
-  // sampler doesn't currently have map/world access — pulling it in
-  // would expand the sampler signature. For now the tight-placement
-  // cap keeps the gained offset within the placement's water pocket,
-  // which prevents the worst cases. Wire a proper tile check in a
-  // follow-up wave that has the map accessible at sample time.
+  const gainedFormationLandsOnWater = isWaterTile(tileX, tileY);
+  const shouldCollapseHighGainToFlagship =
+    gain > 1 && !gainedFormationLandsOnWater && isWaterTile(flagshipSample.tile.x, flagshipSample.tile.y);
   // #8: sub-tile breathing perturbation while the flagship is actively
   // moving; skipped when moored/idle so docked formations stay glued.
   if (flagshipSample.state !== "moored" && flagshipSample.state !== "idle") {
@@ -149,6 +144,13 @@ export function consortShadowSampleInto(
     const t = input.timeSeconds;
     tileX += Math.sin(t * 0.31 + phase) * 0.18;
     tileY += Math.cos(t * 0.27 + phase * 1.1) * 0.14;
+  }
+  // W4.24: high formation gain can push consorts over island/shore terrain
+  // while the flagship itself is still on water. In that case collapse the
+  // consort back onto the flagship tile rather than showing a ship on land.
+  if (shouldCollapseHighGainToFlagship) {
+    tileX = flagshipSample.tile.x;
+    tileY = flagshipSample.tile.y;
   }
   out.shipId = input.ship.id;
   clampMotionTileInto(tileX, tileY, out.tile);
@@ -182,6 +184,10 @@ export function consortShadowSampleInto(
   // whole squad reads as "tracking new risk band" together in DOM parity.
   out.riskTransition = flagshipSample.riskTransition ?? null;
   return true;
+}
+
+function isWaterTile(x: number, y: number): boolean {
+  return isWaterTileKind(tileKindAt(x, y));
 }
 
 function writeLaggedConsortHeadingInto(
