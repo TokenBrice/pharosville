@@ -5,6 +5,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   harborMotionAtmosphere: "v0.1.3",
   needForSpeed: "v0.2.0",
   curtainUp: "v0.2.1",
+  signalClarity: "v0.2.2",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.curtainUp;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.signalClarity;

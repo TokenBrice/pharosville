@@ -36,7 +36,7 @@ PharosVille is a desktop-only experience. Mobile and tablet compatibility is exp
 
 ## Current Phase
 
-The current implementation includes the desktop PharosVille v0.2.1 baseline:
+The current implementation includes the desktop PharosVille v0.2.2 baseline:
 
 - desktop-gated root app, with short-screen and narrow-screen fallbacks plus a rotate-to-landscape prompt for capable portrait screens
 - route shell escapes the global page padding and sizes against the actual post-sidebar content pane, so the desktop canvas uses the full available viewport area whether the sidebar is expanded or collapsed

@@ -151,7 +151,7 @@ describe("PharosVilleWorld UI accessibility controls", () => {
 
     expect(screen.getByTestId("pharosville-ship-counter").textContent).toBe("1 ship docked / 1 total");
     expect(screen.getByTestId("pharosville-fps-counter").textContent).toBe("Static");
-    expect(container.querySelector(".pharosville-beta-tag")?.textContent).toContain("PharosVille beta v0.2.1");
+    expect(container.querySelector(".pharosville-beta-tag")?.textContent).toContain("PharosVille beta v0.2.2");
     expect(container.querySelector(".pharosville-beta-tag")?.textContent?.replace(/\s+/g, " ").trim()).toMatch(
       /Legend\|Changelog\|1 ship docked \/ 1 total\|Static\|Copy link\|Pharos$/,
     );
@@ -163,7 +163,9 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     fireEvent.click(screen.getByRole("button", { name: "Changelog" }));
     const panel = await screen.findByTestId("pharosville-changelog-panel");
     expect(panel.textContent).toContain("Curtain Up");
+    expect(panel.textContent).toContain("Signal Clarity");
     expect(panel.textContent).toContain("Need For Speed");
+    expect(panel.textContent).toContain("v0.2.2");
     expect(panel.textContent).toContain("v0.2.1");
     expect(panel.textContent).toContain("v0.2.0");
     expect(panel.textContent).toContain("v0.1.3");

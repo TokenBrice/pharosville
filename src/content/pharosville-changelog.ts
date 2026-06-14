@@ -12,6 +12,22 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-06-14-signal-clarity",
+    version: PHAROSVILLE_RELEASE_VERSIONS.signalClarity,
+    date: "2026-06-14",
+    title: "Signal Clarity",
+    summary: "PharosVille sharpens ship and harbor identity, expands the weathered maritime world, and trims noisy overlays back to a cleaner inspection surface.",
+    bullets: [
+      "Made stablecoin and chain identity easier to read with ship nameplates, logo-safe sail marks, chain-logo harbor flags, titan and heritage hull treatments, and stronger visual chrome for audit, confidence, consensus, backing, and safety signals.",
+      "Expanded the harbor atmosphere with night mode, horizon and world-edge staging, coherent swell fronts, persistent wakes, dock caustics, lighthouse-synchronized ship rim light, threat-aware sky states, DANGER rain squalls, and richer ambient quay detail.",
+      "Improved inspection flows with permalink state, copy-link support, richer PSI/fleet/dock/grave detail facts, since-last-visit context, safety grades, dock-member links back to in-world ships, and a compact footer that keeps the Pharos link last.",
+      "Stabilized dense rendering with per-pass telemetry, ship-body and nameplate caches, deferred asset cache invalidation, far-zoom water and fleet LOD reductions, sustained-motion budgets, and updated runtime facts for the larger visual surface.",
+      "Restored chain and stablecoin logos on harbors and ships after the logo decode path changed, then switched render cache invalidation to logo-load batches so the water no longer blinks while logos stream in.",
+      "Removed the noisy visible movers, DEWS band key, fleet focus controls, and footer status line after overlap and clarity regressions, leaving those signals in details, ledger, and map semantics instead of extra chrome.",
+    ],
+    source: "Collected from commits bd5c201 through cfab83f after the v0.2.1 changelog entry.",
+  },
+  {
     id: "2026-05-18-curtain-up",
     version: PHAROSVILLE_RELEASE_VERSIONS.curtainUp,
     date: "2026-05-18",

@@ -8,8 +8,8 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 
 - Canonical app URL: `https://pharosville.pharos.watch/`
 - Runtime asset namespace: `/pharosville/assets/`
-- Latest app version: `v0.2.1` (`curtainUp`)
-- Latest changelog entry: `2026-05-18-curtain-up` / `v0.2.1` / 2026-05-18 / Curtain Up
+- Latest app version: `v0.2.2` (`signalClarity`)
+- Latest changelog entry: `2026-06-14-signal-clarity` / `v0.2.2` / 2026-06-14 / Signal Clarity
 
 ## Viewport Gate
 
@@ -50,7 +50,7 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - entry chunk: raw <= 300 KiB, gzip <= 90 KiB
 - desktop lazy chunk: raw <= 1,024 KiB, gzip <= 290 KiB
 - entry CSS: raw <= 32 KiB, gzip <= 8 KiB
-- Total JS: raw <= 1,255 KiB, gzip <= 382 KiB
+- Total JS: raw <= 1,280 KiB, gzip <= 382 KiB
 
 ## Squads
 

@@ -100,9 +100,9 @@ This checks camera zoom monotonicity, camera bounds during interaction, and foll
 Current executable budgets:
 
 - Entry chunk: `<= 300 KiB` raw and `<= 90 KiB` gzip.
-- Desktop lazy chunk: `<= 970 KiB` raw and `<= 278 KiB` gzip.
+- Desktop lazy chunk: `<= 1,024 KiB` raw and `<= 290 KiB` gzip.
 - Entry CSS: `<= 32 KiB` raw and `<= 8 KiB` gzip.
-- Total JS: `<= 1,280 KiB` raw and `<= 378 KiB` gzip.
+- Total JS: `<= 1,280 KiB` raw and `<= 382 KiB` gzip.
 - First-render assets: `<= 33` primary assets, `<= 575 KiB` source bytes, and `<= 875,000` decoded pixels.
 - Total runtime PharosVille manifest: `<= 75` entries, `<= 1,100 KiB` source bytes, and `<= 1,440,000` decoded pixels.
 - Canvas backing store: capped by `MAX_MAIN_CANVAS_PIXELS` and `MAX_TOTAL_BACKING_PIXELS` in `src/systems/canvas-budget.ts`.
