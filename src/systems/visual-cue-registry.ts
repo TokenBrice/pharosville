@@ -70,6 +70,17 @@ export function buildVisualCueRegistry(): VisualCue[] {
       reducedMotionEquivalent: "risk-water or Ledger Mooring idle position without RAF",
     },
     {
+      id: "cue.ship.fleet-focus",
+      target: { kind: "ship" },
+      primaryChannels: ["opacity"],
+      visual: "non-matching ships dimmed to about 25% alpha; full-alpha ships match the active fleet focus or are selected/hovered",
+      sourceField: "fleet focus selection (risk band, ship class, size tier, chain) and ships[].chainPresence[].currentUsd",
+      questionAnswered: "Which ships match the active fleet focus lens?",
+      failureState: "no focus lens active; all ships render at normal alpha",
+      domEquivalent: "fleet focus match count plus accessibility ledger Ships focus sentence",
+      reducedMotionEquivalent: "same static dimmed frame, repainted on focus change",
+    },
+    {
       id: "cue.water.semantic-terrain",
       target: { kind: "area" },
       primaryChannels: ["color", "shape", "motion"],

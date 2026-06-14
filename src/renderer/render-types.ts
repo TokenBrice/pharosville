@@ -54,6 +54,12 @@ export interface DrawPharosVilleInput {
   revealEnvelope?: number;
   renderScheduler?: PharosVilleRenderSchedulerState;
   selectedTarget: HitTarget | null;
+  /**
+   * Optional fleet focus lens. When present, ships outside the set render
+   * dimmed while selected/hovered ships stay full-alpha. Undefined means no
+   * dimming and preserves the existing render path.
+   */
+  focusedShipIds?: ReadonlySet<string>;
   shipMotionSamples?: ReadonlyMap<string, ShipMotionSample>;
   visibleTileBoundsCache?: VisibleTileBoundsCacheState;
   targets: readonly HitTarget[];

@@ -395,6 +395,56 @@ describe("drawShipBody sail trim", () => {
   });
 });
 
+describe("fleet focus alpha", () => {
+  it("dims non-matching ship bodies without changing selected ships", () => {
+    const ship = makeShipNode({
+      id: "focus-body",
+      tile: { x: 10, y: 10 },
+      visual: { livery: TEST_LIVERY },
+    });
+    const dimmed = makeAlphaRecordingCtx();
+    drawShipBody({
+      ...makeDrawInput(dimmed.ctx, ship),
+      focusedShipIds: new Set(["other-ship"]),
+    }, frameForProceduralShip(), ship);
+
+    expect(dimmed.setStyles.globalAlpha).toBeCloseTo(0.25);
+
+    const selected = makeAlphaRecordingCtx();
+    drawShipBody({
+      ...makeDrawInput(selected.ctx, ship),
+      focusedShipIds: new Set(["other-ship"]),
+      selectedTarget: makeShipTarget(ship),
+    }, frameForProceduralShip(), ship);
+
+    expect(selected.setStyles.globalAlpha).toBeUndefined();
+  });
+
+  it("dims non-matching ship overlays without changing hovered ships", () => {
+    const ship = makeShipNode({
+      id: "focus-overlay",
+      tile: { x: 10, y: 10 },
+      visual: { livery: TEST_LIVERY },
+    });
+    const dimmed = makeAlphaRecordingCtx();
+    drawShipOverlay({
+      ...makeDrawInput(dimmed.ctx, ship),
+      focusedShipIds: new Set(["other-ship"]),
+    }, frameForProceduralShip(), ship, 0);
+
+    expect(dimmed.setStyles.globalAlpha).toBeCloseTo(0.25);
+
+    const hovered = makeAlphaRecordingCtx();
+    drawShipOverlay({
+      ...makeDrawInput(hovered.ctx, ship),
+      focusedShipIds: new Set(["other-ship"]),
+      hoveredTarget: makeShipTarget(ship),
+    }, frameForProceduralShip(), ship, 0);
+
+    expect(hovered.setStyles.globalAlpha).toBeUndefined();
+  });
+});
+
 describe("ship visual orientation", () => {
   it("flips standard hulls for leftward sampled headings without flipping unique sprites", () => {
     expect(resolveShipVisualOrientation({
@@ -1414,6 +1464,33 @@ function makeDrawInput(ctx: CanvasRenderingContext2D, ship: ShipNode): DrawPharo
     targets: [],
     width: 800,
     world: { ships: [ship] } as unknown as PharosVilleWorld,
+  };
+}
+
+function makeAlphaRecordingCtx() {
+  return buildRecordingCanvasContext({
+    initialValues: { globalAlpha: 1 },
+  });
+}
+
+function frameForProceduralShip(): ShipRenderFrame {
+  return {
+    cache: {
+      assetForEntity: () => null,
+      geometryForEntity: () => makeGeometry(200, 100),
+    },
+    shipRenderStates: new Map(),
+  };
+}
+
+function makeShipTarget(ship: ShipNode): NonNullable<DrawPharosVilleInput["selectedTarget"]> {
+  return {
+    detailId: ship.detailId,
+    id: ship.id,
+    kind: "ship",
+    label: ship.label,
+    priority: 0,
+    rect: { height: 20, width: 20, x: 0, y: 0 },
   };
 }
 
