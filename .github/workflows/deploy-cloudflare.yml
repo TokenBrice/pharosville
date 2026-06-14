@@ -85,6 +85,8 @@ jobs:
         run: npm run check:runtime-facts
       - name: Viewport gate guard
         run: npm run check:viewport-gate
+      - name: Static security headers guard
+        run: npm run check:security-headers:static
       - name: Asset manifest guard
         run: npm run check:pharosville-assets
       - name: Palette guard

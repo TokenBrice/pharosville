@@ -35,6 +35,16 @@ import {
 
 const ContractDecimalsSchema = z.number().finite().int().min(0).max(255);
 const DependencyWeightNumberSchema = z.number().finite().positive().max(1);
+export const HttpUrlSchema = z.string().url().refine((value) => {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}, {
+  message: "URL must use http or https",
+});
 
 export const StablecoinFlagsSchema: z.ZodType<StablecoinFlags> = z.object({
   backing: z.enum(BACKING_TYPE_VALUES),
@@ -91,7 +101,7 @@ export const LaunchMilestoneSchema: z.ZodType<LaunchMilestone> = z.object({
   type: z.enum(LAUNCH_MILESTONE_TYPE_VALUES),
   title: z.string(),
   description: z.string().optional(),
-  sourceUrl: z.string().optional(),
+  sourceUrl: HttpUrlSchema.optional(),
 }).strict();
 
 export const DateHistoryEntrySchema: z.ZodType<DateHistoryEntry> = z.object({

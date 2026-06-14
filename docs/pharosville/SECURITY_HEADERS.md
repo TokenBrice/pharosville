@@ -1,6 +1,6 @@
 # PharosVille Security Headers Policy
 
-Last updated: 2026-05-18
+Last updated: 2026-06-14
 
 ## Scope
 
@@ -20,10 +20,12 @@ The following headers are required for production responses:
 - `x-content-type-options: nosniff`
 - `x-frame-options: DENY`
 - `referrer-policy: strict-origin-when-cross-origin`
-- `permissions-policy: accelerometer=(), ambient-light-sensor=(), autoplay=(), battery=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()`
+- `permissions-policy: accelerometer=(), ambient-light-sensor=(), autoplay=(), battery=(), camera=(), clipboard-read=(), display-capture=(), document-domain=(), encrypted-media=(), fullscreen=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), serial=(), sync-xhr=(), usb=(), web-share=(), xr-spatial-tracking=()`
 - `cross-origin-opener-policy: same-origin`
 - `cross-origin-resource-policy: same-origin`
-- `content-security-policy: default-src 'self'; base-uri 'self'; object-src 'none'; img-src 'self' data: https://*.google-analytics.com; style-src 'self'; script-src 'self' https://www.googletagmanager.com https://static.cloudflareinsights.com; connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com https://static.cloudflareinsights.com; frame-ancestors 'none'; form-action 'self'`
+- `content-security-policy: default-src 'self'; base-uri 'self'; object-src 'none'; img-src 'self' data: https://www.google-analytics.com; style-src 'self'; script-src 'self' https://www.googletagmanager.com https://static.cloudflareinsights.com; connect-src 'self' https://www.google-analytics.com https://analytics.google.com https://www.googletagmanager.com https://static.cloudflareinsights.com; frame-ancestors 'none'; form-action 'self'`
+
+The optional `VITE_GA_ID` flow still requires `www.googletagmanager.com` for the loader and exact Google Analytics hosts for beacon traffic, but the static policy should not use `*.google-analytics.com`, `*.analytics.google.com`, or `*.googletagmanager.com` wildcards while analytics is inactive by default.
 
 ### API responses (`/api/*`)
 
@@ -44,5 +46,6 @@ The following headers are required for production responses:
 - Browser/static header policy: [public/_headers](/home/ahirice/Documents/git/pharosville/public/_headers)
 - API response hardening: [functions/api/[[path]].ts](/home/ahirice/Documents/git/pharosville/functions/api/[[path]].ts)
 - Client error log hardening: [client error log function](/home/ahirice/Documents/git/pharosville/functions/_log.ts)
-- Verification command: `npm run check:security-headers`
+- Live verification command: `npm run check:security-headers`
+- Static pre-deploy parser: `npm run check:security-headers:static`
 - Live verification with endpoint payload guards: `npm run smoke:live -- --url https://pharosville.pharos.watch`

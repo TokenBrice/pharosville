@@ -103,6 +103,9 @@ describe("PharosVille API proxy", () => {
     expect(response.headers.get("warning")).toBe("199 proxy fixture");
     expect(response.headers.get("x-data-age")).toBe("12");
     expect(response.headers.get("x-pharosville-proxy")).toBe("1");
+    expect(response.headers.get("permissions-policy")).toContain("display-capture=()");
+    expect(response.headers.get("permissions-policy")).toContain("screen-wake-lock=()");
+    expect(response.headers.get("permissions-policy")).toContain("serial=()");
     expect(fetchMock).toHaveBeenCalledWith(
       `https://api.pharos.watch${endpointPath}`,
       expect.objectContaining({

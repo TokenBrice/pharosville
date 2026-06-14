@@ -10,6 +10,7 @@ const DEPLOY_GATE_COMMANDS = [
   ["npm", ["run", "check:doc-paths-and-scripts"]],
   ["npm", ["run", "check:runtime-facts"]],
   ["npm", ["run", "check:viewport-gate"]],
+  ["npm", ["run", "check:security-headers:static"]],
   ["npm", ["run", "check:pharosville-assets"]],
   ["npm", ["run", "check:pharosville-colors"]],
   ["npm", ["run", "build"]],

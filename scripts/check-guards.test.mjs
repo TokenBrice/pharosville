@@ -51,6 +51,12 @@ import {
 import {
   checkViewportGate,
 } from "./check-viewport-gate.mjs";
+import {
+  REQUIRED_PERMISSIONS_POLICY_FEATURES,
+  validateCsp,
+  validatePermissionsPolicy,
+  validateStaticHeadersText,
+} from "./pharosville/check-security-headers.mjs";
 
 const neutralValue = ["alpha", "beta", "gamma", "9876543210"].join("_");
 const guardedEnvKeys = [
@@ -231,6 +237,13 @@ assert.match(runtimeFactsMarkdown, /## Asset Budgets/);
 assert.equal(maxManifestAssets, 75);
 assert.equal(firstRenderBudgets.maxCount, 33);
 assert.equal(sharedBundleBudgets.desktop.label, "desktop lazy chunk");
+assert.equal(
+  validateCsp("default-src 'self'; script-src 'self' https://*.googletagmanager.com").some((finding) => finding.includes("wildcard")),
+  true,
+);
+assert.equal(validatePermissionsPolicy("autoplay=(), camera=()").some((finding) => finding.includes("display-capture")), true);
+assert.equal(REQUIRED_PERMISSIONS_POLICY_FEATURES.includes("screen-wake-lock"), true);
+assert.deepEqual(validateStaticHeadersText(readFileSync(resolve("public/_headers"), "utf8")), []);
 
 const viewportGateSource = [
   "export const MIN_LONG_SIDE_PX = 720;",
@@ -269,6 +282,21 @@ assert.throws(
 );
 
 const packageJson = JSON.parse(readFileSync(resolve("package.json"), "utf8"));
+assert.equal(
+  packageJson.scripts["check:security-headers:static"],
+  "node scripts/pharosville/check-security-headers.mjs --static",
+);
+assert.match(packageJson.scripts["validate:docs"], /check:security-headers:static/);
+assert.doesNotMatch(packageJson.scripts["validate:docs"], /check:security-headers(?!:static)/);
+
+const deployGateSource = readFileSync(resolve("scripts/pharosville/validate-deploy-gate.mjs"), "utf8");
+assert.match(deployGateSource, /check:security-headers:static/);
+assert.doesNotMatch(deployGateSource, /check:security-headers(?!:static)/);
+
+const deployWorkflowSource = readFileSync(resolve(".github/workflows/deploy-cloudflare.yml"), "utf8");
+assert.match(deployWorkflowSource, /npm run check:security-headers:static/);
+assert.match(deployWorkflowSource, /check-security-headers\.mjs --url "\$SMOKE_UI_URL"/);
+
 assert.doesNotMatch(packageJson.scripts["test:visual:dist:static"], /resizing below/);
 assert.match(packageJson.scripts["test:visual:dist:static"], /@visual-static|resized below/);
 
