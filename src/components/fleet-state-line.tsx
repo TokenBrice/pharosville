@@ -8,7 +8,13 @@ import type { AreaNode, DewsAreaBand, LighthouseNode, PharosVilleWorld } from ".
 const ELEVATED_DEWS_BANDS = new Set<DewsAreaBand>(["ALERT", "WARNING", "DANGER"]);
 const RELATIVE_TIME_FORMAT = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 
-export function FleetStateLine({ world }: { world: PharosVilleWorld }) {
+export function FleetStateLine({
+  className,
+  world,
+}: {
+  className?: string;
+  world: PharosVilleWorld;
+}) {
   const freshnessNow = useFreshnessNow();
   const fields = useMemo(() => {
     const worstArea = worstActiveArea(world);
@@ -29,14 +35,17 @@ export function FleetStateLine({ world }: { world: PharosVilleWorld }) {
   const freshness = formatFreshness(world.generatedAt, freshnessNow);
 
   return (
-    <p className="pharosville-fleet-state-line" data-testid="pharosville-fleet-state-line">
+    <span
+      className={className ? `pharosville-fleet-state-line ${className}` : "pharosville-fleet-state-line"}
+      data-testid="pharosville-fleet-state-line"
+    >
       {[...fields, freshness].map((field, index) => (
         <span key={`${index}:${field}`}>
           {index > 0 && <span className="pharosville-fleet-state-line__separator" aria-hidden="true">|</span>}
           {field}
         </span>
       ))}
-    </p>
+    </span>
   );
 }
 

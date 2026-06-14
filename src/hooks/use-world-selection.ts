@@ -4,17 +4,20 @@ import { withRiskTransitionFact } from "../systems/detail-model";
 import type { ScreenPoint } from "../systems/projection";
 import type { DetailModel, PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
 
+export const DEFAULT_WORLD_SELECTED_DETAIL_ID = "lighthouse";
+
 export interface DetailAnchor extends ScreenPoint {
   side: "left" | "right";
 }
 
 export function useWorldSelection(input: {
+  initialSelectedDetailId?: string | null;
   world: PharosVilleWorldModel;
 }) {
-  const { world } = input;
+  const { initialSelectedDetailId = DEFAULT_WORLD_SELECTED_DETAIL_ID, world } = input;
   const [hoveredDetailId, setHoveredDetailId] = useState<string | null>(null);
   const [keyboardFocusedDetailId, setKeyboardFocusedDetailId] = useState<string | null>(null);
-  const [selectedDetailId, setSelectedDetailId] = useState<string | null>("lighthouse");
+  const [selectedDetailId, setSelectedDetailId] = useState<string | null>(() => initialSelectedDetailId);
   const [selectedDetailAnchor, setSelectedDetailAnchor] = useState<DetailAnchor | null>(null);
   const [announcement, setAnnouncement] = useState("PharosVille ready.");
 

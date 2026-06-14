@@ -11,10 +11,8 @@ import Home from "lucide-react/dist/esm/icons/home";
 import Maximize2 from "lucide-react/dist/esm/icons/maximize-2";
 import Minimize2 from "lucide-react/dist/esm/icons/minimize-2";
 import { AccessibilityLedger, type ShipRiskTransitionEntry } from "./components/accessibility-ledger";
-import { BandKey } from "./components/band-key";
 import { DetailPanel } from "./components/detail-panel";
 import { FleetStateLine } from "./components/fleet-state-line";
-import { NotableMovers } from "./components/notable-movers";
 import { SinceLastVisitBanner } from "./components/since-last-visit";
 import { ShipSearch } from "./components/ship-search";
 import { WorldToolbar } from "./components/world-toolbar";
@@ -31,9 +29,11 @@ import { detailAnchorForPoint, useWorldKeyboardTargets } from "./hooks/use-world
 import { useWorldRenderLoop } from "./hooks/use-world-render-loop";
 import { useWorldSelection, resolveSelectedDetail } from "./hooks/use-world-selection";
 import { useWorldTimeControls } from "./hooks/use-world-time-controls";
+import { useWorldUrlState } from "./hooks/use-world-url-state";
 import { createHitTargetSnapshot, type HitTarget, type HitTargetSnapshot } from "./renderer/hit-testing";
+import { clampCameraToMap } from "./systems/camera";
 import { buildBaseMotionPlan, buildMotionPlan, disposePathCacheForMap, motionPlanSignature, type ShipMotionSample } from "./systems/motion";
-import { selectNotableMovers } from "./systems/notable-movers";
+import { recentFleetTrendSummary } from "./systems/sea-state";
 import type { ScreenPoint } from "./systems/projection";
 import { observeReducedMotion } from "./systems/reduced-motion";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "./systems/world-types";
@@ -71,7 +71,11 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const revealHasStartedRef = useRef(false);
 
   const [motionBucket, setMotionBucket] = useState(0);
-  const selection = useWorldSelection({ world });
+  const worldUrlState = useWorldUrlState({ world });
+  const selection = useWorldSelection({
+    initialSelectedDetailId: worldUrlState.initialState.selectedDetailId,
+    world,
+  });
   const {
     announcement,
     clearSelection,
@@ -88,7 +92,11 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const changelog = useChangelogDialog({ setAnnouncement });
   const legend = useLegendDialog({ setAnnouncement });
   const visitSnapshot = useVisitSnapshot({ world, setAnnouncement });
-  const timeControls = useWorldTimeControls({ requestPaint: requestWorldFrame });
+  const timeControls = useWorldTimeControls({
+    initialManualTimeOverrideHour: worldUrlState.initialState.manualTimeOverrideHour,
+    initialNightMode: worldUrlState.initialState.nightMode,
+    requestPaint: requestWorldFrame,
+  });
   useLiveTitle(world);
 
   // Memoize on a content signature instead of `world` identity so live data
@@ -106,7 +114,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const motionPlan = useMemo(() => buildMotionPlan(world, selectedDetailId, baseMotionPlan), [baseMotionPlan, selectedDetailId]);
   const shipsById = useMemo(() => new Map(world.ships.map((ship) => [ship.id, ship])), [world.ships]);
   const shipCounterLabel = useMemo(() => fleetCounterLabel(world.ships), [world.ships]);
-  const notableMovers = useMemo(() => selectNotableMovers(world), [world]);
+  const recentFleetTrend = useMemo(() => recentFleetTrendSummary(world), [world]);
   // W5.01 — derive the live risk-band tack-out per ship from the motion plan
   // at world-refresh cadence. The detail panel and accessibility ledger both
   // consume this; progress is a synthetic in-transit marker (the actual
@@ -195,6 +203,13 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     selectDetail(detailId, null);
   }, [selectDetail]);
 
+  useEffect(() => {
+    const detailId = worldUrlState.initialState.followSelectedDetailId;
+    if (!detailId) return;
+    pendingFollowDetailIdRef.current = detailId;
+    selectDetail(detailId, null);
+  }, [selectDetail, worldUrlState.initialState.followSelectedDetailId]);
+
   // selectedDetailIdRef omitted: ref identity never changes (HOOKS F4).
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const hasSelection = useCallback(() => selectedDetailIdRef.current !== null, []);
@@ -217,6 +232,51 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     shipMotionSamplesRef,
     world,
   });
+
+  const restoredUrlCameraRef = useRef(false);
+  const canvasWidth = canvas.canvasSize.x;
+  const canvasHeight = canvas.canvasSize.y;
+  const setCanvasCamera = canvas.setCamera;
+  useEffect(() => {
+    if (restoredUrlCameraRef.current) return;
+    const urlCamera = worldUrlState.initialState.camera;
+    if (!urlCamera || canvasWidth <= 0 || canvasHeight <= 0) return;
+    restoredUrlCameraRef.current = true;
+    setCanvasCamera(clampCameraToMap(urlCamera, {
+      map: world.map,
+      viewport: { x: canvasWidth, y: canvasHeight },
+    }));
+  }, [canvasHeight, canvasWidth, setCanvasCamera, world.map, worldUrlState.initialState.camera]);
+
+  useEffect(() => {
+    worldUrlState.replaceWorldUrlState({
+      nightMode: timeControls.nightMode,
+      selectedDetailId,
+      timeHour: timeControls.wallClockHour,
+    });
+  }, [
+    selectedDetailId,
+    timeControls.nightMode,
+    timeControls.wallClockHour,
+    worldUrlState,
+  ]);
+
+  const cameraOffsetX = canvas.camera?.offsetX ?? null;
+  const cameraOffsetY = canvas.camera?.offsetY ?? null;
+  const cameraZoom = canvas.camera?.zoom ?? null;
+  useEffect(() => {
+    if (cameraOffsetX === null || cameraOffsetY === null || cameraZoom === null) return;
+    const id = window.setTimeout(() => {
+      worldUrlState.replaceWorldUrlState({
+        camera: {
+          offsetX: cameraOffsetX,
+          offsetY: cameraOffsetY,
+          zoom: cameraZoom,
+        },
+      });
+    }, 500);
+    return () => window.clearTimeout(id);
+  }, [cameraOffsetX, cameraOffsetY, cameraZoom, worldUrlState]);
 
   // Wire the late-bound recompute callbacks now that the canvas hook has
   // exposed its refs. We assign in a useEffect (not during render) so the
@@ -368,7 +428,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       if (!shell?.contains(target)) return;
       const detailPanel = document.getElementById("pharosville-detail-panel");
       if (detailPanel?.contains(target)) return;
-      if (target instanceof Element && target.closest(".pharosville-overlay, .pharosville-fullscreen-button, .pharosville-home-button")) return;
+      if (target instanceof Element && target.closest(".pharosville-overlay, .pharosville-fullscreen-button, .pharosville-home-button, .pharosville-beta-tag")) return;
       clearSelection();
     };
 
@@ -412,6 +472,25 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       } as CSSProperties)
     : undefined;
   const frameRateLabel = formatFrameRateLabel(frameRateFps, reducedMotion);
+  const activeCamera = canvas.camera;
+  const handleCopyViewLink = useCallback(() => {
+    void worldUrlState.copyWorldUrlState({
+      camera: activeCamera,
+      nightMode: timeControls.nightMode,
+      selectedDetailId,
+      timeHour: timeControls.wallClockHour,
+    }).then((result) => {
+      setAnnouncement(result === "copied" ? "Copied link to this view." : "Could not copy link to this view.");
+    });
+  }, [
+    activeCamera,
+    selectedDetailId,
+    setAnnouncement,
+    timeControls.nightMode,
+    timeControls.wallClockHour,
+    worldUrlState,
+  ]);
+
   return (
     <main
       ref={shellRef}
@@ -465,12 +544,9 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
             onTimeOfDayChange={timeControls.setManualTimeOverrideHour}
             onClearTimeOverride={timeControls.clearTimeOverride}
           />
-          <FleetStateLine world={world} />
         </div>
         <ShipSearch options={shipSearchOptions} onSelect={handleSearchSelect} />
-        <NotableMovers movers={notableMovers} onSelect={handleSearchSelect} />
         <SinceLastVisitBanner delta={visitSnapshot.delta} onDismiss={visitSnapshot.dismiss} />
-        <BandKey />
         {selectedDetail && (
           <div
             className={selectedDetailAnchor ? `pharosville-detail-dock pharosville-detail-dock--anchored pharosville-detail-dock--${selectedDetailAnchor.side}` : "pharosville-detail-dock"}
@@ -505,11 +581,13 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       )}
       {legend.legendOpen && (
         <Suspense fallback={<ChangelogPanelLoading />}>
-          <LazyLegendPanel onClose={legend.closeLegend} />
+          <LazyLegendPanel onClose={legend.closeLegend} recentFleetTrend={recentFleetTrend} />
         </Suspense>
       )}
       <p className="pharosville-beta-tag">
         <span className="pharosville-beta-tag__notice">PharosVille beta {PHAROSVILLE_LATEST_VERSION} - Interpretive view, not financial advice</span>
+        <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
+        <FleetStateLine className="pharosville-fleet-state-line--footer" world={world} />
         <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
         <button className="pharosville-beta-tag__button" type="button" onClick={legend.openLegend}>Legend</button>
         <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
@@ -518,6 +596,8 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         <span className="pharosville-beta-tag__counter" data-testid="pharosville-ship-counter">{shipCounterLabel}</span>
         <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
         <span className="pharosville-beta-tag__fps" data-testid="pharosville-fps-counter" aria-label={`Frame rate: ${frameRateLabel}`}>{frameRateLabel}</span>
+        <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
+        <button className="pharosville-beta-tag__button" type="button" onClick={handleCopyViewLink}>Copy link</button>
         <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
         <a href="https://pharos.watch/">Pharos</a>
       </p>

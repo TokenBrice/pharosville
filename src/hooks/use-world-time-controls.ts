@@ -5,13 +5,27 @@ import {
   writeTestWallClockOverrideHour,
 } from "../lib/pharosville-clock";
 
+export const WORLD_TIME_STEP_HOUR = 0.25;
+export const WORLD_TIME_MAX_HOUR = 23.75;
+
+export function clampManualTimeOverrideHour(hour: number): number | null {
+  if (!Number.isFinite(hour)) return null;
+  const stepped = Math.round(hour / WORLD_TIME_STEP_HOUR) * WORLD_TIME_STEP_HOUR;
+  const clamped = Math.max(0, Math.min(WORLD_TIME_MAX_HOUR, stepped));
+  return Number(clamped.toFixed(2));
+}
+
 export function useWorldTimeControls(input: {
+  initialManualTimeOverrideHour?: number | null;
+  initialNightMode?: boolean;
   requestPaint: () => void;
 }) {
-  const { requestPaint } = input;
-  const [nightMode, setNightMode] = useState(false);
+  const { initialManualTimeOverrideHour = null, initialNightMode = false, requestPaint } = input;
+  const [nightMode, setNightMode] = useState(initialNightMode);
   const [autoNightCycle, setAutoNightCycle] = useState(false);
-  const [manualTimeOverrideHour, setManualTimeOverrideHourState] = useState<number | null>(null);
+  const [manualTimeOverrideHour, setManualTimeOverrideHourState] = useState<number | null>(() => (
+    initialManualTimeOverrideHour === null ? null : clampManualTimeOverrideHour(initialManualTimeOverrideHour)
+  ));
   const manualWallClockRestoreRef = useRef<{ active: boolean; previous: number | undefined }>({
     active: false,
     previous: undefined,
@@ -63,7 +77,9 @@ export function useWorldTimeControls(input: {
       setManualTimeOverrideHourState(null);
       return;
     }
-    setManualTimeOverrideHourState(hour);
+    const nextHour = clampManualTimeOverrideHour(hour);
+    if (nextHour === null) return;
+    setManualTimeOverrideHourState(nextHour);
   }, [requestPaint, restoreManualWallClockOverride]);
 
   const toggleNightMode = useCallback(() => {
