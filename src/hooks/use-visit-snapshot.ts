@@ -12,7 +12,7 @@ export interface VisitSnapshot {
   psiBand: string | null;
   psiScore: number | null;
   lastFleetDepegAt: number | null;
-  generatedAt: number;
+  generatedAt: number | null;
   notableMoverSymbols: string[];
 }
 
@@ -25,8 +25,8 @@ export interface VisitSnapshotDelta {
   } | null;
   lastFleetDepegAt: number | null;
   notableMoverSymbols: string[];
-  previousGeneratedAt: number;
-  generatedAt: number;
+  previousGeneratedAt: number | null;
+  generatedAt: number | null;
 }
 
 interface StorageReadResult {
@@ -79,7 +79,7 @@ export function snapshotFromWorld(world: PharosVilleWorld): VisitSnapshot {
     psiBand: typeof world.lighthouse.psiBand === "string" ? world.lighthouse.psiBand : null,
     psiScore: finiteNumberOrNull(world.lighthouse.score),
     lastFleetDepegAt: finiteNumberOrNull(world.lighthouse.lastFleetDepegAt ?? null),
-    generatedAt: world.generatedAt,
+    generatedAt: finiteNumberOrNull(world.generatedAt),
     notableMoverSymbols: selectNotableMovers(world).map((mover) => mover.symbol),
   };
 }
@@ -178,12 +178,12 @@ function isVisitSnapshot(value: unknown): value is VisitSnapshot {
     && (typeof value.psiBand === "string" || value.psiBand === null)
     && (typeof value.psiScore === "number" || value.psiScore === null)
     && (typeof value.lastFleetDepegAt === "number" || value.lastFleetDepegAt === null)
-    && typeof value.generatedAt === "number"
+    && (typeof value.generatedAt === "number" || value.generatedAt === null)
     && Array.isArray(value.notableMoverSymbols)
     && value.notableMoverSymbols.every((symbol) => typeof symbol === "string")
     && (value.psiScore === null || Number.isFinite(value.psiScore))
     && (value.lastFleetDepegAt === null || Number.isFinite(value.lastFleetDepegAt))
-    && Number.isFinite(value.generatedAt);
+    && (value.generatedAt === null || Number.isFinite(value.generatedAt));
 }
 
 function finiteNumberOrNull(value: number | null | undefined): number | null {

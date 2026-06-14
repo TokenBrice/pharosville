@@ -26,7 +26,6 @@ export function ControlsCheatsheet({
 }: ControlsCheatsheetProps) {
   const introId = `${headingId}-intro`;
   const rootClassName = [
-    "pharosville-legend-panel__body",
     "pharosville-controls-cheatsheet",
     className,
   ].filter(Boolean).join(" ");

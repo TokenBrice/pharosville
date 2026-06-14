@@ -48,6 +48,7 @@ const LazyLegendPanel = lazy(() => (
 // W4.01 first-load reveal beat duration (ms). Three phases of ~600ms each,
 // spec'd by VD #3 in `agents/2026-05-17-pharosville-wow-revamp-plan.md`.
 const REVEAL_DURATION_MS = 1800;
+const DATA_REFRESH_ANNOUNCEMENT_THROTTLE_MS = 30_000;
 
 function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const [reducedMotion, setReducedMotion] = useState(true);
@@ -97,6 +98,41 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     requestPaint: requestWorldFrame,
   });
   useLiveTitle(world);
+
+  const previousDataRefreshSnapshotRef = useRef<WorldDataRefreshSnapshot | null>(null);
+  const lastDataRefreshAnnouncementRef = useRef<{ key: string; announcedAt: number } | null>(null);
+  useEffect(() => {
+    const currentSnapshot = worldDataRefreshSnapshot(world);
+    const previousSnapshot = previousDataRefreshSnapshotRef.current;
+    previousDataRefreshSnapshotRef.current = currentSnapshot;
+    if (!previousSnapshot) return;
+
+    const message = worldDataRefreshAnnouncement(previousSnapshot, currentSnapshot);
+    if (!message) return;
+
+    const lastAnnouncement = lastDataRefreshAnnouncementRef.current;
+    if (lastAnnouncement?.key === currentSnapshot.key) return;
+
+    const now = Date.now();
+    const freshnessChanged = previousSnapshot.staleSourceKey !== currentSnapshot.staleSourceKey;
+    if (
+      !freshnessChanged
+      && lastAnnouncement
+      && now - lastAnnouncement.announcedAt < DATA_REFRESH_ANNOUNCEMENT_THROTTLE_MS
+    ) {
+      lastDataRefreshAnnouncementRef.current = {
+        key: currentSnapshot.key,
+        announcedAt: lastAnnouncement.announcedAt,
+      };
+      return;
+    }
+
+    lastDataRefreshAnnouncementRef.current = {
+      key: currentSnapshot.key,
+      announcedAt: now,
+    };
+    setAnnouncement(message);
+  }, [setAnnouncement, world]);
 
   // Memoize on a content signature instead of `world` identity so live data
   // refetches that don't change ship/dock/map/lighthouse-flicker fields reuse
@@ -608,6 +644,81 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
 // produce identical payloads) don't reach the canvas component when `world` reference
 // is stable. Pairs with the structural-compare cache in `pharosville-desktop-data.tsx`.
 export const PharosVilleWorld = memo(PharosVilleWorldInner);
+
+type FreshnessKey = keyof PharosVilleWorldModel["freshness"];
+
+interface WorldDataRefreshSnapshot {
+  generatedAt: number | null;
+  key: string;
+  staleSourceKey: string;
+  staleSourceLabels: readonly string[];
+}
+
+const FRESHNESS_LABELS: ReadonlyArray<readonly [FreshnessKey, string]> = [
+  ["stablecoinsStale", "stablecoins"],
+  ["chainsStale", "chains"],
+  ["stabilityStale", "PSI"],
+  ["pegSummaryStale", "peg summary"],
+  ["stressStale", "stress signals"],
+  ["reportCardsStale", "report cards"],
+];
+
+function worldDataRefreshSnapshot(world: PharosVilleWorldModel): WorldDataRefreshSnapshot {
+  const staleSourceLabels = FRESHNESS_LABELS
+    .filter(([key]) => world.freshness[key] === true)
+    .map(([, label]) => label);
+  const staleSourceKey = staleSourceLabels.join("|");
+  return {
+    generatedAt: world.generatedAt,
+    key: `${world.generatedAt}|${staleSourceKey}`,
+    staleSourceKey,
+    staleSourceLabels,
+  };
+}
+
+function worldDataRefreshAnnouncement(
+  previous: WorldDataRefreshSnapshot,
+  current: WorldDataRefreshSnapshot,
+): string | null {
+  const generatedAtChanged = previous.generatedAt !== current.generatedAt;
+  const freshnessChanged = previous.staleSourceKey !== current.staleSourceKey;
+  if (!generatedAtChanged && !freshnessChanged) return null;
+
+  const previousStaleSources = new Set(previous.staleSourceLabels);
+  const currentStaleSources = new Set(current.staleSourceLabels);
+  const newlyStale = current.staleSourceLabels.filter((label) => !previousStaleSources.has(label));
+  const restored = previous.staleSourceLabels.filter((label) => !currentStaleSources.has(label));
+  let leadingClause = "Harbor data updated";
+  const clauses: string[] = [];
+
+  if (newlyStale.length > 0) {
+    clauses.push(`Stale source groups: ${formatAnnouncementList(newlyStale)}`);
+  }
+  if (restored.length > 0) {
+    clauses.push(`Fresh source groups restored: ${formatAnnouncementList(restored)}`);
+  }
+  if (!freshnessChanged) {
+    const generatedAtText = formatGeneratedAtForAnnouncement(current.generatedAt);
+    if (generatedAtText) {
+      leadingClause = `Harbor data updated ${generatedAtText}`;
+    }
+  }
+
+  return `${[leadingClause, ...clauses].join(". ")}.`;
+}
+
+function formatAnnouncementList(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  if (items.length === 2) return `${items[0] ?? ""} and ${items[1] ?? ""}`;
+  const lastItem = items[items.length - 1] ?? "";
+  return `${items.slice(0, -1).join(", ")}, and ${lastItem}`;
+}
+
+function formatGeneratedAtForAnnouncement(generatedAt: number | null): string | null {
+  if (generatedAt === null) return null;
+  if (!Number.isFinite(generatedAt) || generatedAt <= 0) return null;
+  return `at ${new Date(generatedAt).toISOString()}`;
+}
 
 /**
  * W4.07 canvas-palette loading state. Renders the same className the

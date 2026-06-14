@@ -63,7 +63,10 @@ export function SinceLastVisitBanner({
     <aside
       className="pharosville-since-last-visit"
       aria-label="Since last visit"
+      aria-live="polite"
+      aria-atomic="true"
       data-testid="pharosville-since-last-visit"
+      role="status"
       style={bannerStyle}
     >
       <span style={textStyle}>{summary}</span>

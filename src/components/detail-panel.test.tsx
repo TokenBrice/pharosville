@@ -24,6 +24,57 @@ const renderShipPanel = (shipId: string, depegId: string | null = null) => {
 };
 
 describe("DetailPanel structure (old-school revamp)", () => {
+  it("uses modal dialog semantics and focuses/restores the close control", () => {
+    const opener = document.createElement("button");
+    opener.type = "button";
+    opener.textContent = "Open details";
+    document.body.append(opener);
+    opener.focus();
+
+    const detail: DetailModel = {
+      id: "ship:test-dialog",
+      title: "Test Ship",
+      kind: "SHIP",
+      summary: "test",
+      facts: [],
+      links: [],
+    };
+
+    const view = render(<DetailPanel detail={detail} onClose={() => undefined} />);
+
+    const panel = screen.getByRole("dialog", { name: "Test Ship" });
+    const closeButton = screen.getByRole("button", { name: "Close details" });
+    expect(panel.getAttribute("aria-modal")).toBe("true");
+    expect(document.activeElement).toBe(closeButton);
+
+    view.unmount();
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
+  });
+
+  it("traps Tab within the detail dialog", () => {
+    const detail: DetailModel = {
+      id: "ship:test-dialog-trap",
+      title: "Test Ship",
+      kind: "SHIP",
+      summary: "test",
+      facts: [],
+      links: [{ label: "Source", href: "https://pharos.watch/" }],
+    };
+
+    render(<DetailPanel detail={detail} onClose={() => undefined} />);
+
+    const sourceLink = screen.getByRole("link", { name: /Source/ });
+    const closeButton = screen.getByRole("button", { name: "Close details" });
+    expect(document.activeElement).toBe(closeButton);
+
+    fireEvent.keyDown(closeButton, { key: "Tab" });
+    expect(document.activeElement).toBe(sourceLink);
+
+    fireEvent.keyDown(sourceLink, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(closeButton);
+  });
+
   it("does not render dropped fields", () => {
     const markup = renderShipPanel("susds-sky", "susds-sky");
     expect(markup).not.toMatch(/Ship livery/i);

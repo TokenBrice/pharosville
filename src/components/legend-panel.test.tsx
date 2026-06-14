@@ -1,9 +1,40 @@
+// @vitest-environment jsdom
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { LEGEND_MARK_ROWS } from "../systems/visual-cue-registry";
 import { LegendPanel } from "./legend-panel";
 
+afterEach(() => {
+  cleanup();
+});
+
 describe("LegendPanel", () => {
+  it("uses modal dialog semantics and focuses/restores the close control", () => {
+    const opener = document.createElement("button");
+    opener.type = "button";
+    opener.textContent = "Open legend";
+    document.body.append(opener);
+    opener.focus();
+
+    const view = render(<LegendPanel onClose={() => undefined} />);
+
+    const panel = screen.getByRole("dialog", { name: "Legend" });
+    const closeButton = screen.getByRole("button", { name: "Close legend" });
+    expect(panel.getAttribute("aria-modal")).toBe("true");
+    expect(document.activeElement).toBe(closeButton);
+
+    fireEvent.keyDown(closeButton, { key: "Tab" });
+    expect(document.activeElement).toBe(closeButton);
+
+    fireEvent.keyDown(closeButton, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(closeButton);
+
+    view.unmount();
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
+  });
+
   it("renders one marks row for each registered analytical mark cue", () => {
     const markup = renderToStaticMarkup(<LegendPanel onClose={() => undefined} />);
 

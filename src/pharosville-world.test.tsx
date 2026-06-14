@@ -176,6 +176,27 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     expect(screen.queryByTestId("pharosville-changelog-panel")).toBeNull();
   });
 
+  it("announces background data timestamp and freshness changes", async () => {
+    const initialGeneratedAt = Date.UTC(2026, 5, 14, 12, 0);
+    const refreshedGeneratedAt = Date.UTC(2026, 5, 14, 12, 5);
+    const view = render(<PharosVilleWorld world={worldFixture({ generatedAt: initialGeneratedAt })} />);
+
+    view.rerender(<PharosVilleWorld world={worldFixture({ generatedAt: refreshedGeneratedAt })} />);
+    await waitFor(() => {
+      expect(screen.getByText(`Harbor data updated at ${new Date(refreshedGeneratedAt).toISOString()}.`)).toBeTruthy();
+    });
+
+    view.rerender(<PharosVilleWorld
+      world={worldFixture({
+        freshness: { stabilityStale: true },
+        generatedAt: refreshedGeneratedAt,
+      })}
+    />);
+    await waitFor(() => {
+      expect(screen.getByText("Harbor data updated. Stale source groups: PSI.")).toBeTruthy();
+    });
+  });
+
   it("cycles canvas hit targets with Tab and selects the focused target with Enter", async () => {
     render(<PharosVilleWorld world={worldFixture()} />);
 
@@ -289,7 +310,10 @@ function targetFixtures(): HitTarget[] {
   ];
 }
 
-function worldFixture(): PharosVilleWorldModel {
+function worldFixture(input: {
+  freshness?: PharosVilleWorldModel["freshness"];
+  generatedAt?: number;
+} = {}): PharosVilleWorldModel {
   return {
     areas: [],
     detailIndex: {
@@ -326,8 +350,8 @@ function worldFixture(): PharosVilleWorldModel {
         label: "USDC",
       },
     },
-    freshness: {},
-    generatedAt: 1,
+    freshness: input.freshness ?? {},
+    generatedAt: input.generatedAt ?? 1,
     graves: [],
     legends: [],
     lighthouse: {

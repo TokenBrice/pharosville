@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, type KeyboardEvent } from "react";
 import X from "lucide-react/dist/esm/icons/x";
 import type { DetailModel } from "../systems/world-types";
 import { buildDetailFactSections, compactCurrency, detailFactValue, type DetailDisplayRow } from "../lib/format-detail";
@@ -17,6 +17,15 @@ type SectionId = "identity" | "position";
 type DetailMember = NonNullable<DetailModel["members"]>[number];
 type DetailLink = DetailModel["links"][number];
 
+const DIALOG_FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",");
+
 export function DetailPanel({
   detail,
   headingId = "pharosville-detail-panel-title",
@@ -26,6 +35,7 @@ export function DetailPanel({
 }: DetailPanelProps) {
   const sections = buildDetailFactSections(detail.facts);
   const heritage = detailFactValue(detail.facts, "culturalSignificance");
+  const panelRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
 
   // Move focus to close button on mount; restore to the previously focused
@@ -33,23 +43,27 @@ export function DetailPanel({
   // to the canvas shell so keyboard users land somewhere predictable.
   useEffect(() => {
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    closeButtonRef.current?.focus();
+    focusWithoutScroll(closeButtonRef.current ?? panelRef.current);
     return () => {
-      if (previouslyFocused && document.contains(previouslyFocused)) {
-        previouslyFocused.focus();
-        return;
-      }
-      const fallback = document.querySelector<HTMLElement>('[data-testid="pharosville-world"]');
-      fallback?.focus();
+      restoreDialogFocus(previouslyFocused);
     };
+  }, []);
+
+  const handleDialogKeyDown = useCallback((event: KeyboardEvent<HTMLElement>) => {
+    trapDialogTab(event, panelRef.current);
   }, []);
 
   return (
     <aside
+      ref={panelRef}
       id={panelId}
       className="pharosville-detail-panel"
       aria-labelledby={headingId}
+      aria-modal="true"
       data-testid="pharosville-detail-panel"
+      onKeyDown={handleDialogKeyDown}
+      role="dialog"
+      tabIndex={-1}
     >
       <span className="pv-corner-brass pv-corner-brass--tl" aria-hidden="true" />
       <span className="pv-corner-brass pv-corner-brass--tr" aria-hidden="true" />
@@ -108,6 +122,56 @@ export function DetailPanel({
       </div>
     </aside>
   );
+}
+
+function trapDialogTab(event: KeyboardEvent<HTMLElement>, panel: HTMLElement | null): void {
+  if (event.key !== "Tab" || !panel) return;
+
+  const focusableElements = getDialogFocusableElements(panel);
+  if (focusableElements.length === 0) {
+    event.preventDefault();
+    focusWithoutScroll(panel);
+    return;
+  }
+
+  const firstElement = focusableElements[0]!;
+  const lastElement = focusableElements[focusableElements.length - 1]!;
+  const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const activeInPanel = Boolean(activeElement && panel.contains(activeElement));
+
+  if (event.shiftKey) {
+    if (!activeInPanel || activeElement === panel || activeElement === firstElement) {
+      event.preventDefault();
+      focusWithoutScroll(lastElement);
+    }
+    return;
+  }
+
+  if (!activeInPanel || activeElement === panel || activeElement === lastElement) {
+    event.preventDefault();
+    focusWithoutScroll(firstElement);
+  }
+}
+
+function getDialogFocusableElements(panel: HTMLElement): HTMLElement[] {
+  return Array.from(panel.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR))
+    .filter((element) => element.tabIndex >= 0);
+}
+
+function restoreDialogFocus(previouslyFocused: HTMLElement | null): void {
+  if (
+    previouslyFocused
+    && previouslyFocused !== document.body
+    && document.contains(previouslyFocused)
+  ) {
+    focusWithoutScroll(previouslyFocused);
+    return;
+  }
+  focusWithoutScroll(document.querySelector<HTMLElement>('[data-testid="pharosville-world"]'));
+}
+
+function focusWithoutScroll(element: HTMLElement | null): void {
+  element?.focus({ preventScroll: true });
 }
 
 function renderMember(member: DetailMember, onSelectDetail?: (detailId: string) => void) {

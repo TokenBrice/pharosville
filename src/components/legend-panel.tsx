@@ -1,6 +1,8 @@
 "use client";
 
+import { useCallback, useEffect, useRef, type KeyboardEvent } from "react";
 import X from "lucide-react/dist/esm/icons/x";
+import { ControlsCheatsheet } from "./controls-cheatsheet";
 import { zoneThemeForTerrain } from "../systems/palette";
 import { RISK_WATER_AREAS } from "../systems/risk-water-areas";
 import {
@@ -35,17 +37,45 @@ const LEGEND_SHIP_CLASSES: ReadonlyArray<{ name: string; reading: string }> = [
   { name: "Legacy junk", reading: "Algorithmic backing" },
 ];
 
+const DIALOG_FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",");
+
 export function LegendPanel({ onClose, recentFleetTrend }: LegendPanelProps) {
+  const panelRef = useRef<HTMLElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const hasRecentMoves = recentFleetTrend
     ? recentFleetTrend.growers.length > 0 || recentFleetTrend.shrinkers.length > 0
     : false;
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    focusWithoutScroll(closeButtonRef.current ?? panelRef.current);
+    return () => {
+      restoreDialogFocus(previouslyFocused);
+    };
+  }, []);
+
+  const handleDialogKeyDown = useCallback((event: KeyboardEvent<HTMLElement>) => {
+    trapDialogTab(event, panelRef.current);
+  }, []);
+
   return (
     <aside
+      ref={panelRef}
       id="pharosville-legend-panel"
       className="pharosville-changelog-panel pharosville-legend-panel"
       aria-labelledby="pharosville-legend-title"
+      aria-modal="true"
       data-testid="pharosville-legend-panel"
+      onKeyDown={handleDialogKeyDown}
       role="dialog"
+      tabIndex={-1}
     >
       <header className="pharosville-changelog-panel__header">
         <div>
@@ -53,6 +83,7 @@ export function LegendPanel({ onClose, recentFleetTrend }: LegendPanelProps) {
           <h2 id="pharosville-legend-title">Legend</h2>
         </div>
         <button
+          ref={closeButtonRef}
           className="pharosville-changelog-panel__close"
           type="button"
           aria-label="Close legend"
@@ -155,15 +186,62 @@ export function LegendPanel({ onClose, recentFleetTrend }: LegendPanelProps) {
           </p>
         </section>
 
-        <section aria-labelledby="pharosville-legend-controls">
-          <h3 id="pharosville-legend-controls">Controls</h3>
-          <p>
-            Drag to pan, scroll to zoom, click any ship, dock, or sea label
-            for details. Tab / Shift+Tab cycles map targets, Enter selects.
-            The toolbar sets the time of day and follows your selection.
-          </p>
-        </section>
+        <ControlsCheatsheet
+          headingId="pharosville-legend-controls"
+          title="Controls"
+          intro="Use these controls to inspect the harbor, move the camera, tune time of day, and reopen reference panels."
+        />
       </div>
     </aside>
   );
+}
+
+function trapDialogTab(event: KeyboardEvent<HTMLElement>, panel: HTMLElement | null): void {
+  if (event.key !== "Tab" || !panel) return;
+
+  const focusableElements = getDialogFocusableElements(panel);
+  if (focusableElements.length === 0) {
+    event.preventDefault();
+    focusWithoutScroll(panel);
+    return;
+  }
+
+  const firstElement = focusableElements[0]!;
+  const lastElement = focusableElements[focusableElements.length - 1]!;
+  const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const activeInPanel = Boolean(activeElement && panel.contains(activeElement));
+
+  if (event.shiftKey) {
+    if (!activeInPanel || activeElement === panel || activeElement === firstElement) {
+      event.preventDefault();
+      focusWithoutScroll(lastElement);
+    }
+    return;
+  }
+
+  if (!activeInPanel || activeElement === panel || activeElement === lastElement) {
+    event.preventDefault();
+    focusWithoutScroll(firstElement);
+  }
+}
+
+function getDialogFocusableElements(panel: HTMLElement): HTMLElement[] {
+  return Array.from(panel.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR))
+    .filter((element) => element.tabIndex >= 0);
+}
+
+function restoreDialogFocus(previouslyFocused: HTMLElement | null): void {
+  if (
+    previouslyFocused
+    && previouslyFocused !== document.body
+    && document.contains(previouslyFocused)
+  ) {
+    focusWithoutScroll(previouslyFocused);
+    return;
+  }
+  focusWithoutScroll(document.querySelector<HTMLElement>('[data-testid="pharosville-world"]'));
+}
+
+function focusWithoutScroll(element: HTMLElement | null): void {
+  element?.focus({ preventScroll: true });
 }

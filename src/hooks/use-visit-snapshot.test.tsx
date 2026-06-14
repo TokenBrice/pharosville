@@ -189,6 +189,10 @@ describe("SinceLastVisitBanner", () => {
 
     render(<DismissHarness />);
 
+    const banner = screen.getByRole("status", { name: "Since last visit" });
+    expect(banner.getAttribute("aria-live")).toBe("polite");
+    expect(banner.getAttribute("aria-atomic")).toBe("true");
+
     fireEvent.click(screen.getByRole("button", { name: "Dismiss since last visit update" }));
 
     expect(screen.queryByTestId("pharosville-since-last-visit")).toBeNull();
