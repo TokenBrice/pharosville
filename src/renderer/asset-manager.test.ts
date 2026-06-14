@@ -462,6 +462,42 @@ describe("PharosVilleAssetManager", () => {
     });
   });
 
+  it("includes loaded logos in the render generation key without changing sprite progress", async () => {
+    stubImageLoader(() => Promise.resolve());
+
+    const manager = new PharosVilleAssetManager();
+    expect(manager.getAssetLoadProgressKey()).toBe(0);
+    expect(manager.getRenderAssetGenerationKey()).toBe("0|lg0");
+
+    await manager.loadLogos(["/chains/base.png", "/logos/2-usdc.svg"]);
+
+    expect(manager.getAssetLoadProgressKey()).toBe(0);
+    expect(manager.getRenderAssetGenerationKey()).toBe("0|lg1");
+  });
+
+  it("batches logo render generation changes until loadLogos settles", async () => {
+    const resolvers: Array<() => void> = [];
+    stubImageLoader(() => new Promise((resolve) => {
+      resolvers.push(resolve);
+    }));
+
+    const manager = new PharosVilleAssetManager();
+    const pending = manager.loadLogos(["/chains/base.png", "/logos/2-usdc.svg"]);
+    await flushAsyncWork();
+
+    expect(manager.getRenderAssetGenerationKey()).toBe("0|lg0");
+    resolvers.shift()?.();
+    await flushAsyncWork();
+    expect(manager.getLoadStats().loadedLogoCount).toBe(1);
+    expect(manager.getRenderAssetGenerationKey()).toBe("0|lg0");
+
+    resolvers.shift()?.();
+    await pending;
+
+    expect(manager.getLoadStats().loadedLogoCount).toBe(2);
+    expect(manager.getRenderAssetGenerationKey()).toBe("0|lg1");
+  });
+
   it("waits for image decode before resolving a loaded logo", async () => {
     let resolveDecode: () => void = () => undefined;
     const decode = vi.fn(() => new Promise<void>((resolve) => {

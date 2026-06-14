@@ -99,6 +99,7 @@ export class PharosVilleAssetManager {
   private failedAssets = new Map<string, PharosVilleAssetLoadError>();
   private failedLogos = new Set<string>();
   private logos = new Map<string, LoadedPharosVilleLogo>();
+  private logoRenderGeneration = 0;
   private manifest: PharosVilleAssetManifest | null = null;
   private manifestSummary: AssetManifestSummary | null = null;
   private activeDeferredLoads = 0;
@@ -189,6 +190,10 @@ export class PharosVilleAssetManager {
       ? this.deferredLoadedCount
       : Math.floor(this.deferredLoadedCount / PHAROSVILLE_DEFERRED_PROGRESS_BATCH) * PHAROSVILLE_DEFERRED_PROGRESS_BATCH;
     return this.criticalLoadedCount * 1_000_003 + deferredKey;
+  }
+
+  getRenderAssetGenerationKey(): string {
+    return `${this.getAssetLoadProgressKey()}|lg${this.logoRenderGeneration}`;
   }
 
   areCriticalAssetsLoaded(): boolean {
@@ -291,6 +296,13 @@ export class PharosVilleAssetManager {
   }
 
   async loadLogo(src: string, signal?: AbortSignal): Promise<LoadedPharosVilleLogo> {
+    const logoCountBeforeLoad = this.logos.size;
+    const loaded = await this.loadLogoSource(src, signal);
+    if (this.logos.size > logoCountBeforeLoad) this.logoRenderGeneration += 1;
+    return loaded;
+  }
+
+  private async loadLogoSource(src: string, signal?: AbortSignal): Promise<LoadedPharosVilleLogo> {
     const cached = this.logos.get(src);
     if (cached) return cached;
     if (this.failedLogos.has(src)) throw new Error(`Skipped previously failed logo ${src}`);
@@ -307,8 +319,11 @@ export class PharosVilleAssetManager {
 
   async loadLogos(srcs: Iterable<string>, signal?: AbortSignal): Promise<LoadedPharosVilleLogo[]> {
     const uniqueSrcs = [...new Set([...srcs].filter((src) => src.startsWith("/") && !this.failedLogos.has(src)))];
-    const settled = await settleQueuedLoads(uniqueSrcs, (src) => this.loadLogo(src, signal), PHAROSVILLE_LOGO_CONCURRENCY, signal);
-    return settled.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+    const logoCountBeforeLoad = this.logos.size;
+    const settled = await settleQueuedLoads(uniqueSrcs, (src) => this.loadLogoSource(src, signal), PHAROSVILLE_LOGO_CONCURRENCY, signal);
+    const loaded = settled.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+    if (this.logos.size > logoCountBeforeLoad) this.logoRenderGeneration += 1;
+    return loaded;
   }
 
   private async loadAssetGroup(

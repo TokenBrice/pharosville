@@ -169,8 +169,8 @@ function worldIdFor(world: PharosVilleWorld): number {
   return id;
 }
 
-function assetLoadTickFor(input: DrawPharosVilleInput): number {
-  return input.assets?.getAssetLoadProgressKey() ?? 0;
+function assetRenderGenerationKeyFor(input: DrawPharosVilleInput): string {
+  return input.assets?.getRenderAssetGenerationKey() ?? "0|lg0";
 }
 
 function resolveRenderCacheMode(input: DrawPharosVilleInput): PharosVilleRenderCacheMode {
@@ -264,7 +264,7 @@ function staticCameraCacheForFrame(
  */
 function staticCacheKey(input: DrawPharosVilleInput, scope: StaticCacheScope, cameraCacheKeySegment: string): string {
   const cv = manifestCacheVersionForInput(input);
-  return `${scope}|${cameraCacheKeySegment}|a${assetLoadTickFor(input)}|cv${cv}`;
+  return `${scope}|${cameraCacheKeySegment}|a${assetRenderGenerationKeyFor(input)}|cv${cv}`;
 }
 
 function createStaticCacheCanvas(width: number, height: number): HTMLCanvasElement | null {
@@ -305,14 +305,14 @@ function manifestCacheVersionForInput(input: DrawPharosVilleInput): string {
 function ensureRendererCacheGeneration(input: DrawPharosVilleInput, dpr: number): void {
   const dprBucket = Math.max(1, Math.round(dpr * 100));
   const worldId = worldIdFor(input.world);
-  const assetTick = assetLoadTickFor(input);
+  const assetGenerationKey = assetRenderGenerationKeyFor(input);
   const manifestVersion = manifestCacheVersionForInput(input);
   const nextStaticGenerationKey = [
     worldId,
     `${input.width | 0}x${input.height | 0}`,
     `d${dprBucket}`,
     `m${resolveRenderCacheMode(input)}`,
-    `a${assetTick}`,
+    `a${assetGenerationKey}`,
     `cv${manifestVersion}`,
   ].join("|");
   if (staticCacheGenerationKey !== nextStaticGenerationKey) {
@@ -323,7 +323,7 @@ function ensureRendererCacheGeneration(input: DrawPharosVilleInput, dpr: number)
 
   const nextShipBodyGenerationKey = [
     worldId,
-    `a${assetTick}`,
+    `a${assetGenerationKey}`,
     `cv${manifestVersion}`,
   ].join("|");
   if (shipBodyCacheGenerationKey !== nextShipBodyGenerationKey) {
