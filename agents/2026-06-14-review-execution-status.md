@@ -2,7 +2,8 @@
 
 Date: 2026-06-14
 
-Scope: execution tracker for `agents/2026-06-14-pharosville-repo-review.md`.
+Scope: execution tracker for the 2026-06-14 PharosVille repository review
+plan supplied to the agent.
 
 ## Summary
 
