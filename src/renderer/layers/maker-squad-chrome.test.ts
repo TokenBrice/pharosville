@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MAKER_SQUAD, SKY_SQUAD } from "../../systems/maker-squad";
+import { seaStateForWorld } from "../../systems/sea-state";
 import type { AreaNode, PharosVilleWorld } from "../../systems/world-types";
 import { buildRecordingCanvasContext } from "../__test-utils__/canvas-context-builder";
 import type { PharosVilleCanvasMotion } from "../render-types";
@@ -180,7 +181,7 @@ describe("maker-squad-chrome", () => {
       ];
       drawSquadPennant(ctx, path, {
         motion: makeMotion(7.5, true),
-        world: makeAreaWorld("DANGER"),
+        seaState: seaStateForWorld(makeAreaWorld("DANGER"), { reducedMotion: true, wallClockHour: 12 }),
         squadId: "sky",
       });
       const quad = recorded.find((r) => r.method === "quadraticCurveTo");
@@ -201,7 +202,7 @@ describe("maker-squad-chrome", () => {
         const { ctx, recorded } = makeStubCtx();
         drawSquadPennant(ctx, path, {
           motion: makeMotion(step * 0.25),
-          world: calm,
+          seaState: seaStateForWorld(calm, { wallClockHour: 12 }),
           squadId: "sky",
         });
         const quad = recorded.find((r) => r.method === "quadraticCurveTo")!;
@@ -226,7 +227,7 @@ describe("maker-squad-chrome", () => {
         const { ctx, recorded } = makeStubCtx();
         drawSquadPennant(ctx, path, {
           motion: makeMotion(step * 0.25),
-          world: danger,
+          seaState: seaStateForWorld(danger, { wallClockHour: 12 }),
           squadId: "sky",
         });
         const quad = recorded.find((r) => r.method === "quadraticCurveTo")!;
@@ -248,10 +249,11 @@ describe("maker-squad-chrome", () => {
         { x: 100, y: 0 },
       ];
       const motion = makeMotion(0);
+      const seaState = seaStateForWorld(danger, { wallClockHour: 12 });
       const skyCtx = makeStubCtx();
       const makerCtx = makeStubCtx();
-      drawSquadPennant(skyCtx.ctx, path, { motion, world: danger, squadId: "sky" });
-      drawSquadPennant(makerCtx.ctx, path, { motion, world: danger, squadId: "maker" });
+      drawSquadPennant(skyCtx.ctx, path, { motion, seaState, squadId: "sky" });
+      drawSquadPennant(makerCtx.ctx, path, { motion, seaState, squadId: "maker" });
       const skyMid = skyCtx.recorded.find((r) => r.method === "quadraticCurveTo")!;
       const makerMid = makerCtx.recorded.find((r) => r.method === "quadraticCurveTo")!;
       // Different phases at t=0 produce different oscillator outputs.

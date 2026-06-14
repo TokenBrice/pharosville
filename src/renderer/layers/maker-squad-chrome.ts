@@ -6,8 +6,7 @@
 // streamer.
 
 import { squadForMember, type SquadId } from "../../systems/maker-squad";
-import { seaStateForWorld, seaStateWindMultiplier } from "../../systems/sea-state";
-import type { PharosVilleWorld } from "../../systems/world-types";
+import { seaStateWindMultiplier, type SeaState } from "../../systems/sea-state";
 import type { PharosVilleCanvasMotion } from "../render-types";
 
 export interface SquadAnchor {
@@ -32,7 +31,7 @@ export interface SquadAnchor {
  */
 export interface PennantWindContext {
   motion: PharosVilleCanvasMotion;
-  world: PharosVilleWorld;
+  seaState: SeaState | null | undefined;
   /** Stable per-squad seed so the two squads desynchronize. */
   squadId: string;
 }
@@ -140,11 +139,7 @@ interface PennantOscillation {
 }
 
 function pennantOscillation(wind: PennantWindContext): PennantOscillation {
-  const seaState = seaStateForWorld(wind.world, {
-    reducedMotion: wind.motion.reducedMotion,
-    wallClockHour: wind.motion.wallClockHour,
-  });
-  const w = seaStateWindMultiplier(seaState);
+  const w = seaStateWindMultiplier(wind.seaState);
   const t = pennantWindTerm(w);
   return {
     amplitude: PENNANT_MIN_AMPLITUDE_PX + (PENNANT_MAX_AMPLITUDE_PX - PENNANT_MIN_AMPLITUDE_PX) * t,

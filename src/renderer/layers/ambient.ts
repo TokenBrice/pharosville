@@ -1,5 +1,5 @@
 import { tileToScreen } from "../../systems/projection";
-import { seaStateForWorld, seaStateTempoMultiplier, seaStateWindMultiplier } from "../../systems/sea-state";
+import { seaStateTempoMultiplier, seaStateWindMultiplier } from "../../systems/sea-state";
 import type { PharosVilleWorld } from "../../systems/world-types";
 import type { DrawPharosVilleInput } from "../render-types";
 import { lighthouseRenderState, type LighthouseRenderState } from "./lighthouse";
@@ -444,13 +444,9 @@ function wingStroke(time: number, phase: number, speedMul: number): number {
   return 0.32 - Math.sin(Math.min(Math.PI, upPhase)) * 0.18;
 }
 
-export function drawBirds({ camera, ctx, motion, world }: DrawPharosVilleInput): void {
+export function drawBirds({ camera, ctx, motion, seaState, world }: DrawPharosVilleInput): void {
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
   const threat = maxActiveThreatLevel(world);
-  const seaState = seaStateForWorld(world, {
-    reducedMotion: motion.reducedMotion,
-    wallClockHour: motion.wallClockHour,
-  });
   const windScale = seaStateWindMultiplier(seaState);
   ctx.save();
   for (const bird of BIRDS) {
@@ -579,13 +575,9 @@ export function drawBioluminescentSparkles(
   lighthouse?: LighthouseRenderState,
 ): void {
   if (nightFactor <= 0) return;
-  const { camera, ctx, motion, width, height } = input;
+  const { camera, ctx, motion, seaState, width, height } = input;
   const { firePoint } = lighthouse ?? lighthouseRenderState(input);
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
-  const seaState = seaStateForWorld(input.world, {
-    reducedMotion: motion.reducedMotion,
-    wallClockHour: motion.wallClockHour,
-  });
   const tempo = seaStateTempoMultiplier(seaState);
   const zoom = camera.zoom;
   const offsetX = camera.offsetX;
@@ -831,12 +823,8 @@ export function drawSeaMist(input: DrawPharosVilleInput, nightFactor: number): v
   // per-patch threat modulation only scales density / alpha / drift speed
   // within the existing nightFactor envelope.
   if (nightFactor <= 0) return;
-  const { camera, ctx, motion, world } = input;
+  const { camera, ctx, motion, seaState, world } = input;
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
-  const seaState = seaStateForWorld(world, {
-    reducedMotion: motion.reducedMotion,
-    wallClockHour: motion.wallClockHour,
-  });
   const wind = seaStateWindMultiplier(seaState);
   ctx.save();
   for (let i = 0; i < SEA_MIST_PATCHES.length; i += 1) {

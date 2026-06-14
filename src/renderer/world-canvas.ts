@@ -128,6 +128,14 @@ let staticCameraCacheKeyCache: { key: string; input: CameraCacheKeyInput } | nul
 let staticCacheGenerationKey: string | null = null;
 let shipBodyCacheGenerationKey: string | null = null;
 
+export function releasePharosVilleRendererCaches(): void {
+  staticLayerCache.clear();
+  shipBodyCache.clear();
+  staticCameraCacheKeyCache = null;
+  staticCacheGenerationKey = null;
+  shipBodyCacheGenerationKey = null;
+}
+
 interface CameraCacheFrame {
   keySegment: string;
   offsetBucketPx: number;
@@ -765,7 +773,7 @@ function drawSquadChrome(input: DrawPharosVilleInput, frame: WorldCanvasFrame) {
     }
     if (anchors.length === 0) continue;
     const path = computeSquadPennantPath(anchors, squad.displayOrder);
-    if (path) drawSquadPennant(input.ctx, path, { motion: input.motion, world: input.world, squadId: squad.id });
+    if (path) drawSquadPennant(input.ctx, path, { motion: input.motion, seaState: input.seaState, squadId: squad.id });
     if (selectedIsSquad) {
       const ellipse = computeSquadBoundingEllipse(anchors);
       if (ellipse) drawSquadSelectionHalo(input.ctx, ellipse);

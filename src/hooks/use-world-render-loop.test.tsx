@@ -12,7 +12,7 @@ import type { IsoCamera } from "../systems/projection";
 import { makePharosVilleWorldInput } from "../__fixtures__/pharosville-world";
 import { useWorldRenderLoop, type UseWorldRenderLoopResult, type WorldCameraStepResult } from "./use-world-render-loop";
 
-const { drawPharosVilleMock } = vi.hoisted(() => ({
+const { drawPharosVilleMock, releasePharosVilleRendererCachesMock } = vi.hoisted(() => ({
   drawPharosVilleMock: vi.fn(() => ({
     drawableCount: 0,
     drawableCounts: { underlay: 0, body: 0, overlay: 0, selection: 0 },
@@ -20,10 +20,12 @@ const { drawPharosVilleMock } = vi.hoisted(() => ({
     visibleShipCount: 0,
     visibleTileCount: 0,
   })),
+  releasePharosVilleRendererCachesMock: vi.fn(),
 }));
 
 vi.mock("../renderer/world-canvas", () => ({
   drawPharosVille: drawPharosVilleMock,
+  releasePharosVilleRendererCaches: releasePharosVilleRendererCachesMock,
 }));
 
 function makeStubCanvasContext(): CanvasRenderingContext2D {
@@ -63,6 +65,7 @@ describe("useWorldRenderLoop", () => {
 
   beforeEach(() => {
     drawPharosVilleMock.mockClear();
+    releasePharosVilleRendererCachesMock.mockClear();
     // Don't fire scheduled callbacks during the test — we only care about
     // counts of cancel/request calls unless a test explicitly invokes one.
     let nextFrameId = 1;
@@ -127,6 +130,7 @@ describe("useWorldRenderLoop", () => {
     onInternals,
     onStepCamera,
     onResult,
+    preseedSnapshot = true,
     reducedMotion = true,
     wallClockHour = 12,
   }: {
@@ -137,7 +141,9 @@ describe("useWorldRenderLoop", () => {
     onInternals?: (internals: {
       adaptiveDprStateRef: { current: ReturnType<typeof initialAdaptiveDprState> };
       canvasBudgetRef: { current: ReturnType<typeof resolveCanvasBudget> | null };
+      cameraRef: { current: IsoCamera | null };
       canvasRef: { current: HTMLCanvasElement };
+      canvasSizeRef: { current: { x: number; y: number } };
     }) => void;
     onStepCamera?: (input: {
       cameraRef: { current: IsoCamera | null };
@@ -145,6 +151,7 @@ describe("useWorldRenderLoop", () => {
       samples: ReadonlyMap<string, ShipMotionSample>;
     }) => WorldCameraStepResult;
     onResult: (result: UseWorldRenderLoopResult) => void;
+    preseedSnapshot?: boolean;
     reducedMotion?: boolean;
     wallClockHour?: number;
   }) {
@@ -169,10 +176,10 @@ describe("useWorldRenderLoop", () => {
     const [mountEpochMsRef] = useState(() => ({ current: mountEpochMs }));
     hoveredDetailIdRef.current = hoveredDetailId;
     maximumRequestedDprRef.current = maximumRequestedDpr;
-    onInternals?.({ adaptiveDprStateRef, canvasBudgetRef, canvasRef });
+    onInternals?.({ adaptiveDprStateRef, cameraRef, canvasBudgetRef, canvasRef, canvasSizeRef });
 
     // Pre-seed a snapshot so the loop's hit-target work has a target list.
-    if (!hitTargetSnapshotRef.current) {
+    if (preseedSnapshot && !hitTargetSnapshotRef.current) {
       const snapshot = createHitTargetSnapshot({
         assets: assetManager,
         camera,
@@ -260,6 +267,16 @@ describe("useWorldRenderLoop", () => {
     // After unmount the cleanup runs at most once (it may be 0 if no RAF was
     // pending, since cancelAnimationFrame is only called when frameId !== 0).
     expect(cafSpy.mock.calls.length - cancelsAfterMount).toBeLessThanOrEqual(1);
+  });
+
+  it("releases renderer module caches only when the loop owner unmounts", () => {
+    const { rerender, unmount } = render(<Harness hoveredDetailId={null} onResult={() => {}} />);
+
+    rerender(<Harness hoveredDetailId="ship.hover-only" onResult={() => {}} />);
+    expect(releasePharosVilleRendererCachesMock).not.toHaveBeenCalled();
+
+    unmount();
+    expect(releasePharosVilleRendererCachesMock).toHaveBeenCalledTimes(1);
   });
 
   it("requestPaint coalesces while a frame is pending under reduced motion", () => {
@@ -430,15 +447,81 @@ describe("useWorldRenderLoop", () => {
     expect(debug?.renderMetrics?.framePacing?.sampleCount).toBe(0);
   });
 
+  it("keeps the animated RAF loop scheduled when the active camera ref is temporarily unavailable", () => {
+    let internals: {
+      cameraRef: { current: IsoCamera | null };
+    } | null = null;
+    render(
+      <Harness
+        hoveredDetailId={null}
+        onInternals={(nextInternals) => {
+          internals = nextInternals;
+        }}
+        onResult={() => {}}
+        reducedMotion={false}
+      />,
+    );
+
+    expect(internals).not.toBeNull();
+    const beforeFrame = rafSpy.mock.calls.length;
+    internals!.cameraRef.current = null;
+    fireLatestRaf(performance.now() + 100);
+
+    expect(rafSpy.mock.calls.length).toBe(beforeFrame + 1);
+  });
+
+  it("keeps the animated RAF loop scheduled when the camera step returns no frame camera", () => {
+    render(
+      <Harness
+        hoveredDetailId={null}
+        onResult={() => {}}
+        onStepCamera={() => ({ camera: null, cameraChanged: false, cameraIntentActive: false })}
+        reducedMotion={false}
+      />,
+    );
+
+    const beforeFrame = rafSpy.mock.calls.length;
+    fireLatestRaf(performance.now() + 100);
+
+    expect(rafSpy.mock.calls.length).toBe(beforeFrame + 1);
+  });
+
   it("passes the resolved wall-clock hour into renderer motion state", () => {
     render(<Harness hoveredDetailId={null} onResult={() => {}} wallClockHour={22.5} />);
 
     expect(drawPharosVilleMock).toHaveBeenCalled();
     const drawCalls = drawPharosVilleMock.mock.calls as unknown as Array<[{
       motion: { wallClockHour: number };
+      seaState?: {
+        reducedMotion: boolean;
+        source: { nightFactor: number };
+      };
     }]>;
     const lastCall = drawCalls[drawCalls.length - 1]![0];
     expect(lastCall.motion.wallClockHour).toBe(22.5);
+    expect(lastCall.seaState?.reducedMotion).toBe(true);
+    expect(lastCall.seaState?.source.nightFactor).toBe(1);
+  });
+
+  it("preserves the current hover when building the initial hit-target snapshot", () => {
+    const hoveredShip = world.ships[0]!;
+    render(
+      <Harness
+        hoveredDetailId={hoveredShip.detailId}
+        onInternals={({ canvasSizeRef }) => {
+          canvasSizeRef.current = { x: 1, y: 1 };
+        }}
+        onResult={() => {}}
+        preseedSnapshot={false}
+      />,
+    );
+
+    expect(drawPharosVilleMock).toHaveBeenCalled();
+    const drawCalls = drawPharosVilleMock.mock.calls as unknown as Array<[{
+      hoveredTarget: HitTarget | null;
+    }]>;
+    const lastCall = drawCalls[drawCalls.length - 1]![0];
+    expect(lastCall.hoveredTarget?.detailId).toBe(hoveredShip.detailId);
   });
 
   it("accepts onBucketFlip callback without error and does not call it on initial mount (B2)", () => {

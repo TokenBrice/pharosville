@@ -1,5 +1,6 @@
 import type { PharosVilleMotionPlan, ShipMotionSample } from "../systems/motion";
 import type { IsoCamera } from "../systems/projection";
+import type { SeaState } from "../systems/sea-state";
 import type { PharosVilleWorld } from "../systems/world-types";
 import type { PharosVilleAssetManager } from "./asset-manager";
 import type { WorldDrawablePass } from "./drawable-pass";
@@ -54,6 +55,8 @@ export interface DrawPharosVilleInput {
   revealEnvelope?: number;
   renderScheduler?: PharosVilleRenderSchedulerState;
   selectedTarget: HitTarget | null;
+  /** Frame-level sea state computed once by the render loop. */
+  seaState?: SeaState | null;
   shipMotionSamples?: ReadonlyMap<string, ShipMotionSample>;
   visibleTileBoundsCache?: VisibleTileBoundsCacheState;
   targets: readonly HitTarget[];

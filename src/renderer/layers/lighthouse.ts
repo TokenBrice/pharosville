@@ -1,6 +1,5 @@
 import { tileToScreen, type ScreenPoint } from "../../systems/projection";
 import {
-  seaStateForWorld,
   seaStateLighthouseFlickerMultiplier,
   seaStateSmokeCadenceMultiplier,
   type SeaState,
@@ -456,10 +455,7 @@ export function drawLighthouseOverlay(
   const { camera, ctx, motion, world } = input;
   const { firePoint, lighthouseAsset } = cached ?? lighthouseRenderState(input);
   if (world.lighthouse.unavailable) return;
-  const seaState = seaStateForWorld(world, {
-    reducedMotion: motion.reducedMotion,
-    wallClockHour: motion.wallClockHour,
-  });
+  const seaState = input.seaState ?? null;
   drawLighthouseBeam(ctx, firePoint, camera.zoom * 1.35, motion, nightFactor);
   drawLighthouseFire(ctx, firePoint, camera.zoom * 1.32, motion, !lighthouseAsset, seaState);
   drawBrazierSmoke(ctx, firePoint, camera.zoom * 1.32, motion, nightFactor, seaState);
@@ -1018,10 +1014,7 @@ export function drawLighthouseNightHighlights(
   const { firePoint } = cached ?? lighthouseRenderState(input);
   const zoom = camera.zoom;
   const time = motion.reducedMotion ? 0 : motion.timeSeconds;
-  const seaState = seaStateForWorld(input.world, {
-    reducedMotion: motion.reducedMotion,
-    wallClockHour: motion.wallClockHour,
-  });
+  const seaState = input.seaState ?? null;
   const lighthouseTempo = seaStateLighthouseFlickerMultiplier(seaState);
 
   const gradients = getNightGradientBundle(ctx, firePoint, zoom, nightFactor);

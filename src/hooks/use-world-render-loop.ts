@@ -13,7 +13,7 @@ import {
   type HitTargetSnapshot,
 } from "../renderer/hit-testing";
 import { selectionDrawableCount } from "../renderer/layers/selection";
-import { drawPharosVille, type PharosVilleRenderMetrics } from "../renderer/world-canvas";
+import { drawPharosVille, releasePharosVilleRendererCaches, type PharosVilleRenderMetrics } from "../renderer/world-canvas";
 import { createRenderSchedulerHysteresisState, resolveRenderSchedulerState } from "../renderer/render-scheduler";
 import type { RenderSchedulerHysteresisState } from "../renderer/render-scheduler";
 import { createVisibleTileBoundsCacheState } from "../renderer/viewport";
@@ -283,10 +283,20 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     wallClockHour: 0,
   });
 
+  const resetFramePacingState = useCallback(() => {
+    lastWallRef.current = null;
+    drawDurationWindowRef.current = createDrawDurationWindow();
+    drawDurationStatsRef.current = { averageMs: 0, count: 0, p90Ms: 0 };
+    frameIntervalWindowRef.current = createFrameIntervalWindow();
+    framePacingStatsRef.current = emptyFramePacingMetrics();
+    frameRatePublishRef.current = { fps: null, lastPublishedAtMs: 0 };
+    renderSchedulerHysteresisRef.current = createRenderSchedulerHysteresisState();
+  }, []);
+
   // Reset per-world transient state (timing, samples, hit snapshot) when the
   // world reference changes.
   useEffect(() => {
-    lastWallRef.current = null;
+    resetFramePacingState();
     accSecondsRef.current = 0;
     pendingResumeRef.current = false;
     motionFrameCountRef.current = 0;
@@ -298,11 +308,6 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     hitTargetCameraRef.current = null;
     hitTargetSnapshotRef.current = null;
     hitTargetsRef.current = [];
-    drawDurationWindowRef.current = createDrawDurationWindow();
-    drawDurationStatsRef.current = { averageMs: 0, count: 0, p90Ms: 0 };
-    frameIntervalWindowRef.current = createFrameIntervalWindow();
-    framePacingStatsRef.current = emptyFramePacingMetrics();
-    frameRatePublishRef.current = { fps: null, lastPublishedAtMs: 0 };
     reducedMotionSamplesSignatureRef.current = null;
     compactShipMotionSampleCacheRef.current = createCompactShipMotionSampleCache();
     headingDeltaWindowRef.current = createNumericMaxWindow(60);
@@ -312,7 +317,15 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     longtaskAccRef.current = { count: 0, maxDurationMs: 0 };
     lastBucketRef.current = 0;
     bucketFlipCountRef.current = 0;
-  }, [hitTargetSnapshotRef, hitTargetsRef, shipMotionSamplesRef, world]);
+  }, [hitTargetSnapshotRef, hitTargetsRef, resetFramePacingState, shipMotionSamplesRef, world]);
+
+  useEffect(() => {
+    resetFramePacingState();
+  }, [canvasSize.x, canvasSize.y, resetFramePacingState]);
+
+  useEffect(() => () => {
+    releasePharosVilleRendererCaches();
+  }, []);
 
   useEffect(() => {
     if (!reducedMotion) return;
@@ -356,6 +369,9 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       animationFramePendingRef.current = true;
       frameId = requestAnimationFrame(drawFrame);
     };
+    const scheduleNextAnimatedFrame = () => {
+      if (!reducedMotion) scheduleFrame();
+    };
     const drawFrame = (time: number) => {
       animationFramePendingRef.current = false;
       const activeCamera = cameraRef.current;
@@ -364,7 +380,10 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       const activeHoveredDetailId = hoveredDetailIdRef.current;
       const activeSelectedDetailId = selectedDetailIdRef.current;
       const activeCriticalSettled = criticalAssetAttemptsSettledRef.current;
-      if (!activeCamera || activeCanvasSize.x <= 0 || activeCanvasSize.y <= 0) return;
+      if (!activeCamera || activeCanvasSize.x <= 0 || activeCanvasSize.y <= 0) {
+        scheduleNextAnimatedFrame();
+        return;
+      }
       const activeBudget = canvasBudgetRef.current ?? resolveCanvasBudget({
         cssHeight: activeCanvasSize.y,
         cssWidth: activeCanvasSize.x,
@@ -463,12 +482,16 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       let snapshotRebuildCount = 0;
       const cameraStep = stepCameraRef.current(time, shipMotionSamples);
       const frameCamera = cameraStep.camera ?? cameraRef.current;
-      if (!frameCamera) return;
+      if (!frameCamera) {
+        scheduleNextAnimatedFrame();
+        return;
+      }
       const hitTargetsNeedCameraProjection = cameraStep.cameraChanged || !sameCamera(hitTargetCameraRef.current, frameCamera);
       if (!hitTargetSnapshotRef.current) {
         const nextSnapshot = createHitTargetSnapshot({
           assets: assetManager,
           camera: frameCamera,
+          hoveredDetailId: activeHoveredDetailId,
           selectedDetailId: activeSelectedDetailId,
           shipMotionSamples,
           viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
@@ -587,6 +610,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         revealEnvelope: revealEnvelopeRef?.current ?? 1,
         visibleTileBoundsCache: visibleTileBoundsCacheRef.current,
         selectedTarget: nextSelectedTarget,
+        seaState,
         shipMotionSamples,
         targets,
         width: activeCanvasSize.x,
