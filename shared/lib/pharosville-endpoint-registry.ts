@@ -1,4 +1,7 @@
-import { PHAROSVILLE_API_ENDPOINT_KEYS, type PharosVilleApiEndpointKey } from "../types/pharosville";
+import {
+  PHAROSVILLE_API_ENDPOINT_KEYS,
+  type PharosVilleApiEndpointKey,
+} from "../types/pharosville-endpoint-keys";
 import { API_FRESHNESS_MAX_AGE_SEC } from "./api-freshness";
 import { API_PATHS } from "./api-endpoints/paths";
 // NFS4 #4: import cadence from the curated client map instead of `cron-jobs.ts`

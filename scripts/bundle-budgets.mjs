@@ -27,6 +27,7 @@ export const bundleBudgets = {
 export const aggregateBudgets = {
   // 2026-06-09 ship-identity pass: see desktop chunk note above.
   // 2026-06-11 V2.5 harbor ambient (quay lanterns + gull fishing dives): +~12 KiB raw / +5 KiB gzip.
-  maxJsRawBytes: 1_328 * 1024,
-  maxJsGzipBytes: 393 * 1024,
+  // 2026-06-14 T1 endpoint-key split: measured 1,270,683 raw / 376,060 gzip.
+  maxJsRawBytes: 1_255 * 1024,
+  maxJsGzipBytes: 382 * 1024,
 };
