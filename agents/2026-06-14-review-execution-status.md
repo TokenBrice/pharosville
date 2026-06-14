@@ -11,9 +11,9 @@ Scope: execution tracker for `agents/2026-06-14-pharosville-repo-review.md`.
 - Documentation/process closures committed: yes
 - Remaining open rows from the review: 0
 
-`src/lib/capture-frame.ts` was an untracked orphan at startup and was deleted
-rather than wired. Because it was never tracked by git, there is no deletion
-entry in the commit history.
+The `capture-frame.ts` helper was an untracked orphan at startup and was
+deleted rather than wired. Because it was never tracked by git, there is no
+deletion entry in the commit history.
 
 ## Commit Batches
 
