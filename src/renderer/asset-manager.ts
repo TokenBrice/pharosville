@@ -33,10 +33,12 @@ export interface PharosVilleAssetLoadResult {
 export interface PharosVilleAssetLoadStats {
   activeDeferredLoads: number;
   criticalAssetCount: number;
+  criticalDecodeMs: number;
   criticalLoadedCount: number;
   deferredAssetCount: number;
   deferredBatchesStarted: number;
   deferredCompletedAt: number | null;
+  deferredDecodeMs: number;
   deferredLoadedCount: number;
   deferredQueuedCount: number;
   deferredStartedAt: number | null;
@@ -105,6 +107,8 @@ export class PharosVilleAssetManager {
   private deferredStartedAt: number | null = null;
   private criticalLoadedCount = 0;
   private deferredLoadedCount = 0;
+  private criticalDecodeMs = 0;
+  private deferredDecodeMs = 0;
   private peakDeferredConcurrency = 0;
   private shellCriticalLoadedCount = 0;
   private visibleCriticalLoadedCount = 0;
@@ -147,10 +151,12 @@ export class PharosVilleAssetManager {
     return {
       activeDeferredLoads: this.activeDeferredLoads,
       criticalAssetCount: summary?.criticalAssetCount ?? 0,
+      criticalDecodeMs: this.criticalDecodeMs,
       criticalLoadedCount: this.criticalLoadedCount,
       deferredAssetCount: summary?.deferredAssetCount ?? 0,
       deferredBatchesStarted: this.deferredBatchesStarted,
       deferredCompletedAt: this.deferredCompletedAt,
+      deferredDecodeMs: this.deferredDecodeMs,
       deferredLoadedCount: this.deferredLoadedCount,
       deferredQueuedCount: Math.max(0, (summary?.deferredAssetCount ?? 0) - this.deferredLoadedCount - failedDeferredCount),
       deferredStartedAt: this.deferredStartedAt,
@@ -260,8 +266,10 @@ export class PharosVilleAssetManager {
     const cached = this.assets.get(asset.id);
     if (cached) return cached;
     try {
+      const loadStartedAt = performanceNow();
       const image = await loadImageWithFallback(assetWebpUrl(asset, manifest), assetUrl(asset, manifest), signal);
       const frameSource = await loadAssetFrameSource(asset, manifest, signal);
+      this.trackDecodeDuration(asset, manifest, performanceNow() - loadStartedAt);
       const loaded = frameSource == null
         ? { entry: asset, image }
         : { entry: asset, frameSource, image };
@@ -371,6 +379,17 @@ export class PharosVilleAssetManager {
     if (summary.shellCriticalIds.has(assetId)) this.shellCriticalLoadedCount += 1;
     if (summary.visibleCriticalIds.has(assetId)) this.visibleCriticalLoadedCount += 1;
   }
+
+  private trackDecodeDuration(asset: PharosVilleAssetManifestEntry, manifest: PharosVilleAssetManifest, durationMs: number) {
+    if (!Number.isFinite(durationMs)) return;
+    const normalizedMs = Math.max(0, durationMs);
+    if (isCriticalAsset(asset, manifest)) this.criticalDecodeMs += normalizedMs;
+    else this.deferredDecodeMs += normalizedMs;
+  }
+}
+
+function isCriticalAsset(asset: PharosVilleAssetManifestEntry, manifest: PharosVilleAssetManifest): boolean {
+  return asset.loadPriority === "critical" || manifest.requiredForFirstRender.includes(asset.id);
 }
 
 async function settleIdleChunkedQueuedLoads<TItem, TResult>(

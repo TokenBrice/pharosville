@@ -123,6 +123,7 @@ describe("useWorldRenderLoop", () => {
     hoveredDetailId,
     initialRequestedDpr = 1,
     maximumRequestedDpr = 1,
+    mountEpochMs = 0,
     onInternals,
     onStepCamera,
     onResult,
@@ -132,6 +133,7 @@ describe("useWorldRenderLoop", () => {
     hoveredDetailId: string | null;
     initialRequestedDpr?: number;
     maximumRequestedDpr?: number;
+    mountEpochMs?: number;
     onInternals?: (internals: {
       adaptiveDprStateRef: { current: ReturnType<typeof initialAdaptiveDprState> };
       canvasBudgetRef: { current: ReturnType<typeof resolveCanvasBudget> | null };
@@ -164,6 +166,7 @@ describe("useWorldRenderLoop", () => {
     const [baseMotionPlan] = useState(() => buildBaseMotionPlan(world));
     const [motionPlan] = useState(() => buildMotionPlan(world, null, baseMotionPlan));
     const [motionPlanRef] = useState(() => ({ current: motionPlan }));
+    const [mountEpochMsRef] = useState(() => ({ current: mountEpochMs }));
     hoveredDetailIdRef.current = hoveredDetailId;
     maximumRequestedDprRef.current = maximumRequestedDpr;
     onInternals?.({ adaptiveDprStateRef, canvasBudgetRef, canvasRef });
@@ -204,6 +207,7 @@ describe("useWorldRenderLoop", () => {
       hoveredDetailId,
       hoveredDetailIdRef,
       maximumRequestedDprRef,
+      mountEpochMsRef,
       motionPlan,
       motionPlanRef,
       reducedMotion,
@@ -316,6 +320,25 @@ describe("useWorldRenderLoop", () => {
     expect(framePacing!.longestDroppedBurst).toBe(2);
     const latestResult = latest as UseWorldRenderLoopResult | null;
     expect(latestResult?.frameRateFps ?? 0).toBeGreaterThan(0);
+  });
+
+  it("publishes time to first coherent frame from the mount epoch", () => {
+    const nowSpy = vi.spyOn(performance, "now").mockReturnValue(250);
+    try {
+      render(<Harness hoveredDetailId={null} mountEpochMs={100} onResult={() => {}} />);
+
+      const debug = (window as typeof window & {
+        __pharosVilleDebug?: {
+          renderMetrics?: {
+            timeToFirstCoherentFrameMs?: number;
+          };
+        };
+      }).__pharosVilleDebug;
+
+      expect(debug?.renderMetrics?.timeToFirstCoherentFrameMs).toBe(150);
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it("defers adaptive DPR backing-store resize until the next frame can repaint", () => {
@@ -444,6 +467,7 @@ describe("useWorldRenderLoop", () => {
       const [baseMotionPlan] = useState(() => buildBaseMotionPlan(world));
       const [motionPlan] = useState(() => buildMotionPlan(world, null, baseMotionPlan));
       const [motionPlanRef] = useState(() => ({ current: motionPlan }));
+      const [mountEpochMsRef] = useState(() => ({ current: 0 }));
       useWorldRenderLoop({
         onBucketFlip: bucketFlipSpy,
         adaptiveDprStateRef,
@@ -464,6 +488,7 @@ describe("useWorldRenderLoop", () => {
         hoveredDetailId: null,
         hoveredDetailIdRef,
         maximumRequestedDprRef,
+        mountEpochMsRef,
         motionPlan,
         motionPlanRef,
         reducedMotion: false,

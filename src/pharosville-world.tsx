@@ -57,6 +57,11 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     requestWorldFrameRef.current();
   }, []);
 
+  const mountEpochMsRef = useRef(0);
+  useEffect(() => {
+    mountEpochMsRef.current = performance.now();
+  }, []);
+
   // W4.01 first-load reveal envelope. Drives 1 → 1 by default; the cold-mount
   // effect below tweens 0 → 1 over 1.8s exactly once per page load. The
   // render loop reads `.current` per frame (no React rerender churn).
@@ -269,6 +274,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     hoverTooltipElRef,
     keyboardFocusedDetailIdRef,
     maximumRequestedDprRef: canvas.maximumRequestedDprRef,
+    mountEpochMsRef,
     motionPlan,
     motionPlanRef,
     reducedMotion,

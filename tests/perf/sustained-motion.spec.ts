@@ -19,7 +19,7 @@
  *     giving well over 30 samples even when a few frames miss the debug window.
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import {
   mockDensePharosVilleData,
   readVisualDebug,
@@ -44,6 +44,21 @@ const CI_CAMERA_STRESS_LONGEST_DROPPED_BURST_RATIO = 0.25;
 const POLL_INTERVAL_MS = 50;
 const POLL_SAMPLES = 100; // 100 × 50ms = 5s of telemetry
 const MIN_VALID_SAMPLES = 30;
+const COLD_MOUNT_SAMPLES = 20; // Sample the reveal-window frames before steady telemetry waits.
+const PASS_TIMING_FIELDS = [
+  "skyDrawMs",
+  "staticBlitDrawMs",
+  "waterAccentDrawMs",
+  "entityPassDrawMs",
+  "nameplateDrawMs",
+  "ambientDrawMs",
+  "selectionChromeDrawMs",
+] as const satisfies ReadonlyArray<keyof DebugRenderMetrics>;
+
+type PassTimingKey = typeof PASS_TIMING_FIELDS[number];
+type ColdMountRenderMetrics = DebugRenderMetrics & {
+  timeToFirstCoherentFrameMs?: unknown;
+};
 
 // ---------------------------------------------------------------------------
 // Test
@@ -111,6 +126,14 @@ test.describe("sustained-motion perf telemetry", () => {
     await page.setViewportSize({ width: 1440, height: 960 });
     await page.goto("/");
 
+    const coldMount = await sampleColdMountTelemetry(page);
+    expect(typeof coldMount.timeToFirstCoherentFrameMs).toBe("number");
+    console.info("[perf] cold-mount uncached pass averages (ms):", JSON.stringify({
+      samples: coldMount.passSampleCount,
+      timeToFirstCoherentFrameMs: coldMount.timeToFirstCoherentFrameMs,
+      ...coldMount.passAverages,
+    }));
+
     // Wait until the motion loop is live and ships are tracked.
     await waitForMotionActive(page);
     await waitForSteadyTelemetry(page);
@@ -129,15 +152,7 @@ test.describe("sustained-motion perf telemetry", () => {
     let lastLongtask: DebugRenderMetrics["longtask"] | undefined;
     // V1.1 per-pass attribution: accumulate pass-group timings so the lane
     // logs draw-cost breakdowns beside the tightened 100ms/140ms budget.
-    const passSums = {
-      skyDrawMs: 0,
-      staticBlitDrawMs: 0,
-      waterAccentDrawMs: 0,
-      entityPassDrawMs: 0,
-      nameplateDrawMs: 0,
-      ambientDrawMs: 0,
-      selectionChromeDrawMs: 0,
-    };
+    const passSums = emptyPassTimingSums();
     let passSampleCount = 0;
 
     for (let i = 0; i < POLL_SAMPLES; i += 1) {
@@ -161,7 +176,7 @@ test.describe("sustained-motion perf telemetry", () => {
       if (metrics?.longtask) lastLongtask = metrics.longtask;
       if (typeof metrics?.entityPassDrawMs === "number") {
         passSampleCount += 1;
-        for (const key of Object.keys(passSums) as Array<keyof typeof passSums>) {
+        for (const key of PASS_TIMING_FIELDS) {
           const value = metrics[key];
           if (typeof value === "number" && Number.isFinite(value)) passSums[key] += value;
         }
@@ -174,9 +189,7 @@ test.describe("sustained-motion perf telemetry", () => {
     // V1.1 presence guard: the per-pass attribution fields must keep flowing
     // through the debug contract (values are informational, not budgeted).
     expect(passSampleCount).toBeGreaterThan(0);
-    const passAverages = Object.fromEntries(
-      Object.entries(passSums).map(([key, total]) => [key, Number((total / Math.max(1, passSampleCount)).toFixed(2))]),
-    );
+    const passAverages = averagePassTimings(passSums, passSampleCount);
     console.info("[perf] per-pass draw-time averages (ms):", JSON.stringify(passAverages));
 
     const sorted = [...durations].sort((a, b) => a - b);
@@ -255,3 +268,62 @@ test.describe("sustained-motion perf telemetry", () => {
     }
   });
 });
+
+async function sampleColdMountTelemetry(page: Page): Promise<{
+  passAverages: Record<PassTimingKey, number>;
+  passSampleCount: number;
+  timeToFirstCoherentFrameMs: unknown;
+}> {
+  await page.waitForFunction(() => {
+    const metrics = (window as typeof window & {
+      __pharosVilleDebug?: {
+        renderMetrics?: { timeToFirstCoherentFrameMs?: unknown };
+      };
+    }).__pharosVilleDebug?.renderMetrics;
+    return typeof metrics?.timeToFirstCoherentFrameMs === "number";
+  }, null, { timeout: 15_000 });
+
+  const firstDebug = await readVisualDebug(page);
+  const firstMetrics = firstDebug.renderMetrics as ColdMountRenderMetrics | undefined;
+  const passSums = emptyPassTimingSums();
+  let passSampleCount = 0;
+
+  for (let i = 0; i < COLD_MOUNT_SAMPLES; i += 1) {
+    await page.waitForTimeout(POLL_INTERVAL_MS);
+    const metrics = (await readVisualDebug(page)).renderMetrics;
+    if (!metrics) continue;
+    let hasPassTiming = false;
+    for (const key of PASS_TIMING_FIELDS) {
+      const value = metrics[key];
+      if (typeof value === "number" && Number.isFinite(value)) {
+        passSums[key] += value;
+        hasPassTiming = true;
+      }
+    }
+    if (hasPassTiming) passSampleCount += 1;
+  }
+
+  return {
+    passAverages: averagePassTimings(passSums, passSampleCount),
+    passSampleCount,
+    timeToFirstCoherentFrameMs: firstMetrics?.timeToFirstCoherentFrameMs,
+  };
+}
+
+function emptyPassTimingSums(): Record<PassTimingKey, number> {
+  return {
+    skyDrawMs: 0,
+    staticBlitDrawMs: 0,
+    waterAccentDrawMs: 0,
+    entityPassDrawMs: 0,
+    nameplateDrawMs: 0,
+    ambientDrawMs: 0,
+    selectionChromeDrawMs: 0,
+  };
+}
+
+function averagePassTimings(sums: Record<PassTimingKey, number>, sampleCount: number): Record<PassTimingKey, number> {
+  return Object.fromEntries(
+    PASS_TIMING_FIELDS.map((key) => [key, Number((sums[key] / Math.max(1, sampleCount)).toFixed(2))]),
+  ) as Record<PassTimingKey, number>;
+}

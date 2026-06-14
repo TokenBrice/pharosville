@@ -162,6 +162,39 @@ describe("PharosVilleAssetManager", () => {
     expect(manager.getLoadStats().deferredCompletedAt).toEqual(expect.any(Number));
   });
 
+  it("accumulates aggregate critical and deferred decode wall time", async () => {
+    const critical = makeEntry("dock.critical", "dock", 0, "critical");
+    const requiredDeferred = makeEntry("ship.required", "ship", 1, "deferred");
+    const deferred = makeEntry("terrain.deep", "terrain", 2, "deferred");
+    const manifest = makeManifest([critical, requiredDeferred, deferred], [critical.id, requiredDeferred.id]);
+    stubManifestFetch(manifest);
+    stubImageLoader(() => Promise.resolve());
+    let now = 0;
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => {
+      now += 5;
+      return now;
+    });
+
+    try {
+      const manager = new PharosVilleAssetManager();
+      await manager.loadManifest();
+      await manager.loadAsset(critical, manifest);
+      await manager.loadAsset(requiredDeferred, manifest);
+      await manager.loadAsset(deferred, manifest);
+      await manager.loadAsset(deferred, manifest);
+
+      const stats = manager.getLoadStats();
+      expect(stats.criticalDecodeMs).toBe(10);
+      expect(stats.deferredDecodeMs).toBe(5);
+      expect(Number.isFinite(stats.criticalDecodeMs)).toBe(true);
+      expect(Number.isFinite(stats.deferredDecodeMs)).toBe(true);
+      expect(stats.criticalDecodeMs).toBeGreaterThanOrEqual(0);
+      expect(stats.deferredDecodeMs).toBeGreaterThanOrEqual(0);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it("batches in-flight deferred progress so the load tick only moves at batch boundaries and on settle (V1.2)", async () => {
     const deferredAssets = Array.from(
       { length: PHAROSVILLE_DEFERRED_PROGRESS_BATCH + 3 },

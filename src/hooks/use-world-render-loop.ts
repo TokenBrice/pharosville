@@ -73,6 +73,7 @@ type DebugRenderMetrics = PharosVilleRenderMetrics & {
   sampleDurationMs?: number;
   snapshotRebuildCount?: number;
   telemetryOverheadMs?: number;
+  timeToFirstCoherentFrameMs?: number;
 };
 
 interface LastTilePositionSample {
@@ -126,6 +127,7 @@ export interface UseWorldRenderLoopInput {
       matches the hovered target (keyboard cycling sets hover = focus). */
   keyboardFocusedDetailIdRef?: MutableRefObject<string | null>;
   maximumRequestedDprRef: MutableRefObject<number>;
+  mountEpochMsRef: MutableRefObject<number>;
   motionPlan: MotionPlan;
   motionPlanRef: MutableRefObject<MotionPlan>;
   reducedMotion: boolean;
@@ -181,6 +183,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     hoverTooltipElRef,
     keyboardFocusedDetailIdRef,
     maximumRequestedDprRef,
+    mountEpochMsRef,
     motionPlan,
     motionPlanRef,
     reducedMotion,
@@ -590,6 +593,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         world,
         assets: assetManager,
       });
+      const previousTimeToFirstCoherentFrameMs = lastRenderMetricsRef.current.timeToFirstCoherentFrameMs;
       lastRenderMetricsRef.current = {
         ...renderMetrics,
         hitTargetChangedShipCount,
@@ -599,6 +603,9 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         sampleDurationMs,
         snapshotRebuildCount,
       };
+      if (previousTimeToFirstCoherentFrameMs !== undefined) {
+        lastRenderMetricsRef.current.timeToFirstCoherentFrameMs = previousTimeToFirstCoherentFrameMs;
+      }
       if (!reducedMotion) {
         drawDurationStatsRef.current = pushDrawDurationSample(drawDurationWindowRef.current, lastRenderMetricsRef.current.drawDurationMs);
         const nextAdaptiveDprState = resolveAdaptiveDprState({
@@ -624,6 +631,13 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       }
       if (activeCriticalSettled && !criticalFramePaintedRef.current) {
         criticalFramePaintedRef.current = true;
+        const timeToFirstCoherentFrameMs = performance.now() - mountEpochMsRef.current;
+        if (Number.isFinite(timeToFirstCoherentFrameMs)) {
+          lastRenderMetricsRef.current = {
+            ...lastRenderMetricsRef.current,
+            timeToFirstCoherentFrameMs: Math.max(0, timeToFirstCoherentFrameMs),
+          };
+        }
         setCriticalFramePainted(true);
       }
       if (!reducedMotion) {
