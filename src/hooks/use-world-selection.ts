@@ -1,10 +1,11 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ShipRiskTransitionEntry } from "../components/accessibility-ledger";
 import { withRiskTransitionFact } from "../systems/detail-model";
 import type { ScreenPoint } from "../systems/projection";
 import type { DetailModel, PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
 
 export const DEFAULT_WORLD_SELECTED_DETAIL_ID = "lighthouse";
+const LIVE_REGION_ANNOUNCEMENT_INTERVAL_MS = 150;
 
 export interface DetailAnchor extends ScreenPoint {
   side: "left" | "right";
@@ -19,7 +20,41 @@ export function useWorldSelection(input: {
   const [keyboardFocusedDetailId, setKeyboardFocusedDetailId] = useState<string | null>(null);
   const [selectedDetailId, setSelectedDetailId] = useState<string | null>(() => initialSelectedDetailId);
   const [selectedDetailAnchor, setSelectedDetailAnchor] = useState<DetailAnchor | null>(null);
-  const [announcement, setAnnouncement] = useState("PharosVille ready.");
+  const [announcement, setLiveRegionAnnouncement] = useState("PharosVille ready.");
+  const announcementQueueRef = useRef<string[]>([]);
+  const announcementTimerRef = useRef<number | null>(null);
+  const flushNextAnnouncementRef = useRef<() => void>(() => {});
+
+  const flushNextAnnouncement = useCallback(() => {
+    const nextAnnouncement = announcementQueueRef.current.shift();
+    if (!nextAnnouncement) {
+      announcementTimerRef.current = null;
+      return;
+    }
+
+    setLiveRegionAnnouncement(nextAnnouncement);
+    announcementTimerRef.current = window.setTimeout(() => {
+      flushNextAnnouncementRef.current();
+    }, LIVE_REGION_ANNOUNCEMENT_INTERVAL_MS);
+  }, []);
+
+  useEffect(() => {
+    flushNextAnnouncementRef.current = flushNextAnnouncement;
+  }, [flushNextAnnouncement]);
+
+  const setAnnouncement = useCallback((message: string) => {
+    announcementQueueRef.current.push(message);
+    if (announcementTimerRef.current === null) {
+      flushNextAnnouncement();
+    }
+  }, [flushNextAnnouncement]);
+
+  useEffect(() => () => {
+    if (announcementTimerRef.current !== null) {
+      window.clearTimeout(announcementTimerRef.current);
+      announcementTimerRef.current = null;
+    }
+  }, []);
 
   const selectedEntity = selectedDetailId ? world.entityById[selectedDetailId] ?? null : null;
 
@@ -30,7 +65,7 @@ export function useWorldSelection(input: {
     setSelectedDetailId(detailId);
     setSelectedDetailAnchor(anchor);
     setAnnouncement(detail ? `Selected ${detail.title}.` : "Selected map entity.");
-  }, [world.detailIndex]);
+  }, [setAnnouncement, world.detailIndex]);
 
   const clearSelection = useCallback(() => {
     setKeyboardFocusedDetailId(null);
@@ -38,7 +73,7 @@ export function useWorldSelection(input: {
     setSelectedDetailId(null);
     setSelectedDetailAnchor(null);
     setAnnouncement("Selection cleared.");
-  }, []);
+  }, [setAnnouncement]);
 
   return {
     announcement,

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, renderHook } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
 import { useWorldSelection } from "./use-world-selection";
 
@@ -30,6 +30,29 @@ describe("useWorldSelection", () => {
     });
 
     expect(result.current.selectedDetailId).toBeNull();
+  });
+
+  it("queues rapid announcements instead of clobbering the live region text", () => {
+    vi.useFakeTimers();
+    const { result, unmount } = renderHook(() => useWorldSelection({ world: worldFixture() }));
+
+    try {
+      act(() => {
+        result.current.setAnnouncement("Harbor data updated.");
+        result.current.setAnnouncement("Selected USDC.");
+      });
+
+      expect(result.current.announcement).toBe("Harbor data updated.");
+
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+
+      expect(result.current.announcement).toBe("Selected USDC.");
+    } finally {
+      unmount();
+      vi.useRealTimers();
+    }
   });
 });
 
