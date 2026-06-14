@@ -52,6 +52,53 @@ function isConditionBand(value: string | null | undefined): value is keyof typeo
   return !!value && value in PSI_HEX_COLORS;
 }
 
+function finiteNumber(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function nonEmptyString(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+type StabilityCurrent = NonNullable<StabilityIndexResponse["current"]>;
+
+function lighthouseComponents(current: StabilityCurrent | null): LighthouseNode["components"] | undefined {
+  const severity = finiteNumber(current?.components?.severity);
+  const breadth = finiteNumber(current?.components?.breadth);
+  const trend = finiteNumber(current?.components?.trend);
+  if (severity === null || breadth === null || trend === null) return undefined;
+  const stressBreadth = finiteNumber(current?.components?.stressBreadth);
+  return {
+    severity,
+    breadth,
+    ...(stressBreadth !== null ? { stressBreadth } : {}),
+    trend,
+  };
+}
+
+function lighthouseContributors(current: StabilityCurrent | null): LighthouseNode["contributors"] | undefined {
+  const contributors = (current?.contributors ?? []).flatMap((contributor) => {
+    const id = nonEmptyString(contributor.id);
+    const symbol = nonEmptyString(contributor.symbol);
+    const bps = finiteNumber(contributor.bps);
+    const mcapUsd = finiteNumber(contributor.mcapUsd);
+    if (!id || !symbol || bps === null || mcapUsd === null) return [];
+    const ageDays = finiteNumber(contributor.ageDays);
+    const factor = finiteNumber(contributor.factor);
+    return [{
+      id,
+      symbol,
+      bps,
+      mcapUsd,
+      ...(ageDays !== null ? { ageDays } : {}),
+      ...(factor !== null ? { factor } : {}),
+    }];
+  }).slice(0, 5);
+  return contributors.length > 0 ? contributors : undefined;
+}
+
 function buildPigeonnier(): PigeonnierNode {
   return {
     id: "pigeonnier",
@@ -68,13 +115,21 @@ function buildLighthouse(
 ): LighthouseNode {
   const current = stability?.current ?? null;
   const band = current?.band ?? null;
+  const components = lighthouseComponents(current);
+  const avg24h = finiteNumber(current?.avg24h);
+  const avg24hBand = nonEmptyString(current?.avg24hBand);
+  const contributors = lighthouseContributors(current);
   return {
     id: "lighthouse",
     kind: "lighthouse",
     label: "Pharos lighthouse",
     tile: { ...LIGHTHOUSE_TILE },
     psiBand: band,
-    score: current?.score ?? null,
+    score: finiteNumber(current?.score),
+    ...(components ? { components } : {}),
+    ...(avg24h !== null ? { avg24h } : {}),
+    ...(avg24hBand ? { avg24hBand } : {}),
+    ...(contributors ? { contributors } : {}),
     color: isConditionBand(band) ? PSI_HEX_COLORS[band] : "#8aa0a6",
     unavailable: !current || !isConditionBand(band),
     detailId: "lighthouse",

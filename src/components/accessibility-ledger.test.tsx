@@ -112,6 +112,25 @@ describe("AccessibilityLedger", () => {
 
     // Single-ship fleet → always Q0 → Languid.
     expect(markup).toContain("cycle tempo Languid");
+    expect(markup).toContain("cycle pace tracks supply tier, not transfers");
+  });
+
+  it("mirrors lighthouse trend, composition, and contributors in the ledger", () => {
+    const world: PharosVilleWorld = {
+      ...sampleWorld(),
+      lighthouse: {
+        ...sampleWorld().lighthouse,
+        components: { severity: 0.7, breadth: 0.3, trend: 0.05 },
+        avg24h: 68,
+        avg24hBand: "ALERT",
+        contributors: [{ id: "usdt-tether", symbol: "USDT", bps: -12, mcapUsd: 90_000_000_000 }],
+      },
+    };
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("Trend: Observed 24h drift deteriorating");
+    expect(markup).toContain("Composition: severity 70%, breadth 30%");
+    expect(markup).toContain("Top contributors: USDT -12 bps ($90.0B)");
   });
 
   it("adds a non-time-dependent lighthouse warm-beam cue from active elevated DEWS counts", () => {

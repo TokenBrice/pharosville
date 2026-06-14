@@ -90,6 +90,8 @@ export function LegendPanel({ onClose }: LegendPanelProps) {
           </ul>
           <p>
             Hull size tracks market-cap tier (compressed, not linear). The
+            ship&apos;s cruising pace also tracks its supply tier — bigger coins
+            cycle a little faster; pace never means transfers or activity. The
             largest titans and culturally significant heritage hulls stay
             visible even while moored; smaller ships disappear into their dock
             while berthed.

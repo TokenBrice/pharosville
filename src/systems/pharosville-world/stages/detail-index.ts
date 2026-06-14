@@ -5,6 +5,7 @@ import {
   detailForArea,
   detailForPigeonnier,
   detailForShip,
+  precomputeFleetMarketCapRanks,
 } from "../../detail-model";
 import { precomputeShipTempos } from "../../ship-cycle-tempo";
 import type { SelectableWorldEntity, ShipNode } from "../../world-types";
@@ -22,6 +23,7 @@ function buildDetailIndex(world: PharosVilleWorldBase): DetailIndexStage["detail
   // Precompute the per-ship cycle-tempo descriptor once (single fleet sort)
   // so detailForShip's call doesn't redo the O(N log N) work N times.
   const tempoById = precomputeShipTempos(world.ships);
+  const fleetRankById = precomputeFleetMarketCapRanks(world.ships);
   const details = [
     detailForLighthouse(world.lighthouse),
     detailForPigeonnier(world.pigeonnier),
@@ -29,9 +31,11 @@ function buildDetailIndex(world: PharosVilleWorldBase): DetailIndexStage["detail
     ...world.ships.map((ship) => {
       const tempo = tempoById.get(ship.id);
       const tempoContext = tempo !== undefined ? { cycleTempo: tempo } : {};
+      const fleetRank = fleetRankById.get(ship.id);
+      const fleetRankContext = fleetRank !== undefined ? { fleetRank } : {};
       return ship.squadId
-        ? detailForShip(ship, { squadShips: shipsBySquad.get(ship.squadId) ?? [], allShips: world.ships, ...tempoContext })
-        : detailForShip(ship, { allShips: world.ships, ...tempoContext });
+        ? detailForShip(ship, { squadShips: shipsBySquad.get(ship.squadId) ?? [], allShips: world.ships, ...tempoContext, ...fleetRankContext })
+        : detailForShip(ship, { allShips: world.ships, ...tempoContext, ...fleetRankContext });
     }),
     ...world.areas.map(detailForArea),
     ...world.graves.map(detailForGrave),

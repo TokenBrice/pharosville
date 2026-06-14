@@ -11,11 +11,15 @@ import {
   detailForLighthouse,
   detailForPigeonnier,
   detailForShip,
+  fleetRankLabel,
   lighthouseBeamWarmCueLabel,
   PHAROS_WATCH_TELEGRAM_HREF,
+  psiCompositionLabel,
+  psiTrendLabel,
   priceConfidenceLabel,
   reportCardSafetyLabel,
   priceSignalSeverity,
+  shareOfFleetLabel,
   sourceConsensusLabel,
   sourceConsensusRatio,
   supplyMomentumLabel,
@@ -438,7 +442,7 @@ describe("detail-model analytical links", () => {
       { label: "Risk water zone", value: "ledger" },
       { label: "Risk placement key", value: "ledger-mooring" },
       { label: "Home dock", value: "Ethereum" },
-      { label: "Docking cadence", value: "Occasional; 1 positive chain deployment, 1 rendered dock stop" },
+      { label: "Chain footprint", value: "Single-chain footprint; 1 positive chain deployment, 1 rendered dock stop" },
       { label: "Route source", value: "stablecoins.chainCirculating, pegSummary.coins[], stress.signals[]" },
       { label: "Evidence", value: "meta.flags.navToken, pegSummary.coins[]" },
     ]));
@@ -660,7 +664,7 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
     });
   });
 
-  describe("E3 — docking cadence extended dwell label", () => {
+  describe("E3 — chain footprint extended dwell label", () => {
     it("appends (extended dwell) suffix when chainPresence.length ≥ 4", () => {
       const ship = baseShipNode({
         chainPresence: [
@@ -671,8 +675,9 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
         ],
       });
       const detail = detailForShip(ship);
-      const fact = detail.facts.find((f) => f.label === "Docking cadence");
+      const fact = detail.facts.find((f) => f.label === "Chain footprint");
       expect(fact).toBeDefined();
+      expect(fact!.value).toContain("Broad footprint");
       expect(fact!.value).toContain("(extended dwell)");
     });
 
@@ -683,9 +688,71 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
         ],
       });
       const detail = detailForShip(ship);
-      const fact = detail.facts.find((f) => f.label === "Docking cadence");
+      const fact = detail.facts.find((f) => f.label === "Chain footprint");
       expect(fact).toBeDefined();
       expect(fact!.value).not.toContain("(extended dwell)");
+    });
+  });
+
+  describe("T5 — fleet-relative market context", () => {
+    it("labels rank and fleet share while suppressing singletons and dust shares", () => {
+      const large = baseShipNode({ id: "large", marketCapUsd: 990 });
+      const small = baseShipNode({ id: "small", marketCapUsd: 10 });
+      const dust = baseShipNode({ id: "dust", marketCapUsd: 0.5 });
+
+      expect(fleetRankLabel(1, 3)).toBe("#1 of 3");
+      expect(fleetRankLabel(1, 1)).toBeNull();
+      expect(shareOfFleetLabel(large, [large, small])).toBe("99% of fleet");
+      expect(shareOfFleetLabel(large, [large])).toBeNull();
+      expect(shareOfFleetLabel(dust, [large, dust])).toBeNull();
+    });
+
+    it("detailForShip emits fleet rank and share facts when context supplies rank", () => {
+      const large = baseShipNode({ id: "large", marketCapUsd: 990 });
+      const small = baseShipNode({ id: "small", marketCapUsd: 10 });
+      const detail = detailForShip(large, {
+        allShips: [large, small],
+        fleetRank: { rank: 1, total: 2 },
+      });
+
+      expect(detail.facts).toEqual(expect.arrayContaining([
+        { label: "Fleet rank", value: "#1 of 2" },
+        { label: "Share of fleet", value: "99% of fleet" },
+      ]));
+    });
+  });
+
+  describe("T6 — lighthouse PSI explanatory rows", () => {
+    it("builds observational trend and composition labels plus contributor members", () => {
+      const lighthouse = {
+        id: "lighthouse",
+        kind: "lighthouse",
+        label: "Pharos lighthouse",
+        tile: { x: 1, y: 1 },
+        psiBand: "WARNING",
+        score: 72,
+        color: "#ffffff",
+        unavailable: false,
+        detailId: "lighthouse",
+        components: { severity: 0.7, breadth: 0.3, trend: 0.05 },
+        avg24h: 68,
+        avg24hBand: "ALERT",
+        contributors: [{ id: "usdt-tether", symbol: "USDT", bps: -12, mcapUsd: 90_000_000_000 }],
+      } satisfies LighthouseNode;
+
+      expect(psiTrendLabel(lighthouse)).toContain("Observed 24h drift deteriorating");
+      expect(psiCompositionLabel(lighthouse)).toContain("severity 70%");
+      const detail = detailForLighthouse(lighthouse);
+      expect(detail.facts).toEqual(expect.arrayContaining([
+        expect.objectContaining({ label: "Trend" }),
+        expect.objectContaining({ label: "Composition" }),
+      ]));
+      expect(detail.membersHeading).toBe("Top PSI contributors");
+      expect(detail.members?.[0]).toMatchObject({
+        href: "https://pharos.watch/stablecoin/usdt-tether/",
+        label: "USDT -12 bps",
+        value: "$90.0B",
+      });
     });
   });
 

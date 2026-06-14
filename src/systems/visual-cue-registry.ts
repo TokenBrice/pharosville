@@ -10,7 +10,7 @@ export function buildVisualCueRegistry(): VisualCue[] {
       sourceField: "stability.current.band",
       questionAnswered: "What is the overall Pharos Stability Index state?",
       failureState: "unlit/fogged lighthouse",
-      domEquivalent: "lighthouse detail panel",
+      domEquivalent: "lighthouse detail Score, Band, Trend, Composition, and top-contributor rows plus accessibility ledger lighthouse row",
       reducedMotionEquivalent: "static beacon state and lighthouse detail PSI rows",
     },
     {
@@ -39,11 +39,11 @@ export function buildVisualCueRegistry(): VisualCue[] {
       id: "cue.ship.motion",
       target: { kind: "ship" },
       primaryChannels: ["motion", "position", "opacity"],
-      visual: "ship route, docking cadence, mooring orbit variation, stale-evidence drift, 24h supply-change wake intensity, and chain-breadth dwell",
+      visual: "ship route, chain footprint, mooring orbit variation, stale-evidence drift, 24h supply-change wake intensity, and chain-breadth dwell",
       sourceField: "stablecoins.peggedAssets[].chainCirculating, pegSummary.coins[], stress.signals[], placementEvidence.stale, change24hPct, chainPresence.length, ship.id (per-ship mooring orbit phase/radius offset)",
-      questionAnswered: "Where can this ship dock, how often does it visit, which risk water anchors its route, how recent is its supply change, and how confident is its placement?",
+      questionAnswered: "Where can this ship dock, how broad is its chain footprint, which risk water anchors its route, how recent is its supply change, and how confident is its placement?",
       failureState: "reduced-motion static risk-water idle position with evidence caveat",
-      domEquivalent: "ship detail Cycle tempo, 24h supply change, Docking cadence (extended dwell suffix), Evidence status facts, plus accessibility ledger ship row",
+      domEquivalent: "ship detail Cycle tempo, 24h supply change, Chain footprint (extended dwell suffix), Evidence status facts, plus accessibility ledger ship row with 'cycle pace tracks supply tier, not transfers'",
       reducedMotionEquivalent: "risk-water or Ledger Mooring idle position without RAF",
     },
     {
@@ -88,7 +88,7 @@ export function buildVisualCueRegistry(): VisualCue[] {
       sourceField: "stablecoins.peggedAssets[].circulating",
       questionAnswered: "Roughly how large is the stablecoin supply without letting outliers dominate the map?",
       failureState: "small default scale",
-      domEquivalent: "ship detail market-cap and size-tier rows",
+      domEquivalent: "ship detail market-cap row with fleet rank and share-of-fleet plus size-tier row",
       reducedMotionEquivalent: "same static compressed size tier",
     },
     {

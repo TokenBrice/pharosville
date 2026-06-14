@@ -85,9 +85,11 @@ describe("buildDetailFactSections folds", () => {
     ]);
   });
 
-  it("folds price confidence and source consensus into the Market cap row", () => {
+  it("folds fleet context, price confidence, and source consensus into the Market cap row", () => {
     const { identity } = buildDetailFactSections([
       { label: "Market cap", value: "$1,000,000,000" },
+      { label: "Fleet rank", value: "#3 of 198" },
+      { label: "Share of fleet", value: "2.4% of fleet" },
       { label: "Price confidence", value: "Low-confidence price feed" },
       { label: "Source consensus", value: "2 of 3 price sources agree" },
     ]);
@@ -95,8 +97,20 @@ describe("buildDetailFactSections folds", () => {
       {
         key: "marketCap",
         label: "Market cap",
-        value: "$1.0B · Low-confidence price feed · 2 of 3 price sources agree",
+        value: "$1.0B · #3 of 198 · 2.4% of fleet · Low-confidence price feed · 2 of 3 price sources agree",
       },
+    ]);
+  });
+
+  it("renders PSI trend and composition rows for lighthouse details", () => {
+    const { identity } = buildDetailFactSections([
+      { label: "Trend", value: "Observed 24h drift steady" },
+      { label: "Composition", value: "severity 40%, breadth 20%" },
+    ]);
+
+    expect(identity).toEqual([
+      { key: "psiTrend", label: "Trend", value: "Observed 24h drift steady" },
+      { key: "psiComposition", label: "Composition", value: "severity 40%, breadth 20%" },
     ]);
   });
 

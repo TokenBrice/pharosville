@@ -51,12 +51,16 @@ export type DetailFactKey =
   | "bluechipAudit"
   | "safetyGrade"
   | "marketCap"
+  | "fleetRank"
+  | "shareOfFleet"
   | "priceConfidence"
   | "sourceConsensus"
   | "cycle24h"
   | "supplyMomentum"
   | "depegHistory"
   | "lastFleetDepeg"
+  | "psiTrend"
+  | "psiComposition"
   | "cycleTempo"
   | "homeDock"
   | "backingDiversity"
@@ -89,12 +93,16 @@ const DETAIL_FACT_LABELS = {
   "bluechip audit": "bluechipAudit",
   "safety grade": "safetyGrade",
   "market cap": "marketCap",
+  "fleet rank": "fleetRank",
+  "share of fleet": "shareOfFleet",
   "price confidence": "priceConfidence",
   "source consensus": "sourceConsensus",
   "24h supply change": "cycle24h",
   "supply momentum": "supplyMomentum",
   "depeg history": "depegHistory",
   "last fleet depeg": "lastFleetDepeg",
+  "trend": "psiTrend",
+  "composition": "psiComposition",
   "cycle tempo": "cycleTempo",
   "home dock": "homeDock",
   "backing diversity": "backingDiversity",
@@ -140,9 +148,16 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   const marketCap = lookup.get("marketCap");
   if (marketCap) {
     // Degraded price confidence and partial source consensus (both
-    // significance-gated upstream) fold into the Market cap row — the figure
-    // they qualify — instead of spending rows of their own.
-    const value = [formatCompactUsd(marketCap), lookup.get("priceConfidence"), lookup.get("sourceConsensus")]
+    // significance-gated upstream) plus fleet-rank/share context fold into
+    // the Market cap row — the figure they qualify — instead of spending rows
+    // of their own.
+    const value = [
+      formatCompactUsd(marketCap),
+      lookup.get("fleetRank"),
+      lookup.get("shareOfFleet"),
+      lookup.get("priceConfidence"),
+      lookup.get("sourceConsensus"),
+    ]
       .filter(Boolean)
       .join(" · ");
     identity.push({ key: "marketCap", label: "Market cap", value });
@@ -162,6 +177,10 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   }
   const lastFleetDepeg = lookup.get("lastFleetDepeg");
   if (lastFleetDepeg) identity.push({ key: "lastFleetDepeg", label: "Last fleet depeg", value: lastFleetDepeg });
+  const psiTrend = lookup.get("psiTrend");
+  if (psiTrend) identity.push({ key: "psiTrend", label: "Trend", value: psiTrend });
+  const psiComposition = lookup.get("psiComposition");
+  if (psiComposition) identity.push({ key: "psiComposition", label: "Composition", value: psiComposition });
   const cycleTempo = lookup.get("cycleTempo");
   if (cycleTempo) identity.push({ key: "cycleTempo", label: "Cycle tempo", value: cycleTempo });
   const homeDock = lookup.get("homeDock");

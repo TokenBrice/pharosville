@@ -1,6 +1,7 @@
 import { CHAIN_META } from "@shared/lib/chains";
 import { CAUSE_META } from "@shared/lib/cause-of-death";
 import type { BluechipGrade, DimensionKey } from "@shared/types";
+import { formatCompactUsd } from "../lib/format-detail";
 import type { AreaNode, DetailModel, DewsAreaBand, DockNode, GraveNode, LighthouseNode, PigeonnierNode, ShipNode } from "./world-types";
 import { ETHEREUM_L2_DOCK_CHAIN_IDS } from "./world-layout";
 import { analyticalRouteHref } from "./route-links";
@@ -13,6 +14,49 @@ const ELEVATED_DEWS_BANDS = new Set<DewsAreaBand>(["ALERT", "WARNING", "DANGER"]
 
 function marketCapLabel(value: number): string {
   return Number.isFinite(value) && value > 0 ? usd.format(value) : "Unavailable";
+}
+
+export interface ShipFleetRank {
+  rank: number;
+  total: number;
+}
+
+function normalizedMarketCap(value: number): number {
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+export function precomputeFleetMarketCapRanks(ships: readonly ShipNode[]): Map<string, ShipFleetRank> {
+  const total = ships.length;
+  const ranked = [...ships].sort((a, b) => {
+    const byMarketCap = normalizedMarketCap(b.marketCapUsd) - normalizedMarketCap(a.marketCapUsd);
+    return byMarketCap !== 0 ? byMarketCap : a.id.localeCompare(b.id);
+  });
+  return new Map(ranked.map((ship, index) => [ship.id, { rank: index + 1, total }]));
+}
+
+export function fleetRankLabel(rank: number | null | undefined, total: number | null | undefined): string | null {
+  if (
+    rank == null
+    || total == null
+    || !Number.isInteger(rank)
+    || !Number.isInteger(total)
+    || total <= 1
+    || rank < 1
+    || rank > total
+  ) {
+    return null;
+  }
+  return `#${rank} of ${total}`;
+}
+
+export function shareOfFleetLabel(node: ShipNode, allShips: readonly ShipNode[]): string | null {
+  if (allShips.length <= 1) return null;
+  const totalMarketCap = allShips.reduce((sum, ship) => sum + normalizedMarketCap(ship.marketCapUsd), 0);
+  const marketCap = normalizedMarketCap(node.marketCapUsd);
+  if (totalMarketCap <= 0 || marketCap <= 0) return null;
+  const share = marketCap / totalMarketCap;
+  if (share < 0.001) return null;
+  return `${percent.format(share)} of fleet`;
 }
 
 function pluralize(count: number, singular: string, plural: string = `${singular}s`): string {
@@ -74,22 +118,22 @@ function chainsPresentLabel(node: ShipNode): string {
   return `${pluralize(node.chainPresence.length, "positive chain deployment")}: ${topChains}${suffix}`;
 }
 
-function dockingCadenceLabel(node: ShipNode): string {
+function chainFootprintLabel(node: ShipNode): string {
   const chainCount = node.chainPresence.length;
   const renderedDockCount = node.dockVisits.length;
-  let cadence = "No rendered dock cadence";
-  if (renderedDockCount === 0) {
-    cadence = "No rendered dock cadence";
+  let footprint = "No chain footprint";
+  if (chainCount === 1) {
+    footprint = "Single-chain footprint";
   } else if (renderedDockCount >= 3 || chainCount >= 4) {
-    cadence = "Frequent";
-  } else if (renderedDockCount >= 2) {
-    cadence = "Regular";
-  } else if (renderedDockCount === 1) {
-    cadence = "Occasional";
+    footprint = "Broad footprint";
+  } else if (renderedDockCount >= 2 || chainCount >= 3) {
+    footprint = "Multi-chain footprint";
+  } else if (chainCount >= 2 || renderedDockCount === 1) {
+    footprint = "Narrow footprint";
   }
   // E3: signal extended dock dwell when chain breadth qualifies (≥4 positive chains).
   const dwellSuffix = chainCount >= 4 ? " (extended dwell)" : "";
-  return `${cadence}${dwellSuffix}; ${pluralize(chainCount, "positive chain deployment")}, ${pluralize(renderedDockCount, "rendered dock stop")}`;
+  return `${footprint}${dwellSuffix}; ${pluralize(chainCount, "positive chain deployment")}, ${pluralize(renderedDockCount, "rendered dock stop")}`;
 }
 
 // E2: format change24hPct (percent units, e.g. 10 = +10%) for the detail panel.
@@ -113,6 +157,68 @@ export function supplyMomentumLabel(node: Pick<ShipNode, "change7dPct" | "change
 function depegEventDateLabel(epochMs: number | null): string | null {
   if (epochMs == null || !Number.isFinite(epochMs) || epochMs <= 0) return null;
   return new Date(epochMs).toISOString().slice(0, 10);
+}
+
+function finiteNumber(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function formatPsiNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function formatPsiComponent(value: number): string {
+  if (Math.abs(value) <= 1) return percent.format(value);
+  return formatPsiNumber(value);
+}
+
+function formatSignedPsiComponent(value: number): string {
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${formatPsiComponent(value)}`;
+}
+
+function trendDirection(value: number, threshold: number): "improving" | "steady" | "deteriorating" {
+  if (Math.abs(value) < threshold) return "steady";
+  return value > 0 ? "deteriorating" : "improving";
+}
+
+export function psiTrendLabel(
+  node: Pick<LighthouseNode, "score" | "components" | "avg24h" | "avg24hBand">,
+): string | null {
+  const score = finiteNumber(node.score);
+  const avg24h = finiteNumber(node.avg24h);
+  const trend = finiteNumber(node.components?.trend);
+  const drift = score !== null && avg24h !== null ? score - avg24h : trend;
+  if (drift === null && avg24h === null && !node.avg24hBand) return null;
+
+  const threshold = score !== null && avg24h !== null ? 0.5 : 0.001;
+  const parts = [`Observed 24h drift ${drift === null ? "steady" : trendDirection(drift, threshold)}`];
+  if (avg24h !== null) parts.push(`24h average ${formatPsiNumber(avg24h)}`);
+  if (node.avg24hBand) parts.push(`24h band ${node.avg24hBand}`);
+  if (trend !== null) parts.push(`trend component ${formatSignedPsiComponent(trend)}`);
+  return parts.join("; ");
+}
+
+export function psiCompositionLabel(node: Pick<LighthouseNode, "components">): string | null {
+  const severity = finiteNumber(node.components?.severity);
+  const breadth = finiteNumber(node.components?.breadth);
+  const stressBreadth = finiteNumber(node.components?.stressBreadth);
+  const parts = [
+    severity !== null ? `severity ${formatPsiComponent(severity)}` : null,
+    breadth !== null ? `breadth ${formatPsiComponent(breadth)}` : null,
+    stressBreadth !== null ? `stress breadth ${formatPsiComponent(stressBreadth)}` : null,
+  ].filter((part): part is string => part !== null);
+  return parts.length > 0 ? parts.join(", ") : null;
+}
+
+function basisPointsLabel(value: number): string {
+  const sign = value > 0 ? "+" : "";
+  const formatted = Number.isInteger(value) ? String(value) : value.toFixed(1);
+  return `${sign}${formatted} bps`;
+}
+
+export function psiContributorLabel(contributor: NonNullable<LighthouseNode["contributors"]>[number]): string {
+  return `${contributor.symbol} ${basisPointsLabel(contributor.bps)} (${formatCompactUsd(contributor.mcapUsd)})`;
 }
 
 /**
@@ -272,6 +378,9 @@ export function detailForPigeonnier(node: PigeonnierNode): DetailModel {
 }
 
 export function detailForLighthouse(node: LighthouseNode): DetailModel {
+  const trend = psiTrendLabel(node);
+  const composition = psiCompositionLabel(node);
+  const contributors = node.contributors ?? [];
   return {
     id: node.detailId,
     kind: node.kind,
@@ -280,6 +389,8 @@ export function detailForLighthouse(node: LighthouseNode): DetailModel {
     facts: [
       { label: "Score", value: node.score == null ? "Unavailable" : String(node.score) },
       { label: "Band", value: node.psiBand ?? "Unavailable" },
+      ...(trend ? [{ label: "Trend", value: trend }] : []),
+      ...(composition ? [{ label: "Composition", value: composition }] : []),
       { label: "Beam warmth cue", value: lighthouseBeamWarmCueLabel() },
       {
         label: "Last fleet depeg",
@@ -287,6 +398,17 @@ export function detailForLighthouse(node: LighthouseNode): DetailModel {
       },
     ],
     links: [{ label: "PSI", href: analyticalRouteHref("/stability-index/") }],
+    ...(contributors.length > 0
+      ? {
+          membersHeading: "Top PSI contributors",
+          members: contributors.map((contributor) => ({
+            id: contributor.id,
+            label: `${contributor.symbol} ${basisPointsLabel(contributor.bps)}`,
+            href: analyticalRouteHref(`/stablecoin/${contributor.id}/`),
+            value: formatCompactUsd(contributor.mcapUsd),
+          })),
+        }
+      : {}),
   };
 }
 
@@ -364,6 +486,7 @@ export interface ShipRiskTransitionContext {
 export interface ShipDetailContext {
   squadShips?: readonly ShipNode[];
   allShips?: readonly ShipNode[];
+  fleetRank?: ShipFleetRank;
   /**
    * Optional precomputed cycle-tempo descriptor for this ship. When supplied,
    * it bypasses the internal `shipCycleTempo` call and the per-call sort.
@@ -444,6 +567,8 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
   const overrideBanner = isSquadShip ? squadOverrideBanner(node) : null;
   const allShips = context.allShips ?? [node];
   const cycleTempo = context.cycleTempo ?? shipCycleTempo(node, allShips);
+  const fleetRank = context.fleetRank ? fleetRankLabel(context.fleetRank.rank, context.fleetRank.total) : null;
+  const fleetShare = shareOfFleetLabel(node, allShips);
 
   const riskTransition = context.riskTransition ?? null;
   // W5.01 — surface the wired-but-silent risk-band tack-out from
@@ -465,6 +590,8 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
   const safetyGrade = reportCardSafetyLabel(node.reportCard);
   const facts = [
     { label: "Market cap", value: marketCapLabel(node.marketCapUsd) },
+    ...(fleetRank ? [{ label: "Fleet rank", value: fleetRank }] : []),
+    ...(fleetShare ? [{ label: "Share of fleet", value: fleetShare }] : []),
     ...(priceConfidence ? [{ label: "Price confidence", value: priceConfidence }] : []),
     ...(sourceConsensus ? [{ label: "Source consensus", value: sourceConsensus }] : []),
     { label: "24h supply change", value: change24hPctLabel(node.change24hPct) },
@@ -486,7 +613,7 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
     ...riskTransitionFact,
     { label: "Home dock", value: node.homeDockChainId ? chainLabel(node.homeDockChainId) : "No rendered dock" },
     { label: "Chains present", value: chainsPresentLabel(node) },
-    { label: "Docking cadence", value: dockingCadenceLabel(node) },
+    { label: "Chain footprint", value: chainFootprintLabel(node) },
     ...(formationLine ? [{ label: "Sailing in formation", value: formationLine }] : []),
     ...(overrideBanner ? [{ label: "Squad override", value: overrideBanner }] : []),
     { label: "Route source", value: "stablecoins.chainCirculating, pegSummary.coins[], stress.signals[]" },

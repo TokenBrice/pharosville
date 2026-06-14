@@ -4,12 +4,16 @@ import type { HealthBand } from "@shared/types/chains";
 import { formationLabel, squadRole, STABLECOIN_SQUADS, type StablecoinSquad } from "../systems/maker-squad";
 import { SQUAD_DISTRESS_FLAG_HEX } from "../renderer/layers/maker-squad-chrome";
 import type { AreaNode, DewsAreaBand, PharosVilleWorld, ShipNode } from "../systems/world-types";
-import { precomputeShipTempos } from "../systems/ship-cycle-tempo";
+import { cycleTempoReadingClause, precomputeShipTempos } from "../systems/ship-cycle-tempo";
 import {
   depegHistoryLabel,
   DIMENSION_KEY_LABELS,
   lighthouseBeamWarmCueLabel,
+  psiCompositionLabel,
+  psiContributorLabel,
+  psiTrendLabel,
   reportCardSafetyLabel,
+  shareOfFleetLabel,
   supplyMomentumLabel,
 } from "../systems/detail-model";
 import { seaStateForWorld, seaStateSummary } from "../systems/sea-state";
@@ -101,6 +105,9 @@ function AccessibilityLedgerContent({
   // (review-noted O(N² log N) hot spot).
   const cycleTempoById = precomputeShipTempos(world.ships);
   const seaState = seaStateForWorld(world);
+  const lighthouseTrend = psiTrendLabel(world.lighthouse);
+  const lighthouseComposition = psiCompositionLabel(world.lighthouse);
+  const lighthouseContributors = world.lighthouse.contributors?.map(psiContributorLabel).join(", ");
 
   return (
     <section className="sr-only" aria-labelledby={headingId} data-testid="pharosville-accessibility-ledger">
@@ -129,6 +136,9 @@ function AccessibilityLedgerContent({
           <dd>
             {world.lighthouse.label}: PSI {world.lighthouse.score ?? "unavailable"}, band{" "}
             {world.lighthouse.psiBand ?? "unavailable"}. {lighthouseBeamWarmCueLabel(world.areas)}
+            {lighthouseTrend ? ` Trend: ${lighthouseTrend}.` : ""}
+            {lighthouseComposition ? ` Composition: ${lighthouseComposition}.` : ""}
+            {lighthouseContributors ? ` Top contributors: ${lighthouseContributors}.` : ""}
           </dd>
         </div>
         <div>
@@ -173,7 +183,7 @@ function AccessibilityLedgerContent({
           const transition = riskTransitionByShipId?.get(ship.id) ?? null;
           return (
             <li key={ship.id}>
-              {shipLedgerLine(ship, tempo.label, transition)}
+              {shipLedgerLine(ship, tempo.label, transition, world.ships)}
             </li>
           );
         })}
@@ -277,10 +287,20 @@ function shipLedgerLine(
   ship: ShipNode,
   tempoLabel: string,
   transition: ShipRiskTransitionEntry | null,
+  allShips: readonly ShipNode[],
 ): string {
   const placement = ship.riskPlacement === "ledger-mooring" ? "Ledger Mooring idle" : `${ship.riskWaterLabel} idle`;
   const transitionClause = transition && transition.progress < 1
     ? ` Tracking new risk band: from ${transition.fromLabel} to ${transition.toLabel}.`
+    : "";
+  const fleetShare = shareOfFleetLabel(ship, allShips);
+  const fleetRank = allShips.length > 1
+    ? [...allShips]
+        .sort((a, b) => b.marketCapUsd - a.marketCapUsd || a.id.localeCompare(b.id))
+        .findIndex((entry) => entry.id === ship.id) + 1
+    : 0;
+  const fleetMarketContext = fleetRank > 0
+    ? `, #${fleetRank} of ${allShips.length}${fleetShare ? `, ${fleetShare}` : ""}`
     : "";
   const safetyGrade = reportCardSafetyLabel(ship.reportCard);
   const safetyDimensionClauses = ship.reportCard && safetyGrade
@@ -291,14 +311,14 @@ function shipLedgerLine(
       })
     : [];
   return [
-    `${ship.label} (${ship.symbol}): ${formatCompactUsd(ship.marketCapUsd)} market cap, placed at ${placement}`,
+    `${ship.label} (${ship.symbol}): ${formatCompactUsd(ship.marketCapUsd)} market cap${fleetMarketContext}, placed at ${placement}`,
     `risk anchor ${ship.riskPlacement}`,
     `route summary: ${pluralize(ship.chainPresence.length, "positive chain deployment")}, ${pluralize(ship.dockVisits.length, "rendered dock stop")}, risk water ${ship.riskWaterLabel}, risk zone ${ship.riskZone}`,
     `livery ${ship.visual.livery.label}, ${ship.visual.livery.logoShape} logo shape, ${ship.visual.livery.sailPanel} sail panel, ${ship.visual.livery.stripePattern} brand stripe`,
     `placement evidence ${ship.placementEvidence.reason}`,
     `evidence status ${ship.placementEvidence.stale ? "caveat" : "fresh"}`,
     `source fields ${ship.placementEvidence.sourceFields.join(", ") || "unavailable"}${ship.visual.uniqueRationale ? ` — heritage hull: ${ship.visual.uniqueRationale}` : ""}`,
-    `cycle tempo ${tempoLabel}`,
+    `cycle tempo ${tempoLabel}; ${cycleTempoReadingClause()}`,
     `24h supply change ${formatChangePercent(ship.change24hPct)}`,
     ...(supplyMomentumLabel(ship) ? [`supply momentum ${supplyMomentumLabel(ship)}`] : []),
     ...(depegHistoryLabel(ship.depegHistory) ? [`depeg history ${depegHistoryLabel(ship.depegHistory)}`] : []),

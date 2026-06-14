@@ -125,6 +125,22 @@ export interface ShipDockVisit {
 export const SHIP_WATER_ZONES = ["calm", "watch", "alert", "warning", "danger", "ledger"] as const;
 export type ShipWaterZone = typeof SHIP_WATER_ZONES[number];
 
+export interface LighthousePsiComponents {
+  severity: number;
+  breadth: number;
+  stressBreadth?: number;
+  trend: number;
+}
+
+export interface LighthouseContributor {
+  id: string;
+  symbol: string;
+  bps: number;
+  mcapUsd: number;
+  ageDays?: number;
+  factor?: number;
+}
+
 export interface LighthouseNode {
   id: "lighthouse";
   kind: "lighthouse";
@@ -132,6 +148,10 @@ export interface LighthouseNode {
   tile: { x: number; y: number };
   psiBand: string | null;
   score: number | null;
+  components?: LighthousePsiComponents;
+  avg24h?: number;
+  avg24hBand?: string;
+  contributors?: LighthouseContributor[];
   color: string;
   unavailable: boolean;
   detailId: string;

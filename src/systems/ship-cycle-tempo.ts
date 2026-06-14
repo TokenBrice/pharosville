@@ -14,6 +14,10 @@ export const CYCLE_TEMPO_LABELS = ["Languid", "Steady", "Brisk", "Active"] as co
 
 export type CycleTempoLabel = typeof CYCLE_TEMPO_LABELS[number];
 
+export function cycleTempoReadingClause(): string {
+  return "cycle pace tracks supply tier, not transfers";
+}
+
 /**
  * Compute the marketCap quartile (0–3) for a ship relative to its fleet.
  * Pure / deterministic. Returns 0 for single-ship fleets.
