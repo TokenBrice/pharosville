@@ -10,6 +10,7 @@ import { loadWorktreeSharedPharosEnv } from "./scripts/pharosville/local-api-env
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const pharosVilleDesktopQuery = "(min-width: 1280px) and (min-height: 760px)";
+const pharosVilleDesktopChunkName = "pharosville-desktop-data";
 
 function localPharosVilleApiProxy(env: { PHAROS_API_BASE?: string; PHAROS_API_KEY?: string }): Plugin {
   return {
@@ -118,11 +119,18 @@ function desktopChunkModulePreload(): Plugin {
       const desktopChunk = Object.values(bundle).find((entry): entry is OutputChunk => (
         isOutputChunk(entry)
         && entry.isDynamicEntry
-        && Boolean(entry.facadeModuleId?.endsWith("/src/pharosville-desktop-data.tsx"))
+        && entry.name === pharosVilleDesktopChunkName
       ));
-      if (!desktopChunk) return [];
+      if (!desktopChunk) {
+        throw new Error(`Missing dynamic ${pharosVilleDesktopChunkName} chunk for desktop modulepreload.`);
+      }
 
-      return desktopModulePreloadFileNames(bundle, desktopChunk).map((fileName) => ({
+      const fileNames = desktopModulePreloadFileNames(bundle, desktopChunk);
+      if (fileNames.length === 0) {
+        throw new Error(`No modulepreload targets collected for ${pharosVilleDesktopChunkName}.`);
+      }
+
+      return fileNames.map((fileName) => ({
         tag: "link",
         attrs: {
           rel: "modulepreload",
@@ -194,9 +202,6 @@ export default defineConfig(({ mode }) => {
             }
             if (id.includes("/node_modules/@tanstack/react-query/")) {
               return "vendor-query";
-            }
-            if (id.includes("/node_modules/zod/")) {
-              return "vendor-zod";
             }
             if (id.includes("/node_modules/lucide-react/")) {
               return "vendor-icons";

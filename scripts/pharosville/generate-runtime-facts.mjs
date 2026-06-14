@@ -172,7 +172,7 @@ function parseAssetBudgetFacts() {
 
 function parseBundleFacts() {
   return {
-    chunks: ["entry", "desktop", "css"].map((key) => {
+    chunks: ["entry", "desktop", "world", "css"].map((key) => {
       const budget = bundleBudgets[key];
       return {
         key,

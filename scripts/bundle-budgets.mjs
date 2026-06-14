@@ -15,6 +15,16 @@ export const bundleBudgets = {
     maxGzipBytes: 290 * 1024,
     required: true,
   },
+  world: {
+    label: "world lazy chunk",
+    pattern: /^pharosville-world-[A-Za-z0-9_-]+\.js$/,
+    // 2026-06-14 repo review: measured 391.9 KiB raw / 124.7 KiB gzip.
+    // Guard this high-leverage renderer chunk directly instead of relying on
+    // the nearly-full aggregate JS budget for diagnostics.
+    maxRawBytes: 440 * 1024,
+    maxGzipBytes: 145 * 1024,
+    required: true,
+  },
   css: {
     label: "entry CSS",
     pattern: /^index-[A-Za-z0-9_-]+\.css$/,
@@ -29,6 +39,8 @@ export const aggregateBudgets = {
   // 2026-06-11 V2.5 harbor ambient (quay lanterns + gull fishing dives): +~12 KiB raw / +5 KiB gzip.
   // 2026-06-14 T1 endpoint-key split: measured 1,270,683 raw / 376,060 gzip.
   // 2026-06-14 v0.2.2 release notes + visible identity/runtime surface: measured 1,294,295 raw / 383,925 gzip.
-  maxJsRawBytes: 1_280 * 1024,
-  maxJsGzipBytes: 382 * 1024,
+  // 2026-06-14 repo review follow-up: keep deliberate headroom while
+  // enforcing the renderer-heavy world chunk separately above.
+  maxJsRawBytes: 1_330 * 1024,
+  maxJsGzipBytes: 400 * 1024,
 };

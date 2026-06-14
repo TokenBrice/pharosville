@@ -83,6 +83,8 @@ jobs:
         run: npm run check:doc-paths-and-scripts
       - name: Runtime facts guard
         run: npm run check:runtime-facts
+      - name: Viewport gate guard
+        run: npm run check:viewport-gate
       - name: Asset manifest guard
         run: npm run check:pharosville-assets
       - name: Palette guard

@@ -70,7 +70,7 @@ Before publishing or claiming release-level confidence:
 npm run validate:release
 ```
 
-To locally mirror the GitHub deploy workflow pre-deploy jobs exactly:
+To locally run the same commands as the GitHub deploy workflow pre-deploy jobs:
 
 ```bash
 npm run validate:deploy-gate
@@ -146,7 +146,11 @@ At minimum, verify:
 - Allowlisted `/api/*` endpoints respond through the Pages Function proxy.
 - Unexpected paths or query shapes fail closed.
 
-Run a full release checklist before release cut:
+Run the manual release-readiness checklist before release cut or after a
+production deploy that needs human sign-off. This is intentionally not a CI
+required check because it includes live production smoke plus heavier browser
+lanes; CI gates the stable pre-deploy pieces separately and the deploy job runs
+live smoke after publishing.
 
 ```bash
 npm run check:release-readiness
