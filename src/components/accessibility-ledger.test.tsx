@@ -32,23 +32,6 @@ describe("AccessibilityLedger", () => {
     expect(markup).toContain("meta.flags.navToken");
   });
 
-  it("names the active fleet focus subset when a focus summary is provided", () => {
-    const markup = renderToStaticMarkup(
-      <AccessibilityLedger
-        world={sampleWorldWithLedgerShip()}
-        fleetFocusSummary={{
-          activeSubsetLabel: "chain Ethereum",
-          matchCount: 1,
-          matchCountLabel: "1 of 1 ships",
-          totalCount: 1,
-        }}
-      />,
-    );
-
-    expect(markup).toContain("Fleet focus: 1 of 1 ships at full alpha for chain Ethereum");
-    expect(markup).toContain("non-matching ships dimmed to about 25% alpha");
-  });
-
   it("renders a Sky squad row and a Maker squad row, each listing its own members", () => {
     const world = buildPharosVilleWorld(makerSquadFixtureInputs());
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);

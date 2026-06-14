@@ -423,49 +423,6 @@ textarea {
   pointer-events: none;
 }
 
-.pharosville-fleet-state-line {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0;
-  max-width: min(760px, calc(100vw - 64px));
-  margin: 0;
-  padding: 5px 9px;
-  border: 1px solid rgba(216, 184, 122, 0.34);
-  border-radius: 3px;
-  background: rgba(8, 14, 20, 0.72);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 236, 184, 0.12);
-  color: rgba(248, 236, 205, 0.88);
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 0.73rem;
-  line-height: 1.35;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
-}
-
-.pharosville-fleet-state-line__separator {
-  margin: 0 7px;
-  color: rgba(248, 229, 178, 0.48);
-}
-
-.pharosville-fleet-state-line--footer {
-  flex: 0 1 auto;
-  max-width: none;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-  color: rgba(248, 229, 178, 0.86);
-  font: inherit;
-  font-style: normal;
-  line-height: inherit;
-  text-shadow: none;
-}
-
-.pharosville-fleet-state-line--footer .pharosville-fleet-state-line__separator {
-  margin: 0 8px;
-  color: rgba(248, 229, 178, 0.52);
-}
-
 .pharosville-detail-dock {
   --pv-detail-panel-width: min(390px, calc(100% - 520px));
   --pv-detail-panel-max-height: min(560px, calc(100% - 86px));
@@ -1239,8 +1196,7 @@ textarea {
 }
 .pharosville-beta-tag__notice,
 .pharosville-beta-tag__counter,
-.pharosville-beta-tag__fps,
-.pharosville-fleet-state-line--footer {
+.pharosville-beta-tag__fps {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

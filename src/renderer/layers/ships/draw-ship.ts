@@ -210,8 +210,6 @@ const SHIP_LOD_BUDGET_MULTIPLIERS: Record<ShipLodBudgetTier, { overlay: number; 
   recovery: { overlay: 0.15, wake: 0.12 },
 };
 
-const FLEET_FOCUS_DIM_ALPHA = 0.25;
-
 export type TitanPoseBucket = -2 | -1 | 0 | 1 | 2;
 
 export interface ShipVisualOrientation {
@@ -405,12 +403,6 @@ export function withShipMapVisibilityAlpha(ctx: CanvasRenderingContext2D, alpha:
 
 export function multiplyGlobalAlpha(ctx: CanvasRenderingContext2D, alpha: number): void {
   ctx.globalAlpha *= clamp(alpha, 0, 1);
-}
-
-function shipFocusAlpha(input: DrawPharosVilleInput, state: Pick<ShipRenderState, "hovered" | "selected">, shipId: string): number {
-  const focusedShipIds = input.focusedShipIds;
-  if (!focusedShipIds || state.selected || state.hovered || focusedShipIds.has(shipId)) return 1;
-  return FLEET_FOCUS_DIM_ALPHA;
 }
 
 /**
@@ -834,12 +826,9 @@ export function drawShipBody(input: DrawPharosVilleInput, frame: ShipRenderFrame
     pose,
     sailTrimShear,
     sample,
-    selected,
-    hovered,
     shipAsset,
   } = shipRenderState(input, frame, ship);
-  const alpha = mapVisibilityAlpha * shipFocusAlpha(input, { selected, hovered }, ship.id);
-  withShipMapVisibilityAlpha(ctx, alpha, () => {
+  withShipMapVisibilityAlpha(ctx, mapVisibilityAlpha, () => {
     if (shipAsset) {
       const emblem = shipBodyEmblemFor(input, ship, isTitanSprite, isUniqueSprite);
       const drawY = geometry.drawPoint.y + bob;
@@ -1364,8 +1353,7 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
   const chromeVisible = camera.zoom >= SHIP_CHROME_MIN_ZOOM;
   const detailRevealed = camera.zoom >= SHIP_DETAIL_REVEAL_ZOOM;
   const resting = sample?.state === "moored" || sample?.state === "idle";
-  const alpha = mapVisibilityAlpha * shipFocusAlpha(input, { selected, hovered }, ship.id);
-  withShipMapVisibilityAlpha(ctx, alpha, () => {
+  withShipMapVisibilityAlpha(ctx, mapVisibilityAlpha, () => {
     if (shipAsset) {
       const overrideEmblemSrc = SHIP_SAIL_EMBLEM_OVERRIDES[ship.id];
       const overrideEmblemLogo = overrideEmblemSrc ? assets?.getLogo(overrideEmblemSrc) ?? null : null;

@@ -30,7 +30,6 @@ describe("buildVisualCueRegistry", () => {
       "cue.ship.hull",
       "cue.ship.rigging",
       "cue.ship.scale",
-      "cue.ship.fleet-focus",
       "cue.ship.safety-watch",
       "cue.water.semantic-terrain",
     ]));
@@ -44,12 +43,6 @@ describe("buildVisualCueRegistry", () => {
       target: { kind: "ship" },
       primaryChannels: ["shape", "color"],
       sourceField: "reportCards.cards[].overallGrade (D/F)",
-    });
-    expect(cues.find((cue) => cue.id === "cue.ship.fleet-focus")).toMatchObject({
-      domEquivalent: "fleet focus match count plus accessibility ledger Ships focus sentence",
-      primaryChannels: ["opacity"],
-      reducedMotionEquivalent: "same static dimmed frame, repainted on focus change",
-      target: { kind: "ship" },
     });
     expect(cues.every((cue) => cue.sourceField && cue.domEquivalent && cue.failureState && cue.reducedMotionEquivalent)).toBe(true);
   });

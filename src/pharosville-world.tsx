@@ -12,7 +12,6 @@ import Maximize2 from "lucide-react/dist/esm/icons/maximize-2";
 import Minimize2 from "lucide-react/dist/esm/icons/minimize-2";
 import { AccessibilityLedger, type ShipRiskTransitionEntry } from "./components/accessibility-ledger";
 import { DetailPanel } from "./components/detail-panel";
-import { FleetStateLine } from "./components/fleet-state-line";
 import { SinceLastVisitBanner } from "./components/since-last-visit";
 import { ShipSearch } from "./components/ship-search";
 import { WorldToolbar } from "./components/world-toolbar";
@@ -552,7 +551,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
             className={selectedDetailAnchor ? `pharosville-detail-dock pharosville-detail-dock--anchored pharosville-detail-dock--${selectedDetailAnchor.side}` : "pharosville-detail-dock"}
             style={detailDockStyle}
           >
-            <DetailPanel detail={selectedDetail} onClose={clearSelection} />
+            <DetailPanel detail={selectedDetail} onClose={clearSelection} onSelectDetail={selectDetail} />
           </div>
         )}
       </div>
@@ -586,8 +585,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       )}
       <p className="pharosville-beta-tag">
         <span className="pharosville-beta-tag__notice">PharosVille beta {PHAROSVILLE_LATEST_VERSION} - Interpretive view, not financial advice</span>
-        <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
-        <FleetStateLine className="pharosville-fleet-state-line--footer" world={world} />
         <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
         <button className="pharosville-beta-tag__button" type="button" onClick={legend.openLegend}>Legend</button>
         <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>

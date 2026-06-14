@@ -24,10 +24,11 @@ function buildDetailIndex(world: PharosVilleWorldBase): DetailIndexStage["detail
   // so detailForShip's call doesn't redo the O(N log N) work N times.
   const tempoById = precomputeShipTempos(world.ships);
   const fleetRankById = precomputeFleetMarketCapRanks(world.ships);
+  const inWorldShipDetailIds = new Set(world.ships.map((ship) => ship.detailId));
   const details = [
     detailForLighthouse(world.lighthouse),
     detailForPigeonnier(world.pigeonnier),
-    ...world.docks.map(detailForDock),
+    ...world.docks.map((dock) => detailForDock(dock, { inWorldDetailIds: inWorldShipDetailIds })),
     ...world.ships.map((ship) => {
       const tempo = tempoById.get(ship.id);
       const tempoContext = tempo !== undefined ? { cycleTempo: tempo } : {};

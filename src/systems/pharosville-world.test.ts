@@ -85,6 +85,8 @@ describe("buildPharosVilleWorld", () => {
       { label: "Ship class", value: "CeFi" },
       { label: "Size tier", value: "Titan" },
     ]));
+    expect(world.detailIndex["dock.ethereum"]?.members?.find((member) => member.id === "usdc-circle")?.inWorldDetailId)
+      .toBe("ship.usdc-circle");
     expect(world.graves).toHaveLength(3);
     expect(world.graves[0]?.logoSrc).toBe("/logos/cemetery/nubits.png");
     expect(world.detailIndex["lighthouse"]).toBeDefined();

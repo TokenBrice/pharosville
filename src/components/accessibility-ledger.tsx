@@ -89,22 +89,13 @@ export interface ShipRiskTransitionEntry {
   progress: number;
 }
 
-export interface AccessibilityFleetFocusSummary {
-  activeSubsetLabel: string;
-  matchCount: number;
-  matchCountLabel?: string;
-  totalCount: number;
-}
-
 export interface AccessibilityLedgerProps {
   world: PharosVilleWorld;
   headingId?: string;
-  fleetFocusSummary?: AccessibilityFleetFocusSummary;
   riskTransitionByShipId?: ReadonlyMap<string, ShipRiskTransitionEntry | null>;
 }
 
 function AccessibilityLedgerContent({
-  fleetFocusSummary,
   world,
   headingId = "pharosville-accessibility-ledger-title",
   riskTransitionByShipId,
@@ -192,12 +183,6 @@ function AccessibilityLedgerContent({
       </ol>
 
       <h3>Ships</h3>
-      {fleetFocusSummary ? (
-        <p>
-          Fleet focus: {fleetFocusSummary.matchCountLabel ?? `${fleetFocusSummary.matchCount} of ${fleetFocusSummary.totalCount} ships`} at full alpha for{" "}
-          {fleetFocusSummary.activeSubsetLabel}; non-matching ships dimmed to about 25% alpha.
-        </p>
-      ) : null}
       <ol>
         {world.ships.map((ship) => {
           const tempo = cycleTempoById.get(ship.id)!;

@@ -23,9 +23,20 @@ vi.mock("./components/accessibility-ledger", () => ({
 }));
 
 vi.mock("./components/detail-panel", () => ({
-  DetailPanel: ({ detail, onClose }: { detail: { title: string }; onClose: () => void }) => (
+  DetailPanel: ({
+    detail,
+    onClose,
+    onSelectDetail,
+  }: {
+    detail: { title: string };
+    onClose: () => void;
+    onSelectDetail?: (detailId: string) => void;
+  }) => (
     <section data-testid="pharosville-detail-panel">
       <h2>{detail.title}</h2>
+      {onSelectDetail ? (
+        <button type="button" aria-label="Select USDC in PharosVille" onClick={() => onSelectDetail("ship.usdc")}>USDC</button>
+      ) : null}
       <button type="button" aria-label="Close details" onClick={onClose}>Close</button>
     </section>
   ),
@@ -121,6 +132,7 @@ vi.mock("./systems/reduced-motion", () => ({
 }));
 
 beforeEach(() => {
+  window.history.replaceState(null, "", "/");
   mocks.canvasHandleKeyDown.mockClear();
   mocks.requestPaint.mockClear();
   mocks.targets.splice(0, mocks.targets.length, ...targetFixtures());
@@ -129,6 +141,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  window.history.replaceState(null, "", "/");
   delete (globalThis as { __pharosVilleTestWallClockHour?: number }).__pharosVilleTestWallClockHour;
 });
 
@@ -140,7 +153,7 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     expect(screen.getByTestId("pharosville-fps-counter").textContent).toBe("Static");
     expect(container.querySelector(".pharosville-beta-tag")?.textContent).toContain("PharosVille beta v0.2.1");
     expect(container.querySelector(".pharosville-beta-tag")?.textContent?.replace(/\s+/g, " ").trim()).toMatch(
-      /Changelog\|1 ship docked \/ 1 total\|Static\|Pharos$/,
+      /Legend\|Changelog\|1 ship docked \/ 1 total\|Static\|Copy link\|Pharos$/,
     );
   });
 
@@ -173,6 +186,22 @@ describe("PharosVilleWorld UI accessibility controls", () => {
       expect(screen.getByTestId("pharosville-detail-panel").textContent).toContain("Ethereum Dock");
     });
     expect(screen.queryByTestId("pharosville-selection-strip")).toBeNull();
+  });
+
+  it("selects an in-world detail from a detail-panel callback", async () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    const shell = screen.getByTestId("pharosville-world");
+    fireEvent.keyDown(shell, { key: "Tab" });
+    fireEvent.keyDown(shell, { key: "Enter" });
+    await waitFor(() => {
+      expect(screen.getByTestId("pharosville-detail-panel").textContent).toContain("Ethereum Dock");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Select USDC in PharosVille" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("pharosville-detail-panel").textContent).toContain("USDC");
+    });
   });
 
   it("cycles backward with Shift Tab and keeps Escape delegated to existing canvas shortcuts", () => {
@@ -314,11 +343,22 @@ function worldFixture(): PharosVilleWorldModel {
     },
     routeMode: "world",
     ships: [{
+      chainPresence: [{
+        chainId: "ethereum",
+        currentUsd: 1,
+        hasRenderedDock: true,
+        share: 1,
+      }],
       detailId: "ship.usdc",
       dockVisits: [{ chainId: "ethereum", dockId: "dock.ethereum", weight: 1, mooringTile: { x: 2, y: 3 } }],
       id: "ship.usdc",
       kind: "ship",
       label: "USDC",
+      riskZone: "calm",
+      visual: {
+        shipClass: "cefi",
+        sizeTier: "major",
+      },
     }],
     visualCues: [],
   } as unknown as PharosVilleWorldModel;
