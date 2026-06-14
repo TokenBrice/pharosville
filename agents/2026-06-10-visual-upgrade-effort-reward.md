@@ -367,6 +367,9 @@ fixed color identity; silhouettes are still clones.
 - [ ] Class must stay readable: variants share each class's distinctive
       rigging silhouette (galleon vs schooner vs junk etc.) since class is
       an analytical signal (`classification-to-boat.ts`).
+- Sequencing note: when producing the standard-hull variants, prioritize
+  galleon-vs-brigantine bow/rig divergence first; that is the durable path
+  for improving the CeFi vs CeFi-dependent silhouette read.
 - [ ] Verify: class-recognition spot-check at mid zoom, hit-testing
       unchanged, sail emblem legibility on all 15 variant×class combos.
 

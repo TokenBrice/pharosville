@@ -19,6 +19,7 @@ These are repeat-risk areas for agents working on PharosVille.
 - Do not add ad hoc colors that bypass `palette.ts`, `world-canvas.ts` route constants, or shared classification colors.
 - Do not change manifest geometry without checking hitboxes, anchors, selection rings, and visual tests.
 - Do not move ships with a different model than hit testing and debug state use.
+- Do not treat per-class ship silhouettes as a reliable fleet-zoom read: they are dependable only at inspect zoom, CeFi vs CeFi-dependent is not glanceable there, and the Class detail row plus ledger are the reliable analytical surface.
 - Do not reintroduce old harbor-scene/layer/sprite stack code; the current stack is `systems/` plus Canvas 2D `renderer/`.
 - Do not weaken canvas pixel budgets for a cosmetic fix.
 

@@ -58,6 +58,7 @@ export function buildVisualCueRegistry(): VisualCue[] {
       reducedMotionEquivalent: "static semantic water texture and printed labels",
     },
     {
+      // Reliable class reading is inspect-zoom only; fleet-zoom analysis belongs in the Class row and ledger.
       id: "cue.ship.hull",
       target: { kind: "ship" },
       primaryChannels: ["shape", "size"],
