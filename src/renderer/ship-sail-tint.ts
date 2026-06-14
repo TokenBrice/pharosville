@@ -1,4 +1,5 @@
 import type { ShipLivery } from "../systems/world-types";
+import { clamp } from "../systems/motion-utils";
 
 export type SailMaskPoint = readonly [number, number];
 export type SailMaskPolygon = readonly SailMaskPoint[];
@@ -318,10 +319,6 @@ function colorLuminance(red: number, green: number, blue: number): number {
 
 function mix(first: number, second: number, amount: number): number {
   return first + (second - first) * amount;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
 }
 
 function clampChannel(value: number): number {

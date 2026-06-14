@@ -1,4 +1,5 @@
 import type { PharosVilleWorld, ShipLivery, ShipLogoShape, ShipSizeTier, ShipStripePattern } from "../../../systems/world-types";
+import { clamp } from "../../../systems/motion-utils";
 import type { LoadedPharosVilleAsset, PharosVilleAssetManager } from "../../asset-manager";
 import { hexToRgba, readableInkForFill, roundedRectPath } from "../../canvas-primitives";
 import { createStatsLruCache } from "../../lru-cache";
@@ -11,7 +12,7 @@ import {
   type ShipPennantSpec,
 } from "../../ship-visual-config";
 import { HERITAGE_NAMEPLATE_MIN_ZOOM } from "../../visual-scales";
-import { clamp, multiplyGlobalAlpha } from "./draw-ship";
+import { multiplyGlobalAlpha } from "./draw-ship";
 import type { CacheStats } from "./livery";
 
 /**

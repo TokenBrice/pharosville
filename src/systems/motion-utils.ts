@@ -1,3 +1,7 @@
+import { clamp } from "@shared/lib/math";
+
+export { clamp };
+
 export function pathKey(from: { x: number; y: number }, to: { x: number; y: number }) {
   return `${from.x}.${from.y}->${to.x}.${to.y}`;
 }
@@ -38,6 +42,6 @@ export function normalizeHeadingInto(x: number, y: number, out: { x: number; y: 
   out.y = y / magnitude;
 }
 
-export function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
+export function lerp(min: number, max: number, t: number): number {
+  return min + (max - min) * clamp(t, 0, 1);
 }

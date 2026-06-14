@@ -1,4 +1,5 @@
 import type { ShipMotionSample } from "../../../systems/motion";
+import { clamp } from "../../../systems/motion-utils";
 import { getShipHeadingDelta } from "../../../systems/motion-sampling";
 import type { PharosVilleWorld, ShipHull, ShipWaterZone } from "../../../systems/world-types";
 import { stableVisualVariant } from "../../canvas-primitives";
@@ -9,7 +10,6 @@ import { SHIP_CHROME_MIN_ZOOM } from "../../visual-scales";
 import type { ShipPose } from "../ship-pose";
 import { skyState } from "../sky";
 import {
-  clamp,
   isTopRecentMoverShip,
   shipRenderState,
   withShipMapVisibilityAlpha,

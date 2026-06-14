@@ -4,6 +4,7 @@ import { RISK_WATER_REGION_TILES } from "./risk-water-areas";
 import { mulberry32 } from "./rng";
 import { isSeawallBarrierTile } from "./seawall";
 import { stableHash, stableUnit } from "./stable-random";
+import { clamp } from "./motion-utils";
 
 /** Width of the PharosVille tile grid, in tiles. */
 export const PHAROSVILLE_MAP_WIDTH = 56;
@@ -708,8 +709,4 @@ function cemeteryReserved(tile: { x: number; y: number }) {
     && tile.x > CEMETERY_CENTER.x - CEMETERY_RADIUS.x * 0.92
     && tile.x < CEMETERY_CENTER.x + CEMETERY_RADIUS.x * 0.92;
   return chapel || memorial || northPath || crossPath;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
 }

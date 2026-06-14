@@ -1,4 +1,5 @@
 import { stableUnit } from "../../systems/stable-random";
+import { clamp, lerp } from "../../systems/motion-utils";
 import { getShipHeadingDelta } from "../../systems/motion-sampling";
 import type { ShipMotionSample, ShipMotionState } from "../../systems/motion";
 import { seaStateRoughnessMultiplier, type SeaState } from "../../systems/sea-state";
@@ -270,12 +271,4 @@ function phaseSeed(shipId: string): number {
     }
   }
   return phase;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
-}
-
-function lerp(min: number, max: number, t: number): number {
-  return min + (max - min) * clamp(t, 0, 1);
 }

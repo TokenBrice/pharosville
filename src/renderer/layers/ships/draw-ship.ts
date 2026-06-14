@@ -1,5 +1,6 @@
 import { squadForMember } from "../../../systems/maker-squad";
 import { auditShieldState, depegHistorySeverity, sourceConsensusRatio } from "../../../systems/detail-model";
+import { clamp } from "../../../systems/motion-utils";
 import {
   CUE_PRIORITY_ACTIVE_RISK,
   CUE_PRIORITY_RECENT_SUPPLY,
@@ -382,10 +383,6 @@ function titanPoseBucketForHeading(heading: { x: number; y: number }): TitanPose
   if (lateral >= 0.62) return 2;
   if (lateral >= 0.18) return 1;
   return 0;
-}
-
-export function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
 }
 
 export function withShipMapVisibilityAlpha(ctx: CanvasRenderingContext2D, alpha: number, draw: () => void): void {
