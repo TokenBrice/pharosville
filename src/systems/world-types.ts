@@ -282,6 +282,7 @@ export interface DetailModel {
   title: string;
   kind: string;
   summary: string;
+  paragraphs?: string[];
   facts: Array<{ label: string; value: string }>;
   links: Array<{ label: string; href: string; target?: "_blank" }>;
   membersHeading?: string;

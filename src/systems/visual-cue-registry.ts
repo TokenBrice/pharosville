@@ -114,6 +114,17 @@ export function buildVisualCueRegistry(): VisualCue[] {
       reducedMotionEquivalent: "same static shield",
     },
     {
+      id: "cue.ship.safety-watch",
+      target: { kind: "ship" },
+      primaryChannels: ["shape", "color"],
+      visual: "checkered safety-watch square on ships with D or F report-card grades",
+      sourceField: "reportCards.cards[].overallGrade (D/F)",
+      questionAnswered: "Which stablecoins carry a D or F safety grade watch overlay?",
+      failureState: "no watch overlay; detail row absent for NR or missing report cards",
+      domEquivalent: "ship detail Class row folded Safety grade plus accessibility ledger safety-grade and dimension rationale rows",
+      reducedMotionEquivalent: "same static watch overlay with folded Class row and ledger rationale text",
+    },
+    {
       id: "cue.dock.congestion",
       target: { kind: "dock" },
       primaryChannels: ["shape", "size"],

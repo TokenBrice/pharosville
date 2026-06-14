@@ -5,7 +5,13 @@ import { formationLabel, squadRole, STABLECOIN_SQUADS, type StablecoinSquad } fr
 import { SQUAD_DISTRESS_FLAG_HEX } from "../renderer/layers/maker-squad-chrome";
 import type { AreaNode, DewsAreaBand, PharosVilleWorld, ShipNode } from "../systems/world-types";
 import { precomputeShipTempos } from "../systems/ship-cycle-tempo";
-import { depegHistoryLabel, lighthouseBeamWarmCueLabel, supplyMomentumLabel } from "../systems/detail-model";
+import {
+  depegHistoryLabel,
+  DIMENSION_KEY_LABELS,
+  lighthouseBeamWarmCueLabel,
+  reportCardSafetyLabel,
+  supplyMomentumLabel,
+} from "../systems/detail-model";
 import { seaStateForWorld, seaStateSummary } from "../systems/sea-state";
 import { formatChangePercent, formatCompactUsd } from "../lib/format-detail";
 
@@ -216,7 +222,7 @@ function AccessibilityLedgerContent({
       <ol>
         {world.graves.map((grave) => (
           <li key={grave.id}>
-            {grave.entry.name} ({grave.entry.symbol}): {grave.entry.causeOfDeath}, {grave.entry.deathDate}.
+            {graveLedgerLine(grave)}
           </li>
         ))}
       </ol>
@@ -276,6 +282,14 @@ function shipLedgerLine(
   const transitionClause = transition && transition.progress < 1
     ? ` Tracking new risk band: from ${transition.fromLabel} to ${transition.toLabel}.`
     : "";
+  const safetyGrade = reportCardSafetyLabel(ship.reportCard);
+  const safetyDimensionClauses = ship.reportCard && safetyGrade
+    ? (Object.entries(DIMENSION_KEY_LABELS) as Array<[keyof typeof DIMENSION_KEY_LABELS, string]>).flatMap(([key, label]) => {
+        const dimension = ship.reportCard?.dimensions[key];
+        if (!dimension || dimension.grade === "NR") return [];
+        return [`${label} ${dimension.grade} — ${firstSentence(dimension.detail)}`];
+      })
+    : [];
   return [
     `${ship.label} (${ship.symbol}): ${formatCompactUsd(ship.marketCapUsd)} market cap, placed at ${placement}`,
     `risk anchor ${ship.riskPlacement}`,
@@ -288,7 +302,24 @@ function shipLedgerLine(
     `24h supply change ${formatChangePercent(ship.change24hPct)}`,
     ...(supplyMomentumLabel(ship) ? [`supply momentum ${supplyMomentumLabel(ship)}`] : []),
     ...(depegHistoryLabel(ship.depegHistory) ? [`depeg history ${depegHistoryLabel(ship.depegHistory)}`] : []),
+    ...(safetyGrade ? [`safety grade ${safetyGrade.replace(/^Safety\s+/, "")}`] : []),
+    ...safetyDimensionClauses,
   ].join("; ") + `.${transitionClause}`;
+}
+
+function graveLedgerLine(grave: PharosVilleWorld["graves"][number]): string {
+  const cause = CAUSE_META[grave.entry.causeOfDeath]?.label ?? grave.entry.causeOfDeath;
+  const peak = grave.entry.peakMcap != null && Number.isFinite(grave.entry.peakMcap)
+    ? `, peak market cap ${formatCompactUsd(grave.entry.peakMcap)}`
+    : "";
+  return `${grave.entry.name} (${grave.entry.symbol}): ${cause}, ${grave.entry.deathDate}${peak}. ${grave.entry.obituary}`;
+}
+
+function firstSentence(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "No rationale provided.";
+  const match = trimmed.match(/^.+?(?:[.!?](?=\s|$)|$)/);
+  return match?.[0]?.trim() || trimmed;
 }
 
 function renderInlineSwatch(hex: string, testId?: string) {

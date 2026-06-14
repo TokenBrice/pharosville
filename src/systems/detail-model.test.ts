@@ -7,19 +7,21 @@ import {
   depegHistoryLabel,
   detailForArea,
   detailForDock,
+  detailForGrave,
   detailForLighthouse,
   detailForPigeonnier,
   detailForShip,
   lighthouseBeamWarmCueLabel,
   PHAROS_WATCH_TELEGRAM_HREF,
   priceConfidenceLabel,
+  reportCardSafetyLabel,
   priceSignalSeverity,
   sourceConsensusLabel,
   sourceConsensusRatio,
   supplyMomentumLabel,
   withRiskTransitionFact,
 } from "./detail-model";
-import type { AreaNode, DockNode, LighthouseNode, PigeonnierNode, ShipNode } from "./world-types";
+import type { AreaNode, DockNode, GraveNode, LighthouseNode, PigeonnierNode, ShipNode } from "./world-types";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import {
   fixtureWithDepegOn,
@@ -95,6 +97,73 @@ describe("detail-model analytical links", () => {
     } satisfies AreaNode).links).toEqual([
       { label: "Custom DEWS", href: "https://pharos.watch/depeg/" },
     ]);
+  });
+
+  it("deepens cemetery details with epitaph summary, obituary fact, peak market cap, cause label, and source link", () => {
+    const detail = detailForGrave({
+      id: "grave.ust-terra",
+      kind: "grave",
+      label: "TerraUSD",
+      entry: {
+        id: "ust-terra",
+        name: "TerraUSD",
+        symbol: "UST",
+        pegCurrency: "USD",
+        causeOfDeath: "algorithmic-failure",
+        deathDate: "2022-05-12",
+        peakMcap: 18_770_471_902,
+        epitaph: "Anchor yield could not hold the tide.",
+        obituary: "The largest stablecoin collapse in history.",
+        sourceUrl: "https://example.com/ust-postmortem",
+        sourceLabel: "UST postmortem",
+      },
+      logoSrc: null,
+      tile: { x: 1, y: 1 },
+      visual: { marker: "broken-keel", scale: 1 },
+      detailId: "grave.ust-terra",
+    } satisfies GraveNode);
+
+    expect(detail.summary).toBe("Anchor yield could not hold the tide.");
+    expect(detail.paragraphs).toEqual(["The largest stablecoin collapse in history."]);
+    expect(detail.facts).toEqual(expect.arrayContaining([
+      { label: "Cause", value: "Algorithmic Failure" },
+      { label: "Peak market cap", value: "$18,770,471,902" },
+    ]));
+    expect(detail.facts.find((fact) => fact.label === "Obituary")).toBeUndefined();
+    const sourceLink = detail.links[1] as (typeof detail.links)[number] & { rel?: string };
+    expect(detail.links[0]).toEqual({ label: "Cemetery", href: "https://pharos.watch/cemetery/" });
+    expect(sourceLink).toMatchObject({
+      label: "UST postmortem",
+      href: "https://example.com/ust-postmortem",
+      target: "_blank",
+      rel: "noopener noreferrer",
+    });
+  });
+
+  it("suppresses missing grave peak market cap", () => {
+    const detail = detailForGrave({
+      id: "grave.nbt-nubits",
+      kind: "grave",
+      label: "NuBits",
+      entry: {
+        id: "nbt-nubits",
+        name: "NuBits",
+        symbol: "NBT",
+        pegCurrency: "USD",
+        causeOfDeath: "abandoned",
+        deathDate: "2016-06-01",
+        epitaph: "A first lesson in reflexive pegs.",
+        obituary: "A pioneering cautionary tale.",
+        sourceUrl: "https://example.com/nubits",
+        sourceLabel: "NuBits writeup",
+      },
+      logoSrc: null,
+      tile: { x: 1, y: 1 },
+      visual: { marker: "skeletal", scale: 1 },
+      detailId: "grave.nbt-nubits",
+    } satisfies GraveNode);
+
+    expect(detail.facts.find((fact) => fact.label === "Peak market cap")).toBeUndefined();
   });
 
   it("describes active elevated DEWS as the lighthouse warm-beam cue", () => {
@@ -835,6 +904,50 @@ describe("detail-model P3 metaphor quick-win signals", () => {
     expect(auditShieldLabel(card, "titan")).toBe("Bluechip A");
     expect(auditShieldLabel(card, "major")).toBeNull();
     expect(auditShieldLabel(null, "unique")).toBeNull();
+  });
+
+  it("reportCardSafetyLabel emits grade and rounded score but suppresses null and NR cards", () => {
+    expect(reportCardSafetyLabel(null)).toBeNull();
+    expect(reportCardSafetyLabel(makeReportCard({
+      id: "usdt-tether",
+      symbol: "USDT",
+      overallGrade: "B+",
+      overallScore: 78.4,
+    }))).toBe("Safety B+ (score 78)");
+    expect(reportCardSafetyLabel(makeReportCard({
+      id: "usdt-tether",
+      symbol: "USDT",
+      overallGrade: "C",
+      overallScore: null,
+    }))).toBe("Safety C");
+    expect(reportCardSafetyLabel(makeReportCard({
+      id: "usdt-tether",
+      symbol: "USDT",
+      overallGrade: "NR",
+      overallScore: null,
+    }))).toBeNull();
+  });
+
+  it("detailForShip inserts Safety grade immediately after Cycle tempo and suppresses NR", () => {
+    const card = makeReportCard({
+      id: "usdt-tether",
+      symbol: "USDT",
+      overallGrade: "D",
+      overallScore: 48,
+    });
+    const detail = detailForShip(signalShipNode({ reportCard: card }));
+    const cycleIndex = detail.facts.findIndex((fact) => fact.label === "Cycle tempo");
+    expect(detail.facts[cycleIndex + 1]).toEqual({ label: "Safety grade", value: "Safety D (score 48)" });
+
+    const nrDetail = detailForShip(signalShipNode({
+      reportCard: makeReportCard({
+        id: "usdt-tether",
+        symbol: "USDT",
+        overallGrade: "NR",
+        overallScore: null,
+      }),
+    }));
+    expect(nrDetail.facts.find((fact) => fact.label === "Safety grade")).toBeUndefined();
   });
 
   it("detailForShip surfaces price confidence and source consensus only when degraded", () => {

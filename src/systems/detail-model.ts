@@ -1,5 +1,6 @@
 import { CHAIN_META } from "@shared/lib/chains";
-import type { BluechipGrade } from "@shared/types";
+import { CAUSE_META } from "@shared/lib/cause-of-death";
+import type { BluechipGrade, DimensionKey } from "@shared/types";
 import type { AreaNode, DetailModel, DewsAreaBand, DockNode, GraveNode, LighthouseNode, PigeonnierNode, ShipNode } from "./world-types";
 import { ETHEREUM_L2_DOCK_CHAIN_IDS } from "./world-layout";
 import { analyticalRouteHref } from "./route-links";
@@ -220,6 +221,22 @@ export function auditShieldLabel(
 ): string | null {
   const shield = auditShieldState(reportCard, sizeTier);
   return shield ? `Bluechip ${shield.grade}` : null;
+}
+
+export const DIMENSION_KEY_LABELS: Record<DimensionKey, string> = {
+  pegStability: "Peg stability",
+  liquidity: "Liquidity",
+  resilience: "Resilience",
+  decentralization: "Decentralization",
+  dependencyRisk: "Dependency risk",
+};
+
+export function reportCardSafetyLabel(reportCard: ShipNode["reportCard"]): string | null {
+  if (!reportCard || reportCard.overallGrade === "NR") return null;
+  if (reportCard.overallScore == null || !Number.isFinite(reportCard.overallScore)) {
+    return `Safety ${reportCard.overallGrade}`;
+  }
+  return `Safety ${reportCard.overallGrade} (score ${Math.round(reportCard.overallScore)})`;
 }
 
 function representativePositionLabel(node: ShipNode): string {
@@ -445,6 +462,7 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
   const priceConfidence = priceConfidenceLabel(node.asset);
   const sourceConsensus = sourceConsensusLabel(node.asset);
   const auditShield = auditShieldLabel(node.reportCard, node.visual.sizeTier);
+  const safetyGrade = reportCardSafetyLabel(node.reportCard);
   const facts = [
     { label: "Market cap", value: marketCapLabel(node.marketCapUsd) },
     ...(priceConfidence ? [{ label: "Price confidence", value: priceConfidence }] : []),
@@ -453,6 +471,7 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
     ...(momentum ? [{ label: "Supply momentum", value: momentum }] : []),
     ...(depegHistory ? [{ label: "Depeg history", value: depegHistory }] : []),
     { label: "Cycle tempo", value: cycleTempo.label },
+    ...(safetyGrade ? [{ label: "Safety grade", value: safetyGrade }] : []),
     { label: "Ship class", value: node.visual.classLabel },
     { label: "Size tier", value: node.visual.sizeLabel },
     ...(auditShield ? [{ label: "Bluechip audit", value: auditShield }] : []),
@@ -486,17 +505,31 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
 }
 
 export function detailForGrave(node: GraveNode): DetailModel {
+  const causeLabel = CAUSE_META[node.entry.causeOfDeath]?.label ?? node.entry.causeOfDeath;
+  const sourceLink: DetailModel["links"][number] & { rel: "noopener noreferrer" } = {
+    label: node.entry.sourceLabel,
+    href: node.entry.sourceUrl,
+    target: "_blank",
+    rel: "noopener noreferrer",
+  };
   return {
     id: node.detailId,
     kind: node.kind,
     title: node.entry.name,
-    summary: node.entry.epitaph ?? node.entry.obituary,
+    summary: node.entry.epitaph ?? "",
+    paragraphs: [node.entry.obituary],
     facts: [
       { label: "Symbol", value: node.entry.symbol },
-      { label: "Cause", value: node.entry.causeOfDeath },
+      { label: "Cause", value: causeLabel },
       { label: "Date", value: node.entry.deathDate },
+      ...(node.entry.peakMcap != null && Number.isFinite(node.entry.peakMcap)
+        ? [{ label: "Peak market cap", value: usd.format(node.entry.peakMcap) }]
+        : []),
     ],
-    links: [{ label: "Cemetery", href: analyticalRouteHref("/cemetery/") }],
+    links: [
+      { label: "Cemetery", href: analyticalRouteHref("/cemetery/") },
+      sourceLink,
+    ],
   };
 }
 

@@ -57,6 +57,9 @@ export function DetailPanel({
           <h2 id={headingId}>{detail.title}</h2>
           {heritage && <p className="pharosville-detail-panel__heritage">{heritage}</p>}
           <p>{detail.summary}</p>
+          {detail.paragraphs?.map((paragraph) => (
+            <p key={paragraph}>{paragraph}</p>
+          ))}
         </header>
 
         {renderSection("identity", "Identity", sections.identity)}

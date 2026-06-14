@@ -5,6 +5,7 @@ import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import {
   fixtureWithDepegOn,
   fixtureWithoutAsset,
+  makeReportCard,
   makerSquadFixtureInputs,
 } from "../__fixtures__/pharosville-world";
 import type { PharosVilleWorld } from "../systems/world-types";
@@ -180,6 +181,118 @@ describe("AccessibilityLedger", () => {
     const validLabels = ["Languid", "Steady", "Brisk", "Active"];
     const found = validLabels.some((label) => markup.includes(`cycle tempo ${label}`));
     expect(found).toBe(true);
+  });
+
+  it("appends report-card safety grade and non-NR dimension rationales to ship rows", () => {
+    const baseCard = makeReportCard({
+      id: "susde-ethena",
+      symbol: "sUSDe",
+      overallGrade: "D",
+      overallScore: 48,
+    });
+    const world: PharosVilleWorld = {
+      ...sampleWorldWithLedgerShip(),
+      ships: [{
+        ...sampleWorldWithLedgerShip().ships[0]!,
+        reportCard: {
+          ...baseCard,
+          dimensions: {
+            ...baseCard.dimensions,
+            pegStability: { grade: "D", score: 42, detail: "Peg drift active. Second sentence omitted." },
+            liquidity: { grade: "NR", score: null, detail: "Not rated." },
+            dependencyRisk: { grade: "F", score: 20, detail: "Bridge dependency dominates." },
+          },
+        },
+      }],
+    };
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("safety grade D (score 48)");
+    expect(markup).toContain("Peg stability D — Peg drift active.");
+    expect(markup).toContain("Dependency risk F — Bridge dependency dominates.");
+    expect(markup).not.toContain("Liquidity NR");
+    expect(markup).not.toContain("Second sentence omitted");
+  });
+
+  it("suppresses ship safety rows for NR report cards", () => {
+    const baseCard = makeReportCard({
+      id: "susde-ethena",
+      symbol: "sUSDe",
+      overallGrade: "NR",
+      overallScore: null,
+    });
+    const world: PharosVilleWorld = {
+      ...sampleWorldWithLedgerShip(),
+      ships: [{ ...sampleWorldWithLedgerShip().ships[0]!, reportCard: baseCard }],
+    };
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+    const shipLine = markup.match(/<h3>Ships<\/h3><ol><li>(.*?)<\/li><\/ol>/s)?.[1] ?? "";
+
+    expect(shipLine).not.toContain("safety grade");
+    expect(shipLine).not.toContain("Peg stability");
+  });
+
+  it("expands cemetery rows with cause label, compact peak market cap, and obituary", () => {
+    const world: PharosVilleWorld = {
+      ...sampleWorld(),
+      graves: [{
+        id: "grave.ust-terra",
+        kind: "grave",
+        label: "TerraUSD",
+        entry: {
+          id: "ust-terra",
+          name: "TerraUSD",
+          symbol: "UST",
+          pegCurrency: "USD",
+          causeOfDeath: "algorithmic-failure",
+          deathDate: "2022-05-12",
+          peakMcap: 18_770_471_902,
+          epitaph: "Anchor yield could not hold the tide.",
+          obituary: "The largest stablecoin collapse in history.",
+          sourceUrl: "https://example.com/ust-postmortem",
+          sourceLabel: "UST postmortem",
+        },
+        logoSrc: null,
+        tile: { x: 1, y: 1 },
+        visual: { marker: "broken-keel", scale: 1 },
+        detailId: "grave.ust-terra",
+      }],
+    };
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("TerraUSD (UST): Algorithmic Failure, 2022-05-12, peak market cap $18.8B.");
+    expect(markup).toContain("The largest stablecoin collapse in history.");
+  });
+
+  it("suppresses missing cemetery peak market cap in ledger rows", () => {
+    const world: PharosVilleWorld = {
+      ...sampleWorld(),
+      graves: [{
+        id: "grave.nbt-nubits",
+        kind: "grave",
+        label: "NuBits",
+        entry: {
+          id: "nbt-nubits",
+          name: "NuBits",
+          symbol: "NBT",
+          pegCurrency: "USD",
+          causeOfDeath: "abandoned",
+          deathDate: "2016-06-01",
+          epitaph: "A first lesson in reflexive pegs.",
+          obituary: "A pioneering cautionary tale.",
+          sourceUrl: "https://example.com/nubits",
+          sourceLabel: "NuBits writeup",
+        },
+        logoSrc: null,
+        tile: { x: 1, y: 1 },
+        visual: { marker: "skeletal", scale: 1 },
+        detailId: "grave.nbt-nubits",
+      }],
+    };
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("NuBits (NBT): Abandoned, 2016-06-01.");
+    expect(markup).not.toContain("peak market cap");
   });
 
   it("hides the Sky squad section when its flagship is missing; Maker squad still renders", () => {

@@ -30,12 +30,19 @@ describe("buildVisualCueRegistry", () => {
       "cue.ship.hull",
       "cue.ship.rigging",
       "cue.ship.scale",
+      "cue.ship.safety-watch",
       "cue.water.semantic-terrain",
     ]));
     expect(cues.find((cue) => cue.id === "cue.ship.motion")).toMatchObject({
       failureState: "reduced-motion static risk-water idle position with evidence caveat",
       target: { kind: "ship" },
       primaryChannels: ["motion", "position", "opacity"],
+    });
+    expect(cues.find((cue) => cue.id === "cue.ship.safety-watch")).toMatchObject({
+      failureState: "no watch overlay; detail row absent for NR or missing report cards",
+      target: { kind: "ship" },
+      primaryChannels: ["shape", "color"],
+      sourceField: "reportCards.cards[].overallGrade (D/F)",
     });
     expect(cues.every((cue) => cue.sourceField && cue.domEquivalent && cue.failureState && cue.reducedMotionEquivalent)).toBe(true);
   });

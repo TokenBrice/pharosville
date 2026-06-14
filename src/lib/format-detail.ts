@@ -49,6 +49,7 @@ export type DetailFactKey =
   | "shipClass"
   | "sizeTier"
   | "bluechipAudit"
+  | "safetyGrade"
   | "marketCap"
   | "priceConfidence"
   | "sourceConsensus"
@@ -86,6 +87,7 @@ const DETAIL_FACT_LABELS = {
   "ship class": "shipClass",
   "size tier": "sizeTier",
   "bluechip audit": "bluechipAudit",
+  "safety grade": "safetyGrade",
   "market cap": "marketCap",
   "price confidence": "priceConfidence",
   "source consensus": "sourceConsensus",
@@ -130,7 +132,9 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   if (tier || klass) {
     // The heritage-gated Bluechip audit folds into the Class row (not its own
     // row) to respect the panel's <= 8 fact-row density contract.
-    const composed = [tier, klass, lookup.get("bluechipAudit")].filter(Boolean).join(" · ");
+    const composed = [tier, klass, lookup.get("bluechipAudit"), lookup.get("safetyGrade")]
+      .filter(Boolean)
+      .join(" · ");
     identity.push({ key: "class", label: "Class", value: composed });
   }
   const marketCap = lookup.get("marketCap");

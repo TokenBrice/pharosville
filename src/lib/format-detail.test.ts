@@ -78,9 +78,10 @@ describe("buildDetailFactSections folds", () => {
       { label: "Ship class", value: "CeFi" },
       { label: "Size tier", value: "Titan class" },
       { label: "Bluechip audit", value: "Bluechip A" },
+      { label: "Safety grade", value: "Safety B+ (score 78)" },
     ]);
     expect(identity).toEqual([
-      { key: "class", label: "Class", value: "Titan class · CeFi · Bluechip A" },
+      { key: "class", label: "Class", value: "Titan class · CeFi · Bluechip A · Safety B+ (score 78)" },
     ]);
   });
 
