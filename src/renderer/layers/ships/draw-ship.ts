@@ -1331,6 +1331,7 @@ function drawDepegWeathering(
 
 export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFrame, ship: PharosVilleWorld["ships"][number], nightFactor: number): void {
   const { assets, camera, ctx } = input;
+  const depegSeverity = depegHistorySeverity(ship.depegHistory);
   const {
     bob,
     geometry,
@@ -1424,7 +1425,7 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
         if (auditShieldState(ship.reportCard, ship.visual.sizeTier)) {
           drawAuditShield(ctx, signalAnchor.x - 6 * geometry.drawScale, signalAnchor.y + 2 * geometry.drawScale, geometry.drawScale);
         }
-        drawDepegWeathering(ctx, geometry.drawPoint.x, drawY, geometry.drawScale, ship.id, depegHistorySeverity(ship.depegHistory));
+        if (depegSeverity > 0) drawDepegWeathering(ctx, geometry.drawPoint.x, drawY, geometry.drawScale, ship.id, depegSeverity);
       });
     } else {
       const proceduralScale = camera.zoom * ship.visual.scale;
@@ -1460,7 +1461,7 @@ export function drawShipOverlay(input: DrawPharosVilleInput, frame: ShipRenderFr
           }
         }
         drawShipSignalOverlay(ctx, ship.visual.overlay, p.x - 10 * proceduralScale, drawY - 20 * proceduralScale, proceduralScale);
-        drawDepegWeathering(ctx, p.x, drawY, proceduralScale, ship.id, depegHistorySeverity(ship.depegHistory));
+        if (depegSeverity > 0) drawDepegWeathering(ctx, p.x, drawY, proceduralScale, ship.id, depegSeverity);
       });
     }
     // W6.04 — heritage-tier stern engraving. Runs OUTSIDE the pose transform
