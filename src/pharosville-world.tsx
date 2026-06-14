@@ -12,6 +12,7 @@ import Maximize2 from "lucide-react/dist/esm/icons/maximize-2";
 import Minimize2 from "lucide-react/dist/esm/icons/minimize-2";
 import { AccessibilityLedger, type ShipRiskTransitionEntry } from "./components/accessibility-ledger";
 import { DetailPanel } from "./components/detail-panel";
+import { FleetStateLine } from "./components/fleet-state-line";
 import { ShipSearch } from "./components/ship-search";
 import { WorldToolbar } from "./components/world-toolbar";
 import { PHAROSVILLE_LATEST_VERSION } from "./content/pharosville-version";
@@ -21,6 +22,7 @@ import { useLegendDialog } from "./hooks/use-legend-dialog";
 import { useCanvasResizeAndCamera } from "./hooks/use-canvas-resize-and-camera";
 import { useFullscreenMode } from "./hooks/use-fullscreen-mode";
 import { useLatestRef } from "./hooks/use-latest-ref";
+import { useLiveTitle } from "./hooks/use-live-title";
 import { detailAnchorForPoint, useWorldKeyboardTargets } from "./hooks/use-world-keyboard-targets";
 import { useWorldRenderLoop } from "./hooks/use-world-render-loop";
 import { useWorldSelection, resolveSelectedDetail } from "./hooks/use-world-selection";
@@ -76,6 +78,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const changelog = useChangelogDialog({ setAnnouncement });
   const legend = useLegendDialog({ setAnnouncement });
   const timeControls = useWorldTimeControls({ requestPaint: requestWorldFrame });
+  useLiveTitle(world);
 
   // Memoize on a content signature instead of `world` identity so live data
   // refetches that don't change ship/dock/map/lighthouse-flicker fields reuse
@@ -449,6 +452,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
             onTimeOfDayChange={timeControls.setManualTimeOverrideHour}
             onClearTimeOverride={timeControls.clearTimeOverride}
           />
+          <FleetStateLine world={world} />
         </div>
         <ShipSearch options={shipSearchOptions} onSelect={handleSearchSelect} />
         {selectedDetail && (
