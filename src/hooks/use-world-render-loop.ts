@@ -95,11 +95,9 @@ interface DetailAnchor extends ScreenPoint {
 export interface UseWorldRenderLoopInput {
   /**
    * Called when the deterministic time bucket flips (every ~10 minutes of
-   * wall clock). MUST be reference-stable across renders — the RAF effect
-   * captures it once via an exhaustive-deps disable, so passing a fresh
-   * arrow function each render will silently strand the callback at the
-   * first-rendered identity. The current call site passes
-   * `setMotionBucket` directly (a useState dispatcher, which IS stable).
+   * wall clock). The hook mirrors the latest callback into a ref so RAF and
+   * reduced-motion timer paths can share bucket advancement without rebinding
+   * the frame loop.
    */
   onBucketFlip?: (bucket: number) => void;
   adaptiveDprStateRef: MutableRefObject<AdaptiveDprState>;
@@ -210,6 +208,11 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     stepCameraRef.current = stepCamera;
   }, [stepCamera]);
 
+  const onBucketFlipRef = useRef(onBucketFlip);
+  useEffect(() => {
+    onBucketFlipRef.current = onBucketFlip;
+  }, [onBucketFlip]);
+
   const animationFramePendingRef = useRef(false);
   const paintRequestRef = useRef<() => void>(() => {});
   const requestPaint = useCallback(() => {
@@ -291,6 +294,14 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     framePacingStatsRef.current = emptyFramePacingMetrics();
     frameRatePublishRef.current = { fps: null, lastPublishedAtMs: 0 };
     renderSchedulerHysteresisRef.current = createRenderSchedulerHysteresisState();
+  }, []);
+
+  const advanceMotionBucket = useCallback((newBucket: number) => {
+    if (newBucket === lastBucketRef.current) return false;
+    lastBucketRef.current = newBucket;
+    bucketFlipCountRef.current += 1;
+    onBucketFlipRef.current?.(newBucket);
+    return true;
   }, []);
 
   // Reset per-world transient state (timing, samples, hit snapshot) when the
@@ -430,12 +441,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         accSecondsRef.current += dt;
         lastWallRef.current = time;
         timeSeconds = accSecondsRef.current;
-        const newBucket = Math.floor(accSecondsRef.current / 600);
-        if (newBucket !== lastBucketRef.current) {
-          lastBucketRef.current = newBucket;
-          bucketFlipCountRef.current += 1;
-          onBucketFlip?.(newBucket);
-        }
+        advanceMotionBucket(Math.floor(accSecondsRef.current / MOTION_BUCKET_INTERVAL_SECONDS));
       }
       const frameWallClockHour = normalizeHour(wallClockHour);
       const sampleStartedAt = performance.now();
@@ -815,7 +821,42 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assetManager, cameraReady, canvasSize.x, canvasSize.y, reducedMotion, shipsById, wallClockHour, world]);
+  }, [advanceMotionBucket, assetManager, cameraReady, canvasSize.x, canvasSize.y, reducedMotion, shipsById, wallClockHour, world]);
+
+  // Reduced motion keeps draw-time static (`timeSeconds = 0`) and therefore
+  // has no continuous RAF clock to cross the route-variation bucket boundary.
+  // Maintain the same 10-minute bucket clock with a timeout, then let the
+  // committed motion-plan change below trigger the one-shot repaint.
+  useEffect(() => {
+    if (!reducedMotion) return;
+    const startMs = performance.now() - accSecondsRef.current * 1000;
+    let timeoutId = 0;
+
+    const scheduleNextBucket = () => {
+      const now = performance.now();
+      const elapsedMs = Math.max(0, now - startMs);
+      const nextBucket = Math.floor(elapsedMs / MOTION_BUCKET_INTERVAL_MS) + 1;
+      const nextBucketAtMs = startMs + nextBucket * MOTION_BUCKET_INTERVAL_MS;
+      timeoutId = window.setTimeout(handleBucketTimeout, Math.max(0, nextBucketAtMs - now));
+    };
+    const handleBucketTimeout = () => {
+      const elapsedSeconds = Math.max(0, (performance.now() - startMs) / 1000);
+      accSecondsRef.current = elapsedSeconds;
+      advanceMotionBucket(Math.floor(elapsedSeconds / MOTION_BUCKET_INTERVAL_SECONDS));
+      scheduleNextBucket();
+    };
+
+    scheduleNextBucket();
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [advanceMotionBucket, reducedMotion]);
+
+  useEffect(() => {
+    if (!reducedMotion) return;
+    reducedMotionSamplesSignatureRef.current = null;
+    requestPaint();
+  }, [motionPlan, reducedMotion, requestPaint]);
 
   // Asset arrivals must trigger a repaint (especially under reduced motion
   // where the RAF loop is otherwise idle). Route through `requestPaint` so the
@@ -939,6 +980,8 @@ const SHIP_HIT_TARGET_REFRESH_PER_FRAME = 32;
 const FRAME_RATE_LABEL_UPDATE_MS = 500;
 const MAX_WORLD_FRAME_DELTA_SECONDS = 1 / 30;
 const TEST_CLOCK_JUMP_DELTA_SECONDS = 1;
+const MOTION_BUCKET_INTERVAL_SECONDS = 600;
+const MOTION_BUCKET_INTERVAL_MS = MOTION_BUCKET_INTERVAL_SECONDS * 1000;
 
 function collectShipMotionSamples(input: {
   motionPlan: MotionPlan;

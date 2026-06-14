@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { act, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PharosVilleAssetManager } from "../renderer/asset-manager";
@@ -126,7 +126,9 @@ describe("useWorldRenderLoop", () => {
     hoveredDetailId,
     initialRequestedDpr = 1,
     maximumRequestedDpr = 1,
+    motionBucket = 0,
     mountEpochMs = 0,
+    onBucketFlip,
     onInternals,
     onStepCamera,
     onResult,
@@ -137,7 +139,9 @@ describe("useWorldRenderLoop", () => {
     hoveredDetailId: string | null;
     initialRequestedDpr?: number;
     maximumRequestedDpr?: number;
+    motionBucket?: number;
     mountEpochMs?: number;
+    onBucketFlip?: (bucket: number) => void;
     onInternals?: (internals: {
       adaptiveDprStateRef: { current: ReturnType<typeof initialAdaptiveDprState> };
       canvasBudgetRef: { current: ReturnType<typeof resolveCanvasBudget> | null };
@@ -170,8 +174,8 @@ describe("useWorldRenderLoop", () => {
     const [hitTargetsRef] = useState<{ current: readonly HitTarget[] }>(() => ({ current: [] }));
     const [shipMotionSamplesRef] = useState<{ current: ReadonlyMap<string, ShipMotionSample> }>(() => ({ current: new Map() }));
     const [shipsById] = useState(() => new Map(world.ships.map((ship) => [ship.id, ship])));
-    const [baseMotionPlan] = useState(() => buildBaseMotionPlan(world));
-    const [motionPlan] = useState(() => buildMotionPlan(world, null, baseMotionPlan));
+    const baseMotionPlan = useMemo(() => buildBaseMotionPlan(world, motionBucket * 600), [motionBucket]);
+    const motionPlan = useMemo(() => buildMotionPlan(world, null, baseMotionPlan), [baseMotionPlan]);
     const [motionPlanRef] = useState(() => ({ current: motionPlan }));
     const [mountEpochMsRef] = useState(() => ({ current: mountEpochMs }));
     hoveredDetailIdRef.current = hoveredDetailId;
@@ -196,6 +200,7 @@ describe("useWorldRenderLoop", () => {
     };
 
     const result = useWorldRenderLoop({
+      ...(onBucketFlip ? { onBucketFlip } : {}),
       adaptiveDprStateRef,
       assetLoadErrors: [],
       assetLoadTick: 0,
@@ -445,6 +450,65 @@ describe("useWorldRenderLoop", () => {
       };
     }).__pharosVilleDebug;
     expect(debug?.renderMetrics?.framePacing?.sampleCount).toBe(0);
+  });
+
+  it("advances the route bucket under reduced motion without starting a continuous RAF loop", () => {
+    vi.useFakeTimers();
+    const bucketFlipSpy = vi.fn();
+    let latest: UseWorldRenderLoopResult | null = null;
+
+    function BucketHarness() {
+      const [bucket, setBucket] = useState(0);
+      return (
+        <Harness
+          hoveredDetailId={null}
+          motionBucket={bucket}
+          onBucketFlip={(nextBucket) => {
+            bucketFlipSpy(nextBucket);
+            setBucket(nextBucket);
+          }}
+          onResult={(result) => {
+            latest = result;
+          }}
+        />
+      );
+    }
+
+    try {
+      render(<BucketHarness />);
+      const latestResult = latest as UseWorldRenderLoopResult | null;
+      expect(latestResult?.requestPaint).toBeDefined();
+
+      fireLatestRaf(1);
+      const rafsAfterInitialPaint = rafSpy.mock.calls.length;
+      const drawsAfterInitialPaint = drawPharosVilleMock.mock.calls.length;
+
+      act(() => {
+        vi.advanceTimersByTime(599_999);
+      });
+      expect(bucketFlipSpy).not.toHaveBeenCalled();
+      expect(rafSpy.mock.calls.length).toBe(rafsAfterInitialPaint);
+
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(bucketFlipSpy).toHaveBeenCalledTimes(1);
+      expect(bucketFlipSpy).toHaveBeenLastCalledWith(1);
+      expect(rafSpy.mock.calls.length).toBe(rafsAfterInitialPaint + 1);
+
+      fireLatestRaf(600_000);
+      expect(drawPharosVilleMock.mock.calls.length).toBe(drawsAfterInitialPaint + 1);
+      expect(rafSpy.mock.calls.length).toBe(rafsAfterInitialPaint + 1);
+
+      const drawCalls = drawPharosVilleMock.mock.calls as unknown as Array<[{
+        motion: { reducedMotion: boolean; timeSeconds: number };
+      }]>;
+      const lastCall = drawCalls[drawCalls.length - 1]![0];
+      expect(lastCall.motion.reducedMotion).toBe(true);
+      expect(lastCall.motion.timeSeconds).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps the animated RAF loop scheduled when the active camera ref is temporarily unavailable", () => {
