@@ -81,6 +81,8 @@ function harboredStablecoins(chain: ChainSummary): DockStablecoin[] {
 
   if (top.length > 0) return top;
 
+  if (chain.totalUsd <= 0 || chain.dominantStablecoin.share <= 0) return [];
+
   return [{
     id: chain.dominantStablecoin.id,
     symbol: chain.dominantStablecoin.symbol,

@@ -1,6 +1,6 @@
 import { RUNTIME_CEMETERY_ENTRIES } from "@shared/lib/cemetery-runtime";
 import { PSI_HEX_COLORS } from "@shared/lib/psi-colors";
-import type { StabilityIndexResponse, StressSignalsAllResponse } from "@shared/types";
+import type { StabilityIndexResponse } from "@shared/types";
 import { buildChainDocks } from "../../chain-docks";
 import {
   buildPharosVilleMap,
@@ -12,6 +12,7 @@ import {
   SHIP_RISK_PLACEMENTS,
   riskWaterAreaForPlacement,
 } from "../../risk-water-areas";
+import { countShipsByRiskPlacement } from "./ship-placement";
 import type {
   DewsAreaBand,
   DockNode,
@@ -30,7 +31,7 @@ function toEpochMs(value: number | null | undefined): number | null {
   return value < 10_000_000_000 ? value * 1000 : value;
 }
 
-export function resolveGeneratedAt(inputs: PharosVilleInputs): number {
+export function resolveGeneratedAt(inputs: PharosVilleInputs): number | null {
   const explicitGeneratedAt = toEpochMs(inputs.generatedAt);
   if (explicitGeneratedAt !== null) return explicitGeneratedAt;
 
@@ -45,7 +46,7 @@ export function resolveGeneratedAt(inputs: PharosVilleInputs): number {
     .map(toEpochMs)
     .filter((value): value is number => value !== null);
 
-  return candidates.length > 0 ? Math.max(...candidates) : 0;
+  return candidates.length > 0 ? Math.max(...candidates) : null;
 }
 
 function isConditionBand(value: string | null | undefined): value is keyof typeof PSI_HEX_COLORS {
@@ -147,40 +148,24 @@ function lastFleetDepegAt(pegSummary: PharosVilleInputs["pegSummary"]): number |
   return latest;
 }
 
-function buildDewsBandCounts(stress: StressSignalsAllResponse | null | undefined): Record<DewsAreaBand, number> {
-  const counts: Record<DewsAreaBand, number> = {
-    DANGER: 0,
-    WARNING: 0,
-    ALERT: 0,
-    WATCH: 0,
-    CALM: 0,
-  };
-  for (const entry of Object.values(stress?.signals ?? {})) {
-    const band = entry.band.toUpperCase();
-    if (band in counts) counts[band as DewsAreaBand] += 1;
-  }
-  return counts;
-}
-
 function areaIdForRiskWaterPlacement(placement: ShipNode["riskPlacement"], band: DewsAreaBand | null): string {
   return band ? `area.dews.${band.toLowerCase()}` : `area.risk-water.${placement}`;
 }
 
 function sourceFieldsForRiskWaterPlacement(placement: ShipNode["riskPlacement"], band: DewsAreaBand | null): string[] {
-  if (band) return ["stress.signals[]"];
+  if (band) return ["pegSummary.coins[]", "stress.signals[]", "freshness"];
   if (placement === "ledger-mooring") return ["meta.flags.navToken", "pegSummary.coins[]", "stress.signals[]"];
   return ["pegSummary.coins[]", "stress.signals[]"];
 }
 
 function summaryForRiskWaterPlacement(placement: ShipNode["riskPlacement"], band: DewsAreaBand | null): string {
   const area = riskWaterAreaForPlacement(placement);
-  if (band) return `${area.label} uses ${area.waterStyle} for DEWS ${band} placement.`;
+  if (band) return `${area.label} uses ${area.waterStyle} for ships placed in the ${band} risk-water band.`;
   if (placement === "ledger-mooring") return "Ledger Mooring uses ledger water for NAV ledger assets, including assets that also have standard peg or DEWS rows.";
   return `${area.label} is a named risk-water area.`;
 }
 
-function buildAreas(stress: StressSignalsAllResponse | null | undefined): PharosVilleWorld["areas"] {
-  const counts = buildDewsBandCounts(stress);
+function buildAreas(shipCountsByRiskPlacement: ReadonlyMap<ShipNode["riskPlacement"], number>): PharosVilleWorld["areas"] {
   return SHIP_RISK_PLACEMENTS.map((placement) => {
     const riskWaterArea = riskWaterAreaForPlacement(placement);
     const band = riskWaterArea.band;
@@ -192,7 +177,7 @@ function buildAreas(stress: StressSignalsAllResponse | null | undefined): Pharos
       label: riskWaterArea.label,
       tile: riskWaterArea.labelTile,
       ...(band ? { band } : {}),
-      count: band ? counts[band] : null,
+      count: band ? shipCountsByRiskPlacement.get(placement) ?? 0 : null,
       detailId: id,
       facts: [
         { label: "Water style", value: riskWaterArea.waterStyle },
@@ -221,12 +206,13 @@ function withBackingDiversity(docks: DockNode[], chains: PharosVilleInputs["chai
 }
 
 export function buildWorldScaffoldStage(inputs: PharosVilleInputs): BuildWorldScaffoldStage {
+  const docks = withBackingDiversity(buildChainDocks(inputs.chains), inputs.chains);
   return {
     map: buildPharosVilleMap(),
     lighthouse: buildLighthouse(inputs.stability, inputs.pegSummary),
     pigeonnier: buildPigeonnier(),
-    docks: withBackingDiversity(buildChainDocks(inputs.chains), inputs.chains),
-    areas: buildAreas(inputs.stress),
+    docks,
+    areas: buildAreas(countShipsByRiskPlacement(inputs, docks)),
     graves: graveNodesFromEntries(inputs.cemeteryEntries ?? RUNTIME_CEMETERY_ENTRIES),
   };
 }

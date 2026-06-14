@@ -107,7 +107,7 @@ vi.mock("./systems/pharosville-world", () => ({
 vi.mock("./pharosville-world", async () => {
   const React = await import("react");
   return {
-    PharosVilleWorld: ({ world }: { world: { generatedAt: number; routeMode: string; ships: unknown[] } }) => (
+    PharosVilleWorld: ({ world }: { world: { generatedAt: number | null; routeMode: string; ships: unknown[] } }) => (
       React.createElement("div", {
         "data-build-id": world.generatedAt,
         "data-route-mode": world.routeMode,

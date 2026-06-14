@@ -374,7 +374,7 @@ export type SelectableWorldEntity =
   | PigeonnierNode;
 
 export interface PharosVilleWorld {
-  generatedAt: number;
+  generatedAt: number | null;
   routeMode: RouteMode;
   freshness: PharosVilleFreshness;
   map: PharosVilleMap;

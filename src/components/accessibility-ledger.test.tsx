@@ -20,6 +20,13 @@ describe("AccessibilityLedger", () => {
     expect(markup).not.toContain("long-tail cluster detail panel");
   });
 
+  it("renders missing generatedAt as unknown instead of the Unix epoch", () => {
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={{ ...sampleWorld(), generatedAt: null }} />);
+
+    expect(markup).toContain("Generated at unknown time");
+    expect(markup).not.toContain("1970-01-01");
+  });
+
   it("describes NAV ships as Ledger Mooring route placements", () => {
     const markup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorldWithLedgerShip()} />);
 
@@ -398,6 +405,16 @@ describe("AccessibilityLedger", () => {
       };
       const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
       expect(markup).toContain("24h supply change -3.2%");
+    });
+
+    it("does not render negative zero for tiny negative changes", () => {
+      const world: PharosVilleWorld = {
+        ...sampleWorldWithLedgerShip(),
+        ships: [{ ...sampleWorldWithLedgerShip().ships[0]!, change24hPct: -0.04, change24hUsd: -1 }],
+      };
+      const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+      expect(markup).toContain("24h supply change 0.0%");
+      expect(markup).not.toContain("24h supply change -0.0%");
     });
 
     it("shows unavailable when change24hPct is null", () => {

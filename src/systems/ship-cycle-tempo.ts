@@ -22,18 +22,25 @@ export function cycleTempoReadingClause(): string {
  * Compute the marketCap quartile (0–3) for a ship relative to its fleet.
  * Pure / deterministic. Returns 0 for single-ship fleets.
  */
-function marketCapQuartile(marketCap: number, allMarketCaps: number[]): 0 | 1 | 2 | 3 {
-  if (allMarketCaps.length <= 1) return 0;
-  const sorted = [...allMarketCaps].sort((a, b) => a - b);
-  const n = sorted.length;
-  // Thresholds at 25%, 50%, 75% of the sorted array.
-  const q1 = sorted[Math.floor(n * 0.25)]!;
-  const q2 = sorted[Math.floor(n * 0.5)]!;
-  const q3 = sorted[Math.floor(n * 0.75)]!;
-  if (marketCap < q1) return 0;
-  if (marketCap < q2) return 1;
-  if (marketCap < q3) return 2;
-  return 3;
+function normalizedMarketCap(value: number): number {
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function compareShipsByMarketCapRank(left: ShipNode, right: ShipNode): number {
+  const byMarketCap = normalizedMarketCap(left.marketCapUsd) - normalizedMarketCap(right.marketCapUsd);
+  return byMarketCap !== 0 ? byMarketCap : left.id.localeCompare(right.id);
+}
+
+function quartileForRankPosition(index: number, total: number): 0 | 1 | 2 | 3 {
+  if (total <= 1) return 0;
+  return Math.max(0, Math.min(3, Math.round((index / (total - 1)) * 3))) as 0 | 1 | 2 | 3;
+}
+
+function marketCapQuartile(ship: ShipNode, allShips: readonly ShipNode[]): 0 | 1 | 2 | 3 {
+  if (allShips.length <= 1) return 0;
+  const sorted = [...allShips].sort(compareShipsByMarketCapRank);
+  const index = sorted.findIndex((entry) => entry.id === ship.id);
+  return quartileForRankPosition(index >= 0 ? index : 0, sorted.length);
 }
 
 export interface ShipCycleTempoResult {
@@ -55,8 +62,7 @@ export interface ShipCycleTempoResult {
  * @param allShips - All ships in the world (including `ship`).
  */
 export function shipCycleTempo(ship: ShipNode, allShips: readonly ShipNode[]): ShipCycleTempoResult {
-  const allMarketCaps = allShips.map((s) => s.marketCapUsd);
-  const quartile = marketCapQuartile(ship.marketCapUsd, allMarketCaps);
+  const quartile = marketCapQuartile(ship, allShips);
   return {
     quartile,
     label: CYCLE_TEMPO_LABELS[quartile],
@@ -84,17 +90,9 @@ export function precomputeShipTempos(allShips: readonly ShipNode[]): Map<string,
     });
     return result;
   }
-  const sorted = allShips.map((s) => s.marketCapUsd).sort((a, b) => a - b);
-  const n = sorted.length;
-  const q1 = sorted[Math.floor(n * 0.25)]!;
-  const q2 = sorted[Math.floor(n * 0.5)]!;
-  const q3 = sorted[Math.floor(n * 0.75)]!;
-  for (const ship of allShips) {
-    let quartile: 0 | 1 | 2 | 3;
-    if (ship.marketCapUsd < q1) quartile = 0;
-    else if (ship.marketCapUsd < q2) quartile = 1;
-    else if (ship.marketCapUsd < q3) quartile = 2;
-    else quartile = 3;
+  const sorted = [...allShips].sort(compareShipsByMarketCapRank);
+  for (const [index, ship] of sorted.entries()) {
+    const quartile = quartileForRankPosition(index, sorted.length);
     result.set(ship.id, {
       quartile,
       label: CYCLE_TEMPO_LABELS[quartile],

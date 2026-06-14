@@ -112,7 +112,7 @@ function consortRisk(
   const evidence: PlacementEvidence = {
     reason: `${squad.label} squad member; inherits flagship placement (${flagshipRisk.evidence.reason})`,
     sourceFields,
-    stale: flagshipRisk.evidence.stale,
+    stale: flagshipRisk.evidence.stale || (stricter && ownRisk.evidence.stale),
     ...(stricter
       ? {
           squadOverride: {
@@ -277,6 +277,17 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
     };
   });
   return spreadShipRiskAnchorsAcrossWater(ships);
+}
+
+export function countShipsByRiskPlacement(
+  inputs: PharosVilleInputs,
+  docks: readonly DockNode[],
+): ReadonlyMap<ShipRiskPlacement, number> {
+  const counts = new Map<ShipRiskPlacement, number>();
+  for (const ship of buildShips(inputs, docks)) {
+    counts.set(ship.riskPlacement, (counts.get(ship.riskPlacement) ?? 0) + 1);
+  }
+  return counts;
 }
 
 function spreadShipRiskAnchorsAcrossWater(ships: ShipNode[]): ShipNode[] {

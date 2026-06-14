@@ -214,6 +214,37 @@ describe("detail-model analytical links", () => {
     expect(detail.facts.find((fact) => fact.label === "Peak market cap")).toBeUndefined();
   });
 
+  it.each([
+    "javascript:alert(1)",
+    "data:text/html,<h1>bad</h1>",
+  ])("omits unsafe grave source links for %s", (sourceUrl) => {
+    const detail = detailForGrave({
+      id: "grave.unsafe",
+      kind: "grave",
+      label: "Unsafe",
+      entry: {
+        id: "unsafe",
+        name: "Unsafe",
+        symbol: "BAD",
+        pegCurrency: "USD",
+        causeOfDeath: "abandoned",
+        deathDate: "2026-06-14",
+        epitaph: "Unsafe source URL.",
+        obituary: "A fixture for source URL validation.",
+        sourceUrl,
+        sourceLabel: "Unsafe writeup",
+      },
+      logoSrc: null,
+      tile: { x: 1, y: 1 },
+      visual: { marker: "skeletal", scale: 1 },
+      detailId: "grave.unsafe",
+    } satisfies GraveNode);
+
+    expect(detail.links).toEqual([
+      { label: "Cemetery", href: "https://pharos.watch/cemetery/" },
+    ]);
+  });
+
   it("describes active elevated DEWS as the lighthouse warm-beam cue", () => {
     const cue = lighthouseBeamWarmCueLabel([
       {
@@ -700,6 +731,14 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       expect(fact!.value).toBe("-3.2%");
     });
 
+    it("rounds before choosing the sign so tiny negatives do not render as negative zero", () => {
+      const ship = baseShipNode({ change24hPct: -0.04 });
+      const detail = detailForShip(ship);
+      const fact = detail.facts.find((f) => f.label === "24h supply change");
+      expect(fact).toBeDefined();
+      expect(fact!.value).toBe("0.0%");
+    });
+
     it("shows em-dash when change24hPct is null", () => {
       const ship = baseShipNode({ change24hPct: null });
       const detail = detailForShip(ship);
@@ -799,6 +838,22 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
         value: "$90.0B",
       });
     });
+
+    it("formats decimal PSI scores consistently in the score fact", () => {
+      const detail = detailForLighthouse({
+        id: "lighthouse",
+        kind: "lighthouse",
+        label: "Pharos lighthouse",
+        tile: { x: 1, y: 1 },
+        psiBand: "WARNING",
+        score: 72.25,
+        color: "#ffffff",
+        unavailable: false,
+        detailId: "lighthouse",
+      } satisfies LighthouseNode);
+
+      expect(detail.facts.find((fact) => fact.label === "Score")?.value).toBe("72.3");
+    });
   });
 
   describe("W5.01 — Tracking new risk band fact", () => {
@@ -877,6 +932,8 @@ describe("detail-model depeg history and supply momentum", () => {
     expect(depegHistoryLabel({ eventCount: 1, worstDeviationBps: -120, lastEventAt: null })).toBeNull();
     expect(depegHistoryLabel({ eventCount: 1, worstDeviationBps: -900, lastEventAt: null }))
       .toBe("1 event on record; worst -9.0%");
+    expect(depegHistoryLabel({ eventCount: 1, worstDeviationBps: 900, lastEventAt: null }))
+      .toBe("1 event on record; worst +9.0%");
     expect(depegHistoryLabel(null)).toBeNull();
     expect(depegHistoryLabel({ eventCount: 0, worstDeviationBps: -500, lastEventAt: null })).toBeNull();
   });

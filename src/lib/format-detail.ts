@@ -18,7 +18,9 @@ export function formatCompactUsd(input: number | string | null | undefined): str
 
 export function formatChangePercent(input: number | null | undefined): string {
   if (typeof input !== "number" || !Number.isFinite(input)) return "unavailable";
-  return `${input >= 0 ? "+" : ""}${input.toFixed(1)}%`;
+  const rounded = Math.round(input * 10) / 10;
+  const normalized = Object.is(rounded, -0) ? 0 : rounded;
+  return `${normalized > 0 ? "+" : ""}${normalized.toFixed(1)}%`;
 }
 
 const CALM_ZONE = /^calm/i;

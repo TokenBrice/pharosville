@@ -81,6 +81,15 @@ function chainLabel(chainId: string): string {
   return CHAIN_META[chainId]?.name ?? chainId;
 }
 
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 const ETHEREUM_L2_DOCK_CHAIN_ID_SET = new Set<string>(ETHEREUM_L2_DOCK_CHAIN_IDS);
 
 // Per-band atmospheric descriptor used by the area detail panel. Mirrors the
@@ -139,8 +148,10 @@ function chainFootprintLabel(node: ShipNode): string {
 // E2: format change24hPct (percent units, e.g. 10 = +10%) for the detail panel.
 function change24hPctLabel(change24hPct: number | null): string {
   if (change24hPct == null) return "—";
-  const sign = change24hPct >= 0 ? "+" : "";
-  return `${sign}${change24hPct.toFixed(1)}%`;
+  const rounded = Math.round(change24hPct * 10) / 10;
+  const normalized = Object.is(rounded, -0) ? 0 : rounded;
+  const sign = normalized > 0 ? "+" : "";
+  return `${sign}${normalized.toFixed(1)}%`;
 }
 
 // Longer-window supply momentum, hidden when neither window has data.
@@ -223,7 +234,7 @@ export function psiContributorLabel(contributor: NonNullable<LighthouseNode["con
 
 /**
  * Severity of a ship's depeg record in [0, 1]. Zero (insignificant) below the
- * shared gate of 3+ events or a worst deviation beyond -3%. The same value
+ * shared gate of 3+ events or a worst deviation beyond +/-3%. The same value
  * drives the hull-weathering render intensity and the "Depeg history"
  * detail/ledger row, so the canvas cue and its DOM parity always agree.
  */
@@ -231,8 +242,15 @@ export function depegHistorySeverity(history: ShipNode["depegHistory"]): number 
   if (!history || history.eventCount <= 0) return 0;
   const byCount = history.eventCount >= 3 ? Math.min(1, history.eventCount / 12) : 0;
   const worst = history.worstDeviationBps ?? 0;
-  const byWorst = worst <= -300 ? Math.min(1, Math.abs(worst) / 2000) : 0;
+  const absWorst = Math.abs(worst);
+  const byWorst = absWorst >= 300 ? Math.min(1, absWorst / 2000) : 0;
   return Math.max(byCount, byWorst);
+}
+
+function signedBpsPercentLabel(value: number): string {
+  const percentage = value / 100;
+  const sign = percentage > 0 ? "+" : "";
+  return `${sign}${percentage.toFixed(1)}%`;
 }
 
 // "3 events on record; worst -8.2%; last 2026-05-30" — null when the record
@@ -241,7 +259,7 @@ export function depegHistoryLabel(history: ShipNode["depegHistory"]): string | n
   if (!history || depegHistorySeverity(history) <= 0) return null;
   const parts = [`${pluralize(history.eventCount, "event")} on record`];
   if (history.worstDeviationBps != null) {
-    parts.push(`worst ${(history.worstDeviationBps / 100).toFixed(1)}%`);
+    parts.push(`worst ${signedBpsPercentLabel(history.worstDeviationBps)}`);
   }
   const lastDate = depegEventDateLabel(history.lastEventAt);
   if (lastDate) parts.push(`last ${lastDate}`);
@@ -397,7 +415,7 @@ export function detailForLighthouse(node: LighthouseNode): DetailModel {
       ? "PSI is unavailable, so the beacon is unlit."
       : `PSI band ${node.psiBand}. Beam warmth tracks the fleet PSI composite; per-zone storms show in the water and sky, not the beam.`,
     facts: [
-      { label: "Score", value: node.score == null ? "Unavailable" : String(node.score) },
+      { label: "Score", value: node.score == null ? "Unavailable" : formatPsiNumber(node.score) },
       { label: "Band", value: node.psiBand ?? "Unavailable" },
       ...(trend ? [{ label: "Trend", value: trend }] : []),
       ...(composition ? [{ label: "Composition", value: composition }] : []),
@@ -692,12 +710,14 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
 
 export function detailForGrave(node: GraveNode): DetailModel {
   const causeLabel = CAUSE_META[node.entry.causeOfDeath]?.label ?? node.entry.causeOfDeath;
-  const sourceLink: DetailModel["links"][number] & { rel: "noopener noreferrer" } = {
-    label: node.entry.sourceLabel,
-    href: node.entry.sourceUrl,
-    target: "_blank",
-    rel: "noopener noreferrer",
-  };
+  const sourceLink: (DetailModel["links"][number] & { rel: "noopener noreferrer" }) | null = isHttpUrl(node.entry.sourceUrl)
+    ? {
+        label: node.entry.sourceLabel,
+        href: node.entry.sourceUrl,
+        target: "_blank",
+        rel: "noopener noreferrer",
+      }
+    : null;
   return {
     id: node.detailId,
     kind: node.kind,
@@ -714,7 +734,7 @@ export function detailForGrave(node: GraveNode): DetailModel {
     ],
     links: [
       { label: "Cemetery", href: analyticalRouteHref("/cemetery/") },
-      sourceLink,
+      ...(sourceLink ? [sourceLink] : []),
     ],
   };
 }

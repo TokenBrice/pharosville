@@ -59,6 +59,21 @@ describe("buildPharosVilleWorld", () => {
     expect(buildPharosVilleWorld(input)).toEqual(world);
   });
 
+  it("keeps generatedAt unknown when no timestamp candidates exist", () => {
+    const world = buildPharosVilleWorld({
+      stablecoins: null,
+      chains: null,
+      stability: null,
+      pegSummary: null,
+      stress: null,
+      reportCards: null,
+      cemeteryEntries: [],
+      freshness: {},
+    });
+
+    expect(world.generatedAt).toBeNull();
+  });
+
   it("builds deterministic core entities without React or canvas", () => {
     const world = buildPharosVilleWorld({
       stablecoins: fixtureStablecoins,
@@ -173,6 +188,44 @@ describe("buildPharosVilleWorld", () => {
     })).toBe(true);
   });
 
+  it("counts DEWS area stablecoins from final ship placements, not raw stale stress signals", () => {
+    const world = buildPharosVilleWorld({
+      stablecoins: fixtureStablecoins,
+      chains: fixtureChains,
+      stability: fixtureStability,
+      pegSummary: fixturePegSummary,
+      stress: {
+        ...fixtureStress,
+        signals: {
+          "usdc-circle": {
+            score: 96,
+            band: "DANGER",
+            signals: { peg: { available: true, value: 96 } },
+            computedAt: 1_700_000_000,
+            methodologyVersion: "fixture",
+          },
+          "usdt-tether": {
+            score: 96,
+            band: "DANGER",
+            signals: { peg: { available: true, value: 96 } },
+            computedAt: 1_700_000_000,
+            methodologyVersion: "fixture",
+          },
+        },
+      },
+      reportCards: fixtureReportCards,
+      cemeteryEntries: [],
+      freshness: { stressStale: true },
+    });
+
+    for (const area of world.areas.filter((entry) => entry.band && entry.riskPlacement)) {
+      const placedShipCount = world.ships.filter((ship) => ship.riskPlacement === area.riskPlacement).length;
+      expect(area.count, `${area.label} count should match placed ships`).toBe(placedShipCount);
+    }
+    expect(world.areas.find((area) => area.band === "DANGER")?.count).toBe(0);
+    expect(world.areas.find((area) => area.band === "CALM")?.count).toBe(world.ships.length);
+  });
+
   it("keeps every authored ship anchor on water after island layout changes", () => {
     for (const [placement, anchors] of Object.entries(SHIP_WATER_ANCHORS)) {
       for (const anchor of anchors) {
@@ -222,7 +275,7 @@ describe("buildPharosVilleWorld", () => {
     expect(usdt?.riskWaterLabel).toBe("Calm Anchorage");
   });
 
-  it("names DEWS water areas from live band counts and anchors ships to matching risk water", () => {
+  it("names DEWS water areas from placed ship counts and anchors ships to matching risk water", () => {
     const stress = {
       ...fixtureStress,
       signals: {
@@ -268,9 +321,9 @@ describe("buildPharosVilleWorld", () => {
     expect(counts).toMatchObject({
       DANGER: 0,
       WARNING: 0,
-      ALERT: 4,
-      WATCH: 58,
-      CALM: 107,
+      ALERT: 1,
+      WATCH: 0,
+      CALM: 0,
     });
     expect(world.areas.find((area) => area.band === "CALM")?.label).toBe("Calm Anchorage");
     expect(watchArea?.label).toBe("Watch Breakwater");

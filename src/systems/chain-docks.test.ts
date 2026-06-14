@@ -158,6 +158,24 @@ describe("buildChainDocks", () => {
     expect(docks[0]?.harborRank).toBe(1);
   });
 
+  it("does not synthesize a zero-dollar fallback stablecoin row for zero-total chains", () => {
+    const docks = buildChainDocks({
+      ...fixtureChains,
+      chains: [
+        makeChain({
+          id: "zero-chain",
+          totalUsd: 0,
+          dominantStablecoin: { id: "phantom", symbol: "PHAN", share: 1 },
+          topStablecoins: [],
+        }),
+      ],
+      globalTotalUsd: 0,
+    });
+
+    expect(docks).toHaveLength(1);
+    expect(docks[0]?.harboredStablecoins).toEqual([]);
+  });
+
   it("emits only the top eight chain harbors and preserves top stablecoin cargo", () => {
     const chains = Array.from({ length: 12 }, (_, index) => makeChain({
       id: `chain-${index}`,

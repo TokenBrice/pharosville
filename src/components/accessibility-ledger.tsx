@@ -118,8 +118,7 @@ function AccessibilityLedgerContent({
     <section className="sr-only" aria-labelledby={headingId} data-testid="pharosville-accessibility-ledger">
       <h2 id={headingId}>PharosVille accessibility ledger</h2>
       <p>
-        Generated at{" "}
-        <time dateTime={new Date(world.generatedAt).toISOString()}>{new Date(world.generatedAt).toISOString()}</time>.
+        {generatedAtLabel(world.generatedAt)}.
         {staleSources.length > 0
           ? ` Stale source groups: ${staleSources.join(", ")}.`
           : " All source groups are current."}
@@ -389,6 +388,14 @@ function orderSquadShips(ships: readonly ShipNode[], squad: StablecoinSquad): Sh
   return squad.displayOrder
     .map((id) => byId.get(id))
     .filter((ship): ship is ShipNode => ship !== undefined);
+}
+
+function generatedAtLabel(generatedAt: PharosVilleWorld["generatedAt"]) {
+  if (generatedAt == null || !Number.isFinite(generatedAt) || generatedAt <= 0) {
+    return "Generated at unknown time";
+  }
+  const iso = new Date(generatedAt).toISOString();
+  return <>Generated at <time dateTime={iso}>{iso}</time></>;
 }
 
 function freshnessEntries(world: PharosVilleWorld) {
