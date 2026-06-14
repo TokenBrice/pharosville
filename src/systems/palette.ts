@@ -148,6 +148,8 @@ export const DEWS_AREA_LABEL_COLORS = {
   DANGER: "#ef4444",
 } as const satisfies Record<DewsAreaBand, string>;
 
+export const LEDGER_INK_HEX = "#d9b974";
+
 export function waterTerrainStyle(kind: string): WaterTerrainStyle | null {
   return WATER_TERRAIN_STYLES[kind as keyof typeof WATER_TERRAIN_STYLES] ?? null;
 }
@@ -239,7 +241,7 @@ export const ZONE_THEMES = {
     // Ledger reads as parchment-and-ink; the foam ribbon is intentionally
     // minimal here so the still ledger surface stays the dominant note.
     beachFoamAlpha: 0.4,
-    label: defaultLabelTheme("#d9b974"), // bronze ink — off THREAT_BAND_HEX axis
+    label: defaultLabelTheme(LEDGER_INK_HEX), // bronze ink — off THREAT_BAND_HEX axis
     // Ledger motion is intentionally asymmetric: amplitudeScale 0.5 keeps the
     // water itself quiet (parchment-still), while strokeAlphaScale 1.05 keeps
     // the mooring/rule lines crisp against that calm background.

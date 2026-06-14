@@ -11,8 +11,10 @@ import Home from "lucide-react/dist/esm/icons/home";
 import Maximize2 from "lucide-react/dist/esm/icons/maximize-2";
 import Minimize2 from "lucide-react/dist/esm/icons/minimize-2";
 import { AccessibilityLedger, type ShipRiskTransitionEntry } from "./components/accessibility-ledger";
+import { BandKey } from "./components/band-key";
 import { DetailPanel } from "./components/detail-panel";
 import { FleetStateLine } from "./components/fleet-state-line";
+import { NotableMovers } from "./components/notable-movers";
 import { ShipSearch } from "./components/ship-search";
 import { WorldToolbar } from "./components/world-toolbar";
 import { PHAROSVILLE_LATEST_VERSION } from "./content/pharosville-version";
@@ -29,6 +31,7 @@ import { useWorldSelection, resolveSelectedDetail } from "./hooks/use-world-sele
 import { useWorldTimeControls } from "./hooks/use-world-time-controls";
 import { createHitTargetSnapshot, type HitTarget, type HitTargetSnapshot } from "./renderer/hit-testing";
 import { buildBaseMotionPlan, buildMotionPlan, disposePathCacheForMap, motionPlanSignature, type ShipMotionSample } from "./systems/motion";
+import { selectNotableMovers } from "./systems/notable-movers";
 import type { ScreenPoint } from "./systems/projection";
 import { observeReducedMotion } from "./systems/reduced-motion";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "./systems/world-types";
@@ -95,6 +98,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const motionPlan = useMemo(() => buildMotionPlan(world, selectedDetailId, baseMotionPlan), [baseMotionPlan, selectedDetailId]);
   const shipsById = useMemo(() => new Map(world.ships.map((ship) => [ship.id, ship])), [world.ships]);
   const shipCounterLabel = useMemo(() => fleetCounterLabel(world.ships), [world.ships]);
+  const notableMovers = useMemo(() => selectNotableMovers(world), [world]);
   // W5.01 — derive the live risk-band tack-out per ship from the motion plan
   // at world-refresh cadence. The detail panel and accessibility ledger both
   // consume this; progress is a synthetic in-transit marker (the actual
@@ -455,6 +459,8 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
           <FleetStateLine world={world} />
         </div>
         <ShipSearch options={shipSearchOptions} onSelect={handleSearchSelect} />
+        <NotableMovers movers={notableMovers} onSelect={handleSearchSelect} />
+        <BandKey />
         {selectedDetail && (
           <div
             className={selectedDetailAnchor ? `pharosville-detail-dock pharosville-detail-dock--anchored pharosville-detail-dock--${selectedDetailAnchor.side}` : "pharosville-detail-dock"}

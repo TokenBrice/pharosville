@@ -321,7 +321,7 @@ export function isShipMapVisible(ship: ShipNode, sample: ShipMotionSample | null
     || sample.currentDockId == null;
 }
 
-function hasRecentMove(ship: ShipNode) {
+export function hasRecentMove(ship: ShipNode) {
   const absolute = Math.abs(ship.change24hUsd ?? 0);
   const percentage = Math.abs(ship.change24hPct ?? 0);
   return absolute >= 1_000_000 || percentage >= 0.01;
