@@ -136,6 +136,26 @@ export function releasePharosVilleRendererCaches(): void {
   shipBodyCacheGenerationKey = null;
 }
 
+let cachedVisualDebugAllowed: boolean | null = null;
+
+function isVisualDebugAllowed(): boolean {
+  if (cachedVisualDebugAllowed === null) {
+    cachedVisualDebugAllowed = !import.meta.env.PROD
+      || (typeof window !== "undefined"
+        && (window.location.hostname === "localhost"
+          || window.location.hostname === "127.0.0.1"));
+  }
+  return cachedVisualDebugAllowed;
+}
+
+function passTimingStart(enabled: boolean): number {
+  return enabled ? performance.now() : 0;
+}
+
+function passTimingDuration(enabled: boolean, startMs: number): number {
+  return enabled ? performance.now() - startMs : 0;
+}
+
 interface CameraCacheFrame {
   keySegment: string;
   offsetBucketPx: number;
@@ -539,6 +559,7 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   const { ctx } = input;
   const frame = createWorldCanvasFrame(input);
   const { nightFactor } = skyState(input.motion);
+  const collectPassTiming = isVisualDebugAllowed();
   // W4.01 first-load reveal beat. Resolves to identity (sceneAlpha=1, no
   // offset, lighthouse on, sweepScale=1) at steady state; phases shape the
   // first ~1.8s of cold-mount draws driven by `pharosville-world.tsx`.
@@ -555,16 +576,17 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   ctx.imageSmoothingEnabled = false;
   // V1.1 per-pass instrumentation: coarse performance.now() pairs around the
   // major pass groups only (never per entity) so dense-scene draw cost is
-  // attributable in `__pharosVilleDebug.renderMetrics`.
-  const skyStartMs = performance.now();
+  // attributable in `__pharosVilleDebug.renderMetrics`. Keep this behind the
+  // visual-debug guard so production draws do not pay per-pass timer overhead.
+  const skyStartMs = passTimingStart(collectPassTiming);
   drawSky(input, frame.lighthouseRender);
-  const skyDrawMs = performance.now() - skyStartMs;
+  const skyDrawMs = passTimingDuration(collectPassTiming, skyStartMs);
 
   const visibleTileCount = countVisibleTiles(input);
-  const terrainBlitStartMs = performance.now();
+  const terrainBlitStartMs = passTimingStart(collectPassTiming);
   drawStaticPassCached(input, frame, "terrain", paintStaticTerrainPass);
-  const terrainBlitMs = performance.now() - terrainBlitStartMs;
-  const waterAccentStart = performance.now();
+  const terrainBlitMs = passTimingDuration(collectPassTiming, terrainBlitStartMs);
+  const waterAccentStart = passTimingStart(collectPassTiming);
   input.ctx.imageSmoothingEnabled = false;
   waterAccentCadenceParity = !waterAccentCadenceParity;
   const waterAccentCadenceDraw = input.renderScheduler?.tier !== "recovery"
@@ -576,18 +598,18 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   const coastalWaterTileCount = shouldDrawScheduledPass(input.renderScheduler, "coastal-water-motion")
     ? drawCoastalWaterDetails(input)
     : 0;
-  const waterAccentDrawMs = performance.now() - waterAccentStart;
-  const preSceneAmbientStartMs = performance.now();
+  const waterAccentDrawMs = passTimingDuration(collectPassTiming, waterAccentStart);
+  const preSceneAmbientStartMs = passTimingStart(collectPassTiming);
   // V1.3 — feather the map rim into the sky backdrop. Before the entity
   // pass so edge-zone ships stay crisp above the haze.
   drawWorldRimHaze(input);
   if (shouldDrawScheduledPass(input.renderScheduler, "atmospheric-fade")) {
     drawAtmosphericFade(input, nightFactor);
   }
-  const sceneBlitStartMs = performance.now();
+  const sceneBlitStartMs = passTimingStart(collectPassTiming);
   drawRevealGatedScene(input, frame, reveal);
-  const sceneBlitEndMs = performance.now();
-  const staticBlitDrawMs = terrainBlitMs + (sceneBlitEndMs - sceneBlitStartMs);
+  const sceneBlitEndMs = passTimingStart(collectPassTiming);
+  const staticBlitDrawMs = collectPassTiming ? terrainBlitMs + (sceneBlitEndMs - sceneBlitStartMs) : 0;
   if (reveal.drawLighthouse) {
     if (shouldDrawScheduledPass(input.renderScheduler, "lighthouse-surf")) drawLighthouseSurf(lighthouseInput);
     if (shouldDrawScheduledPass(input.renderScheduler, "lighthouse-reflection")) {
@@ -603,17 +625,19 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
   // layering contract as harbor-surf: over the water, under the entity-pass
   // dock sprites. Recovery keeps the pass; constrained sheds it.
   if (shouldDrawScheduledPass(input.renderScheduler, "dock-caustics")) drawDockCaustics(input);
-  const entityPassStartMs = performance.now();
-  const preEntityAmbientMs = (entityPassStartMs - preSceneAmbientStartMs) - (sceneBlitEndMs - sceneBlitStartMs);
+  const entityPassStartMs = passTimingStart(collectPassTiming);
+  const preEntityAmbientMs = collectPassTiming
+    ? (entityPassStartMs - preSceneAmbientStartMs) - (sceneBlitEndMs - sceneBlitStartMs)
+    : 0;
   const entityMetrics = drawRevealGatedEntities(input, frame, nightFactor, reveal, lighthouseInput);
   drawSquadChrome(input, frame);
-  const entityPassEndMs = performance.now();
+  const entityPassEndMs = passTimingStart(collectPassTiming);
   const entityPassDrawMs = entityPassEndMs - entityPassStartMs;
   // Ticker nameplates draw as a fleet-wide pass after all entities so plates
   // sit above neighboring hulls, and before night tint / water labels so they
   // dim with the scene like other in-world signage.
   const nameplateDrawCount = drawShipNameplates(input, frame, frame.visibleShips);
-  const nameplateEndMs = performance.now();
+  const nameplateEndMs = passTimingStart(collectPassTiming);
   const nameplateDrawMs = nameplateEndMs - entityPassEndMs;
   if (shouldDrawScheduledPass(input.renderScheduler, "cloud-shadow")) {
     drawCloudShadowDrift(input, isScheduledPassDegraded(input.renderScheduler, "cloud-shadow") ? nightFactor * 0.65 : nightFactor);
@@ -653,14 +677,16 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
     }
   }
   if (shouldDrawScheduledPass(input.renderScheduler, "scene-vignette")) drawNightVignette(input, nightFactor);
-  const selectionStartMs = performance.now();
+  const selectionStartMs = passTimingStart(collectPassTiming);
   const postEntityAmbientMs = selectionStartMs - nameplateEndMs;
   const selectionDrawableCount = drawSelection(input);
-  const selectionEndMs = performance.now();
+  const selectionEndMs = passTimingStart(collectPassTiming);
   const selectionChromeDrawMs = selectionEndMs - selectionStartMs;
   if (shouldDrawScheduledPass(input.renderScheduler, "establishing-letterbox")) drawEstablishingShotLetterbox(input);
   if (shouldDrawScheduledPass(input.renderScheduler, "film-grain")) drawFilmGrainPass(input);
-  const ambientDrawMs = preEntityAmbientMs + postEntityAmbientMs + (performance.now() - selectionEndMs);
+  const ambientDrawMs = collectPassTiming
+    ? preEntityAmbientMs + postEntityAmbientMs + passTimingDuration(collectPassTiming, selectionEndMs)
+    : 0;
   const drawableCounts = {
     ...entityMetrics.drawableCounts,
     selection: selectionDrawableCount,
@@ -683,17 +709,21 @@ export function drawPharosVille(input: DrawPharosVilleInput): PharosVilleRenderM
     movingShipCount,
     visibleShipCount: frame.visibleShips.length,
     visibleTileCount,
-    waterAccentDrawMs,
     waterAccentMode: input.motion.reducedMotion ? "reduced-motion-direct" : "direct",
     waterAccentTileCount,
     coastalWaterTileCount,
-    skyDrawMs,
-    staticBlitDrawMs,
-    entityPassDrawMs,
-    nameplateDrawMs,
     nameplateDrawCount,
-    ambientDrawMs,
-    selectionChromeDrawMs,
+    ...(collectPassTiming
+      ? {
+        waterAccentDrawMs,
+        skyDrawMs,
+        staticBlitDrawMs,
+        entityPassDrawMs,
+        nameplateDrawMs,
+        ambientDrawMs,
+        selectionChromeDrawMs,
+      }
+      : {}),
     ...(scheduler?.targetFrameMs !== undefined ? { renderBudgetTargetMs: scheduler.targetFrameMs } : {}),
     ...(scheduler?.degradedPasses ? { schedulerDegradedPasses: scheduler.degradedPasses } : {}),
     ...(scheduler?.skippedPasses ? { schedulerSkippedPasses: scheduler.skippedPasses } : {}),
