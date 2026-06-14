@@ -9,18 +9,14 @@
  * `window.__pharosVilleDebug.renderMetrics`.
  *
  * Budget rationale:
- *   - median ≤ 140ms: current 4-vCPU CI ceiling after removing single-sample
- *     variance (commit 67bc711 raised the snapshot guard to 200ms precisely to
- *     absorb one-off spikes; 140ms median leaves room for that without masking
- *     sustained regressions).
- *   - p95 ≤ 200ms: matches the existing snapshot-test ceiling so any sustained
- *     drift that would trip the snapshot test also trips this lane.
+ *   - median <= 100ms: tightened CI ceiling after V4.3 proved local dense draw
+ *     is ~4-5ms median, roughly 3.5x headroom against a 16.7ms frame budget.
+ *     The old 140ms CI medians are a 4-vCPU CI scaling artifact (~25-30x local)
+ *     per the substrate memo, not a product-experience measurement.
+ *   - p95 <= 140ms: keeps sustained tail cost below the old median ceiling
+ *     while still allowing CI variance from that 4-vCPU scaling artifact.
  *   - ≥ 30 valid samples: at 50ms polling cadence, 100 polls ≈ 5s of telemetry,
  *     giving well over 30 samples even when a few frames miss the debug window.
- *
- * After T1.4/T1.3/T2.x land and CI proves stable below these ceilings, the
- * operator should tighten: median → 100ms, p95 → 140ms (reverting the spirit
- * of commit 67bc711). This comment is the authoritative pointer for that work.
  */
 
 import { test, expect } from "@playwright/test";
@@ -36,8 +32,8 @@ import {
 // Budget constants
 // ---------------------------------------------------------------------------
 
-const BUDGET_MEDIAN_MS = 140;
-const BUDGET_P95_MS = 200;
+const BUDGET_MEDIAN_MS = 100;
+const BUDGET_P95_MS = 140;
 const CI_FRAME_PACING_MIN_EFFECTIVE_FPS = 8;
 const CI_FRAME_PACING_P90_MS = 180;
 const CI_FRAME_PACING_DROPPED_FRAME_RATIO = 1;
@@ -132,7 +128,7 @@ test.describe("sustained-motion perf telemetry", () => {
     let lastRouteCacheStats: DebugRenderMetrics["routeCacheStats"] | undefined;
     let lastLongtask: DebugRenderMetrics["longtask"] | undefined;
     // V1.1 per-pass attribution: accumulate pass-group timings so the lane
-    // logs a draw-cost breakdown alongside the budget assertions.
+    // logs draw-cost breakdowns beside the tightened 100ms/140ms budget.
     const passSums = {
       skyDrawMs: 0,
       staticBlitDrawMs: 0,
@@ -188,9 +184,9 @@ test.describe("sustained-motion perf telemetry", () => {
     const p95Index = Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1);
     const p95 = sorted[p95Index] ?? Number.POSITIVE_INFINITY;
 
-    // Budget rationale: see file-level comment.
-    // To tighten after Phase 1/2/3 land: lower BUDGET_MEDIAN_MS → 100,
-    // BUDGET_P95_MS → 140, and update the ci-budget note in 67bc711.
+    // Budget rationale: see file-level comment. V4.3 measured local dense draw
+    // at ~4-5ms with ~3.5x 60fps headroom; CI draw timings are inflated by a
+    // known 4-vCPU scaling artifact, so sustained drift now fails at 100/140ms.
     expect(median).toBeLessThanOrEqual(BUDGET_MEDIAN_MS);
     expect(p95).toBeLessThanOrEqual(BUDGET_P95_MS);
 
