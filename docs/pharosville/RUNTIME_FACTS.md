@@ -50,7 +50,7 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - entry chunk: raw <= 300 KiB, gzip <= 90 KiB
 - desktop lazy chunk: raw <= 1,024 KiB, gzip <= 290 KiB
 - entry CSS: raw <= 32 KiB, gzip <= 8 KiB
-- Total JS: raw <= 1,328 KiB, gzip <= 393 KiB
+- Total JS: raw <= 1,255 KiB, gzip <= 382 KiB
 
 ## Squads
 
