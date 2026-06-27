@@ -189,6 +189,15 @@ describe("water terrain pass split", () => {
     expect(serializableCalls(reducedLater.recording.calls)).toEqual(serializableCalls(reducedFirst.recording.calls));
   });
 
+  it("keeps Danger Strait storm bursts visible through their low phase instead of popping off", () => {
+    const lowPhase = waterDrawInput("storm-water", 0);
+
+    expect(drawWaterTerrainAccents(lowPhase.input)).toBe(1);
+
+    const spumeDots = lowPhase.recording.calls.filter((call) => call.method === "fillRect");
+    expect(spumeDots.length).toBeGreaterThanOrEqual(3);
+  });
+
   it("thins full-tier accents to the constrained candidate set below the chrome zoom gate (V4.1)", () => {
     const rows = Array.from({ length: 12 }, () => Array.from({ length: 12 }, () => "alert-water" as TerrainKind));
     const world = {

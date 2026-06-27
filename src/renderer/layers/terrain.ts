@@ -1858,11 +1858,10 @@ function drawDangerStormBurst(
   tileX: number,
   tileY: number,
 ) {
-  const flicker = motion.reducedMotion
-    ? 1.0
-    : fastSin(motion.timeSeconds * 2.4 + tileX * 0.61 + tileY * 0.43);
-  if (!motion.reducedMotion && flicker < 0.6) return;
-  const intensity = motion.reducedMotion ? 0.7 : Math.min(1, 0.6 + (flicker - 0.6) * 1.9);
+  const wave = motion.reducedMotion
+    ? 0.5
+    : (fastSin(motion.timeSeconds * 1.2 + tileX * 0.61 + tileY * 0.43) + 1) * 0.5;
+  const intensity = motion.reducedMotion ? 0.7 : 0.24 + wave * 0.58;
   ctx.save();
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
