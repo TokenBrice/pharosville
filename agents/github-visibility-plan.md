@@ -44,6 +44,49 @@ Treat GitHub as a public product surface, not just a source mirror. The repo sho
 
 The highest-leverage work is not more code. It is metadata, a better README, community files, releases, visual proof, and GitHub-native trust signals.
 
+## Execution Status
+
+Last updated: 2026-06-29
+
+Implemented on `main`:
+
+- `564b96f Improve GitHub visibility foundation`
+  - Reworked `README.md` into a public product page with badges, preview media, trust boundaries, repo map, validation, and contributor links.
+  - Added `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SUPPORT.md`, issue forms, and a PR template.
+  - Added `CHANGELOG.md`, `ROADMAP.md`, `docs/README.md`, `docs/pharosville/GITHUB_MEDIA.md`, `public/llms.txt`, and `public/manifest.webmanifest`.
+  - Added GitHub media under `docs/pharosville/media/`.
+  - Added package metadata for repository, homepage, and issue tracker.
+  - Added CodeQL, Dependabot, and a reusable GitHub Actions setup action.
+- `724bb97 Fix tracked visibility doc references`
+  - Fixed tracked Markdown link labels so CI documentation guards pass.
+- `0e9c63d Tune Dependabot visibility cadence`
+  - Tuned Dependabot to minor/patch-only automation with cooldowns and auto-rebase.
+  - Closed the noisy first-run Dependabot PRs and documented rollout follow-up in issue #6.
+
+GitHub admin work completed:
+
+- Repository description: `Canvas maritime observatory for live Pharos stablecoin market signals.`
+- Repository homepage: `https://pharosville.pharos.watch/`
+- Topics: `canvas`, `cloudflare-pages`, `data-visualization`, `defi`, `open-source`, `pharos`, `react`, `stablecoins`, `typescript`, `vite`
+- Wiki and Projects disabled.
+- Labels seeded for visibility, release, media, discoverability, security, ops, accessibility, visual, data, and priority/type tracking.
+- Issues #2-#8 seeded for manual/admin follow-up and ongoing upkeep.
+- GitHub Release `v0.2.2 - Signal Clarity` published with media assets.
+- `main` protected with a repository ruleset and classic branch protection requiring PR review plus strict checks: `typecheck`, `unit`, `guards`, `build`, `visual`, `visual-cross-browser`.
+
+Verified:
+
+- `npm run validate:changed` passed for the final config change.
+- `npm run check:branch-protection` passed after protection restoration.
+- Main workflows for `0e9c63d` passed: Deploy to Cloudflare Pages and CodeQL.
+- Live deploy smoke passed through the Deploy workflow.
+- GitHub community profile health is now 100%.
+- Open PR queue is clean after closing stale first-run Dependabot PRs.
+
+Remaining manual item:
+
+- Upload `public/og-card.png` as the repository social preview in GitHub Settings. GitHub exposes the state through GraphQL, but the upload itself is a browser settings action rather than a supported API operation. This is tracked in issue #2.
+
 ## Priority 0: Repository Metadata
 
 These are admin/UI changes, not code changes.
