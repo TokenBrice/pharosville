@@ -8,7 +8,7 @@ Use this file to keep GitHub, README, and social-preview media consistent.
 
 - OG card: `public/og-card.png`
 - README brand preview: `public/og-card.png`
-- README product screenshot: `docs/pharosville/media/pharosville-desktop-shell.png`
+- README product screenshot: `docs/pharosville/media/pharosville-desktop-shell.png` (1200px-wide fleet view)
 - Canonical app URL: `https://pharosville.pharos.watch/`
 - Repository URL: `https://github.com/TokenBrice/pharosville`
 
@@ -27,12 +27,12 @@ There is no stable public REST API for setting the repository social preview.
 
 ## README Product Screenshot
 
-The product screenshot should show the actual desktop shell, not only a branded card. Regenerate from a known visual snapshot or a fresh local capture, then downscale for GitHub readability:
+The product screenshot should show the actual desktop shell with ships visible, not only a branded card or an empty map. Regenerate from a known visual snapshot or a fresh local capture, then downscale for GitHub readability:
 
 ```bash
 mkdir -p docs/pharosville/media
-magick tests/visual/pharosville.spec.ts-snapshots/pharosville-desktop-shell-desktop-chromium-linux.png \
-  -resize 960x \
+magick outputs/pharosville-desktop-shell-source.png \
+  -resize 1200x \
   -strip \
   docs/pharosville/media/pharosville-desktop-shell.png
 ```
