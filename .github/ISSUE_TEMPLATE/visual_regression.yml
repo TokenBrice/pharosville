@@ -1,0 +1,47 @@
+name: Visual Regression
+description: Report canvas, layout, screenshot, or motion drift.
+title: "[Visual] "
+labels: ["visual"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Attach screenshots or short video when possible. Do not include secrets or private data.
+  - type: input
+    id: affected-area
+    attributes:
+      label: Affected visual area
+      placeholder: Lighthouse, dock flags, fleet labels, detail panel, narrow fallback...
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: Current appearance
+      description: What looks wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected appearance
+      description: What should the scene or UI look like instead?
+    validations:
+      required: true
+  - type: input
+    id: viewport
+    attributes:
+      label: Browser and viewport
+      placeholder: Chromium 1440x1000, Firefox 1280x900, reduced motion on/off...
+    validations:
+      required: true
+  - type: textarea
+    id: state
+    attributes:
+      label: Scene state
+      description: Include time mode, reduced motion, zoom/camera position, selected ship, or matching Playwright snapshot if known.
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshot or video
+      description: Drag screenshots, videos, or annotated captures here.

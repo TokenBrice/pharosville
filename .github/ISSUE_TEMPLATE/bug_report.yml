@@ -1,0 +1,51 @@
+name: Bug Report
+description: Report a reproducible PharosVille app or API proxy bug.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include API keys, tokens, private requester details, or secrets.
+  - type: input
+    id: affected-url
+    attributes:
+      label: Affected URL or endpoint
+      placeholder: https://pharosville.pharos.watch/ or /api/...
+    validations:
+      required: true
+  - type: dropdown
+    id: viewport-gate
+    attributes:
+      label: Viewport gate state
+      options:
+        - Desktop world mounted
+        - Narrow or short fallback
+        - Portrait rotate prompt
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. Open...\n2. Click...\n3. See..."
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Browser, viewport, console, or network context
+      description: Include browser/version, viewport size, screenshots, and redacted console or network snippets when useful.

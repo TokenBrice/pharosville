@@ -1,31 +1,111 @@
 # PharosVille
 
-PharosVille is a Canvas 2D maritime analytics UI for Pharos stablecoin signals. It runs as a desktop-only web app at `https://pharosville.pharos.watch/` and renders live, polled stablecoin supply, dock chain presence, and risk indicators with local pixel-art sprites driven by a pure world model.
+[![CI / Deploy](https://github.com/TokenBrice/pharosville/actions/workflows/deploy-cloudflare.yml/badge.svg)](https://github.com/TokenBrice/pharosville/actions/workflows/deploy-cloudflare.yml)
+[![Live Canary](https://github.com/TokenBrice/pharosville/actions/workflows/canary-smoke.yml/badge.svg)](https://github.com/TokenBrice/pharosville/actions/workflows/canary-smoke.yml)
+[![CodeQL](https://github.com/TokenBrice/pharosville/actions/workflows/codeql.yml/badge.svg)](https://github.com/TokenBrice/pharosville/actions/workflows/codeql.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-Standalone PharosVille frontend for `pharosville.pharos.watch`.
+PharosVille turns live Pharos stablecoin signals into a desktop-only maritime observatory built with React, Canvas 2D, TypeScript, Vite, and Cloudflare Pages.
 
-The browser reads same-origin `/api/*` paths. Cloudflare Pages Functions allow only the six PharosVille read endpoints and inject `PHAROS_API_KEY` server-side, so no API key is shipped to the client bundle.
+[Open PharosVille](https://pharosville.pharos.watch/) | [Changelog](./CHANGELOG.md) | [Roadmap](./ROADMAP.md) | [Architecture](./docs/pharosville/ARCHITECTURE.md) | [Contributing](./CONTRIBUTING.md) | [Security](./SECURITY.md)
 
-For the data flow and rendering pipeline at a glance, see `docs/pharosville/ARCHITECTURE.md`. For agent-oriented entry points, see `AGENTS.md`.
+![PharosVille social preview](./public/og-card.png)
 
-## Agent Onboarding
+![PharosVille desktop shell](./docs/pharosville/media/pharosville-desktop-shell.png)
 
-For agent-oriented startup, guardrails, and focused command lanes:
+## What It Shows
 
-- `AGENTS.md`
-- `docs/pharosville/AGENT_ONBOARDING.md`
+PharosVille renders a living island-city view of Pharos stablecoin market signals:
 
-Run the onboarding/environment check:
+- stablecoin supply, presence, and identity as ships
+- chain presence as harbors and docks
+- risk/status water zones around the island
+- detail panels and an accessibility ledger that mirror canvas semantics
+- local pixel-art sprites loaded from a manifest-backed asset pipeline
 
-```bash
-npm run onboard:agent
-```
+The app is intentionally desktop-only. Narrow screens, short screens, and capable portrait screens must not mount the world runtime or fetch world data; they show a fallback or rotate prompt instead.
 
-## Commands
+## Trust Boundaries
+
+PharosVille is an interpretive data visualization, not financial advice.
+
+It does not provide:
+
+- wallet connection
+- trading
+- custody
+- user accounts
+- browser-exposed API credentials
+
+The browser calls same-origin `/api/*` paths only. `functions/api/[[path]].ts` proxies the allowlisted PharosVille read endpoints to `PHAROS_API_BASE` and injects `PHAROS_API_KEY` server-side. Never expose `PHAROS_API_KEY` as `VITE_*`, static JavaScript, HTML, query strings, logs, docs, or fixtures.
+
+## Architecture
+
+At a high level:
+
+1. The React route gates unsupported viewports before world data is mounted.
+2. The browser requests same-origin `/api/*` endpoints.
+3. Cloudflare Pages Functions proxy only the allowed PharosVille read paths.
+4. `src/systems/` builds a pure world model from live data.
+5. `src/renderer/` draws the Canvas 2D world and keeps DOM parity through panels and ledgers.
+6. `public/pharosville/assets/manifest.json` controls runtime art and sprite budgets.
+
+For the full implementation map, see [Architecture](./docs/pharosville/ARCHITECTURE.md).
+
+## Repo Map
+
+- `src/` - PharosVille React shell, canvas runtime, hooks, content, systems, and renderer
+- `shared/` - runtime-neutral PharosVille API contract and data logic
+- `functions/` - Cloudflare Pages Function proxy and server-side response hardening
+- `public/pharosville/assets/` - local runtime sprite manifest and promoted PNG/WebP assets
+- `docs/pharosville/` - architecture, testing, operations, visual, and asset-maintenance docs
+- `.github/workflows/` - deploy, canary, CodeQL, and dependency/security automation
+- `agents/` - active planning and handoff artifacts
+- `outputs/` - scratch screenshots, renders, and generated test artifacts
+
+## Local Development
+
+Use Node 24:
 
 ```bash
 npm ci
+npm run onboard:agent
 npm run dev
+```
+
+The maintained local dev server is `http://localhost:5173/`.
+
+`npm run dev` proxies same-origin `/api/*` through `functions/api/[[path]].ts`, which requires `PHAROS_API_KEY` server-side. The dev proxy resolves `PHAROS_API_KEY` in this order:
+
+1. `process.env.PHAROS_API_KEY`
+2. `.env.local` in the current worktree
+3. `.env.local` in the main worktree, auto-discovered for linked worktrees
+4. `.git/pharosville.env.local`, shared across worktrees
+
+Initialize or update the shared key file:
+
+```bash
+npm run setup:local-api-key
+```
+
+Smoke the allowlisted Pharos endpoints before debugging missing local data:
+
+```bash
+npm run smoke:api-local
+npm run smoke:dev-proxy
+```
+
+## Validation
+
+Use the smallest relevant check while iterating:
+
+```bash
+npm run validate:changed
+```
+
+Common focused checks:
+
+```bash
 npm run validate:docs
 npm run typecheck
 npm test
@@ -35,83 +115,23 @@ npm run build
 npm run test:visual
 ```
 
-## Local API Key For Worktrees
-
-`npm run dev` proxies same-origin `/api/*` through `functions/api/[[path]].ts`, which requires `PHAROS_API_KEY` server-side.
-
-The dev proxy resolves `PHAROS_API_KEY` in this order:
-
-1. `process.env.PHAROS_API_KEY`
-2. `.env.local` in the current worktree
-3. `.env.local` in the main worktree (auto-discovered for linked worktrees)
-4. `.git/pharosville.env.local` (shared across worktrees)
-
-Use `npm run onboard:agent` to confirm whether the key is discoverable before debugging missing ships/data in local dev.
-
-Initialize/update the shared key file for all linked worktrees:
+Before release-level confidence:
 
 ```bash
-npm run setup:local-api-key
+npm run validate:release
 ```
 
-Smoke all allowlisted Pharos endpoints with the discovered key before debugging UI data issues:
+For deployed changes:
 
 ```bash
-npm run smoke:api-local
+npm run smoke:live -- --url https://pharosville.pharos.watch
 ```
 
-Smoke the same allowlisted endpoints through the local Vite `/api/*` proxy path:
+## Operations
 
-```bash
-npm run smoke:dev-proxy
-```
+Cloudflare Pages project: `pharosville`
 
-## Agent Workflow Automation
-
-Create and bootstrap a new local worktree:
-
-```bash
-npm run worktree:new -- <name> --branch <branch-name> --install
-```
-
-One-shot bootstrap (optional worktree creation + key setup + API smoke + onboarding):
-
-```bash
-npm run agent:init -- [worktree-name] --branch <branch-name> --install
-```
-
-Scaffold a dated plan artifact in `agents/`:
-
-```bash
-npm run agent:plan:new -- <slug>
-```
-
-Auto-select validation lane from current diff (`validate:docs` for docs-only changes, otherwise full `validate`):
-
-```bash
-npm run validate:changed
-```
-
-Run the local equivalent of the Cloudflare deploy workflow's pre-deploy jobs:
-
-```bash
-npm run validate:deploy-gate
-```
-
-To install the optional local pre-push gate for direct `main` pushes:
-
-```bash
-npm run hooks:install
-```
-
-The hook runs `npm run validate:deploy-gate` when pushing to `main`.
-For non-main branch pushes, the hook runs `npm run validate:changed`.
-
-## Cloudflare Pages
-
-Project name: `pharosville`
-
-Required Pages configuration:
+Required Pages setup:
 
 ```bash
 wrangler pages project create pharosville --production-branch main
@@ -120,4 +140,15 @@ wrangler pages secret put PHAROS_API_KEY --project-name pharosville
 
 `PHAROS_API_BASE` is set in `wrangler.toml` as `https://api.pharos.watch`.
 
-For Pages Functions preview, deployment, smoke, rollback, and credential rotation, see `docs/pharosville/OPERATIONS.md`.
+For deployment, smoke, rollback, and credential rotation, see [Operations](./docs/pharosville/OPERATIONS.md).
+
+## Community
+
+- Report bugs and visual/data issues with the GitHub issue forms.
+- Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a pull request.
+- Report vulnerabilities privately through the guidance in [SECURITY.md](./SECURITY.md).
+- Use [SUPPORT.md](./SUPPORT.md) for support scope and triage expectations.
+
+## License
+
+MIT. See [LICENSE](./LICENSE).

@@ -1,0 +1,19 @@
+# PharosVille
+
+Canonical app: https://pharosville.pharos.watch/
+Repository: https://github.com/TokenBrice/pharosville
+
+PharosVille is a desktop-only React and Canvas 2D maritime observatory for live Pharos stablecoin signals. It visualizes stablecoin supply, chain dock presence, and risk/status signals as ships, harbors, water zones, detail panels, and an accessibility ledger.
+
+The app is an interpretive data visualization, not financial advice. It does not provide wallet connection, trading, custody, user accounts, or browser-exposed API credentials.
+
+Important security boundary: browser code calls same-origin /api/* only. Cloudflare Pages Functions proxy allowlisted read endpoints to PHAROS_API_BASE and inject PHAROS_API_KEY server-side. PHAROS_API_KEY must never appear in VITE_* variables, static JavaScript, HTML, query strings, logs, docs, or fixtures.
+
+Key docs:
+- README: https://github.com/TokenBrice/pharosville#readme
+- Architecture: https://github.com/TokenBrice/pharosville/blob/main/docs/pharosville/ARCHITECTURE.md
+- Testing: https://github.com/TokenBrice/pharosville/blob/main/docs/pharosville/TESTING.md
+- Operations: https://github.com/TokenBrice/pharosville/blob/main/docs/pharosville/OPERATIONS.md
+- Security policy: https://github.com/TokenBrice/pharosville/blob/main/SECURITY.md
+- Contributing: https://github.com/TokenBrice/pharosville/blob/main/CONTRIBUTING.md
+- Changelog: https://github.com/TokenBrice/pharosville/blob/main/CHANGELOG.md

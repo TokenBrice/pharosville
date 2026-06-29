@@ -17,19 +17,7 @@ jobs:
       cancel-in-progress: true
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: npm
-      - uses: actions/cache@v5
-        id: node-modules
-        with:
-          path: node_modules
-          key: ${{ runner.os }}-${{ runner.arch }}-node24-modules-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-node24-modules-
-      - if: steps.node-modules.outputs.cache-hit != 'true'
-        run: npm ci
+      - uses: ./.github/actions/setup-workspace
       - name: Check live security headers
         env:
           SMOKE_UI_URL: ${{ vars.SMOKE_UI_URL || 'https://pharosville.pharos.watch' }}

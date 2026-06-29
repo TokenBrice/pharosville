@@ -1,0 +1,7 @@
+name: PharosVille CodeQL config
+
+paths-ignore:
+  - "**/__test-utils__/**"
+  - "**/*.test.ts"
+  - "**/*.test.tsx"
+  - "tests/**"

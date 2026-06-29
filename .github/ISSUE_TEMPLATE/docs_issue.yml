@@ -1,0 +1,28 @@
+name: Documentation Issue
+description: Report stale, unclear, or missing docs.
+title: "[Docs] "
+labels: ["docs"]
+body:
+  - type: input
+    id: document
+    attributes:
+      label: Affected document
+      placeholder: README.md, docs/pharosville/ARCHITECTURE.md, CONTRIBUTING.md...
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is stale, unclear, missing, or incorrect?
+    validations:
+      required: true
+  - type: textarea
+    id: correction
+    attributes:
+      label: Suggested correction
+      description: Include links or command output when useful.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context

@@ -1,8 +1,17 @@
 {
   "name": "pharosville",
   "version": "0.1.0",
+  "description": "Canvas maritime observatory for live Pharos stablecoin market signals.",
   "private": true,
   "license": "MIT",
+  "homepage": "https://pharosville.pharos.watch/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TokenBrice/pharosville.git"
+  },
+  "bugs": {
+    "url": "https://github.com/TokenBrice/pharosville/issues"
+  },
   "packageManager": "npm@11.12.1",
   "engines": {
     "node": ">=24 <25"

@@ -1,0 +1,27 @@
+{
+  "name": "PharosVille",
+  "short_name": "PharosVille",
+  "description": "A desktop maritime observatory for live Pharos stablecoin signals.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "browser",
+  "background_color": "#06131b",
+  "theme_color": "#12313d",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/og-card.png",
+      "sizes": "1200x630",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "PharosVille maritime stablecoin observatory"
+    }
+  ]
+}

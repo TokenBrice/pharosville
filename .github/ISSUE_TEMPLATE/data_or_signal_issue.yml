@@ -1,0 +1,46 @@
+name: Data Or Signal Issue
+description: Report an incorrect stablecoin, chain, or PharosVille signal mapping.
+title: "[Data] "
+labels: ["data"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Data reports need sources. Prefer issuer docs, official dashboards, explorer links, or upstream Pharos API evidence.
+  - type: input
+    id: entity
+    attributes:
+      label: Stablecoin, chain, or signal
+      placeholder: USDC, Ethereum dock, risk water zone, supply-change detail...
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: Current PharosVille value or behavior
+      description: What appears wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected value or behavior
+      description: What should PharosVille show instead?
+    validations:
+      required: true
+  - type: textarea
+    id: sources
+    attributes:
+      label: Sources
+      description: Add links and the date/time you checked them.
+    validations:
+      required: true
+  - type: input
+    id: endpoint
+    attributes:
+      label: Pharos API endpoint, if known
+      placeholder: /api/...
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
