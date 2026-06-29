@@ -4,32 +4,42 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      semver-major-days: 30
+      semver-minor-days: 7
+      semver-patch-days: 3
     open-pull-requests-limit: 3
-    rebase-strategy: "disabled"
+    rebase-strategy: "auto"
+    allow:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
     groups:
       minor-and-patch:
         update-types:
           - "minor"
           - "patch"
     ignore:
-      - dependency-name: "eslint"
-        update-types:
-          - "version-update:semver-major"
-      - dependency-name: "typescript"
-        update-types:
-          - "version-update:semver-major"
-      - dependency-name: "vite"
-        update-types:
-          - "version-update:semver-major"
-      - dependency-name: "react"
-        update-types:
-          - "version-update:semver-major"
-      - dependency-name: "react-dom"
+      - dependency-name: "*"
         update-types:
           - "version-update:semver-major"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "monthly"
+    cooldown:
+      semver-major-days: 30
+      semver-minor-days: 7
+      semver-patch-days: 3
     open-pull-requests-limit: 1
-    rebase-strategy: "disabled"
+    rebase-strategy: "auto"
+    allow:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
