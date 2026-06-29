@@ -68,7 +68,7 @@ jobs:
         run: npm run build
       - name: Bundle size guard
         run: npm run check:bundle-size
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: pharosville-dist
           path: dist
@@ -90,7 +90,7 @@ jobs:
           path: dist
       - name: Built-dist visual tests
         run: npm run test:visual:dist
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: pharosville-visual-artifacts
@@ -122,7 +122,7 @@ jobs:
           path: dist
       - name: Built-dist cross-browser accessibility smoke
         run: npm run test:visual:dist:accessibility:firefox
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: pharosville-visual-cross-browser-artifacts
@@ -174,7 +174,7 @@ jobs:
           exit 1
       - name: Upload Wrangler deploy logs
         if: failure()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: wrangler-deploy-logs
           path: ~/.config/.wrangler/logs
