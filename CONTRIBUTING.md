@@ -15,7 +15,7 @@ Feature ideas should start as an issue before implementation when they change Ph
 ## Before Editing
 
 1. Read [AGENTS.md](./AGENTS.md).
-2. Read [docs/pharosville/AGENT_ONBOARDING.md](./docs/pharosville/AGENT_ONBOARDING.md).
+2. Read [Agent onboarding](./docs/pharosville/AGENT_ONBOARDING.md).
 3. Read only the task-specific docs named by the onboarding guide.
 4. Keep changes narrow and avoid unrelated refactors or formatting sweeps.
 5. Update user-facing docs when route behavior, operations, validation, data semantics, or visual contracts change.

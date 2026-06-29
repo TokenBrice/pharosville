@@ -277,13 +277,13 @@ PharosVille is a visual product. GitHub should show that immediately.
 
 Actions:
 
-- Add `docs/pharosville/GITHUB_MEDIA.md` or `docs/og-images.md` documenting:
+- Add `docs/pharosville/GITHUB_MEDIA.md` documenting:
   - current OG card
   - repository social preview
   - recommended README screenshot
   - screenshot regeneration command
   - image provenance rules
-- Promote a small number of public-facing screenshots into `docs/pharosville/media/` or `public/media/`.
+- Promote a small number of public-facing screenshots into `docs/pharosville/media/`.
   - Use `outputs/` for scratch captures first.
   - Do not commit noisy test artifacts.
 - Add one README screenshot of the actual desktop shell, separate from the branded OG card.

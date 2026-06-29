@@ -36,7 +36,7 @@ Out of scope:
 - `functions/api/[[path]].ts` must proxy only the allowlisted read endpoints.
 - Narrow, short, or portrait-gated viewports must not mount the world runtime or fetch world data.
 
-For header policy and verification commands, see [docs/pharosville/SECURITY_HEADERS.md](./docs/pharosville/SECURITY_HEADERS.md).
+For header policy and verification commands, see [Security headers](./docs/pharosville/SECURITY_HEADERS.md).
 
 ## Handling
 
