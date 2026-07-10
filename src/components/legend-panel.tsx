@@ -15,27 +15,76 @@ import type { ShipRiskPlacement } from "../systems/world-types";
 
 export interface LegendPanelProps {
   onClose: () => void;
+  /** Selects a mover's ship in the world (closing the legend is the caller's
+      choice via onClose composition). */
+  onSelectDetail?: (detailId: string) => void;
   recentFleetTrend?: RecentFleetTrendSummary;
 }
 
-// Zone rows derive label + swatch color from the canonical tables
+// Zone rows derive label, swatch color, and reading from the canonical tables
 // (RISK_WATER_AREAS / ZONE_THEMES) so the legend can never drift from the
-// rendered map. Only the one-line reading is authored here.
-const LEGEND_ZONE_READINGS: ReadonlyArray<{ placement: ShipRiskPlacement; reading: string }> = [
-  { placement: "safe-harbor", reading: "Steady peg evidence; the safe default berth" },
-  { placement: "breakwater-edge", reading: "Early-warning signals worth watching" },
-  { placement: "harbor-mouth-watch", reading: "Elevated DEWS alert; pressure building" },
-  { placement: "outer-rough-water", reading: "Serious peg stress; shallow, hazardous water" },
-  { placement: "storm-shelf", reading: "Active depeg or critical risk; storm water" },
-  { placement: "ledger-mooring", reading: "NAV-priced ledger assets; priced by attestation, not market peg" },
+// rendered map or the ship detail-panel status line.
+const LEGEND_ZONE_PLACEMENTS: ReadonlyArray<ShipRiskPlacement> = [
+  "safe-harbor",
+  "breakwater-edge",
+  "harbor-mouth-watch",
+  "outer-rough-water",
+  "storm-shelf",
+  "ledger-mooring",
 ];
 
-const LEGEND_SHIP_CLASSES: ReadonlyArray<{ name: string; reading: string }> = [
-  { name: "Treasury galleon", reading: "Centralized issuer (fiat reserves)" },
-  { name: "Chartered brigantine", reading: "Centralized-dependent backing" },
-  { name: "DAO schooner", reading: "Decentralized governance" },
-  { name: "Legacy junk", reading: "Algorithmic backing" },
+// Sprite paths point at the standalone class hull sheets under
+// public/pharosville/assets/ships/ so the legend shows the same silhouettes
+// that sail the water ("Legacy junk" is the algo-junk hull).
+const LEGEND_SHIP_CLASSES: ReadonlyArray<{ name: string; reading: string; sprite: string }> = [
+  {
+    name: "Treasury galleon",
+    reading: "Centralized issuer (fiat reserves)",
+    sprite: "/pharosville/assets/ships/treasury-galleon.png",
+  },
+  {
+    name: "Chartered brigantine",
+    reading: "Centralized-dependent backing",
+    sprite: "/pharosville/assets/ships/chartered-brigantine.png",
+  },
+  {
+    name: "DAO schooner",
+    reading: "Decentralized governance",
+    sprite: "/pharosville/assets/ships/dao-schooner.png",
+  },
+  {
+    name: "Legacy junk",
+    reading: "Algorithmic backing",
+    sprite: "/pharosville/assets/ships/algo-junk.png",
+  },
 ];
+
+// Movers carry detailId precisely so narrative text can take the viewer to
+// the ship; without a selection callback they fall back to plain labels.
+function renderMoverEntries(
+  entries: RecentFleetTrendSummary["growers"],
+  onSelectDetail: ((detailId: string) => void) | undefined,
+  onClose: () => void,
+) {
+  if (!onSelectDetail) {
+    return entries.map(recentFleetTrendEntryLabel).join("; ");
+  }
+  return entries.map((entry, index) => (
+    <span key={entry.detailId}>
+      {index > 0 ? "; " : ""}
+      <button
+        type="button"
+        className="pharosville-legend-panel__mover"
+        onClick={() => {
+          onClose();
+          onSelectDetail(entry.detailId);
+        }}
+      >
+        {recentFleetTrendEntryLabel(entry)}
+      </button>
+    </span>
+  ));
+}
 
 const DIALOG_FOCUSABLE_SELECTOR = [
   "a[href]",
@@ -46,7 +95,7 @@ const DIALOG_FOCUSABLE_SELECTOR = [
   "[tabindex]:not([tabindex='-1'])",
 ].join(",");
 
-export function LegendPanel({ onClose, recentFleetTrend }: LegendPanelProps) {
+export function LegendPanel({ onClose, onSelectDetail, recentFleetTrend }: LegendPanelProps) {
   const panelRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const hasRecentMoves = recentFleetTrend
@@ -103,7 +152,7 @@ export function LegendPanel({ onClose, recentFleetTrend }: LegendPanelProps) {
         <section aria-labelledby="pharosville-legend-zones">
           <h3 id="pharosville-legend-zones">Sea zones</h3>
           <ul className="pharosville-legend-panel__zones">
-            {LEGEND_ZONE_READINGS.map(({ placement, reading }) => {
+            {LEGEND_ZONE_PLACEMENTS.map((placement) => {
               const area = RISK_WATER_AREAS[placement];
               const swatch = zoneThemeForTerrain(area.terrain).base;
               return (
@@ -113,7 +162,7 @@ export function LegendPanel({ onClose, recentFleetTrend }: LegendPanelProps) {
                     style={{ backgroundColor: swatch }}
                     aria-hidden="true"
                   />
-                  <strong>{area.label}</strong> — {reading}
+                  <strong>{area.label}</strong> — {area.reading}
                 </li>
               );
             })}
@@ -122,9 +171,16 @@ export function LegendPanel({ onClose, recentFleetTrend }: LegendPanelProps) {
 
         <section aria-labelledby="pharosville-legend-ships">
           <h3 id="pharosville-legend-ships">Ships</h3>
-          <ul>
-            {LEGEND_SHIP_CLASSES.map(({ name, reading }) => (
+          <ul className="pharosville-legend-panel__ships">
+            {LEGEND_SHIP_CLASSES.map(({ name, reading, sprite }) => (
               <li key={name}>
+                <img
+                  className="pharosville-legend-panel__ship-thumb"
+                  src={sprite}
+                  alt=""
+                  aria-hidden="true"
+                  loading="lazy"
+                />
                 <strong>{name}</strong> — {reading}
               </li>
             ))}
@@ -158,10 +214,10 @@ export function LegendPanel({ onClose, recentFleetTrend }: LegendPanelProps) {
             {hasRecentMoves ? (
               <>
                 {recentFleetTrend.growers.length > 0 && (
-                  <p>Growing: {recentFleetTrend.growers.map(recentFleetTrendEntryLabel).join("; ")}.</p>
+                  <p>Growing: {renderMoverEntries(recentFleetTrend.growers, onSelectDetail, onClose)}.</p>
                 )}
                 {recentFleetTrend.shrinkers.length > 0 && (
-                  <p>Shrinking: {recentFleetTrend.shrinkers.map(recentFleetTrendEntryLabel).join("; ")}.</p>
+                  <p>Shrinking: {renderMoverEntries(recentFleetTrend.shrinkers, onSelectDetail, onClose)}.</p>
                 )}
                 <p>{recentFleetTrend.elevatedShipCount} ships in elevated water.</p>
               </>

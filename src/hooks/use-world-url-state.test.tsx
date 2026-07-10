@@ -18,6 +18,7 @@ describe("useWorldUrlState", () => {
     expect(result.current.initialState).toEqual({
       camera: { offsetX: 10, offsetY: 20, zoom: 1.5 },
       followSelectedDetailId: null,
+      hasExplicitSelection: true,
       manualTimeOverrideHour: 5.25,
       nightMode: true,
       selectedDetailId: "ship.usdc",
@@ -49,6 +50,46 @@ describe("useWorldUrlState", () => {
     expect(result.current.initialState.nightMode).toBe(false);
   });
 
+  it("resolves a ship permalink once the settled world arrives", () => {
+    window.history.replaceState(null, "", "/#sel=ship.usdc");
+    const loadingWorld = {
+      entityById: {},
+      routeMode: "loading",
+    } as unknown as PharosVilleWorldModel;
+
+    const { rerender, result } = renderHook(
+      ({ world }: { world: PharosVilleWorldModel }) => useWorldUrlState({ world }),
+      { initialProps: { world: loadingWorld } },
+    );
+
+    expect(result.current.initialState.selectedDetailId).toBe("lighthouse");
+    expect(result.current.lateResolvedSelection).toBeNull();
+
+    rerender({ world: worldFixture() });
+
+    expect(result.current.lateResolvedSelection).toEqual({
+      detailId: "ship.usdc",
+      follow: true,
+    });
+  });
+
+  it("keeps the lighthouse fallback when a permalink id is unknown to the settled world", () => {
+    window.history.replaceState(null, "", "/#sel=ship.missing");
+    const loadingWorld = {
+      entityById: {},
+      routeMode: "loading",
+    } as unknown as PharosVilleWorldModel;
+
+    const { rerender, result } = renderHook(
+      ({ world }: { world: PharosVilleWorldModel }) => useWorldUrlState({ world }),
+      { initialProps: { world: loadingWorld } },
+    );
+    rerender({ world: worldFixture() });
+
+    expect(result.current.initialState.selectedDetailId).toBe("lighthouse");
+    expect(result.current.lateResolvedSelection).toBeNull();
+  });
+
   it("can target search descriptors when no hash descriptor is present", () => {
     const href = buildWorldUrlHref("https://example.test/?foo=bar&sel=ship.usdc&t=24&n=1", "search", {
       camera: { offsetX: 1.234, offsetY: 5.678, zoom: 1.23456 },
@@ -72,5 +113,6 @@ function worldFixture(): PharosVilleWorldModel {
       lighthouse: { detailId: "lighthouse", id: "lighthouse", kind: "lighthouse" },
       "ship.usdc": { detailId: "ship.usdc", id: "ship.usdc", kind: "ship" },
     },
+    routeMode: "world",
   } as unknown as PharosVilleWorldModel;
 }

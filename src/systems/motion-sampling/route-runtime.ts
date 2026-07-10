@@ -56,8 +56,13 @@ export function routeSamplingRuntime(route: ShipMotionRoute): RouteSamplingRunti
   const homeStop = route.homeDockId ? dockStopByDockId.get(route.homeDockId) ?? null : null;
   const scheduledStopCount = Math.min(dockStopCount(route.dockStops.length), route.dockStopSchedule.length);
   const fallbackNonHomeStops = route.dockStops.filter((stop) => stop.dockId !== homeStop?.dockId);
+  // Keep the schedule's weighted repeats: weightedDockStopSchedule encodes
+  // chain deployment share by repeating high-weight dockIds, and the per-cycle
+  // rotation in scheduledDockStopAt walks this multiset so higher-share docks
+  // are visited proportionally more often across cycles. Deduping here would
+  // flatten every dock back to a uniform cadence.
   const scheduledNonHomeStops = route.dockStopSchedule
-    .filter((dockId, index, dockIds) => dockId !== homeStop?.dockId && dockIds.indexOf(dockId) === index)
+    .filter((dockId) => dockId !== homeStop?.dockId)
     .map((dockId) => dockStopByDockId.get(dockId))
     .filter((stop): stop is ShipMotionRoute["dockStops"][number] => Boolean(stop));
   const effectiveNonHomeStops = scheduledNonHomeStops.length > 0 ? scheduledNonHomeStops : fallbackNonHomeStops;

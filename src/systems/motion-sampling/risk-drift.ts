@@ -1,4 +1,3 @@
-import { ZONE_DWELL } from "../motion-config";
 import { staleEvidenceMotionFactors } from "../motion-sampling-factors";
 import { normalizeHeadingInto, smoothstep, smoothstepRange } from "../motion-utils";
 import type { ShipMotionRoute, ShipMotionSample } from "../motion-types";
@@ -26,7 +25,13 @@ export const RISK_TRANSITION_TACK_OUT_SECONDS = 3;
 // deterministic per (shipId, route, time), no memory.
 export const RISK_TRANSITION_HEADING_EASE_SECONDS = 0.5;
 
-export function riskDriftSampleInto(route: ShipMotionRoute, timeSeconds: number, progress: number, out: ShipMotionSample): void {
+export function riskDriftSampleInto(
+  route: ShipMotionRoute,
+  timeSeconds: number,
+  progress: number,
+  riskWindowSeconds: number,
+  out: ShipMotionSample,
+): void {
   const routePathKey = routePathIdentityKey(route, "risk-drift");
   beginRoutePathSample(route, routePathKey);
   const staleFactors = staleEvidenceMotionFactors(route.staleEvidence);
@@ -40,9 +45,11 @@ export function riskDriftSampleInto(route: ShipMotionRoute, timeSeconds: number,
   // W4.25 — when the route has previousRiskTile set, blend the drift center
   // from previous → current over the first RISK_TRANSITION_TACK_OUT_SECONDS
   // of the risk-drift phase. progress is the fraction of risk-drift elapsed,
-  // and the absolute risk-drift seconds = progress × riskSecondsEach.
-  const riskSecondsEach = route.cycleSeconds * ZONE_DWELL[route.zone].riskDwell;
-  const elapsedRiskSeconds = progress * Math.max(1, riskSecondsEach);
+  // and the absolute risk-drift seconds = progress × riskWindowSeconds, where
+  // riskWindowSeconds is the caller's actual scheduled risk-phase duration
+  // (docked ships derive it from the runtime dwell override and stop count,
+  // not the raw ZONE_DWELL share — recomputing it here overshot by ~3.3×).
+  const elapsedRiskSeconds = progress * Math.max(1, riskWindowSeconds);
   const tackOutT = route.previousRiskTile && elapsedRiskSeconds < RISK_TRANSITION_TACK_OUT_SECONDS
     ? smoothstep(elapsedRiskSeconds / RISK_TRANSITION_TACK_OUT_SECONDS)
     : 1;

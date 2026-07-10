@@ -35,22 +35,43 @@ export function useWorldKeyboardTargets(input: {
     world,
   } = input;
 
-  const cycleKeyboardTarget = useCallback((backwards: boolean) => {
+  // Returns false when Tab should fall through to the browser so keyboard
+  // users can leave the map cycle and reach the toolbar, search, and footer
+  // controls the cheatsheet promises (bounded cycle, no modulo trap).
+  const cycleKeyboardTarget = useCallback((backwards: boolean): boolean => {
     const snapshot = recomputeHitTargets();
     const targets = keyboardTargetOrder(snapshot?.targets ?? hitTargetsRef.current);
-    const nextTarget = nextKeyboardTarget(targets, keyboardFocusedDetailId ?? selectedDetailId, backwards);
-    if (!nextTarget) {
+    if (targets.length === 0) {
       setKeyboardFocusedDetailId(null);
       setHoveredDetailId(null);
-      setAnnouncement("No map targets available.");
-      return;
+      return false;
     }
 
+    const currentDetailId = keyboardFocusedDetailId ?? selectedDetailId;
+    const currentIndex = currentDetailId
+      ? targets.findIndex((target) => target.detailId === currentDetailId)
+      : -1;
+    let nextIndex: number;
+    if (currentIndex === -1) {
+      nextIndex = backwards ? targets.length - 1 : 0;
+    } else {
+      nextIndex = currentIndex + (backwards ? -1 : 1);
+      if (nextIndex < 0 || nextIndex >= targets.length) {
+        setKeyboardFocusedDetailId(null);
+        setHoveredDetailId(null);
+        setAnnouncement("End of map targets; continuing to page controls.");
+        if (reducedMotion) requestPaint();
+        return false;
+      }
+    }
+
+    const nextTarget = targets[nextIndex]!;
     setKeyboardFocusedDetailId(nextTarget.detailId);
     setHoveredDetailId(nextTarget.detailId);
     const detail = world.detailIndex[nextTarget.detailId];
     setAnnouncement(`Focused ${detail?.title ?? nextTarget.label}. Press Enter to select.`);
     if (reducedMotion) requestPaint();
+    return true;
   }, [
     hitTargetsRef,
     keyboardFocusedDetailId,
@@ -81,8 +102,7 @@ export function useWorldKeyboardTargets(input: {
 
   return useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
     if (!isInteractiveEventTarget(event.target) && event.key === "Tab") {
-      event.preventDefault();
-      cycleKeyboardTarget(event.shiftKey);
+      if (cycleKeyboardTarget(event.shiftKey)) event.preventDefault();
       return;
     }
     if (!isInteractiveEventTarget(event.target) && event.key === "Enter" && selectKeyboardTarget()) {
@@ -121,21 +141,6 @@ function keyboardTargetOrder(targets: readonly HitTarget[]): HitTarget[] {
     ordered.push(entry.target);
   }
   return ordered;
-}
-
-function nextKeyboardTarget(
-  targets: readonly HitTarget[],
-  currentDetailId: string | null,
-  backwards: boolean,
-): HitTarget | null {
-  if (targets.length === 0) return null;
-  const currentIndex = currentDetailId
-    ? targets.findIndex((target) => target.detailId === currentDetailId)
-    : -1;
-  if (currentIndex === -1) return backwards ? targets[targets.length - 1]! : targets[0]!;
-  const delta = backwards ? -1 : 1;
-  const nextIndex = (currentIndex + delta + targets.length) % targets.length;
-  return targets[nextIndex]!;
 }
 
 function isInteractiveEventTarget(target: EventTarget | null): boolean {

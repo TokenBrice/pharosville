@@ -12,21 +12,23 @@ import Maximize2 from "lucide-react/dist/esm/icons/maximize-2";
 import Minimize2 from "lucide-react/dist/esm/icons/minimize-2";
 import { AccessibilityLedger, type ShipRiskTransitionEntry } from "./components/accessibility-ledger";
 import { DetailPanel } from "./components/detail-panel";
+import { HarborLog } from "./components/harbor-log";
 import { SinceLastVisitBanner } from "./components/since-last-visit";
 import { ShipSearch } from "./components/ship-search";
 import { WorldToolbar } from "./components/world-toolbar";
 import { PHAROSVILLE_LATEST_VERSION } from "./content/pharosville-version";
 import { useAssetLoadingPipeline } from "./hooks/use-asset-loading-pipeline";
 import { useChangelogDialog } from "./hooks/use-changelog-dialog";
-import { useLegendDialog } from "./hooks/use-legend-dialog";
+import { isLegendDismissed, useLegendDialog } from "./hooks/use-legend-dialog";
 import { useCanvasResizeAndCamera } from "./hooks/use-canvas-resize-and-camera";
 import { useFullscreenMode } from "./hooks/use-fullscreen-mode";
+import { useHarborLog } from "./hooks/use-harbor-log";
 import { useLatestRef } from "./hooks/use-latest-ref";
 import { useLiveTitle } from "./hooks/use-live-title";
 import { useVisitSnapshot } from "./hooks/use-visit-snapshot";
 import { detailAnchorForPoint, useWorldKeyboardTargets } from "./hooks/use-world-keyboard-targets";
 import { useWorldRenderLoop } from "./hooks/use-world-render-loop";
-import { useWorldSelection, resolveSelectedDetail } from "./hooks/use-world-selection";
+import { DEFAULT_WORLD_SELECTED_DETAIL_ID, useWorldSelection, resolveSelectedDetail } from "./hooks/use-world-selection";
 import { useWorldTimeControls } from "./hooks/use-world-time-controls";
 import { useWorldUrlState } from "./hooks/use-world-url-state";
 import { createHitTargetSnapshot, type HitTarget, type HitTargetSnapshot } from "./renderer/hit-testing";
@@ -72,8 +74,14 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
 
   const [motionBucket, setMotionBucket] = useState(0);
   const worldUrlState = useWorldUrlState({ world });
+  // First visits auto-open the legend over the world; deferring the default
+  // lighthouse selection until it closes keeps the first look at the harbor
+  // to a single overlay. Explicit ?sel= deep links keep their selection.
+  const [deferredDefaultSelection] = useState(
+    () => !isLegendDismissed() && !worldUrlState.initialState.hasExplicitSelection,
+  );
   const selection = useWorldSelection({
-    initialSelectedDetailId: worldUrlState.initialState.selectedDetailId,
+    initialSelectedDetailId: deferredDefaultSelection ? null : worldUrlState.initialState.selectedDetailId,
     world,
   });
   const {
@@ -91,6 +99,16 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   } = selection;
   const changelog = useChangelogDialog({ setAnnouncement });
   const legend = useLegendDialog({ setAnnouncement });
+  // The legend and changelog are the two true modal overlays; keep at most
+  // one open so screen readers never see concurrent aria-modal dialogs.
+  const openLegendExclusive = useCallback(() => {
+    if (changelog.changelogOpen) changelog.closeChangelog();
+    legend.openLegend();
+  }, [changelog, legend]);
+  const openChangelogExclusive = useCallback(() => {
+    if (legend.legendOpen) legend.closeLegend();
+    changelog.openChangelog();
+  }, [changelog, legend]);
   const visitSnapshot = useVisitSnapshot({ world, setAnnouncement });
   const timeControls = useWorldTimeControls({
     initialManualTimeOverrideHour: worldUrlState.initialState.manualTimeOverrideHour,
@@ -176,6 +194,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     selectedDetailId,
     world,
   }), [riskTransitionByShipId, selectedDetailId, world]);
+  const harborLog = useHarborLog({ riskTransitionByShipId, setAnnouncement, shipsById });
 
   // Refs that mirror frequently-changing state so hook-internal effects/RAF can
   // read the latest values without rebinding on every hover/select/motionPlan
@@ -244,6 +263,23 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     pendingFollowDetailIdRef.current = detailId;
     selectDetail(detailId, null);
   }, [selectDetail, worldUrlState.initialState.followSelectedDetailId]);
+
+  useEffect(() => {
+    const late = worldUrlState.lateResolvedSelection;
+    if (!late) return;
+    if (late.follow) pendingFollowDetailIdRef.current = late.detailId;
+    selectDetail(late.detailId, null);
+  }, [selectDetail, worldUrlState.lateResolvedSelection]);
+
+  const deferredSelectionDoneRef = useRef(false);
+  useEffect(() => {
+    if (!deferredDefaultSelection || deferredSelectionDoneRef.current) return;
+    if (legend.legendOpen) return;
+    deferredSelectionDoneRef.current = true;
+    // Respect anything the visitor selected while the legend was open.
+    if (selectedDetailIdRef.current !== null) return;
+    selectDetail(DEFAULT_WORLD_SELECTED_DETAIL_ID, null);
+  }, [deferredDefaultSelection, legend.legendOpen, selectDetail, selectedDetailIdRef]);
 
   // selectedDetailIdRef omitted: ref identity never changes (HOOKS F4).
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -507,6 +543,9 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       } as CSSProperties)
     : undefined;
   const frameRateLabel = formatFrameRateLabel(frameRateFps, reducedMotion);
+  // Live frame-rate telemetry reads as tech-demo chrome; keep it for perf
+  // work behind ?debug=1 (search or hash) instead of showing every visitor.
+  const [debugChrome] = useState(isDebugChromeEnabled);
   const activeCamera = canvas.camera;
   const handleCopyViewLink = useCallback(() => {
     void worldUrlState.copyWorldUrlState({
@@ -536,7 +575,9 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       tabIndex={0}
     >
       <p id="pharosville-world-instructions" className="sr-only">
-        Use toolbar, wheel, drag, arrows, Tab, Shift Tab, Enter, canvas.
+        Tab cycles map targets and Enter opens their details; past the last
+        target, Tab continues into the page controls. Arrow keys pan, plus and
+        minus zoom, Escape closes panels.
       </p>
       <canvas
         ref={canvas.canvasRef}
@@ -616,24 +657,33 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       )}
       {legend.legendOpen && (
         <Suspense fallback={<ChangelogPanelLoading />}>
-          <LazyLegendPanel onClose={legend.closeLegend} recentFleetTrend={recentFleetTrend} />
+          <LazyLegendPanel onClose={legend.closeLegend} onSelectDetail={selectDetail} recentFleetTrend={recentFleetTrend} />
         </Suspense>
       )}
       <p className="pharosville-beta-tag">
         <span className="pharosville-beta-tag__notice">PharosVille beta {PHAROSVILLE_LATEST_VERSION} - Interpretive view, not financial advice</span>
         <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
-        <button className="pharosville-beta-tag__button" type="button" onClick={legend.openLegend}>Legend</button>
+        <button className="pharosville-beta-tag__button" type="button" onClick={openLegendExclusive}>Legend</button>
         <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
-        <button className="pharosville-beta-tag__button" type="button" onClick={changelog.openChangelog}>Changelog</button>
+        <button className="pharosville-beta-tag__button" type="button" onClick={openChangelogExclusive}>Changelog</button>
         <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
         <span className="pharosville-beta-tag__counter" data-testid="pharosville-ship-counter">{shipCounterLabel}</span>
         <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
-        <span className="pharosville-beta-tag__fps" data-testid="pharosville-fps-counter" aria-label={`Frame rate: ${frameRateLabel}`}>{frameRateLabel}</span>
-        <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
+        {debugChrome && (
+          <>
+            <span className="pharosville-beta-tag__fps" data-testid="pharosville-fps-counter" aria-label={`Frame rate: ${frameRateLabel}`}>{frameRateLabel}</span>
+            <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
+          </>
+        )}
         <button className="pharosville-beta-tag__button" type="button" onClick={handleCopyViewLink}>Copy link</button>
         <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
         <a href="https://pharos.watch/">Pharos</a>
       </p>
+      <HarborLog
+        entries={harborLog.entries}
+        onDismiss={harborLog.dismiss}
+        onSelectDetail={selectDetail}
+      />
       <p className="sr-only" aria-live="polite">{announcement}</p>
       <AccessibilityLedger world={world} riskTransitionByShipId={riskTransitionByShipId} />
     </main>
@@ -752,6 +802,13 @@ function fleetCounterLabel(ships: PharosVilleWorldModel["ships"]): string {
   const totalShips = ships.length;
   const shipNoun = dockedShips === 1 ? "ship" : "ships";
   return `${integerFormatter.format(dockedShips)} ${shipNoun} docked / ${integerFormatter.format(totalShips)} total`;
+}
+
+function isDebugChromeEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  if (new URLSearchParams(window.location.search).get("debug") === "1") return true;
+  const rawHash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
+  return new URLSearchParams(rawHash.startsWith("?") ? rawHash.slice(1) : rawHash).get("debug") === "1";
 }
 
 function formatFrameRateLabel(frameRateFps: number | null, reducedMotion: boolean): string {

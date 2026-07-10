@@ -113,6 +113,8 @@ describe("buildVisualCueRegistry", () => {
       "cue.dock.congestion",
       "cue.ship.consensus-rigging",
       "cue.ship.audit-shield",
+      "cue.ship.nav-signal",
+      "cue.ship.yield-signal",
     ]);
     expect(new Set(markCueIds).size).toBe(markCueIds.length);
     for (const cueId of markCueIds) {

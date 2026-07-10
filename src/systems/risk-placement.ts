@@ -71,7 +71,9 @@ export function resolveShipRiskPlacement(input: RiskPlacementInput): {
 
   if (stress && !freshness.stressStale) {
     const placement = dewsAreaPlacementForBand(stress.band);
-    if (placement) {
+    // NAV tokens berth in Ledger Mooring by design; only an elevated DEWS
+    // band should pull them out, never a CALM row mapping to safe-harbor.
+    if (placement && !(meta.flags.navToken && placement === "safe-harbor")) {
       return {
         placement,
         evidence: evidence("DEWS stress escalation", ["stress.signals[id].band"]),

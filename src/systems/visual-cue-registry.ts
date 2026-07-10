@@ -21,6 +21,16 @@ export const LEGEND_MARK_ROWS = [
     label: "Steel-and-gold shield",
     text: "Major graded ships may carry a bluechip audit shield; the shield is a grade marker, not a blanket approval.",
   },
+  {
+    cueId: "cue.ship.nav-signal",
+    label: "Blue mast signal",
+    text: "A blue signal square marks a NAV-priced ledger asset — priced by attestation, not market peg; it is a pricing model, not a warning.",
+  },
+  {
+    cueId: "cue.ship.yield-signal",
+    label: "Green mast signal",
+    text: "A green signal square with a gold pennant marks a yield-bearing coin; it says nothing about peg safety.",
+  },
 ] as const;
 
 export function buildVisualCueRegistry(): VisualCue[] {
@@ -135,6 +145,28 @@ export function buildVisualCueRegistry(): VisualCue[] {
       failureState: "no shield; detail row absent without a graded report card",
       domEquivalent: "ship detail Bluechip audit fact (folded into the class panel row) and accessibility ledger line",
       reducedMotionEquivalent: "same static shield",
+    },
+    {
+      id: "cue.ship.nav-signal",
+      target: { kind: "ship" },
+      primaryChannels: ["shape", "color"],
+      visual: "blue signal square with a cream pennant beside the mast on NAV-priced ledger assets",
+      sourceField: "stablecoinMeta.flags.navToken",
+      questionAnswered: "Is this asset NAV-priced by attestation rather than market-pegged?",
+      failureState: "no mast signal; detail row absent for market-pegged coins",
+      domEquivalent: "ship detail Class row folded Mast signal fact and accessibility ledger nav-pricing clause",
+      reducedMotionEquivalent: "same static mast signal",
+    },
+    {
+      id: "cue.ship.yield-signal",
+      target: { kind: "ship" },
+      primaryChannels: ["shape", "color"],
+      visual: "green signal square with a gold pennant beside the mast on yield-bearing coins without NAV pricing",
+      sourceField: "stablecoinMeta.flags.yieldBearing",
+      questionAnswered: "Does this coin pay yield to holders?",
+      failureState: "no mast signal; detail row absent for non-yield coins",
+      domEquivalent: "ship detail Class row folded Mast signal fact and accessibility ledger yield clause",
+      reducedMotionEquivalent: "same static mast signal",
     },
     {
       id: "cue.ship.safety-watch",

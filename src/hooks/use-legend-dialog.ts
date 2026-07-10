@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 export const LEGEND_DISMISSED_STORAGE_KEY = "pharosville.legend.dismissed";
 
-function legendDismissed(): boolean {
+export function isLegendDismissed(): boolean {
   try {
     return window.localStorage.getItem(LEGEND_DISMISSED_STORAGE_KEY) === "1";
   } catch {
@@ -30,7 +30,7 @@ export function useLegendDialog(input: {
   setAnnouncement: (message: string) => void;
 }) {
   const { setAnnouncement } = input;
-  const [legendOpen, setLegendOpen] = useState(() => !legendDismissed());
+  const [legendOpen, setLegendOpen] = useState(() => !isLegendDismissed());
 
   const openLegend = useCallback(() => {
     setLegendOpen(true);

@@ -39,6 +39,10 @@ describe("W4.27 cuePriority", () => {
     expect(cuePriority({ ship: makeShip("ship.a") })).toBe(CUE_PRIORITY_SCENERY);
   });
 
+  it("treats sub-1% drift below $1M as scenery, not a recent supply move", () => {
+    expect(cuePriority({ ship: makeShip("ship.a", { change24hPct: 0.5, change24hUsd: 500_000 }) })).toBe(CUE_PRIORITY_SCENERY);
+  });
+
   it("selected wins even when also in active risk", () => {
     expect(cuePriority({
       ship: makeShip("ship.a", { riskPlacement: "storm-shelf", change24hPct: 12 }),

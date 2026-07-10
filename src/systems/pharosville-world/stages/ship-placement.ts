@@ -269,6 +269,8 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
       visual: resolveShipVisual(asset, meta, reportCard),
       change24hUsd: recent.change24hUsd,
       change24hPct: recent.change24hPct,
+      pegDeviationBps: pegCoin?.currentDeviationBps ?? null,
+      pegCurrency: pegCoin?.pegCurrency ?? null,
       change7dPct: recent.change7dPct,
       change30dPct: recent.change30dPct,
       depegHistory: shipDepegHistory(pegCoin),

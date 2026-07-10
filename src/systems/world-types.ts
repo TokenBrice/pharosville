@@ -225,6 +225,12 @@ export interface ShipNode {
   visual: ShipVisual;
   change24hUsd: number | null;
   change24hPct: number | null;
+  /** Live signed peg deviation from `pegSummary.coins[].currentDeviationBps`;
+      null/absent when the coin has no peg row. Surfaced as the "Peg
+      deviation" detail fact and matching ledger clause. */
+  pegDeviationBps?: number | null;
+  /** Peg currency (e.g. "USD") for the deviation reading. */
+  pegCurrency?: string | null;
   /** Supply momentum over longer windows (percent units, like change24hPct). */
   change7dPct?: number | null;
   change30dPct?: number | null;
@@ -316,11 +322,22 @@ export interface DetailModelMember {
   inWorldDetailId?: string;
 }
 
+export interface DetailModelStatus {
+  /** Zone swatch color (same ZONE_THEMES source as the legend). */
+  swatchColor: string;
+  label: string;
+  reading: string;
+  /** Headline figure for the status line (live signed peg deviation). */
+  figure?: string;
+}
+
 export interface DetailModel {
   id: string;
   title: string;
   kind: string;
   summary: string;
+  /** Risk-band status line rendered at the top of the panel for ships. */
+  status?: DetailModelStatus;
   paragraphs?: string[];
   facts: Array<{ label: string; value: string }>;
   links: DetailModelLink[];

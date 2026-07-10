@@ -389,9 +389,13 @@ test(...visualLane("static", "pharosville dense visual fixture preserves distric
   expect(visibleMotionSamples.length).toBeLessThan(denseFixtureShipCount);
   expect(hiddenMooredSamples.length).toBeGreaterThan(0);
   expect(hiddenMooredSamples.every((sample) => sample.currentDockId)).toBe(true);
-  // Dense fixture ships with NAV metadata currently have fresh DEWS placement,
-  // so ledger route-stop samples are not expected in this scenario.
-  expect(ledgerRouteStopSamples).toHaveLength(0);
+  // NAV-token ships hold Ledger Mooring even when their fresh DEWS row is
+  // CALM (a CALM row is not an escalation), so the dense fixture's two NAV
+  // coins produce ledger route-stop samples.
+  expect(ledgerRouteStopSamples.map((sample) => sample.id).toSorted()).toEqual([
+    "cusdo-openeden",
+    "msy-main-street",
+  ]);
   expect(motionSamples.every((sample) => (
     sample.state === "idle"
     || sample.state === "risk-drift"
@@ -548,8 +552,9 @@ test(...visualLane("static", "pharosville renders a stressed ship in storm-shelf
   await waitForSelectedDetail(page, "ship.usdt-tether");
   const detailPanel = page.getByTestId("pharosville-detail-panel");
   await expect(detailPanel).toContainText("Tether");
-  await expect(detailPanel).toContainText("Active depeg event");
+  await expect(detailPanel).toContainText("An active depeg has driven this ship into storm water.");
   await expect(detailPanel).toContainText("Danger Strait");
+  await expect(detailPanel).toContainText("bps vs USD");
 });
 
 test(...visualLane("static", "pharosville exposes all named risk water areas in browser details"), async ({ page }) => {

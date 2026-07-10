@@ -25,11 +25,14 @@ const bannerStyle: CSSProperties = {
   pointerEvents: "auto",
 };
 
+// Allow the story to wrap to a few lines instead of truncating multi-part
+// deltas behind an ellipsis; clamp keeps pathological messages bounded.
 const textStyle: CSSProperties = {
   minWidth: 0,
   overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
+  display: "-webkit-box",
+  WebkitBoxOrient: "vertical",
+  WebkitLineClamp: 3,
 };
 
 const buttonStyle: CSSProperties = {

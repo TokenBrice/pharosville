@@ -28,6 +28,9 @@ import {
   stressBreakdownLabel,
   supplyMomentumLabel,
   withRiskTransitionFact,
+  mastSignalLabel,
+  pegDeviationLabel,
+  placementNarrative,
 } from "./detail-model";
 import type { AreaNode, DockNode, GraveNode, LighthouseNode, PigeonnierNode, ShipNode } from "./world-types";
 import { buildPharosVilleWorld } from "./pharosville-world";
@@ -806,6 +809,28 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
     });
   });
 
+  describe("v0.3.0 — peg deviation, mast signals, observatory voice", () => {
+    it("formats the live signed peg deviation against its peg currency", () => {
+      expect(pegDeviationLabel({ pegDeviationBps: -12.4, pegCurrency: "USD" })).toBe("-12 bps vs USD");
+      expect(pegDeviationLabel({ pegDeviationBps: 3, pegCurrency: null })).toBe("+3 bps vs peg");
+      expect(pegDeviationLabel({ pegDeviationBps: 0, pegCurrency: "USD" })).toBe("0 bps vs USD");
+      expect(pegDeviationLabel({ pegDeviationBps: null, pegCurrency: "USD" })).toBeNull();
+    });
+
+    it("explains nav and yield mast signals, exclusive with none", () => {
+      expect(mastSignalLabel({ visual: { overlay: "nav" } } as ShipNode)).toContain("NAV-priced");
+      expect(mastSignalLabel({ visual: { overlay: "yield" } } as ShipNode)).toContain("Yield-bearing");
+      expect(mastSignalLabel({ visual: { overlay: "watch" } } as ShipNode)).toBeNull();
+      expect(mastSignalLabel({ visual: { overlay: "none" } } as ShipNode)).toBeNull();
+    });
+
+    it("tells placement stories in the observatory voice with a raw-reason fallback", () => {
+      expect(placementNarrative("Active depeg event")).toContain("storm water");
+      expect(placementNarrative("No active peg or DEWS stress")).toContain("Sailing clean");
+      expect(placementNarrative("Some future reason")).toBe("Some future reason");
+    });
+  });
+
   describe("T6 — lighthouse PSI explanatory rows", () => {
     it("builds observational trend and composition labels plus contributor members", () => {
       const lighthouse = {
@@ -813,18 +838,18 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
         kind: "lighthouse",
         label: "Pharos lighthouse",
         tile: { x: 1, y: 1 },
-        psiBand: "WARNING",
+        psiBand: "TREMOR",
         score: 72,
         color: "#ffffff",
         unavailable: false,
         detailId: "lighthouse",
         components: { severity: 0.7, breadth: 0.3, trend: 0.05 },
         avg24h: 68,
-        avg24hBand: "ALERT",
+        avg24hBand: "FRACTURE",
         contributors: [{ id: "usdt-tether", symbol: "USDT", bps: -12, mcapUsd: 90_000_000_000 }],
       } satisfies LighthouseNode;
 
-      expect(psiTrendLabel(lighthouse)).toContain("Observed 24h drift deteriorating");
+      expect(psiTrendLabel(lighthouse)).toContain("Observed 24h drift improving");
       expect(psiCompositionLabel(lighthouse)).toContain("severity 70%");
       const detail = detailForLighthouse(lighthouse);
       expect(detail.facts).toEqual(expect.arrayContaining([

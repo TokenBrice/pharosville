@@ -76,7 +76,9 @@ export type DetailFactKey =
   | "stressDriver"
   | "chainsPresent"
   | "sailingInFormation"
-  | "culturalSignificance";
+  | "culturalSignificance"
+  | "pegDeviation"
+  | "mastSignal";
 
 export interface DetailFactLike {
   label: string;
@@ -121,6 +123,8 @@ const DETAIL_FACT_LABELS = {
   "chains present": "chainsPresent",
   "sailing in formation": "sailingInFormation",
   "cultural significance": "culturalSignificance",
+  "peg deviation": "pegDeviation",
+  "mast signal": "mastSignal",
 } as const satisfies Record<string, DetailFactKey>;
 
 export function classifyDetailFactLabel(label: string): DetailFactKey | null {
@@ -143,12 +147,15 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   }
 
   const identity: DetailDisplayRow[] = [];
+  // The live peg reading renders in the header status line (DetailModelStatus
+  // figure), not as a fact row, to hold the <= 8 fact-row density contract.
   const tier = lookup.get("sizeTier");
   const klass = lookup.get("shipClass");
   if (tier || klass) {
-    // The heritage-gated Bluechip audit folds into the Class row (not its own
-    // row) to respect the panel's <= 8 fact-row density contract.
-    const composed = [tier, klass, lookup.get("bluechipAudit"), lookup.get("safetyGrade")]
+    // The heritage-gated Bluechip audit and the nav/yield mast signal fold
+    // into the Class row (not their own rows) to respect the panel's <= 8
+    // fact-row density contract.
+    const composed = [tier, klass, lookup.get("bluechipAudit"), lookup.get("safetyGrade"), lookup.get("mastSignal")]
       .filter(Boolean)
       .join(" · ");
     identity.push({ key: "class", label: "Class", value: composed });

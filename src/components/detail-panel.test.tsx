@@ -24,7 +24,7 @@ const renderShipPanel = (shipId: string, depegId: string | null = null) => {
 };
 
 describe("DetailPanel structure (old-school revamp)", () => {
-  it("uses modal dialog semantics and focuses/restores the close control", () => {
+  it("uses non-modal landmark semantics and focuses/restores the close control", () => {
     const opener = document.createElement("button");
     opener.type = "button";
     opener.textContent = "Open details";
@@ -42,9 +42,13 @@ describe("DetailPanel structure (old-school revamp)", () => {
 
     const view = render(<DetailPanel detail={detail} onClose={() => undefined} />);
 
-    const panel = screen.getByRole("dialog", { name: "Test Ship" });
+    // The inspector stays open by default while the canvas remains
+    // interactive, so it must NOT be aria-modal: that would mark the
+    // accessibility ledger and live region outside it inert.
+    const panel = screen.getByRole("complementary", { name: "Test Ship" });
     const closeButton = screen.getByRole("button", { name: "Close details" });
-    expect(panel.getAttribute("aria-modal")).toBe("true");
+    expect(panel.getAttribute("aria-modal")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(document.activeElement).toBe(closeButton);
 
     view.unmount();
@@ -52,7 +56,7 @@ describe("DetailPanel structure (old-school revamp)", () => {
     opener.remove();
   });
 
-  it("traps Tab within the detail dialog", () => {
+  it("does not trap Tab inside the non-modal inspector", () => {
     const detail: DetailModel = {
       id: "ship:test-dialog-trap",
       title: "Test Ship",
@@ -64,15 +68,35 @@ describe("DetailPanel structure (old-school revamp)", () => {
 
     render(<DetailPanel detail={detail} onClose={() => undefined} />);
 
-    const sourceLink = screen.getByRole("link", { name: /Source/ });
     const closeButton = screen.getByRole("button", { name: "Close details" });
     expect(document.activeElement).toBe(closeButton);
 
-    fireEvent.keyDown(closeButton, { key: "Tab" });
-    expect(document.activeElement).toBe(sourceLink);
+    // Tab is left to the browser's normal focus order (no preventDefault),
+    // so focus can leave the panel toward the rest of the page chrome.
+    const tabEvent = fireEvent.keyDown(closeButton, { key: "Tab" });
+    expect(tabEvent).toBe(true);
+  });
 
-    fireEvent.keyDown(sourceLink, { key: "Tab", shiftKey: true });
-    expect(document.activeElement).toBe(closeButton);
+  it("renders the risk-band status line from the detail status", () => {
+    const detail: DetailModel = {
+      id: "ship:test-status",
+      title: "Test Ship",
+      kind: "SHIP",
+      summary: "test",
+      status: {
+        swatchColor: "#125e7e",
+        label: "Calm Anchorage",
+        reading: "Steady peg evidence; the safe default berth",
+      },
+      facts: [],
+      links: [],
+    };
+
+    render(<DetailPanel detail={detail} onClose={() => undefined} />);
+
+    const statusLine = screen.getByTestId("pharosville-detail-zone");
+    expect(statusLine.textContent).toContain("Calm Anchorage");
+    expect(statusLine.textContent).toContain("Steady peg evidence");
   });
 
   it("does not render dropped fields", () => {

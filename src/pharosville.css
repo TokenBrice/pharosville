@@ -549,6 +549,20 @@ textarea {
   letter-spacing: 0.04em;
 }
 
+.pharosville-detail-panel__zone {
+  margin: 6px 0 0;
+  font: 13px Georgia, serif;
+}
+.pharosville-detail-panel__zone-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 7px;
+  vertical-align: -1px;
+  border: 1px solid rgba(216, 184, 122, 0.55);
+  border-radius: 2px;
+}
+
 .pharosville-detail-panel__section {
   margin-bottom: 14px;
 }
@@ -1033,6 +1047,11 @@ textarea {
     0 18px 38px rgba(0, 0, 0, 0.56);
   pointer-events: auto;
 }
+/* The legend doubles as first-visit onboarding; keep it narrow so the world
+   stays visible behind it. The changelog keeps the shared 760px width. */
+.pharosville-legend-panel {
+  width: min(480px, calc(100% - 154px));
+}
 .pharosville-changelog-panel::before {
   content: "";
   position: absolute;
@@ -1183,8 +1202,8 @@ textarea {
   margin: 0;
   padding: 4px 10px;
   border-radius: 3px;
-  background: rgba(10, 16, 22, 0.6);
-  color: rgba(232, 220, 196, 0.78);
+  background: rgba(10, 16, 22, 0.85);
+  color: rgba(232, 220, 196, 0.88);
   font-family: Georgia, "Times New Roman", serif;
   font-size: 0.72rem;
   font-style: italic;
@@ -1224,6 +1243,7 @@ textarea {
   background: transparent;
   color: var(--pv-brass-highlight);
   font: inherit;
+  font-size: 0.8rem;
   font-style: normal;
   pointer-events: auto;
   cursor: pointer;
@@ -1233,6 +1253,7 @@ textarea {
   pointer-events: auto;
   color: var(--pv-brass-highlight);
   text-decoration: none;
+  font-size: 0.8rem;
   font-style: normal;
 }
 .pharosville-beta-tag__button:hover,
@@ -1310,6 +1331,30 @@ textarea {
   vertical-align: -2px;
   border: 1px solid rgba(216, 184, 122, 0.55);
   border-radius: 2px;
+}
+.pharosville-legend-panel__mover {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pv-brass-highlight);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: rgba(216, 184, 122, 0.45);
+  text-underline-offset: 2px;
+}
+.pharosville-legend-panel__mover:hover { color: #fff0c8; }
+.pharosville-legend-panel__ships {
+  list-style: none;
+  padding-left: 2px;
+}
+.pharosville-legend-panel__ship-thumb {
+  height: 32px;
+  width: auto;
+  margin-right: 8px;
+  vertical-align: middle;
+  image-rendering: pixelated;
 }
 .pharosville-controls-cheatsheet dl {
   display: grid;
