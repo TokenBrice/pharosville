@@ -10,6 +10,18 @@ export const ADAPTIVE_DPR_STEP = 0.125;
 export const ADAPTIVE_DPR_DOWNSHIFT_STREAK = 4;
 export const ADAPTIVE_DPR_UPSHIFT_STREAK = 16;
 export const ADAPTIVE_DPR_CHANGE_COOLDOWN_FRAMES = 24;
+// Raster/compositor-bound guard: `drawDurationMs` only measures JS-side 2D
+// command time, so on machines where rasterization is the bottleneck it stays
+// low (~5ms) while real frame pacing collapses to 30ms+. When pacing p90
+// exceeds the threshold below while draw p90 stays quiet, the governor must
+// downshift (and never upshift) instead of reading the quiet draw time as
+// headroom. The pacing threshold sits below the render scheduler's recovery
+// tier (28ms) so DPR steps down before effects start shedding.
+export const ADAPTIVE_DPR_PACING_DOWNSHIFT_P90_MS = 20;
+export const ADAPTIVE_DPR_PACING_QUIET_DRAW_P90_MS = 8;
+// ~0.5s at 60fps: enough pacing samples that a single GC/raster hiccup cannot
+// dominate the p90 while the interval window is still filling.
+export const ADAPTIVE_DPR_PACING_MIN_SAMPLES = 30;
 
 export interface DrawDurationWindow {
   capacity: number;
@@ -58,6 +70,14 @@ export interface AdaptiveDprState {
   downshiftStreak: number;
   requestedDpr: number;
   upshiftStreak: number;
+}
+
+// Minimal structural view of the render loop's `FramePacingMetrics` (defined
+// in `hooks/world-render-loop-metrics.ts`, which imports from this module —
+// redeclaring the two fields here avoids an import cycle).
+export interface FramePacingSummary {
+  p90Ms: number;
+  sampleCount: number;
 }
 
 export interface CanvasBackingPixelMetrics {
@@ -136,6 +156,7 @@ export function initialAdaptiveDprState(requestedDpr: number): AdaptiveDprState 
 }
 
 export function resolveAdaptiveDprState(input: {
+  framePacing?: FramePacingSummary;
   maximumRequestedDpr: number;
   minimumRequestedDpr?: number;
   state: AdaptiveDprState;
@@ -153,7 +174,16 @@ export function resolveAdaptiveDprState(input: {
   if (input.stats.count < Math.max(ADAPTIVE_DPR_DOWNSHIFT_STREAK, ADAPTIVE_DPR_UPSHIFT_STREAK)) return nextState;
   if (nextState.cooldownFrames > 0) return nextState;
 
-  if (input.stats.p90Ms > ADAPTIVE_DPR_DOWNSHIFT_P90_MS) {
+  // Sustained bad frame pacing marks the machine as struggling regardless of
+  // JS-side draw time. While degraded, upshifts are suppressed (otherwise the
+  // quiet draw p90 would upshift exactly when the compositor is drowning) and
+  // a quiet draw p90 becomes a downshift signal in its own right.
+  const framePacingDegraded = input.framePacing !== undefined
+    && input.framePacing.sampleCount >= ADAPTIVE_DPR_PACING_MIN_SAMPLES
+    && input.framePacing.p90Ms > ADAPTIVE_DPR_PACING_DOWNSHIFT_P90_MS;
+  const rasterBound = framePacingDegraded && input.stats.p90Ms < ADAPTIVE_DPR_PACING_QUIET_DRAW_P90_MS;
+
+  if (rasterBound || input.stats.p90Ms > ADAPTIVE_DPR_DOWNSHIFT_P90_MS) {
     nextState.downshiftStreak += 1;
     nextState.upshiftStreak = 0;
     if (nextState.downshiftStreak >= ADAPTIVE_DPR_DOWNSHIFT_STREAK && nextState.requestedDpr > minimumRequestedDpr) {
@@ -167,7 +197,7 @@ export function resolveAdaptiveDprState(input: {
     return nextState;
   }
 
-  if (input.stats.p90Ms < ADAPTIVE_DPR_UPSHIFT_P90_MS) {
+  if (!framePacingDegraded && input.stats.p90Ms < ADAPTIVE_DPR_UPSHIFT_P90_MS) {
     nextState.upshiftStreak += 1;
     nextState.downshiftStreak = 0;
     if (nextState.upshiftStreak >= ADAPTIVE_DPR_UPSHIFT_STREAK && nextState.requestedDpr < maximumRequestedDpr) {

@@ -265,12 +265,23 @@ export function drawSailLogo(input: {
   const safeHeight = Math.max(6, height * 1.1);
   const widthPx = Math.max(6, Math.round(safeWidth));
   const heightPx = Math.max(6, Math.round(safeHeight));
-  const sprite = getSailLogoSprite(livery, sailColor, stripeColor, mark, logo, widthPx, heightPx);
+  // Sprites are cached at 4px-quantized sizes and blitted scaled into the
+  // exact px footprint. At sizes already on a 4px boundary the scale is 1 and
+  // the blit is identical to a natural-size draw; off-boundary sizes only
+  // differ by sub-pixel resampling, so zooming re-uses one sprite per bucket
+  // instead of rebuilding per px-exact size every frame.
+  const spriteWidthPx = quantizeSailLogoSpritePx(widthPx);
+  const spriteHeightPx = quantizeSailLogoSpritePx(heightPx);
+  const sprite = getSailLogoSprite(livery, sailColor, stripeColor, mark, logo, spriteWidthPx, spriteHeightPx);
   if (sprite) {
+    const scaleX = widthPx / spriteWidthPx;
+    const scaleY = heightPx / spriteHeightPx;
     ctx.drawImage(
       sprite.canvas,
-      Math.round(x - sprite.anchorX),
-      Math.round(y - sprite.anchorY),
+      Math.round(x - sprite.anchorX * scaleX),
+      Math.round(y - sprite.anchorY * scaleY),
+      sprite.canvas.width * scaleX,
+      sprite.canvas.height * scaleY,
     );
     return;
   }
@@ -289,20 +300,79 @@ export function drawSailLogo(input: {
 
 // Sprite cache for sail logos. The logo is fully determined by the livery
 // fields, sail/stripe colors, the 3-char mark fallback, the logo image
-// identity (its `src`), and integer-bucketed width/height. Liveries are
-// shared across squad consorts (~10 unique liveries in a typical scene),
-// width/height settle into 2-3 buckets per camera zoom; total cardinality
-// is comfortably under the LRU cap.
-const SAIL_LOGO_SPRITE_CACHE_MAX = 128;
+// identity (its `src`), and 4px-quantized width/height. Liveries are shared
+// across squad consorts (~10 unique liveries in a typical scene); the size
+// quantum caps the number of distinct keys a continuous zoom can produce per
+// livery, and the capacity holds ~150 visible sails across a few zoom buckets
+// without evictions tracking misses. Evicted sprite canvases are recycled
+// through a small free-list so steady-state churn never allocates fresh DOM
+// canvases. Hand-rolled LRU (insertion-ordered Map) instead of
+// `createStatsLruCache` because eviction must hand the canvas back to the
+// free-list.
+export const SAIL_LOGO_SPRITE_CACHE_MAX = 384;
+export const SAIL_LOGO_SPRITE_SIZE_QUANTUM_PX = 4;
+const SAIL_LOGO_SPRITE_FREE_LIST_MAX = 32;
 interface SailLogoSprite {
   canvas: HTMLCanvasElement;
   anchorX: number;
   anchorY: number;
 }
-const sailLogoSpriteCache = createStatsLruCache<string, SailLogoSprite | null>(SAIL_LOGO_SPRITE_CACHE_MAX);
+const sailLogoSpriteCache = new Map<string, SailLogoSprite | null>();
+const sailLogoSpriteCanvasFreeList: HTMLCanvasElement[] = [];
+let sailLogoSpriteCacheHits = 0;
+let sailLogoSpriteCacheMisses = 0;
+let sailLogoSpriteCacheEvictions = 0;
 
 export function getSailLogoSpriteCacheStats(): CacheStats {
-  return sailLogoSpriteCache.stats();
+  return {
+    capacity: SAIL_LOGO_SPRITE_CACHE_MAX,
+    evictions: sailLogoSpriteCacheEvictions,
+    hits: sailLogoSpriteCacheHits,
+    misses: sailLogoSpriteCacheMisses,
+    size: sailLogoSpriteCache.size,
+  };
+}
+
+export function resetSailLogoSpriteCache(): void {
+  sailLogoSpriteCache.clear();
+  sailLogoSpriteCanvasFreeList.length = 0;
+  sailLogoSpriteCacheHits = 0;
+  sailLogoSpriteCacheMisses = 0;
+  sailLogoSpriteCacheEvictions = 0;
+}
+
+function quantizeSailLogoSpritePx(px: number): number {
+  return Math.max(
+    SAIL_LOGO_SPRITE_SIZE_QUANTUM_PX,
+    Math.round(px / SAIL_LOGO_SPRITE_SIZE_QUANTUM_PX) * SAIL_LOGO_SPRITE_SIZE_QUANTUM_PX,
+  );
+}
+
+function readSailLogoSprite(key: string): SailLogoSprite | null | undefined {
+  const cached = sailLogoSpriteCache.get(key);
+  if (cached === undefined && !sailLogoSpriteCache.has(key)) {
+    sailLogoSpriteCacheMisses += 1;
+    return undefined;
+  }
+  sailLogoSpriteCacheHits += 1;
+  // LRU touch: re-insert so the Map's insertion order tracks recency.
+  sailLogoSpriteCache.delete(key);
+  sailLogoSpriteCache.set(key, cached as SailLogoSprite | null);
+  return cached as SailLogoSprite | null;
+}
+
+function recycleSailLogoSpriteCanvas(sprite: SailLogoSprite | null | undefined): void {
+  if (!sprite || sailLogoSpriteCanvasFreeList.length >= SAIL_LOGO_SPRITE_FREE_LIST_MAX) return;
+  sailLogoSpriteCanvasFreeList.push(sprite.canvas);
+}
+
+function acquireSailLogoSpriteCanvas(width: number, height: number): HTMLCanvasElement {
+  const canvas = sailLogoSpriteCanvasFreeList.pop() ?? document.createElement("canvas");
+  // Assigning width/height resets the backing store per spec, so recycled
+  // canvases start blank exactly like fresh ones.
+  canvas.width = width;
+  canvas.height = height;
+  return canvas;
 }
 
 function liverySpriteFingerprint(livery: ShipLivery): string {
@@ -324,7 +394,15 @@ function sailLogoSpriteKey(
 }
 
 function rememberSailLogoSprite(key: string, sprite: SailLogoSprite | null) {
+  if (sailLogoSpriteCache.has(key)) sailLogoSpriteCache.delete(key);
   sailLogoSpriteCache.set(key, sprite);
+  while (sailLogoSpriteCache.size > SAIL_LOGO_SPRITE_CACHE_MAX) {
+    const oldestKey = sailLogoSpriteCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    recycleSailLogoSpriteCanvas(sailLogoSpriteCache.get(oldestKey));
+    sailLogoSpriteCache.delete(oldestKey);
+    sailLogoSpriteCacheEvictions += 1;
+  }
 }
 
 function getSailLogoSprite(
@@ -337,7 +415,7 @@ function getSailLogoSprite(
   heightPx: number,
 ): SailLogoSprite | null {
   const key = sailLogoSpriteKey(livery, sailColor, stripeColor, mark, logo, widthPx, heightPx);
-  const cached = sailLogoSpriteCache.get(key);
+  const cached = readSailLogoSprite(key);
   if (cached !== undefined) {
     return cached;
   }
@@ -362,9 +440,7 @@ function buildSailLogoSprite(
   const padY = Math.ceil(Math.max(2, heightPx * 0.05));
   const canvasWidth = widthPx + padX * 2;
   const canvasHeight = heightPx + padY * 2;
-  const canvas = document.createElement("canvas");
-  canvas.width = canvasWidth;
-  canvas.height = canvasHeight;
+  const canvas = acquireSailLogoSpriteCanvas(canvasWidth, canvasHeight);
   const spriteCtx = canvas.getContext("2d");
   if (!spriteCtx) return null;
   // The inline path translates to (round(x), round(y)) and uses safeWidth/

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  ADAPTIVE_DPR_PACING_MIN_SAMPLES,
+  ADAPTIVE_DPR_STEP,
   canRetainOffscreenCanvas,
   canvasPixelArea,
   createDrawDurationWindow,
@@ -153,5 +155,93 @@ describe("canvas budget", () => {
       });
     }
     expect(state.requestedDpr).toBeGreaterThan(1.25);
+  });
+
+  it("downshifts on raster-bound frames where pacing collapses but draw duration stays quiet", () => {
+    let state = initialAdaptiveDprState(2);
+    const stats = { averageMs: 5, count: 48, p90Ms: 5 };
+    const framePacing = { p90Ms: 30, sampleCount: 120 };
+
+    for (let index = 0; index < 3; index += 1) {
+      state = resolveAdaptiveDprState({
+        framePacing,
+        maximumRequestedDpr: 2,
+        state,
+        stats,
+      });
+      expect(state.requestedDpr).toBe(2);
+    }
+
+    state = resolveAdaptiveDprState({
+      framePacing,
+      maximumRequestedDpr: 2,
+      state,
+      stats,
+    });
+    expect(state.requestedDpr).toBe(2 - ADAPTIVE_DPR_STEP);
+    expect(state.cooldownFrames).toBeGreaterThan(0);
+  });
+
+  it("suppresses upshift while frame pacing is degraded", () => {
+    let state = initialAdaptiveDprState(1.25);
+    // Draw p90 sits in upshift territory (< 13.6ms) but above the raster
+    // quiet threshold, so neither downshift path fires — DPR must hold.
+    const stats = { averageMs: 9, count: 48, p90Ms: 9 };
+    const framePacing = { p90Ms: 30, sampleCount: 120 };
+
+    for (let index = 0; index < 40; index += 1) {
+      state = resolveAdaptiveDprState({
+        framePacing,
+        maximumRequestedDpr: 2,
+        state,
+        stats,
+      });
+    }
+    expect(state.requestedDpr).toBe(1.25);
+  });
+
+  it("ignores degraded pacing until the pacing window has enough samples", () => {
+    let state = initialAdaptiveDprState(1.25);
+    const stats = { averageMs: 9, count: 48, p90Ms: 9 };
+    const framePacing = { p90Ms: 30, sampleCount: ADAPTIVE_DPR_PACING_MIN_SAMPLES - 1 };
+
+    for (let index = 0; index < 20; index += 1) {
+      state = resolveAdaptiveDprState({
+        framePacing,
+        maximumRequestedDpr: 2,
+        state,
+        stats,
+      });
+    }
+    expect(state.requestedDpr).toBeGreaterThan(1.25);
+  });
+
+  it("keeps the JS-bound governor paths unchanged when pacing is healthy", () => {
+    // Downshift: draw p90 over budget with healthy pacing still steps down.
+    let downState = initialAdaptiveDprState(2);
+    const slowDrawStats = { averageMs: 20, count: 48, p90Ms: 20 };
+    const healthyPacing = { p90Ms: 16, sampleCount: 120 };
+    for (let index = 0; index < 4; index += 1) {
+      downState = resolveAdaptiveDprState({
+        framePacing: healthyPacing,
+        maximumRequestedDpr: 2,
+        state: downState,
+        stats: slowDrawStats,
+      });
+    }
+    expect(downState.requestedDpr).toBe(2 - ADAPTIVE_DPR_STEP);
+
+    // Upshift: stable headroom with healthy pacing still steps up.
+    let upState = initialAdaptiveDprState(1.25);
+    const fastDrawStats = { averageMs: 9, count: 48, p90Ms: 9 };
+    for (let index = 0; index < 20; index += 1) {
+      upState = resolveAdaptiveDprState({
+        framePacing: healthyPacing,
+        maximumRequestedDpr: 2,
+        state: upState,
+        stats: fastDrawStats,
+      });
+    }
+    expect(upState.requestedDpr).toBeGreaterThan(1.25);
   });
 });

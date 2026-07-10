@@ -405,6 +405,11 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       if (canvas.height !== activeBudget.backingHeight) canvas.height = activeBudget.backingHeight;
       const dpr = activeBudget.effectiveDpr;
       let timeSeconds: number;
+      // Candidate frame-pacing sample. Stays null on resume frames (mirroring
+      // the pendingResume dt exclusion) and is pushed into the pacing window
+      // only after the camera step so camera-interaction frames can be
+      // excluded too — see the push site below.
+      let frameIntervalMs: number | null = null;
       if (reducedMotion) {
         timeSeconds = 0;
       } else {
@@ -412,21 +417,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         const last = previousWall ?? time;
         const rawDt = Math.max((time - last) / 1000, 0);
         if (previousWall !== null && !pendingResumeRef.current) {
-          framePacingStatsRef.current = pushFrameIntervalSample(frameIntervalWindowRef.current, Math.max(time - previousWall, 0));
-          const framePacing = framePacingStatsRef.current;
-          const roundedFps = framePacing.sampleCount > 0 && Number.isFinite(framePacing.effectiveFps)
-            ? Math.max(0, Math.round(framePacing.effectiveFps))
-            : null;
-          if (roundedFps !== null) {
-            const published = frameRatePublishRef.current;
-            if (
-              published.fps === null
-              || (roundedFps !== published.fps && time - published.lastPublishedAtMs >= FRAME_RATE_LABEL_UPDATE_MS)
-            ) {
-              frameRatePublishRef.current = { fps: roundedFps, lastPublishedAtMs: time };
-              setFrameRateFps(roundedFps);
-            }
-          }
+          frameIntervalMs = Math.max(time - previousWall, 0);
         }
         // Skip accumulating across known tab-pause transitions. For ordinary
         // RAF stalls, cap the world-clock step so ships do not visually hop
@@ -561,6 +552,31 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         }
       }
       const hitTargetDurationMs = performance.now() - hitTargetStartedAt;
+      // Camera pan/zoom frames legitimately run 40-220ms intervals; feeding
+      // them into the 120-sample pacing window would hold framePacingP90Ms
+      // above the render-scheduler recovery threshold for ~2s after the
+      // gesture settles, visibly shedding water motion/sparkles/birds.
+      // Sample steady-state frames only — resume frames are already excluded
+      // above (frameIntervalMs stays null). The adaptive-DPR governor below
+      // reads this same cleaned window, so interaction frames cannot trigger
+      // DPR downshifts either.
+      if (frameIntervalMs !== null && !cameraStep.cameraIntentActive) {
+        framePacingStatsRef.current = pushFrameIntervalSample(frameIntervalWindowRef.current, frameIntervalMs);
+        const framePacing = framePacingStatsRef.current;
+        const roundedFps = framePacing.sampleCount > 0 && Number.isFinite(framePacing.effectiveFps)
+          ? Math.max(0, Math.round(framePacing.effectiveFps))
+          : null;
+        if (roundedFps !== null) {
+          const published = frameRatePublishRef.current;
+          if (
+            published.fps === null
+            || (roundedFps !== published.fps && time - published.lastPublishedAtMs >= FRAME_RATE_LABEL_UPDATE_MS)
+          ) {
+            frameRatePublishRef.current = { fps: roundedFps, lastPublishedAtMs: time };
+            setFrameRateFps(roundedFps);
+          }
+        }
+      }
       const targets = hitTargetsRef.current;
       const nextFrameState = frameStateRef.current;
       const targetByDetailId = hitTargetSnapshotRef.current?.targetsByDetailId;
@@ -638,7 +654,12 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       }
       if (!reducedMotion) {
         drawDurationStatsRef.current = pushDrawDurationSample(drawDurationWindowRef.current, lastRenderMetricsRef.current.drawDurationMs);
+        // Pass the pacing window alongside draw durations so the governor can
+        // see raster/compositor-bound frames where JS-side draw time stays
+        // quiet while real frame pacing collapses (interaction frames are
+        // already excluded from this window above).
         const nextAdaptiveDprState = resolveAdaptiveDprState({
+          framePacing: framePacingStatsRef.current,
           maximumRequestedDpr: maximumRequestedDprRef.current,
           state: adaptiveDprStateRef.current,
           stats: drawDurationStatsRef.current,
