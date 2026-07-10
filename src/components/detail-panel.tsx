@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, type KeyboardEvent } from "react";
+import { useEffect, useRef } from "react";
 import X from "lucide-react/dist/esm/icons/x";
 import type { DetailModel } from "../systems/world-types";
 import { buildDetailFactSections, compactCurrency, detailFactValue, type DetailDisplayRow } from "../lib/format-detail";
@@ -16,15 +16,6 @@ export interface DetailPanelProps {
 type SectionId = "identity" | "position";
 type DetailMember = NonNullable<DetailModel["members"]>[number];
 type DetailLink = DetailModel["links"][number];
-
-const DIALOG_FOCUSABLE_SELECTOR = [
-  "a[href]",
-  "button:not([disabled])",
-  "input:not([disabled])",
-  "select:not([disabled])",
-  "textarea:not([disabled])",
-  "[tabindex]:not([tabindex='-1'])",
-].join(",");
 
 export function DetailPanel({
   detail,
@@ -49,9 +40,6 @@ export function DetailPanel({
     };
   }, []);
 
-  const handleDialogKeyDown = useCallback((event: KeyboardEvent<HTMLElement>) => {
-    trapDialogTab(event, panelRef.current);
-  }, []);
 
   return (
     <aside
@@ -59,10 +47,8 @@ export function DetailPanel({
       id={panelId}
       className="pharosville-detail-panel"
       aria-labelledby={headingId}
-      aria-modal="true"
       data-testid="pharosville-detail-panel"
-      onKeyDown={handleDialogKeyDown}
-      role="dialog"
+      role="complementary"
       tabIndex={-1}
     >
       <span className="pv-corner-brass pv-corner-brass--tl" aria-hidden="true" />
@@ -73,6 +59,16 @@ export function DetailPanel({
         <header className="pharosville-detail-panel__header">
           <p className="pharosville-detail-panel__kind">{detail.kind}</p>
           <h2 id={headingId}>{detail.title}</h2>
+          {detail.status && (
+            <p className="pharosville-detail-panel__zone" data-testid="pharosville-detail-zone">
+              <span
+                className="pharosville-detail-panel__zone-swatch"
+                style={{ backgroundColor: detail.status.swatchColor }}
+                aria-hidden="true"
+              />
+              <strong>{detail.status.label}</strong> — {detail.status.reading}
+            </p>
+          )}
           {heritage && <p className="pharosville-detail-panel__heritage">{heritage}</p>}
           <p>{detail.summary}</p>
           {detail.paragraphs?.map((paragraph) => (
@@ -122,40 +118,6 @@ export function DetailPanel({
       </div>
     </aside>
   );
-}
-
-function trapDialogTab(event: KeyboardEvent<HTMLElement>, panel: HTMLElement | null): void {
-  if (event.key !== "Tab" || !panel) return;
-
-  const focusableElements = getDialogFocusableElements(panel);
-  if (focusableElements.length === 0) {
-    event.preventDefault();
-    focusWithoutScroll(panel);
-    return;
-  }
-
-  const firstElement = focusableElements[0]!;
-  const lastElement = focusableElements[focusableElements.length - 1]!;
-  const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  const activeInPanel = Boolean(activeElement && panel.contains(activeElement));
-
-  if (event.shiftKey) {
-    if (!activeInPanel || activeElement === panel || activeElement === firstElement) {
-      event.preventDefault();
-      focusWithoutScroll(lastElement);
-    }
-    return;
-  }
-
-  if (!activeInPanel || activeElement === panel || activeElement === lastElement) {
-    event.preventDefault();
-    focusWithoutScroll(firstElement);
-  }
-}
-
-function getDialogFocusableElements(panel: HTMLElement): HTMLElement[] {
-  return Array.from(panel.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR))
-    .filter((element) => element.tabIndex >= 0);
 }
 
 function restoreDialogFocus(previouslyFocused: HTMLElement | null): void {

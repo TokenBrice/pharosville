@@ -6,6 +6,8 @@ import type { AreaNode, DetailModel, DewsAreaBand, DockNode, GraveNode, Lighthou
 import { ETHEREUM_L2_DOCK_CHAIN_IDS } from "./world-layout";
 import { analyticalRouteHref } from "./route-links";
 import { formationLabel, squadForMember, squadRole } from "./maker-squad";
+import { zoneThemeForTerrain } from "./palette";
+import { RISK_WATER_AREAS } from "./risk-water-areas";
 import { shipCycleTempo, type ShipCycleTempoResult } from "./ship-cycle-tempo";
 
 const usd = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0, style: "currency", currency: "USD" });
@@ -637,6 +639,16 @@ export function squadOverrideBanner(node: ShipNode): string | null {
   return `${node.symbol} in distress — squad sheltering at flagship's position${suffix}`;
 }
 
+/** "The peg reading itself is the promise": live signed deviation vs the peg. */
+export function pegDeviationLabel(node: Pick<ShipNode, "pegDeviationBps" | "pegCurrency">): string | null {
+  const bps = node.pegDeviationBps;
+  if (typeof bps !== "number" || !Number.isFinite(bps)) return null;
+  const rounded = Math.round(bps);
+  const sign = rounded > 0 ? "+" : "";
+  const currency = node.pegCurrency || "peg";
+  return `${sign}${rounded} bps vs ${currency}`;
+}
+
 export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): DetailModel {
   const isSquadShip = !!node.squadId;
   const squadShips = isSquadShip ? context.squadShips ?? [] : [];
@@ -666,7 +678,9 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
   const auditShield = auditShieldLabel(node.reportCard, node.visual.sizeTier);
   const safetyGrade = reportCardSafetyLabel(node.reportCard);
   const stressDriver = stressBreakdownLabel(node);
+  const pegDeviation = pegDeviationLabel(node);
   const facts = [
+    ...(pegDeviation ? [{ label: "Peg deviation", value: pegDeviation }] : []),
     { label: "Market cap", value: marketCapLabel(node.marketCapUsd) },
     ...(fleetRank ? [{ label: "Fleet rank", value: fleetRank }] : []),
     ...(fleetShare ? [{ label: "Share of fleet", value: fleetShare }] : []),
@@ -700,11 +714,17 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
     { label: "Evidence", value: node.placementEvidence.sourceFields.join(", ") },
   ];
 
+  const zoneArea = RISK_WATER_AREAS[node.riskPlacement];
   return {
     id: node.detailId,
     kind: node.kind,
     title: node.label,
     summary: node.placementEvidence.reason,
+    status: {
+      swatchColor: zoneThemeForTerrain(zoneArea.terrain).base,
+      label: zoneArea.label,
+      reading: zoneArea.reading,
+    },
     facts,
     links: [{ label: "Stablecoin", href: analyticalRouteHref(`/stablecoin/${node.id}/`) }],
   };

@@ -5,6 +5,9 @@ type TileCoordinate = { x: number; y: number };
 export interface RiskWaterAreaDefinition {
   placement: ShipRiskPlacement;
   label: string;
+  /** One-line observer reading of the zone; shared by the legend and the
+      ship detail-panel status line so the two can never drift. */
+  reading: string;
   band: DewsAreaBand | null;
   regionTile: TileCoordinate;
   labelTile: TileCoordinate;
@@ -45,6 +48,7 @@ export const RISK_WATER_AREAS: Record<ShipRiskPlacement, RiskWaterAreaDefinition
   "safe-harbor": {
     placement: "safe-harbor",
     label: "Calm Anchorage",
+    reading: "Steady peg evidence; the safe default berth",
     band: "CALM",
     regionTile: { x: 8, y: 35 },
     labelTile: { x: 8, y: 35 },
@@ -66,6 +70,7 @@ export const RISK_WATER_AREAS: Record<ShipRiskPlacement, RiskWaterAreaDefinition
   "breakwater-edge": {
     placement: "breakwater-edge",
     label: "Watch Breakwater",
+    reading: "Early-warning signals worth watching",
     band: "WATCH",
     regionTile: { x: 48, y: 44 },
     labelTile: { x: 51, y: 45 },
@@ -97,6 +102,7 @@ export const RISK_WATER_AREAS: Record<ShipRiskPlacement, RiskWaterAreaDefinition
   "harbor-mouth-watch": {
     placement: "harbor-mouth-watch",
     label: "Alert Channel",
+    reading: "Elevated DEWS alert; pressure building",
     band: "ALERT",
     regionTile: { x: 47, y: 14 },
     labelTile: { x: 47, y: 14 },
@@ -118,6 +124,7 @@ export const RISK_WATER_AREAS: Record<ShipRiskPlacement, RiskWaterAreaDefinition
   "outer-rough-water": {
     placement: "outer-rough-water",
     label: "Warning Shoals",
+    reading: "Serious peg stress; shallow, hazardous water",
     band: "WARNING",
     regionTile: { x: 50, y: 8 },
     labelTile: { x: 50, y: 8 },
@@ -139,6 +146,7 @@ export const RISK_WATER_AREAS: Record<ShipRiskPlacement, RiskWaterAreaDefinition
   "storm-shelf": {
     placement: "storm-shelf",
     label: "Danger Strait",
+    reading: "Active depeg or critical risk; storm water",
     band: "DANGER",
     regionTile: { x: 54, y: 1 },
     labelTile: { x: 54, y: 1 },
@@ -160,6 +168,7 @@ export const RISK_WATER_AREAS: Record<ShipRiskPlacement, RiskWaterAreaDefinition
   "ledger-mooring": {
     placement: "ledger-mooring",
     label: "Ledger Mooring",
+    reading: "NAV-priced ledger assets; priced by attestation, not market peg",
     band: null,
     regionTile: { x: 10, y: 5 },
     labelTile: { x: 10, y: 5 },

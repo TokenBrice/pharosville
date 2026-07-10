@@ -7,6 +7,7 @@ import type { AreaNode, DewsAreaBand, PharosVilleWorld, ShipNode } from "../syst
 import { cycleTempoReadingClause, precomputeShipTempos } from "../systems/ship-cycle-tempo";
 import {
   depegHistoryLabel,
+  pegDeviationLabel,
   DIMENSION_KEY_LABELS,
   dockConcentrationLabel,
   harborRankLabel,
@@ -339,6 +340,7 @@ function shipLedgerLine(
     `evidence status ${ship.placementEvidence.stale ? "caveat" : "fresh"}`,
     `source fields ${ship.placementEvidence.sourceFields.join(", ") || "unavailable"}${ship.visual.uniqueRationale ? ` — heritage hull: ${ship.visual.uniqueRationale}` : ""}`,
     `cycle tempo ${tempoLabel}; ${cycleTempoReadingClause()}`,
+    ...(pegDeviationLabel(ship) ? [`peg deviation ${pegDeviationLabel(ship)}`] : []),
     `24h supply change ${formatChangePercent(ship.change24hPct)}`,
     ...(supplyMomentumLabel(ship) ? [`supply momentum ${supplyMomentumLabel(ship)}`] : []),
     ...(depegHistoryLabel(ship.depegHistory) ? [`depeg history ${depegHistoryLabel(ship.depegHistory)}`] : []),
