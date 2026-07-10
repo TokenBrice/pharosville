@@ -28,6 +28,9 @@ import {
   stressBreakdownLabel,
   supplyMomentumLabel,
   withRiskTransitionFact,
+  mastSignalLabel,
+  pegDeviationLabel,
+  placementNarrative,
 } from "./detail-model";
 import type { AreaNode, DockNode, GraveNode, LighthouseNode, PigeonnierNode, ShipNode } from "./world-types";
 import { buildPharosVilleWorld } from "./pharosville-world";
@@ -803,6 +806,28 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
         { label: "Fleet rank", value: "#1 of 2" },
         { label: "Share of fleet", value: "99% of fleet" },
       ]));
+    });
+  });
+
+  describe("v0.3.0 — peg deviation, mast signals, observatory voice", () => {
+    it("formats the live signed peg deviation against its peg currency", () => {
+      expect(pegDeviationLabel({ pegDeviationBps: -12.4, pegCurrency: "USD" })).toBe("-12 bps vs USD");
+      expect(pegDeviationLabel({ pegDeviationBps: 3, pegCurrency: null })).toBe("+3 bps vs peg");
+      expect(pegDeviationLabel({ pegDeviationBps: 0, pegCurrency: "USD" })).toBe("0 bps vs USD");
+      expect(pegDeviationLabel({ pegDeviationBps: null, pegCurrency: "USD" })).toBeNull();
+    });
+
+    it("explains nav and yield mast signals, exclusive with none", () => {
+      expect(mastSignalLabel({ visual: { overlay: "nav" } } as ShipNode)).toContain("NAV-priced");
+      expect(mastSignalLabel({ visual: { overlay: "yield" } } as ShipNode)).toContain("Yield-bearing");
+      expect(mastSignalLabel({ visual: { overlay: "watch" } } as ShipNode)).toBeNull();
+      expect(mastSignalLabel({ visual: { overlay: "none" } } as ShipNode)).toBeNull();
+    });
+
+    it("tells placement stories in the observatory voice with a raw-reason fallback", () => {
+      expect(placementNarrative("Active depeg event")).toContain("storm water");
+      expect(placementNarrative("No active peg or DEWS stress")).toContain("Sailing clean");
+      expect(placementNarrative("Some future reason")).toBe("Some future reason");
     });
   });
 

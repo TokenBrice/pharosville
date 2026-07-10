@@ -15,6 +15,9 @@ import type { ShipRiskPlacement } from "../systems/world-types";
 
 export interface LegendPanelProps {
   onClose: () => void;
+  /** Selects a mover's ship in the world (closing the legend is the caller's
+      choice via onClose composition). */
+  onSelectDetail?: (detailId: string) => void;
   recentFleetTrend?: RecentFleetTrendSummary;
 }
 
@@ -56,6 +59,33 @@ const LEGEND_SHIP_CLASSES: ReadonlyArray<{ name: string; reading: string; sprite
   },
 ];
 
+// Movers carry detailId precisely so narrative text can take the viewer to
+// the ship; without a selection callback they fall back to plain labels.
+function renderMoverEntries(
+  entries: RecentFleetTrendSummary["growers"],
+  onSelectDetail: ((detailId: string) => void) | undefined,
+  onClose: () => void,
+) {
+  if (!onSelectDetail) {
+    return entries.map(recentFleetTrendEntryLabel).join("; ");
+  }
+  return entries.map((entry, index) => (
+    <span key={entry.detailId}>
+      {index > 0 ? "; " : ""}
+      <button
+        type="button"
+        className="pharosville-legend-panel__mover"
+        onClick={() => {
+          onClose();
+          onSelectDetail(entry.detailId);
+        }}
+      >
+        {recentFleetTrendEntryLabel(entry)}
+      </button>
+    </span>
+  ));
+}
+
 const DIALOG_FOCUSABLE_SELECTOR = [
   "a[href]",
   "button:not([disabled])",
@@ -65,7 +95,7 @@ const DIALOG_FOCUSABLE_SELECTOR = [
   "[tabindex]:not([tabindex='-1'])",
 ].join(",");
 
-export function LegendPanel({ onClose, recentFleetTrend }: LegendPanelProps) {
+export function LegendPanel({ onClose, onSelectDetail, recentFleetTrend }: LegendPanelProps) {
   const panelRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const hasRecentMoves = recentFleetTrend
@@ -184,10 +214,10 @@ export function LegendPanel({ onClose, recentFleetTrend }: LegendPanelProps) {
             {hasRecentMoves ? (
               <>
                 {recentFleetTrend.growers.length > 0 && (
-                  <p>Growing: {recentFleetTrend.growers.map(recentFleetTrendEntryLabel).join("; ")}.</p>
+                  <p>Growing: {renderMoverEntries(recentFleetTrend.growers, onSelectDetail, onClose)}.</p>
                 )}
                 {recentFleetTrend.shrinkers.length > 0 && (
-                  <p>Shrinking: {recentFleetTrend.shrinkers.map(recentFleetTrendEntryLabel).join("; ")}.</p>
+                  <p>Shrinking: {renderMoverEntries(recentFleetTrend.shrinkers, onSelectDetail, onClose)}.</p>
                 )}
                 <p>{recentFleetTrend.elevatedShipCount} ships in elevated water.</p>
               </>

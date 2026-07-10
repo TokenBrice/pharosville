@@ -67,6 +67,7 @@ export function DetailPanel({
                 aria-hidden="true"
               />
               <strong>{detail.status.label}</strong> — {detail.status.reading}
+              {detail.status.figure && <> · <strong>{detail.status.figure}</strong></>}
             </p>
           )}
           {heritage && <p className="pharosville-detail-panel__heritage">{heritage}</p>}

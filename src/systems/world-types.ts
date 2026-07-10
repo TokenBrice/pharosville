@@ -327,6 +327,8 @@ export interface DetailModelStatus {
   swatchColor: string;
   label: string;
   reading: string;
+  /** Headline figure for the status line (live signed peg deviation). */
+  figure?: string;
 }
 
 export interface DetailModel {

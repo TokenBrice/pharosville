@@ -99,6 +99,15 @@ const ETHEREUM_L2_DOCK_CHAIN_ID_SET = new Set<string>(ETHEREUM_L2_DOCK_CHAIN_IDS
 // 2.6 DOM parity): cloud + chop wording escalates with the DEWS band, and
 // WARNING+/DANGER receive a "lightning active" suffix matching the
 // `bandReceivesLightning` gate (threat >= 3).
+// C4 observatory voice for named DEWS waters; ships berth here by band.
+const AREA_NARRATIVES: Record<DewsAreaBand, string> = {
+  CALM: "steady water where ships with clean peg evidence ride at anchor.",
+  WATCH: "early-warning water — signals worth watching gather here.",
+  ALERT: "pressure is building in this channel; elevated DEWS alerts berth here.",
+  WARNING: "shallow, hazardous shoals where serious peg stress runs aground.",
+  DANGER: "storm water — active depegs and critical risk ride out the weather here.",
+};
+
 const ATMOSPHERE_DESCRIPTORS: Record<DewsAreaBand, string> = {
   CALM: "Clear sky, calm sea",
   WATCH: "Thin clouds, light chop",
@@ -639,6 +648,36 @@ export function squadOverrideBanner(node: ShipNode): string | null {
   return `${node.symbol} in distress — squad sheltering at flagship's position${suffix}`;
 }
 
+// C4 observatory voice: the panel summary tells the ship's story in the
+// world's maritime register; the raw evidence reason stays available to the
+// ledger and evidence rows. Keyed by the canonical placement-evidence reason
+// strings from risk-placement.ts, falling back to the raw reason for any
+// wording this map does not know.
+const PLACEMENT_NARRATIVES: Record<string, string> = {
+  "Active depeg event": "An active depeg has driven this ship into storm water.",
+  "Current peg deviation": "Its live peg reading is holding it off the calm anchorage.",
+  "DEWS stress escalation": "Early-warning stress signals set this berth.",
+  "NAV token Ledger Mooring idle preference":
+    "A NAV-priced ledger asset, moored where attestation — not the market peg — sets the price.",
+  "Active depeg evidence is stale": "Its last depeg evidence has gone stale; berthed in calm water under caveat.",
+  "Missing or low-confidence price evidence": "Price evidence is thin; berthed in calm water under caveat.",
+  "Risk evidence is stale": "Risk evidence has gone stale; berthed in calm water under caveat.",
+  "No active peg or DEWS stress": "Sailing clean — no active peg or early-warning stress.",
+};
+
+export function placementNarrative(reason: string): string {
+  return PLACEMENT_NARRATIVES[reason] ?? reason;
+}
+
+/** Nav/yield mast-signal parity: the drawn square must be explained in the
+    detail panel and ledger (VISUAL_INVARIANTS parity rule). The overlay is
+    exclusive: nav wins over yield, both over safety-watch. */
+export function mastSignalLabel(node: Pick<ShipNode, "visual">): string | null {
+  if (node.visual.overlay === "nav") return "NAV-priced (blue mast signal)";
+  if (node.visual.overlay === "yield") return "Yield-bearing (gold mast signal)";
+  return null;
+}
+
 /** "The peg reading itself is the promise": live signed deviation vs the peg. */
 export function pegDeviationLabel(node: Pick<ShipNode, "pegDeviationBps" | "pegCurrency">): string | null {
   const bps = node.pegDeviationBps;
@@ -679,6 +718,7 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
   const safetyGrade = reportCardSafetyLabel(node.reportCard);
   const stressDriver = stressBreakdownLabel(node);
   const pegDeviation = pegDeviationLabel(node);
+  const mastSignal = mastSignalLabel(node);
   const facts = [
     ...(pegDeviation ? [{ label: "Peg deviation", value: pegDeviation }] : []),
     { label: "Market cap", value: marketCapLabel(node.marketCapUsd) },
@@ -694,6 +734,7 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
     { label: "Ship class", value: node.visual.classLabel },
     { label: "Size tier", value: node.visual.sizeLabel },
     ...(auditShield ? [{ label: "Bluechip audit", value: auditShield }] : []),
+    ...(mastSignal ? [{ label: "Mast signal", value: mastSignal }] : []),
     ...(node.visual.uniqueRationale
       ? [{ label: "Cultural significance", value: node.visual.uniqueRationale }]
       : []),
@@ -719,11 +760,12 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
     id: node.detailId,
     kind: node.kind,
     title: node.label,
-    summary: node.placementEvidence.reason,
+    summary: placementNarrative(node.placementEvidence.reason),
     status: {
       swatchColor: zoneThemeForTerrain(zoneArea.terrain).base,
       label: zoneArea.label,
       reading: zoneArea.reading,
+      ...(pegDeviation ? { figure: pegDeviation } : {}),
     },
     facts,
     links: [{ label: "Stablecoin", href: analyticalRouteHref(`/stablecoin/${node.id}/`) }],
@@ -767,7 +809,7 @@ export function detailForArea(node: AreaNode): DetailModel {
     kind: node.kind,
     title: node.label,
     summary: node.summary ?? (node.band
-      ? `${node.label} is a DEWS ${node.band} water area used for ship risk placement.`
+      ? `${node.label}: ${AREA_NARRATIVES[node.band]}`
       : `${node.label} is a named water area.`),
     facts: [
       ...(node.band ? [{ label: "DEWS band", value: node.band }] : []),

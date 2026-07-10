@@ -12,6 +12,7 @@ import Maximize2 from "lucide-react/dist/esm/icons/maximize-2";
 import Minimize2 from "lucide-react/dist/esm/icons/minimize-2";
 import { AccessibilityLedger, type ShipRiskTransitionEntry } from "./components/accessibility-ledger";
 import { DetailPanel } from "./components/detail-panel";
+import { HarborLog } from "./components/harbor-log";
 import { SinceLastVisitBanner } from "./components/since-last-visit";
 import { ShipSearch } from "./components/ship-search";
 import { WorldToolbar } from "./components/world-toolbar";
@@ -21,6 +22,7 @@ import { useChangelogDialog } from "./hooks/use-changelog-dialog";
 import { isLegendDismissed, useLegendDialog } from "./hooks/use-legend-dialog";
 import { useCanvasResizeAndCamera } from "./hooks/use-canvas-resize-and-camera";
 import { useFullscreenMode } from "./hooks/use-fullscreen-mode";
+import { useHarborLog } from "./hooks/use-harbor-log";
 import { useLatestRef } from "./hooks/use-latest-ref";
 import { useLiveTitle } from "./hooks/use-live-title";
 import { useVisitSnapshot } from "./hooks/use-visit-snapshot";
@@ -192,6 +194,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     selectedDetailId,
     world,
   }), [riskTransitionByShipId, selectedDetailId, world]);
+  const harborLog = useHarborLog({ riskTransitionByShipId, setAnnouncement, shipsById });
 
   // Refs that mirror frequently-changing state so hook-internal effects/RAF can
   // read the latest values without rebinding on every hover/select/motionPlan
@@ -652,7 +655,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       )}
       {legend.legendOpen && (
         <Suspense fallback={<ChangelogPanelLoading />}>
-          <LazyLegendPanel onClose={legend.closeLegend} recentFleetTrend={recentFleetTrend} />
+          <LazyLegendPanel onClose={legend.closeLegend} onSelectDetail={selectDetail} recentFleetTrend={recentFleetTrend} />
         </Suspense>
       )}
       <p className="pharosville-beta-tag">
@@ -674,6 +677,11 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
         <a href="https://pharos.watch/">Pharos</a>
       </p>
+      <HarborLog
+        entries={harborLog.entries}
+        onDismiss={harborLog.dismiss}
+        onSelectDetail={selectDetail}
+      />
       <p className="sr-only" aria-live="polite">{announcement}</p>
       <AccessibilityLedger world={world} riskTransitionByShipId={riskTransitionByShipId} />
     </main>

@@ -1332,6 +1332,19 @@ textarea {
   border: 1px solid rgba(216, 184, 122, 0.55);
   border-radius: 2px;
 }
+.pharosville-legend-panel__mover {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pv-brass-highlight);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: rgba(216, 184, 122, 0.45);
+  text-underline-offset: 2px;
+}
+.pharosville-legend-panel__mover:hover { color: #fff0c8; }
 .pharosville-legend-panel__ships {
   list-style: none;
   padding-left: 2px;
