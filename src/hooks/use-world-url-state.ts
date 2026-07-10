@@ -11,6 +11,8 @@ export type WorldUrlCopyResult = "copied" | "failed" | "unavailable";
 export interface WorldUrlInitialState {
   camera: IsoCamera | null;
   followSelectedDetailId: string | null;
+  /** True when the URL carried an explicit sel= param, resolved or not. */
+  hasExplicitSelection: boolean;
   manualTimeOverrideHour: number | null;
   nightMode: boolean;
   selectedDetailId: string;
@@ -108,6 +110,7 @@ export function parseInitialWorldUrlState(world: PharosVilleWorldModel): {
     initialState: {
       camera,
       followSelectedDetailId: hasValidSelectedDetail && camera === null ? selectedDetailId : null,
+      hasExplicitSelection: Boolean(rawSelectedDetailId),
       manualTimeOverrideHour: parseHour(params.get("t")),
       nightMode: params.get("n") === "1",
       selectedDetailId,
@@ -141,6 +144,7 @@ function defaultInitialWorldUrlState(): WorldUrlInitialState {
   return {
     camera: null,
     followSelectedDetailId: null,
+    hasExplicitSelection: false,
     manualTimeOverrideHour: null,
     nightMode: false,
     selectedDetailId: DEFAULT_WORLD_SELECTED_DETAIL_ID,

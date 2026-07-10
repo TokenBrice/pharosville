@@ -18,6 +18,7 @@ describe("useWorldUrlState", () => {
     expect(result.current.initialState).toEqual({
       camera: { offsetX: 10, offsetY: 20, zoom: 1.5 },
       followSelectedDetailId: null,
+      hasExplicitSelection: true,
       manualTimeOverrideHour: 5.25,
       nightMode: true,
       selectedDetailId: "ship.usdc",

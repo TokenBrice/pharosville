@@ -118,11 +118,11 @@ export const WATER_TERRAIN_STYLES = {
     wave: "rgba(218, 232, 224, 0.22)",
   },
   "watch-water": {
-    accent: "rgba(150, 196, 218, 0.22)",
-    base: "#1c4d6d",
-    inner: "rgba(70, 126, 160, 0.22)",
+    accent: "rgba(158, 200, 196, 0.22)",
+    base: "#487c7a",
+    inner: "rgba(84, 138, 134, 0.22)",
     texture: "watch",
-    wave: "rgba(182, 222, 235, 0.16)",
+    wave: "rgba(190, 226, 222, 0.16)",
   },
   "warning-water": {
     accent: "rgba(215, 174, 100, 0.35)",
@@ -208,8 +208,10 @@ function defaultLabelTheme(accent: string): ZoneLabelTheme {
 // agents/pharosville-zone-themes-research.md. DEWS bands form a single
 // escalation gradient (saturation drains, shadow deepens, motion climbs);
 // Ledger is intentionally OFF that ladder, reading as parchment-and-ink.
-// Calm/Watch keep their existing colors and only dial motion; Alert is the
-// baseline reference; Warning/Danger/Ledger get full color tuples.
+// Calm keeps its existing colors and only dials motion; Watch sits on a
+// steel-teal base (retuned 2026-07-10 so it separates from Calm at fleet zoom
+// and in 14px legend swatches); Alert is the baseline reference;
+// Warning/Danger/Ledger get full color tuples.
 
 export const ZONE_THEMES = {
   "alert-water": {

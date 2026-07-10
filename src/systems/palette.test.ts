@@ -70,7 +70,7 @@ describe("HARBOR_PALETTE", () => {
   it("matches the W1.13 merged water terrain palette refit", () => {
     expect(HARBOR_PALETTE.lantern_warm).toBe("#d49a3e");
     expect(WATER_TERRAIN_STYLES["calm-water"].base).toBe("#125e7e");
-    expect(WATER_TERRAIN_STYLES["watch-water"].base).toBe("#1c4d6d");
+    expect(WATER_TERRAIN_STYLES["watch-water"].base).toBe("#487c7a");
     expect(WATER_TERRAIN_STYLES["alert-water"].base).toBe("#3d6e58");
     expect(WATER_TERRAIN_STYLES["warning-water"].base).toBe("#5e5535");
     expect(WATER_TERRAIN_STYLES["storm-water"].base).toBe("#1a1428");

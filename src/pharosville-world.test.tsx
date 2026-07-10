@@ -150,11 +150,18 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     const { container } = render(<PharosVilleWorld world={worldFixture()} />);
 
     expect(screen.getByTestId("pharosville-ship-counter").textContent).toBe("1 ship docked / 1 total");
-    expect(screen.getByTestId("pharosville-fps-counter").textContent).toBe("Static");
+    expect(screen.queryByTestId("pharosville-fps-counter")).toBeNull();
     expect(container.querySelector(".pharosville-beta-tag")?.textContent).toContain("PharosVille beta v0.2.2");
     expect(container.querySelector(".pharosville-beta-tag")?.textContent?.replace(/\s+/g, " ").trim()).toMatch(
-      /Legend\|Changelog\|1 ship docked \/ 1 total\|Static\|Copy link\|Pharos$/,
+      /Legend\|Changelog\|1 ship docked \/ 1 total\|Copy link\|Pharos$/,
     );
+  });
+
+  it("shows the frame-rate counter only behind the debug flag", () => {
+    window.history.replaceState(null, "", "/?debug=1");
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    expect(screen.getByTestId("pharosville-fps-counter").textContent).toBe("Static");
   });
 
   it("opens the commit-collected changelog from the beta footer", async () => {
