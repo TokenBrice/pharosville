@@ -2,6 +2,19 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel.
 
+## v0.3.0 - 2026-07-10 - True Waters
+
+PharosVille learns to tell the whole truth: inverted stability semantics, dead permalinks, and silent story beats are fixed, the harbor finally leads the first visit, and ships sail with honest wakes and cadence.
+
+Collected from commits `c02952a` through `654ea7f` after the v0.2.2 changelog entry.
+
+- Fixed inverted PSI semantics across the world: a healthy BEDROCK market now becalms the ambient sea and a collapse would storm it (previously reversed), the lighthouse 24h drift wording matches reality, the decorative session-hour slider no longer roughens the analytic water, and NAV ledger ships stay moored through CALM stress rows.
+- Revived two silently broken features: since-last-visit deltas no longer baseline against the empty loading world, and shared ?sel= permalinks now open the linked ship instead of falling back to the lighthouse.
+- Made the world the hero on first visit — one narrow legend (with hull-class thumbnails) over a visible harbor, the lighthouse panel deferred until it closes, Watch Breakwater water retuned to a distinct steel teal, and a quieter footer with the fps counter behind ?debug=1.
+- Sharpened inspection: ship panels open with a zone status line and the live signed peg deviation ("-12 bps vs USD") with full ledger parity, the detail panel became a non-modal landmark so screen readers keep the accessibility ledger, keyboard Tab now exits the map-target cycle into the page controls, and nav/yield mast signals gained legend, detail, and ledger explanations.
+- Let events read as story: a session harbor log turns risk-band transitions into clickable beats ("USDX left Calm Anchorage for Danger Strait"), legend movers jump to their ships, and placement and area copy speak the observatory voice.
+- Tuned interaction-time performance and motion honesty: adaptive DPR now reacts to raster-bound frame pacing instead of upshifting against it, post-pan effect shedding is gone, sail-logo sprites stopped thrashing during zoom, risk tack-outs run at their documented 3-second tempo, routes no longer teleport at 10-minute rebuilds, dock calls follow real chain supply share, and wakes die away as ships settle.
+
 ## v0.2.2 - 2026-06-14 - Signal Clarity
 
 PharosVille sharpens ship and harbor identity, expands the weathered maritime world, and trims noisy overlays back to a cleaner inspection surface.

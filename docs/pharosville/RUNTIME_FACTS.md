@@ -8,8 +8,8 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 
 - Canonical app URL: `https://pharosville.pharos.watch/`
 - Runtime asset namespace: `/pharosville/assets/`
-- Latest app version: `v0.2.2` (`signalClarity`)
-- Latest changelog entry: `2026-06-14-signal-clarity` / `v0.2.2` / 2026-06-14 / Signal Clarity
+- Latest app version: `v0.3.0` (`trueWaters`)
+- Latest changelog entry: `2026-07-10-true-waters` / `v0.3.0` / 2026-07-10 / True Waters
 
 ## Viewport Gate
 

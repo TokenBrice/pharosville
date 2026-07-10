@@ -6,6 +6,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   needForSpeed: "v0.2.0",
   curtainUp: "v0.2.1",
   signalClarity: "v0.2.2",
+  trueWaters: "v0.3.0",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.signalClarity;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.trueWaters;
