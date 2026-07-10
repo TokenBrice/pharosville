@@ -42,7 +42,7 @@ export const PHAROSVILLE_CONTROL_GROUPS: readonly PharosVilleControlGroup[] = [
       {
         id: "focus-next-target",
         label: "Focus next map target",
-        summary: "Cycles the canvas focus beacon through visible ships, docks, areas, and landmarks.",
+        summary: "Cycles the canvas focus beacon through visible ships, docks, areas, and landmarks; past the last target, Tab continues into the page controls.",
         inputs: [{ kind: "keyboard", label: "Tab", tokens: ["Tab"] }],
       },
       {

@@ -575,7 +575,9 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       tabIndex={0}
     >
       <p id="pharosville-world-instructions" className="sr-only">
-        Use toolbar, wheel, drag, arrows, Tab, Shift Tab, Enter, canvas.
+        Tab cycles map targets and Enter opens their details; past the last
+        target, Tab continues into the page controls. Arrow keys pan, plus and
+        minus zoom, Escape closes panels.
       </p>
       <canvas
         ref={canvas.canvasRef}
