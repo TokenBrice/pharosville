@@ -1,6 +1,6 @@
 # PharosVille Motion Policy
 
-Last updated: 2026-06-10
+Last updated: 2026-07-10
 
 PharosVille uses one route-owned motion clock. Normal motion is driven by the
 canvas `requestAnimationFrame` loop in `pharosville-world.tsx`; reduced motion
@@ -67,7 +67,7 @@ renders deterministic static frames and must not keep a RAF loop alive.
   freeze at their risk-water idle tile. Details and the accessibility ledger
   must expose named risk-water area, risk-water zone, home dock, chain presence,
   docking cadence, and evidence caveats.
-- Routed normal-motion ships spend a base one third of each cycle moored at rendered docks. Ships with at least four positive chain deployments receive extended dock dwell. Non-titan, non-unique ships are hidden while moored to rotate map-visible ship load; titan and heritage-hull ships remain visible while docked.
+- Routed normal-motion ships spend a base one third of each cycle moored at rendered docks. Ships with at least four positive chain deployments receive extended dock dwell. Scheduled dock visits repeat proportionally to chain deployment share, so higher-share docks are visited more often across cycles (deterministic per ship and cycle index). Non-titan, non-unique ships are hidden while moored to rotate map-visible ship load; titan and heritage-hull ships remain visible while docked.
 - Dockless normal-motion patrols must not collapse to a near-static loop. If a named area is too small for meaningful travel, use current or adjacent same-purpose sea anchors while keeping samples on water tiles.
 - Risk repath (W4.25 tack-out): when a route's risk target changes, the drift
   center blends previous → current over 3s and the ship's heading eases toward
@@ -78,7 +78,15 @@ renders deterministic static frames and must not keep a RAF loop alive.
 - Docking choreography: arriving transits decelerate over the last ~15% of the
   approach (`ARRIVING_FULL_TRANSIT_END` → `ARRIVING_DECEL_END`), then ease into
   fender contact with `fenderContact`/`mooringTension` ramping to taut; wake
-  intensity scales with the phase's speed ratio.
+  intensity scales with the phase's speed ratio. Open-water and ledger patrol
+  sailing legs derive their speed ratio from the smoothstep easing derivative
+  (rest at leg endpoints, ~1.0 mid-leg), so wake and reported velocity track
+  the eased pace instead of holding constant.
+- Route wander detours are seeded per ship and leg endpoints — never by the
+  600-second plan-rebuild bucket — so plan rebuilds reproduce identical path
+  geometry and mid-transit ships never jump at a bucket flip. Per-cycle path
+  variety comes from the W4.23 itinerary and dock-schedule rotation changing
+  the leg endpoints when a ship naturally starts a new route cycle.
 
 ## Debug Contract
 

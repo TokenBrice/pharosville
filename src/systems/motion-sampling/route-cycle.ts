@@ -69,7 +69,7 @@ export function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number
     cursor -= transitSecondsEach;
 
     if (cursor < riskSecondsEach) {
-      riskWaterSampleInto(route, timeSeconds, cursor / Math.max(1, riskSecondsEach), out);
+      riskWaterSampleInto(route, timeSeconds, cursor / Math.max(1, riskSecondsEach), riskSecondsEach, out);
       out.seaState = seaState;
       return;
     }
@@ -94,6 +94,6 @@ export function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number
     cursor -= transitSecondsEach;
   }
 
-  riskWaterSampleInto(route, timeSeconds, 1, out);
+  riskWaterSampleInto(route, timeSeconds, 1, riskSecondsEach, out);
   out.seaState = seaState;
 }

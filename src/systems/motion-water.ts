@@ -11,6 +11,8 @@ export function buildShipWaterRoute(input: {
   map: PharosVilleMap;
   zone?: ShipWaterZone;
   shipId?: string;
+  // Accepted for caller compatibility; path geometry is bucket-independent so
+  // 600s plan rebuilds reproduce identical routes (no mid-transit jumps).
   bucket?: number;
 }): ShipWaterPath {
   const from = nearestMapWaterTile(input.from, input.map);
@@ -21,7 +23,6 @@ export function buildShipWaterRoute(input: {
     map: input.map,
     ...(input.zone !== undefined ? { zone: input.zone } : {}),
     ...(input.shipId !== undefined ? { shipId: input.shipId } : {}),
-    ...(input.bucket !== undefined ? { bucket: input.bucket } : {}),
   });
 }
 
@@ -39,7 +40,7 @@ export function buildCachedShipWaterRoute(input: {
   const cached = cache.get(key);
   if (cached) return cached;
 
-  const route = buildShipWaterRouteFromWaterTiles({ from, to, map: input.map, zone: input.zone, shipId: input.shipId, bucket: input.bucket });
+  const route = buildShipWaterRouteFromWaterTiles({ from, to, map: input.map, zone: input.zone, shipId: input.shipId });
   cache.set(key, route);
   return route;
 }
@@ -217,12 +218,11 @@ function buildShipWaterRouteFromWaterTiles(input: {
   map: PharosVilleMap;
   zone?: ShipWaterZone;
   shipId?: string;
-  bucket?: number;
 }): ShipWaterPath {
   const { from, to } = input;
   if (sameTile(from, to)) return waterPathFromPoints(from, to, [from]);
 
-  const detouredPoints = findDetouredWaterPath(from, to, input.map, input.zone, input.shipId, input.bucket);
+  const detouredPoints = findDetouredWaterPath(from, to, input.map, input.zone, input.shipId);
   if (detouredPoints.length > 0) return waterPathFromPoints(from, to, chaikinSmoothPath(detouredPoints));
 
   const points = findWaterPath(from, to, input.map, input.zone);
@@ -318,8 +318,8 @@ export function chaikinSmoothPath(points: ReadonlyArray<{ x: number; y: number }
   return result;
 }
 
-function findDetouredWaterPath(from: { x: number; y: number }, to: { x: number; y: number }, map: PharosVilleMap, zone?: ShipWaterZone, shipId = "", bucket = 0): Array<{ x: number; y: number }> {
-  const waypoints = detourWaterWaypoints(from, to, map, shipId, bucket);
+function findDetouredWaterPath(from: { x: number; y: number }, to: { x: number; y: number }, map: PharosVilleMap, zone?: ShipWaterZone, shipId = ""): Array<{ x: number; y: number }> {
+  const waypoints = detourWaterWaypoints(from, to, map, shipId);
   if (waypoints.length === 0) return [];
   return findWaterPathThroughPoints([from, ...waypoints, to], map, zone);
 }
@@ -334,13 +334,19 @@ function findWaterPathThroughPoints(points: Array<{ x: number; y: number }>, map
   return route;
 }
 
-function detourWaterWaypoints(from: { x: number; y: number }, to: { x: number; y: number }, map: PharosVilleMap, shipId = "", bucket = 0): Array<{ x: number; y: number }> {
+function detourWaterWaypoints(from: { x: number; y: number }, to: { x: number; y: number }, map: PharosVilleMap, shipId = ""): Array<{ x: number; y: number }> {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const distance = Math.hypot(dx, dy);
   if (distance < 8) return [];
 
-  const seed = stableHash(`${shipId}.${bucket}.${from.x}.${from.y}->${to.x}.${to.y}.wander`);
+  // Wander is seeded by (ship, leg endpoints) only — deliberately NOT by the
+  // 600s route bucket. Bucket-seeded wander re-rolled every plan rebuild and
+  // teleported mid-transit ships past the visual smoother's 3-tile snap
+  // threshold. Per-cycle variety still emerges the W4.23 way: itinerary and
+  // dock-schedule rotation change the leg endpoints when a ship naturally
+  // starts a new route cycle, which re-seeds the wander with them.
+  const seed = stableHash(`${shipId}.${from.x}.${from.y}->${to.x}.${to.y}.wander`);
   const waypointCount = distance > 24 ? 2 : 1;
   const primarySign = seed % 2 === 0 ? 1 : -1;
   const perpendicular = { x: -dy / distance, y: dx / distance };

@@ -12,13 +12,13 @@ import {
 } from "./shared";
 import { beginRoutePathSample } from "./memory";
 import { routeSamplingRuntime } from "./route-runtime";
-import { transitSampleInto } from "./transit";
+import { smoothstepSpeedRatio, transitSampleInto } from "./transit";
 import { riskWaterSampleInto } from "./risk-water";
 import { riskDriftSampleInto } from "./risk-drift";
 
 export function openWaterPatrolSampleInto(route: ShipMotionRoute, timeSeconds: number, out: ShipMotionSample): void {
   if (!route.openWaterPatrol) {
-    riskWaterSampleInto(route, timeSeconds, 0.18, out);
+    riskWaterSampleInto(route, timeSeconds, 0.18, route.cycleSeconds * ZONE_DWELL[route.zone].riskDwell, out);
     return;
   }
   const runtime = routeSamplingRuntime(route);
@@ -37,16 +37,18 @@ export function openWaterPatrolSampleInto(route: ShipMotionRoute, timeSeconds: n
   let cursor = elapsedSeconds;
 
   if (cursor < riskSeconds) {
-    riskWaterSampleInto(route, timeSeconds, cursor / Math.max(1, riskSeconds), out);
+    riskWaterSampleInto(route, timeSeconds, cursor / Math.max(1, riskSeconds), riskSeconds, out);
     return;
   }
   cursor -= riskSeconds;
 
   if (cursor < transitSecondsEach) {
+    const legProgress = cursor / Math.max(1, transitSecondsEach);
     transitSampleInto({
       route,
       path: leg.outbound,
-      progress: smoothstep(cursor / Math.max(1, transitSecondsEach)),
+      progress: smoothstep(legProgress),
+      speedRatio: smoothstepSpeedRatio(legProgress),
       transitSeconds: transitSecondsEach,
       routeStop: null,
       runtime,
@@ -65,10 +67,12 @@ export function openWaterPatrolSampleInto(route: ShipMotionRoute, timeSeconds: n
   }
   cursor -= waypointSeconds;
 
+  const legProgress = cursor / Math.max(1, transitSecondsEach);
   transitSampleInto({
     route,
     path: leg.inbound,
-    progress: smoothstep(cursor / Math.max(1, transitSecondsEach)),
+    progress: smoothstep(legProgress),
+    speedRatio: smoothstepSpeedRatio(legProgress),
     transitSeconds: transitSecondsEach,
     routeStop: null,
     runtime,
@@ -108,7 +112,9 @@ function openWaterWaypointDriftSampleInto(
 ): void {
   const patrol = route.openWaterPatrol;
   if (!patrol) {
-    riskDriftSampleInto(route, timeSeconds, progress, out);
+    // Defensive fallback (the caller always resolves a patrol leg first);
+    // preserve the raw zone-share window for the drift sampler.
+    riskDriftSampleInto(route, timeSeconds, progress, route.cycleSeconds * ZONE_DWELL[route.zone].riskDwell, out);
     return;
   }
   const driftWaypoint = waypoint ?? patrol.waypoint;

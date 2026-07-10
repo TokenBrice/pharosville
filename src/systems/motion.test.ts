@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { denseFixtureChains, denseFixturePegSummary, denseFixtureReportCards, denseFixtureStablecoins, denseFixtureStress, fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoins, fixtureStability, fixtureStress, fixtureWithFlagshipPlacement, makeAsset, makeChain, makePegCoin, makerSquadFixtureInputs } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import { __testPathCacheSize, buildBaseMotionPlan, buildMotionPlan, BoundedShipWaterRouteCache, buildShipWaterRoute, clearShipHeadingMemory, createShipMotionSample, disposePathCacheForMap, isShipMapVisible, lighthouseFireFlickerSpeed, motionPlanSignature, resolveShipMotionSample, resolveShipMotionSampleInto, sampleShipWaterPath, shipCycleTempo, shipMapVisibilityAlpha, shipWaterPathKey, SPEED_QUARTILE_SCALARS, stableMotionPhase, type ShipDockMotionStop, type ShipMotionSample } from "./motion";
-import { ARRIVING_DECEL_END, ARRIVING_FULL_TRANSIT_END, CAST_OFF_ACCEL_END, CAST_OFF_LINE_RELEASE_END, MOORING_QUIET_END, MOORING_WORKING_END } from "./motion-config";
+import { ARRIVING_DECEL_END, ARRIVING_FULL_TRANSIT_END, CAST_OFF_ACCEL_END, CAST_OFF_LINE_RELEASE_END, MOORING_QUIET_END, MOORING_WORKING_END, ZONE_DWELL } from "./motion-config";
 import { getShipHeadingDelta } from "./motion-sampling";
 import { __resetPreviousRiskCache } from "./motion-planning";
 import { chaikinSmoothPath, ensureShoreDistanceMask, shoreDistance, warmAllWaterPaths } from "./motion-water";
@@ -1376,6 +1376,44 @@ describe("motion", () => {
       expect(minWake).toBeLessThan(maxWake * 0.5);
     });
 
+    it("eases sailing-leg speed and wake with the smoothstep derivative (rest at endpoints, ~1 mid-leg)", () => {
+      // Dockless calm ship → open-water patrol whose transit legs pass
+      // smoothstep-eased progress with state "sailing".
+      const sampleWorld = worldForShip({ chainCirculating: {}, chains: ["ethereum"] });
+      const ship = sampleWorld.ships[0]!;
+      const plan = buildMotionPlan(sampleWorld, ship.detailId);
+      const route = plan.shipRoutes.get(ship.id)!;
+      const zoneDwell = ZONE_DWELL[route.zone];
+      const riskSeconds = route.cycleSeconds * zoneDwell.riskDwell;
+      const waypointSeconds = route.cycleSeconds * zoneDwell.dockDwell;
+      const transitSecondsEach = (route.cycleSeconds - riskSeconds - waypointSeconds) / 2;
+      // Outbound patrol leg spans cycle-elapsed [riskSeconds, riskSeconds + transitSecondsEach).
+      const sampleAtLegFraction = (fraction: number) => resolveShipMotionSample({
+        plan,
+        reducedMotion: false,
+        ship,
+        timeSeconds: riskSeconds + fraction * transitSecondsEach - route.phaseSeconds,
+      });
+
+      const nearStart = sampleAtLegFraction(0.02);
+      const mid = sampleAtLegFraction(0.5);
+      const nearEnd = sampleAtLegFraction(0.98);
+      for (const sample of [nearStart, mid, nearEnd]) {
+        expect(sample.state).toBe("sailing");
+      }
+
+      // speedRatio = 4t(1-t): ≈0.0784 at t=0.02/0.98, exactly 1 at t=0.5.
+      expect(mid.speedTilesPerSecond).toBeGreaterThan(0);
+      expect(nearStart.speedTilesPerSecond! / mid.speedTilesPerSecond!).toBeCloseTo(4 * 0.02 * 0.98, 2);
+      expect(nearEnd.speedTilesPerSecond! / mid.speedTilesPerSecond!).toBeCloseTo(4 * 0.98 * 0.02, 2);
+
+      // Wake follows the eased speed (samples are seconds apart, so the wake
+      // low-pass cold-starts and returns the raw value each time).
+      expect(mid.wakeIntensity).toBeGreaterThan(0);
+      expect(nearStart.wakeIntensity).toBeLessThan(mid.wakeIntensity * 0.2);
+      expect(nearEnd.wakeIntensity).toBeLessThan(mid.wakeIntensity * 0.2);
+    });
+
     it("bank stays bounded across a full cycle (no runaway angular velocity)", () => {
       const sampleWorld = buildLivelinessWorld();
       const ship = sampleWorld.ships[0]!;
@@ -2066,8 +2104,9 @@ describe("motion", () => {
         freshness: {},
       });
       // bucket = Math.floor(timeSeconds / 600): 0 vs 1.
-      // Plans built with different buckets must differ in at least one route
-      // waterpath (the bucket seeds per-ship jitter in buildCachedShipWaterRoute).
+      // Plans built with different buckets carry distinct route epochs/keys.
+      // Path geometry itself is bucket-independent (wander is seeded by ship
+      // and leg endpoints) so rebuilds never move mid-transit ships.
       const plan0 = buildBaseMotionPlan(testWorld, 0);
       const plan1 = buildBaseMotionPlan(testWorld, 700);
       // Both plans cover all ships.
@@ -2079,8 +2118,8 @@ describe("motion", () => {
         expect(route1.routeEpoch).toBe(1);
         expect(route1.routeKey).not.toBe(route0.routeKey);
       }
-      // At least one ship with dock stops must have a different path shape
-      // between the two buckets (bucket-keyed jitter guarantee).
+      // Route containers are rebuilt per plan even when the underlying path
+      // geometry is identical across buckets.
       let foundDiff = false;
       for (const [shipId, route0] of plan0.shipRoutes) {
         const route1 = plan1.shipRoutes.get(shipId);
@@ -2364,34 +2403,31 @@ describe("motion", () => {
     });
   });
 
-  describe("T3.3 dayBucket-keyed route micro-jitter", () => {
+  describe("T3.3 per-ship route wander (bucket-independent)", () => {
     // Build a minimal real map for route tests.
     const routeMap = buildPharosVilleMap();
     const from = { x: 8, y: 16 };
     const to = { x: 55, y: 16 };
 
-    it("same ship + same dock pair across two different buckets produces at least one differing waypoint", () => {
+    it("same ship + same dock pair across two different buckets produces identical waypoints", () => {
+      // Wander is seeded by (ship, leg endpoints) only. Bucket-seeded wander
+      // re-rolled every 600s plan rebuild and teleported mid-transit ships
+      // past the visual smoother's 3-tile snap threshold.
       const routeBucket0 = buildShipWaterRoute({ from, to, map: routeMap, shipId: "ship-alpha", bucket: 0 });
       const routeBucket1 = buildShipWaterRoute({ from, to, map: routeMap, shipId: "ship-alpha", bucket: 1 });
 
       // Both routes must be valid water paths.
       expect(routeBucket0.points.length).toBeGreaterThan(1);
       expect(routeBucket1.points.length).toBeGreaterThan(1);
-
-      // At least one interior waypoint must differ between the two buckets.
-      const differs = routeBucket0.points.some((pt, index) => {
-        const other = routeBucket1.points[index];
-        return other === undefined || pt.x !== other.x || pt.y !== other.y;
-      }) || routeBucket0.points.length !== routeBucket1.points.length;
-      expect(differs).toBe(true);
+      expect(routeBucket1.points).toEqual(routeBucket0.points);
     });
 
-    it("two different ships with the same dock pair and bucket produce at least one differing waypoint", () => {
+    it("two different ships with the same dock pair produce at least one differing waypoint", () => {
       // Pick ship IDs whose seeds for this (from,to) pair have different parity
       // (primarySign flips), guaranteeing the perpendicular detour goes to
       // opposite sides and the paths differ even after tile-snapping.
-      // stableHash("usdc-circle.0.8.16->55.16.wander") % 2 === 0 → sign +1
-      // stableHash("usdt-tether.0.8.16->55.16.wander") % 2 === 1 → sign -1
+      // stableHash("usdc-circle.8.16->55.16.wander") % 2 === 0 → sign +1
+      // stableHash("usdt-tether.8.16->55.16.wander") % 2 === 1 → sign -1
       const routeAlpha = buildShipWaterRoute({ from, to, map: routeMap, shipId: "usdc-circle", bucket: 0 });
       const routeBeta = buildShipWaterRoute({ from, to, map: routeMap, shipId: "usdt-tether", bucket: 0 });
 
@@ -2410,6 +2446,36 @@ describe("motion", () => {
       const routeSecond = buildShipWaterRoute({ from, to, map: routeMap, shipId: "ship-gamma", bucket: 3 });
 
       expect(routeFirst.points).toEqual(routeSecond.points);
+    });
+
+    it("keeps a mid-transit ship's sampled position continuous across a 600s route-bucket flip", () => {
+      // Plans for bucket N (t=599) and N+1 (t=601). At the flip frame the same
+      // wall-clock time is sampled against the new plan; a mid-transit ship
+      // must not jump (visual smoothing hard-snaps above 3 tiles).
+      const sampleWorld = worldForShip({
+        chainCirculating: chainCirculating(["Ethereum", "Tron", "Solana"]),
+        chains: ["ethereum", "tron", "solana"],
+      });
+      const ship = sampleWorld.ships[0]!;
+      const planBefore = buildMotionPlan(sampleWorld, null, buildBaseMotionPlan(sampleWorld, 599));
+      const planAfter = buildMotionPlan(sampleWorld, null, buildBaseMotionPlan(sampleWorld, 601));
+      const routeBefore = planBefore.shipRoutes.get(ship.id)!;
+      const routeAfter = planAfter.shipRoutes.get(ship.id)!;
+      // Sanity: the flip really produced a new route epoch/key.
+      expect(routeBefore.routeEpoch).toBe(0);
+      expect(routeAfter.routeEpoch).toBe(1);
+      expect(routeAfter.routeKey).not.toBe(routeBefore.routeKey);
+
+      let transitChecked = 0;
+      for (let index = 0; index < 400; index += 1) {
+        const timeSeconds = routeBefore.cycleSeconds * (index / 400) - routeBefore.phaseSeconds;
+        const before = resolveShipMotionSample({ plan: planBefore, reducedMotion: false, ship, timeSeconds });
+        if (before.state !== "departing" && before.state !== "arriving" && before.state !== "sailing") continue;
+        const after = resolveShipMotionSample({ plan: planAfter, reducedMotion: false, ship, timeSeconds });
+        expect(distance(after.tile, before.tile)).toBeLessThanOrEqual(1);
+        transitChecked += 1;
+      }
+      expect(transitChecked).toBeGreaterThan(0);
     });
 
     it("LRU cap formula uses min(4096, max(512, 16 * shipCount))", () => {
@@ -2866,9 +2932,14 @@ describe("motion", () => {
       const sample = resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds: t });
       if (prevSample) {
         const tileDelta = Math.hypot(sample.tile.x - prevSample.tile.x, sample.tile.y - prevSample.tile.y);
-        // D1 and D2 fixed the high-impact seams; threshold raised to 0.10 to
-        // accommodate the residual riskDrift→arriving boundary drift.
-        expect(tileDelta).toBeLessThan(0.10);
+        // D1 and D2 fixed the high-impact seams; threshold accommodates the
+        // residual riskDrift→arriving boundary drift and the lane-offset kink
+        // at interior path vertices (the raw tangent rotates discretely at a
+        // vertex, so the perpendicular lane displacement steps with it —
+        // ~0.10 tile worst-case for this fixture's wander geometry after the
+        // bucket-independent wander re-seed). Still far below the visual
+        // smoother's 3-tile hard-snap threshold.
+        expect(tileDelta).toBeLessThan(0.11);
         // Skip heading check for moored/risk-drift states — intentional orbit
         // and drift-circle heading rotation; not a transit seam.
         if (prevSample.state !== "moored" && sample.state !== "moored"

@@ -1,4 +1,3 @@
-import { ZONE_DWELL } from "../motion-config";
 import { normalizeHeadingInto, smoothstep, smoothstepRange } from "../motion-utils";
 import type { ShipMotionRoute, ShipMotionRouteStop, ShipMotionSample } from "../motion-types";
 import {
@@ -12,7 +11,7 @@ import { beginRoutePathSample } from "./memory";
 import { routeSamplingRuntime } from "./route-runtime";
 import { mooredRouteStopSampleInto } from "./mooring";
 import { riskDriftSampleInto } from "./risk-drift";
-import { transitSampleInto } from "./transit";
+import { smoothstepSpeedRatio, transitSampleInto } from "./transit";
 
 // D2: scratch samples for the ledger-roaming blend window. Reused across calls
 // (zero allocation). Safe: ledgerRoamingSampleInto is not re-entrant.
@@ -47,16 +46,26 @@ const ledgerTransitScratch: ShipMotionSample = {
   fenderContact: 0,
 };
 
-export function riskWaterSampleInto(route: ShipMotionRoute, timeSeconds: number, progress: number, out: ShipMotionSample): void {
+// `riskWindowSeconds` is the actual scheduled duration of this risk phase
+// (progress 0 → 1). Callers own the cycle timing (docked ships apply the
+// runtime dwell override split across stops), so the window is passed in
+// rather than recomputed from raw ZONE_DWELL shares.
+export function riskWaterSampleInto(
+  route: ShipMotionRoute,
+  timeSeconds: number,
+  progress: number,
+  riskWindowSeconds: number,
+  out: ShipMotionSample,
+): void {
   if (route.riskStop?.kind === "ledger") {
     if (route.openWaterPatrol) {
-      ledgerRoamingSampleInto(route, route.riskStop, timeSeconds, progress, out);
+      ledgerRoamingSampleInto(route, route.riskStop, timeSeconds, progress, riskWindowSeconds, out);
       return;
     }
     mooredRouteStopSampleInto(route, route.riskStop, timeSeconds, out);
     return;
   }
-  riskDriftSampleInto(route, timeSeconds, progress, out);
+  riskDriftSampleInto(route, timeSeconds, progress, riskWindowSeconds, out);
 }
 
 function ledgerRoamingSampleInto(
@@ -64,6 +73,7 @@ function ledgerRoamingSampleInto(
   stop: ShipMotionRouteStop,
   timeSeconds: number,
   progress: number,
+  riskWindowSeconds: number,
   out: ShipMotionSample,
 ): void {
   const patrol = route.openWaterPatrol;
@@ -74,8 +84,7 @@ function ledgerRoamingSampleInto(
 
   const idleShare = 0.58;
   const blendStart = 0.55;
-  const riskSeconds = route.cycleSeconds * ZONE_DWELL[route.zone].riskDwell;
-  const ledgerTransitSecondsEach = riskSeconds * (1 - idleShare) / 2;
+  const ledgerTransitSecondsEach = riskWindowSeconds * (1 - idleShare) / 2;
 
   if (progress <= blendStart) {
     mooredRouteStopSampleInto(route, stop, timeSeconds, out);
@@ -91,10 +100,13 @@ function ledgerRoamingSampleInto(
     // Sample orbit (moored) into scratch.
     mooredRouteStopSampleInto(route, stop, timeSeconds, ledgerOrbitScratch);
     // Sample transit at patrolProgress=0 into scratch (start of outbound).
+    // speedRatio 0: the leg starts from rest, so the blend target carries no
+    // wake or velocity while the ship is still stationary at the orbit.
     transitSampleInto({
       route,
       path: patrol.outbound,
       progress: 0,
+      speedRatio: 0,
       transitSeconds: ledgerTransitSecondsEach,
       state: "sailing",
       routeStop: null,
@@ -139,10 +151,12 @@ function ledgerRoamingSampleInto(
 
   const patrolProgress = (progress - idleShare) / Math.max(0.0001, 1 - idleShare);
   if (patrolProgress < 0.5) {
+    const legProgress = patrolProgress * 2;
     transitSampleInto({
       route,
       path: patrol.outbound,
-      progress: smoothstep(patrolProgress * 2),
+      progress: smoothstep(legProgress),
+      speedRatio: smoothstepSpeedRatio(legProgress),
       transitSeconds: ledgerTransitSecondsEach,
       state: "sailing",
       routeStop: null,
@@ -154,10 +168,12 @@ function ledgerRoamingSampleInto(
     return;
   }
 
+  const legProgress = (patrolProgress - 0.5) * 2;
   transitSampleInto({
     route,
     path: patrol.inbound,
-    progress: smoothstep((patrolProgress - 0.5) * 2),
+    progress: smoothstep(legProgress),
+    speedRatio: smoothstepSpeedRatio(legProgress),
     transitSeconds: ledgerTransitSecondsEach,
     state: "sailing",
     routeStop: null,

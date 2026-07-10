@@ -123,10 +123,26 @@ function transitPhaseProfile(state: Extract<ShipMotionState, "arriving" | "depar
   };
 }
 
+// Speed ratio implied by smoothstep-eased leg progress: d/dt smoothstep(t) =
+// 6t(1-t), normalized by its mid-leg peak (1.5) so t=0.5 maps to exactly 1.0.
+// Callers that ease sailing-leg progress with smoothstep pass this alongside
+// the eased progress so wake and reported velocity track the actual pace.
+export function smoothstepSpeedRatio(t: number): number {
+  const p = clamp(t, 0, 1);
+  return 4 * p * (1 - p);
+}
+
 export function transitSampleInto(input: {
   route: ShipMotionRoute;
   path: ShipWaterPath | undefined;
   progress: number;
+  // Optional externally-computed speed ratio for "sailing" legs whose
+  // progress is already eased by the caller (open-water patrol and ledger
+  // patrol legs use smoothstepSpeedRatio of the raw leg progress). The
+  // built-in "sailing" profile keeps speedRatio=1, which would report full
+  // wake and constant velocity while the eased ship is decelerating to rest
+  // at leg endpoints.
+  speedRatio?: number;
   transitSeconds?: number;
   routeStop: ShipMotionRoute["dockStops"][number] | null;
   runtime: RouteSamplingRuntime;
@@ -138,6 +154,9 @@ export function transitSampleInto(input: {
 }, out: ShipMotionSample): void {
   const linearProgress = clamp(input.progress, 0, 1);
   const profile = transitPhaseProfile(input.state, linearProgress);
+  const speedRatio = input.state === "sailing" && input.speedRatio !== undefined
+    ? clamp(input.speedRatio, 0, 1)
+    : profile.speedRatio;
   const routePathKey = transitRoutePathIdentityKey(input.route, input.path, input.state, input.routeStop);
   const memoryKey = beginRoutePathSample(input.route, routePathKey);
   // Write water-path point/heading directly into out.tile / out.heading.
@@ -192,20 +211,16 @@ export function transitSampleInto(input: {
   writeMapVisibilityAlphaInto(out, transitMapVisibilityAlpha(input.state, linearProgress));
 
   // #5: speed-aware wake. departing/arriving accelerate from rest and decelerate
-  // back to rest, so wake should peak mid-leg. sailing (open-water patrol) is
-  // mid-leg by construction and stays at full intensity.
+  // back to rest, so wake should peak mid-leg. sailing legs pass their own
+  // eased speedRatio (smoothstep derivative) when the caller eases progress;
+  // legacy sailing callers without a speedRatio stay at full intensity.
   // D1: applyWakeSmoothing prevents the one-frame step when transitioning between
   // sailing (rawWake=baseWake) and arriving (rawWake=0 at progress=0).
   // E2: multiply raw wake by the pre-computed wakeMultiplier (1.0 baseline;
   // boosted when |change24hPct| ≥ 2%). Smoothing is applied after the multiplier
   // so the smoother damps the already-scaled value — no smoothing-induced flicker.
   const baseWake = transitWakeIntensityForZone(input.route.zone);
-  let rawWake: number;
-  if (input.state === "departing" || input.state === "arriving") {
-    rawWake = baseWake * profile.speedRatio * input.route.wakeMultiplier;
-  } else {
-    rawWake = baseWake * input.route.wakeMultiplier;
-  }
+  const rawWake = baseWake * speedRatio * input.route.wakeMultiplier;
   out.wakeIntensity = applyWakeSmoothing(memoryKey, input.timeSeconds, rawWake);
 
   // #4: per-ship heading low-pass filter. Path-segment tangents jump at every
@@ -227,7 +242,7 @@ export function transitSampleInto(input: {
     alignmentTangent,
     alignmentT,
   );
-  const speed = transitSpeedTilesPerSecond(input.path, input.transitSeconds, profile.speedRatio);
+  const speed = transitSpeedTilesPerSecond(input.path, input.transitSeconds, speedRatio);
   writeVelocityInto(out, out.heading.x * speed, out.heading.y * speed);
 }
 
