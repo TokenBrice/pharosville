@@ -12,7 +12,7 @@ import type { AreaNode, LighthouseNode, ShipNode } from "./world-types";
 
 const lighthouse = {
   psiBand: "STEADY",
-  score: 12,
+  score: 82,
   unavailable: false,
 } satisfies Pick<LighthouseNode, "psiBand" | "score" | "unavailable">;
 
@@ -49,21 +49,46 @@ describe("sea-state master signal", () => {
     expect(state.source.maxDewsBand).toBe("ALERT");
   });
 
-  it("includes lighthouse PSI and night factor in the deterministic target", () => {
-    const noon = seaStateForSources({
+  it("treats a high PSI score as calm water and a collapsing PSI as storm stress", () => {
+    const bedrock = seaStateForSources({
       areas: [area("WATCH")],
-      lighthouse: { psiBand: "STEADY", score: 12, unavailable: false },
+      lighthouse: { psiBand: "BEDROCK", score: 92, unavailable: false },
       wallClockHour: 12,
     });
-    const midnightElevatedPsi = seaStateForSources({
+    const crisis = seaStateForSources({
       areas: [area("WATCH")],
-      lighthouse: { psiBand: "DANGER", score: 88, unavailable: false },
+      lighthouse: { psiBand: "CRISIS", score: 30, unavailable: false },
+      wallClockHour: 12,
+    });
+    const meltdown = seaStateForSources({
+      areas: [area("WATCH")],
+      lighthouse: { psiBand: "MELTDOWN", score: 4, unavailable: false },
+      wallClockHour: 12,
+    });
+
+    expect(bedrock.source.psiStress).toBeLessThan(0.2);
+    expect(crisis.source.psiStress).toBeGreaterThan(bedrock.source.psiStress);
+    expect(meltdown.source.psiStress).toBeGreaterThanOrEqual(0.96);
+    expect(crisis.swell).toBeGreaterThan(bedrock.swell);
+  });
+
+  it("keeps the session-hour decoration out of the analytic sea-state channel", () => {
+    const noon = seaStateForSources({
+      areas: [area("WATCH")],
+      lighthouse,
+      wallClockHour: 12,
+    });
+    const midnight = seaStateForSources({
+      areas: [area("WATCH")],
+      lighthouse,
       wallClockHour: 23,
     });
 
-    expect(midnightElevatedPsi.source.nightFactor).toBe(1);
-    expect(midnightElevatedPsi.source.psiStress).toBeGreaterThan(noon.source.psiStress);
-    expect(midnightElevatedPsi.swell).toBeGreaterThan(noon.swell);
+    expect(midnight.source.nightFactor).toBe(1);
+    expect(midnight.swell).toBe(noon.swell);
+    expect(midnight.wind).toBe(noon.wind);
+    expect(midnight.tempo).toBe(noon.tempo);
+    expect(seaStateSummary(midnight)).not.toContain("night");
   });
 
   it("marks reduced motion without randomizing the identifying data values", () => {

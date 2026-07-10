@@ -245,6 +245,13 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     selectDetail(detailId, null);
   }, [selectDetail, worldUrlState.initialState.followSelectedDetailId]);
 
+  useEffect(() => {
+    const late = worldUrlState.lateResolvedSelection;
+    if (!late) return;
+    if (late.follow) pendingFollowDetailIdRef.current = late.detailId;
+    selectDetail(late.detailId, null);
+  }, [selectDetail, worldUrlState.lateResolvedSelection]);
+
   // selectedDetailIdRef omitted: ref identity never changes (HOOKS F4).
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const hasSelection = useCallback(() => selectedDetailIdRef.current !== null, []);

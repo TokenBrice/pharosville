@@ -66,6 +66,20 @@ describe("resolveShipRiskPlacement", () => {
     expect(result.evidence.sourceFields).toEqual(["stress.signals[id].band"]);
   });
 
+  it("keeps NAV tokens at ledger mooring when fresh DEWS stress is CALM", () => {
+    expect(susdeMeta).toBeDefined();
+    const result = resolveShipRiskPlacement({
+      asset: makeAsset({ id: "susde-ethena", symbol: "sUSDe" }),
+      meta: susdeMeta!,
+      pegCoin: makePegCoin({ id: "susde-ethena", symbol: "sUSDe", currentDeviationBps: 0 }),
+      stress: { band: "CALM", score: 8, signals: {}, computedAt: 1, methodologyVersion: "fixture" },
+      freshness: {},
+    });
+
+    expect(result.placement).toBe("ledger-mooring");
+    expect(result.evidence.reason).toBe("NAV token Ledger Mooring idle preference");
+  });
+
   it("keeps fresh active depeg as the acute NAV placement", () => {
     expect(susdeMeta).toBeDefined();
     const result = resolveShipRiskPlacement({

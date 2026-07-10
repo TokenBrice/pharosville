@@ -190,7 +190,7 @@ export const fixtureChains: ChainsResponse = {
 
 export const fixtureStability = {
   current: {
-    score: 12,
+    score: 82,
     band: "STEADY",
     components: { severity: 0, breadth: 0, trend: 0 },
     computedAt: 1_700_000_000,

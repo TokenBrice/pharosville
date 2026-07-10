@@ -159,13 +159,13 @@ describe("AccessibilityLedger", () => {
         ...sampleWorld().lighthouse,
         components: { severity: 0.7, breadth: 0.3, trend: 0.05 },
         avg24h: 68,
-        avg24hBand: "ALERT",
+        avg24hBand: "FRACTURE",
         contributors: [{ id: "usdt-tether", symbol: "USDT", bps: -12, mcapUsd: 90_000_000_000 }],
       },
     };
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
 
-    expect(markup).toContain("Trend: Observed 24h drift deteriorating");
+    expect(markup).toContain("Trend: Observed 24h drift improving");
     expect(markup).toContain("Composition: severity 70%, breadth 30%");
     expect(markup).toContain("Top contributors: USDT -12 bps ($90.0B)");
   });
@@ -206,8 +206,8 @@ describe("AccessibilityLedger", () => {
       ...sampleWorld(),
       lighthouse: {
         ...sampleWorld().lighthouse,
-        psiBand: "DANGER",
-        score: 90,
+        psiBand: "CRISIS",
+        score: 30,
       },
       areas: [
         {
@@ -483,7 +483,7 @@ function sampleWorld(): PharosVilleWorld {
       kind: "lighthouse",
       label: "Pharos lighthouse",
       tile: { x: 0, y: 0 },
-      psiBand: "NORMAL",
+      psiBand: "STEADY",
       score: 80,
       color: "#ffffff",
       unavailable: false,

@@ -46,12 +46,12 @@ const ACTIVE_RISK_PLACEMENTS = new Set([
 /**
  * Recent supply move heuristic: matches the existing `hasRecentMove`
  * threshold in motion-planning.ts so the priority tier lines up with the
- * existing `moverShipIds` set. ≥ $1M absolute or ≥ 0.01% relative.
+ * existing `moverShipIds` set. ≥ $1M absolute or ≥ 1% relative.
  */
 function hasRecentSupplyMove(ship: CuePriorityInput["ship"]): boolean {
   const absolute = Math.abs(ship.change24hUsd ?? 0);
   const percentage = Math.abs(ship.change24hPct ?? 0);
-  return absolute >= 1_000_000 || percentage >= 0.01;
+  return absolute >= 1_000_000 || percentage >= 1;
 }
 
 /**

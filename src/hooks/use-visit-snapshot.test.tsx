@@ -91,6 +91,36 @@ describe("useVisitSnapshot", () => {
     expect(setAnnouncement).not.toHaveBeenCalled();
   });
 
+  it("waits for the settled world instead of baselining the loading world", async () => {
+    window.localStorage.setItem(VISIT_SNAPSHOT_STORAGE_KEY, JSON.stringify(snapshot({
+      generatedAt: 1,
+      lastFleetDepegAt: null,
+      notableMoverSymbols: [],
+      psiBand: "WATCH",
+      psiScore: 20,
+    })));
+    const setAnnouncement = vi.fn();
+    const loadingWorld = {
+      ...worldFixture({ psiBand: null, psiScore: null }),
+      generatedAt: null,
+      routeMode: "loading",
+    } as PharosVilleWorld;
+
+    const { rerender } = render(<HookHarness world={loadingWorld} setAnnouncement={setAnnouncement} />);
+
+    expect(readStoredSnapshot().psiBand).toBe("WATCH");
+    expect(screen.queryByTestId("pharosville-since-last-visit")).toBeNull();
+
+    rerender(<HookHarness
+      world={worldFixture({ generatedAt: 2, psiBand: "DANGER", psiScore: 82 })}
+      setAnnouncement={setAnnouncement}
+    />);
+
+    const banner = await screen.findByTestId("pharosville-since-last-visit");
+    expect(banner.textContent).toContain("PSI WATCH -> DANGER");
+    expect(readStoredSnapshot().psiBand).toBe("DANGER");
+  });
+
   it("treats garbage and old-shape storage as baseline-only", async () => {
     window.localStorage.setItem(VISIT_SNAPSHOT_STORAGE_KEY, "{not-json");
     const setAnnouncement = vi.fn();

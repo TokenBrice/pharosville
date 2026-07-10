@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { IsoCamera } from "../systems/projection";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
 import { DEFAULT_WORLD_SELECTED_DETAIL_ID } from "./use-world-selection";
@@ -23,6 +23,11 @@ export interface WorldUrlWriteState {
   timeHour?: number | null;
 }
 
+export interface WorldUrlLateResolvedSelection {
+  detailId: string;
+  follow: boolean;
+}
+
 const OWNED_WORLD_URL_KEYS = ["sel", "t", "n", "cam"] as const;
 
 export function useWorldUrlState(input: {
@@ -30,7 +35,24 @@ export function useWorldUrlState(input: {
 }) {
   const { world } = input;
   const [parsed] = useState(() => parseInitialWorldUrlState(world));
-  const { initialState, target } = parsed;
+  const { initialState, target, unresolvedSelectedDetailId } = parsed;
+
+  // Cold loads parse the URL against the empty loading world, so a shared
+  // ?sel= permalink to a ship cannot resolve yet. Keep the raw value and
+  // resolve it once against the settled world; unknown ids keep the
+  // lighthouse fallback.
+  const [lateResolvedSelection, setLateResolvedSelection] = useState<WorldUrlLateResolvedSelection | null>(null);
+  const pendingSelectedDetailIdRef = useRef(unresolvedSelectedDetailId);
+  useEffect(() => {
+    const rawSelectedDetailId = pendingSelectedDetailIdRef.current;
+    if (!rawSelectedDetailId || world.routeMode !== "world") return;
+    pendingSelectedDetailIdRef.current = null;
+    if (!world.entityById[rawSelectedDetailId]) return;
+    setLateResolvedSelection({
+      detailId: rawSelectedDetailId,
+      follow: initialState.camera === null,
+    });
+  }, [initialState.camera, world]);
 
   const replaceWorldUrlState = useCallback((state: WorldUrlWriteState): string | null => {
     if (typeof window === "undefined") return null;
@@ -54,18 +76,21 @@ export function useWorldUrlState(input: {
   return useMemo(() => ({
     copyWorldUrlState,
     initialState,
+    lateResolvedSelection,
     replaceWorldUrlState,
-  }), [copyWorldUrlState, initialState, replaceWorldUrlState]);
+  }), [copyWorldUrlState, initialState, lateResolvedSelection, replaceWorldUrlState]);
 }
 
 export function parseInitialWorldUrlState(world: PharosVilleWorldModel): {
   initialState: WorldUrlInitialState;
   target: WorldUrlDescriptorTarget;
+  unresolvedSelectedDetailId: string | null;
 } {
   if (typeof window === "undefined") {
     return {
       initialState: defaultInitialWorldUrlState(),
       target: "hash",
+      unresolvedSelectedDetailId: null,
     };
   }
 
@@ -88,6 +113,7 @@ export function parseInitialWorldUrlState(world: PharosVilleWorldModel): {
       selectedDetailId,
     },
     target,
+    unresolvedSelectedDetailId: rawSelectedDetailId && !hasValidSelectedDetail ? rawSelectedDetailId : null,
   };
 }
 

@@ -60,15 +60,16 @@ const THREAT_LEVEL_FOR_BAND: Record<DewsAreaBand, SeaStateSource["threatLevel"]>
   DANGER: 4,
 };
 
+// Keys are the real PSI ConditionBand vocabulary (shared/lib/psi-colors.ts),
+// lowercased for the case-insensitive lookup below. Higher PSI score = healthier,
+// so BEDROCK is the calmest sea and MELTDOWN the stormiest.
 const PSI_STRESS_FOR_BAND: Record<string, number> = {
-  critical: 1,
-  danger: 0.85,
-  degraded: 0.58,
-  warning: 0.68,
+  meltdown: 1,
+  crisis: 0.85,
+  fracture: 0.68,
+  tremor: 0.45,
   steady: 0.18,
-  stable: 0.18,
-  normal: 0.2,
-  healthy: 0.12,
+  bedrock: 0.08,
 };
 
 const ELEVATED_SHIP_ZONES = new Set<ShipNode["riskZone"]>(["alert", "warning", "danger"]);
@@ -94,9 +95,13 @@ export function seaStateForSources(input: SeaStateInput): SeaState {
   const nightFactor = nightFactorForHour(input.wallClockHour ?? 12);
   const reducedMotion = input.reducedMotion === true;
 
-  const swell = clamp01(0.12 + threat * 0.64 + psiStress * 0.16 + nightFactor * 0.08);
-  const wind = clamp01(threat * 0.9 + psiStress * 0.08 + nightFactor * 0.04);
-  const tempo = clamp01(0.14 + threat * 0.56 + psiStress * 0.2 + (1 - nightFactor) * 0.06 + nightFactor * 0.04);
+  // The sea-state channel encodes only analytic signals (DEWS threat + PSI
+  // stress). nightFactor stays decorative (sky/lighting) so dragging the
+  // session-hour slider cannot make a calm market read as rough water. The
+  // tempo constant folds in the former daytime term to keep noon output stable.
+  const swell = clamp01(0.12 + threat * 0.64 + psiStress * 0.16);
+  const wind = clamp01(threat * 0.9 + psiStress * 0.08);
+  const tempo = clamp01(0.2 + threat * 0.56 + psiStress * 0.2);
 
   return {
     swell,
@@ -138,7 +143,7 @@ export function smoothSeaState(input: SeaStateSmoothingInput): SeaState {
 export function seaStateSummary(state: SeaState): string {
   const band = state.source.maxDewsBand ?? "no active DEWS band";
   const reduced = state.reducedMotion ? "; reduced-motion holds animation phases flat" : "";
-  return `${state.label}: swell ${formatScalar(state.swell)}, wind ${formatScalar(state.wind)}, tempo ${formatScalar(state.tempo)}; ${band}, PSI stress ${formatScalar(state.source.psiStress)}, night ${formatScalar(state.source.nightFactor)}${reduced}`;
+  return `${state.label}: swell ${formatScalar(state.swell)}, wind ${formatScalar(state.wind)}, tempo ${formatScalar(state.tempo)}; ${band}, PSI stress ${formatScalar(state.source.psiStress)}${reduced}`;
 }
 
 export function recentFleetTrendSummary(
@@ -222,7 +227,7 @@ function maxActiveDewsBand(areas: readonly Pick<AreaNode, "band" | "count">[]): 
 function lighthousePsiStress(lighthouse: Pick<LighthouseNode, "psiBand" | "score" | "unavailable">): number {
   if (lighthouse.unavailable) return 0.28;
   const bandStress = lighthouse.psiBand ? PSI_STRESS_FOR_BAND[lighthouse.psiBand.toLowerCase()] : undefined;
-  const scoreStress = lighthouse.score == null ? undefined : clamp01(lighthouse.score / 100);
+  const scoreStress = lighthouse.score == null ? undefined : clamp01(1 - lighthouse.score / 100);
   if (bandStress === undefined && scoreStress === undefined) return 0.24;
   if (bandStress === undefined) return scoreStress!;
   if (scoreStress === undefined) return bandStress;

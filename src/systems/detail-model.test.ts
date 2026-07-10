@@ -813,18 +813,18 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
         kind: "lighthouse",
         label: "Pharos lighthouse",
         tile: { x: 1, y: 1 },
-        psiBand: "WARNING",
+        psiBand: "TREMOR",
         score: 72,
         color: "#ffffff",
         unavailable: false,
         detailId: "lighthouse",
         components: { severity: 0.7, breadth: 0.3, trend: 0.05 },
         avg24h: 68,
-        avg24hBand: "ALERT",
+        avg24hBand: "FRACTURE",
         contributors: [{ id: "usdt-tether", symbol: "USDT", bps: -12, mcapUsd: 90_000_000_000 }],
       } satisfies LighthouseNode;
 
-      expect(psiTrendLabel(lighthouse)).toContain("Observed 24h drift deteriorating");
+      expect(psiTrendLabel(lighthouse)).toContain("Observed 24h drift improving");
       expect(psiCompositionLabel(lighthouse)).toContain("severity 70%");
       const detail = detailForLighthouse(lighthouse);
       expect(detail.facts).toEqual(expect.arrayContaining([

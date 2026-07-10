@@ -323,8 +323,10 @@ export function isShipMapVisible(ship: ShipNode, sample: ShipMotionSample | null
 
 export function hasRecentMove(ship: ShipNode) {
   const absolute = Math.abs(ship.change24hUsd ?? 0);
+  // change24hPct is in percent units (1 = 1%), matching sea-state's
+  // RECENT_SUPPLY_MOVE_THRESHOLD_PCT convention.
   const percentage = Math.abs(ship.change24hPct ?? 0);
-  return absolute >= 1_000_000 || percentage >= 0.01;
+  return absolute >= 1_000_000 || percentage >= 1;
 }
 
 function buildShipMotionRoute(

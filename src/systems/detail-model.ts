@@ -188,9 +188,11 @@ function formatSignedPsiComponent(value: number): string {
   return `${sign}${formatPsiComponent(value)}`;
 }
 
+// PSI score is higher-is-better (BEDROCK ~100 … MELTDOWN ~0), so a positive
+// drift above the 24h average means the fleet is stabilizing.
 function trendDirection(value: number, threshold: number): "improving" | "steady" | "deteriorating" {
   if (Math.abs(value) < threshold) return "steady";
-  return value > 0 ? "deteriorating" : "improving";
+  return value > 0 ? "improving" : "deteriorating";
 }
 
 export function psiTrendLabel(

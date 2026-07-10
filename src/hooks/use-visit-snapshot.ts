@@ -45,6 +45,10 @@ export function useVisitSnapshot(input: {
 
   useEffect(() => {
     if (snapshotWrittenRef.current) return;
+    // Wait for the settled world: the first commits render the empty loading
+    // world, and snapshotting that would overwrite the stored baseline with
+    // nulls and kill every future "since last visit" delta.
+    if (world.routeMode !== "world") return;
     snapshotWrittenRef.current = true;
 
     const currentSnapshot = snapshotFromWorld(world);
