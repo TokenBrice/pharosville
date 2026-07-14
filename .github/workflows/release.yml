@@ -1,0 +1,175 @@
+name: Publish GitHub Release
+
+on:
+  workflow_run:
+    workflows:
+      - Deploy to Cloudflare Pages
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Publish/retry a release, audit state, or backfill a historical release
+        required: true
+        default: publish
+        type: choice
+        options:
+          - publish
+          - audit
+          - historical-backfill
+      tag:
+        description: Semantic tag (optional for publish; required for historical backfill)
+        required: false
+        type: string
+      target:
+        description: Main-branch commit SHA/ref (optional for publish; required for historical backfill)
+        required: false
+        type: string
+  schedule:
+    - cron: "17 5 * * *"
+
+concurrency:
+  group: github-release-governance
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.operation != 'audit')
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+          ref: main
+      - name: Resolve and validate release declaration
+        id: release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HISTORICAL_BACKFILL: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'historical-backfill' }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_TARGET: ${{ inputs.target }}
+          WORKFLOW_RUN_TARGET: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          target="$INPUT_TARGET"
+          if [ "$EVENT_NAME" = "workflow_run" ]; then
+            target="$WORKFLOW_RUN_TARGET"
+          elif [ -z "$target" ] && [ "$HISTORICAL_BACKFILL" != "true" ]; then
+            target="origin/main"
+          fi
+          if [ "$HISTORICAL_BACKFILL" = "true" ] && { [ -z "$INPUT_TAG" ] || [ -z "$target" ]; }; then
+            echo "Historical backfill requires both tag and target inputs." >&2
+            exit 1
+          fi
+
+          args=(
+            prepare
+            --target "$target"
+            --notes-file "$RUNNER_TEMP/release-notes.md"
+            --github-output "$GITHUB_OUTPUT"
+          )
+          if [ -n "$INPUT_TAG" ]; then
+            args+=(--tag "$INPUT_TAG")
+          fi
+          if [ "$HISTORICAL_BACKFILL" = "true" ]; then
+            args+=(--historical)
+          fi
+          node scripts/pharosville/release-contract.mjs "${args[@]}"
+      - name: Resolve existing GitHub Release state
+        id: published
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          TAG_MATCHES_TARGET: ${{ steps.release.outputs.tag_matches_target }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "GitHub Release $RELEASE_TAG already exists; publication is a no-op."
+            exit 0
+          fi
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+          if [ "$TAG_MATCHES_TARGET" != "true" ]; then
+            echo "Tag $RELEASE_TAG exists on a different commit but its GitHub Release is missing." >&2
+            echo "Retry the original target through the documented recovery path." >&2
+            exit 1
+          fi
+      - name: Require a successful production deploy
+        if: >-
+          steps.published.outputs.exists != 'true' &&
+          steps.release.outputs.historical != 'true' &&
+          github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.release.outputs.target_sha }}
+        run: |
+          deploy_url="$(gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow deploy-cloudflare.yml \
+            --commit "$TARGET_SHA" \
+            --event push \
+            --status completed \
+            --limit 20 \
+            --json conclusion,url \
+            --jq 'map(select(.conclusion == "success")) | first | .url // empty')"
+          if [ -z "$deploy_url" ]; then
+            echo "No successful production deploy workflow run found for $TARGET_SHA." >&2
+            exit 1
+          fi
+          echo "Verified production deploy: $deploy_url"
+      - name: Create or verify annotated tag
+        if: steps.published.outputs.exists != 'true'
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_TITLE: ${{ steps.release.outputs.title }}
+          TAG_EXISTS: ${{ steps.release.outputs.tag_exists }}
+          TARGET_SHA: ${{ steps.release.outputs.target_sha }}
+        run: |
+          if [ "$TAG_EXISTS" = "true" ]; then
+            echo "$RELEASE_TAG already points to $TARGET_SHA."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag --annotate "$RELEASE_TAG" "$TARGET_SHA" --message "$RELEASE_TITLE"
+          git push origin "refs/tags/$RELEASE_TAG"
+      - name: Publish or verify GitHub Release
+        if: steps.published.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HISTORICAL: ${{ steps.release.outputs.historical }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_TITLE: ${{ steps.release.outputs.title }}
+        run: |
+          latest_flag="--latest"
+          if [ "$HISTORICAL" = "true" ]; then
+            latest_flag="--latest=false"
+          fi
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "$RELEASE_TITLE" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            "$latest_flag"
+  audit:
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.operation == 'audit')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+          ref: main
+      - name: Audit changelog, tags, and GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/pharosville/release-contract.mjs audit-github --repo "$GITHUB_REPOSITORY"

@@ -7,6 +7,7 @@ This docs index is for public readers, contributors, and agents arriving from Gi
 - [App contract](./pharosville-page.md) - user-facing behavior for `https://pharosville.pharos.watch/`
 - [Architecture](./pharosville/ARCHITECTURE.md) - API proxy, world model, renderer, and asset flow
 - [Testing](./pharosville/TESTING.md) - focused checks, visual checks, and release validation
+- [Releases](./pharosville/RELEASES.md) - protected release workflow, recovery, historical backfill, and drift audit
 - [Operations](./pharosville/OPERATIONS.md) - Cloudflare Pages setup, deploy, live smoke, rollback, and credential rotation
 - [Security headers](./pharosville/SECURITY_HEADERS.md) - static and API response header policy
 - [Visual invariants](./pharosville/VISUAL_INVARIANTS.md) - non-negotiable visual and data contracts

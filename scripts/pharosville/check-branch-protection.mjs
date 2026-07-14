@@ -4,7 +4,6 @@ import { pathToFileURL } from "node:url";
 
 const REQUIRED_BRANCH = "main";
 const REQUIRED_STATUS_CHECKS = ["typecheck", "unit", "guards", "build", "visual", "visual-cross-browser"];
-const REQUIRED_APPROVALS = 1;
 const RULESET_STATUS_CHECK_KEYS = [
   "required_status_checks",
   "required_check_names",
@@ -183,7 +182,37 @@ function getRulesetApprovalCandidates(value) {
   ]);
 }
 
-function validateBranchRulesetProtection(ruleset, branch) {
+export function approvalPolicyForCollaborators(collaborators) {
+  const writeCapableCount = asArray(collaborators).filter((collaborator) => (
+    collaborator?.permissions?.admin === true
+    || collaborator?.permissions?.maintain === true
+    || collaborator?.permissions?.push === true
+  )).length;
+  return {
+    maximum: Math.max(0, writeCapableCount - 1),
+    minimum: writeCapableCount >= 2 ? 1 : 0,
+    writeCapableCount,
+  };
+}
+
+function approvalPolicyFailures(actual, policy) {
+  const failures = [];
+  if (actual < policy.minimum) {
+    failures.push(`required approving reviews is ${actual}, expected ${policy.minimum}+`);
+  }
+  if (actual > policy.maximum) {
+    failures.push(
+      `required approving reviews is ${actual}, but only ${policy.writeCapableCount} write-capable collaborator(s) exist; authors cannot self-approve`,
+    );
+  }
+  return failures;
+}
+
+export function validateBranchRulesetProtection(ruleset, branch, approvalPolicy = {
+  maximum: Number.POSITIVE_INFINITY,
+  minimum: 0,
+  writeCapableCount: 1,
+}) {
   const failures = [];
   const checks = [];
   const rules = Array.isArray(ruleset?.rules) ? ruleset.rules : [];
@@ -212,9 +241,11 @@ function validateBranchRulesetProtection(ruleset, branch) {
     }
   }
 
-  const requiredApprovals = getRulesetRequiredApprovals(reviewRule);
-  if (requiredApprovals < REQUIRED_APPROVALS) {
-    failures.push(`required approving reviews is ${requiredApprovals}, expected ${REQUIRED_APPROVALS}+`);
+  if (!reviewRule) {
+    failures.push("pull-request rule is missing in ruleset");
+  } else {
+    const requiredApprovals = getRulesetRequiredApprovals(reviewRule);
+    failures.push(...approvalPolicyFailures(requiredApprovals, approvalPolicy));
   }
 
   return {
@@ -264,7 +295,7 @@ function formatRulesetResult(branch, validations) {
   };
 }
 
-function validateBranchRulesets(payload, branch) {
+function validateBranchRulesets(payload, branch, approvalPolicy) {
   const rulesets = findRuleSets(payload)
     .filter((ruleset) => ruleset && typeof ruleset === "object");
 
@@ -276,7 +307,7 @@ function validateBranchRulesets(payload, branch) {
     };
   }
 
-  const validations = rulesets.map((ruleset) => validateBranchRulesetProtection(ruleset, branch));
+  const validations = rulesets.map((ruleset) => validateBranchRulesetProtection(ruleset, branch, approvalPolicy));
   const result = formatRulesetResult(branch, validations);
   return {
     checks: result.checks,
@@ -368,7 +399,11 @@ function runGhApiJson(path) {
   return JSON.parse(raw);
 }
 
-function validateBranchProtection(payload, branch) {
+export function validateBranchProtection(payload, branch, approvalPolicy = {
+  maximum: Number.POSITIVE_INFINITY,
+  minimum: 0,
+  writeCapableCount: 1,
+}) {
   const failures = [];
   const checks = Array.isArray(payload?.required_status_checks?.contexts)
     ? payload.required_status_checks.contexts
@@ -386,9 +421,11 @@ function validateBranchProtection(payload, branch) {
     }
   }
 
-  const approvalCount = payload?.required_pull_request_reviews?.required_approving_review_count ?? 0;
-  if (approvalCount < REQUIRED_APPROVALS) {
-    failures.push(`required approving reviews is ${approvalCount}, expected ${REQUIRED_APPROVALS}+`);
+  if (!payload?.required_pull_request_reviews) {
+    failures.push("required_pull_request_reviews is not configured");
+  } else {
+    const approvalCount = payload.required_pull_request_reviews.required_approving_review_count ?? 0;
+    failures.push(...approvalPolicyFailures(approvalCount, approvalPolicy));
   }
 
   if (payload?.enforce_admins?.enabled !== true) {
@@ -425,13 +462,23 @@ function main() {
     process.exit(1);
   }
 
+  let approvalPolicy;
+  try {
+    approvalPolicy = approvalPolicyForCollaborators(
+      runGhApiJson(`/repos/${owner}/${repo}/collaborators?per_page=100`),
+    );
+  } catch (error) {
+    printFailure(`Unable to determine viable review policy: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
+
   let payload;
   try {
     payload = runGhApiJson(endpoint);
   } catch (error) {
     try {
       const rulesetPayload = runGhApiJson(`/repos/${owner}/${repo}/rulesets`);
-      const rulesetResult = validateBranchRulesets(rulesetPayload, branch);
+      const rulesetResult = validateBranchRulesets(rulesetPayload, branch, approvalPolicy);
       if (rulesetResult.failures.length === 0) {
         console.log(`Branch protection check for ${owner}/${repo}#${branch}`);
         console.log(`- Active rulesets: ${rulesetResult.activeName}`);
@@ -460,10 +507,13 @@ function main() {
     }
   }
 
-  const { checks, failures } = validateBranchProtection(payload, branch);
+  const { checks, failures } = validateBranchProtection(payload, branch, approvalPolicy);
   console.log(`Branch protection check for ${owner}/${repo}#${branch}`);
   console.log(`- Protection: ${payload.url}`);
   console.log(`- Required status checks: ${checks.length === 0 ? "<none>" : checks.join(", ")}`);
+  console.log(
+    `- Review policy: ${approvalPolicy.minimum} required approval(s), ${approvalPolicy.writeCapableCount} write-capable collaborator(s)`,
+  );
   if (failures.length === 0) {
     console.log(`\n✓ PASS: ${branch} protection enforces merge-gate requirements.`);
     process.exit(0);

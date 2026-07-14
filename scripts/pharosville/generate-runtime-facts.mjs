@@ -245,10 +245,17 @@ function parseDockFacts(repoRoot) {
 function parseWorkflowFacts(repoRoot) {
   const canarySource = readText(repoRoot, ".github/workflows/canary-smoke.yml");
   const deploySource = readText(repoRoot, ".github/workflows/deploy-cloudflare.yml");
+  const releaseSource = readText(repoRoot, ".github/workflows/release.yml");
   const deployJobsBlock = matchRequired(deploySource, /\njobs:\n([\s\S]*)/, "deploy workflow jobs")[1];
   return {
     canaryCron: matchRequired(canarySource, /cron:\s*"([^"]+)"/, "canary cron")[1],
     deployJobs: [...deployJobsBlock.matchAll(/^\s{2}([A-Za-z0-9_-]+):/gm)].map((match) => match[1]),
+    releaseAuditCron: matchRequired(releaseSource, /cron:\s*"([^"]+)"/, "release audit cron")[1],
+    releaseDeployDependency: matchRequired(
+      releaseSource,
+      /workflows:\s*\n\s*- ([^\n]+)/,
+      "release deploy workflow dependency",
+    )[1].trim(),
   };
 }
 
@@ -377,6 +384,8 @@ export function buildRuntimeFactsMarkdown({ repoRoot = process.cwd() } = {}) {
     "",
     `- Deploy workflow jobs: ${workflows.deployJobs.map((job) => `\`${job}\``).join(", ")}`,
     `- Canary smoke cron: \`${workflows.canaryCron}\``,
+    `- GitHub Release publication follows successful \`${workflows.releaseDeployDependency}\` runs on \`main\``,
+    `- GitHub Release audit cron: \`${workflows.releaseAuditCron}\``,
     "",
   ].join("\n")}\n`;
 }

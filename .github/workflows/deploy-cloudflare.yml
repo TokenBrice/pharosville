@@ -47,6 +47,8 @@ jobs:
         run: npm run check:doc-paths-and-scripts
       - name: Runtime facts guard
         run: npm run check:runtime-facts
+      - name: Release contract guard
+        run: npm run check:release-contract
       - name: Viewport gate guard
         run: npm run check:viewport-gate
       - name: Static security headers guard

@@ -1,6 +1,6 @@
 # PharosVille Operations
 
-Last updated: 2026-05-18
+Last updated: 2026-07-14
 
 This runbook covers the standalone Cloudflare Pages app at `https://pharosville.pharos.watch/`.
 
@@ -89,7 +89,9 @@ Run `npm run check:branch-protection` to validate merge-gate controls before cal
 Before declaring production readiness, enforce `main` merge control on the
 `pharosville` repository:
 
-- Require pull requests with at least one approval
+- Require pull requests. While the repository has only one write-capable
+  collaborator, require zero approvals because GitHub forbids self-approval;
+  raise this to at least one as soon as a second reviewer has write access.
 - Require all of these status checks to pass:
   - `typecheck`
   - `unit`
@@ -105,7 +107,9 @@ Recommended verification:
 npm run check:branch-protection
 ```
 
-This command verifies the required checks and merge controls and exits non-zero if any control is missing.
+This command verifies the required checks and merge controls, derives a viable
+approval count from the current write-capable collaborator count, and exits
+non-zero if a control is missing or the review rule deadlocks the repository.
 Optionally pass explicit target context:
 
 ```bash
@@ -113,6 +117,14 @@ npm run check:branch-protection -- --branch release
 ```
 
 ## Deploy
+
+Normal production changes deploy from the protected `main` workflow. A
+versioned release must continue through the automated tag and GitHub Release
+path in `docs/pharosville/RELEASES.md`.
+
+The direct command below is for explicit operational recovery only. It is not
+a versioned release, must not be paired with manual semantic tags or
+`gh release create`, and still requires live verification.
 
 Check the worktree first and do not deploy unrelated dirty work:
 
@@ -127,7 +139,9 @@ npm run build
 npx wrangler pages deploy dist --project-name=pharosville
 ```
 
-The current `npm run deploy` script also deploys `dist`, but release hardening is still tracked separately. Prefer the explicit command above when you need dirty-tree protection.
+The current `npm run deploy` script also deploys `dist`. Prefer the explicit
+command above when an operator has authorized a recovery deploy and needs
+dirty-tree protection.
 
 The production deploy workflow runs live security-header checks and live smoke immediately after Cloudflare Pages deploy. Repository admin hardening remains separately checkable with `npm run check:release-admin` until branch protection is configured.
 
@@ -178,6 +192,7 @@ See also: docs/pharosville/OBSERVABILITY.md
 Production health checks currently run via:
 
 - `.github/workflows/deploy-cloudflare.yml` after Cloudflare Pages deploy
+- `.github/workflows/release.yml` daily for changelog, semantic-tag, and GitHub Release drift
 - `.github/workflows/canary-smoke.yml` every 30 minutes and on manual dispatch
 - `npm run smoke:live -- --url https://pharosville.pharos.watch`
 

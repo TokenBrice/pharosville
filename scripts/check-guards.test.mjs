@@ -57,6 +57,17 @@ import {
   validatePermissionsPolicy,
   validateStaticHeadersText,
 } from "./pharosville/check-security-headers.mjs";
+import {
+  compareGithubReleaseState,
+  parseChangelogReleases,
+  parseVersionRegistry,
+  validateReleaseContract,
+} from "./pharosville/release-contract.mjs";
+import {
+  approvalPolicyForCollaborators,
+  validateBranchProtection,
+  validateBranchRulesetProtection,
+} from "./pharosville/check-branch-protection.mjs";
 
 const neutralValue = ["alpha", "beta", "gamma", "9876543210"].join("_");
 const guardedEnvKeys = [
@@ -296,6 +307,143 @@ assert.doesNotMatch(deployGateSource, /check:security-headers(?!:static)/);
 const deployWorkflowSource = readFileSync(resolve(".github/workflows/deploy-cloudflare.yml"), "utf8");
 assert.match(deployWorkflowSource, /npm run check:security-headers:static/);
 assert.match(deployWorkflowSource, /check-security-headers\.mjs --url "\$SMOKE_UI_URL"/);
+assert.match(deployWorkflowSource, /npm run check:release-contract/);
+
+const releaseWorkflowSource = readFileSync(resolve(".github/workflows/release.yml"), "utf8");
+assert.match(releaseWorkflowSource, /workflow_run:/);
+assert.match(releaseWorkflowSource, /Deploy to Cloudflare Pages/);
+assert.match(releaseWorkflowSource, /historical-backfill/);
+assert.match(releaseWorkflowSource, /gh release create/);
+assert.match(releaseWorkflowSource, /audit-github/);
+
+const releaseChangelogFixture = [
+  "# Changelog",
+  "",
+  "## v0.2.0 - 2026-02-02 - Second",
+  "",
+  "Second release notes.",
+  "",
+  "## v0.1.0 - 2026-01-01 - First",
+  "",
+  "First release notes.",
+].join("\n");
+const releaseVersionFixture = [
+  "export const PHAROSVILLE_RELEASE_VERSIONS = {",
+  '  first: "v0.1.0",',
+  '  second: "v0.2.0",',
+  "} as const;",
+  "export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.second;",
+].join("\n");
+assert.deepEqual(
+  parseChangelogReleases(releaseChangelogFixture).map((release) => release.version),
+  ["v0.2.0", "v0.1.0"],
+);
+assert.equal(parseVersionRegistry(releaseVersionFixture).latestVersion, "v0.2.0");
+assert.deepEqual(
+  validateReleaseContract({
+    changelogSource: releaseChangelogFixture,
+    versionSource: releaseVersionFixture,
+  }).errors,
+  [],
+);
+assert.match(
+  validateReleaseContract({
+    changelogSource: releaseChangelogFixture.replace("## v0.2.0", "## v0.0.9"),
+    versionSource: releaseVersionFixture,
+  }).errors.join("\n"),
+  /ordered newest semantic version first|missing from/,
+);
+const releaseStateFixture = parseChangelogReleases(releaseChangelogFixture);
+assert.deepEqual(
+  compareGithubReleaseState({
+    releases: releaseStateFixture,
+    githubReleases: [
+      { isDraft: false, name: "v0.2.0 - Second", tagName: "v0.2.0" },
+      { isDraft: false, name: "v0.1.0 - First", tagName: "v0.1.0" },
+    ],
+    gitTags: ["v0.1.0", "v0.2.0", "checkpoint"],
+  }),
+  [],
+);
+assert.deepEqual(
+  compareGithubReleaseState({
+    releases: releaseStateFixture,
+    githubReleases: [{ isDraft: false, name: "v0.2.0 - Second", tagName: "v0.2.0" }],
+    gitTags: ["v0.2.0"],
+  }),
+  ["Missing Git tag: v0.1.0.", "Missing published GitHub Release: v0.1.0."],
+);
+
+const soloApprovalPolicy = approvalPolicyForCollaborators([
+  { permissions: { admin: true, push: true } },
+]);
+assert.deepEqual(soloApprovalPolicy, { maximum: 0, minimum: 0, writeCapableCount: 1 });
+assert.deepEqual(
+  approvalPolicyForCollaborators([
+    { permissions: { admin: true, push: true } },
+    { permissions: { admin: false, push: true } },
+  ]),
+  { maximum: 1, minimum: 1, writeCapableCount: 2 },
+);
+const branchProtectionFixture = {
+  allow_deletions: { enabled: false },
+  allow_force_pushes: { enabled: false },
+  enforce_admins: { enabled: true },
+  required_pull_request_reviews: { required_approving_review_count: 0 },
+  required_status_checks: {
+    contexts: ["typecheck", "unit", "guards", "build", "visual", "visual-cross-browser"],
+    strict: true,
+  },
+};
+assert.deepEqual(
+  validateBranchProtection(branchProtectionFixture, "main", soloApprovalPolicy).failures,
+  [],
+);
+assert.match(
+  validateBranchProtection({
+    ...branchProtectionFixture,
+    required_pull_request_reviews: { required_approving_review_count: 1 },
+  }, "main", soloApprovalPolicy).failures.join("\n"),
+  /authors cannot self-approve/,
+);
+const rulesetFixture = {
+  conditions: { ref_name: { include: ["main"] } },
+  name: "Protect main",
+  rules: [
+    {
+      parameters: {
+        required_approving_review_count: 0,
+      },
+      type: "pull_request",
+    },
+    {
+      parameters: {
+        required_status_checks: [
+          { context: "typecheck" },
+          { context: "unit" },
+          { context: "guards" },
+          { context: "build" },
+          { context: "visual" },
+          { context: "visual-cross-browser" },
+        ],
+        strict_required_status_checks_policy: true,
+      },
+      type: "required_status_checks",
+    },
+  ],
+  target: "branch",
+};
+assert.deepEqual(
+  validateBranchRulesetProtection(rulesetFixture, "main", soloApprovalPolicy).failures,
+  [],
+);
+assert.match(
+  validateBranchRulesetProtection({
+    ...rulesetFixture,
+    rules: rulesetFixture.rules.filter((rule) => rule.type !== "pull_request"),
+  }, "main", soloApprovalPolicy).failures.join("\n"),
+  /pull-request rule is missing/,
+);
 
 assert.doesNotMatch(packageJson.scripts["test:visual:dist:static"], /resizing below/);
 assert.match(packageJson.scripts["test:visual:dist:static"], /@visual-static|resized below/);

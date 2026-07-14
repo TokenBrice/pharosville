@@ -9,6 +9,7 @@ const DEPLOY_GATE_COMMANDS = [
   ["npm", ["run", "check:committed-secrets"]],
   ["npm", ["run", "check:doc-paths-and-scripts"]],
   ["npm", ["run", "check:runtime-facts"]],
+  ["npm", ["run", "check:release-contract"]],
   ["npm", ["run", "check:viewport-gate"]],
   ["npm", ["run", "check:security-headers:static"]],
   ["npm", ["run", "check:pharosville-assets"]],
