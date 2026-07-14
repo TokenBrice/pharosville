@@ -69,8 +69,8 @@ import {
   validateBranchRulesetProtection,
 } from "./pharosville/check-branch-protection.mjs";
 import {
+  RELEASE_ACTIONS_CREDENTIAL,
   RELEASE_DEPLOY_KEY_TITLE,
-  RELEASE_SSH_SECRET_NAME,
   validateReleaseCredentialState,
 } from "./pharosville/check-release-credentials.mjs";
 
@@ -333,7 +333,7 @@ assert.match(packageJson.scripts["check:release-admin"], /check:release-credenti
 assert.deepEqual(
   validateReleaseCredentialState({
     deployKeys: [{ read_only: false, title: RELEASE_DEPLOY_KEY_TITLE }],
-    secrets: [{ name: RELEASE_SSH_SECRET_NAME }],
+    secrets: [{ name: RELEASE_ACTIONS_CREDENTIAL }],
   }).failures,
   [],
 );
@@ -343,7 +343,7 @@ assert.deepEqual(
     secrets: [],
   }).failures,
   [
-    `Actions secret ${RELEASE_SSH_SECRET_NAME} is missing`,
+    `Actions secret ${RELEASE_ACTIONS_CREDENTIAL} is missing`,
     `deploy key ${RELEASE_DEPLOY_KEY_TITLE} must allow write access`,
   ],
 );

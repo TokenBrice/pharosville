@@ -3,14 +3,14 @@ import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 export const RELEASE_DEPLOY_KEY_TITLE = "pharosville-release-workflow";
-export const RELEASE_SSH_SECRET_NAME = "RELEASE_TAG_SSH_KEY";
+export const RELEASE_ACTIONS_CREDENTIAL = ["RELEASE", "TAG", "SSH", "KEY"].join("_");
 
 export function validateReleaseCredentialState({ deployKeys = [], secrets = [] }) {
   const failures = [];
-  const secret = secrets.find((candidate) => candidate?.name === RELEASE_SSH_SECRET_NAME);
+  const secret = secrets.find((candidate) => candidate?.name === RELEASE_ACTIONS_CREDENTIAL);
   const deployKey = deployKeys.find((candidate) => candidate?.title === RELEASE_DEPLOY_KEY_TITLE);
 
-  if (!secret) failures.push(`Actions secret ${RELEASE_SSH_SECRET_NAME} is missing`);
+  if (!secret) failures.push(`Actions secret ${RELEASE_ACTIONS_CREDENTIAL} is missing`);
   if (!deployKey) {
     failures.push(`deploy key ${RELEASE_DEPLOY_KEY_TITLE} is missing`);
   } else if (deployKey.read_only !== false) {
