@@ -89,7 +89,9 @@ Run `npm run check:branch-protection` to validate merge-gate controls before cal
 Before declaring production readiness, enforce `main` merge control on the
 `pharosville` repository:
 
-- Require pull requests with at least one approval
+- Require pull requests. While the repository has only one write-capable
+  collaborator, require zero approvals because GitHub forbids self-approval;
+  raise this to at least one as soon as a second reviewer has write access.
 - Require all of these status checks to pass:
   - `typecheck`
   - `unit`
@@ -105,7 +107,9 @@ Recommended verification:
 npm run check:branch-protection
 ```
 
-This command verifies the required checks and merge controls and exits non-zero if any control is missing.
+This command verifies the required checks and merge controls, derives a viable
+approval count from the current write-capable collaborator count, and exits
+non-zero if a control is missing or the review rule deadlocks the repository.
 Optionally pass explicit target context:
 
 ```bash

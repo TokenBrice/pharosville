@@ -38,6 +38,9 @@ itself is not a versioned release.
 
 4. Merge only through the protected pull request path after `typecheck`,
    `unit`, `guards`, `build`, `visual`, and `visual-cross-browser` pass.
+   Required approvals are zero only while the repository has a single
+   write-capable collaborator; `npm run check:branch-protection` enforces a
+   viable review policy and requires approval once another reviewer exists.
 5. Wait for the `Deploy to Cloudflare Pages` push run for the merge commit to
    pass, including live smoke.
 6. The successful deploy automatically triggers `Publish GitHub Release`.

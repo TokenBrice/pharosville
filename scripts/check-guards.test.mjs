@@ -63,6 +63,11 @@ import {
   parseVersionRegistry,
   validateReleaseContract,
 } from "./pharosville/release-contract.mjs";
+import {
+  approvalPolicyForCollaborators,
+  validateBranchProtection,
+  validateBranchRulesetProtection,
+} from "./pharosville/check-branch-protection.mjs";
 
 const neutralValue = ["alpha", "beta", "gamma", "9876543210"].join("_");
 const guardedEnvKeys = [
@@ -367,6 +372,77 @@ assert.deepEqual(
     gitTags: ["v0.2.0"],
   }),
   ["Missing Git tag: v0.1.0.", "Missing published GitHub Release: v0.1.0."],
+);
+
+const soloApprovalPolicy = approvalPolicyForCollaborators([
+  { permissions: { admin: true, push: true } },
+]);
+assert.deepEqual(soloApprovalPolicy, { maximum: 0, minimum: 0, writeCapableCount: 1 });
+assert.deepEqual(
+  approvalPolicyForCollaborators([
+    { permissions: { admin: true, push: true } },
+    { permissions: { admin: false, push: true } },
+  ]),
+  { maximum: 1, minimum: 1, writeCapableCount: 2 },
+);
+const branchProtectionFixture = {
+  allow_deletions: { enabled: false },
+  allow_force_pushes: { enabled: false },
+  enforce_admins: { enabled: true },
+  required_pull_request_reviews: { required_approving_review_count: 0 },
+  required_status_checks: {
+    contexts: ["typecheck", "unit", "guards", "build", "visual", "visual-cross-browser"],
+    strict: true,
+  },
+};
+assert.deepEqual(
+  validateBranchProtection(branchProtectionFixture, "main", soloApprovalPolicy).failures,
+  [],
+);
+assert.match(
+  validateBranchProtection({
+    ...branchProtectionFixture,
+    required_pull_request_reviews: { required_approving_review_count: 1 },
+  }, "main", soloApprovalPolicy).failures.join("\n"),
+  /authors cannot self-approve/,
+);
+const rulesetFixture = {
+  conditions: { ref_name: { include: ["main"] } },
+  name: "Protect main",
+  rules: [
+    {
+      parameters: {
+        required_approving_review_count: 0,
+      },
+      type: "pull_request",
+    },
+    {
+      parameters: {
+        required_status_checks: [
+          { context: "typecheck" },
+          { context: "unit" },
+          { context: "guards" },
+          { context: "build" },
+          { context: "visual" },
+          { context: "visual-cross-browser" },
+        ],
+        strict_required_status_checks_policy: true,
+      },
+      type: "required_status_checks",
+    },
+  ],
+  target: "branch",
+};
+assert.deepEqual(
+  validateBranchRulesetProtection(rulesetFixture, "main", soloApprovalPolicy).failures,
+  [],
+);
+assert.match(
+  validateBranchRulesetProtection({
+    ...rulesetFixture,
+    rules: rulesetFixture.rules.filter((rule) => rule.type !== "pull_request"),
+  }, "main", soloApprovalPolicy).failures.join("\n"),
+  /pull-request rule is missing/,
 );
 
 assert.doesNotMatch(packageJson.scripts["test:visual:dist:static"], /resizing below/);
