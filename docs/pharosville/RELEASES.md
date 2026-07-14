@@ -45,7 +45,8 @@ itself is not a versioned release.
    pass, including live smoke.
 6. The successful deploy automatically triggers `Publish GitHub Release`.
    That workflow reads the release declaration from the deployed commit,
-   creates the tag through the GitHub Release API, and publishes the Release.
+   creates the annotated tag with the repository-scoped release deploy key,
+   and publishes the Release with the short-lived `GITHUB_TOKEN`.
 7. Verify the workflow and public state:
 
    ```bash
@@ -106,3 +107,23 @@ npm run check:github-releases
 
 The same audit runs daily and fails when the changelog, semantic tags, or
 published GitHub Releases diverge.
+
+## Release Credential
+
+GitHub's workflow token cannot create a tag that exposes commits containing
+workflow files because it cannot request the separate Workflows permission.
+Release publication therefore uses a dedicated, repository-scoped SSH deploy
+key only for `refs/tags/v*` pushes:
+
+- Actions secret: `RELEASE_TAG_SSH_KEY`
+- Write deploy key: `pharosville-release-workflow`
+
+The workflow still uses its short-lived `GITHUB_TOKEN` for GitHub Release API
+calls and audits. Never replace the SSH secret with a personal access token or
+commit either half of the key pair. `npm run check:release-credentials` verifies
+that both configured names exist and that the deploy key retains write access.
+
+To rotate the credential, create a new repository-specific Ed25519 key pair,
+replace the Actions secret and deploy key together, delete all local key files,
+then run `npm run check:release-credentials` and dispatch the workflow's `audit`
+operation. Rotation does not move or recreate existing semantic tags.
