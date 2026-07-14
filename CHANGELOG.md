@@ -1,6 +1,6 @@
 # Changelog
 
-PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel.
+PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
 ## v0.3.0 - 2026-07-10 - True Waters
 

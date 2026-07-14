@@ -1,3 +1,5 @@
+Completed 2026-06-29 — GitHub community files, metadata, branch protection, changelog, and first public Release were delivered; remaining social-preview upload is tracked in issue #2.
+
 # GitHub Visibility Plan
 
 Created: 2026-06-29

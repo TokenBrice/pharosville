@@ -18,6 +18,7 @@ Local dev server (maintained): http://localhost:5173/
 - `PHAROS_API_KEY` is a Cloudflare Pages secret and must remain server-side. Never expose it as `VITE_*`, static JS, HTML, query strings, logs, docs, or fixtures.
 - `src/**` owns the PharosVille React/canvas app. `shared/**` is copied runtime-neutral contract/data logic used by this app.
 - For frontend changes, preserve the desktop gate: narrow or portrait viewports must not mount the world runtime or fetch world data.
+- Versioned releases must be published by `.github/workflows/release.yml` after a green `main` deploy. Do not manually create semantic tags or GitHub Releases; follow `docs/pharosville/RELEASES.md`.
 - Do not commit generated `dist/`, `test-results/`, local env files, or scratch artifacts.
 
 ## Startup

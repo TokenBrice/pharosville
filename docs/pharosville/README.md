@@ -11,6 +11,7 @@ Goal: maintain durable maintenance, asset, and validation notes for the standalo
 - `RUNTIME_FACTS.md` — generated constants, budgets, inventories, and workflow facts.
 - `ARCHITECTURE.md` — API proxy, world model, renderer, and asset flow overview.
 - `TESTING.md` — focused checks, visual checks, and broader validation guidance.
+- `RELEASES.md` — canonical version declaration, protected deploy, tag, GitHub Release, recovery, and audit workflow.
 - `VISUAL_INVARIANTS.md` — non-negotiable visual/data contracts for the world representation.
 - `SCENARIO_CATALOG.md` — canonical fixture and test scenarios for semantic and visual validation.
 - `VISUAL_REVIEW_ATLAS.md` — screenshot baselines, browser review entries, and manual pixel checklist.

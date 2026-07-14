@@ -51,6 +51,11 @@ Use commit history as evidence, then write a concise product changelog.
    - Run the smallest tests for the touched files.
    - For TypeScript/JSON changelog data, run typecheck or the focused importing test.
 
+8. Treat collection and publication as separate operations:
+   - A changelog entry alone is not a published version.
+   - For a versioned release, follow `docs/pharosville/RELEASES.md`; do not
+     create semantic tags or GitHub Releases manually.
+
 ## Output Style
 
 Prefer plain release-note prose:

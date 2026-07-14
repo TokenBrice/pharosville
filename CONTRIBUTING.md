@@ -70,6 +70,10 @@ Before release-level confidence:
 npm run validate:release
 ```
 
+Maintainer version releases follow the protected workflow in
+[PharosVille Releases](./docs/pharosville/RELEASES.md). A changelog edit or
+deployment alone does not publish a version.
+
 For deployed changes:
 
 ```bash
