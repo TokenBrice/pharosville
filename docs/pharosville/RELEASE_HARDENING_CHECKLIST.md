@@ -14,7 +14,7 @@ Last updated: 2026-07-14
 | 6) Broader-browser accessibility smoke | QA | Ongoing | Done | Accessibility lane runs on Chromium + Firefox without screenshot drift | `npm run test:visual:cross-browser` + `npm run test:visual:dist:accessibility` |
 | 7) Scheduled live smoke | Platform | Immediate | Done | GitHub canary smoke runs on a 30-minute schedule and manual dispatch; external monitoring is optional if operations requires independence from GitHub Actions | `.github/workflows/canary-smoke.yml`, `docs/pharosville/OBSERVABILITY.md` |
 | 8) Release sign-off | Release owner | Before production release | Enforced | Runtime readiness passes from a clean tree; protected merge and remote release records are independently auditable | `npm run check:release-readiness` + `npm run check:release-admin` |
-| 9) GitHub Release publication | Release owner | Every version | Done | A green `main` deploy triggers the workflow that creates the annotated semantic tag and GitHub Release; daily audit detects drift | `.github/workflows/release.yml`, `docs/pharosville/RELEASES.md`, `npm run check:github-releases` |
+| 9) GitHub Release publication | Release owner | Every version | Done | A green `main` deploy triggers the workflow that creates the annotated semantic tag and GitHub Release; the repository-scoped tag credential and daily drift audit remain independently checkable | `.github/workflows/release.yml`, `docs/pharosville/RELEASES.md`, `npm run check:release-admin` |
 
 ## Sign-off
 

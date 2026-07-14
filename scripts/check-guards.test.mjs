@@ -68,6 +68,11 @@ import {
   validateBranchProtection,
   validateBranchRulesetProtection,
 } from "./pharosville/check-branch-protection.mjs";
+import {
+  RELEASE_DEPLOY_KEY_TITLE,
+  RELEASE_SSH_SECRET_NAME,
+  validateReleaseCredentialState,
+} from "./pharosville/check-release-credentials.mjs";
 
 const neutralValue = ["alpha", "beta", "gamma", "9876543210"].join("_");
 const guardedEnvKeys = [
@@ -318,8 +323,30 @@ assert.match(releaseWorkflowSource, /workflow_run:/);
 assert.match(releaseWorkflowSource, /Deploy to Cloudflare Pages/);
 assert.match(releaseWorkflowSource, /historical-backfill/);
 assert.match(releaseWorkflowSource, /gh release create/);
-assert.match(releaseWorkflowSource, /--target "\$TARGET_SHA"/);
+assert.match(releaseWorkflowSource, /ssh-key: \$\{\{ secrets\.RELEASE_TAG_SSH_KEY \}\}/);
+assert.match(releaseWorkflowSource, /git tag -a "\$RELEASE_TAG" "\$TARGET_SHA"/);
+assert.match(releaseWorkflowSource, /git push origin "refs\/tags\/\$RELEASE_TAG"/);
+assert.match(releaseWorkflowSource, /--verify-tag/);
 assert.match(releaseWorkflowSource, /audit-github/);
+assert.match(packageJson.scripts["check:release-admin"], /check:release-credentials/);
+
+assert.deepEqual(
+  validateReleaseCredentialState({
+    deployKeys: [{ read_only: false, title: RELEASE_DEPLOY_KEY_TITLE }],
+    secrets: [{ name: RELEASE_SSH_SECRET_NAME }],
+  }).failures,
+  [],
+);
+assert.deepEqual(
+  validateReleaseCredentialState({
+    deployKeys: [{ read_only: true, title: RELEASE_DEPLOY_KEY_TITLE }],
+    secrets: [],
+  }).failures,
+  [
+    `Actions secret ${RELEASE_SSH_SECRET_NAME} is missing`,
+    `deploy key ${RELEASE_DEPLOY_KEY_TITLE} must allow write access`,
+  ],
+);
 
 const releaseChangelogFixture = [
   "# Changelog",

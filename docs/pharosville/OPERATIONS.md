@@ -116,6 +116,17 @@ Optionally pass explicit target context:
 npm run check:branch-protection -- --branch release
 ```
 
+Release administration also checks the repository-scoped tag credential and
+the changelog/tag/Release contract:
+
+```bash
+npm run check:release-admin
+```
+
+Credential ownership and rotation are documented in
+`docs/pharosville/RELEASES.md`; do not substitute a personal token or create a
+semantic tag outside the workflow.
+
 ## Deploy
 
 Normal production changes deploy from the protected `main` workflow. A
