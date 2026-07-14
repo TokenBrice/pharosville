@@ -310,12 +310,15 @@ assert.match(deployWorkflowSource, /check-security-headers\.mjs --url "\$SMOKE_U
 assert.match(deployWorkflowSource, /npm run check:release-contract/);
 assert.match(deployWorkflowSource, /Live security-header check failed after 4 attempts/);
 assert.match(deployWorkflowSource, /Live smoke failed after 4 attempts/);
+assert.match(deployWorkflowSource, /steps\.pages\.outputs\.deployment_url/);
+assert.match(deployWorkflowSource, /Probe canonical URL/);
 
 const releaseWorkflowSource = readFileSync(resolve(".github/workflows/release.yml"), "utf8");
 assert.match(releaseWorkflowSource, /workflow_run:/);
 assert.match(releaseWorkflowSource, /Deploy to Cloudflare Pages/);
 assert.match(releaseWorkflowSource, /historical-backfill/);
 assert.match(releaseWorkflowSource, /gh release create/);
+assert.match(releaseWorkflowSource, /--target "\$TARGET_SHA"/);
 assert.match(releaseWorkflowSource, /audit-github/);
 
 const releaseChangelogFixture = [

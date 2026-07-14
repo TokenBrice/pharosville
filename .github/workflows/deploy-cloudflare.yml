@@ -155,6 +155,7 @@ jobs:
           name: pharosville-dist
           path: dist
       - name: Deploy Pages
+        id: pages
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -162,6 +163,25 @@ jobs:
           for attempt in 1 2 3; do
             echo "Cloudflare Pages deploy attempt ${attempt}/3"
             if npx --no-install wrangler pages deploy dist --project-name=pharosville --commit-message="$GITHUB_SHA"; then
+              short_sha="${GITHUB_SHA:0:7}"
+              deployment_url=""
+              for lookup_attempt in 1 2 3; do
+                deployment_url="$(
+                  npx --no-install wrangler pages deployment list --project-name=pharosville --json \
+                    | jq -r --arg source "$short_sha" \
+                      'map(select(.Environment == "Production" and .Source == $source)) | first | .Deployment // empty'
+                )"
+                if [ -n "$deployment_url" ]; then
+                  break
+                fi
+                sleep $((lookup_attempt * 5))
+              done
+              if [ -z "$deployment_url" ]; then
+                echo "Could not resolve the production Pages URL for $short_sha." >&2
+                exit 1
+              fi
+              echo "deployment_url=$deployment_url" >> "$GITHUB_OUTPUT"
+              echo "Deployed artifact URL: $deployment_url"
               exit 0
             fi
 
@@ -181,9 +201,9 @@ jobs:
           name: wrangler-deploy-logs
           path: ~/.config/.wrangler/logs
           if-no-files-found: ignore
-      - name: Check live security headers
+      - name: Check deployed artifact security headers
         env:
-          SMOKE_UI_URL: ${{ vars.SMOKE_UI_URL || 'https://pharosville.pharos.watch' }}
+          SMOKE_UI_URL: ${{ steps.pages.outputs.deployment_url }}
         run: |
           for attempt in 1 2 3 4; do
             if node scripts/pharosville/check-security-headers.mjs --url "$SMOKE_UI_URL"; then
@@ -197,9 +217,9 @@ jobs:
           done
           echo "Live security-header check failed after 4 attempts."
           exit 1
-      - name: Smoke live
+      - name: Smoke deployed artifact
         env:
-          SMOKE_UI_URL: ${{ vars.SMOKE_UI_URL || 'https://pharosville.pharos.watch' }}
+          SMOKE_UI_URL: ${{ steps.pages.outputs.deployment_url }}
         run: |
           for attempt in 1 2 3 4; do
             if npm run smoke:live -- --url "$SMOKE_UI_URL"; then
@@ -213,3 +233,8 @@ jobs:
           done
           echo "Live smoke failed after 4 attempts."
           exit 1
+      - name: Probe canonical URL
+        continue-on-error: true
+        env:
+          SMOKE_UI_URL: ${{ vars.SMOKE_UI_URL || 'https://pharosville.pharos.watch' }}
+        run: node scripts/pharosville/check-security-headers.mjs --url "$SMOKE_UI_URL"

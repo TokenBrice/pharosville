@@ -123,22 +123,6 @@ jobs:
             exit 1
           fi
           echo "Verified production deploy: $deploy_url"
-      - name: Create or verify annotated tag
-        if: steps.published.outputs.exists != 'true'
-        env:
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
-          RELEASE_TITLE: ${{ steps.release.outputs.title }}
-          TAG_EXISTS: ${{ steps.release.outputs.tag_exists }}
-          TARGET_SHA: ${{ steps.release.outputs.target_sha }}
-        run: |
-          if [ "$TAG_EXISTS" = "true" ]; then
-            echo "$RELEASE_TAG already points to $TARGET_SHA."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag --annotate "$RELEASE_TAG" "$TARGET_SHA" --message "$RELEASE_TITLE"
-          git push origin "refs/tags/$RELEASE_TAG"
       - name: Publish or verify GitHub Release
         if: steps.published.outputs.exists != 'true'
         env:
@@ -146,16 +130,22 @@ jobs:
           HISTORICAL: ${{ steps.release.outputs.historical }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           RELEASE_TITLE: ${{ steps.release.outputs.title }}
+          TAG_EXISTS: ${{ steps.release.outputs.tag_exists }}
+          TARGET_SHA: ${{ steps.release.outputs.target_sha }}
         run: |
           latest_flag="--latest"
           if [ "$HISTORICAL" = "true" ]; then
             latest_flag="--latest=false"
           fi
+          tag_flag=(--target "$TARGET_SHA")
+          if [ "$TAG_EXISTS" = "true" ]; then
+            tag_flag=(--verify-tag)
+          fi
           gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --verify-tag \
             --title "$RELEASE_TITLE" \
             --notes-file "$RUNNER_TEMP/release-notes.md" \
+            "${tag_flag[@]}" \
             "$latest_flag"
   audit:
     if: >-

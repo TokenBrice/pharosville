@@ -143,7 +143,11 @@ The current `npm run deploy` script also deploys `dist`. Prefer the explicit
 command above when an operator has authorized a recovery deploy and needs
 dirty-tree protection.
 
-The production deploy workflow runs live security-header checks and live smoke immediately after Cloudflare Pages deploy. Repository admin hardening remains separately checkable with `npm run check:release-admin` until branch protection is configured.
+The production deploy workflow runs security-header checks and full live smoke
+against the exact immutable Pages deployment URL it just uploaded. It also
+records a non-blocking canonical-host probe; `.github/workflows/canary-smoke.yml`
+owns ongoing canonical URL availability. Repository admin hardening remains
+separately checkable with `npm run check:release-admin`.
 
 ## Live Smoke
 

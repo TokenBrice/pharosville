@@ -7,7 +7,7 @@ released only when all three records exist and agree:
 
 1. A `CHANGELOG.md` entry mirrored by `src/content/pharosville-changelog.ts` and
    `src/content/pharosville-version.ts`.
-2. An annotated semantic Git tag (`vMAJOR.MINOR.PATCH`) on a commit from `main`.
+2. A semantic Git tag (`vMAJOR.MINOR.PATCH`) on a commit from `main`.
 3. A published GitHub Release created by `.github/workflows/release.yml`.
 
 A changelog entry, merge to `main`, Cloudflare deployment, or local tag by
@@ -45,7 +45,7 @@ itself is not a versioned release.
    pass, including live smoke.
 6. The successful deploy automatically triggers `Publish GitHub Release`.
    That workflow reads the release declaration from the deployed commit,
-   creates the annotated tag, and publishes the GitHub Release.
+   creates the tag through the GitHub Release API, and publishes the Release.
 7. Verify the workflow and public state:
 
    ```bash
