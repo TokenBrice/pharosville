@@ -22,7 +22,7 @@ Last updated: 2026-07-14
 2. Security header policy + verification checks pass.
 3. Documented budgets/limits updated and reviewed.
 4. Cross-browser accessibility smoke passes.
-5. Post-deploy deploy job runs live security headers and live smoke.
+5. Post-deploy job runs security headers and full smoke against the exact Pages deployment; the canary owns canonical-host availability.
 6. Scheduled canary smoke is configured; external monitoring is tracked separately if operations require it.
 7. Final command lane passes: `npm run check:release-readiness`.
 8. Version declarations are published only by `.github/workflows/release.yml`.
