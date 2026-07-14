@@ -308,6 +308,8 @@ const deployWorkflowSource = readFileSync(resolve(".github/workflows/deploy-clou
 assert.match(deployWorkflowSource, /npm run check:security-headers:static/);
 assert.match(deployWorkflowSource, /check-security-headers\.mjs --url "\$SMOKE_UI_URL"/);
 assert.match(deployWorkflowSource, /npm run check:release-contract/);
+assert.match(deployWorkflowSource, /Live security-header check failed after 4 attempts/);
+assert.match(deployWorkflowSource, /Live smoke failed after 4 attempts/);
 
 const releaseWorkflowSource = readFileSync(resolve(".github/workflows/release.yml"), "utf8");
 assert.match(releaseWorkflowSource, /workflow_run:/);
