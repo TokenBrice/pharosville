@@ -10,12 +10,10 @@ export default defineConfig({
   testDir: "./tests/visual",
   timeout: 60_000,
   fullyParallel: true,
-  ...(process.env.CI ? { workers: 2 } : {}),
+  workers: 1,
   expect: {
     timeout: 15_000,
   },
-  snapshotPathTemplate:
-    "{testDir}/{testFileName}-snapshots-built-dist/{arg}{-projectName}{-snapshotSuffix}{ext}",
   use: {
     baseURL: BASE_URL,
     viewport: PHAROSVILLE_BASE_VIEWPORT,

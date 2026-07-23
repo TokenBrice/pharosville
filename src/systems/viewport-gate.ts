@@ -1,11 +1,9 @@
 /**
  * Shared widescreen-gate thresholds.
  *
- * The desktop-only fallback in `src/client.tsx` and the runtime-manifest
- * preload `media` query in `index.html` MUST agree on these dimensions, or
- * mobile devices will either fetch the manifest needlessly or be shown the
- * fallback inconsistently. The guard `scripts/check-viewport-gate.mjs`
- * enforces that this module and `index.html` stay in sync.
+ * `src/client.tsx` applies these before it imports the desktop data/runtime
+ * chunk. The guard `scripts/check-viewport-gate.mjs` verifies that lazy
+ * boundary remains intact.
  *
  * Runtime-neutral: no React or DOM imports.
  */

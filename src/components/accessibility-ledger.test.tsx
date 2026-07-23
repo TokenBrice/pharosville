@@ -83,7 +83,7 @@ describe("AccessibilityLedger", () => {
     expect(markup).toContain("mixed");
     expect(markup).toContain("fragile");
     expect(markup).toContain("concentrated");
-    // Renderer-canonical hex values from src/renderer/layers/docks.ts.
+    // Renderer-canonical dock signal colors.
     expect(markup.toLowerCase()).toContain("#78b689");
     expect(markup.toLowerCase()).toContain("#dfb95a");
     expect(markup.toLowerCase()).toContain("#d98b54");

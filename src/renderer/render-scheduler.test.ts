@@ -21,6 +21,18 @@ describe("render scheduler", () => {
     expect(scheduler.skippedPasses).toHaveLength(0);
   });
 
+  it("uses the balanced tier as the normal animated default", () => {
+    const scheduler = resolveRenderSchedulerState({
+      cameraIntentActive: false,
+      drawDurationMs: 10,
+      framePacingP90Ms: 16,
+      reducedMotion: false,
+    });
+
+    expect(scheduler.tier).toBe("balanced");
+    expect(scheduler.skippedPasses).toHaveLength(0);
+  });
+
   it("uses interaction tier during active camera intent", () => {
     const scheduler = resolveRenderSchedulerState({
       cameraIntentActive: true,
@@ -79,7 +91,7 @@ describe("render scheduler hysteresis", () => {
     const state = createRenderSchedulerHysteresisState();
 
     for (let frame = 1; frame < RENDER_SCHEDULER_DOWNSHIFT_STREAK; frame += 1) {
-      expect(resolveRenderSchedulerState(pressured, state).tier).toBe("full");
+      expect(resolveRenderSchedulerState(pressured, state).tier).toBe("balanced");
     }
     expect(resolveRenderSchedulerState(pressured, state).tier).toBe("recovery");
   });
@@ -89,8 +101,8 @@ describe("render scheduler hysteresis", () => {
 
     // Alternating pressure never accumulates a downshift streak.
     for (let frame = 0; frame < 10; frame += 1) {
-      expect(resolveRenderSchedulerState(pressured, state).tier).toBe("full");
-      expect(resolveRenderSchedulerState(calm, state).tier).toBe("full");
+      expect(resolveRenderSchedulerState(pressured, state).tier).toBe("balanced");
+      expect(resolveRenderSchedulerState(calm, state).tier).toBe("balanced");
     }
 
     // Sustained pressure downshifts; alternating calm then never upshifts.
@@ -114,7 +126,7 @@ describe("render scheduler hysteresis", () => {
     for (let frame = 1; frame < RENDER_SCHEDULER_UPSHIFT_STREAK; frame += 1) {
       expect(resolveRenderSchedulerState(calm, state).tier).toBe("recovery");
     }
-    expect(resolveRenderSchedulerState(calm, state).tier).toBe("full");
+    expect(resolveRenderSchedulerState(calm, state).tier).toBe("balanced");
   });
 
   it("freezes streaks during interaction and reduced-motion frames", () => {
@@ -127,7 +139,7 @@ describe("render scheduler hysteresis", () => {
     expect(interaction.tier).toBe("interaction");
     const reduced = resolveRenderSchedulerState({ ...pressured, reducedMotion: true }, state);
     expect(reduced.tier).toBe("full");
-    expect(state.loadTier).toBe("full");
+    expect(state.loadTier).toBe("balanced");
 
     // The pending downshift streak survives the interruption.
     expect(resolveRenderSchedulerState(pressured, state).tier).toBe("recovery");

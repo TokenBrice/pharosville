@@ -1,6 +1,6 @@
 # PharosVille Agent Onboarding
 
-Last updated: 2026-07-14
+Last updated: 2026-07-24
 
 Use this after `AGENTS.md` to route the current task. Keep startup small:
 read only the docs needed for the change in front of you.
@@ -42,9 +42,10 @@ read only the docs needed for the change in front of you.
 | --- | --- | --- |
 | App shell, API proxy, metadata, viewport gate | `docs/pharosville/ARCHITECTURE.md`, `docs/pharosville-page.md` | `npm run validate:changed` |
 | World model, data semantics, layout, motion | `docs/pharosville/VISUAL_INVARIANTS.md`, `src/systems/README.md` | `npm test -- src` |
-| Canvas renderer, hit testing, interaction | `src/renderer/README.md`, `docs/pharosville/TESTING.md` | focused unit test, then visual lane if pixels changed |
-| Assets or PixelLab generation | `docs/pharosville/ASSET_PIPELINE.md`, `docs/pharosville/PIXELLAB_MCP.md` | `npm run check:pharosville-assets` |
-| Visual snapshots | `docs/pharosville/TESTING.md`, `docs/pharosville/VISUAL_REGEN.md` | matching Playwright grep |
+| Three.js renderer, hit testing, interaction | `docs/pharosville/ARCHITECTURE.md`, `docs/pharosville/TESTING.md` | focused unit test, then `npm run test:visual` |
+| Lighthouse model or ship logos | `docs/pharosville/ASSET_PIPELINE.md` | `npm run check:garden-models` or focused sail tests |
+| PixelLab/reference generation | `docs/pharosville/PIXELLAB_MCP.md` | operator review; keep scratch in `outputs/` |
+| Visual evidence | `docs/pharosville/TESTING.md`, `docs/pharosville/VISUAL_REGEN.md` | `npm run test:visual` |
 | Versioned release, tag, or GitHub Release | `docs/pharosville/RELEASES.md` | `npm run check:release-contract` |
 | Docs/process only | `docs/pharosville/README.md` | `npm run validate:docs` |
 | Unknown or mixed scope | this file, then exact source files | `npm run validate:changed` |
@@ -75,5 +76,7 @@ npm run agent:plan:new -- <slug>
 - Treating old `agents/*plan*.md` files as authoritative over current code and route docs.
 - Updating visual baselines for unintentional drift.
 - Treating a changelog entry, `main` deploy, local tag, or manual GitHub Release as the complete versioned release path.
-- Adding runtime references to remote/prototype sprite URLs.
-- Encoding analytical meaning only in canvas without detail-panel and accessibility-ledger parity.
+- Reintroducing a renderer switch or graphical fallback.
+- Treating the archived raster manifest as a runtime inventory.
+- Adding runtime references to remote generation or prototype URLs.
+- Encoding analytical meaning only in WebGL without detail-panel and accessibility-ledger parity.

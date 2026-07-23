@@ -13,8 +13,7 @@
  *   `memberIds` to clone routes and place consorts.
  * - The navToken → `ledger-mooring` short-circuit is OVERRIDDEN for any
  *   consort whose flagship is active — see `pharosville-world.ts`.
- * - `renderer/layers/maker-squad-chrome.ts` paints per-squad bunting and
- *   selection halos; identifying a member uses `squadForMember`.
+ * - Renderer and DOM consumers identify members through `squadForMember`.
  *
  * Risk areas: changing `formationOffsets` shifts visual alignment but also
  * collision footprint with the harbor; `displayOrder` controls render z-order
@@ -25,6 +24,7 @@
 
 export type SquadId = "sky" | "maker" | "ethena";
 export type SquadRole = "flagship" | "consort";
+export const SQUAD_DISTRESS_FLAG_HEX = "#a02018";
 
 export interface StablecoinSquad {
   readonly id: SquadId;

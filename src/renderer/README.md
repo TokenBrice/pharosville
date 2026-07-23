@@ -1,66 +1,35 @@
-# PharosVille Renderer
+# PharosVille Renderer Boundary
 
-The renderer turns a pure `PharosVilleWorld` model into a Canvas 2D scene plus aligned hit targets. It should stay route-local and should not fetch data or mutate the world model.
+The production world uses Three.js. The immutable `PharosVilleWorld` model,
+camera, motion sampler, selection state, and DOM analytics stay engine-neutral.
 
 ## Files
 
-- `world-canvas.ts` is the public facade: it creates the frame cache, sequences
-  renderer layers, wires entity-pass callbacks, and returns route debug metrics.
-- `canvas-primitives.ts` owns shared low-level canvas helpers for asset drawing,
-  diamonds, sign boards, rounded paths, color alpha, fitted text, and stable
-  visual variants.
-- `layers/sky.ts`, `layers/terrain.ts`, `layers/shoreline.ts`,
-  `layers/harbor-district.ts`, `layers/lighthouse.ts`, `layers/cemetery.ts`,
-  and `layers/ambient.ts` draw non-entity scene layers.
-- `layers/docks.ts`, `layers/ships/`, `layers/graves.ts`, and
-  `layers/scenery.ts` own entity drawing details used by the entity pass.
-- `layers/water-labels.ts` draws printed water labels as a post-entity overlay.
-- `layers/selection.ts` draws hover/selection rings and selected ship/dock
-  relationship overlays.
-- `geometry.ts` owns shared render geometry for sprite draw points, manifest
-  hitboxes, dock harbor offsets, printed area label targets, and follow-selected
-  anchors used by drawing, hit testing, and the route shell.
-- `drawable-pass.ts` owns stable isometric depth ordering and pass helpers for
-  overlap-prone entity groups.
-- `hit-testing.ts` builds selectable rectangles for lighthouse, docks, ships, graves, and named areas.
-- `asset-manager.ts` loads the runtime manifest, prefers validated WebP twins
-  when present, falls back to required PNG paths, and loads logo images.
-- `hit-testing.test.ts` protects target ordering, manifest hitboxes, moving ship target rectangles, and building selectability.
-
-## Data Flow
-
-1. `pharosville-world.tsx` owns canvas state, camera state, asset loading, reduced-motion state, and selected/hovered detail IDs.
-2. `systems/motion.ts` samples ship positions for the current frame.
-3. `collectHitTargets()` receives the same camera and ship motion samples used for drawing.
-4. `drawPharosVille()` draws from the immutable world model, loaded assets, camera, selected/hovered targets, and motion state, then returns frame-level render metrics.
-5. Pointer and keyboard handlers resolve selected details through the hit targets and `world.detailIndex`.
+- `world-renderer-backend.ts` is the narrow frame and lifecycle contract.
+- `render-scheduler.ts` selects balanced, interaction, recovery, constrained,
+  and deterministic reduced-motion quality.
+- `garden-observatory-hit-testing.ts` projects the Three composition into
+  accessible pointer and keyboard targets.
+- `hit-testing.ts` owns the small spatial index and target resolver.
+- `../three/` owns scene construction, water, models, landmarks, ship identity,
+  and GPU resource disposal.
 
 ## Contracts
 
-- Drawing, hit testing, debug frame state, selected rings, and follow-selected behavior must use the same sampled ship positions.
-- Drawing and hit testing must use `geometry.ts` for overlap-prone entity
-  anchors instead of duplicating dock, sprite, or printed-label math.
-- Overlap-prone entity groups should resolve a `WorldDrawable` with a pass,
-  screen bounds, and depth from `geometry.ts`, then use `drawable-pass.ts`
-  sorting.
-- Layer modules should depend on renderer input types, shared geometry, and the
-  route-local system modules they visualize, such as selected motion routes; keep
-  new overlay-specific drawing out of `world-canvas.ts`.
-- The renderer must remain a consumer of world data. Add new semantics in `systems/` first, then draw them.
-- Reduced motion draws a deterministic static frame and must not require a running RAF loop.
-- Asset IDs must resolve through the runtime manifest emitted from
-  `public/pharosville/assets/manifest.json`; runtime code must not use prototype
-  paths or remote image URLs.
-- Manifest geometry changes must keep anchors, hitboxes, scale, and selection rings aligned.
-- Canvas backing size must go through `resolveCanvasBudget()`.
+- The renderer consumes world data; analytical meaning belongs in `systems/`.
+- Drawing, hit targets, labels, and follow-selected use the same display tiles
+  and motion samples.
+- Reduced motion renders a deterministic frame without a continuous loop.
+- Blocked or portrait viewports import no desktop data, Three.js, or GLB.
+- GPU/context failure shows the DOM signal overview; there is no Canvas
+  renderer fallback.
+- Runtime models are same-origin, content-addressed, budgeted, and validated.
 
 ## Validation
 
 ```bash
-npm test -- src/renderer/hit-testing.test.ts
-npm run check:pharosville-assets
-npm run check:pharosville-colors
-npx playwright test tests/visual/pharosville.spec.ts --grep "pharosville"
+npm test -- src/renderer src/three
+npm run check:garden-models
+npm run test:visual
+npm run test:perf
 ```
-
-Add `npm run build` and the built-artifact visual lane when the route shell or deployable artifact changes.

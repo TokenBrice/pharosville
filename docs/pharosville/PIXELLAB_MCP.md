@@ -1,140 +1,70 @@
-# PharosVille PixelLab MCP Workflow
+# PixelLab Reference Workflow
 
-Last updated: 2026-05-18
+Last updated: 2026-07-24
 
-Use this when generating or regenerating PharosVille sprites with PixelLab MCP.
-It extends `ASSET_PIPELINE.md`; it does not replace the manifest, renderer, or
-visual-invariant rules.
+PixelLab is a concept and reference tool for the current Three.js world. It is
+not a production runtime dependency and its output is not automatically copied
+into `public/`.
 
-## Security And Scope
+## Good Uses
 
-- PixelLab is configured through MCP. Use the `mcp__pixellab__*` tools directly.
-  Do not treat `https://api.pixellab.ai/mcp` as a normal REST API.
-- Official MCP tool reference: `https://api.pixellab.ai/mcp/docs`.
-- The PixelLab token may exist in `.env.local`, but it must never be printed,
-  copied into docs, committed, embedded in prompts, or exposed as `VITE_*`.
-- PixelLab download URLs and job IDs are generation provenance only. Runtime code
-  must use local PNG files under `public/pharosville/assets/` and manifest IDs.
-- Keep candidates in scratch space such as `outputs/pharosville/pixellab-prototypes/`
-  until a specific PNG is accepted for runtime.
-- If MCP tools are unavailable, say PixelLab MCP is not configured. Do not fall
-  back to unauthenticated curl calls against MCP endpoints.
+- compare lighthouse, ship, dock, or garden silhouettes;
+- explore restrained maritime palettes and material combinations;
+- create a composition reference for the Garden Observatory;
+- test whether a proposed visual direction is legible at the production camera;
+- produce small mood or detail sheets for operator review.
 
-## Tool Choice
+PixelLab is not needed for:
 
-Use the smallest tool that matches the asset class:
+- stablecoin logos;
+- water, lighting, fog, or shader tuning;
+- DOM UI;
+- ordinary procedural geometry changes;
+- direct generation of production GLB files.
 
-| Need | Preferred tool | Notes |
-| --- | --- | --- |
-| Standalone landmarks, docks, ships, memorial props | `create_map_object` | Best for transparent PNGs with explicit width/height. Good default for production sprite candidates. |
-| Multiple static object candidates in one style | `create_object` with `directions: 1`, `n_frames: 4` or `16` | Produces review packs. Use `get_object`, then `select_object_frames` for keepers or `dismiss_review` for rejects. |
-| Terrain tile packs for renderer-controlled semantics | `create_tiles_pro` | Number each requested tile in the prompt. Use the same seed and style anchor for related terrain. |
-| Wang/autotile terrain transitions | `create_topdown_tileset` | Use only when a future renderer or tooling path needs corner-based transition sets. Chain with base tile IDs for continuity. |
-| Small isometric probes or one-off blocks | `create_isometric_tile` | Useful for quick style tests, but production PharosVille objects usually need non-square dimensions from `create_map_object`. |
-| Characters and character animation | `create_character`, `animate_character` | Usually out of scope for PharosVille. Get explicit product intent before adding character-like entities. |
-| Object animation | `animate_object` | Use only when renderer support and reduced-motion fallback are planned. Static `path` remains required. |
+## Prompt Frame
 
-Deletion tools are destructive. Use them for obvious smoke-test cleanup or
-discarded review assets only when the target ID is unquestionably generated for
-the current task.
-
-## Base Prompt
-
-Start production prompts from the manifest style anchor:
+Anchor prompts to the intended experience:
 
 ```text
-old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone and terracotta island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI
+poetic maritime observatory, Japanese-garden restraint, asymmetric island
+composition, pale limestone, varied green planting, warm lighthouse beacon,
+calm jade and teal water, distinct stablecoin sail identities, low isometric
+camera, generous negative space, no text, no UI, no corporate logos
 ```
 
-Then add object-specific constraints:
+Ask for one decision at a time: silhouette, material, planting, shoreline, or
+composition. Large all-in-one scene prompts are harder to translate into
+maintainable code.
 
-- Include the intended category and role: dock, harbor infrastructure, ship,
-  cemetery marker, terrain tile, overlay, or landmark.
-- Name materials: pale limestone, oxidized bronze, dark timber, cream sail cloth,
-  teal water-bounce edge light, warm lantern, foam, rope, crates, posts.
-- Specify transparent background for standalone objects.
-- Keep analytical overlays out of the PNG. No text, token badges, chain names,
-  UI panels, counts, labels, logos, or status colors baked into sprites.
-- For standard ships (104×80), reserve a clean sail or pennant area for the
-  runtime SVG-logo overlay. For unique- and titan-tier ships, paint a single
-  iconographic silhouette directly into the mainsail at heraldic scale
-  (~1/4 sail); sail-cloth tint provides brand color, silhouette provides
-  brand metaphor (Curve → llama, Tether → kraken, Circle → compass rose).
-  Never bake text, letters, numerals, or corporate logos at any tier.
-- For docks, include waterline contact, posts, stairs, rope/crate clutter, and
-  dark contact shadow so the sprite reads as infrastructure, not a sticker.
-- For terrain, keep texture subtle because renderer overlays preserve DEWS and
-  route semantics.
+## Output Handling
 
-Recommended production defaults:
+1. Save candidates under `outputs/`.
+2. Record the prompt, tool, date, and intended decision.
+3. Compare candidates at the same aspect ratio as the production world.
+4. Ask the operator to approve a direction, not raw production use.
+5. Translate only the approved visual decisions into `src/three/` or
+   `scripts/pharosville/generate-garden-lighthouse.mjs`.
+6. Validate the resulting runtime, not the reference image.
 
-```text
-view: low top-down
-outline: single color outline
-shading: medium shading
-detail: medium detail
-```
+## Rejection Rules
 
-Use explicit dimensions that match the intended manifest footprint. Verify the
-target manifest slot first; current examples include 64x64 terrain tiles, 104x80
-standard ships, 136x100 heritage hulls, 192x136 or 280x180 chain docks, 256x256
-or 256x320 landmarks, and 64x64 small prop assets. Treat those as examples, not
-normative sizes.
+Reject candidates with:
 
-## Generation Loop
+- baked labels, analytics, logos, UI, or status colors;
+- atmospheric beauty that hides the actual object or world layout;
+- geometry that requires excessive materials or draw calls;
+- a centered theme-park composition instead of the framed asymmetric garden;
+- ornamental density that removes navigable water or analytical clarity;
+- unclear provenance or usage rights.
 
-1. Read `ASSET_PIPELINE.md`, `VISUAL_INVARIANTS.md`, the manifest entry to be
-   replaced or extended, and the renderer code that consumes its geometry.
-2. List recent PixelLab assets first when continuing prior work:
-   `list_objects`, `list_tiles_pro`, `list_topdown_tilesets`, or
-   `list_isometric_tiles`.
-3. Queue candidates with one or two tightly scoped prompts. Prefer review packs
-   over many unrelated one-off generations when exploring object variations.
-4. Poll with the matching `get_*` tool until status is completed, failed, or
-   review. MCP generation is asynchronous; creation tools return job IDs before
-   images are ready.
-5. For review objects, inspect candidates through `get_object`. Promote only
-   selected frames with `select_object_frames`; discard unusable packs with
-   `dismiss_review`.
-6. Download selected PNGs into scratch space, not runtime paths. Use
-   `curl --fail` for PixelLab download URLs so pending-job JSON or HTTP errors
-   are not saved as PNG files.
-7. Inspect actual dimensions, transparency, silhouette, scale, contact shadow,
-   and style match against `landmark.lighthouse`.
-8. Promote only chosen PNGs to `public/pharosville/assets/...`.
-9. Update `manifest.json` dimensions, anchor, footprint, hitbox, load priority,
-   `tool`, and `promptProvenance`. Bump `style.cacheVersion` when bytes or
-   geometry change.
-10. Run the focused checks in `ASSET_PIPELINE.md` and visual checks when geometry
-    or visible pixels changed.
+## Production Boundary
 
-## Provenance Notes
+The current browser media contract remains:
 
-Every promoted generated asset should record:
+- logo images from same-origin world data;
+- the deterministic lighthouse GLB;
+- renderer-owned procedural geometry and materials.
 
-- PixelLab tool name, such as `mcp:create_map_object`.
-- PixelLab job ID or promoted object/tile ID.
-- Seed when provided.
-- `styleAnchorVersion` matching the manifest style anchor used for prompting.
-- Any review selection detail worth preserving in a plan or handoff note.
-
-Do not put API tokens, bearer headers, temporary local download commands, or
-remote image URLs in the manifest.
-
-## Quality Gate
-
-Reject candidates that have:
-
-- embedded text, UI, logos, status badges, or chain names
-- soft antialiasing, painterly edges, photorealistic rendering, or blurry scale
-- a style that reads as generic fantasy village rather than Pharos maritime
-  observatory
-- no dark contact shadow or unclear waterline/ground contact
-- insufficient transparent margin for the manifest anchor and hitbox
-- baked analytical colors that would compete with renderer-controlled DEWS,
-  ledger, ship-risk, or cemetery semantics
-- ship sails/pennants too busy for runtime logo marks (standard hulls), or
-  painted iconographic emblem too detailed/illegible at sail scale (unique
-  + titan hulls)
-
-When in doubt, keep the asset out of runtime and document what failed.
+Any proposed new media type must go through `ASSET_PIPELINE.md`; a PixelLab
+result alone is not approval to add a runtime asset.

@@ -5,7 +5,7 @@
 [![CodeQL](https://github.com/TokenBrice/pharosville/actions/workflows/codeql.yml/badge.svg)](https://github.com/TokenBrice/pharosville/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-PharosVille turns live Pharos stablecoin signals into a desktop-only maritime observatory built with React, Canvas 2D, TypeScript, Vite, and Cloudflare Pages.
+PharosVille turns live Pharos stablecoin signals into a desktop-only maritime observatory built with React, Three.js, TypeScript, Vite, and Cloudflare Pages.
 
 [Open PharosVille](https://pharosville.pharos.watch/) | [Changelog](./CHANGELOG.md) | [Roadmap](./ROADMAP.md) | [Architecture](./docs/pharosville/ARCHITECTURE.md) | [Contributing](./CONTRIBUTING.md) | [Security](./SECURITY.md)
 
@@ -20,8 +20,8 @@ PharosVille renders a living island-city view of Pharos stablecoin market signal
 - stablecoin supply, presence, and identity as ships
 - chain presence as harbors and docks
 - risk/status water zones around the island
-- detail panels and an accessibility ledger that mirror canvas semantics
-- local pixel-art sprites loaded from a manifest-backed asset pipeline
+- detail panels and an accessibility ledger that mirror world semantics
+- stablecoin-branded ships, shader water, and a checked GLB lighthouse
 
 The app is intentionally desktop-only. Narrow screens, short screens, and capable portrait screens must not mount the world runtime or fetch world data; they show a fallback or rotate prompt instead.
 
@@ -47,17 +47,18 @@ At a high level:
 2. The browser requests same-origin `/api/*` endpoints.
 3. Cloudflare Pages Functions proxy only the allowed PharosVille read paths.
 4. `src/systems/` builds a pure world model from live data.
-5. `src/renderer/` draws the Canvas 2D world and keeps DOM parity through panels and ledgers.
-6. `public/pharosville/assets/manifest.json` controls runtime art and sprite budgets.
+5. `src/three/` renders the Garden Observatory while `src/renderer/` owns its thin lifecycle and hit-test boundary.
+6. Runtime art is limited to stablecoin logos and checked models under `public/pharosville/models/`; GPU failure falls back to a DOM signal overview.
 
 For the full implementation map, see [Architecture](./docs/pharosville/ARCHITECTURE.md).
 
 ## Repo Map
 
-- `src/` - PharosVille React shell, canvas runtime, hooks, content, systems, and renderer
+- `src/` - PharosVille React shell, Three.js runtime, hooks, content, systems, and renderer
 - `shared/` - runtime-neutral PharosVille API contract and data logic
 - `functions/` - Cloudflare Pages Function proxy and server-side response hardening
-- `public/pharosville/assets/` - local runtime sprite manifest and promoted PNG/WebP assets
+- `public/pharosville/models/` - checked runtime GLB models
+- `public/pharosville/assets/` - retained raster source history and authoring inventory
 - `docs/pharosville/` - architecture, testing, operations, visual, and asset-maintenance docs
 - `.github/workflows/` - deploy, canary, CodeQL, and dependency/security automation
 - `agents/` - active planning and handoff artifacts

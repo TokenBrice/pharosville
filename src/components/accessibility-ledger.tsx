@@ -2,7 +2,7 @@ import { memo } from "react";
 import { CAUSE_HEX, CAUSE_META, type CauseOfDeath } from "@shared/lib/cause-of-death";
 import type { HealthBand } from "@shared/types/chains";
 import { formationLabel, squadRole, STABLECOIN_SQUADS, type StablecoinSquad } from "../systems/maker-squad";
-import { SQUAD_DISTRESS_FLAG_HEX } from "../renderer/layers/maker-squad-chrome";
+import { SQUAD_DISTRESS_FLAG_HEX } from "../systems/maker-squad";
 import type { AreaNode, DewsAreaBand, PharosVilleWorld, ShipNode } from "../systems/world-types";
 import { cycleTempoReadingClause, precomputeShipTempos } from "../systems/ship-cycle-tempo";
 import {
@@ -25,11 +25,9 @@ import {
 import { recentFleetTrendSummary, recentFleetTrendSummaryText, seaStateForWorld, seaStateSummary } from "../systems/sea-state";
 import { formatChangePercent, formatCompactUsd } from "../lib/format-detail";
 
-// Dock health-band swatches mirror the renderer's `dockHealthColor()` table in
-// `src/renderer/layers/docks.ts`. Robust and healthy share the same green
-// since the renderer treats them identically; both are listed for ledger
-// parity with the textual `healthBand` value the dock row already prints.
-// Update both sites if the palette drifts.
+// Dock health-band swatches mirror the Three dock signal colors. Robust and
+// healthy share the same green; both remain listed for parity with the
+// textual `healthBand` value the dock row already prints.
 const DOCK_HEALTH_BAND_LEGEND: ReadonlyArray<{
   band: HealthBand;
   hex: string;

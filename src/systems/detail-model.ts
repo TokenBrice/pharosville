@@ -94,11 +94,9 @@ function isHttpUrl(value: string): boolean {
 
 const ETHEREUM_L2_DOCK_CHAIN_ID_SET = new Set<string>(ETHEREUM_L2_DOCK_CHAIN_IDS);
 
-// Per-band atmospheric descriptor used by the area detail panel. Mirrors the
-// renderer's per-zone treatment in `src/renderer/layers/weather.ts` (Phase
-// 2.6 DOM parity): cloud + chop wording escalates with the DEWS band, and
-// WARNING+/DANGER receive a "lightning active" suffix matching the
-// `bandReceivesLightning` gate (threat >= 3).
+// Per-band atmospheric descriptor used by the area detail panel. Cloud and
+// chop wording escalates with the DEWS band, and WARNING+/DANGER receive a
+// matching "lightning active" suffix.
 // C4 observatory voice for named DEWS waters; ships berth here by band.
 const AREA_NARRATIVES: Record<DewsAreaBand, string> = {
   CALM: "steady water where ships with clean peg evidence ride at anchor.",

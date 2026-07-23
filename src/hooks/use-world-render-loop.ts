@@ -2,21 +2,18 @@
 // hit-target snapshot maintenance during the frame, ship motion sample
 // collection, and visual debug telemetry. Shared cross-hook refs (camera,
 // canvas size, hit-targets, samples) are passed in.
-import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRefObject, type RefObject, type SetStateAction } from "react";
-import type { PharosVilleAssetLoadError, PharosVilleAssetLoadStats, PharosVilleAssetManager } from "../renderer/asset-manager";
-import {
-  collectDisplaySampleHitTargetChanges,
-  createHitTargetSnapshot,
-  recomputeHitTargetsForCameraOnly,
-  updateHitTargetSnapshotShips,
-  type HitTarget,
-  type HitTargetSnapshot,
-} from "../renderer/hit-testing";
-import { selectionDrawableCount } from "../renderer/layers/selection";
-import { drawPharosVille, releasePharosVilleRendererCaches, type PharosVilleRenderMetrics } from "../renderer/world-canvas";
+import { useCallback, useEffect, useRef, useState, type MutableRefObject, type RefObject } from "react";
+import { createGardenObservatoryHitTargetSnapshot } from "../renderer/garden-observatory-hit-testing";
+import type { HitTarget, HitTargetSnapshot } from "../renderer/hit-testing";
 import { createRenderSchedulerHysteresisState, resolveRenderSchedulerState } from "../renderer/render-scheduler";
 import type { RenderSchedulerHysteresisState } from "../renderer/render-scheduler";
-import { createVisibleTileBoundsCacheState } from "../renderer/viewport";
+import type { PharosVilleRenderMetrics } from "../renderer/render-types";
+import type {
+  ThreeWorldRenderer,
+  ThreeLogoAssets,
+  WorldRendererGpuMetrics,
+  WorldRendererStatus,
+} from "../renderer/world-renderer-backend";
 import { clampCameraToMap } from "../systems/camera";
 import {
   createDrawDurationWindow,
@@ -26,12 +23,6 @@ import {
   type AdaptiveDprState,
   type DrawDurationWindow,
 } from "../systems/canvas-budget";
-import {
-  getSailEmblemSpriteCacheStats,
-  getSailLogoSpriteCacheStats,
-  getShipSailTintCacheStats,
-  type CacheStats,
-} from "../renderer/layers/ships";
 import {
   buildMotionPlan,
   createShipMotionSample,
@@ -46,7 +37,6 @@ import type { IsoCamera, ScreenPoint } from "../systems/projection";
 import { seaStateForWorld, type SeaState } from "../systems/sea-state";
 import { createVisualMotionSmoothingState, resetVisualMotionSmoothingState, smoothShipMotionSamples } from "../systems/visual-motion";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
-import { sameCamera } from "../lib/camera-equality";
 import { normalizeHour } from "../lib/pharosville-clock";
 import {
   createFrameIntervalWindow,
@@ -68,13 +58,16 @@ type DebugRenderMetrics = PharosVilleRenderMetrics & {
   drawDurationMs: number;
   framePacing: FramePacingMetrics;
   debugPublishDurationMs?: number;
-  hitTargetChangedShipCount?: number;
   hitTargetDurationMs?: number;
   sampleDurationMs?: number;
   snapshotRebuildCount?: number;
   telemetryOverheadMs?: number;
   timeToFirstCoherentFrameMs?: number;
+  gpu?: WorldRendererGpuMetrics;
+  rendererBackend?: "three";
 };
+
+const loadThreeWorldRenderer = () => import("../three/world-renderer");
 
 interface LastTilePositionSample {
   currentRouteStopId: string | null;
@@ -101,18 +94,14 @@ export interface UseWorldRenderLoopInput {
    */
   onBucketFlip?: (bucket: number) => void;
   adaptiveDprStateRef: MutableRefObject<AdaptiveDprState>;
-  assetLoadErrors: PharosVilleAssetLoadError[];
   assetLoadTick: number;
-  assetManager: PharosVilleAssetManager;
+  assets: ThreeLogoAssets;
   camera: IsoCamera | null;
   cameraRef: MutableRefObject<IsoCamera | null>;
   canvasBudgetRef: MutableRefObject<ReturnType<typeof resolveCanvasBudget> | null>;
   canvasRef: RefObject<HTMLCanvasElement | null>;
   canvasSize: ScreenPoint;
   canvasSizeRef: MutableRefObject<ScreenPoint>;
-  criticalAssetAttemptsSettled: boolean;
-  criticalAssetsLoaded: boolean;
-  deferredAssetsLoaded: boolean;
   hitTargetSnapshotRef: MutableRefObject<HitTargetSnapshot | null>;
   hitTargetsRef: MutableRefObject<readonly HitTarget[]>;
   hoveredDetailId: string | null;
@@ -121,25 +110,14 @@ export interface UseWorldRenderLoopInput {
       (style.transform + data-visible) each frame so the tooltip tracks moving
       ships without any React re-render in the RAF path. */
   hoverTooltipElRef?: RefObject<HTMLDivElement | null>;
-  /** Latest keyboard-focused detail id; drives the canvas focus beacon when it
-      matches the hovered target (keyboard cycling sets hover = focus). */
-  keyboardFocusedDetailIdRef?: MutableRefObject<string | null>;
   maximumRequestedDprRef: MutableRefObject<number>;
   mountEpochMsRef: MutableRefObject<number>;
   motionPlan: MotionPlan;
   motionPlanRef: MutableRefObject<MotionPlan>;
   reducedMotion: boolean;
-  /**
-   * W4.01 reveal envelope in [0, 1]. The render loop reads `.current` per
-   * frame; owners drive it from `pharosville-world.tsx` with a RAF tween on
-   * cold mount. When omitted, the loop passes `1` (steady state). Reduced
-   * motion clients should keep this at `1` (no tween).
-   */
-  revealEnvelopeRef?: MutableRefObject<number>;
   selectedDetailAnchor: DetailAnchor | null;
   selectedDetailId: string | null;
   selectedDetailIdRef: MutableRefObject<string | null>;
-  setCriticalFramePainted: Dispatch<SetStateAction<boolean>>;
   shipMotionSamplesRef: MutableRefObject<ReadonlyMap<string, ShipMotionSample>>;
   shipsById: ReadonlyMap<string, PharosVilleWorldModel["ships"][number]>;
   stepCamera: (now: number, shipMotionSamples: ReadonlyMap<string, ShipMotionSample>) => WorldCameraStepResult;
@@ -149,6 +127,8 @@ export interface UseWorldRenderLoopInput {
 
 export interface UseWorldRenderLoopResult {
   frameRateFps: number | null;
+  rendererFailure: string | null;
+  rendererStatus: WorldRendererStatus;
   requestPaint: () => void;
 }
 
@@ -162,34 +142,27 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   const {
     onBucketFlip,
     adaptiveDprStateRef,
-    assetLoadErrors,
     assetLoadTick,
-    assetManager,
+    assets,
     camera,
     cameraRef,
     canvasBudgetRef,
     canvasRef,
     canvasSize,
     canvasSizeRef,
-    criticalAssetAttemptsSettled,
-    criticalAssetsLoaded,
-    deferredAssetsLoaded,
     hitTargetSnapshotRef,
     hitTargetsRef,
     hoveredDetailId,
     hoveredDetailIdRef,
     hoverTooltipElRef,
-    keyboardFocusedDetailIdRef,
     maximumRequestedDprRef,
     mountEpochMsRef,
     motionPlan,
     motionPlanRef,
     reducedMotion,
-    revealEnvelopeRef,
     selectedDetailAnchor,
     selectedDetailId,
     selectedDetailIdRef,
-    setCriticalFramePainted,
     shipMotionSamplesRef,
     shipsById,
     stepCamera,
@@ -197,12 +170,6 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     world,
   } = input;
 
-  // Mirror criticalAssetAttemptsSettled into a ref so the RAF loop reads the
-  // latest value without rebinding when it transitions from false → true.
-  const criticalAssetAttemptsSettledRef = useRef(criticalAssetAttemptsSettled);
-  useEffect(() => {
-    criticalAssetAttemptsSettledRef.current = criticalAssetAttemptsSettled;
-  }, [criticalAssetAttemptsSettled]);
   const stepCameraRef = useRef(stepCamera);
   useEffect(() => {
     stepCameraRef.current = stepCamera;
@@ -218,12 +185,20 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   const requestPaint = useCallback(() => {
     paintRequestRef.current();
   }, []);
+  const threeRendererRef = useRef<ThreeWorldRenderer | null>(null);
+  const [rendererStatus, setRendererStatus] = useState<WorldRendererStatus>("loading");
+  const [rendererFailure, setRendererFailure] = useState<string | null>(null);
+  const failThreeRenderer = useCallback((message: string) => {
+    threeRendererRef.current?.dispose();
+    threeRendererRef.current = null;
+    setRendererFailure(message);
+    setRendererStatus("failed");
+  }, []);
   const [frameRateFps, setFrameRateFps] = useState<number | null>(null);
   const frameRatePublishRef = useRef<{ fps: number | null; lastPublishedAtMs: number }>({
     fps: null,
     lastPublishedAtMs: 0,
   });
-  const visibleTileBoundsCacheRef = useRef(createVisibleTileBoundsCacheState());
   // Tracks whether the canvas is currently visible enough to be worth drawing.
   // The RAF effect updates this from an IntersectionObserver + visibilitychange
   // handler and gates both the loop and on-demand paints.
@@ -234,7 +209,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     count: 0,
     p90Ms: 0,
   });
-  const criticalFramePaintedRef = useRef(false);
+  const firstFramePaintedRef = useRef(false);
   const lastWallRef = useRef<number | null>(null);
   const frameIntervalWindowRef = useRef<FrameIntervalWindow>(createFrameIntervalWindow());
   const framePacingStatsRef = useRef<FramePacingMetrics>(emptyFramePacingMetrics());
@@ -268,8 +243,6 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   const bucketFlipCountRef = useRef(0);
   const semanticShipMotionSamplesRef = useRef<ReadonlyMap<string, ShipMotionSample>>(new Map());
   const visualMotionStateRef = useRef(createVisualMotionSmoothingState());
-  const shipHitRefreshCursorRef = useRef(0);
-  const hitTargetCameraRef = useRef<IsoCamera | null>(null);
   const frameStateRef = useRef<{
     samples: ReadonlyMap<string, ShipMotionSample>;
     hoveredTarget: HitTarget | null;
@@ -285,6 +258,37 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     timeSeconds: 0,
     wallClockHour: 0,
   });
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    let active = true;
+    let renderer: ThreeWorldRenderer | null = null;
+    void loadThreeWorldRenderer()
+      .then((module) => {
+        if (!active) return;
+        renderer = module.createThreeWorldRenderer({
+          canvas,
+          onAssetReady: requestPaint,
+          onContextFailure: (message) => {
+            if (active) failThreeRenderer(message);
+          },
+        });
+        threeRendererRef.current = renderer;
+        setRendererStatus("ready");
+      })
+      .catch((error) => {
+        if (!active) return;
+        failThreeRenderer(error instanceof Error ? error.message : String(error));
+      });
+
+    return () => {
+      active = false;
+      if (threeRendererRef.current === renderer) threeRendererRef.current = null;
+      renderer?.dispose();
+    };
+  }, [canvasRef, failThreeRenderer, requestPaint]);
 
   const resetFramePacingState = useCallback(() => {
     lastWallRef.current = null;
@@ -311,12 +315,9 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     accSecondsRef.current = 0;
     pendingResumeRef.current = false;
     motionFrameCountRef.current = 0;
-    visibleTileBoundsCacheRef.current = createVisibleTileBoundsCacheState();
     semanticShipMotionSamplesRef.current = new Map();
     shipMotionSamplesRef.current = new Map();
     resetVisualMotionSmoothingState(visualMotionStateRef.current);
-    shipHitRefreshCursorRef.current = 0;
-    hitTargetCameraRef.current = null;
     hitTargetSnapshotRef.current = null;
     hitTargetsRef.current = [];
     reducedMotionSamplesSignatureRef.current = null;
@@ -333,10 +334,6 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   useEffect(() => {
     resetFramePacingState();
   }, [canvasSize.x, canvasSize.y, resetFramePacingState]);
-
-  useEffect(() => () => {
-    releasePharosVilleRendererCaches();
-  }, []);
 
   useEffect(() => {
     if (!reducedMotion) return;
@@ -360,8 +357,8 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !cameraReady || canvasSize.x <= 0 || canvasSize.y <= 0) return;
-    const ctx = canvas.getContext("2d", { alpha: false });
-    if (!ctx) return;
+    const threeRenderer = rendererStatus === "ready" ? threeRendererRef.current : null;
+    if (!threeRenderer) return;
     if (!canvasBudgetRef.current) {
       const requestedDpr = adaptiveDprStateRef.current.requestedDpr || Math.max(1, window.devicePixelRatio || 1);
       canvasBudgetRef.current = resolveCanvasBudget({
@@ -385,12 +382,12 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     };
     const drawFrame = (time: number) => {
       animationFramePendingRef.current = false;
+      if (threeRendererRef.current !== threeRenderer) return;
       const activeCamera = cameraRef.current;
       const activeCanvasSize = canvasSizeRef.current;
       const activeMotionPlan = motionPlanRef.current;
       const activeHoveredDetailId = hoveredDetailIdRef.current;
       const activeSelectedDetailId = selectedDetailIdRef.current;
-      const activeCriticalSettled = criticalAssetAttemptsSettledRef.current;
       if (!activeCamera || activeCanvasSize.x <= 0 || activeCanvasSize.y <= 0) {
         scheduleNextAnimatedFrame();
         return;
@@ -401,8 +398,6 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         requestedDpr: adaptiveDprStateRef.current.requestedDpr,
       });
       canvasBudgetRef.current = activeBudget;
-      if (canvas.width !== activeBudget.backingWidth) canvas.width = activeBudget.backingWidth;
-      if (canvas.height !== activeBudget.backingHeight) canvas.height = activeBudget.backingHeight;
       const dpr = activeBudget.effectiveDpr;
       let timeSeconds: number;
       // Candidate frame-pacing sample. Stays null on resume frames (mirroring
@@ -475,7 +470,6 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       shipMotionSamplesRef.current = shipMotionSamples;
       const sampleDurationMs = performance.now() - sampleStartedAt;
       const hitTargetStartedAt = performance.now();
-      let hitTargetChangedShipCount = 0;
       let snapshotRebuildCount = 0;
       const cameraStep = stepCameraRef.current(time, shipMotionSamples);
       const frameCamera = cameraStep.camera ?? cameraRef.current;
@@ -483,74 +477,17 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         scheduleNextAnimatedFrame();
         return;
       }
-      const hitTargetsNeedCameraProjection = cameraStep.cameraChanged || !sameCamera(hitTargetCameraRef.current, frameCamera);
-      if (!hitTargetSnapshotRef.current) {
-        const nextSnapshot = createHitTargetSnapshot({
-          assets: assetManager,
-          camera: frameCamera,
-          hoveredDetailId: activeHoveredDetailId,
-          selectedDetailId: activeSelectedDetailId,
-          shipMotionSamples,
-          viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
-          world,
-        });
-        hitTargetSnapshotRef.current = nextSnapshot;
-        hitTargetsRef.current = nextSnapshot.targets;
-        hitTargetCameraRef.current = frameCamera;
-        snapshotRebuildCount += 1;
-      } else if (hitTargetsNeedCameraProjection) {
-        const nextSnapshot = recomputeHitTargetsForCameraOnly({
-          assets: assetManager,
-          camera: frameCamera,
-          hoveredDetailId: activeHoveredDetailId,
-          selectedDetailId: activeSelectedDetailId,
-          shipMotionSamples,
-          snapshot: hitTargetSnapshotRef.current,
-          viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
-          world,
-        });
-        hitTargetSnapshotRef.current = nextSnapshot;
-        hitTargetsRef.current = nextSnapshot.targets;
-        hitTargetCameraRef.current = frameCamera;
-        snapshotRebuildCount += 1;
-      } else {
-        const shipIdsForHitRefresh = collectShipHitRefreshIds({
-          cursorRef: shipHitRefreshCursorRef,
-          hoveredDetailId: activeHoveredDetailId,
-          selectedDetailId: activeSelectedDetailId,
-          world,
-        });
-        const changedShipIds = collectDisplaySampleHitTargetChanges({
-          assets: assetManager,
-          camera: frameCamera,
-          hoveredDetailId: activeHoveredDetailId,
-          minScreenDeltaPx: 0.35,
-          selectedDetailId: activeSelectedDetailId,
-          shipIds: shipIdsForHitRefresh,
-          shipMotionSamples,
-          snapshot: hitTargetSnapshotRef.current,
-          world,
-          worldShipsById: shipsById,
-        });
-        hitTargetChangedShipCount = changedShipIds.length;
-        if (changedShipIds.length > 0) {
-          const nextSnapshot = updateHitTargetSnapshotShips({
-            assets: assetManager,
-            camera: frameCamera,
-            changedShipIds,
-            hoveredDetailId: activeHoveredDetailId,
-            selectedDetailId: activeSelectedDetailId,
-            shipMotionSamples,
-            snapshot: hitTargetSnapshotRef.current,
-            viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
-            world,
-            worldShipsById: shipsById,
-          });
-          hitTargetSnapshotRef.current = nextSnapshot;
-          hitTargetsRef.current = nextSnapshot.targets;
-          snapshotRebuildCount += 1;
-        }
-      }
+      const nextSnapshot = createGardenObservatoryHitTargetSnapshot({
+        camera: frameCamera,
+        hoveredDetailId: activeHoveredDetailId,
+        selectedDetailId: activeSelectedDetailId,
+        shipMotionSamples,
+        viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
+        world,
+      });
+      hitTargetSnapshotRef.current = nextSnapshot;
+      hitTargetsRef.current = nextSnapshot.targets;
+      snapshotRebuildCount += 1;
       const hitTargetDurationMs = performance.now() - hitTargetStartedAt;
       // Camera pan/zoom frames legitimately run 40-220ms intervals; feeding
       // them into the 120-sample pacing window would hold framePacingP90Ms
@@ -591,7 +528,6 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       nextFrameState.timeSeconds = timeSeconds;
       nextFrameState.wallClockHour = frameWallClockHour;
       const nextHoveredTarget = nextFrameState.hoveredTarget;
-      const nextSelectedTarget = nextFrameState.selectedTarget;
       const tooltipEl = hoverTooltipElRef?.current;
       if (tooltipEl) {
         if (nextHoveredTarget) {
@@ -604,7 +540,6 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           tooltipEl.dataset.visible = "false";
         }
       }
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const drawStartedAt = performance.now();
       const renderScheduler = resolveRenderSchedulerState({
         cameraIntentActive: cameraStep.cameraIntentActive,
@@ -612,42 +547,38 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         framePacingP90Ms: framePacingStatsRef.current.p90Ms,
         reducedMotion,
       }, renderSchedulerHysteresisRef.current);
-      const renderMetrics = drawPharosVille({
-        camera: frameCamera,
-        ctx,
-        dpr,
-        height: activeCanvasSize.y,
-        hoveredTarget: nextHoveredTarget,
-        hoveredTargetKeyboardFocused: activeHoveredDetailId != null
-          && keyboardFocusedDetailIdRef?.current === activeHoveredDetailId,
-        motion: {
-          plan: activeMotionPlan,
+      let renderMetrics: PharosVilleRenderMetrics;
+      try {
+        renderMetrics = threeRenderer.render({
+          assets,
+          camera: frameCamera,
+          dpr,
+          height: activeCanvasSize.y,
+          hoveredDetailId: activeHoveredDetailId,
+          motionPlan: activeMotionPlan,
           reducedMotion,
+          renderScheduler,
+          seaState,
+          selectedDetailId: activeSelectedDetailId,
+          shipMotionSamples,
           timeSeconds,
           wallClockHour: frameWallClockHour,
-        },
-        renderScheduler,
-        // W4.01 reveal envelope: owner drives via a RAF tween on cold mount;
-        // when omitted (or once steady state), draw at full reveal.
-        revealEnvelope: revealEnvelopeRef?.current ?? 1,
-        visibleTileBoundsCache: visibleTileBoundsCacheRef.current,
-        selectedTarget: nextSelectedTarget,
-        seaState,
-        shipMotionSamples,
-        targets,
-        width: activeCanvasSize.x,
-        world,
-        assets: assetManager,
-      });
+          width: activeCanvasSize.x,
+          world,
+        });
+      } catch (error) {
+        failThreeRenderer(error instanceof Error ? error.message : String(error));
+        return;
+      }
       const previousTimeToFirstCoherentFrameMs = lastRenderMetricsRef.current.timeToFirstCoherentFrameMs;
       lastRenderMetricsRef.current = {
         ...renderMetrics,
-        hitTargetChangedShipCount,
         hitTargetDurationMs,
         drawDurationMs: performance.now() - drawStartedAt,
         framePacing: framePacingStatsRef.current,
         sampleDurationMs,
         snapshotRebuildCount,
+        rendererBackend: "three",
       };
       if (previousTimeToFirstCoherentFrameMs !== undefined) {
         lastRenderMetricsRef.current.timeToFirstCoherentFrameMs = previousTimeToFirstCoherentFrameMs;
@@ -680,8 +611,8 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           adaptiveDprStateRef.current = nextAdaptiveDprState;
         }
       }
-      if (activeCriticalSettled && !criticalFramePaintedRef.current) {
-        criticalFramePaintedRef.current = true;
+      if (!firstFramePaintedRef.current) {
+        firstFramePaintedRef.current = true;
         const timeToFirstCoherentFrameMs = performance.now() - mountEpochMsRef.current;
         if (Number.isFinite(timeToFirstCoherentFrameMs)) {
           lastRenderMetricsRef.current = {
@@ -689,7 +620,6 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
             timeToFirstCoherentFrameMs: Math.max(0, timeToFirstCoherentFrameMs),
           };
         }
-        setCriticalFramePainted(true);
       }
       if (!reducedMotion) {
         motionFrameCountRef.current += 1;
@@ -755,7 +685,6 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           motionPlan: activeMotionPlan,
           reducedMotion,
           renderMetrics: lastRenderMetricsRef.current,
-          assetLoadStats: assetManager.getLoadStats(),
           selectedDetailId: activeSelectedDetailId,
           shipsById,
           compactSampleCache: compactShipMotionSampleCacheRef.current,
@@ -826,7 +755,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       longtaskObserverRef.current = ltObserver;
     }
 
-    drawFrame(performance.now());
+    if (canvasIsVisibleRef.current) drawFrame(performance.now());
     return () => {
       paintRequestRef.current = () => {};
       animationFramePendingRef.current = false;
@@ -842,7 +771,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [advanceMotionBucket, assetManager, cameraReady, canvasSize.x, canvasSize.y, reducedMotion, shipsById, wallClockHour, world]);
+  }, [advanceMotionBucket, assets, cameraReady, canvasSize.x, canvasSize.y, failThreeRenderer, reducedMotion, rendererStatus, shipsById, wallClockHour, world]);
 
   // Reduced motion keeps draw-time static (`timeSeconds = 0`) and therefore
   // has no continuous RAF clock to cross the route-variation bucket boundary.
@@ -893,14 +822,8 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       __pharosVilleDebug?: PharosVilleDebugState;
     };
     const frameState = frameStateRef.current;
-    const renderMetrics = renderMetricsWithCurrentSelection({
-      hoveredTarget: frameState.hoveredTarget,
-      metrics: lastRenderMetricsRef.current,
-      selectedTarget: frameState.selectedTarget,
-    });
     const framePatch = debugFramePatch({
       animationFramePending: animationFramePendingRef.current,
-      assetLoadStats: assetManager.getLoadStats(),
       camera,
       canvasSize,
       compactSampleCache: compactShipMotionSampleCacheRef.current,
@@ -908,7 +831,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       frameState,
       motionPlan,
       reducedMotion,
-      renderMetrics,
+      renderMetrics: lastRenderMetricsRef.current,
       selectedDetailId,
       shipsById,
       world,
@@ -916,11 +839,11 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     debugWindow.__pharosVilleDebug = {
       ...framePatch,
       camera,
-      assetLoadErrors,
-      assetsLoaded: criticalAssetsLoaded && deferredAssetsLoaded,
-      criticalAssetAttemptsSettled,
-      criticalAssetsLoaded,
-      deferredAssetsLoaded,
+      assetLoadErrors: [],
+      assetsLoaded: true,
+      criticalAssetAttemptsSettled: true,
+      criticalAssetsLoaded: true,
+      deferredAssetsLoaded: true,
       canvasBudget: canvasBudgetRef.current,
       canvasSize,
       selectedDetailAnchor,
@@ -930,9 +853,14 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       delete debugWindow.__pharosVilleDebug;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assetLoadErrors, assetManager, camera, canvasSize, criticalAssetAttemptsSettled, criticalAssetsLoaded, deferredAssetsLoaded, hoveredDetailId, motionPlan, reducedMotion, selectedDetailAnchor, selectedDetailId, shipsById, world]);
+  }, [camera, canvasSize, hoveredDetailId, motionPlan, reducedMotion, selectedDetailAnchor, selectedDetailId, shipsById, world]);
 
-  return { frameRateFps, requestPaint };
+  return {
+    frameRateFps,
+    rendererFailure,
+    rendererStatus,
+    requestPaint,
+  };
 }
 
 type CompactShipMotionSample = {
@@ -956,8 +884,7 @@ type CompactShipMotionSampleCache = {
 type PharosVilleDebugState = {
   activeCameraLoopCount: number;
   activeMotionLoopCount: number;
-  assetLoadErrors: PharosVilleAssetLoadError[];
-  assetLoadStats: PharosVilleAssetLoadStats;
+  assetLoadErrors: [];
   camera: IsoCamera | null;
   cameraFrameSource: "world-render-loop";
   cameraWithinBounds: boolean;
@@ -973,11 +900,6 @@ type PharosVilleDebugState = {
   motionFrameCount: number;
   renderMetrics: DebugRenderMetrics;
   reducedMotion: boolean;
-  sailCacheStats?: {
-    sailLogo: CacheStats;
-    sailEmblem: CacheStats;
-    sailTint: CacheStats;
-  };
   selectedDetailAnchor: DetailAnchor | null;
   selectedDetailId: string | null;
   shipMotionSamples: CompactShipMotionSample[];
@@ -997,7 +919,6 @@ type MotionCueCounts = {
 
 const PHAROSVILLE_AMBIENT_BIRD_CAP = 9;
 const PHAROSVILLE_HARBOR_LIGHT_CAP = 3;
-const SHIP_HIT_TARGET_REFRESH_PER_FRAME = 32;
 const FRAME_RATE_LABEL_UPDATE_MS = 500;
 const MAX_WORLD_FRAME_DELTA_SECONDS = 1 / 30;
 const TEST_CLOCK_JUMP_DELTA_SECONDS = 1;
@@ -1062,29 +983,6 @@ function seaStateMotionSignature(seaState: SeaState): string {
     seaState.source.nightFactor.toFixed(3),
     seaState.source.psiStress.toFixed(3),
   ].join(":");
-}
-
-function collectShipHitRefreshIds(input: {
-  cursorRef: MutableRefObject<number>;
-  hoveredDetailId: string | null;
-  selectedDetailId: string | null;
-  world: PharosVilleWorldModel;
-}): string[] {
-  const ships = input.world.ships;
-  if (ships.length <= SHIP_HIT_TARGET_REFRESH_PER_FRAME) return ships.map((ship) => ship.id);
-  const ids = new Set<string>();
-  for (const ship of ships) {
-    if (ship.detailId === input.selectedDetailId || ship.detailId === input.hoveredDetailId) {
-      ids.add(ship.id);
-    }
-  }
-  const start = input.cursorRef.current % ships.length;
-  const count = Math.min(SHIP_HIT_TARGET_REFRESH_PER_FRAME, ships.length);
-  for (let offset = 0; offset < count; offset += 1) {
-    ids.add(ships[(start + offset) % ships.length]!.id);
-  }
-  input.cursorRef.current = (start + count) % ships.length;
-  return [...ids];
 }
 
 function compactShipMotionSamples(
@@ -1198,26 +1096,8 @@ function headingDeltaDegreesPerSecond(
   return Math.abs(delta) * (180 / Math.PI) / dt;
 }
 
-function renderMetricsWithCurrentSelection(input: {
-  hoveredTarget: HitTarget | null;
-  metrics: DebugRenderMetrics;
-  selectedTarget: HitTarget | null;
-}): DebugRenderMetrics {
-  const selectionCount = selectionDrawableCount({ hoveredTarget: input.hoveredTarget, selectedTarget: input.selectedTarget });
-  if (selectionCount === input.metrics.drawableCounts.selection) return input.metrics;
-  return {
-    ...input.metrics,
-    drawableCount: input.metrics.drawableCount - input.metrics.drawableCounts.selection + selectionCount,
-    drawableCounts: {
-      ...input.metrics.drawableCounts,
-      selection: selectionCount,
-    },
-  };
-}
-
 type DebugFramePatchInput = {
   animationFramePending: boolean;
-  assetLoadStats: PharosVilleAssetLoadStats;
   camera: IsoCamera | null;
   canvasSize: ScreenPoint;
   compactSampleCache: CompactShipMotionSampleCache;
@@ -1254,24 +1134,19 @@ function debugFramePatch(input: DebugFramePatchInput): DebugFramePatch {
     activeCameraLoopCount: 0,
     activeMotionLoopCount: input.reducedMotion || !input.animationFramePending ? 0 : 1,
     animationFramePending: input.animationFramePending,
-    assetLoadStats: input.assetLoadStats,
     camera: input.camera,
     cameraFrameSource: "world-render-loop",
     cameraWithinBounds: isCameraWithinBounds(input.camera, input.world.map, input.canvasSize),
     motionClockSource: input.reducedMotion ? "reduced-motion-static-frame" : "requestAnimationFrame",
     motionCueCounts: motionCueCounts({
       motionPlan: input.motionPlan,
+      renderSchedulerTier: input.renderMetrics.schedulerTier,
       selectedDetailId: input.selectedDetailId,
       world: input.world,
     }),
     motionFrameCount: input.frameCount,
     renderMetrics: input.renderMetrics,
     reducedMotion: input.reducedMotion,
-    sailCacheStats: {
-      sailLogo: getSailLogoSpriteCacheStats(),
-      sailEmblem: getSailEmblemSpriteCacheStats(),
-      sailTint: getShipSailTintCacheStats(),
-    },
     shipMotionSamples: compactShipMotionSamples(input.frameState.samples, input.shipsById, input.compactSampleCache),
     targets: input.frameState.targets,
     timeSeconds: input.frameState.timeSeconds,
@@ -1316,13 +1191,14 @@ function isVisualDebugAllowed(): boolean {
 
 function motionCueCounts(input: {
   motionPlan: MotionPlan;
+  renderSchedulerTier: PharosVilleRenderMetrics["schedulerTier"];
   selectedDetailId: string | null;
   world: PharosVilleWorldModel;
 }): MotionCueCounts {
   const selectedDetail = input.selectedDetailId ? input.world.detailIndex[input.selectedDetailId] ?? null : null;
   const selectedRelationshipOverlays = selectedDetail && /ship|dock/i.test(selectedDetail.kind) ? 1 : 0;
   return {
-    ambientBirds: PHAROSVILLE_AMBIENT_BIRD_CAP,
+    ambientBirds: input.renderSchedulerTier === "constrained" ? 0 : PHAROSVILLE_AMBIENT_BIRD_CAP,
     animatedShips: input.motionPlan.animatedShipIds.size,
     effectShips: input.motionPlan.effectShipIds.size,
     // V2.5: civic-core lamp cap plus one quay lantern per rendered dock

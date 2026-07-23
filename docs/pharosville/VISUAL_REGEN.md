@@ -1,84 +1,53 @@
-# Visual Snapshot Regeneration
+# PharosVille Visual Evidence
 
-Last updated: 2026-06-09
+Last updated: 2026-07-24
 
-How to regenerate Playwright visual snapshots so they match the GitHub
-Actions CI environment. Local snapshots taken on a developer machine
-often diverge from CI by sub-percent pixel ratios on landmark sprites
-even when the rendered output looks identical to the eye; the image
-below is the production-tested workflow.
+Three.js output can vary slightly across GPU vendors, drivers, and browser
+versions. Use deterministic inputs and review semantic appearance plus measured
+resources; do not treat every pixel difference as a regression.
 
-## Why this matters
+## Before Capturing
 
-CI runs visual tests inside `mcr.microsoft.com/playwright:v1.59.1-noble`
-on `ubuntu-latest`. Local Linux distros (Arch, Debian, etc.) ship
-slightly different font hinting, GPU rasterisers, and timing
-characteristics. Snapshots produced on a host machine commonly fail in
-CI even when re-running tests locally passes cleanly.
+1. Use the repository Node 24 toolchain.
+2. Fix the browser, viewport, device screen, wall-clock hour, fixture, and
+   reduced-motion state.
+3. Confirm `data-renderer="three"` and renderer status `ready`.
+4. Close stale browser sessions that may hold the dev server or GPU context.
+5. Keep scratch output under `outputs/`.
 
-The Optimizantus run (2026-05-04) hit this on
-`pharosville-dusk.png` — local + the same Docker image locally produced
-identical pixels, but the GitHub Actions runner produced ~1% different
-pixels on the lighthouse-hill + cemetery-islet sprites. We worked
-around it by relaxing `maxDiffPixelRatio` for that single test; ideally
-snapshots come from the CI image directly.
-
-## Workflow
+## Capture Lane
 
 ```bash
-docker run --rm -v "$(pwd):/work" -w /work \
-  mcr.microsoft.com/playwright:v1.59.1-noble \
-  bash -c '
-    git config --global --add safe.directory /work \
-    && npm ci --prefer-offline --no-audit --no-fund \
-    && npx playwright test tests/visual/pharosville.spec.ts \
-        --config=playwright.dist.config.ts \
-        --update-snapshots \
-        --grep "<your test pattern>"
-  '
+npm run test:visual
 ```
 
-Substitute `<your test pattern>` with a `--grep` filter that targets
-only the tests whose snapshots you want to regenerate. Examples:
-
-- `desktop canvas shell` — toolbar / shell-level changes
-- `night atmosphere` — dawn / dusk / deep-night
-- `dense visual` — the dense-fixture canonical scene
-- `accessibility` — a11y-grep lane (Chromium only here; the
-  cross-browser variant uses `test:visual:dist:accessibility:firefox`)
-
-After the run, `git status` should show modified PNGs under
-`tests/visual/pharosville.spec.ts-snapshots-built-dist/`. Eyeball each
-diff (open the new vs. old in any image viewer) to confirm the change
-matches the intent of your code change before committing.
-
-## Cleanup
-
-The Docker container runs as root; the resulting `test-results/`
-directory it creates is root-owned and your user can't `rm` it
-afterward. Clean with:
+For performance evidence:
 
 ```bash
-docker run --rm -v "$(pwd):/work" -w /work \
-  mcr.microsoft.com/playwright:v1.59.1-noble \
-  bash -c "rm -rf test-results"
+npm run test:perf
 ```
 
-## When this still doesn't help
+The browser specs capture day, dusk, night, reduced motion, labels, Observe,
+interaction, and relevant telemetry. Use the reference-hardware lane for strict
+performance acceptance.
 
-If the CI run still rejects your regenerated snapshot (as happened on
-the Optimizantus dusk drift), the divergence is between local Docker
-and the GitHub Actions runner — likely virtualised CPU rasteriser or
-hardware-acceleration flag differences. Two options:
+## Review Before Accepting Drift
 
-1. Loosen `maxDiffPixelRatio` for the affected test, with an inline
-   comment explaining why. The pinch-to-keep tightness on sibling
-   tests; only loosen the offender.
-2. Open a follow-up to investigate root cause; the May 4 health-checkup
-   follow-up tracked this as task #47.
+- Is the same model and logo data loaded?
+- Is the camera at the same target and zoom?
+- Did day-cycle or reduced-motion state change?
+- Did a semantic detail level change?
+- Did draw calls, geometry, textures, or triangles move unexpectedly?
+- Is the difference a GPU rasterization edge or a product-visible change?
+- Does the DOM detail/ledger meaning remain unchanged?
 
-## See also
+Regenerate or replace committed browser evidence only for intentional product
+changes. Record the reason in the change or release context.
 
-- `docs/pharosville/TESTING.md` — broader test lane guidance.
-- `docs/pharosville/AGENT_ONBOARDING.md` — worktree helper and task-routing
-  shortcuts for parallel or isolated work.
+## Never Commit
+
+- `outputs/`
+- `test-results/`
+- `.playwright-cli/`
+- local environment files
+- reference-hardware telemetry containing machine-specific scratch paths

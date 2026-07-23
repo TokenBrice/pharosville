@@ -2134,12 +2134,9 @@ describe("motion", () => {
     });
   });
 
-  // NFS4 T2: moored ships must not draw wake even when included in
-  // effectShipIds (e.g. selected, top-supply, recent-mover). The renderer's
-  // gate at `src/renderer/layers/ships.ts:433-435` requires
-  // state ∈ {departing, sailing, arriving} AND effect-set membership.
-  // Mirror that predicate here so any future regression that drops the
-  // state gate fails this test.
+  // Moored ships must not draw wake even when included in effectShipIds
+  // (e.g. selected, top-supply, recent-mover). Mirror the renderer predicate
+  // here so any future regression that drops the state gate fails this test.
   it("moored ships do not draw wake even when included in effectShipIds", () => {
     const ship = world.ships[0]!;
     const plan = buildMotionPlan(world, ship.detailId);

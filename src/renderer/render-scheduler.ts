@@ -14,7 +14,7 @@ export const RENDER_SCHEDULER_TARGET_FRAME_MS = 16.7;
 export const RENDER_SCHEDULER_DOWNSHIFT_STREAK = 2;
 export const RENDER_SCHEDULER_UPSHIFT_STREAK = 8;
 
-type RenderSchedulerLoadTier = Extract<PharosVilleRenderSchedulerTier, "full" | "recovery" | "constrained">;
+type RenderSchedulerLoadTier = Extract<PharosVilleRenderSchedulerTier, "balanced" | "recovery" | "constrained">;
 
 export interface RenderSchedulerHysteresisState {
   loadTier: RenderSchedulerLoadTier;
@@ -23,7 +23,7 @@ export interface RenderSchedulerHysteresisState {
 }
 
 export function createRenderSchedulerHysteresisState(): RenderSchedulerHysteresisState {
-  return { loadTier: "full", downshiftStreak: 0, upshiftStreak: 0 };
+  return { loadTier: "balanced", downshiftStreak: 0, upshiftStreak: 0 };
 }
 
 const INTERACTION_SKIPS = ["film-grain"] as const;
@@ -103,11 +103,11 @@ function rawLoadTier(input: {
   const draw = input.drawDurationMs ?? 0;
   if (p90 >= 48 || draw >= 90) return "constrained";
   if (p90 >= 28 || draw >= 48) return "recovery";
-  return "full";
+  return "balanced";
 }
 
 const LOAD_TIER_SEVERITY: Record<RenderSchedulerLoadTier, number> = {
-  full: 0,
+  balanced: 0,
   recovery: 1,
   constrained: 2,
 };

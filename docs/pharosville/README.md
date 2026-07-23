@@ -1,60 +1,50 @@
 # PharosVille Maintenance Pack
 
-Created: 2026-04-28
+Last updated: 2026-07-24
 
-Goal: maintain durable maintenance, asset, and validation notes for the standalone PharosVille root app. This directory complements the public route contract in `docs/pharosville-page.md`.
+These documents maintain the standalone PharosVille app at
+`https://pharosville.pharos.watch/`. Current code and the route contract win
+over historical plans.
 
 ## Start Here
 
-- `AGENT_ONBOARDING.md` — task routing, required conventions, and command lanes.
-- `CHANGE_CHECKLIST.md` — short pre-edit and pre-claim checklist.
-- `RUNTIME_FACTS.md` — generated constants, budgets, inventories, and workflow facts.
-- `ARCHITECTURE.md` — API proxy, world model, renderer, and asset flow overview.
-- `TESTING.md` — focused checks, visual checks, and broader validation guidance.
-- `RELEASES.md` — canonical version declaration, protected deploy, tag, GitHub Release, recovery, and audit workflow.
-- `VISUAL_INVARIANTS.md` — non-negotiable visual/data contracts for the world representation.
-- `SCENARIO_CATALOG.md` — canonical fixture and test scenarios for semantic and visual validation.
-- `VISUAL_REVIEW_ATLAS.md` — screenshot baselines, browser review entries, and manual pixel checklist.
-- `ASSET_PIPELINE.md` — generated/prototype-to-manifest workflow and asset guardrails.
-- `PIXELLAB_MCP.md` — PixelLab MCP tool selection, prompting, review, provenance, and promotion workflow for sprite generation.
-- `HOOKS.md` — memoization and callback conventions for route hooks and canvas consumers.
-- `KNOWN_PITFALLS.md` — repeat-risk issues maintainers should check before claiming completion.
+- `AGENT_ONBOARDING.md`: task routing and command lanes.
+- `ARCHITECTURE.md`: request flow, world construction, Three.js runtime, and
+  fallback boundary.
+- `RUNTIME_FACTS.md`: generated constants, inventories, and budgets.
+- `CHANGE_CHECKLIST.md`: pre-edit and pre-claim checks.
+- `TESTING.md`: focused, browser, performance, and release validation.
+- `VISUAL_INVARIANTS.md`: non-negotiable visual and analytical contracts.
+- `MOTION_POLICY.md`: the single world clock, reduced motion, and effect caps.
+- `ASSET_PIPELINE.md`: current logo/model workflow and archived raster status.
+- `PIXELLAB_MCP.md`: reference-image workflow; generated images are not
+  automatically runtime assets.
+- `RELEASES.md`: protected deploy, tag, GitHub Release, recovery, and audit.
+- `KNOWN_PITFALLS.md`: repeat-risk issues.
 
-Historical plans are context only. Current code, `docs/pharosville-page.md`,
-`RUNTIME_FACTS.md`, and this maintenance pack win over old planning artifacts.
+## Current Summary
 
-## Plan Artifact Lifecycle
+PharosVille is a desktop-gated React application with a pure world model under
+`src/systems/` and one production Three.js renderer under `src/three/`. The
+scene combines procedural geometry and materials with one deterministic
+lighthouse GLB. Runtime image loading is limited to same-origin stablecoin
+logos; GPU or renderer failure presents an interactive DOM signal overview.
 
-- Plans in `agents/` are active or recent. Treat them as in-flight unless an explicit completion note says otherwise.
-- When a plan is delivered or superseded, set its status to `Completed` and add a
-  dated one-line outcome.
-- Completed plans may be deleted once their durable outcomes are captured in
-  current code or canonical documentation.
-- Plans older than ten days with no completion note should be considered stale
-  and may be deleted opportunistically.
-- When starting new work, scan `agents/` first to avoid duplicating an in-flight plan.
+The browser calls same-origin `/api/*` only. The Cloudflare Pages Function owns
+the upstream allowlist and secret. Analytical meaning remains available through
+the detail panel and accessibility ledger without reading WebGL pixels.
+
+## Plan Lifecycle
+
+- Plans live in `agents/` while active or recently completed.
+- Mark delivered plans `Completed` with a dated outcome.
+- Completed plans may be deleted after their durable outcomes exist in current
+  code or canonical docs.
+- Treat an old plan as context only when it conflicts with current code,
+  `docs/pharosville-page.md`, or `RUNTIME_FACTS.md`.
 
 ## Historical Inputs
 
-This maintenance pack was originally informed by Pharos API/data documentation
-and a separate Canvas 2D prototype. Those source repos are historical context
-only; they are not local dependencies for standalone PharosVille work. Use the
-files listed in "Start Here" as the current in-repo source of truth.
-
-## Current Working Summary
-
-PharosVille is now an implemented desktop-only standalone app at `https://pharosville.pharos.watch/`. The current app uses a long-side/short-side and orientation gate before mounting world data, a pure world model under `src/systems/`, a Canvas 2D renderer under `src/renderer/`, local manifest-backed raster assets under `public/pharosville/assets/` with required PNG fallbacks and optional WebP twins, and DOM parity through the detail panel and accessibility ledger.
-
-Current source of truth for future maintainers:
-
-1. `docs/pharosville-page.md` for verified user-facing route behavior.
-2. `docs/pharosville/AGENT_ONBOARDING.md` for task routing.
-3. `docs/pharosville/ARCHITECTURE.md` for implementation orientation.
-4. `docs/pharosville/RUNTIME_FACTS.md` for generated constants, budgets, inventories, and workflow facts.
-5. `docs/pharosville/CHANGE_CHECKLIST.md`, `ASSET_PIPELINE.md`, and `TESTING.md` for repeatable work.
-
-## Original Verdict
-
-Feasible, but it should be treated as a product surface, not a decorative map. The current implementation is a standalone root app using the world model and renderer under `src/`, inspired by ClaudeVille's Canvas 2D architecture and sprite workflow. Screens whose long side is below `720px` or short side is below `360px` use the desktop-only fallback, and capable portrait screens use the rotate prompt rather than a mobile/tablet canvas. Existing Pharos endpoints are sufficient through the Pages Function proxy without client-side cross-origin API calls.
-
-Independent review originally returned "conditional go" and identified data-contract, accessibility, and performance gaps. Those fixes have been folded into the current route contract and maintenance docs.
+Earlier raster and Canvas 2D prototypes are historical design inputs, not
+runtime dependencies. The archived raster inventory remains in the repository
+for provenance and validation but is not fetched by the current app.

@@ -16,6 +16,7 @@ import { HarborLog } from "./components/harbor-log";
 import { SinceLastVisitBanner } from "./components/since-last-visit";
 import { ShipSearch } from "./components/ship-search";
 import { WorldToolbar } from "./components/world-toolbar";
+import { WorldStaticOverview } from "./components/world-static-overview";
 import { PHAROSVILLE_LATEST_VERSION } from "./content/pharosville-version";
 import { useAssetLoadingPipeline } from "./hooks/use-asset-loading-pipeline";
 import { useChangelogDialog } from "./hooks/use-changelog-dialog";
@@ -31,11 +32,22 @@ import { useWorldRenderLoop } from "./hooks/use-world-render-loop";
 import { DEFAULT_WORLD_SELECTED_DETAIL_ID, useWorldSelection, resolveSelectedDetail } from "./hooks/use-world-selection";
 import { useWorldTimeControls } from "./hooks/use-world-time-controls";
 import { useWorldUrlState } from "./hooks/use-world-url-state";
-import { createHitTargetSnapshot, type HitTarget, type HitTargetSnapshot } from "./renderer/hit-testing";
+import { createGardenObservatoryHitTargetSnapshot } from "./renderer/garden-observatory-hit-testing";
+import type { HitTarget, HitTargetSnapshot } from "./renderer/hit-testing";
 import { clampCameraToMap } from "./systems/camera";
+import {
+  GARDEN_ZONE_ROOT_Y,
+  gardenAreaDisplayTile,
+  gardenSemanticView,
+  gardenTileToScreen,
+  resolveGardenEntityDisplayTile,
+  selectGardenObservatorySlice,
+} from "./systems/garden-observatory-slice";
 import { buildBaseMotionPlan, buildMotionPlan, disposePathCacheForMap, motionPlanSignature, type ShipMotionSample } from "./systems/motion";
+import { buildObserveSequence } from "./systems/observe-sequence";
 import { recentFleetTrendSummary } from "./systems/sea-state";
 import type { ScreenPoint } from "./systems/projection";
+import type { WorldSelectableEntity } from "./systems/world-types";
 import { observeReducedMotion } from "./systems/reduced-motion";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "./systems/world-types";
 
@@ -47,10 +59,8 @@ const LazyLegendPanel = lazy(() => (
   import("./components/legend-panel").then((module) => ({ default: module.LegendPanel }))
 ));
 
-// W4.01 first-load reveal beat duration (ms). Three phases of ~600ms each,
-// spec'd by VD #3 in `agents/2026-05-17-pharosville-wow-revamp-plan.md`.
-const REVEAL_DURATION_MS = 1800;
 const DATA_REFRESH_ANNOUNCEMENT_THROTTLE_MS = 30_000;
+const OBSERVE_BEAT_DURATION_MS = 12_000;
 
 function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const [reducedMotion, setReducedMotion] = useState(true);
@@ -65,12 +75,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   useEffect(() => {
     mountEpochMsRef.current = performance.now();
   }, []);
-
-  // W4.01 first-load reveal envelope. Drives 1 → 1 by default; the cold-mount
-  // effect below tweens 0 → 1 over 1.8s exactly once per page load. The
-  // render loop reads `.current` per frame (no React rerender churn).
-  const revealEnvelopeRef = useRef(1);
-  const revealHasStartedRef = useRef(false);
 
   const [motionBucket, setMotionBucket] = useState(0);
   const worldUrlState = useWorldUrlState({ world });
@@ -202,7 +206,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   // stay coherent without an extra sync effect (and survive StrictMode
   // double-invokes).
   const hoveredDetailIdRef = useLatestRef(hoveredDetailId);
-  const keyboardFocusedDetailIdRef = useLatestRef(keyboardFocusedDetailId);
   const selectedDetailIdRef = useLatestRef(selectedDetailId);
   const motionPlanRef = useLatestRef(motionPlan);
   const hoverTooltipElRef = useRef<HTMLDivElement | null>(null);
@@ -234,16 +237,17 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const recomputeHitTargetsRef = useRef<() => HitTargetSnapshot | null>(() => null);
   const recomputeHitTargets = useCallback((): HitTargetSnapshot | null => recomputeHitTargetsRef.current(), []);
 
-  const assetPipeline = useAssetLoadingPipeline({ motionPlanRef, world });
+  const assetPipeline = useAssetLoadingPipeline({ world });
 
   const handleSelectTarget = useCallback((target: HitTarget, point: ScreenPoint, viewport: ScreenPoint) => {
-    selectDetail(target.detailId, detailAnchorForPoint(point, viewport));
+    selectDetail(target.detailId, detailAnchorForPoint(target.anchor ?? point, viewport));
   }, [selectDetail]);
 
   // Search → select → follow. `handleFollowSelected` reads the committed
   // `selectedEntity`, so the follow fires from the effect below once the
   // searched ship's selection has actually landed.
   const pendingFollowDetailIdRef = useRef<string | null>(null);
+  const [followRequest, setFollowRequest] = useState(0);
   const shipSearchOptions = useMemo(() => (
     world.ships
       .map((ship) => ({
@@ -255,6 +259,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const handleSearchSelect = useCallback((detailId: string) => {
     pendingFollowDetailIdRef.current = detailId;
     selectDetail(detailId, null);
+    setFollowRequest((current) => current + 1);
   }, [selectDetail]);
 
   useEffect(() => {
@@ -285,6 +290,17 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const hasSelection = useCallback(() => selectedDetailIdRef.current !== null, []);
 
+  const resolveSelectedFollowTile = useCallback((
+    entity: WorldSelectableEntity,
+    samples: ReadonlyMap<string, ShipMotionSample>,
+  ): ScreenPoint | null => {
+    return resolveGardenEntityDisplayTile({
+      entity,
+      shipMotionSamples: samples,
+      slice: selectGardenObservatorySlice(world, entity.detailId),
+    });
+  }, [world]);
+
   const canvas = useCanvasResizeAndCamera({
     exitFullscreen,
     fullscreenMode,
@@ -296,6 +312,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     onSelectTarget: handleSelectTarget,
     recomputeHitTargets,
     reducedMotion,
+    resolveSelectedFollowTile,
     requestWorldFrame,
     selectedDetailIdRef,
     selectedEntity,
@@ -361,8 +378,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       const activeCamera = canvas.cameraRef.current;
       if (!activeCamera) return hitTargetSnapshotRef.current;
       const activeCanvasSize = canvas.canvasSizeRef.current;
-      const snapshot = createHitTargetSnapshot({
-        assets: assetPipeline.assetManager,
+      const snapshot = createGardenObservatoryHitTargetSnapshot({
         camera: activeCamera,
         hoveredDetailId: hoveredDetailIdRef.current,
         selectedDetailId: selectedDetailIdRef.current,
@@ -375,7 +391,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       return snapshot;
     };
   }, [
-    assetPipeline.assetManager,
     canvas.cameraRef,
     canvas.canvasSizeRef,
     hitTargetSnapshotRef,
@@ -386,37 +401,34 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     world,
   ]);
 
-  const { frameRateFps, requestPaint } = useWorldRenderLoop({
+  const {
+    frameRateFps,
+    rendererStatus,
+    requestPaint,
+  } = useWorldRenderLoop({
     onBucketFlip: setMotionBucket,
     adaptiveDprStateRef: canvas.adaptiveDprStateRef,
-    assetLoadErrors: assetPipeline.assetLoadErrors,
     assetLoadTick: assetPipeline.assetLoadTick,
-    assetManager: assetPipeline.assetManager,
+    assets: assetPipeline.assets,
     camera: canvas.camera,
     cameraRef: canvas.cameraRef,
     canvasBudgetRef: canvas.canvasBudgetRef,
     canvasRef: canvas.canvasRef,
     canvasSize: canvas.canvasSize,
     canvasSizeRef: canvas.canvasSizeRef,
-    criticalAssetAttemptsSettled: assetPipeline.criticalAssetAttemptsSettled,
-    criticalAssetsLoaded: assetPipeline.criticalAssetsLoaded,
-    deferredAssetsLoaded: assetPipeline.deferredAssetsLoaded,
     hitTargetSnapshotRef,
     hitTargetsRef,
     hoveredDetailId,
     hoveredDetailIdRef,
     hoverTooltipElRef,
-    keyboardFocusedDetailIdRef,
     maximumRequestedDprRef: canvas.maximumRequestedDprRef,
     mountEpochMsRef,
     motionPlan,
     motionPlanRef,
     reducedMotion,
-    revealEnvelopeRef,
     selectedDetailAnchor,
     selectedDetailId,
     selectedDetailIdRef,
-    setCriticalFramePainted: assetPipeline.setCriticalFramePainted,
     shipMotionSamplesRef,
     shipsById,
     stepCamera: canvas.stepCamera,
@@ -433,48 +445,85 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     };
   }, [requestPaint]);
 
-  // W4.01 first-load reveal beat. Runs once per cold mount (the
-  // `revealHasStartedRef` guard skips client-side route reloads); reduced
-  // motion clients jump straight to envelope = 1 (final frame immediately,
-  // no animation). The tween writes into `revealEnvelopeRef.current` so the
-  // render loop picks it up via `revealEnvelopeRef`.
+  const observatorySlice = useMemo(() => selectGardenObservatorySlice(world, null), [world]);
+  const observatoryAreas = useMemo(
+    () => observatorySlice?.areas ?? [],
+    [observatorySlice],
+  );
+  const observeSequence = useMemo(
+    () => buildObserveSequence(world),
+    [world],
+  );
+  const [observeIndex, setObserveIndex] = useState<number | null>(null);
+  const rendererFailed = rendererStatus === "failed";
+  const threeExperienceReady = rendererStatus === "ready";
+  const observeBeat = threeExperienceReady && !reducedMotion && observeIndex !== null
+    ? observeSequence[observeIndex] ?? null
+    : null;
+  const cancelCameraIntent = canvas.cancelCameraIntent;
+  const focusTile = canvas.focusTile;
+
   useEffect(() => {
-    if (revealHasStartedRef.current) return;
-    revealHasStartedRef.current = true;
-    if (reducedMotion) {
-      revealEnvelopeRef.current = 1;
-      requestPaint();
-      return;
-    }
-    revealEnvelopeRef.current = 0;
-    requestPaint();
-    let frameId = 0;
-    let startTime: number | null = null;
-    const tween = (now: number) => {
-      if (startTime === null) startTime = now;
-      const elapsed = now - startTime;
-      const progress = Math.min(1, elapsed / REVEAL_DURATION_MS);
-      revealEnvelopeRef.current = progress;
-      requestPaint();
-      if (progress < 1) {
-        frameId = requestAnimationFrame(tween);
-      }
+    if (!observeBeat) return;
+
+    const observedEntity = world.entityById[observeBeat.detailId];
+    const displayTile = observedEntity && observatorySlice
+      ? resolveGardenEntityDisplayTile({
+          entity: observedEntity,
+          shipMotionSamples: shipMotionSamplesRef.current,
+          slice: observatorySlice,
+        })
+      : null;
+    focusTile(displayTile ?? observeBeat.tile);
+    setAnnouncement(observeBeat.label);
+    const timeoutId = window.setTimeout(() => {
+      setObserveIndex((current) => {
+        if (current === null) return null;
+        return current + 1 < observeSequence.length ? current + 1 : null;
+      });
+    }, OBSERVE_BEAT_DURATION_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    focusTile,
+    observatorySlice,
+    observeBeat,
+    observeSequence.length,
+    setAnnouncement,
+    shipMotionSamplesRef,
+    world.entityById,
+  ]);
+
+  useEffect(() => {
+    if (!observeBeat) return;
+    const stopObserve = (event: Event) => {
+      const target = event.target;
+      const targetsObserveControl = target instanceof Element
+        && Boolean(target.closest("[data-observe-control]"));
+      const activationKey = event instanceof KeyboardEvent
+        && (event.key === "Enter" || event.key === " ");
+      if (targetsObserveControl && (event.type === "pointerdown" || activationKey)) return;
+      cancelCameraIntent();
+      setObserveIndex(null);
     };
-    frameId = requestAnimationFrame(tween);
+    document.addEventListener("pointerdown", stopObserve, true);
+    document.addEventListener("wheel", stopObserve, { capture: true, passive: true });
+    document.addEventListener("keydown", stopObserve, true);
+    document.addEventListener("visibilitychange", stopObserve);
     return () => {
-      if (frameId) cancelAnimationFrame(frameId);
-      revealEnvelopeRef.current = 1;
+      document.removeEventListener("pointerdown", stopObserve, true);
+      document.removeEventListener("wheel", stopObserve, true);
+      document.removeEventListener("keydown", stopObserve, true);
+      document.removeEventListener("visibilitychange", stopObserve);
     };
-  }, [reducedMotion, requestPaint]);
+  }, [cancelCameraIntent, observeBeat]);
 
   // Full hit-target rebuild on world swap, selection delta, canvas-size
-  // changes, or asset-pipeline ready transitions. Ship-cell and visibility
-  // transitions are handled incrementally inside the RAF loop.
+  // changes. Ship-cell and visibility transitions are handled inside the RAF
+  // loop.
   useEffect(() => {
     recomputeHitTargets();
     if (reducedMotion) requestPaint();
   }, [
-    assetPipeline.assetManager,
     canvas.canvasSize.x,
     canvas.canvasSize.y,
     recomputeHitTargets,
@@ -499,6 +548,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       if (!shell?.contains(target)) return;
       const detailPanel = document.getElementById("pharosville-detail-panel");
       if (detailPanel?.contains(target)) return;
+      if (target instanceof Element && target.closest(".pharosville-canvas")) return;
       if (target instanceof Element && target.closest(".pharosville-overlay, .pharosville-fullscreen-button, .pharosville-home-button, .pharosville-beta-tag")) return;
       clearSelection();
     };
@@ -507,15 +557,34 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     return () => document.removeEventListener("pointerdown", handleOutsidePointerDown, true);
   }, [clearSelection, selectedDetailId]);
 
+  const canFollowSelected = !rendererFailed && selectedEntity
+    ? resolveGardenEntityDisplayTile({
+        entity: selectedEntity,
+        slice: selectGardenObservatorySlice(world, selectedDetailId),
+      }) !== null
+    : false;
   const followSelectedFromCanvas = canvas.handleFollowSelected;
   useEffect(() => {
     if (!pendingFollowDetailIdRef.current || !selectedEntity) return;
     if (selectedEntity.detailId !== pendingFollowDetailIdRef.current) return;
     pendingFollowDetailIdRef.current = null;
-    followSelectedFromCanvas();
-  }, [followSelectedFromCanvas, selectedEntity]);
+    if (canFollowSelected) followSelectedFromCanvas();
+  }, [canFollowSelected, followRequest, followSelectedFromCanvas, selectedEntity]);
 
-  useEffect(() => observeReducedMotion(setReducedMotion), []);
+  useEffect(() => observeReducedMotion((matches) => {
+    if (matches) {
+      const activeElement = document.activeElement;
+      if (
+        activeElement instanceof Element
+        && activeElement.closest("[data-observe-control]")
+      ) {
+        shellRef.current?.focus();
+      }
+      cancelCameraIntent();
+      setObserveIndex(null);
+    }
+    setReducedMotion(matches);
+  }), [cancelCameraIntent]);
 
   // world.map is a module singleton; this fires once on full teardown.
   useEffect(() => () => disposePathCacheForMap(world.map), [world.map]);
@@ -547,6 +616,46 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   // work behind ?debug=1 (search or hash) instead of showing every visitor.
   const [debugChrome] = useState(isDebugChromeEnabled);
   const activeCamera = canvas.camera;
+  const projectedObservatoryAreas = useMemo(() => {
+    if (!threeExperienceReady || !activeCamera) return [];
+    const semanticView = gardenSemanticView(activeCamera.zoom, selectedDetailId);
+    if (semanticView === "analyze") return [];
+    const visibleAreas = semanticView === "explore" ? world.areas : observatoryAreas;
+    return visibleAreas.flatMap((area) => {
+      const point = gardenTileToScreen(
+        gardenAreaDisplayTile(area),
+        GARDEN_ZONE_ROOT_Y,
+        activeCamera,
+      );
+      const insideSafeViewport = point.x >= 68
+        && point.x <= canvas.canvasSize.x - 68
+        && point.y >= 132
+        && point.y <= canvas.canvasSize.y - 16;
+      return insideSafeViewport ? [{ area, point }] : [];
+    });
+  }, [
+    activeCamera,
+    canvas.canvasSize.x,
+    canvas.canvasSize.y,
+    observatoryAreas,
+    selectedDetailId,
+    threeExperienceReady,
+    world.areas,
+  ]);
+  const handleSelectObservatoryArea = useCallback((
+    detailId: string,
+    point: ScreenPoint,
+  ) => {
+    selectDetail(detailId, detailAnchorForPoint(point, canvas.canvasSize));
+  }, [canvas.canvasSize, selectDetail]);
+  const handleToggleObserve = useCallback(() => {
+    if (observeIndex !== null) cancelCameraIntent();
+    setObserveIndex(observeIndex === null ? 0 : null);
+  }, [cancelCameraIntent, observeIndex]);
+
+  const handleSelectStaticDetail = useCallback((detailId: string) => {
+    selectDetail(detailId, null);
+  }, [selectDetail]);
   const handleCopyViewLink = useCallback(() => {
     void worldUrlState.copyWorldUrlState({
       camera: activeCamera,
@@ -571,7 +680,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       className={fullscreenMode ? "pharosville-desktop pharosville-shell pharosville-shell--fullscreen" : "pharosville-desktop pharosville-shell"}
       data-testid="pharosville-world"
       aria-describedby="pharosville-world-instructions"
-      onKeyDown={handleWorldKeyDown}
+      onKeyDown={rendererFailed ? undefined : handleWorldKeyDown}
       tabIndex={0}
     >
       <p id="pharosville-world-instructions" className="sr-only">
@@ -583,44 +692,91 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         ref={canvas.canvasRef}
         className={hoveredDetailId ? "pharosville-canvas pharosville-canvas--selectable" : "pharosville-canvas"}
         data-testid="pharosville-canvas"
+        data-renderer="three"
+        data-renderer-status={rendererStatus}
         aria-hidden="true"
+        hidden={rendererFailed}
         onPointerCancel={canvas.handlePointerCancel}
         onPointerDown={canvas.handlePointerDown}
         onPointerLeave={canvas.handlePointerLeave}
         onPointerMove={canvas.handlePointerMove}
         onPointerUp={canvas.handlePointerUp}
       />
+      {rendererFailed && (
+        <WorldStaticOverview world={world} onSelectDetail={handleSelectStaticDetail} />
+      )}
       <div className="pharosville-overlay" aria-label="PharosVille controls and details">
-        <div
-          ref={hoverTooltipElRef}
-          className="pharosville-hover-tooltip"
-          data-visible="false"
-          data-testid="pharosville-hover-tooltip"
-          aria-hidden="true"
-        >
-          {hoverTooltip && (
-            <div className="pharosville-hover-tooltip__card">
-              <strong>{hoverTooltip.title}</strong>
-              <span>{hoverTooltip.meta}</span>
+        {projectedObservatoryAreas.length > 0 && (
+          <div className="pharosville-observatory-labels" aria-label="Active analytical areas">
+            {projectedObservatoryAreas.map(({ area, point }) => {
+              const copy = observatoryAreaLabelCopy(area);
+              return (
+                <button
+                  key={area.id}
+                  type="button"
+                  className="pharosville-observatory-label"
+                  style={{
+                    "--pv-observatory-x": `${point.x}px`,
+                    "--pv-observatory-y": `${point.y}px`,
+                    ...(area.band === "DANGER"
+                      ? { transform: "translate(-18%, calc(-100% - 18px))" }
+                      : {}),
+                  } as CSSProperties}
+                  aria-pressed={selectedDetailId === area.detailId}
+                  aria-label={`Open ${area.label} details: ${copy.spoken}`}
+                  onClick={() => handleSelectObservatoryArea(area.detailId, point)}
+                >
+                  <strong>{area.label}</strong>
+                  <span>{copy.visible}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {!rendererFailed && (
+          <>
+            <div
+              ref={hoverTooltipElRef}
+              className="pharosville-hover-tooltip"
+              data-visible="false"
+              data-testid="pharosville-hover-tooltip"
+              aria-hidden="true"
+            >
+              {hoverTooltip && (
+                <div className="pharosville-hover-tooltip__card">
+                  <strong>{hoverTooltip.title}</strong>
+                  <span>{hoverTooltip.meta}</span>
+                </div>
+              )}
             </div>
-          )}
-        </div>
-        <div className="pharosville-hud">
-          <WorldToolbar
-            selectedDetailId={selectedDetailId}
-            zoomLabel={canvas.cameraZoomLabel}
-            {...(selectedEntity ? { onFollowSelected: canvas.handleFollowSelected } : {})}
-            onResetView={canvas.handleResetView}
-            nightMode={timeControls.nightMode}
-            onToggleNightMode={timeControls.toggleNightMode}
-            autoNightCycle={timeControls.autoNightCycle}
-            onToggleAutoNightCycle={timeControls.toggleAutoNightCycle}
-            timeOfDayHour={timeControls.wallClockHour}
-            manualTimeOverrideHour={timeControls.manualTimeOverrideHour}
-            onTimeOfDayChange={timeControls.setManualTimeOverrideHour}
-            onClearTimeOverride={timeControls.clearTimeOverride}
-          />
-        </div>
+            <div className="pharosville-hud">
+              <WorldToolbar
+                selectedDetailId={selectedDetailId}
+                zoomLabel={canvas.cameraZoomLabel}
+                {...(canFollowSelected ? { onFollowSelected: canvas.handleFollowSelected } : {})}
+                onResetView={canvas.handleResetView}
+                nightMode={timeControls.nightMode}
+                onToggleNightMode={timeControls.toggleNightMode}
+                autoNightCycle={timeControls.autoNightCycle}
+                onToggleAutoNightCycle={timeControls.toggleAutoNightCycle}
+                timeOfDayHour={timeControls.wallClockHour}
+                manualTimeOverrideHour={timeControls.manualTimeOverrideHour}
+                onTimeOfDayChange={timeControls.setManualTimeOverrideHour}
+                onClearTimeOverride={timeControls.clearTimeOverride}
+                {...(threeExperienceReady && !reducedMotion ? {
+                  observing: observeBeat !== null,
+                  onToggleObserve: handleToggleObserve,
+                } : {})}
+              />
+            </div>
+          </>
+        )}
+        {observeBeat && (
+          <p className="pharosville-observe-caption" data-testid="pharosville-observe-caption">
+            <span>Observe</span>
+            {observeBeat.label}
+          </p>
+        )}
         <ShipSearch options={shipSearchOptions} onSelect={handleSearchSelect} />
         <SinceLastVisitBanner delta={visitSnapshot.delta} onDismiss={visitSnapshot.dismiss} />
         {selectedDetail && (
@@ -632,24 +788,28 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
           </div>
         )}
       </div>
-      <button
-        type="button"
-        className="pharosville-fullscreen-button"
-        aria-label={fullscreenMode ? "Exit fullscreen" : "Enter fullscreen"}
-        title={fullscreenMode ? "Exit fullscreen" : "Enter fullscreen"}
-        onClick={toggleFullscreen}
-      >
-        {fullscreenMode ? <Minimize2 aria-hidden="true" size={24} /> : <Maximize2 aria-hidden="true" size={24} />}
-      </button>
-      <button
-        type="button"
-        className="pharosville-home-button"
-        aria-label="Recenter map"
-        title="Recenter map"
-        onClick={canvas.handleResetView}
-      >
-        <Home aria-hidden="true" size={24} />
-      </button>
+      {!rendererFailed && (
+        <>
+          <button
+            type="button"
+            className="pharosville-fullscreen-button"
+            aria-label={fullscreenMode ? "Exit fullscreen" : "Enter fullscreen"}
+            title={fullscreenMode ? "Exit fullscreen" : "Enter fullscreen"}
+            onClick={toggleFullscreen}
+          >
+            {fullscreenMode ? <Minimize2 aria-hidden="true" size={24} /> : <Maximize2 aria-hidden="true" size={24} />}
+          </button>
+          <button
+            type="button"
+            className="pharosville-home-button"
+            aria-label="Recenter map"
+            title="Recenter map"
+            onClick={canvas.handleResetView}
+          >
+            <Home aria-hidden="true" size={24} />
+          </button>
+        </>
+      )}
       {changelog.changelogOpen && (
         <Suspense fallback={<ChangelogPanelLoading />}>
           <LazyChangelogPanel onClose={changelog.closeChangelog} />
@@ -802,6 +962,22 @@ function fleetCounterLabel(ships: PharosVilleWorldModel["ships"]): string {
   const totalShips = ships.length;
   const shipNoun = dockedShips === 1 ? "ship" : "ships";
   return `${integerFormatter.format(dockedShips)} ${shipNoun} docked / ${integerFormatter.format(totalShips)} total`;
+}
+
+function observatoryAreaLabelCopy(
+  area: PharosVilleWorldModel["areas"][number],
+): { spoken: string; visible: string } {
+  if (!area.band || area.count == null) {
+    return {
+      spoken: "NAV ledger water",
+      visible: "NAV ledger water",
+    };
+  }
+  const noun = area.count === 1 ? "ship" : "ships";
+  return {
+    spoken: `${area.band}, ${area.count} ${noun}`,
+    visible: `${area.band} · ${area.count} ${noun}`,
+  };
 }
 
 function isDebugChromeEnabled(): boolean {

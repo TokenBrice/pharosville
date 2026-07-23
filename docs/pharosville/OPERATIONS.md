@@ -1,6 +1,6 @@
 # PharosVille Operations
 
-Last updated: 2026-07-14
+Last updated: 2026-07-24
 
 This runbook covers the standalone Cloudflare Pages app at `https://pharosville.pharos.watch/`.
 
@@ -32,7 +32,8 @@ npm ci
 npm run dev
 ```
 
-Use it for canvas, layout, and React behavior that does not require a live `/api/*` proxy.
+Use it for the Three.js world, layout, and React behavior that does not require
+a live `/api/*` proxy.
 
 For linked-worktree development, the Vite `/api/*` proxy can read `PHAROS_API_KEY`
 from `process.env.PHAROS_API_KEY`, the current worktree `.env.local`, the main
@@ -171,7 +172,10 @@ npm run smoke:live -- --url https://pharosville.pharos.watch
 At minimum, verify:
 
 - `/` returns the PharosVille app shell.
-- Narrow viewport fallback does not fetch world data or runtime assets.
+- Blocked viewport fallbacks do not fetch world data, import Three.js, request
+  the lighthouse GLB, or decode ship logos.
+- Renderer or GPU failure shows the DOM signal overview rather than a second
+  graphical renderer.
 - Allowlisted `/api/*` endpoints respond through the Pages Function proxy.
 - Unexpected paths or query shapes fail closed.
 

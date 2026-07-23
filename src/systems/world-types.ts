@@ -200,6 +200,14 @@ export interface DockStablecoin {
   supplyUsd: number;
 }
 
+export type WorldSelectableEntity =
+  | PharosVilleWorld["lighthouse"]
+  | PharosVilleWorld["pigeonnier"]
+  | PharosVilleWorld["docks"][number]
+  | PharosVilleWorld["ships"][number]
+  | PharosVilleWorld["areas"][number]
+  | PharosVilleWorld["graves"][number];
+
 export interface ShipNode {
   id: string;
   kind: "ship";

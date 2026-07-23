@@ -265,6 +265,7 @@ export function isPharosVilleViewportGatedRequest(url: URL): boolean {
   if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/_site-data/")) return true;
   if (
     url.pathname.startsWith("/pharosville/assets/")
+    || url.pathname.startsWith("/pharosville/models/")
     || url.pathname.startsWith("/logos/")
     || /^\/chains\/[^/]+\.(?:png|svg|jpe?g|webp)$/i.test(url.pathname)
   ) {
@@ -274,6 +275,9 @@ export function isPharosVilleViewportGatedRequest(url: URL): boolean {
     /(?:^|\/)(?:pharosville-desktop-data|pharosville-world)(?:[.-]|$)/.test(url.pathname)
     || url.pathname.includes("/src/pharosville-desktop-data")
     || url.pathname.includes("/src/pharosville-world")
+    || url.pathname.includes("/src/three/")
+    || /(?:^|\/)world-renderer(?:[.-]|$)/.test(url.pathname)
+    || url.pathname.includes("/node_modules/.vite/deps/three")
   ) {
     return true;
   }
@@ -319,11 +323,18 @@ export async function readRuntimeSnapshot(page: Page) {
 }
 
 export async function waitForRuntimeDebug(page: Page, reducedMotion: boolean): Promise<void> {
-  await page.waitForFunction((expectedReducedMotion) => {
+  const outcome = await page.waitForFunction((expectedReducedMotion) => {
     const debug = (window as typeof window & {
       __pharosVilleDebug?: PharosVilleVisualDebug;
     }).__pharosVilleDebug;
-    return Boolean(
+    const canvas = document.querySelector<HTMLCanvasElement>("[data-testid='pharosville-canvas']");
+    if (canvas?.dataset.rendererStatus === "failed") {
+      return {
+        failure: canvas.dataset.rendererError ?? "The world renderer failed.",
+        ready: false,
+      };
+    }
+    const ready = Boolean(
       debug?.criticalAssetsLoaded
       && debug.camera
       && debug.reducedMotion === expectedReducedMotion
@@ -331,7 +342,9 @@ export async function waitForRuntimeDebug(page: Page, reducedMotion: boolean): P
       && (debug.targets?.some((target) => target.kind === "ship") ?? false)
       && (expectedReducedMotion || (debug.motionFrameCount ?? 0) >= 2),
     );
-  }, reducedMotion);
+    return ready ? { failure: null, ready: true } : null;
+  }, reducedMotion).then((handle) => handle.jsonValue());
+  if (!outcome?.ready) throw new Error(outcome?.failure ?? "The world runtime did not become ready.");
 }
 
 export async function waitForMotionActive(page: Page): Promise<void> {

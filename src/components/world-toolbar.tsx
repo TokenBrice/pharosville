@@ -1,7 +1,9 @@
 "use client";
 
+import Eye from "lucide-react/dist/esm/icons/eye";
 import LocateFixed from "lucide-react/dist/esm/icons/locate-fixed";
 import Moon from "lucide-react/dist/esm/icons/moon";
+import Pause from "lucide-react/dist/esm/icons/pause";
 import RotateCcw from "lucide-react/dist/esm/icons/rotate-ccw";
 import Sun from "lucide-react/dist/esm/icons/sun";
 import SunMoon from "lucide-react/dist/esm/icons/sun-moon";
@@ -13,12 +15,14 @@ export interface WorldToolbarProps {
   headingId?: string;
   manualTimeOverrideHour?: number | null;
   nightMode?: boolean;
+  observing?: boolean;
   selectedDetailId?: string | null;
   timeOfDayHour?: number;
   zoomLabel?: string;
   onClearTimeOverride?: () => void;
   onFollowSelected?: () => void;
   onResetView?: () => void;
+  onToggleObserve?: () => void;
   onTimeOfDayChange?: (hour: number) => void;
   onToggleAutoNightCycle?: () => void;
   onToggleNightMode?: () => void;
@@ -29,12 +33,14 @@ export function WorldToolbar({
   headingId = "pharosville-world-toolbar-title",
   manualTimeOverrideHour = null,
   nightMode = false,
+  observing = false,
   selectedDetailId,
   timeOfDayHour = nightMode ? 22 : 12,
   zoomLabel = "100%",
   onClearTimeOverride,
   onFollowSelected,
   onResetView,
+  onToggleObserve,
   onTimeOfDayChange,
   onToggleAutoNightCycle,
   onToggleNightMode,
@@ -105,6 +111,22 @@ export function WorldToolbar({
       >
         <LocateFixed aria-hidden="true" size={18} />
       </button>
+
+      {onToggleObserve && (
+        <button
+          type="button"
+          className="pv-brass-button"
+          data-observe-control
+          onClick={onToggleObserve}
+          aria-pressed={observing}
+          aria-label={observing ? "Stop observing" : "Observe harbor"}
+          title={observing ? "Stop observing" : "Observe harbor"}
+        >
+          {observing
+            ? <Pause aria-hidden="true" size={18} />
+            : <Eye aria-hidden="true" size={18} />}
+        </button>
+      )}
 
       <button
         type="button"

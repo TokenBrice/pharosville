@@ -1,189 +1,105 @@
-// Owns the PharosVille asset manager, critical/deferred load lifecycle, and
-// per-world logo loading. Exposes readiness flags for the rendering hook.
-import { useEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
-import { PharosVilleAssetManager, type PharosVilleAssetLoadError } from "../renderer/asset-manager";
-import { SHIP_SAIL_EMBLEM_OVERRIDES } from "../renderer/layers/ships";
-import type { buildMotionPlan } from "../systems/motion";
-import { pathKey } from "../systems/motion-utils";
+import { useEffect, useMemo, useState } from "react";
+import type {
+  ThreeLogoAsset,
+  ThreeLogoAssets,
+} from "../renderer/world-renderer-backend";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
-import { waitForIdleChunk } from "../lib/idle-scheduler";
-
-type MotionPlan = ReturnType<typeof buildMotionPlan>;
-export const WATER_PATH_WARMUP_IDLE_CHUNK_SIZE = 3;
-export const WATER_PATH_WARMUP_IDLE_TIMEOUT_MS = 800;
 
 export interface UseAssetLoadingPipelineResult {
-  assetLoadErrors: PharosVilleAssetLoadError[];
   assetLoadTick: number;
-  assetManager: PharosVilleAssetManager;
-  criticalAssetAttemptsSettled: boolean;
-  criticalAssetsLoaded: boolean;
-  criticalFramePainted: boolean;
-  deferredAssetsLoaded: boolean;
-  setCriticalFramePainted: Dispatch<SetStateAction<boolean>>;
-  criticalFramePaintedRef: MutableRefObject<boolean>;
+  assets: ThreeLogoAssets;
+}
+
+class ThreeLogoAssetStore implements ThreeLogoAssets {
+  private generation = 0;
+  private readonly logos = new Map<string, ThreeLogoAsset>();
+
+  getLogo(src: string | null | undefined): ThreeLogoAsset | null {
+    return src ? this.logos.get(src) ?? null : null;
+  }
+
+  getRenderAssetGenerationKey(): string {
+    return `lg${this.generation}`;
+  }
+
+  async load(srcs: readonly string[], signal: AbortSignal): Promise<boolean> {
+    const pending = srcs.filter((src) => !this.logos.has(src));
+    if (pending.length === 0) return false;
+
+    const settled = await Promise.allSettled(
+      pending.map(async (src) => ({ image: await loadLogoImage(src, signal), src })),
+    );
+    if (signal.aborted) return false;
+
+    let changed = false;
+    for (const result of settled) {
+      if (result.status !== "fulfilled") continue;
+      this.logos.set(result.value.src, result.value);
+      changed = true;
+    }
+    if (changed) this.generation += 1;
+    return changed;
+  }
 }
 
 export function useAssetLoadingPipeline(input: {
-  motionPlanRef: MutableRefObject<MotionPlan>;
   world: PharosVilleWorldModel;
 }): UseAssetLoadingPipelineResult {
-  const { motionPlanRef, world } = input;
-  const [assetManager] = useState(() => new PharosVilleAssetManager());
-  const criticalFramePaintedRef = useRef(false);
-  const deferredLoadStartedRef = useRef(false);
+  const { world } = input;
+  const [assets] = useState(() => new ThreeLogoAssetStore());
   const [assetLoadTick, setAssetLoadTick] = useState(0);
-  const [assetLoadErrors, setAssetLoadErrors] = useState<PharosVilleAssetLoadError[]>([]);
-  const [criticalFramePainted, setCriticalFramePainted] = useState(false);
-  const [criticalAssetAttemptsSettled, setCriticalAssetAttemptsSettled] = useState(false);
-  const [criticalAssetsLoaded, setCriticalAssetsLoaded] = useState(false);
-  const [deferredAssetsLoaded, setDeferredAssetsLoaded] = useState(false);
-  const logoSourcesSignatureRef = useRef("");
+  const logoSources = useMemo(
+    () => [...new Set(
+      world.ships
+        .map((ship) => ship.logoSrc)
+        .filter((src): src is string => typeof src === "string" && src.startsWith("/")),
+    )].sort(),
+    [world.ships],
+  );
+  const logoSourcesSignature = logoSources.join("|");
 
   useEffect(() => {
+    if (!logoSourcesSignature) return;
     const controller = new AbortController();
-    let active = true;
-    criticalFramePaintedRef.current = false;
-    deferredLoadStartedRef.current = false;
-    // Synchronous resets at the start of each load attempt: these are
-    // intentional "back to zero" before the async chain populates. They run
-    // exactly once per dep-change (asset manager identity), not in a loop —
-    // no cascading renders.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setCriticalFramePainted(false);
-    setCriticalAssetAttemptsSettled(false);
-    setCriticalAssetsLoaded(false);
-    setDeferredAssetsLoaded(false);
-    assetManager.loadCritical(controller.signal)
-      .then((criticalResult) => {
-        if (!active) return;
-        setAssetLoadErrors(criticalResult.errors);
-        setCriticalAssetsLoaded(assetManager.areCriticalAssetsLoaded());
-        setCriticalAssetAttemptsSettled(true);
+    void assets.load(logoSources, controller.signal).then((changed) => {
+      if (changed && !controller.signal.aborted) {
         setAssetLoadTick((tick) => tick + 1);
-      })
-      .catch((error) => {
-        if (!active) return;
-        setCriticalAssetsLoaded(false);
-        setCriticalAssetAttemptsSettled(true);
-        setAssetLoadErrors([{
-          id: "manifest",
-          message: error instanceof Error ? error.message : String(error),
-          path: "manifest.json",
-          priority: "critical",
-        }]);
-        setAssetLoadTick((tick) => tick + 1);
-      });
-    return () => {
-      active = false;
-      controller.abort();
-    };
-  }, [assetManager]);
-
-  useEffect(() => {
-    if (!criticalAssetAttemptsSettled || !criticalFramePainted || deferredLoadStartedRef.current) return;
-
-    const controller = new AbortController();
-    let active = true;
-    deferredLoadStartedRef.current = true;
-    const startDeferredLoad = async () => {
-      const planForWarmup = motionPlanRef.current;
-      const deferredResult = await assetManager.loadDeferred(controller.signal);
-      if (!active) return;
-      setAssetLoadErrors((previous) => [...previous, ...deferredResult.errors]);
-      setDeferredAssetsLoaded(assetManager.areDeferredAssetsSettled() && deferredResult.errors.length === 0);
-      setAssetLoadTick((tick) => tick + 1);
-      if (planForWarmup && !controller.signal.aborted) {
-        void warmWaterPathsAcrossIdleChunks(planForWarmup, controller.signal);
       }
-    };
-    void startDeferredLoad().catch((error) => {
-      if (!active) return;
-      setAssetLoadErrors((previous) => [
-        ...previous,
-        {
-          id: "deferred-assets",
-          message: error instanceof Error ? error.message : String(error),
-          path: "manifest.json",
-          priority: "deferred",
-        },
-      ]);
-      setAssetLoadTick((tick) => tick + 1);
     });
-    return () => {
-      active = false;
-      controller.abort();
-    };
-  }, [assetManager, criticalAssetAttemptsSettled, criticalFramePainted, motionPlanRef]);
-
-  // Hoist the logo-source set + signature so the effect can key on the
-  // signature string instead of three array refs. After a refetch produces a
-  // new `world`, identity-different but content-identical logo arrays now
-  // skip the effect body entirely (no controller abort/restart, no
-  // loadLogos call).
-  const uniqueLogoSrcs = useMemo(() => {
-    const logoSrcs = [
-      ...world.docks.map((dock) => dock.logoSrc),
-      ...world.graves
-        .filter((grave) => grave.visual.scale >= 0.41)
-        .map((grave) => grave.logoSrc),
-      ...world.ships.map((ship) => ship.logoSrc),
-      ...Object.values(SHIP_SAIL_EMBLEM_OVERRIDES),
-    ]
-      .filter((src): src is string => typeof src === "string" && src.startsWith("/"));
-    return [...new Set(logoSrcs)].sort();
-  }, [world.docks, world.graves, world.ships]);
-  const logoSourcesSignature = uniqueLogoSrcs.join("|");
-
-  useEffect(() => {
-    if (uniqueLogoSrcs.length === 0) {
-      logoSourcesSignatureRef.current = "";
-      return;
-    }
-    if (logoSourcesSignature === logoSourcesSignatureRef.current) return;
-    logoSourcesSignatureRef.current = logoSourcesSignature;
-
-    const controller = new AbortController();
-    assetManager.loadLogos(uniqueLogoSrcs, controller.signal)
-      .then(() => setAssetLoadTick((tick) => tick + 1))
-      .catch(() => setAssetLoadTick((tick) => tick + 1));
-    return () => {
-      controller.abort();
-    };
+    return () => controller.abort();
+    // The stable signature prevents identical refetches from restarting loads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assetManager, logoSourcesSignature]);
+  }, [assets, logoSourcesSignature]);
 
-  return {
-    assetLoadErrors,
-    assetLoadTick,
-    assetManager,
-    criticalAssetAttemptsSettled,
-    criticalAssetsLoaded,
-    criticalFramePainted,
-    criticalFramePaintedRef,
-    deferredAssetsLoaded,
-    setCriticalFramePainted,
-  };
+  return { assetLoadTick, assets };
 }
 
-export async function warmWaterPathsAcrossIdleChunks(plan: MotionPlan, signal?: AbortSignal): Promise<void> {
-  const warmups: Array<() => void> = [];
-  for (const route of plan.shipRoutes.values()) {
-    for (const stop of route.dockStops) {
-      const outboundKey = pathKey(stop.mooringTile, route.riskTile);
-      const inboundKey = pathKey(route.riskTile, stop.mooringTile);
-      warmups.push(() => route.waterPaths.get(outboundKey));
-      warmups.push(() => route.waterPaths.get(inboundKey));
+function loadLogoImage(src: string, signal: AbortSignal): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    const cleanup = () => signal.removeEventListener("abort", handleAbort);
+    const handleAbort = () => {
+      image.onload = null;
+      image.onerror = null;
+      image.src = "";
+      cleanup();
+      reject(new DOMException("Logo load aborted", "AbortError"));
+    };
+
+    image.decoding = "async";
+    image.onload = () => {
+      cleanup();
+      resolve(image);
+    };
+    image.onerror = () => {
+      cleanup();
+      reject(new Error(`Could not load ship logo ${src}`));
+    };
+    if (signal.aborted) {
+      handleAbort();
+      return;
     }
-    if (!route.openWaterPatrol) continue;
-    const outboundKey = pathKey(route.openWaterPatrol.outbound.from, route.openWaterPatrol.outbound.to);
-    const inboundKey = pathKey(route.openWaterPatrol.inbound.from, route.openWaterPatrol.inbound.to);
-    warmups.push(() => route.waterPaths.get(outboundKey));
-    warmups.push(() => route.waterPaths.get(inboundKey));
-  }
-  for (let index = 0; index < warmups.length && !signal?.aborted; index += WATER_PATH_WARMUP_IDLE_CHUNK_SIZE) {
-    await waitForIdleChunk({ signal, timeoutMs: WATER_PATH_WARMUP_IDLE_TIMEOUT_MS });
-    if (signal?.aborted) return;
-    for (const warmup of warmups.slice(index, index + WATER_PATH_WARMUP_IDLE_CHUNK_SIZE)) warmup();
-  }
+    signal.addEventListener("abort", handleAbort, { once: true });
+    image.src = src;
+  });
 }

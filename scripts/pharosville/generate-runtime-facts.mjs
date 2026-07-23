@@ -172,7 +172,7 @@ function parseAssetBudgetFacts() {
 
 function parseBundleFacts() {
   return {
-    chunks: ["entry", "desktop", "world", "css"].map((key) => {
+    chunks: ["entry", "desktop", "world", "renderer", "css"].map((key) => {
       const budget = bundleBudgets[key];
       return {
         key,
@@ -185,6 +185,62 @@ function parseBundleFacts() {
       maxGzipBytes: aggregateBudgets.maxJsGzipBytes,
       maxRawBytes: aggregateBudgets.maxJsRawBytes,
     },
+  };
+}
+
+function parseGardenModelFacts(repoRoot) {
+  const source = readText(repoRoot, "src/three/garden-models.ts");
+  const manifestBlock = matchRequired(
+    source,
+    /GARDEN_MODEL_MANIFEST\s*=\s*{([\s\S]*?)}\s*as const satisfies/,
+    "garden model manifest",
+  )[1];
+  return {
+    bytes: normalizeNumber(matchRequired(
+      manifestBlock,
+      /artifact:\s*{[\s\S]*?bytes:\s*([\d_]+)/,
+      "garden model bytes",
+    )[1]),
+    compression: matchRequired(
+      manifestBlock,
+      /compression:\s*"([^"]+)"/,
+      "garden model compression",
+    )[1],
+    drawCalls: normalizeNumber(matchRequired(
+      manifestBlock,
+      /geometry:\s*{[\s\S]*?drawCalls:\s*([\d_]+)/,
+      "garden model draw calls",
+    )[1]),
+    id: matchRequired(
+      manifestBlock,
+      /"([^"]+)":\s*{\s*id:\s*"[^"]+"/,
+      "garden model id",
+    )[1],
+    sha256: matchRequired(
+      source,
+      /LIGHTHOUSE_SHA256\s*=\s*"([a-f0-9]{64})"/,
+      "garden model SHA-256",
+    )[1],
+    textures: normalizeNumber(matchRequired(
+      manifestBlock,
+      /geometry:\s*{[\s\S]*?textures:\s*([\d_]+)/,
+      "garden model textures",
+    )[1]),
+    triangles: normalizeNumber(matchRequired(
+      manifestBlock,
+      /geometry:\s*{[\s\S]*?triangles:\s*([\d_]+)/,
+      "garden model triangles",
+    )[1]),
+    url: matchRequired(
+      source,
+      /const lighthouseUrl\s*=\s*`([^?`]+)\?v=/,
+      "garden model URL",
+    )[1],
+    vertices: normalizeNumber(matchRequired(
+      manifestBlock,
+      /geometry:\s*{[\s\S]*?vertices:\s*([\d_]+)/,
+      "garden model vertices",
+    )[1]),
   };
 }
 
@@ -297,6 +353,7 @@ export function buildRuntimeFactsMarkdown({ repoRoot = process.cwd() } = {}) {
   const manifest = parseManifestFacts(repoRoot);
   const assetBudgets = parseAssetBudgetFacts();
   const bundle = parseBundleFacts();
+  const gardenModel = parseGardenModelFacts(repoRoot);
   const squads = parseSquadFacts(repoRoot);
   const titans = parseTitanFacts(repoRoot);
   const heritage = parseHeritageFacts(repoRoot);
@@ -313,7 +370,9 @@ export function buildRuntimeFactsMarkdown({ repoRoot = process.cwd() } = {}) {
     "## App And Routes",
     "",
     "- Canonical app URL: `https://pharosville.pharos.watch/`",
-    "- Runtime asset namespace: `/pharosville/assets/`",
+    "- Renderer: one production Three.js/WebGL renderer",
+    "- GPU or renderer failure fallback: interactive DOM signal overview; no alternate 2D renderer",
+    "- Runtime model namespace: `/pharosville/models/`",
     `- Latest app version: \`${release.latestVersion}\` (\`${release.latestKey}\`)`,
     `- Latest changelog entry: \`${release.changelog.id}\` / \`${release.changelog.version}\` / ${release.changelog.date} / ${release.changelog.title}`,
     "",
@@ -322,29 +381,35 @@ export function buildRuntimeFactsMarkdown({ repoRoot = process.cwd() } = {}) {
     `- Long side minimum: \`${viewport.longSide}px\``,
     `- Short side minimum: \`${viewport.shortSide}px\``,
     "- World runtime mounts only after the screen-size gate passes and the current viewport is landscape.",
-    "- `index.html` has a matching runtime-manifest preload media query checked by `npm run check:viewport-gate`.",
+    "- `src/client.tsx` lazy-loads the desktop data and Three.js runtime only after that gate; `npm run check:viewport-gate` guards the boundary.",
     "",
     "## API Allowlist",
     "",
     ...api.allowlist.map((path) => `- \`${path}\``),
     "",
-    "## Asset Manifest",
+    "## Runtime Media",
     "",
-    `- Schema version: \`${manifest.schemaVersion}\``,
-    `- Cache version: \`${manifest.cacheVersion}\``,
-    `- Style anchor: \`${manifest.styleAnchorVersion}\``,
-    `- Manifest entries: \`${manifest.assetCount}\``,
-    `- Required for first render: \`${manifest.firstRenderCount}\``,
+    "- `useAssetLoadingPipeline` loads same-origin stablecoin logo images only.",
+    "- Ship, dock, island, cemetery, ambient-life, and water visuals are renderer-owned procedural geometry/materials.",
+    `- Lighthouse model: \`${gardenModel.id}\` at \`${gardenModel.url}\``,
+    `- Lighthouse GLB: ${formatBytes(gardenModel.bytes)}, SHA-256 \`${gardenModel.sha256}\`, compression \`${gardenModel.compression}\``,
+    `- Lighthouse geometry: ${gardenModel.drawCalls} draw calls, ${gardenModel.triangles.toLocaleString("en-US")} triangles, ${gardenModel.vertices.toLocaleString("en-US")} vertices, ${gardenModel.textures} textures`,
+    "- The procedural lighthouse shell remains the in-scene fallback if its GLB cannot load.",
+    "",
+    "## Archived Raster Inventory",
+    "",
+    "- `public/pharosville/assets/manifest.json` is retained for source history and validation; browser runtime does not load it.",
+    `- Schema version: \`${manifest.schemaVersion}\`; cache version: \`${manifest.cacheVersion}\`; style anchor: \`${manifest.styleAnchorVersion}\``,
+    `- Entries: \`${manifest.assetCount}\`; prior first-render set: \`${manifest.firstRenderCount}\``,
     `- Categories: ${renderCounts(manifest.categoryCounts)}`,
-    `- Load priorities: ${renderCounts(manifest.priorityCounts)}`,
-    `- Phases: ${renderCounts(manifest.phaseCounts)}`,
     `- Optional WebP twins: \`${manifest.webpPathCount}\` static paths, \`${manifest.webpFrameSourceCount}\` animation frame sources`,
     "",
     "## Asset Budgets",
     "",
-    `- Runtime manifest: count <= ${assetBudgets.manifestMaxCount}, ${renderBudget(assetBudgets.totalAssets)}`,
-    `- First render: ${renderBudget(assetBudgets.firstRender)}`,
-    `- Shell-critical: ${renderBudget(assetBudgets.shellCritical)}`,
+    "- These budgets guard the archived raster authoring inventory; they are not runtime boot budgets.",
+    `- Authoring inventory: count <= ${assetBudgets.manifestMaxCount}, ${renderBudget(assetBudgets.totalAssets)}`,
+    `- Prior first-render classification: ${renderBudget(assetBudgets.firstRender)}`,
+    `- Prior shell-critical classification: ${renderBudget(assetBudgets.shellCritical)}`,
     "",
     "## Bundle Budgets",
     "",
@@ -361,15 +426,15 @@ export function buildRuntimeFactsMarkdown({ repoRoot = process.cwd() } = {}) {
     "## Titan Ships",
     "",
     table(
-      ["Stablecoin ID", "Asset ID", "Scale"],
-      titans.map((titan) => [`\`${titan.id}\``, `\`${titan.assetId}\``, titan.scale == null ? "" : `\`${titan.scale}\``]),
+      ["Stablecoin ID", "Scale"],
+      titans.map((titan) => [`\`${titan.id}\``, titan.scale == null ? "" : `\`${titan.scale}\``]),
     ),
     "",
     "## Heritage Hulls",
     "",
     table(
-      ["Stablecoin ID", "Asset ID", "Scale"],
-      heritage.map((ship) => [`\`${ship.id}\``, `\`${ship.spriteAssetId}\``, `\`${ship.scale}\``]),
+      ["Stablecoin ID", "Scale"],
+      heritage.map((ship) => [`\`${ship.id}\``, `\`${ship.scale}\``]),
     ),
     "",
     "## Dock Rules",
@@ -378,7 +443,6 @@ export function buildRuntimeFactsMarkdown({ repoRoot = process.cwd() } = {}) {
     `- Preferred chain IDs: ${docks.preferredChainIds.map((id) => `\`${id}\``).join(", ")}`,
     `- Suppressed rendered harbor IDs: ${docks.suppressedChainIds.map((id) => `\`${id}\``).join(", ")}`,
     `- Detached dispatch wharf chain IDs: ${docks.pigeonnierChainIds.map((id) => `\`${id}\``).join(", ")}`,
-    `- Dock asset IDs: ${docks.assetIds.map((id) => `\`${id}\``).join(", ")}`,
     "",
     "## Workflow Gates",
     "",

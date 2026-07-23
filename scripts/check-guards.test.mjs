@@ -253,6 +253,8 @@ assert.match(runtimeFactsMarkdown, /## Asset Budgets/);
 assert.equal(maxManifestAssets, 75);
 assert.equal(firstRenderBudgets.maxCount, 33);
 assert.equal(sharedBundleBudgets.desktop.label, "desktop lazy chunk");
+assert.equal(sharedBundleBudgets.renderer.label, "Three.js renderer chunk");
+assert.equal(sharedBundleBudgets.renderer.required, true);
 assert.equal(
   validateCsp("default-src 'self'; script-src 'self' https://*.googletagmanager.com").some((finding) => finding.includes("wildcard")),
   true,
@@ -265,34 +267,32 @@ const viewportGateSource = [
   "export const MIN_LONG_SIDE_PX = 720;",
   "export const MIN_SHORT_SIDE_PX = 360;",
 ].join("\n");
-const viewportGateHtml = [
-  '<link rel="modulepreload" href="/assets/pharosville-desktop-data.js"',
-  '  media="(min-device-width: 720px) and (min-device-height: 360px), (min-device-width: 360px) and (min-device-height: 720px)">',
+const viewportGateClient = [
+  'import { isWidescreenViewport } from "./systems/viewport-gate";',
+  'const Desktop = lazy(() => import("./pharosville-desktop-data"));',
+  "isWidescreenViewport(window.screen.width, window.screen.height);",
 ].join("\n");
 const viewportGateCheck = checkViewportGate({
   gateSource: viewportGateSource,
-  htmlSource: viewportGateHtml,
+  clientSource: viewportGateClient,
 });
 assert.deepEqual(viewportGateCheck.errors, []);
 assert.deepEqual(viewportGateCheck.gate, { longSide: 720, shortSide: 360 });
-assert.deepEqual(viewportGateCheck.html, {
-  landscapeH: 360,
-  landscapeW: 720,
-  portraitH: 720,
-  portraitW: 360,
-});
 
 const driftedViewportGateCheck = checkViewportGate({
   gateSource: viewportGateSource,
-  htmlSource: viewportGateHtml.replace("min-device-height: 720px", "min-device-height: 721px"),
+  clientSource: viewportGateClient.replace(
+    'import("./pharosville-desktop-data")',
+    'import("./world")',
+  ),
 });
 assert.deepEqual(driftedViewportGateCheck.errors, [
-  "index.html portrait min-device-height=721px does not match MIN_LONG_SIDE_PX=720.",
+  "src/client.tsx must lazy-import ./pharosville-desktop-data after the viewport gate.",
 ]);
 assert.throws(
   () => checkViewportGate({
     gateSource: "export const MIN_LONG_SIDE_PX = 720;",
-    htmlSource: viewportGateHtml,
+    clientSource: viewportGateClient,
   }),
   /Could not parse MIN_LONG_SIDE_PX \/ MIN_SHORT_SIDE_PX/,
 );

@@ -9,8 +9,8 @@
  *   exists and the asset has no titan sprite, it stamps `sizeTier: "unique"`,
  *   `sizeLabel: "Heritage hull"`, and uses `definition.scale` as the ship's
  *   render scale.
- * - `renderer/layers/ships.ts` reads `UNIQUE_SPRITE_IDS` to skip titan-only
- *   chrome (foam, spray, full pose, sail flutter) on heritage hulls.
+ * - Runtime ship visuals use the tier, scale, and definition metadata to keep
+ *   heritage vessels distinct from standard and titan ships.
  *
  * Risk areas: scale must sit in the band ~1.20–1.32 (between standard and
  * titan); pushing higher visually competes with titans and starves layout,

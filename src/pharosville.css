@@ -61,12 +61,9 @@ textarea {
   border: 0;
 }
 
-/* W4.07 loading state — re-skinned to match the canvas palette so the cold-load
-   reveal reads as one continuous beat. The deep-night background and horizon-ship
-   silhouettes mirror `drawHorizonShips` in `src/renderer/layers/sky.ts`; the
-   silhouettes are inline-SVG (data URI) so the loading state doesn't depend on
-   the renderer being mounted. The warm spinner halo previews the lighthouse
-   lantern that ignites at envelope >= 0.66 in W4.01. */
+/* W4.07 loading state — the deep-night background and horizon ships bridge the
+   cold load into the harbor composition without depending on the Three scene.
+   The warm spinner halo previews the lighthouse lantern. */
 .pharosville-loading {
   position: relative;
   display: grid;
@@ -379,6 +376,89 @@ textarea {
   height: 100svh;
   cursor: grab;
   touch-action: none;
+}
+
+.pharosville-canvas[hidden] {
+  display: none;
+}
+
+.pharosville-static-overview {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  overflow: auto;
+  place-items: center;
+  padding: 112px 120px 104px;
+  background: #102d35;
+  color: var(--pv-parchment);
+}
+
+.pharosville-static-overview__content {
+  width: min(760px, 100%);
+}
+
+.pharosville-static-overview__status {
+  margin: 0 0 12px;
+  color: rgba(231, 222, 193, 0.72);
+  font-size: 0.82rem;
+}
+
+.pharosville-static-overview h2 {
+  margin: 0 0 28px;
+  color: var(--pv-brass-highlight);
+  font: 600 1.65rem/1.2 Georgia, "Times New Roman", serif;
+  letter-spacing: 0;
+}
+
+.pharosville-static-overview ul {
+  margin: 0;
+  padding: 0;
+  border-bottom: 1px solid rgba(247, 214, 138, 0.22);
+  list-style: none;
+}
+
+.pharosville-static-overview li {
+  border-top: 1px solid rgba(247, 214, 138, 0.22);
+}
+
+.pharosville-static-overview li > button {
+  letter-spacing: 0;
+}
+
+.pharosville-static-overview li > button {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 132px 1fr;
+  gap: 22px;
+  align-items: baseline;
+  padding: 18px 2px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pharosville-static-overview li > button:hover {
+  color: #fff8df;
+}
+
+.pharosville-static-overview li > button:focus-visible {
+  outline: 2px solid var(--pv-brass-highlight);
+  outline-offset: 4px;
+}
+
+.pharosville-static-overview li span {
+  color: var(--pv-brass-highlight);
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.pharosville-static-overview li strong {
+  font: 400 1rem/1.5 Georgia, "Times New Roman", serif;
 }
 
 .pharosville-shell--fullscreen .pharosville-canvas,
@@ -1430,6 +1510,68 @@ textarea {
 }
 @media (prefers-reduced-motion: reduce) {
   .pharosville-hover-tooltip { transition: none; }
+}
+
+.pharosville-observatory-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.pharosville-observatory-label {
+  position: absolute;
+  top: var(--pv-observatory-y);
+  left: var(--pv-observatory-x);
+  display: flex;
+  min-width: 118px;
+  padding: 6px 9px;
+  flex-direction: column;
+  align-items: flex-start;
+  transform: translate(-50%, calc(-100% - 12px));
+  border: 1px solid rgba(247, 214, 138, 0.62);
+  border-radius: 2px;
+  background: rgba(6, 19, 29, 0.88);
+  color: rgba(244, 232, 204, 0.86);
+  font: 12px/1.3 Georgia, "Times New Roman", serif;
+  letter-spacing: 0;
+  pointer-events: auto;
+}
+.pharosville-observatory-label strong {
+  color: var(--pv-brass-highlight);
+  font-size: 0.85rem;
+}
+.pharosville-observatory-label:hover,
+.pharosville-observatory-label[aria-pressed="true"] {
+  border-color: var(--pv-brass-highlight);
+  background: rgba(11, 71, 82, 0.94);
+}
+.pharosville-observatory-label:focus-visible {
+  outline: 2px solid var(--pv-brass-highlight);
+  outline-offset: 3px;
+}
+.pharosville-observe-caption {
+  position: absolute;
+  bottom: 72px;
+  left: 50%;
+  z-index: 6;
+  max-width: min(620px, calc(100% - 220px));
+  margin: 0;
+  padding: 9px 14px;
+  transform: translateX(-50%);
+  border-top: 1px solid rgba(247, 214, 138, 0.5);
+  border-bottom: 1px solid rgba(247, 214, 138, 0.24);
+  background: rgba(6, 19, 29, 0.82);
+  color: var(--pv-parchment);
+  font: 0.9rem/1.4 Georgia, "Times New Roman", serif;
+  letter-spacing: 0;
+  text-align: center;
+  pointer-events: none;
+}
+.pharosville-observe-caption span {
+  margin-right: 9px;
+  color: var(--pv-brass-highlight);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
 }
 
 /* Fleet search: below the toolbar, top-left. The wrapper re-enables pointer

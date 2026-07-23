@@ -1,109 +1,103 @@
 # PharosVille Motion Policy
 
-Last updated: 2026-07-10
+Last updated: 2026-07-24
 
-PharosVille uses one route-owned motion clock. Normal motion is driven by the
-canvas `requestAnimationFrame` loop in `pharosville-world.tsx`; reduced motion
-renders deterministic static frames and must not keep a RAF loop alive.
+PharosVille uses one route-owned motion clock. `useWorldRenderLoop` advances
+motion sampling, camera intent, hit targets, scheduler state, and Three.js
+rendering from the same `requestAnimationFrame` lifecycle.
+
+Reduced motion renders deterministic static frames on demand and must not keep
+a continuous RAF alive.
 
 ## Speed Classes
 
-- Static: terrain, printed water labels, cemetery markers, dock footprints,
-  detail chrome, and the world-rim haze (mood-tinted bands feathering the map
-  edge into the sky backdrop; pure function of map/camera/wall-clock mood).
-- Slow: lighthouse beam shimmer, semantic water shimmer, fog, selected
-  relationship pulse, harbor lamps, lighthouse-attached birds, the
-  wind-scaled caustic shimmer fringing the four major EVM-bay docks
-  (scheduler pass `dock-caustics`: recovery keeps, constrained sheds;
-  reduced motion freezes the time-zero frame), the V2.1 swell fronts —
-  three wind-scaled wave fronts travelling across the water field inside the
-  `water-accents` pass (inherits its constrained-tier shedding; reduced
-  motion freezes the time-zero frame; fronts part around land and carry no
-  analytical meaning beyond the existing wind/threat channel), and the V3.3
-  sail trim — standard hulls in transit shear their mainsail band toward the
-  bow when sailing downwind of the same scene wind (≤ 4.5% shear so dyed
-  emblems stay readable; rides the existing ship animation clock and sail
-  flutter phase, no new loops; reduced motion and moored hulls stay at the
-  neutral baked trim; flavor only, no analytical meaning).
-- Medium: ship movement along sampled water routes and bounded harbor/civic
-  activity effects.
-- Fast: recent-change sparks and wake accents only, capped to selected, top, or
-  recent-mover ships.
+- **Static:** island terraces, dock footprints, district pads, cemetery
+  markers, DOM labels, and detail UI.
+- **Slow:** water shader motion, lighthouse beam and reflection, harbor lights,
+  zone pulses, weather drift, ship bobbing, and the nine-gull ambient flock.
+- **Medium:** deterministic ship movement, camera follow, and Observe camera
+  transitions.
+- **Fast:** wakes, recent-change signals, and risk/weather accents only.
 
-## Cue Priority
+## Priority
 
-1. Selected or focused entity.
+1. Selected or keyboard-focused entity.
 2. Active risk or critical PSI state.
-3. Recent supply or data update.
-4. Harbor, cemetery, or civic scenery state.
-5. Ambient life attached to lighthouse, harbor, cemetery, or civic core.
+3. Recent supply or data change.
+4. Harbor, cemetery, or landmark state.
+5. Ambient life.
 
-## Caps And Parity
+Decorative motion must never obscure or delay a higher-priority analytical cue.
 
-- Selected pulse: one selected entity family at a time.
-- Relationship overlays: selected ship or selected dock only.
-- Ship wake/effects: selected, top-supply, or recent-mover ships only.
-- Ambient birds: capped to the lighthouse/far-sea set exposed in debug state;
-  two designated wide-radius gulls carry a periodic deterministic fishing
-  dive (V2.5) within their existing orbits.
-- Harbor lights: fixed local civic-core list plus one quay lantern per
-  rendered dock (bounded by the dock cap), both exposed in debug state.
-- Harbor and civic effects: bounded local effect sets only.
-- No independent CSS animation, sprite loop, minimap loop, interval, or timer may
-  encode analytical state outside the main motion clock.
-- Every analytical motion cue needs visual-cue registry metadata, DOM/detail or
-  accessibility-ledger parity, and a reduced-motion equivalent.
-- Ambient motion is allowed only as bounded maritime atmosphere attached to
-  existing world areas. It must not introduce lore, decorative game objectives,
-  or new data semantics.
+## Renderer Scheduler
 
-## Ship Risk-Water Motion
+The shared render scheduler derives `full`, `interaction`, `constrained`, or
+`recovery` from camera intent, draw duration, frame pacing, and reduced motion.
 
-- `calm`, `watch`, `alert`, `warning`, and `danger` map to the separated DEWS sea districts from Calm Anchorage through Danger Strait. Watch Breakwater now sits in the south basin and southeast reclaimed corner basin; `ledger` maps to Ledger Mooring spanning the entire top shelf and touching Calm Anchorage along the western flank.
-- Higher DEWS turbulence should increase risk-water dwell, drift radius, and sailing wake intensity in this order: calm < watch < alert < warning < danger.
-- Reduced-motion routed ships freeze at their primary rendered dock berth with
-  berth heading from `dockTangent` when available. NAV ledger assets keep the
-  Ledger Mooring freeze required by the non-DEWS NAV policy. Dockless ships
-  freeze at their risk-water idle tile. Details and the accessibility ledger
-  must expose named risk-water area, risk-water zone, home dock, chain presence,
-  docking cadence, and evidence caveats.
-- Routed normal-motion ships spend a base one third of each cycle moored at rendered docks. Ships with at least four positive chain deployments receive extended dock dwell. Scheduled dock visits repeat proportionally to chain deployment share, so higher-share docks are visited more often across cycles (deterministic per ship and cycle index). Non-titan, non-unique ships are hidden while moored to rotate map-visible ship load; titan and heritage-hull ships remain visible while docked.
-- Dockless normal-motion patrols must not collapse to a near-static loop. If a named area is too small for meaningful travel, use current or adjacent same-purpose sea anchors while keeping samples on water tiles.
-- Risk repath (W4.25 tack-out): when a route's risk target changes, the drift
-  center blends previous → current over 3s and the ship's heading eases toward
-  the tack direction over the first 500ms (`RISK_TRANSITION_HEADING_EASE_SECONDS`),
-  relaxing back to the orbital heading as the tack-out completes. The easing is
-  a pure function of (shipId, route, time) — no wall clock, RNG, or memory —
-  and does not run under reduced motion (risk-drift sampling is bypassed there).
-- Docking choreography: arriving transits decelerate over the last ~15% of the
-  approach (`ARRIVING_FULL_TRANSIT_END` → `ARRIVING_DECEL_END`), then ease into
-  fender contact with `fenderContact`/`mooringTension` ramping to taut; wake
-  intensity scales with the phase's speed ratio. Open-water and ledger patrol
-  sailing legs derive their speed ratio from the smoothstep easing derivative
-  (rest at leg endpoints, ~1.0 mid-leg), so wake and reported velocity track
-  the eased pace instead of holding constant.
-- Route wander detours are seeded per ship and leg endpoints — never by the
-  600-second plan-rebuild bucket — so plan rebuilds reproduce identical path
-  geometry and mid-transit ships never jump at a bucket flip. Per-cycle path
-  variety comes from the W4.23 itinerary and dock-schedule rotation changing
-  the leg endpoints when a ship naturally starts a new route cycle.
+- Analytical entities, selection, hit targets, DOM labels, and details remain.
+- Inspection-only ship and dock geometry may be hidden outside Explore/focus.
+- Wakes, weather detail, gulls, or other ambient work may be reduced or hidden
+  under pressure.
+- A constrained tier must change bounded detail, not analytical meaning.
+
+The gull flock is exactly nine instanced silhouettes. Its motion is
+deterministic, freezes at the time-zero composition under reduced motion, and
+may hide on the constrained tier.
+
+## Ship Motion
+
+- Ship routes use the existing water-only motion plan and risk-placement
+  semantics.
+- Calm, watch, alert, warning, danger, and ledger remain ordered analytical
+  water destinations.
+- Higher turbulence may increase dwell, drift, and wake intensity without
+  changing the underlying risk classification.
+- Route geometry is deterministic for the same world and cycle inputs.
+- Motion sampling, rendered pose, hit testing, follow-selected, and debug state
+  must use the same sample.
+- Reduced-motion ships use deterministic static positions and headings.
+- Docking cadence visualizes rendered chain presence; it does not claim real
+  transfer or issuer activity.
+
+## Observe
+
+Observe mode advances through a bounded analytical sequence using the existing
+clock and one timeout per beat. It is available only during normal motion.
+
+Pointer, wheel, keyboard, visibility, or reduced-motion changes must interrupt
+Observe immediately. It may focus the top risk mover, growth story, and
+concentration story, but it cannot invent a new ranking or analytical field.
+
+## Visibility
+
+When the WebGL surface is offscreen or the document is hidden:
+
+- cancel the pending frame;
+- retain current semantic motion state;
+- resume with a zero accumulated time delta;
+- do not teleport ships across a delayed interval.
+
+## Prohibited Motion
+
+- independent analytical CSS animations;
+- a second renderer loop;
+- per-entity intervals or timers;
+- unbounded particles or ambient entities;
+- wall-clock randomness;
+- motion with no reduced-motion equivalent;
+- decorative motion that implies transfers, activity, or risk.
 
 ## Debug Contract
 
-Development/test builds expose `window.__pharosVilleDebug` fields for browser
-validation:
+Development and test builds expose the shared debug state, including:
 
 - `motionClockSource`
 - `activeMotionLoopCount`
 - `motionCueCounts`
 - `motionFrameCount`
 - `reducedMotion`
+- renderer and GPU metrics
 
-Visual tests may also set `globalThis.__pharosVilleTestWallClockHour` to a
-finite hour in `[0, 24)`. That override controls only the rendered
-time-of-day frame; it does not create a second motion clock or advance route
-animation state.
-
-Reduced motion should report `activeMotionLoopCount = 0` and
-`motionClockSource = "reduced-motion-static-frame"`. Normal motion should report
-`activeMotionLoopCount = 1` and `motionClockSource = "requestAnimationFrame"`.
+Reduced motion reports `activeMotionLoopCount = 0` and
+`motionClockSource = "reduced-motion-static-frame"`. Normal motion reports one
+active loop and `motionClockSource = "requestAnimationFrame"`.

@@ -78,4 +78,30 @@ describe("WorldToolbar (streamlined)", () => {
     fireEvent.click(screen.getByLabelText(/return to day-night preset/i));
     expect(onClearTimeOverride).toHaveBeenCalledOnce();
   });
+
+  it("shows Observe only when the world supplies the Three experience action", () => {
+    const onToggleObserve = vi.fn();
+    const view = render(<WorldToolbar zoomLabel="100%" onResetView={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "Observe harbor" })).toBeNull();
+
+    view.rerender(
+      <WorldToolbar
+        zoomLabel="100%"
+        onResetView={vi.fn()}
+        onToggleObserve={onToggleObserve}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Observe harbor" }));
+    expect(onToggleObserve).toHaveBeenCalledOnce();
+
+    view.rerender(
+      <WorldToolbar
+        observing
+        zoomLabel="100%"
+        onResetView={vi.fn()}
+        onToggleObserve={onToggleObserve}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Stop observing" })).toBeTruthy();
+  });
 });

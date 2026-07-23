@@ -119,6 +119,7 @@ export function detailAnchorForPoint(point: ScreenPoint, viewport: ScreenPoint):
 }
 
 function centerPointForTarget(target: HitTarget): ScreenPoint {
+  if (target.anchor) return target.anchor;
   return {
     x: target.rect.x + target.rect.width / 2,
     y: target.rect.y + target.rect.height / 2,

@@ -48,8 +48,10 @@ export function ShipSearch({
 
   const handleKeyDown = useCallback((event: ReactKeyboardEvent<HTMLInputElement>) => {
     // Never let search keystrokes reach the world shell (camera pan/zoom and
-    // Tab target-cycling listen on the shared onKeyDown).
-    event.stopPropagation();
+    // Tab target-cycling listen on the shared onKeyDown). Once an empty search
+    // is closed, Escape is allowed through so it can close world details.
+    const dismissesSearch = event.key === "Escape" && (open || query.trim().length > 0);
+    if (event.key !== "Escape" || dismissesSearch) event.stopPropagation();
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setActiveIndex((index) => Math.min(index + 1, Math.max(0, matches.length - 1)));
@@ -69,11 +71,12 @@ export function ShipSearch({
       return;
     }
     if (event.key === "Escape") {
+      if (!dismissesSearch) return;
       event.preventDefault();
       setQuery("");
       setOpen(false);
     }
-  }, [activeIndex, commitSelection, matches]);
+  }, [activeIndex, commitSelection, matches, open, query]);
 
   const listboxId = "pharosville-ship-search-listbox";
   const showList = open && matches.length > 0;

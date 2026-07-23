@@ -1,6 +1,6 @@
 # PharosVille GitHub Media
 
-Last updated: 2026-06-29
+Last updated: 2026-07-24
 
 Use this file to keep GitHub, README, and social-preview media consistent.
 
@@ -43,7 +43,8 @@ Use `outputs/` for scratch captures before promoting anything into docs.
 
 - Do not commit `test-results/`, `playwright-report/`, `dist/`, local env files, or scratch captures.
 - Do not use generated remote URLs at runtime.
-- Do not bake token names, chain names, or analytical labels into runtime sprite art.
+- Do not bake token names, chain names, or analytical labels into promotional
+  world art.
 - Prefer small, inspectable PNG/WebP assets for GitHub media.
 
 ## Validation

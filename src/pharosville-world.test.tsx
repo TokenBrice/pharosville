@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PharosVilleLoading, PharosVilleWorld } from "./pharosville-world";
 import type { HitTarget } from "./renderer/hit-testing";
+import {
+  resolveGardenEntityDisplayTile,
+  selectGardenObservatorySlice,
+} from "./systems/garden-observatory-slice";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "./systems/world-types";
 
 const mocks = vi.hoisted(() => {
@@ -11,8 +15,12 @@ const mocks = vi.hoisted(() => {
   const targets: HitTarget[] = [];
   return {
     cameraRef,
+    cancelCameraIntent: vi.fn(),
     canvasHandleKeyDown: vi.fn(),
     canvasSizeRef,
+    focusTile: vi.fn(),
+    reducedMotion: true,
+    rendererStatus: "ready",
     requestPaint: vi.fn(),
     targets,
   };
@@ -44,16 +52,11 @@ vi.mock("./components/detail-panel", () => ({
 
 vi.mock("./hooks/use-asset-loading-pipeline", () => ({
   useAssetLoadingPipeline: () => ({
-    assetLoadErrors: [],
     assetLoadTick: 0,
-    assetManager: {
-      get: () => null,
-      getLoadStats: () => ({ criticalLoaded: 0, deferredLoaded: 0, failed: 0, requested: 0 }),
+    assets: {
+      getLogo: () => null,
+      getRenderAssetGenerationKey: () => "lg0",
     },
-    criticalAssetAttemptsSettled: true,
-    criticalAssetsLoaded: true,
-    deferredAssetsLoaded: true,
-    setCriticalFramePainted: vi.fn(),
   }),
 }));
 
@@ -63,10 +66,12 @@ vi.mock("./hooks/use-canvas-resize-and-camera", () => ({
     camera: mocks.cameraRef.current,
     cameraRef: mocks.cameraRef,
     cameraZoomLabel: "100%",
+    cancelCameraIntent: mocks.cancelCameraIntent,
     canvasBudgetRef: { current: null },
     canvasRef: { current: null },
     canvasSize: mocks.canvasSizeRef.current,
     canvasSizeRef: mocks.canvasSizeRef,
+    focusTile: mocks.focusTile,
     handleFollowSelected: vi.fn(),
     handleKeyDown: mocks.canvasHandleKeyDown,
     handlePointerCancel: vi.fn(),
@@ -94,8 +99,24 @@ vi.mock("./hooks/use-fullscreen-mode", () => ({
 vi.mock("./hooks/use-world-render-loop", () => ({
   useWorldRenderLoop: () => ({
     frameRateFps: null,
+    rendererStatus: mocks.rendererStatus,
     requestPaint: mocks.requestPaint,
   }),
+}));
+
+vi.mock("./renderer/garden-observatory-hit-testing", () => ({
+  createGardenObservatoryHitTargetSnapshot: vi.fn(() => ({
+    recordsById: new Map(),
+    spatialIndex: {
+      cellSize: 96,
+      cells: new Map(),
+      targetById: new Map(mocks.targets.map((target) => [target.id, target])),
+      targetCellKeys: new Map(),
+      targets: mocks.targets,
+    },
+    targets: mocks.targets,
+    targetsByDetailId: new Map(mocks.targets.map((target) => [target.detailId, target])),
+  })),
 }));
 
 vi.mock("./renderer/hit-testing", () => {
@@ -113,6 +134,16 @@ vi.mock("./renderer/hit-testing", () => {
   });
   return {
     createHitTargetSnapshot: vi.fn(snapshot),
+    hitTargetSnapshotFromTargets: vi.fn((targets: HitTarget[]) => ({
+      ...snapshot(),
+      spatialIndex: {
+        ...snapshot().spatialIndex,
+        targetById: new Map(targets.map((target) => [target.id, target])),
+        targets,
+      },
+      targets,
+      targetsByDetailId: new Map(targets.map((target) => [target.detailId, target])),
+    })),
     recomputeHitTargetsForCameraOnly: vi.fn(snapshot),
   };
 });
@@ -126,20 +157,28 @@ vi.mock("./systems/motion", () => ({
 
 vi.mock("./systems/reduced-motion", () => ({
   observeReducedMotion: (callback: (matches: boolean) => void) => {
-    callback(true);
+    callback(mocks.reducedMotion);
     return () => undefined;
   },
 }));
 
 beforeEach(() => {
   window.history.replaceState(null, "", "/");
+  mocks.cameraRef.current.offsetX = 0;
+  mocks.cameraRef.current.offsetY = 0;
+  mocks.cameraRef.current.zoom = 1;
   mocks.canvasHandleKeyDown.mockClear();
+  mocks.cancelCameraIntent.mockClear();
+  mocks.focusTile.mockClear();
+  mocks.reducedMotion = true;
+  mocks.rendererStatus = "ready";
   mocks.requestPaint.mockClear();
   mocks.targets.splice(0, mocks.targets.length, ...targetFixtures());
   delete (globalThis as { __pharosVilleTestWallClockHour?: number }).__pharosVilleTestWallClockHour;
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
   window.history.replaceState(null, "", "/");
   delete (globalThis as { __pharosVilleTestWallClockHour?: number }).__pharosVilleTestWallClockHour;
@@ -255,6 +294,14 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     expect(screen.queryByTestId("pharosville-selection-strip")).toBeNull();
   });
 
+  it("leaves canvas selection changes to the canvas pointer-up handler", () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    fireEvent.pointerDown(screen.getByTestId("pharosville-canvas"));
+
+    expect(screen.getByTestId("pharosville-detail-panel")).toBeTruthy();
+  });
+
   it("routes manual time scrub changes through the wall-clock override", async () => {
     render(<PharosVilleWorld world={worldFixture()} />);
 
@@ -268,6 +315,84 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     fireEvent.click(screen.getByLabelText("Return to day-night preset"));
     await waitFor(() => expect(globalThis.__pharosVilleTestWallClockHour).toBeUndefined());
     await waitFor(() => expect(screen.getByLabelText("Time of day").textContent).toBe("12:00"));
+  });
+
+  it("projects truthful area controls over the Three scene", async () => {
+    mocks.cameraRef.current.offsetX = 328;
+    mocks.cameraRef.current.offsetY = 100;
+    render(<PharosVilleWorld world={worldFixture()} />);
+    fireEvent.click(screen.getByLabelText("Close details"));
+
+    const warning = screen.getByRole("button", {
+      name: "Open Warning Shoals details: WARNING, 2 ships",
+    });
+    expect(warning.getAttribute("style")).toContain("--pv-observatory-x: 184px");
+    expect(screen.getByText("Watch Breakwater")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Observe harbor" })).toBeNull();
+
+    fireEvent.click(warning);
+    await waitFor(() => {
+      expect(screen.getByTestId("pharosville-detail-panel").textContent).toContain("Warning Shoals");
+    });
+  });
+
+  it("does not leave offscreen analytical labels in the keyboard order", () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    expect(screen.queryByLabelText(/Open .* details:/)).toBeNull();
+  });
+
+  it("advances Observe through the camera controller and stops on input", () => {
+    vi.useFakeTimers();
+    mocks.reducedMotion = false;
+    const world = worldFixture();
+    const slice = selectGardenObservatorySlice(world, null);
+    render(<PharosVilleWorld world={world} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Observe harbor" }));
+    expect(screen.getByTestId("pharosville-observe-caption").textContent).toContain(
+      "The Pharos lighthouse reports PSI 82, STEADY.",
+    );
+    expect(mocks.focusTile).toHaveBeenLastCalledWith({ x: 16, y: 12 });
+
+    act(() => vi.advanceTimersByTime(OBSERVE_TEST_STEP_MS));
+    expect(screen.getByTestId("pharosville-observe-caption").textContent).toContain(
+      "USDC is the observatory's leading risk watch in Warning Shoals.",
+    );
+    expect(mocks.focusTile).toHaveBeenLastCalledWith(resolveGardenEntityDisplayTile({
+      entity: world.ships[0]!,
+      slice,
+    }));
+    expect(screen.getByRole("heading", { level: 2, name: "Pharos Lighthouse" })).toBeTruthy();
+
+    const observe = screen.getByRole("button", { name: "Stop observing" });
+    fireEvent.keyDown(observe, { key: "Tab" });
+    expect(screen.queryByTestId("pharosville-observe-caption")).toBeNull();
+    expect(mocks.cancelCameraIntent).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Observe harbor" }));
+    fireEvent.pointerDown(screen.getByTestId("pharosville-canvas"));
+    expect(screen.queryByTestId("pharosville-observe-caption")).toBeNull();
+    expect(mocks.cancelCameraIntent).toHaveBeenCalledTimes(2);
+  });
+
+  it("replaces a failed Three scene with a navigable static signal overview", async () => {
+    mocks.rendererStatus = "failed";
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    expect(screen.getByTestId("pharosville-canvas").hasAttribute("hidden")).toBe(true);
+    expect(screen.getByRole("heading", { name: "Harbor signal overview" })).toBeTruthy();
+    expect(screen.getByText("The Pharos lighthouse reports PSI 82, STEADY.")).toBeTruthy();
+    expect(screen.getByText(/USDC is the observatory's leading risk watch/)).toBeTruthy();
+    expect(screen.getByText(/USDC has the observatory's strongest weekly supply move/)).toBeTruthy();
+    expect(screen.getByText(/Ethereum Dock has the observatory's highest dock concentration/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Use standard view" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Recenter map" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Risk watch details" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("pharosville-detail-panel").textContent).toContain("USDC");
+    });
   });
 });
 
@@ -324,8 +449,29 @@ function worldFixture(input: {
   generatedAt?: number;
 } = {}): PharosVilleWorldModel {
   return {
-    areas: [],
+    areas: [
+      {
+        band: "WARNING",
+        count: 2,
+        detailId: "area.dews.warning",
+        id: "area.dews.warning",
+        kind: "area",
+        label: "Warning Shoals",
+        tile: { x: 1, y: 2 },
+      },
+      {
+        band: "WATCH",
+        count: 1,
+        detailId: "area.dews.watch",
+        id: "area.dews.watch",
+        kind: "area",
+        label: "Watch Breakwater",
+        tile: { x: 3, y: 1 },
+      },
+    ],
     detailIndex: {
+      "area.dews.warning": detail("area.dews.warning", "Warning Shoals", "area", "Two ships are in warning water."),
+      "area.dews.watch": detail("area.dews.watch", "Watch Breakwater", "area", "One ship is under watch."),
       "dock.ethereum": detail("dock.ethereum", "Ethereum Dock", "dock", "Ethereum chain harbor summary."),
       lighthouse: detail("lighthouse", "Pharos Lighthouse", "lighthouse", "Beacon summary."),
       "ship.usdc": detail("ship.usdc", "USDC", "ship", "USDC ship summary."),
@@ -336,9 +482,30 @@ function worldFixture(input: {
       id: "dock.ethereum",
       kind: "dock",
       label: "Ethereum Dock",
+      concentration: 0.72,
+      tile: { x: 6, y: 6 },
+      totalUsd: 2_000,
     }],
     effects: [],
     entityById: {
+      "area.dews.warning": {
+        band: "WARNING",
+        count: 2,
+        detailId: "area.dews.warning",
+        id: "area.dews.warning",
+        kind: "area",
+        label: "Warning Shoals",
+        tile: { x: 1, y: 2 },
+      },
+      "area.dews.watch": {
+        band: "WATCH",
+        count: 1,
+        detailId: "area.dews.watch",
+        id: "area.dews.watch",
+        kind: "area",
+        label: "Watch Breakwater",
+        tile: { x: 3, y: 1 },
+      },
       "dock.ethereum": {
         chainId: "ethereum",
         detailId: "dock.ethereum",
@@ -351,6 +518,7 @@ function worldFixture(input: {
         id: "lighthouse",
         kind: "lighthouse",
         label: "Pharos Lighthouse",
+        tile: { x: 4, y: 4 },
       },
       "ship.usdc": {
         detailId: "ship.usdc",
@@ -368,6 +536,10 @@ function worldFixture(input: {
       id: "lighthouse",
       kind: "lighthouse",
       label: "Pharos Lighthouse",
+      psiBand: "STEADY",
+      score: 82,
+      tile: { x: 4, y: 4 },
+      unavailable: false,
     },
     map: { height: 10, tiles: [], waterRatio: 1, width: 10 },
     pigeonnier: {
@@ -375,6 +547,7 @@ function worldFixture(input: {
       id: "pigeonnier",
       kind: "pigeonnier",
       label: "Pigeonnier",
+      tile: { x: 8, y: 8 },
     },
     routeMode: "world",
     ships: [{
@@ -389,7 +562,14 @@ function worldFixture(input: {
       id: "ship.usdc",
       kind: "ship",
       label: "USDC",
-      riskZone: "calm",
+      marketCapUsd: 1_000,
+      pegDeviationBps: 45,
+      riskPlacement: "outer-rough-water",
+      riskTile: { x: 7, y: 2 },
+      riskZone: "warning",
+      symbol: "USDC",
+      tile: { x: 2, y: 3 },
+      change7dPct: 4,
       visual: {
         shipClass: "cefi",
         sizeTier: "major",
@@ -398,6 +578,8 @@ function worldFixture(input: {
     visualCues: [],
   } as unknown as PharosVilleWorldModel;
 }
+
+const OBSERVE_TEST_STEP_MS = 12_000;
 
 function detail(id: string, title: string, kind: string, summary: string) {
   return {

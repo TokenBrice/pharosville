@@ -1,7 +1,8 @@
 # PharosVille Scenery Brief
 
 Date: 2026-05-18
-Status: Phase 0 contract
+Revised: 2026-07-24
+Status: Historical visual grammar; current runtime contract is `docs/pharosville-page.md`
 Scope: standalone PharosVille visual-world grammar only
 
 ## Purpose
@@ -12,7 +13,9 @@ Primary user question: Where is stablecoin risk, market structure, and recent ac
 
 ## Transfer Boundary
 
-This brief borrows bounded-world, cue-registry, manifest, motion-budget, and DOM-truth habits from ClaudeVille-style work. It does not copy fantasy-village scenery, cozy tone, decorative lore, or extra roleplay concepts into Pharos.
+This brief borrows bounded-world, cue-registry, motion-budget, and DOM-truth
+habits from earlier world work. It does not define the current renderer or
+runtime media pipeline.
 
 PharosVille remains dark-first, precise, semantic, maritime, and analytical. Avoid non-semantic palettes, generic Web3 glow/glass, decorative copy, new display typography systems, and scenery that competes with stablecoin-monitoring meaning.
 
@@ -54,7 +57,9 @@ risk-water areas. Freeze/blacklist monitoring stays on
 
 ## DOM-Only Until Clearer
 
-The canvas must not become the only source of analytical truth. Exact values, caveats, source fields, freshness, member lists, links, keyboard instructions, and screen-reader copy stay in DOM surfaces.
+The 3D world must not become the only source of analytical truth. Exact values,
+caveats, source fields, freshness, member lists, links, keyboard instructions,
+and screen-reader copy stay in DOM surfaces.
 
 Concepts that should remain DOM-only until their visual mapping is clearer:
 
@@ -64,4 +69,5 @@ Concepts that should remain DOM-only until their visual mapping is clearer:
 - filtering, sorting, and dense inspection controls
 - methodology text beyond short source/caveat labels
 
-No new Worker endpoint, D1 migration, data provider, supply override, methodology change, or mobile canvas support is implied by this scenery brief.
+No new Worker endpoint, D1 migration, data provider, supply override,
+methodology change, or mobile 3D runtime is implied by this scenery brief.

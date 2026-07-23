@@ -2,13 +2,15 @@
 // resize observer (with adaptive DPR plumbing), and DOM event handlers that
 // translate pointer/wheel/keyboard input into camera or selection deltas.
 import { useCallback, useEffect, useRef, useState, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type MutableRefObject, type PointerEvent as ReactPointerEvent, type RefObject, type SetStateAction } from "react";
-import { entityFollowTile, type WorldSelectableEntity } from "../renderer/geometry";
 import { hitTest, hitTestSpatial, type HitTarget, type HitTargetSnapshot } from "../renderer/hit-testing";
 import { cameraZoomLabel, clampCameraToMap, defaultCamera, followTile, panCamera, zoomIn, zoomOut } from "../systems/camera";
 import { initialAdaptiveDprState, resolveCanvasBudget, type AdaptiveDprState } from "../systems/canvas-budget";
 import type { ShipMotionSample } from "../systems/motion";
 import { zoomCameraAt, type IsoCamera, type ScreenPoint } from "../systems/projection";
-import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
+import type {
+  PharosVilleWorld as PharosVilleWorldModel,
+  WorldSelectableEntity,
+} from "../systems/world-types";
 import { sameCamera, samePoint } from "../lib/camera-equality";
 import {
   FOLLOW_INITIAL_DELTA_SECONDS,
@@ -46,6 +48,10 @@ export interface UseCanvasResizeAndCameraInput {
   onSelectTarget: (target: HitTarget, point: ScreenPoint, viewport: ScreenPoint) => void;
   recomputeHitTargets: () => HitTargetSnapshot | null;
   reducedMotion: boolean;
+  resolveSelectedFollowTile?: (
+    entity: WorldSelectableEntity,
+    shipMotionSamples: ReadonlyMap<string, ShipMotionSample>,
+  ) => ScreenPoint | null;
   requestWorldFrame: () => void;
   selectedDetailIdRef: MutableRefObject<string | null>;
   selectedEntity: WorldSelectableEntity | null;
@@ -65,10 +71,12 @@ export interface UseCanvasResizeAndCameraResult {
   camera: IsoCamera | null;
   cameraRef: MutableRefObject<IsoCamera | null>;
   cameraZoomLabel: string;
+  cancelCameraIntent: () => void;
   canvasBudgetRef: MutableRefObject<ReturnType<typeof resolveCanvasBudget> | null>;
   canvasRef: RefObject<HTMLCanvasElement | null>;
   canvasSize: ScreenPoint;
   canvasSizeRef: MutableRefObject<ScreenPoint>;
+  focusTile: (tile: ScreenPoint) => void;
   handleFollowSelected: () => void;
   handleKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => void;
   handlePointerDown: (event: ReactPointerEvent<HTMLCanvasElement>) => void;
@@ -97,6 +105,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     onSelectTarget,
     recomputeHitTargets,
     reducedMotion,
+    resolveSelectedFollowTile,
     requestWorldFrame,
     selectedDetailIdRef,
     selectedEntity,
@@ -174,6 +183,14 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   const currentCameraBase = useCallback(() => (
     cameraIntentRef.current.targetCamera ?? displayCameraRef.current ?? cameraRef.current
   ), [cameraRef]);
+
+  const selectedFollowTile = useCallback((
+    entity: WorldSelectableEntity,
+    shipMotionSamples: ReadonlyMap<string, ShipMotionSample>,
+  ): ScreenPoint => (
+    resolveSelectedFollowTile?.(entity, shipMotionSamples)
+    ?? entity.tile
+  ), [resolveSelectedFollowTile]);
 
   const queueCameraTarget = useCallback((targetCamera: IsoCamera, mode: CameraIntentMode) => {
     if (cameraModeCancelsFollow(mode)) stopFollowChase();
@@ -514,11 +531,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       ) {
         stopFollowChase();
       } else {
-        const sampledTile = entityFollowTile({
-          entity,
-          mapWidth: world.map.width,
-          shipMotionSamples,
-        });
+        const sampledTile = selectedFollowTile(entity, shipMotionSamples);
         const sample = shipMotionSamples.get(entity.id);
         const previousTime = followChaseLastTimeRef.current;
         const rawDeltaSeconds = previousTime === null ? FOLLOW_INITIAL_DELTA_SECONDS : (now - previousTime) / 1000;
@@ -578,16 +591,12 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       lastFrameTime: now,
     };
     return { camera: advanced.camera, cameraChanged, cameraIntentActive: true };
-  }, [cameraRef, canvasSizeRef, commitCameraState, reducedMotion, selectedDetailIdRef, selectedEntityRef, stopFollowChase, world.map]);
+  }, [cameraRef, canvasSizeRef, commitCameraState, reducedMotion, selectedDetailIdRef, selectedEntityRef, selectedFollowTile, stopFollowChase, world.map]);
 
   const handleFollowSelected = useCallback(() => {
     if (!selectedEntity) return;
     stopFollowChase();
-    const sampledTile = entityFollowTile({
-      entity: selectedEntity,
-      mapWidth: world.map.width,
-      shipMotionSamples: shipMotionSamplesRef.current,
-    });
+    const sampledTile = selectedFollowTile(selectedEntity, shipMotionSamplesRef.current);
     const start = currentCameraBase();
     if (!start) return;
     const target = followTile({
@@ -611,7 +620,19 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     // cameraRef, shipMotionSamplesRef omitted: ref identity never changes
     // (HOOKS F4).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applyCameraImmediately, canvasSizeRef, currentCameraBase, queueCameraTarget, reducedMotion, selectedDetailId, selectedEntity, stopFollowChase, world.map]);
+  }, [applyCameraImmediately, canvasSizeRef, currentCameraBase, queueCameraTarget, reducedMotion, selectedDetailId, selectedEntity, selectedFollowTile, stopFollowChase, world.map]);
+
+  const focusTile = useCallback((tile: ScreenPoint) => {
+    stopFollowChase();
+    const start = currentCameraBase();
+    if (!start) return;
+    queueCameraTarget(followTile({
+      camera: start,
+      map: world.map,
+      tile,
+      viewport: canvasSizeRef.current,
+    }), "follow-selected");
+  }, [canvasSizeRef, currentCameraBase, queueCameraTarget, stopFollowChase, world.map]);
 
   useEffect(() => {
     if (lastSelectedDetailIdRef.current !== selectedDetailId) {
@@ -679,10 +700,12 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     camera,
     cameraRef,
     cameraZoomLabel: camera ? cameraZoomLabel(camera) : "100%",
+    cancelCameraIntent: stopFollowChase,
     canvasBudgetRef,
     canvasRef,
     canvasSize,
     canvasSizeRef,
+    focusTile,
     handleFollowSelected,
     handleKeyDown,
     handlePointerCancel,

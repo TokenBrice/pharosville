@@ -1,39 +1,58 @@
 # PharosVille Known Pitfalls
 
-Last updated: 2026-05-18
-
-These are repeat-risk areas for agents working on PharosVille.
+Last updated: 2026-07-24
 
 ## Data And Semantics
 
-- Do not multiply DefiLlama list `circulating` values by price. They are already USD-denominated for this surface.
-- Do not turn docking cadence into transfer, bridge, or transaction-flow semantics.
-- Do not let stale or missing peg evidence become storm/depeg risk.
-- Do not add Worker/API endpoints for visual-only work without an explicit data-contract request.
-- Do not add production fallback fixture data. The route should show loading/error states instead of invented market data.
-- Do not encode analytical meaning only in pixels. Detail panels and the accessibility ledger need matching text.
+- Do not multiply DefiLlama list `circulating` values by price; they are already
+  USD-denominated for this surface.
+- Do not turn routes or docking cadence into transfer, bridge, transaction, or
+  issuer-operation semantics.
+- Do not let stale or missing evidence become confirmed stress.
+- Do not add Worker/API endpoints for visual-only work without an explicit
+  data-contract request.
+- Do not add invented production fallback market data.
+- Do not encode analytical meaning only in the 3D scene.
 
-## Visual And Renderer
+## Renderer
 
-- Do not reference generated candidate paths, remote URLs, or prototype assets at runtime.
-- Do not add ad hoc colors that bypass `palette.ts`, `world-canvas.ts` route constants, or shared classification colors.
-- Do not change manifest geometry without checking hitboxes, anchors, selection rings, and visual tests.
-- Do not move ships with a different model than hit testing and debug state use.
-- Do not treat per-class ship silhouettes as a reliable fleet-zoom read: they are dependable only at inspect zoom, CeFi vs CeFi-dependent is not glanceable there, and the Class detail row plus ledger are the reliable analytical surface.
-- Do not reintroduce old harbor-scene/layer/sprite stack code; the current stack is `systems/` plus Canvas 2D `renderer/`.
-- Do not weaken canvas pixel budgets for a cosmetic fix.
+- Do not reintroduce a renderer switch, query flag, or Canvas 2D fallback.
+- Do not create a second RAF or per-entity timers.
+- Do not move ships with a different sample than hit testing, follow-selected,
+  and debug state use.
+- Do not allocate new geometries, materials, or textures every frame.
+- Do not add post-processing or a model campaign to solve ordinary palette,
+  lighting, composition, or logo-framing issues.
+- Do not weaken GPU, pacing, DPR, or bundle budgets for a cosmetic fix without
+  evidence and an explicit decision.
+- Do not bypass shared palette and analytical zone themes with debug colors.
 
-## Viewport And Accessibility
+## Models And Logos
 
-- Do not mount the world when the device screen long side is below `720px`, the short side is below `360px`, or a capable screen is in portrait orientation.
-- Do not fetch world data, decode sprites/logos, or start runtime asset loading in the fallback viewport. The HTML `manifest.runtime.json` preload may still occur.
-- Do not start a RAF loop under reduced motion.
-- Do not remove keyboard pan, Escape clear, toolbar controls, blank-map clear, or DOM detail parity when changing interactions.
+- Do not hand-edit the lighthouse GLB; change its deterministic generator.
+- Do not change model origin, scale, anchors, or pick proxy independently.
+- Do not leave ships blank when a logo fails; preserve symbol fallback.
+- Do not add remote generation URLs or tokens to runtime code.
+- Do not treat the archived raster manifest as a browser runtime inventory.
 
-## Tests And Docs
+## Viewport And Failure
 
-- Do not rely on the desktop screenshot alone. Pair visual changes with focused world-model, hit-testing, asset, and palette checks.
-- Do not update snapshots for unintentional drift.
-- Do not treat historical `*-plan.md` files as authoritative when they conflict with current code, route docs, or generated runtime facts.
-- Do not forget `docs/pharosville-page.md` for user-visible route behavior changes.
-- Do not forget this agent pack when changing process, assets, scenarios, or validation workflow.
+- Do not mount world data or import Three.js below the screen gate or in
+  portrait.
+- Do not request the GLB or decode logos on blocked viewports.
+- Do not replace the GPU failure overview with invented data or a broken 3D
+  retry loop.
+- Do not remove DOM details, keyboard traversal, search, Escape clear, or
+  accessibility-ledger parity when changing world interaction.
+
+## Tests And Release
+
+- Do not rely on one desktop screenshot. Pair visual review with focused unit,
+  interaction, fallback, and performance checks.
+- Do not accept software-rendered or integrated-GPU numbers as the strict
+  reference-machine gate.
+- Do not update evidence for unexplained drift.
+- Do not treat historical plans as authoritative over current code and
+  canonical docs.
+- Do not manually create semantic tags or GitHub Releases; use the protected
+  release workflow after a green `main` deploy.

@@ -4,6 +4,9 @@ Date: 2026-07-23
 
 Status: Decision memo
 
+Revised: 2026-07-23 after joint review; the revisions are recorded in the
+companion implementation plan's decision log.
+
 Scope: Three.js technical research, current PharosVille architecture review,
 product and visual assessment, performance feasibility, target architecture,
 migration plan, and go/no-go criteria.
@@ -326,6 +329,13 @@ replace enough Canvas renderer code, use an intentionally separate experimental
 chunk, or change the bundle contract with explicit approval. A permanent dual
 renderer should not ship to every visitor.
 
+Verified in the repository: `scripts/check-bundle-size.mjs` sums every JS chunk
+in `dist/assets` against the aggregate budget, so even a lazy, never-executed
+experiment chunk fails `npm run validate`. The experiment must therefore be
+excluded from production builds by a build-time flag (preferred), or carry a
+temporary, explicitly expiring exemption in `scripts/bundle-budgets.mjs` with a
+scheduled removal task.
+
 The maintained perf lane also passed:
 
 - Two sustained-motion tests passed.
@@ -407,6 +417,11 @@ Each beat follows:
 framed visual focus -> one factual sentence -> optional inspect action
 ```
 
+Selecting these beats requires analytical ranking logic (top current risk watch, growth
+or shrink story, concentration story). That is product work, not rendering: the
+slice may hardcode one sequence, and the ranking logic is a named
+production-conversion task in the implementation plan.
+
 #### Explore
 
 The familiar direct-manipulation mode:
@@ -439,7 +454,7 @@ visual strength.
 Recommended levels:
 
 - **Overview:** lighthouse, sea zones, harbor massing, titans/heritage hulls,
-  current risk movers, and aggregate textual counts.
+  current risk watches, and aggregate textual counts.
 - **Explore:** more standard ships, dock details, zone labels, and route cues.
 - **Inspect:** individual hull detail, logo/emblem, report-card marks, rigging,
   selection relations, and exact DOM panel.
@@ -451,6 +466,10 @@ explicit product approval plus updates to
 tests, legend text, and accessibility wording. Every ship can still exist,
 remain searchable, and appear when relevant without demanding equal overview
 salience.
+
+The decision slice must embody this calmer overview composition. A slice that
+reproduces current density would test renderer parity, which the rest of this
+memo argues is the wrong question.
 
 ## Target Technical Architecture
 
@@ -464,7 +483,7 @@ three@0.185.x pinned exactly
 vanilla Three.js inside the existing React world host
 WebGLRenderer
 OrthographicCamera
-GLTFLoader for selected 3D assets
+procedural in-code geometry for the slice; GLTFLoader only from production conversion
 MapControls or a small constrained camera controller
 existing Vitest + Playwright infrastructure
 ```
@@ -687,6 +706,11 @@ Recommendation:
 
 Use GLB as the canonical 3D runtime format.
 
+This pipeline stands up during production conversion, not for the decision
+slice. The slice uses procedural in-code geometry; the only earlier GLB work is
+a single cost probe that produces one finished ship, landmark, and environment
+asset to price the pipeline.
+
 Pipeline:
 
 ```text
@@ -848,8 +872,9 @@ The Three renderer must preserve the current contract:
 - Color is not the only risk encoding.
 - Night mode preserves zone, label, selection, and text contrast.
 - Sound is optional and never required.
-- A GPU or shader failure produces Canvas 2D fallback or a useful DOM/static
-  overview, never a blank scene.
+- A GPU or shader failure produces a useful fallback, never a blank scene:
+  Canvas 2D while the experiment runs, and a DOM/static overview after cutover
+  removes Canvas.
 - The desktop gate runs before fetching world data or loading Three/GLB assets.
 
 Reduced motion means:
@@ -864,7 +889,16 @@ Reduced motion means:
 
 ## Migration Plan
 
+Phase numbering below maps to the implementation plan as follows: Foundations
+covers plan Phases 0-1, the Decision Vertical Slice is plan Phase 2, the
+Bakeoff is plan Phase 3, and Production Conversion covers plan Phases 4-5.
+
 ### Phase 0: Foundations, About 1 Week
+
+Before foundations, run the beauty spike: concept renders plus one throwaway
+static Three.js scene (island, lighthouse, water shader, three procedural
+hulls, hardcoded data). If the spike cannot produce the Garden Observatory
+look, stop before building any renderer infrastructure.
 
 - Pin the Three version.
 - Add a separately lazy-loaded experimental renderer behind a local/query/build
@@ -887,7 +921,9 @@ Build only:
 - Lighthouse.
 - Two docks.
 - Two risk-water zones.
-- 20 representative ships using 3-4 hull families.
+- 20 representative ships using 3-4 procedural hull families.
+- An overview composed as the calmer Garden Observatory: negative space, few
+  salient ships, a framed asymmetric viewpoint.
 - Day, dusk, and night.
 - Selection, search, and detail anchors.
 - One Observe sequence.
@@ -895,13 +931,15 @@ Build only:
 - Balanced/recovery/constrained quality tiers.
 - A/B switch against Canvas 2D using the same fixture and URL state.
 
-This requires one experienced graphics/front-end engineer and a technical artist
-working together. Art consistency is likely the critical path.
+This work is executed by the operator with agent support. Art consistency
+remains the largest risk; the procedural-geometry decision keeps the asset
+pipeline off the slice's critical path, and the approved Phase 0 look reference
+is the consistency anchor.
 
 ### Phase 2: Bakeoff, About 1-2 Weeks
 
-- Run comprehension testing.
-- Run performance tests on the agreed hardware.
+- Run comprehension testing with at least five named community testers.
+- Run performance tests on the operator's reference machine.
 - Test Chromium, Firefox, and Safari where available.
 - Test WebGL failure and context loss.
 - Test reduced motion and keyboard-only use.
@@ -940,9 +978,9 @@ passes.
 
 - The atmosphere is clearly stronger than Canvas 2D, not merely novel.
 - Default Observe mode is reported calmer and easier to watch.
-- At least 80% of a small representative test group correctly identifies the
-  meaning of lighthouse, water, docks, and ships after one minute without
-  opening the full legend.
+- At least 4 of 5 named community testers correctly identify the meaning of
+  lighthouse, water, docks, and ships after one minute without opening the full
+  legend.
 - Night mode remains analytically readable.
 - User interruption of Observe is immediate and predictable.
 
@@ -965,8 +1003,10 @@ passes.
 
 ### Performance
 
-- Balanced p90 frame pacing `<= 20 ms` at 1440 x 1000 on the agreed reference
-  machine.
+- Balanced p90 frame pacing `<= 20 ms` at 1440 x 1000 on the operator's
+  reference machine. The Canvas baseline is measured on the same machine; this
+  gate is deliberately stricter than the roughly 25 ms p90 measured live on
+  Canvas today, and the comparison must be like-for-like.
 - No sustained period below 45 FPS.
 - No recurring interaction long tasks above 50 ms.
 - Cold first coherent scene `<= 2.5 s` under the agreed method.
@@ -992,7 +1032,7 @@ fails, stop the renderer rewrite. Apply the successful product ideas to Canvas
 
 | Risk | Likelihood | Impact | Mitigation |
 | --- | --- | --- | --- |
-| Full 3D art pipeline exceeds engineering effort | High | High | Use a hybrid 2.5D slice, one technical artist, explicit asset budgets, selective GLB conversion |
+| Full 3D art pipeline exceeds engineering effort | High | High | Procedural-geometry slice, GLB pipeline only in production conversion, explicit asset budgets, selective GLB conversion |
 | Bundle exceeds current 400 KiB gzip budget | High | High | Separate experiment chunk, measure replacement savings, remove Canvas before production |
 | Atmospheric effects degrade frame pacing | High | High | Balanced default, one shadow source, adaptive DPR, strict effect scheduler |
 | 3D makes density and occlusion worse | Medium-high | High | Orthographic camera, semantic zoom, framed views, DOM labels, calm overview |
