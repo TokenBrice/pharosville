@@ -26,8 +26,12 @@ Historical plans are context only. Current code, `docs/pharosville-page.md`,
 ## Plan Artifact Lifecycle
 
 - Plans in `agents/` are active or recent. Treat them as in-flight unless an explicit completion note says otherwise.
-- When a plan is delivered or superseded, move the file to `agents/completed/` and prepend a one-line note: `Completed YYYY-MM-DD — <outcome>`.
-- Plans older than ten days with no completion note should be considered stale and may be archived or deleted opportunistically.
+- When a plan is delivered or superseded, set its status to `Completed` and add a
+  dated one-line outcome.
+- Completed plans may be deleted once their durable outcomes are captured in
+  current code or canonical documentation.
+- Plans older than ten days with no completion note should be considered stale
+  and may be deleted opportunistically.
 - When starting new work, scan `agents/` first to avoid duplicating an in-flight plan.
 
 ## Historical Inputs

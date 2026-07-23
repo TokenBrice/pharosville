@@ -26,7 +26,6 @@ export default tseslint.config(
       "playwright-report/**",
       "output/**",
       "outputs/**",
-      "agents/completed/**",
       ".wrangler/**",
       ".cache/**",
       ".playwright-mcp/**",

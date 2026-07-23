@@ -128,9 +128,8 @@ export const SHIP_SAIL_MARKS: Record<string, { height: number; width: number; x:
   "ship.susds-titan": { height: 19, width: 23, x: 3, y: -45 },
   "ship.sdai-titan": { height: 19, width: 23, x: 3, y: -45 },
   "ship.stusds-titan": { height: 19, width: 23, x: 3, y: -45 },
-  // Unique heritage hulls (136x100, anchor [68,92]). Per-sprite tuned to the
-  // painted mainsail polygon centroid; see PNG inspection notes in
-  // agents/completed/2026-05-01-unique-ship-category-plan.md Step 6.1.
+  // Unique heritage hulls (136x100, anchor [68,92]). Values are tuned per
+  // sprite to the painted mainsail polygon centroid.
   "ship.crvusd-unique": { height: 19, width: 22, x: 4, y: -50 },
   "ship.bold-unique": { height: 18, width: 21, x: 3, y: -52 },
   "ship.fxusd-unique": { height: 18, width: 20, x: 3, y: -50 },
