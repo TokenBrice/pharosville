@@ -484,9 +484,11 @@ Execution decisions:
   instanced quad trails read well at the fixed isometric framing, and the
   extra render pass was not worth its cost on the reference iGPU. Revisit
   only if a future density increase makes wake interplay load-bearing.
-- Agent stalls (packets completing work but dying before reporting) were
-  recovered by orchestrator takeover in V1, V3, and V5 — verification was
-  re-run from the working tree, so no unverified work was accepted.
+- Packet reports were sometimes delivered long after completion (messaging
+  latency, not agent failure — all reports eventually arrived and matched
+  the tree). The orchestrator's mitigation — verifying directly from the
+  working tree instead of waiting — remains the right default and meant no
+  unverified work was ever accepted.
 
 ## Research Provenance
 
