@@ -65,8 +65,6 @@ const VERTEX_SHADER = /* glsl */ `
 
   #include <fog_pars_vertex>
 
-  // Three broad sines carry the silhouette only; surface sparkle now comes from
-  // the scrolling normal map in the fragment stage.
   float gardenWave(vec2 waterPosition, float time) {
     float speed = 0.72 + uTempo * 0.38;
     float primary = sin(
@@ -121,9 +119,6 @@ const FRAGMENT_SHADER = /* glsl */ `
   uniform float uTempo;
   uniform float uTime;
   uniform float uWaveAmplitude;
-  // Risk-zone tint: (centerX, centerZ_water, 1/radiusX, 1/radiusZ) and
-  // (r, g, b, strength). Replaces the filled decal discs — the water itself
-  // reads the charted region.
   uniform float uZoneCount;
   uniform vec4 uZoneEllipse[${MAX_GARDEN_WATER_ZONES}];
   uniform vec4 uZoneTint[${MAX_GARDEN_WATER_ZONES}];
@@ -153,12 +148,7 @@ const FRAGMENT_SHADER = /* glsl */ `
     vec3 nB = sampleWaterNormal(
       rotate2(vWaterPosition, 2.3) * 0.11 - flow * 0.03 + vec2(0.37, 0.11)
     );
-    // Blend the two tangent-space normals and keep z (up) dominant.
     vec3 blendedNormal = normalize(vec3(nA.xy + nB.xy, nA.z * nB.z + 0.55));
-    // Smoothness-by-distance: flatten the shading normal far from camera to kill
-    // the iso-zoom shimmer that a static texture would otherwise sparkle with.
-    // (The moon-road glitter keeps the un-flattened normal so its confined
-    // sparkles survive at distance.)
     float camDistance = distance(cameraPosition, vWorldPosition);
     float detailFalloff = (1.0 - smoothstep(70.0, 260.0, camDistance)) * uDetail;
     vec3 surfaceNormal = normalize(mix(vec3(0.0, 0.0, 1.0), blendedNormal, detailFalloff));
@@ -201,7 +191,6 @@ const FRAGMENT_SHADER = /* glsl */ `
     waterColor = mix(waterColor, uDeepColor, openWater * (0.035 + uNight * 0.03));
     waterColor = mix(waterColor, uShallowColor, shallowShelf * (0.4 - uNight * 0.1));
 
-    // Two lapping foam bands parallel to the shore, noise-broken.
     float foamMotion = uTime * 0.55;
     float bandA = sin(shoreDistance * 20.0 - foamMotion);
     float bandB = sin(shoreDistance * 34.0 - foamMotion * 1.35 + shoreAngle * 2.0);
@@ -217,8 +206,6 @@ const FRAGMENT_SHADER = /* glsl */ `
     float shoreFoam = (shoreEdge + lapFoam) * (0.2 + uDetail * 0.28) * (0.6 + uDaylight * 0.4);
     waterColor = mix(waterColor, uHighlightColor, clamp(shoreFoam, 0.0, 0.6));
 
-    // Small shallow haloes + foam rings around the outlying islets so they sit
-    // in the water instead of on it.
     float cemDist = length((vWaterPosition - uCemeteryCenter) / 4.6);
     float pigDist = length((vWaterPosition - uPigeonnierCenter) / 3.4);
     float isletShelf = (1.0 - smoothstep(0.5, 1.25, cemDist))
@@ -231,19 +218,12 @@ const FRAGMENT_SHADER = /* glsl */ `
     waterColor = mix(waterColor, uHighlightColor, clamp(isletFoam, 0.0, 0.35) * (0.3 + uDetail * 0.3));
 
     // --- E3/E4: charted risk-zone water tint -----------------------------
-    // Subtle SDF-edged tint toward the band colour inside each zone ellipse.
-    // Danger colours arrive pre-darkened, so mixing broods the patch without a
-    // separate darken term. Sits under the moon road/lanes so glitter and buoy
-    // reflections still play on top.
     for (int zi = 0; zi < ${MAX_GARDEN_WATER_ZONES}; zi += 1) {
       if (float(zi) >= uZoneCount) break;
       vec4 ellipse = uZoneEllipse[zi];
       vec2 zd = (vWaterPosition - ellipse.xy) * ellipse.zw;
       float inside = 1.0 - smoothstep(0.72, 1.0, length(zd));
       vec4 tint = uZoneTint[zi];
-      // Luminance-match the tint to the water underneath so zones recolour
-      // the sea instead of glowing: at night the hue broods in dark water,
-      // by day it reads as a pastel wash.
       float waterLuma = dot(waterColor, vec3(0.2126, 0.7152, 0.0722));
       float tintLuma = max(dot(tint.rgb, vec3(0.2126, 0.7152, 0.0722)), 0.03);
       vec3 zoneColor = tint.rgb * clamp(waterLuma * 1.6 / tintLuma, 0.35, 1.1);
@@ -254,22 +234,13 @@ const FRAGMENT_SHADER = /* glsl */ `
     vec2 fromIsland = vWaterPosition - uIslandCenter;
     float roadAlong = dot(fromIsland, uMoonDir);
     float roadAcross = dot(fromIsland, vec2(-uMoonDir.y, uMoonDir.x));
-    // One continuous soft lane through the island centre along the moon
-    // azimuth. Fixed narrow width (~12 units) so open water stays deep navy.
     float roadHalfWidth = 6.0;
     float bandProfile = exp(-(roadAcross * roadAcross) / (roadHalfWidth * roadHalfWidth));
     float roadReach = 1.0 - smoothstep(26.0, 140.0, abs(roadAlong));
     float moonBand = bandProfile * roadReach;
     float nightRoad = clamp(uNight + uDusk * 0.5, 0.0, 1.0);
-    // The lane base is barely-there; the sparkles carry the road.
     waterColor = mix(waterColor, uMoonRoadColor, moonBand * nightRoad * 0.06);
 
-    // Sparse thresholded sparkles, confined to the lane so open water stays
-    // dark. The normal map's high-frequency detail makes the specular term
-    // point-like; a hard threshold thins it to a few dozen bright glints that
-    // catch the bloom pass.
-    // A slightly grazing moon direction so the specular lobe responds to the
-    // ripple slopes and breaks into points, instead of a flat vertical sheen.
     vec3 moonLight = normalize(vec3(uMoonDir * 1.15, 0.5));
     vec3 halfMoon = normalize(moonLight + vec3(0.0, 0.0, 1.0));
     float specular = pow(max(0.0, dot(blendedNormal, halfMoon)), 90.0);
@@ -298,7 +269,6 @@ const FRAGMENT_SHADER = /* glsl */ `
     waterColor = mix(waterColor, uBeaconColor, clamp(beaconReflection, 0.0, 0.2));
 
     // --- B3: warm light lanes from the registry --------------------------
-    // Reflections stretch toward the near edge of the frame under ortho.
     vec2 streakDir = normalize(vec2(0.45, -1.0));
     vec2 streakPerp = vec2(-streakDir.y, streakDir.x);
     float tremble = surfaceNormal.x * (1.2 + uTempo * 1.6);
@@ -313,9 +283,7 @@ const FRAGMENT_SHADER = /* glsl */ `
       if (distSq > 900.0) continue;
       vec4 body = texture2D(uLaneTexture, vec2(u, 0.75));
       float intensity = head.z;
-      // Soft radial pool.
       float pool = exp(-distSq / 42.0);
-      // Short elongated streak toward the viewer, jittered by the wave normal.
       float along = dot(d, streakDir) + tremble;
       float across = dot(d, streakPerp) + tremble * 0.4;
       float streak = exp(-(across * across) / 3.0)
