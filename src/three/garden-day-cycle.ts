@@ -118,6 +118,8 @@ interface DayCycleContent {
   beam: Group;
   harborLanternMaterial: MeshStandardMaterial;
   lighthouseLight: PointLight;
+  shipLanternGlowMaterial: MeshBasicMaterial;
+  shipLanternMaterial: MeshStandardMaterial;
   shipShadows: InstancedMesh<CircleGeometry, MeshBasicMaterial>;
   ships: ReadonlyArray<{ identitySailMaterial: MeshStandardMaterial }>;
 }
@@ -164,8 +166,13 @@ export function updateDayCycle(
   scene.content.harborLanternMaterial.emissiveIntensity = 0.18 + dusk * 1.2 + night * 1.9;
   scene.content.beam.visible = true;
   scene.content.shipShadows.material.opacity = 0.1 + daylight * 0.12;
+  // Ship lantern cores bloom warm at night; the additive glow halo and the
+  // sail backlight rise with them. Kept below the AgX clip (~2.2) so they roll
+  // to gold, not white pinpricks.
+  scene.content.shipLanternMaterial.emissiveIntensity = 0.05 + dusk * 0.85 + night * 1.9;
+  scene.content.shipLanternGlowMaterial.opacity = dusk * 0.28 + night * 0.68;
   for (const ship of scene.content.ships) {
-    ship.identitySailMaterial.emissiveIntensity = 0.16 + dusk * 0.12 + night * 0.42;
+    ship.identitySailMaterial.emissiveIntensity = 0.16 + dusk * 0.14 + night * 0.62;
   }
   // Beam intensity curves. World-renderer owns which piece is visible per tier;
   // here we set opacity and freeze uTime under reduced motion.

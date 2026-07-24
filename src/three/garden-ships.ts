@@ -1,11 +1,14 @@
 import {
+  AdditiveBlending,
   BoxGeometry,
   BufferGeometry,
+  CanvasTexture,
   CircleGeometry,
   Color,
   CylinderGeometry,
   DoubleSide,
   ExtrudeGeometry,
+  Float32BufferAttribute,
   Group,
   InstancedMesh,
   Line,
@@ -17,6 +20,7 @@ import {
   MeshBasicMaterial,
   MeshStandardMaterial,
   PlaneGeometry,
+  Quaternion,
   Shape,
   ShapeGeometry,
   Vector3,
@@ -52,18 +56,44 @@ const GARDEN_COLORS = {
   vegetationLight: "#71805a",
 } as const;
 
+/** Motion + lantern tier: titans/uniques bob slowest and carry a lantern string. */
+export type ShipFleetTier = "titan" | "heritage" | "standard";
+
 export interface ShipVisual {
   bobPhase: number;
   displayOffset: { x: number; y: number };
   fineDetail: Group;
   identitySailMaterial: MeshStandardMaterial;
+  /** Lantern hang points in ship-local space (stern / bow+stern / a string). */
+  lanternPoints: readonly Vector3[];
+  /** Warm-lane intensity this ship lays on the sea (by fleet tier). */
+  laneIntensity: number;
+  /** Slowed bob envelope for larger hulls (D7 motion hierarchy). */
+  motionAmplitudeScale: number;
+  motionPeriodScale: number;
+  /** Previous heading angle, for heel-into-turn (null until first moving frame). */
+  prevHeadingAngle: number | null;
   representative: boolean;
   root: Group;
   sampleState: string;
   selectionRadius: number;
   ship: ShipNode;
+  /** Deterministic phase offset for lantern pendulum sway. */
+  swaySeed: number;
+  tier: ShipFleetTier;
   wake: Group;
   wakeDetail: Group;
+}
+
+/** Fleet-wide lantern instances: two shared draw calls for the whole fleet. */
+export interface FleetLanterns {
+  cores: InstancedMesh<PlaneGeometry, MeshStandardMaterial>;
+  glow: InstancedMesh<PlaneGeometry, MeshBasicMaterial>;
+  coreMaterial: MeshStandardMaterial;
+  glowMaterial: MeshBasicMaterial;
+  root: Group;
+  /** One entry per lantern, flattened across the fleet. */
+  entries: readonly { local: Vector3; swayPhase: number; visual: ShipVisual }[];
 }
 
 type GardenSailKind = "fore-aft" | "square" | "junk";
@@ -148,13 +178,48 @@ const GARDEN_SHIP_RIGS: Record<GardenHullSilhouette, readonly GardenMastPlan[]> 
   ],
 };
 
+// Galleon and junk carry a tall stern castle / high transom house (family
+// identity, D2); the schooner stays deliberately low and sleek.
 const GARDEN_SHIP_CABINS: Partial<Record<
   GardenHullSilhouette,
   { height: number; width: number; x: number; z: number }
 >> = {
-  galleon: { height: 0.82, width: 1.65, x: -2.15, z: 1.55 },
-  junk: { height: 0.68, width: 1.55, x: -1.35, z: 1.28 },
+  galleon: { height: 1.08, width: 1.78, x: -2.4, z: 1.62 },
+  junk: { height: 0.98, width: 1.68, x: -1.95, z: 1.36 },
   schooner: { height: 0.42, width: 1.05, x: -2.15, z: 0.92 },
+};
+
+// Per-tier lantern layout in ship-local space (stern, then bow, then a
+// mid-string point for the biggest hulls). Warm gold points that bloom.
+const STERN_LANTERN = new Vector3(-3.05, 1.28, 0);
+const BOW_LANTERN = new Vector3(3.2, 1.18, 0);
+const MID_LANTERN = new Vector3(0.1, 1.62, 0);
+
+function shipFleetTier(ship: ShipNode): ShipFleetTier {
+  const sizeTier = ship.visual.sizeTier;
+  if (sizeTier === "titan" || sizeTier === "unique") return "titan";
+  if (sizeTier === "flagship" || sizeTier === "major" || (ship.visual.scale ?? 1) >= 1.15) {
+    return "heritage";
+  }
+  return "standard";
+}
+
+function lanternPointsForTier(tier: ShipFleetTier): readonly Vector3[] {
+  if (tier === "titan") return [STERN_LANTERN, MID_LANTERN, BOW_LANTERN];
+  if (tier === "heritage") return [STERN_LANTERN, BOW_LANTERN];
+  return [STERN_LANTERN];
+}
+
+const FLEET_TIER_MOTION: Record<ShipFleetTier, { amplitude: number; period: number }> = {
+  titan: { amplitude: 0.7, period: 1.8 },
+  heritage: { amplitude: 1, period: 1.3 },
+  standard: { amplitude: 1, period: 1 },
+};
+
+const FLEET_TIER_LANE_INTENSITY: Record<ShipFleetTier, number> = {
+  titan: 0.55,
+  heritage: 0.45,
+  standard: 0.3,
 };
 
 export function createShip(
@@ -169,6 +234,7 @@ export function createShip(
   root.add(fineDetail);
   setTilePosition(root, ship.tile, GARDEN_SHIP_ROOT_Y);
   const silhouette = SILHOUETTE_FOR_HULL[ship.visual.hull];
+  const tier = shipFleetTier(ship);
   const visualScale = MathUtils.clamp(ship.visual.scale || 1, 0.72, 1.6) * 0.82;
   root.scale.setScalar(visualScale);
 
@@ -189,28 +255,35 @@ export function createShip(
     flatShading: true,
     roughness: 0.9,
   });
+  // Baked vertex colors carry the 3-tone wood read (warm-dark waterline →
+  // neutral flank → warm gunwale) and fake AO; they multiply the per-ship
+  // livery material color, so hull hue stays per-ship. The old flat emissive
+  // lift is gone — it washed the new shading flat.
   const hullMaterial = new MeshStandardMaterial({
     color: hullColor,
-    emissive: hullColor,
-    emissiveIntensity: 0.035,
     flatShading: true,
     roughness: 0.82,
+    vertexColors: true,
   });
   const deckMaterial = new MeshStandardMaterial({
     color: HARBOR_PALETTE.timber_warm,
     flatShading: true,
     roughness: 0.92,
+    vertexColors: true,
   });
   const gunwaleMaterial = new MeshStandardMaterial({
     color: accentColor,
     flatShading: true,
     roughness: 0.86,
+    vertexColors: true,
   });
   const hullGeometry = cachedShipGeometry(
     cache,
     `hull.${silhouette}`,
     () => createHullGeometry(silhouette),
   );
+  // The keel is the dark underbody — it keeps the flat iron color (no vertex
+  // colors) so the waterline shadow reads as a distinct band beneath the hull.
   const keel = new Mesh(hullGeometry, keelMaterial);
   keel.position.y = -0.16;
   keel.scale.set(1.015, 0.82, 1.015);
@@ -222,7 +295,7 @@ export function createShip(
     cachedShipGeometry(
       cache,
       `deck.${silhouette}.rim`,
-      () => createDeckGeometry(silhouette, 0.91),
+      () => createDeckGeometry(silhouette, 0.91, 0.34, "rim"),
     ),
     gunwaleMaterial,
   );
@@ -232,7 +305,7 @@ export function createShip(
     cachedShipGeometry(
       cache,
       `deck.${silhouette}.inner`,
-      () => createDeckGeometry(silhouette, 0.79),
+      () => createDeckGeometry(silhouette, 0.79, 0.16, "inner"),
     ),
     deckMaterial,
   );
@@ -249,9 +322,11 @@ export function createShip(
   );
   const readableSailColor = new Color(sailColor)
     .lerp(new Color(GARDEN_COLORS.limestoneLight), 0.28);
+  // Warm the emissive toward lantern gold so the night curve backlights the
+  // canvas as if a lantern hung beneath it (D4).
   const plainSailMaterial = new MeshStandardMaterial({
     color: readableSailColor,
-    emissive: readableSailColor,
+    emissive: new Color(readableSailColor).lerp(new Color(HARBOR_PALETTE.lantern_glow), 0.4),
     emissiveIntensity: 0.045,
     roughness: 0.82,
     side: DoubleSide,
@@ -364,18 +439,14 @@ export function createShip(
   const tallestMast = rig.reduce((tallest, entry) => (
     entry.height > tallest.height ? entry : tallest
   ));
+  // Rigging (and junk sail battens) batch into one cached LineSegments per
+  // silhouette. Titans and heritage hulls keep it on the root so it survives at
+  // overview zoom; standard ships gate it to fine detail to hold draw calls flat.
   const rigging = new LineSegments(
     cachedShipGeometry(
       cache,
       `rigging.${silhouette}`,
-      () => new BufferGeometry().setFromPoints([
-        new Vector3(tallestMast.x, tallestMast.height + 0.34, 0),
-        new Vector3(4.15, 0.7, 0),
-        new Vector3(tallestMast.x, tallestMast.height + 0.34, 0),
-        new Vector3(-3.05, 0.72, 0),
-        new Vector3(tallestMast.x, tallestMast.height * 0.68, 0.03),
-        new Vector3(2.5, 0.62, 0.03),
-      ]),
+      () => new BufferGeometry().setFromPoints(riggingPoints(silhouette, rig, tallestMast)),
     ),
     new LineBasicMaterial({
       color: "#3f342b",
@@ -383,7 +454,7 @@ export function createShip(
       transparent: true,
     }),
   );
-  fineDetail.add(rigging);
+  (tier === "standard" ? fineDetail : root).add(rigging);
   const flag = new Mesh(
     cachedShipGeometry(cache, "pennant", createPennantGeometry),
     new MeshStandardMaterial({
@@ -480,16 +551,24 @@ export function createShip(
 
   const wake = createWake(cache);
   root.add(wake.root);
+  const motion = FLEET_TIER_MOTION[tier];
   return {
     bobPhase: stableUnit(ship.id) * Math.PI * 2,
     displayOffset,
     fineDetail,
     identitySailMaterial,
+    lanternPoints: lanternPointsForTier(tier),
+    laneIntensity: FLEET_TIER_LANE_INTENSITY[tier],
+    motionAmplitudeScale: motion.amplitude,
+    motionPeriodScale: motion.period,
+    prevHeadingAngle: null,
     representative,
     root,
     sampleState: "idle",
     selectionRadius: gardenShipSelectionRadius(ship),
     ship,
+    swaySeed: stableUnit(`${ship.id}.sway`) * Math.PI * 2,
+    tier,
     wake: wake.root,
     wakeDetail: wake.detail,
   };
@@ -518,6 +597,138 @@ export function syncShipSailTextures(
   }
 }
 
+const LANTERN_CORE_SIZE = 0.36;
+const LANTERN_GLOW_SIZE = 3;
+const LANTERN_SWAY = 0.09;
+const zeroScaleMatrix = new Matrix4().makeScale(0, 0, 0);
+
+/**
+ * One shared pair of InstancedMeshes carries every ship lantern in the fleet:
+ * an emissive core sphere (blooms) and an additive camera-facing glow quad.
+ * Two draw calls for the whole fleet, updated each frame by updateFleetLanterns.
+ */
+export function createFleetLanterns(
+  ships: readonly ShipVisual[],
+  cache: GardenShipGeometryCache,
+): FleetLanterns {
+  const entries: { local: Vector3; swayPhase: number; visual: ShipVisual }[] = [];
+  for (const visual of ships) {
+    for (const [pointIndex, local] of visual.lanternPoints.entries()) {
+      entries.push({
+        local: local.clone(),
+        swayPhase: visual.swaySeed + pointIndex * 0.8,
+        visual,
+      });
+    }
+  }
+  const count = Math.max(1, entries.length);
+
+  const coreMaterial = new MeshStandardMaterial({
+    color: "#000000",
+    emissive: HARBOR_PALETTE.lantern_glow,
+    emissiveIntensity: 0,
+    toneMapped: false,
+  });
+  const cores = new InstancedMesh(
+    cachedShipGeometry(cache, "lantern.core", () => new PlaneGeometry(1, 1)),
+    coreMaterial,
+    count,
+  );
+  cores.name = "ship-lantern-cores";
+  cores.frustumCulled = false;
+  cores.renderOrder = 3;
+
+  const glowMaterial = new MeshBasicMaterial({
+    blending: AdditiveBlending,
+    color: HARBOR_PALETTE.lantern_glow,
+    depthWrite: false,
+    map: createLanternGlowTexture(),
+    opacity: 0,
+    toneMapped: false,
+    transparent: true,
+  });
+  const glow = new InstancedMesh(
+    cachedShipGeometry(cache, "lantern.glow", () => new PlaneGeometry(1, 1)),
+    glowMaterial,
+    count,
+  );
+  glow.name = "ship-lantern-glow";
+  glow.frustumCulled = false;
+  glow.renderOrder = 3;
+
+  // Hide any padding instance up front; updateFleetLanterns overwrites the
+  // active ones each frame.
+  for (let index = 0; index < count; index += 1) {
+    cores.setMatrixAt(index, zeroScaleMatrix);
+    glow.setMatrixAt(index, zeroScaleMatrix);
+  }
+  cores.instanceMatrix.needsUpdate = true;
+  glow.instanceMatrix.needsUpdate = true;
+
+  const root = new Group();
+  root.name = "ship-lanterns";
+  root.add(cores, glow);
+  return { coreMaterial, cores, entries, glow, glowMaterial, root };
+}
+
+function createLanternGlowTexture(): CanvasTexture | null {
+  if (typeof document === "undefined") return null;
+  const size = 64;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+  const gradient = context.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  gradient.addColorStop(0, "rgba(255, 236, 196, 1)");
+  gradient.addColorStop(0.4, "rgba(247, 214, 138, 0.55)");
+  gradient.addColorStop(1, "rgba(247, 214, 138, 0)");
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, size, size);
+  const texture = new CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  return texture;
+}
+
+const lanternScratchMatrix = new Matrix4();
+const lanternScratchPosition = new Vector3();
+const lanternScratchScale = new Vector3();
+const lanternRootMatrix = new Matrix4();
+
+/**
+ * Rewrites the fleet lantern instance matrices from each ship's current world
+ * transform, with a slow pendulum sway (frozen under reduced motion). Both the
+ * bright core and the soft glow are camera-facing quads (2 tris each) sharing
+ * the frame's billboard orientation — the core just sits smaller and brighter.
+ */
+export function updateFleetLanterns(
+  lanterns: FleetLanterns,
+  cameraQuaternion: Quaternion,
+  timeSeconds: number,
+  reducedMotion: boolean,
+): void {
+  for (const [index, entry] of lanterns.entries.entries()) {
+    const root = entry.visual.root;
+    lanternRootMatrix.compose(root.position, root.quaternion, root.scale);
+    const swing = reducedMotion
+      ? 0
+      : Math.sin(timeSeconds * 0.9 + entry.swayPhase) * LANTERN_SWAY;
+    lanternScratchPosition
+      .set(entry.local.x + swing, entry.local.y, entry.local.z)
+      .applyMatrix4(lanternRootMatrix);
+
+    lanternScratchScale.setScalar(LANTERN_CORE_SIZE);
+    lanternScratchMatrix.compose(lanternScratchPosition, cameraQuaternion, lanternScratchScale);
+    lanterns.cores.setMatrixAt(index, lanternScratchMatrix);
+
+    lanternScratchScale.setScalar(LANTERN_GLOW_SIZE);
+    lanternScratchMatrix.compose(lanternScratchPosition, cameraQuaternion, lanternScratchScale);
+    lanterns.glow.setMatrixAt(index, lanternScratchMatrix);
+  }
+  lanterns.cores.instanceMatrix.needsUpdate = true;
+  lanterns.glow.instanceMatrix.needsUpdate = true;
+}
+
 function createHullGeometry(silhouette: GardenHullSilhouette): ExtrudeGeometry {
   const shape = createHullShape(silhouette, 1);
   const geometry = new ExtrudeGeometry(shape, {
@@ -530,15 +741,75 @@ function createHullGeometry(silhouette: GardenHullSilhouette): ExtrudeGeometry {
   });
   geometry.rotateX(-Math.PI / 2);
   geometry.translate(0, -0.5, 0);
+  bakeHullVertexColors(geometry);
   return geometry;
 }
 
+/**
+ * Bakes the 3-tone hull shading + fake AO into a vertex-color attribute (once,
+ * on the cached geometry). Y runs keel→gunwale: a warm-dark waterline shadow
+ * lifts through a neutral flank to a warm gunwale highlight; the very keel is
+ * pinched darker for fake AO. Values multiply the per-ship livery color.
+ */
+function bakeHullVertexColors(geometry: BufferGeometry): void {
+  const position = geometry.getAttribute("position");
+  geometry.computeBoundingBox();
+  const box = geometry.boundingBox!;
+  const span = Math.max(0.001, box.max.y - box.min.y);
+  const colors = new Float32Array(position.count * 3);
+  const shadow = new Color(0.34, 0.26, 0.22);
+  const mid = new Color(0.82, 0.79, 0.75);
+  const highlight = new Color(1, 0.97, 0.9);
+  const scratch = new Color();
+  for (let index = 0; index < position.count; index += 1) {
+    const t = (position.getY(index) - box.min.y) / span;
+    if (t < 0.5) {
+      scratch.copy(shadow).lerp(mid, MathUtils.smoothstep(t, 0, 0.5));
+    } else {
+      scratch.copy(mid).lerp(highlight, MathUtils.smoothstep(t, 0.5, 1));
+    }
+    if (t < 0.16) scratch.multiplyScalar(0.72 + t * 1.5);
+    colors[index * 3] = scratch.r;
+    colors[index * 3 + 1] = scratch.g;
+    colors[index * 3 + 2] = scratch.b;
+  }
+  geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
+}
+
+/**
+ * Deck/gunwale plate: adds a curved sheer (rises fore and aft, bow highest) and
+ * a radial vertex-color AO (bright catching rail edge, darker planked center).
+ */
 function createDeckGeometry(
   silhouette: GardenHullSilhouette,
   scale: number,
+  sheer: number,
+  kind: "rim" | "inner",
 ): ShapeGeometry {
   const geometry = new ShapeGeometry(createHullShape(silhouette, scale));
   geometry.rotateX(-Math.PI / 2);
+  const position = geometry.getAttribute("position");
+  geometry.computeBoundingBox();
+  const box = geometry.boundingBox!;
+  const maxX = Math.max(Math.abs(box.min.x), Math.abs(box.max.x), 0.001);
+  const maxZ = Math.max(Math.abs(box.min.z), Math.abs(box.max.z), 0.001);
+  const colors = new Float32Array(position.count * 3);
+  const edge = kind === "rim" ? new Color(1, 0.98, 0.92) : new Color(0.92, 0.88, 0.82);
+  const center = kind === "rim" ? new Color(0.82, 0.76, 0.66) : new Color(0.6, 0.55, 0.48);
+  const scratch = new Color();
+  for (let index = 0; index < position.count; index += 1) {
+    const nx = position.getX(index) / maxX;
+    // Sheer: parabolic rise toward both ends, bow (+x) lifted a touch more.
+    position.setY(index, sheer * nx * nx * (nx > 0 ? 1.12 : 1));
+    const radial = Math.min(1, Math.hypot(nx, position.getZ(index) / maxZ));
+    scratch.copy(center).lerp(edge, radial);
+    colors[index * 3] = scratch.r;
+    colors[index * 3 + 1] = scratch.g;
+    colors[index * 3 + 2] = scratch.b;
+  }
+  position.needsUpdate = true;
+  geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
+  geometry.computeVertexNormals();
   return geometry;
 }
 
@@ -579,7 +850,7 @@ function createSailGeometry(plan: GardenSailPlan): ShapeGeometry {
   for (let index = 0; index < positions.count; index += 1) {
     const x = Math.abs(positions.getX(index)) / Math.max(0.01, plan.width);
     const y = positions.getY(index) / Math.max(0.01, plan.height) + 0.5;
-    positions.setZ(index, Math.sin(MathUtils.clamp(y, 0, 1) * Math.PI) * x * 0.15);
+    positions.setZ(index, Math.sin(MathUtils.clamp(y, 0, 1) * Math.PI) * x * 0.24);
   }
   positions.needsUpdate = true;
   geometry.computeBoundingBox();
@@ -599,6 +870,40 @@ function createSailGeometry(plan: GardenSailPlan): ShapeGeometry {
   }
   geometry.computeVertexNormals();
   return geometry;
+}
+
+/**
+ * Stays plus, for junks, horizontal sail battens — all merged into one cached
+ * LineSegments point list so the whole rig is a single draw call per silhouette.
+ */
+function riggingPoints(
+  silhouette: GardenHullSilhouette,
+  rig: readonly GardenMastPlan[],
+  tallestMast: GardenMastPlan,
+): Vector3[] {
+  const points = [
+    new Vector3(tallestMast.x, tallestMast.height + 0.34, 0),
+    new Vector3(4.15, 0.7, 0),
+    new Vector3(tallestMast.x, tallestMast.height + 0.34, 0),
+    new Vector3(-3.05, 0.72, 0),
+    new Vector3(tallestMast.x, tallestMast.height * 0.68, 0.03),
+    new Vector3(2.5, 0.62, 0.03),
+  ];
+  if (silhouette === "junk") {
+    for (const mastPlan of rig) {
+      for (const sailPlan of mastPlan.sails) {
+        const direction = sailPlan.reverse ? -1 : 1;
+        const near = mastPlan.x;
+        const far = mastPlan.x + direction * sailPlan.width;
+        for (let batten = 0; batten < 3; batten += 1) {
+          const y = sailPlan.centerY - sailPlan.height * 0.32
+            + (batten / 2) * sailPlan.height * 0.64;
+          points.push(new Vector3(near, y, 0.045), new Vector3(far, y, 0.045));
+        }
+      }
+    }
+  }
+  return points;
 }
 
 function createPennantGeometry(): ShapeGeometry {

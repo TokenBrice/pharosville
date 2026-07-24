@@ -80,9 +80,12 @@ import {
 } from "./garden-island";
 import { attachGardenLighthouseModel } from "./garden-lighthouse";
 import {
+  createFleetLanterns,
   createShip,
   createShipShadows,
   syncShipSailTextures,
+  updateFleetLanterns,
+  type FleetLanterns,
   type ShipVisual,
 } from "./garden-ships";
 import {
@@ -280,6 +283,7 @@ interface GardenContent {
   docks: DockVisual[];
   drawableCount: number;
   entityCues: Map<string, EntityCue>;
+  fleetLanterns: FleetLanterns;
   harborLanternMaterial: MeshStandardMaterial;
   gullFlock: GardenGullFlock;
   lighthouseLight: PointLight;
@@ -288,6 +292,8 @@ interface GardenContent {
   root: Group;
   routeLine: Line<BufferGeometry, LineBasicMaterial>;
   routeLineKey: string | null;
+  shipLanternGlowMaterial: MeshBasicMaterial;
+  shipLanternMaterial: MeshStandardMaterial;
   shipShadows: InstancedMesh<CircleGeometry, MeshBasicMaterial>;
   ships: ShipVisual[];
   transientSelectedDetailId: string | null;
@@ -598,6 +604,10 @@ function createWorldContent(
       y: -ship.root.position.y + 0.08,
     });
   }
+  // Fleet-wide lantern instances (two shared draw calls); positions are driven
+  // per frame from each ship's world transform in the ship loop.
+  const fleetLanterns = createFleetLanterns(ships, shipGeometryCache);
+  root.add(fleetLanterns.root);
 
   const routeLine = new Line(
     new BufferGeometry(),
@@ -621,6 +631,7 @@ function createWorldContent(
     docks,
     drawableCount,
     entityCues,
+    fleetLanterns,
     gullFlock,
     harborLanternMaterial: harborLanterns.lightMaterial,
     lighthouseLight: island.lighthouseLight,
@@ -629,6 +640,8 @@ function createWorldContent(
     root,
     routeLine,
     routeLineKey: null,
+    shipLanternGlowMaterial: fleetLanterns.glowMaterial,
+    shipLanternMaterial: fleetLanterns.coreMaterial,
     shipShadows,
     ships,
     transientSelectedDetailId: slice.transientSelectedDetailId,
@@ -700,10 +713,13 @@ function updateSceneForFrame(
   });
   updateDayCycle(scene, frame, phase);
   scene.water.update(frame);
-  const activeLaneCount = scene.laneRegistry.sync(frame.renderScheduler.tier);
-  scene.water.setLaneState(scene.laneRegistry.texture, activeLaneCount);
   const content = scene.content;
-  if (!content) return;
+  if (!content) {
+    // No fleet lanes to add — pack the base (beacon/harbor/dock) lanes only.
+    const laneCount = scene.laneRegistry.sync(frame.renderScheduler.tier);
+    scene.water.setLaneState(scene.laneRegistry.texture, laneCount);
+    return;
+  }
 
   const constrained = frame.renderScheduler.tier === "constrained";
   const fullQuality = frame.renderScheduler.tier === "full"
@@ -770,11 +786,40 @@ function updateSceneForFrame(
     setTilePosition(visual.root, tile, GARDEN_SHIP_ROOT_Y);
 
     const heading = normalizedHeading(sample?.heading);
-    if (heading) visual.root.rotation.y = -Math.atan2(heading.y, heading.x);
-    const bobAmplitude = frame.reducedMotion ? 0 : 0.035 + frame.seaState.swell * 0.055;
-    visual.root.position.y += Math.sin(frame.timeSeconds * (0.72 + frame.seaState.tempo * 0.25) + visual.bobPhase)
-      * bobAmplitude;
+    let heel = 0;
+    if (heading) {
+      const headingAngle = Math.atan2(heading.y, heading.x);
+      visual.root.rotation.y = -headingAngle;
+      // Gentle heel into turns: roll proportional to the frame's heading change,
+      // clamped and frozen under reduced motion (D7 motion hierarchy).
+      if (!frame.reducedMotion && visual.prevHeadingAngle !== null) {
+        let delta = headingAngle - visual.prevHeadingAngle;
+        delta = Math.atan2(Math.sin(delta), Math.cos(delta));
+        heel = MathUtils.clamp(delta * 2.4, -0.16, 0.16);
+      }
+      visual.prevHeadingAngle = headingAngle;
+    } else {
+      visual.prevHeadingAngle = null;
+    }
+    visual.root.rotation.z = heel;
+    // Larger hulls bob slower and shallower (titans slowest); standard as-is.
+    const bobAmplitude = frame.reducedMotion
+      ? 0
+      : (0.035 + frame.seaState.swell * 0.055) * visual.motionAmplitudeScale;
+    visual.root.position.y += Math.sin(
+      frame.timeSeconds * (0.72 + frame.seaState.tempo * 0.25) / visual.motionPeriodScale
+      + visual.bobPhase,
+    ) * bobAmplitude;
     visual.sampleState = sample?.state ?? "idle";
+    // Lay a warm reflection lane on the sea under each ship's lantern(s).
+    scene.laneRegistry.set({
+      color: HARBOR_PALETTE.lantern_glow,
+      id: `ship-lantern.${visual.ship.id}`,
+      intensity: visual.laneIntensity,
+      kind: "lantern",
+      worldX: visual.root.position.x,
+      worldZ: visual.root.position.z,
+    });
     const wakeIntensity = sample?.wakeIntensity ?? 0;
     visual.wake.visible = !frame.reducedMotion && !constrained && wakeIntensity > 0.08;
     visual.wake.scale.x = 0.7 + Math.min(1.5, wakeIntensity) * 0.85;
@@ -795,6 +840,17 @@ function updateSceneForFrame(
   }
   content.shipShadows.instanceMatrix.needsUpdate = true;
   content.visibleShipCount = visibleShipCount;
+
+  // Ship transforms are final — restamp the fleet lantern instances from them
+  // and re-pack the lane texture now that this frame's ship lanes are set.
+  updateFleetLanterns(
+    content.fleetLanterns,
+    camera.quaternion,
+    frame.reducedMotion ? 0 : frame.timeSeconds,
+    frame.reducedMotion,
+  );
+  const activeLaneCount = scene.laneRegistry.sync(frame.renderScheduler.tier);
+  scene.water.setLaneState(scene.laneRegistry.texture, activeLaneCount);
 
   for (const zone of content.zones) {
     const definition = zone.area.riskPlacement
