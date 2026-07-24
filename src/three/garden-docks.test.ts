@@ -4,6 +4,7 @@ import type { DockNode } from "../systems/world-types";
 import {
   createDock,
   gardenDockLampWorldPositions,
+  gardenHarborCalmMask,
 } from "./garden-docks";
 
 const DISPLAY_TILE = { x: 40, y: 32 };
@@ -46,6 +47,32 @@ describe("garden docks", () => {
       expect(Number.isFinite(position.x)).toBe(true);
       expect(Number.isFinite(position.z)).toBe(true);
     }
+  });
+
+  it("derives the mirror-basin calm mask from the composed dock roots", () => {
+    const east = createDock(dock("ethereum", 10), { x: 42, y: 31 }, ISLAND_TILE);
+    const west = createDock(dock("solana", 6), { x: 25, y: 23 }, ISLAND_TILE);
+    const mask = gardenHarborCalmMask([east, west]);
+    expect(mask).not.toBeNull();
+    const scale = Math.SQRT2;
+    expect(mask!.center.x).toBeCloseTo(((42 + 25) / 2) * scale, 5);
+    expect(mask!.center.z).toBeCloseTo(((31 + 23) / 2) * scale, 5);
+    // Radii span the dock spread plus a berth margin, never the open sea.
+    expect(mask!.radiusX).toBeGreaterThan((42 - 25) * scale / 2);
+    expect(mask!.radiusX).toBeLessThanOrEqual(18);
+    expect(mask!.radiusZ).toBeGreaterThan((31 - 23) * scale / 2);
+    expect(mask!.radiusZ).toBeLessThanOrEqual(13);
+    expect(mask!.calmStrength).toBeGreaterThan(0);
+    expect(mask!.calmStrength).toBeLessThanOrEqual(1);
+  });
+
+  it("keeps a single-dock basin readable and empty input on the default", () => {
+    expect(gardenHarborCalmMask([])).toBeNull();
+    const solo = createDock(dock("base", 7), { x: 39, y: 38 }, ISLAND_TILE);
+    const mask = gardenHarborCalmMask([solo]);
+    expect(mask).not.toBeNull();
+    expect(mask!.radiusX).toBeGreaterThanOrEqual(9);
+    expect(mask!.radiusZ).toBeGreaterThanOrEqual(7);
   });
 });
 

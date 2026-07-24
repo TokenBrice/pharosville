@@ -50,8 +50,14 @@ export const RISK_WATER_AREAS: Record<ShipRiskPlacement, RiskWaterAreaDefinition
     label: "Calm Anchorage",
     reading: "Steady peg evidence; the safe default berth",
     band: "CALM",
-    regionTile: { x: 8, y: 35 },
-    labelTile: { x: 8, y: 35 },
+    // Z1 (data anchors from the operator-approved sketch
+    // agents/2026-07-24-zone-recomposition-sketch.md): Calm Anchorage keeps
+    // its south-west calm-water anchors. Zones-v2 (operator overlay): the
+    // RENDERED ring re-centers on the island as the inner harbor ring — the
+    // display composition lives in garden-observatory-slice.ts
+    // (AREA_DISPLAY_CENTER / AREA_LABEL_TILE), not in this data.
+    regionTile: { x: 10, y: 40 },
+    labelTile: { x: 10, y: 40 },
     terrain: "calm-water",
     validTerrains: ["calm-water"],
     waterStyle: "left-edge calm anchorage",
@@ -64,6 +70,9 @@ export const RISK_WATER_AREAS: Record<ShipRiskPlacement, RiskWaterAreaDefinition
       { x: 6, y: 20 },
       { x: 8, y: 32 },
       { x: 14, y: 42 },
+      // Z1 optional additions so moored ships populate the new ring.
+      { x: 11, y: 44 },
+      { x: 15, y: 48 },
     ],
     scatterRadius: { x: 7, y: 15 },
   },
@@ -72,8 +81,11 @@ export const RISK_WATER_AREAS: Record<ShipRiskPlacement, RiskWaterAreaDefinition
     label: "Watch Breakwater",
     reading: "Early-warning signals worth watching",
     band: "WATCH",
-    regionTile: { x: 48, y: 44 },
-    labelTile: { x: 51, y: 45 },
+    // Z1: Watch Breakwater anchors the south basin. Zones-v2 (operator
+    // overlay): the RENDERED ellipse re-centers on the island as the
+    // dominant monitored sea (see garden-observatory-slice.ts).
+    regionTile: { x: 38, y: 48 },
+    labelTile: { x: 38, y: 48 },
     terrain: "watch-water",
     validTerrains: ["watch-water"],
     waterStyle: "south-basin and east-shelf watch breakwater",
@@ -104,8 +116,11 @@ export const RISK_WATER_AREAS: Record<ShipRiskPlacement, RiskWaterAreaDefinition
     label: "Alert Channel",
     reading: "Elevated DEWS alert; pressure building",
     band: "ALERT",
-    regionTile: { x: 47, y: 14 },
-    labelTile: { x: 47, y: 14 },
+    // Z1: Alert Channel anchors its painted alert-water ring. Zones-v2
+    // (operator overlay): the RENDERED arc centers off-frame NE, outermost of
+    // the Alert>Warning>Danger escalation (see garden-observatory-slice.ts).
+    regionTile: { x: 50, y: 16 },
+    labelTile: { x: 50, y: 16 },
     terrain: "alert-water",
     validTerrains: ["alert-water"],
     waterStyle: "east-corner alert ring",

@@ -5,24 +5,52 @@ import {
   Mesh,
   PlaneGeometry,
   RepeatWrapping,
+  RGBAFormat,
   ShaderMaterial,
   Texture,
   TextureLoader,
   Vector2,
+  Vector3,
   Vector4,
 } from "three";
 import type { PharosVilleRenderSchedulerState } from "../renderer/render-types";
 import { HARBOR_PALETTE } from "../systems/palette";
 import type { SeaState } from "../systems/sea-state";
+import {
+  blendDayCycleColor,
+  DAY_CYCLE_LIGHT_PRESETS,
+  DAY_CYCLE_SKY_PRESETS,
+  dayCyclePhase,
+  MOON_COLOR,
+} from "./garden-day-cycle";
 import { GARDEN_MOON_AZIMUTH } from "./garden-sky";
 import { MAX_GARDEN_LIGHT_LANES } from "./garden-lanterns";
+import {
+  GARDEN_WATER_MAX_RIPPLE_RINGS,
+  GARDEN_WATER_MAX_ZONE_TINTS,
+  type GardenCloudShadowSource,
+  type GardenHarborCalmMask,
+  type GardenRippleRingEmitter,
+  type GardenWaterZoneTint,
+} from "./garden-water-contract";
 
 const WATER_SIZE = 900;
 const WATER_SEGMENTS = 96;
 export const GARDEN_WATER_MAX_DISPLACEMENT = 0.036;
-export const MAX_GARDEN_WATER_ZONES = 6;
+// Kept as the historical export name; the C2 contract constant is canonical.
+export const MAX_GARDEN_WATER_ZONES = GARDEN_WATER_MAX_ZONE_TINTS;
+// W6: approximate world-unit radius of the island rock at the waterline (the
+// shore ellipse spans 18.4 x 13.8 around the island root; 14 is the calm
+// circular mean used by the caustic glow and foam-ring SDF).
+export const GARDEN_ISLAND_ROCK_RADIUS = 14;
 
 const NORMAL_MAP_URL = "/pharosville/textures/water-normals.png?v=3c09a2159c4f";
+
+// Cloud-shadow world mapping: one noise tile spans ~170 world units; drift is
+// a slow east-southeast wind so light weather crosses the garden in minutes.
+const CLOUD_SHADOW_TEXEL_SCALE = 1 / 170;
+const CLOUD_SHADOW_DRIFT_X = 0.0009;
+const CLOUD_SHADOW_DRIFT_Z = 0.00055;
 
 // Moon-road azimuth carried over from the sky so the sea's glitter band lands
 // under the same moon the dome draws. The water plane's -90deg X rotation maps
@@ -32,30 +60,45 @@ const MOON_DIR = new Vector2(
   -Math.sin(GARDEN_MOON_AZIMUTH),
 ).normalize();
 
-// Palette-derived sea. The hue family is HARBOR_PALETTE's deep indigo (Art
-// Direction: the Lantern Sea). Night is the hero: nearly ink, lifted off pure
-// black by the grade pass so the navy survives.
+// Palette-derived sea presets (C1: no hex literals — everything derives from
+// HARBOR_PALETTE and the day-cycle preset objects). The Garden Sea day identity
+// (D-R1 ukiyo-e morning) is a shallow→deep HSV ramp: turquoise shelf water →
+// saturated blue mids → deep indigo-violet open sea, posterized into flat
+// bands by the shader. Night keeps the Lantern Sea as indigo bands. Every band
+// stays below the bloom knee (per-state thresholds in garden-post): large
+// water areas must never bloom — only sparse glitter, foam, and emissives may.
 const pc = (key: keyof typeof HARBOR_PALETTE): Color => new Color(HARBOR_PALETTE[key]);
-const DAY_BASE = pc("shallow_teal_lit").lerp(pc("fog_pale"), 0.42).lerp(pc("foam_white"), 0.12);
-const DUSK_BASE = pc("deep_sea_1").lerp(pc("ember"), 0.26);
-const NIGHT_BASE = pc("deep_sea_1");
-const DAY_DEEP = pc("deep_sea_1").lerp(pc("shallow_teal"), 0.55);
+const DAY_SHALLOW = pc("sky_day_zenith").lerp(pc("aurora_green"), 0.28).lerp(pc("lantern_cold"), 0.18);
+const DAY_MID = pc("sky_day_zenith").lerp(pc("deep_sea_1"), 0.22);
+const DAY_DEEP = pc("deep_sea_1").lerp(pc("sky_day_zenith"), 0.42).lerp(pc("vermillion"), 0.05);
+const DUSK_SHALLOW = pc("shallow_teal").lerp(pc("lantern_warm"), 0.16).lerp(pc("deep_sea_1"), 0.28);
+const DUSK_MID = pc("deep_sea_1").lerp(pc("ember"), 0.3).lerp(pc("lantern_warm"), 0.08);
 const DUSK_DEEP = pc("deep_sea_2").lerp(pc("deep_sea_1"), 0.5);
+const NIGHT_SHALLOW = pc("shallow_teal").lerp(pc("deep_sea_1"), 0.25);
+const NIGHT_MID = pc("deep_sea_1").lerp(pc("shallow_teal"), 0.3);
 const NIGHT_DEEP = pc("deep_sea_2");
-const DAY_SHALLOW = pc("shallow_teal_lit").lerp(pc("moonlight"), 0.42);
-const DUSK_SHALLOW = pc("shallow_teal").lerp(pc("lantern_warm"), 0.14);
-const NIGHT_SHALLOW = pc("shallow_teal");
-const DAY_HIGHLIGHT = new Color(HARBOR_PALETTE.foam_white);
-const DUSK_HIGHLIGHT = DAY_HIGHLIGHT.clone().lerp(
-  new Color(HARBOR_PALETTE.lantern_warm),
-  0.22,
-);
-const NIGHT_HIGHLIGHT = new Color(HARBOR_PALETTE.moonlight);
-const BEACON_HIGHLIGHT = new Color(HARBOR_PALETTE.lantern_glow);
-const MOON_ROAD_COLOR = new Color(HARBOR_PALETTE.moonlight);
+const DAY_HIGHLIGHT = pc("foam_white");
+const DUSK_HIGHLIGHT = DAY_HIGHLIGHT.clone().lerp(pc("lantern_warm"), 0.22);
+const NIGHT_HIGHLIGHT = pc("moonlight");
+const BEACON_HIGHLIGHT = pc("lantern_glow");
+const MOON_ROAD_COLOR = pc("moonlight");
+
+// W2 sky env tint endpoints come from the C1 sky presets; at night the sheen
+// becomes moonlight (W6), so the night variants are pre-mixed with the moon.
+// The day horizon is pulled toward the zenith so the sheen stays below the
+// bloom knee even at full mask strength.
+const DAY_ENV_HORIZON = DAY_CYCLE_SKY_PRESETS.day.horizon.clone()
+  .lerp(DAY_CYCLE_SKY_PRESETS.day.zenith, 0.45);
+const DAY_ENV_ZENITH = DAY_CYCLE_SKY_PRESETS.day.zenith.clone();
+const DUSK_ENV_HORIZON = DAY_CYCLE_SKY_PRESETS.dusk.horizon.clone();
+const DUSK_ENV_ZENITH = DAY_CYCLE_SKY_PRESETS.dusk.zenith.clone();
+const NIGHT_ENV_HORIZON = DAY_CYCLE_SKY_PRESETS.night.horizon.clone().lerp(MOON_COLOR, 0.35);
+const NIGHT_ENV_ZENITH = DAY_CYCLE_SKY_PRESETS.night.zenith.clone().lerp(MOON_COLOR, 0.18);
 
 const VERTEX_SHADER = /* glsl */ `
   uniform float uDetail;
+  uniform float uHarborCalm;
+  uniform vec4 uHarborEllipse;
   uniform float uTempo;
   uniform float uTime;
   uniform float uWaveAmplitude;
@@ -81,9 +124,13 @@ const VERTEX_SHADER = /* glsl */ `
 
   void main() {
     vec2 waterPosition = position.xy;
+    // C2(b) harbor-calm mask (I2 mirror basin): swell is suppressed inside the
+    // harbor ellipse so the basin reads still against the open sea's motion.
+    float harborDistance = length((waterPosition - uHarborEllipse.xy) * uHarborEllipse.zw);
+    float harborCalm = (1.0 - smoothstep(0.7, 1.05, harborDistance)) * uHarborCalm;
     float wave = gardenWave(waterPosition, uTime);
     vec3 displaced = position;
-    displaced.z += wave * uWaveAmplitude;
+    displaced.z += wave * uWaveAmplitude * (1.0 - harborCalm * 0.8);
 
     vWaterPosition = waterPosition;
     vWorldPosition = (modelMatrix * vec4(displaced, 1.0)).xyz;
@@ -95,26 +142,44 @@ const VERTEX_SHADER = /* glsl */ `
 `;
 
 const FRAGMENT_SHADER = /* glsl */ `
+  uniform vec3 uBandColor[4];
   uniform vec3 uBaseColor;
   uniform float uBeaconAngle;
   uniform vec3 uBeaconColor;
+  uniform float uBeaconFlicker;
   uniform vec2 uBeaconPosition;
   uniform float uBeaconStrength;
   uniform vec2 uCemeteryCenter;
+  uniform sampler2D uCloudShadow;
+  uniform float uCloudShadowStrength;
+  uniform vec4 uCloudShadowTransform;
   uniform float uDaylight;
   uniform vec3 uDeepColor;
   uniform float uDetail;
   uniform float uDusk;
+  uniform vec3 uEnvHorizonColor;
+  uniform float uEnvStrength;
+  uniform vec3 uEnvZenithColor;
+  uniform float uGlitterStrength;
+  uniform float uHarborCalm;
+  uniform vec4 uHarborEllipse;
   uniform vec3 uHighlightColor;
   uniform vec2 uIslandCenter;
   uniform float uLaneCount;
+  uniform vec3 uLaneField;
   uniform sampler2D uLaneTexture;
   uniform vec2 uMoonDir;
   uniform vec3 uMoonRoadColor;
   uniform float uNight;
   uniform sampler2D uNormalMap;
   uniform vec2 uPigeonnierCenter;
+  uniform vec4 uRipple[${GARDEN_WATER_MAX_RIPPLE_RINGS}];
+  uniform float uRippleCount;
+  uniform vec4 uRippleParams[${GARDEN_WATER_MAX_RIPPLE_RINGS}];
+  uniform float uRippleStrength;
+  uniform float uRockRadius;
   uniform vec3 uShallowColor;
+  uniform vec3 uSunGlitterColor;
   uniform float uSwell;
   uniform float uTempo;
   uniform float uTime;
@@ -141,7 +206,11 @@ const FRAGMENT_SHADER = /* glsl */ `
   }
 
   void main() {
-    // --- B1: dual scrolling normal map -----------------------------------
+    // --- harbor-calm mask (C2(b), I2 mirror basin) -------------------------
+    float harborDistance = length((vWaterPosition - uHarborEllipse.xy) * uHarborEllipse.zw);
+    float harborCalm = (1.0 - smoothstep(0.7, 1.05, harborDistance)) * uHarborCalm;
+
+    // --- B1: dual scrolling normal map -------------------------------------
     float scroll = uTime * (0.6 + uTempo * 0.9);
     vec2 flow = uMoonDir * scroll;
     vec3 nA = sampleWaterNormal(vWaterPosition * 0.055 + flow * 0.045);
@@ -149,26 +218,74 @@ const FRAGMENT_SHADER = /* glsl */ `
       rotate2(vWaterPosition, 2.3) * 0.11 - flow * 0.03 + vec2(0.37, 0.11)
     );
     vec3 blendedNormal = normalize(vec3(nA.xy + nB.xy, nA.z * nB.z + 0.55));
+    // The mirror basin flattens the scrolled detail so it reads still.
+    blendedNormal = normalize(mix(blendedNormal, vec3(0.0, 0.0, 1.0), harborCalm * 0.75));
     float camDistance = distance(cameraPosition, vWorldPosition);
-    float detailFalloff = (1.0 - smoothstep(70.0, 260.0, camDistance)) * uDetail;
+    // W7: normal detail survives the default framing distance (camera sits at
+    // ~110–190); the falloff floor keeps far water alive and the tier (uDetail)
+    // — not distance alone — decides how much detail ships.
+    float detailFalloff = max(1.0 - smoothstep(130.0, 460.0, camDistance), 0.32) * uDetail;
     vec3 surfaceNormal = normalize(mix(vec3(0.0, 0.0, 1.0), blendedNormal, detailFalloff));
 
-    // --- base depth colour ------------------------------------------------
-    float broadPhase = dot(vWaterPosition, vec2(0.061, 0.028)) + uTime * 0.08;
-    float longPhase = dot(vWaterPosition, vec2(0.014, -0.023)) + uTime * 0.04;
-    float broadRibbon = sin(broadPhase);
-    float longSwell = sin(longPhase);
-    float depthMix = clamp(0.54 + broadRibbon * 0.06 + surfaceNormal.x * 0.05, 0.0, 1.0);
-    vec3 waterColor = mix(uDeepColor, uBaseColor, depthMix);
+    // --- analytic shore SDF (island + outlying islets) ----------------------
+    vec2 shoreDelta = vWaterPosition - uIslandCenter - vec2(0.6, -1.2);
+    shoreDelta = rotate2(shoreDelta, -0.08) / vec2(18.4, 13.8);
+    float shoreAngle = atan(shoreDelta.y, shoreDelta.x);
+    float shoreVariation = sin(shoreAngle * 3.0 + 0.3) * 0.04
+      + sin(shoreAngle * 7.0 - 0.21) * 0.022;
+    float shoreDistance = length(shoreDelta) + shoreVariation;
+    float shallowShelf = 1.0 - smoothstep(0.76, 1.34, shoreDistance);
+
+    float cemDist = length((vWaterPosition - uCemeteryCenter) / 4.6);
+    float pigDist = length((vWaterPosition - uPigeonnierCenter) / 3.4);
+    float isletShelf = (1.0 - smoothstep(0.5, 1.25, cemDist))
+      + (1.0 - smoothstep(0.5, 1.25, pigDist));
+
+    // --- W1: banded depth color ---------------------------------------------
+    // Depth comes from the shore SDF plus authored bathymetry: two shallow
+    // aprons off the island and one deep basin in the open water, then the
+    // shallow→deep ramp is posterized into flat ukiyo-e bands.
+    float depth = smoothstep(0.92, 3.4, shoreDistance);
+    float shelfA = 1.0 - smoothstep(0.55, 1.25, length(
+      (vWaterPosition - uIslandCenter - vec2(-14.0, 10.0)) / vec2(22.0, 12.0)
+    ));
+    float shelfB = 1.0 - smoothstep(0.55, 1.3, length(
+      (vWaterPosition - uIslandCenter - vec2(20.0, -8.0)) / vec2(16.0, 10.0)
+    ));
+    float basin = 1.0 - smoothstep(0.3, 1.1, length(
+      (vWaterPosition - uIslandCenter - vec2(34.0, 30.0)) / vec2(34.0, 24.0)
+    ));
+    depth = clamp(depth + basin * 0.22, 0.0, 1.0);
+    depth *= 1.0 - max(shelfA, shelfB) * 0.42;
+    depth *= 1.0 - clamp(isletShelf, 0.0, 1.0) * 0.5;
+    float bandIndex = floor(clamp(depth, 0.0, 0.9999) * 4.0);
+    vec3 waterColor = bandIndex < 0.5 ? uBandColor[0]
+      : bandIndex < 1.5 ? uBandColor[1]
+      : bandIndex < 2.5 ? uBandColor[2]
+      : uBandColor[3];
     float tonalCurrent = 0.5 + 0.5 * sin(
       dot(vWaterPosition, vec2(0.046, -0.058)) + uTime * 0.027
     );
-    waterColor = mix(waterColor, uDeepColor, tonalCurrent * (0.03 + uNight * 0.015));
+    waterColor *= 0.97 + tonalCurrent * 0.05;
 
-    // --- facet light + sky fresnel ---------------------------------------
+    // --- W4: drifting cloud shadows -----------------------------------------
+    // One world-space noise fetch attenuates the light term; the same texture
+    // and transform are shared with land/ship materials (C2(c)) so the weather
+    // drifts coherently across the whole garden. Below balanced the strength
+    // uniform is 0, so the fetch is skipped by a coherent branch — the term is
+    // provably identity there (cloudLight = 1, sun-glitter dapple factor = 1).
+    vec2 cloudUv = vec2(vWaterPosition.x, -vWaterPosition.y) * uCloudShadowTransform.xy
+      + uCloudShadowTransform.zw;
+    float cloudCover = 0.0;
+    if (uCloudShadowStrength > 0.001) {
+      cloudCover = texture2D(uCloudShadow, cloudUv).r;
+    }
+    float cloudLight = 1.0 - cloudCover * uCloudShadowStrength;
+
+    // --- facet light ---------------------------------------------------------
     vec3 keyDirection = normalize(vec3(-0.46, 0.2, 0.86));
     float facetLight = clamp(dot(surfaceNormal, keyDirection) * 0.5 + 0.55, 0.2, 1.0);
-    waterColor *= 0.95 + facetLight * 0.1;
+    waterColor *= (0.95 + facetLight * 0.1) * mix(1.0, cloudLight, 0.9);
     vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
     float fresnel = pow(1.0 - max(0.0, dot(surfaceNormal, viewDirection)), 3.0);
     vec3 skyReflection = mix(uBaseColor, uHighlightColor, 0.34);
@@ -178,18 +295,26 @@ const FRAGMENT_SHADER = /* glsl */ `
       fresnel * (0.08 + uDaylight * 0.08 + uNight * 0.04)
     );
 
-    // --- B4: island + islet shore ----------------------------------------
-    vec2 shoreDelta = vWaterPosition - uIslandCenter - vec2(0.6, -1.2);
-    shoreDelta = rotate2(shoreDelta, -0.08) / vec2(18.4, 13.8);
-    float shoreAngle = atan(shoreDelta.y, shoreDelta.x);
-    float shoreVariation = sin(shoreAngle * 3.0 + 0.3) * 0.04
-      + sin(shoreAngle * 7.0 - 0.21) * 0.022;
-    float shoreDistance = length(shoreDelta) + shoreVariation;
-    float shallowShelf = 1.0 - smoothstep(0.76, 1.34, shoreDistance);
-    float nearShore = 1.0 - smoothstep(1.02, 2.4, shoreDistance);
-    float openWater = smoothstep(1.35, 4.8, shoreDistance);
-    waterColor = mix(waterColor, uDeepColor, openWater * (0.035 + uNight * 0.03));
-    waterColor = mix(waterColor, uShallowColor, shallowShelf * (0.4 - uNight * 0.1));
+    // --- W2: sky env tint ------------------------------------------------------
+    // Analytic bokashi gradient sample, stronger toward the frame edges (fake
+    // horizon sheen), suppressed over shallow bands, shimmered by the dual
+    // scrolling normals. The mirror basin boosts it into a sky reflection.
+    float islandDistance = length(vWaterPosition - uIslandCenter);
+    float envMask = smoothstep(30.0, 110.0, islandDistance) * (0.2 + 0.8 * depth);
+    envMask = max(envMask, harborCalm * 0.75);
+    vec3 skySample = mix(
+      uEnvHorizonColor,
+      uEnvZenithColor,
+      clamp(0.25 + envMask * 0.55 + surfaceNormal.x * 0.14, 0.0, 1.0)
+    );
+    waterColor = mix(
+      waterColor,
+      skySample,
+      clamp(envMask * uEnvStrength * (1.0 + harborCalm * 1.2), 0.0, 0.85)
+    );
+
+    // --- B4: island + islet shore foam (V2 lapping kept, W5 rings stay outside)
+    waterColor = mix(waterColor, uShallowColor, shallowShelf * (0.3 - uNight * 0.08));
 
     float foamMotion = uTime * 0.55;
     float bandA = sin(shoreDistance * 20.0 - foamMotion);
@@ -203,13 +328,12 @@ const FRAGMENT_SHADER = /* glsl */ `
       * smoothstep(0.7, 0.9, shoreDistance);
     float shoreEdge = smoothstep(0.9, 0.965, shoreDistance)
       * (1.0 - smoothstep(0.965, 1.02, shoreDistance));
-    float shoreFoam = (shoreEdge + lapFoam) * (0.2 + uDetail * 0.28) * (0.6 + uDaylight * 0.4);
-    waterColor = mix(waterColor, uHighlightColor, clamp(shoreFoam, 0.0, 0.6));
+    // Foam stays a crisp waterline accent: broad foam sheets cross the bloom
+    // knee at day, so the lapping bands are dimmer than the shore edge and the
+    // mix clamps well below the bloom threshold.
+    float shoreFoam = (shoreEdge + lapFoam * 0.6) * (0.16 + uDetail * 0.22) * (0.7 + uDaylight * 0.3);
+    waterColor = mix(waterColor, uHighlightColor, clamp(shoreFoam, 0.0, 0.34));
 
-    float cemDist = length((vWaterPosition - uCemeteryCenter) / 4.6);
-    float pigDist = length((vWaterPosition - uPigeonnierCenter) / 3.4);
-    float isletShelf = (1.0 - smoothstep(0.5, 1.25, cemDist))
-      + (1.0 - smoothstep(0.5, 1.25, pigDist));
     waterColor = mix(waterColor, uShallowColor, clamp(isletShelf, 0.0, 1.0) * (0.3 - uNight * 0.08));
     float isletFoam = (
       smoothstep(0.86, 0.98, cemDist) * (1.0 - smoothstep(0.98, 1.12, cemDist))
@@ -217,12 +341,13 @@ const FRAGMENT_SHADER = /* glsl */ `
     ) * (0.55 + 0.45 * sin(shoreAngle * 9.0 - foamMotion));
     waterColor = mix(waterColor, uHighlightColor, clamp(isletFoam, 0.0, 0.35) * (0.3 + uDetail * 0.3));
 
-    // --- E3/E4: charted risk-zone water tint -----------------------------
+    // --- E3/E4 + C2(a): charted risk-zone soft tint ---------------------------
+    // Smoothstep-edged ellipses (Z3 soft band); Lane Z supplies the data.
     for (int zi = 0; zi < ${MAX_GARDEN_WATER_ZONES}; zi += 1) {
       if (float(zi) >= uZoneCount) break;
       vec4 ellipse = uZoneEllipse[zi];
       vec2 zd = (vWaterPosition - ellipse.xy) * ellipse.zw;
-      float inside = 1.0 - smoothstep(0.72, 1.0, length(zd));
+      float inside = 1.0 - smoothstep(0.55, 1.0, length(zd));
       vec4 tint = uZoneTint[zi];
       float waterLuma = dot(waterColor, vec3(0.2126, 0.7152, 0.0722));
       float tintLuma = max(dot(tint.rgb, vec3(0.2126, 0.7152, 0.0722)), 0.03);
@@ -230,71 +355,186 @@ const FRAGMENT_SHADER = /* glsl */ `
       waterColor = mix(waterColor, zoneColor, inside * tint.w);
     }
 
-    // --- B2: authored moon road + thresholded glitter --------------------
-    vec2 fromIsland = vWaterPosition - uIslandCenter;
-    float roadAlong = dot(fromIsland, uMoonDir);
-    float roadAcross = dot(fromIsland, vec2(-uMoonDir.y, uMoonDir.x));
-    float roadHalfWidth = 6.0;
-    float bandProfile = exp(-(roadAcross * roadAcross) / (roadHalfWidth * roadHalfWidth));
-    float roadReach = 1.0 - smoothstep(26.0, 140.0, abs(roadAlong));
-    float moonBand = bandProfile * roadReach;
+    // --- B2: authored moon road + thresholded night glitter ------------------
+    // Coherent day gate: at nightRoad = 0 both terms are provably zero, so the
+    // day frame skips the pow/exp/mask ALU entirely (identical output).
     float nightRoad = clamp(uNight + uDusk * 0.5, 0.0, 1.0);
-    waterColor = mix(waterColor, uMoonRoadColor, moonBand * nightRoad * 0.06);
+    if (nightRoad > 0.001) {
+      vec2 fromIsland = vWaterPosition - uIslandCenter;
+      float roadAlong = dot(fromIsland, uMoonDir);
+      float roadAcross = dot(fromIsland, vec2(-uMoonDir.y, uMoonDir.x));
+      float roadHalfWidth = 6.0;
+      float bandProfile = exp(-(roadAcross * roadAcross) / (roadHalfWidth * roadHalfWidth));
+      float roadReach = 1.0 - smoothstep(26.0, 140.0, abs(roadAlong));
+      float moonBand = bandProfile * roadReach;
+      waterColor = mix(waterColor, uMoonRoadColor, moonBand * nightRoad * 0.06);
 
-    vec3 moonLight = normalize(vec3(uMoonDir * 1.15, 0.5));
-    vec3 halfMoon = normalize(moonLight + vec3(0.0, 0.0, 1.0));
-    float specular = pow(max(0.0, dot(blendedNormal, halfMoon)), 90.0);
-    float sparkleMask = step(0.35,
-      sin(dot(vWaterPosition, vec2(2.3, 3.1)) + blendedNormal.x * 11.0)
-      * sin(dot(vWaterPosition, vec2(-3.7, 2.1)) + blendedNormal.y * 9.0)
-    );
-    float glitterGate = mix(0.8, 0.68, uSwell);
-    float glitter = smoothstep(glitterGate, glitterGate + 0.12, specular)
-      * sparkleMask * moonBand * nightRoad;
-    waterColor += uMoonRoadColor * clamp(glitter, 0.0, 1.0) * 2.6;
+      vec3 moonLight = normalize(vec3(uMoonDir * 1.15, 0.5));
+      vec3 halfMoon = normalize(moonLight + vec3(0.0, 0.0, 1.0));
+      float specular = pow(max(0.0, dot(blendedNormal, halfMoon)), 90.0);
+      float sparkleMask = step(0.35,
+        sin(dot(vWaterPosition, vec2(2.3, 3.1)) + blendedNormal.x * 11.0)
+        * sin(dot(vWaterPosition, vec2(-3.7, 2.1)) + blendedNormal.y * 9.0)
+      );
+      float glitterGate = mix(0.8, 0.68, uSwell);
+      float glitter = smoothstep(glitterGate, glitterGate + 0.12, specular)
+        * sparkleMask * moonBand * nightRoad;
+      waterColor += uMoonRoadColor * clamp(glitter, 0.0, 1.0) * 2.6;
+    }
 
-    // --- beacon sweeping lane (kept from V1) ------------------------------
+    // --- W3: sun glitter (the daytime moon-road) ------------------------------
+    // Thresholded high-exponent Blinn specular on the scrolling normals, pushed
+    // HDR so sparse sparkles feed bloom; density scales with seaState and the
+    // cloud mask dapples the sunlit patches. The glitter must read as sparse
+    // sun-dappled patches, never uniform speckle: the sparkle mask is strict,
+    // the high exponent keeps each sparkle tiny, the cloud shadow concentrates
+    // glitter into the sunlit gaps, and the fade matches the sky fog band
+    // (FOG_NEAR 192 / FOG_FAR 275 in garden-sky) so aerial perspective swallows
+    // the far sparkles instead of letting them read as stars at noon.
+    // Below balanced uGlitterStrength is 0 — the coherent branch skips the
+    // pow-520 and mask work there with identical output.
+    if (uGlitterStrength > 0.001 && uDaylight + uDusk > 0.001) {
+      vec3 halfSun = normalize(keyDirection + vec3(0.0, 0.0, 1.0));
+      float sunSpecular = pow(max(0.0, dot(blendedNormal, halfSun)), 520.0);
+      float sunSparkleMask = step(0.76,
+        sin(dot(vWaterPosition, vec2(3.1, -2.4)) + blendedNormal.y * 13.0)
+        * sin(dot(vWaterPosition, vec2(-2.2, -3.6)) + blendedNormal.x * 10.0)
+      );
+      float sunGate = mix(0.8, 0.68, uSwell);
+      float sunGlitter = smoothstep(sunGate, sunGate + 0.06, sunSpecular)
+        * sunSparkleMask
+        * (uDaylight + uDusk * 0.4)
+        * uGlitterStrength;
+      sunGlitter *= clamp(1.0 - cloudCover * uCloudShadowStrength * 2.6, 0.0, 1.0);
+      sunGlitter *= 1.0 - smoothstep(170.0, 265.0, camDistance);
+      waterColor += uSunGlitterColor * clamp(sunGlitter, 0.0, 1.0) * 1.7;
+    }
+
+    // --- W5: karesansui ripple rings (C2(d)) -----------------------------------
+    // Phase-offset expanding rings around island, islets, and any emitters the
+    // other lanes register (dock pylons, moored ships, garden islets). The V2
+    // lapping foam stays inside each train's inner radius. Below balanced
+    // uRippleStrength is 0 and the whole train is a no-op — skipped coherently.
+    if (uRippleStrength > 0.001) {
+      float ripple = 0.0;
+      for (int ri = 0; ri < ${GARDEN_WATER_MAX_RIPPLE_RINGS}; ri += 1) {
+        if (float(ri) >= uRippleCount) break;
+        vec4 ring = uRipple[ri];
+        vec4 rp = uRippleParams[ri];
+        float ringDistance = distance(vWaterPosition, ring.xy);
+        if (ringDistance > ring.z + 1.5) continue;
+        float innerRadius = ring.z * rp.w;
+        for (int rb = 0; rb < 3; rb += 1) {
+          if (float(rb) >= rp.x) break;
+          float t = fract(uTime / rp.y + ring.w + float(rb) / rp.x);
+          float r = mix(innerRadius, ring.z, t);
+          float crest = 1.0 - smoothstep(0.0, 0.5 + t * 0.9, abs(ringDistance - r));
+          ripple += crest * crest * (1.0 - t) * rp.z;
+        }
+      }
+      ripple = clamp(ripple * uRippleStrength, 0.0, 1.0);
+      waterColor = mix(waterColor, uHighlightColor, ripple * (0.1 + uDaylight * 0.06));
+    }
+
+    // --- beacon sweeping lane (kept from V1; L5 fade stretched to match the
+    // 58-unit beam of the 34-unit Pharos tower — the BEAM_LENGTH coupling is a
+    // contract, keep the fade constants with the beam) -----------------------
     vec2 beamDirection = vec2(cos(uBeaconAngle), sin(uBeaconAngle));
     vec2 fromBeacon = vWaterPosition - uBeaconPosition;
     float beamAlong = dot(fromBeacon, beamDirection);
     float beamAcross = abs(dot(fromBeacon, vec2(-beamDirection.y, beamDirection.x)));
     float beamWidth = 0.34 + max(0.0, beamAlong) * 0.029;
     float beamLane = smoothstep(0.0, 2.0, beamAlong)
-      * (1.0 - smoothstep(22.0, 36.0, beamAlong))
+      * (1.0 - smoothstep(30.0, 52.0, beamAlong))
       * exp(-(beamAcross * beamAcross) / max(0.04, beamWidth * beamWidth));
-    float beamRipple = 0.56 + 0.44 * sin(beamAlong * 0.78 - uTime * 0.8 + broadRibbon * 0.8);
+    float beamRipple = 0.56 + 0.44 * sin(beamAlong * 0.78 - uTime * 0.8 + tonalCurrent * 0.8);
     float beaconReflection = beamLane
       * (0.05 + smoothstep(0.48, 0.9, beamRipple) * 0.12)
       * uBeaconStrength;
+    // W6 flame-flicker lane (Pharos Wonder, §3.4): the same CPU flicker that
+    // drives the flame, halo, and PointLight breathes through the reflection,
+    // and a scrolled fetch of the already-bound cloud noise breaks the lane's
+    // cross-section into dancing firelight streaks. All firelight terms sit
+    // behind a coherent uniform branch: the banked day flame (D3 — strength
+    // ~0.15 at noon) skips every extra fetch, leaving a calm analytic lane.
+    if (uBeaconStrength > 0.2) {
+      float flickerGlow = 0.62 + 0.76 * uBeaconFlicker;
+      vec2 streakUv = vec2(
+        beamAlong * 0.021 - uTime * 0.017,
+        beamAcross * 0.085 + uTime * 0.004
+      );
+      float streakNoise = texture2D(uCloudShadow, streakUv).r;
+      float streaks = 0.55 + 0.45 * smoothstep(0.18, 0.72, streakNoise);
+      beaconReflection *= streaks * flickerGlow;
+
+      // Caustic base glow: firelight lapping at the rock — a warm radial
+      // falloff warped by one fetch of the shared cloud noise, gated by night
+      // strength x flicker.
+      float rockDist = length(vWaterPosition - uIslandCenter - vec2(0.6, -1.2));
+      float causticNoise = texture2D(uCloudShadow,
+        vWaterPosition * 0.023 + vec2(uTime * 0.004, -uTime * 0.003)).r;
+      float caustic = (1.0 - smoothstep(uRockRadius * 0.45, uRockRadius + 6.5, rockDist))
+        * (0.45 + 0.55 * causticNoise);
+      waterColor += uBeaconColor
+        * caustic
+        * uBeaconStrength
+        * (0.35 + 0.65 * uBeaconFlicker)
+        * 0.16;
+    }
     waterColor = mix(waterColor, uBeaconColor, clamp(beaconReflection, 0.0, 0.2));
 
-    // --- B3: warm light lanes from the registry --------------------------
-    vec2 streakDir = normalize(vec2(0.45, -1.0));
-    vec2 streakPerp = vec2(-streakDir.y, streakDir.x);
-    float tremble = surfaceNormal.x * (1.2 + uTempo * 1.6);
-    vec3 laneAccum = vec3(0.0);
-    for (int i = 0; i < ${MAX_GARDEN_LIGHT_LANES}; i += 1) {
-      if (float(i) >= uLaneCount) break;
-      float u = (float(i) + 0.5) / LANE_TEXELS;
-      vec4 head = texture2D(uLaneTexture, vec2(u, 0.25));
-      vec2 lanePos = vec2(head.x, -head.y);
-      vec2 d = vWaterPosition - lanePos;
-      float distSq = dot(d, d);
-      if (distSq > 900.0) continue;
-      vec4 body = texture2D(uLaneTexture, vec2(u, 0.75));
-      float intensity = head.z;
-      float pool = exp(-distSq / 42.0);
-      float along = dot(d, streakDir) + tremble;
-      float across = dot(d, streakPerp) + tremble * 0.4;
-      float streak = exp(-(across * across) / 3.0)
-        * exp(-max(0.0, along) * max(0.0, along) / 120.0)
-        * step(-2.0, along);
-      laneAccum += body.rgb * intensity * (pool * 0.9 + streak * 0.6);
+    // --- W6: shoreline foam rings (analytic shore SDF, no depth pass) -------
+    // Hard-stepped ukiyo-e outline bands expanding slowly outward through the
+    // 0–4 unit near-shore band; frozen at t=0 they hold a composed static
+    // pose. Shed with the ripple-ring tier gate (uRippleStrength).
+    if (uRippleStrength > 0.01) {
+      float shoreWorld = length(vWaterPosition - uIslandCenter - vec2(0.6, -1.2))
+        - uRockRadius;
+      float foamRings = step(0.86, sin(shoreWorld * 3.2 - uTime * 0.5))
+        * (1.0 - smoothstep(3.0, 4.0, shoreWorld))
+        * step(0.0, shoreWorld);
+      waterColor = mix(
+        waterColor,
+        uHighlightColor,
+        foamRings * 0.18 * uRippleStrength * (0.6 + uDaylight * 0.4)
+      );
     }
-    waterColor += clamp(laneAccum, 0.0, 2.2);
 
-    float distanceFade = smoothstep(110.0, 360.0, camDistance);
-    waterColor = mix(waterColor, uBaseColor, distanceFade * (0.1 + uDusk * 0.06));
+    // --- B3: warm light lanes from the registry --------------------------
+    // Field gate: outside the registry's bounding circle every lane fails the
+    // 30-unit distSq cull, so skipping the loop there is output-identical and
+    // saves one texture fetch per lane per fragment on open water.
+    vec2 fieldDelta = vWaterPosition - uLaneField.xy;
+    if (dot(fieldDelta, fieldDelta) < uLaneField.z * uLaneField.z) {
+      vec2 streakDir = normalize(vec2(0.45, -1.0));
+      vec2 streakPerp = vec2(-streakDir.y, streakDir.x);
+      float tremble = surfaceNormal.x * (1.2 + uTempo * 1.6);
+      vec3 laneAccum = vec3(0.0);
+      for (int i = 0; i < ${MAX_GARDEN_LIGHT_LANES}; i += 1) {
+        if (float(i) >= uLaneCount) break;
+        float u = (float(i) + 0.5) / LANE_TEXELS;
+        vec4 head = texture2D(uLaneTexture, vec2(u, 0.25));
+        vec2 lanePos = vec2(head.x, -head.y);
+        vec2 d = vWaterPosition - lanePos;
+        float distSq = dot(d, d);
+        if (distSq > 900.0) continue;
+        vec4 body = texture2D(uLaneTexture, vec2(u, 0.75));
+        float intensity = head.z;
+        float pool = exp(-distSq / 42.0);
+        float along = dot(d, streakDir) + tremble;
+        float across = dot(d, streakPerp) + tremble * 0.4;
+        float streak = exp(-(across * across) / 3.0)
+          * exp(-max(0.0, along) * max(0.0, along) / 120.0)
+          * step(-2.0, along);
+        laneAccum += body.rgb * intensity * (pool * 0.9 + streak * 0.6);
+      }
+      waterColor += clamp(laneAccum, 0.0, 2.2);
+    }
+
+    // W7: far water keeps its color much further out; the fade only blends the
+    // extreme edge toward the base so the fog seam stays invisible.
+    float distanceFade = smoothstep(150.0, 520.0, camDistance);
+    waterColor = mix(waterColor, uBaseColor, distanceFade * (0.08 + uDusk * 0.05 + uNight * 0.04));
     gl_FragColor = vec4(waterColor, 1.0);
 
     #include <tonemapping_fragment>
@@ -314,64 +554,114 @@ export interface GardenWaterFrame {
 export interface GardenWater {
   material: ShaderMaterial;
   mesh: Mesh<PlaneGeometry, ShaderMaterial>;
+  /** C2(c): shared cloud-shadow sampler for Lane I (island) and Lane S (ships). */
+  cloudShadows: GardenCloudShadowSource;
+  /** C2(d): karesansui ripple-ring emitter registry (Lanes I/S/Z). */
+  rippleRings: GardenRippleRingEmitter;
+  /** C4 evidence: whether cloud shadows are shading this frame's tier. */
+  cloudShadowsOn: () => boolean;
   setBeaconState: (
     worldX: number,
     worldZ: number,
     angle: number,
     strength: number,
+    flicker?: number,
   ) => void;
+  /** C2(b): harbor mirror-basin extents (Lane I); a sensible default is active until this is called. */
+  setHarborCalmMask: (mask: GardenHarborCalmMask) => void;
   setIslandCenter: (worldX: number, worldZ: number) => void;
   setIsletCenters: (
     cemetery: { x: number; z: number },
     pigeonnier: { x: number; z: number },
   ) => void;
-  setLaneState: (texture: DataTexture, activeLaneCount: number) => void;
-  setZoneState: (zones: readonly GardenWaterZone[]) => void;
+  setLaneState: (
+    texture: DataTexture,
+    activeLaneCount: number,
+    fieldBounds?: { centerX: number; centerZ: number; radius: number },
+  ) => void;
+  /** C2(a): zone soft-tint path; Lane Z supplies positions/radii/colors. */
+  setZoneState: (zones: readonly GardenWaterZoneTint[]) => void;
   update: (frame: GardenWaterFrame) => void;
 }
 
-export interface GardenWaterZone {
-  center: { x: number; z: number };
-  color: Color;
-  radiusX: number;
-  radiusZ: number;
-  strength: number;
-}
+/** Back-compatible alias for the C2 zone-tint shape. */
+export type GardenWaterZone = GardenWaterZoneTint;
 
 /**
- * One full-bleed water surface. A scrolling normal map catches the light; an
- * authored moon road and the shared light-lane registry lay the warm
- * reflections that make the Lantern Sea read at iso zoom.
+ * One full-bleed water surface — the Garden Sea. Banded depth color, sky env
+ * tint, sun glitter, drifting cloud shadows, and karesansui ripple rings by
+ * day; the authored moon road and the shared light-lane registry keep the
+ * Lantern Sea identity at night. W6 (Pharos Wonder): the beacon lane breathes
+ * with the flame flicker and breaks into scrolled-noise firelight streaks, a
+ * warm caustic glow laps the island rock, and hard-stepped foam rings expand
+ * through the near-shore band — all on the analytic shore SDF, no depth pass.
+ * Reduced motion freezes every animation into one static detailed frame;
+ * cloud shadows and glitter ship at balanced+ and ripple rings at full/balanced.
  */
 export function createGardenWater(waterLevel: number): GardenWater {
-  const baseColor = DAY_BASE.clone();
+  const baseColor = DAY_MID.clone();
   const deepColor = DAY_DEEP.clone();
   const highlightColor = DAY_HIGHLIGHT.clone();
   const shallowColor = DAY_SHALLOW.clone();
+  const bandColors = [DAY_SHALLOW.clone(), DAY_MID.clone(), DAY_MID.clone(), DAY_DEEP.clone()];
+  const envHorizonColor = DAY_ENV_HORIZON.clone();
+  const envZenithColor = DAY_ENV_ZENITH.clone();
+  const sunGlitterColor = DAY_CYCLE_LIGHT_PRESETS.day.dirColor.clone();
+  const cloudShadows = createGardenCloudShadowSource();
   const uniforms = {
     fogColor: { value: new Color() },
     fogFar: { value: 1_000 },
     fogNear: { value: 1 },
+    uBandColor: { value: bandColors },
     uBaseColor: { value: baseColor },
     uBeaconAngle: { value: -0.55 },
     uBeaconColor: { value: BEACON_HIGHLIGHT.clone() },
+    uBeaconFlicker: { value: 0.5 },
     uBeaconPosition: { value: new Vector2() },
     uBeaconStrength: { value: 0 },
     uCemeteryCenter: { value: new Vector2(1e4, 1e4) },
+    // C2(c): the water material shares the exact uniform objects the cloud
+    // source exposes, so land/ship consumers stay in sync by construction.
+    uCloudShadow: cloudShadows.uniforms.uCloudShadow,
+    uCloudShadowStrength: cloudShadows.uniforms.uCloudShadowStrength,
+    uCloudShadowTransform: cloudShadows.uniforms.uCloudShadowTransform,
     uDaylight: { value: 1 },
     uDeepColor: { value: deepColor },
     uDetail: { value: 1 },
     uDusk: { value: 0 },
+    uEnvHorizonColor: { value: envHorizonColor },
+    uEnvStrength: { value: 0.3 },
+    uEnvZenithColor: { value: envZenithColor },
+    uGlitterStrength: { value: 1 },
+    uHarborCalm: { value: 0.7 },
+    uHarborEllipse: { value: new Vector4(0, 0, 1 / 13, 1 / 9) },
     uHighlightColor: { value: highlightColor },
     uIslandCenter: { value: new Vector2() },
     uLaneCount: { value: 0 },
+    // Bounding circle (water coords: x, -z, radius) of the active light lanes;
+    // a huge default keeps the loop unconditional until the registry supplies
+    // real bounds.
+    uLaneField: { value: new Vector3(0, 0, 1e5) },
     uLaneTexture: { value: null as DataTexture | null },
     uMoonDir: { value: MOON_DIR.clone() },
     uMoonRoadColor: { value: MOON_ROAD_COLOR.clone() },
     uNight: { value: 0 },
     uNormalMap: { value: loadNormalMap() as Texture | null },
     uPigeonnierCenter: { value: new Vector2(1e4, 1e4) },
+    uRipple: {
+      value: Array.from({ length: GARDEN_WATER_MAX_RIPPLE_RINGS }, () => new Vector4()),
+    },
+    uRippleCount: { value: 0 },
+    uRippleParams: {
+      value: Array.from({ length: GARDEN_WATER_MAX_RIPPLE_RINGS }, () => new Vector4()),
+    },
+    uRippleStrength: { value: 1 },
+    // W6: approximate rock radius of the island's waterline (world units) for
+    // the analytic shore SDF behind the caustic glow and foam rings; anchored
+    // by setIslandCenter from the island root position.
+    uRockRadius: { value: GARDEN_ISLAND_ROCK_RADIUS },
     uShallowColor: { value: shallowColor },
+    uSunGlitterColor: { value: sunGlitterColor },
     uSwell: { value: 0 },
     uTempo: { value: 0.2 },
     uTime: { value: 0 },
@@ -398,25 +688,145 @@ export function createGardenWater(waterLevel: number): GardenWater {
   mesh.position.y = waterLevel;
   mesh.rotation.x = -Math.PI / 2;
 
+  // Karesansui ripple-ring emitters (C2(d)). The island and the outlying
+  // islets self-register when their centers arrive; other lanes register dock
+  // pylons, moored ships, and garden islets through the same API.
+  const rippleEmitters = new Map<string, {
+    bands: 2 | 3;
+    centerX: number;
+    centerY: number;
+    innerFraction: number;
+    periodSeconds: number;
+    phase: number;
+    radius: number;
+    strength: number;
+  }>();
+  const syncRippleUniforms = () => {
+    let index = 0;
+    for (const emitter of rippleEmitters.values()) {
+      if (index >= GARDEN_WATER_MAX_RIPPLE_RINGS) break;
+      uniforms.uRipple.value[index]!.set(
+        emitter.centerX,
+        emitter.centerY,
+        emitter.radius,
+        emitter.phase,
+      );
+      uniforms.uRippleParams.value[index]!.set(
+        emitter.bands,
+        emitter.periodSeconds,
+        emitter.strength,
+        emitter.innerFraction,
+      );
+      index += 1;
+    }
+    uniforms.uRippleCount.value = index;
+  };
+  const rippleRings: GardenRippleRingEmitter = {
+    setRing(ring) {
+      const previous = rippleEmitters.get(ring.id);
+      rippleEmitters.set(ring.id, {
+        bands: ring.bands,
+        centerX: ring.center.x,
+        centerY: -ring.center.z,
+        innerFraction: previous?.innerFraction ?? 0.5,
+        periodSeconds: Math.max(0.001, ring.periodSeconds),
+        phase: previous?.phase ?? stablePhase(ring.id),
+        radius: Math.max(0.001, ring.radius),
+        strength: MathUtils.clamp(ring.strength, 0, 1),
+      });
+      syncRippleUniforms();
+    },
+    removeRing(id) {
+      if (rippleEmitters.delete(id)) syncRippleUniforms();
+    },
+    ringCount() {
+      return rippleEmitters.size;
+    },
+  };
+  // Internal default emitters use a richer inner-radius so the ring train
+  // starts outside the lapping shore foam; lanes overriding by id keep it.
+  const setDefaultRing = (
+    id: string,
+    center: { x: number; z: number },
+    radius: number,
+    bands: 2 | 3,
+    periodSeconds: number,
+    strength: number,
+    innerFraction: number,
+  ) => {
+    const previous = rippleEmitters.get(id);
+    rippleEmitters.set(id, {
+      bands,
+      centerX: center.x,
+      centerY: -center.z,
+      innerFraction,
+      periodSeconds,
+      phase: previous?.phase ?? stablePhase(id),
+      radius,
+      strength,
+    });
+    syncRippleUniforms();
+  };
+
+  let harborMaskOverridden = false;
+  let cloudShadowsActive = true;
+
   return {
     material,
     mesh,
-    setBeaconState(worldX, worldZ, angle, strength) {
+    cloudShadows,
+    rippleRings,
+    cloudShadowsOn() {
+      return cloudShadowsActive;
+    },
+    setBeaconState(worldX, worldZ, angle, strength, flicker = 0.5) {
       uniforms.uBeaconPosition.value.set(worldX, -worldZ);
       uniforms.uBeaconAngle.value = angle;
       uniforms.uBeaconStrength.value = MathUtils.clamp(strength, 0, 1);
+      uniforms.uBeaconFlicker.value = MathUtils.clamp(flicker, 0, 1);
+    },
+    setHarborCalmMask(mask) {
+      harborMaskOverridden = true;
+      uniforms.uHarborEllipse.value.set(
+        mask.center.x,
+        -mask.center.z,
+        1 / Math.max(0.001, mask.radiusX),
+        1 / Math.max(0.001, mask.radiusZ),
+      );
+      uniforms.uHarborCalm.value = MathUtils.clamp(mask.calmStrength, 0, 1);
     },
     setIslandCenter(worldX, worldZ) {
       // The plane's -90 degree X rotation maps local Y to negative world Z.
       uniforms.uIslandCenter.value.set(worldX, -worldZ);
+      // W6: the rock radius rides along with the island anchor so the caustic
+      // glow and foam-ring SDF stay glued to the rock if the island moves.
+      uniforms.uRockRadius.value = GARDEN_ISLAND_ROCK_RADIUS;
+      // I2 default mirror basin: a feathered ellipse off the island's harbor
+      // side until Lane I supplies the real harbor SDF extents.
+      if (!harborMaskOverridden) {
+        uniforms.uHarborEllipse.value.set(worldX + 18, -worldZ - 14, 1 / 13, 1 / 9);
+      }
+      // Default karesansui train: inner band starts outside the V2 lapping
+      // foam (~1.34 SDF units ≈ 25 world units on the long axis).
+      setDefaultRing("garden.island", { x: worldX, z: worldZ }, 40, 3, 16, 0.5, 0.65);
     },
     setIsletCenters(cemetery, pigeonnier) {
       uniforms.uCemeteryCenter.value.set(cemetery.x, -cemetery.z);
       uniforms.uPigeonnierCenter.value.set(pigeonnier.x, -pigeonnier.z);
+      setDefaultRing("garden.islet.cemetery", cemetery, 12, 2, 11, 0.45, 0.5);
+      setDefaultRing("garden.islet.pigeonnier", pigeonnier, 10, 2, 9, 0.45, 0.5);
     },
-    setLaneState(texture, activeLaneCount) {
+    setLaneState(texture, activeLaneCount, fieldBounds) {
       uniforms.uLaneTexture.value = texture;
       uniforms.uLaneCount.value = activeLaneCount;
+      if (fieldBounds) {
+        // The plane's -90 degree X rotation maps world Z to negative water Y.
+        uniforms.uLaneField.value.set(
+          fieldBounds.centerX,
+          -fieldBounds.centerZ,
+          Math.max(0, fieldBounds.radius),
+        );
+      }
     },
     setZoneState(zones) {
       const count = Math.min(zones.length, MAX_GARDEN_WATER_ZONES);
@@ -439,27 +849,51 @@ export function createGardenWater(waterLevel: number): GardenWater {
       }
     },
     update(frame) {
-      const { daylight, dusk, night } = dayCycle(frame.wallClockHour);
-      blendCycle(baseColor, NIGHT_BASE, DUSK_BASE, DAY_BASE, dusk, daylight);
-      blendCycle(deepColor, NIGHT_DEEP, DUSK_DEEP, DAY_DEEP, dusk, daylight);
-      blendCycle(
-        shallowColor,
-        NIGHT_SHALLOW,
-        DUSK_SHALLOW,
-        DAY_SHALLOW,
+      // C1: the water consumes the shared day-cycle curve and blend law; no
+      // local copy of the phase curve lives in this module anymore.
+      const { daylight, dusk, night } = dayCyclePhase(frame.wallClockHour);
+      blendDayCycleColor(shallowColor, NIGHT_SHALLOW, DUSK_SHALLOW, DAY_SHALLOW, dusk, daylight);
+      blendDayCycleColor(baseColor, NIGHT_MID, DUSK_MID, DAY_MID, dusk, daylight);
+      blendDayCycleColor(deepColor, NIGHT_DEEP, DUSK_DEEP, DAY_DEEP, dusk, daylight);
+      blendDayCycleColor(highlightColor, NIGHT_HIGHLIGHT, DUSK_HIGHLIGHT, DAY_HIGHLIGHT, dusk, daylight);
+      // W1: the shallow→deep ramp is HSV-lerped into four posterized stops.
+      bandColors[0]!.copy(shallowColor);
+      hslLerpColor(bandColors[1]!, shallowColor, baseColor, 0.55);
+      hslLerpColor(bandColors[2]!, baseColor, deepColor, 0.5);
+      bandColors[3]!.copy(deepColor);
+      // W2/W6: sky env tint follows the bokashi sky presets and becomes
+      // moonlight at night; the sun glitter tint follows the light rig.
+      blendDayCycleColor(envHorizonColor, NIGHT_ENV_HORIZON, DUSK_ENV_HORIZON, DAY_ENV_HORIZON, dusk, daylight);
+      blendDayCycleColor(envZenithColor, NIGHT_ENV_ZENITH, DUSK_ENV_ZENITH, DAY_ENV_ZENITH, dusk, daylight);
+      blendDayCycleColor(
+        sunGlitterColor,
+        DAY_CYCLE_LIGHT_PRESETS.night.dirColor,
+        DAY_CYCLE_LIGHT_PRESETS.dusk.dirColor,
+        DAY_CYCLE_LIGHT_PRESETS.day.dirColor,
         dusk,
         daylight,
       );
-      blendCycle(
-        highlightColor,
-        NIGHT_HIGHLIGHT,
-        DUSK_HIGHLIGHT,
-        DAY_HIGHLIGHT,
-        dusk,
-        daylight,
-      );
+      // Day keeps the env sheen subtle (0.11): at 0.18 the pale horizon tint
+      // washed the banded ramp across the whole frame, not just the far band.
+      uniforms.uEnvStrength.value = blendPhaseScalar(0.08, 0.13, 0.11, dusk, daylight);
 
-      uniforms.uDetail.value = detailForTier(frame.renderScheduler.tier);
+      const tier = frame.renderScheduler.tier;
+      const balancedOrBetter = tier === "full" || tier === "balanced";
+      uniforms.uDetail.value = detailForTier(tier);
+      // Guardrails: sun glitter and cloud shadows ship at balanced+; ripple
+      // rings at full/balanced. Lower tiers keep the graceful fallbacks.
+      uniforms.uGlitterStrength.value = balancedOrBetter ? 1 : 0;
+      uniforms.uRippleStrength.value = balancedOrBetter ? 1 : 0;
+      cloudShadows.update({
+        reducedMotion: frame.reducedMotion,
+        tier,
+        timeSeconds: frame.timeSeconds,
+      });
+      cloudShadowsActive = balancedOrBetter;
+      cloudShadows.uniforms.uCloudShadowStrength.value = cloudShadowsActive
+        ? blendPhaseScalar(0.12, 0.2, 0.34, dusk, daylight)
+        : 0;
+
       uniforms.uDaylight.value = daylight;
       uniforms.uDusk.value = dusk;
       uniforms.uNight.value = night;
@@ -472,6 +906,125 @@ export function createGardenWater(waterLevel: number): GardenWater {
   };
 }
 
+/**
+ * C2(c) cloud-shadow source: a procedural, tileable two-octave value-noise
+ * DataTexture scrolled in world-XZ. The water material samples it directly;
+ * Lane I/S materials receive the same texture and uniform objects so the same
+ * cloud lightens and darkens the whole garden at once.
+ */
+function createGardenCloudShadowSource(): GardenCloudShadowSource {
+  const texture = createCloudNoiseTexture(256);
+  const transform: [number, number, number, number] = [
+    CLOUD_SHADOW_TEXEL_SCALE,
+    CLOUD_SHADOW_TEXEL_SCALE,
+    0,
+    0,
+  ];
+  const uniforms: GardenCloudShadowSource["uniforms"] = {
+    uCloudShadow: { value: texture },
+    uCloudShadowTransform: { value: transform },
+    uCloudShadowStrength: { value: 0.34 },
+  };
+  return {
+    texture,
+    uniforms,
+    update({ reducedMotion, tier, timeSeconds }) {
+      // Drift only advances at balanced+ with motion allowed; reduced motion
+      // freezes the sky exactly where it was (static detailed frame).
+      if (reducedMotion) return;
+      if (tier !== "full" && tier !== "balanced") return;
+      transform[2] = Math.max(0, timeSeconds) * CLOUD_SHADOW_DRIFT_X;
+      transform[3] = Math.max(0, timeSeconds) * CLOUD_SHADOW_DRIFT_Z;
+    },
+  };
+}
+
+function createCloudNoiseTexture(size: number): DataTexture {
+  const data = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      // Tileable value noise: lattice frequencies divide the texture size.
+      const fbm = valueNoise(x, y, size, 4) * 0.55
+        + valueNoise(x, y, size, 8) * 0.3
+        + valueNoise(x, y, size, 16) * 0.15;
+      // Shape into soft cloud blobs with open sky between them.
+      const cover = MathUtils.clamp((fbm - 0.42) / 0.34, 0, 1);
+      const value = Math.round(cover * cover * (3 - 2 * cover) * 255);
+      const index = (y * size + x) * 4;
+      data[index] = value;
+      data[index + 1] = value;
+      data[index + 2] = value;
+      data[index + 3] = 255;
+    }
+  }
+  const texture = new DataTexture(data, size, size, RGBAFormat);
+  texture.wrapS = RepeatWrapping;
+  texture.wrapT = RepeatWrapping;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function valueNoise(x: number, y: number, size: number, cells: number): number {
+  const scale = cells / size;
+  const gx = x * scale;
+  const gy = y * scale;
+  const ix = Math.floor(gx);
+  const iy = Math.floor(gy);
+  const fx = gx - ix;
+  const fy = gy - iy;
+  const sx = fx * fx * (3 - 2 * fx);
+  const sy = fy * fy * (3 - 2 * fy);
+  const wrap = (v: number) => ((v % cells) + cells) % cells;
+  const a = latticeHash(wrap(ix), wrap(iy), cells);
+  const b = latticeHash(wrap(ix + 1), wrap(iy), cells);
+  const c = latticeHash(wrap(ix), wrap(iy + 1), cells);
+  const d = latticeHash(wrap(ix + 1), wrap(iy + 1), cells);
+  return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
+}
+
+function latticeHash(ix: number, iy: number, seed: number): number {
+  let hash = (ix * 374761393 + iy * 668265263 + seed * 2246822519) >>> 0;
+  hash = Math.imul(hash ^ (hash >>> 13), 1274126177) >>> 0;
+  return ((hash ^ (hash >>> 16)) >>> 0) / 0xffffffff;
+}
+
+function stablePhase(id: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < id.length; index += 1) {
+    hash ^= id.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 0xffffffff;
+}
+
+const scratchHslA = { h: 0, s: 0, l: 0 };
+const scratchHslB = { h: 0, s: 0, l: 0 };
+
+/** Shortest-path HSL lerp so the band ramp travels hue smoothly (turquoise→blue→indigo). */
+function hslLerpColor(target: Color, from: Color, to: Color, t: number): void {
+  from.getHSL(scratchHslA);
+  to.getHSL(scratchHslB);
+  let hueDelta = scratchHslB.h - scratchHslA.h;
+  if (hueDelta > 0.5) hueDelta -= 1;
+  if (hueDelta < -0.5) hueDelta += 1;
+  target.setHSL(
+    (scratchHslA.h + hueDelta * t + 1) % 1,
+    scratchHslA.s + (scratchHslB.s - scratchHslA.s) * t,
+    scratchHslA.l + (scratchHslB.l - scratchHslA.l) * t,
+  );
+}
+
+function blendPhaseScalar(
+  night: number,
+  dusk: number,
+  day: number,
+  duskMix: number,
+  daylightMix: number,
+): number {
+  const duskValue = night + (dusk - night) * duskMix;
+  return duskValue + (day - duskValue) * daylightMix;
+}
+
 function loadNormalMap(): Texture | null {
   // The renderer only mounts behind the desktop gate; unit tests run in a
   // DOM-less environment where no image can load, so skip it there.
@@ -480,35 +1033,6 @@ function loadNormalMap(): Texture | null {
   texture.wrapS = RepeatWrapping;
   texture.wrapT = RepeatWrapping;
   return texture;
-}
-
-function blendCycle(
-  target: Color,
-  night: Color,
-  dusk: Color,
-  day: Color,
-  duskMix: number,
-  daylightMix: number,
-): void {
-  target.copy(night).lerp(dusk, duskMix).lerp(day, daylightMix);
-}
-
-function dayCycle(hourInput: number): {
-  daylight: number;
-  dusk: number;
-  night: number;
-} {
-  const hour = ((hourInput % 24) + 24) % 24;
-  const daylight = Math.max(0, Math.sin(((hour - 6) / 12) * Math.PI));
-  const dusk = Math.max(
-    Math.max(0, 1 - Math.abs(hour - 6) / 2),
-    Math.max(0, 1 - Math.abs(hour - 18) / 2),
-  );
-  return {
-    daylight,
-    dusk,
-    night: MathUtils.clamp(1 - daylight - dusk * 0.38, 0, 1),
-  };
 }
 
 function detailForTier(tier: PharosVilleRenderSchedulerState["tier"]): number {

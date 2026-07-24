@@ -1,4 +1,5 @@
 import { riskWaterAreaForPlacement } from "./risk-water-areas";
+import { isGardenObstacleTile } from "./garden-water-exclusion";
 import {
   PHAROSVILLE_MAP_HEIGHT,
   PHAROSVILLE_MAP_WIDTH,
@@ -10,6 +11,10 @@ import {
 import type { ShipRiskPlacement } from "./world-types";
 
 export function isRiskPlacementWaterTile(tile: { x: number; y: number }, placement: ShipRiskPlacement): boolean {
+  // Zones-v2 placement fix: painted zone water under the RENDERED island
+  // rock (or any decorative islet) is not usable — the garden island mesh is
+  // display-decoupled from the terrain model and covers some data water.
+  if (isGardenObstacleTile(tile.x, tile.y)) return false;
   const terrain = terrainKindAt(tile.x, tile.y);
   const validTerrains = riskWaterAreaForPlacement(placement).validTerrains;
   if (validTerrains === "any-water") return isWaterTileKind(tileKindAt(tile.x, tile.y));

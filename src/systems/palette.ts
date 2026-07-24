@@ -9,6 +9,16 @@ export const HARBOR_PALETTE = {
   sky_horizon: "#1a2240",
   fog_blue: "#3a4f7a",
   fog_pale: "#5a7099",
+  // Garden Sea day identity (D-R1 ukiyo-e day, supersedes the D1 pearl
+  // overcast): a saturated-but-harmonious bokashi sky, warm key sun, and one
+  // reserved vermillion accent (lighthouse crown + danger semantics).
+  // Pharos Wonder 2026-07-24 (D6): the reserved vermillion is spent on the
+  // Pharos beacon fire — the flame's outer band (garden-beacon-fire.ts).
+  sky_day_zenith: "#27567d",
+  sky_day_horizon: "#e9d9b2",
+  fog_day: "#dbcfae",
+  sun_day_warm: "#f2ddab",
+  vermillion: "#c23a22",
   stone_dark: "#2a2620",
   stone_mid: "#4a4238",
   stone_pale: "#6a5e4e",

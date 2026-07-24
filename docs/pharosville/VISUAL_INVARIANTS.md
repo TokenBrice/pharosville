@@ -55,6 +55,27 @@ tests and documentation.
 | Risk water | existing peg/DEWS evidence | stress from stale evidence alone |
 | Cemetery marker | dead/frozen lifecycle state | current active status |
 
+## The Pharos Lighthouse
+
+- The tower is the Pharos of Alexandria rebuilt as a Wonder: a 34-unit
+  three-tier silhouette (battered square base → octagonal drum → cylindrical
+  drum) crowned by an open bronze brazier and a Zeus Soter statue. Decision
+  D1 (Pharos Wonder plan, 2026-07-24) supersedes the earlier "epic, not
+  bigger" call (D-L1): contract constants are
+  `GARDEN_LIGHTHOUSE_HEIGHT = 34` and `GARDEN_LIGHTHOUSE_BEACON_Y = 30.1`.
+- The beacon signal is a living fire, not a glow sphere: flame brightness and
+  flicker amplitude track the same PSI-stress intensity number the old beacon
+  sphere carried (D5). The analytical encoding is unchanged — the fire is
+  additive decoration on top of the same signal, and bloom stays
+  decorative-only.
+- Day identity is the smoke column, the mirror glint, and a banked flame;
+  dusk/night identity is the full flame, halo, and rotating ray fan (D3).
+- The ray fan is poster-art license (D4): a vintage travel-poster sunburst,
+  not a claim of ancient optics. The bronze mirror dish carries the same
+  knowingly-legendary status.
+- The flame's outer band spends the one reserved vermillion accent (D6); all
+  other fire colors derive from the shared palette.
+
 ## Renderer And Media
 
 - Island, docks, ships, cemetery, pigeonnier, districts, ambient life, and
@@ -69,13 +90,39 @@ tests and documentation.
 - Hit targets must use the same display transforms and motion samples as the
   rendered entities.
 - Zone colors come from the shared palette/theme bridge rather than arbitrary
-  renderer literals.
-- Risk zones are drawn as charted water regions — a dashed band-colored
-  perimeter, lit marker buoys, and a subtle in-water tint — not filled decal
-  discs. Band color is never the only encoding: buoys add positional redundancy
-  and danger buoys blink slowly (frozen under reduced motion), alongside the DOM
-  label and detail-panel parity. The redesign changes presentation only; the
-  meaning and stale-evidence caveat in the Entity Meaning table are unchanged.
+  renderer literals. Since Z3 (Garden Sea, 2026-07-24) each DEWS band accent is
+  harmonized toward a `HARBOR_PALETTE` anchor — muted teal-green calm → deep
+  amber warning → ember danger — and the water shader luminance-matches the
+  tint against the live water color; DOM labels keep the raw DEWS accents.
+- Risk zones are drawn as charted water regions — a broken, slightly irregular
+  hand-drawn band-colored perimeter (stable-noise dash lengths and radius
+  wobble; segment/dash counts scale with circumference), lit marker buoys that
+  bob on the swell (balanced tier and above; one marker per ~9 world units of
+  perimeter, capped), and a soft smoothstep-edged in-water tint whose strength
+  shrinks as footprints grow (the map-spanning WATCH tint is barely-there) —
+  not filled decal discs. Zones read as composed bodies of water: per-band
+  base radii (`ALERT 34 / CALM 32 / DANGER 6 / WARNING 15 / WATCH 48 / Ledger
+  36` world units — zones-v3, 2026-07-24, raised from the zones-v2
+  `26/23/6/14/44/30` set under the operator steer to vastly grow the sea
+  zones; the union of the six rendered ellipses covers ~98% of the open-sea
+  surface, up from ~89%, with the N-strip and SW-corner open-water pockets
+  kept readable — guarded by `gardenZoneSeaCoverage` ≥ 50% at worst-case
+  counts) plus a mild monotonic count term (`+min(2, √max(1,
+  count)·0.3)`), with ~1.3×/0.8 ellipse semi-axes. The zones-v2 layout
+  (operator hand-drawn overlay, 2026-07-24, superseding
+  `agents/2026-07-24-zone-recomposition-sketch.md` for layout) decouples
+  display from data: data anchors keep their valid painted-water tiles in the
+  NW/NE corners while the rendered ellipses center on the island (CALM inner
+  harbor ring, WATCH dominant sea containing it), off-frame NW (LEDGER's arc
+  crossing the top-left quadrant), and off-frame/at the NE storm corner
+  (ALERT > WARNING > DANGER nested arcs escalating toward the corner). DOM
+  labels, hit targets, and camera focus anchor on the visible arc of each
+  zone, inset toward the frame, never off-screen. Band color is never
+  the only encoding: buoys add positional redundancy and danger buoys blink
+  slowly (full tier; frozen under reduced motion, as is the bob), alongside
+  the DOM label and detail-panel parity. The redesign changes presentation
+  only; the meaning and stale-evidence caveat in the Entity Meaning table are
+  unchanged.
 
 ## Performance
 

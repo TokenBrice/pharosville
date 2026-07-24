@@ -1,4 +1,5 @@
 import { dockOutwardVectorForTile } from "../../dock-layout";
+import { isGardenObstacleTile } from "../../garden-water-exclusion";
 import { isSeawallBarrierTile, seawallBarrierDistance } from "../../seawall";
 import {
   clampMapTile,
@@ -89,7 +90,10 @@ function dockMooringTile(
         y: dock.tile.y + outward.y * depth + fan.y * lane,
       });
       const key = `${tile.x}.${tile.y}`;
+      // Zones-v2 placement fix: moorings must also clear the RENDERED island
+      // rock — data water beneath the garden island mesh is not a berth.
       if (occupied.has(key) || isSeawallBarrierTile(tile) || !isNavigableWaterTile(tile)) continue;
+      if (isGardenObstacleTile(tile.x, tile.y)) continue;
       const barrierDistance = seawallBarrierDistance(tile);
       if (barrierDistance < minBarrierClearance) continue;
       const score = depth * 10 + Math.abs(laneOffset) + Math.abs(lane) * 0.01;
@@ -106,6 +110,7 @@ function dockMooringTile(
       const tile = { x, y };
       const key = `${x}.${y}`;
       if (occupied.has(key) || !isNavigableWaterTile(tile)) continue;
+      if (isGardenObstacleTile(tile.x, tile.y)) continue;
       const barrierDistance = seawallBarrierDistance(tile);
       if (barrierDistance < minBarrierClearance) continue;
       const score = Math.abs(tile.x - target.x) + Math.abs(tile.y - target.y) - barrierDistance * 0.02;

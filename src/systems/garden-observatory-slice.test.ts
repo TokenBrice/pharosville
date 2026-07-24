@@ -10,6 +10,7 @@ import {
 import { buildPharosVilleWorld } from "./pharosville-world";
 import {
   GARDEN_SHIP_ROOT_Y,
+  gardenAreaCenterTile,
   gardenAreaDisplayTile,
   gardenCameraViewHeight,
   gardenDockDisplayTile,
@@ -106,6 +107,33 @@ describe("Garden Observatory slice", () => {
     expect(projectedShip.x).toBe(784);
     expect(projectedShip.y).toBeCloseTo(572.8267650887822);
     expect(gardenCameraViewHeight(1_000, 1)).toBe(62.5);
+  });
+
+  it("decouples rendered zone centers from in-frame label anchors (zones-v2)", () => {
+    // Operator overlay composition: the Calm ring centers on the island,
+    // Watch slightly below it, and Ledger/Alert/Warning center off-frame —
+    // while every DOM label anchor stays on the visible arc inside the map.
+    const calm = { band: "CALM", tile: { x: 10, y: 40 } };
+    expect(gardenAreaCenterTile(calm)).toEqual({ x: 31, y: 31 });
+    expect(gardenAreaDisplayTile(calm)).toEqual({ x: 42, y: 26 });
+    expect(gardenAreaCenterTile({ band: "WATCH", tile: { x: 38, y: 48 } }))
+      .toEqual({ x: 33, y: 33 });
+    // Ledger keys off its risk placement (band is null).
+    const ledger = { riskPlacement: "ledger-mooring", tile: { x: 10, y: 5 } };
+    expect(gardenAreaCenterTile(ledger)).toEqual({ x: -4, y: 4 });
+    expect(gardenAreaDisplayTile(ledger)).toEqual({ x: 8, y: 10 });
+    // Unknown areas fall back to their data tile for both anchors.
+    const unknown = { tile: { x: 4, y: 9 } };
+    expect(gardenAreaCenterTile(unknown)).toEqual({ x: 4, y: 9 });
+    expect(gardenAreaDisplayTile(unknown)).toEqual({ x: 4, y: 9 });
+    // Label anchors always stay on valid in-map tiles (never off-screen).
+    for (const band of ["CALM", "WATCH", "ALERT", "WARNING", "DANGER"] as const) {
+      const label = gardenAreaDisplayTile({ band, tile: { x: 0, y: 0 } });
+      expect(label.x).toBeGreaterThanOrEqual(0);
+      expect(label.x).toBeLessThanOrEqual(55);
+      expect(label.y).toBeGreaterThanOrEqual(0);
+      expect(label.y).toBeLessThanOrEqual(55);
+    }
   });
 
   it("resolves production landmarks while preserving Garden-staged tiles", () => {

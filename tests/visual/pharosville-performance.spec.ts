@@ -15,6 +15,13 @@ const LIGHTHOUSE_MODEL_PATH = "/pharosville/models/garden-lighthouse-shell.glb";
 const REFERENCE_GATE = process.env.PHAROSVILLE_REFERENCE_GATE === "1";
 const PERFORMANCE_SECONDS = REFERENCE_GATE ? 60 : 6;
 const LONG_SESSION_SECONDS = longSessionSeconds();
+// D10 (Pharos Wonder 2026-07-24, agents/2026-07-24-pharos-wonder-plan.md):
+// mount-phase drain for the steady-state pacing window — see the pacing test.
+// A frame above this threshold is a mount frame (SwiftShader shader-JIT,
+// first uploads), not steady state: measured mount first-frame
+// drawDurationMs ≈ 658 ms while steady-state p90 = 183.4 ms.
+const MOUNT_FRAME_THRESHOLD_MS = 400;
+const MOUNT_DRAIN_TIMEOUT_MS = 90_000;
 const GPU_RESOURCE_BUDGET = {
   calls: 450,
   geometries: 275,
@@ -25,12 +32,19 @@ const GPU_RESOURCE_BUDGET = {
   // Raised from 42k for the V5 titan/heritage hero GLB hulls: ~4 visible heroes
   // at ~500 tris each on top of the procedural fleet. The iGPU has ample
   // headroom at this count; draw calls stay flat (heroes merge to <=5 each).
-  triangles: 60_000,
+  // 2026-07-24 (Garden Sea, D-B1 measured cause): 60k -> 70k. Measured 63,354
+  // tris after the monumental lighthouse GLB v3 (1,068 -> 2,744), regenerated
+  // titan/heritage heroes (507/331 -> 2,190/1,538), richer sheer-line fleet
+  // hulls, and the horizon + garden islets (~0.9k). Draw calls stay flat
+  // (instancing/batching unchanged); the beauty spend is the point of the
+  // revamp.
+  triangles: 70_000,
 } as const;
 
 type PerformanceTelemetry = {
   framePacing: {
     effectiveFps: number;
+    maxMs: number;
     p90Ms: number;
     sampleCount: number;
   } | null;
@@ -213,7 +227,10 @@ test("steady-state pacing, startup, long tasks, and GPU memory stay bounded", as
   browserName,
   page,
 }, testInfo) => {
-  test.setTimeout((PERFORMANCE_SECONDS + 45) * 1000);
+  // D10: the mount drain adds up to MOUNT_DRAIN_TIMEOUT_MS of polling before
+  // the sampling window opens; the timeout grows to match (budget VALUES are
+  // unchanged — only WHEN sampling starts).
+  test.setTimeout((PERFORMANCE_SECONDS + 45) * 1000 + MOUNT_DRAIN_TIMEOUT_MS);
   const canvas = await openWorld(page);
 
   await expect.poll(async () => (
@@ -221,6 +238,23 @@ test("steady-state pacing, startup, long tasks, and GPU memory stay bounded", as
   )).toBeGreaterThanOrEqual(60);
 
   const startup = await readPerformanceTelemetry(page);
+
+  // D10 (2026-07-24): drain mount-phase frames from the 120-sample pacing
+  // ring before the steady-state window opens. The first frames after world
+  // mount are SwiftShader shader-JIT and first-upload stalls (measured
+  // first-frame drawDurationMs ≈ 658 ms; ~15 mount frames of 300–2000 ms
+  // pollute the ring, holding sample-0 p90 at ≈ 283 ms while the true
+  // steady-state p90 is 183.4 ms). This test's name and intent are
+  // STEADY-STATE pacing; startup cost stays measured by the startup
+  // assertions below (timeToFirstCoherentFrameMs), which read the `startup`
+  // snapshot taken before this drain. Budget values are untouched — the ring
+  // drains until no frame above the mount threshold remains, so every
+  // sampled p90/fps value below reflects steady state (minFps ≥ 4 was the
+  // same mount artifact: 3.8–3.9 pre-drain).
+  await expect.poll(async () => (
+    (await readPerformanceTelemetry(page)).framePacing?.maxMs
+      ?? Number.POSITIVE_INFINITY
+  ), { timeout: MOUNT_DRAIN_TIMEOUT_MS }).toBeLessThanOrEqual(MOUNT_FRAME_THRESHOLD_MS);
 
   await installLongTaskProbe(page);
   await exerciseCamera(page, canvas);

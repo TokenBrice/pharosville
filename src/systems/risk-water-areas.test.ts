@@ -153,10 +153,16 @@ describe("risk water areas", () => {
   });
 
   it("matches the authored DEWS placement diagram", () => {
+    // Z1 (decision D-Z1): operator-approved DATA anchors — Calm fills the
+    // south-west dead quadrant, Watch slides west along the south basin, and
+    // the east escalation stack fans out (sketch:
+    // agents/2026-07-24-zone-recomposition-sketch.md). Zones-v2 (operator
+    // overlay) re-composes only the RENDERED rings; these data tiles are
+    // unchanged by it.
     const expectedSamples = [
-      { band: "CALM", tile: { x: 8, y: 35 }, terrain: "calm-water" },
-      { band: "WATCH", tile: { x: 48, y: 44 }, terrain: "watch-water" },
-      { band: "ALERT", tile: { x: 47, y: 14 }, terrain: "alert-water" },
+      { band: "CALM", tile: { x: 10, y: 40 }, terrain: "calm-water" },
+      { band: "WATCH", tile: { x: 38, y: 48 }, terrain: "watch-water" },
+      { band: "ALERT", tile: { x: 50, y: 16 }, terrain: "alert-water" },
       { band: "WARNING", tile: { x: 50, y: 8 }, terrain: "warning-water" },
       { band: "DANGER", tile: { x: 54, y: 1 }, terrain: "storm-water" },
     ] as const;

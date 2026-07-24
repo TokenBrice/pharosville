@@ -22,6 +22,7 @@ import {
 import { HARBOR_PALETTE } from "../systems/palette";
 import type { DockNode } from "../systems/world-types";
 import { setTilePosition, stableUnit, TILE_SCALE } from "./garden-util";
+import type { GardenHarborCalmMask } from "./garden-water-contract";
 
 const scratchMatrix = new Matrix4();
 
@@ -330,6 +331,51 @@ export function createDock(
  */
 export function gardenDockLampWorldPositions(dock: DockVisual): { x: number; z: number }[] {
   return dock.lampWorldPositions;
+}
+
+// I2 mirror-basin extents (C2(b)): the calm mask spans the water between the
+// composed harbor docks. The centre is their midpoint; the radii derive from
+// the actual spread (half-spread + a berth margin) clamped so a single dock
+// still gets a readable basin and a far-flung pair never stills the open sea.
+const HARBOR_CALM_MARGIN_X = 5.5;
+const HARBOR_CALM_MARGIN_Z = 4.5;
+const HARBOR_CALM_MIN_RADIUS_X = 9;
+const HARBOR_CALM_MIN_RADIUS_Z = 7;
+const HARBOR_CALM_MAX_RADIUS_X = 18;
+const HARBOR_CALM_MAX_RADIUS_Z = 13;
+const HARBOR_CALM_STRENGTH = 0.75;
+
+/**
+ * Computes the harbor mirror-basin calm mask from the composed dock visuals.
+ * Returns null when no harbor dock is composed (the water then keeps Lane W's
+ * island-side default). The integrator feeds this to
+ * `water.setHarborCalmMask(...)` in `registerHarborWater`.
+ */
+export function gardenHarborCalmMask(
+  docks: readonly Pick<DockVisual, "root">[],
+): GardenHarborCalmMask | null {
+  if (docks.length === 0) return null;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  let centerX = 0;
+  let centerZ = 0;
+  for (const dock of docks) {
+    const { x, z } = dock.root.position;
+    centerX += x;
+    centerZ += z;
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minZ = Math.min(minZ, z);
+    maxZ = Math.max(maxZ, z);
+  }
+  return {
+    center: { x: centerX / docks.length, z: centerZ / docks.length },
+    radiusX: MathUtils.clamp((maxX - minX) / 2 + HARBOR_CALM_MARGIN_X, HARBOR_CALM_MIN_RADIUS_X, HARBOR_CALM_MAX_RADIUS_X),
+    radiusZ: MathUtils.clamp((maxZ - minZ) / 2 + HARBOR_CALM_MARGIN_Z, HARBOR_CALM_MIN_RADIUS_Z, HARBOR_CALM_MAX_RADIUS_Z),
+    calmStrength: HARBOR_CALM_STRENGTH,
+  };
 }
 
 function signaturePostSpecs(

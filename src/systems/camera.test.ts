@@ -34,7 +34,9 @@ describe("camera", () => {
       const camera = defaultCamera({ height: viewport.y, map, width: viewport.x });
       const center = tileToScreen(centerTile, camera);
 
-      expect(camera.zoom).toBeCloseTo(0.8136);
+      // 0.7776 = fitCameraToMap floor 0.72 × tighten 1.08 (reframed from
+      // 0.8136 so the 34-unit Pharos crown keeps headroom at 1440×960).
+      expect(camera.zoom).toBeCloseTo(0.7776);
       // Lower bound is 0.39 (not 0.4) so the constant 128 px right-gutter
       // reservation still falls inside the "left-of-center" band at the
       // 1000-wide gate floor, where the gutter is proportionally larger.

@@ -208,7 +208,9 @@ Frame fields the GPU path consumes:
 | `world-renderer.ts` | Factory, scene shell, world replace, per-frame update, metrics |
 | `garden-util.ts` | Tile math, ship geometry cache helpers, `disposeThreeObjectTree` |
 | `garden-models.ts` | GLB manifest, loader library, anchors, budgets, validation |
-| `garden-lighthouse.ts` | Procedural shell + beam; attach GLB shell |
+| `garden-lighthouse.ts` | Procedural three-tier Pharos shell + beam/ray fan; attach GLB shell |
+| `garden-beacon-fire.ts` | Brazier flame, embers, smoke, mirror glint (shared `uTime`/`uFlicker`/`uIntensity`) |
+| `garden-summit-birds.ts` | Eight-bird instanced summit flock orbiting the Pharos crown |
 | `garden-ships.ts` | Procedural hulls, wakes, hero GLB attach, sail sync, fleet lanterns |
 | `garden-sail-texture.ts` | 128² in-memory sail `CanvasTexture` |
 | `garden-water.ts` | Full-bleed water shader + normal map + lane/zone uniforms |
@@ -232,8 +234,9 @@ Frame fields the GPU path consumes:
 | `hit-testing.ts` | Spatial index over screen rects |
 | `garden-observatory-hit-testing.ts` | Build hit rects from world + motion samples |
 
-Empty historical placeholders under `src/renderer/layers/` are not a live layer
-stack. Do not resurrect a multi-backend layer architecture.
+The old renderer layers directory of empty historical placeholders has been
+deleted; it was never a live layer stack. Do not resurrect a multi-backend
+layer architecture.
 
 ## 5. Lifecycle Recipes
 
@@ -328,6 +331,12 @@ Concrete levers already wired:
 - Light-lane cap (48 → much lower under pressure)
 - Water detail / decorative life visibility
 - Semantic overview vs explore fine geometry (`gardenSemanticView`)
+- Beacon fire and fan shedding (full → balanced → interaction → recovery/
+  constrained): beam cone + outer cone + ray fan + dust + embers(32) +
+  smoke(16) + flame + summit birds → cone + fan + embers(12) + smoke(8) +
+  flame + birds → cone + flame → flat beam plane + flame. Embers/smoke shed
+  via draw-range and instance-count (never reallocated); ray fan and summit
+  birds are full/balanced only; water foam rings shed below balanced.
 
 Analytical selection, DOM labels, and ledger truth must remain available even
 when decorative passes shed.
@@ -415,6 +424,19 @@ Model checklist (also in `ASSET_PIPELINE.md`):
 2. Prefer instancing, shared geometry, lower shadow map, tier shedding.
 3. Do not weaken budgets for cosmetics without an explicit decision.
 4. After bundle-affecting imports: `npm run build && npm run check:bundle-size`.
+
+### 9.7 Tune the beacon fire or add a flame-adjacent effect
+
+1. Follow the `garden-beacon-fire.ts` pattern: one shared uniforms object
+   (`uTime`/`uFlicker`/`uIntensity`) drives every element so the fire breathes
+   together; `uFlicker` is a deterministic function of `timeSeconds`.
+2. Particles are GPU-age driven from seed attributes (like the beam dust) —
+   zero per-frame allocation, no `Math.random`.
+3. Shed per scheduler tier via draw-range / instance-count, never reallocate.
+4. Find scene nodes by name (`lighthouse-beacon`, `lighthouse-ray-fan`, …)
+   rather than child indices.
+5. Reduced motion is a composed t=0 pose, not a hidden node — freeze `uTime`,
+   keep the frame.
 
 ## 10. Testing Strategy
 

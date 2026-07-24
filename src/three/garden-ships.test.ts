@@ -3,6 +3,7 @@ import {
   Group,
   InstancedMesh,
   LineBasicMaterial,
+  LineSegments,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
@@ -15,9 +16,15 @@ import {
   attachGardenHeroModel,
   createFleetLanterns,
   createShip,
+  gardenShipVisualScale,
+  GARDEN_SHIP_VISUAL_SCALE_MAX,
+  GARDEN_SHIP_VISUAL_SCALE_MIN,
+  syncShipRippleRings,
   updateFleetLanterns,
+  updateShipPennants,
   type ShipVisual,
 } from "./garden-ships";
+import type { GardenRippleRingEmitter } from "./garden-water-contract";
 import { GARDEN_MODEL_MANIFEST } from "./garden-models";
 import type { GardenShipGeometryCache } from "./garden-util";
 
@@ -188,5 +195,133 @@ describe("createFleetLanterns", () => {
     // The first core instance is no longer the zero-scale placeholder.
     const core = lanterns.cores.instanceMatrix.array;
     expect(core.slice(0, 16).some((value) => value !== 0)).toBe(true);
+  });
+});
+
+describe("S5 visual scale spread (D-S5)", () => {
+  it("maps the 0.7–3.0 data band to a ~3.7× visual spread with a legibility floor", () => {
+    expect(gardenShipVisualScale(0.7)).toBeCloseTo(GARDEN_SHIP_VISUAL_SCALE_MIN);
+    expect(gardenShipVisualScale(3)).toBeCloseTo(GARDEN_SHIP_VISUAL_SCALE_MAX);
+    const spread = gardenShipVisualScale(3) / gardenShipVisualScale(0.7);
+    expect(spread).toBeGreaterThan(3.4);
+    expect(spread).toBeLessThan(4);
+    // Small-ship floor stays close to the old minimum (0.72 × 0.82 ≈ 0.59).
+    expect(GARDEN_SHIP_VISUAL_SCALE_MIN).toBeGreaterThanOrEqual(0.5);
+    // Monotonic across the data band.
+    expect(gardenShipVisualScale(1.5)).toBeGreaterThan(gardenShipVisualScale(1));
+    expect(gardenShipVisualScale(2)).toBeGreaterThan(gardenShipVisualScale(1.5));
+  });
+
+  it("applies the relaxed mapping to the ship root scale", () => {
+    expect(build(ship("tiny", "treasury-galleon", "micro", 0.7)).root.scale.x)
+      .toBeCloseTo(GARDEN_SHIP_VISUAL_SCALE_MIN);
+    expect(build(ship("huge", "treasury-galleon", "flagship", 3)).root.scale.x)
+      .toBeCloseTo(GARDEN_SHIP_VISUAL_SCALE_MAX);
+  });
+});
+
+describe("S1 curved sheer hull", () => {
+  it("rises toward bow and stern and narrows at the deck (tumblehome)", () => {
+    const cache = makeCache();
+    createShip(ship("s1", "treasury-galleon", "major"), { x: 0, y: 0 }, true, cache);
+    const hull = cache.geometries.get("hull.galleon")!;
+    hull.computeBoundingBox();
+    // The old flat extrusion topped out at y ≈ 0.34; sheer lifts the ends past it.
+    expect(hull.boundingBox!.max.y).toBeGreaterThan(0.5);
+    const position = hull.getAttribute("position");
+    let deckBeam = 0;
+    let waterlineBeam = 0;
+    for (let index = 0; index < position.count; index += 1) {
+      const y = position.getY(index);
+      const halfBeam = Math.abs(position.getZ(index));
+      if (y > 0.2) deckBeam = Math.max(deckBeam, halfBeam);
+      if (y < -0.4) waterlineBeam = Math.max(waterlineBeam, halfBeam);
+    }
+    expect(deckBeam).toBeLessThan(waterlineBeam);
+  });
+});
+
+describe("S2 bellied sails", () => {
+  it("displaces the cloth center so sails read wind-filled", () => {
+    const visual = build(ship("s2", "treasury-galleon", "major"));
+    const sail = visual.identitySail!;
+    const position = sail.geometry.getAttribute("position");
+    let maxBelly = 0;
+    for (let index = 0; index < position.count; index += 1) {
+      maxBelly = Math.max(maxBelly, Math.abs(position.getZ(index)));
+    }
+    expect(maxBelly).toBeGreaterThan(0.15);
+    // Grid tessellation: interior vertices exist (a flat shape has ~5).
+    expect(position.count).toBeGreaterThan(30);
+  });
+});
+
+describe("S3 sparse rigging", () => {
+  it("adds forestay, backstay, and two shrouds per mast in one batched LineSegments", () => {
+    const visual = build(ship("s3", "treasury-galleon", "major"));
+    const rigging = visual.root.children.find(
+      (child): child is LineSegments => child instanceof LineSegments,
+    )!;
+    // 3 galleon masts × 4 lines × 2 endpoints.
+    expect(rigging.geometry.getAttribute("position").count).toBe(24);
+  });
+});
+
+describe("S8 pennant flutter", () => {
+  it("flutters underway and freezes flat under reduced motion", () => {
+    const visual = build(ship("s8", "treasury-galleon", "major"));
+    expect(visual.pennant).toBeInstanceOf(Mesh);
+    updateShipPennants([visual], 1.35, false);
+    expect(visual.pennant.rotation.y).not.toBe(0);
+    updateShipPennants([visual], 1.35, true);
+    expect(visual.pennant.rotation.y).toBe(0);
+    expect(visual.pennant.scale.x).toBe(1);
+  });
+});
+
+describe("S7 ripple-ring grounding (contract C2)", () => {
+  function fakeEmitter(): GardenRippleRingEmitter & { rings: Map<string, unknown> } {
+    const rings = new Map<string, unknown>();
+    return {
+      rings,
+      setRing: (ring) => {
+        rings.set(ring.id, ring);
+      },
+      removeRing: (id) => {
+        rings.delete(id);
+      },
+      ringCount: () => rings.size,
+    };
+  }
+
+  it("is a no-op when the Lane W emitter is absent", () => {
+    const visual = build(ship("s7", "treasury-galleon", "major"));
+    expect(() => syncShipRippleRings(undefined, [visual], {
+      reducedMotion: false,
+      tier: "full",
+    })).not.toThrow();
+    expect(() => syncShipRippleRings(null, [visual], {
+      reducedMotion: false,
+      tier: "full",
+    })).not.toThrow();
+  });
+
+  it("rings moored ships and clears them underway, at low tiers, and under reduced motion", () => {
+    const emitter = fakeEmitter();
+    const visual = build(ship("s7", "treasury-galleon", "major"));
+    visual.sampleState = "moored";
+    syncShipRippleRings(emitter, [visual], { reducedMotion: false, tier: "balanced" });
+    expect(emitter.ringCount()).toBe(1);
+    // Movers lose the ring.
+    visual.sampleState = "sailing";
+    syncShipRippleRings(emitter, [visual], { reducedMotion: false, tier: "balanced" });
+    expect(emitter.ringCount()).toBe(0);
+    // Below balanced there are no rings.
+    visual.sampleState = "moored";
+    syncShipRippleRings(emitter, [visual], { reducedMotion: false, tier: "constrained" });
+    expect(emitter.ringCount()).toBe(0);
+    // Reduced motion freezes the sea — no rings.
+    syncShipRippleRings(emitter, [visual], { reducedMotion: true, tier: "full" });
+    expect(emitter.ringCount()).toBe(0);
   });
 });

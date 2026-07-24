@@ -30,10 +30,17 @@ export function defaultCamera(input: {
     ...input,
     padding: cameraPadding(),
   });
+  // Tighten factor: 1.08 (was 1.13 when the Pharos tower topped out at 30
+  // world units). The crown grew to a 34-unit statue tip with a flame halo
+  // around y≈33; at the 1440×960 default viewport the old factor put the tip
+  // ~2 px above the frame top. One world unit of height projects to
+  // TILE_HEIGHT × (√3/2) × zoom screen px, so 0.72 × 1.08 = 0.7776 zoom
+  // leaves ~1.6 world units of headroom above the statue tip while keeping
+  // the harbor composition at ~96% of the previous zoom.
   const tightened = zoomCameraAt(
     fitted,
     { x: input.width * 0.54, y: input.height * 0.5 },
-    fitted.zoom * 1.13,
+    fitted.zoom * 1.08,
   );
   return clampCameraToMap(tightened, {
     map: input.map,

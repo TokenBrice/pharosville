@@ -7,6 +7,7 @@ import {
   CylinderGeometry,
   DodecahedronGeometry,
   DoubleSide,
+  Euler,
   Float32BufferAttribute,
   Group,
   IcosahedronGeometry,
@@ -21,6 +22,7 @@ import {
   SphereGeometry,
   Vector3,
 } from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {
   GARDEN_LIGHTHOUSE_ROOT_OFFSET,
   GARDEN_WATER_Y as WATER_LEVEL,
@@ -30,8 +32,11 @@ import { HARBOR_PALETTE } from "../systems/palette";
 import type { PharosVilleWorld } from "../systems/world-types";
 import { createLighthouse } from "./garden-lighthouse";
 import { setTilePosition, stableUnit } from "./garden-util";
+import type { GardenCloudShadowSource } from "./garden-water-contract";
 
 const scratchMatrix = new Matrix4();
+const scratchLeanAxis = new Vector3();
+const scratchLeanQuaternion = new Quaternion();
 
 // Height-graded rock ramp: dark wet stone at the waterline climbs to pale
 // weathered limestone at the crown. Terrace tops carry a planted colour.
@@ -125,7 +130,17 @@ export function createWaterAccents(): Group {
   return root;
 }
 
-export function createTerracedIsland(world: PharosVilleWorld): {
+/**
+ * I3 (contract C2(c)): when the integrator passes Lane W's shared cloud-shadow
+ * source (`scene.water.cloudShadows`), every lit island material samples the
+ * same world-XZ cloud mask the water uses, so light weather drifts across the
+ * whole garden at once. With the option absent the island renders exactly as
+ * before — the hook is purely additive.
+ */
+export function createTerracedIsland(
+  world: PharosVilleWorld,
+  cloudShadows?: GardenCloudShadowSource,
+): {
   beacon: Mesh<SphereGeometry, MeshStandardMaterial>;
   beaconHalo: Mesh<SphereGeometry, MeshBasicMaterial>;
   beam: Group;
@@ -234,6 +249,17 @@ export function createTerracedIsland(world: PharosVilleWorld): {
     createObservatoryPavilion(),
     createIslandReflectionPond(),
   );
+  // W7b (Pharos Wonder 2026-07-24, decision D8 — full precinct dressing):
+  // monumental stone additions around the untouched garden — an obelisk pair
+  // flanking the terrace approach, a ruined crenellated sea-wall arc at the
+  // waterline, and half-sunk column drums in the shallows. All static meshes;
+  // reduced motion has nothing to freeze.
+  root.add(
+    createPrecinctObelisks(),
+    createSeaWallArc(),
+    createSunkenColumnDrums(),
+  );
+  if (cloudShadows) applyGardenCloudShadows(root, cloudShadows);
 
   return {
     beacon: lighthouse.beacon,
@@ -245,6 +271,84 @@ export function createTerracedIsland(world: PharosVilleWorld): {
     lighthouseShell: lighthouse.shell,
     root,
   };
+}
+
+// I3 cloud-shadow GLSL (C2(c)): the land samples Lane W's noise texture with
+// the same world-XZ mapping the water shader uses — uv = worldXZ * scale +
+// offset — so a cloud darkens the sea and the shore in one coherent drift.
+const CLOUD_SHADOW_VERTEX_PARS = "varying vec3 vGardenCloudWorldPos;";
+const CLOUD_SHADOW_VERTEX_CHUNK = /* glsl */ `
+  vec4 gardenCloudWorldPosition = vec4( transformed, 1.0 );
+  #ifdef USE_INSTANCING
+    gardenCloudWorldPosition = instanceMatrix * gardenCloudWorldPosition;
+  #endif
+  gardenCloudWorldPosition = modelMatrix * gardenCloudWorldPosition;
+  vGardenCloudWorldPos = gardenCloudWorldPosition.xyz;
+`;
+const CLOUD_SHADOW_FRAGMENT_PARS = /* glsl */ `
+  uniform sampler2D uCloudShadow;
+  uniform vec4 uCloudShadowTransform;
+  uniform float uCloudShadowStrength;
+  varying vec3 vGardenCloudWorldPos;
+`;
+const CLOUD_SHADOW_FRAGMENT_CHUNK = /* glsl */ `
+  {
+    vec2 gardenCloudUv = vGardenCloudWorldPos.xz * uCloudShadowTransform.xy
+      + uCloudShadowTransform.zw;
+    float gardenCloudCover = texture2D( uCloudShadow, gardenCloudUv ).r;
+    float gardenCloudLight = 1.0 - gardenCloudCover * uCloudShadowStrength;
+    reflectedLight.directDiffuse *= gardenCloudLight;
+    reflectedLight.indirectDiffuse *= gardenCloudLight;
+  }
+`;
+
+/**
+ * Applies the shared cloud-shadow source (C2(c)) to every lit material under
+ * `root` via onBeforeCompile: the diffuse light term is multiplied by the
+ * cloud mask sampled in world XZ, matching Lane W's water-side sampling. The
+ * uniform objects are shared, not copied, so Lane W's per-frame drift and the
+ * tier/reduced-motion gating (strength 0 below balanced, drift frozen) apply
+ * here unchanged. Exported so the integrator can also hook late-attached
+ * geometry (e.g. the lighthouse GLB shell) with the same helper. Idempotent.
+ */
+export function applyGardenCloudShadows(
+  root: Group,
+  source: GardenCloudShadowSource,
+): void {
+  root.traverse((object) => {
+    if (!(object instanceof Mesh)) return;
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    for (const material of materials) {
+      if (!(material instanceof MeshStandardMaterial)) continue;
+      if (material.userData.gardenCloudShadows) continue;
+      material.userData.gardenCloudShadows = true;
+      material.onBeforeCompile = (shader) => {
+        // Share Lane W's uniform objects — never copy — so every consumer
+        // samples the same texture, transform, and strength by construction.
+        shader.uniforms.uCloudShadow = source.uniforms.uCloudShadow;
+        shader.uniforms.uCloudShadowTransform = source.uniforms.uCloudShadowTransform;
+        shader.uniforms.uCloudShadowStrength = source.uniforms.uCloudShadowStrength;
+        shader.vertexShader = shader.vertexShader
+          .replace(
+            "#include <common>",
+            `#include <common>\n${CLOUD_SHADOW_VERTEX_PARS}`,
+          )
+          .replace(
+            "#include <worldpos_vertex>",
+            `#include <worldpos_vertex>\n${CLOUD_SHADOW_VERTEX_CHUNK}`,
+          );
+        shader.fragmentShader = shader.fragmentShader
+          .replace(
+            "#include <common>",
+            `#include <common>\n${CLOUD_SHADOW_FRAGMENT_PARS}`,
+          )
+          .replace(
+            "#include <lights_fragment_end>",
+            `#include <lights_fragment_end>\n${CLOUD_SHADOW_FRAGMENT_CHUNK}`,
+          );
+      };
+    }
+  });
 }
 
 function createIrregularTerraceGeometry(
@@ -362,29 +466,84 @@ export function createRockTerraceGeometry(
   return geometry;
 }
 
+// I1 Sakuteiki shoreline rockwork: instead of an even ring, the boulders
+// gather into four triads (odd-numbered clusters) with two solitary stones
+// and open water between the groups — composed ma. Each triad has one
+// dominant vertical stone; the subordinates squat lower and lean toward it,
+// and every stone yaws a broad face toward the fixed camera (azimuth 45°).
+const SHORELINE_TRIAD_ANGLES = [0.55, 1.5, 3.0, 4.45] as const;
+const SHORELINE_SOLITARY_ANGLES = [3.75, 5.6] as const;
+const CAMERA_FACING_YAW = Math.PI / 4;
+
+interface ShorelineBoulderSpec {
+  angle: number;
+  dominant: boolean;
+  leanToward: number;
+  seed: string;
+}
+
+function shorelineBoulderSpecs(): ShorelineBoulderSpec[] {
+  const specs: ShorelineBoulderSpec[] = [];
+  SHORELINE_TRIAD_ANGLES.forEach((center, cluster) => {
+    for (let member = -1; member <= 1; member += 1) {
+      specs.push({
+        angle: center + member * 0.15,
+        dominant: member === 0,
+        leanToward: center,
+        seed: `boulder.c${cluster}.${member + 1}`,
+      });
+    }
+  });
+  SHORELINE_SOLITARY_ANGLES.forEach((angle, index) => {
+    specs.push({ angle, dominant: false, leanToward: angle, seed: `boulder.s${index}` });
+  });
+  return specs;
+}
+
 function createShorelineBoulders(): InstancedMesh {
   const geometry = displacedBoulderGeometry();
+  const specs = shorelineBoulderSpecs();
   const boulders = new InstancedMesh(
     geometry,
     new MeshStandardMaterial({ flatShading: true, roughness: 0.96, vertexColors: true }),
-    14,
+    specs.length,
   );
   boulders.name = "island-shoreline-boulders";
   boulders.castShadow = true;
   boulders.receiveShadow = true;
-  for (let i = 0; i < boulders.count; i += 1) {
-    const angle = (i / boulders.count) * Math.PI * 2 + stableUnit(`boulder.a.${i}`) * 0.4;
-    const reach = 0.86 + stableUnit(`boulder.r.${i}`) * 0.22;
+  specs.forEach((spec, i) => {
+    const angle = spec.angle + (stableUnit(`${spec.seed}.a`) - 0.5) * 0.06;
+    const reach = 0.86 + stableUnit(`${spec.seed}.r`) * 0.22;
     const x = 1.0 + Math.cos(angle) * 18.6 * reach;
     const z = 1.4 + Math.sin(angle) * 12.4 * reach;
-    const y = WATER_LEVEL + 0.1 + stableUnit(`boulder.y.${i}`) * 0.85;
-    const scale = 0.9 + stableUnit(`boulder.s.${i}`) * 1.5;
-    scratchQuaternion.setFromAxisAngle(UP_AXIS, stableUnit(`boulder.rot.${i}`) * Math.PI * 2);
-    scratchScale.set(scale, scale * (0.5 + stableUnit(`boulder.f.${i}`) * 0.3), scale);
+    const y = WATER_LEVEL + 0.1 + stableUnit(`${spec.seed}.y`) * 0.85;
+    const scale = 0.9 + stableUnit(`${spec.seed}.s`) * 1.5;
+    // Dominant stones stand tall; subordinates crouch and lean in toward the
+    // triad's heart so the cluster reads as one conversation, not a spill.
+    const yaw = CAMERA_FACING_YAW + (stableUnit(`${spec.seed}.rot`) - 0.5) * 0.5;
+    scratchQuaternion.setFromAxisAngle(UP_AXIS, yaw);
+    const leanTargetX = 1.0 + Math.cos(spec.leanToward) * 18.6 * reach;
+    const leanTargetZ = 1.4 + Math.sin(spec.leanToward) * 12.4 * reach;
+    let leanX = leanTargetX - x;
+    let leanZ = leanTargetZ - z;
+    // Solitary stones (lean target == own angle) lean subtly inland instead.
+    if (Math.hypot(leanX, leanZ) < 0.01) {
+      leanX = 1.0 - x;
+      leanZ = 1.4 - z;
+    }
+    const leanLength = Math.max(0.001, Math.hypot(leanX, leanZ));
+    const leanAngle = (spec.dominant ? 0.05 : 0.11) * (0.7 + stableUnit(`${spec.seed}.lean`) * 0.6);
+    scratchLeanAxis.set(leanZ / leanLength, 0, -leanX / leanLength);
+    scratchLeanQuaternion.setFromAxisAngle(scratchLeanAxis, leanAngle);
+    scratchQuaternion.multiply(scratchLeanQuaternion);
+    const verticality = spec.dominant
+      ? 1.18 + stableUnit(`${spec.seed}.v`) * 0.22
+      : 0.5 + stableUnit(`${spec.seed}.f`) * 0.3;
+    scratchScale.set(scale, scale * verticality, scale * 0.92);
     scratchPosition.set(x, y, z);
     scratchMatrix.compose(scratchPosition, scratchQuaternion, scratchScale);
     boulders.setMatrixAt(i, scratchMatrix);
-  }
+  });
   boulders.instanceMatrix.needsUpdate = true;
   return boulders;
 }
@@ -414,6 +573,54 @@ function displacedBoulderGeometry(): IcosahedronGeometry {
   geometry.computeVertexNormals();
   return geometry;
 }
+
+// I1 Sakuteiki stone groupings (karesansui): the old uniform 18-stone scatter
+// is recomposed into five triads — odd-numbered clusters, each with ONE
+// dominant vertical stone and two subordinate horizontals leaning toward it,
+// broad faces turned to the fixed camera. The three dropped stones are the
+// deliberate subtraction (ma): open ground lets each grouping read.
+export interface GardenIslandStoneSpec {
+  /** Root-relative placement; y keys the stone to the local terrace shelf. */
+  x: number;
+  y: number;
+  z: number;
+  scale: number;
+  /** The one vertical "father" stone of the triad; subordinates stay horizontal. */
+  dominant?: boolean;
+}
+
+export const GARDEN_ISLAND_STONE_GROUPINGS: readonly (readonly GardenIslandStoneSpec[])[] = [
+  // West shore triad.
+  [
+    { x: -13.9, y: -0.12, z: 2.7, scale: 1.15, dominant: true },
+    { x: -12.55, y: -0.18, z: 3.65, scale: 0.68 },
+    { x: -14.85, y: -0.2, z: 1.7, scale: 0.55 },
+  ],
+  // North-west shelf triad.
+  [
+    { x: -12.1, y: 0.28, z: -4.7, scale: 1.0, dominant: true },
+    { x: -10.95, y: 0.12, z: -5.6, scale: 0.62 },
+    { x: -13.05, y: 0.08, z: -3.6, scale: 0.5 },
+  ],
+  // East point triad.
+  [
+    { x: 8.4, y: -0.12, z: 3.7, scale: 1.1, dominant: true },
+    { x: 9.6, y: -0.22, z: 2.4, scale: 0.66 },
+    { x: 7.2, y: -0.24, z: 4.9, scale: 0.54 },
+  ],
+  // South shore triad.
+  [
+    { x: 2.5, y: -0.22, z: 7.55, scale: 1.05, dominant: true },
+    { x: 1.1, y: -0.12, z: 8.25, scale: 0.6 },
+    { x: 3.8, y: -0.3, z: 6.75, scale: 0.5 },
+  ],
+  // Upper terrace triad, by the path bend below the lighthouse.
+  [
+    { x: -6.1, y: 1.52, z: -4.25, scale: 0.78, dominant: true },
+    { x: -5.0, y: 1.38, z: -3.55, scale: 0.5 },
+    { x: -7.15, y: 1.34, z: -5.0, scale: 0.44 },
+  ],
+];
 
 function createIslandDecoration(): Group {
   const root = new Group();
@@ -464,26 +671,7 @@ function createIslandDecoration(): Group {
   eastPine.rotation.y = 0.4;
   root.add(eastPine);
 
-  const stonePoints = [
-    [-13.9, -0.12, 2.7, 1.05],
-    [-12.1, 0.28, -4.7, 0.82],
-    [-9.0, 0.72, 5.9, 0.96],
-    [-5.5, 0.55, -7.0, 0.72],
-    [-1.0, 0.24, 7.2, 0.88],
-    [3.6, 0.16, 6.15, 0.76],
-    [8.4, -0.12, 3.7, 1.08],
-    [10.8, -0.32, -0.3, 0.82],
-    [7.5, -0.22, -5.2, 0.94],
-    [2.4, 1.95, -4.9, 0.62],
-    [-6.1, 1.52, -4.25, 0.7],
-    [-8.4, 1.9, 2.85, 0.66],
-    [5.9, 0.86, 4.55, 0.58],
-    [-2.7, 1.35, 5.95, 0.55],
-    [-7.5, 0.3, 6.2, 0.98],
-    [-2.8, -0.06, 8.0, 0.9],
-    [2.5, -0.22, 7.55, 1.08],
-    [6.8, -0.4, 5.2, 0.94],
-  ] as const;
+  const stoneCount = GARDEN_ISLAND_STONE_GROUPINGS.reduce((sum, triad) => sum + triad.length, 0);
   const stones = new InstancedMesh(
     new DodecahedronGeometry(0.8, 0),
     new MeshStandardMaterial({
@@ -491,12 +679,42 @@ function createIslandDecoration(): Group {
       flatShading: true,
       roughness: 1,
     }),
-    stonePoints.length,
+    stoneCount,
   );
-  stonePoints.forEach(([x, y, z, scale], index) => {
-    scratchMatrix.makeScale(scale, scale * 0.62, scale);
-    scratchMatrix.setPosition(x, y, z);
-    stones.setMatrixAt(index, scratchMatrix);
+  let stoneIndex = 0;
+  GARDEN_ISLAND_STONE_GROUPINGS.forEach((triad, triadIndex) => {
+    // Each triad leans "in conversation": subordinates tilt toward the
+    // dominant stone, the dominant tilts a few degrees back toward them.
+    const dominant = triad.find((stone) => stone.dominant) ?? triad[0]!;
+    // The dominant stone leans a few degrees back toward its subordinates.
+    const subordinates = triad.filter((stone) => stone !== dominant);
+    const heartX = subordinates.reduce((sum, stone) => sum + stone.x, 0) / Math.max(1, subordinates.length);
+    const heartZ = subordinates.reduce((sum, stone) => sum + stone.z, 0) / Math.max(1, subordinates.length);
+    triad.forEach((stone, memberIndex) => {
+      const seed = `stone.t${triadIndex}.${memberIndex}`;
+      const yaw = CAMERA_FACING_YAW + (stableUnit(seed) - 0.5) * (stone.dominant ? 0.24 : 0.9);
+      scratchQuaternion.setFromAxisAngle(UP_AXIS, yaw);
+      const targetX = stone.dominant ? heartX : dominant.x;
+      const targetZ = stone.dominant ? heartZ : dominant.z;
+      const leanX = targetX - stone.x;
+      const leanZ = targetZ - stone.z;
+      const leanLength = Math.max(0.001, Math.hypot(leanX, leanZ));
+      const leanAngle = stone.dominant
+        ? 0.05
+        : 0.08 + stableUnit(`${seed}.lean`) * 0.06;
+      scratchLeanAxis.set(leanZ / leanLength, 0, -leanX / leanLength);
+      scratchLeanQuaternion.setFromAxisAngle(scratchLeanAxis, leanAngle);
+      scratchQuaternion.multiply(scratchLeanQuaternion);
+      if (stone.dominant) {
+        scratchScale.set(stone.scale, stone.scale * 1.45, stone.scale * 0.92);
+      } else {
+        scratchScale.set(stone.scale, stone.scale * 0.55, stone.scale * 0.85);
+      }
+      scratchPosition.set(stone.x, stone.y, stone.z);
+      scratchMatrix.compose(scratchPosition, scratchQuaternion, scratchScale);
+      stones.setMatrixAt(stoneIndex, scratchMatrix);
+      stoneIndex += 1;
+    });
   });
   stones.instanceMatrix.needsUpdate = true;
   root.add(stones);
@@ -674,6 +892,61 @@ function createKeeperCottage(): Group {
   const window = new Mesh(new BoxGeometry(0.74, 0.65, 0.08), windowMaterial);
   window.position.set(0.8, 1.42, 1.39);
   root.add(foundation, walls, roof, window);
+  root.add(createLanternString());
+  return root;
+}
+
+// I4 warm micro-life, with restraint: one small lantern string strung along
+// the keeper cottage's east eave (the window-less face) — three paper
+// lanterns on a sagging cord. Static (no motion budget); the cord is two
+// thin timber segments and the lanterns share one instanced draw. Palette-
+// derived colours only. It hangs below the eave's sightline from the fixed
+// 30° camera (the roof overhang hides anything higher than ~y 1.87).
+const LANTERN_STRING_X = 2.15;
+const LANTERN_STRING_SPAN = 1.2;
+const LANTERN_STRING_SAG = 0.14;
+const LANTERN_STRING_Y = 1.76;
+
+function createLanternString(): Group {
+  const root = new Group();
+  root.name = "keeper-cottage-lantern-string";
+  const cordMaterial = new MeshStandardMaterial({
+    color: HARBOR_PALETTE.timber_dark,
+    roughness: 1,
+  });
+  for (const side of [-1, 1] as const) {
+    const length = Math.hypot(LANTERN_STRING_SPAN, LANTERN_STRING_SAG);
+    const cord = new Mesh(new BoxGeometry(0.028, 0.028, length), cordMaterial);
+    cord.position.set(
+      LANTERN_STRING_X,
+      LANTERN_STRING_Y - LANTERN_STRING_SAG / 2,
+      (side * LANTERN_STRING_SPAN) / 2,
+    );
+    cord.rotation.x = side * Math.atan2(LANTERN_STRING_SAG, LANTERN_STRING_SPAN);
+    root.add(cord);
+  }
+  const lanterns = new InstancedMesh(
+    new BoxGeometry(0.14, 0.18, 0.14),
+    new MeshStandardMaterial({
+      color: HARBOR_PALETTE.lantern_glow,
+      emissive: HARBOR_PALETTE.lantern_warm,
+      emissiveIntensity: 0.7,
+      roughness: 0.42,
+    }),
+    3,
+  );
+  lanterns.name = "keeper-cottage-lanterns";
+  [0.28, 0.5, 0.72].forEach((t, index) => {
+    const sag = LANTERN_STRING_SAG * (1 - (2 * t - 1) ** 2);
+    scratchMatrix.makeTranslation(
+      LANTERN_STRING_X,
+      LANTERN_STRING_Y - sag - 0.12,
+      -LANTERN_STRING_SPAN + 2 * LANTERN_STRING_SPAN * t,
+    );
+    lanterns.setMatrixAt(index, scratchMatrix);
+  });
+  lanterns.instanceMatrix.needsUpdate = true;
+  root.add(lanterns);
   return root;
 }
 
@@ -776,4 +1049,225 @@ function createIslandReflectionPond(): Group {
   steppingStones.instanceMatrix.needsUpdate = true;
   root.add(steppingStones);
   return root;
+}
+
+// ---------------------------------------------------------------------------
+// W7b — Pharos precinct dressing (2026-07-24 wonder plan, decision D8)
+// ---------------------------------------------------------------------------
+
+// Two obelisks flank the Pharos terrace steps on the seaward side — Empereur's
+// precinct finds framing the ramp approach. They stand on the middle rock
+// shelf (tier top y ~2.0) in front of the 9.2-wide bottom step, whose +z face
+// ends at island-relative z 3.35, and clear of the winding garden path, the
+// planted shelf (z <= 3.57), and the lighthouse square base.
+const OBELISK_PLACEMENTS = [
+  [-9.2, 1.99, 4.1],
+  [-4.8, 1.99, 4.1],
+] as const;
+
+function createPrecinctObelisks(): Group {
+  const root = new Group();
+  root.name = "pharos-precinct-obelisks";
+  const stoneMaterial = new MeshStandardMaterial({
+    color: "#d2cba9",
+    flatShading: true,
+    roughness: 0.94,
+  });
+  // Bronze-gilt pyramidion tips carrying the same warm emissive whisper as
+  // the crowning Zeus Soter (the vermillion accent stays spent on the flame).
+  const giltMaterial = new MeshStandardMaterial({
+    color: HARBOR_PALETTE.lantern_warm,
+    emissive: HARBOR_PALETTE.lantern_glow,
+    emissiveIntensity: 0.08,
+    metalness: 0.82,
+    roughness: 0.32,
+  });
+  // Geometry budget: the pair bakes into two merged meshes (stone + gilt).
+  // Four-sided tapered cylinders read as square shafts; the pi/4 yaw squares
+  // their faces with the terrace steps below the tower.
+  const stoneParts: BufferGeometry[] = [];
+  const giltParts: BufferGeometry[] = [];
+  const place = (geometry: BufferGeometry, x: number, y: number, z: number, localY: number) => {
+    geometry.rotateY(Math.PI / 4);
+    geometry.translate(x, y + localY, z);
+  };
+  for (const [x, y, z] of OBELISK_PLACEMENTS) {
+    const plinth = new BoxGeometry(0.74, 0.3, 0.74);
+    place(plinth, x, y, z, 0.15);
+    stoneParts.push(plinth);
+    const shaft = new CylinderGeometry(0.17, 0.27, 3.05, 4);
+    place(shaft, x, y, z, 0.3 + 3.05 / 2);
+    stoneParts.push(shaft);
+    const cap = new ConeGeometry(0.26, 0.42, 4);
+    place(cap, x, y, z, 0.3 + 3.05 + 0.21);
+    giltParts.push(cap);
+  }
+  const stone = new Mesh(mergeGeometries(stoneParts, false), stoneMaterial);
+  stone.name = "pharos-obelisk-stone";
+  const caps = new Mesh(mergeGeometries(giltParts, false), giltMaterial);
+  caps.name = "pharos-obelisk-caps";
+  for (const part of [stone, caps]) {
+    part.castShadow = true;
+    part.receiveShadow = true;
+  }
+  root.add(stone, caps);
+  return root;
+}
+
+// A low crenellated fortification arc at the waterline on the seaward face —
+// the fortress-Pharos of Caesar's siege, ruined down to broken runs (the
+// wabi-sabi reading is deliberate). Segments and merlons share one instanced
+// unit box whose baked vertex ramp grades from wet wash to weathered stone,
+// matching the shoreline rockwork; it hugs the shore ellipse just inside the
+// boulder triads.
+const SEA_WALL_RUNS: readonly (readonly [number, number])[] = [
+  [0.72, 1.34], // main run across the camera-facing shore corner
+  [0.16, 0.34], // broken stub off the east rocks
+];
+const SEA_WALL_BASE_Y = WATER_LEVEL + 0.5;
+const SEA_WALL_HEIGHT = 1.25;
+
+function createSeaWallArc(): InstancedMesh {
+  const placements: {
+    sx: number;
+    sy: number;
+    x: number;
+    y: number;
+    yaw: number;
+    z: number;
+  }[] = [];
+  SEA_WALL_RUNS.forEach(([start, end], runIndex) => {
+    const steps = Math.max(1, Math.round((end - start) / 0.095));
+    for (let index = 0; index < steps; index += 1) {
+      const seed = `seawall.${runIndex}.${index}`;
+      const theta = start + ((index + 0.5) / steps) * (end - start);
+      const sin = Math.sin(theta);
+      const cos = Math.cos(theta);
+      const x = 0.6 + cos * 17.2;
+      const z = 1.2 + sin * 12.9;
+      // Align each segment with the shoreline ellipse tangent.
+      const yaw = Math.atan2(-12.9 * cos, -17.2 * sin);
+      const arcStep = hypot2(17.2 * sin, 12.9 * cos) * ((end - start) / steps);
+      // Broken silhouette: height and seat jitter, ends crumble lower.
+      const endFall = Math.min(index, steps - 1 - index) === 0 ? 0.72 : 1;
+      const broken = (0.86 + stableUnit(`${seed}.h`) * 0.22) * endFall;
+      placements.push({
+        sx: arcStep * 1.08,
+        sy: broken,
+        x,
+        y: SEA_WALL_BASE_Y + (SEA_WALL_HEIGHT * broken) / 2,
+        yaw,
+        z,
+      });
+      // Crenellation: one merlon per segment, with ruined gaps.
+      if (stableUnit(`${seed}.m`) > 0.3) {
+        placements.push({
+          sx: 0.38,
+          sy: 0.26 / SEA_WALL_HEIGHT,
+          x,
+          y: SEA_WALL_BASE_Y + SEA_WALL_HEIGHT * broken + 0.13,
+          yaw,
+          z,
+        });
+      }
+    }
+  });
+  const wall = new InstancedMesh(
+    coloredStoneBoxGeometry(1, SEA_WALL_HEIGHT, 0.55, SEA_WALL_BASE_Y),
+    new MeshStandardMaterial({
+      flatShading: true,
+      roughness: 0.95,
+      vertexColors: true,
+    }),
+    placements.length,
+  );
+  wall.name = "pharos-sea-wall";
+  wall.castShadow = true;
+  wall.receiveShadow = true;
+  placements.forEach((placement, index) => {
+    scratchQuaternion.setFromAxisAngle(UP_AXIS, placement.yaw);
+    scratchPosition.set(placement.x, placement.y, placement.z);
+    scratchScale.set(placement.sx, placement.sy, 1);
+    scratchMatrix.compose(scratchPosition, scratchQuaternion, scratchScale);
+    wall.setMatrixAt(index, scratchMatrix);
+  });
+  wall.instanceMatrix.needsUpdate = true;
+  return wall;
+}
+
+// Half-sunk column drums tilted into the shallows — Empereur's underwater
+// ruins off the Pharos rock. Sakuteiki-placed in the open water between the
+// boulder triads (never a symmetric spacing), wet-dark graded like the
+// shoreline stones.
+const COLUMN_DRUM_PLACEMENTS = [
+  // x, center y, z, tiltX, yaw, tiltZ
+  [-12.3, WATER_LEVEL - 0.28, 10.4, 0.18, 0.7, 0.55],
+  [8.6, WATER_LEVEL - 0.52, -10.6, 0.85, 2.4, 0.22],
+  [19.6, WATER_LEVEL - 0.42, -0.8, 0.1, 4.2, 0.34],
+] as const;
+
+function createSunkenColumnDrums(): InstancedMesh {
+  const drums = new InstancedMesh(
+    brokenColumnDrumGeometry(),
+    new MeshStandardMaterial({
+      flatShading: true,
+      roughness: 0.95,
+      vertexColors: true,
+    }),
+    COLUMN_DRUM_PLACEMENTS.length,
+  );
+  drums.name = "pharos-sunken-column-drums";
+  drums.castShadow = true;
+  drums.receiveShadow = true;
+  COLUMN_DRUM_PLACEMENTS.forEach(([x, y, z, tiltX, yaw, tiltZ], index) => {
+    scratchQuaternion.setFromEuler(new Euler(tiltX, yaw, tiltZ));
+    scratchPosition.set(x, y, z);
+    scratchScale.set(1, 1, 1);
+    scratchMatrix.compose(scratchPosition, scratchQuaternion, scratchScale);
+    drums.setMatrixAt(index, scratchMatrix);
+  });
+  drums.instanceMatrix.needsUpdate = true;
+  return drums;
+}
+
+function brokenColumnDrumGeometry(): CylinderGeometry {
+  const geometry = new CylinderGeometry(0.52, 0.56, 2.3, 10);
+  const positions = geometry.getAttribute("position");
+  const colors = new Float32Array(positions.count * 3);
+  const color = new Color();
+  for (let index = 0; index < positions.count; index += 1) {
+    const y = positions.getY(index);
+    // Wet-dark drowned stone, lightening only slightly toward the broken top.
+    color.copy(STONE_WET).lerp(STONE_MID, ((y + 1.15) / 2.3) * 0.55);
+    colors[index * 3] = color.r;
+    colors[index * 3 + 1] = color.g;
+    colors[index * 3 + 2] = color.b;
+  }
+  geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
+  return geometry;
+}
+
+/** A box with the rockwork wet-to-pale stone ramp baked into its vertices. */
+function coloredStoneBoxGeometry(
+  width: number,
+  height: number,
+  depth: number,
+  baseWorldY: number,
+): BoxGeometry {
+  const geometry = new BoxGeometry(width, height, depth);
+  const positions = geometry.getAttribute("position");
+  const colors = new Float32Array(positions.count * 3);
+  const color = new Color();
+  for (let index = 0; index < positions.count; index += 1) {
+    stoneRampColor(baseWorldY + height / 2 + positions.getY(index), color);
+    colors[index * 3] = color.r;
+    colors[index * 3 + 1] = color.g;
+    colors[index * 3 + 2] = color.b;
+  }
+  geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
+  return geometry;
+}
+
+function hypot2(x: number, z: number): number {
+  return Math.sqrt(x * x + z * z);
 }

@@ -65,6 +65,14 @@ export type DebugRenderMetrics = {
   postPassList?: string[];
   activeLaneCount?: number;
   shadowMapSize?: number;
+  // C4 Garden Sea debug & evidence contract (P0): session tier high-water
+  // mark plus live Lane W water state (cloud shadows, ripple rings — wired by
+  // the P1 integration) and live zone radii.
+  schedulerTier?: string;
+  sessionTierReached?: string;
+  cloudShadowsOn?: boolean;
+  rippleRingCount?: number;
+  zoneRadii?: { id: string; radiusX: number; radiusZ: number }[];
 };
 
 export type PharosVilleVisualDebug = {

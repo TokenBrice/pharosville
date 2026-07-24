@@ -2858,10 +2858,11 @@ describe("motion", () => {
         // residual riskDrift→arriving boundary drift and the lane-offset kink
         // at interior path vertices (the raw tangent rotates discretely at a
         // vertex, so the perpendicular lane displacement steps with it —
-        // ~0.10 tile worst-case for this fixture's wander geometry after the
-        // bucket-independent wander re-seed). Still far below the visual
-        // smoother's 3-tile hard-snap threshold.
-        expect(tileDelta).toBeLessThan(0.11);
+        // ~0.21 tile worst-case for this fixture's wander geometry after the
+        // zones-v2 exclusion rerouting moved the south-shore moorings off the
+        // rendered island rock). Still far below the visual smoother's
+        // 3-tile hard-snap threshold.
+        expect(tileDelta).toBeLessThan(0.22);
         // Skip heading check for moored/risk-drift states — intentional orbit
         // and drift-circle heading rotation; not a transit seam.
         if (prevSample.state !== "moored" && sample.state !== "moored"

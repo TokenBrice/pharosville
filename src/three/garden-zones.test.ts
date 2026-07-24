@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import { Color, InstancedMesh, Mesh } from "three";
+import { Color, InstancedMesh, Matrix4, Mesh } from "three";
 import { describe, expect, it } from "vitest";
+import { DEWS_AREA_LABEL_COLORS, LEDGER_INK_HEX } from "../systems/palette";
 import type { AreaNode, DewsAreaBand } from "../systems/world-types";
 import {
   createDangerWeather,
@@ -30,14 +31,66 @@ describe("createZone", () => {
     expect(zone.root.children).toHaveLength(0);
     expect(zone.root.scale.x).toBeGreaterThan(zone.root.scale.z);
     expect(zone.tint.radiusX).toBeGreaterThan(zone.tint.radiusZ);
-    expect(zone.buoys.length).toBeGreaterThanOrEqual(4);
-    expect(zone.buoys.length).toBeLessThanOrEqual(6);
+    expect(zone.buoys.length).toBeGreaterThanOrEqual(5);
+    expect(zone.buoys.length).toBeLessThanOrEqual(24);
     // Buoys ride the ellipse perimeter, not the centre.
     for (const buoy of zone.buoys) {
       const nx = (buoy.worldX - zone.tint.center.x) / zone.tint.radiusX;
       const nz = (buoy.worldZ - zone.tint.center.z) / zone.tint.radiusZ;
       expect(Math.hypot(nx, nz)).toBeCloseTo(1, 1);
     }
+  });
+
+  it("maps count to radius monotonically on per-band bases (zones-v2)", () => {
+    const radiusOf = (band: DewsAreaBand, count: number) => (
+      createZone(area(band, count)).tint.radiusX / 1.25
+    );
+    // Zones-v2 mapping: per-band base + min(2, √max(1,count)·0.3).
+    expect(radiusOf("WATCH", 1)).toBeCloseTo(48.3, 5);
+    expect(radiusOf("WATCH", 4)).toBeGreaterThan(radiusOf("WATCH", 1));
+    expect(radiusOf("WATCH", 9)).toBeGreaterThan(radiusOf("WATCH", 4));
+    expect(radiusOf("WATCH", 30)).toBeCloseTo(48 + Math.sqrt(30) * 0.3, 5);
+    // The √count term caps at +2 so big populations cannot disturb the layout.
+    expect(radiusOf("CALM", 45)).toBeCloseTo(34, 5);
+    expect(radiusOf("CALM", 74)).toBeCloseTo(radiusOf("CALM", 45), 5);
+    expect(radiusOf("DANGER", 11)).toBeCloseTo(6 + Math.sqrt(11) * 0.3, 5);
+  });
+
+  it("orders realized radii Watch > Ledger > Alert > Calm > Warning > Danger", () => {
+    // The operator overlay's composition contract: one dominant Watch sea
+    // containing the Calm harbor ring, Ledger's large NW arc, and the
+    // Alert>Warning>Danger escalation tightening into the NE corner.
+    const radiusOf = (band: DewsAreaBand, count: number) => (
+      createZone(area(band, count)).tint.radiusX
+    );
+    const { band: _band, ...ledgerArea } = area("WATCH", 1);
+    const ledger = createZone({ ...ledgerArea, riskPlacement: "ledger-mooring" });
+    expect(radiusOf("WATCH", 24)).toBeGreaterThan(ledger.tint.radiusX);
+    expect(ledger.tint.radiusX).toBeGreaterThan(radiusOf("ALERT", 10));
+    expect(radiusOf("ALERT", 10)).toBeGreaterThan(radiusOf("CALM", 74));
+    expect(radiusOf("CALM", 74)).toBeGreaterThan(radiusOf("WARNING", 1));
+    expect(radiusOf("WARNING", 1)).toBeGreaterThan(radiusOf("DANGER", 11));
+  });
+
+  it("scales marker buoys with circumference so the huge rings stay branded", () => {
+    const watch = createZone(area("WATCH"));
+    const danger = createZone(area("DANGER"));
+    expect(watch.buoys.length).toBeGreaterThan(danger.buoys.length);
+    expect(danger.buoys.length).toBeGreaterThanOrEqual(5);
+    expect(watch.buoys.length).toBeLessThanOrEqual(24);
+  });
+
+  it("harmonizes band colors into the garden palette but leaves ledger ink alone", () => {
+    const calm = createZone(area("CALM"));
+    const danger = createZone(area("DANGER"));
+    // Z3: the raw saturated DEWS accent is pulled toward a palette anchor
+    // (muted teal-green calm, ember danger) — never a literal copy.
+    expect(calm.tint.color.getHex()).not.toBe(new Color(DEWS_AREA_LABEL_COLORS.CALM).getHex());
+    expect(danger.tint.color.r).toBeGreaterThan(danger.tint.color.g);
+    expect(calm.tint.color.g).toBeGreaterThan(calm.tint.color.r);
+    const { band: _band, ...ledgerArea } = area("WATCH");
+    const ledger = createZone({ ...ledgerArea, riskPlacement: "ledger-mooring" });
+    expect(ledger.tint.color.getHex()).toBe(new Color(LEDGER_INK_HEX).getHex());
   });
 
   it("brands danger stronger and darkens its tint into a brooding patch", () => {
@@ -74,17 +127,42 @@ describe("createZoneField", () => {
       return color.r;
     };
 
-    updateZoneBuoys(field, 0, false, true);
+    updateZoneBuoys(field, 0, false, "full");
     const a = read();
-    updateZoneBuoys(field, 1, false, true);
+    updateZoneBuoys(field, 1, false, "full");
     const b = read();
     expect(a).not.toBeCloseTo(b, 5);
 
-    updateZoneBuoys(field, 0, true, true);
+    updateZoneBuoys(field, 0, true, "full");
     const frozen0 = read();
-    updateZoneBuoys(field, 1, true, true);
+    updateZoneBuoys(field, 1, true, "full");
     const frozen1 = read();
     expect(frozen0).toBeCloseTo(frozen1, 6);
+  });
+
+  it("bobs buoys on the swell at balanced tier and above, frozen to rest otherwise", () => {
+    const zones = [createZone(area("WATCH"))];
+    const field = createZoneField(zones);
+    const readY = () => {
+      const matrix = new Matrix4();
+      field.buoyBodies.getMatrixAt(0, matrix);
+      return matrix.elements[13]!;
+    };
+
+    updateZoneBuoys(field, 2.4, false, "balanced");
+    const bobA = readY();
+    updateZoneBuoys(field, 5.1, false, "balanced");
+    const bobB = readY();
+    expect(bobA).not.toBeCloseTo(bobB, 5);
+    expect(Math.abs(bobA)).toBeLessThanOrEqual(0.22 + 1e-6);
+
+    // Constrained tier and reduced motion both settle back to the rest pose.
+    updateZoneBuoys(field, 7.7, false, "constrained");
+    expect(readY()).toBe(0);
+    updateZoneBuoys(field, 2.4, false, "full");
+    expect(readY()).not.toBe(0);
+    updateZoneBuoys(field, 2.4, true, "full");
+    expect(readY()).toBe(0);
   });
 });
 

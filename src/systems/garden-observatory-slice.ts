@@ -1,6 +1,11 @@
 import type { ShipMotionSample } from "./motion";
 import { selectGardenObservatoryAreas } from "./observe-sequence";
 import { TILE_HEIGHT, tileToScreen, type IsoCamera, type ScreenPoint } from "./projection";
+import {
+  gardenShipWaterMarginTiles,
+  isGardenShipWater,
+  nearestGardenShipWater,
+} from "./garden-water-exclusion";
 import type {
   DockNode,
   PharosVilleWorld,
@@ -16,11 +21,50 @@ export const GARDEN_SHIP_ROOT_Y = GARDEN_WATER_Y + 0.38;
 export const GARDEN_ZONE_ROOT_Y = GARDEN_WATER_Y + 0.04;
 export const GARDEN_ISLAND_TILE_OFFSET = { x: 12, y: 8 } as const;
 export const GARDEN_LIGHTHOUSE_ROOT_OFFSET = { x: -7, y: 2.55, z: -1.25 } as const;
-export const GARDEN_LIGHTHOUSE_BEACON_Y = 15.15;
-export const GARDEN_LIGHTHOUSE_HEIGHT = 17.35;
+// Pharos Wonder (2026-07-24, agents/2026-07-24-pharos-wonder-plan.md, decision
+// D1 — supersedes D-L1's 30-unit "epic, not bigger" call): the tower grows to
+// 34 units so the attested Pharos stack (battered square base → octagonal drum
+// → cylindrical drum → brazier → Zeus Soter statue) fits at the historical
+// proportion rhythm. BEACON_Y is now the open-brazier centre (flame and beam
+// origin); HEIGHT is the statue's raised-hand tip. Both match the GLB v4
+// anchors exactly so the fallback shell, the loaded model, the DOM label
+// rect, and the selection anchor never disagree.
+export const GARDEN_LIGHTHOUSE_BEACON_Y = 30.1;
+export const GARDEN_LIGHTHOUSE_HEIGHT = 34;
+// C3 (scale & anchor contract): the three lighthouse constants above are the
+// integration point. Pharos Wonder D1 re-proposed the monument scale-up
+// (34 world units, statue tip) and moved the beam-origin/beacon anchor to the
+// open brazier; world-renderer.ts integration (camera fit + shadow frustum +
+// selection cue radius) consumes them. Selection radius, PSI beacon
+// semantics, and DOM/ARIA contracts survive the scale-up unchanged: the hit
+// rect and label anchor derive from these constants.
 
 export type GardenHullSilhouette = "galleon" | "clipper" | "schooner" | "junk";
 export type GardenSemanticView = "analyze" | "explore" | "overview";
+
+// S5 / decision D-S5: the data-side 0.7–3.0 scale keeps a ~3.7× VISUAL spread
+// (was clamped 0.72–1.6 → ~2.2×) so titans visibly dwarf skiffs. The floor
+// (0.55) keeps the smallest hulls legible and clickable at overview zoom.
+// C3 (scale & anchor contract): the mapping lives here in the
+// orchestrator-owned slice so ship rendering (garden-ships), selection radii
+// (below), and label layout all consume the SAME spread. Kept three-free —
+// this module must stay importable without pulling the renderer into the
+// world lazy chunk.
+export const GARDEN_SHIP_VISUAL_SCALE_MIN = 0.55;
+export const GARDEN_SHIP_VISUAL_SCALE_MAX = 2.05;
+export const GARDEN_SHIP_DATA_SCALE_MIN = 0.7;
+export const GARDEN_SHIP_DATA_SCALE_MAX = 3;
+
+export function gardenShipVisualScale(dataScale: number): number {
+  const clamped = Math.max(
+    GARDEN_SHIP_DATA_SCALE_MIN,
+    Math.min(GARDEN_SHIP_DATA_SCALE_MAX, dataScale || 1),
+  );
+  const t = (clamped - GARDEN_SHIP_DATA_SCALE_MIN)
+    / (GARDEN_SHIP_DATA_SCALE_MAX - GARDEN_SHIP_DATA_SCALE_MIN);
+  return GARDEN_SHIP_VISUAL_SCALE_MIN
+    + t * (GARDEN_SHIP_VISUAL_SCALE_MAX - GARDEN_SHIP_VISUAL_SCALE_MIN);
+}
 
 export const GARDEN_SILHOUETTE_FOR_HULL: Record<ShipHull, GardenHullSilhouette> = {
   "algo-junk": "junk",
@@ -92,20 +136,36 @@ export function selectGardenTransientShip(
 export function resolveGardenShipDisplayTile(input: {
   displayOffset: ScreenPoint;
   representative: boolean;
-  sample: Pick<ShipMotionSample, "tile"> | null | undefined;
+  sample: (Pick<ShipMotionSample, "tile"> & Partial<Pick<ShipMotionSample, "state">>) | null | undefined;
   ship: ShipNode;
 }): ScreenPoint {
   const { displayOffset, representative, sample, ship } = input;
   const tile = sample?.tile ?? ship.tile;
-  if (!representative) return tile;
-  const motionX = tile.x - ship.tile.x;
-  const motionY = tile.y - ship.tile.y;
-  const motionDistance = Math.hypot(motionX, motionY);
-  const motionScale = motionDistance > 2.5 ? 2.5 / motionDistance : 1;
-  return {
-    x: ship.tile.x + displayOffset.x + motionX * motionScale,
-    y: ship.tile.y + displayOffset.y + motionY * motionScale,
-  };
+  let display: ScreenPoint;
+  if (!representative) {
+    display = tile;
+  } else {
+    const motionX = tile.x - ship.tile.x;
+    const motionY = tile.y - ship.tile.y;
+    const motionDistance = Math.hypot(motionX, motionY);
+    const motionScale = motionDistance > 2.5 ? 2.5 / motionDistance : 1;
+    display = {
+      x: ship.tile.x + displayOffset.x + motionX * motionScale,
+      y: ship.tile.y + displayOffset.y + motionY * motionScale,
+    };
+  }
+  // Zones-v2 placement fix: keep the composed display tile on valid open
+  // water with hull clearance from rendered landmasses (island rock, garden
+  // islets, cemetery, pigeonnier). Dock-proximate motion states are exempt:
+  // moored/arriving/departing ships sit at authored moorings next to piers,
+  // where the dock tangent already orients the hull along the wharf.
+  if (sample?.state === "moored" || sample?.state === "arriving" || sample?.state === "departing") {
+    return display;
+  }
+  const margin = gardenShipWaterMarginTiles(gardenShipVisualScale(ship.visual.scale || 1));
+  return isGardenShipWater(display, margin)
+    ? display
+    : nearestGardenShipWater(display, margin, `motion-display.${ship.id}`);
 }
 
 export function resolveGardenEntityDisplayTile(input: {
@@ -157,19 +217,77 @@ export function gardenDockDisplayTile(tile: ScreenPoint, index: number): ScreenP
   return index === 1 ? { x: tile.x + 3, y: tile.y + 5 } : tile;
 }
 
-export function gardenAreaDisplayTile(area: {
+// Zones-v2 (operator hand-drawn overlay, 2026-07-24 — supersedes the Z1
+// sketch agents/2026-07-24-zone-recomposition-sketch.md for LAYOUT; the data
+// anchors it designed stay in force): display-vs-data decoupling. Zone DATA
+// anchors (regionTile/labelTile/shipAnchors in risk-water-areas.ts) stay on
+// valid painted water in the NW/NE corners; the visual composition lives here:
+// - gardenAreaCenterTile: the rendered ellipse's center. May sit on the island
+//   (Calm's inner harbor ring) or off-frame (Ledger's NW arc, Alert/Warning's
+//   NE escalation); display-only, no terrain validity required.
+// - gardenAreaDisplayTile: the DOM label / hit-target / camera-focus anchor,
+//   placed on the VISIBLE arc of each zone, inset toward the frame, so labels
+//   never render off-screen or over the lighthouse.
+const AREA_DISPLAY_CENTER: Record<string, ScreenPoint> = {
+  // Calm: centered on the island (31,31) — the protected inner harbor ring.
+  CALM: { x: 31, y: 31 },
+  // Watch: roughly island-centered, slightly below — the dominant sea.
+  WATCH: { x: 33, y: 33 },
+  // Ledger: centered off-frame NW so only its arc sweeps the top-left quadrant.
+  "ledger-mooring": { x: -4, y: 4 },
+  // Alert > Warning > Danger: nested arcs tightening into the NE storm corner.
+  ALERT: { x: 60, y: -5 },
+  WARNING: { x: 57, y: -1 },
+  DANGER: { x: 53, y: 2 },
+};
+
+const AREA_LABEL_TILE: Record<string, ScreenPoint> = {
+  // On the NE harbor water inside the ring, clear of docks and the lighthouse.
+  CALM: { x: 42, y: 26 },
+  // On the south-west arc, inset toward the frame.
+  WATCH: { x: 14, y: 50 },
+  // On the visible arc over the ledger shelf.
+  "ledger-mooring": { x: 8, y: 10 },
+  // Staggered along their arcs so the three chips never collide.
+  ALERT: { x: 43, y: 1 },
+  WARNING: { x: 49, y: 3 },
+  DANGER: { x: 54, y: 4 },
+};
+
+function areaCompositionKey(area: {
   band?: string | null;
+  riskPlacement?: string | null;
+}): string | null {
+  return area.band ?? area.riskPlacement ?? null;
+}
+
+/** Rendered zone ellipse center (display-only; may leave the map). */
+export function gardenAreaCenterTile(area: {
+  band?: string | null;
+  riskPlacement?: string | null;
   tile: ScreenPoint;
 }): ScreenPoint {
-  const elevatedEastBand = area.band === "ALERT"
-    || area.band === "WARNING"
-    || area.band === "DANGER";
-  return elevatedEastBand
-    ? { x: area.tile.x - 4, y: area.tile.y + 4 }
-    : area.tile;
+  const key = areaCompositionKey(area);
+  return (key && AREA_DISPLAY_CENTER[key]) || area.tile;
+}
+
+export function gardenAreaDisplayTile(area: {
+  band?: string | null;
+  riskPlacement?: string | null;
+  tile: ScreenPoint;
+}): ScreenPoint {
+  // C3: this is the zone composition's DOM/focus integration point — the
+  // label anchor on the visible arc. The rendered center lives in
+  // gardenAreaCenterTile; zone radii live in garden-zones.ts (Lane Z) and the
+  // count→radius encoding stays monotonic.
+  const key = areaCompositionKey(area);
+  return (key && AREA_LABEL_TILE[key]) || area.tile;
 }
 
 export function gardenCameraViewHeight(viewportHeight: number, zoom: number): number {
+  // C3: camera-fit integration point. The L1 lighthouse scale-up and any
+  // composition changes (Z1/Z4) re-frame through this function; the
+  // orchestrator owns adjustments, informed by Lane L/Z proposals.
   return viewportHeight / (TILE_HEIGHT * zoom);
 }
 
@@ -182,8 +300,12 @@ export function gardenSemanticView(
 }
 
 export function gardenShipSelectionRadius(ship: ShipNode): number {
-  const scale = Math.max(0.72, Math.min(1.6, ship.visual.scale || 1)) * 0.82;
-  return 1.9 * scale;
+  // C3: ship visualScale mapping integration point. S5 (decision D-S5)
+  // de-compressed the data-side 0.7–3.0 scale to a ~3.7× visual spread (see
+  // gardenShipVisualScale above); this consumes the SAME mapping so selection
+  // rings and label layout track the rendered footprint (1.9× hull scale, as
+  // before the de-compression).
+  return gardenShipVisualScale(ship.visual.scale || 1) * 1.9;
 }
 
 export function selectGardenDocks(docks: readonly DockNode[]): DockNode[] {
@@ -275,6 +397,30 @@ export function representativeShipDisplayOffsets(
   const offsets = new Map<string, ScreenPoint>();
   for (const [zone, group] of byZone) {
     group.sort((left, right) => left.id.localeCompare(right.id));
+    if (zone === "calm" || zone === "watch") {
+      // Zones-v2: Calm and Watch representatives moor on authored ellipses
+      // around their zone display centers, so the enlarged harbor ring and
+      // the dominant monitored sea actually have ships spread through them.
+      // Ring points that fall on the rendered island rock (or inside any
+      // other obstacle's hull margin) are snapped to the nearest valid water
+      // downstream in composeRepresentativeOffset — the ring is a TARGET,
+      // not a guarantee.
+      const center = AREA_DISPLAY_CENTER[zone.toUpperCase()]!;
+      const ring = zone === "calm"
+        ? { x: 16, y: 11 }
+        : { x: 21, y: 13.5 };
+      const phase = stableUnit(`observatory.${zone}`) * Math.PI * 2;
+      group.forEach((ship, index) => {
+        const angle = phase + (index / group.length) * Math.PI * 2;
+        const targetX = center.x + Math.cos(angle) * ring.x;
+        const targetY = center.y + Math.sin(angle) * ring.y;
+        offsets.set(ship.id, {
+          x: targetX - ship.tile.x,
+          y: targetY - ship.tile.y,
+        });
+      });
+      continue;
+    }
     if (zone === "danger" && group.length >= 8) {
       const centerDiagonal = group.reduce(
         (sum, ship) => sum + ship.tile.x - ship.tile.y,
@@ -332,7 +478,6 @@ function gardenObservatoryBaseSlice(world: PharosVilleWorld): GardenObservatoryB
       displayOffset: composeRepresentativeOffset(
         ship,
         displayOffsets.get(ship.id) ?? { x: 0, y: 0 },
-        world.lighthouse.tile,
       ),
       representative: true,
       ship,
@@ -342,35 +487,39 @@ function gardenObservatoryBaseSlice(world: PharosVilleWorld): GardenObservatoryB
   return slice;
 }
 
+// Zones-v2: representative ships in the corner bands take HALF their band's
+// data→display delta so they stay on their zone's visible arc. Calm/Watch are
+// absent: their representatives redistribute onto authored rings around the
+// display centers in representativeShipDisplayOffsets instead.
+const ZONE_REPRESENTATIVE_NUDGE: Record<string, ScreenPoint> = {
+  alert: { x: 5, y: -10.5 },
+  danger: { x: -0.5, y: 0.5 },
+  ledger: { x: -6, y: -2 },
+  warning: { x: 3.5, y: -4.5 },
+};
+
 function composeRepresentativeOffset(
   ship: ShipNode,
   offset: ScreenPoint,
-  lighthouseTile: ScreenPoint,
 ): ScreenPoint {
-  let x = offset.x;
-  let y = offset.y;
-  if (ship.riskZone === "alert" || ship.riskZone === "warning" || ship.riskZone === "danger") {
-    x -= 2.25;
-    y += 2.25;
-  }
+  const x = offset.x + (ship.riskZone ? (ZONE_REPRESENTATIVE_NUDGE[ship.riskZone]?.x ?? 0) : 0);
+  const y = offset.y + (ship.riskZone ? (ZONE_REPRESENTATIVE_NUDGE[ship.riskZone]?.y ?? 0) : 0);
 
-  const islandTile = gardenIslandDisplayTile(lighthouseTile);
-  let dx = ship.tile.x + x - islandTile.x;
-  let dy = ship.tile.y + y - islandTile.y;
-  let distance = Math.hypot(dx, dy);
-  if (distance < 0.01) {
-    const angle = stableUnit(`island-clearance.${ship.id}`) * Math.PI * 2;
-    dx = Math.cos(angle);
-    dy = Math.sin(angle);
-    distance = 1;
-  }
-  const clearance = 17;
-  if (distance < clearance) {
-    const push = clearance - distance;
-    x += (dx / distance) * push;
-    y += (dy / distance) * push;
-  }
-  return { x, y };
+  // Zones-v2 placement fix (supersedes the old uniform island-clearance
+  // circle, and its Calm/Watch ring exemption — that exemption is what put
+  // hulls on the island rock): every band's composed display tile is snapped
+  // to valid open water with a per-ship hull margin against the RENDERED
+  // landmasses and dock aprons (garden-water-exclusion.ts). Ring targets stay
+  // as authored; rejected ones slide to the nearest valid water, seeded per
+  // ship so the layout is deterministic.
+  const margin = gardenShipWaterMarginTiles(gardenShipVisualScale(ship.visual.scale || 1));
+  const snapped = nearestGardenShipWater(
+    { x: ship.tile.x + x, y: ship.tile.y + y },
+    margin,
+    `representative.${ship.id}`,
+    true,
+  );
+  return { x: snapped.x - ship.tile.x, y: snapped.y - ship.tile.y };
 }
 
 function compareRepresentativeShips(left: ShipNode, right: ShipNode): number {

@@ -13,7 +13,16 @@ export const RENDER_SCHEDULER_TARGET_FRAME_MS = 16.7;
 export const RENDER_SCHEDULER_DOWNSHIFT_STREAK = 2;
 export const RENDER_SCHEDULER_UPSHIFT_STREAK = 8;
 
-type RenderSchedulerLoadTier = Extract<PharosVilleRenderSchedulerTier, "balanced" | "recovery" | "constrained">;
+// G3 (Garden Sea): the full tier is a normal-session load tier, not a
+// reduced-motion-only mode. A frame within the p90 ≤ 20 ms budget (and a
+// modest draw-time ceiling) resolves to `full` raw; the hysteresis ladder
+// promotes balanced → full after the standard 8-frame calm streak, so a
+// healthy desktop iGPU settles at full while janky first frames or sustained
+// pressure still shed to balanced/recovery/constrained exactly as before.
+export const RENDER_SCHEDULER_FULL_MAX_P90_MS = 20;
+export const RENDER_SCHEDULER_FULL_MAX_DRAW_MS = 30;
+
+type RenderSchedulerLoadTier = Extract<PharosVilleRenderSchedulerTier, "full" | "balanced" | "recovery" | "constrained">;
 
 export interface RenderSchedulerHysteresisState {
   loadTier: RenderSchedulerLoadTier;
@@ -50,6 +59,8 @@ function resolveRenderSchedulerTier(
   },
   hysteresis?: RenderSchedulerHysteresisState,
 ): PharosVilleRenderSchedulerTier {
+  // Reduced motion pins full quality for a single static frame (post allowed,
+  // all motion frozen, zero continuous RAF) — unchanged by the G3 tier policy.
   if (input.reducedMotion) return "full";
   if (input.cameraIntentActive) return "interaction";
   const raw = rawLoadTier(input);
@@ -65,13 +76,17 @@ function rawLoadTier(input: {
   const draw = input.drawDurationMs ?? 0;
   if (p90 >= 48 || draw >= 90) return "constrained";
   if (p90 >= 28 || draw >= 48) return "recovery";
+  if (p90 <= RENDER_SCHEDULER_FULL_MAX_P90_MS && draw <= RENDER_SCHEDULER_FULL_MAX_DRAW_MS) {
+    return "full";
+  }
   return "balanced";
 }
 
 const LOAD_TIER_SEVERITY: Record<RenderSchedulerLoadTier, number> = {
-  balanced: 0,
-  recovery: 1,
-  constrained: 2,
+  full: 0,
+  balanced: 1,
+  recovery: 2,
+  constrained: 3,
 };
 
 // Mutates `state` in place: this runs once per RAF frame, so the hysteresis

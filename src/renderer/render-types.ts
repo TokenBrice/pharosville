@@ -27,6 +27,14 @@ export interface PharosVilleRenderMetrics {
     size: number;
   };
   schedulerTier?: PharosVilleRenderSchedulerTier;
+  // C4 (Garden Sea debug & evidence contract, frozen in P0): these fields are
+  // published on `__pharosVilleDebug.renderMetrics` and reused by every visual
+  // packet's evidence JSON. cloudShadowsOn/rippleRingCount are P0 stubs —
+  // Lane W wires the real values via contract C2; zoneRadii is live data.
+  sessionTierReached?: PharosVilleRenderSchedulerTier;
+  cloudShadowsOn?: boolean;
+  rippleRingCount?: number;
+  zoneRadii?: readonly { id: string; radiusX: number; radiusZ: number }[];
   shipMaxHeadingDeltaDeg?: number;
   shipMaxPositionDeltaTile?: number;
   visibleShipCount: number;

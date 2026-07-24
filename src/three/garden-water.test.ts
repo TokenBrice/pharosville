@@ -7,6 +7,7 @@ import {
 import type { GardenWaterFrame } from "./garden-water";
 import {
   createGardenWater,
+  GARDEN_ISLAND_ROCK_RADIUS,
   GARDEN_WATER_MAX_DISPLACEMENT,
 } from "./garden-water";
 
@@ -38,6 +39,14 @@ describe("createGardenWater", () => {
     });
     expect(uniformNumber(water.material, "uBeaconAngle")).toBe(1.2);
     expect(uniformNumber(water.material, "uBeaconStrength")).toBe(1);
+    // W6: flicker defaults to a calm mid-glow when the caller omits it, and
+    // the island anchor carries the rock radius for the shore SDF.
+    expect(uniformNumber(water.material, "uBeaconFlicker")).toBe(0.5);
+    expect(uniformNumber(water.material, "uRockRadius")).toBe(
+      GARDEN_ISLAND_ROCK_RADIUS,
+    );
+    water.setBeaconState(6, -4, 1.2, 0.8, 1.7);
+    expect(uniformNumber(water.material, "uBeaconFlicker")).toBe(1);
   });
 
   it("wires the shared lane texture and outlying islet shore centers", () => {
@@ -114,6 +123,98 @@ describe("createGardenWater", () => {
     }));
     expect(uniformNumber(water.material, "uDetail")).toBe(0.24);
     expect(uniformNumber(water.material, "uTime")).toBe(0);
+  });
+
+  it("shares the C2 cloud-shadow uniforms with the water material", () => {
+    const water = createGardenWater(0);
+
+    expect(water.material.uniforms.uCloudShadow).toBe(water.cloudShadows.uniforms.uCloudShadow);
+    expect(water.material.uniforms.uCloudShadowTransform).toBe(
+      water.cloudShadows.uniforms.uCloudShadowTransform,
+    );
+    expect(water.material.uniforms.uCloudShadowStrength).toBe(
+      water.cloudShadows.uniforms.uCloudShadowStrength,
+    );
+    expect(water.cloudShadows.texture.image.width).toBe(256);
+
+    const transform = water.cloudShadows.uniforms.uCloudShadowTransform.value;
+    water.cloudShadows.update({ reducedMotion: false, tier: "balanced", timeSeconds: 10 });
+    const driftedX = transform[2];
+    expect(driftedX).toBeGreaterThan(0);
+    // Reduced motion and lower tiers freeze the drift.
+    water.cloudShadows.update({ reducedMotion: true, tier: "full", timeSeconds: 40 });
+    expect(transform[2]).toBe(driftedX);
+    water.cloudShadows.update({ reducedMotion: false, tier: "recovery", timeSeconds: 40 });
+    expect(transform[2]).toBe(driftedX);
+  });
+
+  it("gates cloud shadows and glitter to balanced+ tiers", () => {
+    const water = createGardenWater(0);
+
+    water.update(frame({ renderScheduler: { tier: "balanced" } }));
+    expect(water.cloudShadowsOn()).toBe(true);
+    expect(uniformNumber(water.material, "uCloudShadowStrength")).toBeGreaterThan(0);
+    expect(uniformNumber(water.material, "uGlitterStrength")).toBe(1);
+    expect(uniformNumber(water.material, "uRippleStrength")).toBe(1);
+
+    water.update(frame({ renderScheduler: { tier: "recovery" } }));
+    expect(water.cloudShadowsOn()).toBe(false);
+    expect(uniformNumber(water.material, "uCloudShadowStrength")).toBe(0);
+    expect(uniformNumber(water.material, "uGlitterStrength")).toBe(0);
+    expect(uniformNumber(water.material, "uRippleStrength")).toBe(0);
+  });
+
+  it("registers karesansui ripple-ring emitters via the C2 API", () => {
+    const water = createGardenWater(0);
+
+    water.setIslandCenter(24, -16);
+    expect(water.rippleRings.ringCount()).toBe(1);
+    water.setIsletCenters({ x: 40, z: -20 }, { x: -10, z: 8 });
+    expect(water.rippleRings.ringCount()).toBe(3);
+    expect(uniformNumber(water.material, "uRippleCount")).toBe(3);
+
+    water.rippleRings.setRing({
+      id: "garden.dock.alpha",
+      center: { x: 30, z: -4 },
+      radius: 7,
+      bands: 2,
+      periodSeconds: 8,
+      strength: 0.4,
+    });
+    expect(water.rippleRings.ringCount()).toBe(4);
+    expect(uniformNumber(water.material, "uRippleCount")).toBe(4);
+    const ring = water.material.uniforms.uRipple!.value[3]!;
+    expect(ring).toMatchObject({ x: 30, y: 4, z: 7 });
+    const params = water.material.uniforms.uRippleParams!.value[3]!;
+    expect(params.x).toBe(2);
+    expect(params.y).toBe(8);
+    expect(params.z).toBeCloseTo(0.4);
+
+    water.rippleRings.removeRing("garden.dock.alpha");
+    expect(water.rippleRings.ringCount()).toBe(3);
+  });
+
+  it("keeps a default harbor-calm mask until Lane I overrides it", () => {
+    const water = createGardenWater(0);
+
+    water.setIslandCenter(24, -16);
+    const ellipse = water.material.uniforms.uHarborEllipse!.value;
+    expect(ellipse.x).toBe(42);
+    expect(ellipse.y).toBe(2);
+
+    water.setHarborCalmMask({
+      center: { x: 10, z: -6 },
+      radiusX: 8,
+      radiusZ: 5,
+      calmStrength: 2,
+    });
+    const overridden = water.material.uniforms.uHarborEllipse!.value;
+    expect(overridden).toMatchObject({ x: 10, y: 6 });
+    expect(overridden.z).toBeCloseTo(1 / 8);
+    expect(uniformNumber(water.material, "uHarborCalm")).toBe(1);
+    // A later island re-anchor must not clobber the explicit Lane I extents.
+    water.setIslandCenter(1, 1);
+    expect(water.material.uniforms.uHarborEllipse!.value).toMatchObject({ x: 10, y: 6 });
   });
 
   it("moves through distinct day, dusk, and night palettes", () => {

@@ -31,11 +31,16 @@ import {
   GARDEN_SHIP_ROOT_Y,
   GARDEN_SILHOUETTE_FOR_HULL as SILHOUETTE_FOR_HULL,
   gardenShipSelectionRadius,
+  gardenShipVisualScale,
   type GardenHullSilhouette,
 } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE } from "../systems/palette";
 import type { ShipNode } from "../systems/world-types";
 import { gardenModelAnchor, type GardenModelId } from "./garden-models";
+import {
+  GARDEN_WATER_MAX_RIPPLE_RINGS,
+  type GardenRippleRingEmitter,
+} from "./garden-water-contract";
 import { createGardenSailTexture } from "./garden-sail-texture";
 import {
   cachedShipGeometry,
@@ -61,6 +66,18 @@ const GARDEN_COLORS = {
 /** Motion + lantern tier: titans/uniques bob slowest and carry a lantern string. */
 export type ShipFleetTier = "titan" | "heritage" | "standard";
 
+// S5 / decision D-S5: the visual-scale mapping (~3.7× spread, 0.55 legibility
+// floor) lives in garden-observatory-slice (orchestrator-integrated per
+// contract C3) so selection radii and label layout consume the same spread;
+// re-exported here for the fleet module's existing consumers/tests.
+export {
+  GARDEN_SHIP_DATA_SCALE_MAX,
+  GARDEN_SHIP_DATA_SCALE_MIN,
+  GARDEN_SHIP_VISUAL_SCALE_MAX,
+  GARDEN_SHIP_VISUAL_SCALE_MIN,
+  gardenShipVisualScale,
+} from "../systems/garden-observatory-slice";
+
 export interface ShipVisual {
   bobPhase: number;
   displayOffset: { x: number; y: number };
@@ -81,6 +98,8 @@ export interface ShipVisual {
   /** Slowed bob envelope for larger hulls (D7 motion hierarchy). */
   motionAmplitudeScale: number;
   motionPeriodScale: number;
+  /** Masthead pennant — the ship's ONE livery accent; flutters with the wind (S8). */
+  pennant: Mesh;
   /** Previous heading angle, for heel-into-turn (null until first moving frame). */
   prevHeadingAngle: number | null;
   representative: boolean;
@@ -261,12 +280,16 @@ export function createShip(
   const heroModelId = shipHeroModelId(ship);
   const heroHideable: Object3D[] = [];
   let identitySailMesh: Mesh | null = null;
-  const visualScale = MathUtils.clamp(ship.visual.scale || 1, 0.72, 1.6) * 0.82;
+  const visualScale = gardenShipVisualScale(ship.visual.scale || 1);
   root.scale.setScalar(visualScale);
 
+  // S4 color blocking: a dark hull band (livery primary only whispers
+  // through), a pale sheer stripe at the gunwale, a warm deck, cream sails,
+  // and ONE colored accent per ship — the masthead pennant keeps the livery
+  // accent hue, so the brand/identity channel survives unchanged.
   const hullColor = new Color(HARBOR_PALETTE.timber_dark).lerp(
     new Color(safeCssColor(ship.visual.livery?.primary, HARBOR_PALETTE.timber_warm)),
-    0.38,
+    0.32,
   );
   const accentColor = new Color(HARBOR_PALETTE.timber_warm).lerp(
     new Color(safeCssColor(ship.visual.livery?.accent, GARDEN_COLORS.roof)),
@@ -292,13 +315,15 @@ export function createShip(
     vertexColors: true,
   });
   const deckMaterial = new MeshStandardMaterial({
-    color: HARBOR_PALETTE.timber_warm,
+    color: new Color(HARBOR_PALETTE.timber_warm).lerp(new Color(HARBOR_PALETTE.sun_day_warm), 0.22),
     flatShading: true,
     roughness: 0.92,
     vertexColors: true,
   });
+  // Sheer stripe: a pale rail highlight that makes the curved sheer legible;
+  // deliberately NOT the livery accent (that lives on the pennant alone).
   const gunwaleMaterial = new MeshStandardMaterial({
-    color: accentColor,
+    color: new Color(HARBOR_PALETTE.foam_white).lerp(new Color(HARBOR_PALETTE.timber_warm), 0.52),
     flatShading: true,
     roughness: 0.86,
     vertexColors: true,
@@ -350,8 +375,12 @@ export function createShip(
     ship.visual.sailColor ?? ship.visual.livery?.sailColor,
     GARDEN_COLORS.limestoneLight,
   );
-  const readableSailColor = new Color(sailColor)
-    .lerp(new Color(GARDEN_COLORS.limestoneLight), 0.28);
+  // S4: plain sails read as warm cream/ochre canvas with only a whisper of the
+  // livery sail hue left in; the logo identity sail keeps the full livery
+  // field via its canvas texture.
+  const creamCanvas = new Color(HARBOR_PALETTE.foam_white)
+    .lerp(new Color(HARBOR_PALETTE.lantern_warm), 0.16);
+  const readableSailColor = new Color(sailColor).lerp(creamCanvas, 0.45);
   // Warm the emissive toward lantern gold so the night curve backlights the
   // canvas as if a lantern hung beneath it (D4).
   const plainSailMaterial = new MeshStandardMaterial({
@@ -381,11 +410,15 @@ export function createShip(
     mastMaterial,
     rig.length + (hasBowsprit ? 1 : 0),
   );
+  // S2: every family carries a slight mast rake now — clippers/schooners lean
+  // forward (bow at +x), galleons a touch aft, junks visibly forward.
   const mastRotation = silhouette === "clipper"
     ? -0.045
     : silhouette === "schooner"
       ? -0.075
-      : 0;
+      : silhouette === "junk"
+        ? -0.035
+        : 0.02;
   for (const [mastIndex, mastPlan] of rig.entries()) {
     scratchMatrix.makeRotationZ(mastRotation);
     scratchMatrix.scale(scratchPosition.set(1, mastPlan.height, 1));
@@ -449,7 +482,7 @@ export function createShip(
         ),
       ),
       new MeshStandardMaterial({
-        color: accentColor,
+        color: new Color(HARBOR_PALETTE.timber_dark).lerp(new Color(HARBOR_PALETTE.timber_mid), 0.42),
         flatShading: true,
         roughness: 0.9,
       }),
@@ -484,7 +517,7 @@ export function createShip(
     cachedShipGeometry(
       cache,
       `rigging.${silhouette}`,
-      () => new BufferGeometry().setFromPoints(riggingPoints(silhouette, rig, tallestMast)),
+      () => new BufferGeometry().setFromPoints(riggingPoints(silhouette, rig)),
     ),
     new LineBasicMaterial({
       color: "#3f342b",
@@ -611,6 +644,7 @@ export function createShip(
     laneIntensity: FLEET_TIER_LANE_INTENSITY[tier],
     motionAmplitudeScale: motion.amplitude,
     motionPeriodScale: motion.period,
+    pennant: flag,
     prevHeadingAngle: null,
     representative,
     root,
@@ -816,6 +850,74 @@ export function updateFleetLanterns(
   lanterns.glow.instanceMatrix.needsUpdate = true;
 }
 
+/**
+ * S8 motion poetry: the masthead pennant (the ship's single livery accent)
+ * flutters with the wind — a slow yaw flap plus a slight shortening as it
+ * swings. Larger hulls flutter slower (titans slowest, D7 motion hierarchy);
+ * under reduced motion the pennant freezes flat, as every other motion does.
+ * Cheap enough to run for the whole fleet each frame; pennants on hero-GLB
+ * ships are hidden anyway and simply no-op visually.
+ */
+export function updateShipPennants(
+  ships: readonly ShipVisual[],
+  timeSeconds: number,
+  reducedMotion: boolean,
+): void {
+  for (const visual of ships) {
+    const pennant = visual.pennant;
+    if (reducedMotion) {
+      pennant.rotation.y = 0;
+      pennant.scale.x = 1;
+      continue;
+    }
+    const wave = Math.sin(
+      timeSeconds * (2.2 / visual.motionPeriodScale) + visual.swaySeed * 2.7,
+    );
+    pennant.rotation.y = wave * 0.3;
+    pennant.scale.x = 1 - Math.abs(wave) * 0.09;
+  }
+}
+
+/**
+ * S7 grounding: registers karesansui ripple rings (contract C2 (d)) at the
+ * waterline of moored/idle ships, and removes them as soon as a ship gets
+ * underway, the tier drops below balanced, or reduced motion freezes the
+ * sea. Rings are capped below GARDEN_WATER_MAX_RIPPLE_RINGS so Lane Z's
+ * islet rings and the island ring keep headroom.
+ *
+ * Defensive by contract: the Lane W runtime lands concurrently — pass
+ * `null`/`undefined` (or nothing) and this is a no-op.
+ */
+export function syncShipRippleRings(
+  emitter: GardenRippleRingEmitter | null | undefined,
+  ships: readonly ShipVisual[],
+  frame: { reducedMotion: boolean; tier: string },
+): void {
+  if (!emitter) return;
+  const ringsAllowed = !frame.reducedMotion
+    && (frame.tier === "full" || frame.tier === "balanced");
+  const ringBudget = Math.max(0, GARDEN_WATER_MAX_RIPPLE_RINGS - 3);
+  let registered = 0;
+  for (const visual of ships) {
+    const id = `ship-mooring.${visual.ship.id}`;
+    const slow = visual.sampleState === "moored" || visual.sampleState === "idle";
+    if (!ringsAllowed || !slow || registered >= ringBudget) {
+      emitter.removeRing(id);
+      continue;
+    }
+    registered += 1;
+    const scale = visual.root.scale.x;
+    emitter.setRing({
+      id,
+      center: { x: visual.root.position.x, z: visual.root.position.z },
+      radius: 1.4 + 3.6 * scale,
+      bands: 2,
+      periodSeconds: 8.5 * visual.motionPeriodScale,
+      strength: 0.22,
+    });
+  }
+}
+
 function createHullGeometry(silhouette: GardenHullSilhouette): ExtrudeGeometry {
   const shape = createHullShape(silhouette, 1);
   const geometry = new ExtrudeGeometry(shape, {
@@ -828,6 +930,7 @@ function createHullGeometry(silhouette: GardenHullSilhouette): ExtrudeGeometry {
   });
   geometry.rotateX(-Math.PI / 2);
   geometry.translate(0, -0.5, 0);
+  shapeHullVerticalForm(geometry, silhouette);
   bakeHullVertexColors(geometry);
   return geometry;
 }
@@ -901,11 +1004,36 @@ function createDeckGeometry(
 }
 
 function createHullShape(silhouette: GardenHullSilhouette, scale: number): Shape {
+  // S1: 13–15-point plan outlines (was a 5-point polygon). The extra points
+  // buy a rounded/counter stern, a gentle beam curve, and a flared bow entry
+  // per family; the vertical form (sheer, tumblehome, rake) is displaced in
+  // createHullGeometry via GARDEN_HULL_FORM. Points run stern → starboard →
+  // bow → port, x along the keel (bow at +x), y = half-beam.
   const points: Record<GardenHullSilhouette, ReadonlyArray<readonly [number, number]>> = {
-    galleon: [[-3.35, -1.35], [-3.65, 1.35], [1.95, 1.3], [4.05, 0], [1.95, -1.3]],
-    clipper: [[-3.55, -0.72], [-3.45, 0.72], [2.65, 0.76], [4.85, 0], [2.65, -0.76]],
-    schooner: [[-3.75, -0.82], [-3.6, 0.82], [2.75, 0.8], [4.35, 0], [2.75, -0.8]],
-    junk: [[-3.2, -1.18], [-3.25, 1.18], [2.75, 1.12], [3.65, 0], [2.75, -1.12]],
+    // Galleon: high rounded tuck stern, full midship, bluff flared bow.
+    galleon: [
+      [-3.3, -1.05], [-3.55, -0.85], [-3.65, 0], [-3.55, 0.85], [-3.3, 1.05],
+      [-1.6, 1.32], [0.4, 1.3], [2.1, 1.18], [3.4, 0.82], [4.05, 0],
+      [3.4, -0.82], [2.1, -1.18], [0.4, -1.3], [-1.6, -1.32],
+    ],
+    // Clipper: elliptical counter stern, lean entry, long raked bow.
+    clipper: [
+      [-3.5, -0.42], [-3.62, -0.2], [-3.62, 0.2], [-3.5, 0.42],
+      [-2.2, 0.68], [-0.6, 0.76], [1.2, 0.74], [2.9, 0.6], [4.1, 0.32], [4.85, 0],
+      [4.1, -0.32], [2.9, -0.6], [1.2, -0.74], [-0.6, -0.76], [-2.2, -0.68],
+    ],
+    // Schooner: sleek hull with a long bow overhang, soft bilge.
+    schooner: [
+      [-3.68, -0.5], [-3.78, -0.22], [-3.78, 0.22], [-3.68, 0.5],
+      [-2.4, 0.78], [-0.6, 0.82], [1.4, 0.78], [3, 0.55], [4.35, 0],
+      [3, -0.55], [1.4, -0.78], [-0.6, -0.82], [-2.4, -0.78],
+    ],
+    // Junk: bluff at both ends, flat transom-like bow, beamy waist.
+    junk: [
+      [-3.18, -0.95], [-3.28, -0.5], [-3.3, 0], [-3.28, 0.5], [-3.18, 0.95],
+      [-1.6, 1.16], [0.4, 1.14], [2, 1.02], [3.05, 0.62], [3.65, 0],
+      [3.05, -0.62], [2, -1.02], [0.4, -1.14], [-1.6, -1.16],
+    ],
   };
   const shape = new Shape();
   const [first, ...rest] = points[silhouette];
@@ -915,67 +1043,180 @@ function createHullShape(silhouette: GardenHullSilhouette, scale: number): Shape
   return shape;
 }
 
-function createSailGeometry(plan: GardenSailPlan): ShapeGeometry {
+// S1 vertical form per family: sheer is the deck-line rise toward the ends
+// (bow lifts more than the stern), tumblehome narrows the deck versus the
+// waterline, bowFlare widens the bow topsides, bowRake leans the stem forward.
+const GARDEN_HULL_FORM: Record<
+  GardenHullSilhouette,
+  { bowFlare: number; bowRake: number; sheerBow: number; sheerStern: number; tumblehome: number }
+> = {
+  galleon: { bowFlare: 0.1, bowRake: 0.14, sheerBow: 0.3, sheerStern: 0.24, tumblehome: 0.16 },
+  clipper: { bowFlare: 0.18, bowRake: 0.38, sheerBow: 0.26, sheerStern: 0.16, tumblehome: 0.1 },
+  schooner: { bowFlare: 0.08, bowRake: 0.24, sheerBow: 0.22, sheerStern: 0.14, tumblehome: 0.08 },
+  junk: { bowFlare: 0.05, bowRake: 0.06, sheerBow: 0.18, sheerStern: 0.26, tumblehome: 0.06 },
+};
+
+/**
+ * Displaces the extruded hull into the family's vertical form (S1): a curved
+ * sheer (ends rise, bow most), slight tumblehome, and a flared/raked bow.
+ * Runs on the cached geometry before the vertex-color bake so the waterline
+ * AO follows the displaced hull. Flat shading derives normals in-shader, so
+ * no normal recompute is needed.
+ */
+function shapeHullVerticalForm(
+  geometry: BufferGeometry,
+  silhouette: GardenHullSilhouette,
+): void {
+  const form = GARDEN_HULL_FORM[silhouette];
+  const position = geometry.getAttribute("position");
+  geometry.computeBoundingBox();
+  const box = geometry.boundingBox!;
+  const minY = box.min.y;
+  const spanY = Math.max(0.001, box.max.y - box.min.y);
+  const bowX = Math.max(0.001, box.max.x);
+  const sternX = Math.max(0.001, Math.abs(box.min.x));
+  for (let index = 0; index < position.count; index += 1) {
+    const x = position.getX(index);
+    // t: 0 at the keel, 1 at the deck edge.
+    const t = MathUtils.clamp((position.getY(index) - minY) / spanY, 0, 1);
+    // Sheer: parabolic rise toward both ends, bow higher than the stern.
+    const bowT = Math.max(0, x / bowX);
+    const sternT = Math.max(0, -x / sternX);
+    const y = position.getY(index)
+      + form.sheerBow * bowT * bowT
+      + form.sheerStern * sternT * sternT;
+    // Tumblehome: topsides lean inboard as they rise.
+    let z = position.getZ(index) * (1 - form.tumblehome * t);
+    // Bow flare + rake: topsides near the stem widen and lean forward.
+    const stemT = MathUtils.smoothstep(bowT, 0.35, 1);
+    z *= 1 + form.bowFlare * t * stemT;
+    const bowXPos = x + form.bowRake * t * stemT;
+    position.setXYZ(index, bowXPos, y, z);
+  }
+  position.needsUpdate = true;
+}
+
+/**
+ * Sail cloth as a tessellated grid (S2) instead of a flat shape: the center
+ * belly is displaced so sails read wind-filled, and the head (yard) is yawed
+ * a few degrees versus the foot. UVs map 0–1 across the cloth so the identity
+ * logo texture lands exactly as before.
+ */
+function createSailGeometry(plan: GardenSailPlan): BufferGeometry {
   const direction = plan.reverse ? -1 : 1;
   const halfHeight = plan.height * 0.5;
-  const shape = new Shape();
-  shape.moveTo(0, -halfHeight);
-  shape.lineTo(0, halfHeight);
-  if (plan.kind === "fore-aft") {
-    shape.lineTo(direction * plan.width, -halfHeight * 0.78);
-  } else if (plan.kind === "square") {
-    shape.lineTo(direction * plan.width * 0.88, halfHeight * 0.7);
-    shape.lineTo(direction * plan.width, -halfHeight * 0.72);
-  } else {
-    shape.lineTo(direction * plan.width * 0.72, halfHeight * 0.68);
-    shape.lineTo(direction * plan.width, 0);
-    shape.lineTo(direction * plan.width * 0.86, -halfHeight * 0.75);
-  }
-  shape.closePath();
-  const geometry = new ShapeGeometry(shape);
-  const positions = geometry.getAttribute("position");
-  for (let index = 0; index < positions.count; index += 1) {
-    const x = Math.abs(positions.getX(index)) / Math.max(0.01, plan.width);
-    const y = positions.getY(index) / Math.max(0.01, plan.height) + 0.5;
-    positions.setZ(index, Math.sin(MathUtils.clamp(y, 0, 1) * Math.PI) * x * 0.24);
-  }
-  positions.needsUpdate = true;
-  geometry.computeBoundingBox();
-  const bounds = geometry.boundingBox;
-  const uvs = geometry.getAttribute("uv");
-  if (bounds && uvs) {
-    const width = Math.max(0.01, bounds.max.x - bounds.min.x);
-    const height = Math.max(0.01, bounds.max.y - bounds.min.y);
-    for (let index = 0; index < positions.count; index += 1) {
-      uvs.setXY(
-        index,
-        (positions.getX(index) - bounds.min.x) / width,
-        (positions.getY(index) - bounds.min.y) / height,
-      );
+  // Leech/roach outline from head (top) back to foot, y descending — used to
+  // find the right-edge x for any grid row. Mast edge stays at x = 0; the
+  // final point walks the foot edge back to the mast so low rows keep width.
+  const leech: Array<readonly [number, number]> = plan.kind === "fore-aft"
+    ? [[halfHeight, 0], [-halfHeight * 0.78, direction * plan.width], [-halfHeight, 0]]
+    : plan.kind === "square"
+      ? [
+        [halfHeight, 0],
+        [halfHeight * 0.7, direction * plan.width * 0.88],
+        [-halfHeight * 0.72, direction * plan.width],
+        [-halfHeight, 0],
+      ]
+      : [
+        [halfHeight, 0],
+        [halfHeight * 0.68, direction * plan.width * 0.72],
+        [0, direction * plan.width],
+        [-halfHeight * 0.75, direction * plan.width * 0.86],
+        [-halfHeight, 0],
+      ];
+  const edgeXAt = (y: number): number => {
+    for (let index = 0; index < leech.length - 1; index += 1) {
+      const [y0, x0] = leech[index]!;
+      const [y1, x1] = leech[index + 1]!;
+      if (y <= y0 && y >= y1) {
+        const t = y0 === y1 ? 0 : (y0 - y) / (y0 - y1);
+        return x0 + (x1 - x0) * t;
+      }
     }
-    uvs.needsUpdate = true;
+    return 0;
+  };
+
+  const SEGMENTS_U = 6;
+  const SEGMENTS_V = 6;
+  // Belly depth scales with sail width; the yard yaw twists the head a few
+  // degrees around the mast axis so square sails never read as paper.
+  const belly = plan.width * (plan.kind === "square" ? 0.18 : 0.14);
+  const yardYaw = plan.kind === "square" ? direction * 0.1 : direction * 0.05;
+
+  const vertexCount = (SEGMENTS_U + 1) * (SEGMENTS_V + 1);
+  const positions = new Float32Array(vertexCount * 3);
+  const uvs = new Float32Array(vertexCount * 2);
+  const indices: number[] = [];
+  for (let row = 0; row <= SEGMENTS_V; row += 1) {
+    const v = row / SEGMENTS_V;
+    const y = -halfHeight + v * plan.height;
+    const edgeX = edgeXAt(y);
+    for (let column = 0; column <= SEGMENTS_U; column += 1) {
+      const u = column / SEGMENTS_U;
+      const baseX = edgeX * u;
+      // Yard yaw: rotate the row about the mast line, most at the head.
+      const yaw = yardYaw * v * v;
+      const x = baseX * Math.cos(yaw);
+      let z = -baseX * Math.sin(yaw);
+      // Belly: fullest mid-panel, pinned flat at mast, head, and foot.
+      z += Math.sin(u * Math.PI) * Math.sin(v * Math.PI) * belly;
+      const vertex = row * (SEGMENTS_U + 1) + column;
+      positions[vertex * 3] = x;
+      positions[vertex * 3 + 1] = y;
+      positions[vertex * 3 + 2] = z;
+      uvs[vertex * 2] = u;
+      uvs[vertex * 2 + 1] = v;
+      if (row < SEGMENTS_V && column < SEGMENTS_U) {
+        const a = vertex;
+        const b = vertex + 1;
+        const c = vertex + SEGMENTS_U + 1;
+        const d = c + 1;
+        indices.push(a, c, b, b, c, d);
+      }
+    }
   }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
   geometry.computeVertexNormals();
   return geometry;
 }
 
 /**
- * Stays plus, for junks, horizontal sail battens — all merged into one cached
- * LineSegments point list so the whole rig is a single draw call per silhouette.
+ * S3: sparse real rigging — per mast a forestay (to the next mast toward the
+ * bow, or to the bow tip for the foremast), a backstay to the stern deck, and
+ * two shrouds to the rails; junks additionally keep their horizontal sail
+ * battens. Everything merges into one cached LineSegments point list per
+ * silhouette so the whole rig stays a single draw call.
  */
 function riggingPoints(
   silhouette: GardenHullSilhouette,
   rig: readonly GardenMastPlan[],
-  tallestMast: GardenMastPlan,
 ): Vector3[] {
-  const points = [
-    new Vector3(tallestMast.x, tallestMast.height + 0.34, 0),
-    new Vector3(4.15, 0.7, 0),
-    new Vector3(tallestMast.x, tallestMast.height + 0.34, 0),
-    new Vector3(-3.05, 0.72, 0),
-    new Vector3(tallestMast.x, tallestMast.height * 0.68, 0.03),
-    new Vector3(2.5, 0.62, 0.03),
-  ];
+  const points: Vector3[] = [];
+  // Bow at +x: masts sorted bow-ward first so each forestay can target the
+  // mast ahead of it.
+  const bowFirst = [...rig].sort((left, right) => right.x - left.x);
+  const halfBeam = Math.max(
+    ...createHullShape(silhouette, 1).getPoints(4).map((point) => Math.abs(point.y)),
+  );
+  for (const [index, mastPlan] of bowFirst.entries()) {
+    const head = new Vector3(mastPlan.x, mastPlan.height + 0.34, 0);
+    const ahead = bowFirst[index - 1];
+    // Forestay: to the mast ahead at ~2/3 height, or to the stem/bowsprit.
+    points.push(
+      head,
+      ahead
+        ? new Vector3(ahead.x, ahead.height * 0.66, 0)
+        : new Vector3(4.45, 0.78, 0),
+    );
+    // Backstay to the stern deck.
+    points.push(head, new Vector3(-3.12, 0.74, 0));
+    // Two shrouds to the rails, a touch aft of the mast.
+    points.push(head, new Vector3(mastPlan.x - 0.32, 0.6, halfBeam * 0.82));
+    points.push(head, new Vector3(mastPlan.x - 0.32, 0.6, -halfBeam * 0.82));
+  }
   if (silhouette === "junk") {
     for (const mastPlan of rig) {
       for (const sailPlan of mastPlan.sails) {
@@ -1052,12 +1293,15 @@ function createWake(cache: GardenShipGeometryCache): { detail: Group; root: Grou
 export function createShipShadows(count: number): InstancedMesh<CircleGeometry, MeshBasicMaterial> {
   const geometry = new CircleGeometry(1, 20);
   geometry.rotateX(-Math.PI / 2);
+  // S7 grounding: a deeper water-shadow hue (palette-derived) and a stronger
+  // base opacity so hulls sit IN the sea, not on it. The per-frame opacity
+  // curve lives in garden-day-cycle.ts (orchestrator-integrated).
   const shadows = new InstancedMesh(
     geometry,
     new MeshBasicMaterial({
-      color: "#022c34",
+      color: new Color(HARBOR_PALETTE.deep_sea_1).lerp(new Color(HARBOR_PALETTE.shallow_teal), 0.25),
       depthWrite: false,
-      opacity: 0.2,
+      opacity: 0.28,
       transparent: true,
     }),
     count,

@@ -15,24 +15,26 @@ import {
 } from "three";
 import {
   blendDayCycleColor,
-  FOG_DAY,
-  FOG_DUSK,
-  FOG_NIGHT,
+  DAY_CYCLE_SKY_PRESETS,
+  DUSK_EMBER_COLOR,
   MOON_COLOR,
-  SKY_HORIZON_DAY,
-  SKY_HORIZON_DUSK,
-  SKY_HORIZON_NIGHT,
-  SKY_ZENITH_DAY,
-  SKY_ZENITH_DUSK,
-  SKY_ZENITH_NIGHT,
   STAR_COLOR,
   type DayCyclePhase,
 } from "./garden-day-cycle";
 
 const DOME_RADIUS = 300;
 const STAR_COUNT = 720;
-const FOG_NEAR = 205;
-const FOG_FAR = 450;
+// P2 aerial perspective: the fog ladder is tuned to the default ortho
+// framing (1440×960, zoom 0.78, elevation 30° — ground-plane depth spans
+// ~121–255 world units bottom→top). The island (depth ~155–195, lighthouse
+// crown ~165) stays below FOG_NEAR at full color; midground ships
+// (~195–225) lift gently; the Z4 horizon cards (~232) and the frame-top far
+// water (~244) sit at 0.4–0.65 fog so the sea dissolves into the C1 horizon
+// band — the bokashi seam where far water meets sky. Zooming out only
+// deepens the haze toward FOG_FAR; zooming in (explore) shrinks the span
+// below FOG_NEAR so close-ups stay crisp.
+const FOG_NEAR = 192;
+const FOG_FAR = 275;
 
 // The moon sits upper-left of the standard framing; V2's moon road aligns its
 // water glitter band to this azimuth.
@@ -55,31 +57,37 @@ export interface GardenSky {
 }
 
 function createDome(): {
+  material: ShaderMaterial;
   mesh: Mesh<SphereGeometry, ShaderMaterial>;
-  horizon: Color;
-  zenith: Color;
 } {
-  const zenith = SKY_ZENITH_NIGHT.clone();
-  const horizon = SKY_HORIZON_NIGHT.clone();
+  const zenith = DAY_CYCLE_SKY_PRESETS.night.zenith.clone();
+  const horizon = DAY_CYCLE_SKY_PRESETS.night.horizon.clone();
   const material = new ShaderMaterial({
     depthTest: false,
     depthWrite: false,
     fog: false,
     side: BackSide,
     uniforms: {
+      uEmberColor: { value: DUSK_EMBER_COLOR.clone() },
+      uEmberStrength: { value: 0 },
       uHorizon: { value: horizon },
       uZenith: { value: zenith },
     },
     vertexShader: /* glsl */ `
+      varying vec3 vDir;
       varying float vHeight;
       void main() {
-        vHeight = normalize(position).y;
+        vDir = normalize(position);
+        vHeight = vDir.y;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
     fragmentShader: /* glsl */ `
+      uniform vec3 uEmberColor;
+      uniform float uEmberStrength;
       uniform vec3 uHorizon;
       uniform vec3 uZenith;
+      varying vec3 vDir;
       varying float vHeight;
       void main() {
         float t = smoothstep(-0.06, 0.7, vHeight);
@@ -87,6 +95,12 @@ function createDome(): {
         // Faint brightening right at the horizon band.
         float glow = smoothstep(0.16, -0.04, abs(vHeight)) * 0.12;
         color += uHorizon * glow;
+        // G4 ember west band: a warm azimuthal glow where the sun sets, so the
+        // dusk frame reads as its own state instead of dimmed night. The band
+        // faces away from the isometric camera (frame-centre far horizon).
+        float west = pow(max(0.0, dot(normalize(vec3(vDir.x, 0.0, vDir.z)), vec3(-0.7071, 0.0, -0.7071))), 2.5);
+        float band = smoothstep(0.42, 0.02, abs(vHeight - 0.06));
+        color += uEmberColor * west * band * uEmberStrength;
         gl_FragColor = vec4(color, 1.0);
       }
     `,
@@ -95,7 +109,7 @@ function createDome(): {
   mesh.name = "garden-sky-dome";
   mesh.renderOrder = -2;
   mesh.frustumCulled = false;
-  return { horizon, mesh, zenith };
+  return { material, mesh };
 }
 
 function createStars(): { material: ShaderMaterial; points: Points } {
@@ -196,7 +210,7 @@ function createMoon(): { group: Group; halo: MeshBasicMaterial } {
 function createMist(): { material: MeshBasicMaterial; mesh: Mesh } {
   const material = new MeshBasicMaterial({
     blending: AdditiveBlending,
-    color: FOG_DUSK.clone(),
+    color: DAY_CYCLE_SKY_PRESETS.dusk.fog.clone(),
     depthWrite: false,
     fog: false,
     opacity: 0,
@@ -223,7 +237,7 @@ export function createGardenSky(): GardenSky {
   const mist = createMist();
   root.add(dome.mesh, stars.points, moon.group, mist.mesh);
 
-  const fog = new Fog(FOG_NIGHT.clone(), FOG_NEAR, FOG_FAR);
+  const fog = new Fog(DAY_CYCLE_SKY_PRESETS.night.fog.clone(), FOG_NEAR, FOG_FAR);
 
   return {
     dispose() {
@@ -246,9 +260,14 @@ export function createGardenSky(): GardenSky {
     update(phase, frame) {
       root.position.set(frame.targetX, 0, frame.targetZ);
       const { daylight, dusk, night } = phase;
-      blendDayCycleColor(dome.zenith, SKY_ZENITH_NIGHT, SKY_ZENITH_DUSK, SKY_ZENITH_DAY, dusk, daylight);
-      blendDayCycleColor(dome.horizon, SKY_HORIZON_NIGHT, SKY_HORIZON_DUSK, SKY_HORIZON_DAY, dusk, daylight);
-      blendDayCycleColor(fog.color, FOG_NIGHT, FOG_DUSK, FOG_DAY, dusk, daylight);
+      const skyPresets = DAY_CYCLE_SKY_PRESETS;
+      const zenith = dome.material.uniforms.uZenith.value as Color;
+      const horizon = dome.material.uniforms.uHorizon.value as Color;
+      blendDayCycleColor(zenith, skyPresets.night.zenith, skyPresets.dusk.zenith, skyPresets.day.zenith, dusk, daylight);
+      blendDayCycleColor(horizon, skyPresets.night.horizon, skyPresets.dusk.horizon, skyPresets.day.horizon, dusk, daylight);
+      blendDayCycleColor(fog.color, skyPresets.night.fog, skyPresets.dusk.fog, skyPresets.day.fog, dusk, daylight);
+      // Ember west band owns the dusk horizon; it stays out of day and night.
+      dome.material.uniforms.uEmberStrength.value = dusk * (1 - daylight) * 0.55;
 
       const starOpacity = Math.min(1, dusk * 0.35 + night);
       stars.material.uniforms.uOpacity.value = starOpacity;

@@ -1,4 +1,5 @@
 import { isWaterTileKind } from "./world-layout";
+import { isGardenObstacleTile } from "./garden-water-exclusion";
 import { isSeawallBarrierTile, isSeawallBarrierTileXY } from "./seawall";
 import { stableHash, stableOffset, stableUnit } from "./stable-random";
 import { clamp, normalizeHeadingInto, pathKey, sameTile } from "./motion-utils";
@@ -56,6 +57,7 @@ export function nearestMapWaterTile(tile: { x: number; y: number }, map: PharosV
   let bestDistance = Number.POSITIVE_INFINITY;
   for (const candidate of map.tiles) {
     if (!isMotionWaterTile(candidate) || isSeawallBarrierTile(candidate)) continue;
+    if (isGardenObstacleTile(candidate.x, candidate.y)) continue;
     const distance = Math.abs(candidate.x - rounded.x) + Math.abs(candidate.y - rounded.y);
     if (distance < bestDistance) {
       bestDistance = distance;
@@ -485,6 +487,9 @@ function findWaterPath(from: { x: number; y: number }, to: { x: number; y: numbe
       const neighborIndex = ny * map.width + nx;
       const tile = map.tiles[neighborIndex];
       if (!tile || isSeawallBarrierTileXY(nx, ny) || !isMotionWaterTile(tile)) continue;
+      // Zones-v2 placement fix: routes must also round the RENDERED island
+      // rock and islets — data water beneath the garden meshes is blocked.
+      if (isGardenObstacleTile(nx, ny)) continue;
       if (dx !== 0 && dy !== 0) {
         // Reject corner-cuts: a diagonal must have BOTH cardinal neighbors open
         // so the path can't clip through a coast corner or seawall gap.
@@ -496,6 +501,7 @@ function findWaterPath(from: { x: number; y: number }, to: { x: number; y: numbe
         const cornerBTile = map.tiles[cornerBY * map.width + cornerBX];
         if (!cornerATile || !isMotionWaterTile(cornerATile) || isSeawallBarrierTileXY(cornerAX, cornerAY)) continue;
         if (!cornerBTile || !isMotionWaterTile(cornerBTile) || isSeawallBarrierTileXY(cornerBX, cornerBY)) continue;
+        if (isGardenObstacleTile(cornerAX, cornerAY) || isGardenObstacleTile(cornerBX, cornerBY)) continue;
       }
       const stepCost = waterPathCost(tile, zone);
       // Graded shore bias: nudge routes 1-2 tiles offshore where viable. Additive
@@ -685,7 +691,7 @@ function isWaterTile(x: number, y: number, map: PharosVilleMap): boolean {
   const index = tileIndex(x, y, map);
   if (index < 0) return false;
   const tile = map.tiles[index];
-  return !!tile && !isSeawallBarrierTile({ x, y }) && isMotionWaterTile(tile);
+  return !!tile && !isSeawallBarrierTile({ x, y }) && isMotionWaterTile(tile) && !isGardenObstacleTile(x, y);
 }
 
 function isMotionWaterTile(tile: Pick<PharosVilleTile, "kind" | "terrain">): boolean {

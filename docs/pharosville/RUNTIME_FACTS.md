@@ -37,9 +37,9 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 
 | Model | URL | Bytes | Geometry | SHA-256 |
 | --- | --- | --- | --- | --- |
-| `garden-lighthouse-shell` | `/pharosville/models/garden-lighthouse-shell.glb` | 75 KiB | 7 draws / 1,068 tris / 1,657 verts / 0 textures | `8e7caf560bee5497e70abb86c56f3591934e98a30332e4cbcffa0e451a1efb06` |
-| `garden-hero-titan` | `/pharosville/models/garden-hero-titan.glb` | 63 KiB | 4 draws / 507 tris / 1,521 verts / 0 textures | `5cd33d1fa1ab5ea2f02a13d2fff345c95d7baaa059a05fdedc6a1fdad06f3eaa` |
-| `garden-hero-heritage` | `/pharosville/models/garden-hero-heritage.glb` | 43 KiB | 4 draws / 331 tris / 993 verts / 0 textures | `89668e659d262e0df2421b27c7aed82090f460641697a68a87587164fa43da02` |
+| `garden-lighthouse-shell` | `/pharosville/models/garden-lighthouse-shell.glb` | 153 KiB | 6 draws / 2,420 tris / 3,447 verts / 0 textures | `2d8b304f113140f7f968725cfd0efb29aa12412875389866fd6c2dd31703eeb1` |
+| `garden-hero-titan` | `/pharosville/models/garden-hero-titan.glb` | 94 KiB | 4 draws / 2,190 tris / 2,446 verts / 0 textures | `8b96930629a65d28c3fdf314879feb21eb27d5d954b25efb948fbd294490431c` |
+| `garden-hero-heritage` | `/pharosville/models/garden-hero-heritage.glb` | 64 KiB | 4 draws / 1,538 tris / 1,574 verts / 0 textures | `19c80bc75bf312acf67b7517646c3ade6b6570941df6f65abcf6890067a8625d` |
 
 - The procedural lighthouse shell remains the in-scene fallback if its GLB cannot load.
 
@@ -48,9 +48,9 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - entry chunk: raw <= 300 KiB, gzip <= 90 KiB
 - desktop lazy chunk: raw <= 1,024 KiB, gzip <= 290 KiB
 - world lazy chunk: raw <= 440 KiB, gzip <= 145 KiB
-- Three.js renderer chunk: raw <= 770 KiB, gzip <= 200 KiB
+- Three.js renderer chunk: raw <= 820 KiB, gzip <= 218 KiB
 - entry CSS: raw <= 36 KiB, gzip <= 8 KiB
-- Total JS: raw <= 1,800 KiB, gzip <= 515 KiB
+- Total JS: raw <= 1,860 KiB, gzip <= 530 KiB
 
 ## Squads
 

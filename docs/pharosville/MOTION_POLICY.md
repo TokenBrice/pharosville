@@ -13,8 +13,9 @@ a continuous RAF alive.
 
 - **Static:** island terraces, dock footprints, district pads, cemetery
   markers, DOM labels, and detail UI.
-- **Slow:** water shader motion, lighthouse beam and reflection, harbor lights,
-  zone pulses, weather drift, ship bobbing, and the nine-gull ambient flock.
+- **Slow:** water shader motion, lighthouse beam, beacon fire and reflection,
+  harbor lights, zone pulses, weather drift, ship bobbing, and the nine-gull
+  ambient flock plus the eight-bird summit flock.
 - **Medium:** deterministic ship movement, camera follow, and Observe camera
   transitions.
 - **Fast:** wakes, recent-change signals, and risk/weather accents only.
@@ -43,6 +44,19 @@ The shared render scheduler derives `full`, `interaction`, `constrained`, or
 The gull flock is exactly nine instanced silhouettes. Its motion is
 deterministic, freezes at the time-zero composition under reduced motion, and
 may hide on the constrained tier.
+
+The beacon fire and its companion motions are Slow class like the beam they
+accompany: flame flicker, ember drift, and the smoke plume
+(`garden-beacon-fire.ts`), the ray-fan rotation (0.07 rad/s, against the
+beam's 0.2), the eight-bird summit orbit and flap
+(`garden-summit-birds.ts`), and the water's firelight streaks, caustic glow,
+and foam rings (`garden-water.ts`). All are driven by the same route-owned
+clock and the deterministic flicker function — no wall-clock randomness — and
+each freezes at a composed time-zero pose under reduced motion (static flame
+frame, parked smoke puffs, fixed embers, frozen fan angle, fixed flock pose).
+Each sheds by scheduler tier: embers 32/12/0 and smoke 16/8/0 across
+full/balanced/lower via draw-range and instance-count, the ray fan and summit
+birds full/balanced only, and the foam rings below balanced.
 
 ## Ship Motion
 

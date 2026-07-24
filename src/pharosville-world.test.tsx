@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PharosVilleLoading, PharosVilleWorld } from "./pharosville-world";
+import { formatHourLabel } from "./lib/pharosville-clock";
 import type { HitTarget } from "./renderer/hit-testing";
 import {
   resolveGardenEntityDisplayTile,
@@ -313,19 +314,29 @@ describe("PharosVilleWorld UI accessibility controls", () => {
 
     fireEvent.click(screen.getByLabelText("Return to day-night preset"));
     await waitFor(() => expect(globalThis.__pharosVilleTestWallClockHour).toBeUndefined());
-    await waitFor(() => expect(screen.getByLabelText("Time of day").textContent).toBe("12:00"));
+    // D-R2: with no override the presentation follows the visitor's wall
+    // clock (previously it snapped back to a fixed 12:00 noon default).
+    await waitFor(() => {
+      const now = new Date();
+      const expected = formatHourLabel(now.getHours() + now.getMinutes() / 60);
+      expect(screen.getByLabelText("Time of day").textContent).toBe(expected);
+    });
   });
 
   it("projects truthful area controls over the Three scene", async () => {
-    mocks.cameraRef.current.offsetX = 328;
+    // Camera keeps the zones-v2 label anchors (WARNING (49,3), WATCH (14,50))
+    // inside the safe viewport: at zoom 0.5 with offsets (358,100), WARNING
+    // projects to (726, 317.8) and WATCH to (70, 365.8).
+    mocks.cameraRef.current.offsetX = 358;
     mocks.cameraRef.current.offsetY = 100;
+    mocks.cameraRef.current.zoom = 0.5;
     render(<PharosVilleWorld world={worldFixture()} />);
     fireEvent.click(screen.getByLabelText("Close details"));
 
     const warning = screen.getByRole("button", {
       name: "Open Warning Shoals details: WARNING, 2 ships",
     });
-    expect(warning.getAttribute("style")).toContain("--pv-observatory-x: 184px");
+    expect(warning.getAttribute("style")).toContain("--pv-observatory-x: 726px");
     expect(screen.getByText("Watch Breakwater")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Observe harbor" })).toBeNull();
 

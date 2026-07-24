@@ -13,11 +13,24 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 
-// Bloom is thresholded so only warm emissive sources (beacon, lanterns, dock
-// lamps) cross it at night; everything else stays below the knee. Tuned on the
-// v1-foundation triptych — see the packet report.
-const BLOOM_THRESHOLD = 0.55;
-const BLOOM_STRENGTH = 0.92;
+// Bloom thresholds adapt to the day cycle (blended in applyGrade). The V-plan
+// knee (0.55) predates the Garden Sea: the bokashi day sky/fog sits at
+// ~0.7–0.8 linear luminance frame-wide and the full-tier lantern pool ring
+// overlaps to ~1.0 around the island, so a 0.55 knee lets UnrealBloom flood
+// the whole frame (the P1 full-tier whiteout). The per-state knees below keep
+// only true HDR sources blooming — sun glitter (~1.6), moon-road sparkles
+// (~1.7), and the warm emissive cores (beacon ~3–7, lantern cores ~2) —
+// while sky, fog, water bands, and reflection pools stay below the knee.
+const BLOOM_THRESHOLD_NIGHT = 0.95;
+const BLOOM_THRESHOLD_DUSK = 0.9;
+const BLOOM_THRESHOLD_DAY = 0.95;
+// Bloom strength also follows the day cycle: the beacon's ~7-luminance HDR
+// core at full strength smears a warm wash across the whole island at night,
+// so night runs a gentler strength that keeps the beacon/lantern bloom golden
+// and local; day keeps the full strength for the sun-glitter sparkle.
+const BLOOM_STRENGTH_NIGHT = 0.55;
+const BLOOM_STRENGTH_DUSK = 0.78;
+const BLOOM_STRENGTH_DAY = 0.92;
 const BLOOM_RADIUS = 0.6;
 
 /**
@@ -37,8 +50,10 @@ interface GradePreset {
 }
 
 // Night is the hero: shadows lifted just off black and cooled, highlights
-// warmed, gentle resaturation, strong vignette. Day is a desaturated pearl
-// overcast with an airy lift and almost no vignette. Dusk splits warm/cool.
+// warmed, gentle resaturation, strong vignette. Day is the ukiyo-e morning
+// (G5, decision D-R1 — supersedes the D1 pearl overcast): near-full
+// saturation, no grey lift, warm highlights over cool-teal shadows, light
+// vignette. Dusk splits warm/cool.
 const NIGHT_GRADE: GradePreset = {
   gain: [1.03, 1.0, 0.98],
   gamma: [1.0, 1.0, 1.02],
@@ -60,14 +75,14 @@ const DUSK_GRADE: GradePreset = {
   vignette: 0.36,
 };
 const DAY_GRADE: GradePreset = {
-  gain: [0.98, 0.99, 1.0],
-  gamma: [0.98, 0.98, 0.98],
-  highlightTint: [1.0, 1.0, 0.99],
-  lift: [0.022, 0.022, 0.028],
-  saturation: 0.72,
-  shadowTint: [0.99, 1.0, 1.02],
-  split: 0.3,
-  vignette: 0.22,
+  gain: [1.02, 1.0, 0.97],
+  gamma: [1.0, 1.0, 1.0],
+  highlightTint: [1.1, 1.02, 0.85],
+  lift: [0.004, 0.004, 0.006],
+  saturation: 0.97,
+  shadowTint: [0.84, 0.96, 1.1],
+  split: 0.5,
+  vignette: 0.24,
 };
 
 const GRADE_SHADER = {
@@ -169,9 +184,9 @@ export function createGardenPost(
   const renderPass = new RenderPass(scene, camera);
   const bloomPass = new UnrealBloomPass(
     new Vector2(size.width, size.height),
-    BLOOM_STRENGTH,
+    BLOOM_STRENGTH_NIGHT,
     BLOOM_RADIUS,
-    BLOOM_THRESHOLD,
+    BLOOM_THRESHOLD_NIGHT,
   );
   const gradePass = new ShaderPass(GRADE_SHADER);
   const outputPass = new OutputPass();
@@ -197,6 +212,18 @@ export function createGardenPost(
     grade.uSaturation.value = lerp(lerp(NIGHT_GRADE.saturation, DUSK_GRADE.saturation, duskMix), DAY_GRADE.saturation, dayMix);
     grade.uSplit.value = lerp(lerp(NIGHT_GRADE.split, DUSK_GRADE.split, duskMix), DAY_GRADE.split, dayMix);
     grade.uVignette.value = lerp(lerp(NIGHT_GRADE.vignette, DUSK_GRADE.vignette, duskMix), DAY_GRADE.vignette, dayMix);
+    // The bloom knee follows the same blend so the bright day sky/fog never
+    // crosses it; night keeps the lowest knee for the Lantern Sea emissives.
+    bloomPass.threshold = lerp(
+      lerp(BLOOM_THRESHOLD_NIGHT, BLOOM_THRESHOLD_DUSK, duskMix),
+      BLOOM_THRESHOLD_DAY,
+      dayMix,
+    );
+    bloomPass.strength = lerp(
+      lerp(BLOOM_STRENGTH_NIGHT, BLOOM_STRENGTH_DUSK, duskMix),
+      BLOOM_STRENGTH_DAY,
+      dayMix,
+    );
   }
   applyGrade(0, 0);
 

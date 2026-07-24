@@ -86,12 +86,12 @@ export interface GardenModelMetadata {
   };
 }
 
-const LIGHTHOUSE_SHA256 = "8e7caf560bee5497e70abb86c56f3591934e98a30332e4cbcffa0e451a1efb06";
+const LIGHTHOUSE_SHA256 = "2d8b304f113140f7f968725cfd0efb29aa12412875389866fd6c2dd31703eeb1";
 const lighthouseUrl = `/pharosville/models/garden-lighthouse-shell.glb?v=${LIGHTHOUSE_SHA256.slice(0, 12)}`;
 
-const HERO_TITAN_SHA256 = "5cd33d1fa1ab5ea2f02a13d2fff345c95d7baaa059a05fdedc6a1fdad06f3eaa";
+const HERO_TITAN_SHA256 = "8b96930629a65d28c3fdf314879feb21eb27d5d954b25efb948fbd294490431c";
 const heroTitanUrl = `/pharosville/models/garden-hero-titan.glb?v=${HERO_TITAN_SHA256.slice(0, 12)}`;
-const HERO_HERITAGE_SHA256 = "89668e659d262e0df2421b27c7aed82090f460641697a68a87587164fa43da02";
+const HERO_HERITAGE_SHA256 = "19c80bc75bf312acf67b7517646c3ade6b6570941df6f65abcf6890067a8625d";
 const heroHeritageUrl = `/pharosville/models/garden-hero-heritage.glb?v=${HERO_HERITAGE_SHA256.slice(0, 12)}`;
 
 // The two hero hulls share every field except identity, geometry, and budgets;
@@ -157,16 +157,16 @@ export const GARDEN_MODEL_MANIFEST = {
     id: "garden-lighthouse-shell",
     label: "Garden Observatory lighthouse shell",
     artifact: {
-      bytes: 77_044,
+      bytes: 156_816,
       compression: "none",
       gltfVersion: 2,
       sha256: LIGHTHOUSE_SHA256,
       url: lighthouseUrl,
     },
     dimensions: {
-      x: 6.467,
-      y: 19.8,
-      z: 6.467,
+      x: 9.649,
+      y: 34,
+      z: 9.469,
     },
     scale: {
       modelUnitsPerWorldUnit: 1,
@@ -181,19 +181,19 @@ export const GARDEN_MODEL_MANIFEST = {
     anchors: {
       beacon: {
         node: "anchor-beacon",
-        position: [0, 16.48, 0],
+        position: [0, 30.1, 0],
       },
       beam: {
         node: "anchor-beam",
-        position: [0, 16.48, 0],
+        position: [0, 30.1, 0],
       },
       label: {
         node: "anchor-label",
-        position: [0, 20.2, 0],
+        position: [0, 34.9, 0],
       },
       selection: {
         node: "anchor-selection",
-        position: [0, 9.9, 0],
+        position: [0, 17, 0],
       },
     },
     lod: {
@@ -206,25 +206,32 @@ export const GARDEN_MODEL_MANIFEST = {
       }],
     },
     pickProxy: {
-      center: [0, 9.9, 0],
-      height: 19.8,
-      radius: 3.5,
+      center: [0, 17, 0],
+      height: 34,
+      radius: 5,
       shape: "cylinder",
     },
     geometry: {
-      drawCalls: 7,
-      materials: 7,
+      drawCalls: 6,
+      materials: 6,
       textures: 0,
-      triangles: 1_068,
-      vertices: 1_657,
+      triangles: 2_420,
+      vertices: 3_447,
     },
     budgets: {
-      maxBytes: 100 * 1024,
+      // Pharos Wonder raise (2026-07-24, measured cause, decision D1): GLB v4
+      // rebuilds the tower as the three-tier Pharos (battered square tier →
+      // octagonal drum → cylindrical drum → open brazier → Zeus Soter statue,
+      // 34 units). 2,744 → 2,420 tris and 7 → 6 draws measured from the
+      // regenerated artifact (the glazed lantern room, balcony, and spire are
+      // replaced by the statue/triton/brazier crown). Bytes: 151,356 →
+      // 156,816 measured. Anchors: beacon/beam 22.85 → 30.1 (brazier centre).
+      maxBytes: 192 * 1024,
       maxDrawCalls: 8,
       maxMaterials: 8,
       maxTextures: 0,
-      maxTriangles: 1_600,
-      maxVertices: 2_200,
+      maxTriangles: 4_000,
+      maxVertices: 4_000,
     },
     provenance: {
       createdBy: "agent-authored",
@@ -242,19 +249,19 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden titan hero hull",
     sha256: HERO_TITAN_SHA256,
     url: heroTitanUrl,
-    bytes: 64_044,
-    dimensions: { x: 12.675, y: 7.525, z: 4.621 },
+    bytes: 95_868,
+    dimensions: { x: 13.38, y: 9.084, z: 4.493 },
     anchors: {
-      "lantern-stern": { node: "anchor-lantern-stern", position: [-3.85, 4.4, 0] },
-      "lantern-bow": { node: "anchor-lantern-bow", position: [4.7, 2.35, 0] },
-      masthead: { node: "anchor-masthead", position: [1.4, 6.6, 0] },
-      label: { node: "anchor-label", position: [0, 8.4, 0] },
-      selection: { node: "anchor-selection", position: [0, 2.4, 0] },
+      "lantern-stern": { node: "anchor-lantern-stern", position: [-4.15, 6.15, 0] },
+      "lantern-bow": { node: "anchor-lantern-bow", position: [5.5, 2.5, 0] },
+      masthead: { node: "anchor-masthead", position: [1.3, 7.5, 0] },
+      label: { node: "anchor-label", position: [0, 9.2, 0] },
+      selection: { node: "anchor-selection", position: [0, 2.6, 0] },
     },
-    pickCenter: [0, 2.4, 0],
-    pickHeight: 7.525,
-    pickRadius: 6.4,
-    geometry: { drawCalls: 4, materials: 4, textures: 0, triangles: 507, vertices: 1_521 },
+    pickCenter: [0, 3.4, 0],
+    pickHeight: 9.2,
+    pickRadius: 6.8,
+    geometry: { drawCalls: 4, materials: 4, textures: 0, triangles: 2_190, vertices: 2_446 },
     budgets: {
       maxBytes: 100 * 1024,
       maxDrawCalls: 5,
@@ -269,19 +276,19 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden heritage hero hull",
     sha256: HERO_HERITAGE_SHA256,
     url: heroHeritageUrl,
-    bytes: 44_268,
-    dimensions: { x: 10.946, y: 6.02, z: 3.16 },
+    bytes: 65_380,
+    dimensions: { x: 12.031, y: 7.65, z: 3.295 },
     anchors: {
-      "lantern-stern": { node: "anchor-lantern-stern", position: [-3.1, 2.4, 0] },
-      "lantern-bow": { node: "anchor-lantern-bow", position: [4.0, 1.5, 0] },
-      masthead: { node: "anchor-masthead", position: [0.7, 5.2, 0] },
-      label: { node: "anchor-label", position: [0, 6.6, 0] },
-      selection: { node: "anchor-selection", position: [0, 1.7, 0] },
+      "lantern-stern": { node: "anchor-lantern-stern", position: [-3.5, 2.75, 0] },
+      "lantern-bow": { node: "anchor-lantern-bow", position: [4.4, 1.85, 0] },
+      masthead: { node: "anchor-masthead", position: [0.8, 6.25, 0] },
+      label: { node: "anchor-label", position: [0, 7.3, 0] },
+      selection: { node: "anchor-selection", position: [0, 1.9, 0] },
     },
-    pickCenter: [0, 1.7, 0],
-    pickHeight: 6.02,
-    pickRadius: 5.5,
-    geometry: { drawCalls: 4, materials: 4, textures: 0, triangles: 331, vertices: 993 },
+    pickCenter: [0, 2.6, 0],
+    pickHeight: 7.7,
+    pickRadius: 6.1,
+    geometry: { drawCalls: 4, materials: 4, textures: 0, triangles: 1_538, vertices: 1_574 },
     budgets: {
       maxBytes: 80 * 1024,
       maxDrawCalls: 5,
