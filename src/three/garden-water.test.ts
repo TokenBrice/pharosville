@@ -59,6 +59,27 @@ describe("createGardenWater", () => {
     });
   });
 
+  it("packs risk-zone tint ellipses into the shader with the water z-flip", () => {
+    const water = createGardenWater(0);
+    water.setZoneState([
+      {
+        center: { x: 30, z: -12 },
+        color: new Color("#ef4444"),
+        radiusX: 8,
+        radiusZ: 5,
+        strength: 0.22,
+      },
+    ]);
+    expect(water.material.fragmentShader).toContain("uZoneEllipse");
+    expect(uniformNumber(water.material, "uZoneCount")).toBe(1);
+    const ellipse = water.material.uniforms.uZoneEllipse!.value[0]!;
+    expect(ellipse).toMatchObject({ x: 30, y: 12 });
+    expect(ellipse.z).toBeCloseTo(1 / 8);
+    expect(ellipse.w).toBeCloseTo(1 / 5);
+    const tint = water.material.uniforms.uZoneTint!.value[0]!;
+    expect(tint.w).toBeCloseTo(0.22);
+  });
+
   it("freezes reduced motion and lowers decorative detail by quality tier", () => {
     const water = createGardenWater(0);
 

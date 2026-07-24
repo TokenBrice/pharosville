@@ -1,8 +1,18 @@
 import type { Group, Object3D } from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
-export type GardenModelId = "garden-lighthouse-shell";
-export type GardenModelAnchorId = "beacon" | "beam" | "label" | "selection";
+export type GardenModelId =
+  | "garden-lighthouse-shell"
+  | "garden-hero-titan"
+  | "garden-hero-heritage";
+export type GardenModelAnchorId =
+  | "beacon"
+  | "beam"
+  | "label"
+  | "selection"
+  | "lantern-bow"
+  | "lantern-stern"
+  | "masthead";
 export type Vector3Tuple = readonly [x: number, y: number, z: number];
 
 export interface GardenModelMetadata {
@@ -30,10 +40,10 @@ export interface GardenModelMetadata {
     readonly position: Vector3Tuple;
     readonly upAxis: "+Y";
   };
-  readonly anchors: Readonly<Record<GardenModelAnchorId, {
+  readonly anchors: Readonly<Partial<Record<GardenModelAnchorId, {
     readonly node: string;
     readonly position: Vector3Tuple;
-  }>>;
+  }>>>;
   readonly lod: {
     readonly strategy: "single";
     readonly levels: readonly [{
@@ -78,6 +88,69 @@ export interface GardenModelMetadata {
 
 const LIGHTHOUSE_SHA256 = "8e7caf560bee5497e70abb86c56f3591934e98a30332e4cbcffa0e451a1efb06";
 const lighthouseUrl = `/pharosville/models/garden-lighthouse-shell.glb?v=${LIGHTHOUSE_SHA256.slice(0, 12)}`;
+
+const HERO_TITAN_SHA256 = "5cd33d1fa1ab5ea2f02a13d2fff345c95d7baaa059a05fdedc6a1fdad06f3eaa";
+const heroTitanUrl = `/pharosville/models/garden-hero-titan.glb?v=${HERO_TITAN_SHA256.slice(0, 12)}`;
+const HERO_HERITAGE_SHA256 = "89668e659d262e0df2421b27c7aed82090f460641697a68a87587164fa43da02";
+const heroHeritageUrl = `/pharosville/models/garden-hero-heritage.glb?v=${HERO_HERITAGE_SHA256.slice(0, 12)}`;
+
+// The two hero hulls share every field except identity, geometry, and budgets;
+// this factory keeps the constant boilerplate (origin/scale/lod/provenance/
+// license) authored once.
+function heroModelMetadata(config: {
+  id: "garden-hero-titan" | "garden-hero-heritage";
+  label: string;
+  sha256: string;
+  url: string;
+  bytes: number;
+  dimensions: GardenModelMetadata["dimensions"];
+  anchors: GardenModelMetadata["anchors"];
+  pickCenter: Vector3Tuple;
+  pickHeight: number;
+  pickRadius: number;
+  geometry: GardenModelMetadata["geometry"];
+  budgets: GardenModelMetadata["budgets"];
+}): GardenModelMetadata {
+  return {
+    id: config.id,
+    label: config.label,
+    artifact: {
+      bytes: config.bytes,
+      compression: "none",
+      gltfVersion: 2,
+      sha256: config.sha256,
+      url: config.url,
+    },
+    dimensions: config.dimensions,
+    scale: { modelUnitsPerWorldUnit: 1, runtime: [1, 1, 1] },
+    origin: {
+      convention: "base-center",
+      forwardAxis: "+Z",
+      position: [0, 0, 0],
+      upAxis: "+Y",
+    },
+    anchors: config.anchors,
+    lod: {
+      strategy: "single",
+      levels: [{ maxDistance: null, minDistance: 0, name: "full", url: config.url }],
+    },
+    pickProxy: {
+      center: config.pickCenter,
+      height: config.pickHeight,
+      radius: config.pickRadius,
+      shape: "cylinder",
+    },
+    geometry: config.geometry,
+    budgets: config.budgets,
+    provenance: {
+      authoring: "agent-authored",
+      generator: "scripts/pharosville/generate-garden-heroes.mjs",
+      method: "deterministic-procedural",
+      sourceAsset: null,
+    },
+    license: { notice: "Copyright (c) 2026 TokenBrice", spdx: "MIT" },
+  };
+}
 
 export const GARDEN_MODEL_MANIFEST = {
   "garden-lighthouse-shell": {
@@ -164,6 +237,60 @@ export const GARDEN_MODEL_MANIFEST = {
       spdx: "MIT",
     },
   },
+  "garden-hero-titan": heroModelMetadata({
+    id: "garden-hero-titan",
+    label: "Garden titan hero hull",
+    sha256: HERO_TITAN_SHA256,
+    url: heroTitanUrl,
+    bytes: 64_044,
+    dimensions: { x: 12.675, y: 7.525, z: 4.621 },
+    anchors: {
+      "lantern-stern": { node: "anchor-lantern-stern", position: [-3.85, 4.4, 0] },
+      "lantern-bow": { node: "anchor-lantern-bow", position: [4.7, 2.35, 0] },
+      masthead: { node: "anchor-masthead", position: [1.4, 6.6, 0] },
+      label: { node: "anchor-label", position: [0, 8.4, 0] },
+      selection: { node: "anchor-selection", position: [0, 2.4, 0] },
+    },
+    pickCenter: [0, 2.4, 0],
+    pickHeight: 7.525,
+    pickRadius: 6.4,
+    geometry: { drawCalls: 4, materials: 4, textures: 0, triangles: 507, vertices: 1_521 },
+    budgets: {
+      maxBytes: 100 * 1024,
+      maxDrawCalls: 5,
+      maxMaterials: 5,
+      maxTextures: 0,
+      maxTriangles: 3_500,
+      maxVertices: 3_000,
+    },
+  }),
+  "garden-hero-heritage": heroModelMetadata({
+    id: "garden-hero-heritage",
+    label: "Garden heritage hero hull",
+    sha256: HERO_HERITAGE_SHA256,
+    url: heroHeritageUrl,
+    bytes: 44_268,
+    dimensions: { x: 10.946, y: 6.02, z: 3.16 },
+    anchors: {
+      "lantern-stern": { node: "anchor-lantern-stern", position: [-3.1, 2.4, 0] },
+      "lantern-bow": { node: "anchor-lantern-bow", position: [4.0, 1.5, 0] },
+      masthead: { node: "anchor-masthead", position: [0.7, 5.2, 0] },
+      label: { node: "anchor-label", position: [0, 6.6, 0] },
+      selection: { node: "anchor-selection", position: [0, 1.7, 0] },
+    },
+    pickCenter: [0, 1.7, 0],
+    pickHeight: 6.02,
+    pickRadius: 5.5,
+    geometry: { drawCalls: 4, materials: 4, textures: 0, triangles: 331, vertices: 993 },
+    budgets: {
+      maxBytes: 80 * 1024,
+      maxDrawCalls: 5,
+      maxMaterials: 5,
+      maxTextures: 0,
+      maxTriangles: 2_500,
+      maxVertices: 2_200,
+    },
+  }),
 } as const satisfies Readonly<Record<GardenModelId, GardenModelMetadata>>;
 
 export interface GardenModelSourceLoader {
@@ -220,10 +347,16 @@ export function gardenModelAnchor(
   id: GardenModelId,
   anchorId: GardenModelAnchorId,
 ): Object3D {
-  const nodeName = GARDEN_MODEL_MANIFEST[id].anchors[anchorId].node;
-  const anchor = root.getObjectByName(nodeName);
+  const anchors = GARDEN_MODEL_MANIFEST[id].anchors as Partial<
+    Record<GardenModelAnchorId, { node: string; position: Vector3Tuple }>
+  >;
+  const anchorMeta = anchors[anchorId];
+  if (anchorMeta === undefined) {
+    throw new Error(`Model ${id} has no anchor ${anchorId}.`);
+  }
+  const anchor = root.getObjectByName(anchorMeta.node);
   if (anchor === undefined) {
-    throw new Error(`Model ${id} is missing anchor ${nodeName}.`);
+    throw new Error(`Model ${id} is missing anchor ${anchorMeta.node}.`);
   }
   return anchor;
 }

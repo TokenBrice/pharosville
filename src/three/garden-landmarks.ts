@@ -1,15 +1,20 @@
 import {
+  AdditiveBlending,
   BoxGeometry,
   Color,
   ConeGeometry,
   CylinderGeometry,
   DodecahedronGeometry,
+  DoubleSide,
   Group,
   InstancedMesh,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
   Object3D,
+  Shape,
+  ShapeGeometry,
+  SphereGeometry,
 } from "three";
 import { HARBOR_PALETTE } from "../systems/palette";
 import {
@@ -84,6 +89,18 @@ export function createGardenCemetery(
     color: "#c6c0aa",
     flatShading: true,
     roughness: 0.98,
+  });
+  // Grave markers take a slight blue-gray cast — cold moonlit stone, set apart
+  // from the warmer limestone of the path and memorial base.
+  const coolMarkerStone = new MeshStandardMaterial({
+    color: "#b6bcbe",
+    flatShading: true,
+    roughness: 0.98,
+  });
+  const coolMarkerShard = new MeshStandardMaterial({
+    color: "#9ea6a6",
+    flatShading: true,
+    roughness: 1,
   });
 
   const shoal = new Mesh(
@@ -181,6 +198,33 @@ export function createGardenCemetery(
   stoneLantern.rotation.y = -0.18;
   root.add(stoneLantern);
 
+  // A single warm memorial flame beside the stele — quiet, blooms at night.
+  const memorialLantern = new Mesh(
+    new BoxGeometry(0.26, 0.34, 0.26),
+    new MeshStandardMaterial({
+      color: HARBOR_PALETTE.lantern_glow,
+      emissive: HARBOR_PALETTE.lantern_warm,
+      emissiveIntensity: 1.5,
+      roughness: 0.5,
+      toneMapped: false,
+    }),
+  );
+  memorialLantern.name = "cemetery-memorial-lantern";
+  memorialLantern.position.set(0.82, 0.62, 0.42);
+  root.add(memorialLantern);
+
+  // Tattered mourning pennant on the stele — notched, static.
+  const banner = new Mesh(tatteredPennantGeometry(), new MeshStandardMaterial({
+    color: HARBOR_PALETTE.stone_pale,
+    flatShading: true,
+    roughness: 1,
+    side: DoubleSide,
+  }));
+  banner.name = "cemetery-mourning-banner";
+  banner.position.set(0.05, 1.72, -0.28);
+  banner.rotation.y = 0.08;
+  root.add(banner);
+
   const anchors = new Map<string, GardenLandmarkAnchor<"grave">>();
   const gravesByFamily = new Map<GraveMarkerFamily, GraveNode[]>([
     ["pillar", []],
@@ -216,7 +260,7 @@ export function createGardenCemetery(
         : shardGeometry;
     const markers = new InstancedMesh(
       geometry,
-      family === "shard" ? limestone : memorialStone,
+      family === "shard" ? coolMarkerShard : coolMarkerStone,
       familyGraves.length,
     );
     markers.name = `cemetery-markers-${family}`;
@@ -406,11 +450,28 @@ export function createGardenPigeonnier(
       emissive: HARBOR_PALETTE.lantern_warm,
       emissiveIntensity: 1.8,
       roughness: 0.42,
+      toneMapped: false,
     }),
   );
   signalLamp.name = "pigeonnier-signal-lamp";
   signalLamp.position.set(0, 5.88, 0);
   root.add(signalLamp);
+
+  // Warm dispatch glow halo — matches the ship-lantern look without a texture.
+  const dispatchGlow = new Mesh(
+    new SphereGeometry(0.62, 6, 5),
+    new MeshBasicMaterial({
+      blending: AdditiveBlending,
+      color: HARBOR_PALETTE.lantern_glow,
+      depthWrite: false,
+      opacity: 0.32,
+      toneMapped: false,
+      transparent: true,
+    }),
+  );
+  dispatchGlow.name = "pigeonnier-dispatch-glow";
+  dispatchGlow.position.copy(signalLamp.position);
+  root.add(dispatchGlow);
 
   const pier = new Mesh(new BoxGeometry(3.45, 0.22, 0.95), timber);
   pier.name = "pigeonnier-ton-pier";
@@ -488,6 +549,21 @@ function createStoneLantern(): Group {
   cap.rotation.y = Math.PI / 4;
   root.add(pedestal, lamp, cap);
   return root;
+}
+
+/** A frayed swallowtail pennant — notched edges read as wind-worn cloth. */
+function tatteredPennantGeometry(): ShapeGeometry {
+  const shape = new Shape();
+  shape.moveTo(0, 0);
+  shape.lineTo(0, 0.52);
+  shape.lineTo(0.64, 0.44);
+  shape.lineTo(0.42, 0.29);
+  shape.lineTo(0.58, 0.16);
+  shape.lineTo(0.32, 0.08);
+  shape.lineTo(0.44, -0.02);
+  shape.lineTo(0, 0);
+  shape.closePath();
+  return new ShapeGeometry(shape);
 }
 
 function markerFamily(grave: GraveNode): GraveMarkerFamily {

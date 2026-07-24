@@ -9,6 +9,7 @@ import {
   Texture,
   TextureLoader,
   Vector2,
+  Vector4,
 } from "three";
 import type { PharosVilleRenderSchedulerState } from "../renderer/render-types";
 import { HARBOR_PALETTE } from "../systems/palette";
@@ -19,6 +20,7 @@ import { MAX_GARDEN_LIGHT_LANES } from "./garden-lanterns";
 const WATER_SIZE = 900;
 const WATER_SEGMENTS = 96;
 export const GARDEN_WATER_MAX_DISPLACEMENT = 0.036;
+export const MAX_GARDEN_WATER_ZONES = 6;
 
 const NORMAL_MAP_URL = "/pharosville/textures/water-normals.png";
 
@@ -119,6 +121,12 @@ const FRAGMENT_SHADER = /* glsl */ `
   uniform float uTempo;
   uniform float uTime;
   uniform float uWaveAmplitude;
+  // Risk-zone tint: (centerX, centerZ_water, 1/radiusX, 1/radiusZ) and
+  // (r, g, b, strength). Replaces the filled decal discs — the water itself
+  // reads the charted region.
+  uniform float uZoneCount;
+  uniform vec4 uZoneEllipse[${MAX_GARDEN_WATER_ZONES}];
+  uniform vec4 uZoneTint[${MAX_GARDEN_WATER_ZONES}];
 
   varying vec2 vWaterPosition;
   varying vec3 vWorldPosition;
@@ -221,6 +229,26 @@ const FRAGMENT_SHADER = /* glsl */ `
       + smoothstep(0.86, 0.98, pigDist) * (1.0 - smoothstep(0.98, 1.12, pigDist))
     ) * (0.55 + 0.45 * sin(shoreAngle * 9.0 - foamMotion));
     waterColor = mix(waterColor, uHighlightColor, clamp(isletFoam, 0.0, 0.35) * (0.3 + uDetail * 0.3));
+
+    // --- E3/E4: charted risk-zone water tint -----------------------------
+    // Subtle SDF-edged tint toward the band colour inside each zone ellipse.
+    // Danger colours arrive pre-darkened, so mixing broods the patch without a
+    // separate darken term. Sits under the moon road/lanes so glitter and buoy
+    // reflections still play on top.
+    for (int zi = 0; zi < ${MAX_GARDEN_WATER_ZONES}; zi += 1) {
+      if (float(zi) >= uZoneCount) break;
+      vec4 ellipse = uZoneEllipse[zi];
+      vec2 zd = (vWaterPosition - ellipse.xy) * ellipse.zw;
+      float inside = 1.0 - smoothstep(0.72, 1.0, length(zd));
+      vec4 tint = uZoneTint[zi];
+      // Luminance-match the tint to the water underneath so zones recolour
+      // the sea instead of glowing: at night the hue broods in dark water,
+      // by day it reads as a pastel wash.
+      float waterLuma = dot(waterColor, vec3(0.2126, 0.7152, 0.0722));
+      float tintLuma = max(dot(tint.rgb, vec3(0.2126, 0.7152, 0.0722)), 0.03);
+      vec3 zoneColor = tint.rgb * clamp(waterLuma * 1.6 / tintLuma, 0.35, 1.1);
+      waterColor = mix(waterColor, zoneColor, inside * tint.w);
+    }
 
     // --- B2: authored moon road + thresholded glitter --------------------
     vec2 fromIsland = vWaterPosition - uIslandCenter;
@@ -330,7 +358,16 @@ export interface GardenWater {
     pigeonnier: { x: number; z: number },
   ) => void;
   setLaneState: (texture: DataTexture, activeLaneCount: number) => void;
+  setZoneState: (zones: readonly GardenWaterZone[]) => void;
   update: (frame: GardenWaterFrame) => void;
+}
+
+export interface GardenWaterZone {
+  center: { x: number; z: number };
+  color: Color;
+  radiusX: number;
+  radiusZ: number;
+  strength: number;
 }
 
 /**
@@ -371,6 +408,13 @@ export function createGardenWater(waterLevel: number): GardenWater {
     uTempo: { value: 0.2 },
     uTime: { value: 0 },
     uWaveAmplitude: { value: 0.02 },
+    uZoneCount: { value: 0 },
+    uZoneEllipse: {
+      value: Array.from({ length: MAX_GARDEN_WATER_ZONES }, () => new Vector4()),
+    },
+    uZoneTint: {
+      value: Array.from({ length: MAX_GARDEN_WATER_ZONES }, () => new Vector4()),
+    },
   };
   const material = new ShaderMaterial({
     fog: true,
@@ -405,6 +449,26 @@ export function createGardenWater(waterLevel: number): GardenWater {
     setLaneState(texture, activeLaneCount) {
       uniforms.uLaneTexture.value = texture;
       uniforms.uLaneCount.value = activeLaneCount;
+    },
+    setZoneState(zones) {
+      const count = Math.min(zones.length, MAX_GARDEN_WATER_ZONES);
+      uniforms.uZoneCount.value = count;
+      for (let index = 0; index < count; index += 1) {
+        const zone = zones[index]!;
+        // The plane's -90deg X rotation maps world Z to negative water Y.
+        uniforms.uZoneEllipse.value[index]!.set(
+          zone.center.x,
+          -zone.center.z,
+          1 / Math.max(0.001, zone.radiusX),
+          1 / Math.max(0.001, zone.radiusZ),
+        );
+        uniforms.uZoneTint.value[index]!.set(
+          zone.color.r,
+          zone.color.g,
+          zone.color.b,
+          zone.strength,
+        );
+      }
     },
     update(frame) {
       const { daylight, dusk, night } = dayCycle(frame.wallClockHour);

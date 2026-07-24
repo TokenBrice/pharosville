@@ -70,6 +70,12 @@ tests and documentation.
   rendered entities.
 - Zone colors come from the shared palette/theme bridge rather than arbitrary
   renderer literals.
+- Risk zones are drawn as charted water regions — a dashed band-colored
+  perimeter, lit marker buoys, and a subtle in-water tint — not filled decal
+  discs. Band color is never the only encoding: buoys add positional redundancy
+  and danger buoys blink slowly (frozen under reduced motion), alongside the DOM
+  label and detail-panel parity. The redesign changes presentation only; the
+  meaning and stale-evidence caveat in the Entity Meaning table are unchanged.
 
 ## Performance
 

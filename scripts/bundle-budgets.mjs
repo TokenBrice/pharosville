@@ -30,7 +30,10 @@ export const bundleBudgets = {
     pattern: /^world-renderer-[A-Za-z0-9_-]+\.js$/,
     // 2026-07-23 one-renderer cutover: measured 692.2 KiB raw / 183.2 KiB
     // gzip after the production Garden Observatory pass.
-    maxRawBytes: 740 * 1024,
+    // 2026-07-24 Lantern Sea revamp: measured 750.1 KiB raw / 199.9 KiB gzip
+    // after the post pipeline, sea/lane shaders, zone redesign, harbor kits,
+    // and hero-hull attachment; gzip budget intentionally unchanged.
+    maxRawBytes: 770 * 1024,
     maxGzipBytes: 200 * 1024,
     required: true,
   },

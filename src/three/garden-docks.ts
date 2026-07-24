@@ -1,12 +1,11 @@
 import {
   BoxGeometry,
-  BufferGeometry,
+  Color,
   CylinderGeometry,
   DoubleSide,
+  ExtrudeGeometry,
   Group,
   InstancedMesh,
-  LineBasicMaterial,
-  LineSegments,
   MathUtils,
   Matrix4,
   Mesh,
@@ -14,7 +13,7 @@ import {
   Shape,
   ShapeGeometry,
   SphereGeometry,
-  Vector3,
+  TorusGeometry,
 } from "three";
 import {
   GARDEN_DOCK_ROOT_Y,
@@ -26,10 +25,23 @@ import { setTilePosition, stableUnit, TILE_SCALE } from "./garden-util";
 
 const scratchMatrix = new Matrix4();
 
+/** One signature prop distinguishes each harbor at a glance. */
+type SignatureKind = "arch" | "crane" | "net-racks" | "dinghy" | "crate-tower" | "derrick";
+const SIGNATURE_KINDS: readonly SignatureKind[] = [
+  "crane",
+  "net-racks",
+  "dinghy",
+  "crate-tower",
+  "derrick",
+];
+
 export interface DockVisual {
   dock: DockNode;
   fineDetail: Group;
+  /** World-space lamp positions (post tops) for sea-lane registration. */
+  lampWorldPositions: { x: number; z: number }[];
   root: Group;
+  signature: SignatureKind;
 }
 
 export function createHarborLanterns(
@@ -58,7 +70,7 @@ export function createHarborLanterns(
     count,
   );
   const lights = new InstancedMesh(
-    new SphereGeometry(0.16, 8, 6),
+    new SphereGeometry(0.16, 6, 4),
     lightMaterial,
     count,
   );
@@ -97,33 +109,37 @@ export function createDock(
   const amountScale = MathUtils.clamp(Math.log10(Math.max(1, dock.totalUsd)) / 11, 0.72, 1.18);
   const length = 7.2 * amountScale;
   const width = 1.65 + amountScale * 0.35;
+  const accent = dockAccentColor(dock);
+  const signature = signatureKind(dock);
+
   const timber = new MeshStandardMaterial({
     color: HARBOR_PALETTE.timber_mid,
     roughness: 0.88,
   });
-  const pier = new Mesh(new BoxGeometry(length, 0.42, width), timber);
+  const pier = new Mesh(createPierDeckGeometry(length, width, 0.42), timber);
   pier.position.x = length * 0.2;
   root.add(pier);
-  const crossPier = new Mesh(new BoxGeometry(1.25, 0.36, width * 2.25), timber);
+  const crossPier = new Mesh(
+    createPierDeckGeometry(1.25, width * 2.25, 0.36),
+    timber,
+  );
   crossPier.position.x = length * 0.56;
   root.add(crossPier);
 
-  const plankPoints: Vector3[] = [];
-  for (let index = 0; index <= 7; index += 1) {
-    const x = -length * 0.3 + (index / 7) * length;
-    plankPoints.push(
-      new Vector3(x, 0.225, -width * 0.46),
-      new Vector3(x, 0.225, width * 0.46),
-    );
-  }
-  const planks = new LineSegments(
-    new BufferGeometry().setFromPoints(plankPoints),
-    new LineBasicMaterial({
-      color: HARBOR_PALETTE.timber_dark,
-      opacity: 0.4,
-      transparent: true,
-    }),
+  // Thin instanced plank strips give the deck relief without a per-plank draw.
+  const plankCount = 6;
+  const planks = new InstancedMesh(
+    new BoxGeometry(0.12, 0.05, width * 0.9),
+    new MeshStandardMaterial({ color: HARBOR_PALETTE.timber_dark, roughness: 0.95 }),
+    plankCount,
   );
+  planks.name = "dock-plank-relief";
+  for (let index = 0; index < plankCount; index += 1) {
+    const x = -length * 0.28 + (index / (plankCount - 1)) * length * 0.92;
+    scratchMatrix.makeTranslation(x, 0.235, 0);
+    planks.setMatrixAt(index, scratchMatrix);
+  }
+  planks.instanceMatrix.needsUpdate = true;
   fineDetail.add(planks);
 
   const pylons = new InstancedMesh(
@@ -162,13 +178,53 @@ export function createDock(
   bollards.instanceMatrix.needsUpdate = true;
   fineDetail.add(bollards);
 
-  const signalColor = dockHealthAccent(dock.healthBand);
-  const signalMast = new Mesh(
-    new CylinderGeometry(0.065, 0.09, 2.25, 6),
-    new MeshStandardMaterial({ color: HARBOR_PALETTE.timber_dark, roughness: 0.96 }),
+  // Above-deck timber posts: signal mast, lamp posts, and any signature-prop
+  // uprights share one instanced draw. Each entry carries its own height/radius
+  // scale so a single unit cylinder covers every pole.
+  const lampCount = amountScale > 1.0 ? 3 : 2;
+  const lampLocals: { x: number; z: number; height: number }[] = [];
+  for (let index = 0; index < lampCount; index += 1) {
+    const x = length * (0.16 + (index / Math.max(1, lampCount - 1)) * 0.44);
+    const z = index % 2 === 0 ? 0 : width * 0.34 * (index % 4 === 1 ? 1 : -1);
+    lampLocals.push({ height: 1.62, x, z });
+  }
+  const postSpecs: { x: number; z: number; height: number; radius: number }[] = [
+    { height: 2.25, radius: 0.08, x: length * 0.52, z: -width * 0.35 }, // signal mast
+    ...lampLocals.map((lamp) => ({ ...lamp, radius: 0.09 })),
+    ...signaturePostSpecs(signature, length, width),
+  ];
+  const posts = new InstancedMesh(
+    new CylinderGeometry(1, 1.2, 1, 6),
+    new MeshStandardMaterial({ color: "#5c4d3c", metalness: 0.24, roughness: 0.78 }),
+    postSpecs.length,
   );
-  signalMast.position.set(length * 0.52, 1.25, -width * 0.35);
-  root.add(signalMast);
+  posts.name = "dock-posts";
+  postSpecs.forEach((spec, index) => {
+    scratchMatrix.makeScale(spec.radius, spec.height, spec.radius);
+    scratchMatrix.setPosition(spec.x, spec.height / 2 + 0.24, spec.z);
+    posts.setMatrixAt(index, scratchMatrix);
+  });
+  posts.instanceMatrix.needsUpdate = true;
+  root.add(posts);
+
+  // Warm lamp heads — one instanced draw, blooms at night.
+  const lampMaterial = new MeshStandardMaterial({
+    color: HARBOR_PALETTE.lantern_glow,
+    emissive: HARBOR_PALETTE.lantern_warm,
+    emissiveIntensity: 1.5,
+    roughness: 0.25,
+    toneMapped: false,
+  });
+  const lamps = new InstancedMesh(new SphereGeometry(0.21, 6, 4), lampMaterial, lampCount);
+  lamps.name = "dock-lamp-heads";
+  lampLocals.forEach((lamp, index) => {
+    scratchMatrix.makeTranslation(lamp.x, lamp.height + 0.3, lamp.z);
+    lamps.setMatrixAt(index, scratchMatrix);
+  });
+  lamps.instanceMatrix.needsUpdate = true;
+  root.add(lamps);
+
+  // Signal pennant carries the per-dock accent (health band + per-chain hue).
   const signalShape = new Shape();
   signalShape.moveTo(0, 0);
   signalShape.lineTo(0.9, -0.27);
@@ -177,9 +233,9 @@ export function createDock(
   const signal = new Mesh(
     new ShapeGeometry(signalShape),
     new MeshStandardMaterial({
-      color: signalColor,
-      emissive: signalColor,
-      emissiveIntensity: 0.1,
+      color: accent,
+      emissive: accent,
+      emissiveIntensity: 0.12,
       side: DoubleSide,
     }),
   );
@@ -200,23 +256,39 @@ export function createDock(
   const storehouseRoof = new Mesh(
     new BoxGeometry(2, 0.2, Math.max(1.58, width)),
     new MeshStandardMaterial({
-      color: signalColor,
+      color: accent,
       flatShading: true,
       roughness: 0.88,
     }),
   );
   storehouseRoof.position.y = 0.98;
   storehouseRoof.rotation.z = -0.06;
-  storehouse.add(storehouseWalls, storehouseRoof);
+  // Small warm window, lit from within — a bloom source at night.
+  const storehouseWindow = new Mesh(
+    new BoxGeometry(0.3, 0.34, 0.06),
+    new MeshStandardMaterial({
+      color: HARBOR_PALETTE.lantern_glow,
+      emissive: HARBOR_PALETTE.lantern_warm,
+      emissiveIntensity: 1.6,
+      roughness: 0.5,
+      toneMapped: false,
+    }),
+  );
+  storehouseWindow.position.set(0.86, 0.46, 0);
+  storehouse.add(storehouseWalls, storehouseRoof, storehouseWindow);
   root.add(storehouse);
 
-  const crateCount = dock.backingDiversity == null
+  // Crate density reads backing diversity; a crate-tower signature stacks more.
+  const baseCrateCount = dock.backingDiversity == null
     ? 0
     : dock.backingDiversity < 0.35
       ? 3
       : dock.backingDiversity < 0.55
         ? 2
         : 0;
+  const crateCount = signature === "crate-tower"
+    ? Math.max(4, baseCrateCount + 3)
+    : baseCrateCount;
   if (crateCount > 0) {
     const crates = new InstancedMesh(
       new BoxGeometry(0.46, 0.4, 0.46),
@@ -227,10 +299,13 @@ export function createDock(
       }),
       crateCount,
     );
+    crates.name = "dock-crates";
     for (let index = 0; index < crateCount; index += 1) {
+      const tier = signature === "crate-tower" ? Math.floor(index / 3) : 0;
+      const column = signature === "crate-tower" ? index % 3 : index;
       scratchMatrix.makeTranslation(
-        length * 0.22 + index * 0.48,
-        0.42,
+        length * 0.22 + column * 0.48,
+        0.42 + tier * 0.42,
         width * 0.3,
       );
       crates.setMatrixAt(index, scratchMatrix);
@@ -239,24 +314,143 @@ export function createDock(
     fineDetail.add(crates);
   }
 
-  const lampPost = new Mesh(
-    new CylinderGeometry(0.055, 0.08, 1.52, 6),
-    new MeshStandardMaterial({ color: "#615342", metalness: 0.28, roughness: 0.72 }),
+  const signatureAccent = createSignatureAccent(signature, length, width, accent);
+  if (signatureAccent) root.add(signatureAccent);
+
+  const lampWorldPositions = lampLocals.map((lamp) =>
+    localToWorldXZ(root, lamp.x, lamp.z),
   );
-  lampPost.position.set(length * 0.55, 1, 0);
-  root.add(lampPost);
-  const lamp = new Mesh(
-    new SphereGeometry(0.23, 8, 6),
-    new MeshStandardMaterial({
-      color: HARBOR_PALETTE.lantern_glow,
-      emissive: HARBOR_PALETTE.lantern_warm,
-      emissiveIntensity: 1.4,
-      roughness: 0.25,
-    }),
+
+  return { dock, fineDetail, lampWorldPositions, root, signature };
+}
+
+/**
+ * World-space positions of a dock's lamp heads. The orchestrator registers
+ * these with the sea-lane registry so each pier lamp lays a warm reflection.
+ */
+export function gardenDockLampWorldPositions(dock: DockVisual): { x: number; z: number }[] {
+  return dock.lampWorldPositions;
+}
+
+function signaturePostSpecs(
+  signature: SignatureKind,
+  length: number,
+  width: number,
+): { x: number; z: number; height: number; radius: number }[] {
+  const head = length * 0.66;
+  switch (signature) {
+    case "crane":
+      return [{ height: 3.1, radius: 0.13, x: head, z: 0 }];
+    case "derrick":
+      return [
+        { height: 2.7, radius: 0.1, x: head, z: -width * 0.32 },
+        { height: 2.7, radius: 0.1, x: head, z: width * 0.32 },
+      ];
+    case "net-racks":
+      return [
+        { height: 1.5, radius: 0.08, x: head, z: -width * 0.4 },
+        { height: 1.5, radius: 0.08, x: head, z: width * 0.4 },
+      ];
+    default:
+      return [];
+  }
+}
+
+function createSignatureAccent(
+  signature: SignatureKind,
+  length: number,
+  width: number,
+  accent: Color,
+): Mesh | null {
+  const head = length * 0.66;
+  switch (signature) {
+    case "arch": {
+      // Banner arch standing across the pier head — the grand Ethereum gateway.
+      const arch = new Mesh(
+        new TorusGeometry(width * 0.72, 0.14, 5, 12, Math.PI),
+        new MeshStandardMaterial({
+          color: accent,
+          emissive: accent,
+          emissiveIntensity: 0.28,
+          flatShading: true,
+          roughness: 0.7,
+        }),
+      );
+      arch.position.set(head, 0.26, 0);
+      arch.rotation.y = Math.PI / 2;
+      return arch;
+    }
+    case "crane": {
+      const jib = new Mesh(
+        new BoxGeometry(1.9, 0.16, 0.16),
+        new MeshStandardMaterial({ color: HARBOR_PALETTE.timber_warm, flatShading: true, roughness: 0.9 }),
+      );
+      jib.position.set(head + 0.62, 3.02, 0);
+      jib.rotation.z = -0.32;
+      return jib;
+    }
+    case "derrick": {
+      const beam = new Mesh(
+        new BoxGeometry(0.16, 0.16, width * 0.72),
+        new MeshStandardMaterial({ color: HARBOR_PALETTE.timber_warm, flatShading: true, roughness: 0.9 }),
+      );
+      beam.position.set(head, 2.66, 0);
+      return beam;
+    }
+    case "net-racks": {
+      const net = new Mesh(
+        new BoxGeometry(0.06, 1.1, width * 0.78),
+        new MeshStandardMaterial({
+          color: HARBOR_PALETTE.sail_teal,
+          flatShading: true,
+          opacity: 0.55,
+          roughness: 1,
+          transparent: true,
+        }),
+      );
+      net.position.set(head, 1.05, 0);
+      return net;
+    }
+    case "dinghy": {
+      const hull = new Mesh(
+        new SphereGeometry(0.55, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2),
+        new MeshStandardMaterial({ color: HARBOR_PALETTE.timber_warm, flatShading: true, roughness: 0.85 }),
+      );
+      hull.position.set(length * 0.3, 0.32, width * 0.85);
+      hull.rotation.x = Math.PI;
+      hull.rotation.z = 0.12;
+      hull.scale.set(0.7, 0.6, 1.5);
+      return hull;
+    }
+    default:
+      return null;
+  }
+}
+
+/** Deterministic per-harbor signature prop; Ethereum flies the grand arch. */
+function signatureKind(dock: DockNode): SignatureKind {
+  if (dock.chainId === "ethereum") return "arch";
+  const index = Math.floor(stableUnit(`dock-signature.${dock.chainId}`) * SIGNATURE_KINDS.length);
+  return SIGNATURE_KINDS[Math.min(index, SIGNATURE_KINDS.length - 1)] ?? "net-racks";
+}
+
+/**
+ * Blends the dock's health-band accent with a stable per-chain hue shift so
+ * neighbouring harbors of the same health still read as different districts.
+ */
+function dockAccentColor(dock: DockNode): Color {
+  const color = new Color(dockHealthAccent(dock.healthBand));
+  const hsl = { h: 0, s: 0, l: 0 };
+  color.getHSL(hsl);
+  const shift = (stableUnit(`dock-hue.${dock.chainId}`) - 0.5) * 0.1;
+  color.setHSL(
+    (hsl.h + shift + 1) % 1,
+    MathUtils.clamp(hsl.s * (0.75 + stableUnit(`dock-sat.${dock.chainId}`) * 0.5), 0.2, 0.85),
+    // Lightness carries most of the per-chain identity so neighbouring docks of
+    // the same health band still read as distinct districts at the overview.
+    MathUtils.clamp(hsl.l * (0.78 + stableUnit(`dock-light.${dock.chainId}`) * 0.42), 0.28, 0.72),
   );
-  lamp.position.set(length * 0.55, 1.8, 0);
-  root.add(lamp);
-  return { dock, fineDetail, root };
+  return color;
 }
 
 function dockHealthAccent(healthBand: DockNode["healthBand"]): string {
@@ -264,4 +458,47 @@ function dockHealthAccent(healthBand: DockNode["healthBand"]): string {
   if (healthBand === "mixed") return "#dfb95a";
   if (healthBand === "fragile") return "#d98b54";
   return "#c9675c";
+}
+
+/** Rounded-end pier deck: one extruded rounded rectangle, one draw. */
+function createPierDeckGeometry(
+  length: number,
+  width: number,
+  thickness: number,
+): ExtrudeGeometry {
+  const radius = Math.min(width * 0.4, length * 0.18, 0.6);
+  const shape = roundedRectShape(length, width, radius);
+  const geometry = new ExtrudeGeometry(shape, {
+    bevelEnabled: false,
+    curveSegments: 1,
+    depth: thickness,
+  });
+  geometry.rotateX(-Math.PI / 2);
+  geometry.translate(0, -thickness / 2, 0);
+  return geometry;
+}
+
+function roundedRectShape(w: number, h: number, r: number): Shape {
+  const shape = new Shape();
+  const x = -w / 2;
+  const y = -h / 2;
+  shape.moveTo(x + r, y);
+  shape.lineTo(x + w - r, y);
+  shape.quadraticCurveTo(x + w, y, x + w, y + r);
+  shape.lineTo(x + w, y + h - r);
+  shape.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  shape.lineTo(x + r, y + h);
+  shape.quadraticCurveTo(x, y + h, x, y + h - r);
+  shape.lineTo(x, y + r);
+  shape.quadraticCurveTo(x, y, x + r, y);
+  return shape;
+}
+
+function localToWorldXZ(root: Group, localX: number, localZ: number): { x: number; z: number } {
+  const cos = Math.cos(root.rotation.y);
+  const sin = Math.sin(root.rotation.y);
+  return {
+    x: root.position.x + localX * cos + localZ * sin,
+    z: root.position.z - localX * sin + localZ * cos,
+  };
 }

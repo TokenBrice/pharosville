@@ -19,6 +19,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  Object3D,
   PlaneGeometry,
   Quaternion,
   Shape,
@@ -34,6 +35,7 @@ import {
 } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE } from "../systems/palette";
 import type { ShipNode } from "../systems/world-types";
+import { gardenModelAnchor, type GardenModelId } from "./garden-models";
 import { createGardenSailTexture } from "./garden-sail-texture";
 import {
   cachedShipGeometry,
@@ -63,6 +65,14 @@ export interface ShipVisual {
   bobPhase: number;
   displayOffset: { x: number; y: number };
   fineDetail: Group;
+  /** Hero GLB hull to attach for titans/uniques (null for the procedural fleet). */
+  heroModelId: GardenModelId | null;
+  /** Procedural hull/rig parts hidden once a hero GLB attaches (identity sail stays). */
+  heroHideable: Object3D[];
+  /** Subtle livery-primary multiply applied to the hero hull wood on attach. */
+  heroHullTint: Color;
+  /** The logo sail mesh, repositioned onto the hero main mast when a GLB attaches. */
+  identitySail: Mesh | null;
   identitySailMaterial: MeshStandardMaterial;
   /** Lantern hang points in ship-local space (stern / bow+stern / a string). */
   lanternPoints: readonly Vector3[];
@@ -204,6 +214,17 @@ function shipFleetTier(ship: ShipNode): ShipFleetTier {
   return "standard";
 }
 
+/**
+ * Titans and uniques (the monumental stablecoins) get a bespoke GLB hero hull:
+ * titans the three-master, uniques the elegant heritage two-master. Everything
+ * else keeps the procedural fleet hull.
+ */
+function shipHeroModelId(ship: ShipNode): GardenModelId | null {
+  if (ship.visual.sizeTier === "titan") return "garden-hero-titan";
+  if (ship.visual.sizeTier === "unique") return "garden-hero-heritage";
+  return null;
+}
+
 function lanternPointsForTier(tier: ShipFleetTier): readonly Vector3[] {
   if (tier === "titan") return [STERN_LANTERN, MID_LANTERN, BOW_LANTERN];
   if (tier === "heritage") return [STERN_LANTERN, BOW_LANTERN];
@@ -235,6 +256,11 @@ export function createShip(
   setTilePosition(root, ship.tile, GARDEN_SHIP_ROOT_Y);
   const silhouette = SILHOUETTE_FOR_HULL[ship.visual.hull];
   const tier = shipFleetTier(ship);
+  // Procedural hull/rig parts a hero GLB replaces; the identity sail is tracked
+  // separately so it can re-home onto the GLB main mast.
+  const heroModelId = shipHeroModelId(ship);
+  const heroHideable: Object3D[] = [];
+  let identitySailMesh: Mesh | null = null;
   const visualScale = MathUtils.clamp(ship.visual.scale || 1, 0.72, 1.6) * 0.82;
   root.scale.setScalar(visualScale);
 
@@ -288,9 +314,11 @@ export function createShip(
   keel.position.y = -0.16;
   keel.scale.set(1.015, 0.82, 1.015);
   root.add(keel);
+  heroHideable.push(keel);
   const hull = new Mesh(hullGeometry, hullMaterial);
   hull.position.y = 0.05;
   root.add(hull);
+  heroHideable.push(hull);
   const gunwale = new Mesh(
     cachedShipGeometry(
       cache,
@@ -301,6 +329,7 @@ export function createShip(
   );
   gunwale.position.y = 0.47;
   root.add(gunwale);
+  heroHideable.push(gunwale);
   const deck = new Mesh(
     cachedShipGeometry(
       cache,
@@ -311,6 +340,7 @@ export function createShip(
   );
   deck.position.y = 0.5;
   fineDetail.add(deck);
+  heroHideable.push(deck);
 
   const mastMaterial = new MeshStandardMaterial({
     color: HARBOR_PALETTE.timber_dark,
@@ -383,7 +413,12 @@ export function createShip(
         isIdentitySail ? identitySailMaterial : plainSailMaterial,
       );
       sail.position.set(mastPlan.x + (reverse ? -0.06 : 0.06), sailPlan.centerY, 0.03);
-      if (isIdentitySail) sail.scale.set(1.22, 1.22, 1);
+      if (isIdentitySail) {
+        sail.scale.set(1.22, 1.22, 1);
+        identitySailMesh = sail;
+      } else {
+        heroHideable.push(sail);
+      }
       root.add(sail);
     }
   }
@@ -399,6 +434,7 @@ export function createShip(
   }
   masts.instanceMatrix.needsUpdate = true;
   root.add(masts);
+  heroHideable.push(masts);
 
   const cabinDimensions = GARDEN_SHIP_CABINS[silhouette];
   if (cabinDimensions) {
@@ -420,6 +456,7 @@ export function createShip(
     );
     cabin.position.set(cabinDimensions.x, 0.52 + cabinDimensions.height / 2, 0);
     root.add(cabin);
+    heroHideable.push(cabin);
     const cabinRoof = new Mesh(
       cachedShipGeometry(
         cache,
@@ -434,6 +471,7 @@ export function createShip(
       0,
     );
     fineDetail.add(cabinRoof);
+    heroHideable.push(cabinRoof);
   }
 
   const tallestMast = rig.reduce((tallest, entry) => (
@@ -455,6 +493,7 @@ export function createShip(
     }),
   );
   (tier === "standard" ? fineDetail : root).add(rigging);
+  heroHideable.push(rigging);
   const flag = new Mesh(
     cachedShipGeometry(cache, "pennant", createPennantGeometry),
     new MeshStandardMaterial({
@@ -467,6 +506,7 @@ export function createShip(
   );
   flag.position.set(tallestMast.x, tallestMast.height + 0.52, 0.02);
   fineDetail.add(flag);
+  heroHideable.push(flag);
 
   if (ship.visual.overlay !== "none") {
     const overlayColor = ship.visual.overlay === "nav"
@@ -552,10 +592,20 @@ export function createShip(
   const wake = createWake(cache);
   root.add(wake.root);
   const motion = FLEET_TIER_MOTION[tier];
+  // Subtle livery cast multiplied over the hero wood on attach (white base × a
+  // mostly-white tint keeps the baked 3-tone shading readable).
+  const heroHullTint = new Color("#ffffff").lerp(
+    new Color(safeCssColor(ship.visual.livery?.primary, "#ffffff")),
+    0.3,
+  );
   return {
     bobPhase: stableUnit(ship.id) * Math.PI * 2,
     displayOffset,
     fineDetail,
+    heroHideable,
+    heroHullTint,
+    heroModelId,
+    identitySail: identitySailMesh,
     identitySailMaterial,
     lanternPoints: lanternPointsForTier(tier),
     laneIntensity: FLEET_TIER_LANE_INTENSITY[tier],
@@ -572,6 +622,43 @@ export function createShip(
     wake: wake.root,
     wakeDetail: wake.detail,
   };
+}
+
+/**
+ * Swaps a titan/unique ship's procedural hull for its loaded hero GLB: hides the
+ * procedural hull/rig (the identity logo sail, data overlays, wake and lantern
+ * sprites stay), clones each GLB material so this instance can tint the wood by
+ * livery without touching the shared model cache, and re-homes the identity sail
+ * onto the GLB main mast. Geometry stays shared with the cache (kept flat for the
+ * geometry-count budget); Three re-uploads it after a content-swap dispose.
+ *
+ * The caller must only invoke this while the ship is still live; a rejected or
+ * stale model promise leaves the procedural hull visible (the intended
+ * asset-failure fallback).
+ */
+export function attachGardenHeroModel(visual: ShipVisual, model: Group): void {
+  const heroId = visual.heroModelId;
+  if (heroId === null) return;
+
+  for (const part of visual.heroHideable) part.visible = false;
+
+  model.traverse((object) => {
+    if (!(object instanceof Mesh)) return;
+    const material = (object.material as MeshStandardMaterial).clone();
+    if (object.name === "wood-hull") material.color.multiply(visual.heroHullTint);
+    object.material = material;
+    object.castShadow = true;
+  });
+  model.name = `hero-${heroId}`;
+  visual.root.add(model);
+
+  if (visual.identitySail) {
+    const masthead = gardenModelAnchor(model, heroId, "masthead").position;
+    // Hang the logo sail as the main course, just below the furled topsail yard.
+    visual.identitySail.position.set(masthead.x, masthead.y * 0.64, 0.24);
+    visual.identitySail.scale.set(1.6, 1.75, 1);
+    visual.identitySail.rotation.set(0, 0, 0);
+  }
 }
 
 export function syncShipSailTextures(

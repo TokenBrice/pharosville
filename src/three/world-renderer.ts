@@ -42,11 +42,7 @@ import {
   selectGardenObservatorySlice,
   selectGardenTransientShip,
 } from "../systems/garden-observatory-slice";
-import {
-  DEWS_AREA_PLACEMENTS,
-  riskWaterAreaForPlacement,
-} from "../systems/risk-water-areas";
-import { HARBOR_PALETTE, zoneThemeForTerrain } from "../systems/palette";
+import { HARBOR_PALETTE } from "../systems/palette";
 import { screenToTile } from "../systems/projection";
 import type { PharosVilleWorld } from "../systems/world-types";
 import {
@@ -66,6 +62,7 @@ import { createGardenPost } from "./garden-post";
 import {
   createDock,
   createHarborLanterns,
+  gardenDockLampWorldPositions,
   type DockVisual,
 } from "./garden-docks";
 import {
@@ -80,6 +77,7 @@ import {
 } from "./garden-island";
 import { attachGardenLighthouseModel } from "./garden-lighthouse";
 import {
+  attachGardenHeroModel,
   createFleetLanterns,
   createShip,
   createShipShadows,
@@ -100,7 +98,11 @@ import {
 import {
   createDangerWeather,
   createZone,
+  createZoneField,
+  updateDangerWeather,
+  updateZoneBuoys,
   type GardenWeatherVisual,
+  type ZoneField,
   type ZoneVisual,
 } from "./garden-zones";
 
@@ -164,6 +166,26 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
       // The procedural shell is the intentional asset failure fallback.
     });
 
+  // Titan/unique ships get bespoke hero GLB hulls once loaded. Each attach is
+  // per-content: a clone that resolves after the world has moved on is dropped
+  // (it still shares the cached geometry, so it must not be disposed).
+  const loadHeroesForContent = (content: GardenContent | null): void => {
+    if (!content) return;
+    for (const visual of content.ships) {
+      if (visual.heroModelId === null) continue;
+      void modelLibrary.clone(visual.heroModelId)
+        .then((model) => {
+          if (disposed || scene.content !== content) return;
+          attachGardenHeroModel(visual, model);
+          scene.shadowNeedsRender = true;
+          onAssetReady?.();
+        })
+        .catch(() => {
+          // The procedural hull stays visible — the asset-failure fallback.
+        });
+    }
+  };
+
   return {
     dispose() {
       if (disposed) return;
@@ -204,6 +226,7 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
         || scene.content?.transientSelectedDetailId !== transientSelectedDetailId
       ) {
         replaceWorldContent(scene, frame.world, frame.selectedDetailId);
+        loadHeroesForContent(scene.content);
       }
       if (scene.content) syncShipSailTextures(scene.content, frame);
       const phase = dayCyclePhase(frame.wallClockHour);
@@ -299,6 +322,7 @@ interface GardenContent {
   transientSelectedDetailId: string | null;
   visibleShipCount: number;
   weather: GardenWeatherVisual[];
+  zoneField: ZoneField;
   zones: ZoneVisual[];
 }
 
@@ -423,7 +447,14 @@ function replaceWorldContent(
     { x: CEMETERY_CENTER.x * TILE_SCALE, z: CEMETERY_CENTER.y * TILE_SCALE },
     { x: world.pigeonnier.tile.x * TILE_SCALE, z: world.pigeonnier.tile.y * TILE_SCALE },
   );
-  registerLightLanes(scene.laneRegistry, world, islandTile, scene.content.docks);
+  scene.water.setZoneState(scene.content.zones.map((zone) => zone.tint));
+  registerLightLanes(
+    scene.laneRegistry,
+    world,
+    islandTile,
+    scene.content.docks,
+    scene.content.zones,
+  );
   scene.world = world;
   // New island geometry — re-render the static shadow map on the next frame.
   scene.shadowNeedsRender = true;
@@ -440,6 +471,7 @@ function registerLightLanes(
   world: PharosVilleWorld,
   islandTile: { x: number; y: number },
   docks: readonly DockVisual[],
+  zones: readonly ZoneVisual[],
 ): void {
   registry.clear();
   registry.set({
@@ -468,14 +500,16 @@ function registerLightLanes(
     });
   }
   for (const dock of docks) {
-    registry.set({
-      color: HARBOR_PALETTE.lantern_glow,
-      id: `dock-lamp.${dock.dock.detailId}`,
-      intensity: 0.7,
-      kind: "lantern",
-      worldX: dock.root.position.x,
-      worldZ: dock.root.position.z,
-    });
+    for (const [lampIndex, lamp] of gardenDockLampWorldPositions(dock).entries()) {
+      registry.set({
+        color: HARBOR_PALETTE.lantern_glow,
+        id: `dock-lamp.${dock.dock.detailId}.${lampIndex}`,
+        intensity: lampIndex === 0 ? 0.7 : 0.42,
+        kind: "lantern",
+        worldX: lamp.x,
+        worldZ: lamp.z,
+      });
+    }
   }
   for (const [index, offset] of gardenIslandLanternWorldOffsets().entries()) {
     registry.set({
@@ -503,6 +537,20 @@ function registerLightLanes(
     worldX: world.pigeonnier.tile.x * TILE_SCALE,
     worldZ: world.pigeonnier.tile.y * TILE_SCALE,
   });
+  // Marker buoys lay a band-coloured reflection on the sea (danger a touch
+  // brighter). Their kind lets the registry cap them alongside lanterns.
+  for (const zone of zones) {
+    for (const [index, buoy] of zone.buoys.entries()) {
+      registry.set({
+        color: `#${buoy.color.getHexString()}`,
+        id: `zone-buoy.${zone.area.id}.${index}`,
+        intensity: buoy.danger ? 0.6 : 0.48,
+        kind: "buoy",
+        worldX: buoy.worldX,
+        worldZ: buoy.worldZ,
+      });
+    }
+  }
 }
 
 function createWorldContent(
@@ -554,6 +602,8 @@ function createWorldContent(
     root.add(zone.root);
     entityCues.set(zone.area.detailId, { radius: 5.2, root: zone.root, y: 0.08 });
   }
+  const zoneField = createZoneField(zones);
+  root.add(zoneField.root);
   const weather = world.areas
     .filter((area) => area.band === "DANGER")
     .map((area) => createDangerWeather(area));
@@ -647,6 +697,7 @@ function createWorldContent(
     transientSelectedDetailId: slice.transientSelectedDetailId,
     visibleShipCount: ships.length,
     weather,
+    zoneField,
     zones,
   };
 }
@@ -729,9 +780,12 @@ function updateSceneForFrame(
   scene.waterAccents.rotation.y = 0;
   for (const effect of content.weather) {
     effect.root.visible = fullQuality;
-    effect.streaks.position.y = frame.reducedMotion
-      ? 0
-      : -((frame.timeSeconds * 0.72 + effect.phase * 2) % 2);
+    updateDangerWeather(
+      effect,
+      frame.timeSeconds,
+      frame.reducedMotion,
+      frame.renderScheduler.tier === "full",
+    );
   }
   content.gullFlock.update({
     constrained,
@@ -852,25 +906,12 @@ function updateSceneForFrame(
   const activeLaneCount = scene.laneRegistry.sync(frame.renderScheduler.tier);
   scene.water.setLaneState(scene.laneRegistry.texture, activeLaneCount);
 
-  for (const zone of content.zones) {
-    const definition = zone.area.riskPlacement
-      ? riskWaterAreaForPlacement(zone.area.riskPlacement)
-      : zone.area.band
-        ? riskWaterAreaForPlacement(DEWS_AREA_PLACEMENTS[zone.area.band])
-        : riskWaterAreaForPlacement("safe-harbor");
-    const theme = zoneThemeForTerrain(definition.terrain);
-    const rhythm = frame.timeSeconds * (0.13 + theme.motion.amplitudeScale * 0.025)
-      + stableUnit(zone.area.id) * Math.PI * 2;
-    const fieldPulse = frame.reducedMotion
-      ? 1
-      : 1 + Math.sin(rhythm * 0.62) * 0.014 * theme.motion.amplitudeScale;
-    zone.field.scale.setScalar(fieldPulse);
-    zone.rings.forEach((ring, index) => {
-      const phase = frame.reducedMotion ? 1 : 1 + Math.sin(rhythm - index * 0.7) * (0.025 + index * 0.008);
-      ring.scale.setScalar(phase);
-      ring.visible = true;
-    });
-  }
+  updateZoneBuoys(
+    content.zoneField,
+    frame.timeSeconds,
+    frame.reducedMotion,
+    frame.renderScheduler.tier === "full",
+  );
 
   updateSelectedRoute(content, frame);
   updateCueMarker(scene.hoverMarker, content, frame.hoveredDetailId, frame, 0.94);

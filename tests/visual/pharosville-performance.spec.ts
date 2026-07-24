@@ -22,7 +22,10 @@ const GPU_RESOURCE_BUDGET = {
   // plus the bloom mip chain); the remainder covers scene textures and the
   // V2 sea additions (normal map, lane data texture, wake target).
   textures: 40,
-  triangles: 42_000,
+  // Raised from 42k for the V5 titan/heritage hero GLB hulls: ~4 visible heroes
+  // at ~500 tris each on top of the procedural fleet. The iGPU has ample
+  // headroom at this count; draw calls stay flat (heroes merge to <=5 each).
+  triangles: 60_000,
 } as const;
 
 type PerformanceTelemetry = {

@@ -21,71 +21,82 @@ import {
 } from "./garden-models";
 
 const metadata = GARDEN_MODEL_MANIFEST["garden-lighthouse-shell"];
-const assetPath = resolve(
+const assetPathFor = (id: keyof typeof GARDEN_MODEL_MANIFEST): string => resolve(
   process.cwd(),
-  `public${metadata.artifact.url.split("?")[0]}`,
+  `public${GARDEN_MODEL_MANIFEST[id].artifact.url.split("?")[0]}`,
 );
 
-describe("garden model manifest", () => {
-  it("matches the raw GLB header, budget, hash, and inventory", () => {
-    const bytes = readFileSync(assetPath);
-    const json = readGlbJson(bytes);
+describe.each(Object.keys(GARDEN_MODEL_MANIFEST) as (keyof typeof GARDEN_MODEL_MANIFEST)[])(
+  "garden model manifest: %s",
+  (id) => {
+    const entry = GARDEN_MODEL_MANIFEST[id];
+    const assetPath = assetPathFor(id);
 
-    expect(bytes.toString("ascii", 0, 4)).toBe("glTF");
-    expect(bytes.readUInt32LE(4)).toBe(2);
-    expect(bytes.readUInt32LE(8)).toBe(bytes.byteLength);
-    expect(bytes.byteLength).toBe(metadata.artifact.bytes);
-    expect(createHash("sha256").update(bytes).digest("hex")).toBe(
-      metadata.artifact.sha256,
-    );
-    expect(validateGardenModelMetadata(metadata)).toEqual([]);
-    expect(json.asset.version).toBe("2.0");
-    expect(json.meshes).toHaveLength(metadata.geometry.drawCalls);
-    expect(json.materials).toHaveLength(metadata.geometry.materials);
-    expect(json.textures).toBeUndefined();
-    expect(json.images).toBeUndefined();
-  });
+    it("matches the raw GLB header, budget, hash, and inventory", () => {
+      const bytes = readFileSync(assetPath);
+      const json = readGlbJson(bytes);
 
-  it("records every integration anchor as a named GLB node", () => {
-    const json = readGlbJson(readFileSync(assetPath));
-    const nodeNames = new Set(json.nodes?.map(({ name }) => name));
-
-    for (const anchor of Object.values(metadata.anchors)) {
-      expect(nodeNames).toContain(anchor.node);
-    }
-    expect(metadata.origin).toMatchObject({
-      convention: "base-center",
-      position: [0, 0, 0],
-      upAxis: "+Y",
+      expect(bytes.toString("ascii", 0, 4)).toBe("glTF");
+      expect(bytes.readUInt32LE(4)).toBe(2);
+      expect(bytes.readUInt32LE(8)).toBe(bytes.byteLength);
+      expect(bytes.byteLength).toBe(entry.artifact.bytes);
+      expect(createHash("sha256").update(bytes).digest("hex")).toBe(
+        entry.artifact.sha256,
+      );
+      expect(validateGardenModelMetadata(entry)).toEqual([]);
+      expect(json.asset.version).toBe("2.0");
+      expect(json.meshes).toHaveLength(entry.geometry.drawCalls);
+      expect(json.materials).toHaveLength(entry.geometry.materials);
+      expect(json.textures).toBeUndefined();
+      expect(json.images).toBeUndefined();
     });
-    expect(metadata.dimensions.y).toBeCloseTo(19.8);
-    expect(metadata.lod.strategy).toBe("single");
-    expect(metadata.artifact.compression).toBe("none");
-  });
 
-  it("loads at the recorded scale with its base on y=0", async () => {
-    const bytes = readFileSync(assetPath);
-    const arrayBuffer = new Uint8Array(bytes).buffer;
-    const gltf = await new GLTFLoader().parseAsync(arrayBuffer, "");
-    const model = gltf.scene.getObjectByName(metadata.id);
-    if (model === undefined) throw new Error("Lighthouse root node missing.");
+    it("records every integration anchor as a named GLB node", () => {
+      const json = readGlbJson(readFileSync(assetPath));
+      const nodeNames = new Set(json.nodes?.map(({ name }) => name));
 
-    const bounds = new Box3().setFromObject(model);
-    const size = bounds.getSize(new Vector3());
+      for (const anchor of Object.values(entry.anchors)) {
+        expect(nodeNames).toContain(anchor.node);
+      }
+      expect(entry.origin).toMatchObject({
+        convention: "base-center",
+        position: [0, 0, 0],
+        upAxis: "+Y",
+      });
+      expect(entry.lod.strategy).toBe("single");
+      expect(entry.artifact.compression).toBe("none");
+    });
 
-    expect(bounds.min.y).toBeCloseTo(0, 5);
-    expect(size.x).toBeCloseTo(metadata.dimensions.x, 3);
-    expect(size.y).toBeCloseTo(metadata.dimensions.y, 3);
-    expect(size.z).toBeCloseTo(metadata.dimensions.z, 3);
-    for (const [id, anchor] of Object.entries(metadata.anchors)) {
-      expect(gardenModelAnchor(
-        model,
-        metadata.id,
-        id as keyof typeof metadata.anchors,
-      ).position.toArray()).toEqual(anchor.position);
-    }
-  });
-});
+    it("loads at the recorded scale with anchors at their manifest positions", async () => {
+      const bytes = readFileSync(assetPath);
+      const arrayBuffer = new Uint8Array(bytes).buffer;
+      const gltf = await new GLTFLoader().parseAsync(arrayBuffer, "");
+      const model = gltf.scene.getObjectByName(entry.id);
+      if (model === undefined) throw new Error(`${entry.id} root node missing.`);
+
+      const bounds = new Box3().setFromObject(model);
+      const size = bounds.getSize(new Vector3());
+
+      expect(size.x).toBeCloseTo(entry.dimensions.x, 3);
+      expect(size.y).toBeCloseTo(entry.dimensions.y, 3);
+      expect(size.z).toBeCloseTo(entry.dimensions.z, 3);
+      // The lighthouse sits on the ground (base at y=0); the hero hulls hang
+      // their waterline at y=0, so they read symmetric across z instead.
+      if (id === "garden-lighthouse-shell") {
+        expect(bounds.min.y).toBeCloseTo(0, 5);
+      } else {
+        expect(bounds.min.z + bounds.max.z).toBeCloseTo(0, 3);
+      }
+      for (const [anchorId, anchor] of Object.entries(entry.anchors)) {
+        expect(gardenModelAnchor(
+          model,
+          entry.id,
+          anchorId as keyof typeof entry.anchors,
+        ).position.toArray()).toEqual(anchor.position);
+      }
+    });
+  },
+);
 
 describe("createGardenModelLibrary", () => {
   it("loads once and returns independent clones with shared mesh resources", async () => {

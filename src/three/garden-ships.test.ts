@@ -1,12 +1,24 @@
-import { InstancedMesh, LineBasicMaterial, Mesh, MeshBasicMaterial, Quaternion } from "three";
+import {
+  BoxGeometry,
+  Group,
+  InstancedMesh,
+  LineBasicMaterial,
+  Mesh,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
+  Object3D,
+  Quaternion,
+} from "three";
 import { describe, expect, it } from "vitest";
 import type { ShipHull, ShipNode, ShipSizeTier } from "../systems/world-types";
 import {
+  attachGardenHeroModel,
   createFleetLanterns,
   createShip,
   updateFleetLanterns,
   type ShipVisual,
 } from "./garden-ships";
+import { GARDEN_MODEL_MANIFEST } from "./garden-models";
 import type { GardenShipGeometryCache } from "./garden-util";
 
 function makeCache(): GardenShipGeometryCache {
@@ -83,6 +95,69 @@ describe("fleet tiers", () => {
     expect(standard.lanternPoints).toHaveLength(1);
     expect(standard.laneIntensity).toBeCloseTo(0.3);
     expect(standard.motionPeriodScale).toBe(1);
+  });
+});
+
+describe("hero hull assignment", () => {
+  it("routes titans to the titan hull and uniques to the heritage hull", () => {
+    expect(build(ship("t", "treasury-galleon", "titan")).heroModelId).toBe("garden-hero-titan");
+    expect(build(ship("u", "treasury-galleon", "unique")).heroModelId).toBe("garden-hero-heritage");
+    expect(build(ship("m", "treasury-galleon", "major")).heroModelId).toBeNull();
+    expect(build(ship("s", "treasury-galleon", "skiff")).heroModelId).toBeNull();
+  });
+
+  it("collects a hideable procedural hull and tracks the identity sail", () => {
+    const visual = build(ship("t", "treasury-galleon", "titan"));
+    expect(visual.heroHideable.length).toBeGreaterThan(4);
+    expect(visual.heroHideable.every((part) => part.visible)).toBe(true);
+    expect(visual.identitySail).toBeInstanceOf(Mesh);
+    // The identity sail is never in the hideable set — it re-homes onto the GLB.
+    expect(visual.heroHideable).not.toContain(visual.identitySail);
+  });
+});
+
+function heroFixture(id: "garden-hero-titan" | "garden-hero-heritage"): Group {
+  const root = new Group();
+  root.name = id;
+  const wood = new Mesh(new BoxGeometry(), new MeshStandardMaterial({ color: "#ffffff" }));
+  wood.name = "wood-hull";
+  root.add(wood);
+  for (const anchor of Object.values(GARDEN_MODEL_MANIFEST[id].anchors)) {
+    const node = new Object3D();
+    node.name = anchor.node;
+    node.position.fromArray(anchor.position);
+    root.add(node);
+  }
+  return root;
+}
+
+describe("attachGardenHeroModel", () => {
+  it("hides the procedural hull, mounts the GLB, and re-homes the identity sail", () => {
+    const visual = build(ship("t", "treasury-galleon", "titan"));
+    const identitySail = visual.identitySail;
+    const model = heroFixture("garden-hero-titan");
+    const attachedWood = model.getObjectByName("wood-hull") as Mesh;
+    const woodGeometry = attachedWood.geometry;
+    const sharedMaterial = attachedWood.material;
+
+    attachGardenHeroModel(visual, model);
+
+    expect(visual.heroHideable.every((part) => part.visible)).toBe(false);
+    expect(identitySail?.visible).toBe(true);
+    expect(visual.root.children).toContain(model);
+    // Geometry stays shared with the cache; only the material is cloned + tinted.
+    expect(attachedWood.geometry).toBe(woodGeometry);
+    expect(attachedWood.material).not.toBe(sharedMaterial);
+    // Identity sail moved onto the main-mast area (non-zero masthead height).
+    const masthead = GARDEN_MODEL_MANIFEST["garden-hero-titan"].anchors.masthead;
+    expect(identitySail?.position.x).toBeCloseTo(masthead?.position[0] ?? 0);
+  });
+
+  it("is a no-op for a standard ship with no hero model", () => {
+    const visual = build(ship("s", "treasury-galleon", "skiff"));
+    const before = visual.heroHideable.map((part) => part.visible);
+    attachGardenHeroModel(visual, heroFixture("garden-hero-titan"));
+    expect(visual.heroHideable.map((part) => part.visible)).toEqual(before);
   });
 });
 
