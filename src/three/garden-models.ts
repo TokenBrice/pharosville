@@ -76,7 +76,7 @@ export interface GardenModelMetadata {
   };
 }
 
-const LIGHTHOUSE_SHA256 = "25fd507abedd77ff98e00fba2f89202b73cd24ccfe4de76d1acfb6b14c1030d3";
+const LIGHTHOUSE_SHA256 = "8e7caf560bee5497e70abb86c56f3591934e98a30332e4cbcffa0e451a1efb06";
 const lighthouseUrl = `/pharosville/models/garden-lighthouse-shell.glb?v=${LIGHTHOUSE_SHA256.slice(0, 12)}`;
 
 export const GARDEN_MODEL_MANIFEST = {
@@ -84,16 +84,16 @@ export const GARDEN_MODEL_MANIFEST = {
     id: "garden-lighthouse-shell",
     label: "Garden Observatory lighthouse shell",
     artifact: {
-      bytes: 64_808,
+      bytes: 77_044,
       compression: "none",
       gltfVersion: 2,
       sha256: LIGHTHOUSE_SHA256,
       url: lighthouseUrl,
     },
     dimensions: {
-      x: 5.4,
-      y: 17.3,
-      z: 5.535,
+      x: 6.467,
+      y: 19.8,
+      z: 6.467,
     },
     scale: {
       modelUnitsPerWorldUnit: 1,
@@ -108,19 +108,19 @@ export const GARDEN_MODEL_MANIFEST = {
     anchors: {
       beacon: {
         node: "anchor-beacon",
-        position: [0, 14.72, 0],
+        position: [0, 16.48, 0],
       },
       beam: {
         node: "anchor-beam",
-        position: [0, 14.72, 0],
+        position: [0, 16.48, 0],
       },
       label: {
         node: "anchor-label",
-        position: [0, 17.75, 0],
+        position: [0, 20.2, 0],
       },
       selection: {
         node: "anchor-selection",
-        position: [0, 8.65, 0],
+        position: [0, 9.9, 0],
       },
     },
     lod: {
@@ -133,17 +133,17 @@ export const GARDEN_MODEL_MANIFEST = {
       }],
     },
     pickProxy: {
-      center: [0, 8.65, 0],
-      height: 17.3,
-      radius: 2.8,
+      center: [0, 9.9, 0],
+      height: 19.8,
+      radius: 3.5,
       shape: "cylinder",
     },
     geometry: {
       drawCalls: 7,
       materials: 7,
       textures: 0,
-      triangles: 1_020,
-      vertices: 1_561,
+      triangles: 1_068,
+      vertices: 1_657,
     },
     budgets: {
       maxBytes: 100 * 1024,

@@ -1,10 +1,12 @@
 import {
   AdditiveBlending,
   BoxGeometry,
+  BufferGeometry,
   Color,
   ConeGeometry,
   CylinderGeometry,
   DoubleSide,
+  Float32BufferAttribute,
   Group,
   InstancedMesh,
   Matrix4,
@@ -12,6 +14,7 @@ import {
   MeshBasicMaterial,
   MeshStandardMaterial,
   PlaneGeometry,
+  Points,
   PointLight,
   ShaderMaterial,
   SphereGeometry,
@@ -23,6 +26,7 @@ import {
 } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE } from "../systems/palette";
 import { gardenModelAnchor } from "./garden-models";
+import { stableUnit } from "./garden-util";
 
 const scratchMatrix = new Matrix4();
 
@@ -42,6 +46,9 @@ export function attachGardenLighthouseModel(
   if (!content || !model) return;
 
   model.removeFromParent();
+  model.traverse((object) => {
+    if (object instanceof Mesh) object.castShadow = true;
+  });
   content.lighthouseRoot.add(model);
   content.lighthouseShell.visible = false;
 
@@ -318,10 +325,143 @@ export function createLighthouse(): {
 
   const beam = new Group();
   beam.position.copy(beacon.position);
-  const beamGeometry = new PlaneGeometry(46, 12);
-  beamGeometry.rotateX(-Math.PI / 2);
-  beamGeometry.translate(23, 0, 0);
-  const beamMaterial = new ShaderMaterial({
+  beam.add(createBeamCone(), createBeamDust(), createBeamPlane());
+  root.add(beam);
+
+  return { beacon, beaconHalo: halo, beam, light, root, shell };
+}
+
+// The beam sweeps horizontally along the group's +X (apex at the beacon), so
+// the far end fades out roughly BEAM_LENGTH world units over the dark sea.
+const BEAM_LENGTH = 44;
+const BEAM_BASE_RADIUS = 4.4;
+const BEAM_DUST_COUNT = 40;
+const BEAM_COLOR = new Color("#ffdda0");
+
+/**
+ * The volumetric beam: an open additive cone (apex at the beacon, axis along
+ * +X). Under the fixed ortho view a fresnel-ish edge term (grazing surfaces
+ * glow, face-on softens) plus front+back additive overlap read as light in
+ * air; a longitudinal fade darkens it toward the far end and slow banding
+ * drifts through it. `uTime` is frozen under reduced motion by the caller.
+ */
+function createBeamCone(): Mesh<ConeGeometry, ShaderMaterial> {
+  const geometry = new ConeGeometry(BEAM_BASE_RADIUS, BEAM_LENGTH, 28, 1, true);
+  // Apex to the group origin, axis rotated from +Y to +X.
+  geometry.translate(0, -BEAM_LENGTH / 2, 0);
+  geometry.rotateZ(Math.PI / 2);
+  const material = new ShaderMaterial({
+    blending: AdditiveBlending,
+    depthWrite: false,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uColor;
+      uniform float uOpacity;
+      uniform float uTime;
+      varying float vAlong;
+      varying vec3 vNormalView;
+
+      void main() {
+        // Bright just past the apex, carrying out over the sea before fading
+        // to nothing by the far end (~40 units).
+        float fade = smoothstep(0.015, 0.09, vAlong)
+          * (1.0 - smoothstep(0.5, 0.99, vAlong));
+        // Ortho fresnel: grazing (silhouette) surfaces glow, face-on softens.
+        float rim = 1.0 - abs(vNormalView.z);
+        float shaft = 0.3 + 0.7 * rim;
+        float bands = 0.86 + 0.14 * sin(vAlong * 30.0 - uTime * 1.3);
+        gl_FragColor = vec4(uColor, uOpacity * fade * shaft * bands);
+      }
+    `,
+    side: DoubleSide,
+    toneMapped: false,
+    transparent: true,
+    uniforms: {
+      uColor: { value: BEAM_COLOR.clone() },
+      uLength: { value: BEAM_LENGTH },
+      uOpacity: { value: 0 },
+      uTime: { value: 0 },
+    },
+    vertexShader: /* glsl */ `
+      uniform float uLength;
+      varying float vAlong;
+      varying vec3 vNormalView;
+
+      void main() {
+        vAlong = position.x / uLength;
+        vNormalView = normalize(normalMatrix * normal);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+  });
+  const cone = new Mesh(geometry, material);
+  cone.name = "lighthouse-beam-cone";
+  return cone;
+}
+
+/** Faint motes suspended in the cone (full tier, motion only). */
+function createBeamDust(): Points<BufferGeometry, ShaderMaterial> {
+  const positions: number[] = [];
+  const seeds: number[] = [];
+  for (let index = 0; index < BEAM_DUST_COUNT; index += 1) {
+    const along = (0.14 + stableUnit(`beam-dust-a.${index}`) * 0.72) * BEAM_LENGTH;
+    const coneRadius = (along / BEAM_LENGTH) * BEAM_BASE_RADIUS;
+    const radius = coneRadius * (0.15 + stableUnit(`beam-dust-r.${index}`) * 0.7);
+    const angle = stableUnit(`beam-dust-t.${index}`) * Math.PI * 2;
+    positions.push(along, Math.cos(angle) * radius, Math.sin(angle) * radius);
+    seeds.push(stableUnit(`beam-dust-s.${index}`));
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("aSeed", new Float32BufferAttribute(seeds, 1));
+  const material = new ShaderMaterial({
+    blending: AdditiveBlending,
+    depthWrite: false,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uColor;
+      uniform float uOpacity;
+      varying float vTwinkle;
+
+      void main() {
+        float soft = 1.0 - smoothstep(0.1, 0.5, length(gl_PointCoord - 0.5));
+        gl_FragColor = vec4(uColor, uOpacity * soft * vTwinkle);
+      }
+    `,
+    toneMapped: false,
+    transparent: true,
+    uniforms: {
+      uColor: { value: BEAM_COLOR.clone() },
+      uOpacity: { value: 0 },
+      uTime: { value: 0 },
+    },
+    vertexShader: /* glsl */ `
+      attribute float aSeed;
+      uniform float uTime;
+      varying float vTwinkle;
+
+      void main() {
+        vec3 p = position;
+        // Slow drift, small enough that motes stay inside the cone envelope.
+        p.x += sin(uTime * 0.25 + aSeed * 6.28) * 0.6;
+        p.y += sin(uTime * 0.31 + aSeed * 12.0) * 0.25;
+        p.z += cos(uTime * 0.27 + aSeed * 9.0) * 0.25;
+        vTwinkle = 0.5 + 0.5 * sin(uTime * 0.9 + aSeed * 20.0);
+        gl_PointSize = 2.5;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+      }
+    `,
+  });
+  const dust = new Points(geometry, material);
+  dust.name = "lighthouse-beam-dust";
+  dust.visible = false;
+  return dust;
+}
+
+/** Recovery/constrained fallback: the original flat additive beam plane. */
+function createBeamPlane(): Mesh<PlaneGeometry, ShaderMaterial> {
+  const geometry = new PlaneGeometry(46, 12);
+  geometry.rotateX(-Math.PI / 2);
+  geometry.translate(23, 0, 0);
+  const material = new ShaderMaterial({
     blending: AdditiveBlending,
     depthWrite: false,
     fragmentShader: /* glsl */ `
@@ -344,9 +484,10 @@ export function createLighthouse(): {
       }
     `,
     side: DoubleSide,
+    toneMapped: false,
     transparent: true,
     uniforms: {
-      uColor: { value: new Color("#ffdda0") },
+      uColor: { value: BEAM_COLOR.clone() },
       uOpacity: { value: 0.08 },
     },
     vertexShader: /* glsl */ `
@@ -358,10 +499,8 @@ export function createLighthouse(): {
       }
     `,
   });
-  const sweep = new Mesh(beamGeometry, beamMaterial);
+  const sweep = new Mesh(geometry, material);
   sweep.name = "lighthouse-beam";
-  beam.add(sweep);
-  root.add(beam);
-
-  return { beacon, beaconHalo: halo, beam, light, root, shell };
+  sweep.visible = false;
+  return sweep;
 }

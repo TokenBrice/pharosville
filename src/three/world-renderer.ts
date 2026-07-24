@@ -17,6 +17,7 @@ import {
   MeshStandardMaterial,
   Object3D,
   OrthographicCamera,
+  PCFSoftShadowMap,
   PointLight,
   RingGeometry,
   Scene,
@@ -72,7 +73,11 @@ import {
   type GardenLaneRegistry,
 } from "./garden-lanterns";
 import { CEMETERY_CENTER } from "../systems/world-layout";
-import { createTerracedIsland, createWaterAccents } from "./garden-island";
+import {
+  createTerracedIsland,
+  createWaterAccents,
+  gardenIslandLanternWorldOffsets,
+} from "./garden-island";
 import { attachGardenLighthouseModel } from "./garden-lighthouse";
 import {
   createShip,
@@ -118,6 +123,11 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
   renderer.outputColorSpace = SRGBColorSpace;
   renderer.toneMapping = AgXToneMapping;
   renderer.toneMappingExposure = 1.12;
+  // D3: soft island-only shadows. Shadow support is compiled once (enabled +
+  // castShadow stay on); per-tier cost is driven at runtime via shadow.intensity
+  // and mapSize (see updateShadows), which avoids material recompile stalls.
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = PCFSoftShadowMap;
   const post = createGardenPost(renderer, scene.root, camera);
 
   let disposed = false;
@@ -143,6 +153,8 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
       }
       scene.lighthouseModel = model;
       attachGardenLighthouseModel(model, scene.content);
+      // The GLB shell replaces the procedural one — refresh the shadow map.
+      scene.shadowNeedsRender = true;
       onAssetReady?.();
     })
     .catch(() => {
@@ -195,6 +207,7 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
       updateSceneForFrame(scene, camera, frame, phase);
 
       const tier = frame.renderScheduler.tier;
+      const shadowMapSize = updateShadows(scene, frame);
       const composerActive = tier !== "constrained";
       post.setEnabled(composerActive);
       post.setBloomEnabled(composerActive && tier !== "recovery");
@@ -215,7 +228,7 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
           selection: selected,
         },
         postPassList: post.getPassList(),
-        shadowMapSize: 0,
+        shadowMapSize,
         gpu: {
           calls: renderInfo.calls,
           geometries: renderer.info.memory.geometries,
@@ -250,6 +263,8 @@ interface GardenScene {
   lighthouseModel: Group | null;
   root: Scene;
   selectedMarker: Mesh<RingGeometry, MeshBasicMaterial>;
+  shadowActiveSize: number;
+  shadowNeedsRender: boolean;
   sky: GardenSky;
   water: GardenWater;
   waterAccents: Group;
@@ -298,6 +313,20 @@ function createGardenScene(): GardenScene {
   root.add(ambientLight);
   const directionalLight = new DirectionalLight("#ffe8b5", 2.3);
   directionalLight.position.set(-35, 55, -30);
+  // Tight ortho frustum fitted to the island (~44-unit box); updateShadows
+  // re-centres it on the island each frame and toggles cost per tier.
+  directionalLight.castShadow = true;
+  directionalLight.shadow.mapSize.set(1024, 1024);
+  directionalLight.shadow.bias = -0.0005;
+  directionalLight.shadow.normalBias = 0.8;
+  const shadowCamera = directionalLight.shadow.camera;
+  shadowCamera.left = -22;
+  shadowCamera.right = 22;
+  shadowCamera.top = 22;
+  shadowCamera.bottom = -22;
+  shadowCamera.near = 1;
+  shadowCamera.far = 140;
+  shadowCamera.updateProjectionMatrix();
   root.add(directionalLight);
 
   // A single oversized surface plus same-color fog/background keeps the sea
@@ -316,6 +345,9 @@ function createGardenScene(): GardenScene {
   const hoverMarker = createCueMarker("#d8eee7", 0.4);
   const selectedMarker = createCueMarker(HARBOR_PALETTE.lantern_glow, 0.78);
   root.add(hoverMarker, selectedMarker);
+  // The shadow target rides after the markers so water/accents keep the child
+  // indices the renderer tests assert; content is still appended last.
+  root.add(directionalLight.target);
 
   // Sky dome/stars/moon are added last so lights and water keep the child
   // indices the renderer tests assert against; world content is appended after.
@@ -331,6 +363,8 @@ function createGardenScene(): GardenScene {
     lighthouseModel: null,
     root,
     selectedMarker,
+    shadowActiveSize: 0,
+    shadowNeedsRender: true,
     sky,
     water,
     waterAccents,
@@ -385,6 +419,8 @@ function replaceWorldContent(
   );
   registerLightLanes(scene.laneRegistry, world, islandTile, scene.content.docks);
   scene.world = world;
+  // New island geometry — re-render the static shadow map on the next frame.
+  scene.shadowNeedsRender = true;
 }
 
 /**
@@ -435,6 +471,16 @@ function registerLightLanes(
       worldZ: dock.root.position.z,
     });
   }
+  for (const [index, offset] of gardenIslandLanternWorldOffsets().entries()) {
+    registry.set({
+      color: HARBOR_PALETTE.lantern_warm,
+      id: `island-path-lantern.${index}`,
+      intensity: 0.34,
+      kind: "lantern",
+      worldX: islandX + offset.x,
+      worldZ: islandZ + offset.z,
+    });
+  }
   registry.set({
     color: HARBOR_PALETTE.lantern_warm,
     id: "cemetery-lantern",
@@ -464,6 +510,17 @@ function createWorldContent(
 
   const island = createTerracedIsland(world);
   root.add(island.root);
+  // Only the island stone/timber (and lighthouse, inside island.root) cast and
+  // receive shadows. The flat MeshBasicMaterial shoal is excluded so its
+  // transparent disc never stamps a hard shadow; ships/docks/zones get no flags.
+  island.root.traverse((object) => {
+    if (!(object instanceof Mesh) && !(object instanceof InstancedMesh)) return;
+    const material = object.material;
+    object.castShadow = Array.isArray(material)
+      ? material.some((entry) => entry instanceof MeshStandardMaterial)
+      : material instanceof MeshStandardMaterial;
+    object.receiveShadow = true;
+  });
   entityCues.set(world.lighthouse.detailId, {
     radius: 2.7,
     root: island.lighthouseRoot,
@@ -581,6 +638,53 @@ function createWorldContent(
   };
 }
 
+/**
+ * Re-centres the directional light's tight shadow frustum on the island and
+ * sets the per-tier cost, returning the active shadow-map size (0 when off).
+ * Shadow support stays compiled (enabled + castShadow never change); cost is
+ * toggled via `shadow.intensity`/`autoUpdate` and the map is only reallocated
+ * on a tier change, so no material recompile stalls occur.
+ */
+function updateShadows(scene: GardenScene, frame: ThreeWorldRendererFrame): number {
+  const light = scene.directionalLight;
+  const islandTile = gardenIslandDisplayTile(frame.world.lighthouse.tile);
+  const centerX = islandTile.x * TILE_SCALE;
+  const centerZ = islandTile.y * TILE_SCALE;
+  light.position.set(centerX - 35, 55, centerZ - 30);
+  light.target.position.set(centerX, 3, centerZ);
+
+  const size = frame.renderScheduler.tier === "full"
+    ? 1024
+    : frame.renderScheduler.tier === "balanced"
+      ? 512
+      : 0;
+  if (size === 0) {
+    light.shadow.intensity = 0;
+    light.shadow.autoUpdate = false;
+    scene.shadowActiveSize = 0;
+    return 0;
+  }
+  light.shadow.intensity = 1;
+  // The casters (island + lighthouse) are static and the light direction is
+  // fixed, so the shadow map only needs re-rendering when the scene or frustum
+  // size changes — not every frame. This keeps the extra pass near-zero cost.
+  light.shadow.autoUpdate = false;
+  if (light.shadow.mapSize.width !== size) {
+    light.shadow.mapSize.set(size, size);
+    // Force a reallocation at the new size (three only builds the map when null).
+    light.shadow.map?.dispose();
+    light.shadow.map = null;
+    scene.shadowNeedsRender = true;
+  }
+  if (scene.shadowActiveSize !== size) scene.shadowNeedsRender = true;
+  scene.shadowActiveSize = size;
+  if (scene.shadowNeedsRender) {
+    light.shadow.needsUpdate = true;
+    scene.shadowNeedsRender = false;
+  }
+  return size;
+}
+
 function updateSceneForFrame(
   scene: GardenScene,
   camera: OrthographicCamera,
@@ -621,7 +725,21 @@ function updateSceneForFrame(
 
   const pulse = frame.reducedMotion ? 1 : 1 + Math.sin(frame.timeSeconds * 1.15) * 0.045;
   content.beacon.scale.setScalar(pulse);
-  content.beam.rotation.y = frame.reducedMotion ? -0.55 : frame.timeSeconds * 0.2;
+  // Volumetric cone at full/balanced/interaction; the flat plane is the
+  // recovery/constrained fallback; dust motes only at full tier with motion.
+  const beamUsePlane = frame.renderScheduler.tier === "recovery"
+    || frame.renderScheduler.tier === "constrained";
+  for (const child of content.beam.children) {
+    if (child.name === "lighthouse-beam-cone") child.visible = !beamUsePlane;
+    else if (child.name === "lighthouse-beam") child.visible = beamUsePlane;
+    else if (child.name === "lighthouse-beam-dust") {
+      child.visible = frame.renderScheduler.tier === "full" && !frame.reducedMotion;
+    }
+  }
+  // Constrained freezes the sweep to a static angle (matching reduced motion).
+  content.beam.rotation.y = frame.reducedMotion || constrained
+    ? -0.55
+    : frame.timeSeconds * 0.2;
   content.beacon.getWorldPosition(scratchPosition);
   scene.water.setBeaconState(
     scratchPosition.x,

@@ -58,7 +58,7 @@ describe("garden model manifest", () => {
       position: [0, 0, 0],
       upAxis: "+Y",
     });
-    expect(metadata.dimensions.y).toBeCloseTo(17.3);
+    expect(metadata.dimensions.y).toBeCloseTo(19.8);
     expect(metadata.lod.strategy).toBe("single");
     expect(metadata.artifact.compression).toBe("none");
   });

@@ -1,5 +1,6 @@
 import {
   BoxGeometry,
+  Color,
   ConeGeometry,
   CylinderGeometry,
   DodecahedronGeometry,
@@ -16,9 +17,12 @@ import {
   type PigeonnierNode,
 } from "../systems/world-types";
 import { CEMETERY_CENTER } from "../systems/world-layout";
+import { createRockTerraceGeometry } from "./garden-island";
 
 const TILE_SCALE = Math.SQRT2;
 const WATER_Y = -1.45;
+const ROCK_TOP_WET = new Color("#33403a");
+const ROCK_TOP_MOSS = new Color("#5f7350");
 
 export interface GardenLandmarkAnchorData<
   Kind extends "grave" | "pigeonnier",
@@ -76,11 +80,6 @@ export function createGardenCemetery(
     flatShading: true,
     roughness: 1,
   });
-  const moss = new MeshStandardMaterial({
-    color: "#607557",
-    flatShading: true,
-    roughness: 1,
-  });
   const memorialStone = new MeshStandardMaterial({
     color: "#c6c0aa",
     flatShading: true,
@@ -102,24 +101,34 @@ export function createGardenCemetery(
   shoal.renderOrder = 1;
   root.add(shoal);
 
+  const rockMaterial = new MeshStandardMaterial({
+    flatShading: true,
+    roughness: 0.95,
+    vertexColors: true,
+  });
+
   const shore = new Mesh(
-    irregularTerraceGeometry(6.4, 7.1, 1.28, 20, 1.15),
-    wetStone,
+    createRockTerraceGeometry(6.4, 7.1, 1.28, 20, 1.15, -0.82, ROCK_TOP_WET),
+    rockMaterial,
   );
   shore.name = "cemetery-shore";
   shore.position.y = -0.82;
   shore.scale.z = 0.68;
   shore.rotation.y = -0.08;
+  shore.castShadow = true;
+  shore.receiveShadow = true;
   root.add(shore);
 
   const plantedTop = new Mesh(
-    irregularTerraceGeometry(5.75, 6.35, 0.42, 20, 2.4),
-    [limestone, moss, wetStone],
+    createRockTerraceGeometry(5.75, 6.35, 0.42, 20, 2.4, -0.06, ROCK_TOP_MOSS, 0.07),
+    rockMaterial,
   );
   plantedTop.name = "cemetery-planted-top";
   plantedTop.position.set(-0.18, -0.06, 0.08);
   plantedTop.scale.z = 0.68;
   plantedTop.rotation.y = 0.05;
+  plantedTop.castShadow = true;
+  plantedTop.receiveShadow = true;
   root.add(plantedTop);
 
   const path = new InstancedMesh(
@@ -258,18 +267,8 @@ export function createGardenPigeonnier(
     pigeonnier.tile.y * TILE_SCALE,
   );
 
-  const wetStone = new MeshStandardMaterial({
-    color: "#506762",
-    flatShading: true,
-    roughness: 1,
-  });
   const stone = new MeshStandardMaterial({
     color: "#9b9d89",
-    flatShading: true,
-    roughness: 1,
-  });
-  const planted = new MeshStandardMaterial({
-    color: "#5f7658",
     flatShading: true,
     roughness: 1,
   });
@@ -305,22 +304,32 @@ export function createGardenPigeonnier(
   shoal.renderOrder = 1;
   root.add(shoal);
 
+  const rockMaterial = new MeshStandardMaterial({
+    flatShading: true,
+    roughness: 0.95,
+    vertexColors: true,
+  });
+
   const islet = new Mesh(
-    irregularTerraceGeometry(2.82, 3.3, 1.2, 18, 1.8),
-    wetStone,
+    createRockTerraceGeometry(2.82, 3.3, 1.2, 18, 1.8, -0.84, ROCK_TOP_WET),
+    rockMaterial,
   );
   islet.name = "pigeonnier-islet";
   islet.position.y = -0.84;
   islet.scale.z = 0.76;
+  islet.castShadow = true;
+  islet.receiveShadow = true;
   root.add(islet);
 
   const isletTop = new Mesh(
-    irregularTerraceGeometry(2.55, 2.85, 0.32, 16, 0.8),
-    [stone, planted, wetStone],
+    createRockTerraceGeometry(2.55, 2.85, 0.32, 16, 0.8, -0.14, ROCK_TOP_MOSS, 0.07),
+    rockMaterial,
   );
   isletTop.name = "pigeonnier-planted-top";
   isletTop.position.y = -0.14;
   isletTop.scale.z = 0.76;
+  isletTop.castShadow = true;
+  isletTop.receiveShadow = true;
   root.add(isletTop);
 
   const foundation = new Mesh(

@@ -11,6 +11,7 @@ import {
   MeshBasicMaterial,
   MeshStandardMaterial,
   PointLight,
+  Points,
   ShaderMaterial,
   SphereGeometry,
 } from "three";
@@ -146,12 +147,17 @@ export function updateDayCycle(
   scene.directionalLight.intensity = blendScalar(NIGHT_RIG.dirIntensity, DUSK_RIG.dirIntensity, DAY_RIG.dirIntensity, dusk, daylight);
 
   if (!scene.content) return;
-  // Kept below the hard clip so AgX rolls the core to gold, not white; the
-  // additive halo supplies the outer glow that bloom then lifts.
-  const beaconIntensity = 3.4 + night * 3.2 + frame.seaState.source.psiStress * 0.6;
+  // The beacon is the scene's strongest bloom source at night. The core stays
+  // below the AgX clip so it rolls to gold not white; the extra energy goes to
+  // the halo and beam, which bloom lifts. PSI stress keeps modulating it.
+  const beaconIntensity = MathUtils.clamp(
+    3.4 + night * 3.8 + frame.seaState.source.psiStress * 0.6,
+    0,
+    8,
+  );
   scene.content.beacon.material.emissiveIntensity = beaconIntensity;
-  scene.content.beaconHalo.material.opacity = 0.18 + dusk * 0.1 + night * 0.34;
-  scene.content.beaconHalo.scale.setScalar(1.1 + dusk * 0.2 + night * 0.62);
+  scene.content.beaconHalo.material.opacity = 0.2 + dusk * 0.12 + night * 0.46;
+  scene.content.beaconHalo.scale.setScalar(1.15 + dusk * 0.25 + night * 0.9);
   scene.content.lighthouseLight.intensity = 0.95 + dusk * 2.3 + night * 8.2;
   // Cap warm emissives below the clip point so AgX keeps them golden instead
   // of rolling them off to white pinpricks.
@@ -161,16 +167,25 @@ export function updateDayCycle(
   for (const ship of scene.content.ships) {
     ship.identitySailMaterial.emissiveIntensity = 0.16 + dusk * 0.12 + night * 0.42;
   }
+  // Beam intensity curves. World-renderer owns which piece is visible per tier;
+  // here we set opacity and freeze uTime under reduced motion.
+  const beamTime = frame.reducedMotion ? 0 : Math.max(0, frame.timeSeconds);
+  // Daylight suppresses the light-in-air pieces; the lit sea lane fades with
+  // the lighthouse light instead.
+  const coneOpacity = (dusk * 0.07 + night * 0.24) * (1 - daylight * 0.9);
+  const dustOpacity = (dusk * 0.2 + night * 0.55) * (1 - daylight);
+  const planeOpacity = (0.012 + dusk * 0.036 + night * 0.11) * (1 - daylight * 0.9);
   for (const child of scene.content.beam.children) {
-    if (!(child instanceof Mesh)) continue;
-    if (child.material instanceof ShaderMaterial) {
-      const opacity = child.material.uniforms.uOpacity;
-      if (opacity) opacity.value = 0.012 + dusk * 0.036 + night * 0.11;
-      continue;
+    if (!(child instanceof Mesh) && !(child instanceof Points)) continue;
+    const material = child.material;
+    if (!(material instanceof ShaderMaterial)) continue;
+    if (material.uniforms.uTime) material.uniforms.uTime.value = beamTime;
+    if (child.name === "lighthouse-beam-cone") {
+      material.uniforms.uOpacity.value = coneOpacity;
+    } else if (child.name === "lighthouse-beam-dust") {
+      material.uniforms.uOpacity.value = dustOpacity;
+    } else {
+      material.uniforms.uOpacity.value = planeOpacity;
     }
-    if (!(child.material instanceof MeshBasicMaterial)) continue;
-    child.material.opacity = child.name === "lighthouse-beam-inner"
-      ? 0.0018 + dusk * 0.011 + night * 0.05
-      : 0.001 + dusk * 0.006 + night * 0.028;
   }
 }

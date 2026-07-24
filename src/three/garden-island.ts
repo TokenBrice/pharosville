@@ -2,20 +2,24 @@ import {
   BoxGeometry,
   BufferGeometry,
   CircleGeometry,
+  Color,
   ConeGeometry,
   CylinderGeometry,
   DodecahedronGeometry,
   DoubleSide,
   Float32BufferAttribute,
   Group,
+  IcosahedronGeometry,
   InstancedMesh,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
   PointLight,
+  Quaternion,
   RingGeometry,
   SphereGeometry,
+  Vector3,
 } from "three";
 import {
   GARDEN_LIGHTHOUSE_ROOT_OFFSET,
@@ -28,6 +32,45 @@ import { createLighthouse } from "./garden-lighthouse";
 import { setTilePosition, stableUnit } from "./garden-util";
 
 const scratchMatrix = new Matrix4();
+
+// Height-graded rock ramp: dark wet stone at the waterline climbs to pale
+// weathered limestone at the crown. Terrace tops carry a planted colour.
+const WATERLINE_Y = WATER_LEVEL;
+const CROWN_RAMP_Y = 3.4;
+const STONE_WET = new Color("#242d28");
+const STONE_MID = new Color("#828874");
+const STONE_PALE = new Color("#d2cba9");
+const TERRACE_WET = new Color("#33403a");
+const TERRACE_MOSS = new Color("#6f8557");
+const UP_AXIS = new Vector3(0, 1, 0);
+const scratchPosition = new Vector3();
+const scratchScale = new Vector3();
+const scratchQuaternion = new Quaternion();
+
+// Stone lanterns lining the garden path (root-relative). Their warm tops feed
+// the shared light-lane registry; the orchestrator wires the registration
+// using `gardenIslandLanternWorldOffsets()`.
+const ISLAND_LANTERN_POSITIONS = [
+  [5.5, 1.22, 3.45],
+  [3.4, 1.55, 3.6],
+  [1.4, 2.12, 2.52],
+  [-0.7, 2.16, 2.4],
+  [-3.2, 2.78, 0.65],
+  [-3.9, 2.62, -0.3],
+] as const;
+const LANTERN_LAMP_LOCAL_Y = 0.88;
+
+/**
+ * World offsets (relative to the island root) of each path lantern's warm lamp,
+ * for the caller to register as light lanes on the sea.
+ */
+export function gardenIslandLanternWorldOffsets(): { x: number; y: number; z: number }[] {
+  return ISLAND_LANTERN_POSITIONS.map(([x, y, z]) => ({
+    x,
+    y: y + LANTERN_LAMP_LOCAL_Y,
+    z,
+  }));
+}
 
 export function createWaterAccents(): Group {
   const root = new Group();
@@ -95,35 +138,10 @@ export function createTerracedIsland(world: PharosVilleWorld): {
   const root = new Group();
   setTilePosition(root, gardenIslandDisplayTile(world.lighthouse.tile), 0);
 
-  const wetCliffMaterial = new MeshStandardMaterial({
-    color: "#526b66",
+  const rockMaterial = new MeshStandardMaterial({
     flatShading: true,
-    roughness: 0.92,
-  });
-  const cliffMaterial = new MeshStandardMaterial({
-    color: "#858776",
-    flatShading: true,
-    roughness: 0.98,
-  });
-  const limestoneMaterial = new MeshStandardMaterial({
-    color: "#b9b49d",
-    flatShading: true,
-    roughness: 0.96,
-  });
-  const paleStoneMaterial = new MeshStandardMaterial({
-    color: "#d8d0b8",
-    flatShading: true,
-    roughness: 0.94,
-  });
-  const plantedMaterial = new MeshStandardMaterial({
-    color: "#617553",
-    flatShading: true,
-    roughness: 1,
-  });
-  const plantedLightMaterial = new MeshStandardMaterial({
-    color: "#879064",
-    flatShading: true,
-    roughness: 1,
+    roughness: 0.95,
+    vertexColors: true,
   });
 
   const shoal = new Mesh(
@@ -140,41 +158,25 @@ export function createTerracedIsland(world: PharosVilleWorld): {
   shoal.renderOrder = 1;
   root.add(shoal);
 
-  const shore = new Mesh(
-    createIrregularTerraceGeometry(16.8, 18.4, 1.45, 32, 0.3),
-    [cliffMaterial, paleStoneMaterial, wetCliffMaterial],
-  );
-  shore.position.set(0.6, -0.74, 1.2);
-  shore.scale.z = 0.75;
-  shore.rotation.y = 0.08;
-  root.add(shore);
-
-  const lower = new Mesh(
-    createIrregularTerraceGeometry(13.7, 15.7, 1.72, 30, 1.25),
-    [cliffMaterial, limestoneMaterial, wetCliffMaterial],
-  );
-  lower.position.set(-1.8, 0.05, 0.65);
-  lower.scale.z = 0.7;
-  lower.rotation.y = -0.12;
-  root.add(lower);
-
-  const middle = new Mesh(
-    createIrregularTerraceGeometry(10.1, 12.3, 1.55, 28, 2.2),
-    [limestoneMaterial, plantedLightMaterial, cliffMaterial],
-  );
-  middle.position.set(-4.45, 1.22, 0.05);
-  middle.scale.z = 0.64;
-  middle.rotation.y = 0.18;
-  root.add(middle);
-
-  const crown = new Mesh(
-    createIrregularTerraceGeometry(6.1, 8.1, 1.15, 24, 3.35),
-    [limestoneMaterial, plantedMaterial, cliffMaterial],
-  );
-  crown.position.set(-6.7, 2.18, -1.1);
-  crown.scale.z = 0.66;
-  crown.rotation.y = -0.08;
-  root.add(crown);
+  // Craggy stone tiers: same footprint and top-shelf heights as before, but
+  // re-skinned as displaced rock with a wet-base → pale-crown vertex gradient.
+  for (const [topRadius, bottomRadius, height, segments, seed, x, y, z, scaleZ, rotation, topColor] of [
+    [16.8, 18.4, 1.45, 32, 0.3, 0.6, -0.74, 1.2, 0.75, 0.08, TERRACE_WET],
+    [13.7, 15.7, 1.72, 30, 1.25, -1.8, 0.05, 0.65, 0.7, -0.12, TERRACE_WET],
+    [10.1, 12.3, 1.55, 28, 2.2, -4.45, 1.22, 0.05, 0.64, 0.18, TERRACE_MOSS],
+    [6.1, 8.1, 1.15, 24, 3.35, -6.7, 2.18, -1.1, 0.66, -0.08, TERRACE_MOSS],
+  ] as const) {
+    const tier = new Mesh(
+      createRockTerraceGeometry(topRadius, bottomRadius, height, segments, seed, y, topColor),
+      rockMaterial,
+    );
+    tier.position.set(x, y, z);
+    tier.scale.z = scaleZ;
+    tier.rotation.y = rotation;
+    tier.castShadow = true;
+    tier.receiveShadow = true;
+    root.add(tier);
+  }
 
   for (const [radius, x, y, z, scaleZ, seed] of [
     [4.55, 3.55, 0.92, 2.9, 0.48, 0.4],
@@ -182,14 +184,18 @@ export function createTerracedIsland(world: PharosVilleWorld): {
     [2.9, 2.25, 2.42, -3.7, 0.52, 2.7],
   ] as const) {
     const plantedShelf = new Mesh(
-      createIrregularTerraceGeometry(radius, radius * 1.06, 0.2, 16, seed),
-      plantedMaterial,
+      createRockTerraceGeometry(radius, radius * 1.06, 0.2, 16, seed, y, TERRACE_MOSS, 0.06),
+      rockMaterial,
     );
     plantedShelf.position.set(x, y, z);
     plantedShelf.scale.z = scaleZ;
     plantedShelf.rotation.y = x * 0.08;
+    plantedShelf.castShadow = true;
+    plantedShelf.receiveShadow = true;
     root.add(plantedShelf);
   }
+
+  root.add(createShorelineBoulders());
 
   const pathMaterial = new MeshStandardMaterial({
     color: "#d2c9af",
@@ -271,6 +277,140 @@ function createIrregularTerraceGeometry(
     positions.setZ(index, z * variation);
   }
   positions.needsUpdate = true;
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function stoneRampColor(worldY: number, target: Color): Color {
+  const t = Math.max(0, Math.min(1, (worldY - WATERLINE_Y) / (CROWN_RAMP_Y - WATERLINE_Y)));
+  if (t < 0.5) return target.copy(STONE_WET).lerp(STONE_MID, t / 0.5);
+  return target.copy(STONE_MID).lerp(STONE_PALE, (t - 0.5) / 0.5);
+}
+
+/**
+ * A displaced, flat-shaded stone tier. Side vertices are pushed radially and
+ * crag vertically (rims held so the flat planted shelf stays sealed), and each
+ * vertex is coloured by its world height so the wet base reads far darker than
+ * the crown. The top cap is coloured `topColor` (sand or moss). Determinism
+ * comes from `seed` + `stableUnit` hashing — no `Math.random`.
+ */
+export function createRockTerraceGeometry(
+  topRadius: number,
+  bottomRadius: number,
+  height: number,
+  segments: number,
+  seed: number,
+  baseElevation: number,
+  topColor: Color,
+  amplitude = 0.11,
+): CylinderGeometry {
+  const geometry = new CylinderGeometry(topRadius, bottomRadius, height, segments, 3, false);
+  const positions = geometry.getAttribute("position");
+  const colors = new Float32Array(positions.count * 3);
+  const color = new Color();
+  const half = height / 2;
+  for (let index = 0; index < positions.count; index += 1) {
+    const x = positions.getX(index);
+    const oy = positions.getY(index);
+    const z = positions.getZ(index);
+    const radius = Math.hypot(x, z);
+    const v = (oy + half) / height;
+    if (radius >= 0.001) {
+      const angle = Math.atan2(z, x);
+      const jitter = stableUnit(`${seed}|${Math.round(angle * 57.29)}`) - 0.5;
+      const noise = Math.sin(angle * 3 + seed) * 0.5
+        + Math.sin(angle * 7 - seed * 1.3 + v * 4) * 0.3
+        + Math.sin(angle * 13 + seed * 2.1) * 0.2
+        + jitter * 0.6;
+      const radialScale = 1 + amplitude * noise;
+      positions.setX(index, x * radialScale);
+      positions.setZ(index, z * radialScale);
+      // Vertical crag, tapered to zero at both rims so caps never split open.
+      const vignette = 1 - Math.abs(2 * v - 1);
+      const crag = Math.sin(angle * 9 + seed * 3) * 0.5
+        + (stableUnit(`${seed}#${Math.round(angle * 40)}`) - 0.5);
+      positions.setY(index, oy + crag * vignette * height * 0.16);
+    }
+    const ao = 0.7 + 0.3 * v;
+    stoneRampColor(baseElevation + oy, color).multiplyScalar(ao);
+    colors[index * 3] = color.r;
+    colors[index * 3 + 1] = color.g;
+    colors[index * 3 + 2] = color.b;
+  }
+
+  // Repaint the cap groups: top = planted colour, bottom = darkest wet stone.
+  const index = geometry.getIndex();
+  if (index) {
+    for (const group of geometry.groups) {
+      if (group.materialIndex !== 1 && group.materialIndex !== 2) continue;
+      const capColor = group.materialIndex === 1
+        ? color.copy(topColor)
+        : color.copy(STONE_WET).multiplyScalar(0.62);
+      for (let k = group.start; k < group.start + group.count; k += 1) {
+        const vertex = index.getX(k);
+        colors[vertex * 3] = capColor.r;
+        colors[vertex * 3 + 1] = capColor.g;
+        colors[vertex * 3 + 2] = capColor.b;
+      }
+    }
+  }
+
+  positions.needsUpdate = true;
+  geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
+  geometry.clearGroups();
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function createShorelineBoulders(): InstancedMesh {
+  const geometry = displacedBoulderGeometry();
+  const boulders = new InstancedMesh(
+    geometry,
+    new MeshStandardMaterial({ flatShading: true, roughness: 0.96, vertexColors: true }),
+    14,
+  );
+  boulders.name = "island-shoreline-boulders";
+  boulders.castShadow = true;
+  boulders.receiveShadow = true;
+  for (let i = 0; i < boulders.count; i += 1) {
+    const angle = (i / boulders.count) * Math.PI * 2 + stableUnit(`boulder.a.${i}`) * 0.4;
+    const reach = 0.86 + stableUnit(`boulder.r.${i}`) * 0.22;
+    const x = 1.0 + Math.cos(angle) * 18.6 * reach;
+    const z = 1.4 + Math.sin(angle) * 12.4 * reach;
+    const y = WATER_LEVEL + 0.1 + stableUnit(`boulder.y.${i}`) * 0.85;
+    const scale = 0.9 + stableUnit(`boulder.s.${i}`) * 1.5;
+    scratchQuaternion.setFromAxisAngle(UP_AXIS, stableUnit(`boulder.rot.${i}`) * Math.PI * 2);
+    scratchScale.set(scale, scale * (0.5 + stableUnit(`boulder.f.${i}`) * 0.3), scale);
+    scratchPosition.set(x, y, z);
+    scratchMatrix.compose(scratchPosition, scratchQuaternion, scratchScale);
+    boulders.setMatrixAt(i, scratchMatrix);
+  }
+  boulders.instanceMatrix.needsUpdate = true;
+  return boulders;
+}
+
+function displacedBoulderGeometry(): IcosahedronGeometry {
+  const geometry = new IcosahedronGeometry(1, 1);
+  const positions = geometry.getAttribute("position");
+  const colors = new Float32Array(positions.count * 3);
+  const color = new Color();
+  for (let index = 0; index < positions.count; index += 1) {
+    const x = positions.getX(index);
+    const y = positions.getY(index);
+    const z = positions.getZ(index);
+    const displace = 1
+      + (stableUnit(`boulder.v.${Math.round(x * 20)}.${Math.round(y * 20)}.${Math.round(z * 20)}`) - 0.5) * 0.5;
+    positions.setX(index, x * displace);
+    positions.setY(index, Math.max(y * displace, -0.72));
+    positions.setZ(index, z * displace);
+    // Wet-dark base lightening toward the crown of each boulder.
+    color.copy(STONE_WET).lerp(STONE_MID, Math.max(0, Math.min(1, (y + 1) / 2)) * 0.7);
+    colors[index * 3] = color.r;
+    colors[index * 3 + 1] = color.g;
+    colors[index * 3 + 2] = color.b;
+  }
+  positions.needsUpdate = true;
+  geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
   geometry.computeVertexNormals();
   return geometry;
 }
@@ -381,37 +521,69 @@ function createIslandDecoration(): Group {
   reeds.instanceMatrix.needsUpdate = true;
   root.add(reeds);
 
-  for (const [x, y, z] of [
-    [-3.2, 2.78, 0.65],
-    [1.4, 2.12, 2.52],
-    [5.5, 1.22, 3.45],
-  ] as const) {
-    const lantern = new Group();
-    lantern.position.set(x, y, z);
-    const pedestal = new Mesh(
-      new CylinderGeometry(0.16, 0.22, 0.72, 6),
-      new MeshStandardMaterial({ color: "#807f71", flatShading: true, roughness: 1 }),
-    );
-    pedestal.position.y = 0.36;
-    const lamp = new Mesh(
-      new BoxGeometry(0.34, 0.32, 0.34),
-      new MeshStandardMaterial({
-        color: "#d4b66f",
-        emissive: HARBOR_PALETTE.lantern_warm,
-        emissiveIntensity: 0.7,
-        roughness: 0.48,
-      }),
-    );
-    lamp.position.y = 0.88;
-    const cap = new Mesh(
-      new ConeGeometry(0.32, 0.25, 4),
-      new MeshStandardMaterial({ color: "#696a61", flatShading: true, roughness: 0.9 }),
-    );
-    cap.position.y = 1.17;
-    cap.rotation.y = Math.PI / 4;
-    lantern.add(pedestal, lamp, cap);
-    root.add(lantern);
-  }
+  const steppingPoints = [
+    [6.1, 0.05, 6.5, 0.6],
+    [5.3, -0.12, 7.2, 0.66],
+    [4.4, -0.28, 7.85, 0.58],
+    [3.35, -0.42, 8.4, 0.7],
+    [2.2, -0.55, 8.85, 0.52],
+    [7.6, 0.62, 4.4, 0.5],
+  ] as const;
+  const stepping = new InstancedMesh(
+    new DodecahedronGeometry(0.62, 0),
+    new MeshStandardMaterial({ color: "#7c7b68", flatShading: true, roughness: 1 }),
+    steppingPoints.length,
+  );
+  stepping.name = "island-stepping-stones";
+  stepping.receiveShadow = true;
+  steppingPoints.forEach(([x, y, z, scale], index) => {
+    scratchMatrix.makeScale(scale, scale * 0.24, scale * 0.86);
+    scratchMatrix.setPosition(x, y, z);
+    stepping.setMatrixAt(index, scratchMatrix);
+  });
+  stepping.instanceMatrix.needsUpdate = true;
+  root.add(stepping);
+
+  const lanternCount = ISLAND_LANTERN_POSITIONS.length;
+  const pedestals = new InstancedMesh(
+    new CylinderGeometry(0.16, 0.22, 0.72, 6),
+    new MeshStandardMaterial({ color: "#807f71", flatShading: true, roughness: 1 }),
+    lanternCount,
+  );
+  pedestals.name = "island-lantern-pedestals";
+  const lamps = new InstancedMesh(
+    new BoxGeometry(0.34, 0.32, 0.34),
+    new MeshStandardMaterial({
+      color: HARBOR_PALETTE.lantern_glow,
+      emissive: HARBOR_PALETTE.lantern_warm,
+      emissiveIntensity: 1.6,
+      roughness: 0.42,
+      toneMapped: false,
+    }),
+    lanternCount,
+  );
+  lamps.name = "island-lantern-lamps";
+  const caps = new InstancedMesh(
+    new ConeGeometry(0.32, 0.25, 4),
+    new MeshStandardMaterial({ color: "#696a61", flatShading: true, roughness: 0.9 }),
+    lanternCount,
+  );
+  caps.name = "island-lantern-caps";
+  scratchQuaternion.setFromAxisAngle(UP_AXIS, Math.PI / 4);
+  ISLAND_LANTERN_POSITIONS.forEach(([x, y, z], index) => {
+    scratchMatrix.makeTranslation(x, y + 0.36, z);
+    pedestals.setMatrixAt(index, scratchMatrix);
+    scratchMatrix.makeTranslation(x, y + LANTERN_LAMP_LOCAL_Y, z);
+    lamps.setMatrixAt(index, scratchMatrix);
+    scratchPosition.set(x, y + 1.17, z);
+    scratchScale.set(1, 1, 1);
+    scratchMatrix.compose(scratchPosition, scratchQuaternion, scratchScale);
+    caps.setMatrixAt(index, scratchMatrix);
+  });
+  pedestals.instanceMatrix.needsUpdate = true;
+  lamps.instanceMatrix.needsUpdate = true;
+  caps.instanceMatrix.needsUpdate = true;
+  root.add(pedestals, lamps, caps);
   return root;
 }
 
@@ -424,6 +596,11 @@ function createWindPine(scale: number, bend: number): Group {
   });
   const foliageMaterial = new MeshStandardMaterial({
     color: "#3f5d49",
+    flatShading: true,
+    roughness: 0.96,
+  });
+  const foliageLightMaterial = new MeshStandardMaterial({
+    color: "#5a7a5c",
     flatShading: true,
     roughness: 0.96,
   });
@@ -440,15 +617,23 @@ function createWindPine(scale: number, bend: number): Group {
     trunk.rotation.z = rotation;
     root.add(trunk);
   }
-  for (const [x, y, z, sx, sy, sz] of [
-    [bend * 0.32, 2.35, 0, 1.45, 0.5, 0.92],
-    [bend * 0.62, 3.12, 0.18, 1.7, 0.58, 1.0],
-    [bend * 0.82, 3.82, -0.1, 1.25, 0.48, 0.82],
-    [bend * 0.18, 3.55, 0.12, 0.85, 0.42, 0.72],
+  // Layered wind-shaped pads: each canopy tier sits flatter and rakes further
+  // downwind than the one below it, reading as a wind-combed pine silhouette.
+  for (const [x, y, z, sx, sy, sz, light] of [
+    [bend * 0.34, 2.3, 0.04, 1.75, 0.42, 1.05, 0],
+    [bend * 0.62, 2.95, 0.16, 1.95, 0.4, 1.15, 1],
+    [bend * 0.92, 3.5, -0.08, 1.6, 0.36, 0.95, 0],
+    [bend * 1.22, 3.98, 0.1, 1.25, 0.32, 0.78, 1],
+    [bend * 1.5, 4.34, -0.04, 0.82, 0.28, 0.58, 0],
   ] as const) {
-    const crown = new Mesh(new DodecahedronGeometry(1, 0), foliageMaterial);
+    const crown = new Mesh(
+      new DodecahedronGeometry(1, 0),
+      light ? foliageLightMaterial : foliageMaterial,
+    );
     crown.position.set(x, y, z);
     crown.scale.set(sx, sy, sz);
+    crown.rotation.z = bend * 0.16;
+    crown.castShadow = true;
     root.add(crown);
   }
   root.scale.setScalar(scale);

@@ -103,6 +103,7 @@ vi.mock("three", async (importOriginal) => {
     renderLists = { dispose: vi.fn() };
     setPixelRatio = vi.fn();
     setSize = vi.fn();
+    shadowMap = { autoUpdate: true, enabled: false, type: 0 };
     toneMapping = 0;
     toneMappingExposure = 1;
 
