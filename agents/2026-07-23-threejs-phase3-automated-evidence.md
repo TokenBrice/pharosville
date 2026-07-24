@@ -33,7 +33,7 @@ The consolidated Chromium Three.js suite passes:
 ```bash
 PHAROSVILLE_VISUAL_REUSE=1 \
 PHAROSVILLE_VISUAL_BROWSERS=chromium \
-npm run test:visual:three
+npm run test:visual  # was test:visual:three before the one-renderer cutover
 ```
 
 Result: **9/9 passed** in 37 seconds.
@@ -61,7 +61,7 @@ world sample after semantic-detail LOD and repeated-geometry batching records:
 ```bash
 PHAROSVILLE_VISUAL_REUSE=1 \
 PHAROSVILLE_VISUAL_BROWSERS=chromium \
-npm run test:perf:three
+npm run test:perf  # was test:perf:three before the one-renderer cutover
 ```
 
 Result: **6/6 passed**.
