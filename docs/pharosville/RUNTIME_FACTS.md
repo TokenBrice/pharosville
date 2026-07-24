@@ -34,8 +34,8 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - `useAssetLoadingPipeline` loads same-origin stablecoin logo images only.
 - Ship, dock, island, cemetery, ambient-life, and water visuals are renderer-owned procedural geometry/materials.
 - Lighthouse model: `garden-lighthouse-shell` at `/pharosville/models/garden-lighthouse-shell.glb`
-- Lighthouse GLB: 63 KiB, SHA-256 `25fd507abedd77ff98e00fba2f89202b73cd24ccfe4de76d1acfb6b14c1030d3`, compression `none`
-- Lighthouse geometry: 7 draw calls, 1,020 triangles, 1,561 vertices, 0 textures
+- Lighthouse GLB: 75 KiB, SHA-256 `8e7caf560bee5497e70abb86c56f3591934e98a30332e4cbcffa0e451a1efb06`, compression `none`
+- Lighthouse geometry: 7 draw calls, 1,068 triangles, 1,657 vertices, 0 textures
 - The procedural lighthouse shell remains the in-scene fallback if its GLB cannot load.
 
 ## Archived Raster Inventory
@@ -58,7 +58,7 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - entry chunk: raw <= 300 KiB, gzip <= 90 KiB
 - desktop lazy chunk: raw <= 1,024 KiB, gzip <= 290 KiB
 - world lazy chunk: raw <= 440 KiB, gzip <= 145 KiB
-- Three.js renderer chunk: raw <= 740 KiB, gzip <= 200 KiB
+- Three.js renderer chunk: raw <= 770 KiB, gzip <= 200 KiB
 - entry CSS: raw <= 36 KiB, gzip <= 8 KiB
 - Total JS: raw <= 1,800 KiB, gzip <= 515 KiB
 
