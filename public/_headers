@@ -13,21 +13,10 @@
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
 
-# Retained raster assets are immutable authoring/reference outputs. The Three.js
-# runtime loads stablecoin logos and the checked GLB model instead.
-/pharosville/assets/docks/*
-  Cache-Control: public, max-age=31536000, immutable
-/pharosville/assets/landmarks/*
-  Cache-Control: public, max-age=31536000, immutable
-/pharosville/assets/overlays/*
-  Cache-Control: public, max-age=31536000, immutable
-/pharosville/assets/props/*
-  Cache-Control: public, max-age=31536000, immutable
-/pharosville/assets/ships/*
-  Cache-Control: public, max-age=31536000, immutable
-/pharosville/assets/terrain/*
-  Cache-Control: public, max-age=31536000, immutable
-
 # Runtime GLBs use a content-hash query from the checked model manifest.
 /pharosville/models/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# The generated water normal uses a content-hash query in the runtime URL.
+/pharosville/textures/*
   Cache-Control: public, max-age=31536000, immutable
