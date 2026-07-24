@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   createRenderSchedulerHysteresisState,
-  isScheduledPassDegraded,
   RENDER_SCHEDULER_DOWNSHIFT_STREAK,
   RENDER_SCHEDULER_UPSHIFT_STREAK,
   resolveRenderSchedulerState,
-  shouldDrawScheduledPass,
 } from "./render-scheduler";
 
 describe("render scheduler", () => {
@@ -18,7 +16,7 @@ describe("render scheduler", () => {
     });
 
     expect(scheduler.tier).toBe("full");
-    expect(scheduler.skippedPasses).toHaveLength(0);
+    expect(scheduler.targetFrameMs).toBe(16.7);
   });
 
   it("uses the balanced tier as the normal animated default", () => {
@@ -30,7 +28,6 @@ describe("render scheduler", () => {
     });
 
     expect(scheduler.tier).toBe("balanced");
-    expect(scheduler.skippedPasses).toHaveLength(0);
   });
 
   it("uses interaction tier during active camera intent", () => {
@@ -40,12 +37,9 @@ describe("render scheduler", () => {
     });
 
     expect(scheduler.tier).toBe("interaction");
-    expect(shouldDrawScheduledPass(scheduler, "film-grain")).toBe(false);
-    expect(isScheduledPassDegraded(scheduler, "birds")).toBe(true);
-    expect(shouldDrawScheduledPass(scheduler, "weather")).toBe(true);
   });
 
-  it("skips decorative effects under constrained frame pacing", () => {
+  it("uses the constrained tier under severe frame pressure", () => {
     const scheduler = resolveRenderSchedulerState({
       cameraIntentActive: false,
       drawDurationMs: 100,
@@ -54,14 +48,6 @@ describe("render scheduler", () => {
     });
 
     expect(scheduler.tier).toBe("constrained");
-    expect(shouldDrawScheduledPass(scheduler, "moon-reflection")).toBe(false);
-    expect(shouldDrawScheduledPass(scheduler, "scene-vignette")).toBe(true);
-    // Constrained (but not recovery) also sheds the per-frame water passes.
-    expect(shouldDrawScheduledPass(scheduler, "coastal-water-motion")).toBe(false);
-    expect(shouldDrawScheduledPass(scheduler, "water-accents")).toBe(false);
-    expect(shouldDrawScheduledPass(scheduler, "dock-caustics")).toBe(false);
-    expect(shouldDrawScheduledPass(scheduler, "lighthouse-reflection")).toBe(true);
-    expect(shouldDrawScheduledPass(scheduler, "selection")).toBe(true);
   });
 
   it("uses recovery tier for moderate pressure", () => {
@@ -73,13 +59,6 @@ describe("render scheduler", () => {
     });
 
     expect(scheduler.tier).toBe("recovery");
-    expect(shouldDrawScheduledPass(scheduler, "film-grain")).toBe(false);
-    expect(shouldDrawScheduledPass(scheduler, "moon-reflection")).toBe(false);
-    expect(shouldDrawScheduledPass(scheduler, "scene-vignette")).toBe(true);
-    expect(shouldDrawScheduledPass(scheduler, "coastal-water-motion")).toBe(true);
-    expect(shouldDrawScheduledPass(scheduler, "water-accents")).toBe(true);
-    expect(shouldDrawScheduledPass(scheduler, "dock-caustics")).toBe(true);
-    expect(isScheduledPassDegraded(scheduler, "cloud-shadow")).toBe(false);
   });
 });
 

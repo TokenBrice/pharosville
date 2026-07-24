@@ -1,7 +1,5 @@
 import type { AreaNode, DewsAreaBand, LighthouseNode, PharosVilleWorld, ShipNode } from "./world-types";
 
-export const SEA_STATE_SMOOTHING_TAU_SECONDS = 8;
-
 export type SeaStateLabel = "Calm sea" | "Light chop" | "Fresh sea" | "Rough sea" | "Storm sea";
 
 export interface SeaStateSource {
@@ -31,13 +29,6 @@ export interface SeaStateInput {
   lighthouse: Pick<LighthouseNode, "psiBand" | "score" | "unavailable">;
   reducedMotion?: boolean;
   wallClockHour?: number;
-}
-
-export interface SeaStateSmoothingInput {
-  current: SeaState;
-  target: SeaState;
-  deltaSeconds: number;
-  tauSeconds?: number;
 }
 
 export interface RecentFleetTrendEntry {
@@ -118,28 +109,6 @@ export function seaStateForSources(input: SeaStateInput): SeaState {
   };
 }
 
-/**
- * Pure smoothing hook for a future stateful renderer owner. This module does
- * not retain previous frame state, so current consumers read the instantaneous
- * target and callers that own frame memory can apply this 8s tau lerp.
- */
-export function smoothSeaState(input: SeaStateSmoothingInput): SeaState {
-  const tau = input.tauSeconds ?? SEA_STATE_SMOOTHING_TAU_SECONDS;
-  if (tau <= 0) return input.target;
-  if (input.deltaSeconds <= 0) return input.current;
-  const alpha = 1 - Math.exp(-input.deltaSeconds / tau);
-  const swell = lerp(input.current.swell, input.target.swell, alpha);
-  const wind = lerp(input.current.wind, input.target.wind, alpha);
-  const tempo = lerp(input.current.tempo, input.target.tempo, alpha);
-  return {
-    ...input.target,
-    swell,
-    wind,
-    tempo,
-    label: labelForIntensity((swell + wind + tempo) / 3),
-  };
-}
-
 export function seaStateSummary(state: SeaState): string {
   const band = state.source.maxDewsBand ?? "no active DEWS band";
   const reduced = state.reducedMotion ? "; reduced-motion holds animation phases flat" : "";
@@ -180,34 +149,9 @@ export function recentFleetTrendSummaryText(summary: RecentFleetTrendSummary): s
   return `${moveText}; ${summary.elevatedShipCount} ships in elevated water`;
 }
 
-export function seaStateRoughnessMultiplier(state: SeaState | null | undefined): number {
-  if (!state) return 1;
-  return 0.6 + 0.4 * clamp01(state.swell);
-}
-
 export function seaStateMooringSwayMultiplier(state: SeaState | null | undefined): number {
   if (!state || state.reducedMotion) return 1;
   return 0.82 + 0.48 * clamp01(state.swell);
-}
-
-export function seaStateWindMultiplier(state: SeaState | null | undefined): number {
-  if (!state || state.reducedMotion) return 1;
-  return 1 + 0.85 * clamp01(state.wind);
-}
-
-export function seaStateTempoMultiplier(state: SeaState | null | undefined): number {
-  if (!state || state.reducedMotion) return 1;
-  return 0.78 + 0.62 * clamp01(state.tempo);
-}
-
-export function seaStateLighthouseFlickerMultiplier(state: SeaState | null | undefined): number {
-  if (!state || state.reducedMotion) return 1;
-  return 0.82 + 0.38 * clamp01(state.swell);
-}
-
-export function seaStateSmokeCadenceMultiplier(state: SeaState | null | undefined): number {
-  if (!state || state.reducedMotion) return 1;
-  return 0.74 + 0.56 * clamp01((state.swell + state.wind) / 2);
 }
 
 function maxActiveDewsBand(areas: readonly Pick<AreaNode, "band" | "count">[]): DewsAreaBand | null {
@@ -268,10 +212,6 @@ function formatSignedPercent(value: number): string {
   const rounded = Math.round(value * 10) / 10;
   const sign = rounded >= 0 ? "+" : "";
   return `${sign}${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}%`;
-}
-
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * clamp01(t);
 }
 
 function clamp01(value: number): number {

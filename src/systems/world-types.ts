@@ -57,13 +57,6 @@ export type ShipHull =
   | "crypto-caravel"
   | "algo-junk";
 
-export type ShipClass =
-  | "cefi"
-  | "cefi-dependent"
-  | "defi"
-  | "legacy-algo"
-  | "unclassified";
-
 export type ShipSizeTier =
   | "titan"
   | "unique"
@@ -94,14 +87,10 @@ export interface ShipLivery {
 
 export interface ShipVisual {
   hull: ShipHull;
-  spriteAssetId?: string;
   uniqueRationale?: string;
-  shipClass: ShipClass;
   classLabel: string;
-  rigging: "issuer-rig" | "dependent-rig" | "dao-rig";
   livery: ShipLivery;
   sailColor: string;
-  sailStripeColor: string;
   overlay: "none" | "yield" | "nav" | "watch";
   sizeTier: ShipSizeTier;
   sizeLabel: string;
@@ -173,8 +162,6 @@ export interface DockNode {
   kind: "dock";
   label: string;
   chainId: string;
-  logoSrc: string | null;
-  assetId: string;
   tile: { x: number; y: number };
   totalUsd: number;
   size: number;
@@ -263,38 +250,12 @@ export interface GraveNode {
   kind: "grave";
   label: string;
   entry: CemeteryEntry;
-  logoSrc: string | null;
   tile: { x: number; y: number };
   visual: {
     marker: "broken-keel" | "sinking-stern" | "grounded" | "shattered" | "skeletal";
     scale: number;
   };
   detailId: string;
-}
-
-export type WorldEffectCueId =
-  | "cue.lighthouse.psi"
-  | "cue.ship.distance"
-  | "cue.ship.motion"
-  | "cue.water.semantic-terrain";
-
-export type WorldEffectPurpose = "ambient" | "analytical";
-
-export interface WorldEffect {
-  cueId?: WorldEffectCueId;
-  id: string;
-  kind: "recent-change" | "fog" | "storm";
-  entityId: string;
-  intensity: number;
-  nonData?: boolean;
-  purpose: WorldEffectPurpose;
-  reducedMotionEquivalent: string;
-}
-
-export interface LegendItem {
-  id: string;
-  label: string;
-  description: string;
 }
 
 export type DewsAreaBand = "DANGER" | "WARNING" | "ALERT" | "WATCH" | "CALM";
@@ -409,11 +370,9 @@ export interface PharosVilleWorld {
   areas: AreaNode[];
   ships: ShipNode[];
   graves: GraveNode[];
-  effects: WorldEffect[];
   detailIndex: Record<string, DetailModel>;
   // Keyed by `detailId` (the same key used by `detailIndex`) so detail-panel
   // selection can resolve the source entity in O(1) without a linear scan.
   entityById: Record<string, SelectableWorldEntity>;
-  legends: LegendItem[];
   visualCues: VisualCue[];
 }

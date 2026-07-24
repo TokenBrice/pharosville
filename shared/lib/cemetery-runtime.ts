@@ -12,7 +12,6 @@ function frozenToDeadShape(coin: StablecoinMeta): CemeteryEntry {
     id: coin.id,
     name: coin.name,
     symbol: coin.symbol,
-    logo: `${coin.symbol.toLowerCase()}.png`,
     pegCurrency: coin.flags.pegCurrency,
     causeOfDeath: coin.obituary.causeOfDeath,
     deathDate: coin.obituary.deathDate,

@@ -29,7 +29,7 @@ The `systems/` directory owns the pure data-to-world layer for the standalone Ph
 | --- | --- | --- |
 | Change map geography | `world-layout.ts`, `world-layout.test.ts` | Preserve sea-first ratio, lighthouse, EVM bay, cemetery, civic core, and risk-water anchors unless intentionally changing them. |
 | Change dock semantics | `chain-docks.ts`, `pharosville-world.ts` | Docks mean top-chain stablecoin supply, not transfers. |
-| Change ship class or size | `ship-visuals.ts`, `classification-to-boat.ts` | Size is compressed market-cap tiering. |
+| Change ship hull or size | `ship-visuals.ts`, `unique-ships.ts` | Size is compressed market-cap tiering. |
 | Change risk placement | `risk-placement.ts`, `pharosville-world.ts` | Active depeg/fresh DEWS precedence matters; stale/missing evidence must not become storm risk. |
 | Change movement | `motion.ts`, `pharosville-world.tsx` | Motion samples must stay water-safe and aligned with hit testing. |
 | Add a visual cue | `visual-cue-registry.ts`, `detail-model.ts` | Include source fields and DOM equivalent text. |

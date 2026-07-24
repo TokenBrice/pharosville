@@ -92,7 +92,6 @@ export interface DeadStablecoin {
   name: string;
   symbol: string;
   llamaId?: string | undefined;
-  logo?: string | undefined;
   pegCurrency: PegCurrency;
   causeOfDeath: CauseOfDeath;
   deathDate: string;

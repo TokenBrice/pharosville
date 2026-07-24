@@ -1,8 +1,4 @@
 export const MAX_MAIN_CANVAS_PIXELS = 8_000_000;
-export const MAX_TERRAIN_CACHE_PIXELS = 6_000_000;
-export const MAX_WEATHER_CACHE_PIXELS = 2_000_000;
-export const MAX_MINIMAP_PIXELS = 300_000;
-export const MAX_TOTAL_BACKING_PIXELS = 14_000_000;
 export const ADAPTIVE_DPR_WINDOW_SIZE = 48;
 export const ADAPTIVE_DPR_DOWNSHIFT_P90_MS = 17.4;
 export const ADAPTIVE_DPR_UPSHIFT_P90_MS = 13.6;
@@ -10,13 +6,10 @@ export const ADAPTIVE_DPR_STEP = 0.125;
 export const ADAPTIVE_DPR_DOWNSHIFT_STREAK = 4;
 export const ADAPTIVE_DPR_UPSHIFT_STREAK = 16;
 export const ADAPTIVE_DPR_CHANGE_COOLDOWN_FRAMES = 24;
-// Raster/compositor-bound guard: `drawDurationMs` only measures JS-side 2D
-// command time, so on machines where rasterization is the bottleneck it stays
-// low (~5ms) while real frame pacing collapses to 30ms+. When pacing p90
-// exceeds the threshold below while draw p90 stays quiet, the governor must
-// downshift (and never upshift) instead of reading the quiet draw time as
-// headroom. The pacing threshold sits below the render scheduler's recovery
-// tier (28ms) so DPR steps down before effects start shedding.
+// GPU/compositor-bound guard: `drawDurationMs` measures JS-side render
+// submission time, so real frame pacing can degrade while the submission
+// window stays quiet. In that case the governor must downshift instead of
+// reading the quiet draw time as headroom.
 export const ADAPTIVE_DPR_PACING_DOWNSHIFT_P90_MS = 20;
 export const ADAPTIVE_DPR_PACING_QUIET_DRAW_P90_MS = 8;
 // ~0.5s at 60fps: enough pacing samples that a single GC/raster hiccup cannot
@@ -78,23 +71,6 @@ export interface AdaptiveDprState {
 export interface FramePacingSummary {
   p90Ms: number;
   sampleCount: number;
-}
-
-export interface CanvasBackingPixelMetrics {
-  dynamicCacheEntryCount: number;
-  dynamicCachePixels: number;
-  mainCanvasPixels: number;
-  maxMainCanvasPixels: number;
-  maxTotalBackingPixels: number;
-  offscreenCachePixels: number;
-  overBudgetPixels: number;
-  remainingOffscreenPixels: number;
-  spriteCacheEntryCount: number;
-  spriteCachePixels: number;
-  staticCacheEntryCount: number;
-  staticCachePixels: number;
-  totalBackingPixels: number;
-  totalCacheEntryCount: number;
 }
 
 export function createDrawDurationWindow(capacity = ADAPTIVE_DPR_WINDOW_SIZE): DrawDurationWindow {
@@ -222,71 +198,7 @@ function quantizeDpr(value: number): number {
   return Math.round(value / ADAPTIVE_DPR_STEP) * ADAPTIVE_DPR_STEP;
 }
 
-export function canvasPixelArea(width: number, height: number): number {
-  const safeWidth = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 0;
-  const safeHeight = Number.isFinite(height) ? Math.max(0, Math.floor(height)) : 0;
-  return safeWidth * safeHeight;
-}
-
-export function resolveCanvasBackingPixelMetrics(input: {
-  dynamicCacheEntryCount?: number;
-  dynamicCachePixels?: number;
-  mainCanvasPixels: number;
-  maxMainCanvasPixels?: number;
-  maxTotalBackingPixels?: number;
-  staticCacheEntryCount?: number;
-  staticCachePixels?: number;
-  spriteCacheEntryCount?: number;
-  spriteCachePixels?: number;
-}): CanvasBackingPixelMetrics {
-  const mainCanvasPixels = Math.max(0, Math.floor(input.mainCanvasPixels));
-  const staticCachePixels = Math.max(0, Math.floor(input.staticCachePixels ?? 0));
-  const dynamicCachePixels = Math.max(0, Math.floor(input.dynamicCachePixels ?? 0));
-  const spriteCachePixels = Math.max(0, Math.floor(input.spriteCachePixels ?? 0));
-  const maxMainCanvasPixels = Math.max(1, Math.floor(input.maxMainCanvasPixels ?? MAX_MAIN_CANVAS_PIXELS));
-  const maxTotalBackingPixels = Math.max(maxMainCanvasPixels, Math.floor(input.maxTotalBackingPixels ?? MAX_TOTAL_BACKING_PIXELS));
-  const offscreenCachePixels = staticCachePixels + dynamicCachePixels + spriteCachePixels;
-  const totalBackingPixels = mainCanvasPixels + offscreenCachePixels;
-  const remainingOffscreenPixels = Math.max(0, maxTotalBackingPixels - mainCanvasPixels - offscreenCachePixels);
-  return {
-    dynamicCacheEntryCount: Math.max(0, Math.floor(input.dynamicCacheEntryCount ?? 0)),
-    dynamicCachePixels,
-    mainCanvasPixels,
-    maxMainCanvasPixels,
-    maxTotalBackingPixels,
-    offscreenCachePixels,
-    overBudgetPixels: Math.max(0, totalBackingPixels - maxTotalBackingPixels),
-    remainingOffscreenPixels,
-    spriteCacheEntryCount: Math.max(0, Math.floor(input.spriteCacheEntryCount ?? 0)),
-    spriteCachePixels,
-    staticCacheEntryCount: Math.max(0, Math.floor(input.staticCacheEntryCount ?? 0)),
-    staticCachePixels,
-    totalBackingPixels,
-    totalCacheEntryCount: Math.max(0, Math.floor((input.staticCacheEntryCount ?? 0) + (input.dynamicCacheEntryCount ?? 0) + (input.spriteCacheEntryCount ?? 0))),
-  };
-}
-
-export function canRetainOffscreenCanvas(input: {
-  candidatePixels: number;
-  currentDynamicCachePixels?: number;
-  currentSpriteCachePixels?: number;
-  currentStaticCachePixels?: number;
-  mainCanvasPixels: number;
-  maxTotalBackingPixels?: number;
-}): boolean {
-  const candidatePixels = Math.max(0, Math.floor(input.candidatePixels));
-  if (candidatePixels <= 0) return true;
-  const metrics = resolveCanvasBackingPixelMetrics({
-    dynamicCachePixels: input.currentDynamicCachePixels ?? 0,
-    mainCanvasPixels: input.mainCanvasPixels,
-    ...(input.maxTotalBackingPixels !== undefined ? { maxTotalBackingPixels: input.maxTotalBackingPixels } : {}),
-    spriteCachePixels: input.currentSpriteCachePixels ?? 0,
-    staticCachePixels: input.currentStaticCachePixels ?? 0,
-  });
-  return candidatePixels <= metrics.remainingOffscreenPixels;
-}
-
-export function resolveCanvasBudget(input: {
+export function resolveRenderSurfaceBudget(input: {
   cssHeight: number;
   cssWidth: number;
   requestedDpr: number;
@@ -304,7 +216,6 @@ export function resolveCanvasBudget(input: {
     backingWidth,
     effectiveDpr,
     maxMainCanvasPixels: MAX_MAIN_CANVAS_PIXELS,
-    maxTotalBackingPixels: MAX_TOTAL_BACKING_PIXELS,
     requestedDpr,
   };
 }

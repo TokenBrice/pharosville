@@ -12,7 +12,7 @@ const DEPLOY_GATE_COMMANDS = [
   ["npm", ["run", "check:release-contract"]],
   ["npm", ["run", "check:viewport-gate"]],
   ["npm", ["run", "check:security-headers:static"]],
-  ["npm", ["run", "check:pharosville-assets"]],
+  ["npm", ["run", "check:runtime-media"]],
   ["npm", ["run", "check:pharosville-colors"]],
   ["npm", ["run", "build"]],
   ["npm", ["run", "check:bundle-size"]],

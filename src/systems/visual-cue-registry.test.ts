@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { PharosVilleWorld, VisualCue, VisualCueChannel, WorldEffect } from "./world-types";
+import type { PharosVilleWorld, VisualCue, VisualCueChannel } from "./world-types";
 import { buildVisualCueRegistry, LEGEND_MARK_ROWS } from "./visual-cue-registry";
 
 const ALLOWED_CHANNELS = [
@@ -11,10 +11,6 @@ const ALLOWED_CHANNELS = [
   "shape",
   "size",
 ] as const satisfies readonly VisualCueChannel[];
-
-const STRUCTURAL_WORLD_FIELDS = {
-  effects: "WorldEffect entries must declare analytical cue metadata or explicit non-data ambient purpose.",
-} as const satisfies Partial<Record<keyof PharosVilleWorld, string>>;
 
 function cueKey(cue: VisualCue): string {
   return cue.target.kind;
@@ -28,7 +24,6 @@ describe("buildVisualCueRegistry", () => {
     expect(cues.map((cue) => cue.id)).toEqual(expect.arrayContaining([
       "cue.ship.motion",
       "cue.ship.hull",
-      "cue.ship.rigging",
       "cue.ship.scale",
       "cue.ship.safety-watch",
       "cue.water.semantic-terrain",
@@ -53,7 +48,7 @@ describe("buildVisualCueRegistry", () => {
     expect(cues).toContainEqual(expect.objectContaining({ target: { kind: "area" } }));
   });
 
-  it("covers world node kinds or records a structural-only exclusion", () => {
+  it("covers world node kinds", () => {
     const cues = buildVisualCueRegistry();
     const targetKeys = new Set(cues.map(cueKey));
     const coveredWorldFields = {
@@ -70,9 +65,6 @@ describe("buildVisualCueRegistry", () => {
       graves: true,
       lighthouse: true,
       ships: true,
-    });
-    expect(STRUCTURAL_WORLD_FIELDS).toEqual({
-      effects: "WorldEffect entries must declare analytical cue metadata or explicit non-data ambient purpose.",
     });
   });
 
@@ -111,7 +103,6 @@ describe("buildVisualCueRegistry", () => {
     expect(markCueIds).toEqual([
       "cue.ship.zone-weathering",
       "cue.dock.congestion",
-      "cue.ship.consensus-rigging",
       "cue.ship.audit-shield",
       "cue.ship.nav-signal",
       "cue.ship.yield-signal",
@@ -133,69 +124,4 @@ describe("buildVisualCueRegistry", () => {
     }
   });
 
-  it("enforces analytical effect cue metadata and explicit ambient non-data markings", () => {
-    const cues = buildVisualCueRegistry();
-    const validEffects: WorldEffect[] = [
-      {
-        cueId: "cue.ship.motion",
-        entityId: "ship.usdc-circle",
-        id: "effect.route",
-        intensity: 0.6,
-        kind: "recent-change",
-        purpose: "analytical",
-        reducedMotionEquivalent: "static selected route line and detail facts",
-      },
-      {
-        entityId: "lighthouse",
-        id: "effect.birds",
-        intensity: 0.2,
-        kind: "fog",
-        nonData: true,
-        purpose: "ambient",
-        reducedMotionEquivalent: "ambient birds hidden or static without analytical meaning",
-      },
-    ];
-    const invalidEffects: WorldEffect[] = [
-      {
-        entityId: "ship.usdc-circle",
-        id: "effect.missing-cue",
-        intensity: 0.6,
-        kind: "recent-change",
-        purpose: "analytical",
-        reducedMotionEquivalent: "static detail facts",
-      },
-      {
-        entityId: "lighthouse",
-        id: "effect.ambient-not-marked",
-        intensity: 0.2,
-        kind: "fog",
-        purpose: "ambient",
-        reducedMotionEquivalent: "static ambient detail",
-      },
-    ];
-
-    expect(effectCueParityFailures(validEffects, cues)).toEqual([]);
-    expect(effectCueParityFailures(invalidEffects, cues)).toEqual([
-      "effect.missing-cue missing analytical cueId",
-      "effect.ambient-not-marked ambient effect missing nonData=true",
-    ]);
-  });
 });
-
-function effectCueParityFailures(effects: readonly WorldEffect[], cues: readonly VisualCue[]): string[] {
-  const cueIds = new Set(cues.map((cue) => cue.id));
-  const failures: string[] = [];
-  for (const effect of effects) {
-    if (!effect.reducedMotionEquivalent.trim()) failures.push(`${effect.id} missing reduced-motion equivalent`);
-    if (effect.purpose === "ambient") {
-      if (effect.nonData !== true) failures.push(`${effect.id} ambient effect missing nonData=true`);
-      continue;
-    }
-    if (!effect.cueId) {
-      failures.push(`${effect.id} missing analytical cueId`);
-      continue;
-    }
-    if (!cueIds.has(effect.cueId)) failures.push(`${effect.id} references unknown cueId`);
-  }
-  return failures;
-}

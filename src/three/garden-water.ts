@@ -22,7 +22,7 @@ const WATER_SEGMENTS = 96;
 export const GARDEN_WATER_MAX_DISPLACEMENT = 0.036;
 export const MAX_GARDEN_WATER_ZONES = 6;
 
-const NORMAL_MAP_URL = "/pharosville/textures/water-normals.png";
+const NORMAL_MAP_URL = "/pharosville/textures/water-normals.png?v=3c09a2159c4f";
 
 // Moon-road azimuth carried over from the sky so the sea's glitter band lands
 // under the same moon the dome draws. The water plane's -90deg X rotation maps

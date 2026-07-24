@@ -74,7 +74,7 @@ describe("garden landmarks", () => {
     expect(markerBatches.reduce((sum, batch) => sum + batch.count, 0)).toBe(
       graves.length,
     );
-    expect(drawableCount(cemetery.root)).toBeLessThan(16);
+    expect(objectCount(cemetery.root)).toBeLessThan(16);
     expect(hasTexture(cemetery.root)).toBe(false);
   });
 
@@ -113,7 +113,7 @@ describe("garden landmarks", () => {
     expect(
       landmark.root.getObjectByName("pigeonnier-ton-pier"),
     ).toBeInstanceOf(Mesh);
-    expect(drawableCount(landmark.root)).toBeLessThan(18);
+    expect(objectCount(landmark.root)).toBeLessThan(18);
     expect(hasTexture(landmark.root)).toBe(false);
   });
 });
@@ -130,13 +130,12 @@ function grave(
     id,
     kind: "grave",
     label: id.replace("grave.", "").toUpperCase(),
-    logoSrc: null,
     tile: { x, y },
     visual: { marker, scale: 0.36 },
   };
 }
 
-function drawableCount(root: import("three").Object3D): number {
+function objectCount(root: import("three").Object3D): number {
   let count = 0;
   root.traverse((object) => {
     if (object instanceof Mesh) count += 1;

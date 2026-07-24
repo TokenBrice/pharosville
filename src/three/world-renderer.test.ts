@@ -84,7 +84,7 @@ vi.mock("./garden-post", () => ({
 
 const emptyLogoAssets: ThreeLogoAssets = {
   getLogo: () => null,
-  getRenderAssetGenerationKey: () => "test",
+  getLogoGenerationKey: () => "test",
 };
 
 vi.mock("three", async (importOriginal) => {
@@ -208,7 +208,7 @@ describe("Three world renderer lifecycle", () => {
     expect([balanced, recovery, constrained, reduced].map((metrics) => metrics.schedulerTier))
       .toEqual(["balanced", "recovery", "constrained", "full"]);
     expect(new Set(
-      [balanced, recovery, constrained, reduced].map((metrics) => metrics.drawableCount),
+      [balanced, recovery, constrained, reduced].map((metrics) => metrics.objectCount),
     ).size).toBe(1);
     expect(new Set(
       [balanced, recovery, constrained, reduced].map((metrics) => metrics.visibleShipCount),
@@ -425,7 +425,7 @@ function rendererFrame(
     } as ShipMotionSample);
   }
   return {
-    assets: emptyLogoAssets,
+    logos: emptyLogoAssets,
     camera,
     dpr: options.dpr ?? 1,
     height: 1000,
@@ -433,8 +433,6 @@ function rendererFrame(
     motionPlan: { shipRoutes: new Map() } as unknown as ThreeWorldRendererFrame["motionPlan"],
     reducedMotion,
     renderScheduler: {
-      degradedPasses: [],
-      skippedPasses: [],
       targetFrameMs: 16.7,
       tier,
     },

@@ -98,8 +98,6 @@ describe("AccessibilityLedger", () => {
         kind: "dock",
         label: "Ethereum",
         chainId: "ethereum",
-        logoSrc: null,
-        assetId: "dock.ethereum-civic-cove",
         tile: { x: 1, y: 1 },
         totalUsd: 8_000_000_000,
         size: 7,
@@ -337,7 +335,6 @@ describe("AccessibilityLedger", () => {
           sourceUrl: "https://example.com/ust-postmortem",
           sourceLabel: "UST postmortem",
         },
-        logoSrc: null,
         tile: { x: 1, y: 1 },
         visual: { marker: "broken-keel", scale: 1 },
         detailId: "grave.ust-terra",
@@ -368,7 +365,6 @@ describe("AccessibilityLedger", () => {
           sourceUrl: "https://example.com/nubits",
           sourceLabel: "NuBits writeup",
         },
-        logoSrc: null,
         tile: { x: 1, y: 1 },
         visual: { marker: "skeletal", scale: 1 },
         detailId: "grave.nbt-nubits",
@@ -500,10 +496,8 @@ function sampleWorld(): PharosVilleWorld {
     areas: [],
     ships: [],
     graves: [],
-    effects: [],
     detailIndex: {},
     entityById: {},
-    legends: [],
     visualCues: buildVisualCueRegistry(),
   };
 }
@@ -536,11 +530,8 @@ function sampleWorldWithUniqueShip(): PharosVilleWorld {
         placementEvidence: { reason: "Fresh", sourceFields: ["pegSummary.coins[]"], stale: false },
         visual: {
           hull: "dao-schooner",
-          spriteAssetId: "ship.crvusd-unique",
           uniqueRationale: "Sails under Curve's llama mascot — the DEX that defined stablecoin AMM curves.",
-          shipClass: "defi",
           classLabel: "DeFi",
-          rigging: "dao-rig",
           livery: {
             accent: "#8bbf72",
             label: "Curve logo livery",
@@ -554,7 +545,6 @@ function sampleWorldWithUniqueShip(): PharosVilleWorld {
             stripePattern: "wave",
           },
           sailColor: "#d9ecdf",
-          sailStripeColor: "#41956b",
           overlay: "none",
           sizeTier: "unique",
           sizeLabel: "Heritage hull",
@@ -600,9 +590,7 @@ function sampleWorldWithLedgerShip(): PharosVilleWorld {
         },
         visual: {
           hull: "treasury-galleon",
-          shipClass: "cefi",
           classLabel: "CeFi",
-          rigging: "issuer-rig",
           livery: {
             accent: "#a9a68e",
             label: "Ethena staked livery",
@@ -616,7 +604,6 @@ function sampleWorldWithLedgerShip(): PharosVilleWorld {
             stripePattern: "diagonal",
           },
           sailColor: "#e8e6dc",
-          sailStripeColor: "#686963",
           overlay: "none",
           sizeTier: "major",
           sizeLabel: "Major",

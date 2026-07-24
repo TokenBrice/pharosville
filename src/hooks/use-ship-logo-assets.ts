@@ -5,9 +5,9 @@ import type {
 } from "../renderer/world-renderer-backend";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
 
-export interface UseAssetLoadingPipelineResult {
-  assetLoadTick: number;
-  assets: ThreeLogoAssets;
+export interface UseShipLogoAssetsResult {
+  logoGeneration: number;
+  logos: ThreeLogoAssets;
 }
 
 class ThreeLogoAssetStore implements ThreeLogoAssets {
@@ -18,7 +18,7 @@ class ThreeLogoAssetStore implements ThreeLogoAssets {
     return src ? this.logos.get(src) ?? null : null;
   }
 
-  getRenderAssetGenerationKey(): string {
+  getLogoGenerationKey(): string {
     return `lg${this.generation}`;
   }
 
@@ -42,12 +42,12 @@ class ThreeLogoAssetStore implements ThreeLogoAssets {
   }
 }
 
-export function useAssetLoadingPipeline(input: {
+export function useShipLogoAssets(input: {
   world: PharosVilleWorldModel;
-}): UseAssetLoadingPipelineResult {
+}): UseShipLogoAssetsResult {
   const { world } = input;
-  const [assets] = useState(() => new ThreeLogoAssetStore());
-  const [assetLoadTick, setAssetLoadTick] = useState(0);
+  const [logos] = useState(() => new ThreeLogoAssetStore());
+  const [logoGeneration, setLogoGeneration] = useState(0);
   const logoSources = useMemo(
     () => [...new Set(
       world.ships
@@ -61,17 +61,17 @@ export function useAssetLoadingPipeline(input: {
   useEffect(() => {
     if (!logoSourcesSignature) return;
     const controller = new AbortController();
-    void assets.load(logoSources, controller.signal).then((changed) => {
+    void logos.load(logoSources, controller.signal).then((changed) => {
       if (changed && !controller.signal.aborted) {
-        setAssetLoadTick((tick) => tick + 1);
+        setLogoGeneration((generation) => generation + 1);
       }
     });
     return () => controller.abort();
     // The stable signature prevents identical refetches from restarting loads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assets, logoSourcesSignature]);
+  }, [logos, logoSourcesSignature]);
 
-  return { assetLoadTick, assets };
+  return { logoGeneration, logos };
 }
 
 function loadLogoImage(src: string, signal: AbortSignal): Promise<HTMLImageElement> {

@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type MutableRefObject, type PointerEvent as ReactPointerEvent, type RefObject, type SetStateAction } from "react";
 import { hitTest, hitTestSpatial, type HitTarget, type HitTargetSnapshot } from "../renderer/hit-testing";
 import { cameraZoomLabel, clampCameraToMap, defaultCamera, followTile, panCamera, zoomIn, zoomOut } from "../systems/camera";
-import { initialAdaptiveDprState, resolveCanvasBudget, type AdaptiveDprState } from "../systems/canvas-budget";
+import { initialAdaptiveDprState, resolveRenderSurfaceBudget, type AdaptiveDprState } from "../systems/render-surface-budget";
 import type { ShipMotionSample } from "../systems/motion";
 import { zoomCameraAt, type IsoCamera, type ScreenPoint } from "../systems/projection";
 import type {
@@ -72,7 +72,7 @@ export interface UseCanvasResizeAndCameraResult {
   cameraRef: MutableRefObject<IsoCamera | null>;
   cameraZoomLabel: string;
   cancelCameraIntent: () => void;
-  canvasBudgetRef: MutableRefObject<ReturnType<typeof resolveCanvasBudget> | null>;
+  surfaceBudgetRef: MutableRefObject<ReturnType<typeof resolveRenderSurfaceBudget> | null>;
   canvasRef: RefObject<HTMLCanvasElement | null>;
   canvasSize: ScreenPoint;
   canvasSizeRef: MutableRefObject<ScreenPoint>;
@@ -126,7 +126,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   const adaptiveDprStateRef = useRef<AdaptiveDprState>(initialAdaptiveDprState(1));
   const adaptiveDprInitializedRef = useRef(false);
   const maximumRequestedDprRef = useRef(1);
-  const canvasBudgetRef = useRef<ReturnType<typeof resolveCanvasBudget> | null>(null);
+  const surfaceBudgetRef = useRef<ReturnType<typeof resolveRenderSurfaceBudget> | null>(null);
   const followChaseDetailIdRef = useRef<string | null>(null);
   const followChaseLastTileRef = useRef<ScreenPoint | null>(null);
   const followChaseLastTimeRef = useRef<number | null>(null);
@@ -236,12 +236,12 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
           requestedDpr: deviceRequestedDpr,
         };
       }
-      const budget = resolveCanvasBudget({
+      const budget = resolveRenderSurfaceBudget({
         cssHeight,
         cssWidth,
         requestedDpr: adaptiveDprStateRef.current.requestedDpr,
       });
-      canvasBudgetRef.current = budget;
+      surfaceBudgetRef.current = budget;
       // Do not mutate canvas.width/height here: backing-store changes clear the
       // bitmap immediately. The render loop syncs the backing store at the top
       // of the next draw so resize clears and repaint happen in one RAF.
@@ -701,7 +701,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     cameraRef,
     cameraZoomLabel: camera ? cameraZoomLabel(camera) : "100%",
     cancelCameraIntent: stopFollowChase,
-    canvasBudgetRef,
+    surfaceBudgetRef,
     canvasRef,
     canvasSize,
     canvasSizeRef,

@@ -1,12 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  SEA_STATE_SMOOTHING_TAU_SECONDS,
   recentFleetTrendEntryLabel,
   recentFleetTrendSummary,
   recentFleetTrendSummaryText,
   seaStateForSources,
   seaStateSummary,
-  smoothSeaState,
 } from "./sea-state";
 import type { AreaNode, LighthouseNode, ShipNode } from "./world-types";
 
@@ -110,30 +108,6 @@ describe("sea-state master signal", () => {
     expect(seaStateSummary(reduced)).toContain("reduced-motion holds animation phases flat");
   });
 
-  it("provides a pure 8-second smoothing hook for future stateful consumers", () => {
-    const current = seaStateForSources({
-      areas: [area("CALM")],
-      lighthouse,
-      wallClockHour: 12,
-    });
-    const target = seaStateForSources({
-      areas: [area("DANGER")],
-      lighthouse,
-      wallClockHour: 12,
-    });
-
-    const smoothed = smoothSeaState({
-      current,
-      target,
-      deltaSeconds: SEA_STATE_SMOOTHING_TAU_SECONDS,
-    });
-
-    expect(smoothed.swell).toBeGreaterThan(current.swell);
-    expect(smoothed.swell).toBeLessThan(target.swell);
-    expect(smoothed.wind).toBeGreaterThan(current.wind);
-    expect(smoothed.wind).toBeLessThan(target.wind);
-    expect(smoothSeaState({ current, target, deltaSeconds: 0 })).toBe(current);
-  });
 });
 
 describe("recent fleet trend summary", () => {

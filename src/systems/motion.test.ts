@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { denseFixtureChains, denseFixturePegSummary, denseFixtureReportCards, denseFixtureStablecoins, denseFixtureStress, fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoins, fixtureStability, fixtureStress, fixtureWithFlagshipPlacement, makeAsset, makeChain, makePegCoin, makerSquadFixtureInputs } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
-import { __testPathCacheSize, buildBaseMotionPlan, buildMotionPlan, BoundedShipWaterRouteCache, buildShipWaterRoute, clearShipHeadingMemory, createShipMotionSample, disposePathCacheForMap, isShipMapVisible, lighthouseFireFlickerSpeed, motionPlanSignature, resolveShipMotionSample, resolveShipMotionSampleInto, sampleShipWaterPath, shipCycleTempo, shipMapVisibilityAlpha, shipWaterPathKey, SPEED_QUARTILE_SCALARS, stableMotionPhase, type ShipDockMotionStop, type ShipMotionSample } from "./motion";
+import { __testPathCacheSize, buildBaseMotionPlan, buildMotionPlan, BoundedShipWaterRouteCache, buildShipWaterRoute, clearShipHeadingMemory, createShipMotionSample, disposePathCacheForMap, isShipMapVisible, motionPlanSignature, resolveShipMotionSample, resolveShipMotionSampleInto, sampleShipWaterPath, shipCycleTempo, shipMapVisibilityAlpha, shipWaterPathKey, SPEED_QUARTILE_SCALARS, type ShipDockMotionStop, type ShipMotionSample } from "./motion";
 import { ARRIVING_DECEL_END, ARRIVING_FULL_TRANSIT_END, CAST_OFF_ACCEL_END, CAST_OFF_LINE_RELEASE_END, MOORING_QUIET_END, MOORING_WORKING_END, ZONE_DWELL } from "./motion-config";
 import { getShipHeadingDelta } from "./motion-sampling";
 import { __resetPreviousRiskCache } from "./motion-planning";
@@ -124,16 +124,6 @@ describe("motion", () => {
     expect(warning.maxSailingWake).toBeLessThan(danger.maxSailingWake);
   });
 
-  it("animates every visible ship while keeping effect highlights focused", () => {
-    const plan = buildMotionPlan(world, world.ships[0]?.detailId ?? null);
-
-    expect(plan.animatedShipIds.size).toBe(world.ships.length);
-    expect(world.ships.every((ship) => plan.animatedShipIds.has(ship.id))).toBe(true);
-    expect(plan.effectShipIds.size).toBeLessThanOrEqual(plan.animatedShipIds.size);
-    expect(plan.animatedShipIds.has(world.ships[0]!.id)).toBe(true);
-    expect(plan.shipPhases.get(world.ships[0]!.id)).toBe(stableMotionPhase(world.ships[0]!.id));
-  });
-
   it("builds deterministic routes for every visible ship", () => {
     const firstPlan = buildMotionPlan(world, null);
     const secondPlan = buildMotionPlan(world, null);
@@ -152,16 +142,13 @@ describe("motion", () => {
     }
   });
 
-  it("reuses base route maps when only selection cue state changes", () => {
+  it("reuses the base route plan regardless of selection", () => {
     const basePlan = buildBaseMotionPlan(world);
     const unselectedPlan = buildMotionPlan(world, null, basePlan);
     const selectedPlan = buildMotionPlan(world, world.ships[0]?.detailId ?? null, basePlan);
 
-    expect(selectedPlan.shipRoutes).toBe(unselectedPlan.shipRoutes);
-    expect(selectedPlan.shipPhases).toBe(unselectedPlan.shipPhases);
-    expect(selectedPlan.animatedShipIds).toBe(unselectedPlan.animatedShipIds);
-    expect(selectedPlan.moverShipIds).toBe(unselectedPlan.moverShipIds);
-    expect(selectedPlan.effectShipIds.size).toBeGreaterThanOrEqual(unselectedPlan.effectShipIds.size);
+    expect(unselectedPlan).toBe(basePlan);
+    expect(selectedPlan).toBe(basePlan);
   });
 
   it("produces the same motionPlanSignature for distinct world identities with identical content", () => {
@@ -657,19 +644,15 @@ describe("motion", () => {
 
   it("hides only non-titan, non-unique ships while they are moored", () => {
     const titanShip = world.ships[0]!;
-    const nonTitanShip = ((): typeof titanShip => {
-      const { spriteAssetId: _omit, ...restVisual } = titanShip.visual;
-      return {
-        ...titanShip,
-        visual: { ...restVisual, sizeTier: "major" as const },
-      };
-    })();
+    const nonTitanShip = {
+      ...titanShip,
+      visual: { ...titanShip.visual, sizeTier: "major" as const },
+    };
     const uniqueShip = {
       ...titanShip,
       visual: {
         ...titanShip.visual,
         sizeTier: "unique" as const,
-        spriteAssetId: "ship.crvusd-unique",
       },
     };
     const mooredSample = {
@@ -681,6 +664,7 @@ describe("motion", () => {
       currentRouteStopId: titanShip.dockVisits[0]?.dockId ?? null,
       currentRouteStopKind: "dock" as const,
       heading: { x: 0, y: 1 },
+      mapVisibilityAlpha: 0,
       wakeIntensity: 0,
     };
     const ledgerSample = {
@@ -688,16 +672,17 @@ describe("motion", () => {
       currentDockId: null,
       currentRouteStopId: "area.risk-water.ledger-mooring",
       currentRouteStopKind: "ledger" as const,
+      mapVisibilityAlpha: 1,
     };
 
     expect(isShipMapVisible(titanShip, mooredSample)).toBe(true);
     expect(isShipMapVisible(uniqueShip, mooredSample)).toBe(true);
     expect(isShipMapVisible(nonTitanShip, mooredSample)).toBe(false);
     expect(isShipMapVisible(nonTitanShip, ledgerSample)).toBe(true);
-    expect(isShipMapVisible(nonTitanShip, { ...mooredSample, state: "departing" })).toBe(true);
+    expect(isShipMapVisible(nonTitanShip, { ...mooredSample, state: "departing", mapVisibilityAlpha: 1 })).toBe(true);
     expect(isShipMapVisible(nonTitanShip, { ...mooredSample, state: "departing", mapVisibilityAlpha: 0.08 })).toBe(false);
     expect(isShipMapVisible(nonTitanShip, { ...mooredSample, state: "departing", mapVisibilityAlpha: 0.24 })).toBe(true);
-    expect(shipMapVisibilityAlpha(nonTitanShip, { ...mooredSample, mooringTension: 0.35 })).toBeCloseTo(0.65);
+    expect(shipMapVisibilityAlpha(nonTitanShip, { ...mooredSample, mapVisibilityAlpha: 0.65 })).toBeCloseTo(0.65);
     expect(isShipMapVisible(nonTitanShip, null)).toBe(true);
   });
 
@@ -716,31 +701,31 @@ describe("motion", () => {
       timeSeconds: route.cycleSeconds * (index / 2400) - route.phaseSeconds,
     }));
 
-    const quietMoored = samples.find((sample) => (
+    const hiddenMoored = samples.find((sample) => (
       sample.state === "moored"
       && sample.currentDockId
-      && sample.mooringSubPhase === "quiet"
+      && sample.mapVisibilityAlpha === 0
     ));
-    const castOffPrep = samples.filter((sample) => (
+    const castOffFade = samples.filter((sample) => (
       sample.state === "moored"
       && sample.currentDockId
-      && sample.mooringSubPhase === "cast-off-prep"
+      && sample.mapVisibilityAlpha > 0
+      && sample.mapVisibilityAlpha < 1
     ));
     const departingFade = samples.find((sample) => (
       sample.state === "departing"
-      && (sample.mapVisibilityAlpha ?? 1) > 0
-      && (sample.mapVisibilityAlpha ?? 1) < 1
+      && sample.mapVisibilityAlpha > 0
+      && sample.mapVisibilityAlpha < 1
     ));
     const arrivingFade = samples.find((sample) => (
       sample.state === "arriving"
-      && (sample.fenderContact ?? 0) > 0
-      && (sample.mapVisibilityAlpha ?? 1) > 0
-      && (sample.mapVisibilityAlpha ?? 1) < 1
+      && sample.mapVisibilityAlpha > 0
+      && sample.mapVisibilityAlpha < 1
     ));
 
-    expect(quietMoored?.mapVisibilityAlpha).toBe(0);
-    expect(castOffPrep.length).toBeGreaterThan(0);
-    expect(Math.max(...castOffPrep.map((sample) => sample.mapVisibilityAlpha ?? 0))).toBeGreaterThan(0.75);
+    expect(hiddenMoored?.mapVisibilityAlpha).toBe(0);
+    expect(castOffFade.length).toBeGreaterThan(0);
+    expect(Math.max(...castOffFade.map((sample) => sample.mapVisibilityAlpha))).toBeGreaterThan(0.75);
     expect(departingFade?.mapVisibilityAlpha).toBeGreaterThan(0);
     expect(departingFade?.mapVisibilityAlpha).toBeLessThan(1);
     expect(arrivingFade?.mapVisibilityAlpha).toBeGreaterThan(0);
@@ -1294,16 +1279,6 @@ describe("motion", () => {
     expect(ledger.dockSamples).toBeGreaterThan(25);
   });
 
-  it("derives lighthouse fire flicker speed from PSI band and score", () => {
-    expect(lighthouseFireFlickerSpeed("healthy", 100)).toBeGreaterThan(lighthouseFireFlickerSpeed("danger", 100));
-    expect(lighthouseFireFlickerSpeed(null, null)).toBeGreaterThan(0);
-  });
-
-  it("uses deterministic per-entity phases", () => {
-    expect(stableMotionPhase("usdt-tether")).toBe(stableMotionPhase("usdt-tether"));
-    expect(stableMotionPhase("usdt-tether")).not.toBe(stableMotionPhase("usdc-circle"));
-  });
-
   describe("liveliness improvements", () => {
     // Multi-chain world so the route has scheduled dock stops + transits we can
     // sample mid-leg. We dial in the time to a known departing/arriving phase.
@@ -1625,7 +1600,7 @@ describe("motion", () => {
       expect(endSample.state).toBe("arriving");
       const dot = endSample.heading.x * tangent.x + endSample.heading.y * tangent.y;
       expect(dot).toBeGreaterThan(Math.cos(0.05));
-      expect(endSample.fenderContact).toBeGreaterThan(0.8);
+      expect(endSample.mapVisibilityAlpha).toBeLessThan(0.2);
     });
 
     it("partially aligns heading mid-ramp (between smoothed transit heading and dockTangent)", () => {
@@ -1761,13 +1736,13 @@ describe("motion", () => {
 
       expect(fullTransit.wakeIntensity).toBeGreaterThan(decel.wakeIntensity);
       expect(decel.wakeIntensity).toBeGreaterThan(contact.wakeIntensity);
-      expect(contact.fenderContact).toBeGreaterThan(0);
+      expect(contact.mapVisibilityAlpha).toBeLessThan(1);
       expect(distance(contact.tile, stop.mooringTile)).toBeLessThanOrEqual(0.55);
       const contactDot = contact.heading.x * tangent.x + contact.heading.y * tangent.y;
       expect(contactDot).toBeGreaterThan(Math.cos(0.06));
     });
 
-    it("splits dock dwell into working, quiet, and cast-off-prep sub-phases", () => {
+    it("prepares the moored heading for cast-off near the end of dwell", () => {
       const sampleWorld = buildAlignmentWorld();
       const ship = sampleWorld.ships[0]!;
       const plan = buildMotionPlan(sampleWorld, ship.detailId);
@@ -1798,16 +1773,9 @@ describe("motion", () => {
         timeSeconds: start + (end - start) * fraction,
       });
 
-      const working = sampleAt(MOORING_WORKING_END / 2);
       const quiet = sampleAt((MOORING_WORKING_END + MOORING_QUIET_END) / 2);
       const prep = sampleAt((MOORING_QUIET_END + 1) / 2);
 
-      expect(working.mooringSubPhase).toBe("working");
-      expect(quiet.mooringSubPhase).toBe("quiet");
-      expect(prep.mooringSubPhase).toBe("cast-off-prep");
-      expect(working.lanternAlpha).toBeGreaterThan(0);
-      expect(quiet.lanternAlpha).toBe(0);
-      expect(prep.mooringTension).toBeLessThan(quiet.mooringTension ?? 0);
       const prepDot = prep.heading.x * stop.dockTangent!.x + prep.heading.y * stop.dockTangent!.y;
       const quietDot = quiet.heading.x * stop.dockTangent!.x + quiet.heading.y * stop.dockTangent!.y;
       expect(prepDot).toBeLessThan(quietDot);
@@ -2132,49 +2100,6 @@ describe("motion", () => {
       // The waterPaths maps are new objects per plan build.
       expect(foundDiff).toBe(true);
     });
-  });
-
-  // Moored ships must not draw wake even when included in effectShipIds
-  // (e.g. selected, top-supply, recent-mover). Mirror the renderer predicate
-  // here so any future regression that drops the state gate fails this test.
-  it("moored ships do not draw wake even when included in effectShipIds", () => {
-    const ship = world.ships[0]!;
-    const plan = buildMotionPlan(world, ship.detailId);
-    // Selected ship is appended to effectShipIds by buildMotionPlan; assert
-    // membership so the test predicate is exercising the real cue gate.
-    expect(plan.effectShipIds.has(ship.id)).toBe(true);
-
-    const mooredSample: ShipMotionSample = {
-      shipId: ship.id,
-      tile: { x: ship.tile.x, y: ship.tile.y },
-      state: "moored",
-      zone: ship.riskZone,
-      currentDockId: ship.dockVisits[0]?.dockId ?? null,
-      currentRouteStopId: ship.dockVisits[0]?.dockId ?? null,
-      currentRouteStopKind: "dock",
-      heading: { x: 0, y: 1 },
-      // motion-sampling.ts:615 — moored wake intensity is non-zero (0.05),
-      // so the renderer's state gate is the only thing keeping wake off.
-      wakeIntensity: 0.05,
-    };
-
-    const drawsWake = (
-      reducedMotion: boolean,
-      sample: ShipMotionSample,
-      selected: boolean,
-    ) => !reducedMotion
-      && (sample.state === "departing" || sample.state === "sailing" || sample.state === "arriving")
-      && (plan.effectShipIds.has(ship.id) || selected || plan.moverShipIds.has(ship.id));
-
-    // Effect-ship membership alone must not unlock wake on a moored sample.
-    expect(drawsWake(false, mooredSample, false)).toBe(false);
-    // Even the selected-ship escalation can't override the state gate.
-    expect(drawsWake(false, mooredSample, true)).toBe(false);
-    // Reduced motion blocks wake unconditionally — sanity check.
-    expect(drawsWake(true, mooredSample, true)).toBe(false);
-    // Sanity: a sailing sample with the same effect-set membership does draw.
-    const sailingSample: ShipMotionSample = { ...mooredSample, state: "sailing", wakeIntensity: 0.4 };
-    expect(drawsWake(false, sailingSample, false)).toBe(true);
   });
 
   describe("T1.3 heading low-pass cold-start on long dt", () => {

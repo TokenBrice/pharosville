@@ -17,8 +17,7 @@ describe("visual motion smoothing", () => {
       currentDockId: "dock.ethereum",
       currentRouteStopId: "dock.ethereum:ship-a",
       currentRouteStopKind: "dock",
-      mooringSubPhase: "working",
-      fenderContact: 0.4,
+      mapVisibilityAlpha: 0.4,
     });
 
     const display = smoothShipMotionSamples({
@@ -33,16 +32,16 @@ describe("visual motion smoothing", () => {
 
   it("converges tile and numeric fields without jumping to the target", () => {
     const state = createVisualMotionSmoothingState();
-    smoothAt(state, 0, sample({ tile: { x: 0, y: 0 }, wakeIntensity: 0, fenderContact: 0 }));
+    smoothAt(state, 0, sample({ tile: { x: 0, y: 0 }, wakeIntensity: 0, mapVisibilityAlpha: 0 }));
 
-    const target = sample({ tile: { x: 10, y: 0 }, wakeIntensity: 1, fenderContact: 1 });
+    const target = sample({ tile: { x: 10, y: 0 }, wakeIntensity: 1, mapVisibilityAlpha: 1 });
     const firstDisplay = smoothAt(state, 1 / 60, target, { snapDistanceTiles: 100 });
     expect(firstDisplay.tile.x).toBeGreaterThan(0);
     expect(firstDisplay.tile.x).toBeLessThan(10);
     expect(firstDisplay.wakeIntensity).toBeGreaterThan(0);
     expect(firstDisplay.wakeIntensity).toBeLessThan(1);
-    expect(firstDisplay.fenderContact).toBeGreaterThan(0);
-    expect(firstDisplay.fenderContact).toBeLessThan(1);
+    expect(firstDisplay.mapVisibilityAlpha).toBeGreaterThan(0);
+    expect(firstDisplay.mapVisibilityAlpha).toBeLessThan(1);
 
     let display = firstDisplay;
     for (let frame = 2; frame <= 120; frame += 1) {
@@ -51,7 +50,7 @@ describe("visual motion smoothing", () => {
 
     expect(display.tile.x).toBeGreaterThan(9.99);
     expect(display.wakeIntensity).toBeGreaterThan(0.99);
-    expect(display.fenderContact).toBeGreaterThan(0.99);
+    expect(display.mapVisibilityAlpha).toBeGreaterThan(0.99);
   });
 
   it("syncs exact samples in reduced-motion and static modes", () => {
@@ -61,7 +60,7 @@ describe("visual motion smoothing", () => {
       tile: { x: 40, y: 9 },
       heading: { x: 0, y: 1 },
       wakeIntensity: 1,
-      mooringTension: 0.85,
+      mapVisibilityAlpha: 0.85,
     });
 
     const reducedDisplay = smoothAt(reducedState, 0.1, reducedTarget, { reducedMotion: true, snapDistanceTiles: 100 });
@@ -69,7 +68,7 @@ describe("visual motion smoothing", () => {
 
     const staticState = createVisualMotionSmoothingState();
     smoothAt(staticState, 0, sample({ tile: { x: 1, y: 1 }, wakeIntensity: 0.2 }));
-    const staticTarget = sample({ tile: { x: 6, y: 5 }, wakeIntensity: 0.9, lanternAlpha: 0.75 });
+    const staticTarget = sample({ tile: { x: 6, y: 5 }, wakeIntensity: 0.9, mapVisibilityAlpha: 0.75 });
     const staticDisplay = smoothAt(staticState, 0.1, staticTarget, { staticMode: true, snapDistanceTiles: 100 });
     expect(staticDisplay).toEqual(staticTarget);
   });
@@ -85,7 +84,6 @@ describe("visual motion smoothing", () => {
       currentDockId: "dock.ethereum",
       currentRouteStopId: "dock.ethereum:ship-a",
       currentRouteStopKind: "dock",
-      mooringSubPhase: "cast-off-prep",
     }));
 
     const target = sample({
@@ -97,7 +95,6 @@ describe("visual motion smoothing", () => {
       currentDockId: "dock.ethereum",
       currentRouteStopId: "dock.ethereum:ship-a",
       currentRouteStopKind: "dock",
-      mooringSubPhase: null,
       wakeIntensity: 0.2,
     });
     const display = smoothAt(state, 1 / 60, target, { snapDistanceTiles: 100 });
@@ -280,11 +277,7 @@ function sample(overrides: Partial<ShipMotionSample> = {}): ShipMotionSample {
     velocity: { x: 0, y: 0 },
     speedTilesPerSecond: 0,
     wakeIntensity: 0.5,
-    mooringSubPhase: null,
-    mooringSwayAmplitude: 1,
-    mooringTension: 0,
-    lanternAlpha: 0,
-    fenderContact: 0,
+    mapVisibilityAlpha: 1,
     seaState: null,
   };
 

@@ -2,21 +2,17 @@ import { describe, expect, it } from "vitest";
 import {
   ADAPTIVE_DPR_PACING_MIN_SAMPLES,
   ADAPTIVE_DPR_STEP,
-  canRetainOffscreenCanvas,
-  canvasPixelArea,
   createDrawDurationWindow,
   initialAdaptiveDprState,
   MAX_MAIN_CANVAS_PIXELS,
-  MAX_TOTAL_BACKING_PIXELS,
   pushDrawDurationSample,
   resolveAdaptiveDprState,
-  resolveCanvasBackingPixelMetrics,
-  resolveCanvasBudget,
-} from "./canvas-budget";
+  resolveRenderSurfaceBudget,
+} from "./render-surface-budget";
 
-describe("canvas budget", () => {
+describe("render surface budget", () => {
   it("caps effective DPR by main canvas backing pixels", () => {
-    const budget = resolveCanvasBudget({
+    const budget = resolveRenderSurfaceBudget({
       cssWidth: 2560,
       cssHeight: 1440,
       requestedDpr: 3,
@@ -27,82 +23,13 @@ describe("canvas budget", () => {
   });
 
   it("keeps normal desktop DPR at the requested value when under budget", () => {
-    const budget = resolveCanvasBudget({
+    const budget = resolveRenderSurfaceBudget({
       cssWidth: 1440,
       cssHeight: 1000,
       requestedDpr: 1,
     });
 
     expect(budget.effectiveDpr).toBe(1);
-  });
-
-  it("tracks main plus static and dynamic backing pixels", () => {
-    const metrics = resolveCanvasBackingPixelMetrics({
-      dynamicCacheEntryCount: 1,
-      dynamicCachePixels: 2_000,
-      mainCanvasPixels: 10_000,
-      staticCacheEntryCount: 2,
-      staticCachePixels: 3_000,
-    });
-
-    expect(metrics.mainCanvasPixels).toBe(10_000);
-    expect(metrics.staticCachePixels).toBe(3_000);
-    expect(metrics.dynamicCachePixels).toBe(2_000);
-    expect(metrics.spriteCachePixels).toBe(0);
-    expect(metrics.offscreenCachePixels).toBe(5_000);
-    expect(metrics.totalBackingPixels).toBe(15_000);
-    expect(metrics.totalCacheEntryCount).toBe(3);
-    expect(metrics.maxTotalBackingPixels).toBe(MAX_TOTAL_BACKING_PIXELS);
-  });
-
-  it("reports remaining offscreen budget and over-budget pixels", () => {
-    const metrics = resolveCanvasBackingPixelMetrics({
-      dynamicCachePixels: 6,
-      mainCanvasPixels: MAX_TOTAL_BACKING_PIXELS - 10,
-      spriteCachePixels: 3,
-      staticCachePixels: 8,
-    });
-
-    expect(metrics.remainingOffscreenPixels).toBe(0);
-    expect(metrics.overBudgetPixels).toBe(7);
-  });
-
-  it("includes sprite cache pixels in total backing metrics", () => {
-    const metrics = resolveCanvasBackingPixelMetrics({
-      dynamicCacheEntryCount: 1,
-      dynamicCachePixels: 20,
-      mainCanvasPixels: 100,
-      spriteCacheEntryCount: 3,
-      spriteCachePixels: 40,
-      staticCacheEntryCount: 2,
-      staticCachePixels: 30,
-    });
-
-    expect(metrics.offscreenCachePixels).toBe(90);
-    expect(metrics.spriteCacheEntryCount).toBe(3);
-    expect(metrics.spriteCachePixels).toBe(40);
-    expect(metrics.totalBackingPixels).toBe(190);
-    expect(metrics.totalCacheEntryCount).toBe(6);
-  });
-
-  it("checks whether an offscreen canvas can be retained under total budget", () => {
-    const mainCanvasPixels = MAX_TOTAL_BACKING_PIXELS - 1_000;
-
-    expect(canRetainOffscreenCanvas({
-      candidatePixels: 999,
-      mainCanvasPixels,
-    })).toBe(true);
-    expect(canRetainOffscreenCanvas({
-      candidatePixels: 1_001,
-      currentSpriteCachePixels: 0,
-      mainCanvasPixels,
-    })).toBe(false);
-  });
-
-  it("normalizes canvas pixel area inputs", () => {
-    expect(canvasPixelArea(10.9, 4.2)).toBe(40);
-    expect(canvasPixelArea(-10, 4)).toBe(0);
-    expect(canvasPixelArea(Number.NaN, 4)).toBe(0);
   });
 
   it("tracks rolling draw-duration stats across a bounded window", () => {

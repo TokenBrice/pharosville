@@ -48,7 +48,9 @@ export function listTrackedMarkdownFiles(repoRoot = process.cwd()) {
     .split("\0")
     .filter(Boolean)
     .filter((path) => existsSync(resolve(repoRoot, path)))
-    .filter((path) => !path.startsWith("agent/"))
+    // Active repository plans are documentation contracts and must not carry
+    // stale paths or commands. Delete completed plans instead of exempting
+    // the entire planning directory.
     .filter((path) => !path.startsWith("docs/superpowers/plans/"))
     .filter((path) => !path.startsWith("docs/superpowers/specs/"));
 }

@@ -24,11 +24,8 @@ const ledgerOrbitScratch: ShipMotionSample = {
   currentRouteStopId: null,
   currentRouteStopKind: null,
   heading: { x: 0, y: 0 },
+  mapVisibilityAlpha: 1,
   wakeIntensity: 0,
-  mooringSubPhase: null,
-  mooringTension: 0,
-  lanternAlpha: 0,
-  fenderContact: 0,
 };
 const ledgerTransitScratch: ShipMotionSample = {
   shipId: "",
@@ -39,11 +36,8 @@ const ledgerTransitScratch: ShipMotionSample = {
   currentRouteStopId: null,
   currentRouteStopKind: null,
   heading: { x: 0, y: 0 },
+  mapVisibilityAlpha: 1,
   wakeIntensity: 0,
-  mooringSubPhase: null,
-  mooringTension: 0,
-  lanternAlpha: 0,
-  fenderContact: 0,
 };
 
 // `riskWindowSeconds` is the actual scheduled duration of this risk phase
@@ -142,10 +136,6 @@ function ledgerRoamingSampleInto(
       (ledgerOrbitScratch.velocity?.y ?? 0) * (1 - easeOut) + (ledgerTransitScratch.velocity?.y ?? 0) * easeOut,
     );
     writeMapVisibilityAlphaInto(out, 1);
-    out.mooringSubPhase = null;
-    out.mooringTension = 0;
-    out.lanternAlpha = 0;
-    out.fenderContact = 0;
     return;
   }
 

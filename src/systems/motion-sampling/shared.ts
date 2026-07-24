@@ -32,22 +32,12 @@ export function createShipMotionSample(): ShipMotionSample {
     speedTilesPerSecond: 0,
     mapVisibilityAlpha: 1,
     wakeIntensity: 0,
-    mooringSubPhase: null,
-    mooringSwayAmplitude: 1,
-    mooringTension: 0,
-    lanternAlpha: 0,
-    fenderContact: 0,
     seaState: null,
     riskTransition: null,
   };
 }
 
 export function resetSampleChoreography(out: ShipMotionSample): void {
-  out.mooringSubPhase = null;
-  out.mooringSwayAmplitude = 1;
-  out.mooringTension = 0;
-  out.lanternAlpha = 0;
-  out.fenderContact = 0;
   out.seaState = null;
   out.mapVisibilityAlpha = 1;
   out.riskTransition = null;

@@ -10,7 +10,7 @@ import type {
   ThreeWorldRendererFrame,
 } from "../renderer/world-renderer-backend";
 import { defaultCamera } from "../systems/camera";
-import { initialAdaptiveDprState, resolveCanvasBudget } from "../systems/canvas-budget";
+import { initialAdaptiveDprState, resolveRenderSurfaceBudget } from "../systems/render-surface-budget";
 import { buildBaseMotionPlan, buildMotionPlan, type ShipMotionSample } from "../systems/motion";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import type { IsoCamera } from "../systems/projection";
@@ -27,13 +27,11 @@ const {
   renderThreeWorldMock,
 } = vi.hoisted(() => {
   const renderThreeWorldMock = vi.fn(() => ({
-    drawableCount: 0,
-    drawableCounts: { underlay: 0, body: 0, overlay: 0, selection: 0 },
+    objectCount: 0,
     gpu: { calls: 0, geometries: 0, lines: 0, points: 0, textures: 0, triangles: 0 },
     movingShipCount: 0,
     rendererBackend: "three" as const,
     visibleShipCount: 0,
-    visibleTileCount: 0,
   }));
   const disposeThreeWorldRendererMock = vi.fn();
   return {
@@ -48,7 +46,7 @@ const {
 
 const emptyLogoAssets: ThreeLogoAssets = {
   getLogo: () => null,
-  getRenderAssetGenerationKey: () => "test",
+  getLogoGenerationKey: () => "test",
 };
 
 vi.mock("../three/world-renderer", () => ({
@@ -149,7 +147,7 @@ describe("useWorldRenderLoop", () => {
     onBucketFlip?: (bucket: number) => void;
     onInternals?: (internals: {
       adaptiveDprStateRef: { current: ReturnType<typeof initialAdaptiveDprState> };
-      canvasBudgetRef: { current: ReturnType<typeof resolveCanvasBudget> | null };
+      surfaceBudgetRef: { current: ReturnType<typeof resolveRenderSurfaceBudget> | null };
       cameraRef: { current: IsoCamera | null };
       canvasRef: { current: HTMLCanvasElement };
       canvasSizeRef: { current: { x: number; y: number } };
@@ -169,8 +167,8 @@ describe("useWorldRenderLoop", () => {
     const [canvasRef] = useState(() => ({ current: document.createElement("canvas") }));
     const [adaptiveDprStateRef] = useState(() => ({ current: initialAdaptiveDprState(initialRequestedDpr) }));
     const [maximumRequestedDprRef] = useState(() => ({ current: maximumRequestedDpr }));
-    const [canvasBudgetRef] = useState(() => ({
-      current: resolveCanvasBudget({ cssHeight: canvasSize.y, cssWidth: canvasSize.x, requestedDpr: initialRequestedDpr }),
+    const [surfaceBudgetRef] = useState(() => ({
+      current: resolveRenderSurfaceBudget({ cssHeight: canvasSize.y, cssWidth: canvasSize.x, requestedDpr: initialRequestedDpr }),
     }));
     const [cameraRef] = useState(() => ({ current: camera }));
     const [canvasSizeRef] = useState(() => ({ current: canvasSize }));
@@ -189,7 +187,7 @@ describe("useWorldRenderLoop", () => {
     onInternals?.({
       adaptiveDprStateRef,
       cameraRef,
-      canvasBudgetRef,
+      surfaceBudgetRef,
       canvasRef,
       canvasSizeRef,
       hitTargetsRef,
@@ -217,11 +215,11 @@ describe("useWorldRenderLoop", () => {
     const result = useWorldRenderLoop({
       ...(onBucketFlip ? { onBucketFlip } : {}),
       adaptiveDprStateRef,
-      assetLoadTick: 0,
-      assets: emptyLogoAssets,
+      logoGeneration: 0,
+      logos: emptyLogoAssets,
       camera,
       cameraRef,
-      canvasBudgetRef,
+      surfaceBudgetRef,
       canvasRef,
       canvasSize,
       canvasSizeRef,
@@ -420,7 +418,7 @@ describe("useWorldRenderLoop", () => {
   it("applies an adaptive DPR change on the next Three render", async () => {
     let internals: {
       adaptiveDprStateRef: { current: ReturnType<typeof initialAdaptiveDprState> };
-      canvasBudgetRef: { current: ReturnType<typeof resolveCanvasBudget> | null };
+      surfaceBudgetRef: { current: ReturnType<typeof resolveRenderSurfaceBudget> | null };
       canvasRef: { current: HTMLCanvasElement };
     } | null = null;
     let fakeNow = 0;
@@ -428,13 +426,11 @@ describe("useWorldRenderLoop", () => {
     renderThreeWorldMock.mockImplementation(() => {
       fakeNow += 25;
       return {
-        drawableCount: 0,
-        drawableCounts: { underlay: 0, body: 0, overlay: 0, selection: 0 },
+        objectCount: 0,
         gpu: { calls: 0, geometries: 0, lines: 0, points: 0, textures: 0, triangles: 0 },
         movingShipCount: 0,
         rendererBackend: "three",
         visibleShipCount: 0,
-        visibleTileCount: 0,
       };
     });
 
@@ -466,8 +462,8 @@ describe("useWorldRenderLoop", () => {
 
       expect(downshifted).toBe(true);
       expect(internals!.adaptiveDprStateRef.current.requestedDpr).toBe(1.875);
-      expect(internals!.canvasBudgetRef.current?.backingWidth).toBe(1500);
-      expect(internals!.canvasBudgetRef.current?.backingHeight).toBe(1125);
+      expect(internals!.surfaceBudgetRef.current?.backingWidth).toBe(1500);
+      expect(internals!.surfaceBudgetRef.current?.backingHeight).toBe(1125);
       expect(renderThreeWorldMock).toHaveBeenLastCalledWith(expect.objectContaining({ dpr: 2 }));
 
       fireLatestRaf(2_000);
@@ -475,13 +471,11 @@ describe("useWorldRenderLoop", () => {
     } finally {
       nowSpy.mockRestore();
       renderThreeWorldMock.mockImplementation(() => ({
-        drawableCount: 0,
-        drawableCounts: { underlay: 0, body: 0, overlay: 0, selection: 0 },
+        objectCount: 0,
         gpu: { calls: 0, geometries: 0, lines: 0, points: 0, textures: 0, triangles: 0 },
         movingShipCount: 0,
         rendererBackend: "three",
         visibleShipCount: 0,
-        visibleTileCount: 0,
       }));
     }
   });
@@ -647,8 +641,8 @@ describe("useWorldRenderLoop", () => {
       const [canvasRef] = useState(() => ({ current: document.createElement("canvas") }));
       const [adaptiveDprStateRef] = useState(() => ({ current: initialAdaptiveDprState(1) }));
       const [maximumRequestedDprRef] = useState(() => ({ current: 1 }));
-      const [canvasBudgetRef] = useState(() => ({
-        current: resolveCanvasBudget({ cssHeight: canvasSize.y, cssWidth: canvasSize.x, requestedDpr: 1 }),
+      const [surfaceBudgetRef] = useState(() => ({
+        current: resolveRenderSurfaceBudget({ cssHeight: canvasSize.y, cssWidth: canvasSize.x, requestedDpr: 1 }),
       }));
       const [cameraRef] = useState(() => ({ current: camera }));
       const [canvasSizeRef] = useState(() => ({ current: canvasSize }));
@@ -665,11 +659,11 @@ describe("useWorldRenderLoop", () => {
       useWorldRenderLoop({
         onBucketFlip: bucketFlipSpy,
         adaptiveDprStateRef,
-        assetLoadTick: 0,
-        assets: emptyLogoAssets,
+        logoGeneration: 0,
+        logos: emptyLogoAssets,
         camera,
         cameraRef,
-        canvasBudgetRef,
+        surfaceBudgetRef,
         canvasRef,
         canvasSize,
         canvasSizeRef,

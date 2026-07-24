@@ -123,7 +123,7 @@ interface GardenMastPlan {
 }
 
 interface ShipSailTextureTarget {
-  assetGeneration: string | null;
+  logoGenerationKey: string | null;
   ships: readonly ShipVisual[];
 }
 
@@ -665,16 +665,16 @@ export function syncShipSailTextures(
   content: ShipSailTextureTarget,
   frame: ThreeWorldRendererFrame,
 ): void {
-  const generation = frame.assets.getRenderAssetGenerationKey();
-  if (content.assetGeneration === generation) return;
-  content.assetGeneration = generation;
+  const generation = frame.logos.getLogoGenerationKey();
+  if (content.logoGenerationKey === generation) return;
+  content.logoGenerationKey = generation;
 
   for (const visual of content.ships) {
     const material = visual.identitySailMaterial;
     const previousTexture = material.map;
     material.map = createGardenSailTexture(
       visual.ship,
-      frame.assets.getLogo(visual.ship.logoSrc),
+      frame.logos.getLogo(visual.ship.logoSrc),
     );
     material.color.set(material.map ? "#f7f2e4" : visual.ship.visual.sailColor);
     material.emissive.set("#fff7e3");

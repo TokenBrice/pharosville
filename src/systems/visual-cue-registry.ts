@@ -12,11 +12,6 @@ export const LEGEND_MARK_ROWS = [
     text: "Cargo crates on a dock mean chain backing is narrowing or concentrated; empty quays do not certify safety.",
   },
   {
-    cueId: "cue.ship.consensus-rigging",
-    label: "Denser rigging",
-    text: "More shroud lines at inspect zoom mean stronger price-source agreement; sparse rigging means check the detail row.",
-  },
-  {
     cueId: "cue.ship.audit-shield",
     label: "Steel-and-gold shield",
     text: "Major graded ships may carry a bluechip audit shield; the shield is a grade marker, not a blanket approval.",
@@ -103,17 +98,6 @@ export function buildVisualCueRegistry(): VisualCue[] {
       reducedMotionEquivalent: "same static hull silhouette",
     },
     {
-      id: "cue.ship.rigging",
-      target: { kind: "ship" },
-      primaryChannels: ["shape", "position"],
-      visual: "ship rigging style",
-      sourceField: "stablecoinMeta.flags.governance",
-      questionAnswered: "Which governance class controls the base ship model?",
-      failureState: "generic rigging",
-      domEquivalent: "ship detail class row",
-      reducedMotionEquivalent: "same static rigging silhouette",
-    },
-    {
       id: "cue.ship.scale",
       target: { kind: "ship" },
       primaryChannels: ["size", "shape"],
@@ -123,17 +107,6 @@ export function buildVisualCueRegistry(): VisualCue[] {
       failureState: "small default scale",
       domEquivalent: "ship detail market-cap row with fleet rank and share-of-fleet plus size-tier row",
       reducedMotionEquivalent: "same static compressed size tier",
-    },
-    {
-      id: "cue.ship.consensus-rigging",
-      target: { kind: "ship" },
-      primaryChannels: ["shape", "position"],
-      visual: "shroud-line rigging density on standard hulls at inspect zoom (full source agreement rigs the full set; disagreement leaves it sparse)",
-      sourceField: "stablecoins.peggedAssets[].consensusSources, stablecoins.peggedAssets[].agreeSources",
-      questionAnswered: "How many independent price sources agree on this stablecoin's price?",
-      failureState: "no rigging-density cue; detail row absent when no consensus data",
-      domEquivalent: "ship detail Source consensus fact (folded into the market-cap panel row) and accessibility ledger line",
-      reducedMotionEquivalent: "same static rigging lines",
     },
     {
       id: "cue.ship.audit-shield",

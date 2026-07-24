@@ -9,8 +9,7 @@ export const bundleBudgets = {
   desktop: {
     label: "desktop lazy chunk",
     pattern: /^pharosville-desktop-data-[A-Za-z0-9_-]+\.js$/,
-    // 2026-06-09 ship-identity pass: +~10 KiB raw for the generated
-    // brand-color table (data/brand-colors.json) + emblem/nameplate drawers.
+    // Includes the generated brand-color table and desktop data orchestration.
     maxRawBytes: 1024 * 1024,
     maxGzipBytes: 290 * 1024,
     required: true,

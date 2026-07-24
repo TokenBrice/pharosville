@@ -309,8 +309,8 @@ export function priceConfidenceLabel(asset: Pick<ShipNode["asset"], "priceConfid
 /**
  * Source-consensus ratio for a ship's price feed: `agree / total` in [0, 1]
  * with the underlying counts, or null when the feed reports no consensus
- * sources. The same value drives the rigging-density render cue and the
- * "Source consensus" fold in the Market cap detail row.
+ * sources. The value drives the "Source consensus" fold in the Market cap
+ * detail row.
  */
 export function sourceConsensusRatio(
   asset: Pick<ShipNode["asset"], "consensusSources" | "agreeSources"> | null | undefined,
@@ -537,7 +537,6 @@ export function detailForDock(node: DockNode, context: DockDetailContext | numbe
       { label: "Health", value: node.healthBand ?? "Unavailable" },
       ...(backingDiversity ? [{ label: "Backing diversity", value: backingDiversity }] : []),
       { label: "Harbor group", value: harborGroup },
-      { label: "Harbor style", value: node.assetId.replace("dock.", "").replaceAll("-", " ") },
     ],
     links: [{ label: "Chain", href: analyticalRouteHref(`/chains/${node.chainId}/`) }],
     membersHeading: "Harbored stablecoins",

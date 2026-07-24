@@ -31,7 +31,7 @@ describe("garden docks", () => {
 
   it("instances props so a dock stays within a tight draw budget", () => {
     const visual = createDock(dock("base", 7, 0.3), DISPLAY_TILE, ISLAND_TILE);
-    expect(drawableCount(visual.root)).toBeLessThanOrEqual(14);
+    expect(objectCount(visual.root)).toBeLessThanOrEqual(14);
     for (const name of ["dock-posts", "dock-lamp-heads", "dock-plank-relief"]) {
       expect(visual.root.getObjectByName(name)).toBeInstanceOf(InstancedMesh);
     }
@@ -51,7 +51,6 @@ describe("garden docks", () => {
 
 function dock(chainId: string, size: number, backingDiversity: number | null = null): DockNode {
   return {
-    assetId: `dock.${chainId}`,
     backingDiversity,
     chainId,
     concentration: null,
@@ -61,7 +60,6 @@ function dock(chainId: string, size: number, backingDiversity: number | null = n
     id: `dock.${chainId}`,
     kind: "dock",
     label: chainId,
-    logoSrc: null,
     size,
     stablecoinCount: 1,
     tile: { x: 40, y: 32 },
@@ -69,7 +67,7 @@ function dock(chainId: string, size: number, backingDiversity: number | null = n
   };
 }
 
-function drawableCount(root: import("three").Object3D): number {
+function objectCount(root: import("three").Object3D): number {
   let count = 0;
   root.traverse((object) => {
     if (object instanceof Mesh || object instanceof Line) count += 1;

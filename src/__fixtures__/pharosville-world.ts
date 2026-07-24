@@ -380,7 +380,6 @@ function denseChain(chainId: string, index: number, globalTotalUsd: number): Cha
   return makeChain({
     id: chainId,
     name: meta?.name ?? chainId,
-    logoPath: meta?.logoPath ?? "",
     type: meta?.type ?? "other",
     totalUsd,
     stablecoinCount: topStablecoins.length,

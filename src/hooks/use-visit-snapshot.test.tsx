@@ -284,12 +284,10 @@ function worldFixture(input: {
     areas: [],
     detailIndex: {},
     docks: [],
-    effects: [],
     entityById: {},
     freshness: {},
     generatedAt: input.generatedAt ?? 1,
     graves: [],
-    legends: [],
     lighthouse: {
       detailId: "lighthouse",
       id: "lighthouse",

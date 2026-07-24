@@ -78,8 +78,6 @@ export function reducedMotionSampleInto(
     out.currentDockId = frame.dockStop.dockId;
     out.currentRouteStopId = frame.dockStop.id;
     out.currentRouteStopKind = frame.dockStop.kind;
-    out.mooringSubPhase = "quiet";
-    out.mooringTension = 1;
   }
 }
 

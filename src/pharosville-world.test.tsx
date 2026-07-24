@@ -50,12 +50,12 @@ vi.mock("./components/detail-panel", () => ({
   ),
 }));
 
-vi.mock("./hooks/use-asset-loading-pipeline", () => ({
-  useAssetLoadingPipeline: () => ({
-    assetLoadTick: 0,
-    assets: {
+vi.mock("./hooks/use-ship-logo-assets", () => ({
+  useShipLogoAssets: () => ({
+    logoGeneration: 0,
+    logos: {
       getLogo: () => null,
-      getRenderAssetGenerationKey: () => "lg0",
+      getLogoGenerationKey: () => "lg0",
     },
   }),
 }));
@@ -67,7 +67,7 @@ vi.mock("./hooks/use-canvas-resize-and-camera", () => ({
     cameraRef: mocks.cameraRef,
     cameraZoomLabel: "100%",
     cancelCameraIntent: mocks.cancelCameraIntent,
-    canvasBudgetRef: { current: null },
+    surfaceBudgetRef: { current: null },
     canvasRef: { current: null },
     canvasSize: mocks.canvasSizeRef.current,
     canvasSizeRef: mocks.canvasSizeRef,
@@ -149,8 +149,7 @@ vi.mock("./renderer/hit-testing", () => {
 });
 
 vi.mock("./systems/motion", () => ({
-  buildBaseMotionPlan: vi.fn(() => ({ effectShipIds: new Set(), moverShipIds: new Set(), shipRoutes: new Map() })),
-  buildMotionPlan: vi.fn(() => ({ effectShipIds: new Set(), moverShipIds: new Set(), shipRoutes: new Map() })),
+  buildBaseMotionPlan: vi.fn(() => ({ shipRoutes: new Map() })),
   disposePathCacheForMap: vi.fn(),
   motionPlanSignature: vi.fn(() => "test-motion-plan"),
 }));
@@ -486,7 +485,6 @@ function worldFixture(input: {
       tile: { x: 6, y: 6 },
       totalUsd: 2_000,
     }],
-    effects: [],
     entityById: {
       "area.dews.warning": {
         band: "WARNING",
@@ -530,7 +528,6 @@ function worldFixture(input: {
     freshness: input.freshness ?? {},
     generatedAt: input.generatedAt ?? 1,
     graves: [],
-    legends: [],
     lighthouse: {
       detailId: "lighthouse",
       id: "lighthouse",
@@ -571,7 +568,6 @@ function worldFixture(input: {
       tile: { x: 2, y: 3 },
       change7dPct: 4,
       visual: {
-        shipClass: "cefi",
         sizeTier: "major",
       },
     }],

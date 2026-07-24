@@ -1,5 +1,3 @@
-export type WorldDrawablePass = "underlay" | "body" | "overlay" | "selection";
-
 export type PharosVilleRenderSchedulerTier =
   | "full"
   | "balanced"
@@ -8,8 +6,6 @@ export type PharosVilleRenderSchedulerTier =
   | "recovery";
 
 export interface PharosVilleRenderSchedulerState {
-  degradedPasses: readonly string[];
-  skippedPasses: readonly string[];
   targetFrameMs: number;
   tier: PharosVilleRenderSchedulerTier;
 }
@@ -18,8 +14,7 @@ export interface PharosVilleRenderMetrics {
   activeLaneCount?: number;
   bucketFlipCount?: number;
   composerEnabled?: boolean;
-  drawableCount: number;
-  drawableCounts: Record<WorldDrawablePass, number>;
+  objectCount: number;
   postPassList?: readonly string[];
   shadowMapSize?: number;
   longtask?: { count: number; maxDurationMs: number };
@@ -31,11 +26,8 @@ export interface PharosVilleRenderMetrics {
     hitRatio: number;
     size: number;
   };
-  schedulerDegradedPasses?: readonly string[];
-  schedulerSkippedPasses?: readonly string[];
   schedulerTier?: PharosVilleRenderSchedulerTier;
   shipMaxHeadingDeltaDeg?: number;
   shipMaxPositionDeltaTile?: number;
   visibleShipCount: number;
-  visibleTileCount: number;
 }

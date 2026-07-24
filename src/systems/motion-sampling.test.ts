@@ -22,11 +22,6 @@ describe("motion sampling sea-state metadata", () => {
       riskZone: route.zone,
     } as ShipNode;
     const plan: PharosVilleMotionPlan = {
-      animatedShipIds: new Set(),
-      effectShipIds: new Set(),
-      lighthouseFireFlickerPerSecond: 1,
-      moverShipIds: new Set(),
-      shipPhases: new Map(),
       shipRoutes: new Map([[route.shipId, route]]),
     };
     const calmSea = seaStateForSources({
@@ -57,7 +52,6 @@ describe("motion sampling sea-state metadata", () => {
 
     expect(calm.state).toBe("moored");
     expect(storm.state).toBe("moored");
-    expect(storm.mooringSwayAmplitude).toBeGreaterThan(calm.mooringSwayAmplitude ?? 0);
     expect(distanceFromMooring(storm, route)).toBeGreaterThan(distanceFromMooring(calm, route));
     expect(storm.seaState?.label).toBe(stormSea.label);
   });
@@ -74,11 +68,8 @@ describe("W3.20 sea-room separation pass", () => {
       currentRouteStopId: null,
       currentRouteStopKind: null,
       heading: { x: 1, y: 0 },
+      mapVisibilityAlpha: 1,
       wakeIntensity: 0,
-      mooringSubPhase: null,
-      mooringTension: 0,
-      lanternAlpha: 0,
-      fenderContact: 0,
     };
   }
 
@@ -287,11 +278,6 @@ describe("W4.24 consort tile validation", () => {
       formationOffset,
     } satisfies ShipMotionRoute;
     const plan: PharosVilleMotionPlan = {
-      animatedShipIds: new Set(),
-      effectShipIds: new Set(),
-      lighthouseFireFlickerPerSecond: 1,
-      moverShipIds: new Set(),
-      shipPhases: new Map(),
       shipRoutes: new Map([
         [flagshipRoute.shipId, flagshipRoute],
         [consortRoute.shipId, consortRoute],
@@ -341,11 +327,6 @@ describe("F2 risk-repath heading easing", () => {
 
   function planFor(route: ShipMotionRoute): PharosVilleMotionPlan {
     return {
-      animatedShipIds: new Set(),
-      effectShipIds: new Set(),
-      lighthouseFireFlickerPerSecond: 1,
-      moverShipIds: new Set(),
-      shipPhases: new Map(),
       shipRoutes: new Map([[route.shipId, route]]),
     };
   }

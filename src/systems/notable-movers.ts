@@ -1,5 +1,4 @@
 import { formatChangePercent, formatCompactUsd } from "../lib/format-detail";
-import { hasRecentMove } from "./motion-planning";
 import type { PharosVilleWorld, ShipNode } from "./world-types";
 
 export interface NotableMover {
@@ -13,6 +12,11 @@ export interface NotableMover {
 }
 
 const DEFAULT_LIMIT = 5;
+
+export function hasRecentMove(ship: ShipNode): boolean {
+  return Math.abs(ship.change24hUsd ?? 0) >= 1_000_000
+    || Math.abs(ship.change24hPct ?? 0) >= 1;
+}
 
 export function selectNotableMovers(world: Pick<PharosVilleWorld, "ships">, limit = DEFAULT_LIMIT): NotableMover[] {
   return world.ships

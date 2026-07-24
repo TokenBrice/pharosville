@@ -3,10 +3,9 @@ import type { PharosVilleRenderSchedulerState, PharosVilleRenderSchedulerTier } 
 export const RENDER_SCHEDULER_TARGET_FRAME_MS = 16.7;
 
 // Hysteresis: a load-tier change must be observed for a sustained streak of
-// frames before it is applied, so the scheduler does not flicker passes on and
-// off when frame pacing hovers around a threshold. Downshifts (toward heavier
-// degradation) apply quickly; upshifts (restoring effects) require a longer
-// streak, mirroring the adaptive-DPR discipline in canvas-budget.ts.
+// frames before it is applied, so Three quality settings do not flicker when
+// frame pacing hovers around a threshold. Downshifts apply quickly; upshifts
+// require a longer streak, mirroring the adaptive-DPR discipline.
 // V4.1: downshift streak 3 → 2 so spike recovery starts one frame sooner —
 // at a 90ms+ constrained-trigger draw that single frame is worth more than
 // the flicker risk it adds (alternating-pressure flap is still suppressed:
@@ -26,27 +25,6 @@ export function createRenderSchedulerHysteresisState(): RenderSchedulerHysteresi
   return { loadTier: "balanced", downshiftStreak: 0, upshiftStreak: 0 };
 }
 
-const INTERACTION_SKIPS = ["film-grain"] as const;
-const INTERACTION_DEGRADES = ["cloud-shadow", "birds", "god-rays"] as const;
-const LOW_PRIORITY_EFFECT_SKIPS = [
-  "birds",
-  "bioluminescent-sparkles",
-  "decorative-lights",
-  "film-grain",
-  "god-rays",
-  "moon-reflection",
-  "sea-mist",
-] as const;
-// Constrained tier additionally sheds the per-frame water passes — the
-// single largest direct-draw cost (hundreds of visible tiles per frame).
-// Recovery keeps them so moderate pressure doesn't visibly still the sea.
-const CONSTRAINED_EFFECT_SKIPS = [
-  ...LOW_PRIORITY_EFFECT_SKIPS,
-  "water-accents",
-  "coastal-water-motion",
-  "dock-caustics",
-] as const;
-
 export function resolveRenderSchedulerState(
   input: {
     cameraIntentActive: boolean;
@@ -58,25 +36,9 @@ export function resolveRenderSchedulerState(
 ): PharosVilleRenderSchedulerState {
   const tier = resolveRenderSchedulerTier(input, hysteresis);
   return {
-    degradedPasses: degradedPassesForTier(tier),
-    skippedPasses: skippedPassesForTier(tier),
     targetFrameMs: RENDER_SCHEDULER_TARGET_FRAME_MS,
     tier,
   };
-}
-
-export function shouldDrawScheduledPass(
-  scheduler: PharosVilleRenderSchedulerState | undefined,
-  pass: string,
-): boolean {
-  return !scheduler?.skippedPasses.includes(pass);
-}
-
-export function isScheduledPassDegraded(
-  scheduler: PharosVilleRenderSchedulerState | undefined,
-  pass: string,
-): boolean {
-  return Boolean(scheduler?.degradedPasses.includes(pass));
 }
 
 function resolveRenderSchedulerTier(
@@ -140,16 +102,4 @@ function advanceLoadTierHysteresis(
     state.upshiftStreak = 0;
   }
   return state.loadTier;
-}
-
-function skippedPassesForTier(tier: PharosVilleRenderSchedulerTier): readonly string[] {
-  if (tier === "interaction") return INTERACTION_SKIPS;
-  if (tier === "constrained") return CONSTRAINED_EFFECT_SKIPS;
-  if (tier === "recovery") return LOW_PRIORITY_EFFECT_SKIPS;
-  return [];
-}
-
-function degradedPassesForTier(tier: PharosVilleRenderSchedulerTier): readonly string[] {
-  if (tier === "interaction") return INTERACTION_DEGRADES;
-  return [];
 }

@@ -79,9 +79,7 @@ textarea {
   text-transform: uppercase;
   text-shadow: 0 1px 0 rgba(5, 8, 12, 0.7);
 }
-/* Sky-to-sea gradient so the empty viewport reads as the same horizon line
-   that `drawHorizonShips` paints — band of slightly warmer night at the
-   horizon (cf. sky.ts SKY_MOODS.night). */
+/* Sky-to-sea gradient keeps the loading viewport close to the night scene. */
 .pharosville-loading::after {
   content: "";
   position: absolute;
@@ -95,16 +93,14 @@ textarea {
       #0b1b29 50%,
       #07121b 64%,
       #050d13 100%),
-    /* horizon ship silhouettes — 10 ships placed along y = 50%, sized to match
-       the renderer's 0.18/0.26 alphas on hull/sail. */
+    /* Lightweight ship silhouettes keep the loading state renderer-neutral. */
     url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 200' preserveAspectRatio='xMidYMid slice'%3E%3Cg fill='%231c2636' fill-opacity='0.18'%3E%3Crect x='80' y='100' width='6' height='2'/%3E%3Crect x='200' y='99' width='6' height='2'/%3E%3Crect x='310' y='100' width='5' height='2'/%3E%3Crect x='430' y='100' width='6' height='2'/%3E%3Crect x='535' y='100' width='5' height='2'/%3E%3Crect x='650' y='99' width='6' height='2'/%3E%3Crect x='755' y='100' width='6' height='2'/%3E%3Crect x='870' y='100' width='5' height='2'/%3E%3Crect x='990' y='100' width='6' height='2'/%3E%3Crect x='1100' y='100' width='5' height='2'/%3E%3C/g%3E%3Cg fill='%23e8dec4' fill-opacity='0.26'%3E%3Cpolygon points='82,100 86,96 82,96'/%3E%3Cpolygon points='200,99 196,95 200,95'/%3E%3Cpolygon points='312,100 316,96 312,96'/%3E%3Cpolygon points='432,100 436,96 432,96'/%3E%3Cpolygon points='536,100 532,96 536,96'/%3E%3Cpolygon points='650,99 654,95 650,95'/%3E%3Cpolygon points='757,100 761,96 757,96'/%3E%3Cpolygon points='870,100 866,96 870,96'/%3E%3Cpolygon points='991,100 995,96 991,96'/%3E%3Cpolygon points='1100,100 1104,96 1100,96'/%3E%3C/g%3E%3C/svg%3E");
   background-blend-mode: screen, normal;
   background-size: cover, cover;
   background-position: center, center;
   background-repeat: no-repeat, no-repeat;
 }
-/* Warm spinner halo (canvas-light style). Mirrors the lighthouse lantern's
-   warm gradient (HARBOR_PALETTE.lantern_warm #d49a3e family). */
+/* Warm spinner halo echoes the lighthouse material palette. */
 .pharosville-loading::before {
   content: "";
   position: relative;
@@ -329,7 +325,6 @@ textarea {
   overflow: hidden;
   background: #050d13;
   font-family: Georgia, "Times New Roman", serif;
-  image-rendering: pixelated;
 }
 
 .pharosville-shell::before,
@@ -812,32 +807,6 @@ textarea {
 .pv-corner-brass--bl { bottom: -6px; left: -6px; }
 .pv-corner-brass--br { bottom: -6px; right: -6px; }
 
-.pv-parchment {
-  position: relative;
-  padding: 22px 22px 18px;
-  background:
-    repeating-linear-gradient(123deg, rgba(108, 74, 20, 0.04) 0 1px, transparent 1px 5px),
-    repeating-linear-gradient(57deg, rgba(108, 74, 20, 0.04) 0 1px, transparent 1px 5px),
-    radial-gradient(ellipse at 0% 0%,
-      var(--pv-parchment-light) 0%,
-      var(--pv-parchment-warm) 50%,
-      var(--pv-parchment-dark) 100%);
-  border: 1.5px solid var(--pv-timber-dark);
-  box-shadow:
-    inset 0 0 60px rgba(108, 74, 20, 0.25),
-    inset 0 0 0 1px rgba(245, 219, 164, 0.5);
-  color: var(--pv-ink-text);
-}
-.pv-parchment::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(circle at 100% 0%, rgba(108, 74, 20, 0.18), transparent 18%),
-    radial-gradient(circle at 0% 100%, rgba(108, 74, 20, 0.18), transparent 18%);
-}
-
 /* Old-school chrome — controls */
 
 .pv-brass-button {
@@ -937,39 +906,6 @@ textarea {
   opacity: 0.55;
 }
 
-.pv-corner-action {
-  position: absolute;
-  display: grid;
-  width: 56px;
-  height: 56px;
-  place-items: center;
-  border: 3px solid var(--pv-timber-edge);
-  border-radius: 50%;
-  background: radial-gradient(circle at 30% 25%,
-    var(--pv-brass-highlight) 0%,
-    var(--pv-brass) 30%,
-    #a07a32 65%,
-    #4b3414 100%);
-  color: var(--pv-ink-text);
-  cursor: pointer;
-  text-decoration: none;
-  box-shadow:
-    inset 0 0 0 2px rgba(255, 235, 180, 0.4),
-    inset 0 -3px 4px rgba(0, 0, 0, 0.4),
-    0 4px 10px rgba(0, 0, 0, 0.6);
-}
-.pv-corner-action:hover {
-  background: radial-gradient(circle at 30% 25%,
-    #fff0c8 0%,
-    #f3d49a 30%,
-    var(--pv-brass-mid) 65%,
-    var(--pv-brass-dark) 100%);
-}
-.pv-corner-action:focus-visible {
-  outline: 2px solid var(--pv-brass-highlight);
-  outline-offset: 4px;
-}
-
 .pv-chip-zoom {
   display: inline-grid;
   height: 36px;
@@ -1053,57 +989,6 @@ textarea {
 .pv-panel-link:focus-visible {
   outline: 2px solid var(--pv-timber-edge);
   outline-offset: 3px;
-}
-
-.pv-wax-seal {
-  position: relative;
-  display: inline-grid;
-  width: 32px;
-  height: 32px;
-  place-items: center;
-  border: 2px solid var(--pv-timber-edge);
-  border-radius: 50%;
-  background: radial-gradient(circle at 30% 30%,
-    #d65440 0%,
-    var(--pv-seal-red) 50%,
-    var(--pv-seal-red-dark) 100%);
-  color: var(--pv-parchment-light);
-  font: 900 18px Georgia, serif;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.3),
-    0 1px 2px rgba(0, 0, 0, 0.5);
-}
-
-.pv-beacon-pulse {
-  position: relative;
-  display: inline-block;
-  width: 56px;
-  height: 56px;
-  border: 2px solid var(--pv-timber-edge);
-  border-radius: 50%;
-  background: radial-gradient(circle at 50% 50%,
-    #fff0c8 0%,
-    #f3d49a 30%,
-    var(--pv-brass-mid) 60%,
-    var(--pv-brass-edge) 100%);
-  box-shadow:
-    0 0 0 4px rgba(248, 229, 178, 0.2),
-    0 0 24px rgba(248, 229, 178, 0.5);
-}
-.pv-beacon-pulse::after {
-  content: "";
-  position: absolute;
-  inset: 12px;
-  border-radius: 50%;
-  background: radial-gradient(circle, #fff7d0, #f3d49a);
-  animation: pv-beacon-pulse 1.4s ease-in-out infinite;
-}
-@keyframes pv-beacon-pulse {
-  0%, 100% { opacity: 0.6; transform: scale(0.85); }
-  50% { opacity: 1; transform: scale(1.05); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .pv-beacon-pulse::after { animation: none; }
 }
 
 .pharosville-changelog-panel {
@@ -1429,13 +1314,6 @@ textarea {
   list-style: none;
   padding-left: 2px;
 }
-.pharosville-legend-panel__ship-thumb {
-  height: 32px;
-  width: auto;
-  margin-right: 8px;
-  vertical-align: middle;
-  image-rendering: pixelated;
-}
 .pharosville-controls-cheatsheet dl {
   display: grid;
   gap: 8px;
@@ -1469,7 +1347,7 @@ textarea {
   font: 0.86em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
-/* Canvas hover tooltip: positioned by the render loop via style.transform
+/* World hover tooltip: positioned by the render loop via style.transform
    (anchor = hovered hit-rect top-center); the card offsets itself above the
    anchor. Decorative duplicate of detail info, so aria-hidden and
    pointer-events:none. */

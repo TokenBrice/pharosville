@@ -16,10 +16,6 @@ export const MAX_TILE_X = PHAROSVILLE_MAP_WIDTH - 1;
 export const MAX_TILE_Y = PHAROSVILLE_MAP_HEIGHT - 1;
 /** Anchor tile for the lighthouse on the western promontory; sprites and beam math hang off this point. */
 export const LIGHTHOUSE_TILE = { x: 18, y: 28 } as const;
-/** Center tile of the civic core (Yggdrasil + central cluster); used as the visual heart of the island. */
-export const CIVIC_CORE_CENTER = { x: 31, y: 31 } as const;
-/** Approximate radius (in tiles) of the civic core feature ring around `CIVIC_CORE_CENTER`. */
-export const CIVIC_CORE_RADIUS = 8.5;
 /**
  * Chebyshev tile distance: any sea tile within this many tiles of land is rendered
  * as generic "water" (no DEWS zone), giving the island a non-attributed halo
@@ -164,31 +160,9 @@ const WATER_TERRAIN_KINDS = new Set<TerrainKind>([
   "ledger-water",
 ]);
 
-const ELEVATED_TERRAIN_KINDS = new Set<TerrainKind>(["hill", "rock", "cliff"]);
-
 /** True if `kind` is one of the water terrain kinds (deep, calm, alert, harbor, watch, warning, storm, ledger, generic). */
 export function isWaterTileKind(kind: TileKind | TerrainKind): boolean {
   return WATER_TERRAIN_KINDS.has(kind as TerrainKind);
-}
-
-/** True if `kind` is anything that is not water (land, shore, road, etc.). Inverse of `isWaterTileKind`. */
-export function isLandTileKind(kind: TileKind | TerrainKind): boolean {
-  return !isWaterTileKind(kind);
-}
-
-/** True if `kind` represents elevated terrain (hill, rock, cliff) used for occlusion + sprite layering. */
-export function isElevatedTileKind(kind: TileKind | TerrainKind): boolean {
-  return ELEVATED_TERRAIN_KINDS.has(kind as TerrainKind);
-}
-
-/** True for the land-adjacent shore/beach kinds where surf overlays render. */
-export function isShoreTileKind(kind: TileKind | TerrainKind): boolean {
-  return kind === "shore" || kind === "beach";
-}
-
-/** True for road tiles (used by routing/styling code that branches on traversable surfaces). */
-export function isRoadTileKind(kind: TileKind | TerrainKind): boolean {
-  return kind === "road";
 }
 
 /** Returns the canonical (collapsed) `TileKind` at `(x, y)`. Detail-level terrain is mapped down to the small render-time enum. */
@@ -590,7 +564,6 @@ export function graveNodesFromEntries(entries: readonly CemeteryEntry[]): GraveN
       kind: "grave",
       label: entry.symbol,
       entry,
-      logoSrc: entry.logo ? `/logos/cemetery/${entry.logo}` : null,
       tile,
       visual,
       detailId: `grave.${entry.id}`,

@@ -13,36 +13,6 @@ import {
 export const MAX_CHAIN_HARBORS = 8;
 export const MAX_DOCK_SIZE = 10;
 
-const _DOCK_ASSET_IDS = [
-  "dock.ethereum-civic-cove",
-  "dock.tron-arena-wharf",
-  "dock.bsc-mercantile-wharf",
-  "dock.solana-prism-stilt",
-  "dock.base-modular-slip",
-  "dock.arbitrum-arch-bridge",
-  "dock.polygon-hexmarket",
-  "dock.aptos-jade-pagoda",
-  "dock.avalanche-alpine-watch",
-  "dock.ton-pigeonnier-pier",
-  // W6.08 — Hyperliquid harbor sprite. Deferred loadPriority per decision
-  // D5 §6, so no first-render budget bump required.
-  "dock.hyperliquid-trading-floor",
-] as const;
-
-const PREFERRED_DOCK_ASSET_IDS: Record<string, (typeof _DOCK_ASSET_IDS)[number]> = {
-  ethereum: "dock.ethereum-civic-cove",
-  tron: "dock.tron-arena-wharf",
-  bsc: "dock.bsc-mercantile-wharf",
-  solana: "dock.solana-prism-stilt",
-  base: "dock.base-modular-slip",
-  arbitrum: "dock.arbitrum-arch-bridge",
-  polygon: "dock.polygon-hexmarket",
-  aptos: "dock.aptos-jade-pagoda",
-  avalanche: "dock.avalanche-alpine-watch",
-  ton: "dock.ton-pigeonnier-pier",
-  hyperliquid: "dock.hyperliquid-trading-floor",
-};
-
 const SUPPRESSED_CHAIN_HARBOR_IDS = new Set<string>(["optimism"]);
 
 // TON renders on its own pigeonnier-attached track and must not consume one of
@@ -129,8 +99,6 @@ function buildDockNode(chain: ChainSummary, tile: { x: number; y: number }, glob
     kind: "dock" as const,
     label: chain.name,
     chainId: chain.id,
-    logoSrc: chain.logoPath || null,
-    assetId: PREFERRED_DOCK_ASSET_IDS[chain.id] ?? "dock.wooden-pier",
     tile,
     totalUsd: chain.totalUsd,
     size: dockSize(chain, globalTotalUsd),

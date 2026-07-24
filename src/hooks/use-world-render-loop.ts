@@ -19,10 +19,10 @@ import {
   createDrawDurationWindow,
   pushDrawDurationSample,
   resolveAdaptiveDprState,
-  resolveCanvasBudget,
+  resolveRenderSurfaceBudget,
   type AdaptiveDprState,
   type DrawDurationWindow,
-} from "../systems/canvas-budget";
+} from "../systems/render-surface-budget";
 import {
   buildMotionPlan,
   createShipMotionSample,
@@ -94,11 +94,11 @@ export interface UseWorldRenderLoopInput {
    */
   onBucketFlip?: (bucket: number) => void;
   adaptiveDprStateRef: MutableRefObject<AdaptiveDprState>;
-  assetLoadTick: number;
-  assets: ThreeLogoAssets;
+  logoGeneration: number;
+  logos: ThreeLogoAssets;
   camera: IsoCamera | null;
   cameraRef: MutableRefObject<IsoCamera | null>;
-  canvasBudgetRef: MutableRefObject<ReturnType<typeof resolveCanvasBudget> | null>;
+  surfaceBudgetRef: MutableRefObject<ReturnType<typeof resolveRenderSurfaceBudget> | null>;
   canvasRef: RefObject<HTMLCanvasElement | null>;
   canvasSize: ScreenPoint;
   canvasSizeRef: MutableRefObject<ScreenPoint>;
@@ -142,11 +142,11 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   const {
     onBucketFlip,
     adaptiveDprStateRef,
-    assetLoadTick,
-    assets,
+    logoGeneration,
+    logos,
     camera,
     cameraRef,
-    canvasBudgetRef,
+    surfaceBudgetRef,
     canvasRef,
     canvasSize,
     canvasSizeRef,
@@ -220,13 +220,11 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   const motionFrameCountRef = useRef(0);
   const reducedMotionSamplesSignatureRef = useRef<string | null>(null);
   const lastRenderMetricsRef = useRef<DebugRenderMetrics>({
-    drawableCount: 0,
-    drawableCounts: { underlay: 0, body: 0, overlay: 0, selection: 0 },
+    objectCount: 0,
     drawDurationMs: 0,
     framePacing: emptyFramePacingMetrics(),
     movingShipCount: 0,
     visibleShipCount: 0,
-    visibleTileCount: 0,
   });
   // A1/A2/A5 rolling debug windows. Fixed-size rings avoid per-frame
   // push/shift/copy churn while preserving the debug fields used by perf tests.
@@ -341,12 +339,11 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   }, [reducedMotion]);
 
   // RAF effect — bound once per plumbing change (`world`, `canvasSize`,
-  // `reducedMotion`, `assetManager`, `cameraReady`, `wallClockHour`, `shipsById`).
+  // `reducedMotion`, `cameraReady`, `wallClockHour`, `shipsById`).
   // All other inputs (hoveredDetailId, selectedDetailId, motionPlan, camera,
-  // criticalAssetAttemptsSettled) are read through refs. Per-hover/select
-  // repaints under reduced motion are routed through `requestPaint()` so the
-  // loop is not torn down on every interaction. Asset-load ticks also call
-  // `requestPaint()` to repaint when sprites arrive without rebinding.
+  // and ship-logo state) are read through refs. Per-hover/select repaints under
+  // reduced motion are routed through `requestPaint()` so the loop is not torn
+  // down on every interaction. Logo-load ticks also call `requestPaint()`.
   //
   // The IntersectionObserver + visibilitychange handler are owned by the same
   // effect so their lifecycle is bound to the RAF loop. When the canvas leaves
@@ -359,9 +356,9 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     if (!canvas || !cameraReady || canvasSize.x <= 0 || canvasSize.y <= 0) return;
     const threeRenderer = rendererStatus === "ready" ? threeRendererRef.current : null;
     if (!threeRenderer) return;
-    if (!canvasBudgetRef.current) {
+    if (!surfaceBudgetRef.current) {
       const requestedDpr = adaptiveDprStateRef.current.requestedDpr || Math.max(1, window.devicePixelRatio || 1);
-      canvasBudgetRef.current = resolveCanvasBudget({
+      surfaceBudgetRef.current = resolveRenderSurfaceBudget({
         cssHeight: canvasSize.y,
         cssWidth: canvasSize.x,
         requestedDpr,
@@ -392,12 +389,12 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         scheduleNextAnimatedFrame();
         return;
       }
-      const activeBudget = canvasBudgetRef.current ?? resolveCanvasBudget({
+      const activeBudget = surfaceBudgetRef.current ?? resolveRenderSurfaceBudget({
         cssHeight: activeCanvasSize.y,
         cssWidth: activeCanvasSize.x,
         requestedDpr: adaptiveDprStateRef.current.requestedDpr,
       });
-      canvasBudgetRef.current = activeBudget;
+      surfaceBudgetRef.current = activeBudget;
       const dpr = activeBudget.effectiveDpr;
       let timeSeconds: number;
       // Candidate frame-pacing sample. Stays null on resume frames (mirroring
@@ -550,7 +547,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       let renderMetrics: PharosVilleRenderMetrics;
       try {
         renderMetrics = threeRenderer.render({
-          assets,
+          logos,
           camera: frameCamera,
           dpr,
           height: activeCanvasSize.y,
@@ -597,12 +594,12 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         });
         if (nextAdaptiveDprState.requestedDpr !== adaptiveDprStateRef.current.requestedDpr) {
           adaptiveDprStateRef.current = nextAdaptiveDprState;
-          const nextBudget = resolveCanvasBudget({
+          const nextBudget = resolveRenderSurfaceBudget({
             cssHeight: activeCanvasSize.y,
             cssWidth: activeCanvasSize.x,
             requestedDpr: nextAdaptiveDprState.requestedDpr,
           });
-          canvasBudgetRef.current = nextBudget;
+          surfaceBudgetRef.current = nextBudget;
         } else if (
           nextAdaptiveDprState.cooldownFrames !== adaptiveDprStateRef.current.cooldownFrames
           || nextAdaptiveDprState.downshiftStreak !== adaptiveDprStateRef.current.downshiftStreak
@@ -682,10 +679,8 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           frameState: nextFrameState,
           camera: frameCamera,
           canvasSize: activeCanvasSize,
-          motionPlan: activeMotionPlan,
           reducedMotion,
           renderMetrics: lastRenderMetricsRef.current,
-          selectedDetailId: activeSelectedDetailId,
           shipsById,
           compactSampleCache: compactShipMotionSampleCacheRef.current,
           world,
@@ -771,7 +766,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [advanceMotionBucket, assets, cameraReady, canvasSize.x, canvasSize.y, failThreeRenderer, reducedMotion, rendererStatus, shipsById, wallClockHour, world]);
+  }, [advanceMotionBucket, cameraReady, canvasSize.x, canvasSize.y, failThreeRenderer, logos, reducedMotion, rendererStatus, shipsById, wallClockHour, world]);
 
   // Reduced motion keeps draw-time static (`timeSeconds = 0`) and therefore
   // has no continuous RAF clock to cross the route-variation bucket boundary.
@@ -813,7 +808,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   // RAF effect itself never rebinds on a tick bump.
   useEffect(() => {
     requestPaint();
-  }, [assetLoadTick, requestPaint]);
+  }, [logoGeneration, requestPaint]);
 
   // Visual debug telemetry — published to window for tests / dev tooling.
   useEffect(() => {
@@ -829,22 +824,15 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       compactSampleCache: compactShipMotionSampleCacheRef.current,
       frameCount: motionFrameCountRef.current,
       frameState,
-      motionPlan,
       reducedMotion,
       renderMetrics: lastRenderMetricsRef.current,
-      selectedDetailId,
       shipsById,
       world,
     });
     debugWindow.__pharosVilleDebug = {
       ...framePatch,
       camera,
-      assetLoadErrors: [],
-      assetsLoaded: true,
-      criticalAssetAttemptsSettled: true,
-      criticalAssetsLoaded: true,
-      deferredAssetsLoaded: true,
-      canvasBudget: canvasBudgetRef.current,
+      surfaceBudget: surfaceBudgetRef.current,
       canvasSize,
       selectedDetailAnchor,
       selectedDetailId,
@@ -884,19 +872,13 @@ type CompactShipMotionSampleCache = {
 type PharosVilleDebugState = {
   activeCameraLoopCount: number;
   activeMotionLoopCount: number;
-  assetLoadErrors: [];
   camera: IsoCamera | null;
   cameraFrameSource: "world-render-loop";
   cameraWithinBounds: boolean;
-  assetsLoaded: boolean;
-  criticalAssetAttemptsSettled: boolean;
-  criticalAssetsLoaded: boolean;
-  deferredAssetsLoaded: boolean;
-  canvasBudget: ReturnType<typeof resolveCanvasBudget> | null;
+  surfaceBudget: ReturnType<typeof resolveRenderSurfaceBudget> | null;
   canvasSize: ScreenPoint;
   animationFramePending: boolean;
   motionClockSource: "requestAnimationFrame" | "reduced-motion-static-frame";
-  motionCueCounts: MotionCueCounts;
   motionFrameCount: number;
   renderMetrics: DebugRenderMetrics;
   reducedMotion: boolean;
@@ -908,17 +890,6 @@ type PharosVilleDebugState = {
   wallClockHour: number;
 };
 
-type MotionCueCounts = {
-  ambientBirds: number;
-  animatedShips: number;
-  effectShips: number;
-  harborLights: number;
-  moverShips: number;
-  selectedRelationshipOverlays: number;
-};
-
-const PHAROSVILLE_AMBIENT_BIRD_CAP = 9;
-const PHAROSVILLE_HARBOR_LIGHT_CAP = 3;
 const FRAME_RATE_LABEL_UPDATE_MS = 500;
 const MAX_WORLD_FRAME_DELTA_SECONDS = 1 / 30;
 const TEST_CLOCK_JUMP_DELTA_SECONDS = 1;
@@ -1044,7 +1015,7 @@ function createLastTilePositionSample(sample: ShipMotionSample, timeSeconds: num
     routePathKey: sample.routePathKey,
     state: sample.state,
     timeSeconds,
-    visibilityAlpha: sample.mapVisibilityAlpha ?? 1,
+    visibilityAlpha: sample.mapVisibilityAlpha,
     x: sample.tile.x,
     y: sample.tile.y,
   };
@@ -1057,13 +1028,13 @@ function writeLastTilePositionSample(target: LastTilePositionSample, sample: Shi
   target.routePathKey = sample.routePathKey;
   target.state = sample.state;
   target.timeSeconds = timeSeconds;
-  target.visibilityAlpha = sample.mapVisibilityAlpha ?? 1;
+  target.visibilityAlpha = sample.mapVisibilityAlpha;
   target.x = sample.tile.x;
   target.y = sample.tile.y;
 }
 
 function isContinuousPositionDiagnosticSample(previous: LastTilePositionSample, sample: ShipMotionSample): boolean {
-  const visibilityAlpha = sample.mapVisibilityAlpha ?? 1;
+  const visibilityAlpha = sample.mapVisibilityAlpha;
   return previous.visibilityAlpha >= 0.2
     && visibilityAlpha >= 0.2
     && previous.routePathKey === sample.routePathKey
@@ -1108,22 +1079,15 @@ type DebugFramePatchInput = {
     timeSeconds: number;
     wallClockHour: number;
   };
-  motionPlan: MotionPlan;
   reducedMotion: boolean;
   renderMetrics: DebugRenderMetrics;
-  selectedDetailId: string | null;
   shipsById: ReadonlyMap<string, PharosVilleWorldModel["ships"][number]>;
   world: PharosVilleWorldModel;
 };
 
 type DebugFramePatch = Omit<
   PharosVilleDebugState,
-  | "assetLoadErrors"
-  | "assetsLoaded"
-  | "criticalAssetAttemptsSettled"
-  | "criticalAssetsLoaded"
-  | "deferredAssetsLoaded"
-  | "canvasBudget"
+  | "surfaceBudget"
   | "canvasSize"
   | "selectedDetailAnchor"
   | "selectedDetailId"
@@ -1138,12 +1102,6 @@ function debugFramePatch(input: DebugFramePatchInput): DebugFramePatch {
     cameraFrameSource: "world-render-loop",
     cameraWithinBounds: isCameraWithinBounds(input.camera, input.world.map, input.canvasSize),
     motionClockSource: input.reducedMotion ? "reduced-motion-static-frame" : "requestAnimationFrame",
-    motionCueCounts: motionCueCounts({
-      motionPlan: input.motionPlan,
-      renderSchedulerTier: input.renderMetrics.schedulerTier,
-      selectedDetailId: input.selectedDetailId,
-      world: input.world,
-    }),
     motionFrameCount: input.frameCount,
     renderMetrics: input.renderMetrics,
     reducedMotion: input.reducedMotion,
@@ -1187,24 +1145,4 @@ function isVisualDebugAllowed(): boolean {
           || window.location.hostname === "127.0.0.1"));
   }
   return cachedDebugAllowed;
-}
-
-function motionCueCounts(input: {
-  motionPlan: MotionPlan;
-  renderSchedulerTier: PharosVilleRenderMetrics["schedulerTier"];
-  selectedDetailId: string | null;
-  world: PharosVilleWorldModel;
-}): MotionCueCounts {
-  const selectedDetail = input.selectedDetailId ? input.world.detailIndex[input.selectedDetailId] ?? null : null;
-  const selectedRelationshipOverlays = selectedDetail && /ship|dock/i.test(selectedDetail.kind) ? 1 : 0;
-  return {
-    ambientBirds: input.renderSchedulerTier === "constrained" ? 0 : PHAROSVILLE_AMBIENT_BIRD_CAP,
-    animatedShips: input.motionPlan.animatedShipIds.size,
-    effectShips: input.motionPlan.effectShipIds.size,
-    // V2.5: civic-core lamp cap plus one quay lantern per rendered dock
-    // (bounded by the dock cap, ≤ 10 with TON).
-    harborLights: PHAROSVILLE_HARBOR_LIGHT_CAP + input.world.docks.length,
-    moverShips: input.motionPlan.moverShipIds.size,
-    selectedRelationshipOverlays,
-  };
 }

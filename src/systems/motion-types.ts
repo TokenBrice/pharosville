@@ -28,7 +28,6 @@ export interface ShipWaterPath {
 }
 
 export type ShipMotionState = "idle" | "moored" | "departing" | "sailing" | "risk-drift" | "arriving";
-export type ShipMooringSubPhase = "working" | "quiet" | "cast-off-prep";
 export type ShipMotionStopKind = "dock" | "ledger";
 export interface ShipWaterRouteCache {
   get(key: string): ShipWaterPath | undefined;
@@ -152,13 +151,8 @@ export interface ShipMotionSample {
   heading: { x: number; y: number };
   velocity?: { x: number; y: number };
   speedTilesPerSecond?: number;
-  mapVisibilityAlpha?: number;
+  mapVisibilityAlpha: number;
   wakeIntensity: number;
-  mooringSubPhase?: ShipMooringSubPhase | null;
-  mooringSwayAmplitude?: number;
-  mooringTension?: number;
-  lanternAlpha?: number;
-  fenderContact?: number;
   seaState?: SeaState | null;
   /**
    * W4.25 — when the sampler is mid-tack-out (the 3-second blended transit
@@ -179,19 +173,7 @@ export interface ShipMotionSample {
 }
 
 export interface PharosVilleMotionPlan {
-  animatedShipIds: ReadonlySet<string>;
-  effectShipIds: ReadonlySet<string>;
-  lighthouseFireFlickerPerSecond: number;
-  moverShipIds: ReadonlySet<string>;
-  shipPhases: ReadonlyMap<string, number>;
   shipRoutes: ReadonlyMap<string, ShipMotionRoute>;
 }
 
-export interface PharosVilleBaseMotionPlan {
-  animatedShipIds: ReadonlySet<string>;
-  baseEffectShipIds: ReadonlySet<string>;
-  lighthouseFireFlickerPerSecond: number;
-  moverShipIds: ReadonlySet<string>;
-  shipPhases: ReadonlyMap<string, number>;
-  shipRoutes: ReadonlyMap<string, ShipMotionRoute>;
-}
+export type PharosVilleBaseMotionPlan = PharosVilleMotionPlan;

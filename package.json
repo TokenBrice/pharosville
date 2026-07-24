@@ -45,7 +45,7 @@
     "agent:plan:new": "node scripts/pharosville/new-agent-plan.mjs",
     "validate:changed": "node scripts/pharosville/validate-changed.mjs",
     "validate:deploy-gate": "node scripts/pharosville/validate-deploy-gate.mjs",
-    "check:pharosville-assets": "node scripts/pharosville/validate-assets.mjs",
+    "check:runtime-media": "node scripts/pharosville/validate-runtime-media.mjs && npm run check:garden-models",
     "check:garden-models": "node scripts/pharosville/generate-garden-lighthouse.mjs --check && node scripts/pharosville/generate-garden-heroes.mjs --check",
     "check:pharosville-colors": "node scripts/check-pharosville-colors.mjs",
     "check:bundle-size": "node scripts/check-bundle-size.mjs",
@@ -66,7 +66,7 @@
     "check:release-admin": "npm run check:branch-protection && npm run check:release-credentials && npm run check:github-releases",
     "check:release-readiness": "npm run check:security-headers && npm run test:visual:cross-browser && npm run test:visual:dist:accessibility && npm run smoke:live -- --url https://pharosville.pharos.watch",
     "validate:docs": "npm run test:guard-scripts && npm run check:doc-paths-and-scripts && npm run check:release-contract && npm run check:runtime-facts && npm run check:viewport-gate && npm run check:security-headers:static",
-    "validate": "npm run check:committed-secrets && npm run validate:docs && npm run check:pharosville-assets && npm run check:garden-models && npm run check:pharosville-colors && npm run typecheck && npm run lint && npm test && npm run build && npm run check:bundle-size",
+    "validate": "npm run check:committed-secrets && npm run validate:docs && npm run check:runtime-media && npm run check:pharosville-colors && npm run typecheck && npm run lint && npm test && npm run build && npm run check:bundle-size",
     "validate:release": "npm run validate:deploy-gate && npm run lint && npm run check:viewport-gate",
     "deploy": "wrangler pages deploy dist --project-name=pharosville",
     "capture:triptych": "PHAROSVILLE_TRIPTYCH=1 playwright test tests/visual/pharosville-triptych.spec.ts --project=desktop-chromium"
@@ -82,7 +82,6 @@
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@playwright/test": "1.59.1",
-    "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.2",
     "@types/node": "24.12.2",
     "@types/react": "19.2.14",

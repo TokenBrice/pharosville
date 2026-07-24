@@ -66,8 +66,6 @@ const mocks = vi.hoisted(() => {
           kind: "dock",
           label: chain.id,
           chainId: chain.id,
-          logoSrc: null,
-          assetId: "dock.fixture",
           tile: { x: 0, y: 0 },
           totalUsd: 0,
           size: 1,
@@ -84,9 +82,7 @@ const mocks = vi.hoisted(() => {
           label: asset.symbol,
         })),
         graves: [],
-        effects: [],
         detailIndex: {},
-        legends: [],
         visualCues: [],
       };
     }),

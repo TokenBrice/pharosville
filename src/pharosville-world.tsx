@@ -18,7 +18,7 @@ import { ShipSearch } from "./components/ship-search";
 import { WorldToolbar } from "./components/world-toolbar";
 import { WorldStaticOverview } from "./components/world-static-overview";
 import { PHAROSVILLE_LATEST_VERSION } from "./content/pharosville-version";
-import { useAssetLoadingPipeline } from "./hooks/use-asset-loading-pipeline";
+import { useShipLogoAssets } from "./hooks/use-ship-logo-assets";
 import { useChangelogDialog } from "./hooks/use-changelog-dialog";
 import { isLegendDismissed, useLegendDialog } from "./hooks/use-legend-dialog";
 import { useCanvasResizeAndCamera } from "./hooks/use-canvas-resize-and-camera";
@@ -43,7 +43,7 @@ import {
   resolveGardenEntityDisplayTile,
   selectGardenObservatorySlice,
 } from "./systems/garden-observatory-slice";
-import { buildBaseMotionPlan, buildMotionPlan, disposePathCacheForMap, motionPlanSignature, type ShipMotionSample } from "./systems/motion";
+import { buildBaseMotionPlan, disposePathCacheForMap, motionPlanSignature, type ShipMotionSample } from "./systems/motion";
 import { buildObserveSequence } from "./systems/observe-sequence";
 import { recentFleetTrendSummary } from "./systems/sea-state";
 import type { ScreenPoint } from "./systems/projection";
@@ -157,18 +157,13 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   }, [setAnnouncement, world]);
 
   // Memoize on a content signature instead of `world` identity so live data
-  // refetches that don't change ship/dock/map/lighthouse-flicker fields reuse
+  // refetches that don't change ship/dock/map fields reuse
   // the prior plan (and skip A* warmups). `world` is still passed to the
   // builder; the signature only gates re-memo.
   const baseMotionPlanSignature = motionPlanSignature(world);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const baseMotionPlan = useMemo(() => buildBaseMotionPlan(world, motionBucket * 600), [baseMotionPlanSignature, motionBucket]);
-  // `buildMotionPlan` only reads `world` to find the selected ship by id.
-  // `baseMotionPlan` identity already keys on `motionPlanSignature(world)`, so
-  // dropping `world` here avoids re-running the memo on world-ref churn that
-  // doesn't change the signature.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const motionPlan = useMemo(() => buildMotionPlan(world, selectedDetailId, baseMotionPlan), [baseMotionPlan, selectedDetailId]);
+  const motionPlan = baseMotionPlan;
   const shipsById = useMemo(() => new Map(world.ships.map((ship) => [ship.id, ship])), [world.ships]);
   const shipCounterLabel = useMemo(() => fleetCounterLabel(world.ships), [world.ships]);
   const recentFleetTrend = useMemo(() => recentFleetTrendSummary(world), [world]);
@@ -237,7 +232,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const recomputeHitTargetsRef = useRef<() => HitTargetSnapshot | null>(() => null);
   const recomputeHitTargets = useCallback((): HitTargetSnapshot | null => recomputeHitTargetsRef.current(), []);
 
-  const assetPipeline = useAssetLoadingPipeline({ world });
+  const shipLogoAssets = useShipLogoAssets({ world });
 
   const handleSelectTarget = useCallback((target: HitTarget, point: ScreenPoint, viewport: ScreenPoint) => {
     selectDetail(target.detailId, detailAnchorForPoint(target.anchor ?? point, viewport));
@@ -408,11 +403,11 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   } = useWorldRenderLoop({
     onBucketFlip: setMotionBucket,
     adaptiveDprStateRef: canvas.adaptiveDprStateRef,
-    assetLoadTick: assetPipeline.assetLoadTick,
-    assets: assetPipeline.assets,
+    logoGeneration: shipLogoAssets.logoGeneration,
+    logos: shipLogoAssets.logos,
     camera: canvas.camera,
     cameraRef: canvas.cameraRef,
-    canvasBudgetRef: canvas.canvasBudgetRef,
+    surfaceBudgetRef: canvas.surfaceBudgetRef,
     canvasRef: canvas.canvasRef,
     canvasSize: canvas.canvasSize,
     canvasSizeRef: canvas.canvasSizeRef,
@@ -930,15 +925,7 @@ function formatGeneratedAtForAnnouncement(generatedAt: number | null): string | 
   return `at ${new Date(generatedAt).toISOString()}`;
 }
 
-/**
- * W4.07 canvas-palette loading state. Renders the same className the
- * top-level `client.tsx` Suspense fallback uses (`pharosville-loading`), so
- * the CSS re-skin (deep `#050d13` background, warm spinner halo, distant
- * horizon-ship silhouettes mirroring `drawHorizonShips`) applies whether
- * the shell mounts this directly or the legacy inline `<div>` is hit. The
- * loading frame is designed to read as the first envelope <= 0.33 reveal
- * frame so the transition into the W4.01 reveal beat feels continuous.
- */
+/** Shared loading state for both the lazy desktop runtime and world shell. */
 export function PharosVilleLoading({ message = "Charting market winds…" }: { message?: string }) {
   return (
     <div className="pharosville-loading pharosville-desktop" role="status" aria-busy="true" aria-live="polite">

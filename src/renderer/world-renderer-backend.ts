@@ -14,11 +14,11 @@ export interface ThreeLogoAsset {
 
 export interface ThreeLogoAssets {
   getLogo: (src: string | null | undefined) => ThreeLogoAsset | null;
-  getRenderAssetGenerationKey: () => string;
+  getLogoGenerationKey: () => string;
 }
 
 export interface ThreeWorldRendererFrame {
-  assets: ThreeLogoAssets;
+  logos: ThreeLogoAssets;
   camera: IsoCamera;
   dpr: number;
   height: number;

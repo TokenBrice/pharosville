@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest";
 import { fixtureChains, makeChain } from "../__fixtures__/pharosville-world";
 import { buildChainDocks } from "./chain-docks";
 import {
-  CIVIC_CORE_CENTER,
   EVM_BAY_DOCK_TILES,
-  isLandTileKind,
   isWaterTileKind,
   OUTER_HARBOR_DOCK_TILES,
   PHAROSVILLE_MAP_WIDTH,
@@ -12,6 +10,9 @@ import {
   PREFERRED_DOCK_TILES,
   tileKindAt,
 } from "./world-layout";
+
+const CIVIC_CORE_CENTER = { x: 31, y: 31 } as const;
+const isLandTileKind = (kind: ReturnType<typeof tileKindAt>) => !isWaterTileKind(kind);
 
 describe("buildChainDocks", () => {
   it("sizes docks from chain totalUsd and keeps concentration separate", () => {
@@ -27,8 +28,6 @@ describe("buildChainDocks", () => {
     expect(docks[0]?.size).toBeGreaterThan(docks[1]?.size ?? 0);
     expect(docks[0]?.size).toBeGreaterThanOrEqual(7);
     expect(docks[1]?.size).toBeGreaterThanOrEqual(6);
-    expect(docks[0]?.assetId).toBe("dock.ethereum-civic-cove");
-    expect(docks[0]?.logoSrc).toBeNull();
   });
 
   it("anchors rendered docks on land-adjacent harbor water", () => {
@@ -67,14 +66,7 @@ describe("buildChainDocks", () => {
     expect(byChain.get("base")).toEqual(PREFERRED_DOCK_TILES.base);
     expect(byChain.get("arbitrum")).toEqual(PREFERRED_DOCK_TILES.arbitrum);
     expect(byChain.get("polygon")).toEqual(PREFERRED_DOCK_TILES.polygon);
-    expect(docks.find((dock) => dock.chainId === "ethereum")?.assetId).toBe("dock.ethereum-civic-cove");
-    expect(docks.find((dock) => dock.chainId === "base")?.assetId).toBe("dock.base-modular-slip");
-    expect(docks.find((dock) => dock.chainId === "arbitrum")?.assetId).toBe("dock.arbitrum-arch-bridge");
-    expect(docks.find((dock) => dock.chainId === "polygon")?.assetId).toBe("dock.polygon-hexmarket");
     expect(docks.map((dock) => dock.chainId)).not.toContain("optimism");
-    expect(docks.find((dock) => dock.chainId === "ethereum")?.logoSrc).toBe("/chains/ethereum.png");
-    expect(docks.find((dock) => dock.chainId === "base")?.logoSrc).toBe("/chains/base.png");
-    expect(docks.find((dock) => dock.chainId === "tron")?.logoSrc).toBeNull();
     expect(byChain.get("bsc")).toEqual(PREFERRED_DOCK_TILES.bsc);
     expect(byChain.get("tron")).toEqual(PREFERRED_DOCK_TILES.tron);
     expect(byChain.get("solana")).toEqual(PREFERRED_DOCK_TILES.solana);
@@ -204,7 +196,6 @@ describe("buildChainDocks", () => {
       "chain-7",
     ]);
     expect(docks.map((dock) => dock.tile)).toEqual(OUTER_HARBOR_DOCK_TILES.slice(0, 8));
-    expect(docks.map((dock) => dock.assetId)).toEqual(Array(8).fill("dock.wooden-pier"));
     expect(docks[0]?.harboredStablecoins.map((coin) => coin.symbol)).toEqual(["A0", "B0"]);
   });
 
@@ -229,8 +220,6 @@ describe("buildChainDocks", () => {
     const ton = docks.find((dock) => dock.chainId === "ton");
     expect(ton).toBeDefined();
     expect(ton?.tile).toEqual(PIGEONNIER_HARBOR_DOCK_TILE);
-    expect(ton?.assetId).toBe("dock.ton-pigeonnier-pier");
-    expect(ton?.logoSrc).toBe("/chains/ton.png");
     expect(isWaterTileKind(tileKindAt(ton!.tile.x, ton!.tile.y))).toBe(true);
 
     expect(docks.filter((dock) => dock.chainId !== "ton").every((dock) => (

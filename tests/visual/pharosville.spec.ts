@@ -24,6 +24,17 @@ function visualLane(lane: VisualLane, title: string): [string, { tag: string }] 
 }
 
 test(...visualLane("static", "the world is nonblank, resize-safe, and honors reduced motion"), async ({ page }) => {
+  const retiredMediaRequests: string[] = [];
+  const retiredRasterPrefix = `/${["pharosville", "assets"].join("/")}/`;
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (
+      path.startsWith(retiredRasterPrefix)
+      || path.startsWith("/chains/")
+      || path.startsWith("/logos/cemetery/")
+      || path.startsWith("/sail-emblems/")
+    ) retiredMediaRequests.push(path);
+  });
   await mockPharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await mockScreenSize(page, 1920, 1080);
@@ -38,6 +49,10 @@ test(...visualLane("static", "the world is nonblank, resize-safe, and honors red
   await expect(canvas).toHaveAttribute("data-renderer-status", "ready");
   await waitForRuntimeDebug(page, true);
   await expect(page.getByTestId("pharosville-renderer-fallback")).toHaveCount(0);
+  await page.getByRole("button", { name: "Legend" }).click();
+  await expect(page.getByRole("dialog", { name: "Legend" })).toBeVisible();
+  await page.getByRole("button", { name: "Close legend" }).click();
+  expect(retiredMediaRequests).toEqual([]);
 
   const closeDetails = page.getByRole("button", { name: "Close details" });
   if (await closeDetails.isVisible()) await closeDetails.click();

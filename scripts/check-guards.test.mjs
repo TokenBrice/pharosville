@@ -31,10 +31,6 @@ import {
   parsePrePushUpdates,
 } from "./pharosville/validate-changed.mjs";
 import {
-  firstRenderBudgets,
-  maxManifestAssets,
-} from "./pharosville/asset-budgets.mjs";
-import {
   parseArgs as parseWorktreeArgs,
   sanitizeSegment,
 } from "./pharosville/new-worktree.mjs";
@@ -249,9 +245,7 @@ assert.equal(chooseValidationLane(parseGitNameStatusPaths("R100\tsrc/old.ts\tdoc
 const runtimeFactsMarkdown = buildRuntimeFactsMarkdown();
 assert.match(runtimeFactsMarkdown, /^# PharosVille Runtime Facts/);
 assert.match(runtimeFactsMarkdown, /## API Allowlist/);
-assert.match(runtimeFactsMarkdown, /## Asset Budgets/);
-assert.equal(maxManifestAssets, 75);
-assert.equal(firstRenderBudgets.maxCount, 33);
+assert.match(runtimeFactsMarkdown, /## Bundle Budgets/);
 assert.equal(sharedBundleBudgets.desktop.label, "desktop lazy chunk");
 assert.equal(sharedBundleBudgets.renderer.label, "Three.js renderer chunk");
 assert.equal(sharedBundleBudgets.renderer.required, true);

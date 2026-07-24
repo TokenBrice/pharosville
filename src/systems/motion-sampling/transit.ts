@@ -202,11 +202,6 @@ export function transitSampleInto(input: {
   out.currentDockId = input.routeStop?.dockId ?? null;
   out.currentRouteStopId = input.routeStop?.id ?? null;
   out.currentRouteStopKind = input.routeStop?.kind ?? null;
-  out.mooringSubPhase = null;
-  out.mooringSwayAmplitude = seaStateMooringSwayMultiplier(input.seaState);
-  out.mooringTension = input.state === "arriving" ? profile.fenderContact : 0;
-  out.lanternAlpha = 0;
-  out.fenderContact = profile.fenderContact;
   out.seaState = input.seaState ?? null;
   writeMapVisibilityAlphaInto(out, transitMapVisibilityAlpha(input.state, linearProgress));
 

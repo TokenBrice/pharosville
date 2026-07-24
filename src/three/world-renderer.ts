@@ -244,17 +244,10 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
 
       const content = scene.content;
       const renderInfo = renderer.info.render;
-      const selected = frame.selectedDetailId ? 1 : 0;
       return {
         activeLaneCount: scene.laneRegistry.activeLaneCount,
         composerEnabled: composerActive,
-        drawableCount: content?.drawableCount ?? 0,
-        drawableCounts: {
-          underlay: 1 + (content?.zones.length ?? 0),
-          body: Math.max(0, (content?.drawableCount ?? 0) - selected - 2),
-          overlay: 1,
-          selection: selected,
-        },
+        objectCount: content?.objectCount ?? 0,
         postPassList: post.getPassList(),
         shadowMapSize,
         gpu: {
@@ -271,11 +264,8 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
             : count
         ), 0) ?? 0,
         rendererBackend: "three",
-        schedulerDegradedPasses: frame.renderScheduler.degradedPasses,
-        schedulerSkippedPasses: frame.renderScheduler.skippedPasses,
         schedulerTier: frame.renderScheduler.tier,
         visibleShipCount: content?.visibleShipCount ?? 0,
-        visibleTileCount: frame.world.map.width * frame.world.map.height,
       };
     },
   };
@@ -300,13 +290,13 @@ interface GardenScene {
 }
 
 interface GardenContent {
-  assetGeneration: string | null;
+  logoGenerationKey: string | null;
   beacon: Mesh<SphereGeometry, MeshStandardMaterial>;
   beaconHalo: Mesh<SphereGeometry, MeshBasicMaterial>;
   beam: Group;
   decoration: Group;
   docks: DockVisual[];
-  drawableCount: number;
+  objectCount: number;
   entityCues: Map<string, EntityCue>;
   fleetLanterns: FleetLanterns;
   harborLanternMaterial: MeshStandardMaterial;
@@ -678,15 +668,15 @@ function createWorldContent(
   routeLine.renderOrder = 4;
   root.add(routeLine);
 
-  const drawableCount = countDrawableObjects(root);
+  const objectCount = countDrawableObjects(root);
   return {
-    assetGeneration: null,
+    logoGenerationKey: null,
     beacon: island.beacon,
     beaconHalo: island.beaconHalo,
     beam: island.beam,
     decoration: island.decoration,
     docks,
-    drawableCount,
+    objectCount,
     entityCues,
     fireflies,
     fleetLanterns,

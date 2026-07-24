@@ -11,12 +11,6 @@ const DOCK_OUTWARD_VECTOR_OVERRIDES: Record<string, { x: -1 | 0 | 1; y: -1 | 0 |
   "25.23": { x: 0, y: -1 },
 };
 
-const DOCK_DRAW_TILE_OVERRIDES: Record<string, TilePoint> = {
-  // Ethereum's civic-cove harbor body is offset southeast so the rotunda wraps
-  // around the fixed Yggdrasil world-tree instead of sharing the tree anchor.
-  "42.31": { x: 44.9, y: 32.15 },
-};
-
 export function dockOutwardVectorForTile(
   tile: TilePoint,
   mapWidth: number,
@@ -29,8 +23,4 @@ export function dockOutwardVectorForTile(
   const dy = tile.y - center;
   if (Math.abs(dx) >= Math.abs(dy)) return { x: dx < 0 ? -1 : 1, y: 0 };
   return { x: 0, y: dy < 0 ? -1 : 1 };
-}
-
-export function dockDrawTileOverride(tile: TilePoint): TilePoint | null {
-  return DOCK_DRAW_TILE_OVERRIDES[tileKey(tile)] ?? null;
 }

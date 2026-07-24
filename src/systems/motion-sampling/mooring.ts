@@ -8,7 +8,7 @@ import {
 import { staleEvidenceMotionFactors } from "../motion-sampling-factors";
 import { sampleShipWaterPathInto as sampleWaterPathInto } from "../motion-water";
 import { seaStateMooringSwayMultiplier, type SeaState } from "../sea-state";
-import type { ShipMooringSubPhase, ShipMotionRoute, ShipMotionRouteStop, ShipMotionSample, ShipWaterPath } from "../motion-types";
+import type { ShipMotionRoute, ShipMotionRouteStop, ShipMotionSample, ShipWaterPath } from "../motion-types";
 import type { ShipWaterZone } from "../world-types";
 import {
   clampMotionTileInto,
@@ -31,32 +31,23 @@ const mooringPathHeadingScratch: { x: number; y: number } = { x: 0, y: 0 };
 
 interface MooringPhaseInfo {
   headingPrepT: number;
-  lanternAlpha: number;
-  subPhase: ShipMooringSubPhase;
   swayMultiplier: number;
-  tension: number;
 }
 
-function mooringPhaseInfo(route: ShipMotionRoute, dwellProgress: number, secondsRemaining: number, timeSeconds: number): MooringPhaseInfo {
+function mooringPhaseInfo(dwellProgress: number, secondsRemaining: number): MooringPhaseInfo {
   const progress = clamp(dwellProgress, 0, 1);
   if (progress < MOORING_WORKING_END) {
     const warmedSway = smoothstepRange(CAST_OFF_LINE_RELEASE_END, MOORING_WORKING_END, progress);
     return {
       headingPrepT: 0,
-      lanternAlpha: 0.35 + 0.25 * Math.max(0, Math.sin(timeSeconds * 1.7 + route.routeSeed * 0.00011)),
-      subPhase: "working",
       swayMultiplier: 1 + 0.2 * warmedSway,
-      tension: 1,
     };
   }
 
   if (progress < MOORING_QUIET_END) {
     return {
       headingPrepT: 0,
-      lanternAlpha: 0,
-      subPhase: "quiet",
       swayMultiplier: 1,
-      tension: 1,
     };
   }
 
@@ -65,10 +56,7 @@ function mooringPhaseInfo(route: ShipMotionRoute, dwellProgress: number, seconds
   const headingPrepT = Math.max(phasePrepT, finalSecondsPrepT);
   return {
     headingPrepT,
-    lanternAlpha: 0,
-    subPhase: "cast-off-prep",
     swayMultiplier: 1,
-    tension: 1 - headingPrepT,
   };
 }
 
@@ -84,7 +72,7 @@ export function mooredSampleInto(input: {
 }, out: ShipMotionSample): void {
   const routePathKey = routePathIdentityKey(input.route, "moored", input.stop.id);
   beginRoutePathSample(input.route, routePathKey);
-  const phase = mooringPhaseInfo(input.route, input.dwellProgress, input.secondsRemaining, input.timeSeconds);
+  const phase = mooringPhaseInfo(input.dwellProgress, input.secondsRemaining);
   const seed = mooredSeedFor(input.route, input.stop, input.runtime);
   const phaseOffset = mooredPhaseFor(input.route, input.stop, input.runtime);
   const radiusMultiplier = mooredRadiusMultiplierFor(input.route, input.stop, input.runtime);
@@ -118,11 +106,6 @@ export function mooredSampleInto(input: {
   out.wakeIntensity = 0.05;
   writeZeroVelocityInto(out);
   writeMapVisibilityAlphaInto(out, mooredMapVisibilityAlpha(input.dwellProgress));
-  out.mooringSubPhase = phase.subPhase;
-  out.mooringSwayAmplitude = swayAmplitude;
-  out.mooringTension = phase.tension;
-  out.lanternAlpha = phase.lanternAlpha;
-  out.fenderContact = 0;
   out.seaState = input.seaState;
 }
 
@@ -196,10 +179,6 @@ export function mooredRouteStopSampleInto(
   out.wakeIntensity = 0.03;
   writeZeroVelocityInto(out);
   writeMapVisibilityAlphaInto(out, 1);
-  out.mooringSubPhase = null;
-  out.mooringTension = 0;
-  out.lanternAlpha = 0;
-  out.fenderContact = 0;
 }
 
 const MOORED_RADIUS_DANGER = { x: 0.22, y: 0.14 };

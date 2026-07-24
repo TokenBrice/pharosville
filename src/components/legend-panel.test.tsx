@@ -46,7 +46,7 @@ describe("LegendPanel", () => {
       expect(markup).toContain(row.label);
     }
     expect(markup.match(/data-cue-id=/g) ?? []).toHaveLength(LEGEND_MARK_ROWS.length);
-    expect(markup).toContain("Consensus rigging and audit shields are near-zoom marks");
+    expect(markup).toContain("Audit shields are near-zoom marks");
   });
 
   it("renders recent mover supply labels when provided", () => {

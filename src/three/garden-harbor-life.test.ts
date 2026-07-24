@@ -43,7 +43,7 @@ describe("garden harbor districts", () => {
       "arbitrum",
       "polygon",
     ]);
-    expect(drawableCount(districts.root)).toBe(2);
+    expect(objectCount(districts.root)).toBe(2);
     expect(districts.causeways?.geometry.index?.count).toBe(3 * 6 * 6);
 
     const basePosition = new Vector3().setFromMatrixPosition(
@@ -63,7 +63,7 @@ describe("garden harbor districts", () => {
     expect(districts.pads?.count).toBe(2);
     expect(districts.causeways).toBeNull();
     expect(districts.causewayChainIds).toEqual([]);
-    expect(drawableCount(districts.root)).toBe(1);
+    expect(objectCount(districts.root)).toBe(1);
   });
 });
 
@@ -80,7 +80,7 @@ describe("garden gull flock", () => {
     ]);
     expect(flock.gulls).toBeInstanceOf(InstancedMesh);
     expect(flock.gulls.count).toBe(GARDEN_GULL_COUNT);
-    expect(drawableCount(flock.root)).toBe(1);
+    expect(objectCount(flock.root)).toBe(1);
   });
 
   it("moves deterministically, freezes for reduced motion, and hides when constrained", () => {
@@ -142,7 +142,6 @@ function dock(
   size: number,
 ): DockNode {
   return {
-    assetId: `dock.${chainId}`,
     chainId,
     concentration: null,
     detailId: `dock.${chainId}`,
@@ -151,7 +150,6 @@ function dock(
     id: `dock.${chainId}`,
     kind: "dock",
     label: chainId,
-    logoSrc: null,
     size,
     stablecoinCount: 1,
     tile: { x, y },
@@ -159,7 +157,7 @@ function dock(
   };
 }
 
-function drawableCount(root: import("three").Object3D): number {
+function objectCount(root: import("three").Object3D): number {
   let count = 0;
   root.traverse((object) => {
     if (object instanceof Mesh) count += 1;

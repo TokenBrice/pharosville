@@ -103,7 +103,6 @@ describe("buildPharosVilleWorld", () => {
     expect(world.detailIndex["dock.ethereum"]?.members?.find((member) => member.id === "usdc-circle")?.inWorldDetailId)
       .toBe("ship.usdc-circle");
     expect(world.graves).toHaveLength(3);
-    expect(world.graves[0]?.logoSrc).toBe("/logos/cemetery/nubits.png");
     expect(world.detailIndex["lighthouse"]).toBeDefined();
     expect(terrainKindAt(0, 55)).toBe("calm-water");
     expect(Object.keys(world.detailIndex).some((detailId) => detailId.startsWith("building."))).toBe(false);
@@ -144,7 +143,6 @@ describe("buildPharosVilleWorld", () => {
     });
 
     expect(world.areas.every((area) => area.id.startsWith("area.dews.") || area.id.startsWith("area.risk-water."))).toBe(true);
-    expect(world.legends.map((legend) => legend.id)).not.toContain("legend.buildings");
     expect(world.visualCues.map((cue) => cue.id).filter((id) => id.startsWith("cue.building."))).toEqual([]);
   });
 

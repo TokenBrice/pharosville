@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { BackingType, GovernanceType, PegCurrency, StablecoinMeta } from "@shared/types";
 import { makeAsset } from "../__fixtures__/pharosville-world";
 import { STABLECOIN_SQUAD_MEMBER_IDS } from "./maker-squad";
-import { TITAN_SHIP_ASSET_IDS, TITAN_SHIPS, resolveShipClass, resolveShipSizeTier, resolveShipVisual } from "./ship-visuals";
+import { TITAN_SHIPS, resolveShipClass, resolveShipSizeTier, resolveShipVisual } from "./ship-visuals";
 import { UNIQUE_SHIP_DEFINITIONS } from "./unique-ships";
 
 function makeMeta(input: {
@@ -29,17 +29,14 @@ describe("resolveShipVisual", () => {
     expect(resolveShipClass(makeMeta({ governance: "centralized" }))).toMatchObject({
       hull: "treasury-galleon",
       label: "CeFi",
-      shipClass: "cefi",
     });
     expect(resolveShipClass(makeMeta({ governance: "centralized-dependent" }))).toMatchObject({
       hull: "chartered-brigantine",
       label: "CeFi-Dep",
-      shipClass: "cefi-dependent",
     });
     expect(resolveShipClass(makeMeta({ governance: "decentralized" }))).toMatchObject({
       hull: "dao-schooner",
       label: "DeFi",
-      shipClass: "defi",
     });
   });
 
@@ -47,7 +44,6 @@ describe("resolveShipVisual", () => {
     expect(resolveShipClass(makeMeta({ backing: "algorithmic", governance: "centralized" }))).toMatchObject({
       hull: "algo-junk",
       label: "Legacy algorithmic",
-      shipClass: "legacy-algo",
     });
   });
 
@@ -75,9 +71,7 @@ describe("resolveShipVisual", () => {
     }), meta, null);
 
     expect(visual.hull).toBe("chartered-brigantine");
-    expect(visual.shipClass).toBe("cefi-dependent");
     expect(visual.classLabel).toBe("CeFi-Dep");
-    expect(visual.rigging).toBe("dependent-rig");
     expect(visual.overlay).toBe("nav");
     expect(visual.sizeTier).toBe("flagship");
     expect(visual.sizeLabel).toBe("Flagship");
@@ -140,14 +134,11 @@ describe("resolveShipVisual", () => {
     }), meta, null);
 
     expect(usdc.hull).toBe("treasury-galleon");
-    expect(usdc.spriteAssetId).toBe("ship.usdc-titan");
     expect(usdc.sizeTier).toBe("titan");
     expect(usdc.sizeLabel).toBe("Titan");
     expect(usds.hull).toBe("chartered-brigantine");
-    expect(usds.spriteAssetId).toBe("ship.usds-titan");
     expect(usds.sizeTier).toBe("titan");
     expect(usds.sizeLabel).toBe("Titan");
-    expect(usdt.spriteAssetId).toBe("ship.usdt-titan");
     expect(usdt.sizeTier).toBe("titan");
     expect(usdt.sizeLabel).toBe("Titan");
     expect(usds.scale).toBe(1.15);
@@ -158,7 +149,7 @@ describe("resolveShipVisual", () => {
     expect(usdt.scale).toBeGreaterThan(usdc.scale);
   });
 
-  it("resolves a titan sprite for every stablecoin squad member", () => {
+  it("resolves the titan tier for every stablecoin squad member", () => {
     const meta = makeMeta({ governance: "centralized-dependent" });
     for (const id of STABLECOIN_SQUAD_MEMBER_IDS) {
       const visual = resolveShipVisual(makeAsset({
@@ -166,21 +157,17 @@ describe("resolveShipVisual", () => {
         symbol: id.toUpperCase(),
         circulating: { peggedUSD: 1_000_000_000 },
       }), meta, null);
-      expect(visual.spriteAssetId, `expected sprite for ${id}`).toBeDefined();
       expect(visual.sizeTier, `expected titan tier for ${id}`).toBe("titan");
     }
   });
 
-  it("keeps titan asset-id and scale views derived from the combined registry", () => {
+  it("keeps positive scales for every titan definition", () => {
     for (const [id, definition] of Object.entries(TITAN_SHIPS)) {
-      expect(definition.spriteAssetId, id).toBeTruthy();
       expect(definition.scale, id).toBeGreaterThan(0);
-      expect(TITAN_SHIP_ASSET_IDS[id], id).toBe(definition.spriteAssetId);
     }
-    expect(Object.keys(TITAN_SHIP_ASSET_IDS).sort()).toEqual(Object.keys(TITAN_SHIPS).sort());
   });
 
-  it("resolves a unique sprite + 'Heritage hull' label for every cultural-significance stablecoin", () => {
+  it("resolves the heritage tier for every cultural-significance stablecoin", () => {
     const meta = makeMeta({ governance: "decentralized" });
     for (const [id, def] of Object.entries(UNIQUE_SHIP_DEFINITIONS)) {
       const visual = resolveShipVisual(makeAsset({
@@ -188,7 +175,6 @@ describe("resolveShipVisual", () => {
         symbol: id.toUpperCase(),
         circulating: { peggedUSD: 250_000_000 },
       }), meta, null);
-      expect(visual.spriteAssetId, id).toBe(def.spriteAssetId);
       expect(visual.sizeTier, id).toBe("unique");
       expect(visual.sizeLabel, id).toBe("Heritage hull");
       expect(visual.scale, id).toBe(def.scale);
@@ -218,9 +204,8 @@ describe("resolveShipVisual", () => {
   });
 
   it("titan tier wins if a stablecoin id ever appears in both registries", () => {
-    // Synthetic check: usdc-circle is in TITAN_SHIP_ASSET_IDS. Even if we
-    // pretend it's also unique by looking up its visual via the resolver,
-    // the resolver must short-circuit on the titan branch.
+    // The resolver must short-circuit on the titan branch before considering
+    // any possible heritage definition.
     const meta = makeMeta({ governance: "centralized" });
     const visual = resolveShipVisual(makeAsset({
       id: "usdc-circle",

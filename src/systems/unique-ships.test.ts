@@ -1,16 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { TITAN_SHIP_ASSET_IDS } from "./ship-visuals";
-import { UNIQUE_SHIP_DEFINITIONS, UNIQUE_SPRITE_IDS, uniqueDefinitionFor } from "./unique-ships";
+import { TITAN_SHIPS } from "./ship-visuals";
+import { UNIQUE_SHIP_DEFINITIONS, uniqueDefinitionFor } from "./unique-ships";
 
 describe("UNIQUE_SHIP_DEFINITIONS", () => {
   const entries = Object.entries(UNIQUE_SHIP_DEFINITIONS);
-
-  it("uses the ship.<id>-unique sprite id pattern", () => {
-    const pattern = /^ship\.[a-z0-9-]+-unique$/;
-    for (const [id, def] of entries) {
-      expect(def.spriteAssetId, id).toMatch(pattern);
-    }
-  });
 
   it("carries non-empty rationale strings under 90 characters", () => {
     for (const [id, def] of entries) {
@@ -27,26 +20,17 @@ describe("UNIQUE_SHIP_DEFINITIONS", () => {
   });
 
   it("has no stablecoin id overlap with the titan registry", () => {
-    const titanIds = new Set(Object.keys(TITAN_SHIP_ASSET_IDS));
+    const titanIds = new Set(Object.keys(TITAN_SHIPS));
     for (const [id] of entries) {
       expect(titanIds.has(id), id).toBe(false);
     }
-  });
-
-  it("exposes 6 distinct sprite ids in UNIQUE_SPRITE_IDS", () => {
-    expect(UNIQUE_SPRITE_IDS.size).toBe(6);
-    expect(UNIQUE_SPRITE_IDS.size).toBe(entries.length);
   });
 });
 
 describe("uniqueDefinitionFor", () => {
   it("returns the matching definition for known unique ids", () => {
-    expect(uniqueDefinitionFor({ id: "crvusd-curve" })).toMatchObject({
-      spriteAssetId: "ship.crvusd-unique",
-    });
-    expect(uniqueDefinitionFor({ id: "paxg-paxos" })).toMatchObject({
-      spriteAssetId: "ship.paxg-unique",
-    });
+    expect(uniqueDefinitionFor({ id: "crvusd-curve" })).toBe(UNIQUE_SHIP_DEFINITIONS["crvusd-curve"]);
+    expect(uniqueDefinitionFor({ id: "paxg-paxos" })).toBe(UNIQUE_SHIP_DEFINITIONS["paxg-paxos"]);
   });
 
   it("returns null for non-unique ids", () => {

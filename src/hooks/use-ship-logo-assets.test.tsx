@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import { makePharosVilleWorldInput } from "../__fixtures__/pharosville-world";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
-import { useAssetLoadingPipeline } from "./use-asset-loading-pipeline";
+import { useShipLogoAssets } from "./use-ship-logo-assets";
 
 const requestedSources: string[] = [];
 
@@ -27,16 +27,16 @@ class LoadedImage {
 }
 
 function Harness({ world }: { world: PharosVilleWorldModel }) {
-  const result = useAssetLoadingPipeline({ world });
+  const result = useShipLogoAssets({ world });
   return (
     <output
-      data-generation={result.assets.getRenderAssetGenerationKey()}
-      data-load-tick={result.assetLoadTick}
+      data-generation={result.logos.getLogoGenerationKey()}
+      data-load-tick={result.logoGeneration}
     />
   );
 }
 
-describe("useAssetLoadingPipeline", () => {
+describe("useShipLogoAssets", () => {
   beforeEach(() => {
     requestedSources.length = 0;
     vi.stubGlobal("Image", LoadedImage);
