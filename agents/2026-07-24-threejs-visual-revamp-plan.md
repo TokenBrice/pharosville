@@ -2,7 +2,8 @@
 
 Date: 2026-07-24
 
-Status: Proposed — awaiting operator review
+Status: Implemented 2026-07-24 (V0–V6 complete; see Execution Log). One
+deliberate deferral: B5 phase 2 (disturbance-RT wakes) — recorded below.
 
 Companions:
 [`2026-07-23-threejs-implementation-plan.md`](./2026-07-23-threejs-implementation-plan.md)
@@ -456,6 +457,36 @@ Recorded 2026-07-24 after operator review.
 | D2 | Risk-zone redesign: dashed perimeter + lit marker buoys + in-water tint replace the filled translucent discs; update `VISUAL_INVARIANTS.md` and tests with it | **Approved** — "the current makes little sense in this new environment" |
 | D3 | Real-time shadows from the one directional light (an extra ~1–2 ms render pass so lighthouse/trees cast shadows on the island; visible mostly by day) | **Approved** — implement in V3 with a tight island-only shadow frustum; the perf ladder still drops shadows in recovery/constrained tiers, and it ships only if the reference machine stays within the p90 ≤ 20 ms gate |
 | D4 | May upgrade bloom to pmndrs `postprocessing` if UnrealBloom quality disappoints on V1 screenshots | **Approved** (conditional on V1 review) |
+
+## Execution Log
+
+Implemented 2026-07-24 by the orchestrator with Opus packet agents
+(V0–V5) and inline orchestrator work (V5 integration, V6). Evidence
+triptychs for every phase live in `outputs/triptych/` (`v0-baseline` is
+the "before"; `v6-ambient` the "after").
+
+| Phase | Outcome |
+| --- | --- |
+| V0 | Module extraction (world-renderer 2685→~700 lines, 7 owned modules), lane-registry contract, triptych evidence spec (`npm run capture:triptych`) |
+| V1 | Composer (thresholded bloom + grade/vignette + OutputPass, MSAA RT), AgX, palette-derived day/dusk/night with D1 dusk-bias, sky dome + stars + moon; orchestrator recalibrated the night rig and warm-emissive clip points |
+| V2 | Dual-scrolling normal maps, authored moon road + thresholded glitter (one revision round to kill a milky-flood regression), DataTexture light lanes (~35 registered at full tier), lapping shore foam, instanced quad wakes, sea-state mapping |
+| V3 | Lighthouse GLB v2 (1,068 tris, deterministic), volumetric beam cone + dust with tiered fallbacks, rockwork island + islets with height-gradient vertex color (orchestrator lightened the tonal balance), path lanterns, D3 island-only shadows (1024/512/off) |
+| V4 | Vertex-color hull shading + AO, per-family silhouettes, instanced lantern cores/glows with per-ship water lanes, sail backlight, tiered rigging, size-tier motion hierarchy |
+| V5 | Harbor prop kits with signature props + pier lamp lanes, D2 zone redesign (perimeters + lit buoys + luminance-matched water tint — orchestrator fixed night glow), danger squall, cemetery/pigeonnier mood, titan+heritage GLB heroes with procedural fallback |
+| V6 | Fireflies at the path lanterns, night-roosting gulls, dawn/dusk mist band, final validation sweep |
+
+Execution decisions:
+
+- GPU texture budget 24→40 (measured composer mip chain), triangle
+  budget 42k→60k (hero hulls), renderer chunk raw 740→770 KiB with gzip
+  unchanged at 200 KiB — all recorded in the guard files with dates.
+- **B5 phase 2 (offscreen disturbance-RT wakes) deferred**: the phase-1
+  instanced quad trails read well at the fixed isometric framing, and the
+  extra render pass was not worth its cost on the reference iGPU. Revisit
+  only if a future density increase makes wake interplay load-bearing.
+- Agent stalls (packets completing work but dying before reporting) were
+  recovered by orchestrator takeover in V1, V3, and V5 — verification was
+  re-run from the working tree, so no unverified work was accepted.
 
 ## Research Provenance
 

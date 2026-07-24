@@ -75,7 +75,7 @@ export interface GardenModelMetadata {
     readonly maxVertices: number;
   };
   readonly provenance: {
-    readonly authoring: "agent-authored";
+    readonly createdBy: "agent-authored";
     readonly generator: string;
     readonly method: "deterministic-procedural";
     readonly sourceAsset: null;
@@ -143,7 +143,7 @@ function heroModelMetadata(config: {
     geometry: config.geometry,
     budgets: config.budgets,
     provenance: {
-      authoring: "agent-authored",
+      createdBy: "agent-authored",
       generator: "scripts/pharosville/generate-garden-heroes.mjs",
       method: "deterministic-procedural",
       sourceAsset: null,
@@ -227,7 +227,7 @@ export const GARDEN_MODEL_MANIFEST = {
       maxVertices: 2_200,
     },
     provenance: {
-      authoring: "agent-authored",
+      createdBy: "agent-authored",
       generator: "scripts/pharosville/generate-garden-lighthouse.mjs",
       method: "deterministic-procedural",
       sourceAsset: null,

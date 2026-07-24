@@ -8,6 +8,7 @@ import {
   Group,
   Mesh,
   MeshBasicMaterial,
+  PlaneGeometry,
   Points,
   ShaderMaterial,
   SphereGeometry,
@@ -192,13 +193,35 @@ function createMoon(): { group: Group; halo: MeshBasicMaterial } {
   return { group, halo: haloMaterial };
 }
 
+function createMist(): { material: MeshBasicMaterial; mesh: Mesh } {
+  const material = new MeshBasicMaterial({
+    blending: AdditiveBlending,
+    color: FOG_DUSK.clone(),
+    depthWrite: false,
+    fog: false,
+    opacity: 0,
+    transparent: true,
+  });
+  // One low, faint band drifting across the far water at dawn/dusk. Vertical
+  // plane rotated to face the fixed isometric camera; kept far behind the
+  // island so it softens the distance without milking the scene.
+  const mesh = new Mesh(new PlaneGeometry(320, 9), material);
+  mesh.name = "garden-sky-mist";
+  mesh.rotation.y = Math.PI / 4;
+  mesh.position.set(-72, 3.4, -72);
+  mesh.renderOrder = 2;
+  mesh.frustumCulled = false;
+  return { material, mesh };
+}
+
 export function createGardenSky(): GardenSky {
   const root = new Group();
   root.name = "garden-sky";
   const dome = createDome();
   const stars = createStars();
   const moon = createMoon();
-  root.add(dome.mesh, stars.points, moon.group);
+  const mist = createMist();
+  root.add(dome.mesh, stars.points, moon.group, mist.mesh);
 
   const fog = new Fog(FOG_NIGHT.clone(), FOG_NEAR, FOG_FAR);
 
@@ -208,6 +231,8 @@ export function createGardenSky(): GardenSky {
       dome.mesh.material.dispose();
       stars.points.geometry.dispose();
       stars.material.dispose();
+      mist.mesh.geometry.dispose();
+      mist.material.dispose();
       moon.group.traverse((object) => {
         if (object instanceof Mesh) {
           object.geometry.dispose();
@@ -233,6 +258,15 @@ export function createGardenSky(): GardenSky {
       const moonPresence = Math.min(1, dusk * 0.5 + night);
       moon.group.visible = moonPresence > 0.02;
       moon.halo.opacity = 0.08 + night * 0.28;
+
+      // Dawn/dusk mist: faint, low, and slowly drifting; frozen under
+      // reduced motion.
+      const mistOpacity = dusk * 0.085 + night * 0.025;
+      mist.material.opacity = mistOpacity;
+      mist.mesh.visible = mistOpacity > 0.008;
+      const mistDrift = frame.reducedMotion ? 0 : Math.max(0, frame.timeSeconds);
+      mist.mesh.position.x = -72 + Math.sin(mistDrift * 0.021) * 9;
+      mist.mesh.position.z = -72 - Math.sin(mistDrift * 0.021) * 9;
     },
   };
 }

@@ -35,6 +35,8 @@ export interface GardenHarborDistricts {
 
 export interface GardenGullFlockUpdate {
   constrained: boolean;
+  /** 0..1 — gulls roost (fade out) as night settles. */
+  night?: number;
   reducedMotion: boolean;
   timeSeconds: number;
 }
@@ -43,6 +45,81 @@ export interface GardenGullFlock {
   gulls: InstancedMesh<BufferGeometry, MeshBasicMaterial>;
   root: Group;
   update(input: GardenGullFlockUpdate): void;
+}
+
+export const GARDEN_FIREFLY_COUNT = 14;
+
+export interface GardenFirefliesUpdate {
+  fullTier: boolean;
+  night: number;
+  reducedMotion: boolean;
+  timeSeconds: number;
+}
+
+export interface GardenFireflies {
+  root: Group;
+  update(input: GardenFirefliesUpdate): void;
+}
+
+/**
+ * A handful of warm motes drifting near the island's path lanterns at night.
+ * Full tier only; reduced motion freezes them at their seed positions. One
+ * instanced additive mesh — a single extra draw call.
+ */
+export function createGardenFireflies(
+  lanternOffsets: ReadonlyArray<{ x: number; y: number; z: number }>,
+  islandTile: ScreenPoint,
+  options: Pick<GardenHarborLifeOptions, "tileScale"> = {},
+): GardenFireflies {
+  const tileScale = options.tileScale ?? DEFAULT_TILE_SCALE;
+  const root = new Group();
+  root.name = "garden-fireflies";
+  root.position.set(islandTile.x * tileScale, 0, islandTile.y * tileScale);
+
+  const material = new MeshBasicMaterial({
+    color: "#f7d68a",
+    depthWrite: false,
+    opacity: 0,
+    toneMapped: false,
+    transparent: true,
+  });
+  const motes = new InstancedMesh(
+    new CircleGeometry(0.075, 6),
+    material,
+    GARDEN_FIREFLY_COUNT,
+  );
+  motes.name = "garden-firefly-motes";
+  motes.frustumCulled = false;
+  motes.renderOrder = 9;
+  // Face the fixed isometric camera.
+  motes.rotation.set(-Math.PI / 5.1, Math.PI / 4, 0, "YXZ");
+  root.add(motes);
+
+  const dummy = new Object3D();
+  const update = ({ fullTier, night, reducedMotion, timeSeconds }: GardenFirefliesUpdate): void => {
+    const visible = fullTier && night > 0.25 && lanternOffsets.length > 0;
+    root.visible = visible;
+    if (!visible) return;
+    material.opacity = Math.min(0.85, (night - 0.25) * 1.4);
+    const time = reducedMotion ? 0 : timeSeconds;
+    for (let index = 0; index < GARDEN_FIREFLY_COUNT; index += 1) {
+      const anchor = lanternOffsets[index % lanternOffsets.length]!;
+      const seed = index * 2.399;
+      const drift = 0.55 + (index % 3) * 0.22;
+      dummy.position.set(
+        anchor.x + Math.sin(time * 0.21 + seed) * drift,
+        anchor.y + 0.35 + Math.sin(time * 0.34 + seed * 1.7) * 0.3,
+        anchor.z + Math.cos(time * 0.17 + seed * 0.6) * drift,
+      );
+      const pulse = 0.6 + 0.4 * Math.sin(time * 0.9 + seed * 3.1);
+      dummy.scale.setScalar(0.7 + pulse * 0.5);
+      dummy.updateMatrix();
+      motes.setMatrixAt(index, dummy.matrix);
+    }
+    motes.instanceMatrix.needsUpdate = true;
+  };
+  update({ fullTier: true, night: 1, reducedMotion: true, timeSeconds: 0 });
+  return { root, update };
 }
 
 const DEFAULT_TILE_SCALE = Math.SQRT2;
@@ -182,11 +259,15 @@ export function createGardenGullFlock(
   const dummy = new Object3D();
   const update = ({
     constrained,
+    night = 0,
     reducedMotion,
     timeSeconds,
   }: GardenGullFlockUpdate): void => {
-    root.visible = !constrained;
-    if (constrained) return;
+    // Gulls roost as night settles — the night sky belongs to the lanterns.
+    const roosted = night > 0.72;
+    root.visible = !constrained && !roosted;
+    if (constrained || roosted) return;
+    gulls.material.opacity = 0.82 * (1 - Math.max(0, (night - 0.3) / 0.42));
 
     const time = reducedMotion ? 0 : timeSeconds;
     for (let index = 0; index < GARDEN_GULL_COUNT; index += 1) {

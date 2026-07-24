@@ -50,8 +50,10 @@ import {
   createGardenPigeonnier,
 } from "./garden-landmarks";
 import {
+  createGardenFireflies,
   createGardenGullFlock,
   createGardenHarborDistricts,
+  type GardenFireflies,
   type GardenGullFlock,
 } from "./garden-harbor-life";
 import { createGardenModelLibrary } from "./garden-models";
@@ -308,6 +310,7 @@ interface GardenContent {
   entityCues: Map<string, EntityCue>;
   fleetLanterns: FleetLanterns;
   harborLanternMaterial: MeshStandardMaterial;
+  fireflies: GardenFireflies;
   gullFlock: GardenGullFlock;
   lighthouseLight: PointLight;
   lighthouseRoot: Group;
@@ -623,7 +626,11 @@ function createWorldContent(
   }
   const harborLanterns = createHarborLanterns(islandTile);
   const gullFlock = createGardenGullFlock(world.lighthouse.tile);
-  root.add(harborLanterns.root, gullFlock.root);
+  const fireflies = createGardenFireflies(
+    gardenIslandLanternWorldOffsets(),
+    islandTile,
+  );
+  root.add(harborLanterns.root, gullFlock.root, fireflies.root);
 
   const shipGeometryCache: GardenShipGeometryCache = {
     geometries: new Map(),
@@ -681,6 +688,7 @@ function createWorldContent(
     docks,
     drawableCount,
     entityCues,
+    fireflies,
     fleetLanterns,
     gullFlock,
     harborLanternMaterial: harborLanterns.lightMaterial,
@@ -789,6 +797,13 @@ function updateSceneForFrame(
   }
   content.gullFlock.update({
     constrained,
+    night: phase.night,
+    reducedMotion: frame.reducedMotion,
+    timeSeconds: frame.timeSeconds,
+  });
+  content.fireflies.update({
+    fullTier: frame.renderScheduler.tier === "full",
+    night: phase.night,
     reducedMotion: frame.reducedMotion,
     timeSeconds: frame.timeSeconds,
   });
