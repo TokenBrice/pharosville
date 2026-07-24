@@ -1,4 +1,4 @@
-import { Color, PlaneGeometry, ShaderMaterial } from "three";
+import { Color, DataTexture, PlaneGeometry, ShaderMaterial } from "three";
 import { describe, expect, it } from "vitest";
 import {
   GARDEN_WATER_Y,
@@ -11,16 +11,19 @@ import {
 } from "./garden-water";
 
 describe("createGardenWater", () => {
-  it("creates one texture-free WebGL1 surface", () => {
+  it("creates one WebGL1 surface that samples the normal map and lane texture", () => {
     const water = createGardenWater(-0.12);
     water.setIslandCenter(12, -7);
 
     expect(water.mesh.children).toHaveLength(0);
     expect(water.mesh.geometry).toBeInstanceOf(PlaneGeometry);
     expect(water.mesh.material).toBeInstanceOf(ShaderMaterial);
+    // Kept on WebGL1 GLSL so the shader compiles without an upgrade path.
     expect(water.mesh.material.glslVersion).toBeNull();
     expect(water.mesh.material.fragmentShader).not.toContain("#version 300");
-    expect(water.mesh.material.fragmentShader).not.toContain("sampler2D");
+    expect(water.mesh.material.fragmentShader).toContain("sampler2D");
+    expect(water.mesh.material.fragmentShader).toContain("uNormalMap");
+    expect(water.mesh.material.fragmentShader).toContain("uLaneTexture");
     expect(water.mesh.geometry.index?.count).toBe(96 * 96 * 6);
     expect(water.mesh.position.y).toBe(-0.12);
     expect(water.mesh.rotation.x).toBeCloseTo(-Math.PI / 2);
@@ -35,6 +38,25 @@ describe("createGardenWater", () => {
     });
     expect(uniformNumber(water.material, "uBeaconAngle")).toBe(1.2);
     expect(uniformNumber(water.material, "uBeaconStrength")).toBe(1);
+  });
+
+  it("wires the shared lane texture and outlying islet shore centers", () => {
+    const water = createGardenWater(0);
+    const laneTexture = new DataTexture();
+
+    water.setLaneState(laneTexture, 9);
+    expect(water.material.uniforms.uLaneTexture!.value).toBe(laneTexture);
+    expect(uniformNumber(water.material, "uLaneCount")).toBe(9);
+
+    water.setIsletCenters({ x: 20, z: -8 }, { x: -14, z: 6 });
+    expect(water.material.uniforms.uCemeteryCenter!.value).toMatchObject({
+      x: 20,
+      y: 8,
+    });
+    expect(water.material.uniforms.uPigeonnierCenter!.value).toMatchObject({
+      x: -14,
+      y: -6,
+    });
   });
 
   it("freezes reduced motion and lowers decorative detail by quality tier", () => {

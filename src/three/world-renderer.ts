@@ -67,6 +67,11 @@ import {
   createHarborLanterns,
   type DockVisual,
 } from "./garden-docks";
+import {
+  createGardenLaneRegistry,
+  type GardenLaneRegistry,
+} from "./garden-lanterns";
+import { CEMETERY_CENTER } from "../systems/world-layout";
 import { createTerracedIsland, createWaterAccents } from "./garden-island";
 import { attachGardenLighthouseModel } from "./garden-lighthouse";
 import {
@@ -152,6 +157,7 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
       canvas.removeEventListener("webglcontextcreationerror", handleContextCreationError);
       const detachedModel = scene.lighthouseModel?.parent ? null : scene.lighthouseModel;
       post.dispose();
+      scene.laneRegistry.dispose();
       disposeThreeObjectTree(scene.root);
       if (detachedModel) disposeThreeObjectTree(detachedModel);
       modelLibrary.clear();
@@ -199,7 +205,7 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
       const renderInfo = renderer.info.render;
       const selected = frame.selectedDetailId ? 1 : 0;
       return {
-        activeLaneCount: 0,
+        activeLaneCount: scene.laneRegistry.activeLaneCount,
         composerEnabled: composerActive,
         drawableCount: content?.drawableCount ?? 0,
         drawableCounts: {
@@ -240,6 +246,7 @@ interface GardenScene {
   directionalLight: DirectionalLight;
   hemisphereLight: HemisphereLight;
   hoverMarker: Mesh<RingGeometry, MeshBasicMaterial>;
+  laneRegistry: GardenLaneRegistry;
   lighthouseModel: Group | null;
   root: Scene;
   selectedMarker: Mesh<RingGeometry, MeshBasicMaterial>;
@@ -298,6 +305,11 @@ function createGardenScene(): GardenScene {
   const water = createGardenWater(WATER_LEVEL);
   root.add(water.mesh);
 
+  // Shared warm-light lane registry: the water shader samples its packed
+  // DataTexture to lay reflection pools for the beacon, harbor lanterns, and
+  // dock lamps. The registry owns the per-tier lane cap.
+  const laneRegistry = createGardenLaneRegistry();
+
   const waterAccents = createWaterAccents();
   root.add(waterAccents);
 
@@ -315,6 +327,7 @@ function createGardenScene(): GardenScene {
     directionalLight,
     hemisphereLight,
     hoverMarker,
+    laneRegistry,
     lighthouseModel: null,
     root,
     selectedMarker,
@@ -366,7 +379,78 @@ function replaceWorldContent(
     0,
     islandTile.y * TILE_SCALE,
   );
+  scene.water.setIsletCenters(
+    { x: CEMETERY_CENTER.x * TILE_SCALE, z: CEMETERY_CENTER.y * TILE_SCALE },
+    { x: world.pigeonnier.tile.x * TILE_SCALE, z: world.pigeonnier.tile.y * TILE_SCALE },
+  );
+  registerLightLanes(scene.laneRegistry, world, islandTile, scene.content.docks);
   scene.world = world;
+}
+
+/**
+ * Registers every warm light that should lay a reflection pool on the sea. The
+ * beacon keeps its own sweeping lane (water uBeacon* uniforms); these are the
+ * omnidirectional pools. Lane world positions mirror the geometry each module
+ * builds. The registry caps them per tier; callers register all of them.
+ */
+function registerLightLanes(
+  registry: GardenLaneRegistry,
+  world: PharosVilleWorld,
+  islandTile: { x: number; y: number },
+  docks: readonly DockVisual[],
+): void {
+  registry.clear();
+  registry.set({
+    color: HARBOR_PALETTE.lantern_glow,
+    id: "beacon",
+    intensity: 1,
+    kind: "beacon",
+    worldX: islandTile.x * TILE_SCALE,
+    worldZ: islandTile.y * TILE_SCALE,
+  });
+  // Ring of harbor lanterns around the island (mirrors createHarborLanterns).
+  const islandX = islandTile.x * TILE_SCALE;
+  const islandZ = islandTile.y * TILE_SCALE;
+  for (let index = 0; index < 12; index += 1) {
+    const angle = (index / 12) * Math.PI * 2
+      + stableUnit(`harbor-lantern-angle.${index}`) * 0.16;
+    const radiusX = 22 + (index % 3) * 1.25;
+    const radiusZ = 15.5 + (index % 2) * 1.15;
+    registry.set({
+      color: HARBOR_PALETTE.lantern_glow,
+      id: `harbor-lantern.${index}`,
+      intensity: 0.62,
+      kind: "lantern",
+      worldX: islandX + Math.cos(angle) * radiusX,
+      worldZ: islandZ + Math.sin(angle) * radiusZ,
+    });
+  }
+  for (const dock of docks) {
+    registry.set({
+      color: HARBOR_PALETTE.lantern_glow,
+      id: `dock-lamp.${dock.dock.detailId}`,
+      intensity: 0.7,
+      kind: "lantern",
+      worldX: dock.root.position.x,
+      worldZ: dock.root.position.z,
+    });
+  }
+  registry.set({
+    color: HARBOR_PALETTE.lantern_warm,
+    id: "cemetery-lantern",
+    intensity: 0.4,
+    kind: "lantern",
+    worldX: CEMETERY_CENTER.x * TILE_SCALE,
+    worldZ: CEMETERY_CENTER.y * TILE_SCALE,
+  });
+  registry.set({
+    color: HARBOR_PALETTE.lantern_glow,
+    id: "pigeonnier-lamp",
+    intensity: 0.42,
+    kind: "lantern",
+    worldX: world.pigeonnier.tile.x * TILE_SCALE,
+    worldZ: world.pigeonnier.tile.y * TILE_SCALE,
+  });
 }
 
 function createWorldContent(
@@ -512,6 +596,8 @@ function updateSceneForFrame(
   });
   updateDayCycle(scene, frame, phase);
   scene.water.update(frame);
+  const activeLaneCount = scene.laneRegistry.sync(frame.renderScheduler.tier);
+  scene.water.setLaneState(scene.laneRegistry.texture, activeLaneCount);
   const content = scene.content;
   if (!content) return;
 

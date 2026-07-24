@@ -271,6 +271,7 @@ export function isPharosVilleViewportGatedRequest(url: URL): boolean {
   if (
     url.pathname.startsWith("/pharosville/assets/")
     || url.pathname.startsWith("/pharosville/models/")
+    || url.pathname.startsWith("/pharosville/textures/")
     || url.pathname.startsWith("/logos/")
     || /^\/chains\/[^/]+\.(?:png|svg|jpe?g|webp)$/i.test(url.pathname)
   ) {

@@ -16,6 +16,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  PlaneGeometry,
   Shape,
   ShapeGeometry,
   Vector3,
@@ -609,25 +610,37 @@ function createPennantGeometry(): ShapeGeometry {
   return new ShapeGeometry(shape);
 }
 
+const WAKE_QUAD_COUNT = 7;
+
 function createWake(cache: GardenShipGeometryCache): { detail: Group; root: Group } {
   const root = new Group();
   const detail = new Group();
   root.name = "ship-wake";
   detail.name = "ship-wake-detail";
   root.add(detail);
-  const shape = new Shape();
-  shape.moveTo(-2.25, 0);
-  shape.lineTo(-5.8, -1.24);
-  shape.lineTo(-5.12, 0);
-  shape.lineTo(-5.8, 1.24);
-  shape.closePath();
-  const fillGeometry = cachedShipGeometry(cache, "wake.fill", () => {
-    const geometry = new ShapeGeometry(shape);
+
+  // A short trail of soft foam quads astern of the hull. Each quad grows then
+  // tapers along the trail so the wake reads as a widening-then-fading wedge;
+  // the per-frame ship loop stretches the whole trail by wake intensity and
+  // hides it entirely under reduced motion / constrained tiers.
+  const quadGeometry = cachedShipGeometry(cache, "wake.quad", () => {
+    const geometry = new PlaneGeometry(1, 1);
     geometry.rotateX(-Math.PI / 2);
-    geometry.translate(0, -0.34, 0);
     return geometry;
   });
-  root.add(new Mesh(fillGeometry, cache.wakeFillMaterial));
+  const trail = new InstancedMesh(quadGeometry, cache.wakeFillMaterial, WAKE_QUAD_COUNT);
+  const matrix = new Matrix4();
+  for (let index = 0; index < WAKE_QUAD_COUNT; index += 1) {
+    const age = index / (WAKE_QUAD_COUNT - 1);
+    const length = 1.1 + age * 1.7;
+    const width = 0.9 + Math.sin(age * Math.PI) * 2.3;
+    matrix.makeScale(length, 1, width);
+    matrix.setPosition(-2.3 - age * 3.9, -0.34, 0);
+    trail.setMatrixAt(index, matrix);
+  }
+  trail.instanceMatrix.needsUpdate = true;
+  root.add(trail);
+
   for (const z of [-0.5, 0.5]) {
     const geometry = cachedShipGeometry(
       cache,
