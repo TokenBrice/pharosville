@@ -11,14 +11,14 @@ over historical plans.
 - `AGENT_ONBOARDING.md`: task routing and command lanes.
 - `ARCHITECTURE.md`: request flow, world construction, Three.js runtime, and
   fallback boundary.
+- `THREEJS_AGENT_REFERENCE.md`: agent-facing Three.js fundamentals, module map,
+  frame contract, disposal rules, tiers, and change recipes for `src/three/`.
 - `RUNTIME_FACTS.md`: generated constants, inventories, and budgets.
 - `CHANGE_CHECKLIST.md`: pre-edit and pre-claim checks.
 - `TESTING.md`: focused, browser, performance, and release validation.
 - `VISUAL_INVARIANTS.md`: non-negotiable visual and analytical contracts.
 - `MOTION_POLICY.md`: the single world clock, reduced motion, and effect caps.
-- `ASSET_PIPELINE.md`: current logo/model workflow and archived raster status.
-- `PIXELLAB_MCP.md`: reference-image workflow; generated images are not
-  automatically runtime assets.
+- `ASSET_PIPELINE.md`: current ship-logo and model media workflow.
 - `RELEASES.md`: protected deploy, tag, GitHub Release, recovery, and audit.
 - `KNOWN_PITFALLS.md`: repeat-risk issues.
 
@@ -26,9 +26,10 @@ over historical plans.
 
 PharosVille is a desktop-gated React application with a pure world model under
 `src/systems/` and one production Three.js renderer under `src/three/`. The
-scene combines procedural geometry and materials with one deterministic
-lighthouse GLB. Runtime image loading is limited to same-origin stablecoin
-logos; GPU or renderer failure presents an interactive DOM signal overview.
+scene combines procedural geometry and materials with three deterministic GLBs
+and one water-normal texture. Runtime image decoding is limited to same-origin
+stablecoin logos; GPU or renderer failure presents an interactive DOM signal
+overview.
 
 The browser calls same-origin `/api/*` only. The Cloudflare Pages Function owns
 the upstream allowlist and secret. Analytical meaning remains available through
@@ -46,5 +47,5 @@ the detail panel and accessibility ledger without reading WebGL pixels.
 ## Historical Inputs
 
 Earlier raster and Canvas 2D prototypes are historical design inputs, not
-runtime dependencies. The archived raster inventory remains in the repository
-for provenance and validation but is not fetched by the current app.
+runtime dependencies. Their asset inventory has been removed from the
+repository; only same-origin ship logos and checked models ship at runtime.

@@ -18,23 +18,26 @@ Last updated: 2026-07-24
 - Keep analytical meaning in details and the accessibility ledger.
 - Use the same motion sample for rendering, hit testing, follow, and debug.
 - Keep reduced motion deterministic with no continuous RAF.
+- For Three.js work, follow `THREEJS_AGENT_REFERENCE.md` (dispose paths, shared
+  geometry, tiers, hit-test parity).
 
 ## Media
 
-- Runtime image loading remains logo-only.
-- Lighthouse changes go through the deterministic GLB generator and metadata.
+- Runtime image decoding remains logo-only; model and water media use their
+  narrow Three.js owners.
+- Checked model changes go through deterministic generators and metadata.
 - New models need explicit origin, scale, anchors, pick proxy, provenance,
   license, failure behavior, and budgets.
-- PixelLab/image-generation output stays reference-only until deliberately
+- Image-generation output stays reference-only until deliberately
   translated into production code or an approved model pipeline.
-- The archived raster inventory is not a runtime contract.
+- `npm run check:runtime-media` must pass for media changes.
 
 ## Validation
 
 - Use the smallest focused unit test while iterating.
 - Three.js visual changes: `npm run test:visual`.
 - Performance/resource changes: `npm run test:perf`.
-- Model changes: `npm run check:garden-models`.
+- Runtime media changes: `npm run check:runtime-media`.
 - Viewport/loading changes: `npm run check:viewport-gate`.
 - Mixed scope: `npm run validate:changed`.
 - Broad release confidence: `npm run validate:release`.

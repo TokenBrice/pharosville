@@ -173,7 +173,7 @@ At minimum, verify:
 
 - `/` returns the PharosVille app shell.
 - Blocked viewport fallbacks do not fetch world data, import Three.js, request
-  the lighthouse GLB, or decode ship logos.
+  checked GLBs or textures, or decode ship logos.
 - Renderer or GPU failure shows the DOM signal overview rather than a second
   graphical renderer.
 - Allowlisted `/api/*` endpoints respond through the Pages Function proxy.

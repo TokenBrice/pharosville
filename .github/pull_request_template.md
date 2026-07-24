@@ -10,7 +10,7 @@
 
 - [ ] Focused checks run
 - [ ] Docs updated or not needed
-- [ ] Screenshots or video included for UI/canvas changes
+- [ ] Screenshots or video included for UI/Three.js changes
 
 ## PharosVille Guardrails
 
@@ -18,7 +18,7 @@
 - [ ] Browser-facing code still calls same-origin `/api/*` only
 - [ ] `PHAROS_API_KEY` remains server-side only
 - [ ] Desktop gate behavior is preserved or intentionally documented
-- [ ] Runtime asset changes use local manifest-backed assets
+- [ ] Runtime media changes pass `npm run check:runtime-media`
 
 ## Risk Notes
 

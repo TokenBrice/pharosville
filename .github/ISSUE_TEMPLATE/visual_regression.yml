@@ -1,5 +1,5 @@
 name: Visual Regression
-description: Report canvas, layout, screenshot, or motion drift.
+description: Report Three.js scene, layout, screenshot, or motion drift.
 title: "[Visual] "
 labels: ["visual"]
 body:

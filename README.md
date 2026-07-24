@@ -48,9 +48,11 @@ At a high level:
 3. Cloudflare Pages Functions proxy only the allowed PharosVille read paths.
 4. `src/systems/` builds a pure world model from live data.
 5. `src/three/` renders the Garden Observatory while `src/renderer/` owns its thin lifecycle and hit-test boundary.
-6. Runtime art is limited to stablecoin logos and checked models under `public/pharosville/models/`; GPU failure falls back to a DOM signal overview.
+6. Runtime media is limited to stablecoin logos, checked models, and the checked water-normal texture; GPU failure falls back to a DOM signal overview.
 
 For the full implementation map, see [Architecture](./docs/pharosville/ARCHITECTURE.md).
+For agent-facing Three.js guidance (module map, frame contract, disposal, tiers),
+see [Three.js Agent Reference](./docs/pharosville/THREEJS_AGENT_REFERENCE.md).
 
 ## Repo Map
 
@@ -58,7 +60,7 @@ For the full implementation map, see [Architecture](./docs/pharosville/ARCHITECT
 - `shared/` - runtime-neutral PharosVille API contract and data logic
 - `functions/` - Cloudflare Pages Function proxy and server-side response hardening
 - `public/pharosville/models/` - checked runtime GLB models
-- `public/pharosville/assets/` - retained raster source history and authoring inventory
+- `public/pharosville/textures/` - checked Three.js textures
 - `docs/pharosville/` - architecture, testing, operations, visual, and asset-maintenance docs
 - `.github/workflows/` - deploy, canary, CodeQL, and dependency/security automation
 - `agents/` - active planning and handoff artifacts
@@ -110,7 +112,7 @@ Common focused checks:
 npm run validate:docs
 npm run typecheck
 npm test
-npm run check:pharosville-assets
+npm run check:runtime-media
 npm run check:pharosville-colors
 npm run build
 npm run test:visual

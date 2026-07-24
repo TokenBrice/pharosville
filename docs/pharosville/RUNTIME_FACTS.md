@@ -31,27 +31,17 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 
 ## Runtime Media
 
-- `useAssetLoadingPipeline` loads same-origin stablecoin logo images only.
+- The ship-logo pipeline loads same-origin stablecoin logo images only.
 - Ship, dock, island, cemetery, ambient-life, and water visuals are renderer-owned procedural geometry/materials.
-- Lighthouse model: `garden-lighthouse-shell` at `/pharosville/models/garden-lighthouse-shell.glb`
-- Lighthouse GLB: 75 KiB, SHA-256 `8e7caf560bee5497e70abb86c56f3591934e98a30332e4cbcffa0e451a1efb06`, compression `none`
-- Lighthouse geometry: 7 draw calls, 1,068 triangles, 1,657 vertices, 0 textures
+- Water normal: `/pharosville/textures/water-normals.png` with a content-hash query.
+
+| Model | URL | Bytes | Geometry | SHA-256 |
+| --- | --- | --- | --- | --- |
+| `garden-lighthouse-shell` | `/pharosville/models/garden-lighthouse-shell.glb` | 75 KiB | 7 draws / 1,068 tris / 1,657 verts / 0 textures | `8e7caf560bee5497e70abb86c56f3591934e98a30332e4cbcffa0e451a1efb06` |
+| `garden-hero-titan` | `/pharosville/models/garden-hero-titan.glb` | 63 KiB | 4 draws / 507 tris / 1,521 verts / 0 textures | `5cd33d1fa1ab5ea2f02a13d2fff345c95d7baaa059a05fdedc6a1fdad06f3eaa` |
+| `garden-hero-heritage` | `/pharosville/models/garden-hero-heritage.glb` | 43 KiB | 4 draws / 331 tris / 993 verts / 0 textures | `89668e659d262e0df2421b27c7aed82090f460641697a68a87587164fa43da02` |
+
 - The procedural lighthouse shell remains the in-scene fallback if its GLB cannot load.
-
-## Archived Raster Inventory
-
-- `public/pharosville/assets/manifest.json` is retained for source history and validation; browser runtime does not load it.
-- Schema version: `2`; cache version: `2026-06-W6-identity-pass`; style anchor: `2026-04-29-lighthouse-hill-v5`
-- Entries: `73`; prior first-render set: `33`
-- Categories: dock: 12, landmark: 4, overlay: 6, prop: 21, ship: 23, terrain: 7
-- Optional WebP twins: `72` static paths, `13` animation frame sources
-
-## Asset Budgets
-
-- These budgets guard the archived raster authoring inventory; they are not runtime boot budgets.
-- Authoring inventory: count <= 75, bytes <= 1,100 KiB, decoded pixels <= 1,440,000
-- Prior first-render classification: count <= 33, bytes <= 575 KiB, decoded pixels <= 875,000
-- Prior shell-critical classification: count <= 10, bytes <= 120 KiB, decoded pixels <= 220,000
 
 ## Bundle Budgets
 

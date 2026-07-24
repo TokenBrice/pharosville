@@ -39,7 +39,7 @@ capable landscape screen          -> lazy desktop data + world runtime
 ```
 
 The blocked paths do not mount world queries, import Three.js, request the
-lighthouse GLB, or decode ship logos. `vite.config.ts` emits media-qualified
+checked models or textures, or decode ship logos. `vite.config.ts` emits media-qualified
 modulepreloads for the desktop lazy chunk and its dependency closure.
 
 ## 3. World Construction
@@ -67,6 +67,9 @@ The overview slice keeps:
 - one temporary selected ship when search or a deep link targets an outsider.
 
 ## 4. Renderer Lifecycle
+
+For agent implementation detail (module map, frame contract, disposal, tiers,
+Three.js pitfalls), see `THREEJS_AGENT_REFERENCE.md`.
 
 `useWorldRenderLoop` dynamically imports `src/three/world-renderer.ts` and owns
 the only renderer lifecycle.
@@ -99,21 +102,23 @@ The renderer owns:
 `src/renderer/` now contains runtime-neutral interaction, scheduling, metrics,
 and renderer contracts. It is not a second drawing stack.
 
-## 5. Lighthouse Model
+## 5. Checked Models
 
-The scene creates a procedural lighthouse shell synchronously. The model
-library then loads:
+The scene creates procedural lighthouse and hero-hull fallbacks synchronously.
+The model library then loads:
 
-`public/pharosville/models/garden-lighthouse-shell.glb`
+- `public/pharosville/models/garden-lighthouse-shell.glb`
+- `public/pharosville/models/garden-hero-titan.glb`
+- `public/pharosville/models/garden-hero-heritage.glb`
 
 `src/three/garden-models.ts` records the model URL, SHA-256, dimensions,
 base-center origin, anchors, pick proxy, geometry inventory, and budgets.
-Successful load swaps the GLB into the existing lighthouse root while
-renderer-owned beacon, beam, light, labels, and selection anchors remain
-stable. Failed load leaves the procedural shell in place.
+Successful loads attach GLBs to the existing semantic roots while
+renderer-owned lights, labels, motion, and selection anchors remain stable.
+Failed loads leave procedural fallbacks in place.
 
-The GLB is deterministic and agent-authored by
-`scripts/pharosville/generate-garden-lighthouse.mjs`.
+The GLBs are deterministic and agent-authored by the lighthouse and hero
+generator scripts under `scripts/pharosville/`.
 
 ## 6. Runtime Media
 
@@ -126,13 +131,10 @@ world.ships[].logoSrc
   -> in-memory sail CanvasTexture
 ```
 
-It loads logos only. Procedural geometry/materials cover ships, docks, land,
-cemetery, pigeonnier, districts, ambient gulls, and water. The lighthouse GLB
-is fetched separately by the model library.
-
-`public/pharosville/assets/manifest.json` and its raster files are an archived
-authoring inventory. Current browser code does not request the manifest or use
-it to build the scene.
+It loads logos only. The model library separately owns checked GLBs, and the
+water shader loads the checked normal texture. Other scene content remains
+procedural. `npm run check:runtime-media` validates all logo paths, model and
+texture references, and prevents retired namespaces from returning.
 
 ## 7. Frame And Motion
 

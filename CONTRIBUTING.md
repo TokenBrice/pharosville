@@ -8,7 +8,8 @@ PharosVille is a public standalone app, but it also fronts a production stableco
 - Visual regressions with screenshots and viewport/browser context.
 - Accessibility, performance, and UI quality fixes that preserve the desktop gate.
 - Data/signal reports with stablecoin or chain names, timestamps, and source links.
-- Asset-pipeline fixes that keep runtime assets local and manifest-backed.
+- Asset-pipeline fixes that keep runtime media local (same-origin ship logos,
+  checked models, and checked textures).
 
 Feature ideas should start as an issue before implementation when they change PharosVille visual semantics, data mapping, or maintenance cost.
 
@@ -25,7 +26,8 @@ Important project rules:
 - Browser code calls same-origin `/api/*` only.
 - `PHAROS_API_KEY` must stay server-side and must never be exposed in browser-visible env vars, docs, fixtures, logs, query strings, or static assets.
 - Preserve the desktop gate. Unsupported viewports must not mount the world runtime or fetch world data.
-- Runtime art must come from local assets under `public/pharosville/assets/` and the manifest.
+- Runtime media is limited to same-origin ship logos and checked files under
+  `public/pharosville/models/` and `public/pharosville/textures/`.
 - Do not commit generated `dist/`, `test-results/`, local env files, or scratch artifacts.
 
 ## Local Setup
@@ -84,7 +86,7 @@ npm run smoke:live -- --url https://pharosville.pharos.watch
 
 - Use a descriptive title and explain why the change is needed.
 - Link related issues.
-- Include screenshots or video for UI/canvas changes.
+- Include screenshots or video for UI/Three.js changes.
 - List validation commands and any skipped checks.
 - Call out risk around data mapping, assets, viewport gating, performance, or secrets.
 

@@ -42,9 +42,9 @@ read only the docs needed for the change in front of you.
 | --- | --- | --- |
 | App shell, API proxy, metadata, viewport gate | `docs/pharosville/ARCHITECTURE.md`, `docs/pharosville-page.md` | `npm run validate:changed` |
 | World model, data semantics, layout, motion | `docs/pharosville/VISUAL_INVARIANTS.md`, `src/systems/README.md` | `npm test -- src` |
-| Three.js renderer, hit testing, interaction | `docs/pharosville/ARCHITECTURE.md`, `docs/pharosville/TESTING.md` | focused unit test, then `npm run test:visual` |
+| Three.js renderer, hit testing, interaction | `docs/pharosville/THREEJS_AGENT_REFERENCE.md`, `docs/pharosville/ARCHITECTURE.md`, `docs/pharosville/HOOKS.md`, `docs/pharosville/TESTING.md` | focused unit test (`npm test -- src/three`), then `npm run test:visual` |
 | Lighthouse model or ship logos | `docs/pharosville/ASSET_PIPELINE.md` | `npm run check:garden-models` or focused sail tests |
-| PixelLab/reference generation | `docs/pharosville/PIXELLAB_MCP.md` | operator review; keep scratch in `outputs/` |
+| Reference generation | `docs/pharosville/ASSET_PIPELINE.md` | operator review; keep scratch in `outputs/` |
 | Visual evidence | `docs/pharosville/TESTING.md`, `docs/pharosville/VISUAL_REGEN.md` | `npm run test:visual` |
 | Versioned release, tag, or GitHub Release | `docs/pharosville/RELEASES.md` | `npm run check:release-contract` |
 | Docs/process only | `docs/pharosville/README.md` | `npm run validate:docs` |
@@ -77,6 +77,6 @@ npm run agent:plan:new -- <slug>
 - Updating visual baselines for unintentional drift.
 - Treating a changelog entry, `main` deploy, local tag, or manual GitHub Release as the complete versioned release path.
 - Reintroducing a renderer switch or graphical fallback.
-- Treating the archived raster manifest as a runtime inventory.
+- Reintroducing a deleted raster inventory or runtime namespace.
 - Adding runtime references to remote generation or prototype URLs.
 - Encoding analytical meaning only in WebGL without detail-panel and accessibility-ledger parity.

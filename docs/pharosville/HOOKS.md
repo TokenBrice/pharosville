@@ -19,6 +19,9 @@ It does not draw the scene or own WebGL resources.
 
 ## `useWorldRenderLoop`
 
+For Three.js factory, frame fields, disposal, and scheduler tiers, see
+`THREEJS_AGENT_REFERENCE.md`.
+
 This hook owns:
 
 - dynamic import and lifecycle of the single Three.js renderer;
@@ -35,18 +38,18 @@ Renderer, camera, motion plan, hover, selection, and size values that change at
 different frequencies are mirrored through stable refs. Do not rebind the RAF
 for ordinary hover or selection changes.
 
-## `useAssetLoadingPipeline`
+## `useShipLogoAssets`
 
 The asset hook is a `ThreeLogoAssetStore`, not a scene asset manager.
 
 - It derives a stable sorted set of same-origin ship logo sources.
 - It loads and caches those images with abort support.
-- It increments `assetLoadTick` only when usable logos are added.
+- It increments `logoGeneration` only when usable logos are added.
 - A tick requests a new frame so sail textures can refresh.
-- It does not load a manifest, terrain, docks, ship bodies, or the lighthouse
-  GLB.
+- It does not load models, textures, terrain, docks, or ship bodies.
 
-The model library under `src/three/garden-models.ts` owns the GLB separately.
+The model library under `src/three/garden-models.ts` owns checked GLBs
+separately.
 
 ## Cross-Hook Refs
 

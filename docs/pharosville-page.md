@@ -44,24 +44,25 @@ live market signals, deterministic ship motion, and complete DOM details.
 
 ## Rendering And Media
 
+- Agent implementation playbook: `docs/pharosville/THREEJS_AGENT_REFERENCE.md`.
 - `src/three/world-renderer.ts` owns the scene, camera, lights, water, ships,
   districts, landmarks, effects, semantic detail levels, and GPU metrics.
 - The water is one bounded shader surface with day/dusk/night color, shallow
   shore treatment, fine ripples, and lighthouse reflection.
 - The island, docks, ships, cemetery, pigeonnier, harbor life, and most
   decoration use renderer-owned procedural geometry and materials.
-- The production lighthouse shell is the deterministic agent-authored GLB at
-  `public/pharosville/models/garden-lighthouse-shell.glb`.
-- `src/three/garden-models.ts` records its hash, dimensions, anchors, origin,
-  draw inventory, and budgets. The model is generated and checked by
-  `scripts/pharosville/generate-garden-lighthouse.mjs`.
+- The production lighthouse and hero hulls are deterministic agent-authored
+  GLBs under `public/pharosville/models/`.
+- `src/three/garden-models.ts` records their hashes, dimensions, anchors,
+  origins, draw inventories, and budgets. Generator scripts create and check
+  every model.
 - A procedural lighthouse shell is built with the scene and remains visible if
   the GLB request fails.
-- `useAssetLoadingPipeline` loads same-origin stablecoin logo images only.
+- `useShipLogoAssets` loads same-origin stablecoin logo images only.
   `garden-sail-texture.ts` paints those logos and deterministic fallbacks into
   Three.js sail textures in memory.
-- The legacy raster inventory under `public/pharosville/assets/` is retained
-  for source history and validation. It is not loaded by the browser runtime.
+- Runtime media is limited to ship logos, the checked model manifest, and the
+  checked water-normal texture.
 
 ## Analytical Truth
 

@@ -60,12 +60,12 @@ tests and documentation.
 - Island, docks, ships, cemetery, pigeonnier, districts, ambient life, and
   water remain renderer-owned procedural content unless a model decision meets
   `ASSET_PIPELINE.md`.
-- The production lighthouse GLB must preserve its manifest hash, dimensions,
-  base-center origin, named anchors, pick proxy, and budgets.
-- GLB failure must leave the aligned procedural lighthouse shell visible.
-- Runtime image loading is limited to same-origin ship logos.
+- Checked GLBs must preserve manifest hashes, dimensions, base-center origins,
+  named anchors, pick proxies, and budgets.
+- GLB failure must leave aligned procedural fallbacks visible.
+- Runtime image decoding is limited to same-origin ship logos; the checked
+  water texture remains renderer-owned.
 - Every ship needs a stable livery and readable logo or symbol fallback.
-- The archived raster manifest is not a runtime source of truth.
 - Hit targets must use the same display transforms and motion samples as the
   rendered entities.
 - Zone colors come from the shared palette/theme bridge rather than arbitrary

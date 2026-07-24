@@ -4,8 +4,9 @@ Date: 2026-07-23
 
 Status: Active reference
 
-Companion assessment:
-[`2026-07-23-threejs-pharosville-assessment.md`](./2026-07-23-threejs-pharosville-assessment.md)
+Current implementation references:
+[`ARCHITECTURE.md`](../docs/pharosville/ARCHITECTURE.md) and
+[`THREEJS_AGENT_REFERENCE.md`](../docs/pharosville/THREEJS_AGENT_REFERENCE.md).
 
 ## Objective
 
@@ -84,8 +85,8 @@ Purpose: answer "does a low-poly orthographic PharosVille look poetic?" before
 building any renderer infrastructure, and create a trustworthy comparison. The
 two tracks may run in parallel; the beauty spike is the gate.
 
-Evidence:
-[`2026-07-23-threejs-phase0-evidence.md`](./2026-07-23-threejs-phase0-evidence.md)
+Durable Phase 0 decisions are consolidated in the current visual invariants
+and Three.js agent reference.
 
 Beauty spike — the highest-risk unknown, run first:
 
@@ -195,11 +196,8 @@ Purpose: build only enough world to answer the product question.
 
 Purpose: make a measured decision before full conversion.
 
-Evidence:
-[`2026-07-23-threejs-phase3-automated-evidence.md`](./2026-07-23-threejs-phase3-automated-evidence.md)
-
-Operator review and sign-off:
-[`2026-07-23-threejs-decision-packet.md`](./2026-07-23-threejs-decision-packet.md)
+Durable Phase 3 evidence is represented by the current browser, performance,
+and release validation lanes in `docs/pharosville/TESTING.md`.
 
 - [x] **P3.1** Run all decision gates on the reference hardware. Automated
   reference-hardware and visual gates pass; the operator completed the

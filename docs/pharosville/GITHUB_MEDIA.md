@@ -27,11 +27,12 @@ There is no stable public REST API for setting the repository social preview.
 
 ## README Product Screenshot
 
-The product screenshot should show the actual desktop shell with ships visible, not only a branded card or an empty map. Regenerate from a known visual snapshot or a fresh local capture, then downscale for GitHub readability:
+The product screenshot is the current Three.js day overview captured at
+`1440x960`, with the full Garden Observatory, ships, analytical zones, and
+shell controls visible. Promote the current visual-audit capture with:
 
 ```bash
-mkdir -p docs/pharosville/media
-magick outputs/pharosville-desktop-shell-source.png \
+magick outputs/visual-audit/day.png \
   -resize 1200x \
   -strip \
   docs/pharosville/media/pharosville-desktop-shell.png

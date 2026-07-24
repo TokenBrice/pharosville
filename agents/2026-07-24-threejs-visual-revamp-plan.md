@@ -7,8 +7,7 @@ deliberate deferral: B5 phase 2 (disturbance-RT wakes) — recorded below.
 
 Companions:
 [`2026-07-23-threejs-implementation-plan.md`](./2026-07-23-threejs-implementation-plan.md)
-(this plan expands the visual scope of Phase 4 tasks P4.1–P4.5),
-[`2026-07-23-threejs-pharosville-assessment.md`](./2026-07-23-threejs-pharosville-assessment.md).
+(this plan expands the visual scope of Phase 4 tasks P4.1–P4.5).
 
 ## Objective
 
