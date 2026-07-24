@@ -44,6 +44,44 @@ const rendererHarness = vi.hoisted(() => ({
   instances: [] as TestWebGlRenderer[],
 }));
 
+type TestGardenPost = {
+  dispose: ReturnType<typeof vi.fn>;
+  getPassList: ReturnType<typeof vi.fn>;
+  render: ReturnType<typeof vi.fn>;
+  setBloomEnabled: ReturnType<typeof vi.fn>;
+  setEnabled: ReturnType<typeof vi.fn>;
+  setGrade: ReturnType<typeof vi.fn>;
+  setSize: ReturnType<typeof vi.fn>;
+};
+
+const postHarness = vi.hoisted(() => ({
+  instances: [] as TestGardenPost[],
+}));
+
+// The real composer needs a live WebGL2 context, so stub it. The fake still
+// draws via the mocked renderer (keeping `lastScene` populated for the scene
+// assertions) and tracks the tier policy the renderer drives it with.
+vi.mock("./garden-post", () => ({
+  createGardenPost: vi.fn((renderer: { render: (scene: unknown, camera: unknown) => void }, scene: unknown, camera: unknown) => {
+    let enabled = true;
+    const instance: TestGardenPost = {
+      dispose: vi.fn(),
+      getPassList: vi.fn(() => (enabled ? ["render", "bloom", "grade", "output"] : [])),
+      render: vi.fn(() => {
+        renderer.render(scene, camera);
+      }),
+      setBloomEnabled: vi.fn(),
+      setEnabled: vi.fn((value: boolean) => {
+        enabled = value;
+      }),
+      setGrade: vi.fn(),
+      setSize: vi.fn(),
+    };
+    postHarness.instances.push(instance);
+    return instance;
+  }),
+}));
+
 const emptyLogoAssets: ThreeLogoAssets = {
   getLogo: () => null,
   getRenderAssetGenerationKey: () => "test",
@@ -80,6 +118,7 @@ vi.mock("three", async (importOriginal) => {
 
 beforeEach(() => {
   rendererHarness.instances.length = 0;
+  postHarness.instances.length = 0;
   Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
     configurable: true,
     value: vi.fn(() => null),
@@ -175,6 +214,37 @@ describe("Three world renderer lifecycle", () => {
     ).size).toBe(1);
 
     renderer.dispose();
+  });
+
+  it("creates the post composer, drives it per tier, and disposes it once", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    expect(postHarness.instances).toHaveLength(1);
+    const post = postHarness.instances.at(-1)!;
+
+    const full = renderer.render(rendererFrame(world, "full"));
+    expect(post.setEnabled).toHaveBeenLastCalledWith(true);
+    expect(post.setBloomEnabled).toHaveBeenLastCalledWith(true);
+    expect(post.render).toHaveBeenCalled();
+    expect(full.composerEnabled).toBe(true);
+    expect(full.postPassList).toEqual(["render", "bloom", "grade", "output"]);
+
+    // Recovery keeps the composer but drops the bloom pass.
+    renderer.render(rendererFrame(world, "recovery"));
+    expect(post.setEnabled).toHaveBeenLastCalledWith(true);
+    expect(post.setBloomEnabled).toHaveBeenLastCalledWith(false);
+
+    // Constrained bypasses the composer entirely (direct render).
+    const constrained = renderer.render(rendererFrame(world, "constrained"));
+    expect(post.setEnabled).toHaveBeenLastCalledWith(false);
+    expect(constrained.composerEnabled).toBe(false);
+    expect(constrained.postPassList).toEqual([]);
+
+    renderer.dispose();
+    expect(post.dispose).toHaveBeenCalledTimes(1);
   });
 
   it("reveals inspection detail only for Explore or the focused entity", () => {

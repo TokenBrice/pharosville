@@ -78,6 +78,11 @@ export type DebugRenderMetrics = {
     pixelCount: number;
   };
   longtask?: { count: number; maxDurationMs: number };
+  // V1 light/post/sky foundation debug fields.
+  composerEnabled?: boolean;
+  postPassList?: string[];
+  activeLaneCount?: number;
+  shadowMapSize?: number;
   // V1.1 per-pass draw-time attribution (coarse pass-group timers).
   skyDrawMs?: number;
   staticBlitDrawMs?: number;

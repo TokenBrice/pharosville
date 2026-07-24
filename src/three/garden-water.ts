@@ -14,15 +14,20 @@ const WATER_SIZE = 900;
 const WATER_SEGMENTS = 96;
 export const GARDEN_WATER_MAX_DISPLACEMENT = 0.036;
 
-const DAY_BASE = new Color("#227783");
-const DUSK_BASE = new Color("#174c5b");
-const NIGHT_BASE = new Color("#0d3040");
-const DAY_DEEP = new Color("#073b4d");
-const DUSK_DEEP = new Color("#092d3b");
-const NIGHT_DEEP = new Color("#051722");
-const DAY_SHALLOW = new Color("#57a393");
-const DUSK_SHALLOW = new Color("#356b68");
-const NIGHT_SHALLOW = new Color("#1b4550");
+// Palette-derived sea, same shader structure as before — the hue family shifts
+// from the retired teal to HARBOR_PALETTE's deep indigo (Art Direction: the
+// Lantern Sea). Night is the hero: nearly ink, but lifted off pure black by the
+// grade pass so the navy survives.
+const pc = (key: keyof typeof HARBOR_PALETTE): Color => new Color(HARBOR_PALETTE[key]);
+const DAY_BASE = pc("shallow_teal_lit").lerp(pc("fog_pale"), 0.42).lerp(pc("foam_white"), 0.12);
+const DUSK_BASE = pc("deep_sea_1").lerp(pc("ember"), 0.26);
+const NIGHT_BASE = pc("deep_sea_1");
+const DAY_DEEP = pc("deep_sea_1").lerp(pc("shallow_teal"), 0.55);
+const DUSK_DEEP = pc("deep_sea_2").lerp(pc("deep_sea_1"), 0.5);
+const NIGHT_DEEP = pc("deep_sea_2");
+const DAY_SHALLOW = pc("shallow_teal_lit").lerp(pc("moonlight"), 0.42);
+const DUSK_SHALLOW = pc("shallow_teal").lerp(pc("lantern_warm"), 0.14);
+const NIGHT_SHALLOW = pc("shallow_teal");
 const DAY_HIGHLIGHT = new Color(HARBOR_PALETTE.foam_white);
 const DUSK_HIGHLIGHT = DAY_HIGHLIGHT.clone().lerp(
   new Color(HARBOR_PALETTE.lantern_warm),

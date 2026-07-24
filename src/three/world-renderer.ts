@@ -1,11 +1,10 @@
 import {
-  ACESFilmicToneMapping,
+  AgXToneMapping,
   AmbientLight,
   BufferGeometry,
   CircleGeometry,
   DirectionalLight,
   DoubleSide,
-  Fog,
   Group,
   HemisphereLight,
   InstancedMesh,
@@ -60,7 +59,9 @@ import {
 } from "./garden-harbor-life";
 import { createGardenModelLibrary } from "./garden-models";
 import { createGardenWater, type GardenWater } from "./garden-water";
-import { DAY_SKY, updateDayCycle } from "./garden-day-cycle";
+import { dayCyclePhase, updateDayCycle, type DayCyclePhase } from "./garden-day-cycle";
+import { createGardenSky, type GardenSky } from "./garden-sky";
+import { createGardenPost } from "./garden-post";
 import {
   createDock,
   createHarborLanterns,
@@ -110,8 +111,9 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
     powerPreference: "high-performance",
   });
   renderer.outputColorSpace = SRGBColorSpace;
-  renderer.toneMapping = ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.08;
+  renderer.toneMapping = AgXToneMapping;
+  renderer.toneMappingExposure = 1.12;
+  const post = createGardenPost(renderer, scene.root, camera);
 
   let disposed = false;
   let lastDpr = 0;
@@ -149,6 +151,7 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
       canvas.removeEventListener("webglcontextlost", handleContextLost);
       canvas.removeEventListener("webglcontextcreationerror", handleContextCreationError);
       const detachedModel = scene.lighthouseModel?.parent ? null : scene.lighthouseModel;
+      post.dispose();
       disposeThreeObjectTree(scene.root);
       if (detachedModel) disposeThreeObjectTree(detachedModel);
       modelLibrary.clear();
@@ -166,6 +169,7 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
       }
       if (frame.width !== lastWidth || frame.height !== lastHeight || dprChanged) {
         renderer.setSize(frame.width, frame.height, false);
+        post.setSize(frame.width, frame.height, dpr);
         lastWidth = frame.width;
         lastHeight = frame.height;
       }
@@ -181,13 +185,22 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
         replaceWorldContent(scene, frame.world, frame.selectedDetailId);
       }
       if (scene.content) syncShipSailTextures(scene.content, frame);
-      updateSceneForFrame(scene, camera, frame);
-      renderer.render(scene.root, camera);
+      const phase = dayCyclePhase(frame.wallClockHour);
+      updateSceneForFrame(scene, camera, frame, phase);
+
+      const tier = frame.renderScheduler.tier;
+      const composerActive = tier !== "constrained";
+      post.setEnabled(composerActive);
+      post.setBloomEnabled(composerActive && tier !== "recovery");
+      post.setGrade(phase.daylight, phase.dusk, phase.night);
+      post.render();
 
       const content = scene.content;
       const renderInfo = renderer.info.render;
       const selected = frame.selectedDetailId ? 1 : 0;
       return {
+        activeLaneCount: 0,
+        composerEnabled: composerActive,
         drawableCount: content?.drawableCount ?? 0,
         drawableCounts: {
           underlay: 1 + (content?.zones.length ?? 0),
@@ -195,6 +208,8 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
           overlay: 1,
           selection: selected,
         },
+        postPassList: post.getPassList(),
+        shadowMapSize: 0,
         gpu: {
           calls: renderInfo.calls,
           geometries: renderer.info.memory.geometries,
@@ -228,6 +243,7 @@ interface GardenScene {
   lighthouseModel: Group | null;
   root: Scene;
   selectedMarker: Mesh<RingGeometry, MeshBasicMaterial>;
+  sky: GardenSky;
   water: GardenWater;
   waterAccents: Group;
   world: PharosVilleWorld | null;
@@ -266,8 +282,8 @@ interface EntityCue {
 
 function createGardenScene(): GardenScene {
   const root = new Scene();
-  root.background = DAY_SKY.clone();
-  root.fog = new Fog(DAY_SKY, 205, 450);
+  const sky = createGardenSky();
+  root.fog = sky.fog;
 
   const hemisphereLight = new HemisphereLight("#d7ece6", "#31483f", 1.15);
   root.add(hemisphereLight);
@@ -289,6 +305,10 @@ function createGardenScene(): GardenScene {
   const selectedMarker = createCueMarker(HARBOR_PALETTE.lantern_glow, 0.78);
   root.add(hoverMarker, selectedMarker);
 
+  // Sky dome/stars/moon are added last so lights and water keep the child
+  // indices the renderer tests assert against; world content is appended after.
+  root.add(sky.root);
+
   return {
     ambientLight,
     content: null,
@@ -298,6 +318,7 @@ function createGardenScene(): GardenScene {
     lighthouseModel: null,
     root,
     selectedMarker,
+    sky,
     water,
     waterAccents,
     world: null,
@@ -480,9 +501,16 @@ function updateSceneForFrame(
   scene: GardenScene,
   camera: OrthographicCamera,
   frame: ThreeWorldRendererFrame,
+  phase: DayCyclePhase,
 ): void {
   updateCamera(camera, frame);
-  updateDayCycle(scene, frame);
+  scene.sky.update(phase, {
+    reducedMotion: frame.reducedMotion,
+    targetX: camera.position.x - CAMERA_DISTANCE,
+    targetZ: camera.position.z - CAMERA_DISTANCE,
+    timeSeconds: frame.timeSeconds,
+  });
+  updateDayCycle(scene, frame, phase);
   scene.water.update(frame);
   const content = scene.content;
   if (!content) return;

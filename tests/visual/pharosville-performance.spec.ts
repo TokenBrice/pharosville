@@ -18,7 +18,10 @@ const LONG_SESSION_SECONDS = longSessionSeconds();
 const GPU_RESOURCE_BUDGET = {
   calls: 450,
   geometries: 275,
-  textures: 24,
+  // The post pipeline holds ~10 render-target textures (composer read/write
+  // plus the bloom mip chain); the remainder covers scene textures and the
+  // V2 sea additions (normal map, lane data texture, wake target).
+  textures: 40,
   triangles: 42_000,
 } as const;
 

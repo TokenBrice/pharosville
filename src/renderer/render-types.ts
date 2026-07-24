@@ -15,9 +15,13 @@ export interface PharosVilleRenderSchedulerState {
 }
 
 export interface PharosVilleRenderMetrics {
+  activeLaneCount?: number;
   bucketFlipCount?: number;
+  composerEnabled?: boolean;
   drawableCount: number;
   drawableCounts: Record<WorldDrawablePass, number>;
+  postPassList?: readonly string[];
+  shadowMapSize?: number;
   longtask?: { count: number; maxDurationMs: number };
   movingShipCount: number;
   renderBudgetTargetMs?: number;

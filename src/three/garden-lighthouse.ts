@@ -181,6 +181,7 @@ export function createLighthouse(): {
     emissive: HARBOR_PALETTE.lantern_warm,
     emissiveIntensity: 0.24,
     roughness: 0.38,
+    toneMapped: false,
   });
   for (const [angle, y, radius] of [
     [0, 5.0, 2.0],
@@ -222,11 +223,12 @@ export function createLighthouse(): {
   root.add(railPosts);
 
   const glazing = new MeshStandardMaterial({
-    color: "#d8ebe1",
+    color: HARBOR_PALETTE.lantern_glow,
     emissive: HARBOR_PALETTE.lantern_warm,
-    emissiveIntensity: 0.34,
+    emissiveIntensity: 0.55,
     opacity: 0.44,
     roughness: 0.12,
+    toneMapped: false,
     transparent: true,
   });
   const lanternRoom = new Mesh(
@@ -283,6 +285,9 @@ export function createLighthouse(): {
       emissive: HARBOR_PALETTE.lantern_glow,
       emissiveIntensity: 3.2,
       roughness: 0.12,
+      // The hero bloom source: stay bright through AgX on the direct-render
+      // (constrained) path; the composer path never tone maps scene materials.
+      toneMapped: false,
     }),
   );
   beacon.position.y = GARDEN_LIGHTHOUSE_BEACON_Y;
