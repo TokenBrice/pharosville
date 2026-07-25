@@ -65,7 +65,9 @@ describe("garden horizon (Z4 shakkei)", () => {
   it("joins the tier ladder at balanced+", () => {
     const horizon = createGardenHorizon();
     const phase = dayCyclePhase(11);
-    for (const tier of ["full", "balanced"] as const) {
+    // `interaction` rides with balanced: it flags a camera gesture, not a slow
+    // machine, so shedding on it blinks the silhouettes for every zoom and pan.
+    for (const tier of ["full", "balanced", "interaction"] as const) {
       horizon.update(phase, { ...FRAME, tier });
       expect(horizon.root.visible).toBe(true);
     }

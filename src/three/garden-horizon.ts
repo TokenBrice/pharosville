@@ -201,7 +201,16 @@ export function createGardenHorizon(): GardenHorizon {
       root.position.set(frame.targetX, 0, frame.targetZ);
       // Tier ladder: the borrowed horizon is a balanced+ beauty layer;
       // recovery/constrained keep the plain fog-to-sea gradient.
-      root.visible = frame.tier === "full" || frame.tier === "balanced";
+      //
+      // `interaction` counts as balanced here. It is not a load measurement —
+      // it is a transient flag raised for the duration of a camera gesture —
+      // so gating scenery on it made the three silhouettes blink out the
+      // instant a zoom or pan began and back in when it settled, which is
+      // precisely when the user is watching the horizon. Two draw calls of
+      // static geometry were never the reason a gesture frame was slow.
+      root.visible = frame.tier === "full"
+        || frame.tier === "balanced"
+        || frame.tier === "interaction";
       for (const [index, mesh] of meshes.entries()) {
         const palette = bandPalettes[index]!;
         blendDayCycleColor(

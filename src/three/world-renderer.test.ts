@@ -46,6 +46,7 @@ const rendererHarness = vi.hoisted(() => ({
 type TestGardenPost = {
   dispose: ReturnType<typeof vi.fn>;
   getPassList: ReturnType<typeof vi.fn>;
+  isComposerEnabled: ReturnType<typeof vi.fn>;
   render: ReturnType<typeof vi.fn>;
   setBloomEnabled: ReturnType<typeof vi.fn>;
   setEnabled: ReturnType<typeof vi.fn>;
@@ -63,13 +64,20 @@ const postHarness = vi.hoisted(() => ({
 vi.mock("./garden-post", () => ({
   createGardenPost: vi.fn((renderer: { render: (scene: unknown, camera: unknown) => void }, scene: unknown, camera: unknown) => {
     let enabled = true;
+    let bloomEnabled = true;
     const instance: TestGardenPost = {
       dispose: vi.fn(),
-      getPassList: vi.fn(() => (enabled ? ["render", "bloom", "grade", "output"] : [])),
+      // Mirrors the real getPassList, which lists only the enabled passes.
+      getPassList: vi.fn(() => (enabled
+        ? ["render", ...(bloomEnabled ? ["bloom"] : []), "grade", "output"]
+        : [])),
+      isComposerEnabled: vi.fn(() => enabled),
       render: vi.fn(() => {
         renderer.render(scene, camera);
       }),
-      setBloomEnabled: vi.fn(),
+      setBloomEnabled: vi.fn((value: boolean) => {
+        bloomEnabled = value;
+      }),
       setEnabled: vi.fn((value: boolean) => {
         enabled = value;
       }),
@@ -244,11 +252,15 @@ describe("Three world renderer lifecycle", () => {
     // it is the night identity and this is the tier the app usually sits in.
     expect(post.setBloomEnabled).toHaveBeenLastCalledWith(true);
 
-    // Constrained bypasses the composer entirely (direct render).
+    // Constrained sheds the bloom pyramid and NOTHING else. The composer owns
+    // AgX tone mapping, the day-cycle grade and the vignette, so bypassing it
+    // swings the whole frame's colour — and since a camera gesture flaps the
+    // scheduler across this boundary, that read as a flicker under the wheel.
     const constrained = renderer.render(rendererFrame(world, "constrained"));
-    expect(post.setEnabled).toHaveBeenLastCalledWith(false);
-    expect(constrained.composerEnabled).toBe(false);
-    expect(constrained.postPassList).toEqual([]);
+    expect(post.setEnabled).toHaveBeenLastCalledWith(true);
+    expect(post.setBloomEnabled).toHaveBeenLastCalledWith(false);
+    expect(constrained.composerEnabled).toBe(true);
+    expect(constrained.postPassList).toEqual(["render", "grade", "output"]);
 
     renderer.dispose();
     expect(post.dispose).toHaveBeenCalledTimes(1);

@@ -244,7 +244,13 @@ export function createGardenIslets(): GardenIslets {
       // reduced motion needs no freeze (frame.reducedMotion is accepted for
       // contract symmetry with the other garden modules).
       void frame.reducedMotion;
-      root.visible = frame.tier === "full" || frame.tier === "balanced";
+      // `interaction` counts as balanced here, for the reason spelled out in
+      // garden-horizon: it flags a camera gesture in progress, not a slow
+      // machine, so gating on it blinked the wreck field and the pigeonnier
+      // out of the sea for the length of every zoom and pan.
+      root.visible = frame.tier === "full"
+        || frame.tier === "balanced"
+        || frame.tier === "interaction";
     },
   };
 }

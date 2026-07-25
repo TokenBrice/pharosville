@@ -110,7 +110,9 @@ describe("garden islets (Z5)", () => {
 
   it("joins the tier ladder at balanced+", () => {
     const islets = createGardenIslets();
-    for (const tier of ["full", "balanced"] as const) {
+    // `interaction` rides with balanced: it flags a camera gesture, not a slow
+    // machine, so shedding on it blinks the wreck field out of every zoom.
+    for (const tier of ["full", "balanced", "interaction"] as const) {
       islets.update({ reducedMotion: false, tier });
       expect(islets.root.visible).toBe(true);
     }

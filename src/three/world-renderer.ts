@@ -310,13 +310,22 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
         sessionTierReached = tier;
       }
       const shadowMapSize = updateShadows(scene, frame);
-      const composerActive = tier !== "constrained";
-      post.setEnabled(composerActive);
-      // W6.3: bloom now survives `recovery` because it runs at half
-      // resolution (see BLOOM_RESOLUTION_SCALE). The warm beacon and lantern
-      // glow are the night identity; shedding them at the tier this machine
-      // usually sits in meant they were almost never seen.
-      post.setBloomEnabled(composerActive);
+      // The composer owns the frame's COLOR — AgX tone mapping moves into
+      // OutputPass, and the day-cycle grade and vignette exist nowhere else —
+      // so shedding it is not a quality step down, it is a different picture.
+      // Crossing the `constrained` boundary swung the frame's brightness and
+      // dropped the vignette outright, and because a zoom gesture flaps the
+      // scheduler across that boundary repeatedly the whole view flickered
+      // under the wheel. The grade and output passes are one full-screen quad
+      // each; only the bloom pyramid's cost scales, so only bloom is shed.
+      post.setEnabled(true);
+      // W6.3: bloom runs at half resolution (see BLOOM_RESOLUTION_SCALE), so
+      // it survives `recovery` — the warm beacon and lantern glow are the
+      // night identity, and shedding them at the tier this machine usually
+      // sits in meant they were almost never seen. `constrained` means the
+      // machine is genuinely drowning, and a five-level mip pyramid is the
+      // one pass worth the pop.
+      post.setBloomEnabled(tier !== "constrained");
       post.setGrade(phase.daylight, phase.dusk, phase.night);
       post.render();
 
@@ -324,7 +333,7 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
       const renderInfo = renderer.info.render;
       return {
         activeLaneCount: scene.laneRegistry.activeLaneCount,
-        composerEnabled: composerActive,
+        composerEnabled: post.isComposerEnabled(),
         // C4 evidence: live water-system state via contract C2 (cloud-shadow
         // sampler, ripple-ring emitter). zoneRadii is live data from the
         // zone field.

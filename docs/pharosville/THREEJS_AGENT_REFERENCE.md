@@ -57,6 +57,15 @@ Quality tiers are `full`, `balanced`, `interaction`, `recovery`, and
 or inspection detail. It cannot remove analytical truth, selection, or DOM
 parity. Reduced motion pins a single full-quality static composition.
 
+Two rules keep the ladder from reading as a flicker rather than a quality
+step. First, no tier may change the frame's COLOR: the composer owns AgX tone
+mapping, the day-cycle grade, and the vignette, so it stays on at every tier
+and only the bloom pyramid is shed. Second, `interaction` is a transient flag
+raised for the length of a camera gesture, not a load measurement — gating
+scenery visibility on it blinks that scenery out exactly while the user is
+moving the camera, so treat it as `balanced` for anything the eye can see
+appear or disappear.
+
 ## Scene and resource discipline
 
 1. Create long-lived renderer, scene-level caches, and DOM event handlers once.
