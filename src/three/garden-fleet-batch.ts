@@ -70,6 +70,8 @@ export interface FleetBatchPart {
   /** Per-instance hull proportions (length, beam, height) — N5(a). */
   hullForm: InstancedBufferAttribute;
   mesh: InstancedMesh;
+  /** Per-instance furl bitmask (W2.3/W4); only meaningful on the sail batch. */
+  sailFurl: InstancedBufferAttribute | null;
   /** Per-instance cloth dye (F1); only meaningful on the sail batch. */
   sailTint: InstancedBufferAttribute | null;
   /** Per-instance sheer-strake paint (W1/D2); only meaningful on the hull batch. */
@@ -243,6 +245,32 @@ function withHullForm(vertexShader: string): string {
 }
 
 /**
+ * W2.3 / W4: per-instance furling.
+ *
+ * The rig is one merged geometry per silhouette, so every ship of a family flew
+ * the same canvas — 64 galleons with the same three sails set. `aSailIndex`
+ * says which sail a vertex belongs to and `aSailHead` where that sail's yard
+ * is; a per-instance bitmask then collapses chosen sails onto their yards.
+ *
+ * That buys two things at once and costs no extra batch: rig variety under way
+ * (a working ship rarely has everything set), and a real harbour furl for the
+ * ~120 ships that sit at a berth. The identity sail is never furled — the
+ * emblem is the fleet's heraldry and must survive at anchor.
+ *
+ * A furled sail keeps its width and collapses in Y onto the yard, which is what
+ * a bundled sail actually looks like from above; it is not hidden, so the ship
+ * still reads as rigged rather than stripped.
+ */
+export const FLEET_MAX_SAILS = 6;
+const SAIL_FURL_DEFORM = `
+{
+  float furlBits = floor(aSailFurl / exp2(aSailIndex));
+  float furled = furlBits - 2.0 * floor(furlBits * 0.5);
+  transformed.y = mix(transformed.y, aSailHead.y - 0.05, furled);
+  transformed.z = mix(transformed.z, aSailHead.z, furled * 0.8);
+}`;
+
+/**
  * W1 (decision D2): the sheer strake carries the issuer's paint, the rest of
  * the hull carries its timber.
  *
@@ -274,13 +302,22 @@ export function patchFleetHullFormMaterial(material: MeshStandardMaterial): void
 export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
   material.onBeforeCompile = (shader) => {
     // Sails carry the hull-form deformation too, otherwise a stretched hull
-    // would sail out from under its own rig.
-    shader.vertexShader = withHullForm(shader.vertexShader)
+    // would sail out from under its own rig. Furling runs FIRST, in the sail's
+    // own local frame, so a stretched hull furls the same shape as a plain one.
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", `#include <common>\n${HULL_FORM_ATTRIBUTE}`)
+      .replace(
+        "#include <begin_vertex>",
+        `#include <begin_vertex>\n${SAIL_FURL_DEFORM}\n${HULL_FORM_DEFORM}`,
+      )
       .replace(
         "#include <common>",
         `#include <common>
         attribute float aAtlasSail;
         attribute float aAtlasCell;
+        attribute float aSailFurl;
+        attribute float aSailIndex;
+        attribute vec3 aSailHead;
         attribute vec3 aSailTint;
         varying vec2 vAtlasUv;
         varying vec3 vSailTint;`,
@@ -322,7 +359,7 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         #endif`,
       );
   };
-  material.customProgramCacheKey = () => "garden-fleet-sail-atlas-hull-form-dye";
+  material.customProgramCacheKey = () => "garden-fleet-sail-atlas-hull-form-dye-furl";
 }
 
 function createInstancedPart(
@@ -346,6 +383,7 @@ function createInstancedPart(
   // the batch is always on screen.
   mesh.frustumCulled = false;
   let atlasCell: InstancedBufferAttribute | null = null;
+  let sailFurl: InstancedBufferAttribute | null = null;
   let sailTint: InstancedBufferAttribute | null = null;
   if (withAtlasCell) {
     atlasCell = new InstancedBufferAttribute(new Float32Array(capacity), 1);
@@ -356,6 +394,11 @@ function createInstancedPart(
     sailTint = new InstancedBufferAttribute(new Float32Array(capacity * 3).fill(1), 3);
     sailTint.setUsage(DynamicDrawUsage);
     geometry.setAttribute("aSailTint", sailTint);
+    // W2.3/W4: furl bitmask. Defaults to 0 — every sail set — so an unwritten
+    // instance renders the authored rig.
+    sailFurl = new InstancedBufferAttribute(new Float32Array(capacity), 1);
+    sailFurl.setUsage(DynamicDrawUsage);
+    geometry.setAttribute("aSailFurl", sailFurl);
   }
   // N5(a): per-ship hull proportions. Defaults to (1,1,1) so an instance that
   // is never written renders at the authored shape rather than collapsing.
@@ -370,7 +413,7 @@ function createInstancedPart(
     trim.setUsage(DynamicDrawUsage);
     geometry.setAttribute("aTrim", trim);
   }
-  return { atlasCell, hullForm, mesh, sailTint, trim };
+  return { atlasCell, hullForm, mesh, sailFurl, sailTint, trim };
 }
 
 export interface FleetBatchGeometrySource {
@@ -464,6 +507,8 @@ export interface FleetInstancePose {
   pitch: number;
   scale: number;
   silhouette: GardenHullSilhouette;
+  /** W2.3/W4: bitmask of sails furled onto their yards, bit i = sail i. */
+  sailFurl: number;
   /** W1/D2: the issuer's paint on the sheer strake. */
   trimColor: Color;
   x: number;
@@ -526,6 +571,9 @@ export function writeFleetInstance(
   if (batch.sails.sailTint) {
     batch.sails.sailTint.setXYZ(slot, pose.sailColor.r, pose.sailColor.g, pose.sailColor.b);
   }
+  if (batch.sails.sailFurl) {
+    batch.sails.sailFurl.setX(slot, pose.sailFurl);
+  }
 
   const pennantSlot = batches.pennant.mesh.count;
   if (pennantSlot < batches.capacity) {
@@ -550,6 +598,7 @@ function flushPart(part: FleetBatchPart): void {
   if (part.mesh.instanceColor) part.mesh.instanceColor.needsUpdate = true;
   if (part.atlasCell) part.atlasCell.needsUpdate = true;
   if (part.sailTint) part.sailTint.needsUpdate = true;
+  if (part.sailFurl) part.sailFurl.needsUpdate = true;
   if (part.trim) part.trim.needsUpdate = true;
 }
 

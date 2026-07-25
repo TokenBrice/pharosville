@@ -93,24 +93,31 @@ export function resolveShipClass(meta: StablecoinMeta): ShipClassDefinition {
   // stays governance-truthful — only the hull changes — because `classLabel` is
   // what the UI shows and it must never claim something the coin is not.
   if (meta.flags?.pegCurrency !== undefined && meta.flags.pegCurrency !== "USD") {
+    const label = governance === undefined
+      ? UNKNOWN_CLASS.label
+      : GOVERNANCE_LABELS_SHORT[governance];
+    // W2: bullion is not a currency. A metal-pegged coin holds something dense
+    // and physical, which is a short deep beamy hull, not a trading junk.
     return {
-      hull: "foreign-peg-junk",
-      label: governance === undefined
-        ? UNKNOWN_CLASS.label
-        : GOVERNANCE_LABELS_SHORT[governance],
+      hull: COMMODITY_PEGS.has(meta.flags.pegCurrency) ? "commodity-peg-hoy" : "foreign-peg-junk",
+      label,
     };
   }
 
+  // W2: yield-bearing splits both dollar families. Holding reserves and paying
+  // out a yield are different voyages, and it is a near-even split on the live
+  // set (18/46 in the treasury family, 25/32 in the chartered one), so it buys
+  // real separation rather than a rounding error.
   if (governance === "centralized") {
     // Crypto collateral under a central issuer: volatile reserves, lighter hull.
     if (backing === "crypto-backed") {
       return {
-        hull: "chartered-brigantine",
+        hull: yieldBearing ? "yield-barque" : "chartered-brigantine",
         label: GOVERNANCE_LABELS_SHORT.centralized,
       };
     }
     return {
-      hull: "treasury-galleon",
+      hull: yieldBearing ? "yield-indiaman" : "treasury-galleon",
       label: GOVERNANCE_LABELS_SHORT.centralized,
     };
   }
@@ -121,22 +128,23 @@ export function resolveShipClass(meta: StablecoinMeta): ShipClassDefinition {
     // the lighter chartered hull.
     if (navToken && realWorldBacked) {
       return {
-        hull: "treasury-galleon",
+        hull: yieldBearing ? "yield-indiaman" : "treasury-galleon",
         label: GOVERNANCE_LABELS_SHORT["centralized-dependent"],
       };
     }
     return {
-      hull: "chartered-brigantine",
+      hull: yieldBearing ? "yield-barque" : "chartered-brigantine",
       label: GOVERNANCE_LABELS_SHORT["centralized-dependent"],
     };
   }
 
   if (governance === "decentralized") {
     // A DAO that holds real paper AND pays it out is running a treasury, not a
-    // lean protocol — it earns the merchant hull.
+    // lean protocol — it earns the merchant hull. It is yield-bearing by
+    // definition on this branch, so it is always the indiaman.
     if (realWorldBacked && yieldBearing) {
       return {
-        hull: "treasury-galleon",
+        hull: "yield-indiaman",
         label: GOVERNANCE_LABELS_SHORT.decentralized,
       };
     }
@@ -148,6 +156,12 @@ export function resolveShipClass(meta: StablecoinMeta): ShipClassDefinition {
 
   return UNKNOWN_CLASS;
 }
+
+/**
+ * Metal pegs. The two the `pegCurrency` union actually carries — `VAR` and the
+ * fiat tickers are currencies; these are cargo.
+ */
+const COMMODITY_PEGS = new Set(["GOLD", "SILVER"]);
 
 export function resolveShipSizeTier(marketCapUsd: number): ShipSizeDefinition {
   if (!Number.isFinite(marketCapUsd) || marketCapUsd <= 0) {
@@ -175,7 +189,7 @@ export function resolveShipSizeTier(marketCapUsd: number): ShipSizeDefinition {
  * - length is reach, so yield-bearing and NAV carriers run longer.
  */
 const PEG_GRADE_STIFFNESS: Record<string, number> = {
-  A: 0.16, B: 0.09, C: 0, D: -0.1, F: -0.17,
+  A: 0.26, B: 0.15, C: 0, D: -0.16, F: -0.27,
 };
 
 function resolveShipHullForm(
@@ -195,23 +209,30 @@ function resolveShipHullForm(
     (((hash >>> shift) & 0xff) / 255 - 0.5) * 2
   );
 
+  // W2.1: the trait deltas and the jitter both roughly double. The ±0.32 clamp
+  // was already validated for the full span, but only about a third of it was
+  // ever used — measured, 80% of the fleet sat inside a 0.267 band on length
+  // (of an available 0.64), 0.168 on beam and 0.193 on height, which is below
+  // the threshold where the eye registers two hulls as two vessels. Growing the
+  // signal alongside the noise keeps the mappings legible rather than drowning
+  // them in jitter.
   let length = 1;
-  if (flags?.yieldBearing) length += 0.14;
-  if (flags?.navToken) length += 0.08;
-  if (flags?.backing === "crypto-backed") length -= 0.07;
+  if (flags?.yieldBearing) length += 0.24;
+  if (flags?.navToken) length += 0.14;
+  if (flags?.backing === "crypto-backed") length -= 0.13;
 
   let beam = 1 + (PEG_GRADE_STIFFNESS[reportCard?.overallGrade ?? ""] ?? 0);
-  if (flags?.backing === "rwa-backed") beam += 0.06;
+  if (flags?.backing === "rwa-backed") beam += 0.11;
 
   let height = 1;
-  if (flags?.rwa) height += 0.1;
-  if (flags?.backing === "algorithmic") height -= 0.18;
-  if (flags?.yieldBearing) height += 0.05;
+  if (flags?.rwa) height += 0.17;
+  if (flags?.backing === "algorithmic") height -= 0.3;
+  if (flags?.yieldBearing) height += 0.09;
 
   return {
-    beam: clamp(beam + jitter(8) * 0.09),
-    height: clamp(height + jitter(16) * 0.08),
-    length: clamp(length + jitter(0) * 0.1),
+    beam: clamp(beam + jitter(8) * 0.17),
+    height: clamp(height + jitter(16) * 0.15),
+    length: clamp(length + jitter(0) * 0.19),
   };
 }
 

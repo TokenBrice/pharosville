@@ -54,7 +54,14 @@ export const GARDEN_LIGHTHOUSE_HEIGHT = 34;
 // semantics, and DOM/ARIA contracts survive the scale-up unchanged: the hit
 // rect and label anchor derive from these constants.
 
-export type GardenHullSilhouette = "galleon" | "clipper" | "schooner" | "junk";
+export type GardenHullSilhouette =
+  | "galleon"
+  | "indiaman"
+  | "clipper"
+  | "barque"
+  | "schooner"
+  | "junk"
+  | "hoy";
 export type GardenSemanticView = "analyze" | "explore" | "overview";
 
 // S5 / decision D-S5: the data-side 0.7–3.0 scale keeps a ~3.7× VISUAL spread
@@ -84,11 +91,23 @@ export function gardenShipVisualScale(dataScale: number): number {
 export const GARDEN_SILHOUETTE_FOR_HULL: Record<ShipHull, GardenHullSilhouette> = {
   "algo-junk": "junk",
   "chartered-brigantine": "clipper",
+  "commodity-peg-hoy": "hoy",
   "crypto-caravel": "clipper",
   "dao-schooner": "schooner",
   "foreign-peg-junk": "junk",
   "treasury-galleon": "galleon",
+  "yield-barque": "barque",
+  "yield-indiaman": "indiaman",
 };
+
+/**
+ * Every silhouette the fleet batches. One source of truth: the renderer
+ * allocates a batch pair per entry and the representative picker walks the same
+ * list, so adding a silhouette here is the only edit either needs.
+ */
+export const GARDEN_HULL_SILHOUETTES = [
+  "galleon", "indiaman", "clipper", "barque", "schooner", "junk", "hoy",
+] as const satisfies readonly GardenHullSilhouette[];
 
 export interface GardenShipPlacement {
   displayOffset: ScreenPoint;
@@ -491,7 +510,7 @@ export function selectRepresentativeShips(
   for (const zone of ["danger", "warning", "alert", "watch", "ledger", "calm"] as const) {
     include(ranked.find((ship) => ship.riskZone === zone));
   }
-  for (const silhouette of ["galleon", "clipper", "schooner", "junk"] as const) {
+  for (const silhouette of GARDEN_HULL_SILHOUETTES) {
     include(ranked.find((ship) => GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull] === silhouette));
   }
   const movers = ships.toSorted((left, right) => (

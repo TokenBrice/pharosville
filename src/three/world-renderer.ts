@@ -37,6 +37,7 @@ import type {
 import type { PharosVilleRenderSchedulerTier } from "../renderer/render-types";
 import { seaQualityTier } from "../renderer/render-scheduler";
 import {
+  GARDEN_HULL_SILHOUETTES,
   GARDEN_LIGHTHOUSE_BEACON_Y,
   GARDEN_SHIP_ROOT_Y,
   GARDEN_WATER_Y as WATER_LEVEL,
@@ -105,6 +106,7 @@ import {
   createPennantGeometry,
   createShip,
   createShipShadows,
+  gardenShipSailFurl,
   gardenShipUsesHeroModel,
   syncShipRippleRings,
   syncShipSailTextures,
@@ -907,7 +909,7 @@ function createWorldContent(
     geometryFor: (silhouette) => createFleetBatchGeometry(silhouette),
     pennantGeometry: createPennantGeometry(),
     sailTexture: sailAtlas.texture,
-    silhouettes: ["galleon", "clipper", "schooner", "junk"],
+    silhouettes: GARDEN_HULL_SILHOUETTES,
   });
   root.add(fleetBatches.root);
 
@@ -1334,6 +1336,7 @@ function updateSceneForFrame(
         pennantColor: visual.pennantColor,
         pitch: visual.root.rotation.x,
         scale: visual.root.scale.x,
+        sailFurl: gardenShipSailFurl(visual.ship.id, visual.sampleState),
         silhouette: visual.silhouette,
         trimColor: visual.trimColor,
         x: visual.root.position.x,

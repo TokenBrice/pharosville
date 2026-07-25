@@ -81,17 +81,60 @@ describe("resolveShipVisual", () => {
       navToken: true,
     })).hull).toBe("chartered-brigantine");
 
-    // A DAO holding real paper and paying it out runs a treasury.
+    // A DAO holding real paper and paying it out runs a treasury — and since
+    // that branch is yield-bearing by definition, it always sails the indiaman.
     expect(resolveShipClass(makeMeta({
       backing: "rwa-backed",
       governance: "decentralized",
       yieldBearing: true,
-    })).hull).toBe("treasury-galleon");
+    })).hull).toBe("yield-indiaman");
+    // The DAO pool is 14 ships; W2 deliberately does NOT split it further, so a
+    // yield-bearing crypto-collateral DAO coin stays on the schooner.
     expect(resolveShipClass(makeMeta({
       backing: "crypto-backed",
       governance: "decentralized",
       yieldBearing: true,
     })).hull).toBe("dao-schooner");
+  });
+
+  it("W2: yield-bearing and commodity pegs earn their own hulls", () => {
+    // Holding reserves and paying a yield out of them are different voyages.
+    expect(resolveShipClass(makeMeta({
+      backing: "rwa-backed",
+      governance: "centralized",
+    })).hull).toBe("treasury-galleon");
+    expect(resolveShipClass(makeMeta({
+      backing: "rwa-backed",
+      governance: "centralized",
+      yieldBearing: true,
+    })).hull).toBe("yield-indiaman");
+
+    expect(resolveShipClass(makeMeta({
+      backing: "crypto-backed",
+      governance: "centralized",
+    })).hull).toBe("chartered-brigantine");
+    expect(resolveShipClass(makeMeta({
+      backing: "crypto-backed",
+      governance: "centralized",
+      yieldBearing: true,
+    })).hull).toBe("yield-barque");
+
+    // Bullion is cargo, not a currency: it gets the short deep hoy, while a
+    // foreign FIAT peg keeps the trading junk.
+    for (const pegCurrency of ["GOLD", "SILVER"] as const) {
+      expect(resolveShipClass(makeMeta({
+        backing: "rwa-backed",
+        governance: "centralized",
+        pegCurrency,
+      })).hull).toBe("commodity-peg-hoy");
+    }
+    for (const pegCurrency of ["EUR", "JPY", "BRL"] as const) {
+      expect(resolveShipClass(makeMeta({
+        backing: "rwa-backed",
+        governance: "centralized",
+        pegCurrency,
+      })).hull).toBe("foreign-peg-junk");
+    }
   });
 
   it("preserves peg, overlay, and compressed scale channels", () => {

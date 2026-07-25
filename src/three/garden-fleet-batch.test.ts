@@ -37,6 +37,7 @@ function pose(overrides: Partial<FleetInstancePose> = {}): FleetInstancePose {
     pennantColor: new Color("#22aa88"),
     sailColor: new Color("#2775ca"),
     trimColor: new Color("#2775ca"),
+    sailFurl: 0,
     pitch: 0,
     scale: 1,
     silhouette: "galleon",

@@ -46,6 +46,7 @@ import {
 import { createGardenSailTexture, gardenSailClothColor } from "./garden-sail-texture";
 import {
   FLEET_BATCH_TINTS,
+  FLEET_MAX_SAILS,
   markAtlasSail,
   mergeTintedParts,
   type FleetBatchGeometrySource,
@@ -236,6 +237,53 @@ const GARDEN_SHIP_RIGS: Record<GardenHullSilhouette, readonly GardenMastPlan[]> 
       x: 1.05,
     },
   ],
+  // W2 — Indiaman: three masts like the galleon but taller and further apart,
+  // with a fore-and-aft spanker aft. The tallest rig in the batched fleet.
+  indiaman: [
+    {
+      height: 3.5,
+      sails: [{ centerY: 2.4, height: 1.7, kind: "fore-aft", reverse: true, width: 1.4 }],
+      x: -2.1,
+    },
+    {
+      height: 4.4,
+      sails: [{ centerY: 2.8, height: 2.1, kind: "square", width: 2 }],
+      x: -0.15,
+    },
+    {
+      height: 3.9,
+      sails: [{ centerY: 2.55, height: 1.8, kind: "square", reverse: true, width: 1.7 }],
+      x: 1.8,
+    },
+  ],
+  // W2 — Barque: square-rigged forward, fore-and-aft on the mizzen. That mixed
+  // plan is literally what makes a barque a barque, and it reads at range.
+  barque: [
+    {
+      height: 3.2,
+      sails: [{ centerY: 2.2, height: 2, kind: "fore-aft", reverse: true, width: 1.25 }],
+      x: -1.9,
+    },
+    {
+      height: 3.95,
+      sails: [{ centerY: 2.6, height: 1.95, kind: "square", width: 1.55 }],
+      x: 0.1,
+    },
+    {
+      height: 3.5,
+      sails: [{ centerY: 2.35, height: 1.6, kind: "square", reverse: true, width: 1.3 }],
+      x: 1.95,
+    },
+  ],
+  // W2 — Hoy: one short mast with one broad low sail. Bullion does not need
+  // speed, and the stubby rig over a wide hull is the whole read.
+  hoy: [
+    {
+      height: 2.6,
+      sails: [{ centerY: 1.75, height: 1.5, kind: "fore-aft", width: 1.75 }],
+      x: 0.35,
+    },
+  ],
 };
 
 // Galleon and junk carry a tall stern castle / high transom house (family
@@ -247,6 +295,71 @@ const GARDEN_SHIP_CABINS: Partial<Record<
   galleon: { height: 1.08, width: 1.78, x: -2.4, z: 1.62 },
   junk: { height: 0.98, width: 1.68, x: -1.95, z: 1.36 },
   schooner: { height: 0.42, width: 1.05, x: -2.15, z: 0.92 },
+  // W2: the indiaman carries the tallest poop of all — a laden merchantman's
+  // stern accommodation. The hoy's is a squat deckhouse over the strongroom.
+  // The barque stays open aft, like the clipper it shares its lines with.
+  indiaman: { height: 1.34, width: 2, x: -2.85, z: 1.6 },
+  hoy: { height: 0.72, width: 1.3, x: -1.6, z: 1.5 },
+};
+
+// S2: every family carries a slight mast rake — clippers/schooners/barques lean
+// forward (bow at +x), the heavy merchantmen a touch aft, junks visibly
+// forward. A table rather than a ternary chain: at seven silhouettes the chain
+// was already the least readable thing in the file, and it lived in two copies.
+const GARDEN_SHIP_MAST_RAKE: Record<GardenHullSilhouette, number> = {
+  barque: -0.04,
+  clipper: -0.045,
+  galleon: 0.02,
+  hoy: -0.06,
+  indiaman: 0.03,
+  junk: -0.035,
+  schooner: -0.075,
+};
+
+/**
+ * W2.4: what stands on the deck.
+ *
+ * The batched fleet carried one cabin box and nothing else, while the hero
+ * hulls have hatches, capstans, boats and cargo — so the 188 ships people
+ * actually look at were the bare ones. These props ride the shared per-
+ * silhouette geometry, so they cost triangles once and nothing per ship, and
+ * they are what makes a hull read as INHABITED rather than extruded.
+ *
+ * Layout is a free hash-free choice under decision D3: it varies by silhouette,
+ * which is already trait-derived, and claims nothing further.
+ */
+interface GardenDeckProps {
+  /** Stowed ship's boat, on chocks. */
+  boat?: number;
+  /** Capstan drum. */
+  capstan?: number;
+  /** Netted deck cargo: columns along the keel × rows athwartships. */
+  cargo?: { columns: number; rows: number; x: number };
+  /** Grating hatches, by x. */
+  hatches?: readonly number[];
+}
+
+const GARDEN_SHIP_DECK_PROPS: Record<GardenHullSilhouette, GardenDeckProps> = {
+  // Merchant hulls carry cargo on deck; the lean ones carry working gear.
+  galleon: { capstan: 1.6, cargo: { columns: 2, rows: 2, x: -1 }, hatches: [-0.4, 0.8] },
+  indiaman: { boat: 0.4, capstan: 2.2, cargo: { columns: 3, rows: 2, x: -1.6 }, hatches: [-0.6, 1.4] },
+  clipper: { capstan: 1.2, hatches: [0.2] },
+  barque: { boat: -1.2, capstan: 1.8, hatches: [-0.3, 0.9] },
+  schooner: { capstan: -0.2, hatches: [0.2] },
+  junk: { cargo: { columns: 2, rows: 2, x: -0.6 }, hatches: [0, 0.9] },
+  // The hoy IS its cargo: a single dense block amidships and nothing else.
+  hoy: { capstan: 1.4, cargo: { columns: 2, rows: 2, x: 0.2 } },
+};
+
+/** Families that carry a bowsprit, and how far it reaches past the stem. */
+const GARDEN_SHIP_BOWSPRITS: Partial<Record<
+  GardenHullSilhouette,
+  { length: number; x: number }
+>> = {
+  barque: { length: 2, x: 4.7 },
+  clipper: { length: 2.2, x: 4.75 },
+  galleon: { length: 1.45, x: 4.15 },
+  indiaman: { length: 1.7, x: 4.7 },
 };
 
 // Per-tier lantern layout in ship-local space (stern, then bow, then a
@@ -451,6 +564,37 @@ function batchedHullColor(ship: ShipNode): Color {
 }
 
 /**
+ * W2.3 / W4: the bitmask of sails this ship has furled onto their yards.
+ *
+ * Bit 0 is the identity sail and is never set — the emblem must survive at
+ * anchor, which is where two thirds of the fleet spends its time.
+ *
+ * Two channels, both honest:
+ * - **Moored**, a ship strikes her canvas but keeps ONE plain sail set beside
+ *   the emblem — a riding sail. Furling everything left two thirds of the
+ *   harbour on bare poles, which trades one monotony for another and works
+ *   against the canvas the rig is being grown for (W3).
+ * - **Under way**, a stable per-ship hash furls at most one plain sail. Working
+ *   ships rarely carry everything; this is what stops sixty-four galleons from
+ *   flying an identical rig.
+ *
+ * `idle` is deliberately NOT treated as berthed: it is the state of a ship with
+ * no motion sample yet, not a ship at a quay.
+ */
+export function gardenShipSailFurl(shipId: string, sampleState: string): number {
+  if (sampleState === "moored") {
+    // Bits 2..FLEET_MAX_SAILS-1: everything except the emblem (bit 0) and the
+    // first plain sail (bit 1), which stays set as the riding sail.
+    return (2 ** FLEET_MAX_SAILS - 1) - 1 - 2;
+  }
+  const roll = stableUnit(`${shipId}.furl`);
+  if (roll < 0.55) return 0;
+  // Bits 1..3 cover the plain sails of every rig in the fleet; a bit past the
+  // end of a short rig is simply never matched by a vertex.
+  return 2 ** (1 + Math.floor(roll * 3) % 3);
+}
+
+/**
  * W1 (decision D2): the sheer strake's paint — the issuer's colour as a single
  * thin line at the rail, tracing the sheer curve.
  *
@@ -640,21 +784,13 @@ export function createShip(
       sailIndex,
     })))
     .toSorted((left, right) => right.area - left.area)[0];
-  const hasBowsprit = silhouette === "clipper" || silhouette === "galleon";
+  const bowsprit = GARDEN_SHIP_BOWSPRITS[silhouette];
   const masts = new InstancedMesh(
     mastGeometry,
     mastMaterial,
-    rig.length + (hasBowsprit ? 1 : 0),
+    rig.length + (bowsprit ? 1 : 0),
   );
-  // S2: every family carries a slight mast rake now — clippers/schooners lean
-  // forward (bow at +x), galleons a touch aft, junks visibly forward.
-  const mastRotation = silhouette === "clipper"
-    ? -0.045
-    : silhouette === "schooner"
-      ? -0.075
-      : silhouette === "junk"
-        ? -0.035
-        : 0.02;
+  const mastRotation = GARDEN_SHIP_MAST_RAKE[silhouette];
   for (const [mastIndex, mastPlan] of rig.entries()) {
     scratchMatrix.makeRotationZ(mastRotation);
     scratchMatrix.scale(scratchPosition.set(1, mastPlan.height, 1));
@@ -691,14 +827,10 @@ export function createShip(
       root.add(sail);
     }
   }
-  if (hasBowsprit) {
+  if (bowsprit) {
     scratchMatrix.makeRotationZ(Math.PI / 2);
-    scratchMatrix.scale(scratchPosition.set(
-      1,
-      silhouette === "clipper" ? 2.2 : 1.45,
-      1,
-    ));
-    scratchMatrix.setPosition(silhouette === "clipper" ? 4.75 : 4.15, 0.95, 0);
+    scratchMatrix.scale(scratchPosition.set(1, bowsprit.length, 1));
+    scratchMatrix.setPosition(bowsprit.x, 0.95, 0);
     masts.setMatrixAt(rig.length, scratchMatrix);
   }
   masts.instanceMatrix.needsUpdate = true;
@@ -1214,14 +1346,8 @@ export function createFleetBatchGeometry(
 ): FleetBatchGeometrySource {
   const hullGeometry = createHullGeometry(silhouette);
   const rig = GARDEN_SHIP_RIGS[silhouette];
-  const hasBowsprit = silhouette === "clipper" || silhouette === "galleon";
-  const mastRotation = silhouette === "clipper"
-    ? -0.045
-    : silhouette === "schooner"
-      ? -0.075
-      : silhouette === "junk"
-        ? -0.035
-        : 0.02;
+  const bowsprit = GARDEN_SHIP_BOWSPRITS[silhouette];
+  const mastRotation = GARDEN_SHIP_MAST_RAKE[silhouette];
 
   const parts: {
     geometry: BufferGeometry;
@@ -1268,10 +1394,10 @@ export function createFleetBatchGeometry(
     matrix.setPosition(mastPlan.x, 0.55 + mastPlan.height / 2, 0);
     parts.push({ geometry: mastGeometry, tint: FLEET_BATCH_TINTS.mast, transform: matrix });
   }
-  if (hasBowsprit) {
+  if (bowsprit) {
     const matrix = transform().makeRotationZ(Math.PI / 2);
-    matrix.scale(new Vector3(1, silhouette === "clipper" ? 2.2 : 1.45, 1));
-    matrix.setPosition(silhouette === "clipper" ? 4.75 : 4.15, 0.95, 0);
+    matrix.scale(new Vector3(1, bowsprit.length, 1));
+    matrix.setPosition(bowsprit.x, 0.95, 0);
     parts.push({ geometry: mastGeometry, tint: FLEET_BATCH_TINTS.mast, transform: matrix });
   }
 
@@ -1293,6 +1419,47 @@ export function createFleetBatchGeometry(
     });
   }
 
+  // W2.4: deck furniture. `DECK_Y` is the inner deck plate; props sit on it.
+  const props = GARDEN_SHIP_DECK_PROPS[silhouette];
+  const DECK_Y = 0.52;
+  for (const x of props.hatches ?? []) {
+    parts.push({
+      geometry: new BoxGeometry(0.44, 0.1, 0.4),
+      tint: FLEET_BATCH_TINTS.mast,
+      transform: transform().setPosition(x, DECK_Y + 0.05, 0),
+    });
+  }
+  if (props.capstan !== undefined) {
+    parts.push({
+      geometry: new CylinderGeometry(0.13, 0.16, 0.3, 6),
+      tint: FLEET_BATCH_TINTS.gunwale,
+      transform: transform().setPosition(props.capstan, DECK_Y + 0.15, 0),
+    });
+  }
+  if (props.boat !== undefined) {
+    parts.push({
+      geometry: new BoxGeometry(0.95, 0.2, 0.34),
+      tint: FLEET_BATCH_TINTS.gunwale,
+      transform: transform().setPosition(props.boat, DECK_Y + 0.14, 0),
+    });
+  }
+  if (props.cargo) {
+    const { columns, rows, x } = props.cargo;
+    for (let column = 0; column < columns; column += 1) {
+      for (let row = 0; row < rows; row += 1) {
+        parts.push({
+          geometry: new BoxGeometry(0.36, 0.26, 0.32),
+          tint: (column + row) % 2 === 0 ? FLEET_BATCH_TINTS.mast : FLEET_BATCH_TINTS.gunwale,
+          transform: transform().setPosition(
+            x + (column - (columns - 1) / 2) * 0.42,
+            DECK_Y + 0.13 + (row % 2) * 0.26,
+            (row - (rows - 1) / 2) * 0.38,
+          ),
+        });
+      }
+    }
+  }
+
   const hull = mergeTintedParts(parts);
   for (const part of parts) {
     if (part.geometry !== hullGeometry) part.geometry.dispose();
@@ -1310,6 +1477,10 @@ export function createFleetBatchGeometry(
     .toSorted((left, right) => right.area - left.area)[0];
 
   const sailParts: { geometry: BufferGeometry; transform?: Matrix4 }[] = [];
+  // W2.3/W4: each sail gets an index so a per-instance bitmask can furl it.
+  // Index 0 is reserved for the identity sail, which is never furled — the
+  // emblem is the fleet's heraldry and has to survive a ship sitting at anchor.
+  let furlIndex = 1;
   for (const [mastIndex, mastPlan] of rig.entries()) {
     for (const [sailIndex, sailPlan] of mastPlan.sails.entries()) {
       const reverse = sailPlan.reverse ?? false;
@@ -1317,6 +1488,8 @@ export function createFleetBatchGeometry(
         && identitySail.sailIndex === sailIndex;
       const geometry = createSailGeometry(sailPlan);
       markAtlasSail(geometry, isIdentitySail);
+      markFurlableSail(geometry, isIdentitySail ? 0 : furlIndex);
+      if (!isIdentitySail) furlIndex += 1;
       const matrix = transform();
       // F1: 1.22 -> 1.42. The mark lives on this sail alone, so the sail is
       // deliberately oversized against the rest of the rig — a ship's device
@@ -1335,6 +1508,35 @@ export function createFleetBatchGeometry(
   for (const part of sailParts) part.geometry.dispose();
 
   return { hull, sails };
+}
+
+/** W2.3/W4: which sail this is, for the per-instance furl bitmask. */
+function markFurlableSail(geometry: BufferGeometry, index: number): void {
+  const count = geometry.getAttribute("position").count;
+  geometry.setAttribute(
+    "aSailIndex",
+    new Float32BufferAttribute(new Float32Array(count).fill(index), 1),
+  );
+}
+
+/**
+ * W2.3/W4: the yard a furled sail bundles onto — the top edge of this sail,
+ * in ship space. Every vertex of one sail carries the same head, so the shader
+ * can collapse the cloth onto it without knowing the rig plan.
+ */
+function bakeSailHead(geometry: BufferGeometry): void {
+  const position = geometry.getAttribute("position");
+  geometry.computeBoundingBox();
+  const box = geometry.boundingBox!;
+  const head = new Float32Array(position.count * 3);
+  const centerX = (box.min.x + box.max.x) / 2;
+  const centerZ = (box.min.z + box.max.z) / 2;
+  for (let index = 0; index < position.count; index += 1) {
+    head[index * 3] = centerX;
+    head[index * 3 + 1] = box.max.y;
+    head[index * 3 + 2] = centerZ;
+  }
+  geometry.setAttribute("aSailHead", new Float32BufferAttribute(head, 3));
 }
 
 /**
@@ -1357,6 +1559,9 @@ function mergeAtlasSails(
       const colors = new Float32Array(count * 3).fill(1);
       geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
     }
+    // The yard is only known once the sail sits in ship space, so `aSailHead`
+    // is written after the transform rather than at authoring time.
+    bakeSailHead(geometry);
     prepared.push(geometry);
   }
   const merged = mergeGeometries(prepared, false);
@@ -1514,6 +1719,28 @@ function createHullShape(silhouette: GardenHullSilhouette, scale: number): Shape
       [-1.6, 1.16], [0.4, 1.14], [2, 1.02], [3.05, 0.62], [3.65, 0],
       [3.05, -0.62], [2, -1.02], [0.4, -1.14], [-1.6, -1.16],
     ],
+    // W2 — Indiaman: the galleon stretched. Longest hull afloat in the batched
+    // fleet, square-tucked stern, full parallel midbody. A coin that pays a
+    // yield out of real reserves is carrying more, further.
+    indiaman: [
+      [-4, -1], [-4.15, -0.7], [-4.2, 0], [-4.15, 0.7], [-4, 1],
+      [-2.2, 1.24], [-0.2, 1.26], [1.6, 1.2], [3, 0.95], [4.1, 0.5], [4.6, 0],
+      [4.1, -0.5], [3, -0.95], [1.6, -1.2], [-0.2, -1.26], [-2.2, -1.24],
+    ],
+    // W2 — Barque: the clipper's length with a working ship's fuller waist and
+    // a rounded stern. Leaner than the indiaman, fatter than the clipper.
+    barque: [
+      [-3.75, -0.6], [-3.9, -0.3], [-3.95, 0], [-3.9, 0.3], [-3.75, 0.6],
+      [-2.3, 0.9], [-0.5, 0.98], [1.3, 0.94], [2.9, 0.74], [4, 0.4], [4.6, 0],
+      [4, -0.4], [2.9, -0.74], [1.3, -0.94], [-0.5, -0.98], [-2.3, -0.9],
+    ],
+    // W2 — Hoy: short, blunt and very beamy. Bullion is dense, so the hull that
+    // carries it is a box, not a runner. Widest beam-to-length in the fleet.
+    hoy: [
+      [-2.7, -1.15], [-2.85, -0.75], [-2.9, 0], [-2.85, 0.75], [-2.7, 1.15],
+      [-1.3, 1.35], [0.3, 1.38], [1.7, 1.3], [2.6, 1], [3.1, 0],
+      [2.6, -1], [1.7, -1.3], [0.3, -1.38], [-1.3, -1.35],
+    ],
   };
   const shape = new Shape();
   const [first, ...rest] = points[silhouette];
@@ -1553,6 +1780,20 @@ const GARDEN_HULL_FORM: Record<
   },
   junk: {
     bowFlare: 0.05, bowRake: 0.06, sheerBow: 0.18, sheerStern: 0.26, sternRake: 0.05, tumblehome: 0.06,
+  },
+  // W2: the indiaman is the galleon's heavier sister — more tumblehome (a
+  // laden merchantman narrows hard above the waterline) and a taller stern.
+  indiaman: {
+    bowFlare: 0.12, bowRake: 0.16, sheerBow: 0.32, sheerStern: 0.3, sternRake: 0.18, tumblehome: 0.22,
+  },
+  // Barque: clipper rake with a working hull's straighter sheer.
+  barque: {
+    bowFlare: 0.14, bowRake: 0.3, sheerBow: 0.2, sheerStern: 0.18, sternRake: 0.24, tumblehome: 0.12,
+  },
+  // Hoy: almost no sheer and almost no rake — a slab that sits down in the
+  // water. The flatness IS the silhouette.
+  hoy: {
+    bowFlare: 0.02, bowRake: 0.04, sheerBow: 0.1, sheerStern: 0.12, sternRake: 0.04, tumblehome: 0.04,
   },
 };
 

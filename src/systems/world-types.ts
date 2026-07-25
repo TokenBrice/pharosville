@@ -63,7 +63,19 @@ export type ShipHull =
   // in the set is `backing: "algorithmic"`. A non-USD peg (EUR/GBP/gold/RUB) is
   // its own trading tradition, and it is a 53-ship cohort, so it earns the junk
   // hull outright rather than borrowing the algorithmic one.
-  | "foreign-peg-junk";
+  | "foreign-peg-junk"
+  // W2 (decision D3): four silhouettes carried 188 ships — galleon 64, clipper
+  // 57, junk 53, schooner 14 — so a ship read as one of four stamps. These
+  // three split the biggest pools along traits that are genuinely different
+  // trades, so the extra silhouettes are earned rather than decorative.
+  //
+  // A yield-bearing coin PAYS OUT, which is a different voyage from holding
+  // reserves; it earns a longer, richer hull in both the treasury and the
+  // collateral family. A commodity peg is not a currency peg at all — bullion
+  // is dense, so it rides in a short, deep, beamy hoy.
+  | "yield-indiaman"
+  | "yield-barque"
+  | "commodity-peg-hoy";
 
 export type ShipSizeTier =
   | "titan"
