@@ -114,41 +114,41 @@ export interface GardenModelMetadata {
 const LIGHTHOUSE_SHA256 = "390477368cfecc235a771300f7cecfc1f8047a6adfa43806cd198f911ba7b03b";
 const lighthouseUrl = `/pharosville/models/garden-lighthouse-shell.glb?v=${LIGHTHOUSE_SHA256.slice(0, 12)}`;
 
-const HERO_TITAN_SHA256 = "9781336f543636254d9fef561948406ea5e32c0f9d76ed3ec6cbccbfe0e20c0a";
+const HERO_TITAN_SHA256 = "58ac01cea7373a2a4b822fd4cdc61ea54f7735fec624a04ab68ce2d548a945a5";
 const heroTitanUrl = `/pharosville/models/garden-hero-titan.glb?v=${HERO_TITAN_SHA256.slice(0, 12)}`;
-const HERO_HERITAGE_SHA256 = "2ebc0db2ff3f367cd2206bc7cc881e3d6047f1992a20a3b6766d3b55e136792f";
+const HERO_HERITAGE_SHA256 = "b4ff92bbef095a35bd75a9f69989d8fd9f48acd16a994e5902b663d97d6328d2";
 const heroHeritageUrl = `/pharosville/models/garden-hero-heritage.glb?v=${HERO_HERITAGE_SHA256.slice(0, 12)}`;
-const HERO_CARRACK_SHA256 = "9f99819938c53a221bd35fc7e5aff7e8e8cf06b92b06b2a4359a6bcc3149732e";
+const HERO_CARRACK_SHA256 = "2a7d4241888b5c3047980440fe409984c03061285b8bbe8d34a60b09fcf362f3";
 const heroCarrackUrl = `/pharosville/models/garden-hero-carrack.glb?v=${HERO_CARRACK_SHA256.slice(0, 12)}`;
-const HERO_BRIGANTINE_SHA256 = "411409b1e79fd49eacba12ff828e2816e1f2144effa3cb85f586f6a8aebf8dd5";
+const HERO_BRIGANTINE_SHA256 = "547d7957b216c8f022485453f30ff805fa3c838378d776bd1a6e4ace525e3235";
 const heroBrigantineUrl = `/pharosville/models/garden-hero-brigantine.glb?v=${HERO_BRIGANTINE_SHA256.slice(0, 12)}`;
-const HERO_DHOW_SHA256 = "7a20a160ced1cddecdc7cccaf973fb1630a1284b388899ccc4d5a0c95aa6816b";
+const HERO_DHOW_SHA256 = "229f0f53b10880c4a2dc3d950e75435497d775468b96f3b28adf993998773c7c";
 const heroDhowUrl = `/pharosville/models/garden-hero-dhow.glb?v=${HERO_DHOW_SHA256.slice(0, 12)}`;
-const HERO_JUNK_SHA256 = "8fe4f736281add63e01d905965c4c16d3e78302cea2f267b4bc1562e5350483c";
+const HERO_JUNK_SHA256 = "4c92815b2a9cf9199a5cd86295aa8958eef386768b2ab2e580f35db60b4f32a8";
 const heroJunkUrl = `/pharosville/models/garden-hero-junk.glb?v=${HERO_JUNK_SHA256.slice(0, 12)}`;
-const HERO_BARQUENTINE_SHA256 = "d2d94ea53cd3c982aeb2ce00bd09c95d6f9d3638761ea1c22edc8a81d015b88f";
+const HERO_BARQUENTINE_SHA256 = "9dd4786a6b59871821b0fc13323c3a19aea9392dd98cdb0976fbaab702911fb0";
 const heroBarquentineUrl = `/pharosville/models/garden-hero-barquentine.glb?v=${HERO_BARQUENTINE_SHA256.slice(0, 12)}`;
-const HERO_COG_SHA256 = "a77dc9655243ae7c64c6eb04adf4124eff0f18e2cec726bb27fa0ba99c609299";
+const HERO_COG_SHA256 = "57a936f6e08270ec7deeb1a02cd7c85645c8aa0df37317915f4feef3c7fa3cfe";
 const heroCogUrl = `/pharosville/models/garden-hero-cog.glb?v=${HERO_COG_SHA256.slice(0, 12)}`;
-const HERO_XEBEC_SHA256 = "042d616ade6c20cebedcea4b7ab008c5eedb6d62fbdcff2382360e8d6be37e41";
+const HERO_XEBEC_SHA256 = "6ddcd20d59d4a4f05d23aefd72c3fb7781cbb8c628ceb577ea7b6971e2ca2ed2";
 const heroXebecUrl = `/pharosville/models/garden-hero-xebec.glb?v=${HERO_XEBEC_SHA256.slice(0, 12)}`;
-const HERO_CUTTER_SHA256 = "22b043632fee45603c863931a0a493332e8be770f3b097761673bd4181e53861";
+const HERO_CUTTER_SHA256 = "3749cbffb9b40890c20417db83d54c2b91eb4e9a86d4e871ac200480b8bc9aaa";
 const heroCutterUrl = `/pharosville/models/garden-hero-cutter.glb?v=${HERO_CUTTER_SHA256.slice(0, 12)}`;
-const HERO_TETHER_SHA256 = "4eb56cb7e9a9649a5645e1ad45dff735c0c29a59f4e64119f5691e60d47daac6";
+const HERO_TETHER_SHA256 = "82922b953b9ac26b79acab270f4a86bf0c58a644e6495d2153f9d1eff2f95a73";
 const heroTetherUrl = `/pharosville/models/garden-hero-tether.glb?v=${HERO_TETHER_SHA256.slice(0, 12)}`;
-const HERO_CIRCLE_SHA256 = "24e736aec6af668c1f61a8fba1328408667419648d71cfda72f57523530f2831";
+const HERO_CIRCLE_SHA256 = "97234dcb62a33a34c9faebeaf9653ff60e49f2dc2d4972a93979017ea02caea8";
 const heroCircleUrl = `/pharosville/models/garden-hero-circle.glb?v=${HERO_CIRCLE_SHA256.slice(0, 12)}`;
-const HERO_MAKER_SHA256 = "6a2397cde4226dbfae8eea6d142364d58cfe60f4a1da9a2452a20f7cdc93adab";
+const HERO_MAKER_SHA256 = "62c54aaca58107c36c6e340840b12eddfc6f8ed73209c1e0b82aa59a86e98e87";
 const heroMakerUrl = `/pharosville/models/garden-hero-maker.glb?v=${HERO_MAKER_SHA256.slice(0, 12)}`;
-const HERO_SKY_SHA256 = "230bba7fe1acda1e46efe5f6e94c339546f9f7edb9a1ae5dfca8d44ce6137a92";
+const HERO_SKY_SHA256 = "cc4a65e603838fdba0d473dbf489763c0f3fe55250b8306dc64293da42e8f8aa";
 const heroSkyUrl = `/pharosville/models/garden-hero-sky.glb?v=${HERO_SKY_SHA256.slice(0, 12)}`;
-const HERO_ETHENA_SHA256 = "51540d4c5783803f350d3a2f1f20f3fa37b556cbeab6afedab34aa7029fc3cd5";
+const HERO_ETHENA_SHA256 = "529057227169d58c391e9e7ec518c8a734e431b73d888e952c24b88687613c90";
 const heroEthenaUrl = `/pharosville/models/garden-hero-ethena.glb?v=${HERO_ETHENA_SHA256.slice(0, 12)}`;
-const HERO_LIBERTY_SHA256 = "be738709bb0f06ffc5ed4cfc2c49246e5dfec559ae36beb26696ca81749a3717";
+const HERO_LIBERTY_SHA256 = "97d4fdb9eab8b7ac028a5398a4281141a8c77a8afaae2ccd7a5ee6466a35c81f";
 const heroLibertyUrl = `/pharosville/models/garden-hero-liberty.glb?v=${HERO_LIBERTY_SHA256.slice(0, 12)}`;
-const HERO_PAYPAL_SHA256 = "0a7c49d223d8411b31302dd067fc355b9154a682c9b9cffb276b6ba8317bd16c";
+const HERO_PAYPAL_SHA256 = "8ac72d2599a35a219db0d4c46d6ada7334eac26eb622d00f5018c41212f2378d";
 const heroPaypalUrl = `/pharosville/models/garden-hero-paypal.glb?v=${HERO_PAYPAL_SHA256.slice(0, 12)}`;
-const HERO_BULLION_SHA256 = "730dc6b80ca2965678e539b2b7454848c8d8b0c24ad67061f9ec04fb75d3eceb";
+const HERO_BULLION_SHA256 = "366eceaaf57026f6f041bdb1985ce1a7637b1ef7c64bf1f6671acce871af59e0";
 const heroBullionUrl = `/pharosville/models/garden-hero-bullion.glb?v=${HERO_BULLION_SHA256.slice(0, 12)}`;
 
 // Every hero hull shares all but identity, geometry, and budgets; this factory
@@ -344,7 +344,7 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden treasury galleon hero hull",
     sha256: HERO_TITAN_SHA256,
     url: heroTitanUrl,
-    bytes: 117_708,
+    bytes: 117_864,
     dimensions: { x: 13.38, y: 9.084, z: 3.64 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-4.15, 6.15, 0] },
@@ -371,7 +371,7 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden tea clipper hero hull",
     sha256: HERO_HERITAGE_SHA256,
     url: heroHeritageUrl,
-    bytes: 93_980,
+    bytes: 94_136,
     dimensions: { x: 14.207, y: 7.65, z: 3.295 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-3.5, 2.75, 0] },
@@ -398,7 +398,7 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden war carrack hero hull",
     sha256: HERO_CARRACK_SHA256,
     url: heroCarrackUrl,
-    bytes: 119_408,
+    bytes: 119_564,
     dimensions: { x: 12.796, y: 9.449, z: 5.947 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-4.1, 5.5, 0] },
@@ -425,7 +425,7 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden brigantine hero hull",
     sha256: HERO_BRIGANTINE_SHA256,
     url: heroBrigantineUrl,
-    bytes: 74_156,
+    bytes: 74_308,
     dimensions: { x: 13.531, y: 8.544, z: 3.633 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-3.3, 2.2, 0] },
@@ -452,7 +452,7 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden dhow hero hull",
     sha256: HERO_DHOW_SHA256,
     url: heroDhowUrl,
-    bytes: 76_988,
+    bytes: 77_140,
     dimensions: { x: 13.17, y: 11.017, z: 3.316 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-3.6, 3.1, 0] },
@@ -479,7 +479,7 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden junk hero hull",
     sha256: HERO_JUNK_SHA256,
     url: heroJunkUrl,
-    bytes: 79_356,
+    bytes: 79_512,
     dimensions: { x: 11.205, y: 9.48, z: 4.809 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-5.05, 4.7, 0] },
@@ -506,7 +506,7 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden barquentine hero hull",
     sha256: HERO_BARQUENTINE_SHA256,
     url: heroBarquentineUrl,
-    bytes: 93_108,
+    bytes: 93_260,
     dimensions: { x: 14.319, y: 9.2, z: 3.877 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-3.65, 2.5, 0] },
@@ -533,7 +533,7 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden cog hero hull",
     sha256: HERO_COG_SHA256,
     url: heroCogUrl,
-    bytes: 83_212,
+    bytes: 83_368,
     dimensions: { x: 13.129, y: 9.216, z: 3.586 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-3.95, 4.6, 0] },
@@ -560,7 +560,7 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden xebec hero hull",
     sha256: HERO_XEBEC_SHA256,
     url: heroXebecUrl,
-    bytes: 90_688,
+    bytes: 90_840,
     dimensions: { x: 15.973, y: 9.64, z: 3.484 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-5.75, 2.8, 0] },
@@ -587,7 +587,7 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden cutter hero hull",
     sha256: HERO_CUTTER_SHA256,
     url: heroCutterUrl,
-    bytes: 77_608,
+    bytes: 77_764,
     dimensions: { x: 15.63, y: 10.54, z: 3.171 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-3.4, 1.55, 0] },
@@ -614,7 +614,7 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden Tether bullion barge",
     sha256: HERO_TETHER_SHA256,
     url: heroTetherUrl,
-    bytes: 142_144,
+    bytes: 142_296,
     dimensions: { x: 13.522, y: 9.9, z: 5.515 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-4.3, 6.9, 0] },
@@ -641,7 +641,7 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden Circle revenue cutter",
     sha256: HERO_CIRCLE_SHA256,
     url: heroCircleUrl,
-    bytes: 121_416,
+    bytes: 121_572,
     dimensions: { x: 13.823, y: 9.93, z: 3.989 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-4.5, 3.2, 0] },
@@ -668,7 +668,7 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden Maker temple barque",
     sha256: HERO_MAKER_SHA256,
     url: heroMakerUrl,
-    bytes: 96_804,
+    bytes: 96_960,
     dimensions: { x: 12.001, y: 9.064, z: 4.365 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-4, 2.85, 0] },
@@ -695,7 +695,7 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden Sky squadron flagship",
     sha256: HERO_SKY_SHA256,
     url: heroSkyUrl,
-    bytes: 102_904,
+    bytes: 103_056,
     dimensions: { x: 12.608, y: 9.764, z: 4.365 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-4.3, 2.9, 0] },
@@ -722,7 +722,7 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden Ethena basis runner",
     sha256: HERO_ETHENA_SHA256,
     url: heroEthenaUrl,
-    bytes: 83_572,
+    bytes: 83_728,
     dimensions: { x: 14.686, y: 9.74, z: 5.492 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-2.9, 2.3, 0] },
@@ -749,7 +749,7 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden World Liberty state barge",
     sha256: HERO_LIBERTY_SHA256,
     url: heroLibertyUrl,
-    bytes: 110_016,
+    bytes: 110_172,
     dimensions: { x: 13.549, y: 8.88, z: 8.124 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-3.2, 3.4, 0] },
@@ -776,7 +776,7 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden PayPal mail packet",
     sha256: HERO_PAYPAL_SHA256,
     url: heroPaypalUrl,
-    bytes: 95_516,
+    bytes: 95_668,
     dimensions: { x: 13.238, y: 8.42, z: 3.453 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-3.3, 2.4, 0] },
@@ -808,7 +808,7 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden Tether Gold bullion hoy",
     sha256: HERO_BULLION_SHA256,
     url: heroBullionUrl,
-    bytes: 74_392,
+    bytes: 74_544,
     dimensions: { x: 9.525, y: 7.23, z: 5.205 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-4.7, 1.85, 0] },

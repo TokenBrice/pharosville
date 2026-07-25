@@ -116,18 +116,20 @@ test(...visualLane("motion", "day, dusk, night, and reduced-motion states render
     { hour: 12, name: "reduced", reducedMotion: true },
   ] as const;
 
-  const canvas = await openWorld(page, states[0]);
+  let canvas = await openWorld(page, states[0]);
   const closeDetails = page.getByRole("button", { name: "Close details" });
   if (await closeDetails.isVisible()) await closeDetails.click();
 
   for (const state of states) {
-    await page.getByRole("slider", { name: "Set session hour" }).fill(String(state.hour));
+    // There is no "Set session hour" slider and there has not been one for a
+    // while — this test waited 180s for a control that does not exist, so the
+    // whole dist visual lane has been red. The supported way to set the hour is
+    // the `t` param, which `openWorld` already uses and which `npm run preview`
+    // drives too, so each state simply reopens the world.
+    canvas = await openWorld(page, state);
+    if (await closeDetails.isVisible()) await closeDetails.click();
     await expect.poll(async () => (await readRuntimeSnapshot(page)).wallClockHour)
       .toBeCloseTo(state.hour, 1);
-    if (state.reducedMotion) {
-      await page.emulateMedia({ reducedMotion: "reduce" });
-      await waitForRuntimeDebug(page, true);
-    }
 
     if (state.reducedMotion) {
       const runtime = await readRuntimeSnapshot(page);

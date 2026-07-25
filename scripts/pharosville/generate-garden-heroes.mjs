@@ -2326,8 +2326,14 @@ function createBuilder(assetId) {
       side: 2,
       vertexColors: true,
     })],
+    // W6: a low warm emissive so the rigging catches the lantern at night.
+    // Emissive does not depend on scene lighting, so at 0.05 it is invisible
+    // against a bright daylit frame and clearly present against a dark one —
+    // the effect wanted, without a per-frame material update.
     ["spar", new MeshStandardMaterial({
       color: "#2e2620",
+      emissive: "#5a3c18",
+      emissiveIntensity: 0.05,
       flatShading: true,
       name: "hero-spar",
       roughness: 0.9,

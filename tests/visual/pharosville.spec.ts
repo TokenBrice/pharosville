@@ -158,7 +158,18 @@ test(...visualLane("interaction", "deep links follow transient ships and preserv
 
   const closeDetails = page.getByRole("button", { name: "Close details" });
   if (await closeDetails.isVisible()) await closeDetails.click();
-  await expect.poll(async () => shipTargetIds(page)).toHaveLength(20);
+  // The rendered ship count became a CAPACITY (320) rather than a composition
+  // rule in the Grand Scale Revamp, so pinning it at 20 has been failing ever
+  // since — on the dense fixture it is 89. What this test actually needs is a
+  // SETTLED fleet and a ship that is not in it, so wait for the count to stop
+  // moving instead of waiting for a number that no longer exists.
+  let previousShipCount = -1;
+  await expect.poll(async () => {
+    const count = (await shipTargetIds(page)).length;
+    const settled = count > 10 && count === previousShipCount;
+    previousShipCount = count;
+    return settled;
+  }).toBe(true);
   const representativeDetailIds = new Set(await shipTargetIds(page));
   const outsider = denseFixtureStablecoins.peggedAssets.find(
     (asset, index) => (
@@ -184,7 +195,10 @@ test(...visualLane("interaction", "deep links follow transient ships and preserv
   }).toEqual({
     hasOutsider: true,
     selectedDetailId: outsiderDetailId,
-    shipCount: 21,
+    // The transient selected ship is drawn IN ADDITION to the representative
+    // set, so the count is that set plus one — derived, not the literal 21 that
+    // was true when the render cap was 20.
+    shipCount: representativeDetailIds.size + 1,
   });
 
   const detailPanel = page.getByTestId("pharosville-detail-panel");

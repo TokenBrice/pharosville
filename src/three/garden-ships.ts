@@ -947,8 +947,11 @@ export function createShip(
       `rigging.${silhouette}`,
       () => new BufferGeometry().setFromPoints(riggingPoints(silhouette, rig)),
     ),
+    // W6: warmed from a flat brown toward lantern gold. LineBasicMaterial is
+    // unlit, so its colour IS its night appearance — lifting it is the only way
+    // standing rigging reads once the sun is down.
     new LineBasicMaterial({
-      color: "#3f342b",
+      color: "#57452f",
       opacity: 0.62,
       transparent: true,
     }),
@@ -2166,6 +2169,20 @@ function createWake(cache: GardenShipGeometryCache): { detail: Group; root: Grou
   }
   trail.instanceMatrix.needsUpdate = true;
   root.add(trail);
+
+  // W6: the bow wave. The trail astern already stretched with speed, but the
+  // stem pushed no water at all, so a ship under way read as one being dragged
+  // rather than driven. Two short foam wedges flaring off the forefoot, on the
+  // same intensity signal the trail rides, so they only appear with way on.
+  const bowWave = new InstancedMesh(quadGeometry, cache.wakeFillMaterial, 2);
+  bowWave.name = "ship-bow-wave";
+  for (const [index, side] of [-1, 1].entries()) {
+    matrix.makeScale(2.1, 1, 0.85);
+    matrix.setPosition(3.15, -0.34, side * 0.62);
+    bowWave.setMatrixAt(index, matrix);
+  }
+  bowWave.instanceMatrix.needsUpdate = true;
+  root.add(bowWave);
 
   for (const z of [-0.5, 0.5]) {
     const geometry = cachedShipGeometry(
