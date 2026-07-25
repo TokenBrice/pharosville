@@ -321,9 +321,15 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     // reshaped — and the failure mode is a culled label, not a clear error.
     const world = worldFixture();
     const warningArea = world.areas.find((area) => area.band === "WARNING")!;
-    const camera = { offsetX: 358, offsetY: 100, zoom: 0.25 };
+    const anchor = gardenAreaDisplayTile(warningArea);
+    // H4: the camera offsets are DERIVED so the anchor lands in the middle of
+    // the 800x600 mock canvas. They were literals, which put the label off
+    // screen (and so out of the DOM entirely) as soon as MAP_SCALE grew.
+    const zoom = 0.25;
+    const unshifted = gardenTileToScreen(anchor, GARDEN_SHIP_ROOT_Y, { offsetX: 0, offsetY: 0, zoom });
+    const camera = { offsetX: 400 - unshifted.x, offsetY: 300 - unshifted.y, zoom };
     const expectedX = Math.round(
-      gardenTileToScreen(gardenAreaDisplayTile(warningArea), GARDEN_SHIP_ROOT_Y, camera).x,
+      gardenTileToScreen(anchor, GARDEN_SHIP_ROOT_Y, camera).x,
     );
 
     mocks.cameraRef.current.offsetX = camera.offsetX;
@@ -520,6 +526,10 @@ function worldFixture(input: {
         id: "dock.ethereum",
         kind: "dock",
         label: "Ethereum Dock",
+        // A DockNode always carries a tile; the fixture omitted it and only got
+        // away with it while gardenDockDisplayTile passed its argument through
+        // untouched.
+        tile: { x: 5, y: 5 },
       },
       lighthouse: {
         detailId: "lighthouse",

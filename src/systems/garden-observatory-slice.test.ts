@@ -184,25 +184,23 @@ describe("Garden Observatory slice", () => {
     const slice = selectGardenObservatorySlice(world, null);
     const secondDock = slice.docks[1]!;
     const area = slice.areas[0]!;
-    const absentDock = world.docks.find((dock) => (
-      !slice.docks.some((rendered) => rendered.detailId === dock.detailId)
-    ));
 
     expect(resolveGardenEntityDisplayTile({
       entity: secondDock,
       slice,
-    })).toEqual(gardenDockDisplayTile(secondDock.tile, 1));
+    })).toEqual(gardenDockDisplayTile(secondDock.tile));
     expect(resolveGardenEntityDisplayTile({
       entity: area,
       slice,
     })).toEqual(gardenAreaDisplayTile(area));
+    // H1: a dock's display tile is a pure function of its own tile now, so it
+    // resolves the same whether or not the dock made the rendered slice. (The
+    // old assertion needed an unrendered dock to exist, which stopped being
+    // true once the separation floor dropped and every harbour rendered.)
     expect(resolveGardenEntityDisplayTile({
-      entity: absentDock!,
+      entity: { ...secondDock, detailId: "dock.not-rendered", id: "dock.not-rendered" },
       slice,
-    })).toEqual(gardenDockDisplayTile(
-      absentDock!.tile,
-      Math.max(0, (absentDock!.harborRank ?? 1) - 1),
-    ));
+    })).toEqual(gardenDockDisplayTile(secondDock.tile));
   });
 });
 

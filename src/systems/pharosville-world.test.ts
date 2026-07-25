@@ -100,8 +100,8 @@ describe("buildPharosVilleWorld", () => {
     // absolute footprint inside a 4x sea (~0.86 → ~0.9647). N2: the cemetery
     // islet drowned into the wreck shoals, and the measured share is now 0.9699.
     // See world-layout.test.ts, which pins the unchanged 377-tile island.
-    expect(world.map.waterRatio).toBeGreaterThanOrEqual(0.968);
-    expect(world.map.waterRatio).toBeLessThanOrEqual(0.972);
+    expect(world.map.waterRatio).toBeGreaterThanOrEqual(0.978);
+    expect(world.map.waterRatio).toBeLessThanOrEqual(0.982);
     expect(world.lighthouse.unavailable).toBe(false);
     expect(world.docks).toHaveLength(2);
     expect(world.ships.map((ship) => ship.id)).toEqual(["usdt-tether", "usdc-circle"]);

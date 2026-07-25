@@ -831,8 +831,8 @@ function createWorldContent(
     .map((area) => createDangerWeather(area));
   for (const effect of weather) root.add(effect.root);
 
-  const docks = world.docks.map((dock, index) => (
-    createDock(dock, gardenDockDisplayTile(dock.tile, index), islandTile)
+  const docks = world.docks.map((dock) => (
+    createDock(dock, gardenDockDisplayTile(dock.tile), islandTile)
   ));
   const harborDistricts = createGardenHarborDistricts(
     world.docks,

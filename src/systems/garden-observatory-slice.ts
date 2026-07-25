@@ -4,6 +4,7 @@ import { SEA_REGION_ID, seaRegionAnchorTile } from "./garden-sea-regions";
 import { selectGardenObservatoryAreas } from "./observe-sequence";
 import { TILE_HEIGHT, tileToScreen, type IsoCamera, type ScreenPoint } from "./projection";
 import { landWorldTile, zoneWorldTile } from "./map-scale";
+import { LIGHTHOUSE_TILE } from "./world-layout";
 import {
   gardenShipWaterMarginTiles,
   isGardenShipWater,
@@ -201,13 +202,7 @@ export function resolveGardenEntityDisplayTile(input: {
   const { entity, shipMotionSamples, slice } = input;
   if (entity.kind === "lighthouse") return gardenIslandDisplayTile(entity.tile);
   if (entity.kind === "area") return gardenAreaDisplayTile(entity);
-  if (entity.kind === "dock") {
-    const index = slice.docks.findIndex((dock) => dock.detailId === entity.detailId);
-    const displayIndex = index >= 0
-      ? index
-      : Math.max(0, (entity.harborRank ?? 1) - 1);
-    return gardenDockDisplayTile(entity.tile, displayIndex);
-  }
+  if (entity.kind === "dock") return gardenDockDisplayTile(entity.tile);
   if (entity.kind === "grave" || entity.kind === "pigeonnier") return entity.tile;
   if (entity.kind !== "ship") return null;
   const placement = slice.ships.find(({ ship }) => ship.detailId === entity.detailId);
@@ -238,8 +233,69 @@ export function gardenIslandDisplayTile(tile: ScreenPoint): ScreenPoint {
   };
 }
 
-export function gardenDockDisplayTile(tile: ScreenPoint, index: number): ScreenPoint {
-  return index === 1 ? { x: tile.x + 3, y: tile.y + 5 } : tile;
+/**
+ * H1 (2026-07-25): harbours ring the RENDERED island's waterline.
+ *
+ * Two bugs stacked here, and together they are why half the harbours looked
+ * planted in the middle of the island.
+ *
+ * 1. This function used to displace dock index 1 by (+3, +5) — a composition
+ *    nudge from when the world rendered two representative docks and the
+ *    second needed separating from the first. With ten harbours it simply
+ *    walked one of them five tiles inland.
+ * 2. The rendered island is NOT where the terrain field says the island is.
+ *    `gardenIslandDisplayTile` seats the rock model at the lighthouse tile
+ *    plus GARDEN_ISLAND_TILE_OFFSET, which lands ~6 tiles south of the
+ *    terrain ellipse. A dock tile that is genuinely on the terrain coast can
+ *    therefore be several tiles inside the rock the viewer actually sees.
+ *
+ * So the data tile keeps its terrain meaning (it must: the seawall, the
+ * navigable-water mask and the dock contract all read it) and only its BEARING
+ * around the terrain island is used. That bearing is re-projected onto the
+ * rendered island's waterline ellipse and pushed out along the ellipse normal,
+ * which puts every harbour just offshore of the rock the viewer sees, evenly
+ * spaced, by construction.
+ */
+const GARDEN_TERRAIN_ISLAND_CENTER = landWorldTile({ x: 31, y: 31 });
+/**
+ * The rendered island's waterline footprint in tiles, from garden-island.ts
+ * ISLAND_TIERS[0] (bottomRadius 18.4, scaleZ 0.75, centred at +0.6/+1.2 world
+ * units off the root) converted at TILE_SCALE = sqrt(2).
+ */
+const GARDEN_RENDERED_ISLAND_OFFSET = { x: 0.42, y: 0.85 } as const;
+const GARDEN_RENDERED_ISLAND_RADIUS = { x: 13.0, y: 9.8 } as const;
+/**
+ * How far off that waterline a harbour root sits. The quay and its warehouses
+ * are the harbour's landward end (~2 tiles back from the root), so this is
+ * tuned to set the stonework against the shore with the pier reaching out over
+ * open water.
+ */
+const GARDEN_DOCK_OFFSHORE_TILES = 2.8;
+
+export function gardenDockDisplayTile(tile: ScreenPoint): ScreenPoint {
+  const bearing = Math.atan2(
+    tile.y - GARDEN_TERRAIN_ISLAND_CENTER.y,
+    tile.x - GARDEN_TERRAIN_ISLAND_CENTER.x,
+  );
+  const cos = Math.cos(bearing);
+  const sin = Math.sin(bearing);
+  const { x: radiusX, y: radiusY } = GARDEN_RENDERED_ISLAND_RADIUS;
+  // Radius of the rendered waterline ellipse along this bearing.
+  const reach = (radiusX * radiusY) / Math.hypot(radiusY * cos, radiusX * sin);
+  const coastX = cos * reach;
+  const coastY = sin * reach;
+  // Outward normal of the ellipse at that point — a radial push would crowd
+  // the harbours at the island's blunt ends and splay them at its flanks.
+  const normalX = coastX / (radiusX * radiusX);
+  const normalY = coastY / (radiusY * radiusY);
+  const normalLength = Math.hypot(normalX, normalY) || 1;
+  const center = gardenIslandDisplayTile(LIGHTHOUSE_TILE);
+  return {
+    x: center.x + GARDEN_RENDERED_ISLAND_OFFSET.x + coastX
+      + (normalX / normalLength) * GARDEN_DOCK_OFFSHORE_TILES,
+    y: center.y + GARDEN_RENDERED_ISLAND_OFFSET.y + coastY
+      + (normalY / normalLength) * GARDEN_DOCK_OFFSHORE_TILES,
+  };
 }
 
 // Zones-v2 (operator hand-drawn overlay, 2026-07-24 — supersedes the Z1
@@ -384,7 +440,13 @@ export function gardenShipSelectionRadius(ship: ShipNode): number {
  * chains take the best water, and separated so piers never overlap.
  */
 export const GARDEN_MAX_RENDERED_DOCKS = 10;
-export const GARDEN_DOCK_SEPARATION_TILES = 7;
+/**
+ * H1: 7 -> 3.5. The harbour ring places twelve slots around a 24x19 coastline,
+ * so adjacent slots are 4 to 5.4 tiles apart by construction; a 7-tile floor
+ * silently rejected every other one and left half the coast bare. The floor
+ * survives only as a guard against a degenerate feed that stacks harbours.
+ */
+export const GARDEN_DOCK_SEPARATION_TILES = 3.5;
 
 export function selectGardenDocks(docks: readonly DockNode[]): DockNode[] {
   const ranked = docks.toSorted((left, right) => (

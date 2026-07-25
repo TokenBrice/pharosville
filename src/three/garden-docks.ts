@@ -121,9 +121,12 @@ export function createHarborLanterns(
 /**
  * Builds one chain harbour.
  *
- * Local +X points at the island (the root yaws to face it), so the quay and
- * its warehouses sit at the seaward end and the pier reaches inward to a head
- * carrying the crane and the chain flag.
+ * Local +X points OUT TO SEA (the root yaws to face away from the island), so
+ * the quay wall and its warehouses are the landward end, set against the
+ * shore, and the pier runs from them out over open water to a head carrying
+ * the crane, the lamps and the chain flag. H1 reversed this: the quay used to
+ * be the seaward end with the pier reaching back toward the island, which put
+ * the warehouses on stilts out at sea and the berths against the rock.
  *
  * Draw budget: static structure is merged by material and repeated units are
  * instanced, so a harbour is ~14 draws regardless of how much is built into
@@ -140,9 +143,9 @@ export function createDock(
   fineDetail.name = "dock-fine-detail";
   root.add(fineDetail);
   setTilePosition(root, displayTile, GARDEN_DOCK_ROOT_Y);
-  const toIslandX = (islandTile.x - displayTile.x) * TILE_SCALE;
-  const toIslandZ = (islandTile.y - displayTile.y) * TILE_SCALE;
-  root.rotation.y = -Math.atan2(toIslandZ, toIslandX);
+  const seawardX = (displayTile.x - islandTile.x) * TILE_SCALE;
+  const seawardZ = (displayTile.y - islandTile.y) * TILE_SCALE;
+  root.rotation.y = -Math.atan2(seawardZ, seawardX);
 
   const amountScale = MathUtils.clamp(Math.log10(Math.max(1, dock.totalUsd)) / 11, 0.72, 1.18);
   const length = 7.2 * amountScale;

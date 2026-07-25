@@ -5,11 +5,11 @@ import {
   EVM_BAY_DOCK_TILES,
   isWaterTileKind,
   OUTER_HARBOR_DOCK_TILES,
-  PHAROSVILLE_MAP_WIDTH,
   PIGEONNIER_HARBOR_DOCK_TILE,
   PREFERRED_DOCK_TILES,
   tileKindAt,
 } from "./world-layout";
+import { dockOutwardVectorForTile } from "./dock-layout";
 import { landWorldTile } from "./map-scale";
 
 // N1: the island (and its dock ring) is authored at design (31,31) in the
@@ -291,17 +291,11 @@ function outwardWaterDirections(tile: { x: number; y: number }) {
   });
 }
 
+// Exercises the SAME outward vector production docks and gangways use, rather
+// than a second copy of the rule that can drift away from it.
 function isProductionOutwardWater(tile: { x: number; y: number }) {
-  const outward = productionDockOutwardVector(tile);
+  const outward = dockOutwardVectorForTile(tile);
   return isWaterTileKind(tileKindAt(tile.x + outward.x, tile.y + outward.y));
-}
-
-function productionDockOutwardVector(tile: { x: number; y: number }): { x: -1 | 0 | 1; y: -1 | 0 | 1 } {
-  const center = (PHAROSVILLE_MAP_WIDTH - 1) / 2;
-  const dx = tile.x - center;
-  const dy = tile.y - center;
-  if (Math.abs(dx) >= Math.abs(dy)) return { x: dx < 0 ? -1 : 1, y: 0 };
-  return { x: 0, y: dy < 0 ? -1 : 1 };
 }
 
 function cardinalDirections(): { x: number; y: number }[] {

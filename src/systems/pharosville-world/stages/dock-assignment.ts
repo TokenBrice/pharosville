@@ -21,7 +21,7 @@ function normalizeDockVisitWeights(visits: ShipDockVisit[]): ShipDockVisit[] {
 }
 
 function dockOutwardVector(dock: DockNode): { x: -1 | 0 | 1; y: -1 | 0 | 1 } {
-  return dockOutwardVectorForTile(dock.tile, MAX_TILE_X + 1);
+  return dockOutwardVectorForTile(dock.tile);
 }
 
 function dockMooringDepthBonus(ship: ShipNode): number {

@@ -24,6 +24,7 @@ import {
   tileKindAt,
 } from "./world-layout";
 import { SEAWALL_BARRIER_TILES, isSeawallBarrierTile } from "./seawall";
+import { dockOutwardVectorForTile } from "./dock-layout";
 import { PHAROSVILLE_MAP_SCALE, landWorldTile, zoneWorldTile } from "./map-scale";
 import type { PharosVilleTile } from "./world-types";
 
@@ -81,8 +82,10 @@ describe("buildPharosVilleMap", () => {
     // wreck shoals), removing its ~65 land tiles, and the measured share is now
     // 0.9699. The invariant that still holds exactly is the absolute main-island
     // footprint asserted just below.
-    expect(map.waterRatio).toBeGreaterThanOrEqual(0.968);
-    expect(map.waterRatio).toBeLessThanOrEqual(0.972);
+    // H4: MAP_SCALE 2 -> 2.5 grew the sea again around the same island, so
+    // the measured share rose from 0.9699 to 0.9807.
+    expect(map.waterRatio).toBeGreaterThanOrEqual(0.978);
+    expect(map.waterRatio).toBeLessThanOrEqual(0.982);
     const mainIslandLandTiles = landTilesExcludingIslets(map.tiles);
     // Baseline was 592 main-island land tiles; 377 is a 36.3% reduction
     // resulting from the single-oval + lighthouse-promontory geometry. Neither
@@ -109,7 +112,11 @@ describe("buildPharosVilleMap", () => {
     expect(counts.get("calm-water") ?? 0).toBeGreaterThan(counts.get("watch-water") ?? 0);
     expect(counts.get("calm-water") ?? 0).toBeGreaterThan(counts.get("ledger-water") ?? 0);
     // Zone areas scale with the map: the authored 56-tile floors x MAP_SCALE².
-    expect(counts.get("ledger-water") ?? 0).toBeGreaterThanOrEqual(280 * AREA_SCALE);
+    // H4: the floors are authored 56-tile windows x MAP_SCALE^2. That model is
+    // exact only at an integer scale — the zone predicates test INCLUSIVE integer
+    // design bounds (`y <= 9`), which at 2.5 clips half a design row off each edge.
+    // Ledger measures 1748 against a nominal 1750, so the floor is 278, not 280.
+    expect(counts.get("ledger-water") ?? 0).toBeGreaterThanOrEqual(278 * AREA_SCALE);
     expect(counts.get("watch-water") ?? 0).toBeGreaterThanOrEqual(80 * AREA_SCALE);
     expect(counts.get("alert-water") ?? 0).toBeGreaterThan(counts.get("warning-water") ?? 0);
     expect(counts.get("warning-water") ?? 0).toBeGreaterThan(counts.get("storm-water") ?? 0);
@@ -290,7 +297,10 @@ describe("buildPharosVilleMap", () => {
     expect(zoneTerrain(47, 14)).toBe("alert-water");
     expect(zoneTerrain(52, 14)).toBe("alert-water");
     expect(zoneTerrain(55, 17)).toBe("alert-water");
-    expect(zoneTerrain(55, 18)).toBe("watch-water");
+    // H4: the Alert/Watch ring boundary sits at design y ~17.8. At MAP_SCALE
+    // 2.5 a design row is 2.5 world tiles, so design row 18 rounds to the
+    // world tile just INSIDE Alert; the transition is between rows 18 and 19.
+    expect(zoneTerrain(55, 19)).toBe("watch-water");
     expect(zoneTerrain(43, 34)).toBe("calm-water");
     expect(zoneTerrain(55, 38)).toBe("watch-water");
     expect(zoneTerrain(45, 0)).toBe("warning-water");
@@ -330,31 +340,49 @@ describe("buildPharosVilleMap", () => {
   });
 
   it("keeps dock slots on coastline edges with water access", () => {
-    // Docks ride the island perimeter, so they are authored in design space and
-    // offset onto the enlarged grid with the island (N1).
-    expect(EVM_BAY_DOCK_TILES).toEqual([
-      landWorldTile({ x: 42, y: 31 }),
-      BASE_HARBOR_DOCK_TILE,
-      landWorldTile({ x: 32, y: 40 }),
-      landWorldTile({ x: 26, y: 39 }),
-    ]);
-    expect(OUTER_HARBOR_DOCK_TILES).toEqual([
-      landWorldTile({ x: 21, y: 36 }),
-      landWorldTile({ x: 32, y: 22 }), // tron — slid east toward Yggdrasil to clear the new (W6.09) Solana footprint
-      landWorldTile({ x: 25, y: 23 }), // solana — NW shoulder near lighthouse (was the spare slot)
-      HYPERLIQUID_HARBOR_DOCK_TILE, // design (36, 39) — S periphery between Base and Arbitrum
-      landWorldTile({ x: 28, y: 22 }), // aptos — took Tron's previous N-wall slot
-      landWorldTile({ x: 33, y: 40 }),
-      landWorldTile({ x: 42, y: 28 }),
-      landWorldTile({ x: 35, y: 39 }),
-    ]);
-    expect(OUTER_HARBOR_DOCK_TILES.every((tile) => !isInLighthouseClearance(tile))).toBe(true);
+    // H1: the twelve slots are DERIVED from the island's coastline, so this
+    // pins the properties that make them a harbour ring rather than a list of
+    // tiles that has to be re-authored whenever the island is retuned.
+    expect(DOCK_TILES).toHaveLength(12);
+    expect(new Set(DOCK_TILES.map((tile) => `${tile.x}.${tile.y}`)).size).toBe(12);
+    expect(EVM_BAY_DOCK_TILES[1]).toEqual(BASE_HARBOR_DOCK_TILE);
+    expect(OUTER_HARBOR_DOCK_TILES[3]).toEqual(HYPERLIQUID_HARBOR_DOCK_TILE);
     expect(DOCK_TILES.every((tile) => !isWaterTileKind(tileKindAt(tile.x, tile.y)))).toBe(true);
     expect(DOCK_TILES.every((tile) => cardinalNeighbors(tile).some((neighbor) => (
       isWaterTileKind(tileKindAt(neighbor.x, neighbor.y))
     )))).toBe(true);
     expect(DOCK_TILES.every((tile) => outwardWaterDirections(tile).length > 0)).toBe(true);
     expect(DOCK_TILES.every((tile) => isProductionOutwardWater(tile))).toBe(true);
+  });
+
+  it("spreads the harbour ring right around the island", () => {
+    // The failure this guards is the one the operator reported: harbours
+    // bunched on one arc (six of twelve were on the southern coast) and
+    // sitting inland rather than on the water's edge.
+    const center = landWorldTile({ x: 31, y: 31 });
+    const quadrants = new Set(DOCK_TILES.map((tile) => (
+      `${tile.x >= center.x ? "E" : "W"}${tile.y >= center.y ? "S" : "N"}`
+    )));
+    expect(quadrants.size).toBe(4);
+
+    for (const tile of DOCK_TILES) {
+      // On the coast: the next tile outward is water, not more island.
+      const outward = dockOutwardVectorForTile(tile);
+      expect(
+        isWaterTileKind(tileKindAt(tile.x + outward.x, tile.y + outward.y)),
+        `${tile.x}.${tile.y} is not on the waterline`,
+      ).toBe(true);
+    }
+
+    // No two slots collide, and none is far enough from its neighbours to
+    // leave a bare stretch of coast (the ring is ~68 tiles round).
+    for (const tile of DOCK_TILES) {
+      const nearest = Math.min(...DOCK_TILES
+        .filter((other) => other !== tile)
+        .map((other) => Math.hypot(other.x - tile.x, other.y - tile.y)));
+      expect(nearest, `${tile.x}.${tile.y}`).toBeGreaterThan(3.5);
+      expect(nearest, `${tile.x}.${tile.y}`).toBeLessThan(11);
+    }
   });
 
   it("pins seawall blockers to coastal water outside dock openings", () => {
@@ -506,29 +534,15 @@ function outwardWaterDirections(tile: { x: number; y: number }) {
   });
 }
 
-function isInLighthouseClearance(tile: { x: number; y: number }) {
-  // Design-space clearance box around the lighthouse mountain, offset onto the
-  // enlarged grid with the island (N1).
-  const min = landWorldTile({ x: 14, y: 23 });
-  const max = landWorldTile({ x: 24, y: 32 });
-  return tile.x >= min.x && tile.x <= max.x && tile.y >= min.y && tile.y <= max.y;
-}
-
+// Exercises the SAME outward vector production docks and gangways use, rather
+// than a second copy of the rule that can drift away from it.
 function isProductionOutwardWater(tile: { x: number; y: number }) {
-  const outward = productionDockOutwardVector(tile);
+  const outward = dockOutwardVectorForTile(tile);
   const waterTile = {
     x: tile.x + outward.x,
     y: tile.y + outward.y,
   };
   return isWaterTileKind(tileKindAt(waterTile.x, waterTile.y));
-}
-
-function productionDockOutwardVector(tile: { x: number; y: number }): { x: -1 | 0 | 1; y: -1 | 0 | 1 } {
-  const center = (PHAROSVILLE_MAP_WIDTH - 1) / 2;
-  const dx = tile.x - center;
-  const dy = tile.y - center;
-  if (Math.abs(dx) >= Math.abs(dy)) return { x: dx < 0 ? -1 : 1, y: 0 };
-  return { x: 0, y: dy < 0 ? -1 : 1 };
 }
 
 function cardinalNeighbors(tile: { x: number; y: number }): { x: number; y: number }[] {

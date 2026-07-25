@@ -49,7 +49,7 @@ describe("garden harbor districts", () => {
     const basePosition = new Vector3().setFromMatrixPosition(
       instanceMatrix(districts.pads!, 1),
     );
-    const baseDisplayTile = gardenDockDisplayTile(docks[1]!.tile, 1);
+    const baseDisplayTile = gardenDockDisplayTile(docks[1]!.tile);
     expect(basePosition.x).toBeCloseTo(baseDisplayTile.x * 2);
     expect(basePosition.z).toBeCloseTo(baseDisplayTile.y * 2);
   });

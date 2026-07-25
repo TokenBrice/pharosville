@@ -75,9 +75,9 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
     ),
   }, input.viewport, selectedDetailId, hoveredDetailId);
 
-  for (const [index, dock] of input.world.docks.entries()) {
+  for (const dock of input.world.docks) {
     const anchor = gardenTileToScreen(
-      gardenDockDisplayTile(dock.tile, index),
+      gardenDockDisplayTile(dock.tile),
       GARDEN_DOCK_ROOT_Y,
       input.camera,
     );

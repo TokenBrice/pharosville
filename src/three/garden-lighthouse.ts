@@ -52,6 +52,8 @@ const OCT_BASE_RADIUS = 2.15;
 const OCT_TOP_RADIUS = 2.0;
 const CYL_TOP_Y = 29.5;
 const CYL_RADIUS = 1.35;
+/** L6: half-extent of the projecting gallery at the square tier's head. */
+const GALLERY_HALF = 3.82;
 const OCT_FACE = Math.cos(Math.PI / 8);
 const SQRT2 = Math.SQRT2;
 
@@ -437,13 +439,62 @@ export function createLighthouse(): {
   octDrum.rotation.y = Math.PI / 8;
   root.add(octDrum);
 
+  // L6 gallery: the projecting balustraded terrace at the head of the square
+  // tier, mirroring the GLB so the pre-load silhouette is the same monument
+  // (the contract is anchors, but the tower's outline is what the eye reads).
+  const galleryDeck = new Mesh(
+    new BoxGeometry(GALLERY_HALF * 2, 0.28, GALLERY_HALF * 2),
+    midStone,
+  );
+  galleryDeck.position.y = SQUARE_TOP_Y - 0.05;
+  root.add(galleryDeck);
+  const galleryCoping = new Mesh(
+    new BoxGeometry(GALLERY_HALF * 2 + 0.22, 0.14, GALLERY_HALF * 2 + 0.22),
+    shadowStone,
+  );
+  galleryCoping.position.y = SQUARE_TOP_Y + 0.16;
+  root.add(galleryCoping);
+  for (const side of [-1, 1]) {
+    for (const axis of ["x", "z"] as const) {
+      const rail = new Mesh(
+        new BoxGeometry(
+          axis === "x" ? 0.3 : GALLERY_HALF * 2,
+          0.9,
+          axis === "x" ? GALLERY_HALF * 2 : 0.3,
+        ),
+        paleStone,
+      );
+      rail.position.set(
+        axis === "x" ? side * (GALLERY_HALF - 0.14) : 0,
+        SQUARE_TOP_Y + 0.68,
+        axis === "z" ? side * (GALLERY_HALF - 0.14) : 0,
+      );
+      root.add(rail);
+    }
+  }
+  for (const [cornerX, cornerZ] of [
+    [1, 1],
+    [-1, 1],
+    [1, -1],
+    [-1, -1],
+  ] as const) {
+    const pier = new Mesh(new BoxGeometry(0.72, 1.35, 0.72), midStone);
+    pier.position.set(
+      cornerX * (GALLERY_HALF - 0.3),
+      SQUARE_TOP_Y + 0.9,
+      cornerZ * (GALLERY_HALF - 0.3),
+    );
+    root.add(pier);
+  }
+
   // Four Triton corner finials: simplified cone+sphere conch-blowers standing
-  // on the square tier's top corners, facing outward along the diagonals.
+  // on the gallery's corner piers, facing outward along the diagonals.
+  const tritonOffset = GALLERY_HALF - 0.3;
   for (const [x, z] of [
-    [2.55, 2.55],
-    [-2.55, 2.55],
-    [2.55, -2.55],
-    [-2.55, -2.55],
+    [tritonOffset, tritonOffset],
+    [-tritonOffset, tritonOffset],
+    [tritonOffset, -tritonOffset],
+    [-tritonOffset, -tritonOffset],
   ] as const) {
     const triton = new Group();
     const body = new Mesh(new ConeGeometry(0.2, 0.8, 5), shadowStone);
@@ -456,7 +507,7 @@ export function createLighthouse(): {
     conch.position.set(0, 0.92, 0.2);
     conch.rotation.x = -0.9;
     triton.add(conch);
-    triton.position.set(x, SQUARE_TOP_Y, z);
+    triton.position.set(x, SQUARE_TOP_Y + 1.71, z);
     triton.rotation.y = Math.atan2(x, z);
     root.add(triton);
   }

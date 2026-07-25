@@ -741,10 +741,19 @@ function createLighthouse() {
     }
   }
 
-  // --- Dedication band (ΘΕΟΙΣ ΣΩΤΗΡΣΙΝ) on the seaward face: an abstract ----
-  // bronze glyph strip — small gilt bars suggesting Greek letterforms, NOT a
-  // font asset. 13 glyphs for the 13 letters of the attested inscription, now
-  // sunk into a moulded stone panel with its own drip course.
+  // --- Votive frieze on the seaward face ------------------------------------
+  // L6 (2026-07-25): this was a strip of thirteen abstract gilt bars, one per
+  // letter of the attested dedication (ΘΕΟΙΣ ΣΩΤΗΡΣΙΝ). It read as garbled
+  // text, and the operator reported it as a bug — correctly. Its features were
+  // 0.09 units on a 34-unit tower, well under a pixel at overview zoom, so it
+  // could only ever resolve as noise shaped like writing.
+  //
+  // Real letterforms cannot be the answer either: at any legible stroke width
+  // thirteen Greek capitals would not fit the 5.9-unit face. So the frieze
+  // becomes ORNAMENT rather than script — three gilt rosettes on a recessed
+  // bronze ground, separated by paired fillets. Every feature is >= 0.3 units,
+  // which reads as carved relief at overview zoom and as detail up close, and
+  // cannot be mistaken for text at either.
   const BAND_Y = 16.15;
   const bandFace = squareHalf(BAND_Y);
   add("stone", new BoxGeometry(5.1, 1.02, 0.14), {
@@ -753,18 +762,43 @@ function createLighthouse() {
   add("stone", new BoxGeometry(5.5, 0.14, 0.28), {
     position: [0, BAND_Y + 0.6, bandFace + 0.02],
   });
-  registerOverhang(BAND_Y + 0.52, bandFace + 0.2, 0.4);
-  add("darkBronze", new BoxGeometry(4.6, 0.72, 0.06), {
-    position: [0, BAND_Y, bandFace + 0.03],
+  // Drip course under the panel too, so the frieze sits in a moulded recess
+  // rather than being pasted onto the wall.
+  add("stone", new BoxGeometry(5.5, 0.12, 0.24), {
+    position: [0, BAND_Y - 0.58, bandFace + 0.01],
   });
-  for (let index = 0; index < 13; index += 1) {
-    const x = -1.8 + index * 0.3;
-    const z = bandFace + 0.08;
-    add("gilt", new BoxGeometry(0.15, 0.4, 0.06), { position: [x, BAND_Y, z] });
-    const variant = index % 3;
-    const barY = variant === 0 ? BAND_Y + 0.12 : variant === 1 ? BAND_Y + 0.17 : BAND_Y - 0.17;
-    add("gilt", new BoxGeometry(variant === 1 ? 0.15 : 0.3, 0.09, 0.06), {
-      position: [x, barY, z],
+  registerOverhang(BAND_Y + 0.52, bandFace + 0.2, 0.4);
+  // Deliberately NOT a dark recessed ground with light marks in it: that shape
+  // reads as writing whatever you put inside it, which is how the old glyph
+  // strip came to look like broken text. The field is the same limestone as the
+  // wall, and the relief sits proud of it.
+  const ROSETTE_PETALS = 8;
+  for (const rosetteX of [-1.62, 0, 1.62]) {
+    // Stone patera behind each boss, so the ornament has a seat.
+    add("stone", new CylinderGeometry(0.34, 0.34, 0.07, 8), {
+      position: [rosetteX, BAND_Y, bandFace + 0.06],
+      rotation: [Math.PI / 2, 0, Math.PI / 8],
+    });
+    add("gilt", new CylinderGeometry(0.15, 0.15, 0.08, 8), {
+      position: [rosetteX, BAND_Y, bandFace + 0.11],
+      rotation: [Math.PI / 2, 0, 0],
+    });
+    for (let petal = 0; petal < ROSETTE_PETALS; petal += 1) {
+      const angle = (petal / ROSETTE_PETALS) * Math.PI * 2;
+      add("gilt", new BoxGeometry(0.19, 0.1, 0.06), {
+        position: [
+          rosetteX + Math.cos(angle) * 0.23,
+          BAND_Y + Math.sin(angle) * 0.23,
+          bandFace + 0.09,
+        ],
+        rotation: [0, 0, angle],
+      });
+    }
+  }
+  // Stone pilaster strips dividing the three bays.
+  for (const filletX of [-2.24, -0.81, 0.81, 2.24]) {
+    add("stone", new BoxGeometry(0.16, 0.68, 0.1), {
+      position: [filletX, BAND_Y, bandFace + 0.05],
     });
   }
 
@@ -797,11 +831,75 @@ function createLighthouse() {
   registerCrease(18.39, 2.4);
   registerOverhang(18.15, 2.6, 0.8);
 
+  // --- L6 gallery: the projecting terrace at the head of the square tier -----
+  // The single biggest thing the silhouette was missing. Without it the square
+  // tier ran straight into the drum and the whole monument read as a chimney
+  // with ornament on it; the coins and every reconstruction show the octagon
+  // SET BACK on a broad walled walkway that oversails the shaft.
+  //
+  // It stays inside the terrace footprint (half 4.6), so the model's bounds and
+  // therefore every anchor contract are untouched.
+  const GALLERY_Y = SQUARE_TOP_Y;
+  const GALLERY_HALF = 3.82;
+  const GALLERY_SHAFT_HALF = squareHalf(GALLERY_Y - 0.5);
+  // Corbel brackets carrying the oversail, five to a face plus the corners.
+  for (const angle of SQUARE_FACES) {
+    for (let index = 0; index < 5; index += 1) {
+      const u = -GALLERY_SHAFT_HALF * 0.78 + (index / 4) * GALLERY_SHAFT_HALF * 1.56;
+      place(
+        "stone",
+        new BoxGeometry(0.34, 0.42, GALLERY_HALF - GALLERY_SHAFT_HALF + 0.1),
+        angle,
+        u,
+        GALLERY_Y - 0.34,
+        (GALLERY_SHAFT_HALF + GALLERY_HALF) / 2,
+      );
+    }
+  }
+  // Deck slab and its coping edge.
+  add("stone", new BoxGeometry(GALLERY_HALF * 2, 0.28, GALLERY_HALF * 2), {
+    position: [0, GALLERY_Y - 0.05, 0],
+  });
+  add("stone", new BoxGeometry(GALLERY_HALF * 2 + 0.22, 0.14, GALLERY_HALF * 2 + 0.22), {
+    position: [0, GALLERY_Y + 0.16, 0],
+  });
+  registerOverhang(GALLERY_Y - 0.4, GALLERY_HALF + 0.12, 1.6);
+  registerCrease(GALLERY_Y + 0.23, GALLERY_HALF);
+  // Balustrade: a run of turned balusters under a continuous rail, with a
+  // squat pier at each corner for the Tritons to stand on.
+  const BALUSTER_TOP_Y = GALLERY_Y + 1.02;
+  for (const angle of SQUARE_FACES) {
+    const run = GALLERY_HALF * 2 - 1.5;
+    const count = 11;
+    for (let index = 0; index < count; index += 1) {
+      const u = -run / 2 + (index / (count - 1)) * run;
+      place(
+        "stone",
+        new CylinderGeometry(0.09, 0.13, 0.62, 6),
+        angle,
+        u,
+        GALLERY_Y + 0.54,
+        GALLERY_HALF - 0.14,
+      );
+    }
+    // Kerb under the balusters and the rail over them.
+    place("stone", new BoxGeometry(run + 0.4, 0.16, 0.3), angle, 0, GALLERY_Y + 0.31, GALLERY_HALF - 0.14);
+    place("stone", new BoxGeometry(run + 0.4, 0.18, 0.36), angle, 0, BALUSTER_TOP_Y - 0.16, GALLERY_HALF - 0.14);
+  }
+  for (const [cornerX, cornerZ] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+    add("stone", new BoxGeometry(0.72, 1.35, 0.72), {
+      position: [cornerX * (GALLERY_HALF - 0.3), GALLERY_Y + 0.9, cornerZ * (GALLERY_HALF - 0.3)],
+    });
+    add("stone", new BoxGeometry(0.86, 0.14, 0.86), {
+      position: [cornerX * (GALLERY_HALF - 0.3), GALLERY_Y + 1.64, cornerZ * (GALLERY_HALF - 0.3)],
+    });
+  }
+
   // --- Four Triton corner finials (the coins' most diagnostic detail) -------
   // W4.3: real form, not cones — a plinth, a tapered torso with shoulders, a
   // curled fish tail with a flared fluke, two raised arms, and a spiral conch
   // built from four tapering whorls.
-  const triton = (x, z) => {
+  const triton = (x, z, y) => {
     const parts = [];
     const plinth = new BoxGeometry(0.62, 0.24, 0.62);
     plinth.translate(0, 0.12, 0);
@@ -854,14 +952,19 @@ function createLighthouse() {
     const cluster = mergeGeometries(parts, false);
     if (cluster === null) throw new Error("Could not merge triton cluster.");
     add("stone", cluster, {
-      position: [x, SQUARE_TOP_Y, z],
+      position: [x, y, z],
       rotation: [0, Math.atan2(x, z), 0],
     });
   };
-  triton(2.55, 2.55);
-  triton(-2.55, 2.55);
-  triton(2.55, -2.55);
-  triton(-2.55, -2.55);
+  // L6: the Tritons move out onto the gallery's corner piers. They used to
+  // stand at +-2.55 against the drum's flare, which half-buried them; on the
+  // piers they read as four figures at the corners of the monument.
+  const TRITON_OFFSET = GALLERY_HALF - 0.3;
+  const TRITON_Y = GALLERY_Y + 1.71;
+  triton(TRITON_OFFSET, TRITON_OFFSET, TRITON_Y);
+  triton(-TRITON_OFFSET, TRITON_OFFSET, TRITON_Y);
+  triton(TRITON_OFFSET, -TRITON_OFFSET, TRITON_Y);
+  triton(-TRITON_OFFSET, -TRITON_OFFSET, TRITON_Y);
 
   // --- Octagonal drum (y 17.5 → 26), the second tier of the coins. ----------
   const OCT_FACES = Array.from({ length: 8 }, (_, index) => index * Math.PI / 4);

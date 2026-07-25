@@ -142,9 +142,9 @@ export function createGardenHarborDistricts(
   root.name = "garden-harbor-districts";
   const tileScale = options.tileScale ?? DEFAULT_TILE_SCALE;
   const waterY = options.waterY ?? GARDEN_WATER_Y;
-  const displayedDocks = docks.map((dock, index) => ({
+  const displayedDocks = docks.map((dock) => ({
     dock,
-    tile: gardenDockDisplayTile(dock.tile, index),
+    tile: gardenDockDisplayTile(dock.tile),
   }));
 
   let pads: GardenHarborDistricts["pads"] = null;

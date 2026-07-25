@@ -11,9 +11,14 @@ describe("projection", () => {
   it("fits the authored map inside the available viewport", () => {
     const camera = fitCameraToMap({ width: 1440, height: 1000, map: { width: PHAROSVILLE_MAP_WIDTH, height: PHAROSVILLE_MAP_HEIGHT } });
 
-    const center = tileToScreen({ x: 32, y: 32 }, camera);
-    expect(center.x).toBeGreaterThan(300);
-    expect(center.y).toBeGreaterThan(200);
+    // The MIDDLE of the authored map lands near the middle of the viewport —
+    // pinned relative to the map so it survives a MAP_SCALE change (H4).
+    const center = tileToScreen(
+      { x: PHAROSVILLE_MAP_WIDTH / 2, y: PHAROSVILLE_MAP_HEIGHT / 2 },
+      camera,
+    );
+    expect(Math.abs(center.x - 1440 / 2)).toBeLessThan(40);
+    expect(Math.abs(center.y - 1000 / 2)).toBeLessThan(40);
     expect(camera.zoom).toBeGreaterThanOrEqual(0.72);
   });
 

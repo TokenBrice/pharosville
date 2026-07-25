@@ -110,7 +110,7 @@ export interface GardenModelMetadata {
   };
 }
 
-const LIGHTHOUSE_SHA256 = "03b846716b7113f05c5878272a37076b8497f87efea72788026f2451283d6dbf";
+const LIGHTHOUSE_SHA256 = "390477368cfecc235a771300f7cecfc1f8047a6adfa43806cd198f911ba7b03b";
 const lighthouseUrl = `/pharosville/models/garden-lighthouse-shell.glb?v=${LIGHTHOUSE_SHA256.slice(0, 12)}`;
 
 const HERO_TITAN_SHA256 = "ccdcdb79701aeb235d4492bf6c6f500c012209cef74a514326d0cf7a5e2e9d57";
@@ -221,7 +221,7 @@ export const GARDEN_MODEL_MANIFEST = {
     id: "garden-lighthouse-shell",
     label: "Garden Observatory lighthouse shell",
     artifact: {
-      bytes: 519_364,
+      bytes: 546_320,
       compression: "none",
       gltfVersion: 2,
       sha256: LIGHTHOUSE_SHA256,
@@ -281,8 +281,8 @@ export const GARDEN_MODEL_MANIFEST = {
       drawCalls: 7,
       materials: 7,
       textures: 0,
-      triangles: 31_716,
-      vertices: 20_598,
+      triangles: 33_444,
+      vertices: 21_642,
     },
     budgets: {
       // Grand-scale revamp raise (2026-07-25, measured cause, W4.1–W4.6): GLB
@@ -302,6 +302,14 @@ export const GARDEN_MODEL_MANIFEST = {
       // The 7th draw is the new "window-shell" group (W4.5): every aperture
       // sits behind material "lighthouse-window-glow" so the runtime can drive
       // the interior glow across the day cycle without adding a light.
+      //
+      // L6 (2026-07-25) added 1,728 triangles and 26,956 bytes for the
+      // projecting balustraded gallery at the head of the square tier (corbel
+      // brackets, deck, coping, balusters, rail, corner piers, with the Tritons
+      // moved out onto the piers) and replaced the abstract 13-glyph dedication
+      // strip — which read as garbled text at overview zoom — with a three-bay
+      // rosette frieze in relief. Silhouette contract untouched: still 34 units
+      // tall, beacon at 30.1, and inside the terrace footprint on x/z.
       //
       // Bytes are held down without a decoder or a glTF extension: the model
       // is entirely flat-shaded, so NORMAL is dropped (three's GLTFLoader
