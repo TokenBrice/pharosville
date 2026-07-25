@@ -1,5 +1,11 @@
 import type { IsoCamera, MapLike, ScreenPoint } from "./projection";
-import { fitCameraToMap, mapIsoBounds, tileToIso, zoomCameraAt } from "./projection";
+import {
+  fitCameraToMap,
+  mapIsoBounds,
+  minZoomForViewport,
+  tileToIso,
+  zoomCameraAt,
+} from "./projection";
 
 export interface CameraBoundsInput {
   map: MapLike;
@@ -98,12 +104,24 @@ export function panCamera(camera: IsoCamera, delta: ScreenPoint, bounds?: Camera
 }
 
 export function zoomIn(camera: IsoCamera, viewport: ScreenPoint, map?: MapLike): IsoCamera {
-  const next = zoomCameraAt(camera, { x: viewport.x / 2, y: viewport.y / 2 }, camera.zoom * 1.18);
+  const next = zoomCameraAt(
+    camera,
+    { x: viewport.x / 2, y: viewport.y / 2 },
+    camera.zoom * 1.18,
+    map ? minZoomForViewport(viewport, map) : undefined,
+  );
   return map ? clampCameraToMap(next, { map, viewport }) : next;
 }
 
 export function zoomOut(camera: IsoCamera, viewport: ScreenPoint, map?: MapLike): IsoCamera {
-  const next = zoomCameraAt(camera, { x: viewport.x / 2, y: viewport.y / 2 }, camera.zoom / 1.18);
+  // N1: the floor is derived from the viewport so the camera can never pull
+  // back past the world into empty ocean.
+  const next = zoomCameraAt(
+    camera,
+    { x: viewport.x / 2, y: viewport.y / 2 },
+    camera.zoom / 1.18,
+    map ? minZoomForViewport(viewport, map) : undefined,
+  );
   return map ? clampCameraToMap(next, { map, viewport }) : next;
 }
 

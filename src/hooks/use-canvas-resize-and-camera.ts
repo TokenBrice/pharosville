@@ -6,7 +6,12 @@ import { hitTest, hitTestSpatial, type HitTarget, type HitTargetSnapshot } from 
 import { cameraZoomLabel, clampCameraToMap, defaultCamera, followTile, panCamera, zoomIn, zoomOut } from "../systems/camera";
 import { initialAdaptiveDprState, resolveRenderSurfaceBudget, type AdaptiveDprState } from "../systems/render-surface-budget";
 import type { ShipMotionSample } from "../systems/motion";
-import { zoomCameraAt, type IsoCamera, type ScreenPoint } from "../systems/projection";
+import {
+  minZoomForViewport,
+  zoomCameraAt,
+  type IsoCamera,
+  type ScreenPoint,
+} from "../systems/projection";
 import type {
   PharosVilleWorld as PharosVilleWorldModel,
   WorldSelectableEntity,
@@ -38,8 +43,6 @@ export {
 export type { CameraIntentMode } from "./camera-intent";
 
 export interface UseCanvasResizeAndCameraInput {
-  exitFullscreen: () => void;
-  fullscreenMode: boolean;
   hasSelection: () => boolean;
   hitTargetSnapshotRef: MutableRefObject<HitTargetSnapshot | null>;
   hitTargetsRef: MutableRefObject<readonly HitTarget[]>;
@@ -95,8 +98,6 @@ export interface UseCanvasResizeAndCameraResult {
 
 export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): UseCanvasResizeAndCameraResult {
   const {
-    exitFullscreen,
-    fullscreenMode,
     hasSelection,
     hitTargetSnapshotRef,
     hitTargetsRef,
@@ -143,10 +144,6 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   const selectedEntityRef = useLatestRef(selectedEntity);
   const selectedDetailId = selectedEntity?.detailId ?? null;
   const lastSelectedDetailIdRef = useRef<string | null>(selectedDetailId);
-
-  useEffect(() => {
-    canvasRectRef.current = null;
-  }, [fullscreenMode]);
 
   useEffect(() => () => {
     if (hoverFrameRef.current) cancelAnimationFrame(hoverFrameRef.current);
@@ -348,10 +345,17 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
             offsetX: previous.offsetX + midpointDelta.x,
             offsetY: previous.offsetY + midpointDelta.y,
           };
-          const next = clampCameraToMap(zoomCameraAt(panned, pinch.midpoint, panned.zoom * scale), {
-            map: world.map,
-            viewport,
-          });
+          // N1: same viewport-derived zoom floor as the wheel and toolbar
+          // paths, so pinch cannot pull back past the world either.
+          const next = clampCameraToMap(
+            zoomCameraAt(
+              panned,
+              pinch.midpoint,
+              panned.zoom * scale,
+              minZoomForViewport(viewport, world.map),
+            ),
+            { map: world.map, viewport },
+          );
           queueCameraTarget(next, "pinch");
         }
       }
@@ -659,11 +663,6 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     const activeCamera = currentCameraBase();
     if (!activeCamera) return;
     if (event.key === "Escape") {
-      if (fullscreenMode) {
-        event.preventDefault();
-        exitFullscreen();
-        return;
-      }
       onClearSelection();
       stopFollowChase();
       return;
@@ -693,7 +692,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       const next = panCamera(activeCamera, deltas[event.key], { map: world.map, viewport: canvasSizeRef.current });
       queueCameraTarget(next, "keyboard");
     }
-  }, [canvasSizeRef, currentCameraBase, exitFullscreen, fullscreenMode, handleToolbarZoomIn, handleToolbarZoomOut, onClearSelection, queueCameraTarget, stopFollowChase, world.map]);
+  }, [canvasSizeRef, currentCameraBase, handleToolbarZoomIn, handleToolbarZoomOut, onClearSelection, queueCameraTarget, stopFollowChase, world.map]);
 
   return {
     adaptiveDprStateRef,
