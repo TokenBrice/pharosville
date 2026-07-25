@@ -502,3 +502,76 @@ None. All eight were settled by the operator on 2026-07-25 — see §0.
 | `outputs/sea-audit/fleet.txt` | live fleet distribution and density per zone |
 | `outputs/sea-audit/residue.txt` | warp divergence, edge-fade coverage, Calm residue |
 | `outputs/sea-audit/tier-probe.mjs` | the real-GPU tier probe |
+
+---
+
+## 11. Executed — outcomes (2026-07-25)
+
+> **STATUS: shipped.** Six commits on `main`: `a2599ec`, `59d9582`, `bffa7c1`,
+> `50b60d6`, `e604756`, `c9af634`. 938 unit tests pass; lint, typecheck, build,
+> bundle-size, colour, docs, runtime-media and viewport gates all green.
+
+### What the numbers say
+
+| Measure | Before | After |
+| --- | ---: | ---: |
+| Sea's surface variation retained on a camera drag | 59% (σ 12.4 → 7.3) | **unchanged** (cloud shadows, 24 ripple rings, 1024 shadow map all held through an `interaction` frame) |
+| Luminance step across the map boundary | 26 / 255 between samples | **max 2.9 / 255** — a gradient |
+| Water tiles inside the region-tint fade | 48.9% | **0%** |
+| Rendered sea at noon | (77, 111, 127) — blue 15.7 over green | **(85, 112, 114)** — blue 1.8 |
+| Zones drawn ≠ zones ships obey | 13.7% of the sea | **0.00%** |
+| Density spread across bodies | 13.2× | **2.9×** |
+| Ships landing outside their own water | — | **0 of 187** |
+| Body area vs traffic target | up to 16 pt out | **worst 0.3 pt** |
+| Named bodies with a name in the world | 2 of 7 at overview | **7 of 7** |
+| Draw calls, default framing | ~473 | **599** (budget 700); signs cost 14 |
+| Frame, default framing | 60 fps / 16.7 ms p90 | **60 fps / 16.7 ms p90** |
+
+### Deviations from the plan, and why
+
+- **L4 kept four depth bands, not five.** The band count was never the problem —
+  the depth FIELD was flat over most of the map because the shore ramp saturated
+  ~70 units out. Fixing the field gave the sea form; adding a fifth band would
+  have diluted the posterised ukiyo-e look for nothing.
+- **D5's acceptance was not fully met.** "Green channel above blue at noon" came
+  to 1.8/255 short. The residue is the day grade's cool shadow tint, a
+  frame-wide choice shared with the island and the fleet. Forcing it in the
+  water alone would have put the sea out of agreement with everything else in
+  the frame.
+- **Stage Z spilled into the motion system.** Traffic-proportional sizing made
+  Danger Strait larger than Warning Shoals — reversing an assumption the patrol
+  circuits were tuned against — which left the roughest water in the world
+  reading 1% CALMER than the band below it. Danger's circuit speed went
+  0.21 → 0.26 rad/s to restore a 1.5× margin. One docking test was also
+  comparing headings across a curved approach because it sampled its "pre-ramp"
+  reference at the phase midpoint rather than at the ramp's start; that is
+  corrected.
+- **Roughly eighty lines of test coordinates were replaced by properties.** The
+  old assertions transcribed the geometry rather than testing it — they were
+  green for the entire period the operator's complaint about the sea zones was
+  true. What replaced them: every body exists, is one connected piece, holds its
+  target share, escalates north-east, and keeps its anchors in its own water.
+
+### Residuals
+
+1. **The coastline is improved but not ragged.** A nearest-seed partition of a
+   square yields long mutual boundaries; the warp (now 14 tiles, up from 6) bends
+   them but does not break them into inlets. Getting a genuinely fractal coast
+   needs boundary-level noise rather than domain warp — a contained follow-up in
+   `sea-bodies.ts` that would not disturb the areas.
+2. **Draw calls at whole-map framing reach ~855**, over the 700 budget the perf
+   spec asserts. That budget is measured at the DEFAULT framing, where the frame
+   sits at 599 and passes. The signs account for 14 of the total; most of the
+   growth is the concurrent fleet/hero work landing in the same tree. Worth
+   re-measuring once that settles.
+3. **`npm run test:perf` could not be run cleanly.** Both failures were 60-second
+   timeouts waiting for the fleet to populate under SwiftShader at load average
+   17, and neither reached the resource assertions. The real-GPU numbers above
+   stand in; re-run the lane on a quiet machine.
+4. **Sign hit-testing was not added.** The boards are canvas content and so
+   aria-hidden; parity is carried by the accessibility ledger, which names every
+   area, and by the existing area buttons. That satisfies the World Encoding
+   contract, but a keyboard target on the board itself would be better.
+5. **A faint horizontal band remains in the upper sky at night.** The dusk mist
+   plane now has an alpha falloff; what is left appears to come from the horizon
+   cards, which another agent was editing concurrently — not diagnosed.
