@@ -1,9 +1,44 @@
 # Plan: the Sea Master brief — a stable, beautiful, charted sea
 
-> **STATUS 2026-07-25: investigation complete, nothing implemented.** Every
-> number below is measured on this checkout, on the real GPU (RTX 5070 Ti via
-> `npm run preview`) or by running the world's own code. Evidence artefacts are
-> under `outputs/` and `outputs/sea-audit/` (gitignored).
+> **STATUS 2026-07-25: approved for autonomous execution.** All eight open
+> questions were settled by the operator — see §0. Stages S, L, Z and N run to
+> completion without further checkpoints; the operator reads the report at the
+> end.
+>
+> Every number below is measured on this checkout, on the real GPU (RTX 5070 Ti
+> via `npm run preview`) or by running the world's own code. Evidence artefacts
+> are under `outputs/` and `outputs/sea-audit/` (gitignored).
+
+---
+
+## 0. Decisions (operator, 2026-07-25) — binding
+
+| # | Decision | Effect on the plan |
+| --- | --- | --- |
+| **D1** | **Calm Anchorage takes 30% of the sea**, not the 60% its traffic would justify. | §2.4 target table stands as written. Density spread 13× → 3×. |
+| **D2** | **The neutral water stays unnamed open sea.** No "Pharos Roads". | **Z5 is cancelled.** The `namedShare > 0.85` guard in `garden-sea-regions.test.ts:36` drops to **0.72**, with the rationale recorded in `VISUAL_INVARIANTS.md`: deliberate open water is composition, not an attribution gap. `open` keeps its region slot and its zero tint strength. |
+| **D3** | **Signage is physical, in the world** — not chart ink on the water. | §3 is rewritten below. Stage N builds objects, not decals. |
+| **D4** | **Keep the narrative poles, reshape everything else.** Danger stays north-east, wrecks stay south-west. | §2.5 composition stands. DEWS escalation stays monotonic along a NE bearing, so `motion-water.ts` penalties and the learned spatial story survive. |
+| **D5** | **Restore the authored teal.** `#49857f` shelf → `#3c6f72` water → `#2b4f65` basin; Calm's tint becomes a green-leaning shallow (~`#2d7d6a`) instead of `#125e7e` cyan. | L3 targets these exact values. Acceptance: **green channel above blue** in a sampled noon frame. |
+| **D6** | **Signs grow at overview** — world scale rises as you zoom out so the board holds a roughly constant on-screen size. | Solves the ~4 px problem in one system. Drawn out of scale on the chart, the way a landmark is on an old map. **The DOM chip cap of 2 therefore stays**; the boards carry overview naming. |
+| **D7** | **Carved timber board on pilings.** Oak plank, iron banding, painted letters, a hung lantern at night. | Reuses the existing dock timber/ironwork materials and the light-lane registry. Cheapest to build, best world-fit. |
+| **D8** | **Run the whole plan; report at the end.** | No mid-stage checkpoints. Each stage still validates against its own gate in §8 before the next begins. |
+
+### Calls I am making myself, stated for the record
+
+- **N5 (compass rose, bathymetric contour lines) is out of scope.** It was
+  offered as optional and not taken up; I will not add it speculatively. L4
+  already restores depth as a readable value ladder, which is most of what
+  contours would have bought.
+- **Accessibility parity for the signs.** The boards are a new *visual* channel
+  naming all seven bodies, so the accessible channel must not lag behind it:
+  each board becomes a keyboard-reachable hit target that opens its water
+  body's detail panel, and every named body appears in the accessibility
+  ledger. Otherwise the visual channel outruns the DOM one and the World
+  Encoding contract breaks.
+- **Sign siting.** One board per named body, standing in shallow water at the
+  body's edge nearest the viewer, on the principal axis computed in N1 — so it
+  faces the camera and does not occlude the body it names.
 
 Operator brief, 2026-07-25:
 
@@ -243,16 +278,17 @@ stay — compressed by an exponent so no body becomes unreadable.
 | Danger Strait | 1.4% | **5%** | ~960 | 11 | 87 |
 | Warning Shoals | 2.1% | **4%** | ~770 | 5 | 154 |
 | Wreck Shoals | 7.5% | **7%** | ~1 350 | graves | — |
-| **Pharos Roads** (was `open`) | 4.2% | **24%** | ~4 600 | 0 | — |
+| open sea (unnamed, D2) | 4.2% | **24%** | ~4 600 | 0 | — |
 
 Resulting density spread: **3.0×** (Calm densest at 19.4/1000, Warning sparsest
 at 6.5/1000) against today's 13×. Calm reads busy — correct for an anchorage;
 Warning and Watch read open and exposed — also correct.
 
-The 24% Pharos Roads is the change that makes the rest work: named bodies only
+The 24% of open sea is the change that makes the rest work: named bodies only
 read as *bodies* when there is unclaimed water between them. It is the
 composition's breathing room and the "asymmetric, sea-first, intentionally
-open" invariant, made real.
+open" invariant, made real. Per **D2** it stays deliberately unnamed, which is
+why the `namedShare` guard moves to 0.72.
 
 ### 2.5 Target shape
 
@@ -274,7 +310,7 @@ Composition — a chart, not an onion. The island sits at world ≈(73, 75):
 | Body | Form | Why |
 | --- | --- | --- |
 | Calm Anchorage | the great sheltered bay in the island's lee, W and SW, with a real bay mouth | biggest by traffic, but one shape with one edge instead of an L wrapping the map |
-| Pharos Roads | the approach ring around the island plus an open channel running S/SE to the map edge | breathing room; the eye's rest; the lighthouse's own water |
+| *(unnamed open sea)* | the approach ring around the island plus an open channel running S/SE to the map edge | breathing room; the eye's rest; the lighthouse's own water |
 | Watch Breakwater | the working sea E/SE behind a breakwater arc, between the anchorage and the alert channel | a real place, not a catch-all ring |
 | Alert Channel | a long tapering channel from the NE approach toward the island | "channel" should mean channel |
 | Warning Shoals | shallow banks flanking the strait's mouth | shoals should flank something |
@@ -282,8 +318,8 @@ Composition — a chart, not an onion. The island sits at world ≈(73, 75):
 | Wreck Shoals | SW corner, unchanged in place | keeps danger at one pole and memory at the other |
 
 The DEWS escalation stays monotonic along a NE bearing
-(Calm → Roads → Watch → Alert → Warning → Danger), so the existing narrative and
-`motion-water.ts` terrain penalties are preserved unchanged.
+(Calm → open sea → Watch → Alert → Warning → Danger), so the existing narrative
+and `motion-water.ts` terrain penalties are preserved unchanged (**D4**).
 
 ---
 
@@ -296,39 +332,47 @@ excluding Ledger. `outputs/sea-wide-noon.png` shows the whole-map view carrying
 exactly two labels, overlapping each other in the NE corner. The framing where a
 map most wants its place-names is the framing with the fewest.
 
-### The proposal: charted lettering laid on the water
+### The decision: carved timber boards on pilings (D3 + D7)
 
-The classic antique-chart treatment, in-world rather than in the DOM:
+A real object standing in the water at each body's edge — harbour-made, in the
+same timber and ironwork as the docks and piers already in the world.
 
-- One `CanvasTexture` per named body, following the existing pattern in
-  `garden-chain-flag.ts` / `garden-sail-texture.ts`.
-- Typeset in **EB Garamond 700**, which the app already ships and loads as
-  `PV Plaque` (`src/pharosville.css:1`, `/fonts/eb-garamond-700-latin.woff2`) —
-  no new asset, no new licence.
-- All-caps, widely letter-spaced, in the body's own accent desaturated toward
-  the water it sits on, at low opacity, so it reads as ink on the chart rather
-  than as UI.
-- Drawn on a plane co-planar with the sea (`rotation.x = -π/2`, just above the
-  water, `depthWrite: false`, `renderOrder` above water and below ships), so the
-  name lies **in** the world in isometric perspective — the single thing that
-  will make it feel like an actual map.
-- Placed and oriented along the body's **principal axis** (PCA over its tile
-  set), so the name follows the shape of the water.
-- **Sized to the body's extent** — a great bay gets great letters, a strait gets
-  small ones. That is the standard cartographic convention *and* it makes zone
-  size a second redundant channel for the zone's own data, which the World
-  Encoding contract wants.
-- LOD: name + reading at overview, name only when zoomed past it, gone in
-  `analyze`.
+```
+      .--------------------------.
+      |    D A N G E R           |   oak plank
+      |    S T R A I T           |   iron banding
+      '--------------------------'   painted letters
+            ||          ||
+            ||          ||           lantern hung at night
+     ~~~~~~~^^~~~~~~~~~~^^~~~~~~~~
+```
 
-The existing DOM chips stay: `VISUAL_INVARIANTS.md` names the DOM label as the
-water body's redundant channel, and the chips are the keyboard/screen-reader
-surface. What changes is that the overview stops capping at two.
+Build notes:
 
-Optional, clearly secondary, operator's call: a compass rose on an empty
-quadrant of the Roads, and thin bathymetric contour lines following the depth
-field (cheap — one `fract(depth*N)` band with `fwidth` AA — and it doubles as
-the depth encoding).
+- **Geometry.** One board + two pilings + iron banding, built procedurally in
+  the existing garden style. Instanced or merged across the seven bodies — this
+  must not add seven draw calls.
+- **Lettering.** A `CanvasTexture` on the board face, following the existing
+  pattern in `garden-chain-flag.ts` / `garden-sail-texture.ts`, typeset in
+  **EB Garamond 700** which the app already ships and loads as `PV Plaque`
+  (`src/pharosville.css:1`, `/fonts/eb-garamond-700-latin.woff2`) — no new
+  asset, no new licence. Painted letters on weathered oak, not backlit UI.
+- **Siting.** One board per named body, in shallow water at the body's edge
+  nearest the viewer, on the principal axis from N1, angled to face the
+  isometric camera and clear of the body it names.
+- **Overview scale (D6).** The board's world scale rises as the camera zooms
+  out so it holds a roughly constant on-screen size — drawn out of scale on the
+  chart, the way a landmark is on an old map. This is what makes the name
+  readable at whole-map framing, where a true-scale board would be ~4 px.
+  Ships and water do **not** scale; only the signage does.
+- **Night.** A hung lantern registers with the existing light-lane registry, so
+  each sign lays its own small warm pool on the water and joins the Lantern Sea
+  rather than sitting dark in it.
+- **Accessibility.** Each board is a keyboard-reachable hit target that opens
+  its water body's detail panel, and every named body appears in the
+  accessibility ledger — so the new visual channel never outruns the DOM one.
+  The existing DOM chips and their cap of 2 are unchanged (D6): the boards now
+  carry overview naming.
 
 ---
 
@@ -338,7 +382,7 @@ the depth encoding).
 | --- | --- | --- |
 | L1 | Fix the slab-on-void seam: apply the same env-tint weight, facet/cloud multiply and fresnel on the cheap path; widen the crossfade to ~40 units; replace the Chebyshev `mapDistance` with a rounded-box or radial metric so the boundary has no corners. | §1.2 — the worst thing in the frame |
 | L2 | Move the region fade ramp from `0.62→1.00` to `0.92→1.15` of a correctly-sized `uOpenOceanRadius`, so zones stay fully tinted across the whole playable map. | §1.3 — recovers 49% of the sea |
-| L3 | Recolour: pull `ZONE_THEMES` water bases into the sea's own hue family (Calm should be a green-leaning shallow, not `#125e7e` cyan), drop `REGION_TINT_STRENGTH_BAND` ~0.44→0.28, and put the recovered separation into **value and character**, which survive the shader's luminance-match. | §1.4 |
+| L3 | Recolour to the **D5** targets: bands `#49857f` / `#3c6f72` / `#2b4f65`, Calm's water tint from `#125e7e` cyan to a green-leaning shallow ~`#2d7d6a`, every other `ZONE_THEMES` water base pulled into the same family; drop `REGION_TINT_STRENGTH_BAND` ~0.44→0.28 and put the recovered separation into **value and character**, which survive the shader's luminance-match. Acceptance: green channel above blue in a sampled noon frame. | §1.4, D5 |
 | L4 | Restore real depth banding. `depth` is currently dominated by a shore SDF that saturates ~14 units out, so at overview the entire sea is band 3. Key it to distance-from-any-land plus authored shelves, and posterise into five bands on a proper ukiyo-e value ladder. | value, not hue, is what will carry the sea at overview |
 | L5 | Rework the seams into currents: after §2.5 the boundary is no longer straight; also modulate along the boundary tangent, break with noise, cap the highlight much lower, lean on `seamShadow`. | §1.2, D5 |
 | L6 | Halve the island ripple train (radius 40→~22) and re-site the harbour calm basin onto the actual lee water instead of the dock centroid. | D6 — the pale disc |
@@ -354,8 +398,8 @@ the depth encoding).
 | Z1 | Build the SDF partition toolkit in design space and port the seven named bodies onto it (§2.5). |
 | Z2 | Move the domain warp into `terrainKindAt`; delete `warpSampleTile` from `buildSeaRegionField`. Closes D1. |
 | Z3 | Calibrate the `bias_i` terms against the §2.4 target table; add a test asserting each body's tile share within ±2 points and the density spread ≤ 3.5×. |
-| Z4 | Stop Calm being the fallback: the trailing `return "calm-water"` becomes the Roads. |
-| Z5 | Promote `open` to a named body, **Pharos Roads**, with a label, a legend entry and a `SEA_REGION_CHARACTER` entry. |
+| Z4 | Stop Calm being the fallback: the trailing `return "calm-water"` in `world-layout.ts:361` becomes generic open `water`. |
+| Z5 | ~~Promote `open` to a named body~~ — **cancelled by D2.** Instead: drop the `namedShare` guard from 0.85 to 0.72 and record in `VISUAL_INVARIANTS.md` that deliberate open water is composition, not an attribution gap. |
 | Z6 | Retire the vestigial ellipse layer — `ZONE_BASE_RADIUS`/`zoneRadius`/`garden-zone-coverage.ts` size ellipses that no longer render anything; keep only what still has a job (selection-cue extent, danger squall footprint) and derive it from the region field's bounds. |
 | Z7 | Fix D2: blend `swell`/`chop` across `boundaryDistance` and scale wave *frequency*, not position, so the surface stops creasing at seams. |
 
@@ -365,11 +409,13 @@ the depth encoding).
 
 | ID | Work |
 | --- | --- |
-| N1 | `seaRegionPrincipalAxis(regionId)` in `garden-sea-regions.ts` — PCA over the body's tiles, returning centroid, bearing and extent. |
-| N2 | A `garden-sea-labels.ts` module: one canvas-texture plane per body, EB Garamond 700, laid on the water, oriented and sized per N1. |
-| N3 | Zoom LOD and the `analyze` cull. |
-| N4 | Lift the overview DOM-chip cap from 2 to all named bodies, with collision-aware placement; keep the existing copy so chip and lettering can never drift. |
-| N5 | *(optional)* compass rose + bathymetric contours. |
+| N1 | `seaRegionPrincipalAxis(regionId)` in `garden-sea-regions.ts` — PCA over the body's tiles, returning centroid, bearing, extent, and a shallow edge tile facing the camera to stand the board on. |
+| N2 | `garden-sea-signs.ts` — procedural carved board + pilings + iron banding in the existing dock timber materials, merged/instanced so seven signs are not seven draw calls. |
+| N3 | Board-face `CanvasTexture` in EB Garamond 700 (`PV Plaque`), painted letters on weathered oak; copy shared with the DOM chips so the two can never drift. |
+| N4 | Overview scale-up per **D6** — sign world scale rises as zoom falls so the board holds a roughly constant on-screen size; ships and water unaffected. Cull in `analyze`. |
+| N5 | Night lantern per sign, registered with the light-lane registry so each board lays its own warm pool. |
+| N6 | Accessibility: each board a keyboard-reachable hit target opening its water body's detail panel; every named body present in the accessibility ledger. |
+| ~~N7~~ | ~~compass rose + bathymetric contours~~ — **out of scope**, not taken up (§0). |
 
 ---
 
@@ -407,23 +453,22 @@ carry:
 - Wreck placement (`world-layout.ts:834`) keys on `wreck-water`; the SW corner
   stays, so this is unaffected.
 
-**Two contract changes need explicit sign-off before implementation:**
+**Contract changes — both settled in §0, no further sign-off needed:**
 
-1. `garden-sea-regions.test.ts:36` asserts `namedShare > 0.85`. Promoting `open`
-   to the named body **Pharos Roads** (Z5) keeps the guard's *spirit* — nothing
-   is unattributed — while the deliberate 24% of neutral water becomes a named
-   place rather than a gap. If the operator prefers to keep `open` unnamed, the
-   threshold drops to ~0.72 instead and the rationale must be recorded in
-   `VISUAL_INVARIANTS.md`.
-2. `observe-sequence.ts` caps overview area labels at two. N4 lifts it. That
-   cap was a composition rule for a smaller world; DOM label legibility and the
-   "must not cover the lighthouse, controls, or active detail panel" invariant
-   still bind, so N4 needs collision-aware placement, not just a bigger number.
+1. `garden-sea-regions.test.ts:36` asserts `namedShare > 0.85`. Per **D2** the
+   neutral water stays unnamed, so the threshold drops to **0.72** and
+   `VISUAL_INVARIANTS.md` records that deliberate open water is composition, not
+   an attribution gap.
+2. `observe-sequence.ts` caps overview area labels at two. Per **D6** the
+   carved boards carry overview naming, so **the cap stays** and this contract is
+   untouched. What must not lag is the accessible channel: N6 makes each board a
+   keyboard-reachable hit target and puts every named body in the accessibility
+   ledger.
 
-**Suggested order.** S (small, self-contained, fixes the reported bug) → L1/L2
-(two constants and a shader branch, recovers half the sea) → L3/L4 (colour and
-depth) → Z (the big one) → N (needs Z's shapes to place lettering) → L5–L8 and
-N5 polish.
+**Order (D8 — run straight through).** S (small, self-contained, fixes the
+reported bug) → L1/L2 (two constants and a shader branch, recovers half the sea)
+→ L3/L4 (colour and depth) → Z (the big one) → N (needs Z's shapes to site the
+boards) → L5–L8 polish.
 
 Verification per stage:
 
@@ -433,26 +478,14 @@ Verification per stage:
 | L1/L2 | `npm run preview -- --hash "#t=12&cam=0,0,0.3"` — no visible boundary; sample across the seam, ΔmeanLum < 2/255 |
 | L3/L4 | `npm run preview` at `t=12`, `t=18`, `t=22`; check the sea's G ≥ B at noon and the five depth bands are separable |
 | Z | `npm test -- src/systems`; new tile-share and density-spread test; re-run the fleet audit and confirm ships still land in their own zone |
-| N | `npm run test:visual`; `npm run preview` at overview and explore; accessibility-ledger parity |
+| N | `npm run test:visual`; `npm run preview` at overview and explore — every board legible at whole-map framing; accessibility-ledger parity; draw calls still inside the 700 ceiling |
 | all | `npm run validate:changed`, then `npm run validate:release` before claiming release confidence |
 
 ---
 
-## 9. Open questions for the operator
+## 9. Open questions
 
-1. **Pharos Roads.** Naming the 24% of neutral water is my recommendation
-   (§2.4/Z5). Confirm, or say you would rather it stay unnamed open sea and take
-   the guard change instead.
-2. **Calm's share.** I am proposing 30% rather than the 60% its traffic would
-   justify, on the grounds that a legible chart beats a literal one. Say if you
-   would rather Calm stay dominant.
-3. **Signage register.** The proposal is quiet antique-chart ink lying on the
-   water. The louder alternative is physical in-world signage — carved boards on
-   pilings, buoy nameplates. Quiet lettering is my recommendation; it scales to
-   seven bodies without cluttering the sea, and it is what makes a map feel like
-   a map.
-4. **Optional cartographic furniture** (compass rose, contour lines, N5) — in or
-   out?
+None. All eight were settled by the operator on 2026-07-25 — see §0.
 
 ---
 
