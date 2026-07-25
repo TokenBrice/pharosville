@@ -363,6 +363,8 @@ const GARDEN_SHIP_MAST_RAKE: Record<GardenHullSilhouette, number> = {
 interface GardenDeckProps {
   /** Stowed ship's boat, on chocks. */
   boat?: number;
+  /** W6: a boat towed astern on a painter — x of the transom it streams from. */
+  towedBoat?: number;
   /** Capstan drum. */
   capstan?: number;
   /** Netted deck cargo: columns along the keel × rows athwartships. */
@@ -373,12 +375,17 @@ interface GardenDeckProps {
 
 const GARDEN_SHIP_DECK_PROPS: Record<GardenHullSilhouette, GardenDeckProps> = {
   // Merchant hulls carry cargo on deck; the lean ones carry working gear.
-  galleon: { capstan: 1.6, cargo: { columns: 2, rows: 2, x: -1 }, hatches: [-0.4, 0.8] },
-  indiaman: { boat: 0.4, capstan: 2.2, cargo: { columns: 3, rows: 2, x: -1.6 }, hatches: [-0.6, 1.4] },
+  galleon: {
+    capstan: 1.6, cargo: { columns: 2, rows: 2, x: -1 }, hatches: [-0.4, 0.8], towedBoat: -3.65,
+  },
+  indiaman: {
+    boat: 0.4, capstan: 2.2, cargo: { columns: 3, rows: 2, x: -1.6 },
+    hatches: [-0.6, 1.4], towedBoat: -4.2,
+  },
   clipper: { capstan: 1.2, hatches: [0.2] },
   barque: { boat: -1.2, capstan: 1.8, hatches: [-0.3, 0.9] },
   schooner: { capstan: -0.2, hatches: [0.2] },
-  junk: { cargo: { columns: 2, rows: 2, x: -0.6 }, hatches: [0, 0.9] },
+  junk: { cargo: { columns: 2, rows: 2, x: -0.6 }, hatches: [0, 0.9], towedBoat: -3.3 },
   // The hoy IS its cargo: a single dense block amidships and nothing else.
   hoy: { capstan: 1.4, cargo: { columns: 2, rows: 2, x: 0.2 } },
 };
@@ -1494,6 +1501,28 @@ export function createFleetBatchGeometry(
       geometry: new BoxGeometry(0.95, 0.2, 0.34),
       tint: FLEET_BATCH_TINTS.gunwale,
       transform: transform().setPosition(props.boat, DECK_Y + 0.14, 0),
+    });
+  }
+  // W6: a boat towed astern on its painter. Rides at the waterline (ship-local
+  // y is 0.38 above the sea), so it bobs with the hull it trails. Merchant
+  // hulls only — a ship that works cargo keeps a boat in the water.
+  if (props.towedBoat !== undefined) {
+    const sternX = props.towedBoat;
+    parts.push({
+      geometry: new BoxGeometry(0.8, 0.22, 0.32),
+      tint: FLEET_BATCH_TINTS.gunwale,
+      transform: transform().setPosition(sternX - 1.15, -0.3, 0.16),
+    });
+    parts.push({
+      geometry: new BoxGeometry(0.62, 0.07, 0.2),
+      tint: FLEET_BATCH_TINTS.mast,
+      transform: transform().setPosition(sternX - 1.15, -0.19, 0.16),
+    });
+    // The painter itself, sloping down from the taffrail to the boat's stem.
+    parts.push({
+      geometry: new BoxGeometry(0.9, 0.035, 0.035),
+      tint: FLEET_BATCH_TINTS.mast,
+      transform: transform().makeRotationZ(0.5).setPosition(sternX - 0.4, 0.02, 0.16),
     });
   }
   if (props.cargo) {
