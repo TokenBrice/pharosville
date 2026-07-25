@@ -52,6 +52,13 @@ const MAST_TINT = new Color(0.52, 0.44, 0.36);
  * Atlas geometry (D3). A 16x16 grid of 128px cells in a 2048² canvas texture.
  * Cell 0 is the plain-canvas cell every non-identity sail samples.
  */
+/**
+ * Instance capacity for every fleet batch. Sized above the ~205-ship world
+ * (D1 raises the render cap to 320) so a data refresh never reallocates GPU
+ * buffers — batches are grow-only for the life of the renderer.
+ */
+export const GARDEN_FLEET_BATCH_CAPACITY = 320;
+
 export const FLEET_SAIL_ATLAS_COLUMNS = 16;
 export const FLEET_SAIL_ATLAS_CELLS = FLEET_SAIL_ATLAS_COLUMNS * FLEET_SAIL_ATLAS_COLUMNS;
 export const FLEET_SAIL_ATLAS_CELL_PX = 128;

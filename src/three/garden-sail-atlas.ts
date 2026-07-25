@@ -91,9 +91,7 @@ export function syncGardenSailAtlas(
   logos: ThreeLogoAssets,
 ): boolean {
   const generation = logos.getLogoGenerationKey();
-  const unchanged = atlas.logoGenerationKey === generation
-    && atlas.cellByShipId.size === Math.min(ships.length, FLEET_SAIL_ATLAS_CELLS - 1);
-  if (unchanged) return false;
+  if (atlas.logoGenerationKey === generation) return false;
   if (!atlas.texture) return false;
 
   const canvas = atlas.texture.image as HTMLCanvasElement;
@@ -101,11 +99,10 @@ export function syncGardenSailAtlas(
   if (!context) return false;
 
   atlas.logoGenerationKey = generation;
-  atlas.cellByShipId.clear();
 
-  let cell = 1;
   for (const ship of ships) {
-    if (cell >= FLEET_SAIL_ATLAS_CELLS) break;
+    const cell = atlas.cellByShipId.get(ship.detailId);
+    if (cell === undefined || cell === 0) continue;
     const sailCanvas = createGardenSailCanvas(ship, logos.getLogo(ship.logoSrc));
     if (!sailCanvas) continue;
     const origin = gardenSailAtlasCellOrigin(cell);
@@ -116,12 +113,33 @@ export function syncGardenSailAtlas(
       FLEET_SAIL_ATLAS_CELL_PX,
     );
     context.drawImage(sailCanvas, origin.x, origin.y);
-    atlas.cellByShipId.set(ship.detailId, cell);
-    cell += 1;
   }
 
   atlas.texture.needsUpdate = true;
   return true;
+}
+
+/**
+ * Assigns each ship a stable atlas cell, in slice order, without painting.
+ *
+ * Split from the paint pass because world content is built before the logo
+ * store is reachable: cells must exist at construction time (the batch's
+ * per-instance `aAtlasCell`), while painting waits for logos to resolve.
+ * Ships past the 255 usable slots keep cell 0 and fall back to the plain
+ * canvas plus livery/pennant identity.
+ */
+export function assignGardenSailAtlasCells(
+  atlas: GardenSailAtlas,
+  ships: readonly ShipNode[],
+): void {
+  atlas.cellByShipId.clear();
+  atlas.logoGenerationKey = null;
+  let cell = 1;
+  for (const ship of ships) {
+    if (cell >= FLEET_SAIL_ATLAS_CELLS) break;
+    atlas.cellByShipId.set(ship.detailId, cell);
+    cell += 1;
+  }
 }
 
 /** Cell for a ship, or 0 (plain canvas) when it did not fit the atlas. */

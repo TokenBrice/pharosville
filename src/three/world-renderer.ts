@@ -96,9 +96,13 @@ import {
 } from "./garden-summit-birds";
 import {
   attachGardenHeroModel,
+  createBatchedShip,
+  createFleetBatchGeometry,
   createFleetLanterns,
+  createPennantGeometry,
   createShip,
   createShipShadows,
+  gardenShipUsesHeroModel,
   syncShipRippleRings,
   syncShipSailTextures,
   updateFleetLanterns,
@@ -106,6 +110,23 @@ import {
   type FleetLanterns,
   type ShipVisual,
 } from "./garden-ships";
+import {
+  beginFleetFrame,
+  createFleetBatches,
+  disposeFleetBatches,
+  endFleetFrame,
+  fleetDrawCallCount,
+  GARDEN_FLEET_BATCH_CAPACITY,
+  writeFleetInstance,
+  type FleetBatches,
+} from "./garden-fleet-batch";
+import {
+  assignGardenSailAtlasCells,
+  createGardenSailAtlas,
+  gardenSailAtlasCell,
+  syncGardenSailAtlas,
+  type GardenSailAtlas,
+} from "./garden-sail-atlas";
 import {
   countDrawableObjects,
   disposeThreeObjectTree,
@@ -307,6 +328,7 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
             ? count + 1
             : count
         ), 0) ?? 0,
+        fleetDrawCallCount: content ? fleetDrawCallCount(content.fleetBatches) : 0,
         rendererBackend: "three",
         schedulerTier: frame.renderScheduler.tier,
         visibleShipCount: content?.visibleShipCount ?? 0,
@@ -346,7 +368,11 @@ interface GardenContent {
   docks: DockVisual[];
   objectCount: number;
   entityCues: Map<string, EntityCue>;
+  /** W1: the shared instanced fleet. Drawn instead of per-ship meshes. */
+  fleetBatches: FleetBatches;
   fleetLanterns: FleetLanterns;
+  fleetSailMaterial: MeshStandardMaterial | null;
+  sailAtlas: GardenSailAtlas;
   harborLanternMaterial: MeshStandardMaterial;
   fireflies: GardenFireflies;
   gullFlock: GardenGullFlock;
@@ -491,6 +517,11 @@ function replaceWorldContent(
   if (scene.content) {
     scene.lighthouseModel?.removeFromParent();
     scene.root.remove(scene.content.root);
+    // W1: the batches own merged geometry and the atlas texture, neither of
+    // which the generic tree walk should double-dispose — release them
+    // explicitly first, then let the walk take the rest of the content.
+    disposeFleetBatches(scene.content.fleetBatches);
+    scene.content.sailAtlas.dispose();
     disposeThreeObjectTree(scene.content.root);
   }
   scene.content = createWorldContent(world, selectedDetailId, scene.water.cloudShadows);
@@ -784,12 +815,46 @@ function createWorldContent(
       transparent: true,
     }),
   };
+  // W1 (decision D2): the fleet splits in two. Hero ships (titans and uniques,
+  // ~18 of ~205) keep their own scene graph because a bespoke GLB hull, the
+  // grade shield and the identity sail all need real meshes — they are also
+  // the ships the eye actually lands on. Everything else is drawn from the
+  // shared instanced batches at 9 draw calls total, however many there are.
+  const sailAtlas = createGardenSailAtlas();
+  // Cells are assigned now (the batch needs them at construction); the paint
+  // pass runs from the frame loop once logos resolve.
+  assignGardenSailAtlasCells(sailAtlas, slice.ships.map(({ ship }) => ship));
+
   const ships = slice.ships.map(({ displayOffset, representative, ship }) => (
-    createShip(ship, displayOffset, representative, shipGeometryCache)
+    gardenShipUsesHeroModel(ship)
+      ? createShip(ship, displayOffset, representative, shipGeometryCache)
+      : createBatchedShip(
+          ship,
+          displayOffset,
+          representative,
+          shipGeometryCache,
+          gardenSailAtlasCell(sailAtlas, ship),
+        )
   ));
+
+  const fleetBatches = createFleetBatches({
+    cache: shipGeometryCache,
+    // Grow-only capacity with headroom over the ~205-ship world, so a data
+    // refresh never reallocates instance buffers (D1).
+    capacity: GARDEN_FLEET_BATCH_CAPACITY,
+    geometryFor: (silhouette) => createFleetBatchGeometry(silhouette),
+    pennantGeometry: createPennantGeometry(),
+    sailTexture: sailAtlas.texture,
+    silhouettes: ["galleon", "clipper", "schooner", "junk"],
+  });
+  root.add(fleetBatches.root);
+
   const shipShadows = createShipShadows(ships.length);
   root.add(shipShadows);
   for (const ship of ships) {
+    // Batched roots carry no drawable children — they exist so entity cues,
+    // follow-selected, the wake and the lane registry keep the same anchor
+    // they had when every ship owned its meshes.
     root.add(ship.root);
     entityCues.set(ship.ship.detailId, {
       radius: ship.selectionRadius,
@@ -827,8 +892,11 @@ function createWorldContent(
     objectCount,
     entityCues,
     fireflies,
+    fleetBatches,
     fleetLanterns,
+    fleetSailMaterial: fleetBatches.materials[1] ?? null,
     gullFlock,
+    sailAtlas,
     harborLanternMaterial: harborLanterns.lightMaterial,
     lighthouseLight: island.lighthouseLight,
     lighthouseRoot: island.lighthouseRoot,
@@ -1051,6 +1119,16 @@ function updateSceneForFrame(
       || visual.dock.detailId === frame.selectedDetailId;
   }
 
+  // W1: the batched fleet is restamped from scratch each frame. Counts reset
+  // here, poses are written in the ship loop, and every touched buffer is
+  // flushed once at the end — one upload per buffer, not one per ship.
+  beginFleetFrame(content.fleetBatches);
+  syncGardenSailAtlas(
+    content.sailAtlas,
+    content.ships.map((visual) => visual.ship),
+    frame.logos,
+  );
+
   let visibleShipCount = 0;
   for (const [index, visual] of content.ships.entries()) {
     const sample = frame.shipMotionSamples.get(visual.ship.id);
@@ -1116,7 +1194,26 @@ function updateSceneForFrame(
       visual.root.position.z + 1.45,
     );
     content.shipShadows.setMatrixAt(index, scratchMatrix);
+
+    // The ship's transform is final for this frame — hand it to the batch.
+    // Hero ships skip this: they carry their own meshes under `root`.
+    if (visual.batched) {
+      writeFleetInstance(content.fleetBatches, {
+        atlasCell: visual.atlasCell,
+        headingAngle: visual.root.rotation.y,
+        heel: visual.root.rotation.z,
+        hullColor: visual.hullColor,
+        pennantColor: visual.pennantColor,
+        pitch: visual.root.rotation.x,
+        scale: visual.root.scale.x,
+        silhouette: visual.silhouette,
+        x: visual.root.position.x,
+        y: visual.root.position.y,
+        z: visual.root.position.z,
+      });
+    }
   }
+  endFleetFrame(content.fleetBatches);
   content.shipShadows.instanceMatrix.needsUpdate = true;
   content.visibleShipCount = visibleShipCount;
 

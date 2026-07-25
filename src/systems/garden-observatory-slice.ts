@@ -14,7 +14,16 @@ import type {
   ShipNode,
 } from "./world-types";
 
-export const GARDEN_OVERVIEW_SHIP_LIMIT = 20;
+// D1 (Grand Scale Revamp, 2026-07-25): the cap becomes a CAPACITY, not a
+// composition rule. It was 20 because the per-ship scene graph cost ~14 draw
+// calls each (finding F3: 28.1 ms of JS submission at 187 ships); W1 replaced
+// that with instanced batches at 9 draw calls for the whole fleet, so the
+// number of ships no longer decides what the frame can afford.
+//
+// 320 is capacity headroom over the ~205-ship world, matching
+// GARDEN_FLEET_BATCH_CAPACITY so the batches never reallocate. Composition is
+// now enforced by region-scoped placement density, not by a small count.
+export const GARDEN_OVERVIEW_SHIP_LIMIT = 320;
 export const GARDEN_WATER_Y = -1.45;
 export const GARDEN_DOCK_ROOT_Y = GARDEN_WATER_Y + 0.2;
 export const GARDEN_SHIP_ROOT_Y = GARDEN_WATER_Y + 0.38;

@@ -86,9 +86,19 @@ export {
 } from "../systems/garden-observatory-slice";
 
 export interface ShipVisual {
+  /** Sail-atlas cell (D3). 0 = the shared plain canvas. Batched ships only. */
+  atlasCell: number;
+  /**
+   * W1: true when this ship is drawn from the shared `FleetBatches` instances
+   * rather than its own meshes. Batched ships carry no hull/sail/pennant mesh;
+   * `root` is a transform carrier with no drawable children.
+   */
+  batched: boolean;
   bobPhase: number;
   displayOffset: { x: number; y: number };
   fineDetail: Group;
+  /** Livery multiplier written to the hull batch's instanceColor. */
+  hullColor: Color;
   /** Hero GLB hull to attach for titans/uniques (null for the procedural fleet). */
   heroModelId: GardenModelId | null;
   /** Procedural hull/rig parts hidden once a hero GLB attaches (identity sail stays). */
@@ -97,7 +107,8 @@ export interface ShipVisual {
   heroHullTint: Color;
   /** The logo sail mesh, repositioned onto the hero main mast when a GLB attaches. */
   identitySail: Mesh | null;
-  identitySailMaterial: MeshStandardMaterial;
+  /** Null for batched ships — their sail shades from the shared atlas material. */
+  identitySailMaterial: MeshStandardMaterial | null;
   /** Lantern hang points in ship-local space (stern / bow+stern / a string). */
   lanternPoints: readonly Vector3[];
   /** Warm-lane intensity this ship lays on the sea (by fleet tier). */
@@ -105,8 +116,14 @@ export interface ShipVisual {
   /** Slowed bob envelope for larger hulls (D7 motion hierarchy). */
   motionAmplitudeScale: number;
   motionPeriodScale: number;
-  /** Masthead pennant — the ship's ONE livery accent; flutters with the wind (S8). */
-  pennant: Mesh;
+  /**
+   * Masthead pennant — the ship's ONE livery accent; flutters with the wind
+   * (S8). Null for batched ships, whose pennant is an instance in the shared
+   * pennant batch.
+   */
+  pennant: Mesh | null;
+  /** Accent written to the pennant batch's instanceColor. */
+  pennantColor: Color;
   /** Previous heading angle, for heel-into-turn (null until first moving frame). */
   prevHeadingAngle: number | null;
   representative: boolean;
@@ -114,6 +131,8 @@ export interface ShipVisual {
   sampleState: string;
   selectionRadius: number;
   ship: ShipNode;
+  /** Which silhouette batch this ship belongs to. */
+  silhouette: GardenHullSilhouette;
   /** Deterministic phase offset for lantern pendulum sway. */
   swaySeed: number;
   tier: ShipFleetTier;
@@ -245,6 +264,15 @@ function shipFleetTier(ship: ShipNode): ShipFleetTier {
  * titans the three-master, uniques the elegant heritage two-master. Everything
  * else keeps the procedural fleet hull.
  */
+/**
+ * W1: true when a ship keeps its own scene graph (bespoke hero GLB hull,
+ * grade shield, per-ship identity sail) rather than joining the instanced
+ * batches. Titans and uniques only — ~18 of the ~205-ship world.
+ */
+export function gardenShipUsesHeroModel(ship: ShipNode): boolean {
+  return shipHeroModelId(ship) !== null;
+}
+
 function shipHeroModelId(ship: ShipNode): GardenModelId | null {
   if (ship.visual.sizeTier === "titan") return "garden-hero-titan";
   if (ship.visual.sizeTier === "unique") return "garden-hero-heritage";
@@ -268,6 +296,90 @@ const FLEET_TIER_LANE_INTENSITY: Record<ShipFleetTier, number> = {
   heritage: 0.45,
   standard: 0.3,
 };
+
+/**
+ * W1 (decision D2): the batched counterpart to `createShip`.
+ *
+ * Builds only the transform carrier and the per-ship metadata every consumer
+ * needs (lane registry, shadows, ripple rings, selection cues, hit testing) —
+ * NO hull, deck, mast, sail, cabin or pennant meshes. Those live in the shared
+ * `FleetBatches` instances and are stamped from `root`'s transform each frame.
+ *
+ * `root` is a real `Group` and still receives the full per-frame transform, but
+ * carries no drawable children, so it contributes zero draw calls. Keeping it
+ * an `Object3D` (rather than a bare struct) is deliberate: `entityCues`,
+ * follow-selected and the wake all attach to it exactly as before.
+ */
+export function createBatchedShip(
+  ship: ShipNode,
+  displayOffset: { x: number; y: number },
+  representative: boolean,
+  cache: GardenShipGeometryCache,
+  atlasCell: number,
+): ShipVisual {
+  const root = new Group();
+  const fineDetail = new Group();
+  fineDetail.name = "ship-fine-detail";
+  root.add(fineDetail);
+  setTilePosition(root, ship.tile, GARDEN_SHIP_ROOT_Y);
+  root.scale.setScalar(gardenShipVisualScale(ship.visual.scale || 1));
+
+  const tier = shipFleetTier(ship);
+  const motion = FLEET_TIER_MOTION[tier];
+  const wake = createWake(cache);
+  root.add(wake.root);
+
+  return {
+    atlasCell,
+    batched: true,
+    bobPhase: stableUnit(ship.id) * Math.PI * 2,
+    displayOffset,
+    fineDetail,
+    heroHideable: [],
+    heroHullTint: new Color("#ffffff"),
+    heroModelId: null,
+    hullColor: batchedHullColor(ship),
+    identitySail: null,
+    identitySailMaterial: null,
+    lanternPoints: lanternPointsForTier(tier),
+    laneIntensity: FLEET_TIER_LANE_INTENSITY[tier],
+    motionAmplitudeScale: motion.amplitude,
+    motionPeriodScale: motion.period,
+    pennant: null,
+    pennantColor: batchedPennantColor(ship),
+    prevHeadingAngle: null,
+    representative,
+    root,
+    sampleState: "idle",
+    selectionRadius: gardenShipSelectionRadius(ship),
+    ship,
+    silhouette: SILHOUETTE_FOR_HULL[ship.visual.hull],
+    swaySeed: stableUnit(`${ship.id}.sway`) * Math.PI * 2,
+    tier,
+    wake: wake.root,
+    wakeDetail: wake.detail,
+  };
+}
+
+/**
+ * The livery multiplier the hull batch's `instanceColor` carries. Matches the
+ * S4 color blocking `createShip` applies to its hull material, so a batched
+ * ship and a hero ship of the same livery read identically.
+ */
+function batchedHullColor(ship: ShipNode): Color {
+  return new Color(HARBOR_PALETTE.timber_dark).lerp(
+    new Color(safeCssColor(ship.visual.livery?.primary, HARBOR_PALETTE.timber_warm)),
+    0.32,
+  );
+}
+
+/** The ship's ONE livery accent, carried on the masthead pennant (S4/S8). */
+function batchedPennantColor(ship: ShipNode): Color {
+  return new Color(HARBOR_PALETTE.timber_warm).lerp(
+    new Color(safeCssColor(ship.visual.livery?.accent, GARDEN_COLORS.roof)),
+    0.78,
+  );
+}
 
 export function createShip(
   ship: ShipNode,
@@ -639,12 +751,15 @@ export function createShip(
     0.3,
   );
   return {
+    atlasCell: 0,
+    batched: false,
     bobPhase: stableUnit(ship.id) * Math.PI * 2,
     displayOffset,
     fineDetail,
     heroHideable,
     heroHullTint,
     heroModelId,
+    hullColor,
     identitySail: identitySailMesh,
     identitySailMaterial,
     lanternPoints: lanternPointsForTier(tier),
@@ -652,12 +767,14 @@ export function createShip(
     motionAmplitudeScale: motion.amplitude,
     motionPeriodScale: motion.period,
     pennant: flag,
+    pennantColor: accentColor,
     prevHeadingAngle: null,
     representative,
     root,
     sampleState: "idle",
     selectionRadius: gardenShipSelectionRadius(ship),
     ship,
+    silhouette,
     swaySeed: stableUnit(`${ship.id}.sway`) * Math.PI * 2,
     tier,
     wake: wake.root,
@@ -711,7 +828,10 @@ export function syncShipSailTextures(
   content.logoGenerationKey = generation;
 
   for (const visual of content.ships) {
+    // Batched ships shade from the shared sail-atlas material; only hero
+    // ships still own a per-ship identity sail texture (W1 / D3).
     const material = visual.identitySailMaterial;
+    if (!material) continue;
     const previousTexture = material.map;
     material.map = createGardenSailTexture(
       visual.ship,
@@ -871,7 +991,10 @@ export function updateShipPennants(
   reducedMotion: boolean,
 ): void {
   for (const visual of ships) {
+    // Batched pennants are instances stamped from the ship transform; they
+    // inherit the hull's pose and need no per-mesh flutter (W1 / D2).
     const pennant = visual.pennant;
+    if (!pennant) continue;
     if (reducedMotion) {
       pennant.rotation.y = 0;
       pennant.scale.x = 1;
@@ -1393,7 +1516,7 @@ function riggingPoints(
   return points;
 }
 
-function createPennantGeometry(): ShapeGeometry {
+export function createPennantGeometry(): ShapeGeometry {
   const shape = new Shape();
   shape.moveTo(0, 0);
   shape.lineTo(0.68, -0.16);

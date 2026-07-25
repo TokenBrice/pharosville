@@ -160,13 +160,15 @@ interface DayCycleContent {
   };
   beaconHalo: Mesh<SphereGeometry, MeshBasicMaterial>;
   beam: Group;
+  /** Shared sail material for the batched fleet (W1); null before batches exist. */
+  fleetSailMaterial: MeshStandardMaterial | null;
   harborLanternMaterial: MeshStandardMaterial;
   lighthouseLight: PointLight;
   rayFan: Mesh<BufferGeometry, ShaderMaterial> | null;
   shipLanternGlowMaterial: MeshBasicMaterial;
   shipLanternMaterial: MeshStandardMaterial;
   shipShadows: InstancedMesh<CircleGeometry, MeshBasicMaterial>;
-  ships: ReadonlyArray<{ identitySailMaterial: MeshStandardMaterial }>;
+  ships: ReadonlyArray<{ identitySailMaterial: MeshStandardMaterial | null }>;
   // W7 statue gleam: bronze-gilt materials (procedural shell or the cloned
   // GLB set) lifted warm at dusk.
   statueGleamMaterials: readonly MeshStandardMaterial[];
@@ -252,8 +254,15 @@ export function updateDayCycle(
   // to gold, not white pinpricks.
   scene.content.shipLanternMaterial.emissiveIntensity = 0.05 + dusk * 0.85 + night * 1.9;
   scene.content.shipLanternGlowMaterial.opacity = dusk * 0.28 + night * 0.68;
+  const sailEmissive = 0.16 + dusk * 0.14 + night * 0.62;
+  // The batched fleet shares ONE sail material, so the night backlight is a
+  // single write instead of one per ship (W1 / D2).
+  if (scene.content.fleetSailMaterial) {
+    scene.content.fleetSailMaterial.emissiveIntensity = sailEmissive;
+  }
   for (const ship of scene.content.ships) {
-    ship.identitySailMaterial.emissiveIntensity = 0.16 + dusk * 0.14 + night * 0.62;
+    if (!ship.identitySailMaterial) continue;
+    ship.identitySailMaterial.emissiveIntensity = sailEmissive;
   }
   // Beam intensity curves. World-renderer owns which piece is visible per tier;
   // here we set opacity and freeze uTime under reduced motion.

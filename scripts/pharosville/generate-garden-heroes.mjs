@@ -48,11 +48,28 @@ const HULL_RING_H = [0, 0.16, 0.38, 0.6, 0.78, 0.89, 1];
 
 installFileReader();
 
-const summaries = [];
-for (const model of [
+// W5.1 / decision D4: ten distinct hero hulls carry the 24 largest
+// stablecoins. `garden-hero-titan` (treasury galleon) and
+// `garden-hero-heritage` (tea clipper) keep their ids because the runtime
+// fallback contract already names them; the other eight are new. Each hull is
+// recognisable by silhouette alone — sheer, rig plan, castles and stern
+// gallery all differ — so identity survives at overview zoom where livery
+// colour is a few pixels wide.
+const HERO_MODELS = [
   { build: buildTitan, id: "garden-hero-titan" },
   { build: buildHeritage, id: "garden-hero-heritage" },
-]) {
+  { build: buildCarrack, id: "garden-hero-carrack" },
+  { build: buildBrigantine, id: "garden-hero-brigantine" },
+  { build: buildDhow, id: "garden-hero-dhow" },
+  { build: buildJunk, id: "garden-hero-junk" },
+  { build: buildBarquentine, id: "garden-hero-barquentine" },
+  { build: buildCog, id: "garden-hero-cog" },
+  { build: buildXebec, id: "garden-hero-xebec" },
+  { build: buildCutter, id: "garden-hero-cutter" },
+];
+
+const summaries = [];
+for (const model of HERO_MODELS) {
   const { root, summary } = model.build();
   const scene = new Scene();
   scene.name = `${model.id}-scene`;
@@ -89,6 +106,7 @@ for (const model of [
   summaries.push({
     id: model.id,
     anchors: summary.anchors,
+    bounds: summary.boundsY,
     bytes: bytes.byteLength,
     dimensions: summary.dimensions,
     drawCalls: summary.drawCalls,
@@ -486,6 +504,7 @@ function createBuilder(assetId) {
         summary: {
           anchors,
           bounds,
+          boundsY: { max: round(bounds.max.y), min: round(bounds.min.y) },
           dimensions: { x: round(size.x), y: round(size.y), z: round(size.z) },
           drawCalls: root.children.filter((child) => child instanceof Mesh).length,
           materials: [...geometryByMaterial].filter(([, g]) => g.length > 0).length,
@@ -504,12 +523,14 @@ function createBuilder(assetId) {
  */
 function hullStations({
   bowSharpness = 1.6,
+  bowTrim = 0.985,
   bowX,
   count,
   deckMid,
   deckRiseBow,
   deckRiseStern,
   keelDepth,
+  keelFlatness = 0,
   maxBeam,
   sternX,
   transomFraction,
@@ -523,13 +544,18 @@ function hullStations({
     // to the stem (higher sharpness = finer clipper entry).
     const midFullness = 0.62 + 0.38 * Math.sin(Math.PI * smoothstep(0.02, 0.98, t));
     const sternFill = transomFraction + (1 - transomFraction) * smoothstep(0, 0.2, t);
-    const bowTaper = 1 - Math.pow(smoothstep(0.66, 1, t), bowSharpness) * 0.985;
+    const bowTaper = 1 - Math.pow(smoothstep(0.66, 1, t), bowSharpness) * bowTrim;
     const waterBeam = maxBeam * midFullness * sternFill * bowTaper;
     // Curved sheer: deck rises fore and aft, the bow lifted slightly more.
     const deckY = deckMid
       + deckRiseStern * Math.pow(1 - t, 2.2)
       + deckRiseBow * Math.pow(t, 2.4);
-    const keelY = -keelDepth * (0.3 + 0.7 * Math.sin(Math.PI * Math.pow(smoothstep(0, 1, t), 0.85)));
+    // Keel plan: a rounded arc for the deep-water hulls, or (keelFlatness -> 1)
+    // a flat bottom with sharply rising ends — the cog / junk shallow-draught
+    // profile that reads as a completely different vessel from the waterline.
+    const keelArc = 0.3 + 0.7 * Math.sin(Math.PI * Math.pow(smoothstep(0, 1, t), 0.85));
+    const keelFlat = smoothstep(0, 0.2, t) * smoothstep(1, 0.8, t);
+    const keelY = -keelDepth * (keelArc + (keelFlat - keelArc) * keelFlatness);
     const tumble = tumbleAft + (tumbleBow - tumbleAft) * t;
     stations.push({
       deckBeam: Math.max(0.02, waterBeam * tumble),
@@ -708,7 +734,7 @@ function addFigurehead(add, origin) {
  * Two-part mast with a top platform: lower mast + slimmer topmast, slight
  * rake (rotation z, negative leans aft). Returns the masthead height.
  */
-function addMast(add, x, baseY, topY, rake) {
+function addMast(add, x, baseY, topY, rake, { platform = true } = {}) {
   const lowerTop = baseY + (topY - baseY) * 0.62;
   add("spar", new CylinderGeometry(0.09, 0.14, lowerTop - baseY, 7), {
     position: [x, (baseY + lowerTop) / 2, 0],
@@ -718,10 +744,13 @@ function addMast(add, x, baseY, topY, rake) {
     position: [x + rake * (topY - lowerTop) * 0.5, (lowerTop + topY) / 2 - 0.1, 0],
     rotation: [0, 0, rake],
   });
-  // Mast top platform (crow's nest disc).
-  add("spar", new CylinderGeometry(0.3, 0.22, 0.12, 7), {
-    position: [x + rake * (lowerTop - baseY) * 0.5, lowerTop + 0.05, 0],
-  });
+  // Mast top platform (crow's nest disc). Unstayed pole masts — the junk and
+  // the dhow — carry no top, so the option exists.
+  if (platform) {
+    add("spar", new CylinderGeometry(0.3, 0.22, 0.12, 7), {
+      position: [x + rake * (lowerTop - baseY) * 0.5, lowerTop + 0.05, 0],
+    });
+  }
 }
 
 /**
@@ -788,6 +817,88 @@ function triangleSailGeometry(a, b, clew, billow) {
       sz + (clew[2] - sz) * spread + bow,
     ];
   });
+}
+
+/**
+ * Four-corner (fore-and-aft) sail as an indexed bilinear patch between tack,
+ * clew, throat and peak, billowed toward +z. This is the quadrilateral cousin
+ * of `triangleSailGeometry` and carries every gaff and lug sail in the fleet.
+ */
+function quadSailGeometry(corners, billow, cols = 7, rows = 5) {
+  const { clew, peak, tack, throat } = corners;
+  return gridGeometry(cols, rows, (i, j) => {
+    const u = i / (cols - 1);
+    const v = j / (rows - 1);
+    const bow = Math.sin(u * Math.PI) * Math.sin(v * Math.PI) * billow;
+    const point = [0, 1, 2].map((axis) => {
+      const foot = tack[axis] + (clew[axis] - tack[axis]) * u;
+      const head = throat[axis] + (peak[axis] - throat[axis]) * u;
+      return foot + (head - foot) * v;
+    });
+    point[2] += bow;
+    return point;
+  });
+}
+
+/**
+ * Gaff rig: boom along the foot, gaff spar peaked aft along the head, and the
+ * bellied quadrilateral sail between them. The fore-and-aft signature that
+ * separates the brigantine / barquentine / cutter from the square-riggers.
+ */
+function addGaffSail(add, { billow, boomAft, boomY, gaffAft, gaffY, mastX, peakRise }) {
+  const tack = [mastX - 0.1, boomY, 0];
+  const clew = [mastX - boomAft, boomY + 0.14, 0];
+  const throat = [mastX - 0.08, gaffY, 0];
+  const peak = [mastX - gaffAft, gaffY + peakRise, 0];
+  addStay(add, tack, clew, 0.055);
+  addStay(add, throat, peak, 0.05);
+  add("sail", quadSailGeometry({ clew, peak, tack, throat }, billow));
+}
+
+/**
+ * Battened lug sail: the junk's signature. A near-rectangular panel that
+ * carries a small balance area forward of its unstayed mast, stiffened by
+ * horizontal batten spars that read as hard banding even at overview zoom.
+ */
+function addBattenedLug(add, { aft, battens, billow, footY, forward, mastX, topY }) {
+  const tack = [mastX + forward * 0.55, footY, 0];
+  const clew = [mastX - aft, footY + 0.3, 0];
+  const throat = [mastX + forward, topY - 0.12, 0];
+  const peak = [mastX - aft * 0.94, topY + 0.34, 0];
+  add("sail", quadSailGeometry({ clew, peak, tack, throat }, billow, 7, battens + 1));
+  for (let index = 0; index <= battens; index += 1) {
+    const v = index / battens;
+    const from = [0, 1, 2].map((axis) => tack[axis] + (throat[axis] - tack[axis]) * v);
+    const to = [0, 1, 2].map((axis) => clew[axis] + (peak[axis] - clew[axis]) * v);
+    addStay(add, from, to, 0.045);
+  }
+}
+
+/**
+ * Bare yard and boom framing the open identity-sail slot. The runtime hangs
+ * the procedural logo sail on the `masthead` anchor; these two spars give it a
+ * rig to belong to on hulls whose own canvas would otherwise fill the slot.
+ */
+function addIdentityFrame(add, mastX, footY, headY, halfWidth) {
+  add("spar", new BoxGeometry(halfWidth * 2.1, 0.1, 0.1), {
+    position: [mastX - halfWidth * 0.08, headY, 0],
+  });
+  add("spar", new BoxGeometry(halfWidth * 1.9, 0.09, 0.09), {
+    position: [mastX - halfWidth * 0.1, footY, 0],
+  });
+}
+
+/** Crenellated rail caps along a castle roof — the cog's fighting platform. */
+function addCrenels(add, x0, x1, y, halfBeam, count) {
+  for (const side of [-1, 1]) {
+    for (let index = 0; index < count; index += 1) {
+      const t = count === 1 ? 0.5 : index / (count - 1);
+      add("wood", new BoxGeometry(0.24, 0.3, 0.14), {
+        position: [x0 + (x1 - x0) * t, y + 0.15, side * halfBeam],
+        tone: WOOD_TRIM,
+      });
+    }
+  }
 }
 
 /** Furled sail: yard plus a slim bundled cylinder of canvas along it. */

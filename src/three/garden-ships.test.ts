@@ -270,12 +270,15 @@ describe("S3 sparse rigging", () => {
 describe("S8 pennant flutter", () => {
   it("flutters underway and freezes flat under reduced motion", () => {
     const visual = build(ship("s8", "treasury-galleon", "major"));
-    expect(visual.pennant).toBeInstanceOf(Mesh);
+    const pennant = visual.pennant;
+    // Hero ships keep their own pennant mesh; batched ships stamp an
+    // instance instead and have none (W1 / D2).
+    expect(pennant).toBeInstanceOf(Mesh);
     updateShipPennants([visual], 1.35, false);
-    expect(visual.pennant.rotation.y).not.toBe(0);
+    expect(pennant!.rotation.y).not.toBe(0);
     updateShipPennants([visual], 1.35, true);
-    expect(visual.pennant.rotation.y).toBe(0);
-    expect(visual.pennant.scale.x).toBe(1);
+    expect(pennant!.rotation.y).toBe(0);
+    expect(pennant!.scale.x).toBe(1);
   });
 });
 

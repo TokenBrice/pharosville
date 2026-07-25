@@ -14,6 +14,8 @@ export interface PharosVilleRenderMetrics {
   activeLaneCount?: number;
   bucketFlipCount?: number;
   composerEnabled?: boolean;
+  /** W1 evidence: draw calls the instanced fleet contributes, whatever its size. */
+  fleetDrawCallCount?: number;
   objectCount: number;
   postPassList?: readonly string[];
   shadowMapSize?: number;
