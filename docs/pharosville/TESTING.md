@@ -91,6 +91,22 @@ The same scene, same machine, measured 2026-07-25:
 | effective fps | 20–43 | 59 (vsync-capped) |
 | scheduler tier | `recovery` → `constrained` | `full` |
 
+**Correction (2026-07-25, measured):** the fallback is a FLAG choice, not a
+limitation of the bundled browser. Launched with `--ignore-gpu-blocklist
+--enable-gpu --use-angle=vulkan --use-cmd-decoder=passthrough`, the same bundled
+Chromium reports `ANGLE (NVIDIA, Vulkan 1.4.341, RTX 5070 Ti)`. The correctness
+lane now asks for those flags outside CI (see `shouldUseHardwareGpu` in
+`tests/helpers/playwright-config.ts`, overridable with
+`PHAROSVILLE_VISUAL_GPU=0|1`), because at ~2fps the lane is not merely slow — it
+is wrong: multi-second long tasks time out clicks and trip the world's error
+boundary, so the merge gates fail for reasons unrelated to the code under test.
+The gates went from 5.8 minutes with two failures to 48 seconds all-green.
+
+None of that changes the rule below. `npm run preview` remains the only way to
+judge look or frame time, because it goes through the operator's own
+`chrome-flags.conf` and therefore their real conditions; a Playwright browser
+with GPU flags is merely no longer crippled.
+
 A software frame looks approximately right and reports fiction, which is the
 worst combination: it invites tuning the renderer against a bottleneck that does
 not exist. Use:

@@ -74,7 +74,7 @@ npm run agent:plan:new -- <slug>
 
 - Exposing `PHAROS_API_KEY` through client code, docs, fixtures, or logs.
 - Treating old `agents/*plan*.md` files as authoritative over current code and route docs.
-- Judging the render or the frame time through a Playwright browser: it is SwiftShader (CPU), not the GPU. Use `npm run preview`.
+- Judging the render or the frame time through a Playwright browser. Use `npm run preview` — it goes through the operator's own Chrome flags. (The correctness lane asks the bundled browser for hardware rendering outside CI so the gates can run at all; that does not make its frame times quotable.)
 - Looking for committed screenshot baselines to regenerate. There are none — the visual lane asserts DOM state and telemetry, so a renderer change cannot put it in debt.
 - Gating any viewport decision on `(orientation: portrait)`. It is a viewport aspect test, not a device test.
 - Treating a changelog entry, `main` deploy, local tag, or manual GitHub Release as the complete versioned release path.

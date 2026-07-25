@@ -20,6 +20,45 @@ const browserDeviceProfiles = {
 
 type AllowedBrowser = keyof typeof browserDeviceProfiles;
 
+/**
+ * Hardware rendering for the local visual lane.
+ *
+ * Playwright's bundled Chromium falls back to SwiftShader with DEFAULT flags —
+ * that part of the documented warning is exact. What it does not say is that
+ * the fallback is a flag choice, not a limitation: the same bundled browser
+ * reports `ANGLE (NVIDIA, Vulkan 1.4.341, RTX 5070 Ti)` when asked for the GPU.
+ *
+ * That matters because SwiftShader draws this scene at about 2fps, and the
+ * lane is not merely slow at that rate — it is WRONG. Multi-second long tasks
+ * time out clicks and trip the world's error boundary, so the operator's own
+ * merge gates fail locally for reasons that have nothing to do with the code
+ * under test.
+ *
+ * This does NOT reopen the rule it sits next to: look and frame time are still
+ * judged with `npm run preview`, which goes through the operator's own
+ * `chrome-flags.conf` and therefore their real conditions. This only stops the
+ * correctness lane from being crippled.
+ *
+ * Off under CI, whose runners have no GPU to ask for, and overridable either
+ * way with `PHAROSVILLE_VISUAL_GPU`.
+ */
+const HARDWARE_GPU_ARGS = [
+  "--ignore-gpu-blocklist",
+  "--enable-gpu",
+  "--use-angle=vulkan",
+  "--use-cmd-decoder=passthrough",
+];
+
+export function shouldUseHardwareGpu() {
+  if (process.env.PHAROSVILLE_VISUAL_GPU === "1") return true;
+  if (process.env.PHAROSVILLE_VISUAL_GPU === "0") return false;
+  return !process.env.CI;
+}
+
+export function hardwareGpuLaunchArgs(browser: string): string[] {
+  return browser === "chromium" && shouldUseHardwareGpu() ? [...HARDWARE_GPU_ARGS] : [];
+}
+
 export function shouldReuseExistingServer() {
   if (process.env.PHAROSVILLE_VISUAL_REUSE === "1") return true;
   if (process.env.PHAROSVILLE_VISUAL_REUSE === "0") return false;
@@ -41,19 +80,24 @@ export function parseBrowserSelection() {
 }
 
 export function buildBrowserProjects(base: PharosvilleProjectUse) {
-  return parseBrowserSelection().map((browser) => ({
-    name: `desktop-${browser}`,
-    use: {
-      ...browserDeviceProfiles[browser],
-      baseURL: base.baseURL,
-      contextOptions: base.contextOptions,
-      viewport: base.viewport,
-      trace: base.trace,
-    },
-  }));
+  return parseBrowserSelection().map((browser) => {
+    const args = hardwareGpuLaunchArgs(browser);
+    return {
+      name: `desktop-${browser}`,
+      use: {
+        ...browserDeviceProfiles[browser],
+        baseURL: base.baseURL,
+        contextOptions: base.contextOptions,
+        viewport: base.viewport,
+        trace: base.trace,
+        ...(args.length > 0 ? { launchOptions: { args } } : {}),
+      },
+    };
+  });
 }
 
 export function buildChromiumProject(name: string, base: PharosvilleProjectUse) {
+  const args = hardwareGpuLaunchArgs("chromium");
   return {
     name,
     use: {
@@ -62,6 +106,7 @@ export function buildChromiumProject(name: string, base: PharosvilleProjectUse) 
       contextOptions: base.contextOptions,
       viewport: base.viewport,
       trace: base.trace,
+      ...(args.length > 0 ? { launchOptions: { args } } : {}),
     },
   };
 }

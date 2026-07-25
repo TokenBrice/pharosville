@@ -219,6 +219,10 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   const pendingResumeRef = useRef(false);
   /** True when the frame just drawn created GPU resources for the first time. */
   const gpuWarmupFrameRef = useRef(false);
+  /** Consecutive frames whose render threw. Reset by any frame that draws. */
+  const renderFailureStreakRef = useRef(0);
+  /** Frames still to skip for pacing after a world swap. */
+  const worldSwapSettleFramesRef = useRef(0);
   const motionFrameCountRef = useRef(0);
   const reducedMotionSamplesSignatureRef = useRef<string | null>(null);
   const lastRenderMetricsRef = useRef<DebugRenderMetrics>({
@@ -329,6 +333,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     longtaskAccRef.current = { count: 0, maxDurationMs: 0 };
     lastBucketRef.current = 0;
     bucketFlipCountRef.current = 0;
+    worldSwapSettleFramesRef.current = WORLD_SWAP_SETTLE_FRAMES;
   }, [hitTargetSnapshotRef, hitTargetsRef, resetFramePacingState, shipMotionSamplesRef, world]);
 
   useEffect(() => {
@@ -508,15 +513,30 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       // bloom all dropped, and none of it was a rendering cost: the frame that
       // finally drew was a normal 16.7ms frame.
       //
-      // Nothing in this app legitimately RENDERS at 4fps, so an interval past
-      // the threshold is never a pacing signal. Genuinely slow hardware still
-      // sheds tiers through the independent `drawDurationMs` path, which
-      // measures the render call itself and cannot be fooled by a stall.
-      if (frameIntervalMs !== null && frameIntervalMs >= FRAME_STALL_INTERVAL_MS) {
+      // The frames right after a world swap are not pacing samples either.
+      //
+      // A swap rebuilds the world model and the scene on the main thread, and
+      // the next RAF callback reports that whole blocked span as one interval —
+      // measured at 2117ms on the reference GPU. Landing that in a window the
+      // swap had just emptied put p90 at 2150ms and pinned the scheduler to
+      // `constrained` for the ~120 frames it took to age out: the beam froze at
+      // its static angle and snapped on the way out, and shadows, gulls,
+      // weather and bloom all dropped, none of it a rendering cost.
+      //
+      // Deliberately a bounded FRAME COUNT rather than a duration threshold.
+      // Discarding any interval over some size looks equivalent and is not: a
+      // genuinely slow renderer produces long intervals too, and filtering
+      // those leaves the pacing window permanently empty on exactly the
+      // hardware the scheduler exists for. Software rasterisation draws this
+      // scene at ~2fps, where every interval clears any fixed threshold and
+      // `sampleCount` sticks at zero forever — which is also what the
+      // `@visual-motion` gate measures, so it fails on CI's software renderer.
+      // Nor can the previous frame's own draw time stand in for the interval:
+      // WebGL submission returns before the GPU has done the work, so a 500ms
+      // software frame still reports single-digit JS draw time.
+      if (frameIntervalMs !== null && worldSwapSettleFramesRef.current > 0) {
+        worldSwapSettleFramesRef.current -= 1;
         frameIntervalMs = null;
-        // The frame after a stall carries the deferred work the stall pushed
-        // ahead of it, so it is not a pacing sample either.
-        pendingResumeRef.current = true;
       }
       // A frame that had to compile shader programs is a one-off cost, not a
       // rendering budget. The interval measured HERE spans the previous frame,
@@ -599,9 +619,26 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           world,
         });
       } catch (error) {
-        failThreeRenderer(error instanceof Error ? error.message : String(error));
+        // One throw is not a broken renderer.
+        //
+        // This used to retire the world to the DOM overview on the first
+        // exception, for the rest of the session. But a frame runs against
+        // state that several async paths mutate — a hero GLB resolving, the
+        // logo atlas repainting, a world swap landing — so a single bad frame
+        // is a race, not a diagnosis, and the next frame usually draws fine.
+        // A renderer that is genuinely broken throws every frame and still
+        // falls back within a few frames. Same shape as the WebGL context
+        // grace period: give it a moment to prove which one it is.
+        renderFailureStreakRef.current += 1;
+        if (renderFailureStreakRef.current >= RENDER_FAILURE_STREAK_LIMIT) {
+          failThreeRenderer(error instanceof Error ? error.message : String(error));
+          return;
+        }
+        console.warn("[pharosville] recovered from a world render error", error);
+        scheduleNextAnimatedFrame();
         return;
       }
+      renderFailureStreakRef.current = 0;
       gpuWarmupFrameRef.current = (renderMetrics.gpuWarmupCount ?? 0) > 0;
       const previousTimeToFirstCoherentFrameMs = lastRenderMetricsRef.current.timeToFirstCoherentFrameMs;
       lastRenderMetricsRef.current = {
@@ -928,11 +965,17 @@ type PharosVilleDebugState = {
 
 const FRAME_RATE_LABEL_UPDATE_MS = 500;
 /**
- * Above this, a frame interval is a main-thread stall rather than a rendering
- * cost, and is kept out of the pacing window. See the exclusion site in
- * `drawFrame` for why.
+ * Frames after a world swap that are kept out of the pacing window, because
+ * their intervals contain the rebuild rather than a rendering cost. See the
+ * exclusion site in `drawFrame`.
  */
-const FRAME_STALL_INTERVAL_MS = 250;
+const WORLD_SWAP_SETTLE_FRAMES = 3;
+/**
+ * Consecutive throwing frames before the world gives up and hands over to the
+ * DOM overview. Small enough that a genuinely broken renderer falls back within
+ * a few frames, large enough that a one-off race does not cost the session.
+ */
+const RENDER_FAILURE_STREAK_LIMIT = 4;
 const MAX_WORLD_FRAME_DELTA_SECONDS = 1 / 30;
 const TEST_CLOCK_JUMP_DELTA_SECONDS = 1;
 const MOTION_BUCKET_INTERVAL_SECONDS = 600;
