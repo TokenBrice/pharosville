@@ -114,25 +114,25 @@ export interface GardenModelMetadata {
 const LIGHTHOUSE_SHA256 = "390477368cfecc235a771300f7cecfc1f8047a6adfa43806cd198f911ba7b03b";
 const lighthouseUrl = `/pharosville/models/garden-lighthouse-shell.glb?v=${LIGHTHOUSE_SHA256.slice(0, 12)}`;
 
-const HERO_TITAN_SHA256 = "6ea4288ddf7d68147b3bcec955d8aec76075b4035a6458273d4073d5eb5d4c9a";
+const HERO_TITAN_SHA256 = "9781336f543636254d9fef561948406ea5e32c0f9d76ed3ec6cbccbfe0e20c0a";
 const heroTitanUrl = `/pharosville/models/garden-hero-titan.glb?v=${HERO_TITAN_SHA256.slice(0, 12)}`;
-const HERO_HERITAGE_SHA256 = "d58ed297847e84b60f8deaa56a7067480ce2ea7076d41ea4f8338b8b7a678f25";
+const HERO_HERITAGE_SHA256 = "2ebc0db2ff3f367cd2206bc7cc881e3d6047f1992a20a3b6766d3b55e136792f";
 const heroHeritageUrl = `/pharosville/models/garden-hero-heritage.glb?v=${HERO_HERITAGE_SHA256.slice(0, 12)}`;
-const HERO_CARRACK_SHA256 = "ece41287cb456dfc5006b49c050979f43fca22cc22e88524af8c46e8e9ba1e44";
+const HERO_CARRACK_SHA256 = "9f99819938c53a221bd35fc7e5aff7e8e8cf06b92b06b2a4359a6bcc3149732e";
 const heroCarrackUrl = `/pharosville/models/garden-hero-carrack.glb?v=${HERO_CARRACK_SHA256.slice(0, 12)}`;
-const HERO_BRIGANTINE_SHA256 = "346e894d912d485a1143aca015bed891b959805899c58fe7ec83490d06ac9dfe";
+const HERO_BRIGANTINE_SHA256 = "411409b1e79fd49eacba12ff828e2816e1f2144effa3cb85f586f6a8aebf8dd5";
 const heroBrigantineUrl = `/pharosville/models/garden-hero-brigantine.glb?v=${HERO_BRIGANTINE_SHA256.slice(0, 12)}`;
-const HERO_DHOW_SHA256 = "4c9fd30891fe2b8691d3893f5d91d149bc4f8b8fcbb806ad05dd0456add3da79";
+const HERO_DHOW_SHA256 = "7a20a160ced1cddecdc7cccaf973fb1630a1284b388899ccc4d5a0c95aa6816b";
 const heroDhowUrl = `/pharosville/models/garden-hero-dhow.glb?v=${HERO_DHOW_SHA256.slice(0, 12)}`;
-const HERO_JUNK_SHA256 = "f2f6155c37f7c01bf2a64d65765cfc2b0e6ae69822699c8e536e228d59336222";
+const HERO_JUNK_SHA256 = "8fe4f736281add63e01d905965c4c16d3e78302cea2f267b4bc1562e5350483c";
 const heroJunkUrl = `/pharosville/models/garden-hero-junk.glb?v=${HERO_JUNK_SHA256.slice(0, 12)}`;
-const HERO_BARQUENTINE_SHA256 = "80d9007384da9754f52c56a4d1db166b23552878dadc2c6a461b554f9d05933f";
+const HERO_BARQUENTINE_SHA256 = "d2d94ea53cd3c982aeb2ce00bd09c95d6f9d3638761ea1c22edc8a81d015b88f";
 const heroBarquentineUrl = `/pharosville/models/garden-hero-barquentine.glb?v=${HERO_BARQUENTINE_SHA256.slice(0, 12)}`;
-const HERO_COG_SHA256 = "44b47d3bab8dd6f2649dca20f9e65efe2f49357760a7c4d1ea6ca3fc96123a58";
+const HERO_COG_SHA256 = "a77dc9655243ae7c64c6eb04adf4124eff0f18e2cec726bb27fa0ba99c609299";
 const heroCogUrl = `/pharosville/models/garden-hero-cog.glb?v=${HERO_COG_SHA256.slice(0, 12)}`;
-const HERO_XEBEC_SHA256 = "c05faa15f16f436e4170736ee8e786ad7afb7ba4d8aa2e9cad76c90c46d9095c";
+const HERO_XEBEC_SHA256 = "042d616ade6c20cebedcea4b7ab008c5eedb6d62fbdcff2382360e8d6be37e41";
 const heroXebecUrl = `/pharosville/models/garden-hero-xebec.glb?v=${HERO_XEBEC_SHA256.slice(0, 12)}`;
-const HERO_CUTTER_SHA256 = "bddd3708c3c53bd125fa6e4b8e8953516b525f132565190e4f837e1333a3f3f5";
+const HERO_CUTTER_SHA256 = "22b043632fee45603c863931a0a493332e8be770f3b097761673bd4181e53861";
 const heroCutterUrl = `/pharosville/models/garden-hero-cutter.glb?v=${HERO_CUTTER_SHA256.slice(0, 12)}`;
 const HERO_TETHER_SHA256 = "4eb56cb7e9a9649a5645e1ad45dff735c0c29a59f4e64119f5691e60d47daac6";
 const heroTetherUrl = `/pharosville/models/garden-hero-tether.glb?v=${HERO_TETHER_SHA256.slice(0, 12)}`;
@@ -344,8 +344,8 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden treasury galleon hero hull",
     sha256: HERO_TITAN_SHA256,
     url: heroTitanUrl,
-    bytes: 111_840,
-    dimensions: { x: 13.38, y: 9.084, z: 4.493 },
+    bytes: 117_708,
+    dimensions: { x: 13.38, y: 9.084, z: 3.64 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-4.15, 6.15, 0] },
       "lantern-bow": { node: "anchor-lantern-bow", position: [5.5, 2.5, 0] },
@@ -356,7 +356,7 @@ export const GARDEN_MODEL_MANIFEST = {
     pickCenter: [0, 3.44, 0],
     pickHeight: 9.084,
     pickRadius: 6.71,
-    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 3_202, vertices: 3_926 },
+    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 3_326, vertices: 4_158 },
     budgets: {
       maxBytes: 128 * 1024,
       maxDrawCalls: 5,
@@ -371,8 +371,8 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden tea clipper hero hull",
     sha256: HERO_HERITAGE_SHA256,
     url: heroHeritageUrl,
-    bytes: 92_524,
-    dimensions: { x: 12.031, y: 7.65, z: 3.295 },
+    bytes: 93_980,
+    dimensions: { x: 14.207, y: 7.65, z: 3.295 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-3.5, 2.75, 0] },
       "lantern-bow": { node: "anchor-lantern-bow", position: [4.4, 1.85, 0] },
@@ -382,8 +382,8 @@ export const GARDEN_MODEL_MANIFEST = {
     },
     pickCenter: [0, 2.92, 0],
     pickHeight: 7.65,
-    pickRadius: 6.04,
-    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 2_644, vertices: 3_231 },
+    pickRadius: 7.12,
+    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 2_680, vertices: 3_293 },
     budgets: {
       maxBytes: 104 * 1024,
       maxDrawCalls: 5,
@@ -398,8 +398,8 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden war carrack hero hull",
     sha256: HERO_CARRACK_SHA256,
     url: heroCarrackUrl,
-    bytes: 110_336,
-    dimensions: { x: 12.796, y: 9.449, z: 4.968 },
+    bytes: 119_408,
+    dimensions: { x: 12.796, y: 9.449, z: 5.947 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-4.1, 5.5, 0] },
       "lantern-bow": { node: "anchor-lantern-bow", position: [3.7, 4.2, 0] },
@@ -410,7 +410,7 @@ export const GARDEN_MODEL_MANIFEST = {
     pickCenter: [0, 3.6, 0],
     pickHeight: 9.449,
     pickRadius: 6.42,
-    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 3_096, vertices: 3_862 },
+    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 3_264, vertices: 4_198 },
     budgets: {
       maxBytes: 120 * 1024,
       maxDrawCalls: 5,
@@ -425,8 +425,8 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden brigantine hero hull",
     sha256: HERO_BRIGANTINE_SHA256,
     url: heroBrigantineUrl,
-    bytes: 72_048,
-    dimensions: { x: 12.651, y: 8.544, z: 3.633 },
+    bytes: 74_156,
+    dimensions: { x: 13.531, y: 8.544, z: 3.633 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-3.3, 2.2, 0] },
       "lantern-bow": { node: "anchor-lantern-bow", position: [4.3, 1.75, 0] },
@@ -436,8 +436,8 @@ export const GARDEN_MODEL_MANIFEST = {
     },
     pickCenter: [0, 3.32, 0],
     pickHeight: 8.544,
-    pickRadius: 6.35,
-    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 2_102, vertices: 2_413 },
+    pickRadius: 6.79,
+    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 2_150, vertices: 2_499 },
     budgets: {
       maxBytes: 80 * 1024,
       maxDrawCalls: 5,
@@ -452,8 +452,8 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden dhow hero hull",
     sha256: HERO_DHOW_SHA256,
     url: heroDhowUrl,
-    bytes: 76_168,
-    dimensions: { x: 11.897, y: 9.571, z: 3.316 },
+    bytes: 76_988,
+    dimensions: { x: 13.17, y: 11.017, z: 3.316 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-3.6, 3.1, 0] },
       "lantern-bow": { node: "anchor-lantern-bow", position: [4.4, 2.4, 0] },
@@ -461,10 +461,10 @@ export const GARDEN_MODEL_MANIFEST = {
       label: { node: "anchor-label", position: [0, 9.2, 0] },
       selection: { node: "anchor-selection", position: [0, 1.8, 0] },
     },
-    pickCenter: [0, 3.79, 0],
-    pickHeight: 9.571,
-    pickRadius: 5.97,
-    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 2_074, vertices: 2_558 },
+    pickCenter: [0, 4.51, 0],
+    pickHeight: 11.017,
+    pickRadius: 6.6,
+    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 2_094, vertices: 2_592 },
     budgets: {
       maxBytes: 88 * 1024,
       maxDrawCalls: 5,
@@ -479,8 +479,8 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden junk hero hull",
     sha256: HERO_JUNK_SHA256,
     url: heroJunkUrl,
-    bytes: 77_872,
-    dimensions: { x: 11.205, y: 9.48, z: 4.3 },
+    bytes: 79_356,
+    dimensions: { x: 11.205, y: 9.48, z: 4.809 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-5.05, 4.7, 0] },
       "lantern-bow": { node: "anchor-lantern-bow", position: [4.6, 2.5, 0] },
@@ -491,7 +491,7 @@ export const GARDEN_MODEL_MANIFEST = {
     pickCenter: [0, 3.96, 0],
     pickHeight: 9.48,
     pickRadius: 5.62,
-    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 2_236, vertices: 2_639 },
+    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 2_264, vertices: 2_695 },
     budgets: {
       maxBytes: 88 * 1024,
       maxDrawCalls: 5,
@@ -506,8 +506,8 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden barquentine hero hull",
     sha256: HERO_BARQUENTINE_SHA256,
     url: heroBarquentineUrl,
-    bytes: 91_508,
-    dimensions: { x: 13.398, y: 9.2, z: 3.877 },
+    bytes: 93_108,
+    dimensions: { x: 14.319, y: 9.2, z: 3.877 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-3.65, 2.5, 0] },
       "lantern-bow": { node: "anchor-lantern-bow", position: [4.7, 1.95, 0] },
@@ -517,8 +517,8 @@ export const GARDEN_MODEL_MANIFEST = {
     },
     pickCenter: [0, 3.6, 0],
     pickHeight: 9.2,
-    pickRadius: 6.72,
-    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 2_684, vertices: 3_160 },
+    pickRadius: 7.18,
+    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 2_724, vertices: 3_228 },
     budgets: {
       maxBytes: 104 * 1024,
       maxDrawCalls: 5,
@@ -533,8 +533,8 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden cog hero hull",
     sha256: HERO_COG_SHA256,
     url: heroCogUrl,
-    bytes: 78_124,
-    dimensions: { x: 13.129, y: 9.216, z: 4.707 },
+    bytes: 83_212,
+    dimensions: { x: 13.129, y: 9.216, z: 3.586 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-3.95, 4.6, 0] },
       "lantern-bow": { node: "anchor-lantern-bow", position: [4.05, 4.5, 0] },
@@ -545,7 +545,7 @@ export const GARDEN_MODEL_MANIFEST = {
     pickCenter: [0, 3.65, 0],
     pickHeight: 9.216,
     pickRadius: 6.58,
-    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 2_072, vertices: 2_602 },
+    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 2_188, vertices: 2_786 },
     budgets: {
       maxBytes: 88 * 1024,
       maxDrawCalls: 5,
@@ -560,8 +560,8 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden xebec hero hull",
     sha256: HERO_XEBEC_SHA256,
     url: heroXebecUrl,
-    bytes: 87_484,
-    dimensions: { x: 14.146, y: 9.64, z: 3.484 },
+    bytes: 90_688,
+    dimensions: { x: 15.973, y: 9.64, z: 3.484 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-5.75, 2.8, 0] },
       "lantern-bow": { node: "anchor-lantern-bow", position: [4.9, 1.8, 0] },
@@ -571,8 +571,8 @@ export const GARDEN_MODEL_MANIFEST = {
     },
     pickCenter: [0, 3.82, 0],
     pickHeight: 9.64,
-    pickRadius: 7.09,
-    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 2_428, vertices: 2_959 },
+    pickRadius: 8.01,
+    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 2_486, vertices: 3_078 },
     budgets: {
       maxBytes: 96 * 1024,
       maxDrawCalls: 5,
@@ -587,8 +587,8 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden cutter hero hull",
     sha256: HERO_CUTTER_SHA256,
     url: heroCutterUrl,
-    bytes: 76_808,
-    dimensions: { x: 13.32, y: 10.54, z: 3.171 },
+    bytes: 77_608,
+    dimensions: { x: 15.63, y: 10.54, z: 3.171 },
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-3.4, 1.55, 0] },
       "lantern-bow": { node: "anchor-lantern-bow", position: [3.9, 1.6, 0] },
@@ -598,8 +598,8 @@ export const GARDEN_MODEL_MANIFEST = {
     },
     pickCenter: [0, 4.21, 0],
     pickHeight: 10.54,
-    pickRadius: 6.68,
-    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 2_044, vertices: 2_551 },
+    pickRadius: 7.83,
+    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 2_064, vertices: 2_585 },
     budgets: {
       maxBytes: 88 * 1024,
       maxDrawCalls: 5,

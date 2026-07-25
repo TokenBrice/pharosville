@@ -177,7 +177,7 @@ function buildTitan() {
     deckRiseBow: 0.75,
     deckRiseStern: 1.05,
     keelDepth: 1.0,
-    maxBeam: 2.2,
+    maxBeam: 1.78,
     sternX: -5.1,
     transomFraction: 0.7,
     tumbleAft: 0.8,
@@ -207,6 +207,12 @@ function buildTitan() {
   add("wood", new BoxGeometry(2.9, 1.6, 3.2), { position: [-3.7, 2.75, 0] });
   add("wood", new BoxGeometry(2.3, 1.1, 2.7), { position: [-3.95, 4.15, 0] });
   add("wood", new BoxGeometry(1.7, 0.85, 2.15), { position: [-4.15, 5.05, 0] });
+  // W7: a fourth tier, so the treasure fleet's flagship out-towers the carrack.
+  add("wood", new BoxGeometry(1.2, 0.7, 1.6), { position: [-4.35, 5.85, 0] });
+  add("wood", new BoxGeometry(1.4, 0.15, 1.8), {
+    position: [-4.35, 6.28, 0],
+    tone: WOOD_TRIM,
+  });
   add("wood", new BoxGeometry(2.6, 0.18, 3.4), {
     position: [-3.75, 3.6, 0],
     tone: WOOD_TRIM,
@@ -259,6 +265,26 @@ function buildTitan() {
     rotation: [0, 0, 0.22],
     tone: WOOD_TRIM,
   });
+  // W7: a gilded beakhead grating projecting past the stem, with a head rail
+  // each side. The galleon's wealth reads forward as well as aft, and the
+  // structure extends the plan where the carrack's crenels do not.
+  add("wood", new BoxGeometry(1.9, 0.14, 0.95), {
+    position: [7.0, 2.05, 0],
+    rotation: [0, 0, -0.18],
+    tone: WOOD_TRIM,
+  });
+  for (const side of [-1, 1]) {
+    add("wood", new BoxGeometry(2.1, 0.12, 0.12), {
+      position: [6.95, 2.42, side * 0.44],
+      rotation: [0, 0, -0.2],
+      tone: WOOD_HIGH,
+    });
+    for (const legX of [6.35, 7.4]) {
+      add("spar", new CylinderGeometry(0.05, 0.05, 0.42, 4), {
+        position: [legX, 2.24, side * 0.44],
+      });
+    }
+  }
   addFigurehead(add, [6.35, 1.6, 0]);
 
   // Bowsprit reaching past the figurehead, plus a jib on its stay.
@@ -399,6 +425,14 @@ function buildHeritage() {
   });
 
   // Long raked bowsprit with a jib.
+  // W7: a jibboom carried out beyond the bowsprit. The clipper's whole claim is
+  // reach; a spar past the stem extends the plan outline, which is one of the
+  // only two places the isometric camera registers anything.
+  add("spar", new CylinderGeometry(0.04, 0.07, 2.6, 5), {
+    position: [8.05, 3.35, 0],
+    rotation: [0, 0, Math.PI / 2 - 0.2],
+  });
+  addStay(add, [9.25, 3.6, 0], [3.4, 5.7, 0], 0.024);
   add("spar", new CylinderGeometry(0.06, 0.11, 3.0, 6), {
     position: [5.7, 2.05, 0],
     rotation: [0, 0, Math.PI / 2 - 0.3],
@@ -463,11 +497,11 @@ function buildCarrack() {
     bowTrim: 0.9,
     bowX: 5.55,
     count: 19,
-    deckMid: 1.4,
+    deckMid: 1.62,
     deckRiseBow: 1.35,
     deckRiseStern: 1.5,
     keelDepth: 1.05,
-    maxBeam: 2.45,
+    maxBeam: 2.95,
     sternX: -5.15,
     transomFraction: 0.74,
     tumbleAft: 0.72,
@@ -495,6 +529,22 @@ function buildCarrack() {
     tone: WOOD_TRIM,
   });
   addCrenels(add, 2.7, 4.7, 3.98, 0.95, 4);
+  // W7: the forecastle OVERHANGS the stem. A fortress that stops at the stem is
+  // just a box on a boat; carrying it out past the bow is what states the type,
+  // and it extends the plan silhouette where the cog's towers do not.
+  add("wood", new BoxGeometry(2.0, 1.15, 1.55), { position: [5.55, 3.15, 0] });
+  add("wood", new BoxGeometry(2.2, 0.16, 1.75), {
+    position: [5.55, 3.8, 0],
+    tone: WOOD_TRIM,
+  });
+  addCrenels(add, 4.75, 6.35, 3.96, 0.88, 4);
+  for (const side of [-1, 1]) {
+    add("wood", new BoxGeometry(0.22, 1.25, 0.2), {
+      position: [5.9, 2.05, side * 0.5],
+      rotation: [0, 0, -0.34],
+      tone: WOOD_MID,
+    });
+  }
   add("wood", new BoxGeometry(1.6, 0.2, 0.62), {
     position: [5.35, 2.55, 0],
     rotation: [0, 0, 0.3],
@@ -512,7 +562,13 @@ function buildCarrack() {
     position: [-4.1, 5.26, 0],
     tone: WOOD_TRIM,
   });
-  addCrenels(add, -4.9, -3.2, 5.34, 1.02, 4);
+  // Third tier: the carrack is the tallest thing afloat aft.
+  add("wood", new BoxGeometry(1.45, 0.95, 1.5), { position: [-4.3, 5.72, 0] });
+  add("wood", new BoxGeometry(1.6, 0.16, 1.65), {
+    position: [-4.3, 6.28, 0],
+    tone: WOOD_TRIM,
+  });
+  addCrenels(add, -5.0, -3.6, 6.44, 0.82, 4);
   for (const z of [-0.86, -0.29, 0.29, 0.86]) {
     add("glow", new PlaneGeometry(0.36, 0.56), {
       position: [-5.26, 2.95, z],
@@ -648,6 +704,17 @@ function buildBrigantine() {
   });
   addJib(add, [3.6, 3.2, 0], [7.35, 2.6, 0], [3.6, 1.8, 0], 0.45);
 
+  // W7: the main boom sheets right out past the transom. "Canvas forward, boom
+  // aft" is the brigantine's brief and the overhang is what makes it legible.
+  add("spar", new CylinderGeometry(0.055, 0.08, 5.2, 5), {
+    position: [-3.25, 2.05, 0],
+    rotation: [0, 0, Math.PI / 2 + 0.04],
+  });
+  add("wood", new BoxGeometry(0.22, 0.22, 0.22), {
+    position: [-5.8, 1.95, 0],
+    tone: WOOD_TRIM,
+  });
+  addStay(add, [-5.8, 1.95, 0], [-0.95, 6.1, 0], 0.026);
   addStay(add, [7.4, 2.65, 0], [2.5, 6.8, 0]);
   addStay(add, [2.5, 6.8, 0], [-0.9, 7.2, 0]);
   addStay(add, [-0.9, 7.2, 0], [-4.3, 2.1, 0]);
@@ -737,7 +804,13 @@ function buildDhow() {
 
   // Main pole mast raked forward under the great lateen.
   addMast(add, 1.5, 1.0, 8.0, 0.1, { platform: false });
-  addLateen(add, [2.6, 8.55, 0], [5.5, 2.0, 0], [-1.3, 2.8, 0], 0.5);
+  // W7: the yard is carried further forward and its heel further aft, so the
+  // single vast triangle overhangs BOTH ends. Nothing else in the world does.
+  add("spar", new CylinderGeometry(0.05, 0.11, 11.4, 5), {
+    position: [2.35, 5.35, 0],
+    rotation: [0, 0, 0.62],
+  });
+  addLateen(add, [1.55, 9.55, 0], [7.5, 1.35, 0], [-1.3, 2.8, 0], 0.5);
 
   // Small mizzen: bare, so the runtime identity sail becomes its canvas.
   addMast(add, -2.7, 1.5, 6.4, 0.06, { platform: false });
@@ -776,12 +849,12 @@ function buildJunk() {
     bowTrim: 0.62,
     bowX: 5.3,
     count: 17,
-    deckMid: 1.25,
+    deckMid: 0.95,
     deckRiseBow: 0.85,
-    deckRiseStern: 1.5,
+    deckRiseStern: 2.4,
     keelDepth: 0.7,
     keelFlatness: 0.85,
-    maxBeam: 2.1,
+    maxBeam: 2.35,
     sternX: -5.0,
     transomFraction: 0.86,
     tumbleAft: 1.0,
@@ -798,7 +871,20 @@ function buildJunk() {
   });
 
   // Towering flat transom, the junk's unmistakable stern.
-  add("wood", new BoxGeometry(1.1, 2.05, 2.0), { position: [-5.05, 3.4, 0] });
+  // W7: the transom goes higher again. A junk's stern is the tallest flat face
+  // in the world and it should out-read every castle in the fleet.
+  add("wood", new BoxGeometry(0.95, 1.4, 1.7), { position: [-5.1, 6.5, 0] });
+  add("wood", new BoxGeometry(1.2, 0.18, 1.95), {
+    position: [-5.1, 7.28, 0],
+    tone: WOOD_TRIM,
+  });
+  for (const side of [-1, 1]) {
+    add("glow", new PlaneGeometry(0.3, 0.34), {
+      position: [-5.1, 6.5, side * 0.87],
+      rotation: [0, side > 0 ? 0 : Math.PI, 0],
+    });
+  }
+  add("wood", new BoxGeometry(1.1, 2.6, 2.0), { position: [-5.05, 4.3, 0] });
   add("wood", new BoxGeometry(1.35, 0.2, 2.25), {
     position: [-5.05, 4.5, 0],
     tone: WOOD_TRIM,
@@ -964,6 +1050,14 @@ function buildBarquentine() {
   });
   addJib(add, [4.6, 3.6, 0], [7.7, 3.0, 0], [4.6, 2.1, 0], 0.42);
 
+  // W7: the two gaff booms are carried well aft, so the "square forward,
+  // fore-and-aft behind" split shows in the plan and not only in the sail shapes.
+  for (const [mastX, boomY, length] of [[0.4, 2.35, 4.0], [-3.0, 2.15, 3.6]]) {
+    add("spar", new CylinderGeometry(0.05, 0.075, length, 5), {
+      position: [mastX - length / 2 + 0.2, boomY, 0],
+      rotation: [0, 0, Math.PI / 2 + 0.03],
+    });
+  }
   addStay(add, [7.75, 3.05, 0], [3.85, 7.25, 0]);
   addStay(add, [3.85, 7.25, 0], [0.45, 7.75, 0]);
   addStay(add, [0.45, 7.75, 0], [-2.95, 6.85, 0]);
@@ -999,12 +1093,12 @@ function buildCog() {
     bowTrim: 0.78,
     bowX: 5.6,
     count: 15,
-    deckMid: 1.5,
+    deckMid: 1.95,
     deckRiseBow: 1.0,
     deckRiseStern: 1.0,
     keelDepth: 0.85,
     keelFlatness: 0.9,
-    maxBeam: 2.3,
+    maxBeam: 1.75,
     sternX: -5.4,
     transomFraction: 0.8,
     tumbleAft: 0.98,
@@ -1041,25 +1135,11 @@ function buildCog() {
     tone: WOOD_WALE,
   });
 
-  // Fore and aft fighting castles.
-  add("wood", new BoxGeometry(1.75, 1.45, 1.7), { position: [4.05, 3.4, 0] });
-  add("wood", new BoxGeometry(1.95, 0.18, 1.9), {
-    position: [4.05, 4.22, 0],
-    tone: WOOD_TRIM,
-  });
-  addCrenels(add, 3.35, 4.75, 4.31, 0.87, 5);
-  add("wood", new BoxGeometry(2.0, 1.55, 1.85), { position: [-3.95, 3.45, 0] });
-  add("wood", new BoxGeometry(2.2, 0.18, 2.05), {
-    position: [-3.95, 4.32, 0],
-    tone: WOOD_TRIM,
-  });
-  addCrenels(add, -4.75, -3.15, 4.41, 0.95, 5);
-  for (const z of [-0.5, 0.5]) {
-    add("glow", new PlaneGeometry(0.34, 0.42), {
-      position: [-4.97, 3.4, z],
-      rotation: [0, -Math.PI / 2, 0],
-    });
-  }
+  // W7: fighting TOWERS, not castles. Narrow, tall, standing clear of the deck
+  // on legs — which is what a cog's castles actually were, and the only way to
+  // separate this hull from the carrack, whose castles are wide and heavy.
+  addEndTower(add, { deckY: 3.0, halfBeam: 0.6, halfWidth: 0.68, height: 2.3, x: 4.2 });
+  addEndTower(add, { deckY: 3.1, halfBeam: 0.66, halfWidth: 0.74, height: 2.7, x: -4.15 });
 
   // One mast, one course — the runtime identity sail fills the frame.
   addMast(add, 0.2, 1.6, 7.9, -0.02);
@@ -1147,6 +1227,27 @@ function buildXebec() {
   });
 
   // Overhanging stern gallery with lit quarter lights.
+  // W7: a long beakhead spike forward. The xebec is the only hull that leans
+  // forward, and a spar out past the stem doubles that read in the plan.
+  add("wood", new BoxGeometry(2.9, 0.16, 0.3), {
+    position: [7.15, 2.35, 0],
+    rotation: [0, 0, -0.1],
+    tone: WOOD_TRIM,
+  });
+  add("wood", new ConeGeometry(0.16, 0.7, 5), {
+    position: [8.55, 2.2, 0],
+    rotation: [0, 0, -Math.PI / 2 - 0.1],
+    tone: WOOD_HIGH,
+  });
+  // Stern gallery carried further out over the water on corbels.
+  for (const side of [-1, 1]) {
+    add("wood", new BoxGeometry(0.7, 0.14, 0.16), {
+      position: [-6.15, 1.5, side * 0.55],
+      rotation: [0, 0, 0.4],
+      tone: WOOD_MID,
+    });
+  }
+  add("wood", new BoxGeometry(1.35, 0.95, 1.5), { position: [-6.4, 2.05, 0] });
   add("wood", new BoxGeometry(1.35, 0.95, 1.5), { position: [-5.75, 2.05, 0] });
   add("wood", new BoxGeometry(1.6, 0.16, 1.7), {
     position: [-5.75, 2.6, 0],
@@ -1261,6 +1362,12 @@ function buildCutter() {
   addIdentityFrame(add, 0.5, 4.85, 6.85, 1.15);
 
   // Bowsprit nearly as long as the hull, with jib and staysail.
+  // W7: the cutter's brief is "the only hero whose rig reaches further forward
+  // than its own stem". At 3.9 it barely did; a jibboom makes it unarguable.
+  add("spar", new CylinderGeometry(0.035, 0.06, 3.0, 5), {
+    position: [9.35, 2.15, 0],
+    rotation: [0, 0, Math.PI / 2 - 0.08],
+  });
   add("spar", new CylinderGeometry(0.06, 0.11, 3.9, 6), {
     position: [6.6, 1.95, 0],
     rotation: [0, 0, Math.PI / 2 - 0.16],
@@ -3234,6 +3341,53 @@ function addTitanMarks(add, { lanternX, lanternY, mastX, topY }) {
     position: [mastX, topY + 0.37, 0],
     tone: WOOD_TRIM,
   });
+}
+
+/**
+ * W7 — a fighting tower on posts at a hull's end.
+ *
+ * The cog and the carrack measured 0.792 IoU: both were "a box with crenels
+ * forward, a box with crenels aft", at nearly the same x and y. Two ships
+ * cannot be told apart by degree, only by KIND. So the carrack keeps wide,
+ * heavy, overhanging castles — the fortress — and the cog's become narrow
+ * towers standing clear of the deck on legs, which is what a medieval cog's
+ * castles actually were: temporary timber structures bolted on for a voyage.
+ *
+ * Narrow-and-tall against wide-and-heavy is a difference the isometric camera
+ * can resolve; two boxes of similar mass is not.
+ */
+function addEndTower(add, { x, deckY, halfBeam, halfWidth, height }) {
+  // Legs: the tower stands proud of the deck, so daylight shows under it.
+  for (const side of [-1, 1]) {
+    for (const legX of [x - halfWidth * 0.8, x + halfWidth * 0.8]) {
+      add("wood", new CylinderGeometry(0.1, 0.12, 0.9, 5), {
+        position: [legX, deckY + 0.45, side * halfBeam * 0.7],
+        tone: WOOD_MID,
+      });
+    }
+  }
+  const baseY = deckY + 0.9;
+  add("wood", new BoxGeometry(halfWidth * 2, height, halfBeam * 2), {
+    position: [x, baseY + height / 2, 0],
+  });
+  // Banding every tier, so the tower reads as built up rather than extruded.
+  for (const tier of [0.32, 0.66]) {
+    add("wood", new BoxGeometry(halfWidth * 2.2, 0.13, halfBeam * 2.2), {
+      position: [x, baseY + height * tier, 0],
+      tone: WOOD_WALE,
+    });
+  }
+  add("wood", new BoxGeometry(halfWidth * 2.3, 0.16, halfBeam * 2.3), {
+    position: [x, baseY + height + 0.08, 0],
+    tone: WOOD_TRIM,
+  });
+  addCrenels(add, x - halfWidth, x + halfWidth, baseY + height + 0.24, halfBeam * 1.1, 3);
+  for (const side of [-1, 1]) {
+    add("glow", new PlaneGeometry(0.26, 0.34), {
+      position: [x, baseY + height * 0.5, side * (halfBeam + 0.02)],
+      rotation: [0, side > 0 ? 0 : Math.PI, 0],
+    });
+  }
 }
 
 /** Crenellated rail caps along a castle roof — the cog's fighting platform. */
