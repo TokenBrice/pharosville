@@ -356,11 +356,29 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         "#include <map_fragment>",
         `#ifdef USE_MAP
           vec4 sailTexel = texture2D(map, vAtlasUv);
-          diffuseColor.rgb *= mix(vSailTint, sailTexel.rgb, sailTexel.a);
+          vec3 sailCloth = mix(vSailTint, sailTexel.rgb, sailTexel.a);
+          diffuseColor.rgb *= sailCloth;
+          // The night backlight is THIS ship's cloth glowing, not a cream wash
+          // laid over it.
+          //
+          // The material's emissive is a flat warm gold and the batched fleet
+          // shares ONE material, so without this the same cream was ADDED to
+          // every sail in the world at up to 0.78 intensity — against a dyed
+          // cloth whose albedo runs 0.1-0.3, that was ~85% of the sail's final
+          // colour. Measured at noon on the reference GPU: forcing the dye to
+          // pure red moved a sail texel by 24/255. The dye and the logo were
+          // both there and both being washed out, which is why 169 of 187
+          // ships flew what read as blank canvas.
+          //
+          // Hero ships never had the problem because they own a material each
+          // and set \`emissiveMap = map\`, so their glow is already modulated by
+          // their own painted sail. This is that same rule for the batch, where
+          // the per-instance dye plus the atlas texel IS the sail.
+          totalEmissiveRadiance *= sailCloth;
         #endif`,
       );
   };
-  material.customProgramCacheKey = () => "garden-fleet-sail-atlas-hull-form-dye-furl";
+  material.customProgramCacheKey = () => "garden-fleet-sail-atlas-hull-form-dye-furl-emissive";
 }
 
 function createInstancedPart(
