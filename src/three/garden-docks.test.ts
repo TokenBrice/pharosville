@@ -5,6 +5,7 @@ import {
   createDock,
   gardenDockLampWorldPositions,
   gardenHarborCalmMask,
+  harborIdentity,
   harborPlan,
 } from "./garden-docks";
 
@@ -73,8 +74,11 @@ describe("garden docks", () => {
   });
 
   it("scales the harbour to the chain's supply band", () => {
-    const small = createDock(dock("smallchain", 1), DISPLAY_TILE, ISLAND_TILE);
-    const large = createDock(dock("bigchain", 10), DISPLAY_TILE, ISLAND_TILE);
+    // Same chain (so the same authored identity), two supply bands: only the
+    // amount of harbour built differs. Arbitrum carries the gantry landmark, so
+    // it is where "a crane is earned by size" is observable.
+    const small = createDock(dock("arbitrum", 1), DISPLAY_TILE, ISLAND_TILE);
+    const large = createDock(dock("arbitrum", 10), DISPLAY_TILE, ISLAND_TILE);
     // Berth count drives the bollards, and cranes are earned, not given.
     expect(instanceCount(large, "dock-bollards"))
       .toBeGreaterThan(instanceCount(small, "dock-bollards"));
@@ -138,6 +142,72 @@ describe("garden docks", () => {
     expect(mask!.calmStrength).toBeLessThanOrEqual(1);
   });
 
+  it("makes Ethereum the capital: the largest harbour, and the only grand one", () => {
+    // Every named slip at the SAME supply band, so nothing here comes from the
+    // data — this is purely the capital's plan against the others'.
+    const capital = createDock(dock("ethereum", 10), DISPLAY_TILE, ISLAND_TILE);
+    const rivals = NAMED_CHAINS
+      .filter((chainId) => chainId !== "ethereum")
+      .map((chainId) => createDock(dock(chainId, 10), DISPLAY_TILE, ISLAND_TILE));
+
+    for (const rival of rivals) {
+      expect(capital.footprint.length, rival.dock.chainId)
+        .toBeGreaterThan(rival.footprint.length);
+      expect(capital.footprint.span, rival.dock.chainId)
+        .toBeGreaterThan(rival.footprint.span);
+      expect(rival.identity.enclosure).not.toBe("grand");
+    }
+    // A campanile AND a gantry AND an enclosed basin: no rival has all three.
+    expect(capital.identity.enclosure).toBe("grand");
+    expect(capital.identity.landmark).toBe("campanile");
+    expect(capital.root.getObjectByName("dock-crane")).toBeDefined();
+    expect(capital.root.getObjectByName("dock-breakwater")).toBeDefined();
+  });
+
+  it("still orders harbour scale by the chain's own supply", () => {
+    const scaleOf = (totalUsd: number): number =>
+      createDock(dock("aptos", 6, null, totalUsd), DISPLAY_TILE, ISLAND_TILE).footprint.length;
+    expect(scaleOf(500_000_000)).toBeLessThan(scaleOf(5_000_000_000));
+    expect(scaleOf(5_000_000_000)).toBeLessThan(scaleOf(80_000_000_000));
+  });
+
+  it("builds structurally different harbours for different chains", () => {
+    // Not colour, not a prop: two named chains must differ in the meshes they
+    // build and in the vertex counts of those meshes.
+    const tron = createDock(dock("tron", 9), DISPLAY_TILE, ISLAND_TILE);
+    const hyperliquid = createDock(dock("hyperliquid", 9), DISPLAY_TILE, ISLAND_TILE);
+    expect(structureFingerprint(tron)).not.toBe(structureFingerprint(hyperliquid));
+    // Tron encloses a basin behind a hooked mole; Hyperliquid is an open
+    // roadstead with no sea defence at all.
+    expect(tron.root.getObjectByName("dock-breakwater")).toBeDefined();
+    expect(hyperliquid.root.getObjectByName("dock-breakwater")).toBeUndefined();
+
+    // And across the named slips, no two harbours share an identity.
+    const identities = new Set(
+      NAMED_CHAINS.map((chainId) => {
+        const { enclosure, landmark, plan, roofline, works } = harborIdentity(dock(chainId, 6));
+        return `${plan}|${enclosure}|${landmark}|${roofline}|${works}`;
+      }),
+    );
+    expect(identities.size).toBe(NAMED_CHAINS.length);
+  });
+
+  it("gives an unlisted chain a coherent harbour, deterministically", () => {
+    const identity = harborIdentity(dock("some-unlisted-chain", 5));
+    expect(identity).toEqual(harborIdentity(dock("some-unlisted-chain", 5)));
+    // The fallback never hands out the capital's architecture.
+    expect(identity.enclosure).not.toBe("grand");
+  });
+
+  it("builds the same harbour geometry on every call", () => {
+    for (const chainId of ["ethereum", "solana", "avalanche"]) {
+      const first = createDock(dock(chainId, 8), DISPLAY_TILE, ISLAND_TILE);
+      const second = createDock(dock(chainId, 8), DISPLAY_TILE, ISLAND_TILE);
+      expect(structureFingerprint(second), chainId).toBe(structureFingerprint(first));
+      expect(second.footprint, chainId).toEqual(first.footprint);
+    }
+  });
+
   it("keeps a single-dock basin readable and empty input on the default", () => {
     expect(gardenHarborCalmMask([])).toBeNull();
     const solo = createDock(dock("base", 7), { x: 39, y: 38 }, ISLAND_TILE);
@@ -148,7 +218,27 @@ describe("garden docks", () => {
   });
 });
 
-function dock(chainId: string, size: number, backingDiversity: number | null = null): DockNode {
+/** The chains with an authored slip in CHAIN_HARBOR_IDENTITIES. */
+const NAMED_CHAINS = [
+  "aptos",
+  "arbitrum",
+  "avalanche",
+  "base",
+  "bsc",
+  "ethereum",
+  "hyperliquid",
+  "polygon",
+  "solana",
+  "ton",
+  "tron",
+];
+
+function dock(
+  chainId: string,
+  size: number,
+  backingDiversity: number | null = null,
+  totalUsd = size * 1_000_000_000,
+): DockNode {
   return {
     backingDiversity,
     chainId,
@@ -162,8 +252,28 @@ function dock(chainId: string, size: number, backingDiversity: number | null = n
     size,
     stablecoinCount: 1,
     tile: { x: 40, y: 32 },
-    totalUsd: size * 1_000_000_000,
+    totalUsd,
   };
+}
+
+/**
+ * A structural signature of a built harbour: which meshes exist, how much
+ * geometry each carries, and a checksum of the vertex positions. Two harbours
+ * with the same fingerprint are the same building, whatever colour they are.
+ */
+function structureFingerprint(visual: ReturnType<typeof createDock>): string {
+  const entries: string[] = [];
+  visual.root.traverse((object) => {
+    if (!(object instanceof Mesh)) return;
+    const position = object.geometry.getAttribute("position");
+    let checksum = 0;
+    for (let index = 0; index < position.array.length; index += 1) {
+      checksum = (checksum + Math.round(position.array[index]! * 1e4) * (index + 1)) % 2_147_483_647;
+    }
+    const instances = object instanceof InstancedMesh ? object.count : 1;
+    entries.push(`${object.name}:${position.count}:${instances}:${checksum}`);
+  });
+  return entries.sort().join("|");
 }
 
 function instanceCount(visual: ReturnType<typeof createDock>, name: string): number {
