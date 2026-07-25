@@ -340,10 +340,19 @@ const FRAGMENT_SHADER = /* glsl */ `
     float scroll = uTime * (0.6 + uTempo * 0.9);
     vec2 flow = uMoonDir * scroll;
     vec3 nA = sampleWaterNormal(vWaterPosition * 0.055 + flow * 0.045);
-    vec3 nB = sampleWaterNormal(
-      rotate2(vWaterPosition, 2.3) * 0.11 - flow * 0.03 + vec2(0.37, 0.11)
-    );
-    vec3 blendedNormal = normalize(vec3(nA.xy + nB.xy, nA.z * nB.z + 0.55));
+    // W6.1: the second, counter-rotated normal fetch adds cross-hatched
+    // surface detail that only reads at close zoom and high tiers. Below
+    // balanced it is a full texture fetch per fragment for detail the tier is
+    // already shedding elsewhere, so it is gated on the same uDetail signal.
+    vec3 blendedNormal;
+    if (uDetail > 0.55) {
+      vec3 nB = sampleWaterNormal(
+        rotate2(vWaterPosition, 2.3) * 0.11 - flow * 0.03 + vec2(0.37, 0.11)
+      );
+      blendedNormal = normalize(vec3(nA.xy + nB.xy, nA.z * nB.z + 0.55));
+    } else {
+      blendedNormal = normalize(vec3(nA.xy, nA.z + 0.55));
+    }
     // The mirror basin flattens the scrolled detail so it reads still.
     blendedNormal = normalize(mix(blendedNormal, vec3(0.0, 0.0, 1.0), harborCalm * 0.75));
     float camDistance = distance(cameraPosition, vWorldPosition);

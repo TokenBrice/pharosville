@@ -519,18 +519,40 @@ export function createRockTerraceGeometry(
   }
 
   // Repaint the cap groups: top = planted colour, bottom = darkest wet stone.
+  // W4.9: the top cap used to be one flat plate of moss, which is most of why
+  // the island read as a smooth green mass from the fixed camera — the caps
+  // are the surface it mostly sees. The planting now thins toward the rim and
+  // in deterministic bare patches so the rock breaks through, and every cap
+  // vertex carries a little mottle.
   const index = geometry.getIndex();
+  const capColor = new Color();
   if (index) {
     for (const group of geometry.groups) {
       if (group.materialIndex !== 1 && group.materialIndex !== 2) continue;
-      const capColor = group.materialIndex === 1
-        ? color.copy(topColor)
-        : color.copy(STONE_WET).multiplyScalar(0.62);
       for (let k = group.start; k < group.start + group.count; k += 1) {
         const vertex = index.getX(k);
-        colors[vertex * 3] = capColor.r;
-        colors[vertex * 3 + 1] = capColor.g;
-        colors[vertex * 3 + 2] = capColor.b;
+        if (group.materialIndex === 2) {
+          color.copy(STONE_WET).multiplyScalar(0.62);
+        } else {
+          const vx = positions.getX(vertex);
+          const vy = positions.getY(vertex);
+          const vz = positions.getZ(vertex);
+          const rim = smoothstep01(
+            (Math.hypot(vx, vz) / Math.max(0.001, topRadius) - 0.68) / 0.3,
+          );
+          const patch = stableUnit(
+            `${seed}~bare~${Math.round(vx * 2.2)}~${Math.round(vz * 2.2)}`,
+          );
+          const bare = clamp01(rim * 0.9 + (patch - 0.52) * 1.15);
+          stoneRampColor(baseElevation + vy, capColor);
+          color.copy(topColor).lerp(capColor, bare);
+          color.multiplyScalar(
+            0.86 + stableUnit(`${seed}~mottle~${Math.round(vx * 3)}~${Math.round(vz * 3)}`) * 0.3,
+          );
+        }
+        colors[vertex * 3] = color.r;
+        colors[vertex * 3 + 1] = color.g;
+        colors[vertex * 3 + 2] = color.b;
       }
     }
   }
