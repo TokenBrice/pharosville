@@ -37,6 +37,7 @@ function pose(overrides: Partial<FleetInstancePose> = {}): FleetInstancePose {
     pennantColor: new Color("#22aa88"),
     sailColor: new Color("#2775ca"),
     trimColor: new Color("#2775ca"),
+    mastheadOffset: { x: 0, y: 4 },
     sailFurl: 0,
     pitch: 0,
     scale: 1,

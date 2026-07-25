@@ -323,9 +323,10 @@ describe("S3 sparse rigging", () => {
       (child): child is LineSegments => child instanceof LineSegments,
     )!;
     // 3 galleon masts × 4 standing-rigging lines, plus W5.4 running rigging:
-    // 2 halyard segments for each of the galleon's 3 sails. All × 2 endpoints.
+    // 2 halyard segments per sail. All × 2 endpoints. W3 gave the main and
+    // mizzen a topsail each, so the galleon now sets 5 sails, not 3.
     const standing = 3 * 4;
-    const halyards = 3 * 2;
+    const halyards = 5 * 2;
     expect(rigging.geometry.getAttribute("position").count).toBe((standing + halyards) * 2);
     // The whole rig must stay one draw call however many lines it carries.
     expect(

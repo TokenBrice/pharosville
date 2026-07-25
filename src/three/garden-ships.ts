@@ -181,107 +181,139 @@ interface ShipSailTextureTarget {
 const GARDEN_SHIP_RIGS: Record<GardenHullSilhouette, readonly GardenMastPlan[]> = {
   galleon: [
     {
-      height: 3.25,
-      sails: [{ centerY: 2.25, height: 1.55, kind: "fore-aft", reverse: true, width: 1.35 }],
-      x: -1.55,
+      height: 4.8,
+      sails: [{ centerY: 2.6, height: 2.4, kind: "fore-aft", reverse: true, width: 1.5 }],
+      x: -2.2,
     },
     {
-      height: 4.05,
-      sails: [{ centerY: 2.65, height: 1.95, kind: "square", width: 1.85 }],
+      height: 6.3,
+      sails: [
+        { centerY: 2.7, height: 2.7, kind: "square", width: 2.05 },
+        { centerY: 5.05, height: 1.9, kind: "square", width: 1.7 },
+      ],
       x: 0,
     },
     {
-      height: 3.55,
-      sails: [{ centerY: 2.4, height: 1.65, kind: "square", reverse: true, width: 1.5 }],
-      x: 1.55,
+      height: 5.4,
+      sails: [
+        { centerY: 2.6, height: 2.3, kind: "square", reverse: true, width: 1.7 },
+        { centerY: 4.6, height: 1.6, kind: "square", reverse: true, width: 1.4 },
+      ],
+      x: 2.2,
     },
   ],
   clipper: [
     {
-      height: 3.05,
-      sails: [{ centerY: 2.15, height: 1.55, kind: "square", width: 1.25 }],
-      x: -1.45,
+      height: 4.6,
+      sails: [{ centerY: 2.55, height: 2.5, kind: "square", width: 1.5 }],
+      x: -2.1,
     },
     {
-      height: 3.65,
-      sails: [{ centerY: 2.45, height: 1.85, kind: "square", reverse: true, width: 1.45 }],
+      height: 7.2,
+      sails: [
+        { centerY: 2.65, height: 2.6, kind: "square", reverse: true, width: 1.75 },
+        { centerY: 4.8, height: 1.75, kind: "square", reverse: true, width: 1.45 },
+        { centerY: 6.3, height: 1.3, kind: "square", reverse: true, width: 1.2 },
+      ],
       x: 0.15,
     },
     {
-      height: 3.2,
-      sails: [{ centerY: 2.2, height: 1.55, kind: "square", width: 1.2 }],
-      x: 1.7,
+      height: 5,
+      sails: [
+        { centerY: 2.5, height: 2.2, kind: "square", width: 1.4 },
+        { centerY: 4.3, height: 1.5, kind: "square", width: 1.15 },
+      ],
+      x: 2.4,
     },
   ],
   schooner: [
     {
-      height: 3.15,
-      sails: [{ centerY: 2.05, height: 1.9, kind: "fore-aft", reverse: true, width: 1.35 }],
-      x: -1.05,
+      height: 4.6,
+      sails: [{ centerY: 2.6, height: 3, kind: "fore-aft", reverse: true, width: 1.8 }],
+      x: -1.5,
     },
     {
-      height: 3.75,
-      sails: [{ centerY: 2.4, height: 2.3, kind: "fore-aft", width: 1.55 }],
-      x: 0.85,
+      height: 5.9,
+      sails: [
+        { centerY: 2.9, height: 3.5, kind: "fore-aft", width: 2.05 },
+        { centerY: 2.3, height: 1.7, kind: "fore-aft", width: 1.15 },
+      ],
+      x: 1.3,
     },
   ],
   junk: [
     {
-      height: 3.35,
-      sails: [{ centerY: 2.25, height: 2.2, kind: "junk", width: 1.9 }],
-      x: -0.75,
+      height: 5.2,
+      sails: [{ centerY: 2.75, height: 3.5, kind: "junk", width: 2.4 }],
+      x: -1.1,
     },
     {
-      height: 2.8,
-      sails: [{ centerY: 2, height: 1.7, kind: "junk", reverse: true, width: 1.45 }],
-      x: 1.05,
+      height: 4.4,
+      sails: [{ centerY: 2.5, height: 2.9, kind: "junk", reverse: true, width: 2 }],
+      x: 1.4,
     },
   ],
   // W2 — Indiaman: three masts like the galleon but taller and further apart,
   // with a fore-and-aft spanker aft. The tallest rig in the batched fleet.
   indiaman: [
     {
-      height: 3.5,
-      sails: [{ centerY: 2.4, height: 1.7, kind: "fore-aft", reverse: true, width: 1.4 }],
-      x: -2.1,
+      height: 5,
+      sails: [{ centerY: 2.7, height: 2.5, kind: "fore-aft", reverse: true, width: 1.6 }],
+      x: -2.9,
     },
     {
-      height: 4.4,
-      sails: [{ centerY: 2.8, height: 2.1, kind: "square", width: 2 }],
+      height: 6.9,
+      sails: [
+        { centerY: 2.9, height: 2.9, kind: "square", width: 2.2 },
+        { centerY: 5.45, height: 2.1, kind: "square", width: 1.85 },
+      ],
       x: -0.15,
     },
     {
-      height: 3.9,
-      sails: [{ centerY: 2.55, height: 1.8, kind: "square", reverse: true, width: 1.7 }],
-      x: 1.8,
+      height: 5.9,
+      sails: [
+        { centerY: 2.75, height: 2.5, kind: "square", reverse: true, width: 1.85 },
+        { centerY: 5, height: 1.8, kind: "square", reverse: true, width: 1.55 },
+      ],
+      x: 2.6,
     },
   ],
   // W2 — Barque: square-rigged forward, fore-and-aft on the mizzen. That mixed
   // plan is literally what makes a barque a barque, and it reads at range.
   barque: [
     {
-      height: 3.2,
-      sails: [{ centerY: 2.2, height: 2, kind: "fore-aft", reverse: true, width: 1.25 }],
-      x: -1.9,
+      height: 4.7,
+      sails: [{ centerY: 2.55, height: 2.5, kind: "fore-aft", reverse: true, width: 1.4 }],
+      x: -2.6,
     },
     {
-      height: 3.95,
-      sails: [{ centerY: 2.6, height: 1.95, kind: "square", width: 1.55 }],
+      height: 7.4,
+      sails: [
+        { centerY: 2.7, height: 2.8, kind: "square", width: 1.9 },
+        { centerY: 5, height: 1.9, kind: "square", width: 1.6 },
+        { centerY: 6.5, height: 1.3, kind: "square", width: 1.25 },
+      ],
       x: 0.1,
     },
     {
-      height: 3.5,
-      sails: [{ centerY: 2.35, height: 1.6, kind: "square", reverse: true, width: 1.3 }],
-      x: 1.95,
+      height: 5.1,
+      sails: [
+        { centerY: 2.55, height: 2.2, kind: "square", reverse: true, width: 1.45 },
+        { centerY: 4.4, height: 1.5, kind: "square", reverse: true, width: 1.2 },
+      ],
+      x: 2.6,
     },
   ],
   // W2 — Hoy: one short mast with one broad low sail. Bullion does not need
   // speed, and the stubby rig over a wide hull is the whole read.
   hoy: [
     {
-      height: 2.6,
-      sails: [{ centerY: 1.75, height: 1.5, kind: "fore-aft", width: 1.75 }],
-      x: 0.35,
+      height: 3.9,
+      sails: [
+        { centerY: 2.1, height: 2.4, kind: "fore-aft", width: 2.3 },
+        { centerY: 1.7, height: 1.5, kind: "fore-aft", width: 1.05 },
+      ],
+      x: 0.2,
     },
   ],
 };
@@ -350,6 +382,20 @@ const GARDEN_SHIP_DECK_PROPS: Record<GardenHullSilhouette, GardenDeckProps> = {
   // The hoy IS its cargo: a single dense block amidships and nothing else.
   hoy: { capstan: 1.4, cargo: { columns: 2, rows: 2, x: 0.2 } },
 };
+
+/**
+ * W3: the masthead of a silhouette's tallest mast, in ship-local units — where
+ * the pennant flies. Derived rather than authored so it can never drift from
+ * the rig table.
+ */
+export function gardenShipMastheadOffset(
+  silhouette: GardenHullSilhouette,
+): { x: number; y: number } {
+  const tallest = GARDEN_SHIP_RIGS[silhouette].reduce((best, mast) => (
+    mast.height > best.height ? mast : best
+  ));
+  return { x: tallest.x, y: tallest.height + 0.52 };
+}
 
 /** Families that carry a bowsprit, and how far it reaches past the stem. */
 const GARDEN_SHIP_BOWSPRITS: Partial<Record<
@@ -570,29 +616,36 @@ function batchedHullColor(ship: ShipNode): Color {
  * anchor, which is where two thirds of the fleet spends its time.
  *
  * Two channels, both honest:
- * - **Moored**, a ship strikes her canvas but keeps ONE plain sail set beside
- *   the emblem — a riding sail. Furling everything left two thirds of the
- *   harbour on bare poles, which trades one monotony for another and works
- *   against the canvas the rig is being grown for (W3).
- * - **Under way**, a stable per-ship hash furls at most one plain sail. Working
- *   ships rarely carry everything; this is what stops sixty-four galleons from
- *   flying an identical rig.
+ * - **Moored**, a ship hands her UPPER sails and leaves her courses hanging,
+ *   which is what a real ship does at anchor. Striking everything was tried
+ *   first and reverted twice over: it put two thirds of the harbour on bare
+ *   poles, which trades one monotony for another and looked worse still once
+ *   W3 made the masts taller.
+ * - **Under way**, a stable per-ship hash furls at most one sail. Working ships
+ *   rarely carry everything; this is what stops sixty-four galleons from flying
+ *   an identical rig.
  *
  * `idle` is deliberately NOT treated as berthed: it is the state of a ship with
  * no motion sample yet, not a ship at a quay.
  */
 export function gardenShipSailFurl(shipId: string, sampleState: string): number {
-  if (sampleState === "moored") {
-    // Bits 2..FLEET_MAX_SAILS-1: everything except the emblem (bit 0) and the
-    // first plain sail (bit 1), which stays set as the riding sail.
-    return (2 ** FLEET_MAX_SAILS - 1) - 1 - 2;
-  }
+  if (sampleState === "moored") return FURL_ALL_UPPERS;
   const roll = stableUnit(`${shipId}.furl`);
-  if (roll < 0.55) return 0;
-  // Bits 1..3 cover the plain sails of every rig in the fleet; a bit past the
-  // end of a short rig is simply never matched by a vertex.
-  return 2 ** (1 + Math.floor(roll * 3) % 3);
+  if (roll < 0.5) return 0;
+  // Favour an upper — a working ship hands a topsail far more often than a
+  // course — but let one roll in six take in a course, which is the reef that
+  // reads most strongly at overview zoom.
+  if (roll < 0.85) {
+    return 2 ** (FURL_UPPER_FIRST + Math.floor(roll * 7) % (FLEET_MAX_SAILS - FURL_UPPER_FIRST));
+  }
+  return 2 ** (FURL_COURSE_FIRST + Math.floor(roll * 11) % (FURL_UPPER_FIRST - FURL_COURSE_FIRST));
 }
+
+/** First index in the course band, and in the upper-sail band. See below. */
+const FURL_COURSE_FIRST = 1;
+const FURL_UPPER_FIRST = 3;
+/** Bits FURL_UPPER_FIRST..FLEET_MAX_SAILS-1 — every topsail, topgallant and jib. */
+const FURL_ALL_UPPERS = (2 ** FLEET_MAX_SAILS - 1) - (2 ** FURL_UPPER_FIRST - 1);
 
 /**
  * W1 (decision D2): the sheer strake's paint — the issuer's colour as a single
@@ -1478,9 +1531,18 @@ export function createFleetBatchGeometry(
 
   const sailParts: { geometry: BufferGeometry; transform?: Matrix4 }[] = [];
   // W2.3/W4: each sail gets an index so a per-instance bitmask can furl it.
-  // Index 0 is reserved for the identity sail, which is never furled — the
-  // emblem is the fleet's heraldry and has to survive a ship sitting at anchor.
-  let furlIndex = 1;
+  //
+  // The index BANDS are load-bearing, not just identifiers:
+  //   0     the identity sail, never furled — the emblem is the fleet's
+  //         heraldry and has to survive a ship sitting at anchor
+  //   1-2   courses (the lowest sail on a mast)
+  //   3-5   upper sails (topsails, topgallants, jibs)
+  // A ship at anchor hands her topsails and leaves her courses hanging, which
+  // is both what a real ship does and what stops a taller rig from reading as
+  // a row of bare flagpoles. Banding the indices is what lets the furl policy
+  // say "uppers" without knowing any silhouette's rig plan.
+  let courseIndex = FURL_COURSE_FIRST;
+  let upperIndex = FURL_UPPER_FIRST;
   for (const [mastIndex, mastPlan] of rig.entries()) {
     for (const [sailIndex, sailPlan] of mastPlan.sails.entries()) {
       const reverse = sailPlan.reverse ?? false;
@@ -1488,14 +1550,25 @@ export function createFleetBatchGeometry(
         && identitySail.sailIndex === sailIndex;
       const geometry = createSailGeometry(sailPlan);
       markAtlasSail(geometry, isIdentitySail);
-      markFurlableSail(geometry, isIdentitySail ? 0 : furlIndex);
-      if (!isIdentitySail) furlIndex += 1;
+      if (isIdentitySail) {
+        markFurlableSail(geometry, 0);
+      } else if (sailIndex === 0) {
+        markFurlableSail(geometry, Math.min(courseIndex, FURL_UPPER_FIRST - 1));
+        courseIndex += 1;
+      } else {
+        markFurlableSail(geometry, Math.min(upperIndex, FLEET_MAX_SAILS - 1));
+        upperIndex += 1;
+      }
       const matrix = transform();
-      // F1: 1.22 -> 1.42. The mark lives on this sail alone, so the sail is
-      // deliberately oversized against the rest of the rig — a ship's device
-      // has to be readable at the zoom the fleet is scanned at, not just when
-      // one ship is inspected.
-      if (isIdentitySail) matrix.makeScale(1.42, 1.42, 1);
+      // F1: the mark lives on this sail alone, so the sail is deliberately
+      // oversized against the rest of the rig — a ship's device has to be
+      // readable at the zoom the fleet is scanned at, not just when one ship is
+      // inspected.
+      //
+      // W3: 1.42 -> 1.2. The whole rig grew, so the emblem sail is larger in
+      // absolute terms than it was at 1.42; keeping the old multiplier on the
+      // new course made it wider than the gap to the next mast.
+      if (isIdentitySail) matrix.makeScale(1.2, 1.2, 1);
       matrix.setPosition(
         mastPlan.x + (reverse ? -0.06 : 0.06),
         sailPlan.centerY,

@@ -94,6 +94,7 @@ export interface FleetBatches {
 }
 
 const scratchMatrix = new Matrix4();
+const scratchPennantMatrix = new Matrix4();
 const scratchPosition = new Vector3();
 const scratchQuaternion = new Quaternion();
 const scratchScale = new Vector3();
@@ -507,6 +508,16 @@ export interface FleetInstancePose {
   pitch: number;
   scale: number;
   silhouette: GardenHullSilhouette;
+  /**
+   * W3: where this silhouette's masthead is, in ship-local units.
+   *
+   * The pennant batch is ONE shared geometry for the whole fleet, so it cannot
+   * carry a per-silhouette offset in its vertices — it was drawn at the ship's
+   * own origin, which is the waterline, i.e. buried inside the hull. Every
+   * batched ship has been flying an invisible pennant; only the hero hulls,
+   * which keep their own scene graph, ever showed one.
+   */
+  mastheadOffset: { x: number; y: number };
   /** W2.3/W4: bitmask of sails furled onto their yards, bit i = sail i. */
   sailFurl: number;
   /** W1/D2: the issuer's paint on the sheer strake. */
@@ -577,7 +588,10 @@ export function writeFleetInstance(
 
   const pennantSlot = batches.pennant.mesh.count;
   if (pennantSlot < batches.capacity) {
-    batches.pennant.mesh.setMatrixAt(pennantSlot, scratchMatrix);
+    scratchPennantMatrix
+      .makeTranslation(pose.mastheadOffset.x, pose.mastheadOffset.y, 0.02)
+      .premultiply(scratchMatrix);
+    batches.pennant.mesh.setMatrixAt(pennantSlot, scratchPennantMatrix);
     batches.pennant.mesh.setColorAt(pennantSlot, pose.pennantColor);
     batches.pennant.mesh.count = pennantSlot + 1;
   }
