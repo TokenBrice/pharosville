@@ -116,7 +116,7 @@ test(...visualLane("motion", "day, dusk, night, and reduced-motion states render
     { hour: 12, name: "reduced", reducedMotion: true },
   ] as const;
 
-  let canvas = await openWorld(page, states[0]);
+  await openWorld(page, states[0]);
   const closeDetails = page.getByRole("button", { name: "Close details" });
   if (await closeDetails.isVisible()) await closeDetails.click();
 
@@ -126,7 +126,7 @@ test(...visualLane("motion", "day, dusk, night, and reduced-motion states render
     // whole dist visual lane has been red. The supported way to set the hour is
     // the `t` param, which `openWorld` already uses and which `npm run preview`
     // drives too, so each state simply reopens the world.
-    canvas = await openWorld(page, state);
+    const canvas = await openWorld(page, state);
     if (await closeDetails.isVisible()) await closeDetails.click();
     await expect.poll(async () => (await readRuntimeSnapshot(page)).wallClockHour)
       .toBeCloseTo(state.hour, 1);
@@ -249,6 +249,28 @@ test(...visualLane("accessibility", "Observe and analytical DOM labels preserve 
   await expect(labels).toHaveCount(0);
 });
 
+test(...visualLane("static", "a WebGL context that comes back keeps the world"), async ({ page }) => {
+  const canvas = await openWorld(page, { hour: 12, reducedMotion: true });
+  // Context loss is usually a transient driver/GPU-process blip, and the
+  // browser hands the context straight back. The world must ride that out
+  // rather than retiring itself to the DOM overview for the session.
+  const restored = await canvas.evaluate(async (element) => {
+    const target = element as HTMLCanvasElement;
+    const context = target.getContext("webgl2") ?? target.getContext("webgl");
+    const extension = context?.getExtension("WEBGL_lose_context");
+    if (!extension) return false;
+    extension.loseContext();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    extension.restoreContext();
+    return true;
+  });
+  expect(restored).toBe(true);
+
+  await expect(canvas).toHaveAttribute("data-renderer-status", "ready");
+  await expect(page.getByTestId("pharosville-renderer-fallback")).toHaveCount(0);
+  await expect(canvas).toBeVisible();
+});
+
 test(...visualLane("static", "a lost WebGL context presents the static signal overview"), async ({ page }) => {
   const canvas = await openWorld(page, { hour: 12, reducedMotion: true });
   const contextWasLost = await canvas.evaluate((element) => {
@@ -261,6 +283,8 @@ test(...visualLane("static", "a lost WebGL context presents the static signal ov
   });
   expect(contextWasLost).toBe(true);
 
+  // The fallback lands only after the restore grace period expires — a
+  // permanent loss falls back, a transient one does not (test above).
   const fallback = page.getByTestId("pharosville-renderer-fallback");
   await expect(fallback).toBeVisible();
   await expect(canvas).toHaveAttribute("data-renderer-status", "failed");

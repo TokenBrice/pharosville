@@ -351,6 +351,42 @@ describe("Three world renderer lifecycle", () => {
       "Cannot render a disposed Three.js world renderer.",
     );
   });
+
+  it("rides out a WebGL context loss that is restored, and only fails if it is not", () => {
+    vi.useFakeTimers();
+    try {
+      const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+      const canvas = document.createElement("canvas");
+      const onContextFailure = vi.fn();
+      const onAssetReady = vi.fn();
+      const renderer = createThreeWorldRenderer({ canvas, onAssetReady, onContextFailure });
+      const live = renderer.render(rendererFrame(world, "full"));
+      expect(live.objectCount).toBeGreaterThan(0);
+
+      canvas.dispatchEvent(new Event("webglcontextlost", { cancelable: true }));
+      // Held, not failed: the frame reports the last good numbers so the
+      // scheduler sees a hold rather than a collapse.
+      expect(onContextFailure).not.toHaveBeenCalled();
+      expect(renderer.render(rendererFrame(world, "full"))).toEqual(live);
+
+      canvas.dispatchEvent(new Event("webglcontextrestored"));
+      expect(onAssetReady).toHaveBeenCalled();
+      vi.advanceTimersByTime(60_000);
+      expect(onContextFailure).not.toHaveBeenCalled();
+      expect(renderer.render(rendererFrame(world, "full")).objectCount).toBeGreaterThan(0);
+
+      // A loss that never comes back still retires the world to the DOM
+      // overview, just after the grace period rather than immediately.
+      canvas.dispatchEvent(new Event("webglcontextlost", { cancelable: true }));
+      expect(onContextFailure).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(60_000);
+      expect(onContextFailure).toHaveBeenCalledTimes(1);
+
+      renderer.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("Garden Observatory data selection", () => {

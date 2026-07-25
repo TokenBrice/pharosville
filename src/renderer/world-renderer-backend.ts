@@ -46,6 +46,12 @@ export interface WorldRendererGpuMetrics {
   geometries: number;
   lines: number;
   points: number;
+  /**
+   * Live shader programs. Every one is a compile+link on the frame that first
+   * needs it, so this is the number behind the first-frame stall — and a
+   * per-frame climb here means something is forcing material recompiles.
+   */
+  programs: number;
   textures: number;
   triangles: number;
 }

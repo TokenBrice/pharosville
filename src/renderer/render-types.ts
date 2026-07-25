@@ -31,6 +31,15 @@ export interface PharosVilleRenderMetrics {
   fleetDrawCallCount?: number;
   objectCount: number;
   postPassList?: readonly string[];
+  /**
+   * GPU resources (shader programs, geometry buffers, textures) this frame had
+   * to create for the first time.
+   *
+   * A frame that compiles a shader or uploads a buffer is paying a one-off
+   * warm-up cost, not reporting a rendering budget, so the render loop keeps it
+   * out of the load measurement entirely. Steady-state frames read 0.
+   */
+  gpuWarmupCount?: number;
   shadowMapSize?: number;
   longtask?: { count: number; maxDurationMs: number };
   movingShipCount: number;

@@ -33,6 +33,7 @@ import type {
   CreateThreeWorldRendererInput,
   ThreeWorldRenderer,
   ThreeWorldRendererFrame,
+  ThreeWorldRendererMetrics,
 } from "../renderer/world-renderer-backend";
 import type { PharosVilleRenderSchedulerTier } from "../renderer/render-types";
 import { seaQualityTier } from "../renderer/render-scheduler";
@@ -159,6 +160,8 @@ export { disposeThreeObjectTree } from "./garden-util";
 
 const MAX_THREE_DPR = 2;
 const CAMERA_DISTANCE = 110;
+/** How long a lost WebGL context has to come back before the world gives up. */
+const CONTEXT_RESTORE_GRACE_MS = 5000;
 
 // C4: quality ranking used to track the best load tier reached this session.
 // "interaction" is a transient camera-gesture mode, ranked below balanced.
@@ -208,15 +211,47 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
   let lastWidth = 0;
   // C4: best scheduler tier reached this session (debug evidence surface).
   let sessionTierReached: PharosVilleRenderSchedulerTier = "constrained";
+  let lastMetrics: ThreeWorldRendererMetrics = emptyWorldRendererMetrics();
 
+  // Context loss is usually TRANSIENT — a driver reset, a GPU-process restart,
+  // the compositor reclaiming resources — and the browser hands the context
+  // back a moment later. Treating the first `webglcontextlost` as a permanent
+  // failure meant one of those blips retired the whole 3D world to the DOM
+  // overview for the rest of the session, with a reload as the only way back.
+  //
+  // `preventDefault()` is what makes the browser willing to restore at all, and
+  // three's own listeners (registered in the WebGLRenderer constructor, so they
+  // run before these) re-initialise its GL state on restore. So: hold the
+  // frame, wait, and only give up if the context never comes back.
+  let contextLost = false;
+  let contextRestoreTimeoutId = 0;
   const handleContextLost = (event: Event) => {
     event.preventDefault();
-    onContextFailure("The 3D rendering context was lost.");
+    if (contextLost) return;
+    contextLost = true;
+    contextRestoreTimeoutId = setTimeout(() => {
+      if (!contextLost || disposed) return;
+      onContextFailure("The 3D rendering context was lost and could not be restored.");
+    }, CONTEXT_RESTORE_GRACE_MS) as unknown as number;
+  };
+  const handleContextRestored = () => {
+    if (!contextLost) return;
+    contextLost = false;
+    clearTimeout(contextRestoreTimeoutId);
+    // The GPU-side surface is new: re-apply the size/pixel-ratio the renderer
+    // thinks it already has, and re-render the static shadow map, which is
+    // only written when `shadowNeedsRender` asks for it.
+    lastDpr = 0;
+    lastWidth = 0;
+    lastHeight = 0;
+    scene.shadowNeedsRender = true;
+    onAssetReady?.();
   };
   const handleContextCreationError = () => {
     onContextFailure("This browser could not create a 3D rendering context.");
   };
   canvas.addEventListener("webglcontextlost", handleContextLost);
+  canvas.addEventListener("webglcontextrestored", handleContextRestored);
   canvas.addEventListener("webglcontextcreationerror", handleContextCreationError);
 
   void modelLibrary.clone("garden-lighthouse-shell")
@@ -259,7 +294,9 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
     dispose() {
       if (disposed) return;
       disposed = true;
+      clearTimeout(contextRestoreTimeoutId);
       canvas.removeEventListener("webglcontextlost", handleContextLost);
+      canvas.removeEventListener("webglcontextrestored", handleContextRestored);
       canvas.removeEventListener("webglcontextcreationerror", handleContextCreationError);
       const detachedModel = scene.lighthouseModel?.parent ? null : scene.lighthouseModel;
       post.dispose();
@@ -272,6 +309,10 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
     },
     render(frame) {
       if (disposed) throw new Error("Cannot render a disposed Three.js world renderer.");
+      // No GL surface to draw into while the context is gone. Report the last
+      // frame's numbers so the scheduler and the debug surface see a hold
+      // rather than a collapse, and wait for `webglcontextrestored`.
+      if (contextLost) return lastMetrics;
 
       // `renderer.info` auto-resets on every `render()` call, and the post
       // composer issues several. Reading it after `post.render()` therefore
@@ -282,6 +323,12 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
       // Manual reset here, with autoReset off at construction, accumulates
       // every pass of the frame into one honest total.
       renderer.info.reset();
+      // Counts of GPU resources that already exist. Anything created between
+      // here and the end of the frame is first-use warm-up work — see
+      // `gpuWarmupCount`.
+      const programsBefore = renderer.info.programs?.length ?? 0;
+      const geometriesBefore = renderer.info.memory.geometries;
+      const texturesBefore = renderer.info.memory.textures;
 
       const dpr = Math.max(1, Math.min(MAX_THREE_DPR, frame.dpr));
       const dprChanged = dpr !== lastDpr;
@@ -310,6 +357,13 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
       if (scene.content) syncShipSailTextures(scene.content, frame);
       const phase = dayCyclePhase(frame.wallClockHour);
       updateSceneForFrame(scene, camera, frame, phase);
+      // NOTE (measured, do not "optimise" this back): warming the new content
+      // with `renderer.compileAsync(scene.root, camera)` here is a net loss.
+      // It compiles a program for every material/object variant in the tree
+      // rather than the ones this view draws — program count went 73 -> 153 —
+      // and the frames that first draw the fleet still stalled identically,
+      // because the cost is the driver's texture and buffer upload, not the
+      // shader link. All it bought was ~900ms later time-to-fleet.
 
       const tier = frame.renderScheduler.tier;
       if (SESSION_TIER_QUALITY[tier] > SESSION_TIER_QUALITY[sessionTierReached]) {
@@ -337,7 +391,13 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
 
       const content = scene.content;
       const renderInfo = renderer.info.render;
-      return {
+      const programCount = renderer.info.programs?.length ?? 0;
+      const geometryCount = renderer.info.memory.geometries;
+      const textureCount = renderer.info.memory.textures;
+      lastMetrics = {
+        gpuWarmupCount: Math.max(0, programCount - programsBefore)
+          + Math.max(0, geometryCount - geometriesBefore)
+          + Math.max(0, textureCount - texturesBefore),
         activeLaneCount: scene.laneRegistry.activeLaneCount,
         composerEnabled: post.isComposerEnabled(),
         // C4 evidence: live water-system state via contract C2 (cloud-shadow
@@ -356,10 +416,11 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
         shadowMapSize,
         gpu: {
           calls: renderInfo.calls,
-          geometries: renderer.info.memory.geometries,
+          geometries: geometryCount,
           lines: renderInfo.lines,
           points: renderInfo.points,
-          textures: renderer.info.memory.textures,
+          programs: programCount,
+          textures: textureCount,
           triangles: renderInfo.triangles,
         },
         movingShipCount: content?.ships.reduce((count, ship) => (
@@ -372,12 +433,38 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
         schedulerTier: frame.renderScheduler.tier,
         visibleShipCount: content?.visibleShipCount ?? 0,
       };
+      return lastMetrics;
     },
+  };
+}
+
+/** Zeroed metrics for frames that never reached the GPU (context lost). */
+function emptyWorldRendererMetrics(): ThreeWorldRendererMetrics {
+  return {
+    gpu: { calls: 0, geometries: 0, lines: 0, points: 0, programs: 0, textures: 0, triangles: 0 },
+    gpuWarmupCount: 0,
+    movingShipCount: 0,
+    objectCount: 0,
+    rendererBackend: "three",
+    visibleShipCount: 0,
   };
 }
 
 interface GardenScene {
   ambientLight: AmbientLight;
+  /**
+   * The beam's swept angle, integrated rather than derived from the clock.
+   *
+   * `timeSeconds * sweepRate` looks equivalent and is not: the rate carries the
+   * fleet's PSI stress, so every data refresh that nudged the stress
+   * teleported the light by `timeSeconds * delta` radians — minutes into a
+   * session that is many whole turns in one frame. Integrating keeps the sweep
+   * continuous through rate changes and through world rebuilds, and keeps the
+   * angle bounded instead of growing without limit.
+   */
+  beamAngle: number;
+  /** World-clock reading the beam angle was last integrated to. */
+  beamClockSeconds: number;
   content: GardenContent | null;
   directionalLight: DirectionalLight;
   hemisphereLight: HemisphereLight;
@@ -512,6 +599,8 @@ function createGardenScene(): GardenScene {
 
   return {
     ambientLight,
+    beamAngle: 0,
+    beamClockSeconds: 0,
     content: null,
     directionalLight,
     hemisphereLight,
@@ -1118,6 +1207,10 @@ function updateSceneForFrame(
   phase: DayCyclePhase,
 ): void {
   updateCamera(camera, frame);
+  // Advance the beam's own clock before any early return, so a frame drawn
+  // without world content cannot leave a gap for the next one to jump across.
+  const beamElapsedSeconds = Math.max(0, frame.timeSeconds - scene.beamClockSeconds);
+  scene.beamClockSeconds = frame.timeSeconds;
   scene.sky.update(phase, {
     reducedMotion: frame.reducedMotion,
     viewHeight: gardenCameraViewHeight(frame.height, frame.camera.zoom),
@@ -1263,10 +1356,19 @@ function updateSceneForFrame(
   // enough that the world stays somewhere you can sit.
   const psiStress = MathUtils.clamp(frame.seaState.source.psiStress ?? 0, 0, 1);
   const sweepRate = 0.2 + psiStress * 0.22;
-  // Constrained freezes the sweep to a static angle (matching reduced motion).
-  content.beam.rotation.y = frame.reducedMotion || constrained
-    ? -0.55
-    : frame.timeSeconds * sweepRate;
+  // Only reduced motion freezes the sweep, and that is a policy, not a budget.
+  //
+  // `constrained` used to freeze it too, which cost nothing to run — the sweep
+  // is one `rotation.y` write on a group that is drawn either way — and cost a
+  // great deal to look at: entering the tier snapped the light to -0.55 and
+  // leaving it snapped back to `timeSeconds * sweepRate`, so every load spike
+  // read as the lighthouse jamming and then jumping. The beam is the
+  // monument's one motion beat; the tier ladder sheds the beam's GEOMETRY
+  // (cone -> flat plane, below), not its life.
+  if (!frame.reducedMotion) {
+    scene.beamAngle = (scene.beamAngle + beamElapsedSeconds * sweepRate) % (Math.PI * 2);
+  }
+  content.beam.rotation.y = frame.reducedMotion ? -0.55 : scene.beamAngle;
   content.beacon.getWorldPosition(scratchPosition);
   scene.water.setBeaconState(
     scratchPosition.x,

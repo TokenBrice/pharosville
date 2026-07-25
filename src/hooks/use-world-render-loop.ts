@@ -217,6 +217,8 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   const compactShipMotionSampleCacheRef = useRef<CompactShipMotionSampleCache>(createCompactShipMotionSampleCache());
   const accSecondsRef = useRef(0);
   const pendingResumeRef = useRef(false);
+  /** True when the frame just drawn created GPU resources for the first time. */
+  const gpuWarmupFrameRef = useRef(false);
   const motionFrameCountRef = useRef(0);
   const reducedMotionSamplesSignatureRef = useRef<string | null>(null);
   const lastRenderMetricsRef = useRef<DebugRenderMetrics>({
@@ -494,6 +496,37 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       // above (frameIntervalMs stays null). The adaptive-DPR governor below
       // reads this same cleaned window, so interaction frames cannot trigger
       // DPR downshifts either.
+      //
+      // A STALL is excluded for the same reason. When a world build, a scene
+      // rebuild or a GC blocks the main thread, the next RAF callback reports
+      // the whole blocked span as one frame interval. Measured on the
+      // reference GPU: the first frame after a data refresh reported 2117ms,
+      // which — against a pacing window the world swap had just emptied — put
+      // p90 at 2150ms and pinned the scheduler to `constrained` for the ~120
+      // frames it took to age out. For those two seconds the beam froze at its
+      // static angle and snapped on the way out, shadows, gulls, weather and
+      // bloom all dropped, and none of it was a rendering cost: the frame that
+      // finally drew was a normal 16.7ms frame.
+      //
+      // Nothing in this app legitimately RENDERS at 4fps, so an interval past
+      // the threshold is never a pacing signal. Genuinely slow hardware still
+      // sheds tiers through the independent `drawDurationMs` path, which
+      // measures the render call itself and cannot be fooled by a stall.
+      if (frameIntervalMs !== null && frameIntervalMs >= FRAME_STALL_INTERVAL_MS) {
+        frameIntervalMs = null;
+        // The frame after a stall carries the deferred work the stall pushed
+        // ahead of it, so it is not a pacing sample either.
+        pendingResumeRef.current = true;
+      }
+      // A frame that had to compile shader programs is a one-off cost, not a
+      // rendering budget. The interval measured HERE spans the previous frame,
+      // so it is the previous frame's compiling that disqualifies it. Without
+      // this, the ~7 frames that first draw each new material after a world
+      // swap (~120ms each on the reference GPU) dropped the ladder to
+      // `constrained` for the second or so it takes the fleet to settle —
+      // shedding shadows, gulls, weather and bloom exactly as the world
+      // appears, then popping them all back on.
+      if (frameIntervalMs !== null && gpuWarmupFrameRef.current) frameIntervalMs = null;
       if (frameIntervalMs !== null && !cameraStep.cameraIntentActive) {
         framePacingStatsRef.current = pushFrameIntervalSample(frameIntervalWindowRef.current, frameIntervalMs);
         const framePacing = framePacingStatsRef.current;
@@ -540,7 +573,9 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       const drawStartedAt = performance.now();
       const renderScheduler = resolveRenderSchedulerState({
         cameraIntentActive: cameraStep.cameraIntentActive,
-        drawDurationMs: lastRenderMetricsRef.current.drawDurationMs,
+        // Same reason the pacing sample is dropped above: a compiling frame's
+        // draw duration measures the compile, not the frame.
+        drawDurationMs: gpuWarmupFrameRef.current ? 0 : lastRenderMetricsRef.current.drawDurationMs,
         framePacingP90Ms: framePacingStatsRef.current.p90Ms,
         reducedMotion,
       }, renderSchedulerHysteresisRef.current);
@@ -567,6 +602,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         failThreeRenderer(error instanceof Error ? error.message : String(error));
         return;
       }
+      gpuWarmupFrameRef.current = (renderMetrics.gpuWarmupCount ?? 0) > 0;
       const previousTimeToFirstCoherentFrameMs = lastRenderMetricsRef.current.timeToFirstCoherentFrameMs;
       lastRenderMetricsRef.current = {
         ...renderMetrics,
@@ -580,7 +616,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       if (previousTimeToFirstCoherentFrameMs !== undefined) {
         lastRenderMetricsRef.current.timeToFirstCoherentFrameMs = previousTimeToFirstCoherentFrameMs;
       }
-      if (!reducedMotion) {
+      if (!reducedMotion && !gpuWarmupFrameRef.current) {
         drawDurationStatsRef.current = pushDrawDurationSample(drawDurationWindowRef.current, lastRenderMetricsRef.current.drawDurationMs);
         // Pass the pacing window alongside draw durations so the governor can
         // see raster/compositor-bound frames where JS-side draw time stays
@@ -891,6 +927,12 @@ type PharosVilleDebugState = {
 };
 
 const FRAME_RATE_LABEL_UPDATE_MS = 500;
+/**
+ * Above this, a frame interval is a main-thread stall rather than a rendering
+ * cost, and is kept out of the pacing window. See the exclusion site in
+ * `drawFrame` for why.
+ */
+const FRAME_STALL_INTERVAL_MS = 250;
 const MAX_WORLD_FRAME_DELTA_SECONDS = 1 / 30;
 const TEST_CLOCK_JUMP_DELTA_SECONDS = 1;
 const MOTION_BUCKET_INTERVAL_SECONDS = 600;
