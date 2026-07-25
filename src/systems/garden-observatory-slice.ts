@@ -1,5 +1,6 @@
 import type { ShipMotionSample } from "./motion";
 import { placeGardenFleet } from "./garden-fleet-placement";
+import { SEA_REGION_ID, seaRegionAnchorTile } from "./garden-sea-regions";
 import { selectGardenObservatoryAreas } from "./observe-sequence";
 import { TILE_HEIGHT, tileToScreen, type IsoCamera, type ScreenPoint } from "./projection";
 import { landWorldTile, zoneWorldTile } from "./map-scale";
@@ -301,11 +302,44 @@ export function gardenAreaCenterTile(area: {
   return (key && AREA_DISPLAY_CENTER[key]) || area.tile;
 }
 
+/** Band/placement -> sea-region slot, mirroring the renderer's mapping. */
+function areaSeaRegionId(area: {
+  band?: string | null;
+  riskPlacement?: string | null;
+}): number {
+  if (area.band === "CALM") return SEA_REGION_ID.calm;
+  if (area.band === "WATCH") return SEA_REGION_ID.watch;
+  if (area.band === "ALERT") return SEA_REGION_ID.alert;
+  if (area.band === "WARNING") return SEA_REGION_ID.warning;
+  if (area.band === "DANGER") return SEA_REGION_ID.danger;
+  if (area.riskPlacement === "ledger-mooring") return SEA_REGION_ID.ledger;
+  return SEA_REGION_ID.none;
+}
+
+const areaAnchorCache = new Map<number, ScreenPoint | null>();
+
 export function gardenAreaDisplayTile(area: {
   band?: string | null;
   riskPlacement?: string | null;
   tile: ScreenPoint;
 }): ScreenPoint {
+  // W2.9: anchor the label INSIDE the region it counts.
+  //
+  // These used to be hand-authored tiles. After the world doubled and
+  // placement moved to region-scoped blue noise they no longer sat near the
+  // ships they describe — "Danger Strait, 9 ships" floated over a crowd of
+  // fifty while "Watch Breakwater, 46 ships" sat over empty water. The counts
+  // were correct; the labels were in the wrong place, which reads as the world
+  // lying about itself.
+  const regionId = areaSeaRegionId(area);
+  if (regionId !== SEA_REGION_ID.none) {
+    let anchor = areaAnchorCache.get(regionId);
+    if (anchor === undefined) {
+      anchor = seaRegionAnchorTile(regionId);
+      areaAnchorCache.set(regionId, anchor);
+    }
+    if (anchor) return anchor;
+  }
   // C3: this is the zone composition's DOM/focus integration point — the
   // label anchor on the visible arc. The rendered center lives in
   // gardenAreaCenterTile; zone radii live in garden-zones.ts (Lane Z) and the

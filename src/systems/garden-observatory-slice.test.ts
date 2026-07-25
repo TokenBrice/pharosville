@@ -7,6 +7,7 @@ import {
   denseFixtureStress,
   fixtureStability,
 } from "../__fixtures__/pharosville-world";
+import { SEA_REGION_ID, seaRegionAtTile } from "./garden-sea-regions";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import {
   GARDEN_SHIP_ROOT_Y,
@@ -24,7 +25,6 @@ import {
   selectRepresentativeShips,
 } from "./garden-observatory-slice";
 import { tileToScreen } from "./projection";
-import { MAX_TILE_X, MAX_TILE_Y } from "./world-layout";
 import { landWorldTile, zoneWorldTile } from "./map-scale";
 
 describe("Garden Observatory slice", () => {
@@ -134,34 +134,49 @@ describe("Garden Observatory slice", () => {
     expect(gardenCameraViewHeight(1_000, 1)).toBe(62.5);
   });
 
-  it("decouples rendered zone centers from in-frame label anchors (zones-v2)", () => {
-    // Operator overlay composition: the Calm ring centers on the island,
-    // Watch slightly below it, and Ledger/Alert/Warning center off-frame —
-    // while every DOM label anchor stays on the visible arc inside the map.
-    // N1: the composition is authored in the 56-tile DESIGN space. The
-    // island-relative anchors take the landmass OFFSET; the off-frame corner
-    // arcs and frame-inset labels take the zone SCALE.
-    const calm = { band: "CALM", tile: { x: 10, y: 40 } };
-    expect(gardenAreaCenterTile(calm)).toEqual(landWorldTile({ x: 31, y: 31 }));
-    expect(gardenAreaDisplayTile(calm)).toEqual(landWorldTile({ x: 42, y: 26 }));
-    expect(gardenAreaCenterTile({ band: "WATCH", tile: { x: 38, y: 48 } }))
-      .toEqual(landWorldTile({ x: 33, y: 33 }));
-    // Ledger keys off its risk placement (band is null).
-    const ledger = { riskPlacement: "ledger-mooring", tile: { x: 10, y: 5 } };
-    expect(gardenAreaCenterTile(ledger)).toEqual(zoneWorldTile({ x: -4, y: 4 }));
-    expect(gardenAreaDisplayTile(ledger)).toEqual(zoneWorldTile({ x: 8, y: 10 }));
+  it("anchors each area label inside the region it counts", () => {
+    // W2.9: label anchors used to be hand-authored tiles. After the world
+    // doubled and placement moved to region-scoped blue noise they no longer
+    // sat near the ships they describe — "Danger Strait, 9 ships" floated over
+    // a crowd of fifty while "Watch Breakwater, 46 ships" sat over empty
+    // water. The counts were right; the label was in the wrong place, which
+    // reads as the world lying about itself.
+    //
+    // The contract is now the strong one: a label must land ON a tile of its
+    // OWN region, so it can never drift away from its ships again.
+    const bandRegion = {
+      CALM: SEA_REGION_ID.calm,
+      WATCH: SEA_REGION_ID.watch,
+      ALERT: SEA_REGION_ID.alert,
+      WARNING: SEA_REGION_ID.warning,
+      DANGER: SEA_REGION_ID.danger,
+    } as const;
+    for (const [band, regionId] of Object.entries(bandRegion)) {
+      const label = gardenAreaDisplayTile({ band, tile: { x: 0, y: 0 } });
+      expect(
+        seaRegionAtTile(Math.round(label.x), Math.round(label.y)),
+        `${band} label at (${label.x},${label.y})`,
+      ).toBe(regionId);
+      expect(label.x).toBeGreaterThanOrEqual(0);
+      expect(label.y).toBeGreaterThanOrEqual(0);
+    }
+
+    // Ledger keys off its risk placement rather than a band.
+    const ledger = gardenAreaDisplayTile({ riskPlacement: "ledger-mooring", tile: { x: 10, y: 5 } });
+    expect(seaRegionAtTile(Math.round(ledger.x), Math.round(ledger.y)))
+      .toBe(SEA_REGION_ID.ledger);
+
+    // The RENDERED zone centre stays decoupled from the label anchor, and may
+    // still sit on the island or off-frame — that composition is unchanged.
+    expect(gardenAreaCenterTile({ band: "CALM", tile: { x: 10, y: 40 } }))
+      .toEqual(landWorldTile({ x: 31, y: 31 }));
+    expect(gardenAreaCenterTile({ riskPlacement: "ledger-mooring", tile: { x: 10, y: 5 } }))
+      .toEqual(zoneWorldTile({ x: -4, y: 4 }));
+
     // Unknown areas fall back to their data tile for both anchors.
     const unknown = { tile: { x: 4, y: 9 } };
     expect(gardenAreaCenterTile(unknown)).toEqual({ x: 4, y: 9 });
     expect(gardenAreaDisplayTile(unknown)).toEqual({ x: 4, y: 9 });
-    // Label anchors always stay on valid in-map tiles (never off-screen).
-    for (const band of ["CALM", "WATCH", "ALERT", "WARNING", "DANGER"] as const) {
-      const label = gardenAreaDisplayTile({ band, tile: { x: 0, y: 0 } });
-      expect(label.x).toBeGreaterThanOrEqual(0);
-      expect(label.x).toBeLessThanOrEqual(MAX_TILE_X);
-      expect(label.y).toBeGreaterThanOrEqual(0);
-      expect(label.y).toBeLessThanOrEqual(MAX_TILE_Y);
-    }
   });
 
   it("resolves production landmarks while preserving Garden-staged tiles", () => {

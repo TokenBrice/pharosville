@@ -4,6 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PharosVilleLoading, PharosVilleWorld } from "./pharosville-world";
 import type { HitTarget } from "./renderer/hit-testing";
 import {
+  GARDEN_SHIP_ROOT_Y,
+  gardenAreaDisplayTile,
+  gardenTileToScreen,
   resolveGardenEntityDisplayTile,
   selectGardenObservatorySlice,
 } from "./systems/garden-observatory-slice";
@@ -312,22 +315,27 @@ describe("PharosVilleWorld UI accessibility controls", () => {
   });
 
   it("projects truthful area controls over the Three scene", async () => {
-    // Camera keeps the zones-v2 label anchors (design-space WARNING (49,3),
-    // WATCH (14,50)) inside the safe viewport. N1 doubled the map and those
-    // anchors scale with the zone bands, so the same framing needs half the
-    // zoom: at 0.25 with offsets (358,100) both anchors project to exactly the
-    // screen points they did at 0.5 on the 56-tile grid — WARNING (726, 317.8)
-    // and WATCH (70, 365.8).
-    mocks.cameraRef.current.offsetX = 358;
-    mocks.cameraRef.current.offsetY = 100;
-    mocks.cameraRef.current.zoom = 0.25;
-    render(<PharosVilleWorld world={worldFixture()} />);
+    // The expected screen position is DERIVED from the label's anchor, not
+    // hardcoded. W2.9 made anchors a function of each region's geometry, so a
+    // literal pixel silently rots the moment the world is rescaled or a region
+    // reshaped — and the failure mode is a culled label, not a clear error.
+    const world = worldFixture();
+    const warningArea = world.areas.find((area) => area.band === "WARNING")!;
+    const camera = { offsetX: 358, offsetY: 100, zoom: 0.25 };
+    const expectedX = Math.round(
+      gardenTileToScreen(gardenAreaDisplayTile(warningArea), GARDEN_SHIP_ROOT_Y, camera).x,
+    );
+
+    mocks.cameraRef.current.offsetX = camera.offsetX;
+    mocks.cameraRef.current.offsetY = camera.offsetY;
+    mocks.cameraRef.current.zoom = camera.zoom;
+    render(<PharosVilleWorld world={world} />);
     fireEvent.click(screen.getByLabelText("Close details"));
 
     const warning = screen.getByRole("button", {
-      name: "Open Warning Shoals details: WARNING, 2 ships",
+      name: `Open Warning Shoals details: WARNING, ${warningArea.count} ships`,
     });
-    expect(warning.getAttribute("style")).toContain("--pv-observatory-x: 726px");
+    expect(warning.getAttribute("style")).toContain(`--pv-observatory-x: ${expectedX}px`);
     expect(screen.getByText("Watch Breakwater")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Observe harbor" })).toBeNull();
 

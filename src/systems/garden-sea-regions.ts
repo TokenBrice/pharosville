@@ -298,6 +298,51 @@ export function seaRegionBoundaryPoints(
 }
 
 /**
+ * W2.9: a representative tile INSIDE a region, for its DOM label, hit target
+ * and camera focus.
+ *
+ * Label anchors used to be hand-authored tiles. After the world doubled and
+ * placement moved to region-scoped blue noise, those anchors no longer sat
+ * anywhere near the ships they count — the review found "Danger Strait ·
+ * 9 ships" floating over a crowd of fifty and "Watch Breakwater · 46 ships"
+ * over empty water. The counts were right; the labels were in the wrong place,
+ * which reads as the world lying.
+ *
+ * The centroid of a concave region can fall outside it, so the centroid is
+ * only a seed: the tile actually returned is the region tile nearest to it.
+ */
+export function seaRegionAnchorTile(regionId: number): { x: number; y: number } | null {
+  let sumX = 0;
+  let sumY = 0;
+  let count = 0;
+  for (let y = 0; y < PHAROSVILLE_MAP_HEIGHT; y += 1) {
+    for (let x = 0; x < PHAROSVILLE_MAP_WIDTH; x += 1) {
+      if (seaRegionAtTile(x, y) !== regionId) continue;
+      sumX += x;
+      sumY += y;
+      count += 1;
+    }
+  }
+  if (count === 0) return null;
+  const centroidX = sumX / count;
+  const centroidY = sumY / count;
+
+  let best: { x: number; y: number } | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (let y = 0; y < PHAROSVILLE_MAP_HEIGHT; y += 1) {
+    for (let x = 0; x < PHAROSVILLE_MAP_WIDTH; x += 1) {
+      if (seaRegionAtTile(x, y) !== regionId) continue;
+      const distance = Math.hypot(x - centroidX, y - centroidY);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = { x, y };
+      }
+    }
+  }
+  return best;
+}
+
+/**
  * W2.4: coverage guard. Replaces the ellipse-union measurement, which could
  * only ever report how much sea six overlapping discs happened to touch.
  */
