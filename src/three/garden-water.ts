@@ -505,12 +505,17 @@ const FRAGMENT_SHADER = /* glsl */ `
       // stops dead at the cheap-path boundary and the map reads as a hard
       // diamond tile floating on flat sea. Fading the tint (and its foam)
       // toward the boundary makes the two paths meet at the same colour.
-      // A long ramp: at whole-map framing the world boundary is on screen, so
-      // a short fade reads as a cut edge around a floating tile. Starting the
-      // fade well inside makes the sea dissolve into open ocean instead.
+      // The fade must begin at the MAP EDGE, not well inside it. uOpenOceanRadius
+      // is deliberately wider than the map half-extent (0.56 of the full span vs
+      // the 0.5 the map occupies), so 0.80-1.0 of it brackets the shoreline of
+      // the world: regions stay fully tinted across the whole playable map and
+      // only dissolve past its edge.
+      //
+      // An earlier ramp started at 0.42 and silently stripped the region tint
+      // from the outer half of the map.
       float edgeFade = 1.0 - smoothstep(
-        uOpenOceanRadius * 0.42,
-        uOpenOceanRadius * 0.98,
+        uOpenOceanRadius * 0.80,
+        uOpenOceanRadius * 1.0,
         mapDistance
       );
       regionStrength *= edgeFade;
@@ -925,7 +930,7 @@ export function createGardenWater(waterLevel: number): GardenWater {
         -(regionField.tileSpan * TILE_SCALE_UNITS) * 0.5,
       ),
     },
-    uOpenOceanRadius: { value: (regionField.tileSpan * TILE_SCALE_UNITS) * 0.62 },
+    uOpenOceanRadius: { value: (regionField.tileSpan * TILE_SCALE_UNITS) * 0.56 },
     uRegionField: { value: regionField.texture },
     uRegionColor: { value: regionColors },
     uRegionParams: { value: regionParams },
