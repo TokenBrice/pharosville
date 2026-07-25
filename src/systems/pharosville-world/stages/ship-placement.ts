@@ -309,12 +309,31 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
   return spreadShipRiskAnchorsAcrossWater(ships);
 }
 
+// One world build asks for the fleet twice: the scaffold stage needs the
+// per-placement counts to size the DEWS areas, then the ship stage needs the
+// ships themselves. Both calls pass the same `inputs` and the same `docks`
+// array, so a one-entry identity cache collapses them into a single run.
+// Without it the whole placement pipeline — spread included — executed twice
+// per build.
+let lastShipsInputs: PharosVilleInputs | null = null;
+let lastShipsDocks: readonly DockNode[] | null = null;
+let lastShips: ShipNode[] | null = null;
+
+function buildShipsCached(inputs: PharosVilleInputs, docks: readonly DockNode[]): ShipNode[] {
+  if (lastShips && lastShipsInputs === inputs && lastShipsDocks === docks) return lastShips;
+  const ships = buildShips(inputs, docks);
+  lastShipsInputs = inputs;
+  lastShipsDocks = docks;
+  lastShips = ships;
+  return ships;
+}
+
 export function countShipsByRiskPlacement(
   inputs: PharosVilleInputs,
   docks: readonly DockNode[],
 ): ReadonlyMap<ShipRiskPlacement, number> {
   const counts = new Map<ShipRiskPlacement, number>();
-  for (const ship of buildShips(inputs, docks)) {
+  for (const ship of buildShipsCached(inputs, docks)) {
     counts.set(ship.riskPlacement, (counts.get(ship.riskPlacement) ?? 0) + 1);
   }
   return counts;
@@ -398,43 +417,73 @@ function othersSpread(
   occupied: Set<string>,
 ): ShipNode[] {
   const candidates = riskPlacementWaterTiles(placement);
-  const selectedTiles: { x: number; y: number }[] = [];
+  // Distance from each candidate to the NEAREST already-placed ship in this
+  // placement, maintained incrementally. Scoring used to recompute that
+  // minimum from scratch for every candidate against every placed ship, which
+  // is O(candidates x ships^2) — on the live fleet that was ~3.8s of the
+  // startup block all by itself (Calm alone runs ~5000 candidates x ~110
+  // ships). The same farthest-point-sampling trick `seaBodyAnchors` already
+  // uses makes it O(candidates x ships) and leaves every chosen tile
+  // unchanged. POSITIVE_INFINITY until the first ship lands, mirroring
+  // `minTileDistance` over an empty list.
+  const spacingToNearest = new Float64Array(candidates.length).fill(Number.POSITIVE_INFINITY);
+  let placedCount = 0;
 
   return ships.map((ship) => {
     const riskTile = spacedRiskPlacementTile({
       candidates,
+      hasPlaced: placedCount > 0,
       occupied,
       preferred: ship.riskTile,
-      selectedTiles,
+      spacingToNearest,
       seed: `${ship.id}.${placement}.risk-spread`,
     }) ?? nearestAvailableWaterTile(ship.riskTile, occupied);
 
     occupied.add(tileKey(riskTile));
-    selectedTiles.push(riskTile);
+    for (let index = 0; index < candidates.length; index += 1) {
+      const candidate = candidates[index]!;
+      const dx = candidate.x - riskTile.x;
+      const dy = candidate.y - riskTile.y;
+      // sqrt of the exact integer sum, not Math.hypot: same value for tile
+      // offsets (no overflow to guard against), several times cheaper, and
+      // this loop runs once per candidate per ship.
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      if (distance < spacingToNearest[index]!) spacingToNearest[index] = distance;
+    }
+    placedCount += 1;
     return { ...ship, tile: riskTile, riskTile };
   });
 }
 
+/** Upper bound on the deterministic tie-breaking jitter below. */
+const SPREAD_JITTER_MAX = 0.001;
+
 function spacedRiskPlacementTile(input: {
   candidates: readonly { x: number; y: number }[];
+  hasPlaced: boolean;
   occupied: ReadonlySet<string>;
   preferred: { x: number; y: number };
-  selectedTiles: readonly { x: number; y: number }[];
+  spacingToNearest: Float64Array;
   seed: string;
 }): { x: number; y: number } | null {
   let bestTile: { x: number; y: number } | null = null;
   let bestScore = Number.NEGATIVE_INFINITY;
 
-  for (const candidate of input.candidates) {
+  for (let index = 0; index < input.candidates.length; index += 1) {
+    const candidate = input.candidates[index]!;
     if (input.occupied.has(tileKey(candidate))) continue;
-    const spacing = input.selectedTiles.length > 0
-      ? minTileDistance(candidate, input.selectedTiles)
-      : 0;
-    const preferredDistance = Math.hypot(candidate.x - input.preferred.x, candidate.y - input.preferred.y);
-    const jitter = stableUnit(`${input.seed}.${candidate.x}.${candidate.y}`) * 0.001;
-    const score = input.selectedTiles.length > 0
-      ? spacing * 1000 - preferredDistance * 0.1 + jitter
-      : -preferredDistance + jitter;
+    const preferredDx = candidate.x - input.preferred.x;
+    const preferredDy = candidate.y - input.preferred.y;
+    const preferredDistance = Math.sqrt(preferredDx * preferredDx + preferredDy * preferredDy);
+    const base = input.hasPlaced
+      ? input.spacingToNearest[index]! * 1000 - preferredDistance * 0.1
+      : -preferredDistance;
+    // The jitter only ever breaks exact ties, so a candidate that cannot win
+    // even at the jitter's upper bound never needs its hash computed. That
+    // skips the string build + hash for all but a handful of candidates per
+    // ship without changing which tile wins.
+    if (base + SPREAD_JITTER_MAX <= bestScore) continue;
+    const score = base + stableUnit(`${input.seed}.${candidate.x}.${candidate.y}`) * SPREAD_JITTER_MAX;
 
     if (score > bestScore) {
       bestScore = score;
@@ -445,16 +494,8 @@ function spacedRiskPlacementTile(input: {
   return bestTile;
 }
 
-function minTileDistance(tile: { x: number; y: number }, others: readonly { x: number; y: number }[]): number {
-  let distance = Number.POSITIVE_INFINITY;
-  for (const other of others) {
-    distance = Math.min(distance, Math.hypot(tile.x - other.x, tile.y - other.y));
-  }
-  return distance;
-}
-
 export function buildShipsStage(inputs: PharosVilleInputs, docks: readonly DockNode[]): BuildShipsStage {
   return {
-    ships: buildShips(inputs, docks),
+    ships: buildShipsCached(inputs, docks),
   };
 }

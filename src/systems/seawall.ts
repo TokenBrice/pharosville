@@ -104,13 +104,30 @@ function computeBarrierTiles(): { x: number; y: number }[] {
 
 export const SEAWALL_BARRIER_TILES: readonly { x: number; y: number }[] = lazyArray(computeBarrierTiles);
 
-let cachedBarrierKeys: Set<number> | null = null;
-function getBarrierKeys(): Set<number> {
-  if (cachedBarrierKeys) return cachedBarrierKeys;
-  const keys = new Set<number>();
-  for (const tile of SEAWALL_BARRIER_TILES) keys.add(tile.y * PHAROSVILLE_MAP_WIDTH + tile.x);
-  cachedBarrierKeys = keys;
-  return keys;
+// A plain snapshot of the barrier ring. `SEAWALL_BARRIER_TILES` is a lazy
+// Proxy (see `lazyArray` above), so every element read on it pays a trap —
+// fine for a one-off iteration, ruinous inside the distance-mask build, which
+// reads it once per barrier per grid cell (~12 million traps).
+let cachedBarrierTiles: readonly { x: number; y: number }[] | null = null;
+function getBarrierTiles(): readonly { x: number; y: number }[] {
+  if (cachedBarrierTiles) return cachedBarrierTiles;
+  cachedBarrierTiles = [...SEAWALL_BARRIER_TILES];
+  return cachedBarrierTiles;
+}
+
+// The barrier set as a row-major grid flag. This is read from the A* inner
+// loop and the navigable-water flood fill — millions of calls per world build
+// — where a typed-array index beats a Set lookup on a boxed key.
+let cachedBarrierMask: Uint8Array | null = null;
+function getBarrierMask(): Uint8Array {
+  if (cachedBarrierMask) return cachedBarrierMask;
+  const mask = new Uint8Array(PHAROSVILLE_MAP_WIDTH * PHAROSVILLE_MAP_HEIGHT);
+  for (const tile of getBarrierTiles()) {
+    if (tile.x < 0 || tile.y < 0 || tile.x >= PHAROSVILLE_MAP_WIDTH || tile.y >= PHAROSVILLE_MAP_HEIGHT) continue;
+    mask[tile.y * PHAROSVILLE_MAP_WIDTH + tile.x] = 1;
+  }
+  cachedBarrierMask = mask;
+  return mask;
 }
 
 export function isSeawallBarrierTile(tile: { x: number; y: number }): boolean {
@@ -123,7 +140,7 @@ export function isSeawallBarrierTileXY(x: number, y: number): boolean {
   const ix = Math.round(x);
   const iy = Math.round(y);
   if (ix < 0 || iy < 0 || ix >= PHAROSVILLE_MAP_WIDTH || iy >= PHAROSVILLE_MAP_HEIGHT) return false;
-  return getBarrierKeys().has(iy * PHAROSVILLE_MAP_WIDTH + ix);
+  return getBarrierMask()[iy * PHAROSVILLE_MAP_WIDTH + ix] === 1;
 }
 
 // Distance mask covers the integer tile grid spanning the barrier set with a
@@ -144,7 +161,16 @@ let seawallDistanceMask: SeawallDistanceMask | null = null;
 
 function ensureSeawallDistanceMask(): SeawallDistanceMask {
   if (seawallDistanceMask) return seawallDistanceMask;
-  const barriers = SEAWALL_BARRIER_TILES;
+  // Barrier coordinates as flat typed arrays: the inner loop below runs once
+  // per barrier per grid cell, so it must not chase object properties (or, as
+  // it used to, Proxy traps) to read them.
+  const barriers = getBarrierTiles();
+  const barrierX = new Float64Array(barriers.length);
+  const barrierY = new Float64Array(barriers.length);
+  for (let index = 0; index < barriers.length; index += 1) {
+    barrierX[index] = barriers[index]!.x;
+    barrierY[index] = barriers[index]!.y;
+  }
   const width = PHAROSVILLE_MAP_WIDTH + 2 * SEAWALL_DISTANCE_MASK_PAD;
   const height = PHAROSVILLE_MAP_HEIGHT + 2 * SEAWALL_DISTANCE_MASK_PAD;
   const data = new Float32Array(width * height);
@@ -153,14 +179,17 @@ function ensureSeawallDistanceMask(): SeawallDistanceMask {
     const rowBase = gy * width;
     for (let gx = 0; gx < width; gx += 1) {
       const tileX = gx + SEAWALL_DISTANCE_MASK_MIN_X;
-      let best = Number.POSITIVE_INFINITY;
-      for (const barrier of barriers) {
-        const dx = tileX - barrier.x;
-        const dy = tileY - barrier.y;
-        const dist = Math.hypot(dx, dy);
-        if (dist < best) best = dist;
+      // Compare squared distances and take the root once. argmin is the same
+      // under a monotone transform, and for integer tile offsets the sum is
+      // exact, so the stored distance is unchanged.
+      let bestSquared = Number.POSITIVE_INFINITY;
+      for (let index = 0; index < barrierX.length; index += 1) {
+        const dx = tileX - barrierX[index]!;
+        const dy = tileY - barrierY[index]!;
+        const squared = dx * dx + dy * dy;
+        if (squared < bestSquared) bestSquared = squared;
       }
-      data[rowBase + gx] = best;
+      data[rowBase + gx] = Math.sqrt(bestSquared);
     }
   }
   seawallDistanceMask = { data, width, height };
@@ -168,11 +197,14 @@ function ensureSeawallDistanceMask(): SeawallDistanceMask {
 }
 
 function computeSeawallBarrierDistance(tile: { x: number; y: number }): number {
-  let best = Number.POSITIVE_INFINITY;
-  for (const barrier of SEAWALL_BARRIER_TILES) {
-    best = Math.min(best, Math.hypot(tile.x - barrier.x, tile.y - barrier.y));
+  let bestSquared = Number.POSITIVE_INFINITY;
+  for (const barrier of getBarrierTiles()) {
+    const dx = tile.x - barrier.x;
+    const dy = tile.y - barrier.y;
+    const squared = dx * dx + dy * dy;
+    if (squared < bestSquared) bestSquared = squared;
   }
-  return best;
+  return Math.sqrt(bestSquared);
 }
 
 export function seawallBarrierDistance(tile: { x: number; y: number }): number {

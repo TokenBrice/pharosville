@@ -249,8 +249,37 @@ export function tileKindAt(x: number, y: number): TileKind {
   return canonicalTileKind(terrainKindAt(x, y));
 }
 
+// Terrain is a pure function of an integer tile and compile-time constants, and
+// the classification behind it is not cheap: the sea partition alone runs six
+// smoothed-noise octaves (24 Math.sin) plus fifteen segment SDFs per tile, and
+// `isWithinIslandPeriphery` sweeps a neighbourhood mask. Callers hit it tens of
+// thousands of times per world build (whole-map scans in
+// `riskPlacementWaterTiles`, `seaBodyTiles`, the navigable-water flood fill),
+// which cost ~2s of the startup block on the live fleet.
+//
+// The grid is fixed for the session, so memoise it. Non-integer and
+// out-of-bounds coordinates fall through to the uncached path — the caller is
+// then sampling a continuous field, not a tile.
+const TERRAIN_KIND_BY_INDEX: TerrainKind[] = [];
+
 /** Returns the full `TerrainKind` (water sub-zone, rock, grass, shore, ...) at `(x, y)`. Source of truth for terrain classification. */
 export function terrainKindAt(x: number, y: number): TerrainKind {
+  if (
+    Number.isInteger(x) && Number.isInteger(y)
+    && x >= 0 && y >= 0
+    && x < PHAROSVILLE_MAP_WIDTH && y < PHAROSVILLE_MAP_HEIGHT
+  ) {
+    const index = y * PHAROSVILLE_MAP_WIDTH + x;
+    const cached = TERRAIN_KIND_BY_INDEX[index];
+    if (cached !== undefined) return cached;
+    const resolved = resolveTerrainKindAt(x, y);
+    TERRAIN_KIND_BY_INDEX[index] = resolved;
+    return resolved;
+  }
+  return resolveTerrainKindAt(x, y);
+}
+
+function resolveTerrainKindAt(x: number, y: number): TerrainKind {
   const island = islandValue(x, y);
   const cemetery = cemeteryValue(x, y);
   const nearIslandEdge = island > 0.9;

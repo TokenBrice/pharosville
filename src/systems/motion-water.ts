@@ -37,7 +37,14 @@ export function buildCachedShipWaterRoute(input: {
 }, cache: ShipWaterRouteCache): ShipWaterPath {
   const from = nearestMapWaterTile(input.from, input.map);
   const to = nearestMapWaterTile(input.to, input.map);
-  const key = `${input.zone}:${input.shipId}:${input.bucket}:${pathKey(from, to)}`;
+  // `bucket` is deliberately NOT in the key. The route it selects varies per
+  // bucket, but the PATH between two water tiles is a pure function of
+  // (from, to, map, zone, shipId) — `buildShipWaterRouteFromWaterTiles` below
+  // does not take a bucket at all. Keying on it meant the 10-minute
+  // route-variation flip invalidated every cached path and re-ran the whole
+  // A* set to reproduce identical geometry: ~300ms of plan rebuild plus
+  // ~700ms of lazy path solving, every ten minutes, forever.
+  const key = `${input.zone}:${input.shipId}:${pathKey(from, to)}`;
   const cached = cache.get(key);
   if (cached) return cached;
 

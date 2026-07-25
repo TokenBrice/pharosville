@@ -137,6 +137,31 @@ function circleValue(point: { x: number; y: number }, circle: GardenCircle, marg
  * beside them by design.
  */
 export function isGardenObstacleTile(x: number, y: number): boolean {
+  // Integer tiles are the overwhelming majority of callers — the whole-map
+  // scans in `riskPlacementWaterTiles` and `terrainKindAt` alone ask this
+  // question ~120 000 times per world build, and each answer costs six
+  // ellipse/circle evaluations plus a point allocation. The answer never
+  // changes, so cache it (0 = unknown, 1 = clear, 2 = obstacle). Floats fall
+  // through: motion sampling interpolates between tiles and needs the exact
+  // continuous field.
+  if (
+    Number.isInteger(x) && Number.isInteger(y)
+    && x >= 0 && y >= 0 && x <= MAX_TILE_X && y <= MAX_TILE_Y
+  ) {
+    const mask = obstacleTileMask ??= new Uint8Array((MAX_TILE_X + 1) * (MAX_TILE_Y + 1));
+    const index = y * (MAX_TILE_X + 1) + x;
+    const cached = mask[index]!;
+    if (cached !== 0) return cached === 2;
+    const resolved = resolveGardenObstacleTile(x, y);
+    mask[index] = resolved ? 2 : 1;
+    return resolved;
+  }
+  return resolveGardenObstacleTile(x, y);
+}
+
+let obstacleTileMask: Uint8Array | null = null;
+
+function resolveGardenObstacleTile(x: number, y: number): boolean {
   const point = { x, y };
   if (ellipseValue(point, GARDEN_ISLAND_OBSTACLE, 0) < 1) return true;
   if (ellipseValue(point, GARDEN_CEMETERY_OBSTACLE, 0) < 1) return true;
