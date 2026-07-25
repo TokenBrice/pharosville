@@ -1,6 +1,6 @@
 # PharosVille Visual Invariants
 
-Last updated: 2026-07-24
+Last updated: 2026-07-25
 
 These are product contracts. Changing one requires explicit intent plus matching
 tests and documentation.
@@ -35,8 +35,16 @@ tests and documentation.
 - The Garden Observatory remains a framed asymmetric composition with useful
   open water. Do not turn it into a uniformly filled fleet grid.
 - The lighthouse remains the visual and analytical anchor.
-- The overview is capped at 20 representative ships. A selected outsider may
-  appear transiently.
+- The whole tracked fleet renders (~205 ships today). The render limit is a
+  CAPACITY of 320, not a composition rule — decision D1 of the Grand Scale
+  Revamp (2026-07-25) retired the 20-ship cap once instanced batching made
+  ship count stop deciding what the frame could afford. A selected ship
+  outside the rendered slice may still appear transiently, which now only
+  happens if a world exceeds capacity.
+- Composition is held by placement DENSITY, not by a small count: ships
+  scatter as blue noise inside their own sea region, a 9-tile clearance
+  keeps the lighthouse approach open, and a density falloff thins the fleet
+  toward the frame edge.
 - The detached cemetery and TON pigeonnier remain spatially distinct from the
   main island.
 - Ethereum and available Base, Arbitrum, and Polygon docks preserve a readable
@@ -94,34 +102,42 @@ tests and documentation.
   harmonized toward a `HARBOR_PALETTE` anchor — muted teal-green calm → deep
   amber warning → ember danger — and the water shader luminance-matches the
   tint against the live water color; DOM labels keep the raw DEWS accents.
-- Risk zones are drawn as charted water regions — a broken, slightly irregular
-  hand-drawn band-colored perimeter (stable-noise dash lengths and radius
-  wobble; segment/dash counts scale with circumference), lit marker buoys that
-  bob on the swell (balanced tier and above; one marker per ~9 world units of
-  perimeter, capped), and a soft smoothstep-edged in-water tint whose strength
-  shrinks as footprints grow (the map-spanning WATCH tint is barely-there) —
-  not filled decal discs. Zones read as composed bodies of water: per-band
-  base radii (`ALERT 34 / CALM 32 / DANGER 6 / WARNING 15 / WATCH 48 / Ledger
-  36` world units — zones-v3, 2026-07-24, raised from the zones-v2
-  `26/23/6/14/44/30` set under the operator steer to vastly grow the sea
-  zones; the union of the six rendered ellipses covers ~98% of the open-sea
-  surface, up from ~89%, with the N-strip and SW-corner open-water pockets
-  kept readable — guarded by `gardenZoneSeaCoverage` ≥ 50% at worst-case
-  counts) plus a mild monotonic count term (`+min(2, √max(1,
-  count)·0.3)`), with ~1.3×/0.8 ellipse semi-axes. The zones-v2 layout
-  (operator hand-drawn overlay, 2026-07-24, superseding
-  `agents/2026-07-24-zone-recomposition-sketch.md` for layout) decouples
-  display from data: data anchors keep their valid painted-water tiles in the
-  NW/NE corners while the rendered ellipses center on the island (CALM inner
-  harbor ring, WATCH dominant sea containing it), off-frame NW (LEDGER's arc
-  crossing the top-left quadrant), and off-frame/at the NE storm corner
-  (ALERT > WARNING > DANGER nested arcs escalating toward the corner). DOM
-  labels, hit targets, and camera focus anchor on the visible arc of each
-  zone, inset toward the frame, never off-screen. Band color is never
-  the only encoding: buoys add positional redundancy and danger buoys blink
-  slowly (full tier; frozen under reduced motion, as is the bob), alongside
-  the DOM label and detail-panel parity. The redesign changes presentation
-  only; the meaning and stale-evidence caveat in the Entity Meaning table are
+- Risk zones are drawn as REGIONS OF THE SEA, not as shapes laid on top of it.
+  Decision D5 of the Grand Scale Revamp (2026-07-25) supersedes the zones-v2 and
+  zones-v3 ellipse designs entirely.
+
+  The geometry is the terrain field the simulation already obeys.
+  `terrainKindAt` classifies every tile (`calm-water`, `watch-water`,
+  `alert-water`, `warning-water`, `storm-water`, `ledger-water`), covering 88.5%
+  of the sea in named, contiguous, organically-shaped regions; ship placement
+  and motion have always bound to it. The renderer rasterises that same field
+  into a region-id + boundary-distance texture the water shader samples. Because
+  display and simulation read one field, a ship is always drawn inside the
+  region it is labelled with — the drift the ellipses allowed is now
+  structurally impossible.
+
+  A region is carried by water CHARACTER, not colour alone (D6, and the
+  accessibility contract): per-region swell, chop, whitecap density,
+  reflectivity and depth, escalating monotonically with risk. Calm water is
+  glassy and mirror-like; danger water runs steep, dark and foam-streaked. A
+  viewer who cannot separate the hues still reads the sea state from its motion.
+  Colour support is a luminance-matched tint pulled toward deep sea so it reads
+  as water rather than paint. Boundaries carry a drifting foam/current line, and
+  marker buoys sit on the real region edge (positional redundancy; danger buoys
+  blink slowly, frozen under reduced motion, as is the bob).
+
+  Boundary smoothing is presentation-only: the sample position is domain-warped
+  so edges wander like a current front instead of following the terrain tests'
+  straight geometry, but a tile's classification never changes. A unit test pins
+  the per-tile majority against the raw field.
+
+  Region tint, foam and the boundary line fade out toward the open-ocean
+  boundary so the detailed and cheap shader paths converge; without that the map
+  reads as a hard diamond tile floating on flat sea.
+
+  DOM labels, hit targets and camera focus anchor inside each region, inset
+  toward the frame, never off-screen. The redesign changes presentation only;
+  the meaning and the stale-evidence caveat in the Entity Meaning table are
   unchanged.
 
 ## Performance
@@ -129,12 +145,27 @@ tests and documentation.
 - Device pixel ratio and backing pixels remain bounded.
 - Repeated scene structures should use shared geometry, merged geometry, or
   instancing when that reduces meaningful cost.
+- The fleet is drawn from shared `InstancedMesh` batches (two per silhouette
+  plus one pennant batch), so its draw-call cost is flat in ship count.
+  Hero-tier ships (titans and uniques) keep their own scene graph for their
+  bespoke GLB hull, grade shield and identity sail.
+- Ship sail logos come from ONE shared atlas texture, not one texture per
+  ship. Ships beyond the atlas fall back to the plain canvas plus their
+  livery and pennant accent — never a blank sail.
 - Overview may hide inspection-only geometry; focused and Explore states may
   reveal it without rebuilding the world.
 - Resource counts must remain stable during long sessions and transient
   selection.
 - Performance budgets must not be weakened for a cosmetic change without an
   explicit decision and evidence.
+- Resource budgets were re-baselined on 2026-07-25 (decision D7, operator
+  approval O9): draw calls 450 -> 700, geometries 275 -> 500, textures
+  40 -> 72, triangles 70k -> 500k, renderer chunk 820/218 -> 1,600/420 KiB,
+  total JS 1,860/530 -> 3,200/820 KiB. Measured cause: the full fleet renders
+  instead of 20 ships, hero hulls went from 2 shared models to 10 distinct
+  ones, the lighthouse became Wonder-grade, and the sea gained a region field.
+- The FRAME-TIME gate was deliberately NOT relaxed. Smoothness is the
+  product; bundle and resource weight are not.
 
 ## Accessibility And Motion
 

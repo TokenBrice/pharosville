@@ -46,8 +46,16 @@ export const bundleBudgets = {
     // gzip → 793.3 KiB raw / 213.9 KiB gzip, 1.9 KiB over the 212 earmark.
     // Gzip raised 212→218 (raw unchanged at 820); the remaining headroom is
     // earmarked for the W6 water-shader firelight pass still to land.
-    maxRawBytes: 820 * 1024,
-    maxGzipBytes: 218 * 1024,
+    // 2026-07-25 Grand Scale Revamp (decision D7, operator-approved O9):
+    // 820/218 -> 1,600/420. Measured 830.7 KiB raw / 225.2 KiB gzip after W1
+    // (instanced fleet batching + sail atlas), W2 (sea-region field and the
+    // rewritten water shader) and W6.1 (open-ocean early-out). The operator's
+    // brief was explicit that bundle weight may grow several-fold if the
+    // experience is materially better; the headroom above today's measurement
+    // is earmarked for W6's reflection pass and the remaining look work.
+    // The frame-time gate is deliberately NOT relaxed alongside it.
+    maxRawBytes: 1_600 * 1024,
+    maxGzipBytes: 420 * 1024,
     required: true,
   },
   css: {
@@ -69,6 +77,9 @@ export const aggregateBudgets = {
   // gzip post-cleanup; aggregate raised alongside the renderer-chunk raise so
   // the earmarked Garden Sea headroom (see renderer note above) fits.
   // The renderer is also enforced independently above.
-  maxJsRawBytes: 1_860 * 1024,
-  maxJsGzipBytes: 530 * 1024,
+  // 2026-07-25 Grand Scale Revamp (D7/O9): measured 1,856.5 KiB raw /
+  // 526.6 KiB gzip. Raised alongside the renderer chunk so the earmarked
+  // headroom for the remaining look work fits.
+  maxJsRawBytes: 3_200 * 1024,
+  maxJsGzipBytes: 820 * 1024,
 };

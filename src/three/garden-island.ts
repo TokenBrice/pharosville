@@ -321,6 +321,16 @@ export function createTerracedIsland(
     createSeaWallArc(),
     createSunkenColumnDrums(),
   );
+  // W4.9 (grand-scale revamp 2026-07-25): the rock the Wonder stands on reads
+  // as terrain rather than a green mass — fractured cliffs at the rim, the
+  // scree they shed, a cut-stone stair from the quay head to the tower
+  // terrace, and a denser planting. All instanced; all static.
+  root.add(
+    createSeaCliffs(),
+    createCliffTalus(),
+    createQuayStair(),
+    createIslandPlanting(),
+  );
   if (cloudShadows) applyGardenCloudShadows(root, cloudShadows);
 
   return {
@@ -614,7 +624,10 @@ function createShorelineBoulders(): InstancedMesh {
   return boulders;
 }
 
-function displacedBoulderGeometry(): IcosahedronGeometry {
+function displacedBoulderGeometry(
+  low: Color = STONE_WET,
+  high: Color = STONE_MID,
+): IcosahedronGeometry {
   const geometry = new IcosahedronGeometry(1, 1);
   const positions = geometry.getAttribute("position");
   const colors = new Float32Array(positions.count * 3);
@@ -628,8 +641,10 @@ function displacedBoulderGeometry(): IcosahedronGeometry {
     positions.setX(index, x * displace);
     positions.setY(index, Math.max(y * displace, -0.72));
     positions.setZ(index, z * displace);
-    // Wet-dark base lightening toward the crown of each boulder.
-    color.copy(STONE_WET).lerp(STONE_MID, Math.max(0, Math.min(1, (y + 1) / 2)) * 0.7);
+    // Wet-dark base lightening toward the crown of each boulder. The talus
+    // scatter reuses this with a paler top so dry scree above the tideline
+    // separates from the wet shoreline stones.
+    color.copy(low).lerp(high, clamp01((y + 1) / 2) * 0.7);
     colors[index * 3] = color.r;
     colors[index * 3 + 1] = color.g;
     colors[index * 3 + 2] = color.b;
@@ -702,6 +717,20 @@ function createIslandDecoration(): Group {
     [-5.4, 0.82, 6.15, 0.66, -0.35],
     [0.4, 0.36, 7.2, 0.58, 0.08],
     [5.7, 0.2, 5.2, 0.64, 0.3],
+    // W4.9: the concept render's rock is tree-covered, so the grove thickens
+    // on the lee and north shelves where nothing else is sited. Each point is
+    // clear of the cottage, pavilion, pond, both routes to the summit and the
+    // lighthouse terrace.
+    [-11.2, 0.42, -1.6, 0.78, -0.82],
+    [-9.4, 0.9, -6.0, 0.7, -0.6],
+    [-2.6, 0.62, -7.6, 0.86, -0.2],
+    [2.0, 0.5, -6.9, 0.72, 0.18],
+    [7.4, 0.24, -4.4, 0.8, 0.42],
+    [10.6, -0.02, 0.9, 0.68, 0.55],
+    [8.9, 0.1, 4.6, 0.62, 0.36],
+    [-8.6, 0.66, 5.4, 0.74, -0.58],
+    [-13.4, 0.05, 2.2, 0.6, -0.9],
+    [3.4, 1.02, -5.5, 0.64, 0.24],
   ] as const;
   const trunks = new InstancedMesh(
     new CylinderGeometry(0.11, 0.22, 2.15, 7),
@@ -1336,4 +1365,355 @@ function coloredStoneBoxGeometry(
 
 function hypot2(x: number, z: number): number {
   return Math.sqrt(x * x + z * z);
+}
+
+// ---------------------------------------------------------------------------
+// W4.9 — the island under the Wonder (grand-scale revamp 2026-07-25)
+//
+// The concept render's rock is layered, eroded and tree-covered, with cut
+// stone stairs climbing to the tower; the tiers alone read as a smooth green
+// mass. Everything below is additive and instanced: sea cliffs at the rim,
+// scree gathered under them, a cut-stone stair from the quay head to the
+// lighthouse terrace, and a denser planting of shrubs and grass. The tier
+// silhouette, the Sakuteiki stone groupings and the garden path are untouched.
+// ---------------------------------------------------------------------------
+
+const CLIFF_BASE_Y = WATER_LEVEL - 0.4;
+const CLIFF_HEIGHT = 2.65;
+// Arcs of the island rim that break into a cliff rather than a talus slope.
+// They leave the harbour approach open (the +x/+z quadrant the garden path and
+// stepping stones climb), clear the sea-wall runs, and stop short of the quay
+// stair head at theta ~5.76.
+const SEA_CLIFF_RUNS: readonly (readonly [number, number])[] = [
+  [1.62, 2.98],
+  [3.18, 4.34],
+  [4.66, 5.42],
+];
+const CLIFF_RIM_X = 17.6;
+const CLIFF_RIM_Z = 13.2;
+
+/**
+ * Steep fractured rock plates standing along the island rim. Their outward
+ * face is displaced and their inboard face is left flat so each plate beds
+ * into the tier behind it; the wet→pale ramp and the bedding shade are baked
+ * per vertex, and every instance shares one base height so the strata line up
+ * across the whole face.
+ */
+function createSeaCliffs(): InstancedMesh {
+  const placements: { sx: number; sy: number; x: number; yaw: number; z: number }[] = [];
+  SEA_CLIFF_RUNS.forEach(([start, end], runIndex) => {
+    const steps = Math.max(1, Math.round((end - start) / 0.13));
+    for (let index = 0; index < steps; index += 1) {
+      const seed = `cliff.${runIndex}.${index}`;
+      const theta = start + ((index + 0.5) / steps) * (end - start);
+      const sin = Math.sin(theta);
+      const cos = Math.cos(theta);
+      // Outward normal of the rim ellipse, so each plate presents its face to
+      // the open sea rather than to the tangent.
+      const yaw = Math.atan2(CLIFF_RIM_Z * cos, CLIFF_RIM_X * sin);
+      const arcStep = hypot2(CLIFF_RIM_X * sin, CLIFF_RIM_Z * cos) * ((end - start) / steps);
+      const reach = 0.97 + stableUnit(`${seed}.r`) * 0.06;
+      placements.push({
+        sx: arcStep * 1.12,
+        // Held near 1 so the bedding planes stay level plate to plate; the
+        // silhouette variety comes from the baked crag and the yaw instead.
+        sy: 0.9 + stableUnit(`${seed}.h`) * 0.3,
+        x: 0.6 + cos * CLIFF_RIM_X * reach,
+        yaw,
+        z: 1.2 + sin * CLIFF_RIM_Z * reach,
+      });
+    }
+  });
+  const cliffs = new InstancedMesh(
+    cliffSlabGeometry(),
+    new MeshStandardMaterial({ flatShading: true, roughness: 0.97, vertexColors: true }),
+    placements.length,
+  );
+  cliffs.name = "island-sea-cliffs";
+  cliffs.castShadow = true;
+  cliffs.receiveShadow = true;
+  placements.forEach((placement, index) => {
+    scratchQuaternion.setFromAxisAngle(UP_AXIS, placement.yaw);
+    scratchPosition.set(placement.x, CLIFF_BASE_Y + (CLIFF_HEIGHT * placement.sy) / 2, placement.z);
+    scratchScale.set(placement.sx, placement.sy, 1);
+    scratchMatrix.compose(scratchPosition, scratchQuaternion, scratchScale);
+    cliffs.setMatrixAt(index, scratchMatrix);
+  });
+  cliffs.instanceMatrix.needsUpdate = true;
+  return cliffs;
+}
+
+function cliffSlabGeometry(): BoxGeometry {
+  const geometry = new BoxGeometry(1, CLIFF_HEIGHT, 1.15, 2, 6, 1);
+  const positions = geometry.getAttribute("position");
+  const colors = new Float32Array(positions.count * 3);
+  const color = new Color();
+  for (let index = 0; index < positions.count; index += 1) {
+    const x = positions.getX(index);
+    const y = positions.getY(index);
+    const z = positions.getZ(index);
+    const jitter = stableUnit(
+      `cliff.v.${Math.round(x * 24)}.${Math.round(y * 24)}.${Math.round(z * 24)}`,
+    ) - 0.5;
+    // Fracture the seaward face only; the inboard face stays flat so the plate
+    // buries cleanly in the tier it leans against.
+    const seaward = Math.max(0, z / 0.575);
+    positions.setZ(index, z + jitter * 0.44 * seaward);
+    positions.setX(index, x + jitter * 0.14);
+    stoneRampColor(CLIFF_BASE_Y + CLIFF_HEIGHT / 2 + y, color);
+    colors[index * 3] = color.r;
+    colors[index * 3 + 1] = color.g;
+    colors[index * 3 + 2] = color.b;
+  }
+  positions.needsUpdate = true;
+  geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+/**
+ * Scree gathered at the foot of the cliff runs — the rubble the face shed.
+ * Seated on the real rock surface so the pile hugs the slope, and kept
+ * inboard of the shoreline boulder triads so the two rockworks read as one
+ * geological story rather than two scatters.
+ */
+function createCliffTalus(): InstancedMesh {
+  const placements: { scale: number; x: number; y: number; yaw: number; z: number }[] = [];
+  SEA_CLIFF_RUNS.forEach(([start, end], runIndex) => {
+    const steps = Math.max(1, Math.round((end - start) / 0.085));
+    for (let index = 0; index < steps; index += 1) {
+      const seed = `talus.${runIndex}.${index}`;
+      const theta = start + ((index + 0.5) / steps) * (end - start)
+        + (stableUnit(`${seed}.t`) - 0.5) * 0.07;
+      const reach = 0.74 + stableUnit(`${seed}.r`) * 0.2;
+      const x = 0.6 + Math.cos(theta) * CLIFF_RIM_X * reach;
+      const z = 1.2 + Math.sin(theta) * CLIFF_RIM_Z * reach;
+      const scale = 0.28 + stableUnit(`${seed}.s`) * 0.62;
+      placements.push({
+        scale,
+        x,
+        y: islandTerrainHeight(x, z) + scale * 0.32,
+        yaw: stableUnit(`${seed}.y`) * Math.PI * 2,
+        z,
+      });
+    }
+  });
+  const talus = new InstancedMesh(
+    displacedBoulderGeometry(STONE_WET, STONE_PALE),
+    new MeshStandardMaterial({ flatShading: true, roughness: 0.98, vertexColors: true }),
+    placements.length,
+  );
+  talus.name = "island-cliff-talus";
+  talus.castShadow = true;
+  talus.receiveShadow = true;
+  placements.forEach((placement, index) => {
+    scratchQuaternion.setFromAxisAngle(UP_AXIS, placement.yaw);
+    scratchPosition.set(placement.x, placement.y, placement.z);
+    scratchScale.set(placement.scale, placement.scale * 0.62, placement.scale * 0.88);
+    scratchMatrix.compose(scratchPosition, scratchQuaternion, scratchScale);
+    talus.setMatrixAt(index, scratchMatrix);
+  });
+  talus.instanceMatrix.needsUpdate = true;
+  return talus;
+}
+
+// The cut-stone stair: quay head at the waterline on the lee (-z) shore, up to
+// the +x edge of the lighthouse terrace. The line is chosen to clear the
+// reflection pond, the keeper cottage, the upper stone triad and the garden
+// path, so the stair is a second, formal route to the tower rather than a
+// duplicate of the winding one.
+const QUAY_STAIR_START = { x: 16.9, z: -5.79 } as const;
+const QUAY_STAIR_END = { x: -2.0, z: -4.6 } as const;
+const QUAY_STAIR_WIDTH = 2.3;
+const QUAY_STAIR_TREAD = 0.44;
+const QUAY_STAIR_TOP_Y = 2.62;
+
+function quayStairTreads(): { x: number; y: number; z: number }[] {
+  const dx = QUAY_STAIR_END.x - QUAY_STAIR_START.x;
+  const dz = QUAY_STAIR_END.z - QUAY_STAIR_START.z;
+  const run = Math.hypot(dx, dz);
+  const count = Math.max(2, Math.round(run / QUAY_STAIR_TREAD));
+  const treads: { x: number; y: number; z: number }[] = [];
+  let y = WATER_LEVEL + 0.06;
+  // Constant nominal rise, raised to meet the rock wherever the tier face
+  // climbs faster: flights on the open slope, landings where it flattens.
+  const rise = (QUAY_STAIR_TOP_Y - y) / count;
+  for (let index = 0; index < count; index += 1) {
+    const t = (index + 0.5) / count;
+    const x = QUAY_STAIR_START.x + dx * t;
+    const z = QUAY_STAIR_START.z + dz * t;
+    y = Math.max(y + rise, islandTerrainHeight(x, z) + 0.07);
+    treads.push({ x, y, z });
+  }
+  return treads;
+}
+
+function createQuayStair(): Group {
+  const root = new Group();
+  root.name = "island-quay-stair";
+  const treads = quayStairTreads();
+  const yaw = Math.atan2(
+    QUAY_STAIR_END.x - QUAY_STAIR_START.x,
+    QUAY_STAIR_END.z - QUAY_STAIR_START.z,
+  );
+  scratchQuaternion.setFromAxisAngle(UP_AXIS, yaw);
+
+  const steps = new InstancedMesh(
+    new BoxGeometry(QUAY_STAIR_WIDTH, 0.34, QUAY_STAIR_TREAD * 1.12),
+    new MeshStandardMaterial({ color: "#c9c0a6", flatShading: true, roughness: 1 }),
+    treads.length,
+  );
+  steps.name = "island-quay-stair-treads";
+  steps.castShadow = true;
+  steps.receiveShadow = true;
+  treads.forEach((tread, index) => {
+    scratchPosition.set(tread.x, tread.y - 0.17, tread.z);
+    scratchScale.set(1, 1, 1);
+    scratchMatrix.compose(scratchPosition, scratchQuaternion, scratchScale);
+    steps.setMatrixAt(index, scratchMatrix);
+  });
+  steps.instanceMatrix.needsUpdate = true;
+
+  // Cheek walls: one low coping block per tread per side, riding the same
+  // profile, so the flight reads as cut into the rock rather than laid on it.
+  const cheeks = new InstancedMesh(
+    new BoxGeometry(0.36, 0.5, QUAY_STAIR_TREAD * 1.12),
+    new MeshStandardMaterial({ color: "#b3aa90", flatShading: true, roughness: 1 }),
+    treads.length * 2,
+  );
+  cheeks.name = "island-quay-stair-cheeks";
+  cheeks.castShadow = true;
+  cheeks.receiveShadow = true;
+  const across = QUAY_STAIR_WIDTH / 2 + 0.18;
+  treads.forEach((tread, index) => {
+    for (const side of [-1, 1] as const) {
+      scratchPosition.set(
+        tread.x + side * across * Math.cos(yaw),
+        tread.y + 0.14,
+        tread.z - side * across * Math.sin(yaw),
+      );
+      scratchScale.set(1, 1, 1);
+      scratchMatrix.compose(scratchPosition, scratchQuaternion, scratchScale);
+      cheeks.setMatrixAt(index * 2 + (side > 0 ? 1 : 0), scratchMatrix);
+    }
+  });
+  cheeks.instanceMatrix.needsUpdate = true;
+
+  root.add(steps, cheeks);
+  return root;
+}
+
+// Keep-outs for the denser planting: the built precinct, the pond, and the
+// tower's own terrace. Planting also stays off both routes to the summit.
+const PLANTING_KEEP_OUT: readonly (readonly [number, number, number])[] = [
+  [-7, -1.25, 6.4],
+  [-1.2, -0.3, 3.5],
+  [4.4, 2.35, 3.1],
+  [1.45, -2.05, 3.3],
+  [-9.2, 4.1, 1.4],
+  [-4.8, 4.1, 1.4],
+];
+const GARDEN_PATH_POINTS: readonly (readonly [number, number])[] = [
+  [5.3, 3.35], [3.25, 3.0], [1.25, 2.45], [-0.55, 1.8],
+  [-2.2, 1.1], [-3.75, 0.35], [-5.2, -0.35],
+];
+
+function isPlantable(x: number, z: number): boolean {
+  for (const [cx, cz, radius] of PLANTING_KEEP_OUT) {
+    if (hypot2(x - cx, z - cz) < radius) return false;
+  }
+  for (const [px, pz] of GARDEN_PATH_POINTS) {
+    if (hypot2(x - px, z - pz) < 1.7) return false;
+  }
+  // Off the cut-stone stair as well.
+  const dx = QUAY_STAIR_END.x - QUAY_STAIR_START.x;
+  const dz = QUAY_STAIR_END.z - QUAY_STAIR_START.z;
+  const length2 = dx * dx + dz * dz;
+  const t = clamp01(((x - QUAY_STAIR_START.x) * dx + (z - QUAY_STAIR_START.z) * dz) / length2);
+  const nearX = QUAY_STAIR_START.x + dx * t;
+  const nearZ = QUAY_STAIR_START.z + dz * t;
+  return hypot2(x - nearX, z - nearZ) >= 2.2;
+}
+
+/**
+ * Deterministic scatter over the planted shelves: a golden-angle spiral
+ * (stable, non-clumping, no rejection loop that could vary with seeding) is
+ * filtered by the keep-outs and by the height band each species tolerates.
+ */
+function plantingPoints(
+  seed: string,
+  attempts: number,
+  minHeight: number,
+  maxHeight: number,
+): { height: number; x: number; z: number }[] {
+  const points: { height: number; x: number; z: number }[] = [];
+  for (let index = 0; index < attempts; index += 1) {
+    const angle = index * 2.399963;
+    const radius = 17.4 * Math.sqrt((index + 0.5) / attempts);
+    const x = 0.6 + Math.cos(angle) * radius
+      + (stableUnit(`${seed}.x.${index}`) - 0.5) * 1.6;
+    const z = 1.2 + Math.sin(angle) * radius * 0.7
+      + (stableUnit(`${seed}.z.${index}`) - 0.5) * 1.2;
+    const height = islandTerrainHeight(x, z);
+    if (height < minHeight || height > maxHeight) continue;
+    if (!isPlantable(x, z)) continue;
+    points.push({ height, x, z });
+  }
+  return points;
+}
+
+/**
+ * The denser planting the concept render carries: low shrub mounds across the
+ * middle shelves and grass tufts on the exposed rock, both instanced, both
+ * seated on `islandTerrainHeight`. Deliberately unlit and matte — the warm
+ * pools stay with the lanterns.
+ */
+function createIslandPlanting(): Group {
+  const root = new Group();
+  root.name = "island-planting";
+
+  const shrubPoints = plantingPoints("shrub", 96, -0.2, 2.4);
+  const shrubs = new InstancedMesh(
+    new DodecahedronGeometry(0.5, 0),
+    new MeshStandardMaterial({ color: "#5c7350", flatShading: true, roughness: 1 }),
+    shrubPoints.length,
+  );
+  shrubs.name = "island-shrubs";
+  shrubs.castShadow = true;
+  shrubs.receiveShadow = true;
+  shrubPoints.forEach((point, index) => {
+    const scale = 0.55 + stableUnit(`shrub.s.${index}`) * 0.72;
+    scratchQuaternion.setFromAxisAngle(UP_AXIS, stableUnit(`shrub.y.${index}`) * Math.PI * 2);
+    scratchPosition.set(point.x, point.height + scale * 0.26, point.z);
+    scratchScale.set(scale, scale * 0.66, scale * 0.9);
+    scratchMatrix.compose(scratchPosition, scratchQuaternion, scratchScale);
+    shrubs.setMatrixAt(index, scratchMatrix);
+  });
+  shrubs.instanceMatrix.needsUpdate = true;
+
+  const tuftPoints = plantingPoints("tuft", 150, -0.6, 2.9);
+  const tufts = new InstancedMesh(
+    new ConeGeometry(0.17, 0.5, 4, 1, true),
+    new MeshStandardMaterial({
+      color: "#7d8b5a",
+      flatShading: true,
+      roughness: 1,
+      side: DoubleSide,
+    }),
+    tuftPoints.length,
+  );
+  tufts.name = "island-grass-tufts";
+  tufts.receiveShadow = true;
+  tuftPoints.forEach((point, index) => {
+    const scale = 0.6 + stableUnit(`tuft.s.${index}`) * 0.8;
+    scratchQuaternion.setFromAxisAngle(UP_AXIS, stableUnit(`tuft.y.${index}`) * Math.PI * 2);
+    scratchPosition.set(point.x, point.height + scale * 0.22, point.z);
+    scratchScale.set(scale, scale, scale);
+    scratchMatrix.compose(scratchPosition, scratchQuaternion, scratchScale);
+    tufts.setMatrixAt(index, scratchMatrix);
+  });
+  tufts.instanceMatrix.needsUpdate = true;
+
+  root.add(shrubs, tufts);
+  return root;
 }

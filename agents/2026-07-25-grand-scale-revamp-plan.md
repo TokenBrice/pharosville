@@ -2,8 +2,8 @@
 
 Date: 2026-07-25
 Status: **approved for autonomous overnight execution** (operator decisions in §8)
-Supersedes for scope: `agents/2026-07-24-threejs-visual-revamp-plan.md` (deleted),
-`agents/2026-07-24-pharos-wonder-plan.md` (its D1–D7 decisions stay in force
+Supersedes for scope: the 2026-07-24 Three.js visual revamp plan (deleted) and
+the 2026-07-24 Pharos Wonder plan (deleted; its D1–D7 decisions stay in force
 except where re-decided below).
 
 ## 0. Mission

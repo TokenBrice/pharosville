@@ -22,13 +22,20 @@ const LONG_SESSION_SECONDS = longSessionSeconds();
 // drawDurationMs ≈ 658 ms while steady-state p90 = 183.4 ms.
 const MOUNT_FRAME_THRESHOLD_MS = 400;
 const MOUNT_DRAIN_TIMEOUT_MS = 90_000;
+// 2026-07-25 Grand Scale Revamp (decision D7, operator-approved O9):
+// calls 450->700, geometries 275->500, textures 40->72, triangles 70k->500k.
+// Measured cause: the rendered fleet went from 20 ships to the full ~205
+// (W1/W3), hero hulls from 2 shared models to 10 distinct ones (W5), the
+// lighthouse from 2.4k to a Wonder-grade triangle count (W4), and the sea
+// gained a region field texture (W2). The FRAME-TIME gate below is
+// deliberately unchanged — smoothness is the product, bundle weight is not.
 const GPU_RESOURCE_BUDGET = {
-  calls: 450,
-  geometries: 275,
+  calls: 700,
+  geometries: 500,
   // The post pipeline holds ~10 render-target textures (composer read/write
   // plus the bloom mip chain); the remainder covers scene textures and the
   // V2 sea additions (normal map, lane data texture, wake target).
-  textures: 40,
+  textures: 72,
   // Raised from 42k for the V5 titan/heritage hero GLB hulls: ~4 visible heroes
   // at ~500 tris each on top of the procedural fleet. The iGPU has ample
   // headroom at this count; draw calls stay flat (heroes merge to <=5 each).
@@ -38,7 +45,7 @@ const GPU_RESOURCE_BUDGET = {
   // hulls, and the horizon + garden islets (~0.9k). Draw calls stay flat
   // (instancing/batching unchanged); the beauty spend is the point of the
   // revamp.
-  triangles: 70_000,
+  triangles: 500_000,
 } as const;
 
 type PerformanceTelemetry = {
