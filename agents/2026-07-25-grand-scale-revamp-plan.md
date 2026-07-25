@@ -561,3 +561,120 @@ At the end of the run I leave, in this file:
 2. Every budget I raised and the measured cause.
 3. Every gate that is red, with the number and why (per O4).
 4. Anything I chose not to do, and the reason.
+
+---
+
+## 9. Execution report (2026-07-25 overnight run)
+
+Written per the §8 reporting contract. Honest account: what landed, what did
+not, and what is still red.
+
+### 9.1 Headline
+
+**Scale is solved and the engine is no longer the constraint.**
+
+| Metric | Before (20 ships) | After (187 ships) |
+| --- | --- | --- |
+| Rendered ships | 20 | **187** (9.4×) |
+| Fleet draw calls | ~2,700 at 187 | **7** |
+| `drawDurationMs` | 3.3 (at 20) / 28.1 (at 187) | **2.7–5.5** |
+| `objectCount` | 530 (at 20) / 2,946 (at 187) | **~1,100** |
+| Frame avg | 29.2 ms | 23.4–38.8 ms (see 9.4) |
+| Frame p90 | 40.1 ms | 29.3–50.1 ms |
+
+Draw submission at 187 ships is now **cheaper than the old build's 20**.
+
+### 9.2 What landed
+
+**W1 — Fleet Scale Engine (complete).** Ships draw from shared `InstancedMesh`
+batches: merged hull assembly + merged sails per silhouette, plus one pennant
+batch — 7–9 draw calls for the whole fleet at any size. Per-part tonal identity
+is baked into vertex colours so one `instanceColor` reproduces the old
+multi-material read. Sail logos moved to a single 2048² atlas with a per-vertex
+`aAtlasSail` selector, replacing one `CanvasTexture` per ship. Hero-tier ships
+keep their own scene graph.
+
+**W2 — Sea Regions (complete).** The six tinted ellipses are gone. The renderer
+now draws the terrain field the simulation already obeyed, rasterised into a
+512² region-id + boundary-distance texture. Regions differ in swell, chop,
+whitecap density, reflectivity and depth — not just tint. Boundaries are
+domain-warped so they wander like a current front, carry a drifting foam line,
+and marker buoys sit on the real edge. Display and data can no longer drift.
+
+**W3 — Composition at scale (complete).** Blue-noise (Mitchell best-candidate)
+scatter inside each band's own painted region, with a 9-tile lighthouse
+clearance and an edge-density falloff. The rendered harbor grew from 2 piers to
+up to 10 separated chain docks.
+
+**W4 — Pharos Wonder (delegated, complete).** Lighthouse GLB went 153 KiB →
+519 KiB with ashlar coursing, geometry-aware baked AO, cornices, arched window
+reveals, colonnade, finials and a modelled crown. Windows now glow from within
+at dusk/night.
+
+**W5 — Fleet Identity (delegated, complete).** 2 shared hero hulls → **10
+distinct models** covering the top 24 coins, assigned deterministically so a
+coin never changes ship. Hero-tier ships went 18 → 29.
+
+**W6.1 — Frame budget (partial).** The open-ocean early-out is the big win: the
+water plane is 900 units, the map is ~79, and everything beyond it was running
+the full shader. Skipping it cut frame time ~35% at wide zoom. Whitecap noise
+is gated to rough water; the second normal fetch sheds below balanced.
+
+**W7 — Contracts and budgets (complete).** D7 budgets applied with measured
+causes. `VISUAL_INVARIANTS` rewritten for the new ship-cap, zone and renderer
+contracts. `RUNTIME_FACTS` regenerated. **`npm run validate` passes end to
+end**; 841 unit tests green across 87 files.
+
+### 9.3 What did NOT land
+
+- **W6.2/W6.3 — shadows and bloom are still off.** Acceptance criteria A4 and
+  A5 are NOT met. The scheduler still settles in `recovery`/`constrained` on
+  this machine, which sheds them. This is the biggest remaining visual gap and
+  the top of the next session's list.
+- **W6.4 — water reflection not implemented.** The concept render's defining
+  feature. Not started.
+- **W6.5/W6.6/W6.8 — PMREM environment, night-grade correction, depth cueing
+  not done.** The **day grade is visibly washed out** — haze drowns the frame
+  at noon. Night looks markedly better than day right now.
+- **W4.9 — island detail (rock strata, cliffs, stone stair, denser planting)
+  not done.**
+- **W5.3 — the 4 batched silhouettes were not refined.** They carry ~160 of 187
+  ships, so this is higher leverage than it sounds.
+- **W3.5 — berth rotation not implemented.** Docking still uses the existing
+  mooring behaviour; the ~40% target (O12) is not wired.
+- **W2.7 tuning is a first pass.** Region tints were tuned by eye in two
+  iterations, not against the triptych.
+- **O10 visual baselines NOT regenerated.** The visual lane is expected red.
+- **W5.6 GLB quantization (D8) not applied** — requested from the hero agent
+  late; not confirmed landed.
+
+### 9.4 Red gates and honest caveats
+
+**The p90 ≤ 20 ms gate is NOT met.** Per operator decision O4, this ships
+over-budget with the gap documented rather than cutting visual features to
+pass.
+
+**The measurements in this report are unreliable in absolute terms.** They were
+taken on the operator's workstation while subagents were concurrently running
+builds and test suites; load average sat at 3–4.6 throughout. Three consecutive
+samples of identical code spanned 28.9–38.8 ms avg and 37.6–50.1 ms p90. The
+*relative* before/after comparisons (draw calls, `drawDurationMs`,
+`objectCount`) are solid because they are counters, not timings. **The frame
+timings need a clean re-run on an idle machine** via
+`npm run test:perf:reference` before any conclusion is drawn about A3–A5.
+
+A second caveat: this hardware is an AMD Raphael **integrated** GPU. The
+pre-existing build already ran at 29.2 ms / 34 fps with twenty ships, so it was
+never smooth here. The bar "faster than it used to be" is met comfortably; the
+bar "20 ms p90" may not be reachable on this GPU at 1080p regardless.
+
+### 9.5 Recommended next session, in order
+
+1. Clean-machine `npm run test:perf:reference` to get real numbers.
+2. W6.2/W6.3 — get shadows and bloom back on; they are most of the remaining
+   "stunning" gap. If the tier will not rise, consider decoupling shadow/bloom
+   from the tier ladder and gating them on an explicit quality setting instead.
+3. W6.6 — fix the washed-out day grade.
+4. W5.3 — refine the four batched silhouettes (highest ship-count leverage).
+5. W6.4 — water reflection.
+6. O10 — regenerate visual baselines once the look settles.

@@ -1546,7 +1546,7 @@ function createCliffTalus(): InstancedMesh {
 // duplicate of the winding one.
 const QUAY_STAIR_START = { x: 16.9, z: -5.79 } as const;
 const QUAY_STAIR_END = { x: -2.0, z: -4.6 } as const;
-const QUAY_STAIR_WIDTH = 2.3;
+const QUAY_STAIR_WIDTH = 1.55;
 const QUAY_STAIR_TREAD = 0.44;
 const QUAY_STAIR_TOP_Y = 2.62;
 
@@ -1581,16 +1581,18 @@ function createQuayStair(): Group {
   scratchQuaternion.setFromAxisAngle(UP_AXIS, yaw);
 
   const steps = new InstancedMesh(
-    new BoxGeometry(QUAY_STAIR_WIDTH, 0.34, QUAY_STAIR_TREAD * 1.12),
-    new MeshStandardMaterial({ color: "#c9c0a6", flatShading: true, roughness: 1 }),
+    new BoxGeometry(QUAY_STAIR_WIDTH, 0.26, QUAY_STAIR_TREAD * 1.12),
+    new MeshStandardMaterial({ color: "#a89e84", flatShading: true, roughness: 1 }),
     treads.length,
   );
   steps.name = "island-quay-stair-treads";
   steps.castShadow = true;
   steps.receiveShadow = true;
   treads.forEach((tread, index) => {
-    scratchPosition.set(tread.x, tread.y - 0.17, tread.z);
-    scratchScale.set(1, 1, 1);
+    scratchPosition.set(tread.x, tread.y - 0.13, tread.z);
+    // Worn treads: a little width jitter keeps the flight from reading as an
+    // extruded ramp at overview zoom.
+    scratchScale.set(0.92 + stableUnit(`stair.w.${index}`) * 0.16, 1, 1);
     scratchMatrix.compose(scratchPosition, scratchQuaternion, scratchScale);
     steps.setMatrixAt(index, scratchMatrix);
   });
@@ -1599,19 +1601,19 @@ function createQuayStair(): Group {
   // Cheek walls: one low coping block per tread per side, riding the same
   // profile, so the flight reads as cut into the rock rather than laid on it.
   const cheeks = new InstancedMesh(
-    new BoxGeometry(0.36, 0.5, QUAY_STAIR_TREAD * 1.12),
-    new MeshStandardMaterial({ color: "#b3aa90", flatShading: true, roughness: 1 }),
+    new BoxGeometry(0.3, 0.36, QUAY_STAIR_TREAD * 1.12),
+    new MeshStandardMaterial({ color: "#8e876f", flatShading: true, roughness: 1 }),
     treads.length * 2,
   );
   cheeks.name = "island-quay-stair-cheeks";
   cheeks.castShadow = true;
   cheeks.receiveShadow = true;
-  const across = QUAY_STAIR_WIDTH / 2 + 0.18;
+  const across = QUAY_STAIR_WIDTH / 2 + 0.15;
   treads.forEach((tread, index) => {
     for (const side of [-1, 1] as const) {
       scratchPosition.set(
         tread.x + side * across * Math.cos(yaw),
-        tread.y + 0.14,
+        tread.y + 0.06,
         tread.z - side * across * Math.sin(yaw),
       );
       scratchScale.set(1, 1, 1);
