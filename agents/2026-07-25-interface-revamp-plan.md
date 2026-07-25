@@ -298,7 +298,7 @@ green with deleted tests removed, not skipped.
 
 | # | Task | Verify |
 | --- | --- | --- |
-| U2.1 | New `src/components/world-controls.tsx`: three icon buttons (`RotateCcw` recenter, `Eye`/`Pause` observe, `Moon`/`Sun` night), same `aria-label`/`title` strings as the retired toolbar, same `data-observe-control` attribute on observe (the observe-cancel listener at `pharosville-world.tsx:491-513` keys on it) | unit test mirrors the retired toolbar test's label assertions |
+| U2.1 | New component `world-controls` under the components directory (does not exist yet): three icon buttons (`RotateCcw` recenter, `Eye`/`Pause` observe, `Moon`/`Sun` night), same `aria-label`/`title` strings as the retired toolbar, same `data-observe-control` attribute on observe (the observe-cancel listener at `pharosville-world.tsx:491-513` keys on it) | unit test mirrors the retired toolbar test's label assertions |
 | U2.2 | `.pharosville-world-controls` CSS per §2.5, including `:focus-within`, `hover: none`, and reduced-motion rules | keyboard Tab reveals and reaches all three |
 | U2.3 | Post-input reveal: a 2 s `data-recent-input` flag set from the existing camera-intent path, cleared by timeout | pan the map → cluster appears → fades |
 | U2.4 | Fullscreen button adopts the same idle/active treatment and loses its brass disc | still toggles; Escape-exits-fullscreen path unchanged |
