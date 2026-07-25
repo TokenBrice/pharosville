@@ -1,4 +1,6 @@
 import { SHIP_WATER_ANCHORS } from "./risk-water-areas";
+import { snapToSeaBody } from "./sea-body-anchors";
+import type { SeaBodyName } from "./sea-bodies";
 import type { ShipWaterZone } from "./world-types";
 
 export const AMBIENT_WIND_HZ = 0.04;
@@ -31,18 +33,45 @@ export const CAST_OFF_ACCEL_END = 0.18;
 export const MOORING_WORKING_END = 0.25;
 export const MOORING_QUIET_END = 0.75;
 
-export const OPEN_WATER_PATROL_WAYPOINTS = {
-  alert: [...SHIP_WATER_ANCHORS["harbor-mouth-watch"], ...SHIP_WATER_ANCHORS["outer-rough-water"]],
-  calm: SHIP_WATER_ANCHORS["safe-harbor"],
-  danger: [...SHIP_WATER_ANCHORS["storm-shelf"], ...SHIP_WATER_ANCHORS["outer-rough-water"]],
+/**
+ * Z3: the authored patrol waypoints, SNAPPED into their own body.
+ *
+ * The tables stay — their per-zone spread is what the drift circuits and cycle
+ * lengths in motion-sampling were tuned against, and regenerating them evenly
+ * flattened the DEWS motion escalation from 2.1x to 1.2x because the transit
+ * between evenly-spread waypoints came to dominate the sampled speed.
+ *
+ * What the snap fixes is correctness: after the Sea Master reshape a good
+ * number of these tiles no longer sat in the water they name, and a patrol
+ * waypoint in the wrong zone is worse than a stale berth because the ship
+ * sails to it.
+ */
+const PATROL_BODY_FOR_PLACEMENT = {
+  "harbor-mouth-watch": "alert",
+  "outer-rough-water": "warning",
+  "safe-harbor": "calm",
+  "storm-shelf": "danger",
+  "breakwater-edge": "watch",
+  "ledger-mooring": "ledger",
+} as const satisfies Record<string, SeaBodyName>;
+
+type PatrolPlacement = keyof typeof PATROL_BODY_FOR_PLACEMENT;
+
+const patrolAnchors = (placement: PatrolPlacement): readonly { x: number; y: number }[] =>
+  SHIP_WATER_ANCHORS[placement].map((tile) => snapToSeaBody(tile, PATROL_BODY_FOR_PLACEMENT[placement]));
+
+export const OPEN_WATER_PATROL_WAYPOINTS: Record<ShipWaterZone, readonly { x: number; y: number }[]> = {
+  alert: [...patrolAnchors("harbor-mouth-watch"), ...patrolAnchors("outer-rough-water")],
+  calm: patrolAnchors("safe-harbor"),
+  danger: [...patrolAnchors("storm-shelf"), ...patrolAnchors("outer-rough-water")],
   ledger: [
-    ...SHIP_WATER_ANCHORS["ledger-mooring"],
-    ...SHIP_WATER_ANCHORS["safe-harbor"],
-    ...SHIP_WATER_ANCHORS["breakwater-edge"],
-    ...SHIP_WATER_ANCHORS["harbor-mouth-watch"],
-    ...SHIP_WATER_ANCHORS["outer-rough-water"],
-    ...SHIP_WATER_ANCHORS["storm-shelf"],
+    ...patrolAnchors("ledger-mooring"),
+    ...patrolAnchors("safe-harbor"),
+    ...patrolAnchors("breakwater-edge"),
+    ...patrolAnchors("harbor-mouth-watch"),
+    ...patrolAnchors("outer-rough-water"),
+    ...patrolAnchors("storm-shelf"),
   ],
-  warning: [...SHIP_WATER_ANCHORS["outer-rough-water"], ...SHIP_WATER_ANCHORS["storm-shelf"]],
-  watch: [...SHIP_WATER_ANCHORS["breakwater-edge"], ...SHIP_WATER_ANCHORS["safe-harbor"]],
-} as const satisfies Record<ShipWaterZone, readonly { x: number; y: number }[]>;
+  warning: [...patrolAnchors("outer-rough-water"), ...patrolAnchors("storm-shelf")],
+  watch: [...patrolAnchors("breakwater-edge"), ...patrolAnchors("safe-harbor")],
+};

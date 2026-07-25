@@ -33,7 +33,14 @@ describe("sea region field", () => {
     // writing; the floor guards against a terrain change silently gutting it.
     const coverage = gardenSeaRegionCoverage();
     expect(coverage.waterTiles).toBeGreaterThan(2_000);
-    expect(coverage.namedShare).toBeGreaterThan(0.85);
+    // D2 (operator, 2026-07-25): the neutral water stays deliberately UNNAMED.
+    //
+    // 0.85 assumed every tile should belong to a named band — which is what
+    // made Calm the fallback and 43% of the sea. The composition now reserves
+    // ~24% as open approach, because named waters only read as bodies when
+    // there is unclaimed sea between them. That is composition, not an
+    // attribution gap; see docs/pharosville/VISUAL_INVARIANTS.md.
+    expect(coverage.namedShare).toBeGreaterThan(0.72);
     for (const region of ["calm", "watch", "alert", "warning", "danger", "ledger", "wreck"] as const) {
       expect(coverage.byRegion[region]).toBeGreaterThan(0);
     }

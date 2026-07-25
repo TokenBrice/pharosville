@@ -1,5 +1,7 @@
 import type { DewsAreaBand, ShipRiskPlacement, ShipWaterZone, TerrainKind } from "./world-types";
 import { zoneWorldTile } from "./map-scale";
+import { snapToSeaBody } from "./sea-body-anchors";
+import type { SeaBodyName } from "./sea-bodies";
 
 type TileCoordinate = { x: number; y: number };
 
@@ -218,17 +220,39 @@ const AUTHORED_RISK_WATER_AREAS: Record<ShipRiskPlacement, RiskWaterAreaDefiniti
   },
 };
 
+/** Which sea body each placement's water is. */
+const SEA_BODY_FOR_PLACEMENT: Record<ShipRiskPlacement, SeaBodyName> = {
+  "safe-harbor": "calm",
+  "breakwater-edge": "watch",
+  "harbor-mouth-watch": "alert",
+  "outer-rough-water": "warning",
+  "storm-shelf": "danger",
+  "ledger-mooring": "ledger",
+};
+
 /**
  * N1: zone anchors are stretched onto the enlarged grid alongside the zone
  * terrain itself, so a band's ships, label and region tile all land inside the
  * band's painted water exactly as they did at the authored scale.
+ *
+ * Z3 (Sea Master, 2026-07-25): and then SNAPPED into that water.
+ *
+ * Scaling alone was only ever correct while the bands stayed where they were
+ * authored. The reshape moved all of them, and an anchor a few tiles outside
+ * its own band is silently expensive: ship placement burns twelve attempts and
+ * falls through to the nearest coast, patrols sail to the wrong zone's water,
+ * and the DOM label lands over a body it does not name. Snapping keeps each
+ * authored tile's intent — roughly where it was, in the same relationship to
+ * its neighbours — while guaranteeing it is in the water it claims.
  */
 function scaleRiskWaterArea(area: RiskWaterAreaDefinition): RiskWaterAreaDefinition {
+  const body = SEA_BODY_FOR_PLACEMENT[area.placement];
+  const snap = (tile: TileCoordinate): TileCoordinate => snapToSeaBody(zoneWorldTile(tile), body);
   return {
     ...area,
-    labelTile: zoneWorldTile(area.labelTile),
-    regionTile: zoneWorldTile(area.regionTile),
-    shipAnchors: area.shipAnchors.map((anchor) => zoneWorldTile(anchor)),
+    labelTile: snap(area.labelTile),
+    regionTile: snap(area.regionTile),
+    shipAnchors: area.shipAnchors.map(snap),
     scatterRadius: zoneWorldTile(area.scatterRadius),
   };
 }

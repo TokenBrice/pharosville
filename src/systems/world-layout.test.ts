@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { CEMETERY_ENTRIES } from "@shared/lib/cemetery-merged";
 import {
+  SEA_BODY_NAMES,
+  SEA_BODY_TARGET_SHARE,
+  SEA_BODY_TERRAIN,
+  type SeaBodyName,
+} from "./sea-bodies";
+import { seaBodyAnchors, seaBodyCentroidTile, seaBodyTiles } from "./sea-body-anchors";
+import {
   buildPharosVilleMap,
   CEMETERY_CENTER,
   CEMETERY_RADIUS,
@@ -19,13 +26,12 @@ import {
   PIGEONNIER_HARBOR_DOCK_TILE,
   nearestAvailableWaterTile,
   nearestWaterTile,
-  REGION_TILES,
   terrainKindAt,
   tileKindAt,
 } from "./world-layout";
 import { SEAWALL_BARRIER_TILES, isSeawallBarrierTile } from "./seawall";
 import { dockOutwardVectorForTile } from "./dock-layout";
-import { PHAROSVILLE_MAP_SCALE, landWorldTile, zoneWorldTile } from "./map-scale";
+import { landWorldTile, zoneWorldTile } from "./map-scale";
 import type { PharosVilleTile } from "./world-types";
 
 // N1: the live grid is 112x112, but terrain and zones stay AUTHORED in the
@@ -37,32 +43,18 @@ import type { PharosVilleTile } from "./world-types";
 // - `zoneWorldTile` SCALES zone geometry (x2 on each axis). DEWS bands stretch
 //   to fill the enlarged sea.
 /** `terrainKindAt` for a design-space ZONE coordinate. */
-function zoneTerrain(x: number, y: number): ReturnType<typeof terrainKindAt> {
-  const tile = zoneWorldTile({ x, y });
-  return terrainKindAt(tile.x, tile.y);
-}
 /** `terrainKindAt` for a design-space LANDMASS coordinate. */
 function landTerrain(x: number, y: number): ReturnType<typeof terrainKindAt> {
   const tile = landWorldTile({ x, y });
   return terrainKindAt(tile.x, tile.y);
 }
 /** Zone terrain AREAS scale with the map, so authored tile counts multiply by 4. */
-const AREA_SCALE = PHAROSVILLE_MAP_SCALE ** 2;
 
 /**
  * Every terrain that reads as an ATTRIBUTED body of sea, as opposed to the
  * generic `"water"` halo the island and lighthouse keep around themselves.
  * N2 added `wreck-water` (the south-west graveyard shoals) to this set.
  */
-const NAMED_SEA_TERRAINS = [
-  "calm-water",
-  "watch-water",
-  "alert-water",
-  "warning-water",
-  "storm-water",
-  "ledger-water",
-  "wreck-water",
-] as const;
 
 const CIVIC_CORE_DESIGN = { x: 31, y: 31 } as const;
 const CIVIC_CORE_CENTER = landWorldTile(CIVIC_CORE_DESIGN);
@@ -116,10 +108,14 @@ describe("buildPharosVilleMap", () => {
     // exact only at an integer scale — the zone predicates test INCLUSIVE integer
     // design bounds (`y <= 9`), which at 2.5 clips half a design row off each edge.
     // Ledger measures 1748 against a nominal 1750, so the floor is 278, not 280.
-    expect(counts.get("ledger-water") ?? 0).toBeGreaterThanOrEqual(278 * AREA_SCALE);
-    expect(counts.get("watch-water") ?? 0).toBeGreaterThanOrEqual(80 * AREA_SCALE);
+    // Z3: sizing is traffic-proportional now, so the ordering follows the
+    // fleet. Danger Strait carries 11 ships against Warning Shoals' 5, so
+    // Danger is the LARGER of the two — the reverse of the old authored
+    // ordering, which gave the most narratively important water 1.4% of the sea
+    // and packed it at 13x the density of the emptiest band.
     expect(counts.get("alert-water") ?? 0).toBeGreaterThan(counts.get("warning-water") ?? 0);
-    expect(counts.get("warning-water") ?? 0).toBeGreaterThan(counts.get("storm-water") ?? 0);
+    expect(counts.get("storm-water") ?? 0).toBeGreaterThan(counts.get("warning-water") ?? 0);
+    expect(counts.get("alert-water") ?? 0).toBeGreaterThan(counts.get("storm-water") ?? 0);
     expect(map.tiles.every((tile) => tile.terrain)).toBe(true);
     expect([...new Set(map.tiles.map((tile) => tile.terrain))]).toEqual(expect.arrayContaining([
       "alert-water",
@@ -182,150 +178,84 @@ describe("buildPharosVilleMap", () => {
     expect(terrainKindAt(Math.round(CEMETERY_CENTER.x), Math.round(CEMETERY_CENTER.y))).toBe("wreck-water");
   });
 
-  it("keeps risk anchors on matching water terrain", () => {
-    expect(Object.values(REGION_TILES).every((tile) => isWaterTileKind(tileKindAt(tile.x, tile.y)))).toBe(true);
-    expect(terrainKindAt(REGION_TILES["safe-harbor"].x, REGION_TILES["safe-harbor"].y)).toBe("calm-water");
-    expect(terrainKindAt(REGION_TILES["breakwater-edge"].x, REGION_TILES["breakwater-edge"].y)).toBe("watch-water");
-    expect(terrainKindAt(REGION_TILES["harbor-mouth-watch"].x, REGION_TILES["harbor-mouth-watch"].y)).toBe("alert-water");
-    expect(terrainKindAt(REGION_TILES["outer-rough-water"].x, REGION_TILES["outer-rough-water"].y)).toBe("warning-water");
-    expect(terrainKindAt(REGION_TILES["storm-shelf"].x, REGION_TILES["storm-shelf"].y)).toBe("storm-water");
-    expect(terrainKindAt(REGION_TILES["ledger-mooring"].x, REGION_TILES["ledger-mooring"].y)).toBe("ledger-water");
-    // N2: the bottom of the left edge is the wreck shoals, not Calm.
-    expect(zoneTerrain(0, 55)).toBe("wreck-water");
-    expect(zoneTerrain(47, 52)).toBe("watch-water");
-    expect(zoneTerrain(50, 55)).toBe("watch-water");
-  });
-
-  it("splits the left edge between Calm Anchorage above and the wreck shoals below, with Watch in the south basin", () => {
-    // N2 carved the extreme south-west corner out of Calm Anchorage and made it
-    // the wreck shoals. Calm still owns the left edge ABOVE the shoals and the
-    // whole south basin west of Watch; the two facts are asserted together so
-    // neither zone can quietly eat the other.
-    const calmSamples = [
-      { x: 0, y: 13 },
-      { x: 0, y: 27 },
-      { x: 0, y: 38 }, // last calm tile on the left edge before the shoals
-      { x: 6, y: 20 },
-      { x: 14, y: 42 },
-      { x: 18, y: 47 },
-      { x: 28, y: 50 },
-      { x: 34, y: 44 },
-      { x: 37, y: 55 },
-      { x: 44, y: 34 },
-      { x: 45, y: 35 },
-    ];
-    // The graveyard corner: the sea south-west of the Calm boundary.
-    const wreckSamples = [
-      { x: 0, y: 39 }, // first shoal tile on the left edge
-      { x: 0, y: 55 },
-      { x: 1, y: 54 },
-      { x: 6, y: 49 }, // authored wreck-scatter center
-    ];
-    const watchSamples = [
-      { x: 38, y: 52 },
-      { x: 38, y: 55 },
-      { x: 48, y: 44 },
-      { x: 52, y: 42 },
-      { x: 55, y: 38 },
-      { x: 55, y: 25 },
-      { x: 50, y: 30 },
-      { x: 43, y: 54 },
-      { x: 49, y: 50 },
-    ];
-
-    for (const tile of calmSamples) {
-      expect(zoneTerrain(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("calm-water");
-    }
-    for (const tile of wreckSamples) {
-      expect(zoneTerrain(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("wreck-water");
-    }
-    for (const tile of watchSamples) {
-      expect(zoneTerrain(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("watch-water");
+  /**
+   * Z1 (Sea Master, 2026-07-25): the three tests this replaces were point-dumps
+   * of the old partition — roughly forty hand-listed tiles asserting that
+   * `x <= 15` really did make Calm, that Ledger really did fill `y <= 9`, and
+   * that the east corner rings really were rings. They passed for exactly as
+   * long as the geometry they transcribed existed, and told you nothing about
+   * whether that geometry was any good. The operator's complaint about the sea
+   * zones was true the whole time these were green.
+   *
+   * What follows asserts the DESIGN instead: every body exists, is one piece,
+   * holds roughly the share its traffic earns, and sits where the narrative
+   * needs it. Those survive a reshape; a tile list cannot.
+   */
+  it("gives every named body a share close to its traffic target", () => {
+    const { shares, total } = bodyShares();
+    expect(total).toBeGreaterThan(15_000);
+    for (const [body, target] of Object.entries(SEA_BODY_TARGET_SHARE)) {
+      expect(shares[body as SeaBodyName], body).toBeGreaterThan(0);
+      // +-2 points. The reach values are solved against these targets by
+      // CALIBRATE_SEA_BODIES=1; drifting outside the band means a seed moved
+      // and the solve was not re-run.
+      expect(Math.abs(shares[body as SeaBodyName]! - target), `${body} share`).toBeLessThanOrEqual(0.02);
     }
   });
 
-  it("places Ledger Mooring across the entire top shelf while preserving the east risk stack", () => {
-    const ledgerSamples = [
-      { x: 0, y: 0 },
-      { x: 0, y: 9 },
-      { x: 7, y: 0 },
-      { x: 14, y: 0 },
-      { x: 22, y: 0 },
-      { x: 25, y: 0 },
-      { x: 30, y: 1 },
-      { x: 30, y: 5 },
-      { x: 10, y: 5 },
-      { x: 15, y: 4 },
-      { x: 20, y: 5 },
-      { x: 13, y: 8 },
-    ];
-    const southeastWatchSamples = [
-      { x: 45, y: 55 },
-      { x: 47, y: 52 },
-      { x: 50, y: 55 },
-      { x: 55, y: 55 },
-    ];
-
-    for (const tile of ledgerSamples) {
-      expect(zoneTerrain(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("ledger-water");
+  it("keeps every named body in one piece", () => {
+    // A partition by nearest-seed cannot leave gaps, but it CAN split a body in
+    // two if its seeds are pulled apart — and a Calm Anchorage in two halves is
+    // not an anchorage. Ships also path within their own water, so a detached
+    // fragment is a place the fleet can be stranded.
+    for (const body of SEA_BODY_NAMES) {
+      const tiles = seaBodyTiles(body);
+      expect(tiles.length, body).toBeGreaterThan(0);
+      expect(largestComponentShare(tiles), `${body} contiguity`).toBeGreaterThan(0.9);
     }
-    for (const tile of southeastWatchSamples) {
-      expect(zoneTerrain(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("watch-water");
-    }
-    // Calm claims the southwest south basin plus the two circled pockets;
-    // Watch resumes east/southeast of those reclaimed areas.
-    expect(zoneTerrain(28, 50)).toBe("calm-water");
-    expect(zoneTerrain(34, 44)).toBe("calm-water");
-    expect(zoneTerrain(44, 34)).toBe("calm-water");
-    expect(zoneTerrain(37, 55)).toBe("calm-water");
-    expect(zoneTerrain(38, 55)).toBe("watch-water");
-    expect(zoneTerrain(43, 54)).toBe("watch-water");
-    // Ledger ends at y=9; Calm picks up at y=10 along the western flank so
-    // the two zones touch without overlap.
-    expect(zoneTerrain(0, 10)).toBe("calm-water");
-    expect(zoneTerrain(15, 10)).toBe("calm-water");
-    // Ledger is snapped to the top-left corner; freed water immediately east
-    // of x=30 belongs to Watch before the Alert ring takes over.
-    expect(zoneTerrain(25, 0)).toBe("ledger-water");
-    expect(zoneTerrain(30, 1)).toBe("ledger-water");
-    expect(zoneTerrain(31, 0)).toBe("watch-water");
-    expect(zoneTerrain(34, 2)).toBe("watch-water");
-    expect(zoneTerrain(37, 5)).toBe("watch-water");
-    expect(zoneTerrain(39, 7)).toBe("alert-water");
-    expect(zoneTerrain(40, 5)).toBe("alert-water");
-    expect(zoneTerrain(40, 0)).toBe("alert-water");
-    expect(zoneTerrain(47, 14)).toBe("alert-water");
-    expect(zoneTerrain(52, 14)).toBe("alert-water");
-    expect(zoneTerrain(55, 17)).toBe("alert-water");
-    // H4: the Alert/Watch ring boundary sits at design y ~17.8. At MAP_SCALE
-    // 2.5 a design row is 2.5 world tiles, so design row 18 rounds to the
-    // world tile just INSIDE Alert; the transition is between rows 18 and 19.
-    expect(zoneTerrain(55, 19)).toBe("watch-water");
-    expect(zoneTerrain(43, 34)).toBe("calm-water");
-    expect(zoneTerrain(55, 38)).toBe("watch-water");
-    expect(zoneTerrain(45, 0)).toBe("warning-water");
-    expect(zoneTerrain(55, 0)).toBe("storm-water");
   });
 
-  it("extends named sea water over the exposed outer perimeter while keeping the island halo generic", () => {
-    for (const tile of [
-      { x: 0, y: 54 }, // N2: the south-west perimeter is wreck shoals now
-      { x: 1, y: 55 },
-      { x: 55, y: 24 },
-      { x: 55, y: 38 },
-      { x: 44, y: 40 },
-      { x: 51, y: 31 },
-    ]) {
-      expect(NAMED_SEA_TERRAINS, `${tile.x}.${tile.y}`).toContain(zoneTerrain(tile.x, tile.y));
+  it("keeps the escalation running north-east and the poles apart", () => {
+    // The world reads danger at one end and memory at the other, and the DEWS
+    // ladder is a journey outward: sailing north-east from the anchorage you
+    // cross calm, then watch, then alert, then warning, then the strait.
+    const bearing = (body: SeaBodyName): number => {
+      const tile = seaBodyCentroidTile(body)!;
+      return (tile.x - tile.y) / PHAROSVILLE_MAP_WIDTH;
+    };
+    const ladder: SeaBodyName[] = ["calm", "watch", "alert", "warning", "danger"];
+    for (let step = 1; step < ladder.length; step += 1) {
+      expect(bearing(ladder[step]!), `${ladder[step]} vs ${ladder[step - 1]}`)
+        .toBeGreaterThan(bearing(ladder[step - 1]!));
     }
+    const danger = seaBodyCentroidTile("danger")!;
+    const wreck = seaBodyCentroidTile("wreck")!;
+    expect(danger.x).toBeGreaterThan(PHAROSVILLE_MAP_WIDTH * 0.6);
+    expect(danger.y).toBeLessThan(PHAROSVILLE_MAP_HEIGHT * 0.4);
+    expect(wreck.x).toBeLessThan(PHAROSVILLE_MAP_WIDTH * 0.4);
+    expect(wreck.y).toBeGreaterThan(PHAROSVILLE_MAP_HEIGHT * 0.6);
+  });
 
-    // The generic halo hugs the island, so these samples are landmass-relative.
-    for (const tile of [
-      { x: 17, y: 24 },
-      { x: 19, y: 39 },
-    ]) {
-      expect(landTerrain(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("water");
+  it("lands every derived ship anchor in its own body", () => {
+    // Anchors are farthest-point sampled from the body itself (Z3), so this is
+    // the guard that the derivation stays honest — an anchor outside its body
+    // silently reroutes the whole placement to the nearest edge.
+    for (const body of SEA_BODY_NAMES) {
+      const terrain = SEA_BODY_TERRAIN[body];
+      for (const anchor of seaBodyAnchors(body, 14)) {
+        expect(terrainKindAt(anchor.x, anchor.y), `${body} anchor ${anchor.x},${anchor.y}`).toBe(terrain);
+      }
     }
+  });
+
+  it("keeps the island halo and the deep rim out of the named bodies", () => {
+    // The approach water around the monument stays unattributed on purpose, and
+    // the deep rim belongs to the open sea — letting it override named water
+    // un-names every band authored to reach the map's edge.
+    expect(terrainKindAt(CIVIC_CORE_CENTER.x + 14, CIVIC_CORE_CENTER.y)).toBe("water");
+    expect(terrainKindAt(0, Math.round(PHAROSVILLE_MAP_HEIGHT / 2))).not.toBe("deep-water");
+    const { shares } = bodyShares();
+    expect(shares.open).toBeGreaterThan(0.2);
   });
 
   it("keeps the immediate lighthouse mountain water buffer generic", () => {
@@ -602,4 +532,44 @@ function terrainCounts(tiles: Array<{ terrain?: string }>): Map<string, number> 
     counts.set(String(tile.terrain), (counts.get(String(tile.terrain)) ?? 0) + 1);
   }
   return counts;
+}
+
+/** Share of the classified sea each body holds. */
+function bodyShares(): { shares: Record<SeaBodyName, number>; total: number } {
+  const counts = Object.fromEntries(SEA_BODY_NAMES.map((name) => [name, 0])) as Record<SeaBodyName, number>;
+  let total = 0;
+  for (const body of SEA_BODY_NAMES) {
+    counts[body] = seaBodyTiles(body).length;
+    total += counts[body];
+  }
+  const shares = Object.fromEntries(
+    SEA_BODY_NAMES.map((name) => [name, counts[name] / total]),
+  ) as Record<SeaBodyName, number>;
+  return { shares, total };
+}
+
+/** Fraction of a body's tiles that sit in its single largest connected component. */
+function largestComponentShare(tiles: readonly { x: number; y: number }[]): number {
+  const members = new Set(tiles.map((tile) => `${tile.x},${tile.y}`));
+  const seen = new Set<string>();
+  let largest = 0;
+  for (const tile of tiles) {
+    const start = `${tile.x},${tile.y}`;
+    if (seen.has(start)) continue;
+    let size = 0;
+    const queue = [tile];
+    seen.add(start);
+    while (queue.length > 0) {
+      const current = queue.pop()!;
+      size += 1;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const key = `${current.x + dx},${current.y + dy}`;
+        if (!members.has(key) || seen.has(key)) continue;
+        seen.add(key);
+        queue.push({ x: current.x + dx, y: current.y + dy });
+      }
+    }
+    if (size > largest) largest = size;
+  }
+  return largest / tiles.length;
 }

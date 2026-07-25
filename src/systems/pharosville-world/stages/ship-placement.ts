@@ -20,11 +20,12 @@ import {
   riskPlacementWaterTiles,
 } from "../../risk-water-placement";
 import {
-  SHIP_SCATTER_RADIUS,
+  RISK_WATER_REGION_TILES as REGION_TILES,
   SHIP_RISK_PLACEMENTS,
-  SHIP_WATER_ANCHORS,
   riskWaterAreaForPlacement,
 } from "../../risk-water-areas";
+import { seaBodyAnchors, seaBodyScatterRadius } from "../../sea-body-anchors";
+import type { SeaBodyName } from "../../sea-bodies";
 import { resolveShipVisual } from "../../ship-visuals";
 import { stableHash, stableOffset, stableUnit } from "../../stable-random";
 import { tileKey } from "../../tile-key";
@@ -32,7 +33,6 @@ import {
   clampMapTile,
   nearestAvailableWaterTile,
   nearestWaterTile,
-  REGION_TILES,
 } from "../../world-layout";
 import type {
   DockNode,
@@ -43,6 +43,16 @@ import type {
   ShipRiskPlacement,
 } from "../../world-types";
 import type { BuildShipsStage, PharosVilleInputs } from "../pipeline-types";
+
+/** Which sea body each risk placement's ships belong in. */
+const SEA_BODY_FOR_PLACEMENT: Record<ShipRiskPlacement, SeaBodyName> = {
+  "safe-harbor": "calm",
+  "breakwater-edge": "watch",
+  "harbor-mouth-watch": "alert",
+  "outer-rough-water": "warning",
+  "storm-shelf": "danger",
+  "ledger-mooring": "ledger",
+};
 
 function activeAssets(stablecoins: StablecoinListResponse | null | undefined): StablecoinData[] {
   return (stablecoins?.peggedAssets ?? []).filter((asset) => (
@@ -65,21 +75,39 @@ function buildShipChainPresence(asset: StablecoinData, renderedDockChainIds: Rea
   }));
 }
 
+/**
+ * Z3: anchors come from the BODY, not from a table describing one.
+ *
+ * These used to be ~60 hand-authored design-space tiles per placement. That is
+ * a description of one particular partition, and it rots silently the moment
+ * the partition changes: an anchor outside its own body fails the eligibility
+ * test twelve times over and falls through to `nearestRiskPlacementWaterTile`,
+ * which piles the ships onto whichever edge happens to be nearest. The Sea
+ * Master reshape would have rotted every one of them at once.
+ *
+ * `seaBodyAnchors` farthest-point samples the body's real tiles instead, so the
+ * fleet follows the coastline wherever it goes.
+ */
+const ANCHORS_PER_BODY = 14;
+
 function shipPlacementAnchor(asset: StablecoinData, placement: ShipNode["riskPlacement"]): { x: number; y: number } {
-  const anchors = SHIP_WATER_ANCHORS[placement];
-  return anchors[stableHash(`${asset.id}.${placement}.anchor`) % anchors.length] ?? REGION_TILES[placement];
+  const body = SEA_BODY_FOR_PLACEMENT[placement];
+  const anchors = body ? seaBodyAnchors(body, ANCHORS_PER_BODY) : [];
+  if (anchors.length === 0) return REGION_TILES[placement];
+  return anchors[stableHash(`${asset.id}.${placement}.anchor`) % anchors.length]!;
 }
 
 function shipTile(asset: StablecoinData, placement: ShipNode["riskPlacement"]): { x: number; y: number } {
   const base = shipPlacementAnchor(asset, placement);
-  const radius = SHIP_SCATTER_RADIUS[placement];
+  const body = SEA_BODY_FOR_PLACEMENT[placement];
+  const radius = body ? seaBodyScatterRadius(body, ANCHORS_PER_BODY) : 6;
   for (let attempt = 0; attempt < 12; attempt += 1) {
     const angle = stableUnit(`${asset.id}.${placement}.angle.${attempt}`) * Math.PI * 2;
     const distance = 0.25 + Math.sqrt(stableUnit(`${asset.id}.${placement}.distance.${attempt}`)) * 0.75;
     const tile = {
       ...clampMapTile({
-        x: Math.round(base.x + Math.cos(angle) * radius.x * distance + stableOffset(`${asset.id}.risk.x.${attempt}`, 1) * 0.3),
-        y: Math.round(base.y + Math.sin(angle) * radius.y * distance + stableOffset(`${asset.id}.risk.y.${attempt}`, 1) * 0.3),
+        x: Math.round(base.x + Math.cos(angle) * radius * distance + stableOffset(`${asset.id}.risk.x.${attempt}`, 1) * 0.3),
+        y: Math.round(base.y + Math.sin(angle) * radius * distance + stableOffset(`${asset.id}.risk.y.${attempt}`, 1) * 0.3),
       }),
     };
     if (isRiskPlacementWaterTile(tile, placement)) return tile;

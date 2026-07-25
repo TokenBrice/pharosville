@@ -35,10 +35,21 @@ export const RISK_TRANSITION_HEADING_EASE_SECONDS = 0.5;
 // Chosen so LINEAR speed (radius x angular) still escalates with turbulence
 // even though amplitude shrinks toward the tight corner bands:
 //   calm 4.8x0.040=0.19  watch 4.3x0.052=0.22  alert 2.9x0.095=0.28
-//   warning 2.2x0.150=0.33  danger 1.9x0.210=0.40
-// Danger laps its small corner every ~30s (restless); calm drifts a wide arc
-// every ~157s (serene).
-const PATROL_SPEED_DANGER = 0.21;
+//   warning 2.2x0.150=0.33  danger 1.9x0.260=0.49
+// Danger laps its corner every ~24s (restless); calm drifts a wide arc every
+// ~157s (serene).
+//
+// Z3 (Sea Master, 2026-07-25): danger 0.21 -> 0.26.
+//
+// Zone areas are traffic-proportional now, and Danger Strait carries 11 ships
+// against Warning Shoals' 5 — so storm-water grew from ~190 tiles to 953 while
+// warning-water sits at 764. With the circuit radii unchanged, that left
+// danger's linear speed only 1.21x warning's, and the sampled maximum (which
+// picks up waypoint transit as well as the circuit) landed 1% the WRONG side of
+// it: the roughest water in the world read as marginally calmer than the band
+// below it. 0.26 restores a 1.5x margin, so the escalation is legible rather
+// than knife-edge.
+const PATROL_SPEED_DANGER = 0.26;
 const PATROL_SPEED_WARNING = 0.15;
 const PATROL_SPEED_ALERT = 0.095;
 const PATROL_SPEED_WATCH = 0.052;

@@ -1,7 +1,7 @@
-import type { GraveNode, PharosVilleMap, PharosVilleTile, ShipRiskPlacement, TerrainKind, TileKind } from "./world-types";
+import type { GraveNode, PharosVilleMap, PharosVilleTile, TerrainKind, TileKind } from "./world-types";
 import type { CemeteryEntry } from "@shared/lib/cemetery-merged";
-import { RISK_WATER_REGION_TILES } from "./risk-water-areas";
 import { mulberry32 } from "./rng";
+import { seaTerrainAtTile } from "./sea-bodies";
 import { isSeawallBarrierTile } from "./seawall";
 import { stableHash, stableUnit } from "./stable-random";
 import { clamp } from "./motion-utils";
@@ -39,9 +39,6 @@ const DESIGN_SPAN = PHAROSVILLE_DESIGN_SPAN;
 export const PHAROSVILLE_MAP_WIDTH = DESIGN_SPAN * MAP_SCALE;
 /** Height of the PharosVille tile grid, in tiles. */
 export const PHAROSVILLE_MAP_HEIGHT = DESIGN_SPAN * MAP_SCALE;
-/** Inclusive max coordinate in DESIGN space, for the zone predicates below. */
-const MAX_DESIGN_X = DESIGN_SPAN - 1;
-const MAX_DESIGN_Y = DESIGN_SPAN - 1;
 /** Offset that centres the design-space landmasses on the enlarged grid. */
 const LAND_OFFSET = PHAROSVILLE_LAND_OFFSET;
 
@@ -50,47 +47,6 @@ function landDesignX(x: number): number { return x - LAND_OFFSET; }
 function landDesignY(y: number): number { return y - LAND_OFFSET; }
 /** Design tile -> world tile, for exported landmass anchors. */
 const landWorld = landWorldTile;
-/**
- * World tile -> design tile for ZONE geometry (stretched to fill the map).
- *
- * H4: the map is the exact inverse of `zoneWorldTile` — design 0 to world 0,
- * design 55 to the LAST world tile — rather than a plain `x / MAP_SCALE`.
- *
- * The zone predicates are written against design TILE INDICES with inclusive
- * bounds (`x <= 30`, `y > 9 -> false`). A plain divide stretches the design box
- * to [0, 55.6] at MAP_SCALE 2.5, which pushes the outer part of every
- * edge-authored band past its own bound and drops it back to open sea. Mapping
- * the world span onto exactly [0, 55] keeps every authored bound meaning what
- * it says at any scale, integer or not.
- */
-const DESIGN_LAST = DESIGN_SPAN - 1;
-const WORLD_LAST = DESIGN_SPAN * MAP_SCALE - 1;
-function zoneDesignX(x: number): number { return (x * DESIGN_LAST) / WORLD_LAST; }
-function zoneDesignY(y: number): number { return (y * DESIGN_LAST) / WORLD_LAST; }
-/**
- * The design TILE a world tile falls in — the rounded form of the above.
- *
- * The zone bands are a hand-authored 56x56 tile diagram, and every rectangular
- * bound in it (`x <= 30`, `y > 9 -> false`, `x + y >= 78`) names whole tiles.
- * Feeding those a continuous coordinate re-reads the outer fraction of each
- * authored tile as being outside the band, which at MAP_SCALE 2.5 dropped
- * strips of Ledger and Calm back to open sea. The ellipse rings keep the
- * continuous form: their boundaries are curves, not tile edges.
- */
-interface ZonePoint {
-  /** Continuous design coordinate, for the ellipse rings. */
-  x: number;
-  y: number;
-  /** Design TILE index, for the authored rectangular bounds. */
-  tileX: number;
-  tileY: number;
-}
-
-function zonePointAt(worldX: number, worldY: number): ZonePoint {
-  const x = zoneDesignX(worldX);
-  const y = zoneDesignY(worldY);
-  return { x, y, tileX: Math.round(x), tileY: Math.round(y) };
-}
 /** Inclusive maximum x-coordinate for valid tiles (`PHAROSVILLE_MAP_WIDTH - 1`). */
 export const MAX_TILE_X = PHAROSVILLE_MAP_WIDTH - 1;
 /** Inclusive maximum y-coordinate for valid tiles (`PHAROSVILLE_MAP_HEIGHT - 1`). */
@@ -103,42 +59,6 @@ export const LIGHTHOUSE_TILE = landWorld({ x: 18, y: 28 });
  * before named edge-water districts begin.
  */
 export const ISLAND_PERIPHERY_TILE_DISTANCE = 4;
-
-// Zone geometry constants.
-// East-corner Alert/Warning/Danger rings share a single ellipse anchored at
-// the (55, 0) corner. Thresholds slice that ellipse into three concentric
-// bands; isSoutheastWatchShelf re-uses ALERT_RING_OUTER as a guard so it never
-// claims tiles that should be Alert.
-const EAST_CORNER_CENTER = { x: 55, y: 0 } as const;
-const SOUTHEAST_CORNER_CENTER = { x: 55, y: 55 } as const;
-// N2 (2026-07-25): the ship graveyard. Dead and frozen stablecoins used to sit
-// as headstones on a detached islet; they are now an accumulation of wrecks
-// over a corner of the SEA. The south-west corner is the far pole from the
-// north-east storm corner, so the map reads danger at one end and memory at
-// the other.
-const WRECK_CORNER_CENTER = { x: 0, y: 55 } as const;
-const WRECK_CORNER_RADIUS = 17;
-const CORNER_RADIUS = 14;
-const DANGER_RING_OUTER = 0.26;
-const WARNING_RING_OUTER = 0.66;
-const ALERT_RING_INNER = 0.66;
-const ALERT_RING_OUTER = 1.63;
-
-// South breakwater basin shared between Watch Breakwater (primary) and the
-// Calm Anchorage southBay fallback.
-const SOUTH_BASIN_BOUNDS = { minX: 16, maxX: 44, minY: 45 } as const;
-
-// WATCH is the next east-corner ring outside Alert before the map transitions
-// into the south/southeast breakwater basin.
-const WATCH_RING_OUTER = 7.0;
-const SOUTH_SHELF_MIN_Y = 37;
-const SOUTH_SHELF_DIAGONAL_THRESHOLD = 78;
-const CALM_SOUTH_BASIN_PATCH = { minX: 16, maxX: 37, minY: 45, maxY: MAX_DESIGN_Y } as const;
-const CALM_EAST_SHOULDER_PATCH = { minX: 40, maxX: 47, minY: 31, maxY: 38 } as const;
-const CALM_LOWER_BREAKWATER_PATCH = { minX: 30, maxX: 42, minY: 42, maxY: 47 } as const;
-
-/** Canonical anchor tile per DEWS risk region; ships in a given region drift around this point. */
-export const REGION_TILES: Record<ShipRiskPlacement, { x: number; y: number }> = RISK_WATER_REGION_TILES;
 
 /** Ethereum L2 chain IDs that share the EVM bay docks (excludes the L1 itself). */
 export const ETHEREUM_L2_DOCK_CHAIN_IDS = ["base", "arbitrum", "polygon"] as const;
@@ -336,29 +256,27 @@ export function terrainKindAt(x: number, y: number): TerrainKind {
   const nearIslandEdge = island > 0.9;
 
   if (isOutOfBounds(x, y) || island >= 1) {
-    // N1: zone geometry is authored in design space and SCALED onto the
-    // enlarged grid, so every DEWS band stretches to fill the bigger map and
-    // gains proportional sailable water. Landmass tests above stay in world
-    // space (they are offset, not scaled, so the island keeps its size).
-    const zone = zonePointAt(x, y);
-    const { x: zx, y: zy } = zone;
-    const inIslandPeriphery = isWithinIslandPeriphery(x, y);
-    const clearance = isLighthouseVisualClearance(x, y);
-    if (!clearance && isCalmAnchoragePeripheryOverride(zone)) return "calm-water";
-    if (!clearance && isWatchBreakwaterPeripheryOverride(zone)) return "watch-water";
-    if (!inIslandPeriphery && !clearance) {
-      if (isDangerStrait(zx, zy)) return "storm-water";
-      if (isWarningShoals(zx, zy)) return "warning-water";
-      if (isLedgerMooring(zone)) return "ledger-water";
-      if (isAlertChannel(zx, zy)) return "alert-water";
-      if (isWatchBreakwater(zone)) return "watch-water";
-      if (isWreckShoals(zx, zy)) return "wreck-water";
-      if (isCalmAnchorage(zone)) return "calm-water";
-    }
-    if (isTopShelfOpenWaterGap(zone)) return "watch-water";
-    if (isDeepSeaShelfWorld(x, y)) return "deep-water";
-    if (inIslandPeriphery || clearance) return "water";
-    return "calm-water";
+    // Z1 (Sea Master, 2026-07-25): the sea is an SDF partition — see
+    // sea-bodies.ts. This used to be a cascade of half-planes, rectangles and
+    // three concentric rings around the (55, 0) corner, ending in
+    // `return "calm-water"` — which made Calm the RESIDUE rather than a place:
+    // 43% of the sea, 37% of it nowhere near the authored anchorage.
+    //
+    // The partition has no fallback and no gaps, so no body can silently
+    // accumulate the leftovers again, and a boundary between two bodies is a
+    // curve rather than a ruler line.
+    //
+    // Two things still take precedence, and both are about the ISLAND rather
+    // than the sea: the deep rim at the map's edge, and the unattributed halo
+    // of approach water the composition keeps around the monument.
+    if (isWithinIslandPeriphery(x, y) || isLighthouseVisualClearance(x, y)) return "water";
+    const body = seaTerrainAtTile(x, y);
+    // The deep rim belongs to the OPEN sea, and only there. Letting it override
+    // named water would quietly un-name every band that reaches the map's edge,
+    // which several of them are authored to do — and it took the deep share
+    // from 3% to 5.6% of the map by eating their outer rows.
+    if (body === "water" && isDeepSeaShelfWorld(x, y)) return "deep-water";
+    return body;
   }
 
   if (cemetery < 1) return "grass";
@@ -406,34 +324,6 @@ function mainIslandDesignValue(dx: number, dy: number): number {
   );
 }
 
-function isAlertChannel(x: number, y: number): boolean {
-  const value = eastCornerRiskValue(x, y);
-  return value >= ALERT_RING_INNER && value < ALERT_RING_OUTER;
-}
-
-function isWarningShoals(x: number, y: number): boolean {
-  const value = eastCornerRiskValue(x, y);
-  return value >= DANGER_RING_OUTER && value < WARNING_RING_OUTER;
-}
-
-function isDangerStrait(x: number, y: number): boolean {
-  return eastCornerRiskValue(x, y) < DANGER_RING_OUTER;
-}
-
-/**
- * The wreck shoals (N2): slack, shallow water in the south-west corner where
- * dead and frozen stablecoins come to rest. A lifecycle record, not a live
- * market signal — the Entity Meaning contract for cemetery markers is
- * unchanged, only their setting is.
- */
-function isWreckShoals(x: number, y: number): boolean {
-  return ellipseValue(x, y, WRECK_CORNER_CENTER.x, WRECK_CORNER_CENTER.y, WRECK_CORNER_RADIUS, WRECK_CORNER_RADIUS) < 1;
-}
-
-function eastCornerRiskValue(x: number, y: number): number {
-  return ellipseValue(x, y, EAST_CORNER_CENTER.x, EAST_CORNER_CENTER.y, CORNER_RADIUS, CORNER_RADIUS);
-}
-
 // Visual buffer around the lighthouse sprite on the generated island mountain:
 // keep adjacent water generic so DEWS labels and zone textures do not crowd it.
 function isLighthouseVisualClearance(x: number, y: number): boolean {
@@ -441,64 +331,6 @@ function isLighthouseVisualClearance(x: number, y: number): boolean {
   const dx = landDesignX(x);
   const dy = landDesignY(y);
   return dx >= 14 && dx <= 24 && dy >= 23 && dy <= 32;
-}
-
-function isWatchBreakwater(zone: ZonePoint): boolean {
-  // South breakwater basin plus the outer east-corner WATCH ring.
-  return isEastCornerWatchRing(zone) || isWatchBreakwaterPeripheryOverride(zone);
-}
-
-function isWatchBreakwaterPeripheryOverride(zone: ZonePoint): boolean {
-  const { tileX, tileY, x, y } = zone;
-  const southBasin =
-    tileX >= SOUTH_BASIN_BOUNDS.minX && tileX <= SOUTH_BASIN_BOUNDS.maxX
-    && tileY >= SOUTH_BASIN_BOUNDS.minY;
-  const southeastBasin =
-    ellipseValue(x, y, SOUTHEAST_CORNER_CENTER.x, SOUTHEAST_CORNER_CENTER.y, CORNER_RADIUS, CORNER_RADIUS) < 1.0;
-  const exposedEastRing = tileX >= 44 && isEastCornerWatchRing(zone);
-  return southBasin || exposedEastRing || isSouthernWatchShelf(zone) || southeastBasin;
-}
-
-function isEastCornerWatchRing(zone: ZonePoint): boolean {
-  const { tileX, tileY, x, y } = zone;
-  if (tileX < 28 || tileX > MAX_DESIGN_X || tileY < 0 || tileY > MAX_DESIGN_Y) return false;
-  const eastValue = eastCornerRiskValue(x, y);
-  return eastValue >= ALERT_RING_OUTER && eastValue < WATCH_RING_OUTER;
-}
-
-function isSouthernWatchShelf({ tileX, tileY }: ZonePoint): boolean {
-  // Southern shelf: tiles south of the harbor that bridge into the south basin.
-  return tileX >= 28 && tileX <= MAX_DESIGN_X && tileY >= SOUTH_SHELF_MIN_Y
-    && tileY <= MAX_DESIGN_Y && tileX + tileY >= SOUTH_SHELF_DIAGONAL_THRESHOLD;
-}
-
-function isCalmAnchorage(zone: ZonePoint): boolean {
-  const { tileX, tileY, x, y } = zone;
-  const leftEdge = tileX <= 15 && tileY >= 10 && tileY <= MAX_DESIGN_Y;
-  const leftBasin = ellipseValue(x, y, 8.2, 31.0, 15.0, 20.5) < 1.08 && tileX <= 22 && tileY >= 10;
-  const southBay =
-    tileX >= SOUTH_BASIN_BOUNDS.minX && tileX <= SOUTH_BASIN_BOUNDS.maxX
-    && tileY >= SOUTH_BASIN_BOUNDS.minY;
-  return leftEdge || leftBasin || southBay;
-}
-
-function isCalmAnchoragePeripheryOverride({ tileX: x, tileY: y }: ZonePoint): boolean {
-  const southBasinPatch =
-    x >= CALM_SOUTH_BASIN_PATCH.minX
-    && x <= CALM_SOUTH_BASIN_PATCH.maxX
-    && y >= CALM_SOUTH_BASIN_PATCH.minY
-    && y <= CALM_SOUTH_BASIN_PATCH.maxY;
-  const eastShoulderPatch =
-    x >= CALM_EAST_SHOULDER_PATCH.minX
-    && x <= CALM_EAST_SHOULDER_PATCH.maxX
-    && y >= CALM_EAST_SHOULDER_PATCH.minY
-    && y <= CALM_EAST_SHOULDER_PATCH.maxY;
-  const lowerBreakwaterPatch =
-    x >= CALM_LOWER_BREAKWATER_PATCH.minX
-    && x <= CALM_LOWER_BREAKWATER_PATCH.maxX
-    && y >= CALM_LOWER_BREAKWATER_PATCH.minY
-    && y <= CALM_LOWER_BREAKWATER_PATCH.maxY;
-  return southBasinPatch || eastShoulderPatch || lowerBreakwaterPatch;
 }
 
 function isOutOfBounds(x: number, y: number): boolean {
@@ -559,23 +391,6 @@ function isDeepSeaShelfWorld(x: number, y: number): boolean {
       || x > MAX_TILE_X - DEEP_CORNER_TILES || y > MAX_TILE_Y - DEEP_CORNER_TILES;
   }
   return false;
-}
-
-function isTopShelfOpenWaterGap({ tileX: x, tileY: y }: ZonePoint): boolean {
-  if (y < 0 || y > 7) return false;
-  if (x >= 31 && x <= 39) return true;
-  // Visual buffer between Ledger Mooring's east flank and the Alert ring
-  // along the top two rows; this is now folded into Watch Breakwater so no
-  // neutral water remains between Ledger and Alert.
-  if (x >= 23 && x <= 30 && y <= 1) return true;
-  return false;
-}
-
-function isLedgerMooring({ tileX: x, tileY: y }: ZonePoint): boolean {
-  // Top-left mooring shelf snapped to the map corner. The east/top freed
-  // water beyond x=30 belongs to Watch Breakwater before the Alert stack.
-  if (y < 0 || y > 9 || x < 0) return false;
-  return x <= 30;
 }
 
 function getNavigableWaterMask(): Uint8Array {

@@ -1631,12 +1631,25 @@ describe("motion", () => {
       const tangent = target!.toMooringStop!.dockTangent!;
       const bounds = arrivingPhaseBoundsForRouteStop(arriving, target!.sample.currentRouteStopId!)!;
 
-      // Pre-ramp heading: sample at progress < 0.88 (mid-arriving phase).
+      // Pre-ramp heading: sampled just BEFORE the ramp opens, not at the
+      // midpoint of the arriving phase.
+      //
+      // Z3 (Sea Master): the midpoint was a loose stand-in for "before the
+      // ramp" and it only worked while every approach ran nearly straight. The
+      // ramp blends the CURRENT path heading toward the tangent, so on a
+      // curving approach the heading at 0.50 and at 0.90 are two different
+      // bearings and the comparison measures the curve rather than the ramp.
+      // The reshaped sea gave this fixture's ship a curved final leg and the
+      // dot went 0.92 -> 0.56 with the ramp working correctly throughout.
+      // Sampling at 0.84, one tick before ARRIVING_FULL_TRANSIT_END, isolates
+      // what the assertion is actually about.
+      const preRampSeconds = bounds.startSeconds
+        + (bounds.endSeconds - bounds.startSeconds) * (ARRIVING_FULL_TRANSIT_END - 0.01);
       const preRampSample = resolveShipMotionSample({
         plan,
         reducedMotion: false,
         ship,
-        timeSeconds: (bounds.startSeconds + bounds.endSeconds) / 2,
+        timeSeconds: preRampSeconds,
       });
       const preRampHeading = { x: preRampSample.heading.x, y: preRampSample.heading.y };
 
