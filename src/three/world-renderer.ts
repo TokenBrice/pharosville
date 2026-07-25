@@ -19,6 +19,7 @@ import {
   OrthographicCamera,
   PCFSoftShadowMap,
   PointLight,
+  Quaternion,
   RingGeometry,
   Scene,
   ShaderMaterial,
@@ -164,6 +165,11 @@ const SESSION_TIER_QUALITY: Record<PharosVilleRenderSchedulerTier, number> = {
 
 const scratchMatrix = new Matrix4();
 const scratchPosition = new Vector3();
+// R8: reused per-frame scratch for the oriented ship contact shadow.
+const scratchShadowPosition = new Vector3();
+const scratchShadowScale = new Vector3();
+const scratchShadowQuaternion = new Quaternion();
+const SHADOW_UP = new Vector3(0, 1, 0);
 
 export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): ThreeWorldRenderer {
   const { canvas, onAssetReady, onContextFailure } = input;
@@ -1218,13 +1224,33 @@ function updateSceneForFrame(
     visual.fineDetail.visible = showShipDetail;
     visual.wakeDetail.visible = showShipDetail;
 
+    // R8 grounding: the shadow is THIS ship's shadow.
+    //
+    // It used to be an axis-aligned ellipse, so a hull pointing north-south
+    // cast an east-west shadow and every ship read as a sticker laid on the
+    // surface. It now rotates with the heading and takes the ship's own
+    // length and beam from `hullForm` (N5), so a long lean clipper throws a
+    // long lean shadow and a beamy bullion barge throws a wide one.
     const shadowRadius = Math.max(1.15, visual.selectionRadius * 1.25);
-    scratchMatrix.makeScale(shadowRadius * 1.65, 1, shadowRadius * 0.72);
-    scratchMatrix.setPosition(
-      visual.root.position.x + 1.2,
-      WATER_LEVEL + 0.028,
-      visual.root.position.z + 1.45,
+    const hullForm = visual.ship.visual.hullForm;
+    scratchShadowScale.set(
+      shadowRadius * 1.65 * (hullForm?.length ?? 1),
+      1,
+      shadowRadius * 0.72 * (hullForm?.beam ?? 1),
     );
+    scratchShadowQuaternion.setFromAxisAngle(
+      SHADOW_UP,
+      visual.root.rotation.y,
+    );
+    scratchShadowPosition.set(
+      // A short offset along the light direction reads as a cast shadow while
+      // still overlapping the hull, so the ship sits IN the water rather than
+      // floating beside its own shape.
+      visual.root.position.x + 0.7,
+      WATER_LEVEL + 0.028,
+      visual.root.position.z + 0.85,
+    );
+    scratchMatrix.compose(scratchShadowPosition, scratchShadowQuaternion, scratchShadowScale);
     content.shipShadows.setMatrixAt(index, scratchMatrix);
 
     // The ship's transform is final for this frame — hand it to the batch.

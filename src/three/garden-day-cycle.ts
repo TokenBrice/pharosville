@@ -248,7 +248,9 @@ export function updateDayCycle(
   scene.content.beam.visible = true;
   // Lane S grounded the fleet on a darker 0.28 base opacity (S7); the curve
   // stays at or above it so the day-cycle never overrides it back down.
-  scene.content.shipShadows.material.opacity = 0.28 + daylight * 0.12;
+  // R8: a touch deeper so the contact reads at overview zoom, where a hull
+  // is only a few pixels tall and its shadow is most of what grounds it.
+  scene.content.shipShadows.material.opacity = 0.34 + daylight * 0.14;
   // Ship lantern cores bloom warm at night; the additive glow halo and the
   // sail backlight rise with them. Kept below the AgX clip (~2.2) so they roll
   // to gold, not white pinpricks.

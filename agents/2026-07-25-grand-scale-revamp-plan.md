@@ -754,9 +754,33 @@ rose to 9. **Measured: 1.3–4.0 tiles per 12s, from ~0.02.**
 **N4 — harbours** (delegated): real pier architecture, bollards, cranes,
 warehouses, and per-chain flag logos from a shared atlas.
 
-**N5 — fleet identity** (delegated): seven bespoke titans — USDT, USDC, DAI,
-USDS, USDe, USD1, pyUSD — plus ten generic hero hulls, all quantized with
-`KHR_mesh_quantization`.
+**N5 — fleet identity** (delegated, complete). Two halves:
+
+*Bespoke titans.* Seven hulls, each carrying a structure no other vessel has,
+so they read from silhouette alone: USDT a bullion barge with derricks, USDC a
+revenue cutter with a glazed gallery, DAI a temple barque with a real portico,
+USDS its matched pair (shared hull DNA, open pavilion), USDe the fleet's only
+TRIMARAN (delta-neutral as two opposed outrigger floats), USD1 the only oared
+hull, pyUSD the only powered one with side paddle boxes. Excluded from the hash
+fallback, so no other coin can ever sail them. Plus ten generic hero hulls, all
+`KHR_mesh_quantization`-compressed.
+
+*Per-ship hull form.* `aHullForm` (length, beam, height) rides as an
+InstancedBufferAttribute with a vertex patch shared by the hull and sail
+materials — so a stretched hull never sails out from under its own rig. **217
+of 217 ships have a distinct hull form**, within ±32%, deterministic. Traits
+drive it: peg grade → beam, reserves → freeboard, yield/NAV → length, plus a
+per-id jitter so two coins with identical flags still read as different
+vessels. Height scales the TOPSIDES only, ramped in above the waterline —
+scaling y uniformly would push hulls through the sea, and the waterline is the
+one line the whole scene reads against. **Cost: zero triangles, zero extra
+draw calls.**
+
+*Silhouette balance.* A fourth silhouette was authored and rendered nothing —
+no coin in the set is algorithmic, so 58% of the batched fleet was one hull. A
+non-USD-peg family (EUR/GBP/gold/RUB) now maps to it: galleon 58.0% → 34.0%,
+junk 0.0% → 28.2%, clipper 31.9% → 30.3%, schooner 10.1% → 7.4%. Fleet draw
+calls 7 → 9, at the top of budget and exactly as costed.
 
 **Look work alongside:** the Pharos mirror column (the tower standing
 upside-down in the water, obeying its region's reflectivity — the concept
@@ -775,6 +799,8 @@ shore shelf and world-boundary fade retuned for the larger sea.
 | Eligible water per ship | 10.1 tiles | **58.5** |
 | Ship travel per 12s | ~0.02 tiles | **1.3–4.0** |
 | Hero hull models | 2 shared | **17, 7 bespoke** |
+| Ships with a distinct hull form | 0 | **217 of 217** |
+| Largest single-silhouette share | 58.0% | **34.0%** |
 | Frame (1080p, whole-map framing) | 29.2 ms / 34 fps at 20 ships | **21.5 ms / 46 fps at 187** |
 | GPU draw calls / triangles | — | 377 / 273k (budgets 700 / 500k) |
 
