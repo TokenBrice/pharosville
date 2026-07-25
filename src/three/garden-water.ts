@@ -793,16 +793,24 @@ const FRAGMENT_SHADER = /* glsl */ `
       // nearly all of it. Calm/watch/ledger/open water shows no whitecaps
       // anyway, so this is output-identical where it matters.
       if (regionFoam > 0.3) {
-        vec2 capUv = vWaterPosition * 0.34 + vec2(uTime * 0.05 * (0.5 + uTempo), 0.0);
+        // Finer than it was: at 0.34 one noise cell spanned ~3 world units, so
+        // the caps read as floes drifting on the surface rather than as crests
+        // breaking on it.
+        vec2 capUv = vWaterPosition * 0.85 + vec2(uTime * 0.05 * (0.5 + uTempo), 0.0);
         float capNoise = gardenFbm(capUv);
         // Only the crests break, so the threshold sits high and tightens as
         // the band worsens.
-        float capThreshold = mix(0.74, 0.56, clamp(regionFoam, 0.0, 1.0));
-        float caps = smoothstep(capThreshold, capThreshold + 0.16, capNoise);
+        // L7: threshold raised and weight cut. These were tuned while the
+        // region fade was silently stripping foam from half the sea (L2); at
+        // full strength across the whole map the same numbers read as pack ice
+        // rather than as crests breaking. Only the top of the distribution
+        // should whiten, and only partly.
+        float capThreshold = mix(0.82, 0.68, clamp(regionFoam, 0.0, 1.0));
+        float caps = smoothstep(capThreshold, capThreshold + 0.13, capNoise);
         waterColor = mix(
           waterColor,
           uHighlightColor,
-          clamp(caps * regionFoam * blend, 0.0, 0.32) * uDetail
+          clamp(caps * regionFoam * blend, 0.0, 0.15) * uDetail
         );
       }
     }
@@ -1375,7 +1383,11 @@ export function createGardenWater(waterLevel: number): GardenWater {
       }
       // Default karesansui train: inner band starts outside the V2 lapping
       // foam (~1.34 SDF units ≈ 25 world units on the long axis).
-      setDefaultRing("garden.island", { x: worldX, z: worldZ }, 40, 3, 16, 0.5, 0.65);
+      // L6: radius 40 -> 22. At 40 with an inner fraction of 0.65 this was a
+      // 28-tile-diameter disc of pale expanding rings — 40% of the map's width —
+      // and at overview framing it read as a spotlight trained on the island
+      // rather than as water moving around it.
+      setDefaultRing("garden.island", { x: worldX, z: worldZ }, 22, 3, 16, 0.42, 0.55);
     },
     setIsletCenters(cemetery, pigeonnier) {
       uniforms.uCemeteryCenter.value.set(cemetery.x, -cemetery.z);

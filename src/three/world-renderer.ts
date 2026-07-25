@@ -50,7 +50,7 @@ import {
   selectGardenObservatorySlice,
   selectGardenTransientShip,
 } from "../systems/garden-observatory-slice";
-import { HARBOR_PALETTE } from "../systems/palette";
+import { HARBOR_PALETTE, zoneThemeForTerrain } from "../systems/palette";
 import { screenToTile } from "../systems/projection";
 import type { PharosVilleWorld } from "../systems/world-types";
 import {
@@ -65,6 +65,8 @@ import {
   type GardenGullFlock,
 } from "./garden-harbor-life";
 import { createGardenHorizon, type GardenHorizon } from "./garden-horizon";
+import { createGardenSeaSigns, type GardenSeaSigns, type SeaSignSpec } from "./garden-sea-signs";
+import { SEA_BODY_TERRAIN, type SeaBodyName } from "../systems/sea-bodies";
 import { createGardenIslets, type GardenIslets } from "./garden-islets";
 import { createGardenModelLibrary } from "./garden-models";
 import { createGardenWater, type GardenWater } from "./garden-water";
@@ -430,6 +432,7 @@ interface GardenContent {
   transientSelectedDetailId: string | null;
   visibleShipCount: number;
   weather: GardenWeatherVisual[];
+  seaSigns: GardenSeaSigns;
   zoneField: ZoneField;
   zones: ZoneVisual[];
 }
@@ -587,6 +590,7 @@ function replaceWorldContent(
     // explicitly first, then let the walk take the rest of the content.
     disposeFleetBatches(scene.content.fleetBatches);
     scene.content.sailAtlas.dispose();
+    scene.content.seaSigns.dispose();
     disposeThreeObjectTree(scene.content.root);
   }
   scene.content = createWorldContent(world, selectedDetailId, scene.water.cloudShadows);
@@ -647,11 +651,19 @@ function registerHarborWater(scene: GardenScene, world: PharosVilleWorld): void 
       strength: 0.18,
     });
   }
+  // L6: offset onto the lee water, not the dock centroid.
+  //
+  // Averaging up to ten harbours ringing the island lands on the ISLAND, so the
+  // glassy, normal-flattened mirror basin sat on the rock and only its
+  // overspill showed as a pale ring on the water. Pushing it south-east puts it
+  // on the sheltered water the harbours actually open onto.
+  const islandCenterX = centerX / harborDocks.length;
+  const islandCenterZ = centerZ / harborDocks.length;
   scene.water.setHarborCalmMask({
-    center: { x: centerX / harborDocks.length, z: centerZ / harborDocks.length },
-    radiusX: 15,
-    radiusZ: 11,
-    calmStrength: 0.75,
+    center: { x: islandCenterX + 13, z: islandCenterZ + 10 },
+    radiusX: 13,
+    radiusZ: 9,
+    calmStrength: 0.7,
   });
 }
 
@@ -839,6 +851,11 @@ function createWorldContent(
   }
   const zoneField = createZoneField(zones);
   root.add(zoneField.root);
+  // N (Sea Master): the sea's place-names, as carved boards standing in the
+  // water. Copy comes from the same area records the DOM chips read, so the
+  // two surfaces cannot drift.
+  const seaSigns = createGardenSeaSigns(seaSignSpecs(world.areas));
+  root.add(seaSigns.root);
   const weather = world.areas
     .filter((area) => area.band === "DANGER")
     .map((area) => createDangerWeather(area));
@@ -982,9 +999,50 @@ function createWorldContent(
     transientSelectedDetailId: slice.transientSelectedDetailId,
     visibleShipCount: ships.length,
     weather,
+    seaSigns,
     zoneField,
     zones,
   };
+}
+
+/**
+ * The boards to raise, and what they say.
+ *
+ * Every named body gets one — including Calm Anchorage and Ledger Mooring,
+ * which `observe-sequence.ts` excludes from the DOM chip layer entirely, and
+ * the wreck shoals, which have no area record at all but are a place with a
+ * name like any other.
+ */
+function seaSignSpecs(areas: PharosVilleWorld["areas"]): SeaSignSpec[] {
+  const specs: SeaSignSpec[] = [];
+  for (const area of areas) {
+    const body = SEA_SIGN_BODY_FOR_AREA(area);
+    if (!body) continue;
+    const count = typeof area.count === "number" ? area.count : null;
+    specs.push({
+      body,
+      label: area.label,
+      reading: count === null ? null : `${count} ${count === 1 ? "ship" : "ships"}`,
+      accent: zoneThemeForTerrain(SEA_BODY_TERRAIN[body]).label.accent,
+    });
+  }
+  specs.push({
+    body: "wreck",
+    label: "Wreck Shoals",
+    reading: null,
+    accent: zoneThemeForTerrain("wreck-water").label.accent,
+  });
+  return specs;
+}
+
+function SEA_SIGN_BODY_FOR_AREA(area: PharosVilleWorld["areas"][number]): SeaBodyName | null {
+  if (area.band === "CALM") return "calm";
+  if (area.band === "WATCH") return "watch";
+  if (area.band === "ALERT") return "alert";
+  if (area.band === "WARNING") return "warning";
+  if (area.band === "DANGER") return "danger";
+  if (area.riskPlacement === "ledger-mooring") return "ledger";
+  return null;
 }
 
 /**
@@ -1222,6 +1280,15 @@ function updateSceneForFrame(
 
   const semanticView = gardenSemanticView(frame.camera.zoom, frame.selectedDetailId);
   const showWorldDetail = semanticView === "explore";
+  // N (D6): the boards hold a roughly constant on-screen size as the camera
+  // pulls back, so the sea's place-names stay readable at whole-map framing —
+  // the framing that most wants them, and the one where a true-scale board is
+  // about four pixels tall. They stand down when a detail panel owns the frame.
+  content.seaSigns.update({
+    night: phase.night,
+    visible: semanticView !== "analyze",
+    zoom: frame.camera.zoom,
+  });
   for (const visual of content.docks) {
     visual.fineDetail.visible = showWorldDetail
       || visual.dock.detailId === frame.hoveredDetailId
@@ -1378,7 +1445,7 @@ function updateSceneForFrame(
   // role, and they are the first thing that makes the water look busy rather
   // than calm. They appear once the camera is close enough for a marker to
   // mean something.
-  const buoysVisible = gardenSemanticView(frame.camera.zoom, frame.selectedDetailId) !== "overview";
+  const buoysVisible = semanticView !== "overview";
   content.zoneField.buoyBodies.visible = buoysVisible;
   content.zoneField.buoyLamps.visible = buoysVisible;
   updateZoneBuoys(

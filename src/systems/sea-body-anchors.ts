@@ -165,3 +165,93 @@ export function snapToSeaBody(tile: AnchorTile, body: SeaBodyName): AnchorTile {
   }
   return best;
 }
+
+/**
+ * N1: where a body's name should stand, and which way it should face.
+ *
+ * Principal-axis analysis over the body's tiles. The bearing is the direction
+ * the water runs — a strait's long axis, a bay's mouth-to-head line — and the
+ * extent along it is how big the body reads, which is what sizes the board.
+ *
+ * The sign itself stands at the body's SOUTH-EAST frontier rather than at its
+ * centroid: south-east is toward the isometric camera, so the board faces the
+ * viewer and stands clear of the water it names instead of covering it.
+ */
+export interface SeaBodyPlacement {
+  /** Tile the sign stands on — shallow water at the body's camera-facing edge. */
+  tile: AnchorTile;
+  /** Direction the body's water runs, in radians (world tile space). */
+  bearing: number;
+  /** Extent along that bearing, in tiles. Drives the board's size. */
+  extent: number;
+}
+
+const placementByBody = new Map<SeaBodyName, SeaBodyPlacement | null>();
+
+export function seaBodyPlacement(body: SeaBodyName): SeaBodyPlacement | null {
+  const cached = placementByBody.get(body);
+  if (cached !== undefined) return cached;
+
+  const tiles = seaBodyTiles(body);
+  if (tiles.length < 4) {
+    placementByBody.set(body, null);
+    return null;
+  }
+
+  let sumX = 0;
+  let sumY = 0;
+  for (const tile of tiles) {
+    sumX += tile.x;
+    sumY += tile.y;
+  }
+  const meanX = sumX / tiles.length;
+  const meanY = sumY / tiles.length;
+
+  // Covariance, then its dominant eigenvector — the body's long axis.
+  let xx = 0;
+  let xy = 0;
+  let yy = 0;
+  for (const tile of tiles) {
+    const dx = tile.x - meanX;
+    const dy = tile.y - meanY;
+    xx += dx * dx;
+    xy += dx * dy;
+    yy += dy * dy;
+  }
+  xx /= tiles.length;
+  xy /= tiles.length;
+  yy /= tiles.length;
+  const bearing = 0.5 * Math.atan2(2 * xy, xx - yy);
+
+  const axisX = Math.cos(bearing);
+  const axisY = Math.sin(bearing);
+  let minAlong = Number.POSITIVE_INFINITY;
+  let maxAlong = Number.NEGATIVE_INFINITY;
+  for (const tile of tiles) {
+    const along = (tile.x - meanX) * axisX + (tile.y - meanY) * axisY;
+    if (along < minAlong) minAlong = along;
+    if (along > maxAlong) maxAlong = along;
+  }
+
+  // The camera-facing frontier: furthest along +x +y, which is toward the
+  // viewer in this isometric rig. Pulled a little back inside the body so the
+  // pilings stand in its own water rather than on the boundary.
+  let best = tiles[0]!;
+  let bestScore = Number.NEGATIVE_INFINITY;
+  for (const tile of tiles) {
+    const score = tile.x + tile.y;
+    if (score > bestScore) {
+      bestScore = score;
+      best = tile;
+    }
+  }
+  const inset = {
+    x: Math.round(best.x + (meanX - best.x) * 0.22),
+    y: Math.round(best.y + (meanY - best.y) * 0.22),
+  };
+  const tile = snapToSeaBody(inset, body);
+
+  const placement: SeaBodyPlacement = { tile, bearing, extent: maxAlong - minAlong };
+  placementByBody.set(body, placement);
+  return placement;
+}

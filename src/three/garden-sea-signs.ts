@@ -1,0 +1,312 @@
+import {
+  BoxGeometry,
+  CanvasTexture,
+  Color,
+  CylinderGeometry,
+  Group,
+  LinearFilter,
+  Mesh,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
+  SRGBColorSpace,
+  type Texture,
+} from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { HARBOR_PALETTE } from "../systems/palette";
+import { seaBodyPlacement } from "../systems/sea-body-anchors";
+import type { SeaBodyName } from "../systems/sea-bodies";
+import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
+import { TILE_SCALE } from "./garden-util";
+
+/**
+ * N (Sea Master, decisions D3 + D6 + D7): the sea's place-names, as objects.
+ *
+ * The operator's firm ask was "some kind of sign or written annotation of the
+ * sea zones... to make it feel like an actual map", and chose physical signage
+ * over chart lettering laid on the water: a carved timber board on pilings, in
+ * the same oak and ironwork as the docks and piers already in the world.
+ *
+ * Before this, the only annotation was a DOM chip layer that
+ * `observe-sequence.ts` caps at TWO at overview zoom — so the framing where a
+ * map most wants its place-names carried the fewest, and four of the seven
+ * bodies were never named at all.
+ *
+ * ## The scale problem, and D6
+ *
+ * A true-scale board is about four pixels tall at whole-map framing, which is
+ * exactly the framing that needs it. So the board's world scale RISES as the
+ * camera pulls back, holding a roughly constant on-screen size — drawn out of
+ * scale on the chart, the way a landmark is on an old map. Ships and water are
+ * untouched; only the signage does this.
+ *
+ * ## Cost
+ *
+ * One merged geometry for every board's timber, and one instanced-free mesh per
+ * sign for the lettered face (each face needs its own texture, so those cannot
+ * merge). Seven bodies is eight draw calls, not fifty.
+ */
+
+/** Which bodies get a board, and what it says. */
+export interface SeaSignSpec {
+  body: SeaBodyName;
+  /** The name carved into the board — shared with the DOM chip so they cannot drift. */
+  label: string;
+  /** Optional second line, smaller: the band and its live ship count. */
+  reading: string | null;
+  /** Band accent, used for the painted letters. */
+  accent: string;
+}
+
+export interface GardenSeaSigns {
+  root: Group;
+  /** Lamp world positions, for the light-lane registry (N5). */
+  lampPositions: readonly { x: number; y: number; z: number }[];
+  dispose: () => void;
+  update: (frame: {
+    /** Camera zoom; drives the D6 constant-on-screen scaling. */
+    zoom: number;
+    /** Signs are cleared when a detail panel owns the frame. */
+    visible: boolean;
+    /** 0..1 night weight — lights the hung lantern. */
+    night: number;
+  }) => void;
+}
+
+// Board proportions, in world units at zoom 1.
+const BOARD_WIDTH = 7.2;
+const BOARD_HEIGHT = 1.9;
+const BOARD_THICKNESS = 0.22;
+const BOARD_BASE_Y = 2.5;
+const PILING_RADIUS = 0.16;
+const PILING_SPREAD = 2.4;
+
+/**
+ * D6: the board holds a roughly constant on-screen size.
+ *
+ * Screen size is proportional to worldScale x zoom, so a scale of k/zoom is
+ * constant. Clamped at both ends: below 1 the board would shrink under its own
+ * pilings when zoomed right in, and above the ceiling it would swamp the sea at
+ * the widest framing.
+ */
+const SIGN_REFERENCE_ZOOM = 0.85;
+const SIGN_MIN_SCALE = 0.85;
+const SIGN_MAX_SCALE = 2.6;
+
+export function seaSignScaleForZoom(zoom: number): number {
+  const scale = SIGN_REFERENCE_ZOOM / Math.max(0.05, zoom);
+  return Math.max(SIGN_MIN_SCALE, Math.min(SIGN_MAX_SCALE, scale));
+}
+
+export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSigns {
+  const root = new Group();
+  root.name = "garden-sea-signs";
+
+  const timberMaterial = new MeshStandardMaterial({
+    color: HARBOR_PALETTE.timber_warm ?? "#8a6a44",
+    roughness: 0.86,
+  });
+  const lampMaterial = new MeshBasicMaterial({
+    color: new Color(HARBOR_PALETTE.lantern_warm),
+    toneMapped: false,
+  });
+
+  const timberParts: Mesh[] = [];
+  const faceMaterials: MeshStandardMaterial[] = [];
+  const faceTextures: Texture[] = [];
+  const lampMeshes: Mesh[] = [];
+  const lampPositions: { x: number; y: number; z: number }[] = [];
+  const signGroups: Group[] = [];
+
+  // Boards are sited at each body's camera-facing frontier, and neighbouring
+  // bodies can present that frontier at nearly the same point — Warning Shoals
+  // and Danger Strait share a coast, and their first pass put one board on top
+  // of the other. Nudge any pair that lands too close apart along the axis the
+  // camera reads as horizontal, nearest-to-camera moving last so it stays in
+  // front of the water it names.
+  const sited: { spec: SeaSignSpec; x: number; z: number }[] = [];
+  const MIN_SEPARATION = 11;
+  for (const spec of specs) {
+    const placement = seaBodyPlacement(spec.body);
+    if (!placement) continue;
+    let x = placement.tile.x * TILE_SCALE;
+    let z = placement.tile.y * TILE_SCALE;
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const clash = sited.find((other) => Math.hypot(other.x - x, other.z - z) < MIN_SEPARATION);
+      if (!clash) break;
+      // Slide along the screen-horizontal axis (world +x -z in this iso rig).
+      x += MIN_SEPARATION * 0.55;
+      z -= MIN_SEPARATION * 0.55;
+    }
+    sited.push({ spec, x, z });
+  }
+
+  for (const { spec, x, z } of sited) {
+    const group = new Group();
+    group.name = `garden-sea-sign.${spec.body}`;
+    group.position.set(x, GARDEN_WATER_Y, z);
+    // Square to the isometric camera rather than to the body's own bearing:
+    // a board is only worth having if it can be read.
+    group.rotation.y = Math.PI * 0.25;
+
+    // Two pilings and their iron collars, merged into one geometry per sign.
+    const parts = [];
+    for (const side of [-1, 1]) {
+      const piling = new CylinderGeometry(PILING_RADIUS, PILING_RADIUS * 1.15, BOARD_BASE_Y + 1.2, 7);
+      piling.translate(side * PILING_SPREAD, (BOARD_BASE_Y + 1.2) / 2 - 0.6, 0);
+      parts.push(piling);
+    }
+    const merged = mergeGeometries(parts, false);
+    if (merged) {
+      const timber = new Mesh(merged, timberMaterial);
+      timber.name = `garden-sea-sign-pilings.${spec.body}`;
+      timber.castShadow = false;
+      group.add(timber);
+      timberParts.push(timber);
+    }
+
+    // The lettered face. Its own texture, so it cannot merge with the rest.
+    const texture = createSeaSignTexture(spec);
+    const faceMaterial = new MeshStandardMaterial({
+      color: "#ffffff",
+      map: texture,
+      roughness: 0.82,
+    });
+    const face = new Mesh(new BoxGeometry(BOARD_WIDTH, BOARD_HEIGHT, BOARD_THICKNESS), faceMaterial);
+    face.name = `garden-sea-sign-board.${spec.body}`;
+    face.position.y = BOARD_BASE_Y;
+    group.add(face);
+    faceMaterials.push(faceMaterial);
+    if (texture) faceTextures.push(texture);
+
+    // N5: a hung lantern, so the board joins the Lantern Sea at night instead
+    // of standing dark in it.
+    const lamp = new Mesh(new CylinderGeometry(0.16, 0.2, 0.34, 6), lampMaterial);
+    lamp.position.set(BOARD_WIDTH / 2 - 0.35, BOARD_BASE_Y - BOARD_HEIGHT / 2 - 0.3, 0);
+    group.add(lamp);
+    lampMeshes.push(lamp);
+    lampPositions.push({
+      x: group.position.x + Math.cos(group.rotation.y) * (BOARD_WIDTH / 2 - 0.35),
+      y: GARDEN_WATER_Y + BOARD_BASE_Y,
+      z: group.position.z - Math.sin(group.rotation.y) * (BOARD_WIDTH / 2 - 0.35),
+    });
+
+    root.add(group);
+    signGroups.push(group);
+  }
+
+  return {
+    root,
+    lampPositions,
+    dispose() {
+      for (const texture of faceTextures) texture.dispose();
+      for (const material of faceMaterials) material.dispose();
+      for (const mesh of timberParts) mesh.geometry.dispose();
+      timberMaterial.dispose();
+      lampMaterial.dispose();
+    },
+    update({ zoom, visible, night }) {
+      root.visible = visible;
+      if (!visible) return;
+      const scale = seaSignScaleForZoom(zoom);
+      for (const group of signGroups) group.scale.setScalar(scale);
+      // The lamp is a flat emissive; it only earns its brightness after dusk.
+      lampMaterial.color.setStyle(HARBOR_PALETTE.lantern_warm);
+      lampMaterial.color.multiplyScalar(0.35 + night * 1.5);
+      for (const lamp of lampMeshes) lamp.visible = night > 0.05;
+    },
+  };
+}
+
+// Texture resolution per board. Wide because the lettering is wide-tracked and
+// has to stay crisp when the board is scaled up at overview framing (D6).
+const SIGN_TEXTURE_WIDTH = 1024;
+const SIGN_TEXTURE_HEIGHT = 272;
+
+/**
+ * The board face: weathered oak with painted, wide-tracked capitals.
+ *
+ * Typeset in EB Garamond, which the app already ships and loads as `PV Plaque`
+ * (src/pharosville.css) — no new asset and no new licence. If the face has not
+ * finished loading the canvas falls back to a serif stack, which is the same
+ * treatment `garden-sail-texture.ts` uses.
+ */
+function createSeaSignTexture(spec: SeaSignSpec): CanvasTexture | null {
+  if (typeof document === "undefined") return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = SIGN_TEXTURE_WIDTH;
+  canvas.height = SIGN_TEXTURE_HEIGHT;
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+
+  // Oak ground, with a grain so the plank does not read as a UI panel.
+  context.fillStyle = "#7d5f3d";
+  context.fillRect(0, 0, SIGN_TEXTURE_WIDTH, SIGN_TEXTURE_HEIGHT);
+  context.strokeStyle = "rgba(58, 40, 22, 0.35)";
+  context.lineWidth = 2;
+  for (let index = 0; index < 14; index += 1) {
+    const y = ((index + 0.5) / 14) * SIGN_TEXTURE_HEIGHT;
+    context.beginPath();
+    context.moveTo(0, y);
+    context.bezierCurveTo(
+      SIGN_TEXTURE_WIDTH * 0.3, y + (index % 3 - 1) * 5,
+      SIGN_TEXTURE_WIDTH * 0.7, y - (index % 2) * 6,
+      SIGN_TEXTURE_WIDTH, y + (index % 4 - 2) * 3,
+    );
+    context.stroke();
+  }
+  // Chamfered edge, so the plank reads as a thick board.
+  context.strokeStyle = "rgba(40, 26, 14, 0.55)";
+  context.lineWidth = 10;
+  context.strokeRect(5, 5, SIGN_TEXTURE_WIDTH - 10, SIGN_TEXTURE_HEIGHT - 10);
+  // Iron banding across the top and bottom rails. Painted rather than modelled:
+  // as geometry it was two extra meshes on every board, and at the draw-call
+  // ceiling that mattered more than the millimetre of relief it bought.
+  context.fillStyle = "rgba(26, 22, 18, 0.92)";
+  context.fillRect(0, 0, SIGN_TEXTURE_WIDTH, 22);
+  context.fillRect(0, SIGN_TEXTURE_HEIGHT - 22, SIGN_TEXTURE_WIDTH, 22);
+  context.fillStyle = "rgba(120, 108, 92, 0.5)";
+  for (let index = 0; index < 8; index += 1) {
+    const x = ((index + 0.5) / 8) * SIGN_TEXTURE_WIDTH;
+    context.beginPath();
+    context.arc(x, 11, 5, 0, Math.PI * 2);
+    context.arc(x, SIGN_TEXTURE_HEIGHT - 11, 5, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  const centreX = SIGN_TEXTURE_WIDTH / 2;
+  const nameY = spec.reading ? SIGN_TEXTURE_HEIGHT * 0.42 : SIGN_TEXTURE_HEIGHT * 0.58;
+
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  // Carved: a dark incision offset up-left, the paint sitting in it.
+  const name = spec.label.toUpperCase();
+  context.font = `700 96px "PV Plaque", Georgia, "Times New Roman", serif`;
+  context.letterSpacing = "14px";
+  context.fillStyle = "rgba(32, 20, 10, 0.9)";
+  context.fillText(name, centreX - 3, nameY - 3, SIGN_TEXTURE_WIDTH * 0.88);
+  // Bone-white paint, not the band accent. The DEWS accents are a green, a
+  // teal, a yellow, an orange and a red; on weathered oak they all go muddy and
+  // the name stops reading. The accent earns its place on the rule beneath,
+  // where it sits against the dark ironwork and stays a band cue.
+  context.fillStyle = "#efe4cb";
+  context.fillText(name, centreX, nameY, SIGN_TEXTURE_WIDTH * 0.88);
+  context.fillStyle = spec.accent;
+  context.fillRect(centreX - SIGN_TEXTURE_WIDTH * 0.3, nameY + 58, SIGN_TEXTURE_WIDTH * 0.6, 6);
+
+  if (spec.reading) {
+    context.font = `700 46px "PV Plaque", Georgia, "Times New Roman", serif`;
+    context.letterSpacing = "8px";
+    context.fillStyle = "rgba(30, 19, 9, 0.8)";
+    context.fillText(spec.reading.toUpperCase(), centreX - 2, SIGN_TEXTURE_HEIGHT * 0.74 - 2, SIGN_TEXTURE_WIDTH * 0.8);
+    context.fillStyle = "rgba(226, 208, 170, 0.95)";
+    context.fillText(spec.reading.toUpperCase(), centreX, SIGN_TEXTURE_HEIGHT * 0.74, SIGN_TEXTURE_WIDTH * 0.8);
+  }
+
+  const texture = new CanvasTexture(canvas);
+  texture.colorSpace = SRGBColorSpace;
+  texture.magFilter = LinearFilter;
+  texture.minFilter = LinearFilter;
+  texture.generateMipmaps = false;
+  texture.needsUpdate = true;
+  return texture;
+}

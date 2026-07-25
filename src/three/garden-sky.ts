@@ -4,7 +4,9 @@ import {
   BufferAttribute,
   BufferGeometry,
   Color,
+  DataTexture,
   Fog,
+  RGBAFormat,
   Group,
   Mesh,
   MeshBasicMaterial,
@@ -228,6 +230,7 @@ function createMoon(): { group: Group; halo: MeshBasicMaterial } {
 
 function createMist(): { material: MeshBasicMaterial; mesh: Mesh } {
   const material = new MeshBasicMaterial({
+    alphaMap: createMistFalloffTexture(),
     blending: AdditiveBlending,
     color: DAY_CYCLE_SKY_PRESETS.dusk.fog.clone(),
     depthWrite: false,
@@ -245,6 +248,37 @@ function createMist(): { material: MeshBasicMaterial; mesh: Mesh } {
   mesh.renderOrder = 2;
   mesh.frustumCulled = false;
   return { material, mesh };
+}
+
+/**
+ * L8: a soft falloff for the dawn/dusk mist band.
+ *
+ * The band was a bare PlaneGeometry with uniform opacity, so at night it drew a
+ * hard-edged rectangle across the upper sky — visible in any whole-map capture
+ * once you look for it. Fading the edges to nothing makes it read as haze.
+ */
+function createMistFalloffTexture(): DataTexture {
+  const width = 64;
+  const height = 16;
+  const data = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const u = (x + 0.5) / width;
+      const v = (y + 0.5) / height;
+      // Smooth to zero at both ends of both axes.
+      const across = Math.sin(Math.PI * v) ** 1.4;
+      const along = Math.sin(Math.PI * u) ** 0.7;
+      const alpha = Math.round(Math.max(0, Math.min(1, across * along)) * 255);
+      const index = (y * width + x) * 4;
+      data[index] = 255;
+      data[index + 1] = 255;
+      data[index + 2] = 255;
+      data[index + 3] = alpha;
+    }
+  }
+  const texture = new DataTexture(data, width, height, RGBAFormat);
+  texture.needsUpdate = true;
+  return texture;
 }
 
 export function createGardenSky(): GardenSky {
