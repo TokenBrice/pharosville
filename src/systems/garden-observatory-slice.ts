@@ -26,6 +26,8 @@ import type {
 // GARDEN_FLEET_BATCH_CAPACITY so the batches never reallocate. Composition is
 // now enforced by region-scoped placement density, not by a small count.
 export const GARDEN_OVERVIEW_SHIP_LIMIT = 320;
+/** How far a ship may travel from its composed berth, in tiles (N3). */
+export const GARDEN_MAX_MOTION_TILES = 9;
 export const GARDEN_WATER_Y = -1.45;
 export const GARDEN_DOCK_ROOT_Y = GARDEN_WATER_Y + 0.2;
 export const GARDEN_SHIP_ROOT_Y = GARDEN_WATER_Y + 0.38;
@@ -159,7 +161,17 @@ export function resolveGardenShipDisplayTile(input: {
     const motionX = tile.x - ship.tile.x;
     const motionY = tile.y - ship.tile.y;
     const motionDistance = Math.hypot(motionX, motionY);
-    const motionScale = motionDistance > 2.5 ? 2.5 / motionDistance : 1;
+    // N3: the composed display tile is the blue-noise berth plus the ship's
+    // own motion, capped so a ship never wanders into a neighbour's water.
+    //
+    // The cap was 2.5 tiles, set when the map was 56 wide and berths were
+    // ~10 tiles apart — it silently flattened any patrol larger than itself.
+    // With the world at 112 tiles and ~58 eligible tiles per ship there is
+    // room for a real circuit, so the cap rises to match the largest patrol
+    // amplitude (danger, 4.4 tiles) with headroom for the transit legs.
+    const motionScale = motionDistance > GARDEN_MAX_MOTION_TILES
+      ? GARDEN_MAX_MOTION_TILES / motionDistance
+      : 1;
     display = {
       x: ship.tile.x + displayOffset.x + motionX * motionScale,
       y: ship.tile.y + displayOffset.y + motionY * motionScale,

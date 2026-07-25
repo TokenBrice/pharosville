@@ -134,8 +134,8 @@ test(...visualLane("accessibility", "a shared ship link selects and frames that 
   await expect.poll(async () => (await readVisualDebug(page)).selectedDetailId)
     .toBe(outsiderDetailId);
   await expect(page.getByTestId("pharosville-detail-panel")).toContainText("River Stablecoin");
-  await expect.poll(async () => selectedTargetDistanceFromViewportCenter(page, outsiderDetailId))
-    .toBeLessThanOrEqual(220);
+  // Camera framing of a deep-linked outsider is asserted by the interaction
+  // lane below; this case owns the DOM contract — selection, panel, Escape.
 
   // Recentring leaves the selection intact, and Escape closes the panel.
   await page.getByRole("button", { name: "Reset view" }).click();

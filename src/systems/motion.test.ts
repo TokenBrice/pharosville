@@ -114,10 +114,20 @@ describe("motion", () => {
     expect(alert.riskDriftSamples).toBeLessThan(warning.riskDriftSamples);
     expect(warning.riskDriftSamples).toBeLessThan(danger.riskDriftSamples);
 
-    expect(calm.maxRiskDistance).toBeLessThan(watch.maxRiskDistance);
-    expect(watch.maxRiskDistance).toBeLessThan(alert.maxRiskDistance);
-    expect(alert.maxRiskDistance).toBeLessThan(warning.maxRiskDistance);
-    expect(warning.maxRiskDistance).toBeLessThan(danger.maxRiskDistance);
+    // N3: turbulence is carried by patrol SPEED, not by amplitude.
+    //
+    // Amplitude is sized to each band's own water — storm-water is ~190 tiles
+    // while calm-water is ~5,900 — because a patrol that overruns its region
+    // would carry a ship out of the water it is labelled with and break the
+    // analytical claim. So the calm arc is the WIDEST and the danger circuit
+    // the tightest, while danger laps it fastest.
+    expect(danger.maxRiskDistance).toBeLessThan(calm.maxRiskDistance);
+    // The perceptual reading — how fast a hull actually travels — still
+    // escalates monotonically, which is what "agitated water" has to mean.
+    expect(calm.maxRiskSpeed).toBeLessThan(watch.maxRiskSpeed);
+    expect(watch.maxRiskSpeed).toBeLessThan(alert.maxRiskSpeed);
+    expect(alert.maxRiskSpeed).toBeLessThan(warning.maxRiskSpeed);
+    expect(warning.maxRiskSpeed).toBeLessThan(danger.maxRiskSpeed);
 
     expect(calm.maxSailingWake).toBeLessThan(watch.maxSailingWake);
     expect(watch.maxSailingWake).toBeLessThan(alert.maxSailingWake);
@@ -3065,7 +3075,12 @@ function stateCountsOverCycle(sampleWorld: PharosVilleWorld): { transitSamples: 
   return { transitSamples };
 }
 
-function cycleStats(sampleWorld: PharosVilleWorld): { maxRiskDistance: number; maxSailingWake: number; riskDriftSamples: number } {
+function cycleStats(sampleWorld: PharosVilleWorld): {
+  maxRiskDistance: number;
+  maxRiskSpeed: number;
+  maxSailingWake: number;
+  riskDriftSamples: number;
+} {
   // W4.25 — each cycleStats() call builds a NEW hypothetical world for the
   // same ship id with a different DEWS placement. The process-wide
   // previousRiskTile cache would otherwise see this as a placement
@@ -3076,8 +3091,10 @@ function cycleStats(sampleWorld: PharosVilleWorld): { maxRiskDistance: number; m
   const plan = buildMotionPlan(sampleWorld, ship.detailId);
   const route = plan.shipRoutes.get(ship.id)!;
   let maxRiskDistance = 0;
+  let maxRiskSpeed = 0;
   let maxSailingWake = 0;
   let riskDriftSamples = 0;
+  let previousRiskTile: { x: number; y: number } | null = null;
 
   for (let index = 0; index < 240; index += 1) {
     const sample = resolveShipMotionSample({
@@ -3089,11 +3106,19 @@ function cycleStats(sampleWorld: PharosVilleWorld): { maxRiskDistance: number; m
     if (sample.state === "risk-drift") {
       riskDriftSamples += 1;
       maxRiskDistance = Math.max(maxRiskDistance, distance(sample.tile, route.riskTile));
+      // N3: tile travelled between consecutive samples — how fast the hull
+      // actually moves, which is what "agitated water" reads as.
+      if (previousRiskTile) {
+        maxRiskSpeed = Math.max(maxRiskSpeed, distance(sample.tile, previousRiskTile));
+      }
+      previousRiskTile = { x: sample.tile.x, y: sample.tile.y };
+    } else {
+      previousRiskTile = null;
     }
     if (sample.state === "sailing") maxSailingWake = Math.max(maxSailingWake, sample.wakeIntensity);
   }
 
-  return { maxRiskDistance, maxSailingWake, riskDriftSamples };
+  return { maxRiskDistance, maxRiskSpeed, maxSailingWake, riskDriftSamples };
 }
 
 function distance(a: { x: number; y: number }, b: { x: number; y: number }) {

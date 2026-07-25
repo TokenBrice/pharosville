@@ -18,6 +18,7 @@ import {
   gardenTileToScreen,
   resolveGardenEntityDisplayTile,
   resolveGardenShipDisplayTile,
+  GARDEN_MAX_MOTION_TILES,
   selectGardenObservatorySlice,
   selectGardenTransientShip,
   selectRepresentativeShips,
@@ -98,7 +99,7 @@ describe("Garden Observatory slice", () => {
     expect(Math.hypot(
       representativeDisplay.x - representativeBase.x,
       representativeDisplay.y - representativeBase.y,
-    )).toBeCloseTo(2.5);
+    )).toBeCloseTo(GARDEN_MAX_MOTION_TILES);
 
     // A transient (non-representative) placement follows its motion sample
     // exactly, with no display offset composed in.
