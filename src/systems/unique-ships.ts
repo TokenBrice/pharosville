@@ -76,6 +76,7 @@ export const HERO_HULL_MODEL_IDS = [
   "garden-hero-ethena",
   "garden-hero-liberty",
   "garden-hero-paypal",
+  "garden-hero-bullion",
 ] as const;
 
 /**
@@ -92,6 +93,7 @@ export const BESPOKE_HULL_OWNER: Readonly<Record<string, string>> = {
   "garden-hero-ethena": "usde-ethena",
   "garden-hero-liberty": "usd1-world-liberty-financial",
   "garden-hero-paypal": "pyusd-paypal",
+  "garden-hero-bullion": "xaut-tether",
 };
 
 export type HeroHullModelId = typeof HERO_HULL_MODEL_IDS[number];
@@ -115,9 +117,12 @@ export const HERO_HULL_BY_ASSET: Readonly<Record<string, HeroHullModelId>> = {
   "usde-ethena": "garden-hero-ethena",
   "usd1-world-liberty-financial": "garden-hero-liberty",
   "pyusd-paypal": "garden-hero-paypal",
+  // W5 (decision D6): XAUT gets its own hull. It shared the generic treasury
+  // galleon with BUIDL, which is why it was the one named titan a viewer could
+  // not recognise — it was not its own ship.
+  "xaut-tether": "garden-hero-bullion",
   // Treasury galleon — the treasure fleet: reserves held, not strategies run.
   "buidl-blackrock": "garden-hero-titan",
-  "xaut-tether": "garden-hero-titan",
   // War carrack — the regulated fortresses.
   "usdg-paxos": "garden-hero-carrack",
   "paxg-paxos": "garden-hero-carrack",

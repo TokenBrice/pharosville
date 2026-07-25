@@ -98,6 +98,10 @@ const HERO_MODELS = [
   { build: buildEthena, id: "garden-hero-ethena" },
   { build: buildLiberty, id: "garden-hero-liberty" },
   { build: buildPaypal, id: "garden-hero-paypal" },
+  // W5 (decision D6): XAUT had no bespoke hull at all — it shared the generic
+  // treasury galleon with BUIDL, which is the one titan the operator could not
+  // recognise because it was not its own ship.
+  { build: buildBullion, id: "garden-hero-bullion" },
 ];
 
 const summaries = [];
@@ -1348,6 +1352,24 @@ function buildTether() {
     position: [-4.3, 6.66, 0],
     tone: WOOD_TRIM,
   });
+  // W5: a fourth tier. The counting house already reads — it is the one titan
+  // feature that fully worked — so it is pushed rather than rebuilt.
+  add("wood", new BoxGeometry(1.15, 0.62, 1.1), { position: [-4.45, 7.05, 0] });
+  add("wood", new BoxGeometry(1.35, 0.14, 1.3), {
+    position: [-4.45, 7.43, 0],
+    tone: WOOD_TRIM,
+  });
+  add("wood", new ConeGeometry(0.62, 0.55, 4), {
+    position: [-4.45, 7.75, 0],
+    rotation: [0, Math.PI / 4, 0],
+    tone: WOOD_HIGH,
+  });
+  for (const side of [-1, 1]) {
+    add("glow", new PlaneGeometry(0.38, 0.32), {
+      position: [-4.45, 7.05, side * 0.56],
+      rotation: [0, side > 0 ? 0 : Math.PI, 0],
+    });
+  }
   for (const z of [-0.94, -0.32, 0.32, 0.94]) {
     add("glow", new PlaneGeometry(0.4, 0.62), {
       position: [-5.42, 3.3, z],
@@ -1368,8 +1390,10 @@ function buildTether() {
   }
 
   // The cargo itself: two netted blocks of chests filling the waist.
-  addCargoStack(add, { columns: 3, height: 3, rows: 3, x: 1.5, y: 1.15, z: 0 });
-  addCargoStack(add, { columns: 2, height: 2, rows: 3, x: -0.85, y: 1.1, z: 0 });
+  // W5: the waist stacks rise a tier so the cargo breaks the bulwark line.
+  // Below it the hull's own silhouette swallowed them.
+  addCargoStack(add, { columns: 3, height: 4, rows: 3, x: 1.5, y: 1.15, z: 0 });
+  addCargoStack(add, { columns: 2, height: 3, rows: 3, x: -0.85, y: 1.1, z: 0 });
 
   addMast(add, -0.1, 1.2, 8.1, -0.02);
   addIdentityFrame(add, -0.1, 4.35, 6.4, 1.45);
@@ -1380,8 +1404,10 @@ function buildTether() {
   addSquareSail(add, 3.32, 5.2, 1.4, 1.45, { yaw: 0.07 });
   addShrouds(add, { baseY: 1.5, halfBeam: 0.92, mastX: 3.3, spread: 0.44, topY: 4.79 });
 
-  addDerrick(add, { boomLength: 2.4, mastX: 2.1, mastY: 1.5, reach: 1.5, side: 1 });
-  addDerrick(add, { boomLength: 2.4, mastX: 2.1, mastY: 1.5, reach: 1.5, side: -1 });
+  // W5: the booms swing OUT past the rail. At reach 1.5 against a 2.7 half-beam
+  // they were inboard, so they never touched the plan silhouette.
+  addDerrick(add, { boomLength: 3.4, mastX: 2.1, mastY: 1.5, reach: 3.4, side: 1 });
+  addDerrick(add, { boomLength: 3.4, mastX: 2.1, mastY: 1.5, reach: 3.4, side: -1 });
 
   add("spar", new CylinderGeometry(0.09, 0.14, 2.9, 6), {
     position: [5.85, 2.5, 0],
@@ -1393,6 +1419,7 @@ function buildTether() {
   addStay(add, [3.35, 6.95, 0], [-0.05, 8.2, 0]);
   addStay(add, [-0.05, 8.2, 0], [-4.4, 6.8, 0]);
 
+  addTitanMarks(add, { lanternX: -5.5, lanternY: 2.35, mastX: -0.1, topY: 5.51 });
   addBanner(add, [-0.1, 8.15, 0], 1.55, 0.5);
 
   builder.addAnchor("anchor-lantern-stern", [-4.3, 6.9, 0], "lantern-stern");
@@ -1469,14 +1496,36 @@ function buildCircle() {
     }
   }
 
-  // Boarding steps on the flank — the ship expects to be inspected.
+  // W5: the arcaded spar deck. Circle's whole idea — naval order, transparency,
+  // the ship you can see inside — was authored FLUSH with the hull (a stern
+  // gallery, boarding steps, a gunport band) and none of it survived the
+  // isometric read; it measured 0.751 IoU against a shared barquentine. So the
+  // idea moves above the rail as repeated structure: a covered gallery running
+  // the length of the ship on regular columns. Straight lines and even bays
+  // where every other hull curves, and nothing else in the world carries one.
+  addArcade(add, { bays: 9, halfBeam: 0.92, height: 1.05, x0: -3.2, x1: 4.1, y: 2.05 });
+
+  // Stern lantern tower: a squared, stepped block over the transom — the
+  // vertical counterpart to the arcade's horizontal.
+  add("wood", new BoxGeometry(1.25, 1.05, 1.3), { position: [-4.55, 4.05, 0] });
+  add("wood", new BoxGeometry(1.45, 0.14, 1.5), {
+    position: [-4.55, 4.64, 0],
+    tone: WOOD_TRIM,
+  });
+  add("wood", new BoxGeometry(0.85, 0.8, 0.9), { position: [-4.55, 5.11, 0] });
+  add("wood", new BoxGeometry(1.05, 0.13, 1.1), {
+    position: [-4.55, 5.57, 0],
+    tone: WOOD_TRIM,
+  });
   for (const side of [-1, 1]) {
-    for (let step = 0; step < 4; step += 1) {
-      add("wood", new BoxGeometry(0.3, 0.07, 0.1), {
-        position: [1.1, 0.55 + step * 0.28, side * (0.96 - step * 0.03)],
-        tone: WOOD_TRIM,
-      });
-    }
+    add("glow", new PlaneGeometry(0.4, 0.5), {
+      position: [-4.55, 4.05, side * 0.66],
+      rotation: [0, side > 0 ? 0 : Math.PI, 0],
+    });
+    add("glow", new PlaneGeometry(0.3, 0.38), {
+      position: [-4.55, 5.11, side * 0.46],
+      rotation: [0, side > 0 ? 0 : Math.PI, 0],
+    });
   }
 
   addMast(add, 0.5, 1.45, 8.4, -0.03);
@@ -1506,6 +1555,7 @@ function buildCircle() {
   addStay(add, [3.95, 7.0, 0], [0.55, 8.5, 0]);
   addStay(add, [0.55, 8.5, 0], [-2.95, 5.5, 0]);
 
+  addTitanMarks(add, { lanternX: -5.15, lanternY: 5.75, mastX: 0.5, topY: 5.82 });
   addBanner(add, [0.5, 8.45, 0], 1.4, 0.46);
 
   builder.addAnchor("anchor-lantern-stern", [-4.5, 3.2, 0], "lantern-stern");
@@ -1561,7 +1611,16 @@ function buildMaker() {
     tone: WOOD_HIGH,
   });
 
-  addColonnade(add, { columns: 4, halfBeam: 0.7, height: 1.15, length: 3.0, x: -0.4 });
+  // W5 (decision D5): the portico stands CLEAR of the bulwark, on a raised
+  // stylobate, and gains a pediment. Measured, DAI and USDS were 0.790 IoU —
+  // effectively one ship — because everything separating them was authored
+  // inside the rail, where the hull's own silhouette swallows it. The shared
+  // hull lines stay (two ships from one yard is the right idea); the difference
+  // moves up to where it survives.
+  addColonnade(add, {
+    baseY: 1.75, cella: true, columns: 4, halfBeam: 0.78, height: 1.75, length: 3.2, x: -0.4,
+  });
+  addPediment(add, { halfBeam: 0.95, length: 3.3, x: -0.4, y: 3.87 });
 
   add("wood", new BoxGeometry(1.7, 0.85, 1.6), { position: [-4.0, 2.05, 0] });
   add("wood", new BoxGeometry(1.9, 0.16, 1.8), {
@@ -1587,6 +1646,7 @@ function buildMaker() {
   addStay(add, [5.9, 2.4, 0], [1.55, 7.6, 0]);
   addStay(add, [1.55, 7.6, 0], [-2.35, 6.3, 0]);
 
+  addTitanMarks(add, { lanternX: -4.75, lanternY: 2.7, mastX: 1.5, topY: 5.25 });
   addBanner(add, [1.5, 7.55, 0], 1.35, 0.46);
 
   builder.addAnchor("anchor-lantern-stern", [-4.0, 2.85, 0], "lantern-stern");
@@ -1643,8 +1703,11 @@ function buildSky() {
     tone: WOOD_HIGH,
   });
 
-  // Open pavilion instead of the elder's closed colonnade.
-  addPavilion(add, { halfBeam: 0.78, height: 1.2, length: 2.4, x: -0.2 });
+  // W5 (decision D5): the sun-arch stands where DAI carries its temple, and it
+  // stands ABOVE the rail. The pavilion it replaces sat inside the bulwark and
+  // was the only thing telling the two Sky hulls apart, which is why they
+  // measured 0.790 IoU — one ship, drawn twice.
+  addSunArch(add, { halfBeam: 0.92, height: 1.5, radius: 0.62, x: -0.3, y: 1.75 });
 
   add("wood", new BoxGeometry(1.8, 0.9, 1.7), { position: [-4.3, 2.1, 0] });
   add("wood", new BoxGeometry(2.0, 0.16, 1.9), {
@@ -1667,21 +1730,24 @@ function buildSky() {
   addSquareSail(add, -1.08, 5.2, 1.2, 1.25, { yaw: 0.07 });
   addShrouds(add, { baseY: 1.45, halfBeam: 0.9, mastX: -1.1, spread: 0.44, topY: 4.91 });
 
-  addMast(add, -3.8, 1.7, 6.0, -0.06, { platform: false });
+  // W5: the mizzen goes taller and further aft than DAI's, so the two Sky
+  // hulls differ in rig profile as well as in what they carry amidships.
+  addMast(add, -4.25, 1.7, 7.3, -0.06, { platform: false });
   addGaffSail(add, {
     billow: 0.34,
-    boomAft: 1.5,
-    boomY: 2.9,
-    gaffAft: 1.2,
-    gaffY: 4.7,
-    mastX: -3.8,
-    peakRise: 0.6,
+    boomAft: 1.6,
+    boomY: 3,
+    gaffAft: 1.3,
+    gaffY: 5.9,
+    mastX: -4.25,
+    peakRise: 0.7,
   });
 
   addStay(add, [6.4, 2.9, 0], [1.85, 8.3, 0]);
   addStay(add, [1.85, 8.3, 0], [-1.05, 7.1, 0]);
-  addStay(add, [-1.05, 7.1, 0], [-3.75, 6.1, 0]);
+  addStay(add, [-1.05, 7.1, 0], [-4.2, 7.4, 0]);
 
+  addTitanMarks(add, { lanternX: -5.05, lanternY: 2.75, mastX: 1.8, topY: 5.68 });
   addBanner(add, [1.8, 8.25, 0], 1.4, 0.46);
 
   builder.addAnchor("anchor-lantern-stern", [-4.3, 2.9, 0], "lantern-stern");
@@ -1726,16 +1792,29 @@ function buildEthena() {
     tone: WOOD_WALE,
   });
 
+  // W5: the floats ride higher, so their decks clear the centre hull's rail and
+  // the three-hulled plan reads from above rather than only in section.
   addSponsons(add, {
-    beam: 0.62,
+    beam: 0.7,
     bowX: 4.3,
     deckY: 1.0,
-    offset: 1.85,
+    lift: 0.42,
+    offset: 2.05,
     sternX: -3.7,
   });
 
-  // Balance beam across the deck, the visual spine tying the two legs.
-  add("spar", new BoxGeometry(0.3, 0.12, 4.3), { position: [0.6, 1.35, 0] });
+  // W5: an ARCHED cross beam over the deck. The flat 0.3x0.12 spar it replaces
+  // was level with the rail and invisible; delta-neutral should read as a
+  // literal balance, which means the tie has to stand up where it can be seen.
+  for (const beamX of [-1.6, 1.9]) {
+    for (const side of [-1, 1]) {
+      add("spar", new BoxGeometry(0.22, 1.6, 0.16), {
+        position: [beamX, 1.9, side * 1.15],
+        rotation: [side * -0.55, 0, 0],
+      });
+    }
+    add("spar", new BoxGeometry(0.26, 0.16, 2.6), { position: [beamX, 2.58, 0] });
+  }
   add("wood", new BoxGeometry(1.4, 0.5, 0.8), {
     position: [-2.6, 1.3, 0],
     tone: WOOD_MID,
@@ -1747,9 +1826,17 @@ function buildEthena() {
     });
   }
 
+  // W5: an A-frame mast — two legs off the floats meeting at the head. Nothing
+  // else in the world is masted this way, and it states the balance the hull is.
+  for (const side of [-1, 1]) {
+    add("spar", new CylinderGeometry(0.075, 0.11, 7.7, 6), {
+      position: [1.0, 4.55, side * 0.85],
+      rotation: [side * 0.22, 0, 0],
+    });
+  }
   addMast(add, 1.0, 1.0, 8.4, 0.06, { platform: false });
   addIdentityFrame(add, 1.0, 4.4, 6.5, 1.3);
-  addShrouds(add, { baseY: 1.0, halfBeam: 1.9, mastX: 1.0, ratlines: 2, shrouds: 2, spread: 0.4, topY: 5.59 });
+  addShrouds(add, { baseY: 1.0, halfBeam: 2.1, mastX: 1.0, ratlines: 2, shrouds: 2, spread: 0.4, topY: 5.59 });
 
   addMast(add, -2.9, 1.05, 6.4, 0.05, { platform: false });
   addGaffSail(add, {
@@ -1771,6 +1858,7 @@ function buildEthena() {
   addStay(add, [8.35, 2.15, 0], [1.05, 8.3, 0]);
   addStay(add, [1.05, 8.3, 0], [-2.85, 6.5, 0]);
 
+  addTitanMarks(add, { lanternX: -5.45, lanternY: 1.65, mastX: 1.0, topY: 5.62 });
   addBanner(add, [1.0, 8.35, 0], 1.3, 0.42);
 
   builder.addAnchor("anchor-lantern-stern", [-2.9, 2.3, 0], "lantern-stern");
@@ -1817,18 +1905,39 @@ function buildLiberty() {
     tone: WOOD_WALE,
   });
 
-  // Gilded stem standard reaching high over the bow.
-  add("wood", new BoxGeometry(2.2, 0.24, 0.24), {
-    position: [5.5, 2.6, 0],
-    rotation: [0, 0, 0.6],
+  // Gilded stem standard reaching high over the bow. W5: it was a 0.9-unit
+  // cone at x 6.2, which is invisible at overview zoom; it now reaches forward
+  // and up far enough to extend the plan silhouette past the stem.
+  add("wood", new BoxGeometry(3.4, 0.3, 0.3), {
+    position: [6.1, 3.3, 0],
+    rotation: [0, 0, 0.66],
     tone: WOOD_TRIM,
   });
-  add("wood", new ConeGeometry(0.34, 0.9, 6), {
-    position: [6.2, 3.7, 0],
+  add("wood", new ConeGeometry(0.46, 1.5, 6), {
+    position: [7.35, 5.15, 0],
+    tone: WOOD_HIGH,
+  });
+  add("wood", new CylinderGeometry(0.5, 0.5, 0.16, 12), {
+    position: [7.05, 4.25, 0],
+    rotation: [Math.PI / 2, 0, 0],
     tone: WOOD_HIGH,
   });
 
-  addOarBank(add, { count: 7, deckY: 1.4, halfBeam: 0.95, length: 2.1, spacing: 0.86, x: 0.9 });
+  // W5: the sweeps move OUTBOARD. The hull's waterline half-beam here is 1.96
+  // and its deck is at 1.55; the old bank sat at halfBeam 0.95 with deckY 1.4,
+  // so the looms were inside the hull and the blades cleared it by 0.29 units,
+  // a metre below the rail. Nothing read. They now hang off an apostis 1.2
+  // units clear of the hull, with the blades dipping to the water.
+  addApostis(add, { halfBeam: 2.35, x0: -2.3, x1: 3.4, y: 1.5 });
+  addOarBank(add, {
+    bladeDrop: 1.45,
+    count: 8,
+    deckY: 1.62,
+    halfBeam: 2.35,
+    length: 2.6,
+    spacing: 0.78,
+    x: 0.55,
+  });
 
   addPavilion(add, { halfBeam: 0.86, height: 1.5, length: 2.6, x: -3.2 });
   add("wood", new BoxGeometry(1.5, 0.6, 1.3), {
@@ -1850,6 +1959,7 @@ function buildLiberty() {
   addStay(add, [5.4, 2.9, 0], [1.15, 7.7, 0]);
   addStay(add, [1.15, 7.7, 0], [-3.3, 3.4, 0]);
 
+  addTitanMarks(add, { lanternX: -5.05, lanternY: 2.2, mastX: 1.1, topY: 5.27 });
   addBanner(add, [1.1, 7.65, 0], 1.45, 0.5);
 
   builder.addAnchor("anchor-lantern-stern", [-3.2, 3.4, 0], "lantern-stern");
@@ -1956,6 +2066,7 @@ function buildPaypal() {
   addStay(add, [7.25, 2.45, 0], [3.55, 7.1, 0]);
   addStay(add, [3.55, 7.1, 0], [-3.25, 6.3, 0]);
 
+  addTitanMarks(add, { lanternX: -5.1, lanternY: 1.75, mastX: 3.5, topY: 4.87 });
   addBanner(add, [3.5, 7.05, 0], 1.25, 0.42);
 
   builder.addAnchor("anchor-lantern-stern", [-3.3, 2.4, 0], "lantern-stern");
@@ -1963,6 +2074,114 @@ function buildPaypal() {
   builder.addAnchor("anchor-masthead", [3.5, 6.9, 0], "masthead");
   builder.addAnchor("anchor-selection", [0, 2.2, 0], "selection");
   builder.addAnchor("anchor-label", [0, 8.4, 0], "label");
+
+  return builder.finalize({ assertZSymmetric: true });
+}
+
+/**
+ * N5(b) / W5 (decision D6) — XAUT. The bullion hoy: the only vessel in the
+ * world that sits DOWN in the water. Deck almost at the waterline, a flat
+ * laden bottom, iron-banded topsides, an armoured strongroom under a barrel
+ * vault amidships, a heavy lifting crane over it, and a stubby two-mast rig,
+ * because gold does not need speed.
+ *
+ * Every other titan is tall. This one is the exception that proves the tier,
+ * and the waterline itself is its silhouette.
+ */
+function buildBullion() {
+  const builder = createBuilder("garden-hero-bullion");
+  const { add } = builder;
+
+  const stations = hullStations({
+    bowSharpness: 1.15,
+    bowTrim: 0.66,
+    bowX: 4.6,
+    count: 17,
+    // deckMid 0.5 against 0.85-1.3 everywhere else: this is the freeboard, and
+    // being the lowest in the fleet IS the design.
+    deckMid: 0.5,
+    deckRiseBow: 0.4,
+    deckRiseStern: 0.48,
+    keelDepth: 1.45,
+    keelFlatness: 0.6,
+    maxBeam: 2.55,
+    sternX: -4.4,
+    transomFraction: 0.88,
+    tumbleAft: 0.92,
+    tumbleBow: 0.94,
+  });
+  addHullLoft(add, stations, { bulwarkHeight: 0.24, gunports: false });
+  addStrake(add, stations, { h0: 0.9, h1: 0.98, paint: true, tone: WOOD_TRIM });
+  // Iron banding: three heavy wales stacked close, the way a strongbox is bound.
+  addStrake(add, stations, { h0: 0.78, h1: 0.84, tone: WOOD_WALE });
+  addStrake(add, stations, { h0: 0.66, h1: 0.72, tone: WOOD_WALE });
+  addStrake(add, stations, { h0: 0.54, h1: 0.6, tone: WOOD_WALE });
+
+  add("wood", new BoxGeometry(8.4, 0.3, 1.1), {
+    position: [0.1, -1.42, 0],
+    tone: WOOD_WALE,
+  });
+
+  // Strongroom: a squat armoured house under a barrel vault, banded and locked.
+  add("wood", new BoxGeometry(3.4, 0.95, 2.3), { position: [-0.5, 1.32, 0] });
+  add("wood", new CylinderGeometry(1.16, 1.16, 3.4, 12, 1, false, 0, Math.PI), {
+    position: [-0.5, 1.8, 0],
+    rotation: [0, 0, Math.PI / 2],
+    tone: WOOD_TRIM,
+  });
+  for (const x of [-1.75, -0.5, 0.75]) {
+    add("wood", new BoxGeometry(0.16, 1.05, 2.42), {
+      position: [x, 1.34, 0],
+      tone: WOOD_WALE,
+    });
+  }
+  add("wood", new BoxGeometry(0.16, 0.42, 0.42), {
+    position: [1.24, 1.36, 0],
+    tone: WOOD_HIGH,
+  });
+  for (const side of [-1, 1]) {
+    add("glow", new PlaneGeometry(0.3, 0.24), {
+      position: [-1.15, 1.42, side * 1.16],
+      rotation: [0, side > 0 ? 0 : Math.PI, 0],
+    });
+  }
+
+  // Lifting crane: a heavy post, a boom out over the strongroom, and its fall.
+  add("spar", new CylinderGeometry(0.15, 0.19, 3.1, 7), {
+    position: [1.95, 2.3, 0],
+  });
+  add("spar", new CylinderGeometry(0.1, 0.14, 3.2, 6), {
+    position: [0.85, 3.5, 0],
+    rotation: [0, 0, Math.PI / 2 + 0.34],
+  });
+  addStay(add, [1.95, 3.85, 0], [-0.35, 4.4, 0], 0.035);
+  add("spar", new CylinderGeometry(0.03, 0.03, 1.5, 4), {
+    position: [-0.4, 3.6, 0],
+  });
+  add("wood", new BoxGeometry(0.46, 0.34, 0.46), {
+    position: [-0.4, 2.7, 0],
+    tone: WOOD_HIGH,
+  });
+
+  // Two stubby masts. The rig exists to move her, not to make her fast.
+  addMast(add, -2.75, 0.9, 5.3, -0.03);
+  addIdentityFrame(add, -2.75, 2.7, 4.35, 1.5);
+  addShrouds(add, { baseY: 0.9, halfBeam: 1.2, mastX: -2.75, spread: 0.5, topY: 3.63 });
+
+  addMast(add, 3.15, 0.95, 4.1, 0.02, { platform: false });
+  addFurled(add, 3.17, 3.55, 1.05);
+
+  addStay(add, [4.6, 1.4, 0], [3.2, 4.05, 0]);
+  addStay(add, [3.2, 4.05, 0], [-2.7, 5.25, 0]);
+
+  addTitanMarks(add, { lanternX: -4.15, lanternY: 1.35, mastX: -2.75, topY: 3.66 });
+  addBanner(add, [-2.75, 5.25, 0], 1.35, 0.46);
+
+  builder.addAnchor("anchor-lantern-stern", [-4.7, 1.85, 0], "lantern-stern");
+  builder.addAnchor("anchor-lantern-bow", [3.9, 1.15, 0], "lantern-bow");
+  builder.addAnchor("anchor-masthead", [-2.75, 5.2, 0], "masthead");
+  builder.addAnchor("anchor-selection", [0, 1.6, 0], "selection");
+  builder.addAnchor("anchor-label", [0, 6.4, 0], "label");
 
   return builder.finalize({ assertZSymmetric: true });
 }
@@ -2669,28 +2888,96 @@ function addDerrick(add, { boomLength, mastX, mastY, reach, side }) {
  * Temple colonnade: the Maker masonry motif as a real portico — a stylobate,
  * a rank of columns down each side, and an architrave slab over them.
  */
-function addColonnade(add, { columns, height, length, x, halfBeam }) {
+function addColonnade(add, { columns, height, length, x, halfBeam, baseY = 0, cella = false }) {
+  // W5/D5: a walled cella makes the temple read as SOLID MASS from the
+  // isometric camera, where the gaps between columns are a pixel or two wide.
+  // That is what contrasts it against USDS's sun-arch, which is a ring on posts
+  // — a void where DAI has a block. Sharing the hull (D5) means the tops have
+  // to carry the whole difference, so they must differ in kind, not degree.
+  if (cella) {
+    add("wood", new BoxGeometry(length * 0.72, height * 0.92, halfBeam * 1.5), {
+      position: [x, baseY + height / 2 + 0.08, 0],
+      tone: WOOD_MID,
+    });
+  }
   add("wood", new BoxGeometry(length + 0.3, 0.16, halfBeam * 2 + 0.3), {
-    position: [x, 0, 0],
+    position: [x, baseY, 0],
     tone: WOOD_TRIM,
   });
   for (const side of [-1, 1]) {
     for (let index = 0; index < columns; index += 1) {
       const t = columns === 1 ? 0.5 : index / (columns - 1);
       add("wood", new CylinderGeometry(0.11, 0.13, height, 6), {
-        position: [x + (t - 0.5) * length, height / 2 + 0.08, side * halfBeam],
+        position: [x + (t - 0.5) * length, baseY + height / 2 + 0.08, side * halfBeam],
         tone: WOOD_TRIM,
       });
     }
   }
   add("wood", new BoxGeometry(length + 0.4, 0.22, halfBeam * 2 + 0.4), {
-    position: [x, height + 0.19, 0],
+    position: [x, baseY + height + 0.19, 0],
     tone: WOOD_TRIM,
   });
   add("wood", new BoxGeometry(length * 0.82, 0.16, halfBeam * 1.5), {
-    position: [x, height + 0.38, 0],
+    position: [x, baseY + height + 0.38, 0],
     tone: WOOD_HIGH,
   });
+}
+
+/**
+ * W5/D5 — a stepped temple roof with a gable, sitting on the architrave. This
+ * is DAI's half of the Sky-squadron split: mass above the rail, in a shape
+ * nothing else in the world carries.
+ */
+function addPediment(add, { halfBeam, length, x, y }) {
+  for (const [step, inset] of [[0, 0], [1, 0.22], [2, 0.44]]) {
+    add("wood", new BoxGeometry(length - inset * 2, 0.17, (halfBeam - inset) * 2), {
+      position: [x, y + step * 0.17, 0],
+      tone: step % 2 === 0 ? WOOD_TRIM : WOOD_HIGH,
+    });
+  }
+  // Gable: a prism across the beam, ridge along the keel.
+  add("wood", new CylinderGeometry(halfBeam - 0.42, halfBeam - 0.42, length - 0.95, 3), {
+    position: [x, y + 0.72, 0],
+    rotation: [0, 0, Math.PI / 2],
+    tone: WOOD_TRIM,
+  });
+}
+
+/**
+ * W5/D5 — USDS's half: a tall gilded sun-arch amidships. Two posts and a ring
+ * standing well above the bulwark, so the two Sky hulls differ at 20px even
+ * though they share a station table.
+ */
+function addSunArch(add, { halfBeam, height, radius, x, y }) {
+  for (const side of [-1, 1]) {
+    add("wood", new CylinderGeometry(0.11, 0.14, height, 6), {
+      position: [x, y + height / 2, side * halfBeam],
+      tone: WOOD_TRIM,
+    });
+  }
+  add("wood", new BoxGeometry(0.34, 0.16, halfBeam * 2 + 0.5), {
+    position: [x, y + height, 0],
+    tone: WOOD_TRIM,
+  });
+  // The disc itself: a broad thin ring standing on the crosspiece, edge-on to
+  // the keel so it presents its full face to the isometric camera.
+  add("wood", new CylinderGeometry(radius, radius, 0.14, 14), {
+    position: [x, y + height + radius + 0.12, 0],
+    rotation: [Math.PI / 2, 0, 0],
+    tone: WOOD_HIGH,
+  });
+  for (let ray = 0; ray < 8; ray += 1) {
+    const angle = (ray / 8) * Math.PI * 2;
+    add("wood", new BoxGeometry(0.1, 0.34, 0.1), {
+      position: [
+        x + Math.cos(angle) * (radius + 0.2),
+        y + height + radius + 0.12 + Math.sin(angle) * (radius + 0.2),
+        0,
+      ],
+      rotation: [0, 0, angle],
+      tone: WOOD_TRIM,
+    });
+  }
 }
 
 /** Ceremonial canopy on gilded posts, with a valance hanging from its eaves. */
@@ -2725,23 +3012,59 @@ function addPavilion(add, { halfBeam, height, length, x }) {
  * loom inboard of the rail. The single most recognisable deck feature a vessel
  * can carry at overview zoom.
  */
-function addOarBank(add, { count, deckY, length, spacing, x, halfBeam }) {
+function addOarBank(add, { count, deckY, length, spacing, x, halfBeam, bladeDrop = 0.86 }) {
   for (const side of [-1, 1]) {
     for (let index = 0; index < count; index += 1) {
       const ox = x + (index - (count - 1) / 2) * spacing;
-      add("spar", new CylinderGeometry(0.045, 0.055, length, 4), {
+      add("spar", new CylinderGeometry(0.055, 0.07, length, 4), {
         position: [ox - length * 0.18, deckY - 0.34, side * (halfBeam + length * 0.3)],
         rotation: [side * 0.62, 0, 0.28],
       });
       // Blade at the outboard end, biting the water.
-      add("wood", new BoxGeometry(0.42, 0.06, 0.16), {
+      add("wood", new BoxGeometry(0.5, 0.07, 0.2), {
         position: [
           ox - length * 0.42,
-          deckY - 0.86,
+          deckY - bladeDrop,
           side * (halfBeam + length * 0.62),
         ],
         rotation: [0, 0, 0.2],
         tone: WOOD_TRIM,
+      });
+    }
+  }
+}
+
+/**
+ * W5 — the apostis: the projecting outboard beam a real galley works her
+ * sweeps from, carried on knees off the hull.
+ *
+ * Measured, USD1's oar bank was authored at halfBeam 0.95 against a hull whose
+ * waterline half-beam there is 1.96 — the looms were INSIDE the hull and the
+ * blades cleared it by 0.29 units, a metre below the deck edge, occluded at
+ * every camera angle. The docstring called it "the single most recognisable
+ * deck feature a vessel can carry" and it contributed nothing. Hanging the
+ * sweeps off a visible structure OUTSIDE the hull is what makes the claim true.
+ */
+function addApostis(add, { halfBeam, x0, x1, y }) {
+  for (const side of [-1, 1]) {
+    add("wood", new BoxGeometry(x1 - x0, 0.16, 0.28), {
+      position: [(x0 + x1) / 2, y, side * halfBeam],
+      tone: WOOD_TRIM,
+    });
+    add("wood", new BoxGeometry(x1 - x0, 0.1, 0.14), {
+      position: [(x0 + x1) / 2, y + 0.34, side * halfBeam],
+      tone: WOOD_HIGH,
+    });
+    const knees = 5;
+    for (let knee = 0; knee < knees; knee += 1) {
+      const t = knee / (knees - 1);
+      add("wood", new BoxGeometry(0.18, 0.12, 0.95), {
+        position: [x0 + t * (x1 - x0), y - 0.16, side * (halfBeam - 0.44)],
+        rotation: [side * 0.3, 0, 0],
+        tone: WOOD_MID,
+      });
+      add("spar", new CylinderGeometry(0.045, 0.045, 0.42, 4), {
+        position: [x0 + t * (x1 - x0), y + 0.19, side * halfBeam],
       });
     }
   }
@@ -2779,7 +3102,7 @@ function addPaddleBox(add, { deckY, radius, x }) {
  * beams. Used for the delta-neutral runner, where the two opposed floats are
  * the whole point of the silhouette.
  */
-function addSponsons(add, { beam, bowX, deckY, offset, sternX }) {
+function addSponsons(add, { beam, bowX, deckY, offset, sternX, lift = 0 }) {
   const stations = hullStations({
     bowSharpness: 2.4,
     bowX,
@@ -2802,7 +3125,7 @@ function addSponsons(add, { beam, bowX, deckY, offset, sternX }) {
     const shell = loftGeometry(
       stations.map((station) => ring.map(([h, ringSide]) => {
         const point = ringPoint(station, h, ringSide);
-        return [point[0], point[1], point[2] + side * offset];
+        return [point[0], point[1] + lift, point[2] + side * offset];
       })),
       { closedRing: true },
     );
@@ -2811,9 +3134,106 @@ function addSponsons(add, { beam, bowX, deckY, offset, sternX }) {
   // Cross beams tying the floats to the centre hull.
   for (const beamX of [bowX * 0.55, sternX * 0.55]) {
     add("spar", new BoxGeometry(0.42, 0.14, offset * 2 + 0.6), {
-      position: [beamX, deckY, 0],
+      position: [beamX, deckY + lift * 0.6, 0],
     });
   }
+}
+
+/**
+ * W5 — an arcaded spar deck: a covered gallery on regular columns, running
+ * above the bulwark for most of the ship's length.
+ *
+ * Repetition is the point. Every other hull in the world is built from curves;
+ * a rank of even bays reads as ORDER at any zoom, which is what USDC's brief
+ * asks for and what its flush-mounted stern gallery could never deliver.
+ */
+function addArcade(add, { bays, halfBeam, height, x0, x1, y }) {
+  const length = x1 - x0;
+  // Rail-level sill the columns stand on, both sides.
+  for (const side of [-1, 1]) {
+    add("wood", new BoxGeometry(length, 0.14, 0.3), {
+      position: [(x0 + x1) / 2, y, side * halfBeam],
+      tone: WOOD_TRIM,
+    });
+    for (let bay = 0; bay <= bays; bay += 1) {
+      const x = x0 + (bay / bays) * length;
+      add("wood", new CylinderGeometry(0.075, 0.09, height, 6), {
+        position: [x, y + height / 2 + 0.07, side * halfBeam],
+        tone: WOOD_TRIM,
+      });
+    }
+  }
+  // Continuous entablature and a shallow roof over the whole run.
+  add("wood", new BoxGeometry(length + 0.3, 0.16, halfBeam * 2 + 0.42), {
+    position: [(x0 + x1) / 2, y + height + 0.15, 0],
+    tone: WOOD_TRIM,
+  });
+  add("wood", new BoxGeometry(length + 0.1, 0.12, halfBeam * 2 + 0.16), {
+    position: [(x0 + x1) / 2, y + height + 0.3, 0],
+    tone: WOOD_HIGH,
+  });
+}
+
+/**
+ * W5 (decision D7) — the Titan grammar. Two marks, and only two, so the tier
+ * reads as a CLASS at a glance without the eight bespoke hulls collapsing into
+ * one uniform squadron.
+ *
+ * Both sit ABOVE the rail, which is the only place anything survives the
+ * isometric camera: measured on the hero fleet, every identity feature authored
+ * inside the bulwark line is swallowed by the hull's own silhouette.
+ *
+ * 1. A stern lantern on a gilded bracket, cantilevered off the taffrail.
+ * 2. A masthead top-castle — a railed fighting top, not the plain disc every
+ *    other mast carries.
+ */
+function addTitanMarks(add, { lanternX, lanternY, mastX, topY }) {
+  // Bracket: a gilded arm reaching aft, with a knee under it.
+  add("wood", new BoxGeometry(0.62, 0.11, 0.14), {
+    position: [lanternX - 0.28, lanternY, 0],
+    tone: WOOD_TRIM,
+  });
+  add("wood", new BoxGeometry(0.2, 0.34, 0.11), {
+    position: [lanternX - 0.04, lanternY - 0.2, 0],
+    rotation: [0, 0, 0.5],
+    tone: WOOD_TRIM,
+  });
+  // Lantern: a tapered housing with a finial, lit on all four faces.
+  add("wood", new CylinderGeometry(0.16, 0.2, 0.34, 6), {
+    position: [lanternX - 0.56, lanternY + 0.24, 0],
+    tone: WOOD_HIGH,
+  });
+  add("wood", new ConeGeometry(0.22, 0.2, 6), {
+    position: [lanternX - 0.56, lanternY + 0.5, 0],
+    tone: WOOD_TRIM,
+  });
+  for (const [rotation, offset] of [
+    [[0, 0, 0], [0, 0, 0.19]],
+    [[0, Math.PI, 0], [0, 0, -0.19]],
+    [[0, -Math.PI / 2, 0], [0.19, 0, 0]],
+    [[0, Math.PI / 2, 0], [-0.19, 0, 0]],
+  ]) {
+    add("glow", new PlaneGeometry(0.2, 0.24), {
+      position: [lanternX - 0.56 + offset[0], lanternY + 0.24, offset[2]],
+      rotation,
+    });
+  }
+
+  // Top-castle: a wider platform than a plain mast top, with a stanchioned rail
+  // around it. This is the mark that reads from the far side of the harbour.
+  add("spar", new CylinderGeometry(0.46, 0.34, 0.13, 8), {
+    position: [mastX, topY, 0],
+  });
+  for (let post = 0; post < 8; post += 1) {
+    const angle = (post / 8) * Math.PI * 2;
+    add("spar", new CylinderGeometry(0.035, 0.035, 0.3, 4), {
+      position: [mastX + Math.cos(angle) * 0.4, topY + 0.21, Math.sin(angle) * 0.4],
+    });
+  }
+  add("wood", new CylinderGeometry(0.44, 0.44, 0.07, 8), {
+    position: [mastX, topY + 0.37, 0],
+    tone: WOOD_TRIM,
+  });
 }
 
 /** Crenellated rail caps along a castle roof — the cog's fighting platform. */
