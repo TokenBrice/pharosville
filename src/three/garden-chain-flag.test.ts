@@ -124,9 +124,23 @@ describe("garden chain flag atlas", () => {
       } as Parameters<typeof buildChainDocks>[0]);
 
       expect(docks).toHaveLength(1);
-      expect(docks[0]!.logoPath).toBe("/chains/ethereum.png");
+      // Rewritten to the vendored glyph-only SVG: the flag knocks the mark out
+      // of the cloth, so it must fetch the transparent vector we ship rather
+      // than the raster the API still names.
+      expect(docks[0]!.logoPath).toBe("/chains/ethereum.svg");
       assignGardenChainFlagCell(docks[0]!, ACCENT);
-      expect(requested).toEqual(["/chains/ethereum.png"]);
+      expect(requested).toEqual(["/chains/ethereum.svg"]);
+    });
+
+    it("leaves a chain we do not vendor on the path the API gave", () => {
+      const requested: string[] = [];
+      installImageSpy(requested);
+      const docks = buildChainDocks({
+        chains: [makeChain({ id: "xlayer", name: "X Layer", totalUsd: 100, logoPath: "/chains/xlayer.png" })],
+        globalTotalUsd: 100,
+      } as Parameters<typeof buildChainDocks>[0]);
+
+      expect(docks[0]!.logoPath).toBe("/chains/xlayer.png");
     });
 
     it("attempts the fetch exactly once per chain, however often the world recomposes", () => {

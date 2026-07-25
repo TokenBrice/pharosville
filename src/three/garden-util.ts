@@ -12,6 +12,22 @@ import {
 
 export const TILE_SCALE = Math.SQRT2;
 
+/**
+ * Anisotropic filtering for the identity atlases (sails, harbour flags).
+ *
+ * Every one of those textures lives on a quad standing upright in a world we
+ * only ever look at obliquely, so its texels are compressed hard along one
+ * screen axis and barely at all along the other. With the three.js default of
+ * 1 the GPU has to pick a mip level for the WORST axis, which throws away
+ * resolution on the good one — the logo goes soft well before it goes small.
+ *
+ * three.js clamps this to `capabilities.getMaxAnisotropy()` at upload
+ * (`WebGLTextures`), so asking for 16 is "as much as this GPU offers" rather
+ * than a number that can be wrong, and needs no renderer handle at the call
+ * site. Costs no additional texture memory.
+ */
+export const GARDEN_IDENTITY_ANISOTROPY = 16;
+
 export interface GardenShipGeometryCache {
   geometries: Map<string, ThreeBufferGeometry>;
   wakeFillMaterial: MeshBasicMaterial;

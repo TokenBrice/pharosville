@@ -5,6 +5,7 @@ import {
   SRGBColorSpace,
 } from "three";
 import type { DockNode } from "../systems/world-types";
+import { GARDEN_IDENTITY_ANISOTROPY } from "./garden-util";
 
 /**
  * N4: every harbour flies its chain's colours from the pier head.
@@ -88,6 +89,7 @@ function createAtlas(): MutableAtlas {
   texture.colorSpace = SRGBColorSpace;
   texture.wrapS = ClampToEdgeWrapping;
   texture.wrapT = ClampToEdgeWrapping;
+  texture.anisotropy = GARDEN_IDENTITY_ANISOTROPY;
   texture.needsUpdate = true;
   base.texture = texture;
   return base;
@@ -135,7 +137,12 @@ export function assignGardenChainFlagCell(dock: DockNode, accent: Color): number
     // resolved — must be able to pick the logo up on a later composition, or
     // the harbour is stuck on its painted mark for the life of the document.
     // `store.upgraded` keeps this from re-fetching a cell that already tried.
-    upgradeCellWithChainLogo(store, existing, dock.logoPath ?? null);
+    upgradeCellWithChainLogo(
+      store,
+      existing,
+      dock.logoPath ?? null,
+      chainFlagField(dock.chainId, accent),
+    );
     return existing;
   }
   if (!store.texture) return -1;
@@ -149,11 +156,56 @@ export function assignGardenChainFlagCell(dock: DockNode, accent: Color): number
   if (!context) return -1;
   paintChainMark(context, cell, dock, accent);
   store.texture.needsUpdate = true;
-  upgradeCellWithChainLogo(store, cell, dock.logoPath ?? null);
+  upgradeCellWithChainLogo(
+    store,
+    cell,
+    dock.logoPath ?? null,
+    chainFlagField(dock.chainId, accent),
+  );
   return cell;
 }
 
 const FLAG_HOIST_PX = 14;
+
+/**
+ * The cloth is dyed in the CHAIN's own colour, so a harbour is named by its
+ * flag the way a ship is named by its sail (F1).
+ *
+ * Before this, the field was `dockAccentColor` — the health-band accent
+ * (green/amber/orange/red) hue-shifted per chain. That made every healthy
+ * harbour green and told you nothing about which chain you were looking at.
+ * The health reading is NOT lost: the same accent still paints the district's
+ * warehouse roofs (`garden-docks.ts:255`), which is the larger, closer surface
+ * and the better carrier for a four-state band.
+ *
+ * Only the chains a harbour can actually be built for are listed. Anything
+ * else falls back to the health accent, which is the previous behaviour and
+ * still gives the ~90 other chains the API can report a distinct flag.
+ */
+const CHAIN_FLAG_FIELD: Record<string, string> = {
+  aptos: "#1a1a1a",
+  arbitrum: "#12aaff",
+  avalanche: "#e84142",
+  base: "#0052ff",
+  bsc: "#f0b90b",
+  ethereum: "#627eea",
+  "hyperliquid-l1": "#97fce4",
+  polygon: "#8247e5",
+  solana: "#9945ff",
+  ton: "#0098ea",
+  tron: "#ff060a",
+};
+
+function chainFlagField(chainId: string, fallback: Color): Color {
+  const brand = CHAIN_FLAG_FIELD[chainId];
+  return brand ? new Color(brand) : fallback;
+}
+
+/** White on a dark field, near-black on a light one (BSC yellow, Hyperliquid mint). */
+function flagInk(field: Color): string {
+  const luminance = field.r * 0.2126 + field.g * 0.7152 + field.b * 0.0722;
+  return luminance > 0.55 ? "#15191e" : "#ffffff";
+}
 
 /**
  * Stage 1: the deterministic chain mark. A logo that never loads must still
@@ -166,42 +218,57 @@ function paintChainMark(
   dock: DockNode,
   accent: Color,
 ): void {
+  const field = chainFlagField(dock.chainId, accent);
+  const size = CHAIN_FLAG_CELL_PX;
+  paintChainField(context, cell, field);
+
+  const { x, y } = gardenChainFlagCellOrigin(cell);
+  context.save();
+  context.translate(x, y);
+
+  // Initials straight onto the cloth in the contrast ink — no disc. The field
+  // is now the chain's own colour, so a matte behind the mark would hide the
+  // very thing the flag exists to show.
+  context.fillStyle = flagInk(field);
+  context.font = "700 44px system-ui, sans-serif";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  const box = size - FLAG_HOIST_PX;
+  context.fillText(
+    chainInitials(dock.label || dock.chainId),
+    FLAG_HOIST_PX + box / 2,
+    size / 2 + 2,
+    box * 0.8,
+  );
+
+  context.restore();
+}
+
+/**
+ * The bare cloth: chain field plus its darker hoist band at the mast edge, so
+ * the flag reads as fabric rather than a floating square.
+ *
+ * Separate from the mark because the logo upgrade (stage 2) has to repaint the
+ * cloth before drawing — otherwise the stage 1 initials stay visible underneath
+ * a transparent logo.
+ */
+function paintChainField(
+  context: CanvasRenderingContext2D,
+  cell: number,
+  field: Color,
+): void {
   const { x, y } = gardenChainFlagCellOrigin(cell);
   const size = CHAIN_FLAG_CELL_PX;
   context.save();
   context.translate(x, y);
   context.clearRect(0, 0, size, size);
 
-  const field = `#${accent.getHexString()}`;
-  context.fillStyle = field;
+  context.fillStyle = `#${field.getHexString()}`;
   context.fillRect(0, 0, size, size);
 
-  // Darker hoist band at the mast edge, so the cloth reads as a flag rather
-  // than a floating square even when the mark itself is faint.
-  const hoist = accent.clone().multiplyScalar(0.62);
+  const hoist = field.clone().multiplyScalar(0.62);
   context.fillStyle = `#${hoist.getHexString()}`;
   context.fillRect(0, 0, FLAG_HOIST_PX, size);
-
-  // Contrasting disc: the same matte the sails put behind a coin logo.
-  const luminance = accent.r * 0.2126 + accent.g * 0.7152 + accent.b * 0.0722;
-  const ink = luminance > 0.32 ? "#1b2026" : "#f2ece0";
-  const disc = luminance > 0.32 ? "#f4efe4" : "#20262d";
-  const centerX = FLAG_HOIST_PX + (size - FLAG_HOIST_PX) / 2;
-  const centerY = size / 2;
-  const radius = (size - FLAG_HOIST_PX) * 0.29;
-  context.beginPath();
-  context.arc(centerX, centerY, radius, 0, Math.PI * 2);
-  context.fillStyle = disc;
-  context.globalAlpha = 0.94;
-  context.fill();
-  context.globalAlpha = 1;
-
-  context.fillStyle = ink;
-  context.font = "700 38px system-ui, sans-serif";
-  context.textAlign = "center";
-  context.textBaseline = "middle";
-  context.fillText(chainInitials(dock.label || dock.chainId), centerX, centerY + 2, radius * 1.7);
-
   context.restore();
 }
 
@@ -223,6 +290,7 @@ function upgradeCellWithChainLogo(
   store: MutableAtlas,
   cell: number,
   logoPath: string | null,
+  field: Color,
 ): void {
   // Enabled 2026-07-25 by operator decision, with the assets shipped.
   //
@@ -252,15 +320,20 @@ function upgradeCellWithChainLogo(
     const size = CHAIN_FLAG_CELL_PX;
     const box = size - FLAG_HOIST_PX;
     const natural = Math.max(1, Math.max(image.naturalWidth, image.naturalHeight));
-    const drawn = box * 0.78;
+    const drawn = box * 0.82;
     const width = (image.naturalWidth / natural) * drawn;
     const height = (image.naturalHeight / natural) * drawn;
+
+    // Repaint the cloth first: stage 1 left the chain's initials on it, and a
+    // knocked-out mark is transparent everywhere the glyph is not.
+    paintChainField(context, cell, field);
+
+    const knockout = knockOutMark(image, width, height, flagInk(field));
+    if (!knockout) return;
     context.drawImage(
-      image,
+      knockout,
       x + FLAG_HOIST_PX + (box - width) / 2,
       y + (size - height) / 2,
-      width,
-      height,
     );
     texture.needsUpdate = true;
   });
@@ -268,4 +341,35 @@ function upgradeCellWithChainLogo(
     // Keep the painted chain mark. Nothing to do.
   });
   image.src = logoPath;
+}
+
+/**
+ * Recolours a chain logo to a single flat ink, keeping only its silhouette.
+ *
+ * `source-in` keeps the incoming fill only where the existing pixels are
+ * opaque, so the glyph's own alpha becomes the stencil. This assumes the mark
+ * is a transparent-background GLYPH — a logo supplied as a filled badge (an
+ * opaque disc or square) has no transparency to stencil against and would
+ * knock out as a solid block of ink. See the chain-asset requirement in
+ * `agents/2026-07-25-logo-vectorisation-brief.md`.
+ *
+ * Drawn on its own canvas rather than in place because `source-in` against the
+ * atlas would erase every other harbour's cell.
+ */
+function knockOutMark(
+  image: HTMLImageElement,
+  width: number,
+  height: number,
+  ink: string,
+): HTMLCanvasElement | null {
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.ceil(width));
+  canvas.height = Math.max(1, Math.ceil(height));
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  context.globalCompositeOperation = "source-in";
+  context.fillStyle = ink;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  return canvas;
 }

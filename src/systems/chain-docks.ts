@@ -94,6 +94,43 @@ function attachRenderedHarborContext(docks: DockNode[], globalTotalUsd: number):
   }));
 }
 
+/**
+ * Chain marks vendored under `public/chains/` as glyph-only SVG.
+ *
+ * The API still reports these with their original raster extension, so without
+ * this rewrite the flags would keep loading the files the SVGs replaced. The set is
+ * explicit rather than inferred because the API can name ~90 chains and we
+ * vendor eleven; anything outside it keeps whatever path the API gave, which
+ * simply fails to load and leaves the painted chain mark (the designed
+ * fallback — see `garden-chain-flag.ts`).
+ *
+ * These must stay glyph-only with a transparent background: the flag knocks
+ * the mark out of the cloth using its alpha as a stencil, so a filled badge
+ * would render as a solid block of ink.
+ */
+const VENDORED_CHAIN_MARKS = new Set<string>([
+  "aptos",
+  "arbitrum",
+  "avalanche",
+  "base",
+  "bsc",
+  "ethereum",
+  "hyperliquid-l1",
+  "polygon",
+  "solana",
+  "ton",
+  "tron",
+]);
+
+function vendoredChainMark(logoPath: string | undefined | null): string | null {
+  if (!logoPath?.startsWith("/")) return null;
+  // Only the EXTENSION is rewritten — the directory and slug still come from
+  // the API, so no chain media path is hardcoded in browser source (the rule
+  // `validate-runtime-media.mjs` enforces).
+  const slug = logoPath.replace(/^.*\//, "").replace(/\.[^.]+$/, "");
+  return VENDORED_CHAIN_MARKS.has(slug) ? logoPath.replace(/\.[^.]+$/, ".svg") : logoPath;
+}
+
 function buildDockNode(chain: ChainSummary, tile: { x: number; y: number }, globalTotalUsd: number): DockNode {
   return {
     id: `dock.${chain.id}`,
@@ -108,7 +145,7 @@ function buildDockNode(chain: ChainSummary, tile: { x: number; y: number }, glob
     concentration: chain.healthFactors?.concentration ?? null,
     // N4: the harbour flies this as its flag. Same-origin paths only — a
     // remote or empty value is dropped rather than reaching browser code.
-    logoPath: chain.logoPath?.startsWith("/") ? chain.logoPath : null,
+    logoPath: vendoredChainMark(chain.logoPath),
     harboredStablecoins: harboredStablecoins(chain),
     detailId: `dock.${chain.id}`,
   };

@@ -5,7 +5,7 @@ import {
   SRGBColorSpace,
 } from "three";
 import type { ThreeLogoAsset } from "../renderer/world-renderer-backend";
-import { safeCssColor } from "./garden-util";
+import { GARDEN_IDENTITY_ANISOTROPY, safeCssColor } from "./garden-util";
 import type {
   ShipLivery,
   ShipLogoShape,
@@ -97,6 +97,7 @@ export function createGardenSailTexture(
   texture.colorSpace = SRGBColorSpace;
   texture.wrapS = ClampToEdgeWrapping;
   texture.wrapT = ClampToEdgeWrapping;
+  texture.anisotropy = GARDEN_IDENTITY_ANISOTROPY;
   texture.needsUpdate = true;
   return texture;
 }

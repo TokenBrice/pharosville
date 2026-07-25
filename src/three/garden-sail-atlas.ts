@@ -8,6 +8,7 @@ import {
   FLEET_SAIL_ATLAS_SIZE_PX,
 } from "./garden-fleet-batch";
 import { createGardenSailCanvas } from "./garden-sail-texture";
+import { GARDEN_IDENTITY_ANISOTROPY } from "./garden-util";
 
 /**
  * W1 / decision D3: one 2048² atlas carries every batched ship's identity
@@ -61,6 +62,7 @@ export function createGardenSailAtlas(): GardenSailAtlas {
   texture.colorSpace = SRGBColorSpace;
   texture.wrapS = ClampToEdgeWrapping;
   texture.wrapT = ClampToEdgeWrapping;
+  texture.anisotropy = GARDEN_IDENTITY_ANISOTROPY;
   texture.needsUpdate = true;
 
   return {
