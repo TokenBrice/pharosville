@@ -34,10 +34,20 @@ subject; the interface is a quiet plaque beside it that fades when unused.
 | **DU1** | The world toolbar is **deleted**. Three controls survive as a hover-revealed cluster: **Recenter · Observe · Night**. Zoom chip, time slider, clear-override, follow-selected and auto-day-night are removed. |
 | **DU2** | The ship search is **deleted entirely** — component, styles, options memo, and its follow-on-select plumbing. |
 | **DU3** | The circular home button is **deleted**; recentring lives in the cluster. |
-| **DU4** | Footer keeps: `PharosVille v0.3.0 · Legend · Changelog · N ships docked / M total · NN fps`. Drops the disclaimer sentence, "Copy link", and the "Pharos" outbound link. |
+| **DU4** | Footer keeps exactly five items: `PharosVille v0.3.0 · Legend · Changelog · 122 of 187 docked · 58 fps`. Drops the disclaimer sentence, "Copy link", and the "Pharos" outbound link. |
 | **DU5** | Detail panel becomes **prose first, ledger on demand**: title, water, 2–3 sentences in the harbor's voice, one figure line, and a quiet `Read the record` disclosure holding today's fact rows. |
 | **DU6** | Skin direction is **quiet the same skin**: keep parchment/brass/timber, remove the ornament (corner studs, wood grain, inset bevels, triple shadows). One hairline, one soft shadow, more air, larger type. |
 | **DU7** | The frame-rate readout comes out from behind `?debug=1` and is always visible in the footer, dimmed. |
+| **DU8** | Cluster sits **bottom-right, above the footer line**. Fullscreen **stays top-right**, quieted to the same treatment — it keeps the Escape-exits-fullscreen-first behaviour. |
+| **DU9** | Idle state is **faint glyphs at 40% + a dark scrim disc**, raised to full on hover, on focus, and **for 2 s after any camera input** so anyone who touches the world learns where the controls are. |
+| **DU10** | **No in-app hour input.** Night flips the day/night preset; exact hours remain a `?t=` URL concern only. The slider, the clear-override button and auto-cycle all go. |
+| **DU11** | Ship-count phrasing becomes **`122 of 187 docked`** (from `122 ships docked / 187 total`). |
+| **DU12** | Ship reading line is fixed at **market cap · fleet rank · 24h change**, no stress-aware reordering. Missing figures fall through to the next in the per-kind list; the line is omitted entirely when nothing qualifies. |
+| **DU13** | The record disclosure is **sticky for the session** (module-level state, not storage): closed on arrival, stays open across selections once opened, closed again in a new tab. |
+| **DU14** | The panel closes via a **quiet `Close` text link, bottom-left**, keeping today's accessible name and focus-restore. Escape and click-away are unchanged. |
+| **DU15** | The panel stays **entity-anchored** (`--pv-detail-x/y`, side-flipping) — no fixed right-hand dock. |
+| **DU16** | **All three ambient notices stay**, quieted: hover tooltip, harbor log, since-last-visit. The Observe caption stays too, but as **bare centred text with no box**. |
+| **DU17** | The legend **still auto-opens on a first visit** (it carries the disclaimer), trimmed so the first screen is intro · zones · ships · harbors · controls. Marks and recent movers move **below a fold**, not out — they are cue-parity surfaces with pinned tests. |
 
 ### Acceptance criteria
 
@@ -159,14 +169,17 @@ observatory zone labels at `:704-730` (their W2.9 re-anchors them) — plus
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                                                         ⛶    │  fullscreen, 0.35 idle
+│                                                         ⛶    │  fullscreen, 0.4 idle
 │                                                              │
 │                     [ the world ]                            │
 │                                                              │
 │                                              ·  ·  ·         │  cluster, 0.4 idle
 │                                                              │
-│  PharosVille v0.3.0 · Legend · Changelog · 122/187 · 58 fps  │  footer, one line
+│  PharosVille v0.3.0 · Legend · Changelog · 122 of 187 · 58 fps│  footer, one line
 └──────────────────────────────────────────────────────────────┘
+
+  footer, in full:
+  PharosVille v0.3.0 · Legend · Changelog · 122 of 187 docked · 58 fps
 ```
 
 With a selection, one panel docks beside the selected entity — as today, via
@@ -189,6 +202,8 @@ With a selection, one panel docks beside the selected entity — as today, via
   ─────────────────────────────────────
   (collapsed: today's Identity / Position
    rows, members, and secondary links)
+
+  Close                                   ← quiet text link, bottom-left
 ```
 
 **Composition rules**
@@ -200,12 +215,13 @@ With a selection, one panel docks beside the selected entity — as today, via
 | Water line | `detail.status` | swatch + `label` only. The `reading` clause ("Early-warning signals worth watching") and the `figure` (`-1 bps vs GOLD`) move into the prose / reading line. |
 | Prose | `detail.summary` + `paragraphs` + `culturalSignificance` | ≤ 3 sentences, ≤ ~55 words, one `<p>` per sentence group. Rewritten in §5. |
 | Reading line | **new** `buildDetailReadingLine()` | ≤ 3 figures, `·`-joined, from a fixed per-kind priority list. Never wraps to 3 lines. |
-| Record | existing `buildDetailFactSections()` | unchanged output, moved inside `<details>`. The ≤ 8-row contract and its tests survive as-is. |
+| Record | existing `buildDetailFactSections()` | unchanged output, moved inside `<details>`. Sticky open for the session (DU13). The ≤ 8-row contract and its tests survive as-is. |
 | Members | `detail.members` | inside the record. |
 | Links | `detail.links` | the **first** link stays on the first screen as a quiet text link (`Stablecoin →`); the rest go into the record. |
-| Close | `onClose` | one affordance: the existing "Close details" text button, restyled quiet. Escape unchanged. |
+| Close | `onClose` | one affordance: a quiet `Close` text link at the panel's bottom-left, keeping the `Close details` accessible name and the mount-focus/restore behaviour. Escape and click-away unchanged. |
 
-**Reading-line priority by kind** (first three available wins):
+**Reading-line priority by kind** (first three available wins, no reordering by
+stress state — DU12):
 
 - `ship`: market cap → fleet rank → 24h change → peg deviation → cycle tempo
 - `dock`: stablecoin supply → stablecoin count → health band
@@ -250,10 +266,11 @@ pair table keeps resolving).
 
 ### 2.5 Hover-revealed cluster
 
-- Position: bottom-right, above the footer line, vertically stacked or in a row
-  of three — final placement decided against the live composition, but it must
-  not sit over the lighthouse (`VISUAL_INVARIANTS.md:44`).
-- Idle: `opacity: 0.4`, glyph only, no frame, no background.
+- Position: **bottom-right, above the footer line**, in a horizontal row of
+  three (DU8). Right-aligned to the same 30 px inset the footer uses on the
+  left, so the two chrome elements bracket the frame's bottom edge.
+- Idle: `opacity: 0.4`, glyph only, no frame, dark scrim disc behind (see the
+  accessibility floor below).
 - Active: `opacity: 1` on `:hover`, `:focus-within`, and for 2 s after any
   camera input (so a visitor who just panned sees where the controls are).
 - Coarse/no-hover pointers: `@media (hover: none) { opacity: 1 }`.
@@ -308,17 +325,17 @@ green with deleted tests removed, not skipped.
 
 | # | Task | Verify |
 | --- | --- | --- |
-| U3.1 | Rebuild the footer to: `PharosVille v0.3.0 · Legend · Changelog · N ships docked / M total · NN fps`. Keep `data-testid="pharosville-ship-counter"` and `data-testid="pharosville-fps-counter"` | `pharosville-world.test.tsx:188-198` updated to the new string |
+| U3.1 | Rebuild the footer to exactly: `PharosVille v0.3.0 · Legend · Changelog · 122 of 187 docked · 58 fps`. Rewrite `fleetCounterLabel` (`pharosville-world.tsx:947-952`) for the DU11 phrasing. Keep `data-testid="pharosville-ship-counter"` and `data-testid="pharosville-fps-counter"` | `pharosville-world.test.tsx:188-198` updated — the singular case becomes `1 of 1 docked` |
 | U3.2 | Remove the `debugChrome` gate on the FPS slot (DU7) and delete `isDebugChromeEnabled` if nothing else uses it — note `?debug=1` still drives `window.__pharosVilleDebug`, which is separate | FPS shows on a plain load; reduced motion still renders `Static` |
 | U3.3 | Drop the disclaimer sentence, "Copy link", and the "Pharos" link. **The disclaimer is preserved** — `legend-panel.tsx:138-143` already says "It is an interpretive view, not financial advice"; make sure that sentence stays and reads first in the legend | legend intro asserts the sentence |
 | U3.4 | Restyle per §2.4: no pill background, `·` separators, dimmer parchment, `pointer-events` only on the two buttons | contrast guard green |
 | U3.5 | Rename the CSS block `.pharosville-beta-tag*` → `.pharosville-footer*` (it stopped being a beta tag) and update the one selector referenced by the outside-pointer-down guard at `pharosville-world.tsx:547` | outside-click-to-clear still ignores footer clicks |
 
-**Note for the operator:** removing "Copy link" means view sharing relies on
-copying the address bar (the URL is kept live by `replaceWorldUrlState`), and
-removing the "Pharos" link removes the only outbound path to pharos.watch from
-the footer — detail-panel links still reach it. Both are per direction #3; say
-the word and either can stay.
+**Consequences, accepted (DU4):** view sharing relies on copying the address bar
+— the URL stays live via `replaceWorldUrlState`, so this loses convenience, not
+capability. The footer no longer links out to pharos.watch; detail-panel links
+still do. The disclaimer appears only in the legend, which still auto-opens on a
+first visit (DU17), so a new visitor still meets it before the world.
 
 ### U4 — Detail panel restructure
 
@@ -340,8 +357,8 @@ the word and either can stay.
 | U5.2 | Rewrite `.pharosville-detail-panel` + `__inner` per §2.4 (one hairline, one shadow, flat parchment, 26/28 padding, 15 px/1.6 body) | visual read |
 | U5.3 | Flatten `.pv-brass-button` and `.pv-panel-link` to glyph/text treatments; keep `:focus-visible` outlines exactly as they are | keyboard focus still obvious |
 | U5.4 | Apply the same quieting to the two dialogs (`.pharosville-changelog-panel`, `.pharosville-legend-panel`): drop the `::before` inner rule, reduce to one border + one shadow, raise body line-height | legend and changelog read as the same family |
-| U5.5 | Unify the four inline-styled floaters (`harbor-log.tsx`, `since-last-visit.tsx`) into CSS classes sharing one `.pv-notice` treatment, so the family is consistent and themable | no inline style objects left in those two files |
-| U5.6 | Hover tooltip and observe caption adopt the same hairline/shadow rule | one visual family across all overlay surfaces |
+| U5.5 | Unify the inline-styled floaters (`harbor-log.tsx`, `since-last-visit.tsx`) into CSS classes sharing one `.pv-notice` treatment, so the family is consistent and themable | no inline style objects left in those two files |
+| U5.6 | Hover tooltip adopts the same hairline/shadow rule; the observe caption instead drops its frame entirely (U7.5) | one visual family across all overlay surfaces |
 | U5.7 | Contrast sweep of every changed pair | `npm run check:pharosville-colors` — zero new warnings |
 
 ### U6 — Copy and voice
@@ -365,7 +382,9 @@ depeg). Every hedge that exists for analytical honesty survives verbatim.
 
 | # | Task | Verify |
 | --- | --- | --- |
-| U7.1 | Harbor log and since-last-visit banner: same quiet treatment, and re-check their positions now that the toolbar/search are gone (both were placed to dodge them) | no overlap at 1280×720 or 1920×1080 |
+| U7.1 | Harbor log and since-last-visit banner **stay** (DU16), quieted to the shared `.pv-notice` treatment, and re-positioned now that the toolbar/search are gone (both were placed to dodge them). Both keep their dismiss buttons | no overlap at 1280×720 or 1920×1080 |
+| U7.5 | Observe caption becomes **bare centred text** — no border, no background, one soft text-shadow for legibility over water; keeps the `Observe` eyebrow and `data-testid` | reads over both day and night water |
+| U7.6 | Legend trim (DU17): intro · zones · ships · harbors · a short controls list stay on the first screen; **Marks to look for** and **Recent movers** move inside a `<details>` fold. They stay in the DOM — `legend-panel.test.tsx:37-49` pins one `data-cue-id` per `LEGEND_MARK_ROWS` entry, and the marks list is a visual-cue parity surface | `npm test` green without touching the marks assertions |
 | U7.2 | Zone labels (`pharosville-world.tsx:704-730`) — **do not restructure**. The world plan's W2.9 re-anchors them. Restrict changes here to the CSS block `.pharosville-observatory-label` and coordinate before touching the JSX | no merge conflict with the world branch |
 | U7.3 | Re-check `.pharosville-hud`, `--pv-detail-dock` offsets and the `top: 84px` / `top: 96px` stack now that two surfaces are gone — the panel can sit higher and the composition gains its top-left back | panel anchoring at all four dock sides still clamps in-frame |
 | U7.4 | `WorldStaticOverview` (renderer-failure fallback) inherits the same quiet skin so the failure path doesn't look like the old build | force `?renderer=fail` path per `TESTING.md` |
@@ -378,7 +397,7 @@ depeg). Every hedge that exists for analytical honesty survives verbatim.
 | U8.2 | Update Playwright specs: remove the two search interactions (`pharosville.spec.ts:134`, `pharosville-performance.spec.ts:460`) and the follow-selected block (`:215-224,275`); keep the `Reset view` clicks working against the cluster button | `npm run test:visual` |
 | U8.3 | Detail-panel assertions (`pharosville.spec.ts:202-213`, `pharosville-gates.spec.ts:246,270`) explicitly open the record before asserting "Currently"/"Home dock"/"Chains" — `toContainText` would still match collapsed `<details>` text, but the test should state the intent | `npm run test:visual` |
 | U8.4 | Add an `@visual-accessibility` case: hover cluster reachable and operable by keyboard alone, and visible while focused | `npm run test:visual:accessibility` |
-| U8.5 | `VISUAL_INVARIANTS.md` — add a short "Interface" subsection under Accessibility And Motion recording DU1–DU7, and amend `:145-148` (the interaction contract currently names "toolbar controls, search, follow-selected"). **Sequence after** the world plan's W7.1 rewrite to avoid a conflicting edit | `npm run validate:docs` |
+| U8.5 | `VISUAL_INVARIANTS.md` — add a short "Interface" subsection under Accessibility And Motion recording DU1–DU17, and amend `:145-148` (the interaction contract currently names "toolbar controls, search, follow-selected"). **Sequence after** the world plan's W7.1 rewrite to avoid a conflicting edit | `npm run validate:docs` |
 | U8.6 | Update `docs/pharosville/KNOWN_PITFALLS.md` if the disclosure introduces a focus-order trap, and `AGENT_ONBOARDING.md` routing if component names changed | `npm run check:doc-paths-and-scripts` |
 | U8.7 | Bundle check — this workstream should be net negative (two components and ~120 CSS lines deleted, one small component added) | `npm run check:bundle-size` |
 | U8.8 | Full lane before any claim of done | `npm run validate` |
@@ -403,10 +422,19 @@ Phase 3   U7 ambient + coordination  →  U8 tests, docs, validate
 Estimated: Phase 0 is half a session, Phase 1 one session (U4 dominates),
 Phase 2 half, Phase 3 half.
 
+**Execution mode (operator decision, 2026-07-25): build in this working tree on
+`main`**, alongside the world revamp's uncommitted changes, so the result is
+visible immediately at `localhost:5173`. Consequences that shape the work:
+
+- Commit interface changes separately and often, so the two streams stay
+  revertible independently.
+- Never run a bulk formatter, codemod or `--fix` across `src/three/**`,
+  `src/systems/garden-*`, `src/renderer/**` or the generator scripts — those are
+  the world stream's live files.
+- `git status` before each commit; stage only interface paths by name.
+
 **Coordination with the world revamp (UF9):**
 
-- Work in a separate worktree — `npm run worktree:new` — and rebase onto the
-  world branch's commits before U7/U8.
 - Only two files are genuinely shared: `src/pharosville-world.tsx` (they touch
   `:704-730` only) and `VISUAL_INVARIANTS.md` (they rewrite; U8.5 goes second).
 - `src/systems/detail-model.ts` (U6) is **not** on their file list; `unique-ships.ts`
@@ -425,8 +453,8 @@ Phase 2 half, Phase 3 half.
 | Prose-first reads as "data was removed" | Medium | Medium | The disclosure is on the first screen and labelled; U4.4 makes it sticky per session; the ledger is unchanged |
 | Copy rewrite (U6) drifts an analytical caveat | Low | **High** | UF-verified: the ledger reads raw evidence strings, never the narrative. U6.5 asserts it. Every hedge is carried verbatim |
 | Idle-opacity controls fail WCAG 1.4.11 | Medium | Medium | §2.5 floor + scrim; the contrast script is the check; raise opacity rather than weaken the guard |
-| Merge conflict with the world revamp in `pharosville-world.tsx` | Medium | Low | Separate worktree; U7.2 forbids touching the zone-label JSX; rebase before Phase 3 |
-| Removing "Copy link" loses shareability | Low | Low | The URL stays live via `replaceWorldUrlState`; address-bar copy works. Flagged for the operator in U3 |
+| Stepping on the world stream's uncommitted work (shared tree) | Medium | **High** | §4 execution rules: interface-only staging, no bulk fixes outside `src/components`, `src/lib`, `src/content`, `src/hooks`, `src/pharosville.css`, `src/pharosville-world.tsx`, `src/systems/detail-model.ts` |
+| Removing "Copy link" loses shareability | Low | Low | The URL stays live via `replaceWorldUrlState`; address-bar copy works. Accepted under DU4 |
 | Deleted Playwright interactions hide a real regression | Low | Medium | U8.4 adds a keyboard-operability case; the follow path keeps its deep-link test |
 
 ---
@@ -471,14 +499,17 @@ npm run smoke:live -- --url https://pharosville.pharos.watch
 
 ---
 
-## 8. Open items for the operator
+## 8. Open items
 
-1. **Cluster placement.** §2.5 proposes bottom-right above the footer. Bottom-centre
-   and top-right are both viable; this wants a live look against the new world
-   composition rather than a decision on paper.
-2. **Footer removals.** "Copy link" and the "Pharos" outbound link are gone per
-   direction #3 — confirm at review, since both are cheap to keep.
-3. **Ship-count phrasing.** The footer currently reads `122 ships docked / 187
-   total`. Once the world plan's W3.5 wires real berth occupancy this number
-   starts moving; `122/187` as a bare fraction would be quieter. Operator's call
-   at review.
+**None.** Every question this plan raised was settled with the operator on
+2026-07-25 and is recorded as DU1–DU17 in §0. Anything not covered there is a
+judgement call inside the stated direction, to be made during execution and shown
+at review — not a decision deferred back to the operator.
+
+Two things are deliberately *deferred*, not open:
+
+1. **Exact cluster geometry** (glyph size, gap, inset) is tuned against the live
+   composition during U2; the placement itself is fixed by DU8.
+2. **Final copy strings** (U6) are written during execution against the voice
+   rules in §3, then read back at review. The rules, not the sentences, are the
+   contract.

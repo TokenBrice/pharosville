@@ -330,6 +330,7 @@ export function createTerracedIsland(
     createCliffTalus(),
     createQuayStair(),
     createIslandPlanting(),
+    createTerraceLanterns(),
   );
   if (cloudShadows) applyGardenCloudShadows(root, cloudShadows);
 
@@ -481,7 +482,12 @@ export function createRockTerraceGeometry(
   topColor: Color,
   amplitude = 0.11,
 ): CylinderGeometry {
-  const geometry = new CylinderGeometry(topRadius, bottomRadius, height, segments, 3, false);
+  // W4.9: enough height rows to resolve a bedding step (~3 rows per bed at
+  // STRATA_PERIOD). Three rows could carry a colour band but never an edge,
+  // and an edge is what raking light needs — the same lesson the tower's
+  // ashlar coursing taught.
+  const heightSegments = Math.max(3, Math.round(height / 0.16));
+  const geometry = new CylinderGeometry(topRadius, bottomRadius, height, segments, heightSegments, false);
   const positions = geometry.getAttribute("position");
   const colors = new Float32Array(positions.count * 3);
   const color = new Color();
@@ -492,6 +498,7 @@ export function createRockTerraceGeometry(
     const z = positions.getZ(index);
     const radius = Math.hypot(x, z);
     const v = (oy + half) / height;
+    let colorY = baseElevation + oy;
     if (radius >= 0.001) {
       const angle = Math.atan2(z, x);
       const jitter = stableUnit(`${seed}|${Math.round(angle * 57.29)}`) - 0.5;
@@ -499,7 +506,19 @@ export function createRockTerraceGeometry(
         + Math.sin(angle * 7 - seed * 1.3 + v * 4) * 0.3
         + Math.sin(angle * 13 + seed * 2.1) * 0.2
         + jitter * 0.6;
-      const radialScale = 1 + amplitude * noise;
+      // W4.9 bedding planes. A vertex's bed is keyed off a gently warped world
+      // height so the ledges undulate like real strata instead of ringing the
+      // tier as perfect circles; every vertex in a bed shares one radial
+      // offset, so the side face steps at each bed boundary. Colour is sampled
+      // from the same warped height, which puts the shadow band exactly on the
+      // geometric edge rather than near it.
+      colorY = baseElevation + oy
+        + Math.sin(angle * 2 + seed * 1.7) * 0.13
+        + Math.sin(angle * 5 - seed) * 0.06;
+      const bed = Math.floor((colorY - WATERLINE_Y) / STRATA_PERIOD);
+      const bedStep = ((((bed % 2) + 2) % 2) === 0 ? 0.03 : -0.03)
+        + (stableUnit(`${seed}~bed~${bed}`) - 0.5) * 0.05;
+      const radialScale = 1 + amplitude * noise + bedStep;
       positions.setX(index, x * radialScale);
       positions.setZ(index, z * radialScale);
       // Vertical crag, tapered to zero at both rims so caps never split open.
@@ -509,10 +528,7 @@ export function createRockTerraceGeometry(
       positions.setY(index, oy + crag * vignette * height * 0.16);
     }
     const ao = 0.7 + 0.3 * v;
-    // Colour from the *displaced* height, not the lathe height, so the W4.9
-    // bedding planes stay horizontal across the cragged face instead of
-    // rippling with it.
-    stoneRampColor(baseElevation + positions.getY(index), color).multiplyScalar(ao);
+    stoneRampColor(colorY, color).multiplyScalar(ao);
     colors[index * 3] = color.r;
     colors[index * 3 + 1] = color.g;
     colors[index * 3 + 2] = color.b;
@@ -1739,5 +1755,57 @@ function createIslandPlanting(): Group {
   tufts.instanceMatrix.needsUpdate = true;
 
   root.add(shrubs, tufts);
+  return root;
+}
+
+// Terrace lanterns for the concept's lantern-lit shelves. Deliberately NOT
+// registered through `gardenIslandLanternWorldOffsets()`: those six path
+// lanterns own the sea's light lanes, and widening that set would change the
+// lane budget the renderer sizes against. These are emissive decoration only —
+// no lights, no lanes, no per-frame work.
+const TERRACE_LANTERN_POSTS: readonly (readonly [number, number])[] = [
+  [8.6, -2.4], [6.2, -5.4], [2.4, -7.4], [-2.4, -6.9],
+  [-8.4, -4.6], [-11.4, -0.4], [-10.2, 3.9], [-6.4, 6.6],
+  [-1.4, 7.4], [3.4, 6.4], [7.9, 3.6], [10.4, 0.6],
+];
+
+function createTerraceLanterns(): Group {
+  const root = new Group();
+  root.name = "island-terrace-lanterns";
+  const seated = TERRACE_LANTERN_POSTS.map(([x, z]) => ({
+    height: islandTerrainHeight(x, z),
+    x,
+    z,
+  }));
+
+  const posts = new InstancedMesh(
+    new CylinderGeometry(0.13, 0.18, 0.62, 6),
+    new MeshStandardMaterial({ color: "#7d7c6e", flatShading: true, roughness: 1 }),
+    seated.length,
+  );
+  posts.name = "island-terrace-lantern-posts";
+  posts.castShadow = true;
+  posts.receiveShadow = true;
+  const lamps = new InstancedMesh(
+    new BoxGeometry(0.26, 0.24, 0.26),
+    new MeshStandardMaterial({
+      color: HARBOR_PALETTE.lantern_glow,
+      emissive: HARBOR_PALETTE.lantern_warm,
+      emissiveIntensity: 1.35,
+      roughness: 0.44,
+      toneMapped: false,
+    }),
+    seated.length,
+  );
+  lamps.name = "island-terrace-lantern-lamps";
+  seated.forEach((post, index) => {
+    scratchMatrix.makeTranslation(post.x, post.height + 0.31, post.z);
+    posts.setMatrixAt(index, scratchMatrix);
+    scratchMatrix.makeTranslation(post.x, post.height + 0.74, post.z);
+    lamps.setMatrixAt(index, scratchMatrix);
+  });
+  posts.instanceMatrix.needsUpdate = true;
+  lamps.instanceMatrix.needsUpdate = true;
+  root.add(posts, lamps);
   return root;
 }

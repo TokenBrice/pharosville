@@ -1213,7 +1213,13 @@ function createHullGeometry(silhouette: GardenHullSilhouette): ExtrudeGeometry {
     bevelSize: 0.13,
     bevelThickness: 0.12,
     depth: 0.72,
-    steps: 1,
+    // W5.3: 4 vertical steps, not 1. `depth` becomes the vertical axis after
+    // the rotateX below, so this is the only source of vertices between keel
+    // and gunwale. At 1 step the sheer and tumblehome in shapeHullVerticalForm
+    // could only interpolate linearly across the bevel rings, and there was
+    // nowhere to hang planking. The cost is paid once per silhouette (four
+    // cached geometries), not per ship.
+    steps: 4,
   });
   geometry.rotateX(-Math.PI / 2);
   geometry.translate(0, -0.5, 0);
@@ -1227,7 +1233,16 @@ function createHullGeometry(silhouette: GardenHullSilhouette): ExtrudeGeometry {
  * on the cached geometry). Y runs keel→gunwale: a warm-dark waterline shadow
  * lifts through a neutral flank to a warm gunwale highlight; the very keel is
  * pinched darker for fake AO. Values multiply the per-ship livery color.
+ *
+ * W5.3 adds planking on top: `PLANK_STRAKES` horizontal bands across the
+ * topsides, each seam pinched darker. This is what makes the batched fleet
+ * read as built rather than extruded, and it costs nothing at runtime — the
+ * banding rides the vertex color the hull already carried. It needs the
+ * subdivided hull from `createHullGeometry`; at 1 extrude step there were not
+ * enough vertical vertices to resolve a single plank.
  */
+const PLANK_STRAKES = 7;
+
 function bakeHullVertexColors(geometry: BufferGeometry): void {
   const position = geometry.getAttribute("position");
   geometry.computeBoundingBox();
@@ -1246,6 +1261,14 @@ function bakeHullVertexColors(geometry: BufferGeometry): void {
       scratch.copy(mid).lerp(highlight, MathUtils.smoothstep(t, 0.5, 1));
     }
     if (t < 0.16) scratch.multiplyScalar(0.72 + t * 1.5);
+    // Planking: a sawtooth across the strake bands, darkest at each seam and
+    // lifting to a lit plank face. Faded out below the waterline, where the
+    // wet-dark tone owns the surface, and kept shallow so it never fights the
+    // livery hue the instance color supplies.
+    const strake = t * PLANK_STRAKES;
+    const seam = Math.abs((strake - Math.floor(strake)) - 0.5) * 2;
+    const plankDepth = 0.12 * MathUtils.smoothstep(t, 0.12, 0.4);
+    scratch.multiplyScalar(1 - plankDepth * (1 - seam));
     colors[index * 3] = scratch.r;
     colors[index * 3 + 1] = scratch.g;
     colors[index * 3 + 2] = scratch.b;
@@ -1276,9 +1299,15 @@ function createDeckGeometry(
   const scratch = new Color();
   for (let index = 0; index < position.count; index += 1) {
     const nx = position.getX(index) / maxX;
+    const nz = position.getZ(index) / maxZ;
     // Sheer: parabolic rise toward both ends, bow (+x) lifted a touch more.
-    position.setY(index, sheer * nx * nx * (nx > 0 ? 1.12 : 1));
-    const radial = Math.min(1, Math.hypot(nx, position.getZ(index) / maxZ));
+    // Camber (W5.3): the deck crowns athwartships so water runs to the rails.
+    // A ShapeGeometry only has outline vertices — there is no centreline row
+    // to raise — so the crown is expressed by dropping the rails instead,
+    // which produces the same silhouette from the isometric camera.
+    const camber = DECK_CAMBER * nz * nz;
+    position.setY(index, sheer * nx * nx * (nx > 0 ? 1.12 : 1) - camber);
+    const radial = Math.min(1, Math.hypot(nx, nz));
     scratch.copy(center).lerp(edge, radial);
     colors[index * 3] = scratch.r;
     colors[index * 3 + 1] = scratch.g;

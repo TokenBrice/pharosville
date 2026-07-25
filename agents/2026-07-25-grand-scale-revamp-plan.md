@@ -631,10 +631,23 @@ end**; 841 unit tests green across 87 files.
   to `recovery` at a 384px map; only `constrained` drops them. The casters are
   static and `shadow.autoUpdate` is false, so the recurring cost is just the
   PCF taps. Verified live: `shadowMapSize: 384` at 26.2 ms.
-- **W6.3 — bloom is still off** below balanced, so A5 is only half met. Bloom
-  is a real full-screen pass, unlike shadows, so it needs the tier to rise or
-  an explicit decision to decouple it.
-- **A4 — the scheduler still settles in `recovery`.** Not met.
+- **W6.3 — bloom is BACK at `recovery` (fixed late in the run).** It now runs
+  at half resolution: `UnrealBloomPass` is a five-level mip pyramid, so halving
+  its working resolution quarters its fragment cost, and bloom is a blur so the
+  difference is invisible at this radius. A5 is met at `recovery` and above.
+- **A4 — the scheduler still settles in `recovery`, and drops to
+  `constrained` under load.** Not met.
+
+  **Open question for the operator, deliberately NOT actioned blind:** at
+  `constrained` the composer is disabled *entirely*, which drops the colour
+  grade along with bloom. Grade is one cheap full-screen pass and it carries
+  the whole day/dusk/night colour identity, so losing it is a much larger
+  visual cliff than its cost justifies. The obvious change is to keep the
+  composer at `constrained` with bloom off, and let the tier shed elsewhere
+  (shadows, water detail, lanes — all already wired). It was not made tonight
+  because `constrained` is the last-resort recovery valve and the machine was
+  too contended to verify the change would not make a drowning device worse.
+  Verify on an idle machine first.
 - **W6.4 — water reflection not implemented.** The concept render's defining
   feature. Not started.
 - **W6.6 — the washed-out day is FIXED (late in the run).** The fog ladder had
