@@ -1,6 +1,5 @@
 import {
   CEMETERY_CENTER,
-  CEMETERY_ISLAND_RADIUS,
   DOCK_TILES,
   MAX_TILE_X,
   MAX_TILE_Y,
@@ -48,12 +47,18 @@ export const GARDEN_ISLAND_OBSTACLE: GardenEllipse = {
   ry: 10.5,
 };
 
-/** Rendered cemetery islet (landmass + buffer), tile space. */
+/**
+ * N2: the cemetery islet no longer exists — dead stablecoins are wrecks
+ * scattered across the south-west wreck shoals, which are open water. The
+ * obstacle is kept as a small courtesy clearance around the densest cluster so
+ * a live hull never parks inside a wreck, but it no longer walls off a
+ * landmass that is not there.
+ */
 export const GARDEN_CEMETERY_OBSTACLE: GardenEllipse = {
   x: CEMETERY_CENTER.x,
   y: CEMETERY_CENTER.y,
-  rx: CEMETERY_ISLAND_RADIUS.x + 0.8,
-  ry: CEMETERY_ISLAND_RADIUS.y + 0.8,
+  rx: 3.2,
+  ry: 2.4,
 } as const;
 
 interface GardenCircle {

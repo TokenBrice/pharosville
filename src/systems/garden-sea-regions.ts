@@ -31,11 +31,12 @@ export const SEA_REGION_ID = {
   danger: 5,
   ledger: 6,
   open: 7,
+  wreck: 8,
 } as const;
 
 export type SeaRegionName = keyof typeof SEA_REGION_ID;
 
-export const SEA_REGION_COUNT = 8;
+export const SEA_REGION_COUNT = 9;
 
 const REGION_FOR_TERRAIN: Partial<Record<TerrainKind, number>> = {
   "alert-water": SEA_REGION_ID.alert,
@@ -45,6 +46,7 @@ const REGION_FOR_TERRAIN: Partial<Record<TerrainKind, number>> = {
   "storm-water": SEA_REGION_ID.danger,
   "warning-water": SEA_REGION_ID.warning,
   "watch-water": SEA_REGION_ID.watch,
+  "wreck-water": SEA_REGION_ID.wreck,
   // The island periphery and lighthouse sightline stay deliberately
   // unassigned: they are the harbor approach and the monument's open water,
   // and they carry the composition's breathing room (D5).
@@ -225,6 +227,31 @@ export const SEA_REGION_CHARACTER: Record<SeaRegionName, SeaRegionCharacter> = {
   // The ledger shelf reads as shallow, slack, slightly stagnant water.
   ledger: { swell: 0.7, chop: 0.75, foam: 0.1, reflectivity: 1.2, depth: 1.12 },
   open: { swell: 1, chop: 1, foam: 0.12, reflectivity: 1, depth: 0.97 },
+  // N2 — the wreck shoals. Slack, shallow, still: water that has stopped
+  // moving. The lowest swell and chop in the world and almost no foam, so the
+  // graveyard reads as a held breath next to the working sea.
+  wreck: { swell: 0.3, chop: 0.4, foam: 0.03, reflectivity: 0.9, depth: 1.18 },
+};
+
+/**
+ * Fallback tint per region, in case nothing drives a slot from the live theme.
+ *
+ * DEWS bands are recoloured every frame from the day-blended palette via
+ * `setZoneState`; the wreck shoals are NOT a DEWS band, so without a default
+ * its uniform slot would stay at the zero-initialised colour and the whole
+ * corner would render black.
+ */
+export const SEA_REGION_FALLBACK_TINT: Record<SeaRegionName, string> = {
+  none: "#ffffff",
+  calm: "#7fb2a8",
+  watch: "#6f9fb5",
+  alert: "#c3a06a",
+  warning: "#c08a5a",
+  danger: "#a55f52",
+  ledger: "#8d8aa8",
+  open: "#ffffff",
+  // Drowned green-grey: algal, still, colder than the working sea.
+  wreck: "#5d7068",
 };
 
 export const SEA_REGION_ORDER: readonly SeaRegionName[] = [
@@ -236,6 +263,7 @@ export const SEA_REGION_ORDER: readonly SeaRegionName[] = [
   "danger",
   "ledger",
   "open",
+  "wreck",
 ];
 
 /**

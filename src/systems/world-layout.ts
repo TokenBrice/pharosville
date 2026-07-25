@@ -73,6 +73,13 @@ export const ISLAND_PERIPHERY_TILE_DISTANCE = 4;
 // claims tiles that should be Alert.
 const EAST_CORNER_CENTER = { x: 55, y: 0 } as const;
 const SOUTHEAST_CORNER_CENTER = { x: 55, y: 55 } as const;
+// N2 (2026-07-25): the ship graveyard. Dead and frozen stablecoins used to sit
+// as headstones on a detached islet; they are now an accumulation of wrecks
+// over a corner of the SEA. The south-west corner is the far pole from the
+// north-east storm corner, so the map reads danger at one end and memory at
+// the other.
+const WRECK_CORNER_CENTER = { x: 0, y: 55 } as const;
+const WRECK_CORNER_RADIUS = 17;
 const CORNER_RADIUS = 14;
 const DANGER_RING_OUTER = 0.26;
 const WARNING_RING_OUTER = 0.66;
@@ -166,9 +173,12 @@ export const DOCK_TILES = [
 // Cemetery remains a separate memorial islet, snapped to the bottom-left edge
 // as in the positioning source while staying outside the central island model.
 /** Center of the cemetery scatter region (the planted graves) on the bottom-left memorial islet. */
-export const CEMETERY_CENTER = landWorld({ x: 8.0, y: 50.0 });
+// N2: the graveyard is a stretch of SEA in the south-west corner, not an
+// islet. Zone space, so it scales with the map like the other water zones.
+export const CEMETERY_CENTER = zoneWorldTile({ x: 6.0, y: 49.0 });
 /** Ellipse half-axes for the inner planted-grave region (graves stay within this footprint). */
-export const CEMETERY_RADIUS = { x: 3.3, y: 2.1 } as const;
+// Wrecks scatter across the shoals rather than crowding a churchyard plot.
+export const CEMETERY_RADIUS = { x: 12.0, y: 9.0 } as const;
 /** Ellipse half-axes for the outer cemetery islet landmass that surrounds the graves. */
 export const CEMETERY_ISLAND_RADIUS = { x: 5.4, y: 3.8 } as const;
 
@@ -211,6 +221,7 @@ const WATER_TERRAIN_KINDS = new Set<TerrainKind>([
   "warning-water",
   "storm-water",
   "ledger-water",
+  "wreck-water",
 ]);
 
 /** True if `kind` is one of the water terrain kinds (deep, calm, alert, harbor, watch, warning, storm, ledger, generic). */
@@ -246,6 +257,7 @@ export function terrainKindAt(x: number, y: number): TerrainKind {
       if (isLedgerMooring(zx, zy)) return "ledger-water";
       if (isAlertChannel(zx, zy)) return "alert-water";
       if (isWatchBreakwater(zx, zy)) return "watch-water";
+      if (isWreckShoals(zx, zy)) return "wreck-water";
       if (isCalmAnchorage(zx, zy)) return "calm-water";
     }
     if (isTopShelfOpenWaterGap(zx, zy)) return "watch-water";
@@ -275,8 +287,6 @@ function canonicalTileKind(kind: TerrainKind): TileKind {
 function islandValue(x: number, y: number): number {
   return Math.min(
     mainIslandValue(x, y),
-    // Detached bottom-left cemetery islet.
-    ellipseValue(x, y, CEMETERY_CENTER.x, CEMETERY_CENTER.y, CEMETERY_ISLAND_RADIUS.x, CEMETERY_ISLAND_RADIUS.y),
     // Detached southeast pigeonnier islet (PharosWatch dispatch).
     ellipseValue(x, y, PIGEON_ISLAND_CENTER.x, PIGEON_ISLAND_CENTER.y, PIGEON_ISLAND_RADIUS.x, PIGEON_ISLAND_RADIUS.y),
   );
@@ -310,6 +320,16 @@ function isWarningShoals(x: number, y: number): boolean {
 
 function isDangerStrait(x: number, y: number): boolean {
   return eastCornerRiskValue(x, y) < DANGER_RING_OUTER;
+}
+
+/**
+ * The wreck shoals (N2): slack, shallow water in the south-west corner where
+ * dead and frozen stablecoins come to rest. A lifecycle record, not a live
+ * market signal — the Entity Meaning contract for cemetery markers is
+ * unchanged, only their setting is.
+ */
+function isWreckShoals(x: number, y: number): boolean {
+  return ellipseValue(x, y, WRECK_CORNER_CENTER.x, WRECK_CORNER_CENTER.y, WRECK_CORNER_RADIUS, WRECK_CORNER_RADIUS) < 1;
 }
 
 function eastCornerRiskValue(x: number, y: number): number {
@@ -689,7 +709,9 @@ function cemeteryScatterTile(
       x: CEMETERY_CENTER.x + Math.cos(angle + drift) * CEMETERY_RADIUS.x * radius,
       y: CEMETERY_CENTER.y + Math.sin(angle - drift) * CEMETERY_RADIUS.y * radius,
     };
-    if (cemeteryValue(tile.x, tile.y) > 0.97 || cemeteryReserved(tile) || tileKindAt(tile.x, tile.y) !== "land") continue;
+    if (cemeteryValue(tile.x, tile.y) > 0.97 || cemeteryReserved(tile)) continue;
+    // N2: wrecks settle on the wreck shoals, not on a headstone islet.
+    if (terrainKindAt(tile.x, tile.y) !== "wreck-water") continue;
     const nearest = nearestPlacedDistance(placedByGridCell, tile.x, tile.y, scale);
     const edgePenalty = Math.abs(0.58 - radius) * 0.18;
     const score = nearest - edgePenalty - attempt * 0.001;
@@ -707,7 +729,7 @@ function cemeteryScatterTile(
       x: CEMETERY_CENTER.x + Math.cos(angle) * CEMETERY_RADIUS.x * radius,
       y: CEMETERY_CENTER.y + Math.sin(angle) * CEMETERY_RADIUS.y * radius,
     };
-    if (tileKindAt(tile.x, tile.y) === "land") return tile;
+    if (terrainKindAt(tile.x, tile.y) === "wreck-water") return tile;
   }
   return { ...CEMETERY_CENTER };
 }

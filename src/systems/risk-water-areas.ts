@@ -63,23 +63,25 @@ const AUTHORED_RISK_WATER_AREAS: Record<ShipRiskPlacement, RiskWaterAreaDefiniti
     // RENDERED ring re-centers on the island as the inner harbor ring — the
     // display composition lives in garden-observatory-slice.ts
     // (AREA_DISPLAY_CENTER / AREA_LABEL_TILE), not in this data.
-    regionTile: { x: 10, y: 40 },
-    labelTile: { x: 10, y: 40 },
+    regionTile: { x: 11, y: 36 },
+    labelTile: { x: 11, y: 36 },
     terrain: "calm-water",
     validTerrains: ["calm-water"],
     waterStyle: "left-edge calm anchorage",
     motionZone: "calm",
+    // N2: the extreme south-west corner became the wreck shoals, so Calm's
+    // southern anchors move north out of the graveyard's water.
     shipAnchors: [
       { x: 0, y: 15 },
       { x: 0, y: 27 },
-      { x: 0, y: 39 },
-      { x: 0, y: 45 },
+      { x: 0, y: 33 },
+      { x: 3, y: 36 },
       { x: 6, y: 20 },
       { x: 8, y: 32 },
-      { x: 14, y: 42 },
+      { x: 16, y: 40 },
       // Z1 optional additions so moored ships populate the new ring.
-      { x: 11, y: 44 },
-      { x: 15, y: 48 },
+      { x: 13, y: 41 },
+      { x: 19, y: 45 },
     ],
     scatterRadius: { x: 7, y: 15 },
   },

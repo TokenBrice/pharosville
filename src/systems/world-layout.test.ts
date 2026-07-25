@@ -48,6 +48,21 @@ function landTerrain(x: number, y: number): ReturnType<typeof terrainKindAt> {
 /** Zone terrain AREAS scale with the map, so authored tile counts multiply by 4. */
 const AREA_SCALE = PHAROSVILLE_MAP_SCALE ** 2;
 
+/**
+ * Every terrain that reads as an ATTRIBUTED body of sea, as opposed to the
+ * generic `"water"` halo the island and lighthouse keep around themselves.
+ * N2 added `wreck-water` (the south-west graveyard shoals) to this set.
+ */
+const NAMED_SEA_TERRAINS = [
+  "calm-water",
+  "watch-water",
+  "alert-water",
+  "warning-water",
+  "storm-water",
+  "ledger-water",
+  "wreck-water",
+] as const;
+
 const CIVIC_CORE_DESIGN = { x: 31, y: 31 } as const;
 const CIVIC_CORE_CENTER = landWorldTile(CIVIC_CORE_DESIGN);
 const isLandTileKind = (kind: ReturnType<typeof tileKindAt>) => !isWaterTileKind(kind);
@@ -60,18 +75,21 @@ describe("buildPharosVilleMap", () => {
     expect(map.width).toBe(PHAROSVILLE_MAP_WIDTH);
     expect(map.height).toBe(PHAROSVILLE_MAP_HEIGHT);
     expect(map.tiles).toHaveLength(PHAROSVILLE_MAP_WIDTH * PHAROSVILLE_MAP_HEIGHT);
-    // N1 THRESHOLD CHANGE: land is OFFSET, not scaled, so the same 443 land
-    // tiles now sit in a 4x sea and the water share rises from ~0.86 at 56x56
-    // to a measured 0.9647 at 112x112. The invariant that still holds exactly is
-    // the absolute land footprint asserted just below.
-    expect(map.waterRatio).toBeGreaterThanOrEqual(0.963);
-    expect(map.waterRatio).toBeLessThanOrEqual(0.966);
-    const mainIslandLandTiles = landTilesExcludingCemetery(map.tiles);
+    // THRESHOLD CHANGE, twice over. N1: land is OFFSET, not scaled, so the
+    // island's absolute footprint sits in a 4x sea and the water share rose from
+    // ~0.86 at 56x56 to ~0.9647. N2: the cemetery islet became open water (the
+    // wreck shoals), removing its ~65 land tiles, and the measured share is now
+    // 0.9699. The invariant that still holds exactly is the absolute main-island
+    // footprint asserted just below.
+    expect(map.waterRatio).toBeGreaterThanOrEqual(0.968);
+    expect(map.waterRatio).toBeLessThanOrEqual(0.972);
+    const mainIslandLandTiles = landTilesExcludingIslets(map.tiles);
     // Baseline was 592 main-island land tiles; 377 is a 36.3% reduction
-    // resulting from the single-oval + lighthouse-promontory geometry. The N1
-    // map growth must not change this — the island is offset, not scaled.
+    // resulting from the single-oval + lighthouse-promontory geometry. Neither
+    // the N1 map growth nor the N2 cemetery drowning may change this — the
+    // island is offset, not scaled, and the cemetery was never part of it.
     expect(mainIslandLandTiles).toHaveLength(377);
-    const mainIslandBounds = landBoundsExcludingCemetery(map.tiles);
+    const mainIslandBounds = landBoundsExcludingIslets(map.tiles);
     const islandEnvelopeMin = landWorldTile({ x: 15, y: 22 });
     const islandEnvelopeMax = landWorldTile({ x: 42, y: 40 });
     expect(mainIslandBounds.minX).toBeGreaterThanOrEqual(islandEnvelopeMin.x);
@@ -103,6 +121,7 @@ describe("buildPharosVilleMap", () => {
       "watch-water",
       "warning-water",
       "storm-water",
+      "wreck-water",
       "grass",
       "rock",
     ]));
@@ -152,7 +171,8 @@ describe("buildPharosVilleMap", () => {
     // Harbor ring slots stay natural land/coast, not roads.
     expect(isLandTerrainKind(landTerrain(23, 37))).toBe(true);
     expect(isLandTerrainKind(landTerrain(26, 39))).toBe(true);
-    expect(terrainKindAt(Math.round(CEMETERY_CENTER.x), Math.round(CEMETERY_CENTER.y))).toBe("grass");
+    // N2: the graveyard is sea now, so nothing outside the island reads as land.
+    expect(terrainKindAt(Math.round(CEMETERY_CENTER.x), Math.round(CEMETERY_CENTER.y))).toBe("wreck-water");
   });
 
   it("keeps risk anchors on matching water terrain", () => {
@@ -163,17 +183,21 @@ describe("buildPharosVilleMap", () => {
     expect(terrainKindAt(REGION_TILES["outer-rough-water"].x, REGION_TILES["outer-rough-water"].y)).toBe("warning-water");
     expect(terrainKindAt(REGION_TILES["storm-shelf"].x, REGION_TILES["storm-shelf"].y)).toBe("storm-water");
     expect(terrainKindAt(REGION_TILES["ledger-mooring"].x, REGION_TILES["ledger-mooring"].y)).toBe("ledger-water");
-    expect(zoneTerrain(0, 55)).toBe("calm-water");
+    // N2: the bottom of the left edge is the wreck shoals, not Calm.
+    expect(zoneTerrain(0, 55)).toBe("wreck-water");
     expect(zoneTerrain(47, 52)).toBe("watch-water");
     expect(zoneTerrain(50, 55)).toBe("watch-water");
   });
 
-  it("uses the left edge for Calm Anchorage and the south basin for Watch Breakwater", () => {
+  it("splits the left edge between Calm Anchorage above and the wreck shoals below, with Watch in the south basin", () => {
+    // N2 carved the extreme south-west corner out of Calm Anchorage and made it
+    // the wreck shoals. Calm still owns the left edge ABOVE the shoals and the
+    // whole south basin west of Watch; the two facts are asserted together so
+    // neither zone can quietly eat the other.
     const calmSamples = [
       { x: 0, y: 13 },
       { x: 0, y: 27 },
-      { x: 0, y: 39 },
-      { x: 0, y: 55 },
+      { x: 0, y: 38 }, // last calm tile on the left edge before the shoals
       { x: 6, y: 20 },
       { x: 14, y: 42 },
       { x: 18, y: 47 },
@@ -182,6 +206,13 @@ describe("buildPharosVilleMap", () => {
       { x: 37, y: 55 },
       { x: 44, y: 34 },
       { x: 45, y: 35 },
+    ];
+    // The graveyard corner: the sea south-west of the Calm boundary.
+    const wreckSamples = [
+      { x: 0, y: 39 }, // first shoal tile on the left edge
+      { x: 0, y: 55 },
+      { x: 1, y: 54 },
+      { x: 6, y: 49 }, // authored wreck-scatter center
     ];
     const watchSamples = [
       { x: 38, y: 52 },
@@ -197,6 +228,9 @@ describe("buildPharosVilleMap", () => {
 
     for (const tile of calmSamples) {
       expect(zoneTerrain(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("calm-water");
+    }
+    for (const tile of wreckSamples) {
+      expect(zoneTerrain(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("wreck-water");
     }
     for (const tile of watchSamples) {
       expect(zoneTerrain(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("watch-water");
@@ -263,19 +297,16 @@ describe("buildPharosVilleMap", () => {
     expect(zoneTerrain(55, 0)).toBe("storm-water");
   });
 
-  it("extends DEWS water over the exposed outer perimeter while keeping the island halo generic", () => {
+  it("extends named sea water over the exposed outer perimeter while keeping the island halo generic", () => {
     for (const tile of [
-      { x: 0, y: 54 },
+      { x: 0, y: 54 }, // N2: the south-west perimeter is wreck shoals now
       { x: 1, y: 55 },
       { x: 55, y: 24 },
       { x: 55, y: 38 },
       { x: 44, y: 40 },
       { x: 51, y: 31 },
     ]) {
-      expect(
-        ["calm-water", "watch-water", "alert-water", "warning-water", "storm-water"],
-        `${tile.x}.${tile.y}`,
-      ).toContain(zoneTerrain(tile.x, tile.y));
+      expect(NAMED_SEA_TERRAINS, `${tile.x}.${tile.y}`).toContain(zoneTerrain(tile.x, tile.y));
     }
 
     // The generic halo hugs the island, so these samples are landmass-relative.
@@ -379,32 +410,42 @@ describe("buildPharosVilleMap", () => {
     expect(isNavigableWaterTile(landWorldTile({ x: 39, y: 17 }))).toBe(true);
   });
 
-  it("scatters cemetery graves across expanded land with varied markers", () => {
+  it("strews wrecks across the south-west shoals with varied markers", () => {
+    // N2: the memorial islet is gone. Dead and frozen stablecoins are an
+    // accumulation of wrecks lying on the wreck shoals — open, slack sea in the
+    // south-west corner — so every assertion here is about WATER, not land.
     const graves = graveNodesFromEntries(CEMETERY_ENTRIES);
-    const cemeteryIsland = connectedLandTileKeys({
-      x: Math.round(CEMETERY_CENTER.x),
-      y: Math.round(CEMETERY_CENTER.y),
-    });
+    const shoals = connectedTerrainTileKeys(
+      { x: Math.round(CEMETERY_CENTER.x), y: Math.round(CEMETERY_CENTER.y) },
+      "wreck-water",
+    );
     const xs = graves.map((grave) => grave.tile.x);
     const ys = graves.map((grave) => grave.tile.y);
 
     expect(graves).toHaveLength(CEMETERY_ENTRIES.length);
-    expect(CEMETERY_CENTER).toEqual(landWorldTile({ x: 8.0, y: 50.0 }));
-    expect(CEMETERY_RADIUS).toEqual({ x: 3.3, y: 2.1 });
+    // The scatter region is authored in ZONE space (it is a body of water now),
+    // and widened so wrecks spread over the shoals instead of a churchyard plot.
+    expect(CEMETERY_CENTER).toEqual(zoneWorldTile({ x: 6.0, y: 49.0 }));
+    expect(CEMETERY_RADIUS).toEqual({ x: 12.0, y: 9.0 });
     expect(CEMETERY_CENTER.x).toBeLessThan(CIVIC_CORE_CENTER.x);
     expect(CEMETERY_CENTER.y).toBeGreaterThan(CIVIC_CORE_CENTER.y);
     expect(CEMETERY_CENTER.x).toBeLessThan(LIGHTHOUSE_TILE.x);
-    expect(tileKindAt(Math.round(CEMETERY_CENTER.x), Math.round(CEMETERY_CENTER.y))).toBe("land");
-    expect(terrainKindAt(Math.round(CEMETERY_CENTER.x), Math.round(CEMETERY_CENTER.y))).toBe("grass");
-    // Cemetery islet is detached from the main island.
-    expect(cemeteryIsland.has(tileKey({ x: LIGHTHOUSE_TILE.x, y: LIGHTHOUSE_TILE.y }))).toBe(false);
-    expect(graves.every((grave) => tileKindAt(grave.tile.x, grave.tile.y) === "land")).toBe(true);
-    expect(cemeteryIsland.has(tileKey({ x: Math.round(CEMETERY_CENTER.x), y: Math.round(CEMETERY_CENTER.y) }))).toBe(true);
-    expect(graves.every((grave) => isNearConnectedLand(grave.tile, cemeteryIsland))).toBe(true);
+    expect(tileKindAt(Math.round(CEMETERY_CENTER.x), Math.round(CEMETERY_CENTER.y))).toBe("water");
+    expect(terrainKindAt(Math.round(CEMETERY_CENTER.x), Math.round(CEMETERY_CENTER.y))).toBe("wreck-water");
+    // Every wreck lies on the shoals, and the shoals are ONE body of water —
+    // the whole graveyard is sailable, with no marooned pockets.
+    expect(graves.every((grave) => terrainKindAt(grave.tile.x, grave.tile.y) === "wreck-water")).toBe(true);
+    expect(graves.every((grave) => isNearConnectedTile(grave.tile, shoals))).toBe(true);
+    expect(shoals.size).toBe(terrainCounts(buildPharosVilleMap().tiles).get("wreck-water"));
+    // The graveyard keeps its distance from the living harbor.
     expect(graves.every((grave) => Math.hypot(grave.tile.x - LIGHTHOUSE_TILE.x, grave.tile.y - LIGHTHOUSE_TILE.y) > 10)).toBe(true);
     expect(graves.every((grave) => DOCK_TILES.every((dock) => Math.hypot(grave.tile.x - dock.x, grave.tile.y - dock.y) > 3.25))).toBe(true);
-    expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(4.5);
-    expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(3.5);
+    // THRESHOLD CHANGE: the old floors (4.5 x 3.5) were sized for the 3.3x2.1
+    // churchyard plot. Derive them from the widened scatter radius instead —
+    // wrecks must span more than one half-axis on each side. Measured spread is
+    // 21.35 x 15.85 against radii of 12 x 9.
+    expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(CEMETERY_RADIUS.x);
+    expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(CEMETERY_RADIUS.y);
     expect(new Set(graves.map((grave) => grave.visual.marker)).size).toBeGreaterThan(2);
     expect(graves.filter((grave) => grave.entry.causeOfDeath === "regulatory").every((grave) => grave.visual.marker === "broken-keel")).toBe(true);
     expect(graves.filter((grave) => grave.entry.causeOfDeath === "liquidity-drain").every((grave) => grave.visual.marker === "sinking-stern")).toBe(true);
@@ -424,10 +465,8 @@ function nearbyTiles(center: { x: number; y: number }, radius: number): { x: num
   return tiles;
 }
 
-function landBoundsExcludingCemetery(tiles: PharosVilleTile[]) {
-  // Cemetery is its own islet now — exclude tiles within ~6 tiles of CEMETERY_CENTER
-  // when measuring the main-island envelope.
-  const landTiles = landTilesExcludingCemetery(tiles);
+function landBoundsExcludingIslets(tiles: PharosVilleTile[]) {
+  const landTiles = landTilesExcludingIslets(tiles);
   const xs = landTiles.map((tile) => tile.x);
   const ys = landTiles.map((tile) => tile.y);
   return {
@@ -438,16 +477,14 @@ function landBoundsExcludingCemetery(tiles: PharosVilleTile[]) {
   };
 }
 
-function landTilesExcludingCemetery(tiles: PharosVilleTile[]) {
-  const cemeteryRadius = 6;
+// N2: the cemetery is no longer land, so the pigeonnier platform is the only
+// detached landmass left to exclude when measuring the main-island envelope.
+function landTilesExcludingIslets(tiles: PharosVilleTile[]) {
   const pigeonRadius = 2;
   return tiles.filter((tile) => {
     if (isWaterTileKind(tile.kind)) return false;
-    const dCem = Math.hypot(tile.x - CEMETERY_CENTER.x, tile.y - CEMETERY_CENTER.y);
-    if (dCem <= cemeteryRadius) return false;
     const dPigeon = Math.hypot(tile.x - PIGEON_ISLAND_CENTER.x, tile.y - PIGEON_ISLAND_CENTER.y);
-    if (dPigeon <= pigeonRadius) return false;
-    return true;
+    return dPigeon > pigeonRadius;
   });
 }
 
@@ -511,7 +548,11 @@ function cardinalDirections(): { x: number; y: number }[] {
 }
 
 
-function connectedLandTileKeys(start: { x: number; y: number }): Set<string> {
+/** Flood-fills the contiguous run of `terrain` tiles reachable from `start`. */
+function connectedTerrainTileKeys(
+  start: { x: number; y: number },
+  terrain: ReturnType<typeof terrainKindAt>,
+): Set<string> {
   const visited = new Set<string>();
   const queue = [start];
 
@@ -519,7 +560,7 @@ function connectedLandTileKeys(start: { x: number; y: number }): Set<string> {
     const tile = queue.shift();
     if (!tile) continue;
     if (tile.x < 0 || tile.x >= PHAROSVILLE_MAP_WIDTH || tile.y < 0 || tile.y >= PHAROSVILLE_MAP_HEIGHT) continue;
-    if (isWaterTileKind(tileKindAt(tile.x, tile.y))) continue;
+    if (terrainKindAt(tile.x, tile.y) !== terrain) continue;
     const key = tileKey(tile);
     if (visited.has(key)) continue;
 
@@ -530,7 +571,7 @@ function connectedLandTileKeys(start: { x: number; y: number }): Set<string> {
   return visited;
 }
 
-function isNearConnectedLand(tile: { x: number; y: number }, connected: ReadonlySet<string>): boolean {
+function isNearConnectedTile(tile: { x: number; y: number }, connected: ReadonlySet<string>): boolean {
   return nearbyTiles({ x: Math.round(tile.x), y: Math.round(tile.y) }, 1).some((candidate) => (
     connected.has(tileKey(candidate))
     && Math.hypot(candidate.x - tile.x, candidate.y - tile.y) < 1.25

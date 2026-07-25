@@ -27,6 +27,7 @@ import {
   nearestGardenShipWater,
 } from "./garden-water-exclusion";
 import { landWorldTile, zoneWorldTile } from "./map-scale";
+import { CEMETERY_CENTER } from "./world-layout";
 
 /** `isGardenObstacleTile` for an already-transformed world tile. */
 function isObstacleAt(tile: { x: number; y: number }): boolean {
@@ -52,17 +53,22 @@ function shipMargin(ship: { visual: { scale?: number } }): number {
 
 describe("garden water exclusion (zones-v2 placement fix)", () => {
   it("marks the rendered landmasses as obstacles and open sea as water", () => {
-    // Island heart, garden islets and cemetery are obstacles. N1: every
-    // landmass is authored in the 56-tile design space and OFFSET onto the
-    // 112-tile grid, so its absolute footprint is unchanged; the pigeonnier
-    // rides the Watch shelf and therefore SCALES with the zone bands.
+    // Island heart and garden islets are obstacles. N1: every landmass is
+    // authored in the 56-tile design space and OFFSET onto the 112-tile grid,
+    // so its absolute footprint is unchanged; the pigeonnier rides the Watch
+    // shelf and therefore SCALES with the zone bands.
     expect(isObstacleAt(landWorldTile({ x: 30, y: 37 }))).toBe(true);
     expect(isObstacleAt(landWorldTile({ x: 33, y: 44 }))).toBe(true); // data water under the rendered rock
     expect(isObstacleAt(landWorldTile({ x: 28, y: 8 }))).toBe(true); // crane islet
     expect(isObstacleAt(landWorldTile({ x: 4, y: 20 }))).toBe(true); // turtle islet
     expect(isObstacleAt(landWorldTile({ x: 26, y: 44 }))).toBe(true); // lone islet
-    expect(isObstacleAt(landWorldTile({ x: 8, y: 50 }))).toBe(true); // cemetery islet
     expect(isObstacleAt(zoneWorldTile({ x: 50, y: 50 }))).toBe(true); // pigeonnier
+    // N2: the cemetery islet is gone. What is left at the heart of the wreck
+    // shoals is a small courtesy clearance so a live hull never parks inside a
+    // wreck — the shoals themselves are open, sailable water.
+    expect(isObstacleAt(CEMETERY_CENTER)).toBe(true);
+    expect(isObstacleAt(landWorldTile({ x: 8, y: 50 }))).toBe(false); // the old islet's water
+    expect(isObstacleAt(zoneWorldTile({ x: 0, y: 55 }))).toBe(false); // deep in the shoals
     // Open sea stays open.
     expect(isObstacleAt(zoneWorldTile({ x: 10, y: 30 }))).toBe(false);
     expect(isObstacleAt(zoneWorldTile({ x: 45, y: 10 }))).toBe(false);

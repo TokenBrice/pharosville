@@ -45,8 +45,14 @@ tests and documentation.
   scatter as blue noise inside their own sea region, a 9-tile clearance
   keeps the lighthouse approach open, and a density falloff thins the fleet
   toward the frame edge.
-- The detached cemetery and TON pigeonnier remain spatially distinct from the
-  main island.
+- The TON pigeonnier remains spatially distinct from the main island.
+- The ship graveyard is a REGION OF SEA, not an island (N2, 2026-07-25).
+  Dead and frozen stablecoins rest as half-sunk wrecks across the wreck
+  shoals in the south-west corner — the far pole from the north-east storm
+  corner, so the map reads danger at one end and memory at the other. Its
+  water is the stillest in the world (lowest swell, chop and foam), and no
+  live ship is ever assigned there, so the corner stays quiet by
+  construction rather than by rule.
 - Ethereum and available Base, Arbitrum, and Polygon docks preserve a readable
   hub/rollup relationship.
 - DOM analytical labels must remain legible and selectable without occluding
@@ -61,7 +67,7 @@ tests and documentation.
 | Ship | one active stablecoin | linear supply area |
 | Route | deterministic chain/risk patrol | real issuer operations |
 | Risk water | existing peg/DEWS evidence | stress from stale evidence alone |
-| Cemetery marker | dead/frozen lifecycle state | current active status |
+| Wreck | dead/frozen lifecycle state | current active status |
 
 ## The Pharos Lighthouse
 
@@ -86,7 +92,7 @@ tests and documentation.
 
 ## Renderer And Media
 
-- Island, docks, ships, cemetery, pigeonnier, districts, ambient life, and
+- Island, docks, ships, wrecks, pigeonnier, districts, ambient life, and
   water remain renderer-owned procedural content unless a model decision meets
   `ASSET_PIPELINE.md`.
 - Checked GLBs must preserve manifest hashes, dimensions, base-center origins,

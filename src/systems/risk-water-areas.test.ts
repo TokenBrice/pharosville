@@ -38,6 +38,21 @@ const ZONE_EDGE_MAX = zoneWorldTile({
 });
 /** Zone AREAS scale with the map, so authored tile counts multiply by 4. */
 const AREA_SCALE = PHAROSVILLE_MAP_SCALE ** 2;
+/**
+ * Terrains that read as an ATTRIBUTED body of sea, as opposed to the generic
+ * `"water"` halo around the island and lighthouse. N2 added `wreck-water` (the
+ * south-west graveyard shoals) — it is a named sea region like the DEWS bands,
+ * so the island periphery must stay clear of it too.
+ */
+const NAMED_SEA_TERRAINS = [
+  "calm-water",
+  "watch-water",
+  "alert-water",
+  "warning-water",
+  "storm-water",
+  "ledger-water",
+  "wreck-water",
+] as const;
 
 /** `terrainKindAt` for a design-space ZONE coordinate. */
 function zoneTerrain(x: number, y: number): ReturnType<typeof terrainKindAt> {
@@ -184,9 +199,11 @@ describe("risk water areas", () => {
     // the east escalation stack fans out (sketch:
     // agents/2026-07-24-zone-recomposition-sketch.md). Zones-v2 (operator
     // overlay) re-composes only the RENDERED rings; these data tiles are
-    // unchanged by it.
+    // unchanged by it. N2 pulled Calm's anchor north from design (10,40) to
+    // (11,36): the extreme south-west corner is the wreck shoals now, so Calm's
+    // authored anchor has to sit clear of the graveyard's water.
     const expectedSamples = [
-      { band: "CALM", tile: { x: 10, y: 40 }, terrain: "calm-water" },
+      { band: "CALM", tile: { x: 11, y: 36 }, terrain: "calm-water" },
       { band: "WATCH", tile: { x: 38, y: 48 }, terrain: "watch-water" },
       { band: "ALERT", tile: { x: 50, y: 16 }, terrain: "alert-water" },
       { band: "WARNING", tile: { x: 50, y: 8 }, terrain: "warning-water" },
@@ -334,7 +351,7 @@ describe("risk water areas", () => {
     ];
     for (const tile of peripherySamples) {
       const terrain = landTerrain(tile.x, tile.y);
-      const isZoneTerrain = ["calm-water", "watch-water", "alert-water", "warning-water", "storm-water", "ledger-water"].includes(terrain);
+      const isZoneTerrain = NAMED_SEA_TERRAINS.includes(terrain as (typeof NAMED_SEA_TERRAINS)[number]);
       expect(isZoneTerrain, `${tile.x}.${tile.y} should be generic water, got ${terrain}`).toBe(false);
     }
   });
@@ -348,7 +365,7 @@ describe("risk water areas", () => {
     ];
     for (const tile of lighthouseClearanceSamples) {
       const terrain = landTerrain(tile.x, tile.y);
-      const isZoneTerrain = ["calm-water", "watch-water", "alert-water", "warning-water", "storm-water", "ledger-water"].includes(terrain);
+      const isZoneTerrain = NAMED_SEA_TERRAINS.includes(terrain as (typeof NAMED_SEA_TERRAINS)[number]);
       expect(isZoneTerrain, `${tile.x}.${tile.y} should be generic water (lighthouse clearance), got ${terrain}`).toBe(false);
     }
   });

@@ -13,6 +13,7 @@ export type TerrainKind =
   | "warning-water"
   | "storm-water"
   | "ledger-water"
+  | "wreck-water"
   | "beach"
   | "grass"
   | "rock"

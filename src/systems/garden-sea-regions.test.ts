@@ -34,7 +34,7 @@ describe("sea region field", () => {
     const coverage = gardenSeaRegionCoverage();
     expect(coverage.waterTiles).toBeGreaterThan(2_000);
     expect(coverage.namedShare).toBeGreaterThan(0.85);
-    for (const region of ["calm", "watch", "alert", "warning", "danger", "ledger"] as const) {
+    for (const region of ["calm", "watch", "alert", "warning", "danger", "ledger", "wreck"] as const) {
       expect(coverage.byRegion[region]).toBeGreaterThan(0);
     }
   });
@@ -76,7 +76,7 @@ describe("sea region field", () => {
   });
 
   it("keeps every region id addressable by the shader's uniform arrays", () => {
-    expect(SEA_REGION_ORDER).toHaveLength(8);
+    expect(SEA_REGION_ORDER).toHaveLength(9);
     for (const [name, id] of Object.entries(SEA_REGION_ID)) {
       expect(SEA_REGION_ORDER[id]).toBe(name);
       expect(SEA_REGION_CHARACTER[name as keyof typeof SEA_REGION_ID]).toBeDefined();

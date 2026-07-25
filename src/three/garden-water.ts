@@ -29,6 +29,7 @@ import { MAX_GARDEN_LIGHT_LANES } from "./garden-lanterns";
 import {
   SEA_REGION_CHARACTER,
   SEA_REGION_COUNT,
+  SEA_REGION_FALLBACK_TINT,
   SEA_REGION_ORDER,
   buildSeaRegionField,
 } from "../systems/garden-sea-regions";
@@ -838,7 +839,9 @@ export function createGardenWater(waterLevel: number): GardenWater {
   const regionField = createSeaRegionTexture();
   // Region character is static data (D6) — colour is resolved per day phase in
   // `update`, but swell/chop/foam/reflectivity never change.
-  const regionColors = SEA_REGION_ORDER.map(() => new Color());
+  // Seeded from the fallback table so every slot has a real colour even
+  // before (or without) a live theme write — an unset slot renders black.
+  const regionColors = SEA_REGION_ORDER.map((name) => new Color(SEA_REGION_FALLBACK_TINT[name]));
   const regionParams = SEA_REGION_ORDER.map((name) => {
     const character = SEA_REGION_CHARACTER[name];
     return new Vector4(
