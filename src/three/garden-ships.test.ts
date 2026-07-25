@@ -106,9 +106,17 @@ describe("fleet tiers", () => {
 });
 
 describe("hero hull assignment", () => {
-  it("routes titans to the titan hull and uniques to the heritage hull", () => {
-    expect(build(ship("t", "treasury-galleon", "titan")).heroModelId).toBe("garden-hero-titan");
-    expect(build(ship("u", "treasury-galleon", "unique")).heroModelId).toBe("garden-hero-heritage");
+  it("gives every hero-tier ship a distinct, deterministic hull", () => {
+    // W5 (D4/O11): ten distinct hulls, assigned deterministically per coin,
+    // replacing the two shared models every hero-tier ship used to get.
+    const titan = build(ship("t", "treasury-galleon", "titan")).heroModelId;
+    const unique = build(ship("u", "treasury-galleon", "unique")).heroModelId;
+    expect(titan).toMatch(/^garden-hero-/);
+    expect(unique).toMatch(/^garden-hero-/);
+    // Stable across rebuilds: a coin must never change ship between refreshes.
+    expect(build(ship("t", "treasury-galleon", "titan")).heroModelId).toBe(titan);
+
+    // Only hero tiers get a bespoke hull; the rest join the instanced batches.
     expect(build(ship("m", "treasury-galleon", "major")).heroModelId).toBeNull();
     expect(build(ship("s", "treasury-galleon", "skiff")).heroModelId).toBeNull();
   });

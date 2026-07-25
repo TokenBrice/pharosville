@@ -37,7 +37,8 @@ import {
   ZONE_ELLIPSE_Z,
   zoneRadius,
 } from "../systems/garden-zone-radii";
-import { setTilePosition, stableUnit } from "./garden-util";
+import { setTilePosition, stableUnit, TILE_SCALE } from "./garden-util";
+import { SEA_REGION_ID, seaRegionBoundaryPoints } from "../systems/garden-sea-regions";
 
 // The ellipse semi-axis factors and the per-band radius mapping live in
 // ../systems/garden-zone-radii.ts (three-free) so the deterministic sea
@@ -60,34 +61,28 @@ const ZONE_COLOR_HARMONY: Record<string, { anchor: string; mix: number }> = {
   DANGER: { anchor: HARBOR_PALETTE.vermillion, mix: 0.5 },
 };
 
-// The dashed perimeter is the primary marker; brightness (not alpha, since all
-// zones share one merged material) encodes band escalation — danger strongest.
-// Zones-v2: the floor was raised so the Calm harbor ring and the huge Watch
-// arc stay legible over bright shallow water (order preserved).
-const PERIMETER_STRENGTH: Record<string, number> = {
-  DANGER: 1,
-  WARNING: 0.82,
-  ALERT: 0.72,
-  WATCH: 0.62,
-  CALM: 0.58,
-};
-const PERIMETER_STRENGTH_DEFAULT = 0.6;
 
-// In-water tint strength per band (subtle: danger is a brooding patch, not a
-// paint spill). Kept ≤ 0.25 so DOM labels stay legible over the water.
-// Zones-v2: the ellipses grew into map-spanning bodies of water, so strengths
-// drop with footprint — WATCH tints nearly the whole sea and must be
-// barely-there; DANGER stays the strongest read but hugs the corner.
-// Zones-v3: the ellipses grew again (Watch 48, Calm 32, Alert 34), so the
-// large-body strengths step down once more; the escalation order is preserved.
-const TINT_STRENGTH: Record<string, number> = {
-  DANGER: 0.2,
-  WARNING: 0.13,
-  ALERT: 0.1,
-  WATCH: 0.04,
-  CALM: 0.08,
-};
-const TINT_STRENGTH_DEFAULT = 0.1;
+
+/**
+ * W2 / D5: band -> sea-region slot. The rendered geometry comes from the
+ * terrain field; this only says which slot a band's live colour drives.
+ */
+function seaRegionIdForArea(area: AreaNode): number {
+  if (area.band === "CALM") return SEA_REGION_ID.calm;
+  if (area.band === "WATCH") return SEA_REGION_ID.watch;
+  if (area.band === "ALERT") return SEA_REGION_ID.alert;
+  if (area.band === "WARNING") return SEA_REGION_ID.warning;
+  if (area.band === "DANGER") return SEA_REGION_ID.danger;
+  if (area.riskPlacement === "ledger-mooring") return SEA_REGION_ID.ledger;
+  return SEA_REGION_ID.none;
+}
+
+// W2.7 (tuned against the first render): a partition does not stack, so these
+// can exceed the old 0.04-0.20 ellipse values — but 0.32/0.44 read as UI paint
+// rather than water. Character (swell/chop/foam/reflectivity) carries the
+// signal; colour only has to make the region findable.
+const REGION_TINT_STRENGTH_BAND = 0.17;
+const REGION_TINT_STRENGTH_DANGER = 0.26;
 
 const BUOY_HEIGHT = 1.1;
 // Z3: buoys ride the water shader's swell (CPU mirror, see updateZoneBuoys).
@@ -104,6 +99,12 @@ export interface ZoneTint {
   color: Color;
   radiusX: number;
   radiusZ: number;
+  /**
+   * W2 / D5: which sea-region slot this band colours. The rendered footprint
+   * is the terrain-derived region field, not this ellipse — the ellipse
+   * survives only as the DOM label anchor and selection-cue extent.
+   */
+  regionId: number;
   strength: number;
 }
 
@@ -185,33 +186,33 @@ export function createZone(area: AreaNode): ZoneVisual {
   const bandColor = zoneBandColor(area);
   const circumference = zoneCircumference(radiusX, radiusZ);
 
-  const perimeter = buildBrokenPerimeter(
-    area,
-    centerX,
-    centerZ,
-    radiusX,
-    radiusZ,
-    bandColor,
-    circumference,
-  );
+  // W2.8: the dashed ellipse perimeter is gone. It traced an ellipse that no
+  // longer matches anything — the region field draws the real footprint, and
+  // W2.6's boundary foam line draws its edge. Keeping both meant two
+  // contradictory outlines for the same body of water. An empty perimeter
+  // keeps the merged-mesh plumbing (and its dispose path) intact.
+  const perimeter: PerimeterMesh = { colors: [], positions: [] };
 
-  // Zones-v2: buoy count scales with circumference (one marker per ~9 world
-  // units, capped) so map-spanning rings stay branded along their whole arc.
+  // W2.8: buoys mark the REAL region boundary now, not an ellipse that had
+  // nothing to do with where the region actually was. This is the positional
+  // (non-colour) encoding the accessibility contract requires, finally
+  // pointing at the true edge.
+  const regionId = seaRegionIdForArea(area);
   const buoyCount = Math.max(5, Math.min(24, Math.round(circumference / 9)));
-  const buoys: ZoneBuoyPlacement[] = [];
-  const angleSeed = stableUnit(`zone-buoy-angle.${area.id}`) * Math.PI * 2;
-  for (let index = 0; index < buoyCount; index += 1) {
-    const angle = angleSeed + (index / buoyCount) * Math.PI * 2;
-    buoys.push({
+  const buoys: ZoneBuoyPlacement[] = seaRegionBoundaryPoints(regionId, buoyCount)
+    .map((tile) => ({
       color: bandColor,
       danger,
-      worldX: centerX + Math.cos(angle) * radiusX,
-      worldZ: centerZ + Math.sin(angle) * radiusZ,
-    });
-  }
+      worldX: tile.x * TILE_SCALE,
+      worldZ: tile.y * TILE_SCALE,
+    }));
 
   const tintColor = bandColor.clone();
-  if (danger) tintColor.lerp(DEEP_SEA, 0.45);
+  // W2.7: the band accents are UI hues. Luminance-matching them against
+  // live water lifted danger's vermillion into magenta, which read as an
+  // overlay rather than a sea state. Every band is pulled toward deep sea;
+  // danger hardest, since its accent is the most saturated.
+  tintColor.lerp(DEEP_SEA, danger ? 0.62 : 0.34);
 
   return {
     area,
@@ -223,65 +224,15 @@ export function createZone(area: AreaNode): ZoneVisual {
       color: tintColor,
       radiusX,
       radiusZ,
-      strength: (area.band && TINT_STRENGTH[area.band]) ?? TINT_STRENGTH_DEFAULT,
+      regionId: seaRegionIdForArea(area),
+      // W2.7: a partition does not stack, so a region can tint at a strength
+      // that actually reads (the old 0.04-0.20 range existed only because six
+      // ellipses overlapped). Danger keeps a touch more weight.
+      strength: danger ? REGION_TINT_STRENGTH_DANGER : REGION_TINT_STRENGTH_BAND,
     },
   };
 }
 
-function buildBrokenPerimeter(
-  area: AreaNode,
-  centerX: number,
-  centerZ: number,
-  radiusX: number,
-  radiusZ: number,
-  color: Color,
-  circumference: number,
-): PerimeterMesh {
-  const strength = (area.band && PERIMETER_STRENGTH[area.band])
-    ?? PERIMETER_STRENGTH_DEFAULT;
-  const r = color.r * strength;
-  const g = color.g * strength;
-  const b = color.b * strength;
-  // Z3: hand-drawn broken ring. The ring is cut into dashes whose length (and
-  // therefore the gaps) varies with stable per-zone noise, and the band radius
-  // wobbles slightly segment to segment, so the perimeter reads drawn, not
-  // plotted. Everything is seeded by area id — the pattern never crawls.
-  // Zones-v2: segment and dash counts scale with circumference so the huge
-  // Watch/Ledger arcs stay smooth and keep the same drawn cadence as the
-  // tight corner rings.
-  const segments = Math.max(56, Math.min(160, Math.round(circumference / 1.8)));
-  const dashSeed = stableUnit(`zone-dash.${area.id}`);
-  const dashCount = Math.max(6, Math.min(14, Math.round(circumference / 22)));
-  // Slightly thicker than the historic hairline rings so it reads as the
-  // primary charted marker.
-  const inner = 0.955;
-  const outer = 1.012;
-  const positions: number[] = [];
-  const colors: number[] = [];
-  for (let segment = 0; segment < segments; segment += 1) {
-    const dashPhase = (segment / segments) * dashCount + dashSeed;
-    const dashIndex = Math.floor(dashPhase);
-    const dashLength = 0.45
-      + stableUnit(`zone-dash-length.${area.id}.${dashIndex}`) * 0.35;
-    if (dashPhase - dashIndex >= dashLength) continue;
-    const wobble = 1
-      + (stableUnit(`zone-wobble.${area.id}.${segment}`) - 0.5) * 0.04;
-    const a0 = (segment / segments) * Math.PI * 2;
-    const a1 = ((segment + 1) / segments) * Math.PI * 2;
-    const points = [
-      [Math.cos(a0) * inner * wobble, Math.sin(a0) * inner * wobble],
-      [Math.cos(a0) * outer * wobble, Math.sin(a0) * outer * wobble],
-      [Math.cos(a1) * inner * wobble, Math.sin(a1) * inner * wobble],
-      [Math.cos(a1) * outer * wobble, Math.sin(a1) * outer * wobble],
-    ];
-    const quad = [points[0], points[1], points[2], points[2], points[1], points[3]];
-    for (const [px, pz] of quad) {
-      positions.push(centerX + px! * radiusX, 0, centerZ + pz! * radiusZ);
-      colors.push(r, g, b);
-    }
-  }
-  return { colors, positions };
-}
 
 /**
  * Assemble every zone's dashed perimeter into one merged mesh and every zone's

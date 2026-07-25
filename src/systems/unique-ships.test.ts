@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
+import canonicalOrder from "@shared/data/stablecoins/canonical-order.json";
+import { GARDEN_HERO_MODEL_IDS } from "../three/garden-models";
 import { TITAN_SHIPS } from "./ship-visuals";
-import { UNIQUE_SHIP_DEFINITIONS, uniqueDefinitionFor } from "./unique-ships";
+import {
+  HERO_HULL_BY_ASSET,
+  HERO_HULL_MODEL_IDS,
+  heroHullModelFor,
+  UNIQUE_SHIP_DEFINITIONS,
+  uniqueDefinitionFor,
+} from "./unique-ships";
 
 describe("UNIQUE_SHIP_DEFINITIONS", () => {
   const entries = Object.entries(UNIQUE_SHIP_DEFINITIONS);
@@ -36,5 +44,66 @@ describe("uniqueDefinitionFor", () => {
   it("returns null for non-unique ids", () => {
     expect(uniqueDefinitionFor({ id: "usdt-tether" })).toBeNull();
     expect(uniqueDefinitionFor({ id: "made-up" })).toBeNull();
+  });
+});
+
+describe("hero hull assignment", () => {
+  const heroTierIds = [
+    ...Object.keys(TITAN_SHIPS),
+    ...Object.keys(UNIQUE_SHIP_DEFINITIONS),
+  ];
+
+  it("names exactly the hero hulls the model manifest ships", () => {
+    expect([...HERO_HULL_MODEL_IDS]).toEqual([...GARDEN_HERO_MODEL_IDS]);
+  });
+
+  it("gives every hero-tier stablecoin an explicit hull", () => {
+    for (const id of heroTierIds) {
+      expect(HERO_HULL_BY_ASSET[id], id).toBeDefined();
+    }
+  });
+
+  it("covers the 24 largest stablecoins with a hero hull", () => {
+    const heroTier = new Set(heroTierIds);
+    for (const id of (canonicalOrder as string[]).slice(0, 24)) {
+      expect(heroTier.has(id), id).toBe(true);
+    }
+  });
+
+  it("uses all ten hulls, so no model is authored and never seen", () => {
+    const used = new Set(heroTierIds.map((id) => heroHullModelFor(id)));
+    expect([...used].sort()).toEqual([...HERO_HULL_MODEL_IDS].sort());
+  });
+
+  it("is stable: the same id always resolves to the same hull", () => {
+    // The contract is that a coin never changes ship between refreshes, so
+    // these expectations are pinned literals, not recomputed from the table.
+    expect(heroHullModelFor("usdt-tether")).toBe("garden-hero-titan");
+    expect(heroHullModelFor("usdc-circle")).toBe("garden-hero-carrack");
+    expect(heroHullModelFor("dai-makerdao")).toBe("garden-hero-cog");
+    expect(heroHullModelFor("usde-ethena")).toBe("garden-hero-xebec");
+    expect(heroHullModelFor("usyc-hashnote")).toBe("garden-hero-dhow");
+  });
+
+  it("keeps issuer siblings on the same hull", () => {
+    for (const [parent, child] of [
+      ["usde-ethena", "susde-ethena"],
+      ["usds-sky", "susds-sky"],
+      ["dai-makerdao", "sdai-sky"],
+      ["usdai-usd-ai", "susdai-usd-ai"],
+    ]) {
+      expect(heroHullModelFor(child), child).toBe(heroHullModelFor(parent));
+    }
+  });
+
+  it("falls back to a deterministic hash for unlisted ids", () => {
+    const first = heroHullModelFor("not-a-listed-coin");
+    expect(HERO_HULL_MODEL_IDS).toContain(first);
+    expect(heroHullModelFor("not-a-listed-coin")).toBe(first);
+    // A different id must not silently collapse onto the same answer by
+    // returning a constant.
+    const others = ["alpha-issuer", "beta-issuer", "gamma-issuer", "delta-issuer"]
+      .map((id) => heroHullModelFor(id));
+    expect(new Set(others).size).toBeGreaterThan(1);
   });
 });

@@ -3,6 +3,7 @@ import {
   DataTexture,
   MathUtils,
   Mesh,
+  NearestFilter,
   PlaneGeometry,
   RepeatWrapping,
   RGBAFormat,
@@ -26,6 +27,12 @@ import {
 import { GARDEN_MOON_AZIMUTH } from "./garden-sky";
 import { MAX_GARDEN_LIGHT_LANES } from "./garden-lanterns";
 import {
+  SEA_REGION_CHARACTER,
+  SEA_REGION_COUNT,
+  SEA_REGION_ORDER,
+  buildSeaRegionField,
+} from "../systems/garden-sea-regions";
+import {
   GARDEN_WATER_MAX_RIPPLE_RINGS,
   GARDEN_WATER_MAX_ZONE_TINTS,
   type GardenCloudShadowSource,
@@ -35,6 +42,38 @@ import {
 } from "./garden-water-contract";
 
 const WATER_SIZE = 900;
+// Tile -> world scale, mirroring TILE_SCALE in garden-util. Redeclared here to
+// keep garden-water free of a util import cycle.
+const TILE_SCALE_UNITS = Math.SQRT2;
+/**
+ * W2 / D5+W2.7: how strongly a region tints its water.
+ *
+ * The old per-band values were 0.04-0.20 because six ellipses STACKED — a
+ * WATCH tint covering the whole map had to be almost invisible or it would
+ * wash everything. A partition has no stacking, so each region can read
+ * properly. Character (swell, chop, foam, reflectivity) still carries most of
+ * the signal; this is the supporting colour.
+ */
+const REGION_TINT_STRENGTH = 0.34;
+
+/**
+ * Bakes the terrain-derived sea-region field into a GPU texture.
+ *
+ * Nearest filtering on the id channel is essential: a bilinear blend between
+ * region 1 and region 3 would produce region 2 and paint a phantom band along
+ * every boundary.
+ */
+function createSeaRegionTexture(): { texture: DataTexture; tileSpan: number } {
+  const field = buildSeaRegionField();
+  const texture = new DataTexture(field.data, field.size, field.size, RGBAFormat);
+  // Nearest on BOTH filters: a bilinear blend between region 1 and region 3
+  // would produce region 2 and paint a phantom band along every boundary.
+  texture.magFilter = NearestFilter;
+  texture.minFilter = NearestFilter;
+  texture.needsUpdate = true;
+  texture.flipY = false;
+  return { texture, tileSpan: field.tileSpan };
+}
 const WATER_SEGMENTS = 96;
 export const GARDEN_WATER_MAX_DISPLACEMENT = 0.036;
 // Kept as the historical export name; the C2 contract constant is canonical.
@@ -102,9 +141,13 @@ const VERTEX_SHADER = /* glsl */ `
   uniform float uTempo;
   uniform float uTime;
   uniform float uWaveAmplitude;
+  uniform sampler2D uRegionField;
+  uniform vec4 uRegionSwell[${SEA_REGION_COUNT}];
+  uniform vec4 uRegionTransform;
 
   varying vec2 vWaterPosition;
   varying vec3 vWorldPosition;
+  varying vec2 vRegionUv;
 
   #include <fog_pars_vertex>
 
@@ -128,10 +171,19 @@ const VERTEX_SHADER = /* glsl */ `
     // harbor ellipse so the basin reads still against the open sea's motion.
     float harborDistance = length((waterPosition - uHarborEllipse.xy) * uHarborEllipse.zw);
     float harborCalm = (1.0 - smoothstep(0.7, 1.05, harborDistance)) * uHarborCalm;
-    float wave = gardenWave(waterPosition, uTime);
+    // W2/D6: swell amplitude and chop are per-region, so calm water lies
+    // near-still while danger water runs steep. Region lookup happens in the
+    // vertex stage — one texture fetch per vertex, not per fragment.
+    vec2 regionUv = (waterPosition - uRegionTransform.xy) * uRegionTransform.zw;
+    vec4 regionSample = texture2D(uRegionField, regionUv);
+    int regionId = int(regionSample.r * 255.0 + 0.5);
+    float regionSwell = uRegionSwell[regionId].x;
+    float regionChop = uRegionSwell[regionId].y;
+    float wave = gardenWave(waterPosition * regionChop, uTime);
     vec3 displaced = position;
-    displaced.z += wave * uWaveAmplitude * (1.0 - harborCalm * 0.8);
+    displaced.z += wave * uWaveAmplitude * regionSwell * (1.0 - harborCalm * 0.8);
 
+    vRegionUv = regionUv;
     vWaterPosition = waterPosition;
     vWorldPosition = (modelMatrix * vec4(displaced, 1.0)).xyz;
 
@@ -184,12 +236,15 @@ const FRAGMENT_SHADER = /* glsl */ `
   uniform float uTempo;
   uniform float uTime;
   uniform float uWaveAmplitude;
-  uniform float uZoneCount;
-  uniform vec4 uZoneEllipse[${MAX_GARDEN_WATER_ZONES}];
-  uniform vec4 uZoneTint[${MAX_GARDEN_WATER_ZONES}];
+  uniform sampler2D uRegionField;
+  uniform vec3 uRegionColor[${SEA_REGION_COUNT}];
+  // xyzw = depth multiplier, foam density, reflectivity, tint strength.
+  uniform vec4 uRegionParams[${SEA_REGION_COUNT}];
+  uniform vec4 uRegionTransform;
 
   varying vec2 vWaterPosition;
   varying vec3 vWorldPosition;
+  varying vec2 vRegionUv;
 
   #include <fog_pars_fragment>
 
@@ -197,6 +252,29 @@ const FRAGMENT_SHADER = /* glsl */ `
 
   vec3 sampleWaterNormal(vec2 uv) {
     return texture2D(uNormalMap, uv).xyz * 2.0 - 1.0;
+  }
+
+  // Value noise for the region whitecaps (W2/D6). Products of sines tile into
+  // a visible diagonal lattice; this does not.
+  float gardenHash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+  }
+
+  float gardenValueNoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(
+      mix(gardenHash(i), gardenHash(i + vec2(1.0, 0.0)), u.x),
+      mix(gardenHash(i + vec2(0.0, 1.0)), gardenHash(i + vec2(1.0, 1.0)), u.x),
+      u.y
+    );
+  }
+
+  float gardenFbm(vec2 p) {
+    return gardenValueNoise(p) * 0.6
+      + gardenValueNoise(p * 2.1 + 17.3) * 0.3
+      + gardenValueNoise(p * 4.3 - 8.1) * 0.1;
   }
 
   vec2 rotate2(vec2 v, float a) {
@@ -341,18 +419,77 @@ const FRAGMENT_SHADER = /* glsl */ `
     ) * (0.55 + 0.45 * sin(shoreAngle * 9.0 - foamMotion));
     waterColor = mix(waterColor, uHighlightColor, clamp(isletFoam, 0.0, 0.35) * (0.3 + uDetail * 0.3));
 
-    // --- E3/E4 + C2(a): charted risk-zone soft tint ---------------------------
-    // Smoothstep-edged ellipses (Z3 soft band); Lane Z supplies the data.
-    for (int zi = 0; zi < ${MAX_GARDEN_WATER_ZONES}; zi += 1) {
-      if (float(zi) >= uZoneCount) break;
-      vec4 ellipse = uZoneEllipse[zi];
-      vec2 zd = (vWaterPosition - ellipse.xy) * ellipse.zw;
-      float inside = 1.0 - smoothstep(0.55, 1.0, length(zd));
-      vec4 tint = uZoneTint[zi];
+    // --- W2 / D5+D6: sea regions as bodies of water ---------------------------
+    // Replaces the six overlapping tinted ellipses. The region field is the
+    // SAME terrain classification the simulation obeys (finding F6), so the
+    // edge drawn here is the edge ships actually respect.
+    //
+    // A region is carried by its water CHARACTER, not just a tint: depth,
+    // foam and reflectivity all shift, so the sea state stays legible without
+    // reading hue (D6, accessibility contract).
+    {
+      vec4 regionSample = texture2D(uRegionField, vRegionUv);
+      int regionId = int(regionSample.r * 255.0 + 0.5);
+      float boundaryDistance = regionSample.g;
+
+      vec3 regionTint = uRegionColor[regionId];
+      float regionDepth = uRegionParams[regionId].x;
+      float regionFoam = uRegionParams[regionId].y;
+      float regionReflect = uRegionParams[regionId].z;
+      float regionStrength = uRegionParams[regionId].w;
+
+      // Luminance-match the tint against the live water color so a region
+      // reads as water that is a different STATE, not paint on a surface
+      // (the Z3 rule, preserved).
       float waterLuma = dot(waterColor, vec3(0.2126, 0.7152, 0.0722));
-      float tintLuma = max(dot(tint.rgb, vec3(0.2126, 0.7152, 0.0722)), 0.03);
-      vec3 zoneColor = tint.rgb * clamp(waterLuma * 1.6 / tintLuma, 0.35, 1.1);
-      waterColor = mix(waterColor, zoneColor, inside * tint.w);
+      float tintLuma = max(dot(regionTint, vec3(0.2126, 0.7152, 0.0722)), 0.03);
+      vec3 regionColor = regionTint * clamp(waterLuma * 1.6 / tintLuma, 0.35, 1.15);
+
+      // Soften the join so two regions meet like currents, not like a decal.
+      // The ramp is wide on purpose: a narrow one leaves the terrain field's
+      // geometric edges reading as ruler lines.
+      float blend = smoothstep(0.0, 0.72, boundaryDistance);
+      waterColor = mix(waterColor, regionColor, regionStrength * blend);
+      waterColor *= mix(1.0, regionDepth, blend);
+
+      // Sky/beacon return: calm water is a mirror, danger water swallows light.
+      waterColor = mix(
+        waterColor,
+        mix(uEnvHorizonColor, uEnvZenithColor, 0.35),
+        clamp((regionReflect - 1.0) * 0.22, 0.0, 0.3) * blend * uEnvStrength
+      );
+
+      // W2.6 — the boundary itself. A drifting foam/current line where two
+      // bodies of water meet: this is what makes a region read as having an
+      // edge rather than being a gradient.
+      float seam = 1.0 - smoothstep(0.0, 0.16, boundaryDistance);
+      float seamWave = 0.55 + 0.45 * sin(
+        dot(vWaterPosition, vec2(0.31, 0.24)) - uTime * 0.35 * (0.6 + uTempo)
+      );
+      waterColor = mix(
+        waterColor,
+        uHighlightColor,
+        seam * seamWave * 0.16 * uDetail
+      );
+
+      // Whitecaps scale with the band. Danger water is streaked; calm is bare.
+      //
+      // This MUST be real noise, not a product of sines: sin(a)*sin(b) tiles
+      // into a regular diagonal lattice that reads as a shader artifact
+      // scrawled across the whole sea.
+      if (regionFoam > 0.02) {
+        vec2 capUv = vWaterPosition * 0.34 + vec2(uTime * 0.05 * (0.5 + uTempo), 0.0);
+        float capNoise = gardenFbm(capUv);
+        // Only the crests break, so the threshold sits high and tightens as
+        // the band worsens.
+        float capThreshold = mix(0.74, 0.56, clamp(regionFoam, 0.0, 1.0));
+        float caps = smoothstep(capThreshold, capThreshold + 0.16, capNoise);
+        waterColor = mix(
+          waterColor,
+          uHighlightColor,
+          clamp(caps * regionFoam * blend, 0.0, 0.32) * uDetail
+        );
+      }
     }
 
     // --- B2: authored moon road + thresholded night glitter ------------------
@@ -608,6 +745,30 @@ export function createGardenWater(waterLevel: number): GardenWater {
   const envZenithColor = DAY_ENV_ZENITH.clone();
   const sunGlitterColor = DAY_CYCLE_LIGHT_PRESETS.day.dirColor.clone();
   const cloudShadows = createGardenCloudShadowSource();
+  const regionField = createSeaRegionTexture();
+  // Region character is static data (D6) — colour is resolved per day phase in
+  // `update`, but swell/chop/foam/reflectivity never change.
+  const regionColors = SEA_REGION_ORDER.map(() => new Color());
+  const regionParams = SEA_REGION_ORDER.map((name) => {
+    const character = SEA_REGION_CHARACTER[name];
+    return new Vector4(
+      character.depth,
+      character.foam,
+      character.reflectivity,
+      name === "none" || name === "open" ? 0 : REGION_TINT_STRENGTH,
+    );
+  });
+  const regionSwell = SEA_REGION_ORDER.map((name) => {
+    const character = SEA_REGION_CHARACTER[name];
+    return new Vector4(character.swell, character.chop, 0, 0);
+  });
+  // Maps world XY on the water plane into the field's 0-1 UV space.
+  //
+  // A tile (tx, ty) sits at world (tx*TILE_SCALE, _, ty*TILE_SCALE), and the
+  // plane's -90deg X rotation maps world +Z to local -Y — so the V scale is
+  // NEGATIVE. Getting this sign wrong mirrors every region about the equator.
+  const regionExtent = regionField.tileSpan * TILE_SCALE_UNITS;
+  const regionTransform = new Vector4(0, 0, 1 / regionExtent, -1 / regionExtent);
   const uniforms = {
     fogColor: { value: new Color() },
     fogFar: { value: 1_000 },
@@ -666,13 +827,14 @@ export function createGardenWater(waterLevel: number): GardenWater {
     uTempo: { value: 0.2 },
     uTime: { value: 0 },
     uWaveAmplitude: { value: 0.02 },
-    uZoneCount: { value: 0 },
-    uZoneEllipse: {
-      value: Array.from({ length: MAX_GARDEN_WATER_ZONES }, () => new Vector4()),
-    },
-    uZoneTint: {
-      value: Array.from({ length: MAX_GARDEN_WATER_ZONES }, () => new Vector4()),
-    },
+    // W2 / D5: the sea-region field replaces the six tinted ellipses. One
+    // texture, sampled in both stages, carrying the SAME terrain
+    // classification the simulation obeys.
+    uRegionField: { value: regionField.texture },
+    uRegionColor: { value: regionColors },
+    uRegionParams: { value: regionParams },
+    uRegionSwell: { value: regionSwell },
+    uRegionTransform: { value: regionTransform },
   };
   const material = new ShaderMaterial({
     fog: true,
@@ -829,23 +991,15 @@ export function createGardenWater(waterLevel: number): GardenWater {
       }
     },
     setZoneState(zones) {
-      const count = Math.min(zones.length, MAX_GARDEN_WATER_ZONES);
-      uniforms.uZoneCount.value = count;
-      for (let index = 0; index < count; index += 1) {
-        const zone = zones[index]!;
-        // The plane's -90deg X rotation maps world Z to negative water Y.
-        uniforms.uZoneEllipse.value[index]!.set(
-          zone.center.x,
-          -zone.center.z,
-          1 / Math.max(0.001, zone.radiusX),
-          1 / Math.max(0.001, zone.radiusZ),
-        );
-        uniforms.uZoneTint.value[index]!.set(
-          zone.color.r,
-          zone.color.g,
-          zone.color.b,
-          zone.strength,
-        );
+      // W2 / D5: zone TINTS are no longer painted as ellipses — the region
+      // field carries the geometry. What still arrives here is each band's
+      // live colour, which is routed to its region slot so day/dusk/night
+      // colour blending and the theme bridge keep working unchanged.
+      for (const zone of zones) {
+        const slot = zone.regionId;
+        if (slot === undefined || slot <= 0 || slot >= SEA_REGION_COUNT) continue;
+        regionColors[slot]!.copy(zone.color);
+        uniforms.uRegionParams.value[slot]!.w = zone.strength;
       }
     },
     update(frame) {

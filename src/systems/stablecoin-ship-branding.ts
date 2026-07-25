@@ -54,6 +54,20 @@ const STABLECOIN_SAIL_COLORS: Record<string, StablecoinShipBranding> = {
   "usd1-world-liberty-financial": livery("World Liberty Financial logo livery", "#d4a838", "#f5e6b8", "#e6c570", "#7a5e1c", "#fffaeb", "diamond", "field", "single"),
   "buidl-blackrock":              livery("BlackRock BUIDL logo livery",         "#1a1a1a", "#3a3a3a", "#9c9c9a", "#000000", "#f6f6f1", "hex",     "center", "ladder"),
   "usyc-hashnote":                livery("Hashnote USYC logo livery",           "#0d8a8c", "#cfe6e6", "#4cb5b6", "#063638", "#f0fbfb", "ring",   "field",  "wave"),
+  // W5.2 heritage-tier additions. Every hero hull needs a hand-tuned livery
+  // (see stablecoin-ship-branding.test.ts): brand-color derivation is fine for
+  // the batched fleet, but not for the ships the eye actually lands on.
+  // Primaries are taken from data/brand-colors.json and clamped into the same
+  // livery-safe lightness window as the entries above.
+  "usdf-falcon":          livery("Falcon USDf logo livery",      "#b2410f", "#f0dccb", "#e0753c", "#5e2107", "#fff6ec", "triangle", "hoist",     "chevron"),
+  "usdg-paxos":           livery("Global Dollar logo livery",    "#6f8737", "#e4ebd2", "#9cb861", "#38441a", "#f9fdf0", "hex",      "field",     "double"),
+  "rlusd-ripple":         livery("Ripple RLUSD logo livery",     "#1a54ad", "#dae3f4", "#5b8fdd", "#0b2a5c", "#f4f8ff", "circle",   "center",    "wave"),
+  "usdtb-ethena":         livery("Ethena USDtb livery",          "#5b5c5e", "#e4e3de", "#9b9c96", "#232527", "#f6f3ea", "pill",     "center",    "ladder"),
+  "m-m0":                 livery("M0 logo livery",               "#4a4a4a", "#e2e2df", "#8e8e8a", "#1f1f1f", "#f7f6f2", "slash",    "quartered", "single"),
+  "u-united-stables":     livery("United Stables logo livery",   "#6b6238", "#e8e3cf", "#a3986a", "#33301c", "#fbf8ee", "ring",     "quartered", "grain"),
+  "usdai-usd-ai":         livery("USD.AI logo livery",           "#74604e", "#e9ded1", "#a98d72", "#3a2f26", "#fdf7f0", "hex",      "field",     "diagonal"),
+  "susdai-usd-ai":        livery("USD.AI staked livery",         "#8a7361", "#ece3d8", "#bda28b", "#463830", "#fdf9f3", "hex",      "hoist",     "double"),
+  "usd0-usual":           livery("Usual USD0 logo livery",       "#1d7137", "#d8ecdd", "#4fb46f", "#0f3d1e", "#f4fff6", "circle",   "field",     "chevron"),
 };
 
 export function resolveStablecoinShipBranding(id: string, meta: StablecoinMeta): StablecoinShipBranding {

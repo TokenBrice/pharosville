@@ -44,6 +44,13 @@ export interface GardenWaterZoneTint {
   radiusZ: number;
   /** Soft-band opacity 0–1; the shader smooths the perimeter falloff. */
   strength: number;
+  /**
+   * W2 / D5: which sea region slot this band colours. The rendered geometry
+   * now comes from the terrain-derived region field, not from the ellipse
+   * above — `center`/`radius*` survive only for the DOM label anchor and the
+   * selection cue, which still want a representative point and extent.
+   */
+  regionId?: number;
 }
 
 /**

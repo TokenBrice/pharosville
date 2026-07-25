@@ -1,4 +1,4 @@
-import { Color, DataTexture, PlaneGeometry, ShaderMaterial } from "three";
+import { Color, NearestFilter, DataTexture, PlaneGeometry, ShaderMaterial } from "three";
 import { describe, expect, it } from "vitest";
 import {
   GARDEN_WATER_Y,
@@ -68,7 +68,10 @@ describe("createGardenWater", () => {
     });
   });
 
-  it("packs risk-zone tint ellipses into the shader with the water z-flip", () => {
+  it("routes each band's colour to its sea-region slot", () => {
+    // W2 / D5: the six tinted ellipses are gone. Region GEOMETRY comes from
+    // the terrain field the simulation already obeys; what still arrives via
+    // setZoneState is each band's live day-blended colour, keyed by region id.
     const water = createGardenWater(0);
     water.setZoneState([
       {
@@ -76,17 +79,35 @@ describe("createGardenWater", () => {
         color: new Color("#ef4444"),
         radiusX: 8,
         radiusZ: 5,
-        strength: 0.22,
+        regionId: 5,
+        strength: 0.44,
       },
     ]);
-    expect(water.material.fragmentShader).toContain("uZoneEllipse");
-    expect(uniformNumber(water.material, "uZoneCount")).toBe(1);
-    const ellipse = water.material.uniforms.uZoneEllipse!.value[0]!;
-    expect(ellipse).toMatchObject({ x: 30, y: 12 });
-    expect(ellipse.z).toBeCloseTo(1 / 8);
-    expect(ellipse.w).toBeCloseTo(1 / 5);
-    const tint = water.material.uniforms.uZoneTint!.value[0]!;
-    expect(tint.w).toBeCloseTo(0.22);
+    expect(water.material.fragmentShader).toContain("uRegionField");
+    expect(water.material.fragmentShader).not.toContain("uZoneEllipse");
+
+    const danger = water.material.uniforms.uRegionColor!.value[5]!;
+    expect(danger.getHexString()).toBe("ef4444");
+    expect(water.material.uniforms.uRegionParams!.value[5]!.w).toBeCloseTo(0.44);
+  });
+
+  it("maps the region field with the water plane's z-flip", () => {
+    // A tile (tx, ty) lands at world (tx*sqrt2, _, ty*sqrt2), and the plane's
+    // -90deg X rotation maps world +Z to local -Y — so V must be negated.
+    // Getting this sign wrong mirrors every sea region about the equator.
+    const water = createGardenWater(0);
+    const transform = water.material.uniforms.uRegionTransform!.value;
+    expect(transform.z).toBeGreaterThan(0);
+    expect(transform.w).toBeCloseTo(-transform.z);
+  });
+
+  it("samples the region field with nearest filtering", () => {
+    // Bilinear between region 1 and region 3 would synthesise region 2 and
+    // paint a phantom band along every boundary.
+    const water = createGardenWater(0);
+    const field = water.material.uniforms.uRegionField!.value as { magFilter: number; minFilter: number };
+    expect(field.magFilter).toBe(NearestFilter);
+    expect(field.minFilter).toBe(NearestFilter);
   });
 
   it("freezes reduced motion and lowers decorative detail by quality tier", () => {

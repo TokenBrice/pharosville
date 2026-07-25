@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { Color, InstancedMesh, Matrix4, Mesh } from "three";
 import { describe, expect, it } from "vitest";
-import { DEWS_AREA_LABEL_COLORS, LEDGER_INK_HEX } from "../systems/palette";
+import { DEWS_AREA_LABEL_COLORS, HARBOR_PALETTE, LEDGER_INK_HEX } from "../systems/palette";
 import type { AreaNode, DewsAreaBand } from "../systems/world-types";
+import { SEA_REGION_ID, seaRegionAtTile } from "../systems/garden-sea-regions";
 import {
   createDangerWeather,
   createZone,
@@ -33,12 +34,30 @@ describe("createZone", () => {
     expect(zone.tint.radiusX).toBeGreaterThan(zone.tint.radiusZ);
     expect(zone.buoys.length).toBeGreaterThanOrEqual(5);
     expect(zone.buoys.length).toBeLessThanOrEqual(24);
-    // Buoys ride the ellipse perimeter, not the centre.
+    // W2.8: buoys mark the REAL region boundary now. They used to ride an
+    // ellipse that had nothing to do with where the region actually was.
     for (const buoy of zone.buoys) {
-      const nx = (buoy.worldX - zone.tint.center.x) / zone.tint.radiusX;
-      const nz = (buoy.worldZ - zone.tint.center.z) / zone.tint.radiusZ;
-      expect(Math.hypot(nx, nz)).toBeCloseTo(1, 1);
+      const tile = {
+        x: Math.round(buoy.worldX / Math.SQRT2),
+        y: Math.round(buoy.worldZ / Math.SQRT2),
+      };
+      expect(seaRegionAtTile(tile.x, tile.y)).toBe(SEA_REGION_ID.watch);
+      const neighbours = [
+        seaRegionAtTile(tile.x + 1, tile.y),
+        seaRegionAtTile(tile.x - 1, tile.y),
+        seaRegionAtTile(tile.x, tile.y + 1),
+        seaRegionAtTile(tile.x, tile.y - 1),
+      ];
+      expect(neighbours.some((id) => id !== SEA_REGION_ID.watch)).toBe(true);
     }
+  });
+
+  it("drops the dashed ellipse perimeter entirely", () => {
+    // Two contradictory outlines for one body of water is worse than none:
+    // the region field draws the footprint and W2.6 draws its edge.
+    const zone = createZone(area("DANGER"));
+    expect(zone.perimeter.positions).toHaveLength(0);
+    expect(zone.perimeter.colors).toHaveLength(0);
   });
 
   it("maps count to radius monotonically on per-band bases (zones-v2)", () => {
@@ -90,14 +109,33 @@ describe("createZone", () => {
     expect(calm.tint.color.g).toBeGreaterThan(calm.tint.color.r);
     const { band: _band, ...ledgerArea } = area("WATCH");
     const ledger = createZone({ ...ledgerArea, riskPlacement: "ledger-mooring" });
-    expect(ledger.tint.color.getHex()).toBe(new Color(LEDGER_INK_HEX).getHex());
+    // W2.7: every band's tint is now pulled toward deep sea so it reads as
+    // WATER rather than an overlay. Ledger keeps its unharmonized ink hue as
+    // its base — the check is that it starts from ink, not that it stays
+    // pure ink after the water pull.
+    const ink = new Color(LEDGER_INK_HEX);
+    const deepSea = new Color(HARBOR_PALETTE.deep_sea_2);
+    const distanceTo = (from: Color, to: Color) => Math.hypot(
+      from.r - to.r,
+      from.g - to.g,
+      from.b - to.b,
+    );
+    // It still reads as ledger ink rather than any other band...
+    expect(distanceTo(ledger.tint.color, ink))
+      .toBeLessThan(distanceTo(ledger.tint.color, calm.tint.color));
+    // ...but it has moved toward the sea, so it renders as water.
+    expect(distanceTo(ledger.tint.color, deepSea)).toBeLessThan(distanceTo(ink, deepSea));
   });
 
   it("brands danger stronger and darkens its tint into a brooding patch", () => {
     const danger = createZone(area("DANGER"));
     const calm = createZone(area("CALM"));
     expect(danger.tint.strength).toBeGreaterThan(calm.tint.strength);
-    expect(danger.tint.strength).toBeLessThanOrEqual(0.25);
+    // W2.7: the 0.04-0.25 ceiling existed because six ellipses STACKED. A
+    // partition does not stack, so a region tints at a strength that reads.
+    expect(danger.tint.strength).toBeLessThanOrEqual(0.5);
+    expect(danger.tint.regionId).toBe(5);
+    expect(calm.tint.regionId).toBe(1);
     expect(danger.buoys.every((buoy) => buoy.danger)).toBe(true);
     expect(calm.buoys.every((buoy) => !buoy.danger)).toBe(true);
   });

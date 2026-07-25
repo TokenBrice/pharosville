@@ -37,6 +37,7 @@ import {
 } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE } from "../systems/palette";
 import type { ShipNode } from "../systems/world-types";
+import { heroHullModelFor } from "../systems/unique-ships";
 import { gardenModelAnchor, type GardenModelId } from "./garden-models";
 import {
   GARDEN_WATER_MAX_RIPPLE_RINGS,
@@ -274,8 +275,12 @@ export function gardenShipUsesHeroModel(ship: ShipNode): boolean {
 }
 
 function shipHeroModelId(ship: ShipNode): GardenModelId | null {
-  if (ship.visual.sizeTier === "titan") return "garden-hero-titan";
-  if (ship.visual.sizeTier === "unique") return "garden-hero-heritage";
+  // W5 (D4/O11): ten distinct hero hulls, assigned deterministically per
+  // stablecoin so a coin never changes ship between refreshes. This used to
+  // hardcode two shared models for all 18 hero-tier ships.
+  if (ship.visual.sizeTier === "titan" || ship.visual.sizeTier === "unique") {
+    return heroHullModelFor(ship.id);
+  }
   return null;
 }
 
