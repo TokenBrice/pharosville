@@ -143,7 +143,7 @@ export interface ShipVisual {
 
 /** Fleet-wide lantern instances: two shared draw calls for the whole fleet. */
 export interface FleetLanterns {
-  cores: InstancedMesh<PlaneGeometry, MeshStandardMaterial>;
+  cores: InstancedMesh<CircleGeometry, MeshStandardMaterial>;
   glow: InstancedMesh<PlaneGeometry, MeshBasicMaterial>;
   coreMaterial: MeshStandardMaterial;
   glowMaterial: MeshBasicMaterial;
@@ -918,7 +918,11 @@ export function createFleetLanterns(
     toneMapped: false,
   });
   const cores = new InstancedMesh(
-    cachedShipGeometry(cache, "lantern.core", () => new PlaneGeometry(1, 1)),
+    // A round core, not a quad. The glow quad above carries a radial texture,
+    // but the core was a bare PlaneGeometry with no map — so at explore zoom
+    // the island and piers were speckled with literal cream SQUARES. Twelve
+    // segments is plenty at this size and costs no texture fetch.
+    cachedShipGeometry(cache, "lantern.core", () => new CircleGeometry(0.5, 12)),
     coreMaterial,
     count,
   );

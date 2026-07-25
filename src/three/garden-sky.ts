@@ -45,7 +45,13 @@ const FOG_FAR = 275;
 // Reference view height at the calibration framing, used as the scale pivot.
 const FOG_REFERENCE_VIEW_HEIGHT = 34;
 const FOG_MIN_SCALE = 1;
-const FOG_MAX_SCALE = 2.6;
+// Capped at 1.5, not 2.6. W6.6 scaled fog with the view to stop noon becoming
+// a white-out, but at whole-map framing a 2.6x scale pushed FOG_NEAR out to
+// ~500 units — well past the far edge of a 158-unit world — so no fog reached
+// the boundary at all and the map resolved as a hard-edged diamond slab
+// floating in a void. The cap keeps the aerial perspective honest at close
+// zoom AND keeps the world's edge dissolving at wide zoom.
+const FOG_MAX_SCALE = 1.5;
 
 // The moon sits upper-left of the standard framing; V2's moon road aligns its
 // water glitter band to this azimuth.

@@ -67,6 +67,8 @@ export const FLEET_SAIL_ATLAS_SIZE_PX = FLEET_SAIL_ATLAS_COLUMNS * FLEET_SAIL_AT
 export interface FleetBatchPart {
   /** Per-instance atlas cell index; only meaningful on the sail batch. */
   atlasCell: InstancedBufferAttribute | null;
+  /** Per-instance hull proportions (length, beam, height) — N5(a). */
+  hullForm: InstancedBufferAttribute;
   mesh: InstancedMesh;
 }
 
@@ -179,9 +181,52 @@ export function markAtlasSail(geometry: BufferGeometry, isIdentitySail: boolean)
  * instance's logo cell, so a merged multi-sail geometry can carry both reads
  * in a single draw call.
  */
+/**
+ * N5(a): deforms the shared silhouette into each ship's own proportions.
+ *
+ * The batched fleet draws one InstancedMesh per silhouette, so ships cannot
+ * have their own geometry — but they can have their own shape. `aHullForm`
+ * carries (length, beam, height) per instance and this patch applies it in the
+ * vertex stage, which costs no extra draw call and no extra geometry.
+ *
+ * Height scales the topsides ONLY: the multiplier ramps in above the waterline
+ * so the underwater body and the keel stay put. Scaling y uniformly would push
+ * hulls through the sea surface or lift them off it, and the waterline is the
+ * one line the whole scene reads against.
+ *
+ * Applied identically to the hull and sail materials so rigs stay attached to
+ * the masts they hang on.
+ */
+const HULL_FORM_ATTRIBUTE = "attribute vec3 aHullForm;";
+const HULL_FORM_DEFORM = `
+{
+  transformed.x *= aHullForm.x;
+  transformed.z *= aHullForm.y;
+  // smoothstep keeps the deformation continuous across the waterline, so no
+  // crease appears where the two zones meet.
+  float topsides = smoothstep(0.0, 0.45, transformed.y);
+  transformed.y *= mix(1.0, aHullForm.z, topsides);
+}`;
+
+/** Applies the per-instance deformation to a vertex shader source. */
+function withHullForm(vertexShader: string): string {
+  return vertexShader
+    .replace("#include <common>", `#include <common>\n${HULL_FORM_ATTRIBUTE}`)
+    .replace("#include <begin_vertex>", `#include <begin_vertex>\n${HULL_FORM_DEFORM}`);
+}
+
+export function patchFleetHullFormMaterial(material: MeshStandardMaterial): void {
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = withHullForm(shader.vertexShader);
+  };
+  material.customProgramCacheKey = () => "garden-fleet-hull-form";
+}
+
 export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
   material.onBeforeCompile = (shader) => {
-    shader.vertexShader = shader.vertexShader
+    // Sails carry the hull-form deformation too, otherwise a stretched hull
+    // would sail out from under its own rig.
+    shader.vertexShader = withHullForm(shader.vertexShader)
       .replace(
         "#include <common>",
         `#include <common>
@@ -212,7 +257,7 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         #endif`,
       );
   };
-  material.customProgramCacheKey = () => "garden-fleet-sail-atlas";
+  material.customProgramCacheKey = () => "garden-fleet-sail-atlas-hull-form";
 }
 
 function createInstancedPart(
@@ -240,7 +285,12 @@ function createInstancedPart(
     atlasCell.setUsage(DynamicDrawUsage);
     geometry.setAttribute("aAtlasCell", atlasCell);
   }
-  return { atlasCell, mesh };
+  // N5(a): per-ship hull proportions. Defaults to (1,1,1) so an instance that
+  // is never written renders at the authored shape rather than collapsing.
+  const hullForm = new InstancedBufferAttribute(new Float32Array(capacity * 3).fill(1), 3);
+  hullForm.setUsage(DynamicDrawUsage);
+  geometry.setAttribute("aHullForm", hullForm);
+  return { atlasCell, hullForm, mesh };
 }
 
 export interface FleetBatchGeometrySource {
@@ -273,6 +323,7 @@ export function createFleetBatches(input: {
     roughness: 0.84,
     vertexColors: true,
   });
+  patchFleetHullFormMaterial(hullMaterial);
   materials.push(hullMaterial);
 
   const sailMaterial = new MeshStandardMaterial({
@@ -323,6 +374,8 @@ export function createFleetBatches(input: {
 export interface FleetInstancePose {
   atlasCell: number;
   hullColor: Color;
+  /** Per-ship proportions (length, beam, height) about 1 — N5(a). */
+  hullForm: { beam: number; height: number; length: number };
   headingAngle: number;
   heel: number;
   pennantColor: Color;
@@ -372,6 +425,11 @@ export function writeFleetInstance(
   batch.hull.mesh.setMatrixAt(slot, scratchMatrix);
   batch.hull.mesh.setColorAt(slot, pose.hullColor);
   batch.hull.mesh.count = slot + 1;
+  // Same proportions on hull and sails: the rig has to follow the hull it is
+  // stepped into.
+  const { beam, height, length } = pose.hullForm;
+  batch.hull.hullForm.setXYZ(slot, length, beam, height);
+  batch.sails.hullForm.setXYZ(slot, length, beam, height);
 
   batch.sails.mesh.setMatrixAt(slot, scratchMatrix);
   batch.sails.mesh.count = slot + 1;
@@ -397,6 +455,7 @@ export function endFleetFrame(batches: FleetBatches): void {
 }
 
 function flushPart(part: FleetBatchPart): void {
+  part.hullForm.needsUpdate = true;
   part.mesh.instanceMatrix.needsUpdate = true;
   if (part.mesh.instanceColor) part.mesh.instanceColor.needsUpdate = true;
   if (part.atlasCell) part.atlasCell.needsUpdate = true;

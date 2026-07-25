@@ -315,7 +315,13 @@ const FRAGMENT_SHADER = /* glsl */ `
       float openTonalCurrent = 0.5 + 0.5 * sin(
         dot(vWaterPosition, vec2(0.046, -0.058)) + uTime * 0.027
       );
-      vec3 openColor = uBandColor[3] * (0.97 + openTonalCurrent * 0.05);
+      // Deeper and cooler than the deepest in-map band. The world should sit
+      // on a continental shelf that drops away, so the eye reads
+      // shelf -> open ocean. Matching the band exactly made the sea OUTSIDE
+      // read lighter than the tinted sea inside, inverting the depth cue and
+      // turning the map into a slab floating on a void.
+      vec3 openColor = mix(uBandColor[3], uDeepColor, 0.55)
+        * (0.86 + openTonalCurrent * 0.05);
       openColor = mix(
         openColor,
         mix(uEnvHorizonColor, uEnvZenithColor, 0.35),
@@ -518,8 +524,11 @@ const FRAGMENT_SHADER = /* glsl */ `
       //
       // An earlier ramp started at 0.42 and silently stripped the region tint
       // from the outer half of the map.
+      // A long ramp so the sea dissolves into open ocean rather than stopping
+      // at a line. Paired with the fog cap in garden-sky.ts, which keeps the
+      // boundary from ever resolving at whole-map framing.
       float edgeFade = 1.0 - smoothstep(
-        uOpenOceanRadius * 0.80,
+        uOpenOceanRadius * 0.62,
         uOpenOceanRadius * 1.0,
         mapDistance
       );

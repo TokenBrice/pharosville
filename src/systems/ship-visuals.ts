@@ -1,6 +1,7 @@
 import type { ReportCard, StablecoinData, StablecoinMeta } from "@shared/types";
 import { getCirculatingRaw } from "@/lib/supply";
-import type { ShipHull, ShipSizeTier, ShipVisual } from "./world-types";
+import { SHIP_HULL_FORM_SPAN, type ShipHull, type ShipHullForm, type ShipSizeTier, type ShipVisual } from "./world-types";
+import { stableFnv1aHash } from "./stable-random";
 import { resolveStablecoinShipBranding } from "./stablecoin-ship-branding";
 import { uniqueDefinitionFor } from "./unique-ships";
 
@@ -233,5 +234,6 @@ export function resolveShipVisual(asset: StablecoinData, meta: StablecoinMeta, r
     sizeTier: titan ? "titan" : uniqueDef ? "unique" : size.tier,
     sizeLabel: titan ? "Titan" : uniqueDef ? "Heritage hull" : size.label,
     scale: titan?.scale ?? uniqueDef?.scale ?? size.scale,
+    hullForm: resolveShipHullForm(asset, meta, reportCard),
   };
 }

@@ -529,6 +529,7 @@ function sampleWorldWithUniqueShip(): PharosVilleWorld {
         riskWaterLabel: "Calm Anchorage",
         placementEvidence: { reason: "Fresh", sourceFields: ["pegSummary.coins[]"], stale: false },
         visual: {
+          hullForm: { beam: 1, height: 1, length: 1 },
           hull: "dao-schooner",
           uniqueRationale: "Sails under Curve's llama mascot — the DEX that defined stablecoin AMM curves.",
           classLabel: "DeFi",
@@ -589,6 +590,7 @@ function sampleWorldWithLedgerShip(): PharosVilleWorld {
           stale: false,
         },
         visual: {
+          hullForm: { beam: 1, height: 1, length: 1 },
           hull: "treasury-galleon",
           classLabel: "CeFi",
           livery: {

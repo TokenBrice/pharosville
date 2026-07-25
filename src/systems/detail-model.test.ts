@@ -295,6 +295,7 @@ describe("detail-model analytical links", () => {
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: ["pegSummary.coins[]"], stale: false },
       visual: {
+        hullForm: { beam: 1, height: 1, length: 1 },
         hull: "treasury-galleon",
         classLabel: "CeFi",
         livery: {
@@ -348,6 +349,7 @@ describe("detail-model analytical links", () => {
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
       visual: {
+        hullForm: { beam: 1, height: 1, length: 1 },
         hull: "treasury-galleon",
         classLabel: "CeFi",
         livery: {
@@ -404,6 +406,7 @@ describe("detail-model analytical links", () => {
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
       visual: {
+        hullForm: { beam: 1, height: 1, length: 1 },
         hull: "treasury-galleon",
         classLabel: "CeFi",
         livery: {
@@ -473,6 +476,7 @@ describe("detail-model analytical links", () => {
       riskWaterLabel: "Ledger Mooring",
       placementEvidence: { reason: "NAV token Ledger Mooring idle preference", sourceFields: ["meta.flags.navToken", "pegSummary.coins[]"], stale: false },
       visual: {
+        hullForm: { beam: 1, height: 1, length: 1 },
         hull: "treasury-galleon",
         classLabel: "CeFi",
         livery: {
@@ -536,6 +540,7 @@ describe("detail-model unique tier surfacing", () => {
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
       visual: {
+        hullForm: { beam: 1, height: 1, length: 1 },
         hull: "dao-schooner",
         ...(overrides.uniqueRationale ? { uniqueRationale: overrides.uniqueRationale } : {}),
         classLabel: "DeFi",
@@ -667,6 +672,7 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
       visual: {
+        hullForm: { beam: 1, height: 1, length: 1 },
         hull: "treasury-galleon",
         classLabel: "CeFi",
         livery: {
@@ -992,6 +998,7 @@ describe("detail-model P3 metaphor quick-win signals", () => {
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
       visual: {
+        hullForm: { beam: 1, height: 1, length: 1 },
         hull: "treasury-galleon",
         classLabel: "CeFi",
         livery: {

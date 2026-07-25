@@ -33,6 +33,7 @@ function pose(overrides: Partial<FleetInstancePose> = {}): FleetInstancePose {
     headingAngle: 0,
     heel: 0,
     hullColor: new Color("#884422"),
+    hullForm: { beam: 1, height: 1, length: 1 },
     pennantColor: new Color("#22aa88"),
     pitch: 0,
     scale: 1,
@@ -155,6 +156,49 @@ describe("fleet batches", () => {
     }
 
     expect(galleon.hull.mesh.instanceMatrix.array).toBe(matrixBuffer);
+    disposeFleetBatches(batches);
+  });
+
+  it("writes each ship's own proportions to hull and sails alike (N5a)", () => {
+    const batches = buildBatches(16);
+    beginFleetFrame(batches);
+    writeFleetInstance(batches, pose({
+      hullForm: { beam: 0.7, height: 1.3, length: 1.2 },
+      silhouette: "galleon",
+    }));
+    writeFleetInstance(batches, pose({
+      hullForm: { beam: 1.25, height: 0.8, length: 0.75 },
+      silhouette: "galleon",
+    }));
+    endFleetFrame(batches);
+
+    const batch = batches.bySilhouette.get("galleon")!;
+    for (const part of [batch.hull, batch.sails]) {
+      // (length, beam, height) — the rig must deform with the hull it sits on.
+      // Stored in a Float32Array, so compare at float precision.
+      for (const [slot, expected] of [[0, [1.2, 0.7, 1.3]], [1, [0.75, 1.25, 0.8]]] as const) {
+        expect(part.hullForm.getX(slot)).toBeCloseTo(expected[0], 6);
+        expect(part.hullForm.getY(slot)).toBeCloseTo(expected[1], 6);
+        expect(part.hullForm.getZ(slot)).toBeCloseTo(expected[2], 6);
+      }
+    }
+    // Untouched instances stay at the authored shape rather than collapsing.
+    expect(batch.hull.hullForm.getX(9)).toBe(1);
+    disposeFleetBatches(batches);
+  });
+
+  it("keeps draw calls flat once per-ship deformation is on", () => {
+    const batches = buildBatches(64);
+    beginFleetFrame(batches);
+    for (let index = 0; index < 40; index += 1) {
+      writeFleetInstance(batches, pose({
+        hullForm: { beam: 0.7 + index * 0.01, height: 1, length: 1.3 - index * 0.01 },
+        silhouette: SILHOUETTES[index % 4]!,
+      }));
+    }
+    endFleetFrame(batches);
+    // 40 ships, 40 different shapes, still one draw call per part.
+    expect(fleetDrawCallCount(batches)).toBe(9);
     disposeFleetBatches(batches);
   });
 
