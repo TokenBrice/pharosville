@@ -13,10 +13,19 @@ import type {
 
 const TEXTURE_SIZE = 128;
 
-export function createGardenSailTexture(
+export const GARDEN_SAIL_TEXTURE_SIZE = TEXTURE_SIZE;
+
+/**
+ * Paints one ship's sail onto its own 128² canvas.
+ *
+ * Split out of `createGardenSailTexture` for W1/D3: the batched fleet composes
+ * these canvases into a single atlas (`garden-sail-atlas.ts`) rather than
+ * uploading one texture per ship, so the painting logic has exactly one home.
+ */
+export function createGardenSailCanvas(
   ship: ShipNode,
   logo: ThreeLogoAsset | null,
-): CanvasTexture | null {
+): HTMLCanvasElement | null {
   if (typeof document === "undefined") return null;
   const canvas = document.createElement("canvas");
   canvas.width = TEXTURE_SIZE;
@@ -26,6 +35,15 @@ export function createGardenSailTexture(
 
   paintSailField(context, ship.visual.livery);
   paintSailIdentity(context, ship, logo);
+  return canvas;
+}
+
+export function createGardenSailTexture(
+  ship: ShipNode,
+  logo: ThreeLogoAsset | null,
+): CanvasTexture | null {
+  const canvas = createGardenSailCanvas(ship, logo);
+  if (!canvas) return null;
 
   const texture = new CanvasTexture(canvas);
   texture.colorSpace = SRGBColorSpace;

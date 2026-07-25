@@ -26,6 +26,7 @@ import {
   ShapeGeometry,
   Vector3,
 } from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { ThreeWorldRendererFrame } from "../renderer/world-renderer-backend";
 import {
   GARDEN_SHIP_ROOT_Y,
@@ -42,6 +43,12 @@ import {
   type GardenRippleRingEmitter,
 } from "./garden-water-contract";
 import { createGardenSailTexture } from "./garden-sail-texture";
+import {
+  FLEET_BATCH_TINTS,
+  markAtlasSail,
+  mergeTintedParts,
+  type FleetBatchGeometrySource,
+} from "./garden-fleet-batch";
 import {
   cachedShipGeometry,
   safeCssColor,
@@ -916,6 +923,158 @@ export function syncShipRippleRings(
       strength: 0.22,
     });
   }
+}
+
+/**
+ * W1 (decision D2): builds the merged, instance-ready geometry pair for one
+ * silhouette — everything `createShip` used to spread across ~14 meshes.
+ *
+ * The hull assembly bakes each part's tonal identity into vertex colors (via
+ * `FLEET_BATCH_TINTS`) so one `instanceColor` carrying the ship's livery
+ * reproduces the old multi-material read in a single draw call. Sails merge
+ * separately because they need the atlas UV path and double-sided shading.
+ *
+ * Local transforms below MUST match `createShip`'s part placement exactly —
+ * hero hulls, hit testing and follow-selected all assume the same ship-local
+ * frame.
+ */
+export function createFleetBatchGeometry(
+  silhouette: GardenHullSilhouette,
+): FleetBatchGeometrySource {
+  const hullGeometry = createHullGeometry(silhouette);
+  const rig = GARDEN_SHIP_RIGS[silhouette];
+  const hasBowsprit = silhouette === "clipper" || silhouette === "galleon";
+  const mastRotation = silhouette === "clipper"
+    ? -0.045
+    : silhouette === "schooner"
+      ? -0.075
+      : silhouette === "junk"
+        ? -0.035
+        : 0.02;
+
+  const parts: { geometry: BufferGeometry; tint?: Color; transform?: Matrix4 }[] = [];
+  const transform = () => new Matrix4();
+
+  // Keel: dark underbody, slightly wider and squashed, sunk below the hull.
+  parts.push({
+    geometry: hullGeometry,
+    tint: FLEET_BATCH_TINTS.keel,
+    transform: transform().makeScale(1.015, 0.82, 1.015).setPosition(0, -0.16, 0),
+  });
+  // Hull proper: untinted, so instanceColor delivers the livery unmodified.
+  parts.push({
+    geometry: hullGeometry,
+    transform: transform().setPosition(0, 0.05, 0),
+  });
+  parts.push({
+    geometry: createDeckGeometry(silhouette, 0.91, 0.34, "rim"),
+    tint: FLEET_BATCH_TINTS.gunwale,
+    transform: transform().setPosition(0, 0.47, 0),
+  });
+  parts.push({
+    geometry: createDeckGeometry(silhouette, 0.79, 0.16, "inner"),
+    tint: FLEET_BATCH_TINTS.deck,
+    transform: transform().setPosition(0, 0.5, 0),
+  });
+
+  const mastGeometry = new CylinderGeometry(0.055, 0.08, 1, 6);
+  for (const mastPlan of rig) {
+    const matrix = transform().makeRotationZ(mastRotation);
+    matrix.scale(new Vector3(1, mastPlan.height, 1));
+    matrix.setPosition(mastPlan.x, 0.55 + mastPlan.height / 2, 0);
+    parts.push({ geometry: mastGeometry, tint: FLEET_BATCH_TINTS.mast, transform: matrix });
+  }
+  if (hasBowsprit) {
+    const matrix = transform().makeRotationZ(Math.PI / 2);
+    matrix.scale(new Vector3(1, silhouette === "clipper" ? 2.2 : 1.45, 1));
+    matrix.setPosition(silhouette === "clipper" ? 4.75 : 4.15, 0.95, 0);
+    parts.push({ geometry: mastGeometry, tint: FLEET_BATCH_TINTS.mast, transform: matrix });
+  }
+
+  const cabinDimensions = GARDEN_SHIP_CABINS[silhouette];
+  if (cabinDimensions) {
+    parts.push({
+      geometry: new BoxGeometry(cabinDimensions.width, cabinDimensions.height, cabinDimensions.z),
+      tint: FLEET_BATCH_TINTS.mast,
+      transform: transform().setPosition(
+        cabinDimensions.x,
+        0.52 + cabinDimensions.height / 2,
+        0,
+      ),
+    });
+    parts.push({
+      geometry: new BoxGeometry(cabinDimensions.width * 1.12, 0.12, cabinDimensions.z * 1.16),
+      tint: FLEET_BATCH_TINTS.mast,
+      transform: transform().setPosition(cabinDimensions.x, 0.58 + cabinDimensions.height, 0),
+    });
+  }
+
+  const hull = mergeTintedParts(parts);
+  for (const part of parts) {
+    if (part.geometry !== hullGeometry) part.geometry.dispose();
+  }
+  hullGeometry.dispose();
+
+  // Sails. The largest by area is the identity sail: only its vertices route
+  // through the per-instance logo atlas cell (D3).
+  const identitySail = rig
+    .flatMap((mastPlan, mastIndex) => mastPlan.sails.map((sailPlan, sailIndex) => ({
+      area: sailPlan.width * sailPlan.height,
+      mastIndex,
+      sailIndex,
+    })))
+    .toSorted((left, right) => right.area - left.area)[0];
+
+  const sailParts: { geometry: BufferGeometry; transform?: Matrix4 }[] = [];
+  for (const [mastIndex, mastPlan] of rig.entries()) {
+    for (const [sailIndex, sailPlan] of mastPlan.sails.entries()) {
+      const reverse = sailPlan.reverse ?? false;
+      const isIdentitySail = identitySail?.mastIndex === mastIndex
+        && identitySail.sailIndex === sailIndex;
+      const geometry = createSailGeometry(sailPlan);
+      markAtlasSail(geometry, isIdentitySail);
+      const matrix = transform();
+      if (isIdentitySail) matrix.makeScale(1.22, 1.22, 1);
+      matrix.setPosition(
+        mastPlan.x + (reverse ? -0.06 : 0.06),
+        sailPlan.centerY,
+        0.03,
+      );
+      sailParts.push({ geometry, transform: matrix });
+    }
+  }
+  const sails = mergeAtlasSails(sailParts);
+  for (const part of sailParts) part.geometry.dispose();
+
+  return { hull, sails };
+}
+
+/**
+ * Sails merge on their own path because `aAtlasSail` must survive the merge —
+ * `mergeTintedParts` strips non-standard attributes to keep the hull inputs
+ * uniform.
+ */
+function mergeAtlasSails(
+  parts: readonly { geometry: BufferGeometry; transform?: Matrix4 }[],
+): BufferGeometry {
+  const prepared: BufferGeometry[] = [];
+  for (const part of parts) {
+    const source = part.geometry.clone();
+    const geometry = source.index ? source.toNonIndexed() : source;
+    if (geometry !== source) source.dispose();
+    if (part.transform) geometry.applyMatrix4(part.transform);
+    if (!geometry.getAttribute("normal")) geometry.computeVertexNormals();
+    if (!geometry.getAttribute("color")) {
+      const count = geometry.getAttribute("position").count;
+      const colors = new Float32Array(count * 3).fill(1);
+      geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
+    }
+    prepared.push(geometry);
+  }
+  const merged = mergeGeometries(prepared, false);
+  for (const geometry of prepared) geometry.dispose();
+  if (!merged) throw new Error("garden-ships: sail merge failed");
+  return merged;
 }
 
 function createHullGeometry(silhouette: GardenHullSilhouette): ExtrudeGeometry {
