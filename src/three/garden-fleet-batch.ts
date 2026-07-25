@@ -72,6 +72,8 @@ export interface FleetBatchPart {
   mesh: InstancedMesh;
   /** Per-instance cloth dye (F1); only meaningful on the sail batch. */
   sailTint: InstancedBufferAttribute | null;
+  /** Per-instance sheer-strake paint (W1/D2); only meaningful on the hull batch. */
+  trim: InstancedBufferAttribute | null;
 }
 
 export interface FleetSilhouetteBatch {
@@ -102,7 +104,19 @@ const scratchEuler = new Euler();
  * separation the separate materials used to provide.
  */
 export function mergeTintedParts(
-  parts: readonly { geometry: BufferGeometry; tint?: Color; transform?: Matrix4 }[],
+  parts: readonly {
+    geometry: BufferGeometry;
+    /**
+     * W1/D2: marks this part as the sheer strake — the one band that takes the
+     * issuer's paint instead of the ship's timber. Per-part rather than
+     * per-vertex on purpose: the gunwale ring already follows the sheer curve
+     * exactly, so a whole-part flag yields a crisp line where a height-banded
+     * mask would smear across the hull's ~7 vertical rings.
+     */
+    strake?: boolean;
+    tint?: Color;
+    transform?: Matrix4;
+  }[],
 ): BufferGeometry {
   const prepared: BufferGeometry[] = [];
   for (const part of parts) {
@@ -115,6 +129,7 @@ export function mergeTintedParts(
     if (geometry !== source) source.dispose();
     if (part.transform) geometry.applyMatrix4(part.transform);
     applyVertexTint(geometry, part.tint);
+    applyStrakeMask(geometry, part.strake ?? false);
     normalizeAttributes(geometry);
     prepared.push(geometry);
   }
@@ -146,22 +161,32 @@ function applyVertexTint(geometry: BufferGeometry, tint: Color | undefined): voi
   geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
 }
 
+function applyStrakeMask(geometry: BufferGeometry, isStrake: boolean): void {
+  const position = geometry.getAttribute("position");
+  const mask = new Float32Array(position.count);
+  if (isStrake) mask.fill(1);
+  geometry.setAttribute("aStrakeMask", new Float32BufferAttribute(mask, 1));
+}
+
 /**
  * `mergeGeometries` rejects inputs whose attribute sets differ. Ship parts come
  * from `ExtrudeGeometry`, `ShapeGeometry` and `CylinderGeometry`, which agree
  * on position/normal/uv/color but disagree on extras — so drop the extras and
  * synthesise anything missing.
  */
+const MERGED_ATTRIBUTES = new Set(["position", "normal", "uv", "color", "aStrakeMask"]);
+
 function normalizeAttributes(geometry: BufferGeometry): void {
   if (!geometry.getAttribute("normal")) geometry.computeVertexNormals();
   const position = geometry.getAttribute("position");
   if (!geometry.getAttribute("uv")) {
     geometry.setAttribute("uv", new Float32BufferAttribute(new Float32Array(position.count * 2), 2));
   }
+  if (!geometry.getAttribute("aStrakeMask")) {
+    geometry.setAttribute("aStrakeMask", new Float32BufferAttribute(new Float32Array(position.count), 1));
+  }
   for (const name of Object.keys(geometry.attributes)) {
-    if (name !== "position" && name !== "normal" && name !== "uv" && name !== "color") {
-      geometry.deleteAttribute(name);
-    }
+    if (!MERGED_ATTRIBUTES.has(name)) geometry.deleteAttribute(name);
   }
 }
 
@@ -217,11 +242,33 @@ function withHullForm(vertexShader: string): string {
     .replace("#include <begin_vertex>", `#include <begin_vertex>\n${HULL_FORM_DEFORM}`);
 }
 
+/**
+ * W1 (decision D2): the sheer strake carries the issuer's paint, the rest of
+ * the hull carries its timber.
+ *
+ * `<color_vertex>` has already folded the baked vertex colours and the ship's
+ * per-instance timber into `vColor`. On the strake we swap the timber for the
+ * per-instance `aTrim` while KEEPING the baked colour — the gunwale's own
+ * highlight tint rides along, so the painted rail stays the brightest band on
+ * the hull rather than going dark under a dark brand.
+ */
+const STRAKE_PAINT = `
+#ifdef USE_COLOR
+  vColor.xyz = mix(vColor.xyz, color.xyz * aTrim, aStrakeMask);
+#endif`;
+
 export function patchFleetHullFormMaterial(material: MeshStandardMaterial): void {
   material.onBeforeCompile = (shader) => {
-    shader.vertexShader = withHullForm(shader.vertexShader);
+    shader.vertexShader = withHullForm(shader.vertexShader)
+      .replace(
+        "#include <common>",
+        `#include <common>
+        attribute float aStrakeMask;
+        attribute vec3 aTrim;`,
+      )
+      .replace("#include <color_vertex>", `#include <color_vertex>\n${STRAKE_PAINT}`);
   };
-  material.customProgramCacheKey = () => "garden-fleet-hull-form";
+  material.customProgramCacheKey = () => "garden-fleet-hull-form-strake";
 }
 
 export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
@@ -283,6 +330,7 @@ function createInstancedPart(
   material: MeshStandardMaterial,
   capacity: number,
   withAtlasCell: boolean,
+  withTrim = false,
 ): FleetBatchPart {
   const mesh = new InstancedMesh(geometry, material, capacity);
   mesh.instanceMatrix.setUsage(DynamicDrawUsage);
@@ -314,7 +362,15 @@ function createInstancedPart(
   const hullForm = new InstancedBufferAttribute(new Float32Array(capacity * 3).fill(1), 3);
   hullForm.setUsage(DynamicDrawUsage);
   geometry.setAttribute("aHullForm", hullForm);
-  return { atlasCell, hullForm, mesh, sailTint };
+  // W1/D2: the sheer strake's paint. Defaults to white, which leaves the rail
+  // reading as bare timber highlight until an instance is written.
+  let trim: InstancedBufferAttribute | null = null;
+  if (withTrim) {
+    trim = new InstancedBufferAttribute(new Float32Array(capacity * 3).fill(1), 3);
+    trim.setUsage(DynamicDrawUsage);
+    geometry.setAttribute("aTrim", trim);
+  }
+  return { atlasCell, hullForm, mesh, sailTint, trim };
 }
 
 export interface FleetBatchGeometrySource {
@@ -373,7 +429,7 @@ export function createFleetBatches(input: {
   const bySilhouette = new Map<GardenHullSilhouette, FleetSilhouetteBatch>();
   for (const silhouette of input.silhouettes) {
     const source = input.geometryFor(silhouette);
-    const hull = createInstancedPart(source.hull, hullMaterial, input.capacity, false);
+    const hull = createInstancedPart(source.hull, hullMaterial, input.capacity, false, true);
     hull.mesh.name = `fleet-hull-${silhouette}`;
     const sails = createInstancedPart(source.sails, sailMaterial, input.capacity, true);
     sails.mesh.name = `fleet-sails-${silhouette}`;
@@ -408,6 +464,8 @@ export interface FleetInstancePose {
   pitch: number;
   scale: number;
   silhouette: GardenHullSilhouette;
+  /** W1/D2: the issuer's paint on the sheer strake. */
+  trimColor: Color;
   x: number;
   y: number;
   z: number;
@@ -451,6 +509,9 @@ export function writeFleetInstance(
   batch.hull.mesh.setMatrixAt(slot, scratchMatrix);
   batch.hull.mesh.setColorAt(slot, pose.hullColor);
   batch.hull.mesh.count = slot + 1;
+  if (batch.hull.trim) {
+    batch.hull.trim.setXYZ(slot, pose.trimColor.r, pose.trimColor.g, pose.trimColor.b);
+  }
   // Same proportions on hull and sails: the rig has to follow the hull it is
   // stepped into.
   const { beam, height, length } = pose.hullForm;
@@ -489,6 +550,7 @@ function flushPart(part: FleetBatchPart): void {
   if (part.mesh.instanceColor) part.mesh.instanceColor.needsUpdate = true;
   if (part.atlasCell) part.atlasCell.needsUpdate = true;
   if (part.sailTint) part.sailTint.needsUpdate = true;
+  if (part.trim) part.trim.needsUpdate = true;
 }
 
 /** Total live instances across the fleet — the metric the perf lane reads. */

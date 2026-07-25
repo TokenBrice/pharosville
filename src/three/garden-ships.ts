@@ -98,8 +98,10 @@ export interface ShipVisual {
   bobPhase: number;
   displayOffset: { x: number; y: number };
   fineDetail: Group;
-  /** Livery multiplier written to the hull batch's instanceColor. */
+  /** Timber multiplier written to the hull batch's instanceColor (W1/D1). */
   hullColor: Color;
+  /** Issuer paint written to the hull batch's `aTrim` — the sheer strake (W1/D2). */
+  trimColor: Color;
   /** F1: the cloth dye handed to the batched sail material. */
   sailColor: Color;
   /** Hero GLB hull to attach for titans/uniques (null for the procedural fleet). */
@@ -346,6 +348,7 @@ export function createBatchedShip(
     heroHullTint: new Color("#ffffff"),
     heroModelId: null,
     hullColor: batchedHullColor(ship),
+    trimColor: batchedTrimColor(ship),
     sailColor: gardenSailClothColor(ship.visual.livery),
     identitySail: null,
     identitySailMaterial: null,
@@ -383,11 +386,82 @@ export function createBatchedShip(
  * brown; 0.58 makes it a painted hull that still reads as timber, because the
  * dark base is what supplies the wood.
  */
-function batchedHullColor(ship: ShipNode): Color {
-  return new Color(HARBOR_PALETTE.timber_dark).lerp(
-    new Color(safeCssColor(ship.visual.livery?.primary, HARBOR_PALETTE.timber_warm)),
-    0.58,
+/**
+ * W1 (decision D1): the hull is a MATERIAL, not a brand swatch.
+ *
+ * This used to be `timber_dark.lerp(livery.primary, 0.58)` — an RGB lerp more
+ * than half the way to the issuer's colour. Measured over the 214 branded
+ * coins, that put 100 hulls (47%) more than 60° off the timber hue at
+ * saturations up to 0.79: violet, magenta, lime and electric-blue hulls. Two
+ * costs beyond taste — it swamped the plank/wale/AO ramp `bakeHullVertexColors`
+ * bakes in (the instance colour multiplies it, so a saturated hue flattens it
+ * to plastic), and it made the hull louder than the sail, which since the
+ * heraldry work is the identity channel.
+ *
+ * Six authored ship timbers, hash-picked. Six materials read as six KINDS of
+ * ship where 214 derived hues read as one kind in fancy dress. Values are the
+ * material colour BEFORE the vertex ramp, which darkens midships (×0.82) and
+ * lifts the gunwale (×1.0), so they sit deliberately lighter than the final
+ * pixel.
+ *
+ * Timber choice is a free hash pick under decision D3: it encodes nothing, and
+ * is not claimed to.
+ */
+const HULL_TIMBERS = [
+  "#8a6a44", // oak — the harbour's own timber_warm
+  "#9a7448", // teak
+  "#a87e46", // pitch pine, the golden one
+  "#453b31", // tarred black — tar OVER wood, not a silhouette; the vertex ramp
+             // takes it to ~#3d3430 midships, still the darkest hull afloat
+  "#7d7768", // weathered grey
+  "#6c5238", // elm
+] as const;
+
+/**
+ * How much of the issuer's brand survives in the timber. Small on purpose: it
+ * exists ONLY to keep the F1 invariant — a coin and its staked sibling must
+ * read as the same yard — at a hue shift too slight to look painted. The brand
+ * proper lives on the sheer strake (D2) and on the sails.
+ */
+const HULL_BRAND_WHISPER = 0.12;
+
+/**
+ * Keyed on the ISSUER, not the coin. Asset ids are `<symbol>-<issuer>`, so
+ * `usdt-tether` and `xaut-tether` hash to one timber and read as two ships
+ * from one yard — which is what the F1 invariant asks for, and a better story
+ * than the whisper alone could tell. Hashing the full id gave sUSDS a
+ * different timber from USDS, which is exactly the failure F1 names.
+ */
+function shipTimber(ship: ShipNode): Color {
+  const separator = ship.id.indexOf("-");
+  const yard = separator > 0 ? ship.id.slice(separator + 1) : ship.id;
+  const index = Math.min(
+    HULL_TIMBERS.length - 1,
+    Math.floor(stableUnit(`${yard}.timber`) * HULL_TIMBERS.length),
   );
+  return new Color(HULL_TIMBERS[index]);
+}
+
+function batchedHullColor(ship: ShipNode): Color {
+  const timber = shipTimber(ship);
+  return timber.lerp(
+    new Color(safeCssColor(ship.visual.livery?.primary, HARBOR_PALETTE.timber_warm)),
+    HULL_BRAND_WHISPER,
+  );
+}
+
+/**
+ * W1 (decision D2): the sheer strake's paint — the issuer's colour as a single
+ * thin line at the rail, tracing the sheer curve.
+ *
+ * Historically where an owner's colours went, and the only band on the hull
+ * high enough to survive the isometric camera's occlusion (see the silhouette
+ * findings in agents/2026-07-25-fleet-hulls-and-titans-plan.md). The gunwale's
+ * own baked highlight tint rides on top of this in the shader, so the painted
+ * rail stays the brightest band even under a dark brand.
+ */
+function batchedTrimColor(ship: ShipNode): Color {
+  return new Color(safeCssColor(ship.visual.livery?.primary, HARBOR_PALETTE.timber_warm));
 }
 
 /**
@@ -449,14 +523,11 @@ export function createShip(
   const visualScale = gardenShipVisualScale(ship.visual.scale || 1);
   root.scale.setScalar(visualScale);
 
-  // S4 color blocking: a dark hull band (livery primary only whispers
-  // through), a pale sheer stripe at the gunwale, a warm deck, cream sails,
-  // and ONE colored accent per ship — the masthead pennant keeps the livery
-  // accent hue, so the brand/identity channel survives unchanged.
-  const hullColor = new Color(HARBOR_PALETTE.timber_dark).lerp(
-    new Color(safeCssColor(ship.visual.livery?.primary, HARBOR_PALETTE.timber_warm)),
-    0.32,
-  );
+  // W1 (D1/D2): the hull is timber; the issuer's colour lives on the sheer
+  // strake, the pennant and the sails. Same palette and same whisper the
+  // batched fleet uses, so a hero's fallback hull and a skiff agree.
+  const hullColor = batchedHullColor(ship);
+  const trimColor = batchedTrimColor(ship);
   const accentColor = new Color(HARBOR_PALETTE.timber_warm).lerp(
     new Color(safeCssColor(ship.visual.livery?.accent, GARDEN_COLORS.roof)),
     0.78,
@@ -486,10 +557,11 @@ export function createShip(
     roughness: 0.92,
     vertexColors: true,
   });
-  // Sheer stripe: a pale rail highlight that makes the curved sheer legible;
-  // deliberately NOT the livery accent (that lives on the pennant alone).
+  // W1/D2: the sheer strake, painted in the issuer's colour. The baked rim
+  // vertex colours run bright, so this stays the most legible band on the hull
+  // even under a dark brand.
   const gunwaleMaterial = new MeshStandardMaterial({
-    color: new Color(HARBOR_PALETTE.foam_white).lerp(new Color(HARBOR_PALETTE.timber_warm), 0.52),
+    color: trimColor,
     flatShading: true,
     roughness: 0.86,
     vertexColors: true,
@@ -524,8 +596,8 @@ export function createShip(
   const deck = new Mesh(
     cachedShipGeometry(
       cache,
-      `deck.${silhouette}.inner`,
-      () => createDeckGeometry(silhouette, 0.79, 0.16, "inner"),
+      `deck.${silhouette}.inner.sheer`,
+      () => createDeckGeometry(silhouette, 0.86, 0.3, "inner"),
     ),
     deckMaterial,
   );
@@ -806,6 +878,7 @@ export function createShip(
     heroHullTint,
     heroModelId,
     hullColor,
+    trimColor,
     identitySail: identitySailMesh,
     identitySailMaterial,
     lanternPoints: lanternPointsForTier(tier),
@@ -850,6 +923,11 @@ export function attachGardenHeroModel(visual: ShipVisual, model: Group): void {
     if (!(object instanceof Mesh)) return;
     const material = (object.material as MeshStandardMaterial).clone();
     if (object.name === "wood-hull") material.color.multiply(visual.heroHullTint);
+    // W1/D2: a hero's sheer strake takes the issuer's paint, the same band the
+    // batched fleet paints on its gunwale ring. `hero-trim` is authored white
+    // with vertex colours, so the multiply modulates the baked trim shading
+    // rather than flattening it.
+    if (object.name === "trim-hull") material.color.multiply(visual.trimColor);
     // A hero's canvas is dyed in its issuer's colour, exactly as the batched
     // fleet's is. Without this the ten hero hulls fly the model's baked cream
     // while every other ship in the harbour flies its brand — and heroes are
@@ -1090,6 +1168,10 @@ export function syncShipRippleRings(
   frame: { reducedMotion: boolean; tier: string },
 ): void {
   if (!emitter) return;
+  // S1: callers resolve `tier` through `seaQualityTier`, so a camera drag no
+  // longer counts as load pressure here. Reading the raw tier made every moored
+  // ship's ring vanish the instant the camera moved (measured: 24 -> 15) and
+  // pop back on release.
   const ringsAllowed = !frame.reducedMotion
     && (frame.tier === "full" || frame.tier === "balanced");
   const ringBudget = Math.max(0, GARDEN_WATER_MAX_RIPPLE_RINGS - 3);
@@ -1141,7 +1223,12 @@ export function createFleetBatchGeometry(
         ? -0.035
         : 0.02;
 
-  const parts: { geometry: BufferGeometry; tint?: Color; transform?: Matrix4 }[] = [];
+  const parts: {
+    geometry: BufferGeometry;
+    strake?: boolean;
+    tint?: Color;
+    transform?: Matrix4;
+  }[] = [];
   const transform = () => new Matrix4();
 
   // Keel: dark underbody, slightly wider and squashed, sunk below the hull.
@@ -1155,13 +1242,21 @@ export function createFleetBatchGeometry(
     geometry: hullGeometry,
     transform: transform().setPosition(0, 0.05, 0),
   });
+  // W1/D2: the gunwale ring IS the sheer strake — it already follows the sheer
+  // curve exactly and faces the camera, so it takes the issuer's paint while
+  // every other part takes the ship's timber.
+  //
+  // The inner deck plate below sits at 0.86 (was 0.79) so what is left proud of
+  // it is a RAIL, not a deck. At 0.79 the painted annulus covered most of the
+  // deck well and a small hull read as a plastic tray with a coloured tub in it.
   parts.push({
     geometry: createDeckGeometry(silhouette, 0.91, 0.34, "rim"),
+    strake: true,
     tint: FLEET_BATCH_TINTS.gunwale,
     transform: transform().setPosition(0, 0.47, 0),
   });
   parts.push({
-    geometry: createDeckGeometry(silhouette, 0.79, 0.16, "inner"),
+    geometry: createDeckGeometry(silhouette, 0.86, 0.3, "inner"),
     tint: FLEET_BATCH_TINTS.deck,
     transform: transform().setPosition(0, 0.5, 0),
   });

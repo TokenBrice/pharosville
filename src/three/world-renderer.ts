@@ -1335,6 +1335,7 @@ function updateSceneForFrame(
         pitch: visual.root.rotation.x,
         scale: visual.root.scale.x,
         silhouette: visual.silhouette,
+        trimColor: visual.trimColor,
         x: visual.root.position.x,
         y: visual.root.position.y,
         z: visual.root.position.z,

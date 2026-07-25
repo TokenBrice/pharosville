@@ -38,23 +38,23 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 | Model | URL | Bytes | Geometry | SHA-256 |
 | --- | --- | --- | --- | --- |
 | `garden-lighthouse-shell` | `/pharosville/models/garden-lighthouse-shell.glb` | 534 KiB | 7 draws / 33,444 tris / 21,642 verts / 0 textures | `390477368cfecc235a771300f7cecfc1f8047a6adfa43806cd198f911ba7b03b` |
-| `garden-hero-titan` | `/pharosville/models/garden-hero-titan.glb` | 108 KiB | 4 draws / 3,202 tris / 3,926 verts / 0 textures | `ccdcdb79701aeb235d4492bf6c6f500c012209cef74a514326d0cf7a5e2e9d57` |
-| `garden-hero-heritage` | `/pharosville/models/garden-hero-heritage.glb` | 89 KiB | 4 draws / 2,644 tris / 3,231 verts / 0 textures | `6626047544c4a69662b07d6feb63f6f487ba3e4995d364cd734227a763fe3cfa` |
-| `garden-hero-carrack` | `/pharosville/models/garden-hero-carrack.glb` | 107 KiB | 4 draws / 3,096 tris / 3,862 verts / 0 textures | `f5b1fb7510f93e50500568961f72134b2317aaf9b115a87412ab0642a4868560` |
-| `garden-hero-brigantine` | `/pharosville/models/garden-hero-brigantine.glb` | 69 KiB | 4 draws / 2,102 tris / 2,413 verts / 0 textures | `a003880b4ff4b613ce6f92bfec1cb6c05d101e6214731d30cf9819ff982509fc` |
-| `garden-hero-dhow` | `/pharosville/models/garden-hero-dhow.glb` | 73 KiB | 4 draws / 2,074 tris / 2,558 verts / 0 textures | `a5735f39e261a518071ad4aa8ceb68cacbe7c0547c57345bfae1f19ae7ce20e4` |
-| `garden-hero-junk` | `/pharosville/models/garden-hero-junk.glb` | 75 KiB | 4 draws / 2,236 tris / 2,639 verts / 0 textures | `2c1c25539bdedfcf52f9d873416bd2506cdcd212740614db14b15803fe8fcc18` |
-| `garden-hero-barquentine` | `/pharosville/models/garden-hero-barquentine.glb` | 88 KiB | 4 draws / 2,684 tris / 3,160 verts / 0 textures | `a5b826767199f9083102d120ad4614fcf95cdaa873faed1f3d223e19ac5652b8` |
-| `garden-hero-cog` | `/pharosville/models/garden-hero-cog.glb` | 75 KiB | 4 draws / 2,072 tris / 2,602 verts / 0 textures | `180d6c27e6e40856a2e4c313d2544ff5444f41ebedec9c5676ea1e45d67142f4` |
-| `garden-hero-xebec` | `/pharosville/models/garden-hero-xebec.glb` | 84 KiB | 4 draws / 2,428 tris / 2,959 verts / 0 textures | `9b9dc6216a9750fe9a9797df6a0f393c908a26dc7b288317b3c7261e89a20a05` |
-| `garden-hero-cutter` | `/pharosville/models/garden-hero-cutter.glb` | 74 KiB | 4 draws / 2,044 tris / 2,551 verts / 0 textures | `66caa65385a58191382d6d4014d8f24c3f6f23874e3f4e355ec9108072f3cdc7` |
-| `garden-hero-tether` | `/pharosville/models/garden-hero-tether.glb` | 115 KiB | 4 draws / 3,218 tris / 4,212 verts / 0 textures | `010311a2f7515f950b08c6632b5aff8e397afc06ecc798dc0ba92fa02a06abb0` |
-| `garden-hero-circle` | `/pharosville/models/garden-hero-circle.glb` | 84 KiB | 4 draws / 2,580 tris / 2,990 verts / 0 textures | `d30a602c4f9b9f9c1b62d90444c740113dafae3ec25f2acbc3552f81dc9658ca` |
-| `garden-hero-maker` | `/pharosville/models/garden-hero-maker.glb` | 79 KiB | 4 draws / 2,362 tris / 2,772 verts / 0 textures | `22c2de836bb91131fd0a20979623772c477cf553ce1ca312338dfbca5ba60cb7` |
-| `garden-hero-sky` | `/pharosville/models/garden-hero-sky.glb` | 84 KiB | 4 draws / 2,574 tris / 2,938 verts / 0 textures | `a2612d452e06762c4ec6268cc44f33fc19e2228a6d7a3dd4b884ef1a8f9b99b2` |
-| `garden-hero-ethena` | `/pharosville/models/garden-hero-ethena.glb` | 65 KiB | 4 draws / 2,426 tris / 2,055 verts / 0 textures | `25e9b0a84c8e411eded3d3653a36ed067b20d351125e5245145abab32ab3b8d3` |
-| `garden-hero-liberty` | `/pharosville/models/garden-hero-liberty.glb` | 75 KiB | 4 draws / 2,138 tris / 2,646 verts / 0 textures | `287c4ef293daf0767564f0f3a0470f6d21d7b3230e13a30e1bbd9f29ddd65ef5` |
-| `garden-hero-paypal` | `/pharosville/models/garden-hero-paypal.glb` | 81 KiB | 4 draws / 2,398 tris / 2,791 verts / 0 textures | `b7d8089bddba70488b89d0bb058d976c8594a814bd09b825c1db862ebd2656df` |
+| `garden-hero-titan` | `/pharosville/models/garden-hero-titan.glb` | 109 KiB | 5 draws / 3,202 tris / 3,926 verts / 0 textures | `6ea4288ddf7d68147b3bcec955d8aec76075b4035a6458273d4073d5eb5d4c9a` |
+| `garden-hero-heritage` | `/pharosville/models/garden-hero-heritage.glb` | 90 KiB | 5 draws / 2,644 tris / 3,231 verts / 0 textures | `d58ed297847e84b60f8deaa56a7067480ce2ea7076d41ea4f8338b8b7a678f25` |
+| `garden-hero-carrack` | `/pharosville/models/garden-hero-carrack.glb` | 108 KiB | 5 draws / 3,096 tris / 3,862 verts / 0 textures | `ece41287cb456dfc5006b49c050979f43fca22cc22e88524af8c46e8e9ba1e44` |
+| `garden-hero-brigantine` | `/pharosville/models/garden-hero-brigantine.glb` | 70 KiB | 5 draws / 2,102 tris / 2,413 verts / 0 textures | `346e894d912d485a1143aca015bed891b959805899c58fe7ec83490d06ac9dfe` |
+| `garden-hero-dhow` | `/pharosville/models/garden-hero-dhow.glb` | 74 KiB | 5 draws / 2,074 tris / 2,558 verts / 0 textures | `4c9fd30891fe2b8691d3893f5d91d149bc4f8b8fcbb806ad05dd0456add3da79` |
+| `garden-hero-junk` | `/pharosville/models/garden-hero-junk.glb` | 76 KiB | 5 draws / 2,236 tris / 2,639 verts / 0 textures | `f2f6155c37f7c01bf2a64d65765cfc2b0e6ae69822699c8e536e228d59336222` |
+| `garden-hero-barquentine` | `/pharosville/models/garden-hero-barquentine.glb` | 89 KiB | 5 draws / 2,684 tris / 3,160 verts / 0 textures | `80d9007384da9754f52c56a4d1db166b23552878dadc2c6a461b554f9d05933f` |
+| `garden-hero-cog` | `/pharosville/models/garden-hero-cog.glb` | 76 KiB | 5 draws / 2,072 tris / 2,602 verts / 0 textures | `44b47d3bab8dd6f2649dca20f9e65efe2f49357760a7c4d1ea6ca3fc96123a58` |
+| `garden-hero-xebec` | `/pharosville/models/garden-hero-xebec.glb` | 85 KiB | 5 draws / 2,428 tris / 2,959 verts / 0 textures | `c05faa15f16f436e4170736ee8e786ad7afb7ba4d8aa2e9cad76c90c46d9095c` |
+| `garden-hero-cutter` | `/pharosville/models/garden-hero-cutter.glb` | 75 KiB | 5 draws / 2,044 tris / 2,551 verts / 0 textures | `bddd3708c3c53bd125fa6e4b8e8953516b525f132565190e4f837e1333a3f3f5` |
+| `garden-hero-tether` | `/pharosville/models/garden-hero-tether.glb` | 116 KiB | 5 draws / 3,218 tris / 4,212 verts / 0 textures | `35c7f69b114152a66cc22b54873c425b90c4059bd624df978bba570d623c6cf5` |
+| `garden-hero-circle` | `/pharosville/models/garden-hero-circle.glb` | 85 KiB | 5 draws / 2,580 tris / 2,990 verts / 0 textures | `b2c4b816501da38ff26e9f215efc87a6dd75c7f80fc882a2eb8c89886191d948` |
+| `garden-hero-maker` | `/pharosville/models/garden-hero-maker.glb` | 80 KiB | 5 draws / 2,362 tris / 2,772 verts / 0 textures | `ea5d3d6da183cb4f7352d355e0ce9f181e7431d83647c496b9ca4087899e3ef7` |
+| `garden-hero-sky` | `/pharosville/models/garden-hero-sky.glb` | 85 KiB | 5 draws / 2,574 tris / 2,938 verts / 0 textures | `99e43e9a03c852981b681ecf1a979178faa2ff477ad1765b030c0d33006aa4f6` |
+| `garden-hero-ethena` | `/pharosville/models/garden-hero-ethena.glb` | 66 KiB | 5 draws / 2,426 tris / 2,055 verts / 0 textures | `701f3ed02dfb4ea38a981b948a83de70966140a66d91647d8a6bebc2382d75a1` |
+| `garden-hero-liberty` | `/pharosville/models/garden-hero-liberty.glb` | 76 KiB | 5 draws / 2,138 tris / 2,646 verts / 0 textures | `b1e95e1587ff4b782e88f0be14ea5f32e7abb4bc5ff80c0a80de219f53edb2f6` |
+| `garden-hero-paypal` | `/pharosville/models/garden-hero-paypal.glb` | 82 KiB | 5 draws / 2,398 tris / 2,791 verts / 0 textures | `9d86dca0b47fc1420fe01ef89a3758baa39290925bf15d467a1dc8a07dc7f7f2` |
 
 - The procedural lighthouse shell remains the in-scene fallback if its GLB cannot load.
 

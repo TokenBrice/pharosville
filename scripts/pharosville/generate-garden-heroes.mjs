@@ -183,7 +183,7 @@ function buildTitan() {
 
   // Sheer strake (trim) at the gunwale and a dark wale mid-hull: the classic
   // dark-band / light-stripe color blocking (S4).
-  addStrake(add, stations, { h0: 0.9, h1: 0.97, tone: WOOD_TRIM });
+  addStrake(add, stations, { h0: 0.9, h1: 0.97, paint: true, tone: WOOD_TRIM });
   addStrake(add, stations, { h0: 0.52, h1: 0.6, tone: WOOD_WALE });
   addStrake(add, stations, { h0: 0.36, h1: 0.42, tone: WOOD_WALE });
 
@@ -339,7 +339,7 @@ function buildHeritage() {
   });
   addHullLoft(add, stations, { bulwarkHeight: 0.28, gunports: false });
 
-  addStrake(add, stations, { h0: 0.88, h1: 0.96, tone: WOOD_TRIM });
+  addStrake(add, stations, { h0: 0.88, h1: 0.96, paint: true, tone: WOOD_TRIM });
   addStrake(add, stations, { h0: 0.5, h1: 0.57, tone: WOOD_WALE });
 
   add("wood", new BoxGeometry(7.6, 0.18, 0.12), {
@@ -470,7 +470,7 @@ function buildCarrack() {
     tumbleBow: 0.8,
   });
   addHullLoft(add, stations, { bulwarkHeight: 0.4, gunports: true });
-  addStrake(add, stations, { h0: 0.91, h1: 0.99, tone: WOOD_TRIM });
+  addStrake(add, stations, { h0: 0.91, h1: 0.99, paint: true, tone: WOOD_TRIM });
   addStrake(add, stations, { h0: 0.56, h1: 0.63, tone: WOOD_WALE });
   addStrake(add, stations, { h0: 0.42, h1: 0.48, tone: WOOD_WALE });
 
@@ -588,7 +588,7 @@ function buildBrigantine() {
     tumbleBow: 0.95,
   });
   addHullLoft(add, stations, { bulwarkHeight: 0.28, gunports: false });
-  addStrake(add, stations, { h0: 0.88, h1: 0.96, tone: WOOD_TRIM });
+  addStrake(add, stations, { h0: 0.88, h1: 0.96, paint: true, tone: WOOD_TRIM });
   addStrake(add, stations, { h0: 0.5, h1: 0.57, tone: WOOD_WALE });
 
   add("wood", new BoxGeometry(7.9, 0.18, 0.14), {
@@ -688,7 +688,7 @@ function buildDhow() {
     tumbleBow: 0.96,
   });
   addHullLoft(add, stations, { bulwarkHeight: 0.24, gunports: false });
-  addStrake(add, stations, { h0: 0.86, h1: 0.94, tone: WOOD_TRIM });
+  addStrake(add, stations, { h0: 0.86, h1: 0.94, paint: true, tone: WOOD_TRIM });
   addStrake(add, stations, { h0: 0.46, h1: 0.53, tone: WOOD_WALE });
 
   add("wood", new BoxGeometry(8.0, 0.2, 0.14), {
@@ -784,7 +784,7 @@ function buildJunk() {
     tumbleBow: 1.0,
   });
   addHullLoft(add, stations, { bulwarkHeight: 0.3, gunports: false });
-  addStrake(add, stations, { h0: 0.9, h1: 0.98, tone: WOOD_TRIM });
+  addStrake(add, stations, { h0: 0.9, h1: 0.98, paint: true, tone: WOOD_TRIM });
   addStrake(add, stations, { h0: 0.62, h1: 0.68, tone: WOOD_WALE });
   addStrake(add, stations, { h0: 0.4, h1: 0.46, tone: WOOD_WALE });
 
@@ -889,7 +889,7 @@ function buildBarquentine() {
     tumbleBow: 0.94,
   });
   addHullLoft(add, stations, { bulwarkHeight: 0.3, gunports: false });
-  addStrake(add, stations, { h0: 0.88, h1: 0.96, tone: WOOD_TRIM });
+  addStrake(add, stations, { h0: 0.88, h1: 0.96, paint: true, tone: WOOD_TRIM });
   addStrake(add, stations, { h0: 0.66, h1: 0.72, tone: WOOD_TRIM });
   addStrake(add, stations, { h0: 0.48, h1: 0.55, tone: WOOD_WALE });
 
@@ -1010,7 +1010,7 @@ function buildCog() {
 
   // Clinker planking: overlapping strake bands are the cog's whole surface
   // language, so it gets four instead of the usual two.
-  addStrake(add, stations, { h0: 0.9, h1: 0.98, tone: WOOD_TRIM });
+  addStrake(add, stations, { h0: 0.9, h1: 0.98, paint: true, tone: WOOD_TRIM });
   addStrake(add, stations, { h0: 0.74, h1: 0.8, tone: WOOD_WALE });
   addStrake(add, stations, { h0: 0.6, h1: 0.66, tone: WOOD_WALE });
   addStrake(add, stations, { h0: 0.46, h1: 0.52, tone: WOOD_WALE });
@@ -1115,7 +1115,7 @@ function buildXebec() {
     tumbleBow: 0.9,
   });
   addHullLoft(add, stations, { bulwarkHeight: 0.24, gunports: false });
-  addStrake(add, stations, { h0: 0.88, h1: 0.96, tone: WOOD_TRIM });
+  addStrake(add, stations, { h0: 0.88, h1: 0.96, paint: true, tone: WOOD_TRIM });
   addStrake(add, stations, { h0: 0.44, h1: 0.5, tone: WOOD_WALE });
   // Oar ports: the xebec was rowed as well as sailed.
   addStrake(add, stations, { h0: 0.6, h1: 0.67, painter: "gunports" });
@@ -1215,7 +1215,7 @@ function buildCutter() {
     tumbleBow: 0.95,
   });
   addHullLoft(add, stations, { bulwarkHeight: 0.22, gunports: false });
-  addStrake(add, stations, { h0: 0.86, h1: 0.94, tone: WOOD_TRIM });
+  addStrake(add, stations, { h0: 0.86, h1: 0.94, paint: true, tone: WOOD_TRIM });
   addStrake(add, stations, { h0: 0.52, h1: 0.58, tone: WOOD_WALE });
 
   add("wood", new BoxGeometry(7.6, 0.2, 0.14), {
@@ -1317,7 +1317,7 @@ function buildTether() {
     tumbleBow: 0.78,
   });
   addHullLoft(add, stations, { bulwarkHeight: 0.3, gunports: false });
-  addStrake(add, stations, { h0: 0.9, h1: 0.99, tone: WOOD_TRIM });
+  addStrake(add, stations, { h0: 0.9, h1: 0.99, paint: true, tone: WOOD_TRIM });
   addStrake(add, stations, { h0: 0.72, h1: 0.79, tone: WOOD_TRIM });
   addStrake(add, stations, { h0: 0.5, h1: 0.6, tone: WOOD_WALE });
   addStrake(add, stations, { h0: 0.34, h1: 0.42, tone: WOOD_WALE });
@@ -1429,7 +1429,7 @@ function buildCircle() {
     tumbleBow: 0.92,
   });
   addHullLoft(add, stations, { bulwarkHeight: 0.34, gunports: true });
-  addStrake(add, stations, { h0: 0.9, h1: 0.98, tone: WOOD_TRIM });
+  addStrake(add, stations, { h0: 0.9, h1: 0.98, paint: true, tone: WOOD_TRIM });
   addStrake(add, stations, { h0: 0.56, h1: 0.62, tone: WOOD_WALE });
   addStrake(add, stations, { h0: 0.44, h1: 0.5, tone: WOOD_TRIM });
 
@@ -1535,7 +1535,7 @@ function buildMaker() {
     sternX: -5.0,
   });
   addHullLoft(add, stations, { bulwarkHeight: 0.32, gunports: false });
-  addStrake(add, stations, { h0: 0.9, h1: 0.98, tone: WOOD_TRIM });
+  addStrake(add, stations, { h0: 0.9, h1: 0.98, paint: true, tone: WOOD_TRIM });
   // Coursed masonry: four bands of equal depth, like ashlar blocks.
   addStrake(add, stations, { h0: 0.74, h1: 0.8, tone: WOOD_WALE });
   addStrake(add, stations, { h0: 0.6, h1: 0.66, tone: WOOD_WALE });
@@ -1616,7 +1616,7 @@ function buildSky() {
     sternX: -5.4,
   });
   addHullLoft(add, stations, { bulwarkHeight: 0.32, gunports: false });
-  addStrake(add, stations, { h0: 0.9, h1: 0.98, tone: WOOD_TRIM });
+  addStrake(add, stations, { h0: 0.9, h1: 0.98, paint: true, tone: WOOD_TRIM });
   addStrake(add, stations, { h0: 0.74, h1: 0.8, tone: WOOD_WALE });
   addStrake(add, stations, { h0: 0.6, h1: 0.66, tone: WOOD_WALE });
   addStrake(add, stations, { h0: 0.46, h1: 0.52, tone: WOOD_WALE });
@@ -1718,7 +1718,7 @@ function buildEthena() {
     tumbleBow: 0.94,
   });
   addHullLoft(add, stations, { bulwarkHeight: 0.22, gunports: false });
-  addStrake(add, stations, { h0: 0.88, h1: 0.96, tone: WOOD_TRIM });
+  addStrake(add, stations, { h0: 0.88, h1: 0.96, paint: true, tone: WOOD_TRIM });
   addStrake(add, stations, { h0: 0.5, h1: 0.56, tone: WOOD_WALE });
 
   add("wood", new BoxGeometry(9.6, 0.2, 0.14), {
@@ -1808,7 +1808,7 @@ function buildLiberty() {
     tumbleBow: 0.9,
   });
   addHullLoft(add, stations, { bulwarkHeight: 0.24, gunports: false });
-  addStrake(add, stations, { h0: 0.9, h1: 0.99, tone: WOOD_TRIM });
+  addStrake(add, stations, { h0: 0.9, h1: 0.99, paint: true, tone: WOOD_TRIM });
   addStrake(add, stations, { h0: 0.76, h1: 0.83, tone: WOOD_HIGH });
   addStrake(add, stations, { h0: 0.52, h1: 0.6, tone: WOOD_TRIM });
 
@@ -1886,7 +1886,7 @@ function buildPaypal() {
     tumbleBow: 0.94,
   });
   addHullLoft(add, stations, { bulwarkHeight: 0.26, gunports: false });
-  addStrake(add, stations, { h0: 0.88, h1: 0.96, tone: WOOD_TRIM });
+  addStrake(add, stations, { h0: 0.88, h1: 0.96, paint: true, tone: WOOD_TRIM });
   addStrake(add, stations, { h0: 0.52, h1: 0.6, tone: WOOD_WALE });
 
   add("wood", new BoxGeometry(8.8, 0.2, 0.15), {
@@ -1988,6 +1988,18 @@ function createBuilder(assetId) {
       side: 2,
       vertexColors: true,
     })],
+    // W1/D2: the sheer strake, kept out of `wood` so the runtime can paint it
+    // in the issuer's colour. Authored white with vertex colours, like `wood`,
+    // so a runtime multiply modulates the baked trim shading instead of
+    // flattening it.
+    ["trim", new MeshStandardMaterial({
+      color: "#ffffff",
+      flatShading: true,
+      name: "hero-trim",
+      roughness: 0.84,
+      side: 2,
+      vertexColors: true,
+    })],
     ["spar", new MeshStandardMaterial({
       color: "#2e2620",
       flatShading: true,
@@ -2025,7 +2037,9 @@ function createBuilder(assetId) {
       new Vector3(...(transform.scale ?? [1, 1, 1])),
     );
     geometry.applyMatrix4(matrix);
-    if (materialName === "wood") paintWood(geometry, transform.tone ?? null);
+    if (materialName === "wood" || materialName === "trim") {
+      paintWood(geometry, transform.tone ?? null);
+    }
     else if (materialName === "sail") paintSail(geometry, transform.furled ?? false);
     // Every part stays indexed: indexed merges keep the vertex budget low
     // enough for the 1.5-3k triangle target without a budget raise.
@@ -2298,14 +2312,18 @@ function addHullLoft(add, stations, { bulwarkHeight, gunports }) {
  * offset just proud of the shell. Used for the trim sheer strake, the dark
  * wales, and the gunport band.
  */
-function addStrake(add, stations, { h0, h1, painter = null, tone = null }) {
+function addStrake(add, stations, { h0, h1, paint = false, painter = null, tone = null }) {
   for (const side of [-1, 1]) {
     const geometry = gridGeometry(stations.length, 2, (i, j) => {
       const point = ringPoint(stations[i], j === 0 ? h0 : h1, side);
       return [point[0], point[1], point[2] * 1.018 + side * 0.012];
     }, { expected: [0, 0, side] });
     if (painter === "gunports") paintGunports(geometry);
-    add("wood", geometry, { tone });
+    // W1/D2: `paint` routes the SHEER strake — the topmost band, the one that
+    // traces the sheer curve — onto its own material, so the runtime can dye it
+    // in the issuer's colour exactly as the batched fleet dyes its gunwale
+    // ring. Every other strake stays part of the wood.
+    add(paint ? "trim" : "wood", geometry, { tone });
   }
 }
 
