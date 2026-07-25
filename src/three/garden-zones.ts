@@ -77,12 +77,17 @@ function seaRegionIdForArea(area: AreaNode): number {
   return SEA_REGION_ID.none;
 }
 
-// W2.7 (tuned against the first render): a partition does not stack, so these
-// can exceed the old 0.04-0.20 ellipse values — but 0.32/0.44 read as UI paint
+// W2.7 (tuned against the render): a partition does not stack, so these can
+// exceed the old 0.04-0.20 ellipse values — but 0.32/0.44 read as UI paint
 // rather than water. Character (swell/chop/foam/reflectivity) carries the
-// signal; colour only has to make the region findable.
-const REGION_TINT_STRENGTH_BAND = 0.17;
-const REGION_TINT_STRENGTH_DANGER = 0.26;
+// signal; colour only has to make the region FINDABLE.
+//
+// Raised again after the world doubled: across 4x more sea, at whole-map
+// framing, 0.17 left calm, watch and ledger reading as one undifferentiated
+// blue. Data legibility is a pillar of the brief — a viewer has to be able to
+// see where one body of water ends and the next begins.
+const REGION_TINT_STRENGTH_BAND = 0.24;
+const REGION_TINT_STRENGTH_DANGER = 0.34;
 
 const BUOY_HEIGHT = 1.1;
 // Z3: buoys ride the water shader's swell (CPU mirror, see updateZoneBuoys).
@@ -212,7 +217,7 @@ export function createZone(area: AreaNode): ZoneVisual {
   // live water lifted danger's vermillion into magenta, which read as an
   // overlay rather than a sea state. Every band is pulled toward deep sea;
   // danger hardest, since its accent is the most saturated.
-  tintColor.lerp(DEEP_SEA, danger ? 0.62 : 0.34);
+  tintColor.lerp(DEEP_SEA, danger ? 0.55 : 0.26);
 
   return {
     area,
