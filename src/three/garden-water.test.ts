@@ -1,4 +1,12 @@
-import { Color, NearestFilter, DataTexture, PlaneGeometry, ShaderMaterial } from "three";
+import {
+  Color,
+  DataTexture,
+  LinearFilter,
+  LinearMipmapLinearFilter,
+  NearestFilter,
+  PlaneGeometry,
+  ShaderMaterial,
+} from "three";
 import { describe, expect, it } from "vitest";
 import {
   GARDEN_WATER_Y,
@@ -124,6 +132,45 @@ describe("createGardenWater", () => {
     const field = water.material.uniforms.uRegionField!.value as { magFilter: number; minFilter: number };
     expect(field.magFilter).toBe(NearestFilter);
     expect(field.minFilter).toBe(NearestFilter);
+  });
+
+  it("samples the boundary distance with linear filtering and mipmaps", () => {
+    // S5: the id and the distance need OPPOSITE filtering, and filtering is a
+    // property of the texture, so they cannot share one. Point-sampling the
+    // distance is what made the tide lines stair-step and crawl at overview
+    // zoom, where one screen pixel covers several texels and the seam terms
+    // read a 0.14-wide window of the field.
+    const water = createGardenWater(0);
+    const distance = water.material.uniforms.uRegionDistance!.value as {
+      generateMipmaps: boolean;
+      magFilter: number;
+      minFilter: number;
+    };
+    expect(distance.magFilter).toBe(LinearFilter);
+    expect(distance.minFilter).toBe(LinearMipmapLinearFilter);
+    expect(distance.generateMipmaps).toBe(true);
+    // ...and it must be a different texture, or the sampler state collides.
+    expect(distance).not.toBe(water.material.uniforms.uRegionField!.value);
+  });
+
+  it("resolves every hard threshold against its own screen-space gradient", () => {
+    // S3: MSAA antialiases geometry edges, not a discontinuity the shader
+    // invents per fragment. Every bare step() on a spatial field crawled under
+    // camera motion — the operator's "flickering". aaStep is the only threshold
+    // helper; a raw step() on a varying-derived field is the regression.
+    const source = createGardenWater(0).material.fragmentShader;
+    expect(source).toContain("float aaStep(float edge, float value)");
+    expect(source).toContain("fwidth(value)");
+    for (const aliased of [
+      "step(0.76,",
+      "step(0.35,",
+      "step(0.86, sin(",
+      "step(0.0, shoreWorld)",
+    ]) {
+      // `aaStep(0.76,` contains `Step(0.76,` but not `step(0.76,` — the check
+      // is case-sensitive on purpose.
+      expect(source).not.toContain(aliased);
+    }
   });
 
   it("freezes reduced motion and lowers decorative detail by quality tier", () => {

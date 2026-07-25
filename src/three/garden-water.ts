@@ -1,6 +1,8 @@
 import {
   Color,
   DataTexture,
+  LinearFilter,
+  LinearMipmapLinearFilter,
   MathUtils,
   Mesh,
   NearestFilter,
@@ -59,22 +61,52 @@ const TILE_SCALE_UNITS = Math.SQRT2;
 const REGION_TINT_STRENGTH = 0.34;
 
 /**
- * Bakes the terrain-derived sea-region field into a GPU texture.
+ * Bakes the terrain-derived sea-region field into GPU textures.
  *
- * Nearest filtering on the id channel is essential: a bilinear blend between
- * region 1 and region 3 would produce region 2 and paint a phantom band along
- * every boundary.
+ * S5: the field carries two channels with OPPOSITE filtering needs, so it ships
+ * as two textures rather than one.
+ *
+ * - The region **id** must be point-sampled. A bilinear blend between region 1
+ *   and region 3 would produce region 2 and paint a phantom band along every
+ *   boundary.
+ * - The **boundary distance** is a smooth scalar, and point-sampling it is why
+ *   the tide lines crawled: at whole-map framing one screen pixel covers
+ *   several texels, and the seam terms read a 0.14-wide window of it, so the
+ *   line stair-stepped and swam as the camera moved. Linear filtering plus
+ *   mipmaps resolves it the way any other continuous field would be.
  */
-function createSeaRegionTexture(): { texture: DataTexture; tileSpan: number } {
-  const field = buildSeaRegionField();
-  const texture = new DataTexture(field.data, field.size, field.size, RGBAFormat);
-  // Nearest on BOTH filters: a bilinear blend between region 1 and region 3
-  // would produce region 2 and paint a phantom band along every boundary.
-  texture.magFilter = NearestFilter;
-  texture.minFilter = NearestFilter;
-  texture.needsUpdate = true;
-  texture.flipY = false;
-  return { texture, tileSpan: field.tileSpan };
+function createSeaRegionTextures(): {
+  distance: DataTexture;
+  field: DataTexture;
+  tileSpan: number;
+} {
+  const baked = buildSeaRegionField();
+  const field = new DataTexture(baked.data, baked.size, baked.size, RGBAFormat);
+  field.magFilter = NearestFilter;
+  field.minFilter = NearestFilter;
+  field.generateMipmaps = false;
+  field.needsUpdate = true;
+  field.flipY = false;
+
+  // Distance-only copy. Same bytes, different sampler state — the two cannot
+  // share a texture because filtering is a property of the texture, not the
+  // fetch.
+  const distanceData = new Uint8Array(baked.size * baked.size * 4);
+  for (let index = 0; index < baked.size * baked.size; index += 1) {
+    const boundary = baked.data[index * 4 + 1]!;
+    distanceData[index * 4] = boundary;
+    distanceData[index * 4 + 1] = boundary;
+    distanceData[index * 4 + 2] = boundary;
+    distanceData[index * 4 + 3] = 255;
+  }
+  const distance = new DataTexture(distanceData, baked.size, baked.size, RGBAFormat);
+  distance.magFilter = LinearFilter;
+  distance.minFilter = LinearMipmapLinearFilter;
+  distance.generateMipmaps = true;
+  distance.needsUpdate = true;
+  distance.flipY = false;
+
+  return { distance, field, tileSpan: baked.tileSpan };
 }
 const WATER_SEGMENTS = 96;
 export const GARDEN_WATER_MAX_DISPLACEMENT = 0.036;
@@ -257,6 +289,7 @@ const FRAGMENT_SHADER = /* glsl */ `
   uniform vec2 uOpenOceanCenter;
   uniform float uOpenOceanRadius;
   uniform sampler2D uRegionField;
+  uniform sampler2D uRegionDistance;
   uniform vec3 uRegionColor[${SEA_REGION_COUNT}];
   // xyzw = depth multiplier, foam density, reflectivity, tint strength.
   uniform vec4 uRegionParams[${SEA_REGION_COUNT}];
@@ -276,8 +309,18 @@ const FRAGMENT_SHADER = /* glsl */ `
 
   // Value noise for the region whitecaps (W2/D6). Products of sines tile into
   // a visible diagonal lattice; this does not.
+  //
+  // S4: the classic fract(sin(dot(p, k)) * 43758.5453) hash is unstable at
+  // this scale. Whitecap lattice coordinates run to ~150, so dot(p, k)
+  // reaches ~66000 — and highp's 24-bit mantissa leaves roughly 0.6 rad of
+  // error there, so the "noise" changed under the camera and the crests
+  // shimmered. Folding p into a small window first keeps the sine argument in a
+  // range where it is exact. The fold is on the integer LATTICE, so the noise
+  // field is unchanged apart from repeating every 289 cells — far larger than
+  // the sea, and invisible against two octaves of fbm.
   float gardenHash(vec2 p) {
-    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+    vec2 folded = mod(p, 289.0);
+    return fract(sin(dot(folded, vec2(127.1, 311.7))) * 43758.5453);
   }
 
   float gardenValueNoise(vec2 p) {
@@ -301,6 +344,25 @@ const FRAGMENT_SHADER = /* glsl */ `
     float c = cos(a);
     float s = sin(a);
     return vec2(v.x * c - v.y * s, v.x * s + v.y * c);
+  }
+
+  /**
+   * S3: a threshold that knows how fast its own field is moving on screen.
+   *
+   * The sea was full of bare step()s -- the sparkle masks, the shore foam
+   * rings. MSAA antialiases geometry edges, not a discontinuity a shader
+   * invents per fragment, so each one aliased into crawling speckle whenever
+   * the camera moved: the operator's "flickering", and why the sun glitter read
+   * as scattered dust rather than light on water.
+   *
+   * Widening the transition to one screen pixel of the field's own gradient
+   * resolves it exactly where it is undersampled and nowhere else, so close-up
+   * detail is untouched. The floor keeps a nearly-flat field from opening the
+   * ramp so wide the mark dissolves.
+   */
+  float aaStep(float edge, float value) {
+    float width = max(fwidth(value), 1e-4);
+    return smoothstep(edge - width, edge + width, value);
   }
 
   void main() {
@@ -536,7 +598,10 @@ const FRAGMENT_SHADER = /* glsl */ `
     {
       vec4 regionSample = texture2D(uRegionField, vRegionUv);
       int regionId = int(regionSample.r * 255.0 + 0.5);
-      float boundaryDistance = regionSample.g;
+      // S5: the id comes from the point-sampled field; the distance comes from
+      // its linear, mipmapped twin. Reading both off one NEAREST texture is
+      // what made the tide lines stair-step and crawl at overview zoom.
+      float boundaryDistance = texture2D(uRegionDistance, vRegionUv).r;
 
       vec3 regionTint = uRegionColor[regionId];
       float regionDepth = uRegionParams[regionId].x;
@@ -657,10 +722,10 @@ const FRAGMENT_SHADER = /* glsl */ `
       vec3 moonLight = normalize(vec3(uMoonDir * 1.15, 0.5));
       vec3 halfMoon = normalize(moonLight + vec3(0.0, 0.0, 1.0));
       float specular = pow(max(0.0, dot(blendedNormal, halfMoon)), 90.0);
-      float sparkleMask = step(0.35,
+      float sparkleField =
         sin(dot(vWaterPosition, vec2(2.3, 3.1)) + blendedNormal.x * 11.0)
-        * sin(dot(vWaterPosition, vec2(-3.7, 2.1)) + blendedNormal.y * 9.0)
-      );
+        * sin(dot(vWaterPosition, vec2(-3.7, 2.1)) + blendedNormal.y * 9.0);
+      float sparkleMask = aaStep(0.35, sparkleField);
       float glitterGate = mix(0.8, 0.68, uSwell);
       float glitter = smoothstep(glitterGate, glitterGate + 0.12, specular)
         * sparkleMask * moonBand * nightRoad;
@@ -677,16 +742,23 @@ const FRAGMENT_SHADER = /* glsl */ `
     // (FOG_NEAR 192 / FOG_FAR 275 in garden-sky) so aerial perspective swallows
     // the far sparkles instead of letting them read as stars at noon.
     // Below balanced uGlitterStrength is 0 — the coherent branch skips the
-    // pow-520 and mask work there with identical output.
+    // specular and mask work there with identical output.
+    //
+    // S3: the exponent was 520 with a 0.06-wide gate — a spike far narrower
+    // than a pixel, so whether any given fragment caught it was decided by
+    // sub-pixel luck. Under camera motion that is not glitter, it is noise: the
+    // sparkles read as scattered single-pixel dust and crawled. 120 with a
+    // wider gate keeps each sparkle small while giving it enough screen
+    // footprint to be sampled honestly, and the mask is now derivative-aware.
     if (uGlitterStrength > 0.001 && uDaylight + uDusk > 0.001) {
       vec3 halfSun = normalize(keyDirection + vec3(0.0, 0.0, 1.0));
-      float sunSpecular = pow(max(0.0, dot(blendedNormal, halfSun)), 520.0);
-      float sunSparkleMask = step(0.76,
+      float sunSpecular = pow(max(0.0, dot(blendedNormal, halfSun)), 120.0);
+      float sunSparkleField =
         sin(dot(vWaterPosition, vec2(3.1, -2.4)) + blendedNormal.y * 13.0)
-        * sin(dot(vWaterPosition, vec2(-2.2, -3.6)) + blendedNormal.x * 10.0)
-      );
-      float sunGate = mix(0.8, 0.68, uSwell);
-      float sunGlitter = smoothstep(sunGate, sunGate + 0.06, sunSpecular)
+        * sin(dot(vWaterPosition, vec2(-2.2, -3.6)) + blendedNormal.x * 10.0);
+      float sunSparkleMask = aaStep(0.76, sunSparkleField);
+      float sunGate = mix(0.86, 0.76, uSwell);
+      float sunGlitter = smoothstep(sunGate, sunGate + 0.14, sunSpecular)
         * sunSparkleMask
         * (uDaylight + uDusk * 0.4)
         * uGlitterStrength;
@@ -807,12 +879,17 @@ const FRAGMENT_SHADER = /* glsl */ `
     // Hard-stepped ukiyo-e outline bands expanding slowly outward through the
     // 0–4 unit near-shore band; frozen at t=0 they hold a composed static
     // pose. Shed with the ripple-ring tier gate (uRippleStrength).
+    //
+    // S3: "hard-stepped" is the ukiyo-e intent and it stays -- but a bare
+    // step() on a spatial sine has no screen-space width, so the bands
+    // shimmered along the waterline whenever the camera moved. aaStep keeps the
+    // graphic edge and resolves it only where it is undersampled.
     if (uRippleStrength > 0.01) {
       float shoreWorld = length(vWaterPosition - uIslandCenter - vec2(0.6, -1.2))
         - uRockRadius;
-      float foamRings = step(0.86, sin(shoreWorld * 3.2 - uTime * 0.5))
+      float foamRings = aaStep(0.86, sin(shoreWorld * 3.2 - uTime * 0.5))
         * (1.0 - smoothstep(3.0, 4.0, shoreWorld))
-        * step(0.0, shoreWorld);
+        * aaStep(0.0, shoreWorld);
       waterColor = mix(
         waterColor,
         uHighlightColor,
@@ -928,7 +1005,7 @@ export function createGardenWater(waterLevel: number): GardenWater {
   const envZenithColor = DAY_ENV_ZENITH.clone();
   const sunGlitterColor = DAY_CYCLE_LIGHT_PRESETS.day.dirColor.clone();
   const cloudShadows = createGardenCloudShadowSource();
-  const regionField = createSeaRegionTexture();
+  const regionField = createSeaRegionTextures();
   // Region character is static data (D6) — colour is resolved per day phase in
   // `update`, but swell/chop/foam/reflectivity never change.
   // Seeded from the fallback table so every slot has a real colour even
@@ -1026,7 +1103,8 @@ export function createGardenWater(waterLevel: number): GardenWater {
       ),
     },
     uOpenOceanRadius: { value: (regionField.tileSpan * TILE_SCALE_UNITS) * 0.56 },
-    uRegionField: { value: regionField.texture },
+    uRegionField: { value: regionField.field },
+    uRegionDistance: { value: regionField.distance },
     uRegionColor: { value: regionColors },
     uRegionParams: { value: regionParams },
     uRegionSwell: { value: regionSwell },
