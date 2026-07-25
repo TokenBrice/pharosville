@@ -3,6 +3,7 @@ import {
   AmbientLight,
   BufferGeometry,
   CircleGeometry,
+  CylinderGeometry,
   DirectionalLight,
   DoubleSide,
   Group,
@@ -529,8 +530,36 @@ function createCueMarker(color: string, opacity: number): Mesh<RingGeometry, Mes
   marker.rotation.x = -Math.PI / 2;
   marker.renderOrder = 20;
   marker.visible = false;
+
+  // R16: a soft vertical shaft rising from the ring.
+  //
+  // The ring alone is a flat ellipse with depthTest off, so on the island it
+  // read as a decal pasted over the rock rather than as a mark on a PLACE. The
+  // shaft gives it height, which is what makes a ground marker legible in an
+  // isometric view. depthTest stays off so a selection is never lost behind
+  // geometry — being findable matters more than being occluded correctly.
+  const shaft = new Mesh(
+    new CylinderGeometry(0.9, 0.62, CUE_SHAFT_HEIGHT, 20, 1, true),
+    new MeshBasicMaterial({
+      color,
+      depthTest: false,
+      depthWrite: false,
+      opacity: opacity * 0.16,
+      side: DoubleSide,
+      transparent: true,
+    }),
+  );
+  shaft.name = "cue-shaft";
+  // The marker itself is rotated flat, so the shaft counter-rotates to stand.
+  shaft.rotation.x = Math.PI / 2;
+  shaft.position.z = -CUE_SHAFT_HEIGHT / 2;
+  shaft.renderOrder = 19;
+  marker.add(shaft);
   return marker;
 }
+
+/** World units the selection shaft rises (R16). */
+const CUE_SHAFT_HEIGHT = 3.4;
 
 function replaceWorldContent(
   scene: GardenScene,
@@ -1057,11 +1086,20 @@ function updateSceneForFrame(
   const constrained = frame.renderScheduler.tier === "constrained";
   const fullQuality = frame.renderScheduler.tier === "full"
     || frame.renderScheduler.tier === "balanced";
+  // R13: ambient life survives `recovery`.
+  //
+  // Gulls, summit birds and the danger weather were gated to full/balanced
+  // only. On this hardware the app sits in `recovery` almost permanently, so
+  // in practice NONE of it was ever seen — the world was populated but never
+  // alive. They are small instanced systems already sized for a tier ladder;
+  // only `constrained`, which means the machine is genuinely drowning, still
+  // sheds them.
+  const ambientAlive = !constrained;
   content.decoration.visible = true;
   scene.waterAccents.visible = true;
   scene.waterAccents.rotation.y = 0;
   for (const effect of content.weather) {
-    effect.root.visible = fullQuality;
+    effect.root.visible = ambientAlive;
     updateDangerWeather(
       effect,
       frame.timeSeconds,
@@ -1097,7 +1135,7 @@ function updateSceneForFrame(
   content.summitBirds.update({
     reducedMotion: frame.reducedMotion,
     timeSeconds: frame.timeSeconds,
-    visible: fullQuality,
+    visible: ambientAlive,
   });
   // W5 tier matrix. Full: cone + outer cone + fan + dust + embers(32) +
   // smoke(16). Balanced: cone + fan + embers(12) + smoke(8), no dust, no
@@ -1107,8 +1145,11 @@ function updateSceneForFrame(
   // Light-in-air pieces whose day-cycle opacity is exactly 0 (plain daylight)
   // are hidden rather than rasterized: additive alpha-0 output is a no-op,
   // so culling them is pixel-identical and saves a large screen wedge.
-  const beamUsePlane = frame.renderScheduler.tier === "recovery"
-    || frame.renderScheduler.tier === "constrained";
+  // R14: the beam keeps its real cone at `recovery`.
+  //
+  // The cone is the monument's only motion beat and the flat plane reads as a
+  // smudge. Only `constrained` falls back to the plane now.
+  const beamUsePlane = frame.renderScheduler.tier === "constrained";
   const beamPieceLit = (child: typeof content.beam.children[number]): boolean => {
     const material = (child as Mesh).material as ShaderMaterial;
     return (material.uniforms.uOpacity?.value ?? 1) > 0.0005;
@@ -1134,10 +1175,22 @@ function updateSceneForFrame(
       ? 0.35
       : frame.timeSeconds * 0.07;
   }
+  // R14: the sweep RATE carries the fleet's PSI stress.
+  //
+  // The beam is the monument's one motion beat, and it was a constant rotation
+  // — movement that said nothing. A calm fleet now turns the light slowly and
+  // a stressed one quickens it, so the thing your eye is drawn to is also the
+  // thing telling you how the market is doing. The beam's COLOUR still carries
+  // the PSI band, unchanged; this adds tempo, not a second colour channel.
+  //
+  // Bounded to 0.2-0.42 rad/s: fast enough to feel urgent at full stress, slow
+  // enough that the world stays somewhere you can sit.
+  const psiStress = MathUtils.clamp(frame.seaState.source.psiStress ?? 0, 0, 1);
+  const sweepRate = 0.2 + psiStress * 0.22;
   // Constrained freezes the sweep to a static angle (matching reduced motion).
   content.beam.rotation.y = frame.reducedMotion || constrained
     ? -0.55
-    : frame.timeSeconds * 0.2;
+    : frame.timeSeconds * sweepRate;
   content.beacon.getWorldPosition(scratchPosition);
   scene.water.setBeaconState(
     scratchPosition.x,
@@ -1298,6 +1351,14 @@ function updateSceneForFrame(
     scene.laneRegistry.fieldBounds(),
   );
 
+  // R15: buoys are boundary markers, not scenery. At overview zoom dozens of
+  // small dark cones read as litter scattered over the sea with no legible
+  // role, and they are the first thing that makes the water look busy rather
+  // than calm. They appear once the camera is close enough for a marker to
+  // mean something.
+  const buoysVisible = gardenSemanticView(frame.camera.zoom, frame.selectedDetailId) !== "overview";
+  content.zoneField.buoyBodies.visible = buoysVisible;
+  content.zoneField.buoyLamps.visible = buoysVisible;
   updateZoneBuoys(
     content.zoneField,
     frame.timeSeconds,

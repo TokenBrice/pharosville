@@ -219,6 +219,11 @@ export function createDock(
   deck.receiveShadow = true;
   root.add(deck);
 
+  // R12: pilings. The deck sits above the waterline, so without legs reaching
+  // down into it the outlying chain platforms read as hovering slabs. One
+  // instanced mesh carries every pile on the pier.
+  root.add(createPierPilings(length, width, plan));
+
   // ---- Quay wall ----------------------------------------------------------
   // Cut stone at the seaward root of the pier, with a coping course and a
   // stepped face down to the waterline: the thing that makes a harbour read as
@@ -833,6 +838,60 @@ function dockHealthAccent(healthBand: DockNode["healthBand"]): string {
   if (healthBand === "mixed") return "#dfb95a";
   if (healthBand === "fragile") return "#d98b54";
   return "#c9675c";
+}
+
+/**
+ * R12: the piles a pier stands on — paired down each side, following the deck
+ * run, reaching from under the deck to below the waterline so the structure is
+ * visibly supported rather than floating.
+ *
+ * One InstancedMesh for the whole pier: piles are the most repeated element in
+ * a harbour and must not cost a draw call each.
+ */
+function createPierPilings(
+  length: number,
+  width: number,
+  plan: HarborPlan,
+): InstancedMesh<CylinderGeometry, MeshStandardMaterial> {
+  const specs: { x: number; z: number }[] = [];
+  const bays = Math.max(3, Math.round(length / 1.15));
+  for (let bay = 0; bay <= bays; bay += 1) {
+    const t = bay / bays;
+    const x = -length * 0.28 + t * length * 0.96;
+    specs.push({ x, z: -width * 0.34 });
+    specs.push({ x, z: width * 0.34 });
+  }
+  if (plan === "double-finger") {
+    const offset = width * 1.85;
+    const fingerBays = Math.max(2, Math.round((length * 0.78) / 1.25));
+    for (let bay = 0; bay <= fingerBays; bay += 1) {
+      const x = -length * 0.22 + (bay / fingerBays) * length * 0.74;
+      specs.push({ x, z: offset - width * 0.3 });
+      specs.push({ x, z: offset + width * 0.3 });
+    }
+  }
+
+  // Long enough to pass through the waterline and disappear into the shadow
+  // under the deck; the exact depth is never seen, only the fact of it.
+  const pileHeight = 2.6;
+  const piles = new InstancedMesh(
+    new CylinderGeometry(0.075, 0.095, pileHeight, 6),
+    new MeshStandardMaterial({
+      color: new Color(HARBOR_PALETTE.timber_dark).lerp(new Color(HARBOR_PALETTE.iron_dark), 0.45),
+      flatShading: true,
+      roughness: 0.95,
+    }),
+    specs.length,
+  );
+  piles.name = "dock-pilings";
+  piles.castShadow = true;
+  const matrix = new Matrix4();
+  specs.forEach((spec, index) => {
+    matrix.makeTranslation(spec.x, -pileHeight / 2 - 0.1, spec.z);
+    piles.setMatrixAt(index, matrix);
+  });
+  piles.instanceMatrix.needsUpdate = true;
+  return piles;
 }
 
 /** Rounded-end pier deck: one extruded rounded rectangle, one draw. */
