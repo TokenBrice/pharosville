@@ -39,11 +39,25 @@ const TERRAIN_FOR_ZONE: Record<ShipWaterZone, TerrainKind> = {
 };
 
 /**
- * Candidate tiles considered per ship. Higher is more evenly spread and more
- * expensive; 16 is well past the point where the distribution stops visibly
- * improving.
+ * R11: the minimum gap between two hulls, as a multiple of the larger hull's
+ * water margin.
+ *
+ * The complaint was a "solid raft of overlapping hulls" in the crowded
+ * north-east bands. The fix is NOT to spill ships into open water — a ship
+ * drawn outside the region it is labelled with is the same dishonesty R10 just
+ * removed from the labels. Instead a candidate is REJECTED outright if it
+ * lands within this gap of an already-placed ship, so the band uses all of its
+ * own water before it doubles up anywhere.
  */
-const CANDIDATES_PER_SHIP = 16;
+const MIN_HULL_GAP = 1.35;
+
+/**
+ * Candidate tiles considered per ship. Raised from 16 with R11's hard hull-gap
+ * rejection: most samples in a crowded band are now discarded, so the sampler
+ * needs a deeper draw to find the gaps that remain. Placement runs once per
+ * world, not per frame, so the extra work is not on any hot path.
+ */
+const CANDIDATES_PER_SHIP = 40;
 
 /**
  * W3.2: the composition invariant ("a framed asymmetric composition with
@@ -160,8 +174,17 @@ export function placeGardenFleet(
       const margin = gardenShipWaterMarginTiles(
         gardenShipVisualScale(ship.visual.scale || 1),
       );
+      // Two passes. The first enforces the hull gap outright; if a band is so
+      // crowded that nothing clears it, the second drops the floor and takes
+      // the most separated tile available.
+      //
+      // What it never does is fall back to the ship's authored tile: that can
+      // sit outside the band's own water, and a ship drawn outside the region
+      // it is labelled with is the dishonesty R10 just removed from labels.
       let best: { x: number; y: number } | null = null;
       let bestScore = -1;
+      let relaxedBest: { x: number; y: number } | null = null;
+      let relaxedScore = -1;
 
       for (let attempt = 0; attempt < CANDIDATES_PER_SHIP; attempt += 1) {
         const pick = candidates[
@@ -184,13 +207,22 @@ export function placeGardenFleet(
         }
         // First ship in a region has no neighbour — let density decide.
         const score = (nearest === Number.POSITIVE_INFINITY ? 32 : nearest) * weight;
+        if (score > relaxedScore) {
+          relaxedScore = score;
+          relaxedBest = tile;
+        }
+        // R11: a hard floor on hull separation. Best-candidate alone only
+        // MAXIMISES separation among the samples it happened to draw, so on a
+        // crowded band it still returns overlapping tiles — which is what
+        // produced the north-east raft.
+        if (nearest < margin * MIN_HULL_GAP) continue;
         if (score > bestScore) {
           bestScore = score;
           best = tile;
         }
       }
 
-      const resolved = best ?? { ...ship.tile };
+      const resolved = best ?? relaxedBest ?? { ...ship.tile };
       placed.push(resolved);
       tileByShipId.set(ship.id, resolved);
     }

@@ -98,9 +98,8 @@ export function buildSeaRegionField(size = SEA_REGION_FIELD_SIZE): SeaRegionFiel
       // POSITION by a little noise makes the boundary wander like a current
       // front — the classification itself is untouched, which is why the
       // per-tile majority still matches the raw field exactly.
-      const warpX = tileX + fbm(tileX * 0.19, tileY * 0.19) * BOUNDARY_WARP_TILES;
-      const warpY = tileY + fbm(tileY * 0.19 + 31.7, tileX * 0.19 - 12.3) * BOUNDARY_WARP_TILES;
-      ids[py * size + px] = seaRegionAtTile(Math.floor(warpX), Math.floor(warpY));
+      const warped = warpSampleTile(tileX, tileY);
+      ids[py * size + px] = seaRegionAtTile(Math.floor(warped.x), Math.floor(warped.y));
     }
   }
 
@@ -138,6 +137,59 @@ export function buildSeaRegionField(size = SEA_REGION_FIELD_SIZE): SeaRegionFiel
  * lines, small enough that a tile's majority classification never flips.
  */
 const BOUNDARY_WARP_TILES = 2.6;
+
+/**
+ * R6: the anti-onion warp.
+ *
+ * The DEWS risk geometry is radial by construction — concentric rings around
+ * the island — so rasterising it faithfully still produced concentric rings.
+ * That is the exact complaint D5 set out to kill: the regions were honest but
+ * they read as an onion rather than as a coastline.
+ *
+ * A LOW-FREQUENCY DIRECTIONAL field is added on top of the high-frequency
+ * boundary noise. It stretches the sample space along one axis and shears it
+ * along another, so a ring samples as an elongated basin on one side and
+ * pinches to a strait on the other. Regions come out as straits, bays and
+ * shoals with lobes instead of annuli.
+ *
+ * Two properties keep this honest:
+ * - It displaces the SAMPLE POSITION only. Classification is never rewritten,
+ *   so a tile still belongs to whatever band `terrainKindAt` says it does, and
+ *   the per-tile majority test still passes.
+ * - The displacement is bounded by `DIRECTIONAL_WARP_TILES`, so no band can be
+ *   dragged across the map into someone else's water.
+ */
+const DIRECTIONAL_WARP_TILES = 9.5;
+/** Radians. The axis the sea is stretched along — a NE/SW grain. */
+const DIRECTIONAL_WARP_ANGLE = 0.72;
+
+function warpSampleTile(tileX: number, tileY: number): { x: number; y: number } {
+  // Normalised position, so the directional term is a single slow sweep across
+  // the whole map rather than a repeating pattern.
+  const u = tileX / PHAROSVILLE_MAP_WIDTH - 0.5;
+  const v = tileY / PHAROSVILLE_MAP_HEIGHT - 0.5;
+
+  const axisX = Math.cos(DIRECTIONAL_WARP_ANGLE);
+  const axisY = Math.sin(DIRECTIONAL_WARP_ANGLE);
+  // Distance along and across the grain.
+  const along = u * axisX + v * axisY;
+  const across = -u * axisY + v * axisX;
+
+  // Stretch along the grain and pinch across it, modulated by a slow lobe so
+  // the effect is not a uniform shear (which would just rotate the onion).
+  const lobe = Math.sin(along * 2.1 + 0.6) * 0.7 + Math.sin(across * 1.4 - 1.1) * 0.3;
+  const stretch = lobe * DIRECTIONAL_WARP_TILES;
+  const shear = Math.sin(across * 2.6 + along * 1.3) * DIRECTIONAL_WARP_TILES * 0.55;
+
+  return {
+    x: tileX
+      + axisX * stretch + -axisY * shear
+      + fbm(tileX * 0.19, tileY * 0.19) * BOUNDARY_WARP_TILES,
+    y: tileY
+      + axisY * stretch + axisX * shear
+      + fbm(tileY * 0.19 + 31.7, tileX * 0.19 - 12.3) * BOUNDARY_WARP_TILES,
+  };
+}
 
 /** Deterministic value noise — no Math.random, seeded purely by position. */
 function hashNoise(x: number, y: number): number {

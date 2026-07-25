@@ -122,7 +122,11 @@ const pc = (key: keyof typeof HARBOR_PALETTE): Color => new Color(HARBOR_PALETTE
 // areas must never bloom, only glitter and foam may.
 const DAY_SHALLOW = pc("sky_day_zenith").lerp(pc("aurora_green"), 0.46).lerp(pc("lantern_cold"), 0.12);
 const DAY_MID = pc("sky_day_zenith").lerp(pc("sail_teal"), 0.35).lerp(pc("aurora_green"), 0.2);
-const DAY_DEEP = pc("deep_sea_1").lerp(pc("sail_teal"), 0.5).lerp(pc("sky_day_zenith"), 0.22);
+// Built FROM the daylight zenith rather than from deep_sea_1: anchoring the
+// deep band on the night indigo dragged the whole far sea toward black, and
+// since the open ocean beyond the map derives from this band, it turned the
+// world into a lit slab on a void.
+const DAY_DEEP = pc("sky_day_zenith").lerp(pc("sail_teal"), 0.42).lerp(pc("deep_sea_1"), 0.25);
 const DUSK_SHALLOW = pc("shallow_teal").lerp(pc("lantern_warm"), 0.16).lerp(pc("deep_sea_1"), 0.28);
 const DUSK_MID = pc("deep_sea_1").lerp(pc("ember"), 0.3).lerp(pc("lantern_warm"), 0.08);
 const DUSK_DEEP = pc("deep_sea_2").lerp(pc("deep_sea_1"), 0.5);
@@ -332,8 +336,13 @@ const FRAGMENT_SHADER = /* glsl */ `
       // shelf -> open ocean. Matching the band exactly made the sea OUTSIDE
       // read lighter than the tinted sea inside, inverting the depth cue and
       // turning the map into a slab floating on a void.
-      vec3 openColor = mix(uBandColor[3], uDeepColor, 0.55)
-        * (0.86 + openTonalCurrent * 0.05);
+      // Deeper and cooler than the deepest in-map band, so the eye reads a
+      // shelf dropping away — but only slightly. R4 moved the day sea into a
+      // jade family, which left the old 0.55/0.86 darkening reading as a black
+      // VOID around a lit slab, the opposite of the problem it was added to
+      // solve.
+      vec3 openColor = mix(uBandColor[3], uDeepColor, 0.3)
+        * (0.94 + openTonalCurrent * 0.05);
       openColor = mix(
         openColor,
         mix(uEnvHorizonColor, uEnvZenithColor, 0.35),
