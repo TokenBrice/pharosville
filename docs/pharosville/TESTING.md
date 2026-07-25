@@ -74,6 +74,40 @@ textures, and 500,000 triangles. `npm run test:perf:reference` is the strict
 reference-hardware gate; headless or integrated results are diagnostics, not a
 substitute for the designated reference environment.
 
+### Never judge the look or the frame time through a Playwright browser
+
+Playwright's bundled Chromium falls back to **SwiftShader**, a CPU rasteriser,
+and so does `chromium.launch({ channel: "chrome" })` — the latter because it
+launches `/opt/google/chrome/chrome` directly and skips the wrapper that applies
+the operator's `~/.config/chrome-flags.conf`. On a hybrid-GPU box that file is
+what pins rendering to the discrete card.
+
+The same scene, same machine, measured 2026-07-25:
+
+| | bundled Chromium | operator's Chrome |
+| --- | --- | --- |
+| renderer | SwiftShader (CPU) | NVIDIA RTX 5070 Ti |
+| p50 / p90 | ~17 / 33.4 ms | 16.7 / 16.7 ms |
+| effective fps | 20–43 | 59 (vsync-capped) |
+| scheduler tier | `recovery` → `constrained` | `full` |
+
+A software frame looks approximately right and reports fiction, which is the
+worst combination: it invites tuning the renderer against a bottleneck that does
+not exist. Use:
+
+```bash
+npm run preview                                    # default framing
+npm run preview -- --hash "#t=22&n=1" --out night.png
+npm run preview -- --headed --seconds 8
+```
+
+`scripts/pharosville/preview.mjs` goes through the wrapper, exits non-zero rather
+than report a software frame, and prints the scheduler tier, p50/p90, draw calls,
+triangles and visible ship count alongside a screenshot in `outputs/`. It waits
+for the fleet to populate and then for the pacing ring to refill before reading,
+because both the snapshot rebuild and the load spike otherwise dominate the
+window.
+
 ## Release confidence
 
 ```bash

@@ -79,16 +79,35 @@ boundary is now a tide line plus a shadow rather than one faint bright line.
 
 ## Open decisions, not tasks
 
-- **The p90 ≤ 20 ms reference gate is unmet on this machine.** It only runs
-  under `PHAROSVILLE_REFERENCE_GATE=1`; normal CI uses 250 ms / 4 fps and
-  passes. Shipping documented rather than by cutting features (operator
-  decision O4).
+- **CLOSED, and it was never true: "the p90 ≤ 20 ms reference gate is unmet".**
+  That reading came from Playwright's bundled Chromium, which falls back to
+  SwiftShader — a CPU rasteriser. Re-measured 2026-07-25 through the operator's
+  own Chrome on the discrete GPU (`npm run preview`):
+
+  | | bundled Chromium (SwiftShader) | operator's Chrome (RTX 5070 Ti) |
+  | --- | --- | --- |
+  | p50 / p90 | ~17 / 33.4 ms | **16.7 / 16.7 ms** |
+  | effective fps | 20–43 | **59** (vsync-capped) |
+  | scheduler tier | `recovery`, dipping to `constrained` | **`full`** |
+  | composer | dropped at `constrained` | on |
+
+  So the gate passes with 3 ms of headroom, the tier never leaves `full`, and
+  every performance conclusion in this document's history that was based on a
+  bundled-browser run is void. Use `npm run preview` for any perf judgement; it
+  exits non-zero rather than report a software frame.
 - **The `constrained` tier drops the whole composer**, losing colour grading
   along with bloom. Grade is one cheap full-screen pass carrying the entire
-  day/dusk/night identity, so the cliff costs far more than the pass does. Not
-  changed unmeasured — `constrained` is the last-resort recovery valve.
-- **Visual baselines are not regenerated** (O10 deferred them to the end). The
-  visual lane is expected red until that pass runs via the Docker CI lane,
-  then `chown` back. H4 and S1 both change every water pixel, so this is now a
-  full regeneration rather than a touch-up.
+  day/dusk/night identity, so the cliff costs far more than the pass does. Left
+  alone deliberately — and note the tier is now known to be unreachable on the
+  operator's hardware, so this is a theoretical cliff, not a live one.
+- **CLOSED, and also never true: "visual baselines are not regenerated".**
+  There are no committed screenshot baselines — no `toHaveScreenshot`, no
+  `toMatchSnapshot`, no `*-snapshots` directory. The visual lane asserts DOM
+  state and telemetry; screenshots are evidence under `outputs/`. Renderer
+  changes cannot put it in debt.
+- **The visual lane has two stale assertions** (`npm run test:visual`: 6 pass,
+  2 fail). `pharosville.spec.ts:150` expects exactly 20 ship hit targets and
+  gets 87 — the retired 20-ship cap. `pharosville-gates.spec.ts:106` waits for a
+  "Set session hour" slider that commit `f0c40d1` removed. Both predate the
+  H/L/S/F rounds; neither is a renderer regression.
 - **Nothing is pushed.** Production is unchanged until the operator pushes.
