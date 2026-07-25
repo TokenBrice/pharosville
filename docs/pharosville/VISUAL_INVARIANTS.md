@@ -8,8 +8,9 @@ intent, code/tests, and a matching update to the relevant route documentation.
 ## Runtime and truth
 
 - PharosVille has one production Three.js/WebGL renderer.
-- Below the desktop screen gate, and in capable portrait, no world data, Three
-  runtime, GLB, or logo request may start.
+- Below the desktop screen gate, and in a viewport under `720x360`, no world
+  data, Three runtime, GLB, or logo request may start. Both halves are SIZE
+  tests; neither is an orientation test.
 - Renderer failure hides WebGL and shows selectable DOM `WorldStaticOverview`;
   it never starts a second graphical renderer.
 - Browser world code uses same-origin `/api/*` only.

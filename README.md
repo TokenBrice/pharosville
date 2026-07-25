@@ -24,7 +24,7 @@ PharosVille renders a living island-city view of Pharos stablecoin market signal
 - a full instanced fleet, stablecoin and chain identity, region-aware shader
   water, a checked GLB lighthouse, and checked hero hulls
 
-The app is intentionally desktop-only. Narrow screens, short screens, and capable portrait screens must not mount the world runtime or fetch world data; they show a fallback or rotate prompt instead.
+The app is intentionally desktop-only. Screens too small to chart, and windows too small to chart, must not mount the world runtime or fetch world data; they show a fallback or rotate prompt instead. The window test is a size test, not an orientation test — a tall desktop window is not a phone.
 
 ## Trust Boundaries
 

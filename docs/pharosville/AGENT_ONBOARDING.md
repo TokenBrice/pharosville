@@ -32,7 +32,7 @@ read only the docs needed for the change in front of you.
 - Work only in this repository unless explicitly authorized.
 - Browser must use same-origin `/api/*` (no client cross-origin API calls).
 - Keep `PHAROS_API_KEY` server-side only.
-- Keep world runtime unmounted when the device screen long side is below `720px`, the short side is below `360px`, or a capable screen is in portrait orientation.
+- Keep world runtime unmounted when the device screen long side is below `720px`, the short side is below `360px`, or the VIEWPORT is under `720px` wide or `360px` tall. Do not gate on `(orientation: portrait)`: CSS orientation is a viewport aspect test, so it blocks tall desktop windows that have more room than the wide ones it allows.
 - Use `agents/` for plans and handoff artifacts.
 - Use `outputs/` for temporary screenshots, renders, and generation scratch files.
 
