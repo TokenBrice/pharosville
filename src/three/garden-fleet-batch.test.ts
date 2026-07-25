@@ -35,6 +35,7 @@ function pose(overrides: Partial<FleetInstancePose> = {}): FleetInstancePose {
     hullColor: new Color("#884422"),
     hullForm: { beam: 1, height: 1, length: 1 },
     pennantColor: new Color("#22aa88"),
+    sailColor: new Color("#2775ca"),
     pitch: 0,
     scale: 1,
     silhouette: "galleon",
@@ -206,5 +207,40 @@ describe("fleet batches", () => {
     // D3: 16x16 cells. Cell 0 is the shared blank canvas, so 255 logo slots
     // must cover the ~205-ship world with headroom.
     expect(FLEET_SAIL_ATLAS_CELLS).toBe(256);
+  });
+});
+
+describe("F1 brand-dyed cloth", () => {
+  it("writes each ship's dye to every sail in its batch", () => {
+    const batches = buildBatches(16);
+    beginFleetFrame(batches);
+    writeFleetInstance(batches, pose({ sailColor: new Color("#2775ca"), silhouette: "galleon" }));
+    writeFleetInstance(batches, pose({ sailColor: new Color("#136649"), silhouette: "galleon" }));
+    endFleetFrame(batches);
+
+    const tint = batches.bySilhouette.get("galleon")!.sails.sailTint!;
+    const circle = new Color("#2775ca");
+    const tether = new Color("#136649");
+    expect(tint.getX(0)).toBeCloseTo(circle.r, 5);
+    expect(tint.getZ(0)).toBeCloseTo(circle.b, 5);
+    expect(tint.getY(1)).toBeCloseTo(tether.g, 5);
+    // An unwritten instance stays plain canvas rather than going black.
+    expect(tint.getX(9)).toBe(1);
+    disposeFleetBatches(batches);
+  });
+
+  it("keeps the dye off the draw-call count", () => {
+    const batches = buildBatches(64);
+    beginFleetFrame(batches);
+    for (let index = 0; index < 40; index += 1) {
+      writeFleetInstance(batches, pose({
+        sailColor: new Color().setHSL(index / 40, 0.6, 0.4),
+        silhouette: SILHOUETTES[index % 4]!,
+      }));
+    }
+    endFleetFrame(batches);
+    // 40 ships, 40 different dyes, still one draw call per part.
+    expect(fleetDrawCallCount(batches)).toBe(9);
+    disposeFleetBatches(batches);
   });
 });

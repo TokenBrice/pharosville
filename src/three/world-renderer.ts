@@ -1315,6 +1315,7 @@ function updateSceneForFrame(
         heel: visual.root.rotation.z,
         hullColor: visual.hullColor,
         hullForm: visual.ship.visual.hullForm,
+        sailColor: visual.sailColor,
         pennantColor: visual.pennantColor,
         pitch: visual.root.rotation.x,
         scale: visual.root.scale.x,

@@ -70,6 +70,8 @@ export interface FleetBatchPart {
   /** Per-instance hull proportions (length, beam, height) — N5(a). */
   hullForm: InstancedBufferAttribute;
   mesh: InstancedMesh;
+  /** Per-instance cloth dye (F1); only meaningful on the sail batch. */
+  sailTint: InstancedBufferAttribute | null;
 }
 
 export interface FleetSilhouetteBatch {
@@ -232,7 +234,9 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         `#include <common>
         attribute float aAtlasSail;
         attribute float aAtlasCell;
-        varying vec2 vAtlasUv;`,
+        attribute vec3 aSailTint;
+        varying vec2 vAtlasUv;
+        varying vec3 vSailTint;`,
       )
       .replace(
         "#include <uv_vertex>",
@@ -242,22 +246,36 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
           float cell = aAtlasSail > 0.5 ? aAtlasCell : 0.0;
           vec2 cellOrigin = vec2(mod(cell, columns), floor(cell / columns)) / columns;
           vAtlasUv = cellOrigin + uv / columns;
+          vSailTint = aSailTint;
         }`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
         "#include <common>",
         `#include <common>
-        varying vec2 vAtlasUv;`,
+        varying vec2 vAtlasUv;
+        varying vec3 vSailTint;`,
       )
+      // F1: the cloth is DYED per instance and the atlas carries only marks.
+      //
+      // The atlas cell is painted with a transparent ground, so its alpha is
+      // "how much of this texel is a mark". Where there is no mark the sail
+      // takes the ship's brand colour; where there is one, the mark's own
+      // colour survives untinted, which is what keeps a logo legible on a
+      // saturated sail.
+      //
+      // This composite has to live in <map_fragment> and use its own attribute
+      // rather than three's instanceColor: <color_fragment> runs AFTER this and
+      // would multiply the mark by the dye as well.
       .replace(
         "#include <map_fragment>",
         `#ifdef USE_MAP
-          diffuseColor *= texture2D(map, vAtlasUv);
+          vec4 sailTexel = texture2D(map, vAtlasUv);
+          diffuseColor.rgb *= mix(vSailTint, sailTexel.rgb, sailTexel.a);
         #endif`,
       );
   };
-  material.customProgramCacheKey = () => "garden-fleet-sail-atlas-hull-form";
+  material.customProgramCacheKey = () => "garden-fleet-sail-atlas-hull-form-dye";
 }
 
 function createInstancedPart(
@@ -280,17 +298,23 @@ function createInstancedPart(
   // the batch is always on screen.
   mesh.frustumCulled = false;
   let atlasCell: InstancedBufferAttribute | null = null;
+  let sailTint: InstancedBufferAttribute | null = null;
   if (withAtlasCell) {
     atlasCell = new InstancedBufferAttribute(new Float32Array(capacity), 1);
     atlasCell.setUsage(DynamicDrawUsage);
     geometry.setAttribute("aAtlasCell", atlasCell);
+    // F1: the cloth dye. Defaults to white so an unwritten instance renders as
+    // plain canvas rather than black.
+    sailTint = new InstancedBufferAttribute(new Float32Array(capacity * 3).fill(1), 3);
+    sailTint.setUsage(DynamicDrawUsage);
+    geometry.setAttribute("aSailTint", sailTint);
   }
   // N5(a): per-ship hull proportions. Defaults to (1,1,1) so an instance that
   // is never written renders at the authored shape rather than collapsing.
   const hullForm = new InstancedBufferAttribute(new Float32Array(capacity * 3).fill(1), 3);
   hullForm.setUsage(DynamicDrawUsage);
   geometry.setAttribute("aHullForm", hullForm);
-  return { atlasCell, hullForm, mesh };
+  return { atlasCell, hullForm, mesh, sailTint };
 }
 
 export interface FleetBatchGeometrySource {
@@ -374,6 +398,8 @@ export function createFleetBatches(input: {
 export interface FleetInstancePose {
   atlasCell: number;
   hullColor: Color;
+  /** F1: the ship's cloth dye — its issuer's dominant brand colour. */
+  sailColor: Color;
   /** Per-ship proportions (length, beam, height) about 1 — N5(a). */
   hullForm: { beam: number; height: number; length: number };
   headingAngle: number;
@@ -436,6 +462,9 @@ export function writeFleetInstance(
   if (batch.sails.atlasCell) {
     batch.sails.atlasCell.setX(slot, pose.atlasCell);
   }
+  if (batch.sails.sailTint) {
+    batch.sails.sailTint.setXYZ(slot, pose.sailColor.r, pose.sailColor.g, pose.sailColor.b);
+  }
 
   const pennantSlot = batches.pennant.mesh.count;
   if (pennantSlot < batches.capacity) {
@@ -459,6 +488,7 @@ function flushPart(part: FleetBatchPart): void {
   part.mesh.instanceMatrix.needsUpdate = true;
   if (part.mesh.instanceColor) part.mesh.instanceColor.needsUpdate = true;
   if (part.atlasCell) part.atlasCell.needsUpdate = true;
+  if (part.sailTint) part.sailTint.needsUpdate = true;
 }
 
 /** Total live instances across the fleet — the metric the perf lane reads. */

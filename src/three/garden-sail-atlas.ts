@@ -13,13 +13,14 @@ import { createGardenSailCanvas } from "./garden-sail-texture";
  * W1 / decision D3: one 2048² atlas carries every batched ship's identity
  * sail, replacing the previous one-`CanvasTexture`-per-ship pipeline.
  *
- * Cell 0 is the shared plain-canvas cell that every non-identity sail samples
- * (see `aAtlasSail` in `garden-fleet-batch.ts`), so 255 logo slots remain —
+ * Cell 0 is the shared MARKLESS cell that every non-identity sail samples (see
+ * `aAtlasSail` in `garden-fleet-batch.ts`), so 255 logo slots remain —
  * comfortably above the ~205-ship world.
  *
- * Ships past the slot limit fall back to cell 0 and keep their livery through
- * `instanceColor` plus the pennant accent, satisfying the "stable livery and
- * readable logo or symbol fallback" invariant without a blank sail.
+ * Ships past the slot limit fall back to cell 0. Under F1 that still leaves
+ * them dyed in their issuer's brand colour and flying their pennant accent, so
+ * the "stable livery and readable logo or symbol fallback" invariant holds
+ * without a blank sail — the overflow ship loses its mark, not its identity.
  */
 export interface GardenSailAtlas {
   /** detailId → atlas cell index. Cell 0 means "plain canvas". */
@@ -29,8 +30,6 @@ export interface GardenSailAtlas {
   logoGenerationKey: string | null;
   texture: CanvasTexture | null;
 }
-
-const PLAIN_CANVAS_FILL = "#efe7d4";
 
 export function createGardenSailAtlas(): GardenSailAtlas {
   if (typeof document === "undefined") {
@@ -53,10 +52,11 @@ export function createGardenSailAtlas(): GardenSailAtlas {
       texture: null,
     };
   }
-  // Cell 0: the plain canvas every non-identity sail samples.
-  context.fillStyle = PLAIN_CANVAS_FILL;
-  context.fillRect(0, 0, FLEET_SAIL_ATLAS_CELL_PX, FLEET_SAIL_ATLAS_CELL_PX);
-
+  // F1: cell 0 — the cell every non-identity sail samples — is left fully
+  // TRANSPARENT rather than filled with canvas cream. The batch reads a cell's
+  // alpha as "how much of this texel is a mark", so a transparent cell renders
+  // as the ship's own cloth dye. That is what puts every sail on a ship in its
+  // issuer's colour instead of only the one that carries the logo.
   const texture = new CanvasTexture(canvas);
   texture.colorSpace = SRGBColorSpace;
   texture.wrapS = ClampToEdgeWrapping;
@@ -103,7 +103,8 @@ export function syncGardenSailAtlas(
   for (const ship of ships) {
     const cell = atlas.cellByShipId.get(ship.detailId);
     if (cell === undefined || cell === 0) continue;
-    const sailCanvas = createGardenSailCanvas(ship, logos.getLogo(ship.logoSrc));
+    // Marks only: the cloth is dyed per instance in the shader (F1).
+    const sailCanvas = createGardenSailCanvas(ship, logos.getLogo(ship.logoSrc), null);
     if (!sailCanvas) continue;
     const origin = gardenSailAtlasCellOrigin(cell);
     context.clearRect(

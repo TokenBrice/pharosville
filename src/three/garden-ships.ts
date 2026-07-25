@@ -43,7 +43,7 @@ import {
   GARDEN_WATER_MAX_RIPPLE_RINGS,
   type GardenRippleRingEmitter,
 } from "./garden-water-contract";
-import { createGardenSailTexture } from "./garden-sail-texture";
+import { createGardenSailTexture, gardenSailClothColor } from "./garden-sail-texture";
 import {
   FLEET_BATCH_TINTS,
   markAtlasSail,
@@ -100,6 +100,8 @@ export interface ShipVisual {
   fineDetail: Group;
   /** Livery multiplier written to the hull batch's instanceColor. */
   hullColor: Color;
+  /** F1: the cloth dye handed to the batched sail material. */
+  sailColor: Color;
   /** Hero GLB hull to attach for titans/uniques (null for the procedural fleet). */
   heroModelId: GardenModelId | null;
   /** Procedural hull/rig parts hidden once a hero GLB attaches (identity sail stays). */
@@ -344,6 +346,7 @@ export function createBatchedShip(
     heroHullTint: new Color("#ffffff"),
     heroModelId: null,
     hullColor: batchedHullColor(ship),
+    sailColor: gardenSailClothColor(ship.visual.livery),
     identitySail: null,
     identitySailMaterial: null,
     lanternPoints: lanternPointsForTier(tier),
@@ -371,10 +374,19 @@ export function createBatchedShip(
  * S4 color blocking `createShip` applies to its hull material, so a batched
  * ship and a hero ship of the same livery read identically.
  */
+/**
+ * F1: 0.32 -> 0.58 toward the brand colour.
+ *
+ * The hull is the largest continuous area a ship presents, and at the zoom the
+ * fleet is actually read at it resolves long before any sail does. At 0.32 the
+ * brand was a hint on dark timber and every hull in the harbour was the same
+ * brown; 0.58 makes it a painted hull that still reads as timber, because the
+ * dark base is what supplies the wood.
+ */
 function batchedHullColor(ship: ShipNode): Color {
   return new Color(HARBOR_PALETTE.timber_dark).lerp(
     new Color(safeCssColor(ship.visual.livery?.primary, HARBOR_PALETTE.timber_warm)),
-    0.32,
+    0.58,
   );
 }
 
@@ -525,16 +537,14 @@ export function createShip(
     color: HARBOR_PALETTE.timber_dark,
     roughness: 0.92,
   });
-  const sailColor = safeCssColor(
-    ship.visual.sailColor ?? ship.visual.livery?.sailColor,
-    GARDEN_COLORS.limestoneLight,
-  );
   // S4: plain sails read as warm cream/ochre canvas with only a whisper of the
   // livery sail hue left in; the logo identity sail keeps the full livery
   // field via its canvas texture.
-  const creamCanvas = new Color(HARBOR_PALETTE.foam_white)
-    .lerp(new Color(HARBOR_PALETTE.lantern_warm), 0.16);
-  const readableSailColor = new Color(sailColor).lerp(creamCanvas, 0.45);
+  // F1: a hero's plain sails take the SAME dye as the batched fleet's, so a
+  // titan and a skiff of the same issuer read as the same colour. This used to
+  // be the livery's cream-mixed sail colour lifted a further 45% toward canvas,
+  // which is how the whole fleet ended up in one band of oatmeal.
+  const readableSailColor = gardenSailClothColor(ship.visual.livery);
   // Warm the emissive toward lantern gold so the night curve backlights the
   // canvas as if a lantern hung beneath it (D4).
   const plainSailMaterial = new MeshStandardMaterial({
@@ -788,6 +798,7 @@ export function createShip(
   return {
     atlasCell: 0,
     batched: false,
+    sailColor: readableSailColor,
     bobPhase: stableUnit(ship.id) * Math.PI * 2,
     displayOffset,
     fineDetail,
@@ -872,7 +883,9 @@ export function syncShipSailTextures(
       visual.ship,
       frame.logos.getLogo(visual.ship.logoSrc),
     );
-    material.color.set(material.map ? "#f7f2e4" : visual.ship.visual.sailColor);
+    // F1: white when the map is present — the cloth colour is baked into the
+    // canvas now, so a cream multiplier here only desaturates the dye.
+    material.color.set(material.map ? "#ffffff" : visual.ship.visual.sailColor);
     material.emissive.set("#fff7e3");
     material.emissiveMap = material.map;
     material.needsUpdate = true;
@@ -1201,7 +1214,11 @@ export function createFleetBatchGeometry(
       const geometry = createSailGeometry(sailPlan);
       markAtlasSail(geometry, isIdentitySail);
       const matrix = transform();
-      if (isIdentitySail) matrix.makeScale(1.22, 1.22, 1);
+      // F1: 1.22 -> 1.42. The mark lives on this sail alone, so the sail is
+      // deliberately oversized against the rest of the rig — a ship's device
+      // has to be readable at the zoom the fleet is scanned at, not just when
+      // one ship is inspected.
+      if (isIdentitySail) matrix.makeScale(1.42, 1.42, 1);
       matrix.setPosition(
         mastPlan.x + (reverse ? -0.06 : 0.06),
         sailPlan.centerY,

@@ -1,9 +1,11 @@
 import {
   CanvasTexture,
   ClampToEdgeWrapping,
+  Color,
   SRGBColorSpace,
 } from "three";
 import type { ThreeLogoAsset } from "../renderer/world-renderer-backend";
+import { safeCssColor } from "./garden-util";
 import type {
   ShipLivery,
   ShipLogoShape,
@@ -16,15 +18,53 @@ const TEXTURE_SIZE = 128;
 export const GARDEN_SAIL_TEXTURE_SIZE = TEXTURE_SIZE;
 
 /**
+ * F1 (2026-07-25): the colour a ship's canvas is DYED — its issuer's dominant
+ * brand colour, near enough to be named on sight.
+ *
+ * The cloth used to be `livery.sailColor`, which is that brand colour mixed
+ * 60% into cream. Across a two-hundred-ship fleet at overview zoom that put
+ * every sail in the same narrow band of oatmeal, so a ship could only be
+ * identified by reading the small mark on its mainsail — which is exactly the
+ * "must be instantly recognizable without having to check" the operator
+ * asked for and did not have.
+ *
+ * Two bounds keep it legible rather than merely loud: a lift toward warm
+ * canvas so the cloth still reads as cloth, and a luminance floor so a
+ * near-black brand (BUIDL, Frax) is a dark navy sail rather than a hole in the
+ * scene. Nothing here changes what a colour MEANS — the brand colour was
+ * already the ship's identity, it was just being diluted away.
+ */
+const CLOTH_CANVAS_LIFT = 0.17;
+const CLOTH_LUMINANCE_FLOOR = 0.1;
+const CLOTH_CANVAS = "#f4ecd8";
+
+export function gardenSailClothColor(livery: ShipLivery | null | undefined): Color {
+  const primary = safeCssColor(livery?.primary, CLOTH_CANVAS);
+  const cloth = new Color(primary).lerp(new Color(CLOTH_CANVAS), CLOTH_CANVAS_LIFT);
+  const luminance = cloth.r * 0.2126 + cloth.g * 0.7152 + cloth.b * 0.0722;
+  if (luminance < CLOTH_LUMINANCE_FLOOR) {
+    cloth.lerp(new Color(CLOTH_CANVAS), (CLOTH_LUMINANCE_FLOOR - luminance) * 2.4);
+  }
+  return cloth;
+}
+
+/**
  * Paints one ship's sail onto its own 128² canvas.
  *
  * Split out of `createGardenSailTexture` for W1/D3: the batched fleet composes
  * these canvases into a single atlas (`garden-sail-atlas.ts`) rather than
  * uploading one texture per ship, so the painting logic has exactly one home.
+ *
+ * `clothFill` is the difference between the two consumers. The atlas passes
+ * `null`, leaving the cloth TRANSPARENT: the batch dyes it per instance in the
+ * shader, so the atlas only has to carry each ship's marks and the whole fleet
+ * shares one texture. Hero ships pass their cloth colour and get an opaque
+ * canvas, because they own a material each.
  */
 export function createGardenSailCanvas(
   ship: ShipNode,
   logo: ThreeLogoAsset | null,
+  clothFill: string | null = null,
 ): HTMLCanvasElement | null {
   if (typeof document === "undefined") return null;
   const canvas = document.createElement("canvas");
@@ -33,6 +73,10 @@ export function createGardenSailCanvas(
   const context = canvas.getContext("2d");
   if (!context) return null;
 
+  if (clothFill) {
+    context.fillStyle = clothFill;
+    context.fillRect(0, 0, TEXTURE_SIZE, TEXTURE_SIZE);
+  }
   paintSailField(context, ship.visual.livery);
   paintSailIdentity(context, ship, logo);
   return canvas;
@@ -42,7 +86,11 @@ export function createGardenSailTexture(
   ship: ShipNode,
   logo: ThreeLogoAsset | null,
 ): CanvasTexture | null {
-  const canvas = createGardenSailCanvas(ship, logo);
+  const canvas = createGardenSailCanvas(
+    ship,
+    logo,
+    `#${gardenSailClothColor(ship.visual.livery).getHexString()}`,
+  );
   if (!canvas) return null;
 
   const texture = new CanvasTexture(canvas);
@@ -57,18 +105,24 @@ function paintSailField(
   context: CanvasRenderingContext2D,
   livery: ShipLivery,
 ): void {
-  context.fillStyle = livery.sailColor;
-  context.fillRect(0, 0, TEXTURE_SIZE, TEXTURE_SIZE);
-
+  // F1: no base fill. The cloth is the ship's brand colour, delivered by the
+  // material (per-instance for the batched fleet, per-material for heroes), and
+  // everything painted here is a MARK on top of it. Painting a field colour
+  // here as well would fight the dye and put the ships back in oatmeal.
+  //
+  // The marks are therefore drawn in the livery's SECONDARY and ACCENT, which
+  // are its dark and light poles — they read against a saturated cloth, where
+  // the old primary-on-cream panels would now be invisible.
   context.save();
-  context.globalAlpha = 0.74;
-  context.fillStyle = livery.primary;
+  context.globalAlpha = 0.4;
+  context.fillStyle = livery.secondary;
   switch (livery.sailPanel) {
     case "center":
       context.fillRect(43, 0, 42, TEXTURE_SIZE);
       break;
     case "field":
-      context.fillRect(0, 0, TEXTURE_SIZE, TEXTURE_SIZE);
+      // A "field" panel is the whole cloth, which under F1 IS the dye — so it
+      // paints nothing rather than flattening the sail into one dark slab.
       break;
     case "hoist":
       context.fillRect(0, 0, 37, TEXTURE_SIZE);
@@ -80,11 +134,11 @@ function paintSailField(
   }
   context.restore();
 
-  paintStripePattern(context, livery.stripePattern, livery.secondary);
+  paintStripePattern(context, livery.stripePattern, livery.accent);
 
   context.save();
-  context.globalAlpha = 0.13;
-  context.strokeStyle = livery.logoMatte;
+  context.globalAlpha = 0.1;
+  context.strokeStyle = livery.secondary;
   context.lineWidth = 1;
   for (let x = 7; x < TEXTURE_SIZE; x += 10) {
     context.beginPath();
@@ -105,7 +159,7 @@ function paintSailField(
  * these cells edge-to-edge into one atlas (D3), and a border on the outermost
  * texels would bleed into the neighbouring ship's cell under bilinear
  * filtering. The inset also keeps the band clear of the identity disc
- * (radius 47 about 65,64), so logo legibility at overview zoom is untouched.
+ * (F1: radius 56 about 64,64), so logo legibility at overview zoom is untouched.
  */
 const SAIL_BORDER_INSET = 5;
 
@@ -182,19 +236,31 @@ function paintStripePattern(
   context.restore();
 }
 
+/**
+ * F1: the identity mark, and the reason the sail exists.
+ *
+ * Radius 47 -> 56 (88% of the cloth's width, up from 73%) and the rim thinned
+ * from a 7px ink band plus a 3px accent to a single 3px accent hairline. Both
+ * changes buy the same thing: at the zoom the operator actually reads the
+ * fleet at, the disc is a handful of pixels across, and every pixel spent on a
+ * frame is a pixel not spent on the logo inside it.
+ */
+const IDENTITY_RADIUS = 56;
+const IDENTITY_LOGO_SPAN = 1.78;
+
 function paintSailIdentity(
   context: CanvasRenderingContext2D,
   ship: ShipNode,
   logo: ThreeLogoAsset | null,
 ): void {
-  const centerX = 65;
+  const centerX = 64;
   const centerY = 64;
-  const radius = 47;
+  const radius = IDENTITY_RADIUS;
 
   context.save();
   drawLogoShape(context, ship.visual.livery.logoShape, centerX, centerY, radius);
   context.fillStyle = ship.visual.livery.logoMatte;
-  context.globalAlpha = 0.94;
+  context.globalAlpha = 0.97;
   context.fill();
   context.clip();
 
@@ -203,7 +269,7 @@ function paintSailIdentity(
       const dimensions = containedDimensions(
         logo.image.naturalWidth || logo.image.width,
         logo.image.naturalHeight || logo.image.height,
-        radius * 1.68,
+        radius * IDENTITY_LOGO_SPAN,
       );
       context.globalAlpha = 1;
       context.drawImage(
@@ -223,11 +289,11 @@ function paintSailIdentity(
 
   context.globalAlpha = 1;
   context.fillStyle = identityInk(ship.visual.livery.logoMatte);
-  context.font = "700 31px system-ui, sans-serif";
+  context.font = "700 36px system-ui, sans-serif";
   context.textAlign = "center";
   context.textBaseline = "middle";
   const label = ship.symbol.trim().slice(0, 7);
-  context.fillText(label, centerX, centerY + 1, radius * 1.68);
+  context.fillText(label, centerX, centerY + 1, radius * 1.76);
   context.restore();
   paintIdentityRim(context, ship.visual.livery, centerX, centerY, radius);
 }
@@ -241,14 +307,9 @@ function paintIdentityRim(
 ): void {
   context.save();
   drawLogoShape(context, livery.logoShape, x, y, radius);
-  context.globalAlpha = 0.92;
-  context.lineWidth = 7;
-  context.strokeStyle = identityInk(livery.logoMatte);
-  context.stroke();
-  drawLogoShape(context, livery.logoShape, x, y, radius);
   context.globalAlpha = 0.96;
   context.lineWidth = 3;
-  context.strokeStyle = livery.accent;
+  context.strokeStyle = livery.secondary;
   context.stroke();
   context.restore();
 }

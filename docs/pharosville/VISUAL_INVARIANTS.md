@@ -105,6 +105,16 @@ tests and documentation.
   a deterministic painted mark, so a miss is a designed outcome and never an
   error path. The checked water texture remains renderer-owned.
 - Every ship needs a stable livery and readable logo or symbol fallback.
+- A ship must be mappable to its stablecoin WITHOUT a click. Since F1
+  (2026-07-25) the cloth of every sail is dyed in the issuer's dominant brand
+  colour and the hull is painted 58% toward it, and the mainsail carries the
+  issuer's mark at 88% of its width. The dye is a per-instance attribute on the
+  batched sail material, not a texture, so it costs no draw call and no atlas
+  slot; the shared atlas cell carries MARKS ONLY on a transparent ground, and
+  the shader reads a texel's alpha as "how much of this is a mark" so the mark
+  keeps its own colour on a saturated sail. Two bounds hold: a lift toward warm
+  canvas so cloth still reads as cloth, and a luminance floor so a near-black
+  brand is dark cloth rather than a hole in the scene.
 - Hit targets must use the same display transforms and motion samples as the
   rendered entities.
 - Zone colors come from the shared palette/theme bridge rather than arbitrary
