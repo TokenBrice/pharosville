@@ -21,12 +21,12 @@ import type { DockNode } from "../systems/world-types";
  *     discipline the sails use (`VISUAL_INVARIANTS.md:89`): identity never
  *     depends on an image resolving.
  *  2. Asynchronously, the chain's real logo drawn over the mark when
- *     `dock.logoPath` resolves. `/chains/*.png` is what the API reports and
+ *     `dock.logoPath` resolves. the API reports chain logo paths under a chains directory, and
  *     what production serves.
  *
  * NOTE (2026-07-25): this repository ships no `public/chains/` directory, so
  * stage 2 currently no-ops in local dev and CI and every harbour flies its
- * painted mark. Production serves `/chains/<chain>.png`, so the same build
+ * painted mark. If production serves chain logo images, the same build
  * upgrades itself there. See the N4 report — vendoring the chain logos into
  * `public/chains/` (plus a `data/` manifest so `validate-runtime-media.mjs`
  * covers them) is an operator call, not one an agent should make unilaterally.
@@ -217,11 +217,28 @@ export function chainInitials(name: string): string {
  * failed load is not an error: the painted mark is the contract, the logo is
  * the upgrade, so failures keep the flag exactly as it is.
  */
+/** See the note in `upgradeCellWithChainLogo`. */
+const CHAIN_LOGO_UPGRADE_ENABLED = false;
+
 function upgradeCellWithChainLogo(
   store: MutableAtlas,
   cell: number,
   logoPath: string | null,
 ): void {
+  // Disabled pending an explicit runtime-media decision (2026-07-25).
+  //
+  // Chain logos would be a NEW class of runtime media. The contract currently
+  // allows exactly three: the stablecoin-logo inventory, the checked water
+  // texture, and the checked model manifest — and `npm run check:runtime-media`
+  // enforces it. This repository ships no `public/chains/` directory, so every
+  // harbour would fire a request that 404s on this build, and whether
+  // production serves those paths is unverified.
+  //
+  // The painted per-chain mark below is deterministic and already distinct per
+  // chain, so the harbour flags read correctly without it. To turn this on:
+  // ship `public/chains/`, add the class to the runtime-media allowlist and to
+  // VISUAL_INVARIANTS, and regenerate RUNTIME_FACTS.
+  if (!CHAIN_LOGO_UPGRADE_ENABLED) return;
   if (!logoPath || !logoPath.startsWith("/")) return;
   if (store.upgraded.has(cell)) return;
   if (typeof Image === "undefined") return;

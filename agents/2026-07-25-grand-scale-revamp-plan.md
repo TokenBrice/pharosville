@@ -697,3 +697,99 @@ bar "20 ms p90" may not be reachable on this GPU at 1080p regardless.
 4. W5.3 — refine the four batched silhouettes (highest ship-count leverage).
 5. W6.4 — water reflection.
 6. O10 — regenerate visual baselines once the look settles.
+
+---
+
+## 10. Second pass — the N-series (same night, after operator review)
+
+The operator reviewed the first pass and pushed back: too fast, not deep
+enough. Five specific asks followed, then two more during execution. All of
+this landed after §9 was written.
+
+### 10.1 What the operator asked for
+
+1. Harness the whole map — the fleet used ~30% of it and ships overlapped.
+2. The cemetery must stop being an island and become a shipwreck sea zone.
+3. There is barely any ship movement.
+4. Harbours are barely noticeable; each must fly its chain's logo.
+5. Ships still share a base hull; titans must be genuinely unique.
+6. (mid-run) Fully zoomed out, the world is ~25% of the frame.
+7. (mid-run) Still packed — 2x the map.
+
+### 10.2 What landed
+
+**N1 — the whole map.** Two separate faults, both measured rather than
+guessed:
+
+- The camera's zoom floor was a flat 0.48 while the map framed at ~1.09, so
+  the world could be pulled back to 2.3x its own area. The floor is now
+  derived from the viewport. Fleet screen footprint went 30% → 67% of canvas
+  width.
+- The grid then doubled to **112x112 — 4x the sea**. Terrain stays authored in
+  the original 56-tile design space; `map-scale.ts` offsets landmasses (so the
+  island keeps its exact size) and scales zone geometry (so every band gains
+  proportional water). **Eligible water per ship: 10.1 → 58.5 tiles.**
+
+Worth recording: an offline audit proved the blue-noise placement was already
+near-optimal (0 fallbacks, 93% distinct cells). The packing was never a
+placement bug — it was a framing bug and a map-size bug. Measuring first saved
+rewriting a correct system.
+
+**N2 — the ship graveyard.** `wreck-water` is a new terrain kind filling the
+south-west corner (948 tiles), a first-class sea region with the lowest swell
+and chop in the world. The cemetery islet is gone; dead stablecoins rest as
+wrecks on open water, with memorial lanterns still burning on the freshest
+hulls. It is the far pole from the north-east storm corner, so the map reads
+danger at one end and memory at the other. No live ship is ever assigned
+there, so the corner stays quiet by construction rather than by rule.
+
+**N3 — real movement.** Patrols were 0.38–0.54 TILES at 0.017 rad/s: a
+sub-tile circle taking six minutes. Amplitude is now sized to each band's own
+water (a patrol that overran its region would carry a ship out of the water it
+is labelled with), and the DEWS escalation moved to SPEED, tuned so linear
+travel still climbs monotonically with turbulence. A display cap of 2.5 tiles
+— set when the map was 56 wide — would have flattened every one of these, and
+rose to 9. **Measured: 1.3–4.0 tiles per 12s, from ~0.02.**
+
+**N4 — harbours** (delegated): real pier architecture, bollards, cranes,
+warehouses, and per-chain flag logos from a shared atlas.
+
+**N5 — fleet identity** (delegated): seven bespoke titans — USDT, USDC, DAI,
+USDS, USDe, USD1, pyUSD — plus ten generic hero hulls, all quantized with
+`KHR_mesh_quantization`.
+
+**Look work alongside:** the Pharos mirror column (the tower standing
+upside-down in the water, obeying its region's reflectivity — the concept
+render's signature image, at no extra render pass); fleet lantern halos cut
+from 3.0 to 1.7 units so 187 ships read as many small lights instead of one
+warm wash; region tints raised so the seas read apart at whole-map framing;
+shore shelf and world-boundary fade retuned for the larger sea.
+
+### 10.3 Measured state at the end of the second pass
+
+| | Start of night | Now |
+| --- | --- | --- |
+| Rendered ships | 20 | **187** |
+| Fleet draw calls | ~2,700 at 187 | **7** |
+| Map | 56x56 | **112x112** |
+| Eligible water per ship | 10.1 tiles | **58.5** |
+| Ship travel per 12s | ~0.02 tiles | **1.3–4.0** |
+| Hero hull models | 2 shared | **17, 7 bespoke** |
+| Frame (1080p, whole-map framing) | 29.2 ms / 34 fps at 20 ships | **21.5 ms / 46 fps at 187** |
+| GPU draw calls / triangles | — | 377 / 273k (budgets 700 / 500k) |
+
+Tests: 894 green. `npm run validate` clean.
+
+### 10.4 Still open
+
+- **A3/A4 remain unmet**: p90 is above 20 ms and the scheduler settles in
+  `recovery`. Shadows and bloom now survive that tier, so the visual cost is
+  paid, but the gate is not met. Per O4 this ships documented rather than by
+  cutting features.
+- The `constrained` tier still drops the whole composer, losing colour grading
+  along with bloom (see §9.4) — unchanged, still worth fixing awake.
+- Visual baselines are still not regenerated (O10).
+- W5.3, refining the four batched silhouettes that carry ~160 of 187 ships,
+  was handed over late and its status is unconfirmed.
+- A comprehensive poetry/polish review was commissioned and had not reported
+  by the end of the session.
