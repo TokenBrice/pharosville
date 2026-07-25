@@ -253,7 +253,9 @@ export function updateDayCycle(
   // sail backlight rise with them. Kept below the AgX clip (~2.2) so they roll
   // to gold, not white pinpricks.
   scene.content.shipLanternMaterial.emissiveIntensity = 0.05 + dusk * 0.85 + night * 1.9;
-  scene.content.shipLanternGlowMaterial.opacity = dusk * 0.28 + night * 0.68;
+  // Dimmer per-lantern halo to match the smaller quad (W1.10): the fleet's
+  // warmth should come from MANY small lights, not from each one flaring.
+  scene.content.shipLanternGlowMaterial.opacity = dusk * 0.2 + night * 0.5;
   const sailEmissive = 0.16 + dusk * 0.14 + night * 0.62;
   // The batched fleet shares ONE sail material, so the night backlight is a
   // single write instead of one per ship (W1 / D2).

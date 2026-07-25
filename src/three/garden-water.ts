@@ -483,6 +483,10 @@ const FRAGMENT_SHADER = /* glsl */ `
     ) * (0.55 + 0.45 * sin(shoreAngle * 9.0 - foamMotion));
     waterColor = mix(waterColor, uHighlightColor, clamp(isletFoam, 0.0, 0.35) * (0.3 + uDetail * 0.3));
 
+    // Region reflectivity, hoisted so the mirror column below can ask how
+    // mirror-like this stretch of water is.
+    float seaReflectivity = 1.0;
+
     // --- W2 / D5+D6: sea regions as bodies of water ---------------------------
     // Replaces the six overlapping tinted ellipses. The region field is the
     // SAME terrain classification the simulation obeys (finding F6), so the
@@ -523,6 +527,7 @@ const FRAGMENT_SHADER = /* glsl */ `
       regionFoam *= edgeFade;
       regionDepth = mix(1.0, regionDepth, edgeFade);
       regionReflect = mix(1.0, regionReflect, edgeFade);
+      seaReflectivity = regionReflect;
 
       // Luminance-match the tint against the live water color so a region
       // reads as water that is a different STATE, not paint on a surface
@@ -710,6 +715,41 @@ const FRAGMENT_SHADER = /* glsl */ `
         * 0.16;
     }
     waterColor = mix(waterColor, uBeaconColor, clamp(beaconReflection, 0.0, 0.2));
+
+    // --- the Pharos mirror column -------------------------------------------
+    // The concept render's signature image: the tower standing upside-down in
+    // the water beneath itself, broken into shimmering bands by the swell.
+    //
+    // In this ortho iso rig the viewer is always in the same direction, so the
+    // reflection is a fixed vertical streak in water-local space rather than a
+    // real planar pass — no second render, no extra target, a handful of ALU.
+    //
+    // It obeys the sea it lies on: calm water mirrors (reflectivity 1.5),
+    // danger water swallows it (0.42), so the monument's reflection is itself
+    // a reading of the water's state.
+    {
+      vec2 fromTower = vWaterPosition - uBeaconPosition;
+      // +local Y runs toward the viewer, so the image hangs "below" the tower.
+      float alongColumn = fromTower.y;
+      float acrossColumn = abs(fromTower.x);
+      // Widens with distance, the way a real reflection frays on moving water.
+      float columnWidth = 1.6 + max(0.0, alongColumn) * 0.10;
+      float column = smoothstep(0.0, 1.5, alongColumn)
+        * (1.0 - smoothstep(16.0, 44.0, alongColumn))
+        * exp(-(acrossColumn * acrossColumn) / max(0.05, columnWidth * columnWidth));
+      // Break it into horizontal bands: a reflection on water is never solid.
+      float bands = 0.45 + 0.55 * smoothstep(
+        0.25, 0.85,
+        0.5 + 0.5 * sin(alongColumn * 1.35 - uTime * 0.55 + surfaceNormal.x * 5.0)
+      );
+      // Strongest at dusk and night, when the tower is lit and the sea is dark.
+      float columnLight = clamp(uNight + uDusk * 0.85, 0.0, 1.0);
+      waterColor = mix(
+        waterColor,
+        uBeaconColor,
+        clamp(column * bands * columnLight * seaReflectivity * 0.34, 0.0, 0.42)
+      );
+    }
 
     // --- W6: shoreline foam rings (analytic shore SDF, no depth pass) -------
     // Hard-stepped ukiyo-e outline bands expanding slowly outward through the

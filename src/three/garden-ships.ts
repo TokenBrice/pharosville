@@ -880,8 +880,13 @@ export function syncShipSailTextures(
   }
 }
 
-const LANTERN_CORE_SIZE = 0.36;
-const LANTERN_GLOW_SIZE = 3;
+const LANTERN_CORE_SIZE = 0.32;
+// W1.10: a 3-unit additive halo per lantern was authored when 20 ships were on
+// screen. At 187 ships (and up to 3 lanterns each) the halos overlap into a
+// warm wash that flattens the whole frame — the opposite of the deep,
+// selective night the brief asks for. 1.7 keeps each lantern a POINT of light
+// with a small bloom instead of a blob.
+const LANTERN_GLOW_SIZE = 1.7;
 const LANTERN_SWAY = 0.09;
 const zeroScaleMatrix = new Matrix4().makeScale(0, 0, 0);
 
