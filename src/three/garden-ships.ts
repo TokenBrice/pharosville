@@ -850,6 +850,15 @@ export function attachGardenHeroModel(visual: ShipVisual, model: Group): void {
     if (!(object instanceof Mesh)) return;
     const material = (object.material as MeshStandardMaterial).clone();
     if (object.name === "wood-hull") material.color.multiply(visual.heroHullTint);
+    // A hero's canvas is dyed in its issuer's colour, exactly as the batched
+    // fleet's is. Without this the ten hero hulls fly the model's baked cream
+    // while every other ship in the harbour flies its brand — and heroes are
+    // the largest, most-looked-at ships in the world.
+    //
+    // Multiply rather than assign: `hero-canvas` is authored white with
+    // `vertexColors: true` (generate-garden-heroes.mjs), so the dye modulates
+    // the baked shading instead of flattening it.
+    if (object.name === "sail-hull") material.color.multiply(visual.sailColor);
     object.material = material;
     object.castShadow = true;
   });
