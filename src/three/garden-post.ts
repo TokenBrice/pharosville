@@ -32,6 +32,20 @@ const BLOOM_STRENGTH_NIGHT = 0.55;
 const BLOOM_STRENGTH_DUSK = 0.78;
 const BLOOM_STRENGTH_DAY = 0.92;
 const BLOOM_RADIUS = 0.6;
+/**
+ * W6.3 (Grand Scale Revamp): bloom runs at HALF the composer's resolution.
+ *
+ * `UnrealBloomPass` is a five-level mip pyramid — five downsample draws plus
+ * five upsample draws — which made it the most expensive pass in the chain and
+ * the reason it was shed at `recovery`. On an integrated GPU at 1080p that
+ * meant the warm beacon and lantern glow, the single strongest piece of the
+ * night identity, was almost never on screen.
+ *
+ * Bloom is low-frequency by construction: it is a blur. Halving its working
+ * resolution quarters its fragment cost and is visually indistinguishable at
+ * this radius, which buys it back at `recovery`.
+ */
+const BLOOM_RESOLUTION_SCALE = 0.5;
 
 /**
  * A grade preset expressed as multipliers/offsets around neutral so day, dusk
@@ -183,11 +197,23 @@ export function createGardenPost(
 
   const renderPass = new RenderPass(scene, camera);
   const bloomPass = new UnrealBloomPass(
-    new Vector2(size.width, size.height),
+    new Vector2(
+      Math.max(1, Math.round(size.width * BLOOM_RESOLUTION_SCALE)),
+      Math.max(1, Math.round(size.height * BLOOM_RESOLUTION_SCALE)),
+    ),
     BLOOM_STRENGTH_NIGHT,
     BLOOM_RADIUS,
     BLOOM_THRESHOLD_NIGHT,
   );
+  // `composer.setSize` fans out to every pass, so the half-resolution bloom
+  // has to be re-applied after each one or it silently snaps back to full.
+  const sizeBloom = (width: number, height: number): void => {
+    bloomPass.setSize(
+      Math.max(1, Math.round(width * BLOOM_RESOLUTION_SCALE)),
+      Math.max(1, Math.round(height * BLOOM_RESOLUTION_SCALE)),
+    );
+  };
+  sizeBloom(size.width, size.height);
   const gradePass = new ShaderPass(GRADE_SHADER);
   const outputPass = new OutputPass();
   composer.addPass(renderPass);
@@ -269,6 +295,7 @@ export function createGardenPost(
     setSize(width, height, nextDpr) {
       composer.setPixelRatio(nextDpr);
       composer.setSize(width, height);
+      sizeBloom(width, height);
     },
   };
 }

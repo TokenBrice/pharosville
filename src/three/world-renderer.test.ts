@@ -235,7 +235,9 @@ describe("Three world renderer lifecycle", () => {
     // Recovery keeps the composer but drops the bloom pass.
     renderer.render(rendererFrame(world, "recovery"));
     expect(post.setEnabled).toHaveBeenLastCalledWith(true);
-    expect(post.setBloomEnabled).toHaveBeenLastCalledWith(false);
+    // W6.3: bloom survives recovery now that it runs at half resolution —
+    // it is the night identity and this is the tier the app usually sits in.
+    expect(post.setBloomEnabled).toHaveBeenLastCalledWith(true);
 
     // Constrained bypasses the composer entirely (direct render).
     const constrained = renderer.render(rendererFrame(world, "constrained"));

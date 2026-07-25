@@ -292,7 +292,11 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
       const shadowMapSize = updateShadows(scene, frame);
       const composerActive = tier !== "constrained";
       post.setEnabled(composerActive);
-      post.setBloomEnabled(composerActive && tier !== "recovery");
+      // W6.3: bloom now survives `recovery` because it runs at half
+      // resolution (see BLOOM_RESOLUTION_SCALE). The warm beacon and lantern
+      // glow are the night identity; shedding them at the tier this machine
+      // usually sits in meant they were almost never seen.
+      post.setBloomEnabled(composerActive);
       post.setGrade(phase.daylight, phase.dusk, phase.night);
       post.render();
 
