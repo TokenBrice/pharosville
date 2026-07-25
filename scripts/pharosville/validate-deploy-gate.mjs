@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 
 const DEPLOY_GATE_COMMANDS = [
   ["npm", ["run", "typecheck"]],
+  ["npm", ["run", "lint"]],
   ["npm", ["test"]],
   ["npm", ["run", "test:guard-scripts"]],
   ["npm", ["run", "check:committed-secrets"]],

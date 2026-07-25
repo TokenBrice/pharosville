@@ -20,6 +20,17 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+  lint:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-lint-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: ./.github/actions/setup-workspace
+      - name: Lint
+        run: npm run lint
+
   unit:
     runs-on: ubuntu-latest
     concurrency:
@@ -137,6 +148,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs:
       - typecheck
+      - lint
       - unit
       - guards
       - build

@@ -417,7 +417,7 @@ const branchProtectionFixture = {
   enforce_admins: { enabled: true },
   required_pull_request_reviews: { required_approving_review_count: 0 },
   required_status_checks: {
-    contexts: ["typecheck", "unit", "guards", "build", "visual", "visual-cross-browser"],
+    contexts: ["typecheck", "lint", "unit", "guards", "build", "visual", "visual-cross-browser"],
     strict: true,
   },
 };
@@ -446,6 +446,7 @@ const rulesetFixture = {
       parameters: {
         required_status_checks: [
           { context: "typecheck" },
+          { context: "lint" },
           { context: "unit" },
           { context: "guards" },
           { context: "build" },
