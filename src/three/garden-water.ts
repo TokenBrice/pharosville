@@ -356,6 +356,16 @@ const FRAGMENT_SHADER = /* glsl */ `
         openFade * (0.08 + uDusk * 0.05 + uNight * 0.04)
       );
       gl_FragColor = vec4(openColor, 1.0);
+      // The early-out must close the frame EXACTLY as the end of main does.
+      // Three only compiles TONE_MAPPING and an encoding linearToOutputTexel
+      // into a material when it draws to the default framebuffer, so both
+      // chunks are no-ops while the post composer owns the frame and become
+      // live the moment it is shed at the constrained tier. Ending this
+      // branch without them wrote linear values straight into the sRGB canvas,
+      // and the open sea outside the map snapped to a near-black void behind a
+      // hard diamond seam every time the scheduler crossed that tier.
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
       #include <fog_fragment>
       return;
     }

@@ -101,6 +101,22 @@ describe("createGardenWater", () => {
     expect(transform.w).toBeCloseTo(-transform.z);
   });
 
+  it("closes the open-ocean early-out with the same encoding as the main path", () => {
+    // Three only compiles tone mapping and an encoding `linearToOutputTexel`
+    // in when a material draws to the default framebuffer, so both chunks are
+    // no-ops under the post composer and go live the frame it is shed at the
+    // `constrained` tier. An early-out that returns without them writes linear
+    // values into the sRGB canvas, and the open sea outside the map snaps to a
+    // near-black void behind a hard diamond seam.
+    const water = createGardenWater(0);
+    const source = water.mesh.material.fragmentShader;
+    const earlyOut = source.slice(0, source.indexOf("return;"));
+    for (const chunk of ["tonemapping_fragment", "colorspace_fragment", "fog_fragment"]) {
+      expect(source.split(`#include <${chunk}>`)).toHaveLength(3);
+      expect(earlyOut).toContain(`#include <${chunk}>`);
+    }
+  });
+
   it("samples the region field with nearest filtering", () => {
     // Bilinear between region 1 and region 3 would synthesise region 2 and
     // paint a phantom band along every boundary.
