@@ -87,6 +87,19 @@ export function resolveShipClass(meta: StablecoinMeta): ShipClassDefinition {
     };
   }
 
+  // A non-dollar peg is the strongest single split available on this data
+  // (53 of 188 batched ships) and it is genuinely a different trade. The label
+  // stays governance-truthful — only the hull changes — because `classLabel` is
+  // what the UI shows and it must never claim something the coin is not.
+  if (meta.flags?.pegCurrency !== undefined && meta.flags.pegCurrency !== "USD") {
+    return {
+      hull: "foreign-peg-junk",
+      label: governance === undefined
+        ? UNKNOWN_CLASS.label
+        : GOVERNANCE_LABELS_SHORT[governance],
+    };
+  }
+
   if (governance === "centralized") {
     // Crypto collateral under a central issuer: volatile reserves, lighter hull.
     if (backing === "crypto-backed") {
@@ -145,6 +158,60 @@ export function resolveShipSizeTier(marketCapUsd: number): ShipSizeDefinition {
   if (marketCapUsd >= 10_000_000) return { label: "Local", scale: 0.95, tier: "local" };
   if (marketCapUsd >= 1_000_000) return { label: "Skiff", scale: 0.78, tier: "skiff" };
   return { label: "Micro", scale: 0.7, tier: "micro" };
+}
+
+/**
+ * N5(a): the ship's proportions, derived from what the stablecoin is.
+ *
+ * Traits set the signal; a deterministic per-id jitter breaks ties so two coins
+ * with identical flags still read as two different vessels rather than one hull
+ * stamped twice. Everything is clamped into `SHIP_HULL_FORM_SPAN`, which is
+ * sized so a deformed hull cannot self-intersect or overflow its berth.
+ *
+ * The mappings are meant to be legible on the water, not merely encoded:
+ * - beam is stability, so peg health widens or narrows the hull;
+ * - height is freeboard, so real reserves ride high and thin ones sit low;
+ * - length is reach, so yield-bearing and NAV carriers run longer.
+ */
+const PEG_GRADE_STIFFNESS: Record<string, number> = {
+  A: 0.16, B: 0.09, C: 0, D: -0.1, F: -0.17,
+};
+
+function resolveShipHullForm(
+  asset: StablecoinData,
+  meta: StablecoinMeta,
+  reportCard: ReportCard | null,
+): ShipHullForm {
+  const flags = meta.flags;
+  const clamp = (value: number): number => Math.min(
+    1 + SHIP_HULL_FORM_SPAN,
+    Math.max(1 - SHIP_HULL_FORM_SPAN, value),
+  );
+  // Two independent jitter channels off one hash, so length and beam do not
+  // move together and produce a fleet of scaled copies.
+  const hash = stableFnv1aHash(asset.id);
+  const jitter = (shift: number): number => (
+    (((hash >>> shift) & 0xff) / 255 - 0.5) * 2
+  );
+
+  let length = 1;
+  if (flags?.yieldBearing) length += 0.14;
+  if (flags?.navToken) length += 0.08;
+  if (flags?.backing === "crypto-backed") length -= 0.07;
+
+  let beam = 1 + (PEG_GRADE_STIFFNESS[reportCard?.overallGrade ?? ""] ?? 0);
+  if (flags?.backing === "rwa-backed") beam += 0.06;
+
+  let height = 1;
+  if (flags?.rwa) height += 0.1;
+  if (flags?.backing === "algorithmic") height -= 0.18;
+  if (flags?.yieldBearing) height += 0.05;
+
+  return {
+    beam: clamp(beam + jitter(8) * 0.09),
+    height: clamp(height + jitter(16) * 0.08),
+    length: clamp(length + jitter(0) * 0.1),
+  };
 }
 
 export function resolveShipVisual(asset: StablecoinData, meta: StablecoinMeta, reportCard: ReportCard | null): ShipVisual {

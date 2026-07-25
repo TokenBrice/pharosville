@@ -84,6 +84,7 @@ export const GARDEN_SILHOUETTE_FOR_HULL: Record<ShipHull, GardenHullSilhouette> 
   "chartered-brigantine": "clipper",
   "crypto-caravel": "clipper",
   "dao-schooner": "schooner",
+  "foreign-peg-junk": "junk",
   "treasury-galleon": "galleon",
 };
 

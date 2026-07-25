@@ -91,8 +91,13 @@ vi.mock("three", async (importOriginal) => {
   class WebGLRenderer {
     dispose = vi.fn();
     info = {
+      // `autoReset` and `reset()` mirror the real WebGLRenderer: the renderer
+      // accumulates a frame's passes by hand so the post composer's
+      // full-screen quads cannot clobber the scene's counts.
+      autoReset: true,
       memory: { geometries: 145, textures: 1 },
       render: { calls: 132, lines: 0, points: 0, triangles: 6_605 },
+      reset: vi.fn(),
     };
     lastScene: Scene | null = null;
     outputColorSpace = "";

@@ -56,7 +56,14 @@ export type ShipHull =
   | "chartered-brigantine"
   | "dao-schooner"
   | "crypto-caravel"
-  | "algo-junk";
+  | "algo-junk"
+  // N5(a): coins pegged to something other than the dollar. Measured on the
+  // 217-coin set, 58% of the batched fleet sat on `treasury-galleon` while the
+  // junk silhouette — authored and paid for — was never drawn, because no coin
+  // in the set is `backing: "algorithmic"`. A non-USD peg (EUR/GBP/gold/RUB) is
+  // its own trading tradition, and it is a 53-ship cohort, so it earns the junk
+  // hull outright rather than borrowing the algorithmic one.
+  | "foreign-peg-junk";
 
 export type ShipSizeTier =
   | "titan"
@@ -86,6 +93,27 @@ export interface ShipLivery {
   stripePattern: ShipStripePattern;
 }
 
+/**
+ * N5(a): per-ship hull proportions, as multipliers about 1. The batched fleet
+ * renders four shared silhouettes as instanced meshes, so a ship cannot have
+ * its own geometry — but it can have its own *proportions*, applied as a
+ * per-instance deformation in the vertex shader at zero extra draw calls.
+ *
+ * Bounded to ±`SHIP_HULL_FORM_SPAN` so a hull never self-intersects and never
+ * outgrows the blue-noise berth spacing, which is laid out for the ship's
+ * `scale`, not for its proportions.
+ */
+export interface ShipHullForm {
+  /** Athwartships width multiplier. Stability: a stiff hull is a beamy one. */
+  beam: number;
+  /** Topsides height multiplier, applied above the waterline only. */
+  height: number;
+  /** Fore-and-aft length multiplier. */
+  length: number;
+}
+
+export const SHIP_HULL_FORM_SPAN = 0.32;
+
 export interface ShipVisual {
   hull: ShipHull;
   uniqueRationale?: string;
@@ -96,6 +124,7 @@ export interface ShipVisual {
   sizeTier: ShipSizeTier;
   sizeLabel: string;
   scale: number;
+  hullForm: ShipHullForm;
 }
 
 export interface ShipChainPresence {

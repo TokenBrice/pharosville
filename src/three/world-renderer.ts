@@ -184,6 +184,9 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
   // and mapSize (see updateShadows), which avoids material recompile stalls.
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = PCFSoftShadowMap;
+  // See the reset in `render` — the frame's totals are accumulated by hand
+  // so the composer's passes do not clobber the scene's counts.
+  renderer.info.autoReset = false;
   const post = createGardenPost(renderer, scene.root, camera);
 
   let disposed = false;
@@ -256,6 +259,16 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
     },
     render(frame) {
       if (disposed) throw new Error("Cannot render a disposed Three.js world renderer.");
+
+      // `renderer.info` auto-resets on every `render()` call, and the post
+      // composer issues several. Reading it after `post.render()` therefore
+      // reported only the final full-screen quad — calls: 1, triangles: 1 —
+      // which silently made the D7 GPU budgets in the perf spec vacuous: they
+      // were passing against a measurement of nothing.
+      //
+      // Manual reset here, with autoReset off at construction, accumulates
+      // every pass of the frame into one honest total.
+      renderer.info.reset();
 
       const dpr = Math.max(1, Math.min(MAX_THREE_DPR, frame.dpr));
       const dprChanged = dpr !== lastDpr;
