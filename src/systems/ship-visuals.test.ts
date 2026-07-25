@@ -58,6 +58,42 @@ describe("resolveShipVisual", () => {
     expect(resolveShipSizeTier(2_000_000_000).scale).toBeGreaterThan(1.5);
   });
 
+  it("splits hull family by collateral model, not governance alone (N5a)", () => {
+    // Crypto collateral under a central issuer is not a treasury ship.
+    expect(resolveShipClass(makeMeta({
+      backing: "crypto-backed",
+      governance: "centralized",
+    })).hull).toBe("chartered-brigantine");
+    expect(resolveShipClass(makeMeta({
+      backing: "rwa-backed",
+      governance: "centralized",
+    })).hull).toBe("treasury-galleon");
+
+    // A NAV share over real paper is a fund in a hull; over crypto it is not.
+    expect(resolveShipClass(makeMeta({
+      backing: "rwa-backed",
+      governance: "centralized-dependent",
+      navToken: true,
+    })).hull).toBe("treasury-galleon");
+    expect(resolveShipClass(makeMeta({
+      backing: "crypto-backed",
+      governance: "centralized-dependent",
+      navToken: true,
+    })).hull).toBe("chartered-brigantine");
+
+    // A DAO holding real paper and paying it out runs a treasury.
+    expect(resolveShipClass(makeMeta({
+      backing: "rwa-backed",
+      governance: "decentralized",
+      yieldBearing: true,
+    })).hull).toBe("treasury-galleon");
+    expect(resolveShipClass(makeMeta({
+      backing: "crypto-backed",
+      governance: "decentralized",
+      yieldBearing: true,
+    })).hull).toBe("dao-schooner");
+  });
+
   it("preserves peg, overlay, and compressed scale channels", () => {
     const meta = makeMeta({
       backing: "crypto-backed",

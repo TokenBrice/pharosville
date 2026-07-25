@@ -194,6 +194,12 @@ export function LegendPanel({ onClose, onSelectDetail, recentFleetTrend }: Legen
           </p>
         </section>
 
+        {/* First screen ends here. Movers, marks and the full control list are
+            reference rather than orientation, so they wait behind a fold
+            (interface revamp DU17). */}
+        <details className="pharosville-legend-panel__more">
+          <summary>More: recent movers, marks and controls</summary>
+
         {recentFleetTrend && (
           <section aria-labelledby="pharosville-legend-recent-movers">
             <h3 id="pharosville-legend-recent-movers">Recent movers</h3>
@@ -228,11 +234,12 @@ export function LegendPanel({ onClose, onSelectDetail, recentFleetTrend }: Legen
           </p>
         </section>
 
-        <ControlsCheatsheet
-          headingId="pharosville-legend-controls"
-          title="Controls"
-          intro="Use these controls to inspect the harbor, move the camera, tune time of day, and reopen reference panels."
-        />
+          <ControlsCheatsheet
+            headingId="pharosville-legend-controls"
+            title="Controls"
+            intro="Use these controls to inspect the harbor, move the camera, choose the light, and reopen reference panels."
+          />
+        </details>
       </div>
     </aside>
   );

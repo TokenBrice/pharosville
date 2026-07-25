@@ -18,7 +18,7 @@ describe("ControlsCheatsheet", () => {
     }
     expect(within(region).getByText("Focus next map target")).toBeTruthy();
     expect(within(region).getByText("Mouse wheel")).toBeTruthy();
-    expect(within(region).getByText("Auto day-night cycle")).toBeTruthy();
+    expect(within(region).getByText("Switch day or night")).toBeTruthy();
     expect(container.querySelector("button, canvas, img, svg")).toBeNull();
   });
 

@@ -93,6 +93,37 @@ function paintSailField(
     context.stroke();
   }
   context.restore();
+
+  paintSailBorder(context, livery);
+}
+
+/**
+ * W5.4: a livery bolt-rope border framing the cloth, so the sail reads as a
+ * finished, branded flag rather than a panel that runs off its own edge.
+ *
+ * Inset by `SAIL_BORDER_INSET` rather than drawn flush: the batched fleet packs
+ * these cells edge-to-edge into one atlas (D3), and a border on the outermost
+ * texels would bleed into the neighbouring ship's cell under bilinear
+ * filtering. The inset also keeps the band clear of the identity disc
+ * (radius 47 about 65,64), so logo legibility at overview zoom is untouched.
+ */
+const SAIL_BORDER_INSET = 5;
+
+function paintSailBorder(
+  context: CanvasRenderingContext2D,
+  livery: ShipLivery,
+): void {
+  const span = TEXTURE_SIZE - SAIL_BORDER_INSET * 2;
+  context.save();
+  context.globalAlpha = 0.82;
+  context.lineWidth = 5;
+  context.strokeStyle = livery.secondary;
+  context.strokeRect(SAIL_BORDER_INSET, SAIL_BORDER_INSET, span, span);
+  context.globalAlpha = 0.9;
+  context.lineWidth = 1.5;
+  context.strokeStyle = livery.accent;
+  context.strokeRect(SAIL_BORDER_INSET + 3, SAIL_BORDER_INSET + 3, span - 6, span - 6);
+  context.restore();
 }
 
 function paintStripePattern(

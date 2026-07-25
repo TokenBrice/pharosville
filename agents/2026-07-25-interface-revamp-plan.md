@@ -53,7 +53,7 @@ subject; the interface is a quiet plaque beside it that fades when unused.
 
 | # | Criterion | Measurement |
 | --- | --- | --- |
-| **U-A1** | At rest, the only persistent DOM chrome over the world is the footer line and the detail panel when something is selected | screenshot at 1920×1080, nothing else visible above the canvas |
+| **U-A1** | At rest, the only DOM chrome over the world is one footer line, four 40%-opacity glyphs (three bottom-right, one top-right), and the detail panel when something is selected | screenshot at 1920×1080; nothing else above the canvas |
 | **U-A2** | Every removed control's function stays reachable by keyboard, and the cheatsheet says how | `src/content/pharosville-controls.ts` + `controls-cheatsheet` render |
 | **U-A3** | A ship panel's first screen is ≤ ~55 words of prose + ≤ 3 figures, with no scrollbar at 1080p | manual read + panel height assertion |
 | **U-A4** | Every analytical fact visible today is still reachable — in the disclosure or the accessibility ledger | `detail-panel.test.tsx` + `@visual-accessibility` lane |
@@ -71,8 +71,8 @@ Read from the working tree at `c604911`.
 
 | Surface | File | Lines | Notes |
 | --- | --- | --- | --- |
-| World toolbar | `src/components/world-toolbar.tsx` | 156 | zoom chip, time slider + badge, clear-override, reset, follow, observe, night, auto-cycle — 9 controls, 4 brass corner studs |
-| Ship search | `src/components/ship-search.tsx` | 132 | combobox + listbox, 8 matches, own key-propagation rules |
+| World toolbar | `components/world-toolbar` (deleted in U1.1) | 156 | zoom chip, time slider + badge, clear-override, reset, follow, observe, night, auto-cycle — 9 controls, 4 brass corner studs |
+| Ship search | `components/ship-search` (deleted in U1.2) | 132 | combobox + listbox, 8 matches, own key-propagation rules |
 | Home button | `src/pharosville-world.tsx:797-805` | 9 | 56 px brass disc, duplicates the toolbar's reset |
 | Fullscreen button | `src/pharosville-world.tsx:788-796` | 9 | same disc, top-right |
 | Footer ("beta tag") | `src/pharosville-world.tsx:818-836` | 19 | 6 items + 5 separators + a debug-gated FPS slot |
@@ -299,8 +299,8 @@ decisions); U2–U6 can then run in any order; U7–U8 close.
 
 | # | Task | Files | Verify |
 | --- | --- | --- | --- |
-| U1.1 | Delete `WorldToolbar` and its test; remove `.pharosville-world-toolbar`, `.pv-chip-zoom`, `.pv-time-control*`, and the `.pharosville-hud` wrapper if nothing else lands in it | `components/world-toolbar.tsx(.test.tsx)`, `pharosville.css:486-499,700-717,861-926` | `npm test` green after test deletion |
-| U1.2 | Delete `ShipSearch` (DU2): component, `.pharosville-ship-search*` CSS, `shipSearchOptions` memo, `handleSearchSelect`, and the now-orphaned `followRequest` state | `components/ship-search.tsx`, `pharosville-world.tsx:246-258,775`, `pharosville.css:1455-1514` | URL deep-link follow still works (`#sel=ship.usdt&` cold load frames the ship) |
+| U1.1 | Delete the `WorldToolbar` component and its test; remove `.pharosville-world-toolbar`, `.pv-chip-zoom`, `.pv-time-control*`, and the `.pharosville-hud` wrapper if nothing else lands in it | `components/world-toolbar.tsx(.test.tsx)`, `pharosville.css:486-499,700-717,861-926` | `npm test` green after test deletion |
+| U1.2 | Delete the `ShipSearch` component (DU2): `.pharosville-ship-search*` CSS, `shipSearchOptions` memo, `handleSearchSelect`, and the now-orphaned `followRequest` state | `components/ship-search.tsx`, `pharosville-world.tsx:246-258,775`, `pharosville.css:1455-1514` | URL deep-link follow still works (`#sel=ship.usdt&` cold load frames the ship) |
 | U1.3 | Delete the home button (DU3) and its CSS half of the shared `.pharosville-fullscreen-button, .pharosville-home-button` rule | `pharosville-world.tsx:797-805`, `pharosville.css:719-757` | no `Recenter map` button in the DOM |
 | U1.4 | Remove `follow-selected` from the app: the `canFollowSelected` memo, `handleFollowSelected` wiring from the toolbar, and the control entry. Keep `canvas.handleFollowSelected` — the URL-deep-link path still calls it | `pharosville-world.tsx:555-567,751`, `content/pharosville-controls.ts:120-125` | deep-link follow test still passes |
 | U1.5 | Remove auto-day-night: `autoNightCycle` state, its `setInterval`, `toggleAutoNightCycle`, and the control entry | `hooks/use-world-time-controls.ts:25,41-45,91-95`, `content/pharosville-controls.ts:160-165` | no interval remains (`MOTION_POLICY.md` "no analytical timers" gets *more* true) |

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { gardenZoneSeaCoverage } from "./garden-zone-coverage";
+import { landWorldTile } from "./map-scale";
 
 // Zones-v3 (operator steer, 2026-07-24): the six rendered zone ellipses must
 // cover a solid majority of the open-sea surface (map minus rendered
@@ -30,8 +31,9 @@ describe("gardenZoneSeaCoverage", () => {
     const report = gardenZoneSeaCoverage();
     const byKey = new Map(report.ellipses.map((ellipse) => [ellipse.key, ellipse]));
     // Calm's harbor ring stays centered on the island; Watch stays
-    // island-centric; Danger stays the small NE corner pit.
-    expect(byKey.get("CALM")!.centerTile).toEqual({ x: 31, y: 31 });
+    // island-centric; Danger stays the small NE corner pit. N1: the island is
+    // authored at design (31,31) and offset onto the 112-tile grid.
+    expect(byKey.get("CALM")!.centerTile).toEqual(landWorldTile({ x: 31, y: 31 }));
     expect(byKey.get("DANGER")!.rx).toBeLessThan(byKey.get("CALM")!.rx);
     expect(byKey.get("WATCH")!.rx).toBeGreaterThan(byKey.get("ledger-mooring")!.rx);
   });

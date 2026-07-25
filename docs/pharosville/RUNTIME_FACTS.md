@@ -48,6 +48,13 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 | `garden-hero-cog` | `/pharosville/models/garden-hero-cog.glb` | 75 KiB | 4 draws / 2,072 tris / 2,602 verts / 0 textures | `180d6c27e6e40856a2e4c313d2544ff5444f41ebedec9c5676ea1e45d67142f4` |
 | `garden-hero-xebec` | `/pharosville/models/garden-hero-xebec.glb` | 84 KiB | 4 draws / 2,428 tris / 2,959 verts / 0 textures | `9b9dc6216a9750fe9a9797df6a0f393c908a26dc7b288317b3c7261e89a20a05` |
 | `garden-hero-cutter` | `/pharosville/models/garden-hero-cutter.glb` | 74 KiB | 4 draws / 2,044 tris / 2,551 verts / 0 textures | `66caa65385a58191382d6d4014d8f24c3f6f23874e3f4e355ec9108072f3cdc7` |
+| `garden-hero-tether` | `/pharosville/models/garden-hero-tether.glb` | 115 KiB | 4 draws / 3,218 tris / 4,212 verts / 0 textures | `010311a2f7515f950b08c6632b5aff8e397afc06ecc798dc0ba92fa02a06abb0` |
+| `garden-hero-circle` | `/pharosville/models/garden-hero-circle.glb` | 84 KiB | 4 draws / 2,580 tris / 2,990 verts / 0 textures | `d30a602c4f9b9f9c1b62d90444c740113dafae3ec25f2acbc3552f81dc9658ca` |
+| `garden-hero-maker` | `/pharosville/models/garden-hero-maker.glb` | 79 KiB | 4 draws / 2,362 tris / 2,772 verts / 0 textures | `22c2de836bb91131fd0a20979623772c477cf553ce1ca312338dfbca5ba60cb7` |
+| `garden-hero-sky` | `/pharosville/models/garden-hero-sky.glb` | 84 KiB | 4 draws / 2,574 tris / 2,938 verts / 0 textures | `a2612d452e06762c4ec6268cc44f33fc19e2228a6d7a3dd4b884ef1a8f9b99b2` |
+| `garden-hero-ethena` | `/pharosville/models/garden-hero-ethena.glb` | 65 KiB | 4 draws / 2,426 tris / 2,055 verts / 0 textures | `25e9b0a84c8e411eded3d3653a36ed067b20d351125e5245145abab32ab3b8d3` |
+| `garden-hero-liberty` | `/pharosville/models/garden-hero-liberty.glb` | 75 KiB | 4 draws / 2,138 tris / 2,646 verts / 0 textures | `287c4ef293daf0767564f0f3a0470f6d21d7b3230e13a30e1bbd9f29ddd65ef5` |
+| `garden-hero-paypal` | `/pharosville/models/garden-hero-paypal.glb` | 81 KiB | 4 draws / 2,398 tris / 2,791 verts / 0 textures | `b7d8089bddba70488b89d0bb058d976c8594a814bd09b825c1db862ebd2656df` |
 
 - The procedural lighthouse shell remains the in-scene fallback if its GLB cannot load.
 

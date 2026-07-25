@@ -39,11 +39,14 @@ not a separate world renderer or a network asset inventory.
 The canonical artifacts are:
 
 - `public/pharosville/models/garden-lighthouse-shell.glb`
-- `public/pharosville/models/garden-hero-*.glb` — ten hero hulls (`titan`,
-  `heritage`, `carrack`, `brigantine`, `dhow`, `junk`, `barquentine`, `cog`,
-  `xebec`, `cutter`), one per distinct silhouette. `systems/unique-ships.ts`
-  maps stablecoins onto them; `HERO_HULL_MODEL_IDS` there and
-  `GARDEN_HERO_MODEL_IDS` here must agree, and a unit test asserts it.
+- `public/pharosville/models/garden-hero-*.glb` — seventeen hero hulls. Ten
+  are shared (`titan`, `heritage`, `carrack`, `brigantine`, `dhow`, `junk`,
+  `barquentine`, `cog`, `xebec`, `cutter`), one per distinct silhouette. Seven
+  are **bespoke** to a single named titan (`tether`, `circle`, `maker`, `sky`,
+  `ethena`, `liberty`, `paypal`) and are excluded from the hash fallback, so
+  no other coin can ever sail them. `systems/unique-ships.ts` maps stablecoins
+  onto them; `HERO_HULL_MODEL_IDS` there and `GARDEN_HERO_MODEL_IDS` here must
+  agree, and a unit test asserts it.
 
 Their contract lives in `src/three/garden-models.ts`:
 

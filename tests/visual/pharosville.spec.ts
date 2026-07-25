@@ -119,22 +119,17 @@ test(...visualLane("static", "blocked viewports request neither world data nor t
   expect(deniedRequests).toEqual([]);
 });
 
-test(...visualLane("accessibility", "search selects and refollows the same ship with usable Escape behavior"), async ({ page }) => {
+test(...visualLane("accessibility", "a shared ship link selects and frames that ship with usable Escape behavior"), async ({ page }) => {
+  // The fleet search is retired (interface revamp DU2). A shared `#sel=` link
+  // is now how a non-representative ship is reached, framed and dismissed.
   const outsiderDetailId = "ship.satusd-river";
   await mockDensePharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await mockScreenSize(page, 1920, 1080);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await installWallClockOverride(page, 12);
-  await page.goto("/?debug=1");
+  await page.goto(`/?debug=1#sel=${outsiderDetailId}`);
   await waitForRuntimeDebug(page, true);
-
-  const closeDetails = page.getByRole("button", { name: "Close details" });
-  if (await closeDetails.isVisible()) await closeDetails.click();
-  const search = page.getByRole("combobox", { name: "Find a ship" });
-  await search.fill("River Stablecoin");
-  await expect(page.getByRole("option", { name: "River Stablecoin" })).toBeVisible();
-  await search.press("Enter");
 
   await expect.poll(async () => (await readVisualDebug(page)).selectedDetailId)
     .toBe(outsiderDetailId);
@@ -142,21 +137,14 @@ test(...visualLane("accessibility", "search selects and refollows the same ship 
   await expect.poll(async () => selectedTargetDistanceFromViewportCenter(page, outsiderDetailId))
     .toBeLessThanOrEqual(220);
 
+  // Recentring leaves the selection intact, and Escape closes the panel.
   await page.getByRole("button", { name: "Reset view" }).click();
-  const overviewCamera = (await readVisualDebug(page)).camera;
-  await search.fill("River Stablecoin");
-  await search.press("Enter");
-  await expect.poll(async () => selectedTargetDistanceFromViewportCenter(page, outsiderDetailId))
-    .toBeLessThanOrEqual(220);
-  expect((await readVisualDebug(page)).camera).not.toEqual(overviewCamera);
-
-  await search.fill("River");
-  await expect(search).toHaveAttribute("aria-expanded", "true");
-  await search.press("Escape");
-  await expect(search).toHaveValue("");
   await expect(page.getByTestId("pharosville-detail-panel")).toBeVisible();
-  await search.press("Escape");
+
+  await page.getByRole("button", { name: "Close details" }).focus();
+  await page.keyboard.press("Escape");
   await expect(page.getByTestId("pharosville-detail-panel")).toHaveCount(0);
+  await expect(page.getByTestId("pharosville-world")).toBeFocused();
 });
 
 test(...visualLane("interaction", "deep links follow transient ships and preserve complete dock geography"), async ({ page }) => {
@@ -201,6 +189,9 @@ test(...visualLane("interaction", "deep links follow transient ships and preserv
 
   const detailPanel = page.getByTestId("pharosville-detail-panel");
   await expect(detailPanel).toContainText(outsider.name);
+  // Density now waits inside the record disclosure (interface revamp DU5);
+  // open it explicitly rather than relying on collapsed text matching.
+  await page.getByTestId("pharosville-detail-record").getByText("Read the record").click();
   await expect(detailPanel).toContainText("Currently");
   await expect(detailPanel).toContainText("Home dock");
   await expect(detailPanel).toContainText("Chains");
@@ -212,9 +203,8 @@ test(...visualLane("interaction", "deep links follow transient ships and preserv
   await expect(ledger).toContainText("risk water");
   await expect(ledger).toContainText("risk zone");
 
-  const followButton = page.getByRole("button", { name: "Follow selected" });
-  await expect(followButton).toBeEnabled();
-  await followButton.click();
+  // Follow-selected lost its button (interface revamp DU1): a `#sel=` deep
+  // link frames the ship on arrival, which is the path that remains.
   await expect.poll(async () => selectedTargetDistanceFromViewportCenter(page, outsiderDetailId))
     .toBeLessThanOrEqual(220);
   const followedDebug = await readVisualDebug(page);
@@ -272,7 +262,6 @@ test(...visualLane("interaction", "deep links follow transient ships and preserv
     const debug = await readVisualDebug(page);
     return debug.selectedDetailId;
   }).toBe(selectedDockDetailId);
-  await expect(page.getByRole("button", { name: "Follow selected" })).toBeEnabled();
 });
 
 async function shipTargetIds(page: Page): Promise<string[]> {

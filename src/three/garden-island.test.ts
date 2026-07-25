@@ -1,11 +1,14 @@
 import {
   DataTexture,
   InstancedMesh,
+  Matrix4,
   Mesh,
   MeshStandardMaterial,
   RGBAFormat,
+  Vector3,
 } from "three";
 import { describe, expect, it } from "vitest";
+import { GARDEN_ISLAND_OBSTACLE } from "../systems/garden-water-exclusion";
 import type { PharosVilleWorld } from "../systems/world-types";
 import {
   createTerracedIsland,
@@ -13,6 +16,7 @@ import {
   gardenIslandLanternWorldOffsets,
 } from "./garden-island";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
+import { TILE_SCALE } from "./garden-util";
 
 const world = {
   lighthouse: { tile: { x: 40, y: 40 }, detailId: "lighthouse" },
@@ -141,6 +145,30 @@ describe("garden island rockwork", () => {
     expect(material.emissiveIntensity).toBeGreaterThan(1);
   });
 
+  it("keeps every W4.9 rock feature inside the ship-exclusion ellipse", () => {
+    // `GARDEN_ISLAND_OBSTACLE` is what stops hulls mooring on the island, and
+    // it is calibrated against the bottom terrace — local centre (0.6, 1.2),
+    // see that module's header. Anything the W4.9 detail pass added must stay
+    // inside it, or the footprint has grown without the obstacle growing and
+    // ships will clip land.
+    const island = createTerracedIsland(world);
+    const added = [
+      "island-sea-cliffs",
+      "island-cliff-talus",
+      "island-quay-stair-treads",
+      "island-quay-stair-cheeks",
+      "island-shrubs",
+      "island-grass-tufts",
+      "island-terrace-lantern-posts",
+      "island-terrace-lantern-lamps",
+    ];
+    for (const name of added) {
+      const mesh = island.root.getObjectByName(name);
+      expect(mesh, name).toBeInstanceOf(Mesh);
+      expect(maxObstacleEllipseValue(mesh as Mesh), name).toBeLessThanOrEqual(1);
+    }
+  });
+
   it("exports lamp offsets lifted to the lamp height for lane registration", () => {
     const offsets = gardenIslandLanternWorldOffsets();
     expect(offsets).toHaveLength(6);
@@ -149,6 +177,55 @@ describe("garden island rockwork", () => {
     }
   });
 });
+
+// The exclusion ellipse expressed in island-root-local world units.
+const OBSTACLE_LOCAL = {
+  cx: 0.6,
+  cz: 1.2,
+  rx: GARDEN_ISLAND_OBSTACLE.rx * TILE_SCALE,
+  rz: GARDEN_ISLAND_OBSTACLE.ry * TILE_SCALE,
+};
+
+/**
+ * Worst ellipse value over a mesh's transformed geometry bounds — every
+ * instance for an InstancedMesh. < 1 means fully inside the obstacle. Every
+ * mesh checked here hangs off a group seated at the island root's origin, so
+ * the instance matrices are already island-local.
+ */
+function maxObstacleEllipseValue(mesh: Mesh): number {
+  mesh.geometry.computeBoundingBox();
+  const box = mesh.geometry.boundingBox;
+  if (!box) throw new Error(`${mesh.name} has no bounding box.`);
+  const corners: Vector3[] = [];
+  for (const x of [box.min.x, box.max.x]) {
+    for (const y of [box.min.y, box.max.y]) {
+      for (const z of [box.min.z, box.max.z]) corners.push(new Vector3(x, y, z));
+    }
+  }
+  const matrices: Matrix4[] = [];
+  if (mesh instanceof InstancedMesh) {
+    for (let index = 0; index < mesh.count; index += 1) {
+      const matrix = new Matrix4();
+      mesh.getMatrixAt(index, matrix);
+      matrices.push(matrix);
+    }
+  } else {
+    matrices.push(new Matrix4());
+  }
+  const point = new Vector3();
+  let worst = 0;
+  for (const matrix of matrices) {
+    for (const corner of corners) {
+      point.copy(corner).applyMatrix4(matrix);
+      worst = Math.max(
+        worst,
+        ((point.x - OBSTACLE_LOCAL.cx) / OBSTACLE_LOCAL.rx) ** 2
+          + ((point.z - OBSTACLE_LOCAL.cz) / OBSTACLE_LOCAL.rz) ** 2,
+      );
+    }
+  }
+  return worst;
+}
 
 function cloudHookedMaterialCount(root: import("three").Object3D): number {
   let count = 0;

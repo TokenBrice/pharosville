@@ -3,6 +3,7 @@ import canonicalOrder from "@shared/data/stablecoins/canonical-order.json";
 import { GARDEN_HERO_MODEL_IDS } from "../three/garden-models";
 import { TITAN_SHIPS } from "./ship-visuals";
 import {
+  BESPOKE_HULL_OWNER,
   HERO_HULL_BY_ASSET,
   HERO_HULL_MODEL_IDS,
   heroHullModelFor,
@@ -70,26 +71,52 @@ describe("hero hull assignment", () => {
     }
   });
 
-  it("uses all ten hulls, so no model is authored and never seen", () => {
+  it("uses every hull, so no model is authored and never seen", () => {
     const used = new Set(heroTierIds.map((id) => heroHullModelFor(id)));
     expect([...used].sort()).toEqual([...HERO_HULL_MODEL_IDS].sort());
   });
 
+  it("gives each bespoke titan hull to exactly one coin (N5b)", () => {
+    for (const [hull, owner] of Object.entries(BESPOKE_HULL_OWNER)) {
+      expect(heroHullModelFor(owner), owner).toBe(hull);
+      const others = heroTierIds.filter((id) => id !== owner);
+      for (const id of others) {
+        expect(heroHullModelFor(id), `${id} must not sail ${hull}`).not.toBe(hull);
+      }
+    }
+  });
+
+  it("never hands a bespoke titan hull to an unlisted coin", () => {
+    // The hash fallback must draw only from the shared pool.
+    for (let index = 0; index < 400; index += 1) {
+      const hull = heroHullModelFor(`unlisted-coin-${index}`);
+      expect(BESPOKE_HULL_OWNER[hull], hull).toBeUndefined();
+    }
+  });
+
+  it("keeps the Sky squadron on related but distinct hulls", () => {
+    // DAI and USDS are a matched pair built from shared hull DNA, not clones.
+    expect(heroHullModelFor("dai-makerdao")).toBe("garden-hero-maker");
+    expect(heroHullModelFor("usds-sky")).toBe("garden-hero-sky");
+    expect(heroHullModelFor("dai-makerdao")).not.toBe(heroHullModelFor("usds-sky"));
+  });
+
   it("is stable: the same id always resolves to the same hull", () => {
-    // The contract is that a coin never changes ship between refreshes, so
-    // these expectations are pinned literals, not recomputed from the table.
-    expect(heroHullModelFor("usdt-tether")).toBe("garden-hero-titan");
-    expect(heroHullModelFor("usdc-circle")).toBe("garden-hero-carrack");
-    expect(heroHullModelFor("dai-makerdao")).toBe("garden-hero-cog");
-    expect(heroHullModelFor("usde-ethena")).toBe("garden-hero-xebec");
+    // The contract is that a coin never changes ship between refreshes or
+    // sessions, so these are pinned literals rather than recomputed from the
+    // table. A deliberate reassignment (N5(b) moved six titans onto bespoke
+    // hulls) is a release-time decision and updates these pins with it; drift
+    // that nobody chose is what this test exists to catch.
+    expect(heroHullModelFor("usdt-tether")).toBe("garden-hero-tether");
+    expect(heroHullModelFor("usdc-circle")).toBe("garden-hero-circle");
+    expect(heroHullModelFor("dai-makerdao")).toBe("garden-hero-maker");
+    expect(heroHullModelFor("usde-ethena")).toBe("garden-hero-ethena");
     expect(heroHullModelFor("usyc-hashnote")).toBe("garden-hero-dhow");
+    expect(heroHullModelFor("bold-liquity")).toBe("garden-hero-cog");
   });
 
   it("keeps issuer siblings on the same hull", () => {
     for (const [parent, child] of [
-      ["usde-ethena", "susde-ethena"],
-      ["usds-sky", "susds-sky"],
-      ["dai-makerdao", "sdai-sky"],
       ["usdai-usd-ai", "susdai-usd-ai"],
     ]) {
       expect(heroHullModelFor(child), child).toBe(heroHullModelFor(parent));

@@ -378,12 +378,42 @@ function batchedHullColor(ship: ShipNode): Color {
   );
 }
 
-/** The ship's ONE livery accent, carried on the masthead pennant (S4/S8). */
+/**
+ * The masthead pennant (S4/S8), carrying BOTH the ship's livery accent and its
+ * dominant chain (W5.5).
+ *
+ * The livery accent still sets the pennant's base, so a ship's own identity
+ * stays readable; the chain then pulls that base toward a fixed per-chain hue.
+ * Because the pull is a bounded lerp rather than a replacement, ships on the
+ * same chain visibly cluster without any two liveries collapsing onto the same
+ * colour — the pennant reads as "this ship, flying that chain's colours".
+ *
+ * Chain hues are keyed off the chain id, so they are stable across refreshes
+ * and identical for every ship on a chain.
+ */
+const CHAIN_PENNANT_HUES: Readonly<Record<string, string>> = {
+  ethereum: "#7b8cc4",
+  tron: "#c25b5b",
+  bsc: "#d8b04a",
+  solana: "#59b89a",
+  base: "#5b8fdd",
+  arbitrum: "#5aa7c8",
+  polygon: "#9a7fc4",
+  avalanche: "#cf6f63",
+  optimism: "#d0707f",
+  ton: "#5fa8c9",
+};
+const CHAIN_PENNANT_FALLBACK = "#8d9298";
+
 function batchedPennantColor(ship: ShipNode): Color {
-  return new Color(HARBOR_PALETTE.timber_warm).lerp(
+  const accent = new Color(HARBOR_PALETTE.timber_warm).lerp(
     new Color(safeCssColor(ship.visual.livery?.accent, GARDEN_COLORS.roof)),
     0.78,
   );
+  const chainId = ship.dominantChainId;
+  if (chainId === null) return accent;
+  const hue = CHAIN_PENNANT_HUES[chainId] ?? CHAIN_PENNANT_FALLBACK;
+  return accent.lerp(new Color(safeCssColor(hue, CHAIN_PENNANT_FALLBACK)), 0.42);
 }
 
 export function createShip(
@@ -1276,9 +1306,13 @@ function bakeHullVertexColors(geometry: BufferGeometry): void {
   geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
 }
 
+/** Athwartships deck crown, in ship-local units at the rail. */
+const DECK_CAMBER = 0.07;
+
 /**
- * Deck/gunwale plate: adds a curved sheer (rises fore and aft, bow highest) and
- * a radial vertex-color AO (bright catching rail edge, darker planked center).
+ * Deck/gunwale plate: adds a curved sheer (rises fore and aft, bow highest),
+ * an athwartships camber, and a radial vertex-color AO (bright catching rail
+ * edge, darker planked center).
  */
 function createDeckGeometry(
   silhouette: GardenHullSilhouette,
@@ -1364,12 +1398,32 @@ function createHullShape(silhouette: GardenHullSilhouette, scale: number): Shape
 // waterline, bowFlare widens the bow topsides, bowRake leans the stem forward.
 const GARDEN_HULL_FORM: Record<
   GardenHullSilhouette,
-  { bowFlare: number; bowRake: number; sheerBow: number; sheerStern: number; tumblehome: number }
+  {
+    bowFlare: number;
+    bowRake: number;
+    sheerBow: number;
+    sheerStern: number;
+    sternRake: number;
+    tumblehome: number;
+  }
 > = {
-  galleon: { bowFlare: 0.1, bowRake: 0.14, sheerBow: 0.3, sheerStern: 0.24, tumblehome: 0.16 },
-  clipper: { bowFlare: 0.18, bowRake: 0.38, sheerBow: 0.26, sheerStern: 0.16, tumblehome: 0.1 },
-  schooner: { bowFlare: 0.08, bowRake: 0.24, sheerBow: 0.22, sheerStern: 0.14, tumblehome: 0.08 },
-  junk: { bowFlare: 0.05, bowRake: 0.06, sheerBow: 0.18, sheerStern: 0.26, tumblehome: 0.06 },
+  // sternRake (W5.3) leans the sternpost aft as the topsides rise, the mirror
+  // of bowRake. Without it every hull ended in a vertical transom regardless of
+  // family; the counter-sterned clipper and schooner need the overhang, and the
+  // junk's near-vertical transom is now a deliberate contrast rather than the
+  // only option available.
+  galleon: {
+    bowFlare: 0.1, bowRake: 0.14, sheerBow: 0.3, sheerStern: 0.24, sternRake: 0.2, tumblehome: 0.16,
+  },
+  clipper: {
+    bowFlare: 0.18, bowRake: 0.38, sheerBow: 0.26, sheerStern: 0.16, sternRake: 0.3, tumblehome: 0.1,
+  },
+  schooner: {
+    bowFlare: 0.08, bowRake: 0.24, sheerBow: 0.22, sheerStern: 0.14, sternRake: 0.26, tumblehome: 0.08,
+  },
+  junk: {
+    bowFlare: 0.05, bowRake: 0.06, sheerBow: 0.18, sheerStern: 0.26, sternRake: 0.05, tumblehome: 0.06,
+  },
 };
 
 /**
@@ -1406,8 +1460,10 @@ function shapeHullVerticalForm(
     // Bow flare + rake: topsides near the stem widen and lean forward.
     const stemT = MathUtils.smoothstep(bowT, 0.35, 1);
     z *= 1 + form.bowFlare * t * stemT;
-    const bowXPos = x + form.bowRake * t * stemT;
-    position.setXYZ(index, bowXPos, y, z);
+    // Stern rake: the counter overhangs aft as the topsides rise.
+    const postT = MathUtils.smoothstep(sternT, 0.35, 1);
+    const rakedX = x + form.bowRake * t * stemT - form.sternRake * t * postT;
+    position.setXYZ(index, rakedX, y, z);
   }
   position.needsUpdate = true;
 }
@@ -1496,7 +1552,43 @@ function createSailGeometry(plan: GardenSailPlan): BufferGeometry {
   geometry.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
+  bakeSailVertexColors(geometry, plan);
   return geometry;
+}
+
+/**
+ * W5.4 cloth detail: vertical panel seams and two reef bands baked into the
+ * sail's vertex color, plus a slight shading of the belly so the cloth reads
+ * as fabric under tension rather than a printed card.
+ *
+ * Deliberately greyscale and shallow. On the identity sail this multiplies the
+ * logo atlas read, so anything strong here would eat the mark it exists to
+ * show; the reef bands are placed in the lower third, clear of the logo field.
+ * `mergeAtlasSails` fills color with 1 when a sail has none, so producing the
+ * attribute here keeps every sail on the same merge path.
+ */
+function bakeSailVertexColors(geometry: BufferGeometry, plan: GardenSailPlan): void {
+  const position = geometry.getAttribute("position");
+  const uv = geometry.getAttribute("uv");
+  const colors = new Float32Array(position.count * 3);
+  const panels = plan.kind === "square" ? 4 : 3;
+  for (let index = 0; index < position.count; index += 1) {
+    const u = uv.getX(index);
+    const v = uv.getY(index);
+    // Panel seams: narrow darker lines where the cloths are sewn together.
+    const seam = Math.abs((u * panels - Math.floor(u * panels)) - 0.5) * 2;
+    let shade = 1 - 0.07 * (1 - MathUtils.smoothstep(seam, 0, 0.35));
+    // Reef bands across the foot, where reef points would be tied off.
+    for (const band of [0.14, 0.27]) {
+      shade -= 0.06 * (1 - MathUtils.smoothstep(Math.abs(v - band), 0, 0.035));
+    }
+    // The belly catches less light toward the leech as it curves away.
+    shade *= 1 - 0.06 * u * u;
+    colors[index * 3] = shade;
+    colors[index * 3 + 1] = shade;
+    colors[index * 3 + 2] = shade;
+  }
+  geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
 }
 
 /**
@@ -1532,6 +1624,18 @@ function riggingPoints(
     // Two shrouds to the rails, a touch aft of the mast.
     points.push(head, new Vector3(mastPlan.x - 0.32, 0.6, halfBeam * 0.82));
     points.push(head, new Vector3(mastPlan.x - 0.32, 0.6, -halfBeam * 0.82));
+    // W5.4 halyards: the lines that actually hoist each yard, running from the
+    // masthead down to the head of every sail on this mast. Two segments per
+    // sail, so the rig reads as worked rather than decorative.
+    for (const sailPlan of mastPlan.sails) {
+      const direction = sailPlan.reverse ? -1 : 1;
+      const headY = sailPlan.centerY + sailPlan.height * 0.5;
+      points.push(head, new Vector3(mastPlan.x + direction * 0.05, headY, 0.05));
+      points.push(
+        new Vector3(mastPlan.x + direction * 0.05, headY, 0.05),
+        new Vector3(mastPlan.x + direction * sailPlan.width * 0.9, headY - 0.06, 0.05),
+      );
+    }
   }
   if (silhouette === "junk") {
     for (const mastPlan of rig) {

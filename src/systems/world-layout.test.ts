@@ -24,9 +24,32 @@ import {
   tileKindAt,
 } from "./world-layout";
 import { SEAWALL_BARRIER_TILES, isSeawallBarrierTile } from "./seawall";
+import { PHAROSVILLE_MAP_SCALE, landWorldTile, zoneWorldTile } from "./map-scale";
 import type { PharosVilleTile } from "./world-types";
 
-const CIVIC_CORE_CENTER = { x: 31, y: 31 } as const;
+// N1: the live grid is 112x112, but terrain and zones stay AUTHORED in the
+// original 56-tile DESIGN space. Every literal below is therefore a design-space
+// coordinate (so it still matches the authored diagrams), passed through one of
+// the two transforms:
+// - `landWorldTile` OFFSETS landmass features (+28 on each axis). The island,
+//   cemetery, pigeonnier, docks and lighthouse keep their absolute size.
+// - `zoneWorldTile` SCALES zone geometry (x2 on each axis). DEWS bands stretch
+//   to fill the enlarged sea.
+/** `terrainKindAt` for a design-space ZONE coordinate. */
+function zoneTerrain(x: number, y: number): ReturnType<typeof terrainKindAt> {
+  const tile = zoneWorldTile({ x, y });
+  return terrainKindAt(tile.x, tile.y);
+}
+/** `terrainKindAt` for a design-space LANDMASS coordinate. */
+function landTerrain(x: number, y: number): ReturnType<typeof terrainKindAt> {
+  const tile = landWorldTile({ x, y });
+  return terrainKindAt(tile.x, tile.y);
+}
+/** Zone terrain AREAS scale with the map, so authored tile counts multiply by 4. */
+const AREA_SCALE = PHAROSVILLE_MAP_SCALE ** 2;
+
+const CIVIC_CORE_DESIGN = { x: 31, y: 31 } as const;
+const CIVIC_CORE_CENTER = landWorldTile(CIVIC_CORE_DESIGN);
 const isLandTileKind = (kind: ReturnType<typeof tileKindAt>) => !isWaterTileKind(kind);
 const isLandTerrainKind = (kind: ReturnType<typeof terrainKindAt>) => !kind.endsWith("-water");
 
@@ -37,19 +60,24 @@ describe("buildPharosVilleMap", () => {
     expect(map.width).toBe(PHAROSVILLE_MAP_WIDTH);
     expect(map.height).toBe(PHAROSVILLE_MAP_HEIGHT);
     expect(map.tiles).toHaveLength(PHAROSVILLE_MAP_WIDTH * PHAROSVILLE_MAP_HEIGHT);
-    // After the horizontal-oval reshape, sea coverage rises slightly so the
-    // wall reads as a smooth ring around the new periphery.
-    expect(map.waterRatio).toBeGreaterThanOrEqual(0.857);
-    expect(map.waterRatio).toBeLessThanOrEqual(0.862);
+    // N1 THRESHOLD CHANGE: land is OFFSET, not scaled, so the same 443 land
+    // tiles now sit in a 4x sea and the water share rises from ~0.86 at 56x56
+    // to a measured 0.9647 at 112x112. The invariant that still holds exactly is
+    // the absolute land footprint asserted just below.
+    expect(map.waterRatio).toBeGreaterThanOrEqual(0.963);
+    expect(map.waterRatio).toBeLessThanOrEqual(0.966);
     const mainIslandLandTiles = landTilesExcludingCemetery(map.tiles);
     // Baseline was 592 main-island land tiles; 377 is a 36.3% reduction
-    // resulting from the single-oval + lighthouse-promontory geometry.
+    // resulting from the single-oval + lighthouse-promontory geometry. The N1
+    // map growth must not change this — the island is offset, not scaled.
     expect(mainIslandLandTiles).toHaveLength(377);
     const mainIslandBounds = landBoundsExcludingCemetery(map.tiles);
-    expect(mainIslandBounds.minX).toBeGreaterThanOrEqual(15);
-    expect(mainIslandBounds.maxX).toBeLessThanOrEqual(42);
-    expect(mainIslandBounds.minY).toBeGreaterThanOrEqual(22);
-    expect(mainIslandBounds.maxY).toBeLessThanOrEqual(40);
+    const islandEnvelopeMin = landWorldTile({ x: 15, y: 22 });
+    const islandEnvelopeMax = landWorldTile({ x: 42, y: 40 });
+    expect(mainIslandBounds.minX).toBeGreaterThanOrEqual(islandEnvelopeMin.x);
+    expect(mainIslandBounds.maxX).toBeLessThanOrEqual(islandEnvelopeMax.x);
+    expect(mainIslandBounds.minY).toBeGreaterThanOrEqual(islandEnvelopeMin.y);
+    expect(mainIslandBounds.maxY).toBeLessThanOrEqual(islandEnvelopeMax.y);
     const mainCenter = {
       x: (mainIslandBounds.minX + mainIslandBounds.maxX) / 2,
       y: (mainIslandBounds.minY + mainIslandBounds.maxY) / 2,
@@ -62,8 +90,9 @@ describe("buildPharosVilleMap", () => {
     expect((counts.get("deep-water") ?? 0) / map.tiles.length).toBeLessThanOrEqual(0.03);
     expect(counts.get("calm-water") ?? 0).toBeGreaterThan(counts.get("watch-water") ?? 0);
     expect(counts.get("calm-water") ?? 0).toBeGreaterThan(counts.get("ledger-water") ?? 0);
-    expect(counts.get("ledger-water") ?? 0).toBeGreaterThanOrEqual(280);
-    expect(counts.get("watch-water") ?? 0).toBeGreaterThanOrEqual(80);
+    // Zone areas scale with the map: the authored 56-tile floors x MAP_SCALE².
+    expect(counts.get("ledger-water") ?? 0).toBeGreaterThanOrEqual(280 * AREA_SCALE);
+    expect(counts.get("watch-water") ?? 0).toBeGreaterThanOrEqual(80 * AREA_SCALE);
     expect(counts.get("alert-water") ?? 0).toBeGreaterThan(counts.get("warning-water") ?? 0);
     expect(counts.get("warning-water") ?? 0).toBeGreaterThan(counts.get("storm-water") ?? 0);
     expect(map.tiles.every((tile) => tile.terrain)).toBe(true);
@@ -81,20 +110,22 @@ describe("buildPharosVilleMap", () => {
   });
 
   it("defines a civic core around the island center", () => {
-    expect(CIVIC_CORE_CENTER).toEqual({ x: 31, y: 31 });
+    expect(CIVIC_CORE_DESIGN).toEqual({ x: 31, y: 31 });
     expect(isLandTileKind(tileKindAt(CIVIC_CORE_CENTER.x, CIVIC_CORE_CENTER.y))).toBe(true);
     expect(terrainKindAt(CIVIC_CORE_CENTER.x, CIVIC_CORE_CENTER.y)).toBe("rock");
   });
 
   it("places the lighthouse on the western shoulder clear of outer harbors", () => {
-    expect(LIGHTHOUSE_TILE).toEqual({ x: 18, y: 28 });
+    expect(LIGHTHOUSE_TILE).toEqual(landWorldTile({ x: 18, y: 28 }));
     expect(LIGHTHOUSE_TILE.x).toBeLessThan(CIVIC_CORE_CENTER.x);
     expect(LIGHTHOUSE_TILE.y).toBeLessThan(CIVIC_CORE_CENTER.y);
     expect(isLandTileKind(tileKindAt(LIGHTHOUSE_TILE.x, LIGHTHOUSE_TILE.y))).toBe(true);
   });
 
   it("places the pigeonnier on a tiny islet in the southeast Watch shelf", () => {
-    expect(PIGEON_ISLAND_CENTER).toEqual({ x: 50, y: 50 });
+    // The islet is authored relative to the Watch shelf, so it SCALES with the
+    // zone bands rather than riding the island offset (N1).
+    expect(PIGEON_ISLAND_CENTER).toEqual(zoneWorldTile({ x: 50, y: 50 }));
     // The center tile is land (grass), and the islet is detached: cardinal
     // neighbors are watch-water, so the pigeonnier reads as a single-tile
     // platform off the south coast rather than fused to the main island.
@@ -111,16 +142,16 @@ describe("buildPharosVilleMap", () => {
   });
 
   it("keeps the civic core natural without road terrain", () => {
-    // Central rock interior around the island harbor ring.
-    expect(terrainKindAt(37, 30)).toBe("rock");
-    expect(terrainKindAt(38, 31)).toBe("rock");
-    expect(terrainKindAt(34, 30)).toBe("rock");
-    expect(terrainKindAt(31, 29)).toBe("rock");
-    expect(terrainKindAt(30, 35)).toBe("rock");
-    expect(terrainKindAt(32, 33)).toBe("rock");
+    // Central rock interior around the island harbor ring (design space).
+    expect(landTerrain(37, 30)).toBe("rock");
+    expect(landTerrain(38, 31)).toBe("rock");
+    expect(landTerrain(34, 30)).toBe("rock");
+    expect(landTerrain(31, 29)).toBe("rock");
+    expect(landTerrain(30, 35)).toBe("rock");
+    expect(landTerrain(32, 33)).toBe("rock");
     // Harbor ring slots stay natural land/coast, not roads.
-    expect(isLandTerrainKind(terrainKindAt(23, 37))).toBe(true);
-    expect(isLandTerrainKind(terrainKindAt(26, 39))).toBe(true);
+    expect(isLandTerrainKind(landTerrain(23, 37))).toBe(true);
+    expect(isLandTerrainKind(landTerrain(26, 39))).toBe(true);
     expect(terrainKindAt(Math.round(CEMETERY_CENTER.x), Math.round(CEMETERY_CENTER.y))).toBe("grass");
   });
 
@@ -132,9 +163,9 @@ describe("buildPharosVilleMap", () => {
     expect(terrainKindAt(REGION_TILES["outer-rough-water"].x, REGION_TILES["outer-rough-water"].y)).toBe("warning-water");
     expect(terrainKindAt(REGION_TILES["storm-shelf"].x, REGION_TILES["storm-shelf"].y)).toBe("storm-water");
     expect(terrainKindAt(REGION_TILES["ledger-mooring"].x, REGION_TILES["ledger-mooring"].y)).toBe("ledger-water");
-    expect(terrainKindAt(0, 55)).toBe("calm-water");
-    expect(terrainKindAt(47, 52)).toBe("watch-water");
-    expect(terrainKindAt(50, 55)).toBe("watch-water");
+    expect(zoneTerrain(0, 55)).toBe("calm-water");
+    expect(zoneTerrain(47, 52)).toBe("watch-water");
+    expect(zoneTerrain(50, 55)).toBe("watch-water");
   });
 
   it("uses the left edge for Calm Anchorage and the south basin for Watch Breakwater", () => {
@@ -165,10 +196,10 @@ describe("buildPharosVilleMap", () => {
     ];
 
     for (const tile of calmSamples) {
-      expect(terrainKindAt(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("calm-water");
+      expect(zoneTerrain(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("calm-water");
     }
     for (const tile of watchSamples) {
-      expect(terrainKindAt(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("watch-water");
+      expect(zoneTerrain(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("watch-water");
     }
   });
 
@@ -195,41 +226,41 @@ describe("buildPharosVilleMap", () => {
     ];
 
     for (const tile of ledgerSamples) {
-      expect(terrainKindAt(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("ledger-water");
+      expect(zoneTerrain(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("ledger-water");
     }
     for (const tile of southeastWatchSamples) {
-      expect(terrainKindAt(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("watch-water");
+      expect(zoneTerrain(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("watch-water");
     }
     // Calm claims the southwest south basin plus the two circled pockets;
     // Watch resumes east/southeast of those reclaimed areas.
-    expect(terrainKindAt(28, 50)).toBe("calm-water");
-    expect(terrainKindAt(34, 44)).toBe("calm-water");
-    expect(terrainKindAt(44, 34)).toBe("calm-water");
-    expect(terrainKindAt(37, 55)).toBe("calm-water");
-    expect(terrainKindAt(38, 55)).toBe("watch-water");
-    expect(terrainKindAt(43, 54)).toBe("watch-water");
+    expect(zoneTerrain(28, 50)).toBe("calm-water");
+    expect(zoneTerrain(34, 44)).toBe("calm-water");
+    expect(zoneTerrain(44, 34)).toBe("calm-water");
+    expect(zoneTerrain(37, 55)).toBe("calm-water");
+    expect(zoneTerrain(38, 55)).toBe("watch-water");
+    expect(zoneTerrain(43, 54)).toBe("watch-water");
     // Ledger ends at y=9; Calm picks up at y=10 along the western flank so
     // the two zones touch without overlap.
-    expect(terrainKindAt(0, 10)).toBe("calm-water");
-    expect(terrainKindAt(15, 10)).toBe("calm-water");
+    expect(zoneTerrain(0, 10)).toBe("calm-water");
+    expect(zoneTerrain(15, 10)).toBe("calm-water");
     // Ledger is snapped to the top-left corner; freed water immediately east
     // of x=30 belongs to Watch before the Alert ring takes over.
-    expect(terrainKindAt(25, 0)).toBe("ledger-water");
-    expect(terrainKindAt(30, 1)).toBe("ledger-water");
-    expect(terrainKindAt(31, 0)).toBe("watch-water");
-    expect(terrainKindAt(34, 2)).toBe("watch-water");
-    expect(terrainKindAt(37, 5)).toBe("watch-water");
-    expect(terrainKindAt(39, 7)).toBe("alert-water");
-    expect(terrainKindAt(40, 5)).toBe("alert-water");
-    expect(terrainKindAt(40, 0)).toBe("alert-water");
-    expect(terrainKindAt(47, 14)).toBe("alert-water");
-    expect(terrainKindAt(52, 14)).toBe("alert-water");
-    expect(terrainKindAt(55, 17)).toBe("alert-water");
-    expect(terrainKindAt(55, 18)).toBe("watch-water");
-    expect(terrainKindAt(43, 34)).toBe("calm-water");
-    expect(terrainKindAt(55, 38)).toBe("watch-water");
-    expect(terrainKindAt(45, 0)).toBe("warning-water");
-    expect(terrainKindAt(55, 0)).toBe("storm-water");
+    expect(zoneTerrain(25, 0)).toBe("ledger-water");
+    expect(zoneTerrain(30, 1)).toBe("ledger-water");
+    expect(zoneTerrain(31, 0)).toBe("watch-water");
+    expect(zoneTerrain(34, 2)).toBe("watch-water");
+    expect(zoneTerrain(37, 5)).toBe("watch-water");
+    expect(zoneTerrain(39, 7)).toBe("alert-water");
+    expect(zoneTerrain(40, 5)).toBe("alert-water");
+    expect(zoneTerrain(40, 0)).toBe("alert-water");
+    expect(zoneTerrain(47, 14)).toBe("alert-water");
+    expect(zoneTerrain(52, 14)).toBe("alert-water");
+    expect(zoneTerrain(55, 17)).toBe("alert-water");
+    expect(zoneTerrain(55, 18)).toBe("watch-water");
+    expect(zoneTerrain(43, 34)).toBe("calm-water");
+    expect(zoneTerrain(55, 38)).toBe("watch-water");
+    expect(zoneTerrain(45, 0)).toBe("warning-water");
+    expect(zoneTerrain(55, 0)).toBe("storm-water");
   });
 
   it("extends DEWS water over the exposed outer perimeter while keeping the island halo generic", () => {
@@ -244,14 +275,15 @@ describe("buildPharosVilleMap", () => {
       expect(
         ["calm-water", "watch-water", "alert-water", "warning-water", "storm-water"],
         `${tile.x}.${tile.y}`,
-      ).toContain(terrainKindAt(tile.x, tile.y));
+      ).toContain(zoneTerrain(tile.x, tile.y));
     }
 
+    // The generic halo hugs the island, so these samples are landmass-relative.
     for (const tile of [
       { x: 17, y: 24 },
       { x: 19, y: 39 },
     ]) {
-      expect(terrainKindAt(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("water");
+      expect(landTerrain(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("water");
     }
   });
 
@@ -262,26 +294,28 @@ describe("buildPharosVilleMap", () => {
       { x: 16, y: 32 },
       { x: 13, y: 31 },
     ]) {
-      expect(terrainKindAt(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("water");
+      expect(landTerrain(tile.x, tile.y), `${tile.x}.${tile.y}`).toBe("water");
     }
   });
 
   it("keeps dock slots on coastline edges with water access", () => {
+    // Docks ride the island perimeter, so they are authored in design space and
+    // offset onto the enlarged grid with the island (N1).
     expect(EVM_BAY_DOCK_TILES).toEqual([
-      { x: 42, y: 31 },
+      landWorldTile({ x: 42, y: 31 }),
       BASE_HARBOR_DOCK_TILE,
-      { x: 32, y: 40 },
-      { x: 26, y: 39 },
+      landWorldTile({ x: 32, y: 40 }),
+      landWorldTile({ x: 26, y: 39 }),
     ]);
     expect(OUTER_HARBOR_DOCK_TILES).toEqual([
-      { x: 21, y: 36 },
-      { x: 32, y: 22 }, // tron — slid east toward Yggdrasil to clear the new (W6.09) Solana footprint
-      { x: 25, y: 23 }, // solana — NW shoulder near lighthouse (was the spare slot)
-      HYPERLIQUID_HARBOR_DOCK_TILE, // (36, 39) — moved to S periphery between Base and Arbitrum
-      { x: 28, y: 22 }, // aptos — took Tron's previous N-wall slot
-      { x: 33, y: 40 },
-      { x: 42, y: 28 },
-      { x: 35, y: 39 },
+      landWorldTile({ x: 21, y: 36 }),
+      landWorldTile({ x: 32, y: 22 }), // tron — slid east toward Yggdrasil to clear the new (W6.09) Solana footprint
+      landWorldTile({ x: 25, y: 23 }), // solana — NW shoulder near lighthouse (was the spare slot)
+      HYPERLIQUID_HARBOR_DOCK_TILE, // design (36, 39) — S periphery between Base and Arbitrum
+      landWorldTile({ x: 28, y: 22 }), // aptos — took Tron's previous N-wall slot
+      landWorldTile({ x: 33, y: 40 }),
+      landWorldTile({ x: 42, y: 28 }),
+      landWorldTile({ x: 35, y: 39 }),
     ]);
     expect(OUTER_HARBOR_DOCK_TILES.every((tile) => !isInLighthouseClearance(tile))).toBe(true);
     expect(DOCK_TILES.every((tile) => !isWaterTileKind(tileKindAt(tile.x, tile.y)))).toBe(true);
@@ -302,42 +336,47 @@ describe("buildPharosVilleMap", () => {
   });
 
   it("resolves inland placement anchors back to water", () => {
-    const tile = nearestWaterTile({ x: 32, y: 36 });
+    // Design-space island interior, offset onto the enlarged grid.
+    const tile = nearestWaterTile(landWorldTile({ x: 32, y: 36 }));
 
     expect(isWaterTileKind(tileKindAt(tile.x, tile.y))).toBe(true);
   });
 
   it("resolves occupied placement anchors to an open nearby water tile", () => {
-    const occupied = new Set(["37.6"]);
-    const tile = nearestAvailableWaterTile({ x: 37, y: 6 }, occupied);
+    // Zone water on the top shelf, so this anchor scales with the zone bands.
+    const anchor = zoneWorldTile({ x: 37, y: 6 });
+    const anchorKey = `${anchor.x}.${anchor.y}`;
+    const occupied = new Set([anchorKey]);
+    const tile = nearestAvailableWaterTile(anchor, occupied);
 
-    expect(`${tile.x}.${tile.y}`).not.toBe("37.6");
+    expect(`${tile.x}.${tile.y}`).not.toBe(anchorKey);
     expect(isWaterTileKind(tileKindAt(tile.x, tile.y))).toBe(true);
   });
 
   it("keeps nearest-water helpers off the seawall barrier", () => {
-    const north = nearestWaterTile({ x: 28, y: 22 });
-    const east = nearestAvailableWaterTile({ x: 43, y: 31 }, new Set());
+    const north = nearestWaterTile(landWorldTile({ x: 28, y: 22 }));
+    const east = nearestAvailableWaterTile(landWorldTile({ x: 43, y: 31 }), new Set());
 
     expect(isSeawallBarrierTile(north)).toBe(false);
     expect(isSeawallBarrierTile(east)).toBe(false);
     // Nearest navigable water above the N shelf must clear the immediate
-    // seawall moat outside (28, 22). Open water resumes at y=21 because the
-    // perimeter only barriers tiles cardinally adjacent to land.
-    expect(north.y).toBeLessThanOrEqual(21);
-    expect(east.x).toBeGreaterThanOrEqual(44);
+    // seawall moat outside design (28, 22). Open water resumes at design y=21
+    // because the perimeter only barriers tiles cardinally adjacent to land.
+    expect(north.y).toBeLessThanOrEqual(landWorldTile({ x: 0, y: 21 }).y);
+    expect(east.x).toBeGreaterThanOrEqual(landWorldTile({ x: 44, y: 0 }).x);
   });
 
   it("closes the seawall ring around the interior harbor pockets", () => {
+    // All design-space, island-relative: the seawall follows the island coast.
     for (const tile of [
       { x: 43, y: 28 },
       { x: 42, y: 26 },
       { x: 38, y: 37 },
-    ]) {
+    ].map(landWorldTile)) {
       expect(isNavigableWaterTile(tile), `${tile.x}.${tile.y}`).toBe(false);
     }
-    expect(isNavigableWaterTile({ x: 45, y: 28 })).toBe(true);
-    expect(isNavigableWaterTile({ x: 39, y: 17 })).toBe(true);
+    expect(isNavigableWaterTile(landWorldTile({ x: 45, y: 28 }))).toBe(true);
+    expect(isNavigableWaterTile(landWorldTile({ x: 39, y: 17 }))).toBe(true);
   });
 
   it("scatters cemetery graves across expanded land with varied markers", () => {
@@ -350,7 +389,7 @@ describe("buildPharosVilleMap", () => {
     const ys = graves.map((grave) => grave.tile.y);
 
     expect(graves).toHaveLength(CEMETERY_ENTRIES.length);
-    expect(CEMETERY_CENTER).toEqual({ x: 8.0, y: 50.0 });
+    expect(CEMETERY_CENTER).toEqual(landWorldTile({ x: 8.0, y: 50.0 }));
     expect(CEMETERY_RADIUS).toEqual({ x: 3.3, y: 2.1 });
     expect(CEMETERY_CENTER.x).toBeLessThan(CIVIC_CORE_CENTER.x);
     expect(CEMETERY_CENTER.y).toBeGreaterThan(CIVIC_CORE_CENTER.y);
@@ -431,7 +470,11 @@ function outwardWaterDirections(tile: { x: number; y: number }) {
 }
 
 function isInLighthouseClearance(tile: { x: number; y: number }) {
-  return tile.x >= 14 && tile.x <= 24 && tile.y >= 23 && tile.y <= 32;
+  // Design-space clearance box around the lighthouse mountain, offset onto the
+  // enlarged grid with the island (N1).
+  const min = landWorldTile({ x: 14, y: 23 });
+  const max = landWorldTile({ x: 24, y: 32 });
+  return tile.x >= min.x && tile.x <= max.x && tile.y >= min.y && tile.y <= max.y;
 }
 
 function isProductionOutwardWater(tile: { x: number; y: number }) {

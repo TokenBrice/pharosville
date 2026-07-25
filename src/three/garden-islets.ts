@@ -14,6 +14,7 @@ import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE } from "../systems/palette";
 import type { GardenRippleRingEmitter } from "./garden-water-contract";
 import { stableUnit, TILE_SCALE } from "./garden-util";
+import { landWorldTile } from "../systems/map-scale";
 
 /**
  * Z5 — Garden islets (Sakuteiki stone groupings in open water).
@@ -96,10 +97,12 @@ interface StonePlacement {
   scale: [number, number, number];
 }
 
-const worldAt = (tileX: number, tileY: number): { x: number; z: number } => ({
-  x: tileX * TILE_SCALE,
-  z: tileY * TILE_SCALE,
-});
+// N1: islet tiles are authored in design space; offset onto the enlarged grid
+// so they track the same water the exclusion obstacles reserve for them.
+const worldAt = (tileX: number, tileY: number): { x: number; z: number } => {
+  const tile = landWorldTile({ x: tileX, y: tileY });
+  return { x: tile.x * TILE_SCALE, z: tile.y * TILE_SCALE };
+};
 
 const CRANE = worldAt(28, 8);
 const TURTLE = worldAt(4, 20);

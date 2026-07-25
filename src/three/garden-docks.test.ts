@@ -5,18 +5,24 @@ import {
   createDock,
   gardenDockLampWorldPositions,
   gardenHarborCalmMask,
+  harborPlan,
 } from "./garden-docks";
 
 const DISPLAY_TILE = { x: 40, y: 32 };
 const ISLAND_TILE = { x: 18, y: 28 };
 
 describe("garden docks", () => {
-  it("gives Ethereum the grand banner arch and stays texture-free", () => {
+  it("gives Ethereum the grand banner arch and keeps bloom in headroom", () => {
     const visual = createDock(dock("ethereum", 10), DISPLAY_TILE, ISLAND_TILE);
 
     expect(visual.signature).toBe("arch");
     expect(visual.dock.chainId).toBe("ethereum");
     expect(visual.fineDetail.name).toBe("dock-fine-detail");
+    // N4 supersedes the old "stays texture-free" assertion: harbours now fly a
+    // chain flag sampling the shared flag atlas. This suite runs in the node
+    // environment, where the atlas has no canvas and the flag falls back to a
+    // plain accent material — so the harbour is still texture-free HERE, and
+    // garden-chain-flag.test.ts covers the textured path under jsdom.
     expect(hasTexture(visual.root)).toBe(false);
     // Bloom comes from emissives; every warm source stays within AgX headroom.
     expect(maxEmissiveIntensity(visual.root)).toBeLessThanOrEqual(2);
@@ -32,10 +38,76 @@ describe("garden docks", () => {
 
   it("instances props so a dock stays within a tight draw budget", () => {
     const visual = createDock(dock("base", 7, 0.3), DISPLAY_TILE, ISLAND_TILE);
-    expect(objectCount(visual.root)).toBeLessThanOrEqual(14);
-    for (const name of ["dock-posts", "dock-lamp-heads", "dock-plank-relief"]) {
-      expect(visual.root.getObjectByName(name)).toBeInstanceOf(InstancedMesh);
+    // N4 raise (2026-07-25, measured cause): 14 -> 18. The comprehensive
+    // harbour pass adds a quay wall, warehouses and roofs, a gantry crane,
+    // mooring ropes, barrels and the chain flag. Measured 17 meshes for a
+    // size-7 harbour. Everything repeated is instanced and everything static
+    // is merged by material, so this number is flat in harbour *content* — it
+    // only moves when a new material enters the harbour.
+    expect(objectCount(visual.root)).toBeLessThanOrEqual(18);
+    for (const name of [
+      "dock-posts",
+      "dock-lamp-heads",
+      "dock-plank-relief",
+      "dock-bollards",
+      "dock-crates",
+      "dock-barrels",
+      "dock-pylons",
+    ]) {
+      expect(visual.root.getObjectByName(name), name).toBeInstanceOf(InstancedMesh);
     }
+  });
+
+  it("builds real harbour architecture, not a bare jetty", () => {
+    const visual = createDock(dock("base", 7, 0.3), DISPLAY_TILE, ISLAND_TILE);
+    for (const name of [
+      "dock-deck",
+      "dock-quay-wall",
+      "dock-warehouses",
+      "dock-warehouse-roofs",
+      "dock-mooring-ropes",
+      "dock-chain-flag",
+    ]) {
+      expect(visual.root.getObjectByName(name), name).toBeDefined();
+    }
+  });
+
+  it("scales the harbour to the chain's supply band", () => {
+    const small = createDock(dock("smallchain", 1), DISPLAY_TILE, ISLAND_TILE);
+    const large = createDock(dock("bigchain", 10), DISPLAY_TILE, ISLAND_TILE);
+    // Berth count drives the bollards, and cranes are earned, not given.
+    expect(instanceCount(large, "dock-bollards"))
+      .toBeGreaterThan(instanceCount(small, "dock-bollards"));
+    expect(instanceCount(large, "dock-crates"))
+      .toBeGreaterThan(instanceCount(small, "dock-crates"));
+    expect(small.root.getObjectByName("dock-crane")).toBeUndefined();
+    expect(large.root.getObjectByName("dock-crane")).toBeDefined();
+  });
+
+  it("gives each chain a deterministic harbour plan for silhouette variety", () => {
+    expect(harborPlan(dock("ethereum", 10))).toBe("t-head");
+    const plans = new Set(
+      ["solana", "base", "arbitrum", "tron", "bsc", "polygon", "avalanche", "aptos"]
+        .map((chainId) => harborPlan(dock(chainId, 6))),
+    );
+    // Not proof of a perfect spread, but a single plan across eight chains
+    // would mean the silhouette carries no identity at all.
+    expect(plans.size).toBeGreaterThan(1);
+    expect(harborPlan(dock("solana", 6))).toBe(harborPlan(dock("solana", 6)));
+  });
+
+  it("flies a flag whose cloth faces the camera whatever way the pier points", () => {
+    // Two harbours on opposite sides of the island yaw their roots apart; the
+    // flag must counter-rotate so neither is edge-on to the fixed camera.
+    const east = createDock(dock("base", 7), { x: 40, y: 32 }, ISLAND_TILE);
+    const west = createDock(dock("base", 7), { x: 4, y: 24 }, ISLAND_TILE);
+    const worldYaw = (visual: ReturnType<typeof createDock>): number => {
+      const flag = visual.root.getObjectByName("dock-chain-flag");
+      const pivot = flag!.children[0]!;
+      return visual.root.rotation.y + pivot.rotation.y;
+    };
+    expect(worldYaw(east)).toBeCloseTo(Math.PI / 4, 6);
+    expect(worldYaw(west)).toBeCloseTo(Math.PI / 4, 6);
   });
 
   it("exposes lamp world positions for sea-lane registration", () => {
@@ -92,6 +164,12 @@ function dock(chainId: string, size: number, backingDiversity: number | null = n
     tile: { x: 40, y: 32 },
     totalUsd: size * 1_000_000_000,
   };
+}
+
+function instanceCount(visual: ReturnType<typeof createDock>, name: string): number {
+  const mesh = visual.root.getObjectByName(name);
+  if (!(mesh instanceof InstancedMesh)) throw new Error(`${name} is not instanced.`);
+  return mesh.count;
 }
 
 function objectCount(root: import("three").Object3D): number {

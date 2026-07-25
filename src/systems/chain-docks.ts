@@ -9,6 +9,7 @@ import {
   PIGEONNIER_HARBOR_CHAIN_IDS,
   PREFERRED_DOCK_TILES,
 } from "./world-layout";
+import { zoneWorldTile } from "./map-scale";
 
 export const MAX_CHAIN_HARBORS = 8;
 export const MAX_DOCK_SIZE = 10;
@@ -105,6 +106,9 @@ function buildDockNode(chain: ChainSummary, tile: { x: number; y: number }, glob
     healthBand: chain.healthBand,
     stablecoinCount: chain.stablecoinCount,
     concentration: chain.healthFactors?.concentration ?? null,
+    // N4: the harbour flies this as its flag. Same-origin paths only — a
+    // remote or empty value is dropped rather than reaching browser code.
+    logoPath: chain.logoPath?.startsWith("/") ? chain.logoPath : null,
     harboredStablecoins: harboredStablecoins(chain),
     detailId: `dock.${chain.id}`,
   };
@@ -112,7 +116,10 @@ function buildDockNode(chain: ChainSummary, tile: { x: number; y: number }, glob
 
 // Defensive fallback only — every PIGEONNIER_HARBOR_CHAIN_IDS entry has a
 // PREFERRED_DOCK_TILES entry by construction.
-const PIGEON_FALLBACK_TILE = { x: 49, y: 50 } as const;
+// N1: authored in design space beside the pigeonnier islet, and scaled onto the
+// enlarged grid with it (the islet rides the Watch shelf, so it takes the zone
+// transform — see PIGEON_ISLAND_CENTER).
+const PIGEON_FALLBACK_TILE = zoneWorldTile({ x: 49, y: 50 });
 
 function selectChainHarbors(chains: readonly ChainSummary[]): ChainSummary[] {
   const harborEligibleChains = chains.filter((chain) => (

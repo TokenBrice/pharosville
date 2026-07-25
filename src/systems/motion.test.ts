@@ -9,6 +9,7 @@ import { chaikinSmoothPath, ensureShoreDistanceMask, shoreDistance, warmAllWater
 import { squadForMember, squadFormationOffsetForPlacement } from "./maker-squad";
 import { isSeawallBarrierTile, seawallBarrierDistance } from "./seawall";
 import { buildPharosVilleMap, isWaterTileKind, terrainKindAt, tileKindAt } from "./world-layout";
+import { zoneWorldTile } from "./map-scale";
 import type { PharosVilleMap, PharosVilleWorld, ShipWaterZone } from "./world-types";
 
 const SHIP_CYCLE_MIN_SECONDS = 660;
@@ -860,7 +861,14 @@ describe("motion", () => {
 
   it("routes over semantic water terrain only", () => {
     const map = buildPharosVilleMap();
-    const route = buildShipWaterRoute({ from: { x: 55, y: 0 }, to: { x: 35, y: 10 }, map });
+    // N1: zone water is authored in the 56-tile design space and scaled onto
+    // the 112-tile grid, so both endpoints take the zone transform — the route
+    // still runs from the east-corner storm core across the top shelf.
+    const route = buildShipWaterRoute({
+      from: zoneWorldTile({ x: 55, y: 0 }),
+      to: zoneWorldTile({ x: 35, y: 10 }),
+      map,
+    });
 
     expect(route.points.length).toBeGreaterThan(1);
     expect(terrainKindInMap(map, route.points[0]!)).toBe("storm-water");

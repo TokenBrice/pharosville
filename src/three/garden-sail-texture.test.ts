@@ -12,10 +12,12 @@ import { createGardenSailTexture } from "./garden-sail-texture";
 
 const drawImage = vi.fn();
 const fillText = vi.fn();
+const strokeRect = vi.fn();
 
 beforeEach(() => {
   drawImage.mockClear();
   fillText.mockClear();
+  strokeRect.mockClear();
   Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
     configurable: true,
     value: vi.fn(() => fakeContext()),
@@ -58,6 +60,24 @@ describe("createGardenSailTexture", () => {
   });
 });
 
+describe("W5.4 livery sail border", () => {
+  it("frames the cloth inset from the edge so atlas cells cannot bleed", () => {
+    const ship = buildPharosVilleWorld(makePharosVilleWorldInput()).ships[0]!;
+    createGardenSailTexture(ship, null);
+
+    expect(strokeRect).toHaveBeenCalled();
+    // Every border pass must stay off the outermost texels: the batched fleet
+    // packs these 128px cells edge-to-edge into one atlas (D3), so a flush
+    // border would smear into the neighbouring ship under bilinear filtering.
+    for (const [x, y, width, height] of strokeRect.mock.calls) {
+      expect(x).toBeGreaterThanOrEqual(4);
+      expect(y).toBeGreaterThanOrEqual(4);
+      expect(x + width).toBeLessThanOrEqual(124);
+      expect(y + height).toBeLessThanOrEqual(124);
+    }
+  });
+});
+
 function fakeContext(): CanvasRenderingContext2D {
   return {
     arc: vi.fn(),
@@ -76,6 +96,7 @@ function fakeContext(): CanvasRenderingContext2D {
     roundRect: vi.fn(),
     save: vi.fn(),
     stroke: vi.fn(),
+    strokeRect,
     translate: vi.fn(),
   } as unknown as CanvasRenderingContext2D;
 }

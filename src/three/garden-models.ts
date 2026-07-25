@@ -17,6 +17,15 @@ export const GARDEN_HERO_MODEL_IDS = [
   "garden-hero-cog",
   "garden-hero-xebec",
   "garden-hero-cutter",
+  // N5(b): bespoke hulls, one per named titan. Assigned to exactly one coin
+  // each in `unique-ships.ts` — they are not part of the shared rotation.
+  "garden-hero-tether",
+  "garden-hero-circle",
+  "garden-hero-maker",
+  "garden-hero-sky",
+  "garden-hero-ethena",
+  "garden-hero-liberty",
+  "garden-hero-paypal",
 ] as const;
 export type GardenHeroModelId = typeof GARDEN_HERO_MODEL_IDS[number];
 export type GardenModelId = "garden-lighthouse-shell" | GardenHeroModelId;
@@ -124,6 +133,20 @@ const HERO_XEBEC_SHA256 = "9b9dc6216a9750fe9a9797df6a0f393c908a26dc7b288317b3c72
 const heroXebecUrl = `/pharosville/models/garden-hero-xebec.glb?v=${HERO_XEBEC_SHA256.slice(0, 12)}`;
 const HERO_CUTTER_SHA256 = "66caa65385a58191382d6d4014d8f24c3f6f23874e3f4e355ec9108072f3cdc7";
 const heroCutterUrl = `/pharosville/models/garden-hero-cutter.glb?v=${HERO_CUTTER_SHA256.slice(0, 12)}`;
+const HERO_TETHER_SHA256 = "010311a2f7515f950b08c6632b5aff8e397afc06ecc798dc0ba92fa02a06abb0";
+const heroTetherUrl = `/pharosville/models/garden-hero-tether.glb?v=${HERO_TETHER_SHA256.slice(0, 12)}`;
+const HERO_CIRCLE_SHA256 = "d30a602c4f9b9f9c1b62d90444c740113dafae3ec25f2acbc3552f81dc9658ca";
+const heroCircleUrl = `/pharosville/models/garden-hero-circle.glb?v=${HERO_CIRCLE_SHA256.slice(0, 12)}`;
+const HERO_MAKER_SHA256 = "22c2de836bb91131fd0a20979623772c477cf553ce1ca312338dfbca5ba60cb7";
+const heroMakerUrl = `/pharosville/models/garden-hero-maker.glb?v=${HERO_MAKER_SHA256.slice(0, 12)}`;
+const HERO_SKY_SHA256 = "a2612d452e06762c4ec6268cc44f33fc19e2228a6d7a3dd4b884ef1a8f9b99b2";
+const heroSkyUrl = `/pharosville/models/garden-hero-sky.glb?v=${HERO_SKY_SHA256.slice(0, 12)}`;
+const HERO_ETHENA_SHA256 = "25e9b0a84c8e411eded3d3653a36ed067b20d351125e5245145abab32ab3b8d3";
+const heroEthenaUrl = `/pharosville/models/garden-hero-ethena.glb?v=${HERO_ETHENA_SHA256.slice(0, 12)}`;
+const HERO_LIBERTY_SHA256 = "287c4ef293daf0767564f0f3a0470f6d21d7b3230e13a30e1bbd9f29ddd65ef5";
+const heroLibertyUrl = `/pharosville/models/garden-hero-liberty.glb?v=${HERO_LIBERTY_SHA256.slice(0, 12)}`;
+const HERO_PAYPAL_SHA256 = "b7d8089bddba70488b89d0bb058d976c8594a814bd09b825c1db862ebd2656df";
+const heroPaypalUrl = `/pharosville/models/garden-hero-paypal.glb?v=${HERO_PAYPAL_SHA256.slice(0, 12)}`;
 
 // Every hero hull shares all but identity, geometry, and budgets; this factory
 // keeps the constant boilerplate (origin/scale/lod/provenance/license)
@@ -573,6 +596,195 @@ export const GARDEN_MODEL_MANIFEST = {
       maxTextures: 0,
       maxTriangles: 2_600,
       maxVertices: 3_200,
+    },
+  }),
+  "garden-hero-tether": heroModelMetadata({
+    id: "garden-hero-tether",
+    label: "Garden Tether bullion barge",
+    sha256: HERO_TETHER_SHA256,
+    url: heroTetherUrl,
+    bytes: 117_972,
+    dimensions: { x: 12.853, y: 9.9, z: 5.515 },
+    anchors: {
+      "lantern-stern": { node: "anchor-lantern-stern", position: [-4.3, 6.9, 0] },
+      "lantern-bow": { node: "anchor-lantern-bow", position: [4.6, 2.3, 0] },
+      masthead: { node: "anchor-masthead", position: [-0.1, 8.05, 0] },
+      label: { node: "anchor-label", position: [0, 9.6, 0] },
+      selection: { node: "anchor-selection", position: [0, 2.9, 0] },
+    },
+    pickCenter: [0, 3.63, 0],
+    pickHeight: 9.9,
+    pickRadius: 6.45,
+    geometry: { drawCalls: 4, materials: 4, textures: 0, triangles: 3_218, vertices: 4_212 },
+    budgets: {
+      maxBytes: 136 * 1024,
+      maxDrawCalls: 5,
+      maxMaterials: 5,
+      maxTextures: 0,
+      maxTriangles: 4_100,
+      maxVertices: 5_300,
+    },
+  }),
+  "garden-hero-circle": heroModelMetadata({
+    id: "garden-hero-circle",
+    label: "Garden Circle revenue cutter",
+    sha256: HERO_CIRCLE_SHA256,
+    url: heroCircleUrl,
+    bytes: 86_492,
+    dimensions: { x: 13.602, y: 9.93, z: 3.989 },
+    anchors: {
+      "lantern-stern": { node: "anchor-lantern-stern", position: [-4.5, 3.2, 0] },
+      "lantern-bow": { node: "anchor-lantern-bow", position: [4.9, 2.05, 0] },
+      masthead: { node: "anchor-masthead", position: [0.5, 8.35, 0] },
+      label: { node: "anchor-label", position: [0, 9.8, 0] },
+      selection: { node: "anchor-selection", position: [0, 2.4, 0] },
+    },
+    pickCenter: [0, 3.89, 0],
+    pickHeight: 10.0,
+    pickRadius: 6.85,
+    geometry: { drawCalls: 4, materials: 4, textures: 0, triangles: 2_580, vertices: 2_990 },
+    budgets: {
+      maxBytes: 96 * 1024,
+      maxDrawCalls: 5,
+      maxMaterials: 5,
+      maxTextures: 0,
+      maxTriangles: 3_300,
+      maxVertices: 3_800,
+    },
+  }),
+  "garden-hero-maker": heroModelMetadata({
+    id: "garden-hero-maker",
+    label: "Garden Maker temple barque",
+    sha256: HERO_MAKER_SHA256,
+    url: heroMakerUrl,
+    bytes: 81_140,
+    dimensions: { x: 11.68, y: 9.064, z: 4.365 },
+    anchors: {
+      "lantern-stern": { node: "anchor-lantern-stern", position: [-4, 2.85, 0] },
+      "lantern-bow": { node: "anchor-lantern-bow", position: [4.6, 2.2, 0] },
+      masthead: { node: "anchor-masthead", position: [1.5, 7.45, 0] },
+      label: { node: "anchor-label", position: [0, 8.8, 0] },
+      selection: { node: "anchor-selection", position: [0, 2.4, 0] },
+    },
+    pickCenter: [0, 3.43, 0],
+    pickHeight: 9.1,
+    pickRadius: 5.85,
+    geometry: { drawCalls: 4, materials: 4, textures: 0, triangles: 2_362, vertices: 2_772 },
+    budgets: {
+      maxBytes: 96 * 1024,
+      maxDrawCalls: 5,
+      maxMaterials: 5,
+      maxTextures: 0,
+      maxTriangles: 3_000,
+      maxVertices: 3_500,
+    },
+  }),
+  "garden-hero-sky": heroModelMetadata({
+    id: "garden-hero-sky",
+    label: "Garden Sky squadron flagship",
+    sha256: HERO_SKY_SHA256,
+    url: heroSkyUrl,
+    bytes: 85_684,
+    dimensions: { x: 12.333, y: 9.764, z: 4.365 },
+    anchors: {
+      "lantern-stern": { node: "anchor-lantern-stern", position: [-4.3, 2.9, 0] },
+      "lantern-bow": { node: "anchor-lantern-bow", position: [5, 2.4, 0] },
+      masthead: { node: "anchor-masthead", position: [1.8, 8.15, 0] },
+      label: { node: "anchor-label", position: [0, 9.5, 0] },
+      selection: { node: "anchor-selection", position: [0, 2.5, 0] },
+    },
+    pickCenter: [0, 3.78, 0],
+    pickHeight: 9.8,
+    pickRadius: 6.20,
+    geometry: { drawCalls: 4, materials: 4, textures: 0, triangles: 2_574, vertices: 2_938 },
+    budgets: {
+      maxBytes: 96 * 1024,
+      maxDrawCalls: 5,
+      maxMaterials: 5,
+      maxTextures: 0,
+      maxTriangles: 3_300,
+      maxVertices: 3_700,
+    },
+  }),
+  "garden-hero-ethena": heroModelMetadata({
+    id: "garden-hero-ethena",
+    label: "Garden Ethena basis runner",
+    sha256: HERO_ETHENA_SHA256,
+    url: heroEthenaUrl,
+    bytes: 66_424,
+    dimensions: { x: 14.465, y: 9.74, z: 4.933 },
+    anchors: {
+      "lantern-stern": { node: "anchor-lantern-stern", position: [-2.9, 2.3, 0] },
+      "lantern-bow": { node: "anchor-lantern-bow", position: [4.6, 1.8, 0] },
+      masthead: { node: "anchor-masthead", position: [1, 8.25, 0] },
+      label: { node: "anchor-label", position: [0, 9.6, 0] },
+      selection: { node: "anchor-selection", position: [0, 2, 0] },
+    },
+    pickCenter: [0, 3.87, 0],
+    pickHeight: 9.8,
+    pickRadius: 7.25,
+    geometry: { drawCalls: 4, materials: 4, textures: 0, triangles: 2_426, vertices: 2_055 },
+    budgets: {
+      maxBytes: 80 * 1024,
+      maxDrawCalls: 5,
+      maxMaterials: 5,
+      maxTextures: 0,
+      maxTriangles: 3_100,
+      maxVertices: 2_600,
+    },
+  }),
+  "garden-hero-liberty": heroModelMetadata({
+    id: "garden-hero-liberty",
+    label: "Garden World Liberty state barge",
+    sha256: HERO_LIBERTY_SHA256,
+    url: heroLibertyUrl,
+    bytes: 77_144,
+    dimensions: { x: 12.074, y: 8.88, z: 4.664 },
+    anchors: {
+      "lantern-stern": { node: "anchor-lantern-stern", position: [-3.2, 3.4, 0] },
+      "lantern-bow": { node: "anchor-lantern-bow", position: [4.7, 2.5, 0] },
+      masthead: { node: "anchor-masthead", position: [1.1, 7.55, 0] },
+      label: { node: "anchor-label", position: [0, 8.9, 0] },
+      selection: { node: "anchor-selection", position: [0, 2.2, 0] },
+    },
+    pickCenter: [0, 3.64, 0],
+    pickHeight: 8.9,
+    pickRadius: 6.05,
+    geometry: { drawCalls: 4, materials: 4, textures: 0, triangles: 2_138, vertices: 2_646 },
+    budgets: {
+      maxBytes: 88 * 1024,
+      maxDrawCalls: 5,
+      maxMaterials: 5,
+      maxTextures: 0,
+      maxTriangles: 2_700,
+      maxVertices: 3_400,
+    },
+  }),
+  "garden-hero-paypal": heroModelMetadata({
+    id: "garden-hero-paypal",
+    label: "Garden PayPal mail packet",
+    sha256: HERO_PAYPAL_SHA256,
+    url: heroPaypalUrl,
+    bytes: 82_996,
+    dimensions: { x: 12.968, y: 8.42, z: 3.453 },
+    anchors: {
+      "lantern-stern": { node: "anchor-lantern-stern", position: [-3.3, 2.4, 0] },
+      "lantern-bow": { node: "anchor-lantern-bow", position: [4.6, 1.75, 0] },
+      masthead: { node: "anchor-masthead", position: [3.5, 6.9, 0] },
+      label: { node: "anchor-label", position: [0, 8.4, 0] },
+      selection: { node: "anchor-selection", position: [0, 2.2, 0] },
+    },
+    pickCenter: [0, 3.23, 0],
+    pickHeight: 8.5,
+    pickRadius: 6.50,
+    geometry: { drawCalls: 4, materials: 4, textures: 0, triangles: 2_398, vertices: 2_791 },
+    budgets: {
+      maxBytes: 96 * 1024,
+      maxDrawCalls: 5,
+      maxMaterials: 5,
+      maxTextures: 0,
+      maxTriangles: 3_000,
+      maxVertices: 3_500,
     },
   }),
 } as const satisfies Readonly<Record<GardenModelId, GardenModelMetadata>>;

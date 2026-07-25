@@ -1,3 +1,4 @@
+import { landWorldTile } from "./map-scale";
 import { tileKey } from "./tile-key";
 
 interface TilePoint {
@@ -7,8 +8,9 @@ interface TilePoint {
 
 const DOCK_OUTWARD_VECTOR_OVERRIDES: Record<string, { x: -1 | 0 | 1; y: -1 | 0 | 1 }> = {
   // NW-shoulder Solana faces north into the upper harbor pocket so its
-  // gangway stays clear of the seawall turn.
-  "25.23": { x: 0, y: -1 },
+  // gangway stays clear of the seawall turn. N1: keyed in world space, but the
+  // dock is authored in design space (25, 23) like the rest of the harbor ring.
+  [tileKey(landWorldTile({ x: 25, y: 23 }))]: { x: 0, y: -1 },
 };
 
 export function dockOutwardVectorForTile(

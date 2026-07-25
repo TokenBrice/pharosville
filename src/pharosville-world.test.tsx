@@ -2,7 +2,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PharosVilleLoading, PharosVilleWorld } from "./pharosville-world";
-import { formatHourLabel } from "./lib/pharosville-clock";
 import type { HitTarget } from "./renderer/hit-testing";
 import {
   resolveGardenEntityDisplayTile,
@@ -86,14 +85,6 @@ vi.mock("./hooks/use-canvas-resize-and-camera", () => ({
     handleToolbarZoomOut: vi.fn(),
     maximumRequestedDprRef: { current: 1 },
     setCamera: vi.fn(),
-  }),
-}));
-
-vi.mock("./hooks/use-fullscreen-mode", () => ({
-  useFullscreenMode: () => ({
-    exitFullscreen: vi.fn(),
-    fullscreenMode: false,
-    toggleFullscreen: vi.fn(),
   }),
 }));
 
@@ -185,19 +176,22 @@ afterEach(() => {
 });
 
 describe("PharosVilleWorld UI accessibility controls", () => {
-  it("shows the current docked ship count in the beta footer", () => {
+  // Interface revamp DU4/DU7/DU11: the footer carries five items and nothing
+  // else — mark, legend, changelog, docked count, frame rate.
+  it("shows the current docked ship count in the footer", () => {
     const { container } = render(<PharosVilleWorld world={worldFixture()} />);
 
-    expect(screen.getByTestId("pharosville-ship-counter").textContent).toBe("1 ship docked / 1 total");
-    expect(screen.queryByTestId("pharosville-fps-counter")).toBeNull();
-    expect(container.querySelector(".pharosville-beta-tag")?.textContent).toContain("PharosVille beta v0.3.0");
-    expect(container.querySelector(".pharosville-beta-tag")?.textContent?.replace(/\s+/g, " ").trim()).toMatch(
-      /Legend\|Changelog\|1 ship docked \/ 1 total\|Copy link\|Pharos$/,
+    expect(screen.getByTestId("pharosville-ship-counter").textContent).toBe("1 of 1 docked");
+    const footer = container.querySelector(".pharosville-footer");
+    // Separator spacing is CSS margin, so the DOM text runs them together.
+    expect(footer?.textContent?.replace(/\s+/g, " ").trim()).toBe(
+      "PharosVille v0.3.0·Legend·Changelog·1 of 1 docked·Static",
     );
+    expect(footer?.textContent).not.toContain("Copy link");
+    expect(footer?.textContent).not.toContain("not financial advice");
   });
 
-  it("shows the frame-rate counter only behind the debug flag", () => {
-    window.history.replaceState(null, "", "/?debug=1");
+  it("shows the frame-rate counter without a debug flag", () => {
     render(<PharosVilleWorld world={worldFixture()} />);
 
     expect(screen.getByTestId("pharosville-fps-counter").textContent).toBe("Static");
@@ -302,34 +296,31 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     expect(screen.getByTestId("pharosville-detail-panel")).toBeTruthy();
   });
 
-  it("routes manual time scrub changes through the wall-clock override", async () => {
+  // Interface revamp DU10: the hour slider is gone, so a shared `#t=` link is
+  // the only way in and the day-night control is the only way out.
+  it("routes a shared hour link through the wall-clock override", async () => {
+    window.history.replaceState(null, "", "/#t=6.5");
     render(<PharosVilleWorld world={worldFixture()} />);
 
-    const scrubber = screen.getByLabelText("Set session hour");
-    fireEvent.change(scrubber, { target: { value: "6.5" } });
-
     await waitFor(() => expect(globalThis.__pharosVilleTestWallClockHour).toBe(6.5));
-    await waitFor(() => expect(screen.getByLabelText("Time of day").textContent).toBe("06:30"));
     expect(mocks.requestPaint).toHaveBeenCalled();
 
-    fireEvent.click(screen.getByLabelText("Return to day-night preset"));
+    fireEvent.click(screen.getByLabelText("Switch to night"));
+    // D-R2: with no override the presentation follows the visitor's wall clock
+    // (it does not snap back to a fixed noon default).
     await waitFor(() => expect(globalThis.__pharosVilleTestWallClockHour).toBeUndefined());
-    // D-R2: with no override the presentation follows the visitor's wall
-    // clock (previously it snapped back to a fixed 12:00 noon default).
-    await waitFor(() => {
-      const now = new Date();
-      const expected = formatHourLabel(now.getHours() + now.getMinutes() / 60);
-      expect(screen.getByLabelText("Time of day").textContent).toBe(expected);
-    });
   });
 
   it("projects truthful area controls over the Three scene", async () => {
-    // Camera keeps the zones-v2 label anchors (WARNING (49,3), WATCH (14,50))
-    // inside the safe viewport: at zoom 0.5 with offsets (358,100), WARNING
-    // projects to (726, 317.8) and WATCH to (70, 365.8).
+    // Camera keeps the zones-v2 label anchors (design-space WARNING (49,3),
+    // WATCH (14,50)) inside the safe viewport. N1 doubled the map and those
+    // anchors scale with the zone bands, so the same framing needs half the
+    // zoom: at 0.25 with offsets (358,100) both anchors project to exactly the
+    // screen points they did at 0.5 on the 56-tile grid — WARNING (726, 317.8)
+    // and WATCH (70, 365.8).
     mocks.cameraRef.current.offsetX = 358;
     mocks.cameraRef.current.offsetY = 100;
-    mocks.cameraRef.current.zoom = 0.5;
+    mocks.cameraRef.current.zoom = 0.25;
     render(<PharosVilleWorld world={worldFixture()} />);
     fireEvent.click(screen.getByLabelText("Close details"));
 

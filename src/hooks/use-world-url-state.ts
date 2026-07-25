@@ -6,8 +6,6 @@ import { clampManualTimeOverrideHour } from "./use-world-time-controls";
 
 type WorldUrlDescriptorTarget = "hash" | "search";
 
-export type WorldUrlCopyResult = "copied" | "failed" | "unavailable";
-
 export interface WorldUrlInitialState {
   camera: IsoCamera | null;
   followSelectedDetailId: string | null;
@@ -63,24 +61,11 @@ export function useWorldUrlState(input: {
     return nextHref;
   }, [target]);
 
-  const copyWorldUrlState = useCallback(async (state: WorldUrlWriteState): Promise<WorldUrlCopyResult> => {
-    if (typeof navigator === "undefined" || !navigator.clipboard) return "unavailable";
-    const nextHref = replaceWorldUrlState(state);
-    if (!nextHref) return "unavailable";
-    try {
-      await navigator.clipboard.writeText(nextHref);
-      return "copied";
-    } catch {
-      return "failed";
-    }
-  }, [replaceWorldUrlState]);
-
   return useMemo(() => ({
-    copyWorldUrlState,
     initialState,
     lateResolvedSelection,
     replaceWorldUrlState,
-  }), [copyWorldUrlState, initialState, lateResolvedSelection, replaceWorldUrlState]);
+  }), [initialState, lateResolvedSelection, replaceWorldUrlState]);
 }
 
 export function parseInitialWorldUrlState(world: PharosVilleWorldModel): {

@@ -23,6 +23,8 @@ import {
   selectRepresentativeShips,
 } from "./garden-observatory-slice";
 import { tileToScreen } from "./projection";
+import { MAX_TILE_X, MAX_TILE_Y } from "./world-layout";
+import { landWorldTile, zoneWorldTile } from "./map-scale";
 
 describe("Garden Observatory slice", () => {
   it("derives Overview, Explore, and Analyze without a second mode state", () => {
@@ -135,15 +137,18 @@ describe("Garden Observatory slice", () => {
     // Operator overlay composition: the Calm ring centers on the island,
     // Watch slightly below it, and Ledger/Alert/Warning center off-frame —
     // while every DOM label anchor stays on the visible arc inside the map.
+    // N1: the composition is authored in the 56-tile DESIGN space. The
+    // island-relative anchors take the landmass OFFSET; the off-frame corner
+    // arcs and frame-inset labels take the zone SCALE.
     const calm = { band: "CALM", tile: { x: 10, y: 40 } };
-    expect(gardenAreaCenterTile(calm)).toEqual({ x: 31, y: 31 });
-    expect(gardenAreaDisplayTile(calm)).toEqual({ x: 42, y: 26 });
+    expect(gardenAreaCenterTile(calm)).toEqual(landWorldTile({ x: 31, y: 31 }));
+    expect(gardenAreaDisplayTile(calm)).toEqual(landWorldTile({ x: 42, y: 26 }));
     expect(gardenAreaCenterTile({ band: "WATCH", tile: { x: 38, y: 48 } }))
-      .toEqual({ x: 33, y: 33 });
+      .toEqual(landWorldTile({ x: 33, y: 33 }));
     // Ledger keys off its risk placement (band is null).
     const ledger = { riskPlacement: "ledger-mooring", tile: { x: 10, y: 5 } };
-    expect(gardenAreaCenterTile(ledger)).toEqual({ x: -4, y: 4 });
-    expect(gardenAreaDisplayTile(ledger)).toEqual({ x: 8, y: 10 });
+    expect(gardenAreaCenterTile(ledger)).toEqual(zoneWorldTile({ x: -4, y: 4 }));
+    expect(gardenAreaDisplayTile(ledger)).toEqual(zoneWorldTile({ x: 8, y: 10 }));
     // Unknown areas fall back to their data tile for both anchors.
     const unknown = { tile: { x: 4, y: 9 } };
     expect(gardenAreaCenterTile(unknown)).toEqual({ x: 4, y: 9 });
@@ -152,9 +157,9 @@ describe("Garden Observatory slice", () => {
     for (const band of ["CALM", "WATCH", "ALERT", "WARNING", "DANGER"] as const) {
       const label = gardenAreaDisplayTile({ band, tile: { x: 0, y: 0 } });
       expect(label.x).toBeGreaterThanOrEqual(0);
-      expect(label.x).toBeLessThanOrEqual(55);
+      expect(label.x).toBeLessThanOrEqual(MAX_TILE_X);
       expect(label.y).toBeGreaterThanOrEqual(0);
-      expect(label.y).toBeLessThanOrEqual(55);
+      expect(label.y).toBeLessThanOrEqual(MAX_TILE_Y);
     }
   });
 

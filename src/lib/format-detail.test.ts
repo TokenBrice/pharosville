@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildDetailFactSections, compactCurrency, composeCurrently, formatChangePercent, formatCompactUsd } from "./format-detail";
+import {
+  buildDetailFactSections,
+  buildDetailReadingLine,
+  compactCurrency,
+  composeCurrently,
+  formatChangePercent,
+  formatCompactUsd,
+} from "./format-detail";
 
 describe("compactCurrency", () => {
   it("compacts billions", () => {
@@ -175,5 +182,56 @@ describe("buildDetailFactSections folds", () => {
         value: "Danger Strait idle · Driven by: peg deviation; contagion amplifier active",
       },
     ]);
+  });
+});
+
+describe("buildDetailReadingLine", () => {
+  const shipFacts = [
+    { label: "Peg deviation", value: "-1 bps vs GOLD" },
+    { label: "Market cap", value: "$2,547,000,000" },
+    { label: "Fleet rank", value: "#12 of 187" },
+    { label: "Share of fleet", value: "0.8% of fleet" },
+    { label: "24h supply change", value: "-14.0%" },
+    { label: "Cycle tempo", value: "Active" },
+  ];
+
+  it("quotes at most three ship figures in a fixed order", () => {
+    expect(buildDetailReadingLine("ship", shipFacts)).toBe("$2.5B · #12 of 187 · -14.0% 24h");
+  });
+
+  it("falls through to later figures when an earlier one is missing", () => {
+    const withoutRank = shipFacts.filter((fact) => fact.label !== "Fleet rank");
+    expect(buildDetailReadingLine("ship", withoutRank))
+      .toBe("$2.5B · -14.0% 24h · -1 bps vs GOLD");
+  });
+
+  it("skips placeholder values rather than quoting them", () => {
+    expect(buildDetailReadingLine("ship", [
+      { label: "Market cap", value: "Unavailable" },
+      { label: "24h supply change", value: "\u2014" },
+      { label: "Cycle tempo", value: "Resting" },
+    ])).toBe("Resting");
+  });
+
+  it("reads docks by supply, count and health", () => {
+    expect(buildDetailReadingLine("dock", [
+      { label: "Stablecoin supply", value: "$74,000,000,000" },
+      { label: "Harbor rank", value: "#1 of 8 rendered harbors" },
+      { label: "Stablecoin count", value: "12" },
+      { label: "Health", value: "robust" },
+    ])).toBe("$74.0B · 12 stablecoins · robust health");
+  });
+
+  it("omits the line entirely when the lighthouse has no figure to quote", () => {
+    expect(buildDetailReadingLine("lighthouse", [
+      { label: "Score", value: "Unavailable" },
+      { label: "Band", value: "Unavailable" },
+      { label: "Last fleet depeg", value: "None on record" },
+    ])).toBeNull();
+  });
+
+  it("has no reading line for kinds that carry no figures", () => {
+    expect(buildDetailReadingLine("pigeonnier", [{ label: "Channel", value: "PharosWatch" }]))
+      .toBeNull();
   });
 });

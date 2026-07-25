@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 import type { ShipHull, ShipNode, ShipSizeTier } from "../systems/world-types";
 import {
   attachGardenHeroModel,
+  createFleetBatchGeometry,
   createFleetLanterns,
   createShip,
   gardenShipVisualScale,
@@ -249,6 +250,57 @@ describe("S1 curved sheer hull", () => {
   });
 });
 
+describe("W5.3 batched silhouette form", () => {
+  it("rakes the stern aft as the topsides rise", () => {
+    const { hull } = createFleetBatchGeometry("clipper");
+    const position = hull.getAttribute("position");
+    let lowSternX = 0;
+    let highSternX = 0;
+    for (let index = 0; index < position.count; index += 1) {
+      const y = position.getY(index);
+      const x = position.getX(index);
+      if (x > -2) continue;
+      if (y < -0.3) lowSternX = Math.min(lowSternX, x);
+      if (y > 0.1) highSternX = Math.min(highSternX, x);
+    }
+    // The counter overhangs: the deck-level stern reaches further aft (more
+    // negative x) than the stern at the waterline.
+    expect(highSternX).toBeLessThan(lowSternX);
+  });
+
+  it("bakes planking bands into the hull vertex color", () => {
+    const { hull } = createFleetBatchGeometry("galleon");
+    const color = hull.getAttribute("color");
+    const position = hull.getAttribute("position");
+    // Sample topside vertices only; planking fades out below the waterline.
+    const shades: number[] = [];
+    for (let index = 0; index < color.count; index += 1) {
+      if (position.getY(index) > 0) shades.push(color.getX(index));
+    }
+    const unique = new Set(shades.map((value) => value.toFixed(3)));
+    // A smooth keel->gunwale ramp alone would not produce this many distinct
+    // topside tones; the strake sawtooth does.
+    expect(unique.size).toBeGreaterThan(4);
+  });
+
+  it("crowns the deck so the rails sit below the centerline", () => {
+    const { hull } = createFleetBatchGeometry("schooner");
+    const position = hull.getAttribute("position");
+    let railY = Number.POSITIVE_INFINITY;
+    let centerY = Number.NEGATIVE_INFINITY;
+    for (let index = 0; index < position.count; index += 1) {
+      const y = position.getY(index);
+      if (y < 0.3) continue;
+      const absZ = Math.abs(position.getZ(index));
+      const absX = Math.abs(position.getX(index));
+      if (absX > 1.5) continue;
+      if (absZ > 0.6) railY = Math.min(railY, y);
+      if (absZ < 0.15) centerY = Math.max(centerY, y);
+    }
+    expect(railY).toBeLessThan(centerY);
+  });
+});
+
 describe("S2 bellied sails", () => {
   it("displaces the cloth center so sails read wind-filled", () => {
     const visual = build(ship("s2", "treasury-galleon", "major"));
@@ -265,13 +317,20 @@ describe("S2 bellied sails", () => {
 });
 
 describe("S3 sparse rigging", () => {
-  it("adds forestay, backstay, and two shrouds per mast in one batched LineSegments", () => {
+  it("adds forestay, backstay, two shrouds and per-sail halyards in one batched LineSegments", () => {
     const visual = build(ship("s3", "treasury-galleon", "major"));
     const rigging = visual.root.children.find(
       (child): child is LineSegments => child instanceof LineSegments,
     )!;
-    // 3 galleon masts × 4 lines × 2 endpoints.
-    expect(rigging.geometry.getAttribute("position").count).toBe(24);
+    // 3 galleon masts × 4 standing-rigging lines, plus W5.4 running rigging:
+    // 2 halyard segments for each of the galleon's 3 sails. All × 2 endpoints.
+    const standing = 3 * 4;
+    const halyards = 3 * 2;
+    expect(rigging.geometry.getAttribute("position").count).toBe((standing + halyards) * 2);
+    // The whole rig must stay one draw call however many lines it carries.
+    expect(
+      visual.root.children.filter((child) => child instanceof LineSegments),
+    ).toHaveLength(1);
   });
 });
 

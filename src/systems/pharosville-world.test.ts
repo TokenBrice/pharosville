@@ -40,6 +40,15 @@ import {
   terrainKindAt,
   tileKindAt,
 } from "./world-layout";
+import { zoneWorldTile } from "./map-scale";
+
+// N1: zone geometry stays AUTHORED in the original 56-tile design space and is
+// SCALED onto the 112-tile grid, so zone literals below stay design-space.
+/** `terrainKindAt` for a design-space ZONE coordinate. */
+function zoneTerrain(x: number, y: number): ReturnType<typeof terrainKindAt> {
+  const tile = zoneWorldTile({ x, y });
+  return terrainKindAt(tile.x, tile.y);
+}
 
 describe("buildPharosVilleWorld", () => {
   it("returns identical worlds for identical inputs with a supplied generatedAt", () => {
@@ -87,8 +96,12 @@ describe("buildPharosVilleWorld", () => {
     });
 
     expect(world.routeMode).toBe("world");
-    expect(world.map.waterRatio).toBeGreaterThanOrEqual(0.857);
-    expect(world.map.waterRatio).toBeLessThanOrEqual(0.862);
+    // N1 THRESHOLD CHANGE: land is OFFSET, not scaled, so the island keeps its
+    // absolute footprint inside a 4x sea and the water share rises from ~0.86 at
+    // 56x56 to a measured 0.9647 at 112x112 (see world-layout.test.ts, which
+    // pins the unchanged 377-tile island).
+    expect(world.map.waterRatio).toBeGreaterThanOrEqual(0.963);
+    expect(world.map.waterRatio).toBeLessThanOrEqual(0.966);
     expect(world.lighthouse.unavailable).toBe(false);
     expect(world.docks).toHaveLength(2);
     expect(world.ships.map((ship) => ship.id)).toEqual(["usdt-tether", "usdc-circle"]);
@@ -325,25 +338,26 @@ describe("buildPharosVilleWorld", () => {
     });
     expect(world.areas.find((area) => area.band === "CALM")?.label).toBe("Calm Anchorage");
     expect(watchArea?.label).toBe("Watch Breakwater");
-    expect(watchArea?.tile).toEqual({ x: 38, y: 48 });
+    // N1: zone anchors are authored in the 56-tile design space and scaled.
+    expect(watchArea?.tile).toEqual(zoneWorldTile({ x: 38, y: 48 }));
     expect(watchArea?.tile ? terrainKindAt(watchArea.tile.x, watchArea.tile.y) : null).toBe("watch-water");
     expect(alertArea?.label).toBe("Alert Channel");
     expect(alertArea?.riskPlacement).toBe("harbor-mouth-watch");
     expect(alertArea?.tile ? terrainKindAt(alertArea.tile.x, alertArea.tile.y) : null).toBe("alert-water");
     expect(world.areas.map((area) => area.detailId)).not.toContain("area.risk-water.data-fog");
     expect(ledgerArea).toMatchObject({ label: "Ledger Mooring", riskZone: "ledger", detailId: "area.risk-water.ledger-mooring" });
-    expect(ledgerArea?.tile).toEqual({ x: 10, y: 5 });
+    expect(ledgerArea?.tile).toEqual(zoneWorldTile({ x: 10, y: 5 }));
     expect(ledgerArea?.tile ? terrainKindAt(ledgerArea.tile.x, ledgerArea.tile.y) : null).toBe("ledger-water");
     expect(world.detailIndex["area.risk-water.data-fog"]).toBeUndefined();
     expect(world.detailIndex["area.risk-water.ledger-mooring"]?.facts).toEqual(expect.arrayContaining([
       { label: "Risk water zone", value: "ledger" },
       { label: "Risk placement", value: "ledger-mooring" },
     ]));
-    expect(world.areas.find((area) => area.band === "WARNING")?.tile).toEqual({ x: 50, y: 8 });
-    expect(world.areas.find((area) => area.band === "DANGER")?.tile).toEqual({ x: 54, y: 1 });
+    expect(world.areas.find((area) => area.band === "WARNING")?.tile).toEqual(zoneWorldTile({ x: 50, y: 8 }));
+    expect(world.areas.find((area) => area.band === "DANGER")?.tile).toEqual(zoneWorldTile({ x: 54, y: 1 }));
     expect(world.areas.every((area) => area.id.startsWith("area.dews.") || area.id.startsWith("area.risk-water."))).toBe(true);
-    expect(terrainKindAt(45, 0)).toBe("warning-water");
-    expect(terrainKindAt(55, 0)).toBe("storm-water");
+    expect(zoneTerrain(45, 0)).toBe("warning-water");
+    expect(zoneTerrain(55, 0)).toBe("storm-water");
     expect(usdc?.riskPlacement).toBe("harbor-mouth-watch");
     expect(usdc?.riskZone).toBe("alert");
     expect(usdc?.riskWaterLabel).toBe("Alert Channel");

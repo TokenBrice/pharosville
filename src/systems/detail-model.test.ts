@@ -61,7 +61,10 @@ describe("detail-model analytical links", () => {
       label: "Beam warmth cue",
       value: "Beam warms amber when active DEWS reaches ALERT, WARNING, or DANGER; Fleet PSI cue (not a per-zone reading).",
     });
-    expect(lighthouseDetail.summary).toContain("Beam warmth tracks the fleet PSI composite");
+    // The beam-is-fleet-wide caveat must survive every copy pass: it is what
+    // stops the beacon being read as a per-zone reading.
+    expect(lighthouseDetail.summary).toContain("fleet-wide");
+    expect(lighthouseDetail.summary).toContain("never in the beam");
 
     expect(detailForDock({
       id: "dock.ethereum",

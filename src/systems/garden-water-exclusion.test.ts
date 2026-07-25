@@ -26,6 +26,12 @@ import {
   isGardenShipWater,
   nearestGardenShipWater,
 } from "./garden-water-exclusion";
+import { landWorldTile, zoneWorldTile } from "./map-scale";
+
+/** `isGardenObstacleTile` for an already-transformed world tile. */
+function isObstacleAt(tile: { x: number; y: number }): boolean {
+  return isGardenObstacleTile(tile.x, tile.y);
+}
 
 function denseWorld() {
   return buildPharosVilleWorld({
@@ -46,22 +52,25 @@ function shipMargin(ship: { visual: { scale?: number } }): number {
 
 describe("garden water exclusion (zones-v2 placement fix)", () => {
   it("marks the rendered landmasses as obstacles and open sea as water", () => {
-    // Island heart, garden islets, cemetery and pigeonnier are obstacles.
-    expect(isGardenObstacleTile(30, 37)).toBe(true);
-    expect(isGardenObstacleTile(33, 44)).toBe(true); // data water under the rendered rock
-    expect(isGardenObstacleTile(28, 8)).toBe(true); // crane islet
-    expect(isGardenObstacleTile(4, 20)).toBe(true); // turtle islet
-    expect(isGardenObstacleTile(26, 44)).toBe(true); // lone islet
-    expect(isGardenObstacleTile(8, 50)).toBe(true); // cemetery islet
-    expect(isGardenObstacleTile(50, 50)).toBe(true); // pigeonnier
+    // Island heart, garden islets and cemetery are obstacles. N1: every
+    // landmass is authored in the 56-tile design space and OFFSET onto the
+    // 112-tile grid, so its absolute footprint is unchanged; the pigeonnier
+    // rides the Watch shelf and therefore SCALES with the zone bands.
+    expect(isObstacleAt(landWorldTile({ x: 30, y: 37 }))).toBe(true);
+    expect(isObstacleAt(landWorldTile({ x: 33, y: 44 }))).toBe(true); // data water under the rendered rock
+    expect(isObstacleAt(landWorldTile({ x: 28, y: 8 }))).toBe(true); // crane islet
+    expect(isObstacleAt(landWorldTile({ x: 4, y: 20 }))).toBe(true); // turtle islet
+    expect(isObstacleAt(landWorldTile({ x: 26, y: 44 }))).toBe(true); // lone islet
+    expect(isObstacleAt(landWorldTile({ x: 8, y: 50 }))).toBe(true); // cemetery islet
+    expect(isObstacleAt(zoneWorldTile({ x: 50, y: 50 }))).toBe(true); // pigeonnier
     // Open sea stays open.
-    expect(isGardenObstacleTile(10, 30)).toBe(false);
-    expect(isGardenObstacleTile(45, 10)).toBe(false);
-    expect(isGardenObstacleTile(38, 52)).toBe(false);
+    expect(isObstacleAt(zoneWorldTile({ x: 10, y: 30 }))).toBe(false);
+    expect(isObstacleAt(zoneWorldTile({ x: 45, y: 10 }))).toBe(false);
+    expect(isObstacleAt(zoneWorldTile({ x: 38, y: 52 }))).toBe(false);
   });
 
   it("resolves invalid targets to the nearest valid water deterministically", () => {
-    const target = { x: 31, y: 42 }; // inside the rendered island
+    const target = landWorldTile({ x: 31, y: 42 }); // inside the rendered island
     const first = nearestGardenShipWater(target, 3, "test.seed", true);
     const second = nearestGardenShipWater(target, 3, "test.seed", true);
     expect(first).toEqual(second);
@@ -69,7 +78,7 @@ describe("garden water exclusion (zones-v2 placement fix)", () => {
     // Nearest-search: the fix-up stays close to the authored target.
     expect(Math.hypot(first.x - target.x, first.y - target.y)).toBeLessThan(12);
     // Valid points pass through untouched.
-    const valid = { x: 46.9, y: 23.4 };
+    const valid = zoneWorldTile({ x: 46.9, y: 23.4 });
     expect(nearestGardenShipWater(valid, 3, "test.seed", true)).toEqual(valid);
   });
 

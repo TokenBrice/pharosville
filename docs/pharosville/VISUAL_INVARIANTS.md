@@ -174,8 +174,37 @@ tests and documentation.
 - Normal motion uses one route-owned clock.
 - Analytical CSS animations, intervals, independent scene loops, or timers are
   not allowed.
-- Keyboard pan, zoom, target traversal, Escape clear, toolbar controls, search,
-  follow-selected, and blank-world clear remain part of the interaction
-  contract.
+- Keyboard pan, zoom, target traversal, Escape clear, world controls, and
+  blank-world clear remain part of the interaction contract.
 - Detail panels, labels, announcements, and the accessibility ledger must
   remain useful without reading WebGL pixels.
+
+## Interface
+
+Recorded 2026-07-25 from `agents/2026-07-25-interface-revamp-plan.md`
+(decisions DU1-DU17). The world is the subject; chrome that is not in use is
+barely there.
+
+- Persistent chrome is one footer line and three faint world controls. Nothing
+  else sits over the world unless something is selected or the world has
+  something transient to say.
+- The world controls are recenter, observe, and day/night. They idle at 40%
+  behind a scrim disc and come up to full on hover, on keyboard focus, and for
+  two seconds after any camera input. Faintness is paint only: they stay in the
+  tab order, keep their accessible names, and are never the sole route to a
+  capability.
+- The footer carries exactly: product mark and version, Legend, Changelog,
+  docked ship count, frame rate.
+- There is no fleet search, no follow-selected control, no zoom readout, no
+  hour slider, no auto day-night cycle, no fullscreen control, and no
+  copy-link control. An exact session hour arrives only through the `t=`
+  URL parameter; a view is shared by copying the address.
+- The detail panel opens as prose: kind, title, the water it sails in, two or
+  three sentences, and at most three figures. Fact rows, members and secondary
+  links wait inside a `Read the record` disclosure, whose open state is
+  remembered for the session.
+- Panel copy speaks in the harbor's voice and keeps every analytical hedge
+  verbatim. The accessibility ledger remains the parity surface and carries
+  every fact regardless of what the panel shows.
+- The interpretive-view disclaimer lives in the legend, which still opens on a
+  first visit.

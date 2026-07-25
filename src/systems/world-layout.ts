@@ -5,17 +5,60 @@ import { mulberry32 } from "./rng";
 import { isSeawallBarrierTile } from "./seawall";
 import { stableHash, stableUnit } from "./stable-random";
 import { clamp } from "./motion-utils";
+import {
+  PHAROSVILLE_DESIGN_SPAN,
+  PHAROSVILLE_LAND_OFFSET,
+  PHAROSVILLE_MAP_SCALE as MAP_SCALE,
+  landWorldTile,
+  zoneWorldTile,
+} from "./map-scale";
 
+/**
+ * N1 (2026-07-25): the world grew 2x on each axis — 4x the sea.
+ *
+ * At 56x56 the island plus its unattributed halo took the whole middle of the
+ * map, leaving roughly 10 eligible water tiles per ship. With ~187 ships that
+ * read as a packed quay with no room to sail, moor or manoeuvre (operator:
+ * "still super packed... we could easily 2x the map size").
+ *
+ * Rather than re-author every hardcoded ellipse, corner and bounds box, the
+ * terrain stays authored in its original 56-tile DESIGN SPACE and two
+ * transforms map it onto the larger grid:
+ *
+ * - `landDesign` OFFSETS world tiles into design space, so the island,
+ *   cemetery and pigeonnier keep their exact absolute size and shape and
+ *   simply sit in a bigger sea.
+ * - `zoneDesign` SCALES world tiles into design space, so the DEWS regions
+ *   stretch to fill the new map and every band gains proportional water.
+ *
+ * The result: same island, 4x the sailable sea.
+ */
+export { PHAROSVILLE_MAP_SCALE } from "./map-scale";
+const DESIGN_SPAN = PHAROSVILLE_DESIGN_SPAN;
 /** Width of the PharosVille tile grid, in tiles. */
-export const PHAROSVILLE_MAP_WIDTH = 56;
+export const PHAROSVILLE_MAP_WIDTH = DESIGN_SPAN * MAP_SCALE;
 /** Height of the PharosVille tile grid, in tiles. */
-export const PHAROSVILLE_MAP_HEIGHT = 56;
+export const PHAROSVILLE_MAP_HEIGHT = DESIGN_SPAN * MAP_SCALE;
+/** Inclusive max coordinate in DESIGN space, for the zone predicates below. */
+const MAX_DESIGN_X = DESIGN_SPAN - 1;
+const MAX_DESIGN_Y = DESIGN_SPAN - 1;
+/** Offset that centres the design-space landmasses on the enlarged grid. */
+const LAND_OFFSET = PHAROSVILLE_LAND_OFFSET;
+
+/** World tile -> design tile for LANDMASSES (absolute size preserved). */
+function landDesignX(x: number): number { return x - LAND_OFFSET; }
+function landDesignY(y: number): number { return y - LAND_OFFSET; }
+/** Design tile -> world tile, for exported landmass anchors. */
+const landWorld = landWorldTile;
+/** World tile -> design tile for ZONE geometry (stretched to fill the map). */
+function zoneDesignX(x: number): number { return x / MAP_SCALE; }
+function zoneDesignY(y: number): number { return y / MAP_SCALE; }
 /** Inclusive maximum x-coordinate for valid tiles (`PHAROSVILLE_MAP_WIDTH - 1`). */
 export const MAX_TILE_X = PHAROSVILLE_MAP_WIDTH - 1;
 /** Inclusive maximum y-coordinate for valid tiles (`PHAROSVILLE_MAP_HEIGHT - 1`). */
 export const MAX_TILE_Y = PHAROSVILLE_MAP_HEIGHT - 1;
 /** Anchor tile for the lighthouse on the western promontory; sprites and beam math hang off this point. */
-export const LIGHTHOUSE_TILE = { x: 18, y: 28 } as const;
+export const LIGHTHOUSE_TILE = landWorld({ x: 18, y: 28 });
 /**
  * Chebyshev tile distance: any sea tile within this many tiles of land is rendered
  * as generic "water" (no DEWS zone), giving the island a non-attributed halo
@@ -45,7 +88,7 @@ const SOUTH_BASIN_BOUNDS = { minX: 16, maxX: 44, minY: 45 } as const;
 const WATCH_RING_OUTER = 7.0;
 const SOUTH_SHELF_MIN_Y = 37;
 const SOUTH_SHELF_DIAGONAL_THRESHOLD = 78;
-const CALM_SOUTH_BASIN_PATCH = { minX: 16, maxX: 37, minY: 45, maxY: MAX_TILE_Y } as const;
+const CALM_SOUTH_BASIN_PATCH = { minX: 16, maxX: 37, minY: 45, maxY: MAX_DESIGN_Y } as const;
 const CALM_EAST_SHOULDER_PATCH = { minX: 40, maxX: 47, minY: 31, maxY: 38 } as const;
 const CALM_LOWER_BREAKWATER_PATCH = { minX: 30, maxX: 42, minY: 42, maxY: 47 } as const;
 
@@ -61,14 +104,16 @@ export const ETHEREUM_HARBOR_PRIORITY_CHAIN_IDS = ["ethereum", ...ETHEREUM_L2_DO
 // arranged clockwise so the wall connects them as a smooth ring. Fractional
 // dock coordinates have been dropped — they were artifacts of the prior
 // irregular ellipse-union shape and required `terrainKindAt` shore overrides.
+// N1: docks are island-perimeter features, so every tile below stays authored
+// in design space and is OFFSET onto the enlarged grid with the island itself.
 /** Dock tile reserved for Base; named so Base-specific scenery can resolve it without index lookups. */
-export const BASE_HARBOR_DOCK_TILE = { x: 39, y: 38 } as const;
+export const BASE_HARBOR_DOCK_TILE = landWorld({ x: 39, y: 38 });
 /** Clockwise EVM-bay dock tiles in the order: ethereum, base, arbitrum, polygon. */
 export const EVM_BAY_DOCK_TILES = [
-  { x: 42, y: 31 }, // ethereum (E periphery)
+  landWorld({ x: 42, y: 31 }), // ethereum (E periphery)
   BASE_HARBOR_DOCK_TILE, // base (SE periphery)
-  { x: 32, y: 40 }, // arbitrum (S periphery)
-  { x: 26, y: 39 }, // polygon (SW periphery)
+  landWorld({ x: 32, y: 40 }), // arbitrum (S periphery)
+  landWorld({ x: 26, y: 39 }), // polygon (SW periphery)
 ] as const;
 
 // Outer harbors are placed clockwise around the oval starting from the W
@@ -76,23 +121,23 @@ export const EVM_BAY_DOCK_TILES = [
 // Slots [0..4] map to named chains (BSC, Tron, Solana, Aptos, Avalanche);
 // slots [5..7] are spare perimeter slips for unmapped chains.
 /** Dedicated Hyperliquid dock tile (paired with the EVM bay's south-shore stretch). */
-export const HYPERLIQUID_HARBOR_DOCK_TILE = { x: 36, y: 39 } as const;
+export const HYPERLIQUID_HARBOR_DOCK_TILE = landWorld({ x: 36, y: 39 });
 /** Dedicated Solana dock tile (NW shoulder near the lighthouse). */
-export const SOLANA_HARBOR_DOCK_TILE = { x: 25, y: 23 } as const;
+export const SOLANA_HARBOR_DOCK_TILE = landWorld({ x: 25, y: 23 });
 /** Clockwise outer-harbor dock tiles. Slots [0..5] map to bsc, tron, solana, hyperliquid, aptos, avalanche; [6..7] are spare slips for unmapped chains. */
 export const OUTER_HARBOR_DOCK_TILES = [
-  { x: 21, y: 36 }, // bsc (SW promontory shoulder)
+  landWorld({ x: 21, y: 36 }), // bsc (SW promontory shoulder)
   // W6.09 Solana scale-up (192×136 → 280×180) nudged the dock larger; the
   // prior Tron tile (28,22) sat inside the new Solana footprint. Tron and
   // Aptos swap slots so Tron lands closer to the Yggdrasil tree (E shoulder)
   // and clears the Solana silhouette.
-  { x: 32, y: 22 }, // tron (N periphery, east — closer to Yggdrasil)
+  landWorld({ x: 32, y: 22 }), // tron (N periphery, east — closer to Yggdrasil)
   SOLANA_HARBOR_DOCK_TILE, // solana (NW shoulder, near lighthouse — paired-but-detached with Hyperliquid per user direction)
   HYPERLIQUID_HARBOR_DOCK_TILE, // hyperliquid (S periphery, between Base and Arbitrum — paired with the EVM bay's south-shore stretch per user direction)
-  { x: 28, y: 22 }, // aptos (N periphery, where Tron used to sit)
-  { x: 33, y: 40 }, // avalanche (S periphery, between Arbitrum and Base)
-  { x: 42, y: 28 }, // spare: E shoulder above Ethereum
-  { x: 35, y: 39 }, // spare: SE between Avalanche and Base
+  landWorld({ x: 28, y: 22 }), // aptos (N periphery, where Tron used to sit)
+  landWorld({ x: 33, y: 40 }), // avalanche (S periphery, between Arbitrum and Base)
+  landWorld({ x: 42, y: 28 }), // spare: E shoulder above Ethereum
+  landWorld({ x: 35, y: 39 }), // spare: SE between Avalanche and Base
 ] as const;
 
 /** Lookup of preferred dock tile per chain ID. Docking systems try this tile first before falling back to nearest-available water. */
@@ -121,7 +166,7 @@ export const DOCK_TILES = [
 // Cemetery remains a separate memorial islet, snapped to the bottom-left edge
 // as in the positioning source while staying outside the central island model.
 /** Center of the cemetery scatter region (the planted graves) on the bottom-left memorial islet. */
-export const CEMETERY_CENTER = { x: 8.0, y: 50.0 } as const;
+export const CEMETERY_CENTER = landWorld({ x: 8.0, y: 50.0 });
 /** Ellipse half-axes for the inner planted-grave region (graves stay within this footprint). */
 export const CEMETERY_RADIUS = { x: 3.3, y: 2.1 } as const;
 /** Ellipse half-axes for the outer cemetery islet landmass that surrounds the graves. */
@@ -131,8 +176,16 @@ export const CEMETERY_ISLAND_RADIUS = { x: 5.4, y: 3.8 } as const;
 // messenger-tower platform far enough from the main shipping lanes that
 // ships rarely overlap the silhouette. Carries the PharosWatch dispatch
 // sprite + plaque only.
-/** Center of the southeast pigeonnier islet (PharosWatch dispatch tower). */
-export const PIGEON_ISLAND_CENTER = { x: 50, y: 50 } as const;
+/**
+ * Center of the southeast pigeonnier islet (PharosWatch dispatch tower).
+ *
+ * N1: unlike the main island and the cemetery, this islet is authored relative
+ * to a ZONE (the southeast Watch Breakwater shelf), not to the island — so it
+ * takes the zone transform. Offsetting it instead left it straddling the
+ * calm/watch boundary, out of the shelf it is named for. Only the CENTER is
+ * transformed; `PIGEON_ISLAND_RADIUS` keeps the platform one tile wide.
+ */
+export const PIGEON_ISLAND_CENTER = zoneWorldTile({ x: 50, y: 50 });
 /** Ellipse half-axes of the single-tile pigeonnier islet. */
 export const PIGEON_ISLAND_RADIUS = { x: 0.7, y: 0.7 } as const;
 /** Dock tile adjacent to the pigeonnier islet (one tile west of `PIGEON_ISLAND_CENTER`). */
@@ -177,27 +230,37 @@ export function terrainKindAt(x: number, y: number): TerrainKind {
   const nearIslandEdge = island > 0.9;
 
   if (isOutOfBounds(x, y) || island >= 1) {
+    // N1: zone geometry is authored in design space and SCALED onto the
+    // enlarged grid, so every DEWS band stretches to fill the bigger map and
+    // gains proportional sailable water. Landmass tests above stay in world
+    // space (they are offset, not scaled, so the island keeps its size).
+    const zx = zoneDesignX(x);
+    const zy = zoneDesignY(y);
     const inIslandPeriphery = isWithinIslandPeriphery(x, y);
-    if (!isLighthouseVisualClearance(x, y) && isCalmAnchoragePeripheryOverride(x, y)) return "calm-water";
-    if (!isLighthouseVisualClearance(x, y) && isWatchBreakwaterPeripheryOverride(x, y)) return "watch-water";
-    if (!inIslandPeriphery && !isLighthouseVisualClearance(x, y)) {
-      if (isDangerStrait(x, y)) return "storm-water";
-      if (isWarningShoals(x, y)) return "warning-water";
-      if (isLedgerMooring(x, y)) return "ledger-water";
-      if (isAlertChannel(x, y)) return "alert-water";
-      if (isWatchBreakwater(x, y)) return "watch-water";
-      if (isCalmAnchorage(x, y)) return "calm-water";
+    const clearance = isLighthouseVisualClearance(x, y);
+    if (!clearance && isCalmAnchoragePeripheryOverride(zx, zy)) return "calm-water";
+    if (!clearance && isWatchBreakwaterPeripheryOverride(zx, zy)) return "watch-water";
+    if (!inIslandPeriphery && !clearance) {
+      if (isDangerStrait(zx, zy)) return "storm-water";
+      if (isWarningShoals(zx, zy)) return "warning-water";
+      if (isLedgerMooring(zx, zy)) return "ledger-water";
+      if (isAlertChannel(zx, zy)) return "alert-water";
+      if (isWatchBreakwater(zx, zy)) return "watch-water";
+      if (isCalmAnchorage(zx, zy)) return "calm-water";
     }
-    if (isTopShelfOpenWaterGap(x, y)) return "watch-water";
-    if (isDeepSeaShelf(x, y)) return "deep-water";
-    if (inIslandPeriphery || isLighthouseVisualClearance(x, y)) return "water";
+    if (isTopShelfOpenWaterGap(zx, zy)) return "watch-water";
+    if (isDeepSeaShelf(zx, zy)) return "deep-water";
+    if (inIslandPeriphery || clearance) return "water";
     return "calm-water";
   }
 
   if (cemetery < 1) return "grass";
   if (nearIslandEdge) return "shore";
-  if (ellipseValue(x, y, 31.3, 31.2, 7.2, 5.9) < 0.7) return "rock";
-  if (ellipseValue(x, y, 39.0, 29.6, 5.8, 5.2) < 0.58) return "rock";
+  // Rock outcrops are island features: design space, offset only.
+  const rx = landDesignX(x);
+  const ry = landDesignY(y);
+  if (ellipseValue(rx, ry, 31.3, 31.2, 7.2, 5.9) < 0.7) return "rock";
+  if (ellipseValue(rx, ry, 39.0, 29.6, 5.8, 5.2) < 0.58) return "rock";
   return "grass";
 }
 
@@ -220,14 +283,18 @@ function islandValue(x: number, y: number): number {
 }
 
 function mainIslandValue(x: number, y: number): number {
+  // N1: the island is authored in design space and OFFSET (not scaled) onto
+  // the enlarged grid, so it keeps its exact size while the sea grows around it.
+  const dx = landDesignX(x);
+  const dy = landDesignY(y);
   return Math.min(
     // Main horizontal oval. The wall traces this perimeter as a smooth ring.
-    ellipseValue(x, y, 31.0, 31.0, 12.0, 9.5),
+    ellipseValue(dx, dy, 31.0, 31.0, 12.0, 9.5),
     // Lighthouse promontory: bulges west so the lighthouse anchors the W
     // coast. Sized to overlap the main oval enough that the union has no
     // concavity at the junction (which would otherwise produce a small
     // strait pocket and an "extra wall" inside the harbor area).
-    ellipseValue(x, y, 19.5, 28.5, 4.0, 3.0),
+    ellipseValue(dx, dy, 19.5, 28.5, 4.0, 3.0),
   );
 }
 
@@ -252,7 +319,10 @@ function eastCornerRiskValue(x: number, y: number): number {
 // Visual buffer around the lighthouse sprite on the generated island mountain:
 // keep adjacent water generic so DEWS labels and zone textures do not crowd it.
 function isLighthouseVisualClearance(x: number, y: number): boolean {
-  return x >= 14 && x <= 24 && y >= 23 && y <= 32;
+  // Island-adjacent: design space, OFFSET onto the enlarged grid (N1).
+  const dx = landDesignX(x);
+  const dy = landDesignY(y);
+  return dx >= 14 && dx <= 24 && dy >= 23 && dy <= 32;
 }
 
 function isWatchBreakwater(x: number, y: number): boolean {
@@ -270,18 +340,18 @@ function isWatchBreakwaterPeripheryOverride(x: number, y: number): boolean {
 }
 
 function isEastCornerWatchRing(x: number, y: number): boolean {
-  if (x < 28 || x > MAX_TILE_X || y < 0 || y > MAX_TILE_Y) return false;
+  if (x < 28 || x > MAX_DESIGN_X || y < 0 || y > MAX_DESIGN_Y) return false;
   const eastValue = eastCornerRiskValue(x, y);
   return eastValue >= ALERT_RING_OUTER && eastValue < WATCH_RING_OUTER;
 }
 
 function isSouthernWatchShelf(x: number, y: number): boolean {
   // Southern shelf: tiles south of the harbor that bridge into the south basin.
-  return x >= 28 && x <= MAX_TILE_X && y >= SOUTH_SHELF_MIN_Y && y <= MAX_TILE_Y && x + y >= SOUTH_SHELF_DIAGONAL_THRESHOLD;
+  return x >= 28 && x <= MAX_DESIGN_X && y >= SOUTH_SHELF_MIN_Y && y <= MAX_DESIGN_Y && x + y >= SOUTH_SHELF_DIAGONAL_THRESHOLD;
 }
 
 function isCalmAnchorage(x: number, y: number): boolean {
-  const leftEdge = x <= 15 && y >= 10 && y <= MAX_TILE_Y;
+  const leftEdge = x <= 15 && y >= 10 && y <= MAX_DESIGN_Y;
   const leftBasin = ellipseValue(x, y, 8.2, 31.0, 15.0, 20.5) < 1.08 && x <= 22 && y >= 10;
   const southBay =
     x >= SOUTH_BASIN_BOUNDS.minX && x <= SOUTH_BASIN_BOUNDS.maxX && y >= SOUTH_BASIN_BOUNDS.minY;
@@ -348,10 +418,10 @@ function isWithinIslandPeriphery(x: number, y: number): boolean {
 }
 
 function isDeepSeaShelf(x: number, y: number): boolean {
-  const edge = Math.min(x, y, MAX_TILE_X - x, MAX_TILE_Y - y);
+  const edge = Math.min(x, y, MAX_DESIGN_X - x, MAX_DESIGN_Y - y);
   if (edge <= 0) return true;
   if (edge === 1) {
-    return x < 8 || y < 8 || x > MAX_TILE_X - 8 || y > MAX_TILE_Y - 8;
+    return x < 8 || y < 8 || x > MAX_DESIGN_X - 8 || y > MAX_DESIGN_Y - 8;
   }
   return false;
 }

@@ -10,8 +10,11 @@ import {
   PREFERRED_DOCK_TILES,
   tileKindAt,
 } from "./world-layout";
+import { landWorldTile } from "./map-scale";
 
-const CIVIC_CORE_CENTER = { x: 31, y: 31 } as const;
+// N1: the island (and its dock ring) is authored at design (31,31) in the
+// original 56-tile space and offset onto the 112-tile grid.
+const CIVIC_CORE_CENTER = landWorldTile({ x: 31, y: 31 });
 const isLandTileKind = (kind: ReturnType<typeof tileKindAt>) => !isWaterTileKind(kind);
 
 describe("buildChainDocks", () => {

@@ -168,6 +168,10 @@ export interface DockNode {
   healthBand: ChainSummary["healthBand"];
   stablecoinCount: number;
   concentration: number | null;
+  /** Same-origin chain logo path from `ChainSummary.logoPath` (e.g.
+      `/chains/ethereum.png`), flown as the harbour's flag (N4). Optional: a
+      chain without one falls back to its painted chain mark. */
+  logoPath?: string | null;
   harborRank?: number;
   harborCount?: number;
   shareOfGlobal?: number | null;

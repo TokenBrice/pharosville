@@ -52,11 +52,11 @@ export function uniqueDefinitionFor(asset: Pick<StablecoinData, "id">): UniqueSh
 }
 
 /**
- * The ten hero hull GLBs, in the authoring order of
- * `scripts/pharosville/generate-garden-heroes.mjs`. Kept as bare string
- * literals rather than imported from `three/garden-models.ts` so the systems
- * layer stays free of renderer imports; `unique-ships.test.ts` asserts the two
- * lists agree.
+ * Every hero hull GLB, in the authoring order of
+ * `scripts/pharosville/generate-garden-heroes.mjs`: ten shared hulls, then the
+ * seven bespoke titan hulls (N5(b)). Kept as bare string literals rather than
+ * imported from `three/garden-models.ts` so the systems layer stays free of
+ * renderer imports; `unique-ships.test.ts` asserts the two lists agree.
  */
 export const HERO_HULL_MODEL_IDS = [
   "garden-hero-titan",
@@ -69,7 +69,30 @@ export const HERO_HULL_MODEL_IDS = [
   "garden-hero-cog",
   "garden-hero-xebec",
   "garden-hero-cutter",
+  "garden-hero-tether",
+  "garden-hero-circle",
+  "garden-hero-maker",
+  "garden-hero-sky",
+  "garden-hero-ethena",
+  "garden-hero-liberty",
+  "garden-hero-paypal",
 ] as const;
+
+/**
+ * N5(b): the bespoke hulls. Each belongs to exactly one stablecoin and is
+ * never handed out by the hash fallback — that is what makes them bespoke.
+ * `BESPOKE_HULL_OWNER` is the inverse of the assignments below and exists so
+ * the unit tests can assert the exclusivity rather than trusting the table.
+ */
+export const BESPOKE_HULL_OWNER: Readonly<Record<string, string>> = {
+  "garden-hero-tether": "usdt-tether",
+  "garden-hero-circle": "usdc-circle",
+  "garden-hero-maker": "dai-makerdao",
+  "garden-hero-sky": "usds-sky",
+  "garden-hero-ethena": "usde-ethena",
+  "garden-hero-liberty": "usd1-world-liberty-financial",
+  "garden-hero-paypal": "pyusd-paypal",
+};
 
 export type HeroHullModelId = typeof HERO_HULL_MODEL_IDS[number];
 
@@ -84,32 +107,34 @@ export type HeroHullModelId = typeof HERO_HULL_MODEL_IDS[number];
  * to `heroHullModelFor`'s deterministic hash, which is also stable per id.
  */
 export const HERO_HULL_BY_ASSET: Readonly<Record<string, HeroHullModelId>> = {
+  // N5(b) bespoke titans: one hull, one coin, no sharing.
+  "usdt-tether": "garden-hero-tether",
+  "usdc-circle": "garden-hero-circle",
+  "dai-makerdao": "garden-hero-maker",
+  "usds-sky": "garden-hero-sky",
+  "usde-ethena": "garden-hero-ethena",
+  "usd1-world-liberty-financial": "garden-hero-liberty",
+  "pyusd-paypal": "garden-hero-paypal",
   // Treasury galleon — the treasure fleet: reserves held, not strategies run.
-  "usdt-tether": "garden-hero-titan",
   "buidl-blackrock": "garden-hero-titan",
   "xaut-tether": "garden-hero-titan",
   // War carrack — the regulated fortresses.
-  "usdc-circle": "garden-hero-carrack",
   "usdg-paxos": "garden-hero-carrack",
   "paxg-paxos": "garden-hero-carrack",
-  // Xebec — fast, lean, synthetic.
-  "usde-ethena": "garden-hero-xebec",
+  // Xebec — fast, lean, synthetic. susde stays on the shared xebec: the
+  // staked wrapper is a sibling of the basis runner, not a second bespoke.
   "susde-ethena": "garden-hero-xebec",
   "usdtb-ethena": "garden-hero-xebec",
   "fxusd-f-x-protocol": "garden-hero-xebec",
-  // Barquentine — the Sky fleet, half square-rigged and half fore-and-aft.
-  "usds-sky": "garden-hero-barquentine",
+  // Barquentine — the rest of the Sky fleet trails the squadron flagship.
   "susds-sky": "garden-hero-barquentine",
   "stusds-sky": "garden-hero-barquentine",
   // Cog — the elders, and the minimalists.
-  "dai-makerdao": "garden-hero-cog",
   "sdai-sky": "garden-hero-cog",
   "bold-liquity": "garden-hero-cog",
   // Tea clipper — the fast institutional carriers.
-  "pyusd-paypal": "garden-hero-heritage",
   "rlusd-ripple": "garden-hero-heritage",
   // Junk — reserve-backed hulls outside the western issuance stack.
-  "usd1-world-liberty-financial": "garden-hero-junk",
   "usdd-tron-dao-reserve": "garden-hero-junk",
   // Brigantine — the collateral engines.
   "usdf-falcon": "garden-hero-brigantine",
@@ -140,5 +165,14 @@ export function heroHullModelFor(assetId: string): HeroHullModelId {
     hash ^= assetId.charCodeAt(index);
     hash = Math.imul(hash, 0x01000193) >>> 0;
   }
-  return HERO_HULL_MODEL_IDS[hash % HERO_HULL_MODEL_IDS.length];
+  return SHARED_HERO_HULL_IDS[hash % SHARED_HERO_HULL_IDS.length];
 }
+
+/**
+ * The fallback pool. Bespoke titan hulls are excluded on purpose: without this
+ * filter an unlisted coin could hash onto `garden-hero-tether` and sail USDT's
+ * one-of-a-kind vessel, which would quietly destroy the thing N5(b) exists to
+ * create.
+ */
+const SHARED_HERO_HULL_IDS: readonly HeroHullModelId[] = HERO_HULL_MODEL_IDS
+  .filter((id) => BESPOKE_HULL_OWNER[id] === undefined);

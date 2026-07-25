@@ -369,7 +369,11 @@ const FRAGMENT_SHADER = /* glsl */ `
     float shoreVariation = sin(shoreAngle * 3.0 + 0.3) * 0.04
       + sin(shoreAngle * 7.0 - 0.21) * 0.022;
     float shoreDistance = length(shoreDelta) + shoreVariation;
-    float shallowShelf = 1.0 - smoothstep(0.76, 1.34, shoreDistance);
+    // N1: with the sea 4x larger the old tight 0.76-1.34 ramp read as a hard
+    // cyan ring hugging the island. Widened a little so it shelves rather
+    // than stops — but only a little: a long ramp turns the shelf into a pale
+    // halo the size of the harbour, which is worse than the ring was.
+    float shallowShelf = 1.0 - smoothstep(0.72, 1.5, shoreDistance);
 
     float cemDist = length((vWaterPosition - uCemeteryCenter) / 4.6);
     float pigDist = length((vWaterPosition - uPigeonnierCenter) / 3.4);
@@ -380,7 +384,8 @@ const FRAGMENT_SHADER = /* glsl */ `
     // Depth comes from the shore SDF plus authored bathymetry: two shallow
     // aprons off the island and one deep basin in the open water, then the
     // shallow→deep ramp is posterized into flat ukiyo-e bands.
-    float depth = smoothstep(0.92, 3.4, shoreDistance);
+    // Depth ramps out further now that there is real open sea to ramp into.
+    float depth = smoothstep(0.92, 3.8, shoreDistance);
     float shelfA = 1.0 - smoothstep(0.55, 1.25, length(
       (vWaterPosition - uIslandCenter - vec2(-14.0, 10.0)) / vec2(22.0, 12.0)
     ));
@@ -449,7 +454,8 @@ const FRAGMENT_SHADER = /* glsl */ `
     );
 
     // --- B4: island + islet shore foam (V2 lapping kept, W5 rings stay outside)
-    waterColor = mix(waterColor, uShallowColor, shallowShelf * (0.3 - uNight * 0.08));
+    // Gentler peak too: the shelf is a depth cue, not a highlight.
+    waterColor = mix(waterColor, uShallowColor, shallowShelf * (0.26 - uNight * 0.07));
 
     float foamMotion = uTime * 0.55;
     float bandA = sin(shoreDistance * 20.0 - foamMotion);
@@ -499,9 +505,12 @@ const FRAGMENT_SHADER = /* glsl */ `
       // stops dead at the cheap-path boundary and the map reads as a hard
       // diamond tile floating on flat sea. Fading the tint (and its foam)
       // toward the boundary makes the two paths meet at the same colour.
+      // A long ramp: at whole-map framing the world boundary is on screen, so
+      // a short fade reads as a cut edge around a floating tile. Starting the
+      // fade well inside makes the sea dissolve into open ocean instead.
       float edgeFade = 1.0 - smoothstep(
-        uOpenOceanRadius * 0.68,
-        uOpenOceanRadius,
+        uOpenOceanRadius * 0.42,
+        uOpenOceanRadius * 0.98,
         mapDistance
       );
       regionStrength *= edgeFade;

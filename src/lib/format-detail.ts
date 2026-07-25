@@ -139,6 +139,83 @@ export function detailFactValue(facts: readonly DetailFactLike[], key: DetailFac
   return null;
 }
 
+// The first screen quotes at most three figures — the panel's "reading line".
+// Everything else waits inside the record disclosure, so a first look stays a
+// plaque rather than a table (interface revamp DU5/DU12).
+const READING_LINE_MAX_FIGURES = 3;
+
+interface ReadingLineFigure {
+  /** Raw fact label, as authored in `systems/detail-model.ts`. */
+  label: string;
+  format?: (value: string) => string;
+}
+
+const compactFigure = (value: string) => formatCompactUsd(value);
+
+const READING_LINE_FIGURES: Record<string, readonly ReadingLineFigure[]> = {
+  area: [
+    { label: "DEWS band" },
+    { label: "Stablecoins", format: (value) => `${value} ${value === "1" ? "ship" : "ships"}` },
+  ],
+  dock: [
+    { label: "Stablecoin supply", format: compactFigure },
+    { label: "Stablecoin count", format: (value) => `${value} ${value === "1" ? "stablecoin" : "stablecoins"}` },
+    { label: "Health", format: (value) => `${value} health` },
+  ],
+  grave: [
+    { label: "Cause" },
+    { label: "Date" },
+    { label: "Peak market cap", format: compactFigure },
+  ],
+  lighthouse: [
+    { label: "Score", format: (value) => `PSI ${value}` },
+    { label: "Band" },
+  ],
+  ship: [
+    { label: "Market cap", format: compactFigure },
+    { label: "Fleet rank" },
+    { label: "24h supply change", format: (value) => `${value} 24h` },
+    { label: "Peg deviation" },
+    { label: "Cycle tempo" },
+  ],
+};
+
+const EMPTY_FIGURE = /^(?:—|-|unavailable|none on record)$/i;
+
+function normalizeFactLabel(label: string): string {
+  return label.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+/**
+ * Up to three figures for the panel's first screen — the "reading line". The
+ * order is fixed per kind and never reshuffled by how the entity is doing, so
+ * the line reads the same way every time (interface revamp DU12). Returns null
+ * when nothing is worth quoting (an unlit lighthouse, the pigeonnier); the
+ * panel then omits the line rather than padding it with "None on record".
+ */
+export function buildDetailReadingLine(
+  kind: string,
+  facts: readonly DetailFactLike[],
+): string | null {
+  const wanted = READING_LINE_FIGURES[normalizeFactLabel(kind)];
+  if (!wanted) return null;
+
+  const byLabel = new Map<string, string>();
+  for (const fact of facts) {
+    const key = normalizeFactLabel(fact.label);
+    if (!byLabel.has(key)) byLabel.set(key, fact.value);
+  }
+
+  const figures: string[] = [];
+  for (const figure of wanted) {
+    if (figures.length >= READING_LINE_MAX_FIGURES) break;
+    const value = byLabel.get(normalizeFactLabel(figure.label))?.trim();
+    if (!value || EMPTY_FIGURE.test(value)) continue;
+    figures.push(figure.format ? figure.format(value) : value);
+  }
+  return figures.length > 0 ? figures.join(" · ") : null;
+}
+
 export function buildDetailFactSections(facts: readonly DetailFactLike[]): DetailFactSections {
   const lookup = new Map<DetailFactKey, string>();
   for (const fact of facts) {

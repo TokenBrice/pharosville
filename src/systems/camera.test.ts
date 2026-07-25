@@ -103,16 +103,20 @@ function landBoundsCenter(tiles: Array<{ x: number; y: number; kind: TerrainKind
 }
 
 describe("N1 zoom floor", () => {
-  const map = { height: 56, width: 56 };
+  const map = { height: 112, width: 112 };
 
   it("stops zoom-out at the point the map still frames the viewport", () => {
     // The map's iso bounds are 1760x880, so 1920x1080 frames it at ~1.09. The
     // old flat 0.48 floor let the camera pull back to roughly 2.3x the map's
     // area, and the world read as a small tile adrift in empty ocean.
+    // The 112-tile map's iso bounds are 3520x1760, so 1920x1080 frames it at
+    // ~0.545. The floor sits just under that so a sliver of sea frames the
+    // world; it must never sit above the fit or the map cannot be seen whole.
     const viewport = { x: 1920, y: 1080 };
     const floor = minZoomForViewport(viewport, map);
-    expect(floor).toBeGreaterThan(0.85);
-    expect(floor).toBeLessThan(1.09);
+    const fit = Math.min(1920 / 3520, 1080 / 1760);
+    expect(floor).toBeLessThanOrEqual(fit);
+    expect(floor).toBeGreaterThan(fit * 0.9);
 
     let camera = { offsetX: 900, offsetY: 300, zoom: 1.1 };
     for (let step = 0; step < 40; step += 1) camera = zoomOut(camera, viewport, map);
@@ -125,7 +129,7 @@ describe("N1 zoom floor", () => {
     expect(small).toBeLessThan(large);
     // A tiny viewport must never be pinned above the absolute floor, or the
     // world could not be framed at all.
-    expect(minZoomForViewport({ x: 600, y: 400 }, map)).toBe(ABSOLUTE_MIN_ZOOM);
+    expect(minZoomForViewport({ x: 300, y: 200 }, map)).toBe(ABSOLUTE_MIN_ZOOM);
   });
 
   it("still allows zooming in past the floor", () => {

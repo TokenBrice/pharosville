@@ -14,8 +14,10 @@ import { MAX_TILE_X, MAX_TILE_Y } from "./world-layout";
 // 50–60%"). This module measures exactly that, deterministically, with no
 // renderer: the union of the six rendered zone ellipses (display centers from
 // gardenAreaCenterTile, radii from garden-zone-radii) intersected with the
-// sea surface (the 56×56 tile map minus the rendered landmasses from
-// garden-water-exclusion), as a fraction of the total sea surface.
+// sea surface (the 112×112 tile map minus the rendered landmasses from
+// garden-water-exclusion), as a fraction of the total sea surface. Both the
+// centers and the radii ride the N1 map scale, so this measurement is
+// scale-invariant.
 //
 // Radii are world units; the exclusion model works in TILE space, so the
 // ellipse semi-axes are divided by TILE_TO_WORLD (√2 — same constant

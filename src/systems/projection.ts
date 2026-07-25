@@ -106,7 +106,11 @@ export function fitCameraToMap(input: {
  * Absolute zoom floor, used only when no viewport/map is available to compute
  * the real one. Prefer `minZoomForViewport`.
  */
-export const ABSOLUTE_MIN_ZOOM = 0.48;
+// Hard safety floor only. The real floor is `minZoomForViewport`, which is
+// derived from the map; this exists so a pathologically small viewport can
+// still frame the world. Lowered from 0.48 when the grid doubled to 112
+// tiles (N1) — the old value sat ABOVE the new whole-map fit.
+export const ABSOLUTE_MIN_ZOOM = 0.28;
 export const MAX_ZOOM = 2.4;
 
 /**
@@ -120,7 +124,9 @@ export const MAX_ZOOM = 2.4;
  * The floor is now derived from the viewport, with a margin so a border of open
  * sea still frames the composition rather than the map running edge to edge.
  */
-export const MIN_ZOOM_SEA_MARGIN = 0.86;
+// Just under a perfect fit, so a sliver of open sea frames the world rather
+// than the map running exactly edge to edge.
+export const MIN_ZOOM_SEA_MARGIN = 0.95;
 
 export function minZoomForViewport(viewport: ScreenPoint, map: MapLike): number {
   const bounds = mapIsoBounds(map);

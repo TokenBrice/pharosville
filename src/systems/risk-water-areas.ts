@@ -1,4 +1,5 @@
 import type { DewsAreaBand, ShipRiskPlacement, ShipWaterZone, TerrainKind } from "./world-types";
+import { zoneWorldTile } from "./map-scale";
 
 type TileCoordinate = { x: number; y: number };
 
@@ -44,7 +45,13 @@ export const DEWS_AREA_PLACEMENTS: Record<DewsAreaBand, ShipRiskPlacement> = {
   CALM: "safe-harbor",
 };
 
-export const RISK_WATER_AREAS: Record<ShipRiskPlacement, RiskWaterAreaDefinition> = {
+/**
+ * Authored in DESIGN SPACE (the original 56-tile grid). `RISK_WATER_AREAS`
+ * below exposes the same table scaled onto the live world grid, so these
+ * numbers stay readable against the design diagrams while the world is 2x
+ * larger (N1).
+ */
+const AUTHORED_RISK_WATER_AREAS: Record<ShipRiskPlacement, RiskWaterAreaDefinition> = {
   "safe-harbor": {
     placement: "safe-harbor",
     label: "Calm Anchorage",
@@ -208,6 +215,25 @@ export const RISK_WATER_AREAS: Record<ShipRiskPlacement, RiskWaterAreaDefinition
     scatterRadius: { x: 14, y: 5 },
   },
 };
+
+/**
+ * N1: zone anchors are stretched onto the enlarged grid alongside the zone
+ * terrain itself, so a band's ships, label and region tile all land inside the
+ * band's painted water exactly as they did at the authored scale.
+ */
+function scaleRiskWaterArea(area: RiskWaterAreaDefinition): RiskWaterAreaDefinition {
+  return {
+    ...area,
+    labelTile: zoneWorldTile(area.labelTile),
+    regionTile: zoneWorldTile(area.regionTile),
+    shipAnchors: area.shipAnchors.map((anchor) => zoneWorldTile(anchor)),
+    scatterRadius: zoneWorldTile(area.scatterRadius),
+  };
+}
+
+export const RISK_WATER_AREAS: Record<ShipRiskPlacement, RiskWaterAreaDefinition> = Object.fromEntries(
+  SHIP_RISK_PLACEMENTS.map((placement) => [placement, scaleRiskWaterArea(AUTHORED_RISK_WATER_AREAS[placement])]),
+) as Record<ShipRiskPlacement, RiskWaterAreaDefinition>;
 
 function mapRiskWaterAreas<T>(select: (area: RiskWaterAreaDefinition) => T): Record<ShipRiskPlacement, T> {
   return Object.fromEntries(

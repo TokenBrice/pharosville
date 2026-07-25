@@ -2,6 +2,7 @@ import type { ShipMotionSample } from "./motion";
 import { placeGardenFleet } from "./garden-fleet-placement";
 import { selectGardenObservatoryAreas } from "./observe-sequence";
 import { TILE_HEIGHT, tileToScreen, type IsoCamera, type ScreenPoint } from "./projection";
+import { landWorldTile, zoneWorldTile } from "./map-scale";
 import {
   gardenShipWaterMarginTiles,
   isGardenShipWater,
@@ -238,30 +239,36 @@ export function gardenDockDisplayTile(tile: ScreenPoint, index: number): ScreenP
 // - gardenAreaDisplayTile: the DOM label / hit-target / camera-focus anchor,
 //   placed on the VISIBLE arc of each zone, inset toward the frame, so labels
 //   never render off-screen or over the lighthouse.
+//
+// N1 (2026-07-25): both tables stay authored in the 56-tile DESIGN space.
+// Island-relative anchors (Calm's harbor ring, Watch's island-centered sea, and
+// Calm's label inside that ring) take the landmass OFFSET; the off-frame corner
+// arcs and the labels inset against the frame take the zone SCALE, so they keep
+// sweeping the corners of the enlarged map.
 const AREA_DISPLAY_CENTER: Record<string, ScreenPoint> = {
   // Calm: centered on the island (31,31) — the protected inner harbor ring.
-  CALM: { x: 31, y: 31 },
+  CALM: landWorldTile({ x: 31, y: 31 }),
   // Watch: roughly island-centered, slightly below — the dominant sea.
-  WATCH: { x: 33, y: 33 },
+  WATCH: landWorldTile({ x: 33, y: 33 }),
   // Ledger: centered off-frame NW so only its arc sweeps the top-left quadrant.
-  "ledger-mooring": { x: -4, y: 4 },
+  "ledger-mooring": zoneWorldTile({ x: -4, y: 4 }),
   // Alert > Warning > Danger: nested arcs tightening into the NE storm corner.
-  ALERT: { x: 60, y: -5 },
-  WARNING: { x: 57, y: -1 },
-  DANGER: { x: 53, y: 2 },
+  ALERT: zoneWorldTile({ x: 60, y: -5 }),
+  WARNING: zoneWorldTile({ x: 57, y: -1 }),
+  DANGER: zoneWorldTile({ x: 53, y: 2 }),
 };
 
 const AREA_LABEL_TILE: Record<string, ScreenPoint> = {
   // On the NE harbor water inside the ring, clear of docks and the lighthouse.
-  CALM: { x: 42, y: 26 },
+  CALM: landWorldTile({ x: 42, y: 26 }),
   // On the south-west arc, inset toward the frame.
-  WATCH: { x: 14, y: 50 },
+  WATCH: zoneWorldTile({ x: 14, y: 50 }),
   // On the visible arc over the ledger shelf.
-  "ledger-mooring": { x: 8, y: 10 },
+  "ledger-mooring": zoneWorldTile({ x: 8, y: 10 }),
   // Staggered along their arcs so the three chips never collide.
-  ALERT: { x: 43, y: 1 },
-  WARNING: { x: 49, y: 3 },
-  DANGER: { x: 54, y: 4 },
+  ALERT: zoneWorldTile({ x: 43, y: 1 }),
+  WARNING: zoneWorldTile({ x: 49, y: 3 }),
+  DANGER: zoneWorldTile({ x: 54, y: 4 }),
 };
 
 function areaCompositionKey(area: {

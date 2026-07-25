@@ -457,10 +457,10 @@ test("repeated transient ship selection releases GPU resources", async ({ page }
   await page.waitForTimeout(250);
   const closeDetails = page.getByRole("button", { name: "Close details" });
   if (await closeDetails.isVisible()) await closeDetails.click();
-  const search = page.getByRole("combobox", { name: "Find a ship" });
+  // The fleet search is retired (interface revamp DU2), so the transient
+  // outsider is selected through the same `#sel=` deep link visitors share.
   const selectAndCloseTransient = async () => {
-    await search.fill("River Stablecoin");
-    await search.press("Enter");
+    await page.goto("/?debug=1#sel=ship.satusd-river");
     await expect(page.getByTestId("pharosville-detail-panel")).toContainText("River Stablecoin");
     await expect(page.getByTestId("pharosville-canvas")).toHaveAttribute(
       "data-renderer-status",

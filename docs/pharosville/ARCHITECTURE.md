@@ -64,7 +64,7 @@ The overview slice keeps:
 
 - all rendered docks and analytical areas;
 - a stable representative set capped at 20 ships;
-- one temporary selected ship when search or a deep link targets an outsider.
+- one temporary selected ship when a deep link targets an outsider.
 
 ## 4. Renderer Lifecycle
 
@@ -159,7 +159,7 @@ samples as rendering.
 DOM-owned surfaces include:
 
 - detail panel and accessibility ledger;
-- search, toolbar, time controls, fullscreen, and announcements;
+- world controls, footer, and announcements;
 - analytical area labels and Observe captions;
 - `WorldStaticOverview` after GPU/renderer failure.
 

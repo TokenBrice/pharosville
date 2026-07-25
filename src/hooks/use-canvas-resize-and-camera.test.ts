@@ -230,8 +230,6 @@ describe("follow camera helpers", () => {
 function makeCanvasInput(overrides: Partial<UseCanvasResizeAndCameraInput> = {}): UseCanvasResizeAndCameraInput {
   const hitTargetSnapshotRef = { current: null as HitTargetSnapshot | null };
   return {
-    exitFullscreen: vi.fn(),
-    fullscreenMode: false,
     hasSelection: () => false,
     hitTargetSnapshotRef,
     hitTargetsRef: { current: [] },

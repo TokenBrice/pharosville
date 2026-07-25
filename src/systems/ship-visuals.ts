@@ -49,9 +49,37 @@ export const TITAN_SHIPS: Record<string, TitanShipDefinition> = {
   "buidl-blackrock": { scale: 1.40 },
 };
 
+/**
+ * N5(a): the hull family a ship sails, derived from what the stablecoin
+ * actually *is* rather than from its governance flag alone.
+ *
+ * Governance still decides the broad family, because it is the trait with the
+ * strongest visual analogue (who commands the ship). Within that, the
+ * collateral model reassigns the cases where governance alone was misleading:
+ *
+ * - A crypto-backed coin under centralized governance is not a treasury ship;
+ *   its reserves are on-chain and volatile, so it sails the brigantine rather
+ *   than the galleon.
+ * - An RWA/NAV-bearing decentralized coin holds off-chain paper, which reads
+ *   as a laden merchant hull, not a lean DAO schooner.
+ * - A yield-bearing centralized-dependent coin is a carrier for someone else's
+ *   yield, which is the galleon's job.
+ *
+ * The batched fleet renders four silhouettes as instanced meshes, so this
+ * function chooses *which* of the four a ship joins; it cannot vary geometry
+ * per ship. Per-ship proportions need per-instance attributes in the fleet
+ * batch — see the N5(a) note in the plan.
+ */
 export function resolveShipClass(meta: StablecoinMeta): ShipClassDefinition {
   const backing = meta.flags?.backing;
   const governance = meta.flags?.governance;
+  const yieldBearing = meta.flags?.yieldBearing ?? false;
+  const navToken = meta.flags?.navToken ?? false;
+  // `rwa` is true for almost everything that is not crypto-backed, so it is
+  // useless as a splitter on its own — pairing it with navToken/yieldBearing is
+  // what isolates the genuinely fund-like coins.
+  const realWorldBacked = backing === "rwa-backed";
+
   if (backing === "algorithmic") {
     return {
       hull: "algo-junk",
@@ -60,6 +88,13 @@ export function resolveShipClass(meta: StablecoinMeta): ShipClassDefinition {
   }
 
   if (governance === "centralized") {
+    // Crypto collateral under a central issuer: volatile reserves, lighter hull.
+    if (backing === "crypto-backed") {
+      return {
+        hull: "chartered-brigantine",
+        label: GOVERNANCE_LABELS_SHORT.centralized,
+      };
+    }
     return {
       hull: "treasury-galleon",
       label: GOVERNANCE_LABELS_SHORT.centralized,
@@ -67,6 +102,15 @@ export function resolveShipClass(meta: StablecoinMeta): ShipClassDefinition {
   }
 
   if (governance === "centralized-dependent") {
+    // A NAV share over real paper is a fund in a hull — BUIDL, USYC. A NAV
+    // share over crypto collateral (sUSDe) is still a synthetic, and stays on
+    // the lighter chartered hull.
+    if (navToken && realWorldBacked) {
+      return {
+        hull: "treasury-galleon",
+        label: GOVERNANCE_LABELS_SHORT["centralized-dependent"],
+      };
+    }
     return {
       hull: "chartered-brigantine",
       label: GOVERNANCE_LABELS_SHORT["centralized-dependent"],
@@ -74,6 +118,14 @@ export function resolveShipClass(meta: StablecoinMeta): ShipClassDefinition {
   }
 
   if (governance === "decentralized") {
+    // A DAO that holds real paper AND pays it out is running a treasury, not a
+    // lean protocol — it earns the merchant hull.
+    if (realWorldBacked && yieldBearing) {
+      return {
+        hull: "treasury-galleon",
+        label: GOVERNANCE_LABELS_SHORT.decentralized,
+      };
+    }
     return {
       hull: "dao-schooner",
       label: GOVERNANCE_LABELS_SHORT.decentralized,

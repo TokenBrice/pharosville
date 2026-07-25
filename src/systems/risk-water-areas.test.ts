@@ -20,9 +20,35 @@ import {
   isWaterTileKind,
   terrainKindAt,
 } from "./world-layout";
+import { PHAROSVILLE_DESIGN_SPAN, PHAROSVILLE_MAP_SCALE, landWorldTile, zoneWorldTile } from "./map-scale";
 import type { DewsAreaBand, ShipRiskPlacement } from "./world-types";
 
-const LIGHTHOUSE_CLEARANCE = { minX: 14, maxX: 24, minY: 23, maxY: 32 } as const;
+// N1: the live grid is 112x112 but zones and terrain stay AUTHORED in the
+// original 56-tile DESIGN space. Zone geometry (and therefore every anchor,
+// label and region tile in RISK_WATER_AREAS) is SCALED onto the grid; the
+// lighthouse clearance box belongs to the island, so it is OFFSET instead.
+// Design-space literals are kept visible below so they still read against the
+// authored zone diagrams.
+const LIGHTHOUSE_CLEARANCE_MIN = landWorldTile({ x: 14, y: 23 });
+const LIGHTHOUSE_CLEARANCE_MAX = landWorldTile({ x: 24, y: 32 });
+/** The far map edge in ZONE terms: design 55 scales to world 110, not 111. */
+const ZONE_EDGE_MAX = zoneWorldTile({
+  x: PHAROSVILLE_DESIGN_SPAN - 1,
+  y: PHAROSVILLE_DESIGN_SPAN - 1,
+});
+/** Zone AREAS scale with the map, so authored tile counts multiply by 4. */
+const AREA_SCALE = PHAROSVILLE_MAP_SCALE ** 2;
+
+/** `terrainKindAt` for a design-space ZONE coordinate. */
+function zoneTerrain(x: number, y: number): ReturnType<typeof terrainKindAt> {
+  const tile = zoneWorldTile({ x, y });
+  return terrainKindAt(tile.x, tile.y);
+}
+/** `terrainKindAt` for a design-space LANDMASS coordinate. */
+function landTerrain(x: number, y: number): ReturnType<typeof terrainKindAt> {
+  const tile = landWorldTile({ x, y });
+  return terrainKindAt(tile.x, tile.y);
+}
 
 describe("risk water areas", () => {
   it("defines one source of truth for every ship risk placement", () => {
@@ -98,7 +124,7 @@ describe("risk water areas", () => {
 
     // Concentric east-corner rings: tile distance to (55, 0) increases
     // DANGER → WARNING → ALERT, anchored at the eastern tip of the iso diamond.
-    const eastCorner = { x: 55, y: 0 };
+    const eastCorner = zoneWorldTile({ x: 55, y: 0 });
     const tileDist = (band: DewsAreaBand): number => {
       const tile = RISK_WATER_AREAS[DEWS_AREA_PLACEMENTS[band]].labelTile;
       return Math.hypot(tile.x - eastCorner.x, tile.y - eastCorner.y);
@@ -119,8 +145,8 @@ describe("risk water areas", () => {
     const calm = RISK_WATER_AREAS["safe-harbor"];
     const watch = RISK_WATER_AREAS["breakwater-edge"];
 
-    expect(ledger.regionTile).toEqual({ x: 10, y: 5 });
-    expect(ledger.labelTile).toEqual({ x: 10, y: 5 });
+    expect(ledger.regionTile).toEqual(zoneWorldTile({ x: 10, y: 5 }));
+    expect(ledger.labelTile).toEqual(zoneWorldTile({ x: 10, y: 5 }));
     expect(ledger.terrain).toBe("ledger-water");
     expect(ledger.validTerrains).toEqual(["ledger-water"]);
     expect(minDistance([ledger.regionTile, ...ledger.shipAnchors], DOCK_TILES)).toBeGreaterThanOrEqual(3);
@@ -130,8 +156,8 @@ describe("risk water areas", () => {
     // edge with Calm at the y=9/y=10 boundary along the western flank.
     expect(ledger.regionTile.x + ledger.regionTile.y).toBeLessThan(calm.labelTile.x + calm.labelTile.y);
     expect(ledger.regionTile.x + ledger.regionTile.y).toBeLessThan(watch.labelTile.x + watch.labelTile.y);
-    expect(terrainKindAt(0, 9)).toBe("ledger-water");
-    expect(terrainKindAt(0, 10)).toBe("calm-water");
+    expect(zoneTerrain(0, 9)).toBe("ledger-water");
+    expect(zoneTerrain(0, 10)).toBe("calm-water");
   });
 
   it("keeps named risk water out of the lighthouse mountain clearance lane", () => {
@@ -143,8 +169,8 @@ describe("risk water areas", () => {
   });
 
   it("keeps semantic water out of the lighthouse clearance lane", () => {
-    for (let x = LIGHTHOUSE_CLEARANCE.minX; x <= LIGHTHOUSE_CLEARANCE.maxX; x += 1) {
-      for (let y = LIGHTHOUSE_CLEARANCE.minY; y <= LIGHTHOUSE_CLEARANCE.maxY; y += 1) {
+    for (let x = LIGHTHOUSE_CLEARANCE_MIN.x; x <= LIGHTHOUSE_CLEARANCE_MAX.x; x += 1) {
+      for (let y = LIGHTHOUSE_CLEARANCE_MIN.y; y <= LIGHTHOUSE_CLEARANCE_MAX.y; y += 1) {
         const terrain = terrainKindAt(x, y);
         if (!isWaterTileKind(terrain)) continue;
         expect(terrain, `${x}.${y}`).toBe("water");
@@ -169,51 +195,51 @@ describe("risk water areas", () => {
 
     for (const sample of expectedSamples) {
       const area = RISK_WATER_AREAS[DEWS_AREA_PLACEMENTS[sample.band]];
-      expect(area.regionTile).toEqual(sample.tile);
-      expect(terrainKindAt(sample.tile.x, sample.tile.y)).toBe(sample.terrain);
+      expect(area.regionTile).toEqual(zoneWorldTile(sample.tile));
+      expect(zoneTerrain(sample.tile.x, sample.tile.y)).toBe(sample.terrain);
     }
 
     // CALM occupies the left edge, LEDGER owns the entire top mooring shelf
     // touching Calm at its western flank, WATCH owns the south breakwater
     // basin plus the entire eastern shelf below the Alert ring, and
     // ALERT/WARNING/DANGER form concentric rings anchored at the east corner.
-    expect(terrainKindAt(0, 27)).toBe("calm-water");
-    expect(terrainKindAt(14, 42)).toBe("calm-water");
-    expect(terrainKindAt(28, 50)).toBe("calm-water");
-    expect(terrainKindAt(22, 47)).toBe("calm-water");
-    expect(terrainKindAt(34, 44)).toBe("calm-water");
-    expect(terrainKindAt(44, 34)).toBe("calm-water");
-    expect(terrainKindAt(38, 52)).toBe("watch-water");
-    expect(terrainKindAt(48, 44)).toBe("watch-water");
-    expect(terrainKindAt(52, 42)).toBe("watch-water");
-    expect(terrainKindAt(55, 38)).toBe("watch-water");
-    expect(terrainKindAt(30, 55)).toBe("calm-water");
+    expect(zoneTerrain(0, 27)).toBe("calm-water");
+    expect(zoneTerrain(14, 42)).toBe("calm-water");
+    expect(zoneTerrain(28, 50)).toBe("calm-water");
+    expect(zoneTerrain(22, 47)).toBe("calm-water");
+    expect(zoneTerrain(34, 44)).toBe("calm-water");
+    expect(zoneTerrain(44, 34)).toBe("calm-water");
+    expect(zoneTerrain(38, 52)).toBe("watch-water");
+    expect(zoneTerrain(48, 44)).toBe("watch-water");
+    expect(zoneTerrain(52, 42)).toBe("watch-water");
+    expect(zoneTerrain(55, 38)).toBe("watch-water");
+    expect(zoneTerrain(30, 55)).toBe("calm-water");
     // East shelf below the Alert ring also reads as Watch Breakwater now.
-    expect(terrainKindAt(55, 25)).toBe("watch-water");
-    expect(terrainKindAt(55, 30)).toBe("watch-water");
-    expect(terrainKindAt(55, 37)).toBe("watch-water");
-    expect(terrainKindAt(50, 30)).toBe("watch-water");
-    expect(terrainKindAt(45, 35)).toBe("calm-water");
+    expect(zoneTerrain(55, 25)).toBe("watch-water");
+    expect(zoneTerrain(55, 30)).toBe("watch-water");
+    expect(zoneTerrain(55, 37)).toBe("watch-water");
+    expect(zoneTerrain(50, 30)).toBe("watch-water");
+    expect(zoneTerrain(45, 35)).toBe("calm-water");
     // Watch east bridge absorbs the strip between the south basin and the
     // southeast Calm corner that previously read as un-attributed water.
-    expect(terrainKindAt(45, 44)).toBe("watch-water");
-    expect(terrainKindAt(45, 45)).toBe("watch-water");
-    expect(terrainKindAt(55, 0)).toBe("storm-water");
-    expect(terrainKindAt(54, 0)).toBe("storm-water");
-    expect(terrainKindAt(55, 8)).toBe("warning-water");
-    expect(terrainKindAt(45, 0)).toBe("warning-water");
-    expect(terrainKindAt(40, 0)).toBe("alert-water");
-    expect(terrainKindAt(47, 14)).toBe("alert-water");
-    expect(terrainKindAt(55, 17)).toBe("alert-water");
-    expect(RISK_WATER_AREAS["ledger-mooring"].regionTile).toEqual({ x: 10, y: 5 });
-    expect(terrainKindAt(0, 0)).toBe("ledger-water");
-    expect(terrainKindAt(0, 9)).toBe("ledger-water");
-    expect(terrainKindAt(10, 5)).toBe("ledger-water");
-    expect(terrainKindAt(15, 4)).toBe("ledger-water");
-    expect(terrainKindAt(20, 5)).toBe("ledger-water");
-    expect(terrainKindAt(30, 5)).toBe("ledger-water");
-    expect(terrainKindAt(47, 52)).toBe("watch-water");
-    expect(terrainKindAt(50, 55)).toBe("watch-water");
+    expect(zoneTerrain(45, 44)).toBe("watch-water");
+    expect(zoneTerrain(45, 45)).toBe("watch-water");
+    expect(zoneTerrain(55, 0)).toBe("storm-water");
+    expect(zoneTerrain(54, 0)).toBe("storm-water");
+    expect(zoneTerrain(55, 8)).toBe("warning-water");
+    expect(zoneTerrain(45, 0)).toBe("warning-water");
+    expect(zoneTerrain(40, 0)).toBe("alert-water");
+    expect(zoneTerrain(47, 14)).toBe("alert-water");
+    expect(zoneTerrain(55, 17)).toBe("alert-water");
+    expect(RISK_WATER_AREAS["ledger-mooring"].regionTile).toEqual(zoneWorldTile({ x: 10, y: 5 }));
+    expect(zoneTerrain(0, 0)).toBe("ledger-water");
+    expect(zoneTerrain(0, 9)).toBe("ledger-water");
+    expect(zoneTerrain(10, 5)).toBe("ledger-water");
+    expect(zoneTerrain(15, 4)).toBe("ledger-water");
+    expect(zoneTerrain(20, 5)).toBe("ledger-water");
+    expect(zoneTerrain(30, 5)).toBe("ledger-water");
+    expect(zoneTerrain(47, 52)).toBe("watch-water");
+    expect(zoneTerrain(50, 55)).toBe("watch-water");
   });
 
   it("keeps every named sea zone in the same water component with edge-snapped ship anchors where required", () => {
@@ -273,7 +299,9 @@ describe("risk water areas", () => {
       WARNING: "x55",
       DANGER: "x55",
     };
-    const MAX = PHAROSVILLE_MAP_WIDTH - 1;
+    // Edge names stay in design space (x55 / y55); scaled, that is world 110 —
+    // the outermost coordinate the authored zone geometry reaches.
+    const MAX = ZONE_EDGE_MAX.x;
 
     for (const band of DEWS_AREA_BANDS) {
       const area = RISK_WATER_AREAS[DEWS_AREA_PLACEMENTS[band]];
@@ -296,6 +324,7 @@ describe("risk water areas", () => {
   it("keeps the direct island periphery out of every zone", () => {
     // Tiles inside the generated island periphery should be land or generic
     // water, not DEWS-colored zone water.
+    // Island-relative, so these are design-space LANDMASS coordinates.
     const peripherySamples = [
       { x: 32, y: 27 }, // adjacent to bridge step
       { x: 27, y: 35 }, // south of green step
@@ -304,7 +333,7 @@ describe("risk water areas", () => {
       { x: 35, y: 18 }, // west of right column
     ];
     for (const tile of peripherySamples) {
-      const terrain = terrainKindAt(tile.x, tile.y);
+      const terrain = landTerrain(tile.x, tile.y);
       const isZoneTerrain = ["calm-water", "watch-water", "alert-water", "warning-water", "storm-water", "ledger-water"].includes(terrain);
       expect(isZoneTerrain, `${tile.x}.${tile.y} should be generic water, got ${terrain}`).toBe(false);
     }
@@ -318,7 +347,7 @@ describe("risk water areas", () => {
       { x: 13, y: 31 },
     ];
     for (const tile of lighthouseClearanceSamples) {
-      const terrain = terrainKindAt(tile.x, tile.y);
+      const terrain = landTerrain(tile.x, tile.y);
       const isZoneTerrain = ["calm-water", "watch-water", "alert-water", "warning-water", "storm-water", "ledger-water"].includes(terrain);
       expect(isZoneTerrain, `${tile.x}.${tile.y} should be generic water (lighthouse clearance), got ${terrain}`).toBe(false);
     }
@@ -327,21 +356,22 @@ describe("risk water areas", () => {
   it("sizes the top-shelf Ledger Mooring footprint to span the full upper edge", () => {
     const counts = terrainCounts();
 
-    expect(counts["ledger-water"]).toBeGreaterThanOrEqual(280);
-    expect(counts["ledger-water"]).toBeLessThanOrEqual(330);
+    // Authored 56-tile windows x MAP_SCALE² (measured 1159 on the 112x112 grid).
+    expect(counts["ledger-water"]).toBeGreaterThanOrEqual(280 * AREA_SCALE);
+    expect(counts["ledger-water"]).toBeLessThanOrEqual(330 * AREA_SCALE);
     expect(counts["calm-water"]).toBeGreaterThan(counts["ledger-water"]);
   });
 
   it("sizes each zone proportionally to ship count", () => {
     const counts = terrainCounts();
     expect(counts["calm-water"]).toBeGreaterThan(counts["watch-water"]);
-    expect(counts["watch-water"]).toBeGreaterThanOrEqual(80);
+    expect(counts["watch-water"]).toBeGreaterThanOrEqual(80 * AREA_SCALE);
     expect(counts["alert-water"]).toBeGreaterThan(counts["warning-water"] ?? 0);
     expect(counts["alert-water"]).toBeGreaterThan(counts["storm-water"] ?? 0);
-    expect(counts["warning-water"] ?? 0).toBeGreaterThanOrEqual(30);
-    expect(counts["warning-water"] ?? 0).toBeLessThanOrEqual(125);
-    expect(counts["storm-water"] ?? 0).toBeGreaterThanOrEqual(30);
-    expect(counts["storm-water"] ?? 0).toBeLessThanOrEqual(100);
+    expect(counts["warning-water"] ?? 0).toBeGreaterThanOrEqual(30 * AREA_SCALE);
+    expect(counts["warning-water"] ?? 0).toBeLessThanOrEqual(125 * AREA_SCALE);
+    expect(counts["storm-water"] ?? 0).toBeGreaterThanOrEqual(30 * AREA_SCALE);
+    expect(counts["storm-water"] ?? 0).toBeLessThanOrEqual(100 * AREA_SCALE);
   });
 });
 
@@ -382,17 +412,20 @@ function connectedWaterTileKeys(start: { x: number; y: number }): Set<string> {
 }
 
 function isInLighthouseClearance(tile: { x: number; y: number }): boolean {
-  return tile.x >= LIGHTHOUSE_CLEARANCE.minX
-    && tile.x <= LIGHTHOUSE_CLEARANCE.maxX
-    && tile.y >= LIGHTHOUSE_CLEARANCE.minY
-    && tile.y <= LIGHTHOUSE_CLEARANCE.maxY;
+  return tile.x >= LIGHTHOUSE_CLEARANCE_MIN.x
+    && tile.x <= LIGHTHOUSE_CLEARANCE_MAX.x
+    && tile.y >= LIGHTHOUSE_CLEARANCE_MIN.y
+    && tile.y <= LIGHTHOUSE_CLEARANCE_MAX.y;
 }
 
 function isExactEdgeTile(tile: { x: number; y: number }): boolean {
+  // N1: "edge" means the authored design-space edge. Scaling maps design 55 to
+  // world 110, so the outermost world row/column (111) is beyond anything the
+  // authored zone geometry can name.
   return tile.x === 0
     || tile.y === 0
-    || tile.x === PHAROSVILLE_MAP_WIDTH - 1
-    || tile.y === PHAROSVILLE_MAP_HEIGHT - 1;
+    || tile.x === ZONE_EDGE_MAX.x
+    || tile.y === ZONE_EDGE_MAX.y;
 }
 
 function tileKey(tile: { x: number; y: number }): string {

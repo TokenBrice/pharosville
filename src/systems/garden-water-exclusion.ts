@@ -9,6 +9,7 @@ import {
   PIGEON_ISLAND_RADIUS,
 } from "./world-layout";
 import { stableFnv1aHash } from "./stable-random";
+import { landWorldTile } from "./map-scale";
 
 // Zones-v2 placement fix (2026-07-24): ship-vs-land exclusion for the RENDERED
 // garden composition. The data map (`terrainKindAt` in world-layout.ts) and
@@ -40,11 +41,12 @@ interface GardenEllipse {
 
 /** Rendered island rock footprint (terrace + shoreline boulders), tile space. */
 export const GARDEN_ISLAND_OBSTACLE: GardenEllipse = {
-  x: 30.42,
-  y: 36.85,
+  // N1: authored in design space; offset onto the enlarged grid so the
+  // footprint tracks the island, whose absolute size did not change.
+  ...landWorldTile({ x: 30.42, y: 36.85 }),
   rx: 13.9,
   ry: 10.5,
-} as const;
+};
 
 /** Rendered cemetery islet (landmass + buffer), tile space. */
 export const GARDEN_CEMETERY_OBSTACLE: GardenEllipse = {
@@ -62,10 +64,11 @@ interface GardenCircle {
 
 /** Decorative garden islets (crane, turtle, lone), tile space. */
 export const GARDEN_ISLET_OBSTACLES: readonly GardenCircle[] = [
-  { x: 28, y: 8, r: 2.7 }, // crane
-  { x: 4, y: 20, r: 3.7 }, // turtle
-  { x: 26, y: 44, r: 2.5 }, // lone
-] as const;
+  // Landmasses: design space, offset onto the enlarged grid (N1).
+  { ...landWorldTile({ x: 28, y: 8 }), r: 2.7 }, // crane
+  { ...landWorldTile({ x: 4, y: 20 }), r: 3.7 }, // turtle
+  { ...landWorldTile({ x: 26, y: 44 }), r: 2.5 }, // lone
+];
 
 /** Rendered pigeonnier islet (single-tile platform + buffer), tile space. */
 export const GARDEN_PIGEONNIER_OBSTACLE: GardenCircle = {

@@ -47,7 +47,7 @@ npm run validate:changed
 ## Browser Behavior
 
 Run the production Three.js behavior and gate lane when pixels, camera
-interaction, selection, search, Observe, labels, day cycle, reduced motion,
+interaction, selection, Observe, labels, day cycle, reduced motion,
 WebGL failure, or DOM fallback behavior changes:
 
 ```bash
@@ -65,7 +65,7 @@ Safari is not a cutover acceptance browser.
 The browser lane must cover:
 
 - a nonblank Three.js world with `data-renderer="three"`;
-- resize, pan, zoom, fullscreen, selection, blank-world clear, and Escape;
+- resize, pan, zoom, selection, blank-world clear, and Escape;
 - stable 20-ship overview plus transient outsider selection;
 - DOM detail and accessibility-ledger parity;
 - day, dusk, night, and reduced-motion frames;
@@ -124,7 +124,7 @@ Review at `1440 x 1000` and an ultrawide desktop:
 - sail logos and fallback symbols remain legible;
 - ships do not collide incoherently or cover labels;
 - risk areas remain distinguishable without overpowering the scene;
-- the detail panel, toolbar, labels, and world do not overlap;
+- the detail panel, world controls, labels, and world do not overlap;
 - reduced motion remains a complete static composition;
 - the GPU fallback is useful without WebGL.
 

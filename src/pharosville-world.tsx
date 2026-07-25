@@ -7,25 +7,21 @@
 /* eslint-disable react-hooks/refs */
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import Home from "lucide-react/dist/esm/icons/home";
-import Maximize2 from "lucide-react/dist/esm/icons/maximize-2";
-import Minimize2 from "lucide-react/dist/esm/icons/minimize-2";
 import { AccessibilityLedger, type ShipRiskTransitionEntry } from "./components/accessibility-ledger";
 import { DetailPanel } from "./components/detail-panel";
 import { HarborLog } from "./components/harbor-log";
 import { SinceLastVisitBanner } from "./components/since-last-visit";
-import { ShipSearch } from "./components/ship-search";
-import { WorldToolbar } from "./components/world-toolbar";
+import { WorldControls } from "./components/world-controls";
 import { WorldStaticOverview } from "./components/world-static-overview";
 import { PHAROSVILLE_LATEST_VERSION } from "./content/pharosville-version";
 import { useShipLogoAssets } from "./hooks/use-ship-logo-assets";
 import { useChangelogDialog } from "./hooks/use-changelog-dialog";
 import { isLegendDismissed, useLegendDialog } from "./hooks/use-legend-dialog";
 import { useCanvasResizeAndCamera } from "./hooks/use-canvas-resize-and-camera";
-import { useFullscreenMode } from "./hooks/use-fullscreen-mode";
 import { useHarborLog } from "./hooks/use-harbor-log";
 import { useLatestRef } from "./hooks/use-latest-ref";
 import { useLiveTitle } from "./hooks/use-live-title";
+import { useRecentWorldInput } from "./hooks/use-recent-world-input";
 import { useVisitSnapshot } from "./hooks/use-visit-snapshot";
 import { detailAnchorForPoint, useWorldKeyboardTargets } from "./hooks/use-world-keyboard-targets";
 import { useWorldRenderLoop } from "./hooks/use-world-render-loop";
@@ -65,7 +61,10 @@ const OBSERVE_BEAT_DURATION_MS = 12_000;
 function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const [reducedMotion, setReducedMotion] = useState(true);
   const shellRef = useRef<HTMLElement | null>(null);
-  const { exitFullscreen, fullscreenMode, toggleFullscreen } = useFullscreenMode(shellRef);
+  // Holds the faint world controls; `useRecentWorldInput` flags it after any
+  // camera input so they surface for a beat without a re-render.
+  const chromeRef = useRef<HTMLDivElement | null>(null);
+  useRecentWorldInput(chromeRef);
   const requestWorldFrameRef = useRef<() => void>(() => {});
   const requestWorldFrame = useCallback(() => {
     requestWorldFrameRef.current();
@@ -238,24 +237,10 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     selectDetail(target.detailId, detailAnchorForPoint(target.anchor ?? point, viewport));
   }, [selectDetail]);
 
-  // Search → select → follow. `handleFollowSelected` reads the committed
+  // Deep link → select → follow. `handleFollowSelected` reads the committed
   // `selectedEntity`, so the follow fires from the effect below once the
-  // searched ship's selection has actually landed.
+  // linked ship's selection has actually landed.
   const pendingFollowDetailIdRef = useRef<string | null>(null);
-  const [followRequest, setFollowRequest] = useState(0);
-  const shipSearchOptions = useMemo(() => (
-    world.ships
-      .map((ship) => ({
-        detailId: ship.detailId,
-        title: world.detailIndex[ship.detailId]?.title ?? ship.id,
-      }))
-      .sort((left, right) => left.title.localeCompare(right.title))
-  ), [world]);
-  const handleSearchSelect = useCallback((detailId: string) => {
-    pendingFollowDetailIdRef.current = detailId;
-    selectDetail(detailId, null);
-    setFollowRequest((current) => current + 1);
-  }, [selectDetail]);
 
   useEffect(() => {
     const detailId = worldUrlState.initialState.followSelectedDetailId;
@@ -297,8 +282,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   }, [world]);
 
   const canvas = useCanvasResizeAndCamera({
-    exitFullscreen,
-    fullscreenMode,
     hasSelection,
     hitTargetSnapshotRef,
     hitTargetsRef,
@@ -544,7 +527,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       const detailPanel = document.getElementById("pharosville-detail-panel");
       if (detailPanel?.contains(target)) return;
       if (target instanceof Element && target.closest(".pharosville-canvas")) return;
-      if (target instanceof Element && target.closest(".pharosville-overlay, .pharosville-fullscreen-button, .pharosville-home-button, .pharosville-beta-tag")) return;
+      if (target instanceof Element && target.closest(".pharosville-overlay, .pharosville-world-chrome, .pharosville-footer")) return;
       clearSelection();
     };
 
@@ -564,7 +547,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     if (selectedEntity.detailId !== pendingFollowDetailIdRef.current) return;
     pendingFollowDetailIdRef.current = null;
     if (canFollowSelected) followSelectedFromCanvas();
-  }, [canFollowSelected, followRequest, followSelectedFromCanvas, selectedEntity]);
+  }, [canFollowSelected, followSelectedFromCanvas, selectedEntity]);
 
   useEffect(() => observeReducedMotion((matches) => {
     if (matches) {
@@ -607,9 +590,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       } as CSSProperties)
     : undefined;
   const frameRateLabel = formatFrameRateLabel(frameRateFps, reducedMotion);
-  // Live frame-rate telemetry reads as tech-demo chrome; keep it for perf
-  // work behind ?debug=1 (search or hash) instead of showing every visitor.
-  const [debugChrome] = useState(isDebugChromeEnabled);
   const activeCamera = canvas.camera;
   const projectedObservatoryAreas = useMemo(() => {
     if (!threeExperienceReady || !activeCamera) return [];
@@ -651,28 +631,11 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const handleSelectStaticDetail = useCallback((detailId: string) => {
     selectDetail(detailId, null);
   }, [selectDetail]);
-  const handleCopyViewLink = useCallback(() => {
-    void worldUrlState.copyWorldUrlState({
-      camera: activeCamera,
-      nightMode: timeControls.nightMode,
-      selectedDetailId,
-      timeHour: timeControls.wallClockHour,
-    }).then((result) => {
-      setAnnouncement(result === "copied" ? "Copied link to this view." : "Could not copy link to this view.");
-    });
-  }, [
-    activeCamera,
-    selectedDetailId,
-    setAnnouncement,
-    timeControls.nightMode,
-    timeControls.wallClockHour,
-    worldUrlState,
-  ]);
 
   return (
     <main
       ref={shellRef}
-      className={fullscreenMode ? "pharosville-desktop pharosville-shell pharosville-shell--fullscreen" : "pharosville-desktop pharosville-shell"}
+      className="pharosville-desktop pharosville-shell"
       data-testid="pharosville-world"
       aria-describedby="pharosville-world-instructions"
       onKeyDown={rendererFailed ? undefined : handleWorldKeyDown}
@@ -729,42 +692,20 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
           </div>
         )}
         {!rendererFailed && (
-          <>
-            <div
-              ref={hoverTooltipElRef}
-              className="pharosville-hover-tooltip"
-              data-visible="false"
-              data-testid="pharosville-hover-tooltip"
-              aria-hidden="true"
-            >
-              {hoverTooltip && (
-                <div className="pharosville-hover-tooltip__card">
-                  <strong>{hoverTooltip.title}</strong>
-                  <span>{hoverTooltip.meta}</span>
-                </div>
-              )}
-            </div>
-            <div className="pharosville-hud">
-              <WorldToolbar
-                selectedDetailId={selectedDetailId}
-                zoomLabel={canvas.cameraZoomLabel}
-                {...(canFollowSelected ? { onFollowSelected: canvas.handleFollowSelected } : {})}
-                onResetView={canvas.handleResetView}
-                nightMode={timeControls.nightMode}
-                onToggleNightMode={timeControls.toggleNightMode}
-                autoNightCycle={timeControls.autoNightCycle}
-                onToggleAutoNightCycle={timeControls.toggleAutoNightCycle}
-                timeOfDayHour={timeControls.wallClockHour}
-                manualTimeOverrideHour={timeControls.manualTimeOverrideHour}
-                onTimeOfDayChange={timeControls.setManualTimeOverrideHour}
-                onClearTimeOverride={timeControls.clearTimeOverride}
-                {...(threeExperienceReady && !reducedMotion ? {
-                  observing: observeBeat !== null,
-                  onToggleObserve: handleToggleObserve,
-                } : {})}
-              />
-            </div>
-          </>
+          <div
+            ref={hoverTooltipElRef}
+            className="pharosville-hover-tooltip"
+            data-visible="false"
+            data-testid="pharosville-hover-tooltip"
+            aria-hidden="true"
+          >
+            {hoverTooltip && (
+              <div className="pharosville-hover-tooltip__card">
+                <strong>{hoverTooltip.title}</strong>
+                <span>{hoverTooltip.meta}</span>
+              </div>
+            )}
+          </div>
         )}
         {observeBeat && (
           <p className="pharosville-observe-caption" data-testid="pharosville-observe-caption">
@@ -772,7 +713,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
             {observeBeat.label}
           </p>
         )}
-        <ShipSearch options={shipSearchOptions} onSelect={handleSearchSelect} />
         <SinceLastVisitBanner delta={visitSnapshot.delta} onDismiss={visitSnapshot.dismiss} />
         {selectedDetail && (
           <div
@@ -784,26 +724,17 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         )}
       </div>
       {!rendererFailed && (
-        <>
-          <button
-            type="button"
-            className="pharosville-fullscreen-button"
-            aria-label={fullscreenMode ? "Exit fullscreen" : "Enter fullscreen"}
-            title={fullscreenMode ? "Exit fullscreen" : "Enter fullscreen"}
-            onClick={toggleFullscreen}
-          >
-            {fullscreenMode ? <Minimize2 aria-hidden="true" size={24} /> : <Maximize2 aria-hidden="true" size={24} />}
-          </button>
-          <button
-            type="button"
-            className="pharosville-home-button"
-            aria-label="Recenter map"
-            title="Recenter map"
-            onClick={canvas.handleResetView}
-          >
-            <Home aria-hidden="true" size={24} />
-          </button>
-        </>
+        <div className="pharosville-world-chrome" ref={chromeRef} data-recent-input="false">
+          <WorldControls
+            onResetView={canvas.handleResetView}
+            nightMode={timeControls.nightMode}
+            onToggleNightMode={timeControls.toggleNightMode}
+            {...(threeExperienceReady && !reducedMotion ? {
+              observing: observeBeat !== null,
+              onToggleObserve: handleToggleObserve,
+            } : {})}
+          />
+        </div>
       )}
       {changelog.changelogOpen && (
         <Suspense fallback={<ChangelogPanelLoading />}>
@@ -815,24 +746,16 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
           <LazyLegendPanel onClose={legend.closeLegend} onSelectDetail={selectDetail} recentFleetTrend={recentFleetTrend} />
         </Suspense>
       )}
-      <p className="pharosville-beta-tag">
-        <span className="pharosville-beta-tag__notice">PharosVille beta {PHAROSVILLE_LATEST_VERSION} - Interpretive view, not financial advice</span>
-        <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
-        <button className="pharosville-beta-tag__button" type="button" onClick={openLegendExclusive}>Legend</button>
-        <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
-        <button className="pharosville-beta-tag__button" type="button" onClick={openChangelogExclusive}>Changelog</button>
-        <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
-        <span className="pharosville-beta-tag__counter" data-testid="pharosville-ship-counter">{shipCounterLabel}</span>
-        <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
-        {debugChrome && (
-          <>
-            <span className="pharosville-beta-tag__fps" data-testid="pharosville-fps-counter" aria-label={`Frame rate: ${frameRateLabel}`}>{frameRateLabel}</span>
-            <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
-          </>
-        )}
-        <button className="pharosville-beta-tag__button" type="button" onClick={handleCopyViewLink}>Copy link</button>
-        <span className="pharosville-beta-tag__separator" aria-hidden="true">|</span>
-        <a href="https://pharos.watch/">Pharos</a>
+      <p className="pharosville-footer">
+        <span className="pharosville-footer__mark">PharosVille {PHAROSVILLE_LATEST_VERSION}</span>
+        <span className="pharosville-footer__separator" aria-hidden="true">·</span>
+        <button className="pharosville-footer__button" type="button" onClick={openLegendExclusive}>Legend</button>
+        <span className="pharosville-footer__separator" aria-hidden="true">·</span>
+        <button className="pharosville-footer__button" type="button" onClick={openChangelogExclusive}>Changelog</button>
+        <span className="pharosville-footer__separator" aria-hidden="true">·</span>
+        <span className="pharosville-footer__counter" data-testid="pharosville-ship-counter">{shipCounterLabel}</span>
+        <span className="pharosville-footer__separator" aria-hidden="true">·</span>
+        <span className="pharosville-footer__fps" data-testid="pharosville-fps-counter" aria-label={`Frame rate: ${frameRateLabel}`}>{frameRateLabel}</span>
       </p>
       <HarborLog
         entries={harborLog.entries}
@@ -947,8 +870,7 @@ function ChangelogPanelLoading() {
 function fleetCounterLabel(ships: PharosVilleWorldModel["ships"]): string {
   const dockedShips = ships.filter((ship) => ship.dockVisits.length > 0).length;
   const totalShips = ships.length;
-  const shipNoun = dockedShips === 1 ? "ship" : "ships";
-  return `${integerFormatter.format(dockedShips)} ${shipNoun} docked / ${integerFormatter.format(totalShips)} total`;
+  return `${integerFormatter.format(dockedShips)} of ${integerFormatter.format(totalShips)} docked`;
 }
 
 function observatoryAreaLabelCopy(
@@ -965,13 +887,6 @@ function observatoryAreaLabelCopy(
     spoken: `${area.band}, ${area.count} ${noun}`,
     visible: `${area.band} · ${area.count} ${noun}`,
   };
-}
-
-function isDebugChromeEnabled(): boolean {
-  if (typeof window === "undefined") return false;
-  if (new URLSearchParams(window.location.search).get("debug") === "1") return true;
-  const rawHash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
-  return new URLSearchParams(rawHash.startsWith("?") ? rawHash.slice(1) : rawHash).get("debug") === "1";
 }
 
 function formatFrameRateLabel(frameRateFps: number | null, reducedMotion: boolean): string {

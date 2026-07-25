@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { DEWS_AREA_LABEL_COLORS, HARBOR_PALETTE, LEDGER_INK_HEX } from "../systems/palette";
 import type { AreaNode, DewsAreaBand } from "../systems/world-types";
 import { SEA_REGION_ID, seaRegionAtTile } from "../systems/garden-sea-regions";
+import { ZONE_BASE_RADIUS } from "../systems/garden-zone-radii";
 import {
   createDangerWeather,
   createZone,
@@ -64,15 +65,19 @@ describe("createZone", () => {
     const radiusOf = (band: DewsAreaBand, count: number) => (
       createZone(area(band, count)).tint.radiusX / 1.25
     );
-    // Zones-v2 mapping: per-band base + min(2, √max(1,count)·0.3).
-    expect(radiusOf("WATCH", 1)).toBeCloseTo(48.3, 5);
+    // Zones-v2 mapping: per-band base + min(2, √max(1,count)·0.3). N1: the
+    // per-band bases are authored against the 56-tile design space and scale
+    // with the map (WATCH 48 → 96); the √count term is a population nudge in
+    // world units and stays unscaled.
+    const base = (band: DewsAreaBand) => ZONE_BASE_RADIUS[band]!;
+    expect(radiusOf("WATCH", 1)).toBeCloseTo(base("WATCH") + 0.3, 5);
     expect(radiusOf("WATCH", 4)).toBeGreaterThan(radiusOf("WATCH", 1));
     expect(radiusOf("WATCH", 9)).toBeGreaterThan(radiusOf("WATCH", 4));
-    expect(radiusOf("WATCH", 30)).toBeCloseTo(48 + Math.sqrt(30) * 0.3, 5);
+    expect(radiusOf("WATCH", 30)).toBeCloseTo(base("WATCH") + Math.sqrt(30) * 0.3, 5);
     // The √count term caps at +2 so big populations cannot disturb the layout.
-    expect(radiusOf("CALM", 45)).toBeCloseTo(34, 5);
+    expect(radiusOf("CALM", 45)).toBeCloseTo(base("CALM") + 2, 5);
     expect(radiusOf("CALM", 74)).toBeCloseTo(radiusOf("CALM", 45), 5);
-    expect(radiusOf("DANGER", 11)).toBeCloseTo(6 + Math.sqrt(11) * 0.3, 5);
+    expect(radiusOf("DANGER", 11)).toBeCloseTo(base("DANGER") + Math.sqrt(11) * 0.3, 5);
   });
 
   it("orders realized radii Watch > Ledger > Alert > Calm > Warning > Danger", () => {

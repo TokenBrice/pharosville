@@ -1,6 +1,7 @@
 import { InstancedMesh, Matrix4, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
+import { landWorldTile } from "../systems/map-scale";
 import type { GardenRippleRingEmitter } from "./garden-water-contract";
 import { countDrawableObjects, TILE_SCALE } from "./garden-util";
 import { createGardenIslets, GARDEN_ISLETS } from "./garden-islets";
@@ -30,12 +31,15 @@ describe("garden islets (Z5)", () => {
     islets.dispose();
   });
 
-  it("places the crane group at tile (28,8) with the dominant stone tallest", () => {
+  it("places the crane group at design tile (28,8) with the dominant stone tallest", () => {
     const islets = createGardenIslets();
     const crag = islets.root.children[0] as InstancedMesh;
     const dominant = instancePosition(crag, 0);
-    expect(dominant.x).toBeCloseTo(28 * TILE_SCALE, 3);
-    expect(dominant.z).toBeCloseTo(8 * TILE_SCALE, 3);
+    // N1: the islet is authored in the 56-tile design space and offset onto the
+    // 112-tile grid with the other landmasses.
+    const crane = landWorldTile({ x: 28, y: 8 });
+    expect(dominant.x).toBeCloseTo(crane.x * TILE_SCALE, 3);
+    expect(dominant.z).toBeCloseTo(crane.y * TILE_SCALE, 3);
     expect(dominant.y).toBeLessThan(0); // base sunk below the waterline
     islets.dispose();
   });

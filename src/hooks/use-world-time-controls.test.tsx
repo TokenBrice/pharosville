@@ -22,22 +22,42 @@ describe("useWorldTimeControls", () => {
     await waitFor(() => expect(globalThis.__pharosVilleTestWallClockHour).toBe(23.75));
   });
 
-  it("clamps manual time changes to quarter-hour steps and ignores NaN", () => {
-    const { result } = renderHook(() => useWorldTimeControls({ requestPaint: vi.fn() }));
+  it("clamps a seeded manual hour to quarter-hour steps and ignores NaN", () => {
+    const seeded = renderHook(() => useWorldTimeControls({
+      initialManualTimeOverrideHour: 6.13,
+      requestPaint: vi.fn(),
+    }));
+    expect(seeded.result.current.manualTimeOverrideHour).toBe(6.25);
 
-    act(() => {
-      result.current.setManualTimeOverrideHour(6.13);
-    });
+    const notANumber = renderHook(() => useWorldTimeControls({
+      initialManualTimeOverrideHour: Number.NaN,
+      requestPaint: vi.fn(),
+    }));
+    expect(notANumber.result.current.manualTimeOverrideHour).toBeNull();
+
+    const belowRange = renderHook(() => useWorldTimeControls({
+      initialManualTimeOverrideHour: -3,
+      requestPaint: vi.fn(),
+    }));
+    expect(belowRange.result.current.manualTimeOverrideHour).toBe(0);
+  });
+
+  // The hour slider is gone (interface revamp DU10); switching to the day or
+  // night preset is now the only way to drop a `?t=` override in-app.
+  it("clears the seeded manual override when the day-night preset is switched", () => {
+    const requestPaint = vi.fn();
+    const { result } = renderHook(() => useWorldTimeControls({
+      initialManualTimeOverrideHour: 6.25,
+      requestPaint,
+    }));
     expect(result.current.manualTimeOverrideHour).toBe(6.25);
 
     act(() => {
-      result.current.setManualTimeOverrideHour(Number.NaN);
+      result.current.toggleNightMode();
     });
-    expect(result.current.manualTimeOverrideHour).toBe(6.25);
 
-    act(() => {
-      result.current.setManualTimeOverrideHour(-3);
-    });
-    expect(result.current.manualTimeOverrideHour).toBe(0);
+    expect(result.current.manualTimeOverrideHour).toBeNull();
+    expect(result.current.nightMode).toBe(true);
+    expect(globalThis.__pharosVilleTestWallClockHour).toBeUndefined();
   });
 });

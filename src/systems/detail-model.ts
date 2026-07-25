@@ -99,11 +99,11 @@ const ETHEREUM_L2_DOCK_CHAIN_ID_SET = new Set<string>(ETHEREUM_L2_DOCK_CHAIN_IDS
 // matching "lightning active" suffix.
 // C4 observatory voice for named DEWS waters; ships berth here by band.
 const AREA_NARRATIVES: Record<DewsAreaBand, string> = {
-  CALM: "steady water where ships with clean peg evidence ride at anchor.",
-  WATCH: "early-warning water — signals worth watching gather here.",
-  ALERT: "pressure is building in this channel; elevated DEWS alerts berth here.",
-  WARNING: "shallow, hazardous shoals where serious peg stress runs aground.",
-  DANGER: "storm water — active depegs and critical risk ride out the weather here.",
+  CALM: "steady water, where ships with clean peg evidence ride at anchor.",
+  WATCH: "early-warning water, where the signals worth watching gather.",
+  ALERT: "a channel under building pressure, where elevated alerts take their berth.",
+  WARNING: "shallow, hazardous shoals, where serious peg stress runs aground.",
+  DANGER: "storm water, where live depegs and critical risk ride out the weather.",
 };
 
 const ATMOSPHERE_DESCRIPTORS: Record<DewsAreaBand, string> = {
@@ -423,8 +423,8 @@ export function detailForLighthouse(node: LighthouseNode): DetailModel {
     kind: node.kind,
     title: node.label,
     summary: node.unavailable
-      ? "PSI is unavailable, so the beacon is unlit."
-      : `PSI band ${node.psiBand}. Beam warmth tracks the fleet PSI composite; per-zone storms show in the water and sky, not the beam.`,
+      ? "The Peg Stability Index is unavailable tonight, so the beacon stands unlit."
+      : `The fleet reads ${node.psiBand}. The beam's warmth tracks that one fleet-wide number — a storm in any single stretch of water shows in the sea and sky there, never in the beam.`,
     facts: [
       { label: "Score", value: node.score == null ? "Unavailable" : formatPsiNumber(node.score) },
       { label: "Band", value: node.psiBand ?? "Unavailable" },
@@ -526,8 +526,8 @@ export function detailForDock(node: DockNode, context: DockDetailContext | numbe
     kind: node.kind,
     title: node.label,
     summary: topSymbols
-      ? `${harborGroup} for ${topSymbols}; footprint is based on chain stablecoin supply.`
-      : `${harborGroup}; footprint is based on chain stablecoin supply.`,
+      ? `${harborGroup}, harboring ${topSymbols}. Its size follows the stablecoin supply held on this chain — not bridge traffic, not transfers.`
+      : `${harborGroup}. Its size follows the stablecoin supply held on this chain — not bridge traffic, not transfers.`,
     facts: [
       { label: "Stablecoin supply", value: usd.format(node.totalUsd) },
       ...(harborRank ? [{ label: "Harbor rank", value: harborRank }] : []),
@@ -651,15 +651,15 @@ export function squadOverrideBanner(node: ShipNode): string | null {
 // strings from risk-placement.ts, falling back to the raw reason for any
 // wording this map does not know.
 const PLACEMENT_NARRATIVES: Record<string, string> = {
-  "Active depeg event": "An active depeg has driven this ship into storm water.",
-  "Current peg deviation": "Its live peg reading is holding it off the calm anchorage.",
-  "DEWS stress escalation": "Early-warning stress signals set this berth.",
+  "Active depeg event": "A live depeg has driven this ship into storm water.",
+  "Current peg deviation": "The live peg reading is holding this ship off the calm anchorage.",
+  "DEWS stress escalation": "Early-warning stress set this berth; nothing has broken yet.",
   "NAV token Ledger Mooring idle preference":
     "A NAV-priced ledger asset, moored where attestation — not the market peg — sets the price.",
-  "Active depeg evidence is stale": "Its last depeg evidence has gone stale; berthed in calm water under caveat.",
-  "Missing or low-confidence price evidence": "Price evidence is thin; berthed in calm water under caveat.",
-  "Risk evidence is stale": "Risk evidence has gone stale; berthed in calm water under caveat.",
-  "No active peg or DEWS stress": "Sailing clean — no active peg or early-warning stress.",
+  "Active depeg evidence is stale": "The last depeg evidence has gone stale, so this ship rides calm water under caveat.",
+  "Missing or low-confidence price evidence": "Price evidence is thin here, so this ship rides calm water under caveat.",
+  "Risk evidence is stale": "Risk evidence has gone stale, so this ship rides calm water under caveat.",
+  "No active peg or DEWS stress": "Sailing clean — no active peg break, no early-warning stress.",
 };
 
 export function placementNarrative(reason: string): string {
