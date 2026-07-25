@@ -217,28 +217,22 @@ export function chainInitials(name: string): string {
  * failed load is not an error: the painted mark is the contract, the logo is
  * the upgrade, so failures keep the flag exactly as it is.
  */
-/** See the note in `upgradeCellWithChainLogo`. */
-const CHAIN_LOGO_UPGRADE_ENABLED = false;
-
 function upgradeCellWithChainLogo(
   store: MutableAtlas,
   cell: number,
   logoPath: string | null,
 ): void {
-  // Disabled pending an explicit runtime-media decision (2026-07-25).
+  // Enabled 2026-07-25 by operator decision, with the assets shipped.
   //
-  // Chain logos would be a NEW class of runtime media. The contract currently
-  // allows exactly three: the stablecoin-logo inventory, the checked water
-  // texture, and the checked model manifest — and `npm run check:runtime-media`
-  // enforces it. This repository ships no `public/chains/` directory, so every
-  // harbour would fire a request that 404s on this build, and whether
-  // production serves those paths is unverified.
+  // Chain logos are a fourth class of runtime media alongside the
+  // stablecoin-logo inventory, the checked water texture and the model
+  // manifest. `public/chains/` now carries the eleven marks a harbour can
+  // actually fly (the ten PREFERRED_DOCK_TILES chains plus TON's pigeonnier
+  // wharf), so the fetch resolves locally as well as in production.
   //
-  // The painted per-chain mark below is deterministic and already distinct per
-  // chain, so the harbour flags read correctly without it. To turn this on:
-  // ship `public/chains/`, add the class to the runtime-media allowlist and to
-  // VISUAL_INVARIANTS, and regenerate RUNTIME_FACTS.
-  if (!CHAIN_LOGO_UPGRADE_ENABLED) return;
+  // Any chain outside that set keeps the painted mark, which is why the
+  // fallback below is not an error path: a miss is the designed outcome for
+  // the other ~90 chains the API can report.
   if (!logoPath || !logoPath.startsWith("/")) return;
   if (store.upgraded.has(cell)) return;
   if (typeof Image === "undefined") return;

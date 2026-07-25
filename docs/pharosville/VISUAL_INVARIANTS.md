@@ -98,8 +98,12 @@ tests and documentation.
 - Checked GLBs must preserve manifest hashes, dimensions, base-center origins,
   named anchors, pick proxies, and budgets.
 - GLB failure must leave aligned procedural fallbacks visible.
-- Runtime image decoding is limited to same-origin ship logos; the checked
-  water texture remains renderer-owned.
+- Runtime image decoding is limited to same-origin ship logos and same-origin
+  CHAIN logos (2026-07-25: harbour flags fly their chain's mark, N4). The
+  chain set shipped in `public/chains/` covers only the harbours that can
+  render — the ten preferred dock chains plus TON — and any other chain keeps
+  a deterministic painted mark, so a miss is a designed outcome and never an
+  error path. The checked water texture remains renderer-owned.
 - Every ship needs a stable livery and readable logo or symbol fallback.
 - Hit targets must use the same display transforms and motion samples as the
   rendered entities.
