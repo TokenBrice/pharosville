@@ -437,7 +437,7 @@ come last, gated on measurement.
 
 | # | Item | Note |
 |---|---|---|
-| R1 | Extraction is heuristic | ~7/10 unaided. The gate plus the D3 fallback bounds the downside, but expect a tail needing per-coin overrides. A `data/emblem-overrides.json` (mirroring `brand-color-overrides.json`) is the natural escape hatch. |
+| R1 | Extraction is heuristic | ~7/10 unaided. The gate plus the D3 fallback bounds the downside, but expect a tail needing per-coin overrides. An emblem-overrides file under `data/` (mirroring `brand-color-overrides.json`) is the natural escape hatch; it was never needed, so it does not exist. |
 | R2 | **White mark on pale cloth** | Created by D1, resolved by D5 — 28 pale-branded ships (11%) get a near-black sail. See S5. |
 | R2b | **A black sail could be read as a signal** | PharosVille encodes meaning in colour (health bands, sea zones), so a black sail risks being read as "this coin is in trouble" when it only means "this brand is pale yellow". Mitigations: keep the brand-hue whisper so it reads as a very dark version of *their* colour rather than a distinct state; confirm nothing else in the world uses black canvas; and check the legend does not need a line. **Worth a deliberate look once the 28 are on screen together.** |
 | R3 | Ghost disc on fallback ships | D3 accepts a visible disc where extraction fails. Softened by the dye matching the disc, but the 17% cream lift leaves a faint edge. If it reads badly, the lever is to reduce the lift on the emblem sail specifically. |

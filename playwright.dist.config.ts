@@ -26,7 +26,7 @@ export default defineConfig({
     trace: "on-first-retry",
   }),
   webServer: {
-    command: "npm run preview -- --host 127.0.0.1 --port 4174",
+    command: "npm run serve:dist -- --host 127.0.0.1 --port 4174",
     url: BASE_URL,
     reuseExistingServer: false,
     timeout: 120_000,

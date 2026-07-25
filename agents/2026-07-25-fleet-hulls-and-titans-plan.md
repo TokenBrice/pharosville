@@ -572,3 +572,125 @@ npm run preview                 # the only valid visual/perf evidence
 - A written outcome section appended to this document (§8), in the style of the
   sail plan's §7: what shipped, what changed against the plan, what was
   measured and found not worth doing, and the residuals.
+
+---
+
+## 8. Outcome (2026-07-25)
+
+Executed as one autonomous run per D8, W1 → W6, one commit and one real-GPU
+screenshot per package. Five commits: `fda8ef4`, `f3e1d4b`, `ee33655`,
+`5fe972c`, `cd8bc4b`.
+
+| Gate | Target | Result |
+|---|---|---|
+| W1 hulls >60° off timber, sat >0.18 | 0 | **0 of 214** (was 100) |
+| W2 hull-form p10–p90 spread | ≥0.45 of ±0.32 budget | length 0.53, beam ~0.40, height 0.38 |
+| W3 sail:hull area ratio | 2.3–2.7 | **weighted mean 2.49**, range 1.59–2.78 |
+| W5 worst hero pair, hull-only IoU | ≤0.60 | **0.792 — NOT met**, see below |
+| all | 60 fps, tier `full`, 0 dropped | **60 fps, full, 0 of 120, 625 draw calls** |
+| all | tests green | **892 passing, 87 files** |
+
+### What changed against the plan
+
+- **W4 landed inside W2, not after W3.** Furling needs a per-instance sail mask,
+  and so does rig variety; building it once served both. It was then retuned
+  twice: striking every sail at berth put two thirds of the harbour on bare
+  poles, and after W3 made the masts taller it looked worse still. The final
+  rule — hand the uppers, leave the courses hanging — required turning the sail
+  indices into *bands* (0 emblem, 1–2 courses, 3–5 uppers) so the policy can say
+  "uppers" without knowing any silhouette's rig plan.
+- **W2's silhouette split is not the one the plan proposed.** The plan said to
+  give `crypto-caravel` and `algo-junk` their own hulls. Measured on the live
+  set, **neither matches a single coin** — both were already dead branches, so
+  hulls for them would draw nothing. The real pools were split instead, on
+  yield-bearing (18/46 and 25/32, near-even) and on commodity pegs (8). Seven
+  silhouettes, largest pool 46, from four and 64.
+- **W3's mechanism is not bigger sails.** A course wide enough to reach 2.5:1 is
+  wider than the gap to the next mast. Stacked sails per mast — topsails, then
+  topgallants on the two fastest — is what makes a tall ship look tall, and it
+  keeps every sail inside its own bay.
+- **The identity sail shrank** from ×1.42 to ×1.20, and is still larger in
+  absolute terms than before, because the course underneath it grew.
+- **A real bug was found and fixed en route:** the batched pennant was drawn at
+  the ship's own origin — the waterline — so all ~187 batched ships have been
+  flying an invisible pennant buried inside the hull since the batching work.
+  Only hero hulls ever showed one.
+- **Five hero budgets were raised** rather than silently exceeded, and the pick
+  proxy is now derived from model bounds by `outputs/patch-hero-manifest.mjs`,
+  because a hull that grows plus a stale hit cylinder is exactly the drift the
+  budget guard exists to catch.
+
+### W5's gate was set too tight, and here is what actually remains
+
+The ≤0.60 IoU gate covers **all eighteen** hero hulls. W5's scope was the six
+named titans plus D7's grammar. The gate is not met, and two separate reasons
+account for the whole gap:
+
+1. **The ten SHARED hulls were never in scope** and they are now the worst
+   pairs: carrack/cog 0.792, junk/cog 0.758, titan/carrack 0.745. These carry
+   heritage-tier coins, and fixing them is the same kind of work W5 just did —
+   real, tractable, and not what was asked for in this batch.
+2. **USDS vs DAI cannot go much below ~0.70 under D5.** The operator chose to
+   keep the shared hull; a shared hull *is* shared pixels. They moved 0.790 →
+   0.696 hull-only (0.703 with rig), and the residual is the decision working as
+   intended, not a failure to execute it.
+
+Movement on the six named titans, hull-only IoU:
+
+| pair | before | after |
+|---|---|---|
+| USDS vs DAI | 0.790 | **0.696** |
+| USDT vs shared galleon | 0.753 | **0.704** |
+| USD1 vs DAI | 0.778 | out of the top twelve |
+| USD1 vs USDS | 0.771 | out of the top twelve |
+| USDC vs barquentine | 0.751 | out of the top twelve |
+
+IoU is also a blunt instrument here: two hulls can share 70% of their pixels and
+still be told apart instantly by *what* the differing 30% is — a crane, an oar
+bank, a sun disc. The contact sheets
+(`outputs/hero-silhouettes-{iso-hull,side-hull}.png`) are the better evidence,
+and USD1 in particular is unrecognisable as its former self.
+
+### Residuals
+
+- **The ten shared hero hulls** (carrack, cog, titan, junk, heritage, dhow,
+  barquentine, xebec, brigantine, cutter) still read as one family. Highest-value
+  next batch, and the method is now proven.
+- **The hoy carries 1.59:1 canvas** against a 2.5 fleet target. Deliberate — it
+  is 8 ships and bullion does not need speed — but it is the one silhouette that
+  misses the W3 band.
+- **W6 is mostly unspent.** Only the towed boat landed. Gulls over the top three,
+  night rigging that catches the lantern, a careened hull among the graves, spray
+  scaled to speed and weathered cloth are all still open.
+- `crypto-caravel` and `algo-junk` remain live enum values matching zero coins.
+  Not removed — that is a data question, not a rendering one.
+
+### `validate:release` — what it found, and what was already broken
+
+Running it was the first time it has been runnable in a while, and it surfaced
+three pre-existing faults that had nothing to do with this work:
+
+1. **Two dead doc paths** (`logo-vectorisation-brief.md`,
+   `sail-heraldry-plan.md`) failed `check:doc-paths-and-scripts`, which is the
+   deploy gate's first step — so nothing after it had run. One was a path inside
+   a Python snippet, the other named an escape-hatch file that was proposed and
+   never created. Both reworded.
+2. **`package.json` had two `"preview"` keys.** The later one — the GPU
+   screenshot script — silently shadowed `vite preview`, so
+   `playwright.dist.config.ts` was launching a screenshot tool as its web
+   server and getting "Process from config.webServer exited early". The vite
+   entry is renamed `serve:dist`; `preview` keeps its documented meaning
+   (`CLAUDE.md`, `AGENTS.md`, both plans point at it).
+3. **Three dist visual tests fail, and all three predate this work.** Verified
+   by running the same specs in a detached worktree at `59d9582`, the commit
+   before the first of these five: identical failures, identical timeouts.
+   - two are SwiftShader-bound *timeouts* waiting on UI controls (180s and 60s),
+     which is precisely the software-rasteriser problem `CLAUDE.md` documents;
+   - one asserts `toHaveLength(20)` on rendered ships, a cap that became 320 in
+     the Grand Scale Revamp and now yields 89 on the dense fixture.
+
+   These are real and worth fixing, but they are a separate lane: the dist
+   visual harness has drifted from the world it tests. Flagged, not touched.
+
+`npm test -- src` is **892 passing across 87 files**, and the real-GPU frame is
+60 fps at tier `full` with 0 dropped of 120.

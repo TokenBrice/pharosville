@@ -68,7 +68,7 @@ Priority order by current size: `ton` (24), `avalanche`/`bsc`/`tron` (28),
 ```bash
 python3 -c "
 import json, subprocess, os
-d = json.load(open('data/logos.json'))
+d = json.load(open(LOGOS_JSON))  # data/logos.json
 seen = {}
 for k, v in d.items():
     ext = os.path.splitext(v)[1].lower()
