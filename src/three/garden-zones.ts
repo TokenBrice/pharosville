@@ -413,6 +413,10 @@ export function updateZoneBuoys(
   reducedMotion: boolean,
   tier: PharosVilleRenderSchedulerTier | boolean,
 ): void {
+  // S1: callers resolve `tier` through `seaQualityTier`, so a camera drag no
+  // longer counts as load pressure here — reading the raw tier froze every
+  // marker buoy mid-swell and stopped the danger lamps the moment the camera
+  // moved.
   const tierName: PharosVilleRenderSchedulerTier = typeof tier === "boolean"
     ? (tier ? "full" : "constrained")
     : tier;

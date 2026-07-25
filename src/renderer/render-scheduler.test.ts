@@ -4,6 +4,7 @@ import {
   RENDER_SCHEDULER_DOWNSHIFT_STREAK,
   RENDER_SCHEDULER_UPSHIFT_STREAK,
   resolveRenderSchedulerState,
+  seaQualityTier,
 } from "./render-scheduler";
 
 describe("render scheduler", () => {
@@ -48,6 +49,45 @@ describe("render scheduler", () => {
     });
 
     expect(scheduler.tier).toBe("interaction");
+  });
+
+  it("reports the load reading that interaction masks", () => {
+    // S1: `interaction` says the camera is moving, not that the GPU is in
+    // trouble, so it must not be the signal quality decisions read. The ladder
+    // is bypassed on those frames, so its frozen tier is exactly what this
+    // frame would be at if the camera were still.
+    const hysteresis = createRenderSchedulerHysteresisState();
+    const pressured = { cameraIntentActive: false, framePacingP90Ms: 34, reducedMotion: false };
+    for (let frame = 0; frame < RENDER_SCHEDULER_DOWNSHIFT_STREAK; frame += 1) {
+      resolveRenderSchedulerState(pressured, hysteresis);
+    }
+    expect(hysteresis.loadTier).toBe("recovery");
+
+    const dragging = resolveRenderSchedulerState(
+      { ...pressured, cameraIntentActive: true },
+      hysteresis,
+    );
+    expect(dragging.tier).toBe("interaction");
+    expect(dragging.loadTier).toBe("recovery");
+    expect(seaQualityTier(dragging)).toBe("recovery");
+
+    // A healthy machine keeps its quality through the same drag.
+    const healthy = createRenderSchedulerHysteresisState();
+    healthy.loadTier = "full";
+    const healthyDrag = resolveRenderSchedulerState(
+      { cameraIntentActive: true, framePacingP90Ms: 16, reducedMotion: false },
+      healthy,
+    );
+    expect(healthyDrag.tier).toBe("interaction");
+    expect(seaQualityTier(healthyDrag)).toBe("full");
+  });
+
+  it("passes load tiers through seaQualityTier untouched", () => {
+    for (const tier of ["full", "balanced", "recovery", "constrained"] as const) {
+      expect(seaQualityTier({ tier })).toBe(tier);
+    }
+    // Absent a load reading, the ladder's own initial value is the fallback.
+    expect(seaQualityTier({ tier: "interaction" })).toBe("balanced");
   });
 
   it("uses the constrained tier under severe frame pressure", () => {

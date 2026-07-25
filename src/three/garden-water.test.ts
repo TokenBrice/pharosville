@@ -143,16 +143,17 @@ describe("createGardenWater", () => {
     );
     expect(uniformNumber(water.material, "uTempo")).toBe(0);
 
-    water.update(frame({
-      renderScheduler: { tier: "interaction" },
-    }));
-    expect(uniformNumber(water.material, "uDetail")).toBe(0.58);
+    // S1: a camera drag is not a load tier. `interaction` resolves through the
+    // frozen load reading, so the water keeps full detail while the camera
+    // moves — this is the operator's "goes bluish-pale on camera move" bug.
+    settle(water, { renderScheduler: { tier: "interaction", loadTier: "full" } });
+    expect(uniformNumber(water.material, "uDetail")).toBeCloseTo(1, 3);
 
-    water.update(frame({
-      renderScheduler: { tier: "recovery" },
-    }));
-    expect(uniformNumber(water.material, "uDetail")).toBe(0.36);
+    settle(water, { renderScheduler: { tier: "recovery" } });
+    expect(uniformNumber(water.material, "uDetail")).toBeCloseTo(0.36, 3);
 
+    // Reduced motion renders ONE static frame, so it must snap rather than ease
+    // — a part-way value would read as an accidental pause.
     water.update(frame({
       reducedMotion: true,
       renderScheduler: { tier: "constrained" },
@@ -160,6 +161,51 @@ describe("createGardenWater", () => {
     }));
     expect(uniformNumber(water.material, "uDetail")).toBe(0.24);
     expect(uniformNumber(water.material, "uTime")).toBe(0);
+  });
+
+  it("keeps the sea's character through a camera drag", () => {
+    // The reported bug, as a guard. On a drag the scheduler returns
+    // `interaction` with no hysteresis and no load measurement behind it;
+    // reading that as load pressure switched cloud shadows, glitter and every
+    // ripple ring off in one frame and cost 41% of the surface's measured
+    // luminance variance.
+    const water = createGardenWater(0);
+    settle(water, { renderScheduler: { tier: "full" } });
+    const atRest = {
+      cloud: uniformNumber(water.material, "uCloudShadowStrength"),
+      detail: uniformNumber(water.material, "uDetail"),
+      glitter: uniformNumber(water.material, "uGlitterStrength"),
+      ripple: uniformNumber(water.material, "uRippleStrength"),
+    };
+
+    settle(water, { renderScheduler: { tier: "interaction", loadTier: "full" } });
+    expect(uniformNumber(water.material, "uCloudShadowStrength")).toBeCloseTo(atRest.cloud, 5);
+    expect(uniformNumber(water.material, "uDetail")).toBeCloseTo(atRest.detail, 5);
+    expect(uniformNumber(water.material, "uGlitterStrength")).toBeCloseTo(atRest.glitter, 5);
+    expect(uniformNumber(water.material, "uRippleStrength")).toBeCloseTo(atRest.ripple, 5);
+    expect(water.cloudShadowsOn()).toBe(true);
+
+    // A drag on a machine already shedding load still sheds — quality tracks
+    // the machine, not the mouse.
+    settle(water, { renderScheduler: { tier: "interaction", loadTier: "recovery" } });
+    expect(uniformNumber(water.material, "uDetail")).toBeCloseTo(0.36, 3);
+    expect(water.cloudShadowsOn()).toBe(false);
+  });
+
+  it("eases a load-tier change instead of stepping it", () => {
+    // S2: hysteresis stops the ladder flapping but cannot make a single
+    // crossing invisible. One frame must not carry the whole swing.
+    const water = createGardenWater(0);
+    settle(water, { renderScheduler: { tier: "full" } });
+    const before = uniformNumber(water.material, "uDetail");
+
+    water.update(frame({ renderScheduler: { tier: "recovery" }, timeSeconds: 13.5 }));
+    const afterOneFrame = uniformNumber(water.material, "uDetail");
+    expect(afterOneFrame).toBeLessThan(before);
+    expect(afterOneFrame).toBeGreaterThan(0.36);
+
+    settle(water, { renderScheduler: { tier: "recovery" }, timeSeconds: 14 });
+    expect(uniformNumber(water.material, "uDetail")).toBeCloseTo(0.36, 3);
   });
 
   it("shares the C2 cloud-shadow uniforms with the water material", () => {
@@ -188,17 +234,17 @@ describe("createGardenWater", () => {
   it("gates cloud shadows and glitter to balanced+ tiers", () => {
     const water = createGardenWater(0);
 
-    water.update(frame({ renderScheduler: { tier: "balanced" } }));
+    settle(water, { renderScheduler: { tier: "balanced" } });
     expect(water.cloudShadowsOn()).toBe(true);
     expect(uniformNumber(water.material, "uCloudShadowStrength")).toBeGreaterThan(0);
-    expect(uniformNumber(water.material, "uGlitterStrength")).toBe(1);
-    expect(uniformNumber(water.material, "uRippleStrength")).toBe(1);
+    expect(uniformNumber(water.material, "uGlitterStrength")).toBeCloseTo(1, 3);
+    expect(uniformNumber(water.material, "uRippleStrength")).toBeCloseTo(1, 3);
 
-    water.update(frame({ renderScheduler: { tier: "recovery" } }));
+    settle(water, { renderScheduler: { tier: "recovery" } });
     expect(water.cloudShadowsOn()).toBe(false);
-    expect(uniformNumber(water.material, "uCloudShadowStrength")).toBe(0);
-    expect(uniformNumber(water.material, "uGlitterStrength")).toBe(0);
-    expect(uniformNumber(water.material, "uRippleStrength")).toBe(0);
+    expect(uniformNumber(water.material, "uCloudShadowStrength")).toBeCloseTo(0, 3);
+    expect(uniformNumber(water.material, "uGlitterStrength")).toBeCloseTo(0, 3);
+    expect(uniformNumber(water.material, "uRippleStrength")).toBeCloseTo(0, 3);
   });
 
   it("registers karesansui ripple-ring emitters via the C2 API", () => {
@@ -282,6 +328,24 @@ function frame(overrides: Partial<GardenWaterFrame> = {}): GardenWaterFrame {
     wallClockHour: 12,
     ...overrides,
   };
+}
+
+/**
+ * Drive enough advancing frames for S2's tier easing to settle.
+ *
+ * The tier-driven uniforms approach their target at `1 - e^(-12 dt)` per frame,
+ * so a single `update` at a standing clock moves nothing — which is correct
+ * (no time passed) but means a test asserting a tier's steady state has to run
+ * a clock the way the render loop does.
+ */
+function settle(
+  water: { update: (frame: GardenWaterFrame) => void },
+  overrides: Partial<GardenWaterFrame> = {},
+): void {
+  const start = overrides.timeSeconds ?? 12;
+  for (let step = 0; step < 30; step += 1) {
+    water.update(frame({ ...overrides, timeSeconds: start + step * 0.05 }));
+  }
 }
 
 function uniformNumber(material: ShaderMaterial, name: string): number {

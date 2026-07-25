@@ -34,6 +34,38 @@ export function createRenderSchedulerHysteresisState(): RenderSchedulerHysteresi
   return { loadTier: "balanced", downshiftStreak: 0, upshiftStreak: 0 };
 }
 
+/**
+ * The quality tier a system should draw at, given this frame's scheduler state.
+ *
+ * `tier` conflates two unrelated signals. `interaction` is returned
+ * unconditionally by `resolveRenderSchedulerTier` the moment the camera moves —
+ * no hysteresis, no load measurement behind it — so a system that reads `tier`
+ * to decide how much *quality* to ship is really keying on "is the user
+ * dragging right now".
+ *
+ * That is what produced the operator's report that the water "goes back to this
+ * bluish-palish look" whenever the camera moves. Measured on the reference GPU:
+ * on a drag, cloud shadows and sun glitter switched off, ripple rings fell from
+ * 24 to 15, marker buoys froze mid-swell and the shadow map dropped 1024 -> 384,
+ * all in one frame — the sea's surface luminance variance fell 41%
+ * (sigma 12.4 -> 7.3) at identical mean brightness. The frame budget never
+ * justified it: the same frame holds 60 fps / 16.7 ms p90 with all of it on.
+ *
+ * This returns the load reading `interaction` masks — the hysteresis ladder's
+ * frozen tier, which is what the frame would be at if the camera were still.
+ * So quality tracks the machine, not the mouse, and a weak machine still sheds
+ * exactly as much as it did before.
+ *
+ * `loadTier` is optional on the state; without it we can only fall back to
+ * `balanced`, which is the ladder's own initial value.
+ */
+export function seaQualityTier(
+  state: Pick<PharosVilleRenderSchedulerState, "tier" | "loadTier">,
+): Exclude<PharosVilleRenderSchedulerTier, "interaction"> {
+  if (state.tier !== "interaction") return state.tier;
+  return state.loadTier ?? "balanced";
+}
+
 export function resolveRenderSchedulerState(
   input: {
     cameraIntentActive: boolean;
@@ -47,6 +79,11 @@ export function resolveRenderSchedulerState(
   return {
     targetFrameMs: RENDER_SCHEDULER_TARGET_FRAME_MS,
     tier,
+    // The ladder is bypassed on interaction and reduced-motion frames, so its
+    // stored tier is exactly "what this frame would be without them". On a
+    // load-tier frame the ladder's value IS `tier`, so one expression covers
+    // every case.
+    loadTier: hysteresis?.loadTier ?? rawLoadTier(input),
   };
 }
 

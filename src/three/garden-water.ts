@@ -15,6 +15,7 @@ import {
   Vector4,
 } from "three";
 import type { PharosVilleRenderSchedulerState } from "../renderer/render-types";
+import { seaQualityTier } from "../renderer/render-scheduler";
 import { HARBOR_PALETTE } from "../systems/palette";
 import type { SeaState } from "../systems/sea-state";
 import {
@@ -864,7 +865,7 @@ const FRAGMENT_SHADER = /* glsl */ `
 
 export interface GardenWaterFrame {
   reducedMotion: boolean;
-  renderScheduler: Pick<PharosVilleRenderSchedulerState, "tier">;
+  renderScheduler: Pick<PharosVilleRenderSchedulerState, "tier" | "loadTier">;
   seaState: Pick<SeaState, "swell" | "tempo">;
   timeSeconds: number;
   wallClockHour: number;
@@ -1127,6 +1128,8 @@ export function createGardenWater(waterLevel: number): GardenWater {
 
   let harborMaskOverridden = false;
   let cloudShadowsActive = true;
+  // S2: previous frame's clock, for the tier-uniform easing in `update`.
+  let lastFrameSeconds: number | null = null;
 
   return {
     material,
@@ -1226,22 +1229,54 @@ export function createGardenWater(waterLevel: number): GardenWater {
       // washed the banded ramp across the whole frame, not just the far band.
       uniforms.uEnvStrength.value = blendPhaseScalar(0.08, 0.13, 0.11, dusk, daylight);
 
-      const tier = frame.renderScheduler.tier;
+      // S1: `interaction` is a camera-movement signal, not a load tier — the
+      // sea reads it as `balanced` so moving the camera no longer strips the
+      // water's character. See `seaQualityTier`.
+      const tier = seaQualityTier(frame.renderScheduler);
       const balancedOrBetter = tier === "full" || tier === "balanced";
-      uniforms.uDetail.value = detailForTier(tier);
       // Guardrails: sun glitter and cloud shadows ship at balanced+; ripple
       // rings at full/balanced. Lower tiers keep the graceful fallbacks.
-      uniforms.uGlitterStrength.value = balancedOrBetter ? 1 : 0;
-      uniforms.uRippleStrength.value = balancedOrBetter ? 1 : 0;
       cloudShadows.update({
         reducedMotion: frame.reducedMotion,
         tier,
         timeSeconds: frame.timeSeconds,
       });
       cloudShadowsActive = balancedOrBetter;
-      cloudShadows.uniforms.uCloudShadowStrength.value = cloudShadowsActive
+
+      // S2: ease the tier-driven uniforms instead of stepping them.
+      //
+      // Even with `interaction` neutralised, a load-tier change (balanced ->
+      // recovery on a weaker machine, where the ladder's downshift streak is
+      // only 2 frames) still swings uDetail 1 -> 0.36 and switches glitter and
+      // cloud shadows off. Stepping that is a visible flash; the hysteresis
+      // ladder suppresses flapping but cannot make a single crossing invisible.
+      // A ~300 ms approach can, and it costs three scalars.
+      //
+      // Reduced motion must NOT ease: that path renders one static frame and
+      // the invariant is that it is a COMPLETE composition, so it snaps to the
+      // target and any part-way value would be an accidental pause.
+      const targetDetail = detailForTier(tier);
+      const targetGlitter = balancedOrBetter ? 1 : 0;
+      const targetRipple = balancedOrBetter ? 1 : 0;
+      const targetCloud = cloudShadowsActive
         ? blendPhaseScalar(0.12, 0.2, 0.34, dusk, daylight)
         : 0;
+      const now = Math.max(0, frame.timeSeconds);
+      // Clamped so a tab returning from background does not ease across a
+      // multi-second gap, and so the first frame (no previous sample) snaps.
+      const deltaSeconds = lastFrameSeconds === null
+        ? Number.POSITIVE_INFINITY
+        : MathUtils.clamp(now - lastFrameSeconds, 0, 0.25);
+      lastFrameSeconds = now;
+      const ease = frame.reducedMotion ? 1 : easeFactor(deltaSeconds);
+
+      uniforms.uDetail.value += (targetDetail - uniforms.uDetail.value) * ease;
+      uniforms.uGlitterStrength.value
+        += (targetGlitter - uniforms.uGlitterStrength.value) * ease;
+      uniforms.uRippleStrength.value
+        += (targetRipple - uniforms.uRippleStrength.value) * ease;
+      const cloudStrength = cloudShadows.uniforms.uCloudShadowStrength;
+      cloudStrength.value += (targetCloud - cloudStrength.value) * ease;
 
       uniforms.uDaylight.value = daylight;
       uniforms.uDusk.value = dusk;
@@ -1382,6 +1417,20 @@ function loadNormalMap(): Texture | null {
   texture.wrapS = RepeatWrapping;
   texture.wrapT = RepeatWrapping;
   return texture;
+}
+
+/**
+ * S2: how far to travel toward a tier target this frame.
+ *
+ * Frame-rate independent exponential approach — `1 - e^(-rate * dt)` — so the
+ * ~300 ms settle is the same at 30 fps and at 144 fps. A non-finite delta (the
+ * first frame, or a resume from a backgrounded tab) returns 1, which snaps.
+ */
+const TIER_EASE_RATE = 12;
+
+function easeFactor(deltaSeconds: number): number {
+  if (!Number.isFinite(deltaSeconds)) return 1;
+  return 1 - Math.exp(-TIER_EASE_RATE * deltaSeconds);
 }
 
 function detailForTier(tier: PharosVilleRenderSchedulerState["tier"]): number {

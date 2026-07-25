@@ -35,6 +35,7 @@ import type {
   ThreeWorldRendererFrame,
 } from "../renderer/world-renderer-backend";
 import type { PharosVilleRenderSchedulerTier } from "../renderer/render-types";
+import { seaQualityTier } from "../renderer/render-scheduler";
 import {
   GARDEN_LIGHTHOUSE_BEACON_Y,
   GARDEN_SHIP_ROOT_Y,
@@ -1010,11 +1011,16 @@ function updateShadows(scene: GardenScene, frame: ThreeWorldRendererFrame): numb
   //
   // `constrained` still drops them: that tier means the machine is genuinely
   // drowning and every pass has to go.
-  const size = frame.renderScheduler.tier === "full"
+  // S1: resolved through seaQualityTier. Keying the map size on the raw tier
+  // meant a camera drag reallocated the shadow map 1024 -> 384 and back on
+  // release — a visible softening of the island's shadow on every pan, plus a
+  // GPU reallocation per drag, for a tier that says nothing about load.
+  const shadowTier = seaQualityTier(frame.renderScheduler);
+  const size = shadowTier === "full"
     ? 1024
-    : frame.renderScheduler.tier === "balanced"
+    : shadowTier === "balanced"
       ? 512
-      : frame.renderScheduler.tier === "constrained"
+      : shadowTier === "constrained"
         ? 0
         : 384;
   if (size === 0) {
@@ -1346,7 +1352,7 @@ function updateSceneForFrame(
   updateShipPennants(content.ships, frame.timeSeconds, frame.reducedMotion);
   syncShipRippleRings(scene.water.rippleRings, content.ships, {
     reducedMotion: frame.reducedMotion,
-    tier: frame.renderScheduler.tier,
+    tier: seaQualityTier(frame.renderScheduler),
   });
   updateFleetLanterns(
     content.fleetLanterns,
@@ -1374,8 +1380,10 @@ function updateSceneForFrame(
     frame.timeSeconds,
     frame.reducedMotion,
     // Lane Z leftover: pass the real scheduler tier (was a full-only boolean)
-    // so the buoy bob runs at balanced too, per the tier ladder.
-    frame.renderScheduler.tier,
+    // so the buoy bob runs at balanced too, per the tier ladder. S1: resolved
+    // through seaQualityTier so a camera drag no longer freezes the buoys
+    // mid-swell or stops the danger lamps blinking.
+    seaQualityTier(frame.renderScheduler),
   );
 
   updateSelectedRoute(content, frame);

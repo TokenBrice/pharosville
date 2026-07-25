@@ -8,6 +8,19 @@ export type PharosVilleRenderSchedulerTier =
 export interface PharosVilleRenderSchedulerState {
   targetFrameMs: number;
   tier: PharosVilleRenderSchedulerTier;
+  /**
+   * The tier this frame would be at if the camera were still — i.e. the
+   * hysteresis ladder's current load reading, which `interaction` masks.
+   *
+   * `tier` conflates two unrelated things: measured GPU load, and whether the
+   * user happens to be moving the camera. Systems that shed *quality* want the
+   * former; only systems that shed genuine per-frame work want the latter. See
+   * `seaQualityTier`.
+   *
+   * Optional so existing callers and tests that build a bare `{ tier }` keep
+   * working; absent, consumers fall back to `tier`.
+   */
+  loadTier?: Exclude<PharosVilleRenderSchedulerTier, "interaction">;
 }
 
 export interface PharosVilleRenderMetrics {
