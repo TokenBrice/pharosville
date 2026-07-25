@@ -937,11 +937,25 @@ function updateShadows(scene: GardenScene, frame: ThreeWorldRendererFrame): numb
   light.position.set(centerX - 35, 48, centerZ - 30);
   light.target.position.set(centerX, 3, centerZ);
 
+  // W6.2 (Grand Scale Revamp): shadows survive down to `recovery`.
+  //
+  // The casters (island + lighthouse) are static and the light direction is
+  // fixed, so `autoUpdate = false` means the map is rendered once per scene
+  // change, not per frame — the recurring cost is just the PCF taps in the
+  // receiving materials. Dropping that at `recovery` bought almost nothing
+  // while removing the single strongest cue that the island has form, and on
+  // an integrated GPU at 1080p the app sits in `recovery` most of the time, so
+  // in practice the monument was ALWAYS flat-lit (plan finding F1).
+  //
+  // `constrained` still drops them: that tier means the machine is genuinely
+  // drowning and every pass has to go.
   const size = frame.renderScheduler.tier === "full"
     ? 1024
     : frame.renderScheduler.tier === "balanced"
       ? 512
-      : 0;
+      : frame.renderScheduler.tier === "constrained"
+        ? 0
+        : 384;
   if (size === 0) {
     light.shadow.intensity = 0;
     light.shadow.autoUpdate = false;
@@ -978,6 +992,7 @@ function updateSceneForFrame(
   updateCamera(camera, frame);
   scene.sky.update(phase, {
     reducedMotion: frame.reducedMotion,
+    viewHeight: gardenCameraViewHeight(frame.height, frame.camera.zoom),
     targetX: camera.position.x - CAMERA_DISTANCE,
     targetZ: camera.position.z - CAMERA_DISTANCE,
     timeSeconds: frame.timeSeconds,

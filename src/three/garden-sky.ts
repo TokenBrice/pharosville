@@ -35,6 +35,17 @@ const STAR_COUNT = 720;
 // below FOG_NEAR so close-ups stay crisp.
 const FOG_NEAR = 192;
 const FOG_FAR = 275;
+// W6.6 (Grand Scale Revamp): the ladder above was calibrated for ONE framing
+// (1440x960 at zoom 0.78). The revamp made the world worth zooming out for —
+// 187 ships across the whole sea — and at wide zoom the ground plane spans far
+// more depth, so most of the frame fell past FOG_FAR and the day read as a
+// white-out. The range now scales with the camera's view span so aerial
+// perspective stays a depth cue instead of becoming a haze wall.
+//
+// Reference view height at the calibration framing, used as the scale pivot.
+const FOG_REFERENCE_VIEW_HEIGHT = 34;
+const FOG_MIN_SCALE = 1;
+const FOG_MAX_SCALE = 2.6;
 
 // The moon sits upper-left of the standard framing; V2's moon road aligns its
 // water glitter band to this azimuth.
@@ -43,6 +54,8 @@ const MOON_ELEVATION = Math.PI * 0.34;
 
 export interface GardenSkyFrame {
   reducedMotion: boolean;
+  /** Camera view height in world units; drives the fog-range scale (W6.6). */
+  viewHeight: number;
   targetX: number;
   targetZ: number;
   timeSeconds: number;
@@ -259,6 +272,13 @@ export function createGardenSky(): GardenSky {
     root,
     update(phase, frame) {
       root.position.set(frame.targetX, 0, frame.targetZ);
+      // Push the haze back as the view widens (W6.6).
+      const fogScale = Math.max(
+        FOG_MIN_SCALE,
+        Math.min(FOG_MAX_SCALE, frame.viewHeight / FOG_REFERENCE_VIEW_HEIGHT),
+      );
+      fog.near = FOG_NEAR * fogScale;
+      fog.far = FOG_FAR * fogScale;
       const { daylight, dusk, night } = phase;
       const skyPresets = DAY_CYCLE_SKY_PRESETS;
       const zenith = dome.material.uniforms.uZenith.value as Color;
