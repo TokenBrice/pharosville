@@ -1,5 +1,10 @@
 # Plan: the fleet's sails as heraldry
 
+> **STATUS 2026-07-25: executed.** S0, S1, S2–S5 and D4 shipped in `cec305d`,
+> `a66c84c`, `dc3f1c2`, `639c80d`. S6 measured and deliberately NOT done — see
+> §7. Outcomes and residuals are recorded there; read it before re-opening any
+> decision below.
+
 Operator brief, 2026-07-25: *"The sail coloured in the project/logo colour, the
 logo displayed in white on it, and ideally not obviously within a circle but
 neatly integrated into the sail — think pirate ships featuring their emblem.
@@ -462,3 +467,70 @@ come last, gated on measurement.
 3. **S2–S5 together** — S2 without S3 leaves logos unframed but still
    disc-shaped, which is just the D3 fallback applied fleet-wide.
 4. **S6 last**, gated on measurement through `npm run preview`.
+
+---
+
+## 7. Outcome (2026-07-25)
+
+Executed as planned. What the fleet actually does now, all measured:
+
+| | Result |
+|---|---|
+| Logos yielding a clean emblem | **307 of 326** (94%) |
+| Falling through to D3 (unframed logo) | 19 |
+| Cloth: black (D5) / dark / mid / pale | **26 / 46 / 178 / 6** |
+| Real-GPU frame | 60 fps, tier `full`, 0 dropped of 120, 476 draw calls |
+
+S0 closed with 122 of 332 manifest entries on vector. The batched symbol sweep
+found 38 candidates for the raster tail and **only 7 were the right coin** —
+ticker collisions returned an unrelated infinity mark for ERN, a different
+project for USDX, a pink bean for BEAN. Caught only by putting each candidate
+beside the raster it would replace; coverage metrics pass a wrong logo happily.
+The remaining 208 stay raster by choice: the emblem keys on pixels, so it reads
+a raster as well as a vector.
+
+### What changed against the plan
+
+- **D2's premise was wrong.** The plan said "plain sails keep livery panels and
+  stripes". They never had any — `createGardenSailCanvas` only ever paints the
+  IDENTITY sail; plain sails take a flat dye from the shader or their material.
+  So honouring "clean emblem sail" means no patterns anywhere. Fleet variety
+  now comes from the dye (including 26 black sails), not from cloth pattern.
+- **S5's dye-move was tried and reverted.** Capping cloth lightness at 0.42
+  fixed emblem contrast but pulled Circle blue and Tether green from 0.31 apart
+  to 0.24 — buying legibility by making two issuers harder to tell apart, which
+  is what F1 exists to prevent. Replaced with a soft relief under the emblem,
+  which costs neither invariant.
+- **S5a's ordering problem never materialised.** D5 keys on the brand colour
+  against white, so the cloth stayed a pure function of the livery and no ship
+  flashes pale before its logo resolves. The escape hatch was the design.
+
+### Residual, and the one-line lever
+
+Six issuers still fly a pale cloth where a light mark reads weakly:
+`bean-beanstalk`, `cash-phantom`, `csusdl-coinshift`, `dai-makerdao`,
+`eusd-lybra`, `zchf-frankencoin`. DAI sits at contrast 2.06 — just above the
+2.0 floor, so it keeps its amber rather than going black.
+
+Raising `PIRATE_CONTRAST_FLOOR` from 2.0 to ~2.2 sweeps all six under black
+sail. It is one constant. It was NOT changed because 2.0 is an operator
+decision (D5) and DAI's amber is a strong recognition cue worth keeping.
+
+### S6 (resolution) — measured, not needed
+
+At max zoom on the real GPU the emblem is not texture-starved: the 128px atlas
+cell is adequate and nothing in the frame is limited by it. Raising the atlas
+to 256px cells would cost ~17MB → ~67MB VRAM for no visible gain. **Skipped.**
+
+### Anisotropy — honest result
+
+Re-measured on the real GPU (RTX 5070 Ti through the operator's Chrome wrapper)
+after `CLAUDE.md` ruled out Playwright for visual judgement:
+
+- anisotropy 1 vs 16, static frame: **0.217% RMSE**
+- same code twice, control: **0.150% RMSE**
+
+The effect is at the noise floor. It is kept because it is free — no memory
+cost, 60fps unchanged, and it is the correct setting for an upright quad in an
+oblique view — but **no visible benefit was ever demonstrated, on either
+renderer.** Do not cite it as an improvement.
