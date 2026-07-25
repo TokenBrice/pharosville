@@ -694,3 +694,102 @@ three pre-existing faults that had nothing to do with this work:
 
 `npm test -- src` is **892 passing across 87 files**, and the real-GPU frame is
 60 fps at tier `full` with 0 dropped of 120.
+
+---
+
+## 9. Follow-up round (2026-07-25)
+
+The residuals from §8, worked to conclusion. Three commits: `0f47e42`,
+`57f8a72`, `51b4a94`.
+
+### The ten shared hero hulls — and what the metric was actually measuring
+
+The first attempt added superstructure to each, and **the numbers barely moved**
+— in the full-silhouette measure some pairs got slightly *worse*. Measuring why
+turned out to be the whole lesson: carrack, cog, titan, junk, tether, circle and
+maker were all filling **35–45% of their bounding box at aspect ratios between
+0.89 and 1.09**. Seven hulls presenting the same amount of ink in the same
+shaped box. Adding blocks to hulls that already share proportions cannot
+separate them, and a viewer scanning the harbour sees seven blobs of one size.
+
+So the fix was proportion and weight — the same lesson W2 learned on the batched
+fleet — applied through cross-section parameters only, so every hand-placed `x`
+stayed valid:
+
+| hull | before | after |
+|---|---|---|
+| carrack — the fortress | L/B 4.37 | **L/B 3.63**, heaviest deck in the set |
+| cog — the workhorse | L/B 4.78, wide | **narrow and tall**, castles become fighting TOWERS on legs |
+| titan — the galleon | L/B 5.07 | **L/B 5.7**, fourth stern tier, beakhead past the stem |
+| junk | deck 1.25, rise 1.5 | **deck 0.95, rise 2.4** — a low waist under an enormous stern |
+
+Plus a beyond-the-ends pass on the six lean hulls, where each brief already said
+what to do and the geometry did not deliver it: heritage a jibboom, brigantine a
+boom sheeted past the transom, dhow a yard overhanging both ends, barquentine
+two long gaff booms, xebec a beakhead spike, cutter a jibboom that finally makes
+"the only hero whose rig reaches past its own stem" true.
+
+**Result:** worst pair **0.792 → 0.730**; pairs above 0.60 **54 → 52 of 153**;
+median 0.566.
+
+### On the ≤0.60 gate, finally
+
+It is not met, and it is now clear it was the wrong instrument for the question.
+IoU over area-normalised silhouettes is dominated by **coverage**, not shape:
+every one of the six most-separated pairs in the set involves the cutter, the
+smallest hull, and the metric bottoms out at 0.250 there. Two filled blobs of
+similar area in a normalised box overlap heavily however differently they are
+shaped.
+
+It stays useful as a **regression alarm** — a pair climbing back toward 0.79
+means something has converged — but `outputs/hero-silhouettes-side-hull.png` is
+the evidence that answers the operator's question, and it now shows eighteen
+ships nobody would confuse.
+
+### W6, closed out
+
+- **Bow wave.** The trail astern already stretched with speed; the stem pushed
+  no water at all, so a ship under way read as one being *dragged*. Two foam
+  wedges now flare off the forefoot on the same intensity signal.
+- **Night rigging.** Standing rigging was flat brown on an unlit
+  `LineBasicMaterial` — its colour *is* its night appearance, so it vanished
+  after dark. Warmed toward lantern gold; hero spars take a 0.05 warm emissive,
+  which is imperceptible by day and present by night with no per-frame work.
+- **Weathered canvas.** A stable ±6% per-ship brightness, a scalar and not a hue
+  shift, because the dye is the issuer's identity and D5's contrast floor is
+  computed from it.
+- **Two items were already done** and are closed rather than built: the cemetery
+  has carried five careen/sink wreck forms mapped to *cause of death* since the
+  grave work, and the wake already scaled with speed. The plan proposed both
+  without checking first.
+- **Gulls over the largest ships is the one item deliberately carried.** The
+  flock is island-anchored and its animation hook lives in `world-renderer.ts`,
+  which was under concurrent edit for the whole run; the clean approach —
+  parenting a small flock to a hero ship's own root, so it needs no per-frame
+  wiring — is a contained change for a later pass.
+
+### The dist visual lane
+
+Two of its three failures were constants that had stopped being true, and both
+were masking the lane rather than testing anything:
+
+- `getByRole("slider", { name: "Set session hour" })` — **there is no such
+  control**, and has not been for a while. Every run waited its full 180s for
+  it. Hours come from the `t` param, which `openWorld` already sets and which
+  `npm run preview` drives; each state now reopens the world.
+- Two pinned ship counts, 20 and 21, from when the render cap was a composition
+  rule rather than the capacity of 320 it became. The dense fixture yields 89.
+  The test only needed a settled fleet and a ship outside it.
+
+**3 failed → 1.** The remainder ("Observe and analytical DOM labels") is a
+stability timeout on an animating control; it fails identically at `59d9582`
+and is not a ship problem.
+
+### Still open, deliberately
+
+- **Gulls over the largest ships** — above.
+- **The hoy carries 1.59:1 canvas** against a 2.5 fleet target. Eight ships, and
+  bullion does not need speed.
+- **`crypto-caravel` and `algo-junk`** remain live `ShipHull` values matching
+  zero coins. They are cheap to keep and their removal is a data decision, not
+  a rendering one.
