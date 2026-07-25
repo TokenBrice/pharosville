@@ -51,7 +51,7 @@ repository history.
 | Overview and inspection | Are livery, marks, harbors, water bodies, labels, and selection clear? |
 | Dense fleet | Do ships preserve water-safe spacing, open-water clearance, and bounded cost? |
 | GPU failure | Is the selectable DOM overview useful with no broken WebGL visible? |
-| Narrow/portrait | Does the intended DOM fallback/rotate prompt make no world requests? |
+| Undersized screen or window | Does the intended DOM fallback/rotate prompt make no world requests? (Size test, not orientation — a tall desktop window charts.) |
 | Ultrawide | Does framing stay stable with no UI/world overlap? |
 
 Before accepting visual drift, verify the fixture, camera, time/reduced-motion

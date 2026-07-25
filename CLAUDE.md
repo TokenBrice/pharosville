@@ -17,7 +17,8 @@ Local dev server (maintained): http://localhost:5173/
 - Cloudflare Pages Function `functions/api/[[path]].ts` proxies the allowlisted read endpoints to `PHAROS_API_BASE`.
 - `PHAROS_API_KEY` is a Cloudflare Pages secret and must remain server-side. Never expose it as `VITE_*`, static JS, HTML, query strings, logs, docs, or fixtures.
 - `src/**` owns the PharosVille React/Three.js/WebGL app. `shared/**` is copied runtime-neutral contract/data logic used by this app.
-- For frontend changes, preserve the desktop gate: narrow or portrait viewports must not mount the world runtime or fetch world data.
+- For frontend changes, preserve the desktop gate: screens and WINDOWS too small to chart must not mount the world runtime or fetch world data. Both halves are SIZE tests — never gate on `(orientation: portrait)`, which is a viewport aspect test and blocks tall desktop windows that have more room than the wide ones it allows.
+- Never judge how PharosVille looks or how fast it runs through a Playwright browser. The bundled Chromium AND `channel: "chrome"` both fall back to SwiftShader, a CPU rasteriser that renders an approximately-correct frame and reports fiction — it read `recovery`/`constrained` and 20-43 fps where the real GPU reads `full` and 59 fps. Use `npm run preview`; it goes through the operator's Chrome wrapper and exits non-zero rather than report a software frame. See `docs/pharosville/TESTING.md`.
 - Versioned releases must be published by `.github/workflows/release.yml` after a green `main` deploy. Do not manually create semantic tags or GitHub Releases; follow `docs/pharosville/RELEASES.md`.
 - Do not commit generated `dist/`, `test-results/`, local env files, or scratch artifacts.
 

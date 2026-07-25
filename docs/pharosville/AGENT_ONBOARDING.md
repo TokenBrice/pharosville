@@ -45,7 +45,7 @@ read only the docs needed for the change in front of you.
 | Three.js renderer, hit testing, interaction | `docs/pharosville/THREEJS_AGENT_REFERENCE.md`, `docs/pharosville/ARCHITECTURE.md`, `docs/pharosville/TESTING.md` | focused unit test (`npm test -- src/three src/renderer`), then `npm run test:visual` |
 | Lighthouse model or ship logos | `docs/pharosville/ASSET_PIPELINE.md` | `npm run check:garden-models` or focused sail tests |
 | Reference generation | `docs/pharosville/ASSET_PIPELINE.md` | operator review; keep scratch in `outputs/` |
-| Visual evidence | `docs/pharosville/TESTING.md` | `npm run test:visual` |
+| Visual evidence, look, frame time | `docs/pharosville/TESTING.md` | `npm run preview` for anything you intend to LOOK at or quote a frame time from; `npm run test:visual` for the assertions |
 | Versioned release, tag, or GitHub Release | `docs/pharosville/RELEASES.md` | `npm run check:release-contract` |
 | Docs/process only | `docs/pharosville/README.md` | `npm run validate:docs` |
 | Unknown or mixed scope | this file, then exact source files | `npm run validate:changed` |
@@ -74,7 +74,9 @@ npm run agent:plan:new -- <slug>
 
 - Exposing `PHAROS_API_KEY` through client code, docs, fixtures, or logs.
 - Treating old `agents/*plan*.md` files as authoritative over current code and route docs.
-- Updating visual baselines for unintentional drift.
+- Judging the render or the frame time through a Playwright browser: it is SwiftShader (CPU), not the GPU. Use `npm run preview`.
+- Looking for committed screenshot baselines to regenerate. There are none — the visual lane asserts DOM state and telemetry, so a renderer change cannot put it in debt.
+- Gating any viewport decision on `(orientation: portrait)`. It is a viewport aspect test, not a device test.
 - Treating a changelog entry, `main` deploy, local tag, or manual GitHub Release as the complete versioned release path.
 - Reintroducing a renderer switch or graphical fallback.
 - Reintroducing an unreviewed runtime asset inventory or namespace.

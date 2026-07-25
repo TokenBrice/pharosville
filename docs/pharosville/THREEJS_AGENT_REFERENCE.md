@@ -118,7 +118,8 @@ When a visual change encodes data, update all of the following as applicable:
 1. Change the owning `src/three/garden-*.ts` module.
 2. Reuse palette, day-cycle, tier, and resource helpers.
 3. Inspect day, dusk, night, reduced-motion, selection, and constrained-tier
-   behavior.
+   behavior. Inspect it with `npm run preview`, never through a Playwright
+   browser — see "Measure on the GPU" below.
 4. Run focused Three.js tests, `npm run test:visual`, and `npm run test:perf`
    when resource cost could move.
 
@@ -129,6 +130,28 @@ When a visual change encodes data, update all of the following as applicable:
    resource ownership.
 3. Check GPU metrics and long-session stability; never relax a budget merely
    to hide unexplained drift.
+
+### Measure on the GPU
+
+Playwright's bundled Chromium is SwiftShader — a CPU rasteriser — and so is
+`chromium.launch({ channel: "chrome" })`, which skips the wrapper that applies
+the operator's `chrome-flags.conf`. A software frame looks approximately right
+and reports fiction, which is the worst combination available: it invites tuning
+the renderer against a bottleneck that does not exist. The same scene read
+`recovery`/`constrained` at 20-43 fps through the bundle and `full` at 59 fps
+(p90 16.7 ms) on the discrete GPU.
+
+Practical consequences for anyone tuning this renderer:
+
+- Use `npm run preview` for every look and every frame time. It exits non-zero
+  rather than report a software frame.
+- Do not add a detail level, drop a pass, or lower a tier threshold because a
+  Playwright run looked slow. Confirm the cost on the GPU first.
+- `schedulerTier` from a Playwright run tells you nothing about the operator's
+  machine. Neither does `effectiveFps`.
+- A frame time is only meaningful once the fleet is on screen AND the pacing
+  ring has refilled: the snapshot rebuild resets it, and the load spike lingers
+  in the 120-sample window as a false p90 of ~33 ms.
 
 ### Model or texture
 
