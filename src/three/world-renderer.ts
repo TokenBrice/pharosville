@@ -357,13 +357,37 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
       if (scene.content) syncShipSailTextures(scene.content, frame);
       const phase = dayCyclePhase(frame.wallClockHour);
       updateSceneForFrame(scene, camera, frame, phase);
-      // NOTE (measured, do not "optimise" this back): warming the new content
-      // with `renderer.compileAsync(scene.root, camera)` here is a net loss.
-      // It compiles a program for every material/object variant in the tree
-      // rather than the ones this view draws — program count went 73 -> 153 —
-      // and the frames that first draw the fleet still stalled identically,
-      // because the cost is the driver's texture and buffer upload, not the
-      // shader link. All it bought was ~900ms later time-to-fleet.
+      // MEASURED DEAD ENDS — three things that look like obvious wins here and
+      // are not. All numbers from the reference GPU on an otherwise idle
+      // machine; measure before revisiting, and measure QUIET (a leaked browser
+      // eating twelve cores made the scene rebuild look 3x more expensive than
+      // it is).
+      //
+      // 1. Warming new content with `renderer.compileAsync(scene.root, camera)`
+      //    is a net loss. It compiles a program for every material/object
+      //    variant in the tree rather than the ones this view draws — program
+      //    count went 73 -> 153 — and the frames that first draw the fleet
+      //    stalled identically, because the cost is the driver's texture and
+      //    buffer upload, not the shader link. It bought ~900ms LATER
+      //    time-to-fleet.
+      //
+      // 2. Splitting this into static scenery (island, cemetery, pigeonnier,
+      //    harbour life — none of which reads anything a payload can change)
+      //    and per-world content, so a refresh rebuilds only the fleet, buys
+      //    nothing. A refresh freezes ~550ms: 551/592/512ms as it stands,
+      //    556/641/542ms split, and 432/420/349ms with the rebuild suppressed
+      //    ENTIRELY. So the whole scene rebuild is ~130ms and it lives in the
+      //    dynamic half (fleet ~58ms, docks and districts ~49ms). The static
+      //    half is ~30ms and its buffers are not the cost.
+      //
+      // 3. Shrinking the 2048² sail atlas is not a startup lever either: at
+      //    1024² (16MB -> 4MB) blocked time went 2556ms -> 2429ms, inside
+      //    run-to-run noise.
+      //
+      // What IS left in a refresh: ~100ms of world model rebuild, and ~320ms of
+      // React commit plus the A* re-solve that fires because moved ships mean
+      // new path keys. Those want a worker or stable placement, not scene
+      // surgery.
 
       const tier = frame.renderScheduler.tier;
       if (SESSION_TIER_QUALITY[tier] > SESSION_TIER_QUALITY[sessionTierReached]) {
