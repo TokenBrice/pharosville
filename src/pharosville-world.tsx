@@ -57,6 +57,12 @@ const LazyLegendPanel = lazy(() => (
 
 const DATA_REFRESH_ANNOUNCEMENT_THROTTLE_MS = 30_000;
 const OBSERVE_BEAT_DURATION_MS = 12_000;
+/**
+ * How long the charting veil takes to lift once the harbor has data. Long
+ * enough to carry the scene rebuild that lands in the next frames, short
+ * enough that arrival still reads as arrival.
+ */
+const CHARTING_VEIL_FADE_MS = 420;
 
 function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const [reducedMotion, setReducedMotion] = useState(true);
@@ -618,6 +624,22 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     selectDetail(detailId, null);
   }, [selectDetail]);
 
+  // The harbor before its data is an empty sea: island, water and sky, no
+  // fleet. Showing it meant the first thing a visitor saw was a world with
+  // nothing in it, and then every ship arriving in the same frame. The runtime
+  // still mounts immediately — the renderer and its shaders warm up underneath
+  // — but the sea stays behind the charting veil until there is a harbor to
+  // show, so arrival reads as arrival instead of a pop.
+  const worldIsCharting = world.routeMode === "loading";
+  const [chartingVeilDismissed, setChartingVeilDismissed] = useState(false);
+  // Stays mounted through the fade so the lift is a transition, not a cut.
+  const chartingVeilMounted = worldIsCharting || !chartingVeilDismissed;
+  useEffect(() => {
+    if (worldIsCharting) return;
+    const id = window.setTimeout(() => setChartingVeilDismissed(true), CHARTING_VEIL_FADE_MS);
+    return () => window.clearTimeout(id);
+  }, [worldIsCharting]);
+
   return (
     <main
       ref={shellRef}
@@ -648,6 +670,18 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       />
       {rendererFailed && (
         <WorldStaticOverview world={world} onSelectDetail={handleSelectStaticDetail} />
+      )}
+      {chartingVeilMounted && !rendererFailed && (
+        <div
+          className="pharosville-loading pharosville-loading--veil"
+          data-testid="pharosville-charting-veil"
+          data-charting={worldIsCharting ? "true" : "false"}
+          role="status"
+          aria-busy={worldIsCharting}
+          aria-live="polite"
+        >
+          Charting market winds…
+        </div>
       )}
       <div className="pharosville-overlay" aria-label="PharosVille controls and details">
         {projectedObservatoryAreas.length > 0 && (

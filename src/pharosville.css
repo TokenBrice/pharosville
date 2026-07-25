@@ -132,6 +132,26 @@ textarea {
   .pharosville-loading::before { animation: none; }
 }
 
+/* The same loading face, laid over the mounted world runtime rather than
+   standing in for it: the renderer and its shaders warm up underneath while
+   the harbor is still being charted. Sits above the shell frame (z-index 4)
+   and below the query-error banner (60). */
+.pharosville-loading--veil {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  min-height: 0;
+  opacity: 1;
+  transition: opacity 420ms ease-out;
+}
+.pharosville-loading--veil[data-charting="false"] {
+  opacity: 0;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pharosville-loading--veil { transition: none; }
+}
+
 .pharosville-query-error {
   position: fixed;
   top: 20px;
