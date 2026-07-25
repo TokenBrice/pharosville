@@ -627,15 +627,21 @@ end**; 841 unit tests green across 87 files.
 
 ### 9.3 What did NOT land
 
-- **W6.2/W6.3 — shadows and bloom are still off.** Acceptance criteria A4 and
-  A5 are NOT met. The scheduler still settles in `recovery`/`constrained` on
-  this machine, which sheds them. This is the biggest remaining visual gap and
-  the top of the next session's list.
+- **W6.2 — shadows are BACK (fixed late in the run).** They now survive down
+  to `recovery` at a 384px map; only `constrained` drops them. The casters are
+  static and `shadow.autoUpdate` is false, so the recurring cost is just the
+  PCF taps. Verified live: `shadowMapSize: 384` at 26.2 ms.
+- **W6.3 — bloom is still off** below balanced, so A5 is only half met. Bloom
+  is a real full-screen pass, unlike shadows, so it needs the tier to rise or
+  an explicit decision to decouple it.
+- **A4 — the scheduler still settles in `recovery`.** Not met.
 - **W6.4 — water reflection not implemented.** The concept render's defining
   feature. Not started.
-- **W6.5/W6.6/W6.8 — PMREM environment, night-grade correction, depth cueing
-  not done.** The **day grade is visibly washed out** — haze drowns the frame
-  at noon. Night looks markedly better than day right now.
+- **W6.6 — the washed-out day is FIXED (late in the run).** The fog ladder had
+  been calibrated for a single framing (1440x960 at zoom 0.78); at the wide
+  zooms the new scale invites, most of the frame fell past `FOG_FAR` and noon
+  rendered as a white-out. Fog range now scales with camera view height.
+- **W6.5/W6.8 — PMREM environment and depth cueing not done.**
 - **W4.9 — island detail (rock strata, cliffs, stone stair, denser planting)
   not done.**
 - **W5.3 — the 4 batched silhouettes were not refined.** They carry ~160 of 187
