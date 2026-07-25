@@ -358,7 +358,15 @@ describe("useWorldRenderLoop", () => {
     const onResult = (r: UseWorldRenderLoopResult) => { latest = r; };
     await renderWithReadyRenderer(<Harness hoveredDetailId={null} onResult={onResult} reducedMotion={false} />);
 
-    const base = performance.now() + 100;
+    // The first frames after a world lands carry the build, not a rendering
+    // cost, so the loop keeps WORLD_SWAP_SETTLE_FRAMES of them out of the
+    // pacing window. Burn them before the intervals under test.
+    const settle = performance.now() + 10;
+    fireLatestRaf(settle);
+    fireLatestRaf(settle + 16);
+    fireLatestRaf(settle + 32);
+
+    const base = settle + 100;
     fireLatestRaf(base);
     fireLatestRaf(base + 16);
     fireLatestRaf(base + 56);

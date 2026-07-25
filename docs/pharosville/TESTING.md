@@ -30,12 +30,20 @@ The visual lane must keep proving:
 - a nonblank ready Three.js surface (`data-renderer="three"`);
 - resize, pan, zoom, selection, blank-world clear, Escape, deep links, and
   Observe interruption;
-- the complete capacity-bounded fleet, its individual hit targets, and a
-  temporary selected outsider only when capacity is exceeded;
+- the complete capacity-bounded fleet and its individual hit targets;
 - detail-panel, label, announcement, and accessibility-ledger parity;
 - day, dusk, night, reduced motion, hidden/offscreen pause, and renderer
   module/WebGL/context failure;
 - a blocked viewport with no world data, Three.js, model, or logo request.
+
+**Unexercised contract (2026-07-25):** the transient selected outsider — a ship
+past the render cap, drawn only because it is selected — has no coverage,
+because the scenario no longer occurs. The Grand Scale Revamp raised the cap to
+320 and neither the dense fixture (~132 ships) nor the live fleet (187) comes
+near it, so `selectGardenTransientShip` never fires. Covering it again needs a
+fixture with more than 320 ships; until then treat that path as untested. Note
+also that hit targets are VIEWPORT-CULLED, so a target count is a property of
+the camera, not of fleet composition — never compare counts across framings.
 
 ## Visual review
 
