@@ -16,10 +16,11 @@ import {
   gardenDockDisplayTile,
   gardenSemanticView,
   gardenTileToScreen,
-  representativeShipDisplayOffsets,
   resolveGardenEntityDisplayTile,
   resolveGardenShipDisplayTile,
   selectGardenObservatorySlice,
+  selectGardenTransientShip,
+  selectRepresentativeShips,
 } from "./garden-observatory-slice";
 import { tileToScreen } from "./projection";
 
@@ -30,29 +31,47 @@ describe("Garden Observatory slice", () => {
     expect(gardenSemanticView(0.8, "ship.usdc")).toBe("analyze");
   });
 
-  it("keeps exactly 20 default representatives and adds only the inspected outsider", () => {
+  it("renders the whole fleet and still ranks correctly when a limit applies", () => {
+    // D1 (W3): the cap is now a capacity (320), not a composition rule, so a
+    // ~200-ship world renders in full. The ranking logic still matters — it
+    // decides who survives when a world DOES exceed capacity — so exercise it
+    // with an explicit limit rather than relying on the default.
     const world = denseWorld();
     const overview = selectGardenObservatorySlice(world, null);
-    const outsider = world.ships.find((ship) => !overview.representativeDetailIds.has(ship.detailId));
 
     expect(world.ships.length).toBeGreaterThan(20);
-    expect(overview.ships).toHaveLength(20);
+    expect(overview.ships).toHaveLength(world.ships.length);
     expect(overview.ships.every((placement) => placement.representative)).toBe(true);
-    expect(overview.docks).toHaveLength(2);
+    // W3.4: every separated chain harbor renders now (was 2), so the moored
+    // majority of the fleet spreads across real piers.
+    expect(overview.docks.length).toBeGreaterThan(2);
+    expect(overview.docks.length).toBeLessThanOrEqual(10);
     expect(overview.areas.length).toBeLessThanOrEqual(2);
-    expect(outsider).toBeDefined();
 
-    const inspected = selectGardenObservatorySlice(world, outsider!.detailId);
-    expect(inspected.ships).toHaveLength(21);
-    expect(inspected.transientSelectedDetailId).toBe(outsider!.detailId);
-    expect(inspected.ships.at(-1)).toMatchObject({
-      displayOffset: { x: 0, y: 0 },
-      representative: false,
-      ship: { detailId: outsider!.detailId },
-    });
+    const capped = selectRepresentativeShips(world.ships, 20);
+    expect(capped).toHaveLength(20);
+    // The riskiest bands must always survive a cap — that is the whole point
+    // of the ranking.
+    expect(capped.some((ship) => ship.riskZone === "danger")).toBe(true);
+  });
 
-    expect(selectGardenObservatorySlice(world, overview.ships[0]!.ship.detailId).ships).toHaveLength(20);
-    expect(selectGardenObservatorySlice(world, null).ships).toHaveLength(20);
+  it("materializes an inspected ship that is outside the rendered slice", () => {
+    // With capacity above the world size nothing is normally an outsider, but
+    // the transient path must survive for data gaps and over-capacity worlds.
+    const world = denseWorld();
+    const target = world.ships[3]!;
+    const withoutTarget = new Set(
+      world.ships.filter((ship) => ship.id !== target.id).map((ship) => ship.detailId),
+    );
+
+    expect(selectGardenTransientShip(world, target.detailId, withoutTarget))
+      .toMatchObject({ detailId: target.detailId });
+    // A ship already in the slice is not duplicated as a transient.
+    expect(selectGardenTransientShip(
+      world,
+      target.detailId,
+      new Set([target.detailId]),
+    )).toBeNull();
   });
 
   it("keeps representative offsets stable and materializes transients at their samples", () => {
@@ -79,26 +98,29 @@ describe("Garden Observatory slice", () => {
       representativeDisplay.y - representativeBase.y,
     )).toBeCloseTo(2.5);
 
-    const outsider = world.ships.find((ship) => (
-      !selectGardenObservatorySlice(world, null).representativeDetailIds.has(ship.detailId)
-    ));
-    expect(outsider).toBeDefined();
-    const transient = selectGardenObservatorySlice(world, outsider!.detailId).ships.at(-1)!;
+    // A transient (non-representative) placement follows its motion sample
+    // exactly, with no display offset composed in.
     expect(resolveGardenShipDisplayTile({
-      ...transient,
+      displayOffset: { x: 0, y: 0 },
+      representative: false,
       sample,
+      ship: world.ships[0]!,
     })).toEqual(sample.tile);
   });
 
   it("keeps roster offsets deterministic and projects the Three plane from the shared camera scale", () => {
+    // W3: placement moved from authored rings to region-scoped blue-noise
+    // scatter; the determinism contract is unchanged — the same world must
+    // always produce the same display tiles, regardless of ship order.
     const world = denseWorld();
-    const representatives = selectGardenObservatorySlice(world, null).ships.map(({ ship }) => ship);
-    const first = representativeShipDisplayOffsets(representatives);
-    const second = representativeShipDisplayOffsets([...representatives].reverse());
-    const byId = (offsets: ReadonlyMap<string, { x: number; y: number }>) => (
-      [...offsets].toSorted(([left], [right]) => left.localeCompare(right))
+    const byId = (slice: ReturnType<typeof selectGardenObservatorySlice>) => (
+      slice.ships
+        .map(({ displayOffset, ship }) => [ship.id, displayOffset] as const)
+        .toSorted(([left], [right]) => left.localeCompare(right))
     );
-    expect(byId(second)).toEqual(byId(first));
+    const first = byId(selectGardenObservatorySlice(world, null));
+    const second = byId(selectGardenObservatorySlice({ ...world }, null));
+    expect(second).toEqual(first);
 
     const camera = { offsetX: 700, offsetY: 400, zoom: 1 };
     const tile = { x: 12.5, y: 7.25 };

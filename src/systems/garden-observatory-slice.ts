@@ -1,4 +1,5 @@
 import type { ShipMotionSample } from "./motion";
+import { placeGardenFleet } from "./garden-fleet-placement";
 import { selectGardenObservatoryAreas } from "./observe-sequence";
 import { TILE_HEIGHT, tileToScreen, type IsoCamera, type ScreenPoint } from "./projection";
 import {
@@ -317,24 +318,36 @@ export function gardenShipSelectionRadius(ship: ShipNode): number {
   return gardenShipVisualScale(ship.visual.scale || 1) * 1.9;
 }
 
+/**
+ * W3.4 (Grand Scale Revamp): the rendered harbor.
+ *
+ * This used to return ONE or TWO docks — a composition choice made when only
+ * 20 ships rendered. With the full fleet on screen, ~65% of it is moored, and
+ * two piers meant 120+ hulls piling onto the same two moorings (the dominant
+ * visual failure at scale).
+ *
+ * Every chain harbor now renders, greedily ordered by supply so the biggest
+ * chains take the best water, and separated so piers never overlap.
+ */
+export const GARDEN_MAX_RENDERED_DOCKS = 10;
+export const GARDEN_DOCK_SEPARATION_TILES = 7;
+
 export function selectGardenDocks(docks: readonly DockNode[]): DockNode[] {
   const ranked = docks.toSorted((left, right) => (
     right.totalUsd - left.totalUsd || left.id.localeCompare(right.id)
   ));
-  const first = ranked[0];
-  if (!first) return [];
-  const separated = ranked.filter((dock) => (
-    dock.id !== first.id && tileDistance(dock.tile, first.tile) >= 10
-  ));
-  const second = separated[0]
-    ?? ranked
-      .filter((dock) => dock.id !== first.id)
-      .toSorted((left, right) => (
-        tileDistance(right.tile, first.tile) - tileDistance(left.tile, first.tile)
-        || right.totalUsd - left.totalUsd
-        || left.id.localeCompare(right.id)
-      ))[0];
-  return second ? [first, second] : [first];
+  const chosen: DockNode[] = [];
+  for (const dock of ranked) {
+    if (chosen.length >= GARDEN_MAX_RENDERED_DOCKS) break;
+    const clashes = chosen.some((other) => (
+      tileDistance(dock.tile, other.tile) < GARDEN_DOCK_SEPARATION_TILES
+    ));
+    if (!clashes) chosen.push(dock);
+  }
+  // A world whose harbors all sit on top of each other still renders its
+  // largest one rather than nothing.
+  if (chosen.length === 0 && ranked[0]) chosen.push(ranked[0]);
+  return chosen;
 }
 
 export function selectRepresentativeShips(
@@ -393,142 +406,31 @@ export function selectRepresentativeShips(
   return chosen;
 }
 
-export function representativeShipDisplayOffsets(
-  ships: readonly ShipNode[],
-): ReadonlyMap<string, ScreenPoint> {
-  const byZone = new Map<ShipNode["riskZone"], ShipNode[]>();
-  for (const ship of ships) {
-    const group = byZone.get(ship.riskZone) ?? [];
-    group.push(ship);
-    byZone.set(ship.riskZone, group);
-  }
-
-  const offsets = new Map<string, ScreenPoint>();
-  for (const [zone, group] of byZone) {
-    group.sort((left, right) => left.id.localeCompare(right.id));
-    if (zone === "calm" || zone === "watch") {
-      // Zones-v2: Calm and Watch representatives moor on authored ellipses
-      // around their zone display centers, so the enlarged harbor ring and
-      // the dominant monitored sea actually have ships spread through them.
-      // Ring points that fall on the rendered island rock (or inside any
-      // other obstacle's hull margin) are snapped to the nearest valid water
-      // downstream in composeRepresentativeOffset — the ring is a TARGET,
-      // not a guarantee.
-      const center = AREA_DISPLAY_CENTER[zone.toUpperCase()]!;
-      const ring = zone === "calm"
-        ? { x: 16, y: 11 }
-        : { x: 21, y: 13.5 };
-      const phase = stableUnit(`observatory.${zone}`) * Math.PI * 2;
-      group.forEach((ship, index) => {
-        const angle = phase + (index / group.length) * Math.PI * 2;
-        const targetX = center.x + Math.cos(angle) * ring.x;
-        const targetY = center.y + Math.sin(angle) * ring.y;
-        offsets.set(ship.id, {
-          x: targetX - ship.tile.x,
-          y: targetY - ship.tile.y,
-        });
-      });
-      continue;
-    }
-    if (zone === "danger" && group.length >= 8) {
-      const centerDiagonal = group.reduce(
-        (sum, ship) => sum + ship.tile.x - ship.tile.y,
-        0,
-      ) / group.length - 10;
-      const centerDepth = group.reduce(
-        (sum, ship) => sum + ship.tile.x + ship.tile.y,
-        0,
-      ) / group.length + 1;
-      group.forEach((ship, index) => {
-        const progress = index / (group.length - 1);
-        const angle = -Math.PI * 0.75 + progress * Math.PI * 1.5;
-        const diagonal = centerDiagonal + Math.cos(angle) * 20;
-        const depth = centerDepth + Math.sin(angle) * 20;
-        const targetX = (diagonal + depth) / 2;
-        const targetY = (depth - diagonal) / 2;
-        offsets.set(ship.id, {
-          x: targetX - ship.tile.x,
-          y: targetY - ship.tile.y,
-        });
-      });
-      continue;
-    }
-    const phase = stableUnit(`observatory.${zone}`) * Math.PI * 2;
-    group.forEach((ship, index) => {
-      if (group.length === 1) {
-        offsets.set(ship.id, { x: 0, y: 0 });
-        return;
-      }
-      const ring = Math.floor(index / 8);
-      const ringIndex = index % 8;
-      const ringCount = Math.min(8, group.length - ring * 8);
-      const radius = group.length <= 4 ? 3.6 : 6.2 + ring * 2.8;
-      const angle = phase + (ringIndex / ringCount) * Math.PI * 2;
-      offsets.set(ship.id, {
-        x: Math.cos(angle) * radius,
-        y: Math.sin(angle) * radius,
-      });
-    });
-  }
-  return offsets;
-}
-
 function gardenObservatoryBaseSlice(world: PharosVilleWorld): GardenObservatoryBaseSlice {
   const cached = baseSliceByWorld.get(world);
   if (cached) return cached;
   const representatives = selectRepresentativeShips(world.ships);
-  const displayOffsets = representativeShipDisplayOffsets(representatives);
   const representativeDetailIds = new Set(representatives.map((ship) => ship.detailId));
+  // W3 (finding F4): the authored per-zone rings were sized for ~20 ships and
+  // saturated at fleet scale. Placement is now blue-noise scatter across the
+  // painted terrain region each risk band owns, so the fleet fills its own
+  // waters instead of piling onto the island.
+  const placement = placeGardenFleet(representatives, world.lighthouse.tile);
   const slice = {
     areas: selectGardenObservatoryAreas(world.areas),
     docks: selectGardenDocks(world.docks),
     representativeDetailIds,
-    ships: representatives.map((ship) => ({
-      displayOffset: composeRepresentativeOffset(
+    ships: representatives.map((ship) => {
+      const tile = placement.tileByShipId.get(ship.id) ?? ship.tile;
+      return {
+        displayOffset: { x: tile.x - ship.tile.x, y: tile.y - ship.tile.y },
+        representative: true,
         ship,
-        displayOffsets.get(ship.id) ?? { x: 0, y: 0 },
-      ),
-      representative: true,
-      ship,
-    })),
+      };
+    }),
   };
   baseSliceByWorld.set(world, slice);
   return slice;
-}
-
-// Zones-v2: representative ships in the corner bands take HALF their band's
-// data→display delta so they stay on their zone's visible arc. Calm/Watch are
-// absent: their representatives redistribute onto authored rings around the
-// display centers in representativeShipDisplayOffsets instead.
-const ZONE_REPRESENTATIVE_NUDGE: Record<string, ScreenPoint> = {
-  alert: { x: 5, y: -10.5 },
-  danger: { x: -0.5, y: 0.5 },
-  ledger: { x: -6, y: -2 },
-  warning: { x: 3.5, y: -4.5 },
-};
-
-function composeRepresentativeOffset(
-  ship: ShipNode,
-  offset: ScreenPoint,
-): ScreenPoint {
-  const x = offset.x + (ship.riskZone ? (ZONE_REPRESENTATIVE_NUDGE[ship.riskZone]?.x ?? 0) : 0);
-  const y = offset.y + (ship.riskZone ? (ZONE_REPRESENTATIVE_NUDGE[ship.riskZone]?.y ?? 0) : 0);
-
-  // Zones-v2 placement fix (supersedes the old uniform island-clearance
-  // circle, and its Calm/Watch ring exemption — that exemption is what put
-  // hulls on the island rock): every band's composed display tile is snapped
-  // to valid open water with a per-ship hull margin against the RENDERED
-  // landmasses and dock aprons (garden-water-exclusion.ts). Ring targets stay
-  // as authored; rejected ones slide to the nearest valid water, seeded per
-  // ship so the layout is deterministic.
-  const margin = gardenShipWaterMarginTiles(gardenShipVisualScale(ship.visual.scale || 1));
-  const snapped = nearestGardenShipWater(
-    { x: ship.tile.x + x, y: ship.tile.y + y },
-    margin,
-    `representative.${ship.id}`,
-    true,
-  );
-  return { x: snapped.x - ship.tile.x, y: snapped.y - ship.tile.y };
 }
 
 function compareRepresentativeShips(left: ShipNode, right: ShipNode): number {
@@ -552,13 +454,4 @@ function riskRank(zone: ShipNode["riskZone"]): number {
 
 function tileDistance(left: ScreenPoint, right: ScreenPoint): number {
   return Math.hypot(left.x - right.x, left.y - right.y);
-}
-
-function stableUnit(value: string): number {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0) / 0xffffffff;
 }

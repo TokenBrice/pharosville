@@ -20,7 +20,6 @@ import type { PharosVilleRenderSchedulerTier } from "../renderer/render-types";
 import { defaultCamera } from "../systems/camera";
 import type { PharosVilleWorld, ShipHull, ShipNode } from "../systems/world-types";
 import {
-  representativeShipDisplayOffsets,
   selectGardenDocks,
   selectGardenObservatorySlice,
   selectRepresentativeShips,
@@ -349,7 +348,7 @@ describe("Garden Observatory data selection", () => {
     ]);
   });
 
-  it("selects a stable 20-ship cross-section with risk and hull variety", () => {
+  it("selects a stable cross-section with risk and hull variety when capped", () => {
     const hulls: ShipHull[] = [
       "treasury-galleon",
       "chartered-brigantine",
@@ -365,8 +364,10 @@ describe("Garden Observatory data selection", () => {
       10_000 - index,
     ));
 
-    const first = selectRepresentativeShips(ships);
-    const second = selectRepresentativeShips([...ships].reverse());
+    // D1: the default limit is now 320 (capacity, not composition), so the
+    // ranking contract is exercised with an explicit cap.
+    const first = selectRepresentativeShips(ships, 20);
+    const second = selectRepresentativeShips([...ships].reverse(), 20);
 
     expect(first).toHaveLength(20);
     expect(second.map((entry) => entry.id)).toEqual(first.map((entry) => entry.id));
@@ -374,29 +375,6 @@ describe("Garden Observatory data selection", () => {
     expect(new Set(first.map((entry) => entry.visual.hull)).size).toBeGreaterThanOrEqual(4);
   });
 
-  it("stages crowded risk groups as a stable, separated crescent", () => {
-    const ships = Array.from({ length: 11 }, (_, index) => ship(
-      `danger-${index}`,
-      "treasury-galleon",
-      "danger",
-      1_000 - index,
-    ));
-
-    const first = representativeShipDisplayOffsets(ships);
-    const second = representativeShipDisplayOffsets([...ships].reverse());
-    expect([...second]).toEqual([...first]);
-    expect(new Set([...first.values()].map(({ x, y }) => `${x.toFixed(2)},${y.toFixed(2)}`)).size)
-      .toBe(11);
-    const positions = [...first.values()];
-    const pairDistances = positions.flatMap((left, index) => (
-      positions.slice(index + 1).map((right) => Math.hypot(
-        left.x - right.x,
-        left.y - right.y,
-      ))
-    ));
-    expect(Math.min(...pairDistances)).toBeGreaterThan(6.4);
-    expect(Math.max(...positions.map(({ x, y }) => Math.hypot(x, y)))).toBeLessThan(23);
-  });
 });
 
 function rendererFrame(

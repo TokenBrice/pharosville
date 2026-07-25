@@ -101,12 +101,13 @@ describe("garden water exclusion (zones-v2 placement fix)", () => {
     }
   });
 
-  it("keeps every non-representative (transient) ship display on valid water", () => {
+  it("keeps every ship display on valid water when driven by its motion sample", () => {
+    // D1 (W3) removed the representative/transient split at this fleet size —
+    // every ship is rendered. The contract that matters is unchanged: a
+    // display tile resolved straight from a motion sample must never land on
+    // rock, a pier or an islet.
     const world = denseWorld();
-    const slice = selectGardenObservatorySlice(world, null);
-    const transients = world.ships.filter((ship) => !slice.representativeDetailIds.has(ship.detailId));
-    expect(transients.length).toBeGreaterThan(0);
-    for (const ship of transients) {
+    for (const ship of world.ships) {
       const margin = shipMargin(ship);
       const display = resolveGardenShipDisplayTile({
         displayOffset: { x: 0, y: 0 },

@@ -22,16 +22,20 @@ import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import { createGardenObservatoryHitTargetSnapshot } from "./garden-observatory-hit-testing";
 
 describe("Garden Observatory hit targets", () => {
-  it("publishes the lighthouse, production docks, and the 20-ship overview", () => {
+  it("publishes the lighthouse, production docks, and the whole rendered fleet", () => {
     const world = denseWorld();
     const camera = { offsetX: 720, offsetY: 430, zoom: 1 };
     const slice = selectGardenObservatorySlice(world, null);
     const snapshot = createGardenObservatoryHitTargetSnapshot({ camera, world });
 
+    // D1 (W3): the fleet is no longer sampled down to 20, so hit targets
+    // track the rendered slice size. Lighthouse + pigeonnier are the 2 fixed
+    // singletons.
     expect(snapshot.targets).toHaveLength(
-      22 + world.docks.length + world.areas.length + world.graves.length,
+      2 + slice.ships.length + world.docks.length + world.areas.length + world.graves.length,
     );
-    expect(snapshot.targets.filter((target) => target.kind === "ship")).toHaveLength(20);
+    expect(snapshot.targets.filter((target) => target.kind === "ship"))
+      .toHaveLength(slice.ships.length);
     expect(snapshot.targets.filter((target) => target.kind === "dock")).toHaveLength(world.docks.length);
     expect(snapshot.targets.filter((target) => target.kind === "lighthouse")).toHaveLength(1);
     expect(snapshot.targets.filter((target) => target.kind === "area")).toHaveLength(world.areas.length);
@@ -46,19 +50,23 @@ describe("Garden Observatory hit targets", () => {
     ]));
   });
 
-  it("adds an inspected outsider as the sole transient target", () => {
+  it("gives every rendered ship its own hit target", () => {
+    // The transient-outsider path only fires when a world exceeds render
+    // capacity (320). At the current ~200-ship scale every ship is rendered,
+    // so the contract that matters is total coverage: nothing is unreachable.
     const world = denseWorld();
-    const overview = selectGardenObservatorySlice(world, null);
-    const outsider = world.ships.find((ship) => !overview.representativeDetailIds.has(ship.detailId));
-    expect(outsider).toBeDefined();
+    const slice = selectGardenObservatorySlice(world, null);
 
     const snapshot = createGardenObservatoryHitTargetSnapshot({
       camera: { offsetX: 720, offsetY: 430, zoom: 1 },
-      selectedDetailId: outsider!.detailId,
+      selectedDetailId: world.ships[5]!.detailId,
       world,
     });
-    expect(snapshot.targets.filter((target) => target.kind === "ship")).toHaveLength(21);
-    expect(snapshot.targetsByDetailId.has(outsider!.detailId)).toBe(true);
+    for (const { ship } of slice.ships) {
+      expect(snapshot.targetsByDetailId.has(ship.detailId)).toBe(true);
+    }
+    expect(snapshot.targets.filter((target) => target.kind === "ship"))
+      .toHaveLength(slice.ships.length);
   });
 
   it("covers the rendered lighthouse from its foundation through its finial", () => {
