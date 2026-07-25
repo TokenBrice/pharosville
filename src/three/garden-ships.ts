@@ -515,7 +515,7 @@ export function createBatchedShip(
     heroModelId: null,
     hullColor: batchedHullColor(ship),
     trimColor: batchedTrimColor(ship),
-    sailColor: gardenSailClothColor(ship.visual.livery),
+    sailColor: weatheredSailColor(ship),
     identitySail: null,
     identitySailMaterial: null,
     lanternPoints: lanternPointsForTier(tier),
@@ -666,6 +666,23 @@ const FURL_ALL_UPPERS = (2 ** FLEET_MAX_SAILS - 1) - (2 ** FURL_UPPER_FIRST - 1)
  */
 function batchedTrimColor(ship: ShipNode): Color {
   return new Color(safeCssColor(ship.visual.livery?.primary, HARBOR_PALETTE.timber_warm));
+}
+
+/**
+ * W6: weathered canvas.
+ *
+ * `gardenSailClothColor` is a pure function of the livery, so every ship of an
+ * issuer — and every sail of every ship — flew cloth at exactly one value. A
+ * real fleet's canvas is not uniform: some suits are new, some have had five
+ * years of sun. A stable per-ship brightness of ±6% is enough to break the
+ * flatness and reads as age rather than as a different colour.
+ *
+ * Deliberately a scalar, not a hue shift: the dye is the issuer's identity and
+ * the D5 contrast floor is computed from it, so the hue must survive untouched.
+ */
+function weatheredSailColor(ship: ShipNode): Color {
+  const cloth = gardenSailClothColor(ship.visual.livery);
+  return cloth.multiplyScalar(0.94 + stableUnit(`${ship.id}.weather`) * 0.12);
 }
 
 /**
@@ -820,7 +837,7 @@ export function createShip(
   // titan and a skiff of the same issuer read as the same colour. This used to
   // be the livery's cream-mixed sail colour lifted a further 45% toward canvas,
   // which is how the whole fleet ended up in one band of oatmeal.
-  const readableSailColor = gardenSailClothColor(ship.visual.livery);
+  const readableSailColor = weatheredSailColor(ship);
   // Warm the emissive toward lantern gold so the night curve backlights the
   // canvas as if a lantern hung beneath it (D4).
   const plainSailMaterial = new MeshStandardMaterial({
