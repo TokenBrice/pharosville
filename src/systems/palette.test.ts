@@ -13,16 +13,40 @@ describe("HARBOR_PALETTE", () => {
 
 describe("ZONE_THEMES", () => {
   it("keeps distinct risk-water bases and analytical accents", () => {
-    expect(ZONE_THEMES["calm-water"]).toEqual({
-      base: "#125e7e",
-      label: { accent: DEWS_AREA_LABEL_COLORS.CALM },
-    });
-    expect(ZONE_THEMES["storm-water"]).toEqual({
-      base: "#1a1428",
-      label: { accent: DEWS_AREA_LABEL_COLORS.DANGER },
-    });
+    expect(ZONE_THEMES["calm-water"]!.label.accent).toBe(DEWS_AREA_LABEL_COLORS.CALM);
+    expect(ZONE_THEMES["storm-water"]!.label.accent).toBe(DEWS_AREA_LABEL_COLORS.DANGER);
     expect(new Set(Object.values(ZONE_THEMES).map((theme) => theme.base)).size)
       .toBe(Object.keys(ZONE_THEMES).length);
+  });
+
+  it("ramps risk-water bases down a monotonic value ladder", () => {
+    // L3 (Sea Master): the water shader luminance-matches each tint against the
+    // live water before mixing it — that is what stops a tint reading as paint,
+    // and it throws most of a hue's own brightness away. VALUE is what survives
+    // the match, so value is what has to carry the escalation, hue-blind or not.
+    //
+    // This replaces two pinned hex literals. Those pinned the wrong thing: they
+    // held `calm-water` at #125e7e, a saturated cyan-blue laid over the 43% of
+    // the sea that is Calm, which is what pulled the rendered sea to blue
+    // eleven points above green while the day palette's own ramp is jade.
+    const ladder = ["calm-water", "watch-water", "alert-water", "warning-water", "storm-water"] as const;
+    const levels = ladder.map((terrain) => relativeLuminance(ZONE_THEMES[terrain]!.base));
+    for (let step = 1; step < levels.length; step += 1) {
+      expect(levels[step]!, `${ladder[step]} must be darker than ${ladder[step - 1]}`)
+        .toBeLessThan(levels[step - 1]!);
+    }
+  });
+
+  it("keeps every risk-water base inside the sea's own blue-green family", () => {
+    // A tint outside the water gamut reads as paint on a surface however gently
+    // it is laid on. Ledger is the one deliberate outsider: NAV-priced water is
+    // not a risk band, and its slate says so.
+    for (const [terrain, theme] of Object.entries(ZONE_THEMES)) {
+      if (terrain === "ledger-water") continue;
+      const { r, g, b } = channels(theme.base);
+      expect(g, `${terrain} must not be red-dominant`).toBeGreaterThanOrEqual(r);
+      expect(Math.max(g, b), `${terrain} must lean blue-green`).toBeGreaterThanOrEqual(r);
+    }
   });
 
   it("falls back to the generic water theme", () => {
@@ -37,3 +61,22 @@ describe("ZONE_THEMES", () => {
     }
   });
 });
+
+function channels(hex: string): { r: number; g: number; b: number } {
+  const value = hex.replace("#", "");
+  return {
+    r: Number.parseInt(value.slice(0, 2), 16),
+    g: Number.parseInt(value.slice(2, 4), 16),
+    b: Number.parseInt(value.slice(4, 6), 16),
+  };
+}
+
+/** WCAG relative luminance, so "darker" means darker to the eye, not smaller in hex. */
+function relativeLuminance(hex: string): number {
+  const { r, g, b } = channels(hex);
+  const linear = (channel: number): number => {
+    const scaled = channel / 255;
+    return scaled <= 0.04045 ? scaled / 12.92 : ((scaled + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+}

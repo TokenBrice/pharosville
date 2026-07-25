@@ -154,12 +154,24 @@ const pc = (key: keyof typeof HARBOR_PALETTE): Color => new Color(HARBOR_PALETTE
 // All three stay far below the day bloom knee (0.95 luminance) — large water
 // areas must never bloom, only glitter and foam may.
 const DAY_SHALLOW = pc("sky_day_zenith").lerp(pc("aurora_green"), 0.46).lerp(pc("lantern_cold"), 0.12);
-const DAY_MID = pc("sky_day_zenith").lerp(pc("sail_teal"), 0.35).lerp(pc("aurora_green"), 0.2);
-// Built FROM the daylight zenith rather than from deep_sea_1: anchoring the
-// deep band on the night indigo dragged the whole far sea toward black, and
-// since the open ocean beyond the map derives from this band, it turned the
-// world into a lit slab on a void.
-const DAY_DEEP = pc("sky_day_zenith").lerp(pc("sail_teal"), 0.42).lerp(pc("deep_sea_1"), 0.25);
+const DAY_MID = pc("sky_day_zenith").lerp(pc("sail_teal"), 0.45).lerp(pc("aurora_green"), 0.24);
+// L3: anchored on sail_teal, not on the day zenith.
+//
+// The zenith (#27567d) is a sky blue, so building the deep band out of it made
+// the deepest — and largest — stretch of water 22 points bluer in green-vs-blue
+// than the jade the rest of the ramp is written in, and the frame average went
+// with it. Starting from the teal and tinting it with the zenith keeps the
+// daylight in the colour without letting the sky decide the sea's hue.
+//
+// It still finishes slightly blue of neutral (G-B about -7), and it should:
+// water genuinely does go blue with depth, and a deep band that did not would
+// read as painted. What changed is that the blue is now the deep END of a teal
+// ramp rather than the whole ramp's family.
+//
+// The old comment warned that anchoring on deep_sea_1 dragged the far sea to
+// black and left the world a lit slab on a void. That risk is gone: the open
+// ocean past the map has its own definition (gardenOpenOcean) and crossfades in.
+const DAY_DEEP = pc("sail_teal").lerp(pc("sky_day_zenith"), 0.18).lerp(pc("deep_sea_1"), 0.3);
 const DUSK_SHALLOW = pc("shallow_teal").lerp(pc("lantern_warm"), 0.16).lerp(pc("deep_sea_1"), 0.28);
 const DUSK_MID = pc("deep_sea_1").lerp(pc("ember"), 0.3).lerp(pc("lantern_warm"), 0.08);
 const DUSK_DEEP = pc("deep_sea_2").lerp(pc("deep_sea_1"), 0.5);
@@ -406,7 +418,7 @@ const FRAGMENT_SHADER = /* glsl */ `
     );
     color = mix(
       color,
-      mix(uEnvHorizonColor, uEnvZenithColor, 0.8),
+      mix(uEnvHorizonColor, uEnvZenithColor, 0.52),
       clamp(uEnvStrength, 0.0, 0.85)
     );
     float fade = smoothstep(150.0, 520.0, camDist);
@@ -542,8 +554,30 @@ const FRAGMENT_SHADER = /* glsl */ `
     // Depth comes from the shore SDF plus authored bathymetry: two shallow
     // aprons off the island and one deep basin in the open water, then the
     // shallow→deep ramp is posterized into flat ukiyo-e bands.
-    // Depth ramps out further now that there is real open sea to ramp into.
-    float depth = smoothstep(0.92, 3.8, shoreDistance);
+    //
+    // L4: the shore ramp is scaled to 0.72 rather than saturating at 1.
+    //
+    // It used to reach full depth about 70 world units out and stay there, so
+    // every fragment past that ring landed in band 3 — at whole-map framing
+    // that is most of the sea, rendered as one flat colour with only the region
+    // tint to break it. Holding the open water mid-ramp leaves room for real
+    // bathymetry to move it, so the sea has FORM at the framing where you can
+    // see all of it. This is also the honest reading: the map is a shelf, and
+    // the true deep is outside it (see gardenOpenOcean).
+    float depth = smoothstep(0.92, 3.8, shoreDistance) * 0.72;
+
+    // Broad banks and troughs across the whole map, on the same NE/SW grain the
+    // sea regions follow. Three octaves of very low frequency — this is
+    // bathymetry, not noise: it must read as the sea floor having shape, never
+    // as texture on the surface.
+    vec2 bathyP = (vWaterPosition - uOpenOceanCenter) / max(1.0, uMapEdge);
+    float bathyGrain = dot(bathyP, vec2(0.788, 0.616));
+    float bathyAcross = dot(bathyP, vec2(-0.616, 0.788));
+    float banks = sin(bathyGrain * 3.1 + 0.7) * 0.5
+      + sin(bathyAcross * 2.3 - 1.2) * 0.32
+      + sin((bathyGrain + bathyAcross) * 4.7 + 2.1) * 0.18;
+    depth += banks * 0.26;
+
     float shelfA = 1.0 - smoothstep(0.55, 1.25, length(
       (vWaterPosition - uIslandCenter - vec2(-14.0, 10.0)) / vec2(22.0, 12.0)
     ));
@@ -600,10 +634,19 @@ const FRAGMENT_SHADER = /* glsl */ `
     float islandDistance = length(vWaterPosition - uIslandCenter);
     float envMask = smoothstep(30.0, 110.0, islandDistance) * (0.2 + 0.8 * depth);
     envMask = max(envMask, harborCalm * 0.75);
+    // L3: weighted toward the HORIZON band, not the zenith.
+    //
+    // This used to reach 0.80 toward the zenith on open water, and the day
+    // zenith is a sky blue — so the sea was reflecting the wrong part of the
+    // sky and taking its hue from it. In a grazing isometric view the water
+    // returns the sky NEAR THE HORIZON; the zenith is what you would see
+    // looking straight down. Correcting the weighting is both truer and the
+    // last thing standing between the rendered sea and the teal it is authored
+    // as.
     vec3 skySample = mix(
       uEnvHorizonColor,
       uEnvZenithColor,
-      clamp(0.25 + envMask * 0.55 + surfaceNormal.x * 0.14, 0.0, 1.0)
+      clamp(0.18 + envMask * 0.34 + surfaceNormal.x * 0.14, 0.0, 1.0)
     );
     waterColor = mix(
       waterColor,

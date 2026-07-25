@@ -92,8 +92,18 @@ function seaRegionIdForArea(area: AreaNode): number {
 // moment they carried any weight. A cyan-blue, a teal and an ink are all water
 // already, so they can be laid on at a strength that actually separates the
 // bodies of water at whole-map framing.
-const REGION_TINT_STRENGTH_BAND = 0.44;
-const REGION_TINT_STRENGTH_DANGER = 0.54;
+//
+// L3 (Sea Master): 0.44 -> 0.28, danger 0.54 -> 0.36.
+//
+// The old weights existed to force separation out of tints that were fighting
+// the sea rather than belonging to it. Now that every ZONE_THEMES water base
+// sits in the sea's own blue-green family and separates by LIGHTNESS, less
+// weight reads as more: the day palette's jade ramp shows through, and the
+// regions still part because value and character (swell, chop, foam,
+// reflectivity) carry them. Laying a water colour on at 0.44 was what turned
+// 43% of the sea cyan and buried the authored teal underneath it.
+const REGION_TINT_STRENGTH_BAND = 0.28;
+const REGION_TINT_STRENGTH_DANGER = 0.36;
 
 const BUOY_HEIGHT = 1.1;
 // Z3: buoys ride the water shader's swell (CPU mirror, see updateZoneBuoys).

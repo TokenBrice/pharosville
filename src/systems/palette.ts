@@ -55,16 +55,46 @@ export interface ZoneVisualTheme {
   };
 }
 
+/**
+ * The WATER colour of each terrain — the tint its sea carries, and the swatch
+ * the legend and detail panel show for it.
+ *
+ * L3 (Sea Master, 2026-07-25): this ramp is a VALUE ladder inside one hue
+ * family, not a set of band accents.
+ *
+ * `calm-water` used to be `#125e7e`, a saturated cyan-blue, laid over the 43%
+ * of the sea that is Calm. Measured off a real-GPU noon frame, that pulled the
+ * rendered sea to (81, 115, 126) — blue eleven points above green — while the
+ * day palette's own ramp is a jade teal (#49857f -> #3c6f72 -> #2b4f65). The
+ * authored sea never reached the screen.
+ *
+ * Every entry now sits in the sea's own blue-green family and separates by
+ * LIGHTNESS, monotonically along the DEWS escalation: jade calm, teal watch,
+ * greying alert, dulled warning, ink storm. That matters because the water
+ * shader luminance-matches each tint against the live water before mixing it —
+ * which is what stops a tint reading as paint on a surface, and which throws
+ * most of a hue's own brightness away. Value is what survives, so value is what
+ * carries the reading, hue-blind or not.
+ *
+ * The one deliberate outsider is `ledger-water`: NAV-priced water is not a risk
+ * band at all, and its slate keeps it legible as a different KIND of water
+ * rather than a rung on the same ladder.
+ *
+ * An earlier pass (R5) had the opposite problem — it left alert ochre, warning
+ * orange and danger red, which read as concentric cream/pink/khaki bands and
+ * made the sea look like mud. Desaturating toward grey-green rather than
+ * warming toward olive is what keeps this ramp out of that ditch.
+ */
 export const ZONE_THEMES = {
-  "alert-water": { base: "#3d6e58", label: { accent: DEWS_AREA_LABEL_COLORS.ALERT } },
-  "calm-water": { base: "#125e7e", label: { accent: DEWS_AREA_LABEL_COLORS.CALM } },
-  "deep-water": { base: "#06131d", label: { accent: "#d8b56a" } },
-  "harbor-water": { base: "#006f6f", label: { accent: "#d8b56a" } },
+  "alert-water": { base: "#3a5f63", label: { accent: DEWS_AREA_LABEL_COLORS.ALERT } },
+  "calm-water": { base: "#2d7d6a", label: { accent: DEWS_AREA_LABEL_COLORS.CALM } },
+  "deep-water": { base: "#08161c", label: { accent: "#d8b56a" } },
+  "harbor-water": { base: "#2b6f6a", label: { accent: "#d8b56a" } },
   "ledger-water": { base: "#3d4860", label: { accent: LEDGER_INK_HEX } },
-  "storm-water": { base: "#1a1428", label: { accent: DEWS_AREA_LABEL_COLORS.DANGER } },
-  "watch-water": { base: "#487c7a", label: { accent: DEWS_AREA_LABEL_COLORS.WATCH } },
-  "warning-water": { base: "#5e5535", label: { accent: DEWS_AREA_LABEL_COLORS.WARNING } },
-  water: { base: "#0b5665", label: { accent: "#d8b56a" } },
+  "storm-water": { base: "#23343a", label: { accent: DEWS_AREA_LABEL_COLORS.DANGER } },
+  "watch-water": { base: "#2f6470", label: { accent: DEWS_AREA_LABEL_COLORS.WATCH } },
+  "warning-water": { base: "#40504e", label: { accent: DEWS_AREA_LABEL_COLORS.WARNING } },
+  water: { base: "#1d5f68", label: { accent: "#d8b56a" } },
 } as const satisfies Record<string, ZoneVisualTheme>;
 
 export function zoneThemeForTerrain(kind: string): ZoneVisualTheme {
