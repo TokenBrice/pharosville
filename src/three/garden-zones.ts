@@ -96,7 +96,19 @@ const BUOY_HEIGHT = 1.1;
 // water exactly. Tilt converts the local swell gradient into a gentle lean.
 const BUOY_BOB_AMPLITUDE = 0.22;
 const BUOY_TILT = 1.2;
-const DEEP_SEA = new Color(HARBOR_PALETTE.deep_sea_2);
+/**
+ * R5: the anchor every band tint is pulled toward, so regions stay inside a
+ * WATER gamut.
+ *
+ * This used to be deep_sea_2, which is nearly black — pulling toward it
+ * darkened a band without rotating its hue, so alert stayed ochre, warning
+ * stayed orange and danger stayed red. At the raised tint strengths that read
+ * as concentric cream / mauve / pink / khaki bands and the sea looked like
+ * mud. A mid BLUE anchor moves the hue into the sea's family while keeping
+ * enough value for each band to stay findable; the rest of the separation is
+ * carried by value and by the region's own swell, chop and foam (D6).
+ */
+const SEA_GAMUT_ANCHOR = new Color(HARBOR_PALETTE.shallow_teal_lit);
 const FLICKER_COLD = new Color(HARBOR_PALETTE.lantern_cold);
 
 export interface ZoneTint {
@@ -217,7 +229,14 @@ export function createZone(area: AreaNode): ZoneVisual {
   // live water lifted danger's vermillion into magenta, which read as an
   // overlay rather than a sea state. Every band is pulled toward deep sea;
   // danger hardest, since its accent is the most saturated.
-  tintColor.lerp(DEEP_SEA, danger ? 0.55 : 0.26);
+  // R5: the shader luminance-matches a band tint against the live water but
+  // PRESERVES ITS HUE, so a raw DEWS accent stays a raw DEWS accent — at the
+  // raised strengths that turned dusk into concentric cream / mauve / pink /
+  // khaki bands and the sea read as mud. Pulling each band harder toward
+  // deep sea keeps every region inside a WATER gamut; the separation is
+  // carried by value and by the region's own swell, chop and foam (D6),
+  // which is what that decision asked for in the first place.
+  tintColor.lerp(SEA_GAMUT_ANCHOR, danger ? 0.5 : 0.62);
 
   return {
     area,

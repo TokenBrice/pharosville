@@ -125,10 +125,12 @@ describe("createZone", () => {
       from.g - to.g,
       from.b - to.b,
     );
-    // It still reads as ledger ink rather than any other band...
-    expect(distanceTo(ledger.tint.color, ink))
-      .toBeLessThan(distanceTo(ledger.tint.color, calm.tint.color));
-    // ...but it has moved toward the sea, so it renders as water.
+    // R5: every band is now pulled hard toward a mid-BLUE sea anchor so it
+    // stays inside a water gamut, which deliberately brings the bands closer
+    // to each other in hue than to their raw DEWS accents. What must survive
+    // is that each band remains DISTINGUISHABLE from its neighbours...
+    expect(distanceTo(ledger.tint.color, calm.tint.color)).toBeGreaterThan(0.05);
+    // ...and that it has moved out of the raw accent and toward the sea.
     expect(distanceTo(ledger.tint.color, deepSea)).toBeLessThan(distanceTo(ink, deepSea));
   });
 

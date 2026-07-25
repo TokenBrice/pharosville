@@ -108,9 +108,21 @@ const MOON_DIR = new Vector2(
 // stays below the bloom knee (per-state thresholds in garden-post): large
 // water areas must never bloom — only sparse glitter, foam, and emissives may.
 const pc = (key: keyof typeof HARBOR_PALETTE): Color => new Color(HARBOR_PALETTE[key]);
-const DAY_SHALLOW = pc("sky_day_zenith").lerp(pc("aurora_green"), 0.28).lerp(pc("lantern_cold"), 0.18);
-const DAY_MID = pc("sky_day_zenith").lerp(pc("deep_sea_1"), 0.22);
-const DAY_DEEP = pc("deep_sea_1").lerp(pc("sky_day_zenith"), 0.42).lerp(pc("vermillion"), 0.05);
+// R4: noon has to read as noon. Every "sea" entry in HARBOR_PALETTE is an
+// indigo (deep_sea_1 #141a30, shallow_teal #1f2a4a, sky_day_zenith #27567d),
+// so the old day ramp was essentially the night sky at a slightly higher
+// value — a warm-lit fleet floating on a midnight sea at hour 12.
+//
+// The day sea now sits in a JADE/TEAL family built from sail_teal and
+// aurora_green: a turquoise shelf, a jade mid-water, and a deep teal basin.
+// Night and dusk keep their indigo, so the day/night contrast is a real
+// journey rather than two shades of the same blue.
+//
+// All three stay far below the day bloom knee (0.95 luminance) — large water
+// areas must never bloom, only glitter and foam may.
+const DAY_SHALLOW = pc("sky_day_zenith").lerp(pc("aurora_green"), 0.46).lerp(pc("lantern_cold"), 0.12);
+const DAY_MID = pc("sky_day_zenith").lerp(pc("sail_teal"), 0.35).lerp(pc("aurora_green"), 0.2);
+const DAY_DEEP = pc("deep_sea_1").lerp(pc("sail_teal"), 0.5).lerp(pc("sky_day_zenith"), 0.22);
 const DUSK_SHALLOW = pc("shallow_teal").lerp(pc("lantern_warm"), 0.16).lerp(pc("deep_sea_1"), 0.28);
 const DUSK_MID = pc("deep_sea_1").lerp(pc("ember"), 0.3).lerp(pc("lantern_warm"), 0.08);
 const DUSK_DEEP = pc("deep_sea_2").lerp(pc("deep_sea_1"), 0.5);
