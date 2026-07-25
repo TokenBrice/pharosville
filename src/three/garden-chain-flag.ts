@@ -135,7 +135,15 @@ export function gardenChainFlagCellUv(cell: number): {
 export function assignGardenChainFlagCell(dock: DockNode, accent: Color): number {
   const store = gardenChainFlagAtlas() as MutableAtlas;
   const existing = store.cellByChainId.get(dock.chainId);
-  if (existing !== undefined) return existing;
+  if (existing !== undefined) {
+    // The cache holds the PAINT, not the fetch. A cell first assigned while
+    // `logoPath` was still null — a world composed before the chains payload
+    // resolved — must be able to pick the logo up on a later composition, or
+    // the harbour is stuck on its painted mark for the life of the document.
+    // `store.upgraded` keeps this from re-fetching a cell that already tried.
+    upgradeCellWithChainLogo(store, existing, dock.logoPath ?? null);
+    return existing;
+  }
   if (!store.texture) return -1;
 
   const cell = store.cellByChainId.size;

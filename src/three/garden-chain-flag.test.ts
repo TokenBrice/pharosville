@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { CanvasTexture, Color, Mesh, MeshStandardMaterial } from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { makeChain } from "../__fixtures__/pharosville-world";
+import { buildChainDocks } from "../systems/chain-docks";
 import type { DockNode } from "../systems/world-types";
 import {
   CHAIN_FLAG_ATLAS_CELLS,
@@ -31,7 +33,10 @@ beforeEach(() => {
   resetGardenChainFlagAtlas();
 });
 
-afterEach(() => resetGardenChainFlagAtlas());
+afterEach(() => {
+  resetGardenChainFlagAtlas();
+  vi.unstubAllGlobals();
+});
 
 const ACCENT = new Color("#4d7fbe");
 
@@ -104,6 +109,60 @@ describe("garden chain flag atlas", () => {
     }
   });
 
+  // The failure mode this guards is silence: if `logoPath` is ever dropped
+  // between the chains payload and the flag, every harbour quietly keeps its
+  // painted mark and nothing anywhere reports a problem.
+  describe("chain logo fetch", () => {
+    it("carries logoPath from the chains payload through to an image fetch", () => {
+      const requested: string[] = [];
+      installImageSpy(requested);
+      // Go through the real systems path, not a hand-built DockNode, so the
+      // assertion covers buildChainDocks and the DockNode contract too.
+      const docks = buildChainDocks({
+        chains: [makeChain({ id: "ethereum", name: "Ethereum", totalUsd: 100, logoPath: "/chains/ethereum.png" })],
+        globalTotalUsd: 100,
+      } as Parameters<typeof buildChainDocks>[0]);
+
+      expect(docks).toHaveLength(1);
+      expect(docks[0]!.logoPath).toBe("/chains/ethereum.png");
+      assignGardenChainFlagCell(docks[0]!, ACCENT);
+      expect(requested).toEqual(["/chains/ethereum.png"]);
+    });
+
+    it("attempts the fetch exactly once per chain, however often the world recomposes", () => {
+      const requested: string[] = [];
+      installImageSpy(requested);
+      const dockNode = dock("base", "Base");
+      assignGardenChainFlagCell(dockNode, ACCENT);
+      assignGardenChainFlagCell(dockNode, ACCENT);
+      assignGardenChainFlagCell(dockNode, ACCENT);
+      expect(requested).toEqual(["/chains/base.png"]);
+    });
+
+    it("still picks the logo up when the first composition had no logoPath", () => {
+      const requested: string[] = [];
+      installImageSpy(requested);
+      const early = dock("base", "Base");
+      early.logoPath = null;
+      // A world composed before the chains payload resolved.
+      const cell = assignGardenChainFlagCell(early, ACCENT);
+      expect(requested).toEqual([]);
+      // ...and the same chain once the payload arrives. The cell is cached,
+      // but the fetch must not be.
+      expect(assignGardenChainFlagCell(dock("base", "Base"), ACCENT)).toBe(cell);
+      expect(requested).toEqual(["/chains/base.png"]);
+    });
+
+    it("never fetches a path that is not same-origin", () => {
+      const requested: string[] = [];
+      installImageSpy(requested);
+      const remote = dock("evil", "Evil");
+      remote.logoPath = "https://example.com/evil.png";
+      assignGardenChainFlagCell(remote, ACCENT);
+      expect(requested).toEqual([]);
+    });
+  });
+
   it("derives readable initials from a chain name", () => {
     expect(chainInitials("Ethereum")).toBe("ET");
     expect(chainInitials("Hyperliquid L1")).toBe("HL");
@@ -128,6 +187,23 @@ function dock(chainId: string, label: string): DockNode {
     tile: { x: 40, y: 32 },
     totalUsd: 7_000_000_000,
   };
+}
+
+/**
+ * Replaces `Image` with a recorder: assigning `src` is the observable moment
+ * the fetch is attempted, and jsdom will not load a real file anyway.
+ */
+function installImageSpy(requested: string[]): void {
+  class RecordingImage {
+    decoding = "auto";
+    naturalHeight = 32;
+    naturalWidth = 32;
+    addEventListener(): void {}
+    set src(value: string) {
+      requested.push(value);
+    }
+  }
+  vi.stubGlobal("Image", RecordingImage);
 }
 
 function fakeContext(): CanvasRenderingContext2D {
