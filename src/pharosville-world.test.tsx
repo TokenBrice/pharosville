@@ -246,12 +246,14 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     render(<PharosVilleWorld world={worldFixture()} />);
 
     const shell = screen.getByTestId("pharosville-world");
+    // S1: with no default selection, Tab enters the cycle at the FIRST target
+    // rather than one past whatever was selected for the visitor.
     fireEvent.keyDown(shell, { key: "Tab" });
-    expect(screen.getByText("Focused Ethereum Dock. Press Enter to select.")).toBeTruthy();
+    expect(screen.getByText("Focused USDC. Press Enter to select.")).toBeTruthy();
 
     fireEvent.keyDown(shell, { key: "Enter" });
     await waitFor(() => {
-      expect(screen.getByTestId("pharosville-detail-panel").textContent).toContain("Ethereum Dock");
+      expect(screen.getByTestId("pharosville-detail-panel").textContent).toContain("USDC");
     });
     expect(screen.queryByTestId("pharosville-selection-strip")).toBeNull();
   });
@@ -260,6 +262,10 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     render(<PharosVilleWorld world={worldFixture()} />);
 
     const shell = screen.getByTestId("pharosville-world");
+    // Target order is USDC, the lighthouse, then the dock; three Tabs reaches
+    // the dock, whose panel carries the "Select USDC" cross-link under test.
+    fireEvent.keyDown(shell, { key: "Tab" });
+    fireEvent.keyDown(shell, { key: "Tab" });
     fireEvent.keyDown(shell, { key: "Tab" });
     fireEvent.keyDown(shell, { key: "Enter" });
     await waitFor(() => {
@@ -276,17 +282,27 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     render(<PharosVilleWorld world={worldFixture()} />);
 
     const shell = screen.getByTestId("pharosville-world");
+    // S1: nothing selected, so Shift+Tab enters the cycle at the LAST target.
     fireEvent.keyDown(shell, { key: "Tab", shiftKey: true });
-    expect(screen.getByText("Focused USDC. Press Enter to select.")).toBeTruthy();
+    expect(screen.getByText("Focused Ethereum Dock. Press Enter to select.")).toBeTruthy();
 
     fireEvent.keyDown(shell, { key: "Escape" });
     expect(mocks.canvasHandleKeyDown).toHaveBeenCalled();
   });
 
-  it("does not render the lower-third caption while details are selected", () => {
+  it("does not render the lower-third caption with or without a selection", () => {
     render(<PharosVilleWorld world={worldFixture()} />);
 
+    // S1: arrival is unselected, so this now covers both states explicitly.
+    expect(screen.queryByTestId("pharosville-detail-panel")).toBeNull();
     expect(screen.queryByTestId("pharosville-selection-strip")).toBeNull();
+
+    const shell = screen.getByTestId("pharosville-world");
+    fireEvent.keyDown(shell, { key: "Tab" });
+    fireEvent.keyDown(shell, { key: "Enter" });
+    expect(screen.getByTestId("pharosville-detail-panel")).toBeTruthy();
+    expect(screen.queryByTestId("pharosville-selection-strip")).toBeNull();
+
     fireEvent.click(screen.getByLabelText("Close details"));
     expect(screen.queryByTestId("pharosville-selection-strip")).toBeNull();
   });
@@ -294,6 +310,14 @@ describe("PharosVilleWorld UI accessibility controls", () => {
   it("leaves canvas selection changes to the canvas pointer-up handler", () => {
     render(<PharosVilleWorld world={worldFixture()} />);
 
+    const shell = screen.getByTestId("pharosville-world");
+    fireEvent.keyDown(shell, { key: "Tab" });
+    fireEvent.keyDown(shell, { key: "Enter" });
+    expect(screen.getByTestId("pharosville-detail-panel")).toBeTruthy();
+
+    // pointerDown alone must not disturb the open panel: selection is the
+    // pointer-UP handler's job. (S1: the panel has to be opened first now,
+    // because arrival selects nothing.)
     fireEvent.pointerDown(screen.getByTestId("pharosville-canvas"));
 
     expect(screen.getByTestId("pharosville-detail-panel")).toBeTruthy();
@@ -336,7 +360,7 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     mocks.cameraRef.current.offsetY = camera.offsetY;
     mocks.cameraRef.current.zoom = camera.zoom;
     render(<PharosVilleWorld world={world} />);
-    fireEvent.click(screen.getByLabelText("Close details"));
+    // S1: nothing is selected on arrival, so there is no panel to close first.
 
     const warning = screen.getByRole("button", {
       name: `Open Warning Shoals details: WARNING, ${warningArea.count} ships`,
@@ -378,7 +402,10 @@ describe("PharosVilleWorld UI accessibility controls", () => {
       entity: world.ships[0]!,
       slice,
     }));
-    expect(screen.getByRole("heading", { level: 2, name: "Pharos Lighthouse" })).toBeTruthy();
+    // S1: Observe is a camera tour, not a selection change. It used to be
+    // asserted against the default lighthouse panel; with no default selection
+    // the meaningful statement is that touring opens no panel at all.
+    expect(screen.queryByTestId("pharosville-detail-panel")).toBeNull();
 
     const observe = screen.getByRole("button", { name: "Stop observing" });
     fireEvent.keyDown(observe, { key: "Tab" });

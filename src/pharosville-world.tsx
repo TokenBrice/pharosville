@@ -16,7 +16,7 @@ import { WorldStaticOverview } from "./components/world-static-overview";
 import { PHAROSVILLE_LATEST_VERSION } from "./content/pharosville-version";
 import { useShipLogoAssets } from "./hooks/use-ship-logo-assets";
 import { useChangelogDialog } from "./hooks/use-changelog-dialog";
-import { isLegendDismissed, useLegendDialog } from "./hooks/use-legend-dialog";
+import { useLegendDialog } from "./hooks/use-legend-dialog";
 import { useCanvasResizeAndCamera } from "./hooks/use-canvas-resize-and-camera";
 import { useHarborLog } from "./hooks/use-harbor-log";
 import { useLatestRef } from "./hooks/use-latest-ref";
@@ -25,7 +25,7 @@ import { useRecentWorldInput } from "./hooks/use-recent-world-input";
 import { useVisitSnapshot } from "./hooks/use-visit-snapshot";
 import { detailAnchorForPoint, useWorldKeyboardTargets } from "./hooks/use-world-keyboard-targets";
 import { useWorldRenderLoop } from "./hooks/use-world-render-loop";
-import { DEFAULT_WORLD_SELECTED_DETAIL_ID, useWorldSelection, resolveSelectedDetail } from "./hooks/use-world-selection";
+import { useWorldSelection, resolveSelectedDetail } from "./hooks/use-world-selection";
 import { useWorldTimeControls } from "./hooks/use-world-time-controls";
 import { useWorldUrlState } from "./hooks/use-world-url-state";
 import { createGardenObservatoryHitTargetSnapshot } from "./renderer/garden-observatory-hit-testing";
@@ -77,14 +77,10 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
 
   const [motionBucket, setMotionBucket] = useState(0);
   const worldUrlState = useWorldUrlState({ world });
-  // First visits auto-open the legend over the world; deferring the default
-  // lighthouse selection until it closes keeps the first look at the harbor
-  // to a single overlay. Explicit ?sel= deep links keep their selection.
-  const [deferredDefaultSelection] = useState(
-    () => !isLegendDismissed() && !worldUrlState.initialState.hasExplicitSelection,
-  );
+  // S1: no default selection at all, so there is nothing to defer around the
+  // first-visit legend any more. A `sel=` permalink still selects on arrival.
   const selection = useWorldSelection({
-    initialSelectedDetailId: deferredDefaultSelection ? null : worldUrlState.initialState.selectedDetailId,
+    initialSelectedDetailId: worldUrlState.initialState.selectedDetailId,
     world,
   });
   const {
@@ -255,16 +251,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     if (late.follow) pendingFollowDetailIdRef.current = late.detailId;
     selectDetail(late.detailId, null);
   }, [selectDetail, worldUrlState.lateResolvedSelection]);
-
-  const deferredSelectionDoneRef = useRef(false);
-  useEffect(() => {
-    if (!deferredDefaultSelection || deferredSelectionDoneRef.current) return;
-    if (legend.legendOpen) return;
-    deferredSelectionDoneRef.current = true;
-    // Respect anything the visitor selected while the legend was open.
-    if (selectedDetailIdRef.current !== null) return;
-    selectDetail(DEFAULT_WORLD_SELECTED_DETAIL_ID, null);
-  }, [deferredDefaultSelection, legend.legendOpen, selectDetail, selectedDetailIdRef]);
 
   // selectedDetailIdRef omitted: ref identity never changes (HOOKS F4).
   // eslint-disable-next-line react-hooks/exhaustive-deps

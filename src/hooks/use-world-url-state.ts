@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { IsoCamera } from "../systems/projection";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
-import { DEFAULT_WORLD_SELECTED_DETAIL_ID } from "./use-world-selection";
 import { clampManualTimeOverrideHour } from "./use-world-time-controls";
 
 type WorldUrlDescriptorTarget = "hash" | "search";
@@ -13,7 +12,15 @@ export interface WorldUrlInitialState {
   hasExplicitSelection: boolean;
   manualTimeOverrideHour: number | null;
   nightMode: boolean;
-  selectedDetailId: string;
+  /**
+   * S1 (2026-07-25): `null` when the URL names no selection.
+   *
+   * This used to fall back to the lighthouse, which meant every visit opened a
+   * detail panel nobody asked for and then wrote `sel=lighthouse` into the URL,
+   * so the panel outlived the visit that created it. Arriving at the harbour
+   * with nothing selected is the honest default.
+   */
+  selectedDetailId: string | null;
 }
 
 export interface WorldUrlWriteState {
@@ -88,7 +95,7 @@ export function parseInitialWorldUrlState(world: PharosVilleWorldModel): {
   const params = target === "hash" ? hashParams : searchParams;
   const rawSelectedDetailId = params.get("sel");
   const camera = parseCamera(params.get("cam"));
-  const selectedDetailId = parseSelectedDetailId(rawSelectedDetailId, world);
+  const selectedDetailId = resolveUrlSelection(rawSelectedDetailId, world);
   const hasValidSelectedDetail = Boolean(rawSelectedDetailId && world.entityById[rawSelectedDetailId]);
 
   return {
@@ -132,7 +139,7 @@ function defaultInitialWorldUrlState(): WorldUrlInitialState {
     hasExplicitSelection: false,
     manualTimeOverrideHour: null,
     nightMode: false,
-    selectedDetailId: DEFAULT_WORLD_SELECTED_DETAIL_ID,
+    selectedDetailId: null,
   };
 }
 
@@ -154,9 +161,15 @@ function paramsFromHash(hash: string): URLSearchParams {
   return new URLSearchParams(raw.startsWith("?") ? raw.slice(1) : raw);
 }
 
-function parseSelectedDetailId(rawSelectedDetailId: string | null, world: PharosVilleWorldModel): string {
+/**
+ * The selection a URL asks for, or `null`.
+ *
+ * An unresolvable `sel=` stays null here; `unresolvedSelectedDetailId` carries
+ * it so a cold-load permalink can be re-resolved once the real world settles.
+ */
+function resolveUrlSelection(rawSelectedDetailId: string | null, world: PharosVilleWorldModel): string | null {
   if (rawSelectedDetailId && world.entityById[rawSelectedDetailId]) return rawSelectedDetailId;
-  return DEFAULT_WORLD_SELECTED_DETAIL_ID;
+  return null;
 }
 
 function parseHour(rawHour: string | null): number | null {
