@@ -50,6 +50,23 @@ They are bodies of water, not overlay ellipses: color, depth, swell, chop,
 foam, reflection, boundary movement, and buoys may vary, but a renderer effect
 must not reclassify a tile. Color is never the only carrier of meaning.
 
+The sea is a partition with no fallback: every water tile belongs to exactly one
+body, and no body may be the residue. Body areas are sized to their expected
+traffic — the density spread across bodies stays within roughly 3x, not the 13x
+that left the most consequential water a corner sliver and the emptiest water
+the second-largest body on the map.
+
+**Not all water is named, deliberately.** Roughly a quarter of the sea is open
+approach, and it is composition rather than an attribution gap: named waters
+only read as bodies when there is unclaimed sea between them, and the world is
+required to be "asymmetric, sea-first, and intentionally open". The coverage
+guard is set at 0.72 for that reason; raising it back toward 1 would recreate
+the residue body it was meant to prevent.
+
+Sea-body place-names are carried by in-world signage AND by the accessibility
+ledger, which lists every named area. The signs are canvas content and therefore
+aria-hidden, so the ledger — not the sign — is the redundant channel.
+
 ## Media and rendering
 
 - Procedural geometry/materials own the island, harbors, ordinary fleet,

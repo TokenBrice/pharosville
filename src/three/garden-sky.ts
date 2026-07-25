@@ -6,6 +6,7 @@ import {
   Color,
   DataTexture,
   Fog,
+  LinearFilter,
   RGBAFormat,
   Group,
   Mesh,
@@ -256,6 +257,10 @@ function createMist(): { material: MeshBasicMaterial; mesh: Mesh } {
  * The band was a bare PlaneGeometry with uniform opacity, so at night it drew a
  * hard-edged rectangle across the upper sky — visible in any whole-map capture
  * once you look for it. Fading the edges to nothing makes it read as haze.
+ *
+ * The falloff goes in the GREEN channel: three's `alphamap_fragment` reads
+ * `texture2D(alphaMap, uv).g`, so writing it to alpha (as this first did) left
+ * green at a constant 255 and the rectangle exactly as hard as before.
  */
 function createMistFalloffTexture(): DataTexture {
   const width = 64;
@@ -268,15 +273,19 @@ function createMistFalloffTexture(): DataTexture {
       // Smooth to zero at both ends of both axes.
       const across = Math.sin(Math.PI * v) ** 1.4;
       const along = Math.sin(Math.PI * u) ** 0.7;
-      const alpha = Math.round(Math.max(0, Math.min(1, across * along)) * 255);
+      const falloff = Math.round(Math.max(0, Math.min(1, across * along)) * 255);
       const index = (y * width + x) * 4;
-      data[index] = 255;
-      data[index + 1] = 255;
-      data[index + 2] = 255;
-      data[index + 3] = alpha;
+      data[index] = falloff;
+      data[index + 1] = falloff;
+      data[index + 2] = falloff;
+      data[index + 3] = 255;
     }
   }
   const texture = new DataTexture(data, width, height, RGBAFormat);
+  // DataTexture defaults to NearestFilter on both filters, which would resolve
+  // a 64x16 gradient as visible steps. The whole point here is smoothness.
+  texture.magFilter = LinearFilter;
+  texture.minFilter = LinearFilter;
   texture.needsUpdate = true;
   return texture;
 }
