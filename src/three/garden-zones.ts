@@ -86,8 +86,14 @@ function seaRegionIdForArea(area: AreaNode): number {
 // framing, 0.17 left calm, watch and ledger reading as one undifferentiated
 // blue. Data legibility is a pillar of the brief — a viewer has to be able to
 // see where one body of water ends and the next begins.
-const REGION_TINT_STRENGTH_BAND = 0.24;
-const REGION_TINT_STRENGTH_DANGER = 0.34;
+//
+// S1: raised again with the switch to theme-bridge WATER colours. The old
+// ceiling existed because the tints were UI accents, which read as paint the
+// moment they carried any weight. A cyan-blue, a teal and an ink are all water
+// already, so they can be laid on at a strength that actually separates the
+// bodies of water at whole-map framing.
+const REGION_TINT_STRENGTH_BAND = 0.44;
+const REGION_TINT_STRENGTH_DANGER = 0.54;
 
 const BUOY_HEIGHT = 1.1;
 // Z3: buoys ride the water shader's swell (CPU mirror, see updateZoneBuoys).
@@ -188,6 +194,31 @@ function zoneBandColor(area: AreaNode): Color {
   return color;
 }
 
+/**
+ * S1 (2026-07-25): the colour a region's WATER is tinted, as distinct from the
+ * band accent its buoys and DOM label carry.
+ *
+ * The tint used to be the band accent — a UI hue — pulled 0.5-0.62 of the way
+ * to one shared mid-teal anchor. That anchor was introduced to stop the
+ * accents reading as paint, and it worked, but pulling five different hues
+ * toward a single point collapses them into each other: at whole-map framing
+ * calm, watch, alert and ledger were one undifferentiated blue, which is the
+ * operator's report that the sea zones need clarifying.
+ *
+ * `ZONE_THEMES[terrain].base` is already the theme bridge's WATER colour for
+ * each terrain, and it is already a naturalistic ramp — cyan-blue calm, teal
+ * watch, green alert, olive warning, ink storm, slate ledger. Using it means
+ * no anchor collapse is needed: every region is inside a water gamut to begin
+ * with, so hue AND value separate, and the invariant that zone colour comes
+ * from the shared palette bridge is satisfied more directly than before.
+ */
+function zoneSeaColor(area: AreaNode): Color {
+  const placement = area.riskPlacement
+    ?? (area.band ? DEWS_AREA_PLACEMENTS[area.band] : "safe-harbor");
+  const definition = riskWaterAreaForPlacement(placement);
+  return new Color(zoneThemeForTerrain(definition.terrain).base);
+}
+
 export function createZone(area: AreaNode): ZoneVisual {
   const danger = area.band === "DANGER";
   const radius = zoneRadius(area);
@@ -224,19 +255,13 @@ export function createZone(area: AreaNode): ZoneVisual {
       worldZ: tile.y * TILE_SCALE,
     }));
 
-  const tintColor = bandColor.clone();
-  // W2.7: the band accents are UI hues. Luminance-matching them against
-  // live water lifted danger's vermillion into magenta, which read as an
-  // overlay rather than a sea state. Every band is pulled toward deep sea;
-  // danger hardest, since its accent is the most saturated.
-  // R5: the shader luminance-matches a band tint against the live water but
-  // PRESERVES ITS HUE, so a raw DEWS accent stays a raw DEWS accent — at the
-  // raised strengths that turned dusk into concentric cream / mauve / pink /
-  // khaki bands and the sea read as mud. Pulling each band harder toward
-  // deep sea keeps every region inside a WATER gamut; the separation is
-  // carried by value and by the region's own swell, chop and foam (D6),
-  // which is what that decision asked for in the first place.
-  tintColor.lerp(SEA_GAMUT_ANCHOR, danger ? 0.5 : 0.62);
+  // S1: the water tint is the theme bridge's water colour for this terrain, not
+  // the band accent. No pull toward a shared anchor — see zoneSeaColor for why
+  // that anchor was what flattened the regions into one another. A light lift
+  // toward the sea gamut keeps the darkest band from punching a hole in the
+  // surface at dusk.
+  const tintColor = zoneSeaColor(area);
+  if (danger) tintColor.lerp(SEA_GAMUT_ANCHOR, 0.18);
 
   return {
     area,

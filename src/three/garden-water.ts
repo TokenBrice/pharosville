@@ -583,14 +583,25 @@ const FRAGMENT_SHADER = /* glsl */ `
       // W2.6 — the boundary itself. A drifting foam/current line where two
       // bodies of water meet: this is what makes a region read as having an
       // edge rather than being a gradient.
-      float seam = (1.0 - smoothstep(0.0, 0.16, boundaryDistance)) * edgeFade;
+      //
+      // S1: two terms, not one. The narrow bright line is the tide line where
+      // the currents shear; the wider dark term behind it is the shadow under
+      // that shear. A single bright line at low weight was invisible at
+      // whole-map framing, which is most of why the regions read as a gradient
+      // field rather than as separate bodies of water.
+      float seam = (1.0 - smoothstep(0.0, 0.14, boundaryDistance)) * edgeFade;
+      float seamShadow = (1.0 - smoothstep(0.06, 0.34, boundaryDistance)) * edgeFade;
       float seamWave = 0.55 + 0.45 * sin(
         dot(vWaterPosition, vec2(0.31, 0.24)) - uTime * 0.35 * (0.6 + uTempo)
       );
+      waterColor *= 1.0 - seamShadow * 0.12 * uDetail;
+      // Not pure foam white: a tide line is a slick, so the highlight is
+      // pulled back toward the water it sits on. At full strength the seams
+      // read as chalk streaks marbling the whole sea.
       waterColor = mix(
         waterColor,
-        uHighlightColor,
-        seam * seamWave * 0.16 * uDetail
+        mix(uHighlightColor, waterColor, 0.42),
+        seam * seamWave * 0.34 * uDetail
       );
 
       // Whitecaps scale with the band. Danger water is streaked; calm is bare.

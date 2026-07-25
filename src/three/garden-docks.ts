@@ -509,6 +509,15 @@ export function createDock(
   const signatureAccent = createSignatureAccent(signature, length, width, accent);
   if (signatureAccent) root.add(signatureAccent);
 
+  // ---- Breakwater arm -----------------------------------------------------
+  // H2: the plans differed in deck footprint only, which at overview zoom is a
+  // few tiles of timber — not enough to tell two harbours apart. A curving
+  // stone arm sweeping out from the quay to shelter the basin changes the
+  // harbour's whole outline, and it is the single most recognisable thing a
+  // real harbour has. One merged mesh plus a shared lamp head.
+  const mole = createBreakwaterArm(plan, length, width, supply, stone, lampMaterial);
+  if (mole) root.add(mole);
+
   const lampWorldPositions = lampLocals.map((lamp) =>
     localToWorldXZ(root, lamp.x, lamp.z),
   );
@@ -629,6 +638,91 @@ function createChainFlag(
 
   return group;
 }
+
+/**
+ * H2: the sheltering arm. A run of cut-stone blocks curving out from beside the
+ * quay, stepping down to the waterline at its head, with a small harbour lamp
+ * on the last block.
+ *
+ * The sweep direction and reach come from the plan, so a mole harbour hooks a
+ * long arm right round its basin while a wharf gets a short training wall on
+ * the other side. Two plans get none at all, which is itself a distinction —
+ * an open roadstead reads differently from a sheltered basin.
+ */
+function createBreakwaterArm(
+  plan: HarborPlan,
+  length: number,
+  width: number,
+  supply: number,
+  stoneMaterial: MeshStandardMaterial,
+  lampMaterial: MeshStandardMaterial,
+): Group | null {
+  const spec = BREAKWATER_SPECS[plan];
+  if (!spec) return null;
+
+  const blocks: BufferGeometry[] = [];
+  const count = Math.round(spec.blocks + supply * 3);
+  const reach = length * spec.reach;
+  // The arm starts abreast of the quay and sweeps around toward the pier head,
+  // so it encloses water rather than running parallel to the pier.
+  let tipX = 0;
+  let tipZ = 0;
+  for (let index = 0; index < count; index += 1) {
+    const t = (index + 0.5) / count;
+    const bend = spec.bend * t * t;
+    const x = -length * 0.22 + t * reach;
+    const z = spec.side * (width * 2.05 + bend * reach);
+    // Blocks shrink and settle as the arm reaches into deeper water.
+    const size = 1.05 - t * 0.32;
+    const rise = 0.72 - t * 0.34;
+    pushGeometry(
+      blocks,
+      new BoxGeometry(size * 1.35, rise, size),
+      x,
+      rise / 2 - 0.36,
+      z,
+    );
+    // Armour blocks tumbled along the exposed flank.
+    pushGeometry(
+      blocks,
+      new BoxGeometry(size * 0.62, rise * 0.5, size * 0.62),
+      x + size * 0.25,
+      -0.42,
+      z + spec.side * size * 0.72,
+    );
+    tipX = x;
+    tipZ = z;
+  }
+
+  const group = new Group();
+  group.name = "dock-breakwater";
+  const arm = new Mesh(mergeGeometries(blocks, false)!, stoneMaterial);
+  arm.castShadow = true;
+  arm.receiveShadow = true;
+  group.add(arm);
+
+  // A light at the arm's head: the thing that marks a harbour entrance.
+  const post = new Mesh(new CylinderGeometry(0.1, 0.14, 1.15, 6), stoneMaterial);
+  post.position.set(tipX, 0.44, tipZ);
+  group.add(post);
+  const lamp = new Mesh(new SphereGeometry(0.19, 6, 4), lampMaterial);
+  lamp.position.set(tipX, 1.08, tipZ);
+  group.add(lamp);
+
+  return group;
+}
+
+/** Per-plan arm geometry. `null` means this plan is an open roadstead. */
+const BREAKWATER_SPECS: Record<HarborPlan, { blocks: number; bend: number; reach: number; side: 1 | -1 } | null> = {
+  // The mole IS this harbour — a long arm hooking right round the basin.
+  mole: { blocks: 9, bend: 0.42, reach: 1.35, side: 1 },
+  // A training wall along the far side of the wharf's approach.
+  wharf: { blocks: 6, bend: 0.16, reach: 0.95, side: -1 },
+  // The grand entrance: a short, strongly hooked arm framing the T-head.
+  "t-head": { blocks: 7, bend: 0.55, reach: 1.05, side: 1 },
+  "double-finger": null,
+  "l-quay": null,
+};
 
 /**
  * A mooring line: a catenary of short segments from a bollard out to the berth

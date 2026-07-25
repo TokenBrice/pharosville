@@ -107,11 +107,16 @@ describe("createZone", () => {
   it("harmonizes band colors into the garden palette but leaves ledger ink alone", () => {
     const calm = createZone(area("CALM"));
     const danger = createZone(area("DANGER"));
-    // Z3: the raw saturated DEWS accent is pulled toward a palette anchor
-    // (muted teal-green calm, ember danger) — never a literal copy.
+    // Z3: the water tint is never a literal copy of the DEWS accent.
     expect(calm.tint.color.getHex()).not.toBe(new Color(DEWS_AREA_LABEL_COLORS.CALM).getHex());
-    expect(danger.tint.color.r).toBeGreaterThan(danger.tint.color.g);
-    expect(calm.tint.color.g).toBeGreaterThan(calm.tint.color.r);
+    // S1: the tint is the theme bridge's WATER colour for the terrain, so
+    // danger is ink and calm is cyan-blue — not "danger is warm". What has to
+    // hold is the value ramp (danger is the darkest water in the world) and
+    // that both sit on the cool side, inside a water gamut.
+    const luma = (color: Color) => color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722;
+    expect(luma(danger.tint.color)).toBeLessThan(luma(calm.tint.color) * 0.5);
+    expect(danger.tint.color.b).toBeGreaterThan(danger.tint.color.r);
+    expect(calm.tint.color.b).toBeGreaterThan(calm.tint.color.r);
     const { band: _band, ...ledgerArea } = area("WATCH");
     const ledger = createZone({ ...ledgerArea, riskPlacement: "ledger-mooring" });
     // W2.7: every band's tint is now pulled toward deep sea so it reads as
@@ -140,7 +145,9 @@ describe("createZone", () => {
     expect(danger.tint.strength).toBeGreaterThan(calm.tint.strength);
     // W2.7: the 0.04-0.25 ceiling existed because six ellipses STACKED. A
     // partition does not stack, so a region tints at a strength that reads.
-    expect(danger.tint.strength).toBeLessThanOrEqual(0.5);
+    // S1 raised the ceiling again with the switch to water colours; it still
+    // has to be a tint on water and not a replacement for it.
+    expect(danger.tint.strength).toBeLessThanOrEqual(0.6);
     expect(danger.tint.regionId).toBe(5);
     expect(calm.tint.regionId).toBe(1);
     expect(danger.buoys.every((buoy) => buoy.danger)).toBe(true);

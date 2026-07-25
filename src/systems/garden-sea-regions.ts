@@ -268,21 +268,29 @@ export interface SeaRegionCharacter {
 
 export const SEA_REGION_CHARACTER: Record<SeaRegionName, SeaRegionCharacter> = {
   none: { swell: 1, chop: 1, foam: 0, reflectivity: 1, depth: 1 },
+  // S1 (2026-07-25): the DEPTH multiplier is the value ramp, and it was doing
+  // almost nothing — 0.78 to 1.18, +-20% around neutral. It matters more than
+  // it looks, because the shader luminance-matches each region's tint against
+  // the live water (which is what stops a tint reading as paint) and so throws
+  // most of the hue's own brightness away. Depth is what survives that, and
+  // widening it is what makes risk read as "the water gets darker" from across
+  // the map, hue-blind or not.
+  //
   // The protected inner harbour: near-still, the most mirror-like water in the
   // scene, and the region the concept render's reflection sells.
-  calm: { swell: 0.45, chop: 0.5, foam: 0.05, reflectivity: 1.5, depth: 1.06 },
+  calm: { swell: 0.45, chop: 0.5, foam: 0.05, reflectivity: 1.5, depth: 1.14 },
   watch: { swell: 0.85, chop: 0.9, foam: 0.18, reflectivity: 1.1, depth: 1 },
-  alert: { swell: 1.15, chop: 1.25, foam: 0.4, reflectivity: 0.8, depth: 0.94 },
-  warning: { swell: 1.45, chop: 1.7, foam: 0.68, reflectivity: 0.6, depth: 0.87 },
+  alert: { swell: 1.15, chop: 1.25, foam: 0.4, reflectivity: 0.8, depth: 0.88 },
+  warning: { swell: 1.45, chop: 1.7, foam: 0.68, reflectivity: 0.6, depth: 0.75 },
   // Steep, dark, streaked with blown foam — legible as trouble without colour.
-  danger: { swell: 1.9, chop: 2.3, foam: 1, reflectivity: 0.42, depth: 0.78 },
+  danger: { swell: 1.9, chop: 2.3, foam: 1, reflectivity: 0.42, depth: 0.6 },
   // The ledger shelf reads as shallow, slack, slightly stagnant water.
-  ledger: { swell: 0.7, chop: 0.75, foam: 0.1, reflectivity: 1.2, depth: 1.12 },
+  ledger: { swell: 0.7, chop: 0.75, foam: 0.1, reflectivity: 1.2, depth: 1.2 },
   open: { swell: 1, chop: 1, foam: 0.12, reflectivity: 1, depth: 0.97 },
   // N2 — the wreck shoals. Slack, shallow, still: water that has stopped
   // moving. The lowest swell and chop in the world and almost no foam, so the
   // graveyard reads as a held breath next to the working sea.
-  wreck: { swell: 0.3, chop: 0.4, foam: 0.03, reflectivity: 0.9, depth: 1.18 },
+  wreck: { swell: 0.3, chop: 0.4, foam: 0.03, reflectivity: 0.9, depth: 1.26 },
 };
 
 /**
