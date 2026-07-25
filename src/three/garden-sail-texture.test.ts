@@ -39,7 +39,8 @@ describe("createGardenSailTexture", () => {
       naturalHeight: { configurable: true, value: 64 },
       naturalWidth: { configurable: true, value: 96 },
     });
-    const logo: ThreeLogoAsset = { image, src: "/logos/usdt.png" };
+    // No emblem: exercises the D3 path, where the unframed image is drawn.
+    const logo: ThreeLogoAsset = { emblem: null, image, src: "/logos/usdt.png" };
 
     const texture = createGardenSailTexture(ship, logo);
 
@@ -58,32 +59,48 @@ describe("createGardenSailTexture", () => {
 
     expect(texture).toBeInstanceOf(CanvasTexture);
     expect(drawImage).not.toHaveBeenCalled();
-    // F1: the identity mark grew from radius 47 to 56 and re-centred on the
-    // cell, so the symbol fallback is drawn larger and at 64,65.
+    // H1: with the disc gone the ticker is bounded by the emblem box, not by a
+    // disc radius, so it is drawn larger and constrained to 0.92 of that box.
     expect(fillText).toHaveBeenCalledWith(
       ship.symbol.slice(0, 7),
       64,
       65,
-      56 * 1.76,
+      128 * 0.88 * 0.92,
     );
   });
 });
 
-describe("W5.4 livery sail border", () => {
-  it("frames the cloth inset from the edge so atlas cells cannot bleed", () => {
+describe("H1 emblem sail", () => {
+  it("frames the mark with nothing at all", () => {
     const ship = buildPharosVilleWorld(makePharosVilleWorldInput()).ships[0]!;
     createGardenSailTexture(ship, null);
 
-    expect(strokeRect).toHaveBeenCalled();
-    // Every border pass must stay off the outermost texels: the batched fleet
-    // packs these 128px cells edge-to-edge into one atlas (D3), so a flush
-    // border would smear into the neighbouring ship under bilinear filtering.
-    for (const [x, y, width, height] of strokeRect.mock.calls) {
-      expect(x).toBeGreaterThanOrEqual(4);
-      expect(y).toBeGreaterThanOrEqual(4);
-      expect(x + width).toBeLessThanOrEqual(124);
-      expect(y + height).toBeLessThanOrEqual(124);
-    }
+    // The disc, its rim and the bolt-rope border are all gone (D2): the cloth
+    // is dyed the issuer's colour, so anything drawn around the mark puts it
+    // back to reading as a badge pinned on rather than a device painted on.
+    expect(strokeRect).not.toHaveBeenCalled();
+  });
+
+  it("prefers the disc-free emblem over the raw logo when one was extracted", () => {
+    const ship = buildPharosVilleWorld(makePharosVilleWorldInput()).ships[0]!;
+    const image = document.createElement("img");
+    Object.defineProperties(image, {
+      naturalHeight: { configurable: true, value: 64 },
+      naturalWidth: { configurable: true, value: 64 },
+    });
+    const emblem = document.createElement("canvas");
+
+    createGardenSailTexture(ship, { emblem, image, src: "/logos/usdc.svg" });
+
+    // Drawn once, and it is the EMBLEM — not the image it came from.
+    expect(drawImage).toHaveBeenCalledOnce();
+    expect(drawImage.mock.calls[0]![0]).toBe(emblem);
+    // Square, centred, and filling 0.88 of the cell.
+    const [, x, y, width, height] = drawImage.mock.calls[0]!;
+    expect(width).toBeCloseTo(128 * 0.88);
+    expect(height).toBeCloseTo(128 * 0.88);
+    expect(x).toBeCloseTo(64 - (128 * 0.88) / 2);
+    expect(y).toBeCloseTo(64 - (128 * 0.88) / 2);
   });
 });
 
@@ -146,6 +163,30 @@ describe("F1 brand-dyed cloth", () => {
     });
 
     expect(ink.r * 0.2126 + ink.g * 0.7152 + ink.b * 0.0722).toBeGreaterThan(0.05);
+  });
+
+  it("puts a pale issuer under black canvas so its white mark survives", () => {
+    const base = buildPharosVilleWorld(makePharosVilleWorldInput()).ships[0]!.visual.livery;
+    // Blast yellow: the palest brand in the inventory, contrast 1.10 vs white.
+    const cloth = gardenSailClothColor({ ...base, primary: "#ffff07" });
+    const luminance = cloth.r * 0.2126 + cloth.g * 0.7152 + cloth.b * 0.0722;
+
+    // Dark enough for a white emblem to read...
+    expect(luminance).toBeLessThan(0.05);
+    // ...but not #000: the brand HUE survives, so it is their black, not any
+    // black. Yellow sits near hue 1/6 and must still be there.
+    const hsl = { h: 0, l: 0, s: 0 };
+    cloth.getHSL(hsl, SRGBColorSpace);
+    expect(hsl.s).toBeGreaterThan(0.2);
+    expect(hsl.h).toBeCloseTo(1 / 6, 1);
+  });
+
+  it("leaves an issuer with enough contrast in its own colour", () => {
+    const base = buildPharosVilleWorld(makePharosVilleWorldInput()).ships[0]!.visual.livery;
+    const cloth = gardenSailClothColor({ ...base, primary: "#2775ca" });
+
+    // Circle blue clears the floor comfortably, so it must NOT be blackened.
+    expect(cloth.r * 0.2126 + cloth.g * 0.7152 + cloth.b * 0.0722).toBeGreaterThan(0.1);
   });
 
   it("paints the atlas cell as marks only, leaving the cloth transparent", () => {

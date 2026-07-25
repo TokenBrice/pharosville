@@ -6,12 +6,7 @@ import {
 } from "three";
 import type { ThreeLogoAsset } from "../renderer/world-renderer-backend";
 import { GARDEN_IDENTITY_ANISOTROPY, safeCssColor } from "./garden-util";
-import type {
-  ShipLivery,
-  ShipLogoShape,
-  ShipNode,
-  ShipStripePattern,
-} from "../systems/world-types";
+import type { ShipLivery, ShipNode } from "../systems/world-types";
 
 const TEXTURE_SIZE = 128;
 
@@ -38,6 +33,27 @@ const CLOTH_CANVAS_LIFT = 0.17;
 const CLOTH_LUMINANCE_FLOOR = 0.1;
 const CLOTH_CANVAS = "#f4ecd8";
 
+/**
+ * H1/D5: the pirate rule.
+ *
+ * A coin's mark is almost always WHITE, and the emblem keeps its own colours
+ * (D1) — so a pale-branded issuer would fly a white mark on pale cloth and
+ * vanish. The mark is not ours to recolour; the cloth is. Below this contrast
+ * the ship gets black canvas and lets the white mark carry it, which is the
+ * most literal reading of the reference anyway.
+ *
+ * 2.0 puts 28 of 255 issuers (11%) under black sail — measured over
+ * `data/brand-colors.json` on 2026-07-25. It catches the genuinely illegible
+ * (Blast's #ffff07 at 1.10) without turning a fifth of the fleet black.
+ *
+ * Deliberately keyed on the BRAND colour against white, not on the extracted
+ * mark: this keeps the cloth a pure function of the livery, so a ship never
+ * flashes pale and then snaps to black when its logo resolves.
+ */
+const PIRATE_CONTRAST_FLOOR = 2;
+const PIRATE_SATURATION = 0.4;
+const PIRATE_LIGHTNESS = 0.07;
+
 export function gardenSailClothColor(livery: ShipLivery | null | undefined): Color {
   const primary = safeCssColor(livery?.primary, CLOTH_CANVAS);
   const cloth = new Color(primary).lerp(new Color(CLOTH_CANVAS), CLOTH_CANVAS_LIFT);
@@ -45,7 +61,32 @@ export function gardenSailClothColor(livery: ShipLivery | null | undefined): Col
   if (luminance < CLOTH_LUMINANCE_FLOOR) {
     cloth.lerp(new Color(CLOTH_CANVAS), (CLOTH_LUMINANCE_FLOOR - luminance) * 2.4);
   }
+  if (whiteContrast(cloth) < PIRATE_CONTRAST_FLOOR) {
+    // Not #000 — the brand's HUE survives at very low lightness, so Maker reads
+    // as a dark bronze-black and Aave as a dark green-black. Invisible at
+    // overview zoom, still theirs when you sail up to it.
+    //
+    // Both conversions are pinned to sRGB. three.js works in LINEAR space, and
+    // a lightness of 0.07 read as linear is a mid-dark grey rather than the
+    // near-black this rule exists to produce.
+    const hsl = { h: 0, l: 0, s: 0 };
+    cloth.getHSL(hsl, SRGBColorSpace);
+    cloth.setHSL(hsl.h, PIRATE_SATURATION, PIRATE_LIGHTNESS, SRGBColorSpace);
+  }
   return cloth;
+}
+
+/**
+ * WCAG contrast of a colour against white.
+ *
+ * `Color`'s components are already LINEAR (three.js colour management converts
+ * on assignment), so they feed the luminance sum directly — applying the sRGB
+ * transfer function here as well would darken every colour twice and fire this
+ * rule on issuers that do not need it.
+ */
+function whiteContrast(color: Color): number {
+  const luminance = 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
+  return 1.05 / (luminance + 0.05);
 }
 
 /**
@@ -108,35 +149,18 @@ function paintSailField(
 ): void {
   // F1: no base fill. The cloth is the ship's brand colour, delivered by the
   // material (per-instance for the batched fleet, per-material for heroes), and
-  // everything painted here is a MARK on top of it. Painting a field colour
-  // here as well would fight the dye and put the ships back in oatmeal.
+  // everything painted here is a MARK on top of it.
   //
-  // The marks are therefore drawn in the livery's SECONDARY and ACCENT, which
-  // are its dark and light poles — they read against a saturated cloth, where
-  // the old primary-on-cream panels would now be invisible.
-  context.save();
-  context.globalAlpha = 0.4;
-  context.fillStyle = livery.secondary;
-  switch (livery.sailPanel) {
-    case "center":
-      context.fillRect(43, 0, 42, TEXTURE_SIZE);
-      break;
-    case "field":
-      // A "field" panel is the whole cloth, which under F1 IS the dye — so it
-      // paints nothing rather than flattening the sail into one dark slab.
-      break;
-    case "hoist":
-      context.fillRect(0, 0, 37, TEXTURE_SIZE);
-      break;
-    case "quartered":
-      context.fillRect(0, 0, 64, 64);
-      context.fillRect(64, 64, 64, 64);
-      break;
-  }
-  context.restore();
-
-  paintStripePattern(context, livery.stripePattern, livery.accent);
-
+  // H1/D2: no panel, no stripe pattern, no bolt-rope border.
+  //
+  // This canvas is ONLY ever the identity sail — plain sails take a flat dye
+  // from the shader (batched) or their own material (hero) and are never
+  // textured. So every mark painted here shared the cloth with the emblem, and
+  // a quartered panel or a cross stripe running under a coin's mark is exactly
+  // what made the sail read as a sticker rather than painted canvas.
+  //
+  // What survives is the weave: slack curves down the cloth, which say "fabric"
+  // without competing with the emblem for the eye.
   context.save();
   context.globalAlpha = 0.1;
   context.strokeStyle = livery.secondary;
@@ -148,106 +172,54 @@ function paintSailField(
     context.stroke();
   }
   context.restore();
-
-  paintSailBorder(context, livery);
 }
 
 /**
- * W5.4: a livery bolt-rope border framing the cloth, so the sail reads as a
- * finished, branded flag rather than a panel that runs off its own edge.
+ * H1: the emblem — the mark alone, painted flat onto the cloth.
  *
- * Inset by `SAIL_BORDER_INSET` rather than drawn flush: the batched fleet packs
- * these cells edge-to-edge into one atlas (D3), and a border on the outermost
- * texels would bleed into the neighbouring ship's cell under bilinear
- * filtering. The inset also keeps the band clear of the identity disc
- * (F1: radius 56 about 64,64), so logo legibility at overview zoom is untouched.
+ * No matte, no clip, no rim. The disc, the frame and the contrasting plate all
+ * existed to separate a logo from a cream sail it did not match. The cloth is
+ * now dyed in the issuer's own colour, so the emblem belongs to it: framing it
+ * is what made it read as a badge pinned to the canvas instead of a device
+ * painted on it.
+ *
+ * Bigger, too — 0.88 of the cloth against the old disc's 0.44 — because with
+ * nothing around it the mark can own the sail the way a jolly roger does.
  */
-const SAIL_BORDER_INSET = 5;
-
-function paintSailBorder(
-  context: CanvasRenderingContext2D,
-  livery: ShipLivery,
-): void {
-  const span = TEXTURE_SIZE - SAIL_BORDER_INSET * 2;
-  context.save();
-  context.globalAlpha = 0.82;
-  context.lineWidth = 5;
-  context.strokeStyle = livery.secondary;
-  context.strokeRect(SAIL_BORDER_INSET, SAIL_BORDER_INSET, span, span);
-  context.globalAlpha = 0.9;
-  context.lineWidth = 1.5;
-  context.strokeStyle = livery.accent;
-  context.strokeRect(SAIL_BORDER_INSET + 3, SAIL_BORDER_INSET + 3, span - 6, span - 6);
-  context.restore();
-}
-
-function paintStripePattern(
-  context: CanvasRenderingContext2D,
-  pattern: ShipStripePattern,
-  color: string,
-): void {
-  context.save();
-  context.globalAlpha = 0.58;
-  context.strokeStyle = color;
-  context.fillStyle = color;
-  context.lineCap = "round";
-  context.lineJoin = "round";
-
-  if (pattern === "single" || pattern === "double") {
-    context.fillRect(0, 28, TEXTURE_SIZE, 10);
-    if (pattern === "double") context.fillRect(0, 91, TEXTURE_SIZE, 7);
-  } else if (pattern === "diagonal") {
-    context.translate(64, 64);
-    context.rotate(-Math.PI / 5);
-    context.fillRect(-90, -8, 180, 16);
-  } else if (pattern === "cross") {
-    context.fillRect(0, 57, TEXTURE_SIZE, 14);
-    context.fillRect(57, 0, 14, TEXTURE_SIZE);
-  } else if (pattern === "chevron") {
-    context.lineWidth = 13;
-    context.beginPath();
-    context.moveTo(9, 37);
-    context.lineTo(64, 76);
-    context.lineTo(119, 37);
-    context.stroke();
-  } else if (pattern === "wave") {
-    context.lineWidth = 10;
-    context.beginPath();
-    context.moveTo(-8, 73);
-    context.bezierCurveTo(22, 43, 43, 101, 73, 70);
-    context.bezierCurveTo(95, 47, 112, 84, 137, 61);
-    context.stroke();
-  } else if (pattern === "ladder") {
-    context.lineWidth = 6;
-    for (const y of [27, 52, 77, 102]) {
-      context.beginPath();
-      context.moveTo(13, y);
-      context.lineTo(115, y);
-      context.stroke();
-    }
-  } else {
-    context.lineWidth = 2;
-    for (let y = 16; y < TEXTURE_SIZE; y += 12) {
-      context.beginPath();
-      context.moveTo(0, y);
-      context.lineTo(TEXTURE_SIZE, y - 5);
-      context.stroke();
-    }
-  }
-  context.restore();
-}
+const EMBLEM_SPAN = 0.88;
 
 /**
- * F1: the identity mark, and the reason the sail exists.
+ * H1: a soft dark relief under the emblem, so the mark separates from ANY cloth.
  *
- * Radius 47 -> 56 (88% of the cloth's width, up from 73%) and the rim thinned
- * from a 7px ink band plus a 3px accent to a single 3px accent hairline. Both
- * changes buy the same thing: at the zoom the operator actually reads the
- * fleet at, the disc is a handful of pixels across, and every pixel spent on a
- * frame is a pixel not spent on the logo inside it.
+ * A coin's mark is usually the light element of its logo, and the sail is dyed
+ * the colour that mark sat on — so a pale-branded issuer paints a pale mark
+ * onto pale cloth and it vanishes. Glo flew a light-green mark on light-green
+ * canvas at barely 1.5:1.
+ *
+ * The two obvious fixes are both wrong here. Recolouring the mark breaks D1,
+ * which is the whole point of preserving brand marks. Darkening the cloth
+ * breaks F1: capping lightness to 0.42 pulled Circle blue and Tether green
+ * from 0.31 apart to 0.24, i.e. it bought emblem contrast by making two
+ * issuers harder to tell apart — the exact problem the dye exists to solve.
+ * Both were measured, not guessed.
+ *
+ * A shadow costs neither. It follows the mark's own alpha, so it reads as the
+ * emblem being painted ON canvas that has some depth, and it works whatever
+ * the two colours happen to be. D5's black sails still do the heavy lifting
+ * for the genuinely pale brands; this catches the mid-tone tail.
  */
-const IDENTITY_RADIUS = 56;
-const IDENTITY_LOGO_SPAN = 1.78;
+const EMBLEM_RELIEF_BLUR = 5;
+const EMBLEM_RELIEF_DROP = 1.5;
+const EMBLEM_RELIEF_INK = "rgba(12,14,18,0.55)";
+
+function withEmblemRelief(context: CanvasRenderingContext2D, draw: () => void): void {
+  context.save();
+  context.shadowColor = EMBLEM_RELIEF_INK;
+  context.shadowBlur = EMBLEM_RELIEF_BLUR;
+  context.shadowOffsetY = EMBLEM_RELIEF_DROP;
+  draw();
+  context.restore();
+}
 
 function paintSailIdentity(
   context: CanvasRenderingContext2D,
@@ -256,23 +228,30 @@ function paintSailIdentity(
 ): void {
   const centerX = 64;
   const centerY = 64;
-  const radius = IDENTITY_RADIUS;
+  const box = TEXTURE_SIZE * EMBLEM_SPAN;
 
-  context.save();
-  drawLogoShape(context, ship.visual.livery.logoShape, centerX, centerY, radius);
-  context.fillStyle = ship.visual.livery.logoMatte;
-  context.globalAlpha = 0.97;
-  context.fill();
-  context.clip();
+  // The emblem: the coin's mark with the disc it came on already cut away.
+  if (logo?.emblem) {
+    try {
+      withEmblemRelief(context, () => {
+        context.drawImage(logo.emblem!, centerX - box / 2, centerY - box / 2, box, box);
+      });
+      return;
+    } catch {
+      // Fall through to the unframed logo below.
+    }
+  }
 
+  // D3: no emblem could be separated, so fly the logo untouched — but still
+  // unframed. Its own disc shows, yet the sail is dyed the colour that disc is
+  // made of, so it mostly melts into the cloth instead of sitting on a plate.
   if (logo?.image) {
     try {
       const dimensions = containedDimensions(
         logo.image.naturalWidth || logo.image.width,
         logo.image.naturalHeight || logo.image.height,
-        radius * IDENTITY_LOGO_SPAN,
+        box,
       );
-      context.globalAlpha = 1;
       context.drawImage(
         logo.image,
         centerX - dimensions.width / 2,
@@ -280,82 +259,20 @@ function paintSailIdentity(
         dimensions.width,
         dimensions.height,
       );
-      context.restore();
-      paintIdentityRim(context, ship.visual.livery, centerX, centerY, radius);
       return;
     } catch {
       // The symbol fallback remains deterministic if an image cannot be drawn.
     }
   }
 
+  // Nothing has resolved yet. The ticker holds the ship's identity until one
+  // does — the invariant that identity never depends on an image loading.
   context.globalAlpha = 1;
-  context.fillStyle = identityInk(ship.visual.livery.logoMatte);
-  context.font = "700 36px system-ui, sans-serif";
+  context.fillStyle = identityInk(`#${gardenSailClothColor(ship.visual.livery).getHexString()}`);
+  context.font = "700 40px system-ui, sans-serif";
   context.textAlign = "center";
   context.textBaseline = "middle";
-  const label = ship.symbol.trim().slice(0, 7);
-  context.fillText(label, centerX, centerY + 1, radius * 1.76);
-  context.restore();
-  paintIdentityRim(context, ship.visual.livery, centerX, centerY, radius);
-}
-
-function paintIdentityRim(
-  context: CanvasRenderingContext2D,
-  livery: ShipLivery,
-  x: number,
-  y: number,
-  radius: number,
-): void {
-  context.save();
-  drawLogoShape(context, livery.logoShape, x, y, radius);
-  context.globalAlpha = 0.96;
-  context.lineWidth = 3;
-  context.strokeStyle = livery.secondary;
-  context.stroke();
-  context.restore();
-}
-
-function drawLogoShape(
-  context: CanvasRenderingContext2D,
-  shape: ShipLogoShape,
-  x: number,
-  y: number,
-  radius: number,
-): void {
-  context.beginPath();
-  if (shape === "diamond") {
-    context.moveTo(x, y - radius);
-    context.lineTo(x + radius, y);
-    context.lineTo(x, y + radius);
-    context.lineTo(x - radius, y);
-  } else if (shape === "hex") {
-    for (let index = 0; index < 6; index += 1) {
-      const angle = -Math.PI / 2 + index * Math.PI / 3;
-      const px = x + Math.cos(angle) * radius;
-      const py = y + Math.sin(angle) * radius;
-      if (index === 0) context.moveTo(px, py);
-      else context.lineTo(px, py);
-    }
-  } else if (shape === "pill") {
-    context.roundRect(x - radius, y - radius * 0.72, radius * 2, radius * 1.44, radius * 0.72);
-  } else if (shape === "slash") {
-    context.moveTo(x - radius * 0.42, y - radius);
-    context.lineTo(x + radius, y - radius);
-    context.lineTo(x + radius * 0.42, y + radius);
-    context.lineTo(x - radius, y + radius);
-  } else if (shape === "triangle") {
-    context.moveTo(x, y - radius);
-    context.lineTo(x + radius, y + radius * 0.8);
-    context.lineTo(x - radius, y + radius * 0.8);
-  } else {
-    context.arc(x, y, radius, 0, Math.PI * 2);
-  }
-  context.closePath();
-
-  if (shape === "ring") {
-    context.moveTo(x + radius * 0.58, y);
-    context.arc(x, y, radius * 0.58, 0, Math.PI * 2, true);
-  }
+  context.fillText(ship.symbol.trim().slice(0, 7), centerX, centerY + 1, box * 0.92);
 }
 
 function identityInk(background: string): string {

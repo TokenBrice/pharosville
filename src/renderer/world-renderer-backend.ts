@@ -8,6 +8,12 @@ import type { PharosVilleWorld } from "../systems/world-types";
 export type WorldRendererStatus = "loading" | "ready" | "failed";
 
 export interface ThreeLogoAsset {
+  /**
+   * H1: the coin's mark with the disc it came on cut away, in its own colours,
+   * on a transparent ground. Null when no mask survived the quality gate — the
+   * sail then flies the unframed image instead.
+   */
+  emblem: HTMLCanvasElement | null;
   image: HTMLImageElement;
   src: string;
 }

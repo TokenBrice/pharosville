@@ -4,6 +4,7 @@ import type {
   ThreeLogoAssets,
 } from "../renderer/world-renderer-backend";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
+import { extractSailEmblem } from "../three/garden-sail-emblem";
 
 export interface UseShipLogoAssetsResult {
   logoGeneration: number;
@@ -27,7 +28,21 @@ class ThreeLogoAssetStore implements ThreeLogoAssets {
     if (pending.length === 0) return false;
 
     const settled = await Promise.allSettled(
-      pending.map(async (src) => ({ image: await loadLogoImage(src, signal), src })),
+      pending.map(async (src) => {
+        const image = await loadLogoImage(src, signal);
+        // H1: separate the mark from its disc ONCE per unique logo, here, rather
+        // than per ship in the atlas painter — a coin carried by several ships
+        // would otherwise pay for the pixel scan several times over.
+        return {
+          emblem: extractSailEmblem(
+            image,
+            image.naturalWidth || image.width,
+            image.naturalHeight || image.height,
+          )?.canvas ?? null,
+          image,
+          src,
+        };
+      }),
     );
     if (signal.aborted) return false;
 
