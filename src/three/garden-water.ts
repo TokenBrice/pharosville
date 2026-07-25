@@ -288,6 +288,7 @@ const FRAGMENT_SHADER = /* glsl */ `
   uniform float uWaveAmplitude;
   uniform vec2 uOpenOceanCenter;
   uniform float uOpenOceanRadius;
+  uniform float uMapEdge;
   uniform sampler2D uRegionField;
   uniform sampler2D uRegionDistance;
   uniform vec3 uRegionColor[${SEA_REGION_COUNT}];
@@ -302,6 +303,11 @@ const FRAGMENT_SHADER = /* glsl */ `
   #include <fog_pars_fragment>
 
   const float LANE_TEXELS = ${MAX_GARDEN_LIGHT_LANES}.0;
+
+  // L1: how far the map's corners are rounded off, in world units. Big enough
+  // that no vertex survives for the eye to find, small enough that the world
+  // still reads as a chart with edges rather than as a disc.
+  const float MAP_CORNER_RADIUS = 44.0;
 
   vec3 sampleWaterNormal(vec2 uv) {
     return texture2D(uNormalMap, uv).xyz * 2.0 - 1.0;
@@ -365,6 +371,48 @@ const FRAGMENT_SHADER = /* glsl */ `
     return smoothstep(edge - width, edge + width, value);
   }
 
+  /**
+   * The open ocean beyond the map, as ONE definition both paths use.
+   *
+   * L1: the cheap early-out path and the detailed path used to compute this
+   * separately and disagree — the detailed path multiplied by the facet and
+   * cloud terms and mixed 11% of the sky in, the cheap path applied 0.66% of
+   * the sky and neither of the others. Measured across the boundary, that was a
+   * 26/255 luminance step in a single step of the scanline: the hard edge that
+   * made the world read as a slab floating on a void.
+   *
+   * One function, called by both, cannot drift. The detailed path crossfades
+   * into it over the margin outside the map so the ocean can be genuinely
+   * deeper — the continental shelf dropping away — without that reading as a
+   * border.
+   */
+  vec3 gardenOpenOcean(
+    float tonalCurrent,
+    float cloudLight,
+    float facet,
+    float fresnelTerm,
+    float camDist
+  ) {
+    // Deeper and cooler than the deepest in-map band, so the eye reads a shelf
+    // dropping away. This can carry real weight now that it is crossfaded;
+    // as a hard boundary it had to stay near-invisible, which is why the open
+    // sea used to read as flat nothing.
+    vec3 color = mix(uBandColor[3], uDeepColor, 0.55) * (0.90 + tonalCurrent * 0.05);
+    color *= (0.95 + facet * 0.1) * mix(1.0, cloudLight, 0.9);
+    color = mix(
+      color,
+      mix(uBaseColor, uHighlightColor, 0.34),
+      fresnelTerm * (0.08 + uDaylight * 0.08 + uNight * 0.04)
+    );
+    color = mix(
+      color,
+      mix(uEnvHorizonColor, uEnvZenithColor, 0.8),
+      clamp(uEnvStrength, 0.0, 0.85)
+    );
+    float fade = smoothstep(150.0, 520.0, camDist);
+    return mix(color, uBaseColor, fade * (0.08 + uDusk * 0.05 + uNight * 0.04));
+  }
+
   void main() {
     // --- W6.1: open-ocean early-out ----------------------------------------
     // The water plane is 900 units across; the playable map is ~79. Everything
@@ -379,44 +427,53 @@ const FRAGMENT_SHADER = /* glsl */ `
     // the map spans 0..79 rather than straddling the origin, and the plane's
     // -90deg X rotation flips Z. Testing against the origin would clip live
     // water off the map's far edge.
+    // L1: a ROUNDED-box metric, not Chebyshev.
+    //
+    // max(|x|, |y|) makes the boundary an axis-aligned square in water space,
+    // which the isometric camera draws as a diamond — and a diamond has four
+    // corners the eye locks onto. Rounding them off leaves a shape with no
+    // vertex to find. The corner radius only pulls the boundary INWARD at the
+    // corners, so everything the early-out skips is still provably degenerate.
     vec2 fromMapCenter = vWaterPosition - uOpenOceanCenter;
-    float mapDistance = max(abs(fromMapCenter.x), abs(fromMapCenter.y));
+    vec2 boxArm = abs(fromMapCenter) - vec2(max(0.0, uMapEdge - MAP_CORNER_RADIUS));
+    float mapDistance = length(max(boxArm, 0.0))
+      + min(max(boxArm.x, boxArm.y), 0.0)
+      + MAP_CORNER_RADIUS;
     if (mapDistance > uOpenOceanRadius) {
       // The cheap path must land on the SAME colour the detailed path would,
-      // or the boundary shows as a hard diamond seam around the map.
+      // or the boundary shows as a hard seam around the map.
       //
-      // Out here the detailed path is provably degenerate: the shore SDF is
-      // saturated (depth = 1 -> deepest band), every shelf/basin/islet term is
-      // zero, no region covers the fragment, and no ripple or light lane is in
-      // range. So the whole thing collapses to the deepest band plus the slow
-      // tonal current and the distance fade — which is all this reproduces.
-      // Only the loops and texture fetches are skipped, not the look.
+      // Out here the detailed path is degenerate in every way that costs
+      // anything: the shore SDF is saturated (depth = 1 -> deepest band), every
+      // shelf/basin/islet term is zero, no region reaches this far, and no
+      // ripple ring or light lane is in range. So this skips the loops, the
+      // shore SDFs and the two normal-map fetches — but NOT the look.
+      //
+      // It used to skip the look too, and that is what made the world read as a
+      // slab floating on a void. gardenOpenOcean is now the single definition
+      // both paths share, so they cannot drift apart again; this call feeds it
+      // the FLAT-normal facet and fresnel, which is what the detailed path
+      // converges to out here once distance has faded the normal map out.
       float openTonalCurrent = 0.5 + 0.5 * sin(
         dot(vWaterPosition, vec2(0.046, -0.058)) + uTime * 0.027
       );
-      // Deeper and cooler than the deepest in-map band. The world should sit
-      // on a continental shelf that drops away, so the eye reads
-      // shelf -> open ocean. Matching the band exactly made the sea OUTSIDE
-      // read lighter than the tinted sea inside, inverting the depth cue and
-      // turning the map into a slab floating on a void.
-      // Deeper and cooler than the deepest in-map band, so the eye reads a
-      // shelf dropping away — but only slightly. R4 moved the day sea into a
-      // jade family, which left the old 0.55/0.86 darkening reading as a black
-      // VOID around a lit slab, the opposite of the problem it was added to
-      // solve.
-      vec3 openColor = mix(uBandColor[3], uDeepColor, 0.3)
-        * (0.94 + openTonalCurrent * 0.05);
-      openColor = mix(
-        openColor,
-        mix(uEnvHorizonColor, uEnvZenithColor, 0.35),
-        uEnvStrength * 0.06
-      );
-      float openCamDistance = distance(cameraPosition, vWorldPosition);
-      float openFade = smoothstep(150.0, 520.0, openCamDistance);
-      openColor = mix(
-        openColor,
-        uBaseColor,
-        openFade * (0.08 + uDusk * 0.05 + uNight * 0.04)
+      // Same cloud shadow the in-map water gets. Skipping it did not just shift
+      // the average -- it removed all the MOTTLING, so the sea changed from
+      // weathered to flat across the boundary even where the means matched.
+      float openCloudCover = 0.0;
+      if (uCloudShadowStrength > 0.001) {
+        vec2 openCloudUv = vec2(vWaterPosition.x, -vWaterPosition.y) * uCloudShadowTransform.xy
+          + uCloudShadowTransform.zw;
+        openCloudCover = texture2D(uCloudShadow, openCloudUv).r;
+      }
+      float openFacet = clamp(normalize(vec3(-0.46, 0.2, 0.86)).z * 0.5 + 0.55, 0.2, 1.0);
+      vec3 openView = normalize(cameraPosition - vWorldPosition);
+      vec3 openColor = gardenOpenOcean(
+        openTonalCurrent,
+        1.0 - openCloudCover * uCloudShadowStrength,
+        openFacet,
+        pow(1.0 - max(0.0, openView.z), 3.0),
+        distance(cameraPosition, vWorldPosition)
       );
       gl_FragColor = vec4(openColor, 1.0);
       // The early-out must close the frame EXACTLY as the end of main does.
@@ -609,24 +666,26 @@ const FRAGMENT_SHADER = /* glsl */ `
       float regionReflect = uRegionParams[regionId].z;
       float regionStrength = uRegionParams[regionId].w;
 
-      // Converge with the open-ocean early-out. Without this the region tint
-      // stops dead at the cheap-path boundary and the map reads as a hard
-      // diamond tile floating on flat sea. Fading the tint (and its foam)
-      // toward the boundary makes the two paths meet at the same colour.
-      // The fade must begin at the MAP EDGE, not well inside it. uOpenOceanRadius
-      // is deliberately wider than the map half-extent (0.56 of the full span vs
-      // the 0.5 the map occupies), so 0.80-1.0 of it brackets the shoreline of
-      // the world: regions stay fully tinted across the whole playable map and
-      // only dissolve past its edge.
+      // Converge with the open-ocean early-out: a region must be gone by the
+      // time the cheap path takes over, or its tint stops dead at a line.
       //
-      // An earlier ramp started at 0.42 and silently stripped the region tint
-      // from the outer half of the map.
-      // A long ramp so the sea dissolves into open ocean rather than stopping
-      // at a line. Paired with the fog cap in garden-sky.ts, which keeps the
-      // boundary from ever resolving at whole-map framing.
+      // L2: the ramp is anchored to the MAP EDGE (uMapEdge), not to
+      // uOpenOceanRadius, which sits 12% outside it. Expressed against the
+      // radius, the old 0.62 start landed at 70% of the map's half-width —
+      // measured, that put 48.9% of the sea's water tiles inside the fade and
+      // left the map's own edge at 21% tint strength. Since this same factor
+      // scales foam, the depth multiplier and the boundary seam, half the sea
+      // lost its zones entirely, which is most of why the water read as one
+      // flat colour at whole-map framing.
+      //
+      // 0.95 of the map edge out to the early-out boundary keeps every region
+      // at full strength across the playable world and dissolves it only in the
+      // margin beyond, over ~17 units — long enough to read as the sea opening
+      // out rather than as a border. Paired with the fog cap in garden-sky.ts,
+      // which keeps the boundary from resolving at whole-map framing.
       float edgeFade = 1.0 - smoothstep(
-        uOpenOceanRadius * 0.62,
-        uOpenOceanRadius * 1.0,
+        uMapEdge * 0.95,
+        uOpenOceanRadius,
         mapDistance
       );
       regionStrength *= edgeFade;
@@ -932,6 +991,29 @@ const FRAGMENT_SHADER = /* glsl */ `
     // extreme edge toward the base so the fog seam stays invisible.
     float distanceFade = smoothstep(150.0, 520.0, camDistance);
     waterColor = mix(waterColor, uBaseColor, distanceFade * (0.08 + uDusk * 0.05 + uNight * 0.04));
+
+    // L1: cross into the open ocean over the margin outside the map.
+    //
+    // Matching the two paths' colour at the boundary closes the seam, but on
+    // its own it also flattens the world INTO its surroundings — measured, the
+    // open sea came up 26/255 to meet the map and the continental-shelf reading
+    // was gone. The shelf belongs; what does not belong is a line.
+    //
+    // So the ocean is genuinely deeper again (see gardenOpenOcean) and the
+    // detailed path walks into it across the same ramp the region tint uses,
+    // reaching it exactly at the early-out radius. Both sides of the branch
+    // then evaluate the same function to the same value, and the drop happens
+    // over ~17 world units instead of at a step.
+    float oceanBlend = smoothstep(uMapEdge * 0.95, uOpenOceanRadius, mapDistance);
+    if (oceanBlend > 0.001) {
+      waterColor = mix(waterColor, gardenOpenOcean(
+        tonalCurrent,
+        cloudLight,
+        facetLight,
+        fresnel,
+        camDistance
+      ), oceanBlend);
+    }
     gl_FragColor = vec4(waterColor, 1.0);
 
     #include <tonemapping_fragment>
@@ -1103,6 +1185,10 @@ export function createGardenWater(waterLevel: number): GardenWater {
       ),
     },
     uOpenOceanRadius: { value: (regionField.tileSpan * TILE_SCALE_UNITS) * 0.56 },
+    // L2: where the PLAYABLE map actually ends, as distinct from the early-out
+    // radius 12% beyond it. The region fade is anchored to this; conflating the
+    // two is what silently stripped the zones from half the sea.
+    uMapEdge: { value: (regionField.tileSpan * TILE_SCALE_UNITS) * 0.5 },
     uRegionField: { value: regionField.field },
     uRegionDistance: { value: regionField.distance },
     uRegionColor: { value: regionColors },
