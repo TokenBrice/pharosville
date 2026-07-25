@@ -4,15 +4,15 @@ The production world uses Three.js. The immutable `PharosVilleWorld` model,
 camera, motion sampler, selection state, and DOM analytics stay engine-neutral.
 
 Agent deep-dive: `docs/pharosville/THREEJS_AGENT_REFERENCE.md` (module map,
-frame contract, disposal, tiers, change recipes).
+frame contract, disposal, tiers, and change recipes).
 
 ## Files
 
 - `world-renderer-backend.ts` is the narrow frame and lifecycle contract.
 - `render-scheduler.ts` selects balanced, interaction, recovery, constrained,
   and deterministic reduced-motion quality.
-- `garden-observatory-hit-testing.ts` projects the Three composition into
-  accessible pointer and keyboard targets.
+- `garden-observatory-hit-testing.ts` projects the full capacity-bounded Three
+  composition into accessible pointer and keyboard targets.
 - `hit-testing.ts` owns the small spatial index and target resolver.
 - `../three/` owns scene construction, water, models, landmarks, ship identity,
   and GPU resource disposal.

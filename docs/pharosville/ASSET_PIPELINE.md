@@ -1,64 +1,40 @@
-# PharosVille Runtime Media Pipeline
+# PharosVille Runtime Media
 
-Last updated: 2026-07-24
+Last updated: 2026-07-25
 
-The production Three.js world has three runtime media classes: same-origin
-stablecoin logos, checked GLB models, and the checked water-normal texture.
-Everything else is procedural geometry, material, shader, or DOM UI.
+Runtime media is deliberately narrow, same-origin, and owned by the code that
+uses it. Everything else in the Garden Observatory is procedural geometry,
+shader/material work, or DOM.
 
-## Runtime Inventory
+## Inventory and ownership
 
-| Media | Source | Owner | Failure behavior |
-| --- | --- | --- | --- |
-| Ship logos | `world.ships[].logoSrc` | `useShipLogoAssets` | deterministic symbol mark |
-| Lighthouse shell | `public/pharosville/models/garden-lighthouse-shell.glb` | `garden-models.ts` | procedural lighthouse shell |
-| Hero hulls (10) | `public/pharosville/models/garden-hero-*.glb` | `garden-models.ts` | procedural tier hull |
-| Water normal | `public/pharosville/textures/water-normals.png` | `garden-water.ts` | shader water without normal detail |
-| Sail textures | generated in memory | `garden-sail-texture.ts` | livery and symbol remain |
-| Island, docks, ships, landmarks, water, ambient life | procedural | `src/three/` | part of renderer code |
+| Media | Owner | Failure behavior |
+| --- | --- | --- |
+| Stablecoin logo | `useShipLogoAssets` → sail atlas | painted symbol and livery |
+| Chain logo | `garden-chain-flag.ts` → flag atlas | painted chain initials and accent flag |
+| Lighthouse GLB | `garden-models.ts` | aligned procedural lighthouse |
+| 17 hero-hull GLBs | `garden-models.ts` | procedural tier hull |
+| Water normal | `garden-water.ts` | shader water without normal detail |
+| Sail/flag atlases | renderer memory | fallback cloth/mark remains |
 
-Runtime URLs must be same-origin. Do not add API keys, signed generation URLs,
-prototype paths, or remote tool output to browser code.
+Stablecoin images come from `/logos/`. The checked harbor-logo set lives under
+`/chains/`; only supported rendered harbors use it. All paths must begin with
+`/`. Never add a remote image, generation URL, key, token, or prototype path
+to browser code.
 
-## Logo Rules
+## Checked models
 
-- The React asset pipeline accepts only ship logo paths beginning with `/`.
-- Logo loading is abortable and cached by source URL.
-- Image failure must not block the world or leave a blank identity sail.
-- Sail textures use stablecoin livery, a high-contrast matte, and the decoded
-  logo when available; the short symbol is the deterministic fallback.
-- Docks, graves, and scene decoration do not use the React image asset hook.
-- A logo change needs focused sail-texture tests and browser review at Overview
-  and Explore scale.
+The model manifest in `src/three/garden-models.ts` is the contract for one
+lighthouse and seventeen hero hulls. It records content-hashed URL, bytes,
+hash, dimensions, origin, anchors, pick proxy, geometry budgets, provenance,
+and license. `RUNTIME_FACTS.md` is generated from that manifest.
 
-The generated Three.js `CanvasTexture` is an in-memory texture implementation,
-not a separate world renderer or a network asset inventory.
+The procedural scene is created before asynchronous GLB loads. A successful
+model attaches to that semantic root; a failed request preserves its fallback.
+Do not let model success or failure move labels, selection, lights, or hit
+targets.
 
-## Checked GLBs
-
-The canonical artifacts are:
-
-- `public/pharosville/models/garden-lighthouse-shell.glb`
-- `public/pharosville/models/garden-hero-*.glb` — seventeen hero hulls. Ten
-  are shared (`titan`, `heritage`, `carrack`, `brigantine`, `dhow`, `junk`,
-  `barquentine`, `cog`, `xebec`, `cutter`), one per distinct silhouette. Seven
-  are **bespoke** to a single named titan (`tether`, `circle`, `maker`, `sky`,
-  `ethena`, `liberty`, `paypal`) and are excluded from the hash fallback, so
-  no other coin can ever sail them. `systems/unique-ships.ts` maps stablecoins
-  onto them; `HERO_HULL_MODEL_IDS` there and `GARDEN_HERO_MODEL_IDS` here must
-  agree, and a unit test asserts it.
-
-Their contract lives in `src/three/garden-models.ts`:
-
-- cache-busted same-origin URL;
-- exact byte size and SHA-256;
-- base-center origin and unit scale;
-- named beacon, beam, label, and selection anchors;
-- dimensions and pick proxy;
-- draw-call, material, texture, triangle, and vertex budgets;
-- agent-authored provenance and license.
-
-The sources of truth are the deterministic generators:
+Change a model only through its deterministic generator:
 
 ```bash
 node scripts/pharosville/generate-garden-lighthouse.mjs
@@ -66,78 +42,52 @@ node scripts/pharosville/generate-garden-heroes.mjs
 npm run check:garden-models
 ```
 
-Do not hand-edit the binary. Change the generator, regenerate the artifact,
-update metadata only when the output intentionally changes, and run the check.
+Do not hand-edit a checked GLB. Preserve model origin, scale, anchors, pick
+proxy, asset metadata, and fallback together.
 
-The scene creates procedural fallbacks before asynchronous GLB loads. Keep
-those fallbacks aligned with model anchors and scale so failure does not move
-the lighthouse cues or change ship identity and selection geometry.
+## Logos and atlases
 
-## Water Texture
+- Stablecoin images are abortable, cached, and decoded only after the desktop
+  gate. `useShipLogoAssets` does not load terrain, models, or chain marks.
+- The fleet uses one shared 16×16 sail atlas. It stores marks while instance
+  attributes supply cloth/livery, so a large fleet does not acquire a texture
+  per ship.
+- Harbor flags use their own shared atlas. A real chain logo can upgrade a
+  cell, but the painted flag is the product contract and a failed image is not
+  an error state.
+- A logo change needs focused atlas/sail tests and browser review at overview
+  and inspection scale.
+
+## Water texture
 
 `public/pharosville/textures/water-normals.png` is generated by
-`scripts/pharosville/generate-water-normals.mjs`. Its runtime URL carries a
-content-hash query and `/pharosville/textures/*` receives immutable caching.
-Regenerate it through the script; do not hand-edit it.
+`scripts/pharosville/generate-water-normals.mjs` and served with a content-hash
+query. Regenerate it through that script; do not hand-edit it.
 
-## New Model Decision
+## Adding media
 
-Add another GLB only when all are true:
+Add a model only when procedural content cannot make the required silhouette,
+the object matters at normal camera distance, its origin/owner/license/budgets
+are explicit, and failure has an intentional fallback. Do not use a model,
+texture, or post effect to solve ordinary palette, framing, or lighting work.
 
-1. procedural geometry cannot produce the required silhouette or material;
-2. the object matters at normal camera distance;
-3. the model has a clear owner, license, origin, scale, anchors, and pick proxy;
-4. draw, material, texture, triangle, vertex, and byte budgets are explicit;
-5. failure has a deliberate procedural or DOM behavior.
-
-Do not add a model campaign to solve color, lighting, spacing, or texture
-framing problems. Those belong in the current renderer first.
-
-## Reference And Generated Images
-
-Image generation is useful for visual exploration, reference sheets, and
-composition studies. Save scratch outputs under `outputs/`.
-Generated raster images are not runtime assets by default.
-
-To translate an approved concept into production:
-
-1. identify the minimum shape, palette, and material decisions;
-2. implement them in procedural Three.js code or the deterministic model
-   generator;
-3. preserve analytical color semantics and logo legibility;
-4. validate at the production camera and GPU budget.
+Generated images are exploration material, not runtime assets. Keep them under
+`outputs/`; translate an approved concept into procedural code or the checked
+model pipeline before shipping it.
 
 ## Validation
-
-The full runtime media contract is:
 
 ```bash
 npm run check:runtime-media
 ```
 
-It checks every `data/logos.json` path, every current model/texture reference,
-model hashes and budgets, and the absence of retired runtime namespaces.
-
-For a logo or sail change:
+For a model change also run:
 
 ```bash
-npm test -- src/three/garden-sail-texture.test.ts
-npm run test:visual
-```
-
-For model changes:
-
-```bash
-npm run check:garden-models
 npm test -- src/three/garden-models.test.ts
 npm run test:visual
 npm run test:perf
 ```
 
-For a texture, new runtime URL, or loading-boundary change also run:
-
-```bash
-npm run check:viewport-gate
-npm run build
-npm run check:bundle-size
-```
+For a URL or loading-boundary change also run `npm run check:viewport-gate`,
+`npm run build`, and `npm run check:bundle-size`.

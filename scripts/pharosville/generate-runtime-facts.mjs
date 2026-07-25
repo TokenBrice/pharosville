@@ -308,7 +308,7 @@ export function buildRuntimeFactsMarkdown({ repoRoot = process.cwd() } = {}) {
     "",
     "## Runtime Media",
     "",
-    "- The ship-logo pipeline loads same-origin stablecoin logo images only.",
+    "- Stablecoin sails and rendered-harbor flags load same-origin logo images into shared in-memory atlases with deterministic mark fallbacks.",
     "- Ship, dock, island, cemetery, ambient-life, and water visuals are renderer-owned procedural geometry/materials.",
     "- Water normal: `/pharosville/textures/water-normals.png` with a content-hash query.",
     "",

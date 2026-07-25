@@ -1,264 +1,120 @@
 # PharosVille Operations
 
-Last updated: 2026-07-24
+Last updated: 2026-07-25
 
-This runbook covers the standalone Cloudflare Pages app at `https://pharosville.pharos.watch/`.
+This runbook covers the standalone Cloudflare Pages app at
+`https://pharosville.pharos.watch/`.
 
-## Cloudflare Pages Setup
+## Service boundary
 
-- Project name: `pharosville`
-- Production branch: `main`
-- Build output: `dist`
-- Wrangler config: `wrangler.toml`
-- Pages Function proxy: `functions/api/[[path]].ts`
-- Public API base: `PHAROS_API_BASE=https://api.pharos.watch` in `wrangler.toml`
-- Secret API key: `PHAROS_API_KEY` as a Cloudflare Pages secret
+- Pages project: `pharosville`; production branch: `main`; build output: `dist`.
+- `wrangler.toml` sets the public `PHAROS_API_BASE`.
+- `functions/api/[[path]].ts` proxies allowlisted reads and holds the
+  server-side `PHAROS_API_KEY` binding.
+- `public/_headers` governs static responses; the Function owns API headers.
 
-Initial project setup:
+Initial Pages setup:
 
 ```bash
 npx wrangler pages project create pharosville --production-branch main
 npx wrangler pages secret put PHAROS_API_KEY --project-name pharosville
 ```
 
-Do not put `PHAROS_API_KEY` in `VITE_*`, static JS, HTML, docs, fixtures, logs, or committed env files.
+Never put the key in `VITE_*`, browser code, URLs, logs, docs, fixtures, or
+committed environment files.
 
-## Local Development
-
-Vite dev is fastest for UI work, but it does not exercise the Pages Function runtime:
+## Local work
 
 ```bash
 npm ci
-npm run dev
-```
-
-Use it for the Three.js world, layout, and React behavior that does not require
-a live `/api/*` proxy.
-
-For linked-worktree development, the Vite `/api/*` proxy can read `PHAROS_API_KEY`
-from `process.env.PHAROS_API_KEY`, the current worktree `.env.local`, the main
-worktree `.env.local`, or `.git/pharosville.env.local` as a shared local secret
-file.
-Run these before debugging missing ships/data:
-
-```bash
 npm run setup:local-api-key
 npm run onboard:agent
+npm run dev
 npm run smoke:api-local
 npm run smoke:dev-proxy
 ```
 
-For local Pages Functions preview, keep local secrets in ignored `.dev.vars` or pass local bindings through Wrangler. Do not commit local secret files.
+Vite is the fast UI lane. Its `/api/*` proxy can resolve the ignored local key
+from the process environment, current or main-worktree `.env.local`, or the
+shared `.git/pharosville.env.local` file. For local Functions behavior:
 
 ```bash
 npm run build
 npx wrangler pages dev dist
 ```
 
-Wrangler serves Pages locally, including Functions, at `http://localhost:8788` by default. Confirm `/api/*` behavior in this mode before debugging proxy-only issues.
+Keep Wrangler bindings in ignored local files. Do not debug missing ships until
+the local API and proxy smokes pass.
 
-## Validation
+## Deploy and rollback
 
-Focused development checks:
-
-```bash
-npm run validate
-```
-
-Before publishing or claiming release-level confidence:
-
-```bash
-npm run validate:release
-```
-
-To locally run the same commands as the GitHub deploy workflow pre-deploy jobs:
-
-```bash
-npm run validate:deploy-gate
-```
-
-For direct `main` pushes, install the optional local pre-push hook once:
-
-```bash
-npm run hooks:install
-```
-
-Run `npm run check:branch-protection` to validate merge-gate controls before calling `main` protected.
-
-## Branch protection requirements
-
-Before declaring production readiness, enforce `main` merge control on the
-`pharosville` repository:
-
-- Require pull requests. While the repository has only one write-capable
-  collaborator, require zero approvals because GitHub forbids self-approval;
-  raise this to at least one as soon as a second reviewer has write access.
-- Require all of these status checks to pass:
-  - `typecheck`
-  - `unit`
-  - `guards`
-  - `build`
-  - `visual`
-  - `visual-cross-browser`
-- Require branches to be up to date before merge and no direct bypass for `main`
-
-Recommended verification:
-
-```bash
-npm run check:branch-protection
-```
-
-This command verifies the required checks and merge controls, derives a viable
-approval count from the current write-capable collaborator count, and exits
-non-zero if a control is missing or the review rule deadlocks the repository.
-Optionally pass explicit target context:
-
-```bash
-npm run check:branch-protection -- --branch release
-```
-
-Release administration also checks the repository-scoped tag credential and
-the changelog/tag/Release contract:
-
-```bash
-npm run check:release-admin
-```
-
-Credential ownership and rotation are documented in
-`docs/pharosville/RELEASES.md`; do not substitute a personal token or create a
-semantic tag outside the workflow.
-
-## Deploy
-
-Normal production changes deploy from the protected `main` workflow. A
-versioned release must continue through the automated tag and GitHub Release
-path in `docs/pharosville/RELEASES.md`.
-
-The direct command below is for explicit operational recovery only. It is not
-a versioned release, must not be paired with manual semantic tags or
-`gh release create`, and still requires live verification.
-
-Check the worktree first and do not deploy unrelated dirty work:
+Normal production changes deploy from protected `main`. A direct deploy is
+only for explicitly authorized operational recovery; it is not a versioned
+release and must never be paired with a manually created tag or GitHub Release.
 
 ```bash
 git status --short
-```
-
-Build and deploy the current `dist` artifact:
-
-```bash
 npm run build
-npx wrangler pages deploy dist --project-name=pharosville
-```
-
-The current `npm run deploy` script also deploys `dist`. Prefer the explicit
-command above when an operator has authorized a recovery deploy and needs
-dirty-tree protection.
-
-The production deploy workflow runs security-header checks and full live smoke
-against the exact immutable Pages deployment URL it just uploaded. It also
-records a non-blocking canonical-host probe; `.github/workflows/canary-smoke.yml`
-owns ongoing canonical URL availability. Repository admin hardening remains
-separately checkable with `npm run check:release-admin`.
-
-## Live Smoke
-
-After production deploy, smoke the canonical URL:
-
-```bash
+npx wrangler pages deploy dist --project-name pharosville
 npm run smoke:live -- --url https://pharosville.pharos.watch
 ```
 
-At minimum, verify:
+To roll back, select a prior successful **production** deployment in the
+Cloudflare Pages dashboard, roll it back, then rerun live smoke. Preview
+deployments are not rollback targets.
 
-- `/` returns the PharosVille app shell.
-- Blocked viewport fallbacks do not fetch world data, import Three.js, request
-  checked GLBs or textures, or decode ship logos.
-- Renderer or GPU failure shows the DOM signal overview rather than a second
-  graphical renderer.
-- Allowlisted `/api/*` endpoints respond through the Pages Function proxy.
-- Unexpected paths or query shapes fail closed.
-
-Run the manual release-readiness checklist before release cut or after a
-production deploy that needs human sign-off. This is intentionally not a CI
-required check because it includes live production smoke plus heavier browser
-lanes; CI gates the stable pre-deploy pieces separately and the deploy job runs
-live smoke after publishing.
+## Routine checks
 
 ```bash
-npm run check:release-readiness
-```
-
-### Security headers and health posture
-
-Use this matrix for routine production verification:
-
-- Security policy: docs/pharosville/SECURITY_HEADERS.md
-- Browser and static routes: `public/_headers`
-- API proxy routes: `functions/api/[[path]].ts`
-- Live smoke with security assertions: `npm run smoke:live -- --url https://pharosville.pharos.watch`
-
-For production monitoring, add alerts on:
-
-1. `5xx` error-rate for `/api/*`
-2. Upstream timeout / proxy `502` rates
-3. Post-deploy smoke failures
-
-See also: docs/pharosville/OBSERVABILITY.md
-
-## Schedules
-
-Production health checks currently run via:
-
-- `.github/workflows/deploy-cloudflare.yml` after Cloudflare Pages deploy
-- `.github/workflows/release.yml` daily for changelog, semantic-tag, and GitHub Release drift
-- `.github/workflows/canary-smoke.yml` every 30 minutes and on manual dispatch
-- `npm run smoke:live -- --url https://pharosville.pharos.watch`
-
-## Rollback
-
-Use Cloudflare Pages production rollback from the dashboard:
-
-1. Open Workers & Pages.
-2. Select `pharosville`.
-3. Open Deployments.
-4. Choose a previous successful production deployment.
-5. Select the actions menu and roll back to that deployment.
-
-Only production deployments are rollback targets; preview deployments are not.
-
-After rollback, rerun:
-
-```bash
+npm run validate:deploy-gate
+npm run check:branch-protection
+npm run check:security-headers
 npm run smoke:live -- --url https://pharosville.pharos.watch
 ```
 
-## Credential Rotation
+`npm run check:release-admin` verifies branch protection and release
+credentials. `npm run check:release-readiness` adds the heavier browser and
+live checks for human production sign-off. Versioned releases follow
+`RELEASES.md` after a green `main` deployment.
 
-Rotate `PHAROS_API_KEY` out of band with the upstream credential owner:
+## Monitoring and incident response
 
-1. Create a replacement upstream API key.
-2. Store it as the Pages secret without printing it:
+The reliability domains are static Pages delivery and the `/api/*` relay.
+Watch for:
+
+- `/api/*` 5xx ratio above 1% over 10 minutes or five failures in five minutes;
+- three or more upstream timeout/502 responses in 10 minutes;
+- post-deploy smoke failure and failure of the scheduled canary.
+
+The deploy workflow probes the immutable deployment and
+`.github/workflows/canary-smoke.yml` probes the canonical host every 30
+minutes. If operations needs an independent monitor, add Cloudflare or external
+uptime alerting in addition to GitHub Actions.
+
+On an incident:
+
+1. Run `npm run smoke:live -- --url https://pharosville.pharos.watch`.
+2. Check headers and branch posture with the commands above.
+3. Distinguish key/upstream failure from a code regression before rolling back.
+4. Re-run smoke after a rollback and retain the failing endpoint, error class,
+   workflow URL, and deployment/rollback evidence.
+
+## Rotate `PHAROS_API_KEY`
+
+1. Obtain a replacement key from the upstream owner.
+2. Store it without printing it:
 
    ```bash
    npx wrangler pages secret put PHAROS_API_KEY --project-name pharosville
    ```
 
-3. Deploy after the secret is set so the Pages Function sees the new binding:
-
-   ```bash
-   npm run build
-   npx wrangler pages deploy dist --project-name=pharosville
-   ```
-
-4. Run live smoke against `https://pharosville.pharos.watch`.
-5. Revoke the old upstream key after the new deployment is verified.
-6. Delete any local live secret material from ignored env files after rotation.
+3. Deploy and smoke the canonical URL.
+4. Revoke the old upstream key only after verification.
+5. Remove any ignored local copy that was used during rotation.
 
 ## References
 
-- Cloudflare Pages overview: https://developers.cloudflare.com/pages/
-- Pages Functions local development: https://developers.cloudflare.com/pages/functions/local-development/
-- Pages Functions bindings and secrets: https://developers.cloudflare.com/pages/functions/bindings/
-- Wrangler Pages commands: https://developers.cloudflare.com/workers/wrangler/commands/pages/
-- Pages rollbacks: https://developers.cloudflare.com/pages/configuration/rollbacks/
+- https://developers.cloudflare.com/pages/
+- https://developers.cloudflare.com/pages/functions/local-development/
+- https://developers.cloudflare.com/pages/functions/bindings/
+- https://developers.cloudflare.com/pages/configuration/rollbacks/

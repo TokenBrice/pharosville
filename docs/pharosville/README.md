@@ -1,51 +1,43 @@
-# PharosVille Maintenance Pack
+# PharosVille Maintenance Guide
 
-Last updated: 2026-07-24
+Last updated: 2026-07-25
 
-These documents maintain the standalone PharosVille app at
-`https://pharosville.pharos.watch/`. Current code and the route contract win
-over historical plans.
+Current code and route contracts win over historical plans. Use this directory
+for durable operational guidance; use `agents/` for plans and handoffs, not as
+an alternative source of runtime truth.
 
-## Start Here
+## Start with the document for the change
 
-- `AGENT_ONBOARDING.md`: task routing and command lanes.
-- `ARCHITECTURE.md`: request flow, world construction, Three.js runtime, and
-  fallback boundary.
-- `THREEJS_AGENT_REFERENCE.md`: agent-facing Three.js fundamentals, module map,
-  frame contract, disposal rules, tiers, and change recipes for `src/three/`.
-- `RUNTIME_FACTS.md`: generated constants, inventories, and budgets.
-- `CHANGE_CHECKLIST.md`: pre-edit and pre-claim checks.
-- `TESTING.md`: focused, browser, performance, and release validation.
-- `VISUAL_INVARIANTS.md`: non-negotiable visual and analytical contracts.
-- `MOTION_POLICY.md`: the single world clock, reduced motion, and effect caps.
-- `ASSET_PIPELINE.md`: current ship-logo and model media workflow.
-- `RELEASES.md`: protected deploy, tag, GitHub Release, recovery, and audit.
-- `KNOWN_PITFALLS.md`: repeat-risk issues.
+| Need | Read |
+| --- | --- |
+| Find the right lane and first check | `AGENT_ONBOARDING.md` |
+| Understand app/data/renderer boundaries | `ARCHITECTURE.md` |
+| Change Three.js, interaction, frame lifecycle, or GPU work | `THREEJS_AGENT_REFERENCE.md` |
+| Change world meaning, motion, or visual behavior | `VISUAL_INVARIANTS.md` |
+| Change model, texture, sail, or flag media | `ASSET_PIPELINE.md` |
+| Select and interpret validation | `TESTING.md` |
+| Read generated limits and inventories | `RUNTIME_FACTS.md` |
+| Deploy, monitor, recover, or rotate credentials | `OPERATIONS.md` |
+| Create a versioned release | `RELEASES.md` |
 
-## Current Summary
+`CHANGE_CHECKLIST.md` is the compact pre-edit and handoff checklist.
+`SECURITY_HEADERS.md` and `GITHUB_MEDIA.md` are focused reference material.
 
-PharosVille is a desktop-gated React application with a pure world model under
-`src/systems/` and one production Three.js renderer under `src/three/`. The
-scene combines procedural geometry and materials with three deterministic GLBs
-and one water-normal texture. Runtime image decoding is limited to same-origin
-stablecoin logos; GPU or renderer failure presents an interactive DOM signal
-overview.
+## Runtime summary
 
-The browser calls same-origin `/api/*` only. The Cloudflare Pages Function owns
-the upstream allowlist and secret. Analytical meaning remains available through
-the detail panel and accessibility ledger without reading WebGL pixels.
+PharosVille uses a pure world model in `src/systems/`, one production Three.js
+renderer in `src/three/`, and a thin engine-neutral boundary in `src/renderer/`.
+The desktop gate runs before desktop data, logos, models, or the renderer load.
+The full eligible fleet renders through capacity-bounded instancing; analytical
+meaning remains in DOM details and the accessibility ledger. GPU failure falls
+back to a DOM signal overview, never another graphics stack.
 
-## Plan Lifecycle
+## Maintenance rules
 
-- Plans live in `agents/` while active or recently completed.
-- Mark delivered plans `Completed` with a dated outcome.
-- Completed plans may be deleted after their durable outcomes exist in current
-  code or canonical docs.
-- Treat an old plan as context only when it conflicts with current code,
-  `docs/pharosville-page.md`, or `RUNTIME_FACTS.md`.
-
-## Historical Inputs
-
-Earlier raster and Canvas 2D prototypes are historical design inputs, not
-runtime dependencies. Their asset inventory has been removed from the
-repository; only same-origin ship logos and checked models ship at runtime.
+- Browser requests stay same-origin `/api/*`; `PHAROS_API_KEY` stays server-side.
+- Keep motion deterministic, water-safe, and shared by rendering, hit testing,
+  selection, follow, and debug surfaces.
+- Keep runtime images same-origin and in the checked media pipeline.
+- Plans may be deleted once their durable outcome exists in code or these docs.
+- Do not commit generated output, test results, scratch captures, or local env
+  files.

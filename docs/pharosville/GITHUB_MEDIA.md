@@ -1,6 +1,6 @@
 # PharosVille GitHub Media
 
-Last updated: 2026-07-24
+Last updated: 2026-07-25
 
 Use this file to keep GitHub, README, and social-preview media consistent.
 
@@ -8,7 +8,7 @@ Use this file to keep GitHub, README, and social-preview media consistent.
 
 - OG card: `public/og-card.png`
 - README brand preview: `public/og-card.png`
-- README product screenshot: `docs/pharosville/media/pharosville-desktop-shell.png` (1200px-wide fleet view)
+- README product screenshot: `docs/pharosville/media/pharosville-desktop-shell.png` (1200px-wide Garden Observatory view)
 - Canonical app URL: `https://pharosville.pharos.watch/`
 - Repository URL: `https://github.com/TokenBrice/pharosville`
 

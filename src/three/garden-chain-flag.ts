@@ -21,15 +21,9 @@ import type { DockNode } from "../systems/world-types";
  *     discipline the sails use (`VISUAL_INVARIANTS.md:89`): identity never
  *     depends on an image resolving.
  *  2. Asynchronously, the chain's real logo drawn over the mark when
- *     `dock.logoPath` resolves. the API reports chain logo paths under a chains directory, and
- *     what production serves.
- *
- * NOTE (2026-07-25): this repository ships no `public/chains/` directory, so
- * stage 2 currently no-ops in local dev and CI and every harbour flies its
- * painted mark. If production serves chain logo images, the same build
- * upgrades itself there. See the N4 report — vendoring the chain logos into
- * `public/chains/` (plus a `data/` manifest so `validate-runtime-media.mjs`
- * covers them) is an operator call, not one an agent should make unilaterally.
+ *     `dock.logoPath` resolves. The checked `public/chains/` set supplies the
+ *     eleven marks a rendered harbor can fly. An unsupported or failed path
+ *     keeps the painted mark; it is a designed fallback, not an error state.
  */
 export const CHAIN_FLAG_ATLAS_COLUMNS = 4;
 export const CHAIN_FLAG_ATLAS_CELLS = 16;

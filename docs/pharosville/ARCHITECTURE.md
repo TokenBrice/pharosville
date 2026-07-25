@@ -1,174 +1,98 @@
 # PharosVille Architecture
 
-Last updated: 2026-07-24
+Last updated: 2026-07-25
 
-This is the smallest useful model of the production app: gated data, a pure
-world model, one Three.js renderer, and a DOM failure path.
+PharosVille is a desktop-gated React app with a pure data-to-world layer and
+one imperative Three.js/WebGL renderer. The DOM remains the analytical and
+failure-safe surface.
 
-## 1. Request Boundary
-
-Browser code calls same-origin `/api/*` only.
-
-```text
-Browser
-  |
-  | GET /api/<allowlisted-path>
-  v
-Cloudflare Pages Function: functions/api/[[path]].ts
-  |
-  | HTTPS + server-side X-API-Key
-  v
-PHAROS_API_BASE
-```
-
-- `PHAROS_API_KEY` is a Pages secret and must never enter client JavaScript,
-  HTML, URLs, logs, docs, or fixtures.
-- `PHAROS_API_BASE` is constrained to the canonical Pharos API.
-- Only the shared endpoint registry is allowed and only `GET` is accepted.
-- Security headers and endpoint cache policy are applied by the Pages Function.
-
-## 2. Desktop Gate
-
-`src/client.tsx` checks device screen size and orientation before importing
-`src/pharosville-desktop-data.tsx`.
+## Request and loading boundary
 
 ```text
-screen below 720 x 360 capability -> DesktopOnlyFallback
-capable portrait screen           -> RotateToLandscape
-capable landscape screen          -> lazy desktop data + world runtime
+Browser → /api/<allowlisted read path> → Pages Function → PHAROS_API_BASE
 ```
 
-The blocked paths do not mount world queries, import Three.js, request the
-checked models or textures, or decode ship logos. `vite.config.ts` emits media-qualified
-modulepreloads for the desktop lazy chunk and its dependency closure.
+- Browser code calls same-origin `/api/*` only.
+- `functions/api/[[path]].ts` permits only registry-backed `GET` endpoints and
+  injects `PHAROS_API_KEY` server-side. The key never belongs in client code,
+  URLs, logs, docs, or fixtures.
+- `src/client.tsx` is the gate. A screen needs a 720px long side, a 360px short
+  side, and landscape orientation before it lazy-loads desktop data.
+- Blocked screens render a DOM fallback or rotate prompt. They must not query
+  the world, import the Three.js runtime, decode logos, or request models.
 
-## 3. World Construction
-
-React Query payloads are converted into a deterministic `PharosVilleWorld`
-before rendering.
+## Runtime pipeline
 
 ```text
-same-origin API hooks
-  -> use-pharosville-world-data
-  -> buildPharosVilleWorld()
-  -> immutable world value
-  -> motion plan + Garden Observatory slice
-  -> Three.js frame and DOM details
+API hooks → buildPharosVilleWorld() → motion plan + display slice
+         → route-owned frame loop → Three.js frame + DOM parity
 ```
 
-`src/systems/` owns data semantics, layout, route planning, risk placement,
-selection detail, observe ranking, and motion sampling. Rendering code must not
-invent analytical meaning.
+1. `src/pharosville-desktop-data.tsx` fetches data only after the gate passes.
+2. `src/systems/` deterministically constructs `PharosVilleWorld`: map,
+   harbors, ships, analytical water, lifecycle wrecks, detail models, and
+   visual-cue provenance.
+3. `src/pharosville-world.tsx` owns selection, URL state, camera intent,
+   accessible overlays, and the shared refs that connect interaction to the
+   renderer.
+4. `useWorldRenderLoop` owns the single normal-motion RAF, motion samples,
+   adaptive DPR, scheduler, hit-target snapshots, metrics, and renderer
+   lifecycle.
+5. `src/three/world-renderer.ts` consumes a frame contract; it never invents
+   analytical meaning.
 
-The overview slice keeps:
+The Garden Observatory renders the complete eligible fleet up to its fixed
+capacity of 320. Composition comes from deterministic, region-scoped placement
+and exclusion zones, not from the retired 20-ship overview cap.
 
-- all rendered docks and analytical areas;
-- a stable representative set capped at 20 ships;
-- one temporary selected ship when a deep link targets an outsider.
+## Rendering boundary
 
-## 4. Renderer Lifecycle
+`src/renderer/` is the narrow engine-neutral boundary: the renderer interface,
+scheduler, metrics, and hit testing. `src/three/` owns scene construction and
+GPU disposal.
 
-For agent implementation detail (module map, frame contract, disposal, tiers,
-Three.js pitfalls), see `THREEJS_AGENT_REFERENCE.md`.
+The scene includes a procedurally built island, harbors, water regions,
+landmarks, weather, and ambient life; most fleet ships are instanced batches.
+The lighthouse and selected hero hulls load checked GLBs over aligned
+procedural fallbacks. Stablecoin and harbor marks are painted into shared
+in-memory atlases from same-origin images.
 
-`useWorldRenderLoop` dynamically imports `src/three/world-renderer.ts` and owns
-the only renderer lifecycle.
+The frame contract is intentionally shared by drawing, pointer hit testing,
+keyboard targets, follow-selected, detail anchoring, and debug telemetry. A
+display or motion transform must change in all of those places together.
 
-```text
-loading
-  -> createThreeWorldRenderer()
-  -> ready
-  -> render(frame) on the route-owned clock
+## Failure and accessibility
 
-module/WebGL/context/render failure
-  -> failed
-  -> hide WebGL surface
-  -> render WorldStaticOverview in DOM
+If the renderer module fails, WebGL cannot start, the context is lost, or a
+frame throws, the WebGL surface is hidden and `WorldStaticOverview` presents
+the already-built signals as selectable DOM. There is no second graphical
+renderer.
+
+The detail panel, accessibility ledger, area labels, announcements, and
+controls never depend on reading WebGL pixels. Every analytical cue must carry
+source fields, caveats, and a DOM equivalent.
+
+## Change ownership
+
+| Change | Primary owner |
+| --- | --- |
+| API semantics, placement, risk, detail copy | `src/systems/` |
+| Camera, pointer and keyboard behavior | `src/hooks/`, `src/renderer/` |
+| Geometry, material, post-processing, resource disposal | `src/three/` |
+| DOM controls, detail and accessibility parity | `src/components/`, `src/pharosville-world.tsx` |
+| Checked models, textures, logos | `docs/pharosville/ASSET_PIPELINE.md` |
+
+## Validation
+
+Use the smallest relevant lane:
+
+```bash
+npm test -- src/systems
+npm test -- src/three src/renderer
+npm run check:viewport-gate
+npm run test:visual
+npm run test:perf
 ```
 
-There is no renderer selection flag and no Canvas 2D recovery backend.
-
-The renderer owns:
-
-- the Three.js scene, orthographic camera, lighting, fog, and WebGL lifecycle;
-- shader water and risk-area presentation;
-- terraced island, docks, procedural ship families, landmarks, weather, and
-  bounded ambient life;
-- entity cue anchors and selection markers;
-- semantic detail visibility;
-- GPU draw, geometry, texture, line, point, and triangle metrics;
-- disposal of replaced world content and renderer resources.
-
-`src/renderer/` now contains runtime-neutral interaction, scheduling, metrics,
-and renderer contracts. It is not a second drawing stack.
-
-## 5. Checked Models
-
-The scene creates procedural lighthouse and hero-hull fallbacks synchronously.
-The model library then loads:
-
-- `public/pharosville/models/garden-lighthouse-shell.glb`
-- `public/pharosville/models/garden-hero-titan.glb`
-- `public/pharosville/models/garden-hero-heritage.glb`
-
-`src/three/garden-models.ts` records the model URL, SHA-256, dimensions,
-base-center origin, anchors, pick proxy, geometry inventory, and budgets.
-Successful loads attach GLBs to the existing semantic roots while
-renderer-owned lights, labels, motion, and selection anchors remain stable.
-Failed loads leave procedural fallbacks in place.
-
-The GLBs are deterministic and agent-authored by the lighthouse and hero
-generator scripts under `scripts/pharosville/`.
-
-## 6. Runtime Media
-
-The React asset hook is deliberately narrow:
-
-```text
-world.ships[].logoSrc
-  -> same-origin image decode
-  -> ThreeLogoAssetStore
-  -> in-memory sail CanvasTexture
-```
-
-It loads logos only. The model library separately owns checked GLBs, and the
-water shader loads the checked normal texture. Other scene content remains
-procedural. `npm run check:runtime-media` validates all logo paths, model and
-texture references, and prevents retired namespaces from returning.
-
-## 7. Frame And Motion
-
-One route-owned `requestAnimationFrame` loop advances ship samples, camera
-intent, scheduler state, hit targets, Three.js rendering, and debug metrics.
-
-- Reduced motion uses `timeSeconds = 0`, paints on demand, and keeps no
-  continuous RAF alive.
-- Hidden/offscreen surfaces pause and resume without accumulating a teleporting
-  time delta.
-- The adaptive DPR governor uses bounded backing pixels and frame pacing.
-- The scheduler sheds decorative detail under constrained/recovery pressure;
-  analytical content, selection, and DOM truth remain available.
-
-## 8. Interaction And DOM Parity
-
-`useCanvasResizeAndCamera` retains its historical name but owns the HTML WebGL
-surface size, camera controls, pointer gestures, and keyboard navigation.
-Garden Observatory hit testing uses the same display transforms and ship motion
-samples as rendering.
-
-DOM-owned surfaces include:
-
-- detail panel and accessibility ledger;
-- world controls, footer, and announcements;
-- analytical area labels and Observe captions;
-- `WorldStaticOverview` after GPU/renderer failure.
-
-## 9. Validation Boundaries
-
-- model artifact: `npm run check:garden-models`
-- renderer/unit behavior: `npm test -- src/three`
-- viewport import boundary: `npm run check:viewport-gate`
-- browser behavior: `npm run test:visual`
-- GPU/performance behavior: `npm run test:perf`
-- bundle budgets: `npm run build && npm run check:bundle-size`
-- mixed changes: `npm run validate:changed`
+See `THREEJS_AGENT_REFERENCE.md` for renderer work and `TESTING.md` for the
+complete test and review matrix.

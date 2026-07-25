@@ -1,54 +1,46 @@
 # PharosVille Change Checklist
 
-Last updated: 2026-07-24
+Last updated: 2026-07-25
 
-## Before Editing
+## Before editing
 
 - Run `git status --short` and preserve unrelated work.
-- Run `npm run onboard:agent`.
-- Read only the task-specific docs named by `AGENT_ONBOARDING.md`.
+- Run `npm run onboard:agent`, then read the task-specific guide from
+  `AGENT_ONBOARDING.md`.
 - Confirm the change belongs to this standalone repository.
-- Keep browser API calls same-origin and `PHAROS_API_KEY` server-side.
+- Keep browser calls same-origin and `PHAROS_API_KEY` server-side.
 
-## Runtime
+## Keep these contracts
 
-- Preserve one production Three.js renderer.
-- Preserve the desktop screen/orientation gate before data and runtime import.
-- Keep the DOM static overview as the renderer/GPU failure path.
-- Keep analytical meaning in details and the accessibility ledger.
-- Use the same motion sample for rendering, hit testing, follow, and debug.
-- Keep reduced motion deterministic with no continuous RAF.
-- For Three.js work, follow `THREEJS_AGENT_REFERENCE.md` (dispose paths, shared
-  geometry, tiers, hit-test parity).
+- One production Three.js renderer; a DOM static overview on renderer/GPU
+  failure; no renderer flag or Canvas fallback.
+- The desktop landscape gate before data, Three.js, models, and logo decoding.
+- Analytical meaning in systems plus DOM detail/ledger parity, never pixels
+  alone. Do not turn routes or docking into transfer/issuer claims.
+- One shared motion sample for drawing, hit testing, following, selection, and
+  debug; one route-owned RAF; a deterministic no-RAF reduced-motion frame.
+- World rebuilds dispose old renderer-owned content; frame work does not create
+  unbounded geometry, materials, textures, lights, loaders, or timers.
+- Full-fleet composition is controlled by region placement and capacity, not by
+  restoring the retired 20-ship cap.
+- Same-origin media with deterministic fallbacks. Checked models change through
+  generators, not binary edits.
 
-## Media
+## Validate proportionately
 
-- Runtime image decoding remains logo-only; model and water media use their
-  narrow Three.js owners.
-- Checked model changes go through deterministic generators and metadata.
-- New models need explicit origin, scale, anchors, pick proxy, provenance,
-  license, failure behavior, and budgets.
-- Image-generation output stays reference-only until deliberately
-  translated into production code or an approved model pipeline.
-- `npm run check:runtime-media` must pass for media changes.
+- World semantics: `npm test -- src/systems`
+- Three.js or hit testing: `npm test -- src/three src/renderer`
+- Browser visual/interaction: `npm run test:visual`
+- Resource or performance: `npm run test:perf`
+- Media: `npm run check:runtime-media`
+- Viewport/import boundary: `npm run check:viewport-gate`
+- Docs: `npm run validate:docs`
+- Mixed scope: `npm run validate:changed`
 
-## Validation
-
-- Use the smallest focused unit test while iterating.
-- Three.js visual changes: `npm run test:visual`.
-- Performance/resource changes: `npm run test:perf`.
-- Runtime media changes: `npm run check:runtime-media`.
-- Viewport/loading changes: `npm run check:viewport-gate`.
-- Mixed scope: `npm run validate:changed`.
-- Broad release confidence: `npm run validate:release`.
-
-## Before Claiming Completion
+## Before handoff
 
 - Inspect the diff and run `git diff --check`.
-- State which checks ran and which did not.
-- Do not commit generated `dist/`, browser scratch, test results, or local env
-  files.
-- Do not deploy, tag, publish a GitHub Release, or push unless explicitly
-  authorized.
-- Versioned releases must follow `RELEASES.md` and the protected workflow after
-  a green `main` deployment.
+- State the checks run and the checks not run.
+- Do not commit `dist/`, `test-results/`, `outputs/`, or local secrets.
+- Do not deploy, push, tag, or publish a release without explicit authority.
+- Versioned releases go through `RELEASES.md` and the protected workflow only.

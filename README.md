@@ -21,7 +21,8 @@ PharosVille renders a living island-city view of Pharos stablecoin market signal
 - chain presence as harbors and docks
 - risk/status water zones around the island
 - detail panels and an accessibility ledger that mirror world semantics
-- stablecoin-branded ships, shader water, and a checked GLB lighthouse
+- a full instanced fleet, stablecoin and chain identity, region-aware shader
+  water, a checked GLB lighthouse, and checked hero hulls
 
 The app is intentionally desktop-only. Narrow screens, short screens, and capable portrait screens must not mount the world runtime or fetch world data; they show a fallback or rotate prompt instead.
 
@@ -48,7 +49,7 @@ At a high level:
 3. Cloudflare Pages Functions proxy only the allowed PharosVille read paths.
 4. `src/systems/` builds a pure world model from live data.
 5. `src/three/` renders the Garden Observatory while `src/renderer/` owns its thin lifecycle and hit-test boundary.
-6. Runtime media is limited to stablecoin logos, checked models, and the checked water-normal texture; GPU failure falls back to a DOM signal overview.
+6. Runtime media is limited to same-origin stablecoin and harbor marks, checked models, and the checked water-normal texture; GPU failure falls back to a DOM signal overview.
 
 For the full implementation map, see [Architecture](./docs/pharosville/ARCHITECTURE.md).
 For agent-facing Three.js guidance (module map, frame contract, disposal, tiers),

@@ -8,8 +8,8 @@ PharosVille is a public standalone app, but it also fronts a production stableco
 - Visual regressions with screenshots and viewport/browser context.
 - Accessibility, performance, and UI quality fixes that preserve the desktop gate.
 - Data/signal reports with stablecoin or chain names, timestamps, and source links.
-- Asset-pipeline fixes that keep runtime media local (same-origin ship logos,
-  checked models, and checked textures).
+- Asset-pipeline fixes that keep runtime media local (same-origin stablecoin and
+  harbor logos, checked models, and checked textures).
 
 Feature ideas should start as an issue before implementation when they change PharosVille visual semantics, data mapping, or maintenance cost.
 
@@ -26,8 +26,9 @@ Important project rules:
 - Browser code calls same-origin `/api/*` only.
 - `PHAROS_API_KEY` must stay server-side and must never be exposed in browser-visible env vars, docs, fixtures, logs, query strings, or static assets.
 - Preserve the desktop gate. Unsupported viewports must not mount the world runtime or fetch world data.
-- Runtime media is limited to same-origin ship logos and checked files under
-  `public/pharosville/models/` and `public/pharosville/textures/`.
+- Runtime media is limited to same-origin stablecoin and harbor logos plus
+  checked files under `public/pharosville/models/` and
+  `public/pharosville/textures/`.
 - Do not commit generated `dist/`, `test-results/`, local env files, or scratch artifacts.
 
 ## Local Setup

@@ -40,7 +40,7 @@ serious analytics product.
   and unrelated game mechanics.
 - Dense scenery whose cultural references are literal decoration rather than
   principles of space, rhythm, season, and attention.
-- Canvas- or 3D-only analytical truth that cannot be inspected, read by
+- WebGL- or 3D-only analytical truth that cannot be inspected, read by
   assistive technology, or understood with motion disabled.
 
 ## Design Principles
