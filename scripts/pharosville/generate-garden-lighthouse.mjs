@@ -353,7 +353,7 @@ function createLighthouse() {
       const faceWidth = faceWidthAt(midY);
       // Alternating course depth: every other ring sits back a hair, so the
       // raking key sun lays a shadow line along each joint.
-      const bandInset = course % 2 === 0 ? 0 : 0.05;
+      const bandInset = course % 2 === 0 ? 0 : 0.04;
       const quoinSide = quoins === null
         ? 0
         : (course % 2 === 0 ? quoins.wide : quoins.narrow);
@@ -370,7 +370,9 @@ function createLighthouse() {
         }
         registerOverhang(midY + height / 2, inradius + 0.02, 0.16);
       }
-      const runHalf = faceWidth / 2 - quoinSide;
+      // Overlap the quoin slightly: a butt joint here leaves a hairline the
+      // camera catches as a sky sliver along the silhouette.
+      const runHalf = faceWidth / 2 - quoinSide + (quoinSide > 0 ? 0.06 : 0);
       if (runHalf <= blockWidth * 0.3) continue;
       const span = runHalf * 2;
       const count = Math.max(2, Math.round(span / blockWidth));
@@ -392,7 +394,7 @@ function createLighthouse() {
             courseY0,
             courseY0 + height,
           )) continue;
-          const relief = (hashUnit(course, faceIndex, block) - 0.5) * 0.028;
+          const relief = (hashUnit(course, faceIndex, block) - 0.5) * 0.042;
           const out = inradius - bandInset + relief;
           const depth = out - (inradius - wallDepth);
           place(

@@ -66,6 +66,73 @@ const ISLAND_LANTERN_POSITIONS = [
 const LANTERN_LAMP_LOCAL_Y = 0.88;
 
 /**
+ * The four craggy rock tiers, as
+ * `[topRadius, bottomRadius, height, segments, seed, x, y, z, scaleZ, rotation, topColor]`.
+ * Hoisted from the build loop so `islandTerrainHeight()` seats the W4.9
+ * additions (stair, talus, planting) against the same numbers the geometry is
+ * cut from — a stair floating a hand-tuned distance above the rock was the
+ * failure mode this avoids.
+ */
+const ISLAND_TIERS = [
+  [16.8, 18.4, 1.45, 32, 0.3, 0.6, -0.74, 1.2, 0.75, 0.08, TERRACE_WET],
+  [13.7, 15.7, 1.72, 30, 1.25, -1.8, 0.05, 0.65, 0.7, -0.12, TERRACE_WET],
+  [10.1, 12.3, 1.55, 28, 2.2, -4.45, 1.22, 0.05, 0.64, 0.18, TERRACE_MOSS],
+  [6.1, 8.1, 1.15, 24, 3.35, -6.7, 2.18, -1.1, 0.66, -0.08, TERRACE_MOSS],
+] as const;
+
+/**
+ * Height of the rock surface at a root-relative point: the highest tier whose
+ * top cap covers it, or an interpolation down the battered face of whichever
+ * tier it sits on. The tier meshes are also radially displaced and yawed a few
+ * degrees, so this is an approximation — close enough to seat props on, which
+ * is all it is used for.
+ */
+function islandTerrainHeight(x: number, z: number): number {
+  let height = WATER_LEVEL;
+  for (const [topRadius, bottomRadius, tierHeight, , , cx, cy, cz, scaleZ] of ISLAND_TIERS) {
+    const top = cy + tierHeight / 2;
+    const base = cy - tierHeight / 2;
+    const inner = Math.hypot((x - cx) / topRadius, (z - cz) / (topRadius * scaleZ));
+    if (inner <= 1) {
+      height = Math.max(height, top);
+      continue;
+    }
+    const outer = Math.hypot((x - cx) / bottomRadius, (z - cz) / (bottomRadius * scaleZ));
+    if (outer > 1) continue;
+    // On the battered face: the tier's skirt runs from `bottomRadius` at its
+    // base up to `topRadius` at its cap.
+    const across = (1 - outer) / Math.max(1e-3, 1 - topRadius / bottomRadius);
+    height = Math.max(height, base + (top - base) * clamp01(across));
+  }
+  return height;
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function smoothstep01(value: number): number {
+  const t = clamp01(value);
+  return t * t * (3 - 2 * t);
+}
+
+// W4.9 sedimentary bedding. The rock ramp was a smooth wet→pale gradient,
+// which is a large part of why the island read as a moulded blob: real sea
+// rock is layered, and the bedding planes are what give a cliff its scale. One
+// bed is ~0.62 world units, with a shadow line at each bed's base and
+// alternating harder (proud, pale) and softer (recessed, dark) courses. This
+// is the island's echo of the ashlar coursing on the tower above it.
+const STRATA_PERIOD = 0.62;
+
+function strataShade(worldY: number): number {
+  const phase = (worldY - WATERLINE_Y) / STRATA_PERIOD;
+  const bed = phase - Math.floor(phase);
+  const bedding = 1 - 0.18 * (1 - smoothstep01(bed / 0.26));
+  const alternating = (((Math.floor(phase) % 2) + 2) % 2) === 0 ? 1.05 : 0.93;
+  return bedding * alternating;
+}
+
+/**
  * World offsets (relative to the island root) of each path lantern's warm lamp,
  * for the caller to register as light lanes on the sea.
  */
@@ -175,12 +242,7 @@ export function createTerracedIsland(
 
   // Craggy stone tiers: same footprint and top-shelf heights as before, but
   // re-skinned as displaced rock with a wet-base → pale-crown vertex gradient.
-  for (const [topRadius, bottomRadius, height, segments, seed, x, y, z, scaleZ, rotation, topColor] of [
-    [16.8, 18.4, 1.45, 32, 0.3, 0.6, -0.74, 1.2, 0.75, 0.08, TERRACE_WET],
-    [13.7, 15.7, 1.72, 30, 1.25, -1.8, 0.05, 0.65, 0.7, -0.12, TERRACE_WET],
-    [10.1, 12.3, 1.55, 28, 2.2, -4.45, 1.22, 0.05, 0.64, 0.18, TERRACE_MOSS],
-    [6.1, 8.1, 1.15, 24, 3.35, -6.7, 2.18, -1.1, 0.66, -0.08, TERRACE_MOSS],
-  ] as const) {
+  for (const [topRadius, bottomRadius, height, segments, seed, x, y, z, scaleZ, rotation, topColor] of ISLAND_TIERS) {
     const tier = new Mesh(
       createRockTerraceGeometry(topRadius, bottomRadius, height, segments, seed, y, topColor),
       rockMaterial,
@@ -386,9 +448,10 @@ function createIrregularTerraceGeometry(
 }
 
 function stoneRampColor(worldY: number, target: Color): Color {
-  const t = Math.max(0, Math.min(1, (worldY - WATERLINE_Y) / (CROWN_RAMP_Y - WATERLINE_Y)));
-  if (t < 0.5) return target.copy(STONE_WET).lerp(STONE_MID, t / 0.5);
-  return target.copy(STONE_MID).lerp(STONE_PALE, (t - 0.5) / 0.5);
+  const t = clamp01((worldY - WATERLINE_Y) / (CROWN_RAMP_Y - WATERLINE_Y));
+  if (t < 0.5) target.copy(STONE_WET).lerp(STONE_MID, t / 0.5);
+  else target.copy(STONE_MID).lerp(STONE_PALE, (t - 0.5) / 0.5);
+  return target.multiplyScalar(strataShade(worldY));
 }
 
 /**
@@ -436,7 +499,10 @@ export function createRockTerraceGeometry(
       positions.setY(index, oy + crag * vignette * height * 0.16);
     }
     const ao = 0.7 + 0.3 * v;
-    stoneRampColor(baseElevation + oy, color).multiplyScalar(ao);
+    // Colour from the *displaced* height, not the lathe height, so the W4.9
+    // bedding planes stay horizontal across the cragged face instead of
+    // rippling with it.
+    stoneRampColor(baseElevation + positions.getY(index), color).multiplyScalar(ao);
     colors[index * 3] = color.r;
     colors[index * 3 + 1] = color.g;
     colors[index * 3 + 2] = color.b;

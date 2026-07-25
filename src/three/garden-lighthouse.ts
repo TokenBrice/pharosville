@@ -386,6 +386,10 @@ export function createLighthouse(): {
     color: palette(P.iron_dark).lerp(palette(P.lantern_cold), 0.35),
     emissive: HARBOR_PALETTE.lantern_warm,
     emissiveIntensity: 0.24,
+    // W4.5: matches the GLB's aperture material name, so a day-cycle driver
+    // for the interior glow finds the windows in the fallback shell and the
+    // loaded model alike (same contract as the "bronze-gilt" statue gleam).
+    name: "lighthouse-window-glow",
     roughness: 0.38,
     toneMapped: false,
   });

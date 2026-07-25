@@ -172,8 +172,12 @@ function parseGardenModelFacts(repoRoot) {
     ...[...manifestBlock.matchAll(/"(garden-hero-[^"]+)":\s*heroModelMetadata\(\{([\s\S]*?)\n\s*}\),/g)]
       .map((match) => parseGardenModelBlock(match[1], match[2], shaBySymbol, urlBySymbol)),
   ];
-  if (entries.length !== 3) {
-    throw new Error(`Expected 3 garden model entries, parsed ${entries.length}.`);
+  // Guard against the regexes silently skipping a model. Derived from the
+  // manifest rather than hard-coded, so growing the hero fleet (W5.1 took it
+  // from 2 hulls to 10) does not require editing this number.
+  const expected = [...manifestBlock.matchAll(/heroModelMetadata\(\{/g)].length + 1;
+  if (entries.length !== expected) {
+    throw new Error(`Expected ${expected} garden model entries, parsed ${entries.length}.`);
   }
   return entries;
 }

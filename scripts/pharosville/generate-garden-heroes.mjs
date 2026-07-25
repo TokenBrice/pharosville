@@ -11,6 +11,7 @@ import {
   CylinderGeometry,
   Float32BufferAttribute,
   Group,
+  Int16BufferAttribute,
   Matrix4,
   Mesh,
   MeshStandardMaterial,
@@ -18,6 +19,7 @@ import {
   PlaneGeometry,
   Scene,
   SphereGeometry,
+  Uint8BufferAttribute,
   Vector3,
 } from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
@@ -1348,6 +1350,7 @@ function createBuilder(assetId) {
         // UVs are dead weight in a vertex-colored, texture-less asset; drop
         // them post-merge to keep the GLB lean.
         geometry.deleteAttribute("uv");
+        quantizeAttributes(geometry);
         geometry.computeBoundingBox();
         geometry.computeBoundingSphere();
         vertices += geometry.getAttribute("position").count;
@@ -1388,6 +1391,55 @@ function createBuilder(assetId) {
       };
     },
   };
+}
+
+/**
+ * W5.6 (decision D8): shrink the interleaved vertex payload before export.
+ *
+ * - NORMAL -> normalized SHORT. Quantization error is at most 1/32767 per
+ *   component, well inside the 0.0005 unit-length tolerance the exporter and
+ *   glTF-validator apply, so the exporter keeps the integer attribute instead
+ *   of rebuilding a float one. Needs `KHR_mesh_quantization`, which
+ *   `GLTFExporter` detects and declares itself; three r18x reads it natively,
+ *   so no browser-side decoder is added.
+ * - COLOR_0 -> normalized UNSIGNED_BYTE. This is core glTF 2.0, not an
+ *   extension, and 8 bits per channel is exactly what the wood ramp was
+ *   authored against.
+ *
+ * POSITION deliberately stays FLOAT. Quantizing it would require a
+ * dequantization scale/translation on the mesh node, and `garden-models.ts`
+ * asserts a base-centre origin at unit scale that the hero attach path and the
+ * anchor contract both depend on. The bytes are not worth breaking that.
+ */
+function quantizeAttributes(geometry) {
+  const normal = geometry.getAttribute("normal");
+  if (normal !== undefined) {
+    const packed = new Int16Array(normal.count * 3);
+    for (let index = 0; index < normal.count; index += 1) {
+      const at = index * 3;
+      // Degenerate triangles (collapsed sail columns, the keel ring closure)
+      // leave zero-length normals behind. Unitise here — otherwise the
+      // exporter rejects the whole attribute and rebuilds it as FLOAT, which
+      // silently undoes the quantization.
+      const [x, y, z] = [normal.array[at], normal.array[at + 1], normal.array[at + 2]];
+      const length = Math.hypot(x, y, z);
+      const unit = length > 1e-6 ? [x / length, y / length, z / length] : [1, 0, 0];
+      for (let axis = 0; axis < 3; axis += 1) {
+        const value = Math.round(unit[axis] * 32767);
+        packed[at + axis] = Math.min(32767, Math.max(-32767, value));
+      }
+    }
+    geometry.setAttribute("normal", new Int16BufferAttribute(packed, 3, true));
+  }
+
+  const color = geometry.getAttribute("color");
+  if (color !== undefined) {
+    const packed = new Uint8Array(color.count * 3);
+    for (let index = 0; index < packed.length; index += 1) {
+      packed[index] = Math.round(clamp01(color.array[index]) * 255);
+    }
+    geometry.setAttribute("color", new Uint8BufferAttribute(packed, 3, true));
+  }
 }
 
 /**

@@ -236,6 +236,8 @@ const FRAGMENT_SHADER = /* glsl */ `
   uniform float uTempo;
   uniform float uTime;
   uniform float uWaveAmplitude;
+  uniform vec2 uOpenOceanCenter;
+  uniform float uOpenOceanRadius;
   uniform sampler2D uRegionField;
   uniform vec3 uRegionColor[${SEA_REGION_COUNT}];
   // xyzw = depth multiplier, foam density, reflectivity, tint strength.
@@ -271,10 +273,10 @@ const FRAGMENT_SHADER = /* glsl */ `
     );
   }
 
+  // Two octaves, not three: the third contributes 10% of the amplitude for
+  // 33% of the cost, and whitecaps are a high-frequency accent either way.
   float gardenFbm(vec2 p) {
-    return gardenValueNoise(p) * 0.6
-      + gardenValueNoise(p * 2.1 + 17.3) * 0.3
-      + gardenValueNoise(p * 4.3 - 8.1) * 0.1;
+    return gardenValueNoise(p) * 0.68 + gardenValueNoise(p * 2.1 + 17.3) * 0.32;
   }
 
   vec2 rotate2(vec2 v, float a) {
@@ -284,6 +286,52 @@ const FRAGMENT_SHADER = /* glsl */ `
   }
 
   void main() {
+    // --- W6.1: open-ocean early-out ----------------------------------------
+    // The water plane is 900 units across; the playable map is ~79. Everything
+    // past the map's edge is empty ocean that can never contain a region, a
+    // ripple ring, a light lane, a shore or the island — yet it was running the
+    // full shader, and at overview zoom it covers most of the screen.
+    //
+    // This is a spatially COHERENT branch (one contiguous ring around the
+    // map), so it costs nothing in divergence and buys back the majority of
+    // the frame's fragment work at wide zooms.
+    // NOTE the centre: tiles map to world (tx*TILE_SCALE, ty*TILE_SCALE), so
+    // the map spans 0..79 rather than straddling the origin, and the plane's
+    // -90deg X rotation flips Z. Testing against the origin would clip live
+    // water off the map's far edge.
+    vec2 fromMapCenter = vWaterPosition - uOpenOceanCenter;
+    float mapDistance = max(abs(fromMapCenter.x), abs(fromMapCenter.y));
+    if (mapDistance > uOpenOceanRadius) {
+      // The cheap path must land on the SAME colour the detailed path would,
+      // or the boundary shows as a hard diamond seam around the map.
+      //
+      // Out here the detailed path is provably degenerate: the shore SDF is
+      // saturated (depth = 1 -> deepest band), every shelf/basin/islet term is
+      // zero, no region covers the fragment, and no ripple or light lane is in
+      // range. So the whole thing collapses to the deepest band plus the slow
+      // tonal current and the distance fade — which is all this reproduces.
+      // Only the loops and texture fetches are skipped, not the look.
+      float openTonalCurrent = 0.5 + 0.5 * sin(
+        dot(vWaterPosition, vec2(0.046, -0.058)) + uTime * 0.027
+      );
+      vec3 openColor = uBandColor[3] * (0.97 + openTonalCurrent * 0.05);
+      openColor = mix(
+        openColor,
+        mix(uEnvHorizonColor, uEnvZenithColor, 0.35),
+        uEnvStrength * 0.06
+      );
+      float openCamDistance = distance(cameraPosition, vWorldPosition);
+      float openFade = smoothstep(150.0, 520.0, openCamDistance);
+      openColor = mix(
+        openColor,
+        uBaseColor,
+        openFade * (0.08 + uDusk * 0.05 + uNight * 0.04)
+      );
+      gl_FragColor = vec4(openColor, 1.0);
+      #include <fog_fragment>
+      return;
+    }
+
     // --- harbor-calm mask (C2(b), I2 mirror basin) -------------------------
     float harborDistance = length((vWaterPosition - uHarborEllipse.xy) * uHarborEllipse.zw);
     float harborCalm = (1.0 - smoothstep(0.7, 1.05, harborDistance)) * uHarborCalm;
@@ -438,6 +486,20 @@ const FRAGMENT_SHADER = /* glsl */ `
       float regionReflect = uRegionParams[regionId].z;
       float regionStrength = uRegionParams[regionId].w;
 
+      // Converge with the open-ocean early-out. Without this the region tint
+      // stops dead at the cheap-path boundary and the map reads as a hard
+      // diamond tile floating on flat sea. Fading the tint (and its foam)
+      // toward the boundary makes the two paths meet at the same colour.
+      float edgeFade = 1.0 - smoothstep(
+        uOpenOceanRadius * 0.68,
+        uOpenOceanRadius,
+        mapDistance
+      );
+      regionStrength *= edgeFade;
+      regionFoam *= edgeFade;
+      regionDepth = mix(1.0, regionDepth, edgeFade);
+      regionReflect = mix(1.0, regionReflect, edgeFade);
+
       // Luminance-match the tint against the live water color so a region
       // reads as water that is a different STATE, not paint on a surface
       // (the Z3 rule, preserved).
@@ -462,7 +524,7 @@ const FRAGMENT_SHADER = /* glsl */ `
       // W2.6 — the boundary itself. A drifting foam/current line where two
       // bodies of water meet: this is what makes a region read as having an
       // edge rather than being a gradient.
-      float seam = 1.0 - smoothstep(0.0, 0.16, boundaryDistance);
+      float seam = (1.0 - smoothstep(0.0, 0.16, boundaryDistance)) * edgeFade;
       float seamWave = 0.55 + 0.45 * sin(
         dot(vWaterPosition, vec2(0.31, 0.24)) - uTime * 0.35 * (0.6 + uTempo)
       );
@@ -477,7 +539,12 @@ const FRAGMENT_SHADER = /* glsl */ `
       // This MUST be real noise, not a product of sines: sin(a)*sin(b) tiles
       // into a regular diagonal lattice that reads as a shader artifact
       // scrawled across the whole sea.
-      if (regionFoam > 0.02) {
+      // W6.1: the fbm below is the most expensive term in this shader (three
+      // octaves of hash noise per fragment). Gate it to genuinely rough
+      // water — alert and worse — so it runs on ~8% of the sea instead of
+      // nearly all of it. Calm/watch/ledger/open water shows no whitecaps
+      // anyway, so this is output-identical where it matters.
+      if (regionFoam > 0.3) {
         vec2 capUv = vWaterPosition * 0.34 + vec2(uTime * 0.05 * (0.5 + uTempo), 0.0);
         float capNoise = gardenFbm(capUv);
         // Only the crests break, so the threshold sits high and tightens as
@@ -830,6 +897,17 @@ export function createGardenWater(waterLevel: number): GardenWater {
     // W2 / D5: the sea-region field replaces the six tinted ellipses. One
     // texture, sampled in both stages, carrying the SAME terrain
     // classification the simulation obeys.
+    // The map's centre in water-local space, and the half-extent past which
+    // no shader feature can contribute. The margin (0.62 of the full span vs
+    // the 0.5 the map strictly needs) keeps shore foam and the outermost
+    // region blend well inside the detailed path.
+    uOpenOceanCenter: {
+      value: new Vector2(
+        (regionField.tileSpan * TILE_SCALE_UNITS) * 0.5,
+        -(regionField.tileSpan * TILE_SCALE_UNITS) * 0.5,
+      ),
+    },
+    uOpenOceanRadius: { value: (regionField.tileSpan * TILE_SCALE_UNITS) * 0.62 },
     uRegionField: { value: regionField.texture },
     uRegionColor: { value: regionColors },
     uRegionParams: { value: regionParams },

@@ -12,8 +12,7 @@ Everything else is procedural geometry, material, shader, or DOM UI.
 | --- | --- | --- | --- |
 | Ship logos | `world.ships[].logoSrc` | `useShipLogoAssets` | deterministic symbol mark |
 | Lighthouse shell | `public/pharosville/models/garden-lighthouse-shell.glb` | `garden-models.ts` | procedural lighthouse shell |
-| Titan hero hull | `public/pharosville/models/garden-hero-titan.glb` | `garden-models.ts` | procedural tier hull |
-| Heritage hero hull | `public/pharosville/models/garden-hero-heritage.glb` | `garden-models.ts` | procedural tier hull |
+| Hero hulls (10) | `public/pharosville/models/garden-hero-*.glb` | `garden-models.ts` | procedural tier hull |
 | Water normal | `public/pharosville/textures/water-normals.png` | `garden-water.ts` | shader water without normal detail |
 | Sail textures | generated in memory | `garden-sail-texture.ts` | livery and symbol remain |
 | Island, docks, ships, landmarks, water, ambient life | procedural | `src/three/` | part of renderer code |
@@ -40,8 +39,11 @@ not a separate world renderer or a network asset inventory.
 The canonical artifacts are:
 
 - `public/pharosville/models/garden-lighthouse-shell.glb`
-- `public/pharosville/models/garden-hero-titan.glb`
-- `public/pharosville/models/garden-hero-heritage.glb`
+- `public/pharosville/models/garden-hero-*.glb` — ten hero hulls (`titan`,
+  `heritage`, `carrack`, `brigantine`, `dhow`, `junk`, `barquentine`, `cog`,
+  `xebec`, `cutter`), one per distinct silhouette. `systems/unique-ships.ts`
+  maps stablecoins onto them; `HERO_HULL_MODEL_IDS` there and
+  `GARDEN_HERO_MODEL_IDS` here must agree, and a unit test asserts it.
 
 Their contract lives in `src/three/garden-models.ts`:
 
