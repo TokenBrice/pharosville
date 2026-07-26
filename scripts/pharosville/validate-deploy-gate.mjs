@@ -2,6 +2,9 @@
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
+// Deliberately BROADER than CI. The runners have no GPU, so CI gates on the
+// DOM/accessibility contract (`test:visual:dist:dom`); the full visual lane can
+// only run on real hardware, which is here. See docs/pharosville/TESTING.md.
 const DEPLOY_GATE_COMMANDS = [
   ["npm", ["run", "typecheck"]],
   ["npm", ["run", "lint"]],

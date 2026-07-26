@@ -101,8 +101,14 @@ jobs:
         with:
           name: pharosville-dist
           path: dist
-      - name: Built-dist visual tests
-        run: npm run test:visual:dist
+      # CI has no GPU, and this world needs one. Chromium falls back to
+      # SwiftShader and times out on the motion assertions; Firefox in this
+      # container gets no WebGL context at all. So CI gates on the contract it
+      # can actually prove — the one a visitor without WebGL is owed — and the
+      # full lane runs on real hardware in the pre-push deploy gate. Reproduction
+      # and the alternatives are in docs/pharosville/TESTING.md.
+      - name: Built-dist DOM and accessibility contract
+        run: npm run test:visual:dist:dom
       - uses: actions/upload-artifact@v6
         if: failure()
         with:
@@ -133,8 +139,8 @@ jobs:
         with:
           name: pharosville-dist
           path: dist
-      - name: Built-dist cross-browser accessibility smoke
-        run: npm run test:visual:dist:accessibility:firefox
+      - name: Built-dist cross-browser DOM and accessibility contract
+        run: npm run test:visual:dist:dom:firefox
       - uses: actions/upload-artifact@v6
         if: failure()
         with:

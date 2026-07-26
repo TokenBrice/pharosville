@@ -148,13 +148,26 @@ Reproduced in `mcr.microsoft.com/playwright:v1.59.1-noble`, the exact CI image:
 
 This is not a regression. The Three.js world arrived in v0.4.0 and has never
 been through these lanes; they were calibrated against the lighter world that
-preceded it. Until it is settled, `npm run test:visual` locally (hardware GPU,
-9/9 in under a minute) is the trustworthy signal, and the CI lanes will fail.
+preceded it.
 
-Three ways out, in rough order of cost: give the lane a GPU runner; scope the
-CI lane to the DOM/accessibility contract it can actually prove and keep the
-full lane local; or raise the software-path timeouts far enough that SwiftShader
-finishes.
+**How it is resolved.** CI gates on `@visual-dom` — the contract a visitor whose
+browser cannot render the world is owed, which is precisely what a GPU-less
+runner is. That lane proves the signal overview renders, the accessibility
+ledger carries every named water, ship and dock, details open by pointer and by
+keyboard with panel parity, Escape closes them, the live region exists, and a
+blocked viewport requests nothing. Both `visual` and `visual-cross-browser` run
+it, so Firefox finally exercises something real. Verified inside the CI image:
+2 passed in under 4s per browser.
+
+**The full lane still runs, on hardware that can run it.** `npm run test:visual`
+locally is 9/9 in under a minute, and `validate:deploy-gate` — which the
+pre-push hook runs for `main` — keeps `test:visual:dist` and the Firefox
+accessibility lane. So the GPU-dependent contracts are gated at push time on a
+real GPU rather than not at all.
+
+**Known cost, stated plainly:** a renderer regression that only shows on a GPU
+will not be caught by CI. It will be caught by the pre-push gate. If that trade
+stops being acceptable, the fix is a GPU runner for the visual job.
 
 ## Release confidence
 

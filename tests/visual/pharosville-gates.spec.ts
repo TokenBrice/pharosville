@@ -33,10 +33,14 @@ type GateTelemetry = {
   timeToFirstCoherentFrameMs: number | null;
 };
 
-type VisualLane = "accessibility" | "motion" | "static";
+type VisualLane = "accessibility" | "dom" | "motion" | "static";
 
 const visualLaneTags: Record<VisualLane, string> = {
   accessibility: "@visual-accessibility",
+  // GPU-free: everything this test asserts is DOM. The CI runners have no GPU
+  // — Firefox in the playwright container gets no WebGL context at all — so
+  // this is the lane CI can actually prove. See TESTING.md.
+  dom: "@visual-dom",
   motion: "@visual-motion",
   static: "@visual-static",
 };
@@ -288,7 +292,7 @@ test(...visualLane("static", "a lost WebGL context presents the static signal ov
   await expect(page.getByTestId("pharosville-detail-panel")).toContainText(/Pharos lighthouse/i);
 });
 
-test(...visualLane("static", "WebGL unavailability fails cleanly into the static signal overview"), async ({ page }) => {
+test(...visualLane("dom", "a browser that cannot render the world still gets the whole signal"), async ({ page }) => {
   await page.addInitScript(() => {
     const originalGetContext = HTMLCanvasElement.prototype.getContext;
     Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
@@ -312,4 +316,30 @@ test(...visualLane("static", "WebGL unavailability fails cleanly into the static
   await expect(fallback.getByRole("button", { name: "Open Risk watch details" })).toBeVisible();
   await expect(fallback.getByRole("button", { name: "Open Weekly supply details" })).toBeVisible();
   await expect(fallback.getByRole("button", { name: "Open Dock concentration details" })).toBeVisible();
+
+  // This is the lane CI gates on, so it has to prove the whole contract a
+  // visitor without WebGL is owed — not merely that something rendered.
+  //
+  // The ledger is the analytical surface of record: every named water, every
+  // ship with its placement and evidence, every dock. If a renderer change ever
+  // moves meaning into WebGL alone, this is what catches it.
+  const ledger = page.getByTestId("pharosville-accessibility-ledger");
+  await expect(ledger).toContainText("Named areas");
+  await expect(ledger).toContainText("Calm Anchorage");
+  await expect(ledger).toContainText("Danger Strait");
+  await expect(ledger).toContainText("Tether");
+  await expect(ledger).toContainText("risk water");
+  await expect(ledger).toContainText("placement evidence");
+
+  // Detail access, by pointer and by keyboard, with panel parity.
+  await fallback.getByRole("button", { name: "Open Lighthouse details" }).click();
+  const detailPanel = page.getByTestId("pharosville-detail-panel");
+  await expect(detailPanel).toContainText(/Pharos lighthouse/i);
+  const closeDetails = page.getByRole("button", { name: "Close details" });
+  await expect(closeDetails).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(detailPanel).toHaveCount(0);
+
+  // The live region carries announcements to a screen reader.
+  await expect(page.locator("p.sr-only[aria-live='polite']")).toHaveCount(1);
 });

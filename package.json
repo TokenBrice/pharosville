@@ -29,6 +29,8 @@
     "test:visual:dist": "playwright test tests/visual/pharosville.spec.ts tests/visual/pharosville-gates.spec.ts --config=playwright.dist.config.ts",
     "test:visual:dist:static": "playwright test tests/visual/pharosville.spec.ts tests/visual/pharosville-gates.spec.ts --config=playwright.dist.config.ts --grep @visual-static",
     "test:visual:dist:interaction": "playwright test tests/visual/pharosville.spec.ts tests/visual/pharosville-gates.spec.ts --config=playwright.dist.config.ts --grep @visual-interaction",
+    "test:visual:dist:dom": "playwright test tests/visual/pharosville.spec.ts tests/visual/pharosville-gates.spec.ts --config=playwright.dist.config.ts --grep @visual-dom",
+    "test:visual:dist:dom:firefox": "PHAROSVILLE_VISUAL_BROWSERS=\"firefox\" playwright test tests/visual/pharosville.spec.ts tests/visual/pharosville-gates.spec.ts --config=playwright.dist.config.ts --grep @visual-dom",
     "test:visual:dist:motion": "playwright test tests/visual/pharosville.spec.ts tests/visual/pharosville-gates.spec.ts --config=playwright.dist.config.ts --grep @visual-motion",
     "test:perf": "playwright test tests/visual/pharosville-performance.spec.ts --workers=1",
     "test:perf:reference": "PHAROSVILLE_REFERENCE_GATE=1 PHAROSVILLE_VISUAL_BROWSERS=chromium PHAROSVILLE_VISUAL_REUSE=0 playwright test tests/visual/pharosville-performance.spec.ts --headed --workers=1",

@@ -11,10 +11,14 @@ import {
   waitForRuntimeDebug,
 } from "../helpers/pharosville-debug";
 
-type VisualLane = "accessibility" | "interaction" | "static";
+type VisualLane = "accessibility" | "dom" | "interaction" | "static";
 
 const visualLaneTags: Record<VisualLane, string> = {
   accessibility: "@visual-accessibility",
+  // GPU-free: everything this test asserts is DOM. The CI runners have no GPU
+  // — Firefox in the playwright container gets no WebGL context at all — so
+  // this is the lane CI can actually prove. See TESTING.md.
+  dom: "@visual-dom",
   interaction: "@visual-interaction",
   static: "@visual-static",
 };
@@ -106,7 +110,7 @@ test(...visualLane("static", "the world is nonblank, resize-safe, and honors red
   await expect(page.getByTestId("pharosville-detail-panel")).toBeVisible();
 });
 
-test(...visualLane("static", "blocked viewports request neither world data nor the world renderer"), async ({ page }) => {
+test(...visualLane("dom", "blocked viewports request neither world data nor the world renderer"), async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   const deniedRequests = await denyPharosVilleViewportGatedRequests(page);
   await mockScreenSize(page, 719, 500);

@@ -6,7 +6,7 @@
 // rules-of-hooks rule and PR review (see HOOKS.md F1 history).
 /* eslint-disable react-hooks/refs */
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { AccessibilityLedger, type ShipRiskTransitionEntry } from "./components/accessibility-ledger";
 import { DetailPanel } from "./components/detail-panel";
 import { HarborLog } from "./components/harbor-log";
@@ -583,6 +583,20 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     selectDetail(detailId, null);
   }, [selectDetail]);
 
+  // A visitor whose browser cannot render the world still gets the signal
+  // overview, opens details from it, and is told in the instructions above that
+  // "Escape closes panels" — but the shell dropped its whole key handler when
+  // the renderer failed, so Escape did nothing and the only way out was the
+  // close button. The map-target cycling in the full handler is meaningless
+  // without a canvas; Escape is not.
+  const handleFallbackKeyDown = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key !== "Escape") return;
+    if (selectedDetailIdRef.current === null) return;
+    event.preventDefault();
+    clearSelection();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clearSelection]);
+
   // The harbor before its data is an empty sea: island, water and sky, no
   // fleet. Showing it meant the first thing a visitor saw was a world with
   // nothing in it, and then every ship arriving in the same frame. The runtime
@@ -605,7 +619,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       className="pharosville-desktop pharosville-shell"
       data-testid="pharosville-world"
       aria-describedby="pharosville-world-instructions"
-      onKeyDown={rendererFailed ? undefined : handleWorldKeyDown}
+      onKeyDown={rendererFailed ? handleFallbackKeyDown : handleWorldKeyDown}
       tabIndex={0}
     >
       <p id="pharosville-world-instructions" className="sr-only">
