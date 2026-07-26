@@ -77,6 +77,7 @@ export type DetailFactKey =
   | "backingDiversity"
   | "netFlow24h"
   | "supplyTide"
+  | "flightToQuality"
   | "representativePosition"
   | "riskWaterArea"
   | "riskWaterZone"
@@ -129,6 +130,7 @@ const DETAIL_FACT_LABELS = {
   "backing diversity": "backingDiversity",
   "net flow 24h": "netFlow24h",
   "supply tide 7d": "supplyTide",
+  "flight to quality": "flightToQuality",
   "representative position": "representativePosition",
   "risk water area": "riskWaterArea",
   "risk water zone": "riskWaterZone",
@@ -315,6 +317,12 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   // the pairing is what keeps a reader from confusing the two marks.
   const supplyTide = lookup.get("supplyTide");
   if (supplyTide) identity.push({ key: "supplyTide", label: "Supply tide 7d", value: supplyTide });
+  // The flight-to-quality tenders' DOM parity, and the only place a reader
+  // learns what the boats round the biggest hulls are. Lighthouse-only, and
+  // present only once the mint/burn gauge has landed, so it spends no row on
+  // any ship or dock panel and never claims a reading it did not get.
+  const flightToQuality = lookup.get("flightToQuality");
+  if (flightToQuality) identity.push({ key: "flightToQuality", label: "Flight to quality", value: flightToQuality });
   const cycleTempo = lookup.get("cycleTempo");
   if (cycleTempo) identity.push({ key: "cycleTempo", label: "Cycle tempo", value: cycleTempo });
   const homeDock = lookup.get("homeDock");

@@ -2,7 +2,7 @@ import { CHAIN_META } from "@shared/lib/chains";
 import { CAUSE_META } from "@shared/lib/cause-of-death";
 import type { BluechipGrade, DimensionKey } from "@shared/types";
 import { formatCompactUsd } from "../lib/format-detail";
-import type { AreaNode, DetailModel, DewsAreaBand, DockNode, GraveNode, LighthouseNode, PigeonnierNode, ShipNode } from "./world-types";
+import type { AreaNode, DetailModel, DewsAreaBand, DockNode, GraveNode, LighthouseNode, PharosVilleWorld, PigeonnierNode, ShipNode } from "./world-types";
 import { ETHEREUM_L2_DOCK_CHAIN_IDS } from "./world-layout";
 import { analyticalRouteHref } from "./route-links";
 import { formationLabel, squadForMember, squadRole } from "./maker-squad";
@@ -486,8 +486,34 @@ export function beamDwellLabel(dwell: LighthouseNode["beamDwell"]): string | nul
   return `Holding on ${dwell.symbol}, largest PSI contributor (${basisPointsLabel(dwell.bps)})`;
 }
 
-export function detailForLighthouse(node: LighthouseNode, supplyTide?: SupplyTide): DetailModel {
+/**
+ * Flight to quality, in words.
+ *
+ * The canvas puts tenders on the water round the biggest hulls; this says the
+ * same thing outright, and it is the only place the reader learns what those
+ * boats are. The row exists whenever the mint/burn gauge landed, so "the gauge
+ * says no flight" and "no gauge arrived" stay apart: the first reads here, the
+ * second leaves the row off entirely. An empty sea means either, which is why
+ * it can never be the only account of this signal.
+ */
+export function flightToQualityLabel(
+  issuance: PharosVilleWorld["fleetIssuance"] | undefined,
+): string | null {
+  if (!issuance) return null;
+  if (!issuance.flightToQuality) return "None reported — no tenders on the water";
+  const intensity = Number.isFinite(issuance.flightIntensity)
+    ? Math.round(Math.abs(issuance.flightIntensity))
+    : 0;
+  return `Active — capital rotating toward the strongest issuers (intensity ${intensity} of 100); tenders run in on the largest hulls`;
+}
+
+export function detailForLighthouse(
+  node: LighthouseNode,
+  supplyTide?: SupplyTide,
+  fleetIssuance?: PharosVilleWorld["fleetIssuance"],
+): DetailModel {
   const tide = supplyTideLabel(supplyTide);
+  const flightToQuality = flightToQualityLabel(fleetIssuance);
   const trend = psiTrendLabel(node);
   const composition = psiCompositionLabel(node);
   const fleetPeg = fleetPegLabel(node.signalMast);
@@ -509,6 +535,7 @@ export function detailForLighthouse(node: LighthouseNode, supplyTide?: SupplyTid
       ...(beamDwell ? [{ label: "Beam bearing", value: beamDwell }] : []),
       { label: "Worst band, 30d", value: highWaterMarkLabel(node.highWaterMark) },
       ...(tide ? [{ label: "Supply tide 7d", value: tide }] : []),
+      ...(flightToQuality ? [{ label: "Flight to quality", value: flightToQuality }] : []),
       { label: "Signal mast", value: signalMastLabel(node.signalMast) },
       ...(fleetPeg ? [{ label: "Fleet peg", value: fleetPeg }] : []),
       {
@@ -585,6 +612,8 @@ export function cargoTideLabel(tide: DockNode["cargoTide"]): string | null {
         return "Not measured on this chain";
       case "scope-unreported":
         return "Unavailable — issuance scope unreported";
+      case "unattributed":
+        return "Unavailable — 24h issuance could not be matched to this harbor's coins";
       default:
         return "Unavailable — no issuance feed";
     }

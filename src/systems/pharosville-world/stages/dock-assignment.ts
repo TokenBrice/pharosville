@@ -150,6 +150,14 @@ function dockMooringTile(
  * a reshaped seawall, a new garden obstacle, or a ship that grew into a larger
  * size tier (and therefore needs more barrier clearance) gives its berth up
  * rather than mooring somewhere it no longer fits.
+ *
+ * The key carries the DOCK'S TILE as well as its id, because `dock.id` is
+ * `dock.<chainId>` and outlives the position under it: a chain with no
+ * `PREFERRED_DOCK_TILES` entry draws from the shared pool in supply-rank order,
+ * so a harbour can move between refreshes without its id changing. `isBerthTile`
+ * would still pass a berth left behind at the old harbour — legal water, just
+ * nowhere near the dock it belongs to, with the ship's route drawn out to it.
+ * Keying on the tile retires that hold instead.
  */
 let heldMooringTiles = new Map<string, { x: number; y: number }>();
 
@@ -158,8 +166,8 @@ export function resetHeldMoorings(): void {
   heldMooringTiles = new Map();
 }
 
-function berthKey(shipId: string, dockId: string): string {
-  return `${shipId}|${dockId}`;
+function berthKey(shipId: string, dock: DockNode): string {
+  return `${shipId}|${dock.id}|${dock.tile.x}.${dock.tile.y}`;
 }
 
 function assignDockVisits(ships: readonly ShipNode[], docks: readonly DockNode[]): ShipNode[] {
@@ -179,7 +187,7 @@ function assignDockVisits(ships: readonly ShipNode[], docks: readonly DockNode[]
       if (!presence.hasRenderedDock) continue;
       const dock = dockByChainId.get(presence.chainId);
       if (!dock) continue;
-      const key = berthKey(ship.id, dock.id);
+      const key = berthKey(ship.id, dock);
       const heldTile = heldMooringTiles.get(key);
       if (!heldTile || !isBerthTile(heldTile, ship, occupied)) continue;
       occupied.add(`${heldTile.x}.${heldTile.y}`);
@@ -214,7 +222,7 @@ function assignDockVisits(ships: readonly ShipNode[], docks: readonly DockNode[]
           // waterline for whichever ships happen to need a new berth.
           const index = dockedIndex.get(dock.chainId) ?? 0;
           dockedIndex.set(dock.chainId, index + 1);
-          const key = berthKey(ship.id, dock.id);
+          const key = berthKey(ship.id, dock);
           const mooringTile = heldForBuild.get(key) ?? dockMooringTile(dock, ship, index, occupied);
           occupied.add(`${mooringTile.x}.${mooringTile.y}`);
           nextHeld.set(key, mooringTile);

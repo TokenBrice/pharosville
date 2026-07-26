@@ -41,6 +41,16 @@ import type { CargoTideStage } from "../pipeline-types";
  * "issuance is not measured here" are opposite claims, and the world must not
  * let them look alike — `tracked: false` carries a reason, and the DOM prints
  * it rather than a number.
+ *
+ * The same rule governs flow the world cannot PLACE. A coin whose id carries no
+ * ship — frozen, unlisted, or an id-namespace mismatch between the two feeds —
+ * has issuance the world cannot attribute to any quay. "This coin does not sit
+ * at this harbour" is knowledge the fleet holds; "we do not know where this coin
+ * sits" is not, and only the second one makes a harbour's empty accumulator an
+ * unverified claim. So an in-scope harbour that received NO allocation while
+ * unattributable issuance exists reports `unattributed` rather than a measured
+ * calm — the whole-fleet id mismatch turns every quay untracked instead of
+ * having all of them swear to a quiet day the world never observed.
  */
 
 /** Net flows below this are rounding residue from the share allocation, not a tide. */
@@ -151,14 +161,24 @@ export function buildCargoTideStage(
   for (const chainId of trackedChainIds) totalsByChainId.set(chainId, emptyAccumulator());
 
   const shipById = new Map(ships.map((ship) => [ship.id, ship]));
+  // Active issuance the fleet cannot locate at all — no ship carries the id, or
+  // the ship it does carry states no chain presence. Counted rather than
+  // dropped, because it is what disqualifies an empty harbour from claiming a
+  // measured zero below.
+  let unattributedCoins = 0;
   for (const coin of mintBurn.coins) {
     if (!coinHasActivity(coin)) continue;
-    const presences = shipById.get(coin.stablecoinId)?.chainPresence
-      .filter((presence) => trackedChainIds.has(presence.chainId)) ?? [];
+    const chainPresence = shipById.get(coin.stablecoinId)?.chainPresence;
+    if (!chainPresence?.length) {
+      unattributedCoins += 1;
+      continue;
+    }
+    const presences = chainPresence.filter((presence) => trackedChainIds.has(presence.chainId));
     const scopedShare = presences.reduce((sum, presence) => sum + presence.share, 0);
-    // The coin's issuance was observed, but it holds no supply at any harbour
-    // this world draws inside the tracked scope — there is nowhere honest to
-    // land it, so it lands nowhere.
+    // The coin's issuance was observed and the fleet knows where its supply
+    // sits: nowhere this world draws inside the tracked scope. There is nowhere
+    // honest to land it, so it lands nowhere — and unlike the case above, every
+    // harbour's own reading stays a real measurement.
     if (scopedShare <= 0) continue;
     for (const presence of presences) {
       const totals = totalsByChainId.get(presence.chainId);
@@ -174,9 +194,14 @@ export function buildCargoTideStage(
   return {
     docks: docks.map((dock) => {
       const totals = totalsByChainId.get(dock.chainId);
+      if (!totals) return { ...dock, cargoTide: untrackedTide("chain-not-in-scope") };
+      // An empty accumulator only means "nothing was issued here" when every
+      // active coin found a home. With issuance the fleet could not place, this
+      // quay's silence is unverified, and unverified must not print as measured.
+      const unverifiableCalm = totals.coinCount === 0 && unattributedCoins > 0;
       return {
         ...dock,
-        cargoTide: totals ? settleTide(totals) : untrackedTide("chain-not-in-scope"),
+        cargoTide: unverifiableCalm ? untrackedTide("unattributed") : settleTide(totals),
       };
     }),
     fleetIssuance: buildFleetIssuance(mintBurn),

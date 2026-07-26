@@ -17,6 +17,11 @@ export const LEGEND_MARK_ROWS = [
     text: "A single course of canvas-topped crates out along a harbour's pier means that chain's stablecoins were net minted over 24 hours; the same crates standing back along the quay edge mean they were net burned. An empty harbour means either nothing moved or issuance is not measured there, and the Net flow 24h row says which.",
   },
   {
+    cueId: "cue.fleet.flight-to-quality",
+    label: "Tenders working the big hulls",
+    text: "Small open boats standing off the largest ships and running in on them mean capital is concentrating into the biggest, most trusted stablecoins; how far in they carry is how pronounced the reading is. The boats are harbour craft, not stablecoins — they carry no rig, cannot be selected, and are not counted in the fleet. An empty sea means either no such rotation or no issuance feed, and the lighthouse Flight to quality row says which.",
+  },
+  {
     cueId: "cue.lighthouse.signal-mast",
     label: "Observatory signal mast",
     text: "Small pennants on the mast beside the observatory count the coins currently off peg (five is the top of the hoist); a dark cone joins them when the worst deviation is large. It reports today's readings, not a forecast.",
@@ -275,6 +280,23 @@ export function buildVisualCueRegistry(): VisualCue[] {
       failureState: "no crates — which covers both 'nothing moved' and 'issuance is not measured on this chain'; the Net flow 24h row separates the two rather than leaving an empty quay to mean either",
       domEquivalent: "dock detail 'Net flow 24h' row naming the direction outright plus gross mint and burn, the matching dock accessibility-ledger clause, and the fleet-issuance ledger line above the dock list",
       reducedMotionEquivalent: "identical — the cargo is a standing state and never animates at any setting, so there is nothing to freeze",
+    },
+    {
+      // The mint/burn gauge's other reading, and the fleet-wide one. The cargo
+      // tide answers "is supply being made or unmade, here"; this answers
+      // "where is it going", which is a question about the fleet rather than
+      // about any one quay — hence boats on open water rather than a mark on a
+      // harbour. Both are drawn from the same payload and neither repeats the
+      // other's statement.
+      id: "cue.fleet.flight-to-quality",
+      target: { kind: "lighthouse" },
+      primaryChannels: ["motion", "position"],
+      visual: "small open tenders standing off the largest-market-cap hulls and running in on them, over and over, while the gauge holds; how far in the run carries is set by the reported intensity, so a weak reading leaves them nosing in from well out and a strong one crowds them against the hull. They carry no rig, no wake and no lantern, are unselectable, and are counted nowhere in the fleet — they are harbour craft, not stablecoins",
+      sourceField: "mintBurn.gauge.flightToQuality, mintBurn.gauge.flightIntensity (drawn on the largest ships by stablecoins.peggedAssets[].circulating)",
+      questionAnswered: "Is capital leaving the smaller and riskier stablecoins and concentrating into the largest, most trusted ones?",
+      failureState: "empty water — nothing is drawn at all, which covers both 'the gauge reports no such rotation' and 'no issuance feed arrived'; the lighthouse 'Flight to quality' row separates the two, and is absent entirely when the gauge never landed",
+      domEquivalent: "lighthouse detail 'Flight to quality' row naming the state and the intensity outright, plus the fleet-issuance accessibility-ledger line above the dock list",
+      reducedMotionEquivalent: "every tender held static at the converged end of its run, gathered at the hull — deterministic, with no clock and no movement, and the converged distance still set by the reported intensity so the strength of the reading survives the freeze",
     },
     {
       // The chain-level partner to the cargo tide, and deliberately NOT the

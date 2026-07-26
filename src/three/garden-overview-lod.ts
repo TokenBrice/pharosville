@@ -61,6 +61,29 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
   "ship-overview-detail",
 ];
 
+/**
+ * The registered names that are ONE group at the world origin holding a single
+ * InstancedMesh spread across the whole harbour ring, rather than a node under
+ * one dock.
+ *
+ * Their names read per-dock and they are not: every crate and quay plate is an
+ * instance whose matrix already carries its own berth's world position, so the
+ * group's transform is the RING's transform. Shrinking such a group about its
+ * own centre — which is the ring's centroid, near the middle of the map —
+ * scales the ring itself, sliding each crate tens of world units off its
+ * harbour toward the island for the whole width of the fade band.
+ *
+ * So these fade by visibility alone and never take a transform. The same zoom
+ * still sheds them; what goes is only the intermediate pose, which was wrong
+ * everywhere it was drawn. A per-instance shrink would mean rewriting every
+ * instance matrix per frame, and at three screen pixels there is nothing there
+ * to see it.
+ */
+export const OVERVIEW_LOD_WHOLE_RING_NAMES: readonly string[] = [
+  "dock-cargo-tide",
+  "dock-tide-line",
+];
+
 interface OverviewLodEntry {
   readonly basePosition: Vector3;
   readonly baseScale: Vector3;
@@ -70,6 +93,8 @@ interface OverviewLodEntry {
    * happens about the prop rather than about its parent's origin.
    */
   readonly pivotOffset: Vector3;
+  /** False for whole-ring groups, which may only be shown or hidden. */
+  readonly shrinks: boolean;
 }
 
 export interface GardenOverviewLod {
@@ -100,12 +125,17 @@ export function overviewLodTargetDetail(zoom: number): number {
 export function createGardenOverviewLod(root: Object3D): GardenOverviewLod {
   root.updateMatrixWorld(true);
   const names = new Set(OVERVIEW_LOD_DETAIL_NAMES);
+  const wholeRing = new Set(OVERVIEW_LOD_WHOLE_RING_NAMES);
   const entries: OverviewLodEntry[] = [];
   root.traverse((object) => {
     if (!names.has(object.name)) return;
-    const box = new Box3().setFromObject(object);
-    box.getCenter(scratchCentre);
-    object.worldToLocal(scratchCentre);
+    const shrinks = !wholeRing.has(object.name);
+    if (shrinks) {
+      new Box3().setFromObject(object).getCenter(scratchCentre);
+      object.worldToLocal(scratchCentre);
+    } else {
+      scratchCentre.set(0, 0, 0);
+    }
     entries.push({
       basePosition: object.position.clone(),
       baseScale: object.scale.clone(),
@@ -114,6 +144,7 @@ export function createGardenOverviewLod(root: Object3D): GardenOverviewLod {
       // parent-space position; holding position + R·S·c fixed as S scales by f
       // is what keeps the prop shrinking in place.
       pivotOffset: scratchCentre.multiply(object.scale).applyQuaternion(object.quaternion).clone(),
+      shrinks,
     });
   });
 
@@ -136,7 +167,7 @@ export function createGardenOverviewLod(root: Object3D): GardenOverviewLod {
       applied = detail;
       for (const entry of entries) {
         entry.object.visible = detail > 0;
-        if (detail <= 0) continue;
+        if (detail <= 0 || !entry.shrinks) continue;
         entry.object.scale.copy(entry.baseScale).multiplyScalar(detail);
         entry.object.position.copy(entry.basePosition)
           .addScaledVector(entry.pivotOffset, 1 - detail);

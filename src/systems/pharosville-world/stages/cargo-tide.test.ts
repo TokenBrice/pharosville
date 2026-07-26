@@ -186,6 +186,63 @@ describe("buildCargoTideStage", () => {
     });
   });
 
+  it("refuses to call a harbour idle while issuance it cannot place exists", () => {
+    // The cardinal sin: a coin minting $400M carries an id no ship holds (an
+    // id-namespace mismatch, a frozen coin, a listing gap), so its flow lands
+    // nowhere — and the quay it may well have landed at would otherwise swear
+    // to a measured quiet day it never observed.
+    const stage = buildCargoTideStage(
+      [dock("ethereum")],
+      [ship("known-coin", [["ethereum", 1]])],
+      payload([coin("unknown-coin", 400_000_000, 400_000_000, 0)]),
+    );
+
+    expect(tideOf(stage.docks, "ethereum")).toMatchObject({
+      reason: "unattributed",
+      tracked: false,
+    });
+    // The flow itself is not lost — the fleet line still reports it, which is
+    // exactly the contradiction ("billions issued, every quay calm") the
+    // untracked reason exists to prevent.
+    expect(stage.fleetIssuance?.netFlowUsd).toBe(400_000_000);
+  });
+
+  it("still measures a harbour that received an allocation of its own", () => {
+    // Unplaceable flow elsewhere makes a harbour's SILENCE unverified; it does
+    // not taint a harbour that actually saw issuance.
+    const stage = buildCargoTideStage(
+      [dock("ethereum"), dock("arbitrum")],
+      [ship("known-coin", [["ethereum", 1]])],
+      payload([
+        coin("known-coin", 2_000_000, 2_000_000, 0),
+        coin("unknown-coin", 9_000_000, 9_000_000, 0),
+      ]),
+    );
+
+    expect(tideOf(stage.docks, "ethereum")).toMatchObject({
+      direction: "minting",
+      netFlowUsd: 2_000_000,
+      tracked: true,
+    });
+    expect(tideOf(stage.docks, "arbitrum")).toMatchObject({ reason: "unattributed", tracked: false });
+  });
+
+  it("keeps a genuinely idle harbour measured when every active coin was placed", () => {
+    // Arbitrum harbours nothing that moved, but the world knows where every
+    // active coin sits — so its zero is observed, not merely unverified.
+    const stage = buildCargoTideStage(
+      [dock("ethereum"), dock("arbitrum")],
+      [ship("mint-coin", [["ethereum", 1]]), ship("idle-coin", [["arbitrum", 1]])],
+      payload([coin("mint-coin", 1_000_000, 1_000_000, 0), coin("idle-coin", 0, 0, 0)]),
+    );
+
+    expect(tideOf(stage.docks, "arbitrum")).toMatchObject({
+      direction: "inactive",
+      reason: "tracked",
+      tracked: true,
+    });
+  });
+
   it("holds a balanced harbour apart from an idle one", () => {
     const stage = buildCargoTideStage(
       [dock("ethereum")],

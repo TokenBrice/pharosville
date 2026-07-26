@@ -18,6 +18,7 @@ import {
   detailForShip,
   dockConcentrationLabel,
   fleetRankLabel,
+  flightToQualityLabel,
   harborRankLabel,
   lighthouseBeamWarmCueLabel,
   PHAROS_WATCH_TELEGRAM_HREF,
@@ -40,7 +41,7 @@ import {
 } from "./detail-model";
 import { UNAVAILABLE_SUPPLY_TIDE } from "./supply-tide";
 import { buildDetailFactSections } from "../lib/format-detail";
-import type { AreaNode, DockNode, GraveNode, LighthouseNode, PigeonnierNode, ShipNode } from "./world-types";
+import type { AreaNode, DockNode, GraveNode, LighthouseNode, PharosVilleWorld, PigeonnierNode, ShipNode } from "./world-types";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import {
   fixtureWithDepegOn,
@@ -964,6 +965,64 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
 
       expect(detail.facts.find((fact) => fact.label === "Score")?.value).toBe("72.3");
     });
+
+    describe("Flight to quality row", () => {
+      const lighthouse = {
+        id: "lighthouse",
+        kind: "lighthouse",
+        label: "Pharos lighthouse",
+        tile: { x: 1, y: 1 },
+        psiBand: "CALM",
+        score: 91,
+        color: "#ffffff",
+        unavailable: false,
+        detailId: "lighthouse",
+      } satisfies LighthouseNode;
+
+      const issuance = (
+        overrides: Partial<NonNullable<PharosVilleWorld["fleetIssuance"]>>,
+      ): NonNullable<PharosVilleWorld["fleetIssuance"]> => ({
+        activeCoins: 36,
+        band: "NEUTRAL",
+        burnVolumeUsd: 4_000_000,
+        direction: "burning",
+        flightIntensity: 0,
+        flightToQuality: false,
+        mintVolumeUsd: 1_000_000,
+        netFlowUsd: -3_000_000,
+        scopeChainIds: ["ethereum"],
+        scopeLabel: "Configured issuance chains",
+        score: -7.4,
+        trackedCoins: 130,
+        ...overrides,
+      });
+
+      it("names the tenders and quotes the intensity when the gauge reports flight", () => {
+        const label = flightToQualityLabel(issuance({ flightIntensity: 42, flightToQuality: true }));
+        expect(label).toContain("Active");
+        expect(label).toContain("intensity 42 of 100");
+        expect(label).toContain("tenders");
+
+        const facts = detailForLighthouse(
+          lighthouse,
+          undefined,
+          issuance({ flightIntensity: 42, flightToQuality: true }),
+        ).facts;
+        expect(facts).toEqual(expect.arrayContaining([
+          expect.objectContaining({ label: "Flight to quality" }),
+        ]));
+      });
+
+      it("separates 'no flight' from 'no gauge', which an empty sea cannot", () => {
+        // The canvas draws nothing in both cases, so the row carries the whole
+        // distinction: it reads plainly for one and is absent for the other.
+        expect(flightToQualityLabel(issuance({}))).toBe("None reported — no tenders on the water");
+        expect(flightToQualityLabel(null)).toBeNull();
+        expect(flightToQualityLabel(undefined)).toBeNull();
+        expect(detailForLighthouse(lighthouse, undefined, null).facts
+          .some((fact) => fact.label === "Flight to quality")).toBe(false);
+      });
+    });
   });
 
   describe("W5.01 — Tracking new risk band fact", () => {
@@ -1401,6 +1460,24 @@ describe("detail-model P3 metaphor quick-win signals", () => {
       tracked: false,
     })).toBe("Not measured on this chain");
     expect(cargoTideLabel(undefined)).toBeNull();
+  });
+
+  it("cargoTideLabel says so when a quay's silence could not be verified", () => {
+    // An in-scope harbour that received no allocation while the payload carried
+    // issuance the fleet could not place. Its reading must not be the same
+    // sentence as an observed quiet day.
+    const label = cargoTideLabel({
+      burnVolumeUsd: 0,
+      coinCount: 0,
+      direction: "inactive",
+      mintVolumeUsd: 0,
+      netFlowUsd: 0,
+      pressureScore: null,
+      reason: "unattributed",
+      tracked: false,
+    });
+    expect(label).toBe("Unavailable — 24h issuance could not be matched to this harbor's coins");
+    expect(label).not.toBe("No issuance activity in 24h");
   });
 
   it("detailForDock surfaces Net flow 24h only when the harbour carries a tide", () => {

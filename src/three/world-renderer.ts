@@ -103,6 +103,11 @@ import {
   type GardenCargoTide,
 } from "./garden-cargo-tide";
 import {
+  createGardenFlightTenders,
+  flightTenderTitans,
+  type GardenFlightTenders,
+} from "./garden-flight-tenders";
+import {
   createGardenTideLine,
   type GardenTideLine,
 } from "./garden-tide-line";
@@ -215,6 +220,23 @@ const scratchShadowQuaternion = new Quaternion();
 const SHADOW_UP = new Vector3(0, 1, 0);
 // W6.4: the hull tint handed to a reflection instance, blended per frame.
 const scratchReflectionColor = new Color();
+// Reused argument records for the per-frame update calls below. Every callee
+// destructures its input on entry and keeps nothing, so one record per call
+// site is enough to keep the frame path free of the object literals it would
+// otherwise mint — one per flock and mast per frame, and one per hero hull.
+const scratchAmbientFrame = { reducedMotion: false, timeSeconds: 0, visible: false };
+const scratchOverviewLodFrame = { deltaSeconds: 0, reducedMotion: false, zoom: 1 };
+const scratchReflectionPlacement = {
+  color: scratchReflectionColor,
+  index: 0,
+  mastheadHeight: 0,
+  strength: 0,
+  tileX: 0,
+  tileY: 0,
+  width: 0,
+  worldX: 0,
+  worldZ: 0,
+};
 
 export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): ThreeWorldRenderer {
   const { canvas, onAssetReady, onContextFailure } = input;
@@ -366,6 +388,14 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
       // scene. It costs nothing on the vast majority of frames, which do not
       // bake at all.
       const phase = dayCyclePhase(frame.wallClockHour);
+      // Grade the dome for THIS phase before the probe reads it. The probe
+      // renders `sky.domeMaterial` itself and caches the result under the phase
+      // key, but the full sky update does not run until `updateSceneForFrame`
+      // below — so without this the first bake of a session rendered the NIGHT
+      // colours the uniforms are constructed with, stored them under a daytime
+      // key, and lit every metal surface in the world with a night probe for as
+      // long as that key held. At midday the key never moves again.
+      scene.sky.applyPhase(phase);
       scene.environment.update(phase);
 
       // `renderer.info` auto-resets on every `render()` call, and the post
@@ -410,7 +440,7 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
       }
       if (scene.content) syncShipSailTextures(scene.content, frame);
       updateSceneForFrame(scene, camera, frame, phase);
-      // MEASURED DEAD ENDS — three things that look like obvious wins here and
+      // MEASURED DEAD ENDS — four things that look like obvious wins here and
       // are not. All numbers from the reference GPU on an otherwise idle
       // machine; measure before revisiting, and measure QUIET (a leaked browser
       // eating twelve cores made the scene rebuild look 3x more expensive than
@@ -427,20 +457,44 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
       // 2. Splitting this into static scenery (island, cemetery, pigeonnier,
       //    harbour life — none of which reads anything a payload can change)
       //    and per-world content, so a refresh rebuilds only the fleet, buys
-      //    nothing. A refresh freezes ~550ms: 551/592/512ms as it stands,
-      //    556/641/542ms split, and 432/420/349ms with the rebuild suppressed
-      //    ENTIRELY. So the whole scene rebuild is ~130ms and it lives in the
-      //    dynamic half (fleet ~58ms, docks and districts ~49ms). The static
-      //    half is ~30ms and its buffers are not the cost.
+      //    nothing. Measured when a refresh still froze ~550ms: 551/592/512ms
+      //    as it stands, 556/641/542ms split, and 432/420/349ms with the
+      //    rebuild suppressed ENTIRELY. So the whole scene rebuild is ~130ms
+      //    and it lives in the dynamic half (fleet ~58ms, docks and districts
+      //    ~49ms). The static half is ~30ms and its buffers are not the cost.
       //
       // 3. Shrinking the 2048² sail atlas is not a startup lever either: at
       //    1024² (16MB -> 4MB) blocked time went 2556ms -> 2429ms, inside
       //    run-to-run noise.
       //
-      // What IS left in a refresh: ~100ms of world model rebuild, and ~320ms of
-      // React commit plus the A* re-solve that fires because moved ships mean
-      // new path keys. Those want a worker or stable placement, not scene
-      // surgery.
+      // 4. A Web Worker for the world build is not the next move either, and
+      //    the numbers below are why.
+      //
+      // WHAT A REFRESH COSTS NOW. Measured 2026-07-26 against the PRODUCTION
+      // bundle on the reference GPU, three rounds each, by
+      // `npm run preview -- --refresh <arm>` — which provokes the real polling
+      // refetch and parks the response at the proxy, so the window holds the
+      // refresh and nothing else:
+      //
+      //   identical payload    0ms   structural sharing discards it entirely
+      //   ordinary refresh   239ms   ONE task, 189ms of it blocking
+      //   every ship moved   795ms   two tasks (a synthetic worst case)
+      //
+      // Sticky placement (61905cc) is what took the ordinary refresh from
+      // ~550ms to 239ms: the world model rebuild, which the tile re-pack and
+      // the A* re-solve dominated, went 303ms -> 34ms. That is also what rules
+      // the worker out. Of the 239ms left, the pipeline a worker could move is
+      // that 34ms. The rest is entered from React's scheduler and lands in
+      // native code V8 cannot unwind, while style, layout and paint together
+      // account for 14ms of the whole window — so it is not the DOM, it is the
+      // GL cost of rebuilding scene content, and that cannot leave the thread
+      // that owns the context.
+      //
+      // The remaining target is therefore this function, not a worker: now that
+      // placements hold still, `replaceWorldContent` tears down and recreates
+      // resources identical to the ones it just disposed. Dead end 2 above says
+      // splitting the scene STATICALLY buys nothing; diffing it against the
+      // previous content has not been tried, and is the thing to measure next.
 
       const tier = frame.renderScheduler.tier;
       if (SESSION_TIER_QUALITY[tier] > SESSION_TIER_QUALITY[sessionTierReached]) {
@@ -598,6 +652,17 @@ interface GardenContent {
    * positions at build, so there is nothing for the frame loop to do.
    */
   cargoTide: GardenCargoTide;
+  /**
+   * The flight-to-quality flotilla, in one instanced draw. Empty — nothing
+   * built at all — whenever the gauge is absent or reads false.
+   */
+  flightTenders: GardenFlightTenders;
+  /**
+   * The titan hulls those tenders work, in the flotillas' own anchor order, so
+   * the per-frame sync costs one pass over three ships rather than a lookup on
+   * all ~205. Empty whenever there is no flight to show.
+   */
+  flightTenderShips: ShipVisual[];
   /**
    * Task 14: the weekly supply tide, as one banded plate per quay in a single
    * instanced draw. Static — the strandline is composed into the plate's vertex
@@ -1261,6 +1326,23 @@ function createWorldContent(
       .slice(0, GARDEN_GULL_SHIP_COUNT),
   );
 
+  // Flight to quality: tenders making for the biggest hulls, for as long as the
+  // mint/burn gauge reports capital concentrating into them. Ranked off the
+  // whole fleet by the same market cap the hull scale already encodes, so the
+  // boats gather where the eye already reads "largest". Built here, after the
+  // hulls exist, because each flotilla's stand-off is scaled to its titan's own
+  // footprint. `flightTenderTitans` returns nothing when the gauge is absent or
+  // false, and a spec-less flotilla builds no mesh and costs no draw call.
+  const flightTenderShips = flightTenderTitans(ships, world.fleetIssuance);
+  const flightTenders = createGardenFlightTenders(
+    flightTenderShips.map((visual) => ({
+      hullRadius: visual.selectionRadius,
+      shipId: visual.ship.id,
+    })),
+    world.fleetIssuance?.flightIntensity ?? 0,
+  );
+  root.add(flightTenders.root);
+
   // 3d: the bearing the beam will settle on. Null when the index named no
   // contributor, or when the coin it named is not in the rendered fleet — the
   // sweep then keeps the even turn it has always had.
@@ -1303,6 +1385,8 @@ function createWorldContent(
     beam: island.beam,
     beamDwellBearing,
     cargoTide,
+    flightTenders,
+    flightTenderShips,
     tideLine,
     crossBearingBuoys,
     crossBearingBuoyShips: buoyShips,
@@ -1553,21 +1637,16 @@ function updateSceneForFrame(
   // The hero gulls ride the same gate as the island's small life, and the same
   // clock. Placement needs nothing here: each flock is a child of the hull it
   // belongs to, so it already has that hull's pose.
-  content.shipGulls.update({
-    reducedMotion: frame.reducedMotion,
-    timeSeconds: frame.timeSeconds,
-    visible: ambientAlive,
-  });
+  scratchAmbientFrame.reducedMotion = frame.reducedMotion;
+  scratchAmbientFrame.timeSeconds = frame.timeSeconds;
+  scratchAmbientFrame.visible = ambientAlive;
+  content.shipGulls.update(scratchAmbientFrame);
   // 3a: the hoist rides the same `ambientAlive` gate as the rest of the
   // island's small life — it survives `recovery` and is shed only at
   // `constrained`. What is flying was fixed at compose time; this call only
   // lifts the cloth, so the tier decides whether the mast is drawn, never what
   // it reports.
-  content.signalMast.update({
-    reducedMotion: frame.reducedMotion,
-    timeSeconds: frame.timeSeconds,
-    visible: ambientAlive,
-  });
+  content.signalMast.update(scratchAmbientFrame);
   // 3c has no call here on purpose: the tide stain is composed once, never
   // moves, and is not tier gated — it is one draw call (zero when the mark is
   // bare), and a reading that vanishes when the machine gets busy is worse than
@@ -1667,11 +1746,10 @@ function updateSceneForFrame(
   // props that stop resolving on the way OUT, easing them away between 0.62 and
   // 0.44 so nothing pops. Default framing (0.7776) is above the band and pays
   // nothing for either.
-  content.overviewLod.update({
-    deltaSeconds: beamElapsedSeconds,
-    reducedMotion: frame.reducedMotion,
-    zoom: frame.camera.zoom,
-  });
+  scratchOverviewLodFrame.deltaSeconds = beamElapsedSeconds;
+  scratchOverviewLodFrame.reducedMotion = frame.reducedMotion;
+  scratchOverviewLodFrame.zoom = frame.camera.zoom;
+  content.overviewLod.update(scratchOverviewLodFrame);
   const overviewDetail = content.overviewLod.detail;
   // N (D6): the boards hold a roughly constant on-screen size as the camera
   // pulls back, so the sea's place-names stay readable at whole-map framing —
@@ -1699,7 +1777,10 @@ function updateSceneForFrame(
   );
 
   let visibleShipCount = 0;
-  for (const [index, visual] of content.ships.entries()) {
+  // Indexed rather than `entries()`: the iterator mints an `[index, value]` pair
+  // per hull per frame, and this loop runs over the whole fleet. Same below.
+  for (let index = 0; index < content.ships.length; index += 1) {
+    const visual = content.ships[index]!;
     const sample = frame.shipMotionSamples.get(visual.ship.id);
     const tile = resolveGardenShipDisplayTile({
       displayOffset: visual.displayOffset,
@@ -1826,10 +1907,28 @@ function updateSceneForFrame(
   // buffer upload, the same discipline the shadows and the batches use.
   // Nothing here is tier or reduced-motion gated: the buoy has no motion of its
   // own, and it stops moving exactly when the ship it is moored to does.
-  for (const [index, visual] of content.crossBearingBuoyShips.entries()) {
+  for (let index = 0; index < content.crossBearingBuoyShips.length; index += 1) {
+    const visual = content.crossBearingBuoyShips[index]!;
     content.crossBearingBuoys.place(index, visual.root.position.x, visual.root.position.z);
   }
   content.crossBearingBuoys.flush();
+
+  // The flight-to-quality flotilla, anchored on the same final hull transforms.
+  // Its boats have no motion sample of their own and no clock of their own: each
+  // one is an offset from its titan's position, which the loop above wrote from
+  // `frame.shipMotionSamples`, advanced along its run by the frame's own
+  // `timeSeconds`. `detail` is the overview policy's value, applied per instance
+  // because these matrices are world-space — the same gate the wakes use.
+  // Nothing runs when the gauge reported no flight: the list is empty.
+  for (let index = 0; index < content.flightTenderShips.length; index += 1) {
+    const visual = content.flightTenderShips[index]!;
+    content.flightTenders.place(index, visual.root.position.x, visual.root.position.z);
+  }
+  content.flightTenders.flush({
+    detail: overviewDetail,
+    reducedMotion: frame.reducedMotion,
+    timeSeconds: frame.timeSeconds,
+  });
 
   // W6.4: the hero hulls' mirror columns, placed once the transforms above are
   // final. One pass over ~29 heroes, one buffer upload, one draw call.
@@ -1840,7 +1939,8 @@ function updateSceneForFrame(
   const reflectionsVisible = overviewDetail > 0 && !constrained;
   content.heroReflections.mesh.visible = reflectionsVisible;
   if (reflectionsVisible) {
-    for (const [index, visual] of content.heroReflectionShips.entries()) {
+    for (let index = 0; index < content.heroReflectionShips.length; index += 1) {
+      const visual = content.heroReflectionShips[index]!;
       // How wide the hull PRESENTS: the same footprint ellipse the contact
       // shadow uses, measured along the screen horizontal (world (1,0,-1)/√2).
       // A galleon lying broadside throws a broad reflection and the same hull
@@ -1857,20 +1957,19 @@ function updateSceneForFrame(
         alongHull * alongHull * (cos + sin) * (cos + sin)
         + acrossHull * acrossHull * (sin - cos) * (sin - cos),
       );
-      content.heroReflections.place({
-        // A hull's image on the water is its timber and its canvas together,
-        // canvas-weighted: the sails are most of what a ship presents from
-        // this angle, and they are the part that reads against open water.
-        color: scratchReflectionColor.copy(visual.hullColor).lerp(visual.sailColor, 0.6),
-        index,
-        mastheadHeight: visual.mastheadHeight * visual.root.scale.x,
-        strength: overviewDetail,
-        tileX: visual.root.position.x / TILE_SCALE,
-        tileY: visual.root.position.z / TILE_SCALE,
-        width: footprint,
-        worldX: visual.root.position.x,
-        worldZ: visual.root.position.z,
-      });
+      // A hull's image on the water is its timber and its canvas together,
+      // canvas-weighted: the sails are most of what a ship presents from this
+      // angle, and they are the part that reads against open water.
+      scratchReflectionColor.copy(visual.hullColor).lerp(visual.sailColor, 0.6);
+      scratchReflectionPlacement.index = index;
+      scratchReflectionPlacement.mastheadHeight = visual.mastheadHeight * visual.root.scale.x;
+      scratchReflectionPlacement.strength = overviewDetail;
+      scratchReflectionPlacement.tileX = visual.root.position.x / TILE_SCALE;
+      scratchReflectionPlacement.tileY = visual.root.position.z / TILE_SCALE;
+      scratchReflectionPlacement.width = footprint;
+      scratchReflectionPlacement.worldX = visual.root.position.x;
+      scratchReflectionPlacement.worldZ = visual.root.position.z;
+      content.heroReflections.place(scratchReflectionPlacement);
     }
     // Reduced motion freezes the band drift at a composed pose, like every
     // other time-driven surface in this renderer.

@@ -10,9 +10,11 @@ import {
 import { buildPharosVilleWorld } from "../../pharosville-world";
 import { seawallBarrierDistance } from "../../seawall";
 import { UNIQUE_SHIP_DEFINITIONS } from "../../unique-ships";
-import { resetHeldMoorings } from "./dock-assignment";
+import { PREFERRED_DOCK_TILES } from "../../world-layout";
+import { buildDockAssignmentStage, resetHeldMoorings } from "./dock-assignment";
 import { resetHeldShipPlacements } from "./ship-placement";
 import type { PharosVilleInputs } from "../pipeline-types";
+import type { DockNode, ShipNode } from "../../world-types";
 import type { StablecoinData } from "@shared/types";
 
 function denseWorldInputs(peggedAssets?: readonly StablecoinData[]): PharosVilleInputs {
@@ -101,5 +103,75 @@ describe("dock-assignment unique tier mooring placement", () => {
           .toBeGreaterThanOrEqual(4.0);
       }
     }
+  });
+});
+
+describe("dock-assignment held berths follow their dock", () => {
+  const HOME_TILE = PREFERRED_DOCK_TILES.ethereum!;
+  const MOVED_TILE = PREFERRED_DOCK_TILES.avalanche!;
+
+  // `dock.id` is `dock.<chainId>`, so it survives a move: a chain with no
+  // PREFERRED_DOCK_TILES entry draws from the shared pool in supply-rank order
+  // and lands on a different tile when the ranking shifts.
+  function dockAt(tile: { x: number; y: number }): DockNode[] {
+    return [{
+      id: "dock.driftchain",
+      kind: "dock",
+      label: "Driftchain",
+      chainId: "driftchain",
+      tile,
+      totalUsd: 1_000_000,
+      size: 4,
+      healthBand: null,
+      stablecoinCount: 1,
+      concentration: null,
+      harboredStablecoins: [],
+      detailId: "dock.driftchain",
+    }];
+  }
+
+  const ships = [{
+    id: "drift-coin",
+    marketCapUsd: 1_000_000_000,
+    homeDockChainId: "driftchain",
+    riskTile: { x: 40, y: 40 },
+    squadRole: null,
+    visual: { sizeTier: "major" },
+    chainPresence: [{ chainId: "driftchain", currentUsd: 1_000_000, share: 1, hasRenderedDock: true }],
+  }] as unknown as ShipNode[];
+
+  // A larger hull sorts ahead of drift-coin and takes berth index 0, which is
+  // what would push drift-coin onto a different tile on a cold build.
+  const withNewcomer = [...ships, {
+    ...ships[0]!,
+    id: "whale-coin",
+    marketCapUsd: 90_000_000_000,
+  }] as unknown as ShipNode[];
+
+  const mooringOf = (tile: { x: number; y: number }, fleet: ShipNode[] = ships) =>
+    buildDockAssignmentStage(fleet, dockAt(tile))
+      .ships.find((ship) => ship.id === "drift-coin")!.dockVisits[0]!.mooringTile;
+
+  it("re-berths a ship whose dock moved instead of mooring it in open water", () => {
+    const cold = mooringOf(MOVED_TILE);
+    resetHeldMoorings();
+
+    const atHome = mooringOf(HOME_TILE);
+    const afterMove = mooringOf(MOVED_TILE);
+
+    // The berth held from the old position is legal water and would pass every
+    // `isBerthTile` check, so only the dock's own tile can retire it.
+    expect(afterMove).not.toEqual(atHome);
+    expect(afterMove).toEqual(cold);
+  });
+
+  it("still holds the berth when the dock stays put and the fleet around it changes", () => {
+    // The sticky-berth benefit itself: a ship whose own presence never changed
+    // does not re-berth because a larger ship arrived at its dock.
+    const held = mooringOf(HOME_TILE);
+    expect(mooringOf(HOME_TILE, withNewcomer)).toEqual(held);
+
+    resetHeldMoorings();
+    expect(mooringOf(HOME_TILE, withNewcomer)).not.toEqual(held);
   });
 });

@@ -5,6 +5,7 @@ import {
   OVERVIEW_LOD_DETAIL_NAMES,
   OVERVIEW_LOD_FULL_ZOOM,
   OVERVIEW_LOD_HIDDEN_ZOOM,
+  OVERVIEW_LOD_WHOLE_RING_NAMES,
   overviewLodTargetDetail,
 } from "./garden-overview-lod";
 
@@ -19,6 +20,27 @@ function propTree(): { prop: Group; root: Group } {
   prop.add(arm);
   root.add(prop);
   return { prop, root };
+}
+
+/**
+ * The other shape: ONE group at the world origin whose single mesh already
+ * carries every berth's world position, the way `dock-cargo-tide` holds the
+ * whole harbour ring's crates. The two quays here stand in for opposite sides
+ * of the ring.
+ */
+function wholeRingTree(): { crates: Mesh[]; prop: Group; root: Group } {
+  const root = new Group();
+  const prop = new Group();
+  prop.name = "dock-cargo-tide";
+  const crates = [
+    new Mesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial()),
+    new Mesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial()),
+  ];
+  crates[0]!.position.set(60, 0, -40);
+  crates[1]!.position.set(-52, 0, 44);
+  prop.add(...crates);
+  root.add(prop);
+  return { crates, prop, root };
 }
 
 const SNAP = { deltaSeconds: 10, reducedMotion: false };
@@ -113,6 +135,39 @@ describe("createGardenOverviewLod", () => {
       lod.update({ deltaSeconds: 0.016, reducedMotion: false, zoom: 0.28 });
     }
     expect(lod.detail).toBe(0);
+  });
+
+  it("fades a whole-ring group without moving a crate off its own harbour", () => {
+    const { crates, prop, root } = wholeRingTree();
+    const lod = createGardenOverviewLod(root);
+
+    lod.update({ ...SNAP, zoom: 0.52 });
+
+    expect(lod.detail).toBeGreaterThan(0);
+    expect(lod.detail).toBeLessThan(1);
+    // The group's transform IS the ring's transform: shrinking it about the
+    // ring's centroid scaled the ring, dragging every crate tens of world units
+    // toward the middle of the map. Mid-band it must still be untouched.
+    expect(prop.visible).toBe(true);
+    expect(prop.scale.toArray()).toEqual([1, 1, 1]);
+    expect(prop.position.toArray()).toEqual([0, 0, 0]);
+    root.updateMatrixWorld(true);
+    expect(crates[0]!.matrixWorld.elements[12]).toBeCloseTo(60, 6);
+    expect(crates[0]!.matrixWorld.elements[14]).toBeCloseTo(-40, 6);
+    expect(crates[1]!.matrixWorld.elements[12]).toBeCloseTo(-52, 6);
+    expect(crates[1]!.matrixWorld.elements[14]).toBeCloseTo(44, 6);
+
+    // It still sheds at the same zoom as everything else.
+    lod.update({ ...SNAP, zoom: 0.28 });
+    expect(prop.visible).toBe(false);
+  });
+
+  it("names whole-ring groups the policy already sheds", () => {
+    // A name here that the detail list does not carry would shed nothing, and
+    // the exemption would be silently dead.
+    for (const name of OVERVIEW_LOD_WHOLE_RING_NAMES) {
+      expect(OVERVIEW_LOD_DETAIL_NAMES).toContain(name);
+    }
   });
 
   it("snaps under reduced motion, which draws one static frame", () => {

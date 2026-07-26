@@ -418,7 +418,12 @@ export interface DockCargoTide {
   netFlowUsd: number;
   /** Signed -100..100 share of gross flow, or null when nothing moved. */
   pressureScore: number | null;
-  reason: "tracked" | "chain-not-in-scope" | "scope-unreported" | "no-flow-data";
+  /**
+   * `unattributed`: the chain IS in the payload's scope, but no coin's flow
+   * could be allocated here while issuance the fleet cannot place exists — so
+   * the quiet is unverified rather than observed.
+   */
+  reason: "tracked" | "chain-not-in-scope" | "scope-unreported" | "no-flow-data" | "unattributed";
   tracked: boolean;
 }
 

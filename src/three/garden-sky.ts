@@ -105,6 +105,27 @@ export interface GardenSkyFrame {
 }
 
 export interface GardenSky {
+  /**
+   * The phase-only half of `update`: the dome uniforms and the fog colour, which
+   * are graded from the day-cycle blend and from nothing else.
+   *
+   * It is separate because `garden-environment` bakes its PMREM probe from THIS
+   * material, and it has to bake EARLY in the frame — before the renderer resets
+   * its per-frame `renderer.info` counters, or the bake's six-face cube render
+   * would spike the frame's draw-call total against the 700 budget. `update`
+   * runs much later, inside the scene pass. So the renderer grades the dome for
+   * the frame's phase first, then bakes, then updates.
+   *
+   * Without that split the first bake of a session rendered the colours the
+   * uniforms are CONSTRUCTED with — the night preset — and cached them under
+   * whatever key the current hour produced. At midday the key never moves again,
+   * so every metal surface in the world stayed lit by a night probe for the
+   * whole flat middle of the day.
+   *
+   * Idempotent, and `update` calls it, so grading once or twice a frame is the
+   * same picture.
+   */
+  applyPhase: (phase: DayCyclePhase) => void;
   dispose: () => void;
   /**
    * W6.5: the dome's own shader material, shared with the environment baker.
@@ -356,7 +377,20 @@ export function createGardenSky(): GardenSky {
 
   const fog = new Fog(DAY_CYCLE_SKY_PRESETS.night.fog.clone(), FOG_NEAR, FOG_FAR);
 
+  const applyPhase = (phase: DayCyclePhase): void => {
+    const { daylight, dusk } = phase;
+    const skyPresets = DAY_CYCLE_SKY_PRESETS;
+    const zenith = dome.material.uniforms.uZenith.value as Color;
+    const horizon = dome.material.uniforms.uHorizon.value as Color;
+    blendDayCycleColor(zenith, skyPresets.night.zenith, skyPresets.dusk.zenith, skyPresets.day.zenith, dusk, daylight);
+    blendDayCycleColor(horizon, skyPresets.night.horizon, skyPresets.dusk.horizon, skyPresets.day.horizon, dusk, daylight);
+    blendDayCycleColor(fog.color, skyPresets.night.fog, skyPresets.dusk.fog, skyPresets.day.fog, dusk, daylight);
+    // Ember west band owns the dusk horizon; it stays out of day and night.
+    dome.material.uniforms.uEmberStrength.value = dusk * (1 - daylight) * 0.55;
+  };
+
   return {
+    applyPhase,
     dispose() {
       dome.mesh.geometry.dispose();
       dome.mesh.material.dispose();
@@ -384,15 +418,8 @@ export function createGardenSky(): GardenSky {
       );
       fog.near = FOG_NEAR * fogScale;
       fog.far = FOG_FAR * fogScale;
-      const { daylight, dusk, night } = phase;
-      const skyPresets = DAY_CYCLE_SKY_PRESETS;
-      const zenith = dome.material.uniforms.uZenith.value as Color;
-      const horizon = dome.material.uniforms.uHorizon.value as Color;
-      blendDayCycleColor(zenith, skyPresets.night.zenith, skyPresets.dusk.zenith, skyPresets.day.zenith, dusk, daylight);
-      blendDayCycleColor(horizon, skyPresets.night.horizon, skyPresets.dusk.horizon, skyPresets.day.horizon, dusk, daylight);
-      blendDayCycleColor(fog.color, skyPresets.night.fog, skyPresets.dusk.fog, skyPresets.day.fog, dusk, daylight);
-      // Ember west band owns the dusk horizon; it stays out of day and night.
-      dome.material.uniforms.uEmberStrength.value = dusk * (1 - daylight) * 0.55;
+      applyPhase(phase);
+      const { dusk, night } = phase;
 
       const starOpacity = Math.min(1, dusk * 0.35 + night);
       stars.material.uniforms.uOpacity.value = starOpacity;

@@ -1,6 +1,6 @@
-import { Mesh, MeshBasicMaterial, type DataTexture } from "three";
+import { Color, Mesh, MeshBasicMaterial, type DataTexture } from "three";
 import { describe, expect, it } from "vitest";
-import { dayCyclePhase } from "./garden-day-cycle";
+import { DAY_CYCLE_SKY_PRESETS, dayCyclePhase } from "./garden-day-cycle";
 import { createGardenSky } from "./garden-sky";
 
 const FRAME = {
@@ -72,6 +72,42 @@ describe("garden sky mist band", () => {
  * a taste judgement — so they can be asserted, and a future retune that quietly
  * gives one of them up fails here instead of in a screenshot nobody compares.
  */
+describe("garden sky applyPhase", () => {
+  it("grades the dome without a frame, so the probe can bake before the update", () => {
+    // `garden-environment` bakes its PMREM probe from this material EARLY in
+    // the frame, before `update` runs. Left ungraded the dome still holds the
+    // night colours it was constructed with, and the probe caches those under a
+    // daytime key — every metal surface lit by a night sky at noon.
+    const sky = createGardenSky();
+    const zenith = sky.domeMaterial.uniforms.uZenith.value as Color;
+    expect(zenith.getHex()).toBe(DAY_CYCLE_SKY_PRESETS.night.zenith.getHex());
+
+    sky.applyPhase(dayCyclePhase(12));
+
+    expect(zenith.getHex()).toBe(DAY_CYCLE_SKY_PRESETS.day.zenith.getHex());
+    expect((sky.domeMaterial.uniforms.uHorizon.value as Color).getHex())
+      .toBe(DAY_CYCLE_SKY_PRESETS.day.horizon.getHex());
+    expect(sky.fog.color.getHex()).toBe(DAY_CYCLE_SKY_PRESETS.day.fog.getHex());
+  });
+
+  it("leaves update on the same picture, so grading twice a frame is free", () => {
+    const early = createGardenSky();
+    const whole = createGardenSky();
+    const phase = dayCyclePhase(18.5);
+
+    early.applyPhase(phase);
+    early.update(phase, FRAME);
+    whole.update(phase, FRAME);
+
+    for (const uniform of ["uZenith", "uHorizon"] as const) {
+      expect((early.domeMaterial.uniforms[uniform]!.value as Color).getHex())
+        .toBe((whole.domeMaterial.uniforms[uniform]!.value as Color).getHex());
+    }
+    expect(early.domeMaterial.uniforms.uEmberStrength!.value)
+      .toBe(whole.domeMaterial.uniforms.uEmberStrength!.value);
+  });
+});
+
 describe("garden sky aerial perspective", () => {
   const fogAt = (depth: number, near: number, far: number): number =>
     Math.max(0, Math.min(1, (depth - near) / (far - near)));
