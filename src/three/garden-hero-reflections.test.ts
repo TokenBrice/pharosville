@@ -69,9 +69,9 @@ describe("createGardenHeroReflections", () => {
     reflections.flush(1);
 
     const matrix = reflections.mesh.instanceMatrix;
-    // Column length lives in the local z scale; a true mirror is sqrt(3) x the
-    // mast height in this projection.
-    expect(matrix.array[0]).toBeCloseTo(6 * Math.cos(Math.PI / 4), 5);
+    // The column is intentionally narrower than the hull footprint so the
+    // instanced plane cannot read as a rectangular smear.
+    expect(matrix.array[0]).toBeCloseTo(6 * 0.68 * Math.cos(Math.PI / 4), 5);
     expect(alphaAt(reflections, 0)).toBeGreaterThan(0);
   });
 

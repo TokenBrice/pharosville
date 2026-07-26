@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Color, Matrix4 } from "three";
 import { createFleetBatchGeometry } from "./garden-ships";
 import {
@@ -132,6 +132,43 @@ describe("fleet batches", () => {
     endFleetFrame(batches);
     expect(fleetInstanceCount(batches)).toBe(8);
     disposeFleetBatches(batches);
+  });
+
+  it("renders a selected outsider after a full ordinary slice and disposes its buffers", () => {
+    const batches = buildBatches(320);
+    const geometryDisposals = [...batches.bySilhouette.values()].flatMap((batch) => [
+      vi.spyOn(batch.hull.mesh.geometry, "dispose"),
+      vi.spyOn(batch.sails.mesh.geometry, "dispose"),
+    ]);
+    const materialDisposals = batches.materials.map((material) => (
+      vi.spyOn(material, "dispose")
+    ));
+
+    beginFleetFrame(batches);
+    for (let index = 0; index < 320; index += 1) {
+      writeFleetInstance(batches, pose({
+        silhouette: SILHOUETTES[index % SILHOUETTES.length]!,
+        x: index,
+      }));
+    }
+    // The renderer's selected transient is an additional placement. Hull and
+    // sail batches remain within their per-silhouette allocation; the shared
+    // pennant batch is deliberately capped rather than reallocated.
+    writeFleetInstance(batches, pose({ silhouette: "galleon", x: 320 }));
+    endFleetFrame(batches);
+
+    expect(fleetInstanceCount(batches)).toBe(321);
+    expect(batches.pennant.mesh.count).toBe(320);
+    for (const batch of batches.bySilhouette.values()) {
+      expect(batch.hull.mesh.count).toBeLessThanOrEqual(batches.capacity);
+      expect(batch.sails.mesh.count).toBeLessThanOrEqual(batches.capacity);
+    }
+
+    disposeFleetBatches(batches);
+    for (const dispose of geometryDisposals) expect(dispose).toHaveBeenCalledTimes(1);
+    for (const dispose of materialDisposals) expect(dispose).toHaveBeenCalledTimes(1);
+    expect(batches.root.children).toHaveLength(0);
+    expect(batches.bySilhouette.size).toBe(0);
   });
 
   it("routes each instance to its own atlas cell", () => {

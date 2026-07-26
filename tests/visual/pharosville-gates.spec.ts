@@ -1,6 +1,12 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
 import {
+  canViewportShowMap,
+  MIN_LONG_SIDE_PX,
+  MIN_SHORT_SIDE_PX,
+} from "../../src/systems/viewport-gate";
+import {
+  denyPharosVilleViewportGatedRequests,
   installWallClockOverride,
   mockDensePharosVilleData,
   mockScreenSize,
@@ -34,6 +40,7 @@ type GateTelemetry = {
 };
 
 type VisualLane = "accessibility" | "dom" | "motion" | "static";
+type ViewportSize = { height: number; width: number };
 
 const visualLaneTags: Record<VisualLane, string> = {
   accessibility: "@visual-accessibility",
@@ -47,6 +54,26 @@ const visualLaneTags: Record<VisualLane, string> = {
 
 function visualLane(lane: VisualLane, title: string): [string, { tag: string }] {
   return [title, { tag: visualLaneTags[lane] }];
+}
+
+function rectsOverlap(
+  left: { height: number; width: number; x: number; y: number },
+  right: { height: number; width: number; x: number; y: number },
+): boolean {
+  return left.x < right.x + right.width
+    && left.x + left.width > right.x
+    && left.y < right.y + right.height
+    && left.y + left.height > right.y;
+}
+
+function expectRectInsideViewport(
+  rect: { height: number; width: number; x: number; y: number },
+  viewport: ViewportSize,
+): void {
+  expect(rect.x).toBeGreaterThanOrEqual(0);
+  expect(rect.y).toBeGreaterThanOrEqual(0);
+  expect(rect.x + rect.width).toBeLessThanOrEqual(viewport.width);
+  expect(rect.y + rect.height).toBeLessThanOrEqual(viewport.height);
 }
 
 async function prepareWorldPage(
@@ -106,6 +133,94 @@ async function readGateTelemetry(page: Page): Promise<GateTelemetry> {
     };
   });
 }
+
+test(...visualLane("dom", "a capable screen with one blocked viewport dimension requests no world runtime"), async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const deniedRequests = await denyPharosVilleViewportGatedRequests(page);
+  await mockScreenSize(page, 2560, 1440);
+  await page.setViewportSize({
+    width: MIN_SHORT_SIDE_PX,
+    height: MIN_SHORT_SIDE_PX,
+  });
+  await installWallClockOverride(page, 12);
+  await page.goto("/");
+
+  expect(canViewportShowMap(MIN_SHORT_SIDE_PX, MIN_SHORT_SIDE_PX)).toBe(false);
+  await expect(page.getByText("Give the harbor more room.")).toBeVisible();
+  await expect(page.getByTestId("pharosville-canvas")).toHaveCount(0);
+  expect(deniedRequests).toEqual([]);
+});
+
+test(...visualLane("static", "active runtime chrome fits the first passing, tall, standard, and ultrawide viewports"), async ({
+  page,
+}) => {
+  const viewports = [
+    {
+      height: MIN_LONG_SIDE_PX,
+      name: "first passing",
+      width: MIN_SHORT_SIDE_PX,
+    },
+    { height: 1000, name: "tall desktop", width: 720 },
+    { height: 1000, name: "standard desktop", width: 1440 },
+    { height: 720, name: "ultrawide desktop", width: 2560 },
+  ] as const;
+  for (const viewport of viewports) {
+    expect(
+      canViewportShowMap(viewport.width, viewport.height),
+      `${viewport.name} must remain admitted by the shared size predicate`,
+    ).toBe(true);
+  }
+
+  await mockDensePharosVilleData(page);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await mockScreenSize(page, 2560, 1440);
+  await page.setViewportSize(viewports[0]);
+  await installWallClockOverride(page, 12);
+  await page.goto("/?debug=1#sel=ship.satusd-river&t=12");
+
+  for (const { name, ...viewport } of viewports) {
+    await page.setViewportSize(viewport);
+    const canvas = page.getByTestId("pharosville-canvas");
+    await expect(canvas, `${name}: lazy world runtime mounted`).toHaveAttribute(
+      "data-renderer-status",
+      "ready",
+    );
+    await waitForRuntimeDebug(page, true);
+    await expect(page.getByTestId("pharosville-detail-panel"), `${name}: selected panel`)
+      .toBeVisible();
+
+    await expect.poll(async () => {
+      const box = await canvas.boundingBox();
+      return box && {
+        height: Math.round(box.height),
+        width: Math.round(box.width),
+        x: Math.round(box.x),
+        y: Math.round(box.y),
+      };
+    }, { message: `${name}: canvas fills the admitted viewport` }).toEqual({
+      height: viewport.height,
+      width: viewport.width,
+      x: 0,
+      y: 0,
+    });
+
+    const footer = await page.locator(".pharosville-footer").boundingBox();
+    const controls = await page.getByTestId("pharosville-world-controls").boundingBox();
+    const panel = await page.getByTestId("pharosville-detail-panel").boundingBox();
+    expect(footer, `${name}: footer box`).not.toBeNull();
+    expect(controls, `${name}: controls box`).not.toBeNull();
+    expect(panel, `${name}: detail panel box`).not.toBeNull();
+    expectRectInsideViewport(footer!, viewport);
+    expectRectInsideViewport(controls!, viewport);
+    expectRectInsideViewport(panel!, viewport);
+    expect(
+      rectsOverlap(footer!, controls!),
+      `${name}: footer and world controls must have separate hit regions`,
+    ).toBe(false);
+  }
+});
 
 test(...visualLane("motion", "day, dusk, night, and reduced-motion states render nonblank and measurable"), async ({
   page,

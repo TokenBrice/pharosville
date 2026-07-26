@@ -7,6 +7,7 @@ import {
   denseFixtureStress,
   fixtureStability,
 } from "../__fixtures__/pharosville-world";
+import { overCapacityWorldFixture } from "../__fixtures__/over-capacity-world";
 import {
   GARDEN_LIGHTHOUSE_BEACON_Y,
   GARDEN_LIGHTHOUSE_HEIGHT,
@@ -77,6 +78,31 @@ describe("Garden Observatory hit targets", () => {
     }
     expect(snapshot.targets.filter((target) => target.kind === "ship"))
       .toHaveLength(slice.ships.length);
+  });
+
+  it("publishes a selected over-capacity outsider with its DOM detail record", () => {
+    const world = overCapacityWorldFixture();
+    const ordinary = selectGardenObservatorySlice(world, null);
+    const outsider = world.ships.find((ship) => (
+      !ordinary.representativeDetailIds.has(ship.detailId)
+    ));
+    expect(outsider).toBeDefined();
+
+    const snapshot = createGardenObservatoryHitTargetSnapshot({
+      camera: { offsetX: 720, offsetY: 430, zoom: 1 },
+      selectedDetailId: outsider!.detailId,
+      world,
+    });
+
+    expect(snapshot.targetsByDetailId.get(outsider!.detailId)).toMatchObject({
+      detailId: outsider!.detailId,
+      id: outsider!.id,
+      kind: "ship",
+    });
+    expect(world.detailIndex[outsider!.detailId]).toMatchObject({
+      id: outsider!.detailId,
+      title: outsider!.label,
+    });
   });
 
   it("covers the rendered lighthouse from its foundation through its finial", () => {

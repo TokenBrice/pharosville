@@ -7,10 +7,12 @@ import {
   denseFixtureStress,
   fixtureStability,
 } from "../__fixtures__/pharosville-world";
+import { overCapacityWorldFixture } from "../__fixtures__/over-capacity-world";
 import { SEA_REGION_ID, seaRegionAtTile } from "./garden-sea-regions";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import {
   GARDEN_SHIP_ROOT_Y,
+  GARDEN_OVERVIEW_SHIP_LIMIT,
   gardenAreaCenterTile,
   gardenAreaDisplayTile,
   gardenCameraViewHeight,
@@ -75,6 +77,31 @@ describe("Garden Observatory slice", () => {
       target.detailId,
       new Set([target.detailId]),
     )).toBeNull();
+  });
+
+  it("keeps 320 ordinary ships and adds only the selected transient outsider", () => {
+    const world = overCapacityWorldFixture();
+    const ordinary = selectGardenObservatorySlice(world, null);
+    const outsider = world.ships.find((ship) => (
+      !ordinary.representativeDetailIds.has(ship.detailId)
+    ));
+
+    expect(ordinary.ships).toHaveLength(GARDEN_OVERVIEW_SHIP_LIMIT);
+    expect(outsider).toBeDefined();
+    expect(ordinary.ships.some(({ ship }) => ship.detailId === outsider!.detailId)).toBe(false);
+
+    const selected = selectGardenObservatorySlice(world, outsider!.detailId);
+    expect(selected.ships).toHaveLength(GARDEN_OVERVIEW_SHIP_LIMIT + 1);
+    expect(selected.transientSelectedDetailId).toBe(outsider!.detailId);
+    expect(selected.ships.at(-1)).toMatchObject({
+      displayOffset: { x: 0, y: 0 },
+      representative: false,
+      ship: { detailId: outsider!.detailId },
+    });
+
+    const cleared = selectGardenObservatorySlice(world, null);
+    expect(cleared.ships).toHaveLength(GARDEN_OVERVIEW_SHIP_LIMIT);
+    expect(cleared.transientSelectedDetailId).toBeNull();
   });
 
   it("keeps representative offsets stable and materializes transients at their samples", () => {

@@ -36,19 +36,32 @@ export function defaultCamera(input: {
     ...input,
     padding: cameraPadding(),
   });
-  // Tighten factor: 1.08 (was 1.13 when the Pharos tower topped out at 30
-  // world units). The crown grew to a 34-unit statue tip with a flame halo
-  // around y≈33; at the 1440×960 default viewport the old factor put the tip
-  // ~2 px above the frame top. One world unit of height projects to
-  // TILE_HEIGHT × (√3/2) × zoom screen px, so 0.72 × 1.08 = 0.7776 zoom
-  // leaves ~1.6 world units of headroom above the statue tip while keeping
-  // the harbor composition at ~96% of the previous zoom.
+  // Standard desktops tighten the authored fit by 8%. At the 720px short-side
+  // floor the extra zoom clipped the lighthouse crown, so the exact 900×720
+  // boundary keeps the actual fit. Extra room on either side restores the
+  // standard composition monotonically.
+  const shortSideProgress = Math.max(
+    0,
+    Math.min(1, (Math.min(input.width, input.height) - 720) / 280),
+  );
+  const longSideProgress = Math.max(
+    0,
+    Math.min(1, (Math.max(input.width, input.height) - 900) / 100),
+  );
+  const compositionProgress = Math.max(shortSideProgress, longSideProgress);
+  const tightenFactor = 1 + compositionProgress * 0.08;
   const tightened = zoomCameraAt(
     fitted,
     { x: input.width * 0.54, y: input.height * 0.5 },
-    fitted.zoom * 1.08,
+    fitted.zoom * tightenFactor,
   );
-  return clampCameraToMap(tightened, {
+  const framed = {
+    ...tightened,
+    // The lighthouse rises beyond the flat map bounds used by fitCameraToMap.
+    // Give that vertical geometry explicit headroom at the short-side floor.
+    offsetY: tightened.offsetY + (1 - shortSideProgress) * 32,
+  };
+  return clampCameraToMap(framed, {
     map: input.map,
     viewport: { x: input.width, y: input.height },
   });

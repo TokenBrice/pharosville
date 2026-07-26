@@ -27,6 +27,10 @@ export interface PharosVilleRenderMetrics {
   activeLaneCount?: number;
   bucketFlipCount?: number;
   composerEnabled?: boolean;
+  /** Number of baked Three.js content roots created in this renderer session. */
+  contentReplacementCount?: number;
+  /** Per-content-family hashes used to attribute refresh-driven replacements. */
+  contentSignaturePartHashes?: Readonly<Record<string, string>>;
   /** W1 evidence: draw calls the instanced fleet contributes, whatever its size. */
   fleetDrawCallCount?: number;
   objectCount: number;

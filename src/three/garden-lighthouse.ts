@@ -86,7 +86,6 @@ interface LighthouseModelTarget {
   lighthouseLight: PointLight;
   lighthouseRoot: Group;
   lighthouseShell: Group;
-  rayFan?: Mesh<BufferGeometry, ShaderMaterial> | null;
   statueGleamMaterials?: MeshStandardMaterial[];
   summitBirdsRoot?: Object3D | null;
 }
@@ -120,7 +119,6 @@ export function attachGardenLighthouseModel(
   content.beam.position.copy(beamPosition);
   content.beaconFireRoot?.position.copy(beaconPosition);
   content.summitBirdsRoot?.position.copy(beaconPosition);
-  if (content.rayFan) content.rayFan.position.copy(beamPosition);
   prepareLighthouseModelMaterials(model, content.statueGleamMaterials);
 }
 
@@ -291,7 +289,6 @@ export function createLighthouse(): {
   beaconHalo: Mesh<SphereGeometry, MeshBasicMaterial>;
   beam: Group;
   light: PointLight;
-  rayFan: Mesh<BufferGeometry, ShaderMaterial>;
   root: Group;
   shell: Group;
 } {
@@ -631,7 +628,7 @@ export function createLighthouse(): {
   root.add(beacon);
 
   const halo = new Mesh(
-    new SphereGeometry(1.7, 16, 10),
+    new SphereGeometry(1.15, 16, 10),
     new MeshBasicMaterial({
       blending: AdditiveBlending,
       color: HARBOR_PALETTE.lantern_glow,
@@ -655,16 +652,15 @@ export function createLighthouse(): {
 
   const beam = new Group();
   beam.position.copy(beacon.position);
-  beam.add(createBeamCone(), createBeamOuterCone(), createBeamDust(), createBeamPlane());
+  // One authored beam at a time: the cone is the normal volumetric cue, dust
+  // is a restrained full-tier accent, and the plane is the low-tier fallback.
+  // The former outer cone and radial ray fan layered several translucent
+  // versions of the same signal and produced the large pale wedges that read
+  // as corrupt geometry across the harbor.
+  beam.add(createBeamCone(), createBeamDust(), createBeamPlane());
   root.add(beam);
 
-  // The poster ray fan is NOT part of the beam group: it rotates at its own
-  // slower rate (0.07 rad/s vs the beam's 0.2) for parallax.
-  const rayFan = createBeamRayFan();
-  rayFan.position.copy(beacon.position);
-  root.add(rayFan);
-
-  return { beacon, beaconHalo: halo, beam, light, rayFan, root, shell };
+  return { beacon, beaconHalo: halo, beam, light, root, shell };
 }
 
 /**
@@ -780,11 +776,10 @@ function createKeeperShoreProps(): Group {
 
 // The beam sweeps horizontally along the group's +X (apex at the beacon), so
 // the far end fades out roughly BEAM_LENGTH world units over the dark sea.
-// L5: 44 → 58 alongside the tower's growth (now the 34-unit Pharos) so the
-// sweep still crosses a meaningful arc of sea; the water beam-lane fade lives
-// in garden-water.ts (Lane W).
-const BEAM_LENGTH = 58;
-const BEAM_BASE_RADIUS = 5.2;
+// The beam crosses a meaningful arc of sea without becoming a screen-wide
+// wedge in legal ultrawide framing; the water reflection lane is separate.
+const BEAM_LENGTH = 48;
+const BEAM_BASE_RADIUS = 2.4;
 const BEAM_DUST_COUNT = 40;
 // C1 palette-derived: warm lantern gold lifted toward foam white.
 const BEAM_COLOR = palette(P.lantern_glow).lerp(palette(P.foam_white), 0.22);
@@ -849,125 +844,6 @@ function createBeamCone(): Mesh<ConeGeometry, ShaderMaterial> {
   return cone;
 }
 
-/**
- * W5 nested cone: one wider, fainter shell around the volumetric beam — a
- * soft fresnel skirt (no banding, lower alpha) that gives the shaft volume
- * against the night sea. Same length/axis as the inner cone so it inherits
- * the beam group's rotation; full tier only (world-renderer gates it).
- * BEAM_LENGTH stays 58 — the water beam-lane fade (garden-water.ts, Lane W)
- * is tuned to it and must not drift.
- */
-function createBeamOuterCone(): Mesh<ConeGeometry, ShaderMaterial> {
-  const geometry = new ConeGeometry(BEAM_BASE_RADIUS * 1.45, BEAM_LENGTH, 28, 1, true);
-  geometry.translate(0, -BEAM_LENGTH / 2, 0);
-  geometry.rotateZ(Math.PI / 2);
-  const material = new ShaderMaterial({
-    blending: AdditiveBlending,
-    depthWrite: false,
-    fragmentShader: /* glsl */ `
-      uniform vec3 uColor;
-      uniform float uOpacity;
-      varying float vAlong;
-      varying vec3 vNormalView;
-
-      void main() {
-        float fade = smoothstep(0.02, 0.14, vAlong)
-          * (1.0 - smoothstep(0.35, 0.98, vAlong));
-        // Pure fresnel skirt: only the grazing silhouette carries light.
-        float rim = pow(1.0 - abs(vNormalView.z), 1.6);
-        gl_FragColor = vec4(uColor, uOpacity * fade * rim);
-      }
-    `,
-    side: DoubleSide,
-    toneMapped: false,
-    transparent: true,
-    uniforms: {
-      uColor: { value: BEAM_COLOR.clone() },
-      uLength: { value: BEAM_LENGTH },
-      uOpacity: { value: 0 },
-      uTime: { value: 0 },
-    },
-    vertexShader: /* glsl */ `
-      uniform float uLength;
-      varying float vAlong;
-      varying vec3 vNormalView;
-
-      void main() {
-        vAlong = position.x / uLength;
-        vNormalView = normalize(normalMatrix * normal);
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-  });
-  const cone = new Mesh(geometry, material);
-  cone.name = "lighthouse-beam-outer-cone";
-  cone.visible = false;
-  return cone;
-}
-
-const RAY_FAN_COUNT = 10;
-// Shorter than the 58-unit beam on purpose: the fan is a close-in parallax
-// layer, not a second sweep, so the water lane fade constants stay untouched.
-const RAY_FAN_LENGTH = 26;
-
-/**
- * W5 ray fan (D4 — the vintage travel-poster sunburst; poster-art license,
- * not a claim of ancient optics): ten thin triangles radiating flat from the
- * brazier, additive with vertex-alpha feathered tips. One merged geometry,
- * one draw call. The mesh rotates at 0.07 rad/s against the beam's 0.2 so the
- * two layers slide past each other; the day-cycle keeps it dusk/night only.
- */
-function createBeamRayFan(): Mesh<BufferGeometry, ShaderMaterial> {
-  const positions: number[] = [];
-  const alphas: number[] = [];
-  for (let index = 0; index < RAY_FAN_COUNT; index += 1) {
-    const angle = (index / RAY_FAN_COUNT) * Math.PI * 2;
-    const spread = 0.055;
-    positions.push(
-      Math.cos(angle) * 1.2, 0, Math.sin(angle) * 1.2,
-      Math.cos(angle - spread) * RAY_FAN_LENGTH, 0, Math.sin(angle - spread) * RAY_FAN_LENGTH,
-      Math.cos(angle + spread) * RAY_FAN_LENGTH, 0, Math.sin(angle + spread) * RAY_FAN_LENGTH,
-    );
-    // Bright at the brazier, feathered to nothing at the tip.
-    alphas.push(0.5, 0, 0);
-  }
-  const geometry = new BufferGeometry();
-  geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
-  geometry.setAttribute("aAlpha", new Float32BufferAttribute(alphas, 1));
-  const material = new ShaderMaterial({
-    blending: AdditiveBlending,
-    depthWrite: false,
-    fragmentShader: /* glsl */ `
-      uniform vec3 uColor;
-      uniform float uOpacity;
-      varying float vAlpha;
-
-      void main() {
-        gl_FragColor = vec4(uColor, uOpacity * vAlpha);
-      }
-    `,
-    side: DoubleSide,
-    toneMapped: false,
-    transparent: true,
-    uniforms: {
-      uColor: { value: BEAM_COLOR.clone() },
-      uOpacity: { value: 0 },
-    },
-    vertexShader: /* glsl */ `
-      attribute float aAlpha;
-      varying float vAlpha;
-
-      void main() {
-        vAlpha = aAlpha;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-  });
-  const fan = new Mesh(geometry, material);
-  fan.name = "lighthouse-ray-fan";
-  return fan;
-}
-
 /** Faint motes suspended in the cone (full tier, motion only). */
 function createBeamDust(): Points<BufferGeometry, ShaderMaterial> {
   const positions: number[] = [];
@@ -1028,9 +904,9 @@ function createBeamDust(): Points<BufferGeometry, ShaderMaterial> {
 
 /** Recovery/constrained fallback: the original flat additive beam plane. */
 function createBeamPlane(): Mesh<PlaneGeometry, ShaderMaterial> {
-  const geometry = new PlaneGeometry(60, 13);
+  const geometry = new PlaneGeometry(BEAM_LENGTH, 8);
   geometry.rotateX(-Math.PI / 2);
-  geometry.translate(30, 0, 0);
+  geometry.translate(BEAM_LENGTH / 2, 0, 0);
   const material = new ShaderMaterial({
     blending: AdditiveBlending,
     depthWrite: false,

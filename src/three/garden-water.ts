@@ -58,7 +58,7 @@ const TILE_SCALE_UNITS = Math.SQRT2;
  * properly. Character (swell, chop, foam, reflectivity) still carries most of
  * the signal; this is the supporting colour.
  */
-const REGION_TINT_STRENGTH = 0.34;
+const REGION_TINT_STRENGTH = 0.2;
 
 /**
  * Bakes the terrain-derived sea-region field into GPU textures.
@@ -405,11 +405,9 @@ const FRAGMENT_SHADER = /* glsl */ `
     float fresnelTerm,
     float camDist
   ) {
-    // Deeper and cooler than the deepest in-map band, so the eye reads a shelf
-    // dropping away. This can carry real weight now that it is crossfaded;
-    // as a hard boundary it had to stay near-invisible, which is why the open
-    // sea used to read as flat nothing.
-    vec3 color = mix(uBandColor[3], uDeepColor, 0.55) * (0.90 + tonalCurrent * 0.05);
+    // Slightly deeper than the in-map band, but close enough that the wide
+    // camera reads one continuous sea instead of a detailed rectangular slab.
+    vec3 color = mix(uBandColor[3], uDeepColor, 0.30) * (0.94 + tonalCurrent * 0.04);
     color *= (0.95 + facet * 0.1) * mix(1.0, cloudLight, 0.9);
     color = mix(
       color,
@@ -550,10 +548,11 @@ const FRAGMENT_SHADER = /* glsl */ `
     float isletShelf = (1.0 - smoothstep(0.5, 1.25, cemDist))
       + (1.0 - smoothstep(0.5, 1.25, pigDist));
 
-    // --- W1: banded depth color ---------------------------------------------
+    // --- W1: restrained depth color -----------------------------------------
     // Depth comes from the shore SDF plus authored bathymetry: two shallow
     // aprons off the island and one deep basin in the open water, then the
-    // shallow→deep ramp is posterized into flat ukiyo-e bands.
+    // shallow→deep ramp stays in a limited ukiyo-e palette, with softened
+    // transitions so the bathymetry reads as depth rather than polygon cards.
     //
     // L4: the shore ramp is scaled to 0.72 rather than saturating at 1.
     //
@@ -590,11 +589,22 @@ const FRAGMENT_SHADER = /* glsl */ `
     depth = clamp(depth + basin * 0.22, 0.0, 1.0);
     depth *= 1.0 - max(shelfA, shelfB) * 0.42;
     depth *= 1.0 - clamp(isletShelf, 0.0, 1.0) * 0.5;
-    float bandIndex = floor(clamp(depth, 0.0, 0.9999) * 4.0);
-    vec3 waterColor = bandIndex < 0.5 ? uBandColor[0]
-      : bandIndex < 1.5 ? uBandColor[1]
-      : bandIndex < 2.5 ? uBandColor[2]
-      : uBandColor[3];
+    float bandPosition = clamp(depth, 0.0, 1.0) * 3.0;
+    vec3 waterColor = mix(
+      uBandColor[0],
+      uBandColor[1],
+      smoothstep(0.05, 0.95, bandPosition)
+    );
+    waterColor = mix(
+      waterColor,
+      uBandColor[2],
+      smoothstep(1.05, 1.95, bandPosition)
+    );
+    waterColor = mix(
+      waterColor,
+      uBandColor[3],
+      smoothstep(2.05, 2.95, bandPosition)
+    );
     float tonalCurrent = 0.5 + 0.5 * sin(
       dot(vWaterPosition, vec2(0.046, -0.058)) + uTime * 0.027
     );
@@ -656,7 +666,7 @@ const FRAGMENT_SHADER = /* glsl */ `
 
     // --- B4: island + islet shore foam (V2 lapping kept, W5 rings stay outside)
     // Gentler peak too: the shelf is a depth cue, not a highlight.
-    waterColor = mix(waterColor, uShallowColor, shallowShelf * (0.26 - uNight * 0.07));
+    waterColor = mix(waterColor, uShallowColor, shallowShelf * (0.18 - uNight * 0.05));
 
     float foamMotion = uTime * 0.55;
     float bandA = sin(shoreDistance * 20.0 - foamMotion);
@@ -673,15 +683,15 @@ const FRAGMENT_SHADER = /* glsl */ `
     // Foam stays a crisp waterline accent: broad foam sheets cross the bloom
     // knee at day, so the lapping bands are dimmer than the shore edge and the
     // mix clamps well below the bloom threshold.
-    float shoreFoam = (shoreEdge + lapFoam * 0.6) * (0.16 + uDetail * 0.22) * (0.7 + uDaylight * 0.3);
-    waterColor = mix(waterColor, uHighlightColor, clamp(shoreFoam, 0.0, 0.34));
+    float shoreFoam = (shoreEdge + lapFoam * 0.5) * (0.12 + uDetail * 0.16) * (0.7 + uDaylight * 0.3);
+    waterColor = mix(waterColor, uHighlightColor, clamp(shoreFoam, 0.0, 0.24));
 
-    waterColor = mix(waterColor, uShallowColor, clamp(isletShelf, 0.0, 1.0) * (0.3 - uNight * 0.08));
+    waterColor = mix(waterColor, uShallowColor, clamp(isletShelf, 0.0, 1.0) * (0.22 - uNight * 0.06));
     float isletFoam = (
       smoothstep(0.86, 0.98, cemDist) * (1.0 - smoothstep(0.98, 1.12, cemDist))
       + smoothstep(0.86, 0.98, pigDist) * (1.0 - smoothstep(0.98, 1.12, pigDist))
     ) * (0.55 + 0.45 * sin(shoreAngle * 9.0 - foamMotion));
-    waterColor = mix(waterColor, uHighlightColor, clamp(isletFoam, 0.0, 0.35) * (0.3 + uDetail * 0.3));
+    waterColor = mix(waterColor, uHighlightColor, clamp(isletFoam, 0.0, 0.24) * (0.22 + uDetail * 0.24));
 
     // Region reflectivity, hoisted so the mirror column below can ask how
     // mirror-like this stretch of water is.
@@ -745,9 +755,7 @@ const FRAGMENT_SHADER = /* glsl */ `
       vec3 regionColor = regionTint * clamp(waterLuma * 1.6 / tintLuma, 0.35, 1.15);
 
       // Soften the join so two regions meet like currents, not like a decal.
-      // The ramp is wide on purpose: a narrow one leaves the terrain field's
-      // geometric edges reading as ruler lines.
-      float blend = smoothstep(0.0, 0.72, boundaryDistance);
+      float blend = smoothstep(0.0, 0.84, boundaryDistance);
       waterColor = mix(waterColor, regionColor, regionStrength * blend);
       waterColor *= mix(1.0, regionDepth, blend);
 
@@ -762,24 +770,21 @@ const FRAGMENT_SHADER = /* glsl */ `
       // bodies of water meet: this is what makes a region read as having an
       // edge rather than being a gradient.
       //
-      // S1: two terms, not one. The narrow bright line is the tide line where
-      // the currents shear; the wider dark term behind it is the shadow under
-      // that shear. A single bright line at low weight was invisible at
-      // whole-map framing, which is most of why the regions read as a gradient
-      // field rather than as separate bodies of water.
-      float seam = (1.0 - smoothstep(0.0, 0.14, boundaryDistance)) * edgeFade;
-      float seamShadow = (1.0 - smoothstep(0.06, 0.34, boundaryDistance)) * edgeFade;
+      // One restrained slick plus a shallow shadow is enough to locate the
+      // terrain edge. Stronger weights turned every body into a chalk polygon.
+      float seam = (1.0 - smoothstep(0.0, 0.11, boundaryDistance)) * edgeFade;
+      float seamShadow = (1.0 - smoothstep(0.05, 0.24, boundaryDistance)) * edgeFade;
       float seamWave = 0.55 + 0.45 * sin(
         dot(vWaterPosition, vec2(0.31, 0.24)) - uTime * 0.35 * (0.6 + uTempo)
       );
-      waterColor *= 1.0 - seamShadow * 0.12 * uDetail;
+      waterColor *= 1.0 - seamShadow * 0.025 * uDetail;
       // Not pure foam white: a tide line is a slick, so the highlight is
       // pulled back toward the water it sits on. At full strength the seams
       // read as chalk streaks marbling the whole sea.
       waterColor = mix(
         waterColor,
         mix(uHighlightColor, waterColor, 0.42),
-        seam * seamWave * 0.34 * uDetail
+        seam * seamWave * 0.08 * uDetail
       );
 
       // Whitecaps scale with the band. Danger water is streaked; calm is bare.
@@ -810,7 +815,7 @@ const FRAGMENT_SHADER = /* glsl */ `
         waterColor = mix(
           waterColor,
           uHighlightColor,
-          clamp(caps * regionFoam * blend, 0.0, 0.15) * uDetail
+          clamp(caps * regionFoam * blend, 0.0, 0.1) * uDetail
         );
       }
     }
@@ -1027,13 +1032,15 @@ const FRAGMENT_SHADER = /* glsl */ `
         if (distSq > 900.0) continue;
         vec4 body = texture2D(uLaneTexture, vec2(u, 0.75));
         float intensity = head.z;
-        float pool = exp(-distSq / 42.0);
+        // Keep each reflection attached to its lamp. A broad Gaussian made
+        // neighboring full-tier lanes merge into large fog-like discs.
+        float pool = exp(-distSq / 24.0);
         float along = dot(d, streakDir) + tremble;
         float across = dot(d, streakPerp) + tremble * 0.4;
         float streak = exp(-(across * across) / 3.0)
           * exp(-max(0.0, along) * max(0.0, along) / 120.0)
-          * step(-2.0, along);
-        laneAccum += body.rgb * intensity * (pool * 0.9 + streak * 0.6);
+          * aaStep(-2.0, along);
+        laneAccum += body.rgb * intensity * (pool * 0.55 + streak * 0.4);
       }
       waterColor += clamp(laneAccum, 0.0, 2.2);
     }

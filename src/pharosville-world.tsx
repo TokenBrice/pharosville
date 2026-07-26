@@ -1,10 +1,4 @@
 "use client";
-// react-hooks/refs flags JSX `ref={...}` prop bindings and event-handler
-// bindings as "ref access during render", which is a false positive for
-// React's intended ref-binding pattern. Disable the rule file-wide; the
-// genuine ref discipline (no .current reads in render) is enforced by the
-// rules-of-hooks rule and PR review (see HOOKS.md F1 history).
-/* eslint-disable react-hooks/refs */
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { AccessibilityLedger, type ShipRiskTransitionEntry } from "./components/accessibility-ledger";
@@ -328,6 +322,18 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     shipMotionSamplesRef,
     world,
   });
+  // Destructure the hook's stable JSX bindings once. Besides keeping the
+  // canvas markup readable, this lets the refs rule distinguish those bindings
+  // from real `.current` reads and remain enforced across the whole file.
+  const {
+    canvasRef: canvasElementRef,
+    handlePointerCancel: handleCanvasPointerCancel,
+    handlePointerDown: handleCanvasPointerDown,
+    handlePointerLeave: handleCanvasPointerLeave,
+    handlePointerMove: handleCanvasPointerMove,
+    handlePointerUp: handleCanvasPointerUp,
+    handleResetView: handleCanvasResetView,
+  } = canvas;
 
   const restoredUrlCameraRef = useRef(false);
   const canvasWidth = canvas.canvasSize.x;
@@ -763,18 +769,18 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         panels.
       </p>
       <canvas
-        ref={canvas.canvasRef}
+        ref={canvasElementRef}
         className={hoveredDetailId ? "pharosville-canvas pharosville-canvas--selectable" : "pharosville-canvas"}
         data-testid="pharosville-canvas"
         data-renderer="three"
         data-renderer-status={rendererStatus}
         aria-hidden="true"
         hidden={rendererFailed}
-        onPointerCancel={canvas.handlePointerCancel}
-        onPointerDown={canvas.handlePointerDown}
-        onPointerLeave={canvas.handlePointerLeave}
-        onPointerMove={canvas.handlePointerMove}
-        onPointerUp={canvas.handlePointerUp}
+        onPointerCancel={handleCanvasPointerCancel}
+        onPointerDown={handleCanvasPointerDown}
+        onPointerLeave={handleCanvasPointerLeave}
+        onPointerMove={handleCanvasPointerMove}
+        onPointerUp={handleCanvasPointerUp}
       />
       {rendererFailed && (
         <WorldStaticOverview world={world} onSelectDetail={handleSelectStaticDetail} />
@@ -840,7 +846,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       {!rendererFailed && (
         <div className="pharosville-world-chrome" ref={chromeRef} data-recent-input="false">
           <WorldControls
-            onResetView={canvas.handleResetView}
+            onResetView={handleCanvasResetView}
             nightMode={timeControls.nightMode}
             onToggleNightMode={timeControls.toggleNightMode}
             {...(threeExperienceReady ? {
@@ -877,17 +883,25 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         </Suspense>
       )}
       <p className="pharosville-footer">
-        <span className="pharosville-footer__mark">PharosVille {PHAROSVILLE_LATEST_VERSION}</span>
-        <span className="pharosville-footer__separator" aria-hidden="true">·</span>
-        <button className="pharosville-footer__button" type="button" onClick={openLegendExclusive}>Legend</button>
-        <span className="pharosville-footer__separator" aria-hidden="true">·</span>
-        <button className="pharosville-footer__button" type="button" onClick={openChangelogExclusive}>Changelog</button>
-        <span className="pharosville-footer__separator" aria-hidden="true">·</span>
-        <button className="pharosville-footer__button" type="button" onClick={openHarborLedgerExclusive}>Harbor ledger</button>
-        <span className="pharosville-footer__separator" aria-hidden="true">·</span>
-        <span className="pharosville-footer__counter" data-testid="pharosville-ship-counter">{shipCounterLabel}</span>
-        <span className="pharosville-footer__separator" aria-hidden="true">·</span>
-        <span className="pharosville-footer__fps" data-testid="pharosville-fps-counter" aria-label={`Frame rate: ${frameRateLabel}`}>{frameRateLabel}</span>
+        <span className="pharosville-footer__primary">
+          <span className="pharosville-footer__brand">
+            <span className="pharosville-footer__mark">PharosVille {PHAROSVILLE_LATEST_VERSION}</span>
+            <span className="pharosville-footer__separator" aria-hidden="true">·</span>
+          </span>
+          <button className="pharosville-footer__button" type="button" onClick={openLegendExclusive}>Legend</button>
+          <span className="pharosville-footer__separator" aria-hidden="true">·</span>
+          <button className="pharosville-footer__button" type="button" onClick={openChangelogExclusive}>Changelog</button>
+          <span className="pharosville-footer__separator" aria-hidden="true">·</span>
+          <button className="pharosville-footer__button" type="button" onClick={openHarborLedgerExclusive}>Harbor ledger</button>
+        </span>
+        <span className="pharosville-footer__telemetry">
+          <span className="pharosville-footer__separator" aria-hidden="true">·</span>
+          <span className="pharosville-footer__counter" data-testid="pharosville-ship-counter">{shipCounterLabel}</span>
+          <span className="pharosville-footer__frame-rate">
+            <span className="pharosville-footer__separator" aria-hidden="true">·</span>
+            <span className="pharosville-footer__fps" data-testid="pharosville-fps-counter" aria-label={`Frame rate: ${frameRateLabel}`}>{frameRateLabel}</span>
+          </span>
+        </span>
       </p>
       <HarborLog
         entries={harborLog.entries}

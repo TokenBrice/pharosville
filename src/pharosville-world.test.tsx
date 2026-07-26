@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PharosVilleLoading, PharosVilleWorld } from "./pharosville-world";
+import { overCapacityWorldFixture } from "./__fixtures__/over-capacity-world";
 import { PHAROSVILLE_LATEST_VERSION } from "./content/pharosville-version";
 import type { HitTarget } from "./renderer/hit-testing";
 import {
@@ -197,6 +198,12 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     // among the charted chains, not ships moored at this instant.
     expect(screen.getByTestId("pharosville-ship-counter").textContent).toBe("1 of 1 hold a berth");
     const footer = container.querySelector(".pharosville-footer");
+    expect(footer?.querySelector(".pharosville-footer__primary")).toBeTruthy();
+    expect(footer?.querySelector(".pharosville-footer__telemetry")).toBeTruthy();
+    expect(
+      footer?.querySelector(".pharosville-footer__frame-rate")
+        ?.contains(screen.getByTestId("pharosville-fps-counter")),
+    ).toBe(true);
     // Separator spacing is CSS margin, so the DOM text runs them together.
     // Derived, not a literal: a version bump is a release chore, not a reason
     // for this test to fail.
@@ -346,6 +353,33 @@ describe("PharosVilleWorld UI accessibility controls", () => {
       expect(screen.getByTestId("pharosville-detail-panel").textContent).toContain("USDC");
     });
     expect(screen.queryByTestId("pharosville-selection-strip")).toBeNull();
+  });
+
+  it("opens the DOM detail record for a selected transient outsider beyond capacity", async () => {
+    const world = overCapacityWorldFixture();
+    const ordinary = selectGardenObservatorySlice(world, null);
+    const outsider = world.ships.find((ship) => (
+      !ordinary.representativeDetailIds.has(ship.detailId)
+    ));
+    expect(outsider).toBeDefined();
+    mocks.targets.splice(0, mocks.targets.length, {
+      detailId: outsider!.detailId,
+      id: outsider!.id,
+      kind: "ship",
+      label: outsider!.label,
+      priority: 30,
+      rect: { height: 40, width: 40, x: 100, y: 100 },
+    });
+
+    render(<PharosVilleWorld world={world} />);
+    const shell = screen.getByTestId("pharosville-world");
+    fireEvent.keyDown(shell, { key: "Tab" });
+    fireEvent.keyDown(shell, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pharosville-detail-panel").textContent)
+        .toContain(outsider!.label);
+    });
   });
 
   it("selects an in-world detail from a detail-panel callback", async () => {

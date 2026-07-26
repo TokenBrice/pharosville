@@ -30,34 +30,38 @@ describe("canViewportShowMap", () => {
     // width, more height, and the map disappeared. `(orientation: portrait)` is
     // a viewport aspect test — 1250x1250 reports portrait — so growing the
     // window past square blocked it.
-    expect(canViewportShowMap(1250, 547)).toBe(true);
+    expect(canViewportShowMap(1250, MIN_SHORT_SIDE_PX)).toBe(true);
     expect(canViewportShowMap(1250, 1250)).toBe(true);
     expect(canViewportShowMap(1250, 4000)).toBe(true);
   });
 
-  it("still tells a portrait phone to rotate, and lets it in once it has", () => {
+  it("rejects phones in either orientation because neither has chartable dimensions", () => {
     expect(canViewportShowMap(390, 844)).toBe(false);
-    expect(canViewportShowMap(844, 390)).toBe(true);
+    expect(canViewportShowMap(844, 390)).toBe(false);
   });
 
-  it("admits a tablet held upright once it is wide enough to chart", () => {
+  it("admits tall and ultrawide viewports once both sorted dimensions pass", () => {
     // A deliberate contract change: "capable screen in portrait" used to be
-    // blocked outright. 720px of width is 720px of width whichever axis is
-    // longer.
+    // blocked outright. A tall viewport remains valid because these are direct
+    // size tests, not an orientation or aspect-ratio test.
+    expect(canViewportShowMap(MIN_SHORT_SIDE_PX, 1000)).toBe(true);
+    expect(canViewportShowMap(2560, MIN_SHORT_SIDE_PX)).toBe(true);
     expect(canViewportShowMap(820, 1180)).toBe(true);
     expect(canViewportShowMap(600, 960)).toBe(false);
   });
 
-  it("blocks a window too short to hold the composition", () => {
-    expect(canViewportShowMap(1600, MIN_SHORT_SIDE_PX - 1)).toBe(false);
-    expect(canViewportShowMap(1600, MIN_SHORT_SIDE_PX)).toBe(true);
+  it("blocks below the measured floor and admits the first passing size", () => {
+    expect(canViewportShowMap(MIN_SHORT_SIDE_PX - 1, MIN_LONG_SIDE_PX)).toBe(false);
+    expect(canViewportShowMap(MIN_SHORT_SIDE_PX, MIN_LONG_SIDE_PX - 1)).toBe(false);
+    expect(canViewportShowMap(MIN_SHORT_SIDE_PX, MIN_LONG_SIDE_PX)).toBe(true);
+    expect(canViewportShowMap(MIN_LONG_SIDE_PX, MIN_SHORT_SIDE_PX)).toBe(true);
   });
 
-  it("treats width as the binding constraint, not the longer side", () => {
-    // The distinction from `isWidescreenViewport`: a viewport that would pass
-    // the device check by being tall must still fail on width.
-    expect(isWidescreenViewport(400, 900)).toBe(true);
+  it("uses the same orientation-free size predicate as the physical screen", () => {
+    expect(isWidescreenViewport(719, 900)).toBe(false);
     expect(canViewportShowMap(400, 900)).toBe(false);
+    expect(canViewportShowMap(720, 1000)).toBe(isWidescreenViewport(720, 1000));
+    expect(canViewportShowMap(1000, 720)).toBe(isWidescreenViewport(1000, 720));
   });
 
   it("rejects missing dimensions", () => {

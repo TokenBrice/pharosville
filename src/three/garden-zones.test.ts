@@ -33,8 +33,8 @@ describe("createZone", () => {
     expect(zone.root.children).toHaveLength(0);
     expect(zone.root.scale.x).toBeGreaterThan(zone.root.scale.z);
     expect(zone.tint.radiusX).toBeGreaterThan(zone.tint.radiusZ);
-    expect(zone.buoys.length).toBeGreaterThanOrEqual(5);
-    expect(zone.buoys.length).toBeLessThanOrEqual(24);
+    expect(zone.buoys.length).toBeGreaterThanOrEqual(3);
+    expect(zone.buoys.length).toBeLessThanOrEqual(8);
     // W2.8: buoys mark the REAL region boundary now. They used to ride an
     // ellipse that had nothing to do with where the region actually was.
     for (const buoy of zone.buoys) {
@@ -96,12 +96,12 @@ describe("createZone", () => {
     expect(radiusOf("WARNING", 1)).toBeGreaterThan(radiusOf("DANGER", 11));
   });
 
-  it("scales marker buoys with circumference so the huge rings stay branded", () => {
+  it("uses a sparse landmark-buoy budget that still follows circumference", () => {
     const watch = createZone(area("WATCH"));
     const danger = createZone(area("DANGER"));
     expect(watch.buoys.length).toBeGreaterThan(danger.buoys.length);
-    expect(danger.buoys.length).toBeGreaterThanOrEqual(5);
-    expect(watch.buoys.length).toBeLessThanOrEqual(24);
+    expect(danger.buoys.length).toBeGreaterThanOrEqual(3);
+    expect(watch.buoys.length).toBeLessThanOrEqual(8);
   });
 
   it("harmonizes band colors into the garden palette but leaves ledger ink alone", () => {
@@ -216,30 +216,51 @@ describe("createZoneField", () => {
     updateZoneBuoys(field, 2.4, true, "full");
     expect(readY()).toBe(0);
   });
+
+  it("isolates analyze-mode buoys to the focused risk area", () => {
+    const watch = createZone(area("WATCH"));
+    const danger = createZone(area("DANGER"));
+    const field = createZoneField([watch, danger]);
+    updateZoneBuoys(field, 0, true, "full", watch.area.detailId);
+
+    const matrix = new Matrix4();
+    const hasScale = () => [0, 1, 2, 4, 5, 6, 8, 9, 10]
+      .some((offset) => Math.abs(matrix.elements[offset]!) > 1e-8);
+    const visibleByArea = field.buoyAreaDetailIds.map((detailId, index) => {
+      field.buoyBodies.getMatrixAt(index, matrix);
+      return { detailId, visible: hasScale() };
+    });
+    expect(visibleByArea.filter(({ visible }) => visible).every(
+      ({ detailId }) => detailId === watch.area.detailId,
+    ), JSON.stringify(visibleByArea)).toBe(true);
+    expect(visibleByArea.some(
+      ({ detailId, visible }) => detailId === danger.area.detailId && !visible,
+    )).toBe(true);
+
+    updateZoneBuoys(field, 0, true, "full", null);
+    expect(field.visibleAreaDetailId).toBeNull();
+    for (let index = 0; index < field.buoyBodies.count; index += 1) {
+      field.buoyBodies.getMatrixAt(index, matrix);
+      expect(hasScale()).toBe(true);
+    }
+  });
 });
 
 describe("danger squall", () => {
-  it("confines denser rain to the zone ellipse and adds a soft flicker quad", () => {
+  it("confines denser rain to the zone ellipse without a full-zone flash plane", () => {
     const weather = createDangerWeather(area("DANGER"));
     const rainPoints = weather.streaks.geometry.getAttribute("position").count;
     expect(rainPoints).toBe(56 * 2);
-    expect(weather.flicker.material.opacity).toBe(0);
+    expect(weather.root.getObjectByName("danger-flicker")).toBeUndefined();
   });
 
-  it("ramps the flicker only at full tier and never under reduced motion", () => {
+  it("moves rain gently and freezes it under reduced motion", () => {
     const weather = createDangerWeather(area("DANGER"));
-    // Sweep a full flicker period; a full-tier motion pass must light it at least once.
-    let peak = 0;
-    for (let t = 0; t < weather.flickerPeriod; t += 0.05) {
-      updateDangerWeather(weather, t, false, true);
-      peak = Math.max(peak, weather.flicker.material.opacity);
-    }
-    expect(peak).toBeGreaterThan(0);
-    expect(peak).toBeLessThanOrEqual(0.16);
-
+    updateDangerWeather(weather, 1, false, true);
+    const movingY = weather.streaks.position.y;
+    updateDangerWeather(weather, 2, false, true);
+    expect(weather.streaks.position.y).not.toBe(movingY);
     updateDangerWeather(weather, 3, true, true);
-    expect(weather.flicker.material.opacity).toBe(0);
-    updateDangerWeather(weather, 3, false, false);
-    expect(weather.flicker.material.opacity).toBe(0);
+    expect(weather.streaks.position.y).toBe(0);
   });
 });

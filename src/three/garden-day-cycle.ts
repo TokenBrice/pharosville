@@ -1,6 +1,5 @@
 import {
   AmbientLight,
-  BufferGeometry,
   CircleGeometry,
   Color,
   DirectionalLight,
@@ -164,7 +163,6 @@ interface DayCycleContent {
   fleetSailMaterial: MeshStandardMaterial | null;
   harborLanternMaterial: MeshStandardMaterial;
   lighthouseLight: PointLight;
-  rayFan: Mesh<BufferGeometry, ShaderMaterial> | null;
   shipLanternGlowMaterial: MeshBasicMaterial;
   shipLanternMaterial: MeshStandardMaterial;
   shipShadows: InstancedMesh<CircleGeometry, MeshBasicMaterial>;
@@ -232,8 +230,8 @@ export function updateDayCycle(
   scene.content.beaconFire.mirrorMaterial.emissiveIntensity = daylight * (0.3 + glint * 1.9);
   // The halo keeps its day-cycle shape (enlarged with the living fire — W4);
   // the frame path adds the flicker modulation on top of this base.
-  scene.content.beaconHalo.material.opacity = 0.22 + dusk * 0.14 + night * 0.5;
-  scene.content.beaconHalo.scale.setScalar(1.35 + dusk * 0.3 + night * 1.0);
+  scene.content.beaconHalo.material.opacity = 0.16 + dusk * 0.1 + night * 0.3;
+  scene.content.beaconHalo.scale.setScalar(1.2 + dusk * 0.18 + night * 0.6);
   scene.content.lighthouseLight.intensity = 0.95 + dusk * 2.3 + night * 8.2;
   // W7 statue gleam: a warm base lift keeps the gilt god readable against the
   // day sky; at dusk it peaks just over the bloom knee, then settles to a
@@ -257,7 +255,7 @@ export function updateDayCycle(
   scene.content.shipLanternMaterial.emissiveIntensity = 0.05 + dusk * 0.85 + night * 1.9;
   // Dimmer per-lantern halo to match the smaller quad (W1.10): the fleet's
   // warmth should come from MANY small lights, not from each one flaring.
-  scene.content.shipLanternGlowMaterial.opacity = dusk * 0.2 + night * 0.5;
+  scene.content.shipLanternGlowMaterial.opacity = dusk * 0.12 + night * 0.24;
   const sailEmissive = 0.16 + dusk * 0.14 + night * 0.62;
   // The batched fleet shares ONE sail material, so the night backlight is a
   // single write instead of one per ship (W1 / D2).
@@ -268,16 +266,16 @@ export function updateDayCycle(
     if (!ship.identitySailMaterial) continue;
     ship.identitySailMaterial.emissiveIntensity = sailEmissive;
   }
-  // Beam intensity curves. World-renderer owns which piece is visible per tier;
-  // here we set opacity and freeze uTime under reduced motion.
+  // Beam intensity curves. One cone is the normal signal, the plane is its
+  // low-tier fallback, and dust is only a restrained full-tier accent.
+  // World-renderer owns which piece is visible per tier; here we set opacity
+  // and freeze uTime under reduced motion.
   const beamTime = frame.reducedMotion ? 0 : Math.max(0, frame.timeSeconds);
   // Daylight suppresses the light-in-air pieces; the lit sea lane fades with
   // the lighthouse light instead.
-  const coneOpacity = (dusk * 0.07 + night * 0.24) * (1 - daylight * 0.9);
-  const dustOpacity = (dusk * 0.2 + night * 0.55) * (1 - daylight);
-  const planeOpacity = (0.012 + dusk * 0.036 + night * 0.11) * (1 - daylight * 0.9);
-  // W5: the nested outer cone is the beam's faint fresnel skirt.
-  const outerConeOpacity = (dusk * 0.03 + night * 0.1) * (1 - daylight * 0.9);
+  const coneOpacity = (dusk * 0.04 + night * 0.14) * (1 - daylight * 0.9);
+  const dustOpacity = (dusk * 0.1 + night * 0.28) * (1 - daylight);
+  const planeOpacity = (0.008 + dusk * 0.025 + night * 0.06) * (1 - daylight * 0.9);
   for (const child of scene.content.beam.children) {
     if (!(child instanceof Mesh) && !(child instanceof Points)) continue;
     const material = child.material;
@@ -285,18 +283,10 @@ export function updateDayCycle(
     if (material.uniforms.uTime) material.uniforms.uTime.value = beamTime;
     if (child.name === "lighthouse-beam-cone") {
       material.uniforms.uOpacity.value = coneOpacity;
-    } else if (child.name === "lighthouse-beam-outer-cone") {
-      material.uniforms.uOpacity.value = outerConeOpacity;
     } else if (child.name === "lighthouse-beam-dust") {
       material.uniforms.uOpacity.value = dustOpacity;
     } else {
       material.uniforms.uOpacity.value = planeOpacity;
     }
-  }
-  // W5 ray fan: the poster sunburst owns dusk and night (D3) — daylight
-  // suppresses it alongside the other light-in-air pieces.
-  if (scene.content.rayFan) {
-    scene.content.rayFan.material.uniforms.uOpacity.value = (dusk * 0.15 + night * 0.28)
-      * (1 - daylight);
   }
 }

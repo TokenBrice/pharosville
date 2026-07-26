@@ -1,6 +1,6 @@
 # PharosVille Route Contract
 
-Last updated: 2026-07-25
+Last updated: 2026-07-27
 
 PharosVille is the desktop stablecoin observatory at
 `https://pharosville.pharos.watch/`. It turns live Pharos data into a maritime
@@ -10,9 +10,11 @@ world without making the scenery the only source of truth.
 
 - The browser uses same-origin `/api/*` endpoints only; the Pages Function
   holds `PHAROS_API_KEY` and proxies the allowlisted reads.
-- The world loads only on a landscape screen with a long side of at least
-  720px and short side of at least 360px. Blocked viewports render DOM guidance
-  without fetching world data or importing Three.js and its media.
+- The world loads only after the physical screen has a long side of at least
+  900px and a short side of at least 720px, and the current viewport independently
+  meets those same two sorted-dimension floors. These are direct size tests,
+  not an orientation or aspect-ratio gate. Blocked viewports render DOM
+  guidance without fetching world data or importing Three.js and its media.
 - The production renderer is Three.js/WebGL. Renderer, WebGL, module, or
   context failure shows the selectable DOM `WorldStaticOverview`; there is no
   graphical fallback renderer.

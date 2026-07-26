@@ -166,6 +166,7 @@ describe("createGardenWater", () => {
       "step(0.35,",
       "step(0.86, sin(",
       "step(0.0, shoreWorld)",
+      "step(-2.0, along)",
     ]) {
       // `aaStep(0.76,` contains `Step(0.76,` but not `step(0.76,` — the check
       // is case-sensitive on purpose.

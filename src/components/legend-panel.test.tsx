@@ -81,6 +81,28 @@ describe("LegendPanel", () => {
     expect(calls).toEqual(["close", "observe"]);
   });
 
+  it("places the primary action immediately after Close in the focus order", () => {
+    render(
+      <LegendPanel
+        onClose={() => undefined}
+        onObserve={() => undefined}
+        onSelectDetail={() => undefined}
+        recentFleetTrend={{
+          growers: [{ detailId: "ship.usde", symbol: "USDe", change7dPct: 18 }],
+          shrinkers: [],
+          elevatedShipCount: 1,
+        }}
+      />,
+    );
+
+    const panel = screen.getByRole("dialog", { name: "Legend" });
+    const focusable = Array.from(
+      panel.querySelectorAll<HTMLElement>("button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex='-1'])"),
+    );
+    expect(focusable.slice(0, 2).map((element) => element.getAttribute("aria-label") ?? element.textContent?.trim()))
+      .toEqual(["Close legend", "Watch the harbor"]);
+  });
+
   it("omits the call to action when observing is unavailable", () => {
     const markup = renderToStaticMarkup(<LegendPanel onClose={() => undefined} />);
 

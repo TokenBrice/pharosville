@@ -41,8 +41,12 @@
  *   node scripts/pharosville/preview.mjs --headed --seconds 8
  *   node scripts/pharosville/preview.mjs --reduced          # static-frame path
  *   node scripts/pharosville/preview.mjs --legend           # keep the onboarding overlay
+ *   node scripts/pharosville/preview.mjs --quick-find       # open the search chrome for review
+ *   node scripts/pharosville/preview.mjs --hover-first      # hover a visible ship target
  *   node scripts/pharosville/preview.mjs --url http://localhost:4173 --width 2560 --height 1440
  *   node scripts/pharosville/preview.mjs --assert            # perf tripwire, exits non-zero
+ *   node scripts/pharosville/preview.mjs --assert --reduced  # settled static resource gate
+ *   node scripts/pharosville/preview.mjs --artifact-check    # short-interval full-frame flash probe
  *   node scripts/pharosville/preview.mjs --assert --max-p90=20 --max-draw-calls=700
  *   node scripts/pharosville/preview.mjs --refresh common   # main-thread cost of a data refresh
  *   node scripts/pharosville/preview.mjs --refresh churn    # ... with every placement moved
@@ -52,6 +56,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
+import { analyzeArtifactFlashFrames } from "./artifact-flash-metric.mjs";
 
 /**
  * The wrapper, not the binary. See the header: this is what applies the
@@ -63,10 +68,16 @@ const SYSTEM_CHROME = "/usr/bin/google-chrome-stable";
 const SKIP_EXIT_CODE = 78;
 
 const args = parseArgs(process.argv.slice(2));
+if (args["artifact-check"] && args.reduced) {
+  throw new Error("--artifact-check needs normal motion; --reduced is intentionally static.");
+}
 const assertMode = Boolean(args.assert);
 const limits = {
   // The perf suite's ceiling (docs/pharosville/TESTING.md); a steady 668 today.
   maxDrawCalls: numberFlag("max-draw-calls", 700),
+  maxGeometries: numberFlag("max-geometries", 500),
+  maxTextures: numberFlag("max-textures", 72),
+  maxTriangles: numberFlag("max-triangles", 500_000),
   // A vsync-capped 60Hz frame is 16.7ms. 20ms leaves room for the odd missed
   // vsync without pretending 33ms (a whole dropped frame) is acceptable.
   maxP90Ms: numberFlag("max-p90", 20),
@@ -228,12 +239,16 @@ try {
   }
   await page.waitForTimeout(seconds * 1000);
 
-  let metrics = await readMetrics(page);
-  const settleDeadline = Date.now() + 20_000;
-  while (Date.now() < settleDeadline && (metrics.samples ?? 0) < FULL_ENOUGH_SAMPLES) {
-    await page.waitForTimeout(700);
-    const read = await readMetrics(page);
-    if ((read.samples ?? 0) > (metrics.samples ?? 0)) metrics = read;
+  let metrics = args.reduced
+    ? await waitForSettledStaticMetrics(page)
+    : await readMetrics(page);
+  if (!args.reduced) {
+    const settleDeadline = Date.now() + 20_000;
+    while (Date.now() < settleDeadline && (metrics.samples ?? 0) < FULL_ENOUGH_SAMPLES) {
+      await page.waitForTimeout(700);
+      const read = await readMetrics(page);
+      if ((read.samples ?? 0) > (metrics.samples ?? 0)) metrics = read;
+    }
   }
   if ((metrics.shipsVisible ?? 0) === 0) {
     console.error("warning: no fleet on screen — the world had not populated, so the frame below is not the world.");
@@ -244,7 +259,7 @@ try {
   // and none of them still carry load-spike frames. Three reads and the median
   // p90, because one background spike on a busy machine must not block a push
   // while a genuine regression — which shows in all three — still does.
-  if (assertMode) {
+  if (assertMode && !args.reduced) {
     const reads = [];
     for (let index = 0; index < 3; index += 1) {
       await page.waitForTimeout(2500);
@@ -254,6 +269,7 @@ try {
     metrics = reads[1];
   }
 
+  await applyRequestedUiState(page);
   await mkdir(outputDirectory, { recursive: true });
   await page.screenshot({ path: outputPath });
 
@@ -270,6 +286,7 @@ try {
   console.log(`shot       ${outputPath}`);
 
   if (assertMode) evaluateAssertions(metrics);
+  if (args["artifact-check"]) await runArtifactFlashCheck(page, canvas);
 
   // Last, deliberately: the probe mutates the payload, so everything above —
   // including the screenshot — describes the world as the API actually serves it.
@@ -287,6 +304,37 @@ try {
 
 function round(value) {
   return typeof value === "number" ? Math.round(value * 10) / 10 : value;
+}
+
+async function applyRequestedUiState(page) {
+  if (args["quick-find"]) {
+    await page.keyboard.press("/");
+    await page.getByTestId("pharosville-quick-find").waitFor({
+      state: "visible",
+      timeout: 5_000,
+    });
+  }
+  if (args["hover-first"]) {
+    const point = await page.evaluate(() => {
+      const canvas = document.querySelector('[data-testid="pharosville-canvas"]');
+      const bounds = canvas?.getBoundingClientRect();
+      const targets = window.__pharosVilleDebug?.targets ?? [];
+      if (!bounds) return null;
+      const target = targets.find(({ kind, rect }) => {
+        const x = rect.x + rect.width / 2;
+        const y = rect.y + rect.height / 2;
+        return kind === "ship" && x >= 0 && y >= 0 && x <= bounds.width && y <= bounds.height;
+      });
+      if (!target) return null;
+      return {
+        x: bounds.left + target.rect.x + target.rect.width / 2,
+        y: bounds.top + target.rect.y + target.rect.height / 2,
+      };
+    });
+    if (!point) throw new Error("--hover-first could not find a visible ship target.");
+    await page.mouse.move(point.x, point.y);
+    await page.waitForTimeout(250);
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -648,7 +696,12 @@ async function reportRefreshCost(page) {
 
   const after = await readMetrics(page);
   console.log(`  fleet    ${before.shipsVisible} -> ${after.shipsVisible} ships`
-    + ` · ${before.calls} -> ${after.calls} draw calls`);
+    + ` · ${before.calls} -> ${after.calls} draw calls`
+    + ` · content roots ${before.contentReplacements} -> ${after.contentReplacements}`);
+  const changedContentParts = Object.keys(after.contentParts ?? {}).filter(
+    (key) => before.contentParts?.[key] !== after.contentParts?.[key],
+  );
+  console.log(`  content  ${changedContentParts.length > 0 ? changedContentParts.join(", ") : "renderer-equivalent"}`);
 }
 
 /**
@@ -657,8 +710,8 @@ async function reportRefreshCost(page) {
  * would flatter the renderer rather than test it.
  */
 function evaluateAssertions(metrics) {
-  if ((metrics.shipsVisible ?? 0) === 0 || (metrics.samples ?? 0) === 0) {
-    console.log("\nSKIP: the world never populated, so no steady-state frame was measured.");
+  if ((metrics.shipsVisible ?? 0) === 0 || (!args.reduced && (metrics.samples ?? 0) === 0)) {
+    console.log("\nSKIP: the world never populated, so no representative frame was measured.");
     process.exitCode = SKIP_EXIT_CODE;
     return;
   }
@@ -667,22 +720,128 @@ function evaluateAssertions(metrics) {
   if (metrics.tier !== limits.requiredTier) {
     failures.push(`scheduler tier is ${metrics.tier}, expected ${limits.requiredTier}`);
   }
-  if ((metrics.p90 ?? Infinity) > limits.maxP90Ms) {
+  if (!args.reduced && (metrics.p90 ?? Infinity) > limits.maxP90Ms) {
     failures.push(`p90 frame time ${round(metrics.p90)}ms exceeds ${limits.maxP90Ms}ms`);
   }
   if ((metrics.calls ?? Infinity) > limits.maxDrawCalls) {
     failures.push(`${metrics.calls} draw calls exceed ${limits.maxDrawCalls}`);
   }
+  if ((metrics.geometries ?? Infinity) > limits.maxGeometries) {
+    failures.push(`${metrics.geometries} geometries exceed ${limits.maxGeometries}`);
+  }
+  if ((metrics.textures ?? Infinity) > limits.maxTextures) {
+    failures.push(`${metrics.textures} textures exceed ${limits.maxTextures}`);
+  }
+  if ((metrics.triangles ?? Infinity) > limits.maxTriangles) {
+    failures.push(`${metrics.triangles} triangles exceed ${limits.maxTriangles}`);
+  }
 
   if (failures.length === 0) {
-    console.log(`\nPASS: tier ${metrics.tier}, p90 ${round(metrics.p90)}ms (max ${limits.maxP90Ms}),`
-      + ` ${metrics.calls} draw calls (max ${limits.maxDrawCalls}).`);
+    const timing = args.reduced
+      ? "deterministic static frame"
+      : `p90 ${round(metrics.p90)}ms (max ${limits.maxP90Ms})`;
+    console.log(`\nPASS: tier ${metrics.tier}, ${timing},`
+      + ` ${metrics.calls} calls, ${metrics.triangles} triangles,`
+      + ` ${metrics.geometries} geometries, ${metrics.textures} textures.`);
     return;
   }
   console.error(`\nFAIL: real-GPU perf regressed on this framing.`);
   for (const failure of failures) console.error(`  - ${failure}`);
   console.error("Raise a threshold only with a measurement that justifies it, not to get a push through.");
   process.exitCode = 1;
+}
+
+async function waitForSettledStaticMetrics(page) {
+  // Reduced motion owns no continuous RAF. Every async model/logo arrival asks
+  // for one deterministic repaint, so wait until both the network and the GPU
+  // resource tuple have stopped changing before treating telemetry as settled.
+  await page.waitForLoadState("networkidle", { timeout: 30_000 }).catch(() => {});
+  let previous = null;
+  let stableReads = 0;
+  let latest = await readMetrics(page);
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline && stableReads < 3) {
+    await page.waitForTimeout(500);
+    latest = await readMetrics(page);
+    const signature = [
+      latest.calls,
+      latest.triangles,
+      latest.geometries,
+      latest.textures,
+      latest.shipsVisible,
+      latest.tier,
+    ].join("|");
+    stableReads = signature === previous ? stableReads + 1 : 0;
+    previous = signature;
+  }
+  return latest;
+}
+
+async function runArtifactFlashCheck(page, canvas) {
+  const frames = [];
+  const frameCount = 8;
+  const intervalMs = 120;
+  for (let index = 0; index < frameCount; index += 1) {
+    if (index > 0) await page.waitForTimeout(intervalMs);
+    const png = await canvas.screenshot({ animations: "allow", type: "png" });
+    frames.push(await decodeLuminanceGrid(page, png.toString("base64")));
+  }
+  const result = analyzeArtifactFlashFrames(frames);
+  const evidence = {
+    frameCount,
+    frameCoverage: result.frameCoverage,
+    intervalMs,
+    sampleGrid: `${frames[0]?.width ?? 0}x${frames[0]?.height ?? 0}`,
+    transitions: result.transitions,
+  };
+  await writeFile(
+    resolve(outputDirectory, "artifact-flash-evidence.json"),
+    `${JSON.stringify(evidence, null, 2)}\n`,
+  );
+  if (result.flash || result.excessiveBrightCoverage) {
+    console.error("\nFAIL: artifact probe found fault-like frame coverage.");
+    for (const transition of result.transitions.filter((entry) => entry.flash)) {
+      console.error(`  - frames ${transition.from}->${transition.to}:`
+        + ` mean ${round(transition.meanDelta)},`
+        + ` bright ${round(transition.brightCoverage * 100)}%,`
+        + ` dark ${round(transition.darkCoverage * 100)}%`);
+    }
+    for (const frame of result.frameCoverage.filter((entry) => entry.excessiveBrightCoverage)) {
+      console.error(`  - frame ${frame.frame}: bright coverage`
+        + ` ${round(frame.brightCoverage * 100)}% exceeds the beam/light budget`);
+    }
+    process.exitCode = 1;
+    return;
+  }
+  const maxBrightCoverage = Math.max(
+    ...result.frameCoverage.map((frame) => frame.brightCoverage),
+  );
+  console.log(`\nPASS: ${frameCount}-frame artifact probe found no full-area flash`
+    + ` or excessive bright-beam coverage (max ${round(maxBrightCoverage * 100)}%).`);
+}
+
+async function decodeLuminanceGrid(page, base64) {
+  return page.evaluate(async (encoded) => {
+    const image = new Image();
+    image.src = `data:image/png;base64,${encoded}`;
+    await image.decode();
+    const width = 96;
+    const height = 60;
+    const surface = new OffscreenCanvas(width, height);
+    const context = surface.getContext("2d", { willReadFrequently: true });
+    if (!context) throw new Error("Artifact probe could not create a 2D sample canvas.");
+    context.drawImage(image, 0, 0, width, height);
+    const rgba = context.getImageData(0, 0, width, height).data;
+    const luminance = new Array(width * height);
+    for (let pixel = 0; pixel < luminance.length; pixel += 1) {
+      const offset = pixel * 4;
+      const red = rgba[offset] / 255;
+      const green = rgba[offset + 1] / 255;
+      const blue = rgba[offset + 2] / 255;
+      luminance[pixel] = red * 0.2126 + green * 0.7152 + blue * 0.0722;
+    }
+    return { height, luminance, width };
+  }, base64);
 }
 
 /**
@@ -720,6 +879,8 @@ function readMetrics(page) {
     return {
       calls: m?.gpu?.calls ?? null,
       composer: m?.composerEnabled ?? null,
+      contentReplacements: m?.contentReplacementCount ?? null,
+      contentParts: m?.contentSignaturePartHashes ?? null,
       dropped: m?.framePacing?.droppedFrameCount ?? null,
       fleetDraws: m?.fleetDrawCallCount ?? null,
       fps: m?.framePacing?.effectiveFps ?? null,

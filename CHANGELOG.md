@@ -2,6 +2,19 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v0.6.0 - 2026-07-27 - Clear Bearings
+
+The harbor keeps all 186 analytical ships while shedding the false mountains, radial glare, hard water facets, and flicker that made the sea look broken; the result is calmer at every reviewed desktop shape, faster to refresh, and easier to inspect.
+
+Collected from the v0.6.0 implementation change after v0.5.0.
+
+- Cleared the largest rendering artifacts. The three horizon cards that appeared as mountains in open water are gone, the lighthouse now carries one coherent beam instead of a radial fan of overlapping cones, and hero reflections, light lanes, lantern pools, seams, foam, wakes, and zone tinting have been reduced where they competed with ships.
+- Made the sea read continuously through day, dusk, and night. Bathymetry now uses a softened limited-palette ramp instead of hard posterized bands, distant water no longer reads as a finite slab, danger no longer emits a full-region flash, and the beacon and water-lane shaders use calm continuous motion with anti-aliased transitions.
+- Replaced world-like UI clutter with quieter inspection cues. Boundary buoys are sparse landmarks unless their region is being inspected, selection uses a compact depth-tested waterline ring rather than a translucent shaft, unrelated wakes and reflections recede in analyze view, and the full 186-ship fleet remains present.
+- Removed the common refresh hitch without changing the world contract. A renderer-facing content signature retains meshes for equivalent payloads, cutting the measured refresh to a 56 ms median busy interval with 6 ms blocking, while settled reduced-motion frames now remain well below the 500,000-triangle ceiling.
+- Made every allowed desktop window genuinely chartable. The lazy, orientation-free gate now requires a 900 px long side and 720 px short side, the camera preserves the lighthouse crown at edge sizes, controls meet WCAG target sizes with 44 px hoverless targets, dynamic scene scrims improve legibility, and the first-visit action arrives before the long-form ledger.
+- Added regression evidence for the faults that escaped ordinary screenshot tests: first-pass, tall, standard, whole-map, and ultrawide layout coverage; source guards against horizon and obsolete beam geometry; an eight-frame real-GPU flash/bright-coverage probe; settled reduced-motion resource assertions; and a 320-ship-plus-outsider capacity fixture with selection, DOM parity, and disposal checks.
+
 ## v0.5.0 - 2026-07-26 - The Cargo Tide
 
 The world stops showing only what exists and starts showing what is moving: crates load and land as supply is minted and burned, a tide reads the week's global drift, and a signal mast flies the fleet's peg condition — while the map-wide frame the product is judged on drops from 917 draw calls to 402, and an outage now degrades the harbour instead of emptying it.
