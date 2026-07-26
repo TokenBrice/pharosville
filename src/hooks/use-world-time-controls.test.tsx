@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { useWorldTimeControls } from "./use-world-time-controls";
+import {
+  sessionHourAnnouncement,
+  useWorldTimeControls,
+  WORLD_TIME_NUDGE_HOUR,
+} from "./use-world-time-controls";
 
 afterEach(() => {
   delete (globalThis as { __pharosVilleTestWallClockHour?: number }).__pharosVilleTestWallClockHour;
@@ -59,5 +63,77 @@ describe("useWorldTimeControls", () => {
     expect(result.current.manualTimeOverrideHour).toBeNull();
     expect(result.current.nightMode).toBe(true);
     expect(globalThis.__pharosVilleTestWallClockHour).toBeUndefined();
+  });
+
+  it("steps the session hour half an hour at a time from the hour on show", () => {
+    const { result } = renderHook(() => useWorldTimeControls({
+      initialManualTimeOverrideHour: 6.5,
+      requestPaint: vi.fn(),
+    }));
+
+    act(() => {
+      result.current.nudgeSessionHour(WORLD_TIME_NUDGE_HOUR);
+    });
+    expect(result.current.manualTimeOverrideHour).toBe(7);
+    expect(result.current.wallClockHour).toBe(7);
+
+    act(() => {
+      result.current.nudgeSessionHour(-WORLD_TIME_NUDGE_HOUR);
+    });
+    expect(result.current.manualTimeOverrideHour).toBe(6.5);
+  });
+
+  it("stops at both ends of the day instead of wrapping around", () => {
+    const lateEvening = renderHook(() => useWorldTimeControls({
+      initialManualTimeOverrideHour: 23.5,
+      requestPaint: vi.fn(),
+    }));
+    act(() => {
+      lateEvening.result.current.nudgeSessionHour(WORLD_TIME_NUDGE_HOUR);
+    });
+    expect(lateEvening.result.current.manualTimeOverrideHour).toBe(23.75);
+    act(() => {
+      lateEvening.result.current.nudgeSessionHour(WORLD_TIME_NUDGE_HOUR);
+    });
+    expect(lateEvening.result.current.manualTimeOverrideHour).toBe(23.75);
+
+    const earlyMorning = renderHook(() => useWorldTimeControls({
+      initialManualTimeOverrideHour: 0.25,
+      requestPaint: vi.fn(),
+    }));
+    act(() => {
+      earlyMorning.result.current.nudgeSessionHour(-WORLD_TIME_NUDGE_HOUR);
+    });
+    expect(earlyMorning.result.current.manualTimeOverrideHour).toBe(0);
+    act(() => {
+      earlyMorning.result.current.nudgeSessionHour(-WORLD_TIME_NUDGE_HOUR);
+    });
+    expect(earlyMorning.result.current.manualTimeOverrideHour).toBe(0);
+  });
+
+  // The two are not rivals: the override outranks the night preset while it is
+  // set, and stepping starts from the preset's own hour rather than resetting
+  // the toggle out from under the visitor.
+  it("steps away from the night preset without clearing it", () => {
+    const { result } = renderHook(() => useWorldTimeControls({
+      initialNightMode: true,
+      requestPaint: vi.fn(),
+    }));
+    expect(result.current.wallClockHour).toBe(22);
+
+    act(() => {
+      result.current.nudgeSessionHour(WORLD_TIME_NUDGE_HOUR);
+    });
+
+    expect(result.current.manualTimeOverrideHour).toBe(22.5);
+    expect(result.current.wallClockHour).toBe(22.5);
+    expect(result.current.nightMode).toBe(true);
+  });
+
+  it("announces the hour it landed on", () => {
+    expect(sessionHourAnnouncement(7)).toBe("Time of day 07:00.");
+    expect(sessionHourAnnouncement(18.5)).toBe("Time of day 18:30.");
+    expect(sessionHourAnnouncement(0)).toBe("Time of day 00:00.");
+    expect(sessionHourAnnouncement(23.75)).toBe("Time of day 23:45.");
   });
 });

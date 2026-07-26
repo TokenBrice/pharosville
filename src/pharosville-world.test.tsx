@@ -553,6 +553,93 @@ describe("PharosVilleWorld quick find", () => {
   });
 });
 
+// The session hour used to be reachable only by hand-editing `t=` into the
+// address bar; `[` and `]` walk it from the keyboard instead, and the link
+// keeps working exactly as it did.
+describe("PharosVilleWorld time-of-day keys", () => {
+  const renderAtHalfPastSix = () => {
+    window.history.replaceState(null, "", "/#t=6.5");
+    render(<PharosVilleWorld world={worldFixture()} />);
+  };
+  const linkedHour = () => new URLSearchParams(window.location.hash.slice(1)).get("t");
+
+  it("steps the hour later and writes it into the link", async () => {
+    renderAtHalfPastSix();
+
+    fireEvent.keyDown(document, { key: "]" });
+
+    expect(screen.getByText("Time of day 07:00.")).toBeTruthy();
+    await waitFor(() => expect(globalThis.__pharosVilleTestWallClockHour).toBe(7));
+    await waitFor(() => expect(linkedHour()).toBe("7"));
+  });
+
+  it("steps the hour earlier and writes it into the link", async () => {
+    renderAtHalfPastSix();
+
+    fireEvent.keyDown(document, { key: "[" });
+
+    expect(screen.getByText("Time of day 06:00.")).toBeTruthy();
+    await waitFor(() => expect(linkedHour()).toBe("6"));
+  });
+
+  it("holds at the last quarter hour of the day", async () => {
+    window.history.replaceState(null, "", "/#t=23.5");
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    fireEvent.keyDown(document, { key: "]" });
+    fireEvent.keyDown(document, { key: "]" });
+
+    // The live region paces its queue, so the second press repeats the hour
+    // rather than adding a new one — the point is that it does not wrap to 00.
+    expect(screen.getByText("Time of day 23:45.")).toBeTruthy();
+    await waitFor(() => expect(linkedHour()).toBe("23.75"));
+  });
+
+  it("holds at the first hour of the day", async () => {
+    window.history.replaceState(null, "", "/#t=0.25");
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    fireEvent.keyDown(document, { key: "[" });
+    fireEvent.keyDown(document, { key: "[" });
+
+    expect(screen.getByText("Time of day 00:00.")).toBeTruthy();
+    await waitFor(() => expect(linkedHour()).toBe("0"));
+  });
+
+  it("leaves the bracket keys alone while a reference panel is open", async () => {
+    renderAtHalfPastSix();
+    fireEvent.click(screen.getByRole("button", { name: "Legend" }));
+    await screen.findByTestId("pharosville-legend-panel");
+
+    fireEvent.keyDown(document, { key: "]" });
+
+    expect(screen.queryByText("Time of day 07:00.")).toBeNull();
+    expect(linkedHour()).toBe("6.5");
+  });
+
+  it("leaves the bracket keys alone while the visitor is typing in a field", () => {
+    renderAtHalfPastSix();
+    const field = document.createElement("input");
+    document.body.append(field);
+    field.focus();
+
+    fireEvent.keyDown(field, { key: "]" });
+
+    expect(screen.queryByText("Time of day 07:00.")).toBeNull();
+    expect(linkedHour()).toBe("6.5");
+    field.remove();
+  });
+
+  it("leaves a modified bracket press to the browser", () => {
+    renderAtHalfPastSix();
+
+    fireEvent.keyDown(document, { key: "]", metaKey: true });
+
+    expect(screen.queryByText("Time of day 07:00.")).toBeNull();
+    expect(linkedHour()).toBe("6.5");
+  });
+});
+
 function worldFixture(input: {
   freshness?: PharosVilleWorldModel["freshness"];
   generatedAt?: number;

@@ -27,7 +27,11 @@ import { useVisitSnapshot } from "./hooks/use-visit-snapshot";
 import { detailAnchorForPoint, useWorldKeyboardTargets } from "./hooks/use-world-keyboard-targets";
 import { useWorldRenderLoop } from "./hooks/use-world-render-loop";
 import { useWorldSelection, resolveSelectedDetail } from "./hooks/use-world-selection";
-import { useWorldTimeControls } from "./hooks/use-world-time-controls";
+import {
+  sessionHourAnnouncement,
+  useWorldTimeControls,
+  WORLD_TIME_NUDGE_HOUR,
+} from "./hooks/use-world-time-controls";
 import { useWorldUrlState } from "./hooks/use-world-url-state";
 import { createGardenObservatoryHitTargetSnapshot } from "./renderer/garden-observatory-hit-testing";
 import type { HitTarget, HitTargetSnapshot } from "./renderer/hit-testing";
@@ -613,6 +617,26 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [quickFindOpen, referencePanelOpen, rendererFailed]);
 
+  // Time of day used to be reachable only by hand-editing `t=` into the
+  // address bar. `[` and `]` walk it instead, under the same guards as the
+  // quick-find key: not while a text field has focus, not behind a dialog, not
+  // with a modifier. The hour still rides out through the URL write below, so
+  // a nudged sky is still a shareable one.
+  const nudgeSessionHour = timeControls.nudgeSessionHour;
+  useEffect(() => {
+    if (rendererFailed || quickFindOpen || referencePanelOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "[" && event.key !== "]") return;
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
+      if (isTextEntryTarget(event.target)) return;
+      event.preventDefault();
+      const hour = nudgeSessionHour(event.key === "]" ? WORLD_TIME_NUDGE_HOUR : -WORLD_TIME_NUDGE_HOUR);
+      if (hour !== null) setAnnouncement(sessionHourAnnouncement(hour));
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [nudgeSessionHour, quickFindOpen, referencePanelOpen, rendererFailed, setAnnouncement]);
+
   const closeQuickFind = useCallback(() => {
     setQuickFindOpen(false);
     setAnnouncement("Closed quick find.");
@@ -681,7 +705,8 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         Tab cycles map targets and Enter opens their details; past the last
         target, Tab continues into the page controls. Slash opens quick find,
         to reach a ship or harbor by name. Arrow keys pan, plus and minus zoom,
-        Escape closes panels.
+        left and right square brackets shift the time of day, Escape closes
+        panels.
       </p>
       <canvas
         ref={canvas.canvasRef}
