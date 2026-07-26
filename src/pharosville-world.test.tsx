@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PharosVilleLoading, PharosVilleWorld } from "./pharosville-world";
+import { PHAROSVILLE_LATEST_VERSION } from "./content/pharosville-version";
 import type { HitTarget } from "./renderer/hit-testing";
 import {
   resolveGardenEntityDisplayTile,
@@ -184,8 +185,10 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     expect(screen.getByTestId("pharosville-ship-counter").textContent).toBe("1 of 1 docked");
     const footer = container.querySelector(".pharosville-footer");
     // Separator spacing is CSS margin, so the DOM text runs them together.
+    // Derived, not a literal: a version bump is a release chore, not a reason
+    // for this test to fail.
     expect(footer?.textContent?.replace(/\s+/g, " ").trim()).toBe(
-      "PharosVille v0.3.0·Legend·Changelog·1 of 1 docked·Static",
+      `PharosVille ${PHAROSVILLE_LATEST_VERSION}·Legend·Changelog·1 of 1 docked·Static`,
     );
     expect(footer?.textContent).not.toContain("Copy link");
     expect(footer?.textContent).not.toContain("not financial advice");
