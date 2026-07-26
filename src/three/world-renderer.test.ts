@@ -11,7 +11,15 @@ import {
   Texture,
 } from "three";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { makePharosVilleWorldInput } from "../__fixtures__/pharosville-world";
+import {
+  denseFixtureChains,
+  denseFixturePegSummary,
+  denseFixtureReportCards,
+  denseFixtureStablecoins,
+  denseFixtureStress,
+  fixtureStability,
+  makePharosVilleWorldInput,
+} from "../__fixtures__/pharosville-world";
 import type {
   ThreeLogoAssets,
   ThreeWorldRendererFrame,
@@ -27,6 +35,7 @@ import {
 import type { ShipMotionSample } from "../systems/motion";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import { seaStateForWorld } from "../systems/sea-state";
+import { OVERVIEW_LOD_DETAIL_NAMES } from "./garden-overview-lod";
 import {
   createThreeWorldRenderer,
   disposeThreeObjectTree,
@@ -308,6 +317,59 @@ describe("Three world renderer lifecycle", () => {
     renderer.dispose();
   });
 
+  it("sheds overview detail at whole-map framing and restores it at default framing", () => {
+    // The dense fixture is the one that composes the props this policy governs
+    // (a small world builds no crane and no hero badges).
+    const world = buildPharosVilleWorld({
+      cemeteryEntries: [],
+      chains: denseFixtureChains,
+      freshness: {},
+      pegSummary: denseFixturePegSummary,
+      reportCards: denseFixtureReportCards,
+      stability: fixtureStability,
+      stablecoins: denseFixtureStablecoins,
+      stress: denseFixtureStress,
+    });
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+
+    renderer.render(rendererFrame(world, "full", { cameraZoom: 0.7776, timeSeconds: 1 }));
+    const contentRoot = rendererHarness.instances.at(-1)!.lastScene!.children.at(-1)!;
+    const props = new Map(OVERVIEW_LOD_DETAIL_NAMES.map((name) => [
+      name,
+      namedObjects(contentRoot, name),
+    ]));
+
+    // Every name the policy claims must still exist in the composed world; a
+    // rename upstream must fail here rather than silently un-cull the frame.
+    for (const [name, objects] of props) {
+      expect(objects.length, `no composed node named ${name}`).toBeGreaterThan(0);
+    }
+    const authored = [...props.values()].flat().map((object) => ({
+      object,
+      position: object.position.clone(),
+      scale: object.scale.clone(),
+    }));
+    expect(authored.every((entry) => entry.object.visible)).toBe(true);
+
+    // A long frame delta snaps the ease, so one whole-map frame is enough.
+    renderer.render(rendererFrame(world, "full", { cameraZoom: 0.28, timeSeconds: 11 }));
+    for (const [name, objects] of props) {
+      expect(objects.every((object) => !object.visible), `${name} still drawn`).toBe(true);
+    }
+
+    renderer.render(rendererFrame(world, "full", { cameraZoom: 0.7776, timeSeconds: 21 }));
+    for (const entry of authored) {
+      expect(entry.object.visible).toBe(true);
+      expect(entry.object.scale.equals(entry.scale)).toBe(true);
+      expect(entry.object.position.equals(entry.position)).toBe(true);
+    }
+
+    renderer.dispose();
+  });
+
   it("disposes replaced world content and tears down the renderer once", () => {
     const firstWorld = buildPharosVilleWorld(makePharosVilleWorldInput());
     const secondWorld = buildPharosVilleWorld(makePharosVilleWorldInput({
@@ -441,6 +503,7 @@ function rendererFrame(
     hoveredDetailId?: string | null;
     reducedMotion?: boolean;
     selectedDetailId?: string | null;
+    timeSeconds?: number;
   } = {},
 ): ThreeWorldRendererFrame {
   const reducedMotion = options.reducedMotion ?? false;
@@ -472,7 +535,7 @@ function rendererFrame(
     seaState: seaStateForWorld(world, { reducedMotion, wallClockHour: 12 }),
     selectedDetailId: options.selectedDetailId ?? null,
     shipMotionSamples: samples,
-    timeSeconds: reducedMotion ? 0 : 12,
+    timeSeconds: reducedMotion ? 0 : (options.timeSeconds ?? 12),
     wallClockHour: 12,
     width: 1440,
     world,
@@ -487,6 +550,14 @@ function wakeGroups(root: Object3D): Group[] {
     }
   });
   return wakes;
+}
+
+function namedObjects(root: Object3D, name: string): Object3D[] {
+  const objects: Object3D[] = [];
+  root.traverse((object) => {
+    if (object.name === name) objects.push(object);
+  });
+  return objects;
 }
 
 function namedGroups(root: Object3D, name: string): Group[] {

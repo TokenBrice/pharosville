@@ -1,0 +1,128 @@
+import { BoxGeometry, Group, Mesh, MeshBasicMaterial } from "three";
+import { describe, expect, it } from "vitest";
+import {
+  createGardenOverviewLod,
+  OVERVIEW_LOD_DETAIL_NAMES,
+  OVERVIEW_LOD_FULL_ZOOM,
+  OVERVIEW_LOD_HIDDEN_ZOOM,
+  overviewLodTargetDetail,
+} from "./garden-overview-lod";
+
+/** A prop whose geometry sits well away from its own origin, like a dock crane. */
+function propTree(): { prop: Group; root: Group } {
+  const root = new Group();
+  const prop = new Group();
+  prop.name = "dock-crane";
+  prop.position.set(4, 0, -2);
+  const arm = new Mesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial());
+  arm.position.set(0, 3, 0);
+  prop.add(arm);
+  root.add(prop);
+  return { prop, root };
+}
+
+const SNAP = { deltaSeconds: 10, reducedMotion: false };
+
+describe("overviewLodTargetDetail", () => {
+  it("keeps default framing whole and whole-map framing bare", () => {
+    // The default camera fits the world at 0.7776 and the absolute zoom floor
+    // is 0.28; the band has to sit strictly between them so neither framing
+    // ever pays for a partially-shed prop.
+    expect(OVERVIEW_LOD_HIDDEN_ZOOM).toBeGreaterThan(0.28);
+    expect(OVERVIEW_LOD_FULL_ZOOM).toBeLessThan(0.7776);
+
+    expect(overviewLodTargetDetail(0.7776)).toBe(1);
+    expect(overviewLodTargetDetail(2.4)).toBe(1);
+    expect(overviewLodTargetDetail(0.28)).toBe(0);
+    expect(overviewLodTargetDetail(OVERVIEW_LOD_HIDDEN_ZOOM)).toBe(0);
+    expect(overviewLodTargetDetail(OVERVIEW_LOD_FULL_ZOOM)).toBe(1);
+  });
+
+  it("crosses the band monotonically", () => {
+    const samples = [0.44, 0.48, 0.52, 0.56, 0.6, 0.62]
+      .map((zoom) => overviewLodTargetDetail(zoom));
+    for (const [index, value] of samples.entries()) {
+      if (index === 0) continue;
+      expect(value).toBeGreaterThan(samples[index - 1]!);
+    }
+  });
+});
+
+describe("createGardenOverviewLod", () => {
+  it("names props the composed world still builds", () => {
+    // Guard against an upstream rename silently un-culling the overview frame.
+    // The composed-world half of this lives in world-renderer.test.ts.
+    expect(new Set(OVERVIEW_LOD_DETAIL_NAMES).size).toBe(OVERVIEW_LOD_DETAIL_NAMES.length);
+  });
+
+  it("leaves the authored transform untouched above the band", () => {
+    const { prop, root } = propTree();
+    const lod = createGardenOverviewLod(root);
+    expect(lod.entryCount).toBe(1);
+
+    lod.update({ ...SNAP, zoom: 0.7776 });
+
+    expect(lod.detail).toBe(1);
+    expect(prop.visible).toBe(true);
+    expect(prop.scale.toArray()).toEqual([1, 1, 1]);
+    expect(prop.position.toArray()).toEqual([4, 0, -2]);
+  });
+
+  it("hides the prop outright below the band", () => {
+    const { prop, root } = propTree();
+    const lod = createGardenOverviewLod(root);
+
+    lod.update({ ...SNAP, zoom: 0.28 });
+
+    expect(lod.detail).toBe(0);
+    expect(prop.visible).toBe(false);
+  });
+
+  it("shrinks in place rather than sliding toward the parent origin", () => {
+    const { prop, root } = propTree();
+    const lod = createGardenOverviewLod(root);
+
+    lod.update({ ...SNAP, zoom: 0.53 });
+
+    const detail = lod.detail;
+    expect(detail).toBeGreaterThan(0);
+    expect(detail).toBeLessThan(1);
+    expect(prop.visible).toBe(true);
+    expect(prop.scale.x).toBeCloseTo(detail, 6);
+    // The arm's centre sits 3 units above the prop's origin, so a naive scale
+    // would drag it down to 3·detail. Holding it put is the whole point.
+    prop.updateMatrixWorld(true);
+    const arm = prop.children[0]!;
+    arm.updateMatrixWorld(true);
+    expect(arm.matrixWorld.elements[13]).toBeCloseTo(3, 6);
+    expect(arm.matrixWorld.elements[12]).toBeCloseTo(4, 6);
+    expect(arm.matrixWorld.elements[14]).toBeCloseTo(-2, 6);
+  });
+
+  it("eases across the band instead of stepping", () => {
+    const { root } = propTree();
+    const lod = createGardenOverviewLod(root);
+    lod.update({ ...SNAP, zoom: 0.7776 });
+
+    // A single 16 ms frame after a hard zoom-out must travel only part way.
+    lod.update({ deltaSeconds: 0.016, reducedMotion: false, zoom: 0.28 });
+    expect(lod.detail).toBeGreaterThan(0);
+    expect(lod.detail).toBeLessThan(1);
+
+    for (let frame = 0; frame < 60; frame += 1) {
+      lod.update({ deltaSeconds: 0.016, reducedMotion: false, zoom: 0.28 });
+    }
+    expect(lod.detail).toBe(0);
+  });
+
+  it("snaps under reduced motion, which draws one static frame", () => {
+    const { prop, root } = propTree();
+    const lod = createGardenOverviewLod(root);
+    lod.update({ ...SNAP, zoom: 0.7776 });
+
+    lod.update({ deltaSeconds: 0.016, reducedMotion: true, zoom: 0.28 });
+
+    expect(lod.detail).toBe(0);
+    expect(prop.visible).toBe(false);
+  });
+});

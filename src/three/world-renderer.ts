@@ -3,6 +3,7 @@ import {
   AmbientLight,
   BufferGeometry,
   CircleGeometry,
+  Color,
   CylinderGeometry,
   DirectionalLight,
   DoubleSide,
@@ -70,6 +71,19 @@ import { createGardenHorizon, type GardenHorizon } from "./garden-horizon";
 import { createGardenSeaSigns, type GardenSeaSigns, type SeaSignSpec } from "./garden-sea-signs";
 import { SEA_BODY_TERRAIN, type SeaBodyName } from "../systems/sea-bodies";
 import { createGardenIslets, type GardenIslets } from "./garden-islets";
+import {
+  createGardenHeroReflections,
+  type GardenHeroReflections,
+} from "./garden-hero-reflections";
+import {
+  createGardenShipGulls,
+  GARDEN_GULL_SHIP_COUNT,
+  type GardenShipGulls,
+} from "./garden-ship-gulls";
+import {
+  createGardenOverviewLod,
+  type GardenOverviewLod,
+} from "./garden-overview-lod";
 import { createGardenModelLibrary } from "./garden-models";
 import { createGardenWater, type GardenWater } from "./garden-water";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
@@ -189,6 +203,8 @@ const scratchShadowPosition = new Vector3();
 const scratchShadowScale = new Vector3();
 const scratchShadowQuaternion = new Quaternion();
 const SHADOW_UP = new Vector3(0, 1, 0);
+// W6.4: the hull tint handed to a reflection instance, blended per frame.
+const scratchReflectionColor = new Color();
 
 export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): ThreeWorldRenderer {
   const { canvas, onAssetReady, onContextFailure } = input;
@@ -553,9 +569,17 @@ interface GardenContent {
   harborLanternMaterial: MeshStandardMaterial;
   fireflies: GardenFireflies;
   gullFlock: GardenGullFlock;
+  /** W6.4: one instanced draw call carrying every hero hull's mirror column. */
+  heroReflections: GardenHeroReflections;
+  /** The hulls that carry a reflection, in the reflection instances' order. */
+  heroReflectionShips: ShipVisual[];
+  /** Gulls over the three largest hulls; parented to those hulls' own roots. */
+  shipGulls: GardenShipGulls;
   lighthouseLight: PointLight;
   lighthouseRoot: Group;
   lighthouseShell: Group;
+  /** Tier 3 #15: sheds the props that cannot read at whole-map framing. */
+  overviewLod: GardenOverviewLod;
   rayFan: Mesh<BufferGeometry, ShaderMaterial> | null;
   root: Group;
   routeLine: Line<BufferGeometry, LineBasicMaterial>;
@@ -1146,6 +1170,22 @@ function createWorldContent(
   const crossBearingBuoys = createGardenCrossBearingBuoys(buoySpecs);
   root.add(crossBearingBuoys.root);
 
+  // W6.4: the mirror column, extended from the Pharos to the fleet. Only the
+  // hero hulls get one — they are the ships with a silhouette worth reflecting,
+  // and the batched fleet is a shared instance whose per-ship colour lives in a
+  // buffer rather than on a visual.
+  const heroReflectionShips = ships.filter((visual) => !visual.batched);
+  const heroReflections = createGardenHeroReflections(heroReflectionShips.length);
+  root.add(heroReflections.mesh);
+
+  // Gulls over the biggest hulls in the fleet. Ranked by the same market cap
+  // the hull scale already encodes, so the traffic agrees with the size.
+  const shipGulls = createGardenShipGulls(
+    [...heroReflectionShips]
+      .sort((left, right) => (right.ship.marketCapUsd ?? 0) - (left.ship.marketCapUsd ?? 0))
+      .slice(0, GARDEN_GULL_SHIP_COUNT),
+  );
+
   // 3d: the bearing the beam will settle on. Null when the index named no
   // contributor, or when the coin it named is not in the rendered fleet — the
   // sweep then keeps the even turn it has always had.
@@ -1176,6 +1216,9 @@ function createWorldContent(
   root.add(routeLine);
 
   const objectCount = countDrawableObjects(root);
+  // Scanned once, after the world is assembled and before anything animates:
+  // the policy captures each shed prop's authored transform as its baseline.
+  const overviewLod = createGardenOverviewLod(root);
   return {
     logoGenerationKey: null,
     beacon: island.beacon,
@@ -1195,11 +1238,15 @@ function createWorldContent(
     fleetLanterns,
     fleetSailMaterial: fleetBatches.materials[1] ?? null,
     gullFlock,
+    heroReflections,
+    heroReflectionShips,
+    shipGulls,
     sailAtlas,
     harborLanternMaterial: harborLanterns.lightMaterial,
     lighthouseLight: island.lighthouseLight,
     lighthouseRoot: island.lighthouseRoot,
     lighthouseShell: island.lighthouseShell,
+    overviewLod,
     rayFan: rayFan instanceof Mesh
       ? rayFan as Mesh<BufferGeometry, ShaderMaterial>
       : null,
@@ -1436,6 +1483,14 @@ function updateSceneForFrame(
     timeSeconds: frame.timeSeconds,
     visible: ambientAlive,
   });
+  // The hero gulls ride the same gate as the island's small life, and the same
+  // clock. Placement needs nothing here: each flock is a child of the hull it
+  // belongs to, so it already has that hull's pose.
+  content.shipGulls.update({
+    reducedMotion: frame.reducedMotion,
+    timeSeconds: frame.timeSeconds,
+    visible: ambientAlive,
+  });
   // 3a: the hoist rides the same `ambientAlive` gate as the rest of the
   // island's small life — it survives `recovery` and is shed only at
   // `constrained`. What is flying was fixed at compose time; this call only
@@ -1540,6 +1595,17 @@ function updateSceneForFrame(
 
   const semanticView = gardenSemanticView(frame.camera.zoom, frame.selectedDetailId);
   const showWorldDetail = semanticView === "explore";
+  // Tier 3 #15: the far half of the same zoom policy. `showWorldDetail` reveals
+  // inspection detail on the way IN (explore, zoom >= 1.05); this sheds the
+  // props that stop resolving on the way OUT, easing them away between 0.62 and
+  // 0.44 so nothing pops. Default framing (0.7776) is above the band and pays
+  // nothing for either.
+  content.overviewLod.update({
+    deltaSeconds: beamElapsedSeconds,
+    reducedMotion: frame.reducedMotion,
+    zoom: frame.camera.zoom,
+  });
+  const overviewDetail = content.overviewLod.detail;
   // N (D6): the boards hold a roughly constant on-screen size as the camera
   // pulls back, so the sea's place-names stay readable at whole-map framing —
   // the framing that most wants them, and the one where a true-scale board is
@@ -1614,8 +1680,17 @@ function updateSceneForFrame(
       worldZ: visual.root.position.z,
     });
     const wakeIntensity = sample?.wakeIntensity ?? 0;
-    visual.wake.visible = !frame.reducedMotion && !constrained && wakeIntensity > 0.08;
-    visual.wake.scale.x = 0.7 + Math.min(1.5, wakeIntensity) * 0.85;
+    // Tier 3 #15: the wake joins the overview policy, but through the ship loop
+    // rather than the named scan — the loop owns `wake.visible` and would
+    // overwrite anything the scan wrote. Two instanced quads per hull under way
+    // is the fleet's single largest per-entity draw-call cost, and at whole-map
+    // framing a foam trail is a few pixels of churn beside a hull that is
+    // itself only thirty. It retracts into the stem as the camera pulls back.
+    visual.wake.visible = !frame.reducedMotion
+      && !constrained
+      && wakeIntensity > 0.08
+      && overviewDetail > 0;
+    visual.wake.scale.x = (0.7 + Math.min(1.5, wakeIntensity) * 0.85) * overviewDetail;
     const showShipDetail = showWorldDetail
       || visual.ship.detailId === frame.hoveredDetailId
       || visual.ship.detailId === frame.selectedDetailId;
@@ -1688,6 +1763,52 @@ function updateSceneForFrame(
     content.crossBearingBuoys.place(index, visual.root.position.x, visual.root.position.z);
   }
   content.crossBearingBuoys.flush();
+
+  // W6.4: the hero hulls' mirror columns, placed once the transforms above are
+  // final. One pass over ~29 heroes, one buffer upload, one draw call.
+  //
+  // At whole-map framing they are shed outright: a reflection is a soft image
+  // of a hull that is itself thirty pixels there, so it costs fill for nothing.
+  // That is the SAME gate the rest of the overview policy rides.
+  const reflectionsVisible = overviewDetail > 0 && !constrained;
+  content.heroReflections.mesh.visible = reflectionsVisible;
+  if (reflectionsVisible) {
+    for (const [index, visual] of content.heroReflectionShips.entries()) {
+      // How wide the hull PRESENTS: the same footprint ellipse the contact
+      // shadow uses, measured along the screen horizontal (world (1,0,-1)/√2).
+      // A galleon lying broadside throws a broad reflection and the same hull
+      // seen bow-on throws a narrow one, which is what makes the column read as
+      // that ship rather than as a generic stripe.
+      const shadowRadius = Math.max(1.15, visual.selectionRadius * 1.25);
+      const hullForm = visual.ship.visual.hullForm;
+      const alongHull = shadowRadius * 1.65 * (hullForm?.length ?? 1);
+      const acrossHull = shadowRadius * 0.72 * (hullForm?.beam ?? 1);
+      const yaw = visual.root.rotation.y;
+      const cos = Math.cos(yaw);
+      const sin = Math.sin(yaw);
+      const footprint = Math.SQRT2 * Math.sqrt(
+        alongHull * alongHull * (cos + sin) * (cos + sin)
+        + acrossHull * acrossHull * (sin - cos) * (sin - cos),
+      );
+      content.heroReflections.place({
+        // A hull's image on the water is its timber and its canvas together,
+        // canvas-weighted: the sails are most of what a ship presents from
+        // this angle, and they are the part that reads against open water.
+        color: scratchReflectionColor.copy(visual.hullColor).lerp(visual.sailColor, 0.6),
+        index,
+        mastheadHeight: visual.mastheadHeight * visual.root.scale.x,
+        strength: overviewDetail,
+        tileX: visual.root.position.x / TILE_SCALE,
+        tileY: visual.root.position.z / TILE_SCALE,
+        width: footprint,
+        worldX: visual.root.position.x,
+        worldZ: visual.root.position.z,
+      });
+    }
+    // Reduced motion freezes the band drift at a composed pose, like every
+    // other time-driven surface in this renderer.
+    content.heroReflections.flush(frame.reducedMotion ? 0 : frame.timeSeconds);
+  }
 
   // Ship transforms are final — flutter the pennants (S8), ground moored
   // ships with karesansui ripple rings (S7 via contract C2 (d)), restamp the

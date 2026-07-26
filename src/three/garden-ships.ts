@@ -119,6 +119,14 @@ export interface ShipVisual {
   lanternPoints: readonly Vector3[];
   /** Warm-lane intensity this ship lays on the sea (by fleet tier). */
   laneIntensity: number;
+  /**
+   * W6.4: masthead height in SHIP-LOCAL units, which is what a mirror column
+   * has to be as long as. Seeded from the procedural rig plan and replaced with
+   * the GLB's own masthead anchor when a hero model attaches — those hulls are
+   * taller than the rig they stand in for, and a reflection cut to the wrong
+   * length reads as a smear rather than as the ship.
+   */
+  mastheadHeight: number;
   /** Slowed bob envelope for larger hulls (D7 motion hierarchy). */
   motionAmplitudeScale: number;
   motionPeriodScale: number;
@@ -520,6 +528,7 @@ export function createBatchedShip(
     identitySailMaterial: null,
     lanternPoints: lanternPointsForTier(tier),
     laneIntensity: FLEET_TIER_LANE_INTENSITY[tier],
+    mastheadHeight: gardenShipMastheadOffset(SILHOUETTE_FOR_HULL[ship.visual.hull]).y,
     motionAmplitudeScale: motion.amplitude,
     motionPeriodScale: motion.period,
     pennant: null,
@@ -989,6 +998,14 @@ export function createShip(
   fineDetail.add(flag);
   heroHideable.push(flag);
 
+  // The grade shield and the overlay signal are ~0.5-unit badges pinned to the
+  // rig — legible from default framing in, three pixels of noise from whole-map
+  // framing out. They hang off their own group so `garden-overview-lod` can
+  // shed both with one gate per hull rather than four.
+  const overviewDetail = new Group();
+  overviewDetail.name = "ship-overview-detail";
+  root.add(overviewDetail);
+
   if (ship.visual.overlay !== "none") {
     const overlayColor = ship.visual.overlay === "nav"
       ? HARBOR_PALETTE.lantern_cold
@@ -1012,7 +1029,7 @@ export function createShip(
     );
     signal.name = `ship-signal-${ship.visual.overlay}`;
     signal.position.set(tallestMast.x + 0.12, tallestMast.height + 0.18, 0.055);
-    root.add(signal);
+    overviewDetail.add(signal);
     if (ship.visual.overlay === "watch") {
       const watchQuarter = new Mesh(
         cachedShipGeometry(cache, "signal-watch-quarter", () => new ShapeGeometry(signalShape)),
@@ -1027,7 +1044,7 @@ export function createShip(
         tallestMast.height + 0.18,
         0.06,
       );
-      root.add(watchQuarter);
+      overviewDetail.add(watchQuarter);
     }
   }
 
@@ -1056,7 +1073,7 @@ export function createShip(
     shield.name = "ship-bluechip-shield";
     shield.position.set(1.35, 1.05, 0.82);
     shield.rotation.x = -0.18;
-    root.add(shield);
+    overviewDetail.add(shield);
     const shieldMark = new Mesh(
       new ShapeGeometry(shieldShape),
       new MeshBasicMaterial({
@@ -1067,7 +1084,7 @@ export function createShip(
     shieldMark.scale.setScalar(0.42);
     shieldMark.position.set(1.35, 1.05, 0.835);
     shieldMark.rotation.x = -0.18;
-    root.add(shieldMark);
+    overviewDetail.add(shieldMark);
   }
 
   const wake = createWake(cache);
@@ -1095,6 +1112,7 @@ export function createShip(
     identitySailMaterial,
     lanternPoints: lanternPointsForTier(tier),
     laneIntensity: FLEET_TIER_LANE_INTENSITY[tier],
+    mastheadHeight: gardenShipMastheadOffset(silhouette).y,
     motionAmplitudeScale: motion.amplitude,
     motionPeriodScale: motion.period,
     pennant: flag,
@@ -1155,8 +1173,12 @@ export function attachGardenHeroModel(visual: ShipVisual, model: Group): void {
   model.name = `hero-${heroId}`;
   visual.root.add(model);
 
+  const masthead = gardenModelAnchor(model, heroId, "masthead").position;
+  // W6.4: the GLB's own masthead, so the mirror column is cut to the hull that
+  // is actually standing there rather than to the procedural stand-in.
+  visual.mastheadHeight = masthead.y;
+
   if (visual.identitySail) {
-    const masthead = gardenModelAnchor(model, heroId, "masthead").position;
     // Hang the logo sail as the main course, just below the furled topsail yard.
     visual.identitySail.position.set(masthead.x, masthead.y * 0.64, 0.24);
     visual.identitySail.scale.set(1.6, 1.75, 1);
