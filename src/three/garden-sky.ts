@@ -261,6 +261,13 @@ function createMist(): { material: MeshBasicMaterial; mesh: Mesh } {
  * The falloff goes in the GREEN channel: three's `alphamap_fragment` reads
  * `texture2D(alphaMap, uv).g`, so writing it to alpha (as this first did) left
  * green at a constant 255 and the rectangle exactly as hard as before.
+ *
+ * The ramp is keyed to the texel INDEX range, not to texel centres. Sampling
+ * `(i + 0.5) / n` put the outermost row at `sin(pi/32)^1.4` = 0.039, and since
+ * DataTexture clamps to edge, the whole outer half-texel held that value and
+ * the plane still ended in a straight edge at ~4% alpha. Mapping `i / (n - 1)`
+ * puts an exact zero on the outermost row, so the band fades to nothing before
+ * its own geometry ends.
  */
 function createMistFalloffTexture(): DataTexture {
   const width = 64;
@@ -268,8 +275,8 @@ function createMistFalloffTexture(): DataTexture {
   const data = new Uint8Array(width * height * 4);
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
-      const u = (x + 0.5) / width;
-      const v = (y + 0.5) / height;
+      const u = x / (width - 1);
+      const v = y / (height - 1);
       // Smooth to zero at both ends of both axes.
       const across = Math.sin(Math.PI * v) ** 1.4;
       const along = Math.sin(Math.PI * u) ** 0.7;
@@ -349,7 +356,17 @@ export function createGardenSky(): GardenSky {
 
       // Dawn/dusk mist: faint, low, and slowly drifting; frozen under
       // reduced motion.
-      const mistOpacity = dusk * 0.085 + night * 0.025;
+      //
+      // No night term. The plane is 320x9 — a 36:1 stripe rotated to the
+      // camera's 45° azimuth, so its edges project to exactly horizontal lines
+      // and it can never read as anything but a band. That is survivable at
+      // dusk, where it lies over a bright sky. At night it was the "faint
+      // horizontal band in the upper sky": additive blending puts 2.5% of the
+      // warm dusk fog colour (linear ~0.244, 0.127, 0.050) over a night horizon
+      // of linear ~0.010, 0.016, 0.051 — a 59% lift in red, about +9/255 once
+      // encoded. Every comment on this mesh says dawn/dusk; the night term was
+      // the outlier.
+      const mistOpacity = dusk * 0.085;
       mist.material.opacity = mistOpacity;
       mist.mesh.visible = mistOpacity > 0.008;
       const mistDrift = frame.reducedMotion ? 0 : Math.max(0, frame.timeSeconds);
