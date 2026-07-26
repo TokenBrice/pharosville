@@ -810,24 +810,55 @@ assert.throws(
   /Could not parse producer intervals/,
 );
 
+// `annotated` switches format on GITHUB_ACTIONS, so these assertions set it
+// explicitly rather than inheriting it: the ambient value differs between a
+// developer's shell and a runner, and a guard that only holds in one of them is
+// not a guard. Both formats are pinned here.
+const withGithubActions = (value, run) => {
+  const previous = process.env.GITHUB_ACTIONS;
+  if (value === undefined) delete process.env.GITHUB_ACTIONS;
+  else process.env.GITHUB_ACTIONS = value;
+  try {
+    run();
+  } finally {
+    if (previous === undefined) delete process.env.GITHUB_ACTIONS;
+    else process.env.GITHUB_ACTIONS = previous;
+  }
+};
+
 const freshnessLog = [];
 assert.equal(reportFreshness([], false, (line) => freshnessLog.push(line)), "fresh");
 assert.deepEqual(freshnessLog, [], "a clean run stays quiet");
 
-assert.equal(
-  reportFreshness(["/api/chains is stale"], false, (line) => freshnessLog.push(line)),
-  "1 freshness warning(s)",
-  "warning tier reports without failing",
-);
-assert.equal(freshnessLog.some((line) => line.includes("WARNING (1)")), true);
-assert.equal(freshnessLog.includes("- /api/chains is stale"), true);
+withGithubActions(undefined, () => {
+  assert.equal(
+    reportFreshness(["/api/chains is stale"], false, (line) => freshnessLog.push(line)),
+    "1 freshness warning(s)",
+    "warning tier reports without failing",
+  );
+  assert.equal(freshnessLog.some((line) => line.includes("WARNING (1)")), true);
+  assert.equal(freshnessLog.includes("- /api/chains is stale"), true);
 
-assert.throws(
-  () => reportFreshness(["/api/chains is stale"], true, (line) => freshnessLog.push(line)),
-  /1 stale endpoint\(s\) under --strict-freshness/,
-  "strict tier fails the canary",
-);
-assert.equal(freshnessLog.some((line) => line.includes("FAILED (1)")), true);
+  assert.throws(
+    () => reportFreshness(["/api/chains is stale"], true, (line) => freshnessLog.push(line)),
+    /1 stale endpoint\(s\) under --strict-freshness/,
+    "strict tier fails the canary",
+  );
+  assert.equal(freshnessLog.some((line) => line.includes("FAILED (1)")), true);
+});
+
+// On a runner the same findings must become workflow commands, or a green
+// scheduled run hides them in a log tail nobody reads.
+withGithubActions("true", () => {
+  const annotatedLog = [];
+  reportFreshness(["/api/chains is stale"], false, (line) => annotatedLog.push(line));
+  assert.equal(annotatedLog.includes("::warning::/api/chains is stale"), true);
+  assert.throws(
+    () => reportFreshness(["/api/chains is stale"], true, (line) => annotatedLog.push(line)),
+    /1 stale endpoint\(s\) under --strict-freshness/,
+  );
+  assert.equal(annotatedLog.includes("::error::/api/chains is stale"), true);
+});
 
 // A mint-burn payload the response schema permits — `scope` is optional and
 // `coins` has no minimum — must pass the gate. If it failed, the deploy smoke
