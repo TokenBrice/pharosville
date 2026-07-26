@@ -690,7 +690,7 @@ function batchedTrimColor(ship: ShipNode): Color {
  * the D5 contrast floor is computed from it, so the hue must survive untouched.
  */
 function weatheredSailColor(ship: ShipNode): Color {
-  const cloth = gardenSailClothColor(ship.visual.livery);
+  const cloth = gardenSailClothColor(ship.visual.livery, ship.id);
   return cloth.multiplyScalar(0.94 + stableUnit(`${ship.id}.weather`) * 0.12);
 }
 

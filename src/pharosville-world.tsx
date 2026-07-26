@@ -988,10 +988,18 @@ function ChangelogPanelLoading() {
   );
 }
 
+/**
+ * A ship earns a dock visit only where it holds supply on a chain large enough
+ * to be drawn as a harbor, so this counts ships with a berth SOMEWHERE on the
+ * chart — a reading of how concentrated supply is on the charted chains. It is
+ * not how many ships are moored at this moment: that share is set by
+ * `DOCKED_SHIP_DWELL_SHARE` and varies by zone. The copy says "hold a berth"
+ * rather than "docked" because "docked" invites the second reading.
+ */
 function fleetCounterLabel(ships: PharosVilleWorldModel["ships"]): string {
-  const dockedShips = ships.filter((ship) => ship.dockVisits.length > 0).length;
+  const berthedShips = ships.filter((ship) => ship.dockVisits.length > 0).length;
   const totalShips = ships.length;
-  return `${integerFormatter.format(dockedShips)} of ${integerFormatter.format(totalShips)} docked`;
+  return `${integerFormatter.format(berthedShips)} of ${integerFormatter.format(totalShips)} hold a berth`;
 }
 
 function formatFrameRateLabel(frameRateFps: number | null, reducedMotion: boolean): string {

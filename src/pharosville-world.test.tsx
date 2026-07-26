@@ -189,17 +189,19 @@ afterEach(() => {
 
 describe("PharosVilleWorld UI accessibility controls", () => {
   // Interface revamp DU4/DU7/DU11: the footer carries six items and nothing
-  // else — mark, legend, changelog, harbor ledger, docked count, frame rate.
-  it("shows the current docked ship count in the footer", () => {
+  // else — mark, legend, changelog, harbor ledger, berth count, frame rate.
+  it("shows how much of the fleet holds a berth in the footer", () => {
     const { container } = render(<PharosVilleWorld world={worldFixture()} />);
 
-    expect(screen.getByTestId("pharosville-ship-counter").textContent).toBe("1 of 1 docked");
+    // "hold a berth", not "docked": the figure counts ships with a home harbor
+    // among the charted chains, not ships moored at this instant.
+    expect(screen.getByTestId("pharosville-ship-counter").textContent).toBe("1 of 1 hold a berth");
     const footer = container.querySelector(".pharosville-footer");
     // Separator spacing is CSS margin, so the DOM text runs them together.
     // Derived, not a literal: a version bump is a release chore, not a reason
     // for this test to fail.
     expect(footer?.textContent?.replace(/\s+/g, " ").trim()).toBe(
-      `PharosVille ${PHAROSVILLE_LATEST_VERSION}·Legend·Changelog·Harbor ledger·1 of 1 docked·Static`,
+      `PharosVille ${PHAROSVILLE_LATEST_VERSION}·Legend·Changelog·Harbor ledger·1 of 1 hold a berth·Static`,
     );
     expect(footer?.textContent).not.toContain("Copy link");
     expect(footer?.textContent).not.toContain("not financial advice");

@@ -5,6 +5,7 @@ import {
   SRGBColorSpace,
 } from "three";
 import type { ThreeLogoAsset } from "../renderer/world-renderer-backend";
+import { SAIL_DARK_CANVAS_ISSUERS } from "./garden-sail-overrides";
 import { GARDEN_IDENTITY_ANISOTROPY, safeCssColor } from "./garden-util";
 import type { ShipLivery, ShipNode } from "../systems/world-types";
 
@@ -49,19 +50,28 @@ const CLOTH_CANVAS = "#f4ecd8";
  * Deliberately keyed on the BRAND colour against white, not on the extracted
  * mark: this keeps the cloth a pure function of the livery, so a ship never
  * flashes pale and then snaps to black when its logo resolves.
+ *
+ * The floor is a fleet-wide number and cannot catch everything; the issuers it
+ * misses are named in `SAIL_DARK_CANVAS_ISSUERS` rather than moved by nudging
+ * this constant, which is an operator decision. Adding the ship id keeps the
+ * cloth a pure function of (livery, id) — both known when the ship is built,
+ * neither waiting on an image — so the no-flash property above survives.
  */
 const PIRATE_CONTRAST_FLOOR = 2;
 const PIRATE_SATURATION = 0.4;
 const PIRATE_LIGHTNESS = 0.07;
 
-export function gardenSailClothColor(livery: ShipLivery | null | undefined): Color {
+export function gardenSailClothColor(
+  livery: ShipLivery | null | undefined,
+  shipId: string,
+): Color {
   const primary = safeCssColor(livery?.primary, CLOTH_CANVAS);
   const cloth = new Color(primary).lerp(new Color(CLOTH_CANVAS), CLOTH_CANVAS_LIFT);
   const luminance = cloth.r * 0.2126 + cloth.g * 0.7152 + cloth.b * 0.0722;
   if (luminance < CLOTH_LUMINANCE_FLOOR) {
     cloth.lerp(new Color(CLOTH_CANVAS), (CLOTH_LUMINANCE_FLOOR - luminance) * 2.4);
   }
-  if (whiteContrast(cloth) < PIRATE_CONTRAST_FLOOR) {
+  if (SAIL_DARK_CANVAS_ISSUERS.has(shipId) || whiteContrast(cloth) < PIRATE_CONTRAST_FLOOR) {
     // Not #000 — the brand's HUE survives at very low lightness, so Maker reads
     // as a dark bronze-black and Aave as a dark green-black. Invisible at
     // overview zoom, still theirs when you sail up to it.
@@ -130,7 +140,7 @@ export function createGardenSailTexture(
   const canvas = createGardenSailCanvas(
     ship,
     logo,
-    `#${gardenSailClothColor(ship.visual.livery).getHexString()}`,
+    `#${gardenSailClothColor(ship.visual.livery, ship.id).getHexString()}`,
   );
   if (!canvas) return null;
 
@@ -268,7 +278,7 @@ function paintSailIdentity(
   // Nothing has resolved yet. The ticker holds the ship's identity until one
   // does — the invariant that identity never depends on an image loading.
   context.globalAlpha = 1;
-  context.fillStyle = identityInk(`#${gardenSailClothColor(ship.visual.livery).getHexString()}`);
+  context.fillStyle = identityInk(`#${gardenSailClothColor(ship.visual.livery, ship.id).getHexString()}`);
   context.font = "700 40px system-ui, sans-serif";
   context.textAlign = "center";
   context.textBaseline = "middle";
