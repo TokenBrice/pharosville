@@ -172,6 +172,52 @@ export interface LighthouseContributor {
   factor?: number;
 }
 
+/**
+ * How many pennants the observatory hoist carries before it stops counting.
+ *
+ * A pennant per depeg with no cap turns a bad afternoon into a ladder of cloth
+ * nobody can count, which reads as alarm rather than as a reading. Five is what
+ * a real signal hoist flies and what stays legible at overview zoom; past that
+ * the mast says "more than five" and the exact figure is the DOM's job
+ * (`detailForLighthouse`'s Signal mast row).
+ *
+ * Lives here rather than in the stage that derives it so the renderer can size
+ * its hoist without importing a world-build stage.
+ */
+export const SIGNAL_MAST_MAX_PENNANTS = 5;
+
+/**
+ * The observatory's storm-signal hoist, derived from `pegSummary.summary`.
+ *
+ * One reading of fleet-wide peg condition, carried at one place. Everything
+ * here is a plain number or flag: the world model stays serializable and the
+ * renderer decides nothing the DOM cannot also say.
+ */
+export interface SignalMastNode {
+  /** `pegSummary.summary.activeDepegCount` — coins currently off peg. */
+  activeDepegCount: number;
+  /** Pennants actually hoisted: `activeDepegCount` capped at the mast's hoist. */
+  pennantCount: number;
+  /** True when `activeDepegCount` exceeded the hoist and the mast is showing
+      fewer pennants than there are coins off peg. */
+  capped: boolean;
+  /** True when the worst current deviation crosses the storm gate. */
+  stormCone: boolean;
+  /** `pegSummary.summary.worstCurrent` — worst live deviation, signed bps. */
+  worstBps: number | null;
+  worstSymbol: string | null;
+  /** `pegSummary.summary.medianDeviationBps`. */
+  medianDeviationBps: number | null;
+  /** `pegSummary.summary.coinsAtPeg` out of `totalTracked`. */
+  coinsAtPeg: number | null;
+  totalTracked: number | null;
+  /** `pegSummary.summary.depegEventsToday`. */
+  eventsToday: number | null;
+  /** No peg summary in the payload. The mast stands bare rather than
+      reporting a calm fleet it has no evidence for. */
+  unavailable: boolean;
+}
+
 export interface LighthouseNode {
   id: "lighthouse";
   kind: "lighthouse";
@@ -189,6 +235,8 @@ export interface LighthouseNode {
   /** Epoch ms of the most recent depeg event across the tracked fleet
       (max `pegSummary.coins[].lastEventAt`), or null when none on record. */
   lastFleetDepegAt?: number | null;
+  /** Fleet-wide peg condition, hoisted on the observatory signal mast. */
+  signalMast?: SignalMastNode;
 }
 
 export interface PigeonnierNode {

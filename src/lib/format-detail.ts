@@ -67,6 +67,8 @@ export type DetailFactKey =
   | "lastFleetDepeg"
   | "psiTrend"
   | "psiComposition"
+  | "signalMast"
+  | "fleetPeg"
   | "cycleTempo"
   | "homeDock"
   | "backingDiversity"
@@ -112,6 +114,8 @@ const DETAIL_FACT_LABELS = {
   "last fleet depeg": "lastFleetDepeg",
   "trend": "psiTrend",
   "composition": "psiComposition",
+  "signal mast": "signalMast",
+  "fleet peg": "fleetPeg",
   "cycle tempo": "cycleTempo",
   "home dock": "homeDock",
   "backing diversity": "backingDiversity",
@@ -273,6 +277,14 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   if (psiTrend) identity.push({ key: "psiTrend", label: "Trend", value: psiTrend });
   const psiComposition = lookup.get("psiComposition");
   if (psiComposition) identity.push({ key: "psiComposition", label: "Composition", value: psiComposition });
+  // The observatory hoist and the figures behind it. Two rows rather than one
+  // fold: the mast row is the canvas cue's parity (what is flying) and the
+  // fleet-peg row is the evidence (what it was read from), and running them
+  // together produced a line no one could scan.
+  const signalMast = lookup.get("signalMast");
+  if (signalMast) identity.push({ key: "signalMast", label: "Signal mast", value: signalMast });
+  const fleetPeg = lookup.get("fleetPeg");
+  if (fleetPeg) identity.push({ key: "fleetPeg", label: "Fleet peg", value: fleetPeg });
   const cycleTempo = lookup.get("cycleTempo");
   if (cycleTempo) identity.push({ key: "cycleTempo", label: "Cycle tempo", value: cycleTempo });
   const homeDock = lookup.get("homeDock");

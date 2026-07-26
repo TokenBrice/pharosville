@@ -85,6 +85,74 @@ describe("detail-model analytical links", () => {
     });
   });
 
+  it("carries the observatory signal mast as DOM rows", () => {
+    const base = {
+      id: "lighthouse",
+      kind: "lighthouse",
+      label: "Pharos lighthouse",
+      tile: { x: 1, y: 1 },
+      psiBand: "NORMAL",
+      score: 42,
+      color: "#ffffff",
+      unavailable: false,
+      detailId: "lighthouse",
+    } as const satisfies Omit<LighthouseNode, "signalMast">;
+
+    const flying = detailForLighthouse({
+      ...base,
+      signalMast: {
+        activeDepegCount: 12,
+        pennantCount: 5,
+        capped: true,
+        stormCone: true,
+        worstBps: -620,
+        worstSymbol: "XUSD",
+        medianDeviationBps: 4,
+        coinsAtPeg: 202,
+        totalTracked: 214,
+        eventsToday: 2,
+        unavailable: false,
+      },
+    } satisfies LighthouseNode);
+
+    expect(flying.facts).toContainEqual({
+      label: "Signal mast",
+      value: "5 pennants for 12 coins off peg (hoist caps the count); storm cone hoisted",
+    });
+    expect(flying.facts).toContainEqual({
+      label: "Fleet peg",
+      value: "Worst XUSD -6.2%; median +4 bps; 202 of 214 at peg; 2 events today",
+    });
+
+    const calm = detailForLighthouse({
+      ...base,
+      signalMast: {
+        activeDepegCount: 0,
+        pennantCount: 0,
+        capped: false,
+        stormCone: false,
+        worstBps: null,
+        worstSymbol: null,
+        medianDeviationBps: 1,
+        coinsAtPeg: 214,
+        totalTracked: 214,
+        eventsToday: 0,
+        unavailable: false,
+      },
+    } satisfies LighthouseNode);
+
+    expect(calm.facts).toContainEqual({ label: "Signal mast", value: "Bare — no coin off peg" });
+
+    // No summary is not a calm fleet: the row says the mast has nothing to go
+    // on, and the figures row is omitted rather than filled with zeroes.
+    const dark = detailForLighthouse(base satisfies LighthouseNode);
+    expect(dark.facts).toContainEqual({
+      label: "Signal mast",
+      value: "Bare — no peg summary tonight",
+    });
+    expect(dark.facts.some((fact) => fact.label === "Fleet peg")).toBe(false);
+  });
+
   it("opens the pigeonnier Telegram link in a new tab", () => {
     const detail = detailForPigeonnier({
       id: "pigeonnier",

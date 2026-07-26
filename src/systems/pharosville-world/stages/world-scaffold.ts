@@ -1,5 +1,6 @@
 import { RUNTIME_CEMETERY_ENTRIES } from "@shared/lib/cemetery-runtime";
 import { PSI_HEX_COLORS } from "@shared/lib/psi-colors";
+import { STATUS_COINGECKO_PRICE_DIFF_THRESHOLD_PCT } from "@shared/lib/status-thresholds";
 import type { StabilityIndexResponse } from "@shared/types";
 import { buildChainDocks } from "../../chain-docks";
 import {
@@ -20,7 +21,9 @@ import type {
   PharosVilleWorld,
   PigeonnierNode,
   ShipNode,
+  SignalMastNode,
 } from "../../world-types";
+import { SIGNAL_MAST_MAX_PENNANTS } from "../../world-types";
 import type {
   BuildWorldScaffoldStage,
   PharosVilleInputs,
@@ -135,6 +138,64 @@ function buildLighthouse(
     unavailable: !current || !isConditionBand(band),
     detailId: "lighthouse",
     lastFleetDepegAt: lastFleetDepegAt(pegSummary),
+    signalMast: buildSignalMast(pegSummary),
+  };
+}
+
+/**
+ * Deviation, in basis points, at which the mast hoists its storm cone.
+ *
+ * Derived rather than invented: `STATUS_COINGECKO_PRICE_DIFF_THRESHOLD_PCT` is
+ * the pipeline's existing shared answer to "how far apart do two readings of
+ * the same price have to be before we treat the gap as real and not noise",
+ * and a peg deviation is exactly that question asked against par. Reusing it
+ * means the cone moves when that gate moves, instead of drifting from it.
+ */
+export const SIGNAL_MAST_STORM_CONE_BPS = STATUS_COINGECKO_PRICE_DIFF_THRESHOLD_PCT * 100;
+
+/**
+ * Fleet-wide peg condition for the observatory hoist.
+ *
+ * `pegSummary.summary` is the only payload that speaks for the whole fleet at
+ * once; every other peg reading in the world is per-coin. Absent summary is
+ * NOT calm — a mast with nothing to go on stands bare and says so, because a
+ * bare mast that means "all clear" and a bare mast that means "no dispatches
+ * arrived" cannot be told apart by looking.
+ */
+export function buildSignalMast(pegSummary: PharosVilleInputs["pegSummary"]): SignalMastNode {
+  const summary = pegSummary?.summary ?? null;
+  if (!summary) {
+    return {
+      activeDepegCount: 0,
+      pennantCount: 0,
+      capped: false,
+      stormCone: false,
+      worstBps: null,
+      worstSymbol: null,
+      medianDeviationBps: null,
+      coinsAtPeg: null,
+      totalTracked: null,
+      eventsToday: null,
+      unavailable: true,
+    };
+  }
+
+  const activeDepegCount = Math.max(0, Math.trunc(finiteNumber(summary.activeDepegCount) ?? 0));
+  const worstBps = finiteNumber(summary.worstCurrent?.bps);
+  return {
+    activeDepegCount,
+    pennantCount: Math.min(activeDepegCount, SIGNAL_MAST_MAX_PENNANTS),
+    capped: activeDepegCount > SIGNAL_MAST_MAX_PENNANTS,
+    // The gate is on MAGNITUDE: a coin trading above par as far as this is as
+    // much a broken peg as one trading below it.
+    stormCone: worstBps !== null && Math.abs(worstBps) >= SIGNAL_MAST_STORM_CONE_BPS,
+    worstBps,
+    worstSymbol: nonEmptyString(summary.worstCurrent?.symbol),
+    medianDeviationBps: finiteNumber(summary.medianDeviationBps),
+    coinsAtPeg: finiteNumber(summary.coinsAtPeg),
+    totalTracked: finiteNumber(summary.totalTracked),
+    eventsToday: finiteNumber(summary.depegEventsToday),
+    unavailable: false,
   };
 }
 

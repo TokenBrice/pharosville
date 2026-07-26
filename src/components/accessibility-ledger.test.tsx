@@ -168,6 +168,39 @@ describe("AccessibilityLedger", () => {
     expect(markup).toContain("Top contributors: USDT -12 bps ($90.0B)");
   });
 
+  it("reads the observatory signal mast out in the lighthouse row", () => {
+    const world: PharosVilleWorld = {
+      ...sampleWorld(),
+      lighthouse: {
+        ...sampleWorld().lighthouse,
+        signalMast: {
+          activeDepegCount: 2,
+          pennantCount: 2,
+          capped: false,
+          stormCone: true,
+          worstBps: -640,
+          worstSymbol: "XUSD",
+          medianDeviationBps: 3,
+          coinsAtPeg: 212,
+          totalTracked: 214,
+          eventsToday: 1,
+          unavailable: false,
+        },
+      },
+    };
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("Signal mast: 2 pennants for 2 coins off peg; storm cone hoisted.");
+    expect(markup).toContain("Fleet peg: Worst XUSD -6.4%; median +3 bps; 212 of 214 at peg; 1 event today.");
+  });
+
+  it("says the mast is bare rather than implying calm when no peg summary arrived", () => {
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorld()} />);
+
+    expect(markup).toContain("Signal mast: Bare — no peg summary tonight.");
+    expect(markup).not.toContain("Fleet peg:");
+  });
+
   it("adds a non-time-dependent lighthouse warm-beam cue from active elevated DEWS counts", () => {
     const world: PharosVilleWorld = {
       ...sampleWorld(),

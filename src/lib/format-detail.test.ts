@@ -167,6 +167,20 @@ describe("buildDetailFactSections folds", () => {
     ]);
   });
 
+  // An unregistered fact label is dropped silently, so the lighthouse panel
+  // would lose the signal mast's DOM parity with every test still green. This
+  // asserts the registration, not the wording.
+  it("renders the signal mast and fleet peg rows for lighthouse facts", () => {
+    const { identity } = buildDetailFactSections([
+      { label: "Signal mast", value: "3 pennants for 3 coins off peg" },
+      { label: "Fleet peg", value: "Worst XUSD -6.2%; 211 of 214 at peg" },
+    ]);
+    expect(identity).toEqual([
+      { key: "signalMast", label: "Signal mast", value: "3 pennants for 3 coins off peg" },
+      { key: "fleetPeg", label: "Fleet peg", value: "Worst XUSD -6.2%; 211 of 214 at peg" },
+    ]);
+  });
+
   it("folds stress driver into the Currently row instead of spending its own row", () => {
     const { position } = buildDetailFactSections([
       { label: "Representative position", value: "Danger Strait idle" },

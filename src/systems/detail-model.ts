@@ -414,9 +414,46 @@ export function detailForPigeonnier(node: PigeonnierNode): DetailModel {
   };
 }
 
+/**
+ * What the observatory hoist is showing, in words — the DOM parity for the
+ * signal mast. Deliberately describes the CLOTH, not the market: a reader who
+ * cannot see the mast should be able to picture it and then read the figures.
+ */
+export function signalMastLabel(mast: LighthouseNode["signalMast"]): string {
+  if (!mast || mast.unavailable) return "Bare — no peg summary tonight";
+  const cone = mast.stormCone ? "; storm cone hoisted" : "";
+  if (mast.pennantCount === 0) return `Bare — no coin off peg${cone}`;
+  const hoist = `${pluralize(mast.pennantCount, "pennant")} for ${pluralize(mast.activeDepegCount, "coin")} off peg`;
+  return `${hoist}${mast.capped ? " (hoist caps the count)" : ""}${cone}`;
+}
+
+/**
+ * The figures behind the hoist. Null when there is no summary to read, so the
+ * row is omitted rather than padded with unavailables.
+ */
+export function fleetPegLabel(mast: LighthouseNode["signalMast"]): string | null {
+  if (!mast || mast.unavailable) return null;
+  const parts: string[] = [];
+  if (mast.worstBps !== null) {
+    const symbol = mast.worstSymbol ? `${mast.worstSymbol} ` : "";
+    parts.push(`Worst ${symbol}${signedBpsPercentLabel(mast.worstBps)}`);
+  }
+  if (mast.medianDeviationBps !== null) {
+    parts.push(`median ${basisPointsLabel(mast.medianDeviationBps)}`);
+  }
+  if (mast.coinsAtPeg !== null && mast.totalTracked !== null) {
+    parts.push(`${mast.coinsAtPeg} of ${mast.totalTracked} at peg`);
+  }
+  if (mast.eventsToday !== null) {
+    parts.push(`${pluralize(mast.eventsToday, "event")} today`);
+  }
+  return parts.length > 0 ? parts.join("; ") : null;
+}
+
 export function detailForLighthouse(node: LighthouseNode): DetailModel {
   const trend = psiTrendLabel(node);
   const composition = psiCompositionLabel(node);
+  const fleetPeg = fleetPegLabel(node.signalMast);
   const contributors = node.contributors ?? [];
   return {
     id: node.detailId,
@@ -431,6 +468,8 @@ export function detailForLighthouse(node: LighthouseNode): DetailModel {
       ...(trend ? [{ label: "Trend", value: trend }] : []),
       ...(composition ? [{ label: "Composition", value: composition }] : []),
       { label: "Beam warmth cue", value: lighthouseBeamWarmCueLabel() },
+      { label: "Signal mast", value: signalMastLabel(node.signalMast) },
+      ...(fleetPeg ? [{ label: "Fleet peg", value: fleetPeg }] : []),
       {
         label: "Last fleet depeg",
         value: depegEventDateLabel(node.lastFleetDepegAt ?? null) ?? "None on record",

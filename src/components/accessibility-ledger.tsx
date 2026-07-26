@@ -11,6 +11,7 @@ import {
   pegDeviationLabel,
   DIMENSION_KEY_LABELS,
   dockConcentrationLabel,
+  fleetPegLabel,
   harborRankLabel,
   lighthouseBeamWarmCueLabel,
   psiCompositionLabel,
@@ -18,6 +19,7 @@ import {
   psiTrendLabel,
   reportCardSafetyLabel,
   shareOfFleetLabel,
+  signalMastLabel,
   stablecoinSupplyShareLabel,
   stressBreakdownLabel,
   supplyMomentumLabel,
@@ -112,6 +114,8 @@ function AccessibilityLedgerContent({
   const lighthouseTrend = psiTrendLabel(world.lighthouse);
   const lighthouseComposition = psiCompositionLabel(world.lighthouse);
   const lighthouseContributors = world.lighthouse.contributors?.map(psiContributorLabel).join(", ");
+  const lighthouseSignalMast = signalMastLabel(world.lighthouse.signalMast);
+  const lighthouseFleetPeg = fleetPegLabel(world.lighthouse.signalMast);
   const recentFleetTrend = recentFleetTrendSummary(world);
 
   return (
@@ -143,6 +147,8 @@ function AccessibilityLedgerContent({
             {lighthouseTrend ? ` Trend: ${lighthouseTrend}.` : ""}
             {lighthouseComposition ? ` Composition: ${lighthouseComposition}.` : ""}
             {lighthouseContributors ? ` Top contributors: ${lighthouseContributors}.` : ""}
+            {` Signal mast: ${lighthouseSignalMast}.`}
+            {lighthouseFleetPeg ? ` Fleet peg: ${lighthouseFleetPeg}.` : ""}
           </dd>
         </div>
         <div>

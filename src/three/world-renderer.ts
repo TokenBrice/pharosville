@@ -97,6 +97,7 @@ import {
   updateLighthouseRimLight,
 } from "./garden-lighthouse";
 import { createGardenBeaconFire, type GardenBeaconFire } from "./garden-beacon-fire";
+import { createGardenSignalMast, type GardenSignalMast } from "./garden-signal-mast";
 import {
   createGardenSummitBirds,
   type GardenSummitBirds,
@@ -537,6 +538,7 @@ interface GardenContent {
   shipLanternMaterial: MeshStandardMaterial;
   shipShadows: InstancedMesh<CircleGeometry, MeshBasicMaterial>;
   ships: ShipVisual[];
+  signalMast: GardenSignalMast;
   statueGleamMaterials: MeshStandardMaterial[];
   summitBirds: GardenSummitBirds;
   summitBirdsRoot: Group;
@@ -934,6 +936,22 @@ function createWorldContent(
     }
   });
 
+  // 3a: the storm-signal hoist, standing on the planted shelf just east of the
+  // observatory pavilion (garden-island's `createObservatoryPavilion`, root at
+  // x 4.4 with a 2.4-unit base) — clear of its footprint, on the same terrace,
+  // so the instrument and the signal read as one station. The height is the
+  // shelf cap (`islandTerrainHeight` is private to garden-island, and every
+  // other prop on this terrace is seated by hand the same way). Yawed to the
+  // fixed camera azimuth so the cloth is never seen edge-on.
+  const signalMast = createGardenSignalMast();
+  signalMast.root.position.set(7.2, 0.98, 3.2);
+  signalMast.root.rotation.y = Math.PI / 4;
+  signalMast.setState({
+    pennantCount: world.lighthouse.signalMast?.pennantCount ?? 0,
+    stormCone: world.lighthouse.signalMast?.stormCone ?? false,
+  });
+  island.root.add(signalMast.root);
+
   const cemetery = createGardenCemetery(world.graves);
   const pigeonnier = createGardenPigeonnier(world.pigeonnier);
   root.add(cemetery.root, pigeonnier.root);
@@ -1106,6 +1124,7 @@ function createWorldContent(
     shipLanternMaterial: fleetLanterns.coreMaterial,
     shipShadows,
     ships,
+    signalMast,
     statueGleamMaterials,
     summitBirds,
     summitBirdsRoot: summitBirds.root,
@@ -1326,6 +1345,16 @@ function updateSceneForFrame(
   content.beaconHalo.material.opacity *= 0.92 + flicker * 0.16;
   content.lighthouseLight.intensity *= 1 + (flicker - 0.5) * 0.3;
   content.summitBirds.update({
+    reducedMotion: frame.reducedMotion,
+    timeSeconds: frame.timeSeconds,
+    visible: ambientAlive,
+  });
+  // 3a: the hoist rides the same `ambientAlive` gate as the rest of the
+  // island's small life — it survives `recovery` and is shed only at
+  // `constrained`. What is flying was fixed at compose time; this call only
+  // lifts the cloth, so the tier decides whether the mast is drawn, never what
+  // it reports.
+  content.signalMast.update({
     reducedMotion: frame.reducedMotion,
     timeSeconds: frame.timeSeconds,
     visible: ambientAlive,

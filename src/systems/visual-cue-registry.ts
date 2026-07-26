@@ -12,6 +12,11 @@ export const LEGEND_MARK_ROWS = [
     text: "Cargo crates on a dock mean chain backing is narrowing or concentrated; empty quays do not certify safety.",
   },
   {
+    cueId: "cue.lighthouse.signal-mast",
+    label: "Observatory signal mast",
+    text: "Small pennants on the mast beside the observatory count the coins currently off peg (five is the top of the hoist); a dark cone joins them when the worst deviation is large. It reports today's readings, not a forecast.",
+  },
+  {
     cueId: "cue.ship.audit-shield",
     label: "Steel-and-gold shield",
     text: "Major graded ships may carry a bluechip audit shield; the shield is a grade marker, not a blanket approval.",
@@ -40,6 +45,17 @@ export function buildVisualCueRegistry(): VisualCue[] {
       failureState: "unlit/fogged lighthouse",
       domEquivalent: "lighthouse detail Score, Band, Trend, Composition, and top-contributor rows plus accessibility ledger lighthouse row",
       reducedMotionEquivalent: "static beacon state and lighthouse detail PSI rows",
+    },
+    {
+      id: "cue.lighthouse.signal-mast",
+      target: { kind: "lighthouse" },
+      primaryChannels: ["shape", "size"],
+      visual: "signal mast on the observatory terrace flying one small pennant per coin currently off peg (hoist of five) with a dark storm cone at the yardarm when the worst live deviation crosses the shared price-materiality gate",
+      sourceField: "pegSummary.summary.activeDepegCount, pegSummary.summary.worstCurrent",
+      questionAnswered: "How many stablecoins are off peg across the whole fleet right now, and is any one of them far enough off to count as a storm?",
+      failureState: "bare mast; the lighthouse Signal mast row reads 'no peg summary tonight' and the Fleet peg row is absent",
+      domEquivalent: "lighthouse detail Signal mast and Fleet peg rows plus the accessibility ledger lighthouse signal-mast clause",
+      reducedMotionEquivalent: "same pennants and cone held at their composed time-zero pose",
     },
     {
       id: "cue.dock.size",
