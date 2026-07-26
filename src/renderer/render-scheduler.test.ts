@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   createRenderSchedulerHysteresisState,
   RENDER_SCHEDULER_DOWNSHIFT_STREAK,
+  RENDER_SCHEDULER_IDLE_AFTER_MS,
+  RENDER_SCHEDULER_IDLE_TARGET_FRAME_MS,
   RENDER_SCHEDULER_UPSHIFT_STREAK,
+  resolveRenderSchedulerIdleState,
   resolveRenderSchedulerState,
   seaQualityTier,
 } from "./render-scheduler";
@@ -88,6 +91,33 @@ describe("render scheduler", () => {
     }
     // Absent a load reading, the ladder's own initial value is the fallback.
     expect(seaQualityTier({ tier: "interaction" })).toBe("balanced");
+  });
+
+  it("idles only after a sustained quiet spell, and never under reduced motion", () => {
+    const awake = resolveRenderSchedulerIdleState({ msSinceInteraction: 0, reducedMotion: false });
+    expect(awake.idle).toBe(false);
+    expect(awake.targetFrameMs).toBe(16.7);
+
+    const nearlyIdle = resolveRenderSchedulerIdleState({
+      msSinceInteraction: RENDER_SCHEDULER_IDLE_AFTER_MS - 1,
+      reducedMotion: false,
+    });
+    expect(nearlyIdle.idle).toBe(false);
+
+    const idle = resolveRenderSchedulerIdleState({
+      msSinceInteraction: RENDER_SCHEDULER_IDLE_AFTER_MS,
+      reducedMotion: false,
+    });
+    expect(idle.idle).toBe(true);
+    expect(idle.targetFrameMs).toBe(RENDER_SCHEDULER_IDLE_TARGET_FRAME_MS);
+
+    // A single static frame has no duty cycle to halve.
+    const reduced = resolveRenderSchedulerIdleState({
+      msSinceInteraction: RENDER_SCHEDULER_IDLE_AFTER_MS * 10,
+      reducedMotion: true,
+    });
+    expect(reduced.idle).toBe(false);
+    expect(reduced.targetFrameMs).toBe(16.7);
   });
 
   it("uses the constrained tier under severe frame pressure", () => {
@@ -176,6 +206,39 @@ describe("render scheduler hysteresis", () => {
     }
     expect(state.loadTier).toBe("full");
 
+    for (let frame = 1; frame < RENDER_SCHEDULER_DOWNSHIFT_STREAK; frame += 1) {
+      expect(resolveRenderSchedulerState(pressured, state).tier).toBe("full");
+    }
+    expect(resolveRenderSchedulerState(pressured, state).tier).toBe("recovery");
+  });
+
+  it("freezes the ladder on idle frames so a duty cycle never reads as load", () => {
+    // The trap this closes: an idle frame is deliberately spaced at ~33ms, and
+    // 33ms is squarely inside the `recovery` band. Left alone, a world nobody
+    // is touching would shed water motion, gulls and shadows two frames after
+    // it started saving power.
+    const state = createRenderSchedulerHysteresisState();
+    for (let frame = 0; frame < RENDER_SCHEDULER_UPSHIFT_STREAK; frame += 1) {
+      resolveRenderSchedulerState(calm, state);
+    }
+    expect(state.loadTier).toBe("full");
+
+    const idle = {
+      cameraIntentActive: false,
+      drawDurationMs: 10,
+      framePacingP90Ms: 34,
+      idleActive: true,
+      reducedMotion: false,
+    };
+    for (let frame = 0; frame < RENDER_SCHEDULER_DOWNSHIFT_STREAK * 4; frame += 1) {
+      const scheduler = resolveRenderSchedulerState(idle, state);
+      expect(scheduler.tier).toBe("full");
+      expect(scheduler.targetFrameMs).toBe(RENDER_SCHEDULER_IDLE_TARGET_FRAME_MS);
+    }
+    expect(state.loadTier).toBe("full");
+    expect(state.downshiftStreak).toBe(0);
+
+    // Genuine pressure after the world wakes still sheds on the usual streak.
     for (let frame = 1; frame < RENDER_SCHEDULER_DOWNSHIFT_STREAK; frame += 1) {
       expect(resolveRenderSchedulerState(pressured, state).tier).toBe("full");
     }

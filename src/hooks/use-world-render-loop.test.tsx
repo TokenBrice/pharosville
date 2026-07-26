@@ -9,6 +9,10 @@ import type {
   ThreeLogoAssets,
   ThreeWorldRendererFrame,
 } from "../renderer/world-renderer-backend";
+import {
+  RENDER_SCHEDULER_IDLE_AFTER_MS,
+  RENDER_SCHEDULER_IDLE_TARGET_FRAME_MS,
+} from "../renderer/render-scheduler";
 import { defaultCamera } from "../systems/camera";
 import { initialAdaptiveDprState, resolveRenderSurfaceBudget } from "../systems/render-surface-budget";
 import { buildBaseMotionPlan, buildMotionPlan, type ShipMotionSample } from "../systems/motion";
@@ -252,6 +256,17 @@ describe("useWorldRenderLoop", () => {
     act(() => {
       callback!(time);
     });
+  }
+
+  function lastDrawnFrame(): ThreeWorldRendererFrame {
+    const drawCalls = renderThreeWorldMock.mock.calls as unknown as Array<[ThreeWorldRendererFrame]>;
+    return drawCalls[drawCalls.length - 1]![0];
+  }
+
+  function framePacingSampleCount(): number {
+    return (window as typeof window & {
+      __pharosVilleDebug?: { renderMetrics?: { framePacing?: { sampleCount: number } } };
+    }).__pharosVilleDebug?.renderMetrics?.framePacing?.sampleCount ?? -1;
   }
 
   async function renderWithReadyRenderer(ui: ReactElement) {
@@ -784,6 +799,110 @@ describe("useWorldRenderLoop", () => {
     expect(drawnLighthouse?.rect.x).not.toBe(originalLighthouse?.rect.x);
     expect(drawnLighthouse?.rect.x).toBeCloseTo(shiftedLighthouse!.rect.x);
     expect(drawnLighthouse?.rect.y).toBeCloseTo(shiftedLighthouse!.rect.y);
+  });
+
+  it("drops to the idle duty cycle after a quiet spell and wakes on the next input", async () => {
+    // The RAF timestamp and performance.now() are the same clock in a browser,
+    // so drive both from one fake reading — otherwise a dispatched input would
+    // stamp real wall time against fictional frame times.
+    let fakeNow = 0;
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => fakeNow);
+    const fireFrame = (time: number) => {
+      fakeNow = time;
+      fireLatestRaf(time);
+    };
+
+    try {
+      await renderWithReadyRenderer(<Harness hoveredDetailId={null} onResult={() => {}} reducedMotion={false} />);
+
+      // Awake, every display frame draws.
+      fireFrame(16);
+      fireFrame(32);
+      const drawsWhileAwake = renderThreeWorldMock.mock.calls.length;
+      fireFrame(48);
+      expect(renderThreeWorldMock.mock.calls.length).toBe(drawsWhileAwake + 1);
+      expect(lastDrawnFrame().renderScheduler.targetFrameMs).toBe(16.7);
+
+      // Nobody has touched the world for the whole idle timeout.
+      const quiet = RENDER_SCHEDULER_IDLE_AFTER_MS + 48;
+      fireFrame(quiet);
+      const drawsAtIdleEntry = renderThreeWorldMock.mock.calls.length;
+      expect(lastDrawnFrame().renderScheduler.targetFrameMs).toBe(RENDER_SCHEDULER_IDLE_TARGET_FRAME_MS);
+
+      // A display-rate frame inside the idle budget does no work — but the loop
+      // still asks for the next one, which is what makes waking instant.
+      const rafsBeforeSkip = rafSpy.mock.calls.length;
+      fireFrame(quiet + 16);
+      expect(renderThreeWorldMock.mock.calls.length).toBe(drawsAtIdleEntry);
+      expect(rafSpy.mock.calls.length).toBe(rafsBeforeSkip + 1);
+
+      // One duty cycle later it draws again.
+      fireFrame(quiet + 34);
+      expect(renderThreeWorldMock.mock.calls.length).toBe(drawsAtIdleEntry + 1);
+
+      // A hand on the mouse restores full rate on the very next frame, 10ms
+      // later — inside the idle budget it would otherwise have waited out. Not
+      // a hover, not a click: a pointer move over open water.
+      fakeNow = quiet + 38;
+      act(() => {
+        window.dispatchEvent(new Event("pointermove"));
+      });
+      fireFrame(quiet + 44);
+      expect(renderThreeWorldMock.mock.calls.length).toBe(drawsAtIdleEntry + 2);
+      expect(lastDrawnFrame().renderScheduler.targetFrameMs).toBe(16.7);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("keeps idle frames out of the load tier and the frame-pacing window", async () => {
+    let fakeNow = 0;
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => fakeNow);
+    const fireFrame = (time: number) => {
+      fakeNow = time;
+      fireLatestRaf(time);
+    };
+
+    try {
+      await renderWithReadyRenderer(<Harness hoveredDetailId={null} onResult={() => {}} reducedMotion={false} />);
+
+      // Earn the full tier on healthy 60fps frames.
+      const awakeFrames = 24;
+      for (let frame = 1; frame <= awakeFrames; frame += 1) fireFrame(frame * 16);
+      expect(lastDrawnFrame().renderScheduler.tier).toBe("full");
+      const awakeSamples = framePacingSampleCount();
+      expect(awakeSamples).toBeGreaterThan(0);
+
+      // Idle intervals sit at ~34ms, squarely inside the `recovery` band. The
+      // machine is not struggling — it is being asked for half the frames — so
+      // neither the tier nor the shared pacing window may register them.
+      const quiet = RENDER_SCHEDULER_IDLE_AFTER_MS + awakeFrames * 16;
+      for (let frame = 0; frame < 10; frame += 1) {
+        fireFrame(quiet + frame * 34);
+        expect(lastDrawnFrame().renderScheduler.tier).toBe("full");
+      }
+      expect(framePacingSampleCount()).toBe(awakeSamples);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("leaves the reduced-motion static frame outside the idle governor", async () => {
+    let latest: UseWorldRenderLoopResult | null = null;
+    await renderWithReadyRenderer(<Harness hoveredDetailId={null} onResult={(result) => { latest = result; }} />);
+    const latestResult = latest as UseWorldRenderLoopResult | null;
+
+    const drawsAfterMount = renderThreeWorldMock.mock.calls.length;
+    act(() => latestResult!.requestPaint());
+    // Long past the idle timeout: the deterministic frame is still drawn on
+    // demand, at the full target, with the motion clock pinned at zero.
+    fireLatestRaf(RENDER_SCHEDULER_IDLE_AFTER_MS * 2);
+
+    expect(renderThreeWorldMock.mock.calls.length).toBe(drawsAfterMount + 1);
+    const frame = lastDrawnFrame();
+    expect(frame.renderScheduler.targetFrameMs).toBe(16.7);
+    expect(frame.renderScheduler.tier).toBe("full");
+    expect(frame.timeSeconds).toBe(0);
   });
 
   it("publishes camera loop proof fields", async () => {
