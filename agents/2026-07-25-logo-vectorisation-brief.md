@@ -293,7 +293,7 @@ with an operator eye, all "same brand, changed treatment":
 
 ### Pre-existing defect found (not caused by this task)
 
-`public/logos/340-rwausdi.png` (`rwausdi-multipli`) is a **truncated PNG** — the IDAT
+The former `340-rwausdi.png` under `public/logos/` (`rwausdi-multipli`) was a **truncated PNG** — the IDAT
 chunk declares 3198 bytes and only 385 are present. Broken since the bootstrap
 commit `c023b2c`; it decodes to nothing and renders blank today. Left in place
 because sourcing a correct replacement hits the same provenance problem.
@@ -344,11 +344,11 @@ rejection criterion. `153-busd` is worth re-examining on these grounds.
 | `23-ousd` | `github.com/OriginProtocol/origin-defi` `libs/shared/icons/src/tokens/OUSD.svg` |
 | `26-musd` | `github.com/mstable/mStable-apps` `libs/icons/src/lib/tokens/mUSD.svg` |
 | `67-bean` | `github.com/BeanstalkFarms/Beanstalk-Brand-Assets` `BEAN/bean.svg` |
-| `232-pinto` | `github.com/pinto-org/interface` `src/assets/protocol/PintoLogo.svg` |
+| `232-pinto` | <https://github.com/pinto-org/interface> — protocol asset `PintoLogo.svg` |
 | `312-hollar` | `github.com/galacticcouncil/intergalactic-asset-metadata` `v2/polkadot/2034/assets/222/icon.svg` |
 | `cg-deuro` | `github.com/d-EURO/landingPage` `media_kit/03_Coin_Logos/01_Standard/SVG/dEuro_coin_logo.svg` |
 | `172-usdb` | `cdn.prod.website-files.com/…/65c67eafd3569b7e2f834b8d_usdb-icon-yellow.svg` (brandkit.blast.io) |
-| `171-hai` | `github.com/hai-on-op/app` `src/assets/hai-logo.svg` |
+| `171-hai` | <https://github.com/hai-on-op/app> — asset `hai-logo.svg` |
 | `220-usda` | `lend.avalonfinance.xyz/icons/tokens/usda.svg` |
 | `255-yusd` | `aegis.im/assets/yusd-l.svg` |
 | `238-scusd` | `app.rings.money/_next/static/media/scusd.2cc1d03c.svg` |

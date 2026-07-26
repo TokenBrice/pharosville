@@ -238,7 +238,7 @@ Also landed, not on the original list:
 - **A byte-level runtime media guard.** `check:runtime-media` verified that
   referenced files exist; it now verifies they can render — PNG/JPEG/WebP
   container integrity, truncation, SVG sanity, and vector-behind-raster
-  extension swaps. It immediately caught `public/logos/340-rwausdi.png`:
+  extension swaps. It immediately caught the then-present `340-rwausdi.png`:
   truncated since the bootstrap commit `c023b2c` (IDAT declares 3198 bytes,
   385 present) and rendering blank in production ever since.
 - **Logo vectorisation, partial.** Batch A needed no work — all 11 chain
@@ -364,7 +364,7 @@ update paths and an idle tier freeze that failed open.
 - **`replaceWorldContent` recreates what it just disposed.** The measured
   successor to the worker idea, and the only remaining structural win in the
   239ms common-case refresh.
-- **`public/logos/340-rwausdi.png` is still broken.** The guard now names
+- **The truncated `340-rwausdi.png` is still broken.** The guard now names
   it, but sourcing a correct replacement hits the same provenance problem as
   the rest of the tail.
 - **150 long-tail logos remain raster.** Four deliberate skips are worth an
