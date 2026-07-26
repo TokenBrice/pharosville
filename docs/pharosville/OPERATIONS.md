@@ -11,6 +11,8 @@ This runbook covers the standalone Cloudflare Pages app at
 - `wrangler.toml` sets the public `PHAROS_API_BASE`.
 - `functions/api/[[path]].ts` proxies allowlisted reads and holds the
   server-side `PHAROS_API_KEY` binding.
+- `functions/index.ts` serves `/` and rewrites the social-card text tags for a
+  recognised `?sel=`; it takes no binding and makes no upstream call.
 - `public/_headers` governs static responses; the Function owns API headers.
 
 Initial Pages setup:
@@ -285,6 +287,43 @@ things: it routes the report to the `PHAROSVILLE_CANARY_PROBE` token, and it
 moves the request into a single shared rate-limit bucket instead of the
 per-IP one, so a probe can never spend a real visitor's budget. Marking a
 request synthetic only ever tightens its rate limit.
+
+## Per-selection social cards
+
+`functions/index.ts` serves `/` and rewrites the `og:*`, `twitter:*`,
+`description` and `<title>` text when the query string names a recognised
+entity, so a link shared to one ship unfurls as that ship rather than as the
+homepage. It is text-only: `og:image` stays the single static `og-card.png` for
+every variant. It fetches nothing, holds no credential, and writes no cache
+entry; a request with no `sel=` gets the asset response untouched.
+
+Two things need a human.
+
+**Verify the header policy on the first deploy that carries it.** This is the
+first Function in front of the app shell. `public/_headers` governs `/` today,
+and the route is written to pass the asset response's headers through
+unchanged, but a Function on the HTML route is a new arrangement — confirm the
+policy survived before trusting it:
+
+```bash
+npm run check:security-headers
+curl -sI 'https://pharosville.pharos.watch/?sel=ship.usdc-circle' | grep -i 'content-security-policy\|x-frame-options'
+```
+
+Then check that the rewrite actually fires:
+
+```bash
+curl -s 'https://pharosville.pharos.watch/?sel=ship.usdc-circle' | grep 'og:title'
+```
+
+**The Copy link button does not yet produce a link this route can read.** It
+copies `window.location.href`, and the app writes its deep-link params into the
+URL *fragment* (`/#sel=ship.usdc-circle`). A fragment is never sent to a server, so no
+Function — this one or any other — can see it, and a copied link still unfurls
+as the homepage. The client already reads the query form
+(`parseInitialWorldUrlState` selects the search string when it owns the world
+params), so the fix is on the sharing side: emit `?sel=…` for copied links.
+Until that lands, this route only serves hand-built query links.
 
 ## Rotate `PHAROS_API_KEY`
 

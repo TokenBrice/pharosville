@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link2 from "lucide-react/dist/esm/icons/link-2";
+import { buildShareableWorldUrlHref } from "../hooks/use-world-url-state";
 import type { DetailModel } from "../systems/world-types";
 import {
   buildDetailFactSections,
@@ -57,15 +58,17 @@ export function DetailPanel({
   const panelRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
 
-  // The URL in the address bar is already the shareable one: use-world-url-state
-  // keeps sel/cam/t/n written there by replaceState. Copying it is the whole
-  // feature; the label swap is for people who cannot hear the live region.
+  // The address bar carries sel/cam/t/n in the fragment, which never reaches a
+  // server — so copying it verbatim would unfurl as the generic card wherever
+  // it was pasted. The shared form moves the same params to the query string,
+  // which functions/index.ts reads to name the ship in the preview.
+  // The label swap is for people who cannot hear the live region.
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const copyTimerRef = useRef<number | null>(null);
   const handleCopyLink = useCallback(async () => {
     let message = "Link copied";
     try {
-      await navigator.clipboard.writeText(window.location.href);
+      await navigator.clipboard.writeText(buildShareableWorldUrlHref(window.location.href));
     } catch {
       message = "Could not copy link";
     }

@@ -249,7 +249,9 @@ describe("DetailPanel copy link", () => {
     };
   };
 
-  it("copies the current world URL and announces it", async () => {
+  // The address bar keeps the params in the fragment; the copied link moves
+  // them to the query string so the shared card can name the ship.
+  it("copies the current world URL as a server-readable link and announces it", async () => {
     const writeText = vi.fn(() => Promise.resolve());
     const restore = stubClipboard(writeText);
     window.history.replaceState({}, "", "/#sel=ship.usdc&n=1&cam=4,8,1.5");
@@ -259,7 +261,11 @@ describe("DetailPanel copy link", () => {
     fireEvent.click(screen.getByTestId("pharosville-detail-copy-link"));
 
     await waitFor(() => expect(setAnnouncement).toHaveBeenCalledWith("Link copied"));
-    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/#sel=ship.usdc&n=1&cam=4,8,1.5`);
+    const copied = new URL(writeText.mock.calls[0]![0] as string);
+    expect(copied.hash).toBe("");
+    expect(copied.searchParams.get("sel")).toBe("ship.usdc");
+    expect(copied.searchParams.get("n")).toBe("1");
+    expect(copied.searchParams.get("cam")).toBe("4,8,1.5");
     expect(screen.getByTestId("pharosville-detail-copy-link").textContent).toContain("Link copied");
     restore();
   });
