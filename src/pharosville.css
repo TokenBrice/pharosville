@@ -1181,42 +1181,6 @@ textarea {
   .pharosville-hover-tooltip { transition: none; }
 }
 
-.pharosville-observatory-labels {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-.pharosville-observatory-label {
-  position: absolute;
-  top: var(--pv-observatory-y);
-  left: var(--pv-observatory-x);
-  display: flex;
-  min-width: 118px;
-  padding: 6px 9px;
-  flex-direction: column;
-  align-items: flex-start;
-  transform: translate(-50%, calc(-100% - 12px));
-  border: 1px solid rgba(247, 214, 138, 0.62);
-  border-radius: 2px;
-  background: rgba(6, 19, 29, 0.88);
-  color: rgba(244, 232, 204, 0.86);
-  font: 12px/1.3 Georgia, "Times New Roman", serif;
-  letter-spacing: 0;
-  pointer-events: auto;
-}
-.pharosville-observatory-label strong {
-  color: var(--pv-brass-highlight);
-  font-size: 0.85rem;
-}
-.pharosville-observatory-label:hover,
-.pharosville-observatory-label[aria-pressed="true"] {
-  border-color: var(--pv-brass-highlight);
-  background: rgba(11, 71, 82, 0.94);
-}
-.pharosville-observatory-label:focus-visible {
-  outline: 2px solid var(--pv-brass-highlight);
-  outline-offset: 3px;
-}
 .pharosville-observe-caption {
   position: absolute;
   bottom: 76px;

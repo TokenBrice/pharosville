@@ -4,9 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PharosVilleLoading, PharosVilleWorld } from "./pharosville-world";
 import type { HitTarget } from "./renderer/hit-testing";
 import {
-  GARDEN_SHIP_ROOT_Y,
-  gardenAreaDisplayTile,
-  gardenTileToScreen,
   resolveGardenEntityDisplayTile,
   selectGardenObservatorySlice,
 } from "./systems/garden-observatory-slice";
@@ -338,47 +335,13 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     await waitFor(() => expect(globalThis.__pharosVilleTestWallClockHour).toBeUndefined());
   });
 
-  it("projects truthful area controls over the Three scene", async () => {
-    // The expected screen position is DERIVED from the label's anchor, not
-    // hardcoded. W2.9 made anchors a function of each region's geometry, so a
-    // literal pixel silently rots the moment the world is rescaled or a region
-    // reshaped — and the failure mode is a culled label, not a clear error.
-    const world = worldFixture();
-    const warningArea = world.areas.find((area) => area.band === "WARNING")!;
-    const anchor = gardenAreaDisplayTile(warningArea);
-    // H4: the camera offsets are DERIVED so the anchor lands in the middle of
-    // the 800x600 mock canvas. They were literals, which put the label off
-    // screen (and so out of the DOM entirely) as soon as MAP_SCALE grew.
-    const zoom = 0.25;
-    const unshifted = gardenTileToScreen(anchor, GARDEN_SHIP_ROOT_Y, { offsetX: 0, offsetY: 0, zoom });
-    const camera = { offsetX: 400 - unshifted.x, offsetY: 300 - unshifted.y, zoom };
-    const expectedX = Math.round(
-      gardenTileToScreen(anchor, GARDEN_SHIP_ROOT_Y, camera).x,
-    );
-
-    mocks.cameraRef.current.offsetX = camera.offsetX;
-    mocks.cameraRef.current.offsetY = camera.offsetY;
-    mocks.cameraRef.current.zoom = camera.zoom;
-    render(<PharosVilleWorld world={world} />);
-    // S1: nothing is selected on arrival, so there is no panel to close first.
-
-    const warning = screen.getByRole("button", {
-      name: `Open Warning Shoals details: WARNING, ${warningArea.count} ships`,
-    });
-    expect(warning.getAttribute("style")).toContain(`--pv-observatory-x: ${expectedX}px`);
-    expect(screen.getByText("Watch Breakwater")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Observe harbor" })).toBeNull();
-
-    fireEvent.click(warning);
-    await waitFor(() => {
-      expect(screen.getByTestId("pharosville-detail-panel").textContent).toContain("Warning Shoals");
-    });
-  });
-
-  it("does not leave offscreen analytical labels in the keyboard order", () => {
+  it("keeps sea-area naming out of the DOM overlay", () => {
+    // The sea's place-names are carved boards in the world (garden-sea-signs),
+    // not DOM chips; area details open through the canvas hit targets.
     render(<PharosVilleWorld world={worldFixture()} />);
 
     expect(screen.queryByLabelText(/Open .* details:/)).toBeNull();
+    expect(screen.queryByText(/ships$/)).toBeNull();
   });
 
   it("advances Observe through the camera controller and stops on input", () => {

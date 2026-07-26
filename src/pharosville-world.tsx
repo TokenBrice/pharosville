@@ -32,10 +32,6 @@ import { createGardenObservatoryHitTargetSnapshot } from "./renderer/garden-obse
 import type { HitTarget, HitTargetSnapshot } from "./renderer/hit-testing";
 import { clampCameraToMap } from "./systems/camera";
 import {
-  GARDEN_ZONE_ROOT_Y,
-  gardenAreaDisplayTile,
-  gardenSemanticView,
-  gardenTileToScreen,
   resolveGardenEntityDisplayTile,
   selectGardenObservatorySlice,
 } from "./systems/garden-observatory-slice";
@@ -416,10 +412,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   }, [requestPaint]);
 
   const observatorySlice = useMemo(() => selectGardenObservatorySlice(world, null), [world]);
-  const observatoryAreas = useMemo(
-    () => observatorySlice?.areas ?? [],
-    [observatorySlice],
-  );
   const observeSequence = useMemo(
     () => buildObserveSequence(world),
     [world],
@@ -582,39 +574,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       } as CSSProperties)
     : undefined;
   const frameRateLabel = formatFrameRateLabel(frameRateFps, reducedMotion);
-  const activeCamera = canvas.camera;
-  const projectedObservatoryAreas = useMemo(() => {
-    if (!threeExperienceReady || !activeCamera) return [];
-    const semanticView = gardenSemanticView(activeCamera.zoom, selectedDetailId);
-    if (semanticView === "analyze") return [];
-    const visibleAreas = semanticView === "explore" ? world.areas : observatoryAreas;
-    return visibleAreas.flatMap((area) => {
-      const point = gardenTileToScreen(
-        gardenAreaDisplayTile(area),
-        GARDEN_ZONE_ROOT_Y,
-        activeCamera,
-      );
-      const insideSafeViewport = point.x >= 68
-        && point.x <= canvas.canvasSize.x - 68
-        && point.y >= 132
-        && point.y <= canvas.canvasSize.y - 16;
-      return insideSafeViewport ? [{ area, point }] : [];
-    });
-  }, [
-    activeCamera,
-    canvas.canvasSize.x,
-    canvas.canvasSize.y,
-    observatoryAreas,
-    selectedDetailId,
-    threeExperienceReady,
-    world.areas,
-  ]);
-  const handleSelectObservatoryArea = useCallback((
-    detailId: string,
-    point: ScreenPoint,
-  ) => {
-    selectDetail(detailId, detailAnchorForPoint(point, canvas.canvasSize));
-  }, [canvas.canvasSize, selectDetail]);
   const handleToggleObserve = useCallback(() => {
     if (observeIndex !== null) cancelCameraIntent();
     setObserveIndex(observeIndex === null ? 0 : null);
@@ -684,33 +643,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         </div>
       )}
       <div className="pharosville-overlay" aria-label="PharosVille controls and details">
-        {projectedObservatoryAreas.length > 0 && (
-          <div className="pharosville-observatory-labels" aria-label="Active analytical areas">
-            {projectedObservatoryAreas.map(({ area, point }) => {
-              const copy = observatoryAreaLabelCopy(area);
-              return (
-                <button
-                  key={area.id}
-                  type="button"
-                  className="pharosville-observatory-label"
-                  style={{
-                    "--pv-observatory-x": `${point.x}px`,
-                    "--pv-observatory-y": `${point.y}px`,
-                    ...(area.band === "DANGER"
-                      ? { transform: "translate(-18%, calc(-100% - 18px))" }
-                      : {}),
-                  } as CSSProperties}
-                  aria-pressed={selectedDetailId === area.detailId}
-                  aria-label={`Open ${area.label} details: ${copy.spoken}`}
-                  onClick={() => handleSelectObservatoryArea(area.detailId, point)}
-                >
-                  <strong>{area.label}</strong>
-                  <span>{copy.visible}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
         {!rendererFailed && (
           <div
             ref={hoverTooltipElRef}
@@ -891,22 +823,6 @@ function fleetCounterLabel(ships: PharosVilleWorldModel["ships"]): string {
   const dockedShips = ships.filter((ship) => ship.dockVisits.length > 0).length;
   const totalShips = ships.length;
   return `${integerFormatter.format(dockedShips)} of ${integerFormatter.format(totalShips)} docked`;
-}
-
-function observatoryAreaLabelCopy(
-  area: PharosVilleWorldModel["areas"][number],
-): { spoken: string; visible: string } {
-  if (!area.band || area.count == null) {
-    return {
-      spoken: "NAV ledger water",
-      visible: "NAV ledger water",
-    };
-  }
-  const noun = area.count === 1 ? "ship" : "ships";
-  return {
-    spoken: `${area.band}, ${area.count} ${noun}`,
-    visible: `${area.band} · ${area.count} ${noun}`,
-  };
 }
 
 function formatFrameRateLabel(frameRateFps: number | null, reducedMotion: boolean): string {

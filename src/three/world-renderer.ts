@@ -965,8 +965,8 @@ function createWorldContent(
   const zoneField = createZoneField(zones);
   root.add(zoneField.root);
   // N (Sea Master): the sea's place-names, as carved boards standing in the
-  // water. Copy comes from the same area records the DOM chips read, so the
-  // two surfaces cannot drift.
+  // water. Copy comes from the same area records the detail panels read, so
+  // the two surfaces cannot drift.
   const seaSigns = createGardenSeaSigns(seaSignSpecs(world.areas));
   root.add(seaSigns.root);
   const weather = world.areas
@@ -1122,9 +1122,9 @@ function createWorldContent(
  * The boards to raise, and what they say.
  *
  * Every named body gets one — including Calm Anchorage and Ledger Mooring,
- * which `observe-sequence.ts` excludes from the DOM chip layer entirely, and
- * the wreck shoals, which have no area record at all but are a place with a
- * name like any other.
+ * and the wreck shoals, which have no area record at all but are a place with
+ * a name like any other. These boards are the sea's only place-name display;
+ * the old DOM chip layer was removed as a UI intrusion on the world.
  */
 function seaSignSpecs(areas: PharosVilleWorld["areas"]): SeaSignSpec[] {
   const specs: SeaSignSpec[] = [];

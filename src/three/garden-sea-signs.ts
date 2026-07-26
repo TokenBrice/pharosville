@@ -5,6 +5,7 @@ import {
   CylinderGeometry,
   Group,
   LinearFilter,
+  LinearMipmapLinearFilter,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
@@ -49,7 +50,7 @@ import { TILE_SCALE } from "./garden-util";
 /** Which bodies get a board, and what it says. */
 export interface SeaSignSpec {
   body: SeaBodyName;
-  /** The name carved into the board — shared with the DOM chip so they cannot drift. */
+  /** The name carved into the board — read from the same area records as the detail panels. */
   label: string;
   /** Optional second line, smaller: the band and its live ship count. */
   reading: string | null;
@@ -165,10 +166,17 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
     }
 
     // The lettered face. Its own texture, so it cannot merge with the rest.
+    // The texture doubles as the emissive map: by day the intensity is a
+    // whisper that keeps the oak reading as oak under AgX, and after dusk the
+    // hung lantern (below) justifies a lit face — without it the night scene's
+    // blue light swallowed the board into navy and the name went unreadable.
     const texture = createSeaSignTexture(spec);
     const faceMaterial = new MeshStandardMaterial({
       color: "#ffffff",
       map: texture,
+      emissive: new Color("#ffdfae"),
+      emissiveMap: texture,
+      emissiveIntensity: 0.12,
       roughness: 0.82,
     });
     const face = new Mesh(new BoxGeometry(BOARD_WIDTH, BOARD_HEIGHT, BOARD_THICKNESS), faceMaterial);
@@ -213,6 +221,11 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
       lampMaterial.color.setStyle(HARBOR_PALETTE.lantern_warm);
       lampMaterial.color.multiplyScalar(0.35 + night * 1.5);
       for (const lamp of lampMeshes) lamp.visible = night > 0.05;
+      // The lantern's light on the board face: day keeps the whisper, night
+      // lifts the paint clear of the blue scene light.
+      for (const material of faceMaterials) {
+        material.emissiveIntensity = 0.12 + night * 0.5;
+      }
     },
   };
 }
@@ -239,9 +252,11 @@ function createSeaSignTexture(spec: SeaSignSpec): CanvasTexture | null {
   if (!context) return null;
 
   // Oak ground, with a grain so the plank does not read as a UI panel.
-  context.fillStyle = "#7d5f3d";
+  // Painted well above the target read: AgX and the scene light take the
+  // board down a band or more, so #7d5f3d rendered as murk, not wood.
+  context.fillStyle = "#a87e50";
   context.fillRect(0, 0, SIGN_TEXTURE_WIDTH, SIGN_TEXTURE_HEIGHT);
-  context.strokeStyle = "rgba(58, 40, 22, 0.35)";
+  context.strokeStyle = "rgba(58, 40, 22, 0.22)";
   context.lineWidth = 2;
   for (let index = 0; index < 14; index += 1) {
     const y = ((index + 0.5) / 14) * SIGN_TEXTURE_HEIGHT;
@@ -278,35 +293,45 @@ function createSeaSignTexture(spec: SeaSignSpec): CanvasTexture | null {
 
   context.textAlign = "center";
   context.textBaseline = "middle";
-  // Carved: a dark incision offset up-left, the paint sitting in it.
+  // Painted lettering with a dark rim, not an offset "carved" ghost. The
+  // ghost doubled every edge, and at the on-screen sizes the boards actually
+  // render at it read as broken glyphs, not relief. A stroke under the fill
+  // keeps every edge crisp at any scale.
   const name = spec.label.toUpperCase();
-  context.font = `700 96px "PV Plaque", Georgia, "Times New Roman", serif`;
-  context.letterSpacing = "14px";
-  context.fillStyle = "rgba(32, 20, 10, 0.9)";
-  context.fillText(name, centreX - 3, nameY - 3, SIGN_TEXTURE_WIDTH * 0.88);
+  context.font = `700 108px "PV Plaque", Georgia, "Times New Roman", serif`;
+  context.letterSpacing = "10px";
+  context.lineJoin = "round";
+  context.strokeStyle = "rgba(43, 27, 12, 0.95)";
+  context.lineWidth = 10;
+  context.strokeText(name, centreX, nameY, SIGN_TEXTURE_WIDTH * 0.88);
   // Bone-white paint, not the band accent. The DEWS accents are a green, a
   // teal, a yellow, an orange and a red; on weathered oak they all go muddy and
   // the name stops reading. The accent earns its place on the rule beneath,
   // where it sits against the dark ironwork and stays a band cue.
-  context.fillStyle = "#efe4cb";
+  context.fillStyle = "#f8eed8";
   context.fillText(name, centreX, nameY, SIGN_TEXTURE_WIDTH * 0.88);
   context.fillStyle = spec.accent;
   context.fillRect(centreX - SIGN_TEXTURE_WIDTH * 0.3, nameY + 58, SIGN_TEXTURE_WIDTH * 0.6, 6);
 
   if (spec.reading) {
-    context.font = `700 46px "PV Plaque", Georgia, "Times New Roman", serif`;
+    context.font = `700 48px "PV Plaque", Georgia, "Times New Roman", serif`;
     context.letterSpacing = "8px";
-    context.fillStyle = "rgba(30, 19, 9, 0.8)";
-    context.fillText(spec.reading.toUpperCase(), centreX - 2, SIGN_TEXTURE_HEIGHT * 0.74 - 2, SIGN_TEXTURE_WIDTH * 0.8);
-    context.fillStyle = "rgba(226, 208, 170, 0.95)";
+    context.strokeStyle = "rgba(43, 27, 12, 0.9)";
+    context.lineWidth = 8;
+    context.strokeText(spec.reading.toUpperCase(), centreX, SIGN_TEXTURE_HEIGHT * 0.74, SIGN_TEXTURE_WIDTH * 0.8);
+    context.fillStyle = "#f2e5c8";
     context.fillText(spec.reading.toUpperCase(), centreX, SIGN_TEXTURE_HEIGHT * 0.74, SIGN_TEXTURE_WIDTH * 0.8);
   }
 
   const texture = new CanvasTexture(canvas);
   texture.colorSpace = SRGBColorSpace;
   texture.magFilter = LinearFilter;
-  texture.minFilter = LinearFilter;
-  texture.generateMipmaps = false;
+  // The board renders far below texture resolution and at 45° to the camera:
+  // without mipmaps the minified lettering aliased into mush, and without
+  // anisotropy the mipmaps alone smear it along the oblique axis.
+  texture.minFilter = LinearMipmapLinearFilter;
+  texture.generateMipmaps = true;
+  texture.anisotropy = 8;
   texture.needsUpdate = true;
   return texture;
 }

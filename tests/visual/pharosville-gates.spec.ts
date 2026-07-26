@@ -184,25 +184,15 @@ test(...visualLane("motion", "day, dusk, night, and reduced-motion states render
   expect(captures.get("dusk")?.equals(captures.get("night") ?? Buffer.alloc(0))).toBe(false);
 });
 
-test(...visualLane("accessibility", "Observe and analytical DOM labels preserve accessible, interruptible detail access"), async ({
+test(...visualLane("accessibility", "Observe control preserves accessible, interruptible detail access"), async ({
   page,
 }) => {
   const canvas = await openWorld(page, { hour: 12, reducedMotion: false });
   const closeDetails = page.getByRole("button", { name: "Close details" });
   if (await closeDetails.isVisible()) {
-    await mkdir(EVIDENCE_DIRECTORY, { recursive: true });
-    await page.screenshot({
-      fullPage: true,
-      path: `${EVIDENCE_DIRECTORY}/garden-observatory-label-detail-collision-1440x1000.png`,
-    });
     await closeDetails.focus();
     await page.keyboard.press("Enter");
   }
-
-  const labels = page.locator(".pharosville-observatory-label");
-  await expect(labels.first()).toBeVisible();
-  expect(await labels.count()).toBeLessThanOrEqual(2);
-  await expect(labels.first()).toContainText(/ships?/i);
 
   const observe = page.locator("[data-observe-control]");
   await expect(observe).toBeVisible();
@@ -244,9 +234,11 @@ test(...visualLane("accessibility", "Observe and analytical DOM labels preserve 
   await expect(page.getByTestId("pharosville-observe-caption")).toHaveCount(0);
   await expect(page.getByTestId("pharosville-world")).toBeFocused();
 
-  await labels.first().click();
+  // The sea's place-names are carved boards in the world (garden-sea-signs),
+  // not DOM chips; detail access flows through the canvas hit targets.
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Enter");
   await expect(page.getByTestId("pharosville-detail-panel")).toBeVisible();
-  await expect(labels).toHaveCount(0);
 });
 
 test(...visualLane("static", "a WebGL context that comes back keeps the world"), async ({ page }) => {
