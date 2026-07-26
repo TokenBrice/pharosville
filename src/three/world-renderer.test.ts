@@ -350,6 +350,7 @@ describe("Three world renderer lifecycle", () => {
     const shipDetails = namedGroups(contentRoot, "ship-fine-detail");
     const dockDetails = namedGroups(contentRoot, "dock-fine-detail");
     const wakeDetails = namedGroups(contentRoot, "ship-wake-detail");
+    const wakes = wakeGroups(contentRoot);
     expect(shipDetails.length).toBe(selectGardenObservatorySlice(world, null).ships.length);
     expect(dockDetails.length).toBe(world.docks.length);
     expect(shipDetails.every((detail) => !detail.visible)).toBe(true);
@@ -368,6 +369,7 @@ describe("Three world renderer lifecycle", () => {
     expect(shipDetails.filter((detail) => detail.visible)).toHaveLength(1);
     expect(dockDetails.every((detail) => !detail.visible)).toBe(true);
     expect(wakeDetails.filter((detail) => detail.visible)).toHaveLength(1);
+    expect(wakes.filter((wake) => wake.visible)).toHaveLength(1);
 
     renderer.render(rendererFrame(world, "balanced", {
       hoveredDetailId: world.docks[0]!.detailId,
@@ -475,17 +477,32 @@ describe("Three world renderer lifecycle", () => {
     renderer.dispose();
   });
 
-  it("disposes replaced world content and tears down the renderer once", () => {
+  it("retains semantically identical content, rebuilds visual changes, and tears down once", () => {
     const firstWorld = buildPharosVilleWorld(makePharosVilleWorldInput());
-    const secondWorld = buildPharosVilleWorld(makePharosVilleWorldInput({
+    const metadataOnlyWorld = buildPharosVilleWorld(makePharosVilleWorldInput({
       generatedAt: (firstWorld.generatedAt ?? 0) + 1,
     }));
+    const subject = firstWorld.ships[0]!;
+    const visuallyChangedWorld: PharosVilleWorld = {
+      ...metadataOnlyWorld,
+      ships: metadataOnlyWorld.ships.map((ship) => (
+        ship.id === subject.id
+          ? {
+              ...ship,
+              visual: {
+                ...ship.visual,
+                overlay: ship.visual.overlay === "nav" ? "yield" : "nav",
+              },
+            }
+          : ship
+      )),
+    };
     const canvas = document.createElement("canvas");
     const renderer = createThreeWorldRenderer({
       canvas,
       onContextFailure: vi.fn(),
     });
-    renderer.render(rendererFrame(firstWorld, "full"));
+    expect(renderer.render(rendererFrame(firstWorld, "full")).contentReplacementCount).toBe(1);
 
     const webGlRenderer = rendererHarness.instances.at(-1)!;
     const scene = webGlRenderer.lastScene!;
@@ -496,7 +513,11 @@ describe("Three world renderer lifecycle", () => {
     renderer.render(rendererFrame(firstWorld, "full"));
     expect(firstGeometryDispose).not.toHaveBeenCalled();
 
-    renderer.render(rendererFrame(secondWorld, "full"));
+    expect(renderer.render(rendererFrame(metadataOnlyWorld, "full")).contentReplacementCount).toBe(1);
+    expect(scene.children.at(-1)).toBe(firstContentRoot);
+    expect(firstGeometryDispose).not.toHaveBeenCalled();
+
+    expect(renderer.render(rendererFrame(visuallyChangedWorld, "full")).contentReplacementCount).toBe(2);
     const secondContentRoot = scene.children.at(-1)!;
     expect(secondContentRoot).not.toBe(firstContentRoot);
     expect(firstContentRoot.parent).toBeNull();
@@ -514,7 +535,7 @@ describe("Three world renderer lifecycle", () => {
     expect(waterGeometryDispose).toHaveBeenCalledTimes(1);
     expect(webGlRenderer.renderLists.dispose).toHaveBeenCalledTimes(1);
     expect(webGlRenderer.dispose).toHaveBeenCalledTimes(1);
-    expect(() => renderer.render(rendererFrame(secondWorld, "full"))).toThrow(
+    expect(() => renderer.render(rendererFrame(visuallyChangedWorld, "full"))).toThrow(
       "Cannot render a disposed Three.js world renderer.",
     );
   });

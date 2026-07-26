@@ -12,6 +12,22 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-07-27-clear-bearings",
+    version: PHAROSVILLE_RELEASE_VERSIONS.clearBearings,
+    date: "2026-07-27",
+    title: "Clear Bearings",
+    summary: "The harbor keeps all 186 analytical ships while shedding the false mountains, radial glare, hard water facets, and flicker that made the sea look broken; the result is calmer at every reviewed desktop shape, faster to refresh, and easier to inspect.",
+    bullets: [
+      "Cleared the largest rendering artifacts. The three horizon cards that appeared as mountains in open water are gone, the lighthouse now carries one coherent beam instead of a radial fan of overlapping cones, and hero reflections, light lanes, lantern pools, seams, foam, wakes, and zone tinting have been reduced where they competed with ships.",
+      "Made the sea read continuously through day, dusk, and night. Bathymetry now uses a softened limited-palette ramp instead of hard posterized bands, distant water no longer reads as a finite slab, danger no longer emits a full-region flash, and the beacon and water-lane shaders use calm continuous motion with anti-aliased transitions.",
+      "Replaced world-like UI clutter with quieter inspection cues. Boundary buoys are sparse landmarks unless their region is being inspected, selection uses a compact depth-tested waterline ring rather than a translucent shaft, unrelated wakes and reflections recede in analyze view, and the full 186-ship fleet remains present.",
+      "Removed the common refresh hitch without changing the world contract. A renderer-facing content signature retains meshes for equivalent payloads, cutting the measured refresh to a 56 ms median busy interval with 6 ms blocking, while settled reduced-motion frames now remain well below the 500,000-triangle ceiling.",
+      "Made every allowed desktop window genuinely chartable. The lazy, orientation-free gate now requires a 900 px long side and 720 px short side, the camera preserves the lighthouse crown at edge sizes, controls meet WCAG target sizes with 44 px hoverless targets, dynamic scene scrims improve legibility, and the first-visit action arrives before the long-form ledger.",
+      "Added regression evidence for the faults that escaped ordinary screenshot tests: first-pass, tall, standard, whole-map, and ultrawide layout coverage; source guards against horizon and obsolete beam geometry; an eight-frame real-GPU flash/bright-coverage probe; settled reduced-motion resource assertions; and a 320-ship-plus-outsider capacity fixture with selection, DOM parity, and disposal checks.",
+    ],
+    source: "Collected from the v0.6.0 implementation change after v0.5.0.",
+  },
+  {
     id: "2026-07-26-the-cargo-tide",
     version: PHAROSVILLE_RELEASE_VERSIONS.cargoTide,
     date: "2026-07-26",

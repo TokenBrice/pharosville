@@ -11,8 +11,8 @@ export function DesktopOnlyFallback() {
           PharosVille is a live chart of the stablecoin seas: every ship is a
           stablecoin, the water it sails in is that coin&apos;s peg risk, and the
           lighthouse beam carries the fleet-wide Peg Stability Index. Charting
-          that needs room, so open this page on a screen at least 720px wide and
-          360px tall — or read the same signals as tables below.
+          that needs room, so open this page with at least 900px along one side
+          and 720px along the other — or read the same signals as tables below.
         </p>
         <nav className="pharosville-narrow__links" aria-label="Pharos analytics">
           {FALLBACK_LINKS.map((link) => (

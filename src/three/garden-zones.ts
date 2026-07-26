@@ -14,7 +14,6 @@ import {
   MeshBasicMaterial,
   MeshStandardMaterial,
   OctahedronGeometry,
-  PlaneGeometry,
   Quaternion,
   Vector3,
 } from "three";
@@ -88,10 +87,10 @@ const ZONE_COLOR_HARMONY: Record<string, { anchor: string; mix: number }> = {
 // regions still part because value and character (swell, chop, foam,
 // reflectivity) carry them. Laying a water colour on at 0.44 was what turned
 // 43% of the sea cyan and buried the authored teal underneath it.
-const REGION_TINT_STRENGTH_BAND = 0.28;
-const REGION_TINT_STRENGTH_DANGER = 0.36;
+const REGION_TINT_STRENGTH_BAND = 0.18;
+const REGION_TINT_STRENGTH_DANGER = 0.24;
 
-const BUOY_HEIGHT = 1.1;
+const BUOY_HEIGHT = 0.72;
 // Z3: buoys ride the water shader's swell (CPU mirror, see updateZoneBuoys).
 // The shader's own displacement is sub-pixel at overview zoom, so the bob
 // amplitude is exaggerated for legibility; phase and frequencies match the
@@ -111,7 +110,6 @@ const BUOY_TILT = 1.2;
  * carried by value and by the region's own swell, chop and foam (D6).
  */
 const SEA_GAMUT_ANCHOR = new Color(HARBOR_PALETTE.shallow_teal_lit);
-const FLICKER_COLD = new Color(HARBOR_PALETTE.lantern_cold);
 
 export interface ZoneTint {
   center: { x: number; z: number };
@@ -128,6 +126,7 @@ export interface ZoneTint {
 }
 
 export interface ZoneBuoyPlacement {
+  areaDetailId: string;
   color: Color;
   danger: boolean;
   worldX: number;
@@ -148,6 +147,8 @@ interface PerimeterMesh {
 }
 
 export interface ZoneField {
+  /** Area ownership in instance order, used to isolate analyze-mode markers. */
+  buoyAreaDetailIds: readonly string[];
   /** Rest-pose world-XZ anchor per instanced buoy; drives the swell bob. */
   buoyAnchors: readonly { x: number; z: number }[];
   buoyBodies: InstancedMesh;
@@ -158,11 +159,11 @@ export interface ZoneField {
   lampBaseColors: Color[];
   perimeter: Mesh<BufferGeometry, MeshBasicMaterial>;
   root: Group;
+  /** Last per-area filter applied; null means every region. */
+  visibleAreaDetailId: string | null;
 }
 
 export interface GardenWeatherVisual {
-  flicker: Mesh<PlaneGeometry, MeshBasicMaterial>;
-  flickerPeriod: number;
   phase: number;
   root: Group;
   streaks: LineSegments<BufferGeometry, LineBasicMaterial>;
@@ -242,9 +243,13 @@ export function createZone(area: AreaNode): ZoneVisual {
   // (non-colour) encoding the accessibility contract requires, finally
   // pointing at the true edge.
   const regionId = seaRegionIdForArea(area);
-  const buoyCount = Math.max(5, Math.min(24, Math.round(circumference / 9)));
+  // A few stable landmarks communicate the real boundary without carpeting
+  // the explore/analyze views in dark cones. The water seam and DOM record
+  // carry the continuous outline; buoys provide the non-colour positional cue.
+  const buoyCount = Math.max(3, Math.min(8, Math.round(circumference / 24)));
   const buoys: ZoneBuoyPlacement[] = seaRegionBoundaryPoints(regionId, buoyCount)
     .map((tile) => ({
+      areaDetailId: area.detailId,
       color: bandColor,
       danger,
       worldX: tile.x * TILE_SCALE,
@@ -317,17 +322,17 @@ export function createZoneField(zones: readonly ZoneVisual[]): ZoneField {
   root.add(perimeter);
 
   const count = Math.max(1, placements.length);
-  const bodyGeometry = new ConeGeometry(0.34, BUOY_HEIGHT, 5);
+  const bodyGeometry = new ConeGeometry(0.2, BUOY_HEIGHT, 6);
   bodyGeometry.translate(0, BUOY_HEIGHT / 2, 0);
   const buoyBodies = new InstancedMesh(
     bodyGeometry,
-    new MeshStandardMaterial({ color: HARBOR_PALETTE.iron_dark, roughness: 0.8 }),
+    new MeshStandardMaterial({ color: HARBOR_PALETTE.stone_mid, roughness: 0.88 }),
     count,
   );
   buoyBodies.name = "garden-zone-buoys";
 
-  const lampGeometry = new OctahedronGeometry(0.17);
-  lampGeometry.translate(0, BUOY_HEIGHT + 0.12, 0);
+  const lampGeometry = new OctahedronGeometry(0.12);
+  lampGeometry.translate(0, BUOY_HEIGHT + 0.08, 0);
   const buoyLamps = new InstancedMesh(
     lampGeometry,
     new MeshBasicMaterial({ toneMapped: false }),
@@ -361,6 +366,7 @@ export function createZoneField(zones: readonly ZoneVisual[]): ZoneField {
   root.add(buoyBodies, buoyLamps);
 
   return {
+    buoyAreaDetailIds: placements.map((buoy) => buoy.areaDetailId),
     buoyAnchors: placements.map((buoy) => ({ x: buoy.worldX, z: buoy.worldZ })),
     buoyBodies,
     buoyLamps,
@@ -369,6 +375,7 @@ export function createZoneField(zones: readonly ZoneVisual[]): ZoneField {
     lampBaseColors,
     perimeter,
     root,
+    visibleAreaDetailId: null,
   };
 }
 
@@ -408,6 +415,7 @@ export function updateZoneBuoys(
   timeSeconds: number,
   reducedMotion: boolean,
   tier: PharosVilleRenderSchedulerTier | boolean,
+  visibleAreaDetailId: string | null = null,
 ): void {
   // S1: callers resolve `tier` through `seaQualityTier`, so a camera drag no
   // longer counts as load pressure here — reading the raw tier froze every
@@ -417,7 +425,8 @@ export function updateZoneBuoys(
     ? (tier ? "full" : "constrained")
     : tier;
   const bobbing = !reducedMotion && (tierName === "full" || tierName === "balanced");
-  if (bobbing || field.bobbing) {
+  const filterChanged = visibleAreaDetailId !== field.visibleAreaDetailId;
+  if (bobbing || field.bobbing || filterChanged) {
     const time = bobbing ? Math.max(0, timeSeconds) : 0;
     for (const [index, anchor] of field.buoyAnchors.entries()) {
       const swell = bobbing ? gardenSwellHeight(anchor.x, anchor.z, time) : 0;
@@ -433,13 +442,21 @@ export function updateZoneBuoys(
       scratchBuoyEuler.set(tiltX, 0, tiltZ);
       scratchBuoyQuaternion.setFromEuler(scratchBuoyEuler);
       scratchBuoyPosition.set(anchor.x, swell * BUOY_BOB_AMPLITUDE, anchor.z);
-      scratchBuoyMatrix.compose(scratchBuoyPosition, scratchBuoyQuaternion, BUOY_UNIT_SCALE);
+      if (
+        visibleAreaDetailId !== null
+        && field.buoyAreaDetailIds[index] !== visibleAreaDetailId
+      ) {
+        scratchBuoyMatrix.makeScale(0, 0, 0);
+      } else {
+        scratchBuoyMatrix.compose(scratchBuoyPosition, scratchBuoyQuaternion, BUOY_UNIT_SCALE);
+      }
       field.buoyBodies.setMatrixAt(index, scratchBuoyMatrix);
       field.buoyLamps.setMatrixAt(index, scratchBuoyMatrix);
     }
     field.buoyBodies.instanceMatrix.needsUpdate = true;
     field.buoyLamps.instanceMatrix.needsUpdate = true;
     field.bobbing = bobbing;
+    field.visibleAreaDetailId = visibleAreaDetailId;
   }
 
   const lamps = field.buoyLamps;
@@ -486,26 +503,7 @@ export function createDangerWeather(area: AreaNode): GardenWeatherVisual {
   streaks.name = "danger-rain-curtain";
   root.add(streaks);
 
-  // A wide faint additive quad above the zone for the occasional soft flicker.
-  const flicker = new Mesh(
-    new PlaneGeometry(radiusX * 2.1, radiusZ * 2.1),
-    new MeshBasicMaterial({
-      color: FLICKER_COLD,
-      depthWrite: false,
-      opacity: 0,
-      toneMapped: false,
-      transparent: true,
-    }),
-  );
-  flicker.name = "danger-flicker";
-  flicker.rotation.x = -Math.PI / 2;
-  flicker.position.y = 5.2;
-  flicker.renderOrder = 4;
-  root.add(flicker);
-
   return {
-    flicker,
-    flickerPeriod: 9 + stableUnit(`rain-flicker.${area.id}`) * 5,
     phase: stableUnit(`rain-phase.${area.id}`),
     root,
     streaks,
@@ -513,25 +511,18 @@ export function createDangerWeather(area: AreaNode): GardenWeatherVisual {
 }
 
 /**
- * Drive one danger squall for a frame: rain scroll (frozen under reduced
- * motion) and, at full tier only, a soft lantern-cold flicker that ramps over
- * ~0.4s every 9–14s. No hard strobe (accessibility).
+ * Drive one danger squall for a frame. Rain scrolls gently and freezes under
+ * reduced motion. The former full-zone flash plane was removed: a large
+ * luminance pulse looked like a renderer fault, while rain plus the risk body
+ * and DOM record already communicate the same warning.
  */
 export function updateDangerWeather(
   effect: GardenWeatherVisual,
   timeSeconds: number,
   reducedMotion: boolean,
-  fullTier: boolean,
+  _fullTier: boolean,
 ): void {
   effect.streaks.position.y = reducedMotion
     ? 0
     : -((timeSeconds * 0.72 + effect.phase * 2) % 2);
-
-  let opacity = 0;
-  if (fullTier && !reducedMotion) {
-    const period = effect.flickerPeriod;
-    const cyclePos = (timeSeconds + effect.phase * period) % period;
-    if (cyclePos < 0.4) opacity = Math.sin((cyclePos / 0.4) * Math.PI) * 0.16;
-  }
-  effect.flicker.material.opacity = opacity;
 }

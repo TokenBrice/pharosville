@@ -30,17 +30,29 @@ describe("camera", () => {
     const map = buildPharosVilleMap();
     const centerTile = landBoundsCenter(map.tiles);
 
-    for (const viewport of [{ x: 1440, y: 1000 }, { x: 1280, y: 760 }, { x: 1000, y: 640 }]) {
+    for (const viewport of [
+      { x: 1440, y: 1000 },
+      { x: 1280, y: 760 },
+      { x: 1000, y: 640 },
+      { x: 900, y: 720 },
+      { x: 720, y: 900 },
+    ]) {
       const camera = defaultCamera({ height: viewport.y, map, width: viewport.x });
       const center = tileToScreen(centerTile, camera);
 
-      // 0.7776 = fitCameraToMap floor 0.72 × tighten 1.08 (reframed from
-      // 0.8136 so the 34-unit Pharos crown keeps headroom at 1440×960).
-      expect(camera.zoom).toBeCloseTo(0.7776);
-      // Lower bound is 0.39 (not 0.4) so the constant 128 px right-gutter
-      // reservation still falls inside the "left-of-center" band at the
-      // 1000-wide gate floor, where the gutter is proportionally larger.
-      expect(center.x).toBeGreaterThanOrEqual(viewport.x * 0.39);
+      const shortSideProgress = Math.max(
+        0,
+        Math.min(1, (Math.min(viewport.x, viewport.y) - 720) / 280),
+      );
+      const longSideProgress = Math.max(
+        0,
+        Math.min(1, (Math.max(viewport.x, viewport.y) - 900) / 100),
+      );
+      const compositionProgress = Math.max(shortSideProgress, longSideProgress);
+      expect(camera.zoom).toBeCloseTo(0.72 * (1 + compositionProgress * 0.08));
+      // The constant 128px right-gutter is proportionally largest in the
+      // 720px-wide tall case; the island remains intentionally left of center.
+      expect(center.x).toBeGreaterThanOrEqual(viewport.x * 0.37);
       expect(center.x).toBeLessThanOrEqual(viewport.x * 0.55);
       expect(center.y).toBeGreaterThanOrEqual(viewport.y * 0.45);
       expect(center.y).toBeLessThanOrEqual(viewport.y * 0.65);

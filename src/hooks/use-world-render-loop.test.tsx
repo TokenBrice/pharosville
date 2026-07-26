@@ -18,6 +18,7 @@ import { initialAdaptiveDprState, resolveRenderSurfaceBudget } from "../systems/
 import { buildBaseMotionPlan, buildMotionPlan, type ShipMotionSample } from "../systems/motion";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import type { IsoCamera } from "../systems/projection";
+import type { PharosVilleWorld } from "../systems/world-types";
 import { makePharosVilleWorldInput } from "../__fixtures__/pharosville-world";
 import {
   useWorldRenderLoop,
@@ -142,6 +143,7 @@ describe("useWorldRenderLoop", () => {
     preseedSnapshot = true,
     reducedMotion = true,
     wallClockHour = 12,
+    worldOverride,
   }: {
     hoveredDetailId: string | null;
     initialRequestedDpr?: number;
@@ -167,7 +169,9 @@ describe("useWorldRenderLoop", () => {
     preseedSnapshot?: boolean;
     reducedMotion?: boolean;
     wallClockHour?: number;
+    worldOverride?: PharosVilleWorld;
   }) {
+    const harnessWorld = worldOverride ?? world;
     const [canvasRef] = useState(() => ({ current: document.createElement("canvas") }));
     const [adaptiveDprStateRef] = useState(() => ({ current: initialAdaptiveDprState(initialRequestedDpr) }));
     const [maximumRequestedDprRef] = useState(() => ({ current: maximumRequestedDpr }));
@@ -181,9 +185,18 @@ describe("useWorldRenderLoop", () => {
     const [hitTargetSnapshotRef] = useState<{ current: HitTargetSnapshot | null }>(() => ({ current: null }));
     const [hitTargetsRef] = useState<{ current: readonly HitTarget[] }>(() => ({ current: [] }));
     const [shipMotionSamplesRef] = useState<{ current: ReadonlyMap<string, ShipMotionSample> }>(() => ({ current: new Map() }));
-    const [shipsById] = useState(() => new Map(world.ships.map((ship) => [ship.id, ship])));
-    const baseMotionPlan = useMemo(() => buildBaseMotionPlan(world, motionBucket * 600), [motionBucket]);
-    const motionPlan = useMemo(() => buildMotionPlan(world, null, baseMotionPlan), [baseMotionPlan]);
+    const shipsById = useMemo(
+      () => new Map(harnessWorld.ships.map((ship) => [ship.id, ship])),
+      [harnessWorld],
+    );
+    const baseMotionPlan = useMemo(
+      () => buildBaseMotionPlan(harnessWorld, motionBucket * 600),
+      [harnessWorld, motionBucket],
+    );
+    const motionPlan = useMemo(
+      () => buildMotionPlan(harnessWorld, null, baseMotionPlan),
+      [baseMotionPlan, harnessWorld],
+    );
     const [motionPlanRef] = useState(() => ({ current: motionPlan }));
     const [mountEpochMsRef] = useState(() => ({ current: mountEpochMs }));
     hoveredDetailIdRef.current = hoveredDetailId;
@@ -206,7 +219,7 @@ describe("useWorldRenderLoop", () => {
         selectedDetailId: null,
         shipMotionSamples: new Map(),
         viewport: { height: canvasSize.y, width: canvasSize.x },
-        world,
+        world: harnessWorld,
       });
       hitTargetSnapshotRef.current = snapshot;
       hitTargetsRef.current = snapshot.targets;
@@ -243,7 +256,7 @@ describe("useWorldRenderLoop", () => {
       shipsById,
       stepCamera,
       wallClockHour,
-      world,
+      world: harnessWorld,
     });
     onResult(result);
     return null;
@@ -712,6 +725,59 @@ describe("useWorldRenderLoop", () => {
     // Initial drawFrame runs with accSeconds=0 (bucket 0 = lastBucket 0): no flip.
     expect(bucketFlipSpy).not.toHaveBeenCalled();
     unmount();
+  });
+
+  it("keeps the RAF lifecycle across metadata-only refreshes and rebinds for visual content", async () => {
+    const onResult = () => {};
+    const metadataOnlyWorld: PharosVilleWorld = {
+      ...world,
+      freshness: { ...world.freshness, stablecoinsStale: !world.freshness.stablecoinsStale },
+      generatedAt: (world.generatedAt ?? 0) + 60_000,
+    };
+    const subject = world.ships[0]!;
+    const visuallyChangedWorld: PharosVilleWorld = {
+      ...metadataOnlyWorld,
+      ships: metadataOnlyWorld.ships.map((ship) => (
+        ship.id === subject.id
+          ? {
+              ...ship,
+              visual: {
+                ...ship.visual,
+                overlay: ship.visual.overlay === "nav" ? "yield" : "nav",
+              },
+            }
+          : ship
+      )),
+    };
+    const { rerender } = await renderWithReadyRenderer(
+      <Harness hoveredDetailId={null} onResult={onResult} worldOverride={world} />,
+    );
+    const cancelsAfterMount = cafSpy.mock.calls.length;
+    const observersAfterMount = intersectionObservers.length;
+
+    act(() => {
+      rerender(
+        <Harness
+          hoveredDetailId={null}
+          onResult={onResult}
+          worldOverride={metadataOnlyWorld}
+        />,
+      );
+    });
+    expect(cafSpy.mock.calls.length).toBe(cancelsAfterMount);
+    expect(intersectionObservers).toHaveLength(observersAfterMount);
+
+    act(() => {
+      rerender(
+        <Harness
+          hoveredDetailId={null}
+          onResult={onResult}
+          worldOverride={visuallyChangedWorld}
+        />,
+      );
+    });
+    expect(cafSpy.mock.calls.length).toBeGreaterThan(cancelsAfterMount);
+    expect(intersectionObservers.length).toBeGreaterThan(observersAfterMount);
   });
 
   it("pauses RAF when canvas reports intersectionRatio 0 and resumes when it goes back to 1", async () => {

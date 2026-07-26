@@ -145,6 +145,26 @@ export function LegendPanel({ onClose, onObserve, onSelectDetail, recentFleetTre
           financial advice. Click a ship and read the water it sails in first.
         </p>
 
+        {/* The first interactive choice after Close. A new reader can move
+            directly from the explanation into the harbor without scrolling
+            through the reference material first. */}
+        {onObserve && (
+          <p className="pharosville-legend-panel__primary-action">
+            <button
+              type="button"
+              className="pharosville-legend-panel__observe"
+              data-testid="pharosville-legend-observe"
+              onClick={() => {
+                onClose();
+                onObserve();
+              }}
+            >
+              Watch the harbor
+            </button>
+            <span>The lighthouse, the leading risk watch, and the week&apos;s largest moves.</span>
+          </p>
+        )}
+
         <section aria-labelledby="pharosville-legend-zones">
           <h3 id="pharosville-legend-zones">Sea zones</h3>
           <ul className="pharosville-legend-panel__zones">
@@ -197,28 +217,8 @@ export function LegendPanel({ onClose, onObserve, onSelectDetail, recentFleetTre
           </p>
         </section>
 
-        {/* The legend used to end in silence. A first-time reader who has just
-            been told how to read the harbor is handed the harbor itself. */}
-        {onObserve && (
-          <p>
-            <button
-              type="button"
-              className="pharosville-legend-panel__mover"
-              data-testid="pharosville-legend-observe"
-              onClick={() => {
-                onClose();
-                onObserve();
-              }}
-            >
-              Watch the harbor
-            </button>
-            {" — the lighthouse, the leading risk watch, and the week's largest moves."}
-          </p>
-        )}
-
-        {/* First screen ends here. Movers, marks and the full control list are
-            reference rather than orientation, so they wait behind a fold
-            (interface revamp DU17). */}
+        {/* Movers, marks and the full control list are reference rather than
+            orientation, so they wait behind progressive disclosure. */}
         <details className="pharosville-legend-panel__more">
           <summary>More: recent movers, marks and controls</summary>
 

@@ -1,6 +1,6 @@
 # PharosVille Architecture
 
-Last updated: 2026-07-25
+Last updated: 2026-07-27
 
 PharosVille is a desktop-gated React app with a pure data-to-world layer and
 one imperative Three.js/WebGL renderer. The DOM remains the analytical and
@@ -16,8 +16,10 @@ Browser → /api/<allowlisted read path> → Pages Function → PHAROS_API_BASE
 - `functions/api/[[path]].ts` permits only registry-backed `GET` endpoints and
   injects `PHAROS_API_KEY` server-side. The key never belongs in client code,
   URLs, logs, docs, or fixtures.
-- `src/client.tsx` is the gate. A screen needs a 720px long side, a 360px short
-  side, and landscape orientation before it lazy-loads desktop data.
+- `src/client.tsx` is the gate. The physical screen capability test requires a
+  900px long side and a 720px short side; the current-window test applies those
+  same two dimension floors to the current viewport before it lazy-loads
+  desktop data. Neither test uses viewport orientation or aspect ratio.
 - Blocked screens render a DOM fallback or rotate prompt. They must not query
   the world, import the Three.js runtime, decode logos, or request models.
 

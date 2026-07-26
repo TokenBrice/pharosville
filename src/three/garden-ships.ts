@@ -1189,7 +1189,11 @@ export function attachGardenHeroModel(visual: ShipVisual, model: Group): void {
     // the baked shading instead of flattening it.
     if (object.name === "sail-hull") material.color.multiply(visual.sailColor);
     object.material = material;
-    object.castShadow = true;
+    // The directional shadow map is island-only and static. Hero ships move,
+    // so casting them into that map would leave frozen shadow ghosts and force
+    // an expensive redraw whenever an async hull arrives. Every ship already
+    // owns an oriented water-contact shadow in world-renderer.
+    object.castShadow = false;
   });
   model.name = `hero-${heroId}`;
   // The GLB arrives after `createShip` has already trimmed the procedural
@@ -1240,13 +1244,13 @@ export function syncShipSailTextures(
   }
 }
 
-const LANTERN_CORE_SIZE = 0.32;
+const LANTERN_CORE_SIZE = 0.24;
 // W1.10: a 3-unit additive halo per lantern was authored when 20 ships were on
 // screen. At 187 ships (and up to 3 lanterns each) the halos overlap into a
 // warm wash that flattens the whole frame — the opposite of the deep,
-// selective night the brief asks for. 1.7 keeps each lantern a POINT of light
-// with a small bloom instead of a blob.
-const LANTERN_GLOW_SIZE = 1.7;
+// selective night the brief asks for. A sub-unit halo keeps each lantern a
+// point of light with a small bloom instead of a fleet-wide field of blobs.
+const LANTERN_GLOW_SIZE = 0.95;
 const LANTERN_SWAY = 0.09;
 const zeroScaleMatrix = new Matrix4().makeScale(0, 0, 0);
 

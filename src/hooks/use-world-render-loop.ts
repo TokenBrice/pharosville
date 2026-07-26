@@ -40,6 +40,7 @@ import { applySeaRoomSeparationPass } from "../systems/motion-sampling";
 import type { IsoCamera, ScreenPoint } from "../systems/projection";
 import { seaStateForWorld, type SeaState } from "../systems/sea-state";
 import { createVisualMotionSmoothingState, resetVisualMotionSmoothingState, smoothShipMotionSamples } from "../systems/visual-motion";
+import { worldRenderContentSignature } from "../systems/world-render-content-signature";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
 import { normalizeHour } from "../lib/pharosville-clock";
 import { reportClientError } from "../error-reporter";
@@ -193,6 +194,14 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   const requestPaint = useCallback(() => {
     paintRequestRef.current();
   }, []);
+  const worldContentSignature = worldRenderContentSignature(world);
+  const worldRef = useRef(world);
+  const shipsByIdRef = useRef(shipsById);
+  useEffect(() => {
+    worldRef.current = world;
+    shipsByIdRef.current = shipsById;
+    requestPaint();
+  }, [requestPaint, shipsById, world]);
   const threeRendererRef = useRef<ThreeWorldRenderer | null>(null);
   const [rendererStatus, setRendererStatus] = useState<WorldRendererStatus>("loading");
   const [rendererFailure, setRendererFailure] = useState<string | null>(null);
@@ -339,8 +348,8 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     return true;
   }, []);
 
-  // Reset per-world transient state (timing, samples, hit snapshot) when the
-  // world reference changes.
+  // Reset transient state only when baked renderer content changes. Metadata-
+  // only refreshes keep the frame loop, pacing window, and sample caches alive.
   useEffect(() => {
     resetFramePacingState();
     accSecondsRef.current = 0;
@@ -361,7 +370,13 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     lastBucketRef.current = 0;
     bucketFlipCountRef.current = 0;
     worldSwapSettleFramesRef.current = WORLD_SWAP_SETTLE_FRAMES;
-  }, [hitTargetSnapshotRef, hitTargetsRef, resetFramePacingState, shipMotionSamplesRef, world]);
+  }, [
+    hitTargetSnapshotRef,
+    hitTargetsRef,
+    resetFramePacingState,
+    shipMotionSamplesRef,
+    worldContentSignature,
+  ]);
 
   useEffect(() => {
     resetFramePacingState();
@@ -422,6 +437,8 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       const activeMotionPlan = motionPlanRef.current;
       const activeHoveredDetailId = hoveredDetailIdRef.current;
       const activeSelectedDetailId = selectedDetailIdRef.current;
+      const activeWorld = worldRef.current;
+      const activeShipsById = shipsByIdRef.current;
       if (!activeCamera || activeCanvasSize.x <= 0 || activeCanvasSize.y <= 0) {
         scheduleNextAnimatedFrame();
         return;
@@ -503,10 +520,10 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       }
       const frameWallClockHour = normalizeHour(wallClockHour);
       const sampleStartedAt = performance.now();
-      const seaState = seaStateForWorld(world, { reducedMotion, wallClockHour: frameWallClockHour });
+      const seaState = seaStateForWorld(activeWorld, { reducedMotion, wallClockHour: frameWallClockHour });
       let semanticShipMotionSamples = semanticShipMotionSamplesRef.current;
       if (reducedMotion) {
-        const nextSamplesSignature = `${motionPlanSignature(world)}|sea:${seaStateMotionSignature(seaState)}`;
+        const nextSamplesSignature = `${motionPlanSignature(activeWorld)}|sea:${seaStateMotionSignature(seaState)}`;
         if (reducedMotionSamplesSignatureRef.current !== nextSamplesSignature || semanticShipMotionSamples.size === 0) {
           const collected = collectShipMotionSamples({
             motionPlan: activeMotionPlan,
@@ -514,7 +531,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
             seaState,
             samples: semanticShipMotionSamples,
             timeSeconds,
-            world,
+            world: activeWorld,
           });
           semanticShipMotionSamples = collected.samples;
           reducedMotionSamplesSignatureRef.current = nextSamplesSignature;
@@ -526,7 +543,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           seaState,
           samples: semanticShipMotionSamples,
           timeSeconds,
-          world,
+          world: activeWorld,
         });
         semanticShipMotionSamples = collected.samples;
         reducedMotionSamplesSignatureRef.current = null;
@@ -558,7 +575,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         selectedDetailId: activeSelectedDetailId,
         shipMotionSamples,
         viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
-        world,
+        world: activeWorld,
       });
       hitTargetSnapshotRef.current = nextSnapshot;
       hitTargetsRef.current = nextSnapshot.targets;
@@ -696,7 +713,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           timeSeconds,
           wallClockHour: frameWallClockHour,
           width: activeCanvasSize.x,
-          world,
+          world: activeWorld,
         });
       } catch (error) {
         // One throw is not a broken renderer.
@@ -800,7 +817,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
 
         // A3: route cache stats.
         let routeCacheStats: { hitRatio: number; evictionRate: number; size: number; capacity: number } | undefined;
-        const rawStats = getCurrentMapPathCacheStats(world.map);
+        const rawStats = getCurrentMapPathCacheStats(activeWorld.map);
         if (rawStats) {
           const total = rawStats.hits + rawStats.misses;
           const hitRatio = total > 0 ? rawStats.hits / total : 0;
@@ -834,9 +851,9 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           canvasSize: activeCanvasSize,
           reducedMotion,
           renderMetrics: lastRenderMetricsRef.current,
-          shipsById,
+          shipsById: activeShipsById,
           compactSampleCache: compactShipMotionSampleCacheRef.current,
-          world,
+          world: activeWorld,
         });
         lastRenderMetricsRef.current = {
           ...lastRenderMetricsRef.current,
@@ -941,7 +958,18 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [advanceMotionBucket, cameraReady, canvasSize.x, canvasSize.y, failThreeRenderer, logos, reducedMotion, rendererStatus, shipsById, wallClockHour, world]);
+  }, [
+    advanceMotionBucket,
+    cameraReady,
+    canvasSize.x,
+    canvasSize.y,
+    failThreeRenderer,
+    logos,
+    reducedMotion,
+    rendererStatus,
+    wallClockHour,
+    worldContentSignature,
+  ]);
 
   // Reduced motion keeps draw-time static (`timeSeconds = 0`) and therefore
   // has no continuous RAF clock to cross the route-variation bucket boundary.

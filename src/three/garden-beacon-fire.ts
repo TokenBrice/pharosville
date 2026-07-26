@@ -150,23 +150,22 @@ export function createGardenBeaconFire(cloudNoise: DataTexture): GardenBeaconFir
     update({ psiStress, reducedMotion, timeSeconds }) {
       const time = reducedMotion ? 0 : Math.max(0, timeSeconds);
       uniforms.uTime.value = time;
-      // Deterministic flicker: three detuned sines plus a stepped hash jitter,
-      // amplitude widened by PSI stress so a stressed harbour reads as a
-      // harder-burning fire (D5). Frozen at the t=0 pose under reduced motion.
-      const amplitude = 0.24 + Math.min(1, Math.max(0, psiStress)) * 0.2;
-      const wave = Math.sin(time * 7.3) * 0.5
-        + Math.sin(time * 11.7 + 1.3) * 0.3
-        + Math.sin(time * 3.1 + 4.2) * 0.2;
-      const step = Math.floor(time * 9);
-      const jitter = fract(Math.sin(step * 12.9898) * 43758.5453) - 0.5;
+      // Deterministic breathing from three slow, detuned waves. The former
+      // 9 Hz stepped hash changed the flame, halo, point light, and water lane
+      // in one frame, which presented as renderer flicker. PSI still widens the
+      // motion, but inside a calm range and with continuous derivatives.
+      const amplitude = 0.13 + Math.min(1, Math.max(0, psiStress)) * 0.12;
+      const wave = Math.sin(time * 2.3) * 0.52
+        + Math.sin(time * 3.7 + 1.3) * 0.3
+        + Math.sin(time * 1.1 + 4.2) * 0.18;
       const flicker = clamp01(
-        0.5 + wave * amplitude + jitter * amplitude * 0.7,
+        0.54 + wave * amplitude,
       );
       uniforms.uFlicker.value = flicker;
       // The old beacon pulse, reborn as the flame's breathing.
       flame.scale.set(
-        1 + (flicker - 0.5) * 0.1,
-        1 + (flicker - 0.5) * 0.16,
+        1 + (flicker - 0.54) * 0.06,
+        1 + (flicker - 0.54) * 0.09,
         1,
       );
       return flicker;
@@ -180,10 +179,6 @@ function mirrorMaterial(mirror: Mesh): MeshStandardMaterial {
 
 function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
-}
-
-function fract(value: number): number {
-  return value - Math.floor(value);
 }
 
 /**
@@ -244,13 +239,15 @@ function createFlame(uniforms: BeaconFireUniforms): Mesh<BufferGeometry, ShaderM
         float flame = clamp(body * (0.75 + n * 0.5) + (n - 0.5) * 0.25 * vUv.y, 0.0, 1.0);
         flame *= smoothstep(0.0, 0.06, vUv.y);
 
-        // Posterize into three flat bands with hard toon edges.
-        float mid = step(0.30, flame);
-        float core = step(0.62, flame);
+        // Posterize into three graphic bands, antialiased in screen space so
+        // the edges do not crawl as the camera or flame field moves.
+        float bandWidth = max(fwidth(flame) * 0.75, 0.008);
+        float mid = smoothstep(0.30 - bandWidth, 0.30 + bandWidth, flame);
+        float core = smoothstep(0.62 - bandWidth, 0.62 + bandWidth, flame);
         vec3 color = uColorOuter;
         color = mix(color, uColorMid, mid);
         color = mix(color, uColorCore, core);
-        float alpha = step(0.08, flame) * 0.96;
+        float alpha = smoothstep(0.08 - bandWidth, 0.08 + bandWidth, flame) * 0.96;
         if (alpha < 0.01) discard;
 
         float hdr = uIntensity * 0.32 * (0.88 + uFlicker * 0.3);
@@ -430,7 +427,8 @@ function createSmoke(
         float alpha = mask * erode * uOpacity;
         if (alpha < 0.004) discard;
         // Ukiyo-e two-tone: a hard step splits the puff into flat bands.
-        float band = step(0.42, n);
+        float bandWidth = max(fwidth(n) * 0.75, 0.01);
+        float band = smoothstep(0.42 - bandWidth, 0.42 + bandWidth, n);
         vec3 dayColor = mix(uDayDark, uDayLight, band);
         vec3 color = mix(uNight, dayColor, uDayMix);
         color += uBacklight * (1.0 - band) * (1.0 - uDayMix) * 0.3;

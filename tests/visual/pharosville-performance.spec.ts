@@ -455,6 +455,53 @@ function expectGpuResourcesWithinBudget(
   expect(gpu.triangles).toBeLessThanOrEqual(GPU_RESOURCE_BUDGET.triangles);
 }
 
+async function waitForSettledGpuResources(
+  page: Page,
+): Promise<NonNullable<PerformanceTelemetry["gpu"]>> {
+  await page.waitForLoadState("networkidle");
+  let previous = "";
+  let stableReads = 0;
+  let latest: PerformanceTelemetry["gpu"] = null;
+  await expect.poll(async () => {
+    latest = (await readPerformanceTelemetry(page)).gpu;
+    const signature = latest
+      ? `${latest.calls}|${latest.triangles}|${latest.geometries}|${latest.textures}`
+      : "";
+    stableReads = signature !== "" && signature === previous ? stableReads + 1 : 0;
+    previous = signature;
+    return stableReads;
+  }, { timeout: 30_000 }).toBeGreaterThanOrEqual(2);
+  if (!latest) throw new Error("Settled reduced-motion frame did not publish GPU resources.");
+  return latest;
+}
+
+test("settled reduced-motion default and selected frames stay within GPU budgets", async ({ page }) => {
+  test.setTimeout(180_000);
+  await openWorld(page, true);
+  const defaultGpu = await waitForSettledGpuResources(page);
+  expectGpuResourcesWithinBudget(defaultGpu);
+
+  let selectedShipId: string | null = null;
+  await expect.poll(async () => {
+    selectedShipId = (await readRuntimeSnapshot(page)).shipMotionSamples[0]?.id ?? null;
+    return selectedShipId;
+  }).not.toBeNull();
+  // Force a document navigation: the runtime continuously syncs camera state
+  // into the hash, so an in-place hash assignment can be overwritten by the
+  // current frame before React consumes the requested selection.
+  await page.goto("about:blank");
+  await page.goto(`/?debug=1&t=12#sel=ship.${selectedShipId}`);
+  await waitForRuntimeDebug(page, true);
+  await expect(page.getByTestId("pharosville-detail-panel")).toBeVisible();
+
+  const selectedGpu = await waitForSettledGpuResources(page);
+  expectGpuResourcesWithinBudget(selectedGpu);
+  await expect(page.getByTestId("pharosville-canvas")).toHaveAttribute(
+    "data-renderer-status",
+    "ready",
+  );
+});
+
 test("repeated transient ship selection releases GPU resources", async ({ page }) => {
   // Seven full world rebuilds, one per round. They cost about 2 s each on a
   // working machine, but a rebuild that runs long must read as slow rather than

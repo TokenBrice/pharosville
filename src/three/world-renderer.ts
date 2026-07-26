@@ -4,7 +4,6 @@ import {
   BufferGeometry,
   CircleGeometry,
   Color,
-  CylinderGeometry,
   DirectionalLight,
   DoubleSide,
   Group,
@@ -22,7 +21,6 @@ import {
   PCFSoftShadowMap,
   PointLight,
   Quaternion,
-  RingGeometry,
   Scene,
   ShaderMaterial,
   SphereGeometry,
@@ -57,6 +55,10 @@ import { HARBOR_PALETTE, zoneThemeForTerrain } from "../systems/palette";
 import { screenToTile } from "../systems/projection";
 import type { PharosVilleWorld } from "../systems/world-types";
 import {
+  worldRenderContentPartHashes,
+  worldRenderContentSignature,
+} from "../systems/world-render-content-signature";
+import {
   createGardenCemetery,
   createGardenPigeonnier,
 } from "./garden-landmarks";
@@ -90,6 +92,7 @@ import type { GardenCloudShadowSource } from "./garden-water-contract";
 import { dayCyclePhase, updateDayCycle, type DayCyclePhase } from "./garden-day-cycle";
 import { createGardenSky, type GardenSky } from "./garden-sky";
 import { createGardenEnvironment, type GardenEnvironment } from "./garden-environment";
+import { createGardenCueMarker } from "./garden-cue-marker";
 import { createGardenPost } from "./garden-post";
 import {
   createDock,
@@ -271,6 +274,7 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
   let lastWidth = 0;
   // C4: best scheduler tier reached this session (debug evidence surface).
   let sessionTierReached: PharosVilleRenderSchedulerTier = "constrained";
+  let contentReplacementCount = 0;
   let lastMetrics: ThreeWorldRendererMetrics = emptyWorldRendererMetrics();
 
   // Context loss is usually TRANSIENT — a driver reset, a GPU-process restart,
@@ -341,7 +345,10 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
         .then((model) => {
           if (disposed || scene.content !== content) return;
           attachGardenHeroModel(visual, model);
-          scene.shadowNeedsRender = true;
+          // Ships move independently of the static island shadow map and own
+          // their water-contact shadows. Keeping hero hulls out of the
+          // directional pass avoids both a frozen shadow ghost and a full
+          // island shadow redraw after every async hero attachment.
           onAssetReady?.();
         })
         .catch(() => {
@@ -431,70 +438,22 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
         frame.world,
         frame.selectedDetailId,
       )?.detailId ?? null;
+      const contentSignature = worldRenderContentSignature(frame.world);
       if (
-        scene.world !== frame.world
+        scene.contentSignature !== contentSignature
         || scene.content?.transientSelectedDetailId !== transientSelectedDetailId
       ) {
         replaceWorldContent(scene, frame.world, frame.selectedDetailId);
+        contentReplacementCount += 1;
         loadHeroesForContent(scene.content);
+      } else {
+        // The scene graph can stay, but frame-time semantic consumers must see
+        // the latest world object (motion, sea state, hit targets, and DOM all
+        // continue updating independently of baked GPU content).
+        scene.world = frame.world;
       }
       if (scene.content) syncShipSailTextures(scene.content, frame);
       updateSceneForFrame(scene, camera, frame, phase);
-      // MEASURED DEAD ENDS — four things that look like obvious wins here and
-      // are not. All numbers from the reference GPU on an otherwise idle
-      // machine; measure before revisiting, and measure QUIET (a leaked browser
-      // eating twelve cores made the scene rebuild look 3x more expensive than
-      // it is).
-      //
-      // 1. Warming new content with `renderer.compileAsync(scene.root, camera)`
-      //    is a net loss. It compiles a program for every material/object
-      //    variant in the tree rather than the ones this view draws — program
-      //    count went 73 -> 153 — and the frames that first draw the fleet
-      //    stalled identically, because the cost is the driver's texture and
-      //    buffer upload, not the shader link. It bought ~900ms LATER
-      //    time-to-fleet.
-      //
-      // 2. Splitting this into static scenery (island, cemetery, pigeonnier,
-      //    harbour life — none of which reads anything a payload can change)
-      //    and per-world content, so a refresh rebuilds only the fleet, buys
-      //    nothing. Measured when a refresh still froze ~550ms: 551/592/512ms
-      //    as it stands, 556/641/542ms split, and 432/420/349ms with the
-      //    rebuild suppressed ENTIRELY. So the whole scene rebuild is ~130ms
-      //    and it lives in the dynamic half (fleet ~58ms, docks and districts
-      //    ~49ms). The static half is ~30ms and its buffers are not the cost.
-      //
-      // 3. Shrinking the 2048² sail atlas is not a startup lever either: at
-      //    1024² (16MB -> 4MB) blocked time went 2556ms -> 2429ms, inside
-      //    run-to-run noise.
-      //
-      // 4. A Web Worker for the world build is not the next move either, and
-      //    the numbers below are why.
-      //
-      // WHAT A REFRESH COSTS NOW. Measured 2026-07-26 against the PRODUCTION
-      // bundle on the reference GPU, three rounds each, by
-      // `npm run preview -- --refresh <arm>` — which provokes the real polling
-      // refetch and parks the response at the proxy, so the window holds the
-      // refresh and nothing else:
-      //
-      //   identical payload    0ms   structural sharing discards it entirely
-      //   ordinary refresh   239ms   ONE task, 189ms of it blocking
-      //   every ship moved   795ms   two tasks (a synthetic worst case)
-      //
-      // Sticky placement (61905cc) is what took the ordinary refresh from
-      // ~550ms to 239ms: the world model rebuild, which the tile re-pack and
-      // the A* re-solve dominated, went 303ms -> 34ms. That is also what rules
-      // the worker out. Of the 239ms left, the pipeline a worker could move is
-      // that 34ms. The rest is entered from React's scheduler and lands in
-      // native code V8 cannot unwind, while style, layout and paint together
-      // account for 14ms of the whole window — so it is not the DOM, it is the
-      // GL cost of rebuilding scene content, and that cannot leave the thread
-      // that owns the context.
-      //
-      // The remaining target is therefore this function, not a worker: now that
-      // placements hold still, `replaceWorldContent` tears down and recreates
-      // resources identical to the ones it just disposed. Dead end 2 above says
-      // splitting the scene STATICALLY buys nothing; diffing it against the
-      // previous content has not been tried, and is the thing to measure next.
 
       const tier = frame.renderScheduler.tier;
       if (SESSION_TIER_QUALITY[tier] > SESSION_TIER_QUALITY[sessionTierReached]) {
@@ -530,6 +489,8 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
           + Math.max(0, geometryCount - geometriesBefore)
           + Math.max(0, textureCount - texturesBefore),
         activeLaneCount: scene.laneRegistry.activeLaneCount,
+        contentReplacementCount,
+        contentSignaturePartHashes: worldRenderContentPartHashes(frame.world),
         composerEnabled: post.isComposerEnabled(),
         // C4 evidence: live water-system state via contract C2 (cloud-shadow
         // sampler, ripple-ring emitter). zoneRadii is live data from the
@@ -597,6 +558,7 @@ interface GardenScene {
   /** World-clock reading the beam angle was last integrated to. */
   beamClockSeconds: number;
   content: GardenContent | null;
+  contentSignature: string | null;
   directionalLight: DirectionalLight;
   /**
    * W6.5: the cached sky probe that lights the scene's standard materials.
@@ -607,12 +569,12 @@ interface GardenScene {
   environment: GardenEnvironment;
   hemisphereLight: HemisphereLight;
   horizon: GardenHorizon;
-  hoverMarker: Mesh<RingGeometry, MeshBasicMaterial>;
+  hoverMarker: ReturnType<typeof createGardenCueMarker>;
   islets: GardenIslets;
   laneRegistry: GardenLaneRegistry;
   lighthouseModel: Group | null;
   root: Scene;
-  selectedMarker: Mesh<RingGeometry, MeshBasicMaterial>;
+  selectedMarker: ReturnType<typeof createGardenCueMarker>;
   shadowActiveSize: number;
   shadowNeedsRender: boolean;
   sky: GardenSky;
@@ -692,7 +654,6 @@ interface GardenContent {
   lighthouseShell: Group;
   /** Tier 3 #15: sheds the props that cannot read at whole-map framing. */
   overviewLod: GardenOverviewLod;
-  rayFan: Mesh<BufferGeometry, ShaderMaterial> | null;
   root: Group;
   routeLine: Line<BufferGeometry, LineBasicMaterial>;
   routeLineKey: string | null;
@@ -766,8 +727,8 @@ function createGardenScene(renderer: WebGLRenderer): GardenScene {
   const waterAccents = createWaterAccents();
   root.add(waterAccents);
 
-  const hoverMarker = createCueMarker("#d8eee7", 0.4);
-  const selectedMarker = createCueMarker(HARBOR_PALETTE.lantern_glow, 0.78);
+  const hoverMarker = createGardenCueMarker("#d8eee7", 0.4);
+  const selectedMarker = createGardenCueMarker(HARBOR_PALETTE.lantern_glow, 0.78);
   root.add(hoverMarker, selectedMarker);
   // The shadow target rides after the markers so water/accents keep the child
   // indices the renderer tests assert; content is still appended last.
@@ -777,10 +738,9 @@ function createGardenScene(renderer: WebGLRenderer): GardenScene {
   // indices the renderer tests assert against; world content is appended after.
   root.add(sky.root);
 
-  // Z4 shakkei horizon + Z5 garden islets: world-independent beauty layers,
-  // so they live at scene scope and world rebuilds never churn them. The
-  // islets register their karesansui ripple rings with the water's C2(d)
-  // emitter once, here; both roots are covered by the tree disposal.
+  // The geometry-free horizon lifecycle anchor and the islets live at scene
+  // scope so world refreshes never churn them. Ripple rings register once and
+  // both roots remain covered by scene disposal.
   const horizon = createGardenHorizon();
   const islets = createGardenIslets();
   islets.registerRippleRings(water.rippleRings);
@@ -791,6 +751,7 @@ function createGardenScene(renderer: WebGLRenderer): GardenScene {
     beamAngle: 0,
     beamClockSeconds: 0,
     content: null,
+    contentSignature: null,
     directionalLight,
     // W6.5: the probe shares the dome's material instance, so the sky the
     // world is LIT BY and the sky it is SEEN AGAINST are the same uniforms.
@@ -812,52 +773,6 @@ function createGardenScene(renderer: WebGLRenderer): GardenScene {
   };
 }
 
-function createCueMarker(color: string, opacity: number): Mesh<RingGeometry, MeshBasicMaterial> {
-  const marker = new Mesh(
-    new RingGeometry(0.82, 1, 40),
-    new MeshBasicMaterial({
-      color,
-      depthTest: false,
-      depthWrite: false,
-      opacity,
-      side: DoubleSide,
-      transparent: true,
-    }),
-  );
-  marker.rotation.x = -Math.PI / 2;
-  marker.renderOrder = 20;
-  marker.visible = false;
-
-  // R16: a soft vertical shaft rising from the ring.
-  //
-  // The ring alone is a flat ellipse with depthTest off, so on the island it
-  // read as a decal pasted over the rock rather than as a mark on a PLACE. The
-  // shaft gives it height, which is what makes a ground marker legible in an
-  // isometric view. depthTest stays off so a selection is never lost behind
-  // geometry — being findable matters more than being occluded correctly.
-  const shaft = new Mesh(
-    new CylinderGeometry(0.9, 0.62, CUE_SHAFT_HEIGHT, 20, 1, true),
-    new MeshBasicMaterial({
-      color,
-      depthTest: false,
-      depthWrite: false,
-      opacity: opacity * 0.16,
-      side: DoubleSide,
-      transparent: true,
-    }),
-  );
-  shaft.name = "cue-shaft";
-  // The marker itself is rotated flat, so the shaft counter-rotates to stand.
-  shaft.rotation.x = Math.PI / 2;
-  shaft.position.z = -CUE_SHAFT_HEIGHT / 2;
-  shaft.renderOrder = 19;
-  marker.add(shaft);
-  return marker;
-}
-
-/** World units the selection shaft rises (R16). */
-const CUE_SHAFT_HEIGHT = 3.4;
-
 function replaceWorldContent(
   scene: GardenScene,
   world: PharosVilleWorld,
@@ -875,6 +790,7 @@ function replaceWorldContent(
     disposeThreeObjectTree(scene.content.root);
   }
   scene.content = createWorldContent(world, selectedDetailId, scene.water.cloudShadows);
+  scene.contentSignature = worldRenderContentSignature(world);
   scene.root.add(scene.content.root);
   attachGardenLighthouseModel(scene.lighthouseModel, scene.content);
   const islandTile = gardenIslandDisplayTile(world.lighthouse.tile);
@@ -1088,7 +1004,6 @@ function createWorldContent(
   // W7 rim light, chained onto the I3 cloud-shadow hook (already applied
   // inside createTerracedIsland) — compose, never clobber.
   applyLighthouseRimLight(island.lighthouseRoot);
-  const rayFan = island.lighthouseRoot.getObjectByName("lighthouse-ray-fan");
   // The procedural shell's gilt is per-content (fresh materials each world),
   // so the statue gleam can drive it directly; the GLB path clones first.
   const statueGleamMaterials: MeshStandardMaterial[] = [];
@@ -1364,6 +1279,7 @@ function createWorldContent(
     new BufferGeometry(),
     new LineBasicMaterial({
       color: HARBOR_PALETTE.lantern_glow,
+      depthWrite: false,
       opacity: 0.44,
       transparent: true,
     }),
@@ -1408,9 +1324,6 @@ function createWorldContent(
     lighthouseRoot: island.lighthouseRoot,
     lighthouseShell: island.lighthouseShell,
     overviewLod,
-    rayFan: rayFan instanceof Mesh
-      ? rayFan as Mesh<BufferGeometry, ShaderMaterial>
-      : null,
     root,
     routeLine,
     routeLineKey: null,
@@ -1562,13 +1475,10 @@ function updateSceneForFrame(
     tier: frame.renderScheduler.tier,
   });
   const content = scene.content;
-  // Reflection pools are lantern light: near-off by day, just lit at dusk,
-  // and softened at night — the full-tier lane cap packs 40+ pools into a
-  // merged milky disc around the island (every approved Lantern Sea frame was
-  // captured at the constrained 4-lane cap), so night runs ~2/3 intensity to
-  // keep distinct pools instead of a wash. Ungated entirely, the pools also
-  // cross the bloom knee and flood the frame.
-  const laneGlowScale = phase.night * 0.65 + phase.dusk * 0.45 + phase.daylight * 0.06;
+  // Reflection pools stay secondary to hulls and risk water. Forty-plus full
+  // tier lanes otherwise merge into pale discs at dusk/night, so the water
+  // lane is deliberately dimmer than the visible lantern sprites.
+  const laneGlowScale = phase.night * 0.45 + phase.dusk * 0.3 + phase.daylight * 0.05;
   if (!content) {
     // No fleet lanes to add — pack the base (beacon/harbor/dock) lanes only.
     const laneCount = scene.laneRegistry.sync(frame.renderScheduler.tier, laneGlowScale);
@@ -1581,8 +1491,6 @@ function updateSceneForFrame(
   }
 
   const constrained = frame.renderScheduler.tier === "constrained";
-  const fullQuality = frame.renderScheduler.tier === "full"
-    || frame.renderScheduler.tier === "balanced";
   // R13: ambient life survives `recovery`.
   //
   // Gulls, summit birds and the danger weather were gated to full/balanced
@@ -1653,18 +1561,9 @@ function updateSceneForFrame(
   // the call it costs. Its state changes only when the world does, in
   // `createWorldContent`. 3b's buoys are placed after the ship loop below,
   // where the hull transforms they ride on are final.
-  // W5 tier matrix. Full: cone + outer cone + fan + dust + embers(32) +
-  // smoke(16). Balanced: cone + fan + embers(12) + smoke(8), no dust, no
-  // outer cone. Interaction: cone only + flame. Recovery/constrained: the
-  // flat beam plane + flame (fan/smoke/embers shed — see setTier above).
-  // Reduced motion pins the full-quality static frame per existing policy.
-  // Light-in-air pieces whose day-cycle opacity is exactly 0 (plain daylight)
-  // are hidden rather than rasterized: additive alpha-0 output is a no-op,
-  // so culling them is pixel-identical and saves a large screen wedge.
-  // R14: the beam keeps its real cone at `recovery`.
-  //
-  // The cone is the monument's only motion beat and the flat plane reads as a
-  // smudge. Only `constrained` falls back to the plane now.
+  // Balanced through recovery use the single cone; full adds only dust and
+  // constrained swaps to the flat semantic fallback. Unlit additive pieces
+  // are culled instead of rasterizing zero-alpha geometry.
   const beamUsePlane = frame.renderScheduler.tier === "constrained";
   const beamPieceLit = (child: typeof content.beam.children[number]): boolean => {
     const material = (child as Mesh).material as ShaderMaterial;
@@ -1673,23 +1572,11 @@ function updateSceneForFrame(
   for (const child of content.beam.children) {
     if (child.name === "lighthouse-beam-cone") {
       child.visible = !beamUsePlane && beamPieceLit(child);
-    } else if (child.name === "lighthouse-beam-outer-cone") {
-      child.visible = !beamUsePlane && frame.renderScheduler.tier === "full"
-        && beamPieceLit(child);
     } else if (child.name === "lighthouse-beam") child.visible = beamUsePlane;
     else if (child.name === "lighthouse-beam-dust") {
       child.visible = frame.renderScheduler.tier === "full" && !frame.reducedMotion
         && beamPieceLit(child);
     }
-  }
-  if (content.rayFan) {
-    content.rayFan.visible = fullQuality && !beamUsePlane
-      && (content.rayFan.material.uniforms.uOpacity?.value ?? 0) > 0.0005;
-    // Parallax against the beam's 0.2 rad/s; frozen at a composed angle
-    // under reduced motion and at the stripped tiers.
-    content.rayFan.rotation.y = frame.reducedMotion || !fullQuality
-      ? 0.35
-      : frame.timeSeconds * 0.07;
   }
   // R14: the sweep RATE carries the fleet's PSI stress.
   //
@@ -1828,20 +1715,18 @@ function updateSceneForFrame(
       worldZ: visual.root.position.z,
     });
     const wakeIntensity = sample?.wakeIntensity ?? 0;
-    // Tier 3 #15: the wake joins the overview policy, but through the ship loop
-    // rather than the named scan — the loop owns `wake.visible` and would
-    // overwrite anything the scan wrote. Two instanced quads per hull under way
-    // is the fleet's single largest per-entity draw-call cost, and at whole-map
-    // framing a foam trail is a few pixels of churn beside a hull that is
-    // itself only thirty. It retracts into the stem as the camera pulls back.
-    visual.wake.visible = !frame.reducedMotion
-      && !constrained
-      && wakeIntensity > 0.08
-      && overviewDetail > 0;
-    visual.wake.scale.x = (0.7 + Math.min(1.5, wakeIntensity) * 0.85) * overviewDetail;
     const showShipDetail = showWorldDetail
       || visual.ship.detailId === frame.hoveredDetailId
       || visual.ship.detailId === frame.selectedDetailId;
+    // Wakes remain a fleet-motion cue in overview/explore. In analyze, where a
+    // selection already owns the hierarchy, retain only the focused hull's
+    // wake so unrelated foam cannot compete with its ring, route, or panel.
+    visual.wake.visible = !frame.reducedMotion
+      && !constrained
+      && wakeIntensity > 0.08
+      && overviewDetail > 0
+      && (semanticView !== "analyze" || showShipDetail);
+    visual.wake.scale.x = (0.7 + Math.min(1.5, wakeIntensity) * 0.85) * overviewDetail;
     visual.fineDetail.visible = showShipDetail;
     visual.wakeDetail.visible = showShipDetail;
 
@@ -1936,7 +1821,9 @@ function updateSceneForFrame(
   // At whole-map framing they are shed outright: a reflection is a soft image
   // of a hull that is itself thirty pixels there, so it costs fill for nothing.
   // That is the SAME gate the rest of the overview policy rides.
-  const reflectionsVisible = overviewDetail > 0 && !constrained;
+  const reflectionsVisible = semanticView !== "analyze"
+    && overviewDetail > 0
+    && !constrained;
   content.heroReflections.mesh.visible = reflectionsVisible;
   if (reflectionsVisible) {
     for (let index = 0; index < content.heroReflectionShips.length; index += 1) {
@@ -1998,23 +1885,24 @@ function updateSceneForFrame(
     scene.laneRegistry.fieldBounds(),
   );
 
-  // R15: buoys are boundary markers, not scenery. At overview zoom dozens of
-  // small dark cones read as litter scattered over the sea with no legible
-  // role, and they are the first thing that makes the water look busy rather
-  // than calm. They appear once the camera is close enough for a marker to
-  // mean something.
-  const buoysVisible = semanticView !== "overview";
+  // Boundary buoys are inspectable landmarks, not ambient scenery: hide them
+  // at overview and isolate them to the focused risk body during analyze.
+  const focusedAreaDetailId = content.zones.find(({ area }) => (
+    area.detailId === frame.selectedDetailId
+    || area.detailId === frame.hoveredDetailId
+  ))?.area.detailId ?? null;
+  const buoysVisible = semanticView === "explore"
+    || (semanticView === "analyze" && focusedAreaDetailId !== null);
   content.zoneField.buoyBodies.visible = buoysVisible;
   content.zoneField.buoyLamps.visible = buoysVisible;
   updateZoneBuoys(
     content.zoneField,
     frame.timeSeconds,
     frame.reducedMotion,
-    // Lane Z leftover: pass the real scheduler tier (was a full-only boolean)
-    // so the buoy bob runs at balanced too, per the tier ladder. S1: resolved
-    // through seaQualityTier so a camera drag no longer freezes the buoys
-    // mid-swell or stops the danger lamps blinking.
+    // Camera interaction is not load pressure; resolve the scheduler through
+    // the sea tier so markers do not freeze mid-swell during a pan.
     seaQualityTier(frame.renderScheduler),
+    semanticView === "analyze" ? focusedAreaDetailId : null,
   );
 
   updateSelectedRoute(content, frame);
@@ -2077,7 +1965,7 @@ function updateSelectedRoute(content: GardenContent, frame: ThreeWorldRendererFr
 }
 
 function updateCueMarker(
-  marker: Mesh<RingGeometry, MeshBasicMaterial>,
+  marker: ReturnType<typeof createGardenCueMarker>,
   content: GardenContent,
   detailId: string | null,
   frame: ThreeWorldRendererFrame,

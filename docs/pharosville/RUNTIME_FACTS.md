@@ -10,14 +10,15 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - Renderer: one production Three.js/WebGL renderer
 - GPU or renderer failure fallback: interactive DOM signal overview; no alternate 2D renderer
 - Runtime model namespace: `/pharosville/models/`
-- Latest app version: `v0.5.0` (`cargoTide`)
-- Latest changelog entry: `2026-07-26-the-cargo-tide` / `v0.5.0` / 2026-07-26 / The Cargo Tide
+- Latest app version: `v0.6.0` (`clearBearings`)
+- Latest changelog entry: `2026-07-27-clear-bearings` / `v0.6.0` / 2026-07-27 / Clear Bearings
 
 ## Viewport Gate
 
-- Long side minimum: `720px`
-- Short side minimum: `360px`
-- World runtime mounts only after the screen-size gate passes and the current viewport is landscape.
+- Long side minimum: `900px`
+- Short side minimum: `720px`
+- Device capability and current-viewport readiness independently sort their own dimensions against those two size floors.
+- Orientation and aspect ratio are not gates: a 720x1000 tall viewport and a 2560x720 ultrawide viewport both pass.
 - `src/client.tsx` lazy-loads the desktop data and Three.js runtime only after that gate; `npm run check:viewport-gate` guards the boundary.
 
 ## API Allowlist

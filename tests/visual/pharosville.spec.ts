@@ -124,6 +124,110 @@ test(...visualLane("dom", "blocked viewports request neither world data nor the 
   expect(deniedRequests).toEqual([]);
 });
 
+test(...visualLane("dom", "browser chrome keeps minimum targets and stable scene scrims"), async ({ page }) => {
+  await mockPharosVilleData(page);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await mockScreenSize(page, 1920, 1080);
+  await page.setViewportSize({ width: 720, height: 900 });
+  await installWallClockOverride(page, 12);
+  await page.goto("/");
+
+  await expect(page.getByTestId("pharosville-world")).toBeVisible();
+  const contract = await page.evaluate(() => {
+    const world = document.querySelector<HTMLElement>('[data-testid="pharosville-world"]');
+    if (!world) throw new Error("World chrome did not mount.");
+
+    const probe = (className: string, tagName = "button") => {
+      const element = document.createElement(tagName);
+      element.className = className;
+      element.textContent = "Probe";
+      world.append(element);
+      const style = getComputedStyle(element);
+      const result = {
+        backgroundColor: style.backgroundColor,
+        fontSize: Number.parseFloat(style.fontSize),
+        height: Number.parseFloat(style.height),
+        minHeight: Number.parseFloat(style.minHeight),
+        opacity: Number.parseFloat(style.opacity),
+        width: Number.parseFloat(style.width),
+      };
+      element.remove();
+      return result;
+    };
+    const alpha = (color: string): number => {
+      const match = color.match(/rgba?\([^,]+,[^,]+,[^,]+(?:,\s*([\d.]+))?\)/);
+      return match?.[1] ? Number.parseFloat(match[1]) : 1;
+    };
+    const footer = getComputedStyle(document.querySelector<HTMLElement>(".pharosville-footer")!);
+    const quickField = probe("pharosville-quick-find__field", "div");
+    const notice = probe("pv-notice");
+    return {
+      detailClose: probe("pharosville-detail-panel__close"),
+      detailCopy: probe("pharosville-detail-panel__copy"),
+      footer: {
+        backgroundAlpha: alpha(footer.backgroundColor),
+        fontSize: Number.parseFloat(footer.fontSize),
+      },
+      glyph: probe("pv-glyph-button"),
+      noticeDismiss: probe("pv-notice__dismiss"),
+      noticeScrimAlpha: alpha(notice.backgroundColor),
+      quickFieldScrimAlpha: alpha(quickField.backgroundColor),
+      quickResult: probe("pharosville-quick-find__result", "li"),
+    };
+  });
+
+  expect(contract.detailClose.minHeight).toBeGreaterThanOrEqual(24);
+  expect(contract.detailCopy.minHeight).toBeGreaterThanOrEqual(24);
+  expect(contract.noticeDismiss.width).toBeGreaterThanOrEqual(24);
+  expect(contract.noticeDismiss.height).toBeGreaterThanOrEqual(24);
+  expect(contract.quickResult.minHeight).toBeGreaterThanOrEqual(36);
+  expect(contract.footer.fontSize).toBeGreaterThanOrEqual(13);
+  expect(contract.footer.backgroundAlpha).toBeGreaterThanOrEqual(0.75);
+  expect(contract.noticeScrimAlpha).toBeGreaterThanOrEqual(0.85);
+  expect(contract.quickFieldScrimAlpha).toBeGreaterThanOrEqual(0.9);
+  expect(contract.glyph.opacity).toBeGreaterThanOrEqual(0.7);
+});
+
+test.describe("touch chrome", () => {
+  test.use({ hasTouch: true });
+
+  test(...visualLane("dom", "hoverless pointers receive 44px standalone targets"), async ({ page }) => {
+    await mockPharosVilleData(page);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await mockScreenSize(page, 1920, 1080);
+    await page.setViewportSize({ width: 720, height: 900 });
+    await installWallClockOverride(page, 12);
+    await page.goto("/");
+
+    await expect(page.getByTestId("pharosville-world")).toBeVisible();
+    const sizes = await page.evaluate(() => {
+      const world = document.querySelector<HTMLElement>('[data-testid="pharosville-world"]');
+      if (!world) throw new Error("World chrome did not mount.");
+      const size = (className: string) => {
+        const button = document.createElement("button");
+        button.className = className;
+        world.append(button);
+        const rect = button.getBoundingClientRect();
+        button.remove();
+        return { height: rect.height, width: rect.width };
+      };
+      return {
+        detailClose: size("pharosville-detail-panel__close"),
+        glyph: size("pv-glyph-button"),
+        hoverless: matchMedia("(hover: none)").matches,
+        noticeDismiss: size("pv-notice__dismiss"),
+      };
+    });
+
+    expect(sizes.hoverless).toBe(true);
+    expect(sizes.detailClose.height).toBeGreaterThanOrEqual(44);
+    expect(sizes.glyph.height).toBeGreaterThanOrEqual(44);
+    expect(sizes.glyph.width).toBeGreaterThanOrEqual(44);
+    expect(sizes.noticeDismiss.height).toBeGreaterThanOrEqual(44);
+    expect(sizes.noticeDismiss.width).toBeGreaterThanOrEqual(44);
+  });
+});
+
 test(...visualLane("accessibility", "a shared ship link selects and frames that ship with usable Escape behavior"), async ({ page }) => {
   // The fleet search is retired (interface revamp DU2). A shared `#sel=` link
   // is now how a non-representative ship is reached, framed and dismissed.

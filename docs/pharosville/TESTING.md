@@ -171,28 +171,60 @@ Grep for that token rather than trusting the exit code alone; under GitHub
 Actions the same line lands in the step summary, and a skip also raises a
 `::warning::` annotation.
 
+Reduced motion has no continuous RAF, so use its settled static resource gate:
+
+```bash
+npm run preview -- --assert --reduced
+npm run preview -- --assert --reduced --hash "#sel=ship.satusd-river&t=12"
+```
+
+After network and GPU resource counts settle, this asserts full tier, at most
+700 calls, 500k triangles, 500 geometries, and 72 textures. It intentionally
+does not invent fps or frame-time data for a deterministic zero-RAF frame.
+
+For fault-like flicker, run the bounded real-GPU artifact probe:
+
+```bash
+npm run preview -- --artifact-check --hash "#t=22"
+```
+
+It samples eight canvas frames at 120ms intervals on a 96×60 luminance grid,
+fails only on coherent frame-wide flashes, and writes transition evidence to
+`outputs/artifact-flash-evidence.json`. Ordinary local water and ship motion is
+below its coverage threshold. Use `--quick-find` and `--hover-first` when those
+chrome states belong in a visual review matrix.
+
+The polling probe also reports whether renderer content was actually replaced:
+
+```bash
+npm run preview -- --refresh common
+```
+
+`content roots` must remain stable and `content` should report
+`renderer-equivalent` for a sub-band supply refresh; a true authored change is
+still expected to replace content.
+
 The thresholds are calibrated on the DEFAULT framing, which on an RTX 5070 Ti at
 1600x1000 measures 60 fps, p50/p90 16.7 ms, tier `full`, and 620–693 draw calls
 (2026-07-26). Note how little draw-call headroom that leaves: a feature that adds
 ~50 calls will trip the tripwire, and the answer is to batch it, not to raise the
 number.
 
-**Whole-map framing is already over budget, and the gate deliberately does not
-run it.** At the reachable zoom floor (`ABSOLUTE_MIN_ZOOM` 0.28 — the viewport
-fit computes below it, so this is as far out as a visitor can pull):
+**Whole-map framing is a valid performance case again.** At the reachable zoom
+floor (`ABSOLUTE_MIN_ZOOM` 0.28 — the viewport fit computes below it, so this is
+as far out as a visitor can pull):
 
 ```bash
 npm run preview -- --assert --hash "#cam=0,0,0.28"
 ```
 
-measures **909 draw calls, p90 33.4 ms, tier `recovery`, 37.7 fps** over a full
-120-sample ring (2026-07-26, RTX 5070 Ti, 1600x1000). That is the frame recorded
-mid-flight as "~855" — it grew rather than went away. Gating on it would block
-every push on pre-existing debt, so the tripwire guards the default framing
-against NEW regressions and this stays an open item. Do not raise the 700 ceiling
-to make it pass. Note also that `cam=` from the URL is not clamped to the zoom
-floor, so smaller values render a framing no visitor can reach; anything below
-0.28 is not a valid measurement.
+measures **399 draw calls, p90 16.7 ms, tier `full`, 60 fps** over a full
+120-sample ring (2026-07-27, RTX 5070 Ti, 1600x1000), within the same 700-call
+and 20 ms ceilings as the default framing. The old 909-call/recovery result was
+captured before whole-map detail shedding and is no longer an open debt. Do not
+raise the ceilings if this regresses. Note also that `cam=` from the URL is not
+clamped to the zoom floor, so smaller values render a framing no visitor can
+reach; anything below 0.28 is not a valid measurement.
 
 ### The CI visual lane cannot render this world
 
@@ -222,10 +254,12 @@ it, so Firefox finally exercises something real. Verified inside the CI image:
 2 passed in under 4s per browser.
 
 **The full lane still runs, on hardware that can run it.** `npm run test:visual`
-locally is 9/9 in under a minute, and `validate:deploy-gate` — which the
-pre-push hook runs for `main` — keeps `test:visual:dist` and the Firefox
-accessibility lane. So the GPU-dependent contracts are gated at push time on a
-real GPU rather than not at all.
+locally runs the complete current visual suite, including the active-runtime
+viewport matrix; use the runner summary as the authoritative count rather than
+copying a fixed total here. `validate:deploy-gate` — which the pre-push hook runs
+for `main` — keeps `test:visual:dist` and the Firefox accessibility lane. So the
+GPU-dependent contracts are gated at push time on a real GPU rather than not at
+all.
 
 **Known cost, stated plainly:** a renderer regression that only shows on a GPU
 will not be caught by CI. It will be caught by the pre-push gate — the visual

@@ -1,6 +1,6 @@
 import {
   Color,
-  DoubleSide,
+  FrontSide,
   InstancedBufferAttribute,
   InstancedMesh,
   Matrix4,
@@ -43,22 +43,14 @@ import {
 /** On the water, above the shadow discs, below the hulls. */
 const REFLECTION_Y = GARDEN_WATER_Y + 0.018;
 
-/**
- * Ground distance per world unit of mast height, for a TRUE mirror.
- *
- * Derived, not tuned. In this ortho-iso rig (camera at target + (d, 0.816d, d))
- * one unit of height moves 0.866 units up the screen, and one unit along the
- * screen-vertical ground direction moves 0.5 units down it, so a mirrored mast
- * of height h reaches sqrt(3)·h across the water.
- */
-const REFLECTION_LENGTH_PER_HEIGHT = Math.sqrt(3);
+/** Restrained screen-space reach per world unit of mast height. */
+const REFLECTION_LENGTH_PER_HEIGHT = 1.12;
 
 /**
- * Peak opacity at the near end of a calm-water column. High, deliberately: a
- * hull tint at a polite 0.2 over daylit teal is invisible, which is how this
- * shipped as "no reflections at all" the first time.
+ * Peak opacity at the near end of a calm-water column. The reflection remains
+ * readable without becoming an opaque rectangular light pool.
  */
-const REFLECTION_PEAK_ALPHA = 0.82;
+const REFLECTION_PEAK_ALPHA = 0.42;
 
 const REGION_REFLECTIVITY: readonly number[] = SEA_REGION_ORDER
   .map((name) => SEA_REGION_CHARACTER[name].reflectivity);
@@ -92,16 +84,23 @@ const fragmentShader = /* glsl */`
     float across = abs(vReflectUv.x - 0.5) * 2.0;
     // A reflection frays as it travels: nearly the hull's own beam where it
     // leaves the waterline, wide and weak at the far end.
-    float spread = 0.62 + along * 0.38;
-    float width = 1.0 - smoothstep(spread * 0.35, spread, across);
-    float reach = smoothstep(0.0, 0.04, along) * (1.0 - smoothstep(0.45, 1.0, along));
+    float spread = 0.46 + along * 0.24;
+    float width = 1.0 - smoothstep(spread * 0.28, spread, across);
+    float reach = smoothstep(0.0, 0.05, along) * (1.0 - smoothstep(0.38, 0.9, along));
     // Broken into drifting bands, the same reading the Pharos column uses — a
     // reflection on moving water is never solid.
-    float bands = 0.42 + 0.58 * smoothstep(
-      0.2, 0.85,
+    float bands = 0.3 + 0.7 * smoothstep(
+      0.3, 0.82,
       0.5 + 0.5 * sin(along * 21.0 - uTime * 0.55)
     );
-    float alpha = width * reach * bands * vReflectAlpha;
+    // A second, slower breakup removes the rectangular far edge of the
+    // instanced plane without adding another texture or pass.
+    float breakup = smoothstep(
+      0.22,
+      0.76,
+      0.5 + 0.5 * sin(along * 9.0 + across * 4.0 + uTime * 0.18)
+    );
+    float alpha = width * reach * bands * (0.55 + breakup * 0.45) * vReflectAlpha;
     #ifdef USE_FOG
       // The sea it lies on fades into the fog, so the image on it must too.
       // Attenuating alpha rather than mixing toward fogColor keeps a distant
@@ -179,7 +178,7 @@ export function createGardenHeroReflections(count: number): GardenHeroReflection
     depthWrite: false,
     fog: true,
     fragmentShader,
-    side: DoubleSide,
+    side: FrontSide,
     transparent: true,
     uniforms: {
       ...UniformsLib.fog,
@@ -206,7 +205,7 @@ export function createGardenHeroReflections(count: number): GardenHeroReflection
         * REFLECTION_PEAK_ALPHA;
       // The column always hangs toward the viewer — +z in this fixed ortho-iso
       // rig — so it never takes the hull's heading, only its footprint width.
-      scratchScale.set(width, 1, mastheadHeight * REFLECTION_LENGTH_PER_HEIGHT);
+      scratchScale.set(width * 0.68, 1, mastheadHeight * REFLECTION_LENGTH_PER_HEIGHT);
       scratchPosition.set(worldX, REFLECTION_Y, worldZ);
       scratchMatrix.compose(scratchPosition, REFLECTION_ROTATION, scratchScale);
       mesh.setMatrixAt(index, scratchMatrix);

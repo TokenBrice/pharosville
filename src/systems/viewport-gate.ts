@@ -8,15 +8,17 @@
  * Runtime-neutral: no React or DOM imports.
  */
 
-export const MIN_LONG_SIDE_PX = 720;
-export const MIN_SHORT_SIDE_PX = 360;
+export const MIN_LONG_SIDE_PX = 900;
+export const MIN_SHORT_SIDE_PX = 720;
 
 /**
  * Can this DEVICE show the map at all, in its best orientation?
  *
  * Orientation-free on purpose: a phone that is 390x844 has the same capability
  * whichever way up it is held, and the answer to "should this device ever mount
- * the world" must not flip when the user rotates it.
+ * the world" must not flip when the user rotates it. The longer side needs
+ * 900 CSS pixels and the shorter side 720: real-GPU review found that
+ * 720x640 and 720x720 leave the landmark and chrome too compressed.
  */
 export function isWidescreenViewport(width: number, height: number): boolean {
   if (!width || !height) return false;
@@ -38,12 +40,11 @@ export function isWidescreenViewport(width: number, height: number): boolean {
  * the taller window has strictly more room.
  *
  * The real question is whether the viewport has the room, so that is what is
- * measured. Width is the binding constraint — the world is a wide isometric
- * composition — so it takes the long-side floor, and height takes the short-side
- * floor. A phone in portrait still fails on width and still gets told to rotate;
- * a tall desktop window, or a tablet held upright with 720px of width, does not.
+ * measured. The same monotonic max/min test applies to the viewport: adding
+ * room along either side can never take the world away. A phone still fails;
+ * both a 720x1000 tall window and a 2560x720 ultrawide window pass without an
+ * orientation, aspect-ratio, or device-label query.
  */
 export function canViewportShowMap(width: number, height: number): boolean {
-  if (!width || !height) return false;
-  return width >= MIN_LONG_SIDE_PX && height >= MIN_SHORT_SIDE_PX;
+  return isWidescreenViewport(width, height);
 }
