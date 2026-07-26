@@ -77,12 +77,15 @@ const LANDMARK_CARD_COPY: Record<string, Omit<SocialCardCopy, "url">> = {
 };
 
 /**
- * Escapes text for an HTML attribute or text node.
+ * Escapes text for an HTML text node.
  *
- * `HTMLRewriter.setAttribute` escapes on its own, so on the real edge this is
- * the second layer rather than the first. It is here because the guarantee that
- * nothing markup-shaped reaches the page should not rest on a runtime detail of
- * one rewriter implementation.
+ * Used only on the `<title>` path, which writes with `html: true` and so does
+ * its own escaping or none at all. Attribute values are NOT escaped here:
+ * `setAttribute` escapes what it is given, and escaping first turns `fleet's`
+ * into a literal `fleet&#39;s` in the unfurl. What keeps markup out of the page
+ * is upstream of both — every value written is a literal in this file or a name
+ * from the checked-in fleet registry, reached only through an id that matched
+ * `SELECTION_ID_PATTERN` and resolved to a known entity.
  */
 export function escapeHtml(value: string): string {
   return value
@@ -169,7 +172,8 @@ function metaContentBySelector(card: SocialCardCopy): Record<string, string> {
 
 export function rewriteSocialCard(response: Response, card: SocialCardCopy): Response {
   // `html: true` with already-escaped text rather than the escaping text mode,
-  // so the escaping above is the one that runs in both branches.
+  // so this path escapes exactly once. The attribute path below escapes exactly
+  // once too, in `setAttribute` — hence the raw string there.
   let rewriter = new HTMLRewriter().on("title", {
     element(element) {
       element.setInnerContent(escapeHtml(card.title), { html: true });
@@ -179,7 +183,7 @@ export function rewriteSocialCard(response: Response, card: SocialCardCopy): Res
   for (const [selector, content] of Object.entries(metaContentBySelector(card))) {
     rewriter = rewriter.on(selector, {
       element(element) {
-        element.setAttribute("content", escapeHtml(content));
+        element.setAttribute("content", content);
       },
     });
   }

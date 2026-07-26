@@ -103,17 +103,31 @@ export const LAST_GOOD_MAX_AGE_SEC = 24 * 60 * 60;
 const LAST_GOOD_STORED_AT_HEADER = "x-pharosville-last-good-stored-at";
 
 /**
- * A second cache key per endpoint, held under a reserved path prefix so the
- * long-TTL copy cannot collide with the short-TTL one. Carries no credential:
- * the entry is keyed by public path only, exactly like the short-TTL key.
+ * The long-TTL copy is keyed under an origin no request can ever carry.
+ * `caches.default` is the same store the CDN serves from, so a key on the public
+ * origin is reachable from outside: a GET to it would hand the fallback copy
+ * straight to a caller, and a miss would let the Pages 404 response take the key
+ * and silently disable the fallback. This host is not routable and never
+ * resolves to this zone, the same trick `_log.ts` uses for its rate-limit keys.
+ * Carries no credential: the key is still the public path, only under a private
+ * origin.
  */
-export function buildLastGoodCacheKey(url: URL, origin: string): Request {
+const LAST_GOOD_CACHE_ORIGIN = "https://pharosville-last-good.local";
+
+export function buildLastGoodCacheKey(url: URL): Request {
   return new Request(
-    new URL(`/__last-good${url.pathname}${url.search}`, origin).toString(),
+    new URL(`${url.pathname}${url.search}`, LAST_GOOD_CACHE_ORIGIN).toString(),
     { method: "GET" },
   );
 }
 
+/**
+ * Pins the copy a later outage will present as the answer — so what goes in has
+ * to be an answer. A mislabelled or truncated 200 is JSON by its content-type
+ * alone, and promoting one of those makes garbage the thing served under
+ * `Warning: 110` for the next 24 hours. Parseability is the whole test: the edge
+ * does not own the schema, it only refuses to pin what is not JSON at all.
+ */
 export function maybeStoreLastGoodEdgeCache(
   context: PagesContextWithWaitUntil,
   cache: EdgeCache | null,
@@ -121,15 +135,31 @@ export function maybeStoreLastGoodEdgeCache(
   response: Response,
 ): void {
   if (!cache || response.status !== 200 || !isJsonResponse(response)) return;
+  waitUntilOrVoid(
+    context,
+    storeParseableJson(cache, cacheKey, response.clone()).catch(() => undefined),
+  );
+}
+
+async function storeParseableJson(
+  cache: EdgeCache,
+  cacheKey: Request,
+  response: Response,
+): Promise<void> {
+  const text = await response.text();
+  try {
+    JSON.parse(text);
+  } catch {
+    return;
+  }
   const headers = new Headers(response.headers);
   headers.set("cache-control", `public, max-age=${LAST_GOOD_MAX_AGE_SEC}`);
   headers.set(LAST_GOOD_STORED_AT_HEADER, String(Math.floor(Date.now() / 1000)));
-  const stored = new Response(response.clone().body, {
+  await cache.put(cacheKey, new Response(text, {
     status: response.status,
     statusText: response.statusText,
     headers,
-  });
-  waitUntilOrVoid(context, cache.put(cacheKey, stored).catch(() => undefined));
+  }));
 }
 
 export interface LastGoodEdgeEntry {

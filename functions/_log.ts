@@ -82,6 +82,12 @@ async function sha256Hex(value: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+/**
+ * A caller's own claim about itself, not a credential — anyone can send this
+ * header. It therefore buys nothing but a label: the event token the report is
+ * filed under, and a second bucket namespace for that same caller. Nothing a
+ * spoofer sends can reach another caller's budget or another caller's reports.
+ */
 function isSyntheticProbe(request: Request): boolean {
   return request.headers.get(CANARY_HEADER)?.trim() === "1";
 }
@@ -90,12 +96,14 @@ async function isRateLimited(context: PagesContext, synthetic: boolean): Promise
   const cache = getEdgeCache();
   if (!cache) return false;
 
-  // Synthetic probes share one bucket keyed by a constant rather than by caller
-  // IP, so a canary can neither spend a real visitor's budget nor be blocked by
-  // one. Sharing a single bucket is the stricter side of the trade: marking a
-  // request synthetic tightens its rate limit, it never loosens it.
-  const bucket = synthetic ? "canary" : await sha256Hex(clientIp(context.request));
-  const cacheKey = new Request(`${RATE_LIMIT_CACHE_ORIGIN}/_log/${bucket}`, { method: "GET" });
+  // Every bucket is keyed by caller, synthetic or not. The marker only picks
+  // which of that caller's two buckets is spent, so a probe never spends a real
+  // visitor's budget from the same address, and a spoofed marker can only
+  // exhaust the spoofer's own bucket. A bucket shared across callers would be
+  // the opposite: anyone could hold it open and 429 the CI probe out of the sky.
+  const scope = synthetic ? "canary" : "client";
+  const bucket = await sha256Hex(clientIp(context.request));
+  const cacheKey = new Request(`${RATE_LIMIT_CACHE_ORIGIN}/_log/${scope}/${bucket}`, { method: "GET" });
   const hit = await cache.match(cacheKey);
   if (hit) return true;
 

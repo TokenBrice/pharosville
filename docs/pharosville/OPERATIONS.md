@@ -282,11 +282,14 @@ and a cross-origin POST with `403`. This is what distinguishes "the endpoint
 exists" from "the endpoint works": the real callers are browsers that have
 already failed, and a broken `/_log` cannot report that it is broken.
 
-The probe carries an `x-pharosville-canary: 1` header. That header does two
-things: it routes the report to the `PHAROSVILLE_CANARY_PROBE` token, and it
-moves the request into a single shared rate-limit bucket instead of the
-per-IP one, so a probe can never spend a real visitor's budget. Marking a
-request synthetic only ever tightens its rate limit.
+The probe carries an `x-pharosville-canary: 1` header. Anyone can send that
+header, so it is treated as a label the caller applies to itself and never as
+authority. It does two things, both scoped to the caller: it routes the report
+to the `PHAROSVILLE_CANARY_PROBE` token, and it selects that caller's second
+rate-limit bucket, so a probe never spends a real visitor's budget from the
+same address. Nothing a spoofer sends can reach another caller's budget — a
+bucket shared across callers would let a stranger hold it open and `429` the
+canary probe into a red run.
 
 ## Per-selection social cards
 

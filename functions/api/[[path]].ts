@@ -225,7 +225,7 @@ export async function onRequest(context: PagesContext): Promise<Response> {
   const cached = await cache?.match(cacheKey);
   if (cached) return withSecurityHeaders(cached, API_SECURITY_RESPONSE_HEADERS);
 
-  const lastGoodCacheKey = buildLastGoodCacheKey(url, CACHE_KEY_ORIGIN);
+  const lastGoodCacheKey = buildLastGoodCacheKey(url);
   const upstream = await fetchUpstream(buildUpstreamUrl(base, url), apiKey);
   if (!upstream.ok) {
     logUpstreamFailure(context, endpoint.path, upstream);

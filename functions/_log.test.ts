@@ -135,6 +135,24 @@ describe("client log function", () => {
     expect((await probe()).status).toBe(429);
   });
 
+  // The marker is caller-declared, so it must buy nothing that reaches anyone
+  // else. If it selected a bucket shared across callers, a stranger sending it
+  // in a loop would hold that bucket open and 429 the CI canary probe.
+  it("cannot spend another caller's budget by claiming to be the canary", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    stubEdgeCache();
+
+    const canaryFrom = (ip: string) => onRequest(makeContext(
+      JSON.stringify({ category: "canary", message: "synthetic canary probe" }),
+      { headers: { "cf-connecting-ip": ip, "x-pharosville-canary": "1" } },
+    ));
+
+    expect((await canaryFrom("198.51.100.9")).status).toBe(204);
+    expect((await canaryFrom("198.51.100.9")).status).toBe(429);
+    // The real probe, from its own address, is untouched by that flood.
+    expect((await canaryFrom("203.0.113.7")).status).toBe(204);
+  });
+
   it("stores a durable copy when the optional KV binding is present", async () => {
     const logSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const kv = recordingKv();

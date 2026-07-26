@@ -143,7 +143,7 @@ describe("PharosVille API proxy", () => {
     expect(response.headers.get("cache-control")).toBe("public, max-age=600");
     expect(cache.putUrls).toEqual([
       "https://pharosville.pharos.watch/api/stablecoins",
-      "https://pharosville.pharos.watch/__last-good/api/stablecoins",
+      "https://pharosville-last-good.local/api/stablecoins",
     ]);
     expect(cache.putUrls.join(" ")).not.toContain("test-proxy-key");
     await expect(cache.match(new Request("https://pharosville.pharos.watch/api/stablecoins")))
@@ -231,10 +231,10 @@ describe("PharosVille API proxy", () => {
     expect(response.headers.get("set-cookie")).toBeNull();
     expect(cache.putUrls).toEqual([
       "https://pharosville.pharos.watch/api/stablecoins",
-      "https://pharosville.pharos.watch/__last-good/api/stablecoins",
+      "https://pharosville-last-good.local/api/stablecoins",
     ]);
     expect(cache.putUrls.join(" ")).not.toContain("test-proxy-key");
-    const lastGood = await cache.match(new Request("https://pharosville.pharos.watch/__last-good/api/stablecoins"));
+    const lastGood = await cache.match(new Request("https://pharosville-last-good.local/api/stablecoins"));
     expect(await lastGood?.text()).not.toContain("test-proxy-key");
     expect([...lastGood!.headers.keys()]).not.toContain("x-api-key");
   });
@@ -452,7 +452,31 @@ describe("PharosVille API proxy", () => {
 
   describe("last-good fallback", () => {
     const SHORT_TTL_URL = "https://pharosville.pharos.watch/api/stablecoins";
-    const LAST_GOOD_URL = "https://pharosville.pharos.watch/__last-good/api/stablecoins";
+    const LAST_GOOD_URL = "https://pharosville-last-good.local/api/stablecoins";
+
+    // The long-TTL copy shares `caches.default` with the CDN, so its key must be
+    // one no visitor can send: a reachable key would serve the fallback copy on
+    // request, and a miss would let the Pages 404 take the key.
+    it("keys the last-good copy under an origin no request can reach", async () => {
+      const cache = new MemoryEdgeCache();
+      const waitUntilPromises: Promise<unknown>[] = [];
+      installEdgeCache(cache);
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+
+      await onRequest(makeContext(SHORT_TTL_URL, { waitUntilPromises }));
+      await Promise.all(waitUntilPromises);
+
+      // Only the short-TTL entry, which is meant to answer that exact request,
+      // sits on an origin a caller could ask for.
+      expect(cache.putUrls.filter((putUrl) => new URL(putUrl).origin === "https://pharosville.pharos.watch"))
+        .toEqual([SHORT_TTL_URL]);
+      expect(cache.putUrls).toContain(LAST_GOOD_URL);
+    });
 
     /** Runs one successful request so the long-TTL copy exists, then evicts the
      * short-TTL entry the way its `max-age` would have. */
@@ -549,6 +573,37 @@ describe("PharosVille API proxy", () => {
 
       expect(response.status).toBe(502);
       await expect(response.text()).resolves.toContain("PharosVille API upstream request failed");
+    });
+
+    // `/api/stablecoins` has no projector, so nothing else on this path ever
+    // parses the body: without this check a truncated or mislabelled 200 becomes
+    // the copy a later outage promotes to "the answer" under Warning: 110.
+    it("refuses to pin a 200 whose body is not parseable JSON", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const cache = new MemoryEdgeCache();
+      const waitUntilPromises: Promise<unknown>[] = [];
+      installEdgeCache(cache);
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response('{"peggedAssets":[', {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+
+      const served = await onRequest(makeContext(SHORT_TTL_URL, { waitUntilPromises }));
+      await Promise.all(waitUntilPromises);
+
+      // Still forwarded live — the edge does not judge a body it was asked to relay.
+      expect(served.status).toBe(200);
+      await expect(served.text()).resolves.toBe('{"peggedAssets":[');
+      await expect(cache.match(new Request(LAST_GOOD_URL))).resolves.toBeUndefined();
+
+      cache.responses.delete(SHORT_TTL_URL);
+      vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("upstream down"));
+      const duringOutage = await onRequest(makeContext(SHORT_TTL_URL));
+
+      expect(duringOutage.status).toBe(502);
+      expect(duringOutage.headers.get("warning")).toBeNull();
     });
 
     it("returns the 502 when no last-good copy exists", async () => {

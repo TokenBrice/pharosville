@@ -163,9 +163,13 @@ turns out to be SwiftShader after all. A bare `npm run preview` still fails loud
 on SwiftShader instead of skipping, because that run was asked for deliberately.
 
 `validate:deploy-gate` — the pre-push gate for `main` — runs `--assert` last and
-treats 78 as SKIP, printing that the frame time was not checked. CI, which has no
-GPU, therefore skips it every time rather than pretending to have measured a GPU
-frame.
+treats 78 as SKIP. CI, which has no GPU, therefore skips it every time rather
+than pretending to have measured a GPU frame. A skip still exits 0, so the last
+line of every run carries the verdict that says which happened:
+`PHAROSVILLE_DEPLOY_GATE: PASS` or `PHAROSVILLE_DEPLOY_GATE: PASS_PERF_SKIPPED`.
+Grep for that token rather than trusting the exit code alone; under GitHub
+Actions the same line lands in the step summary, and a skip also raises a
+`::warning::` annotation.
 
 The thresholds are calibrated on the DEFAULT framing, which on an RTX 5070 Ti at
 1600x1000 measures 60 fps, p50/p90 16.7 ms, tier `full`, and 620–693 draw calls

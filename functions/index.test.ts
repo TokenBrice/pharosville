@@ -85,11 +85,27 @@ function parseAttributes(tag: string): Map<string, string> {
   return attributes;
 }
 
+/**
+ * lol-html escapes what it writes, and the route is built around that: it hands
+ * `setAttribute` raw text and `setInnerContent` pre-escaped text under
+ * `html: true`. A stub that stored either verbatim would agree with a route that
+ * escaped twice, so it models both escaping rules.
+ */
+function escapeAttributeValue(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+}
+
+function escapeTextContent(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 function makeElement(attributes: Map<string, string>, setContent: (value: string) => void): FakeElement {
   return {
     getAttribute: (name) => attributes.get(name) ?? null,
-    setAttribute: (name, value) => { attributes.set(name, value); },
-    setInnerContent: (content) => { setContent(content); },
+    setAttribute: (name, value) => { attributes.set(name, escapeAttributeValue(value)); },
+    setInnerContent: (content, options) => {
+      setContent(options?.html ? content : escapeTextContent(content));
+    },
   };
 }
 
@@ -222,6 +238,19 @@ describe("PharosVille social card route", () => {
       expect(metaContent(html, 'meta[property="og:image:alt"]')).toContain("lighthouse beacon");
       expect(metaContent(html, 'meta[name="twitter:image"]'))
         .toBe("https://pharosville.pharos.watch/og-card.png");
+    });
+
+    // The rewriter escapes attribute values itself, so escaping before handing
+    // them over unfurled "the fleet's stability" as "the fleet&#39;s stability".
+    it("escapes an attribute exactly once, so punctuation unfurls as punctuation", async () => {
+      vi.stubGlobal("HTMLRewriter", FakeHtmlRewriter);
+      const { context } = makeContext(`https://pharosville.pharos.watch/?sel=ship.${A_KNOWN_SHIP.id}`);
+      const html = await (await onRequest(context)).text();
+
+      const description = metaContent(html, 'meta[property="og:description"]');
+      expect(description).toContain("fleet's");
+      expect(description).not.toContain("&amp;");
+      expect(description).not.toContain("&#39;");
     });
 
     it("returns the asset response untouched when there is no selection", async () => {
