@@ -201,6 +201,89 @@ describe("AccessibilityLedger", () => {
     expect(markup).not.toContain("Fleet peg:");
   });
 
+  it("names the beam's bearing and the high-water mark in the lighthouse row", () => {
+    const world: PharosVilleWorld = {
+      ...sampleWorld(),
+      lighthouse: {
+        ...sampleWorld().lighthouse,
+        beamDwell: { shipId: "usdx", symbol: "USDX", bps: -412 },
+        highWaterMark: {
+          band: "FRACTURE",
+          severity: 3,
+          score: 31,
+          at: Date.UTC(2026, 6, 20),
+          sampleCount: 9,
+          spanDays: 9,
+          unavailable: false,
+        },
+      },
+    };
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("Beam bearing: Holding on USDX, largest PSI contributor (-412 bps).");
+    expect(markup).toContain("Worst band, 30d: FRACTURE at PSI 31 on 2026-07-20; 9 days on record.");
+  });
+
+  it("says the rocks are unstained for want of history, not for want of stress", () => {
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorld()} />);
+
+    expect(markup).toContain("Worst band, 30d: Unstained — no index history to read.");
+    // No contributor, no bearing — the beam keeps its even sweep and the
+    // ledger claims nothing about where it is pointing.
+    expect(markup).not.toContain("Beam bearing:");
+  });
+
+  it("reads a ship's crossed price bearings out whether or not they crossed", () => {
+    const world = sampleWorldWithLedgerShip();
+    const [ship] = world.ships;
+    const crossed = renderToStaticMarkup(<AccessibilityLedger world={{
+      ...world,
+      ships: [{
+        ...ship!,
+        dexCrossCheck: {
+          dexPrice: 0.9912,
+          dexDeviationBps: -88,
+          oraclePrice: 0.9998,
+          oracleDeviationBps: -2,
+          agrees: false,
+          sourcePools: 4,
+          sourceTvlUsd: 12_300_000,
+        },
+      }],
+    }} />);
+
+    expect(crossed).toContain("DEX cross-check Bearings cross");
+    expect(crossed).toContain("DEX $0.9912 (-88 bps) vs feed $0.9998 (-2 bps)");
+    expect(crossed).toContain("4 pools, $12.3M TVL");
+
+    // The ledger has no density budget to protect, so unlike the panel it also
+    // records the agreeing case — a reader working from the ledger alone would
+    // otherwise never learn a check ran at all.
+    const agreed = renderToStaticMarkup(<AccessibilityLedger world={{
+      ...world,
+      ships: [{
+        ...ship!,
+        dexCrossCheck: {
+          dexPrice: 1.0001,
+          dexDeviationBps: 1,
+          oraclePrice: 1,
+          oracleDeviationBps: 0,
+          agrees: true,
+          sourcePools: 6,
+          sourceTvlUsd: 40_000_000,
+        },
+      }],
+    }} />);
+    expect(agreed).toContain("DEX cross-check Both bearings agree");
+
+    // And the ship clause is absent entirely when no check ran. Matched on the
+    // clause opening rather than the bare label, which the cue registry's own
+    // DOM-equivalent text further down the ledger also carries.
+    const silent = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+    expect(silent).not.toContain("DEX cross-check Bearings cross");
+    expect(silent).not.toContain("DEX cross-check Both bearings agree");
+  });
+
   it("adds a non-time-dependent lighthouse warm-beam cue from active elevated DEWS counts", () => {
     const world: PharosVilleWorld = {
       ...sampleWorld(),

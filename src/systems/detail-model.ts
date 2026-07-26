@@ -450,10 +450,46 @@ export function fleetPegLabel(mast: LighthouseNode["signalMast"]): string | null
   return parts.length > 0 ? parts.join("; ") : null;
 }
 
+/**
+ * The tide-stain, in words: how high the sea got and how much window there was
+ * to get there.
+ *
+ * Never says "calm". A BEDROCK mark says the sea never rose past the footing —
+ * a claim about the RECORD — while an absent history says the rocks are
+ * unstained because nothing was read, which is a claim about the evidence. The
+ * two must not collapse into one sentence, because unstained rock looks
+ * identical either way.
+ */
+export function highWaterMarkLabel(mark: LighthouseNode["highWaterMark"]): string {
+  if (!mark || mark.unavailable) return "Unstained — no index history to read";
+  const window = mark.spanDays > 0
+    ? `${pluralize(mark.spanDays, "day")} on record`
+    : "a single reading on record";
+  const score = mark.score === null ? "" : ` at PSI ${formatPsiNumber(mark.score)}`;
+  const dated = depegEventDateLabel(mark.at);
+  const when = dated ? ` on ${dated}` : "";
+  if (mark.severity === 0) {
+    return `${mark.band}${score}${when} — the sea never rose past the footing; ${window}`;
+  }
+  return `${mark.band}${score}${when}; ${window}`;
+}
+
+/**
+ * Where the beam is holding. The wording is fixed: "largest PSI contributor",
+ * which states the arithmetic and nothing else. The panel's own top-contributor
+ * list stays the ground truth; this row only says which of those rows the light
+ * is pointing at.
+ */
+export function beamDwellLabel(dwell: LighthouseNode["beamDwell"]): string | null {
+  if (!dwell) return null;
+  return `Holding on ${dwell.symbol}, largest PSI contributor (${basisPointsLabel(dwell.bps)})`;
+}
+
 export function detailForLighthouse(node: LighthouseNode): DetailModel {
   const trend = psiTrendLabel(node);
   const composition = psiCompositionLabel(node);
   const fleetPeg = fleetPegLabel(node.signalMast);
+  const beamDwell = beamDwellLabel(node.beamDwell);
   const contributors = node.contributors ?? [];
   return {
     id: node.detailId,
@@ -468,6 +504,8 @@ export function detailForLighthouse(node: LighthouseNode): DetailModel {
       ...(trend ? [{ label: "Trend", value: trend }] : []),
       ...(composition ? [{ label: "Composition", value: composition }] : []),
       { label: "Beam warmth cue", value: lighthouseBeamWarmCueLabel() },
+      ...(beamDwell ? [{ label: "Beam bearing", value: beamDwell }] : []),
+      { label: "Worst band, 30d", value: highWaterMarkLabel(node.highWaterMark) },
       { label: "Signal mast", value: signalMastLabel(node.signalMast) },
       ...(fleetPeg ? [{ label: "Fleet peg", value: fleetPeg }] : []),
       {
@@ -724,6 +762,38 @@ export function pegDeviationLabel(node: Pick<ShipNode, "pegDeviationBps" | "pegC
   return `${sign}${rounded} bps vs ${currency}`;
 }
 
+const priceFormat = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 4,
+  minimumFractionDigits: 4,
+  style: "currency",
+  currency: "USD",
+});
+
+/**
+ * The two bearings and the evidence behind the second one.
+ *
+ * Non-null whenever a check RAN, agreeing or not, because the ledger is the
+ * exhaustive record and "the pipeline checked and the two agreed" is worth
+ * saying there. The panel spends a row only on the disagreement — see
+ * `detailForShip` — so the ship panel keeps its density while the sr-only
+ * ledger keeps the whole story. Absent returns null and no surface says
+ * anything, which is the only honest reading of a check that never ran.
+ */
+export function dexCrossCheckLabel(check: ShipNode["dexCrossCheck"]): string | null {
+  if (!check) return null;
+  const dex = `DEX ${priceFormat.format(check.dexPrice)} (${basisPointsLabel(check.dexDeviationBps)})`;
+  const oracle = check.oraclePrice === null
+    ? (check.oracleDeviationBps === null ? null : `feed ${basisPointsLabel(check.oracleDeviationBps)}`)
+    : `feed ${priceFormat.format(check.oraclePrice)}${
+      check.oracleDeviationBps === null ? "" : ` (${basisPointsLabel(check.oracleDeviationBps)})`
+    }`;
+  const evidence = `${pluralize(check.sourcePools, "pool")}, ${formatCompactUsd(check.sourceTvlUsd)} TVL`;
+  const heading = check.agrees
+    ? "Both bearings agree"
+    : "Bearings cross — the two readings disagree";
+  return [heading, [dex, oracle].filter(Boolean).join(" vs "), evidence].join("; ");
+}
+
 export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): DetailModel {
   const isSquadShip = !!node.squadId;
   const squadShips = isSquadShip ? context.squadShips ?? [] : [];
@@ -755,6 +825,15 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
   const stressDriver = stressBreakdownLabel(node);
   const pegDeviation = pegDeviationLabel(node);
   const mastSignal = mastSignalLabel(node);
+  // 3b: the cross-check earns a row of its own ONLY when the two instruments
+  // disagree. Agreement is the fleet's normal state, so a row for it would land
+  // on nearly every ship and buy nothing; the ledger carries that case instead.
+  // A disagreement is a caveat on the peg figure in the panel's header, and
+  // burying it inside a fold with three other price qualifiers is exactly how a
+  // reader would miss it.
+  const dexCrossCheck = node.dexCrossCheck?.agrees === false
+    ? dexCrossCheckLabel(node.dexCrossCheck)
+    : null;
   const facts = [
     ...(pegDeviation ? [{ label: "Peg deviation", value: pegDeviation }] : []),
     { label: "Market cap", value: marketCapLabel(node.marketCapUsd) },
@@ -762,6 +841,7 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
     ...(fleetShare ? [{ label: "Share of fleet", value: fleetShare }] : []),
     ...(priceConfidence ? [{ label: "Price confidence", value: priceConfidence }] : []),
     ...(sourceConsensus ? [{ label: "Source consensus", value: sourceConsensus }] : []),
+    ...(dexCrossCheck ? [{ label: "DEX cross-check", value: dexCrossCheck }] : []),
     { label: "24h supply change", value: change24hPctLabel(node.change24hPct) },
     ...(momentum ? [{ label: "Supply momentum", value: momentum }] : []),
     ...(depegHistory ? [{ label: "Depeg history", value: depegHistory }] : []),

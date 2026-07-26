@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildDetailFactSections,
   buildDetailReadingLine,
+  classifyDetailFactLabel,
   compactCurrency,
   composeCurrently,
   formatChangePercent,
@@ -247,5 +248,41 @@ describe("buildDetailReadingLine", () => {
   it("has no reading line for kinds that carry no figures", () => {
     expect(buildDetailReadingLine("pigeonnier", [{ label: "Channel", value: "PharosWatch" }]))
       .toBeNull();
+  });
+});
+
+// The registration trap: an unregistered fact label is SILENTLY dropped from
+// the panel and every test stays green. These three labels are new, so they get
+// an explicit guard rather than trusting the rows above to notice.
+describe("buildDetailFactSections round-two metaphor rows", () => {
+  it("renders the lighthouse beam bearing and high-water mark as their own rows", () => {
+    const { identity } = buildDetailFactSections([
+      { label: "Beam bearing", value: "Holding on USDX, largest PSI contributor (-412 bps)" },
+      { label: "Worst band, 30d", value: "FRACTURE at PSI 31 on 2026-07-20; 9 days on record" },
+    ]);
+
+    expect(identity).toEqual([
+      { key: "beamBearing", label: "Beam bearing", value: "Holding on USDX, largest PSI contributor (-412 bps)" },
+      { key: "highWaterMark", label: "Worst band, 30d", value: "FRACTURE at PSI 31 on 2026-07-20; 9 days on record" },
+    ]);
+  });
+
+  it("keeps the DEX cross-check beside the market-cap figure it qualifies", () => {
+    const { identity } = buildDetailFactSections([
+      { label: "Market cap", value: "$1,000,000,000" },
+      { label: "Price confidence", value: "Low-confidence price feed" },
+      { label: "DEX cross-check", value: "Bearings cross — the two readings disagree; DEX $0.9912 (-88 bps)" },
+    ]);
+
+    // Next to the figure, not folded into it: a crossed bearing is a caveat on
+    // the peg reading and it must not disappear into a run-on qualifier list.
+    expect(identity.map((row) => row.key)).toEqual(["marketCap", "dexCrossCheck"]);
+    expect(identity[0]!.value).not.toContain("Bearings cross");
+  });
+
+  it("classifies every new label instead of dropping it", () => {
+    expect(classifyDetailFactLabel("Beam bearing")).toBe("beamBearing");
+    expect(classifyDetailFactLabel("Worst band, 30d")).toBe("highWaterMark");
+    expect(classifyDetailFactLabel("DEX cross-check")).toBe("dexCrossCheck");
   });
 });

@@ -265,6 +265,27 @@ export function updateLighthouseRimLight(phase: DayCyclePhase): void {
   RIM_UNIFORMS.uLighthouseRimStrength.value = 0.1 + phase.dusk * 0.04 + phase.night * 0.08;
 }
 
+/**
+ * The three box steps of the grand square terrace, as `[width, height, centreY]`
+ * in lighthouse-local units. The terrace runs from local y=0 to y=2.5.
+ *
+ * Exported because the 3c tide-stain (`garden-tide-stain.ts`) bands the same
+ * stonework and must taper with it — two hand-copied tables would have drifted
+ * the first time a step moved.
+ *
+ * Worth knowing: the loaded GLB shell replaces this procedural tower, and its
+ * generator (`scripts/pharosville/generate-garden-lighthouse.mjs`, the
+ * `terraceSteps` table) cuts the identical three steps — half-widths 4.6 / 4.2
+ * / 3.85 over y 0-0.85 / 0.85-1.7 / 1.7-2.5. Verified, not enforced: nothing
+ * links the two tables, so if the GLB's terrace is ever re-cut this moves with
+ * it or the stain floats off the stonework.
+ */
+export const LIGHTHOUSE_TERRACE_STEPS = [
+  [9.2, 0.85, 0.425],
+  [8.4, 0.85, 1.275],
+  [7.7, 0.8, 2.1],
+] as const;
+
 export function createLighthouse(): {
   beacon: Mesh<SphereGeometry, MeshStandardMaterial>;
   beaconHalo: Mesh<SphereGeometry, MeshBasicMaterial>;
@@ -325,11 +346,7 @@ export function createLighthouse(): {
     roughness: 1,
   });
   // Grand square terrace: three box steps up to the tower plinth.
-  for (const [width, height, y] of [
-    [9.2, 0.85, 0.425],
-    [8.4, 0.85, 1.275],
-    [7.7, 0.8, 2.1],
-  ] as const) {
+  for (const [width, height, y] of LIGHTHOUSE_TERRACE_STEPS) {
     const step = new Mesh(new BoxGeometry(width, height, width), stairMaterial);
     step.position.set(0, y, 0);
     root.add(step);

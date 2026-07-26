@@ -117,6 +117,8 @@ describe("buildVisualCueRegistry", () => {
       "cue.ship.zone-weathering",
       "cue.dock.congestion",
       "cue.lighthouse.signal-mast",
+      "cue.lighthouse.high-water-mark",
+      "cue.ship.cross-bearing-buoy",
       "cue.ship.audit-shield",
       "cue.ship.nav-signal",
       "cue.ship.yield-signal",

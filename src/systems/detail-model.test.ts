@@ -4,7 +4,10 @@ import {
   auditShieldState,
   backingDiversityLabel,
   backingDiversitySeverity,
+  beamDwellLabel,
   depegHistoryLabel,
+  dexCrossCheckLabel,
+  highWaterMarkLabel,
   detailForArea,
   detailForDock,
   detailForGrave,
@@ -1314,3 +1317,219 @@ describe("detail-model P3 metaphor quick-win signals", () => {
     ]));
   });
 });
+
+// Round-two metaphor items: the cross-bearing buoy (3b), the lighthouse
+// high-water mark (3c), and the beam's dwell on the largest contributor (3d).
+describe("detail-model round-two metaphor signals", () => {
+  const lighthouse = (overrides: Partial<LighthouseNode> = {}): LighthouseNode => ({
+    id: "lighthouse",
+    kind: "lighthouse",
+    label: "Pharos lighthouse",
+    tile: { x: 1, y: 1 },
+    psiBand: "STEADY",
+    score: 68,
+    color: "#ffffff",
+    unavailable: false,
+    detailId: "lighthouse",
+    ...overrides,
+  });
+
+  const crossCheck = (
+    overrides: Partial<NonNullable<ShipNode["dexCrossCheck"]>> = {},
+  ): NonNullable<ShipNode["dexCrossCheck"]> => ({
+    dexPrice: 0.9912,
+    dexDeviationBps: -88,
+    oraclePrice: 0.9998,
+    oracleDeviationBps: -2,
+    agrees: false,
+    sourcePools: 4,
+    sourceTvlUsd: 12_300_000,
+    ...overrides,
+  });
+
+  describe("3b — DEX cross-check", () => {
+    it("says nothing at all when no check ran", () => {
+      // The absent case is load bearing: silence must never read as agreement,
+      // and silence is the normal state for most of the fleet.
+      expect(dexCrossCheckLabel(undefined)).toBeNull();
+    });
+
+    it("carries both prices, both deviations, and the pool evidence", () => {
+      const label = dexCrossCheckLabel(crossCheck())!;
+
+      expect(label).toContain("Bearings cross");
+      expect(label).toContain("DEX $0.9912 (-88 bps)");
+      expect(label).toContain("feed $0.9998 (-2 bps)");
+      // A disagreement drawn from one thin pool is a different thing from one
+      // drawn from four deep ones, so the evidence travels with the claim.
+      expect(label).toContain("4 pools, $12.3M TVL");
+    });
+
+    it("names agreement as agreement, without hedging it into a warning", () => {
+      expect(dexCrossCheckLabel(crossCheck({ agrees: true }))).toContain("Both bearings agree");
+    });
+
+    it("reports the DEX bearing alone when the feed carries no price", () => {
+      const label = dexCrossCheckLabel(crossCheck({ oraclePrice: null, oracleDeviationBps: null }))!;
+
+      expect(label).toContain("DEX $0.9912");
+      expect(label).not.toContain("feed");
+    });
+
+    it("spends a ship panel row only on a disagreement", () => {
+      const ship = (check: ShipNode["dexCrossCheck"]): ShipNode =>
+        ({ ...crossBearingShip(), ...(check ? { dexCrossCheck: check } : {}) });
+
+      const crossed = detailForShip(ship(crossCheck())).facts
+        .filter((fact) => fact.label === "DEX cross-check");
+      expect(crossed).toHaveLength(1);
+      expect(crossed[0]!.value).toContain("Bearings cross");
+
+      // Agreement is the fleet's normal state; a row for it would land on
+      // nearly every ship and buy nothing. The ledger carries that case.
+      expect(detailForShip(ship(crossCheck({ agrees: true }))).facts
+        .some((fact) => fact.label === "DEX cross-check")).toBe(false);
+      expect(detailForShip(ship(undefined)).facts
+        .some((fact) => fact.label === "DEX cross-check")).toBe(false);
+    });
+  });
+
+  describe("3c — high-water mark", () => {
+    it("distinguishes an unstained rock from a rock nothing was read for", () => {
+      const bedrock = highWaterMarkLabel({
+        band: "BEDROCK",
+        severity: 0,
+        score: 82,
+        at: Date.UTC(2026, 6, 4),
+        sampleCount: 30,
+        spanDays: 29,
+        unavailable: false,
+      });
+      expect(bedrock).toContain("never rose past the footing");
+      expect(bedrock).toContain("29 days on record");
+
+      const missing = highWaterMarkLabel(undefined);
+      expect(missing).toContain("no index history to read");
+      // The evidence claim and the record claim must never share a sentence:
+      // bare stone looks identical either way.
+      expect(missing).not.toContain("never rose");
+    });
+
+    it("names the band, its score, its date, and how much window there was", () => {
+      const label = highWaterMarkLabel({
+        band: "FRACTURE",
+        severity: 3,
+        score: 31,
+        at: Date.UTC(2026, 6, 20),
+        sampleCount: 9,
+        spanDays: 9,
+        unavailable: false,
+      });
+
+      expect(label).toBe("FRACTURE at PSI 31 on 2026-07-20; 9 days on record");
+    });
+
+    it("never claims thirty days it does not have", () => {
+      expect(highWaterMarkLabel({
+        band: "TREMOR",
+        severity: 2,
+        score: null,
+        at: null,
+        sampleCount: 1,
+        spanDays: 0,
+        unavailable: false,
+      })).toContain("a single reading on record");
+    });
+
+    it("puts a Worst band, 30d row on the lighthouse in every state", () => {
+      for (const node of [lighthouse(), lighthouse({ highWaterMark: {
+        band: "CRISIS", severity: 4, score: 12, at: null, sampleCount: 5, spanDays: 5, unavailable: false,
+      } })]) {
+        expect(detailForLighthouse(node).facts
+          .some((fact) => fact.label === "Worst band, 30d")).toBe(true);
+      }
+    });
+  });
+
+  describe("3d — beam bearing", () => {
+    it("has no row when the index named no contributor", () => {
+      expect(beamDwellLabel(undefined)).toBeNull();
+      expect(detailForLighthouse(lighthouse()).facts
+        .some((fact) => fact.label === "Beam bearing")).toBe(false);
+    });
+
+    it("states the arithmetic and never an accusation", () => {
+      const label = beamDwellLabel({ shipId: "usdx", symbol: "USDX", bps: -412 })!;
+
+      expect(label).toBe("Holding on USDX, largest PSI contributor (-412 bps)");
+      // The wording is fixed everywhere: being the largest term in a weighted
+      // sum is arithmetic, not fault.
+      expect(label).not.toMatch(/\b(blame|fault|culprit|responsible|guilty|worst offender)\b/i);
+    });
+
+    it("puts the bearing on the lighthouse panel beside the contributor list", () => {
+      const detail = detailForLighthouse(lighthouse({
+        beamDwell: { shipId: "usdx", symbol: "USDX", bps: -412 },
+        contributors: [{ id: "usdx", symbol: "USDX", bps: -412, mcapUsd: 9e8 }],
+      }));
+
+      expect(detail.facts).toContainEqual({
+        label: "Beam bearing",
+        value: "Holding on USDX, largest PSI contributor (-412 bps)",
+      });
+      // The existing contributor rows stay the ground truth; the beam only
+      // points at the one they already list first.
+      expect(detail.members?.[0]?.id).toBe("usdx");
+    });
+  });
+});
+
+function crossBearingShip(): ShipNode {
+  return {
+    id: "usdx",
+    kind: "ship",
+    label: "USDX",
+    symbol: "USDX",
+    asset: {} as ShipNode["asset"],
+    meta: {} as ShipNode["meta"],
+    reportCard: null,
+    logoSrc: null,
+    tile: { x: 1, y: 1 },
+    riskTile: { x: 2, y: 2 },
+    chainPresence: [],
+    dockVisits: [],
+    dominantChainId: null,
+    homeDockChainId: null,
+    dockChainId: null,
+    marketCapUsd: 1_000_000_000,
+    riskPlacement: "safe-harbor",
+    riskZone: "calm",
+    riskWaterLabel: "Calm Anchorage",
+    placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
+    visual: {
+      hullForm: { beam: 1, height: 1, length: 1 },
+      hull: "treasury-galleon",
+      classLabel: "CeFi",
+      livery: {
+        accent: "#27b6a5",
+        label: "USDX livery",
+        logoMatte: "#f7fffb",
+        logoShape: "circle",
+        primary: "#009393",
+        sailColor: "#d8efe7",
+        sailPanel: "center",
+        secondary: "#005f61",
+        source: "peg-fallback",
+        stripePattern: "double",
+      },
+      sailColor: "#d8efe7",
+      overlay: "none",
+      sizeTier: "titan",
+      sizeLabel: "Titan class",
+      scale: 1,
+    },
+    change24hUsd: null,
+    change24hPct: null,
+    detailId: "ship.usdx",
+  };
+}

@@ -40,6 +40,7 @@ import { seaQualityTier } from "../renderer/render-scheduler";
 import {
   GARDEN_HULL_SILHOUETTES,
   GARDEN_LIGHTHOUSE_BEACON_Y,
+  GARDEN_LIGHTHOUSE_ROOT_OFFSET,
   GARDEN_SHIP_ROOT_Y,
   GARDEN_WATER_Y as WATER_LEVEL,
   gardenCameraViewHeight,
@@ -98,6 +99,13 @@ import {
 } from "./garden-lighthouse";
 import { createGardenBeaconFire, type GardenBeaconFire } from "./garden-beacon-fire";
 import { createGardenSignalMast, type GardenSignalMast } from "./garden-signal-mast";
+import {
+  createGardenCrossBearingBuoys,
+  type CrossBearingBuoySpec,
+  type GardenCrossBearingBuoys,
+} from "./garden-cross-bearing-buoys";
+import { createGardenTideStain, type GardenTideStain } from "./garden-tide-stain";
+import { beamBearingTo, beamDwellRateScale, beamStaticBearing } from "./garden-beam-dwell";
 import {
   createGardenSummitBirds,
   type GardenSummitBirds,
@@ -515,6 +523,24 @@ interface GardenContent {
   beaconFireRoot: Group;
   beaconHalo: Mesh<SphereGeometry, MeshBasicMaterial>;
   beam: Group;
+  /**
+   * 3d: the bearing from the beacon to the largest PSI contributor's berth, in
+   * `beam.rotation.y` units, or null when there is no contributor to watch.
+   *
+   * Taken once at compose time from the ship's composed berth rather than per
+   * frame from its live position: the ship wanders a couple of tiles around
+   * that berth, so a per-frame bearing would make the beam hunt, and the berth
+   * is the address the rest of the world already places the ship at.
+   */
+  beamDwellBearing: number | null;
+  crossBearingBuoys: GardenCrossBearingBuoys;
+  /**
+   * The hulls that have a buoy, in the buoys' own instance order — usually a
+   * handful, occasionally none. Kept as its own short list so the per-frame
+   * sync costs one pass over the crossed ships rather than a lookup on all
+   * ~205 of them.
+   */
+  crossBearingBuoyShips: ShipVisual[];
   decoration: Group;
   docks: DockVisual[];
   objectCount: number;
@@ -540,6 +566,7 @@ interface GardenContent {
   ships: ShipVisual[];
   signalMast: GardenSignalMast;
   statueGleamMaterials: MeshStandardMaterial[];
+  tideStain: GardenTideStain;
   summitBirds: GardenSummitBirds;
   summitBirdsRoot: Group;
   transientSelectedDetailId: string | null;
@@ -952,6 +979,14 @@ function createWorldContent(
   });
   island.root.add(signalMast.root);
 
+  // 3c: the high-water mark, banded onto the tower's own terrace steps. It
+  // rides `lighthouseRoot` rather than the island so it stays with the tower
+  // whether the procedural shell or the loaded GLB is standing — both are
+  // parented there and both were cut to `LIGHTHOUSE_TERRACE_STEPS`.
+  const tideStain = createGardenTideStain();
+  tideStain.setMark(world.lighthouse.highWaterMark?.severity ?? null);
+  island.lighthouseRoot.add(tideStain.root);
+
   const cemetery = createGardenCemetery(world.graves);
   const pigeonnier = createGardenPigeonnier(world.pigeonnier);
   root.add(cemetery.root, pigeonnier.root);
@@ -1080,6 +1115,54 @@ function createWorldContent(
   const fleetLanterns = createFleetLanterns(ships, shipGeometryCache);
   root.add(fleetLanterns.root);
 
+  // 3d needs one ship's composed berth in world XZ to take a bearing on.
+  // Resolved with a null motion sample, which is the berth before any patrol
+  // displaces it — the same address `entityCues` and the lane registry use, and
+  // a fixed one, so the beam holds a steady bearing instead of hunting the
+  // hull around its circuit.
+  const berthWorldXZ = (entry: typeof slice.ships[number]): { x: number; z: number } => {
+    const tile = resolveGardenShipDisplayTile({
+      displayOffset: entry.displayOffset,
+      representative: entry.representative,
+      sample: null,
+      ship: entry.ship,
+    });
+    return { x: tile.x * TILE_SCALE, z: tile.y * TILE_SCALE };
+  };
+
+  // 3b: one buoy per ship whose two price bearings cross. `agrees === false` is
+  // the ONLY state that moors one — an absent check leaves the water empty and
+  // claims nothing, which is the whole point of the signal.
+  //
+  // The buoys ride WITH their hulls rather than sitting at the berth: a ship
+  // patrols up to `GARDEN_MAX_MOTION_TILES` from its anchor, so a buoy nailed
+  // to the berth would spend most of its time nowhere near the ship it is
+  // describing, and a cue you cannot associate with its subject is not a cue.
+  const buoyShips = ships.filter((visual) => visual.ship.dexCrossCheck?.agrees === false);
+  const buoySpecs: CrossBearingBuoySpec[] = buoyShips.map((visual) => ({
+    detailId: visual.ship.detailId,
+    hullRadius: visual.selectionRadius,
+  }));
+  const crossBearingBuoys = createGardenCrossBearingBuoys(buoySpecs);
+  root.add(crossBearingBuoys.root);
+
+  // 3d: the bearing the beam will settle on. Null when the index named no
+  // contributor, or when the coin it named is not in the rendered fleet — the
+  // sweep then keeps the even turn it has always had.
+  const dwellShipId = world.lighthouse.beamDwell?.shipId ?? null;
+  const dwellEntry = dwellShipId === null
+    ? undefined
+    : slice.ships.find((entry) => entry.ship.id === dwellShipId);
+  const beamDwellBearing = dwellEntry
+    ? beamBearingTo(
+        {
+          x: islandTile.x * TILE_SCALE + GARDEN_LIGHTHOUSE_ROOT_OFFSET.x,
+          z: islandTile.y * TILE_SCALE + GARDEN_LIGHTHOUSE_ROOT_OFFSET.z,
+        },
+        berthWorldXZ(dwellEntry),
+      )
+    : null;
+
   const routeLine = new Line(
     new BufferGeometry(),
     new LineBasicMaterial({
@@ -1100,6 +1183,9 @@ function createWorldContent(
     beaconFireRoot: beaconFire.root,
     beaconHalo: island.beaconHalo,
     beam: island.beam,
+    beamDwellBearing,
+    crossBearingBuoys,
+    crossBearingBuoyShips: buoyShips,
     decoration: island.decoration,
     docks,
     objectCount,
@@ -1126,6 +1212,7 @@ function createWorldContent(
     ships,
     signalMast,
     statueGleamMaterials,
+    tideStain,
     summitBirds,
     summitBirdsRoot: summitBirds.root,
     transientSelectedDetailId: slice.transientSelectedDetailId,
@@ -1359,6 +1446,12 @@ function updateSceneForFrame(
     timeSeconds: frame.timeSeconds,
     visible: ambientAlive,
   });
+  // 3c has no call here on purpose: the tide stain is composed once, never
+  // moves, and is not tier gated — it is one draw call (zero when the mark is
+  // bare), and a reading that vanishes when the machine gets busy is worse than
+  // the call it costs. Its state changes only when the world does, in
+  // `createWorldContent`. 3b's buoys are placed after the ship loop below,
+  // where the hull transforms they ride on are final.
   // W5 tier matrix. Full: cone + outer cone + fan + dust + embers(32) +
   // smoke(16). Balanced: cone + fan + embers(12) + smoke(8), no dust, no
   // outer cone. Interaction: cone only + flame. Recovery/constrained: the
@@ -1408,7 +1501,13 @@ function updateSceneForFrame(
   // Bounded to 0.2-0.42 rad/s: fast enough to feel urgent at full stress, slow
   // enough that the world stays somewhere you can sit.
   const psiStress = MathUtils.clamp(frame.seaState.source.psiStress ?? 0, 0, 1);
-  const sweepRate = 0.2 + psiStress * 0.22;
+  // 3d: the sweep slows across the largest PSI contributor's bearing and speeds
+  // back up over open water, so the light lingers on the ship the index is most
+  // moved by. A rate well, not an easing target — the beam never reverses,
+  // stalls, or jumps, and an absent contributor scales by exactly 1, restoring
+  // the plain even sweep with no branch here.
+  const sweepRate = (0.2 + psiStress * 0.22)
+    * beamDwellRateScale(scene.beamAngle, content.beamDwellBearing);
   // Only reduced motion freezes the sweep, and that is a policy, not a budget.
   //
   // `constrained` used to freeze it too, which cost nothing to run — the sweep
@@ -1421,7 +1520,13 @@ function updateSceneForFrame(
   if (!frame.reducedMotion) {
     scene.beamAngle = (scene.beamAngle + beamElapsedSeconds * sweepRate) % (Math.PI * 2);
   }
-  content.beam.rotation.y = frame.reducedMotion ? -0.55 : scene.beamAngle;
+  // 3d under reduced motion: the sweep is gone, so the cue survives as a
+  // BEARING. The beam parks pointing at the contributor and the lighthouse
+  // panel's Beam bearing row names the ship it is holding on; with no
+  // contributor it keeps the composed pose it has always used.
+  content.beam.rotation.y = frame.reducedMotion
+    ? beamStaticBearing(content.beamDwellBearing)
+    : scene.beamAngle;
   content.beacon.getWorldPosition(scratchPosition);
   scene.water.setBeaconState(
     scratchPosition.x,
@@ -1572,6 +1677,17 @@ function updateSceneForFrame(
   endFleetFrame(content.fleetBatches);
   content.shipShadows.instanceMatrix.needsUpdate = true;
   content.visibleShipCount = visibleShipCount;
+
+  // 3b: the cross-bearing buoys ride alongside their hulls, so they are placed
+  // once the ship transforms are final. One pass over the crossed ships only —
+  // usually a handful, and none at all on an ordinary afternoon — then a single
+  // buffer upload, the same discipline the shadows and the batches use.
+  // Nothing here is tier or reduced-motion gated: the buoy has no motion of its
+  // own, and it stops moving exactly when the ship it is moored to does.
+  for (const [index, visual] of content.crossBearingBuoyShips.entries()) {
+    content.crossBearingBuoys.place(index, visual.root.position.x, visual.root.position.z);
+  }
+  content.crossBearingBuoys.flush();
 
   // Ship transforms are final — flutter the pennants (S8), ground moored
   // ships with karesansui ripple rings (S7 via contract C2 (d)), restamp the

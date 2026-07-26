@@ -39,6 +39,7 @@ import type {
   PlacementEvidence,
   ShipChainPresence,
   ShipDepegHistory,
+  ShipDexCrossCheck,
   ShipNode,
   ShipRiskPlacement,
 } from "../../world-types";
@@ -160,6 +161,42 @@ function depegEventEpochMs(value: number | null | undefined): number | null {
   return value < 10_000_000_000 ? value * 1000 : value;
 }
 
+/**
+ * The second bearing on a coin's price, when one was taken.
+ *
+ * Everything here is a straight copy of what the pipeline reported, with one
+ * rule enforced: a node exists only when a check actually ran. `dexPriceCheck`
+ * is both optional and nullable upstream, and collapsing "no check" into a
+ * default would make silence read as agreement — the one mistake this signal
+ * cannot afford, because silence is the normal state for most of the fleet.
+ */
+function shipDexCrossCheck(
+  pegCoin: { dexPriceCheck?: { dexPrice: number; dexDeviationBps: number; agrees: boolean; sourcePools: number; sourceTvl: number } | null | undefined } | undefined,
+  asset: { price: number | null },
+  oracleDeviationBps: number | null,
+): ShipDexCrossCheck | undefined {
+  const check = pegCoin?.dexPriceCheck;
+  if (!check) return undefined;
+  const dexPrice = finiteOrNull(check.dexPrice);
+  const dexDeviationBps = finiteOrNull(check.dexDeviationBps);
+  // A reading with no price and no deviation is not a bearing; it is a row the
+  // pipeline could not fill, and it stays absent rather than becoming a buoy.
+  if (dexPrice === null || dexDeviationBps === null) return undefined;
+  return {
+    dexPrice,
+    dexDeviationBps,
+    oraclePrice: finiteOrNull(asset.price),
+    oracleDeviationBps: finiteOrNull(oracleDeviationBps),
+    agrees: check.agrees === true,
+    sourcePools: Math.max(0, Math.trunc(finiteOrNull(check.sourcePools) ?? 0)),
+    sourceTvlUsd: Math.max(0, finiteOrNull(check.sourceTvl) ?? 0),
+  };
+}
+
+function finiteOrNull(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function shipDepegHistory(
   pegCoin: { eventCount: number; worstDeviationBps: number | null; lastEventAt: number | null } | undefined,
 ): ShipDepegHistory | null {
@@ -272,6 +309,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
     const riskWaterArea = riskWaterAreaForPlacement(risk.placement);
     const stressBreakdown = shipStressBreakdown(stress, risk.placement);
     const stamped = squad && flagshipRisk ? stampSquad(asset.id, squad) : null;
+    const dexCrossCheck = shipDexCrossCheck(pegCoin, asset, pegCoin?.currentDeviationBps ?? null);
     return {
       id: asset.id,
       kind: "ship" as const,
@@ -302,6 +340,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
       change7dPct: recent.change7dPct,
       change30dPct: recent.change30dPct,
       depegHistory: shipDepegHistory(pegCoin),
+      ...(dexCrossCheck ? { dexCrossCheck } : {}),
       detailId: `ship.${asset.id}`,
       ...(stamped ? { squadId: stamped.squadId, squadRole: stamped.role } : {}),
     };

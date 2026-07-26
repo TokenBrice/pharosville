@@ -69,6 +69,9 @@ export type DetailFactKey =
   | "psiComposition"
   | "signalMast"
   | "fleetPeg"
+  | "beamBearing"
+  | "highWaterMark"
+  | "dexCrossCheck"
   | "cycleTempo"
   | "homeDock"
   | "backingDiversity"
@@ -116,6 +119,9 @@ const DETAIL_FACT_LABELS = {
   "composition": "psiComposition",
   "signal mast": "signalMast",
   "fleet peg": "fleetPeg",
+  "beam bearing": "beamBearing",
+  "worst band, 30d": "highWaterMark",
+  "dex cross-check": "dexCrossCheck",
   "cycle tempo": "cycleTempo",
   "home dock": "homeDock",
   "backing diversity": "backingDiversity",
@@ -258,6 +264,11 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
       .join(" · ");
     identity.push({ key: "marketCap", label: "Market cap", value });
   }
+  // 3b: the crossed bearings sit next to the figure they qualify rather than
+  // folding into it. Upstream this row only exists when the two instruments
+  // DISAGREE, so it is an exception report, not a permanent ninth row.
+  const dexCrossCheck = lookup.get("dexCrossCheck");
+  if (dexCrossCheck) identity.push({ key: "dexCrossCheck", label: "DEX cross-check", value: dexCrossCheck });
   // Momentum and the (significance-gated) depeg record fold into the 24h row
   // (not their own rows) to respect the panel's <= 8 fact-row density
   // contract; the full labels still reach the accessibility ledger as
@@ -285,6 +296,13 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   if (signalMast) identity.push({ key: "signalMast", label: "Signal mast", value: signalMast });
   const fleetPeg = lookup.get("fleetPeg");
   if (fleetPeg) identity.push({ key: "fleetPeg", label: "Fleet peg", value: fleetPeg });
+  // 3d and 3c, in the order the eye meets them on the monument: where the light
+  // is pointing, then how high the water got. Both are lighthouse-only, so they
+  // spend no rows on any ship panel.
+  const beamBearing = lookup.get("beamBearing");
+  if (beamBearing) identity.push({ key: "beamBearing", label: "Beam bearing", value: beamBearing });
+  const highWaterMark = lookup.get("highWaterMark");
+  if (highWaterMark) identity.push({ key: "highWaterMark", label: "Worst band, 30d", value: highWaterMark });
   const cycleTempo = lookup.get("cycleTempo");
   if (cycleTempo) identity.push({ key: "cycleTempo", label: "Cycle tempo", value: cycleTempo });
   const homeDock = lookup.get("homeDock");

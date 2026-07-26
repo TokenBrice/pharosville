@@ -17,13 +17,19 @@ import { countShipsByRiskPlacement } from "./ship-placement";
 import type {
   DewsAreaBand,
   DockNode,
+  LighthouseBeamDwell,
+  LighthouseHighWaterMark,
   LighthouseNode,
   PharosVilleWorld,
   PigeonnierNode,
   ShipNode,
   SignalMastNode,
 } from "../../world-types";
-import { SIGNAL_MAST_MAX_PENNANTS } from "../../world-types";
+import {
+  HIGH_WATER_MARK_WINDOW_DAYS,
+  psiBandSeverity,
+  SIGNAL_MAST_MAX_PENNANTS,
+} from "../../world-types";
 import type {
   BuildWorldScaffoldStage,
   PharosVilleInputs,
@@ -123,6 +129,7 @@ function buildLighthouse(
   const avg24h = finiteNumber(current?.avg24h);
   const avg24hBand = nonEmptyString(current?.avg24hBand);
   const contributors = lighthouseContributors(current);
+  const beamDwell = buildBeamDwell(contributors);
   return {
     id: "lighthouse",
     kind: "lighthouse",
@@ -139,7 +146,85 @@ function buildLighthouse(
     detailId: "lighthouse",
     lastFleetDepegAt: lastFleetDepegAt(pegSummary),
     signalMast: buildSignalMast(pegSummary),
+    highWaterMark: buildHighWaterMark(stability),
+    ...(beamDwell ? { beamDwell } : {}),
   };
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The worst PSI band of the trailing window, for the lighthouse tide-stain.
+ *
+ * The window is measured back from the NEWEST point in the history, not from
+ * the wall clock. A producer that stopped writing a week ago should still show
+ * the mark it left; anchoring on `Date.now()` would quietly erase the record as
+ * the payload aged, which is the opposite of what a high-water mark is for.
+ * `spanDays` then carries how much window there really was, so the DOM can say
+ * "9 days on record" instead of implying thirty.
+ *
+ * Ties break toward the OLDER point: the mark is where the sea first reached,
+ * and a later touch of the same band did not raise it.
+ */
+export function buildHighWaterMark(
+  stability: StabilityIndexResponse | null | undefined,
+): LighthouseHighWaterMark {
+  const points = (stability?.history ?? []).flatMap((point) => {
+    const at = toEpochMs(point.date);
+    const severity = psiBandSeverity(point.band);
+    // A point whose band this build does not recognize is dropped rather than
+    // ranked: an unknown band is not a calm one.
+    if (at === null || severity === null) return [];
+    return [{ at, severity, band: point.band, score: finiteNumber(point.score) }];
+  });
+  if (points.length === 0) {
+    return {
+      band: null,
+      severity: null,
+      score: null,
+      at: null,
+      sampleCount: 0,
+      spanDays: 0,
+      unavailable: true,
+    };
+  }
+
+  const newest = Math.max(...points.map((point) => point.at));
+  const cutoff = newest - HIGH_WATER_MARK_WINDOW_DAYS * DAY_MS;
+  const inWindow = points.filter((point) => point.at >= cutoff);
+  const oldest = Math.min(...inWindow.map((point) => point.at));
+  let worst = inWindow[0]!;
+  for (const point of inWindow) {
+    if (point.severity > worst.severity || (point.severity === worst.severity && point.at < worst.at)) {
+      worst = point;
+    }
+  }
+  return {
+    band: worst.band,
+    severity: worst.severity,
+    score: worst.score,
+    at: worst.at,
+    sampleCount: inWindow.length,
+    spanDays: Math.round((newest - oldest) / DAY_MS),
+    unavailable: false,
+  };
+}
+
+/**
+ * The ship the beam settles toward: the largest PSI contributor.
+ *
+ * `contributors` arrives ordered by contribution — that ordering is what the
+ * existing "Top PSI contributors" panel list and ledger clause have always
+ * presented, so taking the head keeps the beam pointing at the same coin the
+ * DOM already names first. Re-sorting here on `bps` would be a second, quietly
+ * different answer to the same question.
+ */
+export function buildBeamDwell(
+  contributors: LighthouseNode["contributors"],
+): LighthouseBeamDwell | undefined {
+  const top = contributors?.[0];
+  if (!top) return undefined;
+  return { shipId: top.id, symbol: top.symbol, bps: top.bps };
 }
 
 /**

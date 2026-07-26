@@ -6,7 +6,10 @@ import { SQUAD_DISTRESS_FLAG_HEX } from "../systems/maker-squad";
 import type { AreaNode, DewsAreaBand, PharosVilleWorld, ShipNode } from "../systems/world-types";
 import { cycleTempoReadingClause, precomputeShipTempos } from "../systems/ship-cycle-tempo";
 import {
+  beamDwellLabel,
   depegHistoryLabel,
+  dexCrossCheckLabel,
+  highWaterMarkLabel,
   mastSignalLabel,
   pegDeviationLabel,
   DIMENSION_KEY_LABELS,
@@ -116,6 +119,8 @@ function AccessibilityLedgerContent({
   const lighthouseContributors = world.lighthouse.contributors?.map(psiContributorLabel).join(", ");
   const lighthouseSignalMast = signalMastLabel(world.lighthouse.signalMast);
   const lighthouseFleetPeg = fleetPegLabel(world.lighthouse.signalMast);
+  const lighthouseBeamDwell = beamDwellLabel(world.lighthouse.beamDwell);
+  const lighthouseHighWaterMark = highWaterMarkLabel(world.lighthouse.highWaterMark);
   const recentFleetTrend = recentFleetTrendSummary(world);
 
   return (
@@ -149,6 +154,8 @@ function AccessibilityLedgerContent({
             {lighthouseContributors ? ` Top contributors: ${lighthouseContributors}.` : ""}
             {` Signal mast: ${lighthouseSignalMast}.`}
             {lighthouseFleetPeg ? ` Fleet peg: ${lighthouseFleetPeg}.` : ""}
+            {lighthouseBeamDwell ? ` Beam bearing: ${lighthouseBeamDwell}.` : ""}
+            {` Worst band, 30d: ${lighthouseHighWaterMark}.`}
           </dd>
         </div>
         <div>
@@ -350,6 +357,10 @@ function shipLedgerLine(
     `24h supply change ${formatChangePercent(ship.change24hPct)}`,
     ...(supplyMomentumLabel(ship) ? [`supply momentum ${supplyMomentumLabel(ship)}`] : []),
     ...(depegHistoryLabel(ship.depegHistory) ? [`depeg history ${depegHistoryLabel(ship.depegHistory)}`] : []),
+    // 3b: the ledger carries the check whether or not the bearings crossed —
+    // it has no density budget to protect, and "checked, and they agreed" is
+    // a fact a reader working from the ledger alone would otherwise never get.
+    ...(dexCrossCheckLabel(ship.dexCrossCheck) ? [`DEX cross-check ${dexCrossCheckLabel(ship.dexCrossCheck)}`] : []),
     ...(stressDriver ? [`stress driver ${stressDriver}`] : []),
     ...(safetyGrade ? [`safety grade ${safetyGrade.replace(/^Safety\s+/, "")}`] : []),
     ...safetyDimensionClauses,
