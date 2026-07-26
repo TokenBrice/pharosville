@@ -59,6 +59,23 @@ export function hardwareGpuLaunchArgs(browser: string): string[] {
   return browser === "chromium" && shouldUseHardwareGpu() ? [...HARDWARE_GPU_ARGS] : [];
 }
 
+/**
+ * Firefox in the CI container will not hand out a WebGL context by default, so
+ * the world reports a renderer failure and the cross-browser lane tests the DOM
+ * fallback instead of the thing it says it tests. Locally — with a GPU, and
+ * even forced to software GL — Firefox is fine, which is what makes this a
+ * container default rather than a capability limit.
+ *
+ * `force-enabled` is the pref that gets past the blocklist a headless container
+ * matches; the rest let it fall back to a software context rather than refuse.
+ */
+const FIREFOX_WEBGL_PREFS: Record<string, boolean> = {
+  "gfx.webrender.all": true,
+  "webgl.disabled": false,
+  "webgl.force-enabled": true,
+  "webgl.forbid-software": false,
+};
+
 export function shouldReuseExistingServer() {
   if (process.env.PHAROSVILLE_VISUAL_REUSE === "1") return true;
   if (process.env.PHAROSVILLE_VISUAL_REUSE === "0") return false;
@@ -82,6 +99,10 @@ export function parseBrowserSelection() {
 export function buildBrowserProjects(base: PharosvilleProjectUse) {
   return parseBrowserSelection().map((browser) => {
     const args = hardwareGpuLaunchArgs(browser);
+    const launchOptions = {
+      ...(args.length > 0 ? { args } : {}),
+      ...(browser === "firefox" ? { firefoxUserPrefs: FIREFOX_WEBGL_PREFS } : {}),
+    };
     return {
       name: `desktop-${browser}`,
       use: {
@@ -90,7 +111,7 @@ export function buildBrowserProjects(base: PharosvilleProjectUse) {
         contextOptions: base.contextOptions,
         viewport: base.viewport,
         trace: base.trace,
-        ...(args.length > 0 ? { launchOptions: { args } } : {}),
+        ...(Object.keys(launchOptions).length > 0 ? { launchOptions } : {}),
       },
     };
   });
