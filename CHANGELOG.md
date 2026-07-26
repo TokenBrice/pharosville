@@ -2,14 +2,11 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
-## Unreleased
+## v0.5.0 - 2026-07-26 - The Cargo Tide
 
-Work landed on `main` after v0.4.0 and not yet published. This is not a
-version: it becomes one only when a release pull request assigns it a number
-and the protected workflow creates the matching tag and GitHub Release.
+The world stops showing only what exists and starts showing what is moving: crates load and land as supply is minted and burned, a tide reads the week's global drift, and a signal mast flies the fleet's peg condition — while the map-wide frame the product is judged on drops from 917 draw calls to 402, and an outage now degrades the harbour instead of emptying it.
 
-Collected from commits `871408a` through `fe49052` after the v0.4.0 changelog
-entry, plus the 2026-07-26 logo vectorisation and runtime-media guard batch.
+Collected from commits `871408a` through `361a03c` after the v0.4.0 changelog entry.
 
 - Made production failure visible and survivable. Client errors now report from every real failure site to a `/_log` that persists them behind an optional KV binding, with the canary POSTing a synthetic report every run to prove the pipe. The edge keeps a long-TTL last-good copy of each endpoint and serves it with honest age headers when upstream fails, the browser persists the last complete world so a returning visitor renders immediately from data labelled with its true age, and the 30-minute canary now asserts per-endpoint freshness so a stuck producer trips it instead of passing.
 - Opened the sharing and first-visit loop. The meta description no longer calls the product "A beta desktop RPG island-city", a shared ship link unfurls as that ship through edge-rewritten OG text, the detail panel has a copy-link button, the first-visit legend closes into a "Watch the harbor" button rather than silence, and pressing `/` finds any ship or harbour by name.
