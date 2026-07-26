@@ -26,11 +26,12 @@ import type { PharosVilleWorld } from "../systems/world-types";
 // the blocked path.
 import {
   SEA_SIGN_BOARD,
+  TILE_SCALE,
   seaSignBoards,
   seaSignScaleForZoom,
   type SeaSignBoard,
-} from "../three/garden-sea-signs";
-import { TILE_SCALE } from "../three/garden-util";
+} from "../three/garden-sea-sign-siting";
+
 import {
   hitTargetSnapshotFromTargets,
   type HitTarget,

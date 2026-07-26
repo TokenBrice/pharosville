@@ -191,6 +191,15 @@ const endpointValidatorsByPath = {
     assert(isRecord(json.dependencyGraph), "reportCards.dependencyGraph must be an object");
     assertNumber(json.updatedAt, "reportCards.updatedAt");
   },
+  "/api/mint-burn-flows": (json) => {
+    assert(isRecord(json.gauge), "mintBurn.gauge must be an object");
+    assertArray(json.coins, "mintBurn.coins", { nonEmpty: true });
+    // The harbour allocation renormalises over this scope, so an empty or
+    // missing chain list would silently mark every harbour untracked.
+    assert(isRecord(json.scope), "mintBurn.scope must be an object");
+    assertArray(json.scope.chainIds, "mintBurn.scope.chainIds", { nonEmpty: true });
+    assertNumber(json.updatedAt, "mintBurn.updatedAt");
+  },
 };
 
 // Data older than this many producer intervals means the upstream writer is
@@ -230,6 +239,7 @@ const freshnessSourcesByPath = {
   "/api/peg-summary": { key: "pegSummary", readUpdatedAt: (json) => json.methodology?.asOf },
   "/api/stress-signals": { key: "stress", readUpdatedAt: (json) => json.updatedAt },
   "/api/report-cards": { key: "reportCards", readUpdatedAt: (json) => json.updatedAt },
+  "/api/mint-burn-flows": { key: "mintBurn", readUpdatedAt: (json) => json.updatedAt },
 };
 
 export function findFreshnessProblems(path, json, freshness, nowSec) {
