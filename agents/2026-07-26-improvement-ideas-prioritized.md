@@ -199,8 +199,16 @@ or 4a (reflections) as the next visible release's headline.
 
 # Implementation status — 2026-07-26
 
-26 commits on local `main`, nothing pushed. `npm run validate` green:
-1260 tests, typecheck, lint, build, bundle-size, docs, secrets, colours.
+33 commits on local `main`, nothing pushed. Written at `fe49052`; the logo
+and media-guard work described below was in the working tree, uncommitted,
+at that point. `npm run validate` was last recorded green at `3ca4596`
+(1260 tests, typecheck, lint, build, bundle-size, docs, secrets, colours);
+the five waves after it are not covered by that run.
+
+This supersedes the earlier version of this section, written at `3ca4596`,
+which listed the pale sails, the docked ratio, the Web Worker, the harbour
+tempo animation, the `flightToQuality` cue and the duplicated band→body
+mapping as unresolved. All six have since been closed.
 
 ## Shipped
 
@@ -209,15 +217,34 @@ KV binding, edge stale-on-error, canary freshness gate, monitoring runbook,
 meta copy, copy-link, legend→observe CTA, signal mast, cross-bearing buoy,
 PSI high-water mark, beacon dwell, island planting, quick find, test lanes.
 
-Tier 2 complete except the pale-sail sweep: logo cache headers, Node
-engines, night-sky band, gulls, time-of-day keys, sea-sign keyboard
-targets, stale-caveat coverage, overview draw-call re-measure.
+Tier 2 complete: logo cache headers, Node engines, night-sky band, gulls,
+time-of-day keys, sea-sign keyboard targets, stale-caveat coverage,
+overview draw-call re-measure, and the pale sails (see below — done without
+touching the floor, so D5 stands and no sign-off was required).
 
 Tier 3 shipped: overview LOD cull, hero reflections, sticky placement,
 mint/burn cargo tide, tide line, PMREM + depth cueing, client-side
 last-good persistence, refresh-soak leak gate, idle governor,
 failure-injection lane, world-data hook unit tests, social cards, ship
-trim, visible harbor ledger, meshopt compression.
+trim, visible harbor ledger, meshopt compression, harbour tempo (both
+halves), and the `flightToQuality` skiffs.
+
+Also landed, not on the original list:
+
+- **The band→body mapping is one authority again.** `seaBodyForArea` in
+  `src/systems/sea-bodies.ts` — three-free, so it imports anywhere without
+  dragging the renderer across a chunk boundary. All four former copies
+  agreed exactly, so there was no hidden divergence to report.
+- **A byte-level runtime media guard.** `check:runtime-media` verified that
+  referenced files exist; it now verifies they can render — PNG/JPEG/WebP
+  container integrity, truncation, SVG sanity, and vector-behind-raster
+  extension swaps. It immediately caught `public/logos/340-rwausdi.png`:
+  truncated since the bootstrap commit `c023b2c` (IDAT declares 3198 bytes,
+  385 present) and rendering blank in production ever since.
+- **Logo vectorisation, partial.** Batch A needed no work — all 11 chain
+  marks were already true SVG and knock out correctly at the real 89px flag
+  size; the brief's premise that they are PNGs was stale. Batch B landed 11
+  long-tail marks (manifest 122 → 133 SVG) from two verified sources.
 
 ## Measured, not estimated
 
@@ -226,15 +253,78 @@ trim, visible harbor ledger, meshopt compression.
 - Models 2,282,072 → 1,133,132 bytes (−50.3%), max geometry deviation
   2.44e-4 units — under 1% of the finest authored feature.
 - Sticky placement: a sub-percent supply wiggle moves **0** risk tiles and
-  **0** moorings, down from 38/205 and 13/81.
+  **0** moorings, down from 38/205 and 13/81. World model rebuild 303ms → 34ms.
+- Refresh cost on the real GPU against the production bundle, median
+  main-thread busy time: **0ms** identical payload, **239ms** common case
+  (sub-percent wiggle, sticky placement holding), **795ms** full churn.
+  Style, layout and paint total 14ms across the whole window.
 - Perf lane baseline recorded green: p90 16.7ms, 534 calls, 366 geometries,
   44 textures, 70 programs; refresh-soak flat across 12 payloads.
+- Pale sails: dark canvas 26 → 31 of 256 issuers (10% → 12%).
+- Harbour tempo: one scalar (chain `change24hPct` against 3% full scale)
+  drives orbit rate ±45% (0.047–0.123 rad/s), radius 1.8–3.0, height
+  3.7–4.7. No new draw calls — quay gulls are extra instances (9 + 2N,
+  N ≤ 10) of the flock's existing `InstancedMesh`.
+- Symbol-keyed logo sources: **0 of 26** candidates were the correct mark.
+
+## What the independent review found
+
+Late in the day an independent review ran over the day's diff in four
+slices (renderer, UI, systems, server/tooling). It returned **14 findings.
+All 14 were verified as real. All 14 were fixed.** That hit rate is the
+point: mass-parallel authoring, where each agent validates only its own
+slice, reliably produces defects that no slice's own tests can see. Budget
+for a review pass; it is cheaper than the alternative.
+
+The three most instructive:
+
+- **The PMREM probe baked a night sky and cached it.** `environment
+  .update(phase)` ran before the sky's own update wrote the dome uniforms,
+  and those initialise to the night preset. The first bake — the one that
+  sets `bakedKey` — therefore rendered night whatever the hour, and the
+  early return held it. At midday the quantised key never moves, so every
+  metal surface was lit wrong through the whole flat middle of the day. The
+  feature's own tests passed: they checked that a bake happened and was
+  cached, which is exactly what went wrong.
+- **The Harbor ledger was unreadable by keyboard** — the audience it was
+  built for. Its Tab trap found one focusable element (Close), because the
+  accessibility ledger renders no links or buttons at all and the scroll
+  container was a plain `div` with no `tabIndex`. The legend panel only
+  survives the same trap because its body is full of buttons. Reusing a
+  working idiom is not the same as reusing its preconditions.
+- **`smoke-live.mjs` asserted more than the contract guarantees.** The new
+  `/api/mint-burn-flows` validator hard-failed on empty `coins` and missing
+  `scope`, both of which `MintBurnFlowsResponseSchema` permits. A
+  contract-legal payload would have failed the deploy smoke through every
+  retry and turned the 30-minute production canary permanently red. Both
+  moved to a warning tier that can never fail the run.
+
+The rest, briefly: the overview LOD dragged the cargo tide and tide line
+toward the map centre (Box3 pivot is the ring centroid for one instanced
+group spanning every harbour); the idle governor ran at 20fps, not the 30
+its comment claimed, because two 60Hz vsync intervals are 33.33ms and
+always beat a 33.4ms target; the cargo tide printed "No issuance activity"
+for flow it could not attribute, which reads as a measurement rather than a
+gap; Escape inside any panel cleared the ship selection, a pre-existing
+collision the new panel inherited; reduced-motion "Watch the harbor" gave
+one beat and died on the first Tab; restored payload age was computed once
+at restore, so with the API down the UI reported its page-load age forever;
+the error reporter deduped on message, and browsers report every
+cross-origin script failure as the literal `"Script error."`, so the first
+one permanently suppressed all later ones; plus per-frame allocation in new
+update paths and an idle tier freeze that failed open.
 
 ## Deliberately not done, with reasons
 
-- **Pale-sail contrast floor 2.0→2.2** — needs operator sign-off. Decision D5
-  set 2.0 and kept DAI's amber on purpose; changing it silently would
-  override a recognition cue the operator owns.
+- **Pale-sail contrast floor 2.0→2.2 — not done, and the goal reached
+  anyway.** Raising the floor was the one-line lever and is exactly what
+  was avoided: D5 set 2.0 and kept DAI's amber on purpose. The plan's own
+  alternative shipped instead — a per-coin override table
+  (`src/three/garden-sail-overrides.ts`) naming five issuers
+  (bean-beanstalk, cash-phantom, csusdl-coinshift, eusd-lybra,
+  zchf-frankencoin). The floor is untouched, nothing else in the fleet
+  moves, DAI is pinned by test to `#daac69` and asserted absent from the
+  table. Reverses by deleting a line.
 - **Fleet growth to 300** — blocked upstream, not by code. There is no filter
   to loosen: `shared/data/stablecoins/coins/` holds exactly 217 entries and
   every compatibility shell is `[]`. `StablecoinMeta` is required, so an
@@ -242,44 +332,79 @@ trim, visible harbor ledger, meshopt compression.
   and backing. Needs the host-repo catalog workflow. Worth carrying upstream:
   count is not the binding constraint — outer-rough-water has 762 tiles and
   storm-shelf 948, so crowding would appear during a stress event, not at rest.
-- **~40% docked ratio (O12)** — superseded, verified. The footer's ~65% counts
-  ships with a dock visit, and visits only exist for chains that render a
-  harbour, chosen by `totalUsd`. That figure is a live statement about supply
-  concentration; forcing it to 40% would overwrite data with decoration. The
-  instantaneous moored split O12 actually meant is `DOCKED_SHIP_DWELL_SHARE`
-  = 1/3, already at target and already zone-shaped.
-- **Web Worker for world build** — the doc's own guidance was to do sticky
-  placement first and only add a worker if a hitch remains. Sticky placement
-  landed; whether a hitch remains needs measuring before building it.
-- **Logo vectorisation Batch B** — 210 raster logos needing per-brand SVG
-  sourcing. Grind work, not agent work.
+- **~40% docked ratio (O12)** — superseded, verified. The footer figure
+  counts ships with a dock visit, and visits only exist for chains that
+  render a harbour, chosen by `totalUsd`. That is a live statement about
+  supply concentration, not instantaneous mooring; forcing it to 40% would
+  overwrite data with decoration. The moored split O12 actually meant is
+  `DOCKED_SHIP_DWELL_SHARE` = 1/3, already at target and already
+  zone-shaped. The words were the defect: the footer said "docked", which a
+  reader takes as moored right now, and now reads "hold a berth". The
+  computation is unchanged.
+- **Web Worker for world build — measured and ruled out.** A new `--refresh`
+  arm in `preview.mjs` measured the real cost (numbers above) rather than
+  inheriting the stale ~550ms note. Sticky placement already took the world
+  rebuild 303ms → 34ms, and that 34ms is all a worker could move out of the
+  common case's 239ms; the rest cannot leave the thread that owns the GL
+  context, and at 14ms of style/layout/paint it is not the DOM either. The
+  real remaining target is `replaceWorldContent`, which recreates resources
+  identical to ones it just disposed. The comment in `world-renderer.ts` now
+  says what was measured and points at that stage.
+- **Logo vectorisation Batch B, remainder** — 150 of 161 long-tail rasters
+  still raster. Stopped deliberately rather than lower the bar, because the
+  sourcing finding below makes the cheap paths unsafe.
+- **Brand-colour re-extraction** — `data/brand-colors.json` and
+  `extract-brand-colors.mjs` untouched. The 11 swaps were accepted only when
+  mark *and* colourway matched the incumbent raster, so existing colours
+  should remain valid. Re-extraction is an operator call needing a visual
+  review.
 
 ## Open follow-ups
 
-- **Harbour tempo animation.** The data and DOM rows shipped; the visual did
-  not. `createGardenHarborDistricts` receives the docks but has no `update()`,
-  while `createGardenGullFlock` is updated per frame and never receives them.
-  Minimal fix is one argument at `world-renderer.ts:1083`
-  (`createGardenGullFlock(world.lighthouse.tile, { docks: world.docks })`),
-  after which the flock can redistribute across harbours at per-dock orbit
-  speed within its existing single instanced draw call. The receiving side was
-  not shipped because unwired it is dead code.
-- **`flightToQuality` has no canvas cue.** Skiffs converging on the titans
-  needs motion-planning work larger than the cargo-tide slice. It reaches the
-  DOM and the cue registry says so explicitly.
-- **A fourth copy of the band→body mapping** now exists (world-renderer,
-  garden-zones, garden-observatory-slice, garden-sea-sign-siting). Collapse
-  next time world-renderer is open.
+- **`replaceWorldContent` recreates what it just disposed.** The measured
+  successor to the worker idea, and the only remaining structural win in the
+  239ms common-case refresh.
+- **`public/logos/340-rwausdi.png` is still broken.** The guard now names
+  it, but sourcing a correct replacement hits the same provenance problem as
+  the rest of the tail.
+- **150 long-tail logos remain raster.** Four deliberate skips are worth an
+  operator eye, all "same brand, changed treatment": `218-satusd` (River,
+  colourway inverts), `254-eurcv` / `307-usdcv` (SG FORGE, disc flips),
+  `153-busd` (badge → glyph-only), `229-lvlusd` (correct but 210 KB / 603
+  paths of sub-pixel detail — rejected on payload, not correctness).
 - **The signal mast's storm-cone threshold is borrowed.** `status-thresholds.ts`
   has no peg-deviation constant, so 500 bps derives from the 5% price-diff
   gate. If the cone reads too rare or too eager, that is the line to move.
+
+## Lesson worth carrying: ticker-keyed icon sets are unsafe
+
+Long-tail stablecoin tickers collide hard across issuers, so matching a
+logo by symbol produces confidently wrong marks. Of 26 symbol-matched
+candidates, **0 were correct**: one identical orange "D" came back for
+three different USDX issuers, Beanstalk's BEAN resolved to a ghost logo,
+Tether's EURT to a black "E". Static greps and shape metrics did not catch
+any of it — IoU on badge-form logos just measures "both are discs". The
+gate that caught every one was rendering candidate and incumbent side by
+side and looking at them. Any future run must keep a visual gate and must
+not land on filename agreement. Related: official brand kits publish the
+*corporate* logo rather than the per-token mark, and several protocol CDNs
+serve `.svg` files that are embedded bitmaps.
 
 ## Needs the operator's real-GPU `npm run preview`
 
 Everything visual this round was built to geometric and numeric invariants;
 none of it has been judged by eye. Specifically: sea-body relief at 0.60,
 signal mast placement and scale, tide-stain and tide-line marks, beacon
-dwell, hero reflection strength, gulls, island planting drifts, PMREM
-lighting across the day cycle, ship trim legibility, and whether the idle
-governor's 30fps still reads as calm. Night check at `t=23` zoomed out for
-the removed sky stripe.
+dwell, hero reflection strength, gulls, island planting drifts, ship trim
+legibility, the cargo-tide crates, the flight-to-quality skiffs, quay-gull
+tempo, and whether the idle governor's 30fps — now actually 30 — still
+reads as calm.
+
+Two that changed after the review and want a fresh look:
+
+- **PMREM lighting across the whole day cycle.** Any earlier look at this
+  was reading a night bake; the day is genuinely different now.
+- **The pale sails, for R2b.** Dark canvas at 12% of issuers grows the risk
+  the heraldry plan flagged — that black starts to read as distress.
+
+Night check at `t=23` zoomed out for the removed sky stripe.

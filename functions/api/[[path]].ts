@@ -5,6 +5,7 @@ import {
   getEdgeCache,
   isJsonResponse,
   jsonErrorResponse,
+  LAST_GOOD_CACHE_PATH_PREFIX,
   maybeStoreJsonEdgeCache,
   maybeStoreLastGoodEdgeCache,
   readLastGoodEdgeCache,
@@ -209,6 +210,14 @@ export async function onRequest(context: PagesContext): Promise<Response> {
   }
 
   const url = new URL(context.request.url);
+  // The last-good copies live under this prefix in `caches.default`, the same
+  // store the CDN serves this zone from. The allowlist below would 404 the
+  // prefix anyway; what matters here is `no-store`, so the refusal can never be
+  // cached onto a key and disable the fallback for the next 24 hours.
+  if (url.pathname.startsWith(LAST_GOOD_CACHE_PATH_PREFIX)) {
+    return jsonError("Not found", 404, { "cache-control": "no-store" });
+  }
+
   const endpoint = getAllowedEndpoint(url);
   if (!endpoint) {
     return jsonError("Not found", 404);
@@ -225,7 +234,7 @@ export async function onRequest(context: PagesContext): Promise<Response> {
   const cached = await cache?.match(cacheKey);
   if (cached) return withSecurityHeaders(cached, API_SECURITY_RESPONSE_HEADERS);
 
-  const lastGoodCacheKey = buildLastGoodCacheKey(url);
+  const lastGoodCacheKey = buildLastGoodCacheKey(url, CACHE_KEY_ORIGIN);
   const upstream = await fetchUpstream(buildUpstreamUrl(base, url), apiKey);
   if (!upstream.ok) {
     logUpstreamFailure(context, endpoint.path, upstream);

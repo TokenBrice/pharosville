@@ -39,7 +39,7 @@ function recordingKv(): { calls: KvCall[]; CLIENT_ERROR_KV: { put(key: string, v
 }
 
 /** Stands in for the edge cache the rate limiter uses; absent under Node. */
-function stubEdgeCache(): void {
+function stubEdgeCache(): Map<string, Response> {
   const store = new Map<string, Response>();
   vi.stubGlobal("caches", {
     default: {
@@ -49,6 +49,7 @@ function stubEdgeCache(): void {
       },
     },
   });
+  return store;
 }
 
 function loggedLine(spy: ReturnType<typeof vi.spyOn>): string {
@@ -115,24 +116,68 @@ describe("client log function", () => {
     expect(line).not.toContain("PHAROSVILLE_CLIENT_ERROR");
   });
 
-  it("keeps canary probes out of a real visitor's rate-limit budget", async () => {
+  // The marker is caller-declared, so claiming it must never be worth anything.
+  // Namespacing the bucket by the marker made it worth exactly double: toggle
+  // the header between requests and the same address got two budgets.
+  it("never widens a caller's budget when it claims to be the canary", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     stubEdgeCache();
 
-    const probe = () => onRequest(makeContext(
+    const post = (headers: HeadersInit) => onRequest(makeContext(
       JSON.stringify({ category: "canary", message: "synthetic canary probe" }),
-      { headers: { "cf-connecting-ip": "203.0.113.7", "x-pharosville-canary": "1" } },
+      { headers: { "cf-connecting-ip": "203.0.113.7", ...headers } },
     ));
 
-    expect((await probe()).status).toBe(204);
-    // Same IP, real report: unaffected by the probe that just ran.
-    const visitor = await onRequest(makeContext(
+    expect((await post({ "x-pharosville-canary": "1" })).status).toBe(204);
+    expect((await post({})).status).toBe(429);
+    expect((await post({ "x-pharosville-canary": "1" })).status).toBe(429);
+  });
+
+  // `caches.default` is the CDN's own store: a key on a hostname this
+  // deployment does not serve is not documented to be storable, and the write
+  // that failed would be swallowed, leaving the limiter open with no sign of it.
+  it("keys the rate limit in-zone, on the route the function itself refuses", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const store = stubEdgeCache();
+
+    await onRequest(makeContext(
       JSON.stringify({ category: "render", message: "real failure" }),
       { headers: { "cf-connecting-ip": "203.0.113.7" } },
     ));
-    expect(visitor.status).toBe(204);
-    // The probe's own bucket still rate-limits, so a stuck canary cannot flood.
-    expect((await probe()).status).toBe(429);
+
+    const [key] = [...store.keys()];
+    expect(key).toBeDefined();
+    const url = new URL(key!);
+    expect(url.origin).toBe("https://pharosville.pharos.watch");
+    // `/_log` answers every GET 405 with no-store, so this key can be neither
+    // taken by an outside response nor mistaken for a served one.
+    expect(url.pathname).toBe("/_log");
+    expect(url.searchParams.get("rate-limit")).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("says so out loud when the rate-limit write cannot land", async () => {
+    const logSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.stubGlobal("caches", {
+      default: {
+        match: async () => undefined,
+        put: async () => {
+          throw new TypeError("Cannot cache this URL");
+        },
+      },
+    });
+
+    const response = await onRequest(makeContext(
+      JSON.stringify({ category: "render", message: "real failure" }),
+    ));
+    expect(response.status).toBe(204);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const failure = logSpy.mock.calls
+      .map(([line]) => String(line))
+      .find((line) => line.startsWith("PHAROSVILLE_EDGE_CACHE_FAILED "));
+    expect(failure).toBeDefined();
+    expect(failure).toContain("log-rate-limit");
+    expect(failure).toContain("Cannot cache this URL");
   });
 
   // The marker is caller-declared, so it must buy nothing that reaches anyone

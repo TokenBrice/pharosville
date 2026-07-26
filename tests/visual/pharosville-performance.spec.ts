@@ -6,6 +6,7 @@ import {
   denseFixtureReportCards,
   denseFixtureStablecoins,
   denseFixtureStress,
+  fixtureMintBurn,
   fixtureStability,
 } from "../../src/__fixtures__/pharosville-world";
 import { PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY } from "@shared/lib/pharosville-api-endpoints";
@@ -573,6 +574,10 @@ test("repeated world replacement returns GPU resources to a flat baseline", asyn
     [PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.pegSummary, () => denseFixturePegSummary],
     [PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stress, () => denseFixtureStress],
     [PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.reportCards, () => denseFixtureReportCards],
+    // The seventh feed. Left unrouted it escapes to the local dev proxy and the
+    // live API, which under `page.clock` fake timers is neither deterministic
+    // nor offline-safe.
+    [PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.mintBurn, () => fixtureMintBurn],
   ];
   for (const [path, body] of payloads) {
     const endpoint = new URL(path, "http://localhost");

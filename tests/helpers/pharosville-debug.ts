@@ -6,13 +6,21 @@ import {
   denseFixtureStablecoins,
   denseFixtureStress,
   fixtureChains,
+  fixtureMintBurn,
   fixturePegSummary,
   fixtureReportCards,
   fixtureStability,
   fixtureStablecoins,
   fixtureStress,
 } from "../../src/__fixtures__/pharosville-world";
-import { PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY } from "@shared/lib/pharosville-api-endpoints";
+import {
+  PHAROSVILLE_API_ENDPOINT_PATHS,
+  PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY,
+} from "@shared/lib/pharosville-api-endpoints";
+import {
+  PHAROSVILLE_API_ENDPOINT_KEYS,
+  type PharosVilleApiEndpointKey,
+} from "@shared/types/pharosville-endpoint-keys";
 import type { ApiMeta } from "@shared/types/api-meta";
 
 export type DebugShipMotionSample = {
@@ -97,16 +105,13 @@ export type PharosVilleVisualDebug = {
   wallClockHour?: number;
 };
 
-export type PharosVillePayloads = {
-  chains: unknown;
-  pegSummary: unknown;
-  reportCards: unknown;
-  stability: unknown;
-  stablecoins: unknown;
-  stress: unknown;
-};
+// Derived from the canonical endpoint key list, never re-typed by hand. When
+// `mintBurn` joined the world feeds this helper still mocked six of seven, so
+// the seventh escaped to the local dev proxy and the LIVE API — which is what
+// made "every feed failing" render the world route instead of the error route.
+export type PharosVillePayloads = Record<PharosVilleApiEndpointKey, unknown>;
 
-export type PharosVilleEndpointKey = keyof PharosVillePayloads;
+export type PharosVilleEndpointKey = PharosVilleApiEndpointKey;
 
 /** An HTTP status to answer with, or `"hang"` for a feed that never answers. */
 export type PharosVilleEndpointFailure = number | "hang";
@@ -121,14 +126,7 @@ export type PharosVilleMockOptions = {
   meta?: Partial<Record<PharosVilleEndpointKey, Partial<ApiMeta>>>;
 };
 
-export const PHAROSVILLE_DESKTOP_DATA_ENDPOINTS = [
-  PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stablecoins,
-  PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.chains,
-  PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stability,
-  PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.pegSummary,
-  PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stress,
-  PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.reportCards,
-] as const;
+export const PHAROSVILLE_DESKTOP_DATA_ENDPOINTS = PHAROSVILLE_API_ENDPOINT_PATHS;
 
 const FRESH_META: ApiMeta = { updatedAt: 1_700_000_000, ageSeconds: 60, status: "fresh" };
 
@@ -175,6 +173,7 @@ export async function mockPharosVilleData(page: Page, options: PharosVilleMockOp
     pegSummary: fixturePegSummary,
     stress: fixtureStress,
     reportCards: fixtureReportCards,
+    mintBurn: fixtureMintBurn,
   }, options);
 }
 
@@ -194,6 +193,9 @@ export async function mockDensePharosVilleData(page: Page, options: PharosVilleM
     pegSummary: denseFixturePegSummary,
     stress: denseFixtureStress,
     reportCards: denseFixtureReportCards,
+    // There is no dense mint-burn fixture; the flow feed is a small per-coin
+    // list, so the base one is a faithful stand-in for the dense world.
+    mintBurn: fixtureMintBurn,
   }, options);
 }
 
@@ -202,16 +204,7 @@ export async function mockPharosVillePayloads(
   payload: PharosVillePayloads,
   options: PharosVilleMockOptions = {},
 ): Promise<void> {
-  const keys: PharosVilleEndpointKey[] = [
-    "stablecoins",
-    "chains",
-    "stability",
-    "pegSummary",
-    "stress",
-    "reportCards",
-  ];
-
-  for (const key of keys) {
+  for (const key of PHAROSVILLE_API_ENDPOINT_KEYS) {
     const path = PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY[key];
     const failure = options.failures?.[key];
     const meta = { ...FRESH_META, ...options.meta?.[key] };

@@ -47,14 +47,50 @@ import type { CargoTideStage } from "../pipeline-types";
  * has issuance the world cannot attribute to any quay. "This coin does not sit
  * at this harbour" is knowledge the fleet holds; "we do not know where this coin
  * sits" is not, and only the second one makes a harbour's empty accumulator an
- * unverified claim. So an in-scope harbour that received NO allocation while
- * unattributable issuance exists reports `unattributed` rather than a measured
- * calm — the whole-fleet id mismatch turns every quay untracked instead of
- * having all of them swear to a quiet day the world never observed.
+ * unverified claim. So an in-scope harbour that received NO allocation, while
+ * issuance the world could not place is MATERIAL, reports `unattributed` rather
+ * than a measured calm — a whole-fleet id mismatch turns every quay untracked
+ * instead of having all of them swear to a quiet day the world never observed.
+ *
+ * ## Why the bar is materiality and not existence
+ *
+ * The two feeds do not share a universe, and they never will. `/api/mint-burn-flows`
+ * tracks its own coin set; the fleet renders a curated registry minus frozen
+ * hulls, and a ship states no chain presence at all when its chain-level supply
+ * is missing. So a handful of coins are unplaceable on any ordinary day — ten of
+ * thirty-seven active ones at the time of writing, carrying 0.44% of the day's
+ * gross flow, nearly all of them Ethereum-native yield wrappers.
+ *
+ * Gating on the mere EXISTENCE of such flow therefore does not protect a rare
+ * case; it fires almost always, and it converts a narrow false "measured zero"
+ * into a near-permanent "no reading at all". That is not the safe direction to
+ * fail in. A quay that reports nothing is just as much a lie as a quay that
+ * reports a wrong number, and it is the more visible one.
+ *
+ * What actually disqualifies a calm reading is whether the unplaced flow is big
+ * enough to have BEEN that reading had it landed here. So the doubt is weighed
+ * by volume against the flow the world did measure, and only a material share
+ * silences the quay. A trace of unattributable residue leaves an otherwise
+ * sound reading standing; an id-namespace break, which puts most of the day's
+ * flow beyond placement, still silences every calm quay it should.
  */
 
 /** Net flows below this are rounding residue from the share allocation, not a tide. */
 const FLAT_NET_FLOW_USD = 1;
+
+/**
+ * How much of the day's measured flow may be beyond placement before a calm
+ * quay stops being a measurement.
+ *
+ * One percent is the size of a real harbour's day, not a rounding error: at the
+ * time of writing Arbitrum's whole allocated reading is 1.03% of the fleet's
+ * gross flow. So doubt worth a full percent could have been an entire quay's
+ * tide, and a harbour must not call that quiet; doubt below it could not have
+ * moved any reading the world is showing. It also sits well clear of the ~0.44%
+ * of residue the two feeds disagree about on an ordinary day, so the quays do
+ * not flicker between measured and unmeasured as that residue breathes.
+ */
+const MATERIAL_UNATTRIBUTED_SHARE = 0.01;
 
 function coinHasActivity(coin: MintBurnFlowsResponse["coins"][number]): boolean {
   return coin.has24hActivity ?? (coin.mintVolume24hUsd + coin.burnVolume24hUsd > 0);
@@ -162,15 +198,20 @@ export function buildCargoTideStage(
 
   const shipById = new Map(ships.map((ship) => [ship.id, ship]));
   // Active issuance the fleet cannot locate at all — no ship carries the id, or
-  // the ship it does carry states no chain presence. Counted rather than
-  // dropped, because it is what disqualifies an empty harbour from claiming a
-  // measured zero below.
-  let unattributedCoins = 0;
+  // the ship it does carry states no chain presence. Weighed by VOLUME rather
+  // than counted, because what can falsify an empty harbour's zero is how much
+  // flow might have landed here unseen, not how many coins carried it. Ten
+  // dust-sized wrappers are not evidence against a calm quay; one major issuer
+  // slipping its id is.
+  let unattributedGrossUsd = 0;
+  let measuredGrossUsd = 0;
   for (const coin of mintBurn.coins) {
     if (!coinHasActivity(coin)) continue;
+    const grossUsd = coin.mintVolume24hUsd + coin.burnVolume24hUsd;
+    measuredGrossUsd += grossUsd;
     const chainPresence = shipById.get(coin.stablecoinId)?.chainPresence;
     if (!chainPresence?.length) {
-      unattributedCoins += 1;
+      unattributedGrossUsd += grossUsd;
       continue;
     }
     const presences = chainPresence.filter((presence) => trackedChainIds.has(presence.chainId));
@@ -191,14 +232,22 @@ export function buildCargoTideStage(
     }
   }
 
+  // The doubt is fleet-wide because the flow it covers has no known home: it
+  // could have landed at any quay, so it hangs equally over every one that
+  // reports calm. Only harbours with nothing of their own to show are exposed to
+  // it — a quay that measured its own issuance stands on that measurement.
+  const calmIsUnverifiable =
+    measuredGrossUsd > 0 && unattributedGrossUsd / measuredGrossUsd >= MATERIAL_UNATTRIBUTED_SHARE;
+
   return {
     docks: docks.map((dock) => {
       const totals = totalsByChainId.get(dock.chainId);
       if (!totals) return { ...dock, cargoTide: untrackedTide("chain-not-in-scope") };
-      // An empty accumulator only means "nothing was issued here" when every
-      // active coin found a home. With issuance the fleet could not place, this
-      // quay's silence is unverified, and unverified must not print as measured.
-      const unverifiableCalm = totals.coinCount === 0 && unattributedCoins > 0;
+      // An empty accumulator only means "nothing was issued here" when the flow
+      // the fleet could not place is too small to have been this quay's tide.
+      // Above that bar the silence is unverified, and unverified must not print
+      // as measured.
+      const unverifiableCalm = totals.coinCount === 0 && calmIsUnverifiable;
       return {
         ...dock,
         cargoTide: unverifiableCalm ? untrackedTide("unattributed") : settleTide(totals),

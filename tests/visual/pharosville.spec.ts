@@ -352,9 +352,15 @@ test(...visualLane("dom", "an enrichment feed that never answers still opens the
 });
 
 test(...visualLane("dom", "every feed failing shows the error route with a retry"), async ({ page }) => {
+  // EVERY feed, which is now seven: `mintBurn` joined the world data on
+  // 2026-07-26 and this map was not extended with it. One surviving feed is
+  // enough for `resolveRouteMode` to keep the world route — correctly, since
+  // the error route is for having nothing at all — so the lane was asserting
+  // the error route while handing the app a working feed.
   await mockDensePharosVilleData(page, {
     failures: {
       chains: 502,
+      mintBurn: 502,
       pegSummary: 502,
       reportCards: 502,
       stability: 502,

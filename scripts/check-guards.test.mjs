@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
+import { crc32, deflateSync } from "node:zlib";
 
 import {
   findSecretFindingsInText,
@@ -45,6 +46,13 @@ import {
   buildRuntimeFactsMarkdown,
 } from "./pharosville/generate-runtime-facts.mjs";
 import {
+  formatGateVerdict,
+} from "./pharosville/validate-deploy-gate.mjs";
+import {
+  MAX_SVG_BYTES,
+  findMediaFileProblems,
+} from "./pharosville/validate-runtime-media.mjs";
+import {
   checkViewportGate,
 } from "./check-viewport-gate.mjs";
 import {
@@ -74,7 +82,9 @@ import {
   endpointChecks as smokeEndpointChecks,
   findFreshnessProblems,
   parseProducerIntervalsByKey,
+  annotated,
   reportFreshness,
+  reportPayloadWarnings,
 } from "./smoke-live.mjs";
 
 const neutralValue = ["alpha", "beta", "gamma", "9876543210"].join("_");
@@ -309,6 +319,14 @@ assert.doesNotMatch(packageJson.scripts["validate:docs"], /check:security-header
 const deployGateSource = readFileSync(resolve("scripts/pharosville/validate-deploy-gate.mjs"), "utf8");
 assert.match(deployGateSource, /check:security-headers:static/);
 assert.doesNotMatch(deployGateSource, /check:security-headers(?!:static)/);
+
+// A skipped perf tripwire still exits 0 — CI has no GPU to measure — but the
+// run must never read as if the frame time had been checked.
+assert.notEqual(formatGateVerdict("skipped"), formatGateVerdict("measured"));
+assert.match(formatGateVerdict("skipped"), /^PHAROSVILLE_DEPLOY_GATE: PASS_PERF_SKIPPED\b/);
+assert.match(formatGateVerdict("measured"), /^PHAROSVILLE_DEPLOY_GATE: PASS\b/);
+assert.doesNotMatch(formatGateVerdict("measured"), /SKIP/);
+assert.equal(formatGateVerdict("skipped").includes("NOT measured"), true);
 
 const deployWorkflowSource = readFileSync(resolve(".github/workflows/deploy-cloudflare.yml"), "utf8");
 assert.match(deployWorkflowSource, /npm run check:security-headers:static/);
@@ -811,6 +829,66 @@ assert.throws(
 );
 assert.equal(freshnessLog.some((line) => line.includes("FAILED (1)")), true);
 
+// A mint-burn payload the response schema permits — `scope` is optional and
+// `coins` has no minimum — must pass the gate. If it failed, the deploy smoke
+// would exhaust its retries and the canary would email admins twice an hour
+// over a payload nothing is wrong with.
+const mintBurnCheck = smokeEndpointChecks.find((check) => check.path === "/api/mint-burn-flows");
+assert.ok(mintBurnCheck, "the smoke allowlist must still cover /api/mint-burn-flows");
+assert.deepEqual(
+  mintBurnCheck.validate({
+    gauge: { score: 4 },
+    coins: [{ symbol: "USDC" }],
+    updatedAt: 1_785_060_000,
+    scope: { chainIds: ["1"], label: "all chains" },
+  }),
+  [],
+);
+
+const mintBurnWarnings = mintBurnCheck.validate({ gauge: {}, coins: [], updatedAt: 1_785_060_000 });
+assert.equal(mintBurnWarnings.length, 2);
+assert.equal(mintBurnWarnings.some((warning) => warning.includes("no coins")), true);
+assert.equal(mintBurnWarnings.some((warning) => warning.includes("scope.chainIds")), true);
+
+// What the schema does guarantee stays a hard failure.
+assert.throws(
+  () => mintBurnCheck.validate({ coins: [], updatedAt: 1 }),
+  /gauge must be an object/,
+);
+assert.throws(
+  () => mintBurnCheck.validate({ gauge: {}, coins: [] }),
+  /updatedAt must be a finite number/,
+);
+
+const payloadWarningLog = [];
+assert.equal(reportPayloadWarnings([], false, (line) => payloadWarningLog.push(line)), "payloads clean");
+assert.deepEqual(payloadWarningLog, [], "a clean run stays quiet");
+assert.equal(
+  reportPayloadWarnings(mintBurnWarnings, false, (line) => payloadWarningLog.push(line)),
+  "2 payload warning(s)",
+  "contract-legal findings report without failing",
+);
+assert.equal(payloadWarningLog.some((line) => line.includes("payload WARNING (2)")), true);
+
+// A warning tier nothing can escalate is decoration: an empty scope.chainIds
+// marks every harbour untracked and would otherwise deploy green and silent.
+assert.throws(
+  () => reportPayloadWarnings(mintBurnWarnings, true, (line) => payloadWarningLog.push(line)),
+  /2 payload warning\(s\) under --strict-freshness/,
+  "the strict flag enforces payload findings too",
+);
+assert.equal(payloadWarningLog.some((line) => line.includes("payload FAILED (2)")), true);
+
+// The other escalation path: on GitHub Actions each finding becomes a run
+// annotation, so a green canary still surfaces them somewhere a human looks.
+const previousGithubActions = process.env.GITHUB_ACTIONS;
+process.env.GITHUB_ACTIONS = "true";
+assert.equal(annotated("/api/chains is stale", false), "::warning::/api/chains is stale");
+assert.equal(annotated("/api/chains is stale", true), "::error::/api/chains is stale");
+delete process.env.GITHUB_ACTIONS;
+assert.equal(annotated("/api/chains is stale", false), "- /api/chains is stale");
+if (previousGithubActions !== undefined) process.env.GITHUB_ACTIONS = previousGithubActions;
+
 // The live registry must still resolve a producer interval for every smoke endpoint.
 for (const check of smokeEndpointChecks) {
   assert.equal(
@@ -819,5 +897,134 @@ for (const check of smokeEndpointChecks) {
     `${check.path} has no producer interval`,
   );
 }
+
+function buildPngChunk(type, data) {
+  const chunk = Buffer.alloc(12 + data.length);
+  chunk.writeUInt32BE(data.length, 0);
+  chunk.write(type, 4, "latin1");
+  data.copy(chunk, 8);
+  chunk.writeUInt32BE(crc32(chunk.subarray(4, 8 + data.length)), 8 + data.length);
+  return chunk;
+}
+
+function buildValidPng(side = 32) {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(side, 0);
+  header.writeUInt32BE(side, 4);
+  header[8] = 8;
+  header[9] = 6;
+  // Deterministic noise: compressible pixels would leave an IDAT too short to truncate.
+  const scanlines = Buffer.alloc(side * (side * 4 + 1));
+  let seed = 1;
+  for (let index = 0; index < scanlines.length; index += 1) {
+    seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
+    scanlines[index] = (seed >>> 16) % 256;
+  }
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    buildPngChunk("IHDR", header),
+    buildPngChunk("IDAT", deflateSync(scanlines)),
+    buildPngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+const validPng = buildValidPng();
+assert.equal(validPng.length > 600, true, "the PNG fixture must survive being truncated to 600 bytes");
+assert.deepEqual(findMediaFileProblems("/logos/ok.png", validPng), []);
+
+// The shape of public/logos/340-rwausdi.png: an IDAT header promising bytes the file never delivers.
+const truncatedPngProblems = findMediaFileProblems("/logos/cut.png", validPng.subarray(0, 600));
+assert.equal(truncatedPngProblems.length, 1);
+assert.match(truncatedPngProblems[0], /PNG chunk IDAT declares \d+ bytes but only \d+ are present/);
+
+// Losing only the trailing IEND is still a truncation.
+assert.deepEqual(
+  findMediaFileProblems("/logos/no-end.png", validPng.subarray(0, validPng.length - 12)),
+  ["PNG is truncated: the stream never reaches IEND"],
+);
+
+assert.deepEqual(findMediaFileProblems("/logos/empty.png", Buffer.alloc(0)), ["file is empty"]);
+assert.deepEqual(findMediaFileProblems("/logos/stub.png", Buffer.alloc(32)), [
+  "file is only 32 bytes, too small to hold an image",
+]);
+assert.deepEqual(findMediaFileProblems("/logos/text.png", Buffer.from("not an image at all".repeat(8))), [
+  "is not a recognizable image: no PNG, JPEG, WebP, or SVG container found",
+]);
+
+// A PNG named .jpg still decodes everywhere, so it must not fail the guard.
+assert.deepEqual(findMediaFileProblems("/logos/306-gusd.jpg", validPng), []);
+// Swapping vector for raster does break, because the served media type is wrong.
+assert.match(
+  findMediaFileProblems("/logos/fake.svg", validPng)[0],
+  /is a PNG behind a \.svg extension/,
+);
+
+const validSvg = [
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">',
+  '<circle cx="12" cy="12" r="10" fill="#0b1d2a" />',
+  "</svg>",
+].join("\n");
+assert.deepEqual(findMediaFileProblems("/logos/ok.svg", Buffer.from(validSvg)), []);
+assert.deepEqual(
+  findMediaFileProblems("/logos/cut.svg", Buffer.from(validSvg.slice(0, 90))),
+  ["SVG is truncated: no closing </svg> tag"],
+);
+assert.deepEqual(
+  findMediaFileProblems("/logos/sizeless.svg", Buffer.from(validSvg.replace(' viewBox="0 0 24 24"', ""))),
+  ["SVG has neither a viewBox nor an intrinsic width/height, so it has no size to render at"],
+);
+
+const bitmapSvg = [
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">',
+  `<image href="data:image/png;base64,${validPng.toString("base64")}" width="24" height="24" />`,
+  "</svg>",
+].join("\n");
+assert.match(
+  findMediaFileProblems("/logos/bitmap.svg", Buffer.from(bitmapSvg))[0],
+  /is a bitmap wearing an \.svg extension: \d+% of the file is base64 raster data/,
+);
+assert.match(
+  findMediaFileProblems("/logos/huge.svg", Buffer.from(validSvg.replace("</svg>", `<!--${"x".repeat(MAX_SVG_BYTES)}-->\n</svg>`)))[0],
+  /far past the \d+ KB ceiling for vector art/,
+);
+
+// Rasters other than PNG get the same treatment: the container must match the bytes.
+function buildJpegSegment(marker, payload) {
+  const head = Buffer.alloc(4);
+  head[0] = 0xff;
+  head[1] = marker;
+  head.writeUInt16BE(payload.length + 2, 2);
+  return Buffer.concat([head, payload]);
+}
+
+const jpegBody = Buffer.concat([
+  Buffer.from([0xff, 0xd8]),
+  buildJpegSegment(0xe0, Buffer.concat([Buffer.from("JFIF", "latin1"), Buffer.alloc(10)])),
+  buildJpegSegment(0xc0, Buffer.from([0x08, 0x00, 0x20, 0x00, 0x20, 0x01, 0x01, 0x11, 0x00])),
+  buildJpegSegment(0xda, Buffer.from([0x01, 0x01, 0x00, 0x00, 0x3f, 0x00])),
+  Buffer.alloc(64, 0x7a),
+]);
+assert.deepEqual(findMediaFileProblems("/logos/cut.jpg", jpegBody), [
+  "JPEG is truncated: the scan never reaches an EOI marker",
+]);
+assert.deepEqual(
+  findMediaFileProblems("/logos/ok.jpg", Buffer.concat([jpegBody, Buffer.from([0xff, 0xd9])])),
+  [],
+);
+
+const webpBody = Buffer.concat([
+  Buffer.from("RIFF", "latin1"),
+  Buffer.alloc(4),
+  Buffer.from("WEBPVP8L", "latin1"),
+  Buffer.alloc(4),
+  Buffer.alloc(64, 0x2f),
+]);
+webpBody.writeUInt32LE(webpBody.length - 8, 4);
+webpBody.writeUInt32LE(64, 16);
+assert.deepEqual(findMediaFileProblems("/logos/ok.webp", webpBody), []);
+webpBody.writeUInt32LE(4096, 16);
+assert.deepEqual(findMediaFileProblems("/logos/cut.webp", webpBody), [
+  "WebP chunk VP8L declares 4096 bytes but only 64 are present",
+]);
 
 console.log("Guard script self-tests passed.");

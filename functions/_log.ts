@@ -1,6 +1,7 @@
 import {
   getEdgeCache,
   jsonErrorResponse,
+  reportEdgeCacheFailure,
   waitUntilOrVoid,
   withSecurityHeaders,
   type PagesContextWithWaitUntil,
@@ -22,7 +23,7 @@ interface PagesContext extends PagesContextWithWaitUntil {
 
 const MAX_BODY_BYTES = 4 * 1024;
 const RATE_LIMIT_WINDOW_SECONDS = 10;
-const RATE_LIMIT_CACHE_ORIGIN = "https://pharosville-log-rate-limit.local";
+const RATE_LIMIT_QUERY_PARAM = "rate-limit";
 
 /**
  * Fixed event tokens. Pages Functions logs are streamed, never stored, so the
@@ -85,25 +86,39 @@ async function sha256Hex(value: string): Promise<string> {
 /**
  * A caller's own claim about itself, not a credential — anyone can send this
  * header. It therefore buys nothing but a label: the event token the report is
- * filed under, and a second bucket namespace for that same caller. Nothing a
- * spoofer sends can reach another caller's budget or another caller's reports.
+ * filed under. The rate limiter ignores it entirely, so a spoofer can neither
+ * reach another caller's budget nor widen its own.
  */
 function isSyntheticProbe(request: Request): boolean {
   return request.headers.get(CANARY_HEADER)?.trim() === "1";
 }
 
-async function isRateLimited(context: PagesContext, synthetic: boolean): Promise<boolean> {
+/**
+ * A reserved query on this Function's own route. `caches.default` is the store
+ * the CDN serves this zone from, and Cloudflare documents no support for writing
+ * a key on a hostname the deployment does not serve — a rejected `put` would
+ * leave the limiter silently open. In-zone it cannot be poisoned either: `/_log`
+ * answers every GET `405` with `no-store`, and a hit could only ever return the
+ * literal `1` to someone who already knew the address it was derived from.
+ */
+function rateLimitCacheKey(request: Request, bucket: string): Request {
+  const url = new URL(request.url);
+  url.search = `?${RATE_LIMIT_QUERY_PARAM}=${bucket}`;
+  return new Request(url.toString(), { method: "GET" });
+}
+
+async function isRateLimited(context: PagesContext): Promise<boolean> {
   const cache = getEdgeCache();
   if (!cache) return false;
 
-  // Every bucket is keyed by caller, synthetic or not. The marker only picks
-  // which of that caller's two buckets is spent, so a probe never spends a real
-  // visitor's budget from the same address, and a spoofed marker can only
-  // exhaust the spoofer's own bucket. A bucket shared across callers would be
-  // the opposite: anyone could hold it open and 429 the CI probe out of the sky.
-  const scope = synthetic ? "canary" : "client";
+  // One bucket per caller, whatever that caller claims to be. Namespacing the
+  // key by a synthetic marker instead would hand anyone who alternates the
+  // header on and off two buckets and so twice the budget; marking a request
+  // synthetic must never loosen its limit. A bucket shared across callers is the
+  // opposite failure — anyone could hold it open and 429 the CI probe out of the
+  // sky — so the caller stays the only thing the key is derived from.
   const bucket = await sha256Hex(clientIp(context.request));
-  const cacheKey = new Request(`${RATE_LIMIT_CACHE_ORIGIN}/_log/${scope}/${bucket}`, { method: "GET" });
+  const cacheKey = rateLimitCacheKey(context.request, bucket);
   const hit = await cache.match(cacheKey);
   if (hit) return true;
 
@@ -112,7 +127,7 @@ async function isRateLimited(context: PagesContext, synthetic: boolean): Promise
     new Response("1", {
       headers: { "cache-control": `public, max-age=${RATE_LIMIT_WINDOW_SECONDS}` },
     }),
-  ).catch(() => undefined);
+  ).catch((error) => reportEdgeCacheFailure("log-rate-limit", error));
   waitUntilOrVoid(context, cacheWrite);
   return false;
 }
@@ -206,7 +221,7 @@ export async function onRequest(context: PagesContext): Promise<Response> {
   }
 
   const synthetic = isSyntheticProbe(request);
-  if (await isRateLimited(context, synthetic)) {
+  if (await isRateLimited(context)) {
     return rejected("Too many requests", 429);
   }
 

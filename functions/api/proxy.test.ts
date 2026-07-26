@@ -143,7 +143,7 @@ describe("PharosVille API proxy", () => {
     expect(response.headers.get("cache-control")).toBe("public, max-age=600");
     expect(cache.putUrls).toEqual([
       "https://pharosville.pharos.watch/api/stablecoins",
-      "https://pharosville-last-good.local/api/stablecoins",
+      "https://pharosville.pharos.watch/api/__last-good/api/stablecoins",
     ]);
     expect(cache.putUrls.join(" ")).not.toContain("test-proxy-key");
     await expect(cache.match(new Request("https://pharosville.pharos.watch/api/stablecoins")))
@@ -231,10 +231,10 @@ describe("PharosVille API proxy", () => {
     expect(response.headers.get("set-cookie")).toBeNull();
     expect(cache.putUrls).toEqual([
       "https://pharosville.pharos.watch/api/stablecoins",
-      "https://pharosville-last-good.local/api/stablecoins",
+      "https://pharosville.pharos.watch/api/__last-good/api/stablecoins",
     ]);
     expect(cache.putUrls.join(" ")).not.toContain("test-proxy-key");
-    const lastGood = await cache.match(new Request("https://pharosville-last-good.local/api/stablecoins"));
+    const lastGood = await cache.match(new Request("https://pharosville.pharos.watch/api/__last-good/api/stablecoins"));
     expect(await lastGood?.text()).not.toContain("test-proxy-key");
     expect([...lastGood!.headers.keys()]).not.toContain("x-api-key");
   });
@@ -452,12 +452,13 @@ describe("PharosVille API proxy", () => {
 
   describe("last-good fallback", () => {
     const SHORT_TTL_URL = "https://pharosville.pharos.watch/api/stablecoins";
-    const LAST_GOOD_URL = "https://pharosville-last-good.local/api/stablecoins";
+    const LAST_GOOD_URL = "https://pharosville.pharos.watch/api/__last-good/api/stablecoins";
 
-    // The long-TTL copy shares `caches.default` with the CDN, so its key must be
-    // one no visitor can send: a reachable key would serve the fallback copy on
-    // request, and a miss would let the Pages 404 take the key.
-    it("keys the last-good copy under an origin no request can reach", async () => {
+    // The long-TTL copy shares `caches.default` with the CDN, so both halves
+    // matter: the key has to be in-zone or the write is not documented to land
+    // at all, and the prefix has to be refused or a miss on it would let the
+    // response to that stray request take the key for the next 24 hours.
+    it("keys the last-good copy in-zone, under a prefix the proxy refuses", async () => {
       const cache = new MemoryEdgeCache();
       const waitUntilPromises: Promise<unknown>[] = [];
       installEdgeCache(cache);
@@ -471,11 +472,46 @@ describe("PharosVille API proxy", () => {
       await onRequest(makeContext(SHORT_TTL_URL, { waitUntilPromises }));
       await Promise.all(waitUntilPromises);
 
-      // Only the short-TTL entry, which is meant to answer that exact request,
-      // sits on an origin a caller could ask for.
-      expect(cache.putUrls.filter((putUrl) => new URL(putUrl).origin === "https://pharosville.pharos.watch"))
-        .toEqual([SHORT_TTL_URL]);
-      expect(cache.putUrls).toContain(LAST_GOOD_URL);
+      expect(cache.putUrls.every((putUrl) => new URL(putUrl).origin === "https://pharosville.pharos.watch"))
+        .toBe(true);
+      expect(cache.putUrls).toEqual([SHORT_TTL_URL, LAST_GOOD_URL]);
+    });
+
+    it("refuses the reserved prefix with no-store, so no caller can take the key", async () => {
+      const fetchMock = vi.spyOn(globalThis, "fetch");
+      const response = await onRequest(makeContext(LAST_GOOD_URL));
+
+      expect(response.status).toBe(404);
+      // Without this the refusal itself would be cacheable onto the key, which
+      // is the exact failure the reserved prefix exists to prevent.
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("reports a last-good write that cannot land instead of swallowing it", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const waitUntilPromises: Promise<unknown>[] = [];
+      installEdgeCache({
+        match: async () => undefined,
+        put: async (request: Request) => {
+          if (request.url === LAST_GOOD_URL) throw new TypeError("Cannot cache this URL");
+        },
+      } as unknown as MemoryEdgeCache);
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+
+      await onRequest(makeContext(SHORT_TTL_URL, { waitUntilPromises }));
+      await Promise.all(waitUntilPromises);
+
+      const failure = errorSpy.mock.calls
+        .map(([line]) => String(line))
+        .find((line) => line.startsWith("PHAROSVILLE_EDGE_CACHE_FAILED "));
+      expect(failure).toContain("last-good-write");
+      expect(failure).toContain("Cannot cache this URL");
     });
 
     /** Runs one successful request so the long-TTL copy exists, then evicts the

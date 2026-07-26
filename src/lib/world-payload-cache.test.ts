@@ -250,6 +250,12 @@ describe("write guards", () => {
   });
 });
 
+// The idle callback is stubbed to run inline, but the work it queues awaits a
+// dynamic import of the contract schemas. That import is disk- and load-bound,
+// so under a full parallel suite it can outrun waitFor's 1s default and fail a
+// test that is asserting eventual persistence, not import speed.
+const PERSIST_WAIT = { timeout: 15_000 } as const;
+
 describe("persistPayloadWhenIdle", () => {
   beforeEach(() => {
     // jsdom has no requestIdleCallback; run the queued work inline so the
@@ -264,7 +270,7 @@ describe("persistPayloadWhenIdle", () => {
   it("persists a payload that satisfies the shared contract schema", async () => {
     persistPayloadWhenIdle("chains", VALID_CHAINS_PAYLOAD, null, NOW);
 
-    await vi.waitFor(() => expect(storage.entries.has(CHAINS_KEY)).toBe(true));
+    await vi.waitFor(() => expect(storage.entries.has(CHAINS_KEY)).toBe(true), PERSIST_WAIT);
     const restored = readPersistedPayload("chains", CHAINS_MAX_AGE_SEC, NOW);
     expect(restored?.data).toEqual(VALID_CHAINS_PAYLOAD);
   });
@@ -281,12 +287,12 @@ describe("persistPayloadWhenIdle", () => {
 
     // The bad payload is rejected AND the entry it would have replaced is
     // dropped, so a shape change cannot leave a stale world behind.
-    await vi.waitFor(() => expect(storage.entries.has(CHAINS_KEY)).toBe(false));
+    await vi.waitFor(() => expect(storage.entries.has(CHAINS_KEY)).toBe(false), PERSIST_WAIT);
   });
 
   it("does not rewrite the same endpoint again inside the throttle window", async () => {
     persistPayloadWhenIdle("chains", VALID_CHAINS_PAYLOAD, null, NOW);
-    await vi.waitFor(() => expect(storage.entries.has(CHAINS_KEY)).toBe(true));
+    await vi.waitFor(() => expect(storage.entries.has(CHAINS_KEY)).toBe(true), PERSIST_WAIT);
 
     persistPayloadWhenIdle("chains", VALID_CHAINS_PAYLOAD, null, NOW + INTERNALS.PERSIST_MIN_INTERVAL_MS - 1);
     await Promise.resolve();
@@ -296,7 +302,7 @@ describe("persistPayloadWhenIdle", () => {
     await vi.waitFor(() => {
       expect(JSON.parse(storage.entries.get(CHAINS_KEY)!).storedAt)
         .toBe(NOW + INTERNALS.PERSIST_MIN_INTERVAL_MS);
-    });
+    }, PERSIST_WAIT);
   });
 
   it("does nothing when there is no storage", () => {

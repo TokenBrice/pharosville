@@ -186,7 +186,7 @@ describe("buildCargoTideStage", () => {
     });
   });
 
-  it("refuses to call a harbour idle while issuance it cannot place exists", () => {
+  it("refuses to call a harbour idle while material issuance it cannot place exists", () => {
     // The cardinal sin: a coin minting $400M carries an id no ship holds (an
     // id-namespace mismatch, a frozen coin, a listing gap), so its flow lands
     // nowhere — and the quay it may well have landed at would otherwise swear
@@ -240,6 +240,68 @@ describe("buildCargoTideStage", () => {
       direction: "inactive",
       reason: "tracked",
       tracked: true,
+    });
+  });
+
+  it("lets a trace of unplaceable flow stand beside an otherwise sound calm", () => {
+    // The over-correction this guards, and the shape of the real feeds: the two
+    // payloads never share a universe, so a few dust-sized wrappers are always
+    // beyond placement — $8M against a $2B day, 0.4%, which is what production
+    // actually looks like. Silencing every calm quay over that residue trades a
+    // narrow wrong number for a permanent refusal to read, which is worse.
+    const stage = buildCargoTideStage(
+      [dock("ethereum"), dock("arbitrum")],
+      [ship("major-coin", [["ethereum", 1]])],
+      payload([
+        coin("major-coin", 0, 1_000_000_000, 1_000_000_000),
+        coin("dust-wrapper", 8_000_000, 8_000_000, 0),
+      ]),
+    );
+
+    expect(tideOf(stage.docks, "arbitrum")).toMatchObject({
+      direction: "inactive",
+      reason: "tracked",
+      tracked: true,
+    });
+  });
+
+  it("silences a calm harbour once unplaceable flow grows to a harbour's worth", () => {
+    // The same fleet as above with the unplaceable share pushed past one percent
+    // — the size of a real quay's day. Now the flow could have BEEN Arbitrum's
+    // tide, so Arbitrum may no longer call itself observed.
+    const stage = buildCargoTideStage(
+      [dock("ethereum"), dock("arbitrum")],
+      [ship("major-coin", [["ethereum", 1]])],
+      payload([
+        coin("major-coin", 0, 1_000_000_000, 1_000_000_000),
+        coin("big-unplaceable", 60_000_000, 60_000_000, 0),
+      ]),
+    );
+
+    expect(tideOf(stage.docks, "arbitrum")).toMatchObject({
+      reason: "unattributed",
+      tracked: false,
+    });
+    // Ethereum measured its own issuance, so the doubt does not reach it.
+    expect(tideOf(stage.docks, "ethereum").tracked).toBe(true);
+  });
+
+  it("counts a ship that states no chain presence as flow it cannot place", () => {
+    // The commonest real cause, ahead of a missing ship entirely: the hull is in
+    // the fleet but its chain-level supply is absent, so `chainPresence` is empty
+    // and the world knows the coin moved without knowing where.
+    const stage = buildCargoTideStage(
+      [dock("ethereum"), dock("arbitrum")],
+      [ship("placed-coin", [["ethereum", 1]]), ship("no-presence-coin", [])],
+      payload([
+        coin("placed-coin", 1_000_000, 1_000_000, 0),
+        coin("no-presence-coin", 400_000_000, 400_000_000, 0),
+      ]),
+    );
+
+    expect(tideOf(stage.docks, "arbitrum")).toMatchObject({
+      reason: "unattributed",
+      tracked: false,
     });
   });
 

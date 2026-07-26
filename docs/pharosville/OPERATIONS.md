@@ -86,7 +86,13 @@ Watch for:
 
 - `/api/*` 5xx ratio above 1% over 10 minutes or five failures in five minutes;
 - three or more upstream timeout/502 responses in 10 minutes;
-- post-deploy smoke failure and failure of the scheduled canary.
+- post-deploy smoke failure and failure of the scheduled canary;
+- warning annotations on an otherwise green canary run. `smoke:live` keeps two
+  tiers: contract violations fail the run, while stale data and payload findings
+  the schema permits are reported as GitHub Actions annotations so a green run
+  still shows them. Once one has been watched and judged worth enforcing, add
+  `--strict-freshness` (or `SMOKE_STRICT_FRESHNESS=1`) to the workflow and both
+  tiers become failures.
 
 The deploy workflow probes the immutable deployment and
 `.github/workflows/canary-smoke.yml` probes the canonical host every 30
@@ -284,12 +290,12 @@ already failed, and a broken `/_log` cannot report that it is broken.
 
 The probe carries an `x-pharosville-canary: 1` header. Anyone can send that
 header, so it is treated as a label the caller applies to itself and never as
-authority. It does two things, both scoped to the caller: it routes the report
-to the `PHAROSVILLE_CANARY_PROBE` token, and it selects that caller's second
-rate-limit bucket, so a probe never spends a real visitor's budget from the
-same address. Nothing a spoofer sends can reach another caller's budget — a
-bucket shared across callers would let a stranger hold it open and `429` the
-canary probe into a red run.
+authority. It does exactly one thing: it routes the report to the
+`PHAROSVILLE_CANARY_PROBE` token. The rate limiter ignores it and keys one
+bucket per client IP, which is the only shape with no way to win. Giving the
+marker its own bucket namespace would double the budget of anyone who toggled
+the header between requests; a bucket shared across callers would let a stranger
+hold it open and `429` the canary probe into a red run.
 
 ## Per-selection social cards
 
