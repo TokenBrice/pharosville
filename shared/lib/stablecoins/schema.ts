@@ -147,7 +147,6 @@ export const DeadStablecoinAssetSchema = z.object({
   name: z.string(),
   symbol: z.string(),
   llamaId: z.string().optional(),
-  logo: z.string().optional(),
   pegCurrency: z.enum(PEG_CURRENCY_VALUES),
   causeOfDeath: z.enum(CAUSE_OF_DEATH_VALUES),
   deathDate: z.string(),

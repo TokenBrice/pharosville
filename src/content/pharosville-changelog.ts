@@ -12,6 +12,22 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-07-26-the-lantern-sea",
+    version: PHAROSVILLE_RELEASE_VERSIONS.lanternSea,
+    date: "2026-07-26",
+    title: "The Lantern Sea",
+    summary: "PharosVille is rebuilt on Three.js and grows into a real place: a four-times sea whose waters have names and coastlines, a fleet that flies its issuers' colours, and a harbour that starts in under two seconds and holds sixty frames a second for as long as you leave it open.",
+    bullets: [
+      "Rebuilt the world on a Three.js renderer: a volcanic-stone island under an epic Pharos with a volumetric beam and real shadows, a lantern-lit sea with normals, a moon road, light lanes and wakes, a day/dusk/night cycle with AgX tone mapping, bloom and a graded vignette, and ambient life \u2014 gulls, fireflies, summit birds and danger weather.",
+      "Grew the sailable sea four times over and gave every body of water a name, a coastline and a carved board standing in it. The bands are no longer ruled lines: Calm Anchorage, Watch Breakwater, Alert Channel, Warning Shoals, Danger Strait, Ledger Mooring and the wreck shoals are places, sized to the traffic they carry, and the sea's place-names left the DOM chips for the world itself.",
+      "Gave the fleet an identity you can read at a glance: seven hull silhouettes with per-ship proportions, ten bespoke hero hulls for the titans, the issuer's colour on the sheer strake, canvas dyed in the issuer's brand with its mark cut from the coin's own logo, pennants at the masthead, and a chain's own flag over each of the eleven harbours.",
+      "Drew the whole fleet from instanced batches, holding roughly nine draw calls for the ships however many there are, and raised the render cap to 320.",
+      "Cut the startup freeze from about seven seconds to well under one. Ship placement was recomputing every already-placed ship for every candidate tile, the entire fleet was being built twice per world build, and the terrain classifier \u2014 six noise octaves and fifteen segment SDFs per tile \u2014 was never cached. The world now also opens on the two feeds that build it rather than all six, so one slow endpoint no longer holds an empty sea for twenty seconds, and /api/report-cards is projected at the edge from 2.98 MB to 1.44 MB.",
+      "Stopped the recurring hitches and the false failures: the ten-minute route rebuild no longer re-runs the whole A* set to reproduce identical paths, a load spike no longer poisons the frame-pacing window and freezes the lighthouse beam, a transient WebGL context loss recovers instead of retiring the world to the DOM overview, and a single thrown frame no longer costs the session.",
+    ],
+    source: "Collected from commits deed1b3 through 82097d3 after the v0.3.0 changelog entry.",
+  },
+  {
     id: "2026-07-10-true-waters",
     version: PHAROSVILLE_RELEASE_VERSIONS.trueWaters,
     date: "2026-07-10",

@@ -1,5 +1,11 @@
 import { clampCameraToMap } from "../systems/camera";
-import { zoomCameraAt, type IsoCamera, type MapLike, type ScreenPoint } from "../systems/projection";
+import {
+  minZoomForViewport,
+  zoomCameraAt,
+  type IsoCamera,
+  type MapLike,
+  type ScreenPoint,
+} from "../systems/projection";
 import type { ShipMotionSample } from "../systems/motion";
 import { nearlySameCamera } from "../lib/camera-equality";
 
@@ -55,10 +61,13 @@ export function zoomCameraByWheelDelta(input: {
   point: ScreenPoint;
   viewport: ScreenPoint;
 }): IsoCamera {
+  // N1: the zoom floor comes from the viewport, so the wheel can never pull
+  // the camera back past the world into empty ocean.
   const next = zoomCameraAt(
     input.camera,
     input.point,
     input.camera.zoom * wheelZoomScaleFromDelta(input.deltaY, input.deltaMode, input.viewport.y),
+    input.map ? minZoomForViewport(input.viewport, input.map) : undefined,
   );
   return input.map ? clampCameraToMap(next, { map: input.map, viewport: input.viewport }) : next;
 }

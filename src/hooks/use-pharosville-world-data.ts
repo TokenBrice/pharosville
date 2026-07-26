@@ -5,7 +5,7 @@
 // for the "last complete world" pattern across transient incomplete passes;
 // disable the rule for this file (the discipline is enforced by review).
 /* eslint-disable react-hooks/refs */
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { PHAROSVILLE_WORLD_QUERY_KEY_ROOTS } from "@shared/lib/pharosville-endpoint-registry";
 import { usePegSummary, useReportCards, useStabilityIndexDetail, useStressSignals } from "@/hooks/api-hooks";
@@ -81,6 +81,14 @@ function refIdSignature(value: unknown): string {
   return String(nextRefId);
 }
 
+/**
+ * How long the enrichment feeds get to arrive alongside the essentials before
+ * the harbour opens without them. Long enough that the common case (all six
+ * land together) publishes once, short enough that a stuck feed is not worth
+ * staring at an empty sea for.
+ */
+const ENRICHMENT_GRACE_MS = 1_500;
+
 const PHAROSVILLE_QUERY_KEY_ROOTS = new Set<string>(PHAROSVILLE_WORLD_QUERY_KEY_ROOTS);
 
 export function usePharosVilleWorldData(): PharosVilleWorldDataResult {
@@ -124,7 +132,30 @@ export function usePharosVilleWorldData(): PharosVilleWorldDataResult {
   });
 
   const initialQueryWaveSettled = !isLoading;
-  const canPublishCurrentPayloads = currentHasCompleteData || initialQueryWaveSettled;
+  // The harbour needs stablecoins to have a fleet at all, and chains to have
+  // docks to berth it at. The other four only ENRICH what is already there:
+  // PSI drives the lighthouse band, peg and stress colour the placement, report
+  // cards shape the hulls. A world without them is a real, readable harbour.
+  //
+  // Waiting for all six meant one slow feed held everything. Measured against
+  // the live API, `/api/stablecoins` returned a 502 after 8s; with the client's
+  // two retries and their backoff, a single bad enrichment feed can hold an
+  // EMPTY SEA for ten seconds while five good payloads sit in memory.
+  //
+  // So: once the essentials are in, the enrichers get a short grace window to
+  // arrive together — which is the common case, and avoids publishing twice —
+  // and after that the harbour opens without them and they fold in when they
+  // land.
+  const hasEssentialPayloads = Boolean(stablecoinsQuery.data && chainsQuery.data);
+  const [enrichmentGraceExpired, setEnrichmentGraceExpired] = useState(false);
+  useEffect(() => {
+    if (!hasEssentialPayloads || currentHasCompleteData) return;
+    const id = window.setTimeout(() => setEnrichmentGraceExpired(true), ENRICHMENT_GRACE_MS);
+    return () => window.clearTimeout(id);
+  }, [currentHasCompleteData, hasEssentialPayloads]);
+  const canPublishCurrentPayloads = currentHasCompleteData
+    || initialQueryWaveSettled
+    || (hasEssentialPayloads && enrichmentGraceExpired);
   const routeMode = canPublishCurrentPayloads
     ? resolveRouteMode({ hasAnyData, hasBlockingError: Boolean(error), isLoading })
     : "loading";

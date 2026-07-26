@@ -1,4 +1,4 @@
-import { createRingBuffer, pushRingBuffer, type RingBuffer } from "../systems/canvas-budget";
+import { createRingBuffer, pushRingBuffer, type RingBuffer } from "../systems/render-surface-budget";
 
 export type FramePacingMetrics = {
   averageMs: number;

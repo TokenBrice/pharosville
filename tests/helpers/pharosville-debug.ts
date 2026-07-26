@@ -51,66 +51,40 @@ export type DebugFramePacing = {
 };
 
 export type DebugRenderMetrics = {
-  drawableCount: number;
-  drawableCounts: {
-    body: number;
-    overlay: number;
-    selection: number;
-    underlay: number;
-  };
+  objectCount: number;
   drawDurationMs: number;
   framePacing?: DebugFramePacing;
   movingShipCount: number;
   visibleShipCount: number;
-  visibleTileCount: number;
   shipMaxHeadingDeltaDeg?: number;
   shipMaxPositionDeltaTile?: number;
   routeCacheStats?: { hitRatio: number; evictionRate: number; size: number; capacity: number };
-  shipBodyCacheStats?: {
-    budgetSkipCount: number;
-    entryCount: number;
-    evictionCount: number;
-    fallbackCount: number;
-    hitCount: number;
-    maxEntries: number;
-    maxPixels: number;
-    missCount: number;
-    pixelCount: number;
-  };
   longtask?: { count: number; maxDurationMs: number };
-  // V1.1 per-pass draw-time attribution (coarse pass-group timers).
-  skyDrawMs?: number;
-  staticBlitDrawMs?: number;
-  waterAccentDrawMs?: number;
-  entityPassDrawMs?: number;
-  nameplateDrawMs?: number;
-  nameplateDrawCount?: number;
-  ambientDrawMs?: number;
-  selectionChromeDrawMs?: number;
+  // V1 light/post/sky foundation debug fields.
+  composerEnabled?: boolean;
+  postPassList?: string[];
+  activeLaneCount?: number;
+  shadowMapSize?: number;
+  // C4 Garden Sea debug & evidence contract (P0): session tier high-water
+  // mark plus live Lane W water state (cloud shadows, ripple rings — wired by
+  // the P1 integration) and live zone radii.
+  schedulerTier?: string;
+  sessionTierReached?: string;
+  cloudShadowsOn?: boolean;
+  rippleRingCount?: number;
+  zoneRadii?: { id: string; radiusX: number; radiusZ: number }[];
 };
 
 export type PharosVilleVisualDebug = {
   activeCameraLoopCount?: number;
   activeMotionLoopCount?: number;
   animationFramePending?: boolean;
-  assetLoadErrors?: unknown[];
-  assetsLoaded?: boolean;
   camera?: DebugCamera | null;
   cameraFrameSource?: string;
   cameraWithinBounds?: boolean;
-  canvasBudget?: unknown;
+  surfaceBudget?: unknown;
   canvasSize?: { x: number; y: number };
-  criticalAssetsLoaded?: boolean;
-  deferredAssetsLoaded?: boolean;
   motionClockSource?: "requestAnimationFrame" | "reduced-motion-static-frame";
-  motionCueCounts?: {
-    ambientBirds: number;
-    animatedShips: number;
-    effectShips: number;
-    harborLights: number;
-    moverShips: number;
-    selectedRelationshipOverlays: number;
-  };
   motionFrameCount?: number;
   reducedMotion?: boolean;
   renderMetrics?: DebugRenderMetrics;
@@ -264,9 +238,9 @@ export function isPharosVilleViewportGatedRequest(url: URL): boolean {
   if (url.pathname.endsWith(`/${retiredPath}`)) return true;
   if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/_site-data/")) return true;
   if (
-    url.pathname.startsWith("/pharosville/assets/")
+    url.pathname.startsWith("/pharosville/models/")
+    || url.pathname.startsWith("/pharosville/textures/")
     || url.pathname.startsWith("/logos/")
-    || /^\/chains\/[^/]+\.(?:png|svg|jpe?g|webp)$/i.test(url.pathname)
   ) {
     return true;
   }
@@ -274,6 +248,9 @@ export function isPharosVilleViewportGatedRequest(url: URL): boolean {
     /(?:^|\/)(?:pharosville-desktop-data|pharosville-world)(?:[.-]|$)/.test(url.pathname)
     || url.pathname.includes("/src/pharosville-desktop-data")
     || url.pathname.includes("/src/pharosville-world")
+    || url.pathname.includes("/src/three/")
+    || /(?:^|\/)world-renderer(?:[.-]|$)/.test(url.pathname)
+    || url.pathname.includes("/node_modules/.vite/deps/three")
   ) {
     return true;
   }
@@ -307,7 +284,6 @@ export async function readRuntimeSnapshot(page: Page) {
       activeMotionLoopCount: debug?.activeMotionLoopCount ?? -1,
       animationFramePending: debug?.animationFramePending ?? true,
       motionClockSource: debug?.motionClockSource ?? null,
-      motionCueCounts: debug?.motionCueCounts ?? null,
       motionFrameCount: debug?.motionFrameCount ?? -1,
       reducedMotion: debug?.reducedMotion ?? null,
       renderMetrics: debug?.renderMetrics ?? null,
@@ -319,19 +295,28 @@ export async function readRuntimeSnapshot(page: Page) {
 }
 
 export async function waitForRuntimeDebug(page: Page, reducedMotion: boolean): Promise<void> {
-  await page.waitForFunction((expectedReducedMotion) => {
+  const outcome = await page.waitForFunction((expectedReducedMotion) => {
     const debug = (window as typeof window & {
       __pharosVilleDebug?: PharosVilleVisualDebug;
     }).__pharosVilleDebug;
-    return Boolean(
-      debug?.criticalAssetsLoaded
-      && debug.camera
+    const canvas = document.querySelector<HTMLCanvasElement>("[data-testid='pharosville-canvas']");
+    if (canvas?.dataset.rendererStatus === "failed") {
+      return {
+        failure: canvas.dataset.rendererError ?? "The world renderer failed.",
+        ready: false,
+      };
+    }
+    const ready = Boolean(
+      canvas?.dataset.rendererStatus === "ready"
+      && debug?.camera
       && debug.reducedMotion === expectedReducedMotion
       && (debug.shipMotionSamples?.length ?? 0) > 0
       && (debug.targets?.some((target) => target.kind === "ship") ?? false)
       && (expectedReducedMotion || (debug.motionFrameCount ?? 0) >= 2),
     );
-  }, reducedMotion);
+    return ready ? { failure: null, ready: true } : null;
+  }, reducedMotion).then((handle) => handle.jsonValue());
+  if (!outcome?.ready) throw new Error(outcome?.failure ?? "The world runtime did not become ready.");
 }
 
 export async function waitForMotionActive(page: Page): Promise<void> {
@@ -339,9 +324,7 @@ export async function waitForMotionActive(page: Page): Promise<void> {
     const debug = (window as typeof window & { __pharosVilleDebug?: PharosVilleVisualDebug })
       .__pharosVilleDebug;
     return Boolean(
-      debug?.criticalAssetsLoaded
-      && debug.deferredAssetsLoaded
-      && debug.camera
+      debug?.camera
       && debug.reducedMotion === false
       && (debug.shipMotionSamples?.length ?? 0) > 0
       && (debug.motionFrameCount ?? 0) >= 2,

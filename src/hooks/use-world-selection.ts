@@ -4,7 +4,6 @@ import { withRiskTransitionFact } from "../systems/detail-model";
 import type { ScreenPoint } from "../systems/projection";
 import type { DetailModel, PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
 
-export const DEFAULT_WORLD_SELECTED_DETAIL_ID = "lighthouse";
 const LIVE_REGION_ANNOUNCEMENT_INTERVAL_MS = 150;
 
 export interface DetailAnchor extends ScreenPoint {
@@ -15,7 +14,10 @@ export function useWorldSelection(input: {
   initialSelectedDetailId?: string | null;
   world: PharosVilleWorldModel;
 }) {
-  const { initialSelectedDetailId = DEFAULT_WORLD_SELECTED_DETAIL_ID, world } = input;
+  // S1: nothing is selected unless the visitor or a `sel=` permalink says so.
+  // This used to default to the lighthouse, so every visit opened a detail panel
+  // over the harbour and then persisted `sel=lighthouse` into the URL.
+  const { initialSelectedDetailId = null, world } = input;
   const [hoveredDetailId, setHoveredDetailId] = useState<string | null>(null);
   const [keyboardFocusedDetailId, setKeyboardFocusedDetailId] = useState<string | null>(null);
   const [selectedDetailId, setSelectedDetailId] = useState<string | null>(() => initialSelectedDetailId);

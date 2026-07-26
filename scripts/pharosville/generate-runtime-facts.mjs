@@ -4,21 +4,11 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { aggregateBudgets, bundleBudgets } from "../bundle-budgets.mjs";
-import {
-  firstRenderBudgets,
-  maxManifestAssets,
-  shellCriticalBudgets,
-  totalAssetBudgets,
-} from "./asset-budgets.mjs";
 
 const OUTPUT_PATH = "docs/pharosville/RUNTIME_FACTS.md";
 
 function readText(repoRoot, path) {
   return readFileSync(resolve(repoRoot, path), "utf8");
-}
-
-function readJson(repoRoot, path) {
-  return JSON.parse(readText(repoRoot, path));
 }
 
 function normalizeNumber(value) {
@@ -139,40 +129,9 @@ function resolveApiPathBase(apiPathsSource, method) {
   return match[1] ?? match[2];
 }
 
-function parseManifestFacts(repoRoot) {
-  const manifest = readJson(repoRoot, "public/pharosville/assets/manifest.json");
-  const categoryCounts = countBy(manifest.assets, (asset) => asset.category);
-  const priorityCounts = countBy(manifest.assets, (asset) => asset.loadPriority);
-  const phaseCounts = countBy(manifest.assets, (asset) => {
-    if (asset.phase) return asset.phase;
-    return asset.loadPriority === "critical" ? "visibleCritical" : "deferred";
-  });
-  return {
-    assetCount: manifest.assets.length,
-    categoryCounts,
-    cacheVersion: manifest.style?.cacheVersion ?? "",
-    firstRenderCount: manifest.requiredForFirstRender?.length ?? 0,
-    phaseCounts,
-    priorityCounts,
-    schemaVersion: manifest.schemaVersion,
-    styleAnchorVersion: manifest.style?.styleAnchorVersion ?? "",
-    webpFrameSourceCount: manifest.assets.filter((asset) => asset.animation?.webpFrameSource).length,
-    webpPathCount: manifest.assets.filter((asset) => asset.webpPath).length,
-  };
-}
-
-function parseAssetBudgetFacts() {
-  return {
-    firstRender: firstRenderBudgets,
-    manifestMaxCount: maxManifestAssets,
-    shellCritical: shellCriticalBudgets,
-    totalAssets: totalAssetBudgets,
-  };
-}
-
 function parseBundleFacts() {
   return {
-    chunks: ["entry", "desktop", "world", "css"].map((key) => {
+    chunks: ["entry", "desktop", "world", "renderer", "css"].map((key) => {
       const budget = bundleBudgets[key];
       return {
         key,
@@ -185,6 +144,59 @@ function parseBundleFacts() {
       maxGzipBytes: aggregateBudgets.maxJsGzipBytes,
       maxRawBytes: aggregateBudgets.maxJsRawBytes,
     },
+  };
+}
+
+function parseGardenModelFacts(repoRoot) {
+  const source = readText(repoRoot, "src/three/garden-models.ts");
+  const manifestBlock = matchRequired(
+    source,
+    /GARDEN_MODEL_MANIFEST\s*=\s*{([\s\S]*?)}\s*as const satisfies/,
+    "garden model manifest",
+  )[1];
+  const shaBySymbol = Object.fromEntries(
+    [...source.matchAll(/const\s+([A-Z_]+_SHA256)\s*=\s*"([a-f0-9]{64})"/g)]
+      .map((match) => [match[1], match[2]]),
+  );
+  const urlBySymbol = Object.fromEntries(
+    [...source.matchAll(/const\s+([A-Za-z0-9]+Url)\s*=\s*`([^?`]+)\?v=/g)]
+      .map((match) => [match[1], match[2]]),
+  );
+  const lighthouseBlock = matchRequired(
+    manifestBlock,
+    /"garden-lighthouse-shell":\s*{([\s\S]*?)\n\s*},\n\s*"garden-hero-titan"/,
+    "lighthouse model metadata",
+  )[1];
+  const entries = [
+    parseGardenModelBlock("garden-lighthouse-shell", lighthouseBlock, shaBySymbol, urlBySymbol),
+    ...[...manifestBlock.matchAll(/"(garden-hero-[^"]+)":\s*heroModelMetadata\(\{([\s\S]*?)\n\s*}\),/g)]
+      .map((match) => parseGardenModelBlock(match[1], match[2], shaBySymbol, urlBySymbol)),
+  ];
+  // Guard against the regexes silently skipping a model. Derived from the
+  // manifest rather than hard-coded, so growing the hero fleet (W5.1 took it
+  // from 2 hulls to 10) does not require editing this number.
+  const expected = [...manifestBlock.matchAll(/heroModelMetadata\(\{/g)].length + 1;
+  if (entries.length !== expected) {
+    throw new Error(`Expected ${expected} garden model entries, parsed ${entries.length}.`);
+  }
+  return entries;
+}
+
+function parseGardenModelBlock(id, block, shaBySymbol, urlBySymbol) {
+  const geometryBlock = matchRequired(block, /geometry:\s*{([^}]+)}/, `${id} geometry`)[1];
+  const shaSymbol = matchRequired(block, /sha256:\s*([A-Z_]+_SHA256)/, `${id} SHA symbol`)[1];
+  const urlSymbol = matchRequired(block, /url:\s*([A-Za-z0-9]+Url)/, `${id} URL symbol`)[1];
+  return {
+    bytes: normalizeNumber(matchRequired(block, /bytes:\s*([\d_]+)/, `${id} bytes`)[1]),
+    compression: block.includes('compression: "none"') ? "none" : "none",
+    drawCalls: normalizeNumber(matchRequired(geometryBlock, /drawCalls:\s*([\d_]+)/, `${id} draw calls`)[1]),
+    id,
+    label: matchRequired(block, /label:\s*"([^"]+)"/, `${id} label`)[1],
+    sha256: shaBySymbol[shaSymbol] ?? "",
+    textures: normalizeNumber(matchRequired(geometryBlock, /textures:\s*([\d_]+)/, `${id} textures`)[1]),
+    triangles: normalizeNumber(matchRequired(geometryBlock, /triangles:\s*([\d_]+)/, `${id} triangles`)[1]),
+    url: urlBySymbol[urlSymbol] ?? "",
+    vertices: normalizeNumber(matchRequired(geometryBlock, /vertices:\s*([\d_]+)/, `${id} vertices`)[1]),
   };
 }
 
@@ -204,28 +216,17 @@ function parseSquadFacts(repoRoot) {
 
 function parseTitanFacts(repoRoot) {
   const source = readText(repoRoot, "src/systems/ship-visuals.ts");
-  const registryMatch = source.match(/TITAN_SHIPS:[\s\S]*?=\s*{([\s\S]*?)};/);
-  if (registryMatch) {
-    return [...registryMatch[1].matchAll(/"([^"]+)":\s*{\s*spriteAssetId:\s*"([^"]+)"\s*,\s*scale:\s*([\d.]+)/g)]
-      .map((match) => ({ assetId: match[2], id: match[1], scale: Number(match[3]) }))
-      .sort((a, b) => a.id.localeCompare(b.id));
-  }
-
-  const assetBlock = matchRequired(source, /TITAN_SHIP_ASSET_IDS:[\s\S]*?=\s*{([\s\S]*?)};/, "titan asset IDs")[1];
-  const scaleBlock = matchRequired(source, /TITAN_SHIP_SCALES:[\s\S]*?=\s*{([\s\S]*?)};/, "titan scales")[1];
-  const scales = Object.fromEntries(
-    [...scaleBlock.matchAll(/"([^"]+)":\s*([\d.]+)/g)].map((match) => [match[1], Number(match[2])]),
-  );
-  return [...assetBlock.matchAll(/"([^"]+)":\s*"([^"]+)"/g)]
-    .map((match) => ({ assetId: match[2], id: match[1], scale: scales[match[1]] ?? null }))
+  const block = matchRequired(source, /TITAN_SHIPS:[\s\S]*?=\s*{([\s\S]*?)};/, "titan definitions")[1];
+  return [...block.matchAll(/"([^"]+)":\s*{\s*scale:\s*([\d.]+)\s*}/g)]
+    .map((match) => ({ id: match[1], scale: Number(match[2]) }))
     .sort((a, b) => a.id.localeCompare(b.id));
 }
 
 function parseHeritageFacts(repoRoot) {
   const source = readText(repoRoot, "src/systems/unique-ships.ts");
   const block = matchRequired(source, /UNIQUE_SHIP_DEFINITIONS\s*=\s*{([\s\S]*?)}\s*as const/, "heritage definitions")[1];
-  return [...block.matchAll(/"([^"]+)":\s*{\s*spriteAssetId:\s*"([^"]+)"[\s\S]*?scale:\s*([\d.]+)\s*}/g)]
-    .map((match) => ({ id: match[1], spriteAssetId: match[2], scale: Number(match[3]) }))
+  return [...block.matchAll(/"([^"]+)":\s*{[\s\S]*?scale:\s*([\d.]+)\s*}/g)]
+    .map((match) => ({ id: match[1], scale: Number(match[2]) }))
     .sort((a, b) => a.id.localeCompare(b.id));
 }
 
@@ -234,7 +235,6 @@ function parseDockFacts(repoRoot) {
   const layoutSource = readText(repoRoot, "src/systems/world-layout.ts");
   const preferredBlock = matchRequired(layoutSource, /PREFERRED_DOCK_TILES:[\s\S]*?=\s*{([\s\S]*?)};/, "preferred dock tiles")[1];
   return {
-    assetIds: parseQuotedArray(dockSource, /_DOCK_ASSET_IDS\s*=\s*\[([\s\S]*?)]\s*as const/, "dock asset IDs"),
     maxChainHarbors: normalizeNumber(matchRequired(dockSource, /MAX_CHAIN_HARBORS\s*=\s*([\d_]+)/, "max chain harbors")[1]),
     pigeonnierChainIds: parseQuotedArray(layoutSource, /PIGEONNIER_HARBOR_CHAIN_IDS\s*=\s*\[([\s\S]*?)]\s*as const/, "pigeonnier chain IDs"),
     preferredChainIds: [...preferredBlock.matchAll(/^\s*([A-Za-z0-9_-]+):/gm)].map((match) => match[1]),
@@ -259,29 +259,6 @@ function parseWorkflowFacts(repoRoot) {
   };
 }
 
-function countBy(items, keyFn) {
-  const counts = {};
-  for (const item of items) {
-    const key = keyFn(item) ?? "unknown";
-    counts[key] = (counts[key] ?? 0) + 1;
-  }
-  return Object.fromEntries(Object.entries(counts).sort(([a], [b]) => a.localeCompare(b)));
-}
-
-function renderCounts(counts) {
-  return Object.entries(counts)
-    .map(([key, count]) => `${key}: ${count}`)
-    .join(", ");
-}
-
-function renderBudget(budget) {
-  const parts = [];
-  if (budget.maxCount != null) parts.push(`count <= ${budget.maxCount}`);
-  if (budget.maxBytes != null) parts.push(`bytes <= ${formatBytes(budget.maxBytes)}`);
-  if (budget.maxDecodedPixels != null) parts.push(`decoded pixels <= ${budget.maxDecodedPixels.toLocaleString("en-US")}`);
-  return parts.join(", ");
-}
-
 function table(headers, rows) {
   return [
     `| ${headers.join(" | ")} |`,
@@ -294,9 +271,8 @@ export function buildRuntimeFactsMarkdown({ repoRoot = process.cwd() } = {}) {
   const release = parseReleaseFacts(repoRoot);
   const viewport = parseViewportFacts(repoRoot);
   const api = parseApiFacts(repoRoot);
-  const manifest = parseManifestFacts(repoRoot);
-  const assetBudgets = parseAssetBudgetFacts();
   const bundle = parseBundleFacts();
+  const gardenModels = parseGardenModelFacts(repoRoot);
   const squads = parseSquadFacts(repoRoot);
   const titans = parseTitanFacts(repoRoot);
   const heritage = parseHeritageFacts(repoRoot);
@@ -313,7 +289,9 @@ export function buildRuntimeFactsMarkdown({ repoRoot = process.cwd() } = {}) {
     "## App And Routes",
     "",
     "- Canonical app URL: `https://pharosville.pharos.watch/`",
-    "- Runtime asset namespace: `/pharosville/assets/`",
+    "- Renderer: one production Three.js/WebGL renderer",
+    "- GPU or renderer failure fallback: interactive DOM signal overview; no alternate 2D renderer",
+    "- Runtime model namespace: `/pharosville/models/`",
     `- Latest app version: \`${release.latestVersion}\` (\`${release.latestKey}\`)`,
     `- Latest changelog entry: \`${release.changelog.id}\` / \`${release.changelog.version}\` / ${release.changelog.date} / ${release.changelog.title}`,
     "",
@@ -322,29 +300,30 @@ export function buildRuntimeFactsMarkdown({ repoRoot = process.cwd() } = {}) {
     `- Long side minimum: \`${viewport.longSide}px\``,
     `- Short side minimum: \`${viewport.shortSide}px\``,
     "- World runtime mounts only after the screen-size gate passes and the current viewport is landscape.",
-    "- `index.html` has a matching runtime-manifest preload media query checked by `npm run check:viewport-gate`.",
+    "- `src/client.tsx` lazy-loads the desktop data and Three.js runtime only after that gate; `npm run check:viewport-gate` guards the boundary.",
     "",
     "## API Allowlist",
     "",
     ...api.allowlist.map((path) => `- \`${path}\``),
     "",
-    "## Asset Manifest",
+    "## Runtime Media",
     "",
-    `- Schema version: \`${manifest.schemaVersion}\``,
-    `- Cache version: \`${manifest.cacheVersion}\``,
-    `- Style anchor: \`${manifest.styleAnchorVersion}\``,
-    `- Manifest entries: \`${manifest.assetCount}\``,
-    `- Required for first render: \`${manifest.firstRenderCount}\``,
-    `- Categories: ${renderCounts(manifest.categoryCounts)}`,
-    `- Load priorities: ${renderCounts(manifest.priorityCounts)}`,
-    `- Phases: ${renderCounts(manifest.phaseCounts)}`,
-    `- Optional WebP twins: \`${manifest.webpPathCount}\` static paths, \`${manifest.webpFrameSourceCount}\` animation frame sources`,
+    "- Stablecoin sails and rendered-harbor flags load same-origin logo images into shared in-memory atlases with deterministic mark fallbacks.",
+    "- Ship, dock, island, cemetery, ambient-life, and water visuals are renderer-owned procedural geometry/materials.",
+    "- Water normal: `/pharosville/textures/water-normals.png` with a content-hash query.",
     "",
-    "## Asset Budgets",
+    table(
+      ["Model", "URL", "Bytes", "Geometry", "SHA-256"],
+      gardenModels.map((model) => [
+        `\`${model.id}\``,
+        `\`${model.url}\``,
+        formatBytes(model.bytes),
+        `${model.drawCalls} draws / ${model.triangles.toLocaleString("en-US")} tris / ${model.vertices.toLocaleString("en-US")} verts / ${model.textures} textures`,
+        `\`${model.sha256}\``,
+      ]),
+    ),
     "",
-    `- Runtime manifest: count <= ${assetBudgets.manifestMaxCount}, ${renderBudget(assetBudgets.totalAssets)}`,
-    `- First render: ${renderBudget(assetBudgets.firstRender)}`,
-    `- Shell-critical: ${renderBudget(assetBudgets.shellCritical)}`,
+    "- The procedural lighthouse shell remains the in-scene fallback if its GLB cannot load.",
     "",
     "## Bundle Budgets",
     "",
@@ -361,15 +340,15 @@ export function buildRuntimeFactsMarkdown({ repoRoot = process.cwd() } = {}) {
     "## Titan Ships",
     "",
     table(
-      ["Stablecoin ID", "Asset ID", "Scale"],
-      titans.map((titan) => [`\`${titan.id}\``, `\`${titan.assetId}\``, titan.scale == null ? "" : `\`${titan.scale}\``]),
+      ["Stablecoin ID", "Scale"],
+      titans.map((titan) => [`\`${titan.id}\``, titan.scale == null ? "" : `\`${titan.scale}\``]),
     ),
     "",
     "## Heritage Hulls",
     "",
     table(
-      ["Stablecoin ID", "Asset ID", "Scale"],
-      heritage.map((ship) => [`\`${ship.id}\``, `\`${ship.spriteAssetId}\``, `\`${ship.scale}\``]),
+      ["Stablecoin ID", "Scale"],
+      heritage.map((ship) => [`\`${ship.id}\``, `\`${ship.scale}\``]),
     ),
     "",
     "## Dock Rules",
@@ -378,7 +357,6 @@ export function buildRuntimeFactsMarkdown({ repoRoot = process.cwd() } = {}) {
     `- Preferred chain IDs: ${docks.preferredChainIds.map((id) => `\`${id}\``).join(", ")}`,
     `- Suppressed rendered harbor IDs: ${docks.suppressedChainIds.map((id) => `\`${id}\``).join(", ")}`,
     `- Detached dispatch wharf chain IDs: ${docks.pigeonnierChainIds.map((id) => `\`${id}\``).join(", ")}`,
-    `- Dock asset IDs: ${docks.assetIds.map((id) => `\`${id}\``).join(", ")}`,
     "",
     "## Workflow Gates",
     "",

@@ -1,6 +1,7 @@
 import type { ReportCard, StablecoinData, StablecoinMeta } from "@shared/types";
 import { getCirculatingRaw } from "@/lib/supply";
-import type { ShipClass, ShipHull, ShipSizeTier, ShipVisual } from "./world-types";
+import { SHIP_HULL_FORM_SPAN, type ShipHull, type ShipHullForm, type ShipSizeTier, type ShipVisual } from "./world-types";
+import { stableFnv1aHash } from "./stable-random";
 import { resolveStablecoinShipBranding } from "./stablecoin-ship-branding";
 import { uniqueDefinitionFor } from "./unique-ships";
 
@@ -14,8 +15,6 @@ const GOVERNANCE_LABELS_SHORT = {
 interface ShipClassDefinition {
   hull: ShipHull;
   label: string;
-  shipClass: ShipClass;
-  rigging: ShipVisual["rigging"];
 }
 
 interface ShipSizeDefinition {
@@ -25,80 +24,144 @@ interface ShipSizeDefinition {
 }
 
 interface TitanShipDefinition {
-  spriteAssetId: string;
   scale: number;
 }
 
 const UNKNOWN_CLASS: ShipClassDefinition = {
   hull: "crypto-caravel",
   label: "Unclassified",
-  shipClass: "unclassified",
-  rigging: "issuer-rig",
 };
 
 // Squad members reduced by ~20% from prior tuning to relieve formation overlap
 // at common zoom levels (Sky: USDS+sUSDS+stUSDS; Maker: DAI+sDAI). USDC and
 // USDT remain at their solo titan scales since they don't sail in formation.
 export const TITAN_SHIPS: Record<string, TitanShipDefinition> = {
-  "usdc-circle": { spriteAssetId: "ship.usdc-titan", scale: 1.53 },
-  "usds-sky": { spriteAssetId: "ship.usds-titan", scale: 1.15 },
-  "usdt-tether": { spriteAssetId: "ship.usdt-titan", scale: 1.7 },
-  "dai-makerdao": { spriteAssetId: "ship.dai-titan", scale: 1.06 },
-  "susds-sky": { spriteAssetId: "ship.susds-titan", scale: 0.94 },
-  "sdai-sky": { spriteAssetId: "ship.sdai-titan", scale: 0.94 },
-  "stusds-sky": { spriteAssetId: "ship.stusds-titan", scale: 0.98 },
-  "usde-ethena": { spriteAssetId: "ship.usde-titan", scale: 1.20 },
-  "susde-ethena": { spriteAssetId: "ship.susde-titan", scale: 0.95 },
-  "pyusd-paypal": { spriteAssetId: "ship.pyusd-titan", scale: 1.40 },
-  "usd1-world-liberty-financial": { spriteAssetId: "ship.usd1-titan", scale: 1.35 },
-  "buidl-blackrock": { spriteAssetId: "ship.buidl-titan", scale: 1.40 },
+  "usdc-circle": { scale: 1.53 },
+  "usds-sky": { scale: 1.15 },
+  "usdt-tether": { scale: 1.7 },
+  "dai-makerdao": { scale: 1.06 },
+  "susds-sky": { scale: 0.94 },
+  "sdai-sky": { scale: 0.94 },
+  "stusds-sky": { scale: 0.98 },
+  "usde-ethena": { scale: 1.20 },
+  "susde-ethena": { scale: 0.95 },
+  "pyusd-paypal": { scale: 1.40 },
+  "usd1-world-liberty-financial": { scale: 1.35 },
+  "buidl-blackrock": { scale: 1.40 },
 };
 
-export const TITAN_SHIP_ASSET_IDS: Record<string, string> = Object.fromEntries(
-  Object.entries(TITAN_SHIPS).map(([id, definition]) => [id, definition.spriteAssetId]),
-);
-
+/**
+ * N5(a): the hull family a ship sails, derived from what the stablecoin
+ * actually *is* rather than from its governance flag alone.
+ *
+ * Governance still decides the broad family, because it is the trait with the
+ * strongest visual analogue (who commands the ship). Within that, the
+ * collateral model reassigns the cases where governance alone was misleading:
+ *
+ * - A crypto-backed coin under centralized governance is not a treasury ship;
+ *   its reserves are on-chain and volatile, so it sails the brigantine rather
+ *   than the galleon.
+ * - An RWA/NAV-bearing decentralized coin holds off-chain paper, which reads
+ *   as a laden merchant hull, not a lean DAO schooner.
+ * - A yield-bearing centralized-dependent coin is a carrier for someone else's
+ *   yield, which is the galleon's job.
+ *
+ * The batched fleet renders four silhouettes as instanced meshes, so this
+ * function chooses *which* of the four a ship joins; it cannot vary geometry
+ * per ship. Per-ship proportions need per-instance attributes in the fleet
+ * batch — see the N5(a) note in the plan.
+ */
 export function resolveShipClass(meta: StablecoinMeta): ShipClassDefinition {
   const backing = meta.flags?.backing;
   const governance = meta.flags?.governance;
+  const yieldBearing = meta.flags?.yieldBearing ?? false;
+  const navToken = meta.flags?.navToken ?? false;
+  // `rwa` is true for almost everything that is not crypto-backed, so it is
+  // useless as a splitter on its own — pairing it with navToken/yieldBearing is
+  // what isolates the genuinely fund-like coins.
+  const realWorldBacked = backing === "rwa-backed";
+
   if (backing === "algorithmic") {
     return {
       hull: "algo-junk",
       label: "Legacy algorithmic",
-      shipClass: "legacy-algo",
-      rigging: "dependent-rig",
     };
   }
 
-  if (governance === "centralized") {
+  // A non-dollar peg is the strongest single split available on this data
+  // (53 of 188 batched ships) and it is genuinely a different trade. The label
+  // stays governance-truthful — only the hull changes — because `classLabel` is
+  // what the UI shows and it must never claim something the coin is not.
+  if (meta.flags?.pegCurrency !== undefined && meta.flags.pegCurrency !== "USD") {
+    const label = governance === undefined
+      ? UNKNOWN_CLASS.label
+      : GOVERNANCE_LABELS_SHORT[governance];
+    // W2: bullion is not a currency. A metal-pegged coin holds something dense
+    // and physical, which is a short deep beamy hull, not a trading junk.
     return {
-      hull: "treasury-galleon",
+      hull: COMMODITY_PEGS.has(meta.flags.pegCurrency) ? "commodity-peg-hoy" : "foreign-peg-junk",
+      label,
+    };
+  }
+
+  // W2: yield-bearing splits both dollar families. Holding reserves and paying
+  // out a yield are different voyages, and it is a near-even split on the live
+  // set (18/46 in the treasury family, 25/32 in the chartered one), so it buys
+  // real separation rather than a rounding error.
+  if (governance === "centralized") {
+    // Crypto collateral under a central issuer: volatile reserves, lighter hull.
+    if (backing === "crypto-backed") {
+      return {
+        hull: yieldBearing ? "yield-barque" : "chartered-brigantine",
+        label: GOVERNANCE_LABELS_SHORT.centralized,
+      };
+    }
+    return {
+      hull: yieldBearing ? "yield-indiaman" : "treasury-galleon",
       label: GOVERNANCE_LABELS_SHORT.centralized,
-      shipClass: "cefi",
-      rigging: "issuer-rig",
     };
   }
 
   if (governance === "centralized-dependent") {
+    // A NAV share over real paper is a fund in a hull — BUIDL, USYC. A NAV
+    // share over crypto collateral (sUSDe) is still a synthetic, and stays on
+    // the lighter chartered hull.
+    if (navToken && realWorldBacked) {
+      return {
+        hull: yieldBearing ? "yield-indiaman" : "treasury-galleon",
+        label: GOVERNANCE_LABELS_SHORT["centralized-dependent"],
+      };
+    }
     return {
-      hull: "chartered-brigantine",
+      hull: yieldBearing ? "yield-barque" : "chartered-brigantine",
       label: GOVERNANCE_LABELS_SHORT["centralized-dependent"],
-      shipClass: "cefi-dependent",
-      rigging: "dependent-rig",
     };
   }
 
   if (governance === "decentralized") {
+    // A DAO that holds real paper AND pays it out is running a treasury, not a
+    // lean protocol — it earns the merchant hull. It is yield-bearing by
+    // definition on this branch, so it is always the indiaman.
+    if (realWorldBacked && yieldBearing) {
+      return {
+        hull: "yield-indiaman",
+        label: GOVERNANCE_LABELS_SHORT.decentralized,
+      };
+    }
     return {
       hull: "dao-schooner",
       label: GOVERNANCE_LABELS_SHORT.decentralized,
-      shipClass: "defi",
-      rigging: "dao-rig",
     };
   }
 
   return UNKNOWN_CLASS;
 }
+
+/**
+ * Metal pegs. The two the `pegCurrency` union actually carries — `VAR` and the
+ * fiat tickers are currencies; these are cargo.
+ */
+const COMMODITY_PEGS = new Set(["GOLD", "SILVER"]);
 
 export function resolveShipSizeTier(marketCapUsd: number): ShipSizeDefinition {
   if (!Number.isFinite(marketCapUsd) || marketCapUsd <= 0) {
@@ -112,6 +175,67 @@ export function resolveShipSizeTier(marketCapUsd: number): ShipSizeDefinition {
   return { label: "Micro", scale: 0.7, tier: "micro" };
 }
 
+/**
+ * N5(a): the ship's proportions, derived from what the stablecoin is.
+ *
+ * Traits set the signal; a deterministic per-id jitter breaks ties so two coins
+ * with identical flags still read as two different vessels rather than one hull
+ * stamped twice. Everything is clamped into `SHIP_HULL_FORM_SPAN`, which is
+ * sized so a deformed hull cannot self-intersect or overflow its berth.
+ *
+ * The mappings are meant to be legible on the water, not merely encoded:
+ * - beam is stability, so peg health widens or narrows the hull;
+ * - height is freeboard, so real reserves ride high and thin ones sit low;
+ * - length is reach, so yield-bearing and NAV carriers run longer.
+ */
+const PEG_GRADE_STIFFNESS: Record<string, number> = {
+  A: 0.26, B: 0.15, C: 0, D: -0.16, F: -0.27,
+};
+
+function resolveShipHullForm(
+  asset: StablecoinData,
+  meta: StablecoinMeta,
+  reportCard: ReportCard | null,
+): ShipHullForm {
+  const flags = meta.flags;
+  const clamp = (value: number): number => Math.min(
+    1 + SHIP_HULL_FORM_SPAN,
+    Math.max(1 - SHIP_HULL_FORM_SPAN, value),
+  );
+  // Two independent jitter channels off one hash, so length and beam do not
+  // move together and produce a fleet of scaled copies.
+  const hash = stableFnv1aHash(asset.id);
+  const jitter = (shift: number): number => (
+    (((hash >>> shift) & 0xff) / 255 - 0.5) * 2
+  );
+
+  // W2.1: the trait deltas and the jitter both roughly double. The ±0.32 clamp
+  // was already validated for the full span, but only about a third of it was
+  // ever used — measured, 80% of the fleet sat inside a 0.267 band on length
+  // (of an available 0.64), 0.168 on beam and 0.193 on height, which is below
+  // the threshold where the eye registers two hulls as two vessels. Growing the
+  // signal alongside the noise keeps the mappings legible rather than drowning
+  // them in jitter.
+  let length = 1;
+  if (flags?.yieldBearing) length += 0.24;
+  if (flags?.navToken) length += 0.14;
+  if (flags?.backing === "crypto-backed") length -= 0.13;
+
+  let beam = 1 + (PEG_GRADE_STIFFNESS[reportCard?.overallGrade ?? ""] ?? 0);
+  if (flags?.backing === "rwa-backed") beam += 0.11;
+
+  let height = 1;
+  if (flags?.rwa) height += 0.17;
+  if (flags?.backing === "algorithmic") height -= 0.3;
+  if (flags?.yieldBearing) height += 0.09;
+
+  return {
+    beam: clamp(beam + jitter(8) * 0.17),
+    height: clamp(height + jitter(16) * 0.15),
+    length: clamp(length + jitter(0) * 0.19),
+  };
+}
+
 export function resolveShipVisual(asset: StablecoinData, meta: StablecoinMeta, reportCard: ReportCard | null): ShipVisual {
   const marketCap = getCirculatingRaw(asset);
   const shipClass = resolveShipClass(meta);
@@ -121,20 +245,16 @@ export function resolveShipVisual(asset: StablecoinData, meta: StablecoinMeta, r
   // resolution only runs when the titan lookup misses.
   const uniqueDef = !titan ? uniqueDefinitionFor(asset) : null;
   const branding = resolveStablecoinShipBranding(asset.id, meta);
-  const spriteAssetId = titan?.spriteAssetId ?? uniqueDef?.spriteAssetId;
   return {
     hull: shipClass.hull,
-    ...(spriteAssetId ? { spriteAssetId } : {}),
     ...(uniqueDef ? { uniqueRationale: uniqueDef.rationale } : {}),
-    shipClass: shipClass.shipClass,
     classLabel: shipClass.label,
-    rigging: shipClass.rigging,
     livery: branding,
     sailColor: branding.sailColor,
-    sailStripeColor: branding.primary,
     overlay: meta.flags.navToken ? "nav" : meta.flags.yieldBearing ? "yield" : reportCard?.overallGrade === "D" || reportCard?.overallGrade === "F" ? "watch" : "none",
     sizeTier: titan ? "titan" : uniqueDef ? "unique" : size.tier,
     sizeLabel: titan ? "Titan" : uniqueDef ? "Heritage hull" : size.label,
     scale: titan?.scale ?? uniqueDef?.scale ?? size.scale,
+    hullForm: resolveShipHullForm(asset, meta, reportCard),
   };
 }

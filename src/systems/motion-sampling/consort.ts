@@ -172,13 +172,8 @@ export function consortShadowSampleInto(
   out.routeKey = routeIdentityKey(route);
   out.routePathKey = flagshipSample.routePathKey ?? routePathIdentityKey(route, "consort", flagshipRoute.shipId);
   copyVelocityInto(flagshipSample, out);
-  writeMapVisibilityAlphaInto(out, flagshipSample.mapVisibilityAlpha ?? 1);
+  writeMapVisibilityAlphaInto(out, flagshipSample.mapVisibilityAlpha);
   out.wakeIntensity = flagshipSample.wakeIntensity;
-  out.mooringSubPhase = flagshipSample.mooringSubPhase ?? null;
-  out.mooringSwayAmplitude = flagshipSample.mooringSwayAmplitude ?? 1;
-  out.mooringTension = flagshipSample.mooringTension ?? 0;
-  out.lanternAlpha = flagshipSample.lanternAlpha ?? 0;
-  out.fenderContact = flagshipSample.fenderContact ?? 0;
   out.seaState = input.seaState ?? flagshipSample.seaState ?? null;
   // W4.25 — consorts mirror their flagship's risk-transition state so the
   // whole squad reads as "tracking new risk band" together in DOM parity.

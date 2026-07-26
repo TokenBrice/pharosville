@@ -1,6 +1,6 @@
 # PharosVille Agent Onboarding
 
-Last updated: 2026-07-14
+Last updated: 2026-07-24
 
 Use this after `AGENTS.md` to route the current task. Keep startup small:
 read only the docs needed for the change in front of you.
@@ -32,7 +32,7 @@ read only the docs needed for the change in front of you.
 - Work only in this repository unless explicitly authorized.
 - Browser must use same-origin `/api/*` (no client cross-origin API calls).
 - Keep `PHAROS_API_KEY` server-side only.
-- Keep world runtime unmounted when the device screen long side is below `720px`, the short side is below `360px`, or a capable screen is in portrait orientation.
+- Keep world runtime unmounted when the device screen long side is below `720px`, the short side is below `360px`, or the VIEWPORT is under `720px` wide or `360px` tall. Do not gate on `(orientation: portrait)`: CSS orientation is a viewport aspect test, so it blocks tall desktop windows that have more room than the wide ones it allows.
 - Use `agents/` for plans and handoff artifacts.
 - Use `outputs/` for temporary screenshots, renders, and generation scratch files.
 
@@ -41,10 +41,11 @@ read only the docs needed for the change in front of you.
 | Task | Read only if needed | First checks |
 | --- | --- | --- |
 | App shell, API proxy, metadata, viewport gate | `docs/pharosville/ARCHITECTURE.md`, `docs/pharosville-page.md` | `npm run validate:changed` |
-| World model, data semantics, layout, motion | `docs/pharosville/VISUAL_INVARIANTS.md`, `src/systems/README.md` | `npm test -- src` |
-| Canvas renderer, hit testing, interaction | `src/renderer/README.md`, `docs/pharosville/TESTING.md` | focused unit test, then visual lane if pixels changed |
-| Assets or PixelLab generation | `docs/pharosville/ASSET_PIPELINE.md`, `docs/pharosville/PIXELLAB_MCP.md` | `npm run check:pharosville-assets` |
-| Visual snapshots | `docs/pharosville/TESTING.md`, `docs/pharosville/VISUAL_REGEN.md` | matching Playwright grep |
+| World model, data semantics, layout, motion | `docs/pharosville/VISUAL_INVARIANTS.md`, `src/systems/README.md` | `npm test -- src/systems` |
+| Three.js renderer, hit testing, interaction | `docs/pharosville/THREEJS_AGENT_REFERENCE.md`, `docs/pharosville/ARCHITECTURE.md`, `docs/pharosville/TESTING.md` | focused unit test (`npm test -- src/three src/renderer`), then `npm run test:visual` |
+| Lighthouse model or ship logos | `docs/pharosville/ASSET_PIPELINE.md` | `npm run check:garden-models` or focused sail tests |
+| Reference generation | `docs/pharosville/ASSET_PIPELINE.md` | operator review; keep scratch in `outputs/` |
+| Visual evidence, look, frame time | `docs/pharosville/TESTING.md` | `npm run preview` for anything you intend to LOOK at or quote a frame time from; `npm run test:visual` for the assertions |
 | Versioned release, tag, or GitHub Release | `docs/pharosville/RELEASES.md` | `npm run check:release-contract` |
 | Docs/process only | `docs/pharosville/README.md` | `npm run validate:docs` |
 | Unknown or mixed scope | this file, then exact source files | `npm run validate:changed` |
@@ -73,7 +74,11 @@ npm run agent:plan:new -- <slug>
 
 - Exposing `PHAROS_API_KEY` through client code, docs, fixtures, or logs.
 - Treating old `agents/*plan*.md` files as authoritative over current code and route docs.
-- Updating visual baselines for unintentional drift.
+- Judging the render or the frame time through a Playwright browser. Use `npm run preview` — it goes through the operator's own Chrome flags. (The correctness lane asks the bundled browser for hardware rendering outside CI so the gates can run at all; that does not make its frame times quotable.)
+- Looking for committed screenshot baselines to regenerate. There are none — the visual lane asserts DOM state and telemetry, so a renderer change cannot put it in debt.
+- Gating any viewport decision on `(orientation: portrait)`. It is a viewport aspect test, not a device test.
 - Treating a changelog entry, `main` deploy, local tag, or manual GitHub Release as the complete versioned release path.
-- Adding runtime references to remote/prototype sprite URLs.
-- Encoding analytical meaning only in canvas without detail-panel and accessibility-ledger parity.
+- Reintroducing a renderer switch or graphical fallback.
+- Reintroducing an unreviewed runtime asset inventory or namespace.
+- Adding runtime references to remote generation or prototype URLs.
+- Encoding analytical meaning only in WebGL without detail-panel and accessibility-ledger parity.

@@ -2,24 +2,42 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { DesktopOnlyFallback } from "./desktop-only-fallback";
 import { RotateToLandscape } from "./rotate-to-landscape";
-import { observeOrientation } from "./systems/orientation";
-import { isWidescreenViewport } from "./systems/viewport-gate";
+import { canViewportShowMap, isWidescreenViewport } from "./systems/viewport-gate";
 import "./pharosville.css";
 
 const PharosVilleDesktopData = lazy(() => (
   import("./pharosville-desktop-data").then((mod) => ({ default: mod.PharosVilleDesktopData }))
 ));
 
+/** Is this device capable at all? Measured on the physical screen. */
 function screenCanFitMap(): boolean {
   if (typeof window === "undefined" || !window.screen) return false;
   return isWidescreenViewport(window.screen.width, window.screen.height);
 }
 
-function useScreenCapability() {
-  const [canFit, setCanFit] = useState<boolean>(() => screenCanFitMap());
+/** Has the window itself got the room right now? Measured on the viewport. */
+function viewportCanFitMap(): boolean {
+  if (typeof window === "undefined") return false;
+  return canViewportShowMap(window.innerWidth, window.innerHeight);
+}
+
+/**
+ * V1: both halves of the gate share one set of listeners.
+ *
+ * They used to be two hooks, and the second one watched
+ * `(orientation: portrait)` — a viewport aspect test masquerading as a device
+ * question. See `canViewportShowMap`. Two `useState<boolean>`s rather than one
+ * state object, so a resize that changes neither answer re-renders nothing.
+ */
+function useViewportGate(): { screenCapable: boolean; viewportReady: boolean } {
+  const [screenCapable, setScreenCapable] = useState<boolean>(screenCanFitMap);
+  const [viewportReady, setViewportReady] = useState<boolean>(viewportCanFitMap);
 
   useEffect(() => {
-    const sync = () => setCanFit(screenCanFitMap());
+    const sync = () => {
+      setScreenCapable(screenCanFitMap());
+      setViewportReady(viewportCanFitMap());
+    };
     sync();
     const orientation = window.screen?.orientation;
     orientation?.addEventListener?.("change", sync);
@@ -32,28 +50,16 @@ function useScreenCapability() {
     };
   }, []);
 
-  return canFit;
-}
-
-function isPortraitNow(): boolean {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
-  return window.matchMedia("(orientation: portrait)").matches;
-}
-
-function useIsPortrait() {
-  const [isPortrait, setIsPortrait] = useState<boolean>(() => isPortraitNow());
-
-  useEffect(() => observeOrientation(setIsPortrait), []);
-
-  return isPortrait;
+  return { screenCapable, viewportReady };
 }
 
 export function PharosVilleClient() {
-  const canFit = useScreenCapability();
-  const isPortrait = useIsPortrait();
+  const { screenCapable, viewportReady } = useViewportGate();
 
-  if (!canFit) return <DesktopOnlyFallback />;
-  if (isPortrait) return <RotateToLandscape />;
+  // Both branches return before the lazy chunk is referenced, so a blocked
+  // viewport still starts no world data, Three runtime, GLB or logo request.
+  if (!screenCapable) return <DesktopOnlyFallback />;
+  if (!viewportReady) return <RotateToLandscape />;
 
   return (
     <Suspense fallback={<div className="pharosville-loading pharosville-desktop" aria-busy="true">Charting market winds…</div>}>

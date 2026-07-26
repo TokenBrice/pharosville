@@ -10,12 +10,10 @@ export default defineConfig({
   testDir: "./tests/visual",
   timeout: 60_000,
   fullyParallel: true,
-  ...(process.env.CI ? { workers: 2 } : {}),
+  workers: 1,
   expect: {
     timeout: 15_000,
   },
-  snapshotPathTemplate:
-    "{testDir}/{testFileName}-snapshots-built-dist/{arg}{-projectName}{-snapshotSuffix}{ext}",
   use: {
     baseURL: BASE_URL,
     viewport: PHAROSVILLE_BASE_VIEWPORT,
@@ -28,7 +26,7 @@ export default defineConfig({
     trace: "on-first-retry",
   }),
   webServer: {
-    command: "npm run preview -- --host 127.0.0.1 --port 4174",
+    command: "npm run serve:dist -- --host 127.0.0.1 --port 4174",
     url: BASE_URL,
     reuseExistingServer: false,
     timeout: 120_000,

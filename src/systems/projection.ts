@@ -102,8 +102,49 @@ export function fitCameraToMap(input: {
   };
 }
 
-export function zoomCameraAt(camera: IsoCamera, point: ScreenPoint, nextZoom: number): IsoCamera {
-  const clampedZoom = Math.max(0.48, Math.min(2.4, nextZoom));
+/**
+ * Absolute zoom floor, used only when no viewport/map is available to compute
+ * the real one. Prefer `minZoomForViewport`.
+ */
+// Hard safety floor only. The real floor is `minZoomForViewport`, which is
+// derived from the map; this exists so a pathologically small viewport can
+// still frame the world. Lowered from 0.48 when the grid doubled to 112
+// tiles (N1) — the old value sat ABOVE the new whole-map fit.
+export const ABSOLUTE_MIN_ZOOM = 0.28;
+export const MAX_ZOOM = 2.4;
+
+/**
+ * N1 (2026-07-25): the smallest zoom that still frames the map.
+ *
+ * The map's iso bounds are 1760 x 880 for a 56-tile world, so at 1920x1080 it
+ * fits at zoom ~1.09 — yet the floor was a flat 0.48, letting the camera pull
+ * back to 2.3x the map's area. The world then read as a small tile adrift in
+ * empty ocean (operator: "the current lighthouse+sea is like 25% of the map").
+ *
+ * The floor is now derived from the viewport, with a margin so a border of open
+ * sea still frames the composition rather than the map running edge to edge.
+ */
+// Just under a perfect fit, so a sliver of open sea frames the world rather
+// than the map running exactly edge to edge.
+export const MIN_ZOOM_SEA_MARGIN = 0.95;
+
+export function minZoomForViewport(viewport: ScreenPoint, map: MapLike): number {
+  const bounds = mapIsoBounds(map);
+  const width = Math.max(1, bounds.maxX - bounds.minX);
+  const height = Math.max(1, bounds.maxY - bounds.minY);
+  const fit = Math.min(viewport.x / width, viewport.y / height);
+  // Never rise above the interactive max, and never below the absolute floor:
+  // a very small viewport must still be able to see the whole world.
+  return Math.max(ABSOLUTE_MIN_ZOOM, Math.min(MAX_ZOOM, fit * MIN_ZOOM_SEA_MARGIN));
+}
+
+export function zoomCameraAt(
+  camera: IsoCamera,
+  point: ScreenPoint,
+  nextZoom: number,
+  minZoom = ABSOLUTE_MIN_ZOOM,
+): IsoCamera {
+  const clampedZoom = Math.max(minZoom, Math.min(MAX_ZOOM, nextZoom));
   const isoPoint = screenToIso(point, camera);
   return {
     offsetX: point.x - isoPoint.x * clampedZoom,

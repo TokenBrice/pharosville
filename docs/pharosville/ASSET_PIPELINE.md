@@ -1,197 +1,93 @@
-# PharosVille Asset Pipeline
+# PharosVille Runtime Media
 
-Last updated: 2026-05-18
+Last updated: 2026-07-25
 
-This is the agent-facing workflow for PharosVille raster assets. Runtime asset truth is `public/pharosville/assets/manifest.json`; the built app loads the slim `manifest.runtime.json` emitted from that source manifest.
+Runtime media is deliberately narrow, same-origin, and owned by the code that
+uses it. Everything else in the Garden Observatory is procedural geometry,
+shader/material work, or DOM.
 
-## Asset Rules
+## Inventory and ownership
 
-- Generate or stage candidates under local scratch space first, such as `outputs/pharosville/pixellab-prototypes/`.
-- Promote selected PNGs to `public/pharosville/assets/` only after they are chosen for runtime use. Primary PNG paths remain required even when a WebP twin is added.
-- Runtime code must reference local manifest asset IDs, not remote generation URLs, tokens, or prototype paths.
-- Every runtime primary image needs a manifest entry with accurate dimensions, anchor, footprint, hitbox, layer/category, load priority, semantic role when useful, and prompt provenance.
-- Load priority is part of the runtime budget: use `critical` only for assets needed to make the initial desktop canvas frame coherent, and `deferred` for supplemental scenery or alternate sprites that can arrive after the core scene.
-- Treat `public/pharosville/assets/manifest.json` as the runtime inventory source of truth and use `loadPriority` for the critical/deferred split. `npm run check:pharosville-assets` enforces the local PNG/WebP twin contract, first-render byte/decoded-pixel budgets, and per-image size ceilings.
-- Manifest schema v2 separates `style.cacheVersion` from `style.styleAnchorVersion`.
-- Bump `style.cacheVersion` whenever promoted asset bytes, manifest geometry, or animation frame assets change.
-- Keep `promptProvenance.jobId` and `promptProvenance.styleAnchorVersion` aligned with the selected asset's style anchor.
-- Optional WebP twins belong in `webpPath` and `animation.webpFrameSource`; optional frame-based animation metadata belongs in `asset.animation`. Keep `path` as the static/reduced-motion PNG fallback unless a future renderer change says otherwise.
+| Media | Owner | Failure behavior |
+| --- | --- | --- |
+| Stablecoin logo | `useShipLogoAssets` → sail atlas | painted symbol and livery |
+| Chain logo | `garden-chain-flag.ts` → flag atlas | painted chain initials and accent flag |
+| Lighthouse GLB | `garden-models.ts` | aligned procedural lighthouse |
+| 17 hero-hull GLBs | `garden-models.ts` | procedural tier hull |
+| Water normal | `garden-water.ts` | shader water without normal detail |
+| Sail/flag atlases | renderer memory | fallback cloth/mark remains |
 
-## Current Runtime Asset Areas
+Stablecoin images come from `/logos/`. The checked harbor-logo set lives under
+`/chains/`; only supported rendered harbors use it. All paths must begin with
+`/`. Never add a remote image, generation URL, key, token, or prototype path
+to browser code.
 
-- Terrain tiles: `public/pharosville/assets/terrain/` (7 manifest entries)
-- Terrain overlays: `public/pharosville/assets/overlays/` (6 manifest entries)
-- Landmarks: `public/pharosville/assets/landmarks/` (4 manifest entries, including lighthouse, Yggdrasil, and dispatch-islet landmarks)
-- Chain docks: `public/pharosville/assets/docks/` (12 manifest entries, including Ethereum/L2 cove assets, Solana/Hyperliquid, and TON dispatch wharf)
-- Ships: `public/pharosville/assets/ships/` (23 manifest entries, including standard hulls, heritage hulls, and titan hulls)
-- Props: `public/pharosville/assets/props/` (21 manifest entries, including cemetery markers and harbor/civic ambient prop kinds)
-- WebP twins: optional sidecar paths declared on manifest entries; they do not add manifest entries but are counted by asset validation
-- Manifest: `public/pharosville/assets/manifest.json`
+## Checked models
 
-## PixelLab MCP Workflow
+The model manifest in `src/three/garden-models.ts` is the contract for one
+lighthouse and seventeen hero hulls. It records content-hashed URL, bytes,
+hash, dimensions, origin, anchors, pick proxy, geometry budgets, provenance,
+and license. `RUNTIME_FACTS.md` is generated from that manifest.
 
-Use `PIXELLAB_MCP.md` for PixelLab-specific tool selection, prompt construction,
-review-pack handling, provenance, and cleanup. The short guidance below remains
-the shared style contract for any image-generation path.
+The procedural scene is created before asynchronous GLB loads. A successful
+model attaches to that semantic root; a failed request preserves its fallback.
+Do not let model success or failure move labels, selection, lights, or hit
+targets.
 
-## Main-Island Revamp Asset Handoff (historical)
-
-For the historic main-island pass, the selected production PNGs were promoted in place:
-
-- Replace runtime assets in place: `landmark.lighthouse`, regenerated docks, and updated overlay layers for new district/decoration work.
-- Do not add new runtime IDs or move extra assets into first-render loading
-  unless a measured visual need and budget impact are recorded.
-- Prefer current manifest dimensions for replacements. If PixelLab returns
-  square or oversized output, crop or pad in scratch space before promotion
-  rather than silently increasing decoded-pixel cost.
-- Keep promoted files local under `public/pharosville/assets/**`; never commit
-  PixelLab scratch output, remote URLs, tokens, or review-pack links.
-Use explicit provenance IDs in the manifest entries at the time of handoff and
-set `promptProvenance.styleAnchorVersion` to the manifest style anchor.
-Re-runs should derive values from `public/pharosville/assets/manifest.json` because
-these historical IDs are no longer authoritative.
-- Re-check renderer assumptions for central overlay placement, lighthouse crop,
-  beacon point, hitbox, selection ring, and dock flag/logo offsets before
-  updating screenshots.
-
-## Image Generation Guidance
-
-Use transparent PNG map-object generation for standalone sprites and tile generation for repeatable terrain. Keep prompts consistent with the manifest style anchor:
-
-```text
-old-school 16-bit maritime isometric RPG pixel art, crisp pixel edges, low top-down view, deep navy and teal sea, pale limestone island city, bronze and gold beacon light, restrained analytics palette, readable silhouettes, no text, no logos, no UI
-```
-
-For main-island revamp assets, extend the prompt with: compact Pharos maritime
-observatory island, terraced pale limestone cliffs and seawalls, terracotta roof
-accents, dark timber piers and quay decks, oxidized bronze beacon hardware,
-warm harbor lights, cool teal water-bounce on lower edges, and dark contact
-shadows. Keep `no text`, `no logos`, `no UI`, `no ships`, and no analytical
-status colors.
-
-## Sprite Bible
-
-Treat `landmark.lighthouse` as the live style anchor. New or regenerated sprites
-should look like they belong beside that lighthouse rather than beside a generic
-fantasy town:
-
-- **Camera:** low top-down isometric, matching the existing tile projection.
-- **Light:** warm key from the upper-left, cool teal bounce from water on lower
-  edges, dark contact shadow under every sprite.
-- **Outline:** single dark outline with selective internal dark pixels; no soft
-  antialiased edges.
-- **Materials:** weathered limestone, oxidized bronze, dark timber, cream sail
-  cloth, teal harbor water, pale foam, restrained red/blue roof accents.
-- **Scale:** readable silhouettes at default route zoom before detail
-  is visible.
-- **Ships:** sail/pennant treatment is tier-aware.
-  - **Standard hulls (104×80)** reserve a clean sail or pennant area for the
-    runtime SVG-logo overlay drawn at render time.
-  - **Unique-tier heritage hulls (136×100)** and **titan-tier hulls
-    (144×104 to 192×128)** carry a single iconographic silhouette painted
-    directly into the mainsail at heraldic scale (~1/4 sail) — sail-cloth
-    tint provides brand color, the silhouette provides brand metaphor
-    (Curve → llama, Tether → kraken, Circle → compass rose). The
-    painted-emblem ships are excluded from `drawSailLogo` via
-    `SHIP_SAIL_EMBLEM_PAINTED` in `src/renderer/ship-visual-config.ts`,
-    consumed by `src/renderer/layers/ships/draw-ship.ts`.
-  - **Across all tiers, do not bake logos, token badges, text, numerals,
-    counts, UI panels, or chain names into the PNG.**
-  - Heritage hulls and titan hulls may include animation frame sheets, but
-    the static `path` image must remain complete for reduced motion and as the
-    PNG fallback. Some heritage/titan assets are critical when required for the
-    first coherent frame; use the manifest and validator instead of assuming all
-    special hulls are deferred.
-  - All unique- and titan-tier hulls carry the shared oxidized-bronze
-    masthead lantern + cream bowsprit pennant tier-unifier.
-- **Docks/landmarks:** include built-in mass, posts, stairs, rope/crate clutter,
-  lanterns, and waterline contact so they read as districts rather than floating
-  stickers.
-- **Cemetery props:** use pale maritime limestone, bronze/enamel plaque details,
-  restrained grass seams, and teal water-bounce edges. Avoid purple graveyard
-  styling, spooky silhouettes, or floating badge-like token marks.
-- **Terrain:** tile art can carry texture and material quality, but analytical
-  water-zone color stays renderer-controlled so DEWS semantics remain legible.
-- **Reduced motion:** the static `path` image must be complete on its own even
-  when optional animation frame metadata is present.
-
-Preferred constraints:
-
-- Transparent background for objects.
-- Low top-down/isometric viewpoint.
-- Readable silhouette at route zoom.
-- No embedded text, logos, UI, or photorealistic details.
-- restrained palette that works with the existing sea/island colors.
-- No ClaudeVille-specific lore, fantasy-village props, agent characters,
-  decorative signs, or copy baked into the sprite.
-
-## Promotion Checklist
-
-1. Save candidate PNGs under local scratch space such as `outputs/pharosville/pixellab-prototypes/`.
-2. For PixelLab review packs, use `get_object` to inspect candidates, then
-   `select_object_frames` for keepers or `dismiss_review` for rejects.
-3. Select one candidate and copy only the chosen production asset into `public/pharosville/assets/...`.
-4. Verify actual PNG dimensions before editing the manifest.
-5. Update manifest geometry, cache/provenance versions, and optional animation metadata.
-6. Re-check renderer assumptions for anchor, scale, beacon points, sail-logo offsets, and hitboxes.
-7. Run focused asset and visual checks.
-
-## Asset Budgets
-
-Hard validator budgets:
-
-- Total runtime manifest: `<= 75` assets, `<= 1,100 KiB` source bytes, and `<= 1,440,000` decoded pixels.
-- First render: `<= 33` assets, `<= 575 KiB` source bytes, and `<= 875,000` decoded pixels.
-- Shell-critical first render: `<= 10` assets, `<= 120 KiB` source bytes, and `<= 220,000` decoded pixels.
-- Visible-critical uses the overall first-render envelope. WebP twins are counted for payload bytes when present but do not consume extra manifest entries.
-- Per-image ceilings:
-  - terrain: `<= 8 KiB`, `<= 8,192` decoded pixels;
-  - ship: `<= 32 KiB`, `<= 50,000` decoded pixels;
-  - prop: `<= 24 KiB`, `<= 30,000` decoded pixels;
-  - dock: `<= 128 KiB`, `<= 150,000` decoded pixels;
-  - overlay: `<= 96 KiB`, `<= 150,000` decoded pixels;
-  - landmark: `<= 96 KiB`, `<= 131,072` decoded pixels.
-
-The validator warns when large images are displayed below `0.8` native scale.
-Warnings are acceptable during replacement work, but the next asset pass should
-trim transparent padding or downscale source art when screenshot diffs remain
-visually equivalent. Images that decode more than 4x their displayed pixel area
-fail validation.
-
-Use lossless optimization before promotion, then re-check dimensions and visual
-diffs:
+Change a model only through its deterministic generator:
 
 ```bash
-npm run check:pharosville-assets
+node scripts/pharosville/generate-garden-lighthouse.mjs
+node scripts/pharosville/generate-garden-heroes.mjs
+npm run check:garden-models
 ```
 
-Optimized formats beyond the required PNG fallback require browser-support
-review and intentional renderer/manifest changes. WebP twins are supported only
-through validated `webpPath` / `animation.webpFrameSource` manifest fields; do
-not replace primary PNG paths or convert runtime assets as a drive-by change.
+Do not hand-edit a checked GLB. Preserve model origin, scale, anchors, pick
+proxy, asset metadata, and fallback together.
 
-## Required Checks For Asset Changes
+## Logos and atlases
+
+- Stablecoin images are abortable, cached, and decoded only after the desktop
+  gate. `useShipLogoAssets` does not load terrain, models, or chain marks.
+- The fleet uses one shared 16×16 sail atlas. It stores marks while instance
+  attributes supply cloth/livery, so a large fleet does not acquire a texture
+  per ship.
+- Harbor flags use their own shared atlas. A real chain logo can upgrade a
+  cell, but the painted flag is the product contract and a failed image is not
+  an error state.
+- A logo change needs focused atlas/sail tests and browser review at overview
+  and inspection scale.
+
+## Water texture
+
+`public/pharosville/textures/water-normals.png` is generated by
+`scripts/pharosville/generate-water-normals.mjs` and served with a content-hash
+query. Regenerate it through that script; do not hand-edit it.
+
+## Adding media
+
+Add a model only when procedural content cannot make the required silhouette,
+the object matters at normal camera distance, its origin/owner/license/budgets
+are explicit, and failure has an intentional fallback. Do not use a model,
+texture, or post effect to solve ordinary palette, framing, or lighting work.
+
+Generated images are exploration material, not runtime assets. Keep them under
+`outputs/`; translate an approved concept into procedural code or the checked
+model pipeline before shipping it.
+
+## Validation
 
 ```bash
-npm run check:pharosville-assets
-npm run check:pharosville-colors
+npm run check:runtime-media
 ```
 
-For geometry, anchor, hitbox, or visible sprite changes, also run focused unit tests and visual checks:
+For a model change also run:
 
 ```bash
-npm test -- src/renderer/hit-testing.test.ts src/systems/pharosville-world.test.ts
-npx playwright test tests/visual/pharosville.spec.ts --grep "pharosville"
+npm test -- src/three/garden-models.test.ts
+npm run test:visual
+npm run test:perf
 ```
 
-Use `npm run build` when the change affects the deployable Vite artifact or is part of release validation.
-
-## Common Failure Modes
-
-- Manifest dimensions do not match the PNG.
-- Anchor/footprint changes make hit targets or selection rings drift from the drawn sprite.
-- Lighthouse beacon geometry no longer lands on the lantern.
-- Sail-logo offsets no longer fit a replacement ship sprite.
-- A prototype or remote URL leaks into runtime paths.
-- Too many critical assets slow first render; keep first-render priority narrow.
-- Deferred scenery promoted into the critical set without an initial-frame reason.
+For a URL or loading-boundary change also run `npm run check:viewport-gate`,
+`npm run build`, and `npm run check:bundle-size`.

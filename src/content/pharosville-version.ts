@@ -7,6 +7,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   curtainUp: "v0.2.1",
   signalClarity: "v0.2.2",
   trueWaters: "v0.3.0",
+  lanternSea: "v0.4.0",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.trueWaters;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.lanternSea;

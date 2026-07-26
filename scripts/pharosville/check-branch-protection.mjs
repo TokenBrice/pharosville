@@ -3,7 +3,7 @@ import { execSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 const REQUIRED_BRANCH = "main";
-const REQUIRED_STATUS_CHECKS = ["typecheck", "unit", "guards", "build", "visual", "visual-cross-browser"];
+const REQUIRED_STATUS_CHECKS = ["typecheck", "lint", "unit", "guards", "build", "visual", "visual-cross-browser"];
 const RULESET_STATUS_CHECK_KEYS = [
   "required_status_checks",
   "required_check_names",
@@ -47,11 +47,14 @@ function normalizePathPattern(pattern = "") {
 function wildcardMatch(pattern, branch) {
   const normalizedBranch = branch.replace(/^refs\/heads\//, "");
   const normalizedPattern = normalizePathPattern(pattern).trim();
-  const expanded =
-    normalizedPattern
-      .replace(/\//g, "\\/")
-      .replace(/\./g, "\\.")
-      .replace(/\*/g, ".*");
+  // Escape EVERY regex metacharacter, then let `*` alone mean "any run".
+  // Escaping only `/` and `.` left `+ ? ( ) [ ] { } ^ $ |` live, so a branch
+  // pattern containing one either mis-matched or threw — in the script that
+  // verifies branch protection, which is the last place to be guessing.
+  // `/` needs no escaping in a RegExp constructor.
+  const expanded = normalizedPattern
+    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/\\\*/g, ".*");
 
   return new RegExp(`^(?:refs/heads/)?${expanded}$`, "i").test(normalizedBranch);
 }

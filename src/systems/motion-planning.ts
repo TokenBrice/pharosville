@@ -1,6 +1,6 @@
 import { clampMapTile, nearestWaterTile } from "./world-layout";
 import { stableHash, stableOffset, stableUnit } from "./stable-random";
-import { BAND_FIRE_FLICKER_SPEED, DOCKED_SHIP_DWELL_SHARE, OPEN_WATER_PATROL_WAYPOINTS } from "./motion-config";
+import { DOCKED_SHIP_DWELL_SHARE, OPEN_WATER_PATROL_WAYPOINTS } from "./motion-config";
 import { buildCachedShipWaterRoute, LazyShipWaterPathMap, nearestMapWaterTile, reverseWaterPath, waterPathFromPoints } from "./motion-water";
 import { clamp, pathKey } from "./motion-utils";
 import {
@@ -10,7 +10,7 @@ import {
 } from "./maker-squad";
 import { nearestRiskPlacementWaterTile } from "./risk-water-placement";
 import { SEAWALL_BARRIER_TILES } from "./seawall";
-import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipDockMotionStop, ShipMotionRoute, ShipMotionRouteStop, ShipMotionSample, ShipWaterPath, ShipWaterRouteCache } from "./motion-types";
+import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipDockMotionStop, ShipMotionRoute, ShipMotionRouteStop, ShipWaterPath, ShipWaterRouteCache } from "./motion-types";
 import type { DockNode, PharosVilleMap, PharosVilleWorld, ShipDockVisit, ShipNode } from "./world-types";
 import { precomputeShipTempos } from "./ship-cycle-tempo";
 
@@ -151,7 +151,7 @@ export function getCurrentMapPathCacheStats(
 
 // Stable, content-aware signature for the inputs `buildBaseMotionPlan` actually
 // reads. Two world instances with different identities but identical ship/dock/
-// map/lighthouse-flicker content yield the same string. Live data refetches
+// map content yield the same string. Live data refetches
 // that don't change these fields can therefore reuse the prior plan instead of
 // re-running A* warmups. Kept cheap on purpose: short field joins, no
 // JSON.stringify of nested objects.
@@ -183,25 +183,14 @@ export function motionPlanSignature(world: PharosVilleWorld): string {
   for (const dock of [...world.docks].sort((a, b) => a.id.localeCompare(b.id))) {
     dockParts.push(`${dock.id}:${dock.tile.x},${dock.tile.y}`);
   }
-  const lighthouse = `${world.lighthouse.psiBand ?? ""}:${world.lighthouse.score ?? ""}`;
   const map = `${world.map.width}x${world.map.height}:${world.map.waterRatio}`;
-  const signature = `S[${shipParts.join("/")}]D[${dockParts.join("/")}]L[${lighthouse}]M[${map}]`;
+  const signature = `S[${shipParts.join("/")}]D[${dockParts.join("/")}]M[${map}]`;
   signatureByWorld.set(world, signature);
   return signature;
 }
 
 export function buildBaseMotionPlan(world: PharosVilleWorld, timeSeconds = 0): PharosVilleBaseMotionPlan {
   const bucket = Math.floor(timeSeconds / 600);
-  const topShips = world.ships
-    .toSorted((a, b) => b.marketCapUsd - a.marketCapUsd)
-    .slice(0, 48);
-  const moverShips = world.ships
-    .filter(hasRecentMove)
-    .toSorted((a, b) => Math.abs(b.change24hUsd ?? 0) - Math.abs(a.change24hUsd ?? 0))
-    .slice(0, 16);
-  const baseEffectShipIds = new Set<string>();
-  for (const ship of topShips) baseEffectShipIds.add(ship.id);
-  for (const ship of moverShips) baseEffectShipIds.add(ship.id);
   const waterRouteCache = getMapPathCache(world.map, world.ships.length);
 
   // Compute per-ship speed scalars from marketCap quartiles once, at plan-build
@@ -248,85 +237,16 @@ export function buildBaseMotionPlan(world: PharosVilleWorld, timeSeconds = 0): P
   }
 
   return {
-    animatedShipIds: new Set(world.ships.map((ship) => ship.id)),
-    baseEffectShipIds,
-    lighthouseFireFlickerPerSecond: lighthouseFireFlickerSpeed(world.lighthouse.psiBand, world.lighthouse.score),
-    moverShipIds: new Set(moverShips.map((ship) => ship.id)),
-    shipPhases: new Map(world.ships.map((ship) => [ship.id, stableMotionPhase(ship.id)])),
     shipRoutes,
   };
 }
 
-// Memoizes the per-(basePlan, selectedShipId) effectShipIds set so identity is
-// stable across `buildMotionPlan` calls with the same inputs. Without this,
-// every call rebuilds `new Set(...)`, which makes downstream identity-keyed
-// short-circuits (e.g., `hashIdSet` in renderer ship layers) miss every frame.
-const effectShipIdsCache = new WeakMap<PharosVilleBaseMotionPlan, Map<string, ReadonlySet<string>>>();
-
-function memoizedEffectShipIds(
-  basePlan: PharosVilleBaseMotionPlan,
-  selectedShipId: string,
-): ReadonlySet<string> {
-  let perPlan = effectShipIdsCache.get(basePlan);
-  if (!perPlan) {
-    perPlan = new Map();
-    effectShipIdsCache.set(basePlan, perPlan);
-  }
-  const cached = perPlan.get(selectedShipId);
-  if (cached) return cached;
-  const next = new Set(basePlan.baseEffectShipIds);
-  next.add(selectedShipId);
-  perPlan.set(selectedShipId, next);
-  return next;
-}
-
 export function buildMotionPlan(
   world: PharosVilleWorld,
-  selectedDetailId: string | null,
+  _selectedDetailId: string | null,
   basePlan: PharosVilleBaseMotionPlan = buildBaseMotionPlan(world),
 ): PharosVilleMotionPlan {
-  const selectedShip = selectedDetailId
-    ? world.ships.find((ship) => ship.detailId === selectedDetailId)
-    : null;
-  // When no selected ship needs to be added, return the base set directly so
-  // callers see stable identity across rebuilds (no Set allocation).
-  const effectShipIds = selectedShip
-    ? memoizedEffectShipIds(basePlan, selectedShip.id)
-    : basePlan.baseEffectShipIds;
-
-  return {
-    animatedShipIds: basePlan.animatedShipIds,
-    effectShipIds,
-    lighthouseFireFlickerPerSecond: basePlan.lighthouseFireFlickerPerSecond,
-    moverShipIds: basePlan.moverShipIds,
-    shipPhases: basePlan.shipPhases,
-    shipRoutes: basePlan.shipRoutes,
-  };
-}
-
-export function lighthouseFireFlickerSpeed(band: string | null, score: number | null) {
-  const base = band ? BAND_FIRE_FLICKER_SPEED[band.toLowerCase()] ?? 0.34 : 0.22;
-  if (score == null) return base;
-  return base * (0.85 + Math.max(0, Math.min(100, score)) / 500);
-}
-
-export function stableMotionPhase(id: string) {
-  return (stableHash(id) % 628) / 100;
-}
-
-export function isShipMapVisible(ship: ShipNode, sample: ShipMotionSample | null | undefined): boolean {
-  return ship.visual.sizeTier === "titan"
-    || ship.visual.sizeTier === "unique"
-    || sample?.state !== "moored"
-    || sample.currentDockId == null;
-}
-
-export function hasRecentMove(ship: ShipNode) {
-  const absolute = Math.abs(ship.change24hUsd ?? 0);
-  // change24hPct is in percent units (1 = 1%), matching sea-state's
-  // RECENT_SUPPLY_MOVE_THRESHOLD_PCT convention.
-  const percentage = Math.abs(ship.change24hPct ?? 0);
-  return absolute >= 1_000_000 || percentage >= 1;
+  return basePlan;
 }
 
 function buildShipMotionRoute(

@@ -13,6 +13,7 @@ export type TerrainKind =
   | "warning-water"
   | "storm-water"
   | "ledger-water"
+  | "wreck-water"
   | "beach"
   | "grass"
   | "rock"
@@ -55,14 +56,26 @@ export type ShipHull =
   | "chartered-brigantine"
   | "dao-schooner"
   | "crypto-caravel"
-  | "algo-junk";
-
-export type ShipClass =
-  | "cefi"
-  | "cefi-dependent"
-  | "defi"
-  | "legacy-algo"
-  | "unclassified";
+  | "algo-junk"
+  // N5(a): coins pegged to something other than the dollar. Measured on the
+  // 217-coin set, 58% of the batched fleet sat on `treasury-galleon` while the
+  // junk silhouette — authored and paid for — was never drawn, because no coin
+  // in the set is `backing: "algorithmic"`. A non-USD peg (EUR/GBP/gold/RUB) is
+  // its own trading tradition, and it is a 53-ship cohort, so it earns the junk
+  // hull outright rather than borrowing the algorithmic one.
+  | "foreign-peg-junk"
+  // W2 (decision D3): four silhouettes carried 188 ships — galleon 64, clipper
+  // 57, junk 53, schooner 14 — so a ship read as one of four stamps. These
+  // three split the biggest pools along traits that are genuinely different
+  // trades, so the extra silhouettes are earned rather than decorative.
+  //
+  // A yield-bearing coin PAYS OUT, which is a different voyage from holding
+  // reserves; it earns a longer, richer hull in both the treasury and the
+  // collateral family. A commodity peg is not a currency peg at all — bullion
+  // is dense, so it rides in a short, deep, beamy hoy.
+  | "yield-indiaman"
+  | "yield-barque"
+  | "commodity-peg-hoy";
 
 export type ShipSizeTier =
   | "titan"
@@ -92,20 +105,38 @@ export interface ShipLivery {
   stripePattern: ShipStripePattern;
 }
 
+/**
+ * N5(a): per-ship hull proportions, as multipliers about 1. The batched fleet
+ * renders four shared silhouettes as instanced meshes, so a ship cannot have
+ * its own geometry — but it can have its own *proportions*, applied as a
+ * per-instance deformation in the vertex shader at zero extra draw calls.
+ *
+ * Bounded to ±`SHIP_HULL_FORM_SPAN` so a hull never self-intersects and never
+ * outgrows the blue-noise berth spacing, which is laid out for the ship's
+ * `scale`, not for its proportions.
+ */
+export interface ShipHullForm {
+  /** Athwartships width multiplier. Stability: a stiff hull is a beamy one. */
+  beam: number;
+  /** Topsides height multiplier, applied above the waterline only. */
+  height: number;
+  /** Fore-and-aft length multiplier. */
+  length: number;
+}
+
+export const SHIP_HULL_FORM_SPAN = 0.32;
+
 export interface ShipVisual {
   hull: ShipHull;
-  spriteAssetId?: string;
   uniqueRationale?: string;
-  shipClass: ShipClass;
   classLabel: string;
-  rigging: "issuer-rig" | "dependent-rig" | "dao-rig";
   livery: ShipLivery;
   sailColor: string;
-  sailStripeColor: string;
   overlay: "none" | "yield" | "nav" | "watch";
   sizeTier: ShipSizeTier;
   sizeLabel: string;
   scale: number;
+  hullForm: ShipHullForm;
 }
 
 export interface ShipChainPresence {
@@ -173,14 +204,16 @@ export interface DockNode {
   kind: "dock";
   label: string;
   chainId: string;
-  logoSrc: string | null;
-  assetId: string;
   tile: { x: number; y: number };
   totalUsd: number;
   size: number;
   healthBand: ChainSummary["healthBand"];
   stablecoinCount: number;
   concentration: number | null;
+  /** Same-origin chain logo path from `ChainSummary.logoPath` (e.g.
+      an ethereum.png under the chains directory), flown as the harbour's flag (N4). Optional: a
+      chain without one falls back to its painted chain mark. */
+  logoPath?: string | null;
   harborRank?: number;
   harborCount?: number;
   shareOfGlobal?: number | null;
@@ -199,6 +232,14 @@ export interface DockStablecoin {
   share: number;
   supplyUsd: number;
 }
+
+export type WorldSelectableEntity =
+  | PharosVilleWorld["lighthouse"]
+  | PharosVilleWorld["pigeonnier"]
+  | PharosVilleWorld["docks"][number]
+  | PharosVilleWorld["ships"][number]
+  | PharosVilleWorld["areas"][number]
+  | PharosVilleWorld["graves"][number];
 
 export interface ShipNode {
   id: string;
@@ -255,38 +296,12 @@ export interface GraveNode {
   kind: "grave";
   label: string;
   entry: CemeteryEntry;
-  logoSrc: string | null;
   tile: { x: number; y: number };
   visual: {
     marker: "broken-keel" | "sinking-stern" | "grounded" | "shattered" | "skeletal";
     scale: number;
   };
   detailId: string;
-}
-
-export type WorldEffectCueId =
-  | "cue.lighthouse.psi"
-  | "cue.ship.distance"
-  | "cue.ship.motion"
-  | "cue.water.semantic-terrain";
-
-export type WorldEffectPurpose = "ambient" | "analytical";
-
-export interface WorldEffect {
-  cueId?: WorldEffectCueId;
-  id: string;
-  kind: "recent-change" | "fog" | "storm";
-  entityId: string;
-  intensity: number;
-  nonData?: boolean;
-  purpose: WorldEffectPurpose;
-  reducedMotionEquivalent: string;
-}
-
-export interface LegendItem {
-  id: string;
-  label: string;
-  description: string;
 }
 
 export type DewsAreaBand = "DANGER" | "WARNING" | "ALERT" | "WATCH" | "CALM";
@@ -401,11 +416,9 @@ export interface PharosVilleWorld {
   areas: AreaNode[];
   ships: ShipNode[];
   graves: GraveNode[];
-  effects: WorldEffect[];
   detailIndex: Record<string, DetailModel>;
   // Keyed by `detailId` (the same key used by `detailIndex`) so detail-panel
   // selection can resolve the source entity in O(1) without a linear scan.
   entityById: Record<string, SelectableWorldEntity>;
-  legends: LegendItem[];
   visualCues: VisualCue[];
 }

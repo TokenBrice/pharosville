@@ -39,12 +39,13 @@ describe("useWorldUrlState", () => {
     expect(params.get("cam")).toBe("10,20,1.5");
   });
 
-  it("falls back to lighthouse for unknown selections and ignores invalid time", () => {
+  it("selects nothing for unknown selections and ignores invalid time", () => {
     window.history.replaceState(null, "", "/#sel=missing&t=nope&n=2");
 
     const { result } = renderHook(() => useWorldUrlState({ world: worldFixture() }));
 
-    expect(result.current.initialState.selectedDetailId).toBe("lighthouse");
+    // S1: an unresolvable sel= resolves to nothing, not to the lighthouse.
+    expect(result.current.initialState.selectedDetailId).toBeNull();
     expect(result.current.initialState.followSelectedDetailId).toBeNull();
     expect(result.current.initialState.manualTimeOverrideHour).toBeNull();
     expect(result.current.initialState.nightMode).toBe(false);
@@ -62,7 +63,7 @@ describe("useWorldUrlState", () => {
       { initialProps: { world: loadingWorld } },
     );
 
-    expect(result.current.initialState.selectedDetailId).toBe("lighthouse");
+    expect(result.current.initialState.selectedDetailId).toBeNull();
     expect(result.current.lateResolvedSelection).toBeNull();
 
     rerender({ world: worldFixture() });
@@ -73,7 +74,7 @@ describe("useWorldUrlState", () => {
     });
   });
 
-  it("keeps the lighthouse fallback when a permalink id is unknown to the settled world", () => {
+  it("stays unselected when a permalink id is unknown to the settled world", () => {
     window.history.replaceState(null, "", "/#sel=ship.missing");
     const loadingWorld = {
       entityById: {},
@@ -86,7 +87,7 @@ describe("useWorldUrlState", () => {
     );
     rerender({ world: worldFixture() });
 
-    expect(result.current.initialState.selectedDetailId).toBe("lighthouse");
+    expect(result.current.initialState.selectedDetailId).toBeNull();
     expect(result.current.lateResolvedSelection).toBeNull();
   });
 

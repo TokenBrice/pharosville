@@ -25,6 +25,44 @@ export const RISK_TRANSITION_TACK_OUT_SECONDS = 3;
 // deterministic per (shipId, route, time), no memory.
 export const RISK_TRANSITION_HEADING_EASE_SECONDS = 0.5;
 
+/**
+ * Radians per second along a patrol circuit (N3), by DEWS band.
+ *
+ * This is where the risk escalation lives now that amplitude is sized to each
+ * region's water. Calm laps in ~145s (meditative); danger laps in ~60s
+ * (restless). Everything stays slow enough to be relaxing to watch.
+ */
+// Chosen so LINEAR speed (radius x angular) still escalates with turbulence
+// even though amplitude shrinks toward the tight corner bands:
+//   calm 4.8x0.040=0.19  watch 4.3x0.052=0.22  alert 2.9x0.095=0.28
+//   warning 2.2x0.150=0.33  danger 1.9x0.260=0.49
+// Danger laps its corner every ~24s (restless); calm drifts a wide arc every
+// ~157s (serene).
+//
+// Z3 (Sea Master, 2026-07-25): danger 0.21 -> 0.26.
+//
+// Zone areas are traffic-proportional now, and Danger Strait carries 11 ships
+// against Warning Shoals' 5 — so storm-water grew from ~190 tiles to 953 while
+// warning-water sits at 764. With the circuit radii unchanged, that left
+// danger's linear speed only 1.21x warning's, and the sampled maximum (which
+// picks up waypoint transit as well as the circuit) landed 1% the WRONG side of
+// it: the roughest water in the world read as marginally calmer than the band
+// below it. 0.26 restores a 1.5x margin, so the escalation is legible rather
+// than knife-edge.
+const PATROL_SPEED_DANGER = 0.26;
+const PATROL_SPEED_WARNING = 0.15;
+const PATROL_SPEED_ALERT = 0.095;
+const PATROL_SPEED_WATCH = 0.052;
+const PATROL_SPEED_DEFAULT = 0.04;
+
+function patrolSpeedForZone(zone: ShipWaterZone): number {
+  if (zone === "danger") return PATROL_SPEED_DANGER;
+  if (zone === "warning") return PATROL_SPEED_WARNING;
+  if (zone === "alert") return PATROL_SPEED_ALERT;
+  if (zone === "watch") return PATROL_SPEED_WATCH;
+  return PATROL_SPEED_DEFAULT;
+}
+
 export function riskDriftSampleInto(
   route: ShipMotionRoute,
   timeSeconds: number,
@@ -35,7 +73,11 @@ export function riskDriftSampleInto(
   const routePathKey = routePathIdentityKey(route, "risk-drift");
   beginRoutePathSample(route, routePathKey);
   const staleFactors = staleEvidenceMotionFactors(route.staleEvidence);
-  const angle = timeSeconds * 0.017 * staleFactors.angularFactor + route.routeSeed * 0.0001 + progress * Math.PI * 2;
+  // N3: a circuit took ~6 minutes at 0.017 rad/s, which reads as stationary.
+  const patrolSpeed = patrolSpeedForZone(route.zone);
+  const angle = timeSeconds * patrolSpeed * staleFactors.angularFactor
+    + route.routeSeed * 0.0001
+    + progress * Math.PI * 2;
   const radius = driftRadiusForZone(route.zone);
   // Smooth the drift radius to zero at the entry (progress=0) and exit
   // (progress=1) of the risk-water window. Without this, the departing→risk-drift
@@ -94,8 +136,8 @@ export function riskDriftSampleInto(
   }
   writeVelocityInto(
     out,
-    -Math.sin(angle) * radius.x * radiusScale * staleFactors.radiusFactor * staleFactors.angularFactor * 0.017,
-    Math.cos(angle * 0.8) * radius.y * radiusScale * staleFactors.radiusFactor * staleFactors.angularFactor * 0.8 * 0.017,
+    -Math.sin(angle) * radius.x * radiusScale * staleFactors.radiusFactor * staleFactors.angularFactor * patrolSpeed,
+    Math.cos(angle * 0.8) * radius.y * radiusScale * staleFactors.radiusFactor * staleFactors.angularFactor * 0.8 * patrolSpeed,
   );
   writeMapVisibilityAlphaInto(out, 1);
   out.wakeIntensity = 0.08;
@@ -111,11 +153,27 @@ export function riskDriftSampleInto(
   }
 }
 
-const DRIFT_RADIUS_DANGER = { x: 0.54, y: 0.36 };
-const DRIFT_RADIUS_WARNING = { x: 0.48, y: 0.32 };
-const DRIFT_RADIUS_ALERT = { x: 0.44, y: 0.3 };
-const DRIFT_RADIUS_WATCH = { x: 0.4, y: 0.28 };
-const DRIFT_RADIUS_DEFAULT = { x: 0.38, y: 0.26 };
+// N3 (2026-07-25): patrol amplitude, in tiles.
+//
+// These were 0.38-0.54 — a SUB-TILE circle completed once every ~6 minutes, so
+// the fleet read as pinned to the water ("there is barely any ship movement").
+// The world is now 4x larger, so there is finally room to sail.
+//
+// Amplitude is sized to the BAND'S OWN WATER, not to its risk. A patrol that
+// overruns its region would carry a ship out of the water it is labelled with
+// and break the analytical claim, so the tight corner bands get tight
+// circuits: storm-water is ~190 tiles (roughly 14 across) while calm-water is
+// ~5,900 (roughly 77 across).
+//
+// The DEWS escalation rides on SPEED instead (see PATROL_SPEED_FOR_ZONE):
+// danger water churns fast in a tight agitated orbit, calm water drifts slowly
+// over a wide serene arc. Both readings stay true, and the fleet's motion
+// agrees with the swell, chop and foam its region already carries (D6).
+const DRIFT_RADIUS_DANGER = { x: 1.9, y: 1.3 };
+const DRIFT_RADIUS_WARNING = { x: 2.2, y: 1.5 };
+const DRIFT_RADIUS_ALERT = { x: 2.9, y: 2.0 };
+const DRIFT_RADIUS_WATCH = { x: 4.3, y: 2.9 };
+const DRIFT_RADIUS_DEFAULT = { x: 4.8, y: 3.2 };
 
 function driftRadiusForZone(zone: ShipWaterZone): { x: number; y: number } {
   if (zone === "danger") return DRIFT_RADIUS_DANGER;

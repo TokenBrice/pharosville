@@ -10,8 +10,9 @@ This docs index is for public readers, contributors, and agents arriving from Gi
 - [Releases](./pharosville/RELEASES.md) - protected release workflow, recovery, historical backfill, and drift audit
 - [Operations](./pharosville/OPERATIONS.md) - Cloudflare Pages setup, deploy, live smoke, rollback, and credential rotation
 - [Security headers](./pharosville/SECURITY_HEADERS.md) - static and API response header policy
-- [Visual invariants](./pharosville/VISUAL_INVARIANTS.md) - non-negotiable visual and data contracts
-- [Asset pipeline](./pharosville/ASSET_PIPELINE.md) - local sprite manifest and promotion workflow
+- [Visual and analytical contracts](./pharosville/VISUAL_INVARIANTS.md) - non-negotiable world meaning, composition, and motion
+- [Three.js runtime guide](./pharosville/THREEJS_AGENT_REFERENCE.md) - module ownership, frame contract, disposal, and change recipes
+- [Runtime media](./pharosville/ASSET_PIPELINE.md) - logo, atlas, model, and texture workflow
 - [GitHub media](./pharosville/GITHUB_MEDIA.md) - social preview, README image, and screenshot guidance
 
 ## Contributor Links
@@ -27,4 +28,8 @@ This docs index is for public readers, contributors, and agents arriving from Gi
 - Browser code calls same-origin `/api/*` only.
 - `PHAROS_API_KEY` stays server-side in Cloudflare Pages.
 - Unsupported viewports must not mount the PharosVille world runtime or fetch world data.
-- Runtime art is local and manifest-backed under `public/pharosville/assets/`.
+- The production world uses procedural Three.js content, same-origin identity
+  marks, and checked lighthouse and hero-hull GLBs under
+  `public/pharosville/models/`.
+- Renderer or GPU failure presents the DOM signal overview; there is no second
+  graphical renderer.

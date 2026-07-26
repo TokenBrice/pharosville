@@ -22,7 +22,6 @@ export function useWorldTimeControls(input: {
 }) {
   const { initialManualTimeOverrideHour = null, initialNightMode = false, requestPaint } = input;
   const [nightMode, setNightMode] = useState(initialNightMode);
-  const [autoNightCycle, setAutoNightCycle] = useState(false);
   const [manualTimeOverrideHour, setManualTimeOverrideHourState] = useState<number | null>(() => (
     initialManualTimeOverrideHour === null ? null : clampManualTimeOverrideHour(initialManualTimeOverrideHour)
   ));
@@ -37,12 +36,6 @@ export function useWorldTimeControls(input: {
     manualWallClockRestoreRef.current = { active: false, previous: undefined };
     return true;
   }, []);
-
-  useEffect(() => {
-    if (!autoNightCycle) return;
-    const id = setInterval(() => setNightMode((n) => !n), 60_000);
-    return () => clearInterval(id);
-  }, [autoNightCycle]);
 
   useEffect(() => {
     if (manualTimeOverrideHour === null) {
@@ -66,44 +59,18 @@ export function useWorldTimeControls(input: {
     restoreManualWallClockOverride();
   }, [restoreManualWallClockOverride]);
 
-  const clearTimeOverride = useCallback(() => {
-    if (restoreManualWallClockOverride()) requestPaint();
-    setManualTimeOverrideHourState(null);
-  }, [requestPaint, restoreManualWallClockOverride]);
-
-  const setManualTimeOverrideHour = useCallback((hour: number | null) => {
-    if (hour === null) {
-      if (restoreManualWallClockOverride()) requestPaint();
-      setManualTimeOverrideHourState(null);
-      return;
-    }
-    const nextHour = clampManualTimeOverrideHour(hour);
-    if (nextHour === null) return;
-    setManualTimeOverrideHourState(nextHour);
-  }, [requestPaint, restoreManualWallClockOverride]);
-
   const toggleNightMode = useCallback(() => {
     if (restoreManualWallClockOverride()) requestPaint();
     setManualTimeOverrideHourState(null);
     setNightMode((n) => !n);
   }, [requestPaint, restoreManualWallClockOverride]);
 
-  const toggleAutoNightCycle = useCallback(() => {
-    if (restoreManualWallClockOverride()) requestPaint();
-    setManualTimeOverrideHourState(null);
-    setAutoNightCycle((a) => !a);
-  }, [requestPaint, restoreManualWallClockOverride]);
-
   const wallClockHour = resolveWallClockHour({ manualTimeOverrideHour, nightMode });
 
   return {
-    autoNightCycle,
-    clearTimeOverride,
     manualTimeOverrideHour,
     nightMode,
-    setManualTimeOverrideHour,
     wallClockHour,
-    toggleAutoNightCycle,
     toggleNightMode,
   };
 }

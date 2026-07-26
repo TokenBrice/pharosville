@@ -1,94 +1,94 @@
-# PharosVille Visual Invariants
+# PharosVille Visual and Analytical Contracts
 
-Last updated: 2026-05-18
+Last updated: 2026-07-25
 
-These are the non-negotiable visual/data contracts for the PharosVille world. A change that violates one of these is a product behavior change and needs explicit intent plus matching tests and docs.
+These are product contracts, not a design diary. Change one only with explicit
+intent, code/tests, and a matching update to the relevant route documentation.
 
-## Route And Runtime
+## Runtime and truth
 
-- PharosVille is served from the standalone root at `https://pharosville.pharos.watch/` and is desktop-only. The world must not mount when the device screen long side is below `720px`, the short side is below `360px`, or a capable screen is in portrait orientation.
-- The fallback must avoid world API queries, `/_site-data` world queries, canvas setup, sprite/logo decode work, and runtime asset loading. The HTML `manifest.runtime.json` preload may still occur because it is declared in `index.html`.
-- The route uses existing Pharos frontend hooks and API payloads. Visual-only work must not add Worker/API contracts unless explicitly requested.
-- No production fixture/default market data is allowed.
-- The visual target is a Pharos maritime observatory diorama, not a ClaudeVille clone. Do not import ClaudeVille lore, fantasy-village scenery, agent mechanics, decorative copy, or unrelated entities into the route.
+- PharosVille has one production Three.js/WebGL renderer.
+- Below the desktop screen gate, and in a viewport under `720x360`, no world
+  data, Three runtime, GLB, or logo request may start. Both halves are SIZE
+  tests; neither is an orientation test.
+- Renderer failure hides WebGL and shows selectable DOM `WorldStaticOverview`;
+  it never starts a second graphical renderer.
+- Browser world code uses same-origin `/api/*` only.
+- Every analytical cue has detail-panel or accessibility-ledger parity,
+  including source fields, freshness, and caveats where the cue could mislead.
+- Ship routes and docking cadence show rendered-chain/risk presence, never
+  transfers, bridge volume, transactions, or issuer operations.
+- Missing or stale peg evidence is a caveat, not confirmed stress.
 
-## Data Truth
+## Composition
 
-- Canvas is a representation, not the only source of analytical truth.
-- Every visual signal with analytical meaning must have detail-panel or accessibility-ledger parity.
-- Source fields and caveats belong in details when a visual encoding could be misread.
-- Stablecoin list `circulating` values are already USD-denominated; use `getCirculatingRaw()` for market-cap tiers.
+- The Garden Observatory is asymmetric, sea-first, and intentionally open.
+  Do not replace its region-scoped fleet placement with a uniform grid.
+- The Pharos lighthouse remains the visual and analytical anchor.
+- The full eligible fleet may render up to the 320-ship batch capacity. Density,
+  water-safe placement, lighthouse clearance, and edge falloff preserve
+  composition; the former 20-ship cap is retired.
+- Harbors ring the rendered island waterline and retain distinct built forms.
+  Ethereum and available L2 docks remain a readable hub relationship.
+- The TON pigeonnier is spatially distinct. The dead/frozen fleet is a quiet
+  sea wreckyard, not an island and never a live-ship destination.
+- DOM labels must be legible and must not cover the lighthouse, controls, or
+  active detail panel.
 
-## Geography
+## World encoding
 
-- The current map acceptance target is a sea-first isometric island with roughly 85.7-86.2% water by tile count after the compact main-island revamp.
-- The compact main island is pinned to 377 main-island land tiles, excluding the cemetery islet, down from the 592-tile baseline. This shrink must preserve the authored `56 x 56` map, current named DEWS sea-zone semantics, Ledger Mooring as the only non-DEWS named risk-water area, ship route semantics, same-origin `/api/*`, and the desktop gate.
-- The lighthouse stays at `LIGHTHOUSE_TILE = { x: 18, y: 28 }` and visually rests on `overlay.lighthouse-headland`, the limestone outcrop drawn beneath it from `drawLighthouseHeadland`. The retired `overlay.central-island` diorama is no longer painted; the headland sprite plus the limestone-family land tile pack (`terrain.land`, `terrain.land-scrub`, `terrain.shore`) carry the central island ground.
-- The eastern and southern coves keep Ethereum, Base, Arbitrum, and Polygon in preferred EVM/L2 dock positions when those chains are rendered. Other preferred outer-coast slots currently include BSC, Tron, Solana, Hyperliquid, Aptos, and Avalanche; Optimism is intentionally suppressed as a rendered harbor.
-- Standard docks are capped by `MAX_CHAIN_HARBORS`; they reserve the Ethereum/L2 harbor cluster when present, then fill remaining slots by chain stablecoin supply. TON, when present, appends a detached dispatch wharf and does not consume the standard cap.
-- Ethereum's harbor may be selected as a dock, but its four-gate hub body must read as backgrounded water infrastructure with ships rendering over it.
-- The cemetery remains a compact memorial precinct separated from the EVM bay and lighthouse approach.
-- The inland civic spine does not host Pharos data buildings. Mint/burn flows, DEX liquidity, and redemption-route backstops stay on their dedicated analytical surfaces outside PharosVille.
-- DEWS zone edge anchoring uses compound/coast-aware masks rather than rectangles:
-  - CALM ANCHORAGE → x=0 large left-edge vertical basin
-  - WATCH BREAKWATER → south breakwater basin plus the entire eastern shelf below the Alert ring
-  - ALERT CHANNEL -> compact upper eastern-corner ring at (55, 0); no longer extends down the x=55 edge
-  - WARNING SHOALS -> eastern-corner middle ring, bridged into Danger Strait
-  - DANGER STRAIT -> eastern-corner inner/right storm ring
-- The eastern corner is covered by overlapping ALERT/WARNING/DANGER water at the (55, 0) corner only
-- Four-tile Chebyshev island periphery is reserved as generic water except for the Watch Breakwater shelf, which reaches the eastern coast
-- Water tiles inside lighthouse visual clearance (x:14..24, y:23..32) stay generic water (lighthouse sprite breathing room)
-- Ledger Mooring spans the entire top mooring shelf (y≤9, x≤30) and touches Calm Anchorage along the western flank at the y=9/y=10 boundary, sitting clear of Watch Breakwater and the eastern Alert/Warning/Danger ring without stealing their tiles. Freeze/blacklist tracker activity remains outside PharosVille and belongs to `https://pharos.watch/blacklist/`.
-
-## Entity Semantics
-
-| Entity | Meaning | Must not imply |
+| Element | Required reading | Redundant channel |
 | --- | --- | --- |
-| Lighthouse | PSI band and score | Full market health beyond PSI |
-| Dock footprint | Chain stablecoin supply and top stablecoins on that chain | Bridge volume, transaction flow, or real-time transfers |
-| Ship | Active stablecoin representative | Full supply distribution as linear pixel area |
-| Ship route/docking cadence | Positive rendered-chain presence and risk-water patrol | Real transfer activity or issuer operations |
-| Ship risk water | Peg/DEWS evidence, named risk-water area, risk zone, and placement precedence | Risk from stale or missing evidence alone |
-| Dense active ship field | Individual active stablecoins sharing the current dense route budget, named risk-water areas, and risk zones | Aggregated issuers or hidden long-tail ship clusters |
-| Cemetery marker | Dead/frozen lifecycle asset with cause-aware visual style | Active market status |
-| Evidence caveat | Missing, stale, or low-confidence evidence | Confirmed depeg/stress |
+| Lighthouse | PSI score/band | DOM record and beacon state |
+| Ship | stablecoin identity, scale, class, risk | branded sail/livery plus DOM record |
+| Harbor | chain supply and concentration | built form, flag, DOM record |
+| Water body | existing risk/ledger category | water character, boundary/buoy, DOM label |
+| Wreck | lifecycle status | model/cause color plus DOM record |
 
-## Ship And Risk Rules
+Risk regions derive from the same terrain field that placement and motion use.
+They are bodies of water, not overlay ellipses: color, depth, swell, chop,
+foam, reflection, boundary movement, and buoys may vary, but a renderer effect
+must not reclassify a tile. Color is never the only carrier of meaning.
 
-- Ship class comes from governance/backing metadata via `ship-visuals.ts`.
-- Ship size is a compressed market-cap tier, not linear area.
-- Active depeg and DANGER evidence outrank calm chain presence for risk placement.
-- Stale or missing peg evidence maps to an evidence caveat on Calm Anchorage fallback placement, not storm risk or a separate named zone.
-- Fresh DEWS bands map to the named sea districts: CALM to Calm Anchorage, WATCH to Watch Breakwater, ALERT to Alert Channel, WARNING to Warning Shoals, and DANGER to Danger Strait.
-- Ledger Mooring is the only non-DEWS named risk-water area. If ships can reference it, it must also have a printed label, area hit target, detail facts, and accessibility-ledger row.
-- Printed water-area labels render above entity sprites and their hit targets win inside the printed label rectangle. This keeps all zone names visible and selectable even near tall landmarks.
-- Reduced-motion representative placement uses deterministic static positions and no RAF loop.
-- Reduced-motion routed ships freeze at their primary rendered dock berth with berth heading from `dockTangent` when available. NAV ledger assets keep the Ledger Mooring freeze required by the non-DEWS NAV policy, and dockless ships freeze at their risk-water idle tile. Details and the accessibility ledger must still expose the named risk-water area, risk zone, home dock, chain presence, and evidence caveats.
-- The sky/weather threat channel (V2.4): clouds, mist, stars, lightning, the sky-gradient stage (`SKY_THREAT_STAGE_ALPHA`), and the localized DANGER rain squall all derive from DEWS area bands via `maxActiveThreatLevel`/`THREAT_LEVEL_FOR_BAND`. The squall renders only over `band === DANGER` areas and must keep DOM parity through `atmosphereDescriptionForArea` ("rain squall" wording) plus the `cue.area.danger-squall` registry entry. Zone water base colors stay untouched by all weather staging.
-- Normal motion samples, hit testing, selected rings, follow-selected behavior, and debug state must use the same motion model. Non-titan, non-unique ships that are currently `moored` are not map-visible or hit-testable; titan and heritage-hull ships remain map-visible while moored.
-- Water routes must stay on water tiles where tests assert that contract.
+The sea is a partition with no fallback: every water tile belongs to exactly one
+body, and no body may be the residue. Body areas are sized to their expected
+traffic — the density spread across bodies stays within roughly 3x, not the 13x
+that left the most consequential water a corner sliver and the emptiest water
+the second-largest body on the map.
 
-## Renderer Rules
+**Not all water is named, deliberately.** Roughly a quarter of the sea is open
+approach, and it is composition rather than an attribution gap: named waters
+only read as bodies when there is unclaimed sea between them, and the world is
+required to be "asymmetric, sea-first, and intentionally open". The coverage
+guard is set at 0.72 for that reason; raising it back toward 1 would recreate
+the residue body it was meant to prevent.
 
-- Local runtime art comes from `public/pharosville/assets/manifest.json`; no generated remote URLs or prototype paths at runtime.
-- Manifest assets must stay local with required PNG fallback paths, optional validated WebP twins, `critical` or `deferred` load priority, accurate dimensions, anchors, footprints, hitboxes, category/layer metadata, and prompt provenance when generated.
-- As of 2026-05-18 the manifest has 73 entries and the validator cap is 75. Treat `scripts/pharosville/validate-assets.mjs` and `npm run check:pharosville-assets` as the budget source of truth; first-render/critical membership should stay narrow and justified by visible initial-frame need.
-- The main-island revamp replaces existing island, lighthouse, and dock asset IDs in place. Keep critical/first-render membership stable unless a visible initial-frame need is documented.
-- Hit boxes must track rendered geometry, not just tile centers.
-- Asset geometry changes require manifest updates and hit-testing/visual validation.
-- Canvas backing store must remain bounded by the canvas budget.
-- Palette changes must pass `npm run check:pharosville-colors`; use the route palette and classification/shared colors rather than ad hoc debug colors.
-- Per-zone water styling — base/depth/wave/accent colors, procedural texture kind, label outline/fill/plaque/accent, motion amplitude scalar, stroke-alpha scalar — is sourced from `ZONE_THEMES` in `src/systems/palette.ts`. Renderers must not re-introduce hardcoded zone color literals; pull from the theme. The `RISK_WATER_AREAS[area.riskPlacement].terrain` lookup is the canonical placement-to-terrain bridge that label rendering uses (the bare `${riskZone}-water` concatenation is wrong for Danger).
+Sea-body place-names are carried by in-world signage AND by the accessibility
+ledger, which lists every named area. The signs are canvas content and therefore
+aria-hidden, so the ledger — not the sign — is the redundant channel.
 
-## Accessibility And Motion
+## Media and rendering
 
-- Reduced motion freezes animation while preserving static status encodings.
-- Normal motion must use the single PharosVille canvas clock; independent
-  analytical CSS animations, intervals, sprite loops, or minimap loops are not
-  allowed.
-- Motion priority is selected/focused entity, active risk or critical PSI,
-  recent data change, then ambient life.
-- Motion caps and debug fields are governed by
-  [`MOTION_POLICY.md`](./MOTION_POLICY.md).
-- Keyboard pan, Escape clear, toolbar controls, click selection, and blank-map click-to-close are part of the interaction contract.
-- The detail panel and accessibility ledger must remain useful without reading canvas pixels.
+- Procedural geometry/materials own the island, harbors, ordinary fleet,
+  water, wrecks, landmarks, sky, and ambient life.
+- The checked lighthouse and hero GLBs preserve their hash, origin, scale,
+  anchors, pick proxy, and budgets together; failure leaves aligned procedural
+  forms visible.
+- Stablecoin sails and harbor flags must remain identifiable when logo decoding
+  fails: sail symbols and painted chain initials are the required fallbacks.
+- Repeated fleet structures, marks, lanterns, and appropriate scenery use
+  batching or instancing. One shared sail atlas replaces per-ship textures.
+- Palette and region themes are shared contracts; do not introduce arbitrary
+  debug colors or post effects to solve basic composition problems.
+- Device pixels, backing pixels, resource counts, and bundle sizes remain
+  bounded. Cosmetic changes do not justify relaxing measured gates.
+
+## Motion and access
+
+- One route-owned clock drives normal motion. No per-entity timers, independent
+  CSS analytical animation, or renderer loops.
+- Reduced motion is a complete deterministic static composition with zero
+  continuous RAF.
+- Hidden/offscreen surfaces pause and resume without a catch-up teleport.
+- Keyboard traversal, pan/zoom, selection, Escape clear, controls, detail
+  anchors, and hit testing remain useful without inspecting WebGL pixels.

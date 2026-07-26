@@ -1,6 +1,6 @@
 # PharosVille GitHub Media
 
-Last updated: 2026-06-29
+Last updated: 2026-07-25
 
 Use this file to keep GitHub, README, and social-preview media consistent.
 
@@ -8,7 +8,7 @@ Use this file to keep GitHub, README, and social-preview media consistent.
 
 - OG card: `public/og-card.png`
 - README brand preview: `public/og-card.png`
-- README product screenshot: `docs/pharosville/media/pharosville-desktop-shell.png` (1200px-wide fleet view)
+- README product screenshot: `docs/pharosville/media/pharosville-desktop-shell.png` (1200px-wide Garden Observatory view)
 - Canonical app URL: `https://pharosville.pharos.watch/`
 - Repository URL: `https://github.com/TokenBrice/pharosville`
 
@@ -27,11 +27,12 @@ There is no stable public REST API for setting the repository social preview.
 
 ## README Product Screenshot
 
-The product screenshot should show the actual desktop shell with ships visible, not only a branded card or an empty map. Regenerate from a known visual snapshot or a fresh local capture, then downscale for GitHub readability:
+The product screenshot is the current Three.js day overview captured at
+`1440x960`, with the full Garden Observatory, ships, analytical zones, and
+shell controls visible. Promote the current visual-audit capture with:
 
 ```bash
-mkdir -p docs/pharosville/media
-magick outputs/pharosville-desktop-shell-source.png \
+magick outputs/visual-audit/day.png \
   -resize 1200x \
   -strip \
   docs/pharosville/media/pharosville-desktop-shell.png
@@ -43,7 +44,8 @@ Use `outputs/` for scratch captures before promoting anything into docs.
 
 - Do not commit `test-results/`, `playwright-report/`, `dist/`, local env files, or scratch captures.
 - Do not use generated remote URLs at runtime.
-- Do not bake token names, chain names, or analytical labels into runtime sprite art.
+- Do not bake token names, chain names, or analytical labels into promotional
+  world art.
 - Prefer small, inspectable PNG/WebP assets for GitHub media.
 
 ## Validation

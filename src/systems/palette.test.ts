@@ -1,176 +1,82 @@
-import { describe, it, expect } from "vitest";
-import { THREAT_BAND_HEX } from "@shared/lib/classification";
-import { DEWS_AREA_LABEL_COLORS, HARBOR_PALETTE, WATER_TERRAIN_STYLES, ZONE_THEMES, hexToInt, paletteOrThrow, paletteRgba, waterTerrainStyle } from "./palette";
+import { describe, expect, it } from "vitest";
 import { RISK_WATER_AREAS } from "./risk-water-areas";
+import { DEWS_AREA_LABEL_COLORS, HARBOR_PALETTE, ZONE_THEMES, zoneThemeForTerrain } from "./palette";
 import { SHIP_WATER_ZONES } from "./world-types";
 
-const DEWS_TERRAIN_LADDER = ["calm-water", "watch-water", "alert-water", "warning-water", "storm-water"] as const;
-const MONOTONIC_TOLERANCE = 0.05;
-const LEDGER_MIN_OFF_AXIS_DISTANCE = 32;
-
 describe("HARBOR_PALETTE", () => {
-  it("contains 25 entries", () => {
-    expect(Object.keys(HARBOR_PALETTE)).toHaveLength(25);
-  });
-
-  it("each value is a 7-char hex starting with #", () => {
-    for (const [k, v] of Object.entries(HARBOR_PALETTE)) {
-      expect(v, k).toMatch(/^#[0-9a-f]{6}$/);
-    }
-  });
-
-  it("hexToInt parses #d49a3e to 0xd49a3e", () => {
-    expect(hexToInt("#d49a3e")).toBe(0xd49a3e);
-  });
-
-  it("paletteOrThrow returns the named color", () => {
-    expect(paletteOrThrow("lantern_warm")).toBe("#d49a3e");
-  });
-
-  it("paletteOrThrow throws on unknown key", () => {
-    expect(() => paletteOrThrow("not_a_color" as never)).toThrow(/HARBOR_PALETTE/);
-  });
-
-  it("paletteRgba builds an rgba string for a palette entry", () => {
-    expect(paletteRgba("lantern_warm", 0.5)).toBe("rgba(212, 154, 62, 0.5)");
-    expect(paletteRgba("deep_sea_2", 0)).toBe("rgba(10, 14, 29, 0)");
-    expect(paletteRgba("foam_white", 1)).toBe("rgba(232, 238, 240, 1)");
-  });
-
-  it("defines explicit styles for every rendered water terrain", () => {
-    expect(Object.keys(WATER_TERRAIN_STYLES).sort()).toEqual([
-      "alert-water",
-      "calm-water",
-      "deep-water",
-      "harbor-water",
-      "ledger-water",
-      "storm-water",
-      "warning-water",
-      "watch-water",
-      "water",
-    ]);
-    expect(waterTerrainStyle("calm-water")?.texture).toBe("calm");
-    expect(waterTerrainStyle("ledger-water")?.texture).toBe("ledger");
-    expect(waterTerrainStyle("watch-water")?.texture).toBe("watch");
-    expect(waterTerrainStyle("unknown")).toBeNull();
-  });
-
-  it("keeps water terrain zones visually separable by color and texture", () => {
-    const styles = Object.values(WATER_TERRAIN_STYLES);
-
-    expect(new Set(styles.map((style) => style.texture)).size).toBe(styles.length);
-    expect(minimumHexDistance(styles.map((style) => style.base))).toBeGreaterThan(18);
-    expect(WATER_TERRAIN_STYLES["calm-water"].texture).not.toBe(WATER_TERRAIN_STYLES["watch-water"].texture);
-    expect(hexDistance(WATER_TERRAIN_STYLES["calm-water"].base, WATER_TERRAIN_STYLES["harbor-water"].base)).toBeGreaterThan(24);
-    expect(hexDistance(WATER_TERRAIN_STYLES["calm-water"].base, WATER_TERRAIN_STYLES["alert-water"].base)).toBeGreaterThan(32);
-    expect(WATER_TERRAIN_STYLES["warning-water"].accent).not.toBe(WATER_TERRAIN_STYLES.water.accent);
-    expect(WATER_TERRAIN_STYLES["ledger-water"].base).not.toBe(WATER_TERRAIN_STYLES["calm-water"].base);
-  });
-
-  it("matches the W1.13 merged water terrain palette refit", () => {
-    expect(HARBOR_PALETTE.lantern_warm).toBe("#d49a3e");
-    expect(WATER_TERRAIN_STYLES["calm-water"].base).toBe("#125e7e");
-    expect(WATER_TERRAIN_STYLES["watch-water"].base).toBe("#487c7a");
-    expect(WATER_TERRAIN_STYLES["alert-water"].base).toBe("#3d6e58");
-    expect(WATER_TERRAIN_STYLES["warning-water"].base).toBe("#5e5535");
-    expect(WATER_TERRAIN_STYLES["storm-water"].base).toBe("#1a1428");
-    expect(WATER_TERRAIN_STYLES["ledger-water"].base).toBe("#3d4860");
-    expect(WATER_TERRAIN_STYLES["ledger-water"].accent).toBe("rgba(180,210,196,0.24)");
-  });
-
-  it("keeps the DEWS water ladder monotonic against the lantern anchor", () => {
-    const baseColors = DEWS_TERRAIN_LADDER.map((terrain) => WATER_TERRAIN_STYLES[terrain].base);
-    const visibleLightness = baseColors.map(dominantChannelValue);
-    const lanternChroma = rgbChroma(HARBOR_PALETTE.lantern_warm);
-    const lanternChromaDistances = baseColors.map((base) => Math.abs(rgbChroma(base) - lanternChroma));
-
-    expect(isNonIncreasingWithinTolerance(visibleLightness, MONOTONIC_TOLERANCE)).toBe(true);
-    expect(isNonDecreasingWithinTolerance(lanternChromaDistances, MONOTONIC_TOLERANCE)).toBe(true);
-  });
-
-  it("keeps Ledger Mooring off the DEWS color axis", () => {
-    const ledgerDistance = Math.min(
-      ...DEWS_TERRAIN_LADDER.map((terrain) => hexDistance(WATER_TERRAIN_STYLES["ledger-water"].base, WATER_TERRAIN_STYLES[terrain].base)),
-    );
-
-    expect(ledgerDistance).toBeGreaterThanOrEqual(LEDGER_MIN_OFF_AXIS_DISTANCE);
-  });
-
-  it("uses canonical DEWS threat colors for water-area labels", () => {
-    expect(DEWS_AREA_LABEL_COLORS).toEqual({
-      CALM: THREAT_BAND_HEX.CALM,
-      WATCH: THREAT_BAND_HEX.WATCH,
-      ALERT: THREAT_BAND_HEX.ALERT,
-      WARNING: THREAT_BAND_HEX.WARNING,
-      DANGER: THREAT_BAND_HEX.DANGER,
-    });
-  });
-
-  it("provides a complete ZoneVisualTheme for every water terrain", () => {
-    const waterKinds = Object.keys(WATER_TERRAIN_STYLES);
-    expect(Object.keys(ZONE_THEMES).sort()).toEqual(waterKinds.sort());
-    for (const kind of waterKinds) {
-      const theme = ZONE_THEMES[kind as keyof typeof ZONE_THEMES];
-      expect(theme.base).toBe(WATER_TERRAIN_STYLES[kind as keyof typeof WATER_TERRAIN_STYLES].base);
-      expect(theme.label.outline).toBeTruthy();
-      expect(theme.label.fill).toBeTruthy();
-      expect(theme.label.plaqueLight).toBeTruthy();
-      expect(theme.label.plaqueDark).toBeTruthy();
-      expect(theme.label.accent).toMatch(/^#|^rgba/);
-      expect(theme.motion.amplitudeScale).toBeGreaterThan(0);
-      expect(theme.motion.strokeAlphaScale).toBeGreaterThan(0);
-    }
-  });
-
-  it("every ShipWaterZone resolves to a ZONE_THEMES entry via the RISK_WATER_AREAS terrain mapping", () => {
-    for (const zone of SHIP_WATER_ZONES) {
-      const placement = Object.values(RISK_WATER_AREAS).find((area) => area.motionZone === zone);
-      expect(placement, zone).toBeDefined();
-      const terrainKind = placement!.terrain;
-      expect(ZONE_THEMES[terrainKind as keyof typeof ZONE_THEMES], `${zone} → ${terrainKind}`).toBeDefined();
+  it("keeps valid hex colors for Three materials", () => {
+    for (const color of Object.values(HARBOR_PALETTE)) {
+      expect(color).toMatch(/^#[0-9a-f]{6}$/i);
     }
   });
 });
 
-function minimumHexDistance(colors: string[]) {
-  let minimum = Number.POSITIVE_INFINITY;
-  for (let first = 0; first < colors.length; first += 1) {
-    for (let second = first + 1; second < colors.length; second += 1) {
-      minimum = Math.min(minimum, hexDistance(colors[first]!, colors[second]!));
+describe("ZONE_THEMES", () => {
+  it("keeps distinct risk-water bases and analytical accents", () => {
+    expect(ZONE_THEMES["calm-water"]!.label.accent).toBe(DEWS_AREA_LABEL_COLORS.CALM);
+    expect(ZONE_THEMES["storm-water"]!.label.accent).toBe(DEWS_AREA_LABEL_COLORS.DANGER);
+    expect(new Set(Object.values(ZONE_THEMES).map((theme) => theme.base)).size)
+      .toBe(Object.keys(ZONE_THEMES).length);
+  });
+
+  it("ramps risk-water bases down a monotonic value ladder", () => {
+    // L3 (Sea Master): the water shader luminance-matches each tint against the
+    // live water before mixing it — that is what stops a tint reading as paint,
+    // and it throws most of a hue's own brightness away. VALUE is what survives
+    // the match, so value is what has to carry the escalation, hue-blind or not.
+    //
+    // This replaces two pinned hex literals. Those pinned the wrong thing: they
+    // held `calm-water` at #125e7e, a saturated cyan-blue laid over the 43% of
+    // the sea that is Calm, which is what pulled the rendered sea to blue
+    // eleven points above green while the day palette's own ramp is jade.
+    const ladder = ["calm-water", "watch-water", "alert-water", "warning-water", "storm-water"] as const;
+    const levels = ladder.map((terrain) => relativeLuminance(ZONE_THEMES[terrain]!.base));
+    for (let step = 1; step < levels.length; step += 1) {
+      expect(levels[step]!, `${ladder[step]} must be darker than ${ladder[step - 1]}`)
+        .toBeLessThan(levels[step - 1]!);
     }
-  }
-  return minimum;
-}
+  });
 
-function hexDistance(first: string, second: string) {
-  const a = hexChannels(first);
-  const b = hexChannels(second);
-  return Math.hypot(a.r - b.r, a.g - b.g, a.b - b.b);
-}
+  it("keeps every risk-water base inside the sea's own blue-green family", () => {
+    // A tint outside the water gamut reads as paint on a surface however gently
+    // it is laid on. Ledger is the one deliberate outsider: NAV-priced water is
+    // not a risk band, and its slate says so.
+    for (const [terrain, theme] of Object.entries(ZONE_THEMES)) {
+      if (terrain === "ledger-water") continue;
+      const { r, g, b } = channels(theme.base);
+      expect(g, `${terrain} must not be red-dominant`).toBeGreaterThanOrEqual(r);
+      expect(Math.max(g, b), `${terrain} must lean blue-green`).toBeGreaterThanOrEqual(r);
+    }
+  });
 
-function dominantChannelValue(hex: string) {
-  const { r, g, b } = hexChannels(hex);
-  return Math.max(r, g, b);
-}
+  it("falls back to the generic water theme", () => {
+    expect(zoneThemeForTerrain("unknown")).toBe(ZONE_THEMES.water);
+  });
 
-function rgbChroma(hex: string) {
-  const { r, g, b } = hexChannels(hex);
-  return Math.max(r, g, b) - Math.min(r, g, b);
-}
+  it("covers every ship water zone", () => {
+    for (const zone of SHIP_WATER_ZONES) {
+      const placement = Object.values(RISK_WATER_AREAS).find((area) => area.motionZone === zone);
+      expect(placement, zone).toBeDefined();
+      expect(zoneThemeForTerrain(placement!.terrain), zone).not.toBe(ZONE_THEMES.water);
+    }
+  });
+});
 
-function isNonIncreasingWithinTolerance(values: number[], tolerance: number) {
-  return values.every((value, index) => index === 0 || value <= values[index - 1]! * (1 + tolerance));
-}
-
-function isNonDecreasingWithinTolerance(values: number[], tolerance: number) {
-  return values.every((value, index) => index === 0 || value >= values[index - 1]! * (1 - tolerance));
-}
-
-function hexChannels(hex: string) {
-  const n = Number.parseInt(hex.slice(1), 16);
+function channels(hex: string): { r: number; g: number; b: number } {
+  const value = hex.replace("#", "");
   return {
-    b: n & 0xff,
-    g: (n >> 8) & 0xff,
-    r: (n >> 16) & 0xff,
+    r: Number.parseInt(value.slice(0, 2), 16),
+    g: Number.parseInt(value.slice(2, 4), 16),
+    b: Number.parseInt(value.slice(4, 6), 16),
   };
+}
+
+/** WCAG relative luminance, so "darker" means darker to the eye, not smaller in hex. */
+function relativeLuminance(hex: string): number {
+  const { r, g, b } = channels(hex);
+  const linear = (channel: number): number => {
+    const scaled = channel / 255;
+    return scaled <= 0.04045 ? scaled / 12.92 : ((scaled + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
 }

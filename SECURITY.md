@@ -19,7 +19,7 @@ In scope:
 
 - `https://pharosville.pharos.watch/`
 - same-origin PharosVille `/api/*` routes
-- this repository's React app, Canvas runtime, Pages Functions, CI, and deployment configuration
+- this repository's React app, Three.js/WebGL runtime, Pages Functions, CI, and deployment configuration
 
 Out of scope:
 

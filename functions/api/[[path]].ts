@@ -2,6 +2,7 @@ import { PHAROSVILLE_API_CLIENT_ENDPOINTS } from "../../shared/lib/pharosville-a
 import {
   buildPathCacheKey,
   getEdgeCache,
+  isJsonResponse,
   jsonErrorResponse,
   maybeStoreJsonEdgeCache,
   withDefaultJsonCacheControl,
@@ -9,6 +10,8 @@ import {
   type EdgeCache,
   type PagesContextWithWaitUntil,
 } from "../_shared";
+import type { PharosVilleApiEndpointKey } from "../../shared/types/pharosville-endpoint-keys";
+import { endpointProjector } from "./_project";
 
 interface Env {
   PHAROS_API_BASE?: string;
@@ -148,6 +151,34 @@ function logUpstreamFailure(context: PagesContext, endpointPath: string, failure
   }));
 }
 
+/**
+ * Drops the parts of an upstream payload the app's own contract does not model
+ * (see `_project.ts`). Streams the body straight through when the endpoint has
+ * no projector, and falls back to forwarding it untouched if the payload is not
+ * the JSON we expected — a projection is an optimisation, never a gate.
+ */
+async function projectUpstreamBody(
+  context: PagesContext,
+  key: PharosVilleApiEndpointKey,
+  upstream: Response,
+): Promise<BodyInit | null> {
+  const project = endpointProjector(key);
+  if (!project || !upstream.ok || !isJsonResponse(upstream)) return upstream.body;
+  const text = await upstream.text();
+  try {
+    return JSON.stringify(project(JSON.parse(text)));
+  } catch {
+    console.error(JSON.stringify({
+      source: "pharosville-api-proxy",
+      event: "projection_skipped",
+      level: "warn",
+      endpointKey: key,
+      ray: context.request.headers.get("cf-ray") ?? "",
+    }));
+    return text;
+  }
+}
+
 export async function onRequest(context: PagesContext): Promise<Response> {
   if (context.request.method !== "GET") {
     return jsonError("Method not allowed", 405, { Allow: "GET" });
@@ -176,7 +207,8 @@ export async function onRequest(context: PagesContext): Promise<Response> {
     return jsonError("PharosVille API upstream request failed", 502);
   }
 
-  const response = prepareProxyResponseForCache(new Response(upstream.response.body, {
+  const body = await projectUpstreamBody(context, endpoint.key, upstream.response);
+  const response = prepareProxyResponseForCache(new Response(body, {
     status: upstream.response.status,
     statusText: upstream.response.statusText,
     headers: copyForwardedHeaders(upstream.response),

@@ -42,6 +42,16 @@ export function resolveWallClockHour(input: {
   return normalizeHour(
     input.manualTimeOverrideHour
       ?? readTestWallClockOverrideHour()
-      ?? (input.nightMode ? PHAROSVILLE_NIGHT_HOUR : PHAROSVILLE_DAY_HOUR),
+      ?? (input.nightMode ? PHAROSVILLE_NIGHT_HOUR : currentWallClockHour()),
   );
+}
+
+/**
+ * The visitor's actual wall-clock hour (fractional). Decision D-R2: the
+ * default presentation follows the visitor's local time — there is no
+ * dusk/night (or fixed-noon) default bias. The day *look* is clamped to the
+ * ukiyo-e mood by the grade/day-cycle presets, never the old teal noon.
+ */
+export function currentWallClockHour(now: Date = new Date()): number {
+  return normalizeHour(now.getHours() + now.getMinutes() / 60);
 }

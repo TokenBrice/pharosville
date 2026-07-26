@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PHAROSVILLE_API_CLIENT_ENDPOINTS } from "../../shared/lib/pharosville-api-client-contract";
+import { RUNTIME_ACTIVE_IDS } from "../../shared/lib/stablecoins/runtime-registry";
 import { PHAROSVILLE_API_ENDPOINT_PATHS } from "../../shared/lib/pharosville-api-endpoints";
 import {
   PHAROSVILLE_PROXY_BLOCKED_VARIANTS,
@@ -386,5 +387,72 @@ describe("PharosVille API proxy", () => {
       "https://api.pharos.watch/api/stablecoins",
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
+  });
+
+  it("projects report cards down to the contract the app actually reads", async () => {
+    const activeId = [...RUNTIME_ACTIVE_IDS][0]!;
+    const upstream = {
+      updatedAt: 1_700_000_000,
+      safetyScoreIdentity: { model: "v8" },
+      _meta: { updatedAt: 1_700_000_000, ageSeconds: 5, status: "fresh" },
+      cards: [
+        {
+          id: activeId,
+          symbol: "ACTIVE",
+          overallGrade: "A",
+          dimensions: {
+            pegStability: {
+              grade: "A",
+              score: 90,
+              detail: "Peg score: 90/100",
+              detailItems: [{ label: "Peg score", value: "90/100", detail: "Peg score: 90/100" }],
+            },
+          },
+          rawInputs: { bluechipGrade: "B" },
+        },
+        { id: "not-a-tracked-stablecoin", symbol: "GONE", overallGrade: "F", dimensions: {} },
+      ],
+    };
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify(upstream), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    const response = await onRequest(makeContext("https://preview.example.com/api/report-cards"));
+    const body = await response.json() as typeof upstream;
+
+    // Cards outside the runtime active set can never be reached: `cards` has one
+    // consumer and it only ever indexes by an id that passed RUNTIME_ACTIVE_IDS.
+    expect(body.cards).toHaveLength(1);
+    expect(body.cards[0]?.id).toBe(activeId);
+    // `detailItems` is not in ReportCardDimensionSchema, so Zod already strips
+    // it client-side — sending it is pure transfer and parse cost.
+    expect(body.cards[0]?.dimensions.pegStability).toEqual({
+      grade: "A",
+      score: 90,
+      detail: "Peg score: 90/100",
+    });
+    // Everything the contract does model survives, `_meta` included.
+    expect(body.cards[0]?.rawInputs).toEqual({ bluechipGrade: "B" });
+    expect(body.updatedAt).toBe(1_700_000_000);
+    expect(body.safetyScoreIdentity).toEqual({ model: "v8" });
+    expect(body._meta).toEqual({ updatedAt: 1_700_000_000, ageSeconds: 5, status: "fresh" });
+  });
+
+  it("forwards the payload untouched when it is not the JSON the projector expects", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response("not json at all", {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    const response = await onRequest(makeContext("https://preview.example.com/api/report-cards"));
+
+    // A projection is an optimisation, never a gate.
+    expect(response.status).toBe(200);
+    await expect(response.text()).resolves.toBe("not json at all");
   });
 });

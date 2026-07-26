@@ -61,15 +61,16 @@ describe("detail-model analytical links", () => {
       label: "Beam warmth cue",
       value: "Beam warms amber when active DEWS reaches ALERT, WARNING, or DANGER; Fleet PSI cue (not a per-zone reading).",
     });
-    expect(lighthouseDetail.summary).toContain("Beam warmth tracks the fleet PSI composite");
+    // The beam-is-fleet-wide caveat must survive every copy pass: it is what
+    // stops the beacon being read as a per-zone reading.
+    expect(lighthouseDetail.summary).toContain("fleet-wide");
+    expect(lighthouseDetail.summary).toContain("never in the beam");
 
     expect(detailForDock({
       id: "dock.ethereum",
       kind: "dock",
       label: "Ethereum",
       chainId: "ethereum",
-      logoSrc: "/chains/ethereum.png",
-      assetId: "dock.ethereum-civic-cove",
       tile: { x: 1, y: 1 },
       totalUsd: 100,
       size: 1,
@@ -117,8 +118,6 @@ describe("detail-model analytical links", () => {
       kind: "dock",
       label: "Ethereum",
       chainId: "ethereum",
-      logoSrc: "/chains/ethereum.png",
-      assetId: "dock.ethereum-civic-cove",
       tile: { x: 1, y: 1 },
       totalUsd: 300,
       size: 1,
@@ -168,7 +167,6 @@ describe("detail-model analytical links", () => {
         sourceUrl: "https://example.com/ust-postmortem",
         sourceLabel: "UST postmortem",
       },
-      logoSrc: null,
       tile: { x: 1, y: 1 },
       visual: { marker: "broken-keel", scale: 1 },
       detailId: "grave.ust-terra",
@@ -208,7 +206,6 @@ describe("detail-model analytical links", () => {
         sourceUrl: "https://example.com/nubits",
         sourceLabel: "NuBits writeup",
       },
-      logoSrc: null,
       tile: { x: 1, y: 1 },
       visual: { marker: "skeletal", scale: 1 },
       detailId: "grave.nbt-nubits",
@@ -237,7 +234,6 @@ describe("detail-model analytical links", () => {
         sourceUrl,
         sourceLabel: "Unsafe writeup",
       },
-      logoSrc: null,
       tile: { x: 1, y: 1 },
       visual: { marker: "skeletal", scale: 1 },
       detailId: "grave.unsafe",
@@ -299,10 +295,9 @@ describe("detail-model analytical links", () => {
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: ["pegSummary.coins[]"], stale: false },
       visual: {
+        hullForm: { beam: 1, height: 1, length: 1 },
         hull: "treasury-galleon",
-        shipClass: "cefi",
         classLabel: "CeFi",
-        rigging: "issuer-rig",
         livery: {
           accent: "#27b6a5",
           label: "Tether logo livery",
@@ -316,7 +311,6 @@ describe("detail-model analytical links", () => {
           stripePattern: "double",
         },
         sailColor: "#d8efe7",
-        sailStripeColor: "#009393",
         overlay: "none",
         sizeTier: "major",
         sizeLabel: "Major",
@@ -355,10 +349,9 @@ describe("detail-model analytical links", () => {
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
       visual: {
+        hullForm: { beam: 1, height: 1, length: 1 },
         hull: "treasury-galleon",
-        shipClass: "cefi",
         classLabel: "CeFi",
-        rigging: "issuer-rig",
         livery: {
           accent: "#27b6a5",
           label: "Tether logo livery",
@@ -372,7 +365,6 @@ describe("detail-model analytical links", () => {
           stripePattern: "double",
         },
         sailColor: "#d8efe7",
-        sailStripeColor: "#009393",
         overlay: "none",
         sizeTier: "major",
         sizeLabel: "Major",
@@ -414,10 +406,9 @@ describe("detail-model analytical links", () => {
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
       visual: {
+        hullForm: { beam: 1, height: 1, length: 1 },
         hull: "treasury-galleon",
-        shipClass: "cefi",
         classLabel: "CeFi",
-        rigging: "issuer-rig",
         livery: {
           accent: "#000",
           label: "test",
@@ -431,7 +422,6 @@ describe("detail-model analytical links", () => {
           stripePattern: "double",
         },
         sailColor: "#fff",
-        sailStripeColor: "#000",
         overlay: "none",
         sizeTier: "major",
         sizeLabel: "Major",
@@ -486,10 +476,9 @@ describe("detail-model analytical links", () => {
       riskWaterLabel: "Ledger Mooring",
       placementEvidence: { reason: "NAV token Ledger Mooring idle preference", sourceFields: ["meta.flags.navToken", "pegSummary.coins[]"], stale: false },
       visual: {
+        hullForm: { beam: 1, height: 1, length: 1 },
         hull: "treasury-galleon",
-        shipClass: "cefi",
         classLabel: "CeFi",
-        rigging: "issuer-rig",
         livery: {
           accent: "#a9a68e",
           label: "Ethena staked livery",
@@ -503,7 +492,6 @@ describe("detail-model analytical links", () => {
           stripePattern: "diagonal",
         },
         sailColor: "#e8e6dc",
-        sailStripeColor: "#686963",
         overlay: "none",
         sizeTier: "major",
         sizeLabel: "Major",
@@ -552,12 +540,10 @@ describe("detail-model unique tier surfacing", () => {
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
       visual: {
+        hullForm: { beam: 1, height: 1, length: 1 },
         hull: "dao-schooner",
-        spriteAssetId: "ship.crvusd-unique",
         ...(overrides.uniqueRationale ? { uniqueRationale: overrides.uniqueRationale } : {}),
-        shipClass: "defi",
         classLabel: "DeFi",
-        rigging: "dao-rig",
         livery: {
           accent: "#8bbf72",
           label: "Curve logo livery",
@@ -571,7 +557,6 @@ describe("detail-model unique tier surfacing", () => {
           stripePattern: "wave",
         },
         sailColor: "#d9ecdf",
-        sailStripeColor: "#41956b",
         overlay: "none",
         sizeTier: overrides.uniqueRationale ? "unique" : "major",
         sizeLabel: overrides.uniqueRationale ? "Heritage hull" : "Major",
@@ -687,10 +672,9 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
       visual: {
+        hullForm: { beam: 1, height: 1, length: 1 },
         hull: "treasury-galleon",
-        shipClass: "cefi",
         classLabel: "CeFi",
-        rigging: "issuer-rig",
         livery: {
           accent: "#2775ca",
           label: "USDC logo livery",
@@ -704,7 +688,6 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
           stripePattern: "single",
         },
         sailColor: "#dce8f5",
-        sailStripeColor: "#2775ca",
         overlay: "none",
         sizeTier: "major",
         sizeLabel: "Major",
@@ -1015,10 +998,9 @@ describe("detail-model P3 metaphor quick-win signals", () => {
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
       visual: {
+        hullForm: { beam: 1, height: 1, length: 1 },
         hull: "treasury-galleon",
-        shipClass: "cefi",
         classLabel: "CeFi",
-        rigging: "issuer-rig",
         livery: {
           accent: "#27b6a5",
           label: "Tether logo livery",
@@ -1032,7 +1014,6 @@ describe("detail-model P3 metaphor quick-win signals", () => {
           stripePattern: "double",
         },
         sailColor: "#d8efe7",
-        sailStripeColor: "#009393",
         overlay: "none",
         sizeTier: "titan",
         sizeLabel: "Titan class",
@@ -1200,8 +1181,6 @@ describe("detail-model P3 metaphor quick-win signals", () => {
       kind: "dock",
       label: "Ethereum",
       chainId: "ethereum",
-      logoSrc: null,
-      assetId: "dock.ethereum-civic-cove",
       tile: { x: 1, y: 1 },
       totalUsd: 100,
       size: 1,
@@ -1247,8 +1226,6 @@ describe("detail-model P3 metaphor quick-win signals", () => {
       kind: "dock",
       label: "Ethereum",
       chainId: "ethereum",
-      logoSrc: null,
-      assetId: "dock.ethereum-civic-cove",
       tile: { x: 1, y: 1 },
       totalUsd: 100,
       size: 1,

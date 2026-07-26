@@ -1,52 +1,57 @@
 // @vitest-environment jsdom
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactElement } from "react";
 import { act, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PharosVilleAssetManager } from "../renderer/asset-manager";
-import { createHitTargetSnapshot, type HitTarget, type HitTargetSnapshot } from "../renderer/hit-testing";
+import { createGardenObservatoryHitTargetSnapshot } from "../renderer/garden-observatory-hit-testing";
+import type { HitTarget, HitTargetSnapshot } from "../renderer/hit-testing";
+import type {
+  CreateThreeWorldRendererInput,
+  ThreeLogoAssets,
+  ThreeWorldRendererFrame,
+} from "../renderer/world-renderer-backend";
 import { defaultCamera } from "../systems/camera";
-import { initialAdaptiveDprState, resolveCanvasBudget } from "../systems/canvas-budget";
+import { initialAdaptiveDprState, resolveRenderSurfaceBudget } from "../systems/render-surface-budget";
 import { buildBaseMotionPlan, buildMotionPlan, type ShipMotionSample } from "../systems/motion";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import type { IsoCamera } from "../systems/projection";
 import { makePharosVilleWorldInput } from "../__fixtures__/pharosville-world";
-import { useWorldRenderLoop, type UseWorldRenderLoopResult, type WorldCameraStepResult } from "./use-world-render-loop";
+import {
+  useWorldRenderLoop,
+  type UseWorldRenderLoopResult,
+  type WorldCameraStepResult,
+} from "./use-world-render-loop";
 
-const { drawPharosVilleMock, releasePharosVilleRendererCachesMock } = vi.hoisted(() => ({
-  drawPharosVilleMock: vi.fn(() => ({
-    drawableCount: 0,
-    drawableCounts: { underlay: 0, body: 0, overlay: 0, selection: 0 },
+const {
+  createThreeWorldRendererMock,
+  disposeThreeWorldRendererMock,
+  renderThreeWorldMock,
+} = vi.hoisted(() => {
+  const renderThreeWorldMock = vi.fn(() => ({
+    objectCount: 0,
+    gpu: { calls: 0, geometries: 0, lines: 0, points: 0, textures: 0, triangles: 0 },
     movingShipCount: 0,
+    rendererBackend: "three" as const,
     visibleShipCount: 0,
-    visibleTileCount: 0,
-  })),
-  releasePharosVilleRendererCachesMock: vi.fn(),
-}));
-
-vi.mock("../renderer/world-canvas", () => ({
-  drawPharosVille: drawPharosVilleMock,
-  releasePharosVilleRendererCaches: releasePharosVilleRendererCachesMock,
-}));
-
-function makeStubCanvasContext(): CanvasRenderingContext2D {
-  const noop = () => {};
-  const handler: ProxyHandler<object> = {
-    get(_target, prop) {
-      if (prop === "canvas") return null;
-      if (prop === "save" || prop === "restore" || prop === "setTransform" || prop === "translate" || prop === "scale" || prop === "rotate" || prop === "fillRect" || prop === "clearRect" || prop === "strokeRect" || prop === "beginPath" || prop === "closePath" || prop === "moveTo" || prop === "lineTo" || prop === "arc" || prop === "fill" || prop === "stroke" || prop === "drawImage" || prop === "fillText" || prop === "strokeText" || prop === "clip" || prop === "rect" || prop === "ellipse" || prop === "quadraticCurveTo" || prop === "bezierCurveTo" || prop === "setLineDash") {
-        return noop;
-      }
-      if (prop === "measureText") return () => ({ width: 0 });
-      if (prop === "createLinearGradient" || prop === "createRadialGradient" || prop === "createPattern") {
-        return () => ({ addColorStop: noop });
-      }
-      if (prop === "getImageData") return () => ({ data: new Uint8ClampedArray(4) });
-      return undefined;
-    },
-    set: () => true,
+  }));
+  const disposeThreeWorldRendererMock = vi.fn();
+  return {
+    createThreeWorldRendererMock: vi.fn(() => ({
+      dispose: disposeThreeWorldRendererMock,
+      render: renderThreeWorldMock,
+    })),
+    disposeThreeWorldRendererMock,
+    renderThreeWorldMock,
   };
-  return new Proxy({}, handler) as CanvasRenderingContext2D;
-}
+});
+
+const emptyLogoAssets: ThreeLogoAssets = {
+  getLogo: () => null,
+  getLogoGenerationKey: () => "test",
+};
+
+vi.mock("../three/world-renderer", () => ({
+  createThreeWorldRenderer: createThreeWorldRendererMock,
+}));
 
 describe("useWorldRenderLoop", () => {
   const world = buildPharosVilleWorld(makePharosVilleWorldInput());
@@ -64,8 +69,9 @@ describe("useWorldRenderLoop", () => {
   }> = [];
 
   beforeEach(() => {
-    drawPharosVilleMock.mockClear();
-    releasePharosVilleRendererCachesMock.mockClear();
+    createThreeWorldRendererMock.mockClear();
+    disposeThreeWorldRendererMock.mockClear();
+    renderThreeWorldMock.mockClear();
     // Don't fire scheduled callbacks during the test — we only care about
     // counts of cancel/request calls unless a test explicitly invokes one.
     let nextFrameId = 1;
@@ -80,9 +86,6 @@ describe("useWorldRenderLoop", () => {
     cafSpy = vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
       rafCallbacks.delete(id);
     });
-    HTMLCanvasElement.prototype.getContext = (function getContext() {
-      return makeStubCanvasContext();
-    }) as unknown as HTMLCanvasElement["getContext"];
     // Stub IntersectionObserver so the test can drive visibility transitions.
     intersectionObservers = [];
     const StubIntersectionObserver = class {
@@ -144,10 +147,12 @@ describe("useWorldRenderLoop", () => {
     onBucketFlip?: (bucket: number) => void;
     onInternals?: (internals: {
       adaptiveDprStateRef: { current: ReturnType<typeof initialAdaptiveDprState> };
-      canvasBudgetRef: { current: ReturnType<typeof resolveCanvasBudget> | null };
+      surfaceBudgetRef: { current: ReturnType<typeof resolveRenderSurfaceBudget> | null };
       cameraRef: { current: IsoCamera | null };
       canvasRef: { current: HTMLCanvasElement };
       canvasSizeRef: { current: { x: number; y: number } };
+      hitTargetsRef: { current: readonly HitTarget[] };
+      shipMotionSamplesRef: { current: ReadonlyMap<string, ShipMotionSample> };
     }) => void;
     onStepCamera?: (input: {
       cameraRef: { current: IsoCamera | null };
@@ -159,12 +164,11 @@ describe("useWorldRenderLoop", () => {
     reducedMotion?: boolean;
     wallClockHour?: number;
   }) {
-    const [assetManager] = useState(() => new PharosVilleAssetManager());
     const [canvasRef] = useState(() => ({ current: document.createElement("canvas") }));
     const [adaptiveDprStateRef] = useState(() => ({ current: initialAdaptiveDprState(initialRequestedDpr) }));
     const [maximumRequestedDprRef] = useState(() => ({ current: maximumRequestedDpr }));
-    const [canvasBudgetRef] = useState(() => ({
-      current: resolveCanvasBudget({ cssHeight: canvasSize.y, cssWidth: canvasSize.x, requestedDpr: initialRequestedDpr }),
+    const [surfaceBudgetRef] = useState(() => ({
+      current: resolveRenderSurfaceBudget({ cssHeight: canvasSize.y, cssWidth: canvasSize.x, requestedDpr: initialRequestedDpr }),
     }));
     const [cameraRef] = useState(() => ({ current: camera }));
     const [canvasSizeRef] = useState(() => ({ current: canvasSize }));
@@ -180,13 +184,22 @@ describe("useWorldRenderLoop", () => {
     const [mountEpochMsRef] = useState(() => ({ current: mountEpochMs }));
     hoveredDetailIdRef.current = hoveredDetailId;
     maximumRequestedDprRef.current = maximumRequestedDpr;
-    onInternals?.({ adaptiveDprStateRef, cameraRef, canvasBudgetRef, canvasRef, canvasSizeRef });
+    onInternals?.({
+      adaptiveDprStateRef,
+      cameraRef,
+      surfaceBudgetRef,
+      canvasRef,
+      canvasSizeRef,
+      hitTargetsRef,
+      shipMotionSamplesRef,
+    });
 
     // Pre-seed a snapshot so the loop's hit-target work has a target list.
     if (preseedSnapshot && !hitTargetSnapshotRef.current) {
-      const snapshot = createHitTargetSnapshot({
-        assets: assetManager,
+      const snapshot = createGardenObservatoryHitTargetSnapshot({
         camera,
+        hoveredDetailId,
+        selectedDetailId: null,
         shipMotionSamples: new Map(),
         viewport: { height: canvasSize.y, width: canvasSize.x },
         world,
@@ -202,18 +215,14 @@ describe("useWorldRenderLoop", () => {
     const result = useWorldRenderLoop({
       ...(onBucketFlip ? { onBucketFlip } : {}),
       adaptiveDprStateRef,
-      assetLoadErrors: [],
-      assetLoadTick: 0,
-      assetManager,
+      logoGeneration: 0,
+      logos: emptyLogoAssets,
       camera,
       cameraRef,
-      canvasBudgetRef,
+      surfaceBudgetRef,
       canvasRef,
       canvasSize,
       canvasSizeRef,
-      criticalAssetAttemptsSettled: true,
-      criticalAssetsLoaded: true,
-      deferredAssetsLoaded: true,
       hitTargetSnapshotRef,
       hitTargetsRef,
       hoveredDetailId,
@@ -226,7 +235,6 @@ describe("useWorldRenderLoop", () => {
       selectedDetailAnchor: null,
       selectedDetailId: null,
       selectedDetailIdRef,
-      setCriticalFramePainted: () => {},
       shipMotionSamplesRef,
       shipsById,
       stepCamera,
@@ -246,10 +254,19 @@ describe("useWorldRenderLoop", () => {
     });
   }
 
-  it("does not rebind RAF effect across many hover changes under reduced motion", () => {
+  async function renderWithReadyRenderer(ui: ReactElement) {
+    const result = render(ui);
+    await act(async () => {
+      await import("../three/world-renderer");
+    });
+    expect(createThreeWorldRendererMock).toHaveBeenCalled();
+    return result;
+  }
+
+  it("does not rebind RAF effect across many hover changes under reduced motion", async () => {
     let latest: UseWorldRenderLoopResult | null = null;
     const onResult = (r: UseWorldRenderLoopResult) => { latest = r; };
-    const { rerender, unmount } = render(<Harness hoveredDetailId={null} onResult={onResult} />);
+    const { rerender, unmount } = await renderWithReadyRenderer(<Harness hoveredDetailId={null} onResult={onResult} />);
 
     const cancelsAfterMount = cafSpy.mock.calls.length;
 
@@ -274,24 +291,59 @@ describe("useWorldRenderLoop", () => {
     expect(cafSpy.mock.calls.length - cancelsAfterMount).toBeLessThanOrEqual(1);
   });
 
-  it("releases renderer module caches only when the loop owner unmounts", () => {
-    const { rerender, unmount } = render(<Harness hoveredDetailId={null} onResult={() => {}} />);
+  it("disposes the Three renderer only when the loop owner unmounts", async () => {
+    const { rerender, unmount } = await renderWithReadyRenderer(<Harness hoveredDetailId={null} onResult={() => {}} />);
 
     rerender(<Harness hoveredDetailId="ship.hover-only" onResult={() => {}} />);
-    expect(releasePharosVilleRendererCachesMock).not.toHaveBeenCalled();
+    expect(disposeThreeWorldRendererMock).not.toHaveBeenCalled();
 
     unmount();
-    expect(releasePharosVilleRendererCachesMock).toHaveBeenCalledTimes(1);
+    expect(disposeThreeWorldRendererMock).toHaveBeenCalledTimes(1);
   });
 
-  it("requestPaint coalesces while a frame is pending under reduced motion", () => {
+  it("reports Three loading and ready states", async () => {
+    const statuses: UseWorldRenderLoopResult["rendererStatus"][] = [];
+    await renderWithReadyRenderer(
+      <Harness
+        hoveredDetailId={null}
+        onResult={(result) => {
+          statuses.push(result.rendererStatus);
+        }}
+      />,
+    );
+
+    expect(statuses).toContain("loading");
+    expect(statuses.at(-1)).toBe("ready");
+  });
+
+  it("fails cleanly when the WebGL context is lost", async () => {
+    let latest: UseWorldRenderLoopResult | null = null;
+    await renderWithReadyRenderer(
+      <Harness hoveredDetailId={null} onResult={(result) => {
+        latest = result;
+      }} />,
+    );
+    const createCalls = createThreeWorldRendererMock.mock.calls as unknown as Array<[CreateThreeWorldRendererInput]>;
+
+    act(() => {
+      createCalls[0]![0].onContextFailure("WebGL context lost");
+    });
+
+    expect((latest as UseWorldRenderLoopResult | null)?.rendererStatus).toBe("failed");
+    expect((latest as UseWorldRenderLoopResult | null)?.rendererFailure).toBe("WebGL context lost");
+    expect(disposeThreeWorldRendererMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("requestPaint coalesces while a frame is pending under reduced motion", async () => {
     let latest: UseWorldRenderLoopResult | null = null;
     const onResult = (r: UseWorldRenderLoopResult) => { latest = r; };
-    render(<Harness hoveredDetailId={null} onResult={onResult} />);
+    await renderWithReadyRenderer(<Harness hoveredDetailId={null} onResult={onResult} />);
 
-    // Mount triggers an initial draw plus the assetLoadTick repaint, leaving a
-    // RAF already pending (rafSpy was called at least once). Repeated
-    // requestPaint() must not schedule additional frames while one is pending.
+    act(() => {
+      latest!.requestPaint();
+    });
+    // Repeated requestPaint() calls must not schedule additional frames while
+    // the first requested frame is pending.
     const beforeRepeats = rafSpy.mock.calls.length;
     act(() => {
       latest!.requestPaint();
@@ -301,12 +353,18 @@ describe("useWorldRenderLoop", () => {
     expect(rafSpy.mock.calls.length).toBe(beforeRepeats);
   });
 
-  it("publishes frame pacing metrics from normal-motion RAF intervals", () => {
+  it("publishes frame pacing metrics from normal-motion RAF intervals", async () => {
     let latest: UseWorldRenderLoopResult | null = null;
     const onResult = (r: UseWorldRenderLoopResult) => { latest = r; };
-    render(<Harness hoveredDetailId={null} onResult={onResult} reducedMotion={false} />);
+    await renderWithReadyRenderer(<Harness hoveredDetailId={null} onResult={onResult} reducedMotion={false} />);
 
-    const base = performance.now() + 100;
+    // The first frames after a world lands carry the build, not a rendering
+    // cost, so the loop keeps WORLD_SWAP_SETTLE_FRAMES of them out of the
+    // pacing window. Burn them before the intervals under test.
+    const settle = performance.now() + 10;
+    fireLatestRaf(settle);
+
+    const base = settle + 100;
     fireLatestRaf(base);
     fireLatestRaf(base + 16);
     fireLatestRaf(base + 56);
@@ -344,10 +402,10 @@ describe("useWorldRenderLoop", () => {
     expect(latestResult?.frameRateFps ?? 0).toBeGreaterThan(0);
   });
 
-  it("publishes time to first coherent frame from the mount epoch", () => {
+  it("publishes time to first coherent frame from the mount epoch", async () => {
     const nowSpy = vi.spyOn(performance, "now").mockReturnValue(250);
     try {
-      render(<Harness hoveredDetailId={null} mountEpochMs={100} onResult={() => {}} />);
+      await renderWithReadyRenderer(<Harness hoveredDetailId={null} mountEpochMs={100} onResult={() => {}} />);
 
       const debug = (window as typeof window & {
         __pharosVilleDebug?: {
@@ -363,27 +421,27 @@ describe("useWorldRenderLoop", () => {
     }
   });
 
-  it("defers adaptive DPR backing-store resize until the next frame can repaint", () => {
+  it("applies an adaptive DPR change on the next Three render", async () => {
     let internals: {
       adaptiveDprStateRef: { current: ReturnType<typeof initialAdaptiveDprState> };
-      canvasBudgetRef: { current: ReturnType<typeof resolveCanvasBudget> | null };
+      surfaceBudgetRef: { current: ReturnType<typeof resolveRenderSurfaceBudget> | null };
       canvasRef: { current: HTMLCanvasElement };
     } | null = null;
     let fakeNow = 0;
     const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => fakeNow);
-    drawPharosVilleMock.mockImplementation(() => {
+    renderThreeWorldMock.mockImplementation(() => {
       fakeNow += 25;
       return {
-        drawableCount: 0,
-        drawableCounts: { underlay: 0, body: 0, overlay: 0, selection: 0 },
+        objectCount: 0,
+        gpu: { calls: 0, geometries: 0, lines: 0, points: 0, textures: 0, triangles: 0 },
         movingShipCount: 0,
+        rendererBackend: "three",
         visibleShipCount: 0,
-        visibleTileCount: 0,
       };
     });
 
     try {
-      render(
+      await renderWithReadyRenderer(
         <Harness
           hoveredDetailId={null}
           initialRequestedDpr={2}
@@ -397,9 +455,7 @@ describe("useWorldRenderLoop", () => {
       );
 
       expect(internals).not.toBeNull();
-      const canvas = internals!.canvasRef.current;
-      expect(canvas.width).toBe(1600);
-      expect(canvas.height).toBe(1200);
+      expect(renderThreeWorldMock).toHaveBeenLastCalledWith(expect.objectContaining({ dpr: 2 }));
 
       let downshifted = false;
       for (let index = 0; index < 32; index += 1) {
@@ -412,32 +468,33 @@ describe("useWorldRenderLoop", () => {
 
       expect(downshifted).toBe(true);
       expect(internals!.adaptiveDprStateRef.current.requestedDpr).toBe(1.875);
-      expect(internals!.canvasBudgetRef.current?.backingWidth).toBe(1500);
-      expect(internals!.canvasBudgetRef.current?.backingHeight).toBe(1125);
-      // The just-painted frame remains visible; resizing here would clear the
-      // canvas to black until the browser gets another RAF.
-      expect(canvas.width).toBe(1600);
-      expect(canvas.height).toBe(1200);
+      expect(internals!.surfaceBudgetRef.current?.backingWidth).toBe(1500);
+      expect(internals!.surfaceBudgetRef.current?.backingHeight).toBe(1125);
+      expect(renderThreeWorldMock).toHaveBeenLastCalledWith(expect.objectContaining({ dpr: 2 }));
 
       fireLatestRaf(2_000);
-      expect(canvas.width).toBe(1500);
-      expect(canvas.height).toBe(1125);
+      expect(renderThreeWorldMock).toHaveBeenLastCalledWith(expect.objectContaining({ dpr: 1.875 }));
     } finally {
       nowSpy.mockRestore();
-      drawPharosVilleMock.mockImplementation(() => ({
-        drawableCount: 0,
-        drawableCounts: { underlay: 0, body: 0, overlay: 0, selection: 0 },
+      renderThreeWorldMock.mockImplementation(() => ({
+        objectCount: 0,
+        gpu: { calls: 0, geometries: 0, lines: 0, points: 0, textures: 0, triangles: 0 },
         movingShipCount: 0,
+        rendererBackend: "three",
         visibleShipCount: 0,
-        visibleTileCount: 0,
       }));
     }
   });
 
-  it("does not turn reduced-motion paints into a continuous frame-pacing loop", () => {
+  it("does not turn reduced-motion paints into a continuous frame-pacing loop", async () => {
     const onResult = () => {};
-    render(<Harness hoveredDetailId={null} onResult={onResult} />);
+    let latest: UseWorldRenderLoopResult | null = null;
+    await renderWithReadyRenderer(<Harness hoveredDetailId={null} onResult={(result) => {
+      latest = result;
+      onResult();
+    }} />);
 
+    act(() => latest!.requestPaint());
     const beforePaint = rafSpy.mock.calls.length;
     fireLatestRaf(performance.now() + 100);
     expect(rafSpy.mock.calls.length).toBe(beforePaint);
@@ -452,7 +509,7 @@ describe("useWorldRenderLoop", () => {
     expect(debug?.renderMetrics?.framePacing?.sampleCount).toBe(0);
   });
 
-  it("advances the route bucket under reduced motion without starting a continuous RAF loop", () => {
+  it("advances the route bucket under reduced motion without starting a continuous RAF loop", async () => {
     vi.useFakeTimers();
     const bucketFlipSpy = vi.fn();
     let latest: UseWorldRenderLoopResult | null = null;
@@ -475,13 +532,14 @@ describe("useWorldRenderLoop", () => {
     }
 
     try {
-      render(<BucketHarness />);
+      await renderWithReadyRenderer(<BucketHarness />);
       const latestResult = latest as UseWorldRenderLoopResult | null;
       expect(latestResult?.requestPaint).toBeDefined();
 
+      act(() => latestResult!.requestPaint());
       fireLatestRaf(1);
       const rafsAfterInitialPaint = rafSpy.mock.calls.length;
-      const drawsAfterInitialPaint = drawPharosVilleMock.mock.calls.length;
+      const drawsAfterInitialPaint = renderThreeWorldMock.mock.calls.length;
 
       act(() => {
         vi.advanceTimersByTime(599_999);
@@ -497,25 +555,23 @@ describe("useWorldRenderLoop", () => {
       expect(rafSpy.mock.calls.length).toBe(rafsAfterInitialPaint + 1);
 
       fireLatestRaf(600_000);
-      expect(drawPharosVilleMock.mock.calls.length).toBe(drawsAfterInitialPaint + 1);
+      expect(renderThreeWorldMock.mock.calls.length).toBe(drawsAfterInitialPaint + 1);
       expect(rafSpy.mock.calls.length).toBe(rafsAfterInitialPaint + 1);
 
-      const drawCalls = drawPharosVilleMock.mock.calls as unknown as Array<[{
-        motion: { reducedMotion: boolean; timeSeconds: number };
-      }]>;
+      const drawCalls = renderThreeWorldMock.mock.calls as unknown as Array<[ThreeWorldRendererFrame]>;
       const lastCall = drawCalls[drawCalls.length - 1]![0];
-      expect(lastCall.motion.reducedMotion).toBe(true);
-      expect(lastCall.motion.timeSeconds).toBe(0);
+      expect(lastCall.reducedMotion).toBe(true);
+      expect(lastCall.timeSeconds).toBe(0);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("keeps the animated RAF loop scheduled when the active camera ref is temporarily unavailable", () => {
+  it("keeps the animated RAF loop scheduled when the active camera ref is temporarily unavailable", async () => {
     let internals: {
       cameraRef: { current: IsoCamera | null };
     } | null = null;
-    render(
+    await renderWithReadyRenderer(
       <Harness
         hoveredDetailId={null}
         onInternals={(nextInternals) => {
@@ -534,8 +590,8 @@ describe("useWorldRenderLoop", () => {
     expect(rafSpy.mock.calls.length).toBe(beforeFrame + 1);
   });
 
-  it("keeps the animated RAF loop scheduled when the camera step returns no frame camera", () => {
-    render(
+  it("keeps the animated RAF loop scheduled when the camera step returns no frame camera", async () => {
+    await renderWithReadyRenderer(
       <Harness
         hoveredDetailId={null}
         onResult={() => {}}
@@ -550,26 +606,20 @@ describe("useWorldRenderLoop", () => {
     expect(rafSpy.mock.calls.length).toBe(beforeFrame + 1);
   });
 
-  it("passes the resolved wall-clock hour into renderer motion state", () => {
-    render(<Harness hoveredDetailId={null} onResult={() => {}} wallClockHour={22.5} />);
+  it("passes the resolved wall-clock hour into renderer motion state", async () => {
+    await renderWithReadyRenderer(<Harness hoveredDetailId={null} onResult={() => {}} wallClockHour={22.5} />);
 
-    expect(drawPharosVilleMock).toHaveBeenCalled();
-    const drawCalls = drawPharosVilleMock.mock.calls as unknown as Array<[{
-      motion: { wallClockHour: number };
-      seaState?: {
-        reducedMotion: boolean;
-        source: { nightFactor: number };
-      };
-    }]>;
+    expect(renderThreeWorldMock).toHaveBeenCalled();
+    const drawCalls = renderThreeWorldMock.mock.calls as unknown as Array<[ThreeWorldRendererFrame]>;
     const lastCall = drawCalls[drawCalls.length - 1]![0];
-    expect(lastCall.motion.wallClockHour).toBe(22.5);
-    expect(lastCall.seaState?.reducedMotion).toBe(true);
-    expect(lastCall.seaState?.source.nightFactor).toBe(1);
+    expect(lastCall.wallClockHour).toBe(22.5);
+    expect(lastCall.seaState.reducedMotion).toBe(true);
+    expect(lastCall.seaState.source.nightFactor).toBe(1);
   });
 
-  it("preserves the current hover when building the initial hit-target snapshot", () => {
+  it("preserves the current hover when building the initial hit-target snapshot", async () => {
     const hoveredShip = world.ships[0]!;
-    render(
+    await renderWithReadyRenderer(
       <Harness
         hoveredDetailId={hoveredShip.detailId}
         onInternals={({ canvasSizeRef }) => {
@@ -580,15 +630,13 @@ describe("useWorldRenderLoop", () => {
       />,
     );
 
-    expect(drawPharosVilleMock).toHaveBeenCalled();
-    const drawCalls = drawPharosVilleMock.mock.calls as unknown as Array<[{
-      hoveredTarget: HitTarget | null;
-    }]>;
+    expect(renderThreeWorldMock).toHaveBeenCalled();
+    const drawCalls = renderThreeWorldMock.mock.calls as unknown as Array<[ThreeWorldRendererFrame]>;
     const lastCall = drawCalls[drawCalls.length - 1]![0];
-    expect(lastCall.hoveredTarget?.detailId).toBe(hoveredShip.detailId);
+    expect(lastCall.hoveredDetailId).toBe(hoveredShip.detailId);
   });
 
-  it("accepts onBucketFlip callback without error and does not call it on initial mount (B2)", () => {
+  it("accepts onBucketFlip callback without error and does not call it on initial mount (B2)", async () => {
     // B2 lifecycle wiring: verify onBucketFlip is wired into the interface and
     // does not fire on the initial frame (accSeconds starts at 0, bucket=0,
     // which equals lastBucketRef=0 so no flip). A full bucket-flip integration
@@ -596,12 +644,11 @@ describe("useWorldRenderLoop", () => {
     // because the jsdom RAF mock only runs drawFrame once at mount.
     const bucketFlipSpy = vi.fn();
     function HarnessWithBucketFlip() {
-      const [assetManager] = useState(() => new PharosVilleAssetManager());
       const [canvasRef] = useState(() => ({ current: document.createElement("canvas") }));
       const [adaptiveDprStateRef] = useState(() => ({ current: initialAdaptiveDprState(1) }));
       const [maximumRequestedDprRef] = useState(() => ({ current: 1 }));
-      const [canvasBudgetRef] = useState(() => ({
-        current: resolveCanvasBudget({ cssHeight: canvasSize.y, cssWidth: canvasSize.x, requestedDpr: 1 }),
+      const [surfaceBudgetRef] = useState(() => ({
+        current: resolveRenderSurfaceBudget({ cssHeight: canvasSize.y, cssWidth: canvasSize.x, requestedDpr: 1 }),
       }));
       const [cameraRef] = useState(() => ({ current: camera }));
       const [canvasSizeRef] = useState(() => ({ current: canvasSize }));
@@ -618,18 +665,14 @@ describe("useWorldRenderLoop", () => {
       useWorldRenderLoop({
         onBucketFlip: bucketFlipSpy,
         adaptiveDprStateRef,
-        assetLoadErrors: [],
-        assetLoadTick: 0,
-        assetManager,
+        logoGeneration: 0,
+        logos: emptyLogoAssets,
         camera,
         cameraRef,
-        canvasBudgetRef,
+        surfaceBudgetRef,
         canvasRef,
         canvasSize,
         canvasSizeRef,
-        criticalAssetAttemptsSettled: true,
-        criticalAssetsLoaded: true,
-        deferredAssetsLoaded: true,
         hitTargetSnapshotRef,
         hitTargetsRef,
         hoveredDetailId: null,
@@ -642,7 +685,6 @@ describe("useWorldRenderLoop", () => {
         selectedDetailAnchor: null,
         selectedDetailId: null,
         selectedDetailIdRef,
-        setCriticalFramePainted: () => {},
         shipMotionSamplesRef,
         shipsById,
         stepCamera: () => ({ camera: cameraRef.current, cameraChanged: false, cameraIntentActive: false }),
@@ -651,16 +693,16 @@ describe("useWorldRenderLoop", () => {
       });
       return null;
     }
-    const { unmount } = render(<HarnessWithBucketFlip />);
+    const { unmount } = await renderWithReadyRenderer(<HarnessWithBucketFlip />);
     // Initial drawFrame runs with accSeconds=0 (bucket 0 = lastBucket 0): no flip.
     expect(bucketFlipSpy).not.toHaveBeenCalled();
     unmount();
   });
 
-  it("pauses RAF when canvas reports intersectionRatio 0 and resumes when it goes back to 1", () => {
+  it("pauses RAF when canvas reports intersectionRatio 0 and resumes when it goes back to 1", async () => {
     let latest: UseWorldRenderLoopResult | null = null;
     const onResult = (r: UseWorldRenderLoopResult) => { latest = r; };
-    render(<Harness hoveredDetailId={null} onResult={onResult} />);
+    await renderWithReadyRenderer(<Harness hoveredDetailId={null} onResult={onResult} />);
 
     // Find the IntersectionObserver instance attached to the canvas.
     const observer = intersectionObservers.find((entry) => entry.target !== null);
@@ -678,12 +720,31 @@ describe("useWorldRenderLoop", () => {
     expect(rafSpy.mock.calls.length).toBeGreaterThan(rafsAfterOffscreen);
   });
 
-  it("steps camera after ship samples and draws with the updated camera", () => {
+  it("does not draw an initial frame while the document is hidden", async () => {
+    const visibilitySpy = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+
+    const { unmount } = await renderWithReadyRenderer(<Harness hoveredDetailId={null} onResult={() => {}} />);
+
+    expect(renderThreeWorldMock).not.toHaveBeenCalled();
+    expect(rafSpy).not.toHaveBeenCalled();
+
+    unmount();
+    visibilitySpy.mockRestore();
+  });
+
+  it("steps camera after ship samples and draws with the updated camera", async () => {
     const nextCamera = { ...camera, offsetX: camera.offsetX + 48, offsetY: camera.offsetY - 12 };
+    let internals: {
+      hitTargetsRef: { current: readonly HitTarget[] };
+      shipMotionSamplesRef: { current: ReadonlyMap<string, ShipMotionSample> };
+    } | null = null;
     let samplesAtStep = 0;
-    render(
+    await renderWithReadyRenderer(
       <Harness
         hoveredDetailId={null}
+        onInternals={(nextInternals) => {
+          internals = nextInternals;
+        }}
         onResult={() => {}}
         reducedMotion={false}
         onStepCamera={({ cameraRef, samples }) => {
@@ -695,29 +756,28 @@ describe("useWorldRenderLoop", () => {
     );
 
     expect(samplesAtStep).toBe(world.ships.length);
-    expect(drawPharosVilleMock).toHaveBeenCalled();
-    const drawCalls = drawPharosVilleMock.mock.calls as unknown as Array<[{
-      camera: IsoCamera;
-      targets: readonly HitTarget[];
-    }]>;
+    expect(renderThreeWorldMock).toHaveBeenCalled();
+    const drawCalls = renderThreeWorldMock.mock.calls as unknown as Array<[ThreeWorldRendererFrame]>;
     const lastCall = drawCalls[drawCalls.length - 1]![0];
     expect(lastCall.camera).toEqual(nextCamera);
 
-    const originalSnapshot = createHitTargetSnapshot({
-      assets: new PharosVilleAssetManager(),
+    const originalSnapshot = createGardenObservatoryHitTargetSnapshot({
       camera,
-      shipMotionSamples: new Map(),
+      hoveredDetailId: null,
+      selectedDetailId: null,
+      shipMotionSamples: internals!.shipMotionSamplesRef.current,
       viewport: { height: canvasSize.y, width: canvasSize.x },
       world,
     });
-    const shiftedSnapshot = createHitTargetSnapshot({
-      assets: new PharosVilleAssetManager(),
+    const shiftedSnapshot = createGardenObservatoryHitTargetSnapshot({
       camera: nextCamera,
-      shipMotionSamples: new Map(),
+      hoveredDetailId: null,
+      selectedDetailId: null,
+      shipMotionSamples: internals!.shipMotionSamplesRef.current,
       viewport: { height: canvasSize.y, width: canvasSize.x },
       world,
     });
-    const drawnLighthouse = lastCall.targets.find((target) => target.detailId === "lighthouse");
+    const drawnLighthouse = internals!.hitTargetsRef.current.find((target) => target.detailId === "lighthouse");
     const originalLighthouse = originalSnapshot.targetsByDetailId.get("lighthouse");
     const shiftedLighthouse = shiftedSnapshot.targetsByDetailId.get("lighthouse");
 
@@ -726,8 +786,8 @@ describe("useWorldRenderLoop", () => {
     expect(drawnLighthouse?.rect.y).toBeCloseTo(shiftedLighthouse!.rect.y);
   });
 
-  it("publishes camera loop proof fields", () => {
-    render(<Harness hoveredDetailId={null} onResult={() => {}} reducedMotion={false} />);
+  it("publishes camera loop proof fields", async () => {
+    await renderWithReadyRenderer(<Harness hoveredDetailId={null} onResult={() => {}} reducedMotion={false} />);
 
     const debug = (window as typeof window & {
       __pharosVilleDebug?: {

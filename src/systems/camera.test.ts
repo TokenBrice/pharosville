@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { cameraZoomLabel, clampCameraToMap, defaultCamera, followTile, panCamera, zoomIn, zoomOut } from "./camera";
-import { tileToScreen } from "./projection";
+import { ABSOLUTE_MIN_ZOOM, minZoomForViewport, tileToScreen } from "./projection";
 import { buildPharosVilleMap, CEMETERY_CENTER, isWaterTileKind, PHAROSVILLE_MAP_HEIGHT, PHAROSVILLE_MAP_WIDTH, PIGEON_ISLAND_CENTER } from "./world-layout";
 import type { TerrainKind } from "./world-types";
 
@@ -34,7 +34,9 @@ describe("camera", () => {
       const camera = defaultCamera({ height: viewport.y, map, width: viewport.x });
       const center = tileToScreen(centerTile, camera);
 
-      expect(camera.zoom).toBeCloseTo(0.8136);
+      // 0.7776 = fitCameraToMap floor 0.72 × tighten 1.08 (reframed from
+      // 0.8136 so the 34-unit Pharos crown keeps headroom at 1440×960).
+      expect(camera.zoom).toBeCloseTo(0.7776);
       // Lower bound is 0.39 (not 0.4) so the constant 128 px right-gutter
       // reservation still falls inside the "left-of-center" band at the
       // 1000-wide gate floor, where the gutter is proportionally larger.
@@ -99,3 +101,41 @@ function landBoundsCenter(tiles: Array<{ x: number; y: number; kind: TerrainKind
     y: (Math.min(...ys) + Math.max(...ys)) / 2,
   };
 }
+
+describe("N1 zoom floor", () => {
+  const map = { height: 112, width: 112 };
+
+  it("stops zoom-out at the point the map still frames the viewport", () => {
+    // The map's iso bounds are 1760x880, so 1920x1080 frames it at ~1.09. The
+    // old flat 0.48 floor let the camera pull back to roughly 2.3x the map's
+    // area, and the world read as a small tile adrift in empty ocean.
+    // The 112-tile map's iso bounds are 3520x1760, so 1920x1080 frames it at
+    // ~0.545. The floor sits just under that so a sliver of sea frames the
+    // world; it must never sit above the fit or the map cannot be seen whole.
+    const viewport = { x: 1920, y: 1080 };
+    const floor = minZoomForViewport(viewport, map);
+    const fit = Math.min(1920 / 3520, 1080 / 1760);
+    expect(floor).toBeLessThanOrEqual(fit);
+    expect(floor).toBeGreaterThan(fit * 0.9);
+
+    let camera = { offsetX: 900, offsetY: 300, zoom: 1.1 };
+    for (let step = 0; step < 40; step += 1) camera = zoomOut(camera, viewport, map);
+    expect(camera.zoom).toBeCloseTo(floor, 5);
+  });
+
+  it("scales the floor with the viewport so small screens still see it all", () => {
+    const large = minZoomForViewport({ x: 1920, y: 1080 }, map);
+    const small = minZoomForViewport({ x: 1280, y: 720 }, map);
+    expect(small).toBeLessThan(large);
+    // A tiny viewport must never be pinned above the absolute floor, or the
+    // world could not be framed at all.
+    expect(minZoomForViewport({ x: 300, y: 200 }, map)).toBe(ABSOLUTE_MIN_ZOOM);
+  });
+
+  it("still allows zooming in past the floor", () => {
+    const viewport = { x: 1920, y: 1080 };
+    const floor = minZoomForViewport(viewport, map);
+    const zoomed = zoomIn({ offsetX: 900, offsetY: 300, zoom: floor }, viewport, map);
+    expect(zoomed.zoom).toBeGreaterThan(floor);
+  });
+});

@@ -158,11 +158,13 @@ function sourceFieldsForRiskWaterPlacement(placement: ShipNode["riskPlacement"],
   return ["pegSummary.coins[]", "stress.signals[]"];
 }
 
+// Panel-facing prose, in the harbor's voice rather than the renderer's: the
+// water style and band key stay in the fact rows and the ledger.
 function summaryForRiskWaterPlacement(placement: ShipNode["riskPlacement"], band: DewsAreaBand | null): string {
   const area = riskWaterAreaForPlacement(placement);
-  if (band) return `${area.label} uses ${area.waterStyle} for ships placed in the ${band} risk-water band.`;
-  if (placement === "ledger-mooring") return "Ledger Mooring uses ledger water for NAV ledger assets, including assets that also have standard peg or DEWS rows.";
-  return `${area.label} is a named risk-water area.`;
+  if (band) return `${area.label} — ${area.reading}. Ships whose evidence reads ${band} ride at anchor here.`;
+  if (placement === "ledger-mooring") return "Ledger Mooring holds NAV-priced ledger assets, moored where attestation rather than the market peg sets the price. A coin can moor here and still carry peg or early-warning rows.";
+  return `${area.label} — ${area.reading}.`;
 }
 
 function buildAreas(shipCountsByRiskPlacement: ReadonlyMap<ShipNode["riskPlacement"], number>): PharosVilleWorld["areas"] {

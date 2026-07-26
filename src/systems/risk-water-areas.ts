@@ -1,4 +1,7 @@
 import type { DewsAreaBand, ShipRiskPlacement, ShipWaterZone, TerrainKind } from "./world-types";
+import { zoneWorldTile } from "./map-scale";
+import { snapToSeaBody } from "./sea-body-anchors";
+import type { SeaBodyName } from "./sea-bodies";
 
 type TileCoordinate = { x: number; y: number };
 
@@ -44,26 +47,43 @@ export const DEWS_AREA_PLACEMENTS: Record<DewsAreaBand, ShipRiskPlacement> = {
   CALM: "safe-harbor",
 };
 
-export const RISK_WATER_AREAS: Record<ShipRiskPlacement, RiskWaterAreaDefinition> = {
+/**
+ * Authored in DESIGN SPACE (the original 56-tile grid). `RISK_WATER_AREAS`
+ * below exposes the same table scaled onto the live world grid, so these
+ * numbers stay readable against the design diagrams while the world is 2x
+ * larger (N1).
+ */
+const AUTHORED_RISK_WATER_AREAS: Record<ShipRiskPlacement, RiskWaterAreaDefinition> = {
   "safe-harbor": {
     placement: "safe-harbor",
     label: "Calm Anchorage",
     reading: "Steady peg evidence; the safe default berth",
     band: "CALM",
-    regionTile: { x: 8, y: 35 },
-    labelTile: { x: 8, y: 35 },
+    // Z1 (data anchors from the operator-approved sketch
+    // agents/2026-07-24-zone-recomposition-sketch.md): Calm Anchorage keeps
+    // its south-west calm-water anchors. Zones-v2 (operator overlay): the
+    // RENDERED ring re-centers on the island as the inner harbor ring — the
+    // display composition lives in garden-observatory-slice.ts
+    // (AREA_DISPLAY_CENTER / AREA_LABEL_TILE), not in this data.
+    regionTile: { x: 11, y: 36 },
+    labelTile: { x: 11, y: 36 },
     terrain: "calm-water",
     validTerrains: ["calm-water"],
     waterStyle: "left-edge calm anchorage",
     motionZone: "calm",
+    // N2: the extreme south-west corner became the wreck shoals, so Calm's
+    // southern anchors move north out of the graveyard's water.
     shipAnchors: [
       { x: 0, y: 15 },
       { x: 0, y: 27 },
-      { x: 0, y: 39 },
-      { x: 0, y: 45 },
+      { x: 0, y: 33 },
+      { x: 3, y: 36 },
       { x: 6, y: 20 },
       { x: 8, y: 32 },
-      { x: 14, y: 42 },
+      { x: 16, y: 40 },
+      // Z1 optional additions so moored ships populate the new ring.
+      { x: 13, y: 41 },
+      { x: 19, y: 45 },
     ],
     scatterRadius: { x: 7, y: 15 },
   },
@@ -72,8 +92,11 @@ export const RISK_WATER_AREAS: Record<ShipRiskPlacement, RiskWaterAreaDefinition
     label: "Watch Breakwater",
     reading: "Early-warning signals worth watching",
     band: "WATCH",
-    regionTile: { x: 48, y: 44 },
-    labelTile: { x: 51, y: 45 },
+    // Z1: Watch Breakwater anchors the south basin. Zones-v2 (operator
+    // overlay): the RENDERED ellipse re-centers on the island as the
+    // dominant monitored sea (see garden-observatory-slice.ts).
+    regionTile: { x: 38, y: 48 },
+    labelTile: { x: 38, y: 48 },
     terrain: "watch-water",
     validTerrains: ["watch-water"],
     waterStyle: "south-basin and east-shelf watch breakwater",
@@ -104,8 +127,11 @@ export const RISK_WATER_AREAS: Record<ShipRiskPlacement, RiskWaterAreaDefinition
     label: "Alert Channel",
     reading: "Elevated DEWS alert; pressure building",
     band: "ALERT",
-    regionTile: { x: 47, y: 14 },
-    labelTile: { x: 47, y: 14 },
+    // Z1: Alert Channel anchors its painted alert-water ring. Zones-v2
+    // (operator overlay): the RENDERED arc centers off-frame NE, outermost of
+    // the Alert>Warning>Danger escalation (see garden-observatory-slice.ts).
+    regionTile: { x: 50, y: 16 },
+    labelTile: { x: 50, y: 16 },
     terrain: "alert-water",
     validTerrains: ["alert-water"],
     waterStyle: "east-corner alert ring",
@@ -193,6 +219,47 @@ export const RISK_WATER_AREAS: Record<ShipRiskPlacement, RiskWaterAreaDefinition
     scatterRadius: { x: 14, y: 5 },
   },
 };
+
+/** Which sea body each placement's water is. */
+const SEA_BODY_FOR_PLACEMENT: Record<ShipRiskPlacement, SeaBodyName> = {
+  "safe-harbor": "calm",
+  "breakwater-edge": "watch",
+  "harbor-mouth-watch": "alert",
+  "outer-rough-water": "warning",
+  "storm-shelf": "danger",
+  "ledger-mooring": "ledger",
+};
+
+/**
+ * N1: zone anchors are stretched onto the enlarged grid alongside the zone
+ * terrain itself, so a band's ships, label and region tile all land inside the
+ * band's painted water exactly as they did at the authored scale.
+ *
+ * Z3 (Sea Master, 2026-07-25): and then SNAPPED into that water.
+ *
+ * Scaling alone was only ever correct while the bands stayed where they were
+ * authored. The reshape moved all of them, and an anchor a few tiles outside
+ * its own band is silently expensive: ship placement burns twelve attempts and
+ * falls through to the nearest coast, patrols sail to the wrong zone's water,
+ * and the DOM label lands over a body it does not name. Snapping keeps each
+ * authored tile's intent — roughly where it was, in the same relationship to
+ * its neighbours — while guaranteeing it is in the water it claims.
+ */
+function scaleRiskWaterArea(area: RiskWaterAreaDefinition): RiskWaterAreaDefinition {
+  const body = SEA_BODY_FOR_PLACEMENT[area.placement];
+  const snap = (tile: TileCoordinate): TileCoordinate => snapToSeaBody(zoneWorldTile(tile), body);
+  return {
+    ...area,
+    labelTile: snap(area.labelTile),
+    regionTile: snap(area.regionTile),
+    shipAnchors: area.shipAnchors.map(snap),
+    scatterRadius: zoneWorldTile(area.scatterRadius),
+  };
+}
+
+export const RISK_WATER_AREAS: Record<ShipRiskPlacement, RiskWaterAreaDefinition> = Object.fromEntries(
+  SHIP_RISK_PLACEMENTS.map((placement) => [placement, scaleRiskWaterArea(AUTHORED_RISK_WATER_AREAS[placement])]),
+) as Record<ShipRiskPlacement, RiskWaterAreaDefinition>;
 
 function mapRiskWaterAreas<T>(select: (area: RiskWaterAreaDefinition) => T): Record<ShipRiskPlacement, T> {
   return Object.fromEntries(

@@ -20,11 +20,12 @@ import {
   riskPlacementWaterTiles,
 } from "../../risk-water-placement";
 import {
-  SHIP_SCATTER_RADIUS,
+  RISK_WATER_REGION_TILES as REGION_TILES,
   SHIP_RISK_PLACEMENTS,
-  SHIP_WATER_ANCHORS,
   riskWaterAreaForPlacement,
 } from "../../risk-water-areas";
+import { seaBodyAnchors, seaBodyScatterRadius } from "../../sea-body-anchors";
+import type { SeaBodyName } from "../../sea-bodies";
 import { resolveShipVisual } from "../../ship-visuals";
 import { stableHash, stableOffset, stableUnit } from "../../stable-random";
 import { tileKey } from "../../tile-key";
@@ -32,7 +33,6 @@ import {
   clampMapTile,
   nearestAvailableWaterTile,
   nearestWaterTile,
-  REGION_TILES,
 } from "../../world-layout";
 import type {
   DockNode,
@@ -43,6 +43,16 @@ import type {
   ShipRiskPlacement,
 } from "../../world-types";
 import type { BuildShipsStage, PharosVilleInputs } from "../pipeline-types";
+
+/** Which sea body each risk placement's ships belong in. */
+const SEA_BODY_FOR_PLACEMENT: Record<ShipRiskPlacement, SeaBodyName> = {
+  "safe-harbor": "calm",
+  "breakwater-edge": "watch",
+  "harbor-mouth-watch": "alert",
+  "outer-rough-water": "warning",
+  "storm-shelf": "danger",
+  "ledger-mooring": "ledger",
+};
 
 function activeAssets(stablecoins: StablecoinListResponse | null | undefined): StablecoinData[] {
   return (stablecoins?.peggedAssets ?? []).filter((asset) => (
@@ -65,21 +75,39 @@ function buildShipChainPresence(asset: StablecoinData, renderedDockChainIds: Rea
   }));
 }
 
+/**
+ * Z3: anchors come from the BODY, not from a table describing one.
+ *
+ * These used to be ~60 hand-authored design-space tiles per placement. That is
+ * a description of one particular partition, and it rots silently the moment
+ * the partition changes: an anchor outside its own body fails the eligibility
+ * test twelve times over and falls through to `nearestRiskPlacementWaterTile`,
+ * which piles the ships onto whichever edge happens to be nearest. The Sea
+ * Master reshape would have rotted every one of them at once.
+ *
+ * `seaBodyAnchors` farthest-point samples the body's real tiles instead, so the
+ * fleet follows the coastline wherever it goes.
+ */
+const ANCHORS_PER_BODY = 14;
+
 function shipPlacementAnchor(asset: StablecoinData, placement: ShipNode["riskPlacement"]): { x: number; y: number } {
-  const anchors = SHIP_WATER_ANCHORS[placement];
-  return anchors[stableHash(`${asset.id}.${placement}.anchor`) % anchors.length] ?? REGION_TILES[placement];
+  const body = SEA_BODY_FOR_PLACEMENT[placement];
+  const anchors = body ? seaBodyAnchors(body, ANCHORS_PER_BODY) : [];
+  if (anchors.length === 0) return REGION_TILES[placement];
+  return anchors[stableHash(`${asset.id}.${placement}.anchor`) % anchors.length]!;
 }
 
 function shipTile(asset: StablecoinData, placement: ShipNode["riskPlacement"]): { x: number; y: number } {
   const base = shipPlacementAnchor(asset, placement);
-  const radius = SHIP_SCATTER_RADIUS[placement];
+  const body = SEA_BODY_FOR_PLACEMENT[placement];
+  const radius = body ? seaBodyScatterRadius(body, ANCHORS_PER_BODY) : 6;
   for (let attempt = 0; attempt < 12; attempt += 1) {
     const angle = stableUnit(`${asset.id}.${placement}.angle.${attempt}`) * Math.PI * 2;
     const distance = 0.25 + Math.sqrt(stableUnit(`${asset.id}.${placement}.distance.${attempt}`)) * 0.75;
     const tile = {
       ...clampMapTile({
-        x: Math.round(base.x + Math.cos(angle) * radius.x * distance + stableOffset(`${asset.id}.risk.x.${attempt}`, 1) * 0.3),
-        y: Math.round(base.y + Math.sin(angle) * radius.y * distance + stableOffset(`${asset.id}.risk.y.${attempt}`, 1) * 0.3),
+        x: Math.round(base.x + Math.cos(angle) * radius * distance + stableOffset(`${asset.id}.risk.x.${attempt}`, 1) * 0.3),
+        y: Math.round(base.y + Math.sin(angle) * radius * distance + stableOffset(`${asset.id}.risk.y.${attempt}`, 1) * 0.3),
       }),
     };
     if (isRiskPlacementWaterTile(tile, placement)) return tile;
@@ -281,12 +309,31 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
   return spreadShipRiskAnchorsAcrossWater(ships);
 }
 
+// One world build asks for the fleet twice: the scaffold stage needs the
+// per-placement counts to size the DEWS areas, then the ship stage needs the
+// ships themselves. Both calls pass the same `inputs` and the same `docks`
+// array, so a one-entry identity cache collapses them into a single run.
+// Without it the whole placement pipeline — spread included — executed twice
+// per build.
+let lastShipsInputs: PharosVilleInputs | null = null;
+let lastShipsDocks: readonly DockNode[] | null = null;
+let lastShips: ShipNode[] | null = null;
+
+function buildShipsCached(inputs: PharosVilleInputs, docks: readonly DockNode[]): ShipNode[] {
+  if (lastShips && lastShipsInputs === inputs && lastShipsDocks === docks) return lastShips;
+  const ships = buildShips(inputs, docks);
+  lastShipsInputs = inputs;
+  lastShipsDocks = docks;
+  lastShips = ships;
+  return ships;
+}
+
 export function countShipsByRiskPlacement(
   inputs: PharosVilleInputs,
   docks: readonly DockNode[],
 ): ReadonlyMap<ShipRiskPlacement, number> {
   const counts = new Map<ShipRiskPlacement, number>();
-  for (const ship of buildShips(inputs, docks)) {
+  for (const ship of buildShipsCached(inputs, docks)) {
     counts.set(ship.riskPlacement, (counts.get(ship.riskPlacement) ?? 0) + 1);
   }
   return counts;
@@ -370,43 +417,73 @@ function othersSpread(
   occupied: Set<string>,
 ): ShipNode[] {
   const candidates = riskPlacementWaterTiles(placement);
-  const selectedTiles: { x: number; y: number }[] = [];
+  // Distance from each candidate to the NEAREST already-placed ship in this
+  // placement, maintained incrementally. Scoring used to recompute that
+  // minimum from scratch for every candidate against every placed ship, which
+  // is O(candidates x ships^2) — on the live fleet that was ~3.8s of the
+  // startup block all by itself (Calm alone runs ~5000 candidates x ~110
+  // ships). The same farthest-point-sampling trick `seaBodyAnchors` already
+  // uses makes it O(candidates x ships) and leaves every chosen tile
+  // unchanged. POSITIVE_INFINITY until the first ship lands, mirroring
+  // `minTileDistance` over an empty list.
+  const spacingToNearest = new Float64Array(candidates.length).fill(Number.POSITIVE_INFINITY);
+  let placedCount = 0;
 
   return ships.map((ship) => {
     const riskTile = spacedRiskPlacementTile({
       candidates,
+      hasPlaced: placedCount > 0,
       occupied,
       preferred: ship.riskTile,
-      selectedTiles,
+      spacingToNearest,
       seed: `${ship.id}.${placement}.risk-spread`,
     }) ?? nearestAvailableWaterTile(ship.riskTile, occupied);
 
     occupied.add(tileKey(riskTile));
-    selectedTiles.push(riskTile);
+    for (let index = 0; index < candidates.length; index += 1) {
+      const candidate = candidates[index]!;
+      const dx = candidate.x - riskTile.x;
+      const dy = candidate.y - riskTile.y;
+      // sqrt of the exact integer sum, not Math.hypot: same value for tile
+      // offsets (no overflow to guard against), several times cheaper, and
+      // this loop runs once per candidate per ship.
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      if (distance < spacingToNearest[index]!) spacingToNearest[index] = distance;
+    }
+    placedCount += 1;
     return { ...ship, tile: riskTile, riskTile };
   });
 }
 
+/** Upper bound on the deterministic tie-breaking jitter below. */
+const SPREAD_JITTER_MAX = 0.001;
+
 function spacedRiskPlacementTile(input: {
   candidates: readonly { x: number; y: number }[];
+  hasPlaced: boolean;
   occupied: ReadonlySet<string>;
   preferred: { x: number; y: number };
-  selectedTiles: readonly { x: number; y: number }[];
+  spacingToNearest: Float64Array;
   seed: string;
 }): { x: number; y: number } | null {
   let bestTile: { x: number; y: number } | null = null;
   let bestScore = Number.NEGATIVE_INFINITY;
 
-  for (const candidate of input.candidates) {
+  for (let index = 0; index < input.candidates.length; index += 1) {
+    const candidate = input.candidates[index]!;
     if (input.occupied.has(tileKey(candidate))) continue;
-    const spacing = input.selectedTiles.length > 0
-      ? minTileDistance(candidate, input.selectedTiles)
-      : 0;
-    const preferredDistance = Math.hypot(candidate.x - input.preferred.x, candidate.y - input.preferred.y);
-    const jitter = stableUnit(`${input.seed}.${candidate.x}.${candidate.y}`) * 0.001;
-    const score = input.selectedTiles.length > 0
-      ? spacing * 1000 - preferredDistance * 0.1 + jitter
-      : -preferredDistance + jitter;
+    const preferredDx = candidate.x - input.preferred.x;
+    const preferredDy = candidate.y - input.preferred.y;
+    const preferredDistance = Math.sqrt(preferredDx * preferredDx + preferredDy * preferredDy);
+    const base = input.hasPlaced
+      ? input.spacingToNearest[index]! * 1000 - preferredDistance * 0.1
+      : -preferredDistance;
+    // The jitter only ever breaks exact ties, so a candidate that cannot win
+    // even at the jitter's upper bound never needs its hash computed. That
+    // skips the string build + hash for all but a handful of candidates per
+    // ship without changing which tile wins.
+    if (base + SPREAD_JITTER_MAX <= bestScore) continue;
+    const score = base + stableUnit(`${input.seed}.${candidate.x}.${candidate.y}`) * SPREAD_JITTER_MAX;
 
     if (score > bestScore) {
       bestScore = score;
@@ -417,16 +494,8 @@ function spacedRiskPlacementTile(input: {
   return bestTile;
 }
 
-function minTileDistance(tile: { x: number; y: number }, others: readonly { x: number; y: number }[]): number {
-  let distance = Number.POSITIVE_INFINITY;
-  for (const other of others) {
-    distance = Math.min(distance, Math.hypot(tile.x - other.x, tile.y - other.y));
-  }
-  return distance;
-}
-
 export function buildShipsStage(inputs: PharosVilleInputs, docks: readonly DockNode[]): BuildShipsStage {
   return {
-    ships: buildShips(inputs, docks),
+    ships: buildShipsCached(inputs, docks),
   };
 }

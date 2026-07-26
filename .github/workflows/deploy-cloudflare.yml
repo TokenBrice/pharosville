@@ -20,6 +20,17 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+  lint:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-lint-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: ./.github/actions/setup-workspace
+      - name: Lint
+        run: npm run lint
+
   unit:
     runs-on: ubuntu-latest
     concurrency:
@@ -53,8 +64,8 @@ jobs:
         run: npm run check:viewport-gate
       - name: Static security headers guard
         run: npm run check:security-headers:static
-      - name: Asset manifest guard
-        run: npm run check:pharosville-assets
+      - name: Runtime media guard
+        run: npm run check:runtime-media
       - name: Palette guard
         run: npm run check:pharosville-colors
 
@@ -90,8 +101,14 @@ jobs:
         with:
           name: pharosville-dist
           path: dist
-      - name: Built-dist visual tests
-        run: npm run test:visual:dist
+      # CI has no GPU, and this world needs one. Chromium falls back to
+      # SwiftShader and times out on the motion assertions; Firefox in this
+      # container gets no WebGL context at all. So CI gates on the contract it
+      # can actually prove — the one a visitor without WebGL is owed — and the
+      # full lane runs on real hardware in the pre-push deploy gate. Reproduction
+      # and the alternatives are in docs/pharosville/TESTING.md.
+      - name: Built-dist DOM and accessibility contract
+        run: npm run test:visual:dist:dom
       - uses: actions/upload-artifact@v6
         if: failure()
         with:
@@ -122,8 +139,8 @@ jobs:
         with:
           name: pharosville-dist
           path: dist
-      - name: Built-dist cross-browser accessibility smoke
-        run: npm run test:visual:dist:accessibility:firefox
+      - name: Built-dist cross-browser DOM and accessibility contract
+        run: npm run test:visual:dist:dom:firefox
       - uses: actions/upload-artifact@v6
         if: failure()
         with:
@@ -137,6 +154,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs:
       - typecheck
+      - lint
       - unit
       - guards
       - build

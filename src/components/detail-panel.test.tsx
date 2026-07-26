@@ -94,9 +94,12 @@ describe("DetailPanel structure (old-school revamp)", () => {
 
     render(<DetailPanel detail={detail} onClose={() => undefined} />);
 
+    // Interface revamp DU5: the water line names the water and nothing else.
+    // The generic per-zone reading belongs to the legend and the ledger; the
+    // panel's own sentence says what this ship is doing there.
     const statusLine = screen.getByTestId("pharosville-detail-zone");
     expect(statusLine.textContent).toContain("Calm Anchorage");
-    expect(statusLine.textContent).toContain("Steady peg evidence");
+    expect(statusLine.textContent).not.toContain("Steady peg evidence");
   });
 
   it("does not render dropped fields", () => {

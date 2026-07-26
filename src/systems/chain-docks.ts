@@ -9,39 +9,10 @@ import {
   PIGEONNIER_HARBOR_CHAIN_IDS,
   PREFERRED_DOCK_TILES,
 } from "./world-layout";
+import { zoneWorldTile } from "./map-scale";
 
 export const MAX_CHAIN_HARBORS = 8;
 export const MAX_DOCK_SIZE = 10;
-
-const _DOCK_ASSET_IDS = [
-  "dock.ethereum-civic-cove",
-  "dock.tron-arena-wharf",
-  "dock.bsc-mercantile-wharf",
-  "dock.solana-prism-stilt",
-  "dock.base-modular-slip",
-  "dock.arbitrum-arch-bridge",
-  "dock.polygon-hexmarket",
-  "dock.aptos-jade-pagoda",
-  "dock.avalanche-alpine-watch",
-  "dock.ton-pigeonnier-pier",
-  // W6.08 — Hyperliquid harbor sprite. Deferred loadPriority per decision
-  // D5 §6, so no first-render budget bump required.
-  "dock.hyperliquid-trading-floor",
-] as const;
-
-const PREFERRED_DOCK_ASSET_IDS: Record<string, (typeof _DOCK_ASSET_IDS)[number]> = {
-  ethereum: "dock.ethereum-civic-cove",
-  tron: "dock.tron-arena-wharf",
-  bsc: "dock.bsc-mercantile-wharf",
-  solana: "dock.solana-prism-stilt",
-  base: "dock.base-modular-slip",
-  arbitrum: "dock.arbitrum-arch-bridge",
-  polygon: "dock.polygon-hexmarket",
-  aptos: "dock.aptos-jade-pagoda",
-  avalanche: "dock.avalanche-alpine-watch",
-  ton: "dock.ton-pigeonnier-pier",
-  hyperliquid: "dock.hyperliquid-trading-floor",
-};
 
 const SUPPRESSED_CHAIN_HARBOR_IDS = new Set<string>(["optimism"]);
 
@@ -123,20 +94,58 @@ function attachRenderedHarborContext(docks: DockNode[], globalTotalUsd: number):
   }));
 }
 
+/**
+ * Chain marks vendored under `public/chains/` as glyph-only SVG.
+ *
+ * The API still reports these with their original raster extension, so without
+ * this rewrite the flags would keep loading the files the SVGs replaced. The set is
+ * explicit rather than inferred because the API can name ~90 chains and we
+ * vendor eleven; anything outside it keeps whatever path the API gave, which
+ * simply fails to load and leaves the painted chain mark (the designed
+ * fallback — see `garden-chain-flag.ts`).
+ *
+ * These must stay glyph-only with a transparent background: the flag knocks
+ * the mark out of the cloth using its alpha as a stencil, so a filled badge
+ * would render as a solid block of ink.
+ */
+const VENDORED_CHAIN_MARKS = new Set<string>([
+  "aptos",
+  "arbitrum",
+  "avalanche",
+  "base",
+  "bsc",
+  "ethereum",
+  "hyperliquid-l1",
+  "polygon",
+  "solana",
+  "ton",
+  "tron",
+]);
+
+function vendoredChainMark(logoPath: string | undefined | null): string | null {
+  if (!logoPath?.startsWith("/")) return null;
+  // Only the EXTENSION is rewritten — the directory and slug still come from
+  // the API, so no chain media path is hardcoded in browser source (the rule
+  // `validate-runtime-media.mjs` enforces).
+  const slug = logoPath.replace(/^.*\//, "").replace(/\.[^.]+$/, "");
+  return VENDORED_CHAIN_MARKS.has(slug) ? logoPath.replace(/\.[^.]+$/, ".svg") : logoPath;
+}
+
 function buildDockNode(chain: ChainSummary, tile: { x: number; y: number }, globalTotalUsd: number): DockNode {
   return {
     id: `dock.${chain.id}`,
     kind: "dock" as const,
     label: chain.name,
     chainId: chain.id,
-    logoSrc: chain.logoPath || null,
-    assetId: PREFERRED_DOCK_ASSET_IDS[chain.id] ?? "dock.wooden-pier",
     tile,
     totalUsd: chain.totalUsd,
     size: dockSize(chain, globalTotalUsd),
     healthBand: chain.healthBand,
     stablecoinCount: chain.stablecoinCount,
     concentration: chain.healthFactors?.concentration ?? null,
+    // N4: the harbour flies this as its flag. Same-origin paths only — a
+    // remote or empty value is dropped rather than reaching browser code.
+    logoPath: vendoredChainMark(chain.logoPath),
     harboredStablecoins: harboredStablecoins(chain),
     detailId: `dock.${chain.id}`,
   };
@@ -144,7 +153,10 @@ function buildDockNode(chain: ChainSummary, tile: { x: number; y: number }, glob
 
 // Defensive fallback only — every PIGEONNIER_HARBOR_CHAIN_IDS entry has a
 // PREFERRED_DOCK_TILES entry by construction.
-const PIGEON_FALLBACK_TILE = { x: 49, y: 50 } as const;
+// N1: authored in design space beside the pigeonnier islet, and scaled onto the
+// enlarged grid with it (the islet rides the Watch shelf, so it takes the zone
+// transform — see PIGEON_ISLAND_CENTER).
+const PIGEON_FALLBACK_TILE = zoneWorldTile({ x: 49, y: 50 });
 
 function selectChainHarbors(chains: readonly ChainSummary[]): ChainSummary[] {
   const harborEligibleChains = chains.filter((chain) => (

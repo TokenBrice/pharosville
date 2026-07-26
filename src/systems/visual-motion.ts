@@ -21,7 +21,6 @@ export interface VisualShipMotionMemory {
   lastCurrentDockId: string | null;
   lastCurrentRouteStopId: string | null;
   lastCurrentRouteStopKind: ShipMotionSample["currentRouteStopKind"];
-  lastMooringSubPhase: ShipMotionSample["mooringSubPhase"];
 }
 
 export type VisualMotionMemory = Map<string, VisualShipMotionMemory>;
@@ -150,7 +149,6 @@ function ensureShipMemory(
     lastCurrentDockId: null,
     lastCurrentRouteStopId: null,
     lastCurrentRouteStopKind: null,
-    lastMooringSubPhase: null,
   };
   memory.set(shipKey, entry);
   displaySamples.set(shipKey, sample);
@@ -185,8 +183,7 @@ function hasMetadataDiscontinuity(entry: VisualShipMotionMemory, target: ShipMot
   return entry.lastZone !== target.zone
     || entry.lastCurrentDockId !== target.currentDockId
     || entry.lastCurrentRouteStopId !== target.currentRouteStopId
-    || entry.lastCurrentRouteStopKind !== target.currentRouteStopKind
-    || entry.lastMooringSubPhase !== target.mooringSubPhase;
+    || entry.lastCurrentRouteStopKind !== target.currentRouteStopKind;
 }
 
 function isCompatibleStateTransition(entry: VisualShipMotionMemory, target: ShipMotionSample): boolean {
@@ -227,11 +224,7 @@ function smoothSampleInto(
   smoothHeadingInto(target, out, headingAlpha);
   writeDisplayVelocityInto(out, out.tile.x - previousX, out.tile.y - previousY, deltaSeconds);
   out.wakeIntensity += (target.wakeIntensity - out.wakeIntensity) * numericAlpha;
-  smoothOptionalNumberInto(target, out, "mooringSwayAmplitude", numericAlpha);
-  smoothOptionalNumberInto(target, out, "mooringTension", numericAlpha);
-  smoothOptionalNumberInto(target, out, "lanternAlpha", numericAlpha);
-  smoothOptionalNumberInto(target, out, "fenderContact", numericAlpha);
-  smoothOptionalNumberInto(target, out, "mapVisibilityAlpha", numericAlpha);
+  out.mapVisibilityAlpha += (target.mapVisibilityAlpha - out.mapVisibilityAlpha) * numericAlpha;
 }
 
 function smoothHeadingInto(target: ShipMotionSample, out: ShipMotionSample, alpha: number): void {
@@ -261,42 +254,6 @@ function smoothHeadingInto(target: ShipMotionSample, out: ShipMotionSample, alph
   out.heading.y = nextY / nextLength;
 }
 
-type OptionalNumberSampleKey =
-  | "mooringSwayAmplitude"
-  | "mooringTension"
-  | "lanternAlpha"
-  | "fenderContact"
-  | "mapVisibilityAlpha";
-
-function smoothOptionalNumberInto(
-  target: ShipMotionSample,
-  out: ShipMotionSample,
-  key: OptionalNumberSampleKey,
-  alpha: number,
-): void {
-  const mutableOut = out as ShipMotionSample & Partial<Record<OptionalNumberSampleKey, number>>;
-  const readableTarget = target as ShipMotionSample & Partial<Record<OptionalNumberSampleKey, number>>;
-  if (!hasOwn(target, key)) {
-    delete mutableOut[key];
-    return;
-  }
-
-  const targetValue = readableTarget[key];
-  if (typeof targetValue !== "number" || !Number.isFinite(targetValue)) {
-    if (targetValue !== undefined) {
-      mutableOut[key] = targetValue;
-    } else {
-      delete mutableOut[key];
-    }
-    return;
-  }
-
-  const currentValue = mutableOut[key];
-  mutableOut[key] = typeof currentValue === "number" && Number.isFinite(currentValue)
-    ? currentValue + (targetValue - currentValue) * alpha
-    : targetValue;
-}
-
 function copyExactSample(target: ShipMotionSample, out: ShipMotionSample): void {
   copyTargetMetadata(target, out);
   out.tile.x = target.tile.x;
@@ -305,11 +262,7 @@ function copyExactSample(target: ShipMotionSample, out: ShipMotionSample): void 
   out.heading.y = target.heading.y;
   copyVelocity(target, out);
   out.wakeIntensity = target.wakeIntensity;
-  copyOptionalNumber(target, out, "mooringSwayAmplitude");
-  copyOptionalNumber(target, out, "mooringTension");
-  copyOptionalNumber(target, out, "lanternAlpha");
-  copyOptionalNumber(target, out, "fenderContact");
-  copyOptionalNumber(target, out, "mapVisibilityAlpha");
+  out.mapVisibilityAlpha = target.mapVisibilityAlpha;
 }
 
 function copyTargetMetadata(target: ShipMotionSample, out: ShipMotionSample): void {
@@ -322,17 +275,6 @@ function copyTargetMetadata(target: ShipMotionSample, out: ShipMotionSample): vo
   out.currentRouteStopId = target.currentRouteStopId;
   out.currentRouteStopKind = target.currentRouteStopKind;
 
-  if (hasOwn(target, "mooringSubPhase")) {
-    const mooringSubPhase = target.mooringSubPhase;
-    if (mooringSubPhase !== undefined) {
-      out.mooringSubPhase = mooringSubPhase;
-    } else {
-      delete out.mooringSubPhase;
-    }
-  } else {
-    delete out.mooringSubPhase;
-  }
-
   if (hasOwn(target, "seaState")) {
     const seaState = target.seaState;
     if (seaState !== undefined) {
@@ -342,21 +284,6 @@ function copyTargetMetadata(target: ShipMotionSample, out: ShipMotionSample): vo
     }
   } else {
     delete out.seaState;
-  }
-}
-
-function copyOptionalNumber(target: ShipMotionSample, out: ShipMotionSample, key: OptionalNumberSampleKey): void {
-  const mutableOut = out as ShipMotionSample & Partial<Record<OptionalNumberSampleKey, number>>;
-  const readableTarget = target as ShipMotionSample & Partial<Record<OptionalNumberSampleKey, number>>;
-  if (hasOwn(target, key)) {
-    const value = readableTarget[key];
-    if (value !== undefined) {
-      mutableOut[key] = value;
-    } else {
-      delete mutableOut[key];
-    }
-  } else {
-    delete mutableOut[key];
   }
 }
 
@@ -395,7 +322,6 @@ function syncShipMemory(entry: VisualShipMotionMemory, target: ShipMotionSample,
   entry.lastCurrentDockId = target.currentDockId;
   entry.lastCurrentRouteStopId = target.currentRouteStopId;
   entry.lastCurrentRouteStopKind = target.currentRouteStopKind;
-  entry.lastMooringSubPhase = target.mooringSubPhase;
 }
 
 function pruneMissingShips(
@@ -436,11 +362,6 @@ function createDisplaySample(): ShipMotionSample {
     velocity: { x: 0, y: 0 },
     speedTilesPerSecond: 0,
     wakeIntensity: 0,
-    mooringSubPhase: null,
-    mooringSwayAmplitude: 1,
-    mooringTension: 0,
-    lanternAlpha: 0,
-    fenderContact: 0,
     mapVisibilityAlpha: 1,
     seaState: null,
   };

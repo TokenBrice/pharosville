@@ -37,7 +37,7 @@ export const PHAROSVILLE_CONTROL_GROUPS: readonly PharosVilleControlGroup[] = [
   {
     id: "inspect",
     title: "Inspect",
-    description: "Move between map targets and open detail panels without sending typed input to the canvas.",
+    description: "Move between map targets and open their detail panels.",
     actions: [
       {
         id: "focus-next-target",
@@ -72,15 +72,6 @@ export const PHAROSVILLE_CONTROL_GROUPS: readonly PharosVilleControlGroup[] = [
           { kind: "panel", label: "Close details button" },
         ],
       },
-      {
-        id: "find-ship",
-        label: "Find a ship",
-        summary: "Type a stablecoin name or id, then choose a match to select and follow that ship.",
-        inputs: [
-          { kind: "field", label: "Find a ship field" },
-          { kind: "keyboard", label: "Arrow keys and Enter", tokens: ["Arrow keys", "Enter"] },
-        ],
-      },
     ],
   },
   {
@@ -110,26 +101,17 @@ export const PHAROSVILLE_CONTROL_GROUPS: readonly PharosVilleControlGroup[] = [
       },
       {
         id: "reset-view",
-        label: "Reset view",
-        summary: "Recenters the camera on the default harbor view.",
-        inputs: [
-          { kind: "toolbar", label: "Reset view button" },
-          { kind: "toolbar", label: "Recenter map button" },
-        ],
+        label: "Recenter the view",
+        summary: "Returns the camera to the default harbor view. The control sits with the world controls, bottom right; it brightens on hover or keyboard focus.",
+        inputs: [{ kind: "toolbar", label: "Reset view control" }],
       },
       {
-        id: "follow-selected",
-        label: "Follow selected",
-        summary: "Moves the camera to the selected detail, and follows selected ships while they sail.",
-        inputs: [{ kind: "toolbar", label: "Follow selected button" }],
-      },
-      {
-        id: "fullscreen",
-        label: "Fullscreen",
-        summary: "Toggles the world shell into fullscreen. Escape exits fullscreen before clearing selection.",
+        id: "reveal-world-controls",
+        label: "Reveal the world controls",
+        summary: "The three world controls idle faint, bottom right. They come up to full after any camera input, on hover, and whenever one of them takes keyboard focus.",
         inputs: [
-          { kind: "toolbar", label: "Enter or exit fullscreen button" },
-          { kind: "keyboard", label: "Escape while fullscreen", tokens: ["Escape"] },
+          { kind: "keyboard", label: "Tab to a control", tokens: ["Tab"] },
+          { kind: "mouse", label: "Hover the bottom-right controls" },
         ],
       },
     ],
@@ -137,31 +119,19 @@ export const PHAROSVILLE_CONTROL_GROUPS: readonly PharosVilleControlGroup[] = [
   {
     id: "time",
     title: "Time",
-    description: "Control the session lighting without changing live data.",
+    description: "Choose the session lighting without changing live data.",
     actions: [
-      {
-        id: "set-session-hour",
-        label: "Set session hour",
-        summary: "Scrubs the local day-night hour for this view.",
-        inputs: [{ kind: "toolbar", label: "Time slider" }],
-      },
-      {
-        id: "return-to-preset",
-        label: "Return to day-night preset",
-        summary: "Clears the manual hour override and returns to the active day-night preset.",
-        inputs: [{ kind: "toolbar", label: "Return to day-night preset button" }],
-      },
       {
         id: "toggle-day-night",
         label: "Switch day or night",
-        summary: "Switches between the day and night presentation.",
-        inputs: [{ kind: "toolbar", label: "Day-night button" }],
+        summary: "Switches between the day and night presentation, and clears any hour carried in the link.",
+        inputs: [{ kind: "toolbar", label: "Day-night control" }],
       },
       {
-        id: "toggle-auto-cycle",
-        label: "Auto day-night cycle",
-        summary: "Turns the automatic local day-night cycle on or off.",
-        inputs: [{ kind: "toolbar", label: "Auto day-night button" }],
+        id: "share-session-hour",
+        label: "Set an exact hour",
+        summary: "A shared link carries its own hour: add t= to the address (for example #t=18.5 for half past six in the evening) and the view opens at that light.",
+        inputs: [{ kind: "field", label: "t= in the page address" }],
       },
     ],
   },

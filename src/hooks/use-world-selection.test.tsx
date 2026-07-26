@@ -5,11 +5,14 @@ import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world
 import { useWorldSelection } from "./use-world-selection";
 
 describe("useWorldSelection", () => {
-  it("defaults to the lighthouse selection", () => {
+  it("selects nothing by default", () => {
+    // S1: arriving at the harbour opens no detail panel. It used to default to
+    // the lighthouse, which put a panel over the world on every visit and then
+    // persisted `sel=lighthouse` into the URL so it outlived that visit.
     const { result } = renderHook(() => useWorldSelection({ world: worldFixture() }));
 
-    expect(result.current.selectedDetailId).toBe("lighthouse");
-    expect(result.current.selectedEntity?.detailId).toBe("lighthouse");
+    expect(result.current.selectedDetailId).toBeNull();
+    expect(result.current.selectedEntity).toBeNull();
   });
 
   it("accepts an initial selected detail id without rebasing after initialization", () => {

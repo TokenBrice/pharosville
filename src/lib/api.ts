@@ -184,6 +184,31 @@ async function buildFetchError(path: string, res: Response): Promise<ApiFetchErr
 
 const DEFAULT_CONTRACT_MODE: ApiContractMode = import.meta.env.PROD ? "warn" : "strict";
 
+/**
+ * Where a contract break should HALT rather than warn: the unit suite, and any
+ * dev session that opts in.
+ *
+ * The dev SERVER is deliberately excluded. Auto-resolved strict validation put
+ * a dynamic import of the whole contract module plus a Zod parse of ~5 MB of
+ * payload on the critical path, before the world could be built — about a
+ * second of dev startup, and enough to make local profiling lie, since the same
+ * page took roughly twice as long in dev as in a production build for reasons
+ * production never pays.
+ *
+ * It also made dev and production consume DIFFERENT data. Strict mode returns
+ * Zod's PARSED value, and this contract carries transforms and defaults
+ * (`possible-inherited` -> `inherited`, `institutional` ->
+ * `institutional-regulated`, `activeDepegBps` defaulting to null). Production
+ * runs in warn mode and returns the RAW payload, so a legacy value dev quietly
+ * normalised reached production untouched — the exact class of bug local
+ * development is supposed to surface.
+ *
+ * The guard itself is not lost: `auditApiPayloadContract` below still runs it
+ * in dev, off the critical path, and reports drift the same way.
+ */
+const STRICT_CONTRACT_VALIDATION = import.meta.env.MODE === "test"
+  || import.meta.env.VITE_PHAROSVILLE_STRICT_CONTRACT === "1";
+
 const warnedSchemaPaths = new Set<string>();
 function logSchemaDriftOnce(path: string, issues: string): void {
   if (warnedSchemaPaths.has(path)) return;
@@ -224,6 +249,26 @@ async function resolveApiSchema<T>(
 
   const { PHAROSVILLE_API_CONTRACT } = await import("@shared/lib/pharosville-api-contract");
   return PHAROSVILLE_API_CONTRACT[endpoint.key].schema as ApiSchema<T>;
+}
+
+/**
+ * Runs the contract check when the browser is next idle, so drift is still
+ * reported in dev without the world waiting on it. Never throws: a failed audit
+ * is a warning, and a failed IMPORT is nothing at all.
+ */
+function auditApiPayloadContract(path: string, data: unknown): void {
+  if (import.meta.env.PROD || warnedSchemaPaths.has(path)) return;
+  const run = () => {
+    void resolveApiSchema(path)
+      .then((schema) => {
+        if (schema) validateApiPayload(path, data, schema, "warn");
+      })
+      .catch(() => {
+        // The audit is advisory; it must never affect what the app renders.
+      });
+  };
+  if (typeof requestIdleCallback === "function") requestIdleCallback(run, { timeout: 5_000 });
+  else setTimeout(run, 2_000);
 }
 
 async function fetchApiJson(
@@ -294,6 +339,13 @@ export async function apiFetchWithMeta<T>(
     }
   }
 
-  const validationSchema = await resolveApiSchema(normalizedPath, schema);
-  return { data: validateApiPayload(normalizedPath, data, validationSchema, contractMode), meta };
+  // A caller that hands in its own schema wants validated data and gets it
+  // synchronously. The auto-resolved contract schema is a guard, not a
+  // dependency, so outside strict mode it runs off the critical path.
+  if (schema || STRICT_CONTRACT_VALIDATION) {
+    const validationSchema = await resolveApiSchema(normalizedPath, schema);
+    return { data: validateApiPayload(normalizedPath, data, validationSchema, contractMode), meta };
+  }
+  auditApiPayloadContract(normalizedPath, data);
+  return { data: data as T, meta };
 }

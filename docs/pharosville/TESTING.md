@@ -1,189 +1,181 @@
-# PharosVille Testing Guide
+# PharosVille Testing and Visual Review
 
-Last updated: 2026-05-18
+Last updated: 2026-07-25
 
-Use this guide to choose focused checks for the standalone PharosVille Vite app.
+Use the smallest check that proves the contract you changed. The production
+world has one Three.js renderer and a DOM `WorldStaticOverview` for renderer or
+GPU failure.
 
-## Fast Focused Checks
+## Choose a lane
 
-World model, route facts, ship visual classes, risk placement, map layout, and motion:
+| Change | First check | Add when needed |
+| --- | --- | --- |
+| Pure world, data, layout, motion | `npm test -- src/systems` | focused scenario test |
+| Renderer, material, hit testing | `npm test -- src/three src/renderer` | `npm run test:visual` |
+| Model, atlas, texture, runtime URL | `npm run check:runtime-media` | `npm run test:perf` |
+| Viewport/loading boundary | `npm run check:viewport-gate` | visual gate lane |
+| Docs only | `npm run validate:docs` | `git diff --check` |
+| Mixed or uncertain scope | `npm run validate:changed` | relevant browser/perf lane |
 
-```bash
-npm test -- src
-```
+`npm run test:visual` runs the production behavior, interaction, gate, and
+failure coverage. Run `npm run test:visual:cross-browser` when accessibility or
+browser interaction changes. Chromium is the reference-performance browser;
+Firefox is the second accessibility/interaction browser. Safari is not a
+cutover acceptance browser.
 
-Asset manifest and local PNG/WebP twin contract:
+## Required browser contracts
 
-```bash
-npm run check:pharosville-assets
-```
+The visual lane must keep proving:
 
-Built bundle-size budget, after `npm run build`:
+- a nonblank ready Three.js surface (`data-renderer="three"`);
+- resize, pan, zoom, selection, blank-world clear, Escape, deep links, and
+  Observe interruption;
+- the complete capacity-bounded fleet and its individual hit targets;
+- detail-panel, label, announcement, and accessibility-ledger parity;
+- day, dusk, night, reduced motion, hidden/offscreen pause, and renderer
+  module/WebGL/context failure;
+- a blocked viewport with no world data, Three.js, model, or logo request.
 
-```bash
-npm run check:bundle-size
-```
+**Unexercised contract (2026-07-25):** the transient selected outsider — a ship
+past the render cap, drawn only because it is selected — has no coverage,
+because the scenario no longer occurs. The Grand Scale Revamp raised the cap to
+320 and neither the dense fixture (~132 ships) nor the live fleet (187) comes
+near it, so `selectGardenTransientShip` never fires. Covering it again needs a
+fixture with more than 320 ships; until then treat that path as untested. Note
+also that hit targets are VIEWPORT-CULLED, so a target count is a property of
+the camera, not of fleet composition — never compare counts across framings.
 
-Route palette guardrail:
+## Visual review
 
-```bash
-npm run check:pharosville-colors
-```
+Use deterministic API fixtures, screen/viewport, time, and reduced-motion
+state. Keep scratch evidence under `outputs/`, never in `test-results/` or the
+repository history.
 
-Focused renderer/hit-testing changes:
+| State | Review question |
+| --- | --- |
+| Day, 1440×1000 | Is the lighthouse dominant, sea legible, fleet readable, and chrome clear? |
+| Dusk and night | Do light, water, flags, and details retain hierarchy? |
+| Reduced motion | Is this a complete composed frame, not an accidental pause? |
+| Overview and inspection | Are livery, marks, harbors, water bodies, labels, and selection clear? |
+| Dense fleet | Do ships preserve water-safe spacing, open-water clearance, and bounded cost? |
+| GPU failure | Is the selectable DOM overview useful with no broken WebGL visible? |
+| Undersized screen or window | Does the intended DOM fallback/rotate prompt make no world requests? (Size test, not orientation — a tall desktop window charts.) |
+| Ultrawide | Does framing stay stable with no UI/world overlap? |
 
-```bash
-npm test -- src/renderer/hit-testing.test.ts
-```
+Before accepting visual drift, verify the fixture, camera, time/reduced-motion
+state, semantic detail, model/logo availability, GPU metrics, and DOM meaning.
+GPU raster variation is not automatically a product change. Do not replace
+evidence merely to silence unexplained differences.
 
-Focused motion changes:
-
-```bash
-npm test -- src/systems/motion.test.ts
-```
-
-Sustained animation performance and frame pacing:
+## Performance and bundle
 
 ```bash
 npm run test:perf
-```
-
-Local API/dev-proxy sanity (recommended before debugging missing ships/data):
-
-```bash
-npm run setup:local-api-key
-npm run smoke:api-local
-npm run smoke:dev-proxy
-```
-
-## Visual And Browser Checks
-
-Run Playwright when the change affects canvas drawing, interaction, viewport gating, reduced motion, screenshots, detail positioning, or route shell behavior:
-
-```bash
-npx playwright test tests/visual/pharosville.spec.ts --grep "pharosville"
-```
-
-Focus only on accessibility/semantic checks:
-
-```bash
-npm run test:visual:accessibility
-```
-
-Cross-browser accessibility smoke check (Chromium + Firefox):
-
-```bash
-npm run test:visual:cross-browser
-npm run test:visual:dist:accessibility
-```
-
-Useful narrower lanes:
-
-```bash
-npx playwright test tests/visual/pharosville.spec.ts --grep "normal motion"
-npx playwright test tests/visual/pharosville.spec.ts --grep "reduced motion"
-npx playwright test tests/visual/pharosville.spec.ts --grep "narrow fallback"
-```
-
-The visual suite covers desktop shell rendering, narrow/short fallback behavior, rotate prompt behavior where applicable, canvas interaction, reduced-motion behavior, normal-motion movement, and backing-store budget checks. The narrow fallback has a committed screenshot baseline; the short fallback is DOM-only coverage that confirms no clipped canvas and no world/runtime requests when the screen is below the short-side gate.
-
-Temporal smoothness coverage lives in the browser lane, not the screenshot baselines:
-
-```bash
-npx playwright test tests/visual/pharosville.spec.ts --grep "interactions|normal motion"
-```
-
-This checks camera zoom monotonicity, camera bounds during interaction, and follow-selected attachment to a moving ship using `window.__pharosVilleDebug` fields. Keep visual snapshot updates out of this lane unless the rendered pixels intentionally change.
-
-## Budget Guards
-
-Current executable budgets:
-
-- Entry chunk: `<= 300 KiB` raw and `<= 90 KiB` gzip.
-- Desktop lazy chunk: `<= 1,024 KiB` raw and `<= 290 KiB` gzip.
-- Entry CSS: `<= 32 KiB` raw and `<= 8 KiB` gzip.
-- Total JS: `<= 1,280 KiB` raw and `<= 382 KiB` gzip.
-- First-render assets: `<= 33` primary assets, `<= 575 KiB` source bytes, and `<= 875,000` decoded pixels.
-- Total runtime PharosVille manifest: `<= 75` entries, `<= 1,100 KiB` source bytes, and `<= 1,440,000` decoded pixels.
-- Canvas backing store: capped by `MAX_MAIN_CANVAS_PIXELS` and `MAX_TOTAL_BACKING_PIXELS` in `src/systems/canvas-budget.ts`.
-
-`npm run test:perf` also samples `window.__pharosVilleDebug.renderMetrics.framePacing` when present. The CI guard tier is intentionally conservative while run history is gathered:
-
-- `activeMotionLoopCount === 1` under normal motion.
-- `activeCameraLoopCount === 0` and `cameraFrameSource === "world-render-loop"` during the camera-stress lane.
-- `drawDurationMs` median `<= 140ms` and p95 `<= 200ms` over the sustained window.
-- `framePacing.effectiveFps >= 8`.
-- `framePacing.p90Ms <= 180ms`.
-- `framePacing.droppedFrameCount` and `framePacing.longestDroppedBurst` stay below broad rolling-window ratios.
-- Camera pan/zoom stress uses an initial CI guard of `effectiveFps >= 12`, `p90Ms <= 120ms`, and longest dropped burst `<= 25%` of the sampled window.
-- `longtask.count === 0` when longtask telemetry is available.
-
-The local smooth target for manual optimization at `1440x960` is stricter: `effectiveFps >= 50`, `framePacing.p90Ms <= 24ms`, `longestDroppedBurst <= 1`, and `longtask.count === 0`. Tighten the CI guard only after several stable runs on the target runners.
-
-Runtime smoothness telemetry also exposes per-frame timing diagnostics
-(`sampleDurationMs`, `hitTargetDurationMs`, `debugPublishDurationMs`,
-`telemetryOverheadMs`), water accent metrics, render-scheduler tier/skipped
-passes, and backing-store sprite cache pixels. Use these fields to distinguish
-actual renderer pressure from instrumentation or retained-cache pressure before
-tightening budgets.
-
-Display-size waste in `npm run check:pharosville-assets` is warning-only unless an image decodes more than 4x its displayed pixel area. Treat warnings as optimization backlog and failures as release blockers.
-
-## Build And Release Checks
-
-Use these when HTML metadata, CSS, assets, screenshots, or app shell behavior changes:
-
-```bash
-npm run validate
-```
-
-For bundle-sensitive changes, run the build-output budget explicitly:
-
-```bash
 npm run build
 npm run check:bundle-size
 ```
 
-`npm test` is the default Vitest lane and includes `src/**/*.test.*` and `functions/**/*.test.ts`. Shared runtime-neutral contracts are validated when covered by those route and function tests; add explicit shared tests to the Vitest include list before claiming direct shared-file coverage.
+The performance suite measures coherent startup, pacing, long tasks, GPU
+resources, long-session stability, transient selection cleanup, and clock
+shutdown. Current resource ceilings are 700 draw calls, 500 geometries, 72
+textures, and 500,000 triangles. `npm run test:perf:reference` is the strict
+reference-hardware gate; headless or integrated results are diagnostics, not a
+substitute for the designated reference environment.
 
-Before claiming release-level confidence, run the broad release gate:
+### Never judge the look or the frame time through a Playwright browser
+
+Playwright's bundled Chromium falls back to **SwiftShader**, a CPU rasteriser,
+and so does `chromium.launch({ channel: "chrome" })` — the latter because it
+launches `/opt/google/chrome/chrome` directly and skips the wrapper that applies
+the operator's `~/.config/chrome-flags.conf`. On a hybrid-GPU box that file is
+what pins rendering to the discrete card.
+
+The same scene, same machine, measured 2026-07-25:
+
+| | bundled Chromium | operator's Chrome |
+| --- | --- | --- |
+| renderer | SwiftShader (CPU) | NVIDIA RTX 5070 Ti |
+| p50 / p90 | ~17 / 33.4 ms | 16.7 / 16.7 ms |
+| effective fps | 20–43 | 59 (vsync-capped) |
+| scheduler tier | `recovery` → `constrained` | `full` |
+
+**Correction (2026-07-25, measured):** the fallback is a FLAG choice, not a
+limitation of the bundled browser. Launched with `--ignore-gpu-blocklist
+--enable-gpu --use-angle=vulkan --use-cmd-decoder=passthrough`, the same bundled
+Chromium reports `ANGLE (NVIDIA, Vulkan 1.4.341, RTX 5070 Ti)`. The correctness
+lane now asks for those flags outside CI (see `shouldUseHardwareGpu` in
+`tests/helpers/playwright-config.ts`, overridable with
+`PHAROSVILLE_VISUAL_GPU=0|1`), because at ~2fps the lane is not merely slow — it
+is wrong: multi-second long tasks time out clicks and trip the world's error
+boundary, so the merge gates fail for reasons unrelated to the code under test.
+The gates went from 5.8 minutes with two failures to 48 seconds all-green.
+
+None of that changes the rule below. `npm run preview` remains the only way to
+judge look or frame time, because it goes through the operator's own
+`chrome-flags.conf` and therefore their real conditions; a Playwright browser
+with GPU flags is merely no longer crippled.
+
+A software frame looks approximately right and reports fiction, which is the
+worst combination: it invites tuning the renderer against a bottleneck that does
+not exist. Use:
+
+```bash
+npm run preview                                    # default framing
+npm run preview -- --hash "#t=22&n=1" --out night.png
+npm run preview -- --headed --seconds 8
+```
+
+`scripts/pharosville/preview.mjs` goes through the wrapper, exits non-zero rather
+than report a software frame, and prints the scheduler tier, p50/p90, draw calls,
+triangles and visible ship count alongside a screenshot in `outputs/`. It waits
+for the fleet to populate and then for the pacing ring to refill before reading,
+because both the snapshot rebuild and the load spike otherwise dominate the
+window.
+
+### The CI visual lane cannot render this world
+
+Reproduced in `mcr.microsoft.com/playwright:v1.59.1-noble`, the exact CI image:
+
+- **Firefox gets no WebGL context at all** — not with `webgl.force-enabled`,
+  `webgl.disabled`, `webgl.forbid-software`, `LIBGL_ALWAYS_SOFTWARE`,
+  `GALLIUM_DRIVER=llvmpipe` or `MOZ_ENABLE_WEBRENDER`. Locally Firefox is fine
+  both on the GPU and forced to software GL, so this is the container.
+  `visual-cross-browser` therefore only ever exercises the DOM fallback, which
+  it does correctly: the signal overview renders and the accessibility ledger
+  carries every ship.
+- **Chromium reaches SwiftShader and is too slow for the assertions** — the
+  motion lane times out on `locator.screenshot` at 180s.
+
+This is not a regression. The Three.js world arrived in v0.4.0 and has never
+been through these lanes; they were calibrated against the lighter world that
+preceded it.
+
+**How it is resolved.** CI gates on `@visual-dom` — the contract a visitor whose
+browser cannot render the world is owed, which is precisely what a GPU-less
+runner is. That lane proves the signal overview renders, the accessibility
+ledger carries every named water, ship and dock, details open by pointer and by
+keyboard with panel parity, Escape closes them, the live region exists, and a
+blocked viewport requests nothing. Both `visual` and `visual-cross-browser` run
+it, so Firefox finally exercises something real. Verified inside the CI image:
+2 passed in under 4s per browser.
+
+**The full lane still runs, on hardware that can run it.** `npm run test:visual`
+locally is 9/9 in under a minute, and `validate:deploy-gate` — which the
+pre-push hook runs for `main` — keeps `test:visual:dist` and the Firefox
+accessibility lane. So the GPU-dependent contracts are gated at push time on a
+real GPU rather than not at all.
+
+**Known cost, stated plainly:** a renderer regression that only shows on a GPU
+will not be caught by CI. It will be caught by the pre-push gate. If that trade
+stops being acceptable, the fix is a GPU runner for the visual job.
+
+## Release confidence
 
 ```bash
 npm run validate:release
+npm run smoke:live -- --url https://pharosville.pharos.watch
 ```
 
-For the post-deploy production readiness gate (security headers + cross-browser
-accessibility smoke + live smoke), run:
-
-```bash
-npm run check:release-readiness
-```
-
-## Docs-Only Maintenance Changes
-
-For changes limited to PharosVille docs, run:
-
-```bash
-npm run validate:docs
-```
-
-For mixed or uncertain scope, use:
-
-```bash
-npm run validate:changed
-```
-
-And keep grep checks for stale standalone drift when needed:
-
-Run `rg` over `README.md`, `docs/pharosville`, `docs/pharosville-page.md`, and shared agent notes for former route paths and removed script names. Matches should be historical/tracker context only, not live instructions.
-
-## What To Verify Manually
-
-- The desktop gate still prevents world data, canvas, sprite/logo runtime loading, and world mounting when the device screen long side is below `720px`, the short side is below `360px`, or a capable screen is portrait. The HTML `manifest.runtime.json` preload may still occur.
-- Normal motion visibly moves ships without turning route semantics into game mechanics.
-- Sustained normal motion and scripted camera pan/zoom stress report stable frame pacing in the perf lane, with no longtask entries during the sampled window.
-- Reduced motion stays deterministic and does not run a RAF loop.
-- Camera zoom moves monotonically for repeated zoom-in input, and follow-selected keeps the selected moving ship attached without violating camera bounds.
-- Detail panel and accessibility ledger describe any new visual encoding.
-- Hit targets align with sprites after scale, anchor, or motion changes.
-- Docking cadence reads as chain presence, not transfers or activity.
+Report the checks actually run and anything intentionally skipped. A green
+local run does not authorize a manual tag or GitHub Release; follow
+`RELEASES.md`.

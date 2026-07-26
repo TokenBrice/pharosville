@@ -33,29 +33,22 @@ const LEGEND_ZONE_PLACEMENTS: ReadonlyArray<ShipRiskPlacement> = [
   "ledger-mooring",
 ];
 
-// Sprite paths point at the standalone class hull sheets under
-// public/pharosville/assets/ships/ so the legend shows the same silhouettes
-// that sail the water ("Legacy junk" is the algo-junk hull).
-const LEGEND_SHIP_CLASSES: ReadonlyArray<{ name: string; reading: string; sprite: string }> = [
+const LEGEND_SHIP_CLASSES: ReadonlyArray<{ name: string; reading: string }> = [
   {
     name: "Treasury galleon",
     reading: "Centralized issuer (fiat reserves)",
-    sprite: "/pharosville/assets/ships/treasury-galleon.png",
   },
   {
     name: "Chartered brigantine",
     reading: "Centralized-dependent backing",
-    sprite: "/pharosville/assets/ships/chartered-brigantine.png",
   },
   {
     name: "DAO schooner",
     reading: "Decentralized governance",
-    sprite: "/pharosville/assets/ships/dao-schooner.png",
   },
   {
     name: "Legacy junk",
     reading: "Algorithmic backing",
-    sprite: "/pharosville/assets/ships/algo-junk.png",
   },
 ];
 
@@ -172,15 +165,8 @@ export function LegendPanel({ onClose, onSelectDetail, recentFleetTrend }: Legen
         <section aria-labelledby="pharosville-legend-ships">
           <h3 id="pharosville-legend-ships">Ships</h3>
           <ul className="pharosville-legend-panel__ships">
-            {LEGEND_SHIP_CLASSES.map(({ name, reading, sprite }) => (
+            {LEGEND_SHIP_CLASSES.map(({ name, reading }) => (
               <li key={name}>
-                <img
-                  className="pharosville-legend-panel__ship-thumb"
-                  src={sprite}
-                  alt=""
-                  aria-hidden="true"
-                  loading="lazy"
-                />
                 <strong>{name}</strong> — {reading}
               </li>
             ))}
@@ -207,6 +193,12 @@ export function LegendPanel({ onClose, onSelectDetail, recentFleetTrend }: Legen
             remembers coins lost at sea.
           </p>
         </section>
+
+        {/* First screen ends here. Movers, marks and the full control list are
+            reference rather than orientation, so they wait behind a fold
+            (interface revamp DU17). */}
+        <details className="pharosville-legend-panel__more">
+          <summary>More: recent movers, marks and controls</summary>
 
         {recentFleetTrend && (
           <section aria-labelledby="pharosville-legend-recent-movers">
@@ -237,16 +229,17 @@ export function LegendPanel({ onClose, onSelectDetail, recentFleetTrend }: Legen
             ))}
           </ul>
           <p>
-            Consensus rigging and audit shields are near-zoom marks; click a
-            ship for the exact source row.
+            Audit shields are near-zoom marks; click a ship for the exact
+            source row.
           </p>
         </section>
 
-        <ControlsCheatsheet
-          headingId="pharosville-legend-controls"
-          title="Controls"
-          intro="Use these controls to inspect the harbor, move the camera, tune time of day, and reopen reference panels."
-        />
+          <ControlsCheatsheet
+            headingId="pharosville-legend-controls"
+            title="Controls"
+            intro="Use these controls to inspect the harbor, move the camera, choose the light, and reopen reference panels."
+          />
+        </details>
       </div>
     </aside>
   );

@@ -165,6 +165,25 @@ describe("camera intent helpers", () => {
     expect(resolvedStepResult.cameraChanged).toBe(false);
     expect(resolvedStepResult.cameraIntentActive).toBe(false);
   });
+
+  it("uses the renderer-provided displayed tile when following a ship", () => {
+    const ship = world.ships[0]!;
+    const resolveSelectedFollowTile = vi.fn(() => ({ x: 17, y: 9 }));
+    const { result } = renderHook(() => useCanvasResizeAndCamera(makeCanvasInput({
+      resolveSelectedFollowTile,
+      selectedDetailIdRef: { current: ship.detailId },
+      selectedEntity: ship,
+    })));
+
+    act(() => {
+      result.current.handleFollowSelected();
+    });
+
+    expect(resolveSelectedFollowTile).toHaveBeenCalledWith(
+      ship,
+      expect.any(Map),
+    );
+  });
 });
 
 describe("follow camera helpers", () => {
@@ -211,8 +230,6 @@ describe("follow camera helpers", () => {
 function makeCanvasInput(overrides: Partial<UseCanvasResizeAndCameraInput> = {}): UseCanvasResizeAndCameraInput {
   const hitTargetSnapshotRef = { current: null as HitTargetSnapshot | null };
   return {
-    exitFullscreen: vi.fn(),
-    fullscreenMode: false,
     hasSelection: () => false,
     hitTargetSnapshotRef,
     hitTargetsRef: { current: [] },
