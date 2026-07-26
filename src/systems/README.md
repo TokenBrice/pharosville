@@ -20,6 +20,12 @@ The `systems/` directory owns the pure data-to-world layer for the standalone Ph
 ## Boundaries
 
 - Keep these modules pure and deterministic. Avoid DOM, canvas, timers, browser globals, and network calls.
+- One deliberate exception: ship placement is sticky. `stages/ship-placement.ts` and
+  `stages/dock-assignment.ts` carry the previous build's risk tiles and berths, so the
+  world is deterministic given *(inputs, previous placements)* rather than inputs alone.
+  A ship keeps its tile while its risk placement is unchanged, which keeps its A* path
+  keys and stops the fleet teleporting on refresh. Tests that need a cold build call
+  `resetHeldShipPlacements()` and `resetHeldMoorings()`.
 - Use shared runtime-neutral helpers such as `getCirculatingRaw()` and `@shared/*` imports instead of route-local copies of shared logic.
 - Keep source-field provenance with any visual cue that represents analytics.
 - Keep route-specific visual semantics here; shared scoring/methodology logic belongs in `shared/lib/` only when it is a real cross-route contract.
