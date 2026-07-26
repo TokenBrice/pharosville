@@ -554,6 +554,51 @@ export function backingDiversityLabel(backingDiversity: DockNode["backingDiversi
   return `${percent.format(Math.max(0, backingDiversity))} ${descriptor}`;
 }
 
+/** `+$7.2M` / `-$3.0M` — sign first, because the sign IS the reading here. */
+function signedCompactUsd(value: number): string {
+  if (!Number.isFinite(value)) return "unavailable";
+  const magnitude = formatCompactUsd(Math.abs(value));
+  return `${value < 0 ? "-" : "+"}${magnitude}`;
+}
+
+/**
+ * The harbour's 24h issuance, in words.
+ *
+ * The canvas cue puts cargo on the pier for minting and on the quay for
+ * burning; this row is the same statement in text, and it must never be vaguer
+ * than the crates. So the DIRECTION is named outright rather than left to be
+ * inferred from a sign, and the gross mint and burn behind the net figure are
+ * quoted so a small net between two large flows cannot read as a quiet day.
+ *
+ * An untracked harbour says so. "This chain's issuance is not measured" and
+ * "this chain issued nothing" are opposite claims about the world, and a blank
+ * or a zero would collapse them.
+ */
+export function cargoTideLabel(tide: DockNode["cargoTide"]): string | null {
+  if (!tide) return null;
+  if (!tide.tracked) {
+    switch (tide.reason) {
+      case "chain-not-in-scope":
+        return "Not measured on this chain";
+      case "scope-unreported":
+        return "Unavailable — issuance scope unreported";
+      default:
+        return "Unavailable — no issuance feed";
+    }
+  }
+  const volumes = `mint ${formatCompactUsd(tide.mintVolumeUsd)}, burn ${formatCompactUsd(tide.burnVolumeUsd)}`;
+  switch (tide.direction) {
+    case "minting":
+      return `${signedCompactUsd(tide.netFlowUsd)} minting — ${volumes}`;
+    case "burning":
+      return `${signedCompactUsd(tide.netFlowUsd)} burning — ${volumes}`;
+    case "flat":
+      return `Balanced — ${volumes}`;
+    default:
+      return "No issuance activity in 24h";
+  }
+}
+
 export function harborRankLabel(rank: number | null | undefined, count: number | null | undefined): string | null {
   if (
     rank == null
@@ -595,6 +640,7 @@ export function detailForDock(node: DockNode, context: DockDetailContext | numbe
   const topSymbols = node.harboredStablecoins.map((coin) => coin.symbol).join(", ");
   const harborGroup = dockHarborGroupLabel(node);
   const backingDiversity = backingDiversityLabel(node.backingDiversity);
+  const netFlow24h = cargoTideLabel(node.cargoTide);
   const harborRank = harborRankLabel(node.harborRank, node.harborCount);
   const supplyShare = stablecoinSupplyShareLabel(node.shareOfGlobal);
   const concentration = dockConcentrationLabel(node.concentration);
@@ -613,6 +659,7 @@ export function detailForDock(node: DockNode, context: DockDetailContext | numbe
       { label: "Stablecoin count", value: String(node.stablecoinCount) },
       { label: "Health", value: node.healthBand ?? "Unavailable" },
       ...(backingDiversity ? [{ label: "Backing diversity", value: backingDiversity }] : []),
+      ...(netFlow24h ? [{ label: "Net flow 24h", value: netFlow24h }] : []),
       { label: "Harbor group", value: harborGroup },
     ],
     links: [{ label: "Chain", href: analyticalRouteHref(`/chains/${node.chainId}/`) }],

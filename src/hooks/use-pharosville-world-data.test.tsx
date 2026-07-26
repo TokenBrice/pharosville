@@ -7,6 +7,7 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   fixtureChains,
+  fixtureMintBurn,
   fixturePegSummary,
   fixtureReportCards,
   fixtureStability,
@@ -23,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   usePegSummary: vi.fn(),
   useStressSignals: vi.fn(),
   useReportCards: vi.fn(),
+  useMintBurnFlows: vi.fn(),
 }));
 
 vi.mock("@/hooks/use-stablecoins", () => ({ useStablecoins: mocks.useStablecoins }));
@@ -32,11 +34,12 @@ vi.mock("@/hooks/api-hooks", () => ({
   usePegSummary: mocks.usePegSummary,
   useStressSignals: mocks.useStressSignals,
   useReportCards: mocks.useReportCards,
+  useMintBurnFlows: mocks.useMintBurnFlows,
 }));
 vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({ refetchQueries: vi.fn() }) }));
 vi.mock("../error-reporter", () => ({ reportClientError: vi.fn() }));
 
-type Feed = "chains" | "pegSummary" | "reportCards" | "stability" | "stablecoins" | "stress";
+type Feed = "chains" | "mintBurn" | "pegSummary" | "reportCards" | "stability" | "stablecoins" | "stress";
 
 interface FeedStub {
   data: unknown;
@@ -49,6 +52,7 @@ const FRESH: ApiMeta = { updatedAt: 1_700_000_000, ageSeconds: 60, status: "fres
 
 const hookByFeed: Record<Feed, { mockReturnValue: (value: FeedStub) => unknown }> = {
   chains: mocks.useChains,
+  mintBurn: mocks.useMintBurnFlows,
   pegSummary: mocks.usePegSummary,
   reportCards: mocks.useReportCards,
   stability: mocks.useStabilityIndexDetail,
@@ -58,6 +62,7 @@ const hookByFeed: Record<Feed, { mockReturnValue: (value: FeedStub) => unknown }
 
 const payloadByFeed: Record<Feed, unknown> = {
   chains: fixtureChains,
+  mintBurn: fixtureMintBurn,
   pegSummary: fixturePegSummary,
   reportCards: fixtureReportCards,
   stability: fixtureStability,
@@ -99,6 +104,7 @@ describe("route mode", () => {
   it("routes to error when every feed failed and nothing landed", () => {
     setFeeds({
       chains: failed("chains: 502"),
+      mintBurn: failed("mint-burn-flows: 502"),
       pegSummary: failed("peg-summary: 502"),
       reportCards: failed("report-cards: 502"),
       stability: failed("stability: 502"),

@@ -12,6 +12,11 @@ export const LEGEND_MARK_ROWS = [
     text: "Cargo crates on a dock mean chain backing is narrowing or concentrated; empty quays do not certify safety.",
   },
   {
+    cueId: "cue.dock.cargo-tide",
+    label: "Cargo working the quay",
+    text: "A single course of canvas-topped crates out along a harbour's pier means that chain's stablecoins were net minted over 24 hours; the same crates standing back along the quay edge mean they were net burned. An empty harbour means either nothing moved or issuance is not measured there, and the Net flow 24h row says which.",
+  },
+  {
     cueId: "cue.lighthouse.signal-mast",
     label: "Observatory signal mast",
     text: "Small pennants on the mast beside the observatory count the coins currently off peg (five is the top of the hoist); a dark cone joins them when the worst deviation is large. It reports today's readings, not a forecast.",
@@ -221,6 +226,18 @@ export function buildVisualCueRegistry(): VisualCue[] {
       failureState: "no crates; dock Backing diversity row absent without the health factor",
       domEquivalent: "dock detail Backing diversity row and accessibility ledger line",
       reducedMotionEquivalent: "same static crate stack",
+    },
+    {
+      // The world's only FLOW cue. Everything else here reports a stock.
+      id: "cue.dock.cargo-tide",
+      target: { kind: "dock" },
+      primaryChannels: ["position", "shape", "size"],
+      visual: "a single course of canvas-topped crates standing seaward along a harbour's pier deck when its chains' stablecoins were net minted over 24 hours, and standing landward along the quay's outer edge when they were net burned; the run's length carries how one-sided the day's flow was",
+      sourceField: "mintBurn.coins[].netFlow24hUsd, mintBurn.coins[].mintVolume24hUsd, mintBurn.coins[].burnVolume24hUsd, mintBurn.scope.chainIds (allocated across harbours by each coin's chain presence)",
+      questionAnswered: "Is stablecoin supply being created or destroyed at this harbour right now?",
+      failureState: "no crates — which covers both 'nothing moved' and 'issuance is not measured on this chain'; the Net flow 24h row separates the two rather than leaving an empty quay to mean either",
+      domEquivalent: "dock detail 'Net flow 24h' row naming the direction outright plus gross mint and burn, the matching dock accessibility-ledger clause, and the fleet-issuance ledger line above the dock list",
+      reducedMotionEquivalent: "identical — the cargo is a standing state and never animates at any setting, so there is nothing to freeze",
     },
     {
       id: "cue.ship.zone-weathering",

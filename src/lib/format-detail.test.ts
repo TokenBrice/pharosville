@@ -168,6 +168,23 @@ describe("buildDetailFactSections folds", () => {
     ]);
   });
 
+  // The cargo-tide crates' DOM parity. An unregistered label is dropped from
+  // the panel with every test still green, so this asserts the REGISTRATION —
+  // without it the world would show a direction on canvas that the panel never
+  // states, which is precisely the failure the cue contract exists to prevent.
+  it("renders a Net flow 24h identity row for dock facts", () => {
+    const { identity } = buildDetailFactSections([
+      { label: "Net flow 24h", value: "+$8.0M minting — mint $10.0M, burn $2.0M" },
+    ]);
+    expect(identity).toEqual([
+      { key: "netFlow24h", label: "Net flow 24h", value: "+$8.0M minting — mint $10.0M, burn $2.0M" },
+    ]);
+  });
+
+  it("classifies the Net flow 24h label however it is cased or spaced", () => {
+    expect(classifyDetailFactLabel("  NET   FLOW 24H ")).toBe("netFlow24h");
+  });
+
   // An unregistered fact label is dropped silently, so the lighthouse panel
   // would lose the signal mast's DOM parity with every test still green. This
   // asserts the registration, not the wording.

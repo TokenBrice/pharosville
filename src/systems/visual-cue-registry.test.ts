@@ -116,6 +116,7 @@ describe("buildVisualCueRegistry", () => {
     expect(markCueIds).toEqual([
       "cue.ship.zone-weathering",
       "cue.dock.congestion",
+      "cue.dock.cargo-tide",
       "cue.lighthouse.signal-mast",
       "cue.lighthouse.high-water-mark",
       "cue.ship.cross-bearing-buoy",

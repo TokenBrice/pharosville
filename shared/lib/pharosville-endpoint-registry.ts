@@ -59,6 +59,16 @@ export const PHAROSVILLE_ENDPOINT_REGISTRY = {
     metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.reportCards,
     producerIntervalSec: CRON_INTERVALS["publish-report-card-cache"],
   },
+  // The only FLOW endpoint in the set: every other feed reports a stock (how
+  // much exists, where it sits, how far off peg). This one reports issuance —
+  // whether supply is being created or destroyed over the last 24 hours.
+  mintBurn: {
+    key: "mintBurn",
+    path: API_PATHS.mintBurnFlows(),
+    queryKey: ["mint-burn-flows"],
+    metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.mintBurnFlows,
+    producerIntervalSec: CRON_INTERVALS["sync-mint-burn"],
+  },
 } as const satisfies {
   [K in PharosVilleApiEndpointKey]: PharosVilleEndpointRegistryEntry<K>;
 };

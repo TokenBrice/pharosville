@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   usePegSummary: vi.fn(),
   useStressSignals: vi.fn(),
   useReportCards: vi.fn(),
+  useMintBurnFlows: vi.fn(),
 }));
 
 vi.mock("@/hooks/use-stablecoins", () => ({ useStablecoins: mocks.useStablecoins }));
@@ -22,6 +23,7 @@ vi.mock("@/hooks/api-hooks", () => ({
   usePegSummary: mocks.usePegSummary,
   useStressSignals: mocks.useStressSignals,
   useReportCards: mocks.useReportCards,
+  useMintBurnFlows: mocks.useMintBurnFlows,
 }));
 vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({ refetchQueries: vi.fn() }) }));
 vi.mock("../error-reporter", () => ({ reportClientError: vi.fn() }));

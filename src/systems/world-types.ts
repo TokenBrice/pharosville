@@ -2,6 +2,7 @@ import type { ChainSummary } from "@shared/types/chains";
 import type { CemeteryEntry } from "@shared/lib/cemetery-merged";
 import type { ReportCard, StablecoinData, StablecoinMeta } from "@shared/types";
 import type { ConditionBand } from "@shared/lib/psi-colors";
+import type { NetFlowDirection24h } from "@shared/lib/mint-burn-signals";
 
 export type TileKind = "deep-water" | "water" | "shore" | "land" | "road";
 
@@ -362,8 +363,50 @@ export interface DockNode {
       scaffold stage; drives the dock congestion cue and the "Backing
       diversity" detail row. */
   backingDiversity?: number | null;
+  /** 24h issuance flow allocated to this harbour by `buildCargoTideStage`;
+      drives the cargo-tide crates and the "Net flow 24h" detail row. Absent
+      only on docks built outside the world pipeline. */
+  cargoTide?: DockCargoTide;
   harboredStablecoins: DockStablecoin[];
   detailId: string;
+}
+
+/**
+ * One harbour's share of the fleet's 24h mint/burn flow.
+ *
+ * `tracked` is the load-bearing field: `false` means issuance is not MEASURED
+ * for this chain, which is a different statement from a measured zero, and the
+ * two must never render alike.
+ */
+export interface DockCargoTide {
+  burnVolumeUsd: number;
+  /** How many coins contributed an allocation to this harbour. */
+  coinCount: number;
+  direction: NetFlowDirection24h;
+  mintVolumeUsd: number;
+  /** Positive = net minting (supply created), negative = net burning. */
+  netFlowUsd: number;
+  /** Signed -100..100 share of gross flow, or null when nothing moved. */
+  pressureScore: number | null;
+  reason: "tracked" | "chain-not-in-scope" | "scope-unreported" | "no-flow-data";
+  tracked: boolean;
+}
+
+/** Fleet-wide issuance reading, straight from the mint/burn gauge. */
+export interface FleetIssuance {
+  activeCoins: number;
+  band: string | null;
+  burnVolumeUsd: number;
+  direction: NetFlowDirection24h;
+  flightIntensity: number;
+  /** Capital rotating out of weaker issuers into stronger ones. */
+  flightToQuality: boolean;
+  mintVolumeUsd: number;
+  netFlowUsd: number;
+  scopeChainIds: string[];
+  scopeLabel: string | null;
+  score: number | null;
+  trackedCoins: number;
 }
 
 export interface DockStablecoin {
@@ -572,6 +615,7 @@ export interface PharosVilleFreshness {
   pegSummaryStale?: boolean;
   stressStale?: boolean;
   reportCardsStale?: boolean;
+  mintBurnStale?: boolean;
 }
 
 export type SelectableWorldEntity =
@@ -593,6 +637,8 @@ export interface PharosVilleWorld {
   areas: AreaNode[];
   ships: ShipNode[];
   graves: GraveNode[];
+  /** Fleet-wide 24h issuance, or null when the mint/burn feed has not landed. */
+  fleetIssuance: FleetIssuance | null;
   detailIndex: Record<string, DetailModel>;
   // Keyed by `detailId` (the same key used by `detailIndex`) so detail-panel
   // selection can resolve the source entity in O(1) without a linear scan.

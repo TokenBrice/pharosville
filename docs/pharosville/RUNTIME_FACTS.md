@@ -28,6 +28,7 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - `/api/peg-summary`
 - `/api/stress-signals`
 - `/api/report-cards`
+- `/api/mint-burn-flows`
 
 ## Runtime Media
 

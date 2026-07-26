@@ -75,6 +75,7 @@ export type DetailFactKey =
   | "cycleTempo"
   | "homeDock"
   | "backingDiversity"
+  | "netFlow24h"
   | "representativePosition"
   | "riskWaterArea"
   | "riskWaterZone"
@@ -125,6 +126,7 @@ const DETAIL_FACT_LABELS = {
   "cycle tempo": "cycleTempo",
   "home dock": "homeDock",
   "backing diversity": "backingDiversity",
+  "net flow 24h": "netFlow24h",
   "representative position": "representativePosition",
   "risk water area": "riskWaterArea",
   "risk water zone": "riskWaterZone",
@@ -311,6 +313,11 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   // presence; dock panels carry far fewer rows than the ship cap).
   const backingDiversity = lookup.get("backingDiversity");
   if (backingDiversity) identity.push({ key: "backingDiversity", label: "Backing diversity", value: backingDiversity });
+  // Dock panels: the harbour's 24h issuance flow, and the DOM parity for the
+  // cargo-tide crates. A row of its own rather than a fold, because direction is
+  // the whole reading and folding it behind a separator would bury it.
+  const netFlow24h = lookup.get("netFlow24h");
+  if (netFlow24h) identity.push({ key: "netFlow24h", label: "Net flow 24h", value: netFlow24h });
 
   const position: DetailDisplayRow[] = [];
   const position_ = lookup.get("representativePosition");

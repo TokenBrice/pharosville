@@ -44,6 +44,7 @@ export const OVERVIEW_LOD_HIDDEN_ZOOM = 0.44;
  */
 export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
   // Per-dock furniture, ×10 harbours.
+  "dock-cargo-tide",
   "dock-chain-flag",
   "dock-crane",
   "dock-lamp-heads",

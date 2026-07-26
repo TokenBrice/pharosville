@@ -12,6 +12,7 @@ import {
   highWaterMarkLabel,
   mastSignalLabel,
   pegDeviationLabel,
+  cargoTideLabel,
   DIMENSION_KEY_LABELS,
   dockConcentrationLabel,
   fleetPegLabel,
@@ -203,6 +204,7 @@ function AccessibilityLedgerContent({
       </ol>
 
       <h3>Docks</h3>
+      {world.fleetIssuance ? <p>{fleetIssuanceLedgerLine(world.fleetIssuance)}</p> : null}
       <ol>
         {world.docks.map((dock) => (
           <li key={dock.id}>
@@ -321,6 +323,10 @@ function dockLedgerLine(dock: PharosVilleWorld["docks"][number]): string {
   const harborRank = harborRankLabel(dock.harborRank, dock.harborCount);
   const supplyShare = stablecoinSupplyShareLabel(dock.shareOfGlobal);
   const concentration = dockConcentrationLabel(dock.concentration);
+  // The cargo-tide crates' DOM parity. Named "net flow 24h" here exactly as the
+  // detail panel labels it, so a screen-reader listener and a panel reader are
+  // reading the same row.
+  const netFlow24h = cargoTideLabel(dock.cargoTide);
   return [
     `${dock.label}: ${formatCompactUsd(dock.totalUsd)} stablecoin supply`,
     harborRank,
@@ -328,8 +334,37 @@ function dockLedgerLine(dock: PharosVilleWorld["docks"][number]): string {
     concentration ? `concentration ${concentration}` : null,
     `${dock.stablecoinCount} stablecoins`,
     `health ${dock.healthBand ?? "unavailable"}`,
+    netFlow24h ? `net flow 24h ${netFlow24h}` : null,
     `harboring ${harboredStablecoins}`,
   ].filter((part): part is string => part !== null).join(", ") + ".";
+}
+
+/**
+ * Fleet-wide issuance, which has no canvas cue of its own.
+ *
+ * The harbours carry the allocated flow; this carries what could not be
+ * allocated to any one of them — the gauge's own band, the scope it was measured
+ * over, and whether capital is rotating out of weaker issuers into stronger
+ * ones. `flightToQuality` reaches the DOM here and only here, which is stated
+ * plainly rather than implied: no crate, hull or wake encodes it yet.
+ */
+function fleetIssuanceLedgerLine(issuance: NonNullable<PharosVilleWorld["fleetIssuance"]>): string {
+  const direction = issuance.direction === "minting" ? "net minting"
+    : issuance.direction === "burning" ? "net burning"
+    : issuance.direction === "flat" ? "balanced"
+    : "no issuance activity";
+  return [
+    `Fleet issuance 24h: ${direction}`,
+    `net ${formatCompactUsd(issuance.netFlowUsd)}`,
+    `mint ${formatCompactUsd(issuance.mintVolumeUsd)}`,
+    `burn ${formatCompactUsd(issuance.burnVolumeUsd)}`,
+    `gauge band ${issuance.band ?? "unavailable"}`,
+    `${issuance.activeCoins} of ${issuance.trackedCoins} tracked coins moved supply`,
+    `measured over ${issuance.scopeLabel ?? "an unreported scope"}${issuance.scopeChainIds.length > 0 ? ` (${issuance.scopeChainIds.join(", ")})` : ""}`,
+    issuance.flightToQuality
+      ? "flight to quality active — capital rotating toward stronger issuers; this reading has no canvas cue and is reported here only"
+      : "no flight to quality reported",
+  ].join(", ") + ".";
 }
 
 function shipLedgerLine(

@@ -5,6 +5,7 @@ import {
   StablecoinListResponseSchema,
   StressSignalsAllResponseSchema,
 } from "./market";
+import { MintBurnFlowsResponseSchema } from "./mint-burn";
 import type { PharosVilleApiEndpointKey } from "./pharosville-endpoint-keys";
 import { ReportCardsResponseSchema } from "./report-cards";
 import { StabilityIndexResponseSchema } from "./stability";
@@ -21,6 +22,7 @@ export const PHAROSVILLE_API_PAYLOAD_SCHEMAS = {
   pegSummary: PegSummaryResponseSchema,
   stress: StressSignalsAllResponseSchema,
   reportCards: ReportCardsResponseSchema,
+  mintBurn: MintBurnFlowsResponseSchema,
 } as const satisfies Record<PharosVilleApiEndpointKey, z.ZodType>;
 
 export const PharosVilleApiPayloadsSchema = z.object(PHAROSVILLE_API_PAYLOAD_SCHEMAS);

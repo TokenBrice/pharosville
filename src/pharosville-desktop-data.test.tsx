@@ -9,6 +9,7 @@ import type { ApiMeta } from "@/lib/api";
 import {
   fixtureChains,
   fixturePegSummary,
+  fixtureMintBurn,
   fixtureReportCards,
   fixtureStablecoins,
   fixtureStability,
@@ -37,6 +38,7 @@ const mocks = vi.hoisted(() => {
     usePegSummary: vi.fn(),
     useStressSignals: vi.fn(),
     useReportCards: vi.fn(),
+    useMintBurnFlows: vi.fn(),
     buildPharosVilleWorld: vi.fn((input: {
       routeMode?: string;
       stablecoins?: { peggedAssets?: Array<{ id: string; symbol: string }> } | null;
@@ -96,6 +98,7 @@ vi.mock("@/hooks/api-hooks", () => ({
   usePegSummary: mocks.usePegSummary,
   useStressSignals: mocks.useStressSignals,
   useReportCards: mocks.useReportCards,
+  useMintBurnFlows: mocks.useMintBurnFlows,
 }));
 vi.mock("./systems/pharosville-world", () => ({
   buildPharosVilleWorld: mocks.buildPharosVilleWorld,
@@ -159,6 +162,7 @@ let currentQueries: {
   pegSummary: QueryState<typeof fixturePegSummary>;
   stress: QueryState<typeof fixtureStress>;
   reportCards: QueryState<typeof fixtureReportCards>;
+  mintBurn: QueryState<typeof fixtureMintBurn>;
 };
 
 // Shared subscription notifier. Each mocked hook subscribes via
@@ -188,6 +192,7 @@ function setCompleteQueries() {
     pegSummary: queryState(fixturePegSummary),
     stress: queryState(fixtureStress),
     reportCards: queryState(fixtureReportCards),
+    mintBurn: queryState(fixtureMintBurn),
   };
 }
 
@@ -233,6 +238,7 @@ describe("PharosVilleDesktopData", () => {
     mocks.usePegSummary.mockImplementation(() => useNotifierBackedQuery(() => currentQueries.pegSummary));
     mocks.useStressSignals.mockImplementation(() => useNotifierBackedQuery(() => currentQueries.stress));
     mocks.useReportCards.mockImplementation(() => useNotifierBackedQuery(() => currentQueries.reportCards));
+    mocks.useMintBurnFlows.mockImplementation(() => useNotifierBackedQuery(() => currentQueries.mintBurn));
   });
 
   afterEach(async () => {
@@ -278,6 +284,7 @@ describe("PharosVilleDesktopData", () => {
       pegSummary: queryState<typeof fixturePegSummary>(undefined, true),
       stress: queryState<typeof fixtureStress>(undefined, true),
       reportCards: queryState<typeof fixtureReportCards>(undefined, true),
+      mintBurn: queryState<typeof fixtureMintBurn>(undefined, true),
     };
     await renderData();
 
@@ -289,6 +296,7 @@ describe("PharosVilleDesktopData", () => {
     currentQueries.pegSummary = queryState(fixturePegSummary);
     currentQueries.stress = queryState(fixtureStress);
     currentQueries.reportCards = queryState(fixtureReportCards);
+    currentQueries.mintBurn = queryState(fixtureMintBurn);
     await notifyQueriesChanged();
 
     expect(mocks.buildPharosVilleWorld).toHaveBeenCalledTimes(2);

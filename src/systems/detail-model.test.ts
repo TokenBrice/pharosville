@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   auditShieldLabel,
   auditShieldState,
+  cargoTideLabel,
   backingDiversityLabel,
   backingDiversitySeverity,
   beamDwellLabel,
@@ -1266,6 +1267,75 @@ describe("detail-model P3 metaphor quick-win signals", () => {
 
     const withoutFactor = detailForDock({ ...dockNode, backingDiversity: null });
     expect(withoutFactor.facts.find((fact) => fact.label === "Backing diversity")).toBeUndefined();
+  });
+
+  it("cargoTideLabel names the direction outright rather than leaving it to a sign", () => {
+    const base = {
+      burnVolumeUsd: 2_000_000,
+      coinCount: 1,
+      mintVolumeUsd: 10_000_000,
+      pressureScore: 66,
+      reason: "tracked" as const,
+      tracked: true,
+    };
+    expect(cargoTideLabel({ ...base, direction: "minting", netFlowUsd: 8_000_000 }))
+      .toBe("+$8.0M minting — mint $10.0M, burn $2.0M");
+    expect(cargoTideLabel({ ...base, direction: "burning", netFlowUsd: -8_000_000 }))
+      .toBe("-$8.0M burning — mint $10.0M, burn $2.0M");
+  });
+
+  it("cargoTideLabel keeps a balanced quay, an idle one, and an unmeasured one apart", () => {
+    const base = { coinCount: 0, pressureScore: null, reason: "tracked" as const, tracked: true };
+    expect(cargoTideLabel({ ...base, direction: "flat", netFlowUsd: 0, mintVolumeUsd: 4_000_000, burnVolumeUsd: 4_000_000 }))
+      .toBe("Balanced — mint $4.0M, burn $4.0M");
+    expect(cargoTideLabel({ ...base, direction: "inactive", netFlowUsd: 0, mintVolumeUsd: 0, burnVolumeUsd: 0 }))
+      .toBe("No issuance activity in 24h");
+    expect(cargoTideLabel({
+      burnVolumeUsd: 0,
+      coinCount: 0,
+      direction: "inactive",
+      mintVolumeUsd: 0,
+      netFlowUsd: 0,
+      pressureScore: null,
+      reason: "chain-not-in-scope",
+      tracked: false,
+    })).toBe("Not measured on this chain");
+    expect(cargoTideLabel(undefined)).toBeNull();
+  });
+
+  it("detailForDock surfaces Net flow 24h only when the harbour carries a tide", () => {
+    const dockNode: DockNode = {
+      id: "dock.ethereum",
+      kind: "dock",
+      label: "Ethereum",
+      chainId: "ethereum",
+      tile: { x: 1, y: 1 },
+      totalUsd: 100,
+      size: 1,
+      healthBand: "healthy",
+      stablecoinCount: 1,
+      concentration: null,
+      cargoTide: {
+        burnVolumeUsd: 2_000_000,
+        coinCount: 1,
+        direction: "minting",
+        mintVolumeUsd: 10_000_000,
+        netFlowUsd: 8_000_000,
+        pressureScore: 66,
+        reason: "tracked",
+        tracked: true,
+      },
+      harboredStablecoins: [],
+      detailId: "dock.ethereum",
+    };
+    expect(detailForDock(dockNode).facts).toContainEqual({
+      label: "Net flow 24h",
+      value: "+$8.0M minting — mint $10.0M, burn $2.0M",
+    });
+
+    const { cargoTide: _cargoTide, ...withoutTide } = dockNode;
+    expect(detailForDock(withoutTide).facts.find((fact) => fact.label === "Net flow 24h"))
+      .toBeUndefined();
   });
 
   it("surfaces stress drivers only when a ship has a material stress breakdown", () => {

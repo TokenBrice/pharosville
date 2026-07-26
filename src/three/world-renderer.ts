@@ -97,6 +97,11 @@ import {
   type DockVisual,
 } from "./garden-docks";
 import {
+  cargoTideSpecs,
+  createGardenCargoTide,
+  type GardenCargoTide,
+} from "./garden-cargo-tide";
+import {
   createGardenLaneRegistry,
   type GardenLaneRegistry,
 } from "./garden-lanterns";
@@ -557,6 +562,12 @@ interface GardenContent {
    * ~205 of them.
    */
   crossBearingBuoyShips: ShipVisual[];
+  /**
+   * Tier 3 #3: every harbour's mint/burn cargo run, in one instanced draw.
+   * Entirely static — direction and magnitude are composed into the crates'
+   * positions at build, so there is nothing for the frame loop to do.
+   */
+  cargoTide: GardenCargoTide;
   decoration: Group;
   docks: DockVisual[];
   objectCount: number;
@@ -1063,6 +1074,11 @@ function createWorldContent(
     root.add(dock.root);
     entityCues.set(dock.dock.detailId, { radius: 2.5, root: dock.root, y: 0.08 });
   }
+  // Tier 3 #3: the world's first FLOW cue. Built after the harbours are placed
+  // because each crate's berth is a harbour-local slot resolved through that
+  // harbour's own yaw and position — one mesh for the ring, not one per quay.
+  const cargoTide = createGardenCargoTide(cargoTideSpecs(docks));
+  root.add(cargoTide.root);
   const harborLanterns = createHarborLanterns(islandTile);
   const gullFlock = createGardenGullFlock(world.lighthouse.tile);
   const fireflies = createGardenFireflies(
@@ -1227,6 +1243,7 @@ function createWorldContent(
     beaconHalo: island.beaconHalo,
     beam: island.beam,
     beamDwellBearing,
+    cargoTide,
     crossBearingBuoys,
     crossBearingBuoyShips: buoyShips,
     decoration: island.decoration,

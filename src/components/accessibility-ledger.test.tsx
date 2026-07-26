@@ -144,6 +144,101 @@ describe("AccessibilityLedger", () => {
     expect(markup).toContain("concentration moderately concentrated (HHI 0.40)");
   });
 
+  // The cargo-tide crates put direction on the canvas as position. These are the
+  // rows a reader who never sees the canvas has instead, so they must state the
+  // direction in words and must not let "unmeasured" pass for "calm".
+  it("mirrors each harbour's net 24h issuance flow, direction named, in dock rows", () => {
+    const world: PharosVilleWorld = {
+      ...sampleWorld(),
+      docks: [
+        {
+          id: "dock.ethereum",
+          kind: "dock",
+          chainId: "ethereum",
+          label: "Ethereum",
+          tile: { x: 1, y: 1 },
+          totalUsd: 8_000_000_000,
+          size: 7,
+          healthBand: "healthy",
+          stablecoinCount: 2,
+          concentration: null,
+          harboredStablecoins: [],
+          detailId: "dock.ethereum",
+          cargoTide: {
+            burnVolumeUsd: 2_000_000,
+            coinCount: 2,
+            direction: "minting",
+            mintVolumeUsd: 10_000_000,
+            netFlowUsd: 8_000_000,
+            pressureScore: 66,
+            reason: "tracked",
+            tracked: true,
+          },
+        },
+        {
+          id: "dock.solana",
+          kind: "dock",
+          chainId: "solana",
+          label: "Solana",
+          tile: { x: 2, y: 2 },
+          totalUsd: 1_000_000_000,
+          size: 3,
+          healthBand: "healthy",
+          stablecoinCount: 1,
+          concentration: null,
+          harboredStablecoins: [],
+          detailId: "dock.solana",
+          cargoTide: {
+            burnVolumeUsd: 0,
+            coinCount: 0,
+            direction: "inactive",
+            mintVolumeUsd: 0,
+            netFlowUsd: 0,
+            pressureScore: null,
+            reason: "chain-not-in-scope",
+            tracked: false,
+          },
+        },
+      ],
+    };
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("net flow 24h +$8.0M minting");
+    expect(markup).toContain("net flow 24h Not measured on this chain");
+  });
+
+  it("reports fleet-wide issuance including flight to quality above the dock list", () => {
+    const world: PharosVilleWorld = {
+      ...sampleWorld(),
+      fleetIssuance: {
+        activeCoins: 36,
+        band: "NEUTRAL",
+        burnVolumeUsd: 4_000_000,
+        direction: "burning",
+        flightIntensity: 42,
+        flightToQuality: true,
+        mintVolumeUsd: 1_000_000,
+        netFlowUsd: -3_000_000,
+        scopeChainIds: ["ethereum", "arbitrum"],
+        scopeLabel: "Configured issuance chains",
+        trackedCoins: 130,
+        score: -7.4,
+      },
+    };
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("Fleet issuance 24h: net burning");
+    expect(markup).toContain("36 of 130 tracked coins moved supply");
+    expect(markup).toContain("measured over Configured issuance chains (ethereum, arbitrum)");
+    expect(markup).toContain("flight to quality active");
+  });
+
+  it("omits the fleet issuance line entirely when the flow feed has not landed", () => {
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorld()} />);
+
+    expect(markup).not.toContain("Fleet issuance 24h");
+  });
+
   it("renders a wreck cause-color swatch legend with each CAUSE_HEX entry", () => {
     const markup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorld()} />);
 
@@ -610,6 +705,7 @@ function sampleWorld(): PharosVilleWorld {
     generatedAt: 0,
     routeMode: "world",
     freshness: {},
+    fleetIssuance: null,
     map: {
       width: 2,
       height: 2,
