@@ -1676,9 +1676,29 @@ function isPlantable(x: number, z: number): boolean {
 }
 
 /**
- * Deterministic scatter over the planted shelves: a golden-angle spiral
- * (stable, non-clumping, no rejection loop that could vary with seeding) is
- * filtered by the keep-outs and by the height band each species tolerates.
+ * Planting drifts, as `[x, z, radius, share of the attempt budget]`.
+ *
+ * The rockwork on this island is composed in odd-numbered groups with open
+ * ground between them, and the planting has to obey the same rule: an even
+ * scatter across the whole shelf reads as ground cover, not as a garden. Five
+ * drifts of unequal size and weight sit under the existing tree grove —
+ * understory follows canopy — while the harbour approach, the lighthouse
+ * precinct and the whole south-east shelf are left deliberately bare.
+ */
+const PLANTING_DRIFTS: readonly (readonly [number, number, number, number])[] = [
+  [-4.4, -7.2, 3.9, 0.26],
+  [-12.4, 4.4, 3.6, 0.22],
+  [2.0, -6.6, 3.2, 0.2],
+  [11.0, 1.2, 3.0, 0.18],
+  [-2.0, 6.6, 2.6, 0.14],
+];
+
+/**
+ * Deterministic scatter over the planted shelves, filtered by the keep-outs and
+ * by the height band each species tolerates. Each drift is filled by its own
+ * golden-angle spiral, so a thicket covers its ground evenly without clumping
+ * into a lump, while the island-scale distribution stays grouped. No rejection
+ * loop, so the result cannot vary with seeding.
  */
 function plantingPoints(
   seed: string,
@@ -1687,18 +1707,21 @@ function plantingPoints(
   maxHeight: number,
 ): { height: number; x: number; z: number }[] {
   const points: { height: number; x: number; z: number }[] = [];
-  for (let index = 0; index < attempts; index += 1) {
-    const angle = index * 2.399963;
-    const radius = 17.4 * Math.sqrt((index + 0.5) / attempts);
-    const x = 0.6 + Math.cos(angle) * radius
-      + (stableUnit(`${seed}.x.${index}`) - 0.5) * 1.6;
-    const z = 1.2 + Math.sin(angle) * radius * 0.7
-      + (stableUnit(`${seed}.z.${index}`) - 0.5) * 1.2;
-    const height = islandTerrainHeight(x, z);
-    if (height < minHeight || height > maxHeight) continue;
-    if (!isPlantable(x, z)) continue;
-    points.push({ height, x, z });
-  }
+  PLANTING_DRIFTS.forEach(([centerX, centerZ, radius, share], drift) => {
+    const budget = Math.max(1, Math.round(attempts * share));
+    for (let index = 0; index < budget; index += 1) {
+      const angle = index * 2.399963;
+      const reach = radius * Math.sqrt((index + 0.5) / budget);
+      const x = centerX + Math.cos(angle) * reach
+        + (stableUnit(`${seed}.${drift}.x.${index}`) - 0.5) * 1.1;
+      const z = centerZ + Math.sin(angle) * reach * 0.7
+        + (stableUnit(`${seed}.${drift}.z.${index}`) - 0.5) * 0.9;
+      const height = islandTerrainHeight(x, z);
+      if (height < minHeight || height > maxHeight) continue;
+      if (!isPlantable(x, z)) continue;
+      points.push({ height, x, z });
+    }
+  });
   return points;
 }
 
