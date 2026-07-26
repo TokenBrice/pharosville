@@ -24,6 +24,7 @@ import {
 } from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { compressGlbWithMeshopt, measureMeshoptDeviation } from "./glb-meshopt.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const modelsDir = resolve(repoRoot, "public/pharosville/models");
@@ -122,7 +123,9 @@ for (const model of HERO_MODELS) {
     throw new Error(`GLTFExporter did not return a binary ArrayBuffer for ${model.id}.`);
   }
 
-  const bytes = Buffer.from(exported);
+  const raw = Buffer.from(exported);
+  const bytes = await compressGlbWithMeshopt(raw);
+  const positionDeviation = await measureMeshoptDeviation(raw, bytes);
   const glb = inspectGlb(bytes);
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   const outputPath = resolve(modelsDir, `${model.id}.glb`);
@@ -150,9 +153,11 @@ for (const model of HERO_MODELS) {
     meshes: glb.json.meshes?.length ?? 0,
     nodes: glb.json.nodes?.length ?? 0,
     output: outputPath,
+    positionDeviation,
     sha256,
     textures: glb.json.textures?.length ?? 0,
     triangles: summary.triangles,
+    uncompressedBytes: raw.byteLength,
     vertices: summary.vertices,
   });
 }

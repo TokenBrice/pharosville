@@ -23,6 +23,7 @@ import {
 } from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { mergeGeometries, mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { compressGlbWithMeshopt, measureMeshoptDeviation } from "./glb-meshopt.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const outputPath = resolve(
@@ -112,7 +113,9 @@ if (!(exported instanceof ArrayBuffer)) {
   throw new Error("GLTFExporter did not return a binary ArrayBuffer.");
 }
 
-const bytes = Buffer.from(exported);
+const raw = Buffer.from(exported);
+const bytes = await compressGlbWithMeshopt(raw);
+const positionDeviation = await measureMeshoptDeviation(raw, bytes);
 const glb = inspectGlb(bytes);
 const sha256 = createHash("sha256").update(bytes).digest("hex");
 
@@ -136,7 +139,9 @@ console.log(JSON.stringify({
   meshes: glb.json.meshes?.length ?? 0,
   nodes: glb.json.nodes?.length ?? 0,
   output: outputPath,
+  positionDeviation,
   sha256,
+  uncompressedBytes: raw.byteLength,
   textures: glb.json.textures?.length ?? 0,
   triangles: summary.triangles,
   vertices: summary.vertices,
