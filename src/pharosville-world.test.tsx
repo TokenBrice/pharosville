@@ -29,7 +29,17 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("./components/accessibility-ledger", () => ({
-  AccessibilityLedger: () => <div data-testid="pharosville-accessibility-ledger" />,
+  ACCESSIBILITY_LEDGER_HEADING_ID: "pharosville-accessibility-ledger-title",
+  // Mirrors the real component's presentation switch so the shell's "exactly
+  // one ledger is mounted" rule is testable without its full markup.
+  AccessibilityLedger: ({ presentation = "screen-reader", title = "PharosVille accessibility ledger" }: {
+    presentation?: "screen-reader" | "visible";
+    title?: string;
+  }) => (
+    <div data-testid="pharosville-accessibility-ledger" data-presentation={presentation}>
+      <h2 id="pharosville-accessibility-ledger-title">{title}</h2>
+    </div>
+  ),
 }));
 
 vi.mock("./components/detail-panel", () => ({
@@ -178,8 +188,8 @@ afterEach(() => {
 });
 
 describe("PharosVilleWorld UI accessibility controls", () => {
-  // Interface revamp DU4/DU7/DU11: the footer carries five items and nothing
-  // else — mark, legend, changelog, docked count, frame rate.
+  // Interface revamp DU4/DU7/DU11: the footer carries six items and nothing
+  // else — mark, legend, changelog, harbor ledger, docked count, frame rate.
   it("shows the current docked ship count in the footer", () => {
     const { container } = render(<PharosVilleWorld world={worldFixture()} />);
 
@@ -189,7 +199,7 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     // Derived, not a literal: a version bump is a release chore, not a reason
     // for this test to fail.
     expect(footer?.textContent?.replace(/\s+/g, " ").trim()).toBe(
-      `PharosVille ${PHAROSVILLE_LATEST_VERSION}·Legend·Changelog·1 of 1 docked·Static`,
+      `PharosVille ${PHAROSVILLE_LATEST_VERSION}·Legend·Changelog·Harbor ledger·1 of 1 docked·Static`,
     );
     expect(footer?.textContent).not.toContain("Copy link");
     expect(footer?.textContent).not.toContain("not financial advice");
@@ -219,6 +229,59 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     expect(panel.textContent).toContain("Collected from commits");
 
     fireEvent.click(screen.getByLabelText("Close changelog"));
+    expect(screen.queryByTestId("pharosville-changelog-panel")).toBeNull();
+  });
+
+  it("opens the harbor ledger from the footer and closes it from its own control", async () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    expect(screen.getByTestId("pharosville-accessibility-ledger").dataset.presentation).toBe("screen-reader");
+
+    fireEvent.click(screen.getByRole("button", { name: "Harbor ledger" }));
+    const panel = await screen.findByTestId("pharosville-harbor-ledger-panel");
+    expect(panel.getAttribute("aria-modal")).toBe("true");
+    expect(document.activeElement).toBe(screen.getByLabelText("Close harbor ledger"));
+
+    fireEvent.click(screen.getByLabelText("Close harbor ledger"));
+    expect(screen.queryByTestId("pharosville-harbor-ledger-panel")).toBeNull();
+    // Focus lands back on the world shell, as it does for the sibling panels.
+    expect(document.activeElement).toBe(screen.getByTestId("pharosville-world"));
+    expect(screen.getByTestId("pharosville-accessibility-ledger").dataset.presentation).toBe("screen-reader");
+  });
+
+  it("closes the harbor ledger on Escape", async () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Harbor ledger" }));
+    await screen.findByTestId("pharosville-harbor-ledger-panel");
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByTestId("pharosville-harbor-ledger-panel")).toBeNull();
+  });
+
+  it("mounts exactly one ledger, so the world is never announced twice", async () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Harbor ledger" }));
+    await screen.findByTestId("pharosville-harbor-ledger-panel");
+
+    const ledgers = screen.getAllByTestId("pharosville-accessibility-ledger");
+    expect(ledgers).toHaveLength(1);
+    expect(ledgers[0]!.dataset.presentation).toBe("visible");
+  });
+
+  it("keeps at most one reference panel open", async () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Harbor ledger" }));
+    await screen.findByTestId("pharosville-harbor-ledger-panel");
+
+    fireEvent.click(screen.getByRole("button", { name: "Changelog" }));
+    await screen.findByTestId("pharosville-changelog-panel");
+    expect(screen.queryByTestId("pharosville-harbor-ledger-panel")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Harbor ledger" }));
+    await screen.findByTestId("pharosville-harbor-ledger-panel");
     expect(screen.queryByTestId("pharosville-changelog-panel")).toBeNull();
   });
 

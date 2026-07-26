@@ -57,6 +57,10 @@ const LazyLegendPanel = lazy(() => (
   import("./components/legend-panel").then((module) => ({ default: module.LegendPanel }))
 ));
 
+const LazyHarborLedgerPanel = lazy(() => (
+  import("./components/harbor-ledger-panel").then((module) => ({ default: module.HarborLedgerPanel }))
+));
+
 const DATA_REFRESH_ANNOUNCEMENT_THROTTLE_MS = 30_000;
 const OBSERVE_BEAT_DURATION_MS = 12_000;
 /**
@@ -107,19 +111,46 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const changelog = useChangelogDialog({ setAnnouncement });
   const legend = useLegendDialog({ setAnnouncement });
   const [quickFindOpen, setQuickFindOpen] = useState(false);
-  // The legend and changelog are the two true modal overlays; keep at most
-  // one open so screen readers never see concurrent aria-modal dialogs, and
-  // drop the quick-find field rather than leave it focusable behind one.
+  // The harbor ledger keeps its state here rather than in a dialog hook of its
+  // own because the sr-only ledger and the visible panel are one component:
+  // the shell has to pick which of the two is mounted, so it owns the switch.
+  const [harborLedgerOpen, setHarborLedgerOpen] = useState(false);
+  // The legend, changelog and harbor ledger are the true modal overlays; keep
+  // at most one open so screen readers never see concurrent aria-modal
+  // dialogs, and drop the quick-find field rather than leave it focusable
+  // behind one.
   const openLegendExclusive = useCallback(() => {
     if (changelog.changelogOpen) changelog.closeChangelog();
     setQuickFindOpen(false);
+    setHarborLedgerOpen(false);
     legend.openLegend();
   }, [changelog, legend]);
   const openChangelogExclusive = useCallback(() => {
     if (legend.legendOpen) legend.closeLegend();
     setQuickFindOpen(false);
+    setHarborLedgerOpen(false);
     changelog.openChangelog();
   }, [changelog, legend]);
+  const openHarborLedgerExclusive = useCallback(() => {
+    if (changelog.changelogOpen) changelog.closeChangelog();
+    if (legend.legendOpen) legend.closeLegend();
+    setQuickFindOpen(false);
+    setHarborLedgerOpen(true);
+    setAnnouncement("Opened harbor ledger.");
+  }, [changelog, legend, setAnnouncement]);
+  const closeHarborLedger = useCallback(() => {
+    setHarborLedgerOpen(false);
+    setAnnouncement("Closed harbor ledger.");
+  }, [setAnnouncement]);
+  useEffect(() => {
+    if (!harborLedgerOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      closeHarborLedger();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [closeHarborLedger, harborLedgerOpen]);
   const visitSnapshot = useVisitSnapshot({ world, setAnnouncement });
   const timeControls = useWorldTimeControls({
     initialManualTimeOverrideHour: worldUrlState.initialState.manualTimeOverrideHour,
@@ -604,7 +635,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   // tabbing through the whole fleet is not an answer. `/` is the field's only
   // entry point, so it must not steal the key from anything that takes typing.
   const quickFindCandidates = useMemo(() => buildQuickFindCandidates(world), [world]);
-  const referencePanelOpen = changelog.changelogOpen || legend.legendOpen;
+  const referencePanelOpen = changelog.changelogOpen || legend.legendOpen || harborLedgerOpen;
   useEffect(() => {
     if (rendererFailed || quickFindOpen || referencePanelOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -813,12 +844,23 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
           />
         </Suspense>
       )}
+      {harborLedgerOpen && (
+        <Suspense fallback={<ChangelogPanelLoading />}>
+          <LazyHarborLedgerPanel
+            onClose={closeHarborLedger}
+            world={world}
+            riskTransitionByShipId={riskTransitionByShipId}
+          />
+        </Suspense>
+      )}
       <p className="pharosville-footer">
         <span className="pharosville-footer__mark">PharosVille {PHAROSVILLE_LATEST_VERSION}</span>
         <span className="pharosville-footer__separator" aria-hidden="true">·</span>
         <button className="pharosville-footer__button" type="button" onClick={openLegendExclusive}>Legend</button>
         <span className="pharosville-footer__separator" aria-hidden="true">·</span>
         <button className="pharosville-footer__button" type="button" onClick={openChangelogExclusive}>Changelog</button>
+        <span className="pharosville-footer__separator" aria-hidden="true">·</span>
+        <button className="pharosville-footer__button" type="button" onClick={openHarborLedgerExclusive}>Harbor ledger</button>
         <span className="pharosville-footer__separator" aria-hidden="true">·</span>
         <span className="pharosville-footer__counter" data-testid="pharosville-ship-counter">{shipCounterLabel}</span>
         <span className="pharosville-footer__separator" aria-hidden="true">·</span>
@@ -830,7 +872,12 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         onSelectDetail={selectDetail}
       />
       <p className="sr-only" aria-live="polite">{announcement}</p>
-      <AccessibilityLedger world={world} riskTransitionByShipId={riskTransitionByShipId} />
+      {/* One ledger, two presentations. While the panel is open it carries the
+          same component visibly, so the region landmark is never in the DOM
+          twice and a screen reader never reads the world through twice. */}
+      {!harborLedgerOpen && (
+        <AccessibilityLedger world={world} riskTransitionByShipId={riskTransitionByShipId} />
+      )}
     </main>
   );
 }

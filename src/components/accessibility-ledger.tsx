@@ -94,16 +94,29 @@ export interface ShipRiskTransitionEntry {
   progress: number;
 }
 
+export const ACCESSIBILITY_LEDGER_HEADING_ID = "pharosville-accessibility-ledger-title";
+
 export interface AccessibilityLedgerProps {
   world: PharosVilleWorld;
   headingId?: string;
   riskTransitionByShipId?: ReadonlyMap<string, ShipRiskTransitionEntry | null>;
+  /**
+   * The same text, two audiences. `screen-reader` is the always-on sr-only
+   * rendering; `visible` is the Harbor ledger panel, which styles this exact
+   * markup as a readable page. Only ever one of the two is mounted, so the
+   * region landmark is never duplicated.
+   */
+  presentation?: "screen-reader" | "visible";
+  /** Panel-level label; the words of the ledger body never vary by audience. */
+  title?: string;
 }
 
 function AccessibilityLedgerContent({
   world,
-  headingId = "pharosville-accessibility-ledger-title",
+  headingId = ACCESSIBILITY_LEDGER_HEADING_ID,
   riskTransitionByShipId,
+  presentation = "screen-reader",
+  title = "PharosVille accessibility ledger",
 }: AccessibilityLedgerProps) {
   const staleSources = freshnessEntries(world)
     .filter((entry) => entry.stale)
@@ -124,8 +137,12 @@ function AccessibilityLedgerContent({
   const recentFleetTrend = recentFleetTrendSummary(world);
 
   return (
-    <section className="sr-only" aria-labelledby={headingId} data-testid="pharosville-accessibility-ledger">
-      <h2 id={headingId}>PharosVille accessibility ledger</h2>
+    <section
+      className={presentation === "visible" ? "pharosville-ledger" : "sr-only"}
+      aria-labelledby={headingId}
+      data-testid="pharosville-accessibility-ledger"
+    >
+      <h2 id={headingId}>{title}</h2>
       <p>
         {generatedAtLabel(world.generatedAt)}.
         {staleSources.length > 0

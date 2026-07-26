@@ -12,6 +12,32 @@ import type { PharosVilleWorld } from "../systems/world-types";
 import { AccessibilityLedger } from "./accessibility-ledger";
 
 describe("AccessibilityLedger", () => {
+  it("stays screen-reader-only by default and drops sr-only when shown visibly", () => {
+    const screenReaderMarkup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorld()} />);
+    const visibleMarkup = renderToStaticMarkup(
+      <AccessibilityLedger world={sampleWorld()} presentation="visible" title="Harbor ledger" />,
+    );
+
+    expect(screenReaderMarkup).toContain('class="sr-only"');
+    expect(screenReaderMarkup).toContain("PharosVille accessibility ledger");
+    expect(visibleMarkup).toContain('class="pharosville-ledger"');
+    expect(visibleMarkup).not.toContain('class="sr-only"');
+    expect(visibleMarkup).toContain("Harbor ledger");
+  });
+
+  it("carries identical body text in both presentations", () => {
+    const world = buildPharosVilleWorld(makerSquadFixtureInputs());
+    const normalize = (markup: string) => markup
+      .replace('class="sr-only"', "")
+      .replace('class="pharosville-ledger"', "")
+      .replace("PharosVille accessibility ledger", "");
+
+    expect(normalize(renderToStaticMarkup(<AccessibilityLedger world={world} />)))
+      .toBe(normalize(renderToStaticMarkup(
+        <AccessibilityLedger world={world} presentation="visible" title="" />,
+      )));
+  });
+
   it("does not expose ship-cluster ledger or cue rows", () => {
     const markup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorld()} />);
 

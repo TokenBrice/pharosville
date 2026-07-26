@@ -978,6 +978,94 @@ textarea {
   line-height: 1.4;
 }
 
+/* Harbor ledger: the accessibility ledger, shown. Its words were written for
+   linear screen-reader reading and are not touched here, so the styling does
+   all of the grouping work — ruled section headings, a readable measure, and
+   one dotted rule per row. It should read as the appendix of a report. */
+.pharosville-harbor-ledger-panel {
+  width: min(880px, calc(100% - 154px));
+}
+.pharosville-harbor-ledger-panel__header {
+  align-items: center;
+  padding-bottom: 12px;
+  border-bottom: none;
+}
+.pharosville-harbor-ledger-panel__body {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 28px 28px;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--pv-brass-dark) rgba(10, 16, 22, 0.32);
+}
+.pharosville-ledger {
+  max-width: 74ch;
+  color: rgba(232, 220, 196, 0.86);
+  font-size: 1.06rem;
+  line-height: 1.55;
+}
+/* The generated-at and staleness line, which reads as the title's subtitle. */
+.pharosville-ledger > p {
+  margin: 8px 0 0;
+  color: rgba(248, 229, 178, 0.7);
+  font-size: 1.15rem;
+  font-style: italic;
+}
+.pharosville-ledger h3 {
+  margin: 32px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid rgba(216, 184, 122, 0.26);
+  color: var(--pv-brass-highlight);
+  font-size: 1.06rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.pharosville-ledger dl {
+  margin: 20px 0 0;
+}
+.pharosville-ledger dl > div {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 18px;
+  padding: 10px 0;
+  border-bottom: 1px dotted rgba(216, 184, 122, 0.2);
+}
+.pharosville-ledger dt {
+  color: rgba(248, 229, 178, 0.6);
+  font-size: 0.92rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.pharosville-ledger dd {
+  margin: 0;
+}
+.pharosville-ledger ol,
+.pharosville-ledger ul {
+  margin: 12px 0 0;
+  padding-left: 26px;
+}
+.pharosville-ledger li {
+  padding: 9px 0;
+  border-bottom: 1px dotted rgba(216, 184, 122, 0.16);
+}
+.pharosville-ledger li::marker {
+  color: rgba(216, 184, 122, 0.5);
+}
+.pharosville-ledger li:last-child {
+  border-bottom: none;
+}
+/* Nested consort rows belong to their squad line, so they take no rule. */
+.pharosville-ledger li ul {
+  margin-top: 8px;
+}
+.pharosville-ledger li li {
+  border-bottom: none;
+}
+
 .pharosville-footer {
   position: absolute;
   bottom: 26px;
