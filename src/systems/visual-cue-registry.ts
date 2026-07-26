@@ -277,6 +277,24 @@ export function buildVisualCueRegistry(): VisualCue[] {
       reducedMotionEquivalent: "identical — the cargo is a standing state and never animates at any setting, so there is nothing to freeze",
     },
     {
+      // The chain-level partner to the cargo tide, and deliberately NOT the
+      // same statement: the crates below are issuance measured at this quay,
+      // this is the chain's total held supply, which also moves when supply
+      // bridges in or out without a coin being minted. A harbour can be net
+      // burning and still filling. The two marks are kept at different heights
+      // and in different forms so that disagreement reads as the real thing it
+      // is rather than as one cue contradicting the other.
+      id: "cue.dock.harbour-tempo",
+      target: { kind: "dock" },
+      primaryChannels: ["motion", "position"],
+      visual: "gulls working the air over a harbour: they wheel faster, wider and higher above a chain whose held stablecoin supply grew over 24 hours, and slower, tighter and lower above one whose supply drained; the swing is compressed against a 3% full scale and carries no colour, so a busy quay reads as busy and never as distress",
+      sourceField: "chains.chains[].change24hPct",
+      questionAnswered: "Is this harbour filling or draining — is the chain holding more stablecoin supply than it did yesterday?",
+      failureState: "the resting tempo, identical to a chain that genuinely did not move; the '24h supply change' row separates the two rather than letting a still quay mean either",
+      domEquivalent: "dock detail '24h supply change' and '7d' held-supply rows naming the direction outright, plus the matching dock accessibility-ledger clause, both sitting next to the Net flow 24h issuance row so the two readings can be compared",
+      reducedMotionEquivalent: "the flock is frozen at time zero, and the tempo survives the freeze as static geometry — a filling harbour's gulls still stand wider off the quay and higher above it than a draining harbour's",
+    },
+    {
       id: "cue.ship.zone-weathering",
       target: { kind: "ship" },
       primaryChannels: ["color", "shape"],

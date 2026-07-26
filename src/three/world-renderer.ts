@@ -69,7 +69,7 @@ import {
 } from "./garden-harbor-life";
 import { createGardenHorizon, type GardenHorizon } from "./garden-horizon";
 import { createGardenSeaSigns, type GardenSeaSigns, type SeaSignSpec } from "./garden-sea-signs";
-import { SEA_BODY_TERRAIN, type SeaBodyName } from "../systems/sea-bodies";
+import { SEA_BODY_TERRAIN, seaBodyForArea } from "../systems/sea-bodies";
 import { createGardenIslets, type GardenIslets } from "./garden-islets";
 import {
   createGardenHeroReflections,
@@ -1135,7 +1135,11 @@ function createWorldContent(
   );
   root.add(tideLine.root);
   const harborLanterns = createHarborLanterns(islandTile);
-  const gullFlock = createGardenGullFlock(world.lighthouse.tile);
+  // The flock works the quays as well as the island, so it needs the same dock
+  // list the harbour districts got — that is what carries harbour tempo.
+  const gullFlock = createGardenGullFlock(world.lighthouse.tile, {
+    docks: world.docks,
+  });
   const fireflies = createGardenFireflies(
     gardenIslandLanternWorldOffsets(),
     islandTile,
@@ -1355,7 +1359,7 @@ function createWorldContent(
 function seaSignSpecs(areas: PharosVilleWorld["areas"]): SeaSignSpec[] {
   const specs: SeaSignSpec[] = [];
   for (const area of areas) {
-    const body = SEA_SIGN_BODY_FOR_AREA(area);
+    const body = seaBodyForArea(area);
     if (!body) continue;
     const count = typeof area.count === "number" ? area.count : null;
     specs.push({
@@ -1372,16 +1376,6 @@ function seaSignSpecs(areas: PharosVilleWorld["areas"]): SeaSignSpec[] {
     accent: zoneThemeForTerrain("wreck-water").label.accent,
   });
   return specs;
-}
-
-function SEA_SIGN_BODY_FOR_AREA(area: PharosVilleWorld["areas"][number]): SeaBodyName | null {
-  if (area.band === "CALM") return "calm";
-  if (area.band === "WATCH") return "watch";
-  if (area.band === "ALERT") return "alert";
-  if (area.band === "WARNING") return "warning";
-  if (area.band === "DANGER") return "danger";
-  if (area.riskPlacement === "ledger-mooring") return "ledger";
-  return null;
 }
 
 /**

@@ -19,7 +19,10 @@ import type { ScreenPoint } from "../systems/projection";
 import { ETHEREUM_L2_DOCK_CHAIN_IDS } from "../systems/world-layout";
 import type { DockNode } from "../systems/world-types";
 
+/** Gulls wheeling over the island itself. */
 export const GARDEN_GULL_COUNT = 9;
+/** Gulls working each rendered harbour — see `createGardenGullFlock`. */
+export const GARDEN_QUAY_GULL_COUNT = 2;
 
 export interface GardenHarborLifeOptions {
   tileScale?: number;
@@ -45,6 +48,12 @@ export interface GardenGullFlock {
   gulls: InstancedMesh<BufferGeometry, MeshBasicMaterial>;
   root: Group;
   update(input: GardenGullFlockUpdate): void;
+}
+
+export interface GardenGullFlockOptions {
+  /** Harbours the flock works, in the order the renderer draws them. */
+  docks?: readonly DockNode[];
+  tileScale?: number;
 }
 
 export const GARDEN_FIREFLY_COUNT = 14;
@@ -123,6 +132,44 @@ export function createGardenFireflies(
 }
 
 const DEFAULT_TILE_SCALE = Math.SQRT2;
+
+// Harbour tempo. One scalar in -1..1 drives orbit rate, wheel radius and
+// height together, so the three read as one state rather than three cues.
+//
+// Full scale is 3% of held supply in 24h: chain supply moves in fractions of a
+// percent on a normal day, so a 3% swing is already a decisive one, and
+// clamping there stops a single outlier chain from flattening every other
+// harbour into the same tempo.
+const QUAY_TEMPO_FULL_SCALE_PCT = 3;
+// Deliberately narrow. At the extremes a filling quay's gulls circle roughly
+// half again as fast as a draining one's, half again as wide, and a unit
+// higher — enough to tell two harbours apart side by side, not enough to look
+// frantic.
+//
+// The wheel stays tight because harbours may sit as close as
+// GARDEN_DOCK_SEPARATION_TILES (3.5 tiles, ~5 units) apart, and two flocks
+// that overlap belong to neither quay. Clearance is bought with height
+// instead: the tallest dock furniture is a landmark tower topping out near
+// y = 5, so the flock rides above the cranes and below the island's own gulls
+// at 7.2+, which keeps the two flocks separate readings.
+const QUAY_GULL_SPEED = 0.085;
+const QUAY_GULL_SPEED_SWING = 0.45;
+const QUAY_GULL_RADIUS = 2.4;
+const QUAY_GULL_RADIUS_SWING = 0.6;
+const QUAY_GULL_HEIGHT = 4.2;
+const QUAY_GULL_HEIGHT_SWING = 0.5;
+const QUAY_GULL_SCALE = 0.42;
+
+/**
+ * 24h held-supply change -> tempo in -1..1. Chains with no reading sit at 0,
+ * the same tempo as a chain that genuinely did not move, because an absent
+ * number is not evidence of a busy quay.
+ */
+function quayTempo(change24hPct: number | null | undefined): number {
+  if (typeof change24hPct !== "number" || !Number.isFinite(change24hPct)) return 0;
+  const unit = change24hPct / QUAY_TEMPO_FULL_SCALE_PCT;
+  return Math.max(-1, Math.min(1, unit));
+}
 const DISTRICT_COLORS = {
   ethereum: new Color("#94c9be"),
   harbor: new Color("#b4b69a"),
@@ -229,16 +276,45 @@ export function createGardenHarborDistricts(
 /**
  * Creates one instanced flock. Reduced motion always resolves to the same
  * still composition; constrained mode removes the batch without rebuilding it.
+ *
+ * Tier 3 #13, harbour tempo: given `docks`, the flock also works the quays.
+ * Each harbour gets its own small wheel of gulls whose orbit rate, radius and
+ * height ride that chain's 24h HELD-SUPPLY change, so a viewer can see which
+ * harbours are filling and which are draining. Gulls follow activity — a
+ * working quay keeps them wheeling wide and high, a quiet one lets them tuck
+ * in and settle. Deliberately no colour, count or jitter channel: a busy
+ * harbour has to read as busy, never as distress.
+ *
+ * This does NOT duplicate the cargo-tide crates on the quay below. Those are
+ * ISSUANCE, coins minted and burned at this harbour; this is the chain's total
+ * held supply, which also moves when supply bridges in or out. A harbour can
+ * be shipping crates out and still filling, and the two marks sit at different
+ * heights precisely so that disagreement is readable rather than hidden.
+ *
+ * Every quay's gulls are extra INSTANCES of the flock's existing mesh, so the
+ * whole layer stays the single draw call it already cost.
  */
 export function createGardenGullFlock(
   lighthouseTile: ScreenPoint,
-  options: Pick<GardenHarborLifeOptions, "tileScale"> = {},
+  options: GardenGullFlockOptions = {},
 ): GardenGullFlock {
   const tileScale = options.tileScale ?? DEFAULT_TILE_SCALE;
   const islandTile = gardenIslandDisplayTile(lighthouseTile);
   const root = new Group();
   root.name = "garden-harbor-gull-flock";
   root.position.set(islandTile.x * tileScale, 0, islandTile.y * tileScale);
+
+  // Quays are held island-relative so the flock keeps its single root.
+  const quays = (options.docks ?? []).map((dock) => {
+    const tile = gardenDockDisplayTile(dock.tile);
+    return {
+      seed: stableUnit(dock.chainId),
+      tempo: quayTempo(dock.change24hPct),
+      x: (tile.x - islandTile.x) * tileScale,
+      z: (tile.y - islandTile.y) * tileScale,
+    };
+  });
+  const gullCount = GARDEN_GULL_COUNT + quays.length * GARDEN_QUAY_GULL_COUNT;
 
   const gulls = new InstancedMesh(
     createGullGeometry(),
@@ -249,7 +325,7 @@ export function createGardenGullFlock(
       side: DoubleSide,
       transparent: true,
     }),
-    GARDEN_GULL_COUNT,
+    gullCount,
   );
   gulls.name = "garden-harbor-gulls";
   gulls.frustumCulled = false;
@@ -286,6 +362,31 @@ export function createGardenGullFlock(
       dummy.updateMatrix();
       gulls.setMatrixAt(index, dummy.matrix);
     }
+
+    quays.forEach((quay, quayIndex) => {
+      const speed = QUAY_GULL_SPEED * (1 + quay.tempo * QUAY_GULL_SPEED_SWING);
+      const radius = QUAY_GULL_RADIUS + quay.tempo * QUAY_GULL_RADIUS_SWING;
+      const height = QUAY_GULL_HEIGHT + quay.tempo * QUAY_GULL_HEIGHT_SWING;
+      for (let seat = 0; seat < GARDEN_QUAY_GULL_COUNT; seat += 1) {
+        const index = GARDEN_GULL_COUNT
+          + quayIndex * GARDEN_QUAY_GULL_COUNT
+          + seat;
+        // Harbours wheel out of step with each other, and the seats of one
+        // wheel sit opposite so the quay always has a gull on both sides.
+        const phase = quay.seed * Math.PI * 2
+          + (seat / GARDEN_QUAY_GULL_COUNT) * Math.PI * 2
+          + time * speed;
+        dummy.position.set(
+          quay.x + Math.cos(phase) * radius,
+          height + seat * 0.26 + Math.sin(phase * 1.7) * 0.16,
+          quay.z + Math.sin(phase) * radius * 0.68,
+        );
+        dummy.rotation.set(0, -phase, 0);
+        dummy.scale.setScalar(QUAY_GULL_SCALE + seat * 0.05);
+        dummy.updateMatrix();
+        gulls.setMatrixAt(index, dummy.matrix);
+      }
+    });
     gulls.instanceMatrix.needsUpdate = true;
   };
 

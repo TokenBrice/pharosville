@@ -1,5 +1,5 @@
 import { seaBodyPlacement } from "../systems/sea-body-anchors";
-import type { SeaBodyName } from "../systems/sea-bodies";
+import { seaBodyForArea, type SeaBodyName } from "../systems/sea-bodies";
 
 /**
  * Where the sea boards stand, and how big their faces are — with no three.js in
@@ -109,31 +109,13 @@ export interface SeaSignBoard extends SeaSignSite {
 }
 
 /**
- * Band/placement -> sea body, mirroring `seaSignSpecs` in world-renderer.ts.
- *
- * That copy still owns what the boards SAY; this one owns where they stand and
- * what they open. Worth collapsing into one the next time world-renderer.ts is
- * open — the same mapping already exists a third time in garden-zones.ts and a
- * fourth in garden-observatory-slice.ts.
- */
-export function seaSignBodyForArea(area: Pick<SeaSignArea, "band" | "riskPlacement">): SeaBodyName | null {
-  if (area.band === "CALM") return "calm";
-  if (area.band === "WATCH") return "watch";
-  if (area.band === "ALERT") return "alert";
-  if (area.band === "WARNING") return "warning";
-  if (area.band === "DANGER") return "danger";
-  if (area.riskPlacement === "ledger-mooring") return "ledger";
-  return null;
-}
-
-/**
  * Every board the world draws, in the order the renderer builds its specs —
  * which is the order the separation nudge above depends on.
  */
 export function seaSignBoards(areas: readonly SeaSignArea[]): SeaSignBoard[] {
   const named: { body: SeaBodyName; detailId: string | null; label: string }[] = [];
   for (const area of areas) {
-    const body = seaSignBodyForArea(area);
+    const body = seaBodyForArea(area);
     if (!body) continue;
     named.push({ body, detailId: area.detailId, label: area.label });
   }

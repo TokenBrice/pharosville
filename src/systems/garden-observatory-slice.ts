@@ -1,6 +1,10 @@
 import type { ShipMotionSample } from "./motion";
 import { placeGardenFleet } from "./garden-fleet-placement";
-import { SEA_REGION_ID, seaRegionAnchorTile } from "./garden-sea-regions";
+import {
+  SEA_REGION_ID,
+  seaRegionAnchorTile,
+  seaRegionIdForArea,
+} from "./garden-sea-regions";
 import { selectGardenObservatoryAreas } from "./observe-sequence";
 import { TILE_HEIGHT, tileToScreen, type IsoCamera, type ScreenPoint } from "./projection";
 import { landWorldTile, zoneWorldTile } from "./map-scale";
@@ -377,20 +381,6 @@ export function gardenAreaCenterTile(area: {
   return (key && AREA_DISPLAY_CENTER[key]) || area.tile;
 }
 
-/** Band/placement -> sea-region slot, mirroring the renderer's mapping. */
-function areaSeaRegionId(area: {
-  band?: string | null;
-  riskPlacement?: string | null;
-}): number {
-  if (area.band === "CALM") return SEA_REGION_ID.calm;
-  if (area.band === "WATCH") return SEA_REGION_ID.watch;
-  if (area.band === "ALERT") return SEA_REGION_ID.alert;
-  if (area.band === "WARNING") return SEA_REGION_ID.warning;
-  if (area.band === "DANGER") return SEA_REGION_ID.danger;
-  if (area.riskPlacement === "ledger-mooring") return SEA_REGION_ID.ledger;
-  return SEA_REGION_ID.none;
-}
-
 const areaAnchorCache = new Map<number, ScreenPoint | null>();
 
 export function gardenAreaDisplayTile(area: {
@@ -406,7 +396,7 @@ export function gardenAreaDisplayTile(area: {
   // fifty while "Watch Breakwater, 46 ships" sat over empty water. The counts
   // were correct; the labels were in the wrong place, which reads as the world
   // lying about itself.
-  const regionId = areaSeaRegionId(area);
+  const regionId = seaRegionIdForArea(area);
   if (regionId !== SEA_REGION_ID.none) {
     let anchor = areaAnchorCache.get(regionId);
     if (anchor === undefined) {

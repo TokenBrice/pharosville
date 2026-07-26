@@ -1,3 +1,4 @@
+import { seaBodyForArea, type SeaBodyAreaKey } from "./sea-bodies";
 import {
   PHAROSVILLE_MAP_HEIGHT,
   PHAROSVILLE_MAP_WIDTH,
@@ -37,6 +38,18 @@ export const SEA_REGION_ID = {
 export type SeaRegionName = keyof typeof SEA_REGION_ID;
 
 export const SEA_REGION_COUNT = 9;
+
+/**
+ * Band/placement -> sea-region slot. The rendered geometry comes from the
+ * terrain field; this only says which slot a band's live colour drives.
+ *
+ * `seaBodyForArea` is the one authority for the band mapping; every
+ * `SeaBodyName` is also a region name, so the slot is a lookup on top of it.
+ */
+export function seaRegionIdForArea(area: SeaBodyAreaKey): number {
+  const body = seaBodyForArea(area);
+  return body ? SEA_REGION_ID[body] : SEA_REGION_ID.none;
+}
 
 const REGION_FOR_TERRAIN: Partial<Record<TerrainKind, number>> = {
   "alert-water": SEA_REGION_ID.alert,

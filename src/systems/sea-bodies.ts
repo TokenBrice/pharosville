@@ -73,6 +73,40 @@ export const SEA_BODY_TERRAIN: Record<SeaBodyName, TerrainKind> = {
   wreck: "wreck-water",
 };
 
+/**
+ * The area fields the band -> body mapping reads. Structural, so any world
+ * area record fits without importing `AreaNode`.
+ */
+export interface SeaBodyAreaKey {
+  band?: string | null;
+  riskPlacement?: string | null;
+}
+
+/**
+ * Band/placement -> sea body. THE authority.
+ *
+ * This mapping used to exist four times — the renderer's sign specs, the sign
+ * siting, the zone field and the observatory slice each carried their own
+ * cascade, and the two that answer in region ids wrote the same cascade again
+ * with `SEA_REGION_ID` on the right-hand side. It lives here because
+ * `SeaBodyName` does, and because this module is three-free: the sign siting
+ * and the world chunk's hit tester have to read it without pulling the
+ * renderer across the lazy boundary.
+ *
+ * Callers that want the water shader's region slot go through
+ * `seaRegionIdForArea` in garden-sea-regions.ts, which is this function plus
+ * the name -> id lookup.
+ */
+export function seaBodyForArea(area: SeaBodyAreaKey): SeaBodyName | null {
+  if (area.band === "CALM") return "calm";
+  if (area.band === "WATCH") return "watch";
+  if (area.band === "ALERT") return "alert";
+  if (area.band === "WARNING") return "warning";
+  if (area.band === "DANGER") return "danger";
+  if (area.riskPlacement === "ledger-mooring") return "ledger";
+  return null;
+}
+
 /** A segment with a radius. A disc is the degenerate case where a == b. */
 interface Seed {
   ax: number;

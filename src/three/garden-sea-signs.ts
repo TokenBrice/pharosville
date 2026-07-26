@@ -91,7 +91,6 @@ export {
   BOARD_HEIGHT,
   BOARD_WIDTH,
   SEA_SIGN_BOARD,
-  seaSignBodyForArea,
   seaSignBoards,
   seaSignScaleForZoom,
   seaSignSites,
