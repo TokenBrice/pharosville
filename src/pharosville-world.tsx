@@ -10,6 +10,7 @@ import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { AccessibilityLedger, type ShipRiskTransitionEntry } from "./components/accessibility-ledger";
 import { DetailPanel } from "./components/detail-panel";
 import { HarborLog } from "./components/harbor-log";
+import { QuickFind } from "./components/quick-find";
 import { SinceLastVisitBanner } from "./components/since-last-visit";
 import { WorldControls } from "./components/world-controls";
 import { WorldStaticOverview } from "./components/world-static-overview";
@@ -37,6 +38,7 @@ import {
 } from "./systems/garden-observatory-slice";
 import { buildBaseMotionPlan, disposePathCacheForMap, motionPlanSignature, type ShipMotionSample } from "./systems/motion";
 import { buildObserveSequence } from "./systems/observe-sequence";
+import { buildQuickFindCandidates } from "./systems/quick-find-match";
 import { recentFleetTrendSummary } from "./systems/sea-state";
 import type { ScreenPoint } from "./systems/projection";
 import type { WorldSelectableEntity } from "./systems/world-types";
@@ -100,14 +102,18 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   } = selection;
   const changelog = useChangelogDialog({ setAnnouncement });
   const legend = useLegendDialog({ setAnnouncement });
+  const [quickFindOpen, setQuickFindOpen] = useState(false);
   // The legend and changelog are the two true modal overlays; keep at most
-  // one open so screen readers never see concurrent aria-modal dialogs.
+  // one open so screen readers never see concurrent aria-modal dialogs, and
+  // drop the quick-find field rather than leave it focusable behind one.
   const openLegendExclusive = useCallback(() => {
     if (changelog.changelogOpen) changelog.closeChangelog();
+    setQuickFindOpen(false);
     legend.openLegend();
   }, [changelog, legend]);
   const openChangelogExclusive = useCallback(() => {
     if (legend.legendOpen) legend.closeLegend();
+    setQuickFindOpen(false);
     changelog.openChangelog();
   }, [changelog, legend]);
   const visitSnapshot = useVisitSnapshot({ world, setAnnouncement });
@@ -590,6 +596,48 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     selectDetail(detailId, null);
   }, [selectDetail]);
 
+  // Quick find: "where is my coin?" is the first thing a visitor wants, and
+  // tabbing through the whole fleet is not an answer. `/` is the field's only
+  // entry point, so it must not steal the key from anything that takes typing.
+  const quickFindCandidates = useMemo(() => buildQuickFindCandidates(world), [world]);
+  const referencePanelOpen = changelog.changelogOpen || legend.legendOpen;
+  useEffect(() => {
+    if (rendererFailed || quickFindOpen || referencePanelOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "/" || event.altKey || event.ctrlKey || event.metaKey) return;
+      if (isTextEntryTarget(event.target)) return;
+      event.preventDefault();
+      setQuickFindOpen(true);
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [quickFindOpen, referencePanelOpen, rendererFailed]);
+
+  const closeQuickFind = useCallback(() => {
+    setQuickFindOpen(false);
+    setAnnouncement("Closed quick find.");
+  }, [setAnnouncement]);
+
+  const handleQuickFindSelect = useCallback((detailId: string) => {
+    setQuickFindOpen(false);
+    selectDetail(detailId, null);
+    const entity = world.entityById[detailId];
+    const displayTile = entity
+      ? resolveGardenEntityDisplayTile({
+          entity,
+          shipMotionSamples: shipMotionSamplesRef.current,
+          slice: selectGardenObservatorySlice(world, detailId),
+        })
+      : null;
+    // Same camera path as the observe beats: an intent the controller applies
+    // in one step under reduced motion and glides otherwise.
+    if (displayTile) focusTile(displayTile);
+    const title = world.detailIndex[detailId]?.title ?? entity?.label ?? "target";
+    setAnnouncement(displayTile
+      ? `Selected ${title}. The view is centring on it.`
+      : `Selected ${title}.`);
+  }, [focusTile, selectDetail, setAnnouncement, world]);
+
   // A visitor whose browser cannot render the world still gets the signal
   // overview, opens details from it, and is told in the instructions above that
   // "Escape closes panels" — but the shell dropped its whole key handler when
@@ -631,8 +679,9 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     >
       <p id="pharosville-world-instructions" className="sr-only">
         Tab cycles map targets and Enter opens their details; past the last
-        target, Tab continues into the page controls. Arrow keys pan, plus and
-        minus zoom, Escape closes panels.
+        target, Tab continues into the page controls. Slash opens quick find,
+        to reach a ship or harbor by name. Arrow keys pan, plus and minus zoom,
+        Escape closes panels.
       </p>
       <canvas
         ref={canvas.canvasRef}
@@ -691,6 +740,13 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
             </span>
             {observeBeat.label}
           </p>
+        )}
+        {quickFindOpen && !rendererFailed && (
+          <QuickFind
+            candidates={quickFindCandidates}
+            onClose={closeQuickFind}
+            onSelect={handleQuickFindSelect}
+          />
         )}
         <SinceLastVisitBanner delta={visitSnapshot.delta} onDismiss={visitSnapshot.dismiss} />
         {selectedDetail && (
@@ -776,6 +832,13 @@ const FRESHNESS_LABELS: ReadonlyArray<readonly [FreshnessKey, string]> = [
   ["stressStale", "stress signals"],
   ["reportCardsStale", "report cards"],
 ];
+
+/** True for anything the visitor could be typing into, where `/` is a slash. */
+function isTextEntryTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
+}
 
 function worldDataRefreshSnapshot(world: PharosVilleWorldModel): WorldDataRefreshSnapshot {
   const staleSourceLabels = FRESHNESS_LABELS

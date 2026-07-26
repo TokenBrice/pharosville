@@ -494,6 +494,65 @@ function targetFixtures(): HitTarget[] {
   ];
 }
 
+describe("PharosVilleWorld quick find", () => {
+  const openQuickFind = () => {
+    fireEvent.keyDown(document, { key: "/" });
+    return screen.getByRole("combobox", { name: "Find a ship or harbor by name" });
+  };
+
+  it("opens on slash, selects a named ship, and takes the camera to it", () => {
+    const world = worldFixture();
+    render(<PharosVilleWorld world={world} />);
+
+    const input = openQuickFind();
+    fireEvent.change(input, { target: { value: "usdc" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.getByTestId("pharosville-detail-panel").textContent).toContain("USDC");
+    expect(mocks.focusTile).toHaveBeenLastCalledWith(resolveGardenEntityDisplayTile({
+      entity: world.entityById["ship.usdc"]!,
+      slice: selectGardenObservatorySlice(world, "ship.usdc"),
+    }));
+  });
+
+  // The shell's own Escape clears the selection. Quick find sits inside that
+  // subtree, so closing the field must not also close the panel behind it.
+  it("closes on Escape without clearing the selection behind it", () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    const input = openQuickFind();
+    fireEvent.change(input, { target: { value: "usdc" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(openQuickFind(), { key: "Escape" });
+
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.getByTestId("pharosville-detail-panel")).toBeTruthy();
+  });
+
+  it("leaves the slash key alone while a reference panel is open", async () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Legend" }));
+    await screen.findByTestId("pharosville-legend-panel");
+
+    fireEvent.keyDown(document, { key: "/" });
+
+    expect(screen.queryByRole("combobox")).toBeNull();
+  });
+
+  it("leaves the slash key alone while the visitor is typing in a field", () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+    const field = document.createElement("input");
+    document.body.append(field);
+    field.focus();
+
+    fireEvent.keyDown(field, { key: "/" });
+
+    expect(screen.queryByRole("combobox")).toBeNull();
+    field.remove();
+  });
+});
+
 function worldFixture(input: {
   freshness?: PharosVilleWorldModel["freshness"];
   generatedAt?: number;

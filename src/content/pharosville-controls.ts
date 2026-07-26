@@ -58,6 +58,12 @@ export const PHAROSVILLE_CONTROL_GROUPS: readonly PharosVilleControlGroup[] = [
         inputs: [{ kind: "keyboard", label: "Enter", tokens: ["Enter"] }],
       },
       {
+        id: "quick-find",
+        label: "Find a ship or harbor by name",
+        summary: "Opens a search field, top left. Type a ticker or name, use the arrow keys to move through matches, and press Enter to select one and centre the view on it.",
+        inputs: [{ kind: "keyboard", label: "/", tokens: ["/"] }],
+      },
+      {
         id: "select-pointer-target",
         label: "Select target with the mouse",
         summary: "Click a ship, dock, water area, landmark, or grave to open its detail panel.",
