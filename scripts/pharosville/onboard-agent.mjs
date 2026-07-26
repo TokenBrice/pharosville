@@ -16,7 +16,7 @@ const requiredPaths = [
   "agents",
 ];
 
-const supportedNodeMajor = 24;
+const fallbackNodeMajor = 24;
 const writableScratchPaths = ["outputs"];
 
 function summarizeGitStatus(repoRoot) {
@@ -57,21 +57,21 @@ function hasLegacyOutputArtifacts(repoRoot) {
   return readdirSync(legacyOutputPath).length > 0;
 }
 
-function detectExpectedNodeMajor(repoRoot) {
+function detectMinimumNodeMajor(repoRoot) {
   try {
     const packageJson = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf8"));
     const enginesNode = packageJson?.engines?.node;
     const majorMatch = typeof enginesNode === "string" ? enginesNode.match(/>=\s*(\d+)/) : null;
-    return majorMatch ? Number(majorMatch[1]) : supportedNodeMajor;
+    return majorMatch ? Number(majorMatch[1]) : fallbackNodeMajor;
   } catch {
-    return supportedNodeMajor;
+    return fallbackNodeMajor;
   }
 }
 
 function main() {
   const repoRoot = process.cwd();
   const actualNodeMajor = Number(process.versions.node.split(".")[0]);
-  const expectedNodeMajor = detectExpectedNodeMajor(repoRoot);
+  const minimumNodeMajor = detectMinimumNodeMajor(repoRoot);
   const missingPaths = validateRequiredPaths(repoRoot);
   const createdScratchPaths = ensureScratchDirectories(repoRoot);
   const status = summarizeGitStatus(repoRoot);
@@ -79,7 +79,7 @@ function main() {
   const apiKeyStatus = discoverLocalPharosApiKey(repoRoot);
 
   console.log("PharosVille agent onboarding check");
-  console.log(`- Node: v${process.versions.node} (expected major ${expectedNodeMajor})`);
+  console.log(`- Node: v${process.versions.node} (minimum major ${minimumNodeMajor})`);
   console.log(`- Git worktree: ${status.clean ? "clean" : "dirty"}`);
   console.log(`- Required files/directories: ${missingPaths.length === 0 ? "present" : "missing entries found"}`);
   if (apiKeyStatus.keyFound) {
@@ -112,9 +112,9 @@ function main() {
   if (legacyOutputWarning) {
     console.log("- Warning: legacy scratch directory 'output/' contains files. New scratch work should use 'outputs/'.");
   }
-  if (actualNodeMajor !== expectedNodeMajor) {
+  if (actualNodeMajor < minimumNodeMajor) {
     console.log(
-      `- Warning: expected Node major ${expectedNodeMajor}, current runtime is ${actualNodeMajor}.`,
+      `- Warning: minimum supported Node major is ${minimumNodeMajor}, current runtime is ${actualNodeMajor}.`,
     );
   }
   if (!apiKeyStatus.keyFound) {

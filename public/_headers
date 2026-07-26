@@ -20,3 +20,13 @@
 # The generated water normal uses a content-hash query in the runtime URL.
 /pharosville/textures/*
   Cache-Control: public, max-age=31536000, immutable
+
+# Fleet logos are id-prefixed but not content-hashed, so a day is the longest
+# they can be cached and still let a replaced mark propagate.
+/logos/*
+  Cache-Control: public, max-age=86400
+
+# Chain marks are vendored under stable filenames, so they take the same
+# one-day ceiling as the fleet logos.
+/chains/*
+  Cache-Control: public, max-age=86400

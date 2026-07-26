@@ -23,6 +23,11 @@ interface HistoryEntry {
 let sent = 0;
 let installed = false;
 const pendingReportControllers = new Set<AbortController>();
+// Keys already reported this session. Keys are deliberately NOT namespaced by
+// category: a failure that a call site reports AND that also reaches the window
+// handlers should cost one report, not two. With a budget of five per session,
+// duplicates are what we can least afford to spend it on.
+const reportedKeys = new Set<string>();
 
 function summarize(value: unknown): string {
   if (value instanceof Error) return `${value.name}: ${value.message}`;
@@ -90,7 +95,15 @@ async function postWithBackoff(payload: Record<string, unknown>, signal: AbortSi
   // Exhausted retries; the entry survives in localStorage history for debugging.
 }
 
-function send(category: ErrorCategory, payload: Record<string, unknown>): void {
+function send(
+  category: ErrorCategory,
+  payload: Record<string, unknown>,
+  dedupeKey?: string,
+): void {
+  if (dedupeKey !== undefined && dedupeKey !== "") {
+    if (reportedKeys.has(dedupeKey)) return;
+    reportedKeys.add(dedupeKey);
+  }
   if (sent >= MAX_REPORTS_PER_SESSION) return;
   sent += 1;
   const tagged: HistoryEntry = { category, ts: Date.now(), ...payload };
@@ -105,12 +118,17 @@ function send(category: ErrorCategory, payload: Record<string, unknown>): void {
 /**
  * Manually report a categorised client error from anywhere in the app
  * (renderer, data-load pipeline, interaction handlers).
+ *
+ * Pass the error message as `dedupeKey` when the same failure can be raised
+ * more than once — a retried query, a re-rendered effect, or a throw that also
+ * reaches the window handlers — so it costs one report, not one per occurrence.
  */
 export function reportClientError(
   category: ErrorCategory,
   payload: Record<string, unknown>,
+  dedupeKey?: string,
 ): void {
-  send(category, payload);
+  send(category, payload, dedupeKey);
 }
 
 /**
@@ -140,16 +158,17 @@ export function installClientErrorReporter(): void {
       colno: event.colno,
       stack: event.error instanceof Error ? event.error.stack?.slice(0, 2_000) : undefined,
       url: window.location.href,
-    });
+    }, event.message);
   });
 
   window.addEventListener("unhandledrejection", (event) => {
+    const reason = summarize(event.reason).slice(0, 2_000);
     send("rejection", {
       kind: "unhandledrejection",
-      reason: summarize(event.reason).slice(0, 2_000),
+      reason,
       stack: event.reason instanceof Error ? event.reason.stack?.slice(0, 2_000) : undefined,
       url: window.location.href,
-    });
+    }, reason);
   });
 
   const handleVisibilityChange = () => {

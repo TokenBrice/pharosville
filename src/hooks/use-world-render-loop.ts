@@ -38,6 +38,7 @@ import { seaStateForWorld, type SeaState } from "../systems/sea-state";
 import { createVisualMotionSmoothingState, resetVisualMotionSmoothingState, smoothShipMotionSamples } from "../systems/visual-motion";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
 import { normalizeHour } from "../lib/pharosville-clock";
+import { reportClientError } from "../error-reporter";
 import {
   createFrameIntervalWindow,
   createLongtaskWindow,
@@ -53,6 +54,9 @@ import {
 } from "./world-render-loop-metrics";
 
 type MotionPlan = ReturnType<typeof buildMotionPlan>;
+
+/** Which of the three ways the 3D renderer can retire itself fired. */
+type RendererFailureCause = "webgl-context" | "module-load" | "render-loop";
 
 type DebugRenderMetrics = PharosVilleRenderMetrics & {
   drawDurationMs: number;
@@ -188,9 +192,15 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   const threeRendererRef = useRef<ThreeWorldRenderer | null>(null);
   const [rendererStatus, setRendererStatus] = useState<WorldRendererStatus>("loading");
   const [rendererFailure, setRendererFailure] = useState<string | null>(null);
-  const failThreeRenderer = useCallback((message: string) => {
+  // Every path that retires the 3D world to the DOM overview lands here — the
+  // WebGL context-loss/creation failures the backend reports through
+  // `onContextFailure`, the renderer module failing to load, and a render that
+  // threw for RENDER_FAILURE_STREAK_LIMIT frames running. None of them throw
+  // uncaught, so this is the only place the failure can be reported from.
+  const failThreeRenderer = useCallback((message: string, cause: RendererFailureCause) => {
     threeRendererRef.current?.dispose();
     threeRendererRef.current = null;
+    reportClientError("render", { kind: "renderer-failure", cause, message }, message);
     setRendererFailure(message);
     setRendererStatus("failed");
   }, []);
@@ -276,7 +286,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           canvas,
           onAssetReady: requestPaint,
           onContextFailure: (message) => {
-            if (active) failThreeRenderer(message);
+            if (active) failThreeRenderer(message, "webgl-context");
           },
         });
         threeRendererRef.current = renderer;
@@ -284,7 +294,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       })
       .catch((error) => {
         if (!active) return;
-        failThreeRenderer(error instanceof Error ? error.message : String(error));
+        failThreeRenderer(error instanceof Error ? error.message : String(error), "module-load");
       });
 
     return () => {
@@ -631,7 +641,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         // grace period: give it a moment to prove which one it is.
         renderFailureStreakRef.current += 1;
         if (renderFailureStreakRef.current >= RENDER_FAILURE_STREAK_LIMIT) {
-          failThreeRenderer(error instanceof Error ? error.message : String(error));
+          failThreeRenderer(error instanceof Error ? error.message : String(error), "render-loop");
           return;
         }
         console.warn("[pharosville] recovered from a world render error", error);

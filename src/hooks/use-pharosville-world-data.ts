@@ -20,6 +20,7 @@ import type {
   StressSignalsAllResponse,
 } from "@shared/types";
 import type { ChainsResponse } from "@shared/types/chains";
+import { reportClientError } from "../error-reporter";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import type { PharosVilleWorld as PharosVilleWorldModel, RouteMode } from "../systems/world-types";
 
@@ -105,6 +106,19 @@ export function usePharosVilleWorldData(): PharosVilleWorldDataResult {
     ?? pegSummaryQuery.error
     ?? stressQuery.error
     ?? reportCardsQuery.error;
+
+  // Query errors are swallowed by TanStack Query, so a feed that exhausts its
+  // retries is invisible to the window handlers. The message doubles as the
+  // dedupe key: a retry that fails the same way builds a fresh Error object
+  // every time, and only the first one is worth a report.
+  useEffect(() => {
+    if (!error) return;
+    reportClientError("data-load", {
+      kind: "world-data",
+      message: error.message,
+      stack: error.stack?.slice(0, 2_000),
+    }, error.message);
+  }, [error]);
 
   const hasAnyData = Boolean(
     stablecoinsQuery.data

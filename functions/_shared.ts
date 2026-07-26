@@ -93,3 +93,64 @@ export function maybeStoreJsonEdgeCache(
   if (!cache || response.status !== 200 || !isJsonResponse(response)) return;
   waitUntilOrVoid(context, cache.put(cacheKey, response.clone()).catch(() => undefined));
 }
+
+/**
+ * How long a last-good copy may stand in for live data. Past this, presenting
+ * old markets as current is a worse answer than an honest error.
+ */
+export const LAST_GOOD_MAX_AGE_SEC = 24 * 60 * 60;
+
+const LAST_GOOD_STORED_AT_HEADER = "x-pharosville-last-good-stored-at";
+
+/**
+ * A second cache key per endpoint, held under a reserved path prefix so the
+ * long-TTL copy cannot collide with the short-TTL one. Carries no credential:
+ * the entry is keyed by public path only, exactly like the short-TTL key.
+ */
+export function buildLastGoodCacheKey(url: URL, origin: string): Request {
+  return new Request(
+    new URL(`/__last-good${url.pathname}${url.search}`, origin).toString(),
+    { method: "GET" },
+  );
+}
+
+export function maybeStoreLastGoodEdgeCache(
+  context: PagesContextWithWaitUntil,
+  cache: EdgeCache | null,
+  cacheKey: Request,
+  response: Response,
+): void {
+  if (!cache || response.status !== 200 || !isJsonResponse(response)) return;
+  const headers = new Headers(response.headers);
+  headers.set("cache-control", `public, max-age=${LAST_GOOD_MAX_AGE_SEC}`);
+  headers.set(LAST_GOOD_STORED_AT_HEADER, String(Math.floor(Date.now() / 1000)));
+  const stored = new Response(response.clone().body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+  waitUntilOrVoid(context, cache.put(cacheKey, stored).catch(() => undefined));
+}
+
+export interface LastGoodEdgeEntry {
+  response: Response;
+  storedAgeSeconds: number;
+}
+
+/**
+ * Returns the last-good copy only while it is still inside the staleness cap.
+ * An entry without a usable stamp is treated as absent rather than as fresh.
+ */
+export async function readLastGoodEdgeCache(
+  cache: EdgeCache | null,
+  cacheKey: Request,
+): Promise<LastGoodEdgeEntry | null> {
+  if (!cache) return null;
+  const response = await cache.match(cacheKey).catch(() => undefined);
+  if (!response) return null;
+  const storedAt = Number(response.headers.get(LAST_GOOD_STORED_AT_HEADER));
+  if (!Number.isFinite(storedAt) || storedAt <= 0) return null;
+  const storedAgeSeconds = Math.max(0, Math.floor(Date.now() / 1000) - storedAt);
+  if (storedAgeSeconds > LAST_GOOD_MAX_AGE_SEC) return null;
+  return { response, storedAgeSeconds };
+}

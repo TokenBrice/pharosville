@@ -69,6 +69,13 @@ import {
   RELEASE_DEPLOY_KEY_TITLE,
   validateReleaseCredentialState,
 } from "./pharosville/check-release-credentials.mjs";
+import {
+  FRESHNESS_INTERVAL_MULTIPLIER,
+  endpointChecks as smokeEndpointChecks,
+  findFreshnessProblems,
+  parseProducerIntervalsByKey,
+  reportFreshness,
+} from "./smoke-live.mjs";
 
 const neutralValue = ["alpha", "beta", "gamma", "9876543210"].join("_");
 const guardedEnvKeys = [
@@ -706,5 +713,111 @@ const failingBundle = evaluateBundleBudgets([
 });
 assert.equal(failingBundle.errors.some((error) => error.includes("entry chunk")), true);
 assert.equal(failingBundle.errors.some((error) => error.includes("Total JS")), true);
+
+const freshnessSource = {
+  producerIntervalSec: 900,
+  readUpdatedAt: (json) => json.updatedAt,
+};
+const freshNow = 1_785_060_000;
+
+assert.deepEqual(
+  findFreshnessProblems("/api/chains", { updatedAt: freshNow - 600 }, freshnessSource, freshNow),
+  [],
+);
+assert.deepEqual(
+  findFreshnessProblems("/api/chains", { updatedAt: freshNow - 2700 }, freshnessSource, freshNow),
+  [],
+  "exactly the budget still passes",
+);
+
+const stalePayload = findFreshnessProblems(
+  "/api/chains",
+  { updatedAt: freshNow - 86_400 },
+  freshnessSource,
+  freshNow,
+);
+assert.equal(stalePayload.length, 1);
+assert.equal(stalePayload[0].includes("over the 2700s budget"), true);
+
+assert.equal(
+  findFreshnessProblems("/api/chains", {}, freshnessSource, freshNow)[0].includes("no publication timestamp"),
+  true,
+);
+
+const staleMeta = findFreshnessProblems(
+  "/api/stablecoins",
+  { updatedAt: freshNow - 60, _meta: { status: "stale", ageSeconds: 90_000 } },
+  freshnessSource,
+  freshNow,
+);
+assert.equal(staleMeta.length, 2);
+assert.equal(staleMeta.some((problem) => problem.includes('_meta.status "stale"')), true);
+assert.equal(staleMeta.some((problem) => problem.includes("_meta.ageSeconds 90000")), true);
+
+assert.deepEqual(
+  findFreshnessProblems(
+    "/api/stablecoins",
+    { updatedAt: freshNow - 60, _meta: { status: "degraded", ageSeconds: 60 } },
+    freshnessSource,
+    freshNow,
+  ),
+  [],
+  "degraded within budget is not a canary finding",
+);
+
+assert.equal(FRESHNESS_INTERVAL_MULTIPLIER, 3);
+
+assert.deepEqual(
+  parseProducerIntervalsByKey(
+    [
+      "export const REGISTRY = {",
+      '  alpha: { key: "alpha", queryKey: ["alpha"], producerIntervalSec: CRON_INTERVALS["sync-alpha"] },',
+      '  beta: { key: "beta", queryKey: ["beta"], producerIntervalSec: CRON_INTERVALS["sync-beta"] },',
+      "};",
+    ].join("\n"),
+    { "sync-alpha": 900, "sync-beta": 1800 },
+  ),
+  { alpha: 900, beta: 1800 },
+);
+
+assert.throws(
+  () => parseProducerIntervalsByKey(
+    '  alpha: { producerIntervalSec: CRON_INTERVALS["sync-alpha"] },',
+    {},
+  ),
+  /unknown cron job: sync-alpha/,
+);
+assert.throws(
+  () => parseProducerIntervalsByKey("export const REGISTRY = {};", {}),
+  /Could not parse producer intervals/,
+);
+
+const freshnessLog = [];
+assert.equal(reportFreshness([], false, (line) => freshnessLog.push(line)), "fresh");
+assert.deepEqual(freshnessLog, [], "a clean run stays quiet");
+
+assert.equal(
+  reportFreshness(["/api/chains is stale"], false, (line) => freshnessLog.push(line)),
+  "1 freshness warning(s)",
+  "warning tier reports without failing",
+);
+assert.equal(freshnessLog.some((line) => line.includes("WARNING (1)")), true);
+assert.equal(freshnessLog.includes("- /api/chains is stale"), true);
+
+assert.throws(
+  () => reportFreshness(["/api/chains is stale"], true, (line) => freshnessLog.push(line)),
+  /1 stale endpoint\(s\) under --strict-freshness/,
+  "strict tier fails the canary",
+);
+assert.equal(freshnessLog.some((line) => line.includes("FAILED (1)")), true);
+
+// The live registry must still resolve a producer interval for every smoke endpoint.
+for (const check of smokeEndpointChecks) {
+  assert.equal(
+    Number.isFinite(check.freshness.producerIntervalSec),
+    true,
+    `${check.path} has no producer interval`,
+  );
+}
 
 console.log("Guard script self-tests passed.");

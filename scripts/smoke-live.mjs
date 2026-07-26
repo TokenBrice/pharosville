@@ -1,16 +1,30 @@
 #!/usr/bin/env node
 
+// Usage: node scripts/smoke-live.mjs [--url <origin>] [--timeout-ms <ms>] [--strict-freshness]
+//
+// --url / SMOKE_UI_URL           origin to smoke (default https://pharosville.pharos.watch)
+// --timeout-ms / SMOKE_TIMEOUT_MS  per-request timeout (default 10000)
+// --strict-freshness / SMOKE_STRICT_FRESHNESS=1
+//     Exit non-zero when an endpoint serves data older than its producer
+//     cadence allows. Off by default: recency problems are reported loudly but
+//     still exit 0, so a producer cadence blip does not break the canary before
+//     an operator has watched the signal.
+
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 
 const require = createRequire(import.meta.url);
 const {
   PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS,
   PHAROSVILLE_SMOKE_LIVE_BLOCKED_VARIANTS,
 } = require("../shared/lib/pharosville-smoke-matrix.ts");
+const { CRON_INTERVALS_CLIENT } = require("../shared/lib/cron-intervals-client.ts");
 
 const args = process.argv.slice(2);
 let baseUrl = process.env.SMOKE_UI_URL ?? "https://pharosville.pharos.watch";
 let timeoutMs = Number(process.env.SMOKE_TIMEOUT_MS ?? 10_000);
+let strictFreshness = process.env.SMOKE_STRICT_FRESHNESS === "1";
 
 for (let index = 0; index < args.length; index += 1) {
   if (args[index] === "--url" && args[index + 1]) {
@@ -19,6 +33,8 @@ for (let index = 0; index < args.length; index += 1) {
   } else if (args[index] === "--timeout-ms" && args[index + 1]) {
     timeoutMs = Number(args[index + 1]);
     index += 1;
+  } else if (args[index] === "--strict-freshness") {
+    strictFreshness = true;
   }
 }
 
@@ -177,12 +193,98 @@ const endpointValidatorsByPath = {
   },
 };
 
-const endpointChecks = PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS.map((path) => {
+// Data older than this many producer intervals means the upstream writer is
+// stuck rather than merely late.
+export const FRESHNESS_INTERVAL_MULTIPLIER = 3;
+
+// The endpoint registry is TypeScript with extensionless imports Node cannot
+// require, so read its cadence wiring out of the source instead of restating
+// the intervals here.
+export function parseProducerIntervalsByKey(registrySource, cronIntervals) {
+  const intervals = {};
+  for (const match of registrySource.matchAll(/(\w+):\s*\{[^}]*?producerIntervalSec:\s*CRON_INTERVALS\["([^"]+)"]/g)) {
+    const [, key, job] = match;
+    const interval = cronIntervals[job];
+    if (!Number.isFinite(interval)) {
+      throw new Error(`Endpoint registry entry ${key} references unknown cron job: ${job}`);
+    }
+    intervals[key] = interval;
+  }
+  if (Object.keys(intervals).length === 0) {
+    throw new Error("Could not parse producer intervals from the PharosVille endpoint registry.");
+  }
+  return intervals;
+}
+
+const producerIntervalsByKey = parseProducerIntervalsByKey(
+  readFileSync(new URL("../shared/lib/pharosville-endpoint-registry.ts", import.meta.url), "utf8"),
+  CRON_INTERVALS_CLIENT,
+);
+
+// Where each payload carries its publication time. Only the endpoints that ship
+// an `_meta` envelope get the status/ageSeconds half of the check.
+const freshnessSourcesByPath = {
+  "/api/stablecoins": { key: "stablecoins", readUpdatedAt: (json) => json._meta?.updatedAt },
+  "/api/chains": { key: "chains", readUpdatedAt: (json) => json.updatedAt },
+  "/api/stability-index?detail=true": { key: "stability", readUpdatedAt: (json) => json.current?.computedAt },
+  "/api/peg-summary": { key: "pegSummary", readUpdatedAt: (json) => json.methodology?.asOf },
+  "/api/stress-signals": { key: "stress", readUpdatedAt: (json) => json.updatedAt },
+  "/api/report-cards": { key: "reportCards", readUpdatedAt: (json) => json.updatedAt },
+};
+
+export function findFreshnessProblems(path, json, freshness, nowSec) {
+  const budgetSec = freshness.producerIntervalSec * FRESHNESS_INTERVAL_MULTIPLIER;
+  const problems = [];
+
+  const updatedAt = freshness.readUpdatedAt(json);
+  if (typeof updatedAt !== "number" || !Number.isFinite(updatedAt)) {
+    problems.push(`${path} exposes no publication timestamp to age-check`);
+  } else {
+    const ageSec = Math.round(nowSec - updatedAt);
+    if (ageSec > budgetSec) {
+      problems.push(`${path} was published ${ageSec}s ago, over the ${budgetSec}s budget (${FRESHNESS_INTERVAL_MULTIPLIER}x the ${freshness.producerIntervalSec}s producer interval)`);
+    }
+  }
+
+  const meta = json._meta;
+  if (isRecord(meta)) {
+    if (meta.status !== "fresh" && meta.status !== "degraded") {
+      problems.push(`${path} reports _meta.status ${JSON.stringify(meta.status)}`);
+    }
+    if (typeof meta.ageSeconds === "number" && Number.isFinite(meta.ageSeconds) && meta.ageSeconds > budgetSec) {
+      problems.push(`${path} reports _meta.ageSeconds ${Math.round(meta.ageSeconds)}, over the ${budgetSec}s budget`);
+    }
+  }
+
+  return problems;
+}
+
+// Warning tier by default: report loudly, keep the canary green. Strict mode is
+// the opt-in that turns the same findings into a failure.
+export function reportFreshness(problems, strict, log = console.error) {
+  if (problems.length === 0) return "fresh";
+  log(`[smoke-live] data freshness ${strict ? "FAILED" : "WARNING"} (${problems.length}):`);
+  for (const problem of problems) log(`- ${problem}`);
+  if (strict) {
+    throw new Error(`[smoke-live] ${problems.length} stale endpoint(s) under --strict-freshness`);
+  }
+  return `${problems.length} freshness warning(s)`;
+}
+
+export const endpointChecks = PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS.map((path) => {
   const validate = endpointValidatorsByPath[path];
   if (!validate) {
     throw new Error(`Missing smoke validator for allowlisted endpoint: ${path}`);
   }
-  return { path, validate };
+  const source = freshnessSourcesByPath[path];
+  if (!source) {
+    throw new Error(`Missing smoke freshness source for allowlisted endpoint: ${path}`);
+  }
+  const producerIntervalSec = producerIntervalsByKey[source.key];
+  if (!Number.isFinite(producerIntervalSec)) {
+    throw new Error(`Endpoint registry has no producer interval for key: ${source.key}`);
+  }
+  return { path, validate, freshness: { ...source, producerIntervalSec } };
 });
 
 async function main() {
@@ -190,19 +292,25 @@ async function main() {
   const rootContentType = root.headers.get("content-type") ?? "";
   assert(rootContentType.includes("text/html"), `/ returned non-HTML content-type: ${rootContentType || "missing"}`);
 
+  const nowSec = Date.now() / 1000;
+  const freshnessProblems = [];
   for (const endpoint of endpointChecks) {
     const json = await expectJson(endpoint.path);
     endpoint.validate(json);
+    freshnessProblems.push(...findFreshnessProblems(endpoint.path, json, endpoint.freshness, nowSec));
   }
 
   for (const blocked of PHAROSVILLE_SMOKE_LIVE_BLOCKED_VARIANTS) {
     await expectBlocked(blocked.path, blocked.statuses, blocked.init);
   }
 
-  console.log(`[smoke-live] ${base.toString()} OK (${endpointChecks.length} endpoints, ${PHAROSVILLE_SMOKE_LIVE_BLOCKED_VARIANTS.length} blocked variants)`);
+  const freshness = reportFreshness(freshnessProblems, strictFreshness);
+  console.log(`[smoke-live] ${base.toString()} OK (${endpointChecks.length} endpoints, ${PHAROSVILLE_SMOKE_LIVE_BLOCKED_VARIANTS.length} blocked variants, ${freshness})`);
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}

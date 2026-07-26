@@ -141,8 +141,11 @@ describe("PharosVille API proxy", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("public, max-age=600");
-    expect(cache.putUrls).toEqual(["https://pharosville.pharos.watch/api/stablecoins"]);
-    expect(cache.putUrls[0]).not.toContain("test-proxy-key");
+    expect(cache.putUrls).toEqual([
+      "https://pharosville.pharos.watch/api/stablecoins",
+      "https://pharosville.pharos.watch/__last-good/api/stablecoins",
+    ]);
+    expect(cache.putUrls.join(" ")).not.toContain("test-proxy-key");
     await expect(cache.match(new Request("https://pharosville.pharos.watch/api/stablecoins")))
       .resolves.toBeInstanceOf(Response);
   });
@@ -226,8 +229,14 @@ describe("PharosVille API proxy", () => {
     expect(body).not.toContain("test-proxy-key");
     expect(response.headers.get("x-api-key")).toBeNull();
     expect(response.headers.get("set-cookie")).toBeNull();
-    expect(cache.putUrls).toEqual(["https://pharosville.pharos.watch/api/stablecoins"]);
-    expect(cache.putUrls[0]).not.toContain("test-proxy-key");
+    expect(cache.putUrls).toEqual([
+      "https://pharosville.pharos.watch/api/stablecoins",
+      "https://pharosville.pharos.watch/__last-good/api/stablecoins",
+    ]);
+    expect(cache.putUrls.join(" ")).not.toContain("test-proxy-key");
+    const lastGood = await cache.match(new Request("https://pharosville.pharos.watch/__last-good/api/stablecoins"));
+    expect(await lastGood?.text()).not.toContain("test-proxy-key");
+    expect([...lastGood!.headers.keys()]).not.toContain("x-api-key");
   });
 
   it("rejects unlisted API paths before upstream fetch", async () => {
@@ -439,6 +448,119 @@ describe("PharosVille API proxy", () => {
     expect(body.updatedAt).toBe(1_700_000_000);
     expect(body.safetyScoreIdentity).toEqual({ model: "v8" });
     expect(body._meta).toEqual({ updatedAt: 1_700_000_000, ageSeconds: 5, status: "fresh" });
+  });
+
+  describe("last-good fallback", () => {
+    const SHORT_TTL_URL = "https://pharosville.pharos.watch/api/stablecoins";
+    const LAST_GOOD_URL = "https://pharosville.pharos.watch/__last-good/api/stablecoins";
+
+    /** Runs one successful request so the long-TTL copy exists, then evicts the
+     * short-TTL entry the way its `max-age` would have. */
+    async function primeLastGood(cache: MemoryEdgeCache): Promise<void> {
+      const waitUntilPromises: Promise<unknown>[] = [];
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify({ generation: "last-good" }), {
+          status: 200,
+          headers: { "content-type": "application/json", "x-data-age": "5" },
+        }),
+      );
+      await onRequest(makeContext(SHORT_TTL_URL, { waitUntilPromises }));
+      await Promise.all(waitUntilPromises);
+      cache.responses.delete(SHORT_TTL_URL);
+    }
+
+    it("stores the last-good copy under a long TTL", async () => {
+      const cache = new MemoryEdgeCache();
+      installEdgeCache(cache);
+      await primeLastGood(cache);
+
+      const stored = await cache.match(new Request(LAST_GOOD_URL));
+      expect(stored?.headers.get("cache-control")).toBe("public, max-age=86400");
+      await expect(stored?.json()).resolves.toEqual({ generation: "last-good" });
+    });
+
+    it("serves the last-good copy with stale markers when the upstream fetch fails", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-07-26T00:00:00Z"));
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const cache = new MemoryEdgeCache();
+      installEdgeCache(cache);
+      await primeLastGood(cache);
+
+      vi.setSystemTime(new Date("2026-07-26T01:00:00Z"));
+      vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("upstream down"));
+      const response = await onRequest(makeContext(SHORT_TTL_URL));
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ generation: "last-good" });
+      // `110` is the marker src/lib/api.ts reads to demote the payload out of `fresh`.
+      expect(response.headers.get("warning")).toBe('110 - "Response is stale"');
+      // The copy's own 5s of age plus the hour it spent in the edge cache.
+      expect(response.headers.get("x-data-age")).toBe("3605");
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("x-pharosville-proxy")).toBe("1");
+    });
+
+    it("serves the last-good copy when upstream answers 5xx", async () => {
+      const cache = new MemoryEdgeCache();
+      installEdgeCache(cache);
+      await primeLastGood(cache);
+
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "upstream unavailable" }), {
+          status: 503,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      const response = await onRequest(makeContext(SHORT_TTL_URL));
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ generation: "last-good" });
+      expect(response.headers.get("warning")).toBe('110 - "Response is stale"');
+    });
+
+    it("still forwards a 4xx, which answers the request rather than reporting an outage", async () => {
+      const cache = new MemoryEdgeCache();
+      installEdgeCache(cache);
+      await primeLastGood(cache);
+
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "bad request" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      const response = await onRequest(makeContext(SHORT_TTL_URL));
+
+      expect(response.status).toBe(400);
+    });
+
+    it("returns the honest 502 once the last-good copy is past the staleness cap", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-07-26T00:00:00Z"));
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const cache = new MemoryEdgeCache();
+      installEdgeCache(cache);
+      await primeLastGood(cache);
+
+      vi.setSystemTime(new Date("2026-07-27T00:00:01Z"));
+      vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("upstream down"));
+      const response = await onRequest(makeContext(SHORT_TTL_URL));
+
+      expect(response.status).toBe(502);
+      await expect(response.text()).resolves.toContain("PharosVille API upstream request failed");
+    });
+
+    it("returns the 502 when no last-good copy exists", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      installEdgeCache(new MemoryEdgeCache());
+      vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("upstream down"));
+
+      const response = await onRequest(makeContext(SHORT_TTL_URL));
+
+      expect(response.status).toBe(502);
+      expect(response.headers.get("warning")).toBeNull();
+    });
   });
 
   it("forwards the payload untouched when it is not the JSON the projector expects", async () => {
