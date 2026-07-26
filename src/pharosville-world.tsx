@@ -419,7 +419,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const [observeIndex, setObserveIndex] = useState<number | null>(null);
   const rendererFailed = rendererStatus === "failed";
   const threeExperienceReady = rendererStatus === "ready";
-  const observeBeat = threeExperienceReady && !reducedMotion && observeIndex !== null
+  const observeBeat = threeExperienceReady && observeIndex !== null
     ? observeSequence[observeIndex] ?? null
     : null;
   const cancelCameraIntent = canvas.cancelCameraIntent;
@@ -436,8 +436,13 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
           slice: observatorySlice,
         })
       : null;
+    // focusTile queues a camera intent, which the camera controller applies in
+    // one step under reduced motion — so the beat lands without a glide.
     focusTile(displayTile ?? observeBeat.tile);
     setAnnouncement(observeBeat.label);
+    // Reduced motion gets the same beats without the timed tour: the observe
+    // control steps to the next one, so nothing moves unless the reader asks.
+    if (reducedMotion) return;
     const timeoutId = window.setTimeout(() => {
       setObserveIndex((current) => {
         if (current === null) return null;
@@ -450,6 +455,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     observatorySlice,
     observeBeat,
     observeSequence.length,
+    reducedMotion,
     setAnnouncement,
     shipMotionSamplesRef,
     world.entityById,
@@ -534,17 +540,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   }, [canFollowSelected, followSelectedFromCanvas, selectedEntity]);
 
   useEffect(() => observeReducedMotion((matches) => {
-    if (matches) {
-      const activeElement = document.activeElement;
-      if (
-        activeElement instanceof Element
-        && activeElement.closest("[data-observe-control]")
-      ) {
-        shellRef.current?.focus();
-      }
-      cancelCameraIntent();
-      setObserveIndex(null);
-    }
+    if (matches) cancelCameraIntent();
     setReducedMotion(matches);
   }), [cancelCameraIntent]);
 
@@ -576,8 +572,19 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const frameRateLabel = formatFrameRateLabel(frameRateFps, reducedMotion);
   const handleToggleObserve = useCallback(() => {
     if (observeIndex !== null) cancelCameraIntent();
+    if (reducedMotion) {
+      // Not a toggle here: each press is one step through the sequence, and
+      // the press past the last beat ends it.
+      setObserveIndex((current) => {
+        if (current === null) return 0;
+        return current + 1 < observeSequence.length ? current + 1 : null;
+      });
+      return;
+    }
     setObserveIndex(observeIndex === null ? 0 : null);
-  }, [cancelCameraIntent, observeIndex]);
+  }, [cancelCameraIntent, observeIndex, observeSequence.length, reducedMotion]);
+
+  const handleObserveFromLegend = useCallback(() => setObserveIndex(0), []);
 
   const handleSelectStaticDetail = useCallback((detailId: string) => {
     selectDetail(detailId, null);
@@ -675,7 +682,13 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         )}
         {observeBeat && (
           <p className="pharosville-observe-caption" data-testid="pharosville-observe-caption">
-            <span>Observe</span>
+            {/* Stepping has no clock to promise the next beat, so the eyebrow
+                carries the position instead. */}
+            <span>
+              {reducedMotion && observeIndex !== null
+                ? `Observe ${observeIndex + 1}/${observeSequence.length}`
+                : "Observe"}
+            </span>
             {observeBeat.label}
           </p>
         )}
@@ -685,7 +698,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
             className={selectedDetailAnchor ? `pharosville-detail-dock pharosville-detail-dock--anchored pharosville-detail-dock--${selectedDetailAnchor.side}` : "pharosville-detail-dock"}
             style={detailDockStyle}
           >
-            <DetailPanel detail={selectedDetail} onClose={clearSelection} onSelectDetail={selectDetail} />
+            <DetailPanel detail={selectedDetail} onClose={clearSelection} onSelectDetail={selectDetail} setAnnouncement={setAnnouncement} />
           </div>
         )}
       </div>
@@ -695,8 +708,10 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
             onResetView={canvas.handleResetView}
             nightMode={timeControls.nightMode}
             onToggleNightMode={timeControls.toggleNightMode}
-            {...(threeExperienceReady && !reducedMotion ? {
-              observing: observeBeat !== null,
+            {...(threeExperienceReady ? {
+              // Under reduced motion the control steps rather than runs, so it
+              // never latches into a "stop" state the press would not honour.
+              observing: observeBeat !== null && !reducedMotion,
               onToggleObserve: handleToggleObserve,
             } : {})}
           />
@@ -709,7 +724,12 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       )}
       {legend.legendOpen && (
         <Suspense fallback={<ChangelogPanelLoading />}>
-          <LazyLegendPanel onClose={legend.closeLegend} onSelectDetail={selectDetail} recentFleetTrend={recentFleetTrend} />
+          <LazyLegendPanel
+            onClose={legend.closeLegend}
+            onSelectDetail={selectDetail}
+            recentFleetTrend={recentFleetTrend}
+            {...(threeExperienceReady ? { onObserve: handleObserveFromLegend } : {})}
+          />
         </Suspense>
       )}
       <p className="pharosville-footer">

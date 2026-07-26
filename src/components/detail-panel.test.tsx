@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
@@ -230,6 +230,52 @@ describe("DetailPanel structure (old-school revamp)", () => {
   });
 });
 
+describe("DetailPanel copy link", () => {
+  const detail: DetailModel = {
+    id: "ship:test-copy",
+    title: "Test Ship",
+    kind: "SHIP",
+    summary: "test",
+    facts: [],
+    links: [],
+  };
+
+  const stubClipboard = (writeText: (text: string) => Promise<void>) => {
+    const original = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    return () => {
+      if (original) Object.defineProperty(navigator, "clipboard", original);
+      else Reflect.deleteProperty(navigator as object, "clipboard");
+    };
+  };
+
+  it("copies the current world URL and announces it", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    const restore = stubClipboard(writeText);
+    window.history.replaceState({}, "", "/#sel=ship.usdc&n=1&cam=4,8,1.5");
+    const setAnnouncement = vi.fn();
+
+    render(<DetailPanel detail={detail} setAnnouncement={setAnnouncement} />);
+    fireEvent.click(screen.getByTestId("pharosville-detail-copy-link"));
+
+    await waitFor(() => expect(setAnnouncement).toHaveBeenCalledWith("Link copied"));
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/#sel=ship.usdc&n=1&cam=4,8,1.5`);
+    expect(screen.getByTestId("pharosville-detail-copy-link").textContent).toContain("Link copied");
+    restore();
+  });
+
+  it("announces a failure instead of throwing when the clipboard is unavailable", async () => {
+    const restore = stubClipboard(() => Promise.reject(new Error("denied")));
+    const setAnnouncement = vi.fn();
+
+    render(<DetailPanel detail={detail} setAnnouncement={setAnnouncement} />);
+    fireEvent.click(screen.getByTestId("pharosville-detail-copy-link"));
+
+    await waitFor(() => expect(setAnnouncement).toHaveBeenCalledWith("Could not copy link"));
+    restore();
+  });
+});
+
 describe("DetailPanel composer paths (synthetic fixtures)", () => {
   const calmShip: DetailModel = {
     id: "ship:test-calm",
@@ -357,7 +403,9 @@ describe("DetailPanel composer paths (synthetic fixtures)", () => {
 
     const markup = renderToStaticMarkup(<DetailPanel detail={detail} />);
     expect(markup).toMatch(/href="https:\/\/pharos\.watch\/stablecoin\/usdc-circle\/"/);
-    expect(markup).not.toMatch(/<button/);
+    // The panel's own copy-link control is always present; what must stay
+    // dormant is the in-world selector button.
+    expect(markup).not.toMatch(/Select Stablecoin in PharosVille/);
     expect(markup).toContain("Stablecoin →");
   });
 });

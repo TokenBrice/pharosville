@@ -15,7 +15,7 @@ PharosVille turns live Pharos stablecoin signals into a desktop-only maritime ob
 
 ## What It Shows
 
-PharosVille renders a living island-city view of Pharos stablecoin market signals:
+PharosVille renders a living maritime observatory of Pharos stablecoin market signals:
 
 - stablecoin supply, presence, and identity as ships
 - chain presence as harbors and docks

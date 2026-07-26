@@ -8,6 +8,7 @@ import {
   resolveGardenEntityDisplayTile,
   selectGardenObservatorySlice,
 } from "./systems/garden-observatory-slice";
+import { buildObserveSequence } from "./systems/observe-sequence";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "./systems/world-types";
 
 const mocks = vi.hoisted(() => {
@@ -382,6 +383,47 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     fireEvent.pointerDown(screen.getByTestId("pharosville-canvas"));
     expect(screen.queryByTestId("pharosville-observe-caption")).toBeNull();
     expect(mocks.cancelCameraIntent).toHaveBeenCalledTimes(2);
+  });
+
+  it("steps Observe beat by beat under reduced motion", () => {
+    vi.useFakeTimers();
+    const world = worldFixture();
+    const beats = buildObserveSequence(world);
+    render(<PharosVilleWorld world={world} />);
+
+    // The control never latches under reduced motion, so its label stays put.
+    const observe = () => screen.getByRole("button", { name: "Observe harbor" });
+    const caption = () => screen.getByTestId("pharosville-observe-caption").textContent;
+
+    fireEvent.click(observe());
+    expect(caption()).toContain(`Observe 1/${beats.length}`);
+    expect(caption()).toContain("The Pharos lighthouse reports PSI 82, STEADY.");
+    expect(mocks.focusTile).toHaveBeenLastCalledWith({ x: 16, y: 12 });
+
+    // No timed tour: the harbor holds this beat until the reader asks for more.
+    act(() => vi.advanceTimersByTime(OBSERVE_TEST_STEP_MS * 2));
+    expect(caption()).toContain(`Observe 1/${beats.length}`);
+
+    for (let index = 1; index < beats.length; index += 1) {
+      fireEvent.click(observe());
+      expect(caption()).toContain(`Observe ${index + 1}/${beats.length}`);
+      expect(caption()).toContain(beats[index]!.label);
+    }
+
+    fireEvent.click(observe());
+    expect(screen.queryByTestId("pharosville-observe-caption")).toBeNull();
+  });
+
+  it("opens the observe sequence from the legend's closing call to action", async () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Legend" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Watch the harbor" }));
+
+    expect(screen.queryByTestId("pharosville-legend-panel")).toBeNull();
+    expect(screen.getByTestId("pharosville-observe-caption").textContent).toContain(
+      "The Pharos lighthouse reports PSI 82, STEADY.",
+    );
   });
 
   it("replaces a failed Three scene with a navigable static signal overview", async () => {

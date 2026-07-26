@@ -15,6 +15,9 @@ import type { ShipRiskPlacement } from "../systems/world-types";
 
 export interface LegendPanelProps {
   onClose: () => void;
+  /** Starts the observe sequence from its first beat. Omitted when the world
+      runtime cannot run it, which drops the closing call to action. */
+  onObserve?: () => void;
   /** Selects a mover's ship in the world (closing the legend is the caller's
       choice via onClose composition). */
   onSelectDetail?: (detailId: string) => void;
@@ -88,7 +91,7 @@ const DIALOG_FOCUSABLE_SELECTOR = [
   "[tabindex]:not([tabindex='-1'])",
 ].join(",");
 
-export function LegendPanel({ onClose, onSelectDetail, recentFleetTrend }: LegendPanelProps) {
+export function LegendPanel({ onClose, onObserve, onSelectDetail, recentFleetTrend }: LegendPanelProps) {
   const panelRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const hasRecentMoves = recentFleetTrend
@@ -193,6 +196,25 @@ export function LegendPanel({ onClose, onSelectDetail, recentFleetTrend }: Legen
             remembers coins lost at sea.
           </p>
         </section>
+
+        {/* The legend used to end in silence. A first-time reader who has just
+            been told how to read the harbor is handed the harbor itself. */}
+        {onObserve && (
+          <p>
+            <button
+              type="button"
+              className="pharosville-legend-panel__mover"
+              data-testid="pharosville-legend-observe"
+              onClick={() => {
+                onClose();
+                onObserve();
+              }}
+            >
+              Watch the harbor
+            </button>
+            {" — the lighthouse, the leading risk watch, and the week's largest moves."}
+          </p>
+        )}
 
         {/* First screen ends here. Movers, marks and the full control list are
             reference rather than orientation, so they wait behind a fold

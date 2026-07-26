@@ -670,9 +670,13 @@ textarea {
 }
 
 .pharosville-detail-panel__close-wrap {
+  display: flex;
+  align-items: center;
+  gap: 18px;
   margin-top: 18px;
 }
-.pharosville-detail-panel__close {
+.pharosville-detail-panel__close,
+.pharosville-detail-panel__copy {
   margin: 0;
   padding: 0;
   border: 0;
@@ -682,10 +686,17 @@ textarea {
   letter-spacing: 0.02em;
   cursor: pointer;
 }
-.pharosville-detail-panel__close:hover {
+.pharosville-detail-panel__copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pharosville-detail-panel__close:hover,
+.pharosville-detail-panel__copy:hover {
   color: var(--pv-ink-text);
 }
-.pharosville-detail-panel__close:focus-visible {
+.pharosville-detail-panel__close:focus-visible,
+.pharosville-detail-panel__copy:focus-visible {
   outline: 2px solid var(--pv-brass-edge);
   outline-offset: 3px;
 }
