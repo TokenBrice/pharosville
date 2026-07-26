@@ -47,11 +47,14 @@ function normalizePathPattern(pattern = "") {
 function wildcardMatch(pattern, branch) {
   const normalizedBranch = branch.replace(/^refs\/heads\//, "");
   const normalizedPattern = normalizePathPattern(pattern).trim();
-  const expanded =
-    normalizedPattern
-      .replace(/\//g, "\\/")
-      .replace(/\./g, "\\.")
-      .replace(/\*/g, ".*");
+  // Escape EVERY regex metacharacter, then let `*` alone mean "any run".
+  // Escaping only `/` and `.` left `+ ? ( ) [ ] { } ^ $ |` live, so a branch
+  // pattern containing one either mis-matched or threw — in the script that
+  // verifies branch protection, which is the last place to be guessing.
+  // `/` needs no escaping in a RegExp constructor.
+  const expanded = normalizedPattern
+    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/\\\*/g, ".*");
 
   return new RegExp(`^(?:refs/heads/)?${expanded}$`, "i").test(normalizedBranch);
 }
