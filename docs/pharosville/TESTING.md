@@ -132,6 +132,30 @@ for the fleet to populate and then for the pacing ring to refill before reading,
 because both the snapshot rebuild and the load spike otherwise dominate the
 window.
 
+### The CI visual lane cannot render this world
+
+Reproduced in `mcr.microsoft.com/playwright:v1.59.1-noble`, the exact CI image:
+
+- **Firefox gets no WebGL context at all** — not with `webgl.force-enabled`,
+  `webgl.disabled`, `webgl.forbid-software`, `LIBGL_ALWAYS_SOFTWARE`,
+  `GALLIUM_DRIVER=llvmpipe` or `MOZ_ENABLE_WEBRENDER`. Locally Firefox is fine
+  both on the GPU and forced to software GL, so this is the container.
+  `visual-cross-browser` therefore only ever exercises the DOM fallback, which
+  it does correctly: the signal overview renders and the accessibility ledger
+  carries every ship.
+- **Chromium reaches SwiftShader and is too slow for the assertions** — the
+  motion lane times out on `locator.screenshot` at 180s.
+
+This is not a regression. The Three.js world arrived in v0.4.0 and has never
+been through these lanes; they were calibrated against the lighter world that
+preceded it. Until it is settled, `npm run test:visual` locally (hardware GPU,
+9/9 in under a minute) is the trustworthy signal, and the CI lanes will fail.
+
+Three ways out, in rough order of cost: give the lane a GPU runner; scope the
+CI lane to the DOM/accessibility contract it can actually prove and keep the
+full lane local; or raise the software-path timeouts far enough that SwiftShader
+finishes.
+
 ## Release confidence
 
 ```bash

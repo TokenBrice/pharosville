@@ -60,22 +60,17 @@ export function hardwareGpuLaunchArgs(browser: string): string[] {
 }
 
 /**
- * Firefox in the CI container will not hand out a WebGL context by default, so
- * the world reports a renderer failure and the cross-browser lane tests the DOM
- * fallback instead of the thing it says it tests. Locally — with a GPU, and
- * even forced to software GL — Firefox is fine, which is what makes this a
- * container default rather than a capability limit.
+ * MEASURED, do not retry: Firefox in `mcr.microsoft.com/playwright:v1.59.1-noble`
+ * cannot produce a WebGL context AT ALL. Reproduced in that exact image with
+ * `webgl.force-enabled` / `webgl.disabled` / `webgl.forbid-software` prefs, and
+ * with `LIBGL_ALWAYS_SOFTWARE`, `GALLIUM_DRIVER=llvmpipe` and
+ * `MOZ_ENABLE_WEBRENDER` — every combination returns no context. Locally
+ * Firefox is fine both on the GPU and forced to software GL, so this is the
+ * container, not the browser.
  *
- * `force-enabled` is the pref that gets past the blocklist a headless container
- * matches; the rest let it fall back to a software context rather than refuse.
+ * The consequence is a policy question, not a config one: the cross-browser
+ * lane can only ever exercise the DOM fallback in CI. See TESTING.md.
  */
-const FIREFOX_WEBGL_PREFS: Record<string, boolean> = {
-  "gfx.webrender.all": true,
-  "webgl.disabled": false,
-  "webgl.force-enabled": true,
-  "webgl.forbid-software": false,
-};
-
 export function shouldReuseExistingServer() {
   if (process.env.PHAROSVILLE_VISUAL_REUSE === "1") return true;
   if (process.env.PHAROSVILLE_VISUAL_REUSE === "0") return false;
@@ -99,10 +94,7 @@ export function parseBrowserSelection() {
 export function buildBrowserProjects(base: PharosvilleProjectUse) {
   return parseBrowserSelection().map((browser) => {
     const args = hardwareGpuLaunchArgs(browser);
-    const launchOptions = {
-      ...(args.length > 0 ? { args } : {}),
-      ...(browser === "firefox" ? { firefoxUserPrefs: FIREFOX_WEBGL_PREFS } : {}),
-    };
+    const launchOptions = args.length > 0 ? { args } : {};
     return {
       name: `desktop-${browser}`,
       use: {
