@@ -100,14 +100,14 @@ interface SeaBody {
  * below. Re-run it after moving any seed.
  */
 export const SEA_BODY_REACH: Record<SeaBodyName, number> = {
-  calm: 0.0357,
-  ledger: 0.0794,
-  watch: -0.071,
-  alert: 0.066,
-  warning: -0.0137,
-  danger: -0.0937,
-  wreck: -0.0853,
-  open: 0.0826,
+  calm: 0.0190,
+  open: 0.0734,
+  watch: -0.0524,
+  ledger: 0.0816,
+  alert: 0.0717,
+  wreck: -0.1153,
+  danger: -0.0823,
+  warning: 0.0043,
 };
 
 /**
@@ -277,6 +277,84 @@ function warpChannel(x: number, y: number): number {
     + (smoothNoise(x * 11.7 - 6.1, y * 11.7 + 2.9) - 0.5) * 0.25;
 }
 
+/**
+ * Z4 (2026-07-26): the boundary noise, closing residual 1 of the sea plan.
+ *
+ * The warp above BENDS the mutual boundaries; it cannot BREAK them. A domain
+ * warp displaces every body's field by the same vector, so two neighbours slide
+ * together and their shared edge stays one smooth curve however hard it is
+ * bent. Fourteen tiles of wander turned ruler lines into arcs, and the plan
+ * recorded the rest as a follow-up: "getting a genuinely fractal coast needs
+ * boundary-level noise rather than domain warp".
+ *
+ * That is this. Each body carries its OWN offset field, added to its distance
+ * before the argmin, so near a mutual boundary — where two bodies' distances
+ * are within a hair of each other — the winner flips back and forth along the
+ * difference of two independent noises. The boundary becomes a level set of
+ * noise instead of a level set of geometry: inlets, headlands, a coast.
+ *
+ * It stays in `bodyDistance`, which is inside `seaBodyAtTile`, which is what
+ * `terrainKindAt` answers with. Same rule as the warp, and for the same reason
+ * (defect D1): tint, ships, buoys and signage all read the one classifier, so
+ * there is no second copy of the boundary to drift from.
+ *
+ * ## Choosing the scale
+ *
+ * Two competing limits, both about the map being 140 tiles across:
+ *
+ * - Displacement has to read at overview zoom. A body's edge moves by roughly
+ *   `amplitude / |grad(d_i - d_j)|`, and two facing capsules give a gradient
+ *   difference near 2, so the relief buys a few tiles of bite — an inlet you
+ *   can see in the whole-map frame, not a dither on the line.
+ * - The coast has to stay ONE coast. The offset field's own gradient competes
+ *   with the geometry's: push amplitude x frequency past the SDF gradient
+ *   difference and the level set stops being single-valued, which on a tile
+ *   grid means shoals of one body marooned inside another. Contiguity is a
+ *   tested invariant, so the octaves are capped where it still holds — the
+ *   lowest carries almost all the amplitude at 6.1 cycles across the map
+ *   (~23-tile headlands), and the two above it only crinkle the line.
+ *
+ * Which is why the relief is a FRACTION OF THE NEAREST SEED'S RADIUS rather
+ * than a constant. A flat 0.055 was four tiles of bite on Calm's 0.16-radius
+ * bay and most of Warning Shoals' 0.055-radius band at once: measured, Warning
+ * fell to 0.59 of its tiles in one piece — a chain of islets, not a shoal.
+ * Tying relief to the local seed radius asks each body for the same
+ * PROPORTIONAL raggedness, so a wide bay gets a wide inlet and a thin band gets
+ * a thin scallop, and none of them gets cut in half.
+ *
+ * ## Where the ceiling actually is
+ *
+ * Swept in steps, re-solving `reach` at each one, contiguity holds flat and
+ * then falls off a cliff: every body stays whole through 0.80 (worst
+ * largest-component share 0.996) and by 0.85 Watch drops to 0.77, its thin
+ * south-east arm out to the pigeonnier islet pinching off. That is a topology
+ * change rather than a gradual fraying, so this sits at 0.60 — every body at a
+ * largest component of 1.000, with a third of the range still in hand, because
+ * a later seed nudge should not be able to walk the map over that edge.
+ *
+ * The area targets are NOT what bounds this: re-solved, every share lands
+ * within 0.06 pt at any relief from 0.30 to 1.00. An earlier pass read a
+ * 3.43 pt deviation as the limit, but that came from a calibrator measuring a
+ * frozen terrain cache — see the header of sea-bodies.calibrate.test.ts.
+ */
+const BOUNDARY_RELIEF = 0.60;
+
+/**
+ * Each body samples the same noise at a different origin, which is what makes
+ * the fields independent. Multiples of an irrational-ish stride keep any two
+ * bodies from landing on correlated lattice cells.
+ */
+const BOUNDARY_SALT: readonly number[] = SEA_BODIES.map((_, index) => index * 37.13 + 5.27);
+
+/** Unit relief: roughly -0.78..0.78 before the caller scales it by seed radius. */
+function boundaryOffset(x: number, y: number, salt: number): number {
+  return (
+    (smoothNoise(x * 6.1 + salt, y * 6.1 - salt) - 0.5)
+    + (smoothNoise(x * 12.7 - salt, y * 12.7 + salt) - 0.5) * 0.4
+    + (smoothNoise(x * 24.3 + salt * 2, y * 24.3 - salt * 2) - 0.5) * 0.16
+  );
+}
+
 // --- the partition ----------------------------------------------------------
 
 /** Squared distance from p to segment ab. */
@@ -294,13 +372,18 @@ function segmentDistance(px: number, py: number, seed: Seed): number {
   return Math.hypot(px - cx, py - cy);
 }
 
-function bodyDistance(px: number, py: number, body: SeaBody): number {
+function bodyDistance(px: number, py: number, body: SeaBody, salt: number): number {
   let best = Number.POSITIVE_INFINITY;
+  let bestRadius = 0;
   for (const seed of body.seeds) {
     const distance = segmentDistance(px, py, seed) - seed.r;
-    if (distance < best) best = distance;
+    if (distance < best) {
+      best = distance;
+      bestRadius = seed.r;
+    }
   }
-  return best - SEA_BODY_REACH[body.name];
+  const relief = boundaryOffset(px, py, salt) * bestRadius * BOUNDARY_RELIEF;
+  return best - SEA_BODY_REACH[body.name] + relief;
 }
 
 const MAP_SPAN = PHAROSVILLE_DESIGN_SPAN * PHAROSVILLE_MAP_SCALE;
@@ -321,8 +404,9 @@ export function seaBodyAtTile(x: number, y: number): SeaBodyName {
 
   let bestName: SeaBodyName = "open";
   let bestDistance = Number.POSITIVE_INFINITY;
-  for (const body of SEA_BODIES) {
-    const distance = bodyDistance(wu, wv, body);
+  for (let index = 0; index < SEA_BODIES.length; index += 1) {
+    const body = SEA_BODIES[index]!;
+    const distance = bodyDistance(wu, wv, body, BOUNDARY_SALT[index]!);
     if (distance < bestDistance) {
       bestDistance = distance;
       bestName = body.name;
