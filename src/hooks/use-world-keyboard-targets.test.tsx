@@ -6,10 +6,10 @@ import type { HitTarget } from "../renderer/hit-testing";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
 import { useWorldKeyboardTargets } from "./use-world-keyboard-targets";
 
-function target(detailId: string, priority = 1): HitTarget {
+function target(detailId: string, priority = 1, label = detailId): HitTarget {
   return {
     detailId,
-    label: detailId,
+    label,
     priority,
     rect: { x: 0, y: 0, width: 10, height: 10 },
   } as unknown as HitTarget;
@@ -83,6 +83,32 @@ describe("useWorldKeyboardTargets bounded Tab cycle", () => {
     handler(event);
 
     expect(event.preventDefault).not.toHaveBeenCalled();
+  });
+
+  it("gives a water body one stop, on its carved board rather than its zone", () => {
+    // N6: the sea sign publishes a second target on the SAME detail id, one
+    // priority point above the zone anchor. The cycle keeps one stop per
+    // detail, so the body neither gains a stop nor moves — the stop just lands
+    // on the object the visitor can actually see.
+    const targets = [
+      target("ship.a", 10_000),
+      target("area.calm", 1_500, "Calm Anchorage"),
+      target("area.calm", 1_501, "Calm Anchorage board"),
+    ];
+    const first = setup({ focused: "ship.a", targets });
+
+    const toBody = keyEvent("Tab");
+    first.handler(toBody);
+    expect(toBody.preventDefault).toHaveBeenCalled();
+    expect(first.setKeyboardFocusedDetailId).toHaveBeenCalledWith("area.calm");
+    expect(first.setAnnouncement).toHaveBeenCalledWith(
+      "Focused Calm Anchorage board. Press Enter to select.",
+    );
+
+    const past = setup({ focused: "area.calm", targets });
+    const toControls = keyEvent("Tab");
+    past.handler(toControls);
+    expect(toControls.preventDefault).not.toHaveBeenCalled();
   });
 
   it("releases Tab entirely when no map targets exist", () => {
