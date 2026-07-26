@@ -3,6 +3,7 @@ import type { CemeteryEntry } from "@shared/lib/cemetery-merged";
 import type { ReportCard, StablecoinData, StablecoinMeta } from "@shared/types";
 import type { ConditionBand } from "@shared/lib/psi-colors";
 import type { NetFlowDirection24h } from "@shared/lib/mint-burn-signals";
+import type { SupplyTide } from "./supply-tide";
 
 export type TileKind = "deep-water" | "water" | "shore" | "land" | "road";
 
@@ -124,6 +125,22 @@ export interface ShipHullForm {
   height: number;
   /** Fore-and-aft length multiplier. */
   length: number;
+  /**
+   * Tier 3 #13: how she rides. Signed OFFSET in ship-local units (not a
+   * multiplier like its three neighbours) — positive lifts the hull, negative
+   * settles it — derived from the SIGN of the coin's live peg deviation.
+   *
+   * It rides inside `ShipHullForm` rather than beside it because this struct is
+   * the per-instance channel the batched fleet already carries all the way to
+   * the vertex shader; a fourth component costs nothing where a fifth attribute
+   * would cost a buffer.
+   *
+   * `cue.ship.distance` already spends the deviation's MAGNITUDE on which water
+   * a ship anchors in. The sign was collapsed there and is the whole of what
+   * this carries: above par is a demand premium, below par is redemption
+   * pressure, and until now the world drew them identically.
+   */
+  waterline: number;
 }
 
 export const SHIP_HULL_FORM_SPAN = 0.32;
@@ -363,6 +380,19 @@ export interface DockNode {
       scaffold stage; drives the dock congestion cue and the "Backing
       diversity" detail row. */
   backingDiversity?: number | null;
+  /**
+   * Tier 3 #13: this chain's own stablecoin supply change over 24h and 7d
+   * (percent units, like `ShipNode.change24hPct`), from `chains.chains[]`.
+   *
+   * A harbour FILLING or DRAINING, which is not the same statement as
+   * `cargoTide`: that is issuance measured at the quay — coins minted and
+   * burned — while this is the chain's total held supply, which also moves when
+   * supply bridges in or out without a single coin being created. A chain can
+   * be net-burning and still filling, and the two rows sit next to each other
+   * so that reading is available rather than hidden.
+   */
+  change24hPct?: number | null;
+  change7dPct?: number | null;
   /** 24h issuance flow allocated to this harbour by `buildCargoTideStage`;
       drives the cargo-tide crates and the "Net flow 24h" detail row. Absent
       only on docks built outside the world pipeline. */
@@ -639,6 +669,8 @@ export interface PharosVilleWorld {
   graves: GraveNode[];
   /** Fleet-wide 24h issuance, or null when the mint/burn feed has not landed. */
   fleetIssuance: FleetIssuance | null;
+  /** Weekly supply flow, drawn as the tide line on shore rock and pilings. */
+  supplyTide: SupplyTide;
   detailIndex: Record<string, DetailModel>;
   // Keyed by `detailId` (the same key used by `detailIndex`) so detail-panel
   // selection can resolve the source entity in O(1) without a linear scan.

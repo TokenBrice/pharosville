@@ -76,6 +76,7 @@ export type DetailFactKey =
   | "homeDock"
   | "backingDiversity"
   | "netFlow24h"
+  | "supplyTide"
   | "representativePosition"
   | "riskWaterArea"
   | "riskWaterZone"
@@ -127,6 +128,7 @@ const DETAIL_FACT_LABELS = {
   "home dock": "homeDock",
   "backing diversity": "backingDiversity",
   "net flow 24h": "netFlow24h",
+  "supply tide 7d": "supplyTide",
   "representative position": "representativePosition",
   "risk water area": "riskWaterArea",
   "risk water zone": "riskWaterZone",
@@ -187,7 +189,10 @@ const READING_LINE_FIGURES: Record<string, readonly ReadingLineFigure[]> = {
     { label: "Market cap", format: compactFigure },
     { label: "Fleet rank" },
     { label: "24h supply change", format: (value) => `${value} 24h` },
-    { label: "Peg deviation" },
+    // The fact row spells the direction out ("+42 bps vs USD — above peg; hull
+    // rides high"); the reading line quotes figures, so it takes the figure and
+    // leaves the sentence to the row below it.
+    { label: "Peg deviation", format: (value) => value.split(" — ")[0]!.trim() },
     { label: "Cycle tempo" },
   ],
 };
@@ -305,6 +310,11 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   if (beamBearing) identity.push({ key: "beamBearing", label: "Beam bearing", value: beamBearing });
   const highWaterMark = lookup.get("highWaterMark");
   if (highWaterMark) identity.push({ key: "highWaterMark", label: "Worst band, 30d", value: highWaterMark });
+  // Task 14: DOM parity for the tide line on the shore rock and quay walls.
+  // Sits beside the high-water mark because both are read off stonework, and
+  // the pairing is what keeps a reader from confusing the two marks.
+  const supplyTide = lookup.get("supplyTide");
+  if (supplyTide) identity.push({ key: "supplyTide", label: "Supply tide 7d", value: supplyTide });
   const cycleTempo = lookup.get("cycleTempo");
   if (cycleTempo) identity.push({ key: "cycleTempo", label: "Cycle tempo", value: cycleTempo });
   const homeDock = lookup.get("homeDock");

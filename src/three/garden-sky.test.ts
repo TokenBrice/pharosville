@@ -66,3 +66,52 @@ describe("garden sky mist band", () => {
     sky.dispose();
   });
 });
+
+/**
+ * W6.8. These are the arithmetic guarantees the fog ladder was chosen for, not
+ * a taste judgement — so they can be asserted, and a future retune that quietly
+ * gives one of them up fails here instead of in a screenshot nobody compares.
+ */
+describe("garden sky aerial perspective", () => {
+  const fogAt = (depth: number, near: number, far: number): number =>
+    Math.max(0, Math.min(1, (depth - near) / (far - near)));
+
+  function fogRangeAtViewHeight(viewHeight: number): { far: number; near: number } {
+    const sky = createGardenSky();
+    sky.update(dayCyclePhase(12), { ...FRAME, viewHeight });
+    const range = { far: sky.fog.far, near: sky.fog.near };
+    sky.dispose();
+    return range;
+  }
+
+  it("leaves the island at zero haze, so the graded monument cannot shift", () => {
+    const { near } = fogRangeAtViewHeight(34);
+    // The island spans ground depth ~155-195 at the calibration framing and its
+    // near half is what the AgX/ortho grade was pinned against.
+    expect(near).toBeGreaterThanOrEqual(178);
+  });
+
+  it("never hazes the far frame edge as hard as the pre-W6.8 ladder did", () => {
+    const { far, near } = fogRangeAtViewHeight(34);
+    // Frame-top far water at the calibration framing. The old 192/275 ladder
+    // read 0.627 here; a longer ramp to a further endpoint must come in under
+    // that at every depth, which is what makes this change unable to white-out
+    // more than its predecessor.
+    expect(fogAt(244, near, far)).toBeLessThan(0.627);
+    expect(fogAt(232, near, far)).toBeLessThan(0.482);
+  });
+
+  it("grades the midground instead of stacking the whole cue at the horizon", () => {
+    const { far, near } = fogRangeAtViewHeight(34);
+    // Depth 195 — the near ships. The old ladder gave them 0.036, which is no
+    // depth cue at all; this is the half of the frame W6.8 was actually about.
+    expect(fogAt(195, near, far)).toBeGreaterThan(0.1);
+  });
+
+  it("still pulls haze in at whole-map framing, per the W6.6 hard-edge finding", () => {
+    const wide = fogRangeAtViewHeight(34 * 4);
+    // Capped by FOG_MAX_SCALE. The old ladder put the near plane at 288 here and
+    // the map edge resolved as a hard diamond slab in a void.
+    expect(wide.near).toBeLessThan(288);
+  });
+});

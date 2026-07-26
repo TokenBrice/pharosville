@@ -36,8 +36,42 @@ const STAR_COUNT = 720;
 // band — the bokashi seam where far water meets sky. Zooming out only
 // deepens the haze toward FOG_FAR; zooming in (explore) shrinks the span
 // below FOG_NEAR so close-ups stay crisp.
-const FOG_NEAR = 192;
-const FOG_FAR = 275;
+// W6.8 aerial perspective: a LONGER, EARLIER ramp — not a denser one.
+//
+// The ladder above (192/275, span 83) put almost the whole cue in the last
+// tenth of the frame: at the default framing the island sat entirely below
+// FOG_NEAR at zero haze, the midground lifted barely at all (depth 195 read
+// 0.036), and then the far water ran up to 0.63 in the last thirty units. That
+// is not aerial perspective, it is a band across the top of the picture — which
+// is exactly the W6.8 complaint that the horizon "reads as a flat band rather
+// than as depth".
+//
+// Stretching the ramp to 178/300 (span 122) grades the whole midground instead
+// of stacking the change at the end:
+//
+//   ground depth   155    178    195    225    232    244
+//   old (192/275)  0.00   0.00   0.036  0.398  0.482  0.627
+//   new (178/300)  0.00   0.00   0.139  0.385  0.443  0.541
+//
+// Three properties make this safe against the W6.6 white-out rather than a step
+// back toward it, and all three are arithmetic, not taste:
+//
+// 1. The maximum haze anywhere in frame goes DOWN (0.627 -> 0.541). A longer
+//    ramp to a further endpoint cannot be denser at any depth both ladders
+//    reach, so this change strictly cannot white-out more than today's does.
+// 2. The island is untouched. Everything at or below depth 178 still reads at
+//    zero fog, so the monument's colour — the thing the grade is calibrated
+//    against — cannot move at all.
+// 3. The bokashi seam holds: the Z4 horizon cards at ~232 go 0.482 -> 0.443, so
+//    far water still dissolves into the C1 horizon band rather than ending on an
+//    edge.
+//
+// At wide zoom the same change also pulls fog IN (at FOG_MAX_SCALE the near
+// plane goes 288 -> 267), which works against the other half of the W6.6
+// finding — the whole-map framing that resolved as a hard-edged diamond slab
+// floating in a void.
+const FOG_NEAR = 178;
+const FOG_FAR = 300;
 // W6.6 (Grand Scale Revamp): the ladder above was calibrated for ONE framing
 // (1440x960 at zoom 0.78). The revamp made the world worth zooming out for —
 // 187 ships across the whole sea — and at wide zoom the ground plane spans far
@@ -72,6 +106,20 @@ export interface GardenSkyFrame {
 
 export interface GardenSky {
   dispose: () => void;
+  /**
+   * W6.5: the dome's own shader material, shared with the environment baker.
+   *
+   * `garden-environment.ts` hangs a second, unit-radius sphere on THIS material
+   * instance and bakes it into the PMREM probe. Sharing the instance rather than
+   * copying its colours is the whole point: the uniforms `update()` writes below
+   * are the same uniforms the probe renders, so the light the world is lit BY
+   * cannot drift from the sky the world is seen AGAINST. A copy would have been
+   * one more thing to keep in step by hand.
+   *
+   * The environment module owns only the geometry it makes; this material is
+   * disposed here, once.
+   */
+  domeMaterial: ShaderMaterial;
   fog: Fog;
   moonAzimuth: number;
   root: Group;
@@ -323,6 +371,7 @@ export function createGardenSky(): GardenSky {
         }
       });
     },
+    domeMaterial: dome.material,
     fog,
     moonAzimuth: GARDEN_MOON_AZIMUTH,
     root,

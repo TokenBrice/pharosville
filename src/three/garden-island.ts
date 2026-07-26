@@ -29,9 +29,11 @@ import {
   gardenIslandDisplayTile,
 } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE } from "../systems/palette";
+import type { SupplyTide } from "../systems/supply-tide";
 import type { PharosVilleWorld } from "../systems/world-types";
 import { createLighthouse } from "./garden-lighthouse";
 import { setTilePosition, stableUnit } from "./garden-util";
+import { sampleTideLine } from "./garden-tide-line";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
 
 const scratchMatrix = new Matrix4();
@@ -41,6 +43,9 @@ const scratchLeanQuaternion = new Quaternion();
 // Height-graded rock ramp: dark wet stone at the waterline climbs to pale
 // weathered limestone at the crown. Terrace tops carry a planted colour.
 const WATERLINE_Y = WATER_LEVEL;
+
+/** The datum notch: scored iron, not the salt crust the PSI mark already uses. */
+const TIDE_DATUM_IRON = new Color(HARBOR_PALETTE.iron_dark);
 const CROWN_RAMP_Y = 3.4;
 const STONE_WET = new Color("#242d28");
 const STONE_MID = new Color("#828874");
@@ -244,7 +249,7 @@ export function createTerracedIsland(
   // re-skinned as displaced rock with a wet-base → pale-crown vertex gradient.
   for (const [topRadius, bottomRadius, height, segments, seed, x, y, z, scaleZ, rotation, topColor] of ISLAND_TIERS) {
     const tier = new Mesh(
-      createRockTerraceGeometry(topRadius, bottomRadius, height, segments, seed, y, topColor),
+      createRockTerraceGeometry(topRadius, bottomRadius, height, segments, seed, y, topColor, 0.11, world.supplyTide),
       rockMaterial,
     );
     tier.position.set(x, y, z);
@@ -458,11 +463,21 @@ function createIrregularTerraceGeometry(
   return geometry;
 }
 
-function stoneRampColor(worldY: number, target: Color): Color {
+function stoneRampColor(worldY: number, target: Color, tide?: SupplyTide): Color {
   const t = clamp01((worldY - WATERLINE_Y) / (CROWN_RAMP_Y - WATERLINE_Y));
   if (t < 0.5) target.copy(STONE_WET).lerp(STONE_MID, t / 0.5);
   else target.copy(STONE_MID).lerp(STONE_PALE, (t - 0.5) / 0.5);
-  return target.multiplyScalar(strataShade(worldY));
+  target.multiplyScalar(strataShade(worldY));
+  // The tide line rides the ramp the shore rock already paints, so the band
+  // costs no geometry and no draw call. Wetting pulls the stone back toward its
+  // own submerged colour rather than toward some new ink, which is what keeps
+  // the band reading as water on rock instead of as a decal.
+  if (tide) {
+    const { datum, wet } = sampleTideLine(worldY - WATERLINE_Y, tide);
+    if (wet > 0) target.lerp(STONE_WET, wet * 0.6);
+    if (datum > 0) target.lerp(TIDE_DATUM_IRON, 0.7);
+  }
+  return target;
 }
 
 /**
@@ -481,6 +496,7 @@ export function createRockTerraceGeometry(
   baseElevation: number,
   topColor: Color,
   amplitude = 0.11,
+  tide?: SupplyTide,
 ): CylinderGeometry {
   // W4.9: enough height rows to resolve a bedding step (~3 rows per bed at
   // STRATA_PERIOD). Three rows could carry a colour band but never an edge,
@@ -528,7 +544,7 @@ export function createRockTerraceGeometry(
       positions.setY(index, oy + crag * vignette * height * 0.16);
     }
     const ao = 0.7 + 0.3 * v;
-    stoneRampColor(colorY, color).multiplyScalar(ao);
+    stoneRampColor(colorY, color, tide).multiplyScalar(ao);
     colors[index * 3] = color.r;
     colors[index * 3 + 1] = color.g;
     colors[index * 3 + 2] = color.b;
@@ -560,7 +576,7 @@ export function createRockTerraceGeometry(
             `${seed}~bare~${Math.round(vx * 2.2)}~${Math.round(vz * 2.2)}`,
           );
           const bare = clamp01(rim * 0.9 + (patch - 0.52) * 1.15);
-          stoneRampColor(baseElevation + vy, capColor);
+          stoneRampColor(baseElevation + vy, capColor, tide);
           color.copy(topColor).lerp(capColor, bare);
           color.multiplyScalar(
             0.86 + stableUnit(`${seed}~mottle~${Math.round(vx * 3)}~${Math.round(vz * 3)}`) * 0.3,

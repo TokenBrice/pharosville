@@ -8,6 +8,7 @@ import {
   makeReportCard,
   makerSquadFixtureInputs,
 } from "../__fixtures__/pharosville-world";
+import { UNAVAILABLE_SUPPLY_TIDE } from "../systems/supply-tide";
 import type { PharosVilleWorld } from "../systems/world-types";
 import { AccessibilityLedger } from "./accessibility-ledger";
 
@@ -706,6 +707,7 @@ function sampleWorld(): PharosVilleWorld {
     routeMode: "world",
     freshness: {},
     fleetIssuance: null,
+    supplyTide: UNAVAILABLE_SUPPLY_TIDE,
     map: {
       width: 2,
       height: 2,
@@ -767,7 +769,7 @@ function sampleWorldWithUniqueShip(): PharosVilleWorld {
         riskWaterLabel: "Calm Anchorage",
         placementEvidence: { reason: "Fresh", sourceFields: ["pegSummary.coins[]"], stale: false },
         visual: {
-          hullForm: { beam: 1, height: 1, length: 1 },
+          hullForm: { beam: 1, height: 1, length: 1, waterline: 0 },
           hull: "dao-schooner",
           uniqueRationale: "Sails under Curve's llama mascot — the DEX that defined stablecoin AMM curves.",
           classLabel: "DeFi",
@@ -828,7 +830,7 @@ function sampleWorldWithLedgerShip(): PharosVilleWorld {
           stale: false,
         },
         visual: {
-          hullForm: { beam: 1, height: 1, length: 1 },
+          hullForm: { beam: 1, height: 1, length: 1, waterline: 0 },
           hull: "treasury-galleon",
           classLabel: "CeFi",
           livery: {

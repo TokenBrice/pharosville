@@ -89,6 +89,7 @@ import { createGardenWater, type GardenWater } from "./garden-water";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
 import { dayCyclePhase, updateDayCycle, type DayCyclePhase } from "./garden-day-cycle";
 import { createGardenSky, type GardenSky } from "./garden-sky";
+import { createGardenEnvironment, type GardenEnvironment } from "./garden-environment";
 import { createGardenPost } from "./garden-post";
 import {
   createDock,
@@ -101,6 +102,10 @@ import {
   createGardenCargoTide,
   type GardenCargoTide,
 } from "./garden-cargo-tide";
+import {
+  createGardenTideLine,
+  type GardenTideLine,
+} from "./garden-tide-line";
 import {
   createGardenLaneRegistry,
   type GardenLaneRegistry,
@@ -213,9 +218,11 @@ const scratchReflectionColor = new Color();
 
 export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): ThreeWorldRenderer {
   const { canvas, onAssetReady, onContextFailure } = input;
-  const scene = createGardenScene();
   const modelLibrary = createGardenModelLibrary();
   const camera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 500);
+  // The renderer is built before the scene now: W6.5's sky probe bakes THROUGH
+  // the renderer, so the scene cannot be assembled without one. Nothing in
+  // `createGardenScene` reads renderer state, so the swap is order-only.
   const renderer = new WebGLRenderer({
     alpha: false,
     antialias: true,
@@ -233,6 +240,7 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
   // See the reset in `render` — the frame's totals are accumulated by hand
   // so the composer's passes do not clobber the scene's counts.
   renderer.info.autoReset = false;
+  const scene = createGardenScene(renderer);
   const post = createGardenPost(renderer, scene.root, camera);
 
   let disposed = false;
@@ -330,6 +338,9 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
       canvas.removeEventListener("webglcontextcreationerror", handleContextCreationError);
       const detachedModel = scene.lighthouseModel?.parent ? null : scene.lighthouseModel;
       post.dispose();
+      // Owns a live PMREM render target; the generic tree walk cannot see it
+      // because it hangs off `Scene.environment`, not off a child.
+      scene.environment.dispose();
       scene.laneRegistry.dispose();
       disposeThreeObjectTree(scene.root);
       if (detachedModel) disposeThreeObjectTree(detachedModel);
@@ -343,6 +354,19 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
       // frame's numbers so the scheduler and the debug surface see a hold
       // rather than a collapse, and wait for `webglcontextrestored`.
       if (contextLost) return lastMetrics;
+
+      // W6.5: rebake the sky probe BEFORE the counters are reset, deliberately.
+      //
+      // A PMREM bake is a six-face cube render plus a mip chain, and this
+      // renderer accumulates `renderer.info` by hand for the whole frame. Baking
+      // after the reset would have added those passes to the frame's draw-call
+      // total, so the frames that happen to cross a day-cycle step would report
+      // a spike against the 700-call budget that has nothing to do with the
+      // world being drawn. Baking here keeps the budget a measurement of the
+      // scene. It costs nothing on the vast majority of frames, which do not
+      // bake at all.
+      const phase = dayCyclePhase(frame.wallClockHour);
+      scene.environment.update(phase);
 
       // `renderer.info` auto-resets on every `render()` call, and the post
       // composer issues several. Reading it after `post.render()` therefore
@@ -385,7 +409,6 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
         loadHeroesForContent(scene.content);
       }
       if (scene.content) syncShipSailTextures(scene.content, frame);
-      const phase = dayCyclePhase(frame.wallClockHour);
       updateSceneForFrame(scene, camera, frame, phase);
       // MEASURED DEAD ENDS — three things that look like obvious wins here and
       // are not. All numbers from the reference GPU on an otherwise idle
@@ -521,6 +544,13 @@ interface GardenScene {
   beamClockSeconds: number;
   content: GardenContent | null;
   directionalLight: DirectionalLight;
+  /**
+   * W6.5: the cached sky probe that lights the scene's standard materials.
+   *
+   * Scene-scope, not content-scope: it depends only on the hour, so a data
+   * refresh must not throw away a bake and pay for a new one.
+   */
+  environment: GardenEnvironment;
   hemisphereLight: HemisphereLight;
   horizon: GardenHorizon;
   hoverMarker: Mesh<RingGeometry, MeshBasicMaterial>;
@@ -568,6 +598,12 @@ interface GardenContent {
    * positions at build, so there is nothing for the frame loop to do.
    */
   cargoTide: GardenCargoTide;
+  /**
+   * Task 14: the weekly supply tide, as one banded plate per quay in a single
+   * instanced draw. Static — the strandline is composed into the plate's vertex
+   * colours, so the frame loop never touches it.
+   */
+  tideLine: GardenTideLine;
   decoration: Group;
   docks: DockVisual[];
   objectCount: number;
@@ -618,7 +654,7 @@ interface EntityCue {
   y: number;
 }
 
-function createGardenScene(): GardenScene {
+function createGardenScene(renderer: WebGLRenderer): GardenScene {
   const root = new Scene();
   const sky = createGardenSky();
   root.fog = sky.fog;
@@ -691,6 +727,9 @@ function createGardenScene(): GardenScene {
     beamClockSeconds: 0,
     content: null,
     directionalLight,
+    // W6.5: the probe shares the dome's material instance, so the sky the
+    // world is LIT BY and the sky it is SEEN AGAINST are the same uniforms.
+    environment: createGardenEnvironment(renderer, root, sky.domeMaterial),
     hemisphereLight,
     horizon,
     hoverMarker,
@@ -1079,6 +1118,22 @@ function createWorldContent(
   // harbour's own yaw and position — one mesh for the ring, not one per quay.
   const cargoTide = createGardenCargoTide(cargoTideSpecs(docks));
   root.add(cargoTide.root);
+  // The tide is one global reading, so every quay's plate is identical and the
+  // whole ring shares one geometry — see garden-tide-line.ts.
+  const tideLine = createGardenTideLine(
+    docks.map((visual) => ({
+      detailId: visual.dock.detailId,
+      width: visual.tideFace.width,
+      x: visual.root.position.x + visual.tideFace.x * Math.cos(visual.root.rotation.y)
+        + visual.tideFace.z * Math.sin(visual.root.rotation.y),
+      y: visual.root.position.y + visual.tideFace.y,
+      yaw: visual.root.rotation.y,
+      z: visual.root.position.z - visual.tideFace.x * Math.sin(visual.root.rotation.y)
+        + visual.tideFace.z * Math.cos(visual.root.rotation.y),
+    })),
+    world.supplyTide,
+  );
+  root.add(tideLine.root);
   const harborLanterns = createHarborLanterns(islandTile);
   const gullFlock = createGardenGullFlock(world.lighthouse.tile);
   const fireflies = createGardenFireflies(
@@ -1244,6 +1299,7 @@ function createWorldContent(
     beam: island.beam,
     beamDwellBearing,
     cargoTide,
+    tideLine,
     crossBearingBuoys,
     crossBearingBuoyShips: buoyShips,
     decoration: island.decoration,

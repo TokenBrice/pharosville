@@ -45,6 +45,50 @@ import type {
 } from "../../world-types";
 import type { BuildShipsStage, PharosVilleInputs } from "../pipeline-types";
 
+/**
+ * Tier 3 #13 — the peg trim ladder.
+ *
+ * Deliberately the SAME 50/200 bps steps `risk-placement.ts:deviationPlacement`
+ * uses to move a ship out of the calm anchorage, so the hull starts riding
+ * off-level at exactly the deviation the world already thinks is worth
+ * relocating a ship for. `ship-placement.test.ts` asserts that agreement
+ * against `resolveShipRiskPlacement` rather than trusting the comment.
+ */
+export const SHIP_TRIM_BPS_GATE = 50;
+export const SHIP_TRIM_BPS_FULL = 200;
+
+/**
+ * One trim step, in ship-local units. The hull's topsides run from the
+ * waterline to a gunwale at local y ≈ 0.47, so a step is about a sixth of the
+ * freeboard and a full trim about a third — clearly legible on a hull you are
+ * looking AT, and well under the ~0.7-unit isometric silhouette threshold at
+ * fleet zoom even on the largest titan. That is the intended reading: the
+ * direction of a peg break is an inspect-zoom fact, and the fleet-zoom fact is
+ * which water the ship is anchored in, which `cue.ship.distance` already draws.
+ */
+export const SHIP_TRIM_STEP = 0.08;
+
+/**
+ * Signed waterline offset for a coin's live peg deviation.
+ *
+ * Positive bps means trading ABOVE par — demand outrunning redemption — and she
+ * rides high; negative means below par, and she sits low and heavy. Stale peg
+ * evidence yields an even keel, because `resolveShipRiskPlacement` refuses to
+ * move a ship on stale deviation and the hull must not make a claim the berth
+ * has already declined to make.
+ */
+export function shipWaterlineTrim(
+  deviationBps: number | null | undefined,
+  pegSummaryStale: boolean,
+): number {
+  if (pegSummaryStale) return 0;
+  if (typeof deviationBps !== "number" || !Number.isFinite(deviationBps)) return 0;
+  const magnitude = Math.abs(deviationBps);
+  if (magnitude < SHIP_TRIM_BPS_GATE) return 0;
+  const steps = magnitude >= SHIP_TRIM_BPS_FULL ? 2 : 1;
+  return Math.sign(deviationBps) * steps * SHIP_TRIM_STEP;
+}
+
 /** Which sea body each risk placement's ships belong in. */
 const SEA_BODY_FOR_PLACEMENT: Record<ShipRiskPlacement, SeaBodyName> = {
   "safe-harbor": "calm",
@@ -310,6 +354,11 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
     const stressBreakdown = shipStressBreakdown(stress, risk.placement);
     const stamped = squad && flagshipRisk ? stampSquad(asset.id, squad) : null;
     const dexCrossCheck = shipDexCrossCheck(pegCoin, asset, pegCoin?.currentDeviationBps ?? null);
+    const shipVisual = resolveShipVisual(asset, meta, reportCard);
+    const waterline = shipWaterlineTrim(
+      pegCoin?.currentDeviationBps,
+      inputs.freshness.pegSummaryStale === true,
+    );
     return {
       id: asset.id,
       kind: "ship" as const,
@@ -332,7 +381,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
       riskWaterLabel: riskWaterArea.label,
       placementEvidence: risk.evidence,
       ...(stressBreakdown ? { stressBreakdown } : {}),
-      visual: resolveShipVisual(asset, meta, reportCard),
+      visual: { ...shipVisual, hullForm: { ...shipVisual.hullForm, waterline } },
       change24hUsd: recent.change24hUsd,
       change24hPct: recent.change24hPct,
       pegDeviationBps: pegCoin?.currentDeviationBps ?? null,

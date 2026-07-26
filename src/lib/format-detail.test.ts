@@ -181,6 +181,22 @@ describe("buildDetailFactSections folds", () => {
     ]);
   });
 
+  // Task 14 DOM parity. Same silent-drop trap as Net flow 24h: an unregistered
+  // label vanishes from the panel with every test still green, which would leave
+  // the tide band on the stonework saying something the panel never states.
+  it("renders a Supply tide 7d identity row for lighthouse facts", () => {
+    const { identity } = buildDetailFactSections([
+      { label: "Supply tide 7d", value: "-0.92% falling — supply shrank this week" },
+    ]);
+    expect(identity).toEqual([
+      { key: "supplyTide", label: "Supply tide 7d", value: "-0.92% falling — supply shrank this week" },
+    ]);
+  });
+
+  it("classifies the Supply tide 7d label however it is cased or spaced", () => {
+    expect(classifyDetailFactLabel("  SUPPLY   TIDE 7D ")).toBe("supplyTide");
+  });
+
   it("classifies the Net flow 24h label however it is cased or spaced", () => {
     expect(classifyDetailFactLabel("  NET   FLOW 24H ")).toBe("netFlow24h");
   });
@@ -219,7 +235,7 @@ describe("buildDetailFactSections folds", () => {
 
 describe("buildDetailReadingLine", () => {
   const shipFacts = [
-    { label: "Peg deviation", value: "-1 bps vs GOLD" },
+    { label: "Peg deviation", value: "-1 bps vs GOLD — below peg; hull rides low" },
     { label: "Market cap", value: "$2,547,000,000" },
     { label: "Fleet rank", value: "#12 of 187" },
     { label: "Share of fleet", value: "0.8% of fleet" },

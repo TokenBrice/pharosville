@@ -35,6 +35,7 @@ import {
 import type { ShipMotionSample } from "../systems/motion";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import { seaStateForWorld } from "../systems/sea-state";
+import type { DayCyclePhase } from "./garden-day-cycle";
 import { OVERVIEW_LOD_DETAIL_NAMES } from "./garden-overview-lod";
 import {
   createThreeWorldRenderer,
@@ -67,6 +68,16 @@ const postHarness = vi.hoisted(() => ({
   instances: [] as TestGardenPost[],
 }));
 
+type TestGardenEnvironment = {
+  readonly bakeCount: number;
+  dispose: ReturnType<typeof vi.fn>;
+  update: ReturnType<typeof vi.fn>;
+};
+
+const environmentHarness = vi.hoisted(() => ({
+  instances: [] as TestGardenEnvironment[],
+}));
+
 // The real composer needs a live WebGL2 context, so stub it. The fake still
 // draws via the mocked renderer (keeping `lastScene` populated for the scene
 // assertions) and tracks the tier policy the renderer drives it with.
@@ -97,6 +108,35 @@ vi.mock("./garden-post", () => ({
     return instance;
   }),
 }));
+
+// W6.5: the PMREM probe needs a live WebGL2 context to bake, so stub it. The
+// fake keeps the real module's caching CONTRACT — one bake per distinct
+// quantised phase key — so "the probe is not rebuilt per frame" stays a real
+// assertion here rather than something only the GPU could check.
+vi.mock("./garden-environment", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./garden-environment")>();
+  return {
+    ...actual,
+    createGardenEnvironment: vi.fn(() => {
+      let bakedKey: string | null = null;
+      let bakeCount = 0;
+      const instance: TestGardenEnvironment = {
+        dispose: vi.fn(),
+        get bakeCount() {
+          return bakeCount;
+        },
+        update: vi.fn((phase: DayCyclePhase) => {
+          const key = actual.gardenEnvironmentPhaseKey(phase);
+          if (key === bakedKey) return;
+          bakedKey = key;
+          bakeCount += 1;
+        }),
+      };
+      environmentHarness.instances.push(instance);
+      return instance;
+    }),
+  };
+});
 
 const emptyLogoAssets: ThreeLogoAssets = {
   getLogo: () => null,
@@ -141,6 +181,7 @@ vi.mock("three", async (importOriginal) => {
 beforeEach(() => {
   rendererHarness.instances.length = 0;
   postHarness.instances.length = 0;
+  environmentHarness.instances.length = 0;
   Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
     configurable: true,
     value: vi.fn(() => null),
@@ -451,6 +492,37 @@ describe("Three world renderer lifecycle", () => {
   });
 });
 
+describe("W6.5 sky-probe environment", () => {
+  it("bakes once per quantised day-cycle step, not once per frame, and disposes with the renderer", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+
+    // Twenty frames at one fixed hour. A probe rebuilt per frame would leak a
+    // PMREM render target per frame, which is the regression this guards.
+    for (let frame = 0; frame < 20; frame += 1) {
+      renderer.render(rendererFrame(world, "full", { timeSeconds: frame, wallClockHour: 12 }));
+    }
+    const environment = environmentHarness.instances.at(-1)!;
+    expect(environment.update).toHaveBeenCalledTimes(20);
+    expect(environment.bakeCount).toBe(1);
+
+    // Noon to midnight is a different sky, so it must bake again...
+    renderer.render(rendererFrame(world, "full", { wallClockHour: 0 }));
+    expect(environment.bakeCount).toBe(2);
+
+    // ...but a minute either side of midnight is the same sky, and must not.
+    renderer.render(rendererFrame(world, "full", { wallClockHour: 0.02 }));
+    renderer.render(rendererFrame(world, "full", { wallClockHour: 23.98 }));
+    expect(environment.bakeCount).toBe(2);
+
+    renderer.dispose();
+    expect(environment.dispose).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("Garden Observatory data selection", () => {
   it("chooses the largest dock and a spatially separate second dock", () => {
     const docks = [
@@ -504,6 +576,7 @@ function rendererFrame(
     reducedMotion?: boolean;
     selectedDetailId?: string | null;
     timeSeconds?: number;
+    wallClockHour?: number;
   } = {},
 ): ThreeWorldRendererFrame {
   const reducedMotion = options.reducedMotion ?? false;
@@ -536,7 +609,7 @@ function rendererFrame(
     selectedDetailId: options.selectedDetailId ?? null,
     shipMotionSamples: samples,
     timeSeconds: reducedMotion ? 0 : (options.timeSeconds ?? 12),
-    wallClockHour: 12,
+    wallClockHour: options.wallClockHour ?? 12,
     width: 1440,
     world,
   };

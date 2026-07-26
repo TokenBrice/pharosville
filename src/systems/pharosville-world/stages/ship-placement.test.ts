@@ -11,8 +11,15 @@ import {
 } from "../../../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "../../pharosville-world";
 import { isRiskPlacementWaterTile } from "../../risk-water-placement";
+import { resolveShipRiskPlacement } from "../../risk-placement";
 import { resetHeldMoorings } from "./dock-assignment";
-import { resetHeldShipPlacements } from "./ship-placement";
+import {
+  resetHeldShipPlacements,
+  shipWaterlineTrim,
+  SHIP_TRIM_BPS_FULL,
+  SHIP_TRIM_BPS_GATE,
+  SHIP_TRIM_STEP,
+} from "./ship-placement";
 import type { PharosVilleInputs } from "../pipeline-types";
 import type { ShipNode } from "../../world-types";
 
@@ -196,5 +203,80 @@ describe("sticky ship placement", () => {
       const outsiders = spread.filter((ship) => !isRiskPlacementWaterTile(ship.riskTile, ship.riskPlacement));
       expect(outsiders.map((ship) => ship.id)).toEqual([]);
     }
+  });
+});
+
+describe("shipWaterlineTrim", () => {
+  it("trims by the SIGN of the deviation, not its magnitude alone", () => {
+    expect(shipWaterlineTrim(SHIP_TRIM_BPS_GATE, false)).toBeGreaterThan(0);
+    expect(shipWaterlineTrim(-SHIP_TRIM_BPS_GATE, false)).toBeLessThan(0);
+    // The two directions are mirror images: a premium and a discount of the
+    // same size are equally far off par, in opposite directions.
+    expect(shipWaterlineTrim(-320, false)).toBe(-shipWaterlineTrim(320, false));
+  });
+
+  it("holds an even keel inside the gate, and steps once more past the full mark", () => {
+    expect(shipWaterlineTrim(0, false)).toBe(0);
+    expect(shipWaterlineTrim(SHIP_TRIM_BPS_GATE - 1, false)).toBe(0);
+    expect(shipWaterlineTrim(SHIP_TRIM_BPS_GATE, false)).toBe(SHIP_TRIM_STEP);
+    expect(shipWaterlineTrim(SHIP_TRIM_BPS_FULL - 1, false)).toBe(SHIP_TRIM_STEP);
+    expect(shipWaterlineTrim(SHIP_TRIM_BPS_FULL, false)).toBe(SHIP_TRIM_STEP * 2);
+    expect(shipWaterlineTrim(9_000, false)).toBe(SHIP_TRIM_STEP * 2);
+  });
+
+  it("stays level on a missing or stale peg reading", () => {
+    expect(shipWaterlineTrim(null, false)).toBe(0);
+    expect(shipWaterlineTrim(undefined, false)).toBe(0);
+    expect(shipWaterlineTrim(Number.NaN, false)).toBe(0);
+    // The berth refuses to move on stale deviation; the hull must not make the
+    // claim the placement has already declined to make.
+    expect(shipWaterlineTrim(-800, true)).toBe(0);
+  });
+
+  it("uses the same bps ladder that moves a ship out of the calm anchorage", () => {
+    const placementAt = (bps: number): string => resolveShipRiskPlacement({
+      asset: { id: "usdc-circle", price: 1, priceConfidence: "high" } as never,
+      meta: { flags: {} } as never,
+      pegCoin: makePegCoin({ id: "usdc-circle", symbol: "USDC", currentDeviationBps: bps }),
+      stress: undefined,
+      freshness: {},
+    }).placement;
+
+    expect(placementAt(SHIP_TRIM_BPS_GATE - 1)).toBe("safe-harbor");
+    expect(placementAt(SHIP_TRIM_BPS_GATE)).not.toBe("safe-harbor");
+    expect(placementAt(SHIP_TRIM_BPS_FULL - 1)).toBe("harbor-mouth-watch");
+    expect(placementAt(SHIP_TRIM_BPS_FULL)).toBe("outer-rough-water");
+  });
+
+  it("reaches the world's ships, trimmed against their own peg rows", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput({
+      pegSummary: {
+        ...fixturePegSummary,
+        coins: [
+          makePegCoin({ id: "usdc-circle", symbol: "USDC", currentDeviationBps: 260 }),
+          makePegCoin({ id: "usdt-tether", symbol: "USDT", currentDeviationBps: -120 }),
+        ],
+      },
+    }));
+    const waterlineOf = (id: string): number | undefined => world.ships
+      .find((ship) => ship.id === id)?.visual.hullForm.waterline;
+
+    expect(waterlineOf("usdc-circle")).toBe(SHIP_TRIM_STEP * 2);
+    expect(waterlineOf("usdt-tether")).toBe(-SHIP_TRIM_STEP);
+    // The same two readings under a stale peg summary leave both hulls level,
+    // because the berth refuses to move on stale deviation either.
+    const stale = buildPharosVilleWorld({
+      ...makePharosVilleWorldInput({
+        pegSummary: {
+          ...fixturePegSummary,
+          coins: [
+            makePegCoin({ id: "usdc-circle", symbol: "USDC", currentDeviationBps: 260 }),
+            makePegCoin({ id: "usdt-tether", symbol: "USDT", currentDeviationBps: -120 }),
+          ],
+        },
+      }),
+      freshness: { pegSummaryStale: true },
+    });
+    expect(stale.ships.every((ship) => ship.visual.hullForm.waterline === 0)).toBe(true);
   });
 });

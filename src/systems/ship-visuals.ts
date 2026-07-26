@@ -233,6 +233,11 @@ function resolveShipHullForm(
     beam: clamp(beam + jitter(8) * 0.17),
     height: clamp(height + jitter(16) * 0.15),
     length: clamp(length + jitter(0) * 0.19),
+    // Even keel. The peg trim is not a trait of the ISSUER, so it is not
+    // resolved here — `buildShips` overwrites it per refresh from that coin's
+    // live peg row (`shipWaterlineTrim`). A hull with no peg reading keeps this
+    // zero, which is the only honest default: unread is not "at par".
+    waterline: 0,
   };
 }
 

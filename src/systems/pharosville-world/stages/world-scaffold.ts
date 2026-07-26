@@ -3,6 +3,7 @@ import { PSI_HEX_COLORS } from "@shared/lib/psi-colors";
 import { STATUS_COINGECKO_PRICE_DIFF_THRESHOLD_PCT } from "@shared/lib/status-thresholds";
 import type { StabilityIndexResponse } from "@shared/types";
 import { buildChainDocks } from "../../chain-docks";
+import { buildSupplyTide } from "../../supply-tide";
 import {
   buildPharosVilleMap,
   graveNodesFromEntries,
@@ -343,19 +344,28 @@ function buildAreas(shipCountsByRiskPlacement: ReadonlyMap<ShipNode["riskPlaceme
   });
 }
 
-// P3 metaphor quick-win: ride the chain's backing-diversity health factor on
-// the dock node so `detailForDock` and the dock congestion render cue read
-// one field instead of re-joining the chains payload.
-function withBackingDiversity(docks: DockNode[], chains: PharosVilleInputs["chains"]): DockNode[] {
-  const diversityByChainId = new Map(
-    (chains?.chains ?? []).map((chain) => [chain.id, chain.healthFactors?.backingDiversity ?? null] as const),
-  );
-  return docks.map((dock) => ({ ...dock, backingDiversity: diversityByChainId.get(dock.chainId) ?? null }));
+// P3 metaphor quick-win, extended for Tier 3 #13: ride the per-chain readings
+// the dock cares about on the dock node itself, so `detailForDock`, the ledger
+// and the render cues read one field each instead of re-joining the chains
+// payload. `change24hPct` / `change7dPct` arrived in the browser from the first
+// build and drove nothing until this.
+function withChainSignals(docks: DockNode[], chains: PharosVilleInputs["chains"]): DockNode[] {
+  const byChainId = new Map((chains?.chains ?? []).map((chain) => [chain.id, chain] as const));
+  return docks.map((dock) => {
+    const chain = byChainId.get(dock.chainId);
+    return {
+      ...dock,
+      backingDiversity: chain?.healthFactors?.backingDiversity ?? null,
+      change24hPct: Number.isFinite(chain?.change24hPct) ? chain!.change24hPct : null,
+      change7dPct: Number.isFinite(chain?.change7dPct) ? chain!.change7dPct : null,
+    };
+  });
 }
 
 export function buildWorldScaffoldStage(inputs: PharosVilleInputs): BuildWorldScaffoldStage {
-  const docks = withBackingDiversity(buildChainDocks(inputs.chains), inputs.chains);
+  const docks = withChainSignals(buildChainDocks(inputs.chains), inputs.chains);
   return {
+    supplyTide: buildSupplyTide(inputs.chains),
     map: buildPharosVilleMap(),
     lighthouse: buildLighthouse(inputs.stability, inputs.pegSummary),
     pigeonnier: buildPigeonnier(),

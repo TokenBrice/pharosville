@@ -22,6 +22,11 @@ export const LEGEND_MARK_ROWS = [
     text: "Small pennants on the mast beside the observatory count the coins currently off peg (five is the top of the hoist); a dark cone joins them when the worst deviation is large. It reports today's readings, not a forecast.",
   },
   {
+    cueId: "cue.world.supply-tide",
+    label: "Tide line on the shore rock",
+    text: "A dark band of wet stone on the island rock and the quay walls, measured against a fixed iron datum notch: a strandline above the notch means stablecoin supply shrank over the week, below it means supply grew. Bare stone with no notch at all means no chain data arrived.",
+  },
+  {
     cueId: "cue.lighthouse.high-water-mark",
     label: "Pale band on the lighthouse rocks",
     text: "A pale salt line climbing the lighthouse terrace records the worst index band of the last 30 days — how high the water got, not how it stands now. Unstained rock can also mean there was no history to read.",
@@ -30,6 +35,11 @@ export const LEGEND_MARK_ROWS = [
     cueId: "cue.ship.cross-bearing-buoy",
     label: "Striped cross-bearing buoy",
     text: "A small black-and-white buoy riding beside a ship means its DEX price and its consensus price disagree. It says the two readings differ, not which one is right, and most ships have no buoy because no cross-check was run.",
+  },
+  {
+    cueId: "cue.ship.peg-trim",
+    label: "How she rides",
+    text: "A hull sitting high out of the water is trading above its peg; one sitting low and heavy is trading below it. Only coins at least 50 bps off par are trimmed at all, the trim is small by design and reads when you are looking at a ship rather than at the whole fleet, and a level hull can mean either at par or no fresh peg reading — the Peg deviation row says which.",
   },
   {
     cueId: "cue.ship.audit-shield",
@@ -150,6 +160,20 @@ export function buildVisualCueRegistry(): VisualCue[] {
       reducedMotionEquivalent: "static semantic water texture and printed labels",
     },
     {
+      // The one cue that reads the SIGN of the peg deviation. `cue.ship.distance`
+      // spends its magnitude on which water the ship anchors in and collapses
+      // the direction; a premium and a discount are opposite market facts.
+      id: "cue.ship.peg-trim",
+      target: { kind: "ship" },
+      primaryChannels: ["position", "shape"],
+      visual: "the hull lifting clear of the water on coins trading above par and settling low and heavy on coins trading below it, in two steps at the same 50 and 200 bps the risk-water placement uses; an even keel below 50 bps and on any stale peg row",
+      sourceField: "pegSummary.coins[].currentDeviationBps (sign), freshness.pegSummaryStale",
+      questionAnswered: "Is this coin off peg because demand is running ahead of it, or because holders are redeeming out of it?",
+      failureState: "even keel — which covers at-par, under the 50 bps gate, and no fresh peg reading alike; the Peg deviation row separates the three",
+      domEquivalent: "ship detail 'Peg deviation' row, which names the direction outright and says whether the hull is trimmed for it, plus the matching accessibility-ledger peg-deviation clause",
+      reducedMotionEquivalent: "identical — the trim is how the ship floats, not something she does, so there is nothing to freeze",
+    },
+    {
       // Reliable class reading is inspect-zoom only; fleet-zoom analysis belongs in the Class row and ledger.
       id: "cue.ship.hull",
       target: { kind: "ship" },
@@ -228,7 +252,20 @@ export function buildVisualCueRegistry(): VisualCue[] {
       reducedMotionEquivalent: "same static crate stack",
     },
     {
-      // The world's only FLOW cue. Everything else here reports a stock.
+      // The WEEKLY flow reading, against the cargo tide's daily one. Kept quiet
+      // on purpose: supply growing or shrinking is a condition, not a warning.
+      id: "cue.world.supply-tide",
+      target: { kind: "lighthouse" },
+      primaryChannels: ["position", "color", "size"],
+      visual: "a band of dark wet stone on the island's shore rock and on every quay wall, its top edge — the strandline — standing above a fixed iron datum notch when the week's stablecoin supply fell and below it when supply rose; the excursion is compressed against a 2% full scale so an ordinary week still lifts clear of the datum",
+      sourceField: "chains.globalChange7dPct",
+      questionAnswered: "Did the whole stablecoin supply grow or shrink over the past week?",
+      failureState: "bare stone with no datum notch at all — distinct from every real tide state, because a cue that cannot say 'no data' eventually says something false instead",
+      domEquivalent: "lighthouse detail 'Supply tide 7d' row naming the direction outright, plus the matching accessibility ledger lighthouse clause",
+      reducedMotionEquivalent: "identical — a weekly figure carries no rate to animate, so the band is static at every setting",
+    },
+    {
+      // The world's only DAILY flow cue. Everything else here reports a stock.
       id: "cue.dock.cargo-tide",
       target: { kind: "dock" },
       primaryChannels: ["position", "shape", "size"],

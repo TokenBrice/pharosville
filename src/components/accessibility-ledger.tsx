@@ -11,10 +11,12 @@ import {
   dexCrossCheckLabel,
   highWaterMarkLabel,
   mastSignalLabel,
-  pegDeviationLabel,
+  pegDeviationFactLabel,
   cargoTideLabel,
   DIMENSION_KEY_LABELS,
   dockConcentrationLabel,
+  dockSupplyChangeLabel,
+  dockSupplyMomentumLabel,
   fleetPegLabel,
   harborRankLabel,
   lighthouseBeamWarmCueLabel,
@@ -26,6 +28,7 @@ import {
   signalMastLabel,
   stablecoinSupplyShareLabel,
   stressBreakdownLabel,
+  supplyTideLabel,
   supplyMomentumLabel,
 } from "../systems/detail-model";
 import { recentFleetTrendSummary, recentFleetTrendSummaryText, seaStateForWorld, seaStateSummary } from "../systems/sea-state";
@@ -135,6 +138,10 @@ function AccessibilityLedgerContent({
   const lighthouseFleetPeg = fleetPegLabel(world.lighthouse.signalMast);
   const lighthouseBeamDwell = beamDwellLabel(world.lighthouse.beamDwell);
   const lighthouseHighWaterMark = highWaterMarkLabel(world.lighthouse.highWaterMark);
+  // Task 14 DOM parity. Read out next to the high-water mark deliberately: the
+  // two marks sit on different stone and mean different things, and hearing
+  // them together is what stops a listener merging them.
+  const supplyTide = supplyTideLabel(world.supplyTide);
   const recentFleetTrend = recentFleetTrendSummary(world);
 
   return (
@@ -174,6 +181,7 @@ function AccessibilityLedgerContent({
             {lighthouseFleetPeg ? ` Fleet peg: ${lighthouseFleetPeg}.` : ""}
             {lighthouseBeamDwell ? ` Beam bearing: ${lighthouseBeamDwell}.` : ""}
             {` Worst band, 30d: ${lighthouseHighWaterMark}.`}
+            {supplyTide ? ` Supply tide 7d: ${supplyTide}.` : ""}
           </dd>
         </div>
         <div>
@@ -327,6 +335,11 @@ function dockLedgerLine(dock: PharosVilleWorld["docks"][number]): string {
   // detail panel labels it, so a screen-reader listener and a panel reader are
   // reading the same row.
   const netFlow24h = cargoTideLabel(dock.cargoTide);
+  // Tier 3 #13. Kept adjacent to net flow 24h on purpose: held supply and
+  // issuance are different measurements of the same harbour and a listener
+  // should meet them together, not a paragraph apart.
+  const supplyChange = dockSupplyChangeLabel(dock);
+  const supplyMomentum = dockSupplyMomentumLabel(dock);
   return [
     `${dock.label}: ${formatCompactUsd(dock.totalUsd)} stablecoin supply`,
     harborRank,
@@ -334,6 +347,8 @@ function dockLedgerLine(dock: PharosVilleWorld["docks"][number]): string {
     concentration ? `concentration ${concentration}` : null,
     `${dock.stablecoinCount} stablecoins`,
     `health ${dock.healthBand ?? "unavailable"}`,
+    supplyChange ? `24h supply change ${supplyChange}` : null,
+    supplyMomentum ? `supply momentum ${supplyMomentum}` : null,
     netFlow24h ? `net flow 24h ${netFlow24h}` : null,
     `harboring ${harboredStablecoins}`,
   ].filter((part): part is string => part !== null).join(", ") + ".";
@@ -404,7 +419,9 @@ function shipLedgerLine(
     `evidence status ${ship.placementEvidence.stale ? "caveat" : "fresh"}`,
     `source fields ${ship.placementEvidence.sourceFields.join(", ") || "unavailable"}${ship.visual.uniqueRationale ? ` — heritage hull: ${ship.visual.uniqueRationale}` : ""}`,
     `cycle tempo ${tempoLabel}; ${cycleTempoReadingClause()}`,
-    ...(pegDeviationLabel(ship) ? [`peg deviation ${pegDeviationLabel(ship)}`] : []),
+    // Tier 3 #13: the ledger takes the fact-row form, which names the direction
+    // and says whether the hull is trimmed for it — the peg-trim cue's parity.
+    ...(pegDeviationFactLabel(ship) ? [`peg deviation ${pegDeviationFactLabel(ship)}`] : []),
     ...(mastSignalLabel(ship) ? [`mast signal ${mastSignalLabel(ship)}`] : []),
     `24h supply change ${formatChangePercent(ship.change24hPct)}`,
     ...(supplyMomentumLabel(ship) ? [`supply momentum ${supplyMomentumLabel(ship)}`] : []),

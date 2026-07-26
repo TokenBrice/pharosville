@@ -42,6 +42,7 @@ export interface PharosVilleInputs {
 export type PharosVilleWorldBase = Omit<PharosVilleWorld, "detailIndex" | "entityById" | "visualCues">;
 
 export interface BuildWorldScaffoldStage {
+  supplyTide: PharosVilleWorld["supplyTide"];
   map: PharosVilleMap;
   lighthouse: LighthouseNode;
   pigeonnier: PigeonnierNode;

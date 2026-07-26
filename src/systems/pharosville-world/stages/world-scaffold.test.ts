@@ -8,6 +8,8 @@ import {
   buildSignalMast,
   SIGNAL_MAST_STORM_CONE_BPS,
 } from "./world-scaffold";
+import { buildPharosVilleWorld } from "../../pharosville-world";
+import { fixtureChains, makePharosVilleWorldInput } from "../../../__fixtures__/pharosville-world";
 
 function pegSummary(summary: Partial<PegSummaryStats> | null): PegSummaryResponse {
   return {
@@ -221,5 +223,43 @@ describe("buildBeamDwell (3d)", () => {
   it("has nothing to point at when the index named no contributor", () => {
     expect(buildBeamDwell(undefined)).toBeUndefined();
     expect(buildBeamDwell([])).toBeUndefined();
+  });
+});
+
+describe("dock supply change (Tier 3 #13)", () => {
+  it("carries each chain's own 24h and 7d held-supply change onto its harbour", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput({
+      chains: {
+        ...fixtureChains,
+        chains: fixtureChains.chains.map((chain) => (
+          chain.id === "ethereum"
+            ? { ...chain, change24hPct: 2.4, change7dPct: -5 }
+            : { ...chain, change24hPct: -1.1, change7dPct: 0.3 }
+        )),
+      },
+    }));
+
+    const ethereum = world.docks.find((dock) => dock.chainId === "ethereum");
+    const tron = world.docks.find((dock) => dock.chainId === "tron");
+    expect(ethereum?.change24hPct).toBe(2.4);
+    expect(ethereum?.change7dPct).toBe(-5);
+    // Each harbour reads its OWN chain, not the fleet's or its neighbour's.
+    expect(tron?.change24hPct).toBe(-1.1);
+    expect(tron?.change7dPct).toBe(0.3);
+  });
+
+  it("reports null rather than a bogus figure when the chain's number is not one", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput({
+      chains: {
+        ...fixtureChains,
+        chains: fixtureChains.chains.map((chain) => (
+          { ...chain, change24hPct: Number.NaN, change7dPct: Number.NaN }
+        )),
+      },
+    }));
+
+    expect(world.docks).not.toHaveLength(0);
+    expect(world.docks.every((dock) => dock.change24hPct === null)).toBe(true);
+    expect(world.docks.every((dock) => dock.change7dPct === null)).toBe(true);
   });
 });

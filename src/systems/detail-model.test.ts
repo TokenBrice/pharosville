@@ -3,6 +3,7 @@ import {
   auditShieldLabel,
   auditShieldState,
   cargoTideLabel,
+  supplyTideLabel,
   backingDiversityLabel,
   backingDiversitySeverity,
   beamDwellLabel,
@@ -33,9 +34,12 @@ import {
   supplyMomentumLabel,
   withRiskTransitionFact,
   mastSignalLabel,
+  pegDeviationFactLabel,
   pegDeviationLabel,
   placementNarrative,
 } from "./detail-model";
+import { UNAVAILABLE_SUPPLY_TIDE } from "./supply-tide";
+import { buildDetailFactSections } from "../lib/format-detail";
 import type { AreaNode, DockNode, GraveNode, LighthouseNode, PigeonnierNode, ShipNode } from "./world-types";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import {
@@ -367,7 +371,7 @@ describe("detail-model analytical links", () => {
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: ["pegSummary.coins[]"], stale: false },
       visual: {
-        hullForm: { beam: 1, height: 1, length: 1 },
+        hullForm: { beam: 1, height: 1, length: 1, waterline: 0 },
         hull: "treasury-galleon",
         classLabel: "CeFi",
         livery: {
@@ -421,7 +425,7 @@ describe("detail-model analytical links", () => {
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
       visual: {
-        hullForm: { beam: 1, height: 1, length: 1 },
+        hullForm: { beam: 1, height: 1, length: 1, waterline: 0 },
         hull: "treasury-galleon",
         classLabel: "CeFi",
         livery: {
@@ -478,7 +482,7 @@ describe("detail-model analytical links", () => {
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
       visual: {
-        hullForm: { beam: 1, height: 1, length: 1 },
+        hullForm: { beam: 1, height: 1, length: 1, waterline: 0 },
         hull: "treasury-galleon",
         classLabel: "CeFi",
         livery: {
@@ -548,7 +552,7 @@ describe("detail-model analytical links", () => {
       riskWaterLabel: "Ledger Mooring",
       placementEvidence: { reason: "NAV token Ledger Mooring idle preference", sourceFields: ["meta.flags.navToken", "pegSummary.coins[]"], stale: false },
       visual: {
-        hullForm: { beam: 1, height: 1, length: 1 },
+        hullForm: { beam: 1, height: 1, length: 1, waterline: 0 },
         hull: "treasury-galleon",
         classLabel: "CeFi",
         livery: {
@@ -612,7 +616,7 @@ describe("detail-model unique tier surfacing", () => {
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
       visual: {
-        hullForm: { beam: 1, height: 1, length: 1 },
+        hullForm: { beam: 1, height: 1, length: 1, waterline: 0 },
         hull: "dao-schooner",
         ...(overrides.uniqueRationale ? { uniqueRationale: overrides.uniqueRationale } : {}),
         classLabel: "DeFi",
@@ -744,7 +748,7 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
       visual: {
-        hullForm: { beam: 1, height: 1, length: 1 },
+        hullForm: { beam: 1, height: 1, length: 1, waterline: 0 },
         hull: "treasury-galleon",
         classLabel: "CeFi",
         livery: {
@@ -870,6 +874,32 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       expect(pegDeviationLabel({ pegDeviationBps: 3, pegCurrency: null })).toBe("+3 bps vs peg");
       expect(pegDeviationLabel({ pegDeviationBps: 0, pegCurrency: "USD" })).toBe("0 bps vs USD");
       expect(pegDeviationLabel({ pegDeviationBps: null, pegCurrency: "USD" })).toBeNull();
+    });
+
+    it("says which WAY the coin is off peg, not just how far (Tier 3 #13)", () => {
+      const level = { hullForm: { beam: 1, height: 1, length: 1, waterline: 0 } } as ShipNode["visual"];
+      expect(pegDeviationFactLabel({ pegDeviationBps: 12, pegCurrency: "USD", visual: level }))
+        .toBe("+12 bps vs USD — above peg");
+      expect(pegDeviationFactLabel({ pegDeviationBps: -12, pegCurrency: "USD", visual: level }))
+        .toBe("-12 bps vs USD — below peg");
+      expect(pegDeviationFactLabel({ pegDeviationBps: 0, pegCurrency: "USD", visual: level }))
+        .toBe("0 bps vs USD — at peg");
+      expect(pegDeviationFactLabel({ pegDeviationBps: null, pegCurrency: "USD", visual: level }))
+        .toBeNull();
+    });
+
+    it("reads the trim clause off the hull, so a level ship never claims one", () => {
+      const withTrim = (waterline: number): ShipNode["visual"] => (
+        { hullForm: { beam: 1, height: 1, length: 1, waterline } } as ShipNode["visual"]
+      );
+      expect(pegDeviationFactLabel({ pegDeviationBps: 260, pegCurrency: "USD", visual: withTrim(0.16) }))
+        .toBe("+260 bps vs USD — above peg; hull rides high");
+      expect(pegDeviationFactLabel({ pegDeviationBps: -260, pegCurrency: "USD", visual: withTrim(-0.16) }))
+        .toBe("-260 bps vs USD — below peg; hull rides low");
+      // A stale peg row leaves the hull level; the row must then report the
+      // reading without claiming a trim the canvas is not drawing.
+      expect(pegDeviationFactLabel({ pegDeviationBps: -260, pegCurrency: "USD", visual: withTrim(0) }))
+        .toBe("-260 bps vs USD — below peg");
     });
 
     it("explains nav and yield mast signals, exclusive with none", () => {
@@ -1070,7 +1100,7 @@ describe("detail-model P3 metaphor quick-win signals", () => {
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
       visual: {
-        hullForm: { beam: 1, height: 1, length: 1 },
+        hullForm: { beam: 1, height: 1, length: 1, waterline: 0 },
         hull: "treasury-galleon",
         classLabel: "CeFi",
         livery: {
@@ -1267,6 +1297,76 @@ describe("detail-model P3 metaphor quick-win signals", () => {
 
     const withoutFactor = detailForDock({ ...dockNode, backingDiversity: null });
     expect(withoutFactor.facts.find((fact) => fact.label === "Backing diversity")).toBeUndefined();
+  });
+
+  it("detailForDock reports whether the harbour is filling or draining (Tier 3 #13)", () => {
+    const dockNode: DockNode = {
+      id: "dock.solana",
+      kind: "dock",
+      label: "Solana",
+      chainId: "solana",
+      tile: { x: 2, y: 2 },
+      totalUsd: 100,
+      size: 1,
+      healthBand: "healthy",
+      stablecoinCount: 1,
+      concentration: null,
+      change24hPct: 2.42,
+      change7dPct: -5,
+      harboredStablecoins: [],
+      detailId: "dock.solana",
+    };
+    const facts = detailForDock(dockNode).facts;
+    // "held supply" is load bearing: the Net flow 24h row beside this one counts
+    // issuance, and the two readings can point opposite ways.
+    expect(facts).toContainEqual({ label: "24h supply change", value: "+2.4% held supply" });
+    expect(facts).toContainEqual({ label: "Supply momentum", value: "7d -5.0%" });
+
+    // One row, not two, once the panel's fact sections fold them.
+    const sections = buildDetailFactSections(facts);
+    expect(sections.identity).toContainEqual({
+      key: "cycle24h",
+      label: "24h change",
+      value: "+2.4% held supply · 7d -5.0%",
+    });
+  });
+
+  it("says nothing about a harbour whose chain reported no supply change", () => {
+    const dockNode: DockNode = {
+      id: "dock.tron",
+      kind: "dock",
+      label: "Tron",
+      chainId: "tron",
+      tile: { x: 3, y: 3 },
+      totalUsd: 100,
+      size: 1,
+      healthBand: "healthy",
+      stablecoinCount: 1,
+      concentration: null,
+      change24hPct: null,
+      change7dPct: null,
+      harboredStablecoins: [],
+      detailId: "dock.tron",
+    };
+    const labels = detailForDock(dockNode).facts.map((fact) => fact.label);
+    expect(labels).not.toContain("24h supply change");
+    expect(labels).not.toContain("Supply momentum");
+  });
+
+  it("supplyTideLabel names the direction and keeps enough precision to be useful", () => {
+    // Two decimals, not one: a ~$330B float moves in hundredths of a percent, and
+    // one decimal would round most real weeks to a meaningless "0.0%".
+    expect(supplyTideLabel({ change7dPct: 0.0187, offset: 0.1, state: "flood" }))
+      .toBe("+0.02% rising — supply grew this week");
+    expect(supplyTideLabel({ change7dPct: -0.92, offset: -0.68, state: "ebb" }))
+      .toBe("-0.92% falling — supply shrank this week");
+    expect(supplyTideLabel({ change7dPct: 0.004, offset: 0, state: "slack" }))
+      .toBe("+0.00% slack — supply held flat this week");
+  });
+
+  it("supplyTideLabel omits the row entirely rather than reporting a flat tide it never measured", () => {
+    expect(supplyTideLabel(UNAVAILABLE_SUPPLY_TIDE)).toBeNull();
+    expect(supplyTideLabel(undefined)).toBeNull();
   });
 
   it("cargoTideLabel names the direction outright rather than leaving it to a sign", () => {
@@ -1577,7 +1677,7 @@ function crossBearingShip(): ShipNode {
     riskWaterLabel: "Calm Anchorage",
     placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
     visual: {
-      hullForm: { beam: 1, height: 1, length: 1 },
+      hullForm: { beam: 1, height: 1, length: 1, waterline: 0 },
       hull: "treasury-galleon",
       classLabel: "CeFi",
       livery: {

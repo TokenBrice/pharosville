@@ -396,3 +396,41 @@ describe("S7 ripple-ring grounding (contract C2)", () => {
     expect(emitter.ringCount()).toBe(0);
   });
 });
+
+describe("hero peg trim (Tier 3 #13)", () => {
+  function trimmed(waterline: number): { level: ShipVisual; trimmed: ShipVisual } {
+    const node = ship("trim", "treasury-galleon", "major");
+    const trimmedNode = ship("trim", "treasury-galleon", "major");
+    (trimmedNode.visual as { hullForm?: unknown }).hullForm = {
+      beam: 1,
+      height: 1,
+      length: 1,
+      waterline,
+    };
+    return { level: build(node), trimmed: build(trimmedNode) };
+  }
+
+  it("settles every drawable child of a hull trading below its peg", () => {
+    const { level, trimmed: low } = trimmed(-0.16);
+    const levelHulls = level.root.children.filter((child) => child !== level.wake);
+    const lowHulls = low.root.children.filter((child) => child !== low.wake);
+
+    expect(lowHulls).not.toHaveLength(0);
+    expect(lowHulls).toHaveLength(levelHulls.length);
+    for (const [index, child] of lowHulls.entries()) {
+      expect(child.position.y).toBeCloseTo(levelHulls[index]!.position.y - 0.16);
+    }
+  });
+
+  it("lifts a hull trading above its peg", () => {
+    const { level, trimmed: high } = trimmed(0.08);
+    const levelDeck = level.root.children.find((child) => child !== level.wake)!;
+    const highDeck = high.root.children.find((child) => child !== high.wake)!;
+    expect(highDeck.position.y).toBeCloseTo(levelDeck.position.y + 0.08);
+  });
+
+  it("leaves the wake on the sea surface however deep the hull rides", () => {
+    const { level, trimmed: low } = trimmed(-0.16);
+    expect(low.wake.position.y).toBeCloseTo(level.wake.position.y);
+  });
+});

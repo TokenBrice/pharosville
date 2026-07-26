@@ -36,6 +36,7 @@ export function buildPharosVilleWorld(inputs: PharosVilleInputs): PharosVilleWor
     ships: dockAssignmentStage.ships,
     graves: scaffold.graves,
     fleetIssuance: cargoTideStage.fleetIssuance,
+    supplyTide: scaffold.supplyTide,
   };
 
   const detailIndexStage = buildDetailIndexStage(baseWorld);

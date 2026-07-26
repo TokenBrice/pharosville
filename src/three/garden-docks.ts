@@ -150,9 +150,29 @@ export interface CargoTideLanes {
   ashore: CargoTideSlot[];
 }
 
+/**
+ * The harbour's sea-washed vertical face, in local space — where the tide line
+ * is read.
+ *
+ * NOT the pilings, despite being the obvious candidate: a pile spans local y
+ * -2.7 to -0.1 against a waterline at -0.2, so barely a tenth of a unit of it
+ * ever stands above water. The quay wall runs -0.44 to +0.48 and is the only
+ * thing on a harbour with real height above the waterline to mark.
+ */
+export interface DockTideFace {
+  /** Centre of the face, local space; `y` is the still-water line. */
+  x: number;
+  y: number;
+  z: number;
+  /** Width along the quay run. */
+  width: number;
+}
+
 export interface DockVisual {
   /** Local-space cargo-tide berths; see `CargoTideLanes`. */
   cargoTideLanes: CargoTideLanes;
+  /** Where this harbour carries its tide line; see `DockTideFace`. */
+  tideFace: DockTideFace;
   dock: DockNode;
   fineDetail: Group;
   /** Seaward reach and lateral span of the built harbour, in world units. */
@@ -825,6 +845,15 @@ export function createDock(
 
   return {
     cargoTideLanes: cargoTideLanes(length, quayLength, quayWidth, quayX),
+    tideFace: {
+      width: quayLength,
+      x: quayX,
+      // Still water, in the harbour root's own space.
+      y: WATER_LEVEL - GARDEN_DOCK_ROOT_Y,
+      // Just proud of the quay's seaward face so the band is not z-fighting the
+      // stonework it is painted on.
+      z: quayWidth / 2 + 0.03,
+    },
     dock,
     fineDetail,
     footprint: { length, span },

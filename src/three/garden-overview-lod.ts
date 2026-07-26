@@ -46,6 +46,7 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
   // Per-dock furniture, ×10 harbours.
   "dock-cargo-tide",
   "dock-chain-flag",
+  "dock-tide-line",
   "dock-crane",
   "dock-lamp-heads",
   "dock-posts",
