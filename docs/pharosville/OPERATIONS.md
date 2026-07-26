@@ -194,6 +194,98 @@ Retune honestly: if upstream 502s prove rarer than assumed, lower the threshold
 before shortening the interval. Shortening the interval increases probe load
 from every check region at once.
 
+## Client error reports
+
+`src/error-reporter.ts` posts browser failures (renderer, world-data, uncaught,
+unhandled rejection) to `/_log`, handled by `functions/_log.ts`. Every accepted
+report is written as one line beginning with a fixed token, followed by a flat
+JSON object — flat so a log query can filter on `category` or `message` without
+unwrapping a nested envelope.
+
+| Token | Means |
+| --- | --- |
+| `PHAROSVILLE_CLIENT_ERROR` | A real visitor's browser failed |
+| `PHAROSVILLE_CANARY_PROBE` | The scheduled synthetic probe, not a real failure |
+
+Neither token is a prefix of the other, so a search for real errors can never
+match a probe. The reporter caps itself at five reports per browser session and
+the Function rate-limits each client IP to one report per 10 seconds; a silent
+day is normal, and a burst of identical `message` values is the signal.
+
+### Read path
+
+**Live tail — all plans, nothing is stored.** This is the only zero-setup view:
+
+```bash
+npx wrangler pages deployment tail --project-name pharosville --search PHAROSVILLE_CLIENT_ERROR
+```
+
+The dashboard equivalent is **Workers & Pages** → `pharosville` → the
+deployment → **View details** → **Functions**. It stops at 100 requests per
+second and holds at most 10 concurrent viewers.
+
+**Do not wait for Workers Logs or Logpush here.** Both are documented for
+Workers, not for Pages Functions, and Cloudflare states plainly that Pages
+Function logs are not persisted. There is no dashboard toggle that makes these
+reports survive; the KV binding below is what does.
+
+There is deliberately no authenticated read endpoint for these reports. Adding
+one would mean a new server-side secret and a new public route on a site whose
+only other credential is `PHAROS_API_KEY`, to save an operator a CLI call they
+are already authenticated for.
+
+### Operator action — bind KV for durability
+
+Without this binding the Function still works and still logs; the reports just
+vanish when the tail closes. One namespace makes them survive 30 days.
+
+1. Create the namespace and note the id it prints:
+
+   ```bash
+   npx wrangler kv namespace create pharosville-client-errors
+   ```
+
+2. In the dashboard: **Workers & Pages** → `pharosville` → **Settings** →
+   **Bindings** → **Add** → **KV namespace**. Variable name **must** be
+   `CLIENT_ERROR_KV`; select the namespace from step 1.
+3. Redeploy — a binding only reaches a deployment built after it was added.
+4. Verify with the next canary run, then list the probe keys (below). Probes
+   land under their own prefix, so seeing one proves the whole path without
+   putting a fake failure in the real record.
+
+Read the stored reports, newest last (keys sort by timestamp):
+
+```bash
+npx wrangler kv key list --remote --namespace-id <id> --prefix "PHAROSVILLE_CLIENT_ERROR:$(date -u +%F)"
+npx wrangler kv key get --remote --text --namespace-id <id> "<key>"
+```
+
+The day's report count is the length of that listing. Each key is
+`<TOKEN>:<ISO timestamp>:<cf-ray>` and expires after 30 days
+(`KV_TTL_SECONDS` in `functions/_log.ts`). One key per report rather than a
+per-day counter: KV is eventually consistent, so concurrent increments would
+lose each other, while distinct keys cannot collide.
+
+Free-tier KV allows 1,000 writes per day. A failure hitting many visitors at
+once can exhaust that; the writes then fail silently and the console line
+remains the only record. That is the intended degradation — a full quota must
+never cost a visitor their response.
+
+### The canary probe
+
+`.github/workflows/canary-smoke.yml` POSTs one synthetic report every 30
+minutes and fails the run unless `/_log` answers `204` with
+`cache-control: no-store`. It also asserts that a `GET` is refused with `405`
+and a cross-origin POST with `403`. This is what distinguishes "the endpoint
+exists" from "the endpoint works": the real callers are browsers that have
+already failed, and a broken `/_log` cannot report that it is broken.
+
+The probe carries an `x-pharosville-canary: 1` header. That header does two
+things: it routes the report to the `PHAROSVILLE_CANARY_PROBE` token, and it
+moves the request into a single shared rate-limit bucket instead of the
+per-IP one, so a probe can never spend a real visitor's budget. Marking a
+request synthetic only ever tightens its rate limit.
+
 ## Rotate `PHAROS_API_KEY`
 
 1. Obtain a replacement key from the upstream owner.
@@ -212,5 +304,6 @@ from every check region at once.
 - https://developers.cloudflare.com/pages/
 - https://developers.cloudflare.com/pages/functions/local-development/
 - https://developers.cloudflare.com/pages/functions/bindings/
+- https://developers.cloudflare.com/pages/functions/debugging-and-logging/
 - https://developers.cloudflare.com/pages/configuration/rollbacks/
 - https://developers.cloudflare.com/health-checks/

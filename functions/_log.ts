@@ -6,13 +6,36 @@ import {
   type PagesContextWithWaitUntil,
 } from "./_shared";
 
+/**
+ * Minimal shape of a Workers KV binding. It is optional because the namespace
+ * is attached in the Cloudflare dashboard rather than in `wrangler.toml`, so a
+ * deployment without it must still accept and log reports.
+ */
+interface LogKvNamespace {
+  put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
+}
+
 interface PagesContext extends PagesContextWithWaitUntil {
   request: Request;
+  env?: { CLIENT_ERROR_KV?: LogKvNamespace };
 }
 
 const MAX_BODY_BYTES = 4 * 1024;
 const RATE_LIMIT_WINDOW_SECONDS = 10;
 const RATE_LIMIT_CACHE_ORIGIN = "https://pharosville-log-rate-limit.local";
+
+/**
+ * Fixed event tokens. Pages Functions logs are streamed, never stored, so the
+ * only thing that makes a report findable is a stable literal to grep for —
+ * in `wrangler pages deployment tail` and in a KV listing prefix alike.
+ *
+ * Neither token is a prefix of the other: a search for real client errors can
+ * never match a synthetic canary probe.
+ */
+const CLIENT_ERROR_EVENT = "PHAROSVILLE_CLIENT_ERROR";
+const CANARY_EVENT = "PHAROSVILLE_CANARY_PROBE";
+const CANARY_HEADER = "x-pharosville-canary";
+const KV_TTL_SECONDS = 30 * 24 * 60 * 60;
 const LOG_SECURITY_RESPONSE_HEADERS = {
   "cache-control": "no-store",
   "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
@@ -59,12 +82,20 @@ async function sha256Hex(value: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function isRateLimited(context: PagesContext): Promise<boolean> {
+function isSyntheticProbe(request: Request): boolean {
+  return request.headers.get(CANARY_HEADER)?.trim() === "1";
+}
+
+async function isRateLimited(context: PagesContext, synthetic: boolean): Promise<boolean> {
   const cache = getEdgeCache();
   if (!cache) return false;
 
-  const ipHash = await sha256Hex(clientIp(context.request));
-  const cacheKey = new Request(`${RATE_LIMIT_CACHE_ORIGIN}/_log/${ipHash}`, { method: "GET" });
+  // Synthetic probes share one bucket keyed by a constant rather than by caller
+  // IP, so a canary can neither spend a real visitor's budget nor be blocked by
+  // one. Sharing a single bucket is the stricter side of the trade: marking a
+  // request synthetic tightens its rate limit, it never loosens it.
+  const bucket = synthetic ? "canary" : await sha256Hex(clientIp(context.request));
+  const cacheKey = new Request(`${RATE_LIMIT_CACHE_ORIGIN}/_log/${bucket}`, { method: "GET" });
   const hit = await cache.match(cacheKey);
   if (hit) return true;
 
@@ -112,6 +143,28 @@ function projectPayload(payload: unknown): Record<string, string | number> | nul
   return Object.keys(projected).length > 0 ? projected : null;
 }
 
+/**
+ * Best-effort durable copy. One key per report rather than a per-day counter:
+ * KV is eventually consistent, so concurrent read-modify-write increments lose
+ * each other, while distinct keys never collide and `wrangler kv key list
+ * --prefix <EVENT>:<date>` still yields the day's count along with the reports
+ * themselves. Never throws and never blocks the response.
+ */
+function storeReport(context: PagesContext, event: string, ray: string, line: string): void {
+  try {
+    const kv = context.env?.CLIENT_ERROR_KV;
+    if (!kv) return;
+    const key = `${event}:${new Date().toISOString()}:${ray || crypto.randomUUID()}`;
+    waitUntilOrVoid(
+      context,
+      kv.put(key, line, { expirationTtl: KV_TTL_SECONDS }).catch(() => undefined),
+    );
+  } catch {
+    // A missing, misconfigured, or failing binding must never cost a report the
+    // console line that is otherwise the only record of it.
+  }
+}
+
 async function readLimitedText(request: Request, maxBytes: number): Promise<string | null> {
   if (!request.body) return "";
 
@@ -144,7 +197,8 @@ export async function onRequest(context: PagesContext): Promise<Response> {
     return rejected("Forbidden", 403);
   }
 
-  if (await isRateLimited(context)) {
+  const synthetic = isSyntheticProbe(request);
+  if (await isRateLimited(context, synthetic)) {
     return rejected("Too many requests", 429);
   }
 
@@ -176,14 +230,19 @@ export async function onRequest(context: PagesContext): Promise<Response> {
   const country = request.headers.get("cf-ipcountry") ?? "";
   const ua = request.headers.get("user-agent") ?? "";
   const origin = request.headers.get("origin") ?? "";
-  console.error(JSON.stringify({
-    source: "pharosville-client",
+  const event = synthetic ? CANARY_EVENT : CLIENT_ERROR_EVENT;
+  // Flat, not nested: every projected field sits at the top level so a log
+  // query can filter on `category` or `message` without unwrapping a blob.
+  const line = `${event} ${JSON.stringify({
+    event,
+    ...projected,
     country,
     origin,
-    payload: projected,
     ray,
     ua: truncate(ua, 200),
-  }));
+  })}`;
+  console.error(line);
+  storeReport(context, event, ray, line);
 
   return noContent();
 }
