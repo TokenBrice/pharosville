@@ -137,6 +137,24 @@ export function deriveRestoredMeta(
 }
 
 /**
+ * Re-age a restored payload's meta at read time. {@link deriveRestoredMeta}
+ * runs once, at restore; if every refetch after it fails the app keeps serving
+ * that same restored body, and its age would otherwise stay frozen at whatever
+ * it was when the page loaded. Recomputing on read keeps the age growing (and
+ * lets the classification cross into `stale`) for as long as the outage lasts.
+ * Anything that is not a restored payload is returned untouched, identity
+ * included.
+ */
+export function refreshRestoredMeta(
+  meta: ApiMeta | null,
+  metaMaxAgeSec: number,
+  nowMs: number = Date.now(),
+): ApiMeta | null {
+  if (!meta || meta.warning !== RESTORED_WARNING) return meta;
+  return deriveRestoredMeta(meta, meta.updatedAt * 1000, metaMaxAgeSec, nowMs);
+}
+
+/**
  * Read the last-good payload for one endpoint, or `null` if there is nothing
  * usable. Anything unparseable, oversized, expired or written by another store
  * version is deleted on the way out.

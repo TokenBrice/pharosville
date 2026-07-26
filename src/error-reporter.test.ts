@@ -82,4 +82,37 @@ describe("reportClientError", () => {
     window.dispatchEvent(new ErrorEvent("error", { message: "WebGL context lost" }));
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  // Browsers report every cross-origin script failure as this one opaque
+  // message, with no filename or position to tell two apart, so keying on it
+  // let the first one silence every later fault of the session.
+  // Installing leaves a window listener behind, so this test stays last and
+  // counts reports per dispatch rather than for the run.
+  it("does not let one opaque cross-origin fault suppress the next", async () => {
+    const { installClientErrorReporter } = await loadReporter();
+    installClientErrorReporter();
+    const opaque = () => new ErrorEvent("error", { message: "Script error." });
+    const located = () => new ErrorEvent("error", {
+      message: "boom",
+      filename: "https://pharosville.pharos.watch/assets/world.js",
+      lineno: 12,
+      colno: 4,
+    });
+
+    window.dispatchEvent(opaque());
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(postedBodies().at(-1)).toMatchObject({ message: "Script error." });
+
+    fetchMock.mockClear();
+    window.dispatchEvent(opaque());
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    // A located error still costs one report however often it is raised.
+    window.dispatchEvent(located());
+    await vi.waitFor(() => expect(postedBodies().some((body) => body.message === "boom")).toBe(true));
+    fetchMock.mockClear();
+    window.dispatchEvent(located());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

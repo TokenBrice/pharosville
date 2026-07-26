@@ -28,17 +28,34 @@ describe("HarborLedgerPanel", () => {
     expect(panel.getAttribute("aria-modal")).toBe("true");
     expect(document.activeElement).toBe(closeButton);
 
-    // The close control is the panel's only focusable element, so Tab in
-    // either direction stays on it rather than escaping to the world behind.
-    fireEvent.keyDown(closeButton, { key: "Tab" });
-    expect(document.activeElement).toBe(closeButton);
-
-    fireEvent.keyDown(closeButton, { key: "Tab", shiftKey: true });
-    expect(document.activeElement).toBe(closeButton);
-
     view.unmount();
     expect(document.activeElement).toBe(opener);
     opener.remove();
+  });
+
+  // The ledger is prose. If the scrolling body is not itself a tab stop, the
+  // close button is the only focusable thing in the panel, the trap bounces Tab
+  // straight back to it, and a keyboard reader can read exactly one screenful
+  // of a ledger that lists every ship, dock and grave.
+  it("gives the scrolling body a named tab stop so a keyboard reader can scroll the ledger", () => {
+    render(<HarborLedgerPanel onClose={() => undefined} world={panelWorld()} />);
+
+    const closeButton = screen.getByRole("button", { name: "Close harbor ledger" });
+    const body = screen.getByRole("region", { name: "Harbor ledger contents" });
+    expect(body.tabIndex).toBe(0);
+    expect(body.contains(screen.getByTestId("pharosville-accessibility-ledger"))).toBe(true);
+
+    // Tab off the close control is left to the browser, which moves focus into
+    // the body; the trap only closes the loop at either end.
+    expect(fireEvent.keyDown(closeButton, { key: "Tab" })).toBe(true);
+
+    body.focus();
+    expect(document.activeElement).toBe(body);
+    fireEvent.keyDown(body, { key: "Tab" });
+    expect(document.activeElement).toBe(closeButton);
+
+    fireEvent.keyDown(closeButton, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(body);
   });
 
   it("calls onClose from the close control", () => {

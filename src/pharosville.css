@@ -1000,6 +1000,12 @@ textarea {
   scrollbar-width: thin;
   scrollbar-color: var(--pv-brass-dark) rgba(10, 16, 22, 0.32);
 }
+/* The body is a tab stop (it is the only way to scroll the ledger from the
+   keyboard), so it needs a ring like any other. Inset: the panel clips it. */
+.pharosville-harbor-ledger-panel__body:focus-visible {
+  outline: 2px solid var(--pv-brass-highlight);
+  outline-offset: -3px;
+}
 .pharosville-ledger {
   max-width: 74ch;
   color: rgba(232, 220, 196, 0.86);

@@ -20,6 +20,7 @@ import { useChangelogDialog } from "./hooks/use-changelog-dialog";
 import { useLegendDialog } from "./hooks/use-legend-dialog";
 import { useCanvasResizeAndCamera } from "./hooks/use-canvas-resize-and-camera";
 import { useHarborLog } from "./hooks/use-harbor-log";
+import { isDialogEventTarget } from "./hooks/keyboard-event-target";
 import { useLatestRef } from "./hooks/use-latest-ref";
 import { useLiveTitle } from "./hooks/use-live-title";
 import { useRecentWorldInput } from "./hooks/use-recent-world-input";
@@ -511,6 +512,11 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       const activationKey = event instanceof KeyboardEvent
         && (event.key === "Enter" || event.key === " ");
       if (targetsObserveControl && (event.type === "pointerdown" || activationKey)) return;
+      // Reduced motion has no timer to carry the tour: the next beat comes only
+      // from the observe control, so reaching it must not end the sequence.
+      // Tab is how a keyboard reader gets there, which makes it navigation
+      // here, not the input that cancels.
+      if (reducedMotion && event instanceof KeyboardEvent && event.key === "Tab") return;
       cancelCameraIntent();
       setObserveIndex(null);
     };
@@ -524,7 +530,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       document.removeEventListener("keydown", stopObserve, true);
       document.removeEventListener("visibilitychange", stopObserve);
     };
-  }, [cancelCameraIntent, observeBeat]);
+  }, [cancelCameraIntent, observeBeat, reducedMotion]);
 
   // Full hit-target rebuild on world swap, selection delta, canvas-size
   // changes. Ship-cell and visibility transitions are handled inside the RAF
@@ -625,7 +631,21 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     setObserveIndex(observeIndex === null ? 0 : null);
   }, [cancelCameraIntent, observeIndex, observeSequence.length, reducedMotion]);
 
-  const handleObserveFromLegend = useCallback(() => setObserveIndex(0), []);
+  // "Watch the harbor" under reduced motion sets the first beat and stops
+  // there — the sequence steps from the observe control and nothing else. Left
+  // where the legend's focus restore put them, a keyboard reader would have to
+  // tab backwards through the footer to find that control. Send them to it, so
+  // the next beat is one press away.
+  const observeStepFocusPendingRef = useRef(false);
+  const handleObserveFromLegend = useCallback(() => {
+    observeStepFocusPendingRef.current = reducedMotion;
+    setObserveIndex(0);
+  }, [reducedMotion]);
+  useEffect(() => {
+    if (!observeBeat || !observeStepFocusPendingRef.current) return;
+    observeStepFocusPendingRef.current = false;
+    document.querySelector<HTMLElement>("[data-observe-control]")?.focus({ preventScroll: true });
+  }, [observeBeat]);
 
   const handleSelectStaticDetail = useCallback((detailId: string) => {
     selectDetail(detailId, null);
@@ -701,6 +721,9 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   // without a canvas; Escape is not.
   const handleFallbackKeyDown = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
     if (event.key !== "Escape") return;
+    // The reference panels open over the static fallback too, and Escape in one
+    // of them closes that panel — not the selection underneath it.
+    if (isDialogEventTarget(event.target)) return;
     if (selectedDetailIdRef.current === null) return;
     event.preventDefault();
     clearSelection();

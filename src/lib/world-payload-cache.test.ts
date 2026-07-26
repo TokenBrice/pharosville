@@ -7,6 +7,7 @@ import {
   deriveRestoredMeta,
   persistPayloadWhenIdle,
   readPersistedPayload,
+  refreshRestoredMeta,
   WORLD_PAYLOAD_CACHE_INTERNALS as INTERNALS,
 } from "./world-payload-cache";
 
@@ -88,6 +89,37 @@ describe("deriveRestoredMeta", () => {
     expect(meta.updatedAt).toBe(Math.floor((NOW - 60_000) / 1000));
     expect(meta.ageSeconds).toBe(60);
     expect(meta.status).toBe("degraded");
+  });
+});
+
+describe("refreshRestoredMeta", () => {
+  // While every refetch fails the app keeps serving the payload it restored at
+  // load, so an age computed once at restore is an age that never moves — the
+  // longer the outage, the further the reported figure sits from the truth.
+  it("keeps a restored payload's age growing while the API stays down", () => {
+    const restored = deriveRestoredMeta(
+      { updatedAt: Math.floor(NOW / 1000) - 60, ageSeconds: 60, status: "fresh" },
+      NOW,
+      CHAINS_MAX_AGE_SEC,
+      NOW,
+    );
+    expect(restored.ageSeconds).toBe(60);
+
+    // Four hours of failed refetches: the age has to have moved with them, and
+    // the classification has to be free to fall past `degraded` into `stale`.
+    const later = refreshRestoredMeta(restored, CHAINS_MAX_AGE_SEC, NOW + 4 * 3_600_000);
+
+    expect(later?.ageSeconds).toBe(14_460);
+    expect(later?.updatedAt).toBe(restored.updatedAt);
+    expect(later?.status).toBe("stale");
+    expect(later?.warning).toBe(restored.warning);
+  });
+
+  it("leaves a live response untouched, identity included", () => {
+    const live: ApiMeta = { updatedAt: Math.floor(NOW / 1000), ageSeconds: 3, status: "fresh" };
+
+    expect(refreshRestoredMeta(live, CHAINS_MAX_AGE_SEC, NOW + 3_600_000)).toBe(live);
+    expect(refreshRestoredMeta(null, CHAINS_MAX_AGE_SEC, NOW)).toBeNull();
   });
 });
 

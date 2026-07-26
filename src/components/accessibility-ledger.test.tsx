@@ -231,7 +231,36 @@ describe("AccessibilityLedger", () => {
     expect(markup).toContain("Fleet issuance 24h: net burning");
     expect(markup).toContain("36 of 130 tracked coins moved supply");
     expect(markup).toContain("measured over Configured issuance chains (ethereum, arbitrum)");
+    // The clause names what is now drawn for it, so the ledger and the canvas
+    // make the same statement rather than the ledger disclaiming a cue.
     expect(markup).toContain("flight to quality active");
+    expect(markup).toContain("tenders running in on the largest hulls");
+    expect(markup).not.toContain("no canvas cue");
+  });
+
+  it("says outright that no tenders are on the water when the gauge reports no flight", () => {
+    // An empty sea covers both "no rotation" and "no feed"; this line is what
+    // keeps the two apart, and it must not go quiet just because the canvas has.
+    const world: PharosVilleWorld = {
+      ...sampleWorld(),
+      fleetIssuance: {
+        activeCoins: 12,
+        band: "NEUTRAL",
+        burnVolumeUsd: 1_000_000,
+        direction: "minting",
+        flightIntensity: 0,
+        flightToQuality: false,
+        mintVolumeUsd: 4_000_000,
+        netFlowUsd: 3_000_000,
+        scopeChainIds: ["ethereum"],
+        scopeLabel: "Configured issuance chains",
+        trackedCoins: 130,
+        score: 5.1,
+      },
+    };
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("no flight to quality reported — no tenders on the water");
   });
 
   it("omits the fleet issuance line entirely when the flow feed has not landed", () => {

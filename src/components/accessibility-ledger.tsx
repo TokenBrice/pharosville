@@ -355,13 +355,16 @@ function dockLedgerLine(dock: PharosVilleWorld["docks"][number]): string {
 }
 
 /**
- * Fleet-wide issuance, which has no canvas cue of its own.
+ * Fleet-wide issuance.
  *
  * The harbours carry the allocated flow; this carries what could not be
  * allocated to any one of them — the gauge's own band, the scope it was measured
  * over, and whether capital is rotating out of weaker issuers into stronger
- * ones. `flightToQuality` reaches the DOM here and only here, which is stated
- * plainly rather than implied: no crate, hull or wake encodes it yet.
+ * ones. `flightToQuality` is now drawn as well, as tenders running in on the
+ * largest hulls (`cue.fleet.flight-to-quality`), so the clause below names the
+ * boats rather than apologising for their absence. It stays load-bearing: an
+ * empty sea cannot say whether the gauge reported no rotation or never arrived,
+ * and this line — with the lighthouse 'Flight to quality' row — is what does.
  */
 function fleetIssuanceLedgerLine(issuance: NonNullable<PharosVilleWorld["fleetIssuance"]>): string {
   const direction = issuance.direction === "minting" ? "net minting"
@@ -377,8 +380,8 @@ function fleetIssuanceLedgerLine(issuance: NonNullable<PharosVilleWorld["fleetIs
     `${issuance.activeCoins} of ${issuance.trackedCoins} tracked coins moved supply`,
     `measured over ${issuance.scopeLabel ?? "an unreported scope"}${issuance.scopeChainIds.length > 0 ? ` (${issuance.scopeChainIds.join(", ")})` : ""}`,
     issuance.flightToQuality
-      ? "flight to quality active — capital rotating toward stronger issuers; this reading has no canvas cue and is reported here only"
-      : "no flight to quality reported",
+      ? "flight to quality active — capital rotating toward stronger issuers, drawn as tenders running in on the largest hulls"
+      : "no flight to quality reported — no tenders on the water",
   ].join(", ") + ".";
 }
 

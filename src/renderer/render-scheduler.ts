@@ -15,8 +15,17 @@ export const RENDER_SCHEDULER_TARGET_FRAME_MS = 16.7;
  */
 export const RENDER_SCHEDULER_IDLE_AFTER_MS = 180_000;
 
-/** Idle duty cycle: one drawn frame per two frames of a 60Hz display. */
-export const RENDER_SCHEDULER_IDLE_TARGET_FRAME_MS = 33.4;
+/**
+ * Idle duty cycle: one drawn frame per two frames of a 60Hz display.
+ *
+ * The loop skips a frame whose interval is STRICTLY BELOW this, so the value has
+ * to sit under two 60Hz vsync intervals, not on top of them. At 33.4 it sat
+ * above 2×16.667 = 33.33, so every two-frame interval was rejected and the world
+ * drew on the THIRD — 20 fps, not the 30 this documents. The margin below 33.33
+ * absorbs the pacing jitter of a panel that is not exactly 60.000 Hz, and is far
+ * enough above a single 16.7 ms interval that one-frame intervals can never pass.
+ */
+export const RENDER_SCHEDULER_IDLE_TARGET_FRAME_MS = 33;
 
 export interface RenderSchedulerIdleState {
   idle: boolean;
@@ -127,8 +136,10 @@ export function resolveRenderSchedulerState(
     // The ladder is bypassed on interaction, idle and reduced-motion frames, so its
     // stored tier is exactly "what this frame would be without them". On a
     // load-tier frame the ladder's value IS `tier`, so one expression covers
-    // every case.
-    loadTier: hysteresis?.loadTier ?? rawLoadTier(input),
+    // every case. With no ladder at all an idle frame still must not read its
+    // own duty cycle as load — same reason as `idleFrozenTier`.
+    loadTier: hysteresis?.loadTier
+      ?? (input.idleActive ? idleFrozenTier(hysteresis) : rawLoadTier(input)),
   };
 }
 
@@ -154,10 +165,24 @@ function resolveRenderSchedulerTier(
   // measured steady-state frames earned it. (The loop also keeps idle
   // intervals out of the pacing window itself, so p90 never carries them into
   // the adaptive-DPR governor or the perf tripwire.)
-  if (input.idleActive && hysteresis) return hysteresis.loadTier;
+  if (input.idleActive) return idleFrozenTier(hysteresis);
   const raw = rawLoadTier(input);
   if (!hysteresis) return raw;
   return advanceLoadTierHysteresis(hysteresis, raw);
+}
+
+/**
+ * The tier an idle frame freezes at, when it has no ladder to freeze.
+ *
+ * Falling through to `rawLoadTier` here would read the deliberate 33 ms duty
+ * cycle as load and answer `recovery` — precisely the misreading the idle guard
+ * exists to prevent, and it would fail OPEN, shedding water motion, gulls and
+ * shadows on a machine doing nothing. `balanced` is the ladder's own initial
+ * value and what `seaQualityTier` falls back to, so a caller with no ladder gets
+ * the same answer from both.
+ */
+function idleFrozenTier(hysteresis?: RenderSchedulerHysteresisState): RenderSchedulerLoadTier {
+  return hysteresis?.loadTier ?? "balanced";
 }
 
 function rawLoadTier(input: {

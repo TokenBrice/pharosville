@@ -145,6 +145,20 @@ export function readClientErrorHistory(): HistoryEntry[] {
   }
 }
 
+/**
+ * A cross-origin script failure is opaque: browsers report every one of them as
+ * the literal `Script error.` with no filename, position or stack, so nothing
+ * in the event tells two of them apart. Keying on the message therefore let the
+ * FIRST such fault suppress every later one for the rest of the session,
+ * whatever it was. Those go unkeyed and are held by the per-session budget
+ * instead; every other uncaught error still keys on its message, which is what
+ * makes a failure a call site already reported cost one report rather than two.
+ */
+function uncaughtDedupeKey(event: ErrorEvent): string | undefined {
+  if (!event.filename && /^script error\.?$/i.test(event.message.trim())) return undefined;
+  return event.message;
+}
+
 export function installClientErrorReporter(): void {
   if (installed || typeof window === "undefined") return;
   installed = true;
@@ -158,7 +172,7 @@ export function installClientErrorReporter(): void {
       colno: event.colno,
       stack: event.error instanceof Error ? event.error.stack?.slice(0, 2_000) : undefined,
       url: window.location.href,
-    }, event.message);
+    }, uncaughtDedupeKey(event));
   });
 
   window.addEventListener("unhandledrejection", (event) => {

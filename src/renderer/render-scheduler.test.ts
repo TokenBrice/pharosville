@@ -120,6 +120,19 @@ describe("render scheduler", () => {
     expect(reduced.targetFrameMs).toBe(16.7);
   });
 
+  it("passes a two-frame interval on a 60Hz display, so idle is 30fps not 20", () => {
+    // The loop skips a frame whose interval is STRICTLY BELOW the target. Two
+    // 60Hz vsync intervals are 33.33 ms, so a target of 33.4 rejected them and
+    // the world drew every THIRD frame — 20 fps behind a comment claiming 30.
+    const vsync60 = 1000 / 60;
+    expect(vsync60 * 2).toBeGreaterThan(RENDER_SCHEDULER_IDLE_TARGET_FRAME_MS);
+    // ...while a single interval still cannot pass, or idle would do nothing.
+    expect(vsync60).toBeLessThan(RENDER_SCHEDULER_IDLE_TARGET_FRAME_MS);
+    // Margin for a panel that is not exactly 60.000 Hz, both ways.
+    expect((1000 / 60.5) * 2).toBeGreaterThan(RENDER_SCHEDULER_IDLE_TARGET_FRAME_MS);
+    expect(1000 / 59.5).toBeLessThan(RENDER_SCHEDULER_IDLE_TARGET_FRAME_MS);
+  });
+
   it("uses the constrained tier under severe frame pressure", () => {
     const scheduler = resolveRenderSchedulerState({
       cameraIntentActive: false,
@@ -243,6 +256,28 @@ describe("render scheduler hysteresis", () => {
       expect(resolveRenderSchedulerState(pressured, state).tier).toBe("full");
     }
     expect(resolveRenderSchedulerState(pressured, state).tier).toBe("recovery");
+  });
+
+  it("holds the idle freeze even with no ladder to freeze", () => {
+    // The live loop always passes a ladder, so this never fires today. Without
+    // one the guard used to fall through to the raw reading and answer
+    // `recovery` off the duty cycle itself — failing OPEN into exactly the
+    // shedding it exists to prevent. `balanced` is the ladder's own starting
+    // value, so a caller with no ladder gets the answer it would have had.
+    const idle = {
+      cameraIntentActive: false,
+      drawDurationMs: 10,
+      framePacingP90Ms: 34,
+      idleActive: true,
+      reducedMotion: false,
+    };
+
+    const scheduler = resolveRenderSchedulerState(idle);
+
+    expect(scheduler.tier).toBe("balanced");
+    expect(scheduler.loadTier).toBe("balanced");
+    // A non-idle frame at the same pacing is still read as load, as it must be.
+    expect(resolveRenderSchedulerState({ ...idle, idleActive: false }).tier).toBe("recovery");
   });
 
   it("freezes streaks during interaction and reduced-motion frames", () => {

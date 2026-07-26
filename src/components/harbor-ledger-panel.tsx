@@ -71,7 +71,18 @@ export function HarborLedgerPanel({ onClose, riskTransitionByShipId, world }: Ha
           <X aria-hidden="true" size={16} />
         </button>
       </header>
-      <div className="pharosville-harbor-ledger-panel__body">
+      {/* The ledger is prose — no links, no controls, nothing the browser makes
+          a tab stop — so the scrolling body has to be one itself. Without it a
+          keyboard reader lands on the close button, Tab returns them to it, and
+          the panel built to make the ledger inspectable shows them one
+          screenful of it. Named as its own region so the tab stop announces
+          what it is rather than arriving as an unlabelled group. */}
+      <div
+        className="pharosville-harbor-ledger-panel__body"
+        aria-label="Harbor ledger contents"
+        role="region"
+        tabIndex={0}
+      >
         <AccessibilityLedger
           presentation="visible"
           title="Harbor ledger"

@@ -261,6 +261,30 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     expect(screen.queryByTestId("pharosville-harbor-ledger-panel")).toBeNull();
   });
 
+  // The panels render inside the shell, so their Escape bubbles into the world
+  // handlers — which clear the selection on Escape. Closing a panel is not a
+  // request to forget the ship the visitor opened it to read about.
+  it("keeps Escape inside a reference panel away from the world shortcuts", async () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    const panels = [
+      ["Legend", "pharosville-legend-panel"],
+      ["Changelog", "pharosville-changelog-panel"],
+      ["Harbor ledger", "pharosville-harbor-ledger-panel"],
+    ] as const;
+
+    for (const [control, testId] of panels) {
+      fireEvent.click(screen.getByRole("button", { name: control }));
+      const panel = await screen.findByTestId(testId);
+      mocks.canvasHandleKeyDown.mockClear();
+
+      fireEvent.keyDown(panel, { key: "Escape" });
+
+      expect(screen.queryByTestId(testId)).toBeNull();
+      expect(mocks.canvasHandleKeyDown).not.toHaveBeenCalled();
+    }
+  });
+
   it("mounts exactly one ledger, so the world is never announced twice", async () => {
     render(<PharosVilleWorld world={worldFixture()} />);
 
@@ -488,6 +512,35 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     expect(screen.queryByTestId("pharosville-legend-panel")).toBeNull();
     expect(screen.getByTestId("pharosville-observe-caption").textContent).toContain(
       "The Pharos lighthouse reports PSI 82, STEADY.",
+    );
+  });
+
+  // Reduced motion has no timer to carry the tour, so "Watch the harbor" is
+  // only a beginning if the control that steps it is reachable. It used to hand
+  // over beat one and then cancel the sequence on the first Tab toward that
+  // control, which left a keyboard reader with one beat and no way on.
+  it("hands the reduced-motion observe sequence to the keyboard, steppable", async () => {
+    const world = worldFixture();
+    const beats = buildObserveSequence(world);
+    render(<PharosVilleWorld world={world} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Legend" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Watch the harbor" }));
+
+    const observe = screen.getByRole("button", { name: "Observe harbor" });
+    expect(document.activeElement).toBe(observe);
+    expect(screen.getByTestId("pharosville-observe-caption").textContent).toContain(
+      `Observe 1/${beats.length}`,
+    );
+
+    // Moving focus is navigation, not the input that ends the sequence.
+    fireEvent.keyDown(observe, { key: "Tab" });
+    expect(screen.getByTestId("pharosville-observe-caption")).toBeTruthy();
+
+    fireEvent.keyDown(observe, { key: "Enter" });
+    fireEvent.click(observe);
+    expect(screen.getByTestId("pharosville-observe-caption").textContent).toContain(
+      `Observe 2/${beats.length}`,
     );
   });
 

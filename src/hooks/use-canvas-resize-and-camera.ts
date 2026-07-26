@@ -17,6 +17,7 @@ import type {
   WorldSelectableEntity,
 } from "../systems/world-types";
 import { sameCamera, samePoint } from "../lib/camera-equality";
+import { isDialogEventTarget } from "./keyboard-event-target";
 import {
   FOLLOW_INITIAL_DELTA_SECONDS,
   FOLLOW_LEAD_SECONDS,
@@ -678,6 +679,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     const activeCamera = currentCameraBase();
     if (!activeCamera) return;
     if (event.key === "Escape") {
+      if (isDialogEventTarget(event.target)) return;
       onClearSelection();
       stopFollowChase();
       return;

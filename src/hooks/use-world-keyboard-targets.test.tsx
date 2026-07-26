@@ -24,11 +24,25 @@ function keyEvent(key: string, shiftKey = false): ReactKeyboardEvent<HTMLElement
   } as unknown as ReactKeyboardEvent<HTMLElement>;
 }
 
+function dialogKeyEvent(key: string, shiftKey = false): ReactKeyboardEvent<HTMLElement> {
+  const panel = document.createElement("aside");
+  panel.setAttribute("role", "dialog");
+  const body = document.createElement("div");
+  panel.append(body);
+  return {
+    key,
+    shiftKey,
+    target: body,
+    preventDefault: vi.fn(),
+  } as unknown as ReactKeyboardEvent<HTMLElement>;
+}
+
 function setup(input: { focused: string | null; targets: HitTarget[] }) {
   const setKeyboardFocusedDetailId = vi.fn();
   const setAnnouncement = vi.fn();
+  const canvasHandleKeyDown = vi.fn();
   const { result } = renderHook(() => useWorldKeyboardTargets({
-    canvasHandleKeyDown: vi.fn(),
+    canvasHandleKeyDown,
     canvasSizeRef: { current: { x: 800, y: 600 } },
     hitTargetsRef: { current: input.targets },
     keyboardFocusedDetailId: input.focused,
@@ -42,7 +56,7 @@ function setup(input: { focused: string | null; targets: HitTarget[] }) {
     setKeyboardFocusedDetailId,
     world: { detailIndex: {} } as unknown as PharosVilleWorldModel,
   }));
-  return { handler: result.current, setAnnouncement, setKeyboardFocusedDetailId };
+  return { canvasHandleKeyDown, handler: result.current, setAnnouncement, setKeyboardFocusedDetailId };
 }
 
 describe("useWorldKeyboardTargets bounded Tab cycle", () => {
@@ -109,6 +123,26 @@ describe("useWorldKeyboardTargets bounded Tab cycle", () => {
     const toControls = keyEvent("Tab");
     past.handler(toControls);
     expect(toControls.preventDefault).not.toHaveBeenCalled();
+  });
+
+  // The legend, changelog and harbor-ledger panels render inside the shell, so
+  // their keys bubble into this handler. Tab there belongs to the panel's focus
+  // trap and Escape to the panel itself — the map cycle and the canvas
+  // shortcuts (which drop the selection on Escape) must both stay out of it.
+  it("leaves every key pressed inside an open panel to that panel", () => {
+    const { canvasHandleKeyDown, handler, setKeyboardFocusedDetailId } = setup({
+      focused: "ship.a",
+      targets: [target("ship.a", 2), target("ship.b", 1)],
+    });
+
+    for (const key of ["Tab", "Enter", "Escape", "ArrowLeft"]) {
+      const event = dialogKeyEvent(key);
+      handler(event);
+      expect(event.preventDefault).not.toHaveBeenCalled();
+    }
+
+    expect(setKeyboardFocusedDetailId).not.toHaveBeenCalled();
+    expect(canvasHandleKeyDown).not.toHaveBeenCalled();
   });
 
   it("releases Tab entirely when no map targets exist", () => {

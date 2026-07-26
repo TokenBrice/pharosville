@@ -6,7 +6,7 @@ import {
 import { PHAROSVILLE_API_CLIENT_CONTRACT } from "@shared/lib/pharosville-api-client-contract";
 import type { PharosVilleApiEndpointKey, PharosVilleApiPayload } from "@shared/types/pharosville";
 import { apiFetchWithMeta, type ApiContractMode, type ApiMeta } from "@/lib/api";
-import { persistPayloadWhenIdle, readPersistedPayload } from "@/lib/world-payload-cache";
+import { persistPayloadWhenIdle, readPersistedPayload, refreshRestoredMeta } from "@/lib/world-payload-cache";
 import type { ZodType } from "zod";
 
 const DEFAULT_RETRY_DELAY = (attempt: number) => Math.min(1000 * 2 ** attempt, 10000);
@@ -93,13 +93,17 @@ function createRestoreOptions<T>(persistKey: PharosVilleApiEndpointKey, metaMaxA
   };
 }
 
+function resolveMetaMaxAgeSec<T>(cronInterval: number, opts?: ApiQueryOptions<T>): number {
+  return opts?.metaMaxAgeSec ?? Math.max(1, Math.round(cronInterval / 1000));
+}
+
 function createApiPollingQueryOptionsWithMeta<T>(
   key: readonly unknown[],
   path: string,
   cronInterval: number,
   opts?: ApiQueryOptions<T>,
 ): UseQueryOptions<{ data: T; meta: ApiMeta | null }, Error, { data: T; meta: ApiMeta | null }, readonly unknown[]> {
-  const metaMaxAgeSec = opts?.metaMaxAgeSec ?? Math.max(1, Math.round(cronInterval / 1000));
+  const metaMaxAgeSec = resolveMetaMaxAgeSec(cronInterval, opts);
   const { staleTime, refetchInterval } = getPollingWindow(cronInterval);
 
   return {
@@ -159,7 +163,10 @@ export function useApiQueryWithMeta<T>(
     isSuccess,
     refetch: () => refetch().then(() => {}),
     data: data?.data,
-    meta: data?.meta ?? null,
+    // Read-time, not fetch-time: while every refetch fails the restored payload
+    // stays put, and its age has to keep counting up rather than report the
+    // figure it had when the page loaded.
+    meta: refreshRestoredMeta(data?.meta ?? null, resolveMetaMaxAgeSec(cronInterval, opts)),
   };
 }
 
