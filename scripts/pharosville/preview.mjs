@@ -44,6 +44,8 @@
  *   node scripts/pharosville/preview.mjs --url http://localhost:4173 --width 2560 --height 1440
  *   node scripts/pharosville/preview.mjs --assert            # perf tripwire, exits non-zero
  *   node scripts/pharosville/preview.mjs --assert --max-p90=20 --max-draw-calls=700
+ *   node scripts/pharosville/preview.mjs --refresh common   # main-thread cost of a data refresh
+ *   node scripts/pharosville/preview.mjs --refresh churn    # ... with every placement moved
  */
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -71,7 +73,49 @@ const limits = {
   requiredTier: typeof args["require-tier"] === "string" ? args["require-tier"] : "full",
 };
 const url = args.url ?? "http://localhost:5173";
-const hash = args.hash ?? "";
+/**
+ * Three arms, so the stages can be read off the DIFFERENCES rather than off a
+ * CPU profile whose self time lands mostly in `(program)`:
+ *
+ *   same    the identical payload. React Query's structural sharing discards
+ *           it, so nothing downstream rebuilds — this arm is the fetch, the
+ *           JSON parse and the schema validation, and nothing else.
+ *   common  supply moved by a sub-percent wiggle, which sticky placement
+ *           (commit 61905cc) holds still. The refresh a cron tick produces:
+ *           world model rebuild, React commit, scene rebuild, no ship moves.
+ *   churn   every coin rotated across the peg-deviation bands AND the hull
+ *           tiers, so every ship changes placement, every path key changes,
+ *           and the A* re-solve and fleet rebuild both fire. The worst case a
+ *           payload can produce, not a realistic one.
+ */
+const REFRESH_MODES = ["same", "common", "churn"];
+const refreshMode = typeof args.refresh === "string" ? args.refresh : (args.refresh ? "common" : null);
+if (refreshMode && !REFRESH_MODES.includes(refreshMode)) {
+  throw new Error(`--refresh takes one of ${REFRESH_MODES.join(", ")}, got "${refreshMode}"`);
+}
+/** Where the probe fetches world data from, when the page itself cannot serve it. */
+const apiOrigin = typeof args["api-origin"] === "string" ? args["api-origin"] : null;
+/** Deviation bands from `deviationPlacement` in src/systems/risk-placement.ts. */
+const CHURN_DEVIATION_BPS = [5, 80, 300, 700];
+/** Timed rounds, plus one warm-up whose numbers are discarded and one profiled. */
+const REFRESH_TIMED_ROUNDS = 3;
+/** Long enough to contain the freeze the stale comment claimed, with headroom. */
+const REFRESH_WINDOW_MS = 4000;
+const PROFILE_STAGES = [
+  ["world model rebuild", (url) => url.includes("/src/systems/")],
+  ["scene rebuild", (url) => url.includes("/src/three/")],
+  ["app render", (url) => url.includes("/src/")],
+  ["React render + commit", (url, name) => /^(performWorkOnRoot|commitRoot|flushSync|performSyncWorkOnRoot|renderRootSync|processRootScheduleInMicrotask)/.test(name)],
+  ["fetch, parse, validate", (url, name) => /^(parse|_parse|safeParse|json|replaceEqualDeep)$/.test(name)],
+];
+
+/** Declared here, not with the probe below, because the route handler runs first. */
+const refreshState = { gate: null, openGate: null, parked: 0, round: 0 };
+
+// A refresh probe must not be measuring the day cycle as well: a 31-minute
+// clock jump would step the sky and rebake the PMREM probe inside the window.
+// Pinning the hour makes the payload the only thing that moved.
+const hash = args.hash ?? (refreshMode ? "#t=12" : "");
 const width = Number(args.width ?? 1600);
 const height = Number(args.height ?? 1000);
 // Long enough for the frame-pacing window to fill with steady-state frames
@@ -122,6 +166,8 @@ try {
       }
     });
   }
+
+  if (refreshMode) await installRefreshProbe(page);
 
   const renderer = await readWebglRenderer(page);
   console.log(`chrome     ${chromePath}`);
@@ -225,6 +271,10 @@ try {
 
   if (assertMode) evaluateAssertions(metrics);
 
+  // Last, deliberately: the probe mutates the payload, so everything above —
+  // including the screenshot — describes the world as the API actually serves it.
+  if (refreshMode) await reportRefreshCost(page);
+
   if (args.json) {
     await writeFile(
       resolve(outputDirectory, typeof args.json === "string" ? args.json : "preview.json"),
@@ -237,6 +287,368 @@ try {
 
 function round(value) {
   return typeof value === "number" ? Math.round(value * 10) / 10 : value;
+}
+
+/* ---------------------------------------------------------------------------
+ * REFRESH COST PROBE
+ *
+ * What a refresh costs is a MAIN-THREAD question — the world model rebuild, the
+ * schema parse, the React commit, the A* re-solve and the scene rebuild all run
+ * to completion in one task while nothing else can, so frame time in isolation
+ * cannot see it. What can is `longtask`, which the browser reports natively and
+ * which the Playwright clock shim below therefore cannot distort.
+ *
+ * Three things make the reading honest:
+ *
+ * 1. The refresh is provoked the way a session actually gets one — the polling
+ *    refetch, reached with a clock jump (`staleTime` is the cron interval, so
+ *    no focus or reconnect trigger will do it), against the LIVE payload with
+ *    one field rewritten rather than a fixture.
+ * 2. The response is PARKED at the proxy until the clock jump's own timer burst
+ *    has drained, so the window contains the refresh and nothing else, and the
+ *    network round trip sits outside it.
+ * 3. Timing rounds run with the CPU profiler OFF. One extra profiled round
+ *    afterwards attributes the cost by file; its own overhead never lands in a
+ *    reported number.
+ * ------------------------------------------------------------------------- */
+
+async function installRefreshProbe(page) {
+  // Installed before any navigation so the shim owns the page's timers from the
+  // start; resumed immediately so the app still loads in real time and only the
+  // deliberate jump below moves the clock.
+  await page.clock.install();
+  await page.clock.resume();
+
+  await page.addInitScript(() => {
+    window.__previewLongtasks = [];
+    try {
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          window.__previewLongtasks.push(entry.duration);
+        }
+      }).observe({ entryTypes: ["longtask"] });
+    } catch {
+      // No longtask support means no measurement; reported as zero tasks below.
+    }
+  });
+
+  await page.route("**/api/**", async (route) => {
+    let response;
+    try {
+      // `vite preview` serves the built bundle but has no API proxy — that
+      // plugin is `configureServer` only. Borrowing the dev server's proxy for
+      // the DATA lets the refresh be measured against the PRODUCTION build,
+      // which is the only one whose React commit and pipeline cost mean
+      // anything: dev React and unminified modules are their own tax.
+      const target = apiOrigin
+        ? new URL(new URL(route.request().url()).pathname + new URL(route.request().url()).search, apiOrigin).href
+        : undefined;
+      response = await route.fetch(target ? { url: target } : undefined);
+    } catch {
+      await route.fallback();
+      return;
+    }
+    let body;
+    try {
+      body = await response.json();
+    } catch {
+      await route.fulfill({ response });
+      return;
+    }
+    const mutated = refreshState.round > 0
+      ? mutateWorldPayload(new URL(route.request().url()).pathname, body)
+      : body;
+    if (refreshState.gate) {
+      refreshState.parked += 1;
+      await refreshState.gate;
+    }
+    await route.fulfill({ json: mutated, response });
+  });
+}
+
+/**
+ * The payload edit. `common` moves supply by 0.04% a round — enough to defeat
+ * React Query's structural sharing and rebuild the world, far too little to
+ * cross a hull tier. `churn` rotates each coin through the supply tiers and the
+ * peg-deviation bands, so its placement changes every round.
+ */
+function mutateWorldPayload(pathname, body) {
+  const round_ = refreshState.round;
+  if (refreshMode === "same") return body;
+  if (pathname.endsWith("/api/stablecoins") && Array.isArray(body?.peggedAssets)) {
+    return {
+      ...body,
+      peggedAssets: body.peggedAssets.map((asset, index) => {
+        const factor = refreshMode === "churn"
+          ? 1 + ((index + round_) % 5) * 0.4
+          : 1 + round_ * 0.0004;
+        if (!asset?.circulating || typeof asset.circulating.peggedUSD !== "number") return asset;
+        return {
+          ...asset,
+          circulating: { ...asset.circulating, peggedUSD: asset.circulating.peggedUSD * factor },
+        };
+      }),
+    };
+  }
+  if (refreshMode === "churn" && pathname.endsWith("/api/peg-summary") && Array.isArray(body?.coins)) {
+    return {
+      ...body,
+      coins: body.coins.map((coin, index) => ({
+        ...coin,
+        activeDepeg: false,
+        currentDeviationBps: CHURN_DEVIATION_BPS[(index + round_) % CHURN_DEVIATION_BPS.length],
+      })),
+    };
+  }
+  return body;
+}
+
+/** One provoked refresh, measured. Returns the long tasks it blocked for. */
+async function measureOneRefresh(page, recorder) {
+  refreshState.parked = 0;
+  refreshState.round += 1;
+  refreshState.gate = new Promise((resolve) => { refreshState.openGate = resolve; });
+
+  // One tick past twice the longest cron interval, so every world poll is due.
+  await page.clock.fastForward("31:00");
+  const parkDeadline = Date.now() + 20_000;
+  while (Date.now() < parkDeadline && refreshState.parked === 0) await page.waitForTimeout(100);
+  if (refreshState.parked === 0) throw new Error("no refetch reached the proxy after the clock jump");
+  // Let the jump's own timer and rAF backlog finish before the window opens.
+  await page.waitForTimeout(1200);
+  await page.evaluate(() => { window.__previewLongtasks.length = 0; });
+
+  if (recorder) await recorder.start();
+  refreshState.openGate();
+  refreshState.gate = null;
+  await page.waitForTimeout(REFRESH_WINDOW_MS);
+
+  const durations = await page.evaluate(() => window.__previewLongtasks.slice());
+  return { captured: recorder ? await recorder.stop() : null, durations };
+}
+
+/** V8 sampling profiler: which JS stage asked for the time. */
+function profileRecorder(cdp) {
+  return {
+    async start() {
+      await cdp.send("Profiler.enable");
+      await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
+      await cdp.send("Profiler.start");
+    },
+    async stop() {
+      const { profile } = await cdp.send("Profiler.stop");
+      await cdp.send("Profiler.disable");
+      return profile;
+    },
+  };
+}
+
+/**
+ * Blink's timeline: what the ENGINE did. The V8 profiler cannot see style,
+ * layout or paint at all — it reports them as top-of-stack `(program)` — so
+ * without this the largest share of the freeze has no name.
+ */
+function traceRecorder(cdp) {
+  const events = [];
+  const collect = ({ value }) => events.push(...value);
+  return {
+    async start() {
+      events.length = 0;
+      cdp.on("Tracing.dataCollected", collect);
+      await cdp.send("Tracing.start", {
+        categories: "devtools.timeline,disabled-by-default-devtools.timeline",
+        transferMode: "ReportEvents",
+      });
+    },
+    async stop() {
+      const complete = new Promise((resolve) => cdp.once("Tracing.tracingComplete", resolve));
+      await cdp.send("Tracing.end");
+      await complete;
+      cdp.off("Tracing.dataCollected", collect);
+      return events.slice();
+    },
+  };
+}
+
+/**
+ * Self time by trace event name inside the SINGLE LONGEST task of the window —
+ * which, the gate having just opened, is the refresh freeze itself. Self rather
+ * than total, so a `FunctionCall` that spends its time in `Layout` is charged
+ * to layout.
+ */
+function summarizeTrace(events) {
+  const complete = events.filter((event) => event.ph === "X" && typeof event.dur === "number");
+  let freeze = null;
+  for (const event of complete) {
+    if (event.name === "RunTask" && (!freeze || event.dur > freeze.dur)) freeze = event;
+  }
+  if (!freeze) return { freezeMs: 0, rows: [] };
+
+  const inside = complete
+    .filter((event) => event.pid === freeze.pid && event.tid === freeze.tid
+      && event.ts >= freeze.ts && event.ts + event.dur <= freeze.ts + freeze.dur)
+    .sort((a, b) => a.ts - b.ts || b.dur - a.dur);
+
+  const selfUs = new Map();
+  const stack = [];
+  const settle = (frame) => selfUs.set(frame.name, (selfUs.get(frame.name) ?? 0) + frame.dur - frame.childUs);
+  for (const event of inside) {
+    while (stack.length > 0 && stack[stack.length - 1].end <= event.ts) settle(stack.pop());
+    if (stack.length > 0) stack[stack.length - 1].childUs += event.dur;
+    stack.push({ childUs: 0, dur: event.dur, end: event.ts + event.dur, name: event.name });
+  }
+  while (stack.length > 0) settle(stack.pop());
+
+  // Which JS call the task IS. `FunctionCall` carries the entry point's name
+  // and source location, and the outermost one names the owner of the freeze —
+  // the answer the V8 profiler cannot give when its time sits in `(program)`.
+  const calls = inside
+    .filter((event) => event.name === "FunctionCall" && event.args?.data)
+    .sort((a, b) => b.dur - a.dur)
+    .slice(0, 4)
+    .map((event) => {
+      const data = event.args.data;
+      const file = /\/([^/?]+(?:\?[^:]*)?)$/.exec(data.url ?? "")?.[1] ?? data.url ?? "?";
+      return `${round(event.dur / 1000)}ms  ${data.functionName || "(anonymous)"} — ${file}:${data.lineNumber}`;
+    });
+
+  // Blink defers style and layout to the next rendering step, so a commit that
+  // rewrote a large DOM subtree pays for it in the TASK AFTER the freeze. That
+  // cost is part of the refresh and would be invisible if only the freeze were
+  // read, so it is totalled across the whole window.
+  const RENDERING_STEPS = new Set([
+    "Commit", "Layout", "Layerize", "Paint", "PrePaint", "RecalcStyles", "UpdateLayoutTree", "UpdateLayerTree",
+  ]);
+  let renderingMs = 0;
+  for (const event of complete) {
+    if (RENDERING_STEPS.has(event.name)) renderingMs += event.dur / 1000;
+  }
+
+  return {
+    calls,
+    freezeMs: freeze.dur / 1000,
+    renderingMs,
+    rows: [...selfUs.entries()].map(([name, us]) => [name, us / 1000]).sort((a, b) => b[1] - a[1]),
+  };
+}
+
+function summarizeRefresh(durations) {
+  const blocking = durations.reduce((total, duration) => total + Math.max(0, duration - 50), 0);
+  return {
+    blockingMs: blocking,
+    busyMs: durations.reduce((total, duration) => total + duration, 0),
+    count: durations.length,
+    longestMs: durations.reduce((longest, duration) => Math.max(longest, duration), 0),
+  };
+}
+
+/**
+ * Self time per source FILE, which is what maps onto the stages the refresh
+ * argument is about: the world pipeline under src/systems, the React commit in
+ * react-dom, the scene rebuild under src/three.
+ */
+/**
+ * Attribution by STAGE, walking each sample's ancestors until one matches.
+ *
+ * Self time alone is useless here: over half of it lands in `(program)`, which
+ * is V8's bucket for native work it cannot unwind — the JSON parse, the GL
+ * uploads, the shader link. Charging a sample to its nearest recognised
+ * ANCESTOR (the `PROFILE_STAGES` table above) puts that native time under the
+ * stage that asked for it, and because only the nearest ancestor counts,
+ * nothing is charged twice.
+ */
+function summarizeProfile(profile, cutoffMs) {
+  const nodesById = new Map(profile.nodes.map((node) => [node.id, node]));
+  const parentById = new Map();
+  for (const node of profile.nodes) {
+    for (const child of node.children ?? []) parentById.set(child, node.id);
+  }
+  const stageByNode = new Map();
+  const stageFor = (nodeId) => {
+    if (stageByNode.has(nodeId)) return stageByNode.get(nodeId);
+    const node = nodesById.get(nodeId);
+    const frame = node?.callFrame;
+    const parent = parentById.get(nodeId);
+    let stage = null;
+    if (frame) {
+      const match = PROFILE_STAGES.find(([, test]) => test(frame.url ?? "", frame.functionName ?? ""));
+      stage = match?.[0] ?? null;
+      // V8's own nodes — (idle), (program), (garbage collector) — are their own
+      // answer only at the TOP of the stack. Nested under a stage they are that
+      // stage's native work (a GL upload, a parse) and belong to it.
+      if (!stage && !frame.url && parent !== undefined && parentById.get(parent) === undefined) {
+        stage = frame.functionName || "(unattributed)";
+      }
+    }
+    if (!stage) {
+      stage = parent === undefined ? (frame?.functionName || "(unattributed)") : stageFor(parent);
+    }
+    stageByNode.set(nodeId, stage);
+    return stage;
+  };
+
+  const stageMs = new Map();
+  const samples = profile.samples ?? [];
+  const deltas = profile.timeDeltas ?? [];
+  let elapsedMs = 0;
+  for (let index = 0; index < samples.length; index += 1) {
+    const deltaMs = Math.max(0, deltas[index] ?? 0) / 1000;
+    elapsedMs += deltaMs;
+    if (elapsedMs > cutoffMs) break;
+    const stage = stageFor(samples[index]);
+    stageMs.set(stage, (stageMs.get(stage) ?? 0) + deltaMs);
+  }
+  return [...stageMs.entries()].sort((a, b) => b[1] - a[1]);
+}
+
+async function reportRefreshCost(page) {
+  console.log(`\nrefresh    provoking a polling refetch (${refreshMode}) — ${REFRESH_TIMED_ROUNDS} timed rounds`);
+  const before = await readMetrics(page);
+
+  // Round one warms the swap path itself (first-time program links, first
+  // disposal), so it is provoked and discarded rather than reported.
+  const warmup = summarizeRefresh((await measureOneRefresh(page, null)).durations);
+  console.log(`  warm-up  ${round(warmup.busyMs)}ms busy · longest ${round(warmup.longestMs)}ms (discarded)`);
+
+  const rounds = [];
+  for (let index = 0; index < REFRESH_TIMED_ROUNDS; index += 1) {
+    const summary = summarizeRefresh((await measureOneRefresh(page, null)).durations);
+    rounds.push(summary);
+    console.log(`  round ${index + 1}  ${round(summary.busyMs)}ms busy in ${summary.count} long tasks`
+      + ` · longest ${round(summary.longestMs)}ms · blocking ${round(summary.blockingMs)}ms`);
+  }
+  const median = (pick) => [...rounds.map(pick)].sort((a, b) => a - b)[Math.floor(rounds.length / 2)];
+  console.log(`  median   ${round(median((r) => r.busyMs))}ms busy · longest ${round(median((r) => r.longestMs))}ms`
+    + ` · blocking ${round(median((r) => r.blockingMs))}ms`);
+
+  const cdp = await page.context().newCDPSession(page);
+  const profiled = await measureOneRefresh(page, profileRecorder(cdp));
+  const profiledSummary = summarizeRefresh(profiled.durations);
+  // The gate opens immediately after `Profiler.start`, so the freeze is the
+  // front of the profile. Cutting there keeps the steady-state frames that
+  // follow it — which are not a refresh cost — out of the attribution.
+  const cutoffMs = profiledSummary.busyMs + 100;
+  console.log(`  profiled round (overhead included, not counted above):`
+    + ` ${round(profiledSummary.busyMs)}ms busy`);
+  console.log(`  which JS stage asked — the profile's first ${round(cutoffMs)}ms, charged to the nearest stage:`);
+  for (const [bucket, ms] of summarizeProfile(profiled.captured, cutoffMs).slice(0, 10)) {
+    console.log(`    ${round(ms).toString().padStart(7)}ms  ${bucket}`);
+  }
+
+  const traced = await measureOneRefresh(page, traceRecorder(cdp));
+  const trace = summarizeTrace(traced.captured);
+  console.log(`  what the engine did — self time inside the longest task (${round(trace.freezeMs)}ms):`);
+  for (const [name, ms] of trace.rows.slice(0, 8)) {
+    console.log(`    ${round(ms).toString().padStart(7)}ms  ${name}`);
+  }
+  console.log("  and whose call it is:");
+  for (const call of trace.calls ?? []) console.log(`    ${call}`);
+  console.log(`  style, layout and paint across the whole ${REFRESH_WINDOW_MS}ms window:`
+    + ` ${round(trace.renderingMs)}ms`);
+
+  const after = await readMetrics(page);
+  console.log(`  fleet    ${before.shipsVisible} -> ${after.shipsVisible} ships`
+    + ` · ${before.calls} -> ${after.calls} draw calls`);
 }
 
 /**
