@@ -164,7 +164,9 @@ export interface GardenPost {
   render: (deltaTime?: number) => void;
   setBloomEnabled: (enabled: boolean) => void;
   setEnabled: (enabled: boolean) => void;
-  setGrade: (dayMix: number, duskMix: number, nightMix: number) => void;
+  // No nightMix: night is the base of the blend (as in `blendScalar`), and the
+  // day cycle derives it as `1 - daylight - dusk` anyway, so it carries nothing.
+  setGrade: (dayMix: number, duskMix: number) => void;
   setSize: (width: number, height: number, dpr: number) => void;
 }
 

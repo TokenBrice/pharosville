@@ -410,7 +410,7 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
       // machine is genuinely drowning, and a five-level mip pyramid is the
       // one pass worth the pop.
       post.setBloomEnabled(tier !== "constrained");
-      post.setGrade(phase.daylight, phase.dusk, phase.night);
+      post.setGrade(phase.daylight, phase.dusk);
       post.render();
 
       const content = scene.content;

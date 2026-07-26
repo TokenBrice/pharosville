@@ -1,0 +1,196 @@
+# PharosVille — improvement ideas, prioritized by impact vs effort
+
+Date: 2026-07-26. Produced by a six-agent sweep (metaphor, visual, performance,
+debugging/observability, UX/accessibility, backlog mining) over the repo at
+v0.4.0 "The Lantern Sea" + 793ce68. 56 raw ideas, deduplicated to 38, ranked
+below. Every idea is grounded in a file or plan doc the sweep actually read.
+
+**Impact** 1–5 (5 = changes how users understand the market or how the product
+survives). **Effort** S/M/L. Ordering within each tier is impact-per-effort.
+
+---
+
+## Corrections first — stale beliefs the sweep disproved
+
+These are recorded so no future round re-fixes solved problems:
+
+- **The "constrained tier drops colour grading" cliff is already fixed.**
+  `world-renderer.ts:405-412` keeps grade/AgX and sheds only bloom.
+  `agents/2026-07-25-remaining-work.md` and the grand-scale plan §10.4 still
+  describe the old cliff.
+- **The two stale visual-lane assertions (20-ship cap, removed hour slider)
+  were fixed in 793ce68** with explanatory comments in the specs.
+  `remaining-work.md` still reports them red. Confirm with
+  `npm run test:visual`, then update that note.
+- **Hygiene find:** `garden-post.ts:167` declares `setGrade(day, dusk, night)`
+  but the implementation (line 292) ignores the `nightMix` that
+  `world-renderer.ts:413` passes — dead param, delete before it drifts.
+
+---
+
+## Tier 1 — do next (high impact, small/medium effort)
+
+### 1. Production survivability & observability cluster
+The single biggest gap. The app is public and solo-maintained, and today the
+operator is blind to production failure: client errors report to nothing,
+outages render a blank world, and stale upstream data passes every check.
+
+| # | Idea | Impact | Effort | Ground truth |
+|---|------|--------|--------|--------------|
+| 1a | **Wire `reportClientError` into real failure sites** — it has zero callers; call it from `failThreeRenderer` (use-world-render-loop.ts:195, 287, 634), WebGL context-loss, and the world-data error path | 4 | S | `src/error-reporter.ts:8-15,109` |
+| 1b | **Make `/_log` durable** — it ends in `console.error` nobody watches; enable Workers Logs or a KV counter, and have the canary POST one synthetic report to prove the pipe | 4 | M | `functions/_log.ts`; canary never touches `/_log` |
+| 1c | **Edge stale-on-error** — proxy caches only 200s with short TTL; store a long-TTL last-good copy per endpoint and serve it (with age headers the client meta pipeline already understands) when upstream fails. Turns an API outage into a degraded-but-alive world | 4 | M | `functions/api/[[path]].ts` 502 path; `functions/_shared.ts` |
+| 1d | **Canary freshness gate** — `smoke-live.mjs` only type-checks; assert `updatedAt` recency per endpoint so a stuck producer serving day-old data trips the 30-min canary. Start as warning tier | 4 | S | `scripts/smoke-live.mjs:149-177` |
+| 1e | **External uptime monitor** beyond GitHub Actions (Cloudflare health check or UptimeRobot on `/` + one `/api/*`) — already on ROADMAP.md | 3 | S | `ROADMAP.md:11`, `OPERATIONS.md:91-92` |
+
+### 2. Sharing & first-impression fixes (all small)
+
+| # | Idea | Impact | Effort | Ground truth |
+|---|------|--------|--------|--------------|
+| 2a | **Fix the meta description** — index.html:8 calls the product "A beta desktop RPG island-city", contradicting PRODUCT.md's anti-references in the first sentence Google/Twitter/Slack show. Rewrite description/OG/twitter copy to the maritime-observatory framing | 3 | S | `index.html:8,19,28` |
+| 2b | **Copy-link button in the detail panel** — URL deep links (sel/cam/t/n) exist but are invisible; one button + clipboard write + live-region announcement. Check clipboard-write against the Permissions-Policy header | 4 | S | `use-world-url-state.ts` `buildWorldUrlHref` |
+| 2c | **Legend → "Watch the harbor" CTA** — the first-visit legend closes into a silent world while observe mode (captioned camera beats) hides behind a bare Eye icon. One button bridging them is the cheapest onboarding win available. Respect the reduced-motion guard | 4 | S | `use-legend-dialog.ts`; `pharosville-world.tsx:676` |
+
+### 3. Metaphor: spend the signals already fetched but unused
+The sweep grep-verified these payloads arrive in the browser today and drive
+nothing: `pegSummary.summary`, `dexPriceCheck`, `stability.history`,
+`stability.current.contributors` (world side), chain `change*Pct`,
+deviation sign, `trackingSpanDays`, `priceConfidence`.
+
+| # | Idea | Impact | Effort | Signals consumed |
+|---|------|--------|--------|------------------|
+| 3a | **Observatory signal mast** hoisting one pennant per active depeg, storm cone when `worstCurrent` crosses a threshold — period-accurate storm-warning practice; gives "fleet condition at a glance" a single anchor. Reuse the chain-flag system; keep it calm, not alarming | 4 | M | `pegSummary.summary.*` |
+| 3b | **Cross-bearing buoy** moored beside a ship when `dexPriceCheck.agrees === false` — two instruments disagreeing is a leading depeg indicator, currently invisible even in the panel. Nullable field must render nothing when absent | 3 | S | `dexPriceCheck.*` |
+| 3c | **High-water mark** — tide-stain band on the lighthouse rocks marking the worst PSI band of the trailing 30d; static, deterministic; separates "calm" from "recently-recovered calm" | 3 | S | `stability.history[]` |
+| 3d | **Lighthouse beam dwells on top PSI contributors** — the beacon periodically settles toward the ship contributing most to the index; contributors already have DOM rows. Wording: "largest PSI contributor", never accusation | 4 | M | `stability.current.contributors[]` |
+
+### 4. Visual: the two items that raise the whole frame
+
+| # | Idea | Impact | Effort | Ground truth |
+|---|------|--------|--------|--------------|
+| 4a | **Hero-ship mirror reflections** — extend the Pharos mirror-column technique (inverted geometry obeying region reflectivity, no extra pass) to the ~29 hero hulls. W6.4 was the concept render's defining feature and was never started; reflectivity already encodes risk region, so it's analytical spectacle | 4 | M | `garden-water.ts:686,953`; grand-scale plan §9.3 |
+| 4b | **Island detail pass (W4.9)** — strata, cliffs, stone stair, denser planting. The island is now the last major mass at "credible draft" quality and it anchors every framing. Beware the rendered-vs-terrain ~6-tile offset trap (H1) and the 0.7-unit silhouette law | 4 | M | grand-scale plan §9.3; `garden-island.ts` |
+
+### 5. Reach & trust
+
+| # | Idea | Impact | Effort | Ground truth |
+|---|------|--------|--------|--------------|
+| 5a | **Quick find: press `/` to locate a ship/harbor by name** — the #1 first-session intent ("where is my coin?") has no direct path; selection/camera/announcement plumbing all exist | 4 | M | `use-world-keyboard-targets.ts`; `world.entityById` |
+| 5b | **Grow the fleet ~205 → 300** — operator decision O5 deferred this while rendering was the ceiling; instancing (v0.4.0, 320-ship capacity) removed the ceiling. A third of the tracked market is invisible. Watch map density (O6) and long-tail logo gaps | 4 | M | grand-scale plan §7 Q1, §8 O5 |
+| 5c | **Make the dist-visual and perf lanes trustworthy** — one dist visual failure remains (Observe/DOM-labels stability timeout) and `test:perf` has never run clean (SwiftShader fleet-population timeouts). Red-but-ignored gates already masked real regressions once | 4 | M | fleet plan "dist visual lane"; sea plan §11.3 |
+
+---
+
+## Tier 2 — cheap wins to batch into any round (all S)
+
+- **Stale/degraded-data caveat test** — test meta is hardcoded `fresh`; the
+  "stale evidence is a caveat, not confirmed stress" invariant has zero
+  coverage. Parameterize `mockPharosVillePayloads` meta. (Impact 3)
+- **Perf tripwire: `preview.mjs --assert`** — it already measures tier /
+  p50-p90 / draw calls on the real GPU but only prints; add thresholds
+  (tier=full, p90≤20ms, calls≤700) and wire into `validate:deploy-gate`.
+  TESTING.md admits GPU regressions are caught pre-push or not at all. (3)
+- **Reduced-motion observe mode** — observe is gated off entirely under
+  reduced motion; offer manual step-through beats (instant focusTile +
+  caption) instead of nothing. (3)
+- **Sea-sign boards as keyboard hit targets** — the sea plan's own N6 spec,
+  dropped at execution; boards are aria-hidden canvas today. Hit-target
+  plumbing exists. (3) *(flagged by both visual and backlog sweeps)*
+- **`_headers` caching for `/logos/*` and `/chains/*`** — 326 files / 2.9MB
+  revalidate every visit before sails paint; `max-age=86400` (names aren't
+  content-hashed, so a day, not a year). (2)
+- **Re-measure the ~855 draw-call whole-map frame** — measured mid-flight
+  during concurrent work, never re-checked after it settled; one
+  `npm run preview` probe decides overrun vs stale budget. (2)
+- **Small-screen fallback copy** — two-sentence metaphor explainer +
+  descriptive link labels; today's bare "PSI / Depegs" teach a mobile
+  first-toucher nothing. No world data, gate rule holds. (2)
+- **Time-of-day keys `[` / `]`** — replace the documented "type t=18.5 into
+  the address bar" anti-affordance; write through existing clamp + URL state. (2)
+- **Night-sky horizontal band** — undiagnosed sea-plan residual 5; suspect the
+  Shakkei horizon cards. Confirm attribution before editing. (2)
+- **Gulls over the top-3 hero ships** — the one deliberately carried W6 item;
+  approach pre-solved (parent to hero root like `garden-summit-birds`). (2)
+- **Node engines pin vs runtime (24 vs 26)** — every session opens with a
+  warning that trains agents to ignore warnings. (2)
+- **Pale-sail sweep (contrast floor 2.0→2.2)** — fixes six weak sail marks
+  incl. DAI, but D5 was an explicit operator decision protecting DAI's amber.
+  **Needs operator sign-off, not a silent change.** (2)
+- **Update `remaining-work.md`** per the corrections section above. (2)
+
+---
+
+## Tier 3 — bigger bets (worth a dedicated round each)
+
+Ordered by recommended sequence, not raw impact.
+
+1. **Sticky ship placement across refreshes** (impact 3, M) — carry previous
+   placements so unchanged ships keep tiles and path keys; kills most of the
+   A* + fleet-rebuild cost per refresh *and* stops refresh teleporting. Do
+   this before the worker — it may make it unnecessary.
+2. **Web Worker for world build + A* re-solve** (4, L) — the measured ~550ms
+   main-thread freeze per data refresh (`world-renderer.ts:376-390` documents
+   it). Only if sticky placement leaves a visible hitch. World model must be
+   structured-clone-safe; measure the clone cost first.
+3. **Mint/burn cargo tide** (5, L) — the highest-impact metaphor idea: crates
+   loaded/offloaded at docks for net mint/burn, `flightToQuality` as skiffs
+   converging on titans. Needs a new endpoint key in the contract + Pages
+   Function allowlist, world stage, cues, DOM rows, tests. The one idea that
+   makes supply *flow* — the core stablecoin dynamic — visible.
+4. **Tide line: global supply as water level** (4, L) — `globalChange7dPct`
+   as a wet/dry band on pilings and rock. Systemic and beautiful, but touches
+   the water/island contract and must not shift water-tile classification.
+5. **PMREM environment + depth cueing (W6.5/W6.8)** (3, M) — cheapest global
+   step from flat-lit to lit-by-its-sky; delicate against the Lantern Sea AgX
+   calibration; judge only via `npm run preview`.
+6. **Fractal coastlines in `sea-bodies.ts`** (3, S/M) — sea-plan residual 1,
+   "contained follow-up"; noise must apply at classification time so tint,
+   ships, and buoys agree (the D1 lesson), and area shares (±2pt) must hold.
+7. **Client-side last-good persistence** (3, M) — TanStack persister so a
+   returning visitor renders instantly from labeled-stale data; complements
+   1c for total-outage survival.
+8. **Refresh-soak leak gate** (3, S) — cycle 10–20 world payloads in the perf
+   spec and assert `renderer.info.memory` returns to baseline; the
+   leave-it-open-for-hours use case is currently unguarded.
+9. **Idle frame governor** (3, M) — after N minutes without input, render at
+   half rate; the scheduler already tracks `cameraIntentActive`. Real-GPU
+   judgement only.
+10. **Failure-injection browser lane** (4, M) + **unit tests for
+    `use-pharosville-world-data`** (3, M) — the essentials-first grace path
+    was built from a live 502 incident and has no regression guard; the
+    247-line hook is the most intricate untested logic in the data path.
+11. **Logo vectorisation Batch B** (3, L) — 210 of 332 logos still raster;
+    the brief's tier ordering bounds it. Grind work; good background task.
+12. **Per-selection social cards** (3, M) — HTMLRewriter on the HTML route
+    swapping og:title/description for `?sel=` links; text-only first. Do
+    after 2a/2b prove the sharing loop matters.
+13. **Ship trim for deviation direction** (3, M) and **harbor tempo from
+    chain 24h change** (3, M) — good second-wave metaphor items once 3a–3d
+    land; both need care against the silhouette law / calm brand.
+14. **Visible "Harbor ledger" view** (3, M) — surface the superb sr-only
+    accessibility ledger as a readable trust artifact for sighted analysts.
+15. **Overview LOD cull** (2, M) — pair with whichever visual round (4a/4b)
+    spends the draw-call headroom; ease transitions, no popping.
+16. **Meshopt-compress runtime GLBs** (2, M) — ~60-75% off 2.3MB of models
+    at generator time; hero-silhouettes harness guards quantization.
+17. **~40% docked ratio (W3.5/O12)** (2, M) — settled operator decision never
+    wired; verify first that docked share hasn't since acquired analytics
+    meaning (it encodes chain supply share since v0.3.0).
+
+---
+
+## Deliberately not proposed
+
+- Anything gated on Playwright frame-quality or frame-time judgements —
+  every look/perf call above routes through `npm run preview` (SwiftShader rule).
+- Mobile runtime, wallets, accounts — ROADMAP "not planned".
+- Thin-consensus haze ring and veteran sail patina — both collide with
+  existing channels (lighthouse fog = freshness failure; weathering = risk
+  water) and were the weakest of the metaphor set; revisit only with a
+  legend redesign that can carry more channels.
+
+## Suggested first round
+
+1a + 1d + 2a + 2b + 2c in one small PR-sized round (all S, two files each),
+then 1b + 1c as the outage-survival pair, then pick one of 3a (signal mast)
+or 4a (reflections) as the next visible release's headline.
