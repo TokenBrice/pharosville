@@ -252,7 +252,10 @@ describe("DetailPanel copy link", () => {
   // The address bar keeps the params in the fragment; the copied link moves
   // them to the query string so the shared card can name the ship.
   it("copies the current world URL as a server-readable link and announces it", async () => {
-    const writeText = vi.fn(() => Promise.resolve());
+    // Declared with its argument so the mock's recorded calls are typed as
+    // [string]; inferred from a zero-arg factory, `calls[0]` is an empty tuple
+    // and reading the copied URL back off it does not typecheck.
+    const writeText = vi.fn((_text: string) => Promise.resolve());
     const restore = stubClipboard(writeText);
     window.history.replaceState({}, "", "/#sel=ship.usdc&n=1&cam=4,8,1.5");
     const setAnnouncement = vi.fn();
@@ -261,7 +264,7 @@ describe("DetailPanel copy link", () => {
     fireEvent.click(screen.getByTestId("pharosville-detail-copy-link"));
 
     await waitFor(() => expect(setAnnouncement).toHaveBeenCalledWith("Link copied"));
-    const copied = new URL(writeText.mock.calls[0]![0] as string);
+    const copied = new URL(writeText.mock.calls[0]![0]);
     expect(copied.hash).toBe("");
     expect(copied.searchParams.get("sel")).toBe("ship.usdc");
     expect(copied.searchParams.get("n")).toBe("1");
