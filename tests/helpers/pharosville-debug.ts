@@ -323,6 +323,22 @@ export async function readRuntimeSnapshot(page: Page) {
   });
 }
 
+/**
+ * True when this browser actually gave the world a WebGL context.
+ *
+ * The @visual-dom lane exists to prove the contract a visitor WITHOUT WebGL is
+ * owed, and CI runs it on Firefox in a container that has no WebGL at all — so
+ * a DOM-lane test must never hard-require the Three.js runtime. Data-path tests
+ * use this to keep their renderer assertions where a renderer exists and fall
+ * back to the DOM contract where it does not.
+ */
+export async function rendererReachedWorld(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>("[data-testid='pharosville-canvas']");
+    return canvas?.dataset.rendererStatus !== "failed";
+  });
+}
+
 export async function waitForRuntimeDebug(page: Page, reducedMotion: boolean): Promise<void> {
   const outcome = await page.waitForFunction((expectedReducedMotion) => {
     const debug = (window as typeof window & {

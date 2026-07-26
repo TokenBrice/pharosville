@@ -8,6 +8,7 @@ import {
   mockScreenSize,
   readRuntimeSnapshot,
   readVisualDebug,
+  rendererReachedWorld,
   waitForRuntimeDebug,
 } from "../helpers/pharosville-debug";
 
@@ -337,8 +338,14 @@ test(...visualLane("dom", "an enrichment feed that never answers still opens the
   await openHarbor(page, "/?debug=1&t=12");
 
   await expectRouteMode(page, "world");
-  await waitForRuntimeDebug(page, true);
-  expect((await shipTargetIds(page)).length).toBeGreaterThan(0);
+  // The fleet reaching the canvas is the strongest form of "opened", but this
+  // is a @visual-dom test and CI runs that lane on a browser with no WebGL, so
+  // the renderer half is asserted only where a renderer exists. The ledger
+  // assertions below carry the contract either way.
+  if (await rendererReachedWorld(page)) {
+    await waitForRuntimeDebug(page, true);
+    expect((await shipTargetIds(page)).length).toBeGreaterThan(0);
+  }
 
   // The enrichment really is missing, and the fleet says so rather than
   // presenting a placement it cannot support.
@@ -394,7 +401,9 @@ test(...visualLane("dom", "stale peg and stress evidence reads as a caveat, not 
   await openHarbor(page, "/?debug=1&t=12");
 
   await expectRouteMode(page, "world");
-  await waitForRuntimeDebug(page, true);
+  // Same reason as above: everything this test proves lives in the ledger, so
+  // it must not hard-require a WebGL context the DOM lane deliberately lacks.
+  if (await rendererReachedWorld(page)) await waitForRuntimeDebug(page, true);
 
   const ledger = page.getByTestId("pharosville-accessibility-ledger");
   await expect(ledger).toContainText("Stale source groups: Peg summary, Stress signals.");
