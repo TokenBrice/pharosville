@@ -58,6 +58,12 @@ export const PHAROSVILLE_CONTROL_GROUPS: readonly PharosVilleControlGroup[] = [
         inputs: [{ kind: "keyboard", label: "Enter", tokens: ["Enter"] }],
       },
       {
+        id: "quick-find",
+        label: "Find a ship or harbor by name",
+        summary: "Opens a search field, top left. Type a ticker or name, use the arrow keys to move through matches, and press Enter to select one and centre the view on it.",
+        inputs: [{ kind: "keyboard", label: "/", tokens: ["/"] }],
+      },
+      {
         id: "select-pointer-target",
         label: "Select target with the mouse",
         summary: "Click a ship, dock, water area, landmark, or grave to open its detail panel.",
@@ -128,10 +134,13 @@ export const PHAROSVILLE_CONTROL_GROUPS: readonly PharosVilleControlGroup[] = [
         inputs: [{ kind: "toolbar", label: "Day-night control" }],
       },
       {
-        id: "share-session-hour",
-        label: "Set an exact hour",
-        summary: "A shared link carries its own hour: add t= to the address (for example #t=18.5 for half past six in the evening) and the view opens at that light.",
-        inputs: [{ kind: "field", label: "t= in the page address" }],
+        id: "nudge-session-hour",
+        label: "Shift the time of day",
+        summary: "Steps the light half an hour earlier or later, starting from whatever the sky is showing. It stops at the ends of the day rather than wrapping around. The hour travels in the link, so a view you share opens at the light you left it at.",
+        inputs: [
+          { kind: "keyboard", label: "Half an hour earlier", tokens: ["["] },
+          { kind: "keyboard", label: "Half an hour later", tokens: ["]"] },
+        ],
       },
     ],
   },

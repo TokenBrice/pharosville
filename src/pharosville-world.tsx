@@ -10,6 +10,7 @@ import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { AccessibilityLedger, type ShipRiskTransitionEntry } from "./components/accessibility-ledger";
 import { DetailPanel } from "./components/detail-panel";
 import { HarborLog } from "./components/harbor-log";
+import { QuickFind } from "./components/quick-find";
 import { SinceLastVisitBanner } from "./components/since-last-visit";
 import { WorldControls } from "./components/world-controls";
 import { WorldStaticOverview } from "./components/world-static-overview";
@@ -19,6 +20,7 @@ import { useChangelogDialog } from "./hooks/use-changelog-dialog";
 import { useLegendDialog } from "./hooks/use-legend-dialog";
 import { useCanvasResizeAndCamera } from "./hooks/use-canvas-resize-and-camera";
 import { useHarborLog } from "./hooks/use-harbor-log";
+import { isDialogEventTarget } from "./hooks/keyboard-event-target";
 import { useLatestRef } from "./hooks/use-latest-ref";
 import { useLiveTitle } from "./hooks/use-live-title";
 import { useRecentWorldInput } from "./hooks/use-recent-world-input";
@@ -26,7 +28,11 @@ import { useVisitSnapshot } from "./hooks/use-visit-snapshot";
 import { detailAnchorForPoint, useWorldKeyboardTargets } from "./hooks/use-world-keyboard-targets";
 import { useWorldRenderLoop } from "./hooks/use-world-render-loop";
 import { useWorldSelection, resolveSelectedDetail } from "./hooks/use-world-selection";
-import { useWorldTimeControls } from "./hooks/use-world-time-controls";
+import {
+  sessionHourAnnouncement,
+  useWorldTimeControls,
+  WORLD_TIME_NUDGE_HOUR,
+} from "./hooks/use-world-time-controls";
 import { useWorldUrlState } from "./hooks/use-world-url-state";
 import { createGardenObservatoryHitTargetSnapshot } from "./renderer/garden-observatory-hit-testing";
 import type { HitTarget, HitTargetSnapshot } from "./renderer/hit-testing";
@@ -37,6 +43,7 @@ import {
 } from "./systems/garden-observatory-slice";
 import { buildBaseMotionPlan, disposePathCacheForMap, motionPlanSignature, type ShipMotionSample } from "./systems/motion";
 import { buildObserveSequence } from "./systems/observe-sequence";
+import { buildQuickFindCandidates } from "./systems/quick-find-match";
 import { recentFleetTrendSummary } from "./systems/sea-state";
 import type { ScreenPoint } from "./systems/projection";
 import type { WorldSelectableEntity } from "./systems/world-types";
@@ -49,6 +56,10 @@ const LazyChangelogPanel = lazy(() => (
 
 const LazyLegendPanel = lazy(() => (
   import("./components/legend-panel").then((module) => ({ default: module.LegendPanel }))
+));
+
+const LazyHarborLedgerPanel = lazy(() => (
+  import("./components/harbor-ledger-panel").then((module) => ({ default: module.HarborLedgerPanel }))
 ));
 
 const DATA_REFRESH_ANNOUNCEMENT_THROTTLE_MS = 30_000;
@@ -100,16 +111,47 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   } = selection;
   const changelog = useChangelogDialog({ setAnnouncement });
   const legend = useLegendDialog({ setAnnouncement });
-  // The legend and changelog are the two true modal overlays; keep at most
-  // one open so screen readers never see concurrent aria-modal dialogs.
+  const [quickFindOpen, setQuickFindOpen] = useState(false);
+  // The harbor ledger keeps its state here rather than in a dialog hook of its
+  // own because the sr-only ledger and the visible panel are one component:
+  // the shell has to pick which of the two is mounted, so it owns the switch.
+  const [harborLedgerOpen, setHarborLedgerOpen] = useState(false);
+  // The legend, changelog and harbor ledger are the true modal overlays; keep
+  // at most one open so screen readers never see concurrent aria-modal
+  // dialogs, and drop the quick-find field rather than leave it focusable
+  // behind one.
   const openLegendExclusive = useCallback(() => {
     if (changelog.changelogOpen) changelog.closeChangelog();
+    setQuickFindOpen(false);
+    setHarborLedgerOpen(false);
     legend.openLegend();
   }, [changelog, legend]);
   const openChangelogExclusive = useCallback(() => {
     if (legend.legendOpen) legend.closeLegend();
+    setQuickFindOpen(false);
+    setHarborLedgerOpen(false);
     changelog.openChangelog();
   }, [changelog, legend]);
+  const openHarborLedgerExclusive = useCallback(() => {
+    if (changelog.changelogOpen) changelog.closeChangelog();
+    if (legend.legendOpen) legend.closeLegend();
+    setQuickFindOpen(false);
+    setHarborLedgerOpen(true);
+    setAnnouncement("Opened harbor ledger.");
+  }, [changelog, legend, setAnnouncement]);
+  const closeHarborLedger = useCallback(() => {
+    setHarborLedgerOpen(false);
+    setAnnouncement("Closed harbor ledger.");
+  }, [setAnnouncement]);
+  useEffect(() => {
+    if (!harborLedgerOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      closeHarborLedger();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [closeHarborLedger, harborLedgerOpen]);
   const visitSnapshot = useVisitSnapshot({ world, setAnnouncement });
   const timeControls = useWorldTimeControls({
     initialManualTimeOverrideHour: worldUrlState.initialState.manualTimeOverrideHour,
@@ -419,7 +461,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const [observeIndex, setObserveIndex] = useState<number | null>(null);
   const rendererFailed = rendererStatus === "failed";
   const threeExperienceReady = rendererStatus === "ready";
-  const observeBeat = threeExperienceReady && !reducedMotion && observeIndex !== null
+  const observeBeat = threeExperienceReady && observeIndex !== null
     ? observeSequence[observeIndex] ?? null
     : null;
   const cancelCameraIntent = canvas.cancelCameraIntent;
@@ -436,8 +478,13 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
           slice: observatorySlice,
         })
       : null;
+    // focusTile queues a camera intent, which the camera controller applies in
+    // one step under reduced motion — so the beat lands without a glide.
     focusTile(displayTile ?? observeBeat.tile);
     setAnnouncement(observeBeat.label);
+    // Reduced motion gets the same beats without the timed tour: the observe
+    // control steps to the next one, so nothing moves unless the reader asks.
+    if (reducedMotion) return;
     const timeoutId = window.setTimeout(() => {
       setObserveIndex((current) => {
         if (current === null) return null;
@@ -450,6 +497,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     observatorySlice,
     observeBeat,
     observeSequence.length,
+    reducedMotion,
     setAnnouncement,
     shipMotionSamplesRef,
     world.entityById,
@@ -464,6 +512,11 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       const activationKey = event instanceof KeyboardEvent
         && (event.key === "Enter" || event.key === " ");
       if (targetsObserveControl && (event.type === "pointerdown" || activationKey)) return;
+      // Reduced motion has no timer to carry the tour: the next beat comes only
+      // from the observe control, so reaching it must not end the sequence.
+      // Tab is how a keyboard reader gets there, which makes it navigation
+      // here, not the input that cancels.
+      if (reducedMotion && event instanceof KeyboardEvent && event.key === "Tab") return;
       cancelCameraIntent();
       setObserveIndex(null);
     };
@@ -477,7 +530,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       document.removeEventListener("keydown", stopObserve, true);
       document.removeEventListener("visibilitychange", stopObserve);
     };
-  }, [cancelCameraIntent, observeBeat]);
+  }, [cancelCameraIntent, observeBeat, reducedMotion]);
 
   // Full hit-target rebuild on world swap, selection delta, canvas-size
   // changes. Ship-cell and visibility transitions are handled inside the RAF
@@ -534,17 +587,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   }, [canFollowSelected, followSelectedFromCanvas, selectedEntity]);
 
   useEffect(() => observeReducedMotion((matches) => {
-    if (matches) {
-      const activeElement = document.activeElement;
-      if (
-        activeElement instanceof Element
-        && activeElement.closest("[data-observe-control]")
-      ) {
-        shellRef.current?.focus();
-      }
-      cancelCameraIntent();
-      setObserveIndex(null);
-    }
+    if (matches) cancelCameraIntent();
     setReducedMotion(matches);
   }), [cancelCameraIntent]);
 
@@ -576,12 +619,99 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const frameRateLabel = formatFrameRateLabel(frameRateFps, reducedMotion);
   const handleToggleObserve = useCallback(() => {
     if (observeIndex !== null) cancelCameraIntent();
+    if (reducedMotion) {
+      // Not a toggle here: each press is one step through the sequence, and
+      // the press past the last beat ends it.
+      setObserveIndex((current) => {
+        if (current === null) return 0;
+        return current + 1 < observeSequence.length ? current + 1 : null;
+      });
+      return;
+    }
     setObserveIndex(observeIndex === null ? 0 : null);
-  }, [cancelCameraIntent, observeIndex]);
+  }, [cancelCameraIntent, observeIndex, observeSequence.length, reducedMotion]);
+
+  // "Watch the harbor" under reduced motion sets the first beat and stops
+  // there — the sequence steps from the observe control and nothing else. Left
+  // where the legend's focus restore put them, a keyboard reader would have to
+  // tab backwards through the footer to find that control. Send them to it, so
+  // the next beat is one press away.
+  const observeStepFocusPendingRef = useRef(false);
+  const handleObserveFromLegend = useCallback(() => {
+    observeStepFocusPendingRef.current = reducedMotion;
+    setObserveIndex(0);
+  }, [reducedMotion]);
+  useEffect(() => {
+    if (!observeBeat || !observeStepFocusPendingRef.current) return;
+    observeStepFocusPendingRef.current = false;
+    document.querySelector<HTMLElement>("[data-observe-control]")?.focus({ preventScroll: true });
+  }, [observeBeat]);
 
   const handleSelectStaticDetail = useCallback((detailId: string) => {
     selectDetail(detailId, null);
   }, [selectDetail]);
+
+  // Quick find: "where is my coin?" is the first thing a visitor wants, and
+  // tabbing through the whole fleet is not an answer. `/` is the field's only
+  // entry point, so it must not steal the key from anything that takes typing.
+  const quickFindCandidates = useMemo(() => buildQuickFindCandidates(world), [world]);
+  const referencePanelOpen = changelog.changelogOpen || legend.legendOpen || harborLedgerOpen;
+  useEffect(() => {
+    if (rendererFailed || quickFindOpen || referencePanelOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "/" || event.altKey || event.ctrlKey || event.metaKey) return;
+      if (isTextEntryTarget(event.target)) return;
+      event.preventDefault();
+      setQuickFindOpen(true);
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [quickFindOpen, referencePanelOpen, rendererFailed]);
+
+  // Time of day used to be reachable only by hand-editing `t=` into the
+  // address bar. `[` and `]` walk it instead, under the same guards as the
+  // quick-find key: not while a text field has focus, not behind a dialog, not
+  // with a modifier. The hour still rides out through the URL write below, so
+  // a nudged sky is still a shareable one.
+  const nudgeSessionHour = timeControls.nudgeSessionHour;
+  useEffect(() => {
+    if (rendererFailed || quickFindOpen || referencePanelOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "[" && event.key !== "]") return;
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
+      if (isTextEntryTarget(event.target)) return;
+      event.preventDefault();
+      const hour = nudgeSessionHour(event.key === "]" ? WORLD_TIME_NUDGE_HOUR : -WORLD_TIME_NUDGE_HOUR);
+      if (hour !== null) setAnnouncement(sessionHourAnnouncement(hour));
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [nudgeSessionHour, quickFindOpen, referencePanelOpen, rendererFailed, setAnnouncement]);
+
+  const closeQuickFind = useCallback(() => {
+    setQuickFindOpen(false);
+    setAnnouncement("Closed quick find.");
+  }, [setAnnouncement]);
+
+  const handleQuickFindSelect = useCallback((detailId: string) => {
+    setQuickFindOpen(false);
+    selectDetail(detailId, null);
+    const entity = world.entityById[detailId];
+    const displayTile = entity
+      ? resolveGardenEntityDisplayTile({
+          entity,
+          shipMotionSamples: shipMotionSamplesRef.current,
+          slice: selectGardenObservatorySlice(world, detailId),
+        })
+      : null;
+    // Same camera path as the observe beats: an intent the controller applies
+    // in one step under reduced motion and glides otherwise.
+    if (displayTile) focusTile(displayTile);
+    const title = world.detailIndex[detailId]?.title ?? entity?.label ?? "target";
+    setAnnouncement(displayTile
+      ? `Selected ${title}. The view is centring on it.`
+      : `Selected ${title}.`);
+  }, [focusTile, selectDetail, setAnnouncement, world]);
 
   // A visitor whose browser cannot render the world still gets the signal
   // overview, opens details from it, and is told in the instructions above that
@@ -591,6 +721,9 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   // without a canvas; Escape is not.
   const handleFallbackKeyDown = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
     if (event.key !== "Escape") return;
+    // The reference panels open over the static fallback too, and Escape in one
+    // of them closes that panel — not the selection underneath it.
+    if (isDialogEventTarget(event.target)) return;
     if (selectedDetailIdRef.current === null) return;
     event.preventDefault();
     clearSelection();
@@ -624,8 +757,10 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     >
       <p id="pharosville-world-instructions" className="sr-only">
         Tab cycles map targets and Enter opens their details; past the last
-        target, Tab continues into the page controls. Arrow keys pan, plus and
-        minus zoom, Escape closes panels.
+        target, Tab continues into the page controls. Slash opens quick find,
+        to reach a ship or harbor by name. Arrow keys pan, plus and minus zoom,
+        left and right square brackets shift the time of day, Escape closes
+        panels.
       </p>
       <canvas
         ref={canvas.canvasRef}
@@ -675,9 +810,22 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         )}
         {observeBeat && (
           <p className="pharosville-observe-caption" data-testid="pharosville-observe-caption">
-            <span>Observe</span>
+            {/* Stepping has no clock to promise the next beat, so the eyebrow
+                carries the position instead. */}
+            <span>
+              {reducedMotion && observeIndex !== null
+                ? `Observe ${observeIndex + 1}/${observeSequence.length}`
+                : "Observe"}
+            </span>
             {observeBeat.label}
           </p>
+        )}
+        {quickFindOpen && !rendererFailed && (
+          <QuickFind
+            candidates={quickFindCandidates}
+            onClose={closeQuickFind}
+            onSelect={handleQuickFindSelect}
+          />
         )}
         <SinceLastVisitBanner delta={visitSnapshot.delta} onDismiss={visitSnapshot.dismiss} />
         {selectedDetail && (
@@ -685,7 +833,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
             className={selectedDetailAnchor ? `pharosville-detail-dock pharosville-detail-dock--anchored pharosville-detail-dock--${selectedDetailAnchor.side}` : "pharosville-detail-dock"}
             style={detailDockStyle}
           >
-            <DetailPanel detail={selectedDetail} onClose={clearSelection} onSelectDetail={selectDetail} />
+            <DetailPanel detail={selectedDetail} onClose={clearSelection} onSelectDetail={selectDetail} setAnnouncement={setAnnouncement} />
           </div>
         )}
       </div>
@@ -695,8 +843,10 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
             onResetView={canvas.handleResetView}
             nightMode={timeControls.nightMode}
             onToggleNightMode={timeControls.toggleNightMode}
-            {...(threeExperienceReady && !reducedMotion ? {
-              observing: observeBeat !== null,
+            {...(threeExperienceReady ? {
+              // Under reduced motion the control steps rather than runs, so it
+              // never latches into a "stop" state the press would not honour.
+              observing: observeBeat !== null && !reducedMotion,
               onToggleObserve: handleToggleObserve,
             } : {})}
           />
@@ -709,7 +859,21 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       )}
       {legend.legendOpen && (
         <Suspense fallback={<ChangelogPanelLoading />}>
-          <LazyLegendPanel onClose={legend.closeLegend} onSelectDetail={selectDetail} recentFleetTrend={recentFleetTrend} />
+          <LazyLegendPanel
+            onClose={legend.closeLegend}
+            onSelectDetail={selectDetail}
+            recentFleetTrend={recentFleetTrend}
+            {...(threeExperienceReady ? { onObserve: handleObserveFromLegend } : {})}
+          />
+        </Suspense>
+      )}
+      {harborLedgerOpen && (
+        <Suspense fallback={<ChangelogPanelLoading />}>
+          <LazyHarborLedgerPanel
+            onClose={closeHarborLedger}
+            world={world}
+            riskTransitionByShipId={riskTransitionByShipId}
+          />
         </Suspense>
       )}
       <p className="pharosville-footer">
@@ -718,6 +882,8 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         <button className="pharosville-footer__button" type="button" onClick={openLegendExclusive}>Legend</button>
         <span className="pharosville-footer__separator" aria-hidden="true">·</span>
         <button className="pharosville-footer__button" type="button" onClick={openChangelogExclusive}>Changelog</button>
+        <span className="pharosville-footer__separator" aria-hidden="true">·</span>
+        <button className="pharosville-footer__button" type="button" onClick={openHarborLedgerExclusive}>Harbor ledger</button>
         <span className="pharosville-footer__separator" aria-hidden="true">·</span>
         <span className="pharosville-footer__counter" data-testid="pharosville-ship-counter">{shipCounterLabel}</span>
         <span className="pharosville-footer__separator" aria-hidden="true">·</span>
@@ -729,7 +895,12 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         onSelectDetail={selectDetail}
       />
       <p className="sr-only" aria-live="polite">{announcement}</p>
-      <AccessibilityLedger world={world} riskTransitionByShipId={riskTransitionByShipId} />
+      {/* One ledger, two presentations. While the panel is open it carries the
+          same component visibly, so the region landmark is never in the DOM
+          twice and a screen reader never reads the world through twice. */}
+      {!harborLedgerOpen && (
+        <AccessibilityLedger world={world} riskTransitionByShipId={riskTransitionByShipId} />
+      )}
     </main>
   );
 }
@@ -756,6 +927,13 @@ const FRESHNESS_LABELS: ReadonlyArray<readonly [FreshnessKey, string]> = [
   ["stressStale", "stress signals"],
   ["reportCardsStale", "report cards"],
 ];
+
+/** True for anything the visitor could be typing into, where `/` is a slash. */
+function isTextEntryTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
+}
 
 function worldDataRefreshSnapshot(world: PharosVilleWorldModel): WorldDataRefreshSnapshot {
   const staleSourceLabels = FRESHNESS_LABELS
@@ -833,10 +1011,18 @@ function ChangelogPanelLoading() {
   );
 }
 
+/**
+ * A ship earns a dock visit only where it holds supply on a chain large enough
+ * to be drawn as a harbor, so this counts ships with a berth SOMEWHERE on the
+ * chart — a reading of how concentrated supply is on the charted chains. It is
+ * not how many ships are moored at this moment: that share is set by
+ * `DOCKED_SHIP_DWELL_SHARE` and varies by zone. The copy says "hold a berth"
+ * rather than "docked" because "docked" invites the second reading.
+ */
 function fleetCounterLabel(ships: PharosVilleWorldModel["ships"]): string {
-  const dockedShips = ships.filter((ship) => ship.dockVisits.length > 0).length;
+  const berthedShips = ships.filter((ship) => ship.dockVisits.length > 0).length;
   const totalShips = ships.length;
-  return `${integerFormatter.format(dockedShips)} of ${integerFormatter.format(totalShips)} docked`;
+  return `${integerFormatter.format(berthedShips)} of ${integerFormatter.format(totalShips)} hold a berth`;
 }
 
 function formatFrameRateLabel(frameRateFps: number | null, reducedMotion: boolean): string {

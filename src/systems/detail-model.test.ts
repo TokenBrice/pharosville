@@ -2,9 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   auditShieldLabel,
   auditShieldState,
+  cargoTideLabel,
+  supplyTideLabel,
   backingDiversityLabel,
   backingDiversitySeverity,
+  beamDwellLabel,
   depegHistoryLabel,
+  dexCrossCheckLabel,
+  highWaterMarkLabel,
   detailForArea,
   detailForDock,
   detailForGrave,
@@ -13,6 +18,7 @@ import {
   detailForShip,
   dockConcentrationLabel,
   fleetRankLabel,
+  flightToQualityLabel,
   harborRankLabel,
   lighthouseBeamWarmCueLabel,
   PHAROS_WATCH_TELEGRAM_HREF,
@@ -29,10 +35,13 @@ import {
   supplyMomentumLabel,
   withRiskTransitionFact,
   mastSignalLabel,
+  pegDeviationFactLabel,
   pegDeviationLabel,
   placementNarrative,
 } from "./detail-model";
-import type { AreaNode, DockNode, GraveNode, LighthouseNode, PigeonnierNode, ShipNode } from "./world-types";
+import { UNAVAILABLE_SUPPLY_TIDE } from "./supply-tide";
+import { buildDetailFactSections } from "../lib/format-detail";
+import type { AreaNode, DockNode, GraveNode, LighthouseNode, PharosVilleWorld, PigeonnierNode, ShipNode } from "./world-types";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import {
   fixtureWithDepegOn,
@@ -83,6 +92,74 @@ describe("detail-model analytical links", () => {
       label: "Chain",
       href: "https://pharos.watch/chains/ethereum/",
     });
+  });
+
+  it("carries the observatory signal mast as DOM rows", () => {
+    const base = {
+      id: "lighthouse",
+      kind: "lighthouse",
+      label: "Pharos lighthouse",
+      tile: { x: 1, y: 1 },
+      psiBand: "NORMAL",
+      score: 42,
+      color: "#ffffff",
+      unavailable: false,
+      detailId: "lighthouse",
+    } as const satisfies Omit<LighthouseNode, "signalMast">;
+
+    const flying = detailForLighthouse({
+      ...base,
+      signalMast: {
+        activeDepegCount: 12,
+        pennantCount: 5,
+        capped: true,
+        stormCone: true,
+        worstBps: -620,
+        worstSymbol: "XUSD",
+        medianDeviationBps: 4,
+        coinsAtPeg: 202,
+        totalTracked: 214,
+        eventsToday: 2,
+        unavailable: false,
+      },
+    } satisfies LighthouseNode);
+
+    expect(flying.facts).toContainEqual({
+      label: "Signal mast",
+      value: "5 pennants for 12 coins off peg (hoist caps the count); storm cone hoisted",
+    });
+    expect(flying.facts).toContainEqual({
+      label: "Fleet peg",
+      value: "Worst XUSD -6.2%; median +4 bps; 202 of 214 at peg; 2 events today",
+    });
+
+    const calm = detailForLighthouse({
+      ...base,
+      signalMast: {
+        activeDepegCount: 0,
+        pennantCount: 0,
+        capped: false,
+        stormCone: false,
+        worstBps: null,
+        worstSymbol: null,
+        medianDeviationBps: 1,
+        coinsAtPeg: 214,
+        totalTracked: 214,
+        eventsToday: 0,
+        unavailable: false,
+      },
+    } satisfies LighthouseNode);
+
+    expect(calm.facts).toContainEqual({ label: "Signal mast", value: "Bare — no coin off peg" });
+
+    // No summary is not a calm fleet: the row says the mast has nothing to go
+    // on, and the figures row is omitted rather than filled with zeroes.
+    const dark = detailForLighthouse(base satisfies LighthouseNode);
+    expect(dark.facts).toContainEqual({
+      label: "Signal mast",
+      value: "Bare — no peg summary tonight",
+    });
+    expect(dark.facts.some((fact) => fact.label === "Fleet peg")).toBe(false);
   });
 
   it("opens the pigeonnier Telegram link in a new tab", () => {
@@ -295,7 +372,7 @@ describe("detail-model analytical links", () => {
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: ["pegSummary.coins[]"], stale: false },
       visual: {
-        hullForm: { beam: 1, height: 1, length: 1 },
+        hullForm: { beam: 1, height: 1, length: 1, waterline: 0 },
         hull: "treasury-galleon",
         classLabel: "CeFi",
         livery: {
@@ -349,7 +426,7 @@ describe("detail-model analytical links", () => {
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
       visual: {
-        hullForm: { beam: 1, height: 1, length: 1 },
+        hullForm: { beam: 1, height: 1, length: 1, waterline: 0 },
         hull: "treasury-galleon",
         classLabel: "CeFi",
         livery: {
@@ -406,7 +483,7 @@ describe("detail-model analytical links", () => {
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
       visual: {
-        hullForm: { beam: 1, height: 1, length: 1 },
+        hullForm: { beam: 1, height: 1, length: 1, waterline: 0 },
         hull: "treasury-galleon",
         classLabel: "CeFi",
         livery: {
@@ -476,7 +553,7 @@ describe("detail-model analytical links", () => {
       riskWaterLabel: "Ledger Mooring",
       placementEvidence: { reason: "NAV token Ledger Mooring idle preference", sourceFields: ["meta.flags.navToken", "pegSummary.coins[]"], stale: false },
       visual: {
-        hullForm: { beam: 1, height: 1, length: 1 },
+        hullForm: { beam: 1, height: 1, length: 1, waterline: 0 },
         hull: "treasury-galleon",
         classLabel: "CeFi",
         livery: {
@@ -540,7 +617,7 @@ describe("detail-model unique tier surfacing", () => {
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
       visual: {
-        hullForm: { beam: 1, height: 1, length: 1 },
+        hullForm: { beam: 1, height: 1, length: 1, waterline: 0 },
         hull: "dao-schooner",
         ...(overrides.uniqueRationale ? { uniqueRationale: overrides.uniqueRationale } : {}),
         classLabel: "DeFi",
@@ -672,7 +749,7 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
       visual: {
-        hullForm: { beam: 1, height: 1, length: 1 },
+        hullForm: { beam: 1, height: 1, length: 1, waterline: 0 },
         hull: "treasury-galleon",
         classLabel: "CeFi",
         livery: {
@@ -800,6 +877,32 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       expect(pegDeviationLabel({ pegDeviationBps: null, pegCurrency: "USD" })).toBeNull();
     });
 
+    it("says which WAY the coin is off peg, not just how far (Tier 3 #13)", () => {
+      const level = { hullForm: { beam: 1, height: 1, length: 1, waterline: 0 } } as ShipNode["visual"];
+      expect(pegDeviationFactLabel({ pegDeviationBps: 12, pegCurrency: "USD", visual: level }))
+        .toBe("+12 bps vs USD — above peg");
+      expect(pegDeviationFactLabel({ pegDeviationBps: -12, pegCurrency: "USD", visual: level }))
+        .toBe("-12 bps vs USD — below peg");
+      expect(pegDeviationFactLabel({ pegDeviationBps: 0, pegCurrency: "USD", visual: level }))
+        .toBe("0 bps vs USD — at peg");
+      expect(pegDeviationFactLabel({ pegDeviationBps: null, pegCurrency: "USD", visual: level }))
+        .toBeNull();
+    });
+
+    it("reads the trim clause off the hull, so a level ship never claims one", () => {
+      const withTrim = (waterline: number): ShipNode["visual"] => (
+        { hullForm: { beam: 1, height: 1, length: 1, waterline } } as ShipNode["visual"]
+      );
+      expect(pegDeviationFactLabel({ pegDeviationBps: 260, pegCurrency: "USD", visual: withTrim(0.16) }))
+        .toBe("+260 bps vs USD — above peg; hull rides high");
+      expect(pegDeviationFactLabel({ pegDeviationBps: -260, pegCurrency: "USD", visual: withTrim(-0.16) }))
+        .toBe("-260 bps vs USD — below peg; hull rides low");
+      // A stale peg row leaves the hull level; the row must then report the
+      // reading without claiming a trim the canvas is not drawing.
+      expect(pegDeviationFactLabel({ pegDeviationBps: -260, pegCurrency: "USD", visual: withTrim(0) }))
+        .toBe("-260 bps vs USD — below peg");
+    });
+
     it("explains nav and yield mast signals, exclusive with none", () => {
       expect(mastSignalLabel({ visual: { overlay: "nav" } } as ShipNode)).toContain("NAV-priced");
       expect(mastSignalLabel({ visual: { overlay: "yield" } } as ShipNode)).toContain("Yield-bearing");
@@ -861,6 +964,64 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       } satisfies LighthouseNode);
 
       expect(detail.facts.find((fact) => fact.label === "Score")?.value).toBe("72.3");
+    });
+
+    describe("Flight to quality row", () => {
+      const lighthouse = {
+        id: "lighthouse",
+        kind: "lighthouse",
+        label: "Pharos lighthouse",
+        tile: { x: 1, y: 1 },
+        psiBand: "CALM",
+        score: 91,
+        color: "#ffffff",
+        unavailable: false,
+        detailId: "lighthouse",
+      } satisfies LighthouseNode;
+
+      const issuance = (
+        overrides: Partial<NonNullable<PharosVilleWorld["fleetIssuance"]>>,
+      ): NonNullable<PharosVilleWorld["fleetIssuance"]> => ({
+        activeCoins: 36,
+        band: "NEUTRAL",
+        burnVolumeUsd: 4_000_000,
+        direction: "burning",
+        flightIntensity: 0,
+        flightToQuality: false,
+        mintVolumeUsd: 1_000_000,
+        netFlowUsd: -3_000_000,
+        scopeChainIds: ["ethereum"],
+        scopeLabel: "Configured issuance chains",
+        score: -7.4,
+        trackedCoins: 130,
+        ...overrides,
+      });
+
+      it("names the tenders and quotes the intensity when the gauge reports flight", () => {
+        const label = flightToQualityLabel(issuance({ flightIntensity: 42, flightToQuality: true }));
+        expect(label).toContain("Active");
+        expect(label).toContain("intensity 42 of 100");
+        expect(label).toContain("tenders");
+
+        const facts = detailForLighthouse(
+          lighthouse,
+          undefined,
+          issuance({ flightIntensity: 42, flightToQuality: true }),
+        ).facts;
+        expect(facts).toEqual(expect.arrayContaining([
+          expect.objectContaining({ label: "Flight to quality" }),
+        ]));
+      });
+
+      it("separates 'no flight' from 'no gauge', which an empty sea cannot", () => {
+        // The canvas draws nothing in both cases, so the row carries the whole
+        // distinction: it reads plainly for one and is absent for the other.
+        expect(flightToQualityLabel(issuance({}))).toBe("None reported — no tenders on the water");
+        expect(flightToQualityLabel(null)).toBeNull();
+        expect(flightToQualityLabel(undefined)).toBeNull();
+        expect(detailForLighthouse(lighthouse, undefined, null).facts
+          .some((fact) => fact.label === "Flight to quality")).toBe(false);
+      });
     });
   });
 
@@ -998,7 +1159,7 @@ describe("detail-model P3 metaphor quick-win signals", () => {
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
       visual: {
-        hullForm: { beam: 1, height: 1, length: 1 },
+        hullForm: { beam: 1, height: 1, length: 1, waterline: 0 },
         hull: "treasury-galleon",
         classLabel: "CeFi",
         livery: {
@@ -1197,6 +1358,163 @@ describe("detail-model P3 metaphor quick-win signals", () => {
     expect(withoutFactor.facts.find((fact) => fact.label === "Backing diversity")).toBeUndefined();
   });
 
+  it("detailForDock reports whether the harbour is filling or draining (Tier 3 #13)", () => {
+    const dockNode: DockNode = {
+      id: "dock.solana",
+      kind: "dock",
+      label: "Solana",
+      chainId: "solana",
+      tile: { x: 2, y: 2 },
+      totalUsd: 100,
+      size: 1,
+      healthBand: "healthy",
+      stablecoinCount: 1,
+      concentration: null,
+      change24hPct: 2.42,
+      change7dPct: -5,
+      harboredStablecoins: [],
+      detailId: "dock.solana",
+    };
+    const facts = detailForDock(dockNode).facts;
+    // "held supply" is load bearing: the Net flow 24h row beside this one counts
+    // issuance, and the two readings can point opposite ways.
+    expect(facts).toContainEqual({ label: "24h supply change", value: "+2.4% held supply" });
+    expect(facts).toContainEqual({ label: "Supply momentum", value: "7d -5.0%" });
+
+    // One row, not two, once the panel's fact sections fold them.
+    const sections = buildDetailFactSections(facts);
+    expect(sections.identity).toContainEqual({
+      key: "cycle24h",
+      label: "24h change",
+      value: "+2.4% held supply · 7d -5.0%",
+    });
+  });
+
+  it("says nothing about a harbour whose chain reported no supply change", () => {
+    const dockNode: DockNode = {
+      id: "dock.tron",
+      kind: "dock",
+      label: "Tron",
+      chainId: "tron",
+      tile: { x: 3, y: 3 },
+      totalUsd: 100,
+      size: 1,
+      healthBand: "healthy",
+      stablecoinCount: 1,
+      concentration: null,
+      change24hPct: null,
+      change7dPct: null,
+      harboredStablecoins: [],
+      detailId: "dock.tron",
+    };
+    const labels = detailForDock(dockNode).facts.map((fact) => fact.label);
+    expect(labels).not.toContain("24h supply change");
+    expect(labels).not.toContain("Supply momentum");
+  });
+
+  it("supplyTideLabel names the direction and keeps enough precision to be useful", () => {
+    // Two decimals, not one: a ~$330B float moves in hundredths of a percent, and
+    // one decimal would round most real weeks to a meaningless "0.0%".
+    expect(supplyTideLabel({ change7dPct: 0.0187, offset: 0.1, state: "flood" }))
+      .toBe("+0.02% rising — supply grew this week");
+    expect(supplyTideLabel({ change7dPct: -0.92, offset: -0.68, state: "ebb" }))
+      .toBe("-0.92% falling — supply shrank this week");
+    expect(supplyTideLabel({ change7dPct: 0.004, offset: 0, state: "slack" }))
+      .toBe("+0.00% slack — supply held flat this week");
+  });
+
+  it("supplyTideLabel omits the row entirely rather than reporting a flat tide it never measured", () => {
+    expect(supplyTideLabel(UNAVAILABLE_SUPPLY_TIDE)).toBeNull();
+    expect(supplyTideLabel(undefined)).toBeNull();
+  });
+
+  it("cargoTideLabel names the direction outright rather than leaving it to a sign", () => {
+    const base = {
+      burnVolumeUsd: 2_000_000,
+      coinCount: 1,
+      mintVolumeUsd: 10_000_000,
+      pressureScore: 66,
+      reason: "tracked" as const,
+      tracked: true,
+    };
+    expect(cargoTideLabel({ ...base, direction: "minting", netFlowUsd: 8_000_000 }))
+      .toBe("+$8.0M minting — mint $10.0M, burn $2.0M");
+    expect(cargoTideLabel({ ...base, direction: "burning", netFlowUsd: -8_000_000 }))
+      .toBe("-$8.0M burning — mint $10.0M, burn $2.0M");
+  });
+
+  it("cargoTideLabel keeps a balanced quay, an idle one, and an unmeasured one apart", () => {
+    const base = { coinCount: 0, pressureScore: null, reason: "tracked" as const, tracked: true };
+    expect(cargoTideLabel({ ...base, direction: "flat", netFlowUsd: 0, mintVolumeUsd: 4_000_000, burnVolumeUsd: 4_000_000 }))
+      .toBe("Balanced — mint $4.0M, burn $4.0M");
+    expect(cargoTideLabel({ ...base, direction: "inactive", netFlowUsd: 0, mintVolumeUsd: 0, burnVolumeUsd: 0 }))
+      .toBe("No issuance activity in 24h");
+    expect(cargoTideLabel({
+      burnVolumeUsd: 0,
+      coinCount: 0,
+      direction: "inactive",
+      mintVolumeUsd: 0,
+      netFlowUsd: 0,
+      pressureScore: null,
+      reason: "chain-not-in-scope",
+      tracked: false,
+    })).toBe("Not measured on this chain");
+    expect(cargoTideLabel(undefined)).toBeNull();
+  });
+
+  it("cargoTideLabel says so when a quay's silence could not be verified", () => {
+    // An in-scope harbour that received no allocation while the payload carried
+    // issuance the fleet could not place. Its reading must not be the same
+    // sentence as an observed quiet day.
+    const label = cargoTideLabel({
+      burnVolumeUsd: 0,
+      coinCount: 0,
+      direction: "inactive",
+      mintVolumeUsd: 0,
+      netFlowUsd: 0,
+      pressureScore: null,
+      reason: "unattributed",
+      tracked: false,
+    });
+    expect(label).toBe("Unavailable — 24h issuance could not be matched to this harbor's coins");
+    expect(label).not.toBe("No issuance activity in 24h");
+  });
+
+  it("detailForDock surfaces Net flow 24h only when the harbour carries a tide", () => {
+    const dockNode: DockNode = {
+      id: "dock.ethereum",
+      kind: "dock",
+      label: "Ethereum",
+      chainId: "ethereum",
+      tile: { x: 1, y: 1 },
+      totalUsd: 100,
+      size: 1,
+      healthBand: "healthy",
+      stablecoinCount: 1,
+      concentration: null,
+      cargoTide: {
+        burnVolumeUsd: 2_000_000,
+        coinCount: 1,
+        direction: "minting",
+        mintVolumeUsd: 10_000_000,
+        netFlowUsd: 8_000_000,
+        pressureScore: 66,
+        reason: "tracked",
+        tracked: true,
+      },
+      harboredStablecoins: [],
+      detailId: "dock.ethereum",
+    };
+    expect(detailForDock(dockNode).facts).toContainEqual({
+      label: "Net flow 24h",
+      value: "+$8.0M minting — mint $10.0M, burn $2.0M",
+    });
+
+    const { cargoTide: _cargoTide, ...withoutTide } = dockNode;
+    expect(detailForDock(withoutTide).facts.find((fact) => fact.label === "Net flow 24h"))
+      .toBeUndefined();
+  });
+
   it("surfaces stress drivers only when a ship has a material stress breakdown", () => {
     expect(stressBreakdownLabel(signalShipNode())).toBeNull();
     const detail = detailForShip(signalShipNode({
@@ -1246,3 +1564,219 @@ describe("detail-model P3 metaphor quick-win signals", () => {
     ]));
   });
 });
+
+// Round-two metaphor items: the cross-bearing buoy (3b), the lighthouse
+// high-water mark (3c), and the beam's dwell on the largest contributor (3d).
+describe("detail-model round-two metaphor signals", () => {
+  const lighthouse = (overrides: Partial<LighthouseNode> = {}): LighthouseNode => ({
+    id: "lighthouse",
+    kind: "lighthouse",
+    label: "Pharos lighthouse",
+    tile: { x: 1, y: 1 },
+    psiBand: "STEADY",
+    score: 68,
+    color: "#ffffff",
+    unavailable: false,
+    detailId: "lighthouse",
+    ...overrides,
+  });
+
+  const crossCheck = (
+    overrides: Partial<NonNullable<ShipNode["dexCrossCheck"]>> = {},
+  ): NonNullable<ShipNode["dexCrossCheck"]> => ({
+    dexPrice: 0.9912,
+    dexDeviationBps: -88,
+    oraclePrice: 0.9998,
+    oracleDeviationBps: -2,
+    agrees: false,
+    sourcePools: 4,
+    sourceTvlUsd: 12_300_000,
+    ...overrides,
+  });
+
+  describe("3b — DEX cross-check", () => {
+    it("says nothing at all when no check ran", () => {
+      // The absent case is load bearing: silence must never read as agreement,
+      // and silence is the normal state for most of the fleet.
+      expect(dexCrossCheckLabel(undefined)).toBeNull();
+    });
+
+    it("carries both prices, both deviations, and the pool evidence", () => {
+      const label = dexCrossCheckLabel(crossCheck())!;
+
+      expect(label).toContain("Bearings cross");
+      expect(label).toContain("DEX $0.9912 (-88 bps)");
+      expect(label).toContain("feed $0.9998 (-2 bps)");
+      // A disagreement drawn from one thin pool is a different thing from one
+      // drawn from four deep ones, so the evidence travels with the claim.
+      expect(label).toContain("4 pools, $12.3M TVL");
+    });
+
+    it("names agreement as agreement, without hedging it into a warning", () => {
+      expect(dexCrossCheckLabel(crossCheck({ agrees: true }))).toContain("Both bearings agree");
+    });
+
+    it("reports the DEX bearing alone when the feed carries no price", () => {
+      const label = dexCrossCheckLabel(crossCheck({ oraclePrice: null, oracleDeviationBps: null }))!;
+
+      expect(label).toContain("DEX $0.9912");
+      expect(label).not.toContain("feed");
+    });
+
+    it("spends a ship panel row only on a disagreement", () => {
+      const ship = (check: ShipNode["dexCrossCheck"]): ShipNode =>
+        ({ ...crossBearingShip(), ...(check ? { dexCrossCheck: check } : {}) });
+
+      const crossed = detailForShip(ship(crossCheck())).facts
+        .filter((fact) => fact.label === "DEX cross-check");
+      expect(crossed).toHaveLength(1);
+      expect(crossed[0]!.value).toContain("Bearings cross");
+
+      // Agreement is the fleet's normal state; a row for it would land on
+      // nearly every ship and buy nothing. The ledger carries that case.
+      expect(detailForShip(ship(crossCheck({ agrees: true }))).facts
+        .some((fact) => fact.label === "DEX cross-check")).toBe(false);
+      expect(detailForShip(ship(undefined)).facts
+        .some((fact) => fact.label === "DEX cross-check")).toBe(false);
+    });
+  });
+
+  describe("3c — high-water mark", () => {
+    it("distinguishes an unstained rock from a rock nothing was read for", () => {
+      const bedrock = highWaterMarkLabel({
+        band: "BEDROCK",
+        severity: 0,
+        score: 82,
+        at: Date.UTC(2026, 6, 4),
+        sampleCount: 30,
+        spanDays: 29,
+        unavailable: false,
+      });
+      expect(bedrock).toContain("never rose past the footing");
+      expect(bedrock).toContain("29 days on record");
+
+      const missing = highWaterMarkLabel(undefined);
+      expect(missing).toContain("no index history to read");
+      // The evidence claim and the record claim must never share a sentence:
+      // bare stone looks identical either way.
+      expect(missing).not.toContain("never rose");
+    });
+
+    it("names the band, its score, its date, and how much window there was", () => {
+      const label = highWaterMarkLabel({
+        band: "FRACTURE",
+        severity: 3,
+        score: 31,
+        at: Date.UTC(2026, 6, 20),
+        sampleCount: 9,
+        spanDays: 9,
+        unavailable: false,
+      });
+
+      expect(label).toBe("FRACTURE at PSI 31 on 2026-07-20; 9 days on record");
+    });
+
+    it("never claims thirty days it does not have", () => {
+      expect(highWaterMarkLabel({
+        band: "TREMOR",
+        severity: 2,
+        score: null,
+        at: null,
+        sampleCount: 1,
+        spanDays: 0,
+        unavailable: false,
+      })).toContain("a single reading on record");
+    });
+
+    it("puts a Worst band, 30d row on the lighthouse in every state", () => {
+      for (const node of [lighthouse(), lighthouse({ highWaterMark: {
+        band: "CRISIS", severity: 4, score: 12, at: null, sampleCount: 5, spanDays: 5, unavailable: false,
+      } })]) {
+        expect(detailForLighthouse(node).facts
+          .some((fact) => fact.label === "Worst band, 30d")).toBe(true);
+      }
+    });
+  });
+
+  describe("3d — beam bearing", () => {
+    it("has no row when the index named no contributor", () => {
+      expect(beamDwellLabel(undefined)).toBeNull();
+      expect(detailForLighthouse(lighthouse()).facts
+        .some((fact) => fact.label === "Beam bearing")).toBe(false);
+    });
+
+    it("states the arithmetic and never an accusation", () => {
+      const label = beamDwellLabel({ shipId: "usdx", symbol: "USDX", bps: -412 })!;
+
+      expect(label).toBe("Holding on USDX, largest PSI contributor (-412 bps)");
+      // The wording is fixed everywhere: being the largest term in a weighted
+      // sum is arithmetic, not fault.
+      expect(label).not.toMatch(/\b(blame|fault|culprit|responsible|guilty|worst offender)\b/i);
+    });
+
+    it("puts the bearing on the lighthouse panel beside the contributor list", () => {
+      const detail = detailForLighthouse(lighthouse({
+        beamDwell: { shipId: "usdx", symbol: "USDX", bps: -412 },
+        contributors: [{ id: "usdx", symbol: "USDX", bps: -412, mcapUsd: 9e8 }],
+      }));
+
+      expect(detail.facts).toContainEqual({
+        label: "Beam bearing",
+        value: "Holding on USDX, largest PSI contributor (-412 bps)",
+      });
+      // The existing contributor rows stay the ground truth; the beam only
+      // points at the one they already list first.
+      expect(detail.members?.[0]?.id).toBe("usdx");
+    });
+  });
+});
+
+function crossBearingShip(): ShipNode {
+  return {
+    id: "usdx",
+    kind: "ship",
+    label: "USDX",
+    symbol: "USDX",
+    asset: {} as ShipNode["asset"],
+    meta: {} as ShipNode["meta"],
+    reportCard: null,
+    logoSrc: null,
+    tile: { x: 1, y: 1 },
+    riskTile: { x: 2, y: 2 },
+    chainPresence: [],
+    dockVisits: [],
+    dominantChainId: null,
+    homeDockChainId: null,
+    dockChainId: null,
+    marketCapUsd: 1_000_000_000,
+    riskPlacement: "safe-harbor",
+    riskZone: "calm",
+    riskWaterLabel: "Calm Anchorage",
+    placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
+    visual: {
+      hullForm: { beam: 1, height: 1, length: 1, waterline: 0 },
+      hull: "treasury-galleon",
+      classLabel: "CeFi",
+      livery: {
+        accent: "#27b6a5",
+        label: "USDX livery",
+        logoMatte: "#f7fffb",
+        logoShape: "circle",
+        primary: "#009393",
+        sailColor: "#d8efe7",
+        sailPanel: "center",
+        secondary: "#005f61",
+        source: "peg-fallback",
+        stripePattern: "double",
+      },
+      sailColor: "#d8efe7",
+      overlay: "none",
+      sizeTier: "titan",
+      sizeLabel: "Titan class",
+      scale: 1,
+    },
+    change24hUsd: null,
+    change24hPct: null,
+    detailId: "ship.usdx",
+  };
+}

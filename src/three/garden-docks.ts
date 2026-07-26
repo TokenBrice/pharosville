@@ -121,7 +121,58 @@ const CHAIN_HARBOR_IDENTITIES: Record<string, HarborIdentity> = {
 // harbour ended up — a flag edge-on is not a flag.
 const CAMERA_FACING_YAW = Math.PI / 4;
 
+/**
+ * How many cargo-tide slots each harbour authors per lane. The RUN's length is
+ * what encodes magnitude, so the slots are laid out for a full run and the tide
+ * fills the first N of them.
+ */
+export const CARGO_TIDE_SLOTS = 6;
+
+/** One cargo-tide berth, in the harbour root's own local space. */
+export interface CargoTideSlot {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/**
+ * Where the mint/burn tide stands its cargo, per direction.
+ *
+ * The two lanes are the cue: `aboard` runs out along the pier deck toward the
+ * ships (supply being created and loaded out), `ashore` runs back along the
+ * quay's seaward edge (supply destroyed and landed). Which lane is occupied is
+ * the direction, and nothing else in the harbour uses either lane — the
+ * backing-diversity crates stack inboard of the quay edge and the barrels sit
+ * on its landward apron.
+ */
+export interface CargoTideLanes {
+  aboard: CargoTideSlot[];
+  ashore: CargoTideSlot[];
+}
+
+/**
+ * The harbour's sea-washed vertical face, in local space — where the tide line
+ * is read.
+ *
+ * NOT the pilings, despite being the obvious candidate: a pile spans local y
+ * -2.7 to -0.1 against a waterline at -0.2, so barely a tenth of a unit of it
+ * ever stands above water. The quay wall runs -0.44 to +0.48 and is the only
+ * thing on a harbour with real height above the waterline to mark.
+ */
+export interface DockTideFace {
+  /** Centre of the face, local space; `y` is the still-water line. */
+  x: number;
+  y: number;
+  z: number;
+  /** Width along the quay run. */
+  width: number;
+}
+
 export interface DockVisual {
+  /** Local-space cargo-tide berths; see `CargoTideLanes`. */
+  cargoTideLanes: CargoTideLanes;
+  /** Where this harbour carries its tide line; see `DockTideFace`. */
+  tideFace: DockTideFace;
   dock: DockNode;
   fineDetail: Group;
   /** Seaward reach and lateral span of the built harbour, in world units. */
@@ -793,6 +844,16 @@ export function createDock(
   );
 
   return {
+    cargoTideLanes: cargoTideLanes(length, quayLength, quayWidth, quayX),
+    tideFace: {
+      width: quayLength,
+      x: quayX,
+      // Still water, in the harbour root's own space.
+      y: WATER_LEVEL - GARDEN_DOCK_ROOT_Y,
+      // Just proud of the quay's seaward face so the band is not z-fighting the
+      // stonework it is painted on.
+      z: quayWidth / 2 + 0.03,
+    },
     dock,
     fineDetail,
     footprint: { length, span },
@@ -814,6 +875,36 @@ export function createDock(
  */
 export function gardenDockLampWorldPositions(dock: DockVisual): { x: number; z: number }[] {
   return dock.lampWorldPositions;
+}
+
+/** Pier deck top and quay coping top, above the harbour root. */
+const PIER_DECK_TOP_Y = 0.21;
+const QUAY_TOP_Y = 0.62;
+
+/**
+ * Lays out both cargo-tide lanes for one harbour.
+ *
+ * Slots are spread across a fraction of each surface rather than stepped by a
+ * fixed pitch, so a short mole and a long grand quay both hold a full run
+ * without any crate walking off its own deck.
+ */
+function cargoTideLanes(
+  length: number,
+  quayLength: number,
+  quayWidth: number,
+  quayX: number,
+): CargoTideLanes {
+  const aboard: CargoTideSlot[] = [];
+  const ashore: CargoTideSlot[] = [];
+  for (let index = 0; index < CARGO_TIDE_SLOTS; index += 1) {
+    const t = index / (CARGO_TIDE_SLOTS - 1);
+    // Local +X is out to sea, so the aboard run advances seaward along the pier
+    // centreline and the ashore run retreats landward along the quay edge. The
+    // two therefore point in opposite directions as well as sitting apart.
+    aboard.push({ x: -length * 0.2 + t * length * 0.72, y: PIER_DECK_TOP_Y, z: 0 });
+    ashore.push({ x: quayX + quayLength * (0.4 - t * 0.8), y: QUAY_TOP_Y, z: quayWidth * 0.46 });
+  }
+  return { aboard, ashore };
 }
 
 /**

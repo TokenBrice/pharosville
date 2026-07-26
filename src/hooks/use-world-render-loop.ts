@@ -5,7 +5,11 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject, type RefObject } from "react";
 import { createGardenObservatoryHitTargetSnapshot } from "../renderer/garden-observatory-hit-testing";
 import type { HitTarget, HitTargetSnapshot } from "../renderer/hit-testing";
-import { createRenderSchedulerHysteresisState, resolveRenderSchedulerState } from "../renderer/render-scheduler";
+import {
+  createRenderSchedulerHysteresisState,
+  resolveRenderSchedulerIdleState,
+  resolveRenderSchedulerState,
+} from "../renderer/render-scheduler";
 import type { RenderSchedulerHysteresisState } from "../renderer/render-scheduler";
 import type { PharosVilleRenderMetrics } from "../renderer/render-types";
 import type {
@@ -38,6 +42,7 @@ import { seaStateForWorld, type SeaState } from "../systems/sea-state";
 import { createVisualMotionSmoothingState, resetVisualMotionSmoothingState, smoothShipMotionSamples } from "../systems/visual-motion";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
 import { normalizeHour } from "../lib/pharosville-clock";
+import { reportClientError } from "../error-reporter";
 import {
   createFrameIntervalWindow,
   createLongtaskWindow,
@@ -53,6 +58,9 @@ import {
 } from "./world-render-loop-metrics";
 
 type MotionPlan = ReturnType<typeof buildMotionPlan>;
+
+/** Which of the three ways the 3D renderer can retire itself fired. */
+type RendererFailureCause = "webgl-context" | "module-load" | "render-loop";
 
 type DebugRenderMetrics = PharosVilleRenderMetrics & {
   drawDurationMs: number;
@@ -188,9 +196,15 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   const threeRendererRef = useRef<ThreeWorldRenderer | null>(null);
   const [rendererStatus, setRendererStatus] = useState<WorldRendererStatus>("loading");
   const [rendererFailure, setRendererFailure] = useState<string | null>(null);
-  const failThreeRenderer = useCallback((message: string) => {
+  // Every path that retires the 3D world to the DOM overview lands here — the
+  // WebGL context-loss/creation failures the backend reports through
+  // `onContextFailure`, the renderer module failing to load, and a render that
+  // threw for RENDER_FAILURE_STREAK_LIMIT frames running. None of them throw
+  // uncaught, so this is the only place the failure can be reported from.
+  const failThreeRenderer = useCallback((message: string, cause: RendererFailureCause) => {
     threeRendererRef.current?.dispose();
     threeRendererRef.current = null;
+    reportClientError("render", { kind: "renderer-failure", cause, message }, message);
     setRendererFailure(message);
     setRendererStatus("failed");
   }, []);
@@ -217,6 +231,18 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   const compactShipMotionSampleCacheRef = useRef<CompactShipMotionSampleCache>(createCompactShipMotionSampleCache());
   const accSecondsRef = useRef(0);
   const pendingResumeRef = useRef(false);
+  // Idle governor state. `lastInteractionAtMs` is stamped by raw input events
+  // and by the in-frame signals that outlive them (camera intent, hover,
+  // selection); null until the first frame gives it a clock reading.
+  // `previousFrameIdle` remembers whether the last frame the loop actually DREW
+  // was throttled, because the interval measured on a waking frame spans the
+  // idle gap and is no more a load sample than the idle frames themselves.
+  const lastInteractionAtMsRef = useRef<number | null>(null);
+  const previousFrameIdleRef = useRef(false);
+  const lastInteractionInputRef = useRef<{ hoveredDetailId: string | null; selectedDetailId: string | null }>({
+    hoveredDetailId: null,
+    selectedDetailId: null,
+  });
   /** True when the frame just drawn created GPU resources for the first time. */
   const gpuWarmupFrameRef = useRef(false);
   /** Consecutive frames whose render threw. Reset by any frame that draws. */
@@ -276,7 +302,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           canvas,
           onAssetReady: requestPaint,
           onContextFailure: (message) => {
-            if (active) failThreeRenderer(message);
+            if (active) failThreeRenderer(message, "webgl-context");
           },
         });
         threeRendererRef.current = renderer;
@@ -284,7 +310,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       })
       .catch((error) => {
         if (!active) return;
-        failThreeRenderer(error instanceof Error ? error.message : String(error));
+        failThreeRenderer(error instanceof Error ? error.message : String(error), "module-load");
       });
 
     return () => {
@@ -302,6 +328,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     framePacingStatsRef.current = emptyFramePacingMetrics();
     frameRatePublishRef.current = { fps: null, lastPublishedAtMs: 0 };
     renderSchedulerHysteresisRef.current = createRenderSchedulerHysteresisState();
+    previousFrameIdleRef.current = false;
   }, []);
 
   const advanceMotionBucket = useCallback((newBucket: number) => {
@@ -384,6 +411,9 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     const scheduleNextAnimatedFrame = () => {
       if (!reducedMotion) scheduleFrame();
     };
+    const noteInteraction = (atMs: number) => {
+      lastInteractionAtMsRef.current = atMs;
+    };
     const drawFrame = (time: number) => {
       animationFramePendingRef.current = false;
       if (threeRendererRef.current !== threeRenderer) return;
@@ -393,6 +423,32 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       const activeHoveredDetailId = hoveredDetailIdRef.current;
       const activeSelectedDetailId = selectedDetailIdRef.current;
       if (!activeCamera || activeCanvasSize.x <= 0 || activeCanvasSize.y <= 0) {
+        scheduleNextAnimatedFrame();
+        return;
+      }
+      // Hover and selection normally follow a raw input event that has already
+      // stamped the interaction clock, but they also move on their own — quick
+      // find, restored URL state, a ship the camera is following — and those
+      // are somebody using the world too.
+      const lastInteractionInput = lastInteractionInputRef.current;
+      if (
+        activeHoveredDetailId !== lastInteractionInput.hoveredDetailId
+        || activeSelectedDetailId !== lastInteractionInput.selectedDetailId
+      ) {
+        lastInteractionInput.hoveredDetailId = activeHoveredDetailId;
+        lastInteractionInput.selectedDetailId = activeSelectedDetailId;
+        noteInteraction(time);
+      }
+      if (lastInteractionAtMsRef.current === null) lastInteractionAtMsRef.current = time;
+      const idleState = resolveRenderSchedulerIdleState({
+        msSinceInteraction: time - lastInteractionAtMsRef.current,
+        reducedMotion,
+      });
+      // The RAF callback keeps arriving at display rate while idle — only the
+      // frame's WORK is skipped. That is what makes waking instant: the first
+      // callback after an input already sees a fresh interaction stamp and
+      // draws, so there is nothing to spin back up.
+      if (idleState.idle && lastWallRef.current !== null && time - lastWallRef.current < idleState.targetFrameMs) {
         scheduleNextAnimatedFrame();
         return;
       }
@@ -422,11 +478,23 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         // RAF stalls, cap the world-clock step so ships do not visually hop
         // across a delayed frame; very large deltas are reserved for Playwright
         // fake-clock jumps used by visual tests.
+        //
+        // The ceiling has to follow the duty cycle, because this is the one
+        // place motion is not purely a function of the world clock: the clock
+        // is accumulated from capped frame deltas. At the idle target a frame
+        // interval sits AT the 1/30s cap, so every scrap of vsync jitter above
+        // it would be shaved off the world clock and the fleet would slowly
+        // fall behind wall time — the exact "ships slow down" failure idle
+        // sampling must not cause. Two idle frames' worth of headroom keeps
+        // deliberate spacing intact while a genuine stall is still capped.
+        const maxFrameDeltaSeconds = idleState.idle
+          ? (idleState.targetFrameMs * 2) / 1000
+          : MAX_WORLD_FRAME_DELTA_SECONDS;
         const dt = pendingResumeRef.current
           ? 0
           : rawDt >= TEST_CLOCK_JUMP_DELTA_SECONDS
             ? rawDt
-            : Math.min(rawDt, MAX_WORLD_FRAME_DELTA_SECONDS);
+            : Math.min(rawDt, maxFrameDeltaSeconds);
         pendingResumeRef.current = false;
         accSecondsRef.current += dt;
         lastWallRef.current = time;
@@ -476,6 +544,9 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       const hitTargetStartedAt = performance.now();
       let snapshotRebuildCount = 0;
       const cameraStep = stepCameraRef.current(time, shipMotionSamples);
+      // Camera intent that no input event produced — a follow, a focus flight —
+      // still means the view is in use.
+      if (cameraStep.cameraIntentActive) noteInteraction(time);
       const frameCamera = cameraStep.camera ?? cameraRef.current;
       if (!frameCamera) {
         scheduleNextAnimatedFrame();
@@ -547,6 +618,14 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       // shedding shadows, gulls, weather and bloom exactly as the world
       // appears, then popping them all back on.
       if (frameIntervalMs !== null && gpuWarmupFrameRef.current) frameIntervalMs = null;
+      // An idle frame's interval is a duty cycle, not a rendering cost, and the
+      // waking frame's interval spans the last idle gap. Both are excluded for
+      // the same reason interaction frames are: this one window feeds the tier
+      // ladder, the adaptive-DPR governor, the fps label and the perf tripwire,
+      // and a 33ms sample from a machine that is barely working would read as
+      // `recovery` in all four.
+      if (frameIntervalMs !== null && (idleState.idle || previousFrameIdleRef.current)) frameIntervalMs = null;
+      previousFrameIdleRef.current = idleState.idle;
       if (frameIntervalMs !== null && !cameraStep.cameraIntentActive) {
         framePacingStatsRef.current = pushFrameIntervalSample(frameIntervalWindowRef.current, frameIntervalMs);
         const framePacing = framePacingStatsRef.current;
@@ -597,6 +676,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         // draw duration measures the compile, not the frame.
         drawDurationMs: gpuWarmupFrameRef.current ? 0 : lastRenderMetricsRef.current.drawDurationMs,
         framePacingP90Ms: framePacingStatsRef.current.p90Ms,
+        idleActive: idleState.idle,
         reducedMotion,
       }, renderSchedulerHysteresisRef.current);
       let renderMetrics: PharosVilleRenderMetrics;
@@ -631,7 +711,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         // grace period: give it a moment to prove which one it is.
         renderFailureStreakRef.current += 1;
         if (renderFailureStreakRef.current >= RENDER_FAILURE_STREAK_LIMIT) {
-          failThreeRenderer(error instanceof Error ? error.message : String(error));
+          failThreeRenderer(error instanceof Error ? error.message : String(error), "render-loop");
           return;
         }
         console.warn("[pharosville] recovered from a world render error", error);
@@ -805,6 +885,23 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       document.addEventListener("visibilitychange", handleVisibilityChange);
     }
 
+    // Idle wake-ups. Listened for at the window, in the capture phase, so a
+    // handler that stops propagation somewhere in the tree cannot leave the
+    // world throttled under a hand that is plainly on the mouse. Each one only
+    // stamps a timestamp, and pointer moves over empty water — which change no
+    // hover and no camera — are exactly the input the in-frame signals miss.
+    // Reduced motion has no continuous loop to throttle, so it registers none
+    // of this.
+    const handleInteractionEvent = () => {
+      noteInteraction(performance.now());
+    };
+    const interactionEventNames = ["pointermove", "pointerdown", "wheel", "keydown"] as const;
+    if (!reducedMotion) {
+      for (const eventName of interactionEventNames) {
+        window.addEventListener(eventName, handleInteractionEvent, { capture: true, passive: true });
+      }
+    }
+
     // A5: register a PerformanceObserver for longtask entries inside the debug
     // branch. Guards against jsdom / environments without longtask support.
     if (isVisualDebugAllowed()
@@ -836,6 +933,11 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       }
       if (typeof document !== "undefined") {
         document.removeEventListener("visibilitychange", handleVisibilityChange);
+      }
+      if (!reducedMotion) {
+        for (const eventName of interactionEventNames) {
+          window.removeEventListener(eventName, handleInteractionEvent, { capture: true });
+        }
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

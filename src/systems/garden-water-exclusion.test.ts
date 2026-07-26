@@ -151,7 +151,11 @@ describe("garden water exclusion (zones-v2 placement fix)", () => {
     }
   });
 
-  it("routes every motion waypoint and path around the rendered landmasses", () => {
+  // Solves and warms every water path in a deliberately dense world, so it sits
+  // near the 5s default on a quiet machine and over it on a busy one. The
+  // budget is for the assertions, not for A* throughput — perf is measured on
+  // the real GPU, never here.
+  it("routes every motion waypoint and path around the rendered landmasses", { timeout: 20_000 }, () => {
     const world = denseWorld();
     const plan = buildBaseMotionPlan(world);
     warmAllWaterPaths(plan);

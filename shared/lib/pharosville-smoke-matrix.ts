@@ -16,6 +16,7 @@ export const PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS = [
   "/api/peg-summary",
   "/api/stress-signals",
   "/api/report-cards",
+  "/api/mint-burn-flows",
 ] as const;
 
 const SHARED_BLOCKED_404_PATHS = [
@@ -31,6 +32,7 @@ const PROXY_ONLY_BLOCKED_404_PATHS = [
   "/api/peg-summary?extra=1",
   "/api/stress-signals?days=7",
   "/api/report-cards?extra=1",
+  "/api/mint-burn-flows?extra=1",
 ] as const;
 
 const SMOKE_LIVE_ONLY_BLOCKED_404_PATHS = [

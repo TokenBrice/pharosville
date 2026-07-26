@@ -36,8 +36,42 @@ const STAR_COUNT = 720;
 // band — the bokashi seam where far water meets sky. Zooming out only
 // deepens the haze toward FOG_FAR; zooming in (explore) shrinks the span
 // below FOG_NEAR so close-ups stay crisp.
-const FOG_NEAR = 192;
-const FOG_FAR = 275;
+// W6.8 aerial perspective: a LONGER, EARLIER ramp — not a denser one.
+//
+// The ladder above (192/275, span 83) put almost the whole cue in the last
+// tenth of the frame: at the default framing the island sat entirely below
+// FOG_NEAR at zero haze, the midground lifted barely at all (depth 195 read
+// 0.036), and then the far water ran up to 0.63 in the last thirty units. That
+// is not aerial perspective, it is a band across the top of the picture — which
+// is exactly the W6.8 complaint that the horizon "reads as a flat band rather
+// than as depth".
+//
+// Stretching the ramp to 178/300 (span 122) grades the whole midground instead
+// of stacking the change at the end:
+//
+//   ground depth   155    178    195    225    232    244
+//   old (192/275)  0.00   0.00   0.036  0.398  0.482  0.627
+//   new (178/300)  0.00   0.00   0.139  0.385  0.443  0.541
+//
+// Three properties make this safe against the W6.6 white-out rather than a step
+// back toward it, and all three are arithmetic, not taste:
+//
+// 1. The maximum haze anywhere in frame goes DOWN (0.627 -> 0.541). A longer
+//    ramp to a further endpoint cannot be denser at any depth both ladders
+//    reach, so this change strictly cannot white-out more than today's does.
+// 2. The island is untouched. Everything at or below depth 178 still reads at
+//    zero fog, so the monument's colour — the thing the grade is calibrated
+//    against — cannot move at all.
+// 3. The bokashi seam holds: the Z4 horizon cards at ~232 go 0.482 -> 0.443, so
+//    far water still dissolves into the C1 horizon band rather than ending on an
+//    edge.
+//
+// At wide zoom the same change also pulls fog IN (at FOG_MAX_SCALE the near
+// plane goes 288 -> 267), which works against the other half of the W6.6
+// finding — the whole-map framing that resolved as a hard-edged diamond slab
+// floating in a void.
+const FOG_NEAR = 178;
+const FOG_FAR = 300;
 // W6.6 (Grand Scale Revamp): the ladder above was calibrated for ONE framing
 // (1440x960 at zoom 0.78). The revamp made the world worth zooming out for —
 // 187 ships across the whole sea — and at wide zoom the ground plane spans far
@@ -71,7 +105,42 @@ export interface GardenSkyFrame {
 }
 
 export interface GardenSky {
+  /**
+   * The phase-only half of `update`: the dome uniforms and the fog colour, which
+   * are graded from the day-cycle blend and from nothing else.
+   *
+   * It is separate because `garden-environment` bakes its PMREM probe from THIS
+   * material, and it has to bake EARLY in the frame — before the renderer resets
+   * its per-frame `renderer.info` counters, or the bake's six-face cube render
+   * would spike the frame's draw-call total against the 700 budget. `update`
+   * runs much later, inside the scene pass. So the renderer grades the dome for
+   * the frame's phase first, then bakes, then updates.
+   *
+   * Without that split the first bake of a session rendered the colours the
+   * uniforms are CONSTRUCTED with — the night preset — and cached them under
+   * whatever key the current hour produced. At midday the key never moves again,
+   * so every metal surface in the world stayed lit by a night probe for the
+   * whole flat middle of the day.
+   *
+   * Idempotent, and `update` calls it, so grading once or twice a frame is the
+   * same picture.
+   */
+  applyPhase: (phase: DayCyclePhase) => void;
   dispose: () => void;
+  /**
+   * W6.5: the dome's own shader material, shared with the environment baker.
+   *
+   * `garden-environment.ts` hangs a second, unit-radius sphere on THIS material
+   * instance and bakes it into the PMREM probe. Sharing the instance rather than
+   * copying its colours is the whole point: the uniforms `update()` writes below
+   * are the same uniforms the probe renders, so the light the world is lit BY
+   * cannot drift from the sky the world is seen AGAINST. A copy would have been
+   * one more thing to keep in step by hand.
+   *
+   * The environment module owns only the geometry it makes; this material is
+   * disposed here, once.
+   */
+  domeMaterial: ShaderMaterial;
   fog: Fog;
   moonAzimuth: number;
   root: Group;
@@ -261,6 +330,13 @@ function createMist(): { material: MeshBasicMaterial; mesh: Mesh } {
  * The falloff goes in the GREEN channel: three's `alphamap_fragment` reads
  * `texture2D(alphaMap, uv).g`, so writing it to alpha (as this first did) left
  * green at a constant 255 and the rectangle exactly as hard as before.
+ *
+ * The ramp is keyed to the texel INDEX range, not to texel centres. Sampling
+ * `(i + 0.5) / n` put the outermost row at `sin(pi/32)^1.4` = 0.039, and since
+ * DataTexture clamps to edge, the whole outer half-texel held that value and
+ * the plane still ended in a straight edge at ~4% alpha. Mapping `i / (n - 1)`
+ * puts an exact zero on the outermost row, so the band fades to nothing before
+ * its own geometry ends.
  */
 function createMistFalloffTexture(): DataTexture {
   const width = 64;
@@ -268,8 +344,8 @@ function createMistFalloffTexture(): DataTexture {
   const data = new Uint8Array(width * height * 4);
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
-      const u = (x + 0.5) / width;
-      const v = (y + 0.5) / height;
+      const u = x / (width - 1);
+      const v = y / (height - 1);
       // Smooth to zero at both ends of both axes.
       const across = Math.sin(Math.PI * v) ** 1.4;
       const along = Math.sin(Math.PI * u) ** 0.7;
@@ -301,7 +377,20 @@ export function createGardenSky(): GardenSky {
 
   const fog = new Fog(DAY_CYCLE_SKY_PRESETS.night.fog.clone(), FOG_NEAR, FOG_FAR);
 
+  const applyPhase = (phase: DayCyclePhase): void => {
+    const { daylight, dusk } = phase;
+    const skyPresets = DAY_CYCLE_SKY_PRESETS;
+    const zenith = dome.material.uniforms.uZenith.value as Color;
+    const horizon = dome.material.uniforms.uHorizon.value as Color;
+    blendDayCycleColor(zenith, skyPresets.night.zenith, skyPresets.dusk.zenith, skyPresets.day.zenith, dusk, daylight);
+    blendDayCycleColor(horizon, skyPresets.night.horizon, skyPresets.dusk.horizon, skyPresets.day.horizon, dusk, daylight);
+    blendDayCycleColor(fog.color, skyPresets.night.fog, skyPresets.dusk.fog, skyPresets.day.fog, dusk, daylight);
+    // Ember west band owns the dusk horizon; it stays out of day and night.
+    dome.material.uniforms.uEmberStrength.value = dusk * (1 - daylight) * 0.55;
+  };
+
   return {
+    applyPhase,
     dispose() {
       dome.mesh.geometry.dispose();
       dome.mesh.material.dispose();
@@ -316,6 +405,7 @@ export function createGardenSky(): GardenSky {
         }
       });
     },
+    domeMaterial: dome.material,
     fog,
     moonAzimuth: GARDEN_MOON_AZIMUTH,
     root,
@@ -328,15 +418,8 @@ export function createGardenSky(): GardenSky {
       );
       fog.near = FOG_NEAR * fogScale;
       fog.far = FOG_FAR * fogScale;
-      const { daylight, dusk, night } = phase;
-      const skyPresets = DAY_CYCLE_SKY_PRESETS;
-      const zenith = dome.material.uniforms.uZenith.value as Color;
-      const horizon = dome.material.uniforms.uHorizon.value as Color;
-      blendDayCycleColor(zenith, skyPresets.night.zenith, skyPresets.dusk.zenith, skyPresets.day.zenith, dusk, daylight);
-      blendDayCycleColor(horizon, skyPresets.night.horizon, skyPresets.dusk.horizon, skyPresets.day.horizon, dusk, daylight);
-      blendDayCycleColor(fog.color, skyPresets.night.fog, skyPresets.dusk.fog, skyPresets.day.fog, dusk, daylight);
-      // Ember west band owns the dusk horizon; it stays out of day and night.
-      dome.material.uniforms.uEmberStrength.value = dusk * (1 - daylight) * 0.55;
+      applyPhase(phase);
+      const { dusk, night } = phase;
 
       const starOpacity = Math.min(1, dusk * 0.35 + night);
       stars.material.uniforms.uOpacity.value = starOpacity;
@@ -349,7 +432,17 @@ export function createGardenSky(): GardenSky {
 
       // Dawn/dusk mist: faint, low, and slowly drifting; frozen under
       // reduced motion.
-      const mistOpacity = dusk * 0.085 + night * 0.025;
+      //
+      // No night term. The plane is 320x9 — a 36:1 stripe rotated to the
+      // camera's 45° azimuth, so its edges project to exactly horizontal lines
+      // and it can never read as anything but a band. That is survivable at
+      // dusk, where it lies over a bright sky. At night it was the "faint
+      // horizontal band in the upper sky": additive blending puts 2.5% of the
+      // warm dusk fog colour (linear ~0.244, 0.127, 0.050) over a night horizon
+      // of linear ~0.010, 0.016, 0.051 — a 59% lift in red, about +9/255 once
+      // encoded. Every comment on this mesh says dawn/dusk; the night term was
+      // the outlier.
+      const mistOpacity = dusk * 0.085;
       mist.material.opacity = mistOpacity;
       mist.mesh.visible = mistOpacity > 0.008;
       const mistDrift = frame.reducedMotion ? 0 : Math.max(0, frame.timeSeconds);

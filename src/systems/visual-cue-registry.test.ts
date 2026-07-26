@@ -42,6 +42,19 @@ describe("buildVisualCueRegistry", () => {
     expect(cues.every((cue) => cue.sourceField && cue.domEquivalent && cue.failureState && cue.reducedMotionEquivalent)).toBe(true);
   });
 
+  it("registers the observatory signal mast against the fleet-wide peg summary", () => {
+    const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.lighthouse.signal-mast");
+
+    expect(cue).toMatchObject({
+      target: { kind: "lighthouse" },
+      primaryChannels: ["shape", "size"],
+      sourceField: "pegSummary.summary.activeDepegCount, pegSummary.summary.worstCurrent",
+    });
+    // Tone contract: the hoist reports, it does not alarm. No cue copy here
+    // may reach for emergency language.
+    expect(`${cue?.visual} ${cue?.questionAnswered}`).not.toMatch(/\b(alert|alarm|urgent|critical|emergency)\b/i);
+  });
+
   it("does not expose removed data-building cue targets", () => {
     const cues = buildVisualCueRegistry();
     expect(cues.map((cue) => cue.id).filter((id) => id.startsWith("cue.building."))).toEqual([]);
@@ -103,6 +116,13 @@ describe("buildVisualCueRegistry", () => {
     expect(markCueIds).toEqual([
       "cue.ship.zone-weathering",
       "cue.dock.congestion",
+      "cue.dock.cargo-tide",
+      "cue.fleet.flight-to-quality",
+      "cue.lighthouse.signal-mast",
+      "cue.world.supply-tide",
+      "cue.lighthouse.high-water-mark",
+      "cue.ship.cross-bearing-buoy",
+      "cue.ship.peg-trim",
       "cue.ship.audit-shield",
       "cue.ship.nav-signal",
       "cue.ship.yield-signal",

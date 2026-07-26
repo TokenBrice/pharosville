@@ -1,7 +1,9 @@
 import { RUNTIME_CEMETERY_ENTRIES } from "@shared/lib/cemetery-runtime";
 import { PSI_HEX_COLORS } from "@shared/lib/psi-colors";
+import { STATUS_COINGECKO_PRICE_DIFF_THRESHOLD_PCT } from "@shared/lib/status-thresholds";
 import type { StabilityIndexResponse } from "@shared/types";
 import { buildChainDocks } from "../../chain-docks";
+import { buildSupplyTide } from "../../supply-tide";
 import {
   buildPharosVilleMap,
   graveNodesFromEntries,
@@ -16,10 +18,18 @@ import { countShipsByRiskPlacement } from "./ship-placement";
 import type {
   DewsAreaBand,
   DockNode,
+  LighthouseBeamDwell,
+  LighthouseHighWaterMark,
   LighthouseNode,
   PharosVilleWorld,
   PigeonnierNode,
   ShipNode,
+  SignalMastNode,
+} from "../../world-types";
+import {
+  HIGH_WATER_MARK_WINDOW_DAYS,
+  psiBandSeverity,
+  SIGNAL_MAST_MAX_PENNANTS,
 } from "../../world-types";
 import type {
   BuildWorldScaffoldStage,
@@ -120,6 +130,7 @@ function buildLighthouse(
   const avg24h = finiteNumber(current?.avg24h);
   const avg24hBand = nonEmptyString(current?.avg24hBand);
   const contributors = lighthouseContributors(current);
+  const beamDwell = buildBeamDwell(contributors);
   return {
     id: "lighthouse",
     kind: "lighthouse",
@@ -135,6 +146,142 @@ function buildLighthouse(
     unavailable: !current || !isConditionBand(band),
     detailId: "lighthouse",
     lastFleetDepegAt: lastFleetDepegAt(pegSummary),
+    signalMast: buildSignalMast(pegSummary),
+    highWaterMark: buildHighWaterMark(stability),
+    ...(beamDwell ? { beamDwell } : {}),
+  };
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The worst PSI band of the trailing window, for the lighthouse tide-stain.
+ *
+ * The window is measured back from the NEWEST point in the history, not from
+ * the wall clock. A producer that stopped writing a week ago should still show
+ * the mark it left; anchoring on `Date.now()` would quietly erase the record as
+ * the payload aged, which is the opposite of what a high-water mark is for.
+ * `spanDays` then carries how much window there really was, so the DOM can say
+ * "9 days on record" instead of implying thirty.
+ *
+ * Ties break toward the OLDER point: the mark is where the sea first reached,
+ * and a later touch of the same band did not raise it.
+ */
+export function buildHighWaterMark(
+  stability: StabilityIndexResponse | null | undefined,
+): LighthouseHighWaterMark {
+  const points = (stability?.history ?? []).flatMap((point) => {
+    const at = toEpochMs(point.date);
+    const severity = psiBandSeverity(point.band);
+    // A point whose band this build does not recognize is dropped rather than
+    // ranked: an unknown band is not a calm one.
+    if (at === null || severity === null) return [];
+    return [{ at, severity, band: point.band, score: finiteNumber(point.score) }];
+  });
+  if (points.length === 0) {
+    return {
+      band: null,
+      severity: null,
+      score: null,
+      at: null,
+      sampleCount: 0,
+      spanDays: 0,
+      unavailable: true,
+    };
+  }
+
+  const newest = Math.max(...points.map((point) => point.at));
+  const cutoff = newest - HIGH_WATER_MARK_WINDOW_DAYS * DAY_MS;
+  const inWindow = points.filter((point) => point.at >= cutoff);
+  const oldest = Math.min(...inWindow.map((point) => point.at));
+  let worst = inWindow[0]!;
+  for (const point of inWindow) {
+    if (point.severity > worst.severity || (point.severity === worst.severity && point.at < worst.at)) {
+      worst = point;
+    }
+  }
+  return {
+    band: worst.band,
+    severity: worst.severity,
+    score: worst.score,
+    at: worst.at,
+    sampleCount: inWindow.length,
+    spanDays: Math.round((newest - oldest) / DAY_MS),
+    unavailable: false,
+  };
+}
+
+/**
+ * The ship the beam settles toward: the largest PSI contributor.
+ *
+ * `contributors` arrives ordered by contribution — that ordering is what the
+ * existing "Top PSI contributors" panel list and ledger clause have always
+ * presented, so taking the head keeps the beam pointing at the same coin the
+ * DOM already names first. Re-sorting here on `bps` would be a second, quietly
+ * different answer to the same question.
+ */
+export function buildBeamDwell(
+  contributors: LighthouseNode["contributors"],
+): LighthouseBeamDwell | undefined {
+  const top = contributors?.[0];
+  if (!top) return undefined;
+  return { shipId: top.id, symbol: top.symbol, bps: top.bps };
+}
+
+/**
+ * Deviation, in basis points, at which the mast hoists its storm cone.
+ *
+ * Derived rather than invented: `STATUS_COINGECKO_PRICE_DIFF_THRESHOLD_PCT` is
+ * the pipeline's existing shared answer to "how far apart do two readings of
+ * the same price have to be before we treat the gap as real and not noise",
+ * and a peg deviation is exactly that question asked against par. Reusing it
+ * means the cone moves when that gate moves, instead of drifting from it.
+ */
+export const SIGNAL_MAST_STORM_CONE_BPS = STATUS_COINGECKO_PRICE_DIFF_THRESHOLD_PCT * 100;
+
+/**
+ * Fleet-wide peg condition for the observatory hoist.
+ *
+ * `pegSummary.summary` is the only payload that speaks for the whole fleet at
+ * once; every other peg reading in the world is per-coin. Absent summary is
+ * NOT calm — a mast with nothing to go on stands bare and says so, because a
+ * bare mast that means "all clear" and a bare mast that means "no dispatches
+ * arrived" cannot be told apart by looking.
+ */
+export function buildSignalMast(pegSummary: PharosVilleInputs["pegSummary"]): SignalMastNode {
+  const summary = pegSummary?.summary ?? null;
+  if (!summary) {
+    return {
+      activeDepegCount: 0,
+      pennantCount: 0,
+      capped: false,
+      stormCone: false,
+      worstBps: null,
+      worstSymbol: null,
+      medianDeviationBps: null,
+      coinsAtPeg: null,
+      totalTracked: null,
+      eventsToday: null,
+      unavailable: true,
+    };
+  }
+
+  const activeDepegCount = Math.max(0, Math.trunc(finiteNumber(summary.activeDepegCount) ?? 0));
+  const worstBps = finiteNumber(summary.worstCurrent?.bps);
+  return {
+    activeDepegCount,
+    pennantCount: Math.min(activeDepegCount, SIGNAL_MAST_MAX_PENNANTS),
+    capped: activeDepegCount > SIGNAL_MAST_MAX_PENNANTS,
+    // The gate is on MAGNITUDE: a coin trading above par as far as this is as
+    // much a broken peg as one trading below it.
+    stormCone: worstBps !== null && Math.abs(worstBps) >= SIGNAL_MAST_STORM_CONE_BPS,
+    worstBps,
+    worstSymbol: nonEmptyString(summary.worstCurrent?.symbol),
+    medianDeviationBps: finiteNumber(summary.medianDeviationBps),
+    coinsAtPeg: finiteNumber(summary.coinsAtPeg),
+    totalTracked: finiteNumber(summary.totalTracked),
+    eventsToday: finiteNumber(summary.depegEventsToday),
+    unavailable: false,
   };
 }
 
@@ -197,19 +344,28 @@ function buildAreas(shipCountsByRiskPlacement: ReadonlyMap<ShipNode["riskPlaceme
   });
 }
 
-// P3 metaphor quick-win: ride the chain's backing-diversity health factor on
-// the dock node so `detailForDock` and the dock congestion render cue read
-// one field instead of re-joining the chains payload.
-function withBackingDiversity(docks: DockNode[], chains: PharosVilleInputs["chains"]): DockNode[] {
-  const diversityByChainId = new Map(
-    (chains?.chains ?? []).map((chain) => [chain.id, chain.healthFactors?.backingDiversity ?? null] as const),
-  );
-  return docks.map((dock) => ({ ...dock, backingDiversity: diversityByChainId.get(dock.chainId) ?? null }));
+// P3 metaphor quick-win, extended for Tier 3 #13: ride the per-chain readings
+// the dock cares about on the dock node itself, so `detailForDock`, the ledger
+// and the render cues read one field each instead of re-joining the chains
+// payload. `change24hPct` / `change7dPct` arrived in the browser from the first
+// build and drove nothing until this.
+function withChainSignals(docks: DockNode[], chains: PharosVilleInputs["chains"]): DockNode[] {
+  const byChainId = new Map((chains?.chains ?? []).map((chain) => [chain.id, chain] as const));
+  return docks.map((dock) => {
+    const chain = byChainId.get(dock.chainId);
+    return {
+      ...dock,
+      backingDiversity: chain?.healthFactors?.backingDiversity ?? null,
+      change24hPct: Number.isFinite(chain?.change24hPct) ? chain!.change24hPct : null,
+      change7dPct: Number.isFinite(chain?.change7dPct) ? chain!.change7dPct : null,
+    };
+  });
 }
 
 export function buildWorldScaffoldStage(inputs: PharosVilleInputs): BuildWorldScaffoldStage {
-  const docks = withBackingDiversity(buildChainDocks(inputs.chains), inputs.chains);
+  const docks = withChainSignals(buildChainDocks(inputs.chains), inputs.chains);
   return {
+    supplyTide: buildSupplyTide(inputs.chains),
     map: buildPharosVilleMap(),
     lighthouse: buildLighthouse(inputs.stability, inputs.pegSummary),
     pigeonnier: buildPigeonnier(),

@@ -6,11 +6,18 @@ import { SQUAD_DISTRESS_FLAG_HEX } from "../systems/maker-squad";
 import type { AreaNode, DewsAreaBand, PharosVilleWorld, ShipNode } from "../systems/world-types";
 import { cycleTempoReadingClause, precomputeShipTempos } from "../systems/ship-cycle-tempo";
 import {
+  beamDwellLabel,
   depegHistoryLabel,
+  dexCrossCheckLabel,
+  highWaterMarkLabel,
   mastSignalLabel,
-  pegDeviationLabel,
+  pegDeviationFactLabel,
+  cargoTideLabel,
   DIMENSION_KEY_LABELS,
   dockConcentrationLabel,
+  dockSupplyChangeLabel,
+  dockSupplyMomentumLabel,
+  fleetPegLabel,
   harborRankLabel,
   lighthouseBeamWarmCueLabel,
   psiCompositionLabel,
@@ -18,8 +25,10 @@ import {
   psiTrendLabel,
   reportCardSafetyLabel,
   shareOfFleetLabel,
+  signalMastLabel,
   stablecoinSupplyShareLabel,
   stressBreakdownLabel,
+  supplyTideLabel,
   supplyMomentumLabel,
 } from "../systems/detail-model";
 import { recentFleetTrendSummary, recentFleetTrendSummaryText, seaStateForWorld, seaStateSummary } from "../systems/sea-state";
@@ -89,16 +98,29 @@ export interface ShipRiskTransitionEntry {
   progress: number;
 }
 
+export const ACCESSIBILITY_LEDGER_HEADING_ID = "pharosville-accessibility-ledger-title";
+
 export interface AccessibilityLedgerProps {
   world: PharosVilleWorld;
   headingId?: string;
   riskTransitionByShipId?: ReadonlyMap<string, ShipRiskTransitionEntry | null>;
+  /**
+   * The same text, two audiences. `screen-reader` is the always-on sr-only
+   * rendering; `visible` is the Harbor ledger panel, which styles this exact
+   * markup as a readable page. Only ever one of the two is mounted, so the
+   * region landmark is never duplicated.
+   */
+  presentation?: "screen-reader" | "visible";
+  /** Panel-level label; the words of the ledger body never vary by audience. */
+  title?: string;
 }
 
 function AccessibilityLedgerContent({
   world,
-  headingId = "pharosville-accessibility-ledger-title",
+  headingId = ACCESSIBILITY_LEDGER_HEADING_ID,
   riskTransitionByShipId,
+  presentation = "screen-reader",
+  title = "PharosVille accessibility ledger",
 }: AccessibilityLedgerProps) {
   const staleSources = freshnessEntries(world)
     .filter((entry) => entry.stale)
@@ -112,11 +134,23 @@ function AccessibilityLedgerContent({
   const lighthouseTrend = psiTrendLabel(world.lighthouse);
   const lighthouseComposition = psiCompositionLabel(world.lighthouse);
   const lighthouseContributors = world.lighthouse.contributors?.map(psiContributorLabel).join(", ");
+  const lighthouseSignalMast = signalMastLabel(world.lighthouse.signalMast);
+  const lighthouseFleetPeg = fleetPegLabel(world.lighthouse.signalMast);
+  const lighthouseBeamDwell = beamDwellLabel(world.lighthouse.beamDwell);
+  const lighthouseHighWaterMark = highWaterMarkLabel(world.lighthouse.highWaterMark);
+  // Task 14 DOM parity. Read out next to the high-water mark deliberately: the
+  // two marks sit on different stone and mean different things, and hearing
+  // them together is what stops a listener merging them.
+  const supplyTide = supplyTideLabel(world.supplyTide);
   const recentFleetTrend = recentFleetTrendSummary(world);
 
   return (
-    <section className="sr-only" aria-labelledby={headingId} data-testid="pharosville-accessibility-ledger">
-      <h2 id={headingId}>PharosVille accessibility ledger</h2>
+    <section
+      className={presentation === "visible" ? "pharosville-ledger" : "sr-only"}
+      aria-labelledby={headingId}
+      data-testid="pharosville-accessibility-ledger"
+    >
+      <h2 id={headingId}>{title}</h2>
       <p>
         {generatedAtLabel(world.generatedAt)}.
         {staleSources.length > 0
@@ -143,6 +177,11 @@ function AccessibilityLedgerContent({
             {lighthouseTrend ? ` Trend: ${lighthouseTrend}.` : ""}
             {lighthouseComposition ? ` Composition: ${lighthouseComposition}.` : ""}
             {lighthouseContributors ? ` Top contributors: ${lighthouseContributors}.` : ""}
+            {` Signal mast: ${lighthouseSignalMast}.`}
+            {lighthouseFleetPeg ? ` Fleet peg: ${lighthouseFleetPeg}.` : ""}
+            {lighthouseBeamDwell ? ` Beam bearing: ${lighthouseBeamDwell}.` : ""}
+            {` Worst band, 30d: ${lighthouseHighWaterMark}.`}
+            {supplyTide ? ` Supply tide 7d: ${supplyTide}.` : ""}
           </dd>
         </div>
         <div>
@@ -173,6 +212,7 @@ function AccessibilityLedgerContent({
       </ol>
 
       <h3>Docks</h3>
+      {world.fleetIssuance ? <p>{fleetIssuanceLedgerLine(world.fleetIssuance)}</p> : null}
       <ol>
         {world.docks.map((dock) => (
           <li key={dock.id}>
@@ -291,6 +331,15 @@ function dockLedgerLine(dock: PharosVilleWorld["docks"][number]): string {
   const harborRank = harborRankLabel(dock.harborRank, dock.harborCount);
   const supplyShare = stablecoinSupplyShareLabel(dock.shareOfGlobal);
   const concentration = dockConcentrationLabel(dock.concentration);
+  // The cargo-tide crates' DOM parity. Named "net flow 24h" here exactly as the
+  // detail panel labels it, so a screen-reader listener and a panel reader are
+  // reading the same row.
+  const netFlow24h = cargoTideLabel(dock.cargoTide);
+  // Tier 3 #13. Kept adjacent to net flow 24h on purpose: held supply and
+  // issuance are different measurements of the same harbour and a listener
+  // should meet them together, not a paragraph apart.
+  const supplyChange = dockSupplyChangeLabel(dock);
+  const supplyMomentum = dockSupplyMomentumLabel(dock);
   return [
     `${dock.label}: ${formatCompactUsd(dock.totalUsd)} stablecoin supply`,
     harborRank,
@@ -298,8 +347,42 @@ function dockLedgerLine(dock: PharosVilleWorld["docks"][number]): string {
     concentration ? `concentration ${concentration}` : null,
     `${dock.stablecoinCount} stablecoins`,
     `health ${dock.healthBand ?? "unavailable"}`,
+    supplyChange ? `24h supply change ${supplyChange}` : null,
+    supplyMomentum ? `supply momentum ${supplyMomentum}` : null,
+    netFlow24h ? `net flow 24h ${netFlow24h}` : null,
     `harboring ${harboredStablecoins}`,
   ].filter((part): part is string => part !== null).join(", ") + ".";
+}
+
+/**
+ * Fleet-wide issuance.
+ *
+ * The harbours carry the allocated flow; this carries what could not be
+ * allocated to any one of them — the gauge's own band, the scope it was measured
+ * over, and whether capital is rotating out of weaker issuers into stronger
+ * ones. `flightToQuality` is now drawn as well, as tenders running in on the
+ * largest hulls (`cue.fleet.flight-to-quality`), so the clause below names the
+ * boats rather than apologising for their absence. It stays load-bearing: an
+ * empty sea cannot say whether the gauge reported no rotation or never arrived,
+ * and this line — with the lighthouse 'Flight to quality' row — is what does.
+ */
+function fleetIssuanceLedgerLine(issuance: NonNullable<PharosVilleWorld["fleetIssuance"]>): string {
+  const direction = issuance.direction === "minting" ? "net minting"
+    : issuance.direction === "burning" ? "net burning"
+    : issuance.direction === "flat" ? "balanced"
+    : "no issuance activity";
+  return [
+    `Fleet issuance 24h: ${direction}`,
+    `net ${formatCompactUsd(issuance.netFlowUsd)}`,
+    `mint ${formatCompactUsd(issuance.mintVolumeUsd)}`,
+    `burn ${formatCompactUsd(issuance.burnVolumeUsd)}`,
+    `gauge band ${issuance.band ?? "unavailable"}`,
+    `${issuance.activeCoins} of ${issuance.trackedCoins} tracked coins moved supply`,
+    `measured over ${issuance.scopeLabel ?? "an unreported scope"}${issuance.scopeChainIds.length > 0 ? ` (${issuance.scopeChainIds.join(", ")})` : ""}`,
+    issuance.flightToQuality
+      ? "flight to quality active — capital rotating toward stronger issuers, drawn as tenders running in on the largest hulls"
+      : "no flight to quality reported — no tenders on the water",
+  ].join(", ") + ".";
 }
 
 function shipLedgerLine(
@@ -339,11 +422,17 @@ function shipLedgerLine(
     `evidence status ${ship.placementEvidence.stale ? "caveat" : "fresh"}`,
     `source fields ${ship.placementEvidence.sourceFields.join(", ") || "unavailable"}${ship.visual.uniqueRationale ? ` — heritage hull: ${ship.visual.uniqueRationale}` : ""}`,
     `cycle tempo ${tempoLabel}; ${cycleTempoReadingClause()}`,
-    ...(pegDeviationLabel(ship) ? [`peg deviation ${pegDeviationLabel(ship)}`] : []),
+    // Tier 3 #13: the ledger takes the fact-row form, which names the direction
+    // and says whether the hull is trimmed for it — the peg-trim cue's parity.
+    ...(pegDeviationFactLabel(ship) ? [`peg deviation ${pegDeviationFactLabel(ship)}`] : []),
     ...(mastSignalLabel(ship) ? [`mast signal ${mastSignalLabel(ship)}`] : []),
     `24h supply change ${formatChangePercent(ship.change24hPct)}`,
     ...(supplyMomentumLabel(ship) ? [`supply momentum ${supplyMomentumLabel(ship)}`] : []),
     ...(depegHistoryLabel(ship.depegHistory) ? [`depeg history ${depegHistoryLabel(ship.depegHistory)}`] : []),
+    // 3b: the ledger carries the check whether or not the bearings crossed —
+    // it has no density budget to protect, and "checked, and they agreed" is
+    // a fact a reader working from the ledger alone would otherwise never get.
+    ...(dexCrossCheckLabel(ship.dexCrossCheck) ? [`DEX cross-check ${dexCrossCheckLabel(ship.dexCrossCheck)}`] : []),
     ...(stressDriver ? [`stress driver ${stressDriver}`] : []),
     ...(safetyGrade ? [`safety grade ${safetyGrade.replace(/^Safety\s+/, "")}`] : []),
     ...safetyDimensionClauses,

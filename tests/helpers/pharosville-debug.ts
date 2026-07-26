@@ -6,13 +6,22 @@ import {
   denseFixtureStablecoins,
   denseFixtureStress,
   fixtureChains,
+  fixtureMintBurn,
   fixturePegSummary,
   fixtureReportCards,
   fixtureStability,
   fixtureStablecoins,
   fixtureStress,
 } from "../../src/__fixtures__/pharosville-world";
-import { PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY } from "@shared/lib/pharosville-api-endpoints";
+import {
+  PHAROSVILLE_API_ENDPOINT_PATHS,
+  PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY,
+} from "@shared/lib/pharosville-api-endpoints";
+import {
+  PHAROSVILLE_API_ENDPOINT_KEYS,
+  type PharosVilleApiEndpointKey,
+} from "@shared/types/pharosville-endpoint-keys";
+import type { ApiMeta } from "@shared/types/api-meta";
 
 export type DebugShipMotionSample = {
   currentDockId: string | null;
@@ -96,25 +105,30 @@ export type PharosVilleVisualDebug = {
   wallClockHour?: number;
 };
 
-export type PharosVillePayloads = {
-  chains: unknown;
-  pegSummary: unknown;
-  reportCards: unknown;
-  stability: unknown;
-  stablecoins: unknown;
-  stress: unknown;
+// Derived from the canonical endpoint key list, never re-typed by hand. When
+// `mintBurn` joined the world feeds this helper still mocked six of seven, so
+// the seventh escaped to the local dev proxy and the LIVE API — which is what
+// made "every feed failing" render the world route instead of the error route.
+export type PharosVillePayloads = Record<PharosVilleApiEndpointKey, unknown>;
+
+export type PharosVilleEndpointKey = PharosVilleApiEndpointKey;
+
+/** An HTTP status to answer with, or `"hang"` for a feed that never answers. */
+export type PharosVilleEndpointFailure = number | "hang";
+
+export type PharosVilleMockOptions = {
+  /**
+   * Every lane mocks all six feeds as fresh successes, which leaves the whole
+   * failure half of the data path unexercised. These two knobs are how a test
+   * asks for the other half.
+   */
+  failures?: Partial<Record<PharosVilleEndpointKey, PharosVilleEndpointFailure>>;
+  meta?: Partial<Record<PharosVilleEndpointKey, Partial<ApiMeta>>>;
 };
 
-export const PHAROSVILLE_DESKTOP_DATA_ENDPOINTS = [
-  PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stablecoins,
-  PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.chains,
-  PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stability,
-  PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.pegSummary,
-  PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stress,
-  PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.reportCards,
-] as const;
+export const PHAROSVILLE_DESKTOP_DATA_ENDPOINTS = PHAROSVILLE_API_ENDPOINT_PATHS;
 
-const meta = { updatedAt: 1_700_000_000, ageSeconds: 60, status: "fresh" };
+const FRESH_META: ApiMeta = { updatedAt: 1_700_000_000, ageSeconds: 60, status: "fresh" };
 
 export async function mockScreenSize(page: Page, width: number, height: number): Promise<void> {
   // Playwright's `setViewportSize` only changes the viewport; screen-gate
@@ -151,7 +165,7 @@ export async function installWallClockOverride(page: Page, hour: number): Promis
   }, { h: flooredHour, m: minutes, frac: fractional });
 }
 
-export async function mockPharosVilleData(page: Page): Promise<void> {
+export async function mockPharosVilleData(page: Page, options: PharosVilleMockOptions = {}): Promise<void> {
   await mockPharosVillePayloads(page, {
     stablecoins: fixtureStablecoins,
     chains: fixtureChains,
@@ -159,10 +173,11 @@ export async function mockPharosVilleData(page: Page): Promise<void> {
     pegSummary: fixturePegSummary,
     stress: fixtureStress,
     reportCards: fixtureReportCards,
-  });
+    mintBurn: fixtureMintBurn,
+  }, options);
 }
 
-export async function mockDensePharosVilleData(page: Page): Promise<void> {
+export async function mockDensePharosVilleData(page: Page, options: PharosVilleMockOptions = {}): Promise<void> {
   await mockPharosVillePayloads(page, {
     stablecoins: denseFixtureStablecoins,
     chains: denseFixtureChains,
@@ -178,27 +193,41 @@ export async function mockDensePharosVilleData(page: Page): Promise<void> {
     pegSummary: denseFixturePegSummary,
     stress: denseFixtureStress,
     reportCards: denseFixtureReportCards,
-  });
+    // There is no dense mint-burn fixture; the flow feed is a small per-coin
+    // list, so the base one is a faithful stand-in for the dense world.
+    mintBurn: fixtureMintBurn,
+  }, options);
 }
 
-export async function mockPharosVillePayloads(page: Page, payload: PharosVillePayloads): Promise<void> {
-  const payloads: Array<{ path: string; body: unknown }> = [
-    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stablecoins, body: payload.stablecoins },
-    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.chains, body: payload.chains },
-    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stability, body: payload.stability },
-    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.pegSummary, body: payload.pegSummary },
-    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stress, body: payload.stress },
-    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.reportCards, body: payload.reportCards },
-  ];
-
-  for (const { path, body } of payloads) {
+export async function mockPharosVillePayloads(
+  page: Page,
+  payload: PharosVillePayloads,
+  options: PharosVilleMockOptions = {},
+): Promise<void> {
+  for (const key of PHAROSVILLE_API_ENDPOINT_KEYS) {
+    const path = PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY[key];
+    const failure = options.failures?.[key];
+    const meta = { ...FRESH_META, ...options.meta?.[key] };
     const endpoint = new URL(path, "http://localhost");
     await page.route((url) => (
       url.pathname === endpoint.pathname && url.search === endpoint.search
     ), async (route) => {
+      // A feed that never answers: the route handler simply never settles, so
+      // the query stays pending for the life of the page. This is the shape
+      // the enrichment grace window exists for, and the only shape that a
+      // retry-exhaustion path cannot accidentally cover for.
+      if (failure === "hang") return;
+      if (typeof failure === "number") {
+        await route.fulfill({
+          status: failure,
+          contentType: "application/json",
+          body: JSON.stringify({ error: `mocked ${failure}` }),
+        });
+        return;
+      }
       await route.fulfill({
         contentType: "application/json",
-        body: JSON.stringify({ ...(body as Record<string, unknown>), _meta: meta }),
+        body: JSON.stringify({ ...(payload[key] as Record<string, unknown>), _meta: meta }),
       });
     });
   }
@@ -291,6 +320,22 @@ export async function readRuntimeSnapshot(page: Page) {
       timeSeconds: debug?.timeSeconds ?? -1,
       wallClockHour: debug?.wallClockHour ?? -1,
     };
+  });
+}
+
+/**
+ * True when this browser actually gave the world a WebGL context.
+ *
+ * The @visual-dom lane exists to prove the contract a visitor WITHOUT WebGL is
+ * owed, and CI runs it on Firefox in a container that has no WebGL at all — so
+ * a DOM-lane test must never hard-require the Three.js runtime. Data-path tests
+ * use this to keep their renderer assertions where a renderer exists and fall
+ * back to the DOM contract where it does not.
+ */
+export async function rendererReachedWorld(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>("[data-testid='pharosville-canvas']");
+    return canvas?.dataset.rendererStatus !== "failed";
   });
 }
 

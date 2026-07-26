@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link2 from "lucide-react/dist/esm/icons/link-2";
+import { buildShareableWorldUrlHref } from "../hooks/use-world-url-state";
 import type { DetailModel } from "../systems/world-types";
 import {
   buildDetailFactSections,
@@ -16,6 +18,7 @@ export interface DetailPanelProps {
   onSelectDetail?: (detailId: string) => void;
   panelId?: string;
   onClose?: () => void;
+  setAnnouncement?: (message: string) => void;
 }
 
 type SectionId = "identity" | "position";
@@ -29,12 +32,15 @@ type DetailLink = DetailModel["links"][number];
  */
 let recordOpenForSession = false;
 
+const COPY_FEEDBACK_MS = 2500;
+
 export function DetailPanel({
   detail,
   headingId = "pharosville-detail-panel-title",
   onSelectDetail,
   panelId = "pharosville-detail-panel",
   onClose,
+  setAnnouncement,
 }: DetailPanelProps) {
   const sections = buildDetailFactSections(detail.facts);
   const heritage = detailFactValue(detail.facts, "culturalSignificance");
@@ -51,6 +57,29 @@ export function DetailPanel({
   }, []);
   const panelRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  // The address bar carries sel/cam/t/n in the fragment, which never reaches a
+  // server — so copying it verbatim would unfurl as the generic card wherever
+  // it was pasted. The shared form moves the same params to the query string,
+  // which functions/index.ts reads to name the ship in the preview.
+  // The label swap is for people who cannot hear the live region.
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  const copyTimerRef = useRef<number | null>(null);
+  const handleCopyLink = useCallback(async () => {
+    let message = "Link copied";
+    try {
+      await navigator.clipboard.writeText(buildShareableWorldUrlHref(window.location.href));
+    } catch {
+      message = "Could not copy link";
+    }
+    setAnnouncement?.(message);
+    setCopyFeedback(message);
+    if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = window.setTimeout(() => setCopyFeedback(null), COPY_FEEDBACK_MS);
+  }, [setAnnouncement]);
+  useEffect(() => () => {
+    if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
+  }, []);
 
   // Move focus to close button on mount; restore to the previously focused
   // element on unmount. If that element is no longer in the DOM, fall back
@@ -156,8 +185,17 @@ export function DetailPanel({
           )}
         </div>
 
-        {onClose && (
-          <div className="pharosville-detail-panel__close-wrap">
+        <div className="pharosville-detail-panel__close-wrap">
+          <button
+            className="pharosville-detail-panel__copy"
+            type="button"
+            data-testid="pharosville-detail-copy-link"
+            onClick={handleCopyLink}
+          >
+            <Link2 size={13} aria-hidden="true" />
+            {copyFeedback ?? "Copy link"}
+          </button>
+          {onClose && (
             <button
               ref={closeButtonRef}
               className="pharosville-detail-panel__close"
@@ -167,8 +205,8 @@ export function DetailPanel({
             >
               Close
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </aside>
   );

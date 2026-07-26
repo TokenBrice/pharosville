@@ -2,13 +2,14 @@ import { CHAIN_META } from "@shared/lib/chains";
 import { CAUSE_META } from "@shared/lib/cause-of-death";
 import type { BluechipGrade, DimensionKey } from "@shared/types";
 import { formatCompactUsd } from "../lib/format-detail";
-import type { AreaNode, DetailModel, DewsAreaBand, DockNode, GraveNode, LighthouseNode, PigeonnierNode, ShipNode } from "./world-types";
+import type { AreaNode, DetailModel, DewsAreaBand, DockNode, GraveNode, LighthouseNode, PharosVilleWorld, PigeonnierNode, ShipNode } from "./world-types";
 import { ETHEREUM_L2_DOCK_CHAIN_IDS } from "./world-layout";
 import { analyticalRouteHref } from "./route-links";
 import { formationLabel, squadForMember, squadRole } from "./maker-squad";
 import { zoneThemeForTerrain } from "./palette";
 import { RISK_WATER_AREAS } from "./risk-water-areas";
 import { shipCycleTempo, type ShipCycleTempoResult } from "./ship-cycle-tempo";
+import type { SupplyTide } from "./supply-tide";
 
 const usd = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0, style: "currency", currency: "USD" });
 const percent = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1, style: "percent" });
@@ -414,9 +415,109 @@ export function detailForPigeonnier(node: PigeonnierNode): DetailModel {
   };
 }
 
-export function detailForLighthouse(node: LighthouseNode): DetailModel {
+/**
+ * What the observatory hoist is showing, in words — the DOM parity for the
+ * signal mast. Deliberately describes the CLOTH, not the market: a reader who
+ * cannot see the mast should be able to picture it and then read the figures.
+ */
+export function signalMastLabel(mast: LighthouseNode["signalMast"]): string {
+  if (!mast || mast.unavailable) return "Bare — no peg summary tonight";
+  const cone = mast.stormCone ? "; storm cone hoisted" : "";
+  if (mast.pennantCount === 0) return `Bare — no coin off peg${cone}`;
+  const hoist = `${pluralize(mast.pennantCount, "pennant")} for ${pluralize(mast.activeDepegCount, "coin")} off peg`;
+  return `${hoist}${mast.capped ? " (hoist caps the count)" : ""}${cone}`;
+}
+
+/**
+ * The figures behind the hoist. Null when there is no summary to read, so the
+ * row is omitted rather than padded with unavailables.
+ */
+export function fleetPegLabel(mast: LighthouseNode["signalMast"]): string | null {
+  if (!mast || mast.unavailable) return null;
+  const parts: string[] = [];
+  if (mast.worstBps !== null) {
+    const symbol = mast.worstSymbol ? `${mast.worstSymbol} ` : "";
+    parts.push(`Worst ${symbol}${signedBpsPercentLabel(mast.worstBps)}`);
+  }
+  if (mast.medianDeviationBps !== null) {
+    parts.push(`median ${basisPointsLabel(mast.medianDeviationBps)}`);
+  }
+  if (mast.coinsAtPeg !== null && mast.totalTracked !== null) {
+    parts.push(`${mast.coinsAtPeg} of ${mast.totalTracked} at peg`);
+  }
+  if (mast.eventsToday !== null) {
+    parts.push(`${pluralize(mast.eventsToday, "event")} today`);
+  }
+  return parts.length > 0 ? parts.join("; ") : null;
+}
+
+/**
+ * The tide-stain, in words: how high the sea got and how much window there was
+ * to get there.
+ *
+ * Never says "calm". A BEDROCK mark says the sea never rose past the footing —
+ * a claim about the RECORD — while an absent history says the rocks are
+ * unstained because nothing was read, which is a claim about the evidence. The
+ * two must not collapse into one sentence, because unstained rock looks
+ * identical either way.
+ */
+export function highWaterMarkLabel(mark: LighthouseNode["highWaterMark"]): string {
+  if (!mark || mark.unavailable) return "Unstained — no index history to read";
+  const window = mark.spanDays > 0
+    ? `${pluralize(mark.spanDays, "day")} on record`
+    : "a single reading on record";
+  const score = mark.score === null ? "" : ` at PSI ${formatPsiNumber(mark.score)}`;
+  const dated = depegEventDateLabel(mark.at);
+  const when = dated ? ` on ${dated}` : "";
+  if (mark.severity === 0) {
+    return `${mark.band}${score}${when} — the sea never rose past the footing; ${window}`;
+  }
+  return `${mark.band}${score}${when}; ${window}`;
+}
+
+/**
+ * Where the beam is holding. The wording is fixed: "largest PSI contributor",
+ * which states the arithmetic and nothing else. The panel's own top-contributor
+ * list stays the ground truth; this row only says which of those rows the light
+ * is pointing at.
+ */
+export function beamDwellLabel(dwell: LighthouseNode["beamDwell"]): string | null {
+  if (!dwell) return null;
+  return `Holding on ${dwell.symbol}, largest PSI contributor (${basisPointsLabel(dwell.bps)})`;
+}
+
+/**
+ * Flight to quality, in words.
+ *
+ * The canvas puts tenders on the water round the biggest hulls; this says the
+ * same thing outright, and it is the only place the reader learns what those
+ * boats are. The row exists whenever the mint/burn gauge landed, so "the gauge
+ * says no flight" and "no gauge arrived" stay apart: the first reads here, the
+ * second leaves the row off entirely. An empty sea means either, which is why
+ * it can never be the only account of this signal.
+ */
+export function flightToQualityLabel(
+  issuance: PharosVilleWorld["fleetIssuance"] | undefined,
+): string | null {
+  if (!issuance) return null;
+  if (!issuance.flightToQuality) return "None reported — no tenders on the water";
+  const intensity = Number.isFinite(issuance.flightIntensity)
+    ? Math.round(Math.abs(issuance.flightIntensity))
+    : 0;
+  return `Active — capital rotating toward the strongest issuers (intensity ${intensity} of 100); tenders run in on the largest hulls`;
+}
+
+export function detailForLighthouse(
+  node: LighthouseNode,
+  supplyTide?: SupplyTide,
+  fleetIssuance?: PharosVilleWorld["fleetIssuance"],
+): DetailModel {
+  const tide = supplyTideLabel(supplyTide);
+  const flightToQuality = flightToQualityLabel(fleetIssuance);
   const trend = psiTrendLabel(node);
   const composition = psiCompositionLabel(node);
+  const fleetPeg = fleetPegLabel(node.signalMast);
+  const beamDwell = beamDwellLabel(node.beamDwell);
   const contributors = node.contributors ?? [];
   return {
     id: node.detailId,
@@ -431,6 +532,12 @@ export function detailForLighthouse(node: LighthouseNode): DetailModel {
       ...(trend ? [{ label: "Trend", value: trend }] : []),
       ...(composition ? [{ label: "Composition", value: composition }] : []),
       { label: "Beam warmth cue", value: lighthouseBeamWarmCueLabel() },
+      ...(beamDwell ? [{ label: "Beam bearing", value: beamDwell }] : []),
+      { label: "Worst band, 30d", value: highWaterMarkLabel(node.highWaterMark) },
+      ...(tide ? [{ label: "Supply tide 7d", value: tide }] : []),
+      ...(flightToQuality ? [{ label: "Flight to quality", value: flightToQuality }] : []),
+      { label: "Signal mast", value: signalMastLabel(node.signalMast) },
+      ...(fleetPeg ? [{ label: "Fleet peg", value: fleetPeg }] : []),
       {
         label: "Last fleet depeg",
         value: depegEventDateLabel(node.lastFleetDepegAt ?? null) ?? "None on record",
@@ -477,6 +584,75 @@ export function backingDiversityLabel(backingDiversity: DockNode["backingDiversi
   return `${percent.format(Math.max(0, backingDiversity))} ${descriptor}`;
 }
 
+/** `+$7.2M` / `-$3.0M` — sign first, because the sign IS the reading here. */
+function signedCompactUsd(value: number): string {
+  if (!Number.isFinite(value)) return "unavailable";
+  const magnitude = formatCompactUsd(Math.abs(value));
+  return `${value < 0 ? "-" : "+"}${magnitude}`;
+}
+
+/**
+ * The harbour's 24h issuance, in words.
+ *
+ * The canvas cue puts cargo on the pier for minting and on the quay for
+ * burning; this row is the same statement in text, and it must never be vaguer
+ * than the crates. So the DIRECTION is named outright rather than left to be
+ * inferred from a sign, and the gross mint and burn behind the net figure are
+ * quoted so a small net between two large flows cannot read as a quiet day.
+ *
+ * An untracked harbour says so. "This chain's issuance is not measured" and
+ * "this chain issued nothing" are opposite claims about the world, and a blank
+ * or a zero would collapse them.
+ */
+export function cargoTideLabel(tide: DockNode["cargoTide"]): string | null {
+  if (!tide) return null;
+  if (!tide.tracked) {
+    switch (tide.reason) {
+      case "chain-not-in-scope":
+        return "Not measured on this chain";
+      case "scope-unreported":
+        return "Unavailable — issuance scope unreported";
+      case "unattributed":
+        return "Unavailable — 24h issuance could not be matched to this harbor's coins";
+      default:
+        return "Unavailable — no issuance feed";
+    }
+  }
+  const volumes = `mint ${formatCompactUsd(tide.mintVolumeUsd)}, burn ${formatCompactUsd(tide.burnVolumeUsd)}`;
+  switch (tide.direction) {
+    case "minting":
+      return `${signedCompactUsd(tide.netFlowUsd)} minting — ${volumes}`;
+    case "burning":
+      return `${signedCompactUsd(tide.netFlowUsd)} burning — ${volumes}`;
+    case "flat":
+      return `Balanced — ${volumes}`;
+    default:
+      return "No issuance activity in 24h";
+  }
+}
+
+/**
+ * The tide line, in words.
+ *
+ * The canvas puts the strandline against a fixed datum notch; this says the
+ * same thing outright. Direction is NAMED ("rising"/"falling") rather than left
+ * to the sign, and the figure is quoted to two decimals because a fleet this
+ * size moves in hundredths of a percent and one decimal would round most real
+ * weeks to "0.0%".
+ */
+export function supplyTideLabel(tide: SupplyTide | undefined): string | null {
+  if (!tide || tide.state === "unavailable") return null;
+  const figure = `${tide.change7dPct! > 0 ? "+" : ""}${tide.change7dPct!.toFixed(2)}%`;
+  switch (tide.state) {
+    case "flood":
+      return `${figure} rising — supply grew this week`;
+    case "ebb":
+      return `${figure} falling — supply shrank this week`;
+    default:
+      return `${figure} slack — supply held flat this week`;
+  }
+}
+
 export function harborRankLabel(rank: number | null | undefined, count: number | null | undefined): string | null {
   if (
     rank == null
@@ -495,6 +671,28 @@ export function harborRankLabel(rank: number | null | undefined, count: number |
 export function stablecoinSupplyShareLabel(shareOfGlobal: number | null | undefined): string | null {
   if (shareOfGlobal == null || !Number.isFinite(shareOfGlobal) || shareOfGlobal <= 0) return null;
   return `${percent.format(shareOfGlobal)} of stablecoin supply`;
+}
+
+/**
+ * Tier 3 #13: is this harbour filling or draining?
+ *
+ * `chains[].change24hPct` and `change7dPct` have been arriving in the browser
+ * since the world was built and nothing has read them. Deliberately worded as
+ * "held supply" so it cannot be confused with the Net flow 24h row beside it,
+ * which counts issuance — coins minted and burned. Supply that bridges onto a
+ * chain moves this figure and not that one.
+ */
+export function dockSupplyChangeLabel(node: Pick<DockNode, "change24hPct">): string | null {
+  const day = finiteNumber(node.change24hPct);
+  if (day === null) return null;
+  return `${change24hPctLabel(day)} held supply`;
+}
+
+/** The 7d window on the same reading; folds into the 24h row. */
+export function dockSupplyMomentumLabel(node: Pick<DockNode, "change7dPct">): string | null {
+  const week = finiteNumber(node.change7dPct);
+  if (week === null) return null;
+  return `7d ${change24hPctLabel(week)}`;
 }
 
 export function dockConcentrationLabel(concentration: DockNode["concentration"]): string | null {
@@ -518,6 +716,9 @@ export function detailForDock(node: DockNode, context: DockDetailContext | numbe
   const topSymbols = node.harboredStablecoins.map((coin) => coin.symbol).join(", ");
   const harborGroup = dockHarborGroupLabel(node);
   const backingDiversity = backingDiversityLabel(node.backingDiversity);
+  const supplyChange = dockSupplyChangeLabel(node);
+  const supplyMomentum = dockSupplyMomentumLabel(node);
+  const netFlow24h = cargoTideLabel(node.cargoTide);
   const harborRank = harborRankLabel(node.harborRank, node.harborCount);
   const supplyShare = stablecoinSupplyShareLabel(node.shareOfGlobal);
   const concentration = dockConcentrationLabel(node.concentration);
@@ -536,6 +737,12 @@ export function detailForDock(node: DockNode, context: DockDetailContext | numbe
       { label: "Stablecoin count", value: String(node.stablecoinCount) },
       { label: "Health", value: node.healthBand ?? "Unavailable" },
       ...(backingDiversity ? [{ label: "Backing diversity", value: backingDiversity }] : []),
+      // The two windows share one row (`buildDetailFactSections` folds
+      // "Supply momentum" into the 24h row), so the harbour's direction reads as
+      // one line rather than two competing ones.
+      ...(supplyChange ? [{ label: "24h supply change", value: supplyChange }] : []),
+      ...(supplyMomentum ? [{ label: "Supply momentum", value: supplyMomentum }] : []),
+      ...(netFlow24h ? [{ label: "Net flow 24h", value: netFlow24h }] : []),
       { label: "Harbor group", value: harborGroup },
     ],
     links: [{ label: "Chain", href: analyticalRouteHref(`/chains/${node.chainId}/`) }],
@@ -685,6 +892,62 @@ export function pegDeviationLabel(node: Pick<ShipNode, "pegDeviationBps" | "pegC
   return `${sign}${rounded} bps vs ${currency}`;
 }
 
+/**
+ * Tier 3 #13: the same reading, with its DIRECTION said out loud.
+ *
+ * A leading `+` or `-` is a sign, not a statement, and the two directions mean
+ * opposite things: above par is demand outrunning redemption, below par is
+ * redemption pressure. This is the DOM parity for `cue.ship.peg-trim`, so the
+ * trim clause is read off the hull's actual `waterline` rather than recomputed
+ * from bps — a stale peg row leaves the hull level and this row silent about
+ * trim, in one place, by construction.
+ */
+export function pegDeviationFactLabel(
+  node: Pick<ShipNode, "pegDeviationBps" | "pegCurrency" | "visual">,
+): string | null {
+  const reading = pegDeviationLabel(node);
+  if (reading === null) return null;
+  const rounded = Math.round(node.pegDeviationBps as number);
+  const direction = rounded > 0 ? "above peg" : rounded < 0 ? "below peg" : "at peg";
+  const waterline = node.visual?.hullForm?.waterline ?? 0;
+  const trim = waterline > 0
+    ? "; hull rides high"
+    : waterline < 0 ? "; hull rides low" : "";
+  return `${reading} — ${direction}${trim}`;
+}
+
+const priceFormat = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 4,
+  minimumFractionDigits: 4,
+  style: "currency",
+  currency: "USD",
+});
+
+/**
+ * The two bearings and the evidence behind the second one.
+ *
+ * Non-null whenever a check RAN, agreeing or not, because the ledger is the
+ * exhaustive record and "the pipeline checked and the two agreed" is worth
+ * saying there. The panel spends a row only on the disagreement — see
+ * `detailForShip` — so the ship panel keeps its density while the sr-only
+ * ledger keeps the whole story. Absent returns null and no surface says
+ * anything, which is the only honest reading of a check that never ran.
+ */
+export function dexCrossCheckLabel(check: ShipNode["dexCrossCheck"]): string | null {
+  if (!check) return null;
+  const dex = `DEX ${priceFormat.format(check.dexPrice)} (${basisPointsLabel(check.dexDeviationBps)})`;
+  const oracle = check.oraclePrice === null
+    ? (check.oracleDeviationBps === null ? null : `feed ${basisPointsLabel(check.oracleDeviationBps)}`)
+    : `feed ${priceFormat.format(check.oraclePrice)}${
+      check.oracleDeviationBps === null ? "" : ` (${basisPointsLabel(check.oracleDeviationBps)})`
+    }`;
+  const evidence = `${pluralize(check.sourcePools, "pool")}, ${formatCompactUsd(check.sourceTvlUsd)} TVL`;
+  const heading = check.agrees
+    ? "Both bearings agree"
+    : "Bearings cross — the two readings disagree";
+  return [heading, [dex, oracle].filter(Boolean).join(" vs "), evidence].join("; ");
+}
+
 export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): DetailModel {
   const isSquadShip = !!node.squadId;
   const squadShips = isSquadShip ? context.squadShips ?? [] : [];
@@ -714,15 +977,28 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
   const auditShield = auditShieldLabel(node.reportCard, node.visual.sizeTier);
   const safetyGrade = reportCardSafetyLabel(node.reportCard);
   const stressDriver = stressBreakdownLabel(node);
+  // The header figure stays the bare reading — it is a headline number, not a
+  // sentence — while the fact row carries the direction and the trim.
   const pegDeviation = pegDeviationLabel(node);
+  const pegDeviationFact = pegDeviationFactLabel(node);
   const mastSignal = mastSignalLabel(node);
+  // 3b: the cross-check earns a row of its own ONLY when the two instruments
+  // disagree. Agreement is the fleet's normal state, so a row for it would land
+  // on nearly every ship and buy nothing; the ledger carries that case instead.
+  // A disagreement is a caveat on the peg figure in the panel's header, and
+  // burying it inside a fold with three other price qualifiers is exactly how a
+  // reader would miss it.
+  const dexCrossCheck = node.dexCrossCheck?.agrees === false
+    ? dexCrossCheckLabel(node.dexCrossCheck)
+    : null;
   const facts = [
-    ...(pegDeviation ? [{ label: "Peg deviation", value: pegDeviation }] : []),
+    ...(pegDeviationFact ? [{ label: "Peg deviation", value: pegDeviationFact }] : []),
     { label: "Market cap", value: marketCapLabel(node.marketCapUsd) },
     ...(fleetRank ? [{ label: "Fleet rank", value: fleetRank }] : []),
     ...(fleetShare ? [{ label: "Share of fleet", value: fleetShare }] : []),
     ...(priceConfidence ? [{ label: "Price confidence", value: priceConfidence }] : []),
     ...(sourceConsensus ? [{ label: "Source consensus", value: sourceConsensus }] : []),
+    ...(dexCrossCheck ? [{ label: "DEX cross-check", value: dexCrossCheck }] : []),
     { label: "24h supply change", value: change24hPctLabel(node.change24hPct) },
     ...(momentum ? [{ label: "Supply momentum", value: momentum }] : []),
     ...(depegHistory ? [{ label: "Depeg history", value: depegHistory }] : []),

@@ -15,3 +15,7 @@ export function useStabilityIndexDetail() {
 export function useStressSignals() {
   return usePharosVilleEndpointQuery("stress");
 }
+
+export function useMintBurnFlows() {
+  return usePharosVilleEndpointQuery("mintBurn");
+}

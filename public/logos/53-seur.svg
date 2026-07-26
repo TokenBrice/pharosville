@@ -1,0 +1,23 @@
+<svg width="42" height="42" fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 42 42">
+  <g clip-path="url(#a)">
+    <mask id="c" width="42" height="42" x="0" y="0" maskUnits="userSpaceOnUse" style="mask-type:alpha">
+      <circle cx="21" cy="21" r="21" fill="url(#b)"/>
+    </mask>
+    <g mask="url(#c)">
+      <circle cx="21" cy="21" r="21" fill="#34EDB3"/>
+      <circle cx="21" cy="21" r="18.2" fill="#fff"/>
+    </g>
+    <circle cx="21" cy="21" r="16.1" fill="#06061B"/>
+    <circle cx="21" cy="21" r="16.1" fill="#06061B"/>
+    <path fill="#fff" d="M23.1 28.595a7.3 7.3 0 0 1-2.33-.357 6.2 6.2 0 0 1-1.912-1.071 6.4 6.4 0 0 1-1.386-1.659 7.4 7.4 0 0 1-.777-2.184H14.7v-1.533h1.827a2 2 0 0 1-.02-.315v-.798a4 4 0 0 0 .02-.378H14.7v-1.533h1.974q.231-1.239.798-2.226a6.1 6.1 0 0 1 1.428-1.659 6.1 6.1 0 0 1 1.953-1.05 7.5 7.5 0 0 1 2.352-.357q1.449 0 2.415.378t1.638.945l-1.05 2.016q-.714-.546-1.428-.756a5.4 5.4 0 0 0-1.554-.21q-1.533 0-2.562.756t-1.323 2.163h6.111l-.735 1.533h-5.544q0 .189-.02.378v.735q.02.189.02.378h5.124l-.735 1.533h-4.22q.293 1.386 1.301 2.142 1.029.756 2.541.756.945 0 1.638-.231a4.5 4.5 0 0 0 1.218-.63l1.218 1.911a5.15 5.15 0 0 1-1.785.987q-1.008.336-2.373.336"/>
+  </g>
+  <defs>
+    <linearGradient id="b" x1="21" x2="21" y1="0" y2="61.409" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#08021E"/>
+      <stop offset="1" stop-color="#1F0777"/>
+    </linearGradient>
+    <clipPath id="a">
+      <path fill="#fff" d="M0 0h42v42H0z"/>
+    </clipPath>
+  </defs>
+</svg>

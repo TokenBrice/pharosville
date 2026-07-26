@@ -5,6 +5,7 @@ export const PHAROSVILLE_API_ENDPOINT_KEYS = [
   "pegSummary",
   "stress",
   "reportCards",
+  "mintBurn",
 ] as const;
 
 export type PharosVilleApiEndpointKey = (typeof PHAROSVILLE_API_ENDPOINT_KEYS)[number];

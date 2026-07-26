@@ -3,6 +3,7 @@ import {
   AmbientLight,
   BufferGeometry,
   CircleGeometry,
+  Color,
   CylinderGeometry,
   DirectionalLight,
   DoubleSide,
@@ -40,6 +41,7 @@ import { seaQualityTier } from "../renderer/render-scheduler";
 import {
   GARDEN_HULL_SILHOUETTES,
   GARDEN_LIGHTHOUSE_BEACON_Y,
+  GARDEN_LIGHTHOUSE_ROOT_OFFSET,
   GARDEN_SHIP_ROOT_Y,
   GARDEN_WATER_Y as WATER_LEVEL,
   gardenCameraViewHeight,
@@ -67,13 +69,27 @@ import {
 } from "./garden-harbor-life";
 import { createGardenHorizon, type GardenHorizon } from "./garden-horizon";
 import { createGardenSeaSigns, type GardenSeaSigns, type SeaSignSpec } from "./garden-sea-signs";
-import { SEA_BODY_TERRAIN, type SeaBodyName } from "../systems/sea-bodies";
+import { SEA_BODY_TERRAIN, seaBodyForArea } from "../systems/sea-bodies";
 import { createGardenIslets, type GardenIslets } from "./garden-islets";
+import {
+  createGardenHeroReflections,
+  type GardenHeroReflections,
+} from "./garden-hero-reflections";
+import {
+  createGardenShipGulls,
+  GARDEN_GULL_SHIP_COUNT,
+  type GardenShipGulls,
+} from "./garden-ship-gulls";
+import {
+  createGardenOverviewLod,
+  type GardenOverviewLod,
+} from "./garden-overview-lod";
 import { createGardenModelLibrary } from "./garden-models";
 import { createGardenWater, type GardenWater } from "./garden-water";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
 import { dayCyclePhase, updateDayCycle, type DayCyclePhase } from "./garden-day-cycle";
 import { createGardenSky, type GardenSky } from "./garden-sky";
+import { createGardenEnvironment, type GardenEnvironment } from "./garden-environment";
 import { createGardenPost } from "./garden-post";
 import {
   createDock,
@@ -81,6 +97,20 @@ import {
   gardenDockLampWorldPositions,
   type DockVisual,
 } from "./garden-docks";
+import {
+  cargoTideSpecs,
+  createGardenCargoTide,
+  type GardenCargoTide,
+} from "./garden-cargo-tide";
+import {
+  createGardenFlightTenders,
+  flightTenderTitans,
+  type GardenFlightTenders,
+} from "./garden-flight-tenders";
+import {
+  createGardenTideLine,
+  type GardenTideLine,
+} from "./garden-tide-line";
 import {
   createGardenLaneRegistry,
   type GardenLaneRegistry,
@@ -97,6 +127,14 @@ import {
   updateLighthouseRimLight,
 } from "./garden-lighthouse";
 import { createGardenBeaconFire, type GardenBeaconFire } from "./garden-beacon-fire";
+import { createGardenSignalMast, type GardenSignalMast } from "./garden-signal-mast";
+import {
+  createGardenCrossBearingBuoys,
+  type CrossBearingBuoySpec,
+  type GardenCrossBearingBuoys,
+} from "./garden-cross-bearing-buoys";
+import { createGardenTideStain, type GardenTideStain } from "./garden-tide-stain";
+import { beamBearingTo, beamDwellRateScale, beamStaticBearing } from "./garden-beam-dwell";
 import {
   createGardenSummitBirds,
   type GardenSummitBirds,
@@ -180,12 +218,33 @@ const scratchShadowPosition = new Vector3();
 const scratchShadowScale = new Vector3();
 const scratchShadowQuaternion = new Quaternion();
 const SHADOW_UP = new Vector3(0, 1, 0);
+// W6.4: the hull tint handed to a reflection instance, blended per frame.
+const scratchReflectionColor = new Color();
+// Reused argument records for the per-frame update calls below. Every callee
+// destructures its input on entry and keeps nothing, so one record per call
+// site is enough to keep the frame path free of the object literals it would
+// otherwise mint — one per flock and mast per frame, and one per hero hull.
+const scratchAmbientFrame = { reducedMotion: false, timeSeconds: 0, visible: false };
+const scratchOverviewLodFrame = { deltaSeconds: 0, reducedMotion: false, zoom: 1 };
+const scratchReflectionPlacement = {
+  color: scratchReflectionColor,
+  index: 0,
+  mastheadHeight: 0,
+  strength: 0,
+  tileX: 0,
+  tileY: 0,
+  width: 0,
+  worldX: 0,
+  worldZ: 0,
+};
 
 export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): ThreeWorldRenderer {
   const { canvas, onAssetReady, onContextFailure } = input;
-  const scene = createGardenScene();
   const modelLibrary = createGardenModelLibrary();
   const camera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 500);
+  // The renderer is built before the scene now: W6.5's sky probe bakes THROUGH
+  // the renderer, so the scene cannot be assembled without one. Nothing in
+  // `createGardenScene` reads renderer state, so the swap is order-only.
   const renderer = new WebGLRenderer({
     alpha: false,
     antialias: true,
@@ -203,6 +262,7 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
   // See the reset in `render` — the frame's totals are accumulated by hand
   // so the composer's passes do not clobber the scene's counts.
   renderer.info.autoReset = false;
+  const scene = createGardenScene(renderer);
   const post = createGardenPost(renderer, scene.root, camera);
 
   let disposed = false;
@@ -300,6 +360,9 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
       canvas.removeEventListener("webglcontextcreationerror", handleContextCreationError);
       const detachedModel = scene.lighthouseModel?.parent ? null : scene.lighthouseModel;
       post.dispose();
+      // Owns a live PMREM render target; the generic tree walk cannot see it
+      // because it hangs off `Scene.environment`, not off a child.
+      scene.environment.dispose();
       scene.laneRegistry.dispose();
       disposeThreeObjectTree(scene.root);
       if (detachedModel) disposeThreeObjectTree(detachedModel);
@@ -313,6 +376,27 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
       // frame's numbers so the scheduler and the debug surface see a hold
       // rather than a collapse, and wait for `webglcontextrestored`.
       if (contextLost) return lastMetrics;
+
+      // W6.5: rebake the sky probe BEFORE the counters are reset, deliberately.
+      //
+      // A PMREM bake is a six-face cube render plus a mip chain, and this
+      // renderer accumulates `renderer.info` by hand for the whole frame. Baking
+      // after the reset would have added those passes to the frame's draw-call
+      // total, so the frames that happen to cross a day-cycle step would report
+      // a spike against the 700-call budget that has nothing to do with the
+      // world being drawn. Baking here keeps the budget a measurement of the
+      // scene. It costs nothing on the vast majority of frames, which do not
+      // bake at all.
+      const phase = dayCyclePhase(frame.wallClockHour);
+      // Grade the dome for THIS phase before the probe reads it. The probe
+      // renders `sky.domeMaterial` itself and caches the result under the phase
+      // key, but the full sky update does not run until `updateSceneForFrame`
+      // below — so without this the first bake of a session rendered the NIGHT
+      // colours the uniforms are constructed with, stored them under a daytime
+      // key, and lit every metal surface in the world with a night probe for as
+      // long as that key held. At midday the key never moves again.
+      scene.sky.applyPhase(phase);
+      scene.environment.update(phase);
 
       // `renderer.info` auto-resets on every `render()` call, and the post
       // composer issues several. Reading it after `post.render()` therefore
@@ -355,9 +439,8 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
         loadHeroesForContent(scene.content);
       }
       if (scene.content) syncShipSailTextures(scene.content, frame);
-      const phase = dayCyclePhase(frame.wallClockHour);
       updateSceneForFrame(scene, camera, frame, phase);
-      // MEASURED DEAD ENDS — three things that look like obvious wins here and
+      // MEASURED DEAD ENDS — four things that look like obvious wins here and
       // are not. All numbers from the reference GPU on an otherwise idle
       // machine; measure before revisiting, and measure QUIET (a leaked browser
       // eating twelve cores made the scene rebuild look 3x more expensive than
@@ -374,20 +457,44 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
       // 2. Splitting this into static scenery (island, cemetery, pigeonnier,
       //    harbour life — none of which reads anything a payload can change)
       //    and per-world content, so a refresh rebuilds only the fleet, buys
-      //    nothing. A refresh freezes ~550ms: 551/592/512ms as it stands,
-      //    556/641/542ms split, and 432/420/349ms with the rebuild suppressed
-      //    ENTIRELY. So the whole scene rebuild is ~130ms and it lives in the
-      //    dynamic half (fleet ~58ms, docks and districts ~49ms). The static
-      //    half is ~30ms and its buffers are not the cost.
+      //    nothing. Measured when a refresh still froze ~550ms: 551/592/512ms
+      //    as it stands, 556/641/542ms split, and 432/420/349ms with the
+      //    rebuild suppressed ENTIRELY. So the whole scene rebuild is ~130ms
+      //    and it lives in the dynamic half (fleet ~58ms, docks and districts
+      //    ~49ms). The static half is ~30ms and its buffers are not the cost.
       //
       // 3. Shrinking the 2048² sail atlas is not a startup lever either: at
       //    1024² (16MB -> 4MB) blocked time went 2556ms -> 2429ms, inside
       //    run-to-run noise.
       //
-      // What IS left in a refresh: ~100ms of world model rebuild, and ~320ms of
-      // React commit plus the A* re-solve that fires because moved ships mean
-      // new path keys. Those want a worker or stable placement, not scene
-      // surgery.
+      // 4. A Web Worker for the world build is not the next move either, and
+      //    the numbers below are why.
+      //
+      // WHAT A REFRESH COSTS NOW. Measured 2026-07-26 against the PRODUCTION
+      // bundle on the reference GPU, three rounds each, by
+      // `npm run preview -- --refresh <arm>` — which provokes the real polling
+      // refetch and parks the response at the proxy, so the window holds the
+      // refresh and nothing else:
+      //
+      //   identical payload    0ms   structural sharing discards it entirely
+      //   ordinary refresh   239ms   ONE task, 189ms of it blocking
+      //   every ship moved   795ms   two tasks (a synthetic worst case)
+      //
+      // Sticky placement (61905cc) is what took the ordinary refresh from
+      // ~550ms to 239ms: the world model rebuild, which the tile re-pack and
+      // the A* re-solve dominated, went 303ms -> 34ms. That is also what rules
+      // the worker out. Of the 239ms left, the pipeline a worker could move is
+      // that 34ms. The rest is entered from React's scheduler and lands in
+      // native code V8 cannot unwind, while style, layout and paint together
+      // account for 14ms of the whole window — so it is not the DOM, it is the
+      // GL cost of rebuilding scene content, and that cannot leave the thread
+      // that owns the context.
+      //
+      // The remaining target is therefore this function, not a worker: now that
+      // placements hold still, `replaceWorldContent` tears down and recreates
+      // resources identical to the ones it just disposed. Dead end 2 above says
+      // splitting the scene STATICALLY buys nothing; diffing it against the
+      // previous content has not been tried, and is the thing to measure next.
 
       const tier = frame.renderScheduler.tier;
       if (SESSION_TIER_QUALITY[tier] > SESSION_TIER_QUALITY[sessionTierReached]) {
@@ -410,7 +517,7 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
       // machine is genuinely drowning, and a five-level mip pyramid is the
       // one pass worth the pop.
       post.setBloomEnabled(tier !== "constrained");
-      post.setGrade(phase.daylight, phase.dusk, phase.night);
+      post.setGrade(phase.daylight, phase.dusk);
       post.render();
 
       const content = scene.content;
@@ -491,6 +598,13 @@ interface GardenScene {
   beamClockSeconds: number;
   content: GardenContent | null;
   directionalLight: DirectionalLight;
+  /**
+   * W6.5: the cached sky probe that lights the scene's standard materials.
+   *
+   * Scene-scope, not content-scope: it depends only on the hour, so a data
+   * refresh must not throw away a bake and pay for a new one.
+   */
+  environment: GardenEnvironment;
   hemisphereLight: HemisphereLight;
   horizon: GardenHorizon;
   hoverMarker: Mesh<RingGeometry, MeshBasicMaterial>;
@@ -514,6 +628,47 @@ interface GardenContent {
   beaconFireRoot: Group;
   beaconHalo: Mesh<SphereGeometry, MeshBasicMaterial>;
   beam: Group;
+  /**
+   * 3d: the bearing from the beacon to the largest PSI contributor's berth, in
+   * `beam.rotation.y` units, or null when there is no contributor to watch.
+   *
+   * Taken once at compose time from the ship's composed berth rather than per
+   * frame from its live position: the ship wanders a couple of tiles around
+   * that berth, so a per-frame bearing would make the beam hunt, and the berth
+   * is the address the rest of the world already places the ship at.
+   */
+  beamDwellBearing: number | null;
+  crossBearingBuoys: GardenCrossBearingBuoys;
+  /**
+   * The hulls that have a buoy, in the buoys' own instance order — usually a
+   * handful, occasionally none. Kept as its own short list so the per-frame
+   * sync costs one pass over the crossed ships rather than a lookup on all
+   * ~205 of them.
+   */
+  crossBearingBuoyShips: ShipVisual[];
+  /**
+   * Tier 3 #3: every harbour's mint/burn cargo run, in one instanced draw.
+   * Entirely static — direction and magnitude are composed into the crates'
+   * positions at build, so there is nothing for the frame loop to do.
+   */
+  cargoTide: GardenCargoTide;
+  /**
+   * The flight-to-quality flotilla, in one instanced draw. Empty — nothing
+   * built at all — whenever the gauge is absent or reads false.
+   */
+  flightTenders: GardenFlightTenders;
+  /**
+   * The titan hulls those tenders work, in the flotillas' own anchor order, so
+   * the per-frame sync costs one pass over three ships rather than a lookup on
+   * all ~205. Empty whenever there is no flight to show.
+   */
+  flightTenderShips: ShipVisual[];
+  /**
+   * Task 14: the weekly supply tide, as one banded plate per quay in a single
+   * instanced draw. Static — the strandline is composed into the plate's vertex
+   * colours, so the frame loop never touches it.
+   */
+  tideLine: GardenTideLine;
   decoration: Group;
   docks: DockVisual[];
   objectCount: number;
@@ -526,9 +681,17 @@ interface GardenContent {
   harborLanternMaterial: MeshStandardMaterial;
   fireflies: GardenFireflies;
   gullFlock: GardenGullFlock;
+  /** W6.4: one instanced draw call carrying every hero hull's mirror column. */
+  heroReflections: GardenHeroReflections;
+  /** The hulls that carry a reflection, in the reflection instances' order. */
+  heroReflectionShips: ShipVisual[];
+  /** Gulls over the three largest hulls; parented to those hulls' own roots. */
+  shipGulls: GardenShipGulls;
   lighthouseLight: PointLight;
   lighthouseRoot: Group;
   lighthouseShell: Group;
+  /** Tier 3 #15: sheds the props that cannot read at whole-map framing. */
+  overviewLod: GardenOverviewLod;
   rayFan: Mesh<BufferGeometry, ShaderMaterial> | null;
   root: Group;
   routeLine: Line<BufferGeometry, LineBasicMaterial>;
@@ -537,7 +700,9 @@ interface GardenContent {
   shipLanternMaterial: MeshStandardMaterial;
   shipShadows: InstancedMesh<CircleGeometry, MeshBasicMaterial>;
   ships: ShipVisual[];
+  signalMast: GardenSignalMast;
   statueGleamMaterials: MeshStandardMaterial[];
+  tideStain: GardenTideStain;
   summitBirds: GardenSummitBirds;
   summitBirdsRoot: Group;
   transientSelectedDetailId: string | null;
@@ -554,7 +719,7 @@ interface EntityCue {
   y: number;
 }
 
-function createGardenScene(): GardenScene {
+function createGardenScene(renderer: WebGLRenderer): GardenScene {
   const root = new Scene();
   const sky = createGardenSky();
   root.fog = sky.fog;
@@ -627,6 +792,9 @@ function createGardenScene(): GardenScene {
     beamClockSeconds: 0,
     content: null,
     directionalLight,
+    // W6.5: the probe shares the dome's material instance, so the sky the
+    // world is LIT BY and the sky it is SEEN AGAINST are the same uniforms.
+    environment: createGardenEnvironment(renderer, root, sky.domeMaterial),
     hemisphereLight,
     horizon,
     hoverMarker,
@@ -934,6 +1102,30 @@ function createWorldContent(
     }
   });
 
+  // 3a: the storm-signal hoist, standing on the planted shelf just east of the
+  // observatory pavilion (garden-island's `createObservatoryPavilion`, root at
+  // x 4.4 with a 2.4-unit base) — clear of its footprint, on the same terrace,
+  // so the instrument and the signal read as one station. The height is the
+  // shelf cap (`islandTerrainHeight` is private to garden-island, and every
+  // other prop on this terrace is seated by hand the same way). Yawed to the
+  // fixed camera azimuth so the cloth is never seen edge-on.
+  const signalMast = createGardenSignalMast();
+  signalMast.root.position.set(7.2, 0.98, 3.2);
+  signalMast.root.rotation.y = Math.PI / 4;
+  signalMast.setState({
+    pennantCount: world.lighthouse.signalMast?.pennantCount ?? 0,
+    stormCone: world.lighthouse.signalMast?.stormCone ?? false,
+  });
+  island.root.add(signalMast.root);
+
+  // 3c: the high-water mark, banded onto the tower's own terrace steps. It
+  // rides `lighthouseRoot` rather than the island so it stays with the tower
+  // whether the procedural shell or the loaded GLB is standing — both are
+  // parented there and both were cut to `LIGHTHOUSE_TERRACE_STEPS`.
+  const tideStain = createGardenTideStain();
+  tideStain.setMark(world.lighthouse.highWaterMark?.severity ?? null);
+  island.lighthouseRoot.add(tideStain.root);
+
   const cemetery = createGardenCemetery(world.graves);
   const pigeonnier = createGardenPigeonnier(world.pigeonnier);
   root.add(cemetery.root, pigeonnier.root);
@@ -986,8 +1178,33 @@ function createWorldContent(
     root.add(dock.root);
     entityCues.set(dock.dock.detailId, { radius: 2.5, root: dock.root, y: 0.08 });
   }
+  // Tier 3 #3: the world's first FLOW cue. Built after the harbours are placed
+  // because each crate's berth is a harbour-local slot resolved through that
+  // harbour's own yaw and position — one mesh for the ring, not one per quay.
+  const cargoTide = createGardenCargoTide(cargoTideSpecs(docks));
+  root.add(cargoTide.root);
+  // The tide is one global reading, so every quay's plate is identical and the
+  // whole ring shares one geometry — see garden-tide-line.ts.
+  const tideLine = createGardenTideLine(
+    docks.map((visual) => ({
+      detailId: visual.dock.detailId,
+      width: visual.tideFace.width,
+      x: visual.root.position.x + visual.tideFace.x * Math.cos(visual.root.rotation.y)
+        + visual.tideFace.z * Math.sin(visual.root.rotation.y),
+      y: visual.root.position.y + visual.tideFace.y,
+      yaw: visual.root.rotation.y,
+      z: visual.root.position.z - visual.tideFace.x * Math.sin(visual.root.rotation.y)
+        + visual.tideFace.z * Math.cos(visual.root.rotation.y),
+    })),
+    world.supplyTide,
+  );
+  root.add(tideLine.root);
   const harborLanterns = createHarborLanterns(islandTile);
-  const gullFlock = createGardenGullFlock(world.lighthouse.tile);
+  // The flock works the quays as well as the island, so it needs the same dock
+  // list the harbour districts got — that is what carries harbour tempo.
+  const gullFlock = createGardenGullFlock(world.lighthouse.tile, {
+    docks: world.docks,
+  });
   const fireflies = createGardenFireflies(
     gardenIslandLanternWorldOffsets(),
     islandTile,
@@ -1062,6 +1279,87 @@ function createWorldContent(
   const fleetLanterns = createFleetLanterns(ships, shipGeometryCache);
   root.add(fleetLanterns.root);
 
+  // 3d needs one ship's composed berth in world XZ to take a bearing on.
+  // Resolved with a null motion sample, which is the berth before any patrol
+  // displaces it — the same address `entityCues` and the lane registry use, and
+  // a fixed one, so the beam holds a steady bearing instead of hunting the
+  // hull around its circuit.
+  const berthWorldXZ = (entry: typeof slice.ships[number]): { x: number; z: number } => {
+    const tile = resolveGardenShipDisplayTile({
+      displayOffset: entry.displayOffset,
+      representative: entry.representative,
+      sample: null,
+      ship: entry.ship,
+    });
+    return { x: tile.x * TILE_SCALE, z: tile.y * TILE_SCALE };
+  };
+
+  // 3b: one buoy per ship whose two price bearings cross. `agrees === false` is
+  // the ONLY state that moors one — an absent check leaves the water empty and
+  // claims nothing, which is the whole point of the signal.
+  //
+  // The buoys ride WITH their hulls rather than sitting at the berth: a ship
+  // patrols up to `GARDEN_MAX_MOTION_TILES` from its anchor, so a buoy nailed
+  // to the berth would spend most of its time nowhere near the ship it is
+  // describing, and a cue you cannot associate with its subject is not a cue.
+  const buoyShips = ships.filter((visual) => visual.ship.dexCrossCheck?.agrees === false);
+  const buoySpecs: CrossBearingBuoySpec[] = buoyShips.map((visual) => ({
+    detailId: visual.ship.detailId,
+    hullRadius: visual.selectionRadius,
+  }));
+  const crossBearingBuoys = createGardenCrossBearingBuoys(buoySpecs);
+  root.add(crossBearingBuoys.root);
+
+  // W6.4: the mirror column, extended from the Pharos to the fleet. Only the
+  // hero hulls get one — they are the ships with a silhouette worth reflecting,
+  // and the batched fleet is a shared instance whose per-ship colour lives in a
+  // buffer rather than on a visual.
+  const heroReflectionShips = ships.filter((visual) => !visual.batched);
+  const heroReflections = createGardenHeroReflections(heroReflectionShips.length);
+  root.add(heroReflections.mesh);
+
+  // Gulls over the biggest hulls in the fleet. Ranked by the same market cap
+  // the hull scale already encodes, so the traffic agrees with the size.
+  const shipGulls = createGardenShipGulls(
+    [...heroReflectionShips]
+      .sort((left, right) => (right.ship.marketCapUsd ?? 0) - (left.ship.marketCapUsd ?? 0))
+      .slice(0, GARDEN_GULL_SHIP_COUNT),
+  );
+
+  // Flight to quality: tenders making for the biggest hulls, for as long as the
+  // mint/burn gauge reports capital concentrating into them. Ranked off the
+  // whole fleet by the same market cap the hull scale already encodes, so the
+  // boats gather where the eye already reads "largest". Built here, after the
+  // hulls exist, because each flotilla's stand-off is scaled to its titan's own
+  // footprint. `flightTenderTitans` returns nothing when the gauge is absent or
+  // false, and a spec-less flotilla builds no mesh and costs no draw call.
+  const flightTenderShips = flightTenderTitans(ships, world.fleetIssuance);
+  const flightTenders = createGardenFlightTenders(
+    flightTenderShips.map((visual) => ({
+      hullRadius: visual.selectionRadius,
+      shipId: visual.ship.id,
+    })),
+    world.fleetIssuance?.flightIntensity ?? 0,
+  );
+  root.add(flightTenders.root);
+
+  // 3d: the bearing the beam will settle on. Null when the index named no
+  // contributor, or when the coin it named is not in the rendered fleet — the
+  // sweep then keeps the even turn it has always had.
+  const dwellShipId = world.lighthouse.beamDwell?.shipId ?? null;
+  const dwellEntry = dwellShipId === null
+    ? undefined
+    : slice.ships.find((entry) => entry.ship.id === dwellShipId);
+  const beamDwellBearing = dwellEntry
+    ? beamBearingTo(
+        {
+          x: islandTile.x * TILE_SCALE + GARDEN_LIGHTHOUSE_ROOT_OFFSET.x,
+          z: islandTile.y * TILE_SCALE + GARDEN_LIGHTHOUSE_ROOT_OFFSET.z,
+        },
+        berthWorldXZ(dwellEntry),
+      )
+    : null;
+
   const routeLine = new Line(
     new BufferGeometry(),
     new LineBasicMaterial({
@@ -1075,6 +1373,9 @@ function createWorldContent(
   root.add(routeLine);
 
   const objectCount = countDrawableObjects(root);
+  // Scanned once, after the world is assembled and before anything animates:
+  // the policy captures each shed prop's authored transform as its baseline.
+  const overviewLod = createGardenOverviewLod(root);
   return {
     logoGenerationKey: null,
     beacon: island.beacon,
@@ -1082,6 +1383,13 @@ function createWorldContent(
     beaconFireRoot: beaconFire.root,
     beaconHalo: island.beaconHalo,
     beam: island.beam,
+    beamDwellBearing,
+    cargoTide,
+    flightTenders,
+    flightTenderShips,
+    tideLine,
+    crossBearingBuoys,
+    crossBearingBuoyShips: buoyShips,
     decoration: island.decoration,
     docks,
     objectCount,
@@ -1091,11 +1399,15 @@ function createWorldContent(
     fleetLanterns,
     fleetSailMaterial: fleetBatches.materials[1] ?? null,
     gullFlock,
+    heroReflections,
+    heroReflectionShips,
+    shipGulls,
     sailAtlas,
     harborLanternMaterial: harborLanterns.lightMaterial,
     lighthouseLight: island.lighthouseLight,
     lighthouseRoot: island.lighthouseRoot,
     lighthouseShell: island.lighthouseShell,
+    overviewLod,
     rayFan: rayFan instanceof Mesh
       ? rayFan as Mesh<BufferGeometry, ShaderMaterial>
       : null,
@@ -1106,7 +1418,9 @@ function createWorldContent(
     shipLanternMaterial: fleetLanterns.coreMaterial,
     shipShadows,
     ships,
+    signalMast,
     statueGleamMaterials,
+    tideStain,
     summitBirds,
     summitBirdsRoot: summitBirds.root,
     transientSelectedDetailId: slice.transientSelectedDetailId,
@@ -1129,7 +1443,7 @@ function createWorldContent(
 function seaSignSpecs(areas: PharosVilleWorld["areas"]): SeaSignSpec[] {
   const specs: SeaSignSpec[] = [];
   for (const area of areas) {
-    const body = SEA_SIGN_BODY_FOR_AREA(area);
+    const body = seaBodyForArea(area);
     if (!body) continue;
     const count = typeof area.count === "number" ? area.count : null;
     specs.push({
@@ -1146,16 +1460,6 @@ function seaSignSpecs(areas: PharosVilleWorld["areas"]): SeaSignSpec[] {
     accent: zoneThemeForTerrain("wreck-water").label.accent,
   });
   return specs;
-}
-
-function SEA_SIGN_BODY_FOR_AREA(area: PharosVilleWorld["areas"][number]): SeaBodyName | null {
-  if (area.band === "CALM") return "calm";
-  if (area.band === "WATCH") return "watch";
-  if (area.band === "ALERT") return "alert";
-  if (area.band === "WARNING") return "warning";
-  if (area.band === "DANGER") return "danger";
-  if (area.riskPlacement === "ledger-mooring") return "ledger";
-  return null;
 }
 
 /**
@@ -1330,6 +1634,25 @@ function updateSceneForFrame(
     timeSeconds: frame.timeSeconds,
     visible: ambientAlive,
   });
+  // The hero gulls ride the same gate as the island's small life, and the same
+  // clock. Placement needs nothing here: each flock is a child of the hull it
+  // belongs to, so it already has that hull's pose.
+  scratchAmbientFrame.reducedMotion = frame.reducedMotion;
+  scratchAmbientFrame.timeSeconds = frame.timeSeconds;
+  scratchAmbientFrame.visible = ambientAlive;
+  content.shipGulls.update(scratchAmbientFrame);
+  // 3a: the hoist rides the same `ambientAlive` gate as the rest of the
+  // island's small life — it survives `recovery` and is shed only at
+  // `constrained`. What is flying was fixed at compose time; this call only
+  // lifts the cloth, so the tier decides whether the mast is drawn, never what
+  // it reports.
+  content.signalMast.update(scratchAmbientFrame);
+  // 3c has no call here on purpose: the tide stain is composed once, never
+  // moves, and is not tier gated — it is one draw call (zero when the mark is
+  // bare), and a reading that vanishes when the machine gets busy is worse than
+  // the call it costs. Its state changes only when the world does, in
+  // `createWorldContent`. 3b's buoys are placed after the ship loop below,
+  // where the hull transforms they ride on are final.
   // W5 tier matrix. Full: cone + outer cone + fan + dust + embers(32) +
   // smoke(16). Balanced: cone + fan + embers(12) + smoke(8), no dust, no
   // outer cone. Interaction: cone only + flame. Recovery/constrained: the
@@ -1379,7 +1702,13 @@ function updateSceneForFrame(
   // Bounded to 0.2-0.42 rad/s: fast enough to feel urgent at full stress, slow
   // enough that the world stays somewhere you can sit.
   const psiStress = MathUtils.clamp(frame.seaState.source.psiStress ?? 0, 0, 1);
-  const sweepRate = 0.2 + psiStress * 0.22;
+  // 3d: the sweep slows across the largest PSI contributor's bearing and speeds
+  // back up over open water, so the light lingers on the ship the index is most
+  // moved by. A rate well, not an easing target — the beam never reverses,
+  // stalls, or jumps, and an absent contributor scales by exactly 1, restoring
+  // the plain even sweep with no branch here.
+  const sweepRate = (0.2 + psiStress * 0.22)
+    * beamDwellRateScale(scene.beamAngle, content.beamDwellBearing);
   // Only reduced motion freezes the sweep, and that is a policy, not a budget.
   //
   // `constrained` used to freeze it too, which cost nothing to run — the sweep
@@ -1392,7 +1721,13 @@ function updateSceneForFrame(
   if (!frame.reducedMotion) {
     scene.beamAngle = (scene.beamAngle + beamElapsedSeconds * sweepRate) % (Math.PI * 2);
   }
-  content.beam.rotation.y = frame.reducedMotion ? -0.55 : scene.beamAngle;
+  // 3d under reduced motion: the sweep is gone, so the cue survives as a
+  // BEARING. The beam parks pointing at the contributor and the lighthouse
+  // panel's Beam bearing row names the ship it is holding on; with no
+  // contributor it keeps the composed pose it has always used.
+  content.beam.rotation.y = frame.reducedMotion
+    ? beamStaticBearing(content.beamDwellBearing)
+    : scene.beamAngle;
   content.beacon.getWorldPosition(scratchPosition);
   scene.water.setBeaconState(
     scratchPosition.x,
@@ -1406,6 +1741,16 @@ function updateSceneForFrame(
 
   const semanticView = gardenSemanticView(frame.camera.zoom, frame.selectedDetailId);
   const showWorldDetail = semanticView === "explore";
+  // Tier 3 #15: the far half of the same zoom policy. `showWorldDetail` reveals
+  // inspection detail on the way IN (explore, zoom >= 1.05); this sheds the
+  // props that stop resolving on the way OUT, easing them away between 0.62 and
+  // 0.44 so nothing pops. Default framing (0.7776) is above the band and pays
+  // nothing for either.
+  scratchOverviewLodFrame.deltaSeconds = beamElapsedSeconds;
+  scratchOverviewLodFrame.reducedMotion = frame.reducedMotion;
+  scratchOverviewLodFrame.zoom = frame.camera.zoom;
+  content.overviewLod.update(scratchOverviewLodFrame);
+  const overviewDetail = content.overviewLod.detail;
   // N (D6): the boards hold a roughly constant on-screen size as the camera
   // pulls back, so the sea's place-names stay readable at whole-map framing —
   // the framing that most wants them, and the one where a true-scale board is
@@ -1432,7 +1777,10 @@ function updateSceneForFrame(
   );
 
   let visibleShipCount = 0;
-  for (const [index, visual] of content.ships.entries()) {
+  // Indexed rather than `entries()`: the iterator mints an `[index, value]` pair
+  // per hull per frame, and this loop runs over the whole fleet. Same below.
+  for (let index = 0; index < content.ships.length; index += 1) {
+    const visual = content.ships[index]!;
     const sample = frame.shipMotionSamples.get(visual.ship.id);
     const tile = resolveGardenShipDisplayTile({
       displayOffset: visual.displayOffset,
@@ -1480,8 +1828,17 @@ function updateSceneForFrame(
       worldZ: visual.root.position.z,
     });
     const wakeIntensity = sample?.wakeIntensity ?? 0;
-    visual.wake.visible = !frame.reducedMotion && !constrained && wakeIntensity > 0.08;
-    visual.wake.scale.x = 0.7 + Math.min(1.5, wakeIntensity) * 0.85;
+    // Tier 3 #15: the wake joins the overview policy, but through the ship loop
+    // rather than the named scan — the loop owns `wake.visible` and would
+    // overwrite anything the scan wrote. Two instanced quads per hull under way
+    // is the fleet's single largest per-entity draw-call cost, and at whole-map
+    // framing a foam trail is a few pixels of churn beside a hull that is
+    // itself only thirty. It retracts into the stem as the camera pulls back.
+    visual.wake.visible = !frame.reducedMotion
+      && !constrained
+      && wakeIntensity > 0.08
+      && overviewDetail > 0;
+    visual.wake.scale.x = (0.7 + Math.min(1.5, wakeIntensity) * 0.85) * overviewDetail;
     const showShipDetail = showWorldDetail
       || visual.ship.detailId === frame.hoveredDetailId
       || visual.ship.detailId === frame.selectedDetailId;
@@ -1543,6 +1900,81 @@ function updateSceneForFrame(
   endFleetFrame(content.fleetBatches);
   content.shipShadows.instanceMatrix.needsUpdate = true;
   content.visibleShipCount = visibleShipCount;
+
+  // 3b: the cross-bearing buoys ride alongside their hulls, so they are placed
+  // once the ship transforms are final. One pass over the crossed ships only —
+  // usually a handful, and none at all on an ordinary afternoon — then a single
+  // buffer upload, the same discipline the shadows and the batches use.
+  // Nothing here is tier or reduced-motion gated: the buoy has no motion of its
+  // own, and it stops moving exactly when the ship it is moored to does.
+  for (let index = 0; index < content.crossBearingBuoyShips.length; index += 1) {
+    const visual = content.crossBearingBuoyShips[index]!;
+    content.crossBearingBuoys.place(index, visual.root.position.x, visual.root.position.z);
+  }
+  content.crossBearingBuoys.flush();
+
+  // The flight-to-quality flotilla, anchored on the same final hull transforms.
+  // Its boats have no motion sample of their own and no clock of their own: each
+  // one is an offset from its titan's position, which the loop above wrote from
+  // `frame.shipMotionSamples`, advanced along its run by the frame's own
+  // `timeSeconds`. `detail` is the overview policy's value, applied per instance
+  // because these matrices are world-space — the same gate the wakes use.
+  // Nothing runs when the gauge reported no flight: the list is empty.
+  for (let index = 0; index < content.flightTenderShips.length; index += 1) {
+    const visual = content.flightTenderShips[index]!;
+    content.flightTenders.place(index, visual.root.position.x, visual.root.position.z);
+  }
+  content.flightTenders.flush({
+    detail: overviewDetail,
+    reducedMotion: frame.reducedMotion,
+    timeSeconds: frame.timeSeconds,
+  });
+
+  // W6.4: the hero hulls' mirror columns, placed once the transforms above are
+  // final. One pass over ~29 heroes, one buffer upload, one draw call.
+  //
+  // At whole-map framing they are shed outright: a reflection is a soft image
+  // of a hull that is itself thirty pixels there, so it costs fill for nothing.
+  // That is the SAME gate the rest of the overview policy rides.
+  const reflectionsVisible = overviewDetail > 0 && !constrained;
+  content.heroReflections.mesh.visible = reflectionsVisible;
+  if (reflectionsVisible) {
+    for (let index = 0; index < content.heroReflectionShips.length; index += 1) {
+      const visual = content.heroReflectionShips[index]!;
+      // How wide the hull PRESENTS: the same footprint ellipse the contact
+      // shadow uses, measured along the screen horizontal (world (1,0,-1)/√2).
+      // A galleon lying broadside throws a broad reflection and the same hull
+      // seen bow-on throws a narrow one, which is what makes the column read as
+      // that ship rather than as a generic stripe.
+      const shadowRadius = Math.max(1.15, visual.selectionRadius * 1.25);
+      const hullForm = visual.ship.visual.hullForm;
+      const alongHull = shadowRadius * 1.65 * (hullForm?.length ?? 1);
+      const acrossHull = shadowRadius * 0.72 * (hullForm?.beam ?? 1);
+      const yaw = visual.root.rotation.y;
+      const cos = Math.cos(yaw);
+      const sin = Math.sin(yaw);
+      const footprint = Math.SQRT2 * Math.sqrt(
+        alongHull * alongHull * (cos + sin) * (cos + sin)
+        + acrossHull * acrossHull * (sin - cos) * (sin - cos),
+      );
+      // A hull's image on the water is its timber and its canvas together,
+      // canvas-weighted: the sails are most of what a ship presents from this
+      // angle, and they are the part that reads against open water.
+      scratchReflectionColor.copy(visual.hullColor).lerp(visual.sailColor, 0.6);
+      scratchReflectionPlacement.index = index;
+      scratchReflectionPlacement.mastheadHeight = visual.mastheadHeight * visual.root.scale.x;
+      scratchReflectionPlacement.strength = overviewDetail;
+      scratchReflectionPlacement.tileX = visual.root.position.x / TILE_SCALE;
+      scratchReflectionPlacement.tileY = visual.root.position.z / TILE_SCALE;
+      scratchReflectionPlacement.width = footprint;
+      scratchReflectionPlacement.worldX = visual.root.position.x;
+      scratchReflectionPlacement.worldZ = visual.root.position.z;
+      content.heroReflections.place(scratchReflectionPlacement);
+    }
+    // Reduced motion freezes the band drift at a composed pose, like every
+    // other time-driven surface in this renderer.
+    content.heroReflections.flush(frame.reducedMotion ? 0 : frame.timeSeconds);
+  }
 
   // Ship transforms are final — flutter the pennants (S8), ground moored
   // ships with karesansui ripple rings (S7 via contract C2 (d)), restamp the

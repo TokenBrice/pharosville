@@ -1,13 +1,18 @@
 import { PHAROSVILLE_API_CLIENT_ENDPOINTS } from "../../shared/lib/pharosville-api-client-contract";
 import {
+  buildLastGoodCacheKey,
   buildPathCacheKey,
   getEdgeCache,
   isJsonResponse,
   jsonErrorResponse,
+  LAST_GOOD_CACHE_PATH_PREFIX,
   maybeStoreJsonEdgeCache,
+  maybeStoreLastGoodEdgeCache,
+  readLastGoodEdgeCache,
   withDefaultJsonCacheControl,
   withSecurityHeaders,
   type EdgeCache,
+  type LastGoodEdgeEntry,
   type PagesContextWithWaitUntil,
 } from "../_shared";
 import type { PharosVilleApiEndpointKey } from "../../shared/types/pharosville-endpoint-keys";
@@ -91,6 +96,26 @@ function copyForwardedHeaders(upstream: Response): Headers {
 
 function prepareProxyResponseForCache(response: Response, maxAgeSec: number): Response {
   return withDefaultJsonCacheControl(response, maxAgeSec);
+}
+
+/**
+ * Serves the long-TTL last-good copy in place of a 502 when the upstream API is
+ * down, marked so the client tells the truth about it. `Warning: 110` is the
+ * marker `src/lib/api.ts` already reads to demote a payload out of `fresh`, and
+ * `x-data-age` carries the copy's own age plus the time it sat in the cache.
+ * `no-store` keeps browsers from pinning the stale body past the outage.
+ */
+function staleLastGoodResponse(entry: LastGoodEdgeEntry): Response {
+  const headers = copyForwardedHeaders(entry.response);
+  const upstreamAge = Number(headers.get("x-data-age"));
+  const baseAge = Number.isFinite(upstreamAge) && upstreamAge >= 0 ? upstreamAge : 0;
+  headers.set("x-data-age", String(baseAge + entry.storedAgeSeconds));
+  headers.set("warning", '110 - "Response is stale"');
+  headers.set("cache-control", "no-store");
+  return withSecurityHeaders(
+    new Response(entry.response.body, { status: 200, statusText: "OK", headers }),
+    API_SECURITY_RESPONSE_HEADERS,
+  );
 }
 
 function maybeStoreEdgeCache(
@@ -185,6 +210,14 @@ export async function onRequest(context: PagesContext): Promise<Response> {
   }
 
   const url = new URL(context.request.url);
+  // The last-good copies live under this prefix in `caches.default`, the same
+  // store the CDN serves this zone from. The allowlist below would 404 the
+  // prefix anyway; what matters here is `no-store`, so the refusal can never be
+  // cached onto a key and disable the fallback for the next 24 hours.
+  if (url.pathname.startsWith(LAST_GOOD_CACHE_PATH_PREFIX)) {
+    return jsonError("Not found", 404, { "cache-control": "no-store" });
+  }
+
   const endpoint = getAllowedEndpoint(url);
   if (!endpoint) {
     return jsonError("Not found", 404);
@@ -201,10 +234,21 @@ export async function onRequest(context: PagesContext): Promise<Response> {
   const cached = await cache?.match(cacheKey);
   if (cached) return withSecurityHeaders(cached, API_SECURITY_RESPONSE_HEADERS);
 
+  const lastGoodCacheKey = buildLastGoodCacheKey(url, CACHE_KEY_ORIGIN);
   const upstream = await fetchUpstream(buildUpstreamUrl(base, url), apiKey);
   if (!upstream.ok) {
     logUpstreamFailure(context, endpoint.path, upstream);
-    return jsonError("PharosVille API upstream request failed", 502);
+    const lastGood = await readLastGoodEdgeCache(cache, lastGoodCacheKey);
+    return lastGood
+      ? staleLastGoodResponse(lastGood)
+      : jsonError("PharosVille API upstream request failed", 502);
+  }
+
+  // An upstream 5xx is the same outage from the visitor's side. A 4xx is not —
+  // that is an answer about the request, and forwarding it stays honest.
+  if (upstream.response.status >= 500) {
+    const lastGood = await readLastGoodEdgeCache(cache, lastGoodCacheKey);
+    if (lastGood) return staleLastGoodResponse(lastGood);
   }
 
   const body = await projectUpstreamBody(context, endpoint.key, upstream.response);
@@ -214,5 +258,6 @@ export async function onRequest(context: PagesContext): Promise<Response> {
     headers: copyForwardedHeaders(upstream.response),
   }), endpoint.metaMaxAgeSec);
   maybeStoreEdgeCache(context, cache, cacheKey, response);
+  maybeStoreLastGoodEdgeCache(context, cache, lastGoodCacheKey, response);
   return withSecurityHeaders(response, API_SECURITY_RESPONSE_HEADERS);
 }

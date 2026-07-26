@@ -7,9 +7,11 @@ import type {
 } from "@shared/types";
 import type { ChainsResponse } from "@shared/types/chains";
 import type { CemeteryEntry } from "@shared/lib/cemetery-runtime";
+import type { MintBurnFlowsResponse } from "@shared/types/mint-burn";
 import type {
   DetailModel,
   DockNode,
+  FleetIssuance,
   LighthouseNode,
   PharosVilleFreshness,
   PharosVilleMap,
@@ -27,6 +29,11 @@ export interface PharosVilleInputs {
   pegSummary: PegSummaryResponse | null | undefined;
   stress: StressSignalsAllResponse | null | undefined;
   reportCards: ReportCardsResponse | null | undefined;
+  // Optional, unlike the six above: mint/burn is an ENRICHER. A world built
+  // without it is a real harbour whose quays simply report their issuance as
+  // unmeasured, so a caller that has no flow payload passes nothing rather than
+  // being forced to spell out its absence.
+  mintBurn?: MintBurnFlowsResponse | null | undefined;
   cemeteryEntries?: readonly CemeteryEntry[];
   freshness: PharosVilleFreshness;
   routeMode?: PharosVilleWorld["routeMode"];
@@ -35,6 +42,7 @@ export interface PharosVilleInputs {
 export type PharosVilleWorldBase = Omit<PharosVilleWorld, "detailIndex" | "entityById" | "visualCues">;
 
 export interface BuildWorldScaffoldStage {
+  supplyTide: PharosVilleWorld["supplyTide"];
   map: PharosVilleMap;
   lighthouse: LighthouseNode;
   pigeonnier: PigeonnierNode;
@@ -49,6 +57,11 @@ export interface BuildShipsStage {
 
 export interface DockAssignmentStage {
   ships: ShipNode[];
+}
+
+export interface CargoTideStage {
+  docks: DockNode[];
+  fleetIssuance: FleetIssuance | null;
 }
 
 export interface DetailIndexStage {

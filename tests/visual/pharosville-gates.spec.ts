@@ -140,7 +140,11 @@ test(...visualLane("motion", "day, dusk, night, and reduced-motion states render
       expect(runtime.activeMotionLoopCount).toBe(0);
       expect(runtime.motionClockSource).toBe("reduced-motion-static-frame");
       expect(runtime.timeSeconds).toBe(0);
-      await expect(page.getByRole("button", { name: "Observe harbor" })).toHaveCount(0);
+      // Reduced motion keeps the observe control and turns it into a stepper,
+      // so it stays reachable but never latches; with timeSeconds pinned at 0
+      // above, that is the proof nothing moves until the reader asks.
+      await expect(page.getByRole("button", { name: "Observe harbor" }))
+        .toHaveAttribute("aria-pressed", "false");
     } else {
       await expect.poll(async () => (
         (await readGateTelemetry(page)).framePacing?.sampleCount ?? 0
@@ -231,15 +235,35 @@ test(...visualLane("accessibility", "Observe control preserves accessible, inter
   await expect(observe).toHaveAttribute("aria-pressed", "false");
   await expect(observe).toHaveAttribute("aria-label", "Observe harbor");
 
+  // Reduced motion no longer retires the control: the timed tour becomes a
+  // stepper, so a reader who cannot take the tour still reaches every beat
+  // under their own hand. It stops being a toggle at the same moment, so it
+  // never latches into a "stop" state the next press would not honour.
+  const caption = page.getByTestId("pharosville-observe-caption");
   await observe.click();
   await observe.focus();
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await expect(observe).toHaveCount(0);
-  await expect(page.getByTestId("pharosville-observe-caption")).toHaveCount(0);
-  await expect(page.getByTestId("pharosville-world")).toBeFocused();
+  await expect(observe).toBeVisible();
+  await expect(observe).toHaveAttribute("aria-pressed", "false");
+  await expect(observe).toHaveAttribute("aria-label", "Observe harbor");
+
+  await page.keyboard.press("Escape");
+  await expect(caption).toHaveCount(0);
+  await observe.click();
+  await expect(caption).toContainText("Observe 1/");
+  await observe.click();
+  await expect(caption).toContainText("Observe 2/");
+  // No beat timer runs under reduced motion, so the beat holds until asked.
+  await page.waitForTimeout(600);
+  await expect(caption).toContainText("Observe 2/");
 
   // The sea's place-names are carved boards in the world (garden-sea-signs),
-  // not DOM chips; detail access flows through the canvas hit targets.
+  // not DOM chips; detail access flows through the canvas hit targets, which
+  // Tab cycles and Enter opens from the world shell itself. Focus has to be on
+  // the shell for that: the shell's key handler defers to any interactive
+  // element, so tabbing away from the observe button would reach the next
+  // control instead.
+  await page.getByTestId("pharosville-world").focus();
   await page.keyboard.press("Tab");
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("pharosville-detail-panel")).toBeVisible();

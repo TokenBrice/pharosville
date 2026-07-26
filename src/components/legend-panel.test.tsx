@@ -68,6 +68,25 @@ describe("LegendPanel", () => {
     expect(markup).toContain("4 ships in elevated water");
   });
 
+  it("closes and starts observing from the closing call to action", () => {
+    const calls: string[] = [];
+    render(
+      <LegendPanel
+        onClose={() => calls.push("close")}
+        onObserve={() => calls.push("observe")}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Watch the harbor" }));
+    expect(calls).toEqual(["close", "observe"]);
+  });
+
+  it("omits the call to action when observing is unavailable", () => {
+    const markup = renderToStaticMarkup(<LegendPanel onClose={() => undefined} />);
+
+    expect(markup).not.toContain("Watch the harbor");
+  });
+
   it("renders the flat-week recent mover message", () => {
     const markup = renderToStaticMarkup(
       <LegendPanel

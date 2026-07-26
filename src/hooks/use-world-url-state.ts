@@ -112,6 +112,26 @@ export function parseInitialWorldUrlState(world: PharosVilleWorldModel): {
   };
 }
 
+/**
+ * A link built for sharing rather than for the address bar.
+ *
+ * The world keeps its params in the fragment, which never reaches a server, so
+ * an unfurled link would always show the generic card no matter what was
+ * selected. Sharing moves them to the query string, which `functions/index.ts`
+ * can read to rewrite the card — and which `chooseDescriptorTarget` reads back
+ * as the owned target, since the fragment it prefers is left empty here.
+ */
+export function buildShareableWorldUrlHref(currentHref: string): string {
+  const url = new URL(currentHref);
+  const hashParams = paramsFromHash(url.hash);
+  const searchParams = new URLSearchParams(url.search);
+  const owned = chooseDescriptorTarget(hashParams, searchParams) === "hash" ? hashParams : searchParams;
+  const search = owned.toString();
+  url.hash = "";
+  url.search = search ? `?${search}` : "";
+  return url.href;
+}
+
 export function buildWorldUrlHref(
   currentHref: string,
   target: WorldUrlDescriptorTarget,

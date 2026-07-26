@@ -17,6 +17,27 @@ describe("PharosVille controls content", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
+  // The session hour is a key press now. Telling visitors to type a parameter
+  // into the address bar is not an affordance, and nothing should reintroduce
+  // it — the `t=` link itself still works, undocumented as a thing to hand-edit.
+  it("documents the time-of-day keys instead of hand-editing the address", () => {
+    expect(PHAROSVILLE_CONTROL_ACTIONS).toContainEqual(
+      expect.objectContaining({
+        id: "nudge-session-hour",
+        inputs: [
+          expect.objectContaining({ kind: "keyboard", tokens: ["["] }),
+          expect.objectContaining({ kind: "keyboard", tokens: ["]"] }),
+        ],
+      }),
+    );
+    for (const action of PHAROSVILLE_CONTROL_ACTIONS) {
+      expect(action.summary).not.toContain("t=");
+      for (const input of action.inputs) {
+        expect(input.label).not.toContain("t=");
+      }
+    }
+  });
+
   it("describes keyboard and mouse world actions as structured inputs", () => {
     expect(PHAROSVILLE_CONTROL_ACTIONS).toContainEqual(
       expect.objectContaining({

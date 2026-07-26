@@ -132,6 +132,68 @@ for the fleet to populate and then for the pacing ring to refill before reading,
 because both the snapshot rebuild and the load spike otherwise dominate the
 window.
 
+### The perf tripwire (`--assert`)
+
+```bash
+npm run preview -- --assert
+npm run preview -- --assert --max-p90=20 --max-draw-calls=700 --require-tier=full
+```
+
+`--assert` turns those printed numbers into a gate. Defaults: scheduler tier
+`full`, p90 ≤ 20 ms (a vsync-capped frame is 16.7 ms, so this tolerates the odd
+missed vsync without accepting 33 ms — a whole dropped frame), and ≤ 700 draw
+calls. It reads three rings spaced longer apart than the 120-sample window and
+asserts the median p90, so no read still carries load-spike frames and one
+background spike on a busy machine cannot block a push while a real regression —
+which shows in all three — still does.
+
+It has three outcomes, never two:
+
+| exit | meaning |
+| --- | --- |
+| 0 | measured on the real GPU, within thresholds |
+| 1 | measured, and it regressed |
+| 78 | **not measured** — nothing is being claimed either way |
+
+Exit 78 is the honest-degradation path, and it is why the gate can live on a
+machine-dependent measurement at all. It fires under `CI`, when the Chrome
+wrapper is missing, when there is no X11/Wayland display, when nothing is
+serving the target URL, when the world never populates, and when the renderer
+turns out to be SwiftShader after all. A bare `npm run preview` still fails loudly
+on SwiftShader instead of skipping, because that run was asked for deliberately.
+
+`validate:deploy-gate` — the pre-push gate for `main` — runs `--assert` last and
+treats 78 as SKIP. CI, which has no GPU, therefore skips it every time rather
+than pretending to have measured a GPU frame. A skip still exits 0, so the last
+line of every run carries the verdict that says which happened:
+`PHAROSVILLE_DEPLOY_GATE: PASS` or `PHAROSVILLE_DEPLOY_GATE: PASS_PERF_SKIPPED`.
+Grep for that token rather than trusting the exit code alone; under GitHub
+Actions the same line lands in the step summary, and a skip also raises a
+`::warning::` annotation.
+
+The thresholds are calibrated on the DEFAULT framing, which on an RTX 5070 Ti at
+1600x1000 measures 60 fps, p50/p90 16.7 ms, tier `full`, and 620–693 draw calls
+(2026-07-26). Note how little draw-call headroom that leaves: a feature that adds
+~50 calls will trip the tripwire, and the answer is to batch it, not to raise the
+number.
+
+**Whole-map framing is already over budget, and the gate deliberately does not
+run it.** At the reachable zoom floor (`ABSOLUTE_MIN_ZOOM` 0.28 — the viewport
+fit computes below it, so this is as far out as a visitor can pull):
+
+```bash
+npm run preview -- --assert --hash "#cam=0,0,0.28"
+```
+
+measures **909 draw calls, p90 33.4 ms, tier `recovery`, 37.7 fps** over a full
+120-sample ring (2026-07-26, RTX 5070 Ti, 1600x1000). That is the frame recorded
+mid-flight as "~855" — it grew rather than went away. Gating on it would block
+every push on pre-existing debt, so the tripwire guards the default framing
+against NEW regressions and this stays an open item. Do not raise the 700 ceiling
+to make it pass. Note also that `cam=` from the URL is not clamped to the zoom
+floor, so smaller values render a framing no visitor can reach; anything below
+0.28 is not a valid measurement.
+
 ### The CI visual lane cannot render this world
 
 Reproduced in `mcr.microsoft.com/playwright:v1.59.1-noble`, the exact CI image:
@@ -166,8 +228,11 @@ accessibility lane. So the GPU-dependent contracts are gated at push time on a
 real GPU rather than not at all.
 
 **Known cost, stated plainly:** a renderer regression that only shows on a GPU
-will not be caught by CI. It will be caught by the pre-push gate. If that trade
-stops being acceptable, the fix is a GPU runner for the visual job.
+will not be caught by CI. It will be caught by the pre-push gate — the visual
+lanes above for correctness, and the `--assert` perf tripwire for frame time and
+draw calls. Both are real measurements on real hardware or an explicit skip;
+neither ever runs in CI. If that trade stops being acceptable, the fix is a GPU
+runner for the visual job.
 
 ## Release confidence
 

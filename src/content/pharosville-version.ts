@@ -8,6 +8,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   signalClarity: "v0.2.2",
   trueWaters: "v0.3.0",
   lanternSea: "v0.4.0",
+  cargoTide: "v0.5.0",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.lanternSea;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.cargoTide;

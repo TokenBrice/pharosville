@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { HitTargetSnapshot } from "../renderer/hit-testing";
 import { defaultCamera } from "../systems/camera";
 import type { ShipMotionSample } from "../systems/motion";
@@ -224,6 +225,54 @@ describe("follow camera helpers", () => {
 
     expect(dampFollowCamera(current, target, 0)).toBe(current);
     expect(dampFollowCamera(current, target, 1, 0)).toBe(current);
+  });
+});
+
+describe("world keyboard shortcuts", () => {
+  function keyEvent(key: string, target: EventTarget) {
+    return {
+      key,
+      shiftKey: false,
+      target,
+      preventDefault: vi.fn(),
+    } as unknown as ReactKeyboardEvent<HTMLElement>;
+  }
+
+  function renderWithCamera(input: UseCanvasResizeAndCameraInput) {
+    const { result } = renderHook(() => useCanvasResizeAndCamera(input));
+    act(() => {
+      result.current.setCamera(defaultCamera({ height: 600, map: world.map, width: 800 }));
+    });
+    return result;
+  }
+
+  it("clears the selection on Escape from the world itself", () => {
+    const onClearSelection = vi.fn();
+    const result = renderWithCamera(makeCanvasInput({ onClearSelection }));
+
+    act(() => {
+      result.current.handleKeyDown(keyEvent("Escape", document.createElement("main")));
+    });
+
+    expect(onClearSelection).toHaveBeenCalledTimes(1);
+  });
+
+  // The reference panels render inside the shell, so their Escape reaches this
+  // handler too. It closes the panel; taking the selection with it would leave
+  // the visitor holding neither.
+  it("leaves the selection alone on Escape from inside an open panel", () => {
+    const onClearSelection = vi.fn();
+    const result = renderWithCamera(makeCanvasInput({ onClearSelection }));
+    const panel = document.createElement("aside");
+    panel.setAttribute("role", "dialog");
+    const closeButton = document.createElement("button");
+    panel.append(closeButton);
+
+    act(() => {
+      result.current.handleKeyDown(keyEvent("Escape", closeButton));
+    });
+
+    expect(onClearSelection).not.toHaveBeenCalled();
   });
 });
 

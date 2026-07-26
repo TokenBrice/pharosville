@@ -39,10 +39,55 @@ import type {
   PlacementEvidence,
   ShipChainPresence,
   ShipDepegHistory,
+  ShipDexCrossCheck,
   ShipNode,
   ShipRiskPlacement,
 } from "../../world-types";
 import type { BuildShipsStage, PharosVilleInputs } from "../pipeline-types";
+
+/**
+ * Tier 3 #13 — the peg trim ladder.
+ *
+ * Deliberately the SAME 50/200 bps steps `risk-placement.ts:deviationPlacement`
+ * uses to move a ship out of the calm anchorage, so the hull starts riding
+ * off-level at exactly the deviation the world already thinks is worth
+ * relocating a ship for. `ship-placement.test.ts` asserts that agreement
+ * against `resolveShipRiskPlacement` rather than trusting the comment.
+ */
+export const SHIP_TRIM_BPS_GATE = 50;
+export const SHIP_TRIM_BPS_FULL = 200;
+
+/**
+ * One trim step, in ship-local units. The hull's topsides run from the
+ * waterline to a gunwale at local y ≈ 0.47, so a step is about a sixth of the
+ * freeboard and a full trim about a third — clearly legible on a hull you are
+ * looking AT, and well under the ~0.7-unit isometric silhouette threshold at
+ * fleet zoom even on the largest titan. That is the intended reading: the
+ * direction of a peg break is an inspect-zoom fact, and the fleet-zoom fact is
+ * which water the ship is anchored in, which `cue.ship.distance` already draws.
+ */
+export const SHIP_TRIM_STEP = 0.08;
+
+/**
+ * Signed waterline offset for a coin's live peg deviation.
+ *
+ * Positive bps means trading ABOVE par — demand outrunning redemption — and she
+ * rides high; negative means below par, and she sits low and heavy. Stale peg
+ * evidence yields an even keel, because `resolveShipRiskPlacement` refuses to
+ * move a ship on stale deviation and the hull must not make a claim the berth
+ * has already declined to make.
+ */
+export function shipWaterlineTrim(
+  deviationBps: number | null | undefined,
+  pegSummaryStale: boolean,
+): number {
+  if (pegSummaryStale) return 0;
+  if (typeof deviationBps !== "number" || !Number.isFinite(deviationBps)) return 0;
+  const magnitude = Math.abs(deviationBps);
+  if (magnitude < SHIP_TRIM_BPS_GATE) return 0;
+  const steps = magnitude >= SHIP_TRIM_BPS_FULL ? 2 : 1;
+  return Math.sign(deviationBps) * steps * SHIP_TRIM_STEP;
+}
 
 /** Which sea body each risk placement's ships belong in. */
 const SEA_BODY_FOR_PLACEMENT: Record<ShipRiskPlacement, SeaBodyName> = {
@@ -160,6 +205,42 @@ function depegEventEpochMs(value: number | null | undefined): number | null {
   return value < 10_000_000_000 ? value * 1000 : value;
 }
 
+/**
+ * The second bearing on a coin's price, when one was taken.
+ *
+ * Everything here is a straight copy of what the pipeline reported, with one
+ * rule enforced: a node exists only when a check actually ran. `dexPriceCheck`
+ * is both optional and nullable upstream, and collapsing "no check" into a
+ * default would make silence read as agreement — the one mistake this signal
+ * cannot afford, because silence is the normal state for most of the fleet.
+ */
+function shipDexCrossCheck(
+  pegCoin: { dexPriceCheck?: { dexPrice: number; dexDeviationBps: number; agrees: boolean; sourcePools: number; sourceTvl: number } | null | undefined } | undefined,
+  asset: { price: number | null },
+  oracleDeviationBps: number | null,
+): ShipDexCrossCheck | undefined {
+  const check = pegCoin?.dexPriceCheck;
+  if (!check) return undefined;
+  const dexPrice = finiteOrNull(check.dexPrice);
+  const dexDeviationBps = finiteOrNull(check.dexDeviationBps);
+  // A reading with no price and no deviation is not a bearing; it is a row the
+  // pipeline could not fill, and it stays absent rather than becoming a buoy.
+  if (dexPrice === null || dexDeviationBps === null) return undefined;
+  return {
+    dexPrice,
+    dexDeviationBps,
+    oraclePrice: finiteOrNull(asset.price),
+    oracleDeviationBps: finiteOrNull(oracleDeviationBps),
+    agrees: check.agrees === true,
+    sourcePools: Math.max(0, Math.trunc(finiteOrNull(check.sourcePools) ?? 0)),
+    sourceTvlUsd: Math.max(0, finiteOrNull(check.sourceTvl) ?? 0),
+  };
+}
+
+function finiteOrNull(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function shipDepegHistory(
   pegCoin: { eventCount: number; worstDeviationBps: number | null; lastEventAt: number | null } | undefined,
 ): ShipDepegHistory | null {
@@ -272,6 +353,12 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
     const riskWaterArea = riskWaterAreaForPlacement(risk.placement);
     const stressBreakdown = shipStressBreakdown(stress, risk.placement);
     const stamped = squad && flagshipRisk ? stampSquad(asset.id, squad) : null;
+    const dexCrossCheck = shipDexCrossCheck(pegCoin, asset, pegCoin?.currentDeviationBps ?? null);
+    const shipVisual = resolveShipVisual(asset, meta, reportCard);
+    const waterline = shipWaterlineTrim(
+      pegCoin?.currentDeviationBps,
+      inputs.freshness.pegSummaryStale === true,
+    );
     return {
       id: asset.id,
       kind: "ship" as const,
@@ -294,7 +381,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
       riskWaterLabel: riskWaterArea.label,
       placementEvidence: risk.evidence,
       ...(stressBreakdown ? { stressBreakdown } : {}),
-      visual: resolveShipVisual(asset, meta, reportCard),
+      visual: { ...shipVisual, hullForm: { ...shipVisual.hullForm, waterline } },
       change24hUsd: recent.change24hUsd,
       change24hPct: recent.change24hPct,
       pegDeviationBps: pegCoin?.currentDeviationBps ?? null,
@@ -302,6 +389,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
       change7dPct: recent.change7dPct,
       change30dPct: recent.change30dPct,
       depegHistory: shipDepegHistory(pegCoin),
+      ...(dexCrossCheck ? { dexCrossCheck } : {}),
       detailId: `ship.${asset.id}`,
       ...(stamped ? { squadId: stamped.squadId, squadRole: stamped.role } : {}),
     };
@@ -339,6 +427,100 @@ export function countShipsByRiskPlacement(
   return counts;
 }
 
+/**
+ * STICKY PLACEMENT — the previous build's risk tiles, keyed by ship id.
+ *
+ * The tile a ship gets is not a function of that ship alone. The spread below
+ * is greedy farthest-point sampling walked in market-cap order, so a coin whose
+ * supply ticked by a tenth of a percent reorders the walk and hands DIFFERENT
+ * tiles to ships whose own data did not move at all. Measured on the full
+ * active catalog, a 0.1% supply wiggle with ZERO placement changes still moved
+ * 36 of 205 risk tiles. Each move is a new `pathKey`, so it also re-solves that
+ * ship's A* routes — the ~320ms half of the refresh freeze that
+ * `world-renderer.ts` measured — and it makes ships teleport on refresh, which
+ * an ambient view can least afford.
+ *
+ * So the build is deterministic given (inputs, previous placements) rather than
+ * inputs alone: a ship keeps its tile while its RISK PLACEMENT is unchanged and
+ * the tile is still legal water for that placement. Consorts are never held —
+ * they snap to their flagship's tile plus a formation offset, so holding the
+ * flagship already holds them, and holding them independently would let a
+ * formation break apart when its flagship moves.
+ */
+type HeldRiskTile = { placement: ShipRiskPlacement; tile: { x: number; y: number } };
+let heldRiskTiles = new Map<string, HeldRiskTile>();
+
+/** Drops sticky placement so a test starts from a cold build. */
+export function resetHeldShipPlacements(): void {
+  heldRiskTiles = new Map();
+}
+
+/**
+ * Below this many held ships the packing measure below is noise, and holding
+ * a handful of ships costs nothing to re-pack anyway.
+ */
+const REPACK_MIN_HELD_SHIPS = 4;
+
+/**
+ * Held tiles are a fossil of the population they were packed for. Ships leaving
+ * a placement free up water that the survivors never spread into, so over a long
+ * session a shrinking placement ends up huddled in a corner of its own sea.
+ *
+ * The re-pack trigger is therefore a DENSITY check, not a timer: compare the
+ * closest pair among the held tiles against the spacing an even fill of that
+ * placement's water would give the CURRENT ship count. Measured on the full
+ * active catalog, a fresh greedy pack sits at 0.87-1.07 of that ideal and 120
+ * simulated refreshes (supply wiggling, ships joining and leaving, placements
+ * migrating) never fell below 0.76 — so 0.7 does not fire on a healthy hold,
+ * and it does sit just under the worst drift a long session actually produces.
+ * A re-pack reproduces exactly what a cold build would produce, so the failure
+ * mode of firing too eagerly is a lost hold, never a bad map.
+ */
+const REPACK_MIN_SPACING_RATIO = 0.7;
+
+function heldTilesForPlacement(
+  ships: readonly ShipNode[],
+  placement: ShipRiskPlacement,
+): Map<string, { x: number; y: number }> {
+  const held = new Map<string, { x: number; y: number }>();
+  const claimed = new Set<string>();
+  for (const ship of ships) {
+    if (ship.squadRole === "consort") continue;
+    const memory = heldRiskTiles.get(ship.id);
+    if (!memory || memory.placement !== placement) continue;
+    const key = tileKey(memory.tile);
+    if (claimed.has(key)) continue;
+    // The sea can be reshaped under a held tile (Sea Master, garden obstacles),
+    // and a placement's water set is authored, not stored with the memory.
+    if (!isRiskPlacementWaterTile(memory.tile, placement)) continue;
+    claimed.add(key);
+    held.set(ship.id, memory.tile);
+  }
+  return heldTilesStillPacked(held, ships, placement) ? held : new Map();
+}
+
+function heldTilesStillPacked(
+  held: ReadonlyMap<string, { x: number; y: number }>,
+  ships: readonly ShipNode[],
+  placement: ShipRiskPlacement,
+): boolean {
+  if (held.size < REPACK_MIN_HELD_SHIPS) return true;
+  const spreadShipCount = ships.filter((ship) => ship.squadRole !== "consort").length;
+  if (spreadShipCount === 0) return true;
+  const idealSpacing = Math.sqrt(riskPlacementWaterTiles(placement).length / spreadShipCount);
+  const tiles = [...held.values()];
+  let closestPair = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < tiles.length; i += 1) {
+    for (let j = i + 1; j < tiles.length; j += 1) {
+      const dx = tiles[i]!.x - tiles[j]!.x;
+      const dy = tiles[i]!.y - tiles[j]!.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      if (distance < closestPair) closestPair = distance;
+    }
+  }
+  return closestPair >= idealSpacing * REPACK_MIN_SPACING_RATIO;
+}
+
 function spreadShipRiskAnchorsAcrossWater(ships: ShipNode[]): ShipNode[] {
   const sortedShips = ships.toSorted((a, b) => b.marketCapUsd - a.marketCapUsd || a.id.localeCompare(b.id));
   const occupied = new Set<string>();
@@ -351,22 +533,40 @@ function spreadShipRiskAnchorsAcrossWater(ships: ShipNode[]): ShipNode[] {
     shipsByPlacement.set(ship.riskPlacement, placementShips);
   }
 
+  // Every held berth is claimed before ANY placement spreads, because placements
+  // that accept "any-water" overlap each other's tiles: an earlier placement's
+  // greedy pass would otherwise take a tile a later placement is still holding.
+  const heldByPlacement = new Map<ShipRiskPlacement, Map<string, { x: number; y: number }>>();
   for (const placement of SHIP_RISK_PLACEMENTS) {
     const placementShips = shipsByPlacement.get(placement) ?? [];
     if (placementShips.length === 0) continue;
+    const held = heldTilesForPlacement(placementShips, placement);
+    heldByPlacement.set(placement, held);
+    for (const tile of held.values()) occupied.add(tileKey(tile));
+  }
 
-    for (const ship of spreadRiskPlacementShips(placementShips, placement, occupied)) {
+  for (const placement of SHIP_RISK_PLACEMENTS) {
+    const placementShips = shipsByPlacement.get(placement) ?? [];
+    if (placementShips.length === 0) continue;
+    const held = heldByPlacement.get(placement) ?? new Map();
+
+    for (const ship of spreadRiskPlacementShips(placementShips, placement, occupied, held)) {
       updatedShips.set(ship.id, ship);
     }
   }
 
-  return sortedShips.map((ship) => updatedShips.get(ship.id) ?? ship);
+  const placed = sortedShips.map((ship) => updatedShips.get(ship.id) ?? ship);
+  heldRiskTiles = new Map(placed
+    .filter((ship) => ship.squadRole !== "consort")
+    .map((ship) => [ship.id, { placement: ship.riskPlacement, tile: ship.riskTile }]));
+  return placed;
 }
 
 function spreadRiskPlacementShips(
   ships: readonly ShipNode[],
   placement: ShipRiskPlacement,
   occupied: Set<string>,
+  held: ReadonlyMap<string, { x: number; y: number }>,
 ): ShipNode[] {
   // 1) Place flagships and non-squad ships first (so each squad's flagship.tile is fixed)
   // 2) For each consort, find its squad's flagship and snap to that flagship's
@@ -376,7 +576,7 @@ function spreadRiskPlacementShips(
   const consorts = ships.filter((s) => s.squadRole === "consort");
   const others = ships.filter((s) => s.squadRole !== "consort");
 
-  const placedOthers = othersSpread(others, placement, occupied);
+  const placedOthers = othersSpread(others, placement, occupied, held);
   const flagshipsBySquadId = new Map<string, ShipNode>();
   for (const placed of placedOthers) {
     if (placed.squadRole === "flagship" && placed.squadId) {
@@ -415,6 +615,7 @@ function othersSpread(
   ships: readonly ShipNode[],
   placement: ShipRiskPlacement,
   occupied: Set<string>,
+  held: ReadonlyMap<string, { x: number; y: number }>,
 ): ShipNode[] {
   const candidates = riskPlacementWaterTiles(placement);
   // Distance from each candidate to the NEAREST already-placed ship in this
@@ -429,16 +630,7 @@ function othersSpread(
   const spacingToNearest = new Float64Array(candidates.length).fill(Number.POSITIVE_INFINITY);
   let placedCount = 0;
 
-  return ships.map((ship) => {
-    const riskTile = spacedRiskPlacementTile({
-      candidates,
-      hasPlaced: placedCount > 0,
-      occupied,
-      preferred: ship.riskTile,
-      spacingToNearest,
-      seed: `${ship.id}.${placement}.risk-spread`,
-    }) ?? nearestAvailableWaterTile(ship.riskTile, occupied);
-
+  const notePlaced = (riskTile: { x: number; y: number }): void => {
     occupied.add(tileKey(riskTile));
     for (let index = 0; index < candidates.length; index += 1) {
       const candidate = candidates[index]!;
@@ -451,6 +643,29 @@ function othersSpread(
       if (distance < spacingToNearest[index]!) spacingToNearest[index] = distance;
     }
     placedCount += 1;
+  };
+
+  // Held ships land before anything is scored, so the ships that DO need a new
+  // tile spread away from the whole placement rather than only from each other.
+  for (const ship of ships) {
+    const heldTile = held.get(ship.id);
+    if (heldTile) notePlaced(heldTile);
+  }
+
+  return ships.map((ship) => {
+    const heldTile = held.get(ship.id);
+    if (heldTile) return { ...ship, tile: heldTile, riskTile: heldTile };
+
+    const riskTile = spacedRiskPlacementTile({
+      candidates,
+      hasPlaced: placedCount > 0,
+      occupied,
+      preferred: ship.riskTile,
+      spacingToNearest,
+      seed: `${ship.id}.${placement}.risk-spread`,
+    }) ?? nearestAvailableWaterTile(ship.riskTile, occupied);
+
+    notePlaced(riskTile);
     return { ...ship, tile: riskTile, riskTile };
   });
 }

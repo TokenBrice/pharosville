@@ -29,9 +29,11 @@ import {
   gardenIslandDisplayTile,
 } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE } from "../systems/palette";
+import type { SupplyTide } from "../systems/supply-tide";
 import type { PharosVilleWorld } from "../systems/world-types";
 import { createLighthouse } from "./garden-lighthouse";
 import { setTilePosition, stableUnit } from "./garden-util";
+import { sampleTideLine } from "./garden-tide-line";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
 
 const scratchMatrix = new Matrix4();
@@ -41,6 +43,9 @@ const scratchLeanQuaternion = new Quaternion();
 // Height-graded rock ramp: dark wet stone at the waterline climbs to pale
 // weathered limestone at the crown. Terrace tops carry a planted colour.
 const WATERLINE_Y = WATER_LEVEL;
+
+/** The datum notch: scored iron, not the salt crust the PSI mark already uses. */
+const TIDE_DATUM_IRON = new Color(HARBOR_PALETTE.iron_dark);
 const CROWN_RAMP_Y = 3.4;
 const STONE_WET = new Color("#242d28");
 const STONE_MID = new Color("#828874");
@@ -244,7 +249,7 @@ export function createTerracedIsland(
   // re-skinned as displaced rock with a wet-base → pale-crown vertex gradient.
   for (const [topRadius, bottomRadius, height, segments, seed, x, y, z, scaleZ, rotation, topColor] of ISLAND_TIERS) {
     const tier = new Mesh(
-      createRockTerraceGeometry(topRadius, bottomRadius, height, segments, seed, y, topColor),
+      createRockTerraceGeometry(topRadius, bottomRadius, height, segments, seed, y, topColor, 0.11, world.supplyTide),
       rockMaterial,
     );
     tier.position.set(x, y, z);
@@ -458,11 +463,21 @@ function createIrregularTerraceGeometry(
   return geometry;
 }
 
-function stoneRampColor(worldY: number, target: Color): Color {
+function stoneRampColor(worldY: number, target: Color, tide?: SupplyTide): Color {
   const t = clamp01((worldY - WATERLINE_Y) / (CROWN_RAMP_Y - WATERLINE_Y));
   if (t < 0.5) target.copy(STONE_WET).lerp(STONE_MID, t / 0.5);
   else target.copy(STONE_MID).lerp(STONE_PALE, (t - 0.5) / 0.5);
-  return target.multiplyScalar(strataShade(worldY));
+  target.multiplyScalar(strataShade(worldY));
+  // The tide line rides the ramp the shore rock already paints, so the band
+  // costs no geometry and no draw call. Wetting pulls the stone back toward its
+  // own submerged colour rather than toward some new ink, which is what keeps
+  // the band reading as water on rock instead of as a decal.
+  if (tide) {
+    const { datum, wet } = sampleTideLine(worldY - WATERLINE_Y, tide);
+    if (wet > 0) target.lerp(STONE_WET, wet * 0.6);
+    if (datum > 0) target.lerp(TIDE_DATUM_IRON, 0.7);
+  }
+  return target;
 }
 
 /**
@@ -481,6 +496,7 @@ export function createRockTerraceGeometry(
   baseElevation: number,
   topColor: Color,
   amplitude = 0.11,
+  tide?: SupplyTide,
 ): CylinderGeometry {
   // W4.9: enough height rows to resolve a bedding step (~3 rows per bed at
   // STRATA_PERIOD). Three rows could carry a colour band but never an edge,
@@ -528,7 +544,7 @@ export function createRockTerraceGeometry(
       positions.setY(index, oy + crag * vignette * height * 0.16);
     }
     const ao = 0.7 + 0.3 * v;
-    stoneRampColor(colorY, color).multiplyScalar(ao);
+    stoneRampColor(colorY, color, tide).multiplyScalar(ao);
     colors[index * 3] = color.r;
     colors[index * 3 + 1] = color.g;
     colors[index * 3 + 2] = color.b;
@@ -560,7 +576,7 @@ export function createRockTerraceGeometry(
             `${seed}~bare~${Math.round(vx * 2.2)}~${Math.round(vz * 2.2)}`,
           );
           const bare = clamp01(rim * 0.9 + (patch - 0.52) * 1.15);
-          stoneRampColor(baseElevation + vy, capColor);
+          stoneRampColor(baseElevation + vy, capColor, tide);
           color.copy(topColor).lerp(capColor, bare);
           color.multiplyScalar(
             0.86 + stableUnit(`${seed}~mottle~${Math.round(vx * 3)}~${Math.round(vz * 3)}`) * 0.3,
@@ -1676,9 +1692,29 @@ function isPlantable(x: number, z: number): boolean {
 }
 
 /**
- * Deterministic scatter over the planted shelves: a golden-angle spiral
- * (stable, non-clumping, no rejection loop that could vary with seeding) is
- * filtered by the keep-outs and by the height band each species tolerates.
+ * Planting drifts, as `[x, z, radius, share of the attempt budget]`.
+ *
+ * The rockwork on this island is composed in odd-numbered groups with open
+ * ground between them, and the planting has to obey the same rule: an even
+ * scatter across the whole shelf reads as ground cover, not as a garden. Five
+ * drifts of unequal size and weight sit under the existing tree grove —
+ * understory follows canopy — while the harbour approach, the lighthouse
+ * precinct and the whole south-east shelf are left deliberately bare.
+ */
+const PLANTING_DRIFTS: readonly (readonly [number, number, number, number])[] = [
+  [-4.4, -7.2, 3.9, 0.26],
+  [-12.4, 4.4, 3.6, 0.22],
+  [2.0, -6.6, 3.2, 0.2],
+  [11.0, 1.2, 3.0, 0.18],
+  [-2.0, 6.6, 2.6, 0.14],
+];
+
+/**
+ * Deterministic scatter over the planted shelves, filtered by the keep-outs and
+ * by the height band each species tolerates. Each drift is filled by its own
+ * golden-angle spiral, so a thicket covers its ground evenly without clumping
+ * into a lump, while the island-scale distribution stays grouped. No rejection
+ * loop, so the result cannot vary with seeding.
  */
 function plantingPoints(
   seed: string,
@@ -1687,18 +1723,21 @@ function plantingPoints(
   maxHeight: number,
 ): { height: number; x: number; z: number }[] {
   const points: { height: number; x: number; z: number }[] = [];
-  for (let index = 0; index < attempts; index += 1) {
-    const angle = index * 2.399963;
-    const radius = 17.4 * Math.sqrt((index + 0.5) / attempts);
-    const x = 0.6 + Math.cos(angle) * radius
-      + (stableUnit(`${seed}.x.${index}`) - 0.5) * 1.6;
-    const z = 1.2 + Math.sin(angle) * radius * 0.7
-      + (stableUnit(`${seed}.z.${index}`) - 0.5) * 1.2;
-    const height = islandTerrainHeight(x, z);
-    if (height < minHeight || height > maxHeight) continue;
-    if (!isPlantable(x, z)) continue;
-    points.push({ height, x, z });
-  }
+  PLANTING_DRIFTS.forEach(([centerX, centerZ, radius, share], drift) => {
+    const budget = Math.max(1, Math.round(attempts * share));
+    for (let index = 0; index < budget; index += 1) {
+      const angle = index * 2.399963;
+      const reach = radius * Math.sqrt((index + 0.5) / budget);
+      const x = centerX + Math.cos(angle) * reach
+        + (stableUnit(`${seed}.${drift}.x.${index}`) - 0.5) * 1.1;
+      const z = centerZ + Math.sin(angle) * reach * 0.7
+        + (stableUnit(`${seed}.${drift}.z.${index}`) - 0.5) * 0.9;
+      const height = islandTerrainHeight(x, z);
+      if (height < minHeight || height > maxHeight) continue;
+      if (!isPlantable(x, z)) continue;
+      points.push({ height, x, z });
+    }
+  });
   return points;
 }
 

@@ -8,6 +8,7 @@ import {
   resolveGardenEntityDisplayTile,
   selectGardenObservatorySlice,
 } from "./systems/garden-observatory-slice";
+import { buildObserveSequence } from "./systems/observe-sequence";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "./systems/world-types";
 
 const mocks = vi.hoisted(() => {
@@ -28,7 +29,17 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("./components/accessibility-ledger", () => ({
-  AccessibilityLedger: () => <div data-testid="pharosville-accessibility-ledger" />,
+  ACCESSIBILITY_LEDGER_HEADING_ID: "pharosville-accessibility-ledger-title",
+  // Mirrors the real component's presentation switch so the shell's "exactly
+  // one ledger is mounted" rule is testable without its full markup.
+  AccessibilityLedger: ({ presentation = "screen-reader", title = "PharosVille accessibility ledger" }: {
+    presentation?: "screen-reader" | "visible";
+    title?: string;
+  }) => (
+    <div data-testid="pharosville-accessibility-ledger" data-presentation={presentation}>
+      <h2 id="pharosville-accessibility-ledger-title">{title}</h2>
+    </div>
+  ),
 }));
 
 vi.mock("./components/detail-panel", () => ({
@@ -177,18 +188,20 @@ afterEach(() => {
 });
 
 describe("PharosVilleWorld UI accessibility controls", () => {
-  // Interface revamp DU4/DU7/DU11: the footer carries five items and nothing
-  // else — mark, legend, changelog, docked count, frame rate.
-  it("shows the current docked ship count in the footer", () => {
+  // Interface revamp DU4/DU7/DU11: the footer carries six items and nothing
+  // else — mark, legend, changelog, harbor ledger, berth count, frame rate.
+  it("shows how much of the fleet holds a berth in the footer", () => {
     const { container } = render(<PharosVilleWorld world={worldFixture()} />);
 
-    expect(screen.getByTestId("pharosville-ship-counter").textContent).toBe("1 of 1 docked");
+    // "hold a berth", not "docked": the figure counts ships with a home harbor
+    // among the charted chains, not ships moored at this instant.
+    expect(screen.getByTestId("pharosville-ship-counter").textContent).toBe("1 of 1 hold a berth");
     const footer = container.querySelector(".pharosville-footer");
     // Separator spacing is CSS margin, so the DOM text runs them together.
     // Derived, not a literal: a version bump is a release chore, not a reason
     // for this test to fail.
     expect(footer?.textContent?.replace(/\s+/g, " ").trim()).toBe(
-      `PharosVille ${PHAROSVILLE_LATEST_VERSION}·Legend·Changelog·1 of 1 docked·Static`,
+      `PharosVille ${PHAROSVILLE_LATEST_VERSION}·Legend·Changelog·Harbor ledger·1 of 1 hold a berth·Static`,
     );
     expect(footer?.textContent).not.toContain("Copy link");
     expect(footer?.textContent).not.toContain("not financial advice");
@@ -218,6 +231,83 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     expect(panel.textContent).toContain("Collected from commits");
 
     fireEvent.click(screen.getByLabelText("Close changelog"));
+    expect(screen.queryByTestId("pharosville-changelog-panel")).toBeNull();
+  });
+
+  it("opens the harbor ledger from the footer and closes it from its own control", async () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    expect(screen.getByTestId("pharosville-accessibility-ledger").dataset.presentation).toBe("screen-reader");
+
+    fireEvent.click(screen.getByRole("button", { name: "Harbor ledger" }));
+    const panel = await screen.findByTestId("pharosville-harbor-ledger-panel");
+    expect(panel.getAttribute("aria-modal")).toBe("true");
+    expect(document.activeElement).toBe(screen.getByLabelText("Close harbor ledger"));
+
+    fireEvent.click(screen.getByLabelText("Close harbor ledger"));
+    expect(screen.queryByTestId("pharosville-harbor-ledger-panel")).toBeNull();
+    // Focus lands back on the world shell, as it does for the sibling panels.
+    expect(document.activeElement).toBe(screen.getByTestId("pharosville-world"));
+    expect(screen.getByTestId("pharosville-accessibility-ledger").dataset.presentation).toBe("screen-reader");
+  });
+
+  it("closes the harbor ledger on Escape", async () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Harbor ledger" }));
+    await screen.findByTestId("pharosville-harbor-ledger-panel");
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByTestId("pharosville-harbor-ledger-panel")).toBeNull();
+  });
+
+  // The panels render inside the shell, so their Escape bubbles into the world
+  // handlers — which clear the selection on Escape. Closing a panel is not a
+  // request to forget the ship the visitor opened it to read about.
+  it("keeps Escape inside a reference panel away from the world shortcuts", async () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    const panels = [
+      ["Legend", "pharosville-legend-panel"],
+      ["Changelog", "pharosville-changelog-panel"],
+      ["Harbor ledger", "pharosville-harbor-ledger-panel"],
+    ] as const;
+
+    for (const [control, testId] of panels) {
+      fireEvent.click(screen.getByRole("button", { name: control }));
+      const panel = await screen.findByTestId(testId);
+      mocks.canvasHandleKeyDown.mockClear();
+
+      fireEvent.keyDown(panel, { key: "Escape" });
+
+      expect(screen.queryByTestId(testId)).toBeNull();
+      expect(mocks.canvasHandleKeyDown).not.toHaveBeenCalled();
+    }
+  });
+
+  it("mounts exactly one ledger, so the world is never announced twice", async () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Harbor ledger" }));
+    await screen.findByTestId("pharosville-harbor-ledger-panel");
+
+    const ledgers = screen.getAllByTestId("pharosville-accessibility-ledger");
+    expect(ledgers).toHaveLength(1);
+    expect(ledgers[0]!.dataset.presentation).toBe("visible");
+  });
+
+  it("keeps at most one reference panel open", async () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Harbor ledger" }));
+    await screen.findByTestId("pharosville-harbor-ledger-panel");
+
+    fireEvent.click(screen.getByRole("button", { name: "Changelog" }));
+    await screen.findByTestId("pharosville-changelog-panel");
+    expect(screen.queryByTestId("pharosville-harbor-ledger-panel")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Harbor ledger" }));
+    await screen.findByTestId("pharosville-harbor-ledger-panel");
     expect(screen.queryByTestId("pharosville-changelog-panel")).toBeNull();
   });
 
@@ -384,6 +474,76 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     expect(mocks.cancelCameraIntent).toHaveBeenCalledTimes(2);
   });
 
+  it("steps Observe beat by beat under reduced motion", () => {
+    vi.useFakeTimers();
+    const world = worldFixture();
+    const beats = buildObserveSequence(world);
+    render(<PharosVilleWorld world={world} />);
+
+    // The control never latches under reduced motion, so its label stays put.
+    const observe = () => screen.getByRole("button", { name: "Observe harbor" });
+    const caption = () => screen.getByTestId("pharosville-observe-caption").textContent;
+
+    fireEvent.click(observe());
+    expect(caption()).toContain(`Observe 1/${beats.length}`);
+    expect(caption()).toContain("The Pharos lighthouse reports PSI 82, STEADY.");
+    expect(mocks.focusTile).toHaveBeenLastCalledWith({ x: 16, y: 12 });
+
+    // No timed tour: the harbor holds this beat until the reader asks for more.
+    act(() => vi.advanceTimersByTime(OBSERVE_TEST_STEP_MS * 2));
+    expect(caption()).toContain(`Observe 1/${beats.length}`);
+
+    for (let index = 1; index < beats.length; index += 1) {
+      fireEvent.click(observe());
+      expect(caption()).toContain(`Observe ${index + 1}/${beats.length}`);
+      expect(caption()).toContain(beats[index]!.label);
+    }
+
+    fireEvent.click(observe());
+    expect(screen.queryByTestId("pharosville-observe-caption")).toBeNull();
+  });
+
+  it("opens the observe sequence from the legend's closing call to action", async () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Legend" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Watch the harbor" }));
+
+    expect(screen.queryByTestId("pharosville-legend-panel")).toBeNull();
+    expect(screen.getByTestId("pharosville-observe-caption").textContent).toContain(
+      "The Pharos lighthouse reports PSI 82, STEADY.",
+    );
+  });
+
+  // Reduced motion has no timer to carry the tour, so "Watch the harbor" is
+  // only a beginning if the control that steps it is reachable. It used to hand
+  // over beat one and then cancel the sequence on the first Tab toward that
+  // control, which left a keyboard reader with one beat and no way on.
+  it("hands the reduced-motion observe sequence to the keyboard, steppable", async () => {
+    const world = worldFixture();
+    const beats = buildObserveSequence(world);
+    render(<PharosVilleWorld world={world} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Legend" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Watch the harbor" }));
+
+    const observe = screen.getByRole("button", { name: "Observe harbor" });
+    expect(document.activeElement).toBe(observe);
+    expect(screen.getByTestId("pharosville-observe-caption").textContent).toContain(
+      `Observe 1/${beats.length}`,
+    );
+
+    // Moving focus is navigation, not the input that ends the sequence.
+    fireEvent.keyDown(observe, { key: "Tab" });
+    expect(screen.getByTestId("pharosville-observe-caption")).toBeTruthy();
+
+    fireEvent.keyDown(observe, { key: "Enter" });
+    fireEvent.click(observe);
+    expect(screen.getByTestId("pharosville-observe-caption").textContent).toContain(
+      `Observe 2/${beats.length}`,
+    );
+  });
+
   it("replaces a failed Three scene with a navigable static signal overview", async () => {
     mocks.rendererStatus = "failed";
     render(<PharosVilleWorld world={worldFixture()} />);
@@ -451,6 +611,152 @@ function targetFixtures(): HitTarget[] {
     },
   ];
 }
+
+describe("PharosVilleWorld quick find", () => {
+  const openQuickFind = () => {
+    fireEvent.keyDown(document, { key: "/" });
+    return screen.getByRole("combobox", { name: "Find a ship or harbor by name" });
+  };
+
+  it("opens on slash, selects a named ship, and takes the camera to it", () => {
+    const world = worldFixture();
+    render(<PharosVilleWorld world={world} />);
+
+    const input = openQuickFind();
+    fireEvent.change(input, { target: { value: "usdc" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.getByTestId("pharosville-detail-panel").textContent).toContain("USDC");
+    expect(mocks.focusTile).toHaveBeenLastCalledWith(resolveGardenEntityDisplayTile({
+      entity: world.entityById["ship.usdc"]!,
+      slice: selectGardenObservatorySlice(world, "ship.usdc"),
+    }));
+  });
+
+  // The shell's own Escape clears the selection. Quick find sits inside that
+  // subtree, so closing the field must not also close the panel behind it.
+  it("closes on Escape without clearing the selection behind it", () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    const input = openQuickFind();
+    fireEvent.change(input, { target: { value: "usdc" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(openQuickFind(), { key: "Escape" });
+
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.getByTestId("pharosville-detail-panel")).toBeTruthy();
+  });
+
+  it("leaves the slash key alone while a reference panel is open", async () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Legend" }));
+    await screen.findByTestId("pharosville-legend-panel");
+
+    fireEvent.keyDown(document, { key: "/" });
+
+    expect(screen.queryByRole("combobox")).toBeNull();
+  });
+
+  it("leaves the slash key alone while the visitor is typing in a field", () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+    const field = document.createElement("input");
+    document.body.append(field);
+    field.focus();
+
+    fireEvent.keyDown(field, { key: "/" });
+
+    expect(screen.queryByRole("combobox")).toBeNull();
+    field.remove();
+  });
+});
+
+// The session hour used to be reachable only by hand-editing `t=` into the
+// address bar; `[` and `]` walk it from the keyboard instead, and the link
+// keeps working exactly as it did.
+describe("PharosVilleWorld time-of-day keys", () => {
+  const renderAtHalfPastSix = () => {
+    window.history.replaceState(null, "", "/#t=6.5");
+    render(<PharosVilleWorld world={worldFixture()} />);
+  };
+  const linkedHour = () => new URLSearchParams(window.location.hash.slice(1)).get("t");
+
+  it("steps the hour later and writes it into the link", async () => {
+    renderAtHalfPastSix();
+
+    fireEvent.keyDown(document, { key: "]" });
+
+    expect(screen.getByText("Time of day 07:00.")).toBeTruthy();
+    await waitFor(() => expect(globalThis.__pharosVilleTestWallClockHour).toBe(7));
+    await waitFor(() => expect(linkedHour()).toBe("7"));
+  });
+
+  it("steps the hour earlier and writes it into the link", async () => {
+    renderAtHalfPastSix();
+
+    fireEvent.keyDown(document, { key: "[" });
+
+    expect(screen.getByText("Time of day 06:00.")).toBeTruthy();
+    await waitFor(() => expect(linkedHour()).toBe("6"));
+  });
+
+  it("holds at the last quarter hour of the day", async () => {
+    window.history.replaceState(null, "", "/#t=23.5");
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    fireEvent.keyDown(document, { key: "]" });
+    fireEvent.keyDown(document, { key: "]" });
+
+    // The live region paces its queue, so the second press repeats the hour
+    // rather than adding a new one — the point is that it does not wrap to 00.
+    expect(screen.getByText("Time of day 23:45.")).toBeTruthy();
+    await waitFor(() => expect(linkedHour()).toBe("23.75"));
+  });
+
+  it("holds at the first hour of the day", async () => {
+    window.history.replaceState(null, "", "/#t=0.25");
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    fireEvent.keyDown(document, { key: "[" });
+    fireEvent.keyDown(document, { key: "[" });
+
+    expect(screen.getByText("Time of day 00:00.")).toBeTruthy();
+    await waitFor(() => expect(linkedHour()).toBe("0"));
+  });
+
+  it("leaves the bracket keys alone while a reference panel is open", async () => {
+    renderAtHalfPastSix();
+    fireEvent.click(screen.getByRole("button", { name: "Legend" }));
+    await screen.findByTestId("pharosville-legend-panel");
+
+    fireEvent.keyDown(document, { key: "]" });
+
+    expect(screen.queryByText("Time of day 07:00.")).toBeNull();
+    expect(linkedHour()).toBe("6.5");
+  });
+
+  it("leaves the bracket keys alone while the visitor is typing in a field", () => {
+    renderAtHalfPastSix();
+    const field = document.createElement("input");
+    document.body.append(field);
+    field.focus();
+
+    fireEvent.keyDown(field, { key: "]" });
+
+    expect(screen.queryByText("Time of day 07:00.")).toBeNull();
+    expect(linkedHour()).toBe("6.5");
+    field.remove();
+  });
+
+  it("leaves a modified bracket press to the browser", () => {
+    renderAtHalfPastSix();
+
+    fireEvent.keyDown(document, { key: "]", metaKey: true });
+
+    expect(screen.queryByText("Time of day 07:00.")).toBeNull();
+    expect(linkedHour()).toBe("6.5");
+  });
+});
 
 function worldFixture(input: {
   freshness?: PharosVilleWorldModel["freshness"];

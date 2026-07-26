@@ -10,6 +10,7 @@ import type {
   StressSignalsAllResponse,
 } from "@shared/types";
 import type { ChainsResponse, ChainSummary } from "@shared/types/chains";
+import type { MintBurnFlowsResponse } from "@shared/types/mint-burn";
 import { CHAIN_META } from "@shared/lib/chains";
 import { ACTIVE_STABLECOINS } from "@shared/lib/stablecoins";
 import type { PharosVilleInputs } from "../systems/pharosville-world";
@@ -230,6 +231,57 @@ export const fixtureReportCards: ReportCardsResponse = {
   updatedAt: 1_700_000_000,
 } as ReportCardsResponse;
 
+export const fixtureMintBurn = {
+  gauge: {
+    score: 40,
+    band: "EXPANDING",
+    flightToQuality: false,
+    flightIntensity: 0,
+    trackedCoins: 2,
+    trackedMcapUsd: 11_000_000_000,
+  },
+  // USDC mints, USDT burns, so a fixture world exercises BOTH cargo lanes and
+  // a test that confused the two directions cannot pass.
+  coins: [
+    {
+      stablecoinId: "usdc-circle",
+      symbol: "USDC",
+      flowIntensity: 60,
+      netFlowDirection24h: "minting" as const,
+      has24hActivity: true,
+      netFlow24hUsd: 8_000_000,
+      mintVolume24hUsd: 10_000_000,
+      burnVolume24hUsd: 2_000_000,
+      mintCount24h: 12,
+      burnCount24h: 3,
+      netFlow7dUsd: 0,
+      netFlow30dUsd: 0,
+      netFlow90dUsd: 0,
+      largestEvent24h: null,
+    },
+    {
+      stablecoinId: "usdt-tether",
+      symbol: "USDT",
+      flowIntensity: -50,
+      netFlowDirection24h: "burning" as const,
+      has24hActivity: true,
+      netFlow24hUsd: -3_000_000,
+      mintVolume24hUsd: 1_000_000,
+      burnVolume24hUsd: 4_000_000,
+      mintCount24h: 2,
+      burnCount24h: 9,
+      netFlow7dUsd: 0,
+      netFlow30dUsd: 0,
+      netFlow90dUsd: 0,
+      largestEvent24h: null,
+    },
+  ],
+  hourly: [],
+  updatedAt: 1_700_000_000,
+  windowHours: 24,
+  scope: { chainIds: ["ethereum"], label: "Configured issuance chains" },
+} satisfies MintBurnFlowsResponse;
+
 export const fixtureGeneratedAt = 1_700_000_000_000;
 
 export function makePharosVilleWorldInput(overrides: Partial<PharosVilleInputs> = {}): PharosVilleInputs {
@@ -241,6 +293,7 @@ export function makePharosVilleWorldInput(overrides: Partial<PharosVilleInputs> 
     pegSummary: fixturePegSummary,
     stress: fixtureStress,
     reportCards: fixtureReportCards,
+    mintBurn: fixtureMintBurn,
     cemeteryEntries: [],
     freshness: {},
     ...overrides,

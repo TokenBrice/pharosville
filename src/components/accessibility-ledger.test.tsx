@@ -8,10 +8,37 @@ import {
   makeReportCard,
   makerSquadFixtureInputs,
 } from "../__fixtures__/pharosville-world";
+import { UNAVAILABLE_SUPPLY_TIDE } from "../systems/supply-tide";
 import type { PharosVilleWorld } from "../systems/world-types";
 import { AccessibilityLedger } from "./accessibility-ledger";
 
 describe("AccessibilityLedger", () => {
+  it("stays screen-reader-only by default and drops sr-only when shown visibly", () => {
+    const screenReaderMarkup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorld()} />);
+    const visibleMarkup = renderToStaticMarkup(
+      <AccessibilityLedger world={sampleWorld()} presentation="visible" title="Harbor ledger" />,
+    );
+
+    expect(screenReaderMarkup).toContain('class="sr-only"');
+    expect(screenReaderMarkup).toContain("PharosVille accessibility ledger");
+    expect(visibleMarkup).toContain('class="pharosville-ledger"');
+    expect(visibleMarkup).not.toContain('class="sr-only"');
+    expect(visibleMarkup).toContain("Harbor ledger");
+  });
+
+  it("carries identical body text in both presentations", () => {
+    const world = buildPharosVilleWorld(makerSquadFixtureInputs());
+    const normalize = (markup: string) => markup
+      .replace('class="sr-only"', "")
+      .replace('class="pharosville-ledger"', "")
+      .replace("PharosVille accessibility ledger", "");
+
+    expect(normalize(renderToStaticMarkup(<AccessibilityLedger world={world} />)))
+      .toBe(normalize(renderToStaticMarkup(
+        <AccessibilityLedger world={world} presentation="visible" title="" />,
+      )));
+  });
+
   it("does not expose ship-cluster ledger or cue rows", () => {
     const markup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorld()} />);
 
@@ -118,6 +145,130 @@ describe("AccessibilityLedger", () => {
     expect(markup).toContain("concentration moderately concentrated (HHI 0.40)");
   });
 
+  // The cargo-tide crates put direction on the canvas as position. These are the
+  // rows a reader who never sees the canvas has instead, so they must state the
+  // direction in words and must not let "unmeasured" pass for "calm".
+  it("mirrors each harbour's net 24h issuance flow, direction named, in dock rows", () => {
+    const world: PharosVilleWorld = {
+      ...sampleWorld(),
+      docks: [
+        {
+          id: "dock.ethereum",
+          kind: "dock",
+          chainId: "ethereum",
+          label: "Ethereum",
+          tile: { x: 1, y: 1 },
+          totalUsd: 8_000_000_000,
+          size: 7,
+          healthBand: "healthy",
+          stablecoinCount: 2,
+          concentration: null,
+          harboredStablecoins: [],
+          detailId: "dock.ethereum",
+          cargoTide: {
+            burnVolumeUsd: 2_000_000,
+            coinCount: 2,
+            direction: "minting",
+            mintVolumeUsd: 10_000_000,
+            netFlowUsd: 8_000_000,
+            pressureScore: 66,
+            reason: "tracked",
+            tracked: true,
+          },
+        },
+        {
+          id: "dock.solana",
+          kind: "dock",
+          chainId: "solana",
+          label: "Solana",
+          tile: { x: 2, y: 2 },
+          totalUsd: 1_000_000_000,
+          size: 3,
+          healthBand: "healthy",
+          stablecoinCount: 1,
+          concentration: null,
+          harboredStablecoins: [],
+          detailId: "dock.solana",
+          cargoTide: {
+            burnVolumeUsd: 0,
+            coinCount: 0,
+            direction: "inactive",
+            mintVolumeUsd: 0,
+            netFlowUsd: 0,
+            pressureScore: null,
+            reason: "chain-not-in-scope",
+            tracked: false,
+          },
+        },
+      ],
+    };
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("net flow 24h +$8.0M minting");
+    expect(markup).toContain("net flow 24h Not measured on this chain");
+  });
+
+  it("reports fleet-wide issuance including flight to quality above the dock list", () => {
+    const world: PharosVilleWorld = {
+      ...sampleWorld(),
+      fleetIssuance: {
+        activeCoins: 36,
+        band: "NEUTRAL",
+        burnVolumeUsd: 4_000_000,
+        direction: "burning",
+        flightIntensity: 42,
+        flightToQuality: true,
+        mintVolumeUsd: 1_000_000,
+        netFlowUsd: -3_000_000,
+        scopeChainIds: ["ethereum", "arbitrum"],
+        scopeLabel: "Configured issuance chains",
+        trackedCoins: 130,
+        score: -7.4,
+      },
+    };
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("Fleet issuance 24h: net burning");
+    expect(markup).toContain("36 of 130 tracked coins moved supply");
+    expect(markup).toContain("measured over Configured issuance chains (ethereum, arbitrum)");
+    // The clause names what is now drawn for it, so the ledger and the canvas
+    // make the same statement rather than the ledger disclaiming a cue.
+    expect(markup).toContain("flight to quality active");
+    expect(markup).toContain("tenders running in on the largest hulls");
+    expect(markup).not.toContain("no canvas cue");
+  });
+
+  it("says outright that no tenders are on the water when the gauge reports no flight", () => {
+    // An empty sea covers both "no rotation" and "no feed"; this line is what
+    // keeps the two apart, and it must not go quiet just because the canvas has.
+    const world: PharosVilleWorld = {
+      ...sampleWorld(),
+      fleetIssuance: {
+        activeCoins: 12,
+        band: "NEUTRAL",
+        burnVolumeUsd: 1_000_000,
+        direction: "minting",
+        flightIntensity: 0,
+        flightToQuality: false,
+        mintVolumeUsd: 4_000_000,
+        netFlowUsd: 3_000_000,
+        scopeChainIds: ["ethereum"],
+        scopeLabel: "Configured issuance chains",
+        trackedCoins: 130,
+        score: 5.1,
+      },
+    };
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("no flight to quality reported — no tenders on the water");
+  });
+
+  it("omits the fleet issuance line entirely when the flow feed has not landed", () => {
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorld()} />);
+
+    expect(markup).not.toContain("Fleet issuance 24h");
+  });
+
   it("renders a wreck cause-color swatch legend with each CAUSE_HEX entry", () => {
     const markup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorld()} />);
 
@@ -166,6 +317,122 @@ describe("AccessibilityLedger", () => {
     expect(markup).toContain("Trend: Observed 24h drift improving");
     expect(markup).toContain("Composition: severity 70%, breadth 30%");
     expect(markup).toContain("Top contributors: USDT -12 bps ($90.0B)");
+  });
+
+  it("reads the observatory signal mast out in the lighthouse row", () => {
+    const world: PharosVilleWorld = {
+      ...sampleWorld(),
+      lighthouse: {
+        ...sampleWorld().lighthouse,
+        signalMast: {
+          activeDepegCount: 2,
+          pennantCount: 2,
+          capped: false,
+          stormCone: true,
+          worstBps: -640,
+          worstSymbol: "XUSD",
+          medianDeviationBps: 3,
+          coinsAtPeg: 212,
+          totalTracked: 214,
+          eventsToday: 1,
+          unavailable: false,
+        },
+      },
+    };
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("Signal mast: 2 pennants for 2 coins off peg; storm cone hoisted.");
+    expect(markup).toContain("Fleet peg: Worst XUSD -6.4%; median +3 bps; 212 of 214 at peg; 1 event today.");
+  });
+
+  it("says the mast is bare rather than implying calm when no peg summary arrived", () => {
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorld()} />);
+
+    expect(markup).toContain("Signal mast: Bare — no peg summary tonight.");
+    expect(markup).not.toContain("Fleet peg:");
+  });
+
+  it("names the beam's bearing and the high-water mark in the lighthouse row", () => {
+    const world: PharosVilleWorld = {
+      ...sampleWorld(),
+      lighthouse: {
+        ...sampleWorld().lighthouse,
+        beamDwell: { shipId: "usdx", symbol: "USDX", bps: -412 },
+        highWaterMark: {
+          band: "FRACTURE",
+          severity: 3,
+          score: 31,
+          at: Date.UTC(2026, 6, 20),
+          sampleCount: 9,
+          spanDays: 9,
+          unavailable: false,
+        },
+      },
+    };
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("Beam bearing: Holding on USDX, largest PSI contributor (-412 bps).");
+    expect(markup).toContain("Worst band, 30d: FRACTURE at PSI 31 on 2026-07-20; 9 days on record.");
+  });
+
+  it("says the rocks are unstained for want of history, not for want of stress", () => {
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorld()} />);
+
+    expect(markup).toContain("Worst band, 30d: Unstained — no index history to read.");
+    // No contributor, no bearing — the beam keeps its even sweep and the
+    // ledger claims nothing about where it is pointing.
+    expect(markup).not.toContain("Beam bearing:");
+  });
+
+  it("reads a ship's crossed price bearings out whether or not they crossed", () => {
+    const world = sampleWorldWithLedgerShip();
+    const [ship] = world.ships;
+    const crossed = renderToStaticMarkup(<AccessibilityLedger world={{
+      ...world,
+      ships: [{
+        ...ship!,
+        dexCrossCheck: {
+          dexPrice: 0.9912,
+          dexDeviationBps: -88,
+          oraclePrice: 0.9998,
+          oracleDeviationBps: -2,
+          agrees: false,
+          sourcePools: 4,
+          sourceTvlUsd: 12_300_000,
+        },
+      }],
+    }} />);
+
+    expect(crossed).toContain("DEX cross-check Bearings cross");
+    expect(crossed).toContain("DEX $0.9912 (-88 bps) vs feed $0.9998 (-2 bps)");
+    expect(crossed).toContain("4 pools, $12.3M TVL");
+
+    // The ledger has no density budget to protect, so unlike the panel it also
+    // records the agreeing case — a reader working from the ledger alone would
+    // otherwise never learn a check ran at all.
+    const agreed = renderToStaticMarkup(<AccessibilityLedger world={{
+      ...world,
+      ships: [{
+        ...ship!,
+        dexCrossCheck: {
+          dexPrice: 1.0001,
+          dexDeviationBps: 1,
+          oraclePrice: 1,
+          oracleDeviationBps: 0,
+          agrees: true,
+          sourcePools: 6,
+          sourceTvlUsd: 40_000_000,
+        },
+      }],
+    }} />);
+    expect(agreed).toContain("DEX cross-check Both bearings agree");
+
+    // And the ship clause is absent entirely when no check ran. Matched on the
+    // clause opening rather than the bare label, which the cue registry's own
+    // DOM-equivalent text further down the ledger also carries.
+    const silent = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+    expect(silent).not.toContain("DEX cross-check Bearings cross");
+    expect(silent).not.toContain("DEX cross-check Both bearings agree");
   });
 
   it("adds a non-time-dependent lighthouse warm-beam cue from active elevated DEWS counts", () => {
@@ -468,6 +735,8 @@ function sampleWorld(): PharosVilleWorld {
     generatedAt: 0,
     routeMode: "world",
     freshness: {},
+    fleetIssuance: null,
+    supplyTide: UNAVAILABLE_SUPPLY_TIDE,
     map: {
       width: 2,
       height: 2,
@@ -529,7 +798,7 @@ function sampleWorldWithUniqueShip(): PharosVilleWorld {
         riskWaterLabel: "Calm Anchorage",
         placementEvidence: { reason: "Fresh", sourceFields: ["pegSummary.coins[]"], stale: false },
         visual: {
-          hullForm: { beam: 1, height: 1, length: 1 },
+          hullForm: { beam: 1, height: 1, length: 1, waterline: 0 },
           hull: "dao-schooner",
           uniqueRationale: "Sails under Curve's llama mascot — the DEX that defined stablecoin AMM curves.",
           classLabel: "DeFi",
@@ -590,7 +859,7 @@ function sampleWorldWithLedgerShip(): PharosVilleWorld {
           stale: false,
         },
         visual: {
-          hullForm: { beam: 1, height: 1, length: 1 },
+          hullForm: { beam: 1, height: 1, length: 1, waterline: 0 },
           hull: "treasury-galleon",
           classLabel: "CeFi",
           livery: {

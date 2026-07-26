@@ -227,7 +227,7 @@ export function markAtlasSail(geometry: BufferGeometry, isIdentitySail: boolean)
  * Applied identically to the hull and sail materials so rigs stay attached to
  * the masts they hang on.
  */
-const HULL_FORM_ATTRIBUTE = "attribute vec3 aHullForm;";
+const HULL_FORM_ATTRIBUTE = "attribute vec4 aHullForm;";
 const HULL_FORM_DEFORM = `
 {
   transformed.x *= aHullForm.x;
@@ -236,6 +236,11 @@ const HULL_FORM_DEFORM = `
   // crease appears where the two zones meet.
   float topsides = smoothstep(0.0, 0.45, transformed.y);
   transformed.y *= mix(1.0, aHullForm.z, topsides);
+  // Tier 3 #13: how she rides. A rigid lift/settle of the WHOLE vessel — no
+  // ramp — because a ship taking on draft does not stretch, it sinks. The sail
+  // material carries the same term, so the rig stays stepped in a hull that has
+  // moved.
+  transformed.y += aHullForm.w;
 }`;
 
 /** Applies the per-instance deformation to a vertex shader source. */
@@ -297,7 +302,7 @@ export function patchFleetHullFormMaterial(material: MeshStandardMaterial): void
       )
       .replace("#include <color_vertex>", `#include <color_vertex>\n${STRAKE_PAINT}`);
   };
-  material.customProgramCacheKey = () => "garden-fleet-hull-form-strake";
+  material.customProgramCacheKey = () => "garden-fleet-hull-form-strake-trim";
 }
 
 export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
@@ -378,7 +383,7 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         #endif`,
       );
   };
-  material.customProgramCacheKey = () => "garden-fleet-sail-atlas-hull-form-dye-furl-emissive";
+  material.customProgramCacheKey = () => "garden-fleet-sail-atlas-hull-form-dye-furl-emissive-trim";
 }
 
 function createInstancedPart(
@@ -419,9 +424,16 @@ function createInstancedPart(
     sailFurl.setUsage(DynamicDrawUsage);
     geometry.setAttribute("aSailFurl", sailFurl);
   }
-  // N5(a): per-ship hull proportions. Defaults to (1,1,1) so an instance that
-  // is never written renders at the authored shape rather than collapsing.
-  const hullForm = new InstancedBufferAttribute(new Float32Array(capacity * 3).fill(1), 3);
+  // N5(a): per-ship hull proportions, plus the Tier 3 #13 peg trim in `w`.
+  // Defaults to (1,1,1,0) — authored shape, even keel — so an instance that is
+  // never written neither collapses nor claims a peg reading.
+  const hullFormDefaults = new Float32Array(capacity * 4);
+  for (let index = 0; index < capacity; index += 1) {
+    hullFormDefaults[index * 4] = 1;
+    hullFormDefaults[index * 4 + 1] = 1;
+    hullFormDefaults[index * 4 + 2] = 1;
+  }
+  const hullForm = new InstancedBufferAttribute(hullFormDefaults, 4);
   hullForm.setUsage(DynamicDrawUsage);
   geometry.setAttribute("aHullForm", hullForm);
   // W1/D2: the sheer strake's paint. Defaults to white, which leaves the rail
@@ -518,8 +530,12 @@ export interface FleetInstancePose {
   hullColor: Color;
   /** F1: the ship's cloth dye — its issuer's dominant brand colour. */
   sailColor: Color;
-  /** Per-ship proportions (length, beam, height) about 1 — N5(a). */
-  hullForm: { beam: number; height: number; length: number };
+  /**
+   * Per-ship proportions (length, beam, height) about 1 — N5(a) — and the
+   * signed peg trim (Tier 3 #13). `waterline` is optional so a caller with no
+   * peg reading to hand still gets an even keel rather than a type error.
+   */
+  hullForm: { beam: number; height: number; length: number; waterline?: number };
   headingAngle: number;
   heel: number;
   pennantColor: Color;
@@ -587,10 +603,11 @@ export function writeFleetInstance(
     batch.hull.trim.setXYZ(slot, pose.trimColor.r, pose.trimColor.g, pose.trimColor.b);
   }
   // Same proportions on hull and sails: the rig has to follow the hull it is
-  // stepped into.
+  // stepped into, and so does the trim.
   const { beam, height, length } = pose.hullForm;
-  batch.hull.hullForm.setXYZ(slot, length, beam, height);
-  batch.sails.hullForm.setXYZ(slot, length, beam, height);
+  const waterline = pose.hullForm.waterline ?? 0;
+  batch.hull.hullForm.setXYZW(slot, length, beam, height, waterline);
+  batch.sails.hullForm.setXYZW(slot, length, beam, height, waterline);
 
   batch.sails.mesh.setMatrixAt(slot, scratchMatrix);
   batch.sails.mesh.count = slot + 1;
@@ -607,7 +624,10 @@ export function writeFleetInstance(
   const pennantSlot = batches.pennant.mesh.count;
   if (pennantSlot < batches.capacity) {
     scratchPennantMatrix
-      .makeTranslation(pose.mastheadOffset.x, pose.mastheadOffset.y, 0.02)
+      // The pennant is placed on the CPU, so it does not see the shader's trim
+      // and has to be told: without this a trimmed hull leaves its own pennant
+      // hanging where the masthead used to be.
+      .makeTranslation(pose.mastheadOffset.x, pose.mastheadOffset.y + waterline, 0.02)
       .premultiply(scratchMatrix);
     batches.pennant.mesh.setMatrixAt(pennantSlot, scratchPennantMatrix);
     batches.pennant.mesh.setColorAt(pennantSlot, pose.pennantColor);

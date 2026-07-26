@@ -169,6 +169,70 @@ describe("garden island rockwork", () => {
     }
   });
 
+  it("groups the planting into drifts with open ground between them", () => {
+    // The composition contract forbids a uniform scatter: planting must read as
+    // thickets with bare rock between, like the Sakuteiki stone groupings. A
+    // golden-angle spiral over the whole island satisfies determinism but is
+    // isotropic by construction, so assert the distribution is clustered —
+    // neighbours close, spread wide.
+    const island = createTerracedIsland(world);
+    for (const name of ["island-shrubs", "island-grass-tufts"]) {
+      const mesh = island.root.getObjectByName(name) as InstancedMesh;
+      expect(mesh, name).toBeInstanceOf(InstancedMesh);
+      const points = instancePositions(mesh);
+      expect(points.length, name).toBeGreaterThan(20);
+
+      let nearestSum = 0;
+      for (const point of points) {
+        let nearest = Infinity;
+        for (const other of points) {
+          if (other === point) continue;
+          nearest = Math.min(nearest, Math.hypot(point.x - other.x, point.z - other.z));
+        }
+        nearestSum += nearest;
+      }
+      const meanNearest = nearestSum / points.length;
+      const spreadX = Math.max(...points.map((p) => p.x)) - Math.min(...points.map((p) => p.x));
+      const spreadZ = Math.max(...points.map((p) => p.z)) - Math.min(...points.map((p) => p.z));
+      // An even scatter over this footprint sits near 2 units apart; the drifts
+      // pack to well under half that while still spanning the island.
+      expect(meanNearest, name).toBeLessThan(1);
+      expect(Math.max(spreadX, spreadZ), name).toBeGreaterThan(14);
+    }
+  });
+
+  it("leaves most of the island footprint as open ground", () => {
+    // The open ground is the composition, not a coverage gap — the drifts only
+    // read as drifts because there is bare rock between them. Measured over the
+    // footprint, an even scatter leaves ~27% of the rock clear of planting and
+    // the drifts leave ~63%, so this threshold separates the two.
+    const island = createTerracedIsland(world);
+    const points = instancePositions(
+      island.root.getObjectByName("island-grass-tufts") as InstancedMesh,
+    );
+    let bare = 0;
+    let total = 0;
+    for (let x = -16; x <= 16; x += 0.5) {
+      for (let z = -11; z <= 11; z += 0.5) {
+        if (((x - 0.6) / 16.8) ** 2 + ((z - 1.2) / 12.6) ** 2 > 1) continue;
+        total += 1;
+        const covered = points.some((p) => Math.hypot(x - p.x, z - p.z) <= 2);
+        if (!covered) bare += 1;
+      }
+    }
+    expect(bare / total).toBeGreaterThan(0.45);
+  });
+
+  it("places planting deterministically across rebuilds", () => {
+    const first = instancePositions(
+      createTerracedIsland(world).root.getObjectByName("island-shrubs") as InstancedMesh,
+    );
+    const second = instancePositions(
+      createTerracedIsland(world).root.getObjectByName("island-shrubs") as InstancedMesh,
+    );
+    expect(second).toEqual(first);
+  });
+
   it("exports lamp offsets lifted to the lamp height for lane registration", () => {
     const offsets = gardenIslandLanternWorldOffsets();
     expect(offsets).toHaveLength(6);
@@ -225,6 +289,18 @@ function maxObstacleEllipseValue(mesh: Mesh): number {
     }
   }
   return worst;
+}
+
+/** Island-local XZ of every instance in an instanced mesh. */
+function instancePositions(mesh: InstancedMesh): { x: number; z: number }[] {
+  const matrix = new Matrix4();
+  const points: { x: number; z: number }[] = [];
+  for (let index = 0; index < mesh.count; index += 1) {
+    mesh.getMatrixAt(index, matrix);
+    const position = new Vector3().setFromMatrixPosition(matrix);
+    points.push({ x: position.x, z: position.z });
+  }
+  return points;
 }
 
 function cloudHookedMaterialCount(root: import("three").Object3D): number {

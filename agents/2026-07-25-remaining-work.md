@@ -95,19 +95,31 @@ boundary is now a tide line plus a shadow rather than one faint bright line.
   every performance conclusion in this document's history that was based on a
   bundled-browser run is void. Use `npm run preview` for any perf judgement; it
   exits non-zero rather than report a software frame.
-- **The `constrained` tier drops the whole composer**, losing colour grading
-  along with bloom. Grade is one cheap full-screen pass carrying the entire
-  day/dusk/night identity, so the cliff costs far more than the pass does. Left
-  alone deliberately — and note the tier is now known to be unreachable on the
-  operator's hardware, so this is a theoretical cliff, not a live one.
+- **CLOSED (corrected 2026-07-26): "the `constrained` tier drops the whole
+  composer".** It no longer does; the change shipped in `793ce68`.
+  `world-renderer.ts` calls `post.setEnabled(true)` unconditionally and sheds
+  only the bloom pass (`setBloomEnabled(tier !== "constrained")`). Colour
+  grading, the AgX tone map in `OutputPass` and the vignette survive every tier,
+  so crossing the boundary no longer swings the frame's brightness — which
+  mattered because a zoom gesture flaps the scheduler across it and the whole
+  view flickered under the wheel. Grade and output are one full-screen quad
+  each; only the bloom pyramid's cost scales, so it is the one pass worth the
+  pop. The tier also remains unreachable on the operator's hardware.
 - **CLOSED, and also never true: "visual baselines are not regenerated".**
   There are no committed screenshot baselines — no `toHaveScreenshot`, no
   `toMatchSnapshot`, no `*-snapshots` directory. The visual lane asserts DOM
   state and telemetry; screenshots are evidence under `outputs/`. Renderer
   changes cannot put it in debt.
-- **The visual lane has two stale assertions** (`npm run test:visual`: 6 pass,
-  2 fail). `pharosville.spec.ts:150` expects exactly 20 ship hit targets and
-  gets 87 — the retired 20-ship cap. `pharosville-gates.spec.ts:106` waits for a
-  "Set session hour" slider that commit `f0c40d1` removed. Both predate the
-  H/L/S/F rounds; neither is a renderer regression.
+- **CLOSED (corrected 2026-07-26): "the visual lane has two stale assertions".**
+  Both were fixed in `793ce68`, and both specs now carry a comment recording
+  why. `pharosville.spec.ts` no longer counts ship hit targets against the
+  retired 20-ship cap: the render cap is 320 and neither the dense fixture
+  (~132 ships) nor the live fleet (187) approaches it, so the transient-ship
+  scenario the old assertion reached for cannot occur. The test now covers what
+  that assertion was accidentally finding — hit targets are viewport-culled, so
+  a deep link has to reach a ship the default framing does not show.
+  `pharosville-gates.spec.ts` no longer waits 180s for a "Set session hour"
+  slider that `f0c40d1` removed; each day-cycle state reopens the world through
+  the `t` param, which is the supported way to set the hour and the one
+  `npm run preview` drives too.
 - **Nothing is pushed.** Production is unchanged until the operator pushes.

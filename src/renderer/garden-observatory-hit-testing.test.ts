@@ -12,6 +12,7 @@ import {
   GARDEN_LIGHTHOUSE_HEIGHT,
   GARDEN_LIGHTHOUSE_ROOT_OFFSET,
   GARDEN_SHIP_ROOT_Y,
+  GARDEN_WATER_Y,
   gardenIslandDisplayTile,
   gardenTileToScreen,
   resolveGardenShipDisplayTile,
@@ -19,6 +20,12 @@ import {
 } from "../systems/garden-observatory-slice";
 import type { ShipMotionSample } from "../systems/motion";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
+import { TILE_WIDTH } from "../systems/projection";
+import {
+  SEA_SIGN_BOARD,
+  seaSignBoards,
+  seaSignScaleForZoom,
+} from "../three/garden-sea-signs";
 import { createGardenObservatoryHitTargetSnapshot } from "./garden-observatory-hit-testing";
 
 describe("Garden Observatory hit targets", () => {
@@ -30,10 +37,13 @@ describe("Garden Observatory hit targets", () => {
 
     // D1 (W3): the fleet is no longer sampled down to 20, so hit targets
     // track the rendered slice size. Lighthouse + pigeonnier are the 2 fixed
-    // singletons.
+    // singletons. Every area also carries a carved name board (N6), which is a
+    // second target on the SAME detail id rather than a new destination.
     expect(snapshot.targets).toHaveLength(
-      2 + slice.ships.length + world.docks.length + world.areas.length + world.graves.length,
+      2 + slice.ships.length + world.docks.length + world.areas.length * 2 + world.graves.length,
     );
+    expect(snapshot.targets.filter((target) => target.kind === "sea-sign"))
+      .toHaveLength(world.areas.length);
     expect(snapshot.targets.filter((target) => target.kind === "ship"))
       .toHaveLength(slice.ships.length);
     expect(snapshot.targets.filter((target) => target.kind === "dock")).toHaveLength(world.docks.length);
@@ -135,6 +145,107 @@ describe("Garden Observatory hit targets", () => {
     expect(inspected.targetsByDetailId.get(placement!.ship.detailId)?.anchor).toEqual(
       gardenTileToScreen(expectedTile, GARDEN_SHIP_ROOT_Y, camera),
     );
+  });
+});
+
+describe("Carved sea-name board targets (N6)", () => {
+  it("opens the water body's own detail rather than a parallel one", () => {
+    const world = denseWorld();
+    const snapshot = createGardenObservatoryHitTargetSnapshot({
+      camera: { offsetX: 720, offsetY: 430, zoom: 0.7776 },
+      world,
+    });
+    const boards = snapshot.targets.filter((target) => target.kind === "sea-sign");
+
+    expect(new Set(boards.map((board) => board.detailId)))
+      .toEqual(new Set(world.areas.map((area) => area.detailId)));
+    for (const board of boards) {
+      expect(world.detailIndex[board.detailId]).toBeDefined();
+    }
+  });
+
+  it("wins the per-detail Tab stop from the zone anchor without moving it", () => {
+    const world = denseWorld();
+    const snapshot = createGardenObservatoryHitTargetSnapshot({
+      camera: { offsetX: 720, offsetY: 430, zoom: 0.7776 },
+      world,
+    });
+
+    for (const area of world.areas) {
+      const board = snapshot.targets.find((target) => (
+        target.kind === "sea-sign" && target.detailId === area.detailId
+      ));
+      const zone = snapshot.targets.find((target) => (
+        target.kind === "area" && target.detailId === area.detailId
+      ));
+      // One point above, so the cycle prefers the board and the body keeps the
+      // slot its zone priority already bought it.
+      expect(board?.priority).toBe(zone!.priority + 1);
+      // The keyboard select path reads targetsByDetailId, so it has to be the
+      // board that carries the anchor.
+      expect(snapshot.targetsByDetailId.get(area.detailId)?.kind).toBe("sea-sign");
+    }
+  });
+
+  it("tracks the zoom-SCALED board, not the true-scale geometry", () => {
+    // The trap: D6 raises the boards' world scale as the camera pulls back so
+    // they hold a constant on-screen size. Across the band where that response
+    // is unclamped (seaSignScaleForZoom returns 0.85/zoom between zoom 0.327
+    // and 1.0), screen size is scale x zoom — a constant. A target built from
+    // the true-scale geometry would instead shrink with zoom, so these two
+    // widths would differ by the 2.25x zoom ratio.
+    const world = denseWorld();
+    const widthAt = (zoom: number) => {
+      const snapshot = createGardenObservatoryHitTargetSnapshot({
+        camera: { offsetX: 720, offsetY: 430, zoom },
+        world,
+      });
+      return snapshot.targets.find((target) => target.kind === "sea-sign")!.rect.width;
+    };
+
+    expect(widthAt(0.4)).toBeCloseTo(widthAt(0.9), 6);
+    // Past the clamp at zoom 1 the board is true-scale again, so its target
+    // grows with zoom like everything else.
+    expect(widthAt(2)).toBeCloseTo(widthAt(1) * 2, 6);
+  });
+
+  it("centres the target on the drawn board at every framing", () => {
+    const world = denseWorld();
+    for (const zoom of [0.4, 0.7776, 1.4]) {
+      const camera = { offsetX: 720, offsetY: 430, zoom };
+      const scale = seaSignScaleForZoom(zoom);
+      const board = seaSignBoards(world.areas).find((entry) => entry.detailId);
+      const target = createGardenObservatoryHitTargetSnapshot({ camera, world })
+        .targetsByDetailId.get(board!.detailId!);
+
+      const centre = gardenTileToScreen(
+        { x: board!.x / Math.SQRT2, y: board!.z / Math.SQRT2 },
+        GARDEN_WATER_Y + SEA_SIGN_BOARD.baseY * scale,
+        camera,
+      );
+      expect(target?.anchor?.x).toBeCloseTo(centre.x, 6);
+      expect(target?.anchor?.y).toBeCloseTo(centre.y, 6);
+      // The face's own painted width, projected. The board is yawed 45 degrees,
+      // which in this iso rig lays it exactly along the screen-horizontal axis,
+      // so one world unit of board is TILE_WIDTH / 2 screen units.
+      expect(target?.rect.width).toBeCloseTo(
+        SEA_SIGN_BOARD.width * scale * (TILE_WIDTH / 2) * zoom,
+        6,
+      );
+    }
+  });
+
+  it("stands the boards' targets down when a detail panel owns the frame", () => {
+    const world = denseWorld();
+    const snapshot = createGardenObservatoryHitTargetSnapshot({
+      camera: { offsetX: 720, offsetY: 430, zoom: 0.7776 },
+      selectedDetailId: world.areas[0]!.detailId,
+      world,
+    });
+
+    expect(snapshot.targets.filter((target) => target.kind === "sea-sign")).toHaveLength(0);
+    // The zone target still carries the body, so nothing becomes unreachable.
+    expect(snapshot.targetsByDetailId.get(world.areas[0]!.detailId)?.kind).toBe("area");
   });
 });
 

@@ -63,6 +63,24 @@ function dockMooringBarrierClearance(ship: ShipNode): number {
   }
 }
 
+/**
+ * Is this tile a berth this ship could hold? Shared by the depth/lane search,
+ * the whole-map fallback, and the sticky-berth check below, so a held berth is
+ * re-validated against exactly the rule that would have chosen it.
+ */
+function isBerthTile(
+  tile: { x: number; y: number },
+  ship: ShipNode,
+  occupied: ReadonlySet<string>,
+): boolean {
+  if (occupied.has(`${tile.x}.${tile.y}`)) return false;
+  // Zones-v2 placement fix: moorings must also clear the RENDERED island
+  // rock — data water beneath the garden island mesh is not a berth.
+  if (isSeawallBarrierTile(tile) || !isNavigableWaterTile(tile)) return false;
+  if (isGardenObstacleTile(tile.x, tile.y)) return false;
+  return seawallBarrierDistance(tile) >= dockMooringBarrierClearance(ship);
+}
+
 function dockMooringTile(
   dock: DockNode,
   ship: ShipNode,
@@ -89,13 +107,7 @@ function dockMooringTile(
         x: dock.tile.x + outward.x * depth + fan.x * lane,
         y: dock.tile.y + outward.y * depth + fan.y * lane,
       });
-      const key = `${tile.x}.${tile.y}`;
-      // Zones-v2 placement fix: moorings must also clear the RENDERED island
-      // rock — data water beneath the garden island mesh is not a berth.
-      if (occupied.has(key) || isSeawallBarrierTile(tile) || !isNavigableWaterTile(tile)) continue;
-      if (isGardenObstacleTile(tile.x, tile.y)) continue;
-      const barrierDistance = seawallBarrierDistance(tile);
-      if (barrierDistance < minBarrierClearance) continue;
+      if (!isBerthTile(tile, ship, occupied)) continue;
       const score = depth * 10 + Math.abs(laneOffset) + Math.abs(lane) * 0.01;
       if (score < bestScore) {
         bestScore = score;
@@ -125,13 +137,66 @@ function dockMooringTile(
   return nearestAvailableWaterTile(target, occupied);
 }
 
+/**
+ * STICKY BERTHS — the previous build's mooring tile per (ship, dock).
+ *
+ * Sticky risk tiles only hold one end of a ship's route. A ship's A* paths run
+ * `riskTile <-> mooringTile`, and the berth search is walked in market-cap order
+ * with a per-dock running index, so the same supply wiggle that used to move
+ * risk tiles also re-berths ships whose dock presence never changed — measured
+ * at 13 of 81 moorings. Holding the berth keeps the other end of the path key.
+ *
+ * A held berth is re-validated against `isBerthTile` before it is honoured, so
+ * a reshaped seawall, a new garden obstacle, or a ship that grew into a larger
+ * size tier (and therefore needs more barrier clearance) gives its berth up
+ * rather than mooring somewhere it no longer fits.
+ *
+ * The key carries the DOCK'S TILE as well as its id, because `dock.id` is
+ * `dock.<chainId>` and outlives the position under it: a chain with no
+ * `PREFERRED_DOCK_TILES` entry draws from the shared pool in supply-rank order,
+ * so a harbour can move between refreshes without its id changing. `isBerthTile`
+ * would still pass a berth left behind at the old harbour — legal water, just
+ * nowhere near the dock it belongs to, with the ship's route drawn out to it.
+ * Keying on the tile retires that hold instead.
+ */
+let heldMooringTiles = new Map<string, { x: number; y: number }>();
+
+/** Drops sticky berths so a test starts from a cold build. */
+export function resetHeldMoorings(): void {
+  heldMooringTiles = new Map();
+}
+
+function berthKey(shipId: string, dock: DockNode): string {
+  return `${shipId}|${dock.id}|${dock.tile.x}.${dock.tile.y}`;
+}
+
 function assignDockVisits(ships: readonly ShipNode[], docks: readonly DockNode[]): ShipNode[] {
   const dockByChainId = new Map(docks.map((dock) => [dock.chainId, dock]));
   const occupied = new Set<string>();
   const dockedIndex = new Map<string, number>();
 
-  return ships
-    .toSorted((a, b) => b.marketCapUsd - a.marketCapUsd || a.id.localeCompare(b.id))
+  const byMarketCap = ships
+    .toSorted((a, b) => b.marketCapUsd - a.marketCapUsd || a.id.localeCompare(b.id));
+
+  // Every held berth is claimed before any berth is searched for, so a ship
+  // that does need a new berth cannot be handed one another ship is holding.
+  const heldForBuild = new Map<string, { x: number; y: number }>();
+  for (const ship of byMarketCap) {
+    if (ship.squadRole === "consort") continue;
+    for (const presence of ship.chainPresence) {
+      if (!presence.hasRenderedDock) continue;
+      const dock = dockByChainId.get(presence.chainId);
+      if (!dock) continue;
+      const key = berthKey(ship.id, dock);
+      const heldTile = heldMooringTiles.get(key);
+      if (!heldTile || !isBerthTile(heldTile, ship, occupied)) continue;
+      occupied.add(`${heldTile.x}.${heldTile.y}`);
+      heldForBuild.set(key, heldTile);
+    }
+  }
+
+  const nextHeld = new Map<string, { x: number; y: number }>();
+  const assigned = byMarketCap
     .map((ship) => {
       // Squad consorts ride the flagship motion route - they do not dock.
       // Strip dockVisits and homeDockChainId so motion-planning sees a clean
@@ -152,10 +217,15 @@ function assignDockVisits(ships: readonly ShipNode[], docks: readonly DockNode[]
           const dock = dockByChainId.get(presence.chainId);
           if (!dock) return [];
 
+          // Held ships still consume a berth slot, so the depth ramp keeps
+          // pace with the dock's real population rather than restarting at the
+          // waterline for whichever ships happen to need a new berth.
           const index = dockedIndex.get(dock.chainId) ?? 0;
           dockedIndex.set(dock.chainId, index + 1);
-          const mooringTile = dockMooringTile(dock, ship, index, occupied);
+          const key = berthKey(ship.id, dock);
+          const mooringTile = heldForBuild.get(key) ?? dockMooringTile(dock, ship, index, occupied);
           occupied.add(`${mooringTile.x}.${mooringTile.y}`);
+          nextHeld.set(key, mooringTile);
           return [{
             chainId: presence.chainId,
             dockId: dock.id,
@@ -172,6 +242,9 @@ function assignDockVisits(ships: readonly ShipNode[], docks: readonly DockNode[]
         tile: ship.riskTile,
       };
     });
+
+  heldMooringTiles = nextHeld;
+  return assigned;
 }
 
 export function buildDockAssignmentStage(

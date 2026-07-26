@@ -26,3 +26,61 @@ jobs:
         env:
           SMOKE_UI_URL: ${{ vars.SMOKE_UI_URL || 'https://pharosville.pharos.watch' }}
         run: npm run smoke:live -- --url "$SMOKE_UI_URL"
+      # Proves the client-error pipe end to end: without this, /_log could 404
+      # or 500 for months and nothing would notice, because the only callers
+      # are browsers that have already failed and never report the failure to
+      # report the failure. The probe is marked synthetic, so it lands under
+      # PHAROSVILLE_CANARY_PROBE and never in the real-error signal.
+      - name: Probe client error log endpoint
+        env:
+          SMOKE_UI_URL: ${{ vars.SMOKE_UI_URL || 'https://pharosville.pharos.watch' }}
+        run: |
+          set -euo pipefail
+          origin="${SMOKE_UI_URL%/}"
+          headers="$RUNNER_TEMP/log-probe-headers.txt"
+
+          expect_status() {
+            if [ "$2" != "$3" ]; then
+              echo "::error::/_log $1: expected HTTP $3, got $2"
+              exit 1
+            fi
+          }
+
+          # Both refusals short-circuit before the rate limiter, so neither
+          # spends the probe's own budget.
+          status=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
+            "$origin/_log")
+          expect_status "GET" "$status" "405"
+
+          status=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
+            -X POST "$origin/_log" \
+            -H 'content-type: application/json' \
+            -H 'origin: https://example.invalid' \
+            --data '{"category":"canary","message":"cross-origin probe"}')
+          expect_status "cross-origin POST" "$status" "403"
+
+          post_probe() {
+            curl -sS -o /dev/null -D "$headers" -w '%{http_code}' --max-time 10 \
+              -X POST "$origin/_log" \
+              -H 'content-type: application/json' \
+              -H "origin: $origin" \
+              -H 'x-pharosville-canary: 1' \
+              -H 'user-agent: pharosville-canary/1 (synthetic; github-actions)' \
+              --data "{\"category\":\"canary\",\"message\":\"synthetic canary probe from GitHub Actions run $GITHUB_RUN_ID\",\"ts\":$(date +%s)000}"
+          }
+
+          status=$(post_probe)
+          if [ "$status" = "429" ]; then
+            # An overlapping run landed inside the 10s rate-limit window. Wait it
+            # out once: a canary that cries outage over its own second request
+            # teaches the operator to ignore the channel.
+            sleep 11
+            status=$(post_probe)
+          fi
+          expect_status "synthetic report" "$status" "204"
+
+          if ! grep -qi '^cache-control:[[:space:]]*no-store' "$headers"; then
+            echo "::error::/_log accepted the report without cache-control: no-store"
+            exit 1
+          fi
+          echo "/_log accepted a synthetic report (204, no-store)."

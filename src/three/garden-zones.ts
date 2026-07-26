@@ -38,7 +38,7 @@ import {
   zoneRadius,
 } from "../systems/garden-zone-radii";
 import { setTilePosition, stableUnit, TILE_SCALE } from "./garden-util";
-import { SEA_REGION_ID, seaRegionBoundaryPoints } from "../systems/garden-sea-regions";
+import { seaRegionBoundaryPoints, seaRegionIdForArea } from "../systems/garden-sea-regions";
 
 // The ellipse semi-axis factors and the per-band radius mapping live in
 // ../systems/garden-zone-radii.ts (three-free) so the deterministic sea
@@ -62,20 +62,6 @@ const ZONE_COLOR_HARMONY: Record<string, { anchor: string; mix: number }> = {
 };
 
 
-
-/**
- * W2 / D5: band -> sea-region slot. The rendered geometry comes from the
- * terrain field; this only says which slot a band's live colour drives.
- */
-function seaRegionIdForArea(area: AreaNode): number {
-  if (area.band === "CALM") return SEA_REGION_ID.calm;
-  if (area.band === "WATCH") return SEA_REGION_ID.watch;
-  if (area.band === "ALERT") return SEA_REGION_ID.alert;
-  if (area.band === "WARNING") return SEA_REGION_ID.warning;
-  if (area.band === "DANGER") return SEA_REGION_ID.danger;
-  if (area.riskPlacement === "ledger-mooring") return SEA_REGION_ID.ledger;
-  return SEA_REGION_ID.none;
-}
 
 // W2.7 (tuned against the render): a partition does not stack, so these can
 // exceed the old 0.04-0.20 ellipse values — but 0.32/0.44 read as UI paint

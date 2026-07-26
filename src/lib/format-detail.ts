@@ -67,9 +67,17 @@ export type DetailFactKey =
   | "lastFleetDepeg"
   | "psiTrend"
   | "psiComposition"
+  | "signalMast"
+  | "fleetPeg"
+  | "beamBearing"
+  | "highWaterMark"
+  | "dexCrossCheck"
   | "cycleTempo"
   | "homeDock"
   | "backingDiversity"
+  | "netFlow24h"
+  | "supplyTide"
+  | "flightToQuality"
   | "representativePosition"
   | "riskWaterArea"
   | "riskWaterZone"
@@ -112,9 +120,17 @@ const DETAIL_FACT_LABELS = {
   "last fleet depeg": "lastFleetDepeg",
   "trend": "psiTrend",
   "composition": "psiComposition",
+  "signal mast": "signalMast",
+  "fleet peg": "fleetPeg",
+  "beam bearing": "beamBearing",
+  "worst band, 30d": "highWaterMark",
+  "dex cross-check": "dexCrossCheck",
   "cycle tempo": "cycleTempo",
   "home dock": "homeDock",
   "backing diversity": "backingDiversity",
+  "net flow 24h": "netFlow24h",
+  "supply tide 7d": "supplyTide",
+  "flight to quality": "flightToQuality",
   "representative position": "representativePosition",
   "risk water area": "riskWaterArea",
   "risk water zone": "riskWaterZone",
@@ -175,7 +191,10 @@ const READING_LINE_FIGURES: Record<string, readonly ReadingLineFigure[]> = {
     { label: "Market cap", format: compactFigure },
     { label: "Fleet rank" },
     { label: "24h supply change", format: (value) => `${value} 24h` },
-    { label: "Peg deviation" },
+    // The fact row spells the direction out ("+42 bps vs USD — above peg; hull
+    // rides high"); the reading line quotes figures, so it takes the figure and
+    // leaves the sentence to the row below it.
+    { label: "Peg deviation", format: (value) => value.split(" — ")[0]!.trim() },
     { label: "Cycle tempo" },
   ],
 };
@@ -254,6 +273,11 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
       .join(" · ");
     identity.push({ key: "marketCap", label: "Market cap", value });
   }
+  // 3b: the crossed bearings sit next to the figure they qualify rather than
+  // folding into it. Upstream this row only exists when the two instruments
+  // DISAGREE, so it is an exception report, not a permanent ninth row.
+  const dexCrossCheck = lookup.get("dexCrossCheck");
+  if (dexCrossCheck) identity.push({ key: "dexCrossCheck", label: "DEX cross-check", value: dexCrossCheck });
   // Momentum and the (significance-gated) depeg record fold into the 24h row
   // (not their own rows) to respect the panel's <= 8 fact-row density
   // contract; the full labels still reach the accessibility ledger as
@@ -273,6 +297,32 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   if (psiTrend) identity.push({ key: "psiTrend", label: "Trend", value: psiTrend });
   const psiComposition = lookup.get("psiComposition");
   if (psiComposition) identity.push({ key: "psiComposition", label: "Composition", value: psiComposition });
+  // The observatory hoist and the figures behind it. Two rows rather than one
+  // fold: the mast row is the canvas cue's parity (what is flying) and the
+  // fleet-peg row is the evidence (what it was read from), and running them
+  // together produced a line no one could scan.
+  const signalMast = lookup.get("signalMast");
+  if (signalMast) identity.push({ key: "signalMast", label: "Signal mast", value: signalMast });
+  const fleetPeg = lookup.get("fleetPeg");
+  if (fleetPeg) identity.push({ key: "fleetPeg", label: "Fleet peg", value: fleetPeg });
+  // 3d and 3c, in the order the eye meets them on the monument: where the light
+  // is pointing, then how high the water got. Both are lighthouse-only, so they
+  // spend no rows on any ship panel.
+  const beamBearing = lookup.get("beamBearing");
+  if (beamBearing) identity.push({ key: "beamBearing", label: "Beam bearing", value: beamBearing });
+  const highWaterMark = lookup.get("highWaterMark");
+  if (highWaterMark) identity.push({ key: "highWaterMark", label: "Worst band, 30d", value: highWaterMark });
+  // Task 14: DOM parity for the tide line on the shore rock and quay walls.
+  // Sits beside the high-water mark because both are read off stonework, and
+  // the pairing is what keeps a reader from confusing the two marks.
+  const supplyTide = lookup.get("supplyTide");
+  if (supplyTide) identity.push({ key: "supplyTide", label: "Supply tide 7d", value: supplyTide });
+  // The flight-to-quality tenders' DOM parity, and the only place a reader
+  // learns what the boats round the biggest hulls are. Lighthouse-only, and
+  // present only once the mint/burn gauge has landed, so it spends no row on
+  // any ship or dock panel and never claims a reading it did not get.
+  const flightToQuality = lookup.get("flightToQuality");
+  if (flightToQuality) identity.push({ key: "flightToQuality", label: "Flight to quality", value: flightToQuality });
   const cycleTempo = lookup.get("cycleTempo");
   if (cycleTempo) identity.push({ key: "cycleTempo", label: "Cycle tempo", value: cycleTempo });
   const homeDock = lookup.get("homeDock");
@@ -281,6 +331,11 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   // presence; dock panels carry far fewer rows than the ship cap).
   const backingDiversity = lookup.get("backingDiversity");
   if (backingDiversity) identity.push({ key: "backingDiversity", label: "Backing diversity", value: backingDiversity });
+  // Dock panels: the harbour's 24h issuance flow, and the DOM parity for the
+  // cargo-tide crates. A row of its own rather than a fold, because direction is
+  // the whole reading and folding it behind a separator would bury it.
+  const netFlow24h = lookup.get("netFlow24h");
+  if (netFlow24h) identity.push({ key: "netFlow24h", label: "Net flow 24h", value: netFlow24h });
 
   const position: DetailDisplayRow[] = [];
   const position_ = lookup.get("representativePosition");

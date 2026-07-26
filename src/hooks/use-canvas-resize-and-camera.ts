@@ -17,6 +17,7 @@ import type {
   WorldSelectableEntity,
 } from "../systems/world-types";
 import { sameCamera, samePoint } from "../lib/camera-equality";
+import { isDialogEventTarget } from "./keyboard-event-target";
 import {
   FOLLOW_INITIAL_DELTA_SECONDS,
   FOLLOW_LEAD_SECONDS,
@@ -180,6 +181,21 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   const currentCameraBase = useCallback(() => (
     cameraIntentRef.current.targetCamera ?? displayCameraRef.current ?? cameraRef.current
   ), [cameraRef]);
+
+  // `followTile` centres on `viewport / 2`, so framing against a zero viewport
+  // silently lands the camera half a screen off — the ship ends up outside the
+  // canvas instead of in the middle of it. `canvasSize` is state mirrored into
+  // a ref at render time, so it is still `{0, 0}` for any framing call that
+  // happens in the same commit that first measured the canvas: a `#sel=` deep
+  // link frames from an effect that can fire in exactly that commit. Measure
+  // the element directly when the mirrored size has not caught up.
+  const framingViewport = useCallback((): ScreenPoint => {
+    const mirrored = canvasSizeRef.current;
+    if (mirrored.x > 0 && mirrored.y > 0) return mirrored;
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0) return mirrored;
+    return { x: Math.max(1, Math.floor(rect.width)), y: Math.max(1, Math.floor(rect.height)) };
+  }, [canvasSizeRef]);
 
   const selectedFollowTile = useCallback((
     entity: WorldSelectableEntity,
@@ -607,7 +623,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       camera: start,
       map: world.map,
       tile: sampledTile,
-      viewport: canvasSizeRef.current,
+      viewport: framingViewport(),
     });
     if (reducedMotion) {
       applyCameraImmediately(target);
@@ -624,7 +640,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     // cameraRef, shipMotionSamplesRef omitted: ref identity never changes
     // (HOOKS F4).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applyCameraImmediately, canvasSizeRef, currentCameraBase, queueCameraTarget, reducedMotion, selectedDetailId, selectedEntity, selectedFollowTile, stopFollowChase, world.map]);
+  }, [applyCameraImmediately, framingViewport, currentCameraBase, queueCameraTarget, reducedMotion, selectedDetailId, selectedEntity, selectedFollowTile, stopFollowChase, world.map]);
 
   const focusTile = useCallback((tile: ScreenPoint) => {
     stopFollowChase();
@@ -634,9 +650,9 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       camera: start,
       map: world.map,
       tile,
-      viewport: canvasSizeRef.current,
+      viewport: framingViewport(),
     }), "follow-selected");
-  }, [canvasSizeRef, currentCameraBase, queueCameraTarget, stopFollowChase, world.map]);
+  }, [framingViewport, currentCameraBase, queueCameraTarget, stopFollowChase, world.map]);
 
   useEffect(() => {
     if (lastSelectedDetailIdRef.current !== selectedDetailId) {
@@ -663,6 +679,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     const activeCamera = currentCameraBase();
     if (!activeCamera) return;
     if (event.key === "Escape") {
+      if (isDialogEventTarget(event.target)) return;
       onClearSelection();
       stopFollowChase();
       return;

@@ -670,9 +670,13 @@ textarea {
 }
 
 .pharosville-detail-panel__close-wrap {
+  display: flex;
+  align-items: center;
+  gap: 18px;
   margin-top: 18px;
 }
-.pharosville-detail-panel__close {
+.pharosville-detail-panel__close,
+.pharosville-detail-panel__copy {
   margin: 0;
   padding: 0;
   border: 0;
@@ -682,10 +686,17 @@ textarea {
   letter-spacing: 0.02em;
   cursor: pointer;
 }
-.pharosville-detail-panel__close:hover {
+.pharosville-detail-panel__copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pharosville-detail-panel__close:hover,
+.pharosville-detail-panel__copy:hover {
   color: var(--pv-ink-text);
 }
-.pharosville-detail-panel__close:focus-visible {
+.pharosville-detail-panel__close:focus-visible,
+.pharosville-detail-panel__copy:focus-visible {
   outline: 2px solid var(--pv-brass-edge);
   outline-offset: 3px;
 }
@@ -967,6 +978,100 @@ textarea {
   line-height: 1.4;
 }
 
+/* Harbor ledger: the accessibility ledger, shown. Its words were written for
+   linear screen-reader reading and are not touched here, so the styling does
+   all of the grouping work — ruled section headings, a readable measure, and
+   one dotted rule per row. It should read as the appendix of a report. */
+.pharosville-harbor-ledger-panel {
+  width: min(880px, calc(100% - 154px));
+}
+.pharosville-harbor-ledger-panel__header {
+  align-items: center;
+  padding-bottom: 12px;
+  border-bottom: none;
+}
+.pharosville-harbor-ledger-panel__body {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 28px 28px;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--pv-brass-dark) rgba(10, 16, 22, 0.32);
+}
+/* The body is a tab stop (it is the only way to scroll the ledger from the
+   keyboard), so it needs a ring like any other. Inset: the panel clips it. */
+.pharosville-harbor-ledger-panel__body:focus-visible {
+  outline: 2px solid var(--pv-brass-highlight);
+  outline-offset: -3px;
+}
+.pharosville-ledger {
+  max-width: 74ch;
+  color: rgba(232, 220, 196, 0.86);
+  font-size: 1.06rem;
+  line-height: 1.55;
+}
+/* The generated-at and staleness line, which reads as the title's subtitle. */
+.pharosville-ledger > p {
+  margin: 8px 0 0;
+  color: rgba(248, 229, 178, 0.7);
+  font-size: 1.15rem;
+  font-style: italic;
+}
+.pharosville-ledger h3 {
+  margin: 32px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid rgba(216, 184, 122, 0.26);
+  color: var(--pv-brass-highlight);
+  font-size: 1.06rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.pharosville-ledger dl {
+  margin: 20px 0 0;
+}
+.pharosville-ledger dl > div {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 18px;
+  padding: 10px 0;
+  border-bottom: 1px dotted rgba(216, 184, 122, 0.2);
+}
+.pharosville-ledger dt {
+  color: rgba(248, 229, 178, 0.6);
+  font-size: 0.92rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.pharosville-ledger dd {
+  margin: 0;
+}
+.pharosville-ledger ol,
+.pharosville-ledger ul {
+  margin: 12px 0 0;
+  padding-left: 26px;
+}
+.pharosville-ledger li {
+  padding: 9px 0;
+  border-bottom: 1px dotted rgba(216, 184, 122, 0.16);
+}
+.pharosville-ledger li::marker {
+  color: rgba(216, 184, 122, 0.5);
+}
+.pharosville-ledger li:last-child {
+  border-bottom: none;
+}
+/* Nested consort rows belong to their squad line, so they take no rule. */
+.pharosville-ledger li ul {
+  margin-top: 8px;
+}
+.pharosville-ledger li li {
+  border-bottom: none;
+}
+
 .pharosville-footer {
   position: absolute;
   bottom: 26px;
@@ -1210,6 +1315,96 @@ textarea {
 
 /* Fleet search: below the toolbar, top-left. The wrapper re-enables pointer
    events (the parent overlay disables them) and anchors the results list. */
+.pharosville-quick-find {
+  position: absolute;
+  top: 30px;
+  left: 30px;
+  z-index: 7;
+  width: min(300px, calc(100% - 96px));
+  font-family: Georgia, "Times New Roman", serif;
+  pointer-events: auto;
+}
+.pharosville-quick-find__field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid rgba(216, 184, 122, 0.28);
+  background: rgba(8, 14, 20, 0.82);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
+}
+.pharosville-quick-find__icon {
+  flex: 0 0 auto;
+  color: rgba(216, 184, 122, 0.7);
+}
+.pharosville-quick-find__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--pv-parchment);
+  font: inherit;
+  font-size: 0.82rem;
+}
+.pharosville-quick-find__input::placeholder {
+  color: rgba(216, 208, 183, 0.5);
+  font-style: italic;
+}
+.pharosville-quick-find__input:focus-visible {
+  outline: none;
+}
+.pharosville-quick-find:focus-within .pharosville-quick-find__field {
+  border-color: rgba(216, 184, 122, 0.6);
+}
+.pharosville-quick-find__results {
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(216, 184, 122, 0.22);
+  border-top: 0;
+  background: rgba(8, 14, 20, 0.9);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
+  list-style: none;
+}
+.pharosville-quick-find__result {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 10px;
+  color: rgba(244, 232, 204, 0.86);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  cursor: pointer;
+}
+.pharosville-quick-find__result:hover,
+.pharosville-quick-find__result--active {
+  background: rgba(93, 62, 28, 0.5);
+  color: var(--pv-brass-highlight);
+}
+.pharosville-quick-find__name {
+  flex: 0 0 auto;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+.pharosville-quick-find__meta {
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(216, 208, 183, 0.62);
+  font-size: 0.72rem;
+  font-style: italic;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pharosville-quick-find__empty {
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid rgba(216, 184, 122, 0.22);
+  border-top: 0;
+  background: rgba(8, 14, 20, 0.9);
+  color: rgba(216, 208, 183, 0.62);
+  font-size: 0.76rem;
+  font-style: italic;
+}
 
 /* Transient notices: harbor log and the since-last-visit line share one quiet
    card — hairline, one shadow, dismissible (interface revamp DU16). */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Color } from "three";
+import { Color, Matrix4 } from "three";
 import { createFleetBatchGeometry } from "./garden-ships";
 import {
   FLEET_SAIL_ATLAS_CELLS,
@@ -244,6 +244,63 @@ describe("F1 brand-dyed cloth", () => {
     endFleetFrame(batches);
     // 40 ships, 40 different dyes, still one draw call per part.
     expect(fleetDrawCallCount(batches)).toBe(9);
+    disposeFleetBatches(batches);
+  });
+});
+
+describe("peg trim (Tier 3 #13)", () => {
+  it("carries the waterline in aHullForm.w on both the hull and its rig", () => {
+    const batches = buildBatches(4);
+    beginFleetFrame(batches);
+    writeFleetInstance(batches, pose({
+      hullForm: { beam: 1, height: 1, length: 1, waterline: -0.16 },
+      silhouette: "galleon",
+    }));
+    writeFleetInstance(batches, pose({
+      hullForm: { beam: 1, height: 1, length: 1, waterline: 0.08 },
+      silhouette: "galleon",
+    }));
+    endFleetFrame(batches);
+
+    const batch = batches.bySilhouette.get("galleon")!;
+    expect(batch.hull.hullForm.itemSize).toBe(4);
+    expect(batch.hull.hullForm.getW(0)).toBeCloseTo(-0.16);
+    expect(batch.hull.hullForm.getW(1)).toBeCloseTo(0.08);
+    // The rig is stepped into the hull: if the two disagree, a trimmed ship
+    // sails out from under its own masts.
+    expect(batch.sails.hullForm.getW(0)).toBeCloseTo(-0.16);
+    expect(batch.sails.hullForm.getW(1)).toBeCloseTo(0.08);
+    disposeFleetBatches(batches);
+  });
+
+  it("defaults an unwritten instance to the authored shape on an even keel", () => {
+    const batches = buildBatches(2);
+    const batch = batches.bySilhouette.get("clipper")!;
+    expect(batch.hull.hullForm.getX(1)).toBe(1);
+    expect(batch.hull.hullForm.getY(1)).toBe(1);
+    expect(batch.hull.hullForm.getZ(1)).toBe(1);
+    expect(batch.hull.hullForm.getW(1)).toBe(0);
+    disposeFleetBatches(batches);
+  });
+
+  it("moves the pennant with the masthead it flies from", () => {
+    const batches = buildBatches(2);
+    beginFleetFrame(batches);
+    writeFleetInstance(batches, pose({ mastheadOffset: { x: 0, y: 4 }, silhouette: "galleon" }));
+    writeFleetInstance(batches, pose({
+      hullForm: { beam: 1, height: 1, length: 1, waterline: -0.16 },
+      mastheadOffset: { x: 0, y: 4 },
+      silhouette: "galleon",
+    }));
+    endFleetFrame(batches);
+
+    // The pennant is placed on the CPU and never sees the vertex shader's trim,
+    // so it has to be offset explicitly or it hangs where the mast used to be.
+    const level = new Matrix4();
+    const trimmed = new Matrix4();
+    batches.pennant.mesh.getMatrixAt(0, level);
+    batches.pennant.mesh.getMatrixAt(1, trimmed);
+    expect(trimmed.elements[13]! - level.elements[13]!).toBeCloseTo(-0.16);
     disposeFleetBatches(batches);
   });
 });

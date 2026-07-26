@@ -6,8 +6,11 @@ import {
 } from "three";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { makePharosVilleWorldInput } from "../__fixtures__/pharosville-world";
+import type { StablecoinMeta } from "@shared/types";
 import type { ThreeLogoAsset } from "../renderer/world-renderer-backend";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
+import { resolveStablecoinShipBranding } from "../systems/stablecoin-ship-branding";
+import { SAIL_DARK_CANVAS_ISSUERS } from "./garden-sail-overrides";
 import {
   createGardenSailCanvas,
   createGardenSailTexture,
@@ -143,14 +146,14 @@ describe("F1 brand-dyed cloth", () => {
     // The cloth must land ON the brand colour, not on the cream mix of it that
     // `sailColor` carries — that dilution is what put a 200-ship fleet into one
     // narrow band of oatmeal.
-    expect(distance(gardenSailClothColor(livery), primary)).toBeLessThan(0.2);
+    expect(distance(gardenSailClothColor(livery, "usdc-circle"), primary)).toBeLessThan(0.2);
     expect(distance(new Color(livery.sailColor), primary)).toBeGreaterThan(0.6);
   });
 
   it("keeps two different issuers visibly apart on the water", () => {
     const base = buildPharosVilleWorld(makePharosVilleWorldInput()).ships[0]!.visual.livery;
-    const circle = gardenSailClothColor({ ...base, primary: "#2775ca" });
-    const tether = gardenSailClothColor({ ...base, primary: "#136649" });
+    const circle = gardenSailClothColor({ ...base, primary: "#2775ca" }, "usdc-circle");
+    const tether = gardenSailClothColor({ ...base, primary: "#136649" }, "usdt-tether");
 
     // The old cream wash collapsed these two to within 0.09 of each other.
     expect(distance(circle, tether)).toBeGreaterThan(0.3);
@@ -160,7 +163,7 @@ describe("F1 brand-dyed cloth", () => {
     const ink = gardenSailClothColor({
       ...buildPharosVilleWorld(makePharosVilleWorldInput()).ships[0]!.visual.livery,
       primary: "#000000",
-    });
+    }, "buidl-blackrock");
 
     expect(ink.r * 0.2126 + ink.g * 0.7152 + ink.b * 0.0722).toBeGreaterThan(0.05);
   });
@@ -168,7 +171,7 @@ describe("F1 brand-dyed cloth", () => {
   it("puts a pale issuer under black canvas so its white mark survives", () => {
     const base = buildPharosVilleWorld(makePharosVilleWorldInput()).ships[0]!.visual.livery;
     // Blast yellow: the palest brand in the inventory, contrast 1.10 vs white.
-    const cloth = gardenSailClothColor({ ...base, primary: "#ffff07" });
+    const cloth = gardenSailClothColor({ ...base, primary: "#ffff07" }, "usdb-blast");
     const luminance = cloth.r * 0.2126 + cloth.g * 0.7152 + cloth.b * 0.0722;
 
     // Dark enough for a white emblem to read...
@@ -183,10 +186,58 @@ describe("F1 brand-dyed cloth", () => {
 
   it("leaves an issuer with enough contrast in its own colour", () => {
     const base = buildPharosVilleWorld(makePharosVilleWorldInput()).ships[0]!.visual.livery;
-    const cloth = gardenSailClothColor({ ...base, primary: "#2775ca" });
+    const cloth = gardenSailClothColor({ ...base, primary: "#2775ca" }, "usdc-circle");
 
     // Circle blue clears the floor comfortably, so it must NOT be blackened.
     expect(cloth.r * 0.2126 + cloth.g * 0.7152 + cloth.b * 0.0722).toBeGreaterThan(0.1);
+  });
+
+  it("puts a named pale issuer under black canvas without moving the floor", () => {
+    const base = buildPharosVilleWorld(makePharosVilleWorldInput()).ships[0]!.visual.livery;
+    // Lybra's sky blue dyes to contrast 2.06 — above the 2.0 floor, so only the
+    // override can darken it.
+    const cloth = gardenSailClothColor({ ...base, primary: "#6caaef" }, "eusd-lybra");
+    const hsl = { h: 0, l: 0, s: 0 };
+    cloth.getHSL(hsl, SRGBColorSpace);
+
+    expect(cloth.r * 0.2126 + cloth.g * 0.7152 + cloth.b * 0.0722).toBeLessThan(0.05);
+    // Still theirs: a dark BLUE-black, not a shared #000. Blue sits near 0.6.
+    expect(hsl.s).toBeGreaterThan(0.2);
+    expect(hsl.h).toBeCloseTo(0.6, 1);
+  });
+
+  it("keeps the five overridden issuers apart from one another", () => {
+    const base = buildPharosVilleWorld(makePharosVilleWorldInput()).ships[0]!.visual.livery;
+    const dark = [
+      ["bean-beanstalk", "#46bd56"],
+      ["cash-phantom", "#b5a88c"],
+      ["csusdl-coinshift", "#fc8770"],
+      ["eusd-lybra", "#6caaef"],
+      ["zchf-frankencoin", "#a3a7b2"],
+    ].map(([id, primary]) => gardenSailClothColor({ ...base, primary: primary! }, id!));
+
+    // R2b: growing the black squadron is only acceptable while each ship stays
+    // recognisably its own. Every pair must differ somewhere.
+    for (let first = 0; first < dark.length; first += 1) {
+      for (let second = first + 1; second < dark.length; second += 1) {
+        expect(distance(dark[first]!, dark[second]!)).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("leaves DAI's amber exactly where decision D5 put it", () => {
+    const dai = resolveStablecoinShipBranding("dai-makerdao", {
+      flags: { pegCurrency: "USD" },
+    } as StablecoinMeta);
+    const cloth = gardenSailClothColor(dai, "dai-makerdao");
+
+    // D5 kept the floor at 2.0 knowing DAI dyes to 2.09, because its amber is
+    // an operator-owned recognition cue. This pins the exact rendered cloth: if
+    // it moves, someone has changed a decision rather than a detail.
+    expect(cloth.getHexString()).toBe("daac69");
+    // Not under black canvas — the pirate branch would drop this far below 0.1.
+    expect(cloth.r * 0.2126 + cloth.g * 0.7152 + cloth.b * 0.0722).toBeCloseTo(0.4528, 3);
+    expect(SAIL_DARK_CANVAS_ISSUERS.has("dai-makerdao")).toBe(false);
   });
 
   it("paints the atlas cell as marks only, leaving the cloth transparent", () => {

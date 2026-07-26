@@ -2,7 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PHAROSVILLE_API_CLIENT_CONTRACT } from "@shared/lib/pharosville-api-client-contract";
 import { PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY } from "@shared/lib/pharosville-api-endpoints";
 import type { PharosVilleApiEndpointKey } from "@shared/types/pharosville";
-import { usePegSummary, useReportCards, useStabilityIndexDetail, useStressSignals } from "./api-hooks";
+import {
+  useMintBurnFlows,
+  usePegSummary,
+  useReportCards,
+  useStabilityIndexDetail,
+  useStressSignals,
+} from "./api-hooks";
 import { useChains } from "./use-chains";
 import { useStablecoins } from "./use-stablecoins";
 import { usePharosVilleEndpointQuery } from "./use-api-query";
@@ -49,6 +55,11 @@ describe("PharosVille API hooks", () => {
       hook: useReportCards,
       key: "reportCards",
       queryKey: ["report-cards"],
+    },
+    {
+      hook: useMintBurnFlows,
+      key: "mintBurn",
+      queryKey: ["mint-burn-flows"],
     },
   ] satisfies Array<{
     hook: () => unknown;

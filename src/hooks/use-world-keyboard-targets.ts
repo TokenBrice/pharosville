@@ -2,6 +2,7 @@ import { useCallback, type KeyboardEvent as ReactKeyboardEvent, type MutableRefO
 import type { HitTarget } from "../renderer/hit-testing";
 import type { ScreenPoint } from "../systems/projection";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
+import { isDialogEventTarget } from "./keyboard-event-target";
 import type { DetailAnchor } from "./use-world-selection";
 
 export function useWorldKeyboardTargets(input: {
@@ -101,6 +102,9 @@ export function useWorldKeyboardTargets(input: {
   }, [canvasSizeRef, hitTargetsRef, keyboardFocusedDetailId, recomputeHitTargets, reducedMotion, requestPaint, selectDetail]);
 
   return useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
+    // An open panel owns every key pressed inside it — its focus trap, its
+    // scrolling body, its own Escape. None of it is map input.
+    if (isDialogEventTarget(event.target)) return;
     if (!isInteractiveEventTarget(event.target) && event.key === "Tab") {
       if (cycleKeyboardTarget(event.shiftKey)) event.preventDefault();
       return;

@@ -141,8 +141,11 @@ describe("PharosVille API proxy", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("public, max-age=600");
-    expect(cache.putUrls).toEqual(["https://pharosville.pharos.watch/api/stablecoins"]);
-    expect(cache.putUrls[0]).not.toContain("test-proxy-key");
+    expect(cache.putUrls).toEqual([
+      "https://pharosville.pharos.watch/api/stablecoins",
+      "https://pharosville.pharos.watch/api/__last-good/api/stablecoins",
+    ]);
+    expect(cache.putUrls.join(" ")).not.toContain("test-proxy-key");
     await expect(cache.match(new Request("https://pharosville.pharos.watch/api/stablecoins")))
       .resolves.toBeInstanceOf(Response);
   });
@@ -226,8 +229,14 @@ describe("PharosVille API proxy", () => {
     expect(body).not.toContain("test-proxy-key");
     expect(response.headers.get("x-api-key")).toBeNull();
     expect(response.headers.get("set-cookie")).toBeNull();
-    expect(cache.putUrls).toEqual(["https://pharosville.pharos.watch/api/stablecoins"]);
-    expect(cache.putUrls[0]).not.toContain("test-proxy-key");
+    expect(cache.putUrls).toEqual([
+      "https://pharosville.pharos.watch/api/stablecoins",
+      "https://pharosville.pharos.watch/api/__last-good/api/stablecoins",
+    ]);
+    expect(cache.putUrls.join(" ")).not.toContain("test-proxy-key");
+    const lastGood = await cache.match(new Request("https://pharosville.pharos.watch/api/__last-good/api/stablecoins"));
+    expect(await lastGood?.text()).not.toContain("test-proxy-key");
+    expect([...lastGood!.headers.keys()]).not.toContain("x-api-key");
   });
 
   it("rejects unlisted API paths before upstream fetch", async () => {
@@ -439,6 +448,210 @@ describe("PharosVille API proxy", () => {
     expect(body.updatedAt).toBe(1_700_000_000);
     expect(body.safetyScoreIdentity).toEqual({ model: "v8" });
     expect(body._meta).toEqual({ updatedAt: 1_700_000_000, ageSeconds: 5, status: "fresh" });
+  });
+
+  describe("last-good fallback", () => {
+    const SHORT_TTL_URL = "https://pharosville.pharos.watch/api/stablecoins";
+    const LAST_GOOD_URL = "https://pharosville.pharos.watch/api/__last-good/api/stablecoins";
+
+    // The long-TTL copy shares `caches.default` with the CDN, so both halves
+    // matter: the key has to be in-zone or the write is not documented to land
+    // at all, and the prefix has to be refused or a miss on it would let the
+    // response to that stray request take the key for the next 24 hours.
+    it("keys the last-good copy in-zone, under a prefix the proxy refuses", async () => {
+      const cache = new MemoryEdgeCache();
+      const waitUntilPromises: Promise<unknown>[] = [];
+      installEdgeCache(cache);
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+
+      await onRequest(makeContext(SHORT_TTL_URL, { waitUntilPromises }));
+      await Promise.all(waitUntilPromises);
+
+      expect(cache.putUrls.every((putUrl) => new URL(putUrl).origin === "https://pharosville.pharos.watch"))
+        .toBe(true);
+      expect(cache.putUrls).toEqual([SHORT_TTL_URL, LAST_GOOD_URL]);
+    });
+
+    it("refuses the reserved prefix with no-store, so no caller can take the key", async () => {
+      const fetchMock = vi.spyOn(globalThis, "fetch");
+      const response = await onRequest(makeContext(LAST_GOOD_URL));
+
+      expect(response.status).toBe(404);
+      // Without this the refusal itself would be cacheable onto the key, which
+      // is the exact failure the reserved prefix exists to prevent.
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("reports a last-good write that cannot land instead of swallowing it", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const waitUntilPromises: Promise<unknown>[] = [];
+      installEdgeCache({
+        match: async () => undefined,
+        put: async (request: Request) => {
+          if (request.url === LAST_GOOD_URL) throw new TypeError("Cannot cache this URL");
+        },
+      } as unknown as MemoryEdgeCache);
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+
+      await onRequest(makeContext(SHORT_TTL_URL, { waitUntilPromises }));
+      await Promise.all(waitUntilPromises);
+
+      const failure = errorSpy.mock.calls
+        .map(([line]) => String(line))
+        .find((line) => line.startsWith("PHAROSVILLE_EDGE_CACHE_FAILED "));
+      expect(failure).toContain("last-good-write");
+      expect(failure).toContain("Cannot cache this URL");
+    });
+
+    /** Runs one successful request so the long-TTL copy exists, then evicts the
+     * short-TTL entry the way its `max-age` would have. */
+    async function primeLastGood(cache: MemoryEdgeCache): Promise<void> {
+      const waitUntilPromises: Promise<unknown>[] = [];
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify({ generation: "last-good" }), {
+          status: 200,
+          headers: { "content-type": "application/json", "x-data-age": "5" },
+        }),
+      );
+      await onRequest(makeContext(SHORT_TTL_URL, { waitUntilPromises }));
+      await Promise.all(waitUntilPromises);
+      cache.responses.delete(SHORT_TTL_URL);
+    }
+
+    it("stores the last-good copy under a long TTL", async () => {
+      const cache = new MemoryEdgeCache();
+      installEdgeCache(cache);
+      await primeLastGood(cache);
+
+      const stored = await cache.match(new Request(LAST_GOOD_URL));
+      expect(stored?.headers.get("cache-control")).toBe("public, max-age=86400");
+      await expect(stored?.json()).resolves.toEqual({ generation: "last-good" });
+    });
+
+    it("serves the last-good copy with stale markers when the upstream fetch fails", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-07-26T00:00:00Z"));
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const cache = new MemoryEdgeCache();
+      installEdgeCache(cache);
+      await primeLastGood(cache);
+
+      vi.setSystemTime(new Date("2026-07-26T01:00:00Z"));
+      vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("upstream down"));
+      const response = await onRequest(makeContext(SHORT_TTL_URL));
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ generation: "last-good" });
+      // `110` is the marker src/lib/api.ts reads to demote the payload out of `fresh`.
+      expect(response.headers.get("warning")).toBe('110 - "Response is stale"');
+      // The copy's own 5s of age plus the hour it spent in the edge cache.
+      expect(response.headers.get("x-data-age")).toBe("3605");
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("x-pharosville-proxy")).toBe("1");
+    });
+
+    it("serves the last-good copy when upstream answers 5xx", async () => {
+      const cache = new MemoryEdgeCache();
+      installEdgeCache(cache);
+      await primeLastGood(cache);
+
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "upstream unavailable" }), {
+          status: 503,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      const response = await onRequest(makeContext(SHORT_TTL_URL));
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ generation: "last-good" });
+      expect(response.headers.get("warning")).toBe('110 - "Response is stale"');
+    });
+
+    it("still forwards a 4xx, which answers the request rather than reporting an outage", async () => {
+      const cache = new MemoryEdgeCache();
+      installEdgeCache(cache);
+      await primeLastGood(cache);
+
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "bad request" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      const response = await onRequest(makeContext(SHORT_TTL_URL));
+
+      expect(response.status).toBe(400);
+    });
+
+    it("returns the honest 502 once the last-good copy is past the staleness cap", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-07-26T00:00:00Z"));
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const cache = new MemoryEdgeCache();
+      installEdgeCache(cache);
+      await primeLastGood(cache);
+
+      vi.setSystemTime(new Date("2026-07-27T00:00:01Z"));
+      vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("upstream down"));
+      const response = await onRequest(makeContext(SHORT_TTL_URL));
+
+      expect(response.status).toBe(502);
+      await expect(response.text()).resolves.toContain("PharosVille API upstream request failed");
+    });
+
+    // `/api/stablecoins` has no projector, so nothing else on this path ever
+    // parses the body: without this check a truncated or mislabelled 200 becomes
+    // the copy a later outage promotes to "the answer" under Warning: 110.
+    it("refuses to pin a 200 whose body is not parseable JSON", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const cache = new MemoryEdgeCache();
+      const waitUntilPromises: Promise<unknown>[] = [];
+      installEdgeCache(cache);
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response('{"peggedAssets":[', {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+
+      const served = await onRequest(makeContext(SHORT_TTL_URL, { waitUntilPromises }));
+      await Promise.all(waitUntilPromises);
+
+      // Still forwarded live — the edge does not judge a body it was asked to relay.
+      expect(served.status).toBe(200);
+      await expect(served.text()).resolves.toBe('{"peggedAssets":[');
+      await expect(cache.match(new Request(LAST_GOOD_URL))).resolves.toBeUndefined();
+
+      cache.responses.delete(SHORT_TTL_URL);
+      vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("upstream down"));
+      const duringOutage = await onRequest(makeContext(SHORT_TTL_URL));
+
+      expect(duringOutage.status).toBe(502);
+      expect(duringOutage.headers.get("warning")).toBeNull();
+    });
+
+    it("returns the 502 when no last-good copy exists", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      installEdgeCache(new MemoryEdgeCache());
+      vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("upstream down"));
+
+      const response = await onRequest(makeContext(SHORT_TTL_URL));
+
+      expect(response.status).toBe(502);
+      expect(response.headers.get("warning")).toBeNull();
+    });
   });
 
   it("forwards the payload untouched when it is not the JSON the projector expects", async () => {

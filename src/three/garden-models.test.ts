@@ -10,6 +10,7 @@ import {
   Object3D,
   Vector3,
 } from "three";
+import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -64,13 +65,15 @@ describe.each(Object.keys(GARDEN_MODEL_MANIFEST) as (keyof typeof GARDEN_MODEL_M
         upAxis: "+Y",
       });
       expect(entry.lod.strategy).toBe("single");
-      expect(entry.artifact.compression).toBe("none");
+      expect(entry.artifact.compression).toBe("meshopt");
     });
 
     it("loads at the recorded scale with anchors at their manifest positions", async () => {
       const bytes = readFileSync(assetPath);
       const arrayBuffer = new Uint8Array(bytes).buffer;
-      const gltf = await new GLTFLoader().parseAsync(arrayBuffer, "");
+      const gltf = await new GLTFLoader()
+        .setMeshoptDecoder(MeshoptDecoder)
+        .parseAsync(arrayBuffer, "");
       const model = gltf.scene.getObjectByName(entry.id);
       if (model === undefined) throw new Error(`${entry.id} root node missing.`);
 

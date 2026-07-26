@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
@@ -230,6 +230,61 @@ describe("DetailPanel structure (old-school revamp)", () => {
   });
 });
 
+describe("DetailPanel copy link", () => {
+  const detail: DetailModel = {
+    id: "ship:test-copy",
+    title: "Test Ship",
+    kind: "SHIP",
+    summary: "test",
+    facts: [],
+    links: [],
+  };
+
+  const stubClipboard = (writeText: (text: string) => Promise<void>) => {
+    const original = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    return () => {
+      if (original) Object.defineProperty(navigator, "clipboard", original);
+      else Reflect.deleteProperty(navigator as object, "clipboard");
+    };
+  };
+
+  // The address bar keeps the params in the fragment; the copied link moves
+  // them to the query string so the shared card can name the ship.
+  it("copies the current world URL as a server-readable link and announces it", async () => {
+    // Declared with its argument so the mock's recorded calls are typed as
+    // [string]; inferred from a zero-arg factory, `calls[0]` is an empty tuple
+    // and reading the copied URL back off it does not typecheck.
+    const writeText = vi.fn((_text: string) => Promise.resolve());
+    const restore = stubClipboard(writeText);
+    window.history.replaceState({}, "", "/#sel=ship.usdc&n=1&cam=4,8,1.5");
+    const setAnnouncement = vi.fn();
+
+    render(<DetailPanel detail={detail} setAnnouncement={setAnnouncement} />);
+    fireEvent.click(screen.getByTestId("pharosville-detail-copy-link"));
+
+    await waitFor(() => expect(setAnnouncement).toHaveBeenCalledWith("Link copied"));
+    const copied = new URL(writeText.mock.calls[0]![0]);
+    expect(copied.hash).toBe("");
+    expect(copied.searchParams.get("sel")).toBe("ship.usdc");
+    expect(copied.searchParams.get("n")).toBe("1");
+    expect(copied.searchParams.get("cam")).toBe("4,8,1.5");
+    expect(screen.getByTestId("pharosville-detail-copy-link").textContent).toContain("Link copied");
+    restore();
+  });
+
+  it("announces a failure instead of throwing when the clipboard is unavailable", async () => {
+    const restore = stubClipboard(() => Promise.reject(new Error("denied")));
+    const setAnnouncement = vi.fn();
+
+    render(<DetailPanel detail={detail} setAnnouncement={setAnnouncement} />);
+    fireEvent.click(screen.getByTestId("pharosville-detail-copy-link"));
+
+    await waitFor(() => expect(setAnnouncement).toHaveBeenCalledWith("Could not copy link"));
+    restore();
+  });
+});
+
 describe("DetailPanel composer paths (synthetic fixtures)", () => {
   const calmShip: DetailModel = {
     id: "ship:test-calm",
@@ -357,7 +412,9 @@ describe("DetailPanel composer paths (synthetic fixtures)", () => {
 
     const markup = renderToStaticMarkup(<DetailPanel detail={detail} />);
     expect(markup).toMatch(/href="https:\/\/pharos\.watch\/stablecoin\/usdc-circle\/"/);
-    expect(markup).not.toMatch(/<button/);
+    // The panel's own copy-link control is always present; what must stay
+    // dormant is the in-world selector button.
+    expect(markup).not.toMatch(/Select Stablecoin in PharosVille/);
     expect(markup).toContain("Stablecoin →");
   });
 });

@@ -12,6 +12,41 @@ export const LEGEND_MARK_ROWS = [
     text: "Cargo crates on a dock mean chain backing is narrowing or concentrated; empty quays do not certify safety.",
   },
   {
+    cueId: "cue.dock.cargo-tide",
+    label: "Cargo working the quay",
+    text: "A single course of canvas-topped crates out along a harbour's pier means that chain's stablecoins were net minted over 24 hours; the same crates standing back along the quay edge mean they were net burned. An empty harbour means either nothing moved or issuance is not measured there, and the Net flow 24h row says which.",
+  },
+  {
+    cueId: "cue.fleet.flight-to-quality",
+    label: "Tenders working the big hulls",
+    text: "Small open boats standing off the largest ships and running in on them mean capital is concentrating into the biggest, most trusted stablecoins; how far in they carry is how pronounced the reading is. The boats are harbour craft, not stablecoins — they carry no rig, cannot be selected, and are not counted in the fleet. An empty sea means either no such rotation or no issuance feed, and the lighthouse Flight to quality row says which.",
+  },
+  {
+    cueId: "cue.lighthouse.signal-mast",
+    label: "Observatory signal mast",
+    text: "Small pennants on the mast beside the observatory count the coins currently off peg (five is the top of the hoist); a dark cone joins them when the worst deviation is large. It reports today's readings, not a forecast.",
+  },
+  {
+    cueId: "cue.world.supply-tide",
+    label: "Tide line on the shore rock",
+    text: "A dark band of wet stone on the island rock and the quay walls, measured against a fixed iron datum notch: a strandline above the notch means stablecoin supply shrank over the week, below it means supply grew. Bare stone with no notch at all means no chain data arrived.",
+  },
+  {
+    cueId: "cue.lighthouse.high-water-mark",
+    label: "Pale band on the lighthouse rocks",
+    text: "A pale salt line climbing the lighthouse terrace records the worst index band of the last 30 days — how high the water got, not how it stands now. Unstained rock can also mean there was no history to read.",
+  },
+  {
+    cueId: "cue.ship.cross-bearing-buoy",
+    label: "Striped cross-bearing buoy",
+    text: "A small black-and-white buoy riding beside a ship means its DEX price and its consensus price disagree. It says the two readings differ, not which one is right, and most ships have no buoy because no cross-check was run.",
+  },
+  {
+    cueId: "cue.ship.peg-trim",
+    label: "How she rides",
+    text: "A hull sitting high out of the water is trading above its peg; one sitting low and heavy is trading below it. Only coins at least 50 bps off par are trimmed at all, the trim is small by design and reads when you are looking at a ship rather than at the whole fleet, and a level hull can mean either at par or no fresh peg reading — the Peg deviation row says which.",
+  },
+  {
     cueId: "cue.ship.audit-shield",
     label: "Steel-and-gold shield",
     text: "Major graded ships may carry a bluechip audit shield; the shield is a grade marker, not a blanket approval.",
@@ -40,6 +75,50 @@ export function buildVisualCueRegistry(): VisualCue[] {
       failureState: "unlit/fogged lighthouse",
       domEquivalent: "lighthouse detail Score, Band, Trend, Composition, and top-contributor rows plus accessibility ledger lighthouse row",
       reducedMotionEquivalent: "static beacon state and lighthouse detail PSI rows",
+    },
+    {
+      id: "cue.lighthouse.signal-mast",
+      target: { kind: "lighthouse" },
+      primaryChannels: ["shape", "size"],
+      visual: "signal mast on the observatory terrace flying one small pennant per coin currently off peg (hoist of five) with a dark storm cone at the yardarm when the worst live deviation crosses the shared price-materiality gate",
+      sourceField: "pegSummary.summary.activeDepegCount, pegSummary.summary.worstCurrent",
+      questionAnswered: "How many stablecoins are off peg across the whole fleet right now, and is any one of them far enough off to count as a storm?",
+      failureState: "bare mast; the lighthouse Signal mast row reads 'no peg summary tonight' and the Fleet peg row is absent",
+      domEquivalent: "lighthouse detail Signal mast and Fleet peg rows plus the accessibility ledger lighthouse signal-mast clause",
+      reducedMotionEquivalent: "same pennants and cone held at their composed time-zero pose",
+    },
+    {
+      id: "cue.lighthouse.high-water-mark",
+      target: { kind: "lighthouse" },
+      primaryChannels: ["size", "color"],
+      visual: "pale salt-crust courses banding the lighthouse terrace, one course per severity step of the worst Pharos Stability Index band reached in the trailing 30 days; bare stone when the worst reading never left the calmest band",
+      sourceField: "stability.history[].band",
+      questionAnswered: "Is this calm harbour one that has always been calm, or one that recovered from something recently?",
+      failureState: "bare stone; the lighthouse 'Worst band, 30d' row reads 'Unstained — no index history to read', which is not the same as never having risen",
+      domEquivalent: "lighthouse detail 'Worst band, 30d' row plus the accessibility ledger lighthouse high-water clause",
+      reducedMotionEquivalent: "identical — the mark is a static record and never animates at any setting",
+    },
+    {
+      id: "cue.lighthouse.beam-dwell",
+      target: { kind: "lighthouse" },
+      primaryChannels: ["motion", "position"],
+      visual: "the beacon's sweep slowing as it crosses the bearing of the ship contributing most to the Pharos Stability Index, so the light lingers there each revolution",
+      sourceField: "stability.current.contributors[0]",
+      questionAnswered: "Which single ship is doing most to move the fleet-wide index right now?",
+      failureState: "an even sweep at the fleet's stress tempo; the Beam bearing row is absent when no contributor is reported",
+      domEquivalent: "lighthouse detail Beam bearing row and top-contributor list plus the accessibility ledger beam-bearing clause",
+      reducedMotionEquivalent: "no sweep at all — the beam holds a static bearing on that same ship, and the Beam bearing row names which ship it is holding on",
+    },
+    {
+      id: "cue.ship.cross-bearing-buoy",
+      target: { kind: "ship" },
+      primaryChannels: ["shape", "position"],
+      visual: "small black-and-white striped buoy with a crossed topmark riding alongside any ship whose DEX price check disagrees with the consensus feed",
+      sourceField: "pegSummary.coins[].dexPriceCheck.agrees",
+      questionAnswered: "Are the two independent readings of this coin's price telling the same story?",
+      failureState: "no buoy — which covers both 'the readings agree' and 'no check was run'; the detail row appears only on disagreement and the ledger clause only when a check ran at all",
+      domEquivalent: "ship detail 'DEX cross-check' row on disagreement, plus the accessibility ledger DEX cross-check clause whenever a check ran",
+      reducedMotionEquivalent: "identical — the buoy holds a static stand-off from its hull and moves only when the ship does, which reduced motion already stops",
     },
     {
       id: "cue.dock.size",
@@ -84,6 +163,20 @@ export function buildVisualCueRegistry(): VisualCue[] {
       failureState: "generic water texture with DOM area detail still available",
       domEquivalent: "named area detail panel and accessibility ledger rows",
       reducedMotionEquivalent: "static semantic water texture and printed labels",
+    },
+    {
+      // The one cue that reads the SIGN of the peg deviation. `cue.ship.distance`
+      // spends its magnitude on which water the ship anchors in and collapses
+      // the direction; a premium and a discount are opposite market facts.
+      id: "cue.ship.peg-trim",
+      target: { kind: "ship" },
+      primaryChannels: ["position", "shape"],
+      visual: "the hull lifting clear of the water on coins trading above par and settling low and heavy on coins trading below it, in two steps at the same 50 and 200 bps the risk-water placement uses; an even keel below 50 bps and on any stale peg row",
+      sourceField: "pegSummary.coins[].currentDeviationBps (sign), freshness.pegSummaryStale",
+      questionAnswered: "Is this coin off peg because demand is running ahead of it, or because holders are redeeming out of it?",
+      failureState: "even keel — which covers at-par, under the 50 bps gate, and no fresh peg reading alike; the Peg deviation row separates the three",
+      domEquivalent: "ship detail 'Peg deviation' row, which names the direction outright and says whether the hull is trimmed for it, plus the matching accessibility-ledger peg-deviation clause",
+      reducedMotionEquivalent: "identical — the trim is how the ship floats, not something she does, so there is nothing to freeze",
     },
     {
       // Reliable class reading is inspect-zoom only; fleet-zoom analysis belongs in the Class row and ledger.
@@ -162,6 +255,66 @@ export function buildVisualCueRegistry(): VisualCue[] {
       failureState: "no crates; dock Backing diversity row absent without the health factor",
       domEquivalent: "dock detail Backing diversity row and accessibility ledger line",
       reducedMotionEquivalent: "same static crate stack",
+    },
+    {
+      // The WEEKLY flow reading, against the cargo tide's daily one. Kept quiet
+      // on purpose: supply growing or shrinking is a condition, not a warning.
+      id: "cue.world.supply-tide",
+      target: { kind: "lighthouse" },
+      primaryChannels: ["position", "color", "size"],
+      visual: "a band of dark wet stone on the island's shore rock and on every quay wall, its top edge — the strandline — standing above a fixed iron datum notch when the week's stablecoin supply fell and below it when supply rose; the excursion is compressed against a 2% full scale so an ordinary week still lifts clear of the datum",
+      sourceField: "chains.globalChange7dPct",
+      questionAnswered: "Did the whole stablecoin supply grow or shrink over the past week?",
+      failureState: "bare stone with no datum notch at all — distinct from every real tide state, because a cue that cannot say 'no data' eventually says something false instead",
+      domEquivalent: "lighthouse detail 'Supply tide 7d' row naming the direction outright, plus the matching accessibility ledger lighthouse clause",
+      reducedMotionEquivalent: "identical — a weekly figure carries no rate to animate, so the band is static at every setting",
+    },
+    {
+      // The world's only DAILY flow cue. Everything else here reports a stock.
+      id: "cue.dock.cargo-tide",
+      target: { kind: "dock" },
+      primaryChannels: ["position", "shape", "size"],
+      visual: "a single course of canvas-topped crates standing seaward along a harbour's pier deck when its chains' stablecoins were net minted over 24 hours, and standing landward along the quay's outer edge when they were net burned; the run's length carries how one-sided the day's flow was",
+      sourceField: "mintBurn.coins[].netFlow24hUsd, mintBurn.coins[].mintVolume24hUsd, mintBurn.coins[].burnVolume24hUsd, mintBurn.scope.chainIds (allocated across harbours by each coin's chain presence)",
+      questionAnswered: "Is stablecoin supply being created or destroyed at this harbour right now?",
+      failureState: "no crates — which covers both 'nothing moved' and 'issuance is not measured on this chain'; the Net flow 24h row separates the two rather than leaving an empty quay to mean either",
+      domEquivalent: "dock detail 'Net flow 24h' row naming the direction outright plus gross mint and burn, the matching dock accessibility-ledger clause, and the fleet-issuance ledger line above the dock list",
+      reducedMotionEquivalent: "identical — the cargo is a standing state and never animates at any setting, so there is nothing to freeze",
+    },
+    {
+      // The mint/burn gauge's other reading, and the fleet-wide one. The cargo
+      // tide answers "is supply being made or unmade, here"; this answers
+      // "where is it going", which is a question about the fleet rather than
+      // about any one quay — hence boats on open water rather than a mark on a
+      // harbour. Both are drawn from the same payload and neither repeats the
+      // other's statement.
+      id: "cue.fleet.flight-to-quality",
+      target: { kind: "lighthouse" },
+      primaryChannels: ["motion", "position"],
+      visual: "small open tenders standing off the largest-market-cap hulls and running in on them, over and over, while the gauge holds; how far in the run carries is set by the reported intensity, so a weak reading leaves them nosing in from well out and a strong one crowds them against the hull. They carry no rig, no wake and no lantern, are unselectable, and are counted nowhere in the fleet — they are harbour craft, not stablecoins",
+      sourceField: "mintBurn.gauge.flightToQuality, mintBurn.gauge.flightIntensity (drawn on the largest ships by stablecoins.peggedAssets[].circulating)",
+      questionAnswered: "Is capital leaving the smaller and riskier stablecoins and concentrating into the largest, most trusted ones?",
+      failureState: "empty water — nothing is drawn at all, which covers both 'the gauge reports no such rotation' and 'no issuance feed arrived'; the lighthouse 'Flight to quality' row separates the two, and is absent entirely when the gauge never landed",
+      domEquivalent: "lighthouse detail 'Flight to quality' row naming the state and the intensity outright, plus the fleet-issuance accessibility-ledger line above the dock list",
+      reducedMotionEquivalent: "every tender held static at the converged end of its run, gathered at the hull — deterministic, with no clock and no movement, and the converged distance still set by the reported intensity so the strength of the reading survives the freeze",
+    },
+    {
+      // The chain-level partner to the cargo tide, and deliberately NOT the
+      // same statement: the crates below are issuance measured at this quay,
+      // this is the chain's total held supply, which also moves when supply
+      // bridges in or out without a coin being minted. A harbour can be net
+      // burning and still filling. The two marks are kept at different heights
+      // and in different forms so that disagreement reads as the real thing it
+      // is rather than as one cue contradicting the other.
+      id: "cue.dock.harbour-tempo",
+      target: { kind: "dock" },
+      primaryChannels: ["motion", "position"],
+      visual: "gulls working the air over a harbour: they wheel faster, wider and higher above a chain whose held stablecoin supply grew over 24 hours, and slower, tighter and lower above one whose supply drained; the swing is compressed against a 3% full scale and carries no colour, so a busy quay reads as busy and never as distress",
+      sourceField: "chains.chains[].change24hPct",
+      questionAnswered: "Is this harbour filling or draining — is the chain holding more stablecoin supply than it did yesterday?",
+      failureState: "the resting tempo, identical to a chain that genuinely did not move; the '24h supply change' row separates the two rather than letting a still quay mean either",
+      domEquivalent: "dock detail '24h supply change' and '7d' held-supply rows naming the direction outright, plus the matching dock accessibility-ledger clause, both sitting next to the Net flow 24h issuance row so the two readings can be compared",
+      reducedMotionEquivalent: "the flock is frozen at time zero, and the tempo survives the freeze as static geometry — a filling harbour's gulls still stand wider off the quay and higher above it than a draining harbour's",
     },
     {
       id: "cue.ship.zone-weathering",

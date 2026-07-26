@@ -1,5 +1,6 @@
 import { SHIP_WATER_ANCHORS, waterZoneForPlacement } from "./risk-water-areas";
 import { buildVisualCueRegistry } from "./visual-cue-registry";
+import { buildCargoTideStage } from "./pharosville-world/stages/cargo-tide";
 import { buildDetailIndexStage } from "./pharosville-world/stages/detail-index";
 import { buildDockAssignmentStage } from "./pharosville-world/stages/dock-assignment";
 import { buildShipsStage } from "./pharosville-world/stages/ship-placement";
@@ -14,6 +15,14 @@ export function buildPharosVilleWorld(inputs: PharosVilleInputs): PharosVilleWor
   const scaffold = buildWorldScaffoldStage(inputs);
   const shipsStage = buildShipsStage(inputs, scaffold.docks);
   const dockAssignmentStage = buildDockAssignmentStage(shipsStage.ships, scaffold.docks);
+  // Runs last of the data stages: allocating each coin's issuance across the
+  // harbours it berths at needs the ships' composed chain presence, which only
+  // exists once placement has run.
+  const cargoTideStage = buildCargoTideStage(
+    scaffold.docks,
+    dockAssignmentStage.ships,
+    inputs.mintBurn,
+  );
 
   const baseWorld: PharosVilleWorldBase = {
     generatedAt: resolveGeneratedAt(inputs),
@@ -22,10 +31,12 @@ export function buildPharosVilleWorld(inputs: PharosVilleInputs): PharosVilleWor
     map: scaffold.map,
     lighthouse: scaffold.lighthouse,
     pigeonnier: scaffold.pigeonnier,
-    docks: scaffold.docks,
+    docks: cargoTideStage.docks,
     areas: scaffold.areas,
     ships: dockAssignmentStage.ships,
     graves: scaffold.graves,
+    fleetIssuance: cargoTideStage.fleetIssuance,
+    supplyTide: scaffold.supplyTide,
   };
 
   const detailIndexStage = buildDetailIndexStage(baseWorld);

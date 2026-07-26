@@ -8,6 +8,7 @@ import {
   mockScreenSize,
   readRuntimeSnapshot,
   readVisualDebug,
+  rendererReachedWorld,
   waitForRuntimeDebug,
 } from "../helpers/pharosville-debug";
 
@@ -290,6 +291,134 @@ test(...visualLane("interaction", "deep links reach an off-screen ship and prese
     const debug = await readVisualDebug(page);
     return debug.selectedDetailId;
   }).toBe(selectedDockDetailId);
+});
+
+// ---------------------------------------------------------------------------
+// The failure and staleness half of the data path.
+//
+// Every other lane mocks all six feeds as fresh successes, so the code that
+// only runs when a feed is broken or old had no browser coverage at all. These
+// three cover the three outcomes a visitor can actually get.
+// ---------------------------------------------------------------------------
+
+const DATA_PATH_VIEWPORT = { height: 1000, width: 1440 };
+
+async function expectRouteMode(page: Page, mode: string): Promise<void> {
+  const routeMode = page.getByTestId("pharosville-accessibility-ledger").locator("dt:text-is('Route mode') + dd");
+  // Longer than the default expect timeout: a cold Vite transform of the whole
+  // world graph is slower than any of these tests' own waits.
+  await expect(routeMode).toHaveText(mode, { timeout: 30_000 });
+  // Named explicitly so a crash inside the world reads as a crash rather than
+  // as a missing element.
+  await expect(page.getByText("The harbor did not render.")).toHaveCount(0);
+}
+
+async function openHarbor(page: Page, url: string): Promise<void> {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await mockScreenSize(page, 1920, 1080);
+  await page.setViewportSize(DATA_PATH_VIEWPORT);
+  await installWallClockOverride(page, 12);
+  // "commit" rather than the default "load": a hung feed can leave the load
+  // event outstanding, and every assertion below polls anyway.
+  await page.goto(url, { waitUntil: "commit" });
+}
+
+test(...visualLane("dom", "an enrichment feed that never answers still opens the harbor, under caveat"), async ({ page }) => {
+  // Built from a live incident: `/api/stablecoins` 502'd for 8s and, because
+  // the world waited for all six feeds, five good payloads sat in memory
+  // behind an empty sea for ten seconds. The fix was a short grace window
+  // after which the essentials publish alone — and it had no regression guard,
+  // so a refactor could quietly restore the empty sea.
+  //
+  // These two feeds HANG rather than fail. A 502 exhausts its retries and
+  // settles the query, which opens the world through a different door
+  // (`initialQueryWaveSettled`); only a feed that never answers proves the
+  // grace window itself is what let the visitor in.
+  await mockDensePharosVilleData(page, { failures: { pegSummary: "hang", stress: "hang" } });
+  await openHarbor(page, "/?debug=1&t=12");
+
+  await expectRouteMode(page, "world");
+  // The fleet reaching the canvas is the strongest form of "opened", but this
+  // is a @visual-dom test and CI runs that lane on a browser with no WebGL, so
+  // the renderer half is asserted only where a renderer exists. The ledger
+  // assertions below carry the contract either way.
+  if (await rendererReachedWorld(page)) {
+    await waitForRuntimeDebug(page, true);
+    expect((await shipTargetIds(page)).length).toBeGreaterThan(0);
+  }
+
+  // The enrichment really is missing, and the fleet says so rather than
+  // presenting a placement it cannot support.
+  const ledger = page.getByTestId("pharosville-accessibility-ledger");
+  await expect(ledger).toContainText("placement evidence Missing or low-confidence price evidence");
+  await expect(ledger).toContainText("evidence status caveat");
+  await expect(ledger).not.toContainText("risk anchor storm-shelf");
+
+  // Missing enrichment is a caveat, not a failure: no error route.
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test(...visualLane("dom", "every feed failing shows the error route with a retry"), async ({ page }) => {
+  // EVERY feed, which is now seven: `mintBurn` joined the world data on
+  // 2026-07-26 and this map was not extended with it. One surviving feed is
+  // enough for `resolveRouteMode` to keep the world route — correctly, since
+  // the error route is for having nothing at all — so the lane was asserting
+  // the error route while handing the app a working feed.
+  await mockDensePharosVilleData(page, {
+    failures: {
+      chains: 502,
+      mintBurn: 502,
+      pegSummary: 502,
+      reportCards: 502,
+      stability: 502,
+      stablecoins: 502,
+      stress: 502,
+    },
+  });
+  await openHarbor(page, "/?debug=1&t=12");
+
+  const notice = page.getByRole("alert");
+  await expect(notice).toContainText("Signal buoy obscured by fog.");
+  await expect(notice.getByRole("button", { name: "Retry" })).toBeVisible();
+  await expectRouteMode(page, "error");
+  expect(await shipTargetIds(page)).toEqual([]);
+});
+
+test(...visualLane("dom", "stale peg and stress evidence reads as a caveat, not as confirmed calm"), async ({ page }) => {
+  // The documented invariant is that missing or stale peg evidence is a
+  // CAVEAT, never confirmed stress — a ship whose depeg reading has gone old
+  // must not keep sitting in storm water on the strength of it. The dense
+  // fixture depegs its DANGER and WARNING coins, so absent the staleness they
+  // would be placed in risk water; here they must fall back to the safe berth
+  // and carry the caveat instead.
+  //
+  // Both feeds are marked stale together on purpose: peg staleness alone
+  // leaves the DEWS stress branch live, which would place the same ships in
+  // risk water for a different, still-fresh reason.
+  await mockDensePharosVilleData(page, {
+    meta: { pegSummary: { status: "stale" }, stress: { status: "stale" } },
+  });
+  await openHarbor(page, "/?debug=1&t=12");
+
+  await expectRouteMode(page, "world");
+  // Same reason as above: everything this test proves lives in the ledger, so
+  // it must not hard-require a WebGL context the DOM lane deliberately lacks.
+  if (await rendererReachedWorld(page)) await waitForRuntimeDebug(page, true);
+
+  const ledger = page.getByTestId("pharosville-accessibility-ledger");
+  await expect(ledger).toContainText("Stale source groups: Peg summary, Stress signals.");
+  // Proof the coin really does carry an active depeg — this reason is only
+  // reachable when `pegCoin.activeDepeg` is true and the evidence is stale.
+  await expect(ledger).toContainText("placement evidence Active depeg evidence is stale");
+  await expect(ledger).toContainText("evidence status caveat");
+
+  // ...and no reclassification. Every risk water above calm is driven by peg
+  // or stress evidence, so with both stale the fleet may only hold the safe
+  // berth or the NAV ledger mooring.
+  await expect(ledger).toContainText("risk anchor safe-harbor");
+  for (const anchor of ["storm-shelf", "outer-rough-water", "harbor-mouth-watch", "breakwater-edge"]) {
+    await expect(ledger).not.toContainText(`risk anchor ${anchor}`);
+  }
 });
 
 async function shipTargetIds(page: Page): Promise<string[]> {

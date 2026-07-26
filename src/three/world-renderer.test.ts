@@ -11,7 +11,16 @@ import {
   Texture,
 } from "three";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { makePharosVilleWorldInput } from "../__fixtures__/pharosville-world";
+import {
+  denseFixtureChains,
+  denseFixturePegSummary,
+  denseFixtureReportCards,
+  denseFixtureStablecoins,
+  denseFixtureStress,
+  fixtureMintBurn,
+  fixtureStability,
+  makePharosVilleWorldInput,
+} from "../__fixtures__/pharosville-world";
 import type {
   ThreeLogoAssets,
   ThreeWorldRendererFrame,
@@ -27,6 +36,13 @@ import {
 import type { ShipMotionSample } from "../systems/motion";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import { seaStateForWorld } from "../systems/sea-state";
+import { DAY_CYCLE_SKY_PRESETS, type DayCyclePhase } from "./garden-day-cycle";
+import {
+  FLIGHT_TENDERS_MESH_NAME,
+  FLIGHT_TENDERS_PER_TITAN,
+  FLIGHT_TENDER_TITAN_COUNT,
+} from "./garden-flight-tenders";
+import { OVERVIEW_LOD_DETAIL_NAMES } from "./garden-overview-lod";
 import {
   createThreeWorldRenderer,
   disposeThreeObjectTree,
@@ -56,6 +72,23 @@ type TestGardenPost = {
 
 const postHarness = vi.hoisted(() => ({
   instances: [] as TestGardenPost[],
+}));
+
+type TestGardenEnvironment = {
+  readonly bakeCount: number;
+  /**
+   * The dome's zenith colour AT EACH BAKE. The probe renders the shared dome
+   * material, so this is the sky the bake actually captured — which is not the
+   * same thing as the phase it was keyed under unless the renderer grades the
+   * dome first.
+   */
+  readonly bakedZeniths: number[];
+  dispose: ReturnType<typeof vi.fn>;
+  update: ReturnType<typeof vi.fn>;
+};
+
+const environmentHarness = vi.hoisted(() => ({
+  instances: [] as TestGardenEnvironment[],
 }));
 
 // The real composer needs a live WebGL2 context, so stub it. The fake still
@@ -88,6 +121,43 @@ vi.mock("./garden-post", () => ({
     return instance;
   }),
 }));
+
+// W6.5: the PMREM probe needs a live WebGL2 context to bake, so stub it. The
+// fake keeps the real module's caching CONTRACT — one bake per distinct
+// quantised phase key — so "the probe is not rebuilt per frame" stays a real
+// assertion here rather than something only the GPU could check.
+vi.mock("./garden-environment", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./garden-environment")>();
+  return {
+    ...actual,
+    createGardenEnvironment: vi.fn((
+      _renderer: unknown,
+      _scene: unknown,
+      domeMaterial: { uniforms: { uZenith: { value: { getHex: () => number } } } },
+    ) => {
+      let bakedKey: string | null = null;
+      let bakeCount = 0;
+      const bakedZeniths: number[] = [];
+      const instance: TestGardenEnvironment = {
+        dispose: vi.fn(),
+        get bakeCount() {
+          return bakeCount;
+        },
+        bakedZeniths,
+        update: vi.fn((phase: DayCyclePhase) => {
+          const key = actual.gardenEnvironmentPhaseKey(phase);
+          if (key === bakedKey) return;
+          bakedKey = key;
+          bakeCount += 1;
+          // The real bake renders this material. Record what it would have got.
+          bakedZeniths.push(domeMaterial.uniforms.uZenith.value.getHex());
+        }),
+      };
+      environmentHarness.instances.push(instance);
+      return instance;
+    }),
+  };
+});
 
 const emptyLogoAssets: ThreeLogoAssets = {
   getLogo: () => null,
@@ -132,6 +202,7 @@ vi.mock("three", async (importOriginal) => {
 beforeEach(() => {
   rendererHarness.instances.length = 0;
   postHarness.instances.length = 0;
+  environmentHarness.instances.length = 0;
   Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
     configurable: true,
     value: vi.fn(() => null),
@@ -308,6 +379,102 @@ describe("Three world renderer lifecycle", () => {
     renderer.dispose();
   });
 
+  it("sheds overview detail at whole-map framing and restores it at default framing", () => {
+    // The dense fixture is the one that composes the props this policy governs
+    // (a small world builds no crane and no hero badges).
+    const world = buildPharosVilleWorld({
+      cemeteryEntries: [],
+      chains: denseFixtureChains,
+      freshness: {},
+      pegSummary: denseFixturePegSummary,
+      reportCards: denseFixtureReportCards,
+      stability: fixtureStability,
+      stablecoins: denseFixtureStablecoins,
+      stress: denseFixtureStress,
+    });
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+
+    renderer.render(rendererFrame(world, "full", { cameraZoom: 0.7776, timeSeconds: 1 }));
+    const contentRoot = rendererHarness.instances.at(-1)!.lastScene!.children.at(-1)!;
+    const props = new Map(OVERVIEW_LOD_DETAIL_NAMES.map((name) => [
+      name,
+      namedObjects(contentRoot, name),
+    ]));
+
+    // Every name the policy claims must still exist in the composed world; a
+    // rename upstream must fail here rather than silently un-cull the frame.
+    for (const [name, objects] of props) {
+      expect(objects.length, `no composed node named ${name}`).toBeGreaterThan(0);
+    }
+    const authored = [...props.values()].flat().map((object) => ({
+      object,
+      position: object.position.clone(),
+      scale: object.scale.clone(),
+    }));
+    expect(authored.every((entry) => entry.object.visible)).toBe(true);
+
+    // A long frame delta snaps the ease, so one whole-map frame is enough.
+    renderer.render(rendererFrame(world, "full", { cameraZoom: 0.28, timeSeconds: 11 }));
+    for (const [name, objects] of props) {
+      expect(objects.every((object) => !object.visible), `${name} still drawn`).toBe(true);
+    }
+
+    renderer.render(rendererFrame(world, "full", { cameraZoom: 0.7776, timeSeconds: 21 }));
+    for (const entry of authored) {
+      expect(entry.object.visible).toBe(true);
+      expect(entry.object.scale.equals(entry.scale)).toBe(true);
+      expect(entry.object.position.equals(entry.position)).toBe(true);
+    }
+
+    renderer.dispose();
+  });
+
+  it("puts tenders on the water only while the gauge reports flight to quality", () => {
+    const flying = buildPharosVilleWorld(makePharosVilleWorldInput({
+      mintBurn: {
+        ...fixtureMintBurn,
+        gauge: { ...fixtureMintBurn.gauge, flightIntensity: 65, flightToQuality: true },
+      },
+    }));
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+
+    renderer.render(rendererFrame(flying, "full", { timeSeconds: 1 }));
+    const flyingRoot = rendererHarness.instances.at(-1)!.lastScene!.children.at(-1)!;
+    const boats = namedObjects(flyingRoot, FLIGHT_TENDERS_MESH_NAME)
+      .filter((object) => object instanceof InstancedMesh);
+    // One draw call for every boat working every titan — and no more titans
+    // than the world actually renders, so a small world stays consistent.
+    const renderedShips = selectGardenObservatorySlice(flying, null).ships.length;
+    expect(boats).toHaveLength(1);
+    expect(boats[0]!.count).toBe(
+      Math.min(FLIGHT_TENDER_TITAN_COUNT, renderedShips) * FLIGHT_TENDERS_PER_TITAN,
+    );
+
+    // Scenery, not fleet: a tender is not a ShipNode, so it can reach neither
+    // the fleet's own figures nor the only map this renderer resolves a click
+    // or a hover through.
+    expect(flying.ships.some((ship) => ship.id.includes("tender"))).toBe(false);
+    expect(Object.keys(flying.entityById).some((id) => id.includes("tender"))).toBe(false);
+    expect(Object.keys(flying.detailIndex).some((id) => id.includes("tender"))).toBe(false);
+
+    // The gauge reading false builds nothing at all — not a hidden mesh, not an
+    // empty instanced draw. The default fixture is exactly that case.
+    const calm = buildPharosVilleWorld(makePharosVilleWorldInput());
+    expect(calm.fleetIssuance?.flightToQuality).toBe(false);
+    renderer.render(rendererFrame(calm, "full", { timeSeconds: 2 }));
+    const calmRoot = rendererHarness.instances.at(-1)!.lastScene!.children.at(-1)!;
+    expect(namedObjects(calmRoot, FLIGHT_TENDERS_MESH_NAME)
+      .filter((object) => object instanceof InstancedMesh)).toHaveLength(0);
+
+    renderer.dispose();
+  });
+
   it("disposes replaced world content and tears down the renderer once", () => {
     const firstWorld = buildPharosVilleWorld(makePharosVilleWorldInput());
     const secondWorld = buildPharosVilleWorld(makePharosVilleWorldInput({
@@ -389,6 +556,63 @@ describe("Three world renderer lifecycle", () => {
   });
 });
 
+describe("W6.5 sky-probe environment", () => {
+  it("bakes once per quantised day-cycle step, not once per frame, and disposes with the renderer", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+
+    // Twenty frames at one fixed hour. A probe rebuilt per frame would leak a
+    // PMREM render target per frame, which is the regression this guards.
+    for (let frame = 0; frame < 20; frame += 1) {
+      renderer.render(rendererFrame(world, "full", { timeSeconds: frame, wallClockHour: 12 }));
+    }
+    const environment = environmentHarness.instances.at(-1)!;
+    expect(environment.update).toHaveBeenCalledTimes(20);
+    expect(environment.bakeCount).toBe(1);
+
+    // Noon to midnight is a different sky, so it must bake again...
+    renderer.render(rendererFrame(world, "full", { wallClockHour: 0 }));
+    expect(environment.bakeCount).toBe(2);
+
+    // ...but a minute either side of midnight is the same sky, and must not.
+    renderer.render(rendererFrame(world, "full", { wallClockHour: 0.02 }));
+    renderer.render(rendererFrame(world, "full", { wallClockHour: 23.98 }));
+    expect(environment.bakeCount).toBe(2);
+
+    renderer.dispose();
+    expect(environment.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("bakes the sky its key names, starting with the very first frame", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+
+    // The dome's uniforms are CONSTRUCTED at the night preset and only graded
+    // once a frame runs. The probe bakes early in the frame — before the full
+    // scene update — so a first frame at noon used to cache the night sky under
+    // the noon key. `daylight` is pinned at 1 across the whole flat middle of
+    // the day, so that key never moved again and every metal surface in the
+    // world stayed lit by a night probe until the light started to fail.
+    renderer.render(rendererFrame(world, "full", { wallClockHour: 12 }));
+    const environment = environmentHarness.instances.at(-1)!;
+    expect(environment.bakeCount).toBe(1);
+    expect(environment.bakedZeniths[0]).toBe(DAY_CYCLE_SKY_PRESETS.day.zenith.getHex());
+    expect(environment.bakedZeniths[0]).not.toBe(DAY_CYCLE_SKY_PRESETS.night.zenith.getHex());
+
+    // And every later rebake is the sky of its own frame, not the last one's.
+    renderer.render(rendererFrame(world, "full", { wallClockHour: 0 }));
+    expect(environment.bakedZeniths[1]).toBe(DAY_CYCLE_SKY_PRESETS.night.zenith.getHex());
+
+    renderer.dispose();
+  });
+});
+
 describe("Garden Observatory data selection", () => {
   it("chooses the largest dock and a spatially separate second dock", () => {
     const docks = [
@@ -441,6 +665,8 @@ function rendererFrame(
     hoveredDetailId?: string | null;
     reducedMotion?: boolean;
     selectedDetailId?: string | null;
+    timeSeconds?: number;
+    wallClockHour?: number;
   } = {},
 ): ThreeWorldRendererFrame {
   const reducedMotion = options.reducedMotion ?? false;
@@ -472,8 +698,8 @@ function rendererFrame(
     seaState: seaStateForWorld(world, { reducedMotion, wallClockHour: 12 }),
     selectedDetailId: options.selectedDetailId ?? null,
     shipMotionSamples: samples,
-    timeSeconds: reducedMotion ? 0 : 12,
-    wallClockHour: 12,
+    timeSeconds: reducedMotion ? 0 : (options.timeSeconds ?? 12),
+    wallClockHour: options.wallClockHour ?? 12,
     width: 1440,
     world,
   };
@@ -487,6 +713,14 @@ function wakeGroups(root: Object3D): Group[] {
     }
   });
   return wakes;
+}
+
+function namedObjects(root: Object3D, name: string): Object3D[] {
+  const objects: Object3D[] = [];
+  root.traverse((object) => {
+    if (object.name === name) objects.push(object);
+  });
+  return objects;
 }
 
 function namedGroups(root: Object3D, name: string): Group[] {

@@ -8,7 +8,7 @@ This roadmap is intentionally short. It lists public GitHub-facing work that is 
 - Maintain the desktop-only PharosVille gate and prevent unsupported viewports from mounting world data.
 - Improve visual proof for GitHub readers with small, current screenshots and social previews.
 - Keep branch protection, dependency updates, CodeQL, and live smoke checks healthy.
-- Expand external monitoring beyond GitHub Actions if production operations need independent alerts.
+- Stand up external uptime monitoring outside GitHub Actions. The runbook with exact monitor settings is ready in `docs/pharosville/OPERATIONS.md`; it awaits operator setup in a third-party dashboard.
 
 ## Good First Issue Candidates
 

@@ -89,6 +89,11 @@ describe("useApiQueryWithMeta", () => {
       queryKey: endpoint.queryKey,
       staleTime: endpoint.producerIntervalSec * 1000,
       refetchInterval: endpoint.producerIntervalSec * 2_000,
+      // Every world endpoint opts into the last-good store, and every restored
+      // entry must be refetched on mount however recently it was written.
+      initialData: expect.any(Function),
+      initialDataUpdatedAt: expect.any(Function),
+      refetchOnMount: "always",
     }));
   });
 });
