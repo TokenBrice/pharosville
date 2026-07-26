@@ -13,6 +13,7 @@ import {
   fixtureStress,
 } from "../../src/__fixtures__/pharosville-world";
 import { PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY } from "@shared/lib/pharosville-api-endpoints";
+import type { ApiMeta } from "@shared/types/api-meta";
 
 export type DebugShipMotionSample = {
   currentDockId: string | null;
@@ -105,6 +106,21 @@ export type PharosVillePayloads = {
   stress: unknown;
 };
 
+export type PharosVilleEndpointKey = keyof PharosVillePayloads;
+
+/** An HTTP status to answer with, or `"hang"` for a feed that never answers. */
+export type PharosVilleEndpointFailure = number | "hang";
+
+export type PharosVilleMockOptions = {
+  /**
+   * Every lane mocks all six feeds as fresh successes, which leaves the whole
+   * failure half of the data path unexercised. These two knobs are how a test
+   * asks for the other half.
+   */
+  failures?: Partial<Record<PharosVilleEndpointKey, PharosVilleEndpointFailure>>;
+  meta?: Partial<Record<PharosVilleEndpointKey, Partial<ApiMeta>>>;
+};
+
 export const PHAROSVILLE_DESKTOP_DATA_ENDPOINTS = [
   PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stablecoins,
   PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.chains,
@@ -114,7 +130,7 @@ export const PHAROSVILLE_DESKTOP_DATA_ENDPOINTS = [
   PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.reportCards,
 ] as const;
 
-const meta = { updatedAt: 1_700_000_000, ageSeconds: 60, status: "fresh" };
+const FRESH_META: ApiMeta = { updatedAt: 1_700_000_000, ageSeconds: 60, status: "fresh" };
 
 export async function mockScreenSize(page: Page, width: number, height: number): Promise<void> {
   // Playwright's `setViewportSize` only changes the viewport; screen-gate
@@ -151,7 +167,7 @@ export async function installWallClockOverride(page: Page, hour: number): Promis
   }, { h: flooredHour, m: minutes, frac: fractional });
 }
 
-export async function mockPharosVilleData(page: Page): Promise<void> {
+export async function mockPharosVilleData(page: Page, options: PharosVilleMockOptions = {}): Promise<void> {
   await mockPharosVillePayloads(page, {
     stablecoins: fixtureStablecoins,
     chains: fixtureChains,
@@ -159,10 +175,10 @@ export async function mockPharosVilleData(page: Page): Promise<void> {
     pegSummary: fixturePegSummary,
     stress: fixtureStress,
     reportCards: fixtureReportCards,
-  });
+  }, options);
 }
 
-export async function mockDensePharosVilleData(page: Page): Promise<void> {
+export async function mockDensePharosVilleData(page: Page, options: PharosVilleMockOptions = {}): Promise<void> {
   await mockPharosVillePayloads(page, {
     stablecoins: denseFixtureStablecoins,
     chains: denseFixtureChains,
@@ -178,27 +194,47 @@ export async function mockDensePharosVilleData(page: Page): Promise<void> {
     pegSummary: denseFixturePegSummary,
     stress: denseFixtureStress,
     reportCards: denseFixtureReportCards,
-  });
+  }, options);
 }
 
-export async function mockPharosVillePayloads(page: Page, payload: PharosVillePayloads): Promise<void> {
-  const payloads: Array<{ path: string; body: unknown }> = [
-    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stablecoins, body: payload.stablecoins },
-    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.chains, body: payload.chains },
-    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stability, body: payload.stability },
-    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.pegSummary, body: payload.pegSummary },
-    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stress, body: payload.stress },
-    { path: PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.reportCards, body: payload.reportCards },
+export async function mockPharosVillePayloads(
+  page: Page,
+  payload: PharosVillePayloads,
+  options: PharosVilleMockOptions = {},
+): Promise<void> {
+  const keys: PharosVilleEndpointKey[] = [
+    "stablecoins",
+    "chains",
+    "stability",
+    "pegSummary",
+    "stress",
+    "reportCards",
   ];
 
-  for (const { path, body } of payloads) {
+  for (const key of keys) {
+    const path = PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY[key];
+    const failure = options.failures?.[key];
+    const meta = { ...FRESH_META, ...options.meta?.[key] };
     const endpoint = new URL(path, "http://localhost");
     await page.route((url) => (
       url.pathname === endpoint.pathname && url.search === endpoint.search
     ), async (route) => {
+      // A feed that never answers: the route handler simply never settles, so
+      // the query stays pending for the life of the page. This is the shape
+      // the enrichment grace window exists for, and the only shape that a
+      // retry-exhaustion path cannot accidentally cover for.
+      if (failure === "hang") return;
+      if (typeof failure === "number") {
+        await route.fulfill({
+          status: failure,
+          contentType: "application/json",
+          body: JSON.stringify({ error: `mocked ${failure}` }),
+        });
+        return;
+      }
       await route.fulfill({
         contentType: "application/json",
-        body: JSON.stringify({ ...(body as Record<string, unknown>), _meta: meta }),
+        body: JSON.stringify({ ...(payload[key] as Record<string, unknown>), _meta: meta }),
       });
     });
   }
