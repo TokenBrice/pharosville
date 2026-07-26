@@ -363,8 +363,6 @@ describe("useWorldRenderLoop", () => {
     // pacing window. Burn them before the intervals under test.
     const settle = performance.now() + 10;
     fireLatestRaf(settle);
-    fireLatestRaf(settle + 16);
-    fireLatestRaf(settle + 32);
 
     const base = settle + 100;
     fireLatestRaf(base);

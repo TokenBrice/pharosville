@@ -965,11 +965,17 @@ type PharosVilleDebugState = {
 
 const FRAME_RATE_LABEL_UPDATE_MS = 500;
 /**
- * Frames after a world swap that are kept out of the pacing window, because
- * their intervals contain the rebuild rather than a rendering cost. See the
- * exclusion site in `drawFrame`.
+ * Frames after a world swap kept out of the pacing window, because their
+ * intervals contain the rebuild rather than a rendering cost.
+ *
+ * ONE, because the evidence only ever supported one. The swap produces a single
+ * enormous interval — 2117ms measured — and the ~7 warm-up frames that follow
+ * are real rendering cost that belongs in the window. Three was defensive
+ * padding, and on a renderer slow enough to produce few frames per second it
+ * ate most of the samples the `@visual-motion` gate needs: CI reported
+ * `sampleCount` 3 against a floor of 5.
  */
-const WORLD_SWAP_SETTLE_FRAMES = 3;
+const WORLD_SWAP_SETTLE_FRAMES = 1;
 /**
  * Consecutive throwing frames before the world gives up and hands over to the
  * DOM overview. Small enough that a genuinely broken renderer falls back within
