@@ -194,3 +194,92 @@ Ordered by recommended sequence, not raw impact.
 1a + 1d + 2a + 2b + 2c in one small PR-sized round (all S, two files each),
 then 1b + 1c as the outage-survival pair, then pick one of 3a (signal mast)
 or 4a (reflections) as the next visible release's headline.
+
+---
+
+# Implementation status — 2026-07-26
+
+26 commits on local `main`, nothing pushed. `npm run validate` green:
+1260 tests, typecheck, lint, build, bundle-size, docs, secrets, colours.
+
+## Shipped
+
+Tier 1 complete: error reporting wired, `/_log` durable behind an optional
+KV binding, edge stale-on-error, canary freshness gate, monitoring runbook,
+meta copy, copy-link, legend→observe CTA, signal mast, cross-bearing buoy,
+PSI high-water mark, beacon dwell, island planting, quick find, test lanes.
+
+Tier 2 complete except the pale-sail sweep: logo cache headers, Node
+engines, night-sky band, gulls, time-of-day keys, sea-sign keyboard
+targets, stale-caveat coverage, overview draw-call re-measure.
+
+Tier 3 shipped: overview LOD cull, hero reflections, sticky placement,
+mint/burn cargo tide, tide line, PMREM + depth cueing, client-side
+last-good persistence, refresh-soak leak gate, idle governor,
+failure-injection lane, world-data hook unit tests, social cards, ship
+trim, visible harbor ledger, meshopt compression.
+
+## Measured, not estimated
+
+- Overview framing was **917 draw calls at tier `recovery`, 37.7fps**. After
+  the LOD cull: **402 at tier `full`**. Default framing 687/700, tier `full`.
+- Models 2,282,072 → 1,133,132 bytes (−50.3%), max geometry deviation
+  2.44e-4 units — under 1% of the finest authored feature.
+- Sticky placement: a sub-percent supply wiggle moves **0** risk tiles and
+  **0** moorings, down from 38/205 and 13/81.
+- Perf lane baseline recorded green: p90 16.7ms, 534 calls, 366 geometries,
+  44 textures, 70 programs; refresh-soak flat across 12 payloads.
+
+## Deliberately not done, with reasons
+
+- **Pale-sail contrast floor 2.0→2.2** — needs operator sign-off. Decision D5
+  set 2.0 and kept DAI's amber on purpose; changing it silently would
+  override a recognition cue the operator owns.
+- **Fleet growth to 300** — blocked upstream, not by code. There is no filter
+  to loosen: `shared/data/stablecoins/coins/` holds exactly 217 entries and
+  every compatibility shell is `[]`. `StablecoinMeta` is required, so an
+  uncatalogued coin cannot become a ship without inventing its peg currency
+  and backing. Needs the host-repo catalog workflow. Worth carrying upstream:
+  count is not the binding constraint — outer-rough-water has 762 tiles and
+  storm-shelf 948, so crowding would appear during a stress event, not at rest.
+- **~40% docked ratio (O12)** — superseded, verified. The footer's ~65% counts
+  ships with a dock visit, and visits only exist for chains that render a
+  harbour, chosen by `totalUsd`. That figure is a live statement about supply
+  concentration; forcing it to 40% would overwrite data with decoration. The
+  instantaneous moored split O12 actually meant is `DOCKED_SHIP_DWELL_SHARE`
+  = 1/3, already at target and already zone-shaped.
+- **Web Worker for world build** — the doc's own guidance was to do sticky
+  placement first and only add a worker if a hitch remains. Sticky placement
+  landed; whether a hitch remains needs measuring before building it.
+- **Logo vectorisation Batch B** — 210 raster logos needing per-brand SVG
+  sourcing. Grind work, not agent work.
+
+## Open follow-ups
+
+- **Harbour tempo animation.** The data and DOM rows shipped; the visual did
+  not. `createGardenHarborDistricts` receives the docks but has no `update()`,
+  while `createGardenGullFlock` is updated per frame and never receives them.
+  Minimal fix is one argument at `world-renderer.ts:1083`
+  (`createGardenGullFlock(world.lighthouse.tile, { docks: world.docks })`),
+  after which the flock can redistribute across harbours at per-dock orbit
+  speed within its existing single instanced draw call. The receiving side was
+  not shipped because unwired it is dead code.
+- **`flightToQuality` has no canvas cue.** Skiffs converging on the titans
+  needs motion-planning work larger than the cargo-tide slice. It reaches the
+  DOM and the cue registry says so explicitly.
+- **A fourth copy of the band→body mapping** now exists (world-renderer,
+  garden-zones, garden-observatory-slice, garden-sea-sign-siting). Collapse
+  next time world-renderer is open.
+- **The signal mast's storm-cone threshold is borrowed.** `status-thresholds.ts`
+  has no peg-deviation constant, so 500 bps derives from the 5% price-diff
+  gate. If the cone reads too rare or too eager, that is the line to move.
+
+## Needs the operator's real-GPU `npm run preview`
+
+Everything visual this round was built to geometric and numeric invariants;
+none of it has been judged by eye. Specifically: sea-body relief at 0.60,
+signal mast placement and scale, tide-stain and tide-line marks, beacon
+dwell, hero reflection strength, gulls, island planting drifts, PMREM
+lighting across the day cycle, ship trim legibility, and whether the idle
+governor's 30fps still reads as calm. Night check at `t=23` zoomed out for
+the removed sky stripe.
