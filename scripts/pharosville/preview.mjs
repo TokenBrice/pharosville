@@ -29,6 +29,12 @@
  * It also ASSERTS the renderer is hardware and exits non-zero on SwiftShader,
  * so a software frame can never be mistaken for evidence again.
  *
+ * With --assert it becomes a gate: the thresholds below have to hold or the
+ * process exits 1. Because a GPU-only regression is caught pre-push or not at
+ * all (CI has no GPU), that gate has exactly three outcomes and never two —
+ * PASS, FAIL, and SKIP (exit 78) when this machine cannot render a real frame.
+ * Never collapse SKIP into PASS.
+ *
  * Usage:
  *   node scripts/pharosville/preview.mjs
  *   node scripts/pharosville/preview.mjs --hash "#t=22&n=1" --out night.png
@@ -36,7 +42,10 @@
  *   node scripts/pharosville/preview.mjs --reduced          # static-frame path
  *   node scripts/pharosville/preview.mjs --legend           # keep the onboarding overlay
  *   node scripts/pharosville/preview.mjs --url http://localhost:4173 --width 2560 --height 1440
+ *   node scripts/pharosville/preview.mjs --assert            # perf tripwire, exits non-zero
+ *   node scripts/pharosville/preview.mjs --assert --max-p90=20 --max-draw-calls=700
  */
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
@@ -48,7 +57,19 @@ import { chromium } from "playwright";
  */
 const SYSTEM_CHROME = "/usr/bin/google-chrome-stable";
 
+/** Exit code for "did not measure" — distinct from 1, which means "measured, and it regressed". */
+const SKIP_EXIT_CODE = 78;
+
 const args = parseArgs(process.argv.slice(2));
+const assertMode = Boolean(args.assert);
+const limits = {
+  // The perf suite's ceiling (docs/pharosville/TESTING.md); a steady 668 today.
+  maxDrawCalls: numberFlag("max-draw-calls", 700),
+  // A vsync-capped 60Hz frame is 16.7ms. 20ms leaves room for the odd missed
+  // vsync without pretending 33ms (a whole dropped frame) is acceptable.
+  maxP90Ms: numberFlag("max-p90", 20),
+  requiredTier: typeof args["require-tier"] === "string" ? args["require-tier"] : "full",
+};
 const url = args.url ?? "http://localhost:5173";
 const hash = args.hash ?? "";
 const width = Number(args.width ?? 1600);
@@ -60,6 +81,18 @@ const outputDirectory = resolve(process.cwd(), "outputs");
 const outputPath = resolve(outputDirectory, args.out ?? "preview.png");
 
 const chromePath = typeof args.chrome === "string" ? args.chrome : SYSTEM_CHROME;
+
+// Only --assert degrades to a skip. A bare `npm run preview` was asked for
+// deliberately, so it keeps failing loudly with the real reason.
+if (assertMode) {
+  const blocker = await findUnmeasurableReason();
+  if (blocker) {
+    console.log(`SKIP: real-GPU preview assertions did not run — ${blocker}`);
+    console.log("Nothing was measured, so nothing is being claimed about frame time.");
+    process.exit(SKIP_EXIT_CODE);
+  }
+}
+
 const browser = await chromium.launch({
   executablePath: chromePath,
   headless: !args.headed,
@@ -95,13 +128,21 @@ try {
   console.log(`flags      ${await describeOperatorFlags()}`);
   console.log(`GPU        ${renderer}`);
   if (/swiftshader|softwarerasterizer|llvmpipe/i.test(renderer)) {
-    console.error(
-      `\nRefusing to report: this is a SOFTWARE rasteriser, so any frame time or\n`
-      + `scheduler tier below would be fiction. Check that ${chromePath} exists and\n`
-      + `is the wrapper script (not /opt/google/chrome/chrome, which skips the\n`
-      + `operator's chrome-flags.conf and lands on SwiftShader).`,
-    );
-    process.exitCode = 1;
+    if (assertMode) {
+      // A software rasteriser is the SKIP arm, not the FAIL arm: nothing about
+      // the renderer has been measured, so nothing may be claimed either way.
+      console.log(`SKIP: real-GPU preview assertions did not run — ${renderer} is a software rasteriser.`);
+      console.log("Nothing was measured, so nothing is being claimed about frame time.");
+      process.exitCode = SKIP_EXIT_CODE;
+    } else {
+      console.error(
+        `\nRefusing to report: this is a SOFTWARE rasteriser, so any frame time or\n`
+        + `scheduler tier below would be fiction. Check that ${chromePath} exists and\n`
+        + `is the wrapper script (not /opt/google/chrome/chrome, which skips the\n`
+        + `operator's chrome-flags.conf and lands on SwiftShader).`,
+      );
+      process.exitCode = 1;
+    }
     await browser.close();
     process.exit();
   }
@@ -152,10 +193,24 @@ try {
     console.error("warning: no fleet on screen — the world had not populated, so the frame below is not the world.");
   }
 
+  // Assert mode reads a ring that is entirely steady-state. Each dwell below is
+  // longer than the 120-sample window, so every read post-dates the previous one
+  // and none of them still carry load-spike frames. Three reads and the median
+  // p90, because one background spike on a busy machine must not block a push
+  // while a genuine regression — which shows in all three — still does.
+  if (assertMode) {
+    const reads = [];
+    for (let index = 0; index < 3; index += 1) {
+      await page.waitForTimeout(2500);
+      reads.push(await readMetrics(page));
+    }
+    reads.sort((a, b) => (a.p90 ?? Infinity) - (b.p90 ?? Infinity));
+    metrics = reads[1];
+  }
+
   await mkdir(outputDirectory, { recursive: true });
   await page.screenshot({ path: outputPath });
 
-  const round = (value) => (typeof value === "number" ? Math.round(value * 10) / 10 : value);
   console.log(`URL        ${target}`);
   console.log(`viewport   ${width}x${height} @${args.dpr ?? 1}x, ${args.headed ? "headed" : "headless"}`
     + `, motion ${args.reduced ? "reduced" : "normal"}`);
@@ -168,6 +223,8 @@ try {
   console.log(`fleet      ${metrics.shipsVisible} ships visible`);
   console.log(`shot       ${outputPath}`);
 
+  if (assertMode) evaluateAssertions(metrics);
+
   if (args.json) {
     await writeFile(
       resolve(outputDirectory, typeof args.json === "string" ? args.json : "preview.json"),
@@ -176,6 +233,72 @@ try {
   }
 } finally {
   await browser.close();
+}
+
+function round(value) {
+  return typeof value === "number" ? Math.round(value * 10) / 10 : value;
+}
+
+/**
+ * The FAIL arm, plus the one skip that can only be known after loading: a world
+ * with no fleet and no samples is not the world, and a frame time taken from it
+ * would flatter the renderer rather than test it.
+ */
+function evaluateAssertions(metrics) {
+  if ((metrics.shipsVisible ?? 0) === 0 || (metrics.samples ?? 0) === 0) {
+    console.log("\nSKIP: the world never populated, so no steady-state frame was measured.");
+    process.exitCode = SKIP_EXIT_CODE;
+    return;
+  }
+
+  const failures = [];
+  if (metrics.tier !== limits.requiredTier) {
+    failures.push(`scheduler tier is ${metrics.tier}, expected ${limits.requiredTier}`);
+  }
+  if ((metrics.p90 ?? Infinity) > limits.maxP90Ms) {
+    failures.push(`p90 frame time ${round(metrics.p90)}ms exceeds ${limits.maxP90Ms}ms`);
+  }
+  if ((metrics.calls ?? Infinity) > limits.maxDrawCalls) {
+    failures.push(`${metrics.calls} draw calls exceed ${limits.maxDrawCalls}`);
+  }
+
+  if (failures.length === 0) {
+    console.log(`\nPASS: tier ${metrics.tier}, p90 ${round(metrics.p90)}ms (max ${limits.maxP90Ms}),`
+      + ` ${metrics.calls} draw calls (max ${limits.maxDrawCalls}).`);
+    return;
+  }
+  console.error(`\nFAIL: real-GPU perf regressed on this framing.`);
+  for (const failure of failures) console.error(`  - ${failure}`);
+  console.error("Raise a threshold only with a measurement that justifies it, not to get a push through.");
+  process.exitCode = 1;
+}
+
+/**
+ * The SKIP arm's pre-flight. Everything here means "this machine cannot produce
+ * a real GPU frame", never "the frame was fine" — so the caller must not treat
+ * any of it as a pass. The in-run SwiftShader check is the authority; these are
+ * the cases worth naming before spending a browser launch on them.
+ */
+async function findUnmeasurableReason() {
+  if (process.env.CI) return "running under CI, whose runners have no GPU";
+  if (!existsSync(chromePath)) return `no Chrome wrapper at ${chromePath}`;
+  if (process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
+    return "no X11 or Wayland display, so Chrome cannot reach the operator's GPU";
+  }
+  try {
+    await fetch(url, { signal: AbortSignal.timeout(3000) });
+  } catch {
+    return `nothing is serving ${url}`;
+  }
+  return null;
+}
+
+function numberFlag(name, fallback) {
+  const raw = args[name];
+  if (raw === undefined || raw === true) return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) throw new Error(`--${name} needs a number, got "${raw}"`);
+  return value;
 }
 
 function readMetrics(page) {
@@ -232,6 +355,11 @@ function parseArgs(argv) {
     const token = argv[index];
     if (!token.startsWith("--")) continue;
     const key = token.slice(2);
+    const equals = key.indexOf("=");
+    if (equals !== -1) {
+      parsed[key.slice(0, equals)] = key.slice(equals + 1);
+      continue;
+    }
     const next = argv[index + 1];
     if (next === undefined || next.startsWith("--")) {
       parsed[key] = true;
