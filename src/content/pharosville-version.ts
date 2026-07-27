@@ -10,6 +10,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   lanternSea: "v0.4.0",
   cargoTide: "v0.5.0",
   clearBearings: "v0.6.0",
+  trueColors: "v0.6.1",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.clearBearings;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.trueColors;

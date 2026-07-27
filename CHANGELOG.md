@@ -2,6 +2,16 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v0.6.1 - 2026-07-27 - True Colors
+
+Stablecoin sails recover the familiar logos that disappeared into brand-dyed canvas during the Three.js migration, restoring fleet-scale recognition without bringing back the old stripe, panel, and border clutter.
+
+Collected from the v0.6.1 sail-identity fix after v0.6.0.
+
+- Restored each stablecoin's complete logo as the primary sail mark, preserving its original disc, colour block, and silhouette instead of preferring a disc-free extraction that became indistinct at fleet scale.
+- Added one restrained logo-safe contrast plate and thin livery rim while retaining the quieter dyed cloth and weave introduced by the rendering-cleanliness pass.
+- Kept deterministic emblem and ticker fallbacks for decode failures, with focused texture tests and real-GPU day, night, performance, and eight-frame artifact checks confirming the treatment remains stable.
+
 ## v0.6.0 - 2026-07-27 - Clear Bearings
 
 The harbor keeps all 186 analytical ships while shedding the false mountains, radial glare, hard water facets, and flicker that made the sea look broken; the result is calmer at every reviewed desktop shape, faster to refresh, and easier to inspect.

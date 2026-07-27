@@ -12,6 +12,19 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-07-27-true-colors",
+    version: PHAROSVILLE_RELEASE_VERSIONS.trueColors,
+    date: "2026-07-27",
+    title: "True Colors",
+    summary: "Stablecoin sails recover the familiar logos that disappeared into brand-dyed canvas during the Three.js migration, restoring fleet-scale recognition without bringing back the old stripe, panel, and border clutter.",
+    bullets: [
+      "Restored each stablecoin's complete logo as the primary sail mark, preserving its original disc, colour block, and silhouette instead of preferring a disc-free extraction that became indistinct at fleet scale.",
+      "Added one restrained logo-safe contrast plate and thin livery rim while retaining the quieter dyed cloth and weave introduced by the rendering-cleanliness pass.",
+      "Kept deterministic emblem and ticker fallbacks for decode failures, with focused texture tests and real-GPU day, night, performance, and eight-frame artifact checks confirming the treatment remains stable.",
+    ],
+    source: "Collected from the v0.6.1 sail-identity fix after v0.6.0.",
+  },
+  {
     id: "2026-07-27-clear-bearings",
     version: PHAROSVILLE_RELEASE_VERSIONS.clearBearings,
     date: "2026-07-27",
