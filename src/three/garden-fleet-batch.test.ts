@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { Color, Matrix4 } from "three";
+import { Color, Matrix4, MeshStandardMaterial } from "three";
 import { createFleetBatchGeometry } from "./garden-ships";
 import {
   FLEET_SAIL_ATLAS_CELLS,
@@ -9,6 +9,7 @@ import {
   endFleetFrame,
   fleetDrawCallCount,
   fleetInstanceCount,
+  patchSailAtlasMaterial,
   writeFleetInstance,
   type FleetInstancePose,
 } from "./garden-fleet-batch";
@@ -181,6 +182,34 @@ describe("fleet batches", () => {
     expect(cells.getX(0)).toBe(7);
     expect(cells.getX(1)).toBe(12);
     disposeFleetBatches(batches);
+  });
+
+  it("mirrors canvas atlas rows into WebGL texture coordinates", () => {
+    const material = new MeshStandardMaterial();
+    patchSailAtlasMaterial(material);
+    const shader = {
+      fragmentShader: "#include <common>\n#include <map_fragment>",
+      vertexShader: [
+        "#include <common>",
+        "#include <begin_vertex>",
+        "#include <uv_vertex>",
+      ].join("\n"),
+    };
+
+    material.onBeforeCompile(shader as never, null as never);
+
+    // CanvasTexture has flipY=true: canvas row 0 is texture row 15. Pin the
+    // transform itself so an apparently harmless top-left atlas calculation
+    // cannot silently make every ship sample a logo from the opposite row.
+    expect(shader.vertexShader).toContain(
+      "float textureRow = columns - 1.0 - canvasRow;",
+    );
+    expect(shader.vertexShader).toContain(
+      "vec2 cellOrigin = vec2(mod(cell, columns), textureRow) / columns;",
+    );
+    expect(shader.vertexShader).not.toContain(
+      "vec2(mod(cell, columns), floor(cell / columns))",
+    );
   });
 
   it("reuses buffers across frames instead of reallocating", () => {

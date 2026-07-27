@@ -2,6 +2,16 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v0.6.2 - 2026-07-27 - Rightful Colors
+
+Every batched ship now flies its own stablecoin identity instead of a logo borrowed from the opposite row of the sail atlas, restoring the heraldry promised by True Colors across the full fleet.
+
+Collected from the v0.6.2 atlas-addressing fix after v0.6.1.
+
+- Corrected the CanvasTexture-to-WebGL row transform so each batched identity sail samples the atlas cell painted for that ship; Frankencoin no longer receives BlackRock's dark wordmark, and the same fix applies fleet-wide.
+- Restored the transparent atlas cell used by ordinary sails, removing the unrelated logo plates that had leaked onto secondary canvas without adding draw calls, textures, or issuer-specific exceptions.
+- Added a shader-addressing regression test and verified the corrected fleet through the complete release lane, real-GPU day and night captures, reduced motion, a 60 fps performance gate, and the eight-frame artifact probe.
+
 ## v0.6.1 - 2026-07-27 - True Colors
 
 Stablecoin sails recover the familiar logos that disappeared into brand-dyed canvas during the Three.js migration, restoring fleet-scale recognition without bringing back the old stripe, panel, and border clutter.

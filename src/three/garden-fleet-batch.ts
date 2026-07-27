@@ -334,7 +334,19 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         {
           float columns = ${FLEET_SAIL_ATLAS_COLUMNS}.0;
           float cell = aAtlasSail > 0.5 ? aAtlasCell : 0.0;
-          vec2 cellOrigin = vec2(mod(cell, columns), floor(cell / columns)) / columns;
+          // CanvasTexture uploads with flipY=true. Atlas cells are painted in
+          // canvas order (row 0 at the TOP), while texture V starts at the
+          // BOTTOM. Mirror the CELL ROW here while leaving the cell-local UV
+          // alone: geometry v=0 is the sail foot and must still read the
+          // bottom of the painted mark.
+          //
+          // This is identity-critical, not a cosmetic flip. Without it every
+          // batched ship samples the same column from the opposite atlas row;
+          // even cell 0 (the transparent plain-sail cell) samples a populated
+          // logo cell and stamps a stranger's mark across ordinary canvas.
+          float canvasRow = floor(cell / columns);
+          float textureRow = columns - 1.0 - canvasRow;
+          vec2 cellOrigin = vec2(mod(cell, columns), textureRow) / columns;
           vAtlasUv = cellOrigin + uv / columns;
           vSailTint = aSailTint;
         }`,
