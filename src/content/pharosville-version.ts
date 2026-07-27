@@ -11,6 +11,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   cargoTide: "v0.5.0",
   clearBearings: "v0.6.0",
   trueColors: "v0.6.1",
+  rightfulColors: "v0.6.2",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.trueColors;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.rightfulColors;

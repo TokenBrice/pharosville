@@ -10,8 +10,8 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - Renderer: one production Three.js/WebGL renderer
 - GPU or renderer failure fallback: interactive DOM signal overview; no alternate 2D renderer
 - Runtime model namespace: `/pharosville/models/`
-- Latest app version: `v0.6.1` (`trueColors`)
-- Latest changelog entry: `2026-07-27-true-colors` / `v0.6.1` / 2026-07-27 / True Colors
+- Latest app version: `v0.6.2` (`rightfulColors`)
+- Latest changelog entry: `2026-07-27-rightful-colors` / `v0.6.2` / 2026-07-27 / Rightful Colors
 
 ## Viewport Gate
 

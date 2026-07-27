@@ -12,6 +12,19 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-07-27-rightful-colors",
+    version: PHAROSVILLE_RELEASE_VERSIONS.rightfulColors,
+    date: "2026-07-27",
+    title: "Rightful Colors",
+    summary: "Every batched ship now flies its own stablecoin identity instead of a logo borrowed from the opposite row of the sail atlas, restoring the heraldry promised by True Colors across the full fleet.",
+    bullets: [
+      "Corrected the CanvasTexture-to-WebGL row transform so each batched identity sail samples the atlas cell painted for that ship; Frankencoin no longer receives BlackRock's dark wordmark, and the same fix applies fleet-wide.",
+      "Restored the transparent atlas cell used by ordinary sails, removing the unrelated logo plates that had leaked onto secondary canvas without adding draw calls, textures, or issuer-specific exceptions.",
+      "Added a shader-addressing regression test and verified the corrected fleet through the complete release lane, real-GPU day and night captures, reduced motion, a 60 fps performance gate, and the eight-frame artifact probe.",
+    ],
+    source: "Collected from the v0.6.2 atlas-addressing fix after v0.6.1.",
+  },
+  {
     id: "2026-07-27-true-colors",
     version: PHAROSVILLE_RELEASE_VERSIONS.trueColors,
     date: "2026-07-27",
