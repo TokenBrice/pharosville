@@ -19,14 +19,18 @@ import {
 import { Color } from "three";
 
 const drawImage = vi.fn();
+const fill = vi.fn();
 const fillRect = vi.fn();
 const fillText = vi.fn();
+const stroke = vi.fn();
 const strokeRect = vi.fn();
 
 beforeEach(() => {
   drawImage.mockClear();
+  fill.mockClear();
   fillRect.mockClear();
   fillText.mockClear();
+  stroke.mockClear();
   strokeRect.mockClear();
   Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
     configurable: true,
@@ -42,7 +46,7 @@ describe("createGardenSailTexture", () => {
       naturalHeight: { configurable: true, value: 64 },
       naturalWidth: { configurable: true, value: 96 },
     });
-    // No emblem: exercises the D3 path, where the unframed image is drawn.
+    // No emblem: the canonical asset still paints without an extracted mark.
     const logo: ThreeLogoAsset = { emblem: null, image, src: "/logos/usdt.png" };
 
     const texture = createGardenSailTexture(ship, logo);
@@ -62,29 +66,28 @@ describe("createGardenSailTexture", () => {
 
     expect(texture).toBeInstanceOf(CanvasTexture);
     expect(drawImage).not.toHaveBeenCalled();
-    // H1: with the disc gone the ticker is bounded by the emblem box, not by a
-    // disc radius, so it is drawn larger and constrained to 0.92 of that box.
+    // The ticker fits inside the same safe area as the canonical logo.
     expect(fillText).toHaveBeenCalledWith(
       ship.symbol.slice(0, 7),
       64,
       65,
-      128 * 0.88 * 0.92,
+      128 * 0.78 * 0.9,
     );
   });
 });
 
-describe("H1 emblem sail", () => {
-  it("frames the mark with nothing at all", () => {
+describe("sail identity field", () => {
+  it("adds one restrained contrast plate without restoring the sail border", () => {
     const ship = buildPharosVilleWorld(makePharosVilleWorldInput()).ships[0]!;
     createGardenSailTexture(ship, null);
 
-    // The disc, its rim and the bolt-rope border are all gone (D2): the cloth
-    // is dyed the issuer's colour, so anything drawn around the mark puts it
-    // back to reading as a badge pinned on rather than a device painted on.
+    expect(fill).toHaveBeenCalledOnce();
+    // Weave strokes plus the single identity rim; no full-cell bolt-rope frame.
+    expect(stroke).toHaveBeenCalled();
     expect(strokeRect).not.toHaveBeenCalled();
   });
 
-  it("prefers the disc-free emblem over the raw logo when one was extracted", () => {
+  it("prefers the authentic full logo over an extracted emblem", () => {
     const ship = buildPharosVilleWorld(makePharosVilleWorldInput()).ships[0]!;
     const image = document.createElement("img");
     Object.defineProperties(image, {
@@ -95,15 +98,30 @@ describe("H1 emblem sail", () => {
 
     createGardenSailTexture(ship, { emblem, image, src: "/logos/usdc.svg" });
 
-    // Drawn once, and it is the EMBLEM — not the image it came from.
+    // The original colour block and silhouette are the fleet-scale recognition
+    // cue; the disc-free extraction remains only as a resilient fallback.
     expect(drawImage).toHaveBeenCalledOnce();
-    expect(drawImage.mock.calls[0]![0]).toBe(emblem);
-    // Square, centred, and filling 0.88 of the cell.
+    expect(drawImage.mock.calls[0]![0]).toBe(image);
+    // Square, centred, and contained inside the plate.
     const [, x, y, width, height] = drawImage.mock.calls[0]!;
-    expect(width).toBeCloseTo(128 * 0.88);
-    expect(height).toBeCloseTo(128 * 0.88);
-    expect(x).toBeCloseTo(64 - (128 * 0.88) / 2);
-    expect(y).toBeCloseTo(64 - (128 * 0.88) / 2);
+    expect(width).toBeCloseTo(128 * 0.78);
+    expect(height).toBeCloseTo(128 * 0.78);
+    expect(x).toBeCloseTo(64 - (128 * 0.78) / 2);
+    expect(y).toBeCloseTo(64 - (128 * 0.78) / 2);
+  });
+
+  it("falls back to the extracted emblem when the full logo cannot draw", () => {
+    const ship = buildPharosVilleWorld(makePharosVilleWorldInput()).ships[0]!;
+    const image = document.createElement("img");
+    const emblem = document.createElement("canvas");
+    drawImage.mockImplementationOnce(() => {
+      throw new Error("decode failed");
+    });
+
+    createGardenSailTexture(ship, { emblem, image, src: "/logos/usdc.svg" });
+
+    expect(drawImage).toHaveBeenCalledTimes(2);
+    expect(drawImage.mock.calls[1]![0]).toBe(emblem);
   });
 });
 
@@ -115,7 +133,7 @@ function fakeContext(): CanvasRenderingContext2D {
     clip: vi.fn(),
     closePath: vi.fn(),
     drawImage,
-    fill: vi.fn(),
+    fill,
     fillRect,
     fillText,
     lineTo: vi.fn(),
@@ -124,7 +142,7 @@ function fakeContext(): CanvasRenderingContext2D {
     rotate: vi.fn(),
     roundRect: vi.fn(),
     save: vi.fn(),
-    stroke: vi.fn(),
+    stroke,
     strokeRect,
     translate: vi.fn(),
   } as unknown as CanvasRenderingContext2D;

@@ -185,51 +185,18 @@ function paintSailField(
 }
 
 /**
- * H1: the emblem — the mark alone, painted flat onto the cloth.
+ * The sail is read from fleet scale, where a relief-only emblem collapses into
+ * the dyed cloth. Preserve the quiet field treatment introduced by H1, but
+ * restore the complete, familiar logo inside one restrained contrast plate.
  *
- * No matte, no clip, no rim. The disc, the frame and the contrasting plate all
- * existed to separate a logo from a cream sail it did not match. The cloth is
- * now dyed in the issuer's own colour, so the emblem belongs to it: framing it
- * is what made it read as a badge pinned to the canvas instead of a device
- * painted on it.
- *
- * Bigger, too — 0.88 of the cloth against the old disc's 0.44 — because with
- * nothing around it the mark can own the sail the way a jolly roger does.
+ * The plate is deliberately neutral and consistent rather than another
+ * hash-derived livery shape: the logo is data, not decoration. A 55px radius
+ * leaves a safe atlas gutter while giving the authentic asset almost 80% of
+ * the cell.
  */
-const EMBLEM_SPAN = 0.88;
-
-/**
- * H1: a soft dark relief under the emblem, so the mark separates from ANY cloth.
- *
- * A coin's mark is usually the light element of its logo, and the sail is dyed
- * the colour that mark sat on — so a pale-branded issuer paints a pale mark
- * onto pale cloth and it vanishes. Glo flew a light-green mark on light-green
- * canvas at barely 1.5:1.
- *
- * The two obvious fixes are both wrong here. Recolouring the mark breaks D1,
- * which is the whole point of preserving brand marks. Darkening the cloth
- * breaks F1: capping lightness to 0.42 pulled Circle blue and Tether green
- * from 0.31 apart to 0.24, i.e. it bought emblem contrast by making two
- * issuers harder to tell apart — the exact problem the dye exists to solve.
- * Both were measured, not guessed.
- *
- * A shadow costs neither. It follows the mark's own alpha, so it reads as the
- * emblem being painted ON canvas that has some depth, and it works whatever
- * the two colours happen to be. D5's black sails still do the heavy lifting
- * for the genuinely pale brands; this catches the mid-tone tail.
- */
-const EMBLEM_RELIEF_BLUR = 5;
-const EMBLEM_RELIEF_DROP = 1.5;
-const EMBLEM_RELIEF_INK = "rgba(12,14,18,0.55)";
-
-function withEmblemRelief(context: CanvasRenderingContext2D, draw: () => void): void {
-  context.save();
-  context.shadowColor = EMBLEM_RELIEF_INK;
-  context.shadowBlur = EMBLEM_RELIEF_BLUR;
-  context.shadowOffsetY = EMBLEM_RELIEF_DROP;
-  draw();
-  context.restore();
-}
+const IDENTITY_FIELD_RADIUS = 55;
+const IDENTITY_LOGO_SPAN = 0.78;
+const IDENTITY_RIM_WIDTH = 2;
 
 function paintSailIdentity(
   context: CanvasRenderingContext2D,
@@ -238,23 +205,23 @@ function paintSailIdentity(
 ): void {
   const centerX = 64;
   const centerY = 64;
-  const box = TEXTURE_SIZE * EMBLEM_SPAN;
+  const box = TEXTURE_SIZE * IDENTITY_LOGO_SPAN;
 
-  // The emblem: the coin's mark with the disc it came on already cut away.
-  if (logo?.emblem) {
-    try {
-      withEmblemRelief(context, () => {
-        context.drawImage(logo.emblem!, centerX - box / 2, centerY - box / 2, box, box);
-      });
-      return;
-    } catch {
-      // Fall through to the unframed logo below.
-    }
-  }
+  paintIdentityField(
+    context,
+    ship.visual.livery,
+    centerX,
+    centerY,
+    IDENTITY_FIELD_RADIUS,
+  );
 
-  // D3: no emblem could be separated, so fly the logo untouched — but still
-  // unframed. Its own disc shows, yet the sail is dyed the colour that disc is
-  // made of, so it mostly melts into the cloth instead of sitting on a plate.
+  context.save();
+  drawIdentityFieldPath(context, centerX, centerY, IDENTITY_FIELD_RADIUS);
+  context.clip();
+
+  // The unmodified logo is the canonical recognition cue. Prefer it to the
+  // extracted emblem so its original disc, colour block and silhouette survive
+  // the jump from a texture sample to a handful of pixels on screen.
   if (logo?.image) {
     try {
       const dimensions = containedDimensions(
@@ -269,6 +236,23 @@ function paintSailIdentity(
         dimensions.width,
         dimensions.height,
       );
+      context.restore();
+      return;
+    } catch {
+      // Fall through to the extracted emblem or symbol fallback.
+    }
+  }
+
+  if (logo?.emblem) {
+    try {
+      context.drawImage(
+        logo.emblem,
+        centerX - box / 2,
+        centerY - box / 2,
+        box,
+        box,
+      );
+      context.restore();
       return;
     } catch {
       // The symbol fallback remains deterministic if an image cannot be drawn.
@@ -278,11 +262,42 @@ function paintSailIdentity(
   // Nothing has resolved yet. The ticker holds the ship's identity until one
   // does — the invariant that identity never depends on an image loading.
   context.globalAlpha = 1;
-  context.fillStyle = identityInk(`#${gardenSailClothColor(ship.visual.livery, ship.id).getHexString()}`);
+  context.fillStyle = identityInk(ship.visual.livery.logoMatte);
   context.font = "700 40px system-ui, sans-serif";
   context.textAlign = "center";
   context.textBaseline = "middle";
-  context.fillText(ship.symbol.trim().slice(0, 7), centerX, centerY + 1, box * 0.92);
+  context.fillText(ship.symbol.trim().slice(0, 7), centerX, centerY + 1, box * 0.9);
+  context.restore();
+}
+
+function paintIdentityField(
+  context: CanvasRenderingContext2D,
+  livery: ShipLivery,
+  x: number,
+  y: number,
+  radius: number,
+): void {
+  context.save();
+  drawIdentityFieldPath(context, x, y, radius);
+  context.globalAlpha = 0.94;
+  context.fillStyle = livery.logoMatte;
+  context.fill();
+  context.globalAlpha = 0.74;
+  context.lineWidth = IDENTITY_RIM_WIDTH;
+  context.strokeStyle = livery.secondary;
+  context.stroke();
+  context.restore();
+}
+
+function drawIdentityFieldPath(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  radius: number,
+): void {
+  context.beginPath();
+  context.arc(x, y, radius, 0, Math.PI * 2);
+  context.closePath();
 }
 
 function identityInk(background: string): string {
