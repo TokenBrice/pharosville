@@ -21,6 +21,11 @@ import { seaQualityTier } from "../renderer/render-scheduler";
 import { HARBOR_PALETTE } from "../systems/palette";
 import type { SeaState } from "../systems/sea-state";
 import {
+  GARDEN_DEFAULT_WIND_X,
+  GARDEN_DEFAULT_WIND_Z,
+  type WeatherPlan,
+} from "../systems/weather";
+import {
   blendDayCycleColor,
   DAY_CYCLE_LIGHT_PRESETS,
   DAY_CYCLE_SKY_PRESETS,
@@ -110,6 +115,210 @@ function createSeaRegionTextures(): {
 }
 const WATER_SEGMENTS = 96;
 export const GARDEN_WATER_MAX_DISPLACEMENT = 0.036;
+
+/**
+ * Phase 3 (item 1): the Gerstner spectrum that replaces the 3-wave sine sum.
+ *
+ * Seven components spread ±0.6 rad around the historical primary bearing, so
+ * default weather (windRot = identity at the base bearing) reproduces the
+ * pre-Gerstner sea's motion character. Amplitudes sum to 1.0 — the master
+ * `uWaveAmplitude` scale (swell + storm, capped at MAX_DISPLACEMENT) is
+ * unchanged, so the displacement contract with the zone-root plane holds.
+ * Wavelengths stay ≥ 33 world units: the 96×96 grid samples at ~9.4 units,
+ * and anything shorter would alias into the vertex normals.
+ *
+ * `omega` is the phase rate (rad/s at tempo 0); the tempo multiplier the sine
+ * field used (`0.72 + uTempo * 0.38`) applies on top, so the sea's tempo
+ * contract is untouched.
+ */
+export interface GerstnerComponent {
+  /** Radians from the historical primary bearing (0.9229, 0.3851). */
+  dirOffset: number;
+  /** World units; ≥ 33 so the 96×96 grid samples it honestly. */
+  wavelength: number;
+  /** Share of the master amplitude; the seven shares sum to 1. */
+  amplitude: number;
+  /** Steepness Q — horizontal displacement and crest sharpness, 0..1. */
+  steepness: number;
+  /** Phase rate in rad/s before the tempo multiplier. */
+  omega: number;
+}
+
+export const GARDEN_WATER_GERSTNER: readonly GerstnerComponent[] = [
+  { dirOffset: -0.52, wavelength: 185, amplitude: 0.26, steepness: 0.55, omega: 0.16 },
+  { dirOffset: -0.3, wavelength: 132, amplitude: 0.2, steepness: 0.52, omega: 0.19 },
+  { dirOffset: -0.1, wavelength: 96, amplitude: 0.16, steepness: 0.5, omega: 0.22 },
+  { dirOffset: 0.04, wavelength: 74, amplitude: 0.13, steepness: 0.46, omega: 0.25 },
+  { dirOffset: 0.18, wavelength: 57, amplitude: 0.11, steepness: 0.42, omega: 0.29 },
+  { dirOffset: 0.38, wavelength: 44, amplitude: 0.08, steepness: 0.38, omega: 0.33 },
+  { dirOffset: 0.6, wavelength: 33, amplitude: 0.06, steepness: 0.34, omega: 0.38 },
+];
+
+const GERSTNER_BASE_BEARING = Math.atan2(0.3851, 0.9229);
+const GERSTNER_BASE_X = Math.cos(GERSTNER_BASE_BEARING);
+const GERSTNER_BASE_Y = Math.sin(GERSTNER_BASE_BEARING);
+
+export interface GardenGerstnerSampleInput {
+  /** Master rendered displacement amplitude. */
+  amplitudeScale: number;
+  /** Shader phase-time (`uTime * (0.72 + uTempo * 0.38)`). */
+  phaseTime: number;
+  /** Regional coordinate/chop multiplier. */
+  spatialScale: number;
+  /** Water-local X coordinate. */
+  waterX: number;
+  /** Water-local Y coordinate (`-worldZ`). */
+  waterY: number;
+  /** World-XZ downwind direction: where the visible wave travels toward. */
+  windDirX: number;
+  windDirZ: number;
+}
+
+export interface GardenGerstnerSample {
+  determinant: number;
+  displacementX: number;
+  displacementY: number;
+  gradientX: number;
+  gradientY: number;
+  height: number;
+  jxx: number;
+  jxy: number;
+  jyx: number;
+  jyy: number;
+}
+
+/**
+ * CPU reference for the rendered Gerstner field. It intentionally returns the
+ * derivative of the final horizontal position (p + displacement), not an
+ * unscaled steepness proxy, so tests can compare it to finite differences.
+ */
+export function sampleGardenGerstner(
+  input: GardenGerstnerSampleInput,
+  spectrum: readonly GerstnerComponent[] = GARDEN_WATER_GERSTNER,
+): GardenGerstnerSample {
+  const windLength = Math.hypot(input.windDirX, input.windDirZ);
+  const windX = windLength > 1e-8
+    ? input.windDirX / windLength
+    : GARDEN_DEFAULT_WIND_X;
+  const windZ = windLength > 1e-8
+    ? input.windDirZ / windLength
+    : GARDEN_DEFAULT_WIND_Z;
+  // Weather points downwind. With phase `dot(k, p) + omega*t`, the phase
+  // gradient points opposite the direction in which the crest travels.
+  const phaseWindX = -windX;
+  const phaseWindY = windZ;
+  const rc = GERSTNER_BASE_X * phaseWindX + GERSTNER_BASE_Y * phaseWindY;
+  const rs = GERSTNER_BASE_X * phaseWindY - GERSTNER_BASE_Y * phaseWindX;
+  const amplitudeScale = Number.isFinite(input.amplitudeScale) ? input.amplitudeScale : 0;
+  const spatialScale = Number.isFinite(input.spatialScale) ? input.spatialScale : 0;
+  const pX = input.waterX * spatialScale;
+  const pY = input.waterY * spatialScale;
+  let height = 0;
+  let displacementX = 0;
+  let displacementY = 0;
+  let gradientX = 0;
+  let gradientY = 0;
+  let jxx = 1;
+  let jxy = 0;
+  let jyx = 0;
+  let jyy = 1;
+
+  for (const component of spectrum) {
+    const angle = GERSTNER_BASE_BEARING + component.dirOffset;
+    const sourceX = Math.cos(angle);
+    const sourceY = Math.sin(angle);
+    const directionX = rc * sourceX - rs * sourceY;
+    const directionY = rs * sourceX + rc * sourceY;
+    const k = (Math.PI * 2) / component.wavelength;
+    const phase = k * (directionX * pX + directionY * pY)
+      + component.omega * input.phaseTime;
+    const sine = Math.sin(phase);
+    const cosine = Math.cos(phase);
+    const heightAmplitude = component.amplitude * amplitudeScale;
+    const displacementAmplitude = component.steepness * heightAmplitude;
+    height += heightAmplitude * sine;
+    displacementX += directionX * displacementAmplitude * cosine;
+    displacementY += directionY * displacementAmplitude * cosine;
+    const heightDerivative = heightAmplitude * k * spatialScale * cosine;
+    gradientX += directionX * heightDerivative;
+    gradientY += directionY * heightDerivative;
+    const horizontalDerivative = displacementAmplitude * k * spatialScale * sine;
+    jxx -= horizontalDerivative * directionX * directionX;
+    jxy -= horizontalDerivative * directionX * directionY;
+    jyx -= horizontalDerivative * directionY * directionX;
+    jyy -= horizontalDerivative * directionY * directionY;
+  }
+
+  return {
+    determinant: jxx * jyy - jxy * jyx,
+    displacementX,
+    displacementY,
+    gradientX,
+    gradientY,
+    height,
+    jxx,
+    jxy,
+    jyx,
+    jyy,
+  };
+}
+
+const glslFloat = (value: number): string => {
+  const text = value.toFixed(7);
+  return text.includes(".") ? text : `${text}.0`;
+};
+
+/**
+ * Generates the Gerstner sum from the table above, so the component list is
+ * the single source of truth the tests assert against. Returns height,
+ * horizontal displacement, the height gradient (for analytic normals) and
+ * the 2x2 displacement Jacobian (for crest foam) in one pass over seven
+ * trig pairs — trivial vertex cost.
+ */
+function gerstnerSumGlsl(): string {
+  const body = GARDEN_WATER_GERSTNER.map((component) => {
+    const angle = GERSTNER_BASE_BEARING + component.dirOffset;
+    const dx = Math.cos(angle);
+    const dy = Math.sin(angle);
+    const k = (Math.PI * 2) / component.wavelength;
+    return `  {
+    vec2 d = windRot * vec2(${glslFloat(dx)}, ${glslFloat(dy)});
+    float ph = ${glslFloat(k)} * dot(d, p) + ${glslFloat(component.omega)} * t;
+    float s = sin(ph);
+    float c = cos(ph);
+    h += ${glslFloat(component.amplitude)} * s;
+    grad += d * (${glslFloat(component.amplitude * k)} * c);
+    disp += d * (${glslFloat(component.steepness * component.amplitude)} * c);
+    float j = ${glslFloat(component.steepness * component.amplitude * k)} * derivativeScale * s;
+    jxx -= j * d.x * d.x;
+    jxy -= j * d.x * d.y;
+    jyx -= j * d.y * d.x;
+    jyy -= j * d.y * d.y;
+  }`;
+  }).join("\n");
+  return /* glsl */ `
+  void gardenGerstner(
+    vec2 p,
+    float t,
+    mat2 windRot,
+    float derivativeScale,
+    out float h,
+    out vec2 disp,
+    out vec2 grad,
+    out float jacobian
+  ) {
+    h = 0.0;
+    disp = vec2(0.0);
+    grad = vec2(0.0);
+    float jxx = 1.0;
+    float jxy = 0.0;
+    float jyx = 0.0;
+    float jyy = 1.0;
+${body}
+    jacobian = jxx * jyy - jxy * jyx;
+  }
+`;
+}
 // Kept as the historical export name; the C2 contract constant is canonical.
 export const MAX_GARDEN_WATER_ZONES = GARDEN_WATER_MAX_ZONE_TINTS;
 // W6: approximate world-unit radius of the island rock at the waterline (the
@@ -119,11 +328,11 @@ export const GARDEN_ISLAND_ROCK_RADIUS = 14;
 
 const NORMAL_MAP_URL = "/pharosville/textures/water-normals.png?v=3c09a2159c4f";
 
-// Cloud-shadow world mapping: one noise tile spans ~170 world units; drift is
-// a slow east-southeast wind so light weather crosses the garden in minutes.
+// Cloud-shadow world mapping: one noise tile spans ~170 world units. The
+// drift itself now comes from the weather system (Phase 2): its default wind
+// bearing reproduces the historical east-southeast scud the fixed constants
+// below encoded, and storm weather drives it faster.
 const CLOUD_SHADOW_TEXEL_SCALE = 1 / 170;
-const CLOUD_SHADOW_DRIFT_X = 0.0009;
-const CLOUD_SHADOW_DRIFT_Z = 0.00055;
 
 // Moon-road azimuth carried over from the sky so the sea's glitter band lands
 // under the same moon the dome draws. The water plane's -90deg X rotation maps
@@ -196,13 +405,17 @@ const DUSK_ENV_ZENITH = DAY_CYCLE_SKY_PRESETS.dusk.zenith.clone();
 const NIGHT_ENV_HORIZON = DAY_CYCLE_SKY_PRESETS.night.horizon.clone().lerp(MOON_COLOR, 0.35);
 const NIGHT_ENV_ZENITH = DAY_CYCLE_SKY_PRESETS.night.zenith.clone().lerp(MOON_COLOR, 0.18);
 
-const VERTEX_SHADER = /* glsl */ `
+// Exported for the shader-hygiene guard test (undeclared-uniform tripwire).
+export const VERTEX_SHADER = /* glsl */ `
   uniform float uDetail;
   uniform float uHarborCalm;
   uniform vec4 uHarborEllipse;
   uniform float uTempo;
   uniform float uTime;
   uniform float uWaveAmplitude;
+  uniform vec2 uWindDir;
+  uniform float uWindSpeed;
+  uniform float uStorm;
   uniform sampler2D uRegionField;
   uniform vec4 uRegionSwell[${SEA_REGION_COUNT}];
   uniform vec4 uRegionTransform;
@@ -210,22 +423,14 @@ const VERTEX_SHADER = /* glsl */ `
   varying vec2 vWaterPosition;
   varying vec3 vWorldPosition;
   varying vec2 vRegionUv;
+  // Phase 3: the Gerstner field's analytic normal (water-local, z-up) and its
+  // displacement Jacobian — the crest-foam signal. (1 - J) > 0 at crests.
+  varying vec3 vGerstnerNormal;
+  varying float vGerstnerJ;
 
   #include <fog_pars_vertex>
 
-  float gardenWave(vec2 waterPosition, float time) {
-    float speed = 0.72 + uTempo * 0.38;
-    float primary = sin(
-      dot(waterPosition, vec2(0.074, 0.031)) + time * 0.17 * speed
-    );
-    float crossing = sin(
-      dot(waterPosition, vec2(-0.042, 0.083)) - time * 0.12 * speed
-    );
-    float longSwell = sin(
-      dot(waterPosition, vec2(0.018, -0.027)) + time * 0.055 * speed
-    );
-    return primary * 0.5 + crossing * 0.3 + longSwell * 0.2;
-  }
+  ${gerstnerSumGlsl()}
 
   void main() {
     vec2 waterPosition = position.xy;
@@ -236,14 +441,51 @@ const VERTEX_SHADER = /* glsl */ `
     // W2/D6: swell amplitude and chop are per-region, so calm water lies
     // near-still while danger water runs steep. Region lookup happens in the
     // vertex stage — one texture fetch per vertex, not per fragment.
+    // Phase 2: wind and storm steepen the chop on top of the region base.
     vec2 regionUv = (waterPosition - uRegionTransform.xy) * uRegionTransform.zw;
     vec4 regionSample = texture2D(uRegionField, regionUv);
     int regionId = int(regionSample.r * 255.0 + 0.5);
     float regionSwell = uRegionSwell[regionId].x;
-    float regionChop = uRegionSwell[regionId].y;
-    float wave = gardenWave(waterPosition * regionChop, uTime);
+    float regionChop = uRegionSwell[regionId].y * (1.0 + uWindSpeed * 0.3 + uStorm * 0.25);
+
+    // Phase 3 (item 1): Gerstner spectrum. The same windRot contract the sine
+    // field used rotates every component's bearing, the same regionChop scales
+    // the sampled position, and the same master amplitude (swell + storm,
+    // capped) scales the result — so the default sea reads like the pre-
+    // Gerstner one, but with directional chop, sharp crests, analytic normals
+    // and a Jacobian the crest foam can threshold.
+    vec2 baseDir = normalize(vec2(0.9229, 0.3851));
+    // uWindDir points downwind. The +time phase gradient points the other way
+    // so the rendered crest itself travels downwind.
+    vec2 phaseWindDir = -uWindDir;
+    float rc = clamp(dot(baseDir, phaseWindDir), -1.0, 1.0);
+    float rs = baseDir.x * phaseWindDir.y - baseDir.y * phaseWindDir.x;
+    mat2 windRot = mat2(rc, rs, -rs, rc);
+    float speed = 0.72 + uTempo * 0.38;
+    float ampScale = uWaveAmplitude * regionSwell * (1.0 - harborCalm * 0.8);
+    float waveH;
+    vec2 waveDisp;
+    vec2 waveGrad;
+    float waveJ;
+    gardenGerstner(
+      waterPosition * regionChop,
+      uTime * speed,
+      windRot,
+      ampScale * regionChop,
+      waveH,
+      waveDisp,
+      waveGrad,
+      waveJ
+    );
     vec3 displaced = position;
-    displaced.z += wave * uWaveAmplitude * regionSwell * (1.0 - harborCalm * 0.8);
+    displaced.x += waveDisp.x * ampScale;
+    displaced.y += waveDisp.y * ampScale;
+    displaced.z += waveH * ampScale;
+    // The chop scales the sampled position, so world-space derivatives pick
+    // up one power of it. waveJ already includes that factor and ampScale: it
+    // is the exact derivative of the horizontal position rendered above.
+    vGerstnerNormal = vec3(-waveGrad * (ampScale * regionChop), 1.0);
+    vGerstnerJ = waveJ;
 
     vRegionUv = regionUv;
     vWaterPosition = waterPosition;
@@ -255,7 +497,8 @@ const VERTEX_SHADER = /* glsl */ `
   }
 `;
 
-const FRAGMENT_SHADER = /* glsl */ `
+// Exported for the shader-hygiene guard test (undeclared-uniform tripwire).
+export const FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 uBandColor[4];
   uniform vec3 uBaseColor;
   uniform float uBeaconAngle;
@@ -263,6 +506,7 @@ const FRAGMENT_SHADER = /* glsl */ `
   uniform float uBeaconFlicker;
   uniform vec2 uBeaconPosition;
   uniform float uBeaconStrength;
+  uniform float uCausticStrength;
   uniform vec2 uCemeteryCenter;
   uniform sampler2D uCloudShadow;
   uniform float uCloudShadowStrength;
@@ -277,11 +521,13 @@ const FRAGMENT_SHADER = /* glsl */ `
   uniform float uGlitterStrength;
   uniform float uHarborCalm;
   uniform vec4 uHarborEllipse;
+  uniform float uHeightFogDensity;
   uniform vec3 uHighlightColor;
   uniform vec2 uIslandCenter;
   uniform float uLaneCount;
   uniform vec3 uLaneField;
   uniform sampler2D uLaneTexture;
+  uniform float uPulseTime;
   uniform vec2 uMoonDir;
   uniform vec3 uMoonRoadColor;
   uniform float uNight;
@@ -292,12 +538,23 @@ const FRAGMENT_SHADER = /* glsl */ `
   uniform vec4 uRippleParams[${GARDEN_WATER_MAX_RIPPLE_RINGS}];
   uniform float uRippleStrength;
   uniform float uRockRadius;
+  // Fragment-side mirror of the vertex stage's uStorm (same JS uniform object):
+  // the Phase 4 pulse lanes dim/smear under storm weather.
+  uniform float uStorm;
   uniform vec3 uShallowColor;
   uniform vec3 uSunGlitterColor;
   uniform float uSwell;
   uniform float uTempo;
   uniform float uTime;
   uniform float uWaveAmplitude;
+  uniform float uWaterLevel;
+  uniform float uWakeStrength;
+  uniform sampler2D uWakeMap;
+  uniform vec2 uWakeCenter;
+  uniform float uWakeInvSize;
+  uniform float uWakeTexel;
+  uniform vec2 uWindDir;
+  uniform float uWindSpeed;
   uniform vec2 uOpenOceanCenter;
   uniform float uOpenOceanRadius;
   uniform float uMapEdge;
@@ -311,6 +568,8 @@ const FRAGMENT_SHADER = /* glsl */ `
   varying vec2 vWaterPosition;
   varying vec3 vWorldPosition;
   varying vec2 vRegionUv;
+  varying vec3 vGerstnerNormal;
+  varying float vGerstnerJ;
 
   #include <fog_pars_fragment>
 
@@ -529,6 +788,38 @@ const FRAGMENT_SHADER = /* glsl */ `
     // — not distance alone — decides how much detail ships.
     float detailFalloff = max(1.0 - smoothstep(130.0, 460.0, camDistance), 0.32) * uDetail;
     vec3 surfaceNormal = normalize(mix(vec3(0.0, 0.0, 1.0), blendedNormal, detailFalloff));
+
+    // --- Phase 3 (item 1): Gerstner analytic normal --------------------------
+    // The heightfield's true slopes are sub-degree by contract
+    // (MAX_DISPLACEMENT over 33–190 unit wavelengths), so the lighting term
+    // exaggerates them — standard stylization; the LOOK stays the normal
+    // map's, the Gerstner sum adds the large-scale undulation that makes the
+    // swell read on the posterized bands. Same detail falloff as the map.
+    surfaceNormal = normalize(
+      surfaceNormal + vec3(vGerstnerNormal.xy * (18.0 * detailFalloff), 0.0)
+    );
+
+    // --- Phase 3 (item 2): persistent wake field -----------------------------
+    // One scalar field fetch (plus two gradient taps) drives BOTH the normal
+    // churn here and the foam composite in the whitecap term below, and the
+    // caustic web's energy boost under the Pharos. Gated on the eased
+    // uWakeStrength so tier crossings fade instead of pop; below balanced the
+    // painted per-ship ripple rings carry the wake cue (intent invariance).
+    float wakeFoam = 0.0;
+    if (uWakeStrength > 0.01) {
+      vec2 wakeUv = (vWaterPosition - uWakeCenter) * uWakeInvSize + 0.5;
+      if (all(greaterThan(wakeUv, vec2(0.001))) && all(lessThan(wakeUv, vec2(0.999)))) {
+        float w0 = texture2D(uWakeMap, wakeUv).r;
+        vec2 wakeGrad = vec2(
+          texture2D(uWakeMap, wakeUv + vec2(uWakeTexel, 0.0)).r - w0,
+          texture2D(uWakeMap, wakeUv + vec2(0.0, uWakeTexel)).r - w0
+        );
+        wakeFoam = w0;
+        surfaceNormal = normalize(
+          surfaceNormal + vec3(wakeGrad * (10.0 * uWakeStrength), 0.0)
+        );
+      }
+    }
 
     // --- analytic shore SDF (island + outlying islets) ----------------------
     vec2 shoreDelta = vWaterPosition - uIslandCenter - vec2(0.6, -1.2);
@@ -801,7 +1092,13 @@ const FRAGMENT_SHADER = /* glsl */ `
         // Finer than it was: at 0.34 one noise cell spanned ~3 world units, so
         // the caps read as floes drifting on the surface rather than as crests
         // breaking on it.
-        vec2 capUv = vWaterPosition * 0.85 + vec2(uTime * 0.05 * (0.5 + uTempo), 0.0);
+        // Phase 3 (item 3): the cap field advects DOWNWIND with the weather
+        // system instead of along a fixed axis, and the Gerstner crest factor
+        // decides WHERE caps break — swell crests whiten, troughs stay clean.
+        // The static threshold stays as the foam's texture; the Jacobian owns
+        // its placement (one primary cue, not two).
+        vec2 capAdvect = uWindDir * (uTime * 0.06 * (0.5 + uTempo) * (0.6 + uWindSpeed * 0.8));
+        vec2 capUv = (vWaterPosition - capAdvect) * 0.85;
         float capNoise = gardenFbm(capUv);
         // Only the crests break, so the threshold sits high and tightens as
         // the band worsens.
@@ -812,6 +1109,11 @@ const FRAGMENT_SHADER = /* glsl */ `
         // should whiten, and only partly.
         float capThreshold = mix(0.82, 0.68, clamp(regionFoam, 0.0, 1.0));
         float caps = smoothstep(capThreshold, capThreshold + 0.13, capNoise);
+        // (1 - J) > 0 at Gerstner crests (negative divergence). The
+        // displacement budget keeps raw (1 - J) around 1e-3, so the signal is
+        // gained up to a thresholdable range; crest POSITION is untouched by
+        // the gain, and storm chop naturally widens the breaking band.
+        caps *= 0.35 + smoothstep(0.06, 0.24, (1.0 - vGerstnerJ) * 400.0) * 1.5;
         waterColor = mix(
           waterColor,
           uHighlightColor,
@@ -819,6 +1121,16 @@ const FRAGMENT_SHADER = /* glsl */ `
         );
       }
     }
+
+    // --- Phase 3 (item 2/3): wake foam ----------------------------------------
+    // Composited into the SAME highlight term as the whitecaps — one foam
+    // cue, two sources — and deliberately OUTSIDE the region-foam gate:
+    // wakes live on calm water, exactly where that gate skips.
+    waterColor = mix(
+      waterColor,
+      uHighlightColor,
+      clamp(wakeFoam * uWakeStrength * (0.2 + uDaylight * 0.08), 0.0, 0.26)
+    );
 
     // --- B2: authored moon road + thresholded night glitter ------------------
     // Coherent day gate: at nightRoad = 0 both terms are provably zero, so the
@@ -953,6 +1265,32 @@ const FRAGMENT_SHADER = /* glsl */ `
         * (0.35 + 0.65 * uBeaconFlicker)
         * 0.16;
     }
+
+    // --- Phase 3 (item 5): caustic web under the Pharos ----------------------
+    // Extends the caustic island-glow subsystem: bright refracted threads
+    // lacing the water around the rock, full tier only. The thread pattern is
+    // two interfering directional sines warped by the live surface normal;
+    // wake energy near the island (churn from the wake field) brightens the
+    // web, so a hull rounding the Pharos visibly stirs the light at its base.
+    // One cue: this IS the caustic term — the night firelight glow above and
+    // this web share the radial mask family, not the frame with a rival.
+    if (uCausticStrength > 0.01) {
+      float webDist = length(vWaterPosition - uIslandCenter - vec2(0.6, -1.2));
+      float webMask = (1.0 - smoothstep(uRockRadius * 0.55, uRockRadius + 10.0, webDist))
+        * smoothstep(uRockRadius * 0.2, uRockRadius * 0.6, webDist);
+      if (webMask > 0.001) {
+        vec2 cp = (vWaterPosition - uIslandCenter) * 0.9;
+        float webA = sin(cp.x * 1.9 + surfaceNormal.x * 6.0 + uTime * 0.45);
+        float webB = sin(dot(cp, vec2(-0.7, 1.4)) + surfaceNormal.y * 5.0 - uTime * 0.32);
+        float web = pow(abs(webA * webB), 3.0);
+        waterColor += uHighlightColor
+          * web
+          * webMask
+          * uCausticStrength
+          * (1.0 + wakeFoam * 4.0)
+          * (0.05 + uDaylight * 0.06);
+      }
+    }
     waterColor = mix(waterColor, uBeaconColor, clamp(beaconReflection, 0.0, 0.2));
 
     // --- the Pharos mirror column -------------------------------------------
@@ -962,6 +1300,18 @@ const FRAGMENT_SHADER = /* glsl */ `
     // In this ortho iso rig the viewer is always in the same direction, so the
     // reflection is a fixed vertical streak in water-local space rather than a
     // real planar pass — no second render, no extra target, a handful of ALU.
+    //
+    // Phase 3 (item 4) EVALUATION — planar reflection REJECTED, not built:
+    // (1) the ortho rig makes a mirrored pass geometrically valid, but the
+    //     scene reflected across the water plane is dominated by far water and
+    //     the never-visible sky dome — the island and tower occupy a sliver of
+    //     the mirror image, so the payoff is small by construction;
+    // (2) even half-res and culled to reflection-relevant content it is a
+    //     second scene render against the 700-call / 20 ms budget that Gerstner
+    //     wakes and the atmosphere work are spending, with DPR already adapted;
+    // (3) the authored fakes — this column, the light-lane pools, the env tint,
+    //     and the hero-hull mirror columns — already carry the intent at a
+    //     fraction of the cost. SSR was rejected on the same camera grounds.
     //
     // It obeys the sea it lies on: calm water mirrors (reflectivity 1.5),
     // danger water swallows it (0.42), so the monument's reflection is itself
@@ -1025,12 +1375,38 @@ const FRAGMENT_SHADER = /* glsl */ `
       for (int i = 0; i < ${MAX_GARDEN_LIGHT_LANES}; i += 1) {
         if (float(i) >= uLaneCount) break;
         float u = (float(i) + 0.5) / LANE_TEXELS;
-        vec4 head = texture2D(uLaneTexture, vec2(u, 0.25));
+        vec4 head = texture2D(uLaneTexture, vec2(u, 1.0 / 6.0));
         vec2 lanePos = vec2(head.x, -head.y);
         vec2 d = vWaterPosition - lanePos;
         float distSq = dot(d, d);
+        if (head.w > 2.5) {
+          // Phase 4 route pulse lane (Cerebrium's "nothing moves" trick): an
+          // emissive pulse train scrolling the segment toward its far
+          // endpoint, so the busiest trade routes read as moving glints on
+          // the water. Per-route speed/phase ride row 3 (seeded in the
+          // registry); uPulseTime freezes at recovery/constrained tiers and
+          // under reduced motion, leaving the lanes static like every other
+          // lane at those tiers. The storm dims and smears the ribbon.
+          vec4 routeRow = texture2D(uLaneTexture, vec2(u, 5.0 / 6.0));
+          vec2 span = vec2(routeRow.x, -routeRow.y) - lanePos;
+          float spanLength = max(length(span), 0.001);
+          vec2 spanDir = span / spanLength;
+          float routeAlong = dot(d, spanDir) / spanLength;
+          float routeAcross = abs(d.x * -spanDir.y + d.y * spanDir.x);
+          if (routeAlong < -0.1 || routeAlong > 1.1 || routeAcross > 8.0) continue;
+          float laneV = clamp(routeAlong, 0.0, 1.0);
+          float width = 0.9 * (1.0 + uStorm * 0.9);
+          float ribbon = exp(-(routeAcross * routeAcross) / (width * width))
+            * smoothstep(0.0, 0.06, laneV)
+            * (1.0 - smoothstep(0.94, 1.0, laneV));
+          float train = sin((laneV * 4.0 - uPulseTime * routeRow.z + routeRow.w) * 6.2831853);
+          float pulse = pow(max(0.0, 0.5 + 0.5 * train), 3.0);
+          vec4 routeBody = texture2D(uLaneTexture, vec2(u, 0.5));
+          laneAccum += routeBody.rgb * head.z * ribbon * pulse * (1.0 - uStorm * 0.45) * 0.85;
+          continue;
+        }
         if (distSq > 900.0) continue;
-        vec4 body = texture2D(uLaneTexture, vec2(u, 0.75));
+        vec4 body = texture2D(uLaneTexture, vec2(u, 0.5));
         float intensity = head.z;
         // Keep each reflection attached to its lamp. A broad Gaussian made
         // neighboring full-tier lanes merge into large fog-like discs.
@@ -1077,6 +1453,18 @@ const FRAGMENT_SHADER = /* glsl */ `
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
     #include <fog_fragment>
+
+    // Phase 2 (2d) height fog: an exponential low-altitude haze layered over
+    // the global linear Fog — strongest at the water plane, thinning with
+    // altitude, so the distant sea melts into the dome's haze band instead of
+    // ending on an edge. Same fogColor, same contract: one fog system with
+    // one extra term, not a second fog. The ramp starts past the island's
+    // depth (195) so the W6.8 guarantee — the graded monument sits at zero
+    // haze — survives the new term untouched.
+    float heightFogFactor = exp(-max(vWorldPosition.y - uWaterLevel, 0.0) * 0.6);
+    float heightFog = (1.0 - exp(-uHeightFogDensity * max(camDistance - 200.0, 0.0)))
+      * heightFogFactor;
+    gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, clamp(heightFog, 0.0, 1.0));
   }
 `;
 
@@ -1091,12 +1479,22 @@ export interface GardenWaterFrame {
 export interface GardenWater {
   material: ShaderMaterial;
   mesh: Mesh<PlaneGeometry, ShaderMaterial>;
+  /** Releases the water mesh and every texture this subsystem owns. */
+  dispose: () => void;
   /** C2(c): shared cloud-shadow sampler for Lane I (island) and Lane S (ships). */
   cloudShadows: GardenCloudShadowSource;
+  /**
+   * The baked sea-region field textures (S5), exposed so the renderer can
+   * `initTexture` them at scene build instead of paying the upload on the
+   * first visible frame.
+   */
+  regionTextures: { distance: DataTexture; field: DataTexture };
   /** C2(d): karesansui ripple-ring emitter registry (Lanes I/S/Z). */
   rippleRings: GardenRippleRingEmitter;
   /** C4 evidence: whether cloud shadows are shading this frame's tier. */
   cloudShadowsOn: () => boolean;
+  /** Current displayed wake mix, used to defer wake-target clearing until invisible. */
+  wakeStrength: () => number;
   setBeaconState: (
     worldX: number,
     worldZ: number,
@@ -1118,7 +1516,17 @@ export interface GardenWater {
   ) => void;
   /** C2(a): zone soft-tint path; Lane Z supplies positions/radii/colors. */
   setZoneState: (zones: readonly GardenWaterZoneTint[]) => void;
-  update: (frame: GardenWaterFrame) => void;
+  /**
+   * Phase 3 (item 2): binds the wake field's front texture and window each
+   * frame. Water space (x = worldX, y = −worldZ), halfSize in world units.
+   */
+  setWakeState: (
+    texture: Texture | null,
+    centerX: number,
+    centerY: number,
+    halfSize: number,
+  ) => void;
+  update: (frame: GardenWaterFrame, weather?: WeatherPlan) => void;
 }
 
 /** Back-compatible alias for the C2 zone-tint shape. */
@@ -1132,7 +1540,7 @@ export type GardenWaterZone = GardenWaterZoneTint;
  * with the flame flicker and breaks into scrolled-noise firelight streaks, a
  * warm caustic glow laps the island rock, and hard-stepped foam rings expand
  * through the near-shore band — all on the analytic shore SDF, no depth pass.
- * Reduced motion freezes every animation into one static detailed frame;
+ * Reduced motion resets every animation to one static time-zero frame;
  * cloud shadows and glitter ship at balanced+ and ripple rings at full/balanced.
  */
 export function createGardenWater(waterLevel: number): GardenWater {
@@ -1146,6 +1554,7 @@ export function createGardenWater(waterLevel: number): GardenWater {
   const sunGlitterColor = DAY_CYCLE_LIGHT_PRESETS.day.dirColor.clone();
   const cloudShadows = createGardenCloudShadowSource();
   const regionField = createSeaRegionTextures();
+  const normalMap = loadNormalMap();
   // Region character is static data (D6) — colour is resolved per day phase in
   // `update`, but swell/chop/foam/reflectivity never change.
   // Seeded from the fallback table so every slot has a real colour even
@@ -1182,6 +1591,7 @@ export function createGardenWater(waterLevel: number): GardenWater {
     uBeaconFlicker: { value: 0.5 },
     uBeaconPosition: { value: new Vector2() },
     uBeaconStrength: { value: 0 },
+    uCausticStrength: { value: 0 },
     uCemeteryCenter: { value: new Vector2(1e4, 1e4) },
     // C2(c): the water material shares the exact uniform objects the cloud
     // source exposes, so land/ship consumers stay in sync by construction.
@@ -1198,9 +1608,15 @@ export function createGardenWater(waterLevel: number): GardenWater {
     uGlitterStrength: { value: 1 },
     uHarborCalm: { value: 0.7 },
     uHarborEllipse: { value: new Vector4(0, 0, 1 / 13, 1 / 9) },
+    // Phase 2 (2d) height fog: density only — the global Fog owns the colour.
+    uHeightFogDensity: { value: 0 },
     uHighlightColor: { value: highlightColor },
     uIslandCenter: { value: new Vector2() },
     uLaneCount: { value: 0 },
+    // Phase 4: the pulse-lane clock. Advances only at full/balanced with
+    // motion allowed, freezes at lower tiers, and resets to canonical zero
+    // under reduced motion.
+    uPulseTime: { value: 0 },
     // Bounding circle (water coords: x, -z, radius) of the active light lanes;
     // a huge default keeps the loop unconditional until the registry supplies
     // real bounds.
@@ -1209,7 +1625,7 @@ export function createGardenWater(waterLevel: number): GardenWater {
     uMoonDir: { value: MOON_DIR.clone() },
     uMoonRoadColor: { value: MOON_ROAD_COLOR.clone() },
     uNight: { value: 0 },
-    uNormalMap: { value: loadNormalMap() as Texture | null },
+    uNormalMap: { value: normalMap },
     uPigeonnierCenter: { value: new Vector2(1e4, 1e4) },
     uRipple: {
       value: Array.from({ length: GARDEN_WATER_MAX_RIPPLE_RINGS }, () => new Vector4()),
@@ -1229,6 +1645,20 @@ export function createGardenWater(waterLevel: number): GardenWater {
     uTempo: { value: 0.2 },
     uTime: { value: 0 },
     uWaveAmplitude: { value: 0.02 },
+    uWaterLevel: { value: waterLevel },
+    // Phase 3 (item 2): the persistent wake field. Strength eases per tier
+    // (S2); the window follows the camera target via setWakeState.
+    uWakeStrength: { value: 0 },
+    uWakeMap: { value: null as Texture | null },
+    uWakeCenter: { value: new Vector2(1e5, 1e5) },
+    uWakeInvSize: { value: 1 / 192 },
+    uWakeTexel: { value: 1 / 512 },
+    // Phase 2 weather: wind bearing in water-local coords (world +Z maps to
+    // local -Y), sustained strength, and the storm state. Defaults reproduce
+    // the pre-weather sea when no plan is supplied.
+    uWindDir: { value: new Vector2(GARDEN_DEFAULT_WIND_X, -GARDEN_DEFAULT_WIND_Z) },
+    uWindSpeed: { value: 0 },
+    uStorm: { value: 0 },
     // W2 / D5: the sea-region field replaces the six tinted ellipses. One
     // texture, sampled in both stages, carrying the SAME terrain
     // classification the simulation obeys.
@@ -1352,14 +1782,40 @@ export function createGardenWater(waterLevel: number): GardenWater {
   let cloudShadowsActive = true;
   // S2: previous frame's clock, for the tier-uniform easing in `update`.
   let lastFrameSeconds: number | null = null;
+  // Phase 4: the route-pulse clock. Accumulates (clamped deltas, like the
+  // tier easing above) only while pulses should animate. Lower tiers hold;
+  // reduced motion resets to the same time-zero state as a fresh load.
+  let pulseTimeSeconds = 0;
+  let disposed = false;
 
   return {
     material,
     mesh,
     cloudShadows,
+    regionTextures: { distance: regionField.distance, field: regionField.field },
     rippleRings,
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      mesh.removeFromParent();
+      mesh.geometry.dispose();
+      material.dispose();
+      regionField.field.dispose();
+      regionField.distance.dispose();
+      cloudShadows.texture.dispose();
+      normalMap?.dispose();
+      // External lane/wake textures keep their own lifecycle; only release
+      // this material's references to them.
+      uniforms.uLaneTexture.value = null;
+      uniforms.uWakeMap.value = null;
+      uniforms.uNormalMap.value = null;
+      rippleEmitters.clear();
+    },
     cloudShadowsOn() {
       return cloudShadowsActive;
+    },
+    wakeStrength() {
+      return uniforms.uWakeStrength.value;
     },
     setBeaconState(worldX, worldZ, angle, strength, flicker = 0.5) {
       uniforms.uBeaconPosition.value.set(worldX, -worldZ);
@@ -1426,7 +1882,12 @@ export function createGardenWater(waterLevel: number): GardenWater {
         uniforms.uRegionParams.value[slot]!.w = zone.strength;
       }
     },
-    update(frame) {
+    setWakeState(texture, centerX, centerY, halfSize) {
+      uniforms.uWakeMap.value = texture;
+      uniforms.uWakeCenter.value.set(centerX, centerY);
+      uniforms.uWakeInvSize.value = 1 / (2 * Math.max(1, halfSize));
+    },
+    update(frame, weather) {
       // C1: the water consumes the shared day-cycle curve and blend law; no
       // local copy of the phase curve lives in this module anymore.
       const { daylight, dusk, night } = dayCyclePhase(frame.wallClockHour);
@@ -1466,6 +1927,7 @@ export function createGardenWater(waterLevel: number): GardenWater {
         reducedMotion: frame.reducedMotion,
         tier,
         timeSeconds: frame.timeSeconds,
+        ...(weather ? { wind: weather } : {}),
       });
       cloudShadowsActive = balancedOrBetter;
 
@@ -1484,6 +1946,11 @@ export function createGardenWater(waterLevel: number): GardenWater {
       const targetDetail = detailForTier(tier);
       const targetGlitter = balancedOrBetter ? 1 : 0;
       const targetRipple = balancedOrBetter ? 1 : 0;
+      // Phase 3: the wake field ships at balanced+ (the painted ripple rings
+      // carry the cue below); the caustic web is a full-tier accent. Both ease
+      // on the same S2 curve so a tier crossing fades rather than pops.
+      const targetWake = balancedOrBetter ? 1 : 0;
+      const targetCaustic = tier === "full" ? 1 : 0;
       const targetCloud = cloudShadowsActive
         ? blendPhaseScalar(0.12, 0.2, 0.34, dusk, daylight)
         : 0;
@@ -1496,11 +1963,22 @@ export function createGardenWater(waterLevel: number): GardenWater {
       lastFrameSeconds = now;
       const ease = frame.reducedMotion ? 1 : easeFactor(deltaSeconds);
 
+      if (frame.reducedMotion) {
+        pulseTimeSeconds = 0;
+      } else if (balancedOrBetter) {
+        pulseTimeSeconds += Math.min(deltaSeconds, 0.25);
+      }
+      uniforms.uPulseTime.value = pulseTimeSeconds;
+
       uniforms.uDetail.value += (targetDetail - uniforms.uDetail.value) * ease;
       uniforms.uGlitterStrength.value
         += (targetGlitter - uniforms.uGlitterStrength.value) * ease;
       uniforms.uRippleStrength.value
         += (targetRipple - uniforms.uRippleStrength.value) * ease;
+      uniforms.uWakeStrength.value
+        += (targetWake - uniforms.uWakeStrength.value) * ease;
+      uniforms.uCausticStrength.value
+        += (targetCaustic - uniforms.uCausticStrength.value) * ease;
       const cloudStrength = cloudShadows.uniforms.uCloudShadowStrength;
       cloudStrength.value += (targetCloud - cloudStrength.value) * ease;
 
@@ -1510,8 +1988,28 @@ export function createGardenWater(waterLevel: number): GardenWater {
       uniforms.uSwell.value = MathUtils.clamp(frame.seaState.swell, 0, 1);
       uniforms.uTempo.value = MathUtils.clamp(frame.seaState.tempo, 0, 1);
       uniforms.uTime.value = frame.reducedMotion ? 0 : Math.max(0, frame.timeSeconds);
-      uniforms.uWaveAmplitude.value = 0.022
-        + MathUtils.clamp(frame.seaState.swell, 0, 1) * 0.014;
+      // Phase 2 weather: the wind bearing rotates the swell field (world XZ →
+      // water-local XY, where +Z world is -Y local), the sustained wind
+      // steepens the chop, and the storm raises amplitude — capped at the
+      // displacement budget that keeps the crests below the zone-root plane.
+      const stormLevel = MathUtils.clamp(weather?.stormLevel ?? 0, 0, 1);
+      uniforms.uWindDir.value.set(
+        weather?.windDirX ?? GARDEN_DEFAULT_WIND_X,
+        -(weather?.windDirZ ?? GARDEN_DEFAULT_WIND_Z),
+      );
+      uniforms.uWindSpeed.value = MathUtils.clamp(weather?.windSpeed ?? 0, 0, 1);
+      uniforms.uStorm.value = stormLevel;
+      // Phase 2 (2d) height fog density: thickest at dawn/dusk, present at
+      // night, barely there at noon; a storm closes the visible distance.
+      // The far-water ramp (from depth 200) keeps the island at zero haze.
+      uniforms.uHeightFogDensity.value = blendPhaseScalar(0.0011, 0.0016, 0.0005, dusk, daylight)
+        * (1 + stormLevel * 1.6);
+      uniforms.uWaveAmplitude.value = Math.min(
+        GARDEN_WATER_MAX_DISPLACEMENT,
+        0.022
+          + MathUtils.clamp(frame.seaState.swell, 0, 1) * 0.014
+          + stormLevel * 0.016,
+      );
     },
   };
 }
@@ -1535,16 +2033,43 @@ function createGardenCloudShadowSource(): GardenCloudShadowSource {
     uCloudShadowTransform: { value: transform },
     uCloudShadowStrength: { value: 0.34 },
   };
+  // Phase 2: the drift integrates the weather system's wind instead of walking
+  // a fixed diagonal. The offsets accumulate with the same clamped-delta
+  // pattern as the beam sweep (world-renderer), so a backgrounded tab cannot
+  // jump the sky; reduced motion freezes them exactly where they are. At the
+  // default bearing and strength this reproduces the historical drift.
+  let lastSeconds: number | null = null;
+  let offsetX = 0;
+  let offsetZ = 0;
   return {
     texture,
     uniforms,
-    update({ reducedMotion, tier, timeSeconds }) {
-      // Drift only advances at balanced+ with motion allowed; reduced motion
-      // freezes the sky exactly where it was (static detailed frame).
-      if (reducedMotion) return;
+    update({ reducedMotion, tier, timeSeconds, wind }) {
+      // Reduced motion is one canonical time-zero composition, regardless of
+      // whether the preference was active at mount or entered after animation.
+      if (reducedMotion) {
+        lastSeconds = null;
+        offsetX = 0;
+        offsetZ = 0;
+        transform[2] = 0;
+        transform[3] = 0;
+        return;
+      }
       if (tier !== "full" && tier !== "balanced") return;
-      transform[2] = Math.max(0, timeSeconds) * CLOUD_SHADOW_DRIFT_X;
-      transform[3] = Math.max(0, timeSeconds) * CLOUD_SHADOW_DRIFT_Z;
+      const now = Math.max(0, timeSeconds);
+      const deltaSeconds = lastSeconds === null
+        ? Math.min(now, 0.25)
+        : MathUtils.clamp(now - lastSeconds, 0, 0.25);
+      lastSeconds = now;
+      const dirX = wind?.windDirX ?? GARDEN_DEFAULT_WIND_X;
+      const dirZ = wind?.windDirZ ?? GARDEN_DEFAULT_WIND_Z;
+      // World-units-per-second advection: a light breeze holds the historical
+      // ~0.18 u/s; a full storm drives the scud at ~4x that.
+      const speed = 0.06 + (wind?.windSpeed ?? 0.4) * 0.3 + (wind?.stormLevel ?? 0) * 0.22;
+      offsetX -= dirX * speed * CLOUD_SHADOW_TEXEL_SCALE * deltaSeconds;
+      offsetZ -= dirZ * speed * CLOUD_SHADOW_TEXEL_SCALE * deltaSeconds;
+      transform[2] = offsetX;
+      transform[3] = offsetZ;
     },
   };
 }

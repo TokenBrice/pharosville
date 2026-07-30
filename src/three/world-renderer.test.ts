@@ -27,6 +27,7 @@ import type {
 } from "../renderer/world-renderer-backend";
 import type { PharosVilleRenderSchedulerTier } from "../renderer/render-types";
 import { defaultCamera } from "../systems/camera";
+import { screenToTile } from "../systems/projection";
 import type { PharosVilleWorld, ShipHull, ShipNode } from "../systems/world-types";
 import {
   selectGardenDocks,
@@ -49,7 +50,12 @@ import {
 } from "./world-renderer";
 
 type TestWebGlRenderer = {
+  clear: ReturnType<typeof vi.fn>;
   dispose: ReturnType<typeof vi.fn>;
+  info: {
+    render: { calls: number; lines: number; points: number; triangles: number };
+  };
+  initTexture: ReturnType<typeof vi.fn>;
   lastScene: Scene | null;
   renderLists: { dispose: ReturnType<typeof vi.fn> };
   setPixelRatio: ReturnType<typeof vi.fn>;
@@ -64,6 +70,9 @@ type TestGardenPost = {
   getPassList: ReturnType<typeof vi.fn>;
   isComposerEnabled: ReturnType<typeof vi.fn>;
   render: ReturnType<typeof vi.fn>;
+  setAOQuality: ReturnType<typeof vi.fn>;
+  setAOTierWeight: ReturnType<typeof vi.fn>;
+  setAOZoomDetail: ReturnType<typeof vi.fn>;
   setBloomEnabled: ReturnType<typeof vi.fn>;
   setEnabled: ReturnType<typeof vi.fn>;
   setGrade: ReturnType<typeof vi.fn>;
@@ -98,16 +107,29 @@ vi.mock("./garden-post", () => ({
   createGardenPost: vi.fn((renderer: { render: (scene: unknown, camera: unknown) => void }, scene: unknown, camera: unknown) => {
     let enabled = true;
     let bloomEnabled = true;
+    let aoEnabled = true;
     const instance: TestGardenPost = {
       dispose: vi.fn(),
       // Mirrors the real getPassList, which lists only the enabled passes.
       getPassList: vi.fn(() => (enabled
-        ? ["render", ...(bloomEnabled ? ["bloom"] : []), "grade", "output"]
+        ? [
+          "render",
+          ...(aoEnabled ? ["n8ao"] : []),
+          ...(bloomEnabled ? ["bloom"] : []),
+          "grade",
+          "output",
+          "smaa",
+        ]
         : [])),
       isComposerEnabled: vi.fn(() => enabled),
       render: vi.fn(() => {
         renderer.render(scene, camera);
       }),
+      setAOTierWeight: vi.fn((value: number) => {
+        aoEnabled = value > 0;
+      }),
+      setAOQuality: vi.fn(),
+      setAOZoomDetail: vi.fn(),
       setBloomEnabled: vi.fn((value: boolean) => {
         bloomEnabled = value;
       }),
@@ -167,23 +189,41 @@ const emptyLogoAssets: ThreeLogoAssets = {
 vi.mock("three", async (importOriginal) => {
   const actual = await importOriginal<typeof import("three")>();
   class WebGLRenderer {
+    autoClear = true;
+    clear = vi.fn();
     dispose = vi.fn();
+    getClearAlpha = vi.fn(() => 1);
+    getClearColor = vi.fn((color: { setRGB: (r: number, g: number, b: number) => void }) => {
+      color.setRGB(0, 0, 0);
+      return color;
+    });
+    getRenderTarget = vi.fn(() => null);
+    initTexture = vi.fn();
     info = {
       // `autoReset` and `reset()` mirror the real WebGLRenderer: the renderer
       // accumulates a frame's passes by hand so the post composer's
       // full-screen quads cannot clobber the scene's counts.
       autoReset: true,
       memory: { geometries: 145, textures: 1 },
-      render: { calls: 132, lines: 0, points: 0, triangles: 6_605 },
-      reset: vi.fn(),
+      render: { calls: 0, lines: 0, points: 0, triangles: 0 },
+      reset: vi.fn(() => {
+        this.info.render.calls = 0;
+        this.info.render.lines = 0;
+        this.info.render.points = 0;
+        this.info.render.triangles = 0;
+      }),
     };
     lastScene: Scene | null = null;
     outputColorSpace = "";
     render = vi.fn((scene: Scene) => {
       this.lastScene = scene;
+      this.info.render.calls += 1;
+      this.info.render.triangles += 2;
     });
     renderLists = { dispose: vi.fn() };
+    setClearColor = vi.fn();
     setPixelRatio = vi.fn();
+    setRenderTarget = vi.fn();
     setSize = vi.fn();
     shadowMap = { autoUpdate: true, enabled: false, type: 0 };
     toneMapping = 0;
@@ -237,6 +277,54 @@ describe("disposeThreeObjectTree", () => {
 });
 
 describe("Three world renderer lifecycle", () => {
+  it("queues static uploads and reports recurring scene/offscreen work separately", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    const webGlRenderer = rendererHarness.instances.at(-1)!;
+    expect(webGlRenderer.initTexture).not.toHaveBeenCalled();
+
+    const wakeFrame = (timeSeconds: number) => {
+      const frame = rendererFrame(world, "full", { timeSeconds });
+      const center = screenToTile(
+        { x: frame.width / 2, y: frame.height / 2 },
+        frame.camera,
+      );
+      for (const sample of frame.shipMotionSamples.values()) sample.tile = center;
+      return frame;
+    };
+    const first = renderer.render(wakeFrame(1));
+    expect(webGlRenderer.initTexture).toHaveBeenCalledTimes(2);
+    expect(first.textureUploads).toMatchObject({
+      failed: 0,
+      pending: 0,
+      uploaded: 2,
+    });
+    expect(first.environmentBakeCount).toBe(1);
+    expect(first.environmentBakeCountChange).toBe(1);
+    expect(first.gpu.sceneCalls).toBe(1);
+    expect(first.gpu.offscreenCalls).toBe(0);
+    expect(first.gpu.calls).toBe(first.gpu.sceneCalls + first.gpu.offscreenCalls);
+    expect(first.textureOwnerCensus).toMatchObject({
+      minimumUnattributedRendererTextures: 0,
+      rendererTextures: 1,
+    });
+
+    // The first scene frame collects ship stamps. The next frame consumes
+    // them in one feedback and one stamp pass, both represented in the
+    // recurring total while the visible scene subtotal stays stable.
+    const second = renderer.render(wakeFrame(2));
+    expect(second.environmentBakeCountChange).toBe(0);
+    expect(second.environmentBakeCalls).toBe(0);
+    expect(second.gpu.sceneCalls).toBe(1);
+    expect(second.gpu.offscreenCalls).toBe(2);
+    expect(second.gpu.calls).toBe(3);
+
+    renderer.dispose();
+  });
+
   it("honors quality tiers and adaptive DPR without removing analytical content", () => {
     const world = buildPharosVilleWorld(makePharosVilleWorldInput());
     const renderer = createThreeWorldRenderer({
@@ -309,29 +397,41 @@ describe("Three world renderer lifecycle", () => {
     expect(postHarness.instances).toHaveLength(1);
     const post = postHarness.instances.at(-1)!;
 
-    const full = renderer.render(rendererFrame(world, "full"));
+    const full = renderer.render(rendererFrame(world, "full", { timeSeconds: 1 }));
     expect(post.setEnabled).toHaveBeenLastCalledWith(true);
     expect(post.setBloomEnabled).toHaveBeenLastCalledWith(true);
+    expect(post.setAOTierWeight).toHaveBeenLastCalledWith(1);
+    expect(post.setAOQuality).toHaveBeenLastCalledWith("full");
     expect(post.render).toHaveBeenCalled();
     expect(full.composerEnabled).toBe(true);
-    expect(full.postPassList).toEqual(["render", "bloom", "grade", "output"]);
+    expect(full.postPassList).toEqual(["render", "n8ao", "bloom", "grade", "output", "smaa"]);
 
-    // Recovery keeps the composer but drops the bloom pass.
-    renderer.render(rendererFrame(world, "recovery"));
+    // Recovery keeps the composer and eases AO away instead of flashing the
+    // local grounding multiply off in one frame. The previous quality stays
+    // active during fade-out so a recovery transition never recompiles.
+    renderer.render(rendererFrame(world, "recovery", { timeSeconds: 2 }));
     expect(post.setEnabled).toHaveBeenLastCalledWith(true);
-    // W6.3: bloom survives recovery now that it runs at half resolution —
-    // it is the night identity and this is the tier the app usually sits in.
+    // W6.3: bloom survives recovery now that the mipmap-blur pyramid is cheap
+    // — it is the night identity and this is the tier the app usually sits in.
     expect(post.setBloomEnabled).toHaveBeenLastCalledWith(true);
+    const recoveryWeight = post.setAOTierWeight.mock.calls.at(-1)?.[0] as number;
+    expect(recoveryWeight).toBeGreaterThan(0);
+    expect(recoveryWeight).toBeLessThan(1);
+    expect(post.setAOQuality).toHaveBeenLastCalledWith("full");
 
-    // Constrained sheds the bloom pyramid and NOTHING else. The composer owns
-    // AgX tone mapping, the day-cycle grade and the vignette, so bypassing it
-    // swings the whole frame's colour — and since a camera gesture flaps the
-    // scheduler across this boundary, that read as a flicker under the wheel.
-    const constrained = renderer.render(rendererFrame(world, "constrained"));
+    // Constrained sheds the bloom pyramid. Once the damped AO weight reaches
+    // exact zero, its pass disables while AgX, grade, vignette and SMAA remain.
+    for (let timeSeconds = 3; timeSeconds < 6; timeSeconds += 1) {
+      renderer.render(rendererFrame(world, "constrained", { timeSeconds }));
+    }
+    const constrained = renderer.render(rendererFrame(world, "constrained", {
+      timeSeconds: 6,
+    }));
     expect(post.setEnabled).toHaveBeenLastCalledWith(true);
     expect(post.setBloomEnabled).toHaveBeenLastCalledWith(false);
+    expect(post.setAOTierWeight).toHaveBeenLastCalledWith(0);
     expect(constrained.composerEnabled).toBe(true);
-    expect(constrained.postPassList).toEqual(["render", "grade", "output"]);
+    expect(constrained.postPassList).toEqual(["render", "grade", "output", "smaa"]);
 
     renderer.dispose();
     expect(post.dispose).toHaveBeenCalledTimes(1);

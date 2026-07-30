@@ -95,11 +95,62 @@ export interface FleetBatches {
 
 const scratchMatrix = new Matrix4();
 const scratchPennantMatrix = new Matrix4();
+const scratchWindRotation = new Matrix4();
 const scratchPosition = new Vector3();
 const scratchQuaternion = new Quaternion();
 const scratchScale = new Vector3();
 const scratchColor = new Color();
 const scratchEuler = new Euler();
+
+/**
+ * Phase 2 (Breathtaking Rendering): the fleet's share of the weather system.
+ *
+ * Two channels, both uniform/scratch writes — no new geometry, no new draws:
+ *
+ * - SAILS flutter in the vertex stage. `patchSailAtlasMaterial` attaches the
+ *   shared uniform objects below, so one write per frame moves every sail in
+ *   the fleet: the belly of each set sail breathes with the wind and gust
+ *   envelope, phased per instance from the ship's own position so the fleet
+ *   never ripples in lockstep.
+ * - PENNANTS yaw downwind and flutter on the CPU in `writeFleetInstance`,
+ *   where their matrices are already restamped every frame.
+ *
+ * The clock is the render loop's `timeSeconds`, so reduced motion (pinned at
+ * 0) freezes both channels into the deterministic static composition.
+ */
+export interface FleetWeather {
+  gust: number;
+  timeSeconds: number;
+  /** World-XZ downwind bearing: where the pennant points toward. */
+  windAngle: number;
+  windSpeed: number;
+}
+
+const fleetWindUniforms = {
+  uWindTime: { value: 0 },
+  uWindFlutter: { value: 0 },
+};
+const pennantWind = { active: false, angle: 0, gust: 0, speed: 0, time: 0 };
+
+export function setFleetWeather(weather: FleetWeather | null): void {
+  if (!weather) {
+    fleetWindUniforms.uWindTime.value = 0;
+    fleetWindUniforms.uWindFlutter.value = 0;
+    pennantWind.active = false;
+    return;
+  }
+  // The flutter envelope: sustained wind sets the floor, gusts drive the beat.
+  fleetWindUniforms.uWindTime.value = Math.max(0, weather.timeSeconds);
+  fleetWindUniforms.uWindFlutter.value = Math.min(
+    1,
+    Math.max(0, weather.windSpeed * 0.55 + weather.gust * 0.45),
+  );
+  pennantWind.active = true;
+  pennantWind.angle = weather.windAngle;
+  pennantWind.gust = weather.gust;
+  pennantWind.speed = weather.windSpeed;
+  pennantWind.time = Math.max(0, weather.timeSeconds);
+}
 
 /**
  * Merges a set of already-positioned part geometries into one, multiplying
@@ -268,13 +319,65 @@ function withHullForm(vertexShader: string): string {
  * still reads as rigged rather than stripped.
  */
 export const FLEET_MAX_SAILS = 6;
-const SAIL_FURL_DEFORM = `
+const SAIL_LOCAL_DEFORM = `
 {
   float furlBits = floor(aSailFurl / exp2(aSailIndex));
   float furled = furlBits - 2.0 * floor(furlBits * 0.5);
+  float setSail = 1.0 - furled;
+  float sailDrop = clamp(aSailHead.y - transformed.y, 0.0, 1.2);
+  float flutterPhase = uWindTime * (2.0 + uWindFlutter * 3.5) + aSailIndex * 1.7
+    + instanceMatrix[3].x * 0.31 + instanceMatrix[3].z * 0.17;
+  transformed.z += sin(flutterPhase)
+    * sailDrop
+    * (0.015 + uWindFlutter * 0.06)
+    * setSail;
   transformed.y = mix(transformed.y, aSailHead.y - 0.05, furled);
   transformed.z = mix(transformed.z, aSailHead.z, furled * 0.8);
 }`;
+
+export interface FleetSailDeformInput {
+  furlMask: number;
+  hullForm: { beam: number; height: number; length: number; waterline: number };
+  instanceX: number;
+  instanceZ: number;
+  sailHead: { y: number; z: number };
+  sailIndex: number;
+  vertex: { x: number; y: number; z: number };
+  windFlutter: number;
+  windTime: number;
+}
+
+/** CPU reference for the sail-local animation followed by hull deformation. */
+export function deformFleetSailVertex(input: FleetSailDeformInput): {
+  setSail: number;
+  x: number;
+  y: number;
+  z: number;
+} {
+  const furlBits = Math.floor(input.furlMask / (2 ** input.sailIndex));
+  const furled = furlBits - 2 * Math.floor(furlBits * 0.5);
+  const setSail = 1 - furled;
+  const windFlutter = Math.min(1, Math.max(0, input.windFlutter));
+  const sailDrop = Math.min(1.2, Math.max(0, input.sailHead.y - input.vertex.y));
+  const flutterPhase = Math.max(0, input.windTime) * (2 + windFlutter * 3.5)
+    + input.sailIndex * 1.7
+    + input.instanceX * 0.31
+    + input.instanceZ * 0.17;
+  let x = input.vertex.x;
+  let y = input.vertex.y;
+  let z = input.vertex.z
+    + Math.sin(flutterPhase) * sailDrop * (0.015 + windFlutter * 0.06) * setSail;
+  y = y * setSail + (input.sailHead.y - 0.05) * furled;
+  z = z * (1 - furled * 0.8) + input.sailHead.z * furled * 0.8;
+
+  x *= input.hullForm.length;
+  z *= input.hullForm.beam;
+  const topsidesT = Math.min(1, Math.max(0, y / 0.45));
+  const topsides = topsidesT * topsidesT * (3 - 2 * topsidesT);
+  y *= 1 + (input.hullForm.height - 1) * topsides;
+  y += input.hullForm.waterline;
+  return { setSail, x, y, z };
+}
 
 /**
  * W1 (decision D2): the sheer strake carries the issuer's paint, the rest of
@@ -307,18 +410,21 @@ export function patchFleetHullFormMaterial(material: MeshStandardMaterial): void
 
 export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
   material.onBeforeCompile = (shader) => {
-    // Sails carry the hull-form deformation too, otherwise a stretched hull
-    // would sail out from under its own rig. Furling runs FIRST, in the sail's
-    // own local frame, so a stretched hull furls the same shape as a plain one.
+    shader.uniforms.uWindTime = fleetWindUniforms.uWindTime;
+    shader.uniforms.uWindFlutter = fleetWindUniforms.uWindFlutter;
+    // Sail-local flutter and furling run before hull form, so height and ride
+    // cannot change the animation envelope or reopen bundled canvas.
     shader.vertexShader = shader.vertexShader
       .replace("#include <common>", `#include <common>\n${HULL_FORM_ATTRIBUTE}`)
       .replace(
         "#include <begin_vertex>",
-        `#include <begin_vertex>\n${SAIL_FURL_DEFORM}\n${HULL_FORM_DEFORM}`,
+        `#include <begin_vertex>\n${SAIL_LOCAL_DEFORM}\n${HULL_FORM_DEFORM}`,
       )
       .replace(
         "#include <common>",
         `#include <common>
+        uniform float uWindTime;
+        uniform float uWindFlutter;
         attribute float aAtlasSail;
         attribute float aAtlasCell;
         attribute float aSailFurl;
@@ -639,8 +745,20 @@ export function writeFleetInstance(
       // The pennant is placed on the CPU, so it does not see the shader's trim
       // and has to be told: without this a trimmed hull leaves its own pennant
       // hanging where the masthead used to be.
-      .makeTranslation(pose.mastheadOffset.x, pose.mastheadOffset.y + waterline, 0.02)
-      .premultiply(scratchMatrix);
+      .makeTranslation(pose.mastheadOffset.x, pose.mastheadOffset.y + waterline, 0.02);
+    if (pennantWind.active) {
+      // Phase 2: the pennant streams downwind. The cloth runs along ship-local
+      // +X, so the local yaw that points it at the wind bearing is
+      // -heading - windAngle (heading here is the ship's own rotation.y), plus
+      // a flutter wobble that stiffens with the gust envelope. Frozen into a
+      // deterministic pose under reduced motion (timeSeconds pinned at 0).
+      const yaw = -pose.headingAngle - pennantWind.angle
+        + Math.sin(
+          pennantWind.time * (2.4 + pennantWind.speed * 3.5) + pose.x * 0.37 + pose.z * 0.21,
+        ) * (0.08 + pennantWind.speed * 0.22 + pennantWind.gust * 0.18);
+      scratchPennantMatrix.multiply(scratchWindRotation.makeRotationY(yaw));
+    }
+    scratchPennantMatrix.premultiply(scratchMatrix);
     batches.pennant.mesh.setMatrixAt(pennantSlot, scratchPennantMatrix);
     batches.pennant.mesh.setColorAt(pennantSlot, pose.pennantColor);
     batches.pennant.mesh.count = pennantSlot + 1;

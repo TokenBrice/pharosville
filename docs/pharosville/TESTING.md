@@ -1,6 +1,6 @@
 # PharosVille Testing and Visual Review
 
-Last updated: 2026-07-25
+Last updated: 2026-07-30
 
 Use the smallest check that proves the contract you changed. The production
 world has one Three.js renderer and a DOM `WorldStaticOverview` for renderer or
@@ -130,7 +130,12 @@ than report a software frame, and prints the scheduler tier, p50/p90, draw calls
 triangles and visible ship count alongside a screenshot in `outputs/`. It waits
 for the fleet to populate and then for the pacing ring to refill before reading,
 because both the snapshot rebuild and the load spike otherwise dominate the
-window.
+window. In assert mode it also fails on shader/program errors in the page
+console: a material the driver rejects is skipped silently at draw time, so the
+counters can stay green while a subsystem is missing from the frame (the water
+fragment's undeclared `uStorm`, 2026-07-30 — the sea vanished at 60 fps). When
+you touch rendering, LOOK at the screenshot in `outputs/`; the numbers alone
+do not prove the frame is whole.
 
 ### The perf tripwire (`--assert`)
 
@@ -203,6 +208,14 @@ npm run preview -- --refresh common
 `content roots` must remain stable and `content` should report
 `renderer-equivalent` for a sub-band supply refresh; a true authored change is
 still expected to replace content.
+
+### Historical WebGPU spike
+
+The r185 WebGPU spike was a measured NO-GO and its backend, runtime flags, TSL
+probe, and harness were removed. Its measurements and subsystem inventory live
+in `agents/2026-07-29-webgpu-spike-report.md`. A future experiment must be
+isolated from the production entry and keep the normal build byte budget
+unchanged.
 
 The thresholds are calibrated on the DEFAULT framing, which on an RTX 5070 Ti at
 1600x1000 measures 60 fps, p50/p90 16.7 ms, tier `full`, and 620–693 draw calls

@@ -1,7 +1,15 @@
-import { Color, Mesh, MeshBasicMaterial, type DataTexture } from "three";
+import { Color, InstancedMesh, ShaderMaterial, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
-import { DAY_CYCLE_SKY_PRESETS, dayCyclePhase } from "./garden-day-cycle";
-import { createGardenSky } from "./garden-sky";
+import {
+  DAY_CYCLE_LIGHT_PRESETS,
+  DAY_CYCLE_SKY_PRESETS,
+  dayCyclePhase,
+} from "./garden-day-cycle";
+import {
+  createGardenSky,
+  GARDEN_CUMULUS_BILLBOARDS_ENABLED,
+} from "./garden-sky";
+import { CLOUD_COUNT, MIST_BANK_COUNT } from "./garden-sky-billboards";
 
 const FRAME = {
   reducedMotion: false,
@@ -11,58 +19,148 @@ const FRAME = {
   viewHeight: 34,
 };
 
-function mistOf(sky: ReturnType<typeof createGardenSky>): Mesh<never, MeshBasicMaterial> {
-  const mist = sky.root.getObjectByName("garden-sky-mist");
-  expect(mist).toBeInstanceOf(Mesh);
-  return mist as Mesh<never, MeshBasicMaterial>;
+function mistOf(sky: ReturnType<typeof createGardenSky>): InstancedMesh {
+  const mist = sky.root.getObjectByName("garden-sky-mist-banks");
+  expect(mist).toBeInstanceOf(InstancedMesh);
+  return mist as InstancedMesh;
 }
 
-describe("garden sky mist band", () => {
-  it("fades its alpha falloff to exactly zero at the geometry edge", () => {
+function cloudsOf(sky: ReturnType<typeof createGardenSky>): InstancedMesh {
+  const clouds = sky.root.getObjectByName("garden-sky-clouds");
+  expect(clouds).toBeInstanceOf(InstancedMesh);
+  return clouds as InstancedMesh;
+}
+
+function uniformsOf(mesh: InstancedMesh): ShaderMaterial["uniforms"] {
+  return (mesh.material as ShaderMaterial).uniforms;
+}
+
+/**
+ * Phase 2 (items 2d/6): the billboard atmosphere. The retired 320x9 mist
+ * plane was a dawn/dusk band whose hard edges read as a stripe at night; the
+ * instanced banks replace it as the ONE mist cue and own dawn AND night,
+ * while the cumulus layer is the day sky's own clouds.
+ */
+describe("garden sky billboard atmosphere", () => {
+  it("packs each system into ONE instanced draw with authored anchors", () => {
     const sky = createGardenSky();
-    const texture = mistOf(sky).material.alphaMap as DataTexture;
-    const { data, height, width } = texture.image as {
-      data: Uint8Array;
-      height: number;
-      width: number;
-    };
-    // three's `alphamap_fragment` reads the GREEN channel.
-    const green = (x: number, y: number) => data[(y * width + x) * 4 + 1];
-
-    // The plane is a 36:1 stripe rotated to the camera azimuth, so its top and
-    // bottom edges project to exactly horizontal screen lines. Any non-zero
-    // alpha on an edge texel is a straight band edge, not haze — DataTexture
-    // clamps to edge, so the whole outer half-texel inherits that value.
-    for (let x = 0; x < width; x += 1) {
-      expect(green(x, 0)).toBe(0);
-      expect(green(x, height - 1)).toBe(0);
+    const mist = mistOf(sky);
+    const clouds = cloudsOf(sky);
+    expect(mist.count).toBe(MIST_BANK_COUNT);
+    expect(clouds.count).toBe(CLOUD_COUNT);
+    // Sea-first negative space: every anchor sits in the far quadrant, well
+    // clear of the island's ±20 around the sky root's anchor.
+    for (const mesh of [mist, clouds]) {
+      const anchors = mesh.geometry.getAttribute("aAnchor");
+      expect(anchors).toBeDefined();
+      for (let i = 0; i < anchors.count; i += 1) {
+        expect(anchors.getX(i)).toBeLessThanOrEqual(-40);
+        expect(anchors.getZ(i)).toBeLessThanOrEqual(-40);
+        expect(anchors.getY(i)).toBeGreaterThan(0);
+      }
     }
-    for (let y = 0; y < height; y += 1) {
-      expect(green(0, y)).toBe(0);
-      expect(green(width - 1, y)).toBe(0);
-    }
-
-    // ...while the band itself still carries its full haze in the middle.
-    expect(green(width >> 1, height >> 1)).toBeGreaterThan(200);
     sky.dispose();
   });
 
-  it("keeps the band out of the night sky entirely", () => {
+  it("keeps the banks out of the midday frame and gives them dawn and night", () => {
     const sky = createGardenSky();
     const mist = mistOf(sky);
 
-    sky.update(dayCyclePhase(23), FRAME);
-    expect(mist.material.opacity).toBe(0);
+    sky.update(dayCyclePhase(12), FRAME);
     expect(mist.visible).toBe(false);
 
-    sky.update(dayCyclePhase(3), FRAME);
-    expect(mist.material.opacity).toBe(0);
-    expect(mist.visible).toBe(false);
-
-    // Dusk still gets its mist — the band is a dawn/dusk element.
     sky.update(dayCyclePhase(18), FRAME);
-    expect(mist.material.opacity).toBeGreaterThan(0.05);
     expect(mist.visible).toBe(true);
+    const duskOpacity = uniformsOf(mist).uOpacity!.value as number;
+    expect(duskOpacity).toBeGreaterThan(0.05);
+
+    // Unlike the retired band, the banks are a night element too — soft
+    // radial-noise billboards cannot draw the hard stripe the plane did.
+    sky.update(dayCyclePhase(23), FRAME);
+    expect(mist.visible).toBe(true);
+    expect(uniformsOf(mist).uOpacity!.value as number).toBeGreaterThan(0.05);
+    sky.dispose();
+  });
+
+  it("thickens mist with storms while the cumulus review baseline stays disabled", () => {
+    const sky = createGardenSky();
+    const mist = mistOf(sky);
+    const clouds = cloudsOf(sky);
+    const night = dayCyclePhase(23);
+
+    sky.update(night, FRAME);
+    const calm = uniformsOf(mist).uOpacity!.value as number;
+    sky.update(night, { ...FRAME, stormLevel: 1 });
+    expect(uniformsOf(mist).uOpacity!.value as number).toBeGreaterThan(calm);
+
+    // Tier gate: the caller resolves the quality tier; below balanced mist
+    // sheds. Cumulus stays disabled at every tier pending operator A/B review.
+    sky.update(night, { ...FRAME, billboards: false });
+    expect(mist.visible).toBe(false);
+    expect(clouds.visible).toBe(false);
+    sky.update(night, { ...FRAME, billboards: true });
+    expect(mist.visible).toBe(true);
+    expect(GARDEN_CUMULUS_BILLBOARDS_ENABLED).toBe(false);
+    expect(clouds.visible).toBe(false);
+    sky.dispose();
+  });
+
+  it("freezes the drift under reduced motion and follows the weather wind", () => {
+    const sky = createGardenSky();
+    const mist = mistOf(sky);
+    sky.update(dayCyclePhase(23), { ...FRAME, timeSeconds: 120 });
+    expect(uniformsOf(mist).uTime!.value).toBe(120);
+    sky.update(dayCyclePhase(23), {
+      ...FRAME,
+      reducedMotion: true,
+      timeSeconds: 240,
+      wind: { windDirX: 1, windDirZ: 0, windSpeed: 0.8 },
+    });
+    expect(uniformsOf(mist).uTime!.value).toBe(0);
+    expect(uniformsOf(mist).uWindDir!.value).toMatchObject({ x: 1, y: 0 });
+    expect(uniformsOf(mist).uWindSpeed!.value).toBe(0.8);
+    sky.dispose();
+  });
+});
+
+/**
+ * Phase 2 (item 2c): the scattering dome's drivers. The dome is the PMREM
+ * probe's source, so these uniforms are what the world's metals are lit by —
+ * and they are graded in `applyPhase`, before the bake, for exactly that
+ * reason.
+ */
+describe("garden sky atmospheric scattering", () => {
+  it("fades the whole scattering layer to zero at night", () => {
+    const sky = createGardenSky();
+    sky.applyPhase(dayCyclePhase(0));
+    expect(sky.domeMaterial.uniforms.uScattering!.value).toBe(0);
+    expect(sky.domeMaterial.uniforms.uSunIntensity!.value).toBe(0);
+    // ...with the sun below the horizon and the authored indigo untouched.
+    expect((sky.domeMaterial.uniforms.uSunDir!.value as Vector3).y).toBeLessThan(0);
+    sky.dispose();
+  });
+
+  it("drives the field from the day cycle and the light rig's own sun tint", () => {
+    const sky = createGardenSky();
+    sky.applyPhase(dayCyclePhase(12));
+    expect(sky.domeMaterial.uniforms.uScattering!.value).toBeCloseTo(1);
+    expect(sky.domeMaterial.uniforms.uSunIntensity!.value).toBeCloseTo(1.55);
+    const sunDir = sky.domeMaterial.uniforms.uSunDir!.value as Vector3;
+    // The key light's bearing: island + (-35, 48, -30).
+    expect(sunDir.y).toBeCloseTo(0.721, 2);
+    expect(sunDir.x / sunDir.z).toBeCloseTo(35 / 30, 1);
+    const sunColor = sky.domeMaterial.uniforms.uSunColor!.value as Color;
+    expect(sunColor.getHex()).toBe(DAY_CYCLE_LIGHT_PRESETS.day.dirColor.getHex());
+    // The haze band shares the fog's own Color instance — one fog colour.
+    expect(sky.domeMaterial.uniforms.uHazeColor!.value).toBe(sky.fog.color);
+    sky.dispose();
+  });
+
+  it("smothers the sun and the scattering in a storm", () => {
+    const sky = createGardenSky();
+    sky.applyPhase(dayCyclePhase(12), 1);
+    expect(sky.domeMaterial.uniforms.uScattering!.value).toBeCloseTo(0.4);
+    expect(sky.domeMaterial.uniforms.uSunIntensity!.value).toBeCloseTo(1.55 * 0.15);
     sky.dispose();
   });
 });
@@ -76,8 +174,8 @@ describe("garden sky applyPhase", () => {
   it("grades the dome without a frame, so the probe can bake before the update", () => {
     // `garden-environment` bakes its PMREM probe from this material EARLY in
     // the frame, before `update` runs. Left ungraded the dome still holds the
-    // night colours it was constructed with, and the probe caches those under a
-    // daytime key — every metal surface lit by a night sky at noon.
+    // night colours it was constructed with, and the probe caches those under
+    // a daytime key — every metal surface lit by a night sky at noon.
     const sky = createGardenSky();
     const zenith = sky.domeMaterial.uniforms.uZenith.value as Color;
     expect(zenith.getHex()).toBe(DAY_CYCLE_SKY_PRESETS.night.zenith.getHex());
@@ -103,8 +201,12 @@ describe("garden sky applyPhase", () => {
       expect((early.domeMaterial.uniforms[uniform]!.value as Color).getHex())
         .toBe((whole.domeMaterial.uniforms[uniform]!.value as Color).getHex());
     }
-    expect(early.domeMaterial.uniforms.uEmberStrength!.value)
-      .toBe(whole.domeMaterial.uniforms.uEmberStrength!.value);
+    for (const uniform of ["uEmberStrength", "uScattering", "uSunIntensity", "uHazeStrength"] as const) {
+      expect(early.domeMaterial.uniforms[uniform]!.value)
+        .toBe(whole.domeMaterial.uniforms[uniform]!.value);
+    }
+    expect((early.domeMaterial.uniforms.uSunDir!.value as Vector3).toArray())
+      .toEqual((whole.domeMaterial.uniforms.uSunDir!.value as Vector3).toArray());
   });
 });
 

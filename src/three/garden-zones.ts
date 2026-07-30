@@ -38,6 +38,7 @@ import {
 } from "../systems/garden-zone-radii";
 import { setTilePosition, stableUnit, TILE_SCALE } from "./garden-util";
 import { seaRegionBoundaryPoints, seaRegionIdForArea } from "../systems/garden-sea-regions";
+import type { WeatherPlan } from "../systems/weather";
 
 // The ellipse semi-axis factors and the per-band radius mapping live in
 // ../systems/garden-zone-radii.ts (three-free) so the deterministic sea
@@ -515,14 +516,27 @@ export function createDangerWeather(area: AreaNode): GardenWeatherVisual {
  * reduced motion. The former full-zone flash plane was removed: a large
  * luminance pulse looked like a renderer fault, while rain plus the risk body
  * and DOM record already communicate the same warning.
+ *
+ * Phase 2 weather: the fall slants downwind (up to ~30° at full gale), the
+ * scroll quickens and the streaks thicken as the storm builds. The slant is
+ * world state, not motion — the reduced-motion still frame keeps it, so a
+ * storm reads as a storm even in the static composition.
  */
 export function updateDangerWeather(
   effect: GardenWeatherVisual,
   timeSeconds: number,
   reducedMotion: boolean,
   _fullTier: boolean,
+  weather?: WeatherPlan,
 ): void {
+  const stormLevel = weather?.stormLevel ?? 0;
   effect.streaks.position.y = reducedMotion
     ? 0
-    : -((timeSeconds * 0.72 + effect.phase * 2) % 2);
+    : -((timeSeconds * (0.72 + stormLevel * 1.1) + effect.phase * 2) % 2);
+  // Tip the fall downwind. The streaks run mostly -Y, so a rotation about Z
+  // leans them along world X and a rotation about X leans them along -Z.
+  const slant = (weather?.windSpeed ?? 0) * 0.42 + stormLevel * 0.14;
+  effect.streaks.rotation.x = -(weather?.windDirZ ?? 0) * slant;
+  effect.streaks.rotation.z = (weather?.windDirX ?? 0) * slant;
+  effect.streaks.material.opacity = 0.2 + stormLevel * 0.3;
 }

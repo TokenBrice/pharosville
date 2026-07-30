@@ -80,6 +80,10 @@ aria-hidden, so the ledger — not the sign — is the redundant channel.
   batching or instancing. One shared sail atlas replaces per-ship textures.
 - Palette and region themes are shared contracts; do not introduce arbitrary
   debug colors or post effects to solve basic composition problems.
+- Quality tiers preserve semantic hues, palette authority, tone mapping,
+  day-cycle grade, and vignette. Enumerated fidelity effects may change local
+  luminance or contrast, but must retain the same meaning and avoid abrupt
+  transition pops.
 - Device pixels, backing pixels, resource counts, and bundle sizes remain
   bounded. Cosmetic changes do not justify relaxing measured gates.
 

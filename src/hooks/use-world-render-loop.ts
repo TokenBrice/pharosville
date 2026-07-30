@@ -238,7 +238,11 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   const framePacingStatsRef = useRef<FramePacingMetrics>(emptyFramePacingMetrics());
   const renderSchedulerHysteresisRef = useRef<RenderSchedulerHysteresisState>(createRenderSchedulerHysteresisState());
   const compactShipMotionSampleCacheRef = useRef<CompactShipMotionSampleCache>(createCompactShipMotionSampleCache());
+  // Environment time is monotonic across world-content replacement so wind,
+  // waves, rain, sails, and post do not snap together. Ship/path sampling uses
+  // a content-local epoch derived from this same clock.
   const accSecondsRef = useRef(0);
+  const motionEpochSecondsRef = useRef(0);
   const pendingResumeRef = useRef(false);
   // Idle governor state. `lastInteractionAtMs` is stamped by raw input events
   // and by the in-frame signals that outlive them (camera intent, hover,
@@ -352,7 +356,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   // only refreshes keep the frame loop, pacing window, and sample caches alive.
   useEffect(() => {
     resetFramePacingState();
-    accSecondsRef.current = 0;
+    motionEpochSecondsRef.current = accSecondsRef.current;
     pendingResumeRef.current = false;
     motionFrameCountRef.current = 0;
     semanticShipMotionSamplesRef.current = new Map();
@@ -367,7 +371,9 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     lastTilePosRef.current.clear();
     longtaskWindowRef.current = createLongtaskWindow(60);
     longtaskAccRef.current = { count: 0, maxDurationMs: 0 };
-    lastBucketRef.current = 0;
+    lastBucketRef.current = Math.floor(
+      accSecondsRef.current / MOTION_BUCKET_INTERVAL_SECONDS,
+    );
     bucketFlipCountRef.current = 0;
     worldSwapSettleFramesRef.current = WORLD_SWAP_SETTLE_FRAMES;
   }, [
@@ -518,6 +524,9 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         timeSeconds = accSecondsRef.current;
         advanceMotionBucket(Math.floor(accSecondsRef.current / MOTION_BUCKET_INTERVAL_SECONDS));
       }
+      const motionTimeSeconds = reducedMotion
+        ? 0
+        : Math.max(0, timeSeconds - motionEpochSecondsRef.current);
       const frameWallClockHour = normalizeHour(wallClockHour);
       const sampleStartedAt = performance.now();
       const seaState = seaStateForWorld(activeWorld, { reducedMotion, wallClockHour: frameWallClockHour });
@@ -530,7 +539,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
             reducedMotion,
             seaState,
             samples: semanticShipMotionSamples,
-            timeSeconds,
+            timeSeconds: motionTimeSeconds,
             world: activeWorld,
           });
           semanticShipMotionSamples = collected.samples;
@@ -542,7 +551,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           reducedMotion,
           seaState,
           samples: semanticShipMotionSamples,
-          timeSeconds,
+          timeSeconds: motionTimeSeconds,
           world: activeWorld,
         });
         semanticShipMotionSamples = collected.samples;
@@ -554,7 +563,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         state: visualMotionStateRef.current,
         staticMode: reducedMotion,
         targetSamples: semanticShipMotionSamples,
-        timeSeconds,
+        timeSeconds: motionTimeSeconds,
       });
       shipMotionSamplesRef.current = shipMotionSamples;
       const sampleDurationMs = performance.now() - sampleStartedAt;
@@ -563,7 +572,17 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       const cameraStep = stepCameraRef.current(time, shipMotionSamples);
       // Camera intent that no input event produced — a follow, a focus flight —
       // still means the view is in use.
-      if (cameraStep.cameraIntentActive) noteInteraction(time);
+      if (cameraStep.cameraIntentActive) {
+        noteInteraction(time);
+        // Camera-intent intervals are deliberately absent from the scheduler's
+        // pacing window. Do not leave an old startup sample masquerading as the
+        // current frame rate while a moving-ship follow keeps that exclusion
+        // active indefinitely.
+        if (frameRatePublishRef.current.fps !== null) {
+          frameRatePublishRef.current = { fps: null, lastPublishedAtMs: time };
+          setFrameRateFps(null);
+        }
+      }
       const frameCamera = cameraStep.camera ?? cameraRef.current;
       if (!frameCamera) {
         scheduleNextAnimatedFrame();

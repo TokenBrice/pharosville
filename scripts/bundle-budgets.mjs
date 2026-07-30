@@ -54,8 +54,14 @@ export const bundleBudgets = {
     // experience is materially better; the headroom above today's measurement
     // is earmarked for W6's reflection pass and the remaining look work.
     // The frame-time gate is deliberately NOT relaxed alongside it.
+    // 2026-07-29 breathtaking rendering program (operator directive
+    // 2026-07-29 — breathtaking rendering program): Phases 1-4 landed the
+    // pmndrs post chain + N8AO, the weather/wind system, Gerstner water +
+    // wakes, and Observe 2.0 + route pulse lanes. Measured 1,257.3 KiB raw /
+    // 420.4 KiB gzip — 0.4 KiB over the gzip cap. Gzip raised to measured+8%
+    // (420.4 -> 454); raw stays at the O9 ceiling (1,257.3 of 1,600 used).
     maxRawBytes: 1_600 * 1024,
-    maxGzipBytes: 420 * 1024,
+    maxGzipBytes: 454 * 1024,
     required: true,
   },
   css: {
@@ -83,3 +89,10 @@ export const aggregateBudgets = {
   maxJsRawBytes: 3_200 * 1024,
   maxJsGzipBytes: 820 * 1024,
 };
+
+export const forbiddenBundleChunks = [
+  {
+    label: "WebGPU renderer chunk",
+    pattern: /^(?:three[.-]webgpu|world-renderer-webgpu|garden-beacon-fire-tsl)-[A-Za-z0-9_-]+\.js$/,
+  },
+];

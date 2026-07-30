@@ -10,7 +10,6 @@ import {
   MeshBasicMaterial,
   MeshStandardMaterial,
   SRGBColorSpace,
-  type Texture,
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { HARBOR_PALETTE } from "../systems/palette";
@@ -49,8 +48,9 @@ import {
  * ## Cost
  *
  * One merged geometry for every board's timber, and one instanced-free mesh per
- * sign for the lettered face (each face needs its own texture, so those cannot
- * merge). Seven bodies is eight draw calls, not fifty.
+ * sign for the lettered face. Every face samples one padded cell in a shared
+ * atlas, so seven bodies remain eight draw calls but cost one texture rather
+ * than seven.
  */
 
 /** Which bodies get a board, and what it says. */
@@ -113,17 +113,28 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
   });
 
   const timberParts: Mesh[] = [];
-  const faceMaterials: MeshStandardMaterial[] = [];
-  const faceTextures: Texture[] = [];
   const lampMeshes: Mesh[] = [];
   const lampPositions: { x: number; y: number; z: number }[] = [];
   const signGroups: Group[] = [];
 
   const specByBody = new Map(specs.map((spec) => [spec.body, spec]));
+  const signEntries = seaSignSites(specs.map((spec) => spec.body))
+    .flatMap((site) => {
+      const spec = specByBody.get(site.body);
+      return spec ? [{ site, spec }] : [];
+    });
+  const faceAtlas = createSeaSignAtlas(signEntries.map(({ spec }) => spec));
+  const faceMaterial = new MeshStandardMaterial({
+    color: "#ffffff",
+    map: faceAtlas?.texture ?? null,
+    emissive: new Color("#ffdfae"),
+    emissiveMap: faceAtlas?.texture ?? null,
+    emissiveIntensity: 0.12,
+    roughness: 0.82,
+  });
 
-  for (const { body, x, z } of seaSignSites(specs.map((spec) => spec.body))) {
-    const spec = specByBody.get(body);
-    if (!spec) continue;
+  for (let signIndex = 0; signIndex < signEntries.length; signIndex += 1) {
+    const { site: { x, z }, spec } = signEntries[signIndex]!;
     const group = new Group();
     group.name = `garden-sea-sign.${spec.body}`;
     group.position.set(x, GARDEN_WATER_Y, z);
@@ -146,26 +157,18 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
       timberParts.push(timber);
     }
 
-    // The lettered face. Its own texture, so it cannot merge with the rest.
-    // The texture doubles as the emissive map: by day the intensity is a
+    // The lettered face. Its atlas cell doubles as the emissive map: by day
+    // the intensity is a
     // whisper that keeps the oak reading as oak under AgX, and after dusk the
     // hung lantern (below) justifies a lit face — without it the night scene's
     // blue light swallowed the board into navy and the name went unreadable.
-    const texture = createSeaSignTexture(spec);
-    const faceMaterial = new MeshStandardMaterial({
-      color: "#ffffff",
-      map: texture,
-      emissive: new Color("#ffdfae"),
-      emissiveMap: texture,
-      emissiveIntensity: 0.12,
-      roughness: 0.82,
-    });
-    const face = new Mesh(new BoxGeometry(BOARD_WIDTH, BOARD_HEIGHT, BOARD_THICKNESS), faceMaterial);
+    const faceGeometry = new BoxGeometry(BOARD_WIDTH, BOARD_HEIGHT, BOARD_THICKNESS);
+    const atlasCell = faceAtlas?.cells[signIndex];
+    if (atlasCell) remapSeaSignUvs(faceGeometry, atlasCell);
+    const face = new Mesh(faceGeometry, faceMaterial);
     face.name = `garden-sea-sign-board.${spec.body}`;
     face.position.y = BOARD_BASE_Y;
     group.add(face);
-    faceMaterials.push(faceMaterial);
-    if (texture) faceTextures.push(texture);
 
     // N5: a hung lantern, so the board joins the Lantern Sea at night instead
     // of standing dark in it.
@@ -187,8 +190,8 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
     root,
     lampPositions,
     dispose() {
-      for (const texture of faceTextures) texture.dispose();
-      for (const material of faceMaterials) material.dispose();
+      faceAtlas?.texture.dispose();
+      faceMaterial.dispose();
       for (const mesh of timberParts) mesh.geometry.dispose();
       timberMaterial.dispose();
       lampMaterial.dispose();
@@ -204,9 +207,7 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
       for (const lamp of lampMeshes) lamp.visible = night > 0.05;
       // The lantern's light on the board face: day keeps the whisper, night
       // lifts the paint clear of the blue scene light.
-      for (const material of faceMaterials) {
-        material.emissiveIntensity = 0.12 + night * 0.5;
-      }
+      faceMaterial.emissiveIntensity = 0.12 + night * 0.5;
     },
   };
 }
@@ -215,6 +216,20 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
 // has to stay crisp when the board is scaled up at overview framing (D6).
 const SIGN_TEXTURE_WIDTH = 1024;
 const SIGN_TEXTURE_HEIGHT = 272;
+const SIGN_ATLAS_CELL_GUTTER = 8;
+const SIGN_ATLAS_MAX_HEIGHT = 2048;
+
+interface SeaSignAtlasCell {
+  uMax: number;
+  uMin: number;
+  vMax: number;
+  vMin: number;
+}
+
+interface SeaSignAtlas {
+  cells: SeaSignAtlasCell[];
+  texture: CanvasTexture;
+}
 
 /**
  * The board face: weathered oak with painted, wide-tracked capitals.
@@ -224,14 +239,66 @@ const SIGN_TEXTURE_HEIGHT = 272;
  * finished loading the canvas falls back to a serif stack, which is the same
  * treatment `garden-sail-texture.ts` uses.
  */
-function createSeaSignTexture(spec: SeaSignSpec): CanvasTexture | null {
+function createSeaSignAtlas(specs: readonly SeaSignSpec[]): SeaSignAtlas | null {
+  if (specs.length === 0) return null;
   if (typeof document === "undefined") return null;
+  const columns = specs.length > 7 ? 2 : 1;
+  const rows = Math.ceil(specs.length / columns);
+  const requiredHeight = rows * (SIGN_TEXTURE_HEIGHT + SIGN_ATLAS_CELL_GUTTER * 2);
+  if (requiredHeight > SIGN_ATLAS_MAX_HEIGHT) {
+    throw new Error(`Sea-sign atlas exceeds ${SIGN_ATLAS_MAX_HEIGHT}px for ${specs.length} signs.`);
+  }
+  const atlasHeight = Math.min(
+    SIGN_ATLAS_MAX_HEIGHT,
+    2 ** Math.ceil(Math.log2(requiredHeight)),
+  );
+  const atlasWidth = SIGN_TEXTURE_WIDTH * columns;
+  const cellStride = Math.floor(atlasHeight / rows);
   const canvas = document.createElement("canvas");
-  canvas.width = SIGN_TEXTURE_WIDTH;
-  canvas.height = SIGN_TEXTURE_HEIGHT;
+  canvas.width = atlasWidth;
+  canvas.height = atlasHeight;
   const context = canvas.getContext("2d");
   if (!context) return null;
 
+  const cells: SeaSignAtlasCell[] = [];
+  for (let index = 0; index < specs.length; index += 1) {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    const cellLeft = column * SIGN_TEXTURE_WIDTH;
+    const cellTop = row * cellStride
+      + Math.floor((cellStride - SIGN_TEXTURE_HEIGHT) / 2);
+    context.save();
+    context.translate(cellLeft, cellTop);
+    paintSeaSign(context, specs[index]!);
+    context.restore();
+    // CanvasTexture.flipY maps canvas top to texture V=1. Preserve the same
+    // per-board orientation the old one-canvas-per-sign textures had.
+    cells.push({
+      uMax: (cellLeft + SIGN_TEXTURE_WIDTH) / atlasWidth,
+      uMin: cellLeft / atlasWidth,
+      vMax: 1 - cellTop / atlasHeight,
+      vMin: 1 - (cellTop + SIGN_TEXTURE_HEIGHT) / atlasHeight,
+    });
+  }
+
+  const texture = new CanvasTexture(canvas);
+  texture.name = "garden-sea-sign-atlas";
+  texture.colorSpace = SRGBColorSpace;
+  texture.magFilter = LinearFilter;
+  // The board renders far below texture resolution and at 45° to the camera:
+  // without mipmaps the minified lettering aliased into mush, and without
+  // anisotropy the mipmaps alone smear it along the oblique axis.
+  texture.minFilter = LinearMipmapLinearFilter;
+  texture.generateMipmaps = true;
+  texture.anisotropy = 8;
+  texture.needsUpdate = true;
+  return { cells, texture };
+}
+
+function paintSeaSign(
+  context: CanvasRenderingContext2D,
+  spec: SeaSignSpec,
+): void {
   // Oak ground, with a grain so the plank does not read as a UI panel.
   // Painted well above the target read: AgX and the scene light take the
   // board down a band or more, so #7d5f3d rendered as murk, not wood.
@@ -304,15 +371,21 @@ function createSeaSignTexture(spec: SeaSignSpec): CanvasTexture | null {
     context.fillText(spec.reading.toUpperCase(), centreX, SIGN_TEXTURE_HEIGHT * 0.74, SIGN_TEXTURE_WIDTH * 0.8);
   }
 
-  const texture = new CanvasTexture(canvas);
-  texture.colorSpace = SRGBColorSpace;
-  texture.magFilter = LinearFilter;
-  // The board renders far below texture resolution and at 45° to the camera:
-  // without mipmaps the minified lettering aliased into mush, and without
-  // anisotropy the mipmaps alone smear it along the oblique axis.
-  texture.minFilter = LinearMipmapLinearFilter;
-  texture.generateMipmaps = true;
-  texture.anisotropy = 8;
-  texture.needsUpdate = true;
-  return texture;
+}
+
+function remapSeaSignUvs(
+  geometry: BoxGeometry,
+  cell: SeaSignAtlasCell,
+): void {
+  const uv = geometry.getAttribute("uv");
+  const scaleU = cell.uMax - cell.uMin;
+  const scaleV = cell.vMax - cell.vMin;
+  for (let index = 0; index < uv.count; index += 1) {
+    uv.setXY(
+      index,
+      cell.uMin + uv.getX(index) * scaleU,
+      cell.vMin + uv.getY(index) * scaleV,
+    );
+  }
+  uv.needsUpdate = true;
 }

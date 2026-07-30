@@ -1,6 +1,6 @@
 # Three.js Runtime Guide
 
-Last updated: 2026-07-25
+Last updated: 2026-07-30
 
 This is the implementation guide for the production Three.js renderer. Read
 `ARCHITECTURE.md` first for the app boundary; this file explains how to change
@@ -12,6 +12,10 @@ the engine without breaking its data, interaction, or resource contracts.
   semantics, placement, risk, detail models, and provenance.
 - There is one WebGL renderer. Do not add React Three Fiber, a renderer switch,
   a second RAF, or a Canvas fallback without an explicit architecture decision.
+  A measured WebGPU spike at r185 was a NO-GO and was removed from the
+  production graph; see `agents/2026-07-29-webgpu-spike-report.md`. Do not
+  restore its runtime query switch. A future spike needs an isolated entry or
+  worktree and must add zero bytes to the production build.
 - Rendering, hit testing, keyboard targets, following, detail anchors, and
   debug output must use the same display tile and ship motion sample.
 - Reduced motion renders a deterministic frame on demand; normal motion owns
@@ -33,12 +37,33 @@ Within `src/three/`, keep ownership local:
 
 | Module group | Responsibility |
 | --- | --- |
-| `garden-water`, `garden-sea-regions`, `garden-zones` | shader water, region field, weather and buoy cues |
+| `garden-water`, `garden-sea-regions`, `garden-zones`, `garden-wakes` | shader water (Gerstner + region field), persistent wake field, weather and buoy cues |
 | `garden-ships`, `garden-fleet-batch`, `garden-sail-atlas` | ship geometry, hero attachment, fleet instances, shared sail atlas |
 | `garden-docks`, `garden-chain-flag`, `garden-harbor-life` | harbor forms, flag atlas, districts and ambient life |
-| `garden-island`, `garden-lighthouse`, `garden-landmarks`, `garden-islets` | island, Pharos, wreckyard, pigeonnier, scenic anchors |
-| `garden-sky`, `garden-horizon`, `garden-day-cycle`, `garden-post` | time-of-day composition and post-processing |
+| `garden-island`, `garden-lighthouse`, `garden-landmarks`, `garden-islets` | island, Pharos (volumetric beam), wreckyard, pigeonnier, scenic anchors |
+| `garden-sky`, `garden-sky-billboards`, `garden-horizon`, `garden-day-cycle`, `garden-post` | scattering sky, mist/cumulus billboards, time-of-day composition, pmndrs post |
 | `garden-models`, generators | model manifest, cached GLBs, deterministic artifacts |
+
+Two cross-module systems own their own contracts:
+
+- **Weather** (`src/systems/weather.ts`): one pure plan — wind, gust,
+  stormLevel, lightning — derived from the world clock and the sea state's
+  PSI stress. Deterministic (no Math.random; lightning is an integer-slot
+  hash), allocation-free via `writeWeatherPlan`, frozen with the clock under
+  reduced motion. Weather is WORLD state like the day cycle: identical at
+  every tier, and it may change color — tiers only shed fidelity. Water,
+  rain, fleet cloth, gulls, sky, the PMREM probe key, and post all consume
+  the same per-frame plan; add consumers, never a second weather source.
+- **Post** (`garden-post.ts`): pmndrs `postprocessing`, not the three/examples
+  EffectComposer stack. Chain: RenderPass → N8AOPostPass (half-res,
+  full/balanced only, zoom-faded) → Bloom → fused grade+AgX (one custom
+  Effect) → SMAA. Per-day-phase values live in one config table that also
+  carries the storm scalars; add phase/storm tuning as table entries, never
+  runtime branches. The grade's `flash` uniform is the lightning channel.
+  `n8ao` and `postprocessing` are exact-pinned. N8AO 2.0.0 publishes no
+  TypeScript declarations, so `src/types/n8ao.d.ts` documents only the pass
+  surface this app consumes and must be checked against the installed source
+  before either dependency changes.
 
 ## Frame contract
 
@@ -58,13 +83,39 @@ or inspection detail. It cannot remove analytical truth, selection, or DOM
 parity. Reduced motion pins a single full-quality static composition.
 
 Two rules keep the ladder from reading as a flicker rather than a quality
-step. First, no tier may change the frame's COLOR: the composer owns AgX tone
-mapping, the day-cycle grade, and the vignette, so it stays on at every tier
-and only the bloom pyramid is shed. Second, `interaction` is a transient flag
-raised for the length of a camera gesture, not a load measurement — gating
-scenery visibility on it blinks that scenery out exactly while the user is
-moving the camera, so treat it as `balanced` for anything the eye can see
-appear or disappear.
+step. First, no tier may change semantic hues, palette authority, AgX tone
+mapping, the day-cycle grade, or the vignette. Those composer stages stay on
+at every tier. Enumerated fidelity effects may change local luminance or
+contrast — the bloom pyramid at `constrained`, N8AO at `recovery` and below
+(painted contact discs carry the grounding intent) — but transitions must be
+bounded and must not change analytical meaning. Second, `interaction` is a
+transient flag raised for the length of a camera gesture, not a load
+measurement — gating scenery
+visibility on it blinks that scenery out exactly while the user is moving
+the camera, so treat it as `balanced` for anything the eye can see appear
+or disappear.
+
+New effects plug into the ladder, never around it: the volumetric beam runs
+at full/balanced and degrades to the plain cone below (`uVolumetric`), mist
+billboards and the wake field ease in at balanced+ (the caustic web at full
+only), and route pulse lanes animate at balanced+ and hold static below —
+the same static-lane behavior every lane has always had. The authored
+cumulus billboard layer is disabled pending operator A/B review at whole-map
+zoom.
+
+## Offscreen passes and the draw-call budget
+
+`renderer.info` is accumulated by hand across the whole frame (autoReset is
+off), so every offscreen pass counts against the 700-call budget unless it
+runs BEFORE the manual reset at the top of `render()`. The wake field's
+ping-pong stamp/fade passes and the sky PMREM rebake are deliberately placed
+there — the budget then measures the scene, and a wake update or probe bake
+cannot read as a draw-call spike. Any new offscreen pass goes in the same
+pre-reset slot or accepts being counted.
+
+Bundle caps (`scripts/bundle-budgets.mjs`): renderer chunk 1,600 KiB raw /
+454 KiB gzip; aggregate JS 3,200 KiB raw / 820 KiB gzip. The checker also
+rejects the removed WebGPU factory, `three.webgpu`, and TSL probe chunk names.
 
 ## Scene and resource discipline
 

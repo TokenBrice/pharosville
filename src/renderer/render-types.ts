@@ -23,6 +23,34 @@ export interface PharosVilleRenderSchedulerState {
   loadTier?: Exclude<PharosVilleRenderSchedulerTier, "interaction">;
 }
 
+export interface TextureOwnerCensus {
+  /** Unique texture objects referenced by the live scene graph. */
+  referencedTextures: number;
+  /** Three.js' live renderer allocation counter. */
+  rendererTextures: number;
+  /**
+   * Lower bound for renderer allocations not reachable from scene materials.
+   * A referenced but not-yet-drawn texture makes the true number higher.
+   */
+  minimumUnattributedRendererTextures: number;
+  owners: readonly {
+    owner: string;
+    textureCount: number;
+  }[];
+}
+
+export interface TextureUploadQueueMetrics {
+  canceled: number;
+  completed: number;
+  failed: number;
+  frameFlushCount: number;
+  idleFlushCount: number;
+  maxPending: number;
+  pending: number;
+  pendingOwners: readonly string[];
+  uploaded: number;
+}
+
 export interface PharosVilleRenderMetrics {
   activeLaneCount?: number;
   bucketFlipCount?: number;
@@ -44,6 +72,10 @@ export interface PharosVilleRenderMetrics {
    * out of the load measurement entirely. Steady-state frames read 0.
    */
   gpuWarmupCount?: number;
+  /** PMREM work is episodic and intentionally separate from recurring calls. */
+  environmentBakeCalls?: number;
+  environmentBakeCount?: number;
+  environmentBakeCountChange?: number;
   shadowMapSize?: number;
   longtask?: { count: number; maxDurationMs: number };
   movingShipCount: number;
@@ -65,5 +97,7 @@ export interface PharosVilleRenderMetrics {
   zoneRadii?: readonly { id: string; radiusX: number; radiusZ: number }[];
   shipMaxHeadingDeltaDeg?: number;
   shipMaxPositionDeltaTile?: number;
+  textureOwnerCensus?: TextureOwnerCensus;
+  textureUploads?: TextureUploadQueueMetrics;
   visibleShipCount: number;
 }

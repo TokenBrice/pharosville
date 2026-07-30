@@ -1,17 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
-import { Color, Matrix4, MeshStandardMaterial } from "three";
+import { Color, Matrix4, MeshStandardMaterial, Vector3 } from "three";
 import { createFleetBatchGeometry } from "./garden-ships";
 import {
   FLEET_SAIL_ATLAS_CELLS,
+  FLEET_MAX_SAILS,
   beginFleetFrame,
   createFleetBatches,
+  deformFleetSailVertex,
   disposeFleetBatches,
   endFleetFrame,
   fleetDrawCallCount,
   fleetInstanceCount,
   patchSailAtlasMaterial,
+  setFleetWeather,
   writeFleetInstance,
   type FleetInstancePose,
+  type FleetSailDeformInput,
 } from "./garden-fleet-batch";
 import type { GardenHullSilhouette } from "../systems/garden-observatory-slice";
 
@@ -95,6 +99,105 @@ describe("createFleetBatchGeometry", () => {
     first.sails.dispose();
     second.hull.dispose();
     second.sails.dispose();
+  });
+});
+
+describe("fleet sail deformation", () => {
+  const sailInput: FleetSailDeformInput = {
+    furlMask: 0,
+    hullForm: { beam: 1, height: 1, length: 1, waterline: 0 },
+    instanceX: 8,
+    instanceZ: -3,
+    sailHead: { y: 3.4, z: 0.08 },
+    sailIndex: 2,
+    vertex: { x: 0.7, y: 2.2, z: 0.3 },
+    windFlutter: 0.9,
+    windTime: 4.7,
+  };
+
+  it("runs flutter and furling in sail-local space before hull deformation", () => {
+    const material = new MeshStandardMaterial();
+    patchSailAtlasMaterial(material);
+    const shader = {
+      fragmentShader: "#include <common>\n#include <map_fragment>",
+      uniforms: {} as Record<string, unknown>,
+      vertexShader: "#include <common>\n#include <begin_vertex>\n#include <uv_vertex>",
+    };
+    material.onBeforeCompile(shader as never, null as never);
+
+    const dropAt = shader.vertexShader.indexOf("float sailDrop");
+    const furlAt = shader.vertexShader.indexOf("transformed.y = mix");
+    const hullAt = shader.vertexShader.indexOf("transformed.x *= aHullForm.x");
+    expect(dropAt).toBeGreaterThan(-1);
+    expect(furlAt).toBeGreaterThan(dropAt);
+    expect(hullAt).toBeGreaterThan(furlAt);
+    expect(shader.vertexShader).toContain("* setSail;");
+  });
+
+  it("keeps flutter independent of hull height, ride offset, and waterline", () => {
+    const staticWind = deformFleetSailVertex({ ...sailInput, windFlutter: 0 });
+    const animated = deformFleetSailVertex(sailInput);
+    const baselineDelta = animated.z - staticWind.z;
+
+    for (const height of [0.55, 1, 1.8]) {
+      for (const waterline of [-0.4, 0, 0.35]) {
+        const hullForm = { beam: 1, height, length: 1, waterline };
+        const still = deformFleetSailVertex({ ...sailInput, hullForm, windFlutter: 0 });
+        const windy = deformFleetSailVertex({ ...sailInput, hullForm });
+        expect(windy.z - still.z).toBeCloseTo(baselineDelta, 10);
+      }
+    }
+  });
+
+  it("keeps every furled sail bundled under every hull form and wind state", () => {
+    for (let sailIndex = 0; sailIndex < FLEET_MAX_SAILS; sailIndex += 1) {
+      const furlMask = 2 ** sailIndex;
+      for (const hullForm of [
+        { beam: 0.6, height: 1.7, length: 1.3, waterline: -0.35 },
+        { beam: 1.4, height: 0.65, length: 0.8, waterline: 0.3 },
+      ]) {
+        const still = deformFleetSailVertex({
+          ...sailInput,
+          furlMask,
+          hullForm,
+          sailIndex,
+          windFlutter: 0,
+        });
+        const gale = deformFleetSailVertex({
+          ...sailInput,
+          furlMask,
+          hullForm,
+          sailIndex,
+          windFlutter: 1,
+          windTime: 91,
+        });
+        expect(gale.setSail).toBe(0);
+        expect(gale.x).toBeCloseTo(still.x, 10);
+        expect(gale.y).toBeCloseTo(still.y, 10);
+        expect(gale.z).toBeCloseTo(still.z, 10);
+      }
+    }
+  });
+});
+
+describe("fleet downwind convention", () => {
+  it("points pennants toward default, quarter-turn, and opposite bearings", () => {
+    const bearings = [0, Math.PI / 2, Math.PI] as const;
+    for (const windAngle of bearings) {
+      const batches = buildBatches(1);
+      setFleetWeather({ gust: 0, timeSeconds: 0, windAngle, windSpeed: 0 });
+      beginFleetFrame(batches);
+      writeFleetInstance(batches, pose({ headingAngle: 0.73, x: 0, z: 0 }));
+      endFleetFrame(batches);
+
+      const matrix = new Matrix4();
+      batches.pennant.mesh.getMatrixAt(0, matrix);
+      const direction = new Vector3(1, 0, 0).transformDirection(matrix);
+      expect(direction.x).toBeCloseTo(Math.cos(windAngle), 6);
+      expect(direction.z).toBeCloseTo(Math.sin(windAngle), 6);
+      disposeFleetBatches(batches);
+    }
+    setFleetWeather(null);
   });
 });
 
@@ -189,6 +292,7 @@ describe("fleet batches", () => {
     patchSailAtlasMaterial(material);
     const shader = {
       fragmentShader: "#include <common>\n#include <map_fragment>",
+      uniforms: {} as Record<string, unknown>,
       vertexShader: [
         "#include <common>",
         "#include <begin_vertex>",

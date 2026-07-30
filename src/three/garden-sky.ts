@@ -4,20 +4,21 @@ import {
   BufferAttribute,
   BufferGeometry,
   Color,
-  DataTexture,
   Fog,
-  LinearFilter,
-  RGBAFormat,
   Group,
   Mesh,
   MeshBasicMaterial,
-  PlaneGeometry,
   Points,
   ShaderMaterial,
   SphereGeometry,
+  Vector2,
+  Vector3,
 } from "three";
+import { HARBOR_PALETTE } from "../systems/palette";
+import { createGardenSkyBillboards } from "./garden-sky-billboards";
 import {
   blendDayCycleColor,
+  DAY_CYCLE_LIGHT_PRESETS,
   DAY_CYCLE_SKY_PRESETS,
   DUSK_EMBER_COLOR,
   MOON_COLOR,
@@ -90,10 +91,40 @@ const FOG_MIN_SCALE = 1;
 // zoom AND keeps the world's edge dissolving at wide zoom.
 const FOG_MAX_SCALE = 1.5;
 
+// The first follow-up baseline disables the detached cumulus sprites that read
+// as pale pills at whole-map zoom. Keep the implementation for controlled A/B
+// work; mist banks remain the active billboard atmosphere.
+export const GARDEN_CUMULUS_BILLBOARDS_ENABLED = false;
+
 // The moon sits upper-left of the standard framing; V2's moon road aligns its
 // water glitter band to this azimuth.
 export const GARDEN_MOON_AZIMUTH = Math.PI * 0.62;
 const MOON_ELEVATION = Math.PI * 0.34;
+
+// Phase 2 (item 2c): the dome's sun sits where the key light is — the
+// directional light rides at island + (-35, 48, -30) — so the dome's glow,
+// the water's glitter and the cast shadows all agree on the sun's bearing.
+// The light rig keeps a FIXED position, so the phase weights are the
+// elevation contract: the full 46° at noon, a low ember sun at dusk, below
+// the horizon at night (where the scattering layer fades to zero and the
+// authored indigo + stars rule).
+const SUN_AZIMUTH_X = Math.cos(Math.atan2(-30, -35));
+const SUN_AZIMUTH_Z = Math.sin(Math.atan2(-30, -35));
+const SUN_DAY_ELEVATION = 0.721; // sin of the key light's elevation
+const SUN_DUSK_ELEVATION = 0.1;
+const SUN_NIGHT_ELEVATION = -0.22;
+
+// Phase-lit cloud palette — every swatch derived from the authored day-cycle
+// presets and HARBOR_PALETTE, blended per frame with the one scene blend law.
+const CLOUD_BODY_DAY = new Color(HARBOR_PALETTE.foam_white)
+  .lerp(DAY_CYCLE_SKY_PRESETS.day.horizon, 0.18);
+const CLOUD_BODY_DUSK = DAY_CYCLE_SKY_PRESETS.dusk.horizon.clone();
+const CLOUD_BODY_NIGHT = DAY_CYCLE_SKY_PRESETS.night.zenith.clone()
+  .lerp(MOON_COLOR, 0.3);
+const CLOUD_SHADE_DAY = DAY_CYCLE_SKY_PRESETS.day.zenith.clone()
+  .lerp(new Color(HARBOR_PALETTE.foam_white), 0.3);
+const CLOUD_SHADE_DUSK = DAY_CYCLE_SKY_PRESETS.night.horizon.clone();
+const CLOUD_SHADE_NIGHT = DAY_CYCLE_SKY_PRESETS.night.zenith.clone();
 
 export interface GardenSkyFrame {
   reducedMotion: boolean;
@@ -102,6 +133,15 @@ export interface GardenSkyFrame {
   targetX: number;
   targetZ: number;
   timeSeconds: number;
+  /** Phase 2 weather: 0..1 storm state — darkens the palette, closes the fog. */
+  stormLevel?: number;
+  /**
+   * Phase 2 billboard gate (mist banks + cumulus layer): the caller resolves
+   * the quality tier and passes false below `balanced`. Defaults to shown.
+   */
+  billboards?: boolean;
+  /** Phase 2 weather wind; drives the billboard drift. */
+  wind?: { windDirX: number; windDirZ: number; windSpeed: number };
 }
 
 export interface GardenSky {
@@ -124,8 +164,13 @@ export interface GardenSky {
    *
    * Idempotent, and `update` calls it, so grading once or twice a frame is the
    * same picture.
+   *
+   * `stormLevel` (Phase 2) multiplies over the day-cycle base: the storm
+   * darkens and cools the sky the day cycle painted, so the PMREM probe baked
+   * right after this call lights the world with the same storm the viewer
+   * sees. The day cycle remains the base; storm is a multiplier, never a hue.
    */
-  applyPhase: (phase: DayCyclePhase) => void;
+  applyPhase: (phase: DayCyclePhase, stormLevel?: number) => void;
   dispose: () => void;
   /**
    * W6.5: the dome's own shader material, shared with the environment baker.
@@ -161,7 +206,13 @@ function createDome(): {
     uniforms: {
       uEmberColor: { value: DUSK_EMBER_COLOR.clone() },
       uEmberStrength: { value: 0 },
+      uHazeColor: { value: DAY_CYCLE_SKY_PRESETS.night.fog.clone() },
+      uHazeStrength: { value: 0 },
       uHorizon: { value: horizon },
+      uScattering: { value: 0 },
+      uSunColor: { value: DAY_CYCLE_LIGHT_PRESETS.day.dirColor.clone() },
+      uSunDir: { value: new Vector3(0, 1, 0) },
+      uSunIntensity: { value: 0 },
       uZenith: { value: zenith },
     },
     vertexShader: /* glsl */ `
@@ -176,20 +227,72 @@ function createDome(): {
     fragmentShader: /* glsl */ `
       uniform vec3 uEmberColor;
       uniform float uEmberStrength;
+      uniform vec3 uHazeColor;
+      uniform float uHazeStrength;
       uniform vec3 uHorizon;
+      uniform float uScattering;
+      uniform vec3 uSunColor;
+      uniform vec3 uSunDir;
+      uniform float uSunIntensity;
       uniform vec3 uZenith;
       varying vec3 vDir;
       varying float vHeight;
       void main() {
+        vec3 dir = normalize(vDir);
         float t = smoothstep(-0.06, 0.7, vHeight);
         vec3 color = mix(uHorizon, uZenith, t);
         // Faint brightening right at the horizon band.
         float glow = smoothstep(0.16, -0.04, abs(vHeight)) * 0.12;
         color += uHorizon * glow;
+
+        // --- Phase 2 (2c): analytic atmospheric scattering ------------------
+        // Preetham-spirited Rayleigh/Mie field, mapped onto the authored
+        // palette: the physics decides WHERE the dome brightens, saturates
+        // and glows; the day-cycle colours decide every HUE. uScattering
+        // fades the whole layer to zero at night, where the authored indigo
+        // and the stars rule unmodified. Under the locked down-looking
+        // camera this dome is never on screen directly — it IS the PMREM
+        // probe (garden-environment), so this field is what lights the
+        // world's metals — and it must stay palette-true for exactly that
+        // reason.
+        float mu = dot(dir, uSunDir);
+        float up = max(dir.y, 0.0);
+        // Optical depth: the long atmospheric path near the horizon.
+        float airMass = exp(-up * 3.0);
+        // Rayleigh phase (strongest broadside to the sun) redistributes the
+        // gradient's luminance along the dome without moving its hue anchors.
+        float rayPhase = 0.75 * (1.0 + mu * mu);
+        float rayleigh = mix(0.82, 1.12, (1.0 - airMass) * rayPhase * 0.5);
+        color *= mix(1.0, rayleigh, uScattering);
+        // Short-wave scatter saturates the upper sky; the long path near the
+        // horizon desaturates toward the haze. Only the MIX of the authored
+        // pair moves — never the hues themselves.
+        float luma = dot(color, vec3(0.299, 0.587, 0.114));
+        color = mix(vec3(luma), color, 1.0 + uScattering * 0.3 * (1.0 - airMass));
+        color = mix(color, uHazeColor, uScattering * airMass * airMass * 0.3);
+        // Mie forward scatter: the warm aureole around the sun, coloured by
+        // the light rig's own sun tint — the same colour the water glitter
+        // uses, so sky, sea and shadows agree.
+        float mie = pow(max(mu, 0.0), 12.0) * (0.25 + airMass * 0.75);
+        color += uSunColor * mie * uScattering * 0.14;
+        // The sun itself: a soft disc plus a tight corona, HDR at/just over
+        // the bloom knee (~0.95) so it blooms lightly, storm-smothered, and
+        // gone at night (uSunIntensity -> 0).
+        float corona = pow(max(mu, 0.0), 220.0);
+        float disc = smoothstep(0.99955, 0.99985, mu);
+        color += uSunColor * (corona * 0.5 + disc) * uSunIntensity;
+
+        // --- Phase 2 (2d): the height fog's sky half ------------------------
+        // The haze band the far water melts into; the water shader's additive
+        // height fog lands on the SAME fog colour, so sea and sky fuse at the
+        // horizon instead of ending on an edge.
+        float hazeBand = smoothstep(0.24, -0.02, dir.y);
+        color = mix(color, uHazeColor, hazeBand * uHazeStrength);
+
         // G4 ember west band: a warm azimuthal glow where the sun sets, so the
         // dusk frame reads as its own state instead of dimmed night. The band
         // faces away from the isometric camera (frame-centre far horizon).
-        float west = pow(max(0.0, dot(normalize(vec3(vDir.x, 0.0, vDir.z)), vec3(-0.7071, 0.0, -0.7071))), 2.5);
+        float west = pow(max(0.0, dot(normalize(vec3(dir.x, 0.0, dir.z)), vec3(-0.7071, 0.0, -0.7071))), 2.5);
         float band = smoothstep(0.42, 0.02, abs(vHeight - 0.06));
         color += uEmberColor * west * band * uEmberStrength;
         gl_FragColor = vec4(color, 1.0);
@@ -298,95 +401,105 @@ function createMoon(): { group: Group; halo: MeshBasicMaterial } {
   return { group, halo: haloMaterial };
 }
 
-function createMist(): { material: MeshBasicMaterial; mesh: Mesh } {
-  const material = new MeshBasicMaterial({
-    alphaMap: createMistFalloffTexture(),
-    blending: AdditiveBlending,
-    color: DAY_CYCLE_SKY_PRESETS.dusk.fog.clone(),
-    depthWrite: false,
-    fog: false,
-    opacity: 0,
-    transparent: true,
-  });
-  // One low, faint band drifting across the far water at dawn/dusk. Vertical
-  // plane rotated to face the fixed isometric camera; kept far behind the
-  // island so it softens the distance without milking the scene.
-  const mesh = new Mesh(new PlaneGeometry(320, 9), material);
-  mesh.name = "garden-sky-mist";
-  mesh.rotation.y = Math.PI / 4;
-  mesh.position.set(-72, 3.4, -72);
-  mesh.renderOrder = 2;
-  mesh.frustumCulled = false;
-  return { material, mesh };
-}
-
-/**
- * L8: a soft falloff for the dawn/dusk mist band.
- *
- * The band was a bare PlaneGeometry with uniform opacity, so at night it drew a
- * hard-edged rectangle across the upper sky — visible in any whole-map capture
- * once you look for it. Fading the edges to nothing makes it read as haze.
- *
- * The falloff goes in the GREEN channel: three's `alphamap_fragment` reads
- * `texture2D(alphaMap, uv).g`, so writing it to alpha (as this first did) left
- * green at a constant 255 and the rectangle exactly as hard as before.
- *
- * The ramp is keyed to the texel INDEX range, not to texel centres. Sampling
- * `(i + 0.5) / n` put the outermost row at `sin(pi/32)^1.4` = 0.039, and since
- * DataTexture clamps to edge, the whole outer half-texel held that value and
- * the plane still ended in a straight edge at ~4% alpha. Mapping `i / (n - 1)`
- * puts an exact zero on the outermost row, so the band fades to nothing before
- * its own geometry ends.
- */
-function createMistFalloffTexture(): DataTexture {
-  const width = 64;
-  const height = 16;
-  const data = new Uint8Array(width * height * 4);
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const u = x / (width - 1);
-      const v = y / (height - 1);
-      // Smooth to zero at both ends of both axes.
-      const across = Math.sin(Math.PI * v) ** 1.4;
-      const along = Math.sin(Math.PI * u) ** 0.7;
-      const falloff = Math.round(Math.max(0, Math.min(1, across * along)) * 255);
-      const index = (y * width + x) * 4;
-      data[index] = falloff;
-      data[index + 1] = falloff;
-      data[index + 2] = falloff;
-      data[index + 3] = 255;
-    }
-  }
-  const texture = new DataTexture(data, width, height, RGBAFormat);
-  // DataTexture defaults to NearestFilter on both filters, which would resolve
-  // a 64x16 gradient as visible steps. The whole point here is smoothness.
-  texture.magFilter = LinearFilter;
-  texture.minFilter = LinearFilter;
-  texture.needsUpdate = true;
-  return texture;
-}
-
 export function createGardenSky(): GardenSky {
   const root = new Group();
   root.name = "garden-sky";
   const dome = createDome();
   const stars = createStars();
   const moon = createMoon();
-  const mist = createMist();
-  root.add(dome.mesh, stars.points, moon.group, mist.mesh);
+  // Phase 2 (items 2d/6): the drifting billboard atmosphere — mist banks and
+  // one cumulus layer. These REPLACE the retired 320x9 dawn/dusk mist plane:
+  // one primary cue per concept, and the instanced banks' radial-noise
+  // falloff cannot draw the hard-edged stripe the plane did at night. They
+  // are the visible half of the atmosphere work — under the locked
+  // down-looking camera the dome is never on screen (it feeds the PMREM
+  // probe), so the haze zone over the far water is where sky reads.
+  const billboards = createGardenSkyBillboards();
+  root.add(dome.mesh, stars.points, moon.group, billboards.mist.mesh, billboards.clouds.mesh);
 
   const fog = new Fog(DAY_CYCLE_SKY_PRESETS.night.fog.clone(), FOG_NEAR, FOG_FAR);
+  // The dome's haze band shares the fog's own Color instance, so the sky half
+  // and the water half of the height fog cannot drift apart — one fog
+  // colour, one contract.
+  dome.material.uniforms.uHazeColor.value = fog.color;
 
-  const applyPhase = (phase: DayCyclePhase): void => {
-    const { daylight, dusk } = phase;
+  // Phase 2 storm tone: a cool slate pull applied over the blended day-cycle
+  // colour. One scratch — applyPhase runs per frame and must not allocate.
+  const stormSlate = new Color();
+  const applyStorm = (color: Color, storm: number): void => {
+    if (storm <= 0) return;
+    const luma = color.r * 0.3 + color.g * 0.5 + color.b * 0.2;
+    stormSlate.setRGB(luma * 0.42, luma * 0.5, luma * 0.62);
+    color.lerp(stormSlate, Math.min(0.75, storm * 0.75));
+  };
+
+  // Scratch objects for the per-frame billboard writes — the frame path must
+  // not allocate, so the uniforms hold these instances and `update` mutates
+  // them in place.
+  const sunColor = dome.material.uniforms.uSunColor.value as Color;
+  const sunDir = dome.material.uniforms.uSunDir.value as Vector3;
+  const mistColor = new Color();
+  const cloudBodyColor = new Color();
+  const cloudShadeColor = new Color();
+  const sunQuadDir = new Vector2(0, 1);
+  const windDir = new Vector2(-0.855, 0.519);
+  billboards.mist.material.uniforms.uColor.value = mistColor;
+  billboards.mist.material.uniforms.uWindDir.value = windDir;
+  billboards.clouds.material.uniforms.uBodyColor.value = cloudBodyColor;
+  billboards.clouds.material.uniforms.uShadeColor.value = cloudShadeColor;
+  // The cumulus lit edge shares the dome's own sun colour, so the clouds, the
+  // dome's Mie glow and the water's glitter all take the light rig's tint.
+  billboards.clouds.material.uniforms.uLitColor.value = sunColor;
+  billboards.clouds.material.uniforms.uSunQuadDir.value = sunQuadDir;
+  billboards.clouds.material.uniforms.uWindDir.value = windDir;
+
+  const applyPhase = (phase: DayCyclePhase, stormLevel = 0): void => {
+    const { daylight, dusk, night } = phase;
+    const storm = Math.min(1, Math.max(0, stormLevel));
     const skyPresets = DAY_CYCLE_SKY_PRESETS;
     const zenith = dome.material.uniforms.uZenith.value as Color;
     const horizon = dome.material.uniforms.uHorizon.value as Color;
     blendDayCycleColor(zenith, skyPresets.night.zenith, skyPresets.dusk.zenith, skyPresets.day.zenith, dusk, daylight);
     blendDayCycleColor(horizon, skyPresets.night.horizon, skyPresets.dusk.horizon, skyPresets.day.horizon, dusk, daylight);
     blendDayCycleColor(fog.color, skyPresets.night.fog, skyPresets.dusk.fog, skyPresets.day.fog, dusk, daylight);
-    // Ember west band owns the dusk horizon; it stays out of day and night.
-    dome.material.uniforms.uEmberStrength.value = dusk * (1 - daylight) * 0.55;
+    // Ember west band owns the dusk horizon; it stays out of day and night,
+    // and a storm smothers it.
+    dome.material.uniforms.uEmberStrength.value = dusk * (1 - daylight) * 0.55
+      * (1 - storm * 0.7);
+
+    // Phase 2 (2c): the scattering field's drivers — the sun's direction from
+    // the day cycle, the scattering strength (fading to zero at night), the
+    // disc's HDR intensity (just over the bloom knee, storm-smothered), and
+    // the haze band's strength. The sun tint follows the light rig, the same
+    // colour the water glitter uses. All of it is phase-derived, so the PMREM
+    // bake right after this call sees the same sky the frame will grade.
+    const sinEl = daylight * SUN_DAY_ELEVATION
+      + dusk * SUN_DUSK_ELEVATION
+      + night * SUN_NIGHT_ELEVATION;
+    const cosEl = Math.sqrt(Math.max(0, 1 - sinEl * sinEl));
+    sunDir.set(SUN_AZIMUTH_X * cosEl, sinEl, SUN_AZIMUTH_Z * cosEl);
+    blendDayCycleColor(
+      sunColor,
+      DAY_CYCLE_LIGHT_PRESETS.night.dirColor,
+      DAY_CYCLE_LIGHT_PRESETS.dusk.dirColor,
+      DAY_CYCLE_LIGHT_PRESETS.day.dirColor,
+      dusk,
+      daylight,
+    );
+    dome.material.uniforms.uScattering.value = Math.min(1, daylight + dusk * 0.7)
+      * (1 - storm * 0.6);
+    dome.material.uniforms.uSunIntensity.value = (daylight * 1.55 + dusk * 1.3)
+      * (1 - storm * 0.85);
+    dome.material.uniforms.uHazeStrength.value = Math.min(
+      0.8,
+      0.42 + dusk * 0.08 + storm * 0.3,
+    );
+    if (storm > 0) {
+      applyStorm(zenith, storm);
+      applyStorm(horizon, storm);
+      applyStorm(fog.color, storm);
+      applyStorm(sunColor, storm);
+    }
   };
 
   return {
@@ -396,8 +509,7 @@ export function createGardenSky(): GardenSky {
       dome.mesh.material.dispose();
       stars.points.geometry.dispose();
       stars.material.dispose();
-      mist.mesh.geometry.dispose();
-      mist.material.dispose();
+      billboards.dispose();
       moon.group.traverse((object) => {
         if (object instanceof Mesh) {
           object.geometry.dispose();
@@ -411,43 +523,78 @@ export function createGardenSky(): GardenSky {
     root,
     update(phase, frame) {
       root.position.set(frame.targetX, 0, frame.targetZ);
-      // Push the haze back as the view widens (W6.6).
+      // Push the haze back as the view widens (W6.6); a storm pulls it back in
+      // — rain closes the visible distance even at the same framing.
+      const storm = Math.min(1, Math.max(0, frame.stormLevel ?? 0));
       const fogScale = Math.max(
         FOG_MIN_SCALE,
         Math.min(FOG_MAX_SCALE, frame.viewHeight / FOG_REFERENCE_VIEW_HEIGHT),
       );
-      fog.near = FOG_NEAR * fogScale;
-      fog.far = FOG_FAR * fogScale;
-      applyPhase(phase);
-      const { dusk, night } = phase;
+      fog.near = FOG_NEAR * fogScale * (1 - storm * 0.32);
+      fog.far = FOG_FAR * fogScale * (1 - storm * 0.25);
+      applyPhase(phase, storm);
+      const { daylight, dusk, night } = phase;
 
-      const starOpacity = Math.min(1, dusk * 0.35 + night);
+      // Storm cloud hides the stars and the moon.
+      const starOpacity = Math.min(1, dusk * 0.35 + night) * (1 - storm * 0.85);
       stars.material.uniforms.uOpacity.value = starOpacity;
       stars.material.uniforms.uTime.value = frame.reducedMotion ? 0 : Math.max(0, frame.timeSeconds);
       stars.points.visible = starOpacity > 0.01;
 
-      const moonPresence = Math.min(1, dusk * 0.5 + night);
+      const moonPresence = Math.min(1, dusk * 0.5 + night) * (1 - storm * 0.8);
       moon.group.visible = moonPresence > 0.02;
-      moon.halo.opacity = 0.08 + night * 0.28;
+      moon.halo.opacity = (0.08 + night * 0.28) * (1 - storm * 0.7);
 
-      // Dawn/dusk mist: faint, low, and slowly drifting; frozen under
-      // reduced motion.
-      //
-      // No night term. The plane is 320x9 — a 36:1 stripe rotated to the
-      // camera's 45° azimuth, so its edges project to exactly horizontal lines
-      // and it can never read as anything but a band. That is survivable at
-      // dusk, where it lies over a bright sky. At night it was the "faint
-      // horizontal band in the upper sky": additive blending puts 2.5% of the
-      // warm dusk fog colour (linear ~0.244, 0.127, 0.050) over a night horizon
-      // of linear ~0.010, 0.016, 0.051 — a 59% lift in red, about +9/255 once
-      // encoded. Every comment on this mesh says dawn/dusk; the night term was
-      // the outlier.
-      const mistOpacity = dusk * 0.085;
-      mist.material.opacity = mistOpacity;
-      mist.mesh.visible = mistOpacity > 0.008;
-      const mistDrift = frame.reducedMotion ? 0 : Math.max(0, frame.timeSeconds);
-      mist.mesh.position.x = -72 + Math.sin(mistDrift * 0.021) * 9;
-      mist.mesh.position.z = -72 - Math.sin(mistDrift * 0.021) * 9;
+      // Phase 2 billboard atmosphere (mist banks + cumulus): shared time and
+      // wind for the vertex-shader drift, phase-blended palette colours, and
+      // the caller's tier gate. Reduced motion pins the drift at t = 0 — the
+      // static composition is a complete one.
+      const showBillboards = frame.billboards ?? true;
+      const billboardTime = frame.reducedMotion ? 0 : Math.max(0, frame.timeSeconds);
+      windDir.set(frame.wind?.windDirX ?? -0.855, frame.wind?.windDirZ ?? 0.519);
+      const windSpeed = frame.wind?.windSpeed ?? 0.3;
+      billboards.mist.material.uniforms.uTime.value = billboardTime;
+      billboards.mist.material.uniforms.uWindSpeed.value = windSpeed;
+      billboards.clouds.material.uniforms.uTime.value = billboardTime;
+      billboards.clouds.material.uniforms.uWindSpeed.value = windSpeed;
+
+      // Mist banks: a dawn/night element, near-invisible at midday; a storm
+      // thickens the banks and lets a faint haze survive even the noon frame.
+      const mistDensity = Math.min(
+        0.85,
+        (dusk * 0.55 + night * 0.48) * (1 + storm * 0.8) + storm * 0.12 * (1 - daylight),
+      );
+      const mistOpacity = mistDensity * 0.55;
+      blendDayCycleColor(
+        mistColor,
+        DAY_CYCLE_SKY_PRESETS.night.fog,
+        DAY_CYCLE_SKY_PRESETS.dusk.fog,
+        DAY_CYCLE_SKY_PRESETS.day.fog,
+        dusk,
+        daylight,
+      );
+      applyStorm(mistColor, storm);
+      billboards.mist.material.uniforms.uOpacity.value = mistOpacity;
+      billboards.mist.mesh.visible = showBillboards && mistOpacity > 0.008;
+
+      // Cumulus is retained for controlled A/B work but disabled in the
+      // follow-up baseline after failing whole-map silhouette review.
+      blendDayCycleColor(cloudBodyColor, CLOUD_BODY_NIGHT, CLOUD_BODY_DUSK, CLOUD_BODY_DAY, dusk, daylight);
+      blendDayCycleColor(cloudShadeColor, CLOUD_SHADE_NIGHT, CLOUD_SHADE_DUSK, CLOUD_SHADE_DAY, dusk, daylight);
+      applyStorm(cloudBodyColor, storm);
+      applyStorm(cloudShadeColor, storm);
+      billboards.clouds.material.uniforms.uOpacity.value = Math.min(
+        0.95,
+        0.88 - night * 0.12 + storm * 0.06,
+      );
+      // The sun projected into the billboards' quad space (right = the 45°
+      // azimuth axis, up = world Y): at noon it sits overhead so the top rims
+      // light; at dusk it drops low so the edges catch the ember.
+      sunQuadDir.set(0.7071 * (sunDir.x - sunDir.z), sunDir.y);
+      if (sunQuadDir.lengthSq() < 1e-6) sunQuadDir.set(0, 1);
+      else sunQuadDir.normalize();
+      billboards.clouds.mesh.visible = showBillboards
+        && GARDEN_CUMULUS_BILLBOARDS_ENABLED;
     },
   };
 }

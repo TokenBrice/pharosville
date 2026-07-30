@@ -77,6 +77,8 @@
   "dependencies": {
     "@tanstack/react-query": "5.99.0",
     "lucide-react": "1.14.0",
+    "n8ao": "2.0.0",
+    "postprocessing": "6.39.4",
     "react": "19.2.5",
     "react-dom": "19.2.5",
     "three": "0.185.1",

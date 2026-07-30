@@ -3,6 +3,7 @@ import { dayCyclePhase } from "./garden-day-cycle";
 import {
   GARDEN_ENVIRONMENT_INTENSITY,
   gardenEnvironmentPhaseKey,
+  resolveGardenEnvironmentStormBand,
 } from "./garden-environment";
 
 /**
@@ -56,7 +57,9 @@ describe("gardenEnvironmentPhaseKey", () => {
   });
 
   it("clamps rather than throwing on an out-of-range phase", () => {
-    expect(gardenEnvironmentPhaseKey({ daylight: 2, dusk: -1, night: 0 })).toBe("10:0");
+    expect(gardenEnvironmentPhaseKey({ daylight: 2, dusk: -1, night: 0 })).toBe("10:0:0");
+    // The storm term (Phase 2) joins the key, coarsely quantised and clamped.
+    expect(gardenEnvironmentPhaseKey({ daylight: 2, dusk: -1, night: 0 }, 7)).toBe("10:0:4");
   });
 
   it("keeps the probe inside the strength range measured against the real GPU", () => {
@@ -65,5 +68,31 @@ describe("gardenEnvironmentPhaseKey", () => {
     // would be claiming a calibration nobody has looked at.
     expect(GARDEN_ENVIRONMENT_INTENSITY).toBeGreaterThan(0);
     expect(GARDEN_ENVIRONMENT_INTENSITY).toBeLessThanOrEqual(1);
+  });
+
+  it("does not rebake across a steady storm's breathing boundary", () => {
+    let band: number | null = null;
+    const visited: number[] = [];
+    for (let seconds = 0; seconds <= 1_000; seconds += 0.5) {
+      const stormLevel = 0.875 * (
+        1 + 0.05 * Math.sin((Math.PI * 2 * seconds) / 167 + 0.6)
+      );
+      const next = resolveGardenEnvironmentStormBand(band, stormLevel);
+      if (next !== band) visited.push(next);
+      band = next;
+    }
+
+    expect(visited).toEqual([4]);
+  });
+
+  it("moves hysteretic storm bands on material risk-state changes", () => {
+    let band = resolveGardenEnvironmentStormBand(null, 0.1);
+    expect(band).toBe(0);
+    band = resolveGardenEnvironmentStormBand(band, 0.2);
+    expect(band).toBe(1);
+    band = resolveGardenEnvironmentStormBand(band, 0.7);
+    expect(band).toBe(3);
+    band = resolveGardenEnvironmentStormBand(band, 0.2);
+    expect(band).toBe(1);
   });
 });

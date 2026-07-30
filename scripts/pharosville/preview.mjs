@@ -48,6 +48,7 @@
  *   node scripts/pharosville/preview.mjs --assert --reduced  # settled static resource gate
  *   node scripts/pharosville/preview.mjs --artifact-check    # short-interval full-frame flash probe
  *   node scripts/pharosville/preview.mjs --assert --max-p90=20 --max-draw-calls=700
+ *   node scripts/pharosville/preview.mjs --texture-census    # attribute live texture owners
  *   node scripts/pharosville/preview.mjs --refresh common   # main-thread cost of a data refresh
  *   node scripts/pharosville/preview.mjs --refresh churn    # ... with every placement moved
  */
@@ -180,6 +181,22 @@ try {
 
   if (refreshMode) await installRefreshProbe(page);
 
+  // Shader tripwire: a material the driver rejects is skipped SILENTLY at draw
+  // time — the perf numbers below still pass while a whole subsystem (the sea,
+  // once) is missing from the frame. Collect the console so assert mode can
+  // fail on what the counters cannot see. (2026-07-30: `uStorm` undeclared in
+  // the water fragment made the sea invisible while every metric was green.)
+  const shaderErrors = [];
+  page.on("console", (msg) => {
+    const text = msg.text();
+    if (/Shader Error|VALIDATE_STATUS|program not valid|Fragment shader is not compiled|Vertex shader is not compiled/.test(text)) {
+      shaderErrors.push(text.split("\n")[0].slice(0, 300));
+    }
+  });
+  page.on("pageerror", (err) => {
+    shaderErrors.push(`pageerror: ${String(err.message ?? err).split("\n")[0].slice(0, 300)}`);
+  });
+
   const renderer = await readWebglRenderer(page);
   console.log(`chrome     ${chromePath}`);
   console.log(`flags      ${await describeOperatorFlags()}`);
@@ -280,12 +297,30 @@ try {
     + ` · dropped ${metrics.dropped} of ${metrics.samples}`);
   console.log(`tier       ${metrics.tier} (session worst: ${metrics.tierReached})`
     + ` · composer ${metrics.composer ? "on" : "off"}`);
-  console.log(`draw       ${metrics.calls} calls · ${metrics.triangles} tris · ${metrics.geometries} geoms`
+  console.log(`draw       ${metrics.calls} recurring calls (${metrics.sceneCalls} scene +`
+    + ` ${metrics.offscreenCalls} offscreen) · ${metrics.triangles} tris · ${metrics.geometries} geoms`
     + ` · ${metrics.textures} textures · fleet ${metrics.fleetDraws}`);
+  console.log(`uploads    ${metrics.textureUploads?.pending ?? 0} pending ·`
+    + ` ${metrics.textureUploads?.uploaded ?? 0} uploaded ·`
+    + ` ${metrics.textureUploads?.failed ?? 0} failed`);
+  if ((metrics.textureUploads?.pendingOwners?.length ?? 0) > 0) {
+    console.log(`           owners: ${metrics.textureUploads.pendingOwners.join(", ")}`);
+  }
+  console.log(`pmrem      ${metrics.environmentBakeCount ?? 0} bakes`
+    + ` · last +${metrics.environmentBakeCountChange ?? 0}`
+    + ` / ${metrics.environmentBakeCalls ?? 0} calls`);
+  console.log(`logos      ${metrics.logoAssetsLoaded ?? 0}/${metrics.logoAssetsExpected ?? 0}`
+    + " decoded assets");
+  if (
+    args["texture-census"]
+    || (metrics.textures ?? 0) > limits.maxTextures
+  ) {
+    printTextureOwnerCensus(metrics.textureOwnerCensus);
+  }
   console.log(`fleet      ${metrics.shipsVisible} ships visible`);
   console.log(`shot       ${outputPath}`);
 
-  if (assertMode) evaluateAssertions(metrics);
+  if (assertMode) evaluateAssertions(metrics, shaderErrors);
   if (args["artifact-check"]) await runArtifactFlashCheck(page, canvas);
 
   // Last, deliberately: the probe mutates the payload, so everything above —
@@ -709,7 +744,7 @@ async function reportRefreshCost(page) {
  * with no fleet and no samples is not the world, and a frame time taken from it
  * would flatter the renderer rather than test it.
  */
-function evaluateAssertions(metrics) {
+function evaluateAssertions(metrics, shaderErrors = []) {
   if ((metrics.shipsVisible ?? 0) === 0 || (!args.reduced && (metrics.samples ?? 0) === 0)) {
     console.log("\nSKIP: the world never populated, so no representative frame was measured.");
     process.exitCode = SKIP_EXIT_CODE;
@@ -717,6 +752,9 @@ function evaluateAssertions(metrics) {
   }
 
   const failures = [];
+  if (shaderErrors.length > 0) {
+    failures.push(`${shaderErrors.length} shader/program error(s) in the page console — a rejected material is skipped silently at draw time, so the frame is missing something the counters cannot see:\n    ${shaderErrors.slice(0, 5).join("\n    ")}`);
+  }
   if (metrics.tier !== limits.requiredTier) {
     failures.push(`scheduler tier is ${metrics.tier}, expected ${limits.requiredTier}`);
   }
@@ -878,6 +916,9 @@ function readMetrics(page) {
     const m = debug?.renderMetrics;
     return {
       calls: m?.gpu?.calls ?? null,
+      environmentBakeCalls: m?.environmentBakeCalls ?? null,
+      environmentBakeCount: m?.environmentBakeCount ?? null,
+      environmentBakeCountChange: m?.environmentBakeCountChange ?? null,
       composer: m?.composerEnabled ?? null,
       contentReplacements: m?.contentReplacementCount ?? null,
       contentParts: m?.contentSignaturePartHashes ?? null,
@@ -885,16 +926,35 @@ function readMetrics(page) {
       fleetDraws: m?.fleetDrawCallCount ?? null,
       fps: m?.framePacing?.effectiveFps ?? null,
       geometries: m?.gpu?.geometries ?? null,
+      logoAssetsExpected: m?.logoAssetsExpected ?? null,
+      logoAssetsLoaded: m?.logoAssetsLoaded ?? null,
       p50: m?.framePacing?.p50Ms ?? null,
       p90: m?.framePacing?.p90Ms ?? null,
       samples: m?.framePacing?.sampleCount ?? null,
       shipsVisible: m?.visibleShipCount ?? null,
+      offscreenCalls: m?.gpu?.offscreenCalls ?? null,
+      sceneCalls: m?.gpu?.sceneCalls ?? null,
+      textureOwnerCensus: m?.textureOwnerCensus ?? null,
+      textureUploads: m?.textureUploads ?? null,
       tier: m?.schedulerTier ?? null,
       tierReached: m?.sessionTierReached ?? null,
       triangles: m?.gpu?.triangles ?? null,
       textures: m?.gpu?.textures ?? null,
     };
   });
+}
+
+function printTextureOwnerCensus(census) {
+  if (!census) {
+    console.log("textures   owner census unavailable");
+    return;
+  }
+  console.log(`textures   ${census.referencedTextures} scene-referenced ·`
+    + ` at least ${census.minimumUnattributedRendererTextures}`
+    + " renderer-internal/unattributed");
+  for (const entry of census.owners ?? []) {
+    console.log(`           ${String(entry.textureCount).padStart(2, " ")}  ${entry.owner}`);
+  }
 }
 
 async function readWebglRenderer(page) {

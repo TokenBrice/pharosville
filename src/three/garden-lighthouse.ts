@@ -790,6 +790,19 @@ const BEAM_COLOR = palette(P.lantern_glow).lerp(palette(P.foam_white), 0.22);
  * glow, face-on softens) plus front+back additive overlap read as light in
  * air; a longitudinal fade darkens it toward the far end and slow banding
  * drifts through it. `uTime` is frozen under reduced motion by the caller.
+ *
+ * Phase 2 god rays (Breathtaking Rendering, decision: analytic cone over a
+ * screen-space radial pass — the one-beam-at-a-time law above forbids a
+ * second fan layer, and a mask-based fan would ghost through the island and
+ * hulls it sweeps behind without depth-aware ray masking). At full/balanced
+ * (`uVolumetric` 1) the cone gains three volumetric terms: a world-locked
+ * 2-octave mist noise scrolling through the beam (storm-thickened), a
+ * per-frame forward-scattering factor (ortho collapses the scattering
+ * geometry to one exact dot of beam axis vs fixed view axis — the beam
+ * flares as it sweeps toward the camera), and an HDR storm lift that pushes
+ * the core over the bloom knee. At recovery (`uVolumetric` 0) every term is
+ * gated off and the output is the pre-Phase-2 cone bit-exact — same colour,
+ * same intent, one material, no tier-transition compile hitch.
  */
 function createBeamCone(): Mesh<ConeGeometry, ShaderMaterial> {
   const geometry = new ConeGeometry(BEAM_BASE_RADIUS, BEAM_LENGTH, 28, 1, true);
@@ -803,8 +816,38 @@ function createBeamCone(): Mesh<ConeGeometry, ShaderMaterial> {
       uniform vec3 uColor;
       uniform float uOpacity;
       uniform float uTime;
+      uniform float uVolumetric;
+      uniform float uStorm;
+      uniform float uScatter;
       varying float vAlong;
       varying vec3 vNormalView;
+      varying vec3 vWorldPos;
+
+      // Deterministic value noise — the mist pattern is a pure function of
+      // world position and the frozen-under-reduced-motion clock.
+      float beamHash(vec3 p) {
+        p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
+        p *= 17.0;
+        return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+      }
+      float beamNoise(vec3 p) {
+        vec3 i = floor(p);
+        vec3 f = fract(p);
+        vec3 u = f * f * (3.0 - 2.0 * f);
+        return mix(
+          mix(
+            mix(beamHash(i), beamHash(i + vec3(1.0, 0.0, 0.0)), u.x),
+            mix(beamHash(i + vec3(0.0, 1.0, 0.0)), beamHash(i + vec3(1.0, 1.0, 0.0)), u.x),
+            u.y
+          ),
+          mix(
+            mix(beamHash(i + vec3(0.0, 0.0, 1.0)), beamHash(i + vec3(1.0, 0.0, 1.0)), u.x),
+            mix(beamHash(i + vec3(0.0, 1.0, 1.0)), beamHash(i + vec3(1.0, 1.0, 1.0)), u.x),
+            u.y
+          ),
+          u.z
+        );
+      }
 
       void main() {
         // Bright just past the apex, carrying out over the sea before fading
@@ -815,7 +858,25 @@ function createBeamCone(): Mesh<ConeGeometry, ShaderMaterial> {
         float rim = 1.0 - abs(vNormalView.z);
         float shaft = 0.3 + 0.7 * rim;
         float bands = 0.86 + 0.14 * sin(vAlong * 30.0 - uTime * 1.3);
-        gl_FragColor = vec4(uColor, uOpacity * fade * shaft * bands);
+        float alpha = uOpacity * fade * shaft * bands;
+        if (uVolumetric > 0.5) {
+          // Mist volume locked to world space (it stays put while the beam
+          // sweeps through it — the air is what moves slowly, not the
+          // pattern on the cone). Storm thickens it: shafts read hardest in
+          // bad weather, matching the storm-driven fog.
+          vec3 mistPoint = vWorldPos * 0.22
+            + vec3(uTime * 0.05, uTime * 0.013, -uTime * 0.031);
+          float mist = beamNoise(mistPoint) * 0.65
+            + beamNoise(mistPoint * 2.7 + 11.3) * 0.35;
+          float density = clamp(0.55 + uStorm * 0.9, 0.0, 1.0);
+          float volume = mix(1.0, 0.45 + 1.1 * mist, density);
+          // Forward scattering + storm HDR lift: the beam flares as it
+          // sweeps toward the camera, and a storm-lit core crosses the bloom
+          // knee so the shafts glow instead of merely tinting.
+          float scatter = 1.0 + uScatter * (0.9 + uStorm * 0.6);
+          alpha *= volume * scatter * (1.0 + uStorm * 0.8);
+        }
+        gl_FragColor = vec4(uColor, alpha);
       }
     `,
     side: DoubleSide,
@@ -825,16 +886,21 @@ function createBeamCone(): Mesh<ConeGeometry, ShaderMaterial> {
       uColor: { value: BEAM_COLOR.clone() },
       uLength: { value: BEAM_LENGTH },
       uOpacity: { value: 0 },
+      uScatter: { value: 0 },
+      uStorm: { value: 0 },
       uTime: { value: 0 },
+      uVolumetric: { value: 0 },
     },
     vertexShader: /* glsl */ `
       uniform float uLength;
       varying float vAlong;
       varying vec3 vNormalView;
+      varying vec3 vWorldPos;
 
       void main() {
         vAlong = position.x / uLength;
         vNormalView = normalize(normalMatrix * normal);
+        vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,

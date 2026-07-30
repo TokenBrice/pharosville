@@ -335,7 +335,7 @@ export function buildVisualCueRegistry(): VisualCue[] {
       sourceField: "pegSummary/stress DEWS band on areas (band === DANGER); maxActiveThreatLevel for the sky stage",
       questionAnswered: "Which named water is in active DANGER right now?",
       failureState: "no squall; the area detail atmosphere row still names the band",
-      domEquivalent: "area detail atmosphere description ('rain squall' wording) and accessibility ledger area row",
+      domEquivalent: "area detail and accessibility-ledger atmosphere rows name the local band and chop; lightning is described only as a fleet-storm capability because its active slots come from global weather",
       reducedMotionEquivalent: "frozen time-zero squall frame (streaks static, wash identical)",
     },
     {

@@ -59,27 +59,27 @@ describe("createGardenSailTexture", () => {
     expect(fillText).not.toHaveBeenCalled();
   });
 
-  it("uses the stablecoin symbol when no decoded logo is available", () => {
+  it("keeps an unresolved logo markless instead of painting ticker letters", () => {
     const ship = buildPharosVilleWorld(makePharosVilleWorldInput()).ships[0]!;
 
     const texture = createGardenSailTexture(ship, null);
 
     expect(texture).toBeInstanceOf(CanvasTexture);
     expect(drawImage).not.toHaveBeenCalled();
-    // The ticker fits inside the same safe area as the canonical logo.
-    expect(fillText).toHaveBeenCalledWith(
-      ship.symbol.slice(0, 7),
-      64,
-      65,
-      128 * 0.78 * 0.9,
-    );
+    expect(fillText).not.toHaveBeenCalled();
+    expect(fill).not.toHaveBeenCalled();
   });
 });
 
 describe("sail identity field", () => {
   it("adds one restrained contrast plate without restoring the sail border", () => {
     const ship = buildPharosVilleWorld(makePharosVilleWorldInput()).ships[0]!;
-    createGardenSailTexture(ship, null);
+    const image = document.createElement("img");
+    Object.defineProperties(image, {
+      naturalHeight: { configurable: true, value: 64 },
+      naturalWidth: { configurable: true, value: 64 },
+    });
+    createGardenSailTexture(ship, { emblem: null, image, src: ship.logoSrc ?? "" });
 
     expect(fill).toHaveBeenCalledOnce();
     // Weave strokes plus the single identity rim; no full-cell bolt-rope frame.

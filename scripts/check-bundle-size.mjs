@@ -4,9 +4,17 @@ import { basename, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
 
-import { aggregateBudgets, bundleBudgets } from "./bundle-budgets.mjs";
+import {
+  aggregateBudgets,
+  bundleBudgets,
+  forbiddenBundleChunks,
+} from "./bundle-budgets.mjs";
 
-export { aggregateBudgets, bundleBudgets } from "./bundle-budgets.mjs";
+export {
+  aggregateBudgets,
+  bundleBudgets,
+  forbiddenBundleChunks,
+} from "./bundle-budgets.mjs";
 
 export function collectBundleChunks(distRoot = resolve(process.cwd(), "dist")) {
   const assetsRoot = join(distRoot, "assets");
@@ -33,9 +41,19 @@ export function collectBundleChunks(distRoot = resolve(process.cwd(), "dist")) {
 export function evaluateBundleBudgets(chunks, {
   budgets = bundleBudgets,
   aggregate = aggregateBudgets,
+  forbidden = forbiddenBundleChunks,
 } = {}) {
   const errors = [];
   const checks = [];
+
+  for (const rule of forbidden) {
+    const matches = chunks.filter((chunk) => rule.pattern.test(basename(chunk.fileName)));
+    if (matches.length > 0) {
+      errors.push(
+        `Forbidden ${rule.label} present: ${matches.map((chunk) => chunk.fileName).join(", ")}.`,
+      );
+    }
+  }
 
   for (const [key, budget] of Object.entries(budgets)) {
     const matches = chunks.filter((chunk) => budget.pattern.test(basename(chunk.fileName)));

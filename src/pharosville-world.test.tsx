@@ -10,6 +10,7 @@ import {
   selectGardenObservatorySlice,
 } from "./systems/garden-observatory-slice";
 import { buildObserveSequence } from "./systems/observe-sequence";
+import { tileToIso } from "./systems/projection";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "./systems/world-types";
 
 const mocks = vi.hoisted(() => {
@@ -25,6 +26,8 @@ const mocks = vi.hoisted(() => {
     reducedMotion: true,
     rendererStatus: "ready",
     requestPaint: vi.fn(),
+    startObserveTour: vi.fn(),
+    stopObserveTour: vi.fn(),
     targets,
   };
 });
@@ -85,6 +88,8 @@ vi.mock("./hooks/use-canvas-resize-and-camera", () => ({
     canvasSize: mocks.canvasSizeRef.current,
     canvasSizeRef: mocks.canvasSizeRef,
     focusTile: mocks.focusTile,
+    startObserveTour: mocks.startObserveTour,
+    stopObserveTour: mocks.stopObserveTour,
     handleFollowSelected: vi.fn(),
     handleKeyDown: mocks.canvasHandleKeyDown,
     handlePointerCancel: vi.fn(),
@@ -174,6 +179,8 @@ beforeEach(() => {
   mocks.canvasHandleKeyDown.mockClear();
   mocks.cancelCameraIntent.mockClear();
   mocks.focusTile.mockClear();
+  mocks.startObserveTour.mockClear();
+  mocks.stopObserveTour.mockClear();
   mocks.reducedMotion = true;
   mocks.rendererStatus = "ready";
   mocks.requestPaint.mockClear();
@@ -482,16 +489,31 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     expect(screen.getByTestId("pharosville-observe-caption").textContent).toContain(
       "The Pharos lighthouse reports PSI 82, STEADY.",
     );
-    expect(mocks.focusTile).toHaveBeenLastCalledWith({ x: 16, y: 12 });
+    // Observe 2.0: the camera hook receives the whole tour as spline
+    // keyframes up front — one per beat, in caption order — instead of a
+    // per-beat focusTile target.
+    expect(mocks.startObserveTour).toHaveBeenCalledTimes(1);
+    const keyframes = mocks.startObserveTour.mock.calls[0]![0] as {
+      beatIndex: number;
+      isoX: number;
+      isoY: number;
+      zoom: number;
+    }[];
+    expect(keyframes.map((keyframe) => keyframe.beatIndex)).toEqual([0, 1, 2, 3]);
+    expect({ x: keyframes[0]!.isoX, y: keyframes[0]!.isoY }).toEqual(tileToIso({ x: 16, y: 12 }));
+    expect(mocks.focusTile).not.toHaveBeenCalled();
 
-    act(() => vi.advanceTimersByTime(OBSERVE_TEST_STEP_MS));
+    const publishTourBeat = mocks.startObserveTour.mock.calls[0]![1] as
+      (beatIndex: number | null) => void;
+    act(() => publishTourBeat(1));
     expect(screen.getByTestId("pharosville-observe-caption").textContent).toContain(
       "USDC is the observatory's leading risk watch in Warning Shoals.",
     );
-    expect(mocks.focusTile).toHaveBeenLastCalledWith(resolveGardenEntityDisplayTile({
+    const riskIso = tileToIso(resolveGardenEntityDisplayTile({
       entity: world.ships[0]!,
       slice,
-    }));
+    })!);
+    expect({ x: keyframes[1]!.isoX, y: keyframes[1]!.isoY }).toEqual({ x: riskIso.x, y: riskIso.y });
     // S1: Observe is a camera tour, not a selection change. It used to be
     // asserted against the default lighthouse panel; with no default selection
     // the meaningful statement is that touring opens no panel at all.
@@ -506,6 +528,23 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     fireEvent.pointerDown(screen.getByTestId("pharosville-canvas"));
     expect(screen.queryByTestId("pharosville-observe-caption")).toBeNull();
     expect(mocks.cancelCameraIntent).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses sampled Observe progress for large jumps and completion", () => {
+    mocks.reducedMotion = false;
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Observe harbor" }));
+    const publishTourBeat = mocks.startObserveTour.mock.calls[0]![1] as
+      (beatIndex: number | null) => void;
+
+    act(() => publishTourBeat(3));
+    expect(screen.getByTestId("pharosville-observe-caption").textContent).toContain(
+      "Ethereum Dock has the observatory's highest dock concentration",
+    );
+
+    act(() => publishTourBeat(null));
+    expect(screen.queryByTestId("pharosville-observe-caption")).toBeNull();
   });
 
   it("steps Observe beat by beat under reduced motion", () => {

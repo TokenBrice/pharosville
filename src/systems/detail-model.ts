@@ -96,8 +96,9 @@ function isHttpUrl(value: string): boolean {
 const ETHEREUM_L2_DOCK_CHAIN_ID_SET = new Set<string>(ETHEREUM_L2_DOCK_CHAIN_IDS);
 
 // Per-band atmospheric descriptor used by the area detail panel. Cloud and
-// chop wording escalates with the DEWS band, and WARNING+/DANGER receive a
-// matching "lightning active" suffix.
+// chop wording escalates with the DEWS band. Lightning is fleet-wide and
+// time-slotted, so an area band may describe the capability but never claim an
+// active flash.
 // C4 observatory voice for named DEWS waters; ships berth here by band.
 const AREA_NARRATIVES: Record<DewsAreaBand, string> = {
   CALM: "steady water, where ships with clean peg evidence ride at anchor.",
@@ -111,8 +112,8 @@ const ATMOSPHERE_DESCRIPTORS: Record<DewsAreaBand, string> = {
   CALM: "Clear sky, calm sea",
   WATCH: "Thin clouds, light chop",
   ALERT: "Broken clouds, moderate chop",
-  WARNING: "Thickening clouds, rough sea, lightning active",
-  DANGER: "Heavy storm clouds, heavy chop, lightning active",
+  WARNING: "Thickening clouds, rough sea, lightning possible at the fleet storm peak",
+  DANGER: "Heavy storm clouds, heavy chop, lightning possible at the fleet storm peak",
 };
 
 function atmosphereForArea(area: AreaNode): string {
