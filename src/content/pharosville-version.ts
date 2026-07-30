@@ -12,6 +12,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   clearBearings: "v0.6.0",
   trueColors: "v0.6.1",
   rightfulColors: "v0.6.2",
+  livingSea: "v0.7.0",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.rightfulColors;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.livingSea;

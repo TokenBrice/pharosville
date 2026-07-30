@@ -92,8 +92,17 @@ export interface GardenCloudShadowSource {
     uCloudShadowTransform: { value: [number, number, number, number] };
     uCloudShadowStrength: { value: number };
   };
-  /** Advances drift; gated to balanced+ tiers, frozen under reduced motion. */
-  update: (frame: { reducedMotion: boolean; tier: string; timeSeconds: number }) => void;
+  /**
+   * Advances drift; gated to balanced+ tiers, frozen under reduced motion.
+   * `wind` (Phase 2 weather system) steers the drift direction and speed;
+   * absent, the sea's historical east-southeast drift holds.
+   */
+  update: (frame: {
+    reducedMotion: boolean;
+    tier: string;
+    timeSeconds: number;
+    wind?: { windDirX: number; windDirZ: number; windSpeed: number; stormLevel: number };
+  }) => void;
 }
 
 /**

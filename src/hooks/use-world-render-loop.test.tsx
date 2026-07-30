@@ -780,6 +780,52 @@ describe("useWorldRenderLoop", () => {
     expect(intersectionObservers.length).toBeGreaterThan(observersAfterMount);
   });
 
+  it("keeps environment time monotonic across visual content replacement", async () => {
+    const subject = world.ships[0]!;
+    const visuallyChangedWorld: PharosVilleWorld = {
+      ...world,
+      ships: world.ships.map((ship) => (
+        ship.id === subject.id
+          ? {
+              ...ship,
+              visual: {
+                ...ship.visual,
+                overlay: ship.visual.overlay === "nav" ? "yield" : "nav",
+              },
+            }
+          : ship
+      )),
+    };
+    const { rerender } = await renderWithReadyRenderer(
+      <Harness
+        hoveredDetailId={null}
+        onResult={() => {}}
+        reducedMotion={false}
+        worldOverride={world}
+      />,
+    );
+    const base = performance.now() + 100;
+    for (let index = 0; index <= 10; index += 1) {
+      fireLatestRaf(base + index * 16);
+    }
+    const beforeReplacement = lastDrawnFrame().timeSeconds;
+    expect(beforeReplacement).toBeGreaterThan(0.1);
+
+    act(() => {
+      rerender(
+        <Harness
+          hoveredDetailId={null}
+          onResult={() => {}}
+          reducedMotion={false}
+          worldOverride={visuallyChangedWorld}
+        />,
+      );
+    });
+    fireLatestRaf(base + 11 * 16);
+
+    expect(lastDrawnFrame().timeSeconds).toBeGreaterThanOrEqual(beforeReplacement);
+  });
+
   it("pauses RAF when canvas reports intersectionRatio 0 and resumes when it goes back to 1", async () => {
     let latest: UseWorldRenderLoopResult | null = null;
     const onResult = (r: UseWorldRenderLoopResult) => { latest = r; };
@@ -865,6 +911,34 @@ describe("useWorldRenderLoop", () => {
     expect(drawnLighthouse?.rect.x).not.toBe(originalLighthouse?.rect.x);
     expect(drawnLighthouse?.rect.x).toBeCloseTo(shiftedLighthouse!.rect.x);
     expect(drawnLighthouse?.rect.y).toBeCloseTo(shiftedLighthouse!.rect.y);
+  });
+
+  it("does not publish stale frame-rate samples during persistent camera intent", async () => {
+    let cameraIntentActive = false;
+    let latest: UseWorldRenderLoopResult | null = null;
+    await renderWithReadyRenderer(
+      <Harness
+        hoveredDetailId={null}
+        onResult={(result) => { latest = result; }}
+        reducedMotion={false}
+        onStepCamera={({ cameraRef }) => ({
+          camera: cameraRef.current,
+          cameraChanged: cameraIntentActive,
+          cameraIntentActive,
+        })}
+      />,
+    );
+
+    // Burn the bounded post-swap warmup and publish healthy steady-state FPS.
+    for (let frame = 1; frame <= 16; frame += 1) fireLatestRaf(frame * 16);
+    expect((latest as UseWorldRenderLoopResult | null)?.frameRateFps ?? 0).toBeGreaterThan(0);
+
+    // A moving-ship follow can remain active indefinitely. Its frames stay out
+    // of scheduler pacing, so the user-facing counter must become unknown
+    // instead of preserving unrelated startup samples.
+    cameraIntentActive = true;
+    fireLatestRaf(17 * 16);
+    expect((latest as UseWorldRenderLoopResult | null)?.frameRateFps).toBeNull();
   });
 
   it("drops to the idle duty cycle after a quiet spell and wakes on the next input", async () => {

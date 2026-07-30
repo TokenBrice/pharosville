@@ -103,6 +103,11 @@ export const GARDEN_ENVIRONMENT_INTENSITY = 0.6;
  * change as fast as the quantised blend does.
  */
 const PHASE_STEPS = 10;
+const STORM_STEPS = 4;
+// The weather plan breathes a steady storm by up to 5%. A 6-point dead band
+// keeps that authored motion from crossing a PMREM key boundary twice per
+// cycle while still allowing a real risk-state rise/fall to rebake the probe.
+const STORM_BAND_HYSTERESIS = 0.06;
 
 /**
  * Radius of the probe sphere. The dome shader takes its direction from
@@ -115,8 +120,13 @@ export interface GardenEnvironment {
   /** Bakes so far. Test evidence that the probe is cached, not per frame. */
   readonly bakeCount: number;
   dispose(): void;
-  /** Rebakes only when the quantised phase has moved. Safe to call every frame. */
-  update(phase: DayCyclePhase): void;
+  /**
+   * Rebakes only when the quantised phase has moved. Safe to call every frame.
+   * `stormLevel` (Phase 2) joins the key, coarsely quantised: the dome it
+   * bakes from is storm-graded, so the light the world is lit by must not lag
+   * the sky it is seen against when a storm arrives.
+   */
+  update(phase: DayCyclePhase, stormLevel?: number): void;
 }
 
 /**
@@ -126,11 +136,45 @@ export interface GardenEnvironment {
  * are what the dome's uniforms are actually derived from — two hours that blend
  * to the same sky should share a bake, and an hour control that moves without
  * changing the sky should not cause one.
+ *
+ * The public helper returns the direct key for deterministic lookup/tests. The
+ * live environment additionally applies `resolveGardenEnvironmentStormBand`
+ * hysteresis so a breathing storm cannot oscillate around a rounding edge.
  */
-export function gardenEnvironmentPhaseKey(phase: DayCyclePhase): string {
+export function gardenEnvironmentPhaseKey(phase: DayCyclePhase, stormLevel = 0): string {
+  const stormBand = Math.round(clamp01(stormLevel) * STORM_STEPS);
+  return gardenEnvironmentPhaseBandKey(phase, stormBand);
+}
+
+export function resolveGardenEnvironmentStormBand(
+  previousBand: number | null,
+  stormLevel: number,
+): number {
+  const level = clamp01(stormLevel);
+  if (previousBand === null) return Math.round(level * STORM_STEPS);
+  let band = Math.max(0, Math.min(STORM_STEPS, Math.round(previousBand)));
+  while (
+    band < STORM_STEPS
+    && level >= (band + 0.5) / STORM_STEPS + STORM_BAND_HYSTERESIS
+  ) {
+    band += 1;
+  }
+  while (
+    band > 0
+    && level <= (band - 0.5) / STORM_STEPS - STORM_BAND_HYSTERESIS
+  ) {
+    band -= 1;
+  }
+  return band;
+}
+
+function gardenEnvironmentPhaseBandKey(
+  phase: DayCyclePhase,
+  stormBand: number,
+): string {
   const daylight = Math.round(Math.max(0, Math.min(1, phase.daylight)) * PHASE_STEPS);
   const dusk = Math.round(Math.max(0, Math.min(1, phase.dusk)) * PHASE_STEPS);
-  return `${daylight}:${dusk}`;
+  return `${daylight}:${dusk}:${stormBand}`;
 }
 
 export function createGardenEnvironment(
@@ -150,6 +194,7 @@ export function createGardenEnvironment(
 
   let target: WebGLRenderTarget | null = null;
   let bakedKey: string | null = null;
+  let stormBand: number | null = null;
   let bakeCount = 0;
   let disposed = false;
 
@@ -166,9 +211,10 @@ export function createGardenEnvironment(
       probeGeometry.dispose();
       generator.dispose();
     },
-    update(phase) {
+    update(phase, stormLevel = 0) {
       if (disposed) return;
-      const key = gardenEnvironmentPhaseKey(phase);
+      stormBand = resolveGardenEnvironmentStormBand(stormBand, stormLevel);
+      const key = gardenEnvironmentPhaseBandKey(phase, stormBand);
       if (key === bakedKey) return;
       const next = generator.fromScene(probeScene);
       // Dispose AFTER the new bake succeeds, so a throwing bake leaves the
@@ -181,4 +227,9 @@ export function createGardenEnvironment(
       scene.environmentIntensity = GARDEN_ENVIRONMENT_INTENSITY;
     },
   };
+}
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(1, value));
 }

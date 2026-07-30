@@ -1,6 +1,6 @@
 # PharosVille Architecture
 
-Last updated: 2026-07-27
+Last updated: 2026-07-29
 
 PharosVille is a desktop-gated React app with a pure data-to-world layer and
 one imperative Three.js/WebGL renderer. The DOM remains the analytical and
@@ -58,6 +58,18 @@ landmarks, weather, and ambient life; most fleet ships are instanced batches.
 The lighthouse and selected hero hulls load checked GLBs over aligned
 procedural fallbacks. Stablecoin and harbor marks are painted into shared
 in-memory atlases from same-origin images.
+
+One deterministic weather plan (`src/systems/weather.ts`) derives wind, gust,
+storm, and lightning from the world clock and PSI stress; water, rain, fleet
+cloth, gulls, sky, and post all consume it. The sea is a Gerstner spectrum
+with a persistent wake field (`garden-wakes.ts`), and the sky is an analytic
+scattering dome with wind-driven billboard mist; the authored cumulus layer
+in `garden-sky-billboards.ts` is disabled pending whole-map A/B review.
+Post-processing is a pmndrs `postprocessing`
+chain — N8AO, bloom, a fused grade+AgX pass with per-phase and storm tuning,
+SMAA — not the three/examples composer. Observe mode is a cinematic spline
+tour (`src/systems/observe-tour.ts`) driven through the same camera state as
+interactive pan/zoom.
 
 The frame contract is intentionally shared by drawing, pointer hit testing,
 keyboard targets, follow-selected, detail anchoring, and debug telemetry. A

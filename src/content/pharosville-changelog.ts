@@ -12,6 +12,21 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-07-30-living-sea",
+    version: PHAROSVILLE_RELEASE_VERSIONS.livingSea,
+    date: "2026-07-30",
+    title: "Living Sea",
+    summary: "The harbor becomes a more responsive analytical place: weather, water, sails, light, and guided inspection now share one deterministic world state, while the fleet keeps its actual issuer heraldry at every zoom.",
+    bullets: [
+      "Added a weather-driven sea and sky: deterministic wind moves the Gerstner water, sails, rain, ambient life, lighthouse, and post-processing together across day, dusk, night, and reduced motion.",
+      "Made ship movement leave persistent, correctly directed wakes and strengthened the harbor's depth with managed ambient occlusion, graded atmosphere, storm response, and calmer tier transitions.",
+      "Reworked Observe into an interruptible guided harbor tour that begins from the displayed camera, returns safely after resize, and names the landmarks it reaches.",
+      "Restored logo-only sail identity. Sails stay clean while a mark is loading, then show the issuer's real logo in its native colors on brand-dyed cloth; ticker letters can no longer appear on sails.",
+      "Hardened the renderer for long sessions with explicit texture-upload ownership, resource disposal, real-GPU preview telemetry, whole-map texture census coverage, and no shipped WebGPU fallback chunk.",
+    ],
+    source: "Collected from the 2026-07-30 breathtaking rendering release after v0.6.2.",
+  },
+  {
     id: "2026-07-27-rightful-colors",
     version: PHAROSVILLE_RELEASE_VERSIONS.rightfulColors,
     date: "2026-07-27",

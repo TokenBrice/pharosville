@@ -466,6 +466,26 @@ describe("AccessibilityLedger", () => {
     expect(markup).not.toContain("Watch Breakwater WATCH (4 stablecoins)");
   });
 
+  it("does not announce global lightning as active from an area band alone", () => {
+    const world: PharosVilleWorld = {
+      ...sampleWorld(),
+      areas: [{
+        id: "area.dews.danger",
+        kind: "area",
+        label: "Danger Strait",
+        tile: { x: 55, y: 4 },
+        band: "DANGER",
+        count: 1,
+        detailId: "area.dews.danger",
+        riskPlacement: "storm-shelf",
+      }],
+    };
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("lightning possible at the fleet storm peak");
+    expect(markup).not.toContain("lightning active");
+  });
+
   it("exposes the deterministic sea-state summary for DOM parity", () => {
     const world: PharosVilleWorld = {
       ...sampleWorld(),

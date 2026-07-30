@@ -186,7 +186,7 @@ function clamp01(value: number): number {
  * fixed isometric camera azimuth, merged into a single 4-triangle geometry.
  * Value-noise fbm scrolls upward inside a teardrop mask and posterizes into
  * three flat bands — cream core, lantern-glow mid, vermillion edge. HDR head
- * lands ~2.3 at full night intensity so the existing UnrealBloomPass picks it
+ * lands ~2.3 at full night intensity so the post chain's bloom effect picks it
  * up over its 0.9–0.95 knee while the banked day flame stays subtle.
  */
 function createFlame(uniforms: BeaconFireUniforms): Mesh<BufferGeometry, ShaderMaterial> {

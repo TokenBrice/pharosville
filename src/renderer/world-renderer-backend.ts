@@ -14,12 +14,20 @@ export interface ThreeLogoAsset {
    * sail then flies the unframed image instead.
    */
   emblem: HTMLCanvasElement | null;
-  image: HTMLImageElement;
+  /**
+   * The decoded logo. Production loads decode through `createImageBitmap`
+   * (off the main thread, so the atlas repaint never pays a synchronous
+   * decode); tests may still hand an HTMLImageElement — both are drawable.
+   */
+  image: HTMLImageElement | ImageBitmap;
   src: string;
 }
 
 export interface ThreeLogoAssets {
+  getExpectedLogoCount?: () => number;
   getLogo: (src: string | null | undefined) => ThreeLogoAsset | null;
+  /** Diagnostic count for preview/runtime evidence; rendering keys on generation. */
+  getLoadedLogoCount?: () => number;
   getLogoGenerationKey: () => string;
 }
 
@@ -42,7 +50,12 @@ export interface ThreeWorldRendererFrame {
 }
 
 export interface WorldRendererGpuMetrics {
+  /** Recurring total: scene/post plus recurring offscreen work such as wakes. */
   calls: number;
+  /** Recurring offscreen passes excluded from the visible scene/post subtotal. */
+  offscreenCalls: number;
+  /** Visible scene and post-processing subtotal. */
+  sceneCalls: number;
   geometries: number;
   lines: number;
   points: number;
@@ -58,6 +71,8 @@ export interface WorldRendererGpuMetrics {
 
 export interface ThreeWorldRendererMetrics extends PharosVilleRenderMetrics {
   gpu: WorldRendererGpuMetrics;
+  logoAssetsExpected: number;
+  logoAssetsLoaded: number;
   rendererBackend: "three";
 }
 

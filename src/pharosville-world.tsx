@@ -36,10 +36,11 @@ import {
   selectGardenObservatorySlice,
 } from "./systems/garden-observatory-slice";
 import { buildBaseMotionPlan, disposePathCacheForMap, motionPlanSignature, type ShipMotionSample } from "./systems/motion";
-import { buildObserveSequence } from "./systems/observe-sequence";
+import { buildObserveSequence, type ObserveBeatKind } from "./systems/observe-sequence";
+import type { ObserveTourKeyframe } from "./systems/observe-tour";
 import { buildQuickFindCandidates } from "./systems/quick-find-match";
 import { recentFleetTrendSummary } from "./systems/sea-state";
-import type { ScreenPoint } from "./systems/projection";
+import { tileToIso, type ScreenPoint } from "./systems/projection";
 import type { WorldSelectableEntity } from "./systems/world-types";
 import { observeReducedMotion } from "./systems/reduced-motion";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "./systems/world-types";
@@ -57,7 +58,17 @@ const LazyHarborLedgerPanel = lazy(() => (
 ));
 
 const DATA_REFRESH_ANNOUNCEMENT_THROTTLE_MS = 30_000;
-const OBSERVE_BEAT_DURATION_MS = 12_000;
+/**
+ * Observe 2.0 (Phase 4): dolly zoom per beat kind. The monument holds a wide
+ * tableaux; individual hulls and quays push in close. All stay inside the
+ * interactive zoom ladder (the tour sampler clamps to it regardless).
+ */
+const OBSERVE_TOUR_KIND_ZOOM: Record<ObserveBeatKind, number> = {
+  lighthouse: 1.0,
+  risk: 1.35,
+  supply: 1.35,
+  concentration: 1.15,
+};
 /**
  * How long the charting veil takes to lift once the harbor has data. Long
  * enough to carry the scene rebuild that lands in the next frames, short
@@ -473,6 +484,41 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const cancelCameraIntent = canvas.cancelCameraIntent;
   const focusTile = canvas.focusTile;
 
+  const observingTour = observeIndex !== null && !reducedMotion && threeExperienceReady;
+  const startObserveTour = canvas.startObserveTour;
+  const stopObserveTour = canvas.stopObserveTour;
+  useEffect(() => {
+    if (!observingTour || observeSequence.length === 0) return;
+    // Observe 2.0 (Phase 4): resolve every beat's display tile up front and
+    // convert it to the spline's iso space, with the dolly zoom for its kind.
+    // The camera hook derives the ease-in from the visitor's live framing.
+    // Keyframes are built here (not in render) because display-tile resolution
+    // reads the live ship-motion ref.
+    const observeTourKeyframes: ObserveTourKeyframe[] = observeSequence.map((beat, beatIndex) => {
+      const observedEntity = world.entityById[beat.detailId];
+      const displayTile = observedEntity && observatorySlice
+        ? resolveGardenEntityDisplayTile({
+            entity: observedEntity,
+            shipMotionSamples: shipMotionSamplesRef.current,
+            slice: observatorySlice,
+          })
+        : null;
+      const iso = tileToIso(displayTile ?? beat.tile);
+      return {
+        beatIndex,
+        isoX: iso.x,
+        isoY: iso.y,
+        zoom: OBSERVE_TOUR_KIND_ZOOM[beat.kind],
+      };
+    });
+    // The camera sampler publishes its current beat, so captions and framing
+    // cannot diverge after a throttled frame or a background/foreground jump.
+    startObserveTour(observeTourKeyframes, setObserveIndex);
+    // On the way out the camera glides back to the visitor's framing — unless
+    // input already cancelled the tour, in which case this is a no-op.
+    return () => stopObserveTour({ easeBack: true });
+  }, [observingTour, observatorySlice, observeSequence, shipMotionSamplesRef, startObserveTour, stopObserveTour, world.entityById]);
+
   useEffect(() => {
     if (!observeBeat) return;
 
@@ -484,20 +530,14 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
           slice: observatorySlice,
         })
       : null;
-    // focusTile queues a camera intent, which the camera controller applies in
-    // one step under reduced motion — so the beat lands without a glide.
-    focusTile(displayTile ?? observeBeat.tile);
+    // Reduced motion steps beats by hand: focusTile queues a camera intent,
+    // which the controller applies in one step — the beat lands without a
+    // glide. With motion the Observe 2.0 tour owns the camera (started above),
+    // so the beat only speaks.
+    if (reducedMotion) focusTile(displayTile ?? observeBeat.tile);
     setAnnouncement(observeBeat.label);
-    // Reduced motion gets the same beats without the timed tour: the observe
-    // control steps to the next one, so nothing moves unless the reader asks.
-    if (reducedMotion) return;
-    const timeoutId = window.setTimeout(() => {
-      setObserveIndex((current) => {
-        if (current === null) return null;
-        return current + 1 < observeSequence.length ? current + 1 : null;
-      });
-    }, OBSERVE_BEAT_DURATION_MS);
-    return () => window.clearTimeout(timeoutId);
+    // Reduced motion gets the same beats without the sampled tour: the
+    // observe control steps to the next one, so nothing moves unless asked.
   }, [
     focusTile,
     observatorySlice,

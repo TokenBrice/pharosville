@@ -203,6 +203,10 @@ function paintSailIdentity(
   ship: ShipNode,
   logo: ThreeLogoAsset | null,
 ): void {
+  // An unresolved/failed logo stays as brand-dyed cloth. Ticker letters are
+  // not heraldry and must never appear as an asset-loading fallback.
+  if (!logo) return;
+
   const centerX = 64;
   const centerY = 64;
   const box = TEXTURE_SIZE * IDENTITY_LOGO_SPAN;
@@ -224,9 +228,17 @@ function paintSailIdentity(
   // the jump from a texture sample to a handful of pixels on screen.
   if (logo?.image) {
     try {
+      // ImageBitmap (the createImageBitmap decode path) has no naturalWidth —
+      // its intrinsic size IS width/height.
+      const intrinsicWidth = "naturalWidth" in logo.image
+        ? logo.image.naturalWidth || logo.image.width
+        : logo.image.width;
+      const intrinsicHeight = "naturalHeight" in logo.image
+        ? logo.image.naturalHeight || logo.image.height
+        : logo.image.height;
       const dimensions = containedDimensions(
-        logo.image.naturalWidth || logo.image.width,
-        logo.image.naturalHeight || logo.image.height,
+        intrinsicWidth,
+        intrinsicHeight,
         box,
       );
       context.drawImage(
@@ -239,7 +251,7 @@ function paintSailIdentity(
       context.restore();
       return;
     } catch {
-      // Fall through to the extracted emblem or symbol fallback.
+      // Fall through to the extracted emblem.
     }
   }
 
@@ -255,18 +267,9 @@ function paintSailIdentity(
       context.restore();
       return;
     } catch {
-      // The symbol fallback remains deterministic if an image cannot be drawn.
+      // A failed image stays a markless brand-dyed sail.
     }
   }
-
-  // Nothing has resolved yet. The ticker holds the ship's identity until one
-  // does — the invariant that identity never depends on an image loading.
-  context.globalAlpha = 1;
-  context.fillStyle = identityInk(ship.visual.livery.logoMatte);
-  context.font = "700 40px system-ui, sans-serif";
-  context.textAlign = "center";
-  context.textBaseline = "middle";
-  context.fillText(ship.symbol.trim().slice(0, 7), centerX, centerY + 1, box * 0.9);
   context.restore();
 }
 
@@ -298,17 +301,6 @@ function drawIdentityFieldPath(
   context.beginPath();
   context.arc(x, y, radius, 0, Math.PI * 2);
   context.closePath();
-}
-
-function identityInk(background: string): string {
-  const match = /^#([\da-f]{6})$/i.exec(background);
-  if (!match) return "#17343a";
-  const value = Number.parseInt(match[1]!, 16);
-  const red = (value >> 16) & 0xff;
-  const green = (value >> 8) & 0xff;
-  const blue = value & 0xff;
-  const luminance = (red * 299 + green * 587 + blue * 114) / 255_000;
-  return luminance > 0.52 ? "#17343a" : "#f7f1dc";
 }
 
 function containedDimensions(

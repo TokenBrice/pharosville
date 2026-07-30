@@ -189,6 +189,22 @@ describe("detail-model analytical links", () => {
     ]);
   });
 
+  it("does not infer active global lightning from an area risk band", () => {
+    const detail = detailForArea({
+      id: "area.dews.danger",
+      kind: "area",
+      label: "Danger Strait",
+      tile: { x: 1, y: 1 },
+      band: "DANGER",
+      count: 1,
+      detailId: "area.dews.danger",
+    } satisfies AreaNode);
+    const atmosphere = detail.facts.find((fact) => fact.label === "Atmosphere");
+
+    expect(atmosphere?.value).toContain("lightning possible at the fleet storm peak");
+    expect(atmosphere?.value).not.toContain("lightning active");
+  });
+
   it("keeps dock members external-only unless an explicit in-world ship detail exists", () => {
     const dock = {
       id: "dock.ethereum",

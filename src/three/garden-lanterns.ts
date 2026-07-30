@@ -7,8 +7,15 @@ import type { PharosVilleRenderSchedulerState } from "../renderer/render-types";
  * lanterns) registers here. The water shader samples the packed DataTexture;
  * callers never talk to the shader directly. The per-tier lane cap is policy
  * owned by this module, not by callers.
+ *
+ * Phase 4 (Breathtaking Rendering, item 3): a fourth kind — "route". A route
+ * lane is a SEGMENT (worldX/worldZ → route.x/route.z) rather than a point,
+ * and the water shader scrolls emissive pulses along it: the Cerebrium
+ * "nothing moves" trick for the busiest trade routes. Pulse speed and phase
+ * are seeded from the lane id (deterministic, never Math.random), so callers
+ * supply only the two endpoints and an intensity.
  */
-export type GardenLightLaneKind = "beacon" | "lantern" | "buoy";
+export type GardenLightLaneKind = "beacon" | "lantern" | "buoy" | "route";
 
 export interface GardenLightLane {
   color: string;
@@ -17,6 +24,8 @@ export interface GardenLightLane {
   kind: GardenLightLaneKind;
   worldX: number;
   worldZ: number;
+  /** Route lanes only: the segment's far endpoint in world XZ. */
+  route?: { x: number; z: number };
 }
 
 export const MAX_GARDEN_LIGHT_LANES = 48;
@@ -29,8 +38,20 @@ const LANE_CAP_FOR_TIER: Record<PharosVilleRenderSchedulerState["tier"], number>
   constrained: 4,
 };
 
+const ROUTE_RESERVE_FOR_TIER: Record<PharosVilleRenderSchedulerState["tier"], number> = {
+  full: 6,
+  balanced: 3,
+  interaction: 3,
+  recovery: 2,
+  constrained: 1,
+};
+
 export interface GardenLaneRegistry {
-  /** Packed lanes: row 0 = (worldX, worldZ, intensity, kind), row 1 = (r, g, b, active). */
+  /**
+   * Packed lanes, 3 rows of RGBA-float texels:
+   * row 0 = (worldX, worldZ, intensity, kind), row 1 = (r, g, b, active),
+   * row 2 = route lanes only: (endX, endZ, pulseSpeed, pulsePhase).
+   */
   readonly texture: DataTexture;
   readonly activeLaneCount: number;
   /**
@@ -55,11 +76,11 @@ export interface GardenLaneRegistry {
 
 export function createGardenLaneRegistry(): GardenLaneRegistry {
   const lanes = new Map<string, GardenLightLane>();
-  const data = new Float32Array(MAX_GARDEN_LIGHT_LANES * 2 * 4);
+  const data = new Float32Array(MAX_GARDEN_LIGHT_LANES * 3 * 4);
   const texture = new DataTexture(
     data,
     MAX_GARDEN_LIGHT_LANES,
-    2,
+    3,
     RGBAFormat,
     FloatType,
   );
@@ -103,6 +124,8 @@ export function createGardenLaneRegistry(): GardenLaneRegistry {
         || existing.intensity !== lane.intensity
         || existing.color !== lane.color
         || existing.kind !== lane.kind
+        || existing.route?.x !== lane.route?.x
+        || existing.route?.z !== lane.route?.z
       ) {
         dirty = true;
       }
@@ -111,23 +134,29 @@ export function createGardenLaneRegistry(): GardenLaneRegistry {
       const cap = Math.min(LANE_CAP_FOR_TIER[tier], MAX_GARDEN_LIGHT_LANES);
       if (!dirty && cap === lastCap && intensityScale === lastScale) return activeLaneCount;
 
-      const ranked = [...lanes.values()].toSorted((left, right) => (
-        lanePriority(right) - lanePriority(left)
-      ));
-      const active = ranked.slice(0, cap);
+      const active = selectActiveLanes([...lanes.values()], tier, cap);
       data.fill(0);
       for (const [index, lane] of active.entries()) {
         const header = index * 4;
         data[header] = lane.worldX;
         data[header + 1] = lane.worldZ;
         data[header + 2] = lane.intensity * intensityScale;
-        data[header + 3] = lane.kind === "beacon" ? 2 : lane.kind === "buoy" ? 1 : 0;
+        data[header + 3] = laneKindCode(lane.kind);
         scratchColor.set(lane.color);
         const body = (MAX_GARDEN_LIGHT_LANES + index) * 4;
         data[body] = scratchColor.r;
         data[body + 1] = scratchColor.g;
         data[body + 2] = scratchColor.b;
         data[body + 3] = 1;
+        if (lane.kind === "route" && lane.route) {
+          // Pulse speed/phase are seeded from the lane id: per-route
+          // variation, deterministic across sessions, zero caller burden.
+          const routeRow = (MAX_GARDEN_LIGHT_LANES * 2 + index) * 4;
+          data[routeRow] = lane.route.x;
+          data[routeRow + 1] = lane.route.z;
+          data[routeRow + 2] = 0.05 + stableUnit(`${lane.id}.pulse-speed`) * 0.09;
+          data[routeRow + 3] = stableUnit(`${lane.id}.pulse-phase`);
+        }
       }
       texture.needsUpdate = true;
       activeLaneCount = active.length;
@@ -136,7 +165,8 @@ export function createGardenLaneRegistry(): GardenLaneRegistry {
       lastScale = intensityScale;
       // Centroid + max reach so the water can skip the lane loop wholesale for
       // fragments that no active lane can touch (the shader hard-culls at 30
-      // world units, so this bound is output-identical).
+      // world units, so this bound is output-identical). Route lanes pull the
+      // bound out to their far endpoint as well.
       if (active.length > 0) {
         let sumX = 0;
         let sumZ = 0;
@@ -151,6 +181,9 @@ export function createGardenLaneRegistry(): GardenLaneRegistry {
           reach = Math.max(
             reach,
             Math.hypot(lane.worldX - fieldCenterX, lane.worldZ - fieldCenterZ),
+            lane.route
+              ? Math.hypot(lane.route.x - fieldCenterX, lane.route.z - fieldCenterZ)
+              : 0,
           );
         }
         fieldRadius = reach + 30;
@@ -162,8 +195,43 @@ export function createGardenLaneRegistry(): GardenLaneRegistry {
   };
 }
 
+function selectActiveLanes(
+  lanes: readonly GardenLightLane[],
+  tier: PharosVilleRenderSchedulerState["tier"],
+  cap: number,
+): GardenLightLane[] {
+  const ranked = lanes.toSorted((left, right) => lanePriority(right) - lanePriority(left));
+  const beacons = ranked.filter((lane) => lane.kind === "beacon").slice(0, cap);
+  const routeCapacity = Math.min(ROUTE_RESERVE_FOR_TIER[tier], cap - beacons.length);
+  const routes = ranked
+    .filter((lane) => lane.kind === "route")
+    .slice(0, routeCapacity);
+  const reservedIds = new Set([...beacons, ...routes].map((lane) => lane.id));
+  const remaining = ranked
+    .filter((lane) => !reservedIds.has(lane.id))
+    .slice(0, cap - beacons.length - routes.length);
+  return [...beacons, ...routes, ...remaining];
+}
+
+function laneKindCode(kind: GardenLightLaneKind): number {
+  if (kind === "route") return 3;
+  if (kind === "beacon") return 2;
+  if (kind === "buoy") return 1;
+  return 0;
+}
+
 function lanePriority(lane: GardenLightLane): number {
   return lane.kind === "beacon"
     ? Number.MAX_SAFE_INTEGER
     : lane.intensity;
+}
+
+/** Deterministic 0..1 hash — the pulse schedule's per-route seed. */
+function stableUnit(value: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 0xffffffff;
 }

@@ -42,6 +42,18 @@ export interface GardenGullFlockUpdate {
   night?: number;
   reducedMotion: boolean;
   timeSeconds: number;
+  /**
+   * Phase 2 weather: a downwind drift on every orbit, and the storm scatter
+   * beat — as the storm level crosses ~0.6 the flock climbs and disperses.
+   * Both are pure functions of the plan, so the reduced-motion still frame
+   * keeps them as composition.
+   */
+  weather?: {
+    windDirX: number;
+    windDirZ: number;
+    windSpeed: number;
+    stormLevel: number;
+  };
 }
 
 export interface GardenGullFlock {
@@ -63,6 +75,17 @@ export interface GardenFirefliesUpdate {
   night: number;
   reducedMotion: boolean;
   timeSeconds: number;
+  /**
+   * Phase 4: wind-coupled drift. Gusts push the swarm downwind and each mote
+   * swims back home on its own slow cycle — a pure function of the weather
+   * plan and the clock, frozen flat under reduced motion.
+   */
+  weather?: {
+    gust: number;
+    windDirX: number;
+    windDirZ: number;
+    windSpeed: number;
+  };
 }
 
 export interface GardenFireflies {
@@ -105,20 +128,27 @@ export function createGardenFireflies(
   root.add(motes);
 
   const dummy = new Object3D();
-  const update = ({ fullTier, night, reducedMotion, timeSeconds }: GardenFirefliesUpdate): void => {
+  const update = ({ fullTier, night, reducedMotion, timeSeconds, weather }: GardenFirefliesUpdate): void => {
     const visible = fullTier && night > 0.25 && lanternOffsets.length > 0;
     root.visible = visible;
     if (!visible) return;
     material.opacity = Math.min(0.85, (night - 0.25) * 1.4);
     const time = reducedMotion ? 0 : timeSeconds;
+    // Phase 4: the gust envelope sets how far the swarm leaks downwind; each
+    // mote fights back to its lantern on its own slow sine, so the swarm
+    // breathes with the weather instead of translating as a sheet.
+    const push = (weather?.windSpeed ?? 0) * (0.5 + (weather?.gust ?? 0) * 0.9);
+    const windX = weather?.windDirX ?? 0;
+    const windZ = weather?.windDirZ ?? 0;
     for (let index = 0; index < GARDEN_FIREFLY_COUNT; index += 1) {
       const anchor = lanternOffsets[index % lanternOffsets.length]!;
       const seed = index * 2.399;
       const drift = 0.55 + (index % 3) * 0.22;
+      const leak = push * (1.4 + Math.sin(time * 0.07 + seed * 1.3));
       dummy.position.set(
-        anchor.x + Math.sin(time * 0.21 + seed) * drift,
+        anchor.x + Math.sin(time * 0.21 + seed) * drift + windX * leak,
         anchor.y + 0.35 + Math.sin(time * 0.34 + seed * 1.7) * 0.3,
-        anchor.z + Math.cos(time * 0.17 + seed * 0.6) * drift,
+        anchor.z + Math.cos(time * 0.17 + seed * 0.6) * drift + windZ * leak,
       );
       const pulse = 0.6 + 0.4 * Math.sin(time * 0.9 + seed * 3.1);
       dummy.scale.setScalar(0.7 + pulse * 0.5);
@@ -338,6 +368,7 @@ export function createGardenGullFlock(
     night = 0,
     reducedMotion,
     timeSeconds,
+    weather,
   }: GardenGullFlockUpdate): void => {
     // Gulls roost as night settles — the night sky belongs to the lanterns.
     const roosted = night > 0.72;
@@ -345,28 +376,50 @@ export function createGardenGullFlock(
     if (constrained || roosted) return;
     gulls.material.opacity = 0.82 * (1 - Math.max(0, (night - 0.3) / 0.42));
 
+    // Phase 2 weather: a downwind drift shared by every orbit, and the storm
+    // scatter — gulls ride weather, and a building storm sends them climbing
+    // and spreading off their stations.
+    const scatterT = Math.max(0, Math.min(1, ((weather?.stormLevel ?? 0) - 0.55) / 0.23));
+    const scatter = scatterT * scatterT * (3 - 2 * scatterT);
+    const driftX = (weather?.windDirX ?? 0) * (weather?.windSpeed ?? 0) * 2.2;
+    const driftZ = (weather?.windDirZ ?? 0) * (weather?.windSpeed ?? 0) * 2.2;
+
     const time = reducedMotion ? 0 : timeSeconds;
+    // Phase 4 flocking: no per-bird neighbor loops. Cohesion comes from a
+    // SHARED wandering wheel center (the whole flock drifts together), and
+    // organic turns from a clock-driven flow field sampled at each gull's own
+    // position — the heading blends the orbital tangent toward the local flow,
+    // so the flock veers as one instead of circling like a mobile.
+    const wanderX = Math.sin(time * 0.11 + 1.2) * 2.4 + Math.sin(time * 0.043 + 0.3) * 1.6;
+    const wanderZ = Math.cos(time * 0.09 + 0.5) * 2.0 + Math.sin(time * 0.051 + 2.0) * 1.4;
     for (let index = 0; index < GARDEN_GULL_COUNT; index += 1) {
       const unit = index / GARDEN_GULL_COUNT;
-      const speed = 0.09 + (index % 3) * 0.012;
+      const speed = (0.09 + (index % 3) * 0.012) * (1 + scatter * 0.8);
       const phase = unit * Math.PI * 2 + time * speed;
-      const radius = 10.5 + (index % 4) * 1.55;
+      const radius = (10.5 + (index % 4) * 1.55) * (1 + scatter * 0.7);
       const scale = 0.52 + (index % 3) * 0.09;
+      const gullX = Math.cos(phase) * radius + driftX + wanderX;
+      const gullZ = Math.sin(phase) * radius * 0.68 + driftZ + wanderZ;
       dummy.position.set(
-        Math.cos(phase) * radius,
-        7.2 + (index % 4) * 0.72 + Math.sin(phase * 2.3) * 0.5,
-        Math.sin(phase) * radius * 0.68,
+        gullX,
+        7.2 + (index % 4) * 0.72 + Math.sin(phase * 2.3) * 0.5
+          + scatter * (2.2 + (index % 3) * 0.9),
+        gullZ,
       );
-      dummy.rotation.set(0, -phase, 0);
+      // Orbital tangent (same heading convention as the fleet:
+      // rotation.y = -atan2(vz, vx)), steered toward the flow field.
+      const orbitHeading = Math.atan2(Math.cos(phase) * 0.68, -Math.sin(phase));
+      const flow = gullFlowAngle(gullX, gullZ, time);
+      dummy.rotation.set(0, -(orbitHeading + angleDelta(flow, orbitHeading) * 0.55), 0);
       dummy.scale.setScalar(scale);
       dummy.updateMatrix();
       gulls.setMatrixAt(index, dummy.matrix);
     }
 
     quays.forEach((quay, quayIndex) => {
-      const speed = QUAY_GULL_SPEED * (1 + quay.tempo * QUAY_GULL_SPEED_SWING);
-      const radius = QUAY_GULL_RADIUS + quay.tempo * QUAY_GULL_RADIUS_SWING;
-      const height = QUAY_GULL_HEIGHT + quay.tempo * QUAY_GULL_HEIGHT_SWING;
+      const speed = QUAY_GULL_SPEED * (1 + quay.tempo * QUAY_GULL_SPEED_SWING) * (1 + scatter * 0.6);
+      const radius = (QUAY_GULL_RADIUS + quay.tempo * QUAY_GULL_RADIUS_SWING) * (1 + scatter * 0.5);
+      const height = QUAY_GULL_HEIGHT + quay.tempo * QUAY_GULL_HEIGHT_SWING + scatter * 1.6;
       for (let seat = 0; seat < GARDEN_QUAY_GULL_COUNT; seat += 1) {
         const index = GARDEN_GULL_COUNT
           + quayIndex * GARDEN_QUAY_GULL_COUNT
@@ -376,12 +429,18 @@ export function createGardenGullFlock(
         const phase = quay.seed * Math.PI * 2
           + (seat / GARDEN_QUAY_GULL_COUNT) * Math.PI * 2
           + time * speed;
+        const gullX = quay.x + Math.cos(phase) * radius + driftX;
+        const gullZ = quay.z + Math.sin(phase) * radius * 0.68 + driftZ;
         dummy.position.set(
-          quay.x + Math.cos(phase) * radius,
+          gullX,
           height + seat * 0.26 + Math.sin(phase * 1.7) * 0.16,
-          quay.z + Math.sin(phase) * radius * 0.68,
+          gullZ,
         );
-        dummy.rotation.set(0, -phase, 0);
+        // Same flow steering as the island wheel, gentler — the quay wheel is
+        // a tempo reading first, a flock second.
+        const orbitHeading = Math.atan2(Math.cos(phase) * 0.68, -Math.sin(phase));
+        const flow = gullFlowAngle(gullX, gullZ, time);
+        dummy.rotation.set(0, -(orbitHeading + angleDelta(flow, orbitHeading) * 0.3), 0);
         dummy.scale.setScalar(QUAY_GULL_SCALE + seat * 0.05);
         dummy.updateMatrix();
         gulls.setMatrixAt(index, dummy.matrix);
@@ -502,6 +561,26 @@ function createGullGeometry(): BufferGeometry {
 function isEthereumHarbor(chainId: string): boolean {
   return chainId === "ethereum"
     || (ETHEREUM_L2_DOCK_CHAIN_IDS as readonly string[]).includes(chainId);
+}
+
+/**
+ * Phase 4: the shared gull flow field. Two layered curl-ish sine pairs give a
+ * slowly turning heading at any point — gulls sample it at their own position
+ * and blend their orbital tangent toward it, which is the cheap boid trick:
+ * headings cohere and turns feel organic with zero neighbor queries. Pure in
+ * (x, z, t); reduced motion samples it at t = 0 like everything else.
+ */
+function gullFlowAngle(x: number, z: number, timeSeconds: number): number {
+  const u = Math.sin(x * 0.21 + timeSeconds * 0.13)
+    + 0.6 * Math.sin((x + z) * 0.11 - timeSeconds * 0.09);
+  const v = Math.cos(z * 0.17 - timeSeconds * 0.11)
+    + 0.6 * Math.sin(x * 0.13 + timeSeconds * 0.07);
+  return Math.atan2(v, u);
+}
+
+/** Shortest signed angle from `from` to `to`, in (-PI, PI]. */
+function angleDelta(to: number, from: number): number {
+  return Math.atan2(Math.sin(to - from), Math.cos(to - from));
 }
 
 function stableUnit(value: string): number {

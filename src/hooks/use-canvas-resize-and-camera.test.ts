@@ -6,7 +6,7 @@ import type { HitTargetSnapshot } from "../renderer/hit-testing";
 import { defaultCamera } from "../systems/camera";
 import type { ShipMotionSample } from "../systems/motion";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
-import { screenToIso } from "../systems/projection";
+import { screenToIso, tileToIso } from "../systems/projection";
 import { makePharosVilleWorldInput } from "../__fixtures__/pharosville-world";
 import {
   advanceCameraIntent,
@@ -184,6 +184,112 @@ describe("camera intent helpers", () => {
       ship,
       expect.any(Map),
     );
+  });
+
+  it("starts Observe from the displayed pose and freezes it exactly on interruption", () => {
+    const { result } = renderHook(() => useCanvasResizeAndCamera(makeCanvasInput()));
+    const viewport = { x: 800, y: 600 };
+    const startCamera = defaultCamera({ height: viewport.y, map: world.map, width: viewport.x });
+    const targetIso = tileToIso({ x: 42, y: 34 });
+
+    act(() => {
+      result.current.canvasSizeRef.current = viewport;
+      result.current.setCamera(startCamera);
+      result.current.handleToolbarZoomIn();
+      result.current.stepCamera(1_000, new Map());
+    });
+    const displayedBeforeTour = { ...result.current.cameraRef.current! };
+
+    act(() => {
+      result.current.startObserveTour([{
+        beatIndex: 0,
+        isoX: targetIso.x,
+        isoY: targetIso.y,
+        zoom: 1.35,
+      }]);
+      result.current.stepCamera(2_000, new Map());
+    });
+    expect(result.current.cameraRef.current).toEqual(displayedBeforeTour);
+
+    act(() => {
+      result.current.stepCamera(4_000, new Map());
+    });
+    const interrupted = { ...result.current.cameraRef.current! };
+
+    act(() => {
+      result.current.cancelCameraIntent();
+      result.current.stepCamera(4_600, new Map());
+      result.current.stepCamera(5_200, new Map());
+    });
+    expect(result.current.cameraRef.current).toEqual(interrupted);
+  });
+
+  it("publishes sampled Observe beats across clock jumps and completion", () => {
+    const onBeatChange = vi.fn();
+    const { result } = renderHook(() => useCanvasResizeAndCamera(makeCanvasInput()));
+    const viewport = { x: 800, y: 600 };
+    const startCamera = defaultCamera({ height: viewport.y, map: world.map, width: viewport.x });
+
+    act(() => {
+      result.current.canvasSizeRef.current = viewport;
+      result.current.setCamera(startCamera);
+      result.current.startObserveTour([
+        { beatIndex: 0, isoX: 0, isoY: 320, zoom: 1 },
+        { beatIndex: 1, isoX: 80, isoY: 360, zoom: 1.2 },
+        { beatIndex: 2, isoX: -60, isoY: 420, zoom: 1.1 },
+      ], onBeatChange);
+      result.current.stepCamera(1_000, new Map());
+      result.current.stepCamera(14_000, new Map());
+      result.current.stepCamera(26_000, new Map());
+      result.current.stepCamera(38_000, new Map());
+    });
+
+    expect(onBeatChange.mock.calls.map(([beatIndex]) => beatIndex)).toEqual([0, 1, 2, null]);
+  });
+
+  it("resolves the Observe return pose against the latest viewport", () => {
+    const { result } = renderHook(() => useCanvasResizeAndCamera(makeCanvasInput()));
+    const initialViewport = { x: 800, y: 600 };
+    const resizedViewport = { x: 1_100, y: 720 };
+    const startCamera = defaultCamera({
+      height: initialViewport.y,
+      map: world.map,
+      width: initialViewport.x,
+    });
+    const returnCenter = screenToIso({
+      x: initialViewport.x / 2,
+      y: initialViewport.y / 2,
+    }, startCamera);
+
+    act(() => {
+      result.current.canvasSizeRef.current = initialViewport;
+      result.current.setCamera(startCamera);
+      result.current.startObserveTour([{
+        beatIndex: 0,
+        isoX: returnCenter.x + 100,
+        isoY: returnCenter.y + 80,
+        zoom: 1.3,
+      }]);
+      result.current.stepCamera(1_000, new Map());
+      result.current.stepCamera(3_000, new Map());
+      result.current.canvasSizeRef.current = resizedViewport;
+      result.current.stopObserveTour({ easeBack: true });
+    });
+
+    for (let frame = 0; frame < 120; frame += 1) {
+      act(() => {
+        result.current.stepCamera(3_000 + frame * 16.67, new Map());
+      });
+    }
+
+    const returned = result.current.cameraRef.current!;
+    const returnedCenter = screenToIso({
+      x: resizedViewport.x / 2,
+      y: resizedViewport.y / 2,
+    }, returned);
+    expect(returnedCenter.x).toBeCloseTo(returnCenter.x, 5);
+    expect(returnedCenter.y).toBeCloseTo(returnCenter.y, 5);
+    expect(returned.zoom).toBeCloseTo(startCamera.zoom, 6);
   });
 });
 

@@ -2,6 +2,20 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v0.7.0 - 2026-07-30 - Living Sea
+
+The harbor becomes a more responsive analytical place: weather, water, sails,
+light, and guided inspection now share one deterministic world state, while
+the fleet keeps its actual issuer heraldry at every zoom.
+
+Collected from the 2026-07-30 breathtaking rendering release after v0.6.2.
+
+- Added a weather-driven sea and sky: deterministic wind moves the Gerstner water, sails, rain, ambient life, lighthouse, and post-processing together across day, dusk, night, and reduced motion.
+- Made ship movement leave persistent, correctly directed wakes and strengthened the harbor's depth with managed ambient occlusion, graded atmosphere, storm response, and calmer tier transitions.
+- Reworked Observe into an interruptible guided harbor tour that begins from the displayed camera, returns safely after resize, and names the landmarks it reaches.
+- Restored logo-only sail identity. Sails stay clean while a mark is loading, then show the issuer's real logo in its native colors on brand-dyed cloth; ticker letters can no longer appear on sails.
+- Hardened the renderer for long sessions with explicit texture-upload ownership, resource disposal, real-GPU preview telemetry, whole-map texture census coverage, and no shipped WebGPU fallback chunk.
+
 ## v0.6.2 - 2026-07-27 - Rightful Colors
 
 Every batched ship now flies its own stablecoin identity instead of a logo borrowed from the opposite row of the sail atlas, restoring the heraldry promised by True Colors across the full fleet.

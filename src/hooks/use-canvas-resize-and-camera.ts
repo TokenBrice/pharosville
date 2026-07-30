@@ -4,6 +4,15 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type MutableRefObject, type PointerEvent as ReactPointerEvent, type RefObject, type SetStateAction } from "react";
 import { hitTest, hitTestSpatial, type HitTarget, type HitTargetSnapshot } from "../renderer/hit-testing";
 import { cameraZoomLabel, clampCameraToMap, defaultCamera, followTile, panCamera, zoomIn, zoomOut } from "../systems/camera";
+import {
+  buildObserveTour,
+  observeTourPoseFromCamera,
+  observeTourPoseToCamera,
+  sampleObserveTour,
+  type ObserveTour,
+  type ObserveTourKeyframe,
+  type ObserveTourSample,
+} from "../systems/observe-tour";
 import { initialAdaptiveDprState, resolveRenderSurfaceBudget, type AdaptiveDprState } from "../systems/render-surface-budget";
 import type { ShipMotionSample } from "../systems/motion";
 import {
@@ -94,6 +103,17 @@ export interface UseCanvasResizeAndCameraResult {
   handleToolbarZoomOut: () => void;
   maximumRequestedDprRef: MutableRefObject<number>;
   setCamera: Dispatch<SetStateAction<IsoCamera | null>>;
+  /**
+   * Observe 2.0 (Phase 4): hand the camera to the cinematic tour. The hook
+   * builds the spline from the visitor's current framing, samples it per
+   * frame, and glides back to that framing when the tour ends. Any user
+   * input cancels it instantly (no glide-back — the visitor took over).
+   */
+  startObserveTour: (
+    keyframes: readonly ObserveTourKeyframe[],
+    onBeatChange?: (beatIndex: number | null) => void,
+  ) => void;
+  stopObserveTour: (options?: { easeBack?: boolean }) => void;
   stepCamera: (now: number, shipMotionSamples: ReadonlyMap<string, ShipMotionSample>) => CameraStepResult;
 }
 
@@ -132,6 +152,22 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   const followChaseDetailIdRef = useRef<string | null>(null);
   const followChaseLastTileRef = useRef<ScreenPoint | null>(null);
   const followChaseLastTimeRef = useRef<number | null>(null);
+  // Observe 2.0: the active tour and the framing to glide back to. The sample
+  // scratch is reused every frame — no allocation in the camera path.
+  const observeTourRef = useRef<{
+    lastBeatIndex: number | null;
+    onBeatChange?: (beatIndex: number | null) => void;
+    returnPose: ReturnType<typeof observeTourPoseFromCamera>;
+    startMs: number | null;
+    tour: ObserveTour;
+  } | null>(null);
+  const observeSampleRef = useRef<ObserveTourSample>({
+    beatIndex: 0,
+    done: false,
+    isoX: 0,
+    isoY: 0,
+    zoom: 1,
+  });
 
   const [camera, setCameraState] = useState<IsoCamera | null>(null);
   const [canvasSize, setCanvasSize] = useState<ScreenPoint>({ x: 0, y: 0 });
@@ -165,18 +201,25 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     requestWorldFrame();
   }, [commitCameraState, requestWorldFrame]);
 
+  const freezeDisplayedCamera = useCallback(() => {
+    const displayedCamera = displayCameraRef.current ?? cameraRef.current;
+    cameraIntentRef.current = {
+      lastFrameTime: null,
+      mode: "idle",
+      targetCamera: displayedCamera,
+    };
+  }, [cameraRef]);
+
   const stopFollowChase = useCallback(() => {
     followChaseDetailIdRef.current = null;
     followChaseLastTileRef.current = null;
     followChaseLastTimeRef.current = null;
-    if (cameraIntentRef.current.mode === "follow-selected") {
-      cameraIntentRef.current = {
-        lastFrameTime: null,
-        mode: "idle",
-        targetCamera: displayCameraRef.current,
-      };
-    }
-  }, []);
+    // Any follow-canceling gesture (drag, wheel, keys, selection) also ends
+    // the observe tour outright — the visitor took the camera back, so there
+    // is no glide-back, just the tour releasing its hold.
+    observeTourRef.current = null;
+    freezeDisplayedCamera();
+  }, [freezeDisplayedCamera]);
 
   const currentCameraBase = useCallback(() => (
     cameraIntentRef.current.targetCamera ?? displayCameraRef.current ?? cameraRef.current
@@ -260,7 +303,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       // of the next draw so resize clears and repaint happen in one RAF.
       const nextCanvasSize = { x: cssWidth, y: cssHeight };
       setCanvasSize((previous) => samePoint(previous, nextCanvasSize) ? previous : nextCanvasSize);
-      const previousCamera = currentCameraBase();
+      const previousCamera = displayCameraRef.current ?? cameraRef.current ?? currentCameraBase();
       const nextCamera = previousCamera
         ? clampCameraToMap(previousCamera, { map: world.map, viewport: nextCanvasSize })
         : defaultCamera({ width: cssWidth, height: cssHeight, map: world.map });
@@ -272,7 +315,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     const observer = new ResizeObserver(resize);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [applyCameraImmediately, currentCameraBase, requestWorldFrame, world.map]);
+  }, [applyCameraImmediately, cameraRef, currentCameraBase, requestWorldFrame, world.map]);
 
   const canvasPoint = useCallback((event: Pick<MouseEvent, "clientX" | "clientY">) => {
     const canvas = canvasRef.current;
@@ -522,7 +565,42 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       cameraIntentRef.current = { lastFrameTime: null, mode: "idle", targetCamera: null };
       return { camera: null, cameraChanged: false, cameraIntentActive: false };
     }
+
+    // Observe 2.0: the tour owns the camera while it runs. Sampling is a pure
+    // function of the elapsed clock — no damping, no state to drift.
+    const activeTour = observeTourRef.current;
+    if (activeTour && !reducedMotion) {
+      if (activeTour.startMs === null) activeTour.startMs = now;
+      const elapsedSeconds = Math.max(0, (now - activeTour.startMs) / 1000);
+      if (elapsedSeconds >= activeTour.tour.totalSeconds) {
+        // Natural end: glide back to the visitor's framing and fall through
+        // to the ordinary intent path, which runs that glide below.
+        observeTourRef.current = null;
+        queueCameraTarget(observeTourPoseToCamera(
+          activeTour.returnPose,
+          framingViewport(),
+          world.map,
+        ), "reset");
+        activeTour.onBeatChange?.(null);
+      } else {
+        const pose = observeSampleRef.current;
+        sampleObserveTour(activeTour.tour, elapsedSeconds, pose);
+        if (pose.beatIndex !== activeTour.lastBeatIndex) {
+          activeTour.lastBeatIndex = pose.beatIndex;
+          activeTour.onBeatChange?.(pose.beatIndex);
+        }
+        const viewport = canvasSizeRef.current;
+        const nextCamera = observeTourPoseToCamera(pose, viewport, world.map);
+        const cameraChanged = !sameCamera(displayCamera, nextCamera);
+        commitCameraState(nextCamera);
+        return { camera: nextCamera, cameraChanged, cameraIntentActive: true };
+      }
+    }
+
     if (reducedMotion) {
+      // Reduced motion has no tour: the DOM steps beats by hand. Drop any
+      // tour that was mid-flight when the preference flipped.
+      observeTourRef.current = null;
       const targetCamera = cameraIntentRef.current.targetCamera;
       if (!targetCamera) {
         cameraIntentRef.current = { lastFrameTime: null, mode: "idle", targetCamera: displayCamera };
@@ -611,7 +689,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       lastFrameTime: now,
     };
     return { camera: advanced.camera, cameraChanged, cameraIntentActive: true };
-  }, [cameraRef, canvasSizeRef, commitCameraState, reducedMotion, selectedDetailIdRef, selectedEntityRef, selectedFollowTile, stopFollowChase, world.map]);
+  }, [cameraRef, canvasSizeRef, commitCameraState, framingViewport, queueCameraTarget, reducedMotion, selectedDetailIdRef, selectedEntityRef, selectedFollowTile, stopFollowChase, world.map]);
 
   const handleFollowSelected = useCallback(() => {
     if (!selectedEntity) return;
@@ -653,6 +731,49 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       viewport: framingViewport(),
     }), "follow-selected");
   }, [framingViewport, currentCameraBase, queueCameraTarget, stopFollowChase, world.map]);
+
+  // Observe 2.0 (Phase 4): the cinematic tour. The hook derives the start pose
+  // from the visitor's live framing, so the first spline span IS the ease-in;
+  // `startMs` latches on the first stepped frame so the timeline runs on the
+  // same clock as every other camera motion.
+  const startObserveTour = useCallback((
+    keyframes: readonly ObserveTourKeyframe[],
+    onBeatChange?: (beatIndex: number | null) => void,
+  ) => {
+    stopFollowChase();
+    const startCamera = displayCameraRef.current ?? cameraRef.current;
+    if (!startCamera || reducedMotion || keyframes.length === 0) return;
+    const viewport = framingViewport();
+    const returnPose = observeTourPoseFromCamera(startCamera, viewport);
+    observeTourRef.current = {
+      lastBeatIndex: null,
+      ...(onBeatChange ? { onBeatChange } : {}),
+      returnPose,
+      startMs: null,
+      tour: buildObserveTour({
+        keyframes,
+        start: returnPose,
+      }),
+    };
+    requestWorldFrame();
+  }, [cameraRef, framingViewport, reducedMotion, requestWorldFrame, stopFollowChase]);
+
+  const stopObserveTour = useCallback((options?: { easeBack?: boolean }) => {
+    const active = observeTourRef.current;
+    if (!active) return;
+    observeTourRef.current = null;
+    if (options?.easeBack) {
+      // The natural end: hand the framing back with the ordinary damped
+      // command glide — the same blend every camera command uses.
+      queueCameraTarget(observeTourPoseToCamera(
+        active.returnPose,
+        framingViewport(),
+        world.map,
+      ), "reset");
+      return;
+    }
+    freezeDisplayedCamera();
+  }, [framingViewport, freezeDisplayedCamera, queueCameraTarget, world.map]);
 
   useEffect(() => {
     if (lastSelectedDetailIdRef.current !== selectedDetailId) {
@@ -735,6 +856,8 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     handleToolbarZoomOut,
     maximumRequestedDprRef,
     setCamera,
+    startObserveTour,
+    stopObserveTour,
     stepCamera,
   };
 }

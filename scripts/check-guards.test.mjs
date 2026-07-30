@@ -717,6 +717,20 @@ const passingBundle = evaluateBundleBudgets([
 });
 assert.deepEqual(passingBundle.errors, []);
 
+const forbiddenBundle = evaluateBundleBudgets([
+  { fileName: "index-a1.js", gzipBytes: 10, rawBytes: 100, type: "js" },
+  { fileName: "three.webgpu-deadbeef.js", gzipBytes: 10, rawBytes: 100, type: "js" },
+], {
+  aggregate: { maxJsGzipBytes: 100, maxJsRawBytes: 500 },
+  budgets: {
+    entry: { label: "entry chunk", maxGzipBytes: 15, maxRawBytes: 150, pattern: /^index-.*\.js$/, required: true },
+  },
+});
+assert.equal(
+  forbiddenBundle.errors.some((error) => error.includes("Forbidden WebGPU renderer chunk")),
+  true,
+);
+
 const failingBundle = evaluateBundleBudgets([
   { fileName: "index-a1.js", gzipBytes: 30, rawBytes: 100, type: "js" },
   { fileName: "pharosville-desktop-data-b2.js", gzipBytes: 20, rawBytes: 200, type: "js" },

@@ -65,14 +65,14 @@ const WRECK_CAUSE_LEGEND: ReadonlyArray<{
 
 // Mirrors the per-band atmosphere descriptor in `src/systems/detail-model.ts`
 // (Phase 2.6 DOM parity). When a banded area's renderer treatment escalates,
-// the ledger row escalates with it. Lightning suffix gates on the same
-// `band >= WARNING` threshold the renderer uses.
+// the ledger row escalates with it. Lightning remains capability language:
+// flashes come from the fleet-wide weather plan, not an individual area band.
 const ATMOSPHERE_DESCRIPTORS: Record<DewsAreaBand, string> = {
   CALM: "clear sky, calm sea",
   WATCH: "thin clouds, light chop",
   ALERT: "broken clouds, moderate chop",
-  WARNING: "thickening clouds, rough sea, lightning active",
-  DANGER: "heavy storm clouds, heavy chop, lightning active",
+  WARNING: "thickening clouds, rough sea, lightning possible at the fleet storm peak",
+  DANGER: "heavy storm clouds, heavy chop, lightning possible at the fleet storm peak",
 };
 
 function atmosphereLineForArea(area: AreaNode): string {

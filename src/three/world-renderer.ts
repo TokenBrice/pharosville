@@ -25,6 +25,7 @@ import {
   ShaderMaterial,
   SphereGeometry,
   SRGBColorSpace,
+  Texture,
   Vector3,
   WebGLRenderer,
 } from "three";
@@ -34,7 +35,10 @@ import type {
   ThreeWorldRendererFrame,
   ThreeWorldRendererMetrics,
 } from "../renderer/world-renderer-backend";
-import type { PharosVilleRenderSchedulerTier } from "../renderer/render-types";
+import type {
+  PharosVilleRenderSchedulerTier,
+  TextureOwnerCensus,
+} from "../renderer/render-types";
 import { seaQualityTier } from "../renderer/render-scheduler";
 import {
   GARDEN_HULL_SILHOUETTES,
@@ -53,6 +57,7 @@ import {
 } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE, zoneThemeForTerrain } from "../systems/palette";
 import { screenToTile } from "../systems/projection";
+import { writeWeatherPlan, type WeatherPlan } from "../systems/weather";
 import type { PharosVilleWorld } from "../systems/world-types";
 import {
   worldRenderContentPartHashes,
@@ -91,6 +96,7 @@ import { createGardenWater, type GardenWater } from "./garden-water";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
 import { dayCyclePhase, updateDayCycle, type DayCyclePhase } from "./garden-day-cycle";
 import { createGardenSky, type GardenSky } from "./garden-sky";
+import { createGardenWakes, type GardenWakes } from "./garden-wakes";
 import { createGardenEnvironment, type GardenEnvironment } from "./garden-environment";
 import { createGardenCueMarker } from "./garden-cue-marker";
 import { createGardenPost } from "./garden-post";
@@ -167,6 +173,7 @@ import {
   endFleetFrame,
   fleetDrawCallCount,
   GARDEN_FLEET_BATCH_CAPACITY,
+  setFleetWeather,
   writeFleetInstance,
   type FleetBatches,
 } from "./garden-fleet-batch";
@@ -196,6 +203,10 @@ import {
   type ZoneField,
   type ZoneVisual,
 } from "./garden-zones";
+import {
+  createTextureUploadScheduler,
+  type TextureUploadScheduler,
+} from "./texture-upload-scheduler";
 
 export { disposeThreeObjectTree } from "./garden-util";
 
@@ -229,6 +240,9 @@ const scratchReflectionColor = new Color();
 // otherwise mint — one per flock and mast per frame, and one per hero hull.
 const scratchAmbientFrame = { reducedMotion: false, timeSeconds: 0, visible: false };
 const scratchOverviewLodFrame = { deltaSeconds: 0, reducedMotion: false, zoom: 1 };
+// Phase 2 god rays: per-frame scratch for the beam's forward-scattering dot.
+const scratchViewDirection = new Vector3();
+const scratchBeamDirection = new Vector3();
 const scratchReflectionPlacement = {
   color: scratchReflectionColor,
   index: 0,
@@ -241,17 +255,117 @@ const scratchReflectionPlacement = {
   worldZ: 0,
 };
 
-export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): ThreeWorldRenderer {
-  const { canvas, onAssetReady, onContextFailure } = input;
-  const modelLibrary = createGardenModelLibrary();
-  const camera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 500);
-  // The renderer is built before the scene now: W6.5's sky probe bakes THROUGH
-  // the renderer, so the scene cannot be assembled without one. Nothing in
-  // `createGardenScene` reads renderer state, so the swap is order-only.
+function collectObjectTextures(model: Object3D): Texture[] {
+  const textures = new Set<Texture>();
+  model.traverse((object) => {
+    if (!(object as Mesh).isMesh) return;
+    const { material } = object as Mesh;
+    const materials = Array.isArray(material) ? material : [material];
+    for (const entry of materials) {
+      for (const value of Object.values(entry)) {
+        if (value instanceof Texture) textures.add(value);
+      }
+      const uniforms = (entry as ShaderMaterial).uniforms;
+      if (!uniforms) continue;
+      for (const uniform of Object.values(uniforms)) {
+        if (uniform.value instanceof Texture) textures.add(uniform.value);
+      }
+    }
+  });
+  return [...textures];
+}
+
+function scheduleModelTextureUploads(input: {
+  isOwnerValid: () => boolean;
+  model: Object3D;
+  onReady: () => void;
+  owner: object;
+  ownerName: string;
+  scheduler: TextureUploadScheduler;
+}): void {
+  const textures = collectObjectTextures(input.model);
+  if (textures.length === 0) {
+    input.onReady();
+    return;
+  }
+  input.model.visible = false;
+  for (const texture of textures) {
+    input.scheduler.schedule({
+      isOwnerValid: input.isOwnerValid,
+      key: `${input.ownerName}.${texture.uuid}`,
+      onOwnerDrained: () => {
+        if (!input.isOwnerValid()) return;
+        input.model.visible = true;
+        input.onReady();
+      },
+      owner: input.owner,
+      ownerName: input.ownerName,
+      texture,
+    });
+  }
+}
+
+function textureOwnerName(object: Object3D, root: Object3D): string {
+  let current: Object3D | null = object;
+  while (current && current !== root) {
+    if (current.name) return current.name;
+    current = current.parent;
+  }
+  return object.type;
+}
+
+function textureOwnerCensus(root: Scene, rendererTextures: number): TextureOwnerCensus {
+  const ownerByTexture = new Map<Texture, string>();
+  root.traverse((object) => {
+    if (!(object as Mesh).isMesh) return;
+    const owner = textureOwnerName(object, root);
+    const { material } = object as Mesh;
+    const materials = Array.isArray(material) ? material : [material];
+    for (const entry of materials) {
+      for (const value of Object.values(entry)) {
+        if (value instanceof Texture && !ownerByTexture.has(value)) {
+          ownerByTexture.set(value, owner);
+        }
+      }
+      const uniforms = (entry as ShaderMaterial).uniforms;
+      if (!uniforms) continue;
+      for (const uniform of Object.values(uniforms)) {
+        if (uniform.value instanceof Texture && !ownerByTexture.has(uniform.value)) {
+          ownerByTexture.set(uniform.value, owner);
+        }
+      }
+    }
+  });
+  if (root.environment && !ownerByTexture.has(root.environment)) {
+    ownerByTexture.set(root.environment, "environment.pmrem");
+  }
+  const ownerCounts = new Map<string, number>();
+  for (const owner of ownerByTexture.values()) {
+    ownerCounts.set(owner, (ownerCounts.get(owner) ?? 0) + 1);
+  }
+  return {
+    owners: [...ownerCounts]
+      .map(([owner, textureCount]) => ({ owner, textureCount }))
+      .sort((left, right) => (
+        right.textureCount - left.textureCount
+        || left.owner.localeCompare(right.owner)
+      )),
+    referencedTextures: ownerByTexture.size,
+    rendererTextures,
+    minimumUnattributedRendererTextures: Math.max(
+      0,
+      rendererTextures - ownerByTexture.size,
+    ),
+  };
+}
+
+export function createThreeWorldRenderer(
+  input: CreateThreeWorldRendererInput,
+): ThreeWorldRenderer {
   const renderer = new WebGLRenderer({
     alpha: false,
     antialias: true,
-    canvas,
+    canvas: input.canvas,
     powerPreference: "high-performance",
   });
   renderer.outputColorSpace = SRGBColorSpace;
@@ -265,7 +379,14 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
   // See the reset in `render` — the frame's totals are accumulated by hand
   // so the composer's passes do not clobber the scene's counts.
   renderer.info.autoReset = false;
-  const scene = createGardenScene(renderer);
+  const uploadScheduler = createTextureUploadScheduler(renderer);
+  const { canvas, onAssetReady, onContextFailure } = input;
+  const modelLibrary = createGardenModelLibrary();
+  const camera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 500);
+  // The renderer is built before the scene now: W6.5's sky probe bakes THROUGH
+  // the renderer, so the scene cannot be assembled without one. Nothing in
+  // `createGardenScene` reads renderer state, so the swap is order-only.
+  const scene = createGardenScene(renderer, uploadScheduler);
   const post = createGardenPost(renderer, scene.root, camera);
 
   let disposed = false;
@@ -275,6 +396,17 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
   // C4: best scheduler tier reached this session (debug evidence surface).
   let sessionTierReached: PharosVilleRenderSchedulerTier = "constrained";
   let contentReplacementCount = 0;
+  let lastCensusReplacementCount = -1;
+  let lastCensusTextureCount = -1;
+  let lastTextureOwnerCensus: TextureOwnerCensus = {
+    owners: [],
+    referencedTextures: 0,
+    rendererTextures: 0,
+    minimumUnattributedRendererTextures: 0,
+  };
+  let aoTierWeight: number | null = null;
+  let aoWeightClockSeconds = 0;
+  let activeAOQuality: "full" | "balanced" = "balanced";
   let lastMetrics: ThreeWorldRendererMetrics = emptyWorldRendererMetrics();
 
   // Context loss is usually TRANSIENT — a driver reset, a GPU-process restart,
@@ -293,6 +425,7 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
     event.preventDefault();
     if (contextLost) return;
     contextLost = true;
+    uploadScheduler.pause();
     contextRestoreTimeoutId = setTimeout(() => {
       if (!contextLost || disposed) return;
       onContextFailure("The 3D rendering context was lost and could not be restored.");
@@ -301,6 +434,7 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
   const handleContextRestored = () => {
     if (!contextLost) return;
     contextLost = false;
+    uploadScheduler.resume();
     clearTimeout(contextRestoreTimeoutId);
     // The GPU-side surface is new: re-apply the size/pixel-ratio the renderer
     // thinks it already has, and re-render the static shadow map, which is
@@ -326,9 +460,18 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
       }
       scene.lighthouseModel = model;
       attachGardenLighthouseModel(model, scene.content);
-      // The GLB shell replaces the procedural one — refresh the shadow map.
-      scene.shadowNeedsRender = true;
-      onAssetReady?.();
+      scheduleModelTextureUploads({
+        isOwnerValid: () => !disposed && scene.lighthouseModel === model,
+        model,
+        onReady: () => {
+          // The GLB shell replaces the procedural one — refresh the shadow map.
+          scene.shadowNeedsRender = true;
+          onAssetReady?.();
+        },
+        owner: scene,
+        ownerName: "model.lighthouse",
+        scheduler: uploadScheduler,
+      });
     })
     .catch(() => {
       // The procedural shell is the intentional asset failure fallback.
@@ -345,11 +488,19 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
         .then((model) => {
           if (disposed || scene.content !== content) return;
           attachGardenHeroModel(visual, model);
-          // Ships move independently of the static island shadow map and own
-          // their water-contact shadows. Keeping hero hulls out of the
-          // directional pass avoids both a frozen shadow ghost and a full
-          // island shadow redraw after every async hero attachment.
-          onAssetReady?.();
+          scheduleModelTextureUploads({
+            isOwnerValid: () => !disposed && scene.content === content,
+            model,
+            onReady: () => {
+              // Ships move independently of the static island shadow map and
+              // own their water-contact shadows. Keeping hero hulls out of the
+              // directional pass avoids a frozen shadow ghost and redraw.
+              onAssetReady?.();
+            },
+            owner: content,
+            ownerName: `model.hero.${visual.heroModelId}`,
+            scheduler: uploadScheduler,
+          });
         })
         .catch(() => {
           // The procedural hull stays visible — the asset-failure fallback.
@@ -361,6 +512,7 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
     dispose() {
       if (disposed) return;
       disposed = true;
+      uploadScheduler.dispose();
       clearTimeout(contextRestoreTimeoutId);
       canvas.removeEventListener("webglcontextlost", handleContextLost);
       canvas.removeEventListener("webglcontextrestored", handleContextRestored);
@@ -370,7 +522,9 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
       // Owns a live PMREM render target; the generic tree walk cannot see it
       // because it hangs off `Scene.environment`, not off a child.
       scene.environment.dispose();
+      scene.wakes.dispose();
       scene.laneRegistry.dispose();
+      scene.water.dispose();
       disposeThreeObjectTree(scene.root);
       if (detachedModel) disposeThreeObjectTree(detachedModel);
       modelLibrary.clear();
@@ -383,18 +537,54 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
       // frame's numbers so the scheduler and the debug surface see a hold
       // rather than a collapse, and wait for `webglcontextrestored`.
       if (contextLost) return lastMetrics;
+      // requestIdleCallback is the normal upload lane. This bounded fallback
+      // runs at the between-frame boundary so a continuously animated tab (or
+      // a browser without rIC) cannot starve pending work until first draw.
+      uploadScheduler.flushBetweenFrames();
 
-      // W6.5: rebake the sky probe BEFORE the counters are reset, deliberately.
-      //
-      // A PMREM bake is a six-face cube render plus a mip chain, and this
-      // renderer accumulates `renderer.info` by hand for the whole frame. Baking
-      // after the reset would have added those passes to the frame's draw-call
-      // total, so the frames that happen to cross a day-cycle step would report
-      // a spike against the 700-call budget that has nothing to do with the
-      // world being drawn. Baking here keeps the budget a measurement of the
-      // scene. It costs nothing on the vast majority of frames, which do not
-      // bake at all.
+      const transientSelectedDetailId = selectGardenTransientShip(
+        frame.world,
+        frame.selectedDetailId,
+      )?.detailId ?? null;
+      const contentSignature = worldRenderContentSignature(frame.world);
+      if (
+        scene.contentSignature !== null
+        && scene.contentSignature !== contentSignature
+      ) {
+        // The pending stamps belong to the previous content epoch. Clear them
+        // before replacement and before the offscreen pass can composite them.
+        scene.wakes.reset();
+      }
+      if (
+        scene.contentSignature !== contentSignature
+        || scene.content?.transientSelectedDetailId !== transientSelectedDetailId
+      ) {
+        replaceWorldContent(
+          scene,
+          frame.world,
+          frame.selectedDetailId,
+          uploadScheduler,
+        );
+        contentReplacementCount += 1;
+        loadHeroesForContent(scene.content);
+      } else {
+        // The scene graph can stay, but frame-time semantic consumers must see
+        // the latest world object (motion, sea state, hit targets, and DOM all
+        // continue updating independently of baked GPU content).
+        scene.world = frame.world;
+      }
+
       const phase = dayCyclePhase(frame.wallClockHour);
+      // Phase 2: the frame's weather plan — one pure function of the world
+      // clock and the sea state's PSI stress / base wind, consumed below by
+      // the sky, water, rain, fleet, gulls, post, and the shadow light. Under
+      // reduced motion the clock pins at 0 and the whole plan (lightning
+      // included) freezes into the deterministic static frame.
+      writeWeatherPlan({
+        timeSeconds: frame.reducedMotion ? 0 : frame.timeSeconds,
+        psiStress: frame.seaState.source.psiStress,
+        baseWind: frame.seaState.wind,
+      }, scene.weather);
       // Grade the dome for THIS phase before the probe reads it. The probe
       // renders `sky.domeMaterial` itself and caches the result under the phase
       // key, but the full sky update does not run until `updateSceneForFrame`
@@ -402,8 +592,39 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
       // colours the uniforms are constructed with, stored them under a daytime
       // key, and lit every metal surface in the world with a night probe for as
       // long as that key held. At midday the key never moves again.
-      scene.sky.applyPhase(phase);
-      scene.environment.update(phase);
+      scene.sky.applyPhase(phase, scene.weather.stormLevel);
+      // A PMREM bake is episodic rather than recurring frame work. Measure it
+      // in its own reset window so it remains visible without contaminating
+      // either the scene subtotal or the recurring total.
+      renderer.info.reset();
+      const environmentBakeCountBefore = scene.environment.bakeCount;
+      scene.environment.update(phase, scene.weather.stormLevel);
+      const environmentBakeCountChange = scene.environment.bakeCount - environmentBakeCountBefore;
+      const environmentBakeCalls = environmentBakeCountChange > 0
+        ? renderer.info.render.calls
+        : 0;
+      renderer.info.reset();
+      // Phase 3 (item 2): advance the wake field BEFORE the counters reset,
+      // but record its feedback/stamp passes as recurring offscreen work.
+      // Stamps consumed here were collected by LAST frame's ship loop (one
+      // frame of latency is invisible against an 8-second decay).
+      {
+        const wakeCenterTile = screenToTile(
+          { x: frame.width / 2, y: frame.height / 2 },
+          frame.camera,
+        );
+        const wakeViewHeight = gardenCameraViewHeight(frame.height, frame.camera.zoom);
+        scene.wakes.update({
+          deltaSeconds: MathUtils.clamp(frame.timeSeconds - scene.beamClockSeconds, 0, 0.25),
+          reducedMotion: frame.reducedMotion,
+          targetX: wakeCenterTile.x * TILE_SCALE,
+          targetZ: wakeCenterTile.y * TILE_SCALE,
+          viewHalfWidth: (wakeViewHeight * (frame.width / Math.max(1, frame.height))) / 2,
+          tier: seaQualityTier(frame.renderScheduler),
+          visibleStrength: scene.water.wakeStrength(),
+        });
+      }
+      const recurringOffscreenCalls = renderer.info.render.calls;
 
       // `renderer.info` auto-resets on every `render()` call, and the post
       // composer issues several. Reading it after `post.render()` therefore
@@ -434,56 +655,74 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
         lastHeight = frame.height;
       }
 
-      const transientSelectedDetailId = selectGardenTransientShip(
-        frame.world,
-        frame.selectedDetailId,
-      )?.detailId ?? null;
-      const contentSignature = worldRenderContentSignature(frame.world);
-      if (
-        scene.contentSignature !== contentSignature
-        || scene.content?.transientSelectedDetailId !== transientSelectedDetailId
-      ) {
-        replaceWorldContent(scene, frame.world, frame.selectedDetailId);
-        contentReplacementCount += 1;
-        loadHeroesForContent(scene.content);
-      } else {
-        // The scene graph can stay, but frame-time semantic consumers must see
-        // the latest world object (motion, sea state, hit targets, and DOM all
-        // continue updating independently of baked GPU content).
-        scene.world = frame.world;
-      }
       if (scene.content) syncShipSailTextures(scene.content, frame);
-      updateSceneForFrame(scene, camera, frame, phase);
+      updateSceneForFrame(scene, camera, frame, phase, uploadScheduler, onAssetReady);
 
       const tier = frame.renderScheduler.tier;
       if (SESSION_TIER_QUALITY[tier] > SESSION_TIER_QUALITY[sessionTierReached]) {
         sessionTierReached = tier;
       }
       const shadowMapSize = updateShadows(scene, frame);
-      // The composer owns the frame's COLOR — AgX tone mapping moves into
-      // OutputPass, and the day-cycle grade and vignette exist nowhere else —
-      // so shedding it is not a quality step down, it is a different picture.
-      // Crossing the `constrained` boundary swung the frame's brightness and
-      // dropped the vignette outright, and because a zoom gesture flaps the
-      // scheduler across that boundary repeatedly the whole view flickered
-      // under the wheel. The grade and output passes are one full-screen quad
-      // each; only the bloom pyramid's cost scales, so only bloom is shed.
+      // The composer owns the frame's COLOR — AgX tone mapping lives in the
+      // fused grade/tone-map pass, and the day-cycle grade and vignette exist
+      // nowhere else — so shedding it is not a quality step down, it is a
+      // different picture. Crossing the `constrained` boundary swung the
+      // frame's brightness and dropped the vignette outright, and because a
+      // zoom gesture flaps the scheduler across that boundary repeatedly the
+      // whole view flickered under the wheel. The grade and SMAA passes are
+      // one full-screen quad each; only the bloom pyramid's cost scales, so
+      // only bloom is shed.
       post.setEnabled(true);
-      // W6.3: bloom runs at half resolution (see BLOOM_RESOLUTION_SCALE), so
-      // it survives `recovery` — the warm beacon and lantern glow are the
-      // night identity, and shedding them at the tier this machine usually
-      // sits in meant they were almost never seen. `constrained` means the
-      // machine is genuinely drowning, and a five-level mip pyramid is the
-      // one pass worth the pop.
+      // The pmndrs mipmap-blur bloom downsamples geometrically by
+      // construction (see garden-post), so it survives `recovery` — the warm
+      // beacon and lantern glow are the night identity, and shedding them at
+      // the tier this machine usually sits in meant they were almost never
+      // seen. `constrained` means the machine is genuinely drowning, and the
+      // mip pyramid is the one pass worth the pop.
       post.setBloomEnabled(tier !== "constrained");
-      post.setGrade(phase.daylight, phase.dusk);
+      // N8AO is a local grounding fidelity. The invariant is the semantic
+      // palette, hue, AgX curve, grade, and vignette; bounded local AO/bloom
+      // luminance changes are allowed. Ease its weight across load tiers so
+      // full/balanced -> recovery never flashes, and only disable the pass once
+      // the post owner receives an exact zero.
+      const aoTier = seaQualityTier(frame.renderScheduler);
+      const aoTarget = aoTier === "full" || aoTier === "balanced" ? 1 : 0;
+      const aoDeltaSeconds = MathUtils.clamp(
+        frame.timeSeconds - aoWeightClockSeconds,
+        0,
+        0.25,
+      );
+      aoWeightClockSeconds = frame.timeSeconds;
+      if (aoTarget > 0) {
+        activeAOQuality = aoTier === "full" ? "full" : "balanced";
+      }
+      if (aoTierWeight === null || frame.reducedMotion) {
+        aoTierWeight = aoTarget;
+      } else {
+        const alpha = 1 - Math.exp(-aoDeltaSeconds / 0.18);
+        aoTierWeight += (aoTarget - aoTierWeight) * alpha;
+        if (Math.abs(aoTierWeight - aoTarget) < 0.002) aoTierWeight = aoTarget;
+      }
+      post.setAOQuality(activeAOQuality);
+      post.setAOTierWeight(aoTierWeight);
+      post.setAOZoomDetail(scene.content?.overviewLod.detail ?? 1);
+      post.setGrade(phase.daylight, phase.dusk, scene.weather.stormLevel, scene.weather.lightning);
       post.render();
 
       const content = scene.content;
       const renderInfo = renderer.info.render;
+      const sceneCalls = renderInfo.calls;
       const programCount = renderer.info.programs?.length ?? 0;
       const geometryCount = renderer.info.memory.geometries;
       const textureCount = renderer.info.memory.textures;
+      if (
+        textureCount !== lastCensusTextureCount
+        || contentReplacementCount !== lastCensusReplacementCount
+      ) {
+        lastTextureOwnerCensus = textureOwnerCensus(scene.root, textureCount);
+        lastCensusTextureCount = textureCount;
+        lastCensusReplacementCount = contentReplacementCount;
+      }
       lastMetrics = {
         gpuWarmupCount: Math.max(0, programCount - programsBefore)
           + Math.max(0, geometryCount - geometriesBefore)
@@ -492,6 +731,9 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
         contentReplacementCount,
         contentSignaturePartHashes: worldRenderContentPartHashes(frame.world),
         composerEnabled: post.isComposerEnabled(),
+        environmentBakeCalls,
+        environmentBakeCount: scene.environment.bakeCount,
+        environmentBakeCountChange,
         // C4 evidence: live water-system state via contract C2 (cloud-shadow
         // sampler, ripple-ring emitter). zoneRadii is live data from the
         // zone field.
@@ -507,7 +749,9 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
         postPassList: post.getPassList(),
         shadowMapSize,
         gpu: {
-          calls: renderInfo.calls,
+          calls: sceneCalls + recurringOffscreenCalls,
+          offscreenCalls: recurringOffscreenCalls,
+          sceneCalls,
           geometries: geometryCount,
           lines: renderInfo.lines,
           points: renderInfo.points,
@@ -521,8 +765,12 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
             : count
         ), 0) ?? 0,
         fleetDrawCallCount: content ? fleetDrawCallCount(content.fleetBatches) : 0,
+        logoAssetsExpected: frame.logos.getExpectedLogoCount?.() ?? 0,
+        logoAssetsLoaded: frame.logos.getLoadedLogoCount?.() ?? 0,
         rendererBackend: "three",
         schedulerTier: frame.renderScheduler.tier,
+        textureOwnerCensus: lastTextureOwnerCensus,
+        textureUploads: uploadScheduler.metrics(),
         visibleShipCount: content?.visibleShipCount ?? 0,
       };
       return lastMetrics;
@@ -533,8 +781,20 @@ export function createThreeWorldRenderer(input: CreateThreeWorldRendererInput): 
 /** Zeroed metrics for frames that never reached the GPU (context lost). */
 function emptyWorldRendererMetrics(): ThreeWorldRendererMetrics {
   return {
-    gpu: { calls: 0, geometries: 0, lines: 0, points: 0, programs: 0, textures: 0, triangles: 0 },
+    gpu: {
+      calls: 0,
+      geometries: 0,
+      lines: 0,
+      offscreenCalls: 0,
+      points: 0,
+      programs: 0,
+      sceneCalls: 0,
+      textures: 0,
+      triangles: 0,
+    },
     gpuWarmupCount: 0,
+    logoAssetsExpected: 0,
+    logoAssetsLoaded: 0,
     movingShipCount: 0,
     objectCount: 0,
     rendererBackend: "three",
@@ -542,7 +802,7 @@ function emptyWorldRendererMetrics(): ThreeWorldRendererMetrics {
   };
 }
 
-interface GardenScene {
+export interface GardenScene {
   ambientLight: AmbientLight;
   /**
    * The beam's swept angle, integrated rather than derived from the clock.
@@ -580,6 +840,19 @@ interface GardenScene {
   sky: GardenSky;
   water: GardenWater;
   waterAccents: Group;
+  /**
+   * Phase 3 (item 2): the persistent wake field. Scene-scope like the sky
+   * probe — it depends on the camera and the fleet, not on world content, so
+   * a data refresh must not throw the field away.
+   */
+  wakes: GardenWakes;
+  /**
+   * Phase 2: the frame's weather plan (wind + storm + lightning), written once
+   * per frame from the world clock and the sea state's analytic signals, and
+   * consumed by water, sky, rain, fleet, gulls and post. Scene-scope scratch
+   * like `beamAngle` — never reallocated.
+   */
+  weather: WeatherPlan;
   world: PharosVilleWorld | null;
 }
 
@@ -680,7 +953,10 @@ interface EntityCue {
   y: number;
 }
 
-function createGardenScene(renderer: WebGLRenderer): GardenScene {
+function createGardenScene(
+  renderer: WebGLRenderer,
+  uploadScheduler: TextureUploadScheduler,
+): GardenScene {
   const root = new Scene();
   const sky = createGardenSky();
   root.fog = sky.fog;
@@ -718,6 +994,17 @@ function createGardenScene(renderer: WebGLRenderer): GardenScene {
   // full-bleed under pan and zoom without visible plane or sky seams.
   const water = createGardenWater(WATER_LEVEL);
   root.add(water.mesh);
+  // Queue the big static fields before the first frame. The between-frame
+  // fallback drains both before scene drawing even when rIC has not fired.
+  for (const [name, texture] of Object.entries(water.regionTextures)) {
+    uploadScheduler.schedule({
+      isOwnerValid: () => true,
+      key: `water.region.${name}`,
+      owner: water,
+      ownerName: `water.region.${name}`,
+      texture,
+    });
+  }
 
   // Shared warm-light lane registry: the water shader samples its packed
   // DataTexture to lay reflection pools for the beacon, harbor lanterns, and
@@ -769,6 +1056,16 @@ function createGardenScene(renderer: WebGLRenderer): GardenScene {
     sky,
     water,
     waterAccents,
+    wakes: createGardenWakes(renderer),
+    weather: {
+      windDirX: -0.855,
+      windDirZ: 0.519,
+      windAngle: 2.592,
+      windSpeed: 0,
+      gust: 0,
+      stormLevel: 0,
+      lightning: 0,
+    },
     world: null,
   };
 }
@@ -777,8 +1074,10 @@ function replaceWorldContent(
   scene: GardenScene,
   world: PharosVilleWorld,
   selectedDetailId: string | null,
+  uploadScheduler: TextureUploadScheduler,
 ): void {
   if (scene.content) {
+    uploadScheduler.cancelOwner(scene.content);
     scene.lighthouseModel?.removeFromParent();
     scene.root.remove(scene.content.root);
     // W1: the batches own merged geometry and the atlas texture, neither of
@@ -870,6 +1169,9 @@ function registerHarborWater(scene: GardenScene, world: PharosVilleWorld): void 
  * omnidirectional pools. Lane world positions mirror the geometry each module
  * builds. The registry caps them per tier; callers register all of them.
  */
+/** How many of the busiest harbours get a route pulse lane (Phase 4). */
+const GARDEN_ROUTE_PULSE_LANES = 4;
+
 function registerLightLanes(
   registry: GardenLaneRegistry,
   world: PharosVilleWorld,
@@ -954,6 +1256,39 @@ function registerLightLanes(
         worldZ: buoy.worldZ,
       });
     }
+  }
+  // Phase 4 (item 3): data-pulse lanes on the busiest trade routes. The top
+  // harbours by held value — the same traffic sizing the docks themselves
+  // wear — get one segment each, from open water into the quay, so route
+  // activity reads as glints flowing in off the sea. The pulse speed/phase
+  // are seeded from the lane id inside the registry (never Math.random); the
+  // lanes ride the same per-tier cap and day-cycle gate as every other lane.
+  const busiest = docks
+    .filter((dock) => Number.isFinite(dock.dock.totalUsd) && dock.dock.totalUsd > 0)
+    .toSorted((left, right) => (
+      right.dock.totalUsd - left.dock.totalUsd
+      || left.dock.id.localeCompare(right.dock.id)
+    ))
+    .slice(0, GARDEN_ROUTE_PULSE_LANES);
+  const busiestUsd = busiest[0]?.dock.totalUsd ?? 1;
+  for (const dock of busiest) {
+    const dirX = dock.root.position.x - islandX;
+    const dirZ = dock.root.position.z - islandZ;
+    const dirLength = Math.hypot(dirX, dirZ) || 1;
+    const nx = dirX / dirLength;
+    const nz = dirZ / dirLength;
+    registry.set({
+      color: HARBOR_PALETTE.lantern_glow,
+      id: `route-pulse.${dock.dock.detailId}`,
+      intensity: 0.35 + 0.45 * Math.sqrt(dock.dock.totalUsd / busiestUsd),
+      kind: "route",
+      worldX: dock.root.position.x + nx * 30,
+      worldZ: dock.root.position.z + nz * 30,
+      route: {
+        x: dock.root.position.x + nx * 4,
+        z: dock.root.position.z + nz * 4,
+      },
+    });
   }
 }
 
@@ -1446,8 +1781,11 @@ function updateSceneForFrame(
   camera: OrthographicCamera,
   frame: ThreeWorldRendererFrame,
   phase: DayCyclePhase,
+  uploadScheduler: TextureUploadScheduler,
+  onAssetReady?: () => void,
 ): void {
   updateCamera(camera, frame);
+  const weather = scene.weather;
   // Advance the beam's own clock before any early return, so a frame drawn
   // without world content cannot leave a gap for the next one to jump across.
   const beamElapsedSeconds = Math.max(0, frame.timeSeconds - scene.beamClockSeconds);
@@ -1458,10 +1796,25 @@ function updateSceneForFrame(
     targetX: camera.position.x - CAMERA_DISTANCE,
     targetZ: camera.position.z - CAMERA_DISTANCE,
     timeSeconds: frame.timeSeconds,
+    stormLevel: weather.stormLevel,
+    // Phase 2 billboard atmosphere (mist banks + cumulus): full/balanced only,
+    // resolved through the sea tier (S1) so a camera drag never blinks them.
+    billboards: ["full", "balanced"].includes(seaQualityTier(frame.renderScheduler)),
+    wind: weather,
   });
   updateDayCycle(scene, frame, phase);
+  // Phase 2 lightning: the strike's flash doubles through the existing
+  // shadow-casting key light for its ~0.3 s envelope. No new lights; the
+  // day-cycle intensity above remains the base this multiplies, and the
+  // reduced-motion plan holds the flash at 0.
+  if (weather.lightning > 0) {
+    scene.directionalLight.intensity *= 1 + weather.lightning * 2.2;
+  }
   updateLighthouseRimLight(phase);
-  scene.water.update(frame);
+  // Phase 3: bind the wake field's front texture and window before the water
+  // samples them (the field itself advanced at the top of render()).
+  scene.water.setWakeState(scene.wakes.texture, scene.wakes.centerX, scene.wakes.centerY, scene.wakes.halfSize);
+  scene.water.update(frame, weather);
   // Balanced+ beauty layers: the horizon re-anchors to the camera target the
   // same way the sky dome does; the islets are static (no reduced-motion
   // work) and only gate visibility on the tier.
@@ -1510,6 +1863,7 @@ function updateSceneForFrame(
       frame.timeSeconds,
       frame.reducedMotion,
       frame.renderScheduler.tier === "full",
+      weather,
     );
   }
   content.gullFlock.update({
@@ -1517,12 +1871,14 @@ function updateSceneForFrame(
     night: phase.night,
     reducedMotion: frame.reducedMotion,
     timeSeconds: frame.timeSeconds,
+    weather,
   });
   content.fireflies.update({
     fullTier: frame.renderScheduler.tier === "full",
     night: phase.night,
     reducedMotion: frame.reducedMotion,
     timeSeconds: frame.timeSeconds,
+    weather,
   });
 
   // W4: the flame is the beacon now. One deterministic flicker (computed once
@@ -1569,9 +1925,33 @@ function updateSceneForFrame(
     const material = (child as Mesh).material as ShaderMaterial;
     return (material.uniforms.uOpacity?.value ?? 1) > 0.0005;
   };
+  // Phase 2 god rays: the cone's volumetric terms are uniform-gated, so the
+  // recovery cone stays the pre-Phase-2 shader bit-exact (one material, no
+  // tier-transition compile). Full/balanced shade mist noise, a storm-driven
+  // density/lift, and a forward-scattering flare — which under the fixed
+  // ortho view collapses to one exact dot of beam axis vs view axis, so the
+  // beam blooms as it sweeps toward the camera. seaQualityTier keeps a
+  // camera drag (interaction) from blinking the volumetric look mid-gesture.
+  camera.getWorldDirection(scratchViewDirection);
+  scratchBeamDirection.set(
+    Math.cos(content.beam.rotation.y),
+    0,
+    -Math.sin(content.beam.rotation.y),
+  );
+  const beamScatter = Math.pow(
+    Math.max(0, -scratchBeamDirection.dot(scratchViewDirection)),
+    2,
+  );
+  const beamQualityTier = seaQualityTier(frame.renderScheduler);
+  const beamVolumetric = !beamUsePlane
+    && (beamQualityTier === "full" || beamQualityTier === "balanced") ? 1 : 0;
   for (const child of content.beam.children) {
     if (child.name === "lighthouse-beam-cone") {
       child.visible = !beamUsePlane && beamPieceLit(child);
+      const coneUniforms = ((child as Mesh).material as ShaderMaterial).uniforms;
+      coneUniforms.uVolumetric.value = beamVolumetric;
+      coneUniforms.uStorm.value = weather.stormLevel;
+      coneUniforms.uScatter.value = beamScatter;
     } else if (child.name === "lighthouse-beam") child.visible = beamUsePlane;
     else if (child.name === "lighthouse-beam-dust") {
       child.visible = frame.renderScheduler.tier === "full" && !frame.reducedMotion
@@ -1656,12 +2036,38 @@ function updateSceneForFrame(
   // W1: the batched fleet is restamped from scratch each frame. Counts reset
   // here, poses are written in the ship loop, and every touched buffer is
   // flushed once at the end — one upload per buffer, not one per ship.
+  // Phase 2: one weather write moves every sail and pennant in the fleet.
+  setFleetWeather({
+    gust: weather.gust,
+    timeSeconds: frame.timeSeconds,
+    windAngle: weather.windAngle,
+    windSpeed: weather.windSpeed,
+  });
   beginFleetFrame(content.fleetBatches);
-  syncGardenSailAtlas(
-    content.sailAtlas,
-    content.ships.map((visual) => visual.ship),
-    frame.logos,
-  );
+  const sailTexture = content.sailAtlas.texture;
+  const logoGeneration = frame.logos.getLogoGenerationKey();
+  if (sailTexture && content.sailAtlas.logoGenerationKey !== logoGeneration) {
+    const ships = content.ships.map((visual) => visual.ship);
+    const logos = frame.logos;
+    // Defer BOTH repaint and upload. Painting here would increment the
+    // CanvasTexture version and let Three auto-upload the 2048² atlas during
+    // the hot scene draw before the queue had a chance to run.
+    uploadScheduler.schedule({
+      isOwnerValid: () => scene.content === content,
+      key: `sail-atlas.${sailTexture.uuid}`,
+      onOwnerDrained: () => {
+        if (scene.content === content) onAssetReady?.();
+      },
+      owner: content,
+      ownerName: "fleet.sail-atlas",
+      prepare: () => syncGardenSailAtlas(
+        content.sailAtlas,
+        ships,
+        logos,
+      ),
+      texture: sailTexture,
+    });
+  }
 
   let visibleShipCount = 0;
   // Indexed rather than `entries()`: the iterator mints an `[index, value]` pair
@@ -1727,6 +2133,19 @@ function updateSceneForFrame(
       && overviewDetail > 0
       && (semanticView !== "analyze" || showShipDetail);
     visual.wake.scale.x = (0.7 + Math.min(1.5, wakeIntensity) * 0.85) * overviewDetail;
+    // Phase 3 (item 2): stamp the persistent wake field for every hull making
+    // way. The pose is final for this frame and the heading already
+    // normalized — the field consumes these at the top of next frame.
+    if (heading && wakeIntensity > 0.12 && !frame.reducedMotion) {
+      scene.wakes.stamp(
+        visual.root.position.x,
+        visual.root.position.z,
+        heading.x,
+        heading.y,
+        Math.min(1, wakeIntensity),
+        visual.ship.visual.hullForm?.length ?? 1,
+      );
+    }
     visual.fineDetail.visible = showShipDetail;
     visual.wakeDetail.visible = showShipDetail;
 
