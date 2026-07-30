@@ -10,8 +10,8 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - Renderer: one production Three.js/WebGL renderer
 - GPU or renderer failure fallback: interactive DOM signal overview; no alternate 2D renderer
 - Runtime model namespace: `/pharosville/models/`
-- Latest app version: `v0.6.2` (`rightfulColors`)
-- Latest changelog entry: `2026-07-27-rightful-colors` / `v0.6.2` / 2026-07-27 / Rightful Colors
+- Latest app version: `v0.7.0` (`livingSea`)
+- Latest changelog entry: `2026-07-30-living-sea` / `v0.7.0` / 2026-07-30 / Living Sea
 
 ## Viewport Gate
 
@@ -66,7 +66,7 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - entry chunk: raw <= 300 KiB, gzip <= 90 KiB
 - desktop lazy chunk: raw <= 1,024 KiB, gzip <= 290 KiB
 - world lazy chunk: raw <= 440 KiB, gzip <= 145 KiB
-- Three.js renderer chunk: raw <= 1,600 KiB, gzip <= 420 KiB
+- Three.js renderer chunk: raw <= 1,600 KiB, gzip <= 454 KiB
 - entry CSS: raw <= 36 KiB, gzip <= 8 KiB
 - Total JS: raw <= 3,200 KiB, gzip <= 820 KiB
 
