@@ -13,6 +13,7 @@ import { CLOUD_COUNT, MIST_BANK_COUNT } from "./garden-sky-billboards";
 
 const FRAME = {
   reducedMotion: false,
+  wallClockHour: 12,
   targetX: 47.6,
   targetZ: 38.9,
   timeSeconds: 0,
@@ -132,7 +133,7 @@ describe("garden sky billboard atmosphere", () => {
 describe("garden sky atmospheric scattering", () => {
   it("fades the whole scattering layer to zero at night", () => {
     const sky = createGardenSky();
-    sky.applyPhase(dayCyclePhase(0));
+    sky.applyPhase(dayCyclePhase(0), 0);
     expect(sky.domeMaterial.uniforms.uScattering!.value).toBe(0);
     expect(sky.domeMaterial.uniforms.uSunIntensity!.value).toBe(0);
     // ...with the sun below the horizon and the authored indigo untouched.
@@ -142,11 +143,12 @@ describe("garden sky atmospheric scattering", () => {
 
   it("drives the field from the day cycle and the light rig's own sun tint", () => {
     const sky = createGardenSky();
-    sky.applyPhase(dayCyclePhase(12));
+    // Solar noon on the arc, where it still passes exactly through the
+    // calibrated key light at island + (-35, 48, -30).
+    sky.applyPhase(dayCyclePhase(12.25), 12.25);
     expect(sky.domeMaterial.uniforms.uScattering!.value).toBeCloseTo(1);
     expect(sky.domeMaterial.uniforms.uSunIntensity!.value).toBeCloseTo(1.55);
     const sunDir = sky.domeMaterial.uniforms.uSunDir!.value as Vector3;
-    // The key light's bearing: island + (-35, 48, -30).
     expect(sunDir.y).toBeCloseTo(0.721, 2);
     expect(sunDir.x / sunDir.z).toBeCloseTo(35 / 30, 1);
     const sunColor = sky.domeMaterial.uniforms.uSunColor!.value as Color;
@@ -156,9 +158,31 @@ describe("garden sky atmospheric scattering", () => {
     sky.dispose();
   });
 
+  it("tells morning from evening, which a fixed azimuth could not", () => {
+    // Both hours carry near-identical day-cycle weights; the ONLY thing that
+    // separates them is where the sun is. Before the arc this uniform was
+    // identical at 09:00 and 15:30 and the sky read the same at both.
+    const morning = createGardenSky();
+    const evening = createGardenSky();
+    morning.applyPhase(dayCyclePhase(9), 9);
+    evening.applyPhase(dayCyclePhase(15.5), 15.5);
+
+    const morningDir = (morning.domeMaterial.uniforms.uSunDir!.value as Vector3).clone();
+    const eveningDir = (evening.domeMaterial.uniforms.uSunDir!.value as Vector3).clone();
+
+    expect(morningDir.angleTo(eveningDir)).toBeGreaterThan(0.5);
+    // Both still high in the sky — this is a bearing difference, not the sun
+    // simply having set.
+    expect(morningDir.y).toBeGreaterThan(0.5);
+    expect(eveningDir.y).toBeGreaterThan(0.5);
+
+    morning.dispose();
+    evening.dispose();
+  });
+
   it("smothers the sun and the scattering in a storm", () => {
     const sky = createGardenSky();
-    sky.applyPhase(dayCyclePhase(12), 1);
+    sky.applyPhase(dayCyclePhase(12), 12, 1);
     expect(sky.domeMaterial.uniforms.uScattering!.value).toBeCloseTo(0.4);
     expect(sky.domeMaterial.uniforms.uSunIntensity!.value).toBeCloseTo(1.55 * 0.15);
     sky.dispose();
@@ -180,7 +204,7 @@ describe("garden sky applyPhase", () => {
     const zenith = sky.domeMaterial.uniforms.uZenith.value as Color;
     expect(zenith.getHex()).toBe(DAY_CYCLE_SKY_PRESETS.night.zenith.getHex());
 
-    sky.applyPhase(dayCyclePhase(12));
+    sky.applyPhase(dayCyclePhase(12), 12);
 
     expect(zenith.getHex()).toBe(DAY_CYCLE_SKY_PRESETS.day.zenith.getHex());
     expect((sky.domeMaterial.uniforms.uHorizon.value as Color).getHex())
@@ -193,7 +217,7 @@ describe("garden sky applyPhase", () => {
     const whole = createGardenSky();
     const phase = dayCyclePhase(18.5);
 
-    early.applyPhase(phase);
+    early.applyPhase(phase, 18.5);
     early.update(phase, FRAME);
     whole.update(phase, FRAME);
 

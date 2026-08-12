@@ -95,6 +95,7 @@ import { createGardenModelLibrary } from "./garden-models";
 import { createGardenWater, type GardenWater } from "./garden-water";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
 import { dayCyclePhase, updateDayCycle, type DayCyclePhase } from "./garden-day-cycle";
+import { gardenKeyLightPose, type GardenLightPose } from "./garden-sun";
 import { createGardenSky, type GardenSky } from "./garden-sky";
 import { createGardenWakes, type GardenWakes } from "./garden-wakes";
 import { createGardenEnvironment, type GardenEnvironment } from "./garden-environment";
@@ -173,6 +174,7 @@ import {
   endFleetFrame,
   fleetDrawCallCount,
   GARDEN_FLEET_BATCH_CAPACITY,
+  setFleetAerialPerspective,
   setFleetWeather,
   writeFleetInstance,
   type FleetBatches,
@@ -212,6 +214,42 @@ export { disposeThreeObjectTree } from "./garden-util";
 
 const MAX_THREE_DPR = 2;
 const CAMERA_DISTANCE = 110;
+/**
+ * Peak chroma the fleet loses at the far end of the haze ramp.
+ *
+ * Deliberately partial: the operator asked for a GENTLE recession, where a
+ * distant hull is still identifiable to someone who looks for it and merely
+ * stops competing for attention. Full desaturation would make the far fleet a
+ * monochrome band and turn a depth cue into a wall.
+ */
+const GARDEN_FLEET_AERIAL_STRENGTH = 0.62;
+
+/** The Pharos crown — the tallest thing that casts, and so what sizes the frustum. */
+const SHADOW_CASTER_HEIGHT = 34;
+/** Island half-extent the shadow frustum must always contain. */
+const SHADOW_ISLAND_RADIUS = 30;
+/**
+ * Ground reach cap for the frustum offset. At the key light's floor elevation
+ * the tower's true reach is ~280 units, far past anything the eye can follow
+ * across water; capping it keeps the frustum near the island where the shadow
+ * actually reads.
+ */
+const SHADOW_MAX_REACH = 150;
+/** How far up the light sits; only has to clear the casters for near/far. */
+const SHADOW_LIGHT_DISTANCE = 90;
+/**
+ * How far the sun must swing before the static-caster shadow map is redrawn.
+ *
+ * ~0.6°, comfortably finer than the softest shadow edge a 1024² map over a
+ * ±42 frustum can resolve, so the re-steer is never visible as a step.
+ */
+const SHADOW_RESTEER_RADIANS = 0.01;
+
+/** Reused across frames so the shadow rig allocates nothing in the hot path. */
+const scratchKeyPose: GardenLightPose = {
+  direction: new Vector3(0, 1, 0),
+  elevation: Math.PI / 2,
+};
 /** How long a lost WebGL context has to come back before the world gives up. */
 const CONTEXT_RESTORE_GRACE_MS = 5000;
 
@@ -592,7 +630,7 @@ export function createThreeWorldRenderer(
       // colours the uniforms are constructed with, stored them under a daytime
       // key, and lit every metal surface in the world with a night probe for as
       // long as that key held. At midday the key never moves again.
-      scene.sky.applyPhase(phase, scene.weather.stormLevel);
+      scene.sky.applyPhase(phase, frame.wallClockHour, scene.weather.stormLevel);
       // A PMREM bake is episodic rather than recurring frame work. Measure it
       // in its own reset window so it remains visible without contaminating
       // either the scene subtotal or the recurring total.
@@ -662,7 +700,7 @@ export function createThreeWorldRenderer(
       if (SESSION_TIER_QUALITY[tier] > SESSION_TIER_QUALITY[sessionTierReached]) {
         sessionTierReached = tier;
       }
-      const shadowMapSize = updateShadows(scene, frame);
+      const shadowMapSize = updateShadows(scene, frame, phase);
       // The composer owns the frame's COLOR — AgX tone mapping lives in the
       // fused grade/tone-map pass, and the day-cycle grade and vignette exist
       // nowhere else — so shedding it is not a quality step down, it is a
@@ -836,6 +874,8 @@ export interface GardenScene {
   root: Scene;
   selectedMarker: ReturnType<typeof createGardenCueMarker>;
   shadowActiveSize: number;
+  /** Sun bearing the current shadow map was drawn for; drives the re-steer. */
+  shadowLightDirection: Vector3;
   shadowNeedsRender: boolean;
   sky: GardenSky;
   water: GardenWater;
@@ -1052,6 +1092,9 @@ function createGardenScene(
     root,
     selectedMarker,
     shadowActiveSize: 0,
+    // Deliberately not a legal light direction, so the first frame always
+    // re-steers and draws the map for wherever the sun actually is.
+    shadowLightDirection: new Vector3(0, 0, 0),
     shadowNeedsRender: true,
     sky,
     water,
@@ -1717,20 +1760,74 @@ function seaSignSpecs(areas: PharosVilleWorld["areas"]): SeaSignSpec[] {
  * toggled via `shadow.intensity`/`autoUpdate` and the map is only reallocated
  * on a tier change, so no material recompile stalls occur.
  */
-function updateShadows(scene: GardenScene, frame: ThreeWorldRendererFrame): number {
+function updateShadows(
+  scene: GardenScene,
+  frame: ThreeWorldRendererFrame,
+  phase: DayCyclePhase,
+): number {
   const light = scene.directionalLight;
   const islandTile = gardenIslandDisplayTile(frame.world.lighthouse.tile);
   const centerX = islandTile.x * TILE_SCALE;
   const centerZ = islandTile.y * TILE_SCALE;
-  light.position.set(centerX - 35, 48, centerZ - 30);
-  light.target.position.set(centerX, 3, centerZ);
+
+  // The key light rides the day's arc (garden-sun.ts) instead of sitting at a
+  // fixed bearing, so shadow DIRECTION and LENGTH now say what time it is.
+  const pose = gardenKeyLightPose(frame.wallClockHour, phase, scratchKeyPose);
+  const direction = pose.direction;
+
+  // A low sun throws a long shadow, and a frustum centred on the island would
+  // simply clip it. Push the frustum downstream by half the tower's reach so
+  // the whole shadow stays inside the map.
+  //
+  // The arithmetic is kinder than it looks. A caster of height h at elevation e
+  // reaches L = h/tan(e) along the ground, and a ground distance d projects to
+  // d·sin(e) in the light's image plane — so the shadow always spans exactly
+  // h·cos(e) there, never more than h however low the sun gets. Centring on
+  // half of that costs a ground offset of L/2 and buys a frustum that only has
+  // to grow by h·cos(e)/2.
+  const groundLength = Math.hypot(direction.x, direction.z) || 1;
+  const reach = Math.min(
+    SHADOW_CASTER_HEIGHT / Math.max(Math.tan(pose.elevation), 1e-3),
+    SHADOW_MAX_REACH,
+  );
+  const frustumX = centerX - (direction.x / groundLength) * reach * 0.5;
+  const frustumZ = centerZ - (direction.z / groundLength) * reach * 0.5;
+  light.target.position.set(frustumX, 3, frustumZ);
+  light.position.set(
+    frustumX + direction.x * SHADOW_LIGHT_DISTANCE,
+    3 + direction.y * SHADOW_LIGHT_DISTANCE,
+    frustumZ + direction.z * SHADOW_LIGHT_DISTANCE,
+  );
+
+  const halfSize = SHADOW_ISLAND_RADIUS + (SHADOW_CASTER_HEIGHT * Math.cos(pose.elevation)) / 2;
+  const shadowCamera = light.shadow.camera;
+  if (Math.abs(shadowCamera.right - halfSize) > 0.25) {
+    shadowCamera.left = -halfSize;
+    shadowCamera.right = halfSize;
+    shadowCamera.top = halfSize;
+    shadowCamera.bottom = -halfSize;
+    shadowCamera.updateProjectionMatrix();
+    scene.shadowNeedsRender = true;
+  }
+
+  // The map is still not re-rendered per frame — see below — but "the light
+  // direction is fixed" is no longer one of the reasons why. It is re-rendered
+  // when the sun has actually MOVED past a threshold finer than the softest
+  // shadow edge. At the fastest the arc ever swings (the dusk handover, ~5° per
+  // three real minutes) that is one extra static-caster pass every ~20 s.
+  if (direction.angleTo(scene.shadowLightDirection) > SHADOW_RESTEER_RADIANS) {
+    scene.shadowLightDirection.copy(direction);
+    scene.shadowNeedsRender = true;
+  }
 
   // W6.2 (Grand Scale Revamp): shadows survive down to `recovery`.
   //
-  // The casters (island + lighthouse) are static and the light direction is
-  // fixed, so `autoUpdate = false` means the map is rendered once per scene
-  // change, not per frame — the recurring cost is just the PCF taps in the
-  // receiving materials. Dropping that at `recovery` bought almost nothing
+  // The casters (island + lighthouse) are static and the light direction moves
+  // only on the re-steer threshold above, so `autoUpdate = false` means the map
+  // is rendered on scene change and on re-steer, not per frame — the recurring
+  // cost is still just the PCF taps in the receiving materials.
+  //
+  // Dropping that at `recovery` bought almost nothing
   // while removing the single strongest cue that the island has form, and on
   // an integrated GPU at 1080p the app sits in `recovery` most of the time, so
   // in practice the monument was ALWAYS flat-lit (plan finding F1).
@@ -1756,9 +1853,9 @@ function updateShadows(scene: GardenScene, frame: ThreeWorldRendererFrame): numb
     return 0;
   }
   light.shadow.intensity = 1;
-  // The casters (island + lighthouse) are static and the light direction is
-  // fixed, so the shadow map only needs re-rendering when the scene or frustum
-  // size changes — not every frame. This keeps the extra pass near-zero cost.
+  // The casters (island + lighthouse) are static, so the shadow map only needs
+  // re-rendering when the scene, the frustum size, or the sun's bearing changes
+  // — not every frame. This keeps the extra pass near-zero cost.
   light.shadow.autoUpdate = false;
   if (light.shadow.mapSize.width !== size) {
     light.shadow.mapSize.set(size, size);
@@ -1792,6 +1889,7 @@ function updateSceneForFrame(
   scene.beamClockSeconds = frame.timeSeconds;
   scene.sky.update(phase, {
     reducedMotion: frame.reducedMotion,
+    wallClockHour: frame.wallClockHour,
     viewHeight: gardenCameraViewHeight(frame.height, frame.camera.zoom),
     targetX: camera.position.x - CAMERA_DISTANCE,
     targetZ: camera.position.z - CAMERA_DISTANCE,
@@ -2042,6 +2140,16 @@ function updateSceneForFrame(
     timeSeconds: frame.timeSeconds,
     windAngle: weather.windAngle,
     windSpeed: weather.windSpeed,
+  });
+  // ...and one aerial write gives the whole fleet its recession. Reads the fog
+  // planes the sky already view-scaled above (scene.sky.update runs earlier in
+  // this same function), so the chroma ramp and the haze can never disagree
+  // about where the distance begins.
+  setFleetAerialPerspective({
+    fogNear: scene.sky.fog.near,
+    fogFar: scene.sky.fog.far,
+    strength: GARDEN_FLEET_AERIAL_STRENGTH,
+    zoom: frame.camera.zoom,
   });
   beginFleetFrame(content.fleetBatches);
   const sailTexture = content.sailAtlas.texture;

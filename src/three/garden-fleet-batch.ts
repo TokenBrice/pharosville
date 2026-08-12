@@ -7,6 +7,7 @@ import {
   Group,
   InstancedBufferAttribute,
   InstancedMesh,
+  MathUtils,
   Matrix4,
   MeshStandardMaterial,
   Quaternion,
@@ -130,6 +131,99 @@ const fleetWindUniforms = {
   uWindTime: { value: 0 },
   uWindFlutter: { value: 0 },
 };
+
+/**
+ * Aerial perspective for the batched fleet — the "quiet the carpet" cue.
+ *
+ * The scene's linear fog is calibrated against the MONUMENT (garden-sky.ts):
+ * everything at or below depth 178 reads at zero haze so the island's colour,
+ * which the whole grade is tuned to, cannot move. That is the right call and it
+ * is also why fog alone cannot fix the fleet: at the default framing the ground
+ * plane spans depth ~121–255, so most of ~185 hulls sit below FOG_NEAR and are
+ * rendered at full saturation regardless of where they are in the picture.
+ *
+ * So the fleet carries its own recession, on two axes that fog does not touch:
+ *
+ * 1. **Saturation, by depth.** Real aerial perspective loses CHROMA long before
+ *    it loses value — distant things go grey, not white. Desaturating toward the
+ *    cloth's own luminance keeps every sail's value intact (so the fleet does
+ *    not smear into the water) while draining the brand chroma that makes sixty
+ *    identical rectangles shout. The ramp starts well inside FOG_NEAR, so the
+ *    midground grades continuously instead of stacking the whole cue into the
+ *    top tenth of the frame.
+ *
+ * 2. **Mark legibility, by zoom.** Under a locked orthographic camera, "far
+ *    away" is the top of the screen, not the edge of the fleet — depth and
+ *    apparent size are decoupled. The axis that actually governs whether a
+ *    logo is READABLE is zoom. At whole-map framing a mark is a few pixels of
+ *    high-contrast noise and nothing else; at explore framing it is the point.
+ *    So marks fade out as the camera pulls back and return crisp as it comes
+ *    in, which is the same policy `garden-overview-lod.ts` already applies to
+ *    props, expressed on the sail atlas.
+ *
+ * Identity is not lost, it is relocated: cloth keeps the ship's brand DYE at
+ * every distance (a tinted sail still reads as "that issuer's colour"), and the
+ * mark itself stays available through hover, selection, the detail panel and the
+ * accessibility ledger — which VISUAL_INVARIANTS designates as the redundant
+ * channel for exactly this reason.
+ */
+const fleetAerialUniforms = {
+  uMarkPresence: { value: 1 },
+  uAerialNear: { value: 1e9 },
+  uAerialFar: { value: 1e9 + 1 },
+  uAerialStrength: { value: 0 },
+};
+
+/**
+ * How much of the painted mark survives at a given zoom.
+ *
+ * Floor is deliberately non-zero at the default framing: the sails should read
+ * as cloth that HAS a device on it, seen from across a harbour, rather than as
+ * blank canvas. Fully suppressing the mark tips from restraint into absence.
+ */
+export function gardenFleetMarkPresence(zoom: number): number {
+  const t = MathUtils.clamp((zoom - MARK_FADE_ZOOM) / (MARK_FULL_ZOOM - MARK_FADE_ZOOM), 0, 1);
+  const eased = t * t * (3 - 2 * t);
+  return MARK_MIN_PRESENCE + (1 - MARK_MIN_PRESENCE) * eased;
+}
+
+/** Below this zoom a mark is pixels of noise, so only the floor remains. */
+const MARK_FADE_ZOOM = 0.58;
+/** At and above explore framing the mark is the subject; render it fully. */
+const MARK_FULL_ZOOM = 1.12;
+/** Never fully absent — see `gardenFleetMarkPresence`. */
+const MARK_MIN_PRESENCE = 0.26;
+
+export interface FleetAerialPerspective {
+  /** Scene fog near plane, already view-scaled by garden-sky. */
+  fogNear: number;
+  /** Scene fog far plane, already view-scaled by garden-sky. */
+  fogFar: number;
+  /** Peak chroma loss at the far end, 0..1. */
+  strength: number;
+  zoom: number;
+}
+
+export function setFleetAerialPerspective(aerial: FleetAerialPerspective | null): void {
+  if (!aerial) {
+    fleetAerialUniforms.uMarkPresence.value = 1;
+    fleetAerialUniforms.uAerialStrength.value = 0;
+    fleetAerialUniforms.uAerialNear.value = 1e9;
+    fleetAerialUniforms.uAerialFar.value = 1e9 + 1;
+    return;
+  }
+  fleetAerialUniforms.uMarkPresence.value = gardenFleetMarkPresence(aerial.zoom);
+  // Start the chroma ramp well inside the fog's near plane so the midground
+  // grades continuously; end it with the fog so the two cues resolve together
+  // at the bokashi seam rather than fighting over the horizon band.
+  fleetAerialUniforms.uAerialNear.value = aerial.fogNear * AERIAL_NEAR_FACTOR;
+  fleetAerialUniforms.uAerialFar.value = aerial.fogFar;
+  fleetAerialUniforms.uAerialStrength.value = MathUtils.clamp(aerial.strength, 0, 1);
+}
+
+/** The chroma ramp opens at 62% of the fog's near plane. */
+const AERIAL_NEAR_FACTOR = 0.62;
+
 const pennantWind = { active: false, angle: 0, gust: 0, speed: 0, time: 0 };
 
 export function setFleetWeather(weather: FleetWeather | null): void {
@@ -412,6 +506,10 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uWindTime = fleetWindUniforms.uWindTime;
     shader.uniforms.uWindFlutter = fleetWindUniforms.uWindFlutter;
+    shader.uniforms.uMarkPresence = fleetAerialUniforms.uMarkPresence;
+    shader.uniforms.uAerialNear = fleetAerialUniforms.uAerialNear;
+    shader.uniforms.uAerialFar = fleetAerialUniforms.uAerialFar;
+    shader.uniforms.uAerialStrength = fleetAerialUniforms.uAerialStrength;
     // Sail-local flutter and furling run before hull form, so height and ride
     // cannot change the animation envelope or reopen bundled canvas.
     shader.vertexShader = shader.vertexShader
@@ -419,6 +517,13 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
       .replace(
         "#include <begin_vertex>",
         `#include <begin_vertex>\n${SAIL_LOCAL_DEFORM}\n${HULL_FORM_DEFORM}`,
+      )
+      // Our own depth varying rather than `vViewPosition`: that one is declared
+      // by three's normal chunks and is absent under FLAT_SHADED, so relying on
+      // it would make this patch depend on an unrelated material flag.
+      .replace(
+        "#include <project_vertex>",
+        `#include <project_vertex>\n        vAerialDepth = -mvPosition.z;`,
       )
       .replace(
         "#include <common>",
@@ -432,7 +537,8 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         attribute vec3 aSailHead;
         attribute vec3 aSailTint;
         varying vec2 vAtlasUv;
-        varying vec3 vSailTint;`,
+        varying vec3 vSailTint;
+        varying float vAerialDepth;`,
       )
       .replace(
         "#include <uv_vertex>",
@@ -461,8 +567,13 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
       .replace(
         "#include <common>",
         `#include <common>
+        uniform float uMarkPresence;
+        uniform float uAerialNear;
+        uniform float uAerialFar;
+        uniform float uAerialStrength;
         varying vec2 vAtlasUv;
-        varying vec3 vSailTint;`,
+        varying vec3 vSailTint;
+        varying float vAerialDepth;`,
       )
       // F1: the cloth is DYED per instance and the atlas carries only marks.
       //
@@ -479,7 +590,25 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         "#include <map_fragment>",
         `#ifdef USE_MAP
           vec4 sailTexel = texture2D(map, vAtlasUv);
-          vec3 sailCloth = mix(vSailTint, sailTexel.rgb, sailTexel.a);
+
+          // Aerial perspective. See fleetAerialUniforms for why the fleet needs
+          // its own recession on top of the scene fog.
+          float aerial = smoothstep(uAerialNear, uAerialFar, vAerialDepth);
+
+          // The mark thins with zoom, and thins further with depth. Both are
+          // applied to the atlas ALPHA — "how much of this texel is a mark" —
+          // so a faded mark reveals the ship's own dyed cloth underneath rather
+          // than washing toward a neutral.
+          float markVisibility = uMarkPresence * (1.0 - aerial * 0.8);
+          vec3 sailCloth = mix(vSailTint, sailTexel.rgb, sailTexel.a * markVisibility);
+
+          // Chroma, not value: converge toward the cloth's OWN luminance so the
+          // sail keeps its place in the value structure while its brand colour
+          // recedes. Desaturating toward a constant instead would flatten the
+          // far fleet into a single grey mass and lose the silhouettes.
+          float clothLuma = dot(sailCloth, vec3(0.2126, 0.7152, 0.0722));
+          sailCloth = mix(sailCloth, vec3(clothLuma), aerial * uAerialStrength);
+
           diffuseColor.rgb *= sailCloth;
           // The night backlight is THIS ship's cloth glowing, not a cream wash
           // laid over it.
@@ -501,7 +630,7 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         #endif`,
       );
   };
-  material.customProgramCacheKey = () => "garden-fleet-sail-atlas-hull-form-dye-furl-emissive-trim";
+  material.customProgramCacheKey = () => "garden-fleet-sail-atlas-hull-form-dye-furl-emissive-trim-aerial";
 }
 
 function createInstancedPart(
