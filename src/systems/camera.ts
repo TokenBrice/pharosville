@@ -6,6 +6,7 @@ import {
   tileToIso,
   zoomCameraAt,
 } from "./projection";
+import { MIN_LONG_SIDE_PX, MIN_SHORT_SIDE_PX } from "./viewport-gate";
 
 export interface CameraBoundsInput {
   map: MapLike;
@@ -36,19 +37,22 @@ export function defaultCamera(input: {
     ...input,
     padding: cameraPadding(),
   });
-  // Standard desktops tighten the authored fit by 8%. At the 720px short-side
-  // floor the extra zoom clipped the lighthouse crown, so the exact 900×720
-  // boundary keeps the actual fit. Extra room on either side restores the
-  // standard composition monotonically.
+  // Standard desktops tighten the authored fit by 8%. Compact-height laptop
+  // windows use the actual fit so the lighthouse crown stays visible; once
+  // the short side reaches the standard 720px floor, extra room on either side
+  // restores the standard composition monotonically.
+  const shortSide = Math.min(input.width, input.height);
   const shortSideProgress = Math.max(
     0,
-    Math.min(1, (Math.min(input.width, input.height) - 720) / 280),
+    Math.min(1, (shortSide - MIN_SHORT_SIDE_PX) / 280),
   );
   const longSideProgress = Math.max(
     0,
-    Math.min(1, (Math.max(input.width, input.height) - 900) / 100),
+    Math.min(1, (Math.max(input.width, input.height) - MIN_LONG_SIDE_PX) / 100),
   );
-  const compositionProgress = Math.max(shortSideProgress, longSideProgress);
+  const compositionProgress = shortSide < MIN_SHORT_SIDE_PX
+    ? 0
+    : Math.max(shortSideProgress, longSideProgress);
   const tightenFactor = 1 + compositionProgress * 0.08;
   const tightened = zoomCameraAt(
     fitted,

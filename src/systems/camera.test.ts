@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { cameraZoomLabel, clampCameraToMap, defaultCamera, followTile, panCamera, zoomIn, zoomOut } from "./camera";
 import { ABSOLUTE_MIN_ZOOM, minZoomForViewport, tileToScreen } from "./projection";
+import { MIN_LONG_SIDE_PX, MIN_SHORT_SIDE_PX } from "./viewport-gate";
 import { buildPharosVilleMap, CEMETERY_CENTER, isWaterTileKind, PHAROSVILLE_MAP_HEIGHT, PHAROSVILLE_MAP_WIDTH, PIGEON_ISLAND_CENTER } from "./world-layout";
 import type { TerrainKind } from "./world-types";
 
@@ -34,21 +35,25 @@ describe("camera", () => {
       { x: 1440, y: 1000 },
       { x: 1280, y: 760 },
       { x: 1000, y: 640 },
+      { x: 1200, y: 640 },
       { x: 900, y: 720 },
       { x: 720, y: 900 },
     ]) {
       const camera = defaultCamera({ height: viewport.y, map, width: viewport.x });
       const center = tileToScreen(centerTile, camera);
 
+      const shortSide = Math.min(viewport.x, viewport.y);
       const shortSideProgress = Math.max(
         0,
-        Math.min(1, (Math.min(viewport.x, viewport.y) - 720) / 280),
+        Math.min(1, (shortSide - MIN_SHORT_SIDE_PX) / 280),
       );
       const longSideProgress = Math.max(
         0,
-        Math.min(1, (Math.max(viewport.x, viewport.y) - 900) / 100),
+        Math.min(1, (Math.max(viewport.x, viewport.y) - MIN_LONG_SIDE_PX) / 100),
       );
-      const compositionProgress = Math.max(shortSideProgress, longSideProgress);
+      const compositionProgress = shortSide < MIN_SHORT_SIDE_PX
+        ? 0
+        : Math.max(shortSideProgress, longSideProgress);
       expect(camera.zoom).toBeCloseTo(0.72 * (1 + compositionProgress * 0.08));
       // The constant 128px right-gutter is proportionally largest in the
       // 720px-wide tall case; the island remains intentionally left of center.

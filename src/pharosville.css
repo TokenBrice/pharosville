@@ -1587,7 +1587,7 @@ textarea {
   outline-offset: 3px;
 }
 
-/* The runtime's smallest admitted viewport is 720x900px. Keep its
+/* The runtime's compact-height profile is 1200x640px. Keep smaller-width views'
    inspector readable and reserve the lower-right strip for touch-sized world
    controls without hiding essential footer navigation. */
 @media (max-width: 900px) {

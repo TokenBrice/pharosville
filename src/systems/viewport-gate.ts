@@ -10,20 +10,29 @@
 
 export const MIN_LONG_SIDE_PX = 900;
 export const MIN_SHORT_SIDE_PX = 720;
+export const MIN_WIDE_LONG_SIDE_PX = 1200;
+export const MIN_WIDE_SHORT_SIDE_PX = 640;
 
 /**
  * Can this DEVICE show the map at all, in its best orientation?
  *
  * Orientation-free on purpose: a phone that is 390x844 has the same capability
  * whichever way up it is held, and the answer to "should this device ever mount
- * the world" must not flip when the user rotates it. The longer side needs
- * 900 CSS pixels and the shorter side 720: real-GPU review found that
- * 720x640 and 720x720 leave the landmark and chrome too compressed.
+ * the world" must not flip when the user rotates it. The standard profile needs
+ * 900x720 CSS pixels. A wide-window profile also
+ * admits 1200x640, which keeps laptop screens chartable when browser chrome or
+ * zoom trims the viewport height. Sorting the sides keeps this a monotonic
+ * size test rather than an orientation or aspect-ratio gate.
  */
 export function isWidescreenViewport(width: number, height: number): boolean {
   if (!width || !height) return false;
-  return Math.max(width, height) >= MIN_LONG_SIDE_PX
-    && Math.min(width, height) >= MIN_SHORT_SIDE_PX;
+  const longSide = Math.max(width, height);
+  const shortSide = Math.min(width, height);
+  const standardProfile = longSide >= MIN_LONG_SIDE_PX
+    && shortSide >= MIN_SHORT_SIDE_PX;
+  const wideProfile = longSide >= MIN_WIDE_LONG_SIDE_PX
+    && shortSide >= MIN_WIDE_SHORT_SIDE_PX;
+  return standardProfile || wideProfile;
 }
 
 /**
@@ -42,8 +51,8 @@ export function isWidescreenViewport(width: number, height: number): boolean {
  * The real question is whether the viewport has the room, so that is what is
  * measured. The same monotonic max/min test applies to the viewport: adding
  * room along either side can never take the world away. A phone still fails;
- * both a 720x1000 tall window and a 2560x720 ultrawide window pass without an
- * orientation, aspect-ratio, or device-label query.
+ * a 720x1000 tall window, a 1200x640 laptop window, and a 2560x720 ultrawide
+ * window all pass without an orientation, aspect-ratio, or device-label query.
  */
 export function canViewportShowMap(width: number, height: number): boolean {
   return isWidescreenViewport(width, height);

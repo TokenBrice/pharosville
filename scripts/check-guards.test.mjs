@@ -277,6 +277,8 @@ assert.deepEqual(validateStaticHeadersText(readFileSync(resolve("public/_headers
 const viewportGateSource = [
   "export const MIN_LONG_SIDE_PX = 720;",
   "export const MIN_SHORT_SIDE_PX = 360;",
+  "export const MIN_WIDE_LONG_SIDE_PX = 1200;",
+  "export const MIN_WIDE_SHORT_SIDE_PX = 640;",
 ].join("\n");
 const viewportGateClient = [
   'import { isWidescreenViewport } from "./systems/viewport-gate";',
@@ -288,7 +290,12 @@ const viewportGateCheck = checkViewportGate({
   clientSource: viewportGateClient,
 });
 assert.deepEqual(viewportGateCheck.errors, []);
-assert.deepEqual(viewportGateCheck.gate, { longSide: 720, shortSide: 360 });
+assert.deepEqual(viewportGateCheck.gate, {
+  longSide: 720,
+  shortSide: 360,
+  wideLongSide: 1200,
+  wideShortSide: 640,
+});
 
 const driftedViewportGateCheck = checkViewportGate({
   gateSource: viewportGateSource,
@@ -302,10 +309,13 @@ assert.deepEqual(driftedViewportGateCheck.errors, [
 ]);
 assert.throws(
   () => checkViewportGate({
-    gateSource: "export const MIN_LONG_SIDE_PX = 720;",
+    gateSource: [
+      "export const MIN_LONG_SIDE_PX = 720;",
+      "export const MIN_SHORT_SIDE_PX = 360;",
+    ].join("\n"),
     clientSource: viewportGateClient,
   }),
-  /Could not parse MIN_LONG_SIDE_PX \/ MIN_SHORT_SIDE_PX/,
+  /Could not parse standard and wide-profile thresholds/,
 );
 
 const packageJson = JSON.parse(readFileSync(resolve("package.json"), "utf8"));

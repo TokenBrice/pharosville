@@ -4,6 +4,8 @@ import {
   isWidescreenViewport,
   MIN_LONG_SIDE_PX,
   MIN_SHORT_SIDE_PX,
+  MIN_WIDE_LONG_SIDE_PX,
+  MIN_WIDE_SHORT_SIDE_PX,
 } from "./viewport-gate";
 
 describe("isWidescreenViewport", () => {
@@ -15,12 +17,18 @@ describe("isWidescreenViewport", () => {
     expect(isWidescreenViewport(1080, 1920)).toBe(true);
   });
 
-  it("rejects screens below either floor, and missing dimensions", () => {
-    // Both floors apply to the sorted sides, so the long-side failure has to be
-    // a screen whose LONGER side is short — not merely a narrow tall one.
+  it("rejects screens below both supported profiles, and missing dimensions", () => {
     expect(isWidescreenViewport(MIN_LONG_SIDE_PX - 1, MIN_SHORT_SIDE_PX)).toBe(false);
-    expect(isWidescreenViewport(1920, MIN_SHORT_SIDE_PX - 1)).toBe(false);
+    expect(isWidescreenViewport(MIN_WIDE_LONG_SIDE_PX - 1, MIN_SHORT_SIDE_PX - 1)).toBe(false);
+    expect(isWidescreenViewport(1920, MIN_WIDE_SHORT_SIDE_PX - 1)).toBe(false);
     expect(isWidescreenViewport(0, 0)).toBe(false);
+  });
+
+  it("admits a 1200px-wide laptop window without weakening the short narrow profile", () => {
+    expect(isWidescreenViewport(MIN_WIDE_LONG_SIDE_PX, MIN_WIDE_SHORT_SIDE_PX)).toBe(true);
+    expect(isWidescreenViewport(MIN_WIDE_SHORT_SIDE_PX, MIN_WIDE_LONG_SIDE_PX)).toBe(true);
+    expect(isWidescreenViewport(MIN_WIDE_LONG_SIDE_PX - 1, MIN_WIDE_SHORT_SIDE_PX)).toBe(false);
+    expect(isWidescreenViewport(MIN_WIDE_LONG_SIDE_PX, MIN_WIDE_SHORT_SIDE_PX - 1)).toBe(false);
   });
 });
 
@@ -45,6 +53,7 @@ describe("canViewportShowMap", () => {
     // blocked outright. A tall viewport remains valid because these are direct
     // size tests, not an orientation or aspect-ratio test.
     expect(canViewportShowMap(MIN_SHORT_SIDE_PX, 1000)).toBe(true);
+    expect(canViewportShowMap(MIN_WIDE_LONG_SIDE_PX, MIN_WIDE_SHORT_SIDE_PX)).toBe(true);
     expect(canViewportShowMap(2560, MIN_SHORT_SIDE_PX)).toBe(true);
     expect(canViewportShowMap(820, 1180)).toBe(true);
     expect(canViewportShowMap(600, 960)).toBe(false);
@@ -55,6 +64,8 @@ describe("canViewportShowMap", () => {
     expect(canViewportShowMap(MIN_SHORT_SIDE_PX, MIN_LONG_SIDE_PX - 1)).toBe(false);
     expect(canViewportShowMap(MIN_SHORT_SIDE_PX, MIN_LONG_SIDE_PX)).toBe(true);
     expect(canViewportShowMap(MIN_LONG_SIDE_PX, MIN_SHORT_SIDE_PX)).toBe(true);
+    expect(canViewportShowMap(MIN_WIDE_LONG_SIDE_PX - 1, MIN_WIDE_SHORT_SIDE_PX)).toBe(false);
+    expect(canViewportShowMap(MIN_WIDE_LONG_SIDE_PX, MIN_WIDE_SHORT_SIDE_PX)).toBe(true);
   });
 
   it("uses the same orientation-free size predicate as the physical screen", () => {

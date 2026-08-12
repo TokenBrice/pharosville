@@ -4,6 +4,8 @@ import {
   canViewportShowMap,
   MIN_LONG_SIDE_PX,
   MIN_SHORT_SIDE_PX,
+  MIN_WIDE_LONG_SIDE_PX,
+  MIN_WIDE_SHORT_SIDE_PX,
 } from "../../src/systems/viewport-gate";
 import {
   denyPharosVilleViewportGatedRequests,
@@ -153,13 +155,18 @@ test(...visualLane("dom", "a capable screen with one blocked viewport dimension 
   expect(deniedRequests).toEqual([]);
 });
 
-test(...visualLane("static", "active runtime chrome fits the first passing, tall, standard, and ultrawide viewports"), async ({
+test(...visualLane("static", "active runtime chrome fits laptop, tall, standard, and ultrawide viewports"), async ({
   page,
 }) => {
   const viewports = [
     {
+      height: MIN_WIDE_SHORT_SIDE_PX,
+      name: "1200px-wide laptop",
+      width: MIN_WIDE_LONG_SIDE_PX,
+    },
+    {
       height: MIN_LONG_SIDE_PX,
-      name: "first passing",
+      name: "standard first passing",
       width: MIN_SHORT_SIDE_PX,
     },
     { height: 1000, name: "tall desktop", width: 720 },
@@ -175,7 +182,7 @@ test(...visualLane("static", "active runtime chrome fits the first passing, tall
 
   await mockDensePharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await mockScreenSize(page, 2560, 1440);
+  await mockScreenSize(page, MIN_WIDE_LONG_SIDE_PX, MIN_WIDE_SHORT_SIDE_PX);
   await page.setViewportSize(viewports[0]);
   await installWallClockOverride(page, 12);
   await page.goto("/?debug=1#sel=ship.satusd-river&t=12");

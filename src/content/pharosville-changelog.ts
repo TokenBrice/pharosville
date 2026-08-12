@@ -12,6 +12,19 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-08-12-roomier-harbor",
+    version: PHAROSVILLE_RELEASE_VERSIONS.roomierHarbor,
+    date: "2026-08-12",
+    title: "Roomier Harbor",
+    summary: "PharosVille now charts on 14-inch laptop displays and zoomed desktop windows without weakening the mobile no-fetch boundary.",
+    bullets: [
+      "Added a 1200×640 wide-laptop size profile alongside the existing 900×720 desktop profile, admitting MacBook-class windows whose usable height is reduced by browser chrome or zoom.",
+      "Kept compact-height framing safe by using the fitted camera instead of the tighter desktop crop, preserving the lighthouse crown, controls, footer, and selected detail panel inside the visible window.",
+      "Extended viewport guards, browser coverage, fallback guidance, and generated runtime facts so the wider support contract remains synchronized while undersized screens still load no world data or Three.js runtime.",
+    ],
+    source: "Patch release for the 2026-08-12 laptop viewport regression after v0.7.0.",
+  },
+  {
     id: "2026-07-30-living-sea",
     version: PHAROSVILLE_RELEASE_VERSIONS.livingSea,
     date: "2026-07-30",
