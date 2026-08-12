@@ -60,10 +60,26 @@ import { chromium } from "playwright";
 import { analyzeArtifactFlashFrames } from "./artifact-flash-metric.mjs";
 
 /**
- * The wrapper, not the binary. See the header: this is what applies the
- * operator's chrome-flags.conf and so what puts rendering on the real GPU.
+ * The operator's own Chrome, per platform — never Playwright's bundle.
+ *
+ * On Linux this is deliberately the WRAPPER, not the binary. See the header:
+ * `/usr/bin/google-chrome-stable` is what applies the operator's
+ * `chrome-flags.conf` and so what puts rendering on the real GPU;
+ * `/opt/google/chrome/chrome` skips it and lands on SwiftShader.
+ *
+ * On macOS there is no wrapper and no flags file to apply: the app bundle's
+ * binary already resolves to the system GPU through ANGLE/Metal (measured
+ * 2026-08-13 on an M5 Pro — `ANGLE (Apple, ANGLE Metal Renderer: Apple M5 Pro)`
+ * at a steady 120 fps, tier `full`). The SwiftShader assertion below is what
+ * keeps that claim honest on either platform, so the resolution can differ
+ * while the guarantee does not.
  */
-const SYSTEM_CHROME = "/usr/bin/google-chrome-stable";
+const SYSTEM_CHROME_BY_PLATFORM = {
+  darwin: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  linux: "/usr/bin/google-chrome-stable",
+  win32: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+};
+const SYSTEM_CHROME = SYSTEM_CHROME_BY_PLATFORM[process.platform] ?? SYSTEM_CHROME_BY_PLATFORM.linux;
 
 /** Exit code for "did not measure" — distinct from 1, which means "measured, and it regressed". */
 const SKIP_EXIT_CODE = 78;
@@ -211,9 +227,11 @@ try {
     } else {
       console.error(
         `\nRefusing to report: this is a SOFTWARE rasteriser, so any frame time or\n`
-        + `scheduler tier below would be fiction. Check that ${chromePath} exists and\n`
-        + `is the wrapper script (not /opt/google/chrome/chrome, which skips the\n`
-        + `operator's chrome-flags.conf and lands on SwiftShader).`,
+        + `scheduler tier below would be fiction. Check that ${chromePath} exists`
+        + (process.platform === "linux"
+          ? `\nand is the wrapper script (not /opt/google/chrome/chrome, which skips the\n`
+            + `operator's chrome-flags.conf and lands on SwiftShader).`
+          : ` and is the operator's\nreal Chrome, not Playwright's bundled Chromium.`),
       );
       process.exitCode = 1;
     }
@@ -890,7 +908,7 @@ async function decodeLuminanceGrid(page, base64) {
  */
 async function findUnmeasurableReason() {
   if (process.env.CI) return "running under CI, whose runners have no GPU";
-  if (!existsSync(chromePath)) return `no Chrome wrapper at ${chromePath}`;
+  if (!existsSync(chromePath)) return `no operator Chrome at ${chromePath}`;
   if (process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
     return "no X11 or Wayland display, so Chrome cannot reach the operator's GPU";
   }
