@@ -2,6 +2,17 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v0.7.1 - 2026-08-12 - Roomier Harbor
+
+PharosVille now charts on 14-inch laptop displays and zoomed desktop windows
+without weakening the mobile no-fetch boundary.
+
+Patch release for the 2026-08-12 laptop viewport regression after v0.7.0.
+
+- Added a 1200×640 wide-laptop size profile alongside the existing 900×720 desktop profile, admitting MacBook-class windows whose usable height is reduced by browser chrome or zoom.
+- Kept compact-height framing safe by using the fitted camera instead of the tighter desktop crop, preserving the lighthouse crown, controls, footer, and selected detail panel inside the visible window.
+- Extended viewport guards, browser coverage, fallback guidance, and generated runtime facts so the wider support contract remains synchronized while undersized screens still load no world data or Three.js runtime.
+
 ## v0.7.0 - 2026-07-30 - Living Sea
 
 The harbor becomes a more responsive analytical place: weather, water, sails,

@@ -13,6 +13,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   trueColors: "v0.6.1",
   rightfulColors: "v0.6.2",
   livingSea: "v0.7.0",
+  roomierHarbor: "v0.7.1",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.livingSea;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.roomierHarbor;

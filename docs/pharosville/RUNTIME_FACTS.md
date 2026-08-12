@@ -10,15 +10,15 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - Renderer: one production Three.js/WebGL renderer
 - GPU or renderer failure fallback: interactive DOM signal overview; no alternate 2D renderer
 - Runtime model namespace: `/pharosville/models/`
-- Latest app version: `v0.7.0` (`livingSea`)
-- Latest changelog entry: `2026-07-30-living-sea` / `v0.7.0` / 2026-07-30 / Living Sea
+- Latest app version: `v0.7.1` (`roomierHarbor`)
+- Latest changelog entry: `2026-08-12-roomier-harbor` / `v0.7.1` / 2026-08-12 / Roomier Harbor
 
 ## Viewport Gate
 
-- Long side minimum: `900px`
-- Short side minimum: `720px`
-- Device capability and current-viewport readiness independently sort their own dimensions against those two size floors.
-- Orientation and aspect ratio are not gates: a 720x1000 tall viewport and a 2560x720 ultrawide viewport both pass.
+- Standard profile: `900×720px`
+- Wide-laptop profile: `1200×640px`
+- Device capability and current-viewport readiness independently sort their own dimensions and must satisfy either size profile.
+- Orientation and aspect ratio are not gates: a 720×1000 tall viewport, a 1200×640 laptop viewport, and a 2560×720 ultrawide viewport all pass.
 - `src/client.tsx` lazy-loads the desktop data and Three.js runtime only after that gate; `npm run check:viewport-gate` guards the boundary.
 
 ## API Allowlist

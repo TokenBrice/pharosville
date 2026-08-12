@@ -16,10 +16,10 @@ Browser → /api/<allowlisted read path> → Pages Function → PHAROS_API_BASE
 - `functions/api/[[path]].ts` permits only registry-backed `GET` endpoints and
   injects `PHAROS_API_KEY` server-side. The key never belongs in client code,
   URLs, logs, docs, or fixtures.
-- `src/client.tsx` is the gate. The physical screen capability test requires a
-  900px long side and a 720px short side; the current-window test applies those
-  same two dimension floors to the current viewport before it lazy-loads
-  desktop data. Neither test uses viewport orientation or aspect ratio.
+- `src/client.tsx` is the gate. The physical screen and current-window tests
+  each admit either the standard 900×720 profile or the wide-laptop 1200×640
+  profile before lazy-loading desktop data. Dimensions are sorted, so neither
+  test uses viewport orientation or aspect ratio.
 - Blocked screens render a DOM fallback or rotate prompt. They must not query
   the world, import the Three.js runtime, decode logos, or request models.
 

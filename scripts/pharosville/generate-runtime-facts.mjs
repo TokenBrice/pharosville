@@ -76,6 +76,8 @@ function parseViewportFacts(repoRoot) {
   return {
     longSide: normalizeNumber(matchRequired(source, /MIN_LONG_SIDE_PX\s*=\s*([\d_]+)/, "long-side gate")[1]),
     shortSide: normalizeNumber(matchRequired(source, /MIN_SHORT_SIDE_PX\s*=\s*([\d_]+)/, "short-side gate")[1]),
+    wideLongSide: normalizeNumber(matchRequired(source, /MIN_WIDE_LONG_SIDE_PX\s*=\s*([\d_]+)/, "wide-profile long-side gate")[1]),
+    wideShortSide: normalizeNumber(matchRequired(source, /MIN_WIDE_SHORT_SIDE_PX\s*=\s*([\d_]+)/, "wide-profile short-side gate")[1]),
   };
 }
 
@@ -297,10 +299,10 @@ export function buildRuntimeFactsMarkdown({ repoRoot = process.cwd() } = {}) {
     "",
     "## Viewport Gate",
     "",
-    `- Long side minimum: \`${viewport.longSide}px\``,
-    `- Short side minimum: \`${viewport.shortSide}px\``,
-    "- Device capability and current-viewport readiness independently sort their own dimensions against those two size floors.",
-    "- Orientation and aspect ratio are not gates: a 720x1000 tall viewport and a 2560x720 ultrawide viewport both pass.",
+    `- Standard profile: \`${viewport.longSide}×${viewport.shortSide}px\``,
+    `- Wide-laptop profile: \`${viewport.wideLongSide}×${viewport.wideShortSide}px\``,
+    "- Device capability and current-viewport readiness independently sort their own dimensions and must satisfy either size profile.",
+    "- Orientation and aspect ratio are not gates: a 720×1000 tall viewport, a 1200×640 laptop viewport, and a 2560×720 ultrawide viewport all pass.",
     "- `src/client.tsx` lazy-loads the desktop data and Three.js runtime only after that gate; `npm run check:viewport-gate` guards the boundary.",
     "",
     "## API Allowlist",
