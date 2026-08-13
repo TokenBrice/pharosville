@@ -118,6 +118,7 @@ vi.mock("./garden-post", () => ({
           ...(bloomEnabled ? ["bloom"] : []),
           "grade",
           "output",
+          "lut",
           "smaa",
         ]
         : [])),
@@ -404,7 +405,8 @@ describe("Three world renderer lifecycle", () => {
     expect(post.setAOQuality).toHaveBeenLastCalledWith("full");
     expect(post.render).toHaveBeenCalled();
     expect(full.composerEnabled).toBe(true);
-    expect(full.postPassList).toEqual(["render", "n8ao", "bloom", "grade", "output", "smaa"]);
+    expect(full.postPassList)
+      .toEqual(["render", "n8ao", "bloom", "grade", "output", "lut", "smaa"]);
 
     // Recovery keeps the composer and eases AO away instead of flashing the
     // local grounding multiply off in one frame. The previous quality stays
@@ -431,7 +433,7 @@ describe("Three world renderer lifecycle", () => {
     expect(post.setBloomEnabled).toHaveBeenLastCalledWith(false);
     expect(post.setAOTierWeight).toHaveBeenLastCalledWith(0);
     expect(constrained.composerEnabled).toBe(true);
-    expect(constrained.postPassList).toEqual(["render", "grade", "output", "smaa"]);
+    expect(constrained.postPassList).toEqual(["render", "grade", "output", "lut", "smaa"]);
 
     renderer.dispose();
     expect(post.dispose).toHaveBeenCalledTimes(1);

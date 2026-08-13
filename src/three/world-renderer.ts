@@ -18,7 +18,7 @@ import {
   MeshStandardMaterial,
   Object3D,
   OrthographicCamera,
-  PCFSoftShadowMap,
+  PCFShadowMap,
   PointLight,
   Quaternion,
   Scene,
@@ -233,8 +233,23 @@ const GARDEN_FLEET_AERIAL_STRENGTH = 0.4;
 
 /** The Pharos crown — the tallest thing that casts, and so what sizes the frustum. */
 const SHADOW_CASTER_HEIGHT = 34;
-/** Island half-extent the shadow frustum must always contain. */
-const SHADOW_ISLAND_RADIUS = 30;
+/**
+ * Half-extent of the STATIC world the shadow frustum must always contain.
+ *
+ * W2.2 raised this from 30 (the island's own footprint) to cover the harbour
+ * ring as well, now that the quays, warehouses, cranes, breakwaters and lamp
+ * posts are casters. 44 is the measured worst case: harbours are sited on an
+ * ellipse ~22 x 18 world units off the island centre and grow seaward with
+ * supply, and a full sweep of bearings with EVERY harbour pinned at the top of
+ * the supply band (harborAmountScale saturates at ~5e11) puts the outermost
+ * geometry — a `grand` enclosure's breakwater arm — at 43.6 units. Locked by
+ * `harbour ring fits inside the static shadow frustum` in
+ * world-renderer.test.ts, which rebuilds that sweep.
+ *
+ * Ships are deliberately NOT part of this: they move, and a moving caster would
+ * force a per-frame map re-render (see updateShadows).
+ */
+export const GARDEN_SHADOW_STATIC_RADIUS = 44;
 /**
  * Ground reach cap for the frustum offset. At the key light's floor elevation
  * the tower's true reach is ~280 units, far past anything the eye can follow
@@ -242,13 +257,26 @@ const SHADOW_ISLAND_RADIUS = 30;
  * actually reads.
  */
 const SHADOW_MAX_REACH = 150;
-/** How far up the light sits; only has to clear the casters for near/far. */
-const SHADOW_LIGHT_DISTANCE = 90;
+/**
+ * How far back along its own direction the shadow light sits.
+ *
+ * W2.2 raised this from 90, which was too short and had been quietly clipping
+ * casters at low sun. The frustum centre is pushed up to SHADOW_MAX_REACH/2
+ * downstream of the island (73 units in the light's own axis at the elevation
+ * where the reach cap bites), so a caster on the SUNWARD rim of the static
+ * radius sat 90 − 73 − 44 ≈ −27 units from the light: behind its near plane,
+ * and therefore casting nothing. It has to clear
+ * SHADOW_MAX_REACH/2 + GARDEN_SHADOW_STATIC_RADIUS + SHADOW_CASTER_HEIGHT with
+ * margin — hence 170, which leaves the nearest caster ~43 units in front of the
+ * near plane. Ortho projection, so distance costs no quality; it only widens
+ * the depth range the `bias` constant is expressed in (see below).
+ */
+const SHADOW_LIGHT_DISTANCE = 170;
 /**
  * How far the sun must swing before the static-caster shadow map is redrawn.
  *
- * ~0.6°, comfortably finer than the softest shadow edge a 1024² map over a
- * ±42 frustum can resolve, so the re-steer is never visible as a step.
+ * ~0.6°, comfortably finer than the softest shadow edge a 2048² map over a
+ * ±61 frustum can resolve, so the re-steer is never visible as a step.
  */
 const SHADOW_RESTEER_RADIANS = 0.01;
 
@@ -384,6 +412,15 @@ function textureOwnerCensus(root: Scene, rendererTextures: number): TextureOwner
   if (root.environment && !ownerByTexture.has(root.environment)) {
     ownerByTexture.set(root.environment, "environment.pmrem");
   }
+  // KNOWN UNATTRIBUTED: the post chain's own textures. The census walks the
+  // SCENE, and `scene.environment` is the only non-mesh owner it can reach from
+  // here; the grade pass's authored LUT and blue-noise images (garden-post.ts)
+  // hang off effect uniforms the scene graph never sees, so they land in
+  // `minimumUnattributedRendererTextures` alongside the composer's own render
+  // targets. Attributing them would mean garden-post exposing a texture
+  // manifest and this function taking a second source — new machinery for a
+  // diagnostic, deliberately not built (W2.2 rider). Two of the unattributed
+  // textures reported on a healthy full-tier frame are these.
   const ownerCounts = new Map<string, number>();
   for (const owner of ownerByTexture.values()) {
     ownerCounts.set(owner, (ownerCounts.get(owner) ?? 0) + 1);
@@ -416,11 +453,20 @@ export function createThreeWorldRenderer(
   renderer.outputColorSpace = SRGBColorSpace;
   renderer.toneMapping = AgXToneMapping;
   renderer.toneMappingExposure = 1.12;
-  // D3: soft island-only shadows. Shadow support is compiled once (enabled +
-  // castShadow stay on); per-tier cost is driven at runtime via shadow.intensity
-  // and mapSize (see updateShadows), which avoids material recompile stalls.
+  // D3 / W2.2: soft harbour-wide static shadows. Shadow support is compiled once
+  // (enabled + castShadow stay on); per-tier cost is driven at runtime via
+  // shadow.intensity and mapSize (see updateShadows), which avoids material
+  // recompile stalls.
+  //
+  // W2.2 correction: this said `PCFSoftShadowMap`, which three 0.185 rewrites to
+  // `PCFShadowMap` on the first shadow render while logging a deprecation
+  // warning (WebGLShadowMap.js:99). So the world has been drawing PCF all along
+  // and the softness knob is `shadow.radius` (Vogel-disk sample radius in
+  // texels, hardware-PCF filtered — 5 taps ≈ 20 filtered taps), not the map
+  // type. Naming the type we actually get makes that knob findable and drops
+  // the warning.
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = PCFSoftShadowMap;
+  renderer.shadowMap.type = PCFShadowMap;
   // See the reset in `render` — the frame's totals are accumulated by hand
   // so the composer's passes do not clobber the scene's counts.
   renderer.info.autoReset = false;
@@ -1042,21 +1088,37 @@ function createGardenScene(
   // ≈ 24 units once projected into the light's view plane, still inside the
   // ±30 shadow frustum below.
   directionalLight.position.set(-35, 48, -30);
-  // Tight ortho frustum fitted to the island plus the L1 tower's long day
-  // shadow (~60-unit box — the 34-unit crown would clip at the old ±22);
-  // updateShadows re-centres it on the island each frame and toggles cost
-  // per tier.
+  // Tight ortho frustum fitted to the island, the harbour ring around it (W2.2)
+  // and the L1 tower's long day shadow; updateShadows re-fits and re-centres it
+  // each frame and toggles cost per tier.
   directionalLight.castShadow = true;
-  directionalLight.shadow.mapSize.set(1024, 1024);
-  directionalLight.shadow.bias = -0.0005;
-  directionalLight.shadow.normalBias = 0.8;
+  directionalLight.shadow.mapSize.set(2048, 2048);
+  // W2.2 bias hygiene. The old pair (-0.0005 / 0.8) was fitted to a 1024 map
+  // over the island alone — one texel was ~0.06 units there, so a 0.8-unit
+  // normal offset was ~13 texels of slop, which the island's chunky terraces
+  // hid but the harbour's thin dock planks and quay copings would not (offsets
+  // that large slide a plank's shadow off the plank — peter-panning). At
+  // 2048 over the wider fit a texel is ~0.043 units, so the offset can come
+  // down to ~8 texels and still clear acne on the terraces.
+  //
+  // `bias` is in normalized depth, so it scales with the ortho depth range:
+  // -0.00025 over the 215-unit near/far span below is ~0.054 world units, the
+  // same constant slop the old -0.0005 bought over its 139-unit span. The
+  // longer light distance is a fix, not a retune (see SHADOW_LIGHT_DISTANCE).
+  directionalLight.shadow.bias = -0.00025;
+  directionalLight.shadow.normalBias = 0.35;
+  // Vogel-disk PCF radius, in texels (see the shadowMap.type note above). 4
+  // texels ≈ 0.17 world units of penumbra at the full-tier fit: soft enough
+  // that a crane leg reads as light rather than as a decal, tight enough that
+  // a bollard still touches the deck it stands on.
+  directionalLight.shadow.radius = 4;
   const shadowCamera = directionalLight.shadow.camera;
-  shadowCamera.left = -30;
-  shadowCamera.right = 30;
-  shadowCamera.top = 30;
-  shadowCamera.bottom = -30;
+  shadowCamera.left = -GARDEN_SHADOW_STATIC_RADIUS;
+  shadowCamera.right = GARDEN_SHADOW_STATIC_RADIUS;
+  shadowCamera.top = GARDEN_SHADOW_STATIC_RADIUS;
+  shadowCamera.bottom = -GARDEN_SHADOW_STATIC_RADIUS;
   shadowCamera.near = 1;
-  shadowCamera.far = 140;
+  shadowCamera.far = SHADOW_LIGHT_DISTANCE + GARDEN_SHADOW_STATIC_RADIUS + 2;
   shadowCamera.updateProjectionMatrix();
   root.add(directionalLight);
 
@@ -1365,6 +1427,46 @@ function registerLightLanes(
   }
 }
 
+/**
+ * Named harbour meshes that are static and lit but must never enter the shadow
+ * map: they ARE the light. A lamp head or a lit warehouse window dropping its
+ * own shadow reads as a bug at any hour, and at low sun it reads as a smear.
+ */
+const SHADOW_CASTER_EXCLUDED_NAMES = new Set([
+  "dock-lamp-heads",
+  "dock-warehouse-windows",
+]);
+
+/**
+ * Flags one static subtree for the directional map: every lit surface casts,
+ * every surface receives.
+ *
+ * Casting is keyed on MeshStandardMaterial because that is what "a real lit
+ * surface" means in this world — the flat MeshBasicMaterial discs (island
+ * shoal, harbour district pads, zone tints) are transparent paint on the water
+ * and would stamp hard-edged silhouettes if they were ever allowed in.
+ *
+ * `castsShadows` lets a caller keep a subtree as a receiver only. That is what
+ * the docks' LOD-toggled fine detail needs: the map is rendered on re-steer and
+ * content change, NOT per frame (updateShadows), so anything whose `visible`
+ * flips with zoom or hover would leave its shadow behind — or lose it — until
+ * the next re-steer. Receiving has no such hazard: it is sampled per frame by
+ * the material.
+ */
+function flagStaticShadowUsers(root: Object3D, castsShadows = true): void {
+  root.traverse((object) => {
+    if (!(object instanceof Mesh) && !(object instanceof InstancedMesh)) return;
+    const material = object.material;
+    const lit = Array.isArray(material)
+      ? material.some((entry) => entry instanceof MeshStandardMaterial)
+      : material instanceof MeshStandardMaterial;
+    object.castShadow = castsShadows
+      && lit
+      && !SHADOW_CASTER_EXCLUDED_NAMES.has(object.name);
+    object.receiveShadow = true;
+  });
+}
+
 function createWorldContent(
   world: PharosVilleWorld,
   selectedDetailId: string | null,
@@ -1379,17 +1481,10 @@ function createWorldContent(
 
   const island = createTerracedIsland(world, cloudShadows);
   root.add(island.root);
-  // Only the island stone/timber (and lighthouse, inside island.root) cast and
-  // receive shadows. The flat MeshBasicMaterial shoal is excluded so its
-  // transparent disc never stamps a hard shadow; ships/docks/zones get no flags.
-  island.root.traverse((object) => {
-    if (!(object instanceof Mesh) && !(object instanceof InstancedMesh)) return;
-    const material = object.material;
-    object.castShadow = Array.isArray(material)
-      ? material.some((entry) => entry instanceof MeshStandardMaterial)
-      : material instanceof MeshStandardMaterial;
-    object.receiveShadow = true;
-  });
+  // The island stone/timber (and lighthouse, inside island.root) cast and
+  // receive. The flat MeshBasicMaterial shoal is excluded so its transparent
+  // disc never stamps a hard shadow; the harbour is flagged further down.
+  flagStaticShadowUsers(island.root);
   entityCues.set(world.lighthouse.detailId, {
     // Pharos Wonder D1: scaled for the 34-unit three-tier tower (was 4.5 for
     // the 30-unit v3 shell) so the selection ring spans the battered square
@@ -1499,6 +1594,15 @@ function createWorldContent(
   root.add(harborDistricts.root);
   for (const dock of docks) {
     root.add(dock.root);
+    // W2.2: the harbour joins the island in the static map. Quays, warehouses
+    // and their roofs, breakwaters, pilings, cranes, lamp POSTS and the chain
+    // flag are exactly as static as the rock they stand on, and at dawn and
+    // dusk they are what the low sun has to rake across. Flagged here rather
+    // than in garden-docks.ts so one site owns the whole caster contract.
+    flagStaticShadowUsers(dock.root);
+    // ...except the fine detail, which the frame loop shows and hides by zoom,
+    // hover and selection. Receiver only — see flagStaticShadowUsers.
+    flagStaticShadowUsers(dock.fineDetail, false);
     entityCues.set(dock.dock.detailId, { radius: 2.5, root: dock.root, y: 0.08 });
   }
   // Tier 3 #3: the world's first FLOW cue. Built after the harbours are placed
@@ -1533,6 +1637,14 @@ function createWorldContent(
     islandTile,
   );
   root.add(harborLanterns.root, gullFlock.root, fireflies.root);
+  // The lantern ring is static quay furniture too. Its glass heads share one
+  // material with no name to exclude, so they are skipped by identity: a lamp
+  // is a source, not an occluder.
+  harborLanterns.root.traverse((object) => {
+    if (!(object instanceof Mesh) && !(object instanceof InstancedMesh)) return;
+    object.castShadow = object.material !== harborLanterns.lightMaterial;
+    object.receiveShadow = true;
+  });
 
   const shipGeometryCache: GardenShipGeometryCache = {
     geometries: new Map(),
@@ -1784,8 +1896,9 @@ function seaSignSpecs(areas: PharosVilleWorld["areas"]): SeaSignSpec[] {
 }
 
 /**
- * Re-centres the directional light's tight shadow frustum on the island and
- * sets the per-tier cost, returning the active shadow-map size (0 when off).
+ * Re-centres the directional light's tight shadow frustum on the island and its
+ * harbour ring and sets the per-tier cost, returning the active shadow-map size
+ * (0 when off).
  * Shadow support stays compiled (enabled + castShadow never change); cost is
  * toggled via `shadow.intensity`/`autoUpdate` and the map is only reallocated
  * on a tier change, so no material recompile stalls occur.
@@ -1829,7 +1942,8 @@ function updateShadows(
     frustumZ + direction.z * SHADOW_LIGHT_DISTANCE,
   );
 
-  const halfSize = SHADOW_ISLAND_RADIUS + (SHADOW_CASTER_HEIGHT * Math.cos(pose.elevation)) / 2;
+  const halfSize = GARDEN_SHADOW_STATIC_RADIUS
+    + (SHADOW_CASTER_HEIGHT * Math.cos(pose.elevation)) / 2;
   const shadowCamera = light.shadow.camera;
   if (Math.abs(shadowCamera.right - halfSize) > 0.25) {
     shadowCamera.left = -halfSize;
@@ -1852,10 +1966,11 @@ function updateShadows(
 
   // W6.2 (Grand Scale Revamp): shadows survive down to `recovery`.
   //
-  // The casters (island + lighthouse) are static and the light direction moves
-  // only on the re-steer threshold above, so `autoUpdate = false` means the map
-  // is rendered on scene change and on re-steer, not per frame — the recurring
-  // cost is still just the PCF taps in the receiving materials.
+  // The casters (island, lighthouse, harbour ring) are static and the light
+  // direction moves only on the re-steer threshold above, so
+  // `autoUpdate = false` means the map is rendered on scene change and on
+  // re-steer, not per frame — the recurring cost is still just the PCF taps in
+  // the receiving materials.
   //
   // Dropping that at `recovery` bought almost nothing
   // while removing the single strongest cue that the island has form, and on
@@ -1868,14 +1983,24 @@ function updateShadows(
   // meant a camera drag reallocated the shadow map 1024 -> 384 and back on
   // release — a visible softening of the island's shadow on every pan, plus a
   // GPU reallocation per drag, for a tier that says nothing about load.
+  //
+  // W2.2 doubled every rung. The frustum now has to hold the harbour ring as
+  // well as the island (GARDEN_SHADOW_STATIC_RADIUS: 30 -> 44), which is 2.2x
+  // the area, so holding the old sizes would have spent the harbour's shadows
+  // out of the island's texel density. Doubling instead BUYS density: at full
+  // tier a texel covers ~0.043 world units against the old ~0.059, and at
+  // balanced ~0.086 against ~0.117. The extra cost is episodic by construction
+  // — 4x the pixels of a pass that runs on re-steer and content change, not per
+  // frame — and the recurring cost (PCF taps in the receiving materials) does
+  // not move with map size at all.
   const shadowTier = seaQualityTier(frame.renderScheduler);
   const size = shadowTier === "full"
-    ? 1024
+    ? 2048
     : shadowTier === "balanced"
-      ? 512
+      ? 1024
       : shadowTier === "constrained"
         ? 0
-        : 384;
+        : 768;
   if (size === 0) {
     light.shadow.intensity = 0;
     light.shadow.autoUpdate = false;
@@ -1883,9 +2008,11 @@ function updateShadows(
     return 0;
   }
   light.shadow.intensity = 1;
-  // The casters (island + lighthouse) are static, so the shadow map only needs
-  // re-rendering when the scene, the frustum size, or the sun's bearing changes
-  // — not every frame. This keeps the extra pass near-zero cost.
+  // The casters (island, lighthouse, and since W2.2 the whole harbour ring) are
+  // static, so the shadow map only needs re-rendering when the scene, the
+  // frustum size, or the sun's bearing changes — not every frame. This keeps
+  // the extra pass near-zero cost. Ships stay out of the map for exactly this
+  // reason: one moving caster would make it a per-frame pass again.
   light.shadow.autoUpdate = false;
   if (light.shadow.mapSize.width !== size) {
     light.shadow.mapSize.set(size, size);
