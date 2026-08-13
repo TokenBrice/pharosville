@@ -346,7 +346,8 @@ assert.match(deployWorkflowSource, /npm run smoke:live -- --url "\$SMOKE_UI_URL"
 assert.match(deployWorkflowSource, /cloudflare\/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0/);
 assert.match(deployWorkflowSource, /steps\.pages\.outputs\.deployment-url/);
 assert.match(deployWorkflowSource, /npm run test:visual:dist:dom:firefox/);
-assert.doesNotMatch(deployWorkflowSource, /for attempt in/);
+assert.match(deployWorkflowSource, /for delay in 0 5 10 15/);
+assert.doesNotMatch(deployWorkflowSource, /pages deployment list/);
 
 const releaseWorkflowSource = readFileSync(resolve(".github/workflows/release.yml"), "utf8");
 assert.match(releaseWorkflowSource, /workflow_run:/);
