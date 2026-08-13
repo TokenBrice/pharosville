@@ -15,6 +15,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   livingSea: "v0.7.0",
   roomierHarbor: "v0.7.1",
   quietAnchorage: "v0.7.2",
+  gardenOfLight: "v0.8.0",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.quietAnchorage;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.gardenOfLight;

@@ -12,6 +12,21 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-08-13-garden-of-light",
+    version: PHAROSVILLE_RELEASE_VERSIONS.gardenOfLight,
+    date: "2026-08-13",
+    title: "Garden of Light",
+    summary: "PharosVille becomes a quieter, seasonal garden observatory where atmosphere, motion, and ship craft reveal the same live evidence as the panels and ledger.",
+    bullets: [
+      "Recast the harbor as a hand-built garden of light with authored day-to-night color grades, bokashi sky, shared height fog, harbor-wide shadows, low-sun rays, reflective pond water, sculpted headlands, a torii grove, koi, and restrained seasonal dressing.",
+      "Gave the whole world one measured pulse: wind, sails, pennants, mist, wakes, lanterns, birds, water, and ship bob now breathe together, while the arrival, hover, selection, and idle-observe choreography remains interruptible and resolves to exact static states under reduced motion.",
+      "Turned live evidence into physical craft. Issuance moves cargo and tenders, operating age weathers hulls, backing and redemption shape fittings, notable movers gather pigeons, dock health marks the quay, and stale instruments haze only the readings they can no longer support.",
+      "Kept every new visual claim auditable through matching detail-panel facts, legend language, accessible ledger entries, truthful missing-data fallbacks, shareable moments, and calendar-driven harbor memories and rare daily sightings.",
+      "Made the richer scene cheaper to hold and safer to ship by rebuilding only changed data, batching repeated detail, tightening whole-map work, and expanding real-GPU, reduced-motion, worst-window, artifact, bundle, and long-session release gates.",
+    ],
+    source: "Collected from commits 9dd34ff through edf9385 after v0.7.2.",
+  },
+  {
     id: "2026-08-13-quiet-anchorage",
     version: PHAROSVILLE_RELEASE_VERSIONS.quietAnchorage,
     date: "2026-08-13",
