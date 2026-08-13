@@ -1,40 +1,85 @@
 import type { DewsAreaBand } from "./world-types";
 
+/**
+ * The harbor's dye lot.
+ *
+ * W1.6 (2026-08-13) — dentō-shoku discipline. Every token below was re-graded
+ * toward a named traditional Japanese colour, in OKLCH, as a REFINEMENT: no
+ * token moved more than ~0.02 in chroma or ~16° in hue, so this reads as the
+ * same world at a lower volume rather than a repaint.
+ *
+ * Why OKLCH and not HSL. The obvious reading of "nothing above ~35 %
+ * saturation" is HSL S, and by that measure half the sea family looks like a
+ * violation — `deep_sea_2` reads 49 %. But so does the real thing: authentic
+ * kachi-iro (#181b39) measures HSL S 41 %. HSL saturation is a ratio against
+ * available lightness, so it inflates without bound as a colour darkens, and a
+ * near-black indigo is exactly where it lies hardest. The ceiling is therefore
+ * applied in perceptual chroma — OKLCH C, cross-checked against the sRGB-cube
+ * spread `palette.test.ts` already uses to rank loudness. Under either, the
+ * only tokens above the line are the reserved accent family, which is the
+ * property that was actually wanted.
+ *
+ * The one genuine outlier the audit found was `aurora_green` at C 0.113 — a
+ * grass green louder than anything in the palette except the accents, and the
+ * tint 46 %/24 % of the day sea is mixed from. It is now rokushō (緑青),
+ * verdigris, at C 0.086.
+ *
+ * RESERVED, and deliberately left above the ceiling:
+ *   - `vermillion` #c23a22 is shu-akane (真朱) to within one hex step
+ *     (OKLCH L 0.547 C 0.177 H 32 against the reference's 0.548/0.176/33). It
+ *     is the single sacred accent, spent on the Pharos beacon flame (D6,
+ *     `garden-beacon-fire.ts`), the DEWS DANGER band, and nothing else.
+ *   - `lantern_warm` #d49a3e is yamabuki (山吹) gold and is PINNED by
+ *     `scripts/check-pharosville-colors.mjs`; it carries lantern warmth.
+ *   - `lantern_glow`, `sail_red` and `bloodmoon_red` sit in the same warm
+ *     accent family and are load-bearing for identity or rare events.
+ *
+ * NOT TOUCHED: `sail_teal` / `sail_red` are issuer-identity anchors and the
+ * restraint contract forbids grading them; `DEWS_AREA_LABEL_COLORS` was
+ * harmonized separately (W0.5) and its ladder is locked by test.
+ */
 export const HARBOR_PALETTE = {
-  deep_sea_2: "#0a0e1d",
-  deep_sea_1: "#141a30",
-  shallow_teal: "#1f2a4a",
-  shallow_teal_lit: "#2d3f6b",
-  sky_night: "#0d1226",
-  sky_horizon: "#1a2240",
-  fog_blue: "#3a4f7a",
-  fog_pale: "#5a7099",
+  // The sea reads as one dentō-shoku descent — asagi/nando at the shelf, ai in
+  // the body, kachi-iro (褐色, near-black indigo) in the deep. The old family
+  // sat flat at OKLCH H 266-271 for every rung; the hues now walk 250 -> 274 so
+  // depth is a hue journey as well as a value one.
+  deep_sea_2: "#0a0e20", // kachi-iro, deepened
+  deep_sea_1: "#0f1b33", // ai-fukami (深藍) / kon-iro
+  shallow_teal: "#152d4c", // kon-iro (紺色)
+  shallow_teal_lit: "#1c446a", // ai-iro (藍色)
+  sky_night: "#0f1128", // kachi-iro (勝色) night zenith
+  sky_horizon: "#1c2240", // kachi-iro
+  // Fog is where chroma had to come out: mist that carries a hue is paint.
+  // Both now sit on ainezu (藍鼠, "indigo mouse") — fog_blue C 0.076 -> 0.061,
+  // fog_pale C 0.070 -> 0.049.
+  fog_blue: "#365371", // ainezu, night/dusk mist
+  fog_pale: "#57758b", // ainezu, lifted
   // Garden Sea day identity (D-R1 ukiyo-e day, supersedes the D1 pearl
   // overcast): a saturated-but-harmonious bokashi sky, warm key sun, and one
   // reserved vermillion accent (lighthouse crown + danger semantics).
   // Pharos Wonder 2026-07-24 (D6): the reserved vermillion is spent on the
   // Pharos beacon fire — the flame's outer band (garden-beacon-fire.ts).
-  sky_day_zenith: "#27567d",
-  sky_day_horizon: "#e9d9b2",
-  fog_day: "#dbcfae",
-  sun_day_warm: "#f2ddab",
-  vermillion: "#c23a22",
+  sky_day_zenith: "#1f587c", // ai-iro (藍色) — was six degrees off it already
+  sky_day_horizon: "#e6d9b9", // toward shironeri (白練), undyed silk
+  fog_day: "#d8cfb4", // shironeri
+  sun_day_warm: "#f6dbae", // yamabuki light — hue 88 -> 80, off the acid edge
+  vermillion: "#c23a22", // shu-akane (真朱) — RESERVED, the one loud thing
   stone_dark: "#2a2620",
   stone_mid: "#4a4238",
   stone_pale: "#6a5e4e",
   iron_dark: "#1a1612",
-  timber_dark: "#3a2a1e",
-  timber_mid: "#6a4a2e",
-  timber_warm: "#8a6840",
+  timber_dark: "#3a2a1e", // already kogecha's hue exactly (焦茶, H 57)
+  timber_mid: "#674b34", // kogecha (焦茶)
+  timber_warm: "#836c49", // rikyūcha (利休茶), grayed tea-brown
   ember: "#2a1a0e",
-  lantern_warm: "#d49a3e",
+  lantern_warm: "#d49a3e", // yamabuki (山吹) — RESERVED, and hex-pinned
   lantern_glow: "#f7d68a",
-  lantern_cold: "#5a8aaa",
-  moonlight: "#bfd6e8",
-  sail_teal: "#3a5e5a",
-  sail_red: "#9a3a2e",
+  lantern_cold: "#568ca4", // nando-iro (納戸色) / sora-iro
+  moonlight: "#bad8e7", // sora-iro (空色)
+  sail_teal: "#3a5e5a", // issuer identity — restraint contract, do not grade
+  sail_red: "#9a3a2e", // issuer identity — restraint contract, do not grade
   foam_white: "#e8eef0",
-  aurora_green: "#5ea970",
+  aurora_green: "#5e976e", // rokushō (緑青), verdigris — the one real outlier
   bloodmoon_red: "#c83a3a",
 } as const;
 

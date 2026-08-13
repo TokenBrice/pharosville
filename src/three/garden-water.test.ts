@@ -7,6 +7,7 @@ import {
   NearestFilter,
   PlaneGeometry,
   ShaderMaterial,
+  SRGBColorSpace,
   Texture,
   TextureLoader,
 } from "three";
@@ -518,6 +519,44 @@ describe("createGardenWater", () => {
     expect(uniformNumber(water.material, "uNight")).toBe(1);
   });
 
+  it("keeps the dusk sea out of the pink-mauve wedge", () => {
+    // W1.6 regression. The dusk ramp used to tint an indigo body with lantern
+    // gold and ember, and every intermediate step between a warm neutral and an
+    // indigo is violet — the shipped frame sampled hue 270-291 across the open
+    // sea and read as lilac paint. The ramp now descends nando-iro -> ai ->
+    // kachi-iro, so it arrives at indigo from the blue-green side.
+    //
+    // This asserts the SHAPE, not three hex literals: the shelf must be cooler
+    // than violet and the descent must stay monotonic in value. Tuning the
+    // exact dye is still free; re-introducing the mauve is not.
+    const water = createGardenWater(0);
+    water.update(frame({ wallClockHour: 19 }));
+
+    const shallow = uniformColor(water.material, "uShallowColor").clone();
+    const mid = uniformColor(water.material, "uBaseColor").clone();
+    const deep = uniformColor(water.material, "uDeepColor").clone();
+
+    // The shelf and the body are where the mauve lived; the deep is allowed to
+    // stay kachi-iro, which is a legitimately indigo-violet traditional colour.
+    for (const [name, color] of [["shallow", shallow], ["mid", mid]] as const) {
+      const hue = hslHue(color);
+      expect(hue, `${name} must not sit in the mauve/pink wedge`)
+        .toBeGreaterThan(150);
+      expect(hue, `${name} must not sit in the mauve/pink wedge`)
+        .toBeLessThan(250);
+    }
+
+    // Value has to carry the depth read, hue-blind or not.
+    expect(luminance(shallow)).toBeGreaterThan(luminance(mid));
+    expect(luminance(mid)).toBeGreaterThan(luminance(deep));
+
+    // The gold did not vanish — it moved to the sun path, where dusk warmth
+    // belongs, and the highlight has to stay warmer than the body it lights.
+    const highlight = uniformColor(water.material, "uHighlightColor").clone();
+    expect(highlight.r).toBeGreaterThan(highlight.b);
+    expect(luminance(highlight)).toBeGreaterThan(luminance(shallow));
+  });
+
   it("thickens the height fog at dusk and in storms, thinnest at noon", () => {
     // Phase 2 (2d): the height fog is a density term only — the global Fog
     // owns the colour — strongest at dawn/dusk, faint at noon, closed in by
@@ -841,4 +880,20 @@ function uniformNumber(material: ShaderMaterial, name: string): number {
 
 function uniformColor(material: ShaderMaterial, name: string): Color {
   return material.uniforms[name]!.value as Color;
+}
+
+/**
+ * Hue in degrees off the DISPLAY colour, not the working one.
+ *
+ * Uniform colours are in the linear working space; `getHSL(target, SRGBColorSpace)`
+ * is what asks the question a viewer would — "what hue is this on screen".
+ */
+function hslHue(color: Color): number {
+  const hsl = { h: 0, s: 0, l: 0 };
+  color.getHSL(hsl, SRGBColorSpace);
+  return hsl.h * 360;
+}
+
+function luminance(color: Color): number {
+  return 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
 }

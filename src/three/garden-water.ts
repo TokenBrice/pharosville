@@ -355,7 +355,7 @@ const MOON_DIR = new Vector2(
 // water areas must never bloom — only sparse glitter, foam, and emissives may.
 const pc = (key: keyof typeof HARBOR_PALETTE): Color => new Color(HARBOR_PALETTE[key]);
 // R4: noon has to read as noon. Every "sea" entry in HARBOR_PALETTE is an
-// indigo (deep_sea_1 #141a30, shallow_teal #1f2a4a, sky_day_zenith #27567d),
+// indigo (deep_sea_1 #0f1b33, shallow_teal #152d4c, sky_day_zenith #1f587c),
 // so the old day ramp was essentially the night sky at a slightly higher
 // value — a warm-lit fleet floating on a midnight sea at hour 12.
 //
@@ -370,7 +370,7 @@ const DAY_SHALLOW = pc("sky_day_zenith").lerp(pc("aurora_green"), 0.46).lerp(pc(
 const DAY_MID = pc("sky_day_zenith").lerp(pc("sail_teal"), 0.45).lerp(pc("aurora_green"), 0.24);
 // L3: anchored on sail_teal, not on the day zenith.
 //
-// The zenith (#27567d) is a sky blue, so building the deep band out of it made
+// The zenith (#1f587c) is a sky blue, so building the deep band out of it made
 // the deepest — and largest — stretch of water 22 points bluer in green-vs-blue
 // than the jade the rest of the ramp is written in, and the frame average went
 // with it. Starting from the teal and tinting it with the zenith keeps the
@@ -385,14 +385,37 @@ const DAY_MID = pc("sky_day_zenith").lerp(pc("sail_teal"), 0.45).lerp(pc("aurora
 // black and left the world a lit slab on a void. That risk is gone: the open
 // ocean past the map has its own definition (gardenOpenOcean) and crossfades in.
 const DAY_DEEP = pc("sail_teal").lerp(pc("sky_day_zenith"), 0.18).lerp(pc("deep_sea_1"), 0.3);
-const DUSK_SHALLOW = pc("shallow_teal").lerp(pc("lantern_warm"), 0.16).lerp(pc("deep_sea_1"), 0.28);
-const DUSK_MID = pc("deep_sea_1").lerp(pc("ember"), 0.3).lerp(pc("lantern_warm"), 0.08);
+// W1.6: the dusk sea was pink-mauve, and it was these three lines that made it.
+//
+// The old ramp mixed a warm dye into an indigo body — shallow was indigo tinted
+// 16 % with lantern gold, mid was indigo tinted 30 % with ember — which lands
+// on a rose-gray shelf (#534242, hue 0) over a kachi-iro basin (#101528). There
+// is no way to read that gradient except as mauve: every intermediate step
+// between a warm neutral and an indigo IS violet, and the frame was full of
+// intermediate steps. Measured off `outputs/w16-before-dusk.png`, the open sea
+// sampled hue 270-291 at 15-18 % saturation across four widely separated
+// patches. The W1.1 LUT could not fix it from the grade side without touching
+// violet, which sail identity forbids, so it was handed here.
+//
+// The dusk story the LUT authors is teal shadows and gold-amber light. So the
+// warmth moves OUT of the body colour and INTO the highlight, where the sun
+// path belongs, and the body walks a dentō-shoku descent instead: nando-iro
+// (納戸色) gray-teal shelf, ai body, kachi-iro deep. Hues now run OKLCH
+// 226 -> 238 -> 267 — still ending on indigo-violet, as it should, but arriving
+// there from the blue-green side rather than from rose.
+const DUSK_SHALLOW = pc("shallow_teal")
+  .lerp(pc("sail_teal"), 0.4)
+  .lerp(pc("lantern_cold"), 0.12)
+  .lerp(pc("lantern_warm"), 0.04);
+const DUSK_MID = pc("deep_sea_1").lerp(pc("sail_teal"), 0.28).lerp(pc("shallow_teal"), 0.25);
 const DUSK_DEEP = pc("deep_sea_2").lerp(pc("deep_sea_1"), 0.5);
 const NIGHT_SHALLOW = pc("shallow_teal").lerp(pc("deep_sea_1"), 0.25);
 const NIGHT_MID = pc("deep_sea_1").lerp(pc("shallow_teal"), 0.3);
 const NIGHT_DEEP = pc("deep_sea_2");
 const DAY_HIGHLIGHT = pc("foam_white");
-const DUSK_HIGHLIGHT = DAY_HIGHLIGHT.clone().lerp(pc("lantern_warm"), 0.22);
+// W1.6: the gold the body colour gave up is spent here instead — 0.22 -> 0.34,
+// which is the sun path on the water rather than a dye through the whole sea.
+const DUSK_HIGHLIGHT = DAY_HIGHLIGHT.clone().lerp(pc("lantern_warm"), 0.34);
 const NIGHT_HIGHLIGHT = pc("moonlight");
 const BEACON_HIGHLIGHT = pc("lantern_glow");
 const MOON_ROAD_COLOR = pc("moonlight");
