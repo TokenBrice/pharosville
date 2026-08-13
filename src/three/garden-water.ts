@@ -33,6 +33,7 @@ import {
   MOON_COLOR,
 } from "./garden-day-cycle";
 import { GARDEN_MOON_AZIMUTH } from "./garden-sky";
+import { gardenSunPose } from "./garden-sun";
 import { MAX_GARDEN_LIGHT_LANES } from "./garden-lanterns";
 import {
   SEA_REGION_CHARACTER,
@@ -337,6 +338,9 @@ const CLOUD_SHADOW_TEXEL_SCALE = 1 / 170;
 // Moon-road azimuth carried over from the sky so the sea's glitter band lands
 // under the same moon the dome draws. The water plane's -90deg X rotation maps
 // world +Z to local -Y, so the horizontal moon direction negates its Z.
+/** Reused per frame so the water's update path allocates nothing. */
+const scratchSunPose = { direction: new Vector3(0, 1, 0), elevation: Math.PI / 2 };
+
 const MOON_DIR = new Vector2(
   Math.cos(GARDEN_MOON_AZIMUTH),
   -Math.sin(GARDEN_MOON_AZIMUTH),
@@ -529,6 +533,8 @@ export const FRAGMENT_SHADER = /* glsl */ `
   uniform sampler2D uLaneTexture;
   uniform float uPulseTime;
   uniform vec2 uMoonDir;
+  uniform vec2 uSunDir;
+  uniform float uSunHeight;
   uniform vec3 uMoonRoadColor;
   uniform float uNight;
   uniform sampler2D uNormalMap;
@@ -1177,8 +1183,41 @@ export const FRAGMENT_SHADER = /* glsl */ `
     // sparkles read as scattered single-pixel dust and crawled. 120 with a
     // wider gate keeps each sparkle small while giving it enough screen
     // footprint to be sampled honestly, and the mask is now derivative-aware.
+    // --- The sun's road ------------------------------------------------------
+    // The moon had one and the sun did not, which is why every daylight frame
+    // read as flat water with speckle on it while every night frame had a
+    // luminous path leading the eye. This is that path, cut from the same
+    // arc the shadows and the sky glow use.
+    //
+    // Its SHAPE carries the hour as much as its colour does. A sun near the
+    // horizon lays a long narrow road across the water; a sun overhead
+    // compresses it into a broad pool. Interpolating both the half-width and
+    // the reach on the sun's height means golden hour reads as golden hour from
+    // the water alone, with the light rig doing nothing but agreeing.
+    float dayRoad = clamp(uDaylight + uDusk * 0.85, 0.0, 1.0);
+    if (dayRoad > 0.001) {
+      float lowSun = 1.0 - smoothstep(0.08, 0.62, uSunHeight);
+      vec2 fromIslandSun = vWaterPosition - uIslandCenter;
+      float sunAlong = dot(fromIslandSun, uSunDir);
+      float sunAcross = dot(fromIslandSun, vec2(-uSunDir.y, uSunDir.x));
+      float sunHalfWidth = mix(13.0, 6.5, lowSun);
+      float sunProfile = exp(-(sunAcross * sunAcross) / (sunHalfWidth * sunHalfWidth));
+      // The road runs TOWARD the sun only; a symmetric band would light the
+      // water on the shaded side of the island just as brightly.
+      float sunReach = 1.0 - smoothstep(mix(30.0, 55.0, lowSun), mix(85.0, 190.0, lowSun), sunAlong);
+      // Faded, not cut. A hard step() here leaves a straight bright edge across
+      // open water on the shaded side of the island — the one place in the
+      // whole frame that nothing should draw a line across.
+      float sunSide = smoothstep(-26.0, 4.0, sunAlong);
+      float sunBand = sunProfile * sunReach * sunSide;
+      waterColor = mix(waterColor, uSunGlitterColor, sunBand * dayRoad * mix(0.05, 0.13, lowSun));
+    }
+
     if (uGlitterStrength > 0.001 && uDaylight + uDusk > 0.001) {
-      vec3 halfSun = normalize(keyDirection + vec3(0.0, 0.0, 1.0));
+      // The sparkle now sits where the sun actually is, and concentrates along
+      // its road rather than dusting the whole sea evenly.
+      vec3 sunDirection = normalize(vec3(uSunDir * mix(1.4, 0.55, uSunHeight), 0.35 + uSunHeight));
+      vec3 halfSun = normalize(sunDirection + vec3(0.0, 0.0, 1.0));
       float sunSpecular = pow(max(0.0, dot(blendedNormal, halfSun)), 120.0);
       float sunSparkleField =
         sin(dot(vWaterPosition, vec2(3.1, -2.4)) + blendedNormal.y * 13.0)
@@ -1623,6 +1662,14 @@ export function createGardenWater(waterLevel: number): GardenWater {
     uLaneField: { value: new Vector3(0, 0, 1e5) },
     uLaneTexture: { value: null as DataTexture | null },
     uMoonDir: { value: MOON_DIR.clone() },
+    // The sun's own bearing on the water, from the shared arc in garden-sun.
+    // Before this the water's only notion of the sun was a hand-tuned constant
+    // (`normalize(vec3(-0.46, 0.2, 0.86))`) that matched neither the key light
+    // nor the sky dome — so the daytime sparkle sat wherever that constant
+    // pointed while the shadows fell somewhere else entirely.
+    uSunDir: { value: new Vector2(1, 0) },
+    /** 0 at the horizon, 1 overhead — shapes the road from a pool to a path. */
+    uSunHeight: { value: 0 },
     uMoonRoadColor: { value: MOON_ROAD_COLOR.clone() },
     uNight: { value: 0 },
     uNormalMap: { value: normalMap },
@@ -1891,6 +1938,18 @@ export function createGardenWater(waterLevel: number): GardenWater {
       // C1: the water consumes the shared day-cycle curve and blend law; no
       // local copy of the phase curve lives in this module anymore.
       const { daylight, dusk, night } = dayCyclePhase(frame.wallClockHour);
+      // One arc, three consumers: the key light, the sky dome, and here.
+      gardenSunPose(frame.wallClockHour, scratchSunPose);
+      const sunFlat = Math.hypot(scratchSunPose.direction.x, scratchSunPose.direction.z);
+      if (sunFlat > 1e-5) {
+        // World XZ maps onto the water shader's 2D position the same way the
+        // moon's does, so the two roads share a frame of reference.
+        uniforms.uSunDir.value.set(
+          scratchSunPose.direction.x / sunFlat,
+          -scratchSunPose.direction.z / sunFlat,
+        );
+      }
+      uniforms.uSunHeight.value = Math.max(0, scratchSunPose.direction.y);
       blendDayCycleColor(shallowColor, NIGHT_SHALLOW, DUSK_SHALLOW, DAY_SHALLOW, dusk, daylight);
       blendDayCycleColor(baseColor, NIGHT_MID, DUSK_MID, DAY_MID, dusk, daylight);
       blendDayCycleColor(deepColor, NIGHT_DEEP, DUSK_DEEP, DAY_DEEP, dusk, daylight);
