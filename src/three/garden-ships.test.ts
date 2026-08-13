@@ -20,11 +20,14 @@ import {
   gardenShipVisualScale,
   GARDEN_SHIP_VISUAL_SCALE_MAX,
   GARDEN_SHIP_VISUAL_SCALE_MIN,
+  resetFleetSailAttention,
+  syncFleetSailAttention,
   syncShipRippleRings,
   updateFleetLanterns,
   updateShipPennants,
   type ShipVisual,
 } from "./garden-ships";
+import { gardenFleetAttention } from "./garden-fleet-batch";
 import type { GardenRippleRingEmitter } from "./garden-water-contract";
 import { GARDEN_MODEL_MANIFEST } from "./garden-models";
 import type { GardenShipGeometryCache } from "./garden-util";
@@ -432,5 +435,72 @@ describe("hero peg trim (Tier 3 #13)", () => {
   it("leaves the wake on the sea surface however deep the hull rides", () => {
     const { level, trimmed: low } = trimmed(-0.16);
     expect(low.wake.position.y).toBeCloseTo(level.wake.position.y);
+  });
+});
+
+describe("W3.7 attention bridge", () => {
+  function fleetVisual(detailId: string, atlasCell: number, batched = true): ShipVisual {
+    return { atlasCell, batched, ship: { detailId } } as unknown as ShipVisual;
+  }
+
+  function attentionFrame(overrides: {
+    hoveredDetailId?: string | null;
+    reducedMotion?: boolean;
+    selectedDetailId?: string | null;
+    timeSeconds?: number;
+  }) {
+    return {
+      hoveredDetailId: null,
+      reducedMotion: true,
+      selectedDetailId: null,
+      timeSeconds: 0,
+      ...overrides,
+    } as unknown as Parameters<typeof syncFleetSailAttention>[1];
+  }
+
+  it("resolves the hovered ship to its atlas cell and lights only that one", () => {
+    resetFleetSailAttention();
+    const ships = [fleetVisual("usdc", 4), fleetVisual("usdt", 9)];
+    syncFleetSailAttention(
+      { logoGenerationKey: null, ships },
+      attentionFrame({ hoveredDetailId: "usdt" }),
+    );
+    expect(gardenFleetAttention(9)).toBe(1);
+    expect(gardenFleetAttention(4)).toBe(0);
+    resetFleetSailAttention();
+  });
+
+  it("never routes attention to a hero ship, which never took the step", () => {
+    resetFleetSailAttention();
+    // Hero hulls own their own sail material and are not in the batch at all,
+    // so their (meaningless) cell must never light a batched stranger.
+    const ships = [fleetVisual("dai", 4, false), fleetVisual("usdt", 4)];
+    syncFleetSailAttention(
+      { logoGenerationKey: null, ships },
+      attentionFrame({ hoveredDetailId: "dai" }),
+    );
+    expect(gardenFleetAttention(4)).toBe(0);
+    resetFleetSailAttention();
+  });
+
+  it("re-resolves cells when a world replace reshuffles them", () => {
+    resetFleetSailAttention();
+    const before = [fleetVisual("usdc", 4), fleetVisual("usdt", 9)];
+    syncFleetSailAttention(
+      { logoGenerationKey: null, ships: before },
+      attentionFrame({ selectedDetailId: "usdt" }),
+    );
+    expect(gardenFleetAttention(9)).toBe(1);
+
+    // Same selection, new fleet, new cell assignment: a memo keyed on the id
+    // alone would keep lighting cell 9, which now belongs to a different ship.
+    const after = [fleetVisual("usdt", 2), fleetVisual("usdc", 9)];
+    syncFleetSailAttention(
+      { logoGenerationKey: null, ships: after },
+      attentionFrame({ selectedDetailId: "usdt" }),
+    );
+    expect(gardenFleetAttention(2)).toBe(1);
+    expect(gardenFleetAttention(9)).toBe(0);
+    resetFleetSailAttention();
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Color, Matrix4, MeshStandardMaterial, Vector3 } from "three";
 import { createFleetBatchGeometry } from "./garden-ships";
 import {
@@ -11,12 +11,22 @@ import {
   endFleetFrame,
   fleetDrawCallCount,
   fleetInstanceCount,
+  gardenFleetAttention,
+  gardenFleetClothWeave,
+  gardenFleetFramingRestraint,
+  gardenFleetMarkPresence,
+  gardenFleetSailRestraint,
   patchSailAtlasMaterial,
+  setFleetAerialPerspective,
+  setFleetAttention,
   setFleetWeather,
   writeFleetInstance,
   type FleetInstancePose,
   type FleetSailDeformInput,
 } from "./garden-fleet-batch";
+import { gardenSailClothColor } from "./garden-sail-texture";
+import { SAIL_DARK_CANVAS_ISSUERS } from "./garden-sail-overrides";
+import type { ShipLivery } from "../systems/world-types";
 import type { GardenHullSilhouette } from "../systems/garden-observatory-slice";
 
 const SILHOUETTES: GardenHullSilhouette[] = ["galleon", "clipper", "schooner", "junk"];
@@ -472,5 +482,402 @@ describe("peg trim (Tier 3 #13)", () => {
     batches.pennant.mesh.getMatrixAt(1, trimmed);
     expect(trimmed.elements[13]! - level.elements[13]!).toBeCloseTo(-0.16);
     disposeFleetBatches(batches);
+  });
+});
+
+/**
+ * W3.7. The restraint contract in `VISUAL_INVARIANTS.md` says distance and zoom
+ * are VIEWING CONDITIONS, not identity changes. These cases pin the three
+ * clauses that make that true of the new default-framing step.
+ */
+const OVERVIEW_ZOOM = 0.44;
+const DEFAULT_ZOOM = 0.7776;
+const INSPECTION_ZOOM = 1.05;
+
+const FRAGMENT_STUB = [
+  "#include <common>",
+  "#include <map_fragment>",
+  "#include <normal_fragment_begin>",
+].join("\n");
+const VERTEX_STUB = [
+  "#include <common>",
+  "#include <begin_vertex>",
+  "#include <project_vertex>",
+  "#include <uv_vertex>",
+].join("\n");
+
+describe("W3.7 sail restraint as a viewing condition", () => {
+  it("takes one gentle step at the default framing, inside the operator's band", () => {
+    const step = gardenFleetFramingRestraint(DEFAULT_ZOOM);
+    // Operator decision 2026-08-13: ~15-20% further desaturation at default
+    // zoom. Anything outside that band is a different decision, not a tuning.
+    expect(step).toBeGreaterThanOrEqual(0.15);
+    expect(step).toBeLessThanOrEqual(0.2);
+  });
+
+  it("is exactly gone at the zoom where marks are judged", () => {
+    // Structural, not tuned: the step's release ends at the explore threshold,
+    // so no pale-sail issuer can be pushed anywhere by it at inspection framing.
+    expect(gardenFleetFramingRestraint(INSPECTION_ZOOM)).toBe(0);
+    expect(gardenFleetFramingRestraint(1.4)).toBe(0);
+  });
+
+  it("dissolves smoothly as the camera sails in, never rising", () => {
+    let previous = Number.POSITIVE_INFINITY;
+    let largestJump = 0;
+    for (let zoom = 0.3; zoom <= 1.3; zoom += 0.01) {
+      const step = gardenFleetFramingRestraint(zoom);
+      expect(step).toBeLessThanOrEqual(previous + 1e-12);
+      if (Number.isFinite(previous)) largestJump = Math.max(largestJump, previous - step);
+      previous = step;
+    }
+    // No cliff anywhere on the ramp — the step eases away over a fifth of the
+    // zoom range, so a hundredth of zoom can never move it more than a
+    // hundredth of the step. A switch would move the whole 0.18 in one sample.
+    expect(largestJump).toBeLessThan(0.015);
+  });
+
+  it("cancels entirely on hover and selection, at every framing", () => {
+    for (const zoom of [OVERVIEW_ZOOM, DEFAULT_ZOOM, INSPECTION_ZOOM]) {
+      const framing = gardenFleetFramingRestraint(zoom);
+      const zoomRestraint = (1 - gardenFleetMarkPresence(zoom)) * 0.55;
+      const attended = gardenFleetSailRestraint({
+        aerial: 0,
+        attention: 1,
+        framing,
+        zoomRestraint,
+      });
+      // Full dye back: the attended ship is a ship the visitor is looking at,
+      // so no zoom-keyed restraint applies to it at all.
+      expect(attended).toBeCloseTo(0, 12);
+    }
+  });
+
+  it("keeps a hovered ship behind the same air as everything else", () => {
+    // Attention answers "which one", not "how far away". The DEPTH term is real
+    // atmosphere and survives, or a hovered horizon ship would punch through
+    // the haze the whole frame is built on.
+    const restraint = gardenFleetSailRestraint({
+      aerial: 0.4,
+      attention: 1,
+      framing: gardenFleetFramingRestraint(DEFAULT_ZOOM),
+      zoomRestraint: 0.28,
+    });
+    expect(restraint).toBeCloseTo(0.4, 12);
+  });
+
+  it("composes on the existing recession instead of stacking with it", () => {
+    const framing = gardenFleetFramingRestraint(DEFAULT_ZOOM);
+    const zoomRestraint = (1 - gardenFleetMarkPresence(DEFAULT_ZOOM)) * 0.55;
+    const combined = gardenFleetSailRestraint({
+      aerial: 0,
+      attention: 0,
+      framing,
+      zoomRestraint,
+    });
+    // Multiplicative on the remaining chroma: strictly more restrained than the
+    // old term, strictly less than adding the two, and never saturating.
+    expect(combined).toBeGreaterThan(zoomRestraint);
+    expect(combined).toBeLessThan(zoomRestraint + framing);
+    expect(combined).toBeLessThan(1);
+  });
+
+  it("never fully drains a rank-and-file ship, even at whole-map framing", () => {
+    const worst = gardenFleetSailRestraint({
+      // The widest framing, at the far end of the fog, with no attention.
+      aerial: 0.4,
+      attention: 0,
+      framing: gardenFleetFramingRestraint(OVERVIEW_ZOOM),
+      zoomRestraint: (1 - gardenFleetMarkPresence(OVERVIEW_ZOOM)) * 0.55,
+    });
+    // Hue is identity (F1) and must survive every viewing condition. Half the
+    // chroma is restraint; all of it would be a different ship.
+    expect(worst).toBeLessThan(0.6);
+  });
+});
+
+describe("W3.7 chroma only, never value", () => {
+  /** WCAG contrast against white, on three.js LINEAR components. */
+  function whiteContrast(color: Color): number {
+    return 1.05 / (0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b + 0.05);
+  }
+
+  /** The fragment shader's restraint, run on the CPU: mix toward own luminance. */
+  function applyRestraint(cloth: Color, restraint: number): Color {
+    const luma = 0.2126 * cloth.r + 0.7152 * cloth.g + 0.0722 * cloth.b;
+    return new Color(
+      cloth.r + (luma - cloth.r) * restraint,
+      cloth.g + (luma - cloth.g) * restraint,
+      cloth.b + (luma - cloth.b) * restraint,
+    );
+  }
+
+  function livery(primary: string): ShipLivery {
+    return { primary } as ShipLivery;
+  }
+
+  // The five issuers the override table names, plus DAI (deliberately NOT in
+  // the table, decision D5) and two ordinary strongly-branded coins.
+  const ISSUERS: readonly (readonly [string, string])[] = [
+    ["bean-beanstalk", "#46b955"],
+    ["cash-phantom", "#b9b5ab"],
+    ["csusdl-coinshift", "#f08a7e"],
+    ["eusd-lybra", "#8ec9e8"],
+    ["zchf-frankencoin", "#c9c9c9"],
+    ["dai-makerdao", "#f5ac37"],
+    ["usdc-circle", "#2775ca"],
+    ["usdt-tether", "#26a17b"],
+  ];
+
+  it("cannot move any issuer's contrast against a white mark, at any framing", () => {
+    for (const [shipId, primary] of ISSUERS) {
+      const cloth = gardenSailClothColor(livery(primary), shipId);
+      const before = whiteContrast(cloth);
+      for (const zoom of [OVERVIEW_ZOOM, DEFAULT_ZOOM, INSPECTION_ZOOM]) {
+        for (const aerial of [0, 0.4]) {
+          const restraint = gardenFleetSailRestraint({
+            aerial,
+            attention: 0,
+            framing: gardenFleetFramingRestraint(zoom),
+            zoomRestraint: (1 - gardenFleetMarkPresence(zoom)) * 0.55,
+          });
+          // Chroma-only desaturation converges on the cloth's OWN luminance, so
+          // luminance — and therefore the pirate contrast floor, which is a
+          // luminance ratio — is invariant by construction, not by tuning.
+          expect(whiteContrast(applyRestraint(cloth, restraint))).toBeCloseTo(before, 10);
+        }
+      }
+    }
+  });
+
+  it("leaves the five named pale issuers under their black canvas", () => {
+    // The override table is upstream of everything here: the step never touches
+    // `gardenSailClothColor`, so the five stay exactly where D5 put them.
+    for (const [shipId, primary] of ISSUERS) {
+      if (!SAIL_DARK_CANVAS_ISSUERS.has(shipId)) continue;
+      const cloth = gardenSailClothColor(livery(primary), shipId);
+      const restrained = applyRestraint(
+        cloth,
+        gardenFleetSailRestraint({
+          aerial: 0,
+          attention: 0,
+          framing: gardenFleetFramingRestraint(DEFAULT_ZOOM),
+          zoomRestraint: (1 - gardenFleetMarkPresence(DEFAULT_ZOOM)) * 0.55,
+        }),
+      );
+      // Still near-black cloth carrying a white mark, restraint or no restraint.
+      expect(whiteContrast(restrained)).toBeGreaterThan(10);
+    }
+  });
+
+  it("keeps two quieted issuers apart from one another at the default framing", () => {
+    const restraint = gardenFleetSailRestraint({
+      aerial: 0,
+      attention: 0,
+      framing: gardenFleetFramingRestraint(DEFAULT_ZOOM),
+      zoomRestraint: (1 - gardenFleetMarkPresence(DEFAULT_ZOOM)) * 0.55,
+    });
+    const circle = applyRestraint(
+      gardenSailClothColor(livery("#2775ca"), "usdc-circle"),
+      restraint,
+    );
+    const tether = applyRestraint(
+      gardenSailClothColor(livery("#26a17b"), "usdt-tether"),
+      restraint,
+    );
+    // "Every issuer must stay recognizably itself at a glance" — blue and green
+    // are still two colours after the step, not one grey.
+    const separation = Math.abs(circle.r - tether.r)
+      + Math.abs(circle.g - tether.g)
+      + Math.abs(circle.b - tether.b);
+    expect(separation).toBeGreaterThan(0.05);
+  });
+});
+
+describe("W3.7 attention", () => {
+  beforeEach(() => setFleetAttention(null));
+
+  it("eases a hovered ship back to full brand and releases it slowly", () => {
+    setFleetAttention({
+      deltaSeconds: 0.12,
+      hoveredCell: 7,
+      reducedMotion: false,
+      selectedCell: 0,
+    });
+    const afterOneAttack = gardenFleetAttention(7);
+    expect(afterOneAttack).toBeGreaterThan(0.5);
+    expect(afterOneAttack).toBeLessThan(1);
+
+    // Release is slower than attack: the same elapsed time gives back less.
+    setFleetAttention({
+      deltaSeconds: 0.12,
+      hoveredCell: 0,
+      reducedMotion: false,
+      selectedCell: 0,
+    });
+    expect(gardenFleetAttention(7)).toBeGreaterThan(afterOneAttack * 0.4);
+  });
+
+  it("crossfades when the pointer moves from one ship to the next", () => {
+    for (let step = 0; step < 20; step += 1) {
+      setFleetAttention({
+        deltaSeconds: 0.05,
+        hoveredCell: 7,
+        reducedMotion: false,
+        selectedCell: 0,
+      });
+    }
+    expect(gardenFleetAttention(7)).toBeCloseTo(1, 2);
+    setFleetAttention({
+      deltaSeconds: 0.05,
+      hoveredCell: 11,
+      reducedMotion: false,
+      selectedCell: 0,
+    });
+    // The old ship fades rather than snapping off; the new one is already lit.
+    expect(gardenFleetAttention(7)).toBeGreaterThan(0.8);
+    expect(gardenFleetAttention(7)).toBeLessThan(1);
+    expect(gardenFleetAttention(11)).toBeGreaterThan(0);
+  });
+
+  it("holds a selection while the pointer wanders elsewhere", () => {
+    for (let step = 0; step < 20; step += 1) {
+      setFleetAttention({
+        deltaSeconds: 0.05,
+        hoveredCell: 3,
+        reducedMotion: false,
+        selectedCell: 9,
+      });
+    }
+    expect(gardenFleetAttention(9)).toBeCloseTo(1, 2);
+    for (let step = 0; step < 20; step += 1) {
+      setFleetAttention({
+        deltaSeconds: 0.05,
+        hoveredCell: 0,
+        reducedMotion: false,
+        selectedCell: 9,
+      });
+    }
+    expect(gardenFleetAttention(9)).toBeCloseTo(1, 2);
+    // The abandoned hover is well on its way out after a second...
+    expect(gardenFleetAttention(3)).toBeLessThan(0.1);
+    for (let step = 0; step < 60; step += 1) {
+      setFleetAttention({
+        deltaSeconds: 0.05,
+        hoveredCell: 0,
+        reducedMotion: false,
+        selectedCell: 9,
+      });
+    }
+    // ...and eventually leaves the tracking table entirely, so a long session
+    // cannot accumulate envelopes for every ship the pointer ever crossed.
+    expect(gardenFleetAttention(3)).toBe(0);
+    expect(gardenFleetAttention(9)).toBeCloseTo(1, 6);
+  });
+
+  it("snaps rather than eases under reduced motion", () => {
+    setFleetAttention({
+      deltaSeconds: 0,
+      hoveredCell: 5,
+      reducedMotion: true,
+      selectedCell: 0,
+    });
+    expect(gardenFleetAttention(5)).toBe(1);
+    setFleetAttention({
+      deltaSeconds: 0,
+      hoveredCell: 0,
+      reducedMotion: true,
+      selectedCell: 0,
+    });
+    expect(gardenFleetAttention(5)).toBe(0);
+  });
+
+  it("never attends the shared plain-canvas cell", () => {
+    setFleetAttention({
+      deltaSeconds: 1,
+      hoveredCell: 0,
+      reducedMotion: false,
+      selectedCell: 0,
+    });
+    // Cell 0 is "no ship" here exactly as it is "no mark" in the atlas; lighting
+    // it would restore full brand on every overflow ship at once.
+    expect(gardenFleetAttention(0)).toBe(0);
+  });
+
+  it("writes per-instance attention without adding a draw call", () => {
+    setFleetAttention({
+      deltaSeconds: 1,
+      hoveredCell: 12,
+      reducedMotion: true,
+      selectedCell: 0,
+    });
+    const batches = buildBatches(16);
+    beginFleetFrame(batches);
+    writeFleetInstance(batches, pose({ atlasCell: 4, silhouette: "galleon" }));
+    writeFleetInstance(batches, pose({ atlasCell: 12, silhouette: "galleon" }));
+    endFleetFrame(batches);
+
+    const attention = batches.bySilhouette.get("galleon")!.sails.sailAttention!;
+    expect(attention.getX(0)).toBe(0);
+    expect(attention.getX(1)).toBe(1);
+    // An unwritten instance is rank-and-file, not an unexplained bright sail.
+    expect(attention.getX(9)).toBe(0);
+    expect(fleetDrawCallCount(batches)).toBe(3);
+    disposeFleetBatches(batches);
+    setFleetAttention(null);
+  });
+});
+
+describe("W3.7 woven cloth", () => {
+  it("stays off at overview framing and comes fully in at inspection", () => {
+    expect(gardenFleetClothWeave(OVERVIEW_ZOOM)).toBe(0);
+    expect(gardenFleetClothWeave(0.62)).toBe(0);
+    // A whisper at the default framing — the frame where colour restraint, not
+    // surface detail, is doing the work.
+    expect(gardenFleetClothWeave(DEFAULT_ZOOM)).toBeGreaterThan(0.1);
+    expect(gardenFleetClothWeave(DEFAULT_ZOOM)).toBeLessThan(0.4);
+    expect(gardenFleetClothWeave(1.12)).toBe(1);
+  });
+
+  it("compiles into the sail shader as relief, gated, and shy of the mark", () => {
+    const material = new MeshStandardMaterial();
+    patchSailAtlasMaterial(material);
+    const shader = { fragmentShader: FRAGMENT_STUB, uniforms: {}, vertexShader: VERTEX_STUB };
+    material.onBeforeCompile!(shader as never, null as never);
+
+    // Warp and weft, on the cell-local uv so every sail in the rig is cloth —
+    // not only the one carrying the mark.
+    expect(shader.vertexShader).toContain("vClothUv = uv;");
+    expect(shader.fragmentShader).toContain("float weave = warp * 0.5 + weft * 0.4");
+    // Zoom-gated and derivative-guarded, so it can never shimmer at distance.
+    expect(shader.fragmentShader).toContain("uClothWeave * clothDetail");
+    expect(shader.fragmentShader).toContain("fwidth(vClothUv.x)");
+    // ...and it stands down under the emblem it must not eat.
+    expect(shader.fragmentShader).toContain("1.0 - markCover * 0.7");
+    // Relief, not just a printed pattern: the normal stage reads it back.
+    expect(shader.fragmentShader).toContain("clothTangent * gClothWarp");
+  });
+
+  it("routes attention and the framing step through the sail material", () => {
+    const material = new MeshStandardMaterial();
+    patchSailAtlasMaterial(material);
+    const shader = {
+      fragmentShader: FRAGMENT_STUB,
+      uniforms: {} as Record<string, { value: number }>,
+      vertexShader: VERTEX_STUB,
+    };
+    material.onBeforeCompile!(shader as never, null as never);
+
+    setFleetAerialPerspective({ fogFar: 300, fogNear: 180, strength: 0.4, zoom: DEFAULT_ZOOM });
+    expect(shader.uniforms.uFramingRestraint!.value)
+      .toBeCloseTo(gardenFleetFramingRestraint(DEFAULT_ZOOM), 10);
+    expect(shader.uniforms.uClothWeave!.value)
+      .toBeCloseTo(gardenFleetClothWeave(DEFAULT_ZOOM), 10);
+
+    // A world teardown puts every restraint back to "no viewing condition".
+    setFleetAerialPerspective(null);
+    expect(shader.uniforms.uFramingRestraint!.value).toBe(0);
+    expect(shader.uniforms.uClothWeave!.value).toBe(0);
+    expect(shader.uniforms.uClothRestraint!.value).toBe(0);
   });
 });

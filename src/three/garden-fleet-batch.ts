@@ -68,6 +68,8 @@ export const FLEET_SAIL_ATLAS_SIZE_PX = FLEET_SAIL_ATLAS_COLUMNS * FLEET_SAIL_AT
 export interface FleetBatchPart {
   /** Per-instance atlas cell index; only meaningful on the sail batch. */
   atlasCell: InstancedBufferAttribute | null;
+  /** Per-instance eased attention (W3.7); only meaningful on the sail batch. */
+  sailAttention: InstancedBufferAttribute | null;
   /** Per-instance hull proportions (length, beam, height) — N5(a). */
   hullForm: InstancedBufferAttribute;
   mesh: InstancedMesh;
@@ -173,6 +175,8 @@ const fleetAerialUniforms = {
   uAerialFar: { value: 1e9 + 1 },
   uAerialStrength: { value: 0 },
   uClothRestraint: { value: 0 },
+  uFramingRestraint: { value: 0 },
+  uClothWeave: { value: 0 },
 };
 
 /**
@@ -191,6 +195,141 @@ const fleetAerialUniforms = {
  * The restraint is a viewing condition, not a change to what a ship IS.
  */
 const CLOTH_RESTRAINT_AT_OVERVIEW = 0.55;
+
+/**
+ * W3.7: the default-framing step — one further, gentle act of the SAME
+ * restraint, at the framing where visitors actually dwell.
+ *
+ * The wide shot is already handled: `uClothRestraint` above ramps to 0.55 at
+ * whole-map framing. But the default framing (zoom 0.7776) sits only a third of
+ * the way up that ramp, and that is the frame the product opens on — ~185 sails
+ * each still carrying most of its brand chroma, which reads as a corporate
+ * regatta rather than as a harbour.
+ *
+ * This is deliberately NOT a new mechanism. It is the same shader-side,
+ * zoom-keyed, chroma-only recession the restraint contract sanctions, composed
+ * on top of the existing term, and it obeys the same three rules:
+ *
+ * 1. **Chroma, never value.** The step converges the cloth on its OWN luminance,
+ *    so `luma(result) == luma(cloth)` exactly (the mix target's luminance IS the
+ *    source's). Value is mathematically untouched, which is why the pirate
+ *    contrast floor — a luminance ratio against white — cannot move under it.
+ * 2. **Fully reversible.** It eases to exactly zero by the zoom at which marks
+ *    are judged, so sailing in restores the dye F1 specified.
+ * 3. **Never in the cloth.** `gardenSailClothColor` is untouched; lifting sail
+ *    dye toward canvas is the recorded harmful experiment and stays dead.
+ *
+ * Operator decision 2026-08-13: **one gentle step — ~15-20% further
+ * desaturation at default zoom; every issuer must stay recognizably itself at a
+ * glance.** 0.18 is read as "a further 18% of whatever chroma is left", which is
+ * why it composes multiplicatively with the existing term rather than adding to
+ * it — adding would let two independent cues stack into a grey fleet.
+ */
+const FLEET_FRAMING_RESTRAINT = 0.18;
+
+/**
+ * Above this zoom the step begins to dissolve. Set just above the default
+ * framing (0.7776) so the default frame pays the step in full and the very
+ * first turn of the wheel already starts handing the dye back — the restraint
+ * has to feel like a viewing condition responding to the visitor, not a mode.
+ */
+const FRAMING_RESTRAINT_RELEASE_ZOOM = 0.84;
+
+/**
+ * ...and by this zoom it is gone entirely. 1.05 is the explore/inspection
+ * threshold `gardenSemanticView` already uses — the zoom at which world detail
+ * appears and a mark is the subject rather than a suggestion. Ending the step
+ * exactly there is what makes the contrast-floor guarantee structural rather
+ * than tuned: at the zoom where marks are judged, the step contributes zero.
+ */
+const FRAMING_RESTRAINT_CLEAR_ZOOM = 1.05;
+
+/**
+ * The further chroma step this framing asks of a rank-and-file ship, before
+ * attention is applied. Zero at and above inspection framing.
+ */
+export function gardenFleetFramingRestraint(zoom: number): number {
+  const t = MathUtils.clamp(
+    (zoom - FRAMING_RESTRAINT_RELEASE_ZOOM)
+      / (FRAMING_RESTRAINT_CLEAR_ZOOM - FRAMING_RESTRAINT_RELEASE_ZOOM),
+    0,
+    1,
+  );
+  const eased = t * t * (3 - 2 * t);
+  return FLEET_FRAMING_RESTRAINT * (1 - eased);
+}
+
+/**
+ * How much of the woven cloth impression is visible at a given zoom.
+ *
+ * Cloth-ness is a NEAR-framing property: at whole-map framing a sail is a few
+ * pixels and a thread pattern there is only shimmer, so the weave is off below
+ * ~0.62 and comes fully in at explore framing, exactly where the desaturation
+ * step is handing back the dye. The two trade places: far away the fleet is
+ * quiet colour; up close it is coloured cloth.
+ */
+export function gardenFleetClothWeave(zoom: number): number {
+  const t = MathUtils.clamp(
+    (zoom - CLOTH_WEAVE_FADE_ZOOM) / (CLOTH_WEAVE_FULL_ZOOM - CLOTH_WEAVE_FADE_ZOOM),
+    0,
+    1,
+  );
+  return t * t * (3 - 2 * t);
+}
+
+/** Below this zoom the weave is sub-pixel and would only alias. */
+const CLOTH_WEAVE_FADE_ZOOM = 0.62;
+/** At and above this zoom the cloth reads at full weave. */
+const CLOTH_WEAVE_FULL_ZOOM = 1.12;
+
+/**
+ * Weave geometry and depth, as GLSL float literals.
+ *
+ * Thread counts are per sail (the uv runs 0..1 across each sail), chosen for
+ * heavy sailcloth rather than shirting: coarse enough that a thread is still
+ * two or three pixels at explore framing, which is what keeps it a surface and
+ * not a moire. Weft is denser than warp so the cloth has a grain.
+ *
+ * `SHADE` is the albedo swing and `RELIEF` the normal tilt. Both are small on
+ * purpose. The sail's job is to carry a colour and a mark; the weave's job is
+ * to stop that colour reading as plastic. At 4.5% albedo swing, and standing
+ * down 70% under the mark, the weave cannot move a white mark's contrast against
+ * the cloth by anything a floor would notice — and it never runs at all at the
+ * wide framings where the fleet is judged as a mass.
+ */
+const CLOTH_WARP_THREADS = "14.0";
+const CLOTH_WEFT_THREADS = "19.0";
+const CLOTH_WEAVE_SHADE = "0.045";
+const CLOTH_WEAVE_RELIEF = "0.085";
+/** How far the weave stands down where the emblem is — legibility first. */
+const CLOTH_WEAVE_MARK_RELIEF = "0.7";
+
+/**
+ * CPU reference for the fragment shader's restraint composition — the one place
+ * the contract is expressed as arithmetic, so tests read the same numbers the
+ * GPU does.
+ *
+ * `aerial` is the depth term (already smoothstepped and scaled by strength);
+ * `zoomRestraint` is `uClothRestraint`; `framing` is the W3.7 step.
+ *
+ * Attention cancels both ZOOM-keyed terms — the framing step and the overview
+ * recession — because both are statements about how far away the visitor is
+ * standing, and hovering a ship is the visitor answering "not this one." It does
+ * NOT cancel the DEPTH term: a hovered ship on the far horizon is still behind
+ * the same air as everything else, and punching a saturated sail through the
+ * haze would break the aerial perspective the whole frame depends on.
+ */
+export function gardenFleetSailRestraint(input: {
+  aerial: number;
+  attention: number;
+  framing: number;
+  zoomRestraint: number;
+}): number {
+  const attention = MathUtils.clamp(input.attention, 0, 1);
+  const framing = input.framing * (1 - attention);
+  const base = Math.max(input.aerial, input.zoomRestraint * (1 - attention));
+  return 1 - (1 - base) * (1 - framing);
+}
 
 /**
  * How much of the painted mark survives at a given zoom.
@@ -227,6 +366,8 @@ export function setFleetAerialPerspective(aerial: FleetAerialPerspective | null)
     fleetAerialUniforms.uMarkPresence.value = 1;
     fleetAerialUniforms.uAerialStrength.value = 0;
     fleetAerialUniforms.uClothRestraint.value = 0;
+    fleetAerialUniforms.uFramingRestraint.value = 0;
+    fleetAerialUniforms.uClothWeave.value = 0;
     fleetAerialUniforms.uAerialNear.value = 1e9;
     fleetAerialUniforms.uAerialFar.value = 1e9 + 1;
     return;
@@ -236,6 +377,10 @@ export function setFleetAerialPerspective(aerial: FleetAerialPerspective | null)
   // Marks and chroma recede together on the same zoom curve — one act of
   // restraint, not two competing ones.
   fleetAerialUniforms.uClothRestraint.value = (1 - presence) * CLOTH_RESTRAINT_AT_OVERVIEW;
+  // W3.7: ...and the default framing takes one further, gentle step on the same
+  // axis, which attention (hover/selection) cancels per instance.
+  fleetAerialUniforms.uFramingRestraint.value = gardenFleetFramingRestraint(aerial.zoom);
+  fleetAerialUniforms.uClothWeave.value = gardenFleetClothWeave(aerial.zoom);
   // Start the chroma ramp well inside the fog's near plane so the midground
   // grades continuously; end it with the fog so the two cues resolve together
   // at the bokashi seam rather than fighting over the horizon band.
@@ -246,6 +391,84 @@ export function setFleetAerialPerspective(aerial: FleetAerialPerspective | null)
 
 /** The chroma ramp opens at 62% of the fog's near plane. */
 const AERIAL_NEAR_FACTOR = 0.62;
+
+/**
+ * W3.7: attention — chroma as the answer to "which one?"
+ *
+ * The framing step above quiets every rank-and-file ship. Attention is what
+ * gives one of them its full dye back the moment the visitor points at it, so
+ * colour becomes the world's way of saying "this one" instead of every ship
+ * shouting at once. It is the same restraint read from the other end: the
+ * fleet is quiet so that ONE ship can be loud.
+ *
+ * Attention is per instance and is keyed on the ship's ATLAS CELL, which is the
+ * only stable per-ship identifier that reaches the batch — cells are assigned
+ * once per world in stable ship order (`assignGardenSailAtlasCells`) and a ship
+ * keeps its cell for the life of that world. Cell 0 is the shared plain-canvas
+ * cell, so it can never carry attention: it is "no ship" here, exactly as it is
+ * "no mark" in the atlas. (Ships past the 255 usable slots therefore cannot be
+ * attended — the same overflow ships that already cannot carry a mark. At the
+ * ~205-ship world no ship overflows.)
+ *
+ * Values EASE rather than switch. A hard cut would read as a highlight state
+ * bolted onto the world; the point is that the cloth's colour comes back, the
+ * way a thing resolves when you look at it. Attack is quick enough to feel
+ * answered, release slow enough that sweeping the pointer across the anchorage
+ * leaves a soft wake rather than a strobe.
+ */
+const ATTENTION_ATTACK_SECONDS = 0.12;
+const ATTENTION_RELEASE_SECONDS = 0.38;
+/** Below this an easing-out ship is indistinguishable from quiet; stop tracking it. */
+const ATTENTION_EPSILON = 0.002;
+
+const fleetAttention = new Map<number, number>();
+
+export interface FleetAttention {
+  deltaSeconds: number;
+  /** Atlas cell of the hovered ship, or 0 for none. */
+  hoveredCell: number;
+  reducedMotion: boolean;
+  /** Atlas cell of the selected ship, or 0 for none. */
+  selectedCell: number;
+}
+
+/**
+ * Advances the fleet's attention envelopes one frame. Null clears them —
+ * the same "no world" reset `setFleetAerialPerspective(null)` performs.
+ */
+export function setFleetAttention(attention: FleetAttention | null): void {
+  if (!attention) {
+    fleetAttention.clear();
+    return;
+  }
+  const hovered = Math.max(0, Math.floor(attention.hoveredCell));
+  const selected = Math.max(0, Math.floor(attention.selectedCell));
+  if (hovered > 0 && !fleetAttention.has(hovered)) fleetAttention.set(hovered, 0);
+  if (selected > 0 && !fleetAttention.has(selected)) fleetAttention.set(selected, 0);
+  if (fleetAttention.size === 0) return;
+
+  const delta = Math.max(0, attention.deltaSeconds);
+  for (const [cell, value] of fleetAttention) {
+    const target = cell === hovered || cell === selected ? 1 : 0;
+    let next: number;
+    if (attention.reducedMotion) {
+      // Reduced motion is a complete deterministic static composition: the
+      // answer arrives, it does not animate into place.
+      next = target;
+    } else {
+      const tau = target > value ? ATTENTION_ATTACK_SECONDS : ATTENTION_RELEASE_SECONDS;
+      next = value + (target - value) * (1 - Math.exp(-delta / tau));
+    }
+    if (target === 0 && next < ATTENTION_EPSILON) fleetAttention.delete(cell);
+    else fleetAttention.set(cell, next);
+  }
+}
+
+/** Eased attention for one atlas cell, 0 when the ship is rank-and-file. */
+export function gardenFleetAttention(cell: number): number {
+  if (fleetAttention.size === 0 || cell <= 0) return 0;
+  return fleetAttention.get(cell) ?? 0;
+}
 
 const pennantWind = { active: false, angle: 0, gust: 0, speed: 0, time: 0 };
 
@@ -534,6 +757,8 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
     shader.uniforms.uAerialFar = fleetAerialUniforms.uAerialFar;
     shader.uniforms.uAerialStrength = fleetAerialUniforms.uAerialStrength;
     shader.uniforms.uClothRestraint = fleetAerialUniforms.uClothRestraint;
+    shader.uniforms.uFramingRestraint = fleetAerialUniforms.uFramingRestraint;
+    shader.uniforms.uClothWeave = fleetAerialUniforms.uClothWeave;
     // Sail-local flutter and furling run before hull form, so height and ride
     // cannot change the animation envelope or reopen bundled canvas.
     shader.vertexShader = shader.vertexShader
@@ -560,9 +785,12 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         attribute float aSailIndex;
         attribute vec3 aSailHead;
         attribute vec3 aSailTint;
+        attribute float aSailAttention;
         varying vec2 vAtlasUv;
+        varying vec2 vClothUv;
         varying vec3 vSailTint;
-        varying float vAerialDepth;`,
+        varying float vAerialDepth;
+        varying float vSailAttention;`,
       )
       .replace(
         "#include <uv_vertex>",
@@ -585,6 +813,13 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
           vec2 cellOrigin = vec2(mod(cell, columns), textureRow) / columns;
           vAtlasUv = cellOrigin + uv / columns;
           vSailTint = aSailTint;
+          // W3.7: the CELL-LOCAL uv, kept separately from the atlas uv. The
+          // weave is a property of this sail's cloth, so it must run 0..1 across
+          // each sail rather than across the 16x16 atlas — and every sail in the
+          // rig carries a real 0..1 uv (createSailGeometry), so the plain sails
+          // get their cloth too, not just the one with the mark on it.
+          vClothUv = uv;
+          vSailAttention = aSailAttention;
         }`,
       );
     shader.fragmentShader = shader.fragmentShader
@@ -596,9 +831,18 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         uniform float uAerialFar;
         uniform float uAerialStrength;
         uniform float uClothRestraint;
+        uniform float uFramingRestraint;
+        uniform float uClothWeave;
         varying vec2 vAtlasUv;
+        varying vec2 vClothUv;
         varying vec3 vSailTint;
-        varying float vAerialDepth;`,
+        varying float vAerialDepth;
+        varying float vSailAttention;
+        // W3.7: the weave's relief, handed forward from <map_fragment> (which
+        // runs first) to <normal_fragment_begin>. Initialised to zero so a
+        // material with no map — the geometry-only test path — perturbs nothing.
+        float gClothWarp = 0.0;
+        float gClothWeft = 0.0;`,
       )
       // F1: the cloth is DYED per instance and the atlas carries only marks.
       //
@@ -634,9 +878,57 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
           // Depth restraint and zoom restraint are combined with max(), not
           // added: they are two readings of the same idea, and compounding them
           // would grey the far fleet out entirely at wide framing.
+          //
+          // W3.7 adds two things to that sentence and changes nothing else:
+          //   * attention (0 for the rank and file, easing to 1 on hover or
+          //     selection) cancels both ZOOM-keyed terms, so the ship the
+          //     visitor is pointing at wears its full dye;
+          //   * the framing step composes MULTIPLICATIVELY on what is left —
+          //     "one further 18% of the remaining chroma" — so it can never
+          //     stack with the depth cue into a grey fleet, and it is exactly
+          //     zero at the zoom where marks are judged.
+          // Value is untouched by all of it: the mix target's luminance IS
+          // clothLuma, so luma(sailCloth) is invariant and the pirate contrast
+          // floor cannot move.
+          float attention = clamp(vSailAttention, 0.0, 1.0);
           float clothLuma = dot(sailCloth, vec3(0.2126, 0.7152, 0.0722));
-          float restraint = max(aerial * uAerialStrength, uClothRestraint);
+          float framingStep = uFramingRestraint * (1.0 - attention);
+          float restraint = max(aerial * uAerialStrength, uClothRestraint * (1.0 - attention));
+          restraint = 1.0 - (1.0 - restraint) * (1.0 - framingStep);
           sailCloth = mix(sailCloth, vec3(clothLuma), restraint);
+
+          // W3.7 cloth-ness: a woven canvas impression across the WHOLE sail.
+          //
+          // The rig already carries panel seams and reef bands in its vertex
+          // colours — the coarse read, seven vertices wide. This is the fine
+          // one: warp and weft threads, with the over-under crossing term that
+          // makes a plain weave look woven rather than gridded, plus a slow
+          // slub so it is hand-woven canvas and not a screen door. Weft is
+          // slightly denser than warp, which gives the cloth a grain direction.
+          //
+          // Three guards keep it an impression rather than a texture:
+          //   * zoom (uClothWeave) — off entirely at overview, full at explore;
+          //   * fwidth — threads that have shrunk toward a pixel are faded out
+          //     before they can shimmer, whatever the zoom says;
+          //   * the mark — the weave stands down under the emblem, so the one
+          //     thing the sail exists to show is never woven over.
+          vec2 threads = vClothUv * vec2(${CLOTH_WARP_THREADS}, ${CLOTH_WEFT_THREADS}) * 6.2831853;
+          float warp = sin(threads.x);
+          float weft = sin(threads.y);
+          float weave = warp * 0.5 + weft * 0.4 + warp * weft * 0.34;
+          weave *= 0.86 + 0.14 * sin(vClothUv.x * 7.3 + vClothUv.y * 5.1);
+          float threadPitch = max(fwidth(vClothUv.x), fwidth(vClothUv.y));
+          float clothDetail = 1.0 - smoothstep(0.02, 0.085, threadPitch);
+          float markCover = sailTexel.a * markVisibility;
+          float weaveAmount = uClothWeave * clothDetail
+            * (1.0 - markCover * ${CLOTH_WEAVE_MARK_RELIEF});
+          // Ambient occlusion in the interstices, highlight on the crowns — a
+          // multiplier about 1, so the cloth's own value is preserved on average
+          // and the sail keeps its place in the frame's value structure.
+          sailCloth *= 1.0 + weave * ${CLOTH_WEAVE_SHADE} * weaveAmount;
+          // ...and the relief the lighting reads, handed to the normal stage.
+          gClothWarp = cos(threads.x) * weaveAmount;
+          gClothWeft = cos(threads.y) * weaveAmount;
 
           diffuseColor.rgb *= sailCloth;
           // The night backlight is THIS ship's cloth glowing, not a cream wash
@@ -657,9 +949,29 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
           // the per-instance dye plus the atlas texel IS the sail.
           totalEmissiveRadiance *= sailCloth;
         #endif`,
+      )
+      // W3.7: the weave has to catch the light or it is a printed pattern, not
+      // cloth. A tangent frame built from the shading normal itself (the sails
+      // carry no tangents, and generating them would cost a buffer per
+      // silhouette for a sub-pixel effect) tilts the normal along warp and weft.
+      // The cross with world up is safe here because sails stand near-vertical,
+      // and the epsilon guards the degenerate case rather than relying on that.
+      .replace(
+        "#include <normal_fragment_begin>",
+        `#include <normal_fragment_begin>
+        {
+          vec3 clothTangent = normalize(cross(normal, vec3(0.0, 1.0, 0.0)) + vec3(1e-4, 0.0, 0.0));
+          vec3 clothBitangent = cross(normal, clothTangent);
+          normal = normalize(
+            normal
+              + (clothTangent * gClothWarp + clothBitangent * gClothWeft)
+                * ${CLOTH_WEAVE_RELIEF}
+          );
+        }`,
       );
   };
-  material.customProgramCacheKey = () => "garden-fleet-sail-atlas-hull-form-dye-furl-emissive-trim-aerial";
+  material.customProgramCacheKey = () =>
+    "garden-fleet-sail-atlas-hull-form-dye-furl-emissive-trim-aerial-framing-weave";
 }
 
 function createInstancedPart(
@@ -683,6 +995,7 @@ function createInstancedPart(
   // the batch is always on screen.
   mesh.frustumCulled = false;
   let atlasCell: InstancedBufferAttribute | null = null;
+  let sailAttention: InstancedBufferAttribute | null = null;
   let sailFurl: InstancedBufferAttribute | null = null;
   let sailTint: InstancedBufferAttribute | null = null;
   if (withAtlasCell) {
@@ -699,6 +1012,11 @@ function createInstancedPart(
     sailFurl = new InstancedBufferAttribute(new Float32Array(capacity), 1);
     sailFurl.setUsage(DynamicDrawUsage);
     geometry.setAttribute("aSailFurl", sailFurl);
+    // W3.7: attention. Defaults to 0 — rank-and-file — so an unwritten instance
+    // takes the framing's restraint rather than an unexplained full-brand sail.
+    sailAttention = new InstancedBufferAttribute(new Float32Array(capacity), 1);
+    sailAttention.setUsage(DynamicDrawUsage);
+    geometry.setAttribute("aSailAttention", sailAttention);
   }
   // N5(a): per-ship hull proportions, plus the Tier 3 #13 peg trim in `w`.
   // Defaults to (1,1,1,0) — authored shape, even keel — so an instance that is
@@ -720,7 +1038,7 @@ function createInstancedPart(
     trim.setUsage(DynamicDrawUsage);
     geometry.setAttribute("aTrim", trim);
   }
-  return { atlasCell, hullForm, mesh, sailFurl, sailTint, trim };
+  return { atlasCell, hullForm, mesh, sailAttention, sailFurl, sailTint, trim };
 }
 
 export interface FleetBatchGeometrySource {
@@ -803,6 +1121,11 @@ export function createFleetBatches(input: {
 /** One ship's per-frame pose, written into every batch it participates in. */
 export interface FleetInstancePose {
   atlasCell: number;
+  /**
+   * W3.7: eased attention, 0..1. Omit to let the batch resolve it from
+   * `setFleetAttention`'s envelopes via this ship's atlas cell.
+   */
+  attention?: number;
   hullColor: Color;
   /** F1: the ship's cloth dye — its issuer's dominant brand colour. */
   sailColor: Color;
@@ -896,6 +1219,15 @@ export function writeFleetInstance(
   if (batch.sails.sailFurl) {
     batch.sails.sailFurl.setX(slot, pose.sailFurl);
   }
+  if (batch.sails.sailAttention) {
+    // W3.7: the pose may name attention outright (tests, and any future caller
+    // that already holds the ship's hover/selection state); otherwise it is
+    // resolved from the module's eased envelopes by atlas cell.
+    batch.sails.sailAttention.setX(
+      slot,
+      pose.attention ?? gardenFleetAttention(pose.atlasCell),
+    );
+  }
 
   const pennantSlot = batches.pennant.mesh.count;
   if (pennantSlot < batches.capacity) {
@@ -939,6 +1271,7 @@ function flushPart(part: FleetBatchPart): void {
   if (part.atlasCell) part.atlasCell.needsUpdate = true;
   if (part.sailTint) part.sailTint.needsUpdate = true;
   if (part.sailFurl) part.sailFurl.needsUpdate = true;
+  if (part.sailAttention) part.sailAttention.needsUpdate = true;
   if (part.trim) part.trim.needsUpdate = true;
 }
 

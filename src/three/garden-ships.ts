@@ -49,6 +49,7 @@ import {
   FLEET_MAX_SAILS,
   markAtlasSail,
   mergeTintedParts,
+  setFleetAttention,
   type FleetBatchGeometrySource,
 } from "./garden-fleet-batch";
 import {
@@ -1229,10 +1230,91 @@ export function attachGardenHeroModel(visual: ShipVisual, model: Group): void {
   }
 }
 
+/**
+ * W3.7: hands the frame's hover/selection to the batched fleet as ATTENTION.
+ *
+ * The batch has no ship ids — it is instanced geometry with per-instance
+ * buffers — so the bridge is the atlas cell, the one stable per-ship number
+ * that already crosses into it. This resolves at most two ids per frame and
+ * only walks the fleet when one of them has actually changed, so a still
+ * pointer over a 205-ship harbour costs two string comparisons.
+ *
+ * Attention itself (the eased envelopes, the crossfade when the pointer moves
+ * from one ship to the next) lives in `garden-fleet-batch`, next to the
+ * restraint it cancels.
+ */
+export function syncFleetSailAttention(
+  content: ShipSailTextureTarget,
+  frame: ThreeWorldRendererFrame,
+): void {
+  const hovered = frame.hoveredDetailId;
+  const selected = frame.selectedDetailId;
+  // The ships array is re-created by every world build, and a world build also
+  // REASSIGNS atlas cells. So the memo has to be keyed on the fleet as well as
+  // on the ids: a refresh that keeps the same ship selected can still move that
+  // ship's cell, and a cached cell would then light a stranger.
+  if (
+    hovered !== lastAttentionHovered
+    || selected !== lastAttentionSelected
+    || content.ships !== lastAttentionShips
+  ) {
+    lastAttentionHovered = hovered;
+    lastAttentionSelected = selected;
+    lastAttentionShips = content.ships;
+    lastAttentionHoveredCell = 0;
+    lastAttentionSelectedCell = 0;
+    if (hovered !== null || selected !== null) {
+      for (const visual of content.ships) {
+        // Hero ships are not in the batch at all — they own their own sail
+        // material and never took the framing step, so they need no restoring.
+        if (!visual.batched) continue;
+        const id = visual.ship.detailId;
+        if (id === hovered) lastAttentionHoveredCell = visual.atlasCell;
+        if (id === selected) lastAttentionSelectedCell = visual.atlasCell;
+      }
+    }
+  }
+  // The batch's own clock: `frame.timeSeconds` is pinned at 0 under reduced
+  // motion, which would freeze an envelope mid-ease — so reduced motion is
+  // passed through and snaps the value instead of easing it.
+  const delta = frame.timeSeconds - lastAttentionTimeSeconds;
+  lastAttentionTimeSeconds = frame.timeSeconds;
+  setFleetAttention({
+    deltaSeconds: Number.isFinite(delta) ? delta : 0,
+    hoveredCell: lastAttentionHoveredCell,
+    reducedMotion: frame.reducedMotion,
+    selectedCell: lastAttentionSelectedCell,
+  });
+}
+
+let lastAttentionHovered: string | null = null;
+let lastAttentionSelected: string | null = null;
+let lastAttentionShips: readonly ShipVisual[] | null = null;
+let lastAttentionHoveredCell = 0;
+let lastAttentionSelectedCell = 0;
+let lastAttentionTimeSeconds = 0;
+
+/** Forgets the memoised hover/selection so a fresh renderer starts clean. */
+export function resetFleetSailAttention(): void {
+  lastAttentionHovered = null;
+  lastAttentionSelected = null;
+  lastAttentionShips = null;
+  lastAttentionHoveredCell = 0;
+  lastAttentionSelectedCell = 0;
+  lastAttentionTimeSeconds = 0;
+  setFleetAttention(null);
+}
+
 export function syncShipSailTextures(
   content: ShipSailTextureTarget,
   frame: ThreeWorldRendererFrame,
 ): void {
+  // W3.7: attention is a per-FRAME reading, so it runs before the logo-
+  // generation guard below, which is a per-WORLD one. This function is the only
+  // per-frame hook this module is given the frame on; the alternative was a
+  // second call site in the renderer for two numbers.
+  syncFleetSailAttention(content, frame);
+
   const generation = frame.logos.getLogoGenerationKey();
   if (content.logoGenerationKey === generation) return;
   content.logoGenerationKey = generation;
