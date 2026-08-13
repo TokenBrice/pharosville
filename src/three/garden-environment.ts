@@ -1,12 +1,19 @@
 import {
+  CubeCamera,
+  LightProbe,
+  LinearSRGBColorSpace,
   Mesh,
   PMREMGenerator,
   Scene,
   SphereGeometry,
+  SphericalHarmonics3,
+  UnsignedByteType,
+  WebGLCubeRenderTarget,
   type ShaderMaterial,
   type WebGLRenderer,
   type WebGLRenderTarget,
 } from "three";
+import { LightProbeGenerator } from "three/examples/jsm/lights/LightProbeGenerator.js";
 import type { DayCyclePhase } from "./garden-day-cycle";
 
 /**
@@ -41,11 +48,73 @@ import type { DayCyclePhase } from "./garden-day-cycle";
  * frame and cost more than everything it improves. So the probe is CACHED
  * against a quantised day-cycle key and rebaked only when that key moves — in
  * ordinary use, when the visitor's wall clock crosses a step, which is a handful
- * of times an hour. The previous target is disposed before the next is kept, so
- * exactly one is ever live.
+ * of times an hour. W1.5 adds a real-time floor and a load gate on top of that
+ * key, so a time-control drag — which walks every key a day contains in the two
+ * seconds the gesture lasts — costs two or three bakes rather than forty-one,
+ * and an ordinary bake waits for a frame that can spare it.
+ *
+ * The previous target is disposed only once its replacement is committed, so a
+ * throwing bake leaves the world lit rather than dropping the metal to black.
+ * Two are live for the handful of frames a new bake is HELD waiting for its
+ * harmonic (below), and never more than two.
  *
  * `bakeCount` is exposed so a test can assert that a run of frames at a steady
  * hour bakes once and not once per frame.
+ *
+ * ## W1.5 — why a cached probe alone made dawn SNAP
+ *
+ * A cached probe is the right cost decision and the wrong LOOK decision on its
+ * own, because the cache key is quantised: the sky the metals reflect held
+ * still for a whole step and then jumped a whole step at once. Everything else
+ * in the day cycle is continuous — `updateDayCycle` blends the hemisphere,
+ * ambient and key light off the RAW phase every frame — so the probe was the
+ * one ambient term in the world that moved in stairs. Dawn snapped instead of
+ * blooming.
+ *
+ * The fix is not to bake more often. It is to separate the two halves of what
+ * `Scene.environment` contributes and treat them differently:
+ *
+ * - the DIFFUSE half is nine numbers, and nine numbers can be interpolated for
+ *   free. A `LightProbe` carries the difference between the smooth ambient the
+ *   frame wants and the stepped ambient the baked probe is actually supplying,
+ *   so the diffuse term is continuous THROUGH the swap by construction.
+ * - the SPECULAR half is a cube texture and cannot be cross-dissolved without a
+ *   second sampler in every material. What it gets instead is a short dip in
+ *   `environmentIntensity` timed on the swap, so the discontinuity lands at the
+ *   moment the term is weakest, then eases back.
+ *
+ * ## Why the light probe cannot double-brighten the frame
+ *
+ * The probe is a DIFFERENTIAL, not a second ambient source:
+ *
+ *     probe.sh = smoothSH * I0 - bakedSH * I(t)
+ *
+ * where `bakedSH` is the spherical harmonic of the cube the live PMREM was
+ * built from, `smoothSH` eases from the previous bake's harmonic to it, `I0` is
+ * `GARDEN_ENVIRONMENT_INTENSITY` and `I(t)` is the live (possibly dipped)
+ * `Scene.environmentIntensity`. The environment's own diffuse contribution is
+ * `bakedSH * I(t)`, so the two sum to `smoothSH * I0` — exactly one ambient
+ * term, at exactly the strength the calibration table below settled on.
+ *
+ * At rest `smoothSH === bakedSH` and `I(t) === I0`, so every coefficient is
+ * algebraically zero and the probe contributes NOTHING. The per-phase ambient
+ * energy of a steady frame is therefore bit-identical to the frame before this
+ * change; the probe only exists during the second or two after a swap. That is
+ * the whole answer to "does this re-brighten a phase" — it cannot, because the
+ * only frames it touches are the ones between two states it is interpolating.
+ *
+ * ## Why the harmonic is read back asynchronously
+ *
+ * `LightProbeGenerator` needs the cube's pixels on the CPU. The synchronous
+ * `readRenderTargetPixels` would stall the pipeline mid-frame; the async form
+ * fences and polls, so the six faces land a handful of frames later. That
+ * latency is invisible for an ambient term and it is why a new bake is HELD
+ * rather than swapped on arrival: swapping the texture before its harmonic
+ * exists would step the diffuse uncompensated, which is the bug being fixed. If
+ * the readback never lands (`GARDEN_ENVIRONMENT_SH_DEADLINE_SECONDS`) or throws,
+ * the probe is zeroed and the module degrades to exactly its pre-W1.5 behaviour
+ * rather than to a dark frame — never to a dark one, which is the property the
+ * failure arms are written around.
  *
  * ## Why the intensity is low, and why it is not a grade knob
  *
@@ -116,6 +185,110 @@ const STORM_BAND_HYSTERESIS = 0.06;
  */
 const PROBE_RADIUS = 1;
 
+/**
+ * Face size of the harmonic cube.
+ *
+ * Nine coefficients cannot hold more than the lowest frequencies of a sky, so
+ * resolution past a couple of dozen pixels a face buys nothing but readback
+ * bytes. 16 is 1.5 KB a face and 1,536 texels of projection arithmetic for the
+ * whole cube — small enough to sit inside the episodic bake slot without
+ * showing up next to the PMREM mip chain it shares that slot with.
+ */
+const SH_CUBE_SIZE = 16;
+
+/**
+ * How long the ambient takes to walk from the previous bake's sky to the new
+ * one, as an exponential time constant.
+ *
+ * This is the number that turns the step into a bloom, so it wants to be long
+ * enough to read as motion rather than as a cut — about four time constants, so
+ * ~3.5 s of settle. Much longer and a visitor dragging the time control would
+ * watch the light trail the sky it is coming from; much shorter and it is the
+ * snap this exists to remove.
+ */
+const SH_DRIFT_TAU_SECONDS = 0.9;
+
+/**
+ * The specular half's landing, as a time constant and a depth.
+ *
+ * The cube texture swaps in one frame — there is no second environment sampler
+ * to cross-dissolve against, and adding one to every material in the world to
+ * soften an adjacent pair of quantisation steps is not a trade worth making. So
+ * the swap is timed to land where the term is weakest instead: intensity drops
+ * by `SWAP_DIP` at the instant of the swap, which scales the discontinuity the
+ * metals see by the same fraction, then recovers.
+ *
+ * Deliberately much faster than the diffuse drift. The dip is a modulation of
+ * the whole environment term, so a slow one would be its own artefact — metals
+ * visibly dulling for seconds — and would trade a small step for a large ramp.
+ * At 0.22 s it is over inside ~0.7 s, which is a landing rather than a blink.
+ *
+ * The diffuse half does not care either way: the differential probe is written
+ * against the LIVE intensity, so it cancels the dip exactly.
+ */
+const SWAP_DIP_TAU_SECONDS = 0.22;
+const SWAP_DIP = 0.3;
+
+/** Below this, an easing scalar is snapped to zero so "at rest" is exact. */
+const DRIFT_EPSILON = 0.002;
+
+/**
+ * Real seconds a bake must wait behind the previous one.
+ *
+ * The quantised key already bounds the WALL-CLOCK case to a handful of bakes an
+ * hour. What it does not bound is a visitor dragging the time control, which
+ * walks all 41 distinct keys of a day in the couple of seconds the drag takes —
+ * 41 PMREM bakes and 41 cube readbacks inside a gesture, which is the one input
+ * in the app that most wants the frame budget left alone. A real-time floor
+ * turns that into two or three bakes, and because the wanted key is always the
+ * LATEST one, the drag still lands on the right sky.
+ */
+export const GARDEN_ENVIRONMENT_MIN_BAKE_SECONDS = 1.5;
+
+/**
+ * How long a wanted bake may be deferred waiting for a quiet frame.
+ *
+ * Deferring to an idle or low-load frame is a courtesy, not a contract: a
+ * machine that never leaves `recovery` must still eventually light its metals
+ * with the right sky. Six seconds is long enough to skip a burst of pressure
+ * and short enough that nobody watches the wrong sky reflected in the bronze.
+ */
+export const GARDEN_ENVIRONMENT_MAX_DEFER_SECONDS = 6;
+
+/**
+ * How long a held bake waits for its harmonic before swapping without one.
+ *
+ * The async readback normally lands within a few frames. If it does not — a
+ * throttled background tab, a driver that refuses the format — the new sky must
+ * still reach the frame. Swapping uncompensated costs one step, which is what
+ * the world did before W1.5; never swapping would strand the metals on a stale
+ * sky indefinitely, which is worse.
+ */
+export const GARDEN_ENVIRONMENT_SH_DEADLINE_SECONDS = 2;
+
+export interface GardenEnvironmentUpdateOptions {
+  /**
+   * Real seconds since the previous update. Drives the swap easing and the bake
+   * cadence. Absent (or zero) the easing holds still, which is what a caller
+   * with no clock should get rather than a jump.
+   */
+  deltaSeconds?: number;
+  /**
+   * Whether this frame can afford an episodic bake — an idle frame, or one the
+   * load ladder reads as healthy. Deferring is bounded by
+   * `GARDEN_ENVIRONMENT_MAX_DEFER_SECONDS`, so a permanently loaded machine
+   * still rebakes. Defaults to `true`: a caller that says nothing keeps the
+   * pre-W1.5 "bake when the key moves" behaviour.
+   */
+  bakeAllowed?: boolean;
+  /**
+   * The reduced-motion still frame. There is no later frame to defer to and no
+   * time over which to ease, so the bake happens now and the swap is instant —
+   * the composition must be complete and settled the moment it is drawn.
+   */
+  reducedMotion?: boolean;
+}
+
 export interface GardenEnvironment {
   /** Bakes so far. Test evidence that the probe is cached, not per frame. */
   readonly bakeCount: number;
@@ -125,8 +298,112 @@ export interface GardenEnvironment {
    * `stormLevel` (Phase 2) joins the key, coarsely quantised: the dome it
    * bakes from is storm-graded, so the light the world is lit by must not lag
    * the sky it is seen against when a storm arrives.
+   *
+   * W1.5: also advances the per-frame ambient easing, which is nine vector
+   * lerps and one scalar — free, and the reason this is safe to call on every
+   * frame including the ones that do not bake.
    */
-  update(phase: DayCyclePhase, stormLevel?: number): void;
+  update(
+    phase: DayCyclePhase,
+    stormLevel?: number,
+    options?: GardenEnvironmentUpdateOptions,
+  ): void;
+}
+
+/**
+ * Whether this frame should spend a bake, given what the last one cost.
+ *
+ * Pure so the cadence — the part that decides whether a time-control drag costs
+ * three bakes or forty — is testable without a GL context.
+ */
+export function shouldBakeGardenEnvironment(input: {
+  /** A bake is already baked and waiting for its harmonic. */
+  bakePending: boolean;
+  /** Something is already lit by a probe. The first bake can never wait. */
+  hasProbe: boolean;
+  /** The quantised key wants a sky the live probe does not have. */
+  keyChanged: boolean;
+  /** This frame can afford the work (idle, or a healthy load tier). */
+  lowLoad: boolean;
+  reducedMotion: boolean;
+  secondsSinceBake: number;
+  /** How long the wanted key has been waiting for a frame that would take it. */
+  wantedSeconds: number;
+}): boolean {
+  if (!input.keyChanged) return false;
+  if (input.bakePending) return false;
+  // Nothing is lit yet, or this is the single frame reduced motion will ever
+  // draw. Either way there is no later frame to defer to.
+  if (!input.hasProbe || input.reducedMotion) return true;
+  if (input.secondsSinceBake < GARDEN_ENVIRONMENT_MIN_BAKE_SECONDS) return false;
+  return input.lowLoad || input.wantedSeconds >= GARDEN_ENVIRONMENT_MAX_DEFER_SECONDS;
+}
+
+/** One step of an exponential settle, snapped to an exact rest at the end. */
+export function advanceGardenEnvironmentDrift(
+  drift: number,
+  deltaSeconds: number,
+  tauSeconds: number,
+  reducedMotion = false,
+): number {
+  // The still frame is drawn once, settled: there is no second frame in which
+  // to finish an ease, so there is nothing to be part-way through.
+  if (reducedMotion) return 0;
+  if (!(drift > 0)) return 0;
+  const step = Math.max(0, Math.min(0.25, Number.isFinite(deltaSeconds) ? deltaSeconds : 0));
+  const next = drift * Math.exp(-step / tauSeconds);
+  return next < DRIFT_EPSILON ? 0 : next;
+}
+
+export function gardenEnvironmentDriftTaus(): { sh: number; swap: number } {
+  return { sh: SH_DRIFT_TAU_SECONDS, swap: SWAP_DIP_TAU_SECONDS };
+}
+
+/**
+ * `Scene.environmentIntensity` for a swap that is `swapDrift` of the way from
+ * "just swapped" (1) back to rest (0).
+ */
+export function gardenEnvironmentIntensityForSwap(swapDrift: number): number {
+  const drift = Math.max(0, Math.min(1, swapDrift));
+  return GARDEN_ENVIRONMENT_INTENSITY * (1 - SWAP_DIP * drift);
+}
+
+/**
+ * The differential the light probe carries, written in place.
+ *
+ * `out = (baked + (previous - baked) * shDrift) * I0 - baked * environmentIntensity`
+ *
+ * The first term is the smooth ambient the frame wants; the second is what the
+ * live PMREM is already supplying. Their sum — which is what a material
+ * actually sees — is the smooth term alone, so no phase gains energy and the
+ * swap is invisible to the diffuse half. At rest (`shDrift === 0` and
+ * `environmentIntensity === GARDEN_ENVIRONMENT_INTENSITY`) every coefficient is
+ * exactly zero.
+ *
+ * Writes into `out`'s existing vectors; allocates nothing.
+ */
+export function writeGardenEnvironmentProbeSH(
+  out: SphericalHarmonics3,
+  previous: SphericalHarmonics3,
+  baked: SphericalHarmonics3,
+  shDrift: number,
+  environmentIntensity: number,
+): void {
+  const outCoefficients = out.coefficients;
+  const previousCoefficients = previous.coefficients;
+  const bakedCoefficients = baked.coefficients;
+  const drift = Math.max(0, Math.min(1, shDrift));
+  for (let index = 0; index < 9; index += 1) {
+    const target = outCoefficients[index]!;
+    const from = previousCoefficients[index]!;
+    const to = bakedCoefficients[index]!;
+    target.x = (to.x + (from.x - to.x) * drift) * GARDEN_ENVIRONMENT_INTENSITY
+      - to.x * environmentIntensity;
+    target.y = (to.y + (from.y - to.y) * drift) * GARDEN_ENVIRONMENT_INTENSITY
+      - to.y * environmentIntensity;
+    target.z = (to.z + (from.z - to.z) * drift) * GARDEN_ENVIRONMENT_INTENSITY
+      - to.z * environmentIntensity;
+  }
 }
 
 /**
@@ -187,16 +464,136 @@ export function createGardenEnvironment(
   // is disposed by `garden-sky`; only this geometry belongs to this module.
   const probeScene = new Scene();
   const probeGeometry = new SphereGeometry(PROBE_RADIUS, 32, 16);
-  const probe = new Mesh(probeGeometry, domeMaterial);
-  probe.name = "garden-environment-probe";
-  probe.frustumCulled = false;
-  probeScene.add(probe);
+  const probeMesh = new Mesh(probeGeometry, domeMaterial);
+  probeMesh.name = "garden-environment-probe";
+  probeMesh.frustumCulled = false;
+  probeScene.add(probeMesh);
+
+  // The harmonic cube.
+  //
+  // Eight-bit, not the half-float PMREMGenerator renders the same dome into,
+  // and deliberately: `readPixels` is only guaranteed to accept RGBA/UNSIGNED_
+  // BYTE. Half-float reads are the driver's implementation-defined pair, which
+  // is available on plenty of machines and is not a promise, and this readback
+  // has no fallback path worth writing — a format one driver in ten refuses
+  // would silently turn the ambient drift off for those visitors.
+  //
+  // The precision that costs is precision the result cannot use. Nine
+  // coefficients of a difference that decays to zero within a couple of seconds
+  // do not resolve a 1/255 quantisation of the sky, and at night — where the
+  // linear values are smallest and the quantisation relatively worst — the sky
+  // is near-black in both endpoints, so the absolute error is smaller still.
+  // Tagged linear because the dome writes linear: it is a raw `ShaderMaterial`
+  // with no colour-space conversion in it, which is exactly why the PMREM path
+  // reads it linear too.
+  const shCubeTarget = new WebGLCubeRenderTarget(SH_CUBE_SIZE, {
+    type: UnsignedByteType,
+    colorSpace: LinearSRGBColorSpace,
+  });
+  shCubeTarget.texture.name = "garden-environment-sh-cube";
+  const shCubeCamera = new CubeCamera(0.1, 5, shCubeTarget);
+
+  // The differential ambient. Added with zero coefficients so every material in
+  // the world compiles with the light-probe term from the first frame — a probe
+  // that appears later would recompile the whole scene mid-session.
+  const lightProbe = new LightProbe();
+  lightProbe.name = "garden-environment-light-probe";
+  scene.add(lightProbe);
+
+  // Preallocated: the per-frame path writes through these and allocates nothing.
+  const bakedSH = new SphericalHarmonics3();
+  const previousSH = new SphericalHarmonics3();
 
   let target: WebGLRenderTarget | null = null;
   let bakedKey: string | null = null;
   let stormBand: number | null = null;
   let bakeCount = 0;
   let disposed = false;
+
+  // W1.5 easing + cadence state.
+  let shDrift = 0;
+  let swapDrift = 0;
+  /** False until a harmonic for the LIVE probe has landed; zeroes the probe. */
+  let shValid = false;
+  let secondsSinceBake = Number.POSITIVE_INFINITY;
+  let wantedSeconds = 0;
+  let bakeSerial = 0;
+  /** Serial of the bake whose harmonic is still being read back. */
+  let awaitingSerial: number | null = null;
+  let awaitedSH: SphericalHarmonics3 | null = null;
+  let pending: {
+    serial: number;
+    target: WebGLRenderTarget;
+    key: string;
+    waitedSeconds: number;
+  } | null = null;
+
+  /**
+   * Renders the dome into the harmonic cube and starts the async projection.
+   *
+   * Six small draws, inside the caller's episodic bake window, so they are
+   * accounted against the bake and not against the frame's recurring work. The
+   * readback itself is fenced and lands later; nothing here waits on it.
+   */
+  function requestHarmonic(serial: number): void {
+    awaitingSerial = null;
+    awaitedSH = null;
+    try {
+      shCubeCamera.update(renderer, probeScene);
+    } catch {
+      // A cube render that will not run is a driver problem, not a reason to
+      // stop lighting the world. Leave the harmonic unclaimed: the caller
+      // swaps without one and the probe stays zeroed — pre-W1.5 behaviour.
+      return;
+    }
+    awaitingSerial = serial;
+    void LightProbeGenerator.fromCubeRenderTarget(renderer, shCubeTarget)
+      .then((generated) => {
+        if (disposed || awaitingSerial !== serial) return;
+        awaitedSH = generated.sh;
+      })
+      .catch(() => {
+        if (awaitingSerial === serial) awaitingSerial = null;
+      });
+  }
+
+  /**
+   * Swaps the environment with no harmonic to hold the diffuse steady across
+   * it, and zeroes the probe so the frame is exactly what it was before W1.5.
+   * Used for the first bake of a session (nothing to interpolate from), for the
+   * reduced-motion still frame (no later frame to ease in), and as the
+   * readback's failure arm.
+   */
+  function swapImmediately(next: WebGLRenderTarget, key: string): void {
+    // Dispose AFTER the swap is committed, so a throwing bake leaves the
+    // previous probe lit rather than dropping the scene to unlit metal.
+    const previousTarget = target;
+    target = next;
+    bakedKey = key;
+    scene.environment = next.texture;
+    previousTarget?.dispose();
+    shValid = false;
+    bakedSH.zero();
+    previousSH.zero();
+    shDrift = 0;
+    swapDrift = 0;
+  }
+
+  /** The smooth arm: the harmonic exists, so the diffuse crosses continuously. */
+  function swapWithHarmonic(next: WebGLRenderTarget, key: string, sh: SphericalHarmonics3): void {
+    const previousTarget = target;
+    target = next;
+    bakedKey = key;
+    scene.environment = next.texture;
+    previousTarget?.dispose();
+    previousSH.copy(bakedSH);
+    bakedSH.copy(sh);
+    shValid = true;
+    // The ambient now reads the OLD sky and walks to the new one; the probe's
+    // first written value cancels the swap exactly.
+    shDrift = 1;
+    swapDrift = 1;
+  }
 
   return {
     get bakeCount() {
@@ -206,25 +603,103 @@ export function createGardenEnvironment(
       if (disposed) return;
       disposed = true;
       scene.environment = null;
+      scene.remove(lightProbe);
+      pending?.target.dispose();
+      pending = null;
       target?.dispose();
       target = null;
+      shCubeTarget.dispose();
       probeGeometry.dispose();
       generator.dispose();
     },
-    update(phase, stormLevel = 0) {
+    update(phase, stormLevel = 0, options) {
       if (disposed) return;
+      const reducedMotion = options?.reducedMotion === true;
+      const deltaSeconds = Math.max(
+        0,
+        Math.min(0.25, Number.isFinite(options?.deltaSeconds) ? options!.deltaSeconds! : 0),
+      );
+      secondsSinceBake += deltaSeconds;
+
+      // 1. A harmonic that has landed. It belongs either to a held bake (commit
+      //    it smoothly) or to a target already swapped in (adopt it, with the
+      //    probe still at rest — adopting cannot change the frame).
+      if (awaitingSerial !== null && awaitedSH !== null) {
+        const landed = awaitedSH;
+        awaitedSH = null;
+        const serial = awaitingSerial;
+        awaitingSerial = null;
+        if (pending && pending.serial === serial) {
+          swapWithHarmonic(pending.target, pending.key, landed);
+          pending = null;
+        } else if (!pending) {
+          bakedSH.copy(landed);
+          previousSH.copy(landed);
+          shValid = true;
+        }
+      }
+
+      // 2. A held bake whose harmonic never came. Swap uncompensated rather
+      //    than reflect a sky that is hours stale.
+      if (pending) {
+        pending.waitedSeconds += deltaSeconds;
+        if (
+          reducedMotion
+          || pending.waitedSeconds >= GARDEN_ENVIRONMENT_SH_DEADLINE_SECONDS
+        ) {
+          awaitingSerial = null;
+          awaitedSH = null;
+          swapImmediately(pending.target, pending.key);
+          pending = null;
+        }
+      }
+
+      // 3. The cadence.
       stormBand = resolveGardenEnvironmentStormBand(stormBand, stormLevel);
       const key = gardenEnvironmentPhaseBandKey(phase, stormBand);
-      if (key === bakedKey) return;
-      const next = generator.fromScene(probeScene);
-      // Dispose AFTER the new bake succeeds, so a throwing bake leaves the
-      // previous probe lit rather than dropping the scene to unlit metal.
-      target?.dispose();
-      target = next;
-      bakedKey = key;
-      bakeCount += 1;
-      scene.environment = next.texture;
-      scene.environmentIntensity = GARDEN_ENVIRONMENT_INTENSITY;
+      const keyChanged = key !== bakedKey && key !== pending?.key;
+      wantedSeconds = keyChanged ? wantedSeconds + deltaSeconds : 0;
+      if (shouldBakeGardenEnvironment({
+        bakePending: pending !== null,
+        hasProbe: target !== null,
+        keyChanged,
+        lowLoad: options?.bakeAllowed ?? true,
+        reducedMotion,
+        secondsSinceBake,
+        wantedSeconds,
+      })) {
+        const serial = bakeSerial += 1;
+        // Both pieces of GPU work sit here, inside the caller's episodic bake
+        // window, so `renderer.info` attributes them to the bake.
+        requestHarmonic(serial);
+        const next = generator.fromScene(probeScene);
+        bakeCount += 1;
+        secondsSinceBake = 0;
+        wantedSeconds = 0;
+        // Hold the new probe only when holding it can buy something: a previous
+        // sky to interpolate FROM (`shValid` — the live probe's own harmonic has
+        // landed), a later frame to interpolate IN, and a harmonic actually on
+        // its way for this bake. Otherwise swap now. Holding without `shValid`
+        // would be worse than not holding at all: the differential would be
+        // written against a zeroed "previous", which is not the old sky, it is
+        // NO sky, and the diffuse would dip to black and climb back out.
+        if (target === null || !shValid || reducedMotion || awaitingSerial !== serial) {
+          swapImmediately(next, key);
+        } else {
+          pending = { key, serial, target: next, waitedSeconds: 0 };
+        }
+      }
+
+      // 4. The per-frame easing. Nine vector lerps and two scalars.
+      shDrift = advanceGardenEnvironmentDrift(shDrift, deltaSeconds, SH_DRIFT_TAU_SECONDS, reducedMotion);
+      swapDrift = advanceGardenEnvironmentDrift(swapDrift, deltaSeconds, SWAP_DIP_TAU_SECONDS, reducedMotion);
+      const intensity = gardenEnvironmentIntensityForSwap(swapDrift);
+      scene.environmentIntensity = intensity;
+      if (shValid) {
+        writeGardenEnvironmentProbeSH(lightProbe.sh, previousSH, bakedSH, shDrift, intensity);
+      } else {
+        lightProbe.sh.zero();
+      }
     },
   };
 }

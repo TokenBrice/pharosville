@@ -13,7 +13,6 @@ import {
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { HARBOR_PALETTE } from "../systems/palette";
-import { observeReducedMotion } from "../systems/reduced-motion";
 import type { SeaBodyName } from "../systems/sea-bodies";
 import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
 import {
@@ -81,17 +80,16 @@ export interface GardenSeaSigns {
     /**
      * World-clock seconds since the previous frame, for the D6 step settle.
      *
-     * Optional, and normally omitted: the world renderer's sign update carries
-     * no clock, so the module keeps its own from `performance.now()`. Pass it
-     * to drive the settle deterministically (tests do), or once the renderer
-     * has a delta to hand.
+     * Supplied by the world renderer from the frame it is drawing. Optional
+     * only so a caller can omit it deliberately, in which case the settle is
+     * taken WHOLE — an unclocked caller gets the settled rung rather than a
+     * board frozen part-way through an ease nobody is advancing.
      */
     deltaSeconds?: number;
     /**
      * Forces the settle to be instant and the rung to be the pure function of
-     * zoom. Optional for the same reason: when it is not supplied the module
-     * reads the media query itself, so the reduced-motion still frame is a
-     * complete deterministic composition whether or not a caller remembers.
+     * zoom. Supplied by the world renderer from the frame's motion policy, like
+     * every other eased system in the scene. Absent, motion is allowed.
      */
     reducedMotion?: boolean;
     /** Camera zoom; drives the D6 quantized on-screen scaling. */
@@ -218,15 +216,12 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
   }
 
   const scaleTrack = createSeaSignScaleTrack();
-  const clock = createFrameClock();
-  const motionPreference = watchReducedMotion();
   let appliedScale = 0;
 
   return {
     root,
     lampPositions,
     dispose() {
-      motionPreference.stop();
       faceAtlas?.texture.dispose();
       faceMaterial.dispose();
       for (const mesh of timberParts) mesh.geometry.dispose();
@@ -240,8 +235,13 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
       // rung settled off screen is one the board does not have to perform on
       // its way back in.
       const scale = scaleTrack.advance({
-        deltaSeconds: deltaSeconds ?? clock.tick(),
-        reducedMotion: reducedMotion ?? motionPreference.matches,
+        // The frame's numbers take precedence and the world renderer always
+        // supplies both. The fallbacks are only for a caller with no frame to
+        // speak of: an infinite delta lands the rung settled rather than
+        // stranded mid-ease, and motion is allowed unless a frame says
+        // otherwise — the still frame's own update passes `reducedMotion`.
+        deltaSeconds: deltaSeconds ?? Number.POSITIVE_INFINITY,
+        reducedMotion: reducedMotion ?? false,
         zoom,
       });
       if (!visible) return;
@@ -256,61 +256,6 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
       // The lantern's light on the board face: day keeps the whisper, night
       // lifts the paint clear of the blue scene light.
       faceMaterial.emissiveIntensity = 0.12 + night * 0.5;
-    },
-  };
-}
-
-/**
- * The module's own frame clock.
- *
- * The world renderer's sign update passes zoom, visibility and night and no
- * time at all, and that call site belongs to the renderer, not here. So the
- * settle keeps its own wall clock and reports the first frame — and any frame
- * after a pause — as an infinite delta, which the track takes whole rather
- * than easing across.
- */
-function createFrameClock(): { tick: () => number } {
-  let last: number | null = null;
-  return {
-    tick() {
-      const now = typeof performance === "undefined" ? Date.now() : performance.now();
-      const delta = last === null ? Number.POSITIVE_INFINITY : (now - last) / 1000;
-      last = now;
-      return delta;
-    },
-  };
-}
-
-/**
- * The reduced-motion preference, as a live-updating flag.
- *
- * Everything else in the scene takes `reducedMotion` off the frame, and this
- * would too if the sign update carried it. It does not, and a settle left
- * running under reduced motion would strand the board at an in-between size in
- * a composition that is meant to be one complete static frame — so the module
- * asks the platform directly. Defensively: no `window`, no `matchMedia`, or a
- * media-query implementation without listeners all degrade to "motion allowed",
- * which is what a caller-supplied flag would override anyway.
- */
-function watchReducedMotion(): { readonly matches: boolean; stop: () => void } {
-  let matches = false;
-  let stop = () => {};
-  if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
-    try {
-      stop = observeReducedMotion((next) => {
-        matches = next;
-      });
-    } catch {
-      matches = false;
-      stop = () => {};
-    }
-  }
-  return {
-    get matches() {
-      return matches;
-    },
-    stop() {
-      stop();
     },
   };
 }

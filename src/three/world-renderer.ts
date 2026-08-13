@@ -451,6 +451,11 @@ export function createThreeWorldRenderer(
   };
   let aoTierWeight: number | null = null;
   let aoWeightClockSeconds = 0;
+  // W1.5: the environment's own clock. The probe's bake cadence and the ambient
+  // crossfade it runs between bakes are both real-time eases, and this is the
+  // only frame-time delta available before `updateSceneForFrame` advances the
+  // scene's own clocks further down.
+  let environmentClockSeconds = 0;
   let activeAOQuality: "full" | "balanced" = "balanced";
   let lastMetrics: ThreeWorldRendererMetrics = emptyWorldRendererMetrics();
 
@@ -643,7 +648,25 @@ export function createThreeWorldRenderer(
       // either the scene subtotal or the recurring total.
       renderer.info.reset();
       const environmentBakeCountBefore = scene.environment.bakeCount;
-      scene.environment.update(phase, scene.weather.stormLevel);
+      const environmentDeltaSeconds = MathUtils.clamp(
+        frame.timeSeconds - environmentClockSeconds,
+        0,
+        0.25,
+      );
+      environmentClockSeconds = frame.timeSeconds;
+      // W1.5: a bake is episodic GPU work, so it waits for a frame that can
+      // spare it — an idle duty cycle, or a load tier the ladder reads as
+      // healthy — and never lands inside a camera gesture, which is the one
+      // input in the app that most wants the budget left alone. The environment
+      // bounds its own wait, so a machine that never leaves `recovery` still
+      // rebakes; this only decides WHICH frame pays when there is a choice.
+      const environmentTier = seaQualityTier(frame.renderScheduler);
+      scene.environment.update(phase, scene.weather.stormLevel, {
+        bakeAllowed: frame.renderScheduler.tier !== "interaction"
+          && (environmentTier === "full" || environmentTier === "balanced"),
+        deltaSeconds: environmentDeltaSeconds,
+        reducedMotion: frame.reducedMotion,
+      });
       const environmentBakeCountChange = scene.environment.bakeCount - environmentBakeCountBefore;
       const environmentBakeCalls = environmentBakeCountChange > 0
         ? renderer.info.render.calls
@@ -2128,7 +2151,13 @@ function updateSceneForFrame(
   // the framing that most wants them, and the one where a true-scale board is
   // about four pixels tall. They stand down when a detail panel owns the frame.
   content.seaSigns.update({
+    // W0.7 follow-up: the frame's own clock and motion policy, so the D6 rung
+    // settle runs on the same delta as every other eased system instead of the
+    // module keeping a second `performance.now()` and a second matchMedia
+    // watcher of its own.
+    deltaSeconds: beamElapsedSeconds,
     night: phase.night,
+    reducedMotion: frame.reducedMotion,
     visible: semanticView !== "analyze",
     zoom: frame.camera.zoom,
   });

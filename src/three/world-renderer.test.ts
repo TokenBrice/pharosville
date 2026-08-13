@@ -732,6 +732,37 @@ describe("W6.5 sky-probe environment", () => {
 
     renderer.dispose();
   });
+
+  it("hands the probe the frame's clock and its own load verdict (W1.5)", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+
+    renderer.render(rendererFrame(world, "full", { timeSeconds: 1, wallClockHour: 12 }));
+    renderer.render(rendererFrame(world, "full", { timeSeconds: 1.1, wallClockHour: 12 }));
+    const environment = environmentHarness.instances.at(-1)!;
+    const steady = environment.update.mock.calls.at(-1)![2];
+    // The ambient crossfade between bakes is a real-time ease, so the probe
+    // needs the same delta every other eased system in the frame runs on —
+    // without it the module was left inventing one from `performance.now()`.
+    expect(steady.deltaSeconds).toBeCloseTo(0.1, 6);
+    expect(steady.reducedMotion).toBe(false);
+    expect(steady.bakeAllowed).toBe(true);
+
+    // A camera gesture is the one frame in the app that most wants the budget
+    // left alone, and an episodic PMREM bake is exactly the kind of work that
+    // can wait for the gesture to end. The wait is bounded inside the probe.
+    renderer.render(rendererFrame(world, "interaction", { timeSeconds: 1.2, wallClockHour: 12 }));
+    expect(environment.update.mock.calls.at(-1)![2].bakeAllowed).toBe(false);
+
+    // The still frame has no later frame to defer to, and says so.
+    renderer.render(rendererFrame(world, "full", { reducedMotion: true, wallClockHour: 12 }));
+    expect(environment.update.mock.calls.at(-1)![2].reducedMotion).toBe(true);
+
+    renderer.dispose();
+  });
 });
 
 describe("Garden Observatory data selection", () => {

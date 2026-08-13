@@ -171,20 +171,19 @@ describe("garden sea-sign texture atlas", () => {
     signs.dispose();
   });
 
-  it("reads the reduced-motion preference itself when no caller passes one", () => {
-    // The world renderer's sign update carries zoom, visibility and night and
-    // no motion policy, so the module asks the platform. Without this the
-    // still frame would be drawn mid-settle and never finish it — reduced
-    // motion paints on demand, not in a loop.
+  it("takes its motion policy from the frame, not from its own media query", () => {
+    // W0.7 follow-up: the renderer now passes `reducedMotion` (and the frame's
+    // delta) into the sign update, so the module has no business keeping a
+    // second matchMedia subscription of its own — a per-system watcher is a
+    // listener to leak and a second source of truth to drift from the frame.
     const listeners: (() => void)[] = [];
-    const removed: (() => void)[] = [];
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: (query: string) => ({
         addEventListener: (_type: string, listener: () => void) => listeners.push(listener),
         matches: query === "(prefers-reduced-motion: reduce)",
         media: query,
-        removeEventListener: (_type: string, listener: () => void) => removed.push(listener),
+        removeEventListener: () => {},
       }),
       writable: true,
     });
@@ -192,17 +191,35 @@ describe("garden sea-sign texture atlas", () => {
     try {
       const signs = createGardenSeaSigns(specs);
       const board = signs.root.getObjectByName(`garden-sea-sign.${specs[0]!.body}`)!;
+      expect(listeners).toHaveLength(0);
+
       signs.update({ deltaSeconds: Number.POSITIVE_INFINITY, night: 0, visible: true, zoom: 1.2 });
-      // One 60 fps frame across two rung edges: settled, not part-way.
+      // The platform says "reduce" and the frame does not: the frame wins, so
+      // one 60 fps step across two rung edges is still an EASE, not a jump.
       signs.update({ deltaSeconds: 1 / 60, night: 0, visible: true, zoom: 0.3 });
-      expect(board.scale.x).toBe(seaSignScaleForZoom(0.3));
+      expect(board.scale.x).not.toBe(seaSignScaleForZoom(0.3));
 
       signs.dispose();
-      expect(removed).toHaveLength(listeners.length);
-      expect(listeners).not.toHaveLength(0);
+      expect(listeners).toHaveLength(0);
     } finally {
       Reflect.deleteProperty(window, "matchMedia");
     }
+  });
+
+  it("settles the rung whole for a caller that brings no clock", () => {
+    // The parameters take precedence and the renderer always supplies them.
+    // What is left is the degenerate caller: with no delta there is nothing
+    // advancing an ease, so the board must land settled rather than stranded
+    // at whatever fraction of the step one unclocked call happened to produce.
+    const signs = createGardenSeaSigns(specs);
+    const board = signs.root.getObjectByName(`garden-sea-sign.${specs[0]!.body}`)!;
+
+    signs.update({ night: 0, visible: true, zoom: 1.2 });
+    expect(board.scale.x).toBe(seaSignScaleForZoom(1.2));
+    signs.update({ night: 0, visible: true, zoom: 0.3 });
+    expect(board.scale.x).toBe(seaSignScaleForZoom(0.3));
+
+    signs.dispose();
   });
 
   it("comes back on its settled rung after standing down for a detail panel", () => {
