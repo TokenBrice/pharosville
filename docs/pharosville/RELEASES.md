@@ -36,8 +36,10 @@ itself is not a versioned release.
    npm run validate:release
    ```
 
-4. Merge only through the protected pull request path after `typecheck`,
-   `unit`, `guards`, `build`, `visual`, and `visual-cross-browser` pass.
+4. Merge only through the protected pull request path after `validate` and
+   `visual` pass. `validate` owns typecheck, lint, unit/contract tests, guards,
+   the production build, and bundle budgets; `visual` runs the built artifact's
+   DOM/accessibility contract in Chromium and Firefox.
    Required approvals are zero only while the repository has a single
    write-capable collaborator; `npm run check:branch-protection` enforces a
    viable review policy and requires approval once another reviewer exists.

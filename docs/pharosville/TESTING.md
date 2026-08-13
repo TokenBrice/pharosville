@@ -256,8 +256,8 @@ Reproduced in `mcr.microsoft.com/playwright:v1.59.1-noble`, the exact CI image:
   `webgl.disabled`, `webgl.forbid-software`, `LIBGL_ALWAYS_SOFTWARE`,
   `GALLIUM_DRIVER=llvmpipe` or `MOZ_ENABLE_WEBRENDER`. Locally Firefox is fine
   both on the GPU and forced to software GL, so this is the container.
-  `visual-cross-browser` therefore only ever exercises the DOM fallback, which
-  it does correctly: the signal overview renders and the accessibility ledger
+  the Firefox half of `visual` therefore exercises the DOM fallback, which it
+  does correctly: the signal overview renders and the accessibility ledger
   carries every ship.
 - **Chromium reaches SwiftShader and is too slow for the assertions** — the
   motion lane times out on `locator.screenshot` at 180s.
@@ -271,9 +271,9 @@ browser cannot render the world is owed, which is precisely what a GPU-less
 runner is. That lane proves the signal overview renders, the accessibility
 ledger carries every named water, ship and dock, details open by pointer and by
 keyboard with panel parity, Escape closes them, the live region exists, and a
-blocked viewport requests nothing. Both `visual` and `visual-cross-browser` run
-it, so Firefox finally exercises something real. Verified inside the CI image:
-2 passed in under 4s per browser.
+blocked viewport requests nothing. The single `visual` job runs that contract
+in both Chromium and Firefox. Verified inside the CI image: 2 passed in under
+4s per browser.
 
 **The full lane still runs, on hardware that can run it.** `npm run test:visual`
 locally runs the complete current visual suite, including the active-runtime

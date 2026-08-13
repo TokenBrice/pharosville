@@ -83,6 +83,7 @@ import {
   findFreshnessProblems,
   parseProducerIntervalsByKey,
   annotated,
+  reportAvailabilityWarnings,
   reportFreshness,
   reportPayloadWarnings,
 } from "./smoke-live.mjs";
@@ -339,13 +340,13 @@ assert.doesNotMatch(formatGateVerdict("measured"), /SKIP/);
 assert.equal(formatGateVerdict("skipped").includes("NOT measured"), true);
 
 const deployWorkflowSource = readFileSync(resolve(".github/workflows/deploy-cloudflare.yml"), "utf8");
-assert.match(deployWorkflowSource, /npm run check:security-headers:static/);
+assert.match(deployWorkflowSource, /npm run validate/);
 assert.match(deployWorkflowSource, /check-security-headers\.mjs --url "\$SMOKE_UI_URL"/);
-assert.match(deployWorkflowSource, /npm run check:release-contract/);
-assert.match(deployWorkflowSource, /Live security-header check failed after 4 attempts/);
-assert.match(deployWorkflowSource, /Live smoke failed after 4 attempts/);
-assert.match(deployWorkflowSource, /steps\.pages\.outputs\.deployment_url/);
-assert.match(deployWorkflowSource, /Probe canonical URL/);
+assert.match(deployWorkflowSource, /npm run smoke:live -- --url "\$SMOKE_UI_URL"/);
+assert.match(deployWorkflowSource, /cloudflare\/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0/);
+assert.match(deployWorkflowSource, /steps\.pages\.outputs\.deployment-url/);
+assert.match(deployWorkflowSource, /npm run test:visual:dist:dom:firefox/);
+assert.doesNotMatch(deployWorkflowSource, /for attempt in/);
 
 const releaseWorkflowSource = readFileSync(resolve(".github/workflows/release.yml"), "utf8");
 assert.match(releaseWorkflowSource, /workflow_run:/);
@@ -452,7 +453,7 @@ const branchProtectionFixture = {
   enforce_admins: { enabled: true },
   required_pull_request_reviews: { required_approving_review_count: 0 },
   required_status_checks: {
-    contexts: ["typecheck", "lint", "unit", "guards", "build", "visual", "visual-cross-browser"],
+    contexts: ["validate", "visual"],
     strict: true,
   },
 };
@@ -480,13 +481,8 @@ const rulesetFixture = {
     {
       parameters: {
         required_status_checks: [
-          { context: "typecheck" },
-          { context: "lint" },
-          { context: "unit" },
-          { context: "guards" },
-          { context: "build" },
+          { context: "validate" },
           { context: "visual" },
-          { context: "visual-cross-browser" },
         ],
         strict_required_status_checks_policy: true,
       },
@@ -933,6 +929,24 @@ assert.throws(
   "the strict flag enforces payload findings too",
 );
 assert.equal(payloadWarningLog.some((line) => line.includes("payload FAILED (2)")), true);
+
+const reportCardsCheck = smokeEndpointChecks.find((check) => check.path === "/api/report-cards");
+assert.equal(reportCardsCheck?.warningOnly, true, "report cards stay probed as warning-tier enrichment");
+assert.equal(
+  smokeEndpointChecks.find((check) => check.path === "/api/chains")?.warningOnly,
+  false,
+  "essential feeds remain hard failures",
+);
+const availabilityWarningLog = [];
+assert.equal(
+  reportAvailabilityWarnings(["/api/report-cards is unavailable"], false, (line) => availabilityWarningLog.push(line)),
+  "1 availability warning(s)",
+);
+assert.equal(availabilityWarningLog.some((line) => line.includes("enrichment availability WARNING (1)")), true);
+assert.throws(
+  () => reportAvailabilityWarnings(["/api/report-cards is unavailable"], true, (line) => availabilityWarningLog.push(line)),
+  /1 unavailable enrichment feed\(s\) under --strict-freshness/,
+);
 
 // The other escalation path: on GitHub Actions each finding becomes a run
 // annotation, so a green canary still surfaces them somewhere a human looks.

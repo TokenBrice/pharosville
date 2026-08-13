@@ -126,7 +126,7 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 
 ## Workflow Gates
 
-- Deploy workflow jobs: `typecheck`, `lint`, `unit`, `guards`, `build`, `visual`, `visual-cross-browser`, `deploy`
+- Deploy workflow jobs: `validate`, `visual`, `deploy`
 - Canary smoke cron: `*/30 * * * *`
 - GitHub Release publication follows successful `Deploy to Cloudflare Pages` runs on `main`
 - GitHub Release audit cron: `17 5 * * *`
