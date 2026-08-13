@@ -663,6 +663,13 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       } as CSSProperties)
     : undefined;
   const frameRateLabel = formatFrameRateLabel(frameRateFps, reducedMotion);
+  // W0.4: a live frame-rate number is developer telemetry, and a permanent one
+  // is the loudest piece of tech-demo chrome left in a product whose whole
+  // proposition is calm. It stays for perf work behind ?debug=1 — the flag
+  // `scripts/pharosville/preview.mjs` already appends to every URL it opens —
+  // and no ordinary visitor sees it. Read once: a session does not change its
+  // mind about being a debug session.
+  const [debugChrome] = useState(isDebugChromeEnabled);
   const handleToggleObserve = useCallback(() => {
     if (observeIndex !== null) cancelCameraIntent();
     if (reducedMotion) {
@@ -937,10 +944,12 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         <span className="pharosville-footer__telemetry">
           <span className="pharosville-footer__separator" aria-hidden="true">·</span>
           <span className="pharosville-footer__counter" data-testid="pharosville-ship-counter">{shipCounterLabel}</span>
-          <span className="pharosville-footer__frame-rate">
-            <span className="pharosville-footer__separator" aria-hidden="true">·</span>
-            <span className="pharosville-footer__fps" data-testid="pharosville-fps-counter" aria-label={`Frame rate: ${frameRateLabel}`}>{frameRateLabel}</span>
-          </span>
+          {debugChrome && (
+            <span className="pharosville-footer__frame-rate">
+              <span className="pharosville-footer__separator" aria-hidden="true">·</span>
+              <span className="pharosville-footer__fps" data-testid="pharosville-fps-counter" aria-label={`Frame rate: ${frameRateLabel}`}>{frameRateLabel}</span>
+            </span>
+          )}
         </span>
       </p>
       <HarborLog
@@ -1083,4 +1092,23 @@ function formatFrameRateLabel(frameRateFps: number | null, reducedMotion: boolea
   if (reducedMotion) return "Static";
   if (frameRateFps === null) return "FPS --";
   return `${integerFormatter.format(frameRateFps)} fps`;
+}
+
+/**
+ * W0.4: the one switch that turns instrumentation chrome back on.
+ *
+ * `?debug=1` is the project's existing debug flag — `scripts/pharosville/preview.mjs`
+ * appends it to every URL it opens — so the perf lane keeps its on-screen frame
+ * readout while the shipped world stays free of it. (The machine-readable
+ * `window.__pharosVilleDebug` surface the preview lane actually parses is gated
+ * separately, on dev/localhost; this flag only governs visible chrome.)
+ * Accepted in the query string or in the hash, because the world's own state
+ * (`sel`, `t`, `n`, `cam`) may own either half of the URL and a debug session
+ * should not have to care which.
+ */
+function isDebugChromeEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  if (new URLSearchParams(window.location.search).get("debug") === "1") return true;
+  const rawHash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
+  return new URLSearchParams(rawHash.startsWith("?") ? rawHash.slice(1) : rawHash).get("debug") === "1";
 }

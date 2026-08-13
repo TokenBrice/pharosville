@@ -196,8 +196,9 @@ afterEach(() => {
 });
 
 describe("PharosVilleWorld UI accessibility controls", () => {
-  // Interface revamp DU4/DU7/DU11: the footer carries six items and nothing
-  // else — mark, legend, changelog, harbor ledger, berth count, frame rate.
+  // Interface revamp DU4/DU7/DU11 + W0.4: the footer carries five items and
+  // nothing else — mark, legend, changelog, harbor ledger, berth count. The
+  // frame rate is instrumentation and lives behind ?debug=1.
   it("shows how much of the fleet holds a berth in the footer", () => {
     const { container } = render(<PharosVilleWorld world={worldFixture()} />);
 
@@ -207,21 +208,39 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     const footer = container.querySelector(".pharosville-footer");
     expect(footer?.querySelector(".pharosville-footer__primary")).toBeTruthy();
     expect(footer?.querySelector(".pharosville-footer__telemetry")).toBeTruthy();
-    expect(
-      footer?.querySelector(".pharosville-footer__frame-rate")
-        ?.contains(screen.getByTestId("pharosville-fps-counter")),
-    ).toBe(true);
     // Separator spacing is CSS margin, so the DOM text runs them together.
     // Derived, not a literal: a version bump is a release chore, not a reason
     // for this test to fail.
     expect(footer?.textContent?.replace(/\s+/g, " ").trim()).toBe(
-      `PharosVille ${PHAROSVILLE_LATEST_VERSION}·Legend·Changelog·Harbor ledger·1 of 1 hold a berth·Static`,
+      `PharosVille ${PHAROSVILLE_LATEST_VERSION}·Legend·Changelog·Harbor ledger·1 of 1 hold a berth`,
     );
     expect(footer?.textContent).not.toContain("Copy link");
     expect(footer?.textContent).not.toContain("not financial advice");
   });
 
-  it("shows the frame-rate counter without a debug flag", () => {
+  // W0.4: a permanent fps readout is developer telemetry on a screen selling
+  // serenity. It is not deleted — the perf lane needs it — only gated.
+  it("hides the frame-rate counter from a visitor with no debug flag", () => {
+    const { container } = render(<PharosVilleWorld world={worldFixture()} />);
+
+    expect(screen.queryByTestId("pharosville-fps-counter")).toBeNull();
+    expect(container.querySelector(".pharosville-footer__frame-rate")).toBeNull();
+    expect(container.querySelector(".pharosville-footer")?.textContent).not.toContain("Static");
+  });
+
+  it("shows the frame-rate counter behind the ?debug=1 flag the preview lane sets", () => {
+    window.history.replaceState(null, "", "/?debug=1");
+    const { container } = render(<PharosVilleWorld world={worldFixture()} />);
+
+    expect(screen.getByTestId("pharosville-fps-counter").textContent).toBe("Static");
+    expect(
+      container.querySelector(".pharosville-footer__frame-rate")
+        ?.contains(screen.getByTestId("pharosville-fps-counter")),
+    ).toBe(true);
+  });
+
+  it("accepts the debug flag from the hash half of the URL too", () => {
+    window.history.replaceState(null, "", "/#debug=1&t=7");
     render(<PharosVilleWorld world={worldFixture()} />);
 
     expect(screen.getByTestId("pharosville-fps-counter").textContent).toBe("Static");

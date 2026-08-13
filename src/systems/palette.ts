@@ -38,12 +38,49 @@ export const HARBOR_PALETTE = {
   bloodmoon_red: "#c83a3a",
 } as const;
 
+/**
+ * The band accent — the colour a named body of water's own label rule, and its
+ * marker buoy lamp, carry.
+ *
+ * W0.5 (2026-08-13): these were the five framework defaults — `#22c55e`,
+ * `#14b8a6`, `#eab308`, `#f97316`, `#ef4444` — a Tailwind traffic light shipped
+ * into a ukiyo-e harbour. They arrived from a dashboard and read like one: two
+ * of them (a lime green and a pure yellow) sit at chroma 0.64-0.89, well past
+ * anything else in HARBOR_PALETTE, and the set had no ladder at all — alert was
+ * the LIGHTEST of the five and danger the darkest, so the escalation ran up and
+ * then down again.
+ *
+ * Each is now pulled toward a harbor anchor exactly the way the water tints
+ * were (`garden-zones.ts` ZONE_COLOR_HARMONY is the precedent and the
+ * technique): calm and watch toward `sail_teal`, alert toward `lantern_warm`,
+ * warning between `timber_warm` and `vermillion`, danger onto `vermillion`
+ * itself — the reserved accent, spent here because the highest-priority data
+ * state is exactly what it is reserved for.
+ *
+ * Two properties are load-bearing and are enforced by `palette.test.ts`:
+ *
+ * 1. ORDER. The ramp descends monotonically in relative luminance
+ *    (0.501 -> 0.399 -> 0.321 -> 0.251 -> 0.199, an even ~1.22:1 step between
+ *    neighbours) and rises monotonically in chroma (0.20 -> 0.28 -> 0.42 ->
+ *    0.52 -> 0.60). Escalation therefore reads as one ordered scale — the water
+ *    gets deeper and the dye gets stronger — in the same direction the
+ *    `ZONE_THEMES` water bases already ramp, and it survives being seen in
+ *    greyscale.
+ * 2. LEGIBILITY. Every accent clears WCAG AA (4.5:1) as text against the shell
+ *    ground `#050d13`: 10.27, 8.36, 6.91, 5.61, 4.64:1. Danger is the floor of
+ *    the set, which is why it sits a step above pure `vermillion` (#c23a22,
+ *    3.66:1 — below AA) rather than on it.
+ *
+ * Hue is never the only channel: the band NAME is the primary one (the sea sign
+ * paints it in bone white, and the ledger and detail panel spell it out), which
+ * is what lets these be quiet.
+ */
 export const DEWS_AREA_LABEL_COLORS = {
-  CALM: "#22c55e",
-  WATCH: "#14b8a6",
-  ALERT: "#eab308",
-  WARNING: "#f97316",
-  DANGER: "#ef4444",
+  CALM: "#94c7ac",
+  WATCH: "#6fb6ae",
+  ALERT: "#b7954c",
+  WARNING: "#c97344",
+  DANGER: "#d54e3c",
 } as const satisfies Record<DewsAreaBand, string>;
 
 export const LEDGER_INK_HEX = "#d9b974";

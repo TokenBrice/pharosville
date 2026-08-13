@@ -62,6 +62,48 @@ describe("ZONE_THEMES", () => {
   });
 });
 
+describe("DEWS_AREA_LABEL_COLORS", () => {
+  const LADDER = ["CALM", "WATCH", "ALERT", "WARNING", "DANGER"] as const;
+  // src/pharosville.css `.pharosville-shell { background: #050d13; }` — the
+  // ground any DOM band label sits on, and the guard script's own body colour.
+  const SHELL_BACKGROUND = "#050d13";
+
+  it("ramps the accents down a monotonic value ladder and up a chroma ladder", () => {
+    // W0.5: hue is never the only channel — the band NAME carries the reading —
+    // but when hue IS present it must not contradict the escalation. The
+    // framework defaults this replaced ran light-dark-LIGHTEST-dark-darkest,
+    // which is no order at all once the colour is taken away.
+    const levels = LADDER.map((band) => relativeLuminance(DEWS_AREA_LABEL_COLORS[band]));
+    const chromas = LADDER.map((band) => chroma(DEWS_AREA_LABEL_COLORS[band]));
+    for (let step = 1; step < LADDER.length; step += 1) {
+      expect(levels[step]!, `${LADDER[step]} must be darker than ${LADDER[step - 1]}`)
+        .toBeLessThan(levels[step - 1]!);
+      expect(chromas[step]!, `${LADDER[step]} must be more saturated than ${LADDER[step - 1]}`)
+        .toBeGreaterThan(chromas[step - 1]!);
+    }
+  });
+
+  it("keeps every accent inside the harbor palette's chroma register", () => {
+    // The defaults sat at chroma 0.64-0.89, louder than anything authored in
+    // HARBOR_PALETTE. Vermillion, the loudest thing the palette owns, is the
+    // ceiling — danger may reach it and nothing may pass it.
+    const ceiling = chroma(HARBOR_PALETTE.vermillion);
+    for (const band of LADDER) {
+      expect(chroma(DEWS_AREA_LABEL_COLORS[band]), band).toBeLessThanOrEqual(ceiling);
+    }
+  });
+
+  it("clears WCAG AA against the shell ground for every band", () => {
+    // These are label accents; a band a visitor cannot read is a band that does
+    // not exist. 4.5:1 is the text threshold, which is the strictest use they
+    // could be put to.
+    for (const band of LADDER) {
+      expect(contrastRatio(DEWS_AREA_LABEL_COLORS[band], SHELL_BACKGROUND), band)
+        .toBeGreaterThanOrEqual(4.5);
+    }
+  });
+});
+
 function channels(hex: string): { r: number; g: number; b: number } {
   const value = hex.replace("#", "");
   return {
@@ -79,4 +121,16 @@ function relativeLuminance(hex: string): number {
     return scaled <= 0.04045 ? scaled / 12.92 : ((scaled + 0.055) / 1.055) ** 2.4;
   };
   return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+}
+
+/** Saturation as the sRGB cube's own spread — enough to rank "how loud is it". */
+function chroma(hex: string): number {
+  const { r, g, b } = channels(hex);
+  return (Math.max(r, g, b) - Math.min(r, g, b)) / 255;
+}
+
+function contrastRatio(foreground: string, background: string): number {
+  const light = Math.max(relativeLuminance(foreground), relativeLuminance(background));
+  const dark = Math.min(relativeLuminance(foreground), relativeLuminance(background));
+  return (light + 0.05) / (dark + 0.05);
 }
