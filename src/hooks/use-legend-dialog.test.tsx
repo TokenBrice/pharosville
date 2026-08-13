@@ -43,21 +43,16 @@ describe("useLegendDialog", () => {
     window.localStorage.setItem(LEGEND_DISMISSED_STORAGE_KEY, "1");
   });
 
-  it("auto-opens on first visit and stays closed once dismissed", () => {
+  it("stays closed on first visit and opens only on demand", () => {
     const setAnnouncement = vi.fn();
     const first = render(<Harness setAnnouncement={setAnnouncement} />);
-    expect(first.getByTestId("legend-open").textContent).toBe("open");
+    expect(first.getByTestId("legend-open").textContent).toBe("closed");
 
     act(() => {
-      first.getByTestId("legend-close-button").click();
+      first.getByTestId("legend-open-button").click();
     });
-    expect(first.getByTestId("legend-open").textContent).toBe("closed");
-    expect(window.localStorage.getItem(LEGEND_DISMISSED_STORAGE_KEY)).toBe("1");
-    expect(setAnnouncement).toHaveBeenCalledWith("Closed PharosVille legend.");
-    first.unmount();
-
-    const second = render(<Harness setAnnouncement={setAnnouncement} />);
-    expect(second.getByTestId("legend-open").textContent).toBe("closed");
+    expect(first.getByTestId("legend-open").textContent).toBe("open");
+    expect(setAnnouncement).toHaveBeenCalledWith("Opened PharosVille legend.");
   });
 
   it("does not auto-open when previously dismissed, but reopens on demand", () => {
@@ -76,6 +71,9 @@ describe("useLegendDialog", () => {
   it("closes on Escape and persists the dismissal", () => {
     const setAnnouncement = vi.fn();
     const view = render(<Harness setAnnouncement={setAnnouncement} />);
+    act(() => {
+      view.getByTestId("legend-open-button").click();
+    });
     expect(view.getByTestId("legend-open").textContent).toBe("open");
 
     act(() => {

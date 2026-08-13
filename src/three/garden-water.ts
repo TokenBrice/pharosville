@@ -21,8 +21,10 @@ import { seaQualityTier } from "../renderer/render-scheduler";
 import { HARBOR_PALETTE } from "../systems/palette";
 import type { SeaState } from "../systems/sea-state";
 import {
+  GARDEN_BREATH_PHASE,
   GARDEN_DEFAULT_WIND_X,
   GARDEN_DEFAULT_WIND_Z,
+  gardenBreathAt,
   type WeatherPlan,
 } from "../systems/weather";
 import {
@@ -44,12 +46,19 @@ import {
   SEA_REGION_CHARACTER,
   SEA_REGION_COUNT,
   SEA_REGION_FALLBACK_TINT,
+  SEA_REGION_ID,
   SEA_REGION_ORDER,
   buildSeaRegionField,
 } from "../systems/garden-sea-regions";
 import {
+  GARDEN_WATER_CREST_FOAM,
+  GARDEN_WATER_GLINT_NORMAL_FILTER_GAIN,
   GARDEN_WATER_MAX_RIPPLE_RINGS,
   GARDEN_WATER_MAX_ZONE_TINTS,
+  GARDEN_WATER_NIGHT_EMISSIVE_BUDGET,
+  GARDEN_WATER_PROBE_BLEND,
+  GARDEN_WATER_PROBE_ROUGHNESS,
+  GARDEN_WATER_SHORE_FOAM,
   type GardenCloudShadowSource,
   type GardenHarborCalmMask,
   type GardenRippleRingEmitter,
@@ -447,6 +456,7 @@ export const VERTEX_SHADER = /* glsl */ `
   uniform float uWaveAmplitude;
   uniform vec2 uWindDir;
   uniform float uWindSpeed;
+  uniform float uBreath;
   uniform float uStorm;
   uniform sampler2D uRegionField;
   uniform vec4 uRegionSwell[${SEA_REGION_COUNT}];
@@ -455,8 +465,6 @@ export const VERTEX_SHADER = /* glsl */ `
   varying vec2 vWaterPosition;
   varying vec3 vWorldPosition;
   varying vec2 vRegionUv;
-  // Phase 3: the Gerstner field's analytic normal (water-local, z-up) and its
-  // displacement Jacobian — the crest-foam signal. (1 - J) > 0 at crests.
   varying vec3 vGerstnerNormal;
   varying float vGerstnerJ;
 
@@ -466,29 +474,15 @@ export const VERTEX_SHADER = /* glsl */ `
 
   void main() {
     vec2 waterPosition = position.xy;
-    // C2(b) harbor-calm mask (I2 mirror basin): swell is suppressed inside the
-    // harbor ellipse so the basin reads still against the open sea's motion.
     float harborDistance = length((waterPosition - uHarborEllipse.xy) * uHarborEllipse.zw);
     float harborCalm = (1.0 - smoothstep(0.7, 1.05, harborDistance)) * uHarborCalm;
-    // W2/D6: swell amplitude and chop are per-region, so calm water lies
-    // near-still while danger water runs steep. Region lookup happens in the
-    // vertex stage — one texture fetch per vertex, not per fragment.
-    // Phase 2: wind and storm steepen the chop on top of the region base.
     vec2 regionUv = (waterPosition - uRegionTransform.xy) * uRegionTransform.zw;
     vec4 regionSample = texture2D(uRegionField, regionUv);
     int regionId = int(regionSample.r * 255.0 + 0.5);
     float regionSwell = uRegionSwell[regionId].x;
     float regionChop = uRegionSwell[regionId].y * (1.0 + uWindSpeed * 0.3 + uStorm * 0.25);
 
-    // Phase 3 (item 1): Gerstner spectrum. The same windRot contract the sine
-    // field used rotates every component's bearing, the same regionChop scales
-    // the sampled position, and the same master amplitude (swell + storm,
-    // capped) scales the result — so the default sea reads like the pre-
-    // Gerstner one, but with directional chop, sharp crests, analytic normals
-    // and a Jacobian the crest foam can threshold.
     vec2 baseDir = normalize(vec2(0.9229, 0.3851));
-    // uWindDir points downwind. The +time phase gradient points the other way
-    // so the rendered crest itself travels downwind.
     vec2 phaseWindDir = -uWindDir;
     float rc = clamp(dot(baseDir, phaseWindDir), -1.0, 1.0);
     float rs = baseDir.x * phaseWindDir.y - baseDir.y * phaseWindDir.x;
@@ -513,9 +507,6 @@ export const VERTEX_SHADER = /* glsl */ `
     displaced.x += waveDisp.x * ampScale;
     displaced.y += waveDisp.y * ampScale;
     displaced.z += waveH * ampScale;
-    // The chop scales the sampled position, so world-space derivatives pick
-    // up one power of it. waveJ already includes that factor and ampScale: it
-    // is the exact derivative of the horizontal position rendered above.
     vGerstnerNormal = vec3(-waveGrad * (ampScale * regionChop), 1.0);
     vGerstnerJ = waveJ;
 
@@ -530,7 +521,11 @@ export const VERTEX_SHADER = /* glsl */ `
 `;
 
 // Exported for the shader-hygiene guard test (undeclared-uniform tripwire).
+// W3.3 danger rain is authored inside this shader in screen space and masked
+// by the point-sampled region id. It therefore cannot drift beyond Danger
+// Strait, and the existing reduced-motion time freeze stops the fall.
 export const FRAGMENT_SHADER = /* glsl */ `
+  uniform sampler2D envMap;
   uniform vec3 uBandColor[4];
   uniform vec3 uBaseColor;
   uniform float uBeaconAngle;
@@ -550,6 +545,7 @@ export const FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 uEnvHorizonColor;
   uniform float uEnvStrength;
   uniform vec3 uEnvZenithColor;
+  uniform float uEnvironmentIntensity;
   uniform float uGlitterStrength;
   uniform float uHarborCalm;
   uniform vec4 uHarborEllipse;
@@ -562,11 +558,7 @@ export const FRAGMENT_SHADER = /* glsl */ `
   uniform vec2 uMoonDir;
   uniform vec2 uSunDir;
   uniform float uSunHeight;
-  // The Pharos crown, matching SHADOW_CASTER_HEIGHT in world-renderer -- the
-  // same caster the directional light's frustum is sized around.
   #define GARDEN_TOWER_HEIGHT 34.0
-  // Past this the shadow is longer than any stretch of water the eye follows,
-  // and a band that runs to the frame edge stops reading as a shadow.
   #define GARDEN_TOWER_SHADOW_MAX_REACH 150.0
   #define GARDEN_TOWER_SHADOW_STRENGTH 0.34
   uniform vec3 uMoonRoadColor;
@@ -578,8 +570,6 @@ export const FRAGMENT_SHADER = /* glsl */ `
   uniform vec4 uRippleParams[${GARDEN_WATER_MAX_RIPPLE_RINGS}];
   uniform float uRippleStrength;
   uniform float uRockRadius;
-  // Fragment-side mirror of the vertex stage's uStorm (same JS uniform object):
-  // the Phase 4 pulse lanes dim/smear under storm weather.
   uniform float uStorm;
   uniform vec3 uShallowColor;
   uniform vec3 uSunGlitterColor;
@@ -595,13 +585,14 @@ export const FRAGMENT_SHADER = /* glsl */ `
   uniform float uWakeTexel;
   uniform vec2 uWindDir;
   uniform float uWindSpeed;
+  uniform float uBreath;
   uniform vec2 uOpenOceanCenter;
   uniform float uOpenOceanRadius;
   uniform float uMapEdge;
+  uniform float uPegSummaryEpistemicHaze;
   uniform sampler2D uRegionField;
   uniform sampler2D uRegionDistance;
   uniform vec3 uRegionColor[${SEA_REGION_COUNT}];
-  // xyzw = depth multiplier, foam density, reflectivity, tint strength.
   uniform vec4 uRegionParams[${SEA_REGION_COUNT}];
   uniform vec4 uRegionTransform;
 
@@ -612,29 +603,16 @@ export const FRAGMENT_SHADER = /* glsl */ `
   varying float vGerstnerJ;
 
   #include <fog_pars_fragment>
+  #include <cube_uv_reflection_fragment>
 
   const float LANE_TEXELS = ${MAX_GARDEN_LIGHT_LANES}.0;
 
-  // L1: how far the map's corners are rounded off, in world units. Big enough
-  // that no vertex survives for the eye to find, small enough that the world
-  // still reads as a chart with edges rather than as a disc.
   const float MAP_CORNER_RADIUS = 44.0;
 
   vec3 sampleWaterNormal(vec2 uv) {
     return texture2D(uNormalMap, uv).xyz * 2.0 - 1.0;
   }
 
-  // Value noise for the region whitecaps (W2/D6). Products of sines tile into
-  // a visible diagonal lattice; this does not.
-  //
-  // S4: the classic fract(sin(dot(p, k)) * 43758.5453) hash is unstable at
-  // this scale. Whitecap lattice coordinates run to ~150, so dot(p, k)
-  // reaches ~66000 — and highp's 24-bit mantissa leaves roughly 0.6 rad of
-  // error there, so the "noise" changed under the camera and the crests
-  // shimmered. Folding p into a small window first keeps the sine argument in a
-  // range where it is exact. The fold is on the integer LATTICE, so the noise
-  // field is unchanged apart from repeating every 289 cells — far larger than
-  // the sea, and invisible against two octaves of fbm.
   float gardenHash(vec2 p) {
     vec2 folded = mod(p, 289.0);
     return fract(sin(dot(folded, vec2(127.1, 311.7))) * 43758.5453);
@@ -651,8 +629,6 @@ export const FRAGMENT_SHADER = /* glsl */ `
     );
   }
 
-  // Two octaves, not three: the third contributes 10% of the amplitude for
-  // 33% of the cost, and whitecaps are a high-frequency accent either way.
   float gardenFbm(vec2 p) {
     return gardenValueNoise(p) * 0.68 + gardenValueNoise(p * 2.1 + 17.3) * 0.32;
   }
@@ -663,61 +639,45 @@ export const FRAGMENT_SHADER = /* glsl */ `
     return vec2(v.x * c - v.y * s, v.x * s + v.y * c);
   }
 
-  /**
-   * S3: a threshold that knows how fast its own field is moving on screen.
-   *
-   * The sea was full of bare step()s -- the sparkle masks, the shore foam
-   * rings. MSAA antialiases geometry edges, not a discontinuity a shader
-   * invents per fragment, so each one aliased into crawling speckle whenever
-   * the camera moved: the operator's "flickering", and why the sun glitter read
-   * as scattered dust rather than light on water.
-   *
-   * Widening the transition to one screen pixel of the field's own gradient
-   * resolves it exactly where it is undersampled and nowhere else, so close-up
-   * detail is untouched. The floor keeps a nearly-flat field from opening the
-   * ramp so wide the mark dissolves.
-   */
   float aaStep(float edge, float value) {
     float width = max(fwidth(value), 1e-4);
     return smoothstep(edge - width, edge + width, value);
   }
 
-  /**
-   * The open ocean beyond the map, as ONE definition both paths use.
-   *
-   * L1: the cheap early-out path and the detailed path used to compute this
-   * separately and disagree — the detailed path multiplied by the facet and
-   * cloud terms and mixed 11% of the sky in, the cheap path applied 0.66% of
-   * the sky and neither of the others. Measured across the boundary, that was a
-   * 26/255 luminance step in a single step of the scanline: the hard edge that
-   * made the world read as a slab floating on a void.
-   *
-   * One function, called by both, cannot drift. The detailed path crossfades
-   * into it over the margin outside the map so the ocean can be genuinely
-   * deeper — the continental shelf dropping away — without that reading as a
-   * border.
-   */
+  vec3 gardenEnvironmentReflection(
+    vec3 worldNormal,
+    vec3 worldViewDirection,
+    vec3 scalarFallback
+  ) {
+    #ifdef ENVMAP_TYPE_CUBE_UV
+      vec3 reflectionDirection = reflect(-worldViewDirection, worldNormal);
+      vec3 probeColor = textureCubeUV(
+        envMap,
+        reflectionDirection,
+        ${glslFloat(GARDEN_WATER_PROBE_ROUGHNESS)}
+      ).rgb * uEnvironmentIntensity;
+      return mix(scalarFallback, probeColor, ${glslFloat(GARDEN_WATER_PROBE_BLEND)});
+    #else
+      return scalarFallback;
+    #endif
+  }
+
   vec3 gardenOpenOcean(
     float tonalCurrent,
     float cloudLight,
     float facet,
     float fresnelTerm,
+    vec3 environmentColor,
     float camDist
   ) {
-    // Slightly deeper than the in-map band, but close enough that the wide
-    // camera reads one continuous sea instead of a detailed rectangular slab.
     vec3 color = mix(uBandColor[3], uDeepColor, 0.30) * (0.94 + tonalCurrent * 0.04);
     color *= (0.95 + facet * 0.1) * mix(1.0, cloudLight, 0.9);
     color = mix(
       color,
-      mix(uBaseColor, uHighlightColor, 0.34),
+      environmentColor,
       fresnelTerm * (0.08 + uDaylight * 0.08 + uNight * 0.04)
     );
-    color = mix(
-      color,
-      mix(uEnvHorizonColor, uEnvZenithColor, 0.52),
-      clamp(uEnvStrength, 0.0, 0.85)
-    );
+    color = mix(color, environmentColor, clamp(uEnvStrength, 0.0, 0.85));
     float fade = smoothstep(150.0, 520.0, camDist);
     return mix(color, uBaseColor, fade * (0.08 + uDusk * 0.05 + uNight * 0.04));
   }
@@ -726,52 +686,15 @@ ${gardenBokashiBandGlsl()}
 ${gardenHeightFogGlsl()}
 
   void main() {
-    // --- W6.1: open-ocean early-out ----------------------------------------
-    // The water plane is 900 units across; the playable map is ~79. Everything
-    // past the map's edge is empty ocean that can never contain a region, a
-    // ripple ring, a light lane, a shore or the island — yet it was running the
-    // full shader, and at overview zoom it covers most of the screen.
-    //
-    // This is a spatially COHERENT branch (one contiguous ring around the
-    // map), so it costs nothing in divergence and buys back the majority of
-    // the frame's fragment work at wide zooms.
-    // NOTE the centre: tiles map to world (tx*TILE_SCALE, ty*TILE_SCALE), so
-    // the map spans 0..79 rather than straddling the origin, and the plane's
-    // -90deg X rotation flips Z. Testing against the origin would clip live
-    // water off the map's far edge.
-    // L1: a ROUNDED-box metric, not Chebyshev.
-    //
-    // max(|x|, |y|) makes the boundary an axis-aligned square in water space,
-    // which the isometric camera draws as a diamond — and a diamond has four
-    // corners the eye locks onto. Rounding them off leaves a shape with no
-    // vertex to find. The corner radius only pulls the boundary INWARD at the
-    // corners, so everything the early-out skips is still provably degenerate.
     vec2 fromMapCenter = vWaterPosition - uOpenOceanCenter;
     vec2 boxArm = abs(fromMapCenter) - vec2(max(0.0, uMapEdge - MAP_CORNER_RADIUS));
     float mapDistance = length(max(boxArm, 0.0))
       + min(max(boxArm.x, boxArm.y), 0.0)
       + MAP_CORNER_RADIUS;
     if (mapDistance > uOpenOceanRadius) {
-      // The cheap path must land on the SAME colour the detailed path would,
-      // or the boundary shows as a hard seam around the map.
-      //
-      // Out here the detailed path is degenerate in every way that costs
-      // anything: the shore SDF is saturated (depth = 1 -> deepest band), every
-      // shelf/basin/islet term is zero, no region reaches this far, and no
-      // ripple ring or light lane is in range. So this skips the loops, the
-      // shore SDFs and the two normal-map fetches — but NOT the look.
-      //
-      // It used to skip the look too, and that is what made the world read as a
-      // slab floating on a void. gardenOpenOcean is now the single definition
-      // both paths share, so they cannot drift apart again; this call feeds it
-      // the FLAT-normal facet and fresnel, which is what the detailed path
-      // converges to out here once distance has faded the normal map out.
       float openTonalCurrent = 0.5 + 0.5 * sin(
         dot(vWaterPosition, vec2(0.046, -0.058)) + uTime * 0.027
       );
-      // Same cloud shadow the in-map water gets. Skipping it did not just shift
-      // the average -- it removed all the MOTTLING, so the sea changed from
-      // weathered to flat across the boundary even where the means matched.
       float openCloudCover = 0.0;
       if (uCloudShadowStrength > 0.001) {
         vec2 openCloudUv = vec2(vWaterPosition.x, -vWaterPosition.y) * uCloudShadowTransform.xy
@@ -780,53 +703,40 @@ ${gardenHeightFogGlsl()}
       }
       float openFacet = clamp(normalize(vec3(-0.46, 0.2, 0.86)).z * 0.5 + 0.55, 0.2, 1.0);
       vec3 openView = normalize(cameraPosition - vWorldPosition);
+      vec3 openEnvironment = gardenEnvironmentReflection(
+        vec3(0.0, 1.0, 0.0),
+        openView,
+        mix(uEnvHorizonColor, uEnvZenithColor, 0.52)
+      );
       float openCamDistance = distance(cameraPosition, vWorldPosition);
       vec3 openColor = gardenOpenOcean(
         openTonalCurrent,
         1.0 - openCloudCover * uCloudShadowStrength,
         openFacet,
         pow(1.0 - max(0.0, openView.z), 3.0),
+        openEnvironment,
         openCamDistance
       );
       gl_FragColor = vec4(openColor, 1.0);
-      // The early-out must close the frame EXACTLY as the end of main does.
-      // Three only compiles TONE_MAPPING and an encoding linearToOutputTexel
-      // into a material when it draws to the default framebuffer, so both
-      // chunks are no-ops while the post composer owns the frame and become
-      // live the moment it is shed at the constrained tier. Ending this
-      // branch without them wrote linear values straight into the sRGB canvas,
-      // and the open sea outside the map snapped to a near-black void behind a
-      // hard diamond seam every time the scheduler crossed that tier.
       #include <tonemapping_fragment>
       #include <colorspace_fragment>
       #include <fog_fragment>
-      // W2.1: the open-ocean branch draws most of the upper-frame air at wide
-      // framing, so it must evaluate the same shared term as the detailed sea.
       gl_FragColor.rgb = gardenApplyHeightFog(
         gl_FragColor.rgb,
         vWorldPosition,
         vFogDepth,
         normalize(vWorldPosition - cameraPosition)
       );
-      // W1.4: and the bokashi wipe too. At wide framings this branch draws most
-      // of the far water in the upper frame, so leaving the bands off it would
-      // step the ramp at the same map boundary L1 spent its effort erasing.
       gl_FragColor.rgb *= gardenBokashiShade(vFogDepth, fogNear, uDaylight, uDusk, uNight);
       return;
     }
 
-    // --- harbor-calm mask (C2(b), I2 mirror basin) -------------------------
     float harborDistance = length((vWaterPosition - uHarborEllipse.xy) * uHarborEllipse.zw);
     float harborCalm = (1.0 - smoothstep(0.7, 1.05, harborDistance)) * uHarborCalm;
 
-    // --- B1: dual scrolling normal map -------------------------------------
-    float scroll = uTime * (0.6 + uTempo * 0.9);
-    vec2 flow = uMoonDir * scroll;
+    float scroll = uTime * (0.6 + uTempo * 0.9) * (0.92 + uBreath * 0.16);
+    vec2 flow = uWindDir * scroll;
     vec3 nA = sampleWaterNormal(vWaterPosition * 0.055 + flow * 0.045);
-    // W6.1: the second, counter-rotated normal fetch adds cross-hatched
-    // surface detail that only reads at close zoom and high tiers. Below
-    // balanced it is a full texture fetch per fragment for detail the tier is
-    // already shedding elsewhere, so it is gated on the same uDetail signal.
     vec3 blendedNormal;
     if (uDetail > 0.55) {
       vec3 nB = sampleWaterNormal(
@@ -836,31 +746,25 @@ ${gardenHeightFogGlsl()}
     } else {
       blendedNormal = normalize(vec3(nA.xy, nA.z + 0.55));
     }
-    // The mirror basin flattens the scrolled detail so it reads still.
     blendedNormal = normalize(mix(blendedNormal, vec3(0.0, 0.0, 1.0), harborCalm * 0.75));
     float camDistance = distance(cameraPosition, vWorldPosition);
-    // W7: normal detail survives the default framing distance (camera sits at
-    // ~110–190); the falloff floor keeps far water alive and the tier (uDetail)
-    // — not distance alone — decides how much detail ships.
     float detailFalloff = max(1.0 - smoothstep(130.0, 460.0, camDistance), 0.32) * uDetail;
     vec3 surfaceNormal = normalize(mix(vec3(0.0, 0.0, 1.0), blendedNormal, detailFalloff));
 
-    // --- Phase 3 (item 1): Gerstner analytic normal --------------------------
-    // The heightfield's true slopes are sub-degree by contract
-    // (MAX_DISPLACEMENT over 33–190 unit wavelengths), so the lighting term
-    // exaggerates them — standard stylization; the LOOK stays the normal
-    // map's, the Gerstner sum adds the large-scale undulation that makes the
-    // swell read on the posterized bands. Same detail falloff as the map.
     surfaceNormal = normalize(
       surfaceNormal + vec3(vGerstnerNormal.xy * (18.0 * detailFalloff), 0.0)
     );
 
-    // --- Phase 3 (item 2): persistent wake field -----------------------------
-    // One scalar field fetch (plus two gradient taps) drives BOTH the normal
-    // churn here and the foam composite in the whitecap term below, and the
-    // caustic web's energy boost under the Pharos. Gated on the eased
-    // uWakeStrength so tier crossings fade instead of pop; below balanced the
-    // painted per-ship ripple rings carry the wake cue (intent invariance).
+    vec2 normalDerivative = fwidth(blendedNormal.xy);
+    float glintDetailWeight = 1.0 / (
+      1.0 + length(normalDerivative) * ${glslFloat(GARDEN_WATER_GLINT_NORMAL_FILTER_GAIN)}
+    );
+    vec3 glintNormal = normalize(mix(
+      normalize(vGerstnerNormal),
+      blendedNormal,
+      clamp(glintDetailWeight, 0.08, 1.0)
+    ));
+
     float wakeFoam = 0.0;
     if (uWakeStrength > 0.01) {
       vec2 wakeUv = (vWaterPosition - uWakeCenter) * uWakeInvSize + 0.5;
@@ -877,17 +781,12 @@ ${gardenHeightFogGlsl()}
       }
     }
 
-    // --- analytic shore SDF (island + outlying islets) ----------------------
     vec2 shoreDelta = vWaterPosition - uIslandCenter - vec2(0.6, -1.2);
     shoreDelta = rotate2(shoreDelta, -0.08) / vec2(18.4, 13.8);
     float shoreAngle = atan(shoreDelta.y, shoreDelta.x);
     float shoreVariation = sin(shoreAngle * 3.0 + 0.3) * 0.04
       + sin(shoreAngle * 7.0 - 0.21) * 0.022;
     float shoreDistance = length(shoreDelta) + shoreVariation;
-    // N1: with the sea 4x larger the old tight 0.76-1.34 ramp read as a hard
-    // cyan ring hugging the island. Widened a little so it shelves rather
-    // than stops — but only a little: a long ramp turns the shelf into a pale
-    // halo the size of the harbour, which is worse than the ring was.
     float shallowShelf = 1.0 - smoothstep(0.72, 1.5, shoreDistance);
 
     float cemDist = length((vWaterPosition - uCemeteryCenter) / 4.6);
@@ -895,27 +794,8 @@ ${gardenHeightFogGlsl()}
     float isletShelf = (1.0 - smoothstep(0.5, 1.25, cemDist))
       + (1.0 - smoothstep(0.5, 1.25, pigDist));
 
-    // --- W1: restrained depth color -----------------------------------------
-    // Depth comes from the shore SDF plus authored bathymetry: two shallow
-    // aprons off the island and one deep basin in the open water, then the
-    // shallow→deep ramp stays in a limited ukiyo-e palette, with softened
-    // transitions so the bathymetry reads as depth rather than polygon cards.
-    //
-    // L4: the shore ramp is scaled to 0.72 rather than saturating at 1.
-    //
-    // It used to reach full depth about 70 world units out and stay there, so
-    // every fragment past that ring landed in band 3 — at whole-map framing
-    // that is most of the sea, rendered as one flat colour with only the region
-    // tint to break it. Holding the open water mid-ramp leaves room for real
-    // bathymetry to move it, so the sea has FORM at the framing where you can
-    // see all of it. This is also the honest reading: the map is a shelf, and
-    // the true deep is outside it (see gardenOpenOcean).
     float depth = smoothstep(0.92, 3.8, shoreDistance) * 0.72;
 
-    // Broad banks and troughs across the whole map, on the same NE/SW grain the
-    // sea regions follow. Three octaves of very low frequency — this is
-    // bathymetry, not noise: it must read as the sea floor having shape, never
-    // as texture on the surface.
     vec2 bathyP = (vWaterPosition - uOpenOceanCenter) / max(1.0, uMapEdge);
     float bathyGrain = dot(bathyP, vec2(0.788, 0.616));
     float bathyAcross = dot(bathyP, vec2(-0.616, 0.788));
@@ -957,12 +837,6 @@ ${gardenHeightFogGlsl()}
     );
     waterColor *= 0.97 + tonalCurrent * 0.05;
 
-    // --- W4: drifting cloud shadows -----------------------------------------
-    // One world-space noise fetch attenuates the light term; the same texture
-    // and transform are shared with land/ship materials (C2(c)) so the weather
-    // drifts coherently across the whole garden. Below balanced the strength
-    // uniform is 0, so the fetch is skipped by a coherent branch — the term is
-    // provably identity there (cloudLight = 1, sun-glitter dapple factor = 1).
     vec2 cloudUv = vec2(vWaterPosition.x, -vWaterPosition.y) * uCloudShadowTransform.xy
       + uCloudShadowTransform.zw;
     float cloudCover = 0.0;
@@ -971,48 +845,42 @@ ${gardenHeightFogGlsl()}
     }
     float cloudLight = 1.0 - cloudCover * uCloudShadowStrength;
 
-    // --- facet light ---------------------------------------------------------
-    vec3 keyDirection = normalize(vec3(-0.46, 0.2, 0.86));
-    float facetLight = clamp(dot(surfaceNormal, keyDirection) * 0.5 + 0.55, 0.2, 1.0);
-    waterColor *= (0.95 + facetLight * 0.1) * mix(1.0, cloudLight, 0.9);
     vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
-    float fresnel = pow(1.0 - max(0.0, dot(surfaceNormal, viewDirection)), 3.0);
-    vec3 skyReflection = mix(uBaseColor, uHighlightColor, 0.34);
-    waterColor = mix(
-      waterColor,
-      skyReflection,
-      fresnel * (0.08 + uDaylight * 0.08 + uNight * 0.04)
-    );
-
-    // --- W2: sky env tint ------------------------------------------------------
-    // Analytic bokashi gradient sample, stronger toward the frame edges (fake
-    // horizon sheen), suppressed over shallow bands, shimmered by the dual
-    // scrolling normals. The mirror basin boosts it into a sky reflection.
     float islandDistance = length(vWaterPosition - uIslandCenter);
     float envMask = smoothstep(30.0, 110.0, islandDistance) * (0.2 + 0.8 * depth);
     envMask = max(envMask, harborCalm * 0.75);
-    // L3: weighted toward the HORIZON band, not the zenith.
-    //
-    // This used to reach 0.80 toward the zenith on open water, and the day
-    // zenith is a sky blue — so the sea was reflecting the wrong part of the
-    // sky and taking its hue from it. In a grazing isometric view the water
-    // returns the sky NEAR THE HORIZON; the zenith is what you would see
-    // looking straight down. Correcting the weighting is both truer and the
-    // last thing standing between the rendered sea and the teal it is authored
-    // as.
-    vec3 skySample = mix(
+    vec3 scalarSkySample = mix(
       uEnvHorizonColor,
       uEnvZenithColor,
       clamp(0.18 + envMask * 0.34 + surfaceNormal.x * 0.14, 0.0, 1.0)
     );
+    vec3 worldSurfaceNormal = normalize(vec3(
+      surfaceNormal.x,
+      surfaceNormal.z,
+      -surfaceNormal.y
+    ));
+    vec3 skySample = gardenEnvironmentReflection(
+      worldSurfaceNormal,
+      viewDirection,
+      scalarSkySample
+    );
+
+    vec3 keyDirection = normalize(vec3(-0.46, 0.2, 0.86));
+    float facetLight = clamp(dot(surfaceNormal, keyDirection) * 0.5 + 0.55, 0.2, 1.0);
+    waterColor *= (0.95 + facetLight * 0.1) * mix(1.0, cloudLight, 0.9);
+    float fresnel = pow(1.0 - max(0.0, dot(worldSurfaceNormal, viewDirection)), 3.0);
+    waterColor = mix(
+      waterColor,
+      skySample,
+      fresnel * (0.08 + uDaylight * 0.08 + uNight * 0.04)
+    );
+
     waterColor = mix(
       waterColor,
       skySample,
       clamp(envMask * uEnvStrength * (1.0 + harborCalm * 1.2), 0.0, 0.85)
     );
 
-    // --- B4: island + islet shore foam (V2 lapping kept, W5 rings stay outside)
-    // Gentler peak too: the shelf is a depth cue, not a highlight.
     waterColor = mix(waterColor, uShallowColor, shallowShelf * (0.18 - uNight * 0.05));
 
     float foamMotion = uTime * 0.55;
@@ -1025,39 +893,66 @@ ${gardenHeightFogGlsl()}
     ) * bandNoise;
     lapFoam *= (1.0 - smoothstep(0.86, 1.16, shoreDistance))
       * smoothstep(0.7, 0.9, shoreDistance);
-    float shoreEdge = smoothstep(0.9, 0.965, shoreDistance)
-      * (1.0 - smoothstep(0.965, 1.02, shoreDistance));
-    // Foam stays a crisp waterline accent: broad foam sheets cross the bloom
-    // knee at day, so the lapping bands are dimmer than the shore edge and the
-    // mix clamps well below the bloom threshold.
-    float shoreFoam = (shoreEdge + lapFoam * 0.5) * (0.12 + uDetail * 0.16) * (0.7 + uDaylight * 0.3);
-    waterColor = mix(waterColor, uHighlightColor, clamp(shoreFoam, 0.0, 0.24));
+    vec2 shoreAdvect = uWindDir * (uTime * 0.035 * (0.6 + uWindSpeed * 0.4));
+    float shoreNoise = gardenValueNoise((vWaterPosition - shoreAdvect) * 0.31 + 9.7);
+    float shoreBreath = sin(uTime * 0.38 + shoreNoise * 2.4)
+      * ${glslFloat(GARDEN_WATER_SHORE_FOAM.breathAmplitude)};
+    float shoreLineDistance = abs(shoreDistance - (0.985 + shoreBreath));
+    float shoreEdge = 1.0 - smoothstep(
+      ${glslFloat(GARDEN_WATER_SHORE_FOAM.lineCore)},
+      ${glslFloat(GARDEN_WATER_SHORE_FOAM.lineFeather)},
+      shoreLineDistance
+    );
+    shoreEdge *= smoothstep(0.38, 0.76, shoreNoise);
+    float shoreFoam = (shoreEdge + lapFoam * 0.36) * (0.1 + uDetail * 0.12) * (0.72 + uDaylight * 0.28);
+    waterColor = mix(
+      waterColor,
+      uHighlightColor,
+      clamp(shoreFoam, 0.0, ${glslFloat(GARDEN_WATER_SHORE_FOAM.maxMix)})
+    );
 
     waterColor = mix(waterColor, uShallowColor, clamp(isletShelf, 0.0, 1.0) * (0.22 - uNight * 0.06));
-    float isletFoam = (
-      smoothstep(0.86, 0.98, cemDist) * (1.0 - smoothstep(0.98, 1.12, cemDist))
-      + smoothstep(0.86, 0.98, pigDist) * (1.0 - smoothstep(0.98, 1.12, pigDist))
-    ) * (0.55 + 0.45 * sin(shoreAngle * 9.0 - foamMotion));
-    waterColor = mix(waterColor, uHighlightColor, clamp(isletFoam, 0.0, 0.24) * (0.22 + uDetail * 0.24));
+    float isletLine = (1.0 - smoothstep(0.018, 0.07, abs(cemDist - (1.0 + shoreBreath))))
+      + (1.0 - smoothstep(0.02, 0.085, abs(pigDist - (1.0 - shoreBreath))));
+    isletLine *= smoothstep(0.4, 0.74, gardenValueNoise(
+      (vWaterPosition + shoreAdvect) * 0.37 - 5.2
+    ));
+    waterColor = mix(
+      waterColor,
+      uHighlightColor,
+      clamp(isletLine * (0.1 + uDetail * 0.1), 0.0, ${glslFloat(GARDEN_WATER_SHORE_FOAM.maxMix)})
+    );
 
-    // Region reflectivity, hoisted so the mirror column below can ask how
-    // mirror-like this stretch of water is.
+    float crestFold = -vGerstnerJ + ${glslFloat(GARDEN_WATER_CREST_FOAM.jacobianBias)};
+    float crestFoamMask = smoothstep(
+      ${glslFloat(GARDEN_WATER_CREST_FOAM.jacobianStart)},
+      ${glslFloat(GARDEN_WATER_CREST_FOAM.jacobianEnd)},
+      crestFold
+    );
+    if (crestFoamMask > 0.001) {
+      vec2 crestAdvect = uWindDir * (uTime * 0.11 * (0.55 + uWindSpeed * 0.6));
+      float crestNoise = gardenValueNoise((vWaterPosition - crestAdvect) * 0.24 + 31.4);
+      crestFoamMask *= smoothstep(
+        ${glslFloat(GARDEN_WATER_CREST_FOAM.noiseGate)},
+        0.9,
+        crestNoise
+      );
+      waterColor = mix(
+        waterColor,
+        uHighlightColor,
+        clamp(
+          crestFoamMask * (0.45 + uSwell * 0.35) * uDetail,
+          0.0,
+          ${glslFloat(GARDEN_WATER_CREST_FOAM.maxMix)}
+        )
+      );
+    }
+
     float seaReflectivity = 1.0;
 
-    // --- W2 / D5+D6: sea regions as bodies of water ---------------------------
-    // Replaces the six overlapping tinted ellipses. The region field is the
-    // SAME terrain classification the simulation obeys (finding F6), so the
-    // edge drawn here is the edge ships actually respect.
-    //
-    // A region is carried by its water CHARACTER, not just a tint: depth,
-    // foam and reflectivity all shift, so the sea state stays legible without
-    // reading hue (D6, accessibility contract).
     {
       vec4 regionSample = texture2D(uRegionField, vRegionUv);
       int regionId = int(regionSample.r * 255.0 + 0.5);
-      // S5: the id comes from the point-sampled field; the distance comes from
-      // its linear, mipmapped twin. Reading both off one NEAREST texture is
-      // what made the tide lines stair-step and crawl at overview zoom.
       float boundaryDistance = texture2D(uRegionDistance, vRegionUv).r;
 
       vec3 regionTint = uRegionColor[regionId];
@@ -1066,23 +961,6 @@ ${gardenHeightFogGlsl()}
       float regionReflect = uRegionParams[regionId].z;
       float regionStrength = uRegionParams[regionId].w;
 
-      // Converge with the open-ocean early-out: a region must be gone by the
-      // time the cheap path takes over, or its tint stops dead at a line.
-      //
-      // L2: the ramp is anchored to the MAP EDGE (uMapEdge), not to
-      // uOpenOceanRadius, which sits 12% outside it. Expressed against the
-      // radius, the old 0.62 start landed at 70% of the map's half-width —
-      // measured, that put 48.9% of the sea's water tiles inside the fade and
-      // left the map's own edge at 21% tint strength. Since this same factor
-      // scales foam, the depth multiplier and the boundary seam, half the sea
-      // lost its zones entirely, which is most of why the water read as one
-      // flat colour at whole-map framing.
-      //
-      // 0.95 of the map edge out to the early-out boundary keeps every region
-      // at full strength across the playable world and dissolves it only in the
-      // margin beyond, over ~17 units — long enough to read as the sea opening
-      // out rather than as a border. Paired with the fog cap in garden-sky.ts,
-      // which keeps the boundary from resolving at whole-map framing.
       float edgeFade = 1.0 - smoothstep(
         uMapEdge * 0.95,
         uOpenOceanRadius,
@@ -1094,81 +972,55 @@ ${gardenHeightFogGlsl()}
       regionReflect = mix(1.0, regionReflect, edgeFade);
       seaReflectivity = regionReflect;
 
-      // Luminance-match the tint against the live water color so a region
-      // reads as water that is a different STATE, not paint on a surface
-      // (the Z3 rule, preserved).
       float waterLuma = dot(waterColor, vec3(0.2126, 0.7152, 0.0722));
       float tintLuma = max(dot(regionTint, vec3(0.2126, 0.7152, 0.0722)), 0.03);
       vec3 regionColor = regionTint * clamp(waterLuma * 1.6 / tintLuma, 0.35, 1.15);
 
-      // Soften the join so two regions meet like currents, not like a decal.
       float blend = smoothstep(0.0, 0.84, boundaryDistance);
       waterColor = mix(waterColor, regionColor, regionStrength * blend);
       waterColor *= mix(1.0, regionDepth, blend);
 
-      // Sky/beacon return: calm water is a mirror, danger water swallows light.
+      if (regionId == ${SEA_REGION_ID.danger}) {
+        vec2 rainUv = gl_FragCoord.xy * vec2(0.055, 0.018);
+        rainUv.x += rainUv.y * (0.55 + uWindDir.x * 0.45);
+        rainUv.y += uTime * (0.9 + uStorm * 1.4);
+        vec2 rainCell = floor(rainUv);
+        vec2 rainLocal = fract(rainUv);
+        float rainSeed = gardenHash(rainCell + vec2(17.0, 43.0));
+        float rainLine = smoothstep(0.055, 0.0, abs(rainLocal.x - rainSeed));
+        float rainDash = smoothstep(0.62, 0.98, fract(rainLocal.y + rainSeed));
+        float rain = rainLine * rainDash * blend * edgeFade;
+        waterColor = mix(
+          waterColor,
+          uEnvHorizonColor,
+          rain * (0.025 + uStorm * 0.055) * uDetail
+        );
+      }
+
       waterColor = mix(
         waterColor,
         mix(uEnvHorizonColor, uEnvZenithColor, 0.35),
         clamp((regionReflect - 1.0) * 0.22, 0.0, 0.3) * blend * uEnvStrength
       );
 
-      // W2.6 — the boundary itself. A drifting foam/current line where two
-      // bodies of water meet: this is what makes a region read as having an
-      // edge rather than being a gradient.
-      //
-      // One restrained slick plus a shallow shadow is enough to locate the
-      // terrain edge. Stronger weights turned every body into a chalk polygon.
       float seam = (1.0 - smoothstep(0.0, 0.11, boundaryDistance)) * edgeFade;
       float seamShadow = (1.0 - smoothstep(0.05, 0.24, boundaryDistance)) * edgeFade;
       float seamWave = 0.55 + 0.45 * sin(
         dot(vWaterPosition, vec2(0.31, 0.24)) - uTime * 0.35 * (0.6 + uTempo)
       );
       waterColor *= 1.0 - seamShadow * 0.025 * uDetail;
-      // Not pure foam white: a tide line is a slick, so the highlight is
-      // pulled back toward the water it sits on. At full strength the seams
-      // read as chalk streaks marbling the whole sea.
       waterColor = mix(
         waterColor,
         mix(uHighlightColor, waterColor, 0.42),
         seam * seamWave * 0.08 * uDetail
       );
 
-      // Whitecaps scale with the band. Danger water is streaked; calm is bare.
-      //
-      // This MUST be real noise, not a product of sines: sin(a)*sin(b) tiles
-      // into a regular diagonal lattice that reads as a shader artifact
-      // scrawled across the whole sea.
-      // W6.1: the fbm below is the most expensive term in this shader (three
-      // octaves of hash noise per fragment). Gate it to genuinely rough
-      // water — alert and worse — so it runs on ~8% of the sea instead of
-      // nearly all of it. Calm/watch/ledger/open water shows no whitecaps
-      // anyway, so this is output-identical where it matters.
       if (regionFoam > 0.3) {
-        // Finer than it was: at 0.34 one noise cell spanned ~3 world units, so
-        // the caps read as floes drifting on the surface rather than as crests
-        // breaking on it.
-        // Phase 3 (item 3): the cap field advects DOWNWIND with the weather
-        // system instead of along a fixed axis, and the Gerstner crest factor
-        // decides WHERE caps break — swell crests whiten, troughs stay clean.
-        // The static threshold stays as the foam's texture; the Jacobian owns
-        // its placement (one primary cue, not two).
         vec2 capAdvect = uWindDir * (uTime * 0.06 * (0.5 + uTempo) * (0.6 + uWindSpeed * 0.8));
         vec2 capUv = (vWaterPosition - capAdvect) * 0.85;
         float capNoise = gardenFbm(capUv);
-        // Only the crests break, so the threshold sits high and tightens as
-        // the band worsens.
-        // L7: threshold raised and weight cut. These were tuned while the
-        // region fade was silently stripping foam from half the sea (L2); at
-        // full strength across the whole map the same numbers read as pack ice
-        // rather than as crests breaking. Only the top of the distribution
-        // should whiten, and only partly.
         float capThreshold = mix(0.82, 0.68, clamp(regionFoam, 0.0, 1.0));
         float caps = smoothstep(capThreshold, capThreshold + 0.13, capNoise);
-        // (1 - J) > 0 at Gerstner crests (negative divergence). The
-        // displacement budget keeps raw (1 - J) around 1e-3, so the signal is
-        // gained up to a thresholdable range; crest POSITION is untouched by
-        // the gain, and storm chop naturally widens the breaking band.
         caps *= 0.35 + smoothstep(0.06, 0.24, (1.0 - vGerstnerJ) * 400.0) * 1.5;
         waterColor = mix(
           waterColor,
@@ -1178,19 +1030,12 @@ ${gardenHeightFogGlsl()}
       }
     }
 
-    // --- Phase 3 (item 2/3): wake foam ----------------------------------------
-    // Composited into the SAME highlight term as the whitecaps — one foam
-    // cue, two sources — and deliberately OUTSIDE the region-foam gate:
-    // wakes live on calm water, exactly where that gate skips.
     waterColor = mix(
       waterColor,
       uHighlightColor,
       clamp(wakeFoam * uWakeStrength * (0.2 + uDaylight * 0.08), 0.0, 0.26)
     );
 
-    // --- B2: authored moon road + thresholded night glitter ------------------
-    // Coherent day gate: at nightRoad = 0 both terms are provably zero, so the
-    // day frame skips the pow/exp/mask ALU entirely (identical output).
     float nightRoad = clamp(uNight + uDusk * 0.5, 0.0, 1.0);
     if (nightRoad > 0.001) {
       vec2 fromIsland = vWaterPosition - uIslandCenter;
@@ -1200,11 +1045,15 @@ ${gardenHeightFogGlsl()}
       float bandProfile = exp(-(roadAcross * roadAcross) / (roadHalfWidth * roadHalfWidth));
       float roadReach = 1.0 - smoothstep(26.0, 140.0, abs(roadAlong));
       float moonBand = bandProfile * roadReach;
-      waterColor = mix(waterColor, uMoonRoadColor, moonBand * nightRoad * 0.06);
+      waterColor = mix(
+        waterColor,
+        uMoonRoadColor,
+        moonBand * nightRoad * ${glslFloat(GARDEN_WATER_NIGHT_EMISSIVE_BUDGET.moonRoadGain)}
+      );
 
       vec3 moonLight = normalize(vec3(uMoonDir * 1.15, 0.5));
       vec3 halfMoon = normalize(moonLight + vec3(0.0, 0.0, 1.0));
-      float specular = pow(max(0.0, dot(blendedNormal, halfMoon)), 90.0);
+      float specular = pow(max(0.0, dot(glintNormal, halfMoon)), 90.0);
       float sparkleField =
         sin(dot(vWaterPosition, vec2(2.3, 3.1)) + blendedNormal.x * 11.0)
         * sin(dot(vWaterPosition, vec2(-3.7, 2.1)) + blendedNormal.y * 9.0);
@@ -1212,38 +1061,10 @@ ${gardenHeightFogGlsl()}
       float glitterGate = mix(0.8, 0.68, uSwell);
       float glitter = smoothstep(glitterGate, glitterGate + 0.12, specular)
         * sparkleMask * moonBand * nightRoad;
-      waterColor += uMoonRoadColor * clamp(glitter, 0.0, 1.0) * 2.6;
+      waterColor += uMoonRoadColor * clamp(glitter, 0.0, 1.0)
+        * ${glslFloat(GARDEN_WATER_NIGHT_EMISSIVE_BUDGET.moonGlitterGain)};
     }
 
-    // --- W3: sun glitter (the daytime moon-road) ------------------------------
-    // Thresholded high-exponent Blinn specular on the scrolling normals, pushed
-    // HDR so sparse sparkles feed bloom; density scales with seaState and the
-    // cloud mask dapples the sunlit patches. The glitter must read as sparse
-    // sun-dappled patches, never uniform speckle: the sparkle mask is strict,
-    // the high exponent keeps each sparkle tiny, the cloud shadow concentrates
-    // glitter into the sunlit gaps, and the fade matches the sky fog band
-    // (FOG_NEAR 192 / FOG_FAR 275 in garden-sky) so aerial perspective swallows
-    // the far sparkles instead of letting them read as stars at noon.
-    // Below balanced uGlitterStrength is 0 — the coherent branch skips the
-    // specular and mask work there with identical output.
-    //
-    // S3: the exponent was 520 with a 0.06-wide gate — a spike far narrower
-    // than a pixel, so whether any given fragment caught it was decided by
-    // sub-pixel luck. Under camera motion that is not glitter, it is noise: the
-    // sparkles read as scattered single-pixel dust and crawled. 120 with a
-    // wider gate keeps each sparkle small while giving it enough screen
-    // footprint to be sampled honestly, and the mask is now derivative-aware.
-    // --- The sun's road ------------------------------------------------------
-    // The moon had one and the sun did not, which is why every daylight frame
-    // read as flat water with speckle on it while every night frame had a
-    // luminous path leading the eye. This is that path, cut from the same
-    // arc the shadows and the sky glow use.
-    //
-    // Its SHAPE carries the hour as much as its colour does. A sun near the
-    // horizon lays a long narrow road across the water; a sun overhead
-    // compresses it into a broad pool. Interpolating both the half-width and
-    // the reach on the sun's height means golden hour reads as golden hour from
-    // the water alone, with the light rig doing nothing but agreeing.
     float dayRoad = clamp(uDaylight + uDusk * 0.85, 0.0, 1.0);
     if (dayRoad > 0.001) {
       float lowSun = 1.0 - smoothstep(0.08, 0.62, uSunHeight);
@@ -1252,33 +1073,11 @@ ${gardenHeightFogGlsl()}
       float sunAcross = dot(fromIslandSun, vec2(-uSunDir.y, uSunDir.x));
       float sunHalfWidth = mix(13.0, 6.5, lowSun);
       float sunProfile = exp(-(sunAcross * sunAcross) / (sunHalfWidth * sunHalfWidth));
-      // The road runs TOWARD the sun only; a symmetric band would light the
-      // water on the shaded side of the island just as brightly.
       float sunReach = 1.0 - smoothstep(mix(30.0, 55.0, lowSun), mix(85.0, 190.0, lowSun), sunAlong);
-      // Faded, not cut. A hard step() here leaves a straight bright edge across
-      // open water on the shaded side of the island — the one place in the
-      // whole frame that nothing should draw a line across.
       float sunSide = smoothstep(-26.0, 4.0, sunAlong);
       float sunBand = sunProfile * sunReach * sunSide;
       waterColor = mix(waterColor, uSunGlitterColor, sunBand * dayRoad * mix(0.05, 0.13, lowSun));
 
-      // --- and the tower's shadow, opposite it ------------------------------
-      // The island throws nothing onto the sea otherwise. The directional
-      // light's shadow map is island-only and static (world-renderer sizes its
-      // frustum to the island precisely so the map stays cheap), and the water
-      // is a raw ShaderMaterial that never opts into three's shadow chunks — so
-      // the single most legible statement the sun's arc could make, a long
-      // shadow swinging across open water through the day, was simply absent.
-      //
-      // Analytic rather than sampled, for the same reason the lighthouse mirror
-      // column below is: the caster is ONE static silhouette and the sun's
-      // bearing is already here as a uniform, so the whole thing is a distance
-      // and a Gaussian. No second depth pass, no shadow map that would have to
-      // grow to cover 280 units of water.
-      //
-      // A caster of height h at elevation e reaches h·cos(e)/sin(e) along the
-      // ground, which is why this lengthens dramatically as the sun drops and
-      // is barely visible at noon — exactly as it should be.
       float sunSine = max(uSunHeight, 0.08);
       float shadowReach = min(
         GARDEN_TOWER_HEIGHT * sqrt(max(0.0, 1.0 - sunSine * sunSine)) / sunSine,
@@ -1287,13 +1086,8 @@ ${gardenHeightFogGlsl()}
       float shadowAlong = -sunAlong;
       float shadowT = shadowAlong / shadowReach;
       if (shadowT > 0.0 && shadowT < 1.0) {
-        // A slender finger, widening only gently. The tower is a few units
-        // across, so a band that starts wide reads as a bruise under the island
-        // rather than as the shadow of the thing standing on it. The widening
-        // that remains is penumbra, which genuinely does grow with distance.
         float shadowWidth = mix(3.2, 10.0, shadowT);
         float shadowProfile = exp(-(sunAcross * sunAcross) / (shadowWidth * shadowWidth));
-        // Squared taper so the tip dissolves rather than stopping.
         float shadowFade = (1.0 - shadowT) * (1.0 - shadowT);
         float towerShadow = shadowProfile * shadowFade * dayRoad * GARDEN_TOWER_SHADOW_STRENGTH;
         waterColor *= 1.0 - clamp(towerShadow, 0.0, 0.6);
@@ -1301,11 +1095,9 @@ ${gardenHeightFogGlsl()}
     }
 
     if (uGlitterStrength > 0.001 && uDaylight + uDusk > 0.001) {
-      // The sparkle now sits where the sun actually is, and concentrates along
-      // its road rather than dusting the whole sea evenly.
       vec3 sunDirection = normalize(vec3(uSunDir * mix(1.4, 0.55, uSunHeight), 0.35 + uSunHeight));
       vec3 halfSun = normalize(sunDirection + vec3(0.0, 0.0, 1.0));
-      float sunSpecular = pow(max(0.0, dot(blendedNormal, halfSun)), 120.0);
+      float sunSpecular = pow(max(0.0, dot(glintNormal, halfSun)), 120.0);
       float sunSparkleField =
         sin(dot(vWaterPosition, vec2(3.1, -2.4)) + blendedNormal.y * 13.0)
         * sin(dot(vWaterPosition, vec2(-2.2, -3.6)) + blendedNormal.x * 10.0);
@@ -1320,11 +1112,6 @@ ${gardenHeightFogGlsl()}
       waterColor += uSunGlitterColor * clamp(sunGlitter, 0.0, 1.0) * 1.7;
     }
 
-    // --- W5: karesansui ripple rings (C2(d)) -----------------------------------
-    // Phase-offset expanding rings around island, islets, and any emitters the
-    // other lanes register (dock pylons, moored ships, garden islets). The V2
-    // lapping foam stays inside each train's inner radius. Below balanced
-    // uRippleStrength is 0 and the whole train is a no-op — skipped coherently.
     if (uRippleStrength > 0.001) {
       float ripple = 0.0;
       for (int ri = 0; ri < ${GARDEN_WATER_MAX_RIPPLE_RINGS}; ri += 1) {
@@ -1346,9 +1133,6 @@ ${gardenHeightFogGlsl()}
       waterColor = mix(waterColor, uHighlightColor, ripple * (0.1 + uDaylight * 0.06));
     }
 
-    // --- beacon sweeping lane (kept from V1; L5 fade stretched to match the
-    // 58-unit beam of the 34-unit Pharos tower — the BEAM_LENGTH coupling is a
-    // contract, keep the fade constants with the beam) -----------------------
     vec2 beamDirection = vec2(cos(uBeaconAngle), sin(uBeaconAngle));
     vec2 fromBeacon = vWaterPosition - uBeaconPosition;
     float beamAlong = dot(fromBeacon, beamDirection);
@@ -1361,12 +1145,6 @@ ${gardenHeightFogGlsl()}
     float beaconReflection = beamLane
       * (0.05 + smoothstep(0.48, 0.9, beamRipple) * 0.12)
       * uBeaconStrength;
-    // W6 flame-flicker lane (Pharos Wonder, §3.4): the same CPU flicker that
-    // drives the flame, halo, and PointLight breathes through the reflection,
-    // and a scrolled fetch of the already-bound cloud noise breaks the lane's
-    // cross-section into dancing firelight streaks. All firelight terms sit
-    // behind a coherent uniform branch: the banked day flame (D3 — strength
-    // ~0.15 at noon) skips every extra fetch, leaving a calm analytic lane.
     if (uBeaconStrength > 0.2) {
       float flickerGlow = 0.62 + 0.76 * uBeaconFlicker;
       vec2 streakUv = vec2(
@@ -1377,9 +1155,6 @@ ${gardenHeightFogGlsl()}
       float streaks = 0.55 + 0.45 * smoothstep(0.18, 0.72, streakNoise);
       beaconReflection *= streaks * flickerGlow;
 
-      // Caustic base glow: firelight lapping at the rock — a warm radial
-      // falloff warped by one fetch of the shared cloud noise, gated by night
-      // strength x flicker.
       float rockDist = length(vWaterPosition - uIslandCenter - vec2(0.6, -1.2));
       float causticNoise = texture2D(uCloudShadow,
         vWaterPosition * 0.023 + vec2(uTime * 0.004, -uTime * 0.003)).r;
@@ -1392,14 +1167,6 @@ ${gardenHeightFogGlsl()}
         * 0.16;
     }
 
-    // --- Phase 3 (item 5): caustic web under the Pharos ----------------------
-    // Extends the caustic island-glow subsystem: bright refracted threads
-    // lacing the water around the rock, full tier only. The thread pattern is
-    // two interfering directional sines warped by the live surface normal;
-    // wake energy near the island (churn from the wake field) brightens the
-    // web, so a hull rounding the Pharos visibly stirs the light at its base.
-    // One cue: this IS the caustic term — the night firelight glow above and
-    // this web share the radial mask family, not the frame with a rival.
     if (uCausticStrength > 0.01) {
       float webDist = length(vWaterPosition - uIslandCenter - vec2(0.6, -1.2));
       float webMask = (1.0 - smoothstep(uRockRadius * 0.55, uRockRadius + 10.0, webDist))
@@ -1419,45 +1186,18 @@ ${gardenHeightFogGlsl()}
     }
     waterColor = mix(waterColor, uBeaconColor, clamp(beaconReflection, 0.0, 0.2));
 
-    // --- the Pharos mirror column -------------------------------------------
-    // The concept render's signature image: the tower standing upside-down in
-    // the water beneath itself, broken into shimmering bands by the swell.
-    //
-    // In this ortho iso rig the viewer is always in the same direction, so the
-    // reflection is a fixed vertical streak in water-local space rather than a
-    // real planar pass — no second render, no extra target, a handful of ALU.
-    //
-    // Phase 3 (item 4) EVALUATION — planar reflection REJECTED, not built:
-    // (1) the ortho rig makes a mirrored pass geometrically valid, but the
-    //     scene reflected across the water plane is dominated by far water and
-    //     the never-visible sky dome — the island and tower occupy a sliver of
-    //     the mirror image, so the payoff is small by construction;
-    // (2) even half-res and culled to reflection-relevant content it is a
-    //     second scene render against the 700-call / 20 ms budget that Gerstner
-    //     wakes and the atmosphere work are spending, with DPR already adapted;
-    // (3) the authored fakes — this column, the light-lane pools, the env tint,
-    //     and the hero-hull mirror columns — already carry the intent at a
-    //     fraction of the cost. SSR was rejected on the same camera grounds.
-    //
-    // It obeys the sea it lies on: calm water mirrors (reflectivity 1.5),
-    // danger water swallows it (0.42), so the monument's reflection is itself
-    // a reading of the water's state.
     {
       vec2 fromTower = vWaterPosition - uBeaconPosition;
-      // +local Y runs toward the viewer, so the image hangs "below" the tower.
       float alongColumn = fromTower.y;
       float acrossColumn = abs(fromTower.x);
-      // Widens with distance, the way a real reflection frays on moving water.
       float columnWidth = 1.6 + max(0.0, alongColumn) * 0.10;
       float column = smoothstep(0.0, 1.5, alongColumn)
         * (1.0 - smoothstep(16.0, 44.0, alongColumn))
         * exp(-(acrossColumn * acrossColumn) / max(0.05, columnWidth * columnWidth));
-      // Break it into horizontal bands: a reflection on water is never solid.
       float bands = 0.45 + 0.55 * smoothstep(
         0.25, 0.85,
         0.5 + 0.5 * sin(alongColumn * 1.35 - uTime * 0.55 + surfaceNormal.x * 5.0)
       );
-      // Strongest at dusk and night, when the tower is lit and the sea is dark.
       float columnLight = clamp(uNight + uDusk * 0.85, 0.0, 1.0);
       waterColor = mix(
         waterColor,
@@ -1466,15 +1206,6 @@ ${gardenHeightFogGlsl()}
       );
     }
 
-    // --- W6: shoreline foam rings (analytic shore SDF, no depth pass) -------
-    // Hard-stepped ukiyo-e outline bands expanding slowly outward through the
-    // 0–4 unit near-shore band; frozen at t=0 they hold a composed static
-    // pose. Shed with the ripple-ring tier gate (uRippleStrength).
-    //
-    // S3: "hard-stepped" is the ukiyo-e intent and it stays -- but a bare
-    // step() on a spatial sine has no screen-space width, so the bands
-    // shimmered along the waterline whenever the camera moved. aaStep keeps the
-    // graphic edge and resolves it only where it is undersampled.
     if (uRippleStrength > 0.01) {
       float shoreWorld = length(vWaterPosition - uIslandCenter - vec2(0.6, -1.2))
         - uRockRadius;
@@ -1488,10 +1219,6 @@ ${gardenHeightFogGlsl()}
       );
     }
 
-    // --- B3: warm light lanes from the registry --------------------------
-    // Field gate: outside the registry's bounding circle every lane fails the
-    // 30-unit distSq cull, so skipping the loop there is output-identical and
-    // saves one texture fetch per lane per fragment on open water.
     vec2 fieldDelta = vWaterPosition - uLaneField.xy;
     if (dot(fieldDelta, fieldDelta) < uLaneField.z * uLaneField.z) {
       vec2 streakDir = normalize(vec2(0.45, -1.0));
@@ -1506,13 +1233,6 @@ ${gardenHeightFogGlsl()}
         vec2 d = vWaterPosition - lanePos;
         float distSq = dot(d, d);
         if (head.w > 2.5) {
-          // Phase 4 route pulse lane (Cerebrium's "nothing moves" trick): an
-          // emissive pulse train scrolling the segment toward its far
-          // endpoint, so the busiest trade routes read as moving glints on
-          // the water. Per-route speed/phase ride row 3 (seeded in the
-          // registry); uPulseTime freezes at recovery/constrained tiers and
-          // under reduced motion, leaving the lanes static like every other
-          // lane at those tiers. The storm dims and smears the ribbon.
           vec4 routeRow = texture2D(uLaneTexture, vec2(u, 5.0 / 6.0));
           vec2 span = vec2(routeRow.x, -routeRow.y) - lanePos;
           float spanLength = max(length(span), 0.001);
@@ -1534,8 +1254,6 @@ ${gardenHeightFogGlsl()}
         if (distSq > 900.0) continue;
         vec4 body = texture2D(uLaneTexture, vec2(u, 0.5));
         float intensity = head.z;
-        // Keep each reflection attached to its lamp. A broad Gaussian made
-        // neighboring full-tier lanes merge into large fog-like discs.
         float pool = exp(-distSq / 24.0);
         float along = dot(d, streakDir) + tremble;
         float across = dot(d, streakPerp) + tremble * 0.4;
@@ -1544,26 +1262,16 @@ ${gardenHeightFogGlsl()}
           * aaStep(-2.0, along);
         laneAccum += body.rgb * intensity * (pool * 0.55 + streak * 0.4);
       }
-      waterColor += clamp(laneAccum, 0.0, 2.2);
+      waterColor += clamp(
+        laneAccum,
+        0.0,
+        ${glslFloat(GARDEN_WATER_NIGHT_EMISSIVE_BUDGET.laneClamp)}
+      );
     }
 
-    // W7: far water keeps its color much further out; the fade only blends the
-    // extreme edge toward the base so the fog seam stays invisible.
     float distanceFade = smoothstep(150.0, 520.0, camDistance);
     waterColor = mix(waterColor, uBaseColor, distanceFade * (0.08 + uDusk * 0.05 + uNight * 0.04));
 
-    // L1: cross into the open ocean over the margin outside the map.
-    //
-    // Matching the two paths' colour at the boundary closes the seam, but on
-    // its own it also flattens the world INTO its surroundings — measured, the
-    // open sea came up 26/255 to meet the map and the continental-shelf reading
-    // was gone. The shelf belongs; what does not belong is a line.
-    //
-    // So the ocean is genuinely deeper again (see gardenOpenOcean) and the
-    // detailed path walks into it across the same ramp the region tint uses,
-    // reaching it exactly at the early-out radius. Both sides of the branch
-    // then evaluate the same function to the same value, and the drop happens
-    // over ~17 world units instead of at a step.
     float oceanBlend = smoothstep(uMapEdge * 0.95, uOpenOceanRadius, mapDistance);
     if (oceanBlend > 0.001) {
       waterColor = mix(waterColor, gardenOpenOcean(
@@ -1571,6 +1279,7 @@ ${gardenHeightFogGlsl()}
         cloudLight,
         facetLight,
         fresnel,
+        skySample,
         camDistance
       ), oceanBlend);
     }
@@ -1580,9 +1289,6 @@ ${gardenHeightFogGlsl()}
     #include <colorspace_fragment>
     #include <fog_fragment>
 
-    // W2.1 replaces the former water-only far cutoff with the shared analytic
-    // term. This is still one extra term in the scene fog ladder: the same
-    // factor, sun tint and altitude falloff now shade sea, fleet and land.
     gl_FragColor.rgb = gardenApplyHeightFog(
       gl_FragColor.rgb,
       vWorldPosition,
@@ -1590,11 +1296,21 @@ ${gardenHeightFogGlsl()}
       normalize(vWorldPosition - cameraPosition)
     );
 
-    // W1.4 bokashi bands: the printer's wipe, applied last, over the finished
-    // sea-and-haze. Density only — one pigment at three stops — so the day
-    // cycle keeps every hue and the bands cannot introduce a colour of their
-    // own. Zero at and below fogNear by construction, which is what keeps the
-    // island, the harbour and the near fleet out of it at every framing.
+    vec4 epistemicRegionSample = texture2D(uRegionField, vRegionUv);
+    float epistemicRegionId = floor(epistemicRegionSample.r * 255.0 + 0.5);
+    float riskWater = step(${SEA_REGION_ID.calm - 0.5}, epistemicRegionId)
+      * (1.0 - step(${SEA_REGION_ID.danger + 0.5}, epistemicRegionId));
+    float epistemicMist = 0.72 + gardenFbm(
+      vWaterPosition * 0.045 + uWindDir * uTime * 0.006
+    ) * 0.28;
+    gl_FragColor.rgb = gardenApplyLocalizedHeightFog(
+      gl_FragColor.rgb,
+      vWorldPosition,
+      vFogDepth,
+      normalize(vWorldPosition - cameraPosition),
+      uPegSummaryEpistemicHaze * riskWater * epistemicMist
+    );
+
     gl_FragColor.rgb *= gardenBokashiShade(vFogDepth, fogNear, uDaylight, uDusk, uNight);
   }
 `;
@@ -1645,6 +1361,8 @@ export interface GardenWater {
     activeLaneCount: number,
     fieldBounds?: { centerX: number; centerZ: number; radius: number },
   ) => void;
+  /** W7.4: reuses this material's height-fog term over DEWS risk regions. */
+  setPegSummaryEpistemicHaze: (active: boolean) => void;
   /** C2(a): zone soft-tint path; Lane Z supplies positions/radii/colors. */
   setZoneState: (zones: readonly GardenWaterZoneTint[]) => void;
   /**
@@ -1737,6 +1455,8 @@ export function createGardenWater(waterLevel: number): GardenWater {
     uEnvHorizonColor: { value: envHorizonColor },
     uEnvStrength: { value: 0.3 },
     uEnvZenithColor: { value: envZenithColor },
+    uEnvironmentIntensity: { value: 0 },
+    envMap: { value: null as Texture | null },
     uGlitterStrength: { value: 1 },
     uHarborCalm: { value: 0.7 },
     uHarborEllipse: { value: new Vector4(0, 0, 1 / 13, 1 / 9) },
@@ -1796,6 +1516,7 @@ export function createGardenWater(waterLevel: number): GardenWater {
     // the pre-weather sea when no plan is supplied.
     uWindDir: { value: new Vector2(GARDEN_DEFAULT_WIND_X, -GARDEN_DEFAULT_WIND_Z) },
     uWindSpeed: { value: 0 },
+    uBreath: { value: 0.5 },
     uStorm: { value: 0 },
     // W2 / D5: the sea-region field replaces the six tinted ellipses. One
     // texture, sampled in both stages, carrying the SAME terrain
@@ -1811,6 +1532,7 @@ export function createGardenWater(waterLevel: number): GardenWater {
       ),
     },
     uOpenOceanRadius: { value: (regionField.tileSpan * TILE_SCALE_UNITS) * 0.56 },
+    uPegSummaryEpistemicHaze: { value: 0 },
     // L2: where the PLAYABLE map actually ends, as distinct from the early-out
     // radius 12% beyond it. The region fade is anchored to this; conflating the
     // two is what silently stripped the zones from half the sea.
@@ -1835,6 +1557,26 @@ export function createGardenWater(waterLevel: number): GardenWater {
   mesh.name = "garden-water";
   mesh.position.y = waterLevel;
   mesh.rotation.x = -Math.PI / 2;
+  // Raw ShaderMaterial does not opt into scene.environment, but Three's
+  // program builder will provide its CubeUV defines/chunk when `envMap` is set
+  // on the material. Bind immediately before the draw: this follows every
+  // cached PMREM swap without a world-renderer wire or a second texture owner.
+  type EnvironmentShaderMaterial = ShaderMaterial & { envMap: Texture | null };
+  const environmentMaterial = material as EnvironmentShaderMaterial;
+  environmentMaterial.envMap = null;
+  mesh.onBeforeRender = (_renderer, renderScene) => {
+    const nextEnvironment = renderScene.environment;
+    if (environmentMaterial.envMap !== nextEnvironment) {
+      environmentMaterial.envMap = nextEnvironment;
+      uniforms.envMap.value = nextEnvironment;
+      // The first probe changes the shader from scalar fallback to CubeUV.
+      // Later swaps keep the same mapping/atlas shape and reuse the program.
+      material.needsUpdate = true;
+    }
+    uniforms.uEnvironmentIntensity.value = nextEnvironment
+      ? renderScene.environmentIntensity
+      : 0;
+  };
 
   // Karesansui ripple-ring emitters (C2(d)). The island and the outlying
   // islets self-register when their centers arrive; other lanes register dock
@@ -1947,6 +1689,8 @@ export function createGardenWater(waterLevel: number): GardenWater {
       uniforms.uLaneTexture.value = null;
       uniforms.uWakeMap.value = null;
       uniforms.uNormalMap.value = null;
+      uniforms.envMap.value = null;
+      environmentMaterial.envMap = null;
       rippleEmitters.clear();
     },
     cloudShadowsOn() {
@@ -2007,6 +1751,9 @@ export function createGardenWater(waterLevel: number): GardenWater {
           Math.max(0, fieldBounds.radius),
         );
       }
+    },
+    setPegSummaryEpistemicHaze(active) {
+      uniforms.uPegSummaryEpistemicHaze.value = active ? 1 : 0;
     },
     setZoneState(zones) {
       // W2 / D5: zone TINTS are no longer painted as ellipses — the region
@@ -2148,6 +1895,10 @@ export function createGardenWater(waterLevel: number): GardenWater {
         -(weather?.windDirZ ?? GARDEN_DEFAULT_WIND_Z),
       );
       uniforms.uWindSpeed.value = MathUtils.clamp(weather?.windSpeed ?? 0, 0, 1);
+      uniforms.uBreath.value = gardenBreathAt(
+        frame.reducedMotion ? 0 : frame.timeSeconds,
+        GARDEN_BREATH_PHASE.water,
+      );
       uniforms.uStorm.value = stormLevel;
       // W2.1: one allocation-free update drives the shared term on water,
       // fleet, hero hulls, island and docks. The sun direction is resolved by

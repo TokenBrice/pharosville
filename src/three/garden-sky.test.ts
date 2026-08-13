@@ -1,5 +1,6 @@
 import { Color, InstancedMesh, ShaderMaterial, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
+import { HARBOR_PALETTE } from "../systems/palette";
 import {
   DAY_CYCLE_LIGHT_PRESETS,
   DAY_CYCLE_SKY_PRESETS,
@@ -9,11 +10,17 @@ import {
   createGardenSky,
   GARDEN_BOKASHI_BAND,
   GARDEN_CUMULUS_BILLBOARDS_ENABLED,
+  GARDEN_HEADLAND_VALUE_SCALE,
   gardenBokashiAmount,
   gardenBokashiBandGlsl,
   gardenBokashiInk,
 } from "./garden-sky";
-import { CLOUD_COUNT, MIST_BANK_COUNT } from "./garden-sky-billboards";
+import {
+  CLOUD_COUNT,
+  GARDEN_AUTUMN_GEESE_COUNT,
+  HEADLAND_COUNT,
+  MIST_BANK_COUNT,
+} from "./garden-sky-billboards";
 
 const FRAME = {
   reducedMotion: false,
@@ -36,8 +43,18 @@ function cloudsOf(sky: ReturnType<typeof createGardenSky>): InstancedMesh {
   return clouds as InstancedMesh;
 }
 
+function headlandsOf(sky: ReturnType<typeof createGardenSky>): InstancedMesh {
+  const headlands = sky.root.getObjectByName("garden-sky-borrowed-headlands");
+  expect(headlands).toBeInstanceOf(InstancedMesh);
+  return headlands as InstancedMesh;
+}
+
 function uniformsOf(mesh: InstancedMesh): ShaderMaterial["uniforms"] {
   return (mesh.material as ShaderMaterial).uniforms;
+}
+
+function colorDistance(left: Color, right: Color): number {
+  return Math.hypot(left.r - right.r, left.g - right.g, left.b - right.b);
 }
 
 /**
@@ -124,6 +141,74 @@ describe("garden sky billboard atmosphere", () => {
     expect(uniformsOf(mist).uTime!.value).toBe(0);
     expect(uniformsOf(mist).uWindDir!.value).toMatchObject({ x: 1, y: 0 });
     expect(uniformsOf(mist).uWindSpeed!.value).toBe(0.8);
+    sky.dispose();
+  });
+
+  it("shows only summer high clouds and the autumn geese line", () => {
+    const summer = createGardenSky("summer");
+    const summerClouds = cloudsOf(summer);
+    summer.update(dayCyclePhase(12), FRAME);
+    expect(summerClouds.visible).toBe(true);
+    expect(uniformsOf(summerClouds).uOpacity!.value as number).toBeLessThanOrEqual(0.34);
+    expect(summer.root.getObjectByName("garden-sky-autumn-geese")!.visible).toBe(false);
+    summer.dispose();
+
+    const autumn = createGardenSky("autumn");
+    autumn.update(dayCyclePhase(12), FRAME);
+    const geese = autumn.root.getObjectByName("garden-sky-autumn-geese") as InstancedMesh;
+    expect(geese.count).toBe(GARDEN_AUTUMN_GEESE_COUNT);
+    expect(geese.visible).toBe(true);
+    expect(cloudsOf(autumn).visible).toBe(false);
+    autumn.dispose();
+  });
+
+  it("pulls winter fog slightly toward the cool harbor fog anchor", () => {
+    const spring = createGardenSky("spring");
+    const winter = createGardenSky("winter");
+    spring.update(dayCyclePhase(12), FRAME);
+    winter.update(dayCyclePhase(12), FRAME);
+    const cool = new Color(HARBOR_PALETTE.fog_blue);
+    expect(colorDistance(winter.fog.color, cool)).toBeLessThan(
+      colorDistance(spring.fog.color, cool),
+    );
+    spring.dispose();
+    winter.dispose();
+  });
+
+  it("keeps borrowed scenery asymmetric, decorative, and value-close to fog", () => {
+    const sky = createGardenSky();
+    const headlands = headlandsOf(sky);
+    expect(headlands.count).toBe(HEADLAND_COUNT);
+    expect(HEADLAND_COUNT).toBe(1);
+    const anchors = headlands.geometry.getAttribute("aAnchor");
+    // Opposite the lighthouse-weighted diagonal; never centered or paired.
+    expect(anchors.getX(0)).not.toBe(anchors.getZ(0));
+
+    sky.update(dayCyclePhase(12), FRAME);
+    const noonOpacity = uniformsOf(headlands).uOpacity!.value as number;
+    const headlandColor = uniformsOf(headlands).uColor!.value as Color;
+    expect(headlandColor.r / sky.fog.color.r).toBeCloseTo(GARDEN_HEADLAND_VALUE_SCALE, 5);
+    expect(headlandColor.g / sky.fog.color.g).toBeCloseTo(GARDEN_HEADLAND_VALUE_SCALE, 5);
+    expect(headlandColor.b / sky.fog.color.b).toBeCloseTo(GARDEN_HEADLAND_VALUE_SCALE, 5);
+    const noonCompositedSeparation = (1 - GARDEN_HEADLAND_VALUE_SCALE) * noonOpacity;
+    expect(noonCompositedSeparation).toBeGreaterThanOrEqual(0.02);
+    expect(noonCompositedSeparation).toBeLessThanOrEqual(0.04);
+    expect(uniformsOf(headlands).uLanternOpacity!.value).toBe(0);
+
+    sky.update(dayCyclePhase(7), { ...FRAME, wallClockHour: 7 });
+    expect(uniformsOf(headlands).uOpacity!.value as number).toBeGreaterThan(noonOpacity);
+    // Dawn shares the warm haze phase but the unexplained light is evening-only.
+    expect(uniformsOf(headlands).uLanternOpacity!.value).toBe(0);
+
+    sky.update(dayCyclePhase(19), { ...FRAME, wallClockHour: 19 });
+    expect(uniformsOf(headlands).uOpacity!.value as number).toBeGreaterThan(noonOpacity);
+    expect(uniformsOf(headlands).uLanternOpacity!.value as number).toBeGreaterThan(0.5);
+
+    sky.update(dayCyclePhase(22), { ...FRAME, wallClockHour: 22 });
+    expect(uniformsOf(headlands).uLanternOpacity!.value as number).toBeGreaterThan(0);
+
+    sky.update(dayCyclePhase(22), { ...FRAME, billboards: false, wallClockHour: 22 });
+    expect(headlands.visible).toBe(false);
     sky.dispose();
   });
 });

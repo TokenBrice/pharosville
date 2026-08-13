@@ -13,6 +13,63 @@ import type { PharosVilleWorld } from "../systems/world-types";
 import { AccessibilityLedger } from "./accessibility-ledger";
 
 describe("AccessibilityLedger", () => {
+  it("names the localized stale-feed haze without calling it weather", () => {
+    const world = sampleWorld();
+    world.freshness = { chainsStale: true, pegSummaryStale: true };
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("Instrument haze");
+    expect(markup).toContain("Haze over the risk waters and quays");
+    expect(markup).toContain("Peg summary and Chains feeds are stale");
+  });
+
+  it("names the pigeonnier roost comparison and today's watched ships", () => {
+    const world = sampleWorld();
+    world.pigeonnier = {
+      ...world.pigeonnier,
+      notableMovers: [{
+        change24hPctLabel: "+2.1%",
+        change24hUsdLabel: "+$4.2M",
+        detailId: "ship.alpha",
+        id: "alpha",
+        riskWaterLabel: "Watch Breakwater",
+        symbol: "ALPHA",
+      }],
+      roost: {
+        capped: false,
+        comparison: 2,
+        eventsToday: 3,
+        eventsYesterday: 1,
+        visualCount: 3,
+      },
+    };
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+    expect(markup).toContain("3 today; 1 yesterday (2 more than yesterday)");
+    expect(markup).toContain("Today&#x27;s notable movers: ALPHA");
+  });
+
+  it("renders the timestamped rare-event harbor log and its stillness contract", () => {
+    const markup = renderToStaticMarkup(
+      <AccessibilityLedger
+        almanacEntries={[{
+          id: "2026-08-13:heron-dusk",
+          message: "A heron settled on the harbor piling at dusk.",
+          timestampLabel: "18:07",
+        }]}
+        world={sampleWorld()}
+      />,
+    );
+    expect(markup).toContain("Harbor log");
+    expect(markup).toContain("18:07");
+    expect(markup).toContain("A heron settled on the harbor piling at dusk.");
+    expect(markup).toContain("absent in still or reduced-motion mode");
+  });
+
+  it("identifies calendar-season dressing as non-semantic", () => {
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorld()} />);
+    expect(markup).toContain("Seasonal dressing");
+    expect(markup).toContain("Follows the real-world calendar; non-semantic.");
+  });
   it("stays screen-reader-only by default and drops sr-only when shown visibly", () => {
     const screenReaderMarkup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorld()} />);
     const visibleMarkup = renderToStaticMarkup(
@@ -296,9 +353,18 @@ describe("AccessibilityLedger", () => {
     const world = sampleWorldWithLedgerShip();
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
 
-    // Single-ship fleet → always Q0 → Languid.
-    expect(markup).toContain("cycle tempo Languid");
-    expect(markup).toContain("cycle pace tracks supply tier, not transfers");
+    // No mint/burn row → neutral pace with an explicit missing-data reading.
+    expect(markup).toContain("cycle tempo Unmeasured");
+    expect(markup).toContain("cycle pace tracks 24h mint/redeem flow intensity by magnitude, not market-cap tier");
+  });
+
+  it("states per-ship issuance failure and garden-tempo parity", () => {
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorldWithLedgerShip()} />);
+    expect(markup).toContain("issuance work Unavailable — neutral draft; no per-coin mint/redeem row");
+    expect(markup).toContain("rendered at garden tempo over 45 seconds, while this ledger states the latest truth immediately");
+    expect(markup).toContain("redemption fitting Unavailable");
+    expect(markup).toContain("collateral cargo Unavailable");
+    expect(markup).toContain("customs fitting Unavailable");
   });
 
   it("mirrors lighthouse trend, composition, and contributors in the ledger", () => {
@@ -373,6 +439,7 @@ describe("AccessibilityLedger", () => {
 
     expect(markup).toContain("Beam bearing: Holding on USDX, largest PSI contributor (-412 bps).");
     expect(markup).toContain("Worst band, 30d: FRACTURE at PSI 31 on 2026-07-20; 9 days on record.");
+    expect(markup).toContain("Garden record, 30d: Neutral garden — no index history to grow from. This is a slow trailing record; it changes with daily history, never as a live alarm.");
   });
 
   it("says the rocks are unstained for want of history, not for want of stress", () => {
@@ -531,11 +598,11 @@ describe("AccessibilityLedger", () => {
     expect(markup).toContain("sUSDe supply +18% (7d); 1 ships in elevated water");
   });
 
-  it("cycle tempo label is one of the four canonical values", () => {
+  it("cycle tempo label is canonical or explicit when flow data is unavailable", () => {
     const world = sampleWorldWithLedgerShip();
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
 
-    const validLabels = ["Languid", "Steady", "Brisk", "Active"];
+    const validLabels = ["Languid", "Steady", "Brisk", "Active", "Unmeasured"];
     const found = validLabels.some((label) => markup.includes(`cycle tempo ${label}`));
     expect(found).toBe(true);
   });

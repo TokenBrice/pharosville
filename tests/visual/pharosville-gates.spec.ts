@@ -242,9 +242,7 @@ test(...visualLane("motion", "day, dusk, night, and reduced-motion states render
     { hour: 12, name: "reduced", reducedMotion: true },
   ] as const;
 
-  await openWorld(page, states[0]);
   const closeDetails = page.getByRole("button", { name: "Close details" });
-  if (await closeDetails.isVisible()) await closeDetails.click();
 
   for (const state of states) {
     // There is no "Set session hour" slider and there has not been one for a

@@ -14,6 +14,22 @@ function panelWorld() {
 }
 
 describe("HarborLedgerPanel", () => {
+  it("keeps timestamped rare sightings browsable in the visible ledger", () => {
+    render(
+      <HarborLedgerPanel
+        almanacEntries={[{
+          id: "2026-08-13:deep-night-meteor",
+          message: "A single meteor crossed the deep-night harbor sky.",
+          timestampLabel: "01:12",
+        }]}
+        onClose={() => undefined}
+        world={panelWorld()}
+      />,
+    );
+    expect(screen.getByText("01:12")).toBeTruthy();
+    expect(screen.getByText(/single meteor crossed/)).toBeTruthy();
+  });
+
   it("uses modal dialog semantics and focuses/restores the close control", () => {
     const opener = document.createElement("button");
     opener.type = "button";

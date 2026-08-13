@@ -16,6 +16,7 @@ import {
   gardenFleetFramingRestraint,
   gardenFleetMarkPresence,
   gardenFleetSailRestraint,
+  patchFleetHullFormMaterial,
   patchSailAtlasMaterial,
   setFleetAerialPerspective,
   setFleetAttention,
@@ -195,7 +196,15 @@ describe("fleet downwind convention", () => {
     const bearings = [0, Math.PI / 2, Math.PI] as const;
     for (const windAngle of bearings) {
       const batches = buildBatches(1);
-      setFleetWeather({ gust: 0, timeSeconds: 0, windAngle, windSpeed: 0 });
+      setFleetWeather({
+        breath: 0.5,
+        gust: 0,
+        timeSeconds: 0,
+        windAngle,
+        windDirX: Math.cos(windAngle),
+        windDirZ: Math.sin(windAngle),
+        windSpeed: 0,
+      });
       beginFleetFrame(batches);
       writeFleetInstance(batches, pose({ headingAngle: 0.73, x: 0, z: 0 }));
       endFleetFrame(batches);
@@ -233,6 +242,10 @@ describe("fleet batches", () => {
     // 4 silhouettes x (hull + sails) + 1 pennant batch = 9, at any fleet size.
     expect(fleetDrawCallCount(batches)).toBe(drawsAt20);
     expect(fleetDrawCallCount(batches)).toBe(9);
+    for (const batch of batches.bySilhouette.values()) {
+      expect(batch.hull.mesh.castShadow).toBe(true);
+      expect(batch.sails.mesh.castShadow).toBe(false);
+    }
 
     disposeFleetBatches(batches);
   });
@@ -390,6 +403,92 @@ describe("fleet batches", () => {
     // D3: 16x16 cells. Cell 0 is the shared blank canvas, so 255 logo slots
     // must cover the ~205-ship world with headroom.
     expect(FLEET_SAIL_ATLAS_CELLS).toBe(256);
+  });
+});
+
+describe("W5.8/W7.3 instanced hull surface", () => {
+  it("bakes repeated-prop pivots and rope masks into the merged hull", () => {
+    const source = createFleetBatchGeometry("galleon");
+    const masks = source.hull.getAttribute("aPartMasks");
+    const pivot = source.hull.getAttribute("aVariationPivot");
+    expect(masks.itemSize).toBe(4);
+    expect(pivot.itemSize).toBe(4);
+    expect(Array.from({ length: masks.count }, (_, index) => masks.getX(index)).some((value) => value > 0.5)).toBe(true);
+    expect(Array.from({ length: masks.count }, (_, index) => masks.getY(index)).some((value) => value > 0.5)).toBe(true);
+    source.hull.dispose();
+    source.sails.dispose();
+  });
+
+  it("writes decorative and age terms to one hull-only vec4 attribute", () => {
+    const batches = buildBatches(4);
+    beginFleetFrame(batches);
+    writeFleetInstance(batches, pose({
+      hullForm: {
+        beam: 1,
+        height: 1,
+        length: 1,
+        waterline: 0,
+        agePatina: 0.82,
+        hullValue: 0.95,
+        propRotation: 7 * Math.PI / 180,
+        ropeSag: -0.06,
+      } as FleetInstancePose["hullForm"],
+    }));
+    endFleetFrame(batches);
+
+    const batch = batches.bySilhouette.get("galleon")!;
+    expect(batch.hull.hullSurface?.itemSize).toBe(4);
+    expect(batch.hull.hullSurface?.getX(0)).toBeCloseTo(0.95);
+    expect(batch.hull.hullSurface?.getY(0)).toBeCloseTo(0.82);
+    expect(batch.hull.hullSurface?.getZ(0)).toBeCloseTo(7 * Math.PI / 180);
+    expect(batch.hull.hullSurface?.getW(0)).toBeCloseTo(-0.06);
+    expect(batch.sails.hullSurface).toBeNull();
+    expect(fleetDrawCallCount(batches)).toBe(3);
+    disposeFleetBatches(batches);
+  });
+
+  it("packs the seaworthiness fitting code with rope sag without another attribute", () => {
+    const batches = buildBatches(4);
+    beginFleetFrame(batches);
+    writeFleetInstance(batches, pose({
+      hullForm: {
+        beam: 1,
+        fittingCode: 19,
+        height: 1,
+        length: 1,
+        ropeSag: -0.06,
+        waterline: 0,
+      } as FleetInstancePose["hullForm"],
+    }));
+    endFleetFrame(batches);
+    expect(batches.bySilhouette.get("galleon")?.hull.hullSurface?.getW(0)).toBeCloseTo(18.94);
+    disposeFleetBatches(batches);
+  });
+
+  it("keeps value/patina off sail cloth and verdigris off the identity strake", () => {
+    const hullMaterial = new MeshStandardMaterial();
+    patchFleetHullFormMaterial(hullMaterial);
+    const hullShader = {
+      fragmentShader: "#include <common>",
+      uniforms: {} as Record<string, unknown>,
+      vertexShader: "#include <common>\n#include <begin_vertex>\n#include <color_vertex>",
+    };
+    hullMaterial.onBeforeCompile(hullShader as never, null as never);
+    expect(hullShader.vertexShader).toContain("vColor.xyz *= aHullSurface.x");
+    expect(hullShader.vertexShader).toContain("aPartMasks.z * age");
+    expect(hullShader.vertexShader).toContain("aPartMasks.x");
+    expect(hullShader.vertexShader).toContain("aPartMasks.y");
+
+    const sailMaterial = new MeshStandardMaterial();
+    patchSailAtlasMaterial(sailMaterial);
+    const sailShader = {
+      fragmentShader: "#include <common>\n#include <map_fragment>\n#include <normal_fragment_begin>",
+      uniforms: {} as Record<string, unknown>,
+      vertexShader: "#include <common>\n#include <begin_vertex>\n#include <project_vertex>\n#include <uv_vertex>",
+    };
+    sailMaterial.onBeforeCompile(sailShader as never, null as never);
+    expect(sailShader.vertexShader).not.toContain("aHullSurface");
+    expect(sailShader.fragmentShader).not.toContain("verdigris");
   });
 });
 

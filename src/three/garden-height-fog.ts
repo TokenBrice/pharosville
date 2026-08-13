@@ -34,6 +34,13 @@ export const gardenHeightFogUniforms = {
   uGardenHeightFogZenith: { value: DAY_CYCLE_HEIGHT_FOG_PRESETS.day.zenith.clone() },
 };
 
+/** Shared by every quay material; one write changes no material/program key. */
+export const gardenQuayEpistemicHazeUniform = { value: 0 };
+
+export function setGardenQuayEpistemicHaze(active: boolean): void {
+  gardenQuayEpistemicHazeUniform.value = active ? 1 : 0;
+}
+
 const scratchSunPose = {
   direction: new Vector3(0, 1, 0),
   elevation: Math.PI / 2,
@@ -160,6 +167,30 @@ vec3 gardenApplyHeightFog(
   );
   return mix(sceneColor, fogCol, clamp(factor, 0.0, 1.0));
 }
+
+vec3 gardenApplyLocalizedHeightFog(
+  vec3 sceneColor,
+  vec3 worldPosition,
+  float dist,
+  vec3 viewDir,
+  float strength
+) {
+  float shelf = exp(-max(worldPosition.y - uGardenHeightFogSeaLevel, 0.0) * 0.38);
+  float localDensity = uGardenHeightFogDensity * 4.0
+    * exp(-(worldPosition.y - uGardenHeightFogSeaLevel) * uGardenHeightFogFalloff);
+  float factor = (1.0 - exp(-localDensity * max(dist, 0.0)))
+    * clamp(strength, 0.0, 1.0) * shelf;
+  vec2 viewAzimuth = viewDir.xz / max(length(viewDir.xz), 1e-4);
+  vec2 sunAzimuth = uGardenHeightFogSunDir.xz
+    / max(length(uGardenHeightFogSunDir.xz), 1e-4);
+  float sunDot = max(dot(viewAzimuth, sunAzimuth), 0.0);
+  vec3 fogCol = mix(
+    gardenHeightFogHorizonRamp(viewDir),
+    uGardenHeightFogSunTint,
+    pow(sunDot, 8.0) * uGardenHeightFogPhaseGain
+  );
+  return mix(sceneColor, fogCol, clamp(factor, 0.0, 0.34));
+}
 `;
 }
 
@@ -187,8 +218,12 @@ const HEIGHT_FOG_VERTEX_CHUNK = /* glsl */ `
 const HEIGHT_FOG_DEPTH_CHUNK = "vGardenHeightFogDepth = -mvPosition.z;";
 
 /** Injects the shared term after Three's existing fog chunk. */
-export function injectGardenHeightFog(shader: GardenCompiledShader): void {
+export function injectGardenHeightFog(
+  shader: GardenCompiledShader,
+  epistemicHazeUniform?: { value: number },
+): void {
   Object.assign(shader.uniforms, gardenHeightFogUniforms);
+  if (epistemicHazeUniform) shader.uniforms.uGardenEpistemicHaze = epistemicHazeUniform;
   shader.vertexShader = shader.vertexShader
     .replace(
       "#include <common>",
@@ -208,6 +243,7 @@ export function injectGardenHeightFog(shader: GardenCompiledShader): void {
       `#include <common>
       varying float vGardenHeightFogDepth;
       varying vec3 vGardenHeightFogWorldPosition;
+      ${epistemicHazeUniform ? "uniform float uGardenEpistemicHaze;" : ""}
       ${gardenHeightFogGlsl()}`,
     )
     .replace(
@@ -218,31 +254,47 @@ export function injectGardenHeightFog(shader: GardenCompiledShader): void {
         vGardenHeightFogWorldPosition,
         vGardenHeightFogDepth,
         normalize(vGardenHeightFogWorldPosition - cameraPosition)
-      );`,
+      );${epistemicHazeUniform ? `
+      gl_FragColor.rgb = gardenApplyLocalizedHeightFog(
+        gl_FragColor.rgb,
+        vGardenHeightFogWorldPosition,
+        vGardenHeightFogDepth,
+        normalize(vGardenHeightFogWorldPosition - cameraPosition),
+        uGardenEpistemicHaze
+      );` : ""}`,
     );
 }
 
 /** Composes with any existing material patch and is safe to call repeatedly. */
-export function patchGardenHeightFogMaterial(material: MeshStandardMaterial): void {
+export function patchGardenHeightFogMaterial(
+  material: MeshStandardMaterial,
+  options: { epistemicHaze?: "quay" } = {},
+): void {
   if (material.userData.gardenHeightFog) return;
   material.userData.gardenHeightFog = true;
+  const epistemicHazeUniform = options.epistemicHaze === "quay"
+    ? gardenQuayEpistemicHazeUniform
+    : undefined;
   const previousCompile = material.onBeforeCompile;
   const previousCacheKey = material.customProgramCacheKey();
   material.onBeforeCompile = (shader, renderer) => {
     previousCompile.call(material, shader, renderer);
-    injectGardenHeightFog(shader);
+    injectGardenHeightFog(shader, epistemicHazeUniform);
   };
-  material.customProgramCacheKey = () => `${previousCacheKey}|garden-height-fog-v1`;
+  material.customProgramCacheKey = () => `${previousCacheKey}|garden-height-fog-v1${epistemicHazeUniform ? "|epistemic-quay" : ""}`;
   material.needsUpdate = true;
 }
 
 /** Applies W2.1 to every lit standard material below a scene root. */
-export function applyGardenHeightFog(root: Object3D): void {
+export function applyGardenHeightFog(
+  root: Object3D,
+  options: { epistemicHaze?: "quay" } = {},
+): void {
   root.traverse((object) => {
     if (!(object instanceof Mesh)) return;
     const materials = Array.isArray(object.material) ? object.material : [object.material];
     for (const material of materials) {
-      if (material instanceof MeshStandardMaterial) patchGardenHeightFogMaterial(material);
+      if (material instanceof MeshStandardMaterial) patchGardenHeightFogMaterial(material, options);
     }
   });
 }

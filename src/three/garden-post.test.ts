@@ -805,6 +805,15 @@ describe("garden post-processing contracts", () => {
     }
   });
 
+  it("applies winter as a small desaturation on top of the existing phase grade", () => {
+    const { post } = makePost();
+    const grade = effectNamed("GardenGrade");
+    post.setGrade(1, 0, 0, 0, 0);
+    const summer = numberUniform(grade, "saturation");
+    post.setGrade(1, 0, 0, 0, 1);
+    expect(numberUniform(grade, "saturation")).toBeCloseTo(summer * 0.92, 8);
+  });
+
   it("multiplies AO quality, zoom, and continuous tier weights without recompiling quality", () => {
     const { n8ao, post } = makePost();
 

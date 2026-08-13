@@ -28,6 +28,7 @@ import {
   priceConfidenceLabel,
   reportCardSafetyLabel,
   priceSignalSeverity,
+  quayMasonryLabel,
   shareOfFleetLabel,
   sourceConsensusLabel,
   sourceConsensusRatio,
@@ -39,6 +40,8 @@ import {
   pegDeviationFactLabel,
   pegDeviationLabel,
   placementNarrative,
+  shipAgeDetailLabel,
+  shipAgeLedgerClause,
 } from "./detail-model";
 import { UNAVAILABLE_SUPPLY_TIDE } from "./supply-tide";
 import { buildDetailFactSections } from "../lib/format-detail";
@@ -47,6 +50,7 @@ import { buildPharosVilleWorld } from "./pharosville-world";
 import {
   fixtureWithDepegOn,
   fixtureWithoutAsset,
+  makePharosVilleWorldInput,
   makeReportCard,
   makerSquadFixtureInputs,
 } from "../__fixtures__/pharosville-world";
@@ -175,6 +179,41 @@ describe("detail-model analytical links", () => {
       { label: "Subscribe on Telegram", href: PHAROS_WATCH_TELEGRAM_HREF, target: "_blank" },
     ]);
     expect(PHAROS_WATCH_TELEGRAM_HREF).toBe("https://pharos.watch/telegram/");
+  });
+
+  it("lists pigeonnier movers as in-world members and compares the exact roost counts", () => {
+    const detail = detailForPigeonnier({
+      id: "pigeonnier",
+      kind: "pigeonnier",
+      label: "Pigeonnier",
+      tile: { x: 50, y: 50 },
+      detailId: "pigeonnier",
+      notableMovers: [{
+        change24hPctLabel: "+2.1%",
+        change24hUsdLabel: "+$4.2M",
+        detailId: "ship.alpha",
+        id: "alpha",
+        riskWaterLabel: "Watch Breakwater",
+        symbol: "ALPHA",
+      }],
+      roost: {
+        capped: false,
+        comparison: 2,
+        eventsToday: 3,
+        eventsYesterday: 1,
+        visualCount: 3,
+      },
+    });
+    expect(detail.facts).toContainEqual({
+      label: "Depeg roost",
+      value: "3 today; 1 yesterday (2 more than yesterday)",
+    });
+    expect(detail.membersHeading).toBe("Today's notable movers");
+    expect(detail.members).toContainEqual(expect.objectContaining({
+      id: "alpha",
+      inWorldDetailId: "ship.alpha",
+      label: "ALPHA",
+    }));
   });
 
   it("rewrites member and custom area analytical links", () => {
@@ -478,6 +517,27 @@ describe("detail-model analytical links", () => {
     });
   });
 
+  it("states the ship's own loading direction and largest issuance event", () => {
+    const base = buildPharosVilleWorld(makePharosVilleWorldInput()).ships[0]!;
+    const detail = detailForShip({ ...base,
+      issuance: {
+        direction: "minting",
+        flowIntensity: 72,
+        netFlow24hUsd: 8_000_000,
+        largestEvent24h: { amountUsd: 5_000_000, direction: "mint", timestamp: 1 },
+      },
+    });
+    expect(detail.facts).toContainEqual({
+      label: "Issuance work, 24h",
+      value: "+$8.0M net minted — loading cargo and riding deeper; flow intensity 72/100; largest event mint $5.0M",
+    });
+    const { issuance: _issuance, ...withoutIssuance } = base;
+    expect(detailForShip(withoutIssuance).facts).toContainEqual({
+      label: "Issuance work, 24h",
+      value: "Unavailable — neutral draft; no per-coin mint/redeem row",
+    });
+  });
+
   it("computes Cycle tempo from each coin's flow intensity regardless of fleet context", () => {
     const baseShip: import("./world-types").ShipNode & { flowIntensity: number } = {
       id: "base",
@@ -655,6 +715,18 @@ describe("W6.4 — lighthouse lamp status parity", () => {
 });
 
 describe("detail-model unique tier surfacing", () => {
+  it("names the quay masonry condition from the full chain-health decomposition", () => {
+    expect(quayMasonryLabel({
+      healthFactors: {
+        backingDiversity: 0.1,
+        chainEnvironment: 0.2,
+        concentration: 0.9,
+        pegStability: 0.3,
+        quality: 0.2,
+      },
+    })).toContain("cracked stone and a leaning bollard");
+  });
+
   function makeShipNode(overrides: { uniqueRationale?: string }): ShipNode {
     return {
       id: "crvusd-curve",
@@ -723,6 +795,37 @@ describe("detail-model unique tier surfacing", () => {
 });
 
 describe("detail-model squad surfacing", () => {
+  it("surfaces launch/tracking age and the neutral failure state in parity text", () => {
+    const world = buildPharosVilleWorld(makerSquadFixtureInputs());
+    const ship = world.ships[0]!;
+    const veteran = {
+      ...ship,
+      age: {
+        ageDays: 2_900,
+        era: "veteran" as const,
+        patina: 0.8,
+        serviceSince: "2018-09-26",
+        source: "launch-date" as const,
+        trackingSpanDays: 730,
+      },
+    };
+    expect(shipAgeDetailLabel(veteran)).toBe(
+      "2018-09-26; tracked 730 days; veteran hull",
+    );
+    expect(shipAgeLedgerClause(veteran)).toBe(
+      "age patina 2018-09-26; tracked 730 days; veteran hull",
+    );
+    expect(detailForShip(veteran).facts).toContainEqual({
+      label: "In service since / tracked",
+      value: "2018-09-26; tracked 730 days; veteran hull",
+    });
+
+    const neutral = { ...ship, age: undefined } as ShipNode & { age?: undefined };
+    expect(shipAgeDetailLabel(neutral)).toBe(
+      "Unavailable — neutral finish; no launch or tracking history",
+    );
+  });
+
   it("Sky squad detail panel surfaces flagship + vanguard + savings cutter", () => {
     const world = buildPharosVilleWorld(makerSquadFixtureInputs());
     const susds = world.ships.find((ship) => ship.id === "susds-sky")!;
@@ -1347,6 +1450,36 @@ describe("detail-model P3 metaphor quick-win signals", () => {
     expect(nrDetail.facts.find((fact) => fact.label === "Safety grade")).toBeUndefined();
   });
 
+  it("surfaces all five report-card seaworthiness dimensions as detail rows", () => {
+    const detail = detailForShip(signalShipNode({
+      reportCard: makeReportCard({ id: "usdt-tether", symbol: "USDT" }),
+    }));
+
+    expect(detail.facts).toEqual(expect.arrayContaining([
+      { label: "Peg stability", value: "A (95/100) — fixture" },
+      { label: "Liquidity", value: "A (90/100) — fixture" },
+      { label: "Resilience", value: "A (90/100) — fixture" },
+      { label: "Decentralization", value: "B (80/100) — fixture" },
+      { label: "Dependency risk", value: "A (90/100) — fixture" },
+    ]));
+  });
+
+  it("surfaces redemption, collateral, and customs fittings as report-card facts", () => {
+    const detail = detailForShip(signalShipNode({
+      fittings: {
+        blacklistStatus: true,
+        collateralCargo: "sealed",
+        collateralQuality: "rwa",
+        redemptionCapacityRatio: 0.8,
+      },
+    }));
+    expect(detail.facts).toEqual(expect.arrayContaining([
+      { label: "Redemption fitting", value: expect.stringContaining("lifeboats swung fully out") },
+      { label: "Collateral cargo", value: expect.stringContaining("sealed treasury chests") },
+      { label: "Customs authority", value: expect.stringContaining("customs brand at the plimsoll mark") },
+    ]));
+  });
+
   it("detailForShip surfaces price confidence and source consensus only when degraded", () => {
     const degraded = detailForShip(signalShipNode({
       asset: {
@@ -1756,6 +1889,25 @@ describe("detail-model round-two metaphor signals", () => {
         expect(detailForLighthouse(node).facts
           .some((fact) => fact.label === "Worst band, 30d")).toBe(true);
       }
+    });
+
+    it("puts the slow 30-day garden record on the lighthouse", () => {
+      const detail = detailForLighthouse({
+        id: "lighthouse",
+        kind: "lighthouse",
+        label: "Pharos lighthouse",
+        tile: { x: 1, y: 1 },
+        psiBand: "STEADY",
+        score: 82,
+        color: "#ffffff",
+        unavailable: false,
+        detailId: "lighthouse",
+        gardenMonthRecord: { averagePsi: 84.5, growth: 1, sampleCount: 30, spanDays: 29, unavailable: false },
+      });
+      expect(detail.facts).toContainEqual({
+        label: "Garden record, 30d",
+        value: "Flourishing — blossoms open and moss greens; average PSI 84.5; 29 days on record",
+      });
     });
   });
 

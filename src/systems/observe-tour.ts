@@ -106,7 +106,9 @@ export interface ObserveTour {
   readonly segments: readonly ObserveTourSegment[];
   /** The visitor's camera pose when the tour started (spline point zero). */
   readonly start: ObserveTourPose;
+  readonly segmentSeconds: number;
   readonly totalSeconds: number;
+  readonly travelSeconds: number;
 }
 
 /**
@@ -117,8 +119,12 @@ export interface ObserveTour {
  */
 export function buildObserveTour(input: {
   keyframes: readonly ObserveTourKeyframe[];
+  segmentSeconds?: number;
   start: ObserveTourPose;
+  travelSeconds?: number;
 }): ObserveTour {
+  const segmentSeconds = input.segmentSeconds ?? OBSERVE_TOUR_SEGMENT_SECONDS;
+  const travelSeconds = Math.min(segmentSeconds, input.travelSeconds ?? OBSERVE_TOUR_TRAVEL_SECONDS);
   const points: readonly ObserveTourPose[] = [input.start, ...input.keyframes];
   const segments = input.keyframes.map((keyframe, index): ObserveTourSegment => {
     const geometry: SegmentGeometry = {
@@ -139,20 +145,29 @@ export function buildObserveTour(input: {
     };
     return {
       beatIndex: keyframe.beatIndex,
-      startSeconds: index * OBSERVE_TOUR_SEGMENT_SECONDS,
-      durationSeconds: OBSERVE_TOUR_SEGMENT_SECONDS,
+      startSeconds: index * segmentSeconds,
+      durationSeconds: segmentSeconds,
       enter: noop,
       scrub: noopScrub,
-      update: (localSeconds, out) => writeSegmentPose(geometry, keyframe.beatIndex, localSeconds, out),
+      update: (localSeconds, out) => writeSegmentPose(
+        geometry,
+        keyframe.beatIndex,
+        localSeconds,
+        segmentSeconds,
+        travelSeconds,
+        out,
+      ),
       teardown: noop,
       geometry,
     };
   });
   return {
     keyframes: input.keyframes,
+    segmentSeconds,
     segments,
     start: input.start,
-    totalSeconds: input.keyframes.length * OBSERVE_TOUR_SEGMENT_SECONDS,
+    totalSeconds: input.keyframes.length * segmentSeconds,
+    travelSeconds,
   };
 }
 
@@ -177,7 +192,7 @@ export function sampleObserveTour(
   }
   const index = Math.min(
     tour.segments.length - 1,
-    Math.floor(elapsed / OBSERVE_TOUR_SEGMENT_SECONDS),
+    Math.floor(elapsed / tour.segmentSeconds),
   );
   const segment = tour.segments[index]!;
   const localSeconds = elapsed - segment.startSeconds;
@@ -221,9 +236,11 @@ function writeSegmentPose(
   geometry: SegmentGeometry,
   beatIndex: number,
   localSeconds: number,
+  segmentSeconds: number,
+  travelSeconds: number,
   out: ObserveTourSample,
 ): void {
-  const travel = Math.min(1, Math.max(0, localSeconds / OBSERVE_TOUR_TRAVEL_SECONDS));
+  const travel = Math.min(1, Math.max(0, localSeconds / travelSeconds));
   const easedTravel = smootherstep(travel);
   // Uniform Catmull-Rom through P1 -> P2, zoom riding the same eased scalar.
   const u = easedTravel;
@@ -234,8 +251,8 @@ function writeSegmentPose(
   const zoom = geometry.p1.zoom + (geometry.p2.zoom - geometry.p1.zoom) * u;
 
   const dwell = Math.max(0, Math.min(1,
-    (localSeconds - OBSERVE_TOUR_TRAVEL_SECONDS)
-      / (OBSERVE_TOUR_SEGMENT_SECONDS - OBSERVE_TOUR_TRAVEL_SECONDS),
+    (localSeconds - travelSeconds)
+      / Math.max(0.001, segmentSeconds - travelSeconds),
   ));
   const dwellEase = smootherstep(dwell);
   out.isoX = isoX

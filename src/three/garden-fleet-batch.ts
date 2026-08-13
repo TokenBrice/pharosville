@@ -18,6 +18,13 @@ import {
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { GardenHullSilhouette } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE } from "../systems/palette";
+import {
+  GARDEN_GUST_ATTACK_SECONDS,
+  GARDEN_GUST_CYCLE_SECONDS,
+  GARDEN_GUST_RELEASE_SECONDS,
+  GARDEN_GUST_WORLD_SPEED,
+  gardenGustAtWorldPosition,
+} from "../systems/weather";
 import type { GardenShipGeometryCache } from "./garden-util";
 import { cachedShipGeometry } from "./garden-util";
 import {
@@ -76,6 +83,8 @@ export interface FleetBatchPart {
   sailAttention: InstancedBufferAttribute | null;
   /** Per-instance hull proportions (length, beam, height) — N5(a). */
   hullForm: InstancedBufferAttribute;
+  /** W5.8/W7.3: (value scalar, age patina or -1, prop rotation, rope sag). */
+  hullSurface: InstancedBufferAttribute | null;
   mesh: InstancedMesh;
   /** Per-instance furl bitmask (W2.3/W4); only meaningful on the sail batch. */
   sailFurl: InstancedBufferAttribute | null;
@@ -126,14 +135,20 @@ const scratchEuler = new Euler();
  * 0) freezes both channels into the deterministic static composition.
  */
 export interface FleetWeather {
+  breath: number;
   gust: number;
   timeSeconds: number;
   /** World-XZ downwind bearing: where the pennant points toward. */
   windAngle: number;
+  windDirX: number;
+  windDirZ: number;
   windSpeed: number;
 }
 
 const fleetWindUniforms = {
+  uWindBreath: { value: 0.5 },
+  uWindDir: { value: { x: 0, y: 0 } },
+  uWindSpeed: { value: 0 },
   uWindTime: { value: 0 },
   uWindFlutter: { value: 0 },
 };
@@ -474,23 +489,40 @@ export function gardenFleetAttention(cell: number): number {
   return fleetAttention.get(cell) ?? 0;
 }
 
-const pennantWind = { active: false, angle: 0, gust: 0, speed: 0, time: 0 };
+const pennantWind = {
+  active: false,
+  angle: 0,
+  breath: 0.5,
+  dirX: 0,
+  dirZ: 0,
+  gust: 0,
+  speed: 0,
+  time: 0,
+};
 
 export function setFleetWeather(weather: FleetWeather | null): void {
   if (!weather) {
     fleetWindUniforms.uWindTime.value = 0;
     fleetWindUniforms.uWindFlutter.value = 0;
+    fleetWindUniforms.uWindSpeed.value = 0;
     pennantWind.active = false;
     return;
   }
   // The flutter envelope: sustained wind sets the floor, gusts drive the beat.
   fleetWindUniforms.uWindTime.value = Math.max(0, weather.timeSeconds);
+  fleetWindUniforms.uWindBreath.value = Math.min(1, Math.max(0, weather.breath));
+  fleetWindUniforms.uWindDir.value.x = weather.windDirX;
+  fleetWindUniforms.uWindDir.value.y = weather.windDirZ;
+  fleetWindUniforms.uWindSpeed.value = Math.min(1, Math.max(0, weather.windSpeed));
   fleetWindUniforms.uWindFlutter.value = Math.min(
     1,
     Math.max(0, weather.windSpeed * 0.55 + weather.gust * 0.45),
   );
   pennantWind.active = true;
   pennantWind.angle = weather.windAngle;
+  pennantWind.breath = Math.min(1, Math.max(0, weather.breath));
+  pennantWind.dirX = weather.windDirX;
+  pennantWind.dirZ = weather.windDirZ;
   pennantWind.gust = weather.gust;
   pennantWind.speed = weather.windSpeed;
   pennantWind.time = Math.max(0, weather.timeSeconds);
@@ -503,6 +535,8 @@ export function setFleetWeather(weather: FleetWeather | null): void {
  */
 export function mergeTintedParts(
   parts: readonly {
+    /** W7.6 fitting selector, collapsed per instance when its raw input does not support it. */
+    fittingTag?: number;
     geometry: BufferGeometry;
     /**
      * W1/D2: marks this part as the sheer strake — the one band that takes the
@@ -523,11 +557,19 @@ export function mergeTintedParts(
     // ShapeGeometry (indexed) and CylinderGeometry (indexed) with differing
     // extras, so normalise to non-indexed with exactly position/normal/uv/color.
     const source = part.geometry.clone();
+    const ropeLike = isRopeLikePart(source);
+    const cylinder = part.geometry.type === "CylinderGeometry";
     const geometry = source.index ? source.toNonIndexed() : source;
     if (geometry !== source) source.dispose();
     if (part.transform) geometry.applyMatrix4(part.transform);
     applyVertexTint(geometry, part.tint);
-    applyStrakeMask(geometry, part.strake ?? false);
+    applyStrakeMask(geometry, part.fittingTag ? -part.fittingTag : part.strake ? 1 : 0);
+    const smallPart = isSmallRepeatedPart(geometry);
+    applySurfaceMasks(geometry, {
+      fitting: cylinder && smallPart,
+      prop: smallPart,
+      rope: ropeLike,
+    });
     normalizeAttributes(geometry);
     prepared.push(geometry);
   }
@@ -559,11 +601,65 @@ function applyVertexTint(geometry: BufferGeometry, tint: Color | undefined): voi
   geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
 }
 
-function applyStrakeMask(geometry: BufferGeometry, isStrake: boolean): void {
+function applyStrakeMask(geometry: BufferGeometry, value: number): void {
   const position = geometry.getAttribute("position");
   const mask = new Float32Array(position.count);
-  if (isStrake) mask.fill(1);
+  if (value !== 0) mask.fill(value);
   geometry.setAttribute("aStrakeMask", new Float32BufferAttribute(mask, 1));
+}
+
+function geometrySpan(geometry: BufferGeometry): { x: number; y: number; z: number } {
+  geometry.computeBoundingBox();
+  const box = geometry.boundingBox!;
+  return { x: box.max.x - box.min.x, y: box.max.y - box.min.y, z: box.max.z - box.min.z };
+}
+
+function isSmallRepeatedPart(geometry: BufferGeometry): boolean {
+  const span = geometrySpan(geometry);
+  return Math.max(span.x, span.y, span.z) <= 1.4;
+}
+
+function isRopeLikePart(geometry: BufferGeometry): boolean {
+  const spans = Object.values(geometrySpan(geometry)).sort((a, b) => b - a);
+  return spans[0]! >= 0.5 && spans[1]! <= 0.1 && spans[2]! <= 0.1;
+}
+
+function applySurfaceMasks(
+  geometry: BufferGeometry,
+  flags: { fitting: boolean; prop: boolean; rope: boolean },
+): void {
+  const position = geometry.getAttribute("position");
+  geometry.computeBoundingBox();
+  const box = geometry.boundingBox!;
+  const centerX = (box.min.x + box.max.x) / 2;
+  const centerY = (box.min.y + box.max.y) / 2;
+  const centerZ = (box.min.z + box.max.z) / 2;
+  const extentX = Math.max(0.001, (box.max.x - box.min.x) / 2);
+  const extentY = Math.max(0.001, (box.max.y - box.min.y) / 2);
+  const extentZ = Math.max(0.001, (box.max.z - box.min.z) / 2);
+  const pivot = new Float32Array(position.count * 4);
+  // Pack four scalar masks into one vertex slot. InstancedMesh already spends
+  // four slots on instanceMatrix; keeping these separate exceeded the WebGL
+  // minimum of 16 attributes on the operator GPU once hull surface landed.
+  const partMasks = new Float32Array(position.count * 4);
+  for (let index = 0; index < position.count; index += 1) {
+    pivot[index * 4] = centerX;
+    pivot[index * 4 + 1] = centerY;
+    pivot[index * 4 + 2] = centerZ;
+    pivot[index * 4 + 3] = extentX;
+    partMasks[index * 4] = flags.prop ? 1 : 0;
+    partMasks[index * 4 + 1] = flags.rope ? 1 : 0;
+    partMasks[index * 4 + 2] = flags.fitting ? 1 : 0;
+    const nx = Math.abs(position.getX(index) - centerX) / extentX;
+    const ny = Math.abs(position.getY(index) - centerY) / extentY;
+    const nz = Math.abs(position.getZ(index) - centerZ) / extentZ;
+    partMasks[index * 4 + 3] = Math.max(
+      ny > 0.82 ? 1 : 0,
+      nx > 0.92 || nz > 0.92 ? 0.55 : 0,
+    );
+  }
+  geometry.setAttribute("aVariationPivot", new Float32BufferAttribute(pivot, 4));
+  geometry.setAttribute("aPartMasks", new Float32BufferAttribute(partMasks, 4));
 }
 
 /**
@@ -572,7 +668,10 @@ function applyStrakeMask(geometry: BufferGeometry, isStrake: boolean): void {
  * on position/normal/uv/color but disagree on extras — so drop the extras and
  * synthesise anything missing.
  */
-const MERGED_ATTRIBUTES = new Set(["position", "normal", "uv", "color", "aStrakeMask"]);
+const MERGED_ATTRIBUTES = new Set([
+  "position", "normal", "uv", "color", "aStrakeMask", "aVariationPivot",
+  "aPartMasks",
+]);
 
 function normalizeAttributes(geometry: BufferGeometry): void {
   if (!geometry.getAttribute("normal")) geometry.computeVertexNormals();
@@ -582,6 +681,15 @@ function normalizeAttributes(geometry: BufferGeometry): void {
   }
   if (!geometry.getAttribute("aStrakeMask")) {
     geometry.setAttribute("aStrakeMask", new Float32BufferAttribute(new Float32Array(position.count), 1));
+  }
+  if (!geometry.getAttribute("aVariationPivot")) {
+    geometry.setAttribute("aVariationPivot", new Float32BufferAttribute(new Float32Array(position.count * 4), 4));
+  }
+  if (!geometry.getAttribute("aPartMasks")) {
+    geometry.setAttribute(
+      "aPartMasks",
+      new Float32BufferAttribute(new Float32Array(position.count * 4), 4),
+    );
   }
   for (const name of Object.keys(geometry.attributes)) {
     if (!MERGED_ATTRIBUTES.has(name)) geometry.deleteAttribute(name);
@@ -669,11 +777,29 @@ const SAIL_LOCAL_DEFORM = `
   float furled = furlBits - 2.0 * floor(furlBits * 0.5);
   float setSail = 1.0 - furled;
   float sailDrop = clamp(aSailHead.y - transformed.y, 0.0, 1.2);
-  float flutterPhase = uWindTime * (2.0 + uWindFlutter * 3.5) + aSailIndex * 1.7
+  float gustDelay = dot(instanceMatrix[3].xz, uWindDir) / ${GARDEN_GUST_WORLD_SPEED.toFixed(1)};
+  float gustClock = max(0.0, uWindTime - gustDelay);
+  float gustPhase = mod(gustClock, ${GARDEN_GUST_CYCLE_SECONDS.toFixed(1)});
+  float gustEnvelope = 0.0;
+  if (gustPhase < ${GARDEN_GUST_ATTACK_SECONDS.toFixed(1)}) {
+    float attack = gustPhase / ${GARDEN_GUST_ATTACK_SECONDS.toFixed(1)};
+    gustEnvelope = 0.5 - 0.5 * cos(3.14159265 * attack);
+  } else if (gustPhase < ${(GARDEN_GUST_ATTACK_SECONDS + GARDEN_GUST_RELEASE_SECONDS).toFixed(1)}) {
+    float release = (gustPhase - ${GARDEN_GUST_ATTACK_SECONDS.toFixed(1)})
+      / ${GARDEN_GUST_RELEASE_SECONDS.toFixed(1)};
+    gustEnvelope = 0.5 + 0.5 * cos(3.14159265 * release);
+  }
+  float localFlutter = clamp(
+    uWindSpeed * 0.55 + gustEnvelope * (0.3 + uWindSpeed * 0.7) * 0.45,
+    0.0,
+    1.0
+  );
+  float flutterPhase = uWindTime * (1.2 + localFlutter * 1.6) + aSailIndex * 1.7
     + instanceMatrix[3].x * 0.31 + instanceMatrix[3].z * 0.17;
   transformed.z += sin(flutterPhase)
     * sailDrop
-    * (0.015 + uWindFlutter * 0.06)
+    * (0.015 + localFlutter * 0.06)
+    * (0.92 + uWindBreath * 0.16)
     * setSail;
   transformed.y = mix(transformed.y, aSailHead.y - 0.05, furled);
   transformed.z = mix(transformed.z, aSailHead.z, furled * 0.8);
@@ -735,28 +861,86 @@ export function deformFleetSailVertex(input: FleetSailDeformInput): {
  */
 const STRAKE_PAINT = `
 #ifdef USE_COLOR
-  vColor.xyz = mix(vColor.xyz, color.xyz * aTrim, aStrakeMask);
+  vColor.xyz = mix(vColor.xyz, color.xyz * aTrim, step(0.5, aStrakeMask));
+#endif`;
+
+const HULL_FITTINGS_DEFORM = `
+{
+  float fittingTag = -aStrakeMask;
+  if (fittingTag > 0.5) {
+    float fittingCode = floor(aHullSurface.w + 0.5);
+    float redemptionLevel = mod(fittingCode, 4.0);
+    float collateralCargo = floor(mod(fittingCode, 12.0) / 4.0);
+    float customsBrand = floor(fittingCode / 12.0);
+    float showFitting = fittingTag < 3.5
+      ? step(fittingTag, redemptionLevel)
+      : fittingTag < 4.5
+        ? step(0.5, 1.0 - abs(collateralCargo - 1.0))
+        : fittingTag < 5.5
+          ? step(0.5, 1.0 - abs(collateralCargo - 2.0))
+          : step(0.5, customsBrand);
+    transformed = mix(aVariationPivot.xyz, transformed, showFitting);
+  }
+}`;
+
+const HULL_WABI_DEFORM = `
+{
+  if (aPartMasks.x > 0.5) {
+    float propSign = sin(aVariationPivot.x * 12.9898 + aVariationPivot.z * 78.233) < 0.0 ? -1.0 : 1.0;
+    float angle = aHullSurface.z * propSign;
+    vec2 offset = transformed.xz - aVariationPivot.xz;
+    float c = cos(angle);
+    float s = sin(angle);
+    transformed.xz = aVariationPivot.xz + mat2(c, -s, s, c) * offset;
+  }
+  if (aPartMasks.y > 0.5) {
+    float along = clamp(abs(transformed.x - aVariationPivot.x) / aVariationPivot.w, 0.0, 1.0);
+    float catenary = 1.0 - along * along;
+    float ropeSag = aHullSurface.w - floor(aHullSurface.w + 0.5);
+    transformed.y -= abs(ropeSag) * catenary;
+    transformed.z += ropeSag * catenary * 0.35;
+  }
+}`;
+
+const HULL_SURFACE_COLOR = `
+#ifdef USE_COLOR
+  float age = max(aHullSurface.y, 0.0);
+  vColor.xyz *= aHullSurface.x * mix(1.0, 0.88, age);
+  vColor.xyz *= 1.0 + aPartMasks.w * age * 0.075;
+  float fittingWear = aPartMasks.z * age * 0.18;
+  float fittingLuma = dot(vColor.xyz, vec3(0.2126, 0.7152, 0.0722));
+  vec3 verdigris = vec3(0.35, 0.52, 0.43);
+  verdigris *= fittingLuma / dot(verdigris, vec3(0.2126, 0.7152, 0.0722));
+  vColor.xyz = mix(vColor.xyz, verdigris, fittingWear);
 #endif`;
 
 export function patchFleetHullFormMaterial(material: MeshStandardMaterial): void {
   material.onBeforeCompile = (shader) => {
     shader.vertexShader = withHullForm(shader.vertexShader)
+      .replace("#include <begin_vertex>", `#include <begin_vertex>\n${HULL_WABI_DEFORM}`)
+      .replace("#include <begin_vertex>", `#include <begin_vertex>\n${HULL_FITTINGS_DEFORM}`)
       .replace(
         "#include <common>",
         `#include <common>
         attribute float aStrakeMask;
-        attribute vec3 aTrim;`,
+        attribute vec3 aTrim;
+        attribute vec4 aHullSurface;
+        attribute vec4 aVariationPivot;
+        attribute vec4 aPartMasks;`,
       )
-      .replace("#include <color_vertex>", `#include <color_vertex>\n${STRAKE_PAINT}`);
+      .replace("#include <color_vertex>", `#include <color_vertex>\n${STRAKE_PAINT}\n${HULL_SURFACE_COLOR}`);
     injectGardenHeightFog(shader);
   };
-  material.customProgramCacheKey = () => "garden-fleet-hull-form-strake-trim-height-fog";
+  material.customProgramCacheKey = () => "garden-fleet-hull-form-strake-trim-wabi-age-fittings-height-fog";
 }
 
 export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uWindTime = fleetWindUniforms.uWindTime;
     shader.uniforms.uWindFlutter = fleetWindUniforms.uWindFlutter;
+    shader.uniforms.uWindBreath = fleetWindUniforms.uWindBreath;
+    shader.uniforms.uWindDir = fleetWindUniforms.uWindDir;
+    shader.uniforms.uWindSpeed = fleetWindUniforms.uWindSpeed;
     shader.uniforms.uMarkPresence = fleetAerialUniforms.uMarkPresence;
     shader.uniforms.uAerialNear = fleetAerialUniforms.uAerialNear;
     shader.uniforms.uAerialFar = fleetAerialUniforms.uAerialFar;
@@ -784,6 +968,9 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         `#include <common>
         uniform float uWindTime;
         uniform float uWindFlutter;
+        uniform float uWindBreath;
+        uniform vec2 uWindDir;
+        uniform float uWindSpeed;
         attribute float aAtlasSail;
         attribute float aAtlasCell;
         attribute float aSailFurl;
@@ -1043,12 +1230,22 @@ function createInstancedPart(
   // W1/D2: the sheer strake's paint. Defaults to white, which leaves the rail
   // reading as bare timber highlight until an instance is written.
   let trim: InstancedBufferAttribute | null = null;
+  let hullSurface: InstancedBufferAttribute | null = null;
   if (withTrim) {
     trim = new InstancedBufferAttribute(new Float32Array(capacity * 3).fill(1), 3);
     trim.setUsage(DynamicDrawUsage);
     geometry.setAttribute("aTrim", trim);
+    const defaults = new Float32Array(capacity * 4);
+    for (let index = 0; index < capacity; index += 1) {
+      defaults[index * 4] = 1;
+      // -1 is missing/neutral, distinct from a known age of zero days.
+      defaults[index * 4 + 1] = -1;
+    }
+    hullSurface = new InstancedBufferAttribute(defaults, 4);
+    hullSurface.setUsage(DynamicDrawUsage);
+    geometry.setAttribute("aHullSurface", hullSurface);
   }
-  return { atlasCell, hullForm, mesh, sailAttention, sailFurl, sailTint, trim };
+  return { atlasCell, hullForm, hullSurface, mesh, sailAttention, sailFurl, sailTint, trim };
 }
 
 export interface FleetBatchGeometrySource {
@@ -1112,6 +1309,12 @@ export function createFleetBatches(input: {
     hull.mesh.name = `fleet-hull-${silhouette}`;
     const sails = createInstancedPart(source.sails, sailMaterial, input.capacity, true);
     sails.mesh.name = `fleet-sails-${silhouette}`;
+    // Ship transforms move every frame while the harbour shadow map is static
+    // between sun re-steers. Canvas shadows would therefore be stale ghosts;
+    // hulls retain the low-sun silhouette and every ship already owns a live
+    // water-contact shadow. Four sail shadow submissions are also the measured
+    // margin that keeps the dawn scene inside its unchanged draw-call budget.
+    sails.mesh.castShadow = false;
     root.add(hull.mesh, sails.mesh);
     bySilhouette.set(silhouette, { hull, sails });
   }
@@ -1212,6 +1415,23 @@ export function writeFleetInstance(
   if (batch.hull.trim) {
     batch.hull.trim.setXYZ(slot, pose.trimColor.r, pose.trimColor.g, pose.trimColor.b);
   }
+  if (batch.hull.hullSurface) {
+    const surface = pose.hullForm as FleetInstancePose["hullForm"] & {
+      agePatina?: number;
+      fittingCode?: number;
+      hullValue?: number;
+      propRotation?: number;
+      ropeSag?: number;
+    };
+    batch.hull.hullSurface.setXYZW(
+      slot,
+      MathUtils.clamp(surface.hullValue ?? 1, 0.9, 1.1),
+      surface.agePatina == null ? -1 : MathUtils.clamp(surface.agePatina, -1, 1),
+      MathUtils.clamp(surface.propRotation ?? 0, -Math.PI / 18, Math.PI / 18),
+      Math.max(0, Math.floor(surface.fittingCode ?? 0))
+        + MathUtils.clamp(surface.ropeSag ?? 0, -0.1, 0.1),
+    );
+  }
   // Same proportions on hull and sails: the rig has to follow the hull it is
   // stepped into, and so does the trim.
   const { beam, height, length } = pose.hullForm;
@@ -1247,16 +1467,29 @@ export function writeFleetInstance(
       // and has to be told: without this a trimmed hull leaves its own pennant
       // hanging where the masthead used to be.
       .makeTranslation(pose.mastheadOffset.x, pose.mastheadOffset.y + waterline, 0.02);
-    if (pennantWind.active) {
+    const surface = pose.hullForm as FleetInstancePose["hullForm"] & { propRotation?: number };
+    const propRotation = surface.propRotation ?? 0;
+    if (pennantWind.active || propRotation !== 0) {
       // Phase 2: the pennant streams downwind. The cloth runs along ship-local
       // +X, so the local yaw that points it at the wind bearing is
       // -heading - windAngle (heading here is the ship's own rotation.y), plus
       // a flutter wobble that stiffens with the gust envelope. Frozen into a
       // deterministic pose under reduced motion (timeSeconds pinned at 0).
-      const yaw = -pose.headingAngle - pennantWind.angle
+      const localGust = gardenGustAtWorldPosition(
+        pennantWind.time,
+        pose.x,
+        pose.z,
+        {
+          windDirX: pennantWind.dirX,
+          windDirZ: pennantWind.dirZ,
+          windSpeed: pennantWind.speed,
+        },
+      );
+      const yaw = propRotation + (pennantWind.active ? -pose.headingAngle - pennantWind.angle
         + Math.sin(
-          pennantWind.time * (2.4 + pennantWind.speed * 3.5) + pose.x * 0.37 + pose.z * 0.21,
-        ) * (0.08 + pennantWind.speed * 0.22 + pennantWind.gust * 0.18);
+          pennantWind.time * (1.2 + pennantWind.speed * 1.6) + pose.x * 0.37 + pose.z * 0.21,
+        ) * (0.08 + pennantWind.speed * 0.22 + localGust * 0.18)
+          * (0.92 + pennantWind.breath * 0.16) : 0);
       scratchPennantMatrix.multiply(scratchWindRotation.makeRotationY(yaw));
     }
     scratchPennantMatrix.premultiply(scratchMatrix);
@@ -1284,6 +1517,7 @@ function flushPart(part: FleetBatchPart): void {
   if (part.sailFurl) part.sailFurl.needsUpdate = true;
   if (part.sailAttention) part.sailAttention.needsUpdate = true;
   if (part.trim) part.trim.needsUpdate = true;
+  if (part.hullSurface) part.hullSurface.needsUpdate = true;
 }
 
 /** Total live instances across the fleet — the metric the perf lane reads. */

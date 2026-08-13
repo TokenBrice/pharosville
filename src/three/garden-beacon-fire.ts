@@ -167,7 +167,9 @@ export function createGardenBeaconFire(cloudNoise: DataTexture): GardenBeaconFir
       // motion, but inside a calm range and with continuous derivatives.
       const amplitude = 0.13 + Math.min(1, Math.max(0, psiStress)) * 0.12;
       const wave = Math.sin(time * 2.3) * 0.52
-        + Math.sin(time * 3.7 + 1.3) * 0.3
+        // W3.2 audit: 3.7 rad/s was ~0.59 Hz, the only ambient oscillator
+        // above the 0.5 Hz ceiling that was not a ripple or a wingbeat.
+        + Math.sin(time * 3.0 + 1.3) * 0.3
         + Math.sin(time * 1.1 + 4.2) * 0.18;
       const flicker = clamp01(
         0.54 + wave * amplitude,

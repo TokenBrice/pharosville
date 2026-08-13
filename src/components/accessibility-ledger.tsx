@@ -5,9 +5,13 @@ import { formationLabel, squadRole, STABLECOIN_SQUADS, type StablecoinSquad } fr
 import { SQUAD_DISTRESS_FLAG_HEX } from "../systems/maker-squad";
 import type { AreaNode, DewsAreaBand, PharosVilleWorld, ShipNode } from "../systems/world-types";
 import { cycleTempoReadingClause, precomputeShipTempos } from "../systems/ship-cycle-tempo";
+import { shipIssuanceLedgerClause } from "../systems/ship-issuance";
+import { shipFittingsLedgerClause } from "../systems/ship-fittings";
+import { gardenMonthRecordLedgerClause } from "../systems/garden-month-record";
 import {
   beamDwellLabel,
   depegHistoryLabel,
+  dependencyFormationLabel,
   dexCrossCheckLabel,
   highWaterMarkLabel,
   mastSignalLabel,
@@ -23,8 +27,11 @@ import {
   psiCompositionLabel,
   psiContributorLabel,
   psiTrendLabel,
+  quayMasonryLabel,
   reportCardSafetyLabel,
+  riskAnchoringDepthLabel,
   shareOfFleetLabel,
+  shipAgeLedgerClause,
   signalMastLabel,
   stablecoinSupplyShareLabel,
   stressBreakdownLabel,
@@ -33,6 +40,9 @@ import {
 } from "../systems/detail-model";
 import { recentFleetTrendSummary, recentFleetTrendSummaryText, seaStateForWorld, seaStateSummary } from "../systems/sea-state";
 import { formatChangePercent, formatCompactUsd } from "../lib/format-detail";
+import type { GardenAlmanacLogEntry } from "../systems/garden-almanac";
+import { pigeonnierRoostLabel } from "../systems/pigeonnier-watch";
+import { deriveEpistemicHaze, epistemicHazeLabel } from "../systems/epistemic-haze";
 
 // Dock health-band swatches mirror the Three dock signal colors. Robust and
 // healthy share the same green; both remain listed for parity with the
@@ -101,6 +111,7 @@ export interface ShipRiskTransitionEntry {
 export const ACCESSIBILITY_LEDGER_HEADING_ID = "pharosville-accessibility-ledger-title";
 
 export interface AccessibilityLedgerProps {
+  almanacEntries?: readonly GardenAlmanacLogEntry[];
   world: PharosVilleWorld;
   headingId?: string;
   riskTransitionByShipId?: ReadonlyMap<string, ShipRiskTransitionEntry | null>;
@@ -116,6 +127,7 @@ export interface AccessibilityLedgerProps {
 }
 
 function AccessibilityLedgerContent({
+  almanacEntries = [],
   world,
   headingId = ACCESSIBILITY_LEDGER_HEADING_ID,
   riskTransitionByShipId,
@@ -125,6 +137,7 @@ function AccessibilityLedgerContent({
   const staleSources = freshnessEntries(world)
     .filter((entry) => entry.stale)
     .map((entry) => entry.label);
+  const epistemicHaze = deriveEpistemicHaze(world.freshness);
 
   // Precompute cycle tempos once for the whole fleet so the ship <li> loop
   // doesn't redo the O(N log N) sort per ship. Hoisted from the inline call
@@ -170,6 +183,18 @@ function AccessibilityLedgerContent({
           </dd>
         </div>
         <div>
+          <dt>Seasonal dressing</dt>
+          <dd>Follows the real-world calendar; non-semantic.</dd>
+        </div>
+        <div>
+          <dt>Instrument haze</dt>
+          <dd>{epistemicHazeLabel(epistemicHaze)}.</dd>
+        </div>
+        <div>
+          <dt>Rare ambient events</dt>
+          <dd>One shared daily sighting at most; decorative, never alerted, and absent in still or reduced-motion mode.</dd>
+        </div>
+        <div>
           <dt>Lighthouse</dt>
           <dd>
             {world.lighthouse.label}: PSI {world.lighthouse.score ?? "unavailable"}, band{" "}
@@ -181,6 +206,7 @@ function AccessibilityLedgerContent({
             {lighthouseFleetPeg ? ` Fleet peg: ${lighthouseFleetPeg}.` : ""}
             {lighthouseBeamDwell ? ` Beam bearing: ${lighthouseBeamDwell}.` : ""}
             {` Worst band, 30d: ${lighthouseHighWaterMark}.`}
+            {` ${gardenMonthRecordLedgerClause(world.lighthouse.gardenMonthRecord)}`}
             {supplyTide ? ` Supply tide 7d: ${supplyTide}.` : ""}
           </dd>
         </div>
@@ -196,9 +222,29 @@ function AccessibilityLedgerContent({
           <dt>Pigeonnier</dt>
           <dd>
             {world.pigeonnier.label}: PharosWatch Telegram dispatch for stablecoin depeg and safety-score alerts.
+            {` Depeg roost: ${world.pigeonnier.roost
+              ? pigeonnierRoostLabel(world.pigeonnier.roost)
+              : "Unavailable — no peg summary to count"}.`}
+            {` Today's notable movers: ${world.pigeonnier.notableMovers?.length
+              ? world.pigeonnier.notableMovers.map((mover) => mover.symbol).join(", ")
+              : "none"}.`}
           </dd>
         </div>
       </dl>
+
+      <h3>Harbor log</h3>
+      {almanacEntries.length > 0 ? (
+        <ol>
+          {almanacEntries.map((entry) => (
+            <li key={entry.id}>
+              <time dateTime={`${entry.id.slice(0, 10)}T${entry.timestampLabel}:00`}>
+                {entry.timestampLabel}
+              </time>{" "}
+              — {entry.message}
+            </li>
+          ))}
+        </ol>
+      ) : <p>No rare sightings recorded this session.</p>}
 
       <h3>Named areas</h3>
       <ol>
@@ -340,6 +386,7 @@ function dockLedgerLine(dock: PharosVilleWorld["docks"][number]): string {
   // should meet them together, not a paragraph apart.
   const supplyChange = dockSupplyChangeLabel(dock);
   const supplyMomentum = dockSupplyMomentumLabel(dock);
+  const quayMasonry = quayMasonryLabel(dock);
   return [
     `${dock.label}: ${formatCompactUsd(dock.totalUsd)} stablecoin supply`,
     harborRank,
@@ -347,6 +394,7 @@ function dockLedgerLine(dock: PharosVilleWorld["docks"][number]): string {
     concentration ? `concentration ${concentration}` : null,
     `${dock.stablecoinCount} stablecoins`,
     `health ${dock.healthBand ?? "unavailable"}`,
+    quayMasonry ? `quay condition ${quayMasonry}` : null,
     supplyChange ? `24h supply change ${supplyChange}` : null,
     supplyMomentum ? `supply momentum ${supplyMomentum}` : null,
     netFlow24h ? `net flow 24h ${netFlow24h}` : null,
@@ -413,15 +461,21 @@ function shipLedgerLine(
       })
     : [];
   const stressDriver = stressBreakdownLabel(ship);
+  const dependencyFormation = dependencyFormationLabel(ship, allShips);
+  const riskDepth = riskAnchoringDepthLabel(ship);
   return [
     `${ship.label} (${ship.symbol}): ${formatCompactUsd(ship.marketCapUsd)} market cap${fleetMarketContext}, placed at ${placement}`,
     `risk anchor ${ship.riskPlacement}`,
     `route summary: ${pluralize(ship.chainPresence.length, "positive chain deployment")}, ${pluralize(ship.dockVisits.length, "rendered dock stop")}, risk water ${ship.riskWaterLabel}, risk zone ${ship.riskZone}`,
+    ...(riskDepth ? [`within-zone anchoring ${riskDepth}`] : []),
     `livery ${ship.visual.livery.label}, ${ship.visual.livery.logoShape} logo shape, ${ship.visual.livery.sailPanel} sail panel, ${ship.visual.livery.stripePattern} brand stripe`,
     `placement evidence ${ship.placementEvidence.reason}`,
     `evidence status ${ship.placementEvidence.stale ? "caveat" : "fresh"}`,
     `source fields ${ship.placementEvidence.sourceFields.join(", ") || "unavailable"}${ship.visual.uniqueRationale ? ` — heritage hull: ${ship.visual.uniqueRationale}` : ""}`,
     `cycle tempo ${tempoLabel}; ${cycleTempoReadingClause()}`,
+    shipIssuanceLedgerClause(ship),
+    shipFittingsLedgerClause(ship),
+    shipAgeLedgerClause(ship),
     // Tier 3 #13: the ledger takes the fact-row form, which names the direction
     // and says whether the hull is trimmed for it — the peg-trim cue's parity.
     ...(pegDeviationFactLabel(ship) ? [`peg deviation ${pegDeviationFactLabel(ship)}`] : []),
@@ -434,6 +488,7 @@ function shipLedgerLine(
     // a fact a reader working from the ledger alone would otherwise never get.
     ...(dexCrossCheckLabel(ship.dexCrossCheck) ? [`DEX cross-check ${dexCrossCheckLabel(ship.dexCrossCheck)}`] : []),
     ...(stressDriver ? [`stress driver ${stressDriver}`] : []),
+    ...(dependencyFormation ? [`dependency formation ${dependencyFormation}`] : []),
     ...(safetyGrade ? [`safety grade ${safetyGrade.replace(/^Safety\s+/, "")}`] : []),
     ...safetyDimensionClauses,
   ].join("; ") + `.${transitionClause}`;

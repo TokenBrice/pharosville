@@ -19,6 +19,15 @@ body {
 }
 
 :root {
+  /* W3.2: one named motion vocabulary for DOM and world-authored transitions. */
+  --pv-motion-curve-settle: cubic-bezier(0.22, 1, 0.36, 1);
+  --pv-motion-curve-drift: linear;
+  --pv-motion-curve-breathe: cubic-bezier(0.45, 0, 0.55, 1);
+  --pv-motion-duration-whisper: 300ms;
+  --pv-motion-duration-settle: 450ms;
+  --pv-motion-duration-breathe: 9s;
+  --pv-motion-duration-tide: 30s;
+  --pv-motion-duration-weather: 90s;
   /* Old-school chrome tokens shared by the world shell, the loading state, the
      query-error banner, and the desktop fallback. Hoisted out of
      `.pharosville-shell` so the fallback (which renders without the shell)
@@ -120,11 +129,12 @@ textarea {
     0 0 0 1px rgba(248, 229, 178, 0.32),
     0 0 32px rgba(248, 229, 178, 0.42),
     0 0 60px rgba(212, 154, 62, 0.32);
-  animation: pv-loading-beacon 2.4s ease-in-out infinite;
+  animation:
+    pv-loading-beacon var(--pv-motion-duration-breathe) var(--pv-motion-curve-breathe) infinite;
 }
 @keyframes pv-loading-beacon {
   0%, 100% { box-shadow: 0 0 0 1px rgba(248, 229, 178, 0.24), 0 0 20px rgba(248, 229, 178, 0.30), 0 0 40px rgba(212, 154, 62, 0.18); }
-  50%      { box-shadow: 0 0 0 1px rgba(248, 229, 178, 0.40), 0 0 38px rgba(248, 229, 178, 0.52), 0 0 70px rgba(212, 154, 62, 0.38); }
+  40%      { box-shadow: 0 0 0 1px rgba(248, 229, 178, 0.40), 0 0 38px rgba(248, 229, 178, 0.52), 0 0 70px rgba(212, 154, 62, 0.38); }
 }
 /* Lift the caption above the gradient ::after layer. */
 .pharosville-loading > * { position: relative; z-index: 1; }
@@ -142,14 +152,84 @@ textarea {
   z-index: 5;
   min-height: 0;
   opacity: 1;
-  transition: opacity 420ms ease-out;
-}
-.pharosville-loading--veil[data-charting="false"] {
-  opacity: 0;
   pointer-events: none;
+  background: #d9d5c3;
+  transition-property: opacity;
+  transition-duration: 9s;
+  transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
 }
+.pharosville-loading--veil::after {
+  background:
+    radial-gradient(ellipse at 60% 46%, rgba(255, 224, 161, 0.88), transparent 34%),
+    linear-gradient(180deg, #aebac0 0%, #d8cfb8 49%, #b7c0bd 72%, #8e9b9a 100%);
+}
+.pharosville-loading--veil[data-charting="false"]::before,
+.pharosville-loading--veil[data-charting="false"] {
+  color: transparent;
+  text-shadow: none;
+}
+.pharosville-loading--veil[data-charting="false"]::before {
+  opacity: 0;
+}
+.pharosville-loading--veil[data-arrival="arriving"],
+.pharosville-loading--veil[data-arrival="crossfade"] {
+  opacity: 0;
+}
+.pharosville-loading--veil[data-arrival="crossfade"] { transition-duration: 320ms; }
 @media (prefers-reduced-motion: reduce) {
-  .pharosville-loading--veil { transition: none; }
+  .pharosville-loading--veil { transition-duration: 320ms; }
+}
+
+.pharosville-harbormaster-note {
+  position: absolute;
+  right: 14px;
+  bottom: 48px;
+  z-index: 8;
+  font-family: Georgia, "Times New Roman", serif;
+}
+.pharosville-harbormaster-note__glyph {
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(216, 184, 122, 0.48);
+  border-radius: 50%;
+  background: rgba(10, 17, 23, 0.88);
+  color: var(--pv-brass-highlight);
+  font: 700 20px Georgia, serif;
+  cursor: pointer;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.34);
+}
+.pharosville-harbormaster-note__paper {
+  position: relative;
+  width: min(320px, calc(100vw - 40px));
+  padding: 14px 38px 13px 16px;
+  border: 1px solid rgba(216, 184, 122, 0.42);
+  background: linear-gradient(180deg, rgba(19, 27, 33, 0.97), rgba(8, 14, 19, 0.97));
+  color: rgba(245, 233, 205, 0.92);
+  font-size: 0.82rem;
+  font-style: italic;
+  line-height: 1.45;
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.42);
+}
+.pharosville-harbormaster-note__paper p { margin: 0 0 5px; }
+.pharosville-harbormaster-note__paper p:last-of-type {
+  margin: 7px 0 0;
+  color: rgba(216, 184, 122, 0.78);
+  text-align: right;
+  font-size: 0.75rem;
+}
+.pharosville-harbormaster-note__paper button {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  border: 0;
+  background: transparent;
+  color: rgba(245, 233, 205, 0.76);
+  font: 18px/1 Georgia, serif;
+  cursor: pointer;
+}
+.pharosville-harbormaster-note button:focus-visible {
+  outline: 2px solid var(--pv-brass-highlight);
+  outline-offset: 3px;
 }
 
 .pharosville-query-error {
@@ -496,6 +576,12 @@ textarea {
   width: var(--pv-detail-panel-width);
   max-height: var(--pv-detail-panel-max-height);
   pointer-events: auto;
+  opacity: 1;
+  transition: opacity 180ms ease-out;
+}
+.pharosville-detail-dock[data-camera-rest="false"] {
+  opacity: 0;
+  pointer-events: none;
 }
 .pharosville-detail-dock--anchored {
   right: auto;
@@ -731,7 +817,9 @@ textarea {
   color: var(--pv-brass-highlight);
   cursor: pointer;
   opacity: 0.76;
-  transition: opacity 220ms ease-out, color 220ms ease-out;
+  transition:
+    opacity var(--pv-motion-duration-whisper) var(--pv-motion-curve-settle),
+    color var(--pv-motion-duration-whisper) var(--pv-motion-curve-settle);
 }
 .pharosville-world-chrome[data-recent-input="true"] .pv-glyph-button,
 .pharosville-world-controls:hover .pv-glyph-button,
@@ -1164,7 +1252,7 @@ textarea {
 }
 .pharosville-detail-panel,
 .pharosville-changelog-panel {
-  animation: pv-panel-enter 240ms ease-out;
+  animation: pv-panel-enter var(--pv-motion-duration-whisper) var(--pv-motion-curve-settle);
 }
 @media (prefers-reduced-motion: reduce) {
   .pharosville-detail-panel,
@@ -1308,7 +1396,7 @@ textarea {
   opacity: 0;
   pointer-events: none;
   will-change: transform;
-  transition: opacity 140ms ease-out;
+  transition: opacity var(--pv-motion-duration-whisper) var(--pv-motion-curve-settle);
 }
 .pharosville-hover-tooltip[data-visible="true"] { opacity: 1; }
 .pharosville-hover-tooltip__card {
@@ -1337,6 +1425,9 @@ textarea {
 }
 @media (prefers-reduced-motion: reduce) {
   .pharosville-hover-tooltip { transition: none; }
+  /* The camera steps instantly; this brief opacity crossfade is its quiet
+     spatial equivalent and does not move the panel. */
+  .pharosville-detail-dock { transition: opacity 140ms linear; }
 }
 
 .pharosville-observe-caption {

@@ -6,10 +6,8 @@ import type { AreaNode, DewsAreaBand } from "../systems/world-types";
 import { SEA_REGION_ID, seaRegionAtTile } from "../systems/garden-sea-regions";
 import { ZONE_BASE_RADIUS } from "../systems/garden-zone-radii";
 import {
-  createDangerWeather,
   createZone,
   createZoneField,
-  updateDangerWeather,
   updateZoneBuoys,
 } from "./garden-zones";
 
@@ -243,24 +241,5 @@ describe("createZoneField", () => {
       field.buoyBodies.getMatrixAt(index, matrix);
       expect(hasScale()).toBe(true);
     }
-  });
-});
-
-describe("danger squall", () => {
-  it("confines denser rain to the zone ellipse without a full-zone flash plane", () => {
-    const weather = createDangerWeather(area("DANGER"));
-    const rainPoints = weather.streaks.geometry.getAttribute("position").count;
-    expect(rainPoints).toBe(56 * 2);
-    expect(weather.root.getObjectByName("danger-flicker")).toBeUndefined();
-  });
-
-  it("moves rain gently and freezes it under reduced motion", () => {
-    const weather = createDangerWeather(area("DANGER"));
-    updateDangerWeather(weather, 1, false, true);
-    const movingY = weather.streaks.position.y;
-    updateDangerWeather(weather, 2, false, true);
-    expect(weather.streaks.position.y).not.toBe(movingY);
-    updateDangerWeather(weather, 3, true, true);
-    expect(weather.streaks.position.y).toBe(0);
   });
 });

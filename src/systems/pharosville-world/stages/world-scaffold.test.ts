@@ -8,6 +8,7 @@ import {
   buildSignalMast,
   SIGNAL_MAST_STORM_CONE_BPS,
 } from "./world-scaffold";
+import { buildGardenMonthRecord } from "../../garden-month-record";
 import { buildPharosVilleWorld } from "../../pharosville-world";
 import { fixtureChains, makePharosVilleWorldInput } from "../../../__fixtures__/pharosville-world";
 
@@ -118,6 +119,20 @@ function history(
     methodology: { asOf: 0 } as StabilityIndexResponse["methodology"],
   };
 }
+
+describe("garden month record (W6.2)", () => {
+  it("copies the trailing PSI record onto the lighthouse scaffold", () => {
+    const input = makePharosVilleWorldInput();
+    input.stability = history([
+      { daysAgo: 0, band: "STEADY", score: 90 },
+      { daysAgo: 15, band: "STEADY", score: 80 },
+      { daysAgo: 40, band: "FRACTURE", score: 10 },
+    ]);
+    const world = buildPharosVilleWorld(input);
+    expect(world.lighthouse.gardenMonthRecord).toEqual(buildGardenMonthRecord(input.stability));
+    expect(world.lighthouse.gardenMonthRecord).toMatchObject({ averagePsi: 85, growth: 1, sampleCount: 2 });
+  });
+});
 
 describe("buildHighWaterMark (3c)", () => {
   it("marks the worst band the window reached, not the latest one", () => {

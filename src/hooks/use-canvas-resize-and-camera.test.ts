@@ -14,6 +14,7 @@ import {
   dampFollowCamera,
   leadFollowTile,
   normalizeWheelDeltaY,
+  selectionCameraTarget,
   useCanvasResizeAndCamera,
   type CameraStepResult,
   type UseCanvasResizeAndCameraInput,
@@ -96,6 +97,33 @@ describe("camera intent helpers", () => {
     expect(camera).toEqual(target);
   });
 
+  it("dollies a selection without overshoot and settles in 1.5–2.5 seconds", () => {
+    const viewport = { x: 800, y: 600 };
+    const current = defaultCamera({ height: viewport.y, map: world.map, width: viewport.x });
+    const target = selectionCameraTarget({
+      camera: current,
+      map: world.map,
+      tile: { x: 48, y: 48 },
+      viewport,
+    });
+    expect(target.zoom).toBeGreaterThanOrEqual(current.zoom);
+
+    let camera = current;
+    let settledAt = 0;
+    for (let frame = 1; frame <= 180; frame += 1) {
+      const next = advanceCameraIntent(camera, target, 1 / 60, "selection");
+      expect(next.camera.zoom).toBeLessThanOrEqual(target.zoom);
+      camera = next.camera;
+      if (next.settled) {
+        settledAt = frame / 60;
+        break;
+      }
+    }
+    expect(settledAt).toBeGreaterThanOrEqual(1.5);
+    expect(settledAt).toBeLessThanOrEqual(2.5);
+    expect(camera).toEqual(target);
+  });
+
   it("marks manual camera modes as follow-cancelling", () => {
     expect(cameraModeCancelsFollow("drag")).toBe(true);
     expect(cameraModeCancelsFollow("wheel")).toBe(true);
@@ -165,6 +193,20 @@ describe("camera intent helpers", () => {
     const resolvedStepResult = requireStepResult(stepResult);
     expect(resolvedStepResult.cameraChanged).toBe(false);
     expect(resolvedStepResult.cameraIntentActive).toBe(false);
+  });
+
+  it("applies reduced-motion selection framing instantly and reports camera rest", () => {
+    const onRest = vi.fn();
+    const { result } = renderHook(() => useCanvasResizeAndCamera(makeCanvasInput({ reducedMotion: true })));
+    const viewport = { x: 800, y: 600 };
+    const start = defaultCamera({ height: viewport.y, map: world.map, width: viewport.x });
+    act(() => {
+      result.current.canvasSizeRef.current = viewport;
+      result.current.setCamera(start);
+      result.current.focusSelection({ x: 48, y: 48 }, onRest);
+    });
+    expect(onRest).toHaveBeenCalledTimes(1);
+    expect(result.current.cameraRef.current?.zoom).toBeGreaterThanOrEqual(start.zoom);
   });
 
   it("uses the renderer-provided displayed tile when following a ship", () => {

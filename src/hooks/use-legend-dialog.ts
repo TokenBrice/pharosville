@@ -21,16 +21,14 @@ function persistLegendDismissed(): void {
 }
 
 /**
- * Legend dialog state. Auto-opens once for first-time visitors (no dismissal
- * recorded in localStorage); closing always records the dismissal so the
- * overlay never auto-opens twice. Reopening stays available from the footer
- * "Legend" button.
+ * Legend dialog state. The legend is always visitor-invoked; the quiet
+ * harbormaster note owns first-visit orientation without an instruction modal.
  */
 export function useLegendDialog(input: {
   setAnnouncement: (message: string) => void;
 }) {
   const { setAnnouncement } = input;
-  const [legendOpen, setLegendOpen] = useState(() => !isLegendDismissed());
+  const [legendOpen, setLegendOpen] = useState(false);
 
   const openLegend = useCallback(() => {
     setLegendOpen(true);

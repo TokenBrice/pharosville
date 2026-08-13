@@ -86,7 +86,17 @@ export type DetailFactKey =
   | "sailingInFormation"
   | "culturalSignificance"
   | "pegDeviation"
-  | "mastSignal";
+  | "mastSignal"
+  | "serviceAge"
+  | "issuanceWork"
+  | "redemptionFitting"
+  | "collateralCargo"
+  | "customsAuthority"
+  | "pegStability"
+  | "liquidity"
+  | "resilience"
+  | "decentralization"
+  | "dependencyRisk";
 
 export interface DetailFactLike {
   label: string;
@@ -141,6 +151,16 @@ const DETAIL_FACT_LABELS = {
   "cultural significance": "culturalSignificance",
   "peg deviation": "pegDeviation",
   "mast signal": "mastSignal",
+  "in service since / tracked": "serviceAge",
+  "issuance work, 24h": "issuanceWork",
+  "redemption fitting": "redemptionFitting",
+  "collateral cargo": "collateralCargo",
+  "customs authority": "customsAuthority",
+  "peg stability": "pegStability",
+  "liquidity": "liquidity",
+  "resilience": "resilience",
+  "decentralization": "decentralization",
+  "dependency risk": "dependencyRisk",
 } as const satisfies Record<string, DetailFactKey>;
 
 export function classifyDetailFactLabel(label: string): DetailFactKey | null {
@@ -325,6 +345,26 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   if (flightToQuality) identity.push({ key: "flightToQuality", label: "Flight to quality", value: flightToQuality });
   const cycleTempo = lookup.get("cycleTempo");
   if (cycleTempo) identity.push({ key: "cycleTempo", label: "Cycle tempo", value: cycleTempo });
+  const serviceAge = lookup.get("serviceAge");
+  if (serviceAge) identity.push({ key: "serviceAge", label: "In service since / tracked", value: serviceAge });
+  const issuanceWork = lookup.get("issuanceWork");
+  if (issuanceWork) identity.push({ key: "issuanceWork", label: "Issuance work, 24h", value: issuanceWork });
+  const redemptionFitting = lookup.get("redemptionFitting");
+  if (redemptionFitting) identity.push({ key: "redemptionFitting", label: "Redemption fitting", value: redemptionFitting });
+  const collateralCargo = lookup.get("collateralCargo");
+  if (collateralCargo) identity.push({ key: "collateralCargo", label: "Collateral cargo", value: collateralCargo });
+  const customsAuthority = lookup.get("customsAuthority");
+  if (customsAuthority) identity.push({ key: "customsAuthority", label: "Customs authority", value: customsAuthority });
+  for (const [key, label] of [
+    ["pegStability", "Peg stability"],
+    ["liquidity", "Liquidity"],
+    ["resilience", "Resilience"],
+    ["decentralization", "Decentralization"],
+    ["dependencyRisk", "Dependency risk"],
+  ] as const) {
+    const value = lookup.get(key);
+    if (value) identity.push({ key, label, value });
+  }
   const homeDock = lookup.get("homeDock");
   if (homeDock) identity.push({ key: "homeDock", label: "Home dock", value: homeDock });
   // Dock panels: chain backing-diversity row (gated upstream on data

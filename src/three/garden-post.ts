@@ -1314,7 +1314,13 @@ export interface GardenPost {
   // W0.3: flash drives BOTH the grade's direct cool-white add and a clamped
   // lift on bloom intensity, which is the only way a stroke can reach bloom
   // from here — the grade pass runs after the bloom pass.
-  setGrade: (dayMix: number, duskMix: number, stormLevel?: number, flash?: number) => void;
+  setGrade: (
+    dayMix: number,
+    duskMix: number,
+    stormLevel?: number,
+    flash?: number,
+    winter?: number,
+  ) => void;
   setSize: (width: number, height: number, dpr: number) => void;
 }
 
@@ -1757,7 +1763,13 @@ export function createGardenPost(
       : 0;
   }
 
-  function applyGrade(dayMix: number, duskMix: number, stormLevel = 0, flash = 0): void {
+  function applyGrade(
+    dayMix: number,
+    duskMix: number,
+    stormLevel = 0,
+    flash = 0,
+    winter = 0,
+  ): void {
     // Night is the base; lerp toward dusk then day, matching the day-cycle
     // blend used across the renderer. Uniform values are mutated in place:
     // this runs once per frame, so nothing here may allocate.
@@ -1773,7 +1785,11 @@ export function createGardenPost(
       gradeUniforms.shadowTint.value[axis] = lerp(lerp(NIGHT_GRADE.shadowTint[i], DUSK_GRADE.shadowTint[i], duskMix), DAY_GRADE.shadowTint[i], dayMix);
       gradeUniforms.highlightTint.value[axis] = lerp(lerp(NIGHT_GRADE.highlightTint[i], DUSK_GRADE.highlightTint[i], duskMix), DAY_GRADE.highlightTint[i], dayMix);
     }
-    gradeUniforms.saturation.value = lerp(lerp(NIGHT_GRADE.saturation, DUSK_GRADE.saturation, duskMix), DAY_GRADE.saturation, dayMix);
+    gradeUniforms.saturation.value = lerp(
+      lerp(NIGHT_GRADE.saturation, DUSK_GRADE.saturation, duskMix),
+      DAY_GRADE.saturation,
+      dayMix,
+    ) * (1 - clampUnit(winter) * 0.08);
     gradeUniforms.split.value = lerp(lerp(NIGHT_GRADE.split, DUSK_GRADE.split, duskMix), DAY_GRADE.split, dayMix);
     gradeUniforms.vignette.value = lerp(lerp(NIGHT_GRADE.vignette, DUSK_GRADE.vignette, duskMix), DAY_GRADE.vignette, dayMix);
     gradeUniforms.vignetteBias.value = lerp(lerp(NIGHT_GRADE.vignetteBias, DUSK_GRADE.vignetteBias, duskMix), DAY_GRADE.vignetteBias, dayMix);
@@ -2037,8 +2053,8 @@ export function createGardenPost(
     setFocusBandDistance(distance) {
       focusBandOverride = distance !== null && Number.isFinite(distance) ? distance : null;
     },
-    setGrade(dayMix, duskMix, stormLevel = 0, flash = 0) {
-      applyGrade(dayMix, duskMix, stormLevel, flash);
+    setGrade(dayMix, duskMix, stormLevel = 0, flash = 0, winter = 0) {
+      applyGrade(dayMix, duskMix, stormLevel, flash, winter);
     },
     setSize(width, height, _dpr) {
       // pmndrs sizes its buffers from the renderer's drawing buffer size, so

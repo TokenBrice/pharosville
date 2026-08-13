@@ -1,8 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
+  GARDEN_BREATH_PHASE,
+  GARDEN_BREATH_RISE_SHARE,
+  GARDEN_BREATH_SECONDS,
   GARDEN_DEFAULT_WIND_X,
   GARDEN_DEFAULT_WIND_Z,
+  GARDEN_GUST_ATTACK_SECONDS,
+  GARDEN_GUST_CYCLE_SECONDS,
+  GARDEN_GUST_RELEASE_SECONDS,
+  GARDEN_GUST_WORLD_SPEED,
   GARDEN_WIND_DIRECTION_CONVENTION,
+  gardenBreathAt,
+  gardenGustAtWorldPosition,
+  gardenGustDelaySeconds,
+  gardenGustEnvelope,
   weatherForFrame,
   writeWeatherPlan,
   type WeatherPlan,
@@ -25,6 +36,7 @@ describe("weather plan", () => {
       windAngle: 0,
       windSpeed: 0,
       gust: 0,
+      breath: 0,
       stormLevel: 0,
       lightning: 0,
     };
@@ -44,6 +56,8 @@ describe("weather plan", () => {
         expect(plan.windSpeed).toBeLessThanOrEqual(1);
         expect(plan.gust).toBeGreaterThanOrEqual(0);
         expect(plan.gust).toBeLessThanOrEqual(1);
+        expect(plan.breath).toBeGreaterThanOrEqual(0);
+        expect(plan.breath).toBeLessThanOrEqual(1);
         expect(plan.stormLevel).toBeGreaterThanOrEqual(0);
         expect(plan.stormLevel).toBeLessThanOrEqual(1);
         expect(plan.lightning).toBeGreaterThanOrEqual(0);
@@ -70,6 +84,40 @@ describe("weather plan", () => {
     expect(Math.max(...angles) - Math.min(...angles)).toBeGreaterThan(0.4);
     // ...but stays a bounded meander, not a full rotation.
     expect(Math.max(...angles) - Math.min(...angles)).toBeLessThan(3.4);
+  });
+
+  it("uses one nine-second 40/60 breath with named ten-percent offsets", () => {
+    expect(GARDEN_BREATH_SECONDS).toBe(9);
+    expect(GARDEN_BREATH_RISE_SHARE).toBe(0.4);
+    expect(gardenBreathAt(0)).toBeCloseTo(0.5, 6);
+    expect(gardenBreathAt(9)).toBeCloseTo(gardenBreathAt(0), 8);
+    expect(gardenBreathAt(1.8)).toBeCloseTo(1, 8);
+    expect(gardenBreathAt(7.2)).toBeCloseTo(0, 8);
+    expect(GARDEN_BREATH_PHASE.mist - GARDEN_BREATH_PHASE.sails).toBeCloseTo(0.1);
+    expect(GARDEN_BREATH_PHASE.lanterns - GARDEN_BREATH_PHASE.mist).toBeCloseTo(0.1);
+  });
+
+  it("schedules 2.5 gusts/minute with a two-second attack and six-second release", () => {
+    expect(GARDEN_GUST_CYCLE_SECONDS).toBe(24);
+    expect(60 / GARDEN_GUST_CYCLE_SECONDS).toBe(2.5);
+    expect(gardenGustEnvelope(0)).toBe(0);
+    expect(gardenGustEnvelope(GARDEN_GUST_ATTACK_SECONDS)).toBeCloseTo(1, 8);
+    expect(
+      gardenGustEnvelope(GARDEN_GUST_ATTACK_SECONDS + GARDEN_GUST_RELEASE_SECONDS),
+    ).toBe(0);
+    expect(gardenGustEnvelope(GARDEN_GUST_CYCLE_SECONDS)).toBe(0);
+  });
+
+  it("delays the same gust front in world space along the downwind vector", () => {
+    const distance = GARDEN_GUST_WORLD_SPEED * 1.25;
+    expect(gardenGustDelaySeconds(distance, 0, 1, 0)).toBeCloseTo(1.25, 8);
+    expect(gardenGustDelaySeconds(0, distance, 0, 1)).toBeCloseTo(1.25, 8);
+    const weather = { windDirX: 1, windDirZ: 0, windSpeed: 1 };
+    const originPeak = gardenGustAtWorldPosition(2, 0, 0, weather);
+    const downwindPeak = gardenGustAtWorldPosition(3.25, distance, 0, weather);
+    expect(originPeak).toBeCloseTo(1, 8);
+    expect(downwindPeak).toBeCloseTo(originPeak, 8);
+    expect(gardenGustAtWorldPosition(3.25, distance, 0, weather, true)).toBe(0);
   });
 
   it("defines wind as downwind motion and starts on the established sea bearing", () => {

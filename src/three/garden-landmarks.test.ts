@@ -198,6 +198,49 @@ describe("garden landmarks", () => {
     expect(objectCount(landmark.root)).toBeLessThan(18);
     expect(hasTexture(landmark.root)).toBe(false);
   });
+
+  it("counts today's depeg roost and circles only over named movers", () => {
+    const landmark = createGardenPigeonnier({
+      detailId: "pigeonnier",
+      id: "pigeonnier",
+      kind: "pigeonnier",
+      label: "Pigeonnier",
+      notableMovers: [
+        {
+          change24hPctLabel: "+2.0%",
+          change24hUsdLabel: "+$2.0M",
+          detailId: "ship.alpha",
+          id: "alpha",
+          riskWaterLabel: "Watch Breakwater",
+          symbol: "ALPHA",
+        },
+      ],
+      roost: {
+        capped: false,
+        comparison: 2,
+        eventsToday: 3,
+        eventsYesterday: 1,
+        visualCount: 3,
+      },
+      tile: { x: 50, y: 50 },
+    });
+    expect(landmark.roostPigeons.count).toBe(3);
+    expect(landmark.moverPigeons.count).toBe(1);
+
+    landmark.update({
+      moverPositions: [{ x: 4, y: 0, z: 8 }],
+      reducedMotion: false,
+      timeSeconds: 12,
+    });
+    expect(landmark.moverPigeons.visible).toBe(true);
+    landmark.update({
+      moverPositions: [{ x: 4, y: 0, z: 8 }],
+      reducedMotion: true,
+      timeSeconds: 0,
+    });
+    expect(landmark.moverPigeons.visible).toBe(false);
+    expect(landmark.roostPigeons.visible).toBe(true);
+  });
 });
 
 function grave(

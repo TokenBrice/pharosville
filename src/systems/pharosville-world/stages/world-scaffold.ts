@@ -2,6 +2,7 @@ import { RUNTIME_CEMETERY_ENTRIES } from "@shared/lib/cemetery-runtime";
 import { PSI_HEX_COLORS } from "@shared/lib/psi-colors";
 import { STATUS_COINGECKO_PRICE_DIFF_THRESHOLD_PCT } from "@shared/lib/status-thresholds";
 import type { StabilityIndexResponse } from "@shared/types";
+import { buildGardenMonthRecord } from "../../garden-month-record";
 import { buildChainDocks } from "../../chain-docks";
 import { buildSupplyTide } from "../../supply-tide";
 import {
@@ -117,6 +118,14 @@ function buildPigeonnier(): PigeonnierNode {
     label: "Pigeonnier",
     tile: { ...PIGEON_ISLAND_CENTER },
     detailId: "pigeonnier",
+    notableMovers: [],
+    roost: {
+      capped: false,
+      comparison: null,
+      eventsToday: null,
+      eventsYesterday: null,
+      visualCount: 0,
+    },
   };
 }
 
@@ -148,6 +157,7 @@ function buildLighthouse(
     lastFleetDepegAt: lastFleetDepegAt(pegSummary),
     signalMast: buildSignalMast(pegSummary),
     highWaterMark: buildHighWaterMark(stability),
+    gardenMonthRecord: buildGardenMonthRecord(stability),
     ...(beamDwell ? { beamDwell } : {}),
   };
 }
@@ -356,6 +366,7 @@ function withChainSignals(docks: DockNode[], chains: PharosVilleInputs["chains"]
     return {
       ...dock,
       backingDiversity: chain?.healthFactors?.backingDiversity ?? null,
+      healthFactors: chain?.healthFactors ?? null,
       change24hPct: Number.isFinite(chain?.change24hPct) ? chain!.change24hPct : null,
       change7dPct: Number.isFinite(chain?.change7dPct) ? chain!.change7dPct : null,
     };

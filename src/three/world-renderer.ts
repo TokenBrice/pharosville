@@ -59,7 +59,15 @@ import {
 } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE, zoneThemeForTerrain } from "../systems/palette";
 import { screenToTile } from "../systems/projection";
-import { writeWeatherPlan, type WeatherPlan } from "../systems/weather";
+import { deriveEpistemicHaze } from "../systems/epistemic-haze";
+import { seasonFromDate, type GardenSeason } from "../systems/season";
+import { createGardenAlmanacDressing, type GardenAlmanacDressing } from "./garden-almanac-dressing";
+import {
+  GARDEN_BREATH_PHASE,
+  gardenBreathAt,
+  writeWeatherPlan,
+  type WeatherPlan,
+} from "../systems/weather";
 import {
   advanceLampStatus,
   initialLampStatusState,
@@ -76,6 +84,7 @@ import {
 import {
   createGardenCemetery,
   createGardenPigeonnier,
+  type GardenPigeonnierLandmark,
 } from "./garden-landmarks";
 import {
   createGardenFireflies,
@@ -107,6 +116,10 @@ import type { GardenCloudShadowSource } from "./garden-water-contract";
 import { dayCyclePhase, updateDayCycle, type DayCyclePhase } from "./garden-day-cycle";
 import { gardenKeyLightPose, type GardenLightPose } from "./garden-sun";
 import { createGardenSky, type GardenSky } from "./garden-sky";
+import {
+  createGardenSeasonalDressing,
+  type GardenSeasonalDressing,
+} from "./garden-seasonal-dressing";
 import { createGardenWakes, type GardenWakes } from "./garden-wakes";
 import { createGardenEnvironment, type GardenEnvironment } from "./garden-environment";
 import { createGardenCueMarker } from "./garden-cue-marker";
@@ -115,6 +128,7 @@ import {
   createDock,
   createHarborLanterns,
   gardenDockLampWorldPositions,
+  updateDockFlagWind,
   type DockVisual,
 } from "./garden-docks";
 import {
@@ -127,6 +141,13 @@ import {
   flightTenderTitans,
   type GardenFlightTenders,
 } from "./garden-flight-tenders";
+import {
+  createGardenShipIssuanceWorksets,
+  issuanceWorksetShips as selectIssuanceWorksetShips,
+  shipIssuanceWorksetSpecs,
+  type GardenShipIssuanceWorksets,
+} from "./garden-ship-issuance";
+import { shipIssuanceDraft } from "../systems/ship-issuance";
 import {
   createGardenTideLine,
   type GardenTideLine,
@@ -144,7 +165,9 @@ import {
   createTerracedIsland,
   createWaterAccents,
   gardenIslandLanternWorldOffsets,
+  type GardenPondReflection,
 } from "./garden-island";
+import { applyGardenMonthRecord } from "./garden-month-record";
 import {
   applyLighthouseRimLight,
   attachGardenLighthouseModel,
@@ -212,13 +235,11 @@ import {
   TILE_SCALE,
   type GardenShipGeometryCache,
 } from "./garden-util";
+import { setGardenQuayEpistemicHaze } from "./garden-height-fog";
 import {
-  createDangerWeather,
   createZone,
   createZoneField,
-  updateDangerWeather,
   updateZoneBuoys,
-  type GardenWeatherVisual,
   type ZoneField,
   type ZoneVisual,
 } from "./garden-zones";
@@ -549,6 +570,17 @@ const scratchReflectionPlacement = {
   worldX: 0,
   worldZ: 0,
 };
+const scratchIssuanceHullForm = {
+  agePatina: -1,
+  beam: 1,
+  fittingCode: 0,
+  height: 1,
+  hullValue: 1,
+  length: 1,
+  propRotation: 0,
+  ropeSag: 0,
+  waterline: 0,
+};
 
 function collectObjectTextures(model: Object3D): Texture[] {
   const textures = new Set<Texture>();
@@ -699,7 +731,11 @@ export function createThreeWorldRenderer(
   // The renderer is built before the scene now: W6.5's sky probe bakes THROUGH
   // the renderer, so the scene cannot be assembled without one. Nothing in
   // `createGardenScene` reads renderer state, so the swap is order-only.
-  const scene = createGardenScene(renderer, uploadScheduler);
+  const scene = createGardenScene(
+    renderer,
+    uploadScheduler,
+    seasonFromDate(input.calendarDate),
+  );
   const post = createGardenPost(renderer, scene.root, camera);
 
   let disposed = false;
@@ -832,6 +868,17 @@ export function createThreeWorldRenderer(
   };
 
   return {
+    warmup: async () => {
+      if (disposed) throw new Error("Cannot warm a disposed Three.js world renderer.");
+      // A normal render may compile a material between `compile()` collecting
+      // its set and `compileAsync()` polling it (async hero/seasonal content
+      // can attach in that window). Three r185 then observes a material whose
+      // currentProgram is still undefined and throws from program.isReady().
+      // Serial compile remains a complete shader warmup without that polling
+      // race; yield once so the arrival veil still releases asynchronously.
+      renderer.compile(scene.root, camera);
+      await Promise.resolve();
+    },
     dispose() {
       if (disposed) return;
       disposed = true;
@@ -1186,7 +1233,13 @@ export function createThreeWorldRenderer(
       post.setAOQuality(activeAOQuality);
       post.setAOTierWeight(aoTierWeight);
       post.setAOZoomDetail(scene.content?.overviewLod.detail ?? 1);
-      post.setGrade(phase.daylight, phase.dusk, scene.weather.stormLevel, scene.weather.lightning);
+      post.setGrade(
+        phase.daylight,
+        phase.dusk,
+        scene.weather.stormLevel,
+        scene.weather.lightning,
+        scene.season === "winter" ? 1 : 0,
+      );
       // Carry the real frame delta into the post chain so its 180 ms hero
       // fades stay 180 ms at the idle 30 fps duty cycle as well as when awake.
       post.render(aoDeltaSeconds);
@@ -1287,6 +1340,7 @@ function emptyWorldRendererMetrics(): ThreeWorldRendererMetrics {
 }
 
 export interface GardenScene {
+  almanacDressing: GardenAlmanacDressing;
   ambientLight: AmbientLight;
   /**
    * The beam's swept angle, integrated rather than derived from the clock.
@@ -1327,6 +1381,8 @@ export interface GardenScene {
   lighthouseModel: Group | null;
   root: Scene;
   selectedMarker: ReturnType<typeof createGardenCueMarker>;
+  season: GardenSeason;
+  seasonalDressing: GardenSeasonalDressing;
   shadowActiveSize: number;
   /** Sun bearing the current shadow map was drawn for; drives the re-steer. */
   shadowLightDirection: Vector3;
@@ -1404,6 +1460,13 @@ interface GardenContent {
    * all ~205. Empty whenever there is no flight to show.
    */
   flightTenderShips: ShipVisual[];
+  /** W7.1: per-coin lighters, davits, cargo, and largest-event lift. */
+  issuanceWorksets: GardenShipIssuanceWorksets;
+  /** Hulls anchoring issuance worksets, in instance order. */
+  issuanceWorksetShips: ShipVisual[];
+  /** Renderer-side 45s draft state; DOM truth stays on the world nodes. */
+  issuanceDraftById: Map<string, number>;
+  issuanceDraftTargetById: Map<string, number>;
   /**
    * Task 14: the weekly supply tide, as one banded plate per quay in a single
    * instanced draw. The strandline is baked into vertex colours; W4.2
@@ -1431,8 +1494,13 @@ interface GardenContent {
   lighthouseLight: PointLight;
   lighthouseRoot: Group;
   lighthouseShell: Group;
+  /** W5.2: the single-draw analytical tower-and-moon image in the still pond. */
+  pondReflection: GardenPondReflection;
   /** Tier 3 #15: sheds the props that cannot read at whole-map framing. */
   overviewLod: GardenOverviewLod;
+  pigeonnier: GardenPigeonnierLandmark;
+  pigeonnierMoverPositions: Array<{ x: number; y: number; z: number }>;
+  pigeonnierMoverShips: Array<ShipVisual | null>;
   root: Group;
   routeLine: Line<BufferGeometry, LineBasicMaterial>;
   routeLineKey: string | null;
@@ -1476,7 +1544,6 @@ interface GardenContent {
   /** Persistent wrapper the transient visual mounts into (stable child order). */
   transientRoot: Group;
   visibleShipCount: number;
-  weather: GardenWeatherVisual[];
   seaSigns: GardenSeaSigns;
   zoneField: ZoneField;
   zones: ZoneVisual[];
@@ -1578,9 +1645,10 @@ type WorldContentPartKeys = Record<WorldContentPartName, string> & {
 function createGardenScene(
   renderer: WebGLRenderer,
   uploadScheduler: TextureUploadScheduler,
+  season: GardenSeason,
 ): GardenScene {
   const root = new Scene();
-  const sky = createGardenSky();
+  const sky = createGardenSky(season);
   root.fog = sky.fog;
 
   const hemisphereLight = new HemisphereLight("#d7ece6", "#31483f", 1.15);
@@ -1651,6 +1719,12 @@ function createGardenScene(
 
   const waterAccents = createWaterAccents();
   root.add(waterAccents);
+  const almanacDressing = createGardenAlmanacDressing();
+  waterAccents.add(almanacDressing.root);
+  const seasonalDressing = createGardenSeasonalDressing(season);
+  // Keep the scene's long-standing root child order stable for hit/cue owners;
+  // this decorative water layer belongs with the existing water accents.
+  waterAccents.add(seasonalDressing.root);
 
   const hoverMarker = createGardenCueMarker("#d8eee7", 0.4);
   const selectedMarker = createGardenCueMarker(HARBOR_PALETTE.lantern_glow, 0.78);
@@ -1705,6 +1779,7 @@ function createGardenScene(
   });
 
   return {
+    almanacDressing,
     ambientLight,
     beamAngle: 0,
     beamClockSeconds: 0,
@@ -1724,6 +1799,8 @@ function createGardenScene(
     lighthouseModel: null,
     root,
     selectedMarker,
+    season,
+    seasonalDressing,
     shadowActiveSize: 0,
     // Deliberately not a legal light direction, so the first frame always
     // re-steers and draws the map for wherever the sun actually is.
@@ -1739,6 +1816,7 @@ function createGardenScene(
       windAngle: 2.592,
       windSpeed: 0,
       gust: 0,
+      breath: 0,
       stormLevel: 0,
       lightning: 0,
     },
@@ -1819,7 +1897,7 @@ function worldContentPartKeys(world: PharosVilleWorld): WorldContentPartKeys {
       dock.cargoTide ?? null,
     ]))}|${hashes.supplyTide}|${dockStructure}`,
     ships: `${shipsStructural}|${hashes.heroRank}|${islandTileKey}`,
-    tenders: `${hashes.fleetIssuance}|${shipsStructural}|${hashes.heroRank}`,
+    tenders: `${hashes.fleetIssuance}|${shipsStructural}|${hashes.heroRank}|${JSON.stringify(world.ships.map((ship) => [ship.id, ship.issuance ?? null]))}`,
     shipsPose: `${shipsPose}|${world.lighthouse.beamDwell?.shipId ?? ""}|${islandTileKey}`,
   };
   worldContentPartKeysCache.set(world, keys);
@@ -1887,6 +1965,10 @@ function createWorldContentShell(scene: GardenScene): GardenContent {
     hasReconciledWorld: false,
     lastTransitionWaveSeconds: Number.NEGATIVE_INFINITY,
     pendingShipTransitions: new Map<string, GardenShipTransitionSpec>(),
+    pigeonnierMoverPositions: [],
+    pigeonnierMoverShips: [],
+    issuanceDraftById: new Map<string, number>(),
+    issuanceDraftTargetById: new Map<string, number>(),
     root,
     routeLine,
     routeLineKey: null,
@@ -2452,6 +2534,14 @@ function adoptFreshWorldData(content: GardenContent, world: PharosVilleWorld): v
     const node = dockById.get(visual.dock.detailId);
     if (node) visual.dock = node;
   }
+  const nextShipIds = new Set<string>();
+  for (const ship of world.ships) {
+    nextShipIds.add(ship.id);
+    content.issuanceDraftTargetById.set(ship.id, shipIssuanceDraft(ship.issuance));
+  }
+  for (const shipId of content.issuanceDraftTargetById.keys()) {
+    if (!nextShipIds.has(shipId)) content.issuanceDraftTargetById.delete(shipId);
+  }
   if (content.transient) {
     const entity = world.entityById[content.transient.detailId];
     if (entity?.kind === "ship") content.transient.visual.ship = entity;
@@ -2752,6 +2842,7 @@ function registerLightLanes(
  * own shadow reads as a bug at any hour, and at low sun it reads as a smear.
  */
 const SHADOW_CASTER_EXCLUDED_NAMES = new Set([
+  "dock-chain-flag-cloth",
   "dock-lamp-heads",
   "dock-warehouse-windows",
 ]);
@@ -2801,7 +2892,8 @@ function buildIslandPart(
   // C2(c): Lane W's shared cloud-shadow sampler, forwarded to the island
   // factory (I3) so light weather sweeps the land coherently with the sea.
   const cloudShadows: GardenCloudShadowSource = scene.water.cloudShadows;
-  const island = createTerracedIsland(world, cloudShadows);
+  const island = createTerracedIsland(world, cloudShadows, scene.season);
+  applyGardenMonthRecord(island.root, world.lighthouse.gardenMonthRecord);
   part.root.add(island.root);
   // The island stone/timber (and lighthouse, inside island.root) cast and
   // receive. The flat MeshBasicMaterial shoal is excluded so its transparent
@@ -2875,6 +2967,7 @@ function buildIslandPart(
   content.lighthouseLight = island.lighthouseLight;
   content.lighthouseRoot = island.lighthouseRoot;
   content.lighthouseShell = island.lighthouseShell;
+  content.pondReflection = island.pondReflection;
   content.signalMast = signalMast;
   content.statueGleamMaterials = statueGleamMaterials;
   content.summitBirds = summitBirds;
@@ -2887,6 +2980,9 @@ function buildLandmarksPart(content: GardenContent, world: PharosVilleWorld): vo
   const part = content.parts.landmarks;
   const cemetery = createGardenCemetery(world.graves);
   const pigeonnier = createGardenPigeonnier(world.pigeonnier);
+  content.pigeonnier = pigeonnier;
+  content.pigeonnierMoverPositions = pigeonnier.moverDetailIds.map(() => ({ x: 0, y: 0, z: 0 }));
+  syncPigeonnierMoverShips(content);
   part.root.add(cemetery.root, pigeonnier.root);
   for (const [detailId, anchor] of cemetery.anchors) {
     part.cues.set(detailId, {
@@ -2902,7 +2998,21 @@ function buildLandmarksPart(content: GardenContent, world: PharosVilleWorld): vo
   });
 }
 
-/** Risk-water bodies, their buoy field, the sea signs, and danger weather. */
+function syncPigeonnierMoverShips(content: GardenContent): void {
+  const ships = content.ships ?? [];
+  content.pigeonnierMoverShips = [];
+  for (const detailId of content.pigeonnier.moverDetailIds) {
+    let match: ShipVisual | null = null;
+    for (const visual of ships) {
+      if (visual.ship.detailId !== detailId) continue;
+      match = visual;
+      break;
+    }
+    content.pigeonnierMoverShips.push(match);
+  }
+}
+
+/** Risk-water bodies, their buoy field, and the sea signs. */
 function buildZonesPart(content: GardenContent, world: PharosVilleWorld): void {
   const part = content.parts.zones;
   const zones = world.areas.map((area) => createZone(area));
@@ -2924,13 +3034,7 @@ function buildZonesPart(content: GardenContent, world: PharosVilleWorld): void {
   // the two surfaces cannot drift.
   const seaSigns = createGardenSeaSigns(seaSignSpecs(world.areas));
   part.root.add(seaSigns.root);
-  const weather = world.areas
-    .filter((area) => area.band === "DANGER")
-    .map((area) => createDangerWeather(area));
-  for (const effect of weather) part.root.add(effect.root);
-
   content.seaSigns = seaSigns;
-  content.weather = weather;
   content.zoneField = zoneField;
   content.zones = zones;
 }
@@ -3195,6 +3299,7 @@ function buildShipsPart(
   content.shipLanternMaterial = fleetLanterns.coreMaterial;
   content.shipShadows = shipShadows;
   content.ships = ships;
+  syncPigeonnierMoverShips(content);
   content.departingShips = departingShips;
   content.visibleShipCount = ships.length + departingShips.length;
 
@@ -3263,10 +3368,29 @@ function buildTendersPart(content: GardenContent, world: PharosVilleWorld): void
     })),
     world.fleetIssuance?.flightIntensity ?? 0,
   );
-  part.root.add(flightTenders.root);
+  const issuanceNodeById = new Map(world.ships.map((ship) => [ship.id, ship]));
+  const issuanceCandidates = baseShips.map((visual) => {
+    const node = issuanceNodeById.get(visual.ship.id);
+    return node ? { ...visual, ship: node } : visual;
+  });
+  const issuanceWorksetShips = selectIssuanceWorksetShips(issuanceCandidates);
+  const issuanceWorksets = createGardenShipIssuanceWorksets(
+    shipIssuanceWorksetSpecs(issuanceWorksetShips),
+    content.hasReconciledWorld ? 0 : 1,
+  );
+  part.root.add(flightTenders.root, issuanceWorksets.root);
 
   content.flightTenderShips = flightTenderShips;
   content.flightTenders = flightTenders;
+  content.issuanceWorksetShips = issuanceWorksetShips;
+  content.issuanceWorksets = issuanceWorksets;
+  for (const ship of world.ships) {
+    const target = shipIssuanceDraft(ship.issuance);
+    content.issuanceDraftTargetById.set(ship.id, target);
+    if (!content.issuanceDraftById.has(ship.id)) {
+      content.issuanceDraftById.set(ship.id, content.hasReconciledWorld ? 0 : target);
+    }
+  }
 }
 
 /**
@@ -3494,7 +3618,27 @@ function updateSceneForFrame(
     billboards: ["full", "balanced"].includes(seaQualityTier(frame.renderScheduler)),
     wind: weather,
   });
+  const seasonalIslandTile = gardenIslandDisplayTile(frame.world.lighthouse.tile);
+  scene.almanacDressing.update({
+    activeEvent: frame.almanacEvent ?? null,
+    deltaSeconds: beamElapsedSeconds,
+    islandX: seasonalIslandTile.x * TILE_SCALE,
+    islandZ: seasonalIslandTile.y * TILE_SCALE,
+    reducedMotion: frame.reducedMotion,
+    timeSeconds: frame.timeSeconds,
+  });
+  scene.seasonalDressing.update({
+    islandX: seasonalIslandTile.x * TILE_SCALE,
+    islandZ: seasonalIslandTile.y * TILE_SCALE,
+    reducedMotion: frame.reducedMotion,
+    timeSeconds: frame.timeSeconds,
+    weather,
+  });
   updateDayCycle(scene, frame, phase);
+  const epistemicHaze = deriveEpistemicHaze(frame.world.freshness);
+  scene.water.setPegSummaryEpistemicHaze(epistemicHaze.riskWaters);
+  setGardenQuayEpistemicHaze(epistemicHaze.quays);
+  scene.content?.pondReflection.update(phase);
   // Phase 2 lightning: the strike's flash doubles through the existing
   // shadow-casting key light for its ~0.3 s envelope. No new lights; the
   // day-cycle intensity above remains the base this multiplies, and the
@@ -3523,7 +3667,13 @@ function updateSceneForFrame(
   // Reflection pools stay secondary to hulls and risk water. Forty-plus full
   // tier lanes otherwise merge into pale discs at dusk/night, so the water
   // lane is deliberately dimmer than the visible lantern sprites.
-  const laneGlowScale = phase.night * 0.45 + phase.dusk * 0.3 + phase.daylight * 0.05;
+  const breathTime = frame.reducedMotion ? 0 : frame.timeSeconds;
+  const lanternBreath = gardenBreathAt(breathTime, GARDEN_BREATH_PHASE.lanterns);
+  const winterLanternScale = scene.season === "winter" ? 1.08 : 1;
+  const lanternBreathScale = (0.92 + lanternBreath * 0.16) * winterLanternScale;
+  const laneGlowScale = (
+    phase.night * 0.45 + phase.dusk * 0.3 + phase.daylight * 0.05
+  ) * lanternBreathScale;
   if (!content) {
     // No fleet lanes to add — pack the base (beacon/harbor/dock) lanes only.
     const laneCount = scene.laneRegistry.sync(frame.renderScheduler.tier, laneGlowScale, {
@@ -3552,11 +3702,22 @@ function updateSceneForFrame(
   const lampModulation = lampStatusModulationForMix(content.lampStatusMix, content.lampModulation);
   updateLighthouseLampStatus(content, lampModulation);
   updateScalarTransitions(content, beamElapsedSeconds, frame.reducedMotion);
+  // W3.2: shared breath on the two scene-owned lantern material families.
+  // Day-cycle authored the phase bases earlier this frame; this ±8% modulation
+  // sits on top and cannot become a competing light vocabulary.
+  content.harborLanternMaterial.emissiveIntensity *= lanternBreathScale;
+  content.shipLanternMaterial.emissiveIntensity *= lanternBreathScale;
+  content.shipLanternGlowMaterial.opacity *= lanternBreathScale;
+  content.shipLanternMaterial.emissive.set(
+    scene.season === "winter"
+      ? HARBOR_PALETTE.lantern_warm
+      : HARBOR_PALETTE.lantern_glow,
+  );
 
   const constrained = frame.renderScheduler.tier === "constrained";
   // R13: ambient life survives `recovery`.
   //
-  // Gulls, summit birds and the danger weather were gated to full/balanced
+  // Gulls and summit birds were gated to full/balanced
   // only. On this hardware the app sits in `recovery` almost permanently, so
   // in practice NONE of it was ever seen — the world was populated but never
   // alive. They are small instanced systems already sized for a tier ladder;
@@ -3566,16 +3727,6 @@ function updateSceneForFrame(
   content.decoration.visible = true;
   scene.waterAccents.visible = true;
   scene.waterAccents.rotation.y = 0;
-  for (const effect of content.weather) {
-    effect.root.visible = ambientAlive;
-    updateDangerWeather(
-      effect,
-      frame.timeSeconds,
-      frame.reducedMotion,
-      frame.renderScheduler.tier === "full",
-      weather,
-    );
-  }
   content.gullFlock.update({
     constrained,
     night: phase.night,
@@ -3746,6 +3897,7 @@ function updateSceneForFrame(
     zoom: frame.camera.zoom,
   });
   for (const visual of content.docks) {
+    updateDockFlagWind(visual, weather, breathTime, frame.reducedMotion);
     visual.fineDetail.visible = showWorldDetail
       || visual.dock.detailId === frame.hoveredDetailId
       || visual.dock.detailId === frame.selectedDetailId;
@@ -3756,9 +3908,12 @@ function updateSceneForFrame(
   // flushed once at the end — one upload per buffer, not one per ship.
   // Phase 2: one weather write moves every sail and pennant in the fleet.
   setFleetWeather({
+    breath: gardenBreathAt(breathTime, GARDEN_BREATH_PHASE.sails),
     gust: weather.gust,
     timeSeconds: frame.timeSeconds,
     windAngle: weather.windAngle,
+    windDirX: weather.windDirX,
+    windDirZ: weather.windDirZ,
     windSpeed: weather.windSpeed,
   });
   // ...and one aerial write gives the whole fleet its recession. Reads the fog
@@ -3804,6 +3959,15 @@ function updateSceneForFrame(
   }
 
   let visibleShipCount = 0;
+  const issuanceAlpha = frame.reducedMotion
+    ? 1
+    : 1 - Math.exp(-MathUtils.clamp(beamElapsedSeconds, 0, 0.25) / GARDEN_SCALAR_TRANSITION_SECONDS);
+  for (const visual of content.ships) {
+    const target = content.issuanceDraftTargetById.get(visual.ship.id)
+      ?? shipIssuanceDraft(visual.ship.issuance);
+    const current = content.issuanceDraftById.get(visual.ship.id) ?? target;
+    content.issuanceDraftById.set(visual.ship.id, current + (target - current) * issuanceAlpha);
+  }
   // Indexed rather than `entries()`: the iterator mints an `[index, value]` pair
   // per hull per frame, and this loop runs over the whole fleet. Same below.
   const renderedShipCount = content.ships.length + content.departingShips.length;
@@ -3846,6 +4010,24 @@ function updateSceneForFrame(
         transitionHeadingY = transitionSample.headingY;
       }
     }
+    const dependency = !transition && !departing ? visual.ship.dependencyFormation : null;
+    if (dependency) {
+      const parent = content.ships.find((entry) => entry.ship.id === dependency.parentId);
+      if (parent) {
+        const side = stableUnit(`dependency-formation.${visual.ship.id}`) < 0.5 ? -1 : 1;
+        const spacing = 1.6 + dependency.weight * 1.4;
+        const parentTile = resolveGardenShipDisplayTile({
+          displayOffset: parent.displayOffset,
+          representative: parent.representative,
+          sample: frame.shipMotionSamples.get(parent.ship.id),
+          ship: parent.ship,
+        });
+        tile = {
+          x: parentTile.x + side * spacing,
+          y: parentTile.y + spacing * 0.55,
+        };
+      }
+    }
     visual.root.visible = true;
     visibleShipCount += 1;
     visual.root.scale.setScalar(
@@ -3873,13 +4055,20 @@ function updateSceneForFrame(
     }
     visual.root.rotation.z = heel;
     // Larger hulls bob slower and shallower (titans slowest); standard as-is.
+    const bobBreath = gardenBreathAt(breathTime, GARDEN_BREATH_PHASE.bob);
     const bobAmplitude = frame.reducedMotion
       ? 0
-      : (0.035 + frame.seaState.swell * 0.055) * visual.motionAmplitudeScale;
+      : (0.035 + frame.seaState.swell * 0.055)
+        * visual.motionAmplitudeScale
+        * (0.92 + bobBreath * 0.16);
     visual.root.position.y += Math.sin(
       frame.timeSeconds * (0.72 + frame.seaState.tempo * 0.25) / visual.motionPeriodScale
       + visual.bobPhase,
     ) * bobAmplitude;
+    const issuanceDraft = departing ? 0 : content.issuanceDraftById.get(visual.ship.id) ?? 0;
+    // Hero hulls are their own scene graph, so their whole root takes draft.
+    // Batched hulls take the same offset through aHullForm.w below.
+    if (!visual.batched) visual.root.position.y += issuanceDraft;
     visual.sampleState = transition
       ? (departing ? "departing" : transition.kind === "arrival" ? "arriving" : "sailing")
       : (sample?.state ?? "idle");
@@ -3892,9 +4081,11 @@ function updateSceneForFrame(
       worldX: visual.root.position.x,
       worldZ: visual.root.position.z,
     });
-    const wakeIntensity = transition && !frame.reducedMotion
+    const wakeBreath = gardenBreathAt(breathTime, GARDEN_BREATH_PHASE.wakes);
+    const wakeIntensityBase = transition && !frame.reducedMotion
       ? Math.max(sample?.wakeIntensity ?? 0, 0.68 * transitionVisibility)
       : (sample?.wakeIntensity ?? 0);
+    const wakeIntensity = wakeIntensityBase * (0.94 + wakeBreath * 0.12);
     const showShipDetail = showWorldDetail
       || visual.ship.detailId === frame.hoveredDetailId
       || visual.ship.detailId === frame.selectedDetailId;
@@ -3955,12 +4146,22 @@ function updateSceneForFrame(
     // The ship's transform is final for this frame — hand it to the batch.
     // Hero ships skip this: they carry their own meshes under `root`.
     if (visual.batched) {
+      const authoredHullForm = visual.ship.visual.hullForm;
+      scratchIssuanceHullForm.beam = authoredHullForm.beam;
+      scratchIssuanceHullForm.agePatina = authoredHullForm.agePatina ?? -1;
+      scratchIssuanceHullForm.fittingCode = authoredHullForm.fittingCode ?? 0;
+      scratchIssuanceHullForm.height = authoredHullForm.height;
+      scratchIssuanceHullForm.hullValue = authoredHullForm.hullValue ?? 1;
+      scratchIssuanceHullForm.length = authoredHullForm.length;
+      scratchIssuanceHullForm.propRotation = authoredHullForm.propRotation ?? 0;
+      scratchIssuanceHullForm.ropeSag = authoredHullForm.ropeSag ?? 0;
+      scratchIssuanceHullForm.waterline = (authoredHullForm.waterline ?? 0) + issuanceDraft;
       writeFleetInstance(content.fleetBatches, {
         atlasCell: visual.atlasCell,
         headingAngle: visual.root.rotation.y,
         heel: visual.root.rotation.z,
         hullColor: visual.hullColor,
-        hullForm: visual.ship.visual.hullForm,
+        hullForm: scratchIssuanceHullForm,
         sailColor: visual.sailColor,
         pennantColor: visual.pennantColor,
         pitch: visual.root.rotation.x,
@@ -4006,6 +4207,21 @@ function updateSceneForFrame(
     content.flightTenders.place(index, visual.root.position.x, visual.root.position.z);
   }
   content.flightTenders.flush({
+    detail: overviewDetail,
+    reducedMotion: frame.reducedMotion,
+    timeSeconds: frame.timeSeconds,
+  });
+  for (let index = 0; index < content.issuanceWorksetShips.length; index += 1) {
+    const visual = content.issuanceWorksetShips[index]!;
+    content.issuanceWorksets.place(
+      index,
+      visual.root.position.x,
+      GARDEN_SHIP_ROOT_Y,
+      visual.root.position.z,
+      visual.root.rotation.y,
+    );
+  }
+  content.issuanceWorksets.flush({
     detail: overviewDetail,
     reducedMotion: frame.reducedMotion,
     timeSeconds: frame.timeSeconds,
@@ -4064,6 +4280,20 @@ function updateSceneForFrame(
   // fleet lantern instances, and re-pack the lane texture now that this
   // frame's ship lanes are set.
   updateShipPennants(content.ships, frame.timeSeconds, frame.reducedMotion);
+  for (let index = 0; index < content.pigeonnier.moverDetailIds.length; index += 1) {
+    const visual = content.pigeonnierMoverShips[index];
+    const position = content.pigeonnierMoverPositions[index]!;
+    if (visual) {
+      position.x = visual.root.position.x;
+      position.y = visual.root.position.y;
+      position.z = visual.root.position.z;
+    }
+  }
+  content.pigeonnier.update({
+    moverPositions: content.pigeonnierMoverPositions,
+    reducedMotion: frame.reducedMotion,
+    timeSeconds: frame.timeSeconds,
+  });
   syncShipRippleRings(scene.water.rippleRings, content.ships, {
     reducedMotion: frame.reducedMotion,
     tier: seaQualityTier(frame.renderScheduler),
@@ -4073,6 +4303,10 @@ function updateSceneForFrame(
     camera.quaternion,
     frame.reducedMotion ? 0 : frame.timeSeconds,
     frame.reducedMotion,
+    {
+      hoveredDetailId: frame.hoveredDetailId,
+      selectedDetailId: frame.selectedDetailId,
+    },
   );
   const activeLaneCount = scene.laneRegistry.sync(frame.renderScheduler.tier, laneGlowScale, {
     reducedMotion: frame.reducedMotion,
@@ -4102,6 +4336,7 @@ function updateSceneForFrame(
     // the sea tier so markers do not freeze mid-swell during a pan.
     seaQualityTier(frame.renderScheduler),
     semanticView === "analyze" ? focusedAreaDetailId : null,
+    gardenBreathAt(breathTime, GARDEN_BREATH_PHASE.bob),
   );
 
   updateSelectedRoute(content, frame);

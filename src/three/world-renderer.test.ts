@@ -2,12 +2,15 @@
 import {
   BoxGeometry,
   BufferGeometry,
+  Color,
   Group,
   InstancedMesh,
   Mesh,
   MeshBasicMaterial,
+  MeshStandardMaterial,
   Object3D,
   Scene,
+  ShaderMaterial,
   Texture,
 } from "three";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -32,6 +35,7 @@ import type {
 import type { PharosVilleRenderSchedulerTier } from "../renderer/render-types";
 import { defaultCamera } from "../systems/camera";
 import { screenToTile } from "../systems/projection";
+import { HARBOR_PALETTE } from "../systems/palette";
 import type { PharosVilleWorld, ShipHull, ShipNode } from "../systems/world-types";
 import {
   selectGardenDocks,
@@ -41,7 +45,9 @@ import {
 import type { ShipMotionSample } from "../systems/motion";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import { seaStateForWorld } from "../systems/sea-state";
+import { gardenAlmanacEventForDate } from "../systems/garden-almanac";
 import { DAY_CYCLE_SKY_PRESETS, type DayCyclePhase } from "./garden-day-cycle";
+import { gardenQuayEpistemicHazeUniform } from "./garden-height-fog";
 import {
   FLIGHT_TENDERS_MESH_NAME,
   FLIGHT_TENDERS_PER_TITAN,
@@ -61,6 +67,8 @@ import {
 
 type TestWebGlRenderer = {
   clear: ReturnType<typeof vi.fn>;
+  compile: ReturnType<typeof vi.fn>;
+  compileAsync: ReturnType<typeof vi.fn>;
   dispose: ReturnType<typeof vi.fn>;
   info: {
     render: { calls: number; lines: number; points: number; triangles: number };
@@ -202,6 +210,8 @@ vi.mock("three", async (importOriginal) => {
   class WebGLRenderer {
     autoClear = true;
     clear = vi.fn();
+    compile = vi.fn(() => new Set());
+    compileAsync = vi.fn(() => Promise.resolve());
     dispose = vi.fn();
     getClearAlpha = vi.fn(() => 1);
     getClearColor = vi.fn((color: { setRGB: (r: number, g: number, b: number) => void }) => {
@@ -288,7 +298,83 @@ describe("disposeThreeObjectTree", () => {
 });
 
 describe("Three world renderer lifecycle", () => {
-  it("queues static uploads and reports recurring scene/offscreen work separately", () => {
+  it("mounts the data-derived pigeonnier roost and mover flock", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    renderer.render(rendererFrame(world, "full", { timeSeconds: 12 }));
+    const scene = rendererHarness.instances.at(-1)!.lastScene!;
+    const roost = scene.getObjectByName("pigeonnier-depeg-roost") as InstancedMesh;
+    const movers = scene.getObjectByName("pigeonnier-notable-mover-pigeons") as InstancedMesh;
+    expect(roost.count).toBe(world.pigeonnier.roost?.visualCount ?? 0);
+    expect(movers.count).toBe(world.pigeonnier.notableMovers?.length ?? 0);
+    expect(movers.visible).toBe((world.pigeonnier.notableMovers?.length ?? 0) > 0);
+    renderer.dispose();
+  });
+
+  it("renders only the frame-selected almanac event and keeps reduced motion still", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    const event = gardenAlmanacEventForDate(new Date("2026-08-13T00:00:00Z"));
+    renderer.render({ ...rendererFrame(world, "full", { timeSeconds: 0 }), almanacEvent: event });
+    renderer.render({ ...rendererFrame(world, "full", { timeSeconds: 9 }), almanacEvent: event });
+    const scene = rendererHarness.instances.at(-1)!.lastScene!;
+    expect(scene.getObjectByName(`garden-almanac-${event.id}`)!.visible).toBe(true);
+    for (const id of ["heron-dusk", "lantern-round", "deep-night-meteor"]) {
+      if (id !== event.id) expect(scene.getObjectByName(`garden-almanac-${id}`)!.visible).toBe(false);
+    }
+
+    renderer.render({
+      ...rendererFrame(world, "full", { reducedMotion: true }),
+      almanacEvent: event,
+    });
+    expect(scene.getObjectByName(`garden-almanac-${event.id}`)!.visible).toBe(false);
+    renderer.dispose();
+  });
+
+  it("selects seasonal dressing once from the injected calendar date", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const spring = createThreeWorldRenderer({
+      calendarDate: new Date("2026-04-12T12:00:00.000Z"),
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    spring.render(rendererFrame(world, "full"));
+    expect(rendererHarness.instances.at(-1)!.lastScene!
+      .getObjectByName("garden-spring-water-petals")).toBeInstanceOf(InstancedMesh);
+    spring.dispose();
+
+    const autumn = createThreeWorldRenderer({
+      calendarDate: new Date("2026-10-12T12:00:00.000Z"),
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    autumn.render(rendererFrame(world, "full"));
+    expect(rendererHarness.instances.at(-1)!.lastScene!
+      .getObjectByName("garden-spring-water-petals")).toBeUndefined();
+    expect(rendererHarness.instances.at(-1)!.lastScene!
+      .getObjectByName("garden-sky-autumn-geese")!.visible).toBe(true);
+    autumn.dispose();
+
+    const winter = createThreeWorldRenderer({
+      calendarDate: new Date("2026-12-12T12:00:00.000Z"),
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    winter.render(rendererFrame(world, "full"));
+    const lanterns = rendererHarness.instances.at(-1)!.lastScene!
+      .getObjectByName("ship-lantern-cores") as InstancedMesh;
+    expect((lanterns.material as MeshStandardMaterial).emissive.getHexString())
+      .toBe(new Color(HARBOR_PALETTE.lantern_warm).getHexString());
+    winter.dispose();
+  });
+
+  it("queues static uploads, warms assembled variants, and reports recurring work", async () => {
     const world = buildPharosVilleWorld(makePharosVilleWorldInput());
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
@@ -307,6 +393,12 @@ describe("Three world renderer lifecycle", () => {
       return frame;
     };
     const first = renderer.render(wakeFrame(1));
+    await renderer.warmup();
+    expect(webGlRenderer.compile).toHaveBeenCalledTimes(1);
+    expect(webGlRenderer.compile).toHaveBeenCalledWith(
+      expect.any(Scene),
+      expect.anything(),
+    );
     expect(webGlRenderer.initTexture).toHaveBeenCalledTimes(2);
     expect(first.textureUploads).toMatchObject({
       failed: 0,
@@ -333,6 +425,33 @@ describe("Three world renderer lifecycle", () => {
     expect(second.gpu.offscreenCalls).toBe(2);
     expect(second.gpu.calls).toBe(3);
 
+    renderer.dispose();
+  });
+
+  it("routes endpoint staleness into existing water and quay draws", () => {
+    const freshWorld = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    const freshMetrics = renderer.render(rendererFrame(freshWorld, "full", { reducedMotion: true }));
+    const scene = rendererHarness.instances.at(-1)!.lastScene!;
+    const water = scene.getObjectByName("garden-water") as Mesh;
+    const waterMaterial = water.material as ShaderMaterial;
+    expect(waterMaterial.uniforms.uPegSummaryEpistemicHaze!.value).toBe(0);
+    expect(gardenQuayEpistemicHazeUniform.value).toBe(0);
+
+    const staleWorld = {
+      ...freshWorld,
+      freshness: { chainsStale: true, pegSummaryStale: true },
+    };
+    const staleMetrics = renderer.render(rendererFrame(staleWorld, "full", { reducedMotion: true }));
+
+    expect(scene.getObjectByName("garden-water")).toBe(water);
+    expect(waterMaterial.uniforms.uPegSummaryEpistemicHaze!.value).toBe(1);
+    expect(gardenQuayEpistemicHazeUniform.value).toBe(1);
+    expect(staleMetrics.objectCount).toBe(freshMetrics.objectCount);
+    expect(staleMetrics.gpu.sceneCalls).toBe(freshMetrics.gpu.sceneCalls);
     renderer.dispose();
   });
 

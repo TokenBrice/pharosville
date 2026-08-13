@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PharosVilleLoading, PharosVilleWorld } from "./pharosville-world";
+import { HARBORMASTER_NOTE_STORAGE_KEY, PharosVilleLoading, PharosVilleWorld } from "./pharosville-world";
 import { overCapacityWorldFixture } from "./__fixtures__/over-capacity-world";
 import { PHAROSVILLE_LATEST_VERSION } from "./content/pharosville-version";
 import type { HitTarget } from "./renderer/hit-testing";
@@ -24,9 +24,14 @@ const mocks = vi.hoisted(() => {
     canvasSizeRef,
     focusTile: vi.fn(),
     reducedMotion: true,
+    rendererWarmupReady: true,
     rendererStatus: "ready",
     requestPaint: vi.fn(),
+    skipArrival: vi.fn(),
+    startArrival: vi.fn<(onComplete: () => void) => void>(),
+    startAttractTour: vi.fn(),
     startObserveTour: vi.fn(),
+    stopAttractTour: vi.fn(),
     stopObserveTour: vi.fn(),
     targets,
   };
@@ -88,7 +93,11 @@ vi.mock("./hooks/use-canvas-resize-and-camera", () => ({
     canvasSize: mocks.canvasSizeRef.current,
     canvasSizeRef: mocks.canvasSizeRef,
     focusTile: mocks.focusTile,
+    skipArrival: mocks.skipArrival,
+    startArrival: mocks.startArrival,
+    startAttractTour: mocks.startAttractTour,
     startObserveTour: mocks.startObserveTour,
+    stopAttractTour: mocks.stopAttractTour,
     stopObserveTour: mocks.stopObserveTour,
     handleFollowSelected: vi.fn(),
     handleKeyDown: mocks.canvasHandleKeyDown,
@@ -109,6 +118,7 @@ vi.mock("./hooks/use-canvas-resize-and-camera", () => ({
 vi.mock("./hooks/use-world-render-loop", () => ({
   useWorldRenderLoop: () => ({
     frameRateFps: null,
+    rendererWarmupReady: mocks.rendererWarmupReady,
     rendererStatus: mocks.rendererStatus,
     requestPaint: mocks.requestPaint,
   }),
@@ -180,10 +190,17 @@ beforeEach(() => {
   mocks.cancelCameraIntent.mockClear();
   mocks.focusTile.mockClear();
   mocks.startObserveTour.mockClear();
+  mocks.startAttractTour.mockClear();
+  mocks.stopAttractTour.mockClear();
   mocks.stopObserveTour.mockClear();
   mocks.reducedMotion = true;
+  mocks.rendererWarmupReady = true;
   mocks.rendererStatus = "ready";
   mocks.requestPaint.mockClear();
+  mocks.skipArrival.mockClear();
+  mocks.startArrival.mockReset();
+  mocks.startArrival.mockImplementation((onComplete) => onComplete());
+  window.localStorage.setItem(HARBORMASTER_NOTE_STORAGE_KEY, "1");
   mocks.targets.splice(0, mocks.targets.length, ...targetFixtures());
   delete (globalThis as { __pharosVilleTestWallClockHour?: number }).__pharosVilleTestWallClockHour;
 });
@@ -196,6 +213,34 @@ afterEach(() => {
 });
 
 describe("PharosVilleWorld UI accessibility controls", () => {
+  it("skips the establishing ease on any input", () => {
+    mocks.reducedMotion = false;
+    mocks.startArrival.mockImplementation(() => undefined);
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    expect(screen.getByTestId("pharosville-charting-veil").getAttribute("data-arrival")).toBe("arriving");
+    fireEvent.keyDown(window, { key: "a" });
+
+    expect(mocks.skipArrival).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("pharosville-charting-veil")).toBeNull();
+  });
+
+  it("uses a reduced-motion crossfade before revealing the one-time note", () => {
+    vi.useFakeTimers();
+    window.localStorage.removeItem(HARBORMASTER_NOTE_STORAGE_KEY);
+    render(<PharosVilleWorld world={worldFixture()} />);
+
+    expect(screen.getByTestId("pharosville-charting-veil").getAttribute("data-arrival")).toBe("crossfade");
+    act(() => vi.advanceTimersByTime(320));
+    expect(mocks.startArrival).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Read harbormaster's note" }));
+    expect(screen.getByText("The lanterns are warm; the ledger is current.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Put away harbormaster's note" }));
+    expect(window.localStorage.getItem(HARBORMASTER_NOTE_STORAGE_KEY)).toBe("1");
+    expect(screen.queryByRole("button", { name: "Read harbormaster's note" })).toBeNull();
+  });
+
   // Interface revamp DU4/DU7/DU11 + W0.4: the footer carries five items and
   // nothing else — mark, legend, changelog, harbor ledger, berth count. The
   // frame rate is instrumentation and lives behind ?debug=1.

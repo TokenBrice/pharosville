@@ -4,6 +4,7 @@ import type { PharosVilleMotionPlan, ShipMotionSample } from "../systems/motion"
 import type { IsoCamera } from "../systems/projection";
 import type { SeaState } from "../systems/sea-state";
 import type { PharosVilleWorld } from "../systems/world-types";
+import type { GardenAlmanacEvent } from "../systems/garden-almanac";
 
 export type WorldRendererStatus = "loading" | "ready" | "failed";
 
@@ -32,6 +33,8 @@ export interface ThreeLogoAssets {
 }
 
 export interface ThreeWorldRendererFrame {
+  /** The one daily almanac event selected outside the renderer; null when inactive. */
+  almanacEvent?: GardenAlmanacEvent | null;
   logos: ThreeLogoAssets;
   camera: IsoCamera;
   dpr: number;
@@ -79,9 +82,13 @@ export interface ThreeWorldRendererMetrics extends PharosVilleRenderMetrics {
 export interface ThreeWorldRenderer {
   dispose: () => void;
   render: (frame: ThreeWorldRendererFrame) => ThreeWorldRendererMetrics;
+  /** Compiles every material in the assembled scene, including hidden variants. */
+  warmup: () => Promise<void>;
 }
 
 export interface CreateThreeWorldRendererInput {
+  /** Injectable calendar seam for deterministic seasonal-dressing tests. */
+  calendarDate?: Date;
   canvas: HTMLCanvasElement;
   onAssetReady?: () => void;
   onContextFailure: (message: string) => void;

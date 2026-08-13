@@ -24,9 +24,12 @@
  *   layered sines, so it never snaps and never wraps visibly.
  * - windSpeed 0.2..1: a floor so the world never reads as holding its breath,
  *   then base wind (DEWS threat), a slow breeze envelope, and storm on top.
- * - gust 0..1: a higher-frequency envelope (7.3 s with a 2.9 s wobble),
- *   squared for spikiness and scaled by the sustained wind so gusts only read
- *   when the wind is actually up.
+ * - gust 0..1: one harbour-scale front every 24 s (2.5/min), with a 2 s
+ *   attack and 6 s release. `gardenGustAtWorldPosition` delays that same
+ *   front downwind; objects do not invent their own gust clocks.
+ * - breath 0..1: one shared 9 s resonant-breathing curve, rising for 40% and
+ *   falling for 60%. Consumers may use the named 0.1-cycle offsets below,
+ *   but always sample this same clock.
  * - stormLevel 0..1: smoothstep(0.35, 0.92) of PSI stress — STEADY and below
  *   stay calm, TREMOR is the first stirring, FRACTURE a building sea, CRISIS
  *   and MELTDOWN a full storm — plus a ±5% breathing term (167 s) so a
@@ -49,6 +52,8 @@ export interface WeatherPlan {
   windSpeed: number;
   /** Gust envelope, 0..1 — the flutter/rain-squall driver. */
   gust: number;
+  /** Shared 9 s breath envelope, 0..1. */
+  breath: number;
   /** Storm state, 0..1. */
   stormLevel: number;
   /** Lightning flash envelope; 0 unless the storm is at its peak. */
@@ -65,6 +70,30 @@ export interface WeatherInput {
 }
 
 const TAU = Math.PI * 2;
+
+/** One calm, shared breathing cycle: 3.6 s rise and 5.4 s fall. */
+export const GARDEN_BREATH_SECONDS = 9;
+export const GARDEN_BREATH_RISE_SHARE = 0.4;
+/** One gust every 24 s = 2.5 gusts/minute. */
+export const GARDEN_GUST_CYCLE_SECONDS = 24;
+export const GARDEN_GUST_ATTACK_SECONDS = 2;
+export const GARDEN_GUST_RELEASE_SECONDS = 6;
+/** World units per second travelled by the gust front across the harbour. */
+export const GARDEN_GUST_WORLD_SPEED = 24;
+
+/**
+ * Named offsets keep systems out of lockstep without giving any of them a
+ * second oscillator. Each step is 10% of the same nine-second breath.
+ */
+export const GARDEN_BREATH_PHASE = Object.freeze({
+  sails: 0,
+  mist: 0.1,
+  lanterns: 0.2,
+  bob: 0.3,
+  gulls: 0.4,
+  water: 0.5,
+  wakes: 0.6,
+} as const);
 
 /**
  * Weather vectors always point TOWARD the downwind destination. The default
@@ -93,6 +122,7 @@ export function weatherForFrame(input: WeatherInput): WeatherPlan {
     windAngle: 0,
     windSpeed: 0,
     gust: 0,
+    breath: 0,
     stormLevel: 0,
     lightning: 0,
   };
@@ -126,18 +156,92 @@ export function writeWeatherPlan(input: WeatherInput, out: WeatherPlan): void {
   const breeze = 0.5 + 0.5 * Math.sin((TAU * time) / 83 + 1.2);
   const windSpeed = clamp01(0.2 + baseWind * 0.3 + breeze * 0.18 + stormLevel * 0.38);
 
-  // Gusts: a spiky envelope that only has force when the wind is up.
-  const gustWave = 0.5
-    + 0.5 * Math.sin((TAU * time) / 7.3 + Math.sin((TAU * time) / 2.9) * 1.4);
-  const gust = clamp01(gustWave * gustWave * (0.3 + windSpeed * 0.7));
+  // One gust front, 2.5 times/minute. It rises gently for two seconds, then
+  // takes six to settle. Positional consumers sample this exact shape through
+  // `gardenGustAtWorldPosition`; `gust` is the harbour-origin sample.
+  const gust = gardenGustEnvelope(time) * (0.3 + windSpeed * 0.7);
 
   out.windAngle = windAngle;
   out.windDirX = Math.cos(windAngle);
   out.windDirZ = Math.sin(windAngle);
   out.windSpeed = windSpeed;
   out.gust = gust;
+  out.breath = gardenBreathAt(time);
   out.stormLevel = stormLevel;
   out.lightning = lightningAt(time, stormLevel);
+}
+
+/**
+ * Shared 40/60 breath, with a half-rise static pose at t=0. `phaseOffsetCycles`
+ * is intentionally expressed in fractions of the SAME cycle, not seconds.
+ */
+export function gardenBreathAt(timeSeconds: number, phaseOffsetCycles = 0): number {
+  const time = Math.max(0, Number.isFinite(timeSeconds) ? timeSeconds : 0);
+  const offset = Number.isFinite(phaseOffsetCycles) ? phaseOffsetCycles : 0;
+  // Starting half-way up the rise makes reduced motion's time-zero frame a
+  // neutral, fully deterministic composition rather than an inhale extreme.
+  const phase = positiveModulo(time / GARDEN_BREATH_SECONDS + 0.2 + offset, 1);
+  if (phase < GARDEN_BREATH_RISE_SHARE) {
+    return cosineEase(phase / GARDEN_BREATH_RISE_SHARE);
+  }
+  return 1 - cosineEase(
+    (phase - GARDEN_BREATH_RISE_SHARE) / (1 - GARDEN_BREATH_RISE_SHARE),
+  );
+}
+
+/** The one 2 s attack / 6 s release gust envelope at the harbour origin. */
+export function gardenGustEnvelope(timeSeconds: number): number {
+  const time = Math.max(0, Number.isFinite(timeSeconds) ? timeSeconds : 0);
+  const local = positiveModulo(time, GARDEN_GUST_CYCLE_SECONDS);
+  if (local < GARDEN_GUST_ATTACK_SECONDS) {
+    return cosineEase(local / GARDEN_GUST_ATTACK_SECONDS);
+  }
+  const releaseEnd = GARDEN_GUST_ATTACK_SECONDS + GARDEN_GUST_RELEASE_SECONDS;
+  if (local < releaseEnd) {
+    return 1 - cosineEase(
+      (local - GARDEN_GUST_ATTACK_SECONDS) / GARDEN_GUST_RELEASE_SECONDS,
+    );
+  }
+  return 0;
+}
+
+/**
+ * Arrival delay for one world-space point. Positive downwind points receive
+ * the same gust later: delay = dot(position, windDirection) / gustSpeed.
+ */
+export function gardenGustDelaySeconds(
+  worldX: number,
+  worldZ: number,
+  windDirX: number,
+  windDirZ: number,
+  gustSpeed = GARDEN_GUST_WORLD_SPEED,
+): number {
+  const speed = Number.isFinite(gustSpeed) && gustSpeed > 0
+    ? gustSpeed
+    : GARDEN_GUST_WORLD_SPEED;
+  const x = Number.isFinite(worldX) ? worldX : 0;
+  const z = Number.isFinite(worldZ) ? worldZ : 0;
+  const dirX = Number.isFinite(windDirX) ? windDirX : GARDEN_DEFAULT_WIND_X;
+  const dirZ = Number.isFinite(windDirZ) ? windDirZ : GARDEN_DEFAULT_WIND_Z;
+  return (x * dirX + z * dirZ) / speed;
+}
+
+/** Samples the shared gust after its front reaches an object's world position. */
+export function gardenGustAtWorldPosition(
+  timeSeconds: number,
+  worldX: number,
+  worldZ: number,
+  weather: Pick<WeatherPlan, "windDirX" | "windDirZ" | "windSpeed">,
+  reducedMotion = false,
+): number {
+  if (reducedMotion) return 0;
+  const delay = gardenGustDelaySeconds(
+    worldX,
+    worldZ,
+    weather.windDirX,
+    weather.windDirZ,
+  );
+  return gardenGustEnvelope(timeSeconds - delay) * (0.3 + clamp01(weather.windSpeed) * 0.7);
 }
 
 /**
@@ -178,6 +282,15 @@ function hash01(n: number): number {
 function smoothstep(edge0: number, edge1: number, value: number): number {
   const t = clamp01((value - edge0) / (edge1 - edge0));
   return t * t * (3 - 2 * t);
+}
+
+function cosineEase(value: number): number {
+  const t = clamp01(value);
+  return 0.5 - Math.cos(Math.PI * t) * 0.5;
+}
+
+function positiveModulo(value: number, divisor: number): number {
+  return ((value % divisor) + divisor) % divisor;
 }
 
 function clamp01(value: number): number {

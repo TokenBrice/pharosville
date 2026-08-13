@@ -55,6 +55,9 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
   // W3.1 deleted the keeper-cottage lantern string outright (the Great
   // Quieting removed that glow vocabulary), so it no longer appears here.
   "island-quay-stair",
+  "island-koi",
+  "island-niwaki",
+  "island-raked-gravel",
   "lighthouse-shore-props",
   "pharos-precinct-obelisks",
   // Per-hero badges, ×~29 hulls, and the three hero gull flocks.

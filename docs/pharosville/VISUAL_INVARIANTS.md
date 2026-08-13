@@ -110,6 +110,13 @@ aria-hidden, so the ledger — not the sign — is the redundant channel.
 
 ## Stillness
 
+- After two uninterrupted idle minutes, the signed-off Garden attract mode may
+  drift through four authored postcard framings. It is disabled for reduced
+  motion, selections, explicit Observe tours, hidden tabs, and almanac events;
+  any pointer, wheel, touch, or key input leaves the exact current pose and
+  returns agency without a positional snap. This is the sole exception to the
+  earlier idle-drift rejection (operator sign-off, 2026-08-13).
+
 - **The night has one dominant light and one secondary.** The dominant is the
   beacon; the secondary is the moon road. Everything else that glows after dark
   — path and terrace lanterns, dock lamps, lit windows, buoy lamps, ship
@@ -161,6 +168,18 @@ aria-hidden, so the ledger — not the sign — is the redundant channel.
   whole frame turns into an even field of glow, the composition has no
   emptiness left to read the lighthouse against, whatever the still frame looks
   like at full resolution.
+- **Sea quietness is a feature-complete contract.** The water shader's existing
+  terms — regions, swell, ripples, wakes, shore and crest foam, cloud shadow,
+  sky-probe fresnel, light roads, glints, lanes, tower shadow, fog and bokashi —
+  are the complete vocabulary. A future sea idea refines one of those terms and
+  names the term it removes or demotes: one in, one out. It does not add another
+  independent light, motion or foam vocabulary. Open night water remains below
+  the recorded mean-emissive ceiling of 0.016. The focused unit gate in
+  `garden-water.test.ts` is explicitly a shader-budget proxy, not a rendered
+  pixel claim: it weights the exact moon-road, moon-glitter and lane-clamp GLSL
+  gains by their recorded open-water occupancy (unit-luminance conservative
+  colours) and asserts a mean of 0.0155. Post-AgX output still requires the
+  real-GPU night preview.
 
 ## Media and rendering
 

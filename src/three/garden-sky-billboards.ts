@@ -34,6 +34,10 @@ import {
  * - Palette authority: these meshes carry NO colour constants. Body, shade,
  *   lit-edge and haze colours are all derived per frame from the day-cycle
  *   presets by garden-sky and handed in as uniforms.
+ * - W5.7 borrowed scenery is decorative only: one asymmetric, connected
+ *   headland profile and one unexplained lantern point. Neither has, nor may
+ *   acquire, a data input. The profile is static so it recedes with the haze
+ *   instead of behaving like another drifting cloud impostor.
  */
 
 export interface GardenSkyBillboardLayer {
@@ -44,11 +48,15 @@ export interface GardenSkyBillboardLayer {
 export interface GardenSkyBillboards {
   clouds: GardenSkyBillboardLayer;
   dispose: () => void;
+  geese: GardenSkyBillboardLayer;
+  headlands: GardenSkyBillboardLayer;
   mist: GardenSkyBillboardLayer;
 }
 
 export const MIST_BANK_COUNT = 9;
 export const CLOUD_COUNT = 5;
+export const HEADLAND_COUNT = 1;
+export const GARDEN_AUTUMN_GEESE_COUNT = 7;
 
 /**
  * Anchors in sky-root local space (the root re-anchors to the camera target,
@@ -108,6 +116,27 @@ const CLOUDS: ReadonlyArray<readonly [number, number, number, number, number]> =
 ];
 
 /**
+ * W5.7 shakkei. One profile only: the lighthouse already weights the left of
+ * the frame, so this sits on the opposite, upper-right diagonal. Its broad
+ * base continues below the haze line; only the feathered ridge is perceived,
+ * which is the key distinction from the retired closed cumulus "pills".
+ */
+const HEADLANDS: ReadonlyArray<readonly [number, number, number, number, number]> = [
+  [-105, 3.5, -155, 78, 15],
+];
+
+/** One asymmetrical travelling line, high in the borrowed sky. */
+const AUTUMN_GEESE: ReadonlyArray<readonly [number, number, number, number, number]> = [
+  [-86, 27.5, -116, 3.4, 1.3],
+  [-91, 29.0, -120, 3.1, 1.2],
+  [-96, 30.2, -124, 2.9, 1.15],
+  [-101, 31.1, -128, 2.7, 1.05],
+  [-106, 31.7, -132, 2.5, 1.0],
+  [-111, 32.0, -136, 2.3, 0.92],
+  [-116, 32.1, -140, 2.1, 0.86],
+];
+
+/**
  * Authored per-instance seeds (no RNG anywhere near the frame path).
  *
  * One per mist bank and then some: seeds are handed out modulo this list, so a
@@ -153,9 +182,6 @@ const VERTEX_SHADER = /* glsl */ `
   void main() {
     vUv = uv;
     vSeed = aSeed;
-    // Drift with the weather wind, wrapping over a fixed span; the sine edge
-    // fade dissolves each billboard out downwind and condenses it back
-    // upwind, so the wrap never pops.
     float travel = mod(
       aSeed * uDriftSpan + uTime * uDriftSpeed * (0.4 + uWindSpeed * 0.6),
       uDriftSpan
@@ -163,12 +189,21 @@ const VERTEX_SHADER = /* glsl */ `
     vFade = sin(3.14159265 * (travel / uDriftSpan));
     vec3 center = aAnchor;
     center.xz += uWindDir * (travel - uDriftSpan * 0.5);
-    // Fixed-orientation billboard: the locked ortho camera's view rays are
-    // parallel, so one vertical plane orientation (the azimuth the retired
-    // mist band used) faces the camera from every anchor.
     vec3 offset = vec3(0.7071, 0.0, -0.7071) * (position.x * aScale.x)
       + vec3(0.0, 1.0, 0.0) * (position.y * aScale.y);
     gl_Position = projectionMatrix * modelViewMatrix * vec4(center + offset, 1.0);
+  }
+`;
+
+const STATIC_VERTEX_SHADER = /* glsl */ `
+  attribute vec3 aAnchor;
+  attribute vec2 aScale;
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    vec3 offset = vec3(0.7071, 0.0, -0.7071) * (position.x * aScale.x)
+      + vec3(0.0, 1.0, 0.0) * (position.y * aScale.y);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(aAnchor + offset, 1.0);
   }
 `;
 
@@ -181,9 +216,6 @@ const MIST_FRAGMENT_SHADER = /* glsl */ `
   ${NOISE_GLSL}
   void main() {
     vec2 p = vUv - 0.5;
-    // A wide soft bank: radial falloff stretched horizontally, broken up by
-    // two octaves of noise so it reads as drifting vapour, never a sprite
-    // edge (the failure mode of the hard-edged band this replaces).
     float radial = smoothstep(0.5, 0.08, length(p * vec2(1.0, 2.1)));
     float breakup = bbNoise(vUv * vec2(5.0, 3.0) + vSeed * 17.0) * 0.65
       + bbNoise(vUv * vec2(11.0, 7.0) + vSeed * 29.0) * 0.35;
@@ -206,9 +238,6 @@ const CLOUD_FRAGMENT_SHADER = /* glsl */ `
   ${NOISE_GLSL}
   void main() {
     vec2 p = vUv - 0.5;
-    // Cumulus clump: three seeded blobs for the silhouette, two octaves of
-    // noise to break the edges, and a flattened noisy base for the
-    // flat-bottomed cumulus read.
     float s1 = bbHash(vec2(vSeed, 1.0)) - 0.5;
     float s2 = bbHash(vec2(vSeed, 2.0)) - 0.5;
     float field = smoothstep(0.30, 0.02, length(p - vec2(s1 * 0.2, -0.04)))
@@ -219,9 +248,6 @@ const CLOUD_FRAGMENT_SHADER = /* glsl */ `
     float shape = smoothstep(0.42, 0.8, field * (0.7 + breakup * 0.6));
     shape *= smoothstep(-0.16, -0.06, p.y + breakup * 0.05);
     if (shape < 0.004) discard;
-    // Phase-lit shading: the shaded base blends up into the body colour, and
-    // the sun (projected into billboard space by garden-sky) warms the rim
-    // on its side — ember at dusk, cream at noon, slate under a storm.
     float lit = pow(max(dot(normalize(p + vec2(1e-4)), uSunQuadDir), 0.0), 2.0);
     float rim = 1.0 - smoothstep(0.35, 0.9, field);
     vec3 color = mix(uShadeColor, uBodyColor, smoothstep(-0.1, 0.25, p.y));
@@ -229,6 +255,52 @@ const CLOUD_FRAGMENT_SHADER = /* glsl */ `
     float alpha = shape * uOpacity * vFade;
     if (alpha < 0.004) discard;
     gl_FragColor = vec4(color, alpha);
+  }
+`;
+
+const HEADLAND_FRAGMENT_SHADER = /* glsl */ `
+  uniform vec3 uColor;
+  uniform vec3 uLanternColor;
+  uniform float uLanternOpacity;
+  uniform float uOpacity;
+  varying vec2 vUv;
+  ${NOISE_GLSL}
+  void main() {
+    float x = vUv.x;
+    float mainRise = exp(-pow((x - 0.64) / 0.24, 2.0)) * 0.20;
+    float shoulder = exp(-pow((x - 0.24) / 0.17, 2.0)) * 0.085;
+    float grain = (bbNoise(vec2(x * 7.0, 0.37)) - 0.5) * 0.025;
+    float ridge = 0.28 + mainRise + shoulder + grain;
+    float belowRidge = smoothstep(ridge + 0.045, ridge - 0.055, vUv.y);
+    float baseFade = smoothstep(0.015, 0.23, vUv.y);
+    float sideFade = smoothstep(0.0, 0.13, x) * (1.0 - smoothstep(0.82, 1.0, x));
+    float landAlpha = belowRidge * baseFade * sideFade * uOpacity;
+
+    vec2 lanternDelta = vUv - vec2(0.69, 0.474);
+    float lanternDistance = length(vec2(lanternDelta.x, lanternDelta.y * 0.2));
+    float pixel = max(fwidth(vUv.x), 0.0015);
+    float lantern = 1.0 - smoothstep(pixel * 0.55, pixel * 1.65, lanternDistance);
+    lantern *= uLanternOpacity;
+
+    float alpha = max(landAlpha, lantern);
+    if (alpha < 0.003) discard;
+    vec3 color = mix(uColor, uLanternColor, lantern);
+    gl_FragColor = vec4(color, alpha);
+  }
+`;
+
+const GEESE_FRAGMENT_SHADER = /* glsl */ `
+  uniform vec3 uColor;
+  uniform float uOpacity;
+  varying vec2 vUv;
+  void main() {
+    vec2 p = vUv * 2.0 - 1.0;
+    float wing = abs(abs(p.x) * 0.48 - (p.y + 0.12));
+    float span = 1.0 - smoothstep(0.78, 0.98, abs(p.x));
+    float stroke = 1.0 - smoothstep(0.07, 0.16, wing);
+    float alpha = stroke * span * uOpacity;
+    if (alpha < 0.01) discard;
+    gl_FragColor = vec4(uColor, alpha);
   }
 `;
 
@@ -240,6 +312,7 @@ function createLayer(
   blending: ShaderMaterial["blending"],
   driftSpeed: number,
   driftSpan: number,
+  vertexShader = VERTEX_SHADER,
 ): GardenSkyBillboardLayer {
   const geometry = new PlaneGeometry(1, 1);
   const count = anchors.length;
@@ -272,7 +345,7 @@ function createLayer(
       uWindSpeed: { value: 0.3 },
       ...uniforms,
     },
-    vertexShader: VERTEX_SHADER,
+    vertexShader,
   });
   // The shader places instances from attributes; the per-instance matrix is
   // deliberately unused (left at identity).
@@ -313,14 +386,50 @@ export function createGardenSkyBillboards(): GardenSkyBillboards {
     0.9,
     64,
   );
+  // Borrowed horizon: one static, normal-blended draw. Its colour, presence,
+  // and lantern phase are all supplied by garden-sky from existing tokens.
+  const headlands = createLayer(
+    "garden-sky-borrowed-headlands",
+    HEADLANDS,
+    HEADLAND_FRAGMENT_SHADER,
+    {
+      uColor: { value: null },
+      uLanternColor: { value: null },
+      uLanternOpacity: { value: 0 },
+      uOpacity: { value: 0 },
+    },
+    NormalBlending,
+    0,
+    1,
+    STATIC_VERTEX_SHADER,
+  );
+  const geese = createLayer(
+    "garden-sky-autumn-geese",
+    AUTUMN_GEESE,
+    GEESE_FRAGMENT_SHADER,
+    {
+      uColor: { value: null },
+      uOpacity: { value: 0 },
+    },
+    NormalBlending,
+    0,
+    1,
+    STATIC_VERTEX_SHADER,
+  );
   return {
     clouds,
+    geese,
+    headlands,
     mist,
     dispose() {
       mist.mesh.geometry.dispose();
       mist.material.dispose();
       clouds.mesh.geometry.dispose();
       clouds.material.dispose();
+      geese.mesh.geometry.dispose();
+      geese.material.dispose();
+      headlands.mesh.geometry.dispose();
+      headlands.material.dispose();
     },
   };
 }

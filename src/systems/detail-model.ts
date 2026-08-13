@@ -3,6 +3,7 @@ import { CAUSE_META } from "@shared/lib/cause-of-death";
 import type { BluechipGrade, DimensionKey } from "@shared/types";
 import { formatCompactUsd } from "../lib/format-detail";
 import type { AreaNode, DetailModel, DewsAreaBand, DockNode, GraveNode, LighthouseNode, PharosVilleWorld, PigeonnierNode, ShipNode } from "./world-types";
+import { pigeonnierRoostLabel } from "./pigeonnier-watch";
 import { ETHEREUM_L2_DOCK_CHAIN_IDS } from "./world-layout";
 import { analyticalRouteHref } from "./route-links";
 import { formationLabel, squadForMember, squadRole } from "./maker-squad";
@@ -10,8 +11,18 @@ import { zoneThemeForTerrain } from "./palette";
 import { RISK_WATER_AREAS } from "./risk-water-areas";
 import { cycleTempoDetailLabel, shipCycleTempo, type ShipCycleTempoResult } from "./ship-cycle-tempo";
 import type { SupplyTide } from "./supply-tide";
+import { quayMasonryLabel } from "./dock-health";
+export { quayMasonryHealth, quayMasonryLabel } from "./dock-health";
 import { deriveLampStatus, lampStatusReading } from "./lamp-status";
+import { gardenMonthRecordLabel } from "./garden-month-record";
+import { shipIssuanceDetailLabel } from "./ship-issuance";
+import {
+  shipCollateralFittingLabel,
+  shipCustomsFittingLabel,
+  shipRedemptionFittingLabel,
+} from "./ship-fittings";
 import type { PharosVilleFreshness } from "./world-types";
+import { deriveEpistemicHaze, quayHazeLabel, riskWaterHazeLabel } from "./epistemic-haze";
 
 const usd = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0, style: "currency", currency: "USD" });
 const percent = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1, style: "percent" });
@@ -66,6 +77,45 @@ export function shareOfFleetLabel(node: ShipNode, allShips: readonly ShipNode[])
 
 function pluralize(count: number, singular: string, plural: string = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function formattedDays(days: number): string {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(days);
+}
+
+/**
+ * W7.3 parity wording. Tracking-only evidence is named as a lower bound and a
+ * missing profile explicitly says why the finish remains neutral; neither can
+ * masquerade as a known launch date.
+ */
+export function shipAgeDetailLabel(node: ShipNode): string {
+  const age = node.age;
+  if (!age || age.source === "unavailable" || age.ageDays === null) {
+    return "Unavailable — neutral finish; no launch or tracking history";
+  }
+  const tracked = age.trackingSpanDays === null
+    ? null
+    : `tracked ${formattedDays(age.trackingSpanDays)} days`;
+  if (age.serviceSince) {
+    return [
+      age.serviceSince,
+      tracked,
+      `${age.era} hull`,
+    ].filter(Boolean).join("; ");
+  }
+  if (age.source === "tracking-only") {
+    return `Launch date unavailable; ${tracked ?? `tracked ${formattedDays(age.ageDays)} days`} (lower bound); ${age.era} hull`;
+  }
+  return [
+    `about ${formattedDays(age.ageDays)} days in service`,
+    tracked,
+    `${age.era} hull`,
+  ].filter(Boolean).join("; ");
+}
+
+/** Text intended verbatim for the accessibility-ledger ship clause. */
+export function shipAgeLedgerClause(node: ShipNode): string {
+  return `age patina ${shipAgeDetailLabel(node)}`;
 }
 
 export function lighthouseBeamWarmCueLabel(areas?: readonly AreaNode[]): string {
@@ -383,6 +433,24 @@ export const DIMENSION_KEY_LABELS: Record<DimensionKey, string> = {
   dependencyRisk: "Dependency risk",
 };
 
+function dimensionDetailSummary(value: string): string {
+  const sentence = value.match(/^.*?[.!?](?:\s|$)/)?.[0]?.trim();
+  return sentence || value;
+}
+
+export function reportCardDimensionFacts(
+  reportCard: ShipNode["reportCard"],
+): Array<{ label: string; value: string }> {
+  if (!reportCard || reportCard.overallGrade === "NR") return [];
+  return (Object.entries(DIMENSION_KEY_LABELS) as Array<[DimensionKey, string]>).map(([key, label]) => {
+    const dimension = reportCard.dimensions[key];
+    const score = dimension.score == null || !Number.isFinite(dimension.score)
+      ? ""
+      : ` (${Math.round(dimension.score)}/100)`;
+    return { label, value: `${dimension.grade}${score} — ${dimensionDetailSummary(dimension.detail)}` };
+  });
+}
+
 export function reportCardSafetyLabel(reportCard: ShipNode["reportCard"]): string | null {
   if (!reportCard || reportCard.overallGrade === "NR") return null;
   if (reportCard.overallScore == null || !Number.isFinite(reportCard.overallScore)) {
@@ -394,6 +462,18 @@ export function reportCardSafetyLabel(reportCard: ShipNode["reportCard"]): strin
 function representativePositionLabel(node: ShipNode): string {
   if (node.riskPlacement === "ledger-mooring") return "Ledger Mooring idle";
   return `${node.riskWaterLabel} idle`;
+}
+
+export function riskAnchoringDepthLabel(
+  node: Pick<ShipNode, "riskDepth">,
+): string | null {
+  const depth = node.riskDepth;
+  if (typeof depth !== "number" || !Number.isFinite(depth)) return null;
+  const score = Math.round(Math.max(0, Math.min(1, depth)) * 100);
+  const edge = depth < 0.4 ? "toward the calm edge"
+    : depth > 0.6 ? "toward the rough edge"
+    : "mid-water";
+  return `DEWS ${score}/100 — ${edge}`;
 }
 
 function evidenceStatusLabel(node: ShipNode): string {
@@ -408,6 +488,17 @@ export function stressBreakdownLabel(node: Pick<ShipNode, "stressBreakdown">): s
   return `Driven by: ${parts.join("; ")}`;
 }
 
+export function dependencyFormationLabel(
+  node: Pick<ShipNode, "dependencyFormation">,
+  allShips: readonly Pick<ShipNode, "id" | "label" | "symbol">[],
+): string | null {
+  const dependency = node.dependencyFormation;
+  if (!dependency) return null;
+  const parent = allShips.find((ship) => ship.id === dependency.parentId);
+  if (!parent) return null;
+  return `${dependency.type} dependence on ${parent.label} (${parent.symbol}), ${Math.round(dependency.weight * 100)}% weight`;
+}
+
 function shipLiveryLabel(node: ShipNode): string {
   const livery = node.visual.livery;
   return `${livery.label}; ${livery.logoShape} logo shape, ${livery.sailPanel} sail panel, ${livery.stripePattern} brand stripe`;
@@ -417,6 +508,7 @@ function shipLiveryLabel(node: ShipNode): string {
 export const PHAROS_WATCH_TELEGRAM_HREF = "https://pharos.watch/telegram/";
 
 export function detailForPigeonnier(node: PigeonnierNode): DetailModel {
+  const movers = node.notableMovers ?? [];
   return {
     id: node.detailId,
     kind: node.kind,
@@ -426,8 +518,30 @@ export function detailForPigeonnier(node: PigeonnierNode): DetailModel {
     facts: [
       { label: "Channel", value: "PharosWatch" },
       { label: "Alerts", value: "Stablecoin depegs and safety-score changes" },
+      {
+        label: "Depeg roost",
+        value: node.roost
+          ? pigeonnierRoostLabel(node.roost)
+          : "Unavailable — no peg summary to count",
+      },
+      {
+        label: "Notable movers",
+        value: movers.length > 0
+          ? movers.map((mover) => mover.symbol).join(", ")
+          : "None today",
+      },
     ],
     links: [{ label: "Subscribe on Telegram", href: PHAROS_WATCH_TELEGRAM_HREF, target: "_blank" }],
+    ...(movers.length > 0 ? {
+      membersHeading: "Today's notable movers",
+      members: movers.map((mover) => ({
+        href: analyticalRouteHref(`/stablecoin/${mover.id}/`),
+        id: mover.id,
+        inWorldDetailId: mover.detailId,
+        label: mover.symbol,
+        value: `${mover.change24hUsdLabel}; ${mover.change24hPctLabel}; ${mover.riskWaterLabel}`,
+      })),
+    } : {}),
   };
 }
 
@@ -553,6 +667,7 @@ export function detailForLighthouse(
       { label: "Harbor light", value: lighthouseLampStatusLabel(freshness, generatedAt) },
       ...(beamDwell ? [{ label: "Beam bearing", value: beamDwell }] : []),
       { label: "Worst band, 30d", value: highWaterMarkLabel(node.highWaterMark) },
+      { label: "Garden record, 30d", value: gardenMonthRecordLabel(node.gardenMonthRecord) },
       ...(tide ? [{ label: "Supply tide 7d", value: tide }] : []),
       ...(flightToQuality ? [{ label: "Flight to quality", value: flightToQuality }] : []),
       { label: "Signal mast", value: signalMastLabel(node.signalMast) },
@@ -722,6 +837,7 @@ export function dockConcentrationLabel(concentration: DockNode["concentration"])
 }
 
 export interface DockDetailContext {
+  freshness?: PharosVilleFreshness;
   inWorldDetailIds?: ReadonlySet<string>;
 }
 
@@ -732,9 +848,11 @@ function matchingShipDetailId(stablecoinId: string, inWorldDetailIds: ReadonlySe
 
 export function detailForDock(node: DockNode, context: DockDetailContext | number = {}): DetailModel {
   const inWorldDetailIds = typeof context === "number" ? undefined : context.inWorldDetailIds;
+  const haze = deriveEpistemicHaze(typeof context === "number" ? undefined : context.freshness);
   const topSymbols = node.harboredStablecoins.map((coin) => coin.symbol).join(", ");
   const harborGroup = dockHarborGroupLabel(node);
   const backingDiversity = backingDiversityLabel(node.backingDiversity);
+  const quayMasonry = quayMasonryLabel(node);
   const supplyChange = dockSupplyChangeLabel(node);
   const supplyMomentum = dockSupplyMomentumLabel(node);
   const netFlow24h = cargoTideLabel(node.cargoTide);
@@ -756,6 +874,7 @@ export function detailForDock(node: DockNode, context: DockDetailContext | numbe
       { label: "Stablecoin count", value: String(node.stablecoinCount) },
       { label: "Health", value: node.healthBand ?? "Unavailable" },
       ...(backingDiversity ? [{ label: "Backing diversity", value: backingDiversity }] : []),
+      ...(quayMasonry ? [{ label: "Quay condition", value: quayMasonry }] : []),
       // The two windows share one row (`buildDetailFactSections` folds
       // "Supply momentum" into the 24h row), so the harbour's direction reads as
       // one line rather than two competing ones.
@@ -763,6 +882,7 @@ export function detailForDock(node: DockNode, context: DockDetailContext | numbe
       ...(supplyMomentum ? [{ label: "Supply momentum", value: supplyMomentum }] : []),
       ...(netFlow24h ? [{ label: "Net flow 24h", value: netFlow24h }] : []),
       { label: "Harbor group", value: harborGroup },
+      ...(haze.quays ? [{ label: "Quay haze", value: quayHazeLabel(haze) }] : []),
     ],
     links: [{ label: "Chain", href: analyticalRouteHref(`/chains/${node.chainId}/`) }],
     membersHeading: "Harbored stablecoins",
@@ -995,7 +1115,10 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
   const sourceConsensus = sourceConsensusLabel(node.asset);
   const auditShield = auditShieldLabel(node.reportCard, node.visual.sizeTier);
   const safetyGrade = reportCardSafetyLabel(node.reportCard);
+  const dimensionFacts = reportCardDimensionFacts(node.reportCard);
   const stressDriver = stressBreakdownLabel(node);
+  const dependencyFormation = dependencyFormationLabel(node, allShips);
+  const riskDepth = riskAnchoringDepthLabel(node);
   // The header figure stays the bare reading — it is a headline number, not a
   // sentence — while the fact row carries the direction and the trim.
   const pegDeviation = pegDeviationLabel(node);
@@ -1021,8 +1144,14 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
     { label: "24h supply change", value: change24hPctLabel(node.change24hPct) },
     ...(momentum ? [{ label: "Supply momentum", value: momentum }] : []),
     ...(depegHistory ? [{ label: "Depeg history", value: depegHistory }] : []),
+    { label: "In service since / tracked", value: shipAgeDetailLabel(node) },
     { label: "Cycle tempo", value: cycleTempoDetailLabel(cycleTempo) },
     ...(safetyGrade ? [{ label: "Safety grade", value: safetyGrade }] : []),
+    { label: "Issuance work, 24h", value: shipIssuanceDetailLabel(node) },
+    { label: "Redemption fitting", value: shipRedemptionFittingLabel(node) },
+    { label: "Collateral cargo", value: shipCollateralFittingLabel(node) },
+    { label: "Customs authority", value: shipCustomsFittingLabel(node) },
+    ...dimensionFacts,
     { label: "Ship class", value: node.visual.classLabel },
     { label: "Size tier", value: node.visual.sizeLabel },
     ...(auditShield ? [{ label: "Bluechip audit", value: auditShield }] : []),
@@ -1035,7 +1164,9 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
     { label: "Risk water area", value: node.riskWaterLabel },
     { label: "Risk water zone", value: node.riskZone },
     { label: "Risk placement key", value: node.riskPlacement },
+    ...(riskDepth ? [{ label: "Within-zone anchoring", value: riskDepth }] : []),
     ...(stressDriver ? [{ label: "Stress driver", value: stressDriver }] : []),
+    ...(dependencyFormation ? [{ label: "Dependency formation", value: dependencyFormation }] : []),
     ...riskTransitionFact,
     { label: "Home dock", value: node.homeDockChainId ? chainLabel(node.homeDockChainId) : "No rendered dock" },
     { label: "Chains present", value: chainsPresentLabel(node) },
@@ -1095,7 +1226,8 @@ export function detailForGrave(node: GraveNode): DetailModel {
   };
 }
 
-export function detailForArea(node: AreaNode): DetailModel {
+export function detailForArea(node: AreaNode, freshness: PharosVilleFreshness = {}): DetailModel {
+  const haze = deriveEpistemicHaze(freshness);
   return {
     id: node.detailId,
     kind: node.kind,
@@ -1109,6 +1241,7 @@ export function detailForArea(node: AreaNode): DetailModel {
       ...(node.riskZone ? [{ label: "Risk water zone", value: node.riskZone }] : []),
       ...(node.riskPlacement ? [{ label: "Risk placement", value: node.riskPlacement }] : []),
       { label: "Atmosphere", value: atmosphereForArea(node) },
+      ...(haze.riskWaters ? [{ label: "Risk-water haze", value: riskWaterHazeLabel(haze) }] : []),
       ...(node.facts ?? []),
       ...(node.sourceFields?.length ? [{ label: "Source fields", value: node.sourceFields.join(", ") }] : []),
     ],

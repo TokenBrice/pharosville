@@ -27,6 +27,8 @@ import type {
 } from "../systems/world-types";
 import { sameCamera, samePoint } from "../lib/camera-equality";
 import { isDialogEventTarget } from "./keyboard-event-target";
+import { gardenArrivalCamera, sampleGardenArrivalCamera } from "../systems/garden-arrival";
+import { GARDEN_ATTRACT_SEGMENT_SECONDS, GARDEN_ATTRACT_TRAVEL_SECONDS } from "../systems/garden-attract";
 import {
   FOLLOW_INITIAL_DELTA_SECONDS,
   FOLLOW_LEAD_SECONDS,
@@ -34,6 +36,7 @@ import {
   advanceCameraIntent,
   cameraModeCancelsFollow,
   leadFollowTile,
+  selectionCameraTarget,
   zoomCameraByWheelDelta,
   type CameraIntentMode,
   type CameraIntentState,
@@ -47,6 +50,7 @@ export {
   dampFollowCamera,
   leadFollowTile,
   normalizeWheelDeltaY,
+  selectionCameraTarget,
   wheelZoomScaleFromDelta,
   zoomCameraByWheelDelta,
 } from "./camera-intent";
@@ -103,6 +107,10 @@ export interface UseCanvasResizeAndCameraResult {
   handleToolbarZoomOut: () => void;
   maximumRequestedDprRef: MutableRefObject<number>;
   moveCameraTo: (camera: IsoCamera) => void;
+  focusSelection: (tile: ScreenPoint, onRest: () => void) => IsoCamera | null;
+  returnFromSelection: (camera: IsoCamera) => void;
+  startArrival: (onComplete: () => void) => void;
+  skipArrival: () => void;
   setCamera: Dispatch<SetStateAction<IsoCamera | null>>;
   /**
    * Observe 2.0 (Phase 4): hand the camera to the cinematic tour. The hook
@@ -114,6 +122,8 @@ export interface UseCanvasResizeAndCameraResult {
     keyframes: readonly ObserveTourKeyframe[],
     onBeatChange?: (beatIndex: number | null) => void,
   ) => void;
+  startAttractTour: (keyframes: readonly ObserveTourKeyframe[]) => void;
+  stopAttractTour: () => void;
   stopObserveTour: (options?: { easeBack?: boolean }) => void;
   stepCamera: (now: number, shipMotionSamples: ReadonlyMap<string, ShipMotionSample>) => CameraStepResult;
 }
@@ -153,6 +163,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   const followChaseDetailIdRef = useRef<string | null>(null);
   const followChaseLastTileRef = useRef<ScreenPoint | null>(null);
   const followChaseLastTimeRef = useRef<number | null>(null);
+  const selectionCameraRestRef = useRef<(() => void) | null>(null);
   // Observe 2.0: the active tour and the framing to glide back to. The sample
   // scratch is reused every frame — no allocation in the camera path.
   const observeTourRef = useRef<{
@@ -161,6 +172,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     returnPose: ReturnType<typeof observeTourPoseFromCamera>;
     startMs: number | null;
     tour: ObserveTour;
+    loop?: boolean;
   } | null>(null);
   const observeSampleRef = useRef<ObserveTourSample>({
     beatIndex: 0,
@@ -169,6 +181,12 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     isoY: 0,
     zoom: 1,
   });
+  const arrivalRef = useRef<{
+    from: IsoCamera;
+    onComplete: () => void;
+    startMs: number | null;
+    to: IsoCamera;
+  } | null>(null);
 
   const [camera, setCameraState] = useState<IsoCamera | null>(null);
   const [canvasSize, setCanvasSize] = useState<ScreenPoint>({ x: 0, y: 0 });
@@ -202,6 +220,12 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     requestWorldFrame();
   }, [commitCameraState, requestWorldFrame]);
 
+  const finishSelectionCamera = useCallback(() => {
+    const onRest = selectionCameraRestRef.current;
+    selectionCameraRestRef.current = null;
+    onRest?.();
+  }, []);
+
   const freezeDisplayedCamera = useCallback(() => {
     const displayedCamera = displayCameraRef.current ?? cameraRef.current;
     cameraIntentRef.current = {
@@ -221,6 +245,11 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     observeTourRef.current = null;
     freezeDisplayedCamera();
   }, [freezeDisplayedCamera]);
+
+  const cancelCameraIntent = useCallback(() => {
+    stopFollowChase();
+    finishSelectionCamera();
+  }, [finishSelectionCamera, stopFollowChase]);
 
   const currentCameraBase = useCallback(() => (
     cameraIntentRef.current.targetCamera ?? displayCameraRef.current ?? cameraRef.current
@@ -276,6 +305,60 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   const moveCameraTo = useCallback((targetCamera: IsoCamera) => {
     queueCameraTarget(targetCamera, "external");
   }, [queueCameraTarget]);
+
+  const focusSelection = useCallback((tile: ScreenPoint, onRest: () => void): IsoCamera | null => {
+    stopFollowChase();
+    const start = displayCameraRef.current ?? cameraRef.current;
+    if (!start) {
+      onRest();
+      return null;
+    }
+    selectionCameraRestRef.current = onRest;
+    const target = selectionCameraTarget({
+      camera: start,
+      map: world.map,
+      tile,
+      viewport: framingViewport(),
+    });
+    queueCameraTarget(target, "selection");
+    if (reducedMotion || sameCamera(start, target)) finishSelectionCamera();
+    return start;
+  }, [cameraRef, finishSelectionCamera, framingViewport, queueCameraTarget, reducedMotion, stopFollowChase, world.map]);
+
+  const returnFromSelection = useCallback((targetCamera: IsoCamera) => {
+    queueCameraTarget(targetCamera, "selection-return");
+  }, [queueCameraTarget]);
+
+  const finishArrival = useCallback(() => {
+    const arrival = arrivalRef.current;
+    if (!arrival) return;
+    arrivalRef.current = null;
+    applyCameraImmediately(arrival.to);
+    arrival.onComplete();
+  }, [applyCameraImmediately]);
+
+  const startArrival = useCallback((onComplete: () => void) => {
+    const viewport = framingViewport();
+    if (viewport.x <= 0 || viewport.y <= 0) {
+      onComplete();
+      return;
+    }
+    const target = defaultCamera({ height: viewport.y, map: world.map, width: viewport.x });
+    if (reducedMotion) {
+      applyCameraImmediately(target);
+      onComplete();
+      return;
+    }
+    const from = gardenArrivalCamera(target);
+    cameraIntentRef.current = { lastFrameTime: null, mode: "idle", targetCamera: from };
+    commitCameraState(from);
+    arrivalRef.current = { from, onComplete, startMs: null, to: target };
+    requestWorldFrame();
+  }, [applyCameraImmediately, commitCameraState, framingViewport, reducedMotion, requestWorldFrame, world.map]);
+
+  const skipArrival = useCallback(() => {
+    finishArrival();
+  }, [finishArrival]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -571,12 +654,40 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       return { camera: null, cameraChanged: false, cameraIntentActive: false };
     }
 
+    const arrival = arrivalRef.current;
+    if (arrival && !reducedMotion) {
+      if (arrival.startMs === null) arrival.startMs = now;
+      const sampled = sampleGardenArrivalCamera(arrival.from, arrival.to, now - arrival.startMs);
+      const cameraChanged = !sameCamera(displayCamera, sampled.camera);
+      commitCameraState(sampled.camera);
+      if (sampled.done) {
+        arrivalRef.current = null;
+        arrival.onComplete();
+      }
+      return { camera: sampled.camera, cameraChanged, cameraIntentActive: !sampled.done };
+    }
+
     // Observe 2.0: the tour owns the camera while it runs. Sampling is a pure
     // function of the elapsed clock — no damping, no state to drift.
     const activeTour = observeTourRef.current;
     if (activeTour && !reducedMotion) {
       if (activeTour.startMs === null) activeTour.startMs = now;
       const elapsedSeconds = Math.max(0, (now - activeTour.startMs) / 1000);
+      if (elapsedSeconds >= activeTour.tour.totalSeconds && activeTour.loop) {
+        activeTour.tour = buildObserveTour({
+          keyframes: activeTour.tour.keyframes,
+          segmentSeconds: GARDEN_ATTRACT_SEGMENT_SECONDS,
+          start: observeTourPoseFromCamera(displayCamera, canvasSizeRef.current),
+          travelSeconds: GARDEN_ATTRACT_TRAVEL_SECONDS,
+        });
+        activeTour.startMs = now;
+        const pose = observeSampleRef.current;
+        sampleObserveTour(activeTour.tour, 0, pose);
+        const nextCamera = observeTourPoseToCamera(pose, canvasSizeRef.current, world.map);
+        const cameraChanged = !sameCamera(displayCamera, nextCamera);
+        commitCameraState(nextCamera);
+        return { camera: nextCamera, cameraChanged, cameraIntentActive: true };
+      }
       if (elapsedSeconds >= activeTour.tour.totalSeconds) {
         // Natural end: glide back to the visitor's framing and fall through
         // to the ordinary intent path, which runs that glide below.
@@ -613,9 +724,11 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       }
       cameraIntentRef.current = { lastFrameTime: null, mode: "idle", targetCamera };
       if (sameCamera(displayCamera, targetCamera)) {
+        finishSelectionCamera();
         return { camera: displayCamera, cameraChanged: false, cameraIntentActive: false };
       }
       commitCameraState(targetCamera);
+      finishSelectionCamera();
       return { camera: targetCamera, cameraChanged: true, cameraIntentActive: false };
     }
 
@@ -686,6 +799,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
         mode: "idle",
         targetCamera: advanced.camera,
       };
+      finishSelectionCamera();
       return { camera: advanced.camera, cameraChanged, cameraIntentActive: false };
     }
 
@@ -694,7 +808,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       lastFrameTime: now,
     };
     return { camera: advanced.camera, cameraChanged, cameraIntentActive: true };
-  }, [cameraRef, canvasSizeRef, commitCameraState, framingViewport, queueCameraTarget, reducedMotion, selectedDetailIdRef, selectedEntityRef, selectedFollowTile, stopFollowChase, world.map]);
+  }, [cameraRef, canvasSizeRef, commitCameraState, finishSelectionCamera, framingViewport, queueCameraTarget, reducedMotion, selectedDetailIdRef, selectedEntityRef, selectedFollowTile, stopFollowChase, world.map]);
 
   const handleFollowSelected = useCallback(() => {
     if (!selectedEntity) return;
@@ -762,6 +876,33 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     };
     requestWorldFrame();
   }, [cameraRef, framingViewport, reducedMotion, requestWorldFrame, stopFollowChase]);
+
+  const startAttractTour = useCallback((keyframes: readonly ObserveTourKeyframe[]) => {
+    stopFollowChase();
+    const startCamera = displayCameraRef.current ?? cameraRef.current;
+    if (!startCamera || reducedMotion || keyframes.length === 0) return;
+    const viewport = framingViewport();
+    const returnPose = observeTourPoseFromCamera(startCamera, viewport);
+    observeTourRef.current = {
+      lastBeatIndex: null,
+      loop: true,
+      returnPose,
+      startMs: null,
+      tour: buildObserveTour({
+        keyframes,
+        segmentSeconds: GARDEN_ATTRACT_SEGMENT_SECONDS,
+        start: returnPose,
+        travelSeconds: GARDEN_ATTRACT_TRAVEL_SECONDS,
+      }),
+    };
+    requestWorldFrame();
+  }, [cameraRef, framingViewport, reducedMotion, requestWorldFrame, stopFollowChase]);
+
+  const stopAttractTour = useCallback(() => {
+    if (!observeTourRef.current?.loop) return;
+    observeTourRef.current = null;
+    freezeDisplayedCamera();
+  }, [freezeDisplayedCamera]);
 
   const stopObserveTour = useCallback((options?: { easeBack?: boolean }) => {
     const active = observeTourRef.current;
@@ -842,12 +983,13 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     camera,
     cameraRef,
     cameraZoomLabel: camera ? cameraZoomLabel(camera) : "100%",
-    cancelCameraIntent: stopFollowChase,
+    cancelCameraIntent,
     surfaceBudgetRef,
     canvasRef,
     canvasSize,
     canvasSizeRef,
     focusTile,
+    focusSelection,
     handleFollowSelected,
     handleKeyDown,
     handlePointerCancel,
@@ -861,8 +1003,13 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     handleToolbarZoomOut,
     maximumRequestedDprRef,
     moveCameraTo,
+    returnFromSelection,
     setCamera,
+    skipArrival,
+    startArrival,
+    startAttractTour,
     startObserveTour,
+    stopAttractTour,
     stopObserveTour,
     stepCamera,
   };

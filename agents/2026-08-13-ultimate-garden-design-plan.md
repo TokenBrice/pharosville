@@ -165,6 +165,34 @@ Effort: S (≤1 day) · M (2–5 days) · L (1–2 weeks) · XL (2+ weeks). Each
 
 - [ ] **W8.1 — Three-layer procedural soundscape, off by default.** Pure Web Audio synthesis, zero asset bytes, own thread: brown-noise sea through a lowpass swelling on the W3.2 breath LFO with a gated spray layer; filtered-noise wind following the wind field; a rare soft bell on long deterministic intervals; gull cries keyed to the W3.4 sorties. Off by default; resumed only on explicit gesture at a diegetic toggle (a small ship's bell, not a speaker icon); ≥2 s fade-in; duck on `visibilitychange`; preference persisted. If it ships, add chime-grade pentatonic interaction tones (hover = faint high partial, selection = soft bell, max one chime/150 ms) so the world answers ears as well as eyes. **Hard quality gate: 3–5 days of real tuning or ship nothing — half-tuned looped wind harms the register more than silence.** **Operator decision 2026-08-13: ship it — the tuning time is committed.** *(L, depends: W3.2)*
 
+### Completion handoff — 2026-08-13
+
+The following previously open implementation rows are complete in the assembled
+working tree: W2.6, W3.2–W3.3, W4.2–W4.3, W4.6, W5.0–W5.4, W5.7–W5.8,
+W6.1–W6.3, W6.6, and W7.1–W7.6 plus W7.8. The checkbox text above is
+retained as the approved brief; this handoff is the completion ledger for the
+recovered multi-slice implementation.
+
+Two plan-directed technical dispositions are recorded rather than hidden:
+
+- W2.6 keeps shoreline lace on the terrain/shore analytical field because the
+  composed depth texture contains the opaque water plane, not the submerged
+  shore; the requested depth reuse cannot reveal what is behind that plane
+  without adding the extra water-depth pass the task forbids. PMREM coherence,
+  Jacobian crest foam, filtered glints, and the quietness gate all landed.
+- W6.3 ships heron, lantern round, and meteor. Moonbow remains absent because
+  the current payload has no trustworthy stressed-to-resolved edge; inventing
+  one would violate the data-honesty guardrail.
+- W8.1 is not shipped. Its recovered same-day prototype had no evidence for
+  the brief's mandatory 3–5 days of real audio tuning and duplicated the W3.2
+  breath/W3.4 sortie clocks. The plan explicitly says "ship nothing" in that
+  state, so the harbor remains silent until the committed tuning gate is
+  actually completed.
+
+Final assembled real-GPU dusk gate: tier full, 120 fps, p90 9.2 ms, worst-window
+p95 9.3 ms, 613 calls, 343,716 triangles, 360 geometries, 71 textures, no
+runtime/shader errors. The renderer chunk remains under its unchanged budget.
+
 ---
 
 ## 6. Deferred & watch items (with re-entry criteria — do not relitigate without them)
