@@ -5,6 +5,7 @@ import {
   RENDER_SCHEDULER_IDLE_AFTER_MS,
   RENDER_SCHEDULER_IDLE_TARGET_FRAME_MS,
   RENDER_SCHEDULER_UPSHIFT_STREAK,
+  isRenderSchedulerIdle,
   resolveRenderSchedulerIdleState,
   resolveRenderSchedulerState,
   seaQualityTier,
@@ -118,6 +119,17 @@ describe("render scheduler", () => {
     });
     expect(reduced.idle).toBe(false);
     expect(reduced.targetFrameMs).toBe(16.7);
+
+    expect(isRenderSchedulerIdle(resolveRenderSchedulerState({
+      cameraIntentActive: false,
+      idleActive: true,
+      reducedMotion: false,
+    }))).toBe(true);
+    expect(isRenderSchedulerIdle(resolveRenderSchedulerState({
+      cameraIntentActive: false,
+      idleActive: false,
+      reducedMotion: false,
+    }))).toBe(false);
   });
 
   it("passes a two-frame interval on a 60Hz display, so idle is 30fps not 20", () => {

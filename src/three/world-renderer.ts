@@ -39,7 +39,7 @@ import type {
   PharosVilleRenderSchedulerTier,
   TextureOwnerCensus,
 } from "../renderer/render-types";
-import { seaQualityTier } from "../renderer/render-scheduler";
+import { isRenderSchedulerIdle, seaQualityTier } from "../renderer/render-scheduler";
 import {
   GARDEN_HULL_SILHOUETTES,
   GARDEN_LIGHTHOUSE_BEACON_Y,
@@ -58,6 +58,15 @@ import {
 import { HARBOR_PALETTE, zoneThemeForTerrain } from "../systems/palette";
 import { screenToTile } from "../systems/projection";
 import { writeWeatherPlan, type WeatherPlan } from "../systems/weather";
+import {
+  advanceLampStatus,
+  initialLampStatusState,
+  lampStatusMixForStatus,
+  lampStatusModulationForMix,
+  LAMP_STATUS_TRANSITION_SECONDS,
+  type LampStatusModulation,
+  type LampStatusHysteresisState,
+} from "../systems/lamp-status";
 import type { PharosVilleWorld } from "../systems/world-types";
 import {
   worldRenderContentPartHashes,
@@ -133,6 +142,7 @@ import {
 import {
   applyLighthouseRimLight,
   attachGardenLighthouseModel,
+  updateLighthouseLampStatus,
   updateLighthouseRimLight,
 } from "./garden-lighthouse";
 import { createGardenBeaconFire, type GardenBeaconFire } from "./garden-beacon-fire";
@@ -664,6 +674,8 @@ export function createThreeWorldRenderer(
       // frame so no single frame carries the whole cost.
       if (!scene.content) {
         const content = createWorldContentShell(scene);
+        content.lampStatusState = initialLampStatusState(frame.world.freshness);
+        content.lampStatusMix = lampStatusMixForStatus(content.lampStatusState.status);
         scene.content = content;
         scene.root.add(content.root);
         const keys = worldContentPartKeys(frame.world);
@@ -699,6 +711,7 @@ export function createThreeWorldRenderer(
             // before the offscreen pass can composite them.
             scene.wakes.reset();
           }
+          content.lampStatusState = advanceLampStatus(content.lampStatusState, frame.world.freshness);
           // Frame-time semantic consumers must see the latest world object
           // (motion, sea state, hit targets, and DOM all continue updating
           // independently of baked GPU content).
@@ -904,11 +917,17 @@ export function createThreeWorldRenderer(
         aoTierWeight += (aoTarget - aoTierWeight) * alpha;
         if (Math.abs(aoTierWeight - aoTarget) < 0.002) aoTierWeight = aoTarget;
       }
+      post.setIdleProfile?.(
+        isRenderSchedulerIdle(frame.renderScheduler),
+        frame.reducedMotion,
+      );
       post.setAOQuality(activeAOQuality);
       post.setAOTierWeight(aoTierWeight);
       post.setAOZoomDetail(scene.content?.overviewLod.detail ?? 1);
       post.setGrade(phase.daylight, phase.dusk, scene.weather.stormLevel, scene.weather.lightning);
-      post.render();
+      // Carry the real frame delta into the post chain so its 180 ms hero
+      // fades stay 180 ms at the idle 30 fps duty cycle as well as when awake.
+      post.render(aoDeltaSeconds);
 
       const content = scene.content;
       const renderInfo = renderer.info.render;
@@ -1075,6 +1094,10 @@ interface GardenContent {
   beaconFire: GardenBeaconFire;
   beaconFireRoot: Group;
   beaconHalo: Mesh<SphereGeometry, MeshBasicMaterial>;
+  /** W6.4: stable data status and its slow render-side transition position. */
+  lampStatusState: LampStatusHysteresisState;
+  lampStatusMix: number;
+  lampModulation: LampStatusModulation;
   beam: Group;
   /**
    * 3d: the bearing from the beacon to the largest PSI contributor's berth, in
@@ -1526,6 +1549,9 @@ function createWorldContentShell(scene: GardenScene): GardenContent {
     entityCues: new Map<string, EntityCue>(),
     fleetBatches: scene.fleetBatches,
     fleetSailMaterial: scene.fleetBatches.materials[1] ?? null,
+    lampStatusMix: 0,
+    lampModulation: lampStatusModulationForMix(0),
+    lampStatusState: initialLampStatusState({}),
     sailAtlas: scene.sailAtlas,
     objectCount: 0,
     parts,
@@ -2705,6 +2731,20 @@ function updateSceneForFrame(
     return;
   }
 
+  // W6.4: status changes are held by the pure two-observation hysteresis
+  // state machine above, then eased here at garden tempo. Clamp the elapsed
+  // step so a hidden tab never catches up with a teleporting lamp.
+  const lampTargetMix = lampStatusMixForStatus(content.lampStatusState.status);
+  if (frame.reducedMotion) {
+    content.lampStatusMix = lampTargetMix;
+  } else {
+    const lampDeltaSeconds = MathUtils.clamp(beamElapsedSeconds, 0, 0.25);
+    const lampAlpha = 1 - Math.exp(-lampDeltaSeconds / LAMP_STATUS_TRANSITION_SECONDS);
+    content.lampStatusMix += (lampTargetMix - content.lampStatusMix) * lampAlpha;
+  }
+  const lampModulation = lampStatusModulationForMix(content.lampStatusMix, content.lampModulation);
+  updateLighthouseLampStatus(content, lampModulation);
+
   const constrained = frame.renderScheduler.tier === "constrained";
   // R13: ambient life survives `recovery`.
   //
@@ -2747,6 +2787,7 @@ function updateSceneForFrame(
   // per frame, PSI-stress-scaled — D5) drives the fire's shared uniforms and
   // breathes through the halo and PointLight on top of the day-cycle base.
   const flicker = content.beaconFire.update({
+    lampModulation,
     psiStress: frame.seaState.source.psiStress,
     reducedMotion: frame.reducedMotion,
     timeSeconds: frame.timeSeconds,
@@ -2837,6 +2878,7 @@ function updateSceneForFrame(
   // stalls, or jumps, and an absent contributor scales by exactly 1, restoring
   // the plain even sweep with no branch here.
   const sweepRate = (0.2 + psiStress * 0.22)
+    * lampModulation.rotationScale
     * beamDwellRateScale(scene.beamAngle, content.beamDwellBearing);
   // Only reduced motion freezes the sweep, and that is a policy, not a budget.
   //

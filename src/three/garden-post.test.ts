@@ -861,6 +861,81 @@ describe("garden post-processing contracts", () => {
     expect(n8ao.enabled).toBe(true);
   });
 
+  it("eases the idle profile across AO, DoF, and god rays without changing colour or passes", () => {
+    const { composer, light, n8ao, post } = makePost({ withShadowLight: true });
+    const tiltShift = effectNamed("GardenTiltShift");
+    const godRays = effectNamed("GardenGodRays");
+    const grade = effectNamed("GardenGrade");
+    if (!light) throw new Error("Expected a shadow-casting light");
+
+    const phase = dayCyclePhase(19);
+    aimLightAtHour(light, 19);
+    post.setGrade(phase.daylight, phase.dusk);
+    post.render(1 / 60);
+    const awakeAOIntensity = n8ao.configuration.intensity;
+    const performanceAOIntensity = awakeAOIntensity * 0.85;
+
+    const passes = composer.passes;
+    const effects = passes.map((pass) => pass.effects);
+    const colourBefore = {
+      saturation: numberUniform(grade, "saturation"),
+      vignette: numberUniform(grade, "vignette"),
+      flash: numberUniform(grade, "flash"),
+    };
+
+    // A full-tier idle frame does not toggle a load tier. The dedicated idle
+    // weight eases the existing uniform scales toward the Performance profile.
+    post.setIdleProfile?.(true);
+    post.render(1 / 60);
+    expect(n8ao.configuration.intensity).toBeLessThan(awakeAOIntensity);
+    expect(n8ao.configuration.intensity).toBeGreaterThan(performanceAOIntensity);
+    expect(n8ao.configuration.aoRadius).toBeLessThan(2);
+    expect(n8ao.configuration.aoRadius).toBeGreaterThan(1.4);
+    expect(numberUniform(tiltShift, "strength")).toBeLessThan(0.72);
+    expect(numberUniform(tiltShift, "strength")).toBeGreaterThan(0);
+    expect(numberUniform(godRays, "rayWeight")).toBeLessThan(0.02);
+    expect(numberUniform(godRays, "rayWeight")).toBeGreaterThan(0);
+
+    for (let frame = 0; frame < 90; frame += 1) post.render(1 / 60);
+    expect(n8ao.configuration.intensity).toBeCloseTo(performanceAOIntensity);
+    expect(n8ao.configuration.aoRadius).toBeCloseTo(1.4);
+    expect(numberUniform(tiltShift, "strength")).toBe(0);
+    expect(numberUniform(godRays, "rayWeight")).toBe(0);
+    expect(post.getPassList()).not.toContain("dof");
+    expect(post.getPassList()).not.toContain("godrays");
+    expect(composer.passes).toBe(passes);
+    expect(composer.passes.map((pass) => pass.effects)).toEqual(effects);
+    expect(numberUniform(grade, "saturation")).toBe(colourBefore.saturation);
+    expect(numberUniform(grade, "vignette")).toBe(colourBefore.vignette);
+    expect(numberUniform(grade, "flash")).toBe(colourBefore.flash);
+
+    // Wake takes the same curve in reverse; neither contribution pops back.
+    post.setIdleProfile?.(false);
+    post.render(1 / 60);
+    expect(n8ao.configuration.intensity).toBeGreaterThan(performanceAOIntensity);
+    expect(n8ao.configuration.intensity).toBeLessThan(awakeAOIntensity);
+    expect(numberUniform(tiltShift, "strength")).toBeGreaterThan(0);
+    expect(numberUniform(tiltShift, "strength")).toBeLessThan(0.72);
+    expect(numberUniform(godRays, "rayWeight")).toBeGreaterThan(0);
+    expect(numberUniform(godRays, "rayWeight")).toBeLessThan(0.02);
+    for (let frame = 0; frame < 90; frame += 1) post.render(1 / 60);
+    expect(n8ao.configuration.intensity).toBe(awakeAOIntensity);
+    expect(n8ao.configuration.aoRadius).toBe(2);
+    expect(numberUniform(tiltShift, "strength")).toBeCloseTo(0.72);
+    expect(numberUniform(godRays, "rayWeight")).toBeCloseTo(0.02, 3);
+
+    // A reduced-motion repaint is a complete static composition even if it
+    // arrives directly after an idle frame; it does not wait out a fade.
+    post.setIdleProfile?.(true);
+    for (let frame = 0; frame < 90; frame += 1) post.render(1 / 60);
+    post.setIdleProfile?.(false, true);
+    post.render(0);
+    expect(n8ao.configuration.intensity).toBe(awakeAOIntensity);
+    expect(n8ao.configuration.aoRadius).toBe(2);
+    expect(numberUniform(tiltShift, "strength")).toBeCloseTo(0.72);
+    expect(numberUniform(godRays, "rayWeight")).toBeCloseTo(0.02, 3);
+  });
+
   it("fades the tilt-shift on the shared tier weight and never on zoom or hue", () => {
     const { post } = makePost();
     const tiltShift = effectNamed("GardenTiltShift");

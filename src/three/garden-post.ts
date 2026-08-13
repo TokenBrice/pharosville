@@ -348,6 +348,8 @@ const AO_DISTANCE_FALLOFF = 1;
 /** Uniform-level tier scales — cheap to change, no shader recompile. */
 const AO_BALANCED_RADIUS_SCALE = 0.7;
 const AO_BALANCED_INTENSITY_SCALE = 0.85;
+/** Idle and load-tier fidelity eases share this 180 ms time constant. */
+const POST_TIER_FADE_SECONDS = 0.18;
 
 export type GardenAOQuality = "full" | "balanced";
 
@@ -1050,9 +1052,6 @@ const GODRAY_DUSK_COLOR: readonly [number, number, number] = [1, 0.63, 0.3];
 const GODRAY_DAWN_COLOR: readonly [number, number, number] = [0.88, 0.89, 0.95];
 const GODRAY_DUSK_DENSITY = 1;
 const GODRAY_DAWN_DENSITY = 0.74;
-/** Tier fade time constant — the same 180 ms ease the AO weight rides. */
-const GODRAY_TIER_FADE_SECONDS = 0.18;
-
 const GODRAY_MARCH_FRAGMENT_SHADER = /* glsl */ `
   uniform sampler2D depthBuffer;
   uniform sampler2DShadow shadowMap;
@@ -1298,6 +1297,8 @@ export interface GardenPost {
   setAOZoomDetail: (detail: number) => void;
   setBloomEnabled: (enabled: boolean) => void;
   setEnabled: (enabled: boolean) => void;
+  /** Set the unattended second-monitor post profile target. */
+  setIdleProfile?: (idle: boolean, immediate?: boolean) => void;
   /**
    * W2.3 / W4.6 seam: where the tilt-shift's sharp band sits, as a view-space
    * distance. `null` (the default) derives it from the camera — the point the
@@ -1678,6 +1679,10 @@ export function createGardenPost(
   let aoTierWeight = 1;
   let aoQuality: GardenAOQuality = "full";
   let aoZoomDetail = 1;
+  /** 1 is the awake/full profile; 0 is the idle/Performance profile. */
+  let idleProfileWeight = 1;
+  let idleProfileTarget = 1;
+  let idleProfileImmediate = false;
   let phaseAOIntensity = POST_PHASE_NIGHT.aoIntensity;
   const passList: string[] = [];
 
@@ -1721,12 +1726,20 @@ export function createGardenPost(
     // not a colour — the painted contact discs stay rendered at every tier
     // and zoom, so the grounding intent never leaves the frame.
     n8aoPass.enabled = enabled && aoTierWeight > 0 && aoZoomDetail > 0;
-    const intensityScale = aoQuality === "full" ? 1 : AO_BALANCED_INTENSITY_SCALE;
+    // Idle stays on the existing Performance shader quality. Only the uniform
+    // scales move toward its smaller radius/softer contribution, so a full
+    // load tier can enter and leave idle without a quality-mode recompile or a
+    // one-frame AO pop.
+    const loadIntensityScale = aoQuality === "full" ? 1 : AO_BALANCED_INTENSITY_SCALE;
+    const idleIntensityScale = lerp(AO_BALANCED_INTENSITY_SCALE, 1, idleProfileWeight);
+    const intensityScale = Math.min(loadIntensityScale, idleIntensityScale);
     aoConfiguration.intensity = phaseAOIntensity
       * intensityScale
       * Math.max(aoZoomDetail, 0)
       * aoTierWeight;
-    const radiusScale = aoQuality === "full" ? 1 : AO_BALANCED_RADIUS_SCALE;
+    const loadRadiusScale = aoQuality === "full" ? 1 : AO_BALANCED_RADIUS_SCALE;
+    const idleRadiusScale = lerp(AO_BALANCED_RADIUS_SCALE, 1, idleProfileWeight);
+    const radiusScale = Math.min(loadRadiusScale, idleRadiusScale);
     aoConfiguration.aoRadius = AO_RADIUS * radiusScale;
 
     // W2.3 rides the SAME eased tier weight the AO does, because it is the same
@@ -1740,7 +1753,7 @@ export function createGardenPost(
     // small props it grounds, while the tilt-shift band is expressed in view
     // heights and therefore says the same thing at every zoom.
     tiltShiftEffect.strength = enabled && orthographicCamera
-      ? aoTierWeight * DOF_STRENGTH
+      ? aoTierWeight * idleProfileWeight * DOF_STRENGTH
       : 0;
   }
 
@@ -1846,6 +1859,16 @@ export function createGardenPost(
     lutUniforms.ditherMix.value = easeExponential(lutUniforms.ditherMix.value, ditherTarget, deltaSeconds, POST_ASSET_FADE_RATE);
   }
 
+  function syncIdleProfile(deltaSeconds = 0): void {
+    idleProfileWeight = easeExponential(
+      idleProfileWeight,
+      idleProfileTarget,
+      deltaSeconds,
+      1 / POST_TIER_FADE_SECONDS,
+    );
+    syncTierFidelity();
+  }
+
   /**
    * Everything the two hero passes need from the camera, once per frame.
    *
@@ -1886,13 +1909,23 @@ export function createGardenPost(
     // Full tier only. `aoQuality` is what `world-renderer.ts` reports the
     // resolved tier as, and it flips without an ease of its own, so the ease
     // lives here — same 180 ms constant as the AO weight it rides beside.
-    const tierTarget = enabled && aoQuality === "full" ? aoTierWeight : 0;
-    rayTierWeight = easeExponential(
-      rayTierWeight,
-      tierTarget,
-      deltaSeconds,
-      1 / GODRAY_TIER_FADE_SECONDS,
-    );
+    // Use the target, rather than the current idle weight, so wake begins one
+    // clean 180 ms ease immediately instead of making the ray ease chase a
+    // second moving target behind it.
+    const tierTarget = enabled && aoQuality === "full"
+      ? aoTierWeight * idleProfileTarget
+      : 0;
+    if (idleProfileImmediate) {
+      rayTierWeight = tierTarget;
+      idleProfileImmediate = false;
+    } else {
+      rayTierWeight = easeExponential(
+        rayTierWeight,
+        tierTarget,
+        deltaSeconds,
+        1 / POST_TIER_FADE_SECONDS,
+      );
+    }
 
     if (!shadowLight) {
       godRaysEffect.weight = 0;
@@ -1953,6 +1986,7 @@ export function createGardenPost(
       return enabled;
     },
     render(deltaTime) {
+      syncIdleProfile(deltaTime ?? 0);
       easePostAssets(deltaTime);
       syncCameraDerivedUniforms();
       syncGodRays(deltaTime ?? 0);
@@ -1991,6 +2025,14 @@ export function createGardenPost(
     setEnabled(nextEnabled) {
       enabled = nextEnabled;
       syncTierFidelity();
+    },
+    setIdleProfile(idle, immediate = false) {
+      idleProfileTarget = idle ? 0 : 1;
+      idleProfileImmediate = immediate;
+      if (immediate) {
+        idleProfileWeight = idleProfileTarget;
+        syncTierFidelity();
+      }
     },
     setFocusBandDistance(distance) {
       focusBandOverride = distance !== null && Number.isFinite(distance) ? distance : null;
