@@ -108,6 +108,60 @@ aria-hidden, so the ledger — not the sign — is the redundant channel.
   everything visible, and silently switches the whole system off while leaving
   its documentation looking correct.
 
+## Stillness
+
+- **The night has one dominant light and one secondary.** The dominant is the
+  beacon; the secondary is the moon road. Everything else that glows after dark
+  — path and terrace lanterns, dock lamps, lit windows, buoy lamps, ship
+  lanterns, and every reflection they lay on the sea — is an EMBER: warm,
+  present, and subordinate. None of it may be raised to compete. This is
+  enforced where the light is authored, not where it is composited: the shared
+  lane registry applies a per-kind ember gain (`GARDEN_LANE_EMBER_GAIN`, 0.55 on
+  lantern and buoy lanes) and exempts the beacon, and the island's own lamp
+  emissives sit a step below the beacon in turn. A night frame containing a
+  second thing as bright as the tower is a regression whatever else it gained.
+- **Light pools are budgeted, and a crowd of them is thinned before any one is
+  dimmed.** At most 24 reflection lanes burn at once at tier full
+  (`GARDEN_LANE_BUDGET_FOR_TIER`); the 48-texel lane texture is a packing
+  layout, never a target. Two ember lanes closer than
+  `GARDEN_EMBER_LANE_MIN_SEPARATION` (6 world units — the shader pool's own 1/e
+  radius plus margin) may not both burn, and the dimmer stands down. Overlapping
+  pools merge into one pale disc, which is how the sea turned milky; the remedy
+  is fewer lights, not weaker ones. The lamp keeps burning on land — only its
+  reflection is thinned.
+- **Simultaneity is a viewing condition. A reading is not.** Analytical lanes —
+  today the route pulses — are never touched by the ember gain and never
+  spatially thinned. They are capped in how many run AT ONCE (four at tier full)
+  and rotate on a slow deterministic clock, so every route takes its turn and
+  none goes permanently dark. Capping simultaneity and demoting brightness are
+  the two sanctioned ways to quiet a cue; removing what it says is not one of
+  them.
+- **The Pharos precinct carries three secondary reads and no more:** the
+  pavilion, the reflection pond, and the signal mast. The tower is the primary.
+  Everything else on the rock is landscape (grove, Sakuteiki triads, talus,
+  cliffs, tide-stain courses), a service building with a single light (the
+  keeper's cottage — one lit window, no strung lanterns), or a part of some
+  other composition (the obelisk pair are the quay stair's gateposts, not a
+  monument of their own). A fourth free-standing monument must name which of the
+  three it replaces.
+- **Empty terrace surface is a positive element,** exactly as the emptiness
+  between anchorages is. Props on the rock stand at unequal intervals with at
+  least one wide dark arc left bare — a ring of evenly-spaced lanterns is the
+  same failure as an evenly-scattered fleet, a uniform placement field, and is
+  banned for the same reason.
+- **Every new feature names what it displaces.** Each wave opens with its
+  shed-list, and each addition to a finished frame carries one: a new light
+  names the light it demotes or replaces, a new prop names the prop it removes,
+  a new motion names the oscillator it slows or stops. "It is cheap" is not an
+  argument — the budget being defended is the viewer's attention, not the frame
+  time. Additions that displace nothing are how a garden becomes a marina, one
+  defensible increment at a time.
+- **The audit is a blurred frame.** Blur a preview capture to ~16 px at any
+  phase: a large calm, dark, low-contrast region must survive the blur. If the
+  whole frame turns into an even field of glow, the composition has no
+  emptiness left to read the lighthouse against, whatever the still frame looks
+  like at full resolution.
+
 ## Media and rendering
 
 - Procedural geometry/materials own the island, harbors, ordinary fleet,

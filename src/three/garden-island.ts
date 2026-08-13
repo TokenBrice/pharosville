@@ -923,7 +923,12 @@ function createIslandDecoration(): Group {
     new MeshStandardMaterial({
       color: HARBOR_PALETTE.lantern_glow,
       emissive: HARBOR_PALETTE.lantern_warm,
-      emissiveIntensity: 1.6,
+      // W3.1: ember level. These six are the brightest painted glow on the
+      // island and they sit a few metres from each other along the path, so
+      // they were reading as one lit strip against a beacon that has to stay
+      // the only dominant light in the frame. Still unmistakably lamps, still
+      // untouched by tone mapping — a step down, not out.
+      emissiveIntensity: 1.15,
       roughness: 0.42,
       toneMapped: false,
     }),
@@ -1007,6 +1012,16 @@ function createWindPine(scale: number, bend: number): Group {
   return root;
 }
 
+/**
+ * The keeper's cottage: foundation, walls, roof, one lit window. That is the
+ * whole accessory list, and W3.1 (The Great Quieting) is why — the paper-
+ * lantern string along the east eave (three instanced lanterns on two sagging
+ * cords, shipped as "I4 warm micro-life") is deleted. It was a fifth glow
+ * vocabulary spent on a detail the fixed 30° camera reads at a handful of
+ * pixels, and at night it put three more warm points beside the one that says
+ * something: the lit window, which is the keeper being home. One light per
+ * building; the cottage says it with the window.
+ */
 function createKeeperCottage(): Group {
   const root = new Group();
   root.position.set(-1.2, 2.08, -0.3);
@@ -1041,61 +1056,6 @@ function createKeeperCottage(): Group {
   const window = new Mesh(new BoxGeometry(0.74, 0.65, 0.08), windowMaterial);
   window.position.set(0.8, 1.42, 1.39);
   root.add(foundation, walls, roof, window);
-  root.add(createLanternString());
-  return root;
-}
-
-// I4 warm micro-life, with restraint: one small lantern string strung along
-// the keeper cottage's east eave (the window-less face) — three paper
-// lanterns on a sagging cord. Static (no motion budget); the cord is two
-// thin timber segments and the lanterns share one instanced draw. Palette-
-// derived colours only. It hangs below the eave's sightline from the fixed
-// 30° camera (the roof overhang hides anything higher than ~y 1.87).
-const LANTERN_STRING_X = 2.15;
-const LANTERN_STRING_SPAN = 1.2;
-const LANTERN_STRING_SAG = 0.14;
-const LANTERN_STRING_Y = 1.76;
-
-function createLanternString(): Group {
-  const root = new Group();
-  root.name = "keeper-cottage-lantern-string";
-  const cordMaterial = new MeshStandardMaterial({
-    color: HARBOR_PALETTE.timber_dark,
-    roughness: 1,
-  });
-  for (const side of [-1, 1] as const) {
-    const length = Math.hypot(LANTERN_STRING_SPAN, LANTERN_STRING_SAG);
-    const cord = new Mesh(new BoxGeometry(0.028, 0.028, length), cordMaterial);
-    cord.position.set(
-      LANTERN_STRING_X,
-      LANTERN_STRING_Y - LANTERN_STRING_SAG / 2,
-      (side * LANTERN_STRING_SPAN) / 2,
-    );
-    cord.rotation.x = side * Math.atan2(LANTERN_STRING_SAG, LANTERN_STRING_SPAN);
-    root.add(cord);
-  }
-  const lanterns = new InstancedMesh(
-    new BoxGeometry(0.14, 0.18, 0.14),
-    new MeshStandardMaterial({
-      color: HARBOR_PALETTE.lantern_glow,
-      emissive: HARBOR_PALETTE.lantern_warm,
-      emissiveIntensity: 0.7,
-      roughness: 0.42,
-    }),
-    3,
-  );
-  lanterns.name = "keeper-cottage-lanterns";
-  [0.28, 0.5, 0.72].forEach((t, index) => {
-    const sag = LANTERN_STRING_SAG * (1 - (2 * t - 1) ** 2);
-    scratchMatrix.makeTranslation(
-      LANTERN_STRING_X,
-      LANTERN_STRING_Y - sag - 0.12,
-      -LANTERN_STRING_SPAN + 2 * LANTERN_STRING_SPAN * t,
-    );
-    lanterns.setMatrixAt(index, scratchMatrix);
-  });
-  lanterns.instanceMatrix.needsUpdate = true;
-  root.add(lanterns);
   return root;
 }
 
@@ -1204,15 +1164,46 @@ function createIslandReflectionPond(): Group {
 // W7b — Pharos precinct dressing (2026-07-24 wonder plan, decision D8)
 // ---------------------------------------------------------------------------
 
-// Two obelisks flank the Pharos terrace steps on the seaward side — Empereur's
-// precinct finds framing the ramp approach. They stand on the middle rock
-// shelf (tier top y ~2.0) in front of the 9.2-wide bottom step, whose +z face
-// ends at island-relative z 3.35, and clear of the winding garden path, the
-// planted shelf (z <= 3.57), and the lighthouse square base.
-const OBELISK_PLACEMENTS = [
-  [-9.2, 1.99, 4.1],
-  [-4.8, 1.99, 4.1],
-] as const;
+// Two obelisks — Empereur's precinct finds — flanking the head of the cut
+// stone stair from the quay, as its gateposts.
+//
+// W3.1 (The Great Quieting): they used to stand free on the middle shelf at
+// (-9.2, 4.1) and (-4.8, 4.1), a third monument competing with the pavilion
+// and the tower for the same seaward read. Nothing is deleted: the pair is
+// TRANSFORMED into the stair's threshold, where it earns its stone by giving
+// the climb from the water a gate to pass through — one composition instead of
+// two. Seated on the rock the stair head lands on, squared to the flight, set
+// just outside the cheek walls, and deliberately unequal (fukinsei — a matched
+// pair reads as a monument, an unmatched one as a place).
+const OBELISK_STAIR_OFFSET = 1.55;
+const OBELISK_HEIGHT_SCALES = [1, 0.86] as const;
+
+/**
+ * The gatepost pair, derived from the stair itself so the two can never drift
+ * apart: seated on the rock at the stair head, squared to the flight, one to
+ * each side just outside the cheek walls.
+ */
+export function gardenPrecinctObeliskGateposts(): {
+  scale: number;
+  x: number;
+  y: number;
+  yaw: number;
+  z: number;
+}[] {
+  const yaw = Math.atan2(
+    QUAY_STAIR_END.x - QUAY_STAIR_START.x,
+    QUAY_STAIR_END.z - QUAY_STAIR_START.z,
+  );
+  const acrossX = Math.cos(yaw) * OBELISK_STAIR_OFFSET;
+  const acrossZ = -Math.sin(yaw) * OBELISK_STAIR_OFFSET;
+  return OBELISK_HEIGHT_SCALES.map((scale, index) => {
+    const side = index === 0 ? 1 : -1;
+    const x = QUAY_STAIR_END.x + side * acrossX;
+    const z = QUAY_STAIR_END.z + side * acrossZ;
+    // Sunk a finger into the rock: nothing in this garden sits ON the ground.
+    return { scale, x, y: islandTerrainHeight(x, z) - 0.05, yaw, z };
+  });
+}
 
 function createPrecinctObelisks(): Group {
   const root = new Group();
@@ -1232,23 +1223,26 @@ function createPrecinctObelisks(): Group {
     roughness: 0.32,
   });
   // Geometry budget: the pair bakes into two merged meshes (stone + gilt).
-  // Four-sided tapered cylinders read as square shafts; the pi/4 yaw squares
-  // their faces with the terrace steps below the tower.
+  // Four-sided tapered cylinders read as square shafts; the stair's own yaw
+  // squares their faces with the flight they now gate.
   const stoneParts: BufferGeometry[] = [];
   const giltParts: BufferGeometry[] = [];
-  const place = (geometry: BufferGeometry, x: number, y: number, z: number, localY: number) => {
-    geometry.rotateY(Math.PI / 4);
-    geometry.translate(x, y + localY, z);
-  };
-  for (const [x, y, z] of OBELISK_PLACEMENTS) {
+  for (const post of gardenPrecinctObeliskGateposts()) {
+    const place = (geometry: BufferGeometry, localY: number) => {
+      // Faces squared to the flight below, so the pair reads as the stair's
+      // gate rather than as two stones that happen to stand near it.
+      geometry.rotateY(post.yaw);
+      geometry.translate(post.x, post.y + localY, post.z);
+    };
+    const shaftHeight = 3.05 * post.scale;
     const plinth = new BoxGeometry(0.74, 0.3, 0.74);
-    place(plinth, x, y, z, 0.15);
+    place(plinth, 0.15);
     stoneParts.push(plinth);
-    const shaft = new CylinderGeometry(0.17, 0.27, 3.05, 4);
-    place(shaft, x, y, z, 0.3 + 3.05 / 2);
+    const shaft = new CylinderGeometry(0.17, 0.27, shaftHeight, 4);
+    place(shaft, 0.3 + shaftHeight / 2);
     stoneParts.push(shaft);
     const cap = new ConeGeometry(0.26, 0.42, 4);
-    place(cap, x, y, z, 0.3 + 3.05 + 0.21);
+    place(cap, 0.3 + shaftHeight + 0.21);
     giltParts.push(cap);
   }
   const stone = new Mesh(mergeGeometries(stoneParts, false), stoneMaterial);
@@ -1578,6 +1572,12 @@ function createCliffTalus(): InstancedMesh {
 // duplicate of the winding one.
 const QUAY_STAIR_START = { x: 16.9, z: -5.79 } as const;
 const QUAY_STAIR_END = { x: -2.0, z: -4.6 } as const;
+// The stair head is the precinct's threshold — the obelisk gateposts and their
+// planting keep-outs are derived from it, so it is contract, not decoration.
+export {
+  QUAY_STAIR_END as GARDEN_QUAY_STAIR_HEAD,
+  QUAY_STAIR_TOP_Y as GARDEN_QUAY_STAIR_TOP_Y,
+};
 const QUAY_STAIR_WIDTH = 1.55;
 const QUAY_STAIR_TREAD = 0.44;
 const QUAY_STAIR_TOP_Y = 2.62;
@@ -1666,8 +1666,10 @@ const PLANTING_KEEP_OUT: readonly (readonly [number, number, number])[] = [
   [-1.2, -0.3, 3.5],
   [4.4, 2.35, 3.1],
   [1.45, -2.05, 3.3],
-  [-9.2, 4.1, 1.4],
-  [-4.8, 4.1, 1.4],
+  // The obelisk gateposts, wherever the stair head puts them (W3.1).
+  ...gardenPrecinctObeliskGateposts().map(
+    (post) => [post.x, post.z, 1.4] as readonly [number, number, number],
+  ),
 ];
 const GARDEN_PATH_POINTS: readonly (readonly [number, number])[] = [
   [5.3, 3.35], [3.25, 3.0], [1.25, 2.45], [-0.55, 1.8],
@@ -1802,10 +1804,20 @@ function createIslandPlanting(): Group {
 // lanterns own the sea's light lanes, and widening that set would change the
 // lane budget the renderer sizes against. These are emissive decoration only —
 // no lights, no lanes, no per-frame work.
+//
+// W3.1 (The Great Quieting): this was a ring of TWELVE at near-even angular
+// spacing around the whole rim — a uniform placement field of light, which the
+// anchorage contract bans for moorings for exactly the reason it fails here:
+// evenly spaced points read as a fairground perimeter, and they crowded the
+// beacon at the top of the night hierarchy. Five remain, at unequal intervals
+// and with a whole quiet quadrant (the north-west shelf) left dark, so the eye
+// reads lamps standing in a garden rather than a rope of lights.
 const TERRACE_LANTERN_POSTS: readonly (readonly [number, number])[] = [
-  [8.6, -2.4], [6.2, -5.4], [2.4, -7.4], [-2.4, -6.9],
-  [-8.4, -4.6], [-11.4, -0.4], [-10.2, 3.9], [-6.4, 6.6],
-  [-1.4, 7.4], [3.4, 6.4], [7.9, 3.6], [10.4, 0.6],
+  [2.4, -7.4], // far shelf, behind the crown — depth, seen past the tower
+  [10.4, 0.6], // east rim, above the quay stair's landing
+  [3.4, 6.4], // camera-facing shelf
+  [-6.4, 6.6], // its far, unequal partner across the front
+  [-11.4, -0.4], // west rim, alone
 ];
 
 function createTerraceLanterns(): Group {
@@ -1830,7 +1842,9 @@ function createTerraceLanterns(): Group {
     new MeshStandardMaterial({
       color: HARBOR_PALETTE.lantern_glow,
       emissive: HARBOR_PALETTE.lantern_warm,
-      emissiveIntensity: 1.35,
+      // W3.1: ember level, one step under the path lanterns that own the
+      // sea's lanes — the shelves are lit, the path is walked.
+      emissiveIntensity: 1.02,
       roughness: 0.44,
       toneMapped: false,
     }),

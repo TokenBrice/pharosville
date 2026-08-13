@@ -13,7 +13,10 @@ import type { PharosVilleWorld } from "../systems/world-types";
 import {
   createTerracedIsland,
   GARDEN_ISLAND_STONE_GROUPINGS,
+  GARDEN_QUAY_STAIR_HEAD,
+  GARDEN_QUAY_STAIR_TOP_Y,
   gardenIslandLanternWorldOffsets,
+  gardenPrecinctObeliskGateposts,
 } from "./garden-island";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
 import { TILE_SCALE } from "./garden-util";
@@ -114,16 +117,79 @@ describe("garden island rockwork", () => {
     expect(stones).toBeInstanceOf(InstancedMesh);
   });
 
-  it("strings one instanced lantern trio on the keeper cottage", () => {
+  it("leaves the keeper cottage its lit window and nothing else that glows", () => {
+    // W3.1: the paper-lantern string is deleted, not dimmed. One light per
+    // building — the window says the keeper is home, and three more warm
+    // points beside it said nothing at all.
     const island = createTerracedIsland(world);
-    const string = island.root.getObjectByName("keeper-cottage-lantern-string");
-    expect(string).toBeDefined();
-    const lanterns = island.root.getObjectByName("keeper-cottage-lanterns");
-    expect(lanterns).toBeInstanceOf(InstancedMesh);
-    expect((lanterns as InstancedMesh).count).toBe(3);
-    const material = (lanterns as InstancedMesh).material as MeshStandardMaterial;
-    // Warm but well under the AgX clip — a quiet accent, not a bloom source.
-    expect(material.emissiveIntensity).toBeLessThanOrEqual(1);
+    expect(island.root.getObjectByName("keeper-cottage-lantern-string")).toBeUndefined();
+    expect(island.root.getObjectByName("keeper-cottage-lanterns")).toBeUndefined();
+  });
+
+  it("stands the obelisk pair as the quay stair's gateposts, unequally", () => {
+    // Merged into the stair composition rather than standing free: both posts
+    // flank the stair head, squared to the flight, and the pair is deliberately
+    // mismatched (fukinsei).
+    const posts = gardenPrecinctObeliskGateposts();
+    expect(posts).toHaveLength(2);
+    const [left, right] = posts as [
+      ReturnType<typeof gardenPrecinctObeliskGateposts>[number],
+      ReturnType<typeof gardenPrecinctObeliskGateposts>[number],
+    ];
+    expect(left.scale).not.toBeCloseTo(right.scale);
+    // One on each side of the flight, and close enough to it to read as a gate.
+    const span = Math.hypot(left.x - right.x, left.z - right.z);
+    expect(span).toBeGreaterThan(2.4);
+    expect(span).toBeLessThan(4);
+    for (const post of posts) {
+      expect(Math.hypot(post.x - GARDEN_QUAY_STAIR_HEAD.x, post.z - GARDEN_QUAY_STAIR_HEAD.z))
+        .toBeLessThan(2.2);
+      // Seated in the rock, not floating over it or buried in it.
+      expect(post.y).toBeLessThan(GARDEN_QUAY_STAIR_TOP_Y + 0.2);
+      expect(post.y).toBeGreaterThan(GARDEN_QUAY_STAIR_TOP_Y - 1.4);
+    }
+    // And they are actually built there.
+    const island = createTerracedIsland(world);
+    const stone = island.root.getObjectByName("pharos-obelisk-stone") as Mesh;
+    expect(stone).toBeInstanceOf(Mesh);
+    stone.geometry.computeBoundingBox();
+    const box = stone.geometry.boundingBox!;
+    expect(box.min.x).toBeLessThan(GARDEN_QUAY_STAIR_HEAD.x + 1);
+    expect(box.max.x).toBeGreaterThan(GARDEN_QUAY_STAIR_HEAD.x - 1);
+    expect(box.min.z).toBeLessThan(GARDEN_QUAY_STAIR_HEAD.z);
+    expect(box.max.z).toBeGreaterThan(GARDEN_QUAY_STAIR_HEAD.z);
+  });
+
+  it("keeps the terrace lanterns few and unevenly spaced", () => {
+    // The stillness ledger's precinct budget: this was a ring of twelve at
+    // near-even angular spacing — a uniform placement field of light. What is
+    // asserted is the composition, not the count alone: an odd, small number,
+    // and at least one wide dark gap in the rim.
+    const island = createTerracedIsland(world);
+    const lamps = island.root.getObjectByName("island-terrace-lantern-lamps") as InstancedMesh;
+    expect(lamps).toBeInstanceOf(InstancedMesh);
+    expect(lamps.count).toBeLessThanOrEqual(6);
+    expect(lamps.count % 2).toBe(1);
+    const material = lamps.material as MeshStandardMaterial;
+    // Ember level: under the path lanterns, which are themselves under the beacon.
+    expect(material.emissiveIntensity).toBeLessThanOrEqual(1.1);
+
+    const points = instancePositions(lamps);
+    const angles = points
+      .map((point) => Math.atan2(point.z, point.x))
+      .sort((left, right) => left - right);
+    const gaps = angles.map((angle, index) => {
+      const next = angles[(index + 1) % angles.length]!;
+      return (next - angle + Math.PI * 2) % (Math.PI * 2);
+    });
+    const widest = Math.max(...gaps);
+    const narrowest = Math.min(...gaps);
+    // An even ring has every gap equal at 360/n; this one leaves a dark arc of
+    // more than a quadrant (measured 106°) and its widest gap is over twice
+    // its narrowest.
+    expect(widest).toBeGreaterThan(Math.PI / 2);
+    expect(widest).toBeGreaterThan(((Math.PI * 2) / points.length) * 1.4);
+    expect(widest / narrowest).toBeGreaterThan(1.6);
   });
 
   it("applies the shared cloud-shadow source only when it is passed", () => {
