@@ -92,5 +92,13 @@ jobs:
         env:
           SMOKE_UI_URL: ${{ steps.pages.outputs.deployment-url }}
         run: |
-          node scripts/pharosville/check-security-headers.mjs --url "$SMOKE_UI_URL"
-          npm run smoke:live -- --url "$SMOKE_UI_URL"
+          for delay in 0 5 10 15; do
+            sleep "$delay"
+            if node scripts/pharosville/check-security-headers.mjs --url "$SMOKE_UI_URL" \
+              && npm run smoke:live -- --url "$SMOKE_UI_URL"; then
+              exit 0
+            fi
+            echo "Pages deployment is not ready; waiting before the next probe."
+          done
+          echo "Pages deployment did not become ready within the propagation window." >&2
+          exit 1
