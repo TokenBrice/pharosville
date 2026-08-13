@@ -164,6 +164,64 @@ extremes, first-frame arrival.
   claiming release confidence.
 - Re-baseline `outputs/visual-gates/` once composition settles, not per stage.
 
+## Outcome (2026-08-13)
+
+Stages 1, 2 and 4 landed. Stage 3 was **cancelled on a geometric finding**, and
+one diagnosis in this document turned out to be wrong in an instructive way.
+
+**Stage 3 is impossible as scoped, not merely risky.** Lowering the isometric
+elevation would not reveal sky. Under an orthographic camera every view ray is
+parallel, so if the view direction has any downward component an
+effectively-infinite water plane fills every pixel at *any* elevation above
+zero. The dome can never enter frame. `garden-sky.ts` saying the dome "is never
+visible" and `garden-horizon.ts` being a permanent no-op were reporting that
+fact, not recording a tuning decision. The upper-frame haze band is the only sky
+this world can have — which raised the fog work from a depth cue to the whole
+sky, and is why the finding below mattered so much.
+
+**The fog was switched off.** `FOG_REFERENCE_VIEW_HEIGHT` was 34 against a real
+default view height of ~78, which clamped the range scale to its maximum and
+pushed `FOG_NEAR` to 267 while the visible ground plane reached only ~255. There
+was no fog anywhere in the default frame. The ladder's own depth table, its
+bokashi seam, and the careful argument for 178/300 were all accurate about the
+design and entirely absent from the picture. This single constant was the
+largest cause of the flatness this document set out to fix.
+
+**The carpet was the point set, not the renderer.** Blue noise is by
+construction the most uniform way to scatter points that is not a lattice.
+Anchorage placement replaced it: 90 ships in the calm band go from 85
+single-linkage groups (largest 3) to 38 (sizes 22, 11, 8, 6, 4, 3, 3, 3), and
+the largest empty circle inside the band goes from ~7 tiles to 13.5.
+
+**Two diagnoses in this document were wrong, and measurement said so:**
+
+- *"Widen the scale hierarchy."* Ship scale variance is already legible once the
+  carpet and the uniform sails are gone; the original impression of uniformity
+  came from those two, not from scale. Left alone deliberately rather than
+  changed to complete a list.
+- *"Make cloth read as cloth"* by lifting the dye toward canvas. Contrast against
+  white falls as cloth pales, so this pushes issuers under
+  `PIRATE_CONTRAST_FLOOR` and turns them black — quieting the fleet by making
+  much of it darker and louder. Draining chroma at constant luminance avoids
+  that provably, but still erodes decision F1, which made sails strongly
+  brand-coloured on purpose. Restraint belongs in the shader, keyed on zoom,
+  where sailing in restores identity completely.
+
+**Also found and fixed along the way:** the sun never moved (three frozen,
+mutually disagreeing opinions about its direction, now one arc); the island cast
+no shadow on the water at any hour; and the water's "sun" was a hardcoded
+constant matching neither the key light nor the sky.
+
+**Deliberately not done.** Idle camera drift (Stage 4's first half) was dropped:
+it touches hit-testing, DOM label placement, URL camera state and the
+reduced-motion contract, the payoff is subtle, and a camera that moves on its
+own fights the reader as often as it soothes them. Not worth that surface area
+unattended.
+
+Verified on the real GPU at day, dusk, night, explore and whole-map framings:
+1441 unit tests, lint clean, all five Playwright visual lanes green, artifact
+flash probe clean, `PHAROSVILLE_DEPLOY_GATE: PASS`, tier `full` at 120 fps.
+
 ## Non-goals
 
 - Perspective camera.
