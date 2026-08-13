@@ -10,6 +10,12 @@ import {
   ShaderMaterial,
 } from "three";
 import { HARBOR_PALETTE } from "../systems/palette";
+import {
+  GARDEN_BIRD_SORTIE_CHANCE,
+  GARDEN_BIRD_SORTIE_GLSL,
+  GARDEN_BIRD_SORTIE_PERIOD,
+  GARDEN_BIRD_SORTIE_SHARE,
+} from "./garden-summit-birds";
 import { stableUnit } from "./garden-util";
 
 /**
@@ -24,9 +30,23 @@ import { stableUnit } from "./garden-util";
  *
  * Each flock is parented to its ship's own root, so it inherits the hull's
  * position, heading, heel and bob for free and needs no per-frame placement in
- * world-renderer — the only per-frame work is advancing three clocks. Orbit and
- * flap run in the vertex shader from deterministic seeds, so reduced motion
- * freezes the flock at its composed time-zero pose.
+ * world-renderer — the only per-frame work is advancing three clocks.
+ *
+ * ## W3.4: they sit on the rig
+ *
+ * These gulls used to ride permanent rings around the masthead — five per hull,
+ * airborne forever, orbiting empty air a metre clear of the rig. Now they SIT,
+ * on the two horizontal spars every hero rig has: the masthead truck and the
+ * identity frame's head spar about 1.7 below it (`generate-garden-heroes.mjs`
+ * puts the head spar at 6.4/6.5/6.7 under mastheads at 8.05/8.25/8.35 — the same
+ * gap on all three bespoke hulls, so the offset is taken off the LIVE masthead
+ * rather than off any one model). Every so often one lifts, flies a single wide
+ * turn out abeam over the water, and settles back where she was.
+ *
+ * The choreography is `garden-summit-birds.ts`'s, shared with the whole harbour,
+ * so the flock is still a pure function of the one clock and reduced motion is
+ * still a composed still — now a still of five birds sitting on a yard, which is
+ * a truer picture of a moored ship than five birds frozen mid-orbit ever was.
  */
 
 const GULLS_PER_SHIP = 5;
@@ -39,6 +59,30 @@ export const GARDEN_GULL_FLOCK_NAME = "ship-gull-flock";
 // tried first and vanished: at seven pixels against pale sunlit water and the
 // sea's own foam, a white bird is camouflage.
 const GULL_COLOR = new Color(HARBOR_PALETTE.iron_dark);
+
+/**
+ * Perches, in ship-local units, as (x, height BELOW the live masthead, z).
+ *
+ * Two on the truck itself, either side of the pole; three spread along the head
+ * spar, which reaches ±1.37 at its narrowest of the three hero rigs — so |z|
+ * stays inside 1.3. Unequal on purpose: a symmetric five would read as fittings
+ * rather than as birds. The x is the mean of the three rigs' spar stations; they
+ * differ by about half a unit, which is under a bird length at this scale.
+ */
+const PERCHES: readonly [number, number, number][] = [
+  [0.35, 0.0, -0.19],
+  [0.35, 0.06, 0.21],
+  [0.35, 1.68, -1.24],
+  [0.35, 1.68, 0.57],
+  [0.35, 1.72, 1.29],
+];
+
+/** The turn: a wide circle abeam, reaching about as far out as the old ring. */
+const LOOP_RADIUS = 1.4;
+const LOOP_RADIUS_SPREAD = 0.7;
+/** Lifts her to roughly the old flock height at the top of the turn. */
+const CLIMB = 2.8;
+const CLIMB_SPREAD = 0.8;
 
 export interface GardenShipGulls {
   update(input: {
@@ -53,7 +97,8 @@ export interface GardenGullShip {
   /**
    * Ship-local units. Read LIVE each frame, not captured: a hero's masthead is
    * the procedural rig's until its GLB resolves and then the model's, and a
-   * flock cut to the first of those would circle through the rig.
+   * flock cut to the first of those would perch on the rig that is no longer
+   * there.
    */
   mastheadHeight: number;
   root: Object3D;
@@ -62,23 +107,40 @@ export interface GardenGullShip {
 
 const vertexShader = /* glsl */`
   attribute float aSeed;
+  attribute vec3 aPerch;
   attribute float aWing;
+  uniform float uFlight;
   uniform float uHeight;
   uniform float uTime;
 
+  ${GARDEN_BIRD_SORTIE_GLSL}
+
   void main() {
-    // Each gull rides its own slow ring, seeded so the flock never stacks.
-    float orbit = uTime * (0.24 + aSeed * 0.12) + aSeed * 6.2831;
-    // Ship-local, so a bigger hull carries a proportionally wider ring.
-    float radius = 2.4 + aSeed * 1.8;
-    vec3 center = vec3(
-      cos(orbit) * radius,
-      uHeight + sin(aSeed * 33.0) * 1.1,
-      sin(orbit) * radius
+    float sortie = uFlight * gardenBirdSortieAt(
+      aSeed, uTime, ${GARDEN_BIRD_SORTIE_PERIOD.toFixed(1)},
+      ${GARDEN_BIRD_SORTIE_CHANCE.toFixed(2)}, ${GARDEN_BIRD_SORTIE_SHARE.toFixed(2)}
     );
+
+    // Her spot on the rig, hung off the hull's LIVE masthead.
+    vec3 perch = vec3(aPerch.x, uHeight - aPerch.y, aPerch.z);
+
+    // One closed turn, bulging out to the side of the ship she sits on, so she
+    // never flies through the rig or the hull.
+    vec2 out2 = normalize(vec2((aSeed - 0.5) * 0.8, aPerch.z < 0.0 ? -1.0 : 1.0));
+    float theta = sortie * 6.2831853;
+    float loop = ${LOOP_RADIUS.toFixed(2)} + aSeed * ${LOOP_RADIUS_SPREAD.toFixed(2)};
+    vec2 offset = (vec2(-out2.y, out2.x) * sin(theta) + out2 * (1.0 - cos(theta))) * loop;
+    float climb = sin(3.14159265 * sortie)
+      * (${CLIMB.toFixed(2)} + aSeed * ${CLIMB_SPREAD.toFixed(2)});
+    vec3 center = perch + vec3(offset.x, climb, offset.y);
+
+    // Wings fold on the spar and only beat once she is up.
+    float air = smoothstep(0.0, 0.22, sin(3.14159265 * sortie));
     vec3 p = position;
-    p.y += sin(uTime * (6.0 + aSeed * 3.0) + aSeed * 17.0) * 0.14 * abs(aWing);
-    float heading = orbit + 1.5708;
+    p.z *= mix(0.58, 1.0, air);
+    p.y += sin(uTime * (6.0 + aSeed * 3.0) + aSeed * 17.0) * 0.14 * abs(aWing) * air;
+
+    float heading = atan(out2.x, -out2.y) - theta;
     float c = cos(heading);
     float s = sin(heading);
     p = vec3(p.x * c - p.z * s, p.y, p.x * s + p.z * c);
@@ -107,6 +169,10 @@ export function createGardenShipGulls(ships: readonly GardenGullShip[]): GardenS
   const wing = new Float32Array([0, 0, -1, 0, 0, 1]);
   const positionAttribute = new Float32BufferAttribute(positions, 3);
   const wingAttribute = new Float32BufferAttribute(wing, 1);
+  const perchAttribute = new InstancedBufferAttribute(
+    new Float32Array(PERCHES.flat()),
+    3,
+  );
   const flocks: {
     mesh: InstancedMesh<BufferGeometry, ShaderMaterial>;
     ship: GardenGullShip;
@@ -118,9 +184,13 @@ export function createGardenShipGulls(ships: readonly GardenGullShip[]): GardenS
     // differ, so one gull never mirrors another ship's gull.
     geometry.setAttribute("position", positionAttribute);
     geometry.setAttribute("aWing", wingAttribute);
+    geometry.setAttribute("aPerch", perchAttribute);
     const seeds = new Float32Array(GULLS_PER_SHIP);
     for (let index = 0; index < GULLS_PER_SHIP; index += 1) {
-      seeds[index] = stableUnit(`ship-gull.${ship.ship.id}.${index}`);
+      // Index first: FNV-1a barely moves for names differing in their last
+      // character, and five gulls sharing a seed to three decimals would share
+      // a loop radius, a climb and a window boundary. See garden-summit-birds.
+      seeds[index] = stableUnit(`${index}.ship-gull.${ship.ship.id}`);
     }
     geometry.setAttribute("aSeed", new InstancedBufferAttribute(seeds, 1));
 
@@ -129,8 +199,10 @@ export function createGardenShipGulls(ships: readonly GardenGullShip[]): GardenS
       side: DoubleSide,
       uniforms: {
         uColor: { value: GULL_COLOR },
-        // Just clear of the masthead, so the flock reads over the rig rather
-        // than through it. Driven per frame; see GardenGullShip.
+        // 0 under reduced motion: every gull resolves to her spar.
+        uFlight: { value: 1 },
+        // The hull's live masthead; the perches hang off it. Driven per frame;
+        // see GardenGullShip.
         uHeight: { value: 0 },
         uTime: { value: 0 },
       },
@@ -139,8 +211,9 @@ export function createGardenShipGulls(ships: readonly GardenGullShip[]): GardenS
 
     const mesh = new InstancedMesh(geometry, material, GULLS_PER_SHIP);
     mesh.name = "ship-gulls";
-    // The orbit is computed in the shader, not from instance matrices, so the
-    // instance bounds say nothing useful about where these end up.
+    // The perch and the turn are computed in the shader, not from instance
+    // matrices, so the instance bounds say nothing useful about where these
+    // end up.
     mesh.frustumCulled = false;
     flocks.push({ mesh, ship });
 
@@ -158,7 +231,8 @@ export function createGardenShipGulls(ships: readonly GardenGullShip[]): GardenS
       for (const { mesh, ship } of flocks) {
         mesh.visible = visible;
         if (!visible) continue;
-        mesh.material.uniforms.uHeight!.value = ship.mastheadHeight + 1.1;
+        mesh.material.uniforms.uHeight!.value = ship.mastheadHeight;
+        mesh.material.uniforms.uFlight!.value = reducedMotion ? 0 : 1;
         mesh.material.uniforms.uTime!.value = reducedMotion ? 0 : Math.max(0, timeSeconds);
       }
     },

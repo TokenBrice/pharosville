@@ -24,10 +24,19 @@ import { stableUnit } from "./garden-util";
  *
  * The world already had the vocabulary. The titan hulls ARE the largest market
  * caps, so capital concentrating into them is boats making for those hulls: a
- * flotilla of open tenders standing off each titan and running in, over and
- * over, for as long as the gauge holds. `flightIntensity` sets how far in the
- * run carries — a weak reading leaves them nosing in from well out, a strong one
- * crowds them against the hull.
+ * flotilla of open tenders that come in off open water, LIE ON STATION under
+ * each titan for a long while, and draw back out, on periods measured in
+ * minutes. `flightIntensity` sets how much of each boat's cycle is spent on
+ * station — so it reads as HOW MANY boats are standing off a hull at any moment
+ * (and, as before, how close in they lie): a weak reading keeps one or two
+ * attending well out, a strong one has nearly the whole flotilla lying close
+ * under the hull.
+ *
+ * The verb matters. This cue used to run the same boats in at the hull over and
+ * over on a 13–26 s loop, and a dozen craft charging a hull forever reads as
+ * agitation — the harbour's calm register cannot carry it, and a market rotation
+ * is not an emergency (W3.5, the Great Quieting). Attendance says the same thing
+ * more strongly: capital gathering is boats GATHERED, not boats rushing.
  *
  * ## Not the fleet
  *
@@ -68,10 +77,11 @@ import { stableUnit } from "./garden-util";
  * follows it and reports it. Nothing here samples motion, plans a route, or
  * keeps a clock: `flush` is given the frame's own `timeSeconds`.
  *
- * Reduced motion pins every tender at the converged end of its run. That is a
- * real static statement rather than an arbitrary freeze — the boats are gathered
- * at the hull, and because the converged radius is still set by
- * `flightIntensity`, the static frame carries the strength of the reading too.
+ * Reduced motion draws the flotilla's own statement as a still: the intensity's
+ * share of each titan's boats lying on station close under the hull, the rest
+ * standing off in open water. That is a real static composition rather than an
+ * arbitrary freeze — it carries BOTH halves of the reading (how many attend, and
+ * how close in they lie) with no clock read at all.
  */
 
 /** How many hulls carry a flotilla. The largest market caps, in order. */
@@ -90,24 +100,40 @@ export const FLIGHT_TENDERS_MESH_NAME = "fleet-flight-tenders";
 const TENDER_LENGTH = 1.6;
 const TENDER_BEAM = 0.62;
 
-/** Just off the hull: the converged end of a run at full intensity. */
+/** Just off the hull: where a boat lies when she is on station, at full intensity. */
 const NEAR_CLEARANCE = 1.1;
-/** Open water: where a boat starts its run, plus a hashed spread. */
+/** Open water: where a boat waits her turn, plus a hashed spread. */
 const FAR_CLEARANCE = 5.2;
 const FAR_JITTER = 1.8;
 
 /**
- * The weakest reading still converges. `flightToQuality` is a boolean the feed
- * has already asserted, so a zero intensity means "flight, weakly" and must not
- * render as boats holding station — that would read as calm.
+ * The weakest reading still keeps boats attending. `flightToQuality` is a
+ * boolean the feed has already asserted, so a zero intensity means "flight,
+ * weakly" and must still put a boat or two under the hull — an EMPTY flotilla is
+ * what "no flight" looks like, and the two states can never share an image.
  */
 const PULL_FLOOR = 0.35;
-/** Seconds for one run, at the calm end. Strong flight quickens it. */
-const RUN_SECONDS_CALM = 26;
-const RUN_SECONDS_URGENT = 13;
-/** Share of the run spent making IN. The rest is the slow drift back out, so
-    the eye reads repeated inbound traffic rather than boats milling. */
-const DASH_SHARE = 0.34;
+
+/**
+ * One tide of attendance, in seconds: come in, lie on station, draw back out,
+ * wait offshore. Deliberately at the harbour's slowest register — nothing in a
+ * calm world should repeat on a timescale the eye can count. Each boat's own
+ * period is jittered around this so a flotilla never breathes as one.
+ */
+const STATION_SECONDS = 190;
+const STATION_PERIOD_JITTER = 0.34;
+/** Shares of the on-station leg spent easing in and easing back out. */
+const APPROACH_SHARE = 0.26;
+const DEPART_SHARE = 0.26;
+/**
+ * How much of a boat's cycle is spent on station, as a ramp on `pull`. THIS is
+ * where intensity now lives: `pull` runs [PULL_FLOOR, 1], so the share runs
+ * [0.43, 0.94] — with four boats to a titan, the weakest reading holds ~1.7 of
+ * them under the hull at any moment and the strongest ~3.8. Frequency carries
+ * nothing: every reading keeps the same slow tide.
+ */
+const STATION_SHARE_BASE = 0.16;
+const STATION_SHARE_SPAN = 0.78;
 
 // Bare timber and a bleached thwart. Nothing from the warning end of the
 // palette: capital moving toward the strongest issuers is a market rotation,
@@ -160,9 +186,11 @@ export function flightTenderTitans<T extends { ship: { id: string; marketCapUsd:
 }
 
 /**
- * How far in a run carries, in [PULL_FLOOR, 1], from the gauge's intensity.
- * The feed's other intensity fields are scored -100..100, so this reads the
- * same scale and clamps rather than trusting the range.
+ * How hard the flotilla attends, in [PULL_FLOOR, 1], from the gauge's intensity.
+ * The feed's other intensity fields are scored -100..100, so this reads the same
+ * scale and clamps rather than trusting the range. UNCHANGED by W3.5: the
+ * derivation and its scale are the cue's contract; only what the number drives
+ * moved, from how far a charge carried to how many boats lie on station.
  */
 export function flightTenderPull(flightIntensity: number): number {
   const normalized = Number.isFinite(flightIntensity)
@@ -171,21 +199,50 @@ export function flightTenderPull(flightIntensity: number): number {
   return PULL_FLOOR + (1 - PULL_FLOOR) * normalized;
 }
 
+/** Share of a boat's cycle spent on station, from `flightTenderPull`. */
+export function flightTenderStationShare(pull: number): number {
+  return STATION_SHARE_BASE + STATION_SHARE_SPAN * Math.min(1, Math.max(0, pull));
+}
+
 function smoothstep01(value: number): number {
-  return value * value * (3 - 2 * value);
+  const t = Math.min(1, Math.max(0, value));
+  return t * t * (3 - 2 * t);
 }
 
 /**
- * Where along its run a boat sits, in [0, 1] — 0 out in open water, 1 converged
- * on the hull. A quick eased dash in, a slower eased drift out; smoothstep at
- * both ends means the joins at the turn and at the wrap are both flat, so the
- * cycle never snaps.
+ * How far a boat is onto her station, in [0, 1] — 0 waiting out in open water,
+ * 1 lying under the hull. The leg is eased in at one end and out at the other
+ * with a long flat hold between, and BOTH joins to the offshore stretch are flat
+ * (smoothstep's derivative is zero there), so a boat never snaps on or off
+ * station however long her cycle is.
  */
-export function flightTenderRunProgress(cyclePhase: number): number {
+export function flightTenderStationProgress(
+  cyclePhase: number,
+  stationShare: number,
+): number {
+  const share = Math.min(0.98, Math.max(0.02, stationShare));
   const frac = cyclePhase - Math.floor(cyclePhase);
-  return frac < DASH_SHARE
-    ? smoothstep01(frac / DASH_SHARE)
-    : 1 - smoothstep01((frac - DASH_SHARE) / (1 - DASH_SHARE));
+  if (frac >= share) return 0;
+  const leg = frac / share;
+  return smoothstep01(leg / APPROACH_SHARE)
+    * (1 - smoothstep01((leg - (1 - DEPART_SHARE)) / DEPART_SHARE));
+}
+
+/**
+ * How far round a boat has come about, in [0, 1] — 0 bow at the hull, 1 bow to
+ * open water. She turns as she draws off station and turns back while she is
+ * out there and small, so the reversal never happens under the hull. Continuous
+ * across both joins and at the wrap.
+ */
+export function flightTenderTurn(cyclePhase: number, stationShare: number): number {
+  const share = Math.min(0.98, Math.max(0.02, stationShare));
+  const frac = cyclePhase - Math.floor(cyclePhase);
+  if (frac < share) {
+    const leg = frac / share;
+    return smoothstep01((leg - (1 - DEPART_SHARE)) / DEPART_SHARE);
+  }
+  const offshore = (frac - share) / (1 - share);
+  return 1 - smoothstep01((offshore - 0.1) / 0.45);
 }
 
 /**
@@ -236,9 +293,18 @@ interface TenderInstance {
   sin: number;
   farRadius: number;
   nearRadius: number;
-  /** Where in its own run the boat starts, so a flotilla never moves as one. */
+  /** Where in her own tide the boat starts, so a flotilla never moves as one. */
   phase: number;
-  /** Bow pointed up the approach line, at the hull. Fixed. */
+  /** Seconds for her whole tide, jittered off the shared one for the same reason. */
+  period: number;
+  /**
+   * Her place in the flotilla's standing order, in (0, 1). Under reduced motion
+   * the boats whose place falls inside the intensity's station share are the
+   * ones lying under the hull — so the still frame shows the right COUNT, and
+   * shows the same boats every time.
+   */
+  stand: number;
+  /** Bow pointed up the approach line, at the hull. */
   yaw: number;
   pitch: number;
   roll: number;
@@ -257,7 +323,7 @@ export function createGardenFlightTenders(
   }
 
   const pull = flightTenderPull(flightIntensity);
-  const runSeconds = RUN_SECONDS_CALM - (RUN_SECONDS_CALM - RUN_SECONDS_URGENT) * pull;
+  const stationShare = flightTenderStationShare(pull);
 
   const instances: TenderInstance[] = [];
   for (const [anchor, spec] of specs.entries()) {
@@ -275,7 +341,12 @@ export function createGardenFlightTenders(
         sin,
         farRadius: spec.hullRadius + FAR_CLEARANCE + stableUnit(`${seed}.reach`) * FAR_JITTER,
         nearRadius: spec.hullRadius + NEAR_CLEARANCE,
+        period: STATION_SECONDS
+          * (1 + (stableUnit(`${seed}.period`) - 0.5) * STATION_PERIOD_JITTER),
         phase: stableUnit(`${seed}.phase`),
+        // Evenly spread rather than hashed: the count on station in a still
+        // frame then follows the share exactly instead of approximately.
+        stand: (boat + 0.5) / FLIGHT_TENDERS_PER_TITAN,
         // The mesh's bow is +Z, and the boat is heading inward along -bearing.
         yaw: Math.atan2(-cos, -sin),
         pitch: (stableUnit(`${seed}.pitch`) - 0.5) * 0.1,
@@ -319,21 +390,31 @@ export function createGardenFlightTenders(
     const shed = Math.min(1, Math.max(0, detail));
     mesh.visible = shed > 0;
     if (!mesh.visible) return;
-    // Reduced motion draws ONE frame, so every boat lands at the converged end
-    // of its run — no clock, no phase, and the same positions every time.
-    const cycle = reducedMotion ? 0 : Math.max(0, timeSeconds) / runSeconds;
+    // Reduced motion draws ONE frame and reads no clock at all: the boats whose
+    // place in the standing order falls inside the intensity's station share lie
+    // under the hull, the rest wait offshore, bows out. Same frame every time.
+    const seconds = reducedMotion ? 0 : Math.max(0, timeSeconds);
     // Indexed rather than `for...of instances.entries()`: an iterator pair per
     // frame is the one allocation this path could still make.
     for (let index = 0; index < instances.length; index += 1) {
       const boat = instances[index]!;
-      const run = reducedMotion ? 1 : flightTenderRunProgress(cycle + boat.phase);
-      const radius = boat.farRadius + (boat.nearRadius - boat.farRadius) * run * pull;
+      const onStation = boat.stand <= stationShare;
+      const cycle = seconds / boat.period + boat.phase;
+      const station = reducedMotion
+        ? (onStation ? 1 : 0)
+        : flightTenderStationProgress(cycle, stationShare);
+      const turn = reducedMotion
+        ? (onStation ? 0 : 1)
+        : flightTenderTurn(cycle, stationShare);
+      const radius = boat.farRadius + (boat.nearRadius - boat.farRadius) * station * pull;
       dummy.position.set(
         anchors[boat.anchor * 2]! + boat.cos * radius,
         GARDEN_WATER_Y,
         anchors[boat.anchor * 2 + 1]! + boat.sin * radius,
       );
-      dummy.rotation.set(boat.pitch, boat.yaw, boat.roll);
+      // She comes about as she draws off, so a departing boat is never a boat
+      // going backwards. Half a turn, eased, out where she is smallest.
+      dummy.rotation.set(boat.pitch, boat.yaw + Math.PI * turn, boat.roll);
       // The overview policy's own detail value, applied per instance rather
       // than to the group: these boats carry world-space matrices, so scaling
       // the group would drag the whole flotilla toward a shared centroid. This

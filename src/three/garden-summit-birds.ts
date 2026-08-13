@@ -12,17 +12,186 @@ import { HARBOR_PALETTE } from "../systems/palette";
 import { stableUnit } from "./garden-util";
 
 /**
- * W7 presence — the summit bird flock (Pharos Wonder plan §3.4). Eight
- * instanced two-triangle birds orbit the Pharos crown at radius ~9: small
- * moving things beside a big static thing is the cheapest "epic" there is.
- * One instanced draw call; orbit and slow sin-flap run entirely in the vertex
- * shader from deterministic per-instance seeds, so reduced motion freezes the
- * flock at its composed time-zero pose (uTime = 0). Full/balanced tiers only.
+ * W7 presence — the summit bird flock (Pharos Wonder plan §3.4), rewritten at
+ * W3.4 as the harbour's SHARED rest-and-sortie choreography. This module owns
+ * that choreography for every bird in the world; `garden-ship-gulls.ts` and
+ * `garden-harbor-life.ts` import it (the GLSL chunk below and its exact
+ * TypeScript twin) so the whole harbour keeps one bird behaviour.
+ *
+ * ## Presence through intermittency
+ *
+ * Eight instanced two-triangle birds used to orbit the Pharos crown forever. So
+ * did the gulls over the hero hulls, the island flock and every quay's pair —
+ * roughly forty birds, all airborne, all the time, wheeling on permanent rings.
+ * Real flocks do not do that. They SIT: on rails, cornices, mastheads and
+ * bollards, and every so often one lifts, flies a turn, and settles again. Forty
+ * birds circling forever reads as clockwork; eight birds sitting still with two
+ * of them up reads as a harbour that happens to have birds in it — and it is
+ * quieter, which is the whole of Wave 3.
+ *
+ * So each bird now sits on a real ledge of the monument (the cornice ring at the
+ * head of the octagonal drum, just under the brazier) and leaves it only for a
+ * deterministic sortie: one wide circle out over the sea that begins and ends on
+ * the very perch it left. At any instant about a quarter of the flock is up.
+ *
+ * ## Still a pure function of the one clock
+ *
+ * Nothing here accumulates. A bird's whole state is `f(seed, uTime)`: the sortie
+ * windows come from hashing (bird, window index), the flight path is a closed
+ * loop parameterised by one eased progress value, and a bird outside a sortie
+ * window evaluates to exactly its perch. Reduced motion sets `uFlight` to 0,
+ * which resolves every bird to that perch — a complete static composition of the
+ * flock at rest, with the clock read nowhere.
+ *
+ * One instanced draw call, unchanged. Full/balanced tiers only.
  */
 
 const BIRD_COUNT = 8;
 // C1: palette-derived silhouette (dark iron against the sky bands).
 const BIRD_COLOR = new Color(HARBOR_PALETTE.iron_dark);
+
+/**
+ * Seconds between a bird's own sortie windows. One roll of the die per window
+ * per bird; a bird that rolls a sortie spends `SORTIE_SHARE` of that window in
+ * the air, so the share of the flock airborne at any instant is
+ * `SORTIE_CHANCE * SORTIE_SHARE` — about a quarter, deliberately.
+ *
+ * Long on purpose: the eye must never be able to count the beat. A bird's next
+ * turn is somewhere in the next minute or two, and the windows are offset per
+ * bird, so the flock has no shared phase to notice.
+ */
+export const GARDEN_BIRD_SORTIE_PERIOD = 62;
+export const GARDEN_BIRD_SORTIE_CHANCE = 0.55;
+export const GARDEN_BIRD_SORTIE_SHARE = 0.45;
+
+/**
+ * The shared choreography, as GLSL. Inlined into the bird vertex shaders (this
+ * module's and `garden-ship-gulls.ts`'s); `gardenBirdSortie` below is its exact
+ * twin for the CPU-side flock in `garden-harbor-life.ts`.
+ *
+ * `gardenBirdSortieAt` returns the bird's progress through her sortie, in
+ * [0, 1]: 0 while she is sitting (before her turn), 1 once she is back down
+ * (after it), and the eased sweep between while she is up. Both resting values
+ * put her on her perch and both approach it with zero speed, so a sortie has no
+ * take-off pop and no landing snap — the eased progress does that work, not a
+ * separate envelope.
+ */
+export const GARDEN_BIRD_SORTIE_GLSL = /* glsl */`
+  float gardenBirdHash(float n) {
+    return fract(sin(n) * 43758.5453123);
+  }
+
+  float gardenBirdSortieAt(float seed, float t, float period, float chance, float share) {
+    // The bird's own window clock, offset by her seed so no two birds share a
+    // window boundary and the flock can never lift as one.
+    float cycle = t / period + seed * 7.13;
+    float window = floor(cycle);
+    float frac = cycle - window;
+    // One deterministic die per (bird, window): does she fly this one at all?
+    float flies = step(gardenBirdHash(window * 1.37 + seed * 91.7), chance);
+    // And where in the window her turn falls, so sorties do not line up.
+    float start = gardenBirdHash(window * 3.91 + seed * 17.3) * (1.0 - share);
+    float u = clamp((frac - start) / share, 0.0, 1.0);
+    // Eased: zero rate of change at both ends, so she leaves and rejoins her
+    // perch at a standstill.
+    return flies * u * u * (3.0 - 2.0 * u);
+  }
+`;
+
+/**
+ * The CPU twin of `gardenBirdSortieAt`, for the flock that writes instance
+ * matrices instead of running a vertex shader. Same arithmetic, same hash, same
+ * meaning — keep the two in step.
+ */
+export function gardenBirdSortie(
+  seed: number,
+  timeSeconds: number,
+  period: number = GARDEN_BIRD_SORTIE_PERIOD,
+  chance: number = GARDEN_BIRD_SORTIE_CHANCE,
+  share: number = GARDEN_BIRD_SORTIE_SHARE,
+): number {
+  if (share <= 0 || chance <= 0) return 0;
+  const cycle = timeSeconds / period + seed * 7.13;
+  const window = Math.floor(cycle);
+  const frac = cycle - window;
+  const flies = gardenBirdHash(window * 1.37 + seed * 91.7) <= chance ? 1 : 0;
+  const start = gardenBirdHash(window * 3.91 + seed * 17.3) * (1 - share);
+  const u = Math.min(1, Math.max(0, (frac - start) / share));
+  return flies * u * u * (3 - 2 * u);
+}
+
+/** `fract(sin(n) * 43758.5453123)` — the GLSL hash above, in TypeScript. */
+export function gardenBirdHash(n: number): number {
+  const value = Math.sin(n) * 43758.5453123;
+  return value - Math.floor(value);
+}
+
+/**
+ * Where a bird is, relative to her perch, at sortie progress `sortie`.
+ *
+ * The sortie is ONE CLOSED LOOP: a circle of radius `loopRadius` tangent to the
+ * perch, on the seaward side of whatever she is sitting on (`outX`/`outZ` is the
+ * outward direction), so she never flies through the thing she just left. At
+ * progress 0 and 1 the offset is exactly zero — she is back on her perch, in the
+ * spot she took off from — and the climb term is zero at both ends too.
+ *
+ * `heading` is exact rather than approximated: the loop's tangent at progress a
+ * is simply the launch bearing turned by the same 2πa, so the bird always faces
+ * where she is going and faces the same way sitting as she did the instant she
+ * left. Returns `[x, y, z, heading]` in the flock's own space.
+ */
+export function gardenBirdSortieOffset(
+  sortie: number,
+  outX: number,
+  outZ: number,
+  loopRadius: number,
+  climb: number,
+): [number, number, number, number] {
+  const theta = sortie * Math.PI * 2;
+  const sin = Math.sin(theta);
+  const cos = Math.cos(theta);
+  // Tangent to the perch, 90° from the outward direction.
+  const tanX = -outZ;
+  const tanZ = outX;
+  return [
+    (tanX * sin + outX * (1 - cos)) * loopRadius,
+    Math.sin(Math.PI * sortie) * climb,
+    (tanZ * sin + outZ * (1 - cos)) * loopRadius,
+    Math.atan2(outX, -outZ) - theta,
+  ];
+}
+
+/**
+ * The perch, in the flock's own space (origin at the brazier,
+ * `GARDEN_LIGHTHOUSE_BEACON_Y` = 30.1 in the lighthouse's).
+ *
+ * The head of the octagonal drum is a real annular ledge, and it is the ONE
+ * ledge this tower has that is both wide enough to roost on and high enough to
+ * keep the summit flock a summit flock: the octagon caps at y = 26 out to
+ * radius 2.0, the cylindrical drum rises off it at radius 1.35, and a
+ * shadow-stone base ring sits on the join — y 26.14 r 1.50 (top 26.28) in the
+ * procedural shell, y 26.30 r 1.62 (top 26.43) in the GLB. Perching at 26.47
+ * clears the loaded model by a hair and the fallback shell by 0.19, which on a
+ * 34-unit monument is nothing; the radius is inside both rings, so the
+ * silhouettes read as standing ON stone rather than clinging to a lip.
+ *
+ * Everything else on this tower is either the fire (the brazier rim and ember
+ * bed, radius 1.02–1.25 at the beacon itself) or eleven units down on the
+ * gallery. The old orbit — radius 8.2–9.8, a unit or two above the brazier —
+ * had no geometry under it at any point on its ring.
+ */
+const PERCH_RADIUS = 1.44;
+const PERCH_Y = 26.47 - 30.1;
+/**
+ * The turn. Loop radius is picked so the far side of the circle reaches out to
+ * roughly where the old permanent orbit ran (8.7–10.5 from the tower's axis),
+ * and the climb lifts her to about the brazier's own height at mid-turn — the
+ * composition the flock always had, now visited rather than inhabited.
+ */
+const LOOP_RADIUS = 3.6;
+const LOOP_RADIUS_SPREAD = 0.9;
+const CLIMB = 4.4;
+const CLIMB_SPREAD = 2.4;
 
 export interface GardenSummitBirdsUpdate {
   reducedMotion: boolean;
@@ -41,7 +210,8 @@ export function createGardenSummitBirds(): GardenSummitBirds {
   root.name = "lighthouse-birds-root";
 
   // Two triangles sharing the body edge: nose → tail → wingtip, mirrored.
-  // aWing marks the wingtips (±1) so the flap displaces them only.
+  // aWing marks the wingtips (±1) so the flap displaces them only, and so the
+  // wings can fold on the perch.
   const positions = new Float32Array([
     0.22, 0, 0, -0.2, 0, 0.05, 0.02, 0, -0.4,
     0.22, 0, 0, -0.2, 0, -0.05, 0.02, 0, 0.4,
@@ -51,10 +221,23 @@ export function createGardenSummitBirds(): GardenSummitBirds {
   geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
   geometry.setAttribute("aWing", new Float32BufferAttribute(wing, 1));
   const seeds: number[] = [];
+  const perches: number[] = [];
   for (let index = 0; index < BIRD_COUNT; index += 1) {
-    seeds.push(stableUnit(`summit-bird.${index}`));
+    // The index LEADS the name on purpose. `stableUnit` is FNV-1a, and FNV on
+    // names that differ only in their last character returns values a few
+    // thousandths apart — eight birds seeded `summit-bird.0..7` all came out
+    // between 0.576 and 0.604, which would have given the flock one shared loop
+    // radius, one shared climb and eight window boundaries within 3 % of each
+    // other. Leading with the index avalanches the whole hash.
+    const seed = stableUnit(`${index}.summit-bird`);
+    seeds.push(seed);
+    // Spread round the ring by index and then jittered by seed: an even ring of
+    // eight would read as a machined collar, and two hashed seeds landing close
+    // together would read as one bird. Unequal spacing is the point (fukinsei).
+    perches.push(((index + 0.5) / BIRD_COUNT + (seed - 0.5) * 0.42) * Math.PI * 2);
   }
   geometry.setAttribute("aSeed", new InstancedBufferAttribute(new Float32Array(seeds), 1));
+  geometry.setAttribute("aPerch", new InstancedBufferAttribute(new Float32Array(perches), 1));
 
   const material = new ShaderMaterial({
     fragmentShader: /* glsl */ `
@@ -67,28 +250,47 @@ export function createGardenSummitBirds(): GardenSummitBirds {
     side: DoubleSide,
     uniforms: {
       uColor: { value: BIRD_COLOR },
+      // 0 under reduced motion: every bird resolves to her perch and the clock
+      // is never consulted, so the still frame is one composed roost.
+      uFlight: { value: 1 },
       uTime: { value: 0 },
     },
     vertexShader: /* glsl */ `
       attribute float aSeed;
+      attribute float aPerch;
       attribute float aWing;
+      uniform float uFlight;
       uniform float uTime;
 
+      ${GARDEN_BIRD_SORTIE_GLSL}
+
       void main() {
-        // Slow shared orbit; seeds spread the flock around the ring, stagger
-        // the ring radius and height, and detune each bird's flap.
-        float orbit = uTime * 0.11 + aSeed * 6.2831;
-        // Ring radius ~9 (8.2–9.8), seeded per bird.
-        float radius = 8.2 + aSeed * 1.6;
-        vec3 center = vec3(
-          cos(orbit) * radius,
-          1.6 + sin(aSeed * 40.0) * 1.7,
-          sin(orbit) * radius
+        float sortie = uFlight * gardenBirdSortieAt(
+          aSeed, uTime, ${GARDEN_BIRD_SORTIE_PERIOD.toFixed(1)},
+          ${GARDEN_BIRD_SORTIE_CHANCE.toFixed(2)}, ${GARDEN_BIRD_SORTIE_SHARE.toFixed(2)}
         );
+
+        // Her place on the cornice ring, and the outward direction from it.
+        vec2 out2 = vec2(cos(aPerch), sin(aPerch));
+        vec3 perch = vec3(out2.x * ${PERCH_RADIUS.toFixed(2)}, ${PERCH_Y.toFixed(2)}, out2.y * ${PERCH_RADIUS.toFixed(2)});
+
+        // One closed seaward circle, beginning and ending on the perch.
+        float theta = sortie * 6.2831853;
+        float loop = ${LOOP_RADIUS.toFixed(2)} + aSeed * ${LOOP_RADIUS_SPREAD.toFixed(2)};
+        vec2 tangent = vec2(-out2.y, out2.x);
+        vec2 offset = (tangent * sin(theta) + out2 * (1.0 - cos(theta))) * loop;
+        float climb = sin(3.14159265 * sortie)
+          * (${CLIMB.toFixed(2)} + aSeed * ${CLIMB_SPREAD.toFixed(2)});
+        vec3 center = perch + vec3(offset.x, climb, offset.y);
+
+        // Wings fold on the stone and only beat once she is up.
+        float air = smoothstep(0.0, 0.22, sin(3.14159265 * sortie));
         vec3 p = position;
-        p.y += sin(uTime * (5.0 + aSeed * 2.5) + aSeed * 21.0) * 0.17 * abs(aWing);
-        // Face along the orbit tangent (direction of travel).
-        float heading = orbit + 1.5708;
+        p.z *= mix(0.58, 1.0, air);
+        p.y += sin(uTime * (5.0 + aSeed * 2.5) + aSeed * 21.0) * 0.17 * abs(aWing) * air;
+
+        // Facing: the launch bearing, turned by the same angle the loop has.
+        float heading = aPerch + 1.5707963 - theta;
         float c = cos(heading);
         float s = sin(heading);
         p = vec3(p.x * c - p.z * s, p.y, p.x * s + p.z * c);
@@ -111,6 +313,7 @@ export function createGardenSummitBirds(): GardenSummitBirds {
     update({ reducedMotion, timeSeconds, visible }) {
       root.visible = visible;
       if (!visible) return;
+      material.uniforms.uFlight.value = reducedMotion ? 0 : 1;
       material.uniforms.uTime.value = reducedMotion ? 0 : Math.max(0, timeSeconds);
     },
   };
