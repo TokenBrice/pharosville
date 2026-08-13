@@ -18,6 +18,7 @@ import {
 } from "./garden-sail-texture";
 import { Color } from "three";
 
+const addColorStop = vi.fn();
 const drawImage = vi.fn();
 const fill = vi.fn();
 const fillRect = vi.fn();
@@ -26,6 +27,7 @@ const stroke = vi.fn();
 const strokeRect = vi.fn();
 
 beforeEach(() => {
+  addColorStop.mockClear();
   drawImage.mockClear();
   fill.mockClear();
   fillRect.mockClear();
@@ -132,6 +134,9 @@ function fakeContext(): CanvasRenderingContext2D {
     bezierCurveTo: vi.fn(),
     clip: vi.fn(),
     closePath: vi.fn(),
+    // The identity plate is a soft-shouldered radial fill rather than a hard
+    // disc with a rim stroke, so the stub has to hand back a gradient object.
+    createRadialGradient: vi.fn(() => ({ addColorStop: addColorStop })),
     drawImage,
     fill,
     fillRect,

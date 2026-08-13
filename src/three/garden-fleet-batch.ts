@@ -172,7 +172,25 @@ const fleetAerialUniforms = {
   uAerialNear: { value: 1e9 },
   uAerialFar: { value: 1e9 + 1 },
   uAerialStrength: { value: 0 },
+  uClothRestraint: { value: 0 },
 };
+
+/**
+ * How much brand chroma the fleet gives up at the widest framing.
+ *
+ * This restraint lives in the SHADER and is keyed on zoom, deliberately, rather
+ * than being baked into the cloth colour in `garden-sail-texture`. Decision F1
+ * made the sails strongly brand-coloured on purpose — so a ship is nameable on
+ * sight instead of by reading the small mark on its mainsail — and desaturating
+ * the dye itself would quietly undo that for good, at every distance, with no
+ * way back.
+ *
+ * Zoom-gating keeps both things true. Pulled out over the whole sea, where a
+ * hundred and eighty-five saturated sails are just noise, the fleet settles
+ * into the palette. Sail up to it and every ship is as brandable as F1 intended.
+ * The restraint is a viewing condition, not a change to what a ship IS.
+ */
+const CLOTH_RESTRAINT_AT_OVERVIEW = 0.55;
 
 /**
  * How much of the painted mark survives at a given zoom.
@@ -208,11 +226,16 @@ export function setFleetAerialPerspective(aerial: FleetAerialPerspective | null)
   if (!aerial) {
     fleetAerialUniforms.uMarkPresence.value = 1;
     fleetAerialUniforms.uAerialStrength.value = 0;
+    fleetAerialUniforms.uClothRestraint.value = 0;
     fleetAerialUniforms.uAerialNear.value = 1e9;
     fleetAerialUniforms.uAerialFar.value = 1e9 + 1;
     return;
   }
-  fleetAerialUniforms.uMarkPresence.value = gardenFleetMarkPresence(aerial.zoom);
+  const presence = gardenFleetMarkPresence(aerial.zoom);
+  fleetAerialUniforms.uMarkPresence.value = presence;
+  // Marks and chroma recede together on the same zoom curve — one act of
+  // restraint, not two competing ones.
+  fleetAerialUniforms.uClothRestraint.value = (1 - presence) * CLOTH_RESTRAINT_AT_OVERVIEW;
   // Start the chroma ramp well inside the fog's near plane so the midground
   // grades continuously; end it with the fog so the two cues resolve together
   // at the bokashi seam rather than fighting over the horizon band.
@@ -510,6 +533,7 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
     shader.uniforms.uAerialNear = fleetAerialUniforms.uAerialNear;
     shader.uniforms.uAerialFar = fleetAerialUniforms.uAerialFar;
     shader.uniforms.uAerialStrength = fleetAerialUniforms.uAerialStrength;
+    shader.uniforms.uClothRestraint = fleetAerialUniforms.uClothRestraint;
     // Sail-local flutter and furling run before hull form, so height and ride
     // cannot change the animation envelope or reopen bundled canvas.
     shader.vertexShader = shader.vertexShader
@@ -571,6 +595,7 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         uniform float uAerialNear;
         uniform float uAerialFar;
         uniform float uAerialStrength;
+        uniform float uClothRestraint;
         varying vec2 vAtlasUv;
         varying vec3 vSailTint;
         varying float vAerialDepth;`,
@@ -606,8 +631,12 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
           // sail keeps its place in the value structure while its brand colour
           // recedes. Desaturating toward a constant instead would flatten the
           // far fleet into a single grey mass and lose the silhouettes.
+          // Depth restraint and zoom restraint are combined with max(), not
+          // added: they are two readings of the same idea, and compounding them
+          // would grey the far fleet out entirely at wide framing.
           float clothLuma = dot(sailCloth, vec3(0.2126, 0.7152, 0.0722));
-          sailCloth = mix(sailCloth, vec3(clothLuma), aerial * uAerialStrength);
+          float restraint = max(aerial * uAerialStrength, uClothRestraint);
+          sailCloth = mix(sailCloth, vec3(clothLuma), restraint);
 
           diffuseColor.rgb *= sailCloth;
           // The night backlight is THIS ship's cloth glowing, not a cream wash
