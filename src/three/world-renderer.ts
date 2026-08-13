@@ -409,7 +409,7 @@ export function createThreeWorldRenderer(
 ): ThreeWorldRenderer {
   const renderer = new WebGLRenderer({
     alpha: false,
-    antialias: true,
+    antialias: false,
     canvas: input.canvas,
     powerPreference: "high-performance",
   });

@@ -472,9 +472,18 @@ describe("garden post-processing contracts", () => {
     post.setGrade(0.4, 0.25, 0.5, 0.65);
     expect(colorUniform(grade, "lift")[0]).toBeCloseTo(0.0101);
     expect(numberUniform(grade, "flash")).toBe(0.65);
-    expect(bloom.intensity).toBeCloseTo(0.8615);
+    // W0.3: a stroke lifts bloom intensity on the same envelope as the grade's
+    // flash add — the grade pass runs after the bloom pass, so this is the only
+    // road a strike has into the glow. Phase blend 0.8615 + 0.65 * 0.35 strike.
+    expect(bloom.intensity).toBeCloseTo(0.8615 + 0.65 * 0.35);
     expect(bloom.luminanceMaterial.threshold).toBeCloseTo(0.91275);
     expect(n8ao.configuration.intensity).toBeCloseTo(4.05);
+
+    // The envelope's double stroke can sum past 1; bloom sees it clamped so a
+    // strike widens the glow but can never blow the frame out.
+    post.setGrade(0.4, 0.25, 0.5, 1.4);
+    expect(numberUniform(grade, "flash")).toBe(1.4);
+    expect(bloom.intensity).toBeCloseTo(0.8615 + 1 * 0.35);
   });
 
   it("multiplies AO quality, zoom, and continuous tier weights without recompiling quality", () => {

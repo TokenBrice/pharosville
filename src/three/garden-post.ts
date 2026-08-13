@@ -153,6 +153,28 @@ const BLOOM_LUMINANCE_SMOOTHING = 0.01;
 const BLOOM_RADIUS = 0.6;
 
 /**
+ * W0.3: how much bloom intensity a full lightning stroke adds.
+ *
+ * The grade's `flash` add cannot feed bloom — the grade pass runs AFTER the
+ * bloom pass (see the chain comment on createGardenPost), so the bloom
+ * luminance prefilter has already sampled the frame by the time the flash is
+ * added. What the bloom pass DOES see is the strike's other half: the world
+ * lights up for real, because `world-renderer.ts` multiplies the shadow-casting
+ * key light by `1 + lightning * 2.2` for the ~0.3 s envelope. Every wet
+ * highlight the storm rows were tuned around — sun glitter, moon road, lantern
+ * pools — is genuinely brighter in the bloom input during a stroke.
+ *
+ * So the flare is bought by lifting bloom's intensity on the same envelope
+ * rather than by re-adding the flash before bloom: no second full-screen pass,
+ * no second luminance prefilter, and the grade's flash add stays exactly as it
+ * was (the frame is not brightened twice — this only widens the glow around
+ * highlights the strike itself lit). Deliberately modest: at a night storm
+ * peak this takes bloom from ~0.77 to ~1.12 for a third of a second.
+ * Preview-tunable, like the phase table above.
+ */
+const BLOOM_FLASH_INTENSITY = 0.35;
+
+/**
  * W6.3 (Grand Scale Revamp) ran UnrealBloomPass at HALF the composer's
  * resolution because its pyramid made it the most expensive pass in the
  * chain — the reason it was shed at `recovery`. The pmndrs BloomEffect
@@ -223,7 +245,11 @@ const GRADE_FRAGMENT_SHADER = /* glsl */ `
     color *= 1.0 - vignette * vig;
 
     // Phase 2 lightning: a full-screen cool-white flash, added AFTER the
-    // vignette so the whole frame lights at once, in HDR so it feeds bloom.
+    // vignette so the whole frame lights at once. This add does NOT feed bloom
+    // — the grade pass runs after the bloom pass, so the prefilter never sees
+    // it (the claim that it did was wrong from Phase 2 until W0.3 corrected
+    // it). The strike's glow flare is bought on the bloom side instead, via
+    // BLOOM_FLASH_INTENSITY; this term stays the direct, unbloomed lift.
     color += flash * vec3(0.75, 0.82, 1.0);
 
     outputColor = vec4(color, inputColor.a);
@@ -274,6 +300,9 @@ export interface GardenPost {
   // day cycle derives it as `1 - daylight - dusk` anyway, so it carries nothing.
   // Phase 2: stormLevel applies the table's storm scalars (wet-glow bloom,
   // cool lift) on top of the phase blend; flash is the lightning envelope.
+  // W0.3: flash drives BOTH the grade's direct cool-white add and a clamped
+  // lift on bloom intensity, which is the only way a stroke can reach bloom
+  // from here — the grade pass runs after the bloom pass.
   setGrade: (dayMix: number, duskMix: number, stormLevel?: number, flash?: number) => void;
   setSize: (width: number, height: number, dpr: number) => void;
 }
@@ -427,6 +456,47 @@ export function createGardenPost(
   camera: Camera,
 ): GardenPost {
   const size = renderer.getDrawingBufferSize(new Vector2());
+  /**
+   * W0.2 anti-aliasing rationalization — DECIDED 2026-08-13, keep BOTH stages.
+   *
+   * The frame used to pay for AA three times: canvas MSAA (`antialias: true`),
+   * this 4× multisampled HalfFloat buffer, and the final SMAA pass. The canvas
+   * MSAA was pure waste — the composer never presents scene geometry to the
+   * default framebuffer, so all it bought was a multisampled default
+   * framebuffer to allocate and resolve on every present. `world-renderer.ts`
+   * now builds the renderer with `antialias: false`; that is banked and free.
+   *
+   * The other two stages were A/B'd on the real GPU (Apple M5 Pro, ANGLE
+   * Metal, tier full, `scripts/pharosville/preview.mjs` — never Playwright),
+   * scored against a 2× supersampled capture of the same reduced-motion frame
+   * downsampled to 1×, which is the closest thing to ground truth this harness
+   * can produce. Lower RMSE = closer to ground truth = better AA:
+   *
+   *              day RMSE / MAE      night RMSE / MAE   textures
+   *   (a) 4×MSAA + SMAA   7.071 / 1.608   2.536 / 0.763     61
+   *   (b) 4×MSAA only     7.176 / 1.645   2.752 / 0.803     57
+   *   (c) SMAA only       7.449 / 1.849   3.556 / 1.114     61
+   *
+   * Repeat runs of (a) landed within ±0.01 RMSE, so both deltas are real.
+   * (c) is not close: dropping multisampling BREAKS the ship rigging, which is
+   * sub-pixel-thin geometry SMAA cannot reconstruct because the coverage
+   * information is already gone by the time it sees the frame — the stays read
+   * as dotted lines, and masonry edges stair-step. (b) is subtler but still
+   * loses: the lighthouse lantern-cage hoop steps visibly, and night — thin
+   * bright emissives against a dark sky, the hero phase — is where it costs
+   * the most (+8.5 % RMSE).
+   *
+   * And it buys nothing measurable. The frame is vsync-bound at 120 fps /
+   * p50 8.3 ms in EVERY configuration, at 1600×1000 and at the 8 MPix surface
+   * cap alike, so the harness cannot resolve the SMAA pass's cost at all. Per
+   * the decision rule — keep the best-looking option that saves a pass, but
+   * keep (a) if any configuration visibly degrades — (a) stays. The reclaimed
+   * headroom W2.3/W2.4 were promised is therefore the canvas MSAA resolve and
+   * its buffer, not a shed pass; do not budget those tasks against a saved
+   * SMAA pass that was never saved.
+   *
+   * TAA/TRAA remain contractually rejected (ghosting on bobbing ships).
+   */
   const composer = new EffectComposer(renderer, {
     frameBufferType: HalfFloatType,
     multisampling: 4,
@@ -574,6 +644,12 @@ export function createGardenPost(
         dayMix,
       ) - storm * stormThreshold,
     );
+    // W0.3: the strike's flare. The lightning envelope peaks above 1 (the
+    // double stroke sums two decays), so it is clamped before it reaches the
+    // bloom knee — a stroke may widen the glow, never blow the frame out.
+    // See BLOOM_FLASH_INTENSITY for why this rides on intensity rather than on
+    // the grade's flash add, which the bloom prefilter cannot see.
+    const strike = clampUnit(flash);
     bloomEffect.intensity = lerp(
       lerp(POST_PHASE_NIGHT.bloomStrength, POST_PHASE_DUSK.bloomStrength, duskMix),
       POST_PHASE_DAY.bloomStrength,
@@ -582,7 +658,7 @@ export function createGardenPost(
       lerp(POST_PHASE_NIGHT.stormBloomStrength, POST_PHASE_DUSK.stormBloomStrength, duskMix),
       POST_PHASE_DAY.stormBloomStrength,
       dayMix,
-    );
+    ) + strike * BLOOM_FLASH_INTENSITY;
     phaseAOIntensity = lerp(
       lerp(POST_PHASE_NIGHT.aoIntensity, POST_PHASE_DUSK.aoIntensity, duskMix),
       POST_PHASE_DAY.aoIntensity,
