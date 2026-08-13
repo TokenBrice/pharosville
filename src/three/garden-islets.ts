@@ -15,6 +15,7 @@ import { HARBOR_PALETTE } from "../systems/palette";
 import type { GardenRippleRingEmitter } from "./garden-water-contract";
 import { stableUnit, TILE_SCALE } from "./garden-util";
 import { landWorldTile } from "../systems/map-scale";
+import { createGardenTorii } from "./garden-torii";
 
 /**
  * Z5 — Garden islets (Sakuteiki stone groupings in open water).
@@ -23,11 +24,11 @@ import { landWorldTile } from "../systems/map-scale";
  * not void), following the Sakuteiki rules: odd clusters, one dominant
  * vertical stone with subordinate horizontals, stones leaning toward each
  * other:
- * - "crane" (tile 28,8 — northern open water): a tall craggy dominant rock
+ * - "crane" (tile 29,7 — northern open water): a tall craggy dominant rock
  *   with two subordinate stones leaning in.
- * - "turtle" (tile 4,20 — western open water): a long low reef of five
- *   mostly-submerged backs in an arc.
- * - "lone" (tile 26,44 — the south-western quiet water between the Calm and
+ * - "turtle" (tile 3,21 — western open water): a broken arc of five
+ *   mostly-submerged backs around one raised stone.
+ * - "lone" (tile 25,45 — the south-western quiet water between the Calm and
  *   Watch rings): one upright stone flanked by two low companions.
  *
  * All positions verified against the approved Z1 layout: open painted water,
@@ -36,7 +37,7 @@ import { landWorldTile } from "../systems/map-scale";
  * Rocks are clustered displaced icosahedra with a height-gradient vertex
  * color in the island rockwork style, but every color derives from
  * HARBOR_PALETTE (contract C1) — no hex literals. Two InstancedMesh batches
- * (crag + reef) = 2 draw calls. Purely decorative: no data semantics, no
+ * plus the merged torii = 3 draw calls. Purely decorative: no data semantics, no
  * labels, and hit-testing is DOM/projection-driven
  * (`src/renderer/hit-testing.ts`), so the islets are ignored by construction
  * (they register no hit targets and no entity cues).
@@ -62,7 +63,7 @@ export interface GardenIsletsFrame {
 }
 
 export interface GardenIslets {
-  /** C4 evidence: instanced draw-call count (crag + reef batches). */
+  /** C4 evidence: crag + reef batches and the merged torii. */
   drawCallCount: number;
   islets: readonly GardenIsletSpec[];
   root: Group;
@@ -104,9 +105,9 @@ const worldAt = (tileX: number, tileY: number): { x: number; z: number } => {
   return { x: tile.x * TILE_SCALE, z: tile.y * TILE_SCALE };
 };
 
-const CRANE = worldAt(28, 8);
-const TURTLE = worldAt(4, 20);
-const LONE = worldAt(26, 44);
+const CRANE = worldAt(29, 7);
+const TURTLE = worldAt(3, 21);
+const LONE = worldAt(25, 45);
 
 export const GARDEN_ISLETS: readonly GardenIsletSpec[] = [
   { center: CRANE, id: "garden-islet.crane", ringRadius: 4.2 },
@@ -119,25 +120,25 @@ export const GARDEN_ISLETS: readonly GardenIsletSpec[] = [
 // companions so no grouping is even-numbered.
 const CRAG_STONES: readonly StonePlacement[] = [
   // crane — dominant vertical
-  { leanX: 0, leanZ: 0.06, position: [CRANE.x, GARDEN_WATER_Y - 0.6, CRANE.z], rotationY: 0.6, scale: [1.5, 3.4, 1.5] },
+  { leanX: 0.03, leanZ: 0.07, position: [CRANE.x, GARDEN_WATER_Y - 0.72, CRANE.z], rotationY: 0.53, scale: [1.5, 3.4, 1.42] },
   // crane — subordinates leaning in
-  { leanX: 0.1, leanZ: -0.22, position: [CRANE.x + 1.9, GARDEN_WATER_Y - 1.0, CRANE.z + 0.8], rotationY: 2.1, scale: [1.0, 1.6, 1.0] },
-  { leanX: -0.08, leanZ: 0.26, position: [CRANE.x - 1.6, GARDEN_WATER_Y - 1.05, CRANE.z - 0.9], rotationY: 4.4, scale: [0.8, 1.2, 0.8] },
+  { leanX: 0.11, leanZ: -0.24, position: [CRANE.x + 2.2, GARDEN_WATER_Y - 1.02, CRANE.z + 0.65], rotationY: 2.18, scale: [1.05, 1.55, 0.9] },
+  { leanX: -0.09, leanZ: 0.28, position: [CRANE.x - 1.35, GARDEN_WATER_Y - 1.12, CRANE.z - 1.4], rotationY: 4.31, scale: [0.72, 1.08, 0.86] },
   // lone — upright companioned stone
-  { leanX: 0.04, leanZ: -0.1, position: [LONE.x, GARDEN_WATER_Y - 0.8, LONE.z], rotationY: 1.3, scale: [1.1, 1.9, 1.1] },
+  { leanX: 0.05, leanZ: -0.12, position: [LONE.x + 0.1, GARDEN_WATER_Y - 0.88, LONE.z - 0.15], rotationY: 1.24, scale: [1.12, 2.05, 0.96] },
 ];
 
 const REEF_STONES: readonly StonePlacement[] = [
   // turtle — five low backs in an arc, the long horizontal counterweight;
   // y offsets keep the backs just breaking the surface (middle highest).
-  { leanX: 0, leanZ: 0.04, position: [TURTLE.x - 3.1, GARDEN_WATER_Y - 0.3, TURTLE.z + 1.1], rotationY: 0.4, scale: [2.0, 0.55, 1.2] },
-  { leanX: 0.03, leanZ: -0.05, position: [TURTLE.x - 1.5, GARDEN_WATER_Y - 0.22, TURTLE.z + 0.2], rotationY: 1.8, scale: [2.4, 0.72, 1.4] },
-  { leanX: -0.02, leanZ: 0.03, position: [TURTLE.x + 0.1, GARDEN_WATER_Y - 0.18, TURTLE.z - 0.3], rotationY: 3.3, scale: [2.2, 0.8, 1.3] },
-  { leanX: 0.05, leanZ: -0.04, position: [TURTLE.x + 1.8, GARDEN_WATER_Y - 0.26, TURTLE.z + 0.1], rotationY: 5.1, scale: [1.9, 0.62, 1.1] },
-  { leanX: -0.04, leanZ: 0.05, position: [TURTLE.x + 3.2, GARDEN_WATER_Y - 0.34, TURTLE.z + 0.9], rotationY: 2.6, scale: [1.6, 0.5, 1.0] },
+  { leanX: 0.02, leanZ: 0.06, position: [TURTLE.x - 3.4, GARDEN_WATER_Y - 0.4, TURTLE.z + 1.0], rotationY: 0.31, scale: [1.85, 0.48, 1.1] },
+  { leanX: 0.05, leanZ: -0.08, position: [TURTLE.x - 1.1, GARDEN_WATER_Y - 0.3, TURTLE.z - 0.2], rotationY: 1.69, scale: [2.3, 0.68, 1.28] },
+  { leanX: -0.06, leanZ: 0.08, position: [TURTLE.x + 0.45, GARDEN_WATER_Y - 0.72, TURTLE.z - 0.65], rotationY: 3.17, scale: [1.45, 1.42, 1.05] },
+  { leanX: 0.07, leanZ: -0.06, position: [TURTLE.x + 2.4, GARDEN_WATER_Y - 0.36, TURTLE.z + 0.15], rotationY: 5.02, scale: [1.8, 0.58, 0.95] },
+  { leanX: -0.05, leanZ: 0.07, position: [TURTLE.x + 3.5, GARDEN_WATER_Y - 0.44, TURTLE.z + 1.35], rotationY: 2.47, scale: [1.35, 0.42, 0.82] },
   // lone — two low companions
-  { leanX: 0.06, leanZ: 0.12, position: [LONE.x + 1.7, GARDEN_WATER_Y - 0.28, LONE.z + 0.7], rotationY: 0.9, scale: [1.4, 0.55, 1.0] },
-  { leanX: -0.05, leanZ: -0.1, position: [LONE.x - 1.5, GARDEN_WATER_Y - 0.32, LONE.z - 0.6], rotationY: 3.9, scale: [1.2, 0.5, 0.9] },
+  { leanX: 0.08, leanZ: 0.14, position: [LONE.x + 1.95, GARDEN_WATER_Y - 0.38, LONE.z + 0.5], rotationY: 0.82, scale: [1.42, 0.52, 0.88] },
+  { leanX: -0.06, leanZ: -0.12, position: [LONE.x - 1.2, GARDEN_WATER_Y - 0.46, LONE.z - 1.05], rotationY: 3.78, scale: [1.08, 0.44, 0.82] },
 ];
 
 /**
@@ -209,17 +210,19 @@ export function createGardenIslets(): GardenIslets {
   crag.mesh.name = "garden-islets-crag";
   const reef = createStoneBatch(REEF_STONES, "islet-reef", 0.42);
   reef.mesh.name = "garden-islets-reef";
-  root.add(crag.mesh, reef.mesh);
+  const torii = createGardenTorii();
+  root.add(crag.mesh, reef.mesh, torii.root);
 
   return {
-    drawCallCount: 2,
+    drawCallCount: 2 + torii.drawCallCount,
     islets: GARDEN_ISLETS,
     root,
     stoneCount: CRAG_STONES.length + REEF_STONES.length,
-    triangleCount: crag.triangles + reef.triangles,
+    triangleCount: crag.triangles + reef.triangles + torii.triangleCount,
     dispose() {
       crag.mesh.dispose();
       reef.mesh.dispose();
+      torii.dispose();
     },
     registerRippleRings(emitter) {
       if (!emitter || typeof emitter.setRing !== "function") return;

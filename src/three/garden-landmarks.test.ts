@@ -175,6 +175,26 @@ describe("garden landmarks", () => {
     expect(
       landmark.root.getObjectByName("pigeonnier-ton-pier"),
     ).toBeInstanceOf(Mesh);
+    const pier = landmark.root.getObjectByName("pigeonnier-ton-pier") as Mesh;
+    expect(pier.rotation.y).toBeCloseTo(0.14);
+    const piles = landmark.root.getObjectByName("pigeonnier-pier-piles") as InstancedMesh;
+    expect(piles.count).toBe(3);
+    const matrix = new Matrix4();
+    const pilePositions: number[][] = [];
+    for (let index = 0; index < piles.count; index += 1) {
+      piles.getMatrixAt(index, matrix);
+      pilePositions.push(new Vector3().setFromMatrixPosition(matrix).toArray());
+    }
+    const expectedPilePositions = [
+      [-1.6, -0.78, -0.12],
+      [-2.86, -0.74, 0.77],
+      [-4.36, -0.82, 0.37],
+    ];
+    for (const [index, position] of pilePositions.entries()) {
+      position.forEach((value, axis) => {
+        expect(value).toBeCloseTo(expectedPilePositions[index]![axis]!, 5);
+      });
+    }
     expect(objectCount(landmark.root)).toBeLessThan(18);
     expect(hasTexture(landmark.root)).toBe(false);
   });

@@ -624,23 +624,23 @@ export function createGardenPigeonnier(
   const pier = new Mesh(new BoxGeometry(3.45, 0.22, 0.95), timber);
   pier.name = "pigeonnier-ton-pier";
   pier.position.set(-3.0, -0.05, 0.35);
+  pier.rotation.y = 0.14;
   root.add(pier);
 
   const pierPiles = new InstancedMesh(
     new CylinderGeometry(0.1, 0.14, 1.55, 6),
     darkTimber,
-    4,
+    3,
   );
   pierPiles.name = "pigeonnier-pier-piles";
   [
-    [-1.75, -0.7, -0.02],
-    [-1.75, -0.7, 0.72],
-    [-4.2, -0.7, -0.02],
-    [-4.2, -0.7, 0.72],
-  ].forEach(([x, y, z], index) => {
+    [-1.6, -0.78, -0.12, 0.03, 1.15],
+    [-2.86, -0.74, 0.77, -0.02, 1.05],
+    [-4.36, -0.82, 0.37, 0.04, 1.22],
+  ].forEach(([x, y, z, lean, height], index) => {
     dummy.position.set(x, y, z);
-    dummy.rotation.set(0, 0, 0);
-    dummy.scale.set(1, 1, 1);
+    dummy.rotation.set(0, 0.19 + index * 0.47, lean);
+    dummy.scale.set(1 - index * 0.04, height, 1 + index * 0.03);
     dummy.updateMatrix();
     pierPiles.setMatrixAt(index, dummy.matrix);
   });
