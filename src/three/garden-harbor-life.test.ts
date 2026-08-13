@@ -1,4 +1,5 @@
 import {
+  BoxGeometry,
   InstancedMesh,
   Matrix4,
   Mesh,
@@ -18,11 +19,16 @@ import {
   GARDEN_QUAY_GULL_COUNT,
   type GardenGullFlock,
 } from "./garden-harbor-life";
+import {
+  createGardenLaneRegistry,
+  MAX_GARDEN_LIGHT_LANES,
+} from "./garden-lanterns";
 
 const LIGHTHOUSE_TILE = { x: 18, y: 28 };
 
 describe("garden harbor districts", () => {
-  it("batches live dock pads and merges the available Ethereum rollup links", () => {
+  it("builds broken instanced stonework for the available Ethereum rollup links", () => {
+    const laneRegistry = createGardenLaneRegistry();
     const docks = [
       dock("ethereum", 39, 31, 10),
       dock("base", 39, 38, 7),
@@ -38,23 +44,45 @@ describe("garden harbor districts", () => {
     );
 
     expect(districts.root.name).toBe("garden-harbor-districts");
-    expect(districts.pads).toBeInstanceOf(InstancedMesh);
-    expect(districts.pads?.count).toBe(docks.length);
-    expect(districts.causeways).toBeInstanceOf(Mesh);
+    expect(districts.pads).toBeNull();
+    expect(districts.causeways).toBeInstanceOf(InstancedMesh);
+    expect(districts.causeways?.geometry).toBeInstanceOf(BoxGeometry);
     expect(districts.causewayChainIds).toEqual([
       "base",
       "arbitrum",
       "polygon",
     ]);
     expect(objectCount(districts.root)).toBe(2);
-    expect(districts.causeways?.geometry.index?.count).toBe(3 * 6 * 6);
+    expect(districts.causewaySegmentCount).toBe(3 * 6);
+    expect(districts.causeways?.count).toBe(3 * (6 + 2));
+    expect(districts.lanternCount).toBe(3 * 2);
+    expect(districts.lanterns?.count).toBe(3 * 2);
 
-    const basePosition = new Vector3().setFromMatrixPosition(
-      instanceMatrix(districts.pads!, 1),
+    const firstStone = new Vector3().setFromMatrixPosition(
+      instanceMatrix(districts.causeways!, 0),
     );
-    const baseDisplayTile = gardenDockDisplayTile(docks[1]!.tile);
-    expect(basePosition.x).toBeCloseTo(baseDisplayTile.x * 2);
-    expect(basePosition.z).toBeCloseTo(baseDisplayTile.y * 2);
+    const ethereumTile = gardenDockDisplayTile(docks[0]!.tile);
+    expect(firstStone.distanceTo(new Vector3(
+      ethereumTile.x * 2,
+      firstStone.y,
+      ethereumTile.y * 2,
+    ))).toBeGreaterThan(0.2);
+
+    expect(laneRegistry.sync("full")).toBe(3);
+    const laneData = laneRegistry.texture.image.data as Float32Array;
+    expect(Array.from({ length: 3 }, (_, index) => laneData[index * 4 + 3]))
+      .toEqual([3, 3, 3]);
+    const routeRow = MAX_GARDEN_LIGHT_LANES * 2 * 4;
+    const endpointXs = Array.from(
+      { length: 3 },
+      (_, index) => laneData[routeRow + index * 4],
+    );
+    expect(endpointXs).toContainEqual(expect.closeTo(
+      gardenDockDisplayTile(docks[1]!.tile).x * 2,
+    ));
+    laneRegistry.clear();
+    expect(laneRegistry.sync("full")).toBe(3);
+    laneRegistry.dispose();
   });
 
   it("omits the relationship mesh when no Ethereum hub is rendered", () => {
@@ -63,10 +91,13 @@ describe("garden harbor districts", () => {
       LIGHTHOUSE_TILE,
     );
 
-    expect(districts.pads?.count).toBe(2);
+    expect(districts.pads).toBeNull();
     expect(districts.causeways).toBeNull();
+    expect(districts.lanterns).toBeNull();
+    expect(districts.causewaySegmentCount).toBe(0);
+    expect(districts.lanternCount).toBe(0);
     expect(districts.causewayChainIds).toEqual([]);
-    expect(objectCount(districts.root)).toBe(1);
+    expect(objectCount(districts.root)).toBe(0);
   });
 });
 

@@ -143,8 +143,17 @@ export interface GardenLaneRegistry {
   ): number;
 }
 
+type GardenRouteLaneSource = (lanes: readonly GardenLightLane[]) => void;
+const gardenRouteLaneSources = new Set<GardenRouteLaneSource>();
+
+/** Publishes architectural routes into every live scene-owned lane registry. */
+export function registerGardenRouteLanes(lanes: readonly GardenLightLane[]): void {
+  for (const source of gardenRouteLaneSources) source(lanes);
+}
+
 export function createGardenLaneRegistry(): GardenLaneRegistry {
   const lanes = new Map<string, GardenLightLane>();
+  const architecturalRoutes = new Map<string, GardenLightLane>();
   const data = new Float32Array(MAX_GARDEN_LIGHT_LANES * 3 * 4);
   const texture = new DataTexture(
     data,
@@ -166,6 +175,16 @@ export function createGardenLaneRegistry(): GardenLaneRegistry {
   let fieldCenterZ = 0;
   let fieldRadius = 0;
 
+  // Architectural modules publish during content composition, after this
+  // registry exists. Keep their routes across the renderer's ordinary
+  // `clear()` calls so they share the existing route cap and rotation clock.
+  const receiveArchitecturalRoutes: GardenRouteLaneSource = (routes) => {
+    architecturalRoutes.clear();
+    for (const route of routes) architecturalRoutes.set(route.id, route);
+    dirty = true;
+  };
+  gardenRouteLaneSources.add(receiveArchitecturalRoutes);
+
   return {
     get activeLaneCount() {
       return activeLaneCount;
@@ -179,6 +198,7 @@ export function createGardenLaneRegistry(): GardenLaneRegistry {
       dirty = true;
     },
     dispose() {
+      gardenRouteLaneSources.delete(receiveArchitecturalRoutes);
       texture.dispose();
     },
     remove(id) {
@@ -212,7 +232,12 @@ export function createGardenLaneRegistry(): GardenLaneRegistry {
         return activeLaneCount;
       }
 
-      const active = selectActiveLanes([...lanes.values()], tier, cap, rotation);
+      const active = selectActiveLanes(
+        [...lanes.values(), ...architecturalRoutes.values()],
+        tier,
+        cap,
+        rotation,
+      );
       data.fill(0);
       for (const [index, lane] of active.entries()) {
         const header = index * 4;
