@@ -176,8 +176,9 @@ serving the target URL, when the world never populates, and when the renderer
 turns out to be SwiftShader after all. A bare `npm run preview` still fails loudly
 on SwiftShader instead of skipping, because that run was asked for deliberately.
 
-`validate:deploy-gate` — the pre-push gate for `main` — runs `--assert` last and
-treats 78 as SKIP. CI, which has no GPU, therefore skips it every time rather
+`validate:deploy-gate` — the pre-push gate for `main` — runs both `--assert`
+arms last (the animated frame, then the settled reduced-motion frame below) and
+treats 78 from either as SKIP for the whole verdict. CI, which has no GPU, therefore skips it every time rather
 than pretending to have measured a GPU frame. A skip still exits 0, so the last
 line of every run carries the verdict that says which happened:
 `PHAROSVILLE_DEPLOY_GATE: PASS` or `PHAROSVILLE_DEPLOY_GATE: PASS_PERF_SKIPPED`.
@@ -192,9 +193,34 @@ npm run preview -- --assert --reduced
 npm run preview -- --assert --reduced --hash "#sel=ship.satusd-river&t=12"
 ```
 
-After network and GPU resource counts settle, this asserts full tier, at most
-700 calls, 500k triangles, 500 geometries, and 72 textures. It intentionally
-does not invent fps or frame-time data for a deterministic zero-RAF frame.
+This asserts full tier, at most 700 calls, 500k triangles, 500 geometries, and
+72 textures. It intentionally does not invent fps or frame-time data for a
+deterministic zero-RAF frame.
+
+The word that carries this lane is **settled**. Reduced motion paints once and
+then repaints only when something asynchronous lands, so an early read is not
+wrong, it is early — the 2026-07-27 cleanliness audit (V-07) found this path
+over the triangle ceiling exactly because nothing sampled it after it was
+whole. Settled here means all three of: the network is idle, the texture upload
+queue has drained to zero pending, and the full counter tuple — GPU counts plus
+the `uploads`/`logos` progress counters — has held still for four consecutive
+reads. The progress counters are in the signature deliberately: ~184 logo
+decodes land in bursts, and the gap between two bursts is indistinguishable from
+a settled frame if only the GPU counters are watched. A logo whose fetch rejects
+never reaches the loaded count, so the wait is for the count to stop *changing*,
+never for `loaded === expected`, which in that case would never arrive.
+
+The run prints a `settle` line saying which happened. If the frame never
+settles, `--assert` exits **78 (SKIP)**, not 0 — an in-flight frame is missing
+resources that are still arriving, and scoring it green would be the precise
+error V-07 named.
+
+Measured 2026-08-13 on an M5 Pro (settled, live data, 185 ships): **300,687
+triangles / 378 calls** default and **298,051 triangles / 362 calls** for
+`#sel=ship.satusd-river&t=12`. Both are comfortably inside the 500k ceiling —
+the audit's 536k/502k readings predate the v0.7.x horizon, lighthouse, water and
+anchorage work, and the static path no longer costs more than the animated one
+(613 calls / 304,965 tris on the same build).
 
 For fault-like flicker, run the bounded real-GPU artifact probe:
 

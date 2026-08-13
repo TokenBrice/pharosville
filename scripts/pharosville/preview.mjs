@@ -140,6 +140,12 @@ const PROFILE_STAGES = [
 /** Declared here, not with the probe below, because the route handler runs first. */
 const refreshState = { gate: null, openGate: null, parked: 0, round: 0 };
 
+/**
+ * The reduced-motion settle result, or null on the animated path. Assert mode
+ * reads it, so it lives beside the run rather than inside the wait.
+ */
+let staticSettle = null;
+
 // A refresh probe must not be measuring the day cycle as well: a 31-minute
 // clock jump would step the sky and rebake the PMREM probe inside the window.
 // Pinning the hour makes the payload the only thing that moved.
@@ -274,9 +280,13 @@ try {
   }
   await page.waitForTimeout(seconds * 1000);
 
-  let metrics = args.reduced
-    ? await waitForSettledStaticMetrics(page)
-    : await readMetrics(page);
+  let metrics;
+  if (args.reduced) {
+    staticSettle = await waitForSettledStaticMetrics(page);
+    metrics = staticSettle.metrics;
+  } else {
+    metrics = await readMetrics(page);
+  }
   if (!args.reduced) {
     const settleDeadline = Date.now() + 20_000;
     while (Date.now() < settleDeadline && (metrics.samples ?? 0) < FULL_ENOUGH_SAMPLES) {
@@ -329,6 +339,12 @@ try {
     + ` / ${metrics.environmentBakeCalls ?? 0} calls`);
   console.log(`logos      ${metrics.logoAssetsLoaded ?? 0}/${metrics.logoAssetsExpected ?? 0}`
     + " decoded assets");
+  if (args.reduced) {
+    console.log(`settle     ${staticSettle?.settled
+      ? "settled static frame — uploads drained and every counter held still"
+      : "NOT SETTLED — counters were still moving when the wait timed out;"
+        + " the numbers above are an in-flight frame, not the budgeted one"}`);
+  }
   if (
     args["texture-census"]
     || (metrics.textures ?? 0) > limits.maxTextures
@@ -769,6 +785,16 @@ function evaluateAssertions(metrics, shaderErrors = []) {
     return;
   }
 
+  // The static path's own "did not measure" case. An unsettled frame is missing
+  // resources that are still arriving, so passing it would be the exact error
+  // V-07 named: a green reading taken before the frame was whole.
+  if (args.reduced && staticSettle && !staticSettle.settled) {
+    console.log("\nSKIP: the static frame never settled — uploads or logo decodes were still landing,"
+      + " so the resource counts above are in flight and nothing is being claimed about the budget.");
+    process.exitCode = SKIP_EXIT_CODE;
+    return;
+  }
+
   const failures = [];
   if (shaderErrors.length > 0) {
     failures.push(`${shaderErrors.length} shader/program error(s) in the page console — a rejected material is skipped silently at draw time, so the frame is missing something the counters cannot see:\n    ${shaderErrors.slice(0, 5).join("\n    ")}`);
@@ -794,7 +820,7 @@ function evaluateAssertions(metrics, shaderErrors = []) {
 
   if (failures.length === 0) {
     const timing = args.reduced
-      ? "deterministic static frame"
+      ? "settled deterministic static frame"
       : `p90 ${round(metrics.p90)}ms (max ${limits.maxP90Ms})`;
     console.log(`\nPASS: tier ${metrics.tier}, ${timing},`
       + ` ${metrics.calls} calls, ${metrics.triangles} triangles,`
@@ -807,17 +833,48 @@ function evaluateAssertions(metrics, shaderErrors = []) {
   process.exitCode = 1;
 }
 
+/**
+ * The static path's equivalent of a full frame-pacing window.
+ *
+ * Reduced motion owns no continuous RAF: the world paints one deterministic
+ * frame, then paints again only when something asynchronous arrives. So an
+ * early read of the counters is not wrong, it is EARLY — and the 2026-07-27
+ * cleanliness audit (V-07) is on record that the SETTLED static frame is the
+ * one the resource budget is about.
+ *
+ * Settled therefore means three things at once, not merely "stopped moving":
+ *
+ * 1. The network is idle, so nothing further is on its way.
+ * 2. The texture upload queue has DRAINED. `pending` is the queue length, so it
+ *    reaches zero whether a task succeeded or failed — one broken texture
+ *    cannot wedge this wait open.
+ * 3. The whole reported tuple has held still across several consecutive reads —
+ *    the GPU counters AND the upload/logo PROGRESS counters. Including the
+ *    progress counters is what makes the stillness mean something: ~184 logo
+ *    decodes land in bursts, and the gap between two bursts is indistinguishable
+ *    from a settled frame if only the GPU counters are watched.
+ *
+ * A logo whose fetch rejects never reaches the loaded count, so this
+ * deliberately does not wait for `loaded === expected` — that moment would
+ * never come. It waits for the count to stop CHANGING, which happens either way.
+ *
+ * It reports whether it actually settled, because an unsettled read is not a
+ * measurement of the static frame and assert mode must not score it as one.
+ */
 async function waitForSettledStaticMetrics(page) {
-  // Reduced motion owns no continuous RAF. Every async model/logo arrival asks
-  // for one deterministic repaint, so wait until both the network and the GPU
-  // resource tuple have stopped changing before treating telemetry as settled.
+  // 2s of stillness at the end of the dwell: long enough to span the gap
+  // between two logo-decode bursts, short enough not to dominate the run.
+  const REQUIRED_STABLE_READS = 4;
+  const READ_INTERVAL_MS = 500;
+  const SETTLE_TIMEOUT_MS = 45_000;
+
   await page.waitForLoadState("networkidle", { timeout: 30_000 }).catch(() => {});
   let previous = null;
   let stableReads = 0;
   let latest = await readMetrics(page);
-  const deadline = Date.now() + 20_000;
-  while (Date.now() < deadline && stableReads < 3) {
-    await page.waitForTimeout(500);
+  const deadline = Date.now() + SETTLE_TIMEOUT_MS;
+  while (Date.now() < deadline && stableReads < REQUIRED_STABLE_READS) {
+    await page.waitForTimeout(READ_INTERVAL_MS);
     latest = await readMetrics(page);
     const signature = [
       latest.calls,
@@ -826,11 +883,19 @@ async function waitForSettledStaticMetrics(page) {
       latest.textures,
       latest.shipsVisible,
       latest.tier,
+      latest.textureUploads?.pending ?? 0,
+      latest.textureUploads?.uploaded ?? 0,
+      latest.logoAssetsLoaded ?? 0,
+      latest.logoAssetsExpected ?? 0,
     ].join("|");
-    stableReads = signature === previous ? stableReads + 1 : 0;
+    // A page with no debug object at all reads as a tuple of nulls, which is
+    // perfectly "stable" and means nothing. Telemetry has to exist first.
+    const reporting = latest.triangles !== null && latest.tier !== null;
+    const uploadsDrained = (latest.textureUploads?.pending ?? 0) === 0;
+    stableReads = reporting && uploadsDrained && signature === previous ? stableReads + 1 : 0;
     previous = signature;
   }
-  return latest;
+  return { metrics: latest, settled: stableReads >= REQUIRED_STABLE_READS };
 }
 
 async function runArtifactFlashCheck(page, canvas) {
