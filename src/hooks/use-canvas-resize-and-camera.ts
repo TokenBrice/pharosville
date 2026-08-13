@@ -102,6 +102,7 @@ export interface UseCanvasResizeAndCameraResult {
   handleToolbarZoomIn: () => void;
   handleToolbarZoomOut: () => void;
   maximumRequestedDprRef: MutableRefObject<number>;
+  moveCameraTo: (camera: IsoCamera) => void;
   setCamera: Dispatch<SetStateAction<IsoCamera | null>>;
   /**
    * Observe 2.0 (Phase 4): hand the camera to the cinematic tour. The hook
@@ -271,6 +272,10 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       : value;
     applyCameraImmediately(next);
   }, [applyCameraImmediately, cameraRef, stopFollowChase]);
+
+  const moveCameraTo = useCallback((targetCamera: IsoCamera) => {
+    queueCameraTarget(targetCamera, "external");
+  }, [queueCameraTarget]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -855,6 +860,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     handleToolbarZoomIn,
     handleToolbarZoomOut,
     maximumRequestedDprRef,
+    moveCameraTo,
     setCamera,
     startObserveTour,
     stopObserveTour,

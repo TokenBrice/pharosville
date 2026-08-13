@@ -17,6 +17,7 @@ import { useHarborLog } from "./hooks/use-harbor-log";
 import { isDialogEventTarget } from "./hooks/keyboard-event-target";
 import { useLatestRef } from "./hooks/use-latest-ref";
 import { useLiveTitle } from "./hooks/use-live-title";
+import { useMomentUrl } from "./hooks/use-moment-url";
 import { useRecentWorldInput } from "./hooks/use-recent-world-input";
 import { useVisitSnapshot } from "./hooks/use-visit-snapshot";
 import { detailAnchorForPoint, useWorldKeyboardTargets } from "./hooks/use-world-keyboard-targets";
@@ -78,6 +79,7 @@ const CHARTING_VEIL_FADE_MS = 420;
 
 function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const [reducedMotion, setReducedMotion] = useState(true);
+  const [motionPreferenceResolved, setMotionPreferenceResolved] = useState(false);
   const shellRef = useRef<HTMLElement | null>(null);
   // Holds the faint world controls; `useRecentWorldInput` flags it after any
   // camera input so they surface for a beat without a re-render.
@@ -364,32 +366,9 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   useEffect(() => {
     worldUrlState.replaceWorldUrlState({
       nightMode: timeControls.nightMode,
-      selectedDetailId,
       timeHour: timeControls.wallClockHour,
     });
-  }, [
-    selectedDetailId,
-    timeControls.nightMode,
-    timeControls.wallClockHour,
-    worldUrlState,
-  ]);
-
-  const cameraOffsetX = canvas.camera?.offsetX ?? null;
-  const cameraOffsetY = canvas.camera?.offsetY ?? null;
-  const cameraZoom = canvas.camera?.zoom ?? null;
-  useEffect(() => {
-    if (cameraOffsetX === null || cameraOffsetY === null || cameraZoom === null) return;
-    const id = window.setTimeout(() => {
-      worldUrlState.replaceWorldUrlState({
-        camera: {
-          offsetX: cameraOffsetX,
-          offsetY: cameraOffsetY,
-          zoom: cameraZoom,
-        },
-      });
-    }, 500);
-    return () => window.clearTimeout(id);
-  }, [cameraOffsetX, cameraOffsetY, cameraZoom, worldUrlState]);
+  }, [timeControls.nightMode, timeControls.wallClockHour, worldUrlState]);
 
   // Wire the late-bound recompute callbacks now that the canvas hook has
   // exposed its refs. We assign in a useEffect (not during render) so the
@@ -483,6 +462,22 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     : null;
   const cancelCameraIntent = canvas.cancelCameraIntent;
   const focusTile = canvas.focusTile;
+
+  const restoreMomentShip = useCallback((detailId: string, frameSelection: boolean) => {
+    if (frameSelection) pendingFollowDetailIdRef.current = detailId;
+    selectDetail(detailId, null);
+  }, [selectDetail]);
+
+  useMomentUrl({
+    camera: canvas.camera,
+    canvasSize: canvas.canvasSize,
+    moveCameraTo: canvas.moveCameraTo,
+    onRestoreShip: restoreMomentShip,
+    ready: threeExperienceReady && motionPreferenceResolved && world.routeMode === "world",
+    selectedDetailId,
+    setCamera: canvas.setCamera,
+    world,
+  });
 
   const observingTour = observeIndex !== null && !reducedMotion && threeExperienceReady;
   const startObserveTour = canvas.startObserveTour;
@@ -635,6 +630,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   useEffect(() => observeReducedMotion((matches) => {
     if (matches) cancelCameraIntent();
     setReducedMotion(matches);
+    setMotionPreferenceResolved(true);
   }), [cancelCameraIntent]);
 
   // world.map is a module singleton; this fires once on full teardown.

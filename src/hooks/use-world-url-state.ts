@@ -35,7 +35,10 @@ export interface WorldUrlLateResolvedSelection {
   follow: boolean;
 }
 
-const OWNED_WORLD_URL_KEYS = ["sel", "t", "n", "cam"] as const;
+// `cam` now belongs to the query-only moment URL contract. Keeping it out of
+// this legacy descriptor chooser prevents a new `?ship=…&cam=…` URL from
+// making the time controls write `t`/`n` into the query string.
+const OWNED_WORLD_URL_KEYS = ["sel", "t", "n"] as const;
 
 export function useWorldUrlState(input: {
   world: PharosVilleWorldModel;
@@ -125,6 +128,10 @@ export function buildShareableWorldUrlHref(currentHref: string): string {
   const url = new URL(currentHref);
   const hashParams = paramsFromHash(url.hash);
   const searchParams = new URLSearchParams(url.search);
+  // W6.5 moment links are already in the server-visible half of the URL. Do
+  // not run them through the legacy hash-to-query conversion below, which
+  // would discard `?ship=…&cam=…` when the existing time controls own the hash.
+  if (searchParams.has("ship") || searchParams.has("cam")) return url.href;
   const owned = chooseDescriptorTarget(hashParams, searchParams) === "hash" ? hashParams : searchParams;
   const search = owned.toString();
   url.hash = "";
