@@ -97,6 +97,19 @@ describe("water shader uniform hygiene", () => {
   it("declares uStorm in the fragment stage (the 2026-07-30 regression)", () => {
     expect(declaredUniforms(FRAGMENT_SHADER).has("uStorm")).toBe(true);
   });
+
+  /**
+   * W1.4: the bokashi bands are the only sky this world has, and the water
+   * draws them. The shader has TWO exit paths — the open-ocean early-out and
+   * the end of main — and at wide framings the early-out draws most of the far
+   * water in the upper frame. Applying the wipe to one path only would step the
+   * ramp at exactly the map boundary L1 spent its effort erasing.
+   */
+  it("wipes the bokashi bands on BOTH of the shader's exit paths", () => {
+    expect(FRAGMENT_SHADER).toContain("float gardenBokashiShade(");
+    const calls = FRAGMENT_SHADER.match(/gl_FragColor\.rgb \*= gardenBokashiShade\(/g);
+    expect(calls).toHaveLength(2);
+  });
 });
 
 describe("createGardenWater", () => {

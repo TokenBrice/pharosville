@@ -32,7 +32,7 @@ import {
   dayCyclePhase,
   MOON_COLOR,
 } from "./garden-day-cycle";
-import { GARDEN_MOON_AZIMUTH } from "./garden-sky";
+import { GARDEN_MOON_AZIMUTH, gardenBokashiBandGlsl } from "./garden-sky";
 import { gardenSunPose } from "./garden-sun";
 import { MAX_GARDEN_LIGHT_LANES } from "./garden-lanterns";
 import {
@@ -695,6 +695,8 @@ export const FRAGMENT_SHADER = /* glsl */ `
     return mix(color, uBaseColor, fade * (0.08 + uDusk * 0.05 + uNight * 0.04));
   }
 
+${gardenBokashiBandGlsl()}
+
   void main() {
     // --- W6.1: open-ocean early-out ----------------------------------------
     // The water plane is 900 units across; the playable map is ~79. Everything
@@ -769,6 +771,10 @@ export const FRAGMENT_SHADER = /* glsl */ `
       #include <tonemapping_fragment>
       #include <colorspace_fragment>
       #include <fog_fragment>
+      // W1.4: and the bokashi wipe too. At wide framings this branch draws most
+      // of the far water in the upper frame, so leaving the bands off it would
+      // step the ramp at the same map boundary L1 spent its effort erasing.
+      gl_FragColor.rgb *= gardenBokashiShade(vFogDepth, fogNear, uDaylight, uDusk, uNight);
       return;
     }
 
@@ -1548,6 +1554,13 @@ export const FRAGMENT_SHADER = /* glsl */ `
     float heightFog = (1.0 - exp(-uHeightFogDensity * max(camDistance - 200.0, 0.0)))
       * heightFogFactor;
     gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, clamp(heightFog, 0.0, 1.0));
+
+    // W1.4 bokashi bands: the printer's wipe, applied last, over the finished
+    // sea-and-haze. Density only — one pigment at three stops — so the day
+    // cycle keeps every hue and the bands cannot introduce a colour of their
+    // own. Zero at and below fogNear by construction, which is what keeps the
+    // island, the harbour and the near fleet out of it at every framing.
+    gl_FragColor.rgb *= gardenBokashiShade(vFogDepth, fogNear, uDaylight, uDusk, uNight);
   }
 `;
 

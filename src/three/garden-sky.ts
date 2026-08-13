@@ -113,6 +113,135 @@ const FOG_MIN_SCALE = 1;
 // zoom AND keeps the world's edge dissolving at wide zoom.
 const FOG_MAX_SCALE = 1.5;
 
+// --- W1.4: bokashi bands -----------------------------------------------------
+//
+// The ladder above is the "long quiet mid-gradient" of a woodblock sky. This is
+// the rest of the wipe: the two or three DELIBERATE stops a printer lays over a
+// flat field, which is what makes a Hiroshige sky read as depth without a single
+// physical scattering term.
+//
+// It lives here, with the ladder, because garden-sky owns the haze band — but it
+// is DRAWN by garden-water, and that is a geometric fact rather than a layering
+// choice. Under the locked orthographic camera the dome can never enter frame
+// (VISUAL_INVARIANTS "Light and atmosphere"); the upper-frame band where far
+// water dissolves into fog is the only sky this world has, and that band is
+// water fragments. So the ramp is defined once here and injected into the water
+// shader by `gardenBokashiBandGlsl()`, the same way `gardenOpenOcean` is one
+// definition shared by both of that shader's paths.
+//
+// PARAMETER. `d = fogDepth / fogNear`, so the stops are expressed as multiples
+// of the fog's own near plane rather than as world depths. That makes them
+// scale-invariant for free: `update()` below scales `fog.near`/`fog.far` with
+// the camera's view height, so the bands ride the ladder out as the frame widens
+// and pull in with it, instead of sliding off a framing they were tuned at.
+//
+// It also buys the strongest guarantee in the design. Every stop starts at
+// d >= 1, so the ink is EXACTLY zero at and below the near plane — the same
+// depth the W6.8 ladder promises the island at zero haze. The bands cannot touch
+// the monument, the harbour or the near fleet at any framing, by construction
+// rather than by tuning. `gardenBokashiInk` is exported so that is a test and
+// not a claim.
+//
+// WHERE THE STOPS LAND. Measured, not estimated: a reduced-motion before/after
+// pair at 22:00 differenced row by row puts the near plane at 0.47 of the frame
+// height and the top row at d = 1.42, so `d = 1.42 - 0.90 * fracFromTop` across
+// the default framing. Reading DOWN from the top of the frame:
+//
+//   deep top band     d 1.42-1.28   top 0.00-0.16   deep indigo, fast falloff
+//   pale strip        d 1.31-1.13        0.12-0.32   lighter, the horizon seam
+//   ichimonji strip   d 1.16-1.00        0.29-0.47   darker, farthest water
+//   (below d = 1.00)                     0.47-1.00   untouched
+//
+// That is Hiroshige's order — a dark band at the top, the fog ladder's long
+// quiet gradient under it, a pale strip at the seam, and the ichimonji mirroring
+// it as a subtle darker strip on the water below. The first tuning had the deep
+// band saturating at d = 1.44, past the top of the frame, so it was squeezed
+// into the top 5% at a third of its intended weight; it now reaches full exactly
+// at the top row.
+//
+// COLOUR. The ink is a multiplicative shade on the finished fragment, not a
+// tint: bokashi is one pigment wiped to varying density, so density is the only
+// thing that moves and every hue stays the day cycle's. That is why no phase
+// needs its own swatch — at night and dusk the band deepens the authored indigo
+// into the ai family on its own, and at day it shades an already-pale fog by a
+// third as much.
+export const GARDEN_BOKASHI_BAND = {
+  /** Multiples of `fog.near`: [in-start, in-end, out-start, out-end]. */
+  ichimonji: [1, 1.06, 1.1, 1.16],
+  pale: [1.13, 1.2, 1.25, 1.31],
+  /** The deep top band has no upper edge — it saturates at the frame's top row. */
+  deep: [1.28, 1.42],
+  ichimonjiGain: 0.07,
+  paleGain: 0.11,
+  deepGain: 0.24,
+  /** Dusk and night carry the bands; day keeps a quarter of them. */
+  dayAmount: 0.25,
+} as const;
+
+/**
+ * The bokashi ink at one depth: > 0 lightens (the pale horizon strip), < 0
+ * deepens (the ichimonji strip and the top band), 0 leaves the fragment alone.
+ *
+ * The GLSL below is generated from the same constants, so this is the ramp the
+ * water actually draws rather than a model of it.
+ */
+export function gardenBokashiInk(fogDepth: number, fogNear: number): number {
+  const B = GARDEN_BOKASHI_BAND;
+  const step = (edge0: number, edge1: number, value: number): number => {
+    const t = Math.min(1, Math.max(0, (value - edge0) / (edge1 - edge0)));
+    return t * t * (3 - 2 * t);
+  };
+  const d = fogDepth / Math.max(fogNear, 1);
+  const ichimonji = step(B.ichimonji[0], B.ichimonji[1], d)
+    * (1 - step(B.ichimonji[2], B.ichimonji[3], d));
+  const pale = step(B.pale[0], B.pale[1], d) * (1 - step(B.pale[2], B.pale[3], d));
+  const deep = step(B.deep[0], B.deep[1], d);
+  return pale * B.paleGain - ichimonji * B.ichimonjiGain - deep * B.deepGain;
+}
+
+/** Phase weight for the bands: full through dusk and night, a third by day. */
+export function gardenBokashiAmount(phase: DayCyclePhase): number {
+  return phase.night + phase.dusk + phase.daylight * GARDEN_BOKASHI_BAND.dayAmount;
+}
+
+/**
+ * The ramp as a GLSL shade multiplier, for injection into the water shader.
+ *
+ * Takes its phase weights and fog plane as arguments and reads no uniforms, so
+ * it can be called from both of that shader's exit paths — the open-ocean
+ * early-out and the end of main — which is required: at the default framing most
+ * of the far water in the upper frame is outside the map, and the early-out is
+ * what draws it.
+ */
+export function gardenBokashiBandGlsl(): string {
+  const B = GARDEN_BOKASHI_BAND;
+  const n = (value: number): string => (Number.isInteger(value) ? value.toFixed(1) : String(value));
+  return /* glsl */ `
+  // W1.4 bokashi bands — ramp owned by garden-sky.ts (GARDEN_BOKASHI_BAND).
+  // Stops are multiples of the fog's near plane, so they ride the ladder as it
+  // scales with the view and are exactly zero at and below it.
+  float gardenBokashiShade(
+    float fogDepth,
+    float fogNearPlane,
+    float daylight,
+    float dusk,
+    float night
+  ) {
+    float d = fogDepth / max(fogNearPlane, 1.0);
+    float ichimonji = smoothstep(${n(B.ichimonji[0])}, ${n(B.ichimonji[1])}, d)
+      * (1.0 - smoothstep(${n(B.ichimonji[2])}, ${n(B.ichimonji[3])}, d));
+    float pale = smoothstep(${n(B.pale[0])}, ${n(B.pale[1])}, d)
+      * (1.0 - smoothstep(${n(B.pale[2])}, ${n(B.pale[3])}, d));
+    float deep = smoothstep(${n(B.deep[0])}, ${n(B.deep[1])}, d);
+    float ink = pale * ${n(B.paleGain)}
+      - ichimonji * ${n(B.ichimonjiGain)}
+      - deep * ${n(B.deepGain)};
+    float amount = night + dusk + daylight * ${n(B.dayAmount)};
+    return 1.0 + ink * amount;
+  }
+`;
+}
+
 // The first follow-up baseline disables the detached cumulus sprites that read
 // as pale pills at whole-map zoom. Keep the implementation for controlled A/B
 // work; mist banks remain the active billboard atmosphere.

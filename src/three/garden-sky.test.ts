@@ -7,7 +7,11 @@ import {
 } from "./garden-day-cycle";
 import {
   createGardenSky,
+  GARDEN_BOKASHI_BAND,
   GARDEN_CUMULUS_BILLBOARDS_ENABLED,
+  gardenBokashiAmount,
+  gardenBokashiBandGlsl,
+  gardenBokashiInk,
 } from "./garden-sky";
 import { CLOUD_COUNT, MIST_BANK_COUNT } from "./garden-sky-billboards";
 
@@ -275,5 +279,73 @@ describe("garden sky aerial perspective", () => {
     // Capped by FOG_MAX_SCALE. The old ladder put the near plane at 288 here and
     // the map edge resolved as a hard diamond slab in a void.
     expect(wide.near).toBeLessThan(288);
+  });
+});
+
+/**
+ * W1.4 bokashi bands. The ramp is defined here because garden-sky owns the fog
+ * ladder, but it is drawn by the water shader — under the locked orthographic
+ * camera the upper-frame haze band IS water fragments, so these tests are the
+ * only place the ramp's shape can be asserted without reading pixels.
+ */
+describe("bokashi bands", () => {
+  const NEAR = 178;
+
+  it("is exactly zero at and below the fog's near plane", () => {
+    // The strongest guarantee in the design: every stop starts at d >= 1, so
+    // the bands cannot reach the island, the harbour or the near fleet at any
+    // framing. Construction, not tuning.
+    for (const depth of [0, 60, 121, 155, 177.9, NEAR]) {
+      expect(gardenBokashiInk(depth, NEAR)).toBe(0);
+    }
+  });
+
+  it("darkens the farthest readable water, then lightens the horizon seam", () => {
+    // ichimonji strip (depth ~189-196 at the calibrated framing) sits below the
+    // pale strip (~214-222) and pulls the other way — the woodblock mirror.
+    expect(gardenBokashiInk(192, NEAR)).toBeLessThan(0);
+    expect(gardenBokashiInk(218, NEAR)).toBeGreaterThan(0);
+  });
+
+  it("deepens hardest at the very top of the frame", () => {
+    // d = 1.42 - 0.90 * fracFromTop, so the top row is depth ~253.
+    const frameTop = gardenBokashiInk(253, NEAR);
+    expect(frameTop).toBeLessThan(gardenBokashiInk(244, NEAR));
+    expect(gardenBokashiInk(244, NEAR)).toBeLessThan(gardenBokashiInk(235, NEAR));
+    // Deep, but a quiet graphic accent rather than a poster stripe: an eighth of
+    // a stop at most, and no phase can push it past the authored gain.
+    expect(frameTop).toBeGreaterThan(-GARDEN_BOKASHI_BAND.deepGain - 1e-9);
+    expect(frameTop).toBeLessThan(-0.15);
+  });
+
+  it("rides the ladder when the fog range scales with the view", () => {
+    // The stops are multiples of fogNear, so a wider framing moves them out
+    // with the ladder instead of leaving them on a framing they were tuned at.
+    const wideNear = NEAR * 1.5;
+    expect(gardenBokashiInk(255 * 1.5, wideNear)).toBeCloseTo(
+      gardenBokashiInk(255, NEAR),
+      6,
+    );
+    expect(gardenBokashiInk(255, wideNear)).toBe(0);
+  });
+
+  it("keeps day barely-there and hands the bands to dusk and night", () => {
+    const day = gardenBokashiAmount(dayCyclePhase(12));
+    const dusk = gardenBokashiAmount(dayCyclePhase(19));
+    const night = gardenBokashiAmount(dayCyclePhase(22));
+    expect(day).toBeCloseTo(GARDEN_BOKASHI_BAND.dayAmount, 5);
+    expect(dusk).toBeGreaterThan(day * 2);
+    expect(night).toBeGreaterThan(day * 2);
+    expect(Math.max(dusk, night)).toBeLessThanOrEqual(1);
+  });
+
+  it("generates the injected GLSL from the same constants it exports", () => {
+    const glsl = gardenBokashiBandGlsl();
+    expect(glsl).toContain("float gardenBokashiShade(");
+    for (const stop of [...GARDEN_BOKASHI_BAND.pale, ...GARDEN_BOKASHI_BAND.deep]) {
+      expect(glsl).toContain(Number.isInteger(stop) ? stop.toFixed(1) : String(stop));
+    }
+    // No uniforms: the water shader calls it from two exit paths.
+    expect(glsl).not.toMatch(/\bu[A-Z]\w*/);
   });
 });
