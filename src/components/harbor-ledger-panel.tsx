@@ -8,8 +8,10 @@ import {
   type ShipRiskTransitionEntry,
 } from "./accessibility-ledger";
 import type { PharosVilleWorld } from "../systems/world-types";
+import type { GardenAlmanacLogEntry } from "../systems/garden-almanac";
 
 export interface HarborLedgerPanelProps {
+  almanacEntries?: readonly GardenAlmanacLogEntry[];
   onClose: () => void;
   world: PharosVilleWorld;
   riskTransitionByShipId?: ReadonlyMap<string, ShipRiskTransitionEntry | null>;
@@ -31,7 +33,7 @@ const DIALOG_FOCUSABLE_SELECTOR = [
  * path renders — the caller mounts one or the other, never both, so the words
  * cannot drift and the region landmark is never announced twice.
  */
-export function HarborLedgerPanel({ onClose, riskTransitionByShipId, world }: HarborLedgerPanelProps) {
+export function HarborLedgerPanel({ almanacEntries, onClose, riskTransitionByShipId, world }: HarborLedgerPanelProps) {
   const panelRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
 
@@ -84,6 +86,7 @@ export function HarborLedgerPanel({ onClose, riskTransitionByShipId, world }: Ha
         tabIndex={0}
       >
         <AccessibilityLedger
+          {...(almanacEntries ? { almanacEntries } : {})}
           presentation="visible"
           title="Harbor ledger"
           world={world}

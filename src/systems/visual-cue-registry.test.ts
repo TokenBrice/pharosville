@@ -21,6 +21,9 @@ describe("buildVisualCueRegistry", () => {
     const cues = buildVisualCueRegistry();
 
     expect(cues.map((cue) => cue.id)).toContain("cue.lighthouse.psi");
+    expect(cues.map((cue) => cue.id)).toContain("cue.pigeonnier.notable-movers");
+    expect(cues.map((cue) => cue.id)).toContain("cue.lighthouse.lamp-status");
+    expect(cues.map((cue) => cue.id)).toContain("cue.lighthouse.garden-month-record");
     expect(cues.map((cue) => cue.id)).toEqual(expect.arrayContaining([
       "cue.ship.motion",
       "cue.ship.hull",
@@ -29,7 +32,7 @@ describe("buildVisualCueRegistry", () => {
       "cue.water.semantic-terrain",
     ]));
     expect(cues.find((cue) => cue.id === "cue.ship.motion")).toMatchObject({
-      failureState: "reduced-motion static risk-water idle position with evidence caveat",
+      failureState: expect.stringContaining("reduced-motion static risk-water idle position with evidence caveat"),
       target: { kind: "ship" },
       primaryChannels: ["motion", "position", "opacity"],
     });
@@ -37,7 +40,7 @@ describe("buildVisualCueRegistry", () => {
       failureState: "no watch overlay; detail row absent for NR or missing report cards",
       target: { kind: "ship" },
       primaryChannels: ["shape", "color"],
-      sourceField: "reportCards.cards[].overallGrade (D/F)",
+      sourceField: "reportCards.cards[].overallGrade (D/F), reportCards.cards[].dimensions",
     });
     expect(cues.every((cue) => cue.sourceField && cue.domEquivalent && cue.failureState && cue.reducedMotionEquivalent)).toBe(true);
   });
@@ -55,6 +58,51 @@ describe("buildVisualCueRegistry", () => {
     expect(`${cue?.visual} ${cue?.questionAnswered}`).not.toMatch(/\b(alert|alarm|urgent|critical|emergency)\b/i);
   });
 
+  it("registers ship cycle tempo against per-coin mint/redeem flow intensity", () => {
+    const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.ship.motion");
+
+    expect(cue).toMatchObject({
+      sourceField: expect.stringContaining("mintBurn.coins[].flowIntensity"),
+      questionAnswered: expect.stringContaining("24h mint/redeem flow"),
+      failureState: expect.stringContaining("neutral 1.0 cycle-speed scalar"),
+    });
+    expect(cue?.domEquivalent).toContain("not market-cap tier");
+  });
+
+  it("registers the per-ship issuance workset with complete parity", () => {
+    expect(buildVisualCueRegistry().find((entry) => entry.id === "cue.ship.issuance-work")).toMatchObject({
+      target: { kind: "ship" },
+      primaryChannels: ["position", "shape", "motion"],
+      sourceField: expect.stringContaining("largestEvent24h"),
+      failureState: expect.stringContaining("neutral issuance draft"),
+      reducedMotionEquivalent: expect.stringContaining("static representative composition"),
+    });
+  });
+
+  it("registers static report-card fittings with complete parity", () => {
+    expect(buildVisualCueRegistry().find((entry) => entry.id === "cue.ship.seaworthiness-fittings")).toMatchObject({
+      target: { kind: "ship" },
+      primaryChannels: ["shape", "position"],
+      sourceField: expect.stringContaining("redemptionImmediateCapacityRatio"),
+      failureState: expect.stringContaining("no corresponding fitting"),
+      reducedMotionEquivalent: expect.stringContaining("static fittings"),
+    });
+  });
+
+  it("keeps age patina separate from risk-water streaking and honest when unavailable", () => {
+    const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.ship.age-patina");
+
+    expect(cue).toMatchObject({
+      target: { kind: "ship" },
+      primaryChannels: ["color", "shape"],
+      sourceField: expect.stringContaining("trackingSpanDays"),
+      failureState: expect.stringContaining("neutral original hull finish"),
+    });
+    expect(cue?.visual).toContain("sail cloth and issuer hue are untouched");
+    expect(cue?.visual).toContain("no bands or streaks");
+    expect(cue?.domEquivalent).toContain("accessibility-ledger age-patina clause");
+  });
+
   it("does not expose removed data-building cue targets", () => {
     const cues = buildVisualCueRegistry();
     expect(cues.map((cue) => cue.id).filter((id) => id.startsWith("cue.building."))).toEqual([]);
@@ -69,6 +117,7 @@ describe("buildVisualCueRegistry", () => {
       docks: targetKeys.has("dock"),
       graves: targetKeys.has("grave"),
       lighthouse: targetKeys.has("lighthouse"),
+      pigeonnier: targetKeys.has("pigeonnier"),
       ships: targetKeys.has("ship"),
     } as const satisfies Partial<Record<keyof PharosVilleWorld, boolean>>;
 
@@ -77,6 +126,7 @@ describe("buildVisualCueRegistry", () => {
       docks: true,
       graves: true,
       lighthouse: true,
+      pigeonnier: true,
       ships: true,
     });
   });
@@ -114,13 +164,20 @@ describe("buildVisualCueRegistry", () => {
     const markCueIds = LEGEND_MARK_ROWS.map((row) => row.cueId);
 
     expect(markCueIds).toEqual([
+      "cue.pigeonnier.notable-movers",
+      "cue.world.epistemic-haze",
+      "cue.ship.age-patina",
       "cue.ship.zone-weathering",
+      "cue.ship.issuance-work",
+      "cue.ship.seaworthiness-fittings",
       "cue.dock.congestion",
       "cue.dock.cargo-tide",
       "cue.fleet.flight-to-quality",
       "cue.lighthouse.signal-mast",
       "cue.world.supply-tide",
       "cue.lighthouse.high-water-mark",
+      "cue.lighthouse.garden-month-record",
+      "cue.lighthouse.lamp-status",
       "cue.ship.cross-bearing-buoy",
       "cue.ship.peg-trim",
       "cue.ship.audit-shield",

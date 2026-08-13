@@ -75,6 +75,11 @@ describe("createGardenOverviewLod", () => {
     // Guard against an upstream rename silently un-culling the overview frame.
     // The composed-world half of this lives in world-renderer.test.ts.
     expect(new Set(OVERVIEW_LOD_DETAIL_NAMES).size).toBe(OVERVIEW_LOD_DETAIL_NAMES.length);
+    expect(OVERVIEW_LOD_DETAIL_NAMES).toEqual(expect.arrayContaining([
+      "island-koi",
+      "island-niwaki",
+      "island-raked-gravel",
+    ]));
   });
 
   it("leaves the authored transform untouched above the band", () => {

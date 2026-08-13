@@ -52,8 +52,12 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
   "dock-posts",
   "dock-warehouse-windows",
   // The island's toy-scale grounding props, authored against a 34-unit Pharos.
+  // W3.1 deleted the keeper-cottage lantern string outright (the Great
+  // Quieting removed that glow vocabulary), so it no longer appears here.
   "island-quay-stair",
-  "keeper-cottage-lantern-string",
+  "island-koi",
+  "island-niwaki",
+  "island-raked-gravel",
   "lighthouse-shore-props",
   "pharos-precinct-obelisks",
   // Per-hero badges, ×~29 hulls, and the three hero gull flocks.

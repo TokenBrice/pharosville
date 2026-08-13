@@ -26,9 +26,18 @@ function buildDetailIndex(world: PharosVilleWorldBase): DetailIndexStage["detail
   const fleetRankById = precomputeFleetMarketCapRanks(world.ships);
   const inWorldShipDetailIds = new Set(world.ships.map((ship) => ship.detailId));
   const details = [
-    detailForLighthouse(world.lighthouse, world.supplyTide, world.fleetIssuance),
+    detailForLighthouse(
+      world.lighthouse,
+      world.supplyTide,
+      world.fleetIssuance,
+      world.freshness,
+      world.generatedAt,
+    ),
     detailForPigeonnier(world.pigeonnier),
-    ...world.docks.map((dock) => detailForDock(dock, { inWorldDetailIds: inWorldShipDetailIds })),
+    ...world.docks.map((dock) => detailForDock(dock, {
+      freshness: world.freshness,
+      inWorldDetailIds: inWorldShipDetailIds,
+    })),
     ...world.ships.map((ship) => {
       const tempo = tempoById.get(ship.id);
       const tempoContext = tempo !== undefined ? { cycleTempo: tempo } : {};
@@ -38,7 +47,7 @@ function buildDetailIndex(world: PharosVilleWorldBase): DetailIndexStage["detail
         ? detailForShip(ship, { squadShips: shipsBySquad.get(ship.squadId) ?? [], allShips: world.ships, ...tempoContext, ...fleetRankContext })
         : detailForShip(ship, { allShips: world.ships, ...tempoContext, ...fleetRankContext });
     }),
-    ...world.areas.map(detailForArea),
+    ...world.areas.map((area) => detailForArea(area, world.freshness)),
     ...world.graves.map(detailForGrave),
   ];
   return Object.fromEntries(details.map((detail) => [detail.id, detail]));

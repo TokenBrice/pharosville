@@ -28,23 +28,87 @@ export interface GardenLightLane {
   route?: { x: number; z: number };
 }
 
+/**
+ * Texture capacity — the packing layout the water shader is compiled against.
+ * It is NOT the night's light budget; see `GARDEN_LANE_BUDGET_FOR_TIER`.
+ */
 export const MAX_GARDEN_LIGHT_LANES = 48;
 
-const LANE_CAP_FOR_TIER: Record<PharosVilleRenderSchedulerState["tier"], number> = {
-  full: MAX_GARDEN_LIGHT_LANES,
+/**
+ * W3.1 (The Great Quieting) — the night's light hierarchy, enforced here
+ * because this registry is where every reflection on the sea is authored.
+ *
+ * ONE dominant light (the beacon) and ONE secondary (the moon road, which the
+ * water shader owns and this module never touches). Everything else is an
+ * EMBER: present, warm, and subordinate. Three policies carry that:
+ *
+ *  1. `GARDEN_LANE_BUDGET_FOR_TIER` — how many pools may burn at once. The
+ *     full tier used to pack the whole 48-texel texture; forty-plus pools over
+ *     one harbour is a marina at festival, not a lighthouse over dark water.
+ *  2. `GARDEN_LANE_EMBER_GAIN` — a global brightness step on the decorative
+ *     kinds. Beacon and route lanes are exempt: the beacon IS the hierarchy's
+ *     top, and route pulses carry a reading (see 3).
+ *  3. `GARDEN_EMBER_LANE_MIN_SEPARATION` — pools closer than their own
+ *     falloff merge into one pale disc, which is how the sea went milky. The
+ *     dimmer of two crowded lanes stands down; its lamp still burns on land.
+ *
+ * Route pulses are DATA (the busiest harbours by held value). Their reading is
+ * never dimmed and never spatially thinned — it is capped in SIMULTANEITY and
+ * rotated, which is a viewing condition: every route still takes its turn.
+ */
+const GARDEN_LANE_BUDGET_FOR_TIER: Record<PharosVilleRenderSchedulerState["tier"], number> = {
+  full: 24,
   balanced: 12,
   interaction: 12,
   recovery: 6,
   constrained: 4,
 };
 
+/**
+ * Ember gain per lane kind. Multiplies the caller's day-cycle
+ * `intensityScale`, so it demotes the pools without touching the lamps,
+ * the lit windows, or any lane's relative ordering — a dangerous buoy still
+ * out-reads a calm one, a titan still out-reads a standard hull.
+ */
+export const GARDEN_LANE_EMBER_GAIN: Record<GardenLightLaneKind, number> = {
+  beacon: 1,
+  route: 1,
+  lantern: 0.55,
+  buoy: 0.55,
+};
+
+/**
+ * World units. The shader's pool is `exp(-distSq / 24)` — it falls to 1/e at
+ * ~4.9 units — so two ember lanes inside this radius are painting one disc
+ * between them. The brighter one keeps it.
+ */
+export const GARDEN_EMBER_LANE_MIN_SEPARATION = 6;
+
+/** How many route pulses may run at once. Registered routes above this rotate. */
 const ROUTE_RESERVE_FOR_TIER: Record<PharosVilleRenderSchedulerState["tier"], number> = {
-  full: 6,
+  full: 4,
   balanced: 3,
   interaction: 3,
   recovery: 2,
   constrained: 1,
 };
+
+/**
+ * Rotation period for the route-pulse cap, in seconds. Long enough that a
+ * viewer reads a still harbour rather than a shuffling one; a full turn of
+ * every registered route is a matter of minutes, at garden tempo.
+ */
+export const GARDEN_ROUTE_PULSE_ROTATION_SECONDS = 90;
+
+/**
+ * Clock for the route-pulse rotation. Absent (or reduced motion), the
+ * selection holds at window 0 — a complete, deterministic, static composition,
+ * identical on every reload.
+ */
+export interface GardenLaneClock {
+  reducedMotion?: boolean;
+  timeSeconds: number;
+}
 
 export interface GardenLaneRegistry {
   /**
@@ -65,17 +129,31 @@ export interface GardenLaneRegistry {
   remove(id: string): void;
   set(lane: GardenLightLane): void;
   /**
-   * Re-pack the texture for the tier's lane cap. Returns the active count.
+   * Re-pack the texture for the tier's lane budget. Returns the active count.
    * `intensityScale` is the day-cycle gate: reflection pools are lantern
    * light, so the caller scales them down by day (near zero) and up at dusk/
    * night; without it the overlapping full-tier pools cross the bloom knee
-   * and flood the frame.
+   * and flood the frame. `clock` drives the route-pulse rotation only, and is
+   * a pure input — the same clock always packs the same texture.
    */
-  sync(tier: PharosVilleRenderSchedulerState["tier"], intensityScale?: number): number;
+  sync(
+    tier: PharosVilleRenderSchedulerState["tier"],
+    intensityScale?: number,
+    clock?: GardenLaneClock,
+  ): number;
+}
+
+type GardenRouteLaneSource = (lanes: readonly GardenLightLane[]) => void;
+const gardenRouteLaneSources = new Set<GardenRouteLaneSource>();
+
+/** Publishes architectural routes into every live scene-owned lane registry. */
+export function registerGardenRouteLanes(lanes: readonly GardenLightLane[]): void {
+  for (const source of gardenRouteLaneSources) source(lanes);
 }
 
 export function createGardenLaneRegistry(): GardenLaneRegistry {
   const lanes = new Map<string, GardenLightLane>();
+  const architecturalRoutes = new Map<string, GardenLightLane>();
   const data = new Float32Array(MAX_GARDEN_LIGHT_LANES * 3 * 4);
   const texture = new DataTexture(
     data,
@@ -90,11 +168,22 @@ export function createGardenLaneRegistry(): GardenLaneRegistry {
   let dirty = true;
   let lastCap = -1;
   let lastScale = -1;
+  let lastRotation = -1;
   // Bounding circle of the packed lanes (+ the shader's 30-unit cull reach);
   // recomputed inside sync whenever the pack changes.
   let fieldCenterX = 0;
   let fieldCenterZ = 0;
   let fieldRadius = 0;
+
+  // Architectural modules publish during content composition, after this
+  // registry exists. Keep their routes across the renderer's ordinary
+  // `clear()` calls so they share the existing route cap and rotation clock.
+  const receiveArchitecturalRoutes: GardenRouteLaneSource = (routes) => {
+    architecturalRoutes.clear();
+    for (const route of routes) architecturalRoutes.set(route.id, route);
+    dirty = true;
+  };
+  gardenRouteLaneSources.add(receiveArchitecturalRoutes);
 
   return {
     get activeLaneCount() {
@@ -109,6 +198,7 @@ export function createGardenLaneRegistry(): GardenLaneRegistry {
       dirty = true;
     },
     dispose() {
+      gardenRouteLaneSources.delete(receiveArchitecturalRoutes);
       texture.dispose();
     },
     remove(id) {
@@ -130,17 +220,30 @@ export function createGardenLaneRegistry(): GardenLaneRegistry {
         dirty = true;
       }
     },
-    sync(tier, intensityScale = 1) {
-      const cap = Math.min(LANE_CAP_FOR_TIER[tier], MAX_GARDEN_LIGHT_LANES);
-      if (!dirty && cap === lastCap && intensityScale === lastScale) return activeLaneCount;
+    sync(tier, intensityScale = 1, clock) {
+      const cap = Math.min(GARDEN_LANE_BUDGET_FOR_TIER[tier], MAX_GARDEN_LIGHT_LANES);
+      const rotation = routeRotationWindow(clock);
+      if (
+        !dirty
+        && cap === lastCap
+        && intensityScale === lastScale
+        && rotation === lastRotation
+      ) {
+        return activeLaneCount;
+      }
 
-      const active = selectActiveLanes([...lanes.values()], tier, cap);
+      const active = selectActiveLanes(
+        [...lanes.values(), ...architecturalRoutes.values()],
+        tier,
+        cap,
+        rotation,
+      );
       data.fill(0);
       for (const [index, lane] of active.entries()) {
         const header = index * 4;
         data[header] = lane.worldX;
         data[header + 1] = lane.worldZ;
-        data[header + 2] = lane.intensity * intensityScale;
+        data[header + 2] = lane.intensity * intensityScale * GARDEN_LANE_EMBER_GAIN[lane.kind];
         data[header + 3] = laneKindCode(lane.kind);
         scratchColor.set(lane.color);
         const body = (MAX_GARDEN_LIGHT_LANES + index) * 4;
@@ -163,6 +266,7 @@ export function createGardenLaneRegistry(): GardenLaneRegistry {
       dirty = false;
       lastCap = cap;
       lastScale = intensityScale;
+      lastRotation = rotation;
       // Centroid + max reach so the water can skip the lane loop wholesale for
       // fragments that no active lane can touch (the shader hard-culls at 30
       // world units, so this bound is output-identical). Route lanes pull the
@@ -199,18 +303,69 @@ function selectActiveLanes(
   lanes: readonly GardenLightLane[],
   tier: PharosVilleRenderSchedulerState["tier"],
   cap: number,
+  rotation: number,
 ): GardenLightLane[] {
-  const ranked = lanes.toSorted((left, right) => lanePriority(right) - lanePriority(left));
+  const ranked = lanes.toSorted((left, right) => (
+    lanePriority(right) - lanePriority(left)
+    || left.id.localeCompare(right.id)
+  ));
   const beacons = ranked.filter((lane) => lane.kind === "beacon").slice(0, cap);
-  const routeCapacity = Math.min(ROUTE_RESERVE_FOR_TIER[tier], cap - beacons.length);
-  const routes = ranked
-    .filter((lane) => lane.kind === "route")
-    .slice(0, routeCapacity);
+  const routeCapacity = Math.max(
+    0,
+    Math.min(ROUTE_RESERVE_FOR_TIER[tier], cap - beacons.length),
+  );
+  const routes = rotateRoutePulses(
+    ranked.filter((lane) => lane.kind === "route"),
+    routeCapacity,
+    rotation,
+  );
   const reservedIds = new Set([...beacons, ...routes].map((lane) => lane.id));
-  const remaining = ranked
-    .filter((lane) => !reservedIds.has(lane.id))
-    .slice(0, cap - beacons.length - routes.length);
-  return [...beacons, ...routes, ...remaining];
+  const emberBudget = cap - beacons.length - routes.length;
+  const embers: GardenLightLane[] = [];
+  // Ember lanes are admitted brightest-first, and only where they are not
+  // already inside another ember's pool: a crowd of pools reads as one pale
+  // disc, so the crowd is what gets thinned, never the light's brightness.
+  for (const lane of ranked) {
+    if (embers.length >= emberBudget) break;
+    if (reservedIds.has(lane.id)) continue;
+    // A route that lost this rotation stays dark until its turn: filling the
+    // ember budget with it would hand back the simultaneity the cap took.
+    if (lane.kind === "route" || lane.kind === "beacon") continue;
+    if (embers.some((kept) => (
+      (kept.worldX - lane.worldX) ** 2 + (kept.worldZ - lane.worldZ) ** 2
+        < GARDEN_EMBER_LANE_MIN_SEPARATION ** 2
+    ))) {
+      continue;
+    }
+    embers.push(lane);
+  }
+  return [...beacons, ...routes, ...embers];
+}
+
+/**
+ * The route-pulse cap as a viewing condition: at most `capacity` of the
+ * registered routes pulse at once, and which ones rotates on the clock so no
+ * route is permanently unlit. A pure function of (routes, capacity, window) —
+ * the same three always return the same lanes, in the same order.
+ */
+function rotateRoutePulses(
+  routes: readonly GardenLightLane[],
+  capacity: number,
+  rotation: number,
+): GardenLightLane[] {
+  if (capacity <= 0) return [];
+  if (routes.length <= capacity) return [...routes];
+  const offset = ((rotation % routes.length) + routes.length) % routes.length;
+  return Array.from(
+    { length: capacity },
+    (_, index) => routes[(offset + index) % routes.length]!,
+  );
+}
+
+/** Which rotation window the clock is in; 0 whenever there is no motion. */
+function routeRotationWindow(clock: GardenLaneClock | undefined): number {
+  if (!clock || clock.reducedMotion || !Number.isFinite(clock.timeSeconds)) return 0;
+  return Math.floor(clock.timeSeconds / GARDEN_ROUTE_PULSE_ROTATION_SECONDS);
 }
 
 function laneKindCode(kind: GardenLightLaneKind): number {

@@ -6,7 +6,9 @@ import {
   LinearMipmapLinearFilter,
   NearestFilter,
   PlaneGeometry,
+  Scene,
   ShaderMaterial,
+  SRGBColorSpace,
   Texture,
   TextureLoader,
 } from "three";
@@ -19,6 +21,7 @@ import {
   GARDEN_DEFAULT_WIND_X,
   GARDEN_DEFAULT_WIND_Z,
 } from "../systems/weather";
+import { SEA_REGION_ID } from "../systems/garden-sea-regions";
 import type { GardenWaterFrame } from "./garden-water";
 import {
   createGardenWater,
@@ -31,6 +34,15 @@ import {
   type GardenGerstnerSampleInput,
   type GerstnerComponent,
 } from "./garden-water";
+import {
+  GARDEN_WATER_CREST_FOAM,
+  GARDEN_WATER_GLINT_NORMAL_FILTER_GAIN,
+  GARDEN_WATER_NIGHT_EMISSIVE_BUDGET,
+  GARDEN_WATER_PROBE_BLEND,
+  GARDEN_WATER_PROBE_ROUGHNESS,
+  GARDEN_WATER_SHORE_FOAM,
+  gardenWaterOpenNightMeanEmissiveBudget,
+} from "./garden-water-contract";
 
 /**
  * Shader-hygiene tripwire (2026-07-30): a `uXxx` identifier USED in a shader
@@ -97,6 +109,38 @@ describe("water shader uniform hygiene", () => {
   it("declares uStorm in the fragment stage (the 2026-07-30 regression)", () => {
     expect(declaredUniforms(FRAGMENT_SHADER).has("uStorm")).toBe(true);
   });
+
+  it("masks screen-space rain to the danger region without overlay geometry", () => {
+    expect(FRAGMENT_SHADER).toContain("gl_FragCoord.xy");
+    expect(FRAGMENT_SHADER).toContain(`if (regionId == ${SEA_REGION_ID.danger})`);
+    expect(FRAGMENT_SHADER).toContain("uTime * (0.9 + uStorm * 1.4)");
+  });
+
+  it("masks peg-summary haze to existing risk regions in the water draw", () => {
+    const water = createGardenWater(GARDEN_WATER_Y);
+    expect(water.material.uniforms.uPegSummaryEpistemicHaze!.value).toBe(0);
+
+    water.setPegSummaryEpistemicHaze(true);
+
+    expect(water.material.uniforms.uPegSummaryEpistemicHaze!.value).toBe(1);
+    expect(FRAGMENT_SHADER).toContain(`step(${SEA_REGION_ID.calm - 0.5}, epistemicRegionId)`);
+    expect(FRAGMENT_SHADER).toContain(`step(${SEA_REGION_ID.danger + 0.5}, epistemicRegionId)`);
+    expect(FRAGMENT_SHADER).toContain("gardenApplyLocalizedHeightFog(");
+    expect(water.mesh.children).toHaveLength(0);
+  });
+
+  /**
+   * W1.4: the bokashi bands are the only sky this world has, and the water
+   * draws them. The shader has TWO exit paths — the open-ocean early-out and
+   * the end of main — and at wide framings the early-out draws most of the far
+   * water in the upper frame. Applying the wipe to one path only would step the
+   * ramp at exactly the map boundary L1 spent its effort erasing.
+   */
+  it("wipes the bokashi bands on BOTH of the shader's exit paths", () => {
+    expect(FRAGMENT_SHADER).toContain("float gardenBokashiShade(");
+    const calls = FRAGMENT_SHADER.match(/gl_FragColor\.rgb \*= gardenBokashiShade\(/g);
+    expect(calls).toHaveLength(2);
+  });
 });
 
 describe("createGardenWater", () => {
@@ -135,6 +179,59 @@ describe("createGardenWater", () => {
     );
     water.setBeaconState(6, -4, 1.2, 0.8, 1.7);
     expect(uniformNumber(water.material, "uBeaconFlicker")).toBe(1);
+  });
+
+  it("binds the scene PMREM directly without a world-renderer wire", () => {
+    const water = createGardenWater(0);
+    const scene = new Scene();
+    const probe = new Texture();
+    scene.environment = probe;
+    scene.environmentIntensity = 0.37;
+    const versionBeforeProbe = water.material.version;
+
+    water.mesh.onBeforeRender(
+      {} as never,
+      scene,
+      {} as never,
+      water.mesh.geometry,
+      water.material,
+      new Group(),
+    );
+
+    expect(water.material.uniforms.envMap!.value).toBe(probe);
+    expect((water.material as ShaderMaterial & { envMap: Texture | null }).envMap).toBe(probe);
+    expect(uniformNumber(water.material, "uEnvironmentIntensity")).toBe(0.37);
+    expect(water.material.version).toBeGreaterThan(versionBeforeProbe);
+
+    const disposeProbe = vi.spyOn(probe, "dispose");
+    water.dispose();
+    expect(water.material.uniforms.envMap!.value).toBeNull();
+    expect(disposeProbe).not.toHaveBeenCalled();
+  });
+
+  it("uses one exact-mip PMREM lookup and keeps the scalar sky only as pigment fallback", () => {
+    const source = createGardenWater(0).material.fragmentShader;
+    expect(source.match(/textureCubeUV\(/g)).toHaveLength(1);
+    // Three r185's roughnessToMip table maps 0.4 exactly to mip 2.0. That
+    // makes textureCubeUV take its one-fetch arm, with no adjacent-mip sample.
+    expect(GARDEN_WATER_PROBE_ROUGHNESS).toBe(0.4);
+    expect(GARDEN_WATER_PROBE_BLEND).toBeGreaterThan(0.75);
+    expect(GARDEN_WATER_PROBE_BLEND).toBeLessThan(1);
+    expect(source).toContain("vec3 skySample = gardenEnvironmentReflection(");
+    expect(source).toContain("vec3 openEnvironment = gardenEnvironmentReflection(");
+  });
+
+  it("keeps foam sparse and filters glint normals by screen-space variation", () => {
+    const source = createGardenWater(0).material.fragmentShader;
+    expect(source).toContain("float crestFold = -vGerstnerJ");
+    expect(source).toContain("crestFoamMask *= smoothstep(");
+    expect(GARDEN_WATER_CREST_FOAM.jacobianStart)
+      .toBeLessThan(GARDEN_WATER_CREST_FOAM.jacobianEnd);
+    expect(GARDEN_WATER_CREST_FOAM.maxMix).toBeLessThan(0.06);
+    expect(GARDEN_WATER_SHORE_FOAM.maxMix).toBeLessThan(0.2);
+    expect(source).toContain("vec2 normalDerivative = fwidth(blendedNormal.xy)");
+    expect(source).toContain(`${GARDEN_WATER_GLINT_NORMAL_FILTER_GAIN.toFixed(7)}`);
+    expect(source).toContain("dot(glintNormal, halfSun)");
   });
 
   it("disposes every owned GPU resource exactly once and releases external textures", () => {
@@ -244,6 +341,10 @@ describe("createGardenWater", () => {
       expect(source.split(`#include <${chunk}>`)).toHaveLength(3);
       expect(earlyOut).toContain(`#include <${chunk}>`);
     }
+    // W2.1 is part of that close too: most upper-frame water takes this branch,
+    // so omitting the analytic term would reveal the rounded map boundary.
+    expect(source.split("gl_FragColor.rgb = gardenApplyHeightFog(")).toHaveLength(3);
+    expect(earlyOut).toContain("gl_FragColor.rgb = gardenApplyHeightFog(");
   });
 
   it("samples the region field with nearest filtering", () => {
@@ -505,19 +606,57 @@ describe("createGardenWater", () => {
     expect(uniformNumber(water.material, "uNight")).toBe(1);
   });
 
+  it("keeps the dusk sea out of the pink-mauve wedge", () => {
+    // W1.6 regression. The dusk ramp used to tint an indigo body with lantern
+    // gold and ember, and every intermediate step between a warm neutral and an
+    // indigo is violet — the shipped frame sampled hue 270-291 across the open
+    // sea and read as lilac paint. The ramp now descends nando-iro -> ai ->
+    // kachi-iro, so it arrives at indigo from the blue-green side.
+    //
+    // This asserts the SHAPE, not three hex literals: the shelf must be cooler
+    // than violet and the descent must stay monotonic in value. Tuning the
+    // exact dye is still free; re-introducing the mauve is not.
+    const water = createGardenWater(0);
+    water.update(frame({ wallClockHour: 19 }));
+
+    const shallow = uniformColor(water.material, "uShallowColor").clone();
+    const mid = uniformColor(water.material, "uBaseColor").clone();
+    const deep = uniformColor(water.material, "uDeepColor").clone();
+
+    // The shelf and the body are where the mauve lived; the deep is allowed to
+    // stay kachi-iro, which is a legitimately indigo-violet traditional colour.
+    for (const [name, color] of [["shallow", shallow], ["mid", mid]] as const) {
+      const hue = hslHue(color);
+      expect(hue, `${name} must not sit in the mauve/pink wedge`)
+        .toBeGreaterThan(150);
+      expect(hue, `${name} must not sit in the mauve/pink wedge`)
+        .toBeLessThan(250);
+    }
+
+    // Value has to carry the depth read, hue-blind or not.
+    expect(luminance(shallow)).toBeGreaterThan(luminance(mid));
+    expect(luminance(mid)).toBeGreaterThan(luminance(deep));
+
+    // The gold did not vanish — it moved to the sun path, where dusk warmth
+    // belongs, and the highlight has to stay warmer than the body it lights.
+    const highlight = uniformColor(water.material, "uHighlightColor").clone();
+    expect(highlight.r).toBeGreaterThan(highlight.b);
+    expect(luminance(highlight)).toBeGreaterThan(luminance(shallow));
+  });
+
   it("thickens the height fog at dusk and in storms, thinnest at noon", () => {
-    // Phase 2 (2d): the height fog is a density term only — the global Fog
-    // owns the colour — strongest at dawn/dusk, faint at noon, closed in by
-    // the storm multiplier.
+    // W2.1: the shared density is strongest at dawn/dusk, faint at noon, and
+    // closed in by weather without changing the phase-authored tint.
     const water = createGardenWater(0);
     expect(uniformNumber(water.material, "uWaterLevel")).toBe(0);
+    expect(uniformNumber(water.material, "uGardenHeightFogSeaLevel")).toBe(0);
 
     water.update(frame({ wallClockHour: 12 }));
-    const noon = uniformNumber(water.material, "uHeightFogDensity");
+    const noon = uniformNumber(water.material, "uGardenHeightFogDensity");
     water.update(frame({ wallClockHour: 0 }));
-    const night = uniformNumber(water.material, "uHeightFogDensity");
+    const night = uniformNumber(water.material, "uGardenHeightFogDensity");
     water.update(frame({ wallClockHour: 18 }));
-    const dusk = uniformNumber(water.material, "uHeightFogDensity");
+    const dusk = uniformNumber(water.material, "uGardenHeightFogDensity");
 
     expect(noon).toBeGreaterThan(0);
     expect(night).toBeGreaterThan(noon);
@@ -529,10 +668,11 @@ describe("createGardenWater", () => {
       windAngle: 2.592,
       windSpeed: 0.5,
       gust: 0,
+      breath: 0.5,
       stormLevel: 1,
       lightning: 0,
     });
-    expect(uniformNumber(water.material, "uHeightFogDensity")).toBeCloseTo(noon * 2.6);
+    expect(uniformNumber(water.material, "uGardenHeightFogDensity")).toBeCloseTo(noon * 2.2);
   });
 
   it("ships the Gerstner spectrum in the vertex shader, not the sine sum", () => {
@@ -561,6 +701,7 @@ describe("createGardenWater", () => {
       windAngle: -Math.PI / 2,
       windSpeed: 0.5,
       gust: 0,
+      breath: 0.5,
       stormLevel: 0,
       lightning: 0,
     });
@@ -650,6 +791,23 @@ describe("createGardenWater", () => {
     // Header and body rows moved to the 3-row layout's texel centers.
     expect(source).toContain("vec2(u, 1.0 / 6.0)");
     expect(source).toContain("vec2(u, 5.0 / 6.0)");
+  });
+});
+
+describe("sea quietness contract", () => {
+  it("keeps the authored open-night emissive mean below the recorded threshold", () => {
+    const mean = gardenWaterOpenNightMeanEmissiveBudget();
+    expect(mean).toBeCloseTo(0.0155, 8);
+    expect(mean).toBeLessThan(GARDEN_WATER_NIGHT_EMISSIVE_BUDGET.maxMeanLuminance);
+
+    // These are shader values, not a parallel test-only model: the source is
+    // generated from the same constants the mean proxy sums above.
+    expect(FRAGMENT_SHADER).toContain(
+      GARDEN_WATER_NIGHT_EMISSIVE_BUDGET.moonGlitterGain.toFixed(7),
+    );
+    expect(FRAGMENT_SHADER).toContain(
+      GARDEN_WATER_NIGHT_EMISSIVE_BUDGET.laneClamp.toFixed(7),
+    );
   });
 });
 
@@ -828,4 +986,20 @@ function uniformNumber(material: ShaderMaterial, name: string): number {
 
 function uniformColor(material: ShaderMaterial, name: string): Color {
   return material.uniforms[name]!.value as Color;
+}
+
+/**
+ * Hue in degrees off the DISPLAY colour, not the working one.
+ *
+ * Uniform colours are in the linear working space; `getHSL(target, SRGBColorSpace)`
+ * is what asks the question a viewer would — "what hue is this on screen".
+ */
+function hslHue(color: Color): number {
+  const hsl = { h: 0, s: 0, l: 0 };
+  color.getHSL(hsl, SRGBColorSpace);
+  return hsl.h * 360;
+}
+
+function luminance(color: Color): number {
+  return 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
 }

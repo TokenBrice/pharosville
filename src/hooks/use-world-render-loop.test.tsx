@@ -30,6 +30,7 @@ const {
   createThreeWorldRendererMock,
   disposeThreeWorldRendererMock,
   renderThreeWorldMock,
+  warmupThreeWorldMock,
 } = vi.hoisted(() => {
   const renderThreeWorldMock = vi.fn(() => ({
     objectCount: 0,
@@ -39,13 +40,16 @@ const {
     visibleShipCount: 0,
   }));
   const disposeThreeWorldRendererMock = vi.fn();
+  const warmupThreeWorldMock = vi.fn(() => Promise.resolve());
   return {
     createThreeWorldRendererMock: vi.fn(() => ({
       dispose: disposeThreeWorldRendererMock,
       render: renderThreeWorldMock,
+      warmup: warmupThreeWorldMock,
     })),
     disposeThreeWorldRendererMock,
     renderThreeWorldMock,
+    warmupThreeWorldMock,
   };
 });
 
@@ -77,6 +81,7 @@ describe("useWorldRenderLoop", () => {
     createThreeWorldRendererMock.mockClear();
     disposeThreeWorldRendererMock.mockClear();
     renderThreeWorldMock.mockClear();
+    warmupThreeWorldMock.mockClear();
     // Don't fire scheduled callbacks during the test — we only care about
     // counts of cancel/request calls unless a test explicitly invokes one.
     let nextFrameId = 1;
@@ -342,6 +347,17 @@ describe("useWorldRenderLoop", () => {
 
     expect(statuses).toContain("loading");
     expect(statuses.at(-1)).toBe("ready");
+  });
+
+  it("publishes arrival readiness only after the compiled-scene warmup", async () => {
+    let latest: UseWorldRenderLoopResult | null = null;
+    await renderWithReadyRenderer(
+      <Harness hoveredDetailId={null} onResult={(result) => { latest = result; }} />,
+    );
+    await act(async () => Promise.resolve());
+
+    expect(warmupThreeWorldMock).toHaveBeenCalledTimes(1);
+    expect((latest as UseWorldRenderLoopResult | null)?.rendererWarmupReady).toBe(true);
   });
 
   it("fails cleanly when the WebGL context is lost", async () => {

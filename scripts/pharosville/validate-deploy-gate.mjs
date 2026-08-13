@@ -29,7 +29,17 @@ const DEPLOY_GATE_COMMANDS = [
 // regression that only shows on a GPU cannot be caught by CI at all, so the
 // tripwire is here or nowhere. It measures the operator's real Chrome on the
 // dev server; preview.mjs owns deciding whether that is even possible.
-const PERF_TRIPWIRE = ["node", ["scripts/pharosville/preview.mjs", "--assert"]];
+//
+// Two arms, because they are two different frames with two different answers.
+// The animated arm is the frame-time gate. The reduced arm is the SETTLED
+// STATIC frame — no RAF, one deterministic paint, its own resource counts —
+// and it is here because the 2026-07-27 cleanliness audit (V-07) found that
+// path over the triangle ceiling precisely because nothing ever sampled it.
+// Each writes its own screenshot so neither overwrites the other's evidence.
+const PERF_TRIPWIRES = [
+  ["node", ["scripts/pharosville/preview.mjs", "--assert"]],
+  ["node", ["scripts/pharosville/preview.mjs", "--assert", "--reduced", "--out", "preview-reduced.png"]],
+];
 
 /** preview.mjs's "did not measure" code. It is not a pass, and must never be reported as one. */
 const PREVIEW_SKIP_EXIT_CODE = 78;
@@ -50,27 +60,35 @@ export const DEPLOY_GATE_VERDICT_PREFIX = "PHAROSVILLE_DEPLOY_GATE:";
 export function formatGateVerdict(perfOutcome) {
   return perfOutcome === "skipped"
     ? `${DEPLOY_GATE_VERDICT_PREFIX} PASS_PERF_SKIPPED (every other check passed; the renderer's frame time was NOT measured)`
-    : `${DEPLOY_GATE_VERDICT_PREFIX} PASS (perf tripwire measured a real-GPU frame)`;
+    : `${DEPLOY_GATE_VERDICT_PREFIX} PASS (perf tripwires measured real-GPU frames: animated and settled static)`;
 }
 
 function formatCommand(command, args) {
   return [command, ...args].join(" ");
 }
 
-function runPerfTripwire(cwd) {
-  const [command, args] = PERF_TRIPWIRE;
-  console.log(`\n> ${formatCommand(command, args)}`);
-  const result = spawnSync(command, args, { cwd, stdio: "inherit" });
-  if (result.error) throw result.error;
-  if (result.status === PREVIEW_SKIP_EXIT_CODE) {
-    console.log("\nPerf tripwire SKIPPED: no real-GPU frame was measured (reason above).");
-    console.log("The rest of the gate stands; the renderer's frame time was NOT checked.");
-    return "skipped";
+/**
+ * Every arm runs, and the three outcomes never collapse into two: a FAIL on any
+ * arm fails the gate, and a SKIP on any arm makes the whole verdict a skip —
+ * "some of it was measured" is not a claim this gate is allowed to make.
+ */
+function runPerfTripwires(cwd) {
+  let outcome = "measured";
+  for (const [command, args] of PERF_TRIPWIRES) {
+    console.log(`\n> ${formatCommand(command, args)}`);
+    const result = spawnSync(command, args, { cwd, stdio: "inherit" });
+    if (result.error) throw result.error;
+    if (result.status === PREVIEW_SKIP_EXIT_CODE) {
+      console.log("\nPerf tripwire SKIPPED: no real-GPU frame was measured (reason above).");
+      console.log("The rest of the gate stands; the renderer's frame time was NOT checked.");
+      outcome = "skipped";
+      continue;
+    }
+    if (result.status !== 0) {
+      throw new Error(`${formatCommand(command, args)} exited ${result.status}`);
+    }
   }
-  if (result.status !== 0) {
-    throw new Error(`${formatCommand(command, args)} exited ${result.status}`);
-  }
-  return "measured";
+  return outcome;
 }
 
 function announceVerdict(perfOutcome) {
@@ -90,7 +108,7 @@ function runDeployGate(cwd = process.cwd()) {
     console.log(`\n> ${formatCommand(command, args)}`);
     execFileSync(command, args, { cwd, stdio: "inherit" });
   }
-  const perfOutcome = runPerfTripwire(cwd);
+  const perfOutcome = runPerfTripwires(cwd);
   announceVerdict(perfOutcome);
   return perfOutcome;
 }

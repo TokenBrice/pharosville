@@ -23,6 +23,7 @@ import {
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { HARBOR_PALETTE } from "../systems/palette";
+import { PIGEONNIER_ROOST_VISUAL_CAP } from "../systems/pigeonnier-watch";
 import {
   type GraveNode,
   type PigeonnierNode,
@@ -60,8 +61,18 @@ export interface GardenCemeteryLandmark {
 export interface GardenPigeonnierLandmark {
   anchor: GardenLandmarkAnchor<"pigeonnier">;
   dispatchAnchor: Object3D;
+  moverDetailIds: readonly string[];
+  moverPigeons: InstancedMesh;
+  roostPigeons: InstancedMesh;
   root: Group;
+  update(input: {
+    moverPositions: readonly { x: number; y: number; z: number }[];
+    reducedMotion: boolean;
+    timeSeconds: number;
+  }): void;
 }
+
+export const PIGEONNIER_MOVER_PIGEON_CAP = 5;
 
 /**
  * N2 — the wreck field.
@@ -624,23 +635,23 @@ export function createGardenPigeonnier(
   const pier = new Mesh(new BoxGeometry(3.45, 0.22, 0.95), timber);
   pier.name = "pigeonnier-ton-pier";
   pier.position.set(-3.0, -0.05, 0.35);
+  pier.rotation.y = 0.14;
   root.add(pier);
 
   const pierPiles = new InstancedMesh(
     new CylinderGeometry(0.1, 0.14, 1.55, 6),
     darkTimber,
-    4,
+    3,
   );
   pierPiles.name = "pigeonnier-pier-piles";
   [
-    [-1.75, -0.7, -0.02],
-    [-1.75, -0.7, 0.72],
-    [-4.2, -0.7, -0.02],
-    [-4.2, -0.7, 0.72],
-  ].forEach(([x, y, z], index) => {
+    [-1.6, -0.78, -0.12, 0.03, 1.15],
+    [-2.86, -0.74, 0.77, -0.02, 1.05],
+    [-4.36, -0.82, 0.37, 0.04, 1.22],
+  ].forEach(([x, y, z, lean, height], index) => {
     dummy.position.set(x, y, z);
-    dummy.rotation.set(0, 0, 0);
-    dummy.scale.set(1, 1, 1);
+    dummy.rotation.set(0, 0.19 + index * 0.47, lean);
+    dummy.scale.set(1 - index * 0.04, height, 1 + index * 0.03);
     dummy.updateMatrix();
     pierPiles.setMatrixAt(index, dummy.matrix);
   });
@@ -663,7 +674,96 @@ export function createGardenPigeonnier(
   dispatchAnchor.position.set(0, 6.15, 0);
   root.add(dispatchAnchor);
 
-  return { anchor, dispatchAnchor, root };
+  const pigeonMaterial = new MeshStandardMaterial({
+    color: "#777c78",
+    flatShading: true,
+    roughness: 0.92,
+  });
+  const birdGeometry = createPigeonGeometry();
+  const roostPigeons = new InstancedMesh(
+    birdGeometry,
+    pigeonMaterial,
+    PIGEONNIER_ROOST_VISUAL_CAP,
+  );
+  roostPigeons.name = "pigeonnier-depeg-roost";
+  roostPigeons.count = Math.min(
+    pigeonnier.roost?.visualCount ?? 0,
+    PIGEONNIER_ROOST_VISUAL_CAP,
+  );
+  for (let index = 0; index < roostPigeons.count; index += 1) {
+    const row = Math.floor(index / 4);
+    const column = index % 4;
+    dummy.position.set(-0.72 + column * 0.48, 4.75 + row * 0.28, -0.72 + row * 0.38);
+    dummy.rotation.set(0, 0.35 + index * 0.73, 0);
+    dummy.scale.setScalar(0.86 + (index % 3) * 0.08);
+    dummy.updateMatrix();
+    roostPigeons.setMatrixAt(index, dummy.matrix);
+  }
+  roostPigeons.instanceMatrix.needsUpdate = true;
+  root.add(roostPigeons);
+
+  const moverPigeons = new InstancedMesh(
+    birdGeometry,
+    pigeonMaterial,
+    Math.min(pigeonnier.notableMovers?.length ?? 0, PIGEONNIER_MOVER_PIGEON_CAP),
+  );
+  moverPigeons.name = "pigeonnier-notable-mover-pigeons";
+  moverPigeons.frustumCulled = false;
+  moverPigeons.visible = false;
+  root.add(moverPigeons);
+
+  const update = ({ moverPositions, reducedMotion, timeSeconds }: {
+    moverPositions: readonly { x: number; y: number; z: number }[];
+    reducedMotion: boolean;
+    timeSeconds: number;
+  }): void => {
+    if (reducedMotion || moverPositions.length === 0) {
+      moverPigeons.visible = false;
+      return;
+    }
+    moverPigeons.visible = true;
+    moverPigeons.count = Math.min(moverPositions.length, PIGEONNIER_MOVER_PIGEON_CAP);
+    for (let index = 0; index < moverPigeons.count; index += 1) {
+      const target = moverPositions[index]!;
+      const angle = timeSeconds * (0.24 + index * 0.018) + index * 1.73;
+      const radius = 0.9 + (index % 3) * 0.18;
+      dummy.position.set(
+        target.x - root.position.x + Math.cos(angle) * radius,
+        target.y + 3.2 + Math.sin(angle * 0.7) * 0.18,
+        target.z - root.position.z + Math.sin(angle) * radius,
+      );
+      dummy.rotation.set(0, -angle + Math.PI / 2, Math.sin(angle * 2) * 0.08);
+      dummy.scale.setScalar(0.92);
+      dummy.updateMatrix();
+      moverPigeons.setMatrixAt(index, dummy.matrix);
+    }
+    moverPigeons.instanceMatrix.needsUpdate = true;
+  };
+
+  return {
+    anchor,
+    dispatchAnchor,
+    moverDetailIds: (pigeonnier.notableMovers ?? [])
+      .slice(0, PIGEONNIER_MOVER_PIGEON_CAP)
+      .map((mover) => mover.detailId),
+    moverPigeons,
+    roostPigeons,
+    root,
+    update,
+  };
+}
+
+function createPigeonGeometry(): BufferGeometry {
+  const body = new SphereGeometry(0.16, 5, 4);
+  body.scale(1.25, 0.72, 0.75);
+  const head = new SphereGeometry(0.1, 5, 4);
+  head.translate(0.18, 0.12, 0);
+  const leftWing = new ConeGeometry(0.13, 0.5, 3);
+  leftWing.rotateZ(Math.PI / 2);
+  leftWing.translate(-0.02, 0.08, 0.18);
+  const rightWing = leftWing.clone();
+  rightWing.scale(1, 1, -1);
+  return mergeGeometries([body, head, leftWing, rightWing], false)!;
 }
 
 function createAnchor<Kind extends "grave" | "pigeonnier">(

@@ -1,8 +1,10 @@
-import type { ChainSummary } from "@shared/types/chains";
+import type { ChainHealthFactors, ChainSummary } from "@shared/types/chains";
 import type { CemeteryEntry } from "@shared/lib/cemetery-merged";
 import type { ReportCard, StablecoinData, StablecoinMeta } from "@shared/types";
 import type { ConditionBand } from "@shared/lib/psi-colors";
 import type { NetFlowDirection24h } from "@shared/lib/mint-burn-signals";
+import type { DependencyType } from "@shared/types/dependency-types";
+import type { ShipAgeProfile } from "./ship-age";
 import type { SupplyTide } from "./supply-tide";
 
 export type TileKind = "deep-water" | "water" | "shore" | "land" | "road";
@@ -141,6 +143,16 @@ export interface ShipHullForm {
    * pressure, and until now the world drew them identically.
    */
   waterline: number;
+  /** W7.3: even hull patina, or -1 when age evidence is unavailable. */
+  agePatina?: number;
+  /** W5.8: decorative value-only variation; never changes issuer hue. */
+  hullValue?: number;
+  /** W5.8: deterministic repeated-fitting rotation in radians. */
+  propRotation?: number;
+  /** W5.8: deterministic signed rope sag. */
+  ropeSag?: number;
+  /** W7.6 fitting state packed into the existing hull surface instance slot. */
+  fittingCode?: number;
 }
 
 export const SHIP_HULL_FORM_SPAN = 0.32;
@@ -304,6 +316,15 @@ export interface LighthouseHighWaterMark {
   unavailable: boolean;
 }
 
+/** Trailing PSI record carried by the island planting, never a live alarm. */
+export interface GardenMonthRecord {
+  averagePsi: number | null;
+  growth: number;
+  sampleCount: number;
+  spanDays: number;
+  unavailable: boolean;
+}
+
 /**
  * Where the beacon's sweep settles: the ship contributing most to the index.
  *
@@ -344,6 +365,8 @@ export interface LighthouseNode {
   signalMast?: SignalMastNode;
   /** Worst PSI band of the trailing window, stained on the terrace rocks. */
   highWaterMark?: LighthouseHighWaterMark;
+  /** Thirty-day PSI record expressed as slow garden growth and weathering. */
+  gardenMonthRecord?: GardenMonthRecord;
   /** Ship the beam's sweep settles toward, or absent when there is no
       contributor to point at. */
   beamDwell?: LighthouseBeamDwell;
@@ -355,6 +378,23 @@ export interface PigeonnierNode {
   label: string;
   tile: { x: number; y: number };
   detailId: string;
+  notableMovers?: Array<{
+    change24hPctLabel: string;
+    change24hUsdLabel: string;
+    detailId: string;
+    id: string;
+    riskWaterLabel: string;
+    symbol: string;
+  }>;
+  roost?: {
+    capped: boolean;
+    /** Today's count minus yesterday's, or null when either source is absent. */
+    comparison: number | null;
+    eventsToday: number | null;
+    eventsYesterday: number | null;
+    /** Rendered birds; exact event counts remain in the detail and ledger. */
+    visualCount: number;
+  };
 }
 
 export interface DockNode {
@@ -380,6 +420,8 @@ export interface DockNode {
       scaffold stage; drives the dock congestion cue and the "Backing
       diversity" detail row. */
   backingDiversity?: number | null;
+  /** Full chain-health decomposition used by the quay masonry condition. */
+  healthFactors?: ChainHealthFactors | null;
   /**
    * Tier 3 #13: this chain's own stablecoin supply change over 24h and 7d
    * (percent units, like `ShipNode.change24hPct`), from `chains.chains[]`.
@@ -479,11 +521,21 @@ export interface ShipNode {
   riskPlacement: ShipRiskPlacement;
   riskZone: ShipWaterZone;
   riskWaterLabel: string;
+  /** Fresh DEWS score normalized to calm-edge 0 … rough-edge 1 anchoring. */
+  riskDepth?: number | null;
   placementEvidence: PlacementEvidence;
   stressBreakdown?: { signals: string[]; contagionActive: boolean } | null;
   visual: ShipVisual;
+  /** W7.3 service/tracking evidence and its renderer-neutral age profile. */
+  age?: ShipAgeProfile;
   change24hUsd: number | null;
   change24hPct: number | null;
+  /** W7.7: signed 24h mint/redeem flow intensity; null when unmeasured. */
+  flowIntensity?: number | null;
+  /** W7.1: this coin's measured 24h issuance work, absent when unmeasured. */
+  issuance?: ShipIssuance;
+  /** W7.6: physical seaworthiness fittings derived from report-card raw inputs. */
+  fittings?: ShipFittings;
   /** Live signed peg deviation from `pegSummary.coins[].currentDeviationBps`;
       null/absent when the coin has no peg row. Surfaced as the "Peg
       deviation" detail fact and matching ledger clause. */
@@ -503,6 +555,30 @@ export interface ShipNode {
   detailId: string;
   squadId?: "sky" | "maker" | "ethena";
   squadRole?: "flagship" | "consort";
+  /** W7.2 strongest report-card dependency, when its parent is in the fleet. */
+  dependencyFormation?: {
+    parentId: string;
+    type: DependencyType;
+    weight: number;
+  } | null;
+}
+
+export interface ShipIssuance {
+  direction: "minting" | "redeeming" | "flat";
+  flowIntensity: number | null;
+  netFlow24hUsd: number;
+  largestEvent24h: {
+    amountUsd: number;
+    direction: "mint" | "burn";
+    timestamp: number;
+  } | null;
+}
+
+export interface ShipFittings {
+  blacklistStatus: ReportCard["rawInputs"]["canBeBlacklisted"];
+  collateralCargo: "sealed" | "mixed";
+  collateralQuality: ReportCard["rawInputs"]["collateralQuality"];
+  redemptionCapacityRatio: number | null;
 }
 
 /**
@@ -620,6 +696,7 @@ export type VisualCueTarget =
   | { kind: "dock" }
   | { kind: "grave" }
   | { kind: "lighthouse" }
+  | { kind: "pigeonnier" }
   | { kind: "ship" };
 
 export type VisualCueChannel =

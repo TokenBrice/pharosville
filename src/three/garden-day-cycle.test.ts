@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { Color } from "three";
 import {
+  DAY_CYCLE_HEIGHT_FOG_PRESETS,
   DAY_CYCLE_LIGHT_PRESETS,
   DAY_CYCLE_SKY_PRESETS,
   dayCyclePhase,
 } from "./garden-day-cycle";
 import { HARBOR_PALETTE } from "../systems/palette";
+import { gardenHeightFogFactor } from "./garden-height-fog";
 
 describe("dayCyclePhase (G4 dusk fix)", () => {
   it("holds full daylight through midday", () => {
@@ -67,5 +69,42 @@ describe("day-cycle presets (C1 contract)", () => {
     const key = new Color(HARBOR_PALETTE.sun_day_warm);
     const fill = new Color(HARBOR_PALETTE.sky_day_zenith);
     expect(key.r - key.b).toBeGreaterThan(fill.r - fill.b);
+  });
+
+  it("keeps day fog structured instead of milky", () => {
+    const day = DAY_CYCLE_HEIGHT_FOG_PRESETS.day;
+    const dusk = DAY_CYCLE_HEIGHT_FOG_PRESETS.dusk;
+    const night = DAY_CYCLE_HEIGHT_FOG_PRESETS.night;
+    expect(day.density).toBeLessThan(night.density);
+    expect(night.density).toBeLessThan(dusk.density);
+    expect(day.phaseGain).toBeLessThan(dusk.phaseGain);
+    expect(day.horizon.getHex()).toBe(DAY_CYCLE_SKY_PRESETS.day.fog.getHex());
+    expect(day.sunTint.getHex()).toBe(DAY_CYCLE_LIGHT_PRESETS.day.dirColor.getHex());
+
+    const nearSea = gardenHeightFogFactor({
+      density: day.density,
+      distance: 120,
+      heightFalloff: day.heightFalloff,
+      seaLevel: 0,
+      worldY: 0,
+    });
+    const farSea = gardenHeightFogFactor({
+      density: day.density,
+      distance: 300,
+      heightFalloff: day.heightFalloff,
+      seaLevel: 0,
+      worldY: 0,
+    });
+    const farMonument = gardenHeightFogFactor({
+      density: day.density,
+      distance: 300,
+      heightFalloff: day.heightFalloff,
+      seaLevel: 0,
+      worldY: 8,
+    });
+    expect(nearSea).toBeLessThan(0.02);
+    expect(farSea).toBeGreaterThan(nearSea * 2);
+    expect(farSea).toBeLessThan(0.06);
+    expect(farMonument).toBeLessThan(0.006);
   });
 });

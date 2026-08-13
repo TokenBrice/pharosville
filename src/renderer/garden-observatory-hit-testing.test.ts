@@ -213,13 +213,13 @@ describe("Carved sea-name board targets (N6)", () => {
     }
   });
 
-  it("tracks the zoom-SCALED board, not the true-scale geometry", () => {
-    // The trap: D6 raises the boards' world scale as the camera pulls back so
-    // they hold a constant on-screen size. Across the band where that response
-    // is unclamped (seaSignScaleForZoom returns 0.85/zoom between zoom 0.327
-    // and 1.0), screen size is scale x zoom — a constant. A target built from
-    // the true-scale geometry would instead shrink with zoom, so these two
-    // widths would differ by the 2.25x zoom ratio.
+  it("tracks the zoom-QUANTIZED board, not the true-scale geometry", () => {
+    // The trap: D6 draws the boards out of scale so the sea's names stay
+    // readable as the camera pulls back. W0.7 quantized that response to three
+    // rungs, so the target has to follow the rung the scene draws — INSIDE a
+    // rung the board is an ordinary world object whose target grows with zoom,
+    // and crossing a rung steps the target by the whole rung ratio. A target
+    // built from the true-scale geometry would miss the step entirely.
     const world = denseWorld();
     const widthAt = (zoom: number) => {
       const snapshot = createGardenObservatoryHitTargetSnapshot({
@@ -229,9 +229,14 @@ describe("Carved sea-name board targets (N6)", () => {
       return snapshot.targets.find((target) => target.kind === "sea-sign")!.rect.width;
     };
 
-    expect(widthAt(0.4)).toBeCloseTo(widthAt(0.9), 6);
-    // Past the clamp at zoom 1 the board is true-scale again, so its target
-    // grows with zoom like everything else.
+    // Either side of the 0.88 rung edge, a 2% zoom change moves the target by
+    // the rung ratio — over half again — instead of by 2%.
+    const stepRatio = seaSignScaleForZoom(0.87) / seaSignScaleForZoom(0.89);
+    expect(stepRatio).toBeGreaterThan(1.5);
+    expect(widthAt(0.87)).toBeCloseTo(widthAt(0.89) * stepRatio * (0.87 / 0.89), 6);
+    // Two framings on the same rung, and past the closest rung, are pure zoom,
+    // like everything else in the world.
+    expect(widthAt(0.5)).toBeCloseTo(widthAt(0.8) * (0.5 / 0.8), 6);
     expect(widthAt(2)).toBeCloseTo(widthAt(1) * 2, 6);
   });
 

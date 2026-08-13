@@ -55,6 +55,19 @@ export function resolveRenderSchedulerIdleState(input: {
   };
 }
 
+/**
+ * Whether a resolved scheduler state is using the unattended duty cycle.
+ *
+ * The target interval is already part of the renderer contract, so keep idle
+ * detection derived from that state rather than adding a second idle signal
+ * that could drift from the loop's scheduling decision.
+ */
+export function isRenderSchedulerIdle(
+  state: Pick<PharosVilleRenderSchedulerState, "targetFrameMs">,
+): boolean {
+  return state.targetFrameMs === RENDER_SCHEDULER_IDLE_TARGET_FRAME_MS;
+}
+
 // Hysteresis: a load-tier change must be observed for a sustained streak of
 // frames before it is applied, so Three quality settings do not flicker when
 // frame pacing hovers around a threshold. Downshifts apply quickly; upshifts

@@ -27,6 +27,9 @@ import {
 import { seaBodyAnchors, seaBodyScatterRadius } from "../../sea-body-anchors";
 import type { SeaBodyName } from "../../sea-bodies";
 import { resolveShipVisual } from "../../ship-visuals";
+import { deriveShipAge, deriveShipWabiSurface } from "../../ship-age";
+import { buildShipIssuance } from "../../ship-issuance";
+import { deriveShipFittings, shipFittingsCode } from "../../ship-fittings";
 import { stableHash, stableOffset, stableUnit } from "../../stable-random";
 import { tileKey } from "../../tile-key";
 import {
@@ -135,15 +138,42 @@ function buildShipChainPresence(asset: StablecoinData, renderedDockChainIds: Rea
  */
 const ANCHORS_PER_BODY = 14;
 
-function shipPlacementAnchor(asset: StablecoinData, placement: ShipNode["riskPlacement"]): { x: number; y: number } {
+function shipPlacementAnchor(
+  asset: StablecoinData,
+  placement: ShipNode["riskPlacement"],
+  riskDepth: number | null,
+): { x: number; y: number } {
   const body = SEA_BODY_FOR_PLACEMENT[placement];
   const anchors = body ? seaBodyAnchors(body, ANCHORS_PER_BODY) : [];
   if (anchors.length === 0) return REGION_TILES[placement];
+  if (riskDepth !== null) {
+    // Across the authored sea ladder, rougher water runs north-east: map-space
+    // x rises while y falls. Interpolate between ordered body anchors so a
+    // score changes position continuously before the final tile snap.
+    const ordered = anchors.toSorted((left, right) => (
+      (left.x - left.y) - (right.x - right.y)
+      || left.x - right.x
+      || left.y - right.y
+    ));
+    const scaled = riskDepth * (ordered.length - 1);
+    const lower = ordered[Math.floor(scaled)]!;
+    const upper = ordered[Math.ceil(scaled)]!;
+    const mix = scaled - Math.floor(scaled);
+    const target = {
+      x: Math.round(lower.x + (upper.x - lower.x) * mix),
+      y: Math.round(lower.y + (upper.y - lower.y) * mix),
+    };
+    return nearestRiskPlacementWaterTile(target, placement, 18) ?? lower;
+  }
   return anchors[stableHash(`${asset.id}.${placement}.anchor`) % anchors.length]!;
 }
 
-function shipTile(asset: StablecoinData, placement: ShipNode["riskPlacement"]): { x: number; y: number } {
-  const base = shipPlacementAnchor(asset, placement);
+function shipTile(
+  asset: StablecoinData,
+  placement: ShipNode["riskPlacement"],
+  riskDepth: number | null,
+): { x: number; y: number } {
+  const base = shipPlacementAnchor(asset, placement, riskDepth);
   const body = SEA_BODY_FOR_PLACEMENT[placement];
   const radius = body ? seaBodyScatterRadius(body, ANCHORS_PER_BODY) : 6;
   for (let attempt = 0; attempt < 12; attempt += 1) {
@@ -158,6 +188,15 @@ function shipTile(asset: StablecoinData, placement: ShipNode["riskPlacement"]): 
     if (isRiskPlacementWaterTile(tile, placement)) return tile;
   }
   return nearestRiskPlacementWaterTile(base, placement, 18) ?? nearestWaterTile(base, 18);
+}
+
+/** W3.3: a fresh DEWS score spends its magnitude inside the named water. */
+export function shipDewsAnchorDepth(
+  stress: StressSignalEntry | undefined,
+  stressStale: boolean,
+): number | null {
+  if (!stress || stressStale || !Number.isFinite(stress.score)) return null;
+  return Math.max(0, Math.min(1, stress.score / 100));
 }
 
 function stampSquad(id: string, squad: StablecoinSquad): { squadId: SquadId; role: "flagship" | "consort" } | null {
@@ -301,25 +340,54 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
   const pegById = buildPegSummaryCoinMap(inputs.pegSummary?.coins);
   const reportCardById = buildReportCardMap(inputs.reportCards?.cards) ?? {};
   const stressById = inputs.stress?.signals ?? {};
+  // W7.7 — keep the per-coin rate reading on the ship that motion planning,
+  // detail, and the ledger already share. Missing rows remain null so the
+  // tempo derivation can choose neutral 1.0 rather than inventing calm.
+  const flowIntensityById = new Map(
+    (inputs.mintBurn?.coins ?? []).map((coin) => [coin.stablecoinId, coin.flowIntensity] as const),
+  );
+  const issuanceById = new Map(
+    (inputs.mintBurn?.coins ?? []).flatMap((coin) => {
+      const issuance = buildShipIssuance(coin);
+      return issuance ? [[coin.stablecoinId, issuance] as const] : [];
+    }),
+  );
+  const ageDaysById = new Map(
+    (inputs.stability?.current?.contributors ?? []).map((contributor) => (
+      [contributor.id, contributor.ageDays] as const
+    )),
+  );
+  const generatedAt = inputs.generatedAt ?? inputs.stability?.current?.computedAt ?? null;
+  const ageAsOfMs = typeof generatedAt === "number" && Number.isFinite(generatedAt)
+    ? (generatedAt < 10_000_000_000 ? generatedAt * 1000 : generatedAt)
+    : null;
   const renderedDockChainIds = new Set(docks.map((dock) => dock.chainId));
 
   const assets = activeAssets(inputs.stablecoins);
   // Per-squad flagship risk: a squad activates iff its flagship is in
   // activeAssets. Squads activate independently - Maker (DAI flagship) can sail
   // even if Sky (USDS flagship) is missing, and vice versa.
-  type FlagshipRisk = { placement: ShipRiskPlacement; evidence: PlacementEvidence };
+  type FlagshipRisk = {
+    placement: ShipRiskPlacement;
+    evidence: PlacementEvidence;
+    stress: StressSignalEntry | undefined;
+  };
   const flagshipRiskBySquad = new Map<SquadId, FlagshipRisk>();
   for (const squad of STABLECOIN_SQUADS) {
     const flagshipAsset = assets.find((asset) => asset.id === squad.flagshipId);
     const flagshipMeta = flagshipAsset ? RUNTIME_ACTIVE_META_BY_ID.get(flagshipAsset.id) : undefined;
     if (!flagshipAsset || !flagshipMeta) continue;
-    flagshipRiskBySquad.set(squad.id, resolveShipRiskPlacement({
+    const resolved = resolveShipRiskPlacement({
       asset: flagshipAsset,
       meta: flagshipMeta,
       pegCoin: pegById.get(flagshipAsset.id),
       stress: stressById[flagshipAsset.id],
       freshness: inputs.freshness,
-    }));
+    });
+    flagshipRiskBySquad.set(squad.id, {
+      ...resolved,
+      stress: stressById[flagshipAsset.id],
+    });
   }
 
   const ships = assets.map((asset) => {
@@ -349,16 +417,37 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
     const dominantChainId = chainPresence[0]?.chainId ?? null;
     const homeDockChainId = chainPresence.find((presence) => presence.hasRenderedDock)?.chainId ?? null;
     const recent = getRecentChange(asset);
-    const riskTile = shipTile(asset, risk.placement);
+    const riskDepth = shipDewsAnchorDepth(
+      isConsort ? flagshipRisk?.stress : stress,
+      inputs.freshness.stressStale === true,
+    );
+    const riskTile = shipTile(asset, risk.placement, riskDepth);
     const riskWaterArea = riskWaterAreaForPlacement(risk.placement);
     const stressBreakdown = shipStressBreakdown(stress, risk.placement);
     const stamped = squad && flagshipRisk ? stampSquad(asset.id, squad) : null;
     const dexCrossCheck = shipDexCrossCheck(pegCoin, asset, pegCoin?.currentDeviationBps ?? null);
     const shipVisual = resolveShipVisual(asset, meta, reportCard);
+    const age = deriveShipAge({
+      ageDays: ageDaysById.get(asset.id),
+      asOfMs: ageAsOfMs,
+      assetStatus: meta.status,
+      meta,
+      trackingSpanDays: pegCoin?.trackingSpanDays,
+    });
+    // W5.8: stableUnit's polynomial hash clusters suffix-only variation, so
+    // every seed LEADS with the varying ship id. The surface values ride the
+    // existing hullForm object into the batch; no renderer callsite or draw is
+    // added. Hue never moves: hullValue is a scalar multiplier only.
+    const hullSurface = {
+      agePatina: age.patina ?? -1,
+      ...deriveShipWabiSurface(asset.id),
+    };
+    const fittings = deriveShipFittings(reportCard);
     const waterline = shipWaterlineTrim(
       pegCoin?.currentDeviationBps,
       inputs.freshness.pegSummaryStale === true,
     );
+    const issuance = issuanceById.get(asset.id);
     return {
       id: asset.id,
       kind: "ship" as const,
@@ -379,11 +468,24 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
       riskPlacement: risk.placement,
       riskZone: riskWaterArea.motionZone,
       riskWaterLabel: riskWaterArea.label,
+      riskDepth,
       placementEvidence: risk.evidence,
       ...(stressBreakdown ? { stressBreakdown } : {}),
-      visual: { ...shipVisual, hullForm: { ...shipVisual.hullForm, waterline } },
+      visual: {
+        ...shipVisual,
+        hullForm: {
+          ...shipVisual.hullForm,
+          waterline,
+          ...hullSurface,
+          fittingCode: shipFittingsCode(fittings),
+        },
+      },
+      age,
+      ...(fittings ? { fittings } : {}),
       change24hUsd: recent.change24hUsd,
       change24hPct: recent.change24hPct,
+      flowIntensity: flowIntensityById.get(asset.id) ?? null,
+      ...(issuance ? { issuance } : {}),
       pegDeviationBps: pegCoin?.currentDeviationBps ?? null,
       pegCurrency: pegCoin?.pegCurrency ?? null,
       change7dPct: recent.change7dPct,
@@ -447,7 +549,11 @@ export function countShipsByRiskPlacement(
  * flagship already holds them, and holding them independently would let a
  * formation break apart when its flagship moves.
  */
-type HeldRiskTile = { placement: ShipRiskPlacement; tile: { x: number; y: number } };
+type HeldRiskTile = {
+  placement: ShipRiskPlacement;
+  riskDepth: number | null;
+  tile: { x: number; y: number };
+};
 let heldRiskTiles = new Map<string, HeldRiskTile>();
 
 /** Drops sticky placement so a test starts from a cold build. */
@@ -488,6 +594,7 @@ function heldTilesForPlacement(
     if (ship.squadRole === "consort") continue;
     const memory = heldRiskTiles.get(ship.id);
     if (!memory || memory.placement !== placement) continue;
+    if (Math.abs((memory.riskDepth ?? 0) - (ship.riskDepth ?? 0)) >= 0.02) continue;
     const key = tileKey(memory.tile);
     if (claimed.has(key)) continue;
     // The sea can be reshaped under a held tile (Sea Master, garden obstacles),
@@ -558,7 +665,11 @@ function spreadShipRiskAnchorsAcrossWater(ships: ShipNode[]): ShipNode[] {
   const placed = sortedShips.map((ship) => updatedShips.get(ship.id) ?? ship);
   heldRiskTiles = new Map(placed
     .filter((ship) => ship.squadRole !== "consort")
-    .map((ship) => [ship.id, { placement: ship.riskPlacement, tile: ship.riskTile }]));
+    .map((ship) => [ship.id, {
+      placement: ship.riskPlacement,
+      riskDepth: ship.riskDepth ?? null,
+      tile: ship.riskTile,
+    }]));
   return placed;
 }
 
@@ -661,6 +772,7 @@ function othersSpread(
       hasPlaced: placedCount > 0,
       occupied,
       preferred: ship.riskTile,
+      riskDepth: ship.riskDepth ?? null,
       spacingToNearest,
       seed: `${ship.id}.${placement}.risk-spread`,
     }) ?? nearestAvailableWaterTile(ship.riskTile, occupied);
@@ -678,6 +790,7 @@ function spacedRiskPlacementTile(input: {
   hasPlaced: boolean;
   occupied: ReadonlySet<string>;
   preferred: { x: number; y: number };
+  riskDepth: number | null;
   spacingToNearest: Float64Array;
   seed: string;
 }): { x: number; y: number } | null {
@@ -690,8 +803,9 @@ function spacedRiskPlacementTile(input: {
     const preferredDx = candidate.x - input.preferred.x;
     const preferredDy = candidate.y - input.preferred.y;
     const preferredDistance = Math.sqrt(preferredDx * preferredDx + preferredDy * preferredDy);
+    const preferredWeight = input.riskDepth === null ? 0.1 : 150;
     const base = input.hasPlaced
-      ? input.spacingToNearest[index]! * 1000 - preferredDistance * 0.1
+      ? input.spacingToNearest[index]! * 1000 - preferredDistance * preferredWeight
       : -preferredDistance;
     // The jitter only ever breaks exact ties, so a candidate that cannot win
     // even at the jitter's upper bound never needs its hash computed. That

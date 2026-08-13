@@ -26,6 +26,64 @@ export const GARDEN_WATER_MAX_ZONE_TINTS = 6;
 export const GARDEN_WATER_MAX_RIPPLE_RINGS = 12;
 
 /**
+ * W2.6 — the feature-frozen sea's look constants.
+ *
+ * These are exported because future water work may refine an existing term,
+ * but it may not quietly raise the sea's attention budget. `garden-water.ts`
+ * interpolates these exact values into the shader source and the focused test
+ * records the corresponding night-emissive ceiling.
+ */
+export const GARDEN_WATER_PROBE_ROUGHNESS = 0.4;
+export const GARDEN_WATER_PROBE_BLEND = 0.82;
+export const GARDEN_WATER_GLINT_NORMAL_FILTER_GAIN = 18;
+export const GARDEN_WATER_CREST_FOAM = Object.freeze({
+  /** `-J + bias` is positive only where the horizontal wave field folds. */
+  jacobianBias: 1,
+  jacobianStart: 0.00042,
+  jacobianEnd: 0.00078,
+  noiseGate: 0.56,
+  maxMix: 0.055,
+});
+export const GARDEN_WATER_SHORE_FOAM = Object.freeze({
+  /** Normalised SDF units; about 0.2 world units on the island's long axis. */
+  breathAmplitude: 0.009,
+  lineCore: 0.01,
+  lineFeather: 0.038,
+  maxMix: 0.18,
+});
+
+/**
+ * Proxy for mean additive/mixed luminance over the representative OPEN-NIGHT
+ * water mask. A true render assertion would be GPU/grade dependent, so this
+ * deliberately tests the shader's authored light budget instead:
+ *
+ * - each gain is the exact GLSL constant used by the water material;
+ * - each occupancy is the recorded fraction of the open-water mask that term
+ *   is allowed to cover in the quiet composition;
+ * - colours are conservatively treated as unit luminance.
+ *
+ * It does not claim to measure final post-AgX pixels. It prevents a future
+ * one-line gain change from turning the open night sea into an emissive field
+ * without moving the explicit recorded ceiling at the same time.
+ */
+export const GARDEN_WATER_NIGHT_EMISSIVE_BUDGET = Object.freeze({
+  moonRoadGain: 0.06,
+  moonRoadOccupancy: 0.08,
+  moonGlitterGain: 2.6,
+  moonGlitterOccupancy: 0.002,
+  laneClamp: 2.2,
+  laneOccupancy: 0.0025,
+  maxMeanLuminance: 0.016,
+});
+
+export function gardenWaterOpenNightMeanEmissiveBudget(): number {
+  const budget = GARDEN_WATER_NIGHT_EMISSIVE_BUDGET;
+  return budget.moonRoadGain * budget.moonRoadOccupancy
+    + budget.moonGlitterGain * budget.moonGlitterOccupancy
+    + budget.laneClamp * budget.laneOccupancy;
+}
+
+/**
  * (a) Zone soft-tint uniform path — consumed by Lane Z's data.
  *
  * Lane Z supplies positions/radii/colors only (from `risk-water-areas.ts`

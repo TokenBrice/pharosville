@@ -38,7 +38,7 @@ describe("worldRenderContentSignature", () => {
       .not.toBe(worldRenderContentSignature(world));
   });
 
-  it("treats the polling probe's sub-percent supply refresh as renderer-equivalent", () => {
+  it("limits a sub-percent refresh that crosses the mover threshold to the pigeonnier role", () => {
     const input = makePharosVilleWorldInput();
     const stablecoins = {
       ...input.stablecoins!,
@@ -55,8 +55,11 @@ describe("worldRenderContentSignature", () => {
     const baseline = buildPharosVilleWorld(input);
     const refreshed = buildPharosVilleWorld({ ...input, stablecoins });
 
-    expect(JSON.parse(worldRenderContentSignature(refreshed)))
-      .toEqual(JSON.parse(worldRenderContentSignature(baseline)));
+    const baselineSignature = JSON.parse(worldRenderContentSignature(baseline));
+    const refreshedSignature = JSON.parse(worldRenderContentSignature(refreshed));
+    expect(refreshedSignature.pigeonnier.moverDetailIds).toContain("ship.usdt-tether");
+    expect({ ...refreshedSignature, pigeonnier: baselineSignature.pigeonnier })
+      .toEqual(baselineSignature);
   });
 
   it("changes for baked ship visuals and analytical area semantics", () => {
@@ -87,5 +90,25 @@ describe("worldRenderContentSignature", () => {
       .not.toBe(worldRenderContentSignature(world));
     expect(worldRenderContentSignature(changedArea))
       .not.toBe(worldRenderContentSignature(world));
+  });
+
+  it("changes when a ship's baked issuance work changes", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const subject = world.ships[0]!;
+    const changed: PharosVilleWorld = {
+      ...world,
+      ships: world.ships.map((ship) => ship.id === subject.id
+        ? {
+            ...ship,
+            issuance: {
+              direction: "redeeming",
+              flowIntensity: -80,
+              netFlow24hUsd: -9_000_000,
+              largestEvent24h: null,
+            },
+          }
+        : ship),
+    };
+    expect(worldRenderContentSignature(changed)).not.toBe(worldRenderContentSignature(world));
   });
 });

@@ -35,6 +35,14 @@
  * PASS, FAIL, and SKIP (exit 78) when this machine cannot render a real frame.
  * Never collapse SKIP into PASS.
  *
+ * The headline number is the TAIL, not the average. Calm is a P95 property: one
+ * 100ms frame a minute is felt where 2ms on the mean is not, so the animated
+ * assert arm sweeps the pacing window repeatedly (--tail-seconds) and gates the
+ * WORST window's p95. p99, the worst single frame and the long-task counts are
+ * reported beside it as observability — a lone spike on a busy machine is real
+ * information but a bad reason to block a push, whereas a whole bad second
+ * shows up in p95 and does block one.
+ *
  * Usage:
  *   node scripts/pharosville/preview.mjs
  *   node scripts/pharosville/preview.mjs --hash "#t=22&n=1" --out night.png
@@ -48,6 +56,7 @@
  *   node scripts/pharosville/preview.mjs --assert --reduced  # settled static resource gate
  *   node scripts/pharosville/preview.mjs --artifact-check    # short-interval full-frame flash probe
  *   node scripts/pharosville/preview.mjs --assert --max-p90=20 --max-draw-calls=700
+ *   node scripts/pharosville/preview.mjs --assert --max-p95=20 --tail-seconds 30
  *   node scripts/pharosville/preview.mjs --texture-census    # attribute live texture owners
  *   node scripts/pharosville/preview.mjs --refresh common   # main-thread cost of a data refresh
  *   node scripts/pharosville/preview.mjs --refresh churn    # ... with every placement moved
@@ -98,6 +107,10 @@ const limits = {
   // A vsync-capped 60Hz frame is 16.7ms. 20ms leaves room for the odd missed
   // vsync without pretending 33ms (a whole dropped frame) is acceptable.
   maxP90Ms: numberFlag("max-p90", 20),
+  // The calm gate. Same intent and same number as the p90 ceiling above, one
+  // decile further out: 20ms tolerates a missed vsync, and refuses to call a
+  // second in which one frame in twenty cost more than that "smooth".
+  maxP95Ms: numberFlag("max-p95", 20),
   requiredTier: typeof args["require-tier"] === "string" ? args["require-tier"] : "full",
 };
 const url = args.url ?? "http://localhost:5173";
@@ -140,6 +153,15 @@ const PROFILE_STAGES = [
 /** Declared here, not with the probe below, because the route handler runs first. */
 const refreshState = { gate: null, openGate: null, parked: 0, round: 0 };
 
+/**
+ * The reduced-motion settle result, or null on the animated path. Assert mode
+ * reads it, so it lives beside the run rather than inside the wait.
+ */
+let staticSettle = null;
+
+/** The tail sweep's summary, or null when no sweep ran (reduced motion, or --tail-seconds=0). */
+let tailSweep = null;
+
 // A refresh probe must not be measuring the day cycle as well: a 31-minute
 // clock jump would step the sky and rebake the PMREM probe inside the window.
 // Pinning the hour makes the payload the only thing that moved.
@@ -149,6 +171,26 @@ const height = Number(args.height ?? 1000);
 // Long enough for the frame-pacing window to fill with steady-state frames
 // rather than the load spike.
 const seconds = Number(args.seconds ?? 6);
+/**
+ * How long the TAIL sweep watches, in seconds. `seconds` above is a dwell — it
+ * decides when reading starts. This decides how much time the reading COVERS,
+ * which is the only thing that makes a tail percentile mean anything: the
+ * in-page pacing ring holds 120 frames, so a single read describes ~1s at
+ * 120Hz and ~2s at 60Hz, and a spike that happens once a minute is invisible to
+ * it about 59 times out of 60. Twelve seconds of overlapping windows is not a
+ * minute either, but it is a dozen chances instead of one, at ~12s of runtime.
+ *
+ * Zero disables the sweep. Assert mode on the animated path always sweeps,
+ * because that is the arm the calm gate lives on.
+ */
+const tailSeconds = Number(args["tail-seconds"] ?? (assertMode && !args.reduced ? 12 : 0));
+/**
+ * Poll cadence for the sweep, deliberately SHORTER than the pacing window's own
+ * span (120 frames ≈ 1.0s at 120Hz, ≈2.0s at 60Hz) so consecutive windows
+ * overlap and no frame can fall between two reads. The report says outright
+ * whether that held, rather than assuming it.
+ */
+const TAIL_POLL_INTERVAL_MS = 800;
 const outputDirectory = resolve(process.cwd(), "outputs");
 const outputPath = resolve(outputDirectory, args.out ?? "preview.png");
 
@@ -274,9 +316,13 @@ try {
   }
   await page.waitForTimeout(seconds * 1000);
 
-  let metrics = args.reduced
-    ? await waitForSettledStaticMetrics(page)
-    : await readMetrics(page);
+  let metrics;
+  if (args.reduced) {
+    staticSettle = await waitForSettledStaticMetrics(page);
+    metrics = staticSettle.metrics;
+  } else {
+    metrics = await readMetrics(page);
+  }
   if (!args.reduced) {
     const settleDeadline = Date.now() + 20_000;
     while (Date.now() < settleDeadline && (metrics.samples ?? 0) < FULL_ENOUGH_SAMPLES) {
@@ -289,19 +335,20 @@ try {
     console.error("warning: no fleet on screen — the world had not populated, so the frame below is not the world.");
   }
 
-  // Assert mode reads a ring that is entirely steady-state. Each dwell below is
-  // longer than the 120-sample window, so every read post-dates the previous one
-  // and none of them still carry load-spike frames. Three reads and the median
-  // p90, because one background spike on a busy machine must not block a push
-  // while a genuine regression — which shows in all three — still does.
-  if (assertMode && !args.reduced) {
-    const reads = [];
-    for (let index = 0; index < 3; index += 1) {
-      await page.waitForTimeout(2500);
-      reads.push(await readMetrics(page));
-    }
-    reads.sort((a, b) => (a.p90 ?? Infinity) - (b.p90 ?? Infinity));
-    metrics = reads[1];
+  // The tail sweep. It reads a ring that is entirely steady-state by now, and
+  // it reads it repeatedly: the reported metrics are the MEDIAN-p90 window (so
+  // one background spike on a busy machine cannot block a push, while a genuine
+  // regression — which shows in every window — still does), and the tail
+  // summary is the WORST window of the sweep (so a bad second cannot hide
+  // behind eleven good ones).
+  //
+  // Windows overlap, unlike the three widely-spaced reads this replaced. That
+  // is the point: a gap between reads is a stretch of frames nothing measured.
+  // A spike survives in the ring for ~120 frames, i.e. about two polls, so it
+  // still cannot swing a median taken over a dozen of them.
+  if (!args.reduced && tailSeconds > 0) {
+    tailSweep = await sweepFrameTail(page, tailSeconds * 1000);
+    if (tailSweep.reads.length > 0) metrics = medianByP90(tailSweep.reads);
   }
 
   await applyRequestedUiState(page);
@@ -313,6 +360,7 @@ try {
     + `, motion ${args.reduced ? "reduced" : "normal"}`);
   console.log(`frame      ${round(metrics.fps)} fps · p50 ${round(metrics.p50)}ms · p90 ${round(metrics.p90)}ms`
     + ` · dropped ${metrics.dropped} of ${metrics.samples}`);
+  if (!args.reduced) printFrameTail(metrics);
   console.log(`tier       ${metrics.tier} (session worst: ${metrics.tierReached})`
     + ` · composer ${metrics.composer ? "on" : "off"}`);
   console.log(`draw       ${metrics.calls} recurring calls (${metrics.sceneCalls} scene +`
@@ -329,6 +377,12 @@ try {
     + ` / ${metrics.environmentBakeCalls ?? 0} calls`);
   console.log(`logos      ${metrics.logoAssetsLoaded ?? 0}/${metrics.logoAssetsExpected ?? 0}`
     + " decoded assets");
+  if (args.reduced) {
+    console.log(`settle     ${staticSettle?.settled
+      ? "settled static frame — uploads drained and every counter held still"
+      : "NOT SETTLED — counters were still moving when the wait timed out;"
+        + " the numbers above are an in-flight frame, not the budgeted one"}`);
+  }
   if (
     args["texture-census"]
     || (metrics.textures ?? 0) > limits.maxTextures
@@ -357,6 +411,102 @@ try {
 
 function round(value) {
   return typeof value === "number" ? Math.round(value * 10) / 10 : value;
+}
+
+/**
+ * Watch the in-page pacing window across a span of time rather than at a point
+ * in it, and keep every read.
+ *
+ * Why the sweep exists at all: calm is a P95 property, and P95 of ONE 120-frame
+ * ring is P95 of one second. The ring cannot simply be made longer — its p90 is
+ * what the render scheduler and the adaptive-DPR governor key off, so a longer
+ * ring would slow every quality decision the renderer makes in order to buy a
+ * statistic (see the note in src/hooks/world-render-loop-metrics.ts). Sampling
+ * the short window often is the same coverage without that cost.
+ */
+async function sweepFrameTail(page, spanMs) {
+  const startedAt = Date.now();
+  // Read immediately, so even a very short span yields one window.
+  const reads = [await readMetrics(page)];
+  while (Date.now() - startedAt < spanMs) {
+    await page.waitForTimeout(TAIL_POLL_INTERVAL_MS);
+    reads.push(await readMetrics(page));
+  }
+  return { ...summarizeFrameTail(reads, Date.now() - startedAt), reads };
+}
+
+/**
+ * The worst window of the sweep, per metric — never an average of windows,
+ * which would let a bad second be diluted by good ones, and never a percentile
+ * OF percentiles, which is not a quantity.
+ *
+ * `measured` is the honest-degradation flag: a page whose telemetry predates
+ * W4.4 reports no p95 at all, and a gate that scored that as a pass would be
+ * collapsing SKIP into PASS on its own headline metric.
+ */
+function summarizeFrameTail(reads, spanMs) {
+  const usable = reads.filter((read) => (read.samples ?? 0) > 0);
+  const worst = (pick) => usable.reduce((highest, read) => {
+    const value = pick(read);
+    return typeof value === "number" && value > highest ? value : highest;
+  }, 0);
+  // How much time one window covers, so the report can say whether the polls
+  // left a gap — samples × the median interval is that span by definition.
+  const windowSpansMs = usable.map((read) => (read.samples ?? 0) * (read.p50 ?? 0));
+  return {
+    continuous: windowSpansMs.length > 0
+      && Math.min(...windowSpansMs) >= TAIL_POLL_INTERVAL_MS,
+    droppedWorstWindow: worst((read) => read.dropped),
+    longtaskCount: worst((read) => read.longtaskCount),
+    longtaskMaxMs: worst((read) => read.longtaskMaxMs),
+    maxFrameMs: worst((read) => read.maxFrameMs),
+    measured: usable.length > 0 && usable.every((read) => typeof read.p95 === "number"),
+    minWindowSpanMs: windowSpansMs.length > 0 ? Math.min(...windowSpansMs) : 0,
+    p95: worst((read) => read.p95),
+    p99: worst((read) => read.p99),
+    spanMs,
+    windows: usable.length,
+  };
+}
+
+/**
+ * The tail lines: where a spike shows up, and how much time was watched for one.
+ *
+ * Printed even without a sweep, because a single window's tail is still worth
+ * seeing — it is just labelled as the one second it is, so nobody quotes it as
+ * a session-wide P95.
+ */
+function printFrameTail(metrics) {
+  if (typeof metrics.p95 !== "number") {
+    console.log("tail       p95/p99 unavailable — this page's telemetry predates the P95 tail (W4.4)");
+  } else {
+    console.log(`tail       p95 ${round(metrics.p95)}ms · p99 ${round(metrics.p99)}ms`
+      + ` · max ${round(metrics.maxFrameMs)}ms  (this ${metrics.samples}-frame window)`);
+  }
+  console.log(`longtask   ${metrics.longtaskCount ?? 0} in the rolling window`
+    + ` · longest ${round(metrics.longtaskMaxMs ?? 0)}ms`
+    + " — a GC pause or a rebuild lands here before it reaches the frame");
+  if (!tailSweep) return;
+  if (!tailSweep.measured) {
+    console.log(`sweep      ${tailSweep.windows} windows over ${round(tailSweep.spanMs / 1000)}s,`
+      + " but at least one reported no p95 — the tail was NOT measured across the sweep");
+    return;
+  }
+  console.log(`sweep      worst p95 ${round(tailSweep.p95)}ms · worst p99 ${round(tailSweep.p99)}ms`
+    + ` · worst frame ${round(tailSweep.maxFrameMs)}ms`
+    + ` · worst window dropped ${tailSweep.droppedWorstWindow}`);
+  console.log(`           ${tailSweep.windows} windows over ${round(tailSweep.spanMs / 1000)}s,`
+    + ` ${tailSweep.continuous
+      ? `continuous (each spans ${round(tailSweep.minWindowSpanMs)}ms ≥ the ${TAIL_POLL_INTERVAL_MS}ms poll)`
+      : `WITH GAPS (a window spans only ${round(tailSweep.minWindowSpanMs)}ms`
+        + ` < the ${TAIL_POLL_INTERVAL_MS}ms poll — frames between reads went unmeasured)`}`
+    + ` · longtasks ${tailSweep.longtaskCount} worst window, longest ${round(tailSweep.longtaskMaxMs)}ms`);
+}
+
+/** The representative window: median p90, so neither the best nor the worst read is the report. */
+function medianByP90(reads) {
+  const ordered = [...reads].sort((a, b) => (a.p90 ?? Infinity) - (b.p90 ?? Infinity));
+  return ordered[Math.floor((ordered.length - 1) / 2)];
 }
 
 async function applyRequestedUiState(page) {
@@ -769,6 +919,30 @@ function evaluateAssertions(metrics, shaderErrors = []) {
     return;
   }
 
+  // The static path's own "did not measure" case. An unsettled frame is missing
+  // resources that are still arriving, so passing it would be the exact error
+  // V-07 named: a green reading taken before the frame was whole.
+  if (args.reduced && staticSettle && !staticSettle.settled) {
+    console.log("\nSKIP: the static frame never settled — uploads or logo decodes were still landing,"
+      + " so the resource counts above are in flight and nothing is being claimed about the budget.");
+    process.exitCode = SKIP_EXIT_CODE;
+    return;
+  }
+
+  // The calm metric's own "did not measure" case. A bundle older than W4.4
+  // publishes no p95 at all, and a sweep whose windows disagree about that has
+  // not measured the tail either. Scoring that green would be exactly the
+  // collapse this gate refuses: PASS means "measured, and it held".
+  const tailMeasured = tailSweep
+    ? tailSweep.measured
+    : typeof metrics.p95 === "number";
+  if (!args.reduced && !tailMeasured) {
+    console.log("\nSKIP: this page publishes no P95 frame time, so the calm metric was not measured."
+      + " Nothing is being claimed about the tail.");
+    process.exitCode = SKIP_EXIT_CODE;
+    return;
+  }
+
   const failures = [];
   if (shaderErrors.length > 0) {
     failures.push(`${shaderErrors.length} shader/program error(s) in the page console — a rejected material is skipped silently at draw time, so the frame is missing something the counters cannot see:\n    ${shaderErrors.slice(0, 5).join("\n    ")}`);
@@ -778,6 +952,26 @@ function evaluateAssertions(metrics, shaderErrors = []) {
   }
   if (!args.reduced && (metrics.p90 ?? Infinity) > limits.maxP90Ms) {
     failures.push(`p90 frame time ${round(metrics.p90)}ms exceeds ${limits.maxP90Ms}ms`);
+  }
+  // The tail. A P95 breach is a FAIL, not a warning: one frame in twenty over
+  // the ceiling is a second the eye reads as a stutter, and the plan's thesis
+  // is that one such second a minute costs more calm than 2ms of average cost.
+  // The worst window of the sweep is the figure, because the question is
+  // whether ANY second was like that, not whether the typical one was.
+  if (!args.reduced) {
+    const p95 = tailSweep ? tailSweep.p95 : metrics.p95;
+    const scope = tailSweep
+      ? `worst of ${tailSweep.windows} windows over ${round(tailSweep.spanMs / 1000)}s`
+      : "single window";
+    if ((p95 ?? Infinity) > limits.maxP95Ms) {
+      failures.push(`p95 frame time ${round(p95)}ms exceeds ${limits.maxP95Ms}ms (${scope})`);
+    }
+    if (tailSweep && !tailSweep.continuous) {
+      // Not a failure — the numbers above are real — but the sweep did not see
+      // every frame, so it must not be quoted as if it had.
+      console.error(`note: the sweep's windows left gaps (window span ${round(tailSweep.minWindowSpanMs)}ms`
+        + ` < ${TAIL_POLL_INTERVAL_MS}ms poll); frames between reads were not measured.`);
+    }
   }
   if ((metrics.calls ?? Infinity) > limits.maxDrawCalls) {
     failures.push(`${metrics.calls} draw calls exceed ${limits.maxDrawCalls}`);
@@ -794,8 +988,11 @@ function evaluateAssertions(metrics, shaderErrors = []) {
 
   if (failures.length === 0) {
     const timing = args.reduced
-      ? "deterministic static frame"
-      : `p90 ${round(metrics.p90)}ms (max ${limits.maxP90Ms})`;
+      ? "settled deterministic static frame"
+      : `p90 ${round(metrics.p90)}ms (max ${limits.maxP90Ms}),`
+        + ` p95 ${round(tailSweep ? tailSweep.p95 : metrics.p95)}ms (max ${limits.maxP95Ms}`
+        + `${tailSweep ? `, worst of ${tailSweep.windows} windows` : ", single window"}),`
+        + ` worst frame ${round(tailSweep ? tailSweep.maxFrameMs : metrics.maxFrameMs)}ms`;
     console.log(`\nPASS: tier ${metrics.tier}, ${timing},`
       + ` ${metrics.calls} calls, ${metrics.triangles} triangles,`
       + ` ${metrics.geometries} geometries, ${metrics.textures} textures.`);
@@ -807,17 +1004,48 @@ function evaluateAssertions(metrics, shaderErrors = []) {
   process.exitCode = 1;
 }
 
+/**
+ * The static path's equivalent of a full frame-pacing window.
+ *
+ * Reduced motion owns no continuous RAF: the world paints one deterministic
+ * frame, then paints again only when something asynchronous arrives. So an
+ * early read of the counters is not wrong, it is EARLY — and the 2026-07-27
+ * cleanliness audit (V-07) is on record that the SETTLED static frame is the
+ * one the resource budget is about.
+ *
+ * Settled therefore means three things at once, not merely "stopped moving":
+ *
+ * 1. The network is idle, so nothing further is on its way.
+ * 2. The texture upload queue has DRAINED. `pending` is the queue length, so it
+ *    reaches zero whether a task succeeded or failed — one broken texture
+ *    cannot wedge this wait open.
+ * 3. The whole reported tuple has held still across several consecutive reads —
+ *    the GPU counters AND the upload/logo PROGRESS counters. Including the
+ *    progress counters is what makes the stillness mean something: ~184 logo
+ *    decodes land in bursts, and the gap between two bursts is indistinguishable
+ *    from a settled frame if only the GPU counters are watched.
+ *
+ * A logo whose fetch rejects never reaches the loaded count, so this
+ * deliberately does not wait for `loaded === expected` — that moment would
+ * never come. It waits for the count to stop CHANGING, which happens either way.
+ *
+ * It reports whether it actually settled, because an unsettled read is not a
+ * measurement of the static frame and assert mode must not score it as one.
+ */
 async function waitForSettledStaticMetrics(page) {
-  // Reduced motion owns no continuous RAF. Every async model/logo arrival asks
-  // for one deterministic repaint, so wait until both the network and the GPU
-  // resource tuple have stopped changing before treating telemetry as settled.
+  // 2s of stillness at the end of the dwell: long enough to span the gap
+  // between two logo-decode bursts, short enough not to dominate the run.
+  const REQUIRED_STABLE_READS = 4;
+  const READ_INTERVAL_MS = 500;
+  const SETTLE_TIMEOUT_MS = 45_000;
+
   await page.waitForLoadState("networkidle", { timeout: 30_000 }).catch(() => {});
   let previous = null;
   let stableReads = 0;
   let latest = await readMetrics(page);
-  const deadline = Date.now() + 20_000;
-  while (Date.now() < deadline && stableReads < 3) {
-    await page.waitForTimeout(500);
+  const deadline = Date.now() + SETTLE_TIMEOUT_MS;
+  while (Date.now() < deadline && stableReads < REQUIRED_STABLE_READS) {
+    await page.waitForTimeout(READ_INTERVAL_MS);
     latest = await readMetrics(page);
     const signature = [
       latest.calls,
@@ -826,11 +1054,19 @@ async function waitForSettledStaticMetrics(page) {
       latest.textures,
       latest.shipsVisible,
       latest.tier,
+      latest.textureUploads?.pending ?? 0,
+      latest.textureUploads?.uploaded ?? 0,
+      latest.logoAssetsLoaded ?? 0,
+      latest.logoAssetsExpected ?? 0,
     ].join("|");
-    stableReads = signature === previous ? stableReads + 1 : 0;
+    // A page with no debug object at all reads as a tuple of nulls, which is
+    // perfectly "stable" and means nothing. Telemetry has to exist first.
+    const reporting = latest.triangles !== null && latest.tier !== null;
+    const uploadsDrained = (latest.textureUploads?.pending ?? 0) === 0;
+    stableReads = reporting && uploadsDrained && signature === previous ? stableReads + 1 : 0;
     previous = signature;
   }
-  return latest;
+  return { metrics: latest, settled: stableReads >= REQUIRED_STABLE_READS };
 }
 
 async function runArtifactFlashCheck(page, canvas) {
@@ -946,8 +1182,15 @@ function readMetrics(page) {
       geometries: m?.gpu?.geometries ?? null,
       logoAssetsExpected: m?.logoAssetsExpected ?? null,
       logoAssetsLoaded: m?.logoAssetsLoaded ?? null,
+      longtaskCount: m?.longtask?.count ?? null,
+      longtaskMaxMs: m?.longtask?.maxDurationMs ?? null,
+      maxFrameMs: m?.framePacing?.maxMs ?? null,
       p50: m?.framePacing?.p50Ms ?? null,
       p90: m?.framePacing?.p90Ms ?? null,
+      // Undefined on any bundle older than W4.4 — read as null, and assert mode
+      // treats a null tail as "not measured" rather than as a pass.
+      p95: m?.framePacing?.p95Ms ?? null,
+      p99: m?.framePacing?.p99Ms ?? null,
       samples: m?.framePacing?.sampleCount ?? null,
       shipsVisible: m?.visibleShipCount ?? null,
       offscreenCalls: m?.gpu?.offscreenCalls ?? null,

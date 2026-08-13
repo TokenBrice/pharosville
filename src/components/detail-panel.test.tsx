@@ -132,10 +132,23 @@ describe("DetailPanel structure (old-school revamp)", () => {
     expect(markup).toMatch(/<dt[^>]*>Class<\/dt>\s*<dd[^>]*>[\s\S]*? · [\s\S]*?<\/dd>/);
   });
 
-  it("does not render more than 8 fact rows in total", () => {
+  it("keeps the expanded ship record bounded while exposing seaworthiness", () => {
     const markup = renderShipPanel("susds-sky", "susds-sky");
     const dts = markup.match(/<dt[^>]*>/g) ?? [];
-    expect(dts.length).toBeLessThanOrEqual(8);
+    expect(dts.length).toBeLessThanOrEqual(20);
+    for (const label of [
+      "In service since / tracked",
+      "Redemption fitting",
+      "Collateral cargo",
+      "Customs authority",
+      "Peg stability",
+      "Liquidity",
+      "Resilience",
+      "Decentralization",
+      "Dependency risk",
+    ]) {
+      expect(markup).toContain(label);
+    }
   });
 
   it("respects the 8-row cap when every gated ship signal fires at once", () => {
@@ -183,8 +196,8 @@ describe("DetailPanel structure (old-school revamp)", () => {
   it("renders Cycle tempo in the identity section", () => {
     const markup = renderShipPanel("susds-sky", "susds-sky");
     expect(markup).toMatch(/Cycle tempo/i);
-    // Must have one of the four canonical labels.
-    const validLabels = ["Languid", "Steady", "Brisk", "Active"];
+    // Must have a canonical measured label or the explicit missing-data state.
+    const validLabels = ["Languid", "Steady", "Brisk", "Active", "Unmeasured"];
     const found = validLabels.some((label) => markup.includes(label));
     expect(found).toBe(true);
   });

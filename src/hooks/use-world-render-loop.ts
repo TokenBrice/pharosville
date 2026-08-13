@@ -42,8 +42,10 @@ import { seaStateForWorld, type SeaState } from "../systems/sea-state";
 import { createVisualMotionSmoothingState, resetVisualMotionSmoothingState, smoothShipMotionSamples } from "../systems/visual-motion";
 import { worldRenderContentSignature } from "../systems/world-render-content-signature";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
+import type { GardenAlmanacEvent } from "../systems/garden-almanac";
 import { normalizeHour } from "../lib/pharosville-clock";
 import { reportClientError } from "../error-reporter";
+import { createHoverNameplateDwellState, hoverNameplateVisible } from "./hover-nameplate-dwell";
 import {
   createFrameIntervalWindow,
   createLongtaskWindow,
@@ -95,6 +97,7 @@ interface DetailAnchor extends ScreenPoint {
 }
 
 export interface UseWorldRenderLoopInput {
+  almanacEvent?: GardenAlmanacEvent | null;
   /**
    * Called when the deterministic time bucket flips (every ~10 minutes of
    * wall clock). The hook mirrors the latest callback into a ref so RAF and
@@ -137,6 +140,7 @@ export interface UseWorldRenderLoopInput {
 export interface UseWorldRenderLoopResult {
   frameRateFps: number | null;
   rendererFailure: string | null;
+  rendererWarmupReady: boolean;
   rendererStatus: WorldRendererStatus;
   requestPaint: () => void;
 }
@@ -149,6 +153,7 @@ export interface WorldCameraStepResult {
 
 export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRenderLoopResult {
   const {
+    almanacEvent,
     onBucketFlip,
     adaptiveDprStateRef,
     logoGeneration,
@@ -204,6 +209,8 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   }, [requestPaint, shipsById, world]);
   const threeRendererRef = useRef<ThreeWorldRenderer | null>(null);
   const [rendererStatus, setRendererStatus] = useState<WorldRendererStatus>("loading");
+  const [rendererWarmupReady, setRendererWarmupReady] = useState(false);
+  const rendererWarmupStartedRef = useRef(false);
   const [rendererFailure, setRendererFailure] = useState<string | null>(null);
   // Every path that retires the 3D world to the DOM overview lands here — the
   // WebGL context-loss/creation failures the backend reports through
@@ -256,6 +263,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     hoveredDetailId: null,
     selectedDetailId: null,
   });
+  const hoverNameplateDwellRef = useRef(createHoverNameplateDwellState());
   /** True when the frame just drawn created GPU resources for the first time. */
   const gpuWarmupFrameRef = useRef(false);
   /** Consecutive frames whose render threw. Reset by any frame that draws. */
@@ -319,6 +327,8 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           },
         });
         threeRendererRef.current = renderer;
+        rendererWarmupStartedRef.current = false;
+        setRendererWarmupReady(false);
         setRendererStatus("ready");
       })
       .catch((error) => {
@@ -695,7 +705,12 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       const nextHoveredTarget = nextFrameState.hoveredTarget;
       const tooltipEl = hoverTooltipElRef?.current;
       if (tooltipEl) {
-        if (nextHoveredTarget) {
+        const nameplateVisible = hoverNameplateVisible(
+          hoverNameplateDwellRef.current,
+          nextHoveredTarget?.detailId ?? null,
+          time,
+        );
+        if (nextHoveredTarget && nameplateVisible) {
           const rect = nextHoveredTarget.rect;
           const tooltipX = Math.round(rect.x + rect.width / 2);
           const tooltipY = Math.round(rect.y);
@@ -718,6 +733,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       let renderMetrics: PharosVilleRenderMetrics;
       try {
         renderMetrics = threeRenderer.render({
+          almanacEvent: almanacEvent ?? null,
           logos,
           camera: frameCamera,
           dpr,
@@ -755,6 +771,19 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         return;
       }
       renderFailureStreakRef.current = 0;
+      if (activeWorld.routeMode === "world" && !rendererWarmupStartedRef.current) {
+        rendererWarmupStartedRef.current = true;
+        void threeRenderer.warmup()
+          .then(() => {
+            if (threeRendererRef.current !== threeRenderer) return;
+            setRendererWarmupReady(true);
+            requestPaint();
+          })
+          .catch((error) => {
+            if (threeRendererRef.current !== threeRenderer) return;
+            failThreeRenderer(error instanceof Error ? error.message : String(error), "render-loop");
+          });
+      }
       gpuWarmupFrameRef.current = (renderMetrics.gpuWarmupCount ?? 0) > 0;
       const previousTimeToFirstCoherentFrameMs = lastRenderMetricsRef.current.timeToFirstCoherentFrameMs;
       lastRenderMetricsRef.current = {
@@ -979,6 +1008,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     advanceMotionBucket,
+    almanacEvent,
     cameraReady,
     canvasSize.x,
     canvasSize.y,
@@ -1068,6 +1098,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   return {
     frameRateFps,
     rendererFailure,
+    rendererWarmupReady,
     rendererStatus,
     requestPaint,
   };

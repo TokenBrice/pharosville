@@ -106,6 +106,18 @@ describe("useWorldUrlState", () => {
     expect(url.searchParams.get("n")).toBe("0");
     expect(url.searchParams.get("cam")).toBe("1.23,5.68,1.235");
   });
+
+  it("keeps legacy time controls in the hash beside a moment query", () => {
+    window.history.replaceState(null, "", "/?ship=ship.usdc&cam=1.2,3.4@1.1");
+
+    const { result } = renderHook(() => useWorldUrlState({ world: worldFixture() }));
+    const href = result.current.replaceWorldUrlState({ nightMode: true, timeHour: 22 });
+    const url = new URL(href!);
+
+    expect(url.searchParams.get("ship")).toBe("ship.usdc");
+    expect(url.searchParams.get("cam")).toBe("1.2,3.4@1.1");
+    expect(url.hash).toBe("#t=22&n=1");
+  });
 });
 
 function worldFixture(): PharosVilleWorldModel {

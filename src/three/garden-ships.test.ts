@@ -20,11 +20,15 @@ import {
   gardenShipVisualScale,
   GARDEN_SHIP_VISUAL_SCALE_MAX,
   GARDEN_SHIP_VISUAL_SCALE_MIN,
+  resetFleetSailAttention,
+  syncFleetSailAttention,
   syncShipRippleRings,
   updateFleetLanterns,
+  patchShipLanternEmissiveMaterial,
   updateShipPennants,
   type ShipVisual,
 } from "./garden-ships";
+import { gardenFleetAttention } from "./garden-fleet-batch";
 import type { GardenRippleRingEmitter } from "./garden-water-contract";
 import { GARDEN_MODEL_MANIFEST } from "./garden-models";
 import type { GardenShipGeometryCache } from "./garden-util";
@@ -72,6 +76,17 @@ describe("createShip vertex shading", () => {
       return mesh.geometry.getAttribute("color") && !material.vertexColors;
     });
     expect(keel).toBeDefined();
+  });
+
+  it("keeps report-card fittings on a hero when its model attaches", () => {
+    const node = ship("fitted", "treasury-galleon", "titan");
+    node.visual.hullForm = { beam: 1, fittingCode: 19, height: 1, length: 1, waterline: 0 };
+    const visual = build(node);
+    const fittings = visual.root.getObjectByName("ship-seaworthiness-fittings");
+    expect(fittings).toBeInstanceOf(Mesh);
+    attachGardenHeroModel(visual, heroFixture("garden-hero-titan"));
+    expect(fittings?.visible).toBe(true);
+    expect(fittings?.parent).not.toBeNull();
   });
 });
 
@@ -138,6 +153,10 @@ function heroFixture(id: "garden-hero-titan" | "garden-hero-heritage"): Group {
   const wood = new Mesh(new BoxGeometry(), new MeshStandardMaterial({ color: "#ffffff" }));
   wood.name = "wood-hull";
   root.add(wood);
+  const spar = new Mesh(new BoxGeometry(0.2, 1, 0.2), new MeshStandardMaterial({ color: "#5a3c24" }));
+  spar.name = "spar-hull";
+  spar.position.y = 1;
+  root.add(spar);
   for (const anchor of Object.values(GARDEN_MODEL_MANIFEST[id].anchors)) {
     const node = new Object3D();
     node.name = anchor.node;
@@ -161,9 +180,12 @@ describe("attachGardenHeroModel", () => {
     expect(visual.heroHideable.every((part) => part.visible)).toBe(false);
     expect(identitySail?.visible).toBe(true);
     expect(visual.root.children).toContain(model);
-    // Geometry stays shared with the cache; only the material is cloned + tinted.
-    expect(attachedWood.geometry).toBe(woodGeometry);
-    expect(attachedWood.material).not.toBe(sharedMaterial);
+    // Static GLB parts collapse to one solid draw plus one canvas draw.
+    expect(model.children.filter((child) => child instanceof Mesh)).toHaveLength(1);
+    expect(model.getObjectByName("hero-merged-solid")).toBeInstanceOf(Mesh);
+    expect(attachedWood.parent).toBeNull();
+    expect(woodGeometry).toBeDefined();
+    expect(sharedMaterial).toBeDefined();
     // Identity sail moved onto the main-mast area (non-zero masthead height).
     const masthead = GARDEN_MODEL_MANIFEST["garden-hero-titan"].anchors.masthead;
     expect(identitySail?.position.x).toBeCloseTo(masthead?.position[0] ?? 0);
@@ -174,6 +196,32 @@ describe("attachGardenHeroModel", () => {
     const before = visual.heroHideable.map((part) => part.visible);
     attachGardenHeroModel(visual, heroFixture("garden-hero-titan"));
     expect(visual.heroHideable.map((part) => part.visible)).toEqual(before);
+  });
+
+  it("carries restrained wabi value and age patina onto hero wood, never sails", () => {
+    const node = ship("old", "treasury-galleon", "titan");
+    node.visual.hullForm = {
+      beam: 1,
+      height: 1,
+      length: 1,
+      waterline: 0,
+      agePatina: 1,
+      hullValue: 0.95,
+      propRotation: 0.08,
+      ropeSag: -0.05,
+    };
+    const visual = build(node);
+    const model = heroFixture("garden-hero-titan");
+    attachGardenHeroModel(visual, model);
+    const merged = model.getObjectByName("hero-merged-solid") as Mesh;
+    const color = merged.geometry.getAttribute("color");
+    const values = Array.from(color.array);
+    expect(Math.min(...values)).toBeLessThan(1);
+    expect(Math.max(...values) - Math.min(...values)).toBeGreaterThan(0.05);
+    const last = color.count - 1;
+    expect(color.getY(last)).toBeGreaterThan(0.05);
+    expect(visual.identitySailMaterial?.color).not.toEqual((merged.material as MeshStandardMaterial).color);
+    expect(visual.pennant?.rotation.z).toBeCloseTo(0.08);
   });
 });
 
@@ -204,6 +252,26 @@ describe("createFleetLanterns", () => {
     // The first core instance is no longer the zero-scale placeholder.
     const core = lanterns.cores.instanceMatrix.array;
     expect(core.slice(0, 16).some((value) => value !== 0)).toBe(true);
+  });
+
+  it("feeds per-instance warmth into the lantern emissive term", () => {
+    const material = new MeshStandardMaterial();
+    patchShipLanternEmissiveMaterial(material);
+    const shader = {
+      fragmentShader: "#include <emissivemap_fragment>",
+      uniforms: {},
+      vertexShader: "",
+    };
+    material.onBeforeCompile(shader as never, null as never);
+    expect(shader.fragmentShader).toContain("totalEmissiveRadiance *= vColor.rgb");
+
+    const ships = [build(ship("a", "treasury-galleon", "titan"))];
+    const lanterns = createFleetLanterns(ships, makeCache());
+    updateFleetLanterns(lanterns, new Quaternion(), 0, true, {
+      hoveredDetailId: "a",
+      selectedDetailId: null,
+    });
+    expect(lanterns.cores.instanceColor?.getX(0)).toBeGreaterThan(1);
   });
 });
 
@@ -251,6 +319,15 @@ describe("S1 curved sheer hull", () => {
 });
 
 describe("W5.3 batched silhouette form", () => {
+  it("authors all six conditional fitting tags into the shared hull geometry", () => {
+    const { hull, sails } = createFleetBatchGeometry("galleon");
+    const mask = hull.getAttribute("aStrakeMask");
+    const tags = new Set(Array.from({ length: mask.count }, (_, index) => mask.getX(index)));
+    for (let tag = 1; tag <= 6; tag += 1) expect(tags.has(-tag)).toBe(true);
+    hull.dispose();
+    sails.dispose();
+  });
+
   it("rakes the stern aft as the topsides rise", () => {
     const { hull } = createFleetBatchGeometry("clipper");
     const position = hull.getAttribute("position");
@@ -432,5 +509,72 @@ describe("hero peg trim (Tier 3 #13)", () => {
   it("leaves the wake on the sea surface however deep the hull rides", () => {
     const { level, trimmed: low } = trimmed(-0.16);
     expect(low.wake.position.y).toBeCloseTo(level.wake.position.y);
+  });
+});
+
+describe("W3.7 attention bridge", () => {
+  function fleetVisual(detailId: string, atlasCell: number, batched = true): ShipVisual {
+    return { atlasCell, batched, ship: { detailId } } as unknown as ShipVisual;
+  }
+
+  function attentionFrame(overrides: {
+    hoveredDetailId?: string | null;
+    reducedMotion?: boolean;
+    selectedDetailId?: string | null;
+    timeSeconds?: number;
+  }) {
+    return {
+      hoveredDetailId: null,
+      reducedMotion: true,
+      selectedDetailId: null,
+      timeSeconds: 0,
+      ...overrides,
+    } as unknown as Parameters<typeof syncFleetSailAttention>[1];
+  }
+
+  it("resolves the hovered ship to its atlas cell and lights only that one", () => {
+    resetFleetSailAttention();
+    const ships = [fleetVisual("usdc", 4), fleetVisual("usdt", 9)];
+    syncFleetSailAttention(
+      { logoGenerationKey: null, ships },
+      attentionFrame({ hoveredDetailId: "usdt" }),
+    );
+    expect(gardenFleetAttention(9)).toBe(1);
+    expect(gardenFleetAttention(4)).toBe(0);
+    resetFleetSailAttention();
+  });
+
+  it("never routes attention to a hero ship, which never took the step", () => {
+    resetFleetSailAttention();
+    // Hero hulls own their own sail material and are not in the batch at all,
+    // so their (meaningless) cell must never light a batched stranger.
+    const ships = [fleetVisual("dai", 4, false), fleetVisual("usdt", 4)];
+    syncFleetSailAttention(
+      { logoGenerationKey: null, ships },
+      attentionFrame({ hoveredDetailId: "dai" }),
+    );
+    expect(gardenFleetAttention(4)).toBe(0);
+    resetFleetSailAttention();
+  });
+
+  it("re-resolves cells when a world replace reshuffles them", () => {
+    resetFleetSailAttention();
+    const before = [fleetVisual("usdc", 4), fleetVisual("usdt", 9)];
+    syncFleetSailAttention(
+      { logoGenerationKey: null, ships: before },
+      attentionFrame({ selectedDetailId: "usdt" }),
+    );
+    expect(gardenFleetAttention(9)).toBe(1);
+
+    // Same selection, new fleet, new cell assignment: a memo keyed on the id
+    // alone would keep lighting cell 9, which now belongs to a different ship.
+    const after = [fleetVisual("usdt", 2), fleetVisual("usdc", 9)];
+    syncFleetSailAttention(
+      { logoGenerationKey: null, ships: after },
+      attentionFrame({ selectedDetailId: "usdt" }),
+    );
+    expect(gardenFleetAttention(2)).toBe(1);
+    expect(gardenFleetAttention(9)).toBe(0);
+    resetFleetSailAttention();
   });
 });

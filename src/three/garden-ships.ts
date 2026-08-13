@@ -38,7 +38,17 @@ import {
 import { HARBOR_PALETTE } from "../systems/palette";
 import type { ShipNode } from "../systems/world-types";
 import { heroHullModelFor } from "../systems/unique-ships";
+import {
+  applyGardenHeightFog,
+  patchGardenHeightFogMaterial,
+} from "./garden-height-fog";
 import { gardenModelAnchor, type GardenModelId } from "./garden-models";
+import {
+  advanceShipLanternAttention,
+  createShipLanternAttentionState,
+  shipLanternWarmth,
+  type ShipLanternAttentionState,
+} from "./garden-ship-lantern-attention";
 import {
   GARDEN_WATER_MAX_RIPPLE_RINGS,
   type GardenRippleRingEmitter,
@@ -49,6 +59,7 @@ import {
   FLEET_MAX_SAILS,
   markAtlasSail,
   mergeTintedParts,
+  setFleetAttention,
   type FleetBatchGeometrySource,
 } from "./garden-fleet-batch";
 import {
@@ -90,6 +101,8 @@ export {
 export interface ShipVisual {
   /** Sail-atlas cell (D3). 0 = the shared plain canvas. Batched ships only. */
   atlasCell: number;
+  /** W7.3 service-age finish, retained for late hero-GLB attachment. */
+  agePatina: number;
   /**
    * W1: true when this ship is drawn from the shared `FleetBatches` instances
    * rather than its own meshes. Batched ships carry no hull/sail/pennant mesh;
@@ -156,6 +169,7 @@ export interface ShipVisual {
 
 /** Fleet-wide lantern instances: two shared draw calls for the whole fleet. */
 export interface FleetLanterns {
+  attention: ShipLanternAttentionState;
   cores: InstancedMesh<CircleGeometry, MeshStandardMaterial>;
   glow: InstancedMesh<PlaneGeometry, MeshBasicMaterial>;
   coreMaterial: MeshStandardMaterial;
@@ -520,6 +534,7 @@ export function createBatchedShip(
   root.add(wake.root);
 
   return {
+    agePatina: MathUtils.clamp(ship.visual.hullForm?.agePatina ?? 0, 0, 1),
     atlasCell,
     batched: true,
     bobPhase: stableUnit(ship.id) * Math.PI * 2,
@@ -759,6 +774,14 @@ function applyShipPegTrim(root: Group, ship: ShipNode, wakeRoot: Object3D): void
   }
 }
 
+/** W5.8/W7.3: value-only decorative drift plus even service-age patina. */
+function shipWoodSurfaceScale(ship: ShipNode): number {
+  const surface = ship.visual.hullForm;
+  const value = MathUtils.clamp(surface?.hullValue ?? 1, 0.9, 1.1);
+  const age = MathUtils.clamp(surface?.agePatina ?? 0, 0, 1);
+  return value * MathUtils.lerp(1, 0.88, age);
+}
+
 export function createShip(
   ship: ShipNode,
   displayOffset: { x: number; y: number },
@@ -803,7 +826,7 @@ export function createShip(
   // livery material color, so hull hue stays per-ship. The old flat emissive
   // lift is gone — it washed the new shading flat.
   const hullMaterial = new MeshStandardMaterial({
-    color: hullColor,
+    color: hullColor.clone().multiplyScalar(shipWoodSurfaceScale(ship)),
     flatShading: true,
     roughness: 0.82,
     vertexColors: true,
@@ -1022,6 +1045,7 @@ export function createShip(
     }),
   );
   flag.position.set(tallestMast.x, tallestMast.height + 0.52, 0.02);
+  flag.rotation.z = ship.visual.hullForm?.propRotation ?? 0;
   fineDetail.add(flag);
   heroHideable.push(flag);
 
@@ -1114,17 +1138,42 @@ export function createShip(
     overviewDetail.add(shieldMark);
   }
 
+  const fittingCode = ship.visual.hullForm?.fittingCode ?? 0;
+  if (fittingCode > 0) {
+    const fittingGeometry = cachedShipGeometry(
+      cache,
+      `seaworthiness-fittings.${fittingCode}`,
+      () => {
+        const fittingParts: ShipFittingPart[] = [];
+        addSeaworthinessFittingParts(fittingParts, fittingCode);
+        const geometry = mergeTintedParts(fittingParts);
+        for (const part of fittingParts) part.geometry.dispose();
+        return geometry;
+      },
+    );
+    const fittingAge = MathUtils.clamp(ship.visual.hullForm?.agePatina ?? 0, 0, 1);
+    const fittingMaterial = deckMaterial.clone();
+    fittingMaterial.color.lerp(new Color("#597869"), fittingAge * 0.18);
+    const fittings = new Mesh(fittingGeometry, fittingMaterial);
+    fittings.name = "ship-seaworthiness-fittings";
+    fineDetail.add(fittings);
+  }
+
   const wake = createWake(cache);
   root.add(wake.root);
   applyShipPegTrim(root, ship, wake.root);
+  // W2.1: hero/procedural ships keep their object tree, so patch their lit
+  // materials here while the rank-and-file fleet takes the batch shader path.
+  applyGardenHeightFog(root);
   const motion = FLEET_TIER_MOTION[tier];
   // Subtle livery cast multiplied over the hero wood on attach (white base × a
   // mostly-white tint keeps the baked 3-tone shading readable).
   const heroHullTint = new Color("#ffffff").lerp(
     new Color(safeCssColor(ship.visual.livery?.primary, "#ffffff")),
     0.3,
-  );
+  ).multiplyScalar(shipWoodSurfaceScale(ship));
   return {
+    agePatina: MathUtils.clamp(ship.visual.hullForm?.agePatina ?? 0, 0, 1),
     atlasCell: 0,
     batched: false,
     sailColor: readableSailColor,
@@ -1177,31 +1226,8 @@ export function attachGardenHeroModel(visual: ShipVisual, model: Group): void {
 
   for (const part of visual.heroHideable) part.visible = false;
 
-  model.traverse((object) => {
-    if (!(object instanceof Mesh)) return;
-    const material = (object.material as MeshStandardMaterial).clone();
-    if (object.name === "wood-hull") material.color.multiply(visual.heroHullTint);
-    // W1/D2: a hero's sheer strake takes the issuer's paint, the same band the
-    // batched fleet paints on its gunwale ring. `hero-trim` is authored white
-    // with vertex colours, so the multiply modulates the baked trim shading
-    // rather than flattening it.
-    if (object.name === "trim-hull") material.color.multiply(visual.trimColor);
-    // A hero's canvas is dyed in its issuer's colour, exactly as the batched
-    // fleet's is. Without this the ten hero hulls fly the model's baked cream
-    // while every other ship in the harbour flies its brand — and heroes are
-    // the largest, most-looked-at ships in the world.
-    //
-    // Multiply rather than assign: `hero-canvas` is authored white with
-    // `vertexColors: true` (generate-garden-heroes.mjs), so the dye modulates
-    // the baked shading instead of flattening it.
-    if (object.name === "sail-hull") material.color.multiply(visual.sailColor);
-    object.material = material;
-    // The directional shadow map is island-only and static. Hero ships move,
-    // so casting them into that map would leave frozen shadow ghosts and force
-    // an expensive redraw whenever an async hull arrives. Every ship already
-    // owns an oriented water-contact shadow in world-renderer.
-    object.castShadow = false;
-  });
+  const masthead = gardenModelAnchor(model, heroId, "masthead").position.clone();
+  mergeGardenHeroStatics(visual, model);
   model.name = `hero-${heroId}`;
   // The GLB arrives after `createShip` has already trimmed the procedural
   // children, so it takes the same offset here or the hero rides level while
@@ -1210,7 +1236,6 @@ export function attachGardenHeroModel(visual: ShipVisual, model: Group): void {
   model.position.y += waterline;
   visual.root.add(model);
 
-  const masthead = gardenModelAnchor(model, heroId, "masthead").position;
   // W6.4: the GLB's own masthead, so the mirror column is cut to the hull that
   // is actually standing there rather than to the procedural stand-in.
   visual.mastheadHeight = masthead.y + waterline;
@@ -1229,10 +1254,177 @@ export function attachGardenHeroModel(visual: ShipVisual, model: Group): void {
   }
 }
 
+function mergeGardenHeroStatics(visual: ShipVisual, model: Group): void {
+  model.updateMatrixWorld(true);
+  const inverseRoot = model.matrixWorld.clone().invert();
+  const solidParts: BufferGeometry[] = [];
+  const sailParts: BufferGeometry[] = [];
+
+  model.traverse((object) => {
+    if (!(object instanceof Mesh) || Array.isArray(object.material)) return;
+    const source = object.geometry.clone();
+    const geometry = source.index ? source.toNonIndexed() : source;
+    if (geometry !== source) source.dispose();
+    geometry.applyMatrix4(inverseRoot.clone().multiply(object.matrixWorld));
+    if (!geometry.getAttribute("normal")) geometry.computeVertexNormals();
+    geometry.computeBoundingBox();
+    const position = geometry.getAttribute("position");
+    const sourceColor = geometry.getAttribute("color");
+    const colors = new Float32Array(position.count * 3);
+    const glow = new Float32Array(position.count);
+    const material = object.material as MeshStandardMaterial;
+    const tint = material.color.clone();
+    if (object.name === "wood-hull") tint.multiply(visual.heroHullTint);
+    if (object.name === "trim-hull") tint.multiply(visual.trimColor);
+    if (object.name === "sail-hull") tint.multiply(visual.sailColor);
+    if (object.name === "spar-hull") tint.lerp(new Color("#597869"), visual.agePatina * 0.18);
+    const bounds = geometry.boundingBox;
+    const centerX = bounds ? (bounds.min.x + bounds.max.x) / 2 : 0;
+    const centerY = bounds ? (bounds.min.y + bounds.max.y) / 2 : 0;
+    const halfX = bounds ? Math.max(0.001, (bounds.max.x - bounds.min.x) / 2) : 1;
+    const halfY = bounds ? Math.max(0.001, (bounds.max.y - bounds.min.y) / 2) : 1;
+    for (let index = 0; index < position.count; index += 1) {
+      const edge = object.name === "wood-hull"
+        ? Math.max(
+            Math.abs(position.getX(index) - centerX) / halfX,
+            Math.abs(position.getY(index) - centerY) / halfY,
+          )
+        : 0;
+      const wearLift = 1 + MathUtils.smoothstep(edge, 0.78, 1) * visual.agePatina * 0.075;
+      colors[index * 3] = tint.r * (sourceColor?.getX(index) ?? 1) * wearLift;
+      colors[index * 3 + 1] = tint.g * (sourceColor?.getY(index) ?? 1) * wearLift;
+      colors[index * 3 + 2] = tint.b * (sourceColor?.getZ(index) ?? 1) * wearLift;
+      glow[index] = object.name === "glow-hull" ? 1 : object.name === "spar-hull" ? 0.035 : 0;
+    }
+    geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
+    geometry.setAttribute("aHeroGlow", new Float32BufferAttribute(glow, 1));
+    if (object.name === "sail-hull") sailParts.push(geometry);
+    else solidParts.push(geometry);
+  });
+
+  model.clear();
+  const build = (parts: BufferGeometry[], name: string, canvas: boolean): void => {
+    if (parts.length === 0) return;
+    const geometry = mergeGeometries(parts, false)!;
+    const material = new MeshStandardMaterial({
+      color: "#ffffff",
+      flatShading: !canvas,
+      roughness: canvas ? 0.8 : 0.84,
+      side: DoubleSide,
+      vertexColors: true,
+    });
+    patchGardenHeightFogMaterial(material);
+    if (!canvas) {
+      const previousCompile = material.onBeforeCompile;
+      material.onBeforeCompile = (shader, renderer) => {
+        previousCompile.call(material, shader, renderer);
+        shader.vertexShader = shader.vertexShader
+          .replace("#include <common>", "#include <common>\nattribute float aHeroGlow; varying float vHeroGlow;")
+          .replace("#include <begin_vertex>", "#include <begin_vertex>\nvHeroGlow = aHeroGlow;");
+        shader.fragmentShader = shader.fragmentShader
+          .replace("#include <common>", "#include <common>\nvarying float vHeroGlow;")
+          .replace(
+            "#include <emissivemap_fragment>",
+            "#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.72, 0.35) * vHeroGlow * 1.4;",
+          );
+      };
+      material.customProgramCacheKey = () => "garden-hero-merged-solid-v1";
+    }
+    const mesh = new Mesh(geometry, material);
+    mesh.name = name;
+    mesh.castShadow = false;
+    mesh.receiveShadow = true;
+    model.add(mesh);
+  };
+  build(solidParts, "hero-merged-solid", false);
+  build(sailParts, "hero-merged-canvas", true);
+}
+
+/**
+ * W3.7: hands the frame's hover/selection to the batched fleet as ATTENTION.
+ *
+ * The batch has no ship ids — it is instanced geometry with per-instance
+ * buffers — so the bridge is the atlas cell, the one stable per-ship number
+ * that already crosses into it. This resolves at most two ids per frame and
+ * only walks the fleet when one of them has actually changed, so a still
+ * pointer over a 205-ship harbour costs two string comparisons.
+ *
+ * Attention itself (the eased envelopes, the crossfade when the pointer moves
+ * from one ship to the next) lives in `garden-fleet-batch`, next to the
+ * restraint it cancels.
+ */
+export function syncFleetSailAttention(
+  content: ShipSailTextureTarget,
+  frame: ThreeWorldRendererFrame,
+): void {
+  const hovered = frame.hoveredDetailId;
+  const selected = frame.selectedDetailId;
+  // The ships array is re-created by every world build, and a world build also
+  // REASSIGNS atlas cells. So the memo has to be keyed on the fleet as well as
+  // on the ids: a refresh that keeps the same ship selected can still move that
+  // ship's cell, and a cached cell would then light a stranger.
+  if (
+    hovered !== lastAttentionHovered
+    || selected !== lastAttentionSelected
+    || content.ships !== lastAttentionShips
+  ) {
+    lastAttentionHovered = hovered;
+    lastAttentionSelected = selected;
+    lastAttentionShips = content.ships;
+    lastAttentionHoveredCell = 0;
+    lastAttentionSelectedCell = 0;
+    if (hovered !== null || selected !== null) {
+      for (const visual of content.ships) {
+        // Hero ships are not in the batch at all — they own their own sail
+        // material and never took the framing step, so they need no restoring.
+        if (!visual.batched) continue;
+        const id = visual.ship.detailId;
+        if (id === hovered) lastAttentionHoveredCell = visual.atlasCell;
+        if (id === selected) lastAttentionSelectedCell = visual.atlasCell;
+      }
+    }
+  }
+  // The batch's own clock: `frame.timeSeconds` is pinned at 0 under reduced
+  // motion, which would freeze an envelope mid-ease — so reduced motion is
+  // passed through and snaps the value instead of easing it.
+  const delta = frame.timeSeconds - lastAttentionTimeSeconds;
+  lastAttentionTimeSeconds = frame.timeSeconds;
+  setFleetAttention({
+    deltaSeconds: Number.isFinite(delta) ? delta : 0,
+    hoveredCell: lastAttentionHoveredCell,
+    reducedMotion: frame.reducedMotion,
+    selectedCell: lastAttentionSelectedCell,
+  });
+}
+
+let lastAttentionHovered: string | null = null;
+let lastAttentionSelected: string | null = null;
+let lastAttentionShips: readonly ShipVisual[] | null = null;
+let lastAttentionHoveredCell = 0;
+let lastAttentionSelectedCell = 0;
+let lastAttentionTimeSeconds = 0;
+
+/** Forgets the memoised hover/selection so a fresh renderer starts clean. */
+export function resetFleetSailAttention(): void {
+  lastAttentionHovered = null;
+  lastAttentionSelected = null;
+  lastAttentionShips = null;
+  lastAttentionHoveredCell = 0;
+  lastAttentionSelectedCell = 0;
+  lastAttentionTimeSeconds = 0;
+  setFleetAttention(null);
+}
+
 export function syncShipSailTextures(
   content: ShipSailTextureTarget,
   frame: ThreeWorldRendererFrame,
 ): void {
+  // W3.7: attention is a per-FRAME reading, so it runs before the logo-
+  // generation guard below, which is a per-WORLD one. This function is the only
+  // per-frame hook this module is given the frame on; the alternative was a
+  // second call site in the renderer for two numbers.
+  syncFleetSailAttention(content, frame);
+
   const generation = frame.logos.getLogoGenerationKey();
   if (content.logoGenerationKey === generation) return;
   content.logoGenerationKey = generation;
@@ -1267,6 +1459,20 @@ const LANTERN_GLOW_SIZE = 0.95;
 const LANTERN_SWAY = 0.09;
 const zeroScaleMatrix = new Matrix4().makeScale(0, 0, 0);
 
+export function patchShipLanternEmissiveMaterial(material: MeshStandardMaterial): void {
+  material.vertexColors = true;
+  material.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <emissivemap_fragment>",
+      `#include <emissivemap_fragment>
+#ifdef USE_COLOR
+  totalEmissiveRadiance *= vColor.rgb;
+#endif`,
+    );
+  };
+  material.customProgramCacheKey = () => "garden-ship-lantern-instanced-emissive-warmth";
+}
+
 /**
  * One shared pair of InstancedMeshes carries every ship lantern in the fleet:
  * an emissive core sphere (blooms) and an additive camera-facing glow quad.
@@ -1294,6 +1500,7 @@ export function createFleetLanterns(
     emissiveIntensity: 0,
     toneMapped: false,
   });
+  patchShipLanternEmissiveMaterial(coreMaterial);
   const cores = new InstancedMesh(
     // A round core, not a quad. The glow quad above carries a radial texture,
     // but the core was a bare PlaneGeometry with no map — so at explore zoom
@@ -1315,6 +1522,7 @@ export function createFleetLanterns(
     opacity: 0,
     toneMapped: false,
     transparent: true,
+    vertexColors: true,
   });
   const glow = new InstancedMesh(
     cachedShipGeometry(cache, "lantern.glow", () => new PlaneGeometry(1, 1)),
@@ -1337,7 +1545,15 @@ export function createFleetLanterns(
   const root = new Group();
   root.name = "ship-lanterns";
   root.add(cores, glow);
-  return { coreMaterial, cores, entries, glow, glowMaterial, root };
+  return {
+    attention: createShipLanternAttentionState(),
+    coreMaterial,
+    cores,
+    entries,
+    glow,
+    glowMaterial,
+    root,
+  };
 }
 
 function createLanternGlowTexture(): CanvasTexture | null {
@@ -1363,6 +1579,8 @@ const lanternScratchMatrix = new Matrix4();
 const lanternScratchPosition = new Vector3();
 const lanternScratchScale = new Vector3();
 const lanternRootMatrix = new Matrix4();
+const lanternCoreWarmth = new Color();
+const lanternGlowWarmth = new Color();
 
 /**
  * Rewrites the fleet lantern instance matrices from each ship's current world
@@ -1375,7 +1593,14 @@ export function updateFleetLanterns(
   cameraQuaternion: Quaternion,
   timeSeconds: number,
   reducedMotion: boolean,
+  attention?: { hoveredDetailId: string | null; selectedDetailId: string | null },
 ): void {
+  advanceShipLanternAttention(lanterns.attention, {
+    hoveredDetailId: attention?.hoveredDetailId ?? null,
+    reducedMotion,
+    selectedDetailId: attention?.selectedDetailId ?? null,
+    timeSeconds,
+  });
   for (const [index, entry] of lanterns.entries.entries()) {
     const root = entry.visual.root;
     lanternRootMatrix.compose(root.position, root.quaternion, root.scale);
@@ -1393,9 +1618,19 @@ export function updateFleetLanterns(
     lanternScratchScale.setScalar(LANTERN_GLOW_SIZE);
     lanternScratchMatrix.compose(lanternScratchPosition, cameraQuaternion, lanternScratchScale);
     lanterns.glow.setMatrixAt(index, lanternScratchMatrix);
+
+    const warmth = shipLanternWarmth(lanterns.attention, entry.visual.ship.detailId);
+    // Instance colour is the per-lantern emissive gain: no extra mesh or pass,
+    // and the same envelope warms both the blooming core and painted halo.
+    lanternCoreWarmth.setRGB(1 + warmth * 0.62, 1 + warmth * 0.28, 1 + warmth * 0.06);
+    lanternGlowWarmth.setRGB(1 + warmth * 0.32, 1 + warmth * 0.16, 1 + warmth * 0.04);
+    lanterns.cores.setColorAt(index, lanternCoreWarmth);
+    lanterns.glow.setColorAt(index, lanternGlowWarmth);
   }
   lanterns.cores.instanceMatrix.needsUpdate = true;
   lanterns.glow.instanceMatrix.needsUpdate = true;
+  if (lanterns.cores.instanceColor) lanterns.cores.instanceColor.needsUpdate = true;
+  if (lanterns.glow.instanceColor) lanterns.glow.instanceColor.needsUpdate = true;
 }
 
 /**
@@ -1495,6 +1730,7 @@ export function createFleetBatchGeometry(
   const mastRotation = GARDEN_SHIP_MAST_RAKE[silhouette];
 
   const parts: {
+    fittingTag?: number;
     geometry: BufferGeometry;
     strake?: boolean;
     tint?: Color;
@@ -1627,6 +1863,8 @@ export function createFleetBatchGeometry(
     }
   }
 
+  addSeaworthinessFittingParts(parts);
+
   const hull = mergeTintedParts(parts);
   for (const part of parts) {
     if (part.geometry !== hullGeometry) part.geometry.dispose();
@@ -1695,6 +1933,83 @@ export function createFleetBatchGeometry(
   for (const part of sailParts) part.geometry.dispose();
 
   return { hull, sails };
+}
+
+type ShipFittingPart = {
+  fittingTag?: number;
+  geometry: BufferGeometry;
+  tint?: Color;
+  transform?: Matrix4;
+};
+
+function fittingVisible(tag: number, code: number): boolean {
+  const redemption = code % 4;
+  const collateral = Math.floor((code % 12) / 4);
+  const customs = Math.floor(code / 12);
+  if (tag <= 3) return redemption >= tag;
+  if (tag === 4) return collateral === 1;
+  if (tag === 5) return collateral === 2;
+  return customs > 0;
+}
+
+/**
+ * W7.6 fittings, authored once for both the shared fleet batch and hero hulls.
+ * Tags 1–3 are successively deployed lifeboats, 4/5 are sealed/mixed cargo,
+ * and 6 is the plimsoll customs brand. The batch collapses unsupported tags in
+ * its existing hull shader; hero geometry filters the same list on the CPU.
+ */
+function addSeaworthinessFittingParts(parts: ShipFittingPart[], fittingCode?: number): void {
+  const include = (tag: number): boolean => fittingCode === undefined || fittingVisible(tag, fittingCode);
+  for (let boat = 0; boat < 3; boat += 1) {
+    const tag = boat + 1;
+    if (!include(tag)) continue;
+    parts.push({
+      ...(fittingCode === undefined ? { fittingTag: tag } : {}),
+      geometry: new BoxGeometry(0.82, 0.18, 0.32),
+      tint: FLEET_BATCH_TINTS.gunwale,
+      transform: new Matrix4().makeRotationX(-0.1).setPosition(-0.8 + boat * 0.8, 0.72, 0.7),
+    });
+    parts.push({
+      ...(fittingCode === undefined ? { fittingTag: tag } : {}),
+      geometry: new BoxGeometry(0.68, 0.06, 0.2),
+      tint: FLEET_BATCH_TINTS.deck,
+      transform: new Matrix4().setPosition(-0.8 + boat * 0.8, 0.82, 0.7),
+    });
+  }
+  if (include(4)) {
+    for (const x of [-0.35, 0.35]) {
+      parts.push({
+        ...(fittingCode === undefined ? { fittingTag: 4 } : {}),
+        geometry: new BoxGeometry(0.56, 0.4, 0.46),
+        tint: FLEET_BATCH_TINTS.mast,
+        transform: new Matrix4().setPosition(x, 0.74, -0.24),
+      });
+      parts.push({
+        ...(fittingCode === undefined ? { fittingTag: 4 } : {}),
+        geometry: new BoxGeometry(0.62, 0.08, 0.5),
+        tint: FLEET_BATCH_TINTS.gunwale,
+        transform: new Matrix4().setPosition(x, 0.98, -0.24),
+      });
+    }
+  }
+  if (include(5)) {
+    for (const [index, x] of [-0.45, 0, 0.46].entries()) {
+      parts.push({
+        ...(fittingCode === undefined ? { fittingTag: 5 } : {}),
+        geometry: new BoxGeometry(0.4, 0.3 + index * 0.04, 0.36),
+        tint: index % 2 === 0 ? FLEET_BATCH_TINTS.mast : FLEET_BATCH_TINTS.gunwale,
+        transform: new Matrix4().makeRotationY((index - 1) * 0.14).setPosition(x, 0.7, -0.24),
+      });
+    }
+  }
+  if (include(6)) {
+    parts.push({
+      ...(fittingCode === undefined ? { fittingTag: 6 } : {}),
+      geometry: new BoxGeometry(0.42, 0.24, 0.035),
+      tint: new Color(HARBOR_PALETTE.vermillion),
+      transform: new Matrix4().makeRotationZ(-0.12).setPosition(1.18, 0.1, 0.62),
+    });
+  }
 }
 
 /** W2.3/W4: which sail this is, for the per-instance furl bitmask. */

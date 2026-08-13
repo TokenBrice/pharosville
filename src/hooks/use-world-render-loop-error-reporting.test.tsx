@@ -22,6 +22,7 @@ import { useWorldRenderLoop, type WorldCameraStepResult } from "./use-world-rend
 const { createThreeWorldRendererMock } = vi.hoisted(() => ({
   createThreeWorldRendererMock: vi.fn(() => ({
     dispose: vi.fn(),
+    warmup: vi.fn(async () => {}),
     render: vi.fn(() => ({
       objectCount: 0,
       gpu: { calls: 0, geometries: 0, lines: 0, points: 0, textures: 0, triangles: 0 },

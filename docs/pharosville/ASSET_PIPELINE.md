@@ -45,6 +45,19 @@ npm run check:garden-models
 Do not hand-edit a checked GLB. Preserve model origin, scale, anchors, pick
 proxy, asset metadata, and fallback together.
 
+The post chain's grade LUT strip and blue-noise dither mask follow the same
+rule: `public/pharosville/textures/garden-grade-lut.png` (three 32³ phase
+cubes in one strip) and `garden-blue-noise.png` (void-and-cluster mask) are
+regenerated bit-exact by their generator, and `--check` guards drift:
+
+```bash
+node scripts/pharosville/generate-garden-luts.mjs
+npm run check:garden-luts
+```
+
+Do not hand-edit either PNG; retune the parametric transforms in the
+generator and regenerate.
+
 ## Logos and atlases
 
 - Stablecoin images are abortable, cached, and decoded only after the desktop

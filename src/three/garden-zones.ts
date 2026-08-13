@@ -7,8 +7,6 @@ import {
   Float32BufferAttribute,
   Group,
   InstancedMesh,
-  LineBasicMaterial,
-  LineSegments,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
@@ -36,9 +34,8 @@ import {
   ZONE_ELLIPSE_Z,
   zoneRadius,
 } from "../systems/garden-zone-radii";
-import { setTilePosition, stableUnit, TILE_SCALE } from "./garden-util";
+import { setTilePosition, TILE_SCALE } from "./garden-util";
 import { seaRegionBoundaryPoints, seaRegionIdForArea } from "../systems/garden-sea-regions";
-import type { WeatherPlan } from "../systems/weather";
 
 // The ellipse semi-axis factors and the per-band radius mapping live in
 // ../systems/garden-zone-radii.ts (three-free) so the deterministic sea
@@ -162,12 +159,6 @@ export interface ZoneField {
   root: Group;
   /** Last per-area filter applied; null means every region. */
   visibleAreaDetailId: string | null;
-}
-
-export interface GardenWeatherVisual {
-  phase: number;
-  root: Group;
-  streaks: LineSegments<BufferGeometry, LineBasicMaterial>;
 }
 
 // Re-export so the systems-side radius mapping stays the single source of
@@ -417,6 +408,7 @@ export function updateZoneBuoys(
   reducedMotion: boolean,
   tier: PharosVilleRenderSchedulerTier | boolean,
   visibleAreaDetailId: string | null = null,
+  breath = 0.5,
 ): void {
   // S1: callers resolve `tier` through `seaQualityTier`, so a camera drag no
   // longer counts as load pressure here — reading the raw tier froze every
@@ -430,15 +422,18 @@ export function updateZoneBuoys(
   if (bobbing || field.bobbing || filterChanged) {
     const time = bobbing ? Math.max(0, timeSeconds) : 0;
     for (const [index, anchor] of field.buoyAnchors.entries()) {
-      const swell = bobbing ? gardenSwellHeight(anchor.x, anchor.z, time) : 0;
+      // W3.2: the wave field still supplies the physical bob; the shared
+      // breath only opens/closes its amplitude by ±8%.
+      const breathScale = 0.92 + Math.max(0, Math.min(1, breath)) * 0.16;
+      const swell = bobbing ? gardenSwellHeight(anchor.x, anchor.z, time) * breathScale : 0;
       let tiltX = 0;
       let tiltZ = 0;
       if (bobbing) {
         const sample = 0.9;
         tiltZ = (gardenSwellHeight(anchor.x - sample, anchor.z, time)
-          - gardenSwellHeight(anchor.x + sample, anchor.z, time)) * BUOY_TILT;
+          - gardenSwellHeight(anchor.x + sample, anchor.z, time)) * BUOY_TILT * breathScale;
         tiltX = (gardenSwellHeight(anchor.x, anchor.z + sample, time)
-          - gardenSwellHeight(anchor.x, anchor.z - sample, time)) * BUOY_TILT;
+          - gardenSwellHeight(anchor.x, anchor.z - sample, time)) * BUOY_TILT * breathScale;
       }
       scratchBuoyEuler.set(tiltX, 0, tiltZ);
       scratchBuoyQuaternion.setFromEuler(scratchBuoyEuler);
@@ -470,73 +465,4 @@ export function updateZoneBuoys(
     lamps.setColorAt(index, scratchLampColor);
   }
   lamps.instanceColor.needsUpdate = true;
-}
-
-export function createDangerWeather(area: AreaNode): GardenWeatherVisual {
-  const root = new Group();
-  setTilePosition(root, gardenAreaCenterTile(area), GARDEN_ZONE_ROOT_Y);
-  const radius = zoneRadius(area);
-  const radiusX = radius * ELLIPSE_X;
-  const radiusZ = radius * ELLIPSE_Z;
-
-  // Denser streaks than the old curtain, confined to the zone ellipse.
-  const points: Vector3[] = [];
-  for (let index = 0; index < 56; index += 1) {
-    const spread = Math.sqrt(stableUnit(`rain-r.${area.id}.${index}`));
-    const angle = stableUnit(`rain-a.${area.id}.${index}`) * Math.PI * 2;
-    const x = Math.cos(angle) * spread * radiusX;
-    const z = Math.sin(angle) * spread * radiusZ;
-    const y = 1.4 + stableUnit(`rain-y.${area.id}.${index}`) * 7;
-    points.push(
-      new Vector3(x, y, z),
-      new Vector3(x - 0.42, y - 2.1, z + 0.18),
-    );
-  }
-  const streaks = new LineSegments(
-    new BufferGeometry().setFromPoints(points),
-    new LineBasicMaterial({
-      color: HARBOR_PALETTE.lantern_cold,
-      depthWrite: false,
-      opacity: 0.2,
-      transparent: true,
-    }),
-  );
-  streaks.name = "danger-rain-curtain";
-  root.add(streaks);
-
-  return {
-    phase: stableUnit(`rain-phase.${area.id}`),
-    root,
-    streaks,
-  };
-}
-
-/**
- * Drive one danger squall for a frame. Rain scrolls gently and freezes under
- * reduced motion. The former full-zone flash plane was removed: a large
- * luminance pulse looked like a renderer fault, while rain plus the risk body
- * and DOM record already communicate the same warning.
- *
- * Phase 2 weather: the fall slants downwind (up to ~30° at full gale), the
- * scroll quickens and the streaks thicken as the storm builds. The slant is
- * world state, not motion — the reduced-motion still frame keeps it, so a
- * storm reads as a storm even in the static composition.
- */
-export function updateDangerWeather(
-  effect: GardenWeatherVisual,
-  timeSeconds: number,
-  reducedMotion: boolean,
-  _fullTier: boolean,
-  weather?: WeatherPlan,
-): void {
-  const stormLevel = weather?.stormLevel ?? 0;
-  effect.streaks.position.y = reducedMotion
-    ? 0
-    : -((timeSeconds * (0.72 + stormLevel * 1.1) + effect.phase * 2) % 2);
-  // Tip the fall downwind. The streaks run mostly -Y, so a rotation about Z
-  // leans them along world X and a rotation about X leans them along -Z.
-  const slant = (weather?.windSpeed ?? 0) * 0.42 + stormLevel * 0.14;
-  effect.streaks.rotation.x = -(weather?.windDirZ ?? 0) * slant;
-  effect.streaks.rotation.z = (weather?.windDirX ?? 0) * slant;
-  effect.streaks.material.opacity = 0.2 + stormLevel * 0.3;
 }

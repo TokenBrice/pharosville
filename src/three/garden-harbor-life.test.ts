@@ -1,4 +1,5 @@
 import {
+  BoxGeometry,
   InstancedMesh,
   Matrix4,
   Mesh,
@@ -6,6 +7,7 @@ import {
 } from "three";
 import { describe, expect, it } from "vitest";
 import {
+  GARDEN_DOCK_ROOT_Y,
   gardenDockDisplayTile,
   gardenIslandDisplayTile,
 } from "../systems/garden-observatory-slice";
@@ -17,11 +19,16 @@ import {
   GARDEN_QUAY_GULL_COUNT,
   type GardenGullFlock,
 } from "./garden-harbor-life";
+import {
+  createGardenLaneRegistry,
+  MAX_GARDEN_LIGHT_LANES,
+} from "./garden-lanterns";
 
 const LIGHTHOUSE_TILE = { x: 18, y: 28 };
 
 describe("garden harbor districts", () => {
-  it("batches live dock pads and merges the available Ethereum rollup links", () => {
+  it("builds broken instanced stonework for the available Ethereum rollup links", () => {
+    const laneRegistry = createGardenLaneRegistry();
     const docks = [
       dock("ethereum", 39, 31, 10),
       dock("base", 39, 38, 7),
@@ -37,23 +44,45 @@ describe("garden harbor districts", () => {
     );
 
     expect(districts.root.name).toBe("garden-harbor-districts");
-    expect(districts.pads).toBeInstanceOf(InstancedMesh);
-    expect(districts.pads?.count).toBe(docks.length);
-    expect(districts.causeways).toBeInstanceOf(Mesh);
+    expect(districts.pads).toBeNull();
+    expect(districts.causeways).toBeInstanceOf(InstancedMesh);
+    expect(districts.causeways?.geometry).toBeInstanceOf(BoxGeometry);
     expect(districts.causewayChainIds).toEqual([
       "base",
       "arbitrum",
       "polygon",
     ]);
     expect(objectCount(districts.root)).toBe(2);
-    expect(districts.causeways?.geometry.index?.count).toBe(3 * 6 * 6);
+    expect(districts.causewaySegmentCount).toBe(3 * 6);
+    expect(districts.causeways?.count).toBe(3 * (6 + 2));
+    expect(districts.lanternCount).toBe(3 * 2);
+    expect(districts.lanterns?.count).toBe(3 * 2);
 
-    const basePosition = new Vector3().setFromMatrixPosition(
-      instanceMatrix(districts.pads!, 1),
+    const firstStone = new Vector3().setFromMatrixPosition(
+      instanceMatrix(districts.causeways!, 0),
     );
-    const baseDisplayTile = gardenDockDisplayTile(docks[1]!.tile);
-    expect(basePosition.x).toBeCloseTo(baseDisplayTile.x * 2);
-    expect(basePosition.z).toBeCloseTo(baseDisplayTile.y * 2);
+    const ethereumTile = gardenDockDisplayTile(docks[0]!.tile);
+    expect(firstStone.distanceTo(new Vector3(
+      ethereumTile.x * 2,
+      firstStone.y,
+      ethereumTile.y * 2,
+    ))).toBeGreaterThan(0.2);
+
+    expect(laneRegistry.sync("full")).toBe(3);
+    const laneData = laneRegistry.texture.image.data as Float32Array;
+    expect(Array.from({ length: 3 }, (_, index) => laneData[index * 4 + 3]))
+      .toEqual([3, 3, 3]);
+    const routeRow = MAX_GARDEN_LIGHT_LANES * 2 * 4;
+    const endpointXs = Array.from(
+      { length: 3 },
+      (_, index) => laneData[routeRow + index * 4],
+    );
+    expect(endpointXs).toContainEqual(expect.closeTo(
+      gardenDockDisplayTile(docks[1]!.tile).x * 2,
+    ));
+    laneRegistry.clear();
+    expect(laneRegistry.sync("full")).toBe(3);
+    laneRegistry.dispose();
   });
 
   it("omits the relationship mesh when no Ethereum hub is rendered", () => {
@@ -62,10 +91,13 @@ describe("garden harbor districts", () => {
       LIGHTHOUSE_TILE,
     );
 
-    expect(districts.pads?.count).toBe(2);
+    expect(districts.pads).toBeNull();
     expect(districts.causeways).toBeNull();
+    expect(districts.lanterns).toBeNull();
+    expect(districts.causewaySegmentCount).toBe(0);
+    expect(districts.lanternCount).toBe(0);
     expect(districts.causewayChainIds).toEqual([]);
-    expect(objectCount(districts.root)).toBe(1);
+    expect(objectCount(districts.root)).toBe(0);
   });
 });
 
@@ -157,19 +189,44 @@ describe("harbour tempo", () => {
     expect(flock.root.children).toEqual([flock.gulls]);
   });
 
-  it("wheels faster over the filling harbour than the draining one", () => {
+  it("takes its turns more often, wider and higher over the filling harbour", () => {
     const flock = createGardenGullFlock(LIGHTHOUSE_TILE, { docks: TEMPO_DOCKS });
-    const swept = (index: number): number => {
-      flock.update({ constrained: false, reducedMotion: false, timeSeconds: 0 });
-      const from = quayAngle(flock, index);
-      flock.update({ constrained: false, reducedMotion: false, timeSeconds: 8 });
-      return angleDelta(from, quayAngle(flock, index));
+    // W3.4 keeps every tempo channel it ever had — the gulls simply spend most
+    // of their time sitting between turns. Rate now reads as how OFTEN a bird
+    // takes a turn (the share of time she is up is the same at every harbour,
+    // by design: it is the frequency that carries the reading).
+    const survey = (index: number) => {
+      let sorties = 0;
+      let wasUp = false;
+      let reach = 0;
+      let ceiling = -Infinity;
+      let perched = 0;
+      let samples = 0;
+      for (let seconds = 0; seconds <= 600; seconds += 2) {
+        flock.update({ constrained: false, reducedMotion: false, timeSeconds: seconds });
+        const height = quayHeight(flock, index);
+        const up = height > QUAY_DECK_Y + 0.2;
+        if (up && !wasUp) sorties += 1;
+        wasUp = up;
+        if (!up) perched += 1;
+        reach = Math.max(reach, quayRadius(flock, index));
+        ceiling = Math.max(ceiling, height);
+        samples += 1;
+      }
+      return { ceiling, perched: perched / samples, reach, sorties };
     };
 
-    expect(swept(FILLING)).toBeGreaterThan(swept(DRAINING));
+    const filling = survey(FILLING);
+    const draining = survey(DRAINING);
+    expect(filling.sorties).toBeGreaterThan(draining.sorties);
+    expect(filling.reach).toBeGreaterThan(draining.reach);
+    expect(filling.ceiling).toBeGreaterThan(draining.ceiling);
+    // And whichever harbour it is, the bird is on the quay most of the time.
+    expect(filling.perched).toBeGreaterThan(0.6);
+    expect(draining.perched).toBeGreaterThan(0.6);
   });
 
-  it("keeps a still, deterministic tempo reading under reduced motion", () => {
+  it("stands every gull on the quay under reduced motion, tempo still reading", () => {
     const flock = createGardenGullFlock(LIGHTHOUSE_TILE, { docks: TEMPO_DOCKS });
     const still = { constrained: false, reducedMotion: true, timeSeconds: 0 };
 
@@ -178,10 +235,57 @@ describe("harbour tempo", () => {
     flock.update({ ...still, timeSeconds: 900 });
     expect(instanceMatrices(flock.gulls)).toEqual(frozen);
 
-    // Frozen, the tempo still reads: the filling harbour's gulls wheel wider
-    // and higher than the draining harbour's.
+    // Not a freeze mid-wheel: both harbours' birds are sitting on their pier
+    // decks, at the deck's own constant height.
+    expect(quayHeight(flock, FILLING)).toBeCloseTo(QUAY_DECK_Y, 6);
+    expect(quayHeight(flock, DRAINING)).toBeCloseTo(QUAY_DECK_Y, 6);
+
+    // The tempo survives the freeze as static geometry, in the channel a still
+    // frame can still carry: the filling harbour's gulls sit further out along
+    // the pier head, the draining harbour's tuck in at its root.
     expect(quayRadius(flock, FILLING)).toBeGreaterThan(quayRadius(flock, DRAINING));
-    expect(quayHeight(flock, FILLING)).toBeGreaterThan(quayHeight(flock, DRAINING));
+  });
+
+  it("perches the island flock on the island, and lifts about a quarter of it", () => {
+    const flock = createGardenGullFlock(LIGHTHOUSE_TILE);
+    const heights: number[][] = Array.from({ length: GARDEN_GULL_COUNT }, () => []);
+    for (let seconds = 0; seconds <= 900; seconds += 3) {
+      flock.update({ constrained: false, reducedMotion: false, timeSeconds: seconds });
+      for (let index = 0; index < GARDEN_GULL_COUNT; index += 1) {
+        heights[index]!.push(
+          new Vector3().setFromMatrixPosition(instanceMatrix(flock.gulls, index)).y,
+        );
+      }
+    }
+    // A bird's own floor over a long sweep IS her perch — she returns to the
+    // exact spot she left. Clear of it means up.
+    let airborne = 0;
+    let samples = 0;
+    for (const track of heights) {
+      const perch = Math.min(...track);
+      for (const height of track) {
+        if (height > perch + 0.5) airborne += 1;
+        samples += 1;
+      }
+    }
+    const share = airborne / samples;
+    expect(share).toBeGreaterThan(0.12);
+    expect(share).toBeLessThan(0.35);
+    // Nine birds, nine different perches: no two share a roost.
+    const perches = heights.map((track) => Math.min(...track).toFixed(3));
+    expect(new Set(perches).size).toBeGreaterThan(4);
+
+    // And under reduced motion none of them are up at all: the still frame is
+    // the flock at rest on real island geometry, not a freeze in mid-air.
+    flock.update({ constrained: false, reducedMotion: true, timeSeconds: 0 });
+    for (let index = 0; index < GARDEN_GULL_COUNT; index += 1) {
+      const position = new Vector3()
+        .setFromMatrixPosition(instanceMatrix(flock.gulls, index));
+      expect(position.y).toBeLessThan(7);
+      // On the island, not out over the water: the sea wall's own ellipse is
+      // 17.2 x 12.9, and every perch is inside it.
+      expect(Math.hypot(position.x, position.z)).toBeLessThan(19);
+    }
   });
 
   it("gives a harbour with no supply reading the resting tempo", () => {
@@ -199,15 +303,10 @@ describe("harbour tempo", () => {
   });
 });
 
-/** The quay gull's bearing around its wheel, relative to its harbour. */
-function quayAngle(flock: GardenGullFlock, index: number): number {
-  const offset = quayOffset(flock, index);
-  return Math.atan2(offset.z / 0.68, offset.x);
-}
-
+/** How far off its harbour's centre a quay gull sits, on the water plane. */
 function quayRadius(flock: GardenGullFlock, index: number): number {
   const offset = quayOffset(flock, index);
-  return Math.hypot(offset.x, offset.z / 0.68);
+  return Math.hypot(offset.x, offset.z);
 }
 
 function quayHeight(flock: GardenGullFlock, index: number): number {
@@ -232,11 +331,12 @@ function quayOffset(
 
 const TEMPO_DOCK_TILES = [{ x: 39, y: 31 }, { x: 25, y: 23 }];
 
-/** Shortest signed sweep from one bearing to the next, in radians. */
-function angleDelta(from: number, to: number): number {
-  const delta = (to - from) % (Math.PI * 2);
-  return Math.abs(delta > Math.PI ? delta - Math.PI * 2 : delta);
-}
+/**
+ * The pier deck a resting quay gull stands on, in the flock's own space: the
+ * deck's constant top (0.21 above the harbour root, `garden-docks.ts`) plus the
+ * hair of clearance the flock leaves, taken down to the dock root's own height.
+ */
+const QUAY_DECK_Y = 0.21 + 0.04 + GARDEN_DOCK_ROOT_Y;
 
 function dock(
   chainId: string,

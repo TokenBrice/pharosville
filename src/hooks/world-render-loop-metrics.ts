@@ -8,6 +8,22 @@ export type FramePacingMetrics = {
   maxMs: number;
   p50Ms: number;
   p90Ms: number;
+  /**
+   * The TAIL, which is what calm is actually made of: one 100 ms frame a minute
+   * is felt, 2 ms on the average is not. p95/p99 read off the same sorted
+   * scratch the p50/p90 pair already pays for, so they cost two array lookups
+   * per frame and nothing else.
+   *
+   * Their span is this window and no longer — 120 samples is ~1 s at 120 Hz,
+   * ~2 s at 60 Hz — because the window size is the ADAPTIVE-DPR and scheduler
+   * governor's input as well (`render-surface-budget.ts`, `render-scheduler.ts`
+   * both key off `p90Ms`), and lengthening it would slow every quality decision
+   * the renderer makes in order to buy a statistic. So a longer tail is
+   * assembled OUTSIDE the loop instead: `scripts/pharosville/preview.mjs` polls
+   * this window across a multi-window span and reports the worst one it saw.
+   */
+  p95Ms: number;
+  p99Ms: number;
   sampleCount: number;
 };
 
@@ -35,6 +51,8 @@ export function emptyFramePacingMetrics(): FramePacingMetrics {
     maxMs: 0,
     p50Ms: 0,
     p90Ms: 0,
+    p95Ms: 0,
+    p99Ms: 0,
     sampleCount: 0,
   };
 }
@@ -83,6 +101,8 @@ function resolveFramePacingMetrics(window: FrameIntervalWindow): FramePacingMetr
     maxMs,
     p50Ms: percentile(window.sortedScratch, 0.5, ring.size),
     p90Ms: percentile(window.sortedScratch, 0.9, ring.size),
+    p95Ms: percentile(window.sortedScratch, 0.95, ring.size),
+    p99Ms: percentile(window.sortedScratch, 0.99, ring.size),
     sampleCount: ring.size,
   };
 }

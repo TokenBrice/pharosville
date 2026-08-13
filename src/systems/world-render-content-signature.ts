@@ -45,6 +45,7 @@ export function worldRenderContentSignature(world: PharosVilleWorld): string {
       displayOffset,
       dominantChainId: ship.dominantChainId,
       id: ship.id,
+      issuance: ship.issuance ?? null,
       logoSrc: ship.logoSrc,
       overallGrade: ship.reportCard?.overallGrade ?? null,
       representative,
@@ -96,6 +97,8 @@ export function worldRenderContentSignature(world: PharosVilleWorld): string {
     },
     pigeonnier: {
       detailId: world.pigeonnier.detailId,
+      moverDetailIds: world.pigeonnier.notableMovers?.map((mover) => mover.detailId) ?? [],
+      roostVisualCount: world.pigeonnier.roost?.visualCount ?? 0,
       tile: world.pigeonnier.tile,
     },
     ships,

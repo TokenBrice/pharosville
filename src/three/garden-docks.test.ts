@@ -1,13 +1,19 @@
-import { InstancedMesh, Line, Material, Mesh, Texture } from "three";
+import { InstancedMesh, Line, Material, Matrix4, Mesh, MeshStandardMaterial, Texture } from "three";
 import { describe, expect, it } from "vitest";
 import type { DockNode } from "../systems/world-types";
+import { weatherForFrame } from "../systems/weather";
 import {
   createDock,
   gardenDockLampWorldPositions,
   gardenHarborCalmMask,
   harborIdentity,
   harborPlan,
+  updateDockFlagWind,
 } from "./garden-docks";
+import {
+  gardenQuayEpistemicHazeUniform,
+  setGardenQuayEpistemicHaze,
+} from "./garden-height-fog";
 
 const DISPLAY_TILE = { x: 40, y: 32 };
 const ISLAND_TILE = { x: 18, y: 28 };
@@ -59,6 +65,33 @@ describe("garden docks", () => {
     }
   });
 
+  it("reuses the quay materials' height fog for Chains staleness", () => {
+    const visual = createDock(dock("base", 7), DISPLAY_TILE, ISLAND_TILE);
+    const foggedMaterials: MeshStandardMaterial[] = [];
+    visual.root.traverse((object) => {
+      if (foggedMaterials.length > 0 || !(object instanceof Mesh)) return;
+      const candidate = Array.isArray(object.material) ? object.material[0] : object.material;
+      if (candidate instanceof MeshStandardMaterial && candidate.userData.gardenHeightFog) {
+        foggedMaterials.push(candidate);
+      }
+    });
+    const material = foggedMaterials[0];
+    expect(material).toBeDefined();
+    if (!material) throw new Error("expected a fogged quay material");
+    const shader = {
+      uniforms: {} as Record<string, { value: unknown }>,
+      vertexShader: "#include <common>\n#include <worldpos_vertex>\n#include <project_vertex>",
+      fragmentShader: "#include <common>\n#include <fog_fragment>",
+    };
+    material.onBeforeCompile(shader as never, null as never);
+    expect(shader.fragmentShader).toContain("gardenApplyLocalizedHeightFog");
+    expect(shader.fragmentShader).toContain("uniform float uGardenEpistemicHaze;");
+    expect(shader.uniforms.uGardenEpistemicHaze).toBe(gardenQuayEpistemicHazeUniform);
+    setGardenQuayEpistemicHaze(true);
+    expect(shader.uniforms.uGardenEpistemicHaze!.value).toBe(1);
+    setGardenQuayEpistemicHaze(false);
+  });
+
   it("builds real harbour architecture, not a bare jetty", () => {
     const visual = createDock(dock("base", 7, 0.3), DISPLAY_TILE, ISLAND_TILE);
     for (const name of [
@@ -71,6 +104,25 @@ describe("garden docks", () => {
     ]) {
       expect(visual.root.getObjectByName(name), name).toBeDefined();
     }
+  });
+
+  it("turns weak chain health into cracked masonry and one leaning bollard", () => {
+    const weak = {
+      ...dock("base", 7),
+      healthFactors: {
+        backingDiversity: 0.12,
+        chainEnvironment: 0.22,
+        concentration: 0.84,
+        pegStability: 0.3,
+        quality: 0.18,
+      },
+    } satisfies DockNode;
+    const visual = createDock(weak, DISPLAY_TILE, ISLAND_TILE);
+    expect(visual.root.getObjectByName("dock-masonry-cracks")).toBeInstanceOf(Mesh);
+    const bollards = visual.root.getObjectByName("dock-bollards") as InstancedMesh;
+    const matrix = new Matrix4();
+    bollards.getMatrixAt(0, matrix);
+    expect(Math.abs(matrix.elements[1]!)).toBeGreaterThan(0.05);
   });
 
   it("scales the harbour to the chain's supply band", () => {
@@ -112,6 +164,38 @@ describe("garden docks", () => {
     };
     expect(worldYaw(east)).toBeCloseTo(Math.PI / 4, 6);
     expect(worldYaw(west)).toBeCloseTo(Math.PI / 4, 6);
+  });
+
+  it("routes chain flags through the shared wind and restores the authored reduced-motion pose", () => {
+    const visual = createDock(dock("base", 7), DISPLAY_TILE, ISLAND_TILE);
+    const pivot = visual.root.getObjectByName("dock-chain-flag-wind-pivot")!;
+    const authoredYaw = pivot.rotation.y;
+    const weather = weatherForFrame({ baseWind: 0.7, psiStress: 0.4, timeSeconds: 2 });
+
+    updateDockFlagWind(visual, weather, 2, false);
+    expect(visual.root.rotation.y + pivot.rotation.y).toBeCloseTo(-weather.windAngle, 6);
+    expect(pivot.rotation.z).not.toBe(0);
+
+    updateDockFlagWind(visual, weather, 900, true);
+    expect(pivot.rotation.y).toBeCloseTo(authoredYaw, 8);
+    expect(pivot.rotation.z).toBe(0);
+  });
+
+  it("varies repeated planks and chain-flag sag deterministically by entity", () => {
+    const first = createDock(dock("base", 7), DISPLAY_TILE, ISLAND_TILE);
+    const repeat = createDock(dock("base", 7), DISPLAY_TILE, ISLAND_TILE);
+    const other = createDock(dock("solana", 7), DISPLAY_TILE, ISLAND_TILE);
+    const matrices = (visual: ReturnType<typeof createDock>): number[] => (
+      Array.from((visual.root.getObjectByName("dock-plank-relief") as InstancedMesh).instanceMatrix.array)
+    );
+    const flagPositions = (visual: ReturnType<typeof createDock>): number[] => {
+      const group = visual.root.getObjectByName("dock-chain-flag")!;
+      return Array.from((group.children[0]!.children[0] as Mesh).geometry.getAttribute("position").array);
+    };
+    expect(matrices(first)).toEqual(matrices(repeat));
+    expect(matrices(first)).not.toEqual(matrices(other));
+    expect(flagPositions(first)).toEqual(flagPositions(repeat));
+    expect(flagPositions(first)).not.toEqual(flagPositions(other));
   });
 
   it("exposes lamp world positions for sea-lane registration", () => {

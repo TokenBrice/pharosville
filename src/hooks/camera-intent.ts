@@ -1,5 +1,6 @@
-import { clampCameraToMap } from "../systems/camera";
+import { clampCameraToMap, followTile } from "../systems/camera";
 import {
+  MAX_ZOOM,
   minZoomForViewport,
   zoomCameraAt,
   type IsoCamera,
@@ -10,6 +11,11 @@ import type { ShipMotionSample } from "../systems/motion";
 import { nearlySameCamera } from "../lib/camera-equality";
 
 export const FOLLOW_CAMERA_DAMPING = 4;
+/** W4.6: a selection dolly resolves in roughly two seconds at normal distances. */
+export const SELECTION_CAMERA_DAMPING = 5;
+/** The return is deliberately a shade gentler than the inward dolly. */
+export const SELECTION_RETURN_CAMERA_DAMPING = 4;
+export const SELECTION_CAMERA_ZOOM = 1.2;
 export const FOLLOW_LEAD_SECONDS = 0.45;
 export const FOLLOW_MAX_DELTA_SECONDS = 0.25;
 export const FOLLOW_INITIAL_DELTA_SECONDS = 1 / 60;
@@ -30,6 +36,8 @@ export type CameraIntentMode =
   | "toolbar"
   | "reset"
   | "follow-selected"
+  | "selection"
+  | "selection-return"
   | "resize"
   | "external";
 
@@ -95,12 +103,34 @@ export function cameraModeCancelsFollow(mode: CameraIntentMode): boolean {
 }
 
 function cameraDampingForMode(mode: CameraIntentMode): number {
+  if (mode === "selection") return SELECTION_CAMERA_DAMPING;
+  if (mode === "selection-return") return SELECTION_RETURN_CAMERA_DAMPING;
   if (mode === "follow-selected") return FOLLOW_CAMERA_DAMPING;
   if (mode === "resize") return CAMERA_RESIZE_DAMPING;
   if (mode === "drag" || mode === "wheel" || mode === "pinch" || mode === "keyboard") {
     return CAMERA_INTERACTION_DAMPING;
   }
   return CAMERA_COMMAND_DAMPING;
+}
+
+/**
+ * W4.6 selection framing: centre the ship and make one restrained dolly step.
+ * Never zoom back from a closer visitor-authored view, and keep the ordinary
+ * map clamp so edge anchorages retain their surrounding water.
+ */
+export function selectionCameraTarget(input: {
+  camera: IsoCamera;
+  map: MapLike;
+  tile: ScreenPoint;
+  viewport: ScreenPoint;
+}): IsoCamera {
+  const zoom = Math.min(MAX_ZOOM, Math.max(input.camera.zoom, SELECTION_CAMERA_ZOOM));
+  return followTile({
+    camera: { ...input.camera, zoom },
+    map: input.map,
+    tile: input.tile,
+    viewport: input.viewport,
+  });
 }
 
 export function leadFollowTile(

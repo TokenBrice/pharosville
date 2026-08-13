@@ -24,16 +24,25 @@ import {
   GARDEN_WATER_Y as WATER_LEVEL,
 } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE } from "../systems/palette";
+import { quayMasonryHealth } from "../systems/dock-health";
 import type { DockNode } from "../systems/world-types";
+import {
+  GARDEN_BREATH_PHASE,
+  gardenBreathAt,
+  gardenGustAtWorldPosition,
+  type WeatherPlan,
+} from "../systems/weather";
 import {
   assignGardenChainFlagCell,
   gardenChainFlagAtlas,
   gardenChainFlagCellUv,
 } from "./garden-chain-flag";
+import { applyGardenHeightFog } from "./garden-height-fog";
 import { setTilePosition, stableUnit, TILE_SCALE } from "./garden-util";
 import type { GardenHarborCalmMask } from "./garden-water-contract";
 
 const scratchMatrix = new Matrix4();
+const scratchScale = new Vector3();
 
 /** One signature prop distinguishes each harbor at a glance. */
 type SignatureKind = "arch" | "crane" | "net-racks" | "dinghy" | "crate-tower" | "derrick";
@@ -230,6 +239,7 @@ export function createHarborLanterns(
   bodies.instanceMatrix.needsUpdate = true;
   lights.instanceMatrix.needsUpdate = true;
   root.add(bodies, lights);
+  applyGardenHeightFog(root);
   return { lightMaterial, root };
 }
 
@@ -286,13 +296,15 @@ export function createDock(
   // more berths, so scale reads as consequence rather than decoration.
   const size = MathUtils.clamp(dock.size, 1, 10);
   const supply = size / 10;
+  const quayHealth = quayMasonryHealth(dock) ?? 0.58;
+  const quayFrailty = 1 - quayHealth;
 
   const timber = new MeshStandardMaterial({
     color: HARBOR_PALETTE.timber_mid,
     roughness: 0.88,
   });
   const stone = new MeshStandardMaterial({
-    color: "#8e8877",
+    color: new Color("#665f55").lerp(new Color("#a39d8c"), quayHealth),
     flatShading: true,
     roughness: 0.97,
   });
@@ -595,6 +607,25 @@ export function createDock(
     mole.receiveShadow = true;
     root.add(mole);
   }
+  if (quayHealth < 0.5) {
+    const crackParts: BufferGeometry[] = [];
+    for (let index = 0; index < 3; index += 1) {
+      const crack = new BoxGeometry(0.035, 0.34 + index * 0.09, 0.035);
+      crack.rotateZ((index % 2 === 0 ? -1 : 1) * (0.38 + index * 0.12));
+      crack.translate(
+        quayX - quayLength * 0.28 + index * quayLength * 0.27,
+        0.06,
+        quayWidth / 2 + 0.026,
+      );
+      crackParts.push(crack);
+    }
+    const cracks = new Mesh(
+      mergeBucket(crackParts),
+      new MeshStandardMaterial({ color: HARBOR_PALETTE.iron_dark, roughness: 1 }),
+    );
+    cracks.name = "dock-masonry-cracks";
+    root.add(cracks);
+  }
 
   const signalShape = new Shape();
   signalShape.moveTo(0, 0);
@@ -623,7 +654,14 @@ export function createDock(
     const t = index / (plankCount - 1);
     const x = -length * 0.28 + t * length * 0.94;
     const lift = 0.235 + (stableUnit(`dock-plank.${dock.chainId}.${index}`) - 0.5) * 0.016;
-    scratchMatrix.makeTranslation(x, lift, 0);
+    const direction = stableUnit(`dock-plank-angle-sign.${dock.chainId}.${index}`) < 0.5 ? -1 : 1;
+    const yaw = direction * MathUtils.degToRad(
+      2 + stableUnit(`dock-plank-angle.${dock.chainId}.${index}`) * 7,
+    );
+    const widthScale = 0.94 + stableUnit(`dock-plank-scale.${dock.chainId}.${index}`) * 0.12;
+    scratchMatrix.makeRotationY(yaw);
+    scratchMatrix.scale(scratchScale.set(1, 1, widthScale));
+    scratchMatrix.setPosition(x, lift, 0);
     planks.setMatrixAt(index, scratchMatrix);
   }
   planks.instanceMatrix.needsUpdate = true;
@@ -672,7 +710,9 @@ export function createDock(
   );
   bollards.name = "dock-bollards";
   bollardSpecs.forEach((spec, index) => {
-    scratchMatrix.makeTranslation(spec.x, 0.42, spec.z);
+    const lean = index === 0 ? quayFrailty * MathUtils.degToRad(16) : 0;
+    scratchMatrix.makeRotationZ(lean);
+    scratchMatrix.setPosition(spec.x, 0.42, spec.z);
     bollards.setMatrixAt(index, scratchMatrix);
   });
   bollards.instanceMatrix.needsUpdate = true;
@@ -789,7 +829,9 @@ export function createDock(
   const lamps = new InstancedMesh(new SphereGeometry(0.21, 6, 4), lampMaterial, allLamps.length);
   lamps.name = "dock-lamp-heads";
   allLamps.forEach((lamp, index) => {
-    scratchMatrix.makeTranslation(lamp.x, lamp.y, lamp.z);
+    const trim = 0.88 + quayHealth * 0.17;
+    scratchMatrix.makeScale(trim, trim, trim);
+    scratchMatrix.setPosition(lamp.x, lamp.y, lamp.z);
     lamps.setMatrixAt(index, scratchMatrix);
   });
   lamps.instanceMatrix.needsUpdate = true;
@@ -842,6 +884,7 @@ export function createDock(
     PLAN_HALF_SPAN[plan] * width,
     grand ? width * 2.23 : 0,
   );
+  applyGardenHeightFog(root, { epistemicHaze: "quay" });
 
   return {
     cargoTideLanes: cargoTideLanes(length, quayLength, quayWidth, quayX),
@@ -982,11 +1025,13 @@ function createChainFlag(
   // Cloth: a standing wave that deepens toward the fly, plus a slight droop,
   // so the flag reads as fabric at overview zoom rather than as a decal.
   const position = geometry.getAttribute("position");
+  const sag = 0.07 + stableUnit(`dock-flag-sag.${dock.chainId}`) * 0.06;
+  const wavePhase = (stableUnit(`dock-flag-wave.${dock.chainId}`) - 0.5) * 0.7;
   for (let index = 0; index < position.count; index += 1) {
     const x = position.getX(index);
     const along = (x + flagWidth / 2) / flagWidth;
-    position.setZ(index, Math.sin(along * Math.PI * 1.7) * 0.13 * placement.scale * along);
-    position.setY(index, position.getY(index) - along * along * 0.1 * placement.scale);
+    position.setZ(index, Math.sin(along * Math.PI * 1.7 + wavePhase) * 0.13 * placement.scale * along);
+    position.setY(index, position.getY(index) - along * along * sag * placement.scale);
   }
   position.needsUpdate = true;
   geometry.computeVertexNormals();
@@ -1007,17 +1052,49 @@ function createChainFlag(
     side: DoubleSide,
   });
   const cloth = new Mesh(geometry, material);
+  cloth.name = "dock-chain-flag-cloth";
   // Hoist edge against the staff, cloth flying to +X of it.
   cloth.position.set(flagWidth / 2 + 0.06, 0, 0);
-  cloth.castShadow = true;
+  // W3.2 makes the cloth wind-driven. It cannot remain in the harbour's
+  // static shadow map once its bearing changes after that map was baked.
+  cloth.castShadow = false;
 
   const pivot = new Group();
+  pivot.name = "dock-chain-flag-wind-pivot";
+  pivot.userData.staticYaw = placement.yaw;
   pivot.add(cloth);
   pivot.position.set(placement.x, placement.height - flagHeight * 0.75, placement.z);
   pivot.rotation.y = placement.yaw;
   group.add(pivot);
 
   return group;
+}
+
+/** Routes every chain flag through the one world wind and position-delayed gust. */
+export function updateDockFlagWind(
+  dock: DockVisual,
+  weather: WeatherPlan,
+  timeSeconds: number,
+  reducedMotion: boolean,
+): void {
+  const pivot = dock.root.getObjectByName("dock-chain-flag-wind-pivot");
+  if (!pivot) return;
+  if (reducedMotion) {
+    pivot.rotation.y = Number(pivot.userData.staticYaw) || 0;
+    pivot.rotation.z = 0;
+    return;
+  }
+  // The dock itself is already yawed around the island, so cancel that local
+  // bearing before pointing the cloth's +X fly edge downwind.
+  pivot.rotation.y = -dock.root.rotation.y - weather.windAngle;
+  const gust = gardenGustAtWorldPosition(
+    timeSeconds,
+    dock.root.position.x,
+    dock.root.position.z,
+    weather,
+  );
+  const breath = gardenBreathAt(timeSeconds, GARDEN_BREATH_PHASE.sails);
+  pivot.rotation.z = (gust - 0.35) * 0.055 + (breath - 0.5) * 0.025;
 }
 
 /** One sea arm, walked as a circular arc so it bows out and curls back in. */

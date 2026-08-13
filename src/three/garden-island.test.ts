@@ -1,21 +1,30 @@
 import {
   DataTexture,
+  Color,
   InstancedMesh,
   Matrix4,
   Mesh,
   MeshStandardMaterial,
   RGBAFormat,
+  Vector2,
   Vector3,
 } from "three";
 import { describe, expect, it } from "vitest";
+import { GARDEN_LIGHTHOUSE_ROOT_OFFSET } from "../systems/garden-observatory-slice";
 import { GARDEN_ISLAND_OBSTACLE } from "../systems/garden-water-exclusion";
 import type { PharosVilleWorld } from "../systems/world-types";
 import {
   createTerracedIsland,
+  GARDEN_POND_REFLECTION_AXES,
+  GARDEN_NIWAKI_SPECS,
   GARDEN_ISLAND_STONE_GROUPINGS,
+  GARDEN_QUAY_STAIR_HEAD,
+  GARDEN_QUAY_STAIR_TOP_Y,
   gardenIslandLanternWorldOffsets,
+  gardenPrecinctObeliskGateposts,
 } from "./garden-island";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
+import { GARDEN_MOON_AZIMUTH } from "./garden-sun";
 import { TILE_SCALE } from "./garden-util";
 
 const world = {
@@ -29,6 +38,7 @@ describe("garden island rockwork", () => {
     island.root.traverse((object) => {
       if (
         object instanceof Mesh
+        && object.name !== "island-raked-gravel"
         && object.material instanceof MeshStandardMaterial
         && object.material.vertexColors
         && object.geometry.getAttribute("color")
@@ -114,16 +124,79 @@ describe("garden island rockwork", () => {
     expect(stones).toBeInstanceOf(InstancedMesh);
   });
 
-  it("strings one instanced lantern trio on the keeper cottage", () => {
+  it("leaves the keeper cottage its lit window and nothing else that glows", () => {
+    // W3.1: the paper-lantern string is deleted, not dimmed. One light per
+    // building — the window says the keeper is home, and three more warm
+    // points beside it said nothing at all.
     const island = createTerracedIsland(world);
-    const string = island.root.getObjectByName("keeper-cottage-lantern-string");
-    expect(string).toBeDefined();
-    const lanterns = island.root.getObjectByName("keeper-cottage-lanterns");
-    expect(lanterns).toBeInstanceOf(InstancedMesh);
-    expect((lanterns as InstancedMesh).count).toBe(3);
-    const material = (lanterns as InstancedMesh).material as MeshStandardMaterial;
-    // Warm but well under the AgX clip — a quiet accent, not a bloom source.
-    expect(material.emissiveIntensity).toBeLessThanOrEqual(1);
+    expect(island.root.getObjectByName("keeper-cottage-lantern-string")).toBeUndefined();
+    expect(island.root.getObjectByName("keeper-cottage-lanterns")).toBeUndefined();
+  });
+
+  it("stands the obelisk pair as the quay stair's gateposts, unequally", () => {
+    // Merged into the stair composition rather than standing free: both posts
+    // flank the stair head, squared to the flight, and the pair is deliberately
+    // mismatched (fukinsei).
+    const posts = gardenPrecinctObeliskGateposts();
+    expect(posts).toHaveLength(2);
+    const [left, right] = posts as [
+      ReturnType<typeof gardenPrecinctObeliskGateposts>[number],
+      ReturnType<typeof gardenPrecinctObeliskGateposts>[number],
+    ];
+    expect(left.scale).not.toBeCloseTo(right.scale);
+    // One on each side of the flight, and close enough to it to read as a gate.
+    const span = Math.hypot(left.x - right.x, left.z - right.z);
+    expect(span).toBeGreaterThan(2.4);
+    expect(span).toBeLessThan(4);
+    for (const post of posts) {
+      expect(Math.hypot(post.x - GARDEN_QUAY_STAIR_HEAD.x, post.z - GARDEN_QUAY_STAIR_HEAD.z))
+        .toBeLessThan(2.2);
+      // Seated in the rock, not floating over it or buried in it.
+      expect(post.y).toBeLessThan(GARDEN_QUAY_STAIR_TOP_Y + 0.2);
+      expect(post.y).toBeGreaterThan(GARDEN_QUAY_STAIR_TOP_Y - 1.4);
+    }
+    // And they are actually built there.
+    const island = createTerracedIsland(world);
+    const stone = island.root.getObjectByName("pharos-obelisk-stone") as Mesh;
+    expect(stone).toBeInstanceOf(Mesh);
+    stone.geometry.computeBoundingBox();
+    const box = stone.geometry.boundingBox!;
+    expect(box.min.x).toBeLessThan(GARDEN_QUAY_STAIR_HEAD.x + 1);
+    expect(box.max.x).toBeGreaterThan(GARDEN_QUAY_STAIR_HEAD.x - 1);
+    expect(box.min.z).toBeLessThan(GARDEN_QUAY_STAIR_HEAD.z);
+    expect(box.max.z).toBeGreaterThan(GARDEN_QUAY_STAIR_HEAD.z);
+  });
+
+  it("keeps the terrace lanterns few and unevenly spaced", () => {
+    // The stillness ledger's precinct budget: this was a ring of twelve at
+    // near-even angular spacing — a uniform placement field of light. What is
+    // asserted is the composition, not the count alone: an odd, small number,
+    // and at least one wide dark gap in the rim.
+    const island = createTerracedIsland(world);
+    const lamps = island.root.getObjectByName("island-terrace-lantern-lamps") as InstancedMesh;
+    expect(lamps).toBeInstanceOf(InstancedMesh);
+    expect(lamps.count).toBeLessThanOrEqual(6);
+    expect(lamps.count % 2).toBe(1);
+    const material = lamps.material as MeshStandardMaterial;
+    // Ember level: under the path lanterns, which are themselves under the beacon.
+    expect(material.emissiveIntensity).toBeLessThanOrEqual(1.1);
+
+    const points = instancePositions(lamps);
+    const angles = points
+      .map((point) => Math.atan2(point.z, point.x))
+      .sort((left, right) => left - right);
+    const gaps = angles.map((angle, index) => {
+      const next = angles[(index + 1) % angles.length]!;
+      return (next - angle + Math.PI * 2) % (Math.PI * 2);
+    });
+    const widest = Math.max(...gaps);
+    const narrowest = Math.min(...gaps);
+    // An even ring has every gap equal at 360/n; this one leaves a dark arc of
+    // more than a quadrant (measured 106°) and its widest gap is over twice
+    // its narrowest.
+    expect(widest).toBeGreaterThan(Math.PI / 2);
+    expect(widest).toBeGreaterThan(((Math.PI * 2) / points.length) * 1.4);
+    expect(widest / narrowest).toBeGreaterThan(1.6);
   });
 
   it("applies the shared cloud-shadow source only when it is passed", () => {
@@ -233,6 +306,144 @@ describe("garden island rockwork", () => {
     expect(second).toEqual(first);
   });
 
+  it("adds restrained spring sakura and exactly one autumn momiji", () => {
+    const summerShrubs = createTerracedIsland(world, undefined, "summer")
+      .root.getObjectByName("island-shrubs") as InstancedMesh;
+    const springShrubs = createTerracedIsland(world, undefined, "spring")
+      .root.getObjectByName("island-shrubs") as InstancedMesh;
+    expect((springShrubs.material as MeshStandardMaterial).color.getHex())
+      .not.toBe((summerShrubs.material as MeshStandardMaterial).color.getHex());
+
+    const crowns = createTerracedIsland(world, undefined, "autumn")
+      .root.getObjectByName("island-tree-crowns") as InstancedMesh;
+    const colors: number[] = [];
+    for (let index = 0; index < crowns.count; index += 1) {
+      colors.push(crowns.getColorAt(index, new Color()).getHex());
+    }
+    const frequencies = [...new Set(colors)].map((color) => colors.filter((item) => item === color).length);
+    expect(frequencies).toContain(1);
+    expect(frequencies).toContain(crowns.count - 1);
+  });
+
+  it("merges two asymmetric niwaki into a two-draw hero silhouette", () => {
+    expect(GARDEN_NIWAKI_SPECS).toHaveLength(2);
+    for (const pine of GARDEN_NIWAKI_SPECS) {
+      expect(pine.pads.length).toBeGreaterThanOrEqual(3);
+      expect(pine.pads.length).toBeLessThanOrEqual(5);
+      expect(pine.pads.length % 2).toBe(1);
+      expect(new Set(pine.pads.map((pad) => pad.scaleX)).size).toBe(pine.pads.length);
+      expect(Math.hypot(pine.leanX, pine.leanZ)).toBeGreaterThan(1.5);
+    }
+    // The camera-side pine reaches toward the pond/tower instead of leaning
+    // out of frame: its crown is materially closer to the pond than its foot.
+    const foreground = GARDEN_NIWAKI_SPECS[0]!;
+    const pond = { x: 1.45, z: -2.05 };
+    const footDistance = Math.hypot(foreground.x - pond.x, foreground.z - pond.z);
+    const crownDistance = Math.hypot(
+      foreground.x + foreground.leanX - pond.x,
+      foreground.z + foreground.leanZ - pond.z,
+    );
+    expect(crownDistance).toBeLessThan(footDistance * 0.45);
+
+    const island = createTerracedIsland(world);
+    const grove = island.root.getObjectByName("island-niwaki");
+    expect(grove).toBeDefined();
+    expect(grove!.children.map((child) => child.name)).toEqual([
+      "island-niwaki-trunks",
+      "island-niwaki-pads",
+    ]);
+    expect(grove!.children.every((child) => child instanceof Mesh)).toBe(true);
+  });
+
+  it("builds deterministic coarse raked relief with vertex-colour wear", () => {
+    const first = createTerracedIsland(world).root.getObjectByName("island-raked-gravel") as Mesh;
+    const second = createTerracedIsland(world).root.getObjectByName("island-raked-gravel") as Mesh;
+    expect(first).toBeInstanceOf(Mesh);
+    const positions = first.geometry.getAttribute("position");
+    const colors = first.geometry.getAttribute("color");
+    expect(positions.count).toBeGreaterThan(400);
+    expect(colors.count).toBe(positions.count);
+    expect(Array.from(colors.array)).toEqual(Array.from(second.geometry.getAttribute("color").array));
+    const material = first.material as MeshStandardMaterial;
+    expect(material.vertexColors).toBe(true);
+    expect(material.roughness).toBe(1);
+    expect(material.normalMap).toBeInstanceOf(DataTexture);
+    expect(positions.count).toBe(first.geometry.getAttribute("uv").count);
+    const island = createTerracedIsland(world);
+    const mossRock = island.root.children.find((child) => (
+      child instanceof Mesh
+      && child.material instanceof MeshStandardMaterial
+      && child.material.roughnessMap instanceof DataTexture
+    )) as Mesh | undefined;
+    expect(mossRock).toBeDefined();
+    // The rake is actual relief, not a flat colour decal.
+    const fractionalHeights = Array.from({ length: positions.count }, (_, index) => (
+      positions.getY(index) - Math.floor(positions.getY(index) * 10) / 10
+    ));
+    expect(Math.max(...fractionalHeights) - Math.min(...fractionalHeights)).toBeGreaterThan(0.025);
+  });
+
+  it("paints the tower and moon analytically into the existing pond draw", () => {
+    const island = createTerracedIsland(world, mockCloudShadowSource());
+    const skins: Mesh[] = [];
+    island.root.traverse((object) => {
+      if (object.name === "island-reflection-pond-skin" && object instanceof Mesh) skins.push(object);
+    });
+    expect(skins).toHaveLength(1);
+    // The image is injected into that one standard pond material: no planar
+    // target, reflection pass, texture, or second reflection mesh is built.
+    const shader = {
+      uniforms: {} as Record<string, { value: unknown }>,
+      vertexShader: "#include <common>\n#include <begin_vertex>\n#include <worldpos_vertex>\n#include <project_vertex>",
+      fragmentShader: "#include <common>\n#include <lights_fragment_end>\n#include <opaque_fragment>\n#include <fog_fragment>",
+    };
+    const material = skins[0]!.material as MeshStandardMaterial;
+    material.onBeforeCompile(shader as never, null as never);
+    expect(shader.vertexShader).toContain("vGardenPondPosition = position.xy");
+    expect(shader.fragmentShader).toContain("float tm=");
+    expect(shader.fragmentShader).toContain("float mm=");
+    // The existing shared atmosphere hooks still compose around the pond ink.
+    expect(shader.fragmentShader).toContain("gardenApplyHeightFog");
+    expect(shader.fragmentShader).toContain("gardenCloudLight");
+  });
+
+  it("aims the pond image at the real tower and the canonical moon arc", () => {
+    expect(GARDEN_POND_REFLECTION_AXES.tower.length()).toBeCloseTo(1);
+    expect(GARDEN_POND_REFLECTION_AXES.moon.length()).toBeCloseTo(1);
+    // The tower is west of the pond; its local reflection axis must point
+    // strongly left rather than becoming a generic camera-aligned stripe.
+    expect(GARDEN_POND_REFLECTION_AXES.tower.x).toBeLessThan(-0.9);
+    const derivedTower = testPondLocalAxis(
+      GARDEN_LIGHTHOUSE_ROOT_OFFSET.x - 1.45,
+      GARDEN_LIGHTHOUSE_ROOT_OFFSET.z + 2.05,
+    );
+    const derivedMoon = testPondLocalAxis(
+      Math.cos(GARDEN_MOON_AZIMUTH),
+      Math.sin(GARDEN_MOON_AZIMUTH),
+    );
+    expect(GARDEN_POND_REFLECTION_AXES.tower.distanceTo(derivedTower)).toBeLessThan(0.00001);
+    expect(GARDEN_POND_REFLECTION_AXES.moon.distanceTo(derivedMoon)).toBeLessThan(0.00001);
+    const island = createTerracedIsland(world);
+    const material = island.root.getObjectByName("island-reflection-pond-skin") as Mesh;
+    const shader = {
+      uniforms: {} as Record<string, { value: unknown }>,
+      vertexShader: "#include <common>\n#include <begin_vertex>\n#include <worldpos_vertex>\n#include <project_vertex>",
+      fragmentShader: "#include <common>\n#include <opaque_fragment>\n#include <fog_fragment>",
+    };
+    (material.material as MeshStandardMaterial).onBeforeCompile(shader as never, null as never);
+    const strength = shader.uniforms.uGardenPondStrength.value as Vector2;
+    island.pondReflection.update({ daylight: 1, dusk: 0, night: 0 });
+    const day = strength.clone();
+    island.pondReflection.update({ daylight: 0, dusk: 1, night: 0 });
+    const dusk = strength.clone();
+    island.pondReflection.update({ daylight: 0, dusk: 0, night: 1 });
+    const night = strength.clone();
+    expect(day.y).toBe(0);
+    expect(dusk.x).toBeGreaterThan(day.x);
+    expect(dusk.x).toBeGreaterThan(night.x);
+    expect(night.y).toBeGreaterThan(dusk.y);
+  });
+
   it("exports lamp offsets lifted to the lamp height for lane registration", () => {
     const offsets = gardenIslandLanternWorldOffsets();
     expect(offsets).toHaveLength(6);
@@ -326,4 +537,12 @@ function mockCloudShadowSource(): GardenCloudShadowSource {
     },
     update: () => {},
   };
+}
+
+function testPondLocalAxis(worldX: number, worldZ: number): Vector2 {
+  const yaw = -0.18;
+  return new Vector2(
+    Math.cos(yaw) * worldX - Math.sin(yaw) * worldZ,
+    -Math.sin(yaw) * worldX - Math.cos(yaw) * worldZ,
+  ).normalize();
 }

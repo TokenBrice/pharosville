@@ -63,6 +63,21 @@ describe("buildPharosVilleWorld", () => {
     expect(buildPharosVilleWorld(input)).toEqual(world);
   });
 
+  it("surfaces stale endpoint haze in the affected instrument details", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput({
+      freshness: { chainsStale: true, pegSummaryStale: true },
+    }));
+
+    expect(world.detailIndex[world.docks[0]!.detailId]!.facts).toContainEqual({
+      label: "Quay haze",
+      value: "Hazy — Chains feed is stale",
+    });
+    expect(world.detailIndex[world.areas[0]!.detailId]!.facts).toContainEqual({
+      label: "Risk-water haze",
+      value: "Hazy — Peg summary feed is stale",
+    });
+  });
+
   it("keeps generatedAt unknown when no timestamp candidates exist", () => {
     const world = buildPharosVilleWorld({
       stablecoins: null,
@@ -116,6 +131,39 @@ describe("buildPharosVilleWorld", () => {
     expect(Object.keys(world.detailIndex).some((detailId) => detailId.startsWith("building."))).toBe(false);
     expect(world.areas.every((area) => area.id.startsWith("area.dews.") || area.id.startsWith("area.risk-water."))).toBe(true);
     expect(world.visualCues.length).toBeGreaterThan(0);
+  });
+
+  it("forms an independent ship beside its strongest in-fleet dependency", () => {
+    const reportCards = {
+      ...fixtureReportCards,
+      dependencyGraph: {
+        edges: [
+          { from: "usdc-circle", to: "usdt-tether", type: "collateral", weight: 0.42 },
+          { from: "usdc-circle", to: "missing-parent", type: "wrapper", weight: 0.9 },
+        ],
+      },
+    } as ReportCardsResponse;
+    const world = buildPharosVilleWorld({
+      stablecoins: fixtureStablecoins,
+      chains: fixtureChains,
+      stability: fixtureStability,
+      pegSummary: fixturePegSummary,
+      stress: fixtureStress,
+      reportCards,
+      cemeteryEntries: [],
+      freshness: {},
+    });
+
+    expect(world.ships.find((ship) => ship.id === "usdc-circle")?.dependencyFormation).toEqual({
+      parentId: "usdt-tether",
+      type: "collateral",
+      weight: 0.42,
+    });
+    expect(world.detailIndex["ship.usdc-circle"]?.facts).toContainEqual({
+      label: "Dependency formation",
+      value: "collateral dependence on Tether (USDT), 42% weight",
+    });
+    expect(world.ships.find((ship) => ship.id === "usdt-tether")?.dependencyFormation).toBeNull();
   });
 
   it("omits removed data-building entities from the world model", () => {
