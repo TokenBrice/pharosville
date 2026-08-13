@@ -2,6 +2,20 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v0.7.2 - 2026-08-13 - Quiet Anchorage
+
+The harbor becomes a composed picture rather than a full one: the fleet gathers
+into anchorages with open water between them, distance finally reads as
+distance, and the light moves through the day.
+
+Collected from the 2026-08-13 visual poetry pass after v0.7.1.
+
+- Moored the fleet in anchorages instead of spreading it evenly across every stretch of water, so each sea keeps one harbor that matters, a few quieter roadsteads, and genuine open water between them; the lighthouse holds the frame again.
+- Restored aerial perspective at the standard framing, where a mis-set reference height had silently disabled it: the far sea now drains toward haze and dissolves at the world's edge instead of ending on a hard boundary.
+- Put the sun on a real arc, so shadow direction and length, the sky's glow, and the sun's road across the water all change with the hour rather than only shifting colour; the Pharos tower now casts a long shadow over the sea that stretches toward dawn and dusk.
+- Let the sails read as cloth. Each issuer's mark now sits in the canvas instead of on a hard-edged plate, and brand colour eases back when you pull out over the whole sea and returns in full as you sail in, so identity stays exact where you are actually reading it.
+- Deepened the drifting mist into layered banks and settled the daylight frame, keeping every reading, hover, selection, and ledger entry unchanged.
+
 ## v0.7.1 - 2026-08-12 - Roomier Harbor
 
 PharosVille now charts on 14-inch laptop displays and zoomed desktop windows
