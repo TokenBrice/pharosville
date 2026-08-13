@@ -13,6 +13,7 @@ import {
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { HARBOR_PALETTE } from "../systems/palette";
+import { observeReducedMotion } from "../systems/reduced-motion";
 import type { SeaBodyName } from "../systems/sea-bodies";
 import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
 import {
@@ -20,7 +21,7 @@ import {
   BOARD_HEIGHT,
   BOARD_WIDTH,
   SEA_SIGN_BOARD,
-  seaSignScaleForZoom,
+  createSeaSignScaleTrack,
   seaSignSites,
 } from "./garden-sea-sign-siting";
 
@@ -44,6 +45,13 @@ import {
  * camera pulls back, holding a roughly constant on-screen size — drawn out of
  * scale on the chart, the way a landmark is on an old map. Ships and water are
  * untouched; only the signage does this.
+ *
+ * W0.7 quantized that response to three rungs
+ * (`garden-sea-sign-siting.ts`). The end states are the ones D6 was reviewed
+ * at; what went is the continuous tracking in between, which made the boards
+ * the only thing in the world that visibly animated AGAINST a zoom gesture.
+ * Inside a rung the board is an ordinary world object; crossing one is a
+ * single 0.45 s settle, instant under reduced motion.
  *
  * ## Cost
  *
@@ -70,7 +78,23 @@ export interface GardenSeaSigns {
   lampPositions: readonly { x: number; y: number; z: number }[];
   dispose: () => void;
   update: (frame: {
-    /** Camera zoom; drives the D6 constant-on-screen scaling. */
+    /**
+     * World-clock seconds since the previous frame, for the D6 step settle.
+     *
+     * Optional, and normally omitted: the world renderer's sign update carries
+     * no clock, so the module keeps its own from `performance.now()`. Pass it
+     * to drive the settle deterministically (tests do), or once the renderer
+     * has a delta to hand.
+     */
+    deltaSeconds?: number;
+    /**
+     * Forces the settle to be instant and the rung to be the pure function of
+     * zoom. Optional for the same reason: when it is not supplied the module
+     * reads the media query itself, so the reduced-motion still frame is a
+     * complete deterministic composition whether or not a caller remembers.
+     */
+    reducedMotion?: boolean;
+    /** Camera zoom; drives the D6 quantized on-screen scaling. */
     zoom: number;
     /** Signs are cleared when a detail panel owns the frame. */
     visible: boolean;
@@ -91,9 +115,16 @@ export {
   BOARD_HEIGHT,
   BOARD_WIDTH,
   SEA_SIGN_BOARD,
+  SEA_SIGN_SCALE_STEPS,
+  SEA_SIGN_STEP_FADE_SECONDS,
+  SEA_SIGN_STEP_HYSTERESIS,
+  SEA_SIGN_STEP_ZOOMS,
+  createSeaSignScaleTrack,
   seaSignBoards,
   seaSignScaleForZoom,
   seaSignSites,
+  seaSignStepForZoom,
+  seaSignStepWithHysteresis,
   type SeaSignArea,
   type SeaSignBoard,
   type SeaSignSite,
@@ -186,21 +217,38 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
     signGroups.push(group);
   }
 
+  const scaleTrack = createSeaSignScaleTrack();
+  const clock = createFrameClock();
+  const motionPreference = watchReducedMotion();
+  let appliedScale = 0;
+
   return {
     root,
     lampPositions,
     dispose() {
+      motionPreference.stop();
       faceAtlas?.texture.dispose();
       faceMaterial.dispose();
       for (const mesh of timberParts) mesh.geometry.dispose();
       timberMaterial.dispose();
       lampMaterial.dispose();
     },
-    update({ zoom, visible, night }) {
+    update({ deltaSeconds, night, reducedMotion, visible, zoom }) {
       root.visible = visible;
+      // The track advances on hidden frames too. The boards stand down while a
+      // detail panel owns the frame and the camera keeps moving behind it — a
+      // rung settled off screen is one the board does not have to perform on
+      // its way back in.
+      const scale = scaleTrack.advance({
+        deltaSeconds: deltaSeconds ?? clock.tick(),
+        reducedMotion: reducedMotion ?? motionPreference.matches,
+        zoom,
+      });
       if (!visible) return;
-      const scale = seaSignScaleForZoom(zoom);
-      for (const group of signGroups) group.scale.setScalar(scale);
+      if (scale !== appliedScale) {
+        appliedScale = scale;
+        for (const group of signGroups) group.scale.setScalar(scale);
+      }
       // The lamp is a flat emissive; it only earns its brightness after dusk.
       lampMaterial.color.setStyle(HARBOR_PALETTE.lantern_warm);
       lampMaterial.color.multiplyScalar(0.35 + night * 1.5);
@@ -212,10 +260,70 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
   };
 }
 
+/**
+ * The module's own frame clock.
+ *
+ * The world renderer's sign update passes zoom, visibility and night and no
+ * time at all, and that call site belongs to the renderer, not here. So the
+ * settle keeps its own wall clock and reports the first frame — and any frame
+ * after a pause — as an infinite delta, which the track takes whole rather
+ * than easing across.
+ */
+function createFrameClock(): { tick: () => number } {
+  let last: number | null = null;
+  return {
+    tick() {
+      const now = typeof performance === "undefined" ? Date.now() : performance.now();
+      const delta = last === null ? Number.POSITIVE_INFINITY : (now - last) / 1000;
+      last = now;
+      return delta;
+    },
+  };
+}
+
+/**
+ * The reduced-motion preference, as a live-updating flag.
+ *
+ * Everything else in the scene takes `reducedMotion` off the frame, and this
+ * would too if the sign update carried it. It does not, and a settle left
+ * running under reduced motion would strand the board at an in-between size in
+ * a composition that is meant to be one complete static frame — so the module
+ * asks the platform directly. Defensively: no `window`, no `matchMedia`, or a
+ * media-query implementation without listeners all degrade to "motion allowed",
+ * which is what a caller-supplied flag would override anyway.
+ */
+function watchReducedMotion(): { readonly matches: boolean; stop: () => void } {
+  let matches = false;
+  let stop = () => {};
+  if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
+    try {
+      stop = observeReducedMotion((next) => {
+        matches = next;
+      });
+    } catch {
+      matches = false;
+      stop = () => {};
+    }
+  }
+  return {
+    get matches() {
+      return matches;
+    },
+    stop() {
+      stop();
+    },
+  };
+}
+
 // Texture resolution per board. Wide because the lettering is wide-tracked and
 // has to stay crisp when the board is scaled up at overview framing (D6).
 const SIGN_TEXTURE_WIDTH = 1024;
 const SIGN_TEXTURE_HEIGHT = 272;
+/**
+ * The iron rail across the top and bottom of the plank — and, since W0.5, the
+ * only ground on the board dark enough to carry the band accent at contrast.
+ */
+const SIGN_IRON_BAND_HEIGHT = 22;
 const SIGN_ATLAS_CELL_GUTTER = 8;
 const SIGN_ATLAS_MAX_HEIGHT = 2048;
 
@@ -325,14 +433,19 @@ function paintSeaSign(
   // as geometry it was two extra meshes on every board, and at the draw-call
   // ceiling that mattered more than the millimetre of relief it bought.
   context.fillStyle = "rgba(26, 22, 18, 0.92)";
-  context.fillRect(0, 0, SIGN_TEXTURE_WIDTH, 22);
-  context.fillRect(0, SIGN_TEXTURE_HEIGHT - 22, SIGN_TEXTURE_WIDTH, 22);
+  context.fillRect(0, 0, SIGN_TEXTURE_WIDTH, SIGN_IRON_BAND_HEIGHT);
+  context.fillRect(
+    0,
+    SIGN_TEXTURE_HEIGHT - SIGN_IRON_BAND_HEIGHT,
+    SIGN_TEXTURE_WIDTH,
+    SIGN_IRON_BAND_HEIGHT,
+  );
   context.fillStyle = "rgba(120, 108, 92, 0.5)";
   for (let index = 0; index < 8; index += 1) {
     const x = ((index + 0.5) / 8) * SIGN_TEXTURE_WIDTH;
     context.beginPath();
-    context.arc(x, 11, 5, 0, Math.PI * 2);
-    context.arc(x, SIGN_TEXTURE_HEIGHT - 11, 5, 0, Math.PI * 2);
+    context.arc(x, SIGN_IRON_BAND_HEIGHT / 2, 5, 0, Math.PI * 2);
+    context.arc(x, SIGN_TEXTURE_HEIGHT - SIGN_IRON_BAND_HEIGHT / 2, 5, 0, Math.PI * 2);
     context.fill();
   }
 
@@ -352,14 +465,37 @@ function paintSeaSign(
   context.strokeStyle = "rgba(43, 27, 12, 0.95)";
   context.lineWidth = 10;
   context.strokeText(name, centreX, nameY, SIGN_TEXTURE_WIDTH * 0.88);
-  // Bone-white paint, not the band accent. The DEWS accents are a green, a
-  // teal, a yellow, an orange and a red; on weathered oak they all go muddy and
-  // the name stops reading. The accent earns its place on the rule beneath,
-  // where it sits against the dark ironwork and stays a band cue.
+  // Bone-white paint, not the band accent: on weathered oak every DEWS accent
+  // goes muddy and the name stops reading. The accent earns its place on the
+  // rule below instead.
   context.fillStyle = "#f8eed8";
   context.fillText(name, centreX, nameY, SIGN_TEXTURE_WIDTH * 0.88);
+
+  // The band accent, as a rule laid along the BOTTOM IRON RAIL — not on the
+  // oak, where this used to sit and where the comment above it claimed the
+  // ironwork was.
+  //
+  // Oak (#a87e50) has a relative luminance of 0.238, and nothing chromatic can
+  // clear 3:1 against a ground that mid: it would need luminance above 0.815
+  // or below 0.046, and the W0.5 accent ladder runs 0.501 down to 0.199, so
+  // danger read at about 1.2:1 there — a cue only if you already knew it was a
+  // cue. The rail is the one dark ground the board owns: the ironwork
+  // composites to #251f17 over the oak, which takes the same five accents
+  // (#94c7ac, #6fb6ae, #b7954c, #c97344, #d54e3c) to 8.6, 7.0, 5.8, 4.7 and
+  // 3.9:1 — every band clear of 3:1, danger included.
+  //
+  // Seated a few pixels INSIDE the rail rather than flush with its top edge:
+  // the board renders far below texture resolution, so a rule laid on the
+  // seam mips half of itself back into the oak it was moved off. Three pixels
+  // of iron above it and the rivet row below keep it on the dark ground at
+  // every mip. The band NAME remains the primary channel; hue is never alone.
   context.fillStyle = spec.accent;
-  context.fillRect(centreX - SIGN_TEXTURE_WIDTH * 0.3, nameY + 58, SIGN_TEXTURE_WIDTH * 0.6, 6);
+  context.fillRect(
+    centreX - SIGN_TEXTURE_WIDTH * 0.3,
+    SIGN_TEXTURE_HEIGHT - SIGN_IRON_BAND_HEIGHT + 3,
+    SIGN_TEXTURE_WIDTH * 0.6,
+    7,
+  );
 
   if (spec.reading) {
     context.font = `700 48px "PV Plaque", Georgia, "Times New Roman", serif`;
