@@ -11,6 +11,8 @@ import {
   Texture,
 } from "three";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import {
   denseFixtureChains,
   denseFixturePegSummary,
@@ -22,6 +24,7 @@ import {
   makePharosVilleWorldInput,
 } from "../__fixtures__/pharosville-world";
 import { overCapacityWorldFixture } from "../__fixtures__/over-capacity-world";
+import { AccessibilityLedger } from "../components/accessibility-ledger";
 import type {
   ThreeLogoAssets,
   ThreeWorldRendererFrame,
@@ -48,6 +51,12 @@ import { OVERVIEW_LOD_DETAIL_NAMES } from "./garden-overview-lod";
 import {
   createThreeWorldRenderer,
   disposeThreeObjectTree,
+  gardenMistBoundaryTile,
+  gardenTransitionWaveReady,
+  GARDEN_SHIP_TRANSITION_MIN_SECONDS,
+  GARDEN_TRANSITION_WAVE_SECONDS,
+  sampleGardenShipTransition,
+  type GardenShipTransitionSpec,
 } from "./world-renderer";
 
 type TestWebGlRenderer = {
@@ -783,6 +792,245 @@ describe("W6.5 sky-probe environment", () => {
   });
 });
 
+describe("W4.2 garden-tempo transition queue", () => {
+  const transition = (
+    overrides: Partial<GardenShipTransitionSpec> = {},
+  ): GardenShipTransitionSpec => ({
+    bend: 1,
+    durationSeconds: 90,
+    from: { x: 20, y: 24 },
+    kind: "reanchor",
+    shipId: "ship.test",
+    startSeconds: 10,
+    to: { x: 62, y: 54 },
+    ...overrides,
+  });
+
+  it("samples eased curved berths deterministically from the shared clock", () => {
+    const spec = transition();
+    const first = sampleGardenShipTransition(spec, 55);
+    const second = sampleGardenShipTransition(spec, 55);
+    expect(second).toEqual(first);
+    expect(first.progress).toBe(0.5);
+    // The midpoint is deliberately off the straight chord: this is a sail,
+    // not a teleport with a longer duration.
+    expect(first.x).not.toBeCloseTo((spec.from.x + spec.to.x) / 2, 3);
+    expect(first.y).not.toBeCloseTo((spec.from.y + spec.to.y) / 2, 3);
+    expect(spec.durationSeconds).toBeGreaterThanOrEqual(GARDEN_SHIP_TRANSITION_MIN_SECONDS);
+  });
+
+  it("coalesces visible starts into waves no closer than twenty seconds", () => {
+    expect(gardenTransitionWaveReady(100, 100 + GARDEN_TRANSITION_WAVE_SECONDS - 0.001))
+      .toBe(false);
+    expect(gardenTransitionWaveReady(100, 100 + GARDEN_TRANSITION_WAVE_SECONDS))
+      .toBe(true);
+    expect(gardenTransitionWaveReady(Number.NEGATIVE_INFINITY, 0)).toBe(true);
+  });
+
+  it("snaps the first refresh inside the thirty-second young-world window", () => {
+    const worldA = denseRendererWorld();
+    const subject = selectGardenObservatorySlice(worldA, null).ships
+      .find((entry) => entry.ship.riskZone !== "danger")!.ship;
+    const worldB = withDangerShips(worldA, new Set([subject.id]));
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    renderer.render(rendererFrame(worldA, "full", {
+      selectedDetailId: subject.detailId,
+      timeSeconds: 0,
+    }));
+    renderer.render(rendererFrame(worldB, "full", {
+      selectedDetailId: subject.detailId,
+      timeSeconds: 5,
+    }));
+    const snapped = rendererHarness.instances.at(-1)!.lastScene!.children[6]!.position.clone();
+
+    const reference = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    reference.render(rendererFrame(worldB, "full", {
+      selectedDetailId: subject.detailId,
+      timeSeconds: 0,
+    }));
+    const target = rendererHarness.instances.at(-1)!.lastScene!.children[6]!.position;
+    expect(distanceXZ(snapped, target)).toBeLessThan(1e-6);
+    renderer.dispose();
+    reference.dispose();
+  });
+
+  it("lets sub-five-percent churn sail, then snaps twenty-percent churn and clears it", () => {
+    const worldA = denseRendererWorld();
+    const slice = selectGardenObservatorySlice(worldA, null);
+    const subject = slice.ships.find((entry) => entry.ship.riskZone !== "danger")!.ship;
+    const lowChurn = withDangerShips(worldA, new Set([subject.id]));
+    const massCount = Math.ceil(worldA.ships.length * 0.2);
+    const massIds = new Set(worldA.ships.slice(0, massCount).map((ship) => ship.id));
+    massIds.add(subject.id);
+    const massChurn = withDangerShips(worldA, massIds);
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    renderer.render(rendererFrame(worldA, "full", {
+      selectedDetailId: subject.detailId,
+      timeSeconds: 0,
+    }));
+    renderer.render(rendererFrame({ ...worldA }, "full", {
+      selectedDetailId: subject.detailId,
+      timeSeconds: 31,
+    }));
+    const before = rendererHarness.instances.at(-1)!.lastScene!.children[6]!.position.clone();
+    renderer.render(rendererFrame(lowChurn, "full", {
+      selectedDetailId: subject.detailId,
+      timeSeconds: 40,
+    }));
+    const sailing = rendererHarness.instances.at(-1)!.lastScene!.children[6]!.position.clone();
+    expect(sailing.distanceTo(before)).toBeLessThan(0.5);
+
+    renderer.render(rendererFrame(massChurn, "full", {
+      selectedDetailId: subject.detailId,
+      timeSeconds: 65,
+    }));
+    const snapped = rendererHarness.instances.at(-1)!.lastScene!.children[6]!.position.clone();
+    expect(snapped.distanceTo(before)).toBeGreaterThan(5);
+    // If the low-churn journey survived the snap, a later frame would move it.
+    renderer.render(rendererFrame(massChurn, "full", {
+      selectedDetailId: subject.detailId,
+      timeSeconds: 66,
+    }));
+    expect(distanceXZ(
+      rendererHarness.instances.at(-1)!.lastScene!.children[6]!.position,
+      snapped,
+    ))
+      .toBeLessThan(1e-6);
+    renderer.dispose();
+  });
+
+  it("keeps arrivals and departures on or inside the playable mist boundary", () => {
+    const berth = { x: 68, y: 61 };
+    const edge = gardenMistBoundaryTile(berth, 0.3);
+    const arrivals = transition({ from: edge, kind: "arrival", to: berth });
+    const departures = transition({ from: berth, kind: "departure", to: edge });
+    for (const spec of [arrivals, departures]) {
+      for (let second = 10; second <= 100; second += 3) {
+        const sample = sampleGardenShipTransition(spec, second);
+        expect(sample.x).toBeGreaterThanOrEqual(0.5);
+        expect(sample.x).toBeLessThanOrEqual(138.5);
+        expect(sample.y).toBeGreaterThanOrEqual(0.5);
+        expect(sample.y).toBeLessThanOrEqual(138.5);
+      }
+    }
+    expect(sampleGardenShipTransition(arrivals, 10).visibility).toBe(0);
+    expect(sampleGardenShipTransition(departures, 100).visibility).toBe(0);
+    const crossMap = transition({
+      from: { x: 12, y: 18 },
+      kind: "mist",
+      to: { x: 128, y: 122 },
+    });
+    expect(sampleGardenShipTransition(crossMap, 55).visibility).toBe(0);
+  });
+
+  it("adopts ledger truth immediately while the selected hull remains en route", () => {
+    const worldA = denseRendererWorld();
+    const subject = selectGardenObservatorySlice(worldA, null).ships
+      .find((entry) => entry.ship.riskZone !== "danger")!.ship;
+    const moved = {
+      ...subject,
+      change24hPct: 37.25,
+      riskPlacement: "storm-shelf" as const,
+      riskWaterLabel: "Danger Strait",
+      riskZone: "danger" as const,
+      tile: { x: subject.tile.x + 18, y: subject.tile.y + 9 },
+    };
+    const worldB: PharosVilleWorld = {
+      ...worldA,
+      entityById: { ...worldA.entityById, [subject.detailId]: moved },
+      ships: worldA.ships.map((ship) => ship.id === subject.id ? moved : ship),
+    } as PharosVilleWorld;
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    renderer.render(rendererFrame(worldA, "full", {
+      selectedDetailId: subject.detailId,
+      timeSeconds: 0,
+    }));
+    renderer.render(rendererFrame({ ...worldA }, "full", {
+      selectedDetailId: subject.detailId,
+      timeSeconds: 31,
+    }));
+    const scene = rendererHarness.instances.at(-1)!.lastScene!;
+    const selectedMarker = scene.children[6]!;
+    const before = selectedMarker.position.clone();
+
+    renderer.render(rendererFrame(worldB, "full", {
+      selectedDetailId: subject.detailId,
+      timeSeconds: 40,
+    }));
+    const enRoute = selectedMarker.position.clone();
+    const ledger = renderToStaticMarkup(createElement(AccessibilityLedger, {
+      world: worldB,
+    }));
+    expect(ledger).toContain("24h supply change +37.3%");
+    // One second into a 60-120 second sail remains close to the old berth.
+    expect(enRoute.distanceTo(before)).toBeLessThan(0.5);
+
+    renderer.render(rendererFrame(worldB, "full", {
+      selectedDetailId: subject.detailId,
+      timeSeconds: 170,
+    }));
+    expect(selectedMarker.position.distanceTo(before)).toBeGreaterThan(5);
+    renderer.dispose();
+  });
+
+  it("snaps to the complete static frame under reduced motion", () => {
+    const worldA = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const subject = selectGardenObservatorySlice(worldA, null).ships[1]!.ship;
+    const moved = {
+      ...subject,
+      riskPlacement: "storm-shelf" as const,
+      riskWaterLabel: "Danger Strait",
+      riskZone: "danger" as const,
+      tile: { x: subject.tile.x + 15, y: subject.tile.y + 7 },
+    };
+    const worldB: PharosVilleWorld = {
+      ...worldA,
+      entityById: { ...worldA.entityById, [subject.detailId]: moved },
+      ships: worldA.ships.map((ship) => ship.id === subject.id ? moved : ship),
+    } as PharosVilleWorld;
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    renderer.render(rendererFrame(worldA, "full", {
+      selectedDetailId: subject.detailId,
+      timeSeconds: 50,
+    }));
+    const scene = rendererHarness.instances.at(-1)!.lastScene!;
+    const selectedMarker = scene.children[6]!;
+    renderer.render(rendererFrame(worldB, "full", {
+      reducedMotion: true,
+      selectedDetailId: subject.detailId,
+    }));
+    const snapped = selectedMarker.position.clone();
+
+    const reference = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    reference.render(rendererFrame(worldB, "full", {
+      reducedMotion: true,
+      selectedDetailId: subject.detailId,
+    }));
+    const referenceScene = rendererHarness.instances.at(-1)!.lastScene!;
+    expect(snapped.distanceTo(referenceScene.children[6]!.position)).toBeLessThan(1e-6);
+    renderer.dispose();
+    reference.dispose();
+  });
+});
+
 describe("W4.1 per-part refresh reconciliation", () => {
   it("applies ship-only berth and beam-dwell changes in place — nothing rebuilt, nothing disposed", () => {
     const worldA = buildPharosVilleWorld(makePharosVilleWorldInput());
@@ -1056,6 +1304,46 @@ function rendererFrame(
     width: 1440,
     world,
   };
+}
+
+function denseRendererWorld(): PharosVilleWorld {
+  return buildPharosVilleWorld({
+    cemeteryEntries: [],
+    chains: denseFixtureChains,
+    freshness: {},
+    pegSummary: denseFixturePegSummary,
+    reportCards: denseFixtureReportCards,
+    stability: fixtureStability,
+    stablecoins: denseFixtureStablecoins,
+    stress: denseFixtureStress,
+  });
+}
+
+function withDangerShips(world: PharosVilleWorld, ids: ReadonlySet<string>): PharosVilleWorld {
+  const ships = world.ships.map((ship) => {
+    if (!ids.has(ship.id)) return ship;
+    const toDanger = ship.riskZone !== "danger";
+    return {
+      ...ship,
+      riskPlacement: toDanger ? "storm-shelf" as const : "safe-harbor" as const,
+      riskWaterLabel: toDanger ? "Danger Strait" : "Calm Anchorage",
+      riskZone: toDanger ? "danger" as const : "calm" as const,
+      tile: {
+        x: toDanger ? Math.min(136, ship.tile.x + 18) : Math.max(3, ship.tile.x - 18),
+        y: toDanger ? Math.min(136, ship.tile.y + 9) : Math.max(3, ship.tile.y - 9),
+      },
+    };
+  });
+  const entityById = { ...world.entityById };
+  for (const ship of ships) entityById[ship.detailId] = ship;
+  return { ...world, entityById, ships } as PharosVilleWorld;
+}
+
+function distanceXZ(
+  left: { x: number; z: number },
+  right: { x: number; z: number },
+): number {
+  return Math.hypot(left.x - right.x, left.z - right.z);
 }
 
 /**

@@ -11,6 +11,7 @@ import {
   InstancedMesh,
   Line,
   LineBasicMaterial,
+  Material,
   MathUtils,
   Matrix4,
   Mesh,
@@ -45,6 +46,7 @@ import {
   GARDEN_LIGHTHOUSE_BEACON_Y,
   GARDEN_LIGHTHOUSE_ROOT_OFFSET,
   GARDEN_SHIP_ROOT_Y,
+  gardenShipVisualScale,
   GARDEN_WATER_Y as WATER_LEVEL,
   gardenCameraViewHeight,
   gardenDockDisplayTile,
@@ -133,7 +135,11 @@ import {
   createGardenLaneRegistry,
   type GardenLaneRegistry,
 } from "./garden-lanterns";
-import { CEMETERY_CENTER } from "../systems/world-layout";
+import {
+  CEMETERY_CENTER,
+  PHAROSVILLE_MAP_HEIGHT,
+  PHAROSVILLE_MAP_WIDTH,
+} from "../systems/world-layout";
 import {
   createTerracedIsland,
   createWaterAccents,
@@ -298,6 +304,211 @@ const scratchKeyPose: GardenLightPose = {
 };
 /** How long a lost WebGL context has to come back before the world gives up. */
 const CONTEXT_RESTORE_GRACE_MS = 5000;
+
+/** W4.2: visible refresh waves cannot begin more often than this. */
+export const GARDEN_TRANSITION_WAVE_SECONDS = 20;
+/** Refresh truth snaps while a newly-mounted world is still forming. */
+export const GARDEN_YOUNG_WORLD_SNAP_SECONDS = 30;
+/** At or above this fleet share, migration snaps instead of choreographing. */
+export const GARDEN_MASS_TRANSITION_SNAP_RATIO = 0.2;
+/** Ships take between one and two garden minutes to weigh anchor and settle. */
+export const GARDEN_SHIP_TRANSITION_MIN_SECONDS = 60;
+export const GARDEN_SHIP_TRANSITION_MAX_SECONDS = 120;
+/**
+ * A longer route risks cutting across the island. Those moves use two mist
+ * legs with a fully-hidden hand-off at the map edge instead of a chord.
+ */
+export const GARDEN_SHIP_CROSS_MAP_TILES = 46;
+/** Cargo/tide and dock accent render targets settle on this time constant. */
+export const GARDEN_SCALAR_TRANSITION_SECONDS = 45;
+
+export function gardenTransitionWaveReady(
+  lastStartSeconds: number,
+  timeSeconds: number,
+): boolean {
+  return !Number.isFinite(lastStartSeconds)
+    || timeSeconds - lastStartSeconds >= GARDEN_TRANSITION_WAVE_SECONDS;
+}
+
+export type GardenShipTransitionKind = "arrival" | "departure" | "reanchor" | "mist";
+export interface GardenTransitionTile { x: number; y: number }
+export interface GardenShipTransitionSpec {
+  bend: number;
+  durationSeconds: number;
+  from: GardenTransitionTile;
+  kind: GardenShipTransitionKind;
+  shipId: string;
+  startSeconds: number;
+  to: GardenTransitionTile;
+}
+export interface GardenShipTransitionSample {
+  complete: boolean;
+  headingX: number;
+  headingY: number;
+  progress: number;
+  visibility: number;
+  x: number;
+  y: number;
+}
+
+const MIST_MIN_TILE = 0.5;
+const MIST_MAX_TILE_X = PHAROSVILLE_MAP_WIDTH - 1.5;
+const MIST_MAX_TILE_Y = PHAROSVILLE_MAP_HEIGHT - 1.5;
+const MIST_CENTER_TILE_X = (PHAROSVILLE_MAP_WIDTH - 1) / 2;
+const MIST_CENTER_TILE_Y = (PHAROSVILLE_MAP_HEIGHT - 1) / 2;
+
+/**
+ * The mist line is the playable-water edge used by garden-water's `uMapEdge`:
+ * half the 140-tile region span, inset half a tile so a hull never samples
+ * outside the detailed sea. `garden-sky`'s FOG_NEAR/FOG_FAR are camera-depth
+ * planes, not a radial world boundary, so they cannot safely site a hull.
+ * Arrivals begin on this edge and departures end on it, already inside the
+ * sea/aerial blend where the detailed map gives way to open ocean.
+ */
+export function gardenMistBoundaryTile(
+  toward: GardenTransitionTile,
+  salt = 0,
+  out: GardenTransitionTile = { x: 0, y: 0 },
+): GardenTransitionTile {
+  let dx = toward.x - MIST_CENTER_TILE_X;
+  let dy = toward.y - MIST_CENTER_TILE_Y;
+  if (Math.abs(dx) + Math.abs(dy) < 1e-6) {
+    const angle = salt * Math.PI * 2;
+    dx = Math.cos(angle);
+    dy = Math.sin(angle);
+  }
+  const scaleX = dx > 0
+    ? (MIST_MAX_TILE_X - MIST_CENTER_TILE_X) / dx
+    : (MIST_MIN_TILE - MIST_CENTER_TILE_X) / dx;
+  const scaleY = dy > 0
+    ? (MIST_MAX_TILE_Y - MIST_CENTER_TILE_Y) / dy
+    : (MIST_MIN_TILE - MIST_CENTER_TILE_Y) / dy;
+  const scale = Math.min(Math.abs(scaleX), Math.abs(scaleY));
+  out.x = MathUtils.clamp(MIST_CENTER_TILE_X + dx * scale, MIST_MIN_TILE, MIST_MAX_TILE_X);
+  out.y = MathUtils.clamp(MIST_CENTER_TILE_Y + dy * scale, MIST_MIN_TILE, MIST_MAX_TILE_Y);
+  return out;
+}
+
+function transitionEase(value: number): number {
+  const t = MathUtils.clamp(value, 0, 1);
+  // smootherstep: zero velocity at both berths, with no spring/overshoot.
+  return t * t * t * (t * (t * 6 - 15) + 10);
+}
+
+function curvedTransitionPoint(
+  from: GardenTransitionTile,
+  to: GardenTransitionTile,
+  bend: number,
+  progress: number,
+  out: GardenTransitionTile,
+): GardenTransitionTile {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const distance = Math.hypot(dx, dy);
+  const curve = Math.min(6, distance * 0.16) * bend;
+  const normalX = distance > 1e-6 ? -dy / distance : 0;
+  const normalY = distance > 1e-6 ? dx / distance : 0;
+  const controlX = (from.x + to.x) * 0.5 + normalX * curve;
+  const controlY = (from.y + to.y) * 0.5 + normalY * curve;
+  const inverse = 1 - progress;
+  out.x = inverse * inverse * from.x + 2 * inverse * progress * controlX
+    + progress * progress * to.x;
+  out.y = inverse * inverse * from.y + 2 * inverse * progress * controlY
+    + progress * progress * to.y;
+  // Curvature near a corner can otherwise put the keel a fraction beyond the
+  // playable sea. Clamp is a last-line invariant, not a path-shape device.
+  out.x = MathUtils.clamp(out.x, MIST_MIN_TILE, MIST_MAX_TILE_X);
+  out.y = MathUtils.clamp(out.y, MIST_MIN_TILE, MIST_MAX_TILE_Y);
+  return out;
+}
+
+const transitionPointScratch = { x: 0, y: 0 };
+const transitionAheadScratch = { x: 0, y: 0 };
+const transitionOldEdgeScratch = { x: 0, y: 0 };
+const transitionNewEdgeScratch = { x: 0, y: 0 };
+const transitionFrameSample: GardenShipTransitionSample = {
+  complete: false,
+  headingX: 0,
+  headingY: 0,
+  progress: 0,
+  visibility: 1,
+  x: 0,
+  y: 0,
+};
+
+function transitionPointAt(
+  transition: GardenShipTransitionSpec,
+  amount: number,
+  point: GardenTransitionTile,
+): GardenTransitionTile {
+  if (transition.kind !== "mist") {
+    return curvedTransitionPoint(
+      transition.from,
+      transition.to,
+      transition.bend,
+      amount,
+      point,
+    );
+  }
+  const oldEdge = gardenMistBoundaryTile(
+    transition.from,
+    0.17,
+    transitionOldEdgeScratch,
+  );
+  const newEdge = gardenMistBoundaryTile(
+    transition.to,
+    0.83,
+    transitionNewEdgeScratch,
+  );
+  return amount < 0.5
+    ? curvedTransitionPoint(transition.from, oldEdge, transition.bend, amount * 2, point)
+    : curvedTransitionPoint(newEdge, transition.to, -transition.bend, amount * 2 - 1, point);
+}
+
+/** Clock-pure transition sampling; reload persistence is intentionally absent. */
+export function sampleGardenShipTransition(
+  transition: GardenShipTransitionSpec,
+  timeSeconds: number,
+  out: GardenShipTransitionSample = {
+    complete: false,
+    headingX: 0,
+    headingY: 0,
+    progress: 0,
+    visibility: 1,
+    x: 0,
+    y: 0,
+  },
+): GardenShipTransitionSample {
+  const raw = MathUtils.clamp(
+    (timeSeconds - transition.startSeconds) / Math.max(1, transition.durationSeconds),
+    0,
+    1,
+  );
+  const eased = transitionEase(raw);
+  // Cross-map moves never draw a chord through the island. `transitionPointAt`
+  // sails to the old edge, disappears into aerial mist, then emerges at the
+  // new edge; the midpoint hand-off is fully hidden.
+  const point = transitionPointAt(transition, eased, transitionPointScratch);
+  const ahead = transitionPointAt(
+    transition,
+    Math.min(1, eased + 0.002),
+    transitionAheadScratch,
+  );
+  const headingLength = Math.hypot(ahead.x - point.x, ahead.y - point.y);
+  out.x = point.x;
+  out.y = point.y;
+  out.headingX = headingLength > 1e-6 ? (ahead.x - point.x) / headingLength : 0;
+  out.headingY = headingLength > 1e-6 ? (ahead.y - point.y) / headingLength : 0;
+  out.progress = raw;
+  out.complete = raw >= 1;
+  if (transition.kind === "arrival") out.visibility = transitionEase(Math.min(1, raw / 0.16));
+  else if (transition.kind === "departure") {
+    out.visibility = 1 - transitionEase(Math.max(0, (raw - 0.84) / 0.16));
+  } else if (transition.kind === "mist") {
+    out.visibility = transitionEase(Math.min(1, Math.abs(raw - 0.5) * 2));
+  } else out.visibility = 1;
+  return out;
+}
 
 // C4: quality ranking used to track the best load tier reached this session.
 // "interaction" is a transient camera-gesture mode, ranked below balanced.
@@ -676,6 +887,7 @@ export function createThreeWorldRenderer(
         const content = createWorldContentShell(scene);
         content.lampStatusState = initialLampStatusState(frame.world.freshness);
         content.lampStatusMix = lampStatusMixForStatus(content.lampStatusState.status);
+        content.lampStatusTargetMix = content.lampStatusMix;
         scene.content = content;
         scene.root.add(content.root);
         const keys = worldContentPartKeys(frame.world);
@@ -684,6 +896,7 @@ export function createThreeWorldRenderer(
           contentPartRebuildCount += 1;
         }
         content.shipsPoseKey = keys.shipsPose;
+        content.shipsFirstBuiltSeconds = frame.timeSeconds;
         refreshContentIndexes(content, null);
         syncSceneToContent(scene, frame.world);
         scene.world = frame.world;
@@ -692,6 +905,11 @@ export function createThreeWorldRenderer(
       } else {
         const content = scene.content;
         if (scene.world !== frame.world) {
+          const snapShipRefresh = shouldSnapShipRefresh(
+            content,
+            frame.timeSeconds,
+            frame.reducedMotion,
+          );
           const keys = worldContentPartKeys(frame.world);
           let newlyQueued = 0;
           for (const name of WORLD_CONTENT_PART_ORDER) {
@@ -701,20 +919,37 @@ export function createThreeWorldRenderer(
             newlyQueued += 1;
           }
           if (newlyQueued > 0) contentReplacementCount += 1;
+          if (content.rebuildQueue.has("ships")) {
+            const snapStructuralShips = snapShipRefresh
+              || structuralShipRefreshIsMass(content, frame.world);
+            content.snapQueuedShipsRefresh ||= snapStructuralShips;
+            if (snapStructuralShips) clearShipTransitionState(scene, content);
+          }
           if (!content.rebuildQueue.has("ships") && content.shipsPoseKey !== keys.shipsPose) {
             // The common refresh: berths, offsets or the beam-dwell target
             // moved, but nothing baked into GPU resources did. Swap the data
             // the frame loop reads and let the per-frame restamp carry it.
-            applyShipsPoseUpdate(content, frame.world);
+            applyShipsPoseUpdate(
+              scene,
+              content,
+              frame.world,
+              frame.timeSeconds,
+              snapShipRefresh,
+            );
             content.shipsPoseKey = keys.shipsPose;
             // The pending stamps belong to the previous placements. Clear them
             // before the offscreen pass can composite them.
             scene.wakes.reset();
           }
           content.lampStatusState = advanceLampStatus(content.lampStatusState, frame.world.freshness);
-          // Frame-time semantic consumers must see the latest world object
-          // (motion, sea state, hit targets, and DOM all continue updating
-          // independently of baked GPU content).
+          content.pendingLampStatusTargetMix = lampStatusMixForStatus(
+            content.lampStatusState.status,
+          );
+          // W4.2 TRUTH IMMEDIACY: the detail panel and accessibility ledger
+          // read `frame.world`, which becomes authoritative NOW. Only the
+          // renderer-side pose/scalar targets above wait for garden time. The
+          // transition layer is deliberately not serialized; a reload may
+          // snap to current truth rather than resume an old journey.
           adoptFreshWorldData(content, frame.world);
           registerLightLanes(
             scene.laneRegistry,
@@ -724,6 +959,7 @@ export function createThreeWorldRenderer(
             content.zones,
           );
           scene.world = frame.world;
+          content.hasReconciledWorld = true;
         }
         if (content.rebuildQueue.size > 0) {
           const keys = worldContentPartKeys(frame.world);
@@ -739,7 +975,24 @@ export function createThreeWorldRenderer(
             // A later refresh reverted this part while it waited its turn.
             if (content.parts[name].appliedKey === keys[name]) continue;
             if (name === "ships") scene.wakes.reset();
-            rebuildWorldContentPart(scene, content, name, frame.world, keys, uploadScheduler);
+            if (name === "ships") {
+              stageShipsRebuild(
+                scene,
+                content,
+                frame.world,
+                content.snapQueuedShipsRefresh || frame.reducedMotion,
+              );
+              content.snapQueuedShipsRefresh = false;
+            }
+            rebuildWorldContentPart(
+              scene,
+              content,
+              name,
+              frame.world,
+              keys,
+              uploadScheduler,
+              frame.reducedMotion,
+            );
             contentPartRebuildCount += 1;
             budget -= 1;
             rebuilt += 1;
@@ -769,6 +1022,15 @@ export function createThreeWorldRenderer(
       // Selecting an outsider ship adds or removes ONLY the transient content
       // it needs — it never triggers a content rebuild (W4.1 item 3).
       reconcileTransientSelection(scene, frame.world, frame.selectedDetailId);
+
+      if (scene.content) {
+        startGardenTransitionWave(
+          scene,
+          scene.content,
+          frame.timeSeconds,
+          frame.reducedMotion,
+        );
+      }
 
       const phase = dayCyclePhase(frame.wallClockHour);
       // Phase 2: the frame's weather plan — one pure function of the world
@@ -1097,6 +1359,14 @@ interface GardenContent {
   /** W6.4: stable data status and its slow render-side transition position. */
   lampStatusState: LampStatusHysteresisState;
   lampStatusMix: number;
+  /** Target admitted by the last coalesced W4.2 wave. */
+  lampStatusTargetMix: number;
+  /** Latest truth waiting for the next visible wave. */
+  pendingLampStatusTargetMix: number | null;
+  /** Baked cargo/tide states crossfade in this small, draw-call-safe lane. */
+  scalarTransitions: GardenScalarTransition[];
+  /** Roof-band accents retain their old colour until the coalesced wave. */
+  dockAccentTransitions: GardenDockAccentTransition[];
   lampModulation: LampStatusModulation;
   beam: Group;
   /**
@@ -1119,8 +1389,8 @@ interface GardenContent {
   crossBearingBuoyShips: ShipVisual[];
   /**
    * Tier 3 #3: every harbour's mint/burn cargo run, in one instanced draw.
-   * Entirely static — direction and magnitude are composed into the crates'
-   * positions at build, so there is nothing for the frame loop to do.
+   * Direction and magnitude are composed into the crates' positions at build;
+   * W4.2 only crossfades old/new baked targets after a refresh.
    */
   cargoTide: GardenCargoTide;
   /**
@@ -1136,8 +1406,8 @@ interface GardenContent {
   flightTenderShips: ShipVisual[];
   /**
    * Task 14: the weekly supply tide, as one banded plate per quay in a single
-   * instanced draw. Static — the strandline is composed into the plate's vertex
-   * colours, so the frame loop never touches it.
+   * instanced draw. The strandline is baked into vertex colours; W4.2
+   * crossfades the old/new plates rather than inventing an intra-week rate.
    */
   tideLine: GardenTideLine;
   decoration: Group;
@@ -1170,6 +1440,22 @@ interface GardenContent {
   shipLanternMaterial: MeshStandardMaterial;
   shipShadows: InstancedMesh<CircleGeometry, MeshBasicMaterial>;
   ships: ShipVisual[];
+  /** Old records retained only long enough to sail to the mist line. */
+  departingShips: ShipVisual[];
+  /** Active clock-pure journeys, keyed by stable ship id. */
+  shipTransitions: Map<string, GardenShipTransitionSpec>;
+  /** Latest target per ship; refresh bursts overwrite rather than scatter. */
+  pendingShipTransitions: Map<string, GardenShipTransitionSpec>;
+  /** Shared cadence for ship and scalar transition starts. */
+  lastTransitionWaveSeconds: number;
+  /** Session clock of the first fleet build; drives the first-impression guard. */
+  shipsFirstBuiltSeconds: number;
+  /** No world-object replacement has been reconciled yet. */
+  hasReconciledWorld: boolean;
+  /** A delayed ships-part drain retains the refresh-time snap decision. */
+  snapQueuedShipsRefresh: boolean;
+  /** Seeds captured before a ships-part rebuild and consumed by its builder. */
+  stagedShipRebuild: StagedShipRebuild | null;
   signalMast: GardenSignalMast;
   statueGleamMaterials: MeshStandardMaterial[];
   tideStain: GardenTideStain;
@@ -1240,6 +1526,42 @@ interface GardenTransientSelection {
   detailId: string;
   shipId: string;
   visual: ShipVisual;
+}
+
+interface ShipDepartureSeed {
+  displayOffset: { x: number; y: number };
+  from: GardenTransitionTile;
+  representative: boolean;
+  ship: ShipVisual["ship"];
+}
+
+interface StagedShipRebuild {
+  oldBerthById: Map<string, GardenTransitionTile>;
+  oldIds: Set<string>;
+  oldPositionById: Map<string, GardenTransitionTile>;
+  departureSeeds: ShipDepartureSeed[];
+  reducedMotion: boolean;
+}
+
+interface ScalarMaterialState {
+  depthWrite: boolean;
+  material: Material;
+  opacity: number;
+  transparent: boolean;
+}
+
+interface GardenScalarTransition {
+  active: boolean;
+  incoming: ScalarMaterialState[];
+  mix: number;
+  outgoing: ScalarMaterialState[];
+  outgoingRoot: Group;
+}
+
+interface GardenDockAccentTransition {
+  active: boolean;
+  material: MeshStandardMaterial;
+  target: Color;
 }
 
 /** Per-part content keys for one world (see worldContentPartKeys). */
@@ -1550,17 +1872,29 @@ function createWorldContentShell(scene: GardenScene): GardenContent {
     fleetBatches: scene.fleetBatches,
     fleetSailMaterial: scene.fleetBatches.materials[1] ?? null,
     lampStatusMix: 0,
+    lampStatusTargetMix: 0,
+    pendingLampStatusTargetMix: null,
     lampModulation: lampStatusModulationForMix(0),
+    scalarTransitions: [],
+    dockAccentTransitions: [],
     lampStatusState: initialLampStatusState({}),
     sailAtlas: scene.sailAtlas,
     objectCount: 0,
     parts,
     rebuildQueue: new Set<WorldContentPartName>(),
+    departingShips: [],
     indexesStale: false,
+    hasReconciledWorld: false,
+    lastTransitionWaveSeconds: Number.NEGATIVE_INFINITY,
+    pendingShipTransitions: new Map<string, GardenShipTransitionSpec>(),
     root,
     routeLine,
     routeLineKey: null,
     shipsPoseKey: null,
+    shipsFirstBuiltSeconds: Number.POSITIVE_INFINITY,
+    shipTransitions: new Map<string, GardenShipTransitionSpec>(),
+    snapQueuedShipsRefresh: false,
+    stagedShipRebuild: null,
     transient: null,
     transientRoot,
     visibleShipCount: 0,
@@ -1578,7 +1912,19 @@ function rebuildWorldContentPart(
   world: PharosVilleWorld,
   keys: WorldContentPartKeys,
   uploadScheduler: TextureUploadScheduler,
+  reducedMotion = true,
 ): void {
+  const dockAccentsBefore = name === "docks"
+    && content.parts[name].appliedKey !== null
+    && !reducedMotion
+    ? dockAccentColors(content.docks)
+    : null;
+  if (name === "docks") content.dockAccentTransitions = [];
+  const scalarOutgoing = name === "cargoTide"
+    && content.parts[name].appliedKey !== null
+    && !reducedMotion
+    ? detachScalarPart(content, content.parts[name].root)
+    : null;
   disposeWorldContentPart(scene, content, name, uploadScheduler);
   switch (name) {
     case "island":
@@ -1611,6 +1957,86 @@ function rebuildWorldContentPart(
       break;
   }
   content.parts[name].appliedKey = keys[name];
+  if (dockAccentsBefore) stageDockAccentTransitions(content, dockAccentsBefore);
+  if (scalarOutgoing) {
+    const incoming = scalarMaterialStates(content.parts[name].root);
+    setScalarMaterialMix(incoming, 0);
+    content.scalarTransitions.push({
+      active: false,
+      incoming,
+      mix: 0,
+      outgoing: scalarOutgoing.materials,
+      outgoingRoot: scalarOutgoing.root,
+    });
+  }
+}
+
+function dockAccentMaterial(visual: DockVisual): MeshStandardMaterial | null {
+  const roofs = visual.root.getObjectByName("dock-warehouse-roofs") as Mesh | undefined;
+  const material = roofs?.material;
+  if (!material || Array.isArray(material) || !(material instanceof MeshStandardMaterial)) return null;
+  return material;
+}
+
+function dockAccentColors(docks: readonly DockVisual[]): Map<string, Color> {
+  const colors = new Map<string, Color>();
+  for (const visual of docks) {
+    const material = dockAccentMaterial(visual);
+    if (material) colors.set(visual.dock.detailId, material.color.clone());
+  }
+  return colors;
+}
+
+function stageDockAccentTransitions(
+  content: GardenContent,
+  previous: ReadonlyMap<string, Color>,
+): void {
+  for (const visual of content.docks) {
+    const material = dockAccentMaterial(visual);
+    const oldColor = previous.get(visual.dock.detailId);
+    if (!material || !oldColor || oldColor.equals(material.color)) continue;
+    const target = material.color.clone();
+    material.color.copy(oldColor);
+    content.dockAccentTransitions.push({ active: false, material, target });
+  }
+}
+
+function scalarMaterialStates(root: Object3D): ScalarMaterialState[] {
+  const seen = new Set<Material>();
+  const states: ScalarMaterialState[] = [];
+  root.traverse((object) => {
+    const material = (object as Mesh).material;
+    if (!material) return;
+    for (const entry of Array.isArray(material) ? material : [material]) {
+      if (seen.has(entry)) continue;
+      seen.add(entry);
+      states.push({
+        depthWrite: entry.depthWrite,
+        material: entry,
+        opacity: entry.opacity,
+        transparent: entry.transparent,
+      });
+      entry.transparent = true;
+      entry.depthWrite = false;
+    }
+  });
+  return states;
+}
+
+function setScalarMaterialMix(states: readonly ScalarMaterialState[], mix: number): void {
+  for (const state of states) state.material.opacity = state.opacity * mix;
+}
+
+function detachScalarPart(
+  content: GardenContent,
+  root: Group,
+): { materials: ScalarMaterialState[]; root: Group } | null {
+  if (root.children.length === 0) return null;
+  const outgoing = new Group();
+  outgoing.name = "content-transition-cargo-tide";
+  for (const child of [...root.children]) outgoing.add(child);
+  content.root.add(outgoing);
+  return { materials: scalarMaterialStates(outgoing), root: outgoing };
 }
 
 /**
@@ -1724,15 +2150,157 @@ function syncSceneToContent(scene: GardenScene, world: PharosVilleWorld): void {
   );
 }
 
+function shipBerthTile(visual: ShipVisual): GardenTransitionTile {
+  return resolveGardenShipDisplayTile({
+    displayOffset: visual.displayOffset,
+    representative: visual.representative,
+    sample: null,
+    ship: visual.ship,
+  });
+}
+
+function gardenShipTransition(
+  shipId: string,
+  from: GardenTransitionTile,
+  to: GardenTransitionTile,
+  kind: GardenShipTransitionKind,
+): GardenShipTransitionSpec {
+  const distance = Math.hypot(to.x - from.x, to.y - from.y);
+  const actualKind = kind === "reanchor" && distance > GARDEN_SHIP_CROSS_MAP_TILES
+    ? "mist"
+    : kind;
+  const durationUnit = stableUnit(
+    `garden-transition.duration.${shipId}.${to.x.toFixed(3)},${to.y.toFixed(3)}`,
+  );
+  return {
+    bend: stableUnit(`garden-transition.bend.${shipId}`) < 0.5 ? -1 : 1,
+    durationSeconds: GARDEN_SHIP_TRANSITION_MIN_SECONDS
+      + durationUnit * (GARDEN_SHIP_TRANSITION_MAX_SECONDS - GARDEN_SHIP_TRANSITION_MIN_SECONDS),
+    from: { ...from },
+    kind: actualKind,
+    shipId,
+    // Pending transitions render their `from` point until a wave admits them.
+    startSeconds: Number.POSITIVE_INFINITY,
+    to: { ...to },
+  };
+}
+
+function renderedTransitionBerth(
+  content: GardenContent,
+  shipId: string,
+  fallback: GardenTransitionTile,
+  timeSeconds: number,
+): GardenTransitionTile {
+  const active = content.shipTransitions.get(shipId);
+  if (active) {
+    const sample = sampleGardenShipTransition(active, timeSeconds);
+    return { x: sample.x, y: sample.y };
+  }
+  return content.pendingShipTransitions.get(shipId)?.from ?? fallback;
+}
+
+function queueShipTransition(
+  content: GardenContent,
+  transition: GardenShipTransitionSpec,
+): void {
+  if (Math.hypot(
+    transition.to.x - transition.from.x,
+    transition.to.y - transition.from.y,
+  ) < 0.01 && transition.kind === "reanchor") {
+    content.pendingShipTransitions.delete(transition.shipId);
+    content.shipTransitions.delete(transition.shipId);
+    return;
+  }
+  // A newer truth coalesces the old journey too: freeze at the sampled `from`
+  // point until the next shared wave, then leave once for the latest target.
+  content.shipTransitions.delete(transition.shipId);
+  content.pendingShipTransitions.set(transition.shipId, transition);
+}
+
+function shouldSnapShipRefresh(
+  content: GardenContent,
+  timeSeconds: number,
+  reducedMotion: boolean,
+): boolean {
+  return reducedMotion
+    || !content.hasReconciledWorld
+    || timeSeconds - content.shipsFirstBuiltSeconds < GARDEN_YOUNG_WORLD_SNAP_SECONDS;
+}
+
+function isMassShipTransition(changedShips: number, fleetSize: number): boolean {
+  return fleetSize > 0
+    && changedShips / fleetSize >= GARDEN_MASS_TRANSITION_SNAP_RATIO;
+}
+
+function structuralShipRefreshIsMass(
+  content: GardenContent,
+  world: PharosVilleWorld,
+): boolean {
+  const oldById = new Map(content.ships
+    .filter((visual) => !content.transient || visual !== content.transient.visual)
+    .map((visual) => [visual.ship.id, shipBerthTile(visual)]));
+  const next = selectGardenObservatorySlice(world, null).ships;
+  const nextIds = new Set(next.map((entry) => entry.ship.id));
+  let changedShips = 0;
+  for (const entry of next) {
+    const oldBerth = oldById.get(entry.ship.id);
+    if (!oldBerth) {
+      changedShips += 1;
+      continue;
+    }
+    const nextBerth = resolveGardenShipDisplayTile({ ...entry, sample: null });
+    if (Math.hypot(nextBerth.x - oldBerth.x, nextBerth.y - oldBerth.y) >= 0.01) {
+      changedShips += 1;
+    }
+  }
+  for (const oldId of oldById.keys()) {
+    if (!nextIds.has(oldId)) changedShips += 1;
+  }
+  return isMassShipTransition(changedShips, Math.max(oldById.size, next.length));
+}
+
+function clearShipTransitionState(scene: GardenScene, content: GardenContent): void {
+  content.shipTransitions.clear();
+  content.pendingShipTransitions.clear();
+  for (let index = content.departingShips.length - 1; index >= 0; index -= 1) {
+    disposeDepartingVisual(scene, content.departingShips[index]!);
+  }
+  content.departingShips.length = 0;
+  content.lastTransitionWaveSeconds = Number.NEGATIVE_INFINITY;
+}
+
 /**
- * The ship-only fast path: berths, display offsets or the beam-dwell target
- * moved while every build-time input held still. Swap the data the frame loop
- * reads — positions are restamped from it every frame anyway — and recompute
- * the one derived bearing. No disposal, no allocation, no GPU work.
+ * The ship-only fast path: semantic pointers swap immediately, while this
+ * render-only layer records old and target berths. Starting a journey is only
+ * Map writes; the existing per-frame fleet restamp samples it later.
  */
-function applyShipsPoseUpdate(content: GardenContent, world: PharosVilleWorld): void {
+function applyShipsPoseUpdate(
+  scene: GardenScene,
+  content: GardenContent,
+  world: PharosVilleWorld,
+  timeSeconds: number,
+  forceSnap: boolean,
+): void {
   const slice = selectGardenObservatorySlice(world, null);
   const entryByShipId = new Map(slice.ships.map((entry) => [entry.ship.id, entry]));
+  let changedShips = 0;
+  for (const visual of content.ships) {
+    if (content.transient && visual === content.transient.visual) continue;
+    const entry = entryByShipId.get(visual.ship.id);
+    if (!entry) continue;
+    const oldBerth = shipBerthTile(visual);
+    const newBerth = resolveGardenShipDisplayTile({
+      displayOffset: entry.displayOffset,
+      representative: entry.representative,
+      sample: null,
+      ship: entry.ship,
+    });
+    if (Math.hypot(newBerth.x - oldBerth.x, newBerth.y - oldBerth.y) >= 0.01) {
+      changedShips += 1;
+    }
+  }
+  const snap = forceSnap || isMassShipTransition(changedShips, content.ships.length);
+  if (snap) clearShipTransitionState(scene, content);
   for (const visual of content.ships) {
     if (content.transient && visual === content.transient.visual) continue;
     const entry = entryByShipId.get(visual.ship.id);
@@ -1740,11 +2308,137 @@ function applyShipsPoseUpdate(content: GardenContent, world: PharosVilleWorld): 
     // missing entry would mean the keys lied, so keep the old data visible
     // rather than corrupt the visual.
     if (!entry) continue;
+    const oldBerth = shipBerthTile(visual);
     visual.ship = entry.ship;
     visual.displayOffset = entry.displayOffset;
     visual.representative = entry.representative;
+    const newBerth = shipBerthTile(visual);
+    // Beam-dwell changes share the pose key but move no hull. Keep the hot
+    // refresh proportional to ACTUALLY moved ships: no journey objects or Map
+    // writes for the other ~185 records.
+    if (Math.hypot(newBerth.x - oldBerth.x, newBerth.y - oldBerth.y) < 0.01) continue;
+    const from = renderedTransitionBerth(content, visual.ship.id, oldBerth, timeSeconds);
+    if (snap) {
+      content.pendingShipTransitions.delete(visual.ship.id);
+      content.shipTransitions.delete(visual.ship.id);
+    } else {
+      queueShipTransition(
+        content,
+        gardenShipTransition(visual.ship.id, from, newBerth, "reanchor"),
+      );
+    }
   }
   content.beamDwellBearing = computeBeamDwellBearing(world, slice);
+}
+
+/** Capture old hulls before a structural ships rebuild disposes their roots. */
+function stageShipsRebuild(
+  scene: GardenScene,
+  content: GardenContent,
+  world: PharosVilleWorld,
+  forceSnap: boolean,
+): void {
+  const nextIds = new Set(
+    selectGardenObservatorySlice(world, null).ships.map((entry) => entry.ship.id),
+  );
+  const oldIds = new Set<string>();
+  const oldBerthById = new Map<string, GardenTransitionTile>();
+  const oldPositionById = new Map<string, GardenTransitionTile>();
+  const departureSeeds: ShipDepartureSeed[] = [];
+  let changedShips = 0;
+  const capture = (visual: ShipVisual, alreadyDeparting: boolean): void => {
+    const from = {
+      x: visual.root.position.x / TILE_SCALE,
+      y: visual.root.position.z / TILE_SCALE,
+    };
+    if (!alreadyDeparting || nextIds.has(visual.ship.id)) {
+      oldIds.add(visual.ship.id);
+      oldBerthById.set(visual.ship.id, shipBerthTile(visual));
+      oldPositionById.set(visual.ship.id, from);
+    }
+    if (alreadyDeparting && nextIds.has(visual.ship.id)) return;
+    if (alreadyDeparting || !nextIds.has(visual.ship.id)) {
+      departureSeeds.push({
+        displayOffset: visual.displayOffset,
+        from,
+        representative: visual.representative,
+        ship: visual.ship,
+      });
+    }
+  };
+  for (const visual of content.ships) {
+    if (content.transient && visual === content.transient.visual) continue;
+    capture(visual, false);
+  }
+  for (const visual of content.departingShips) capture(visual, true);
+  const nextSlice = selectGardenObservatorySlice(world, null);
+  const oldBerthByShipId = oldBerthById;
+  for (const entry of nextSlice.ships) {
+    const oldBerth = oldBerthByShipId.get(entry.ship.id);
+    if (!oldBerth) {
+      changedShips += 1;
+      continue;
+    }
+    const nextBerth = resolveGardenShipDisplayTile({ ...entry, sample: null });
+    if (Math.hypot(nextBerth.x - oldBerth.x, nextBerth.y - oldBerth.y) >= 0.01) {
+      changedShips += 1;
+    }
+  }
+  for (const oldId of oldIds) {
+    if (!nextIds.has(oldId)) changedShips += 1;
+  }
+  const snap = forceSnap || isMassShipTransition(
+    changedShips,
+    Math.max(oldIds.size, nextIds.size),
+  );
+  if (snap) clearShipTransitionState(scene, content);
+  content.stagedShipRebuild = {
+    departureSeeds: snap ? [] : departureSeeds,
+    oldBerthById,
+    oldIds,
+    oldPositionById,
+    reducedMotion: snap,
+  };
+}
+
+function startGardenTransitionWave(
+  scene: GardenScene,
+  content: GardenContent,
+  timeSeconds: number,
+  reducedMotion: boolean,
+): void {
+  if (reducedMotion) {
+    clearShipTransitionState(scene, content);
+    content.lampStatusTargetMix = content.pendingLampStatusTargetMix
+      ?? lampStatusMixForStatus(content.lampStatusState.status);
+    content.pendingLampStatusTargetMix = null;
+    for (const transition of content.scalarTransitions) transition.active = true;
+    for (const transition of content.dockAccentTransitions) transition.active = true;
+    return;
+  }
+  const scalarPending = content.pendingLampStatusTargetMix !== null
+    && content.pendingLampStatusTargetMix !== content.lampStatusTargetMix;
+  const bakedScalarPending = content.scalarTransitions.some((transition) => !transition.active);
+  const dockAccentPending = content.dockAccentTransitions.some((transition) => !transition.active);
+  if (
+    content.pendingShipTransitions.size === 0
+    && !scalarPending
+    && !bakedScalarPending
+    && !dockAccentPending
+  ) return;
+  if (!gardenTransitionWaveReady(content.lastTransitionWaveSeconds, timeSeconds)) return;
+  for (const [shipId, pending] of content.pendingShipTransitions) {
+    pending.startSeconds = timeSeconds;
+    content.shipTransitions.set(shipId, pending);
+  }
+  content.pendingShipTransitions.clear();
+  if (content.pendingLampStatusTargetMix !== null) {
+    content.lampStatusTargetMix = content.pendingLampStatusTargetMix;
+    content.pendingLampStatusTargetMix = null;
+  }
+  for (const transition of content.scalarTransitions) transition.active = true;
+  for (const transition of content.dockAccentTransitions) transition.active = true;
+  content.lastTransitionWaveSeconds = timeSeconds;
 }
 
 /**
@@ -1846,6 +2540,38 @@ function removeTransientSelection(scene: GardenScene, content: GardenContent): v
   scene.laneRegistry.remove(`ship-lantern.${current.shipId}`);
   scene.water.rippleRings.removeRing(`ship-mooring.${current.shipId}`);
   content.transient = null;
+}
+
+function removeCompletedDepartures(
+  scene: GardenScene,
+  content: GardenContent,
+  timeSeconds: number,
+): void {
+  for (let index = content.departingShips.length - 1; index >= 0; index -= 1) {
+    const visual = content.departingShips[index]!;
+    const transition = content.shipTransitions.get(visual.ship.id);
+    if (
+      !transition
+      || !sampleGardenShipTransition(transition, timeSeconds, transitionFrameSample).complete
+    ) continue;
+    disposeDepartingVisual(scene, visual);
+    content.departingShips.splice(index, 1);
+    content.shipTransitions.delete(visual.ship.id);
+  }
+}
+
+function disposeDepartingVisual(scene: GardenScene, visual: ShipVisual): void {
+  visual.root.removeFromParent();
+  scene.laneRegistry.remove(`ship-lantern.${visual.ship.id}`);
+  scene.water.rippleRings.removeRing(`ship-mooring.${visual.ship.id}`);
+  // Batched departure roots own only their wake instance buffers; hull/sail
+  // geometry and materials belong to the scene-scope fleet cache. Overflow
+  // procedural ghosts own their temporary cache and can dispose the full tree.
+  if (visual.batched) {
+    visual.root.traverse((object) => {
+      if (object instanceof InstancedMesh) object.dispose();
+    });
+  } else disposeThreeObjectTree(visual.root);
 }
 
 /**
@@ -2317,6 +3043,8 @@ function buildShipsPart(
   world: PharosVilleWorld,
 ): void {
   const part = content.parts.ships;
+  const staged = content.stagedShipRebuild;
+  content.stagedShipRebuild = null;
   // The base slice only: the transient outsider is reconciled separately
   // (reconcileTransientSelection) so selection never rebuilds the fleet.
   const slice = selectGardenObservatorySlice(world, null);
@@ -2362,11 +3090,47 @@ function buildShipsPart(
         )
   ));
 
+  // Departures are renderer ghosts, never world records. Recreate them from
+  // the NEW part's shared cache so disposal remains epoch-local. The normal
+  // live fleet leaves ample headroom under the 320-instance scene batch. In
+  // the pathological full-cap churn case, overflow departures use procedural
+  // roots rather than popping or reallocating the scene-scope batch.
+  const departureCapacity = staged?.reducedMotion
+    ? 0
+    : Math.max(0, GARDEN_FLEET_BATCH_CAPACITY - ships.length);
+  const departingShips = (staged?.reducedMotion ? [] : (staged?.departureSeeds ?? []))
+    .map((seed, index) => {
+      const visual = index < departureCapacity
+        ? createBatchedShip(
+            seed.ship,
+            seed.displayOffset,
+            seed.representative,
+            shipGeometryCache,
+            0,
+          )
+        : createShip(
+            seed.ship,
+            seed.displayOffset,
+            seed.representative,
+            {
+              geometries: new Map(),
+              wakeFillMaterial: shipGeometryCache.wakeFillMaterial.clone(),
+              wakeMaterial: shipGeometryCache.wakeMaterial.clone(),
+            },
+          );
+      visual.root.position.set(
+        seed.from.x * TILE_SCALE,
+        GARDEN_SHIP_ROOT_Y,
+        seed.from.y * TILE_SCALE,
+      );
+      return visual;
+    });
+
   // +1: a spare instance slot for the transient outsider, so selecting one
   // never reallocates the contact-shadow buffer. The live count is clamped to
   // the ship list every frame; unwritten slots hold zero-scale matrices.
-  const shipShadows = createShipShadows(ships.length + 1);
-  shipShadows.count = ships.length;
+  const shipShadows = createShipShadows(ships.length + departingShips.length + 1);
+  shipShadows.count = ships.length + departingShips.length;
   part.root.add(shipShadows);
   for (const ship of ships) {
     // Batched roots carry no drawable children — they exist so entity cues,
@@ -2379,6 +3143,7 @@ function buildShipsPart(
       y: -ship.root.position.y + 0.08,
     });
   }
+  for (const ship of departingShips) part.root.add(ship.root);
   // Fleet-wide lantern instances (two shared draw calls); positions are driven
   // per frame from each ship's world transform in the ship loop.
   const fleetLanterns = createFleetLanterns(ships, shipGeometryCache);
@@ -2430,7 +3195,49 @@ function buildShipsPart(
   content.shipLanternMaterial = fleetLanterns.coreMaterial;
   content.shipShadows = shipShadows;
   content.ships = ships;
-  content.visibleShipCount = ships.length;
+  content.departingShips = departingShips;
+  content.visibleShipCount = ships.length + departingShips.length;
+
+  if (staged && !staged.reducedMotion) {
+    for (const visual of ships) {
+      const target = shipBerthTile(visual);
+      const previous = staged.oldPositionById.get(visual.ship.id);
+      const oldBerth = staged.oldBerthById.get(visual.ship.id);
+      if (
+        oldBerth
+        && Math.hypot(target.x - oldBerth.x, target.y - oldBerth.y) < 0.01
+      ) continue;
+      const from = previous ?? gardenMistBoundaryTile(
+        target,
+        stableUnit(`garden-transition.arrival-edge.${visual.ship.id}`),
+      );
+      queueShipTransition(
+        content,
+        gardenShipTransition(
+          visual.ship.id,
+          from,
+          target,
+          staged.oldIds.has(visual.ship.id) ? "reanchor" : "arrival",
+        ),
+      );
+    }
+    for (let index = 0; index < departingShips.length; index += 1) {
+      const visual = departingShips[index]!;
+      const seed = staged.departureSeeds[index]!;
+      queueShipTransition(
+        content,
+        gardenShipTransition(
+          visual.ship.id,
+          seed.from,
+          gardenMistBoundaryTile(
+            seed.from,
+            stableUnit(`garden-transition.departure-edge.${visual.ship.id}`),
+          ),
+          "departure",
+        ),
+      );
+    }
+  }
 }
 
 /**
@@ -2734,7 +3541,7 @@ function updateSceneForFrame(
   // W6.4: status changes are held by the pure two-observation hysteresis
   // state machine above, then eased here at garden tempo. Clamp the elapsed
   // step so a hidden tab never catches up with a teleporting lamp.
-  const lampTargetMix = lampStatusMixForStatus(content.lampStatusState.status);
+  const lampTargetMix = content.lampStatusTargetMix;
   if (frame.reducedMotion) {
     content.lampStatusMix = lampTargetMix;
   } else {
@@ -2744,6 +3551,7 @@ function updateSceneForFrame(
   }
   const lampModulation = lampStatusModulationForMix(content.lampStatusMix, content.lampModulation);
   updateLighthouseLampStatus(content, lampModulation);
+  updateScalarTransitions(content, beamElapsedSeconds, frame.reducedMotion);
 
   const constrained = frame.renderScheduler.tier === "constrained";
   // R13: ambient life survives `recovery`.
@@ -2963,6 +3771,7 @@ function updateSceneForFrame(
     strength: GARDEN_FLEET_AERIAL_STRENGTH,
     zoom: frame.camera.zoom,
   });
+  removeCompletedDepartures(scene, content, frame.timeSeconds);
   beginFleetFrame(content.fleetBatches);
   const sailTexture = content.sailAtlas.texture;
   const logoGeneration = frame.logos.getLogoGenerationKey();
@@ -2997,20 +3806,56 @@ function updateSceneForFrame(
   let visibleShipCount = 0;
   // Indexed rather than `entries()`: the iterator mints an `[index, value]` pair
   // per hull per frame, and this loop runs over the whole fleet. Same below.
-  for (let index = 0; index < content.ships.length; index += 1) {
-    const visual = content.ships[index]!;
-    const sample = frame.shipMotionSamples.get(visual.ship.id);
-    const tile = resolveGardenShipDisplayTile({
+  const renderedShipCount = content.ships.length + content.departingShips.length;
+  for (let index = 0; index < renderedShipCount; index += 1) {
+    const departing = index >= content.ships.length;
+    const visual = departing
+      ? content.departingShips[index - content.ships.length]!
+      : content.ships[index]!;
+    const sample = departing ? undefined : frame.shipMotionSamples.get(visual.ship.id);
+    const targetTile = resolveGardenShipDisplayTile({
       displayOffset: visual.displayOffset,
       representative: visual.representative,
       sample,
       ship: visual.ship,
     });
+    const transition = content.shipTransitions.get(visual.ship.id)
+      ?? content.pendingShipTransitions.get(visual.ship.id);
+    let tile = targetTile;
+    let transitionVisibility = 1;
+    let transitionHeadingX = 0;
+    let transitionHeadingY = 0;
+    if (transition) {
+      const transitionSample = sampleGardenShipTransition(
+        transition,
+        frame.timeSeconds,
+        transitionFrameSample,
+      );
+      if (transitionSample.complete && !departing) {
+        content.shipTransitions.delete(visual.ship.id);
+      } else {
+        const targetBerth = transition.to;
+        // Existing within-berth patrol motion remains live, but its ANCHOR is
+        // the easing path. Departures have no new-world motion sample.
+        tile = {
+          x: transitionSample.x + (departing ? 0 : targetTile.x - targetBerth.x),
+          y: transitionSample.y + (departing ? 0 : targetTile.y - targetBerth.y),
+        };
+        transitionVisibility = transitionSample.visibility;
+        transitionHeadingX = transitionSample.headingX;
+        transitionHeadingY = transitionSample.headingY;
+      }
+    }
     visual.root.visible = true;
     visibleShipCount += 1;
+    visual.root.scale.setScalar(
+      gardenShipVisualScale(visual.ship.visual.scale || 1) * transitionVisibility,
+    );
     setTilePosition(visual.root, tile, GARDEN_SHIP_ROOT_Y);
 
-    const heading = normalizedHeading(sample?.heading);
+    const heading = Math.hypot(transitionHeadingX, transitionHeadingY) > 0.5
+      ? { x: transitionHeadingX, y: transitionHeadingY }
+      : normalizedHeading(sample?.heading);
     let heel = 0;
     if (heading) {
       const headingAngle = Math.atan2(heading.y, heading.x);
@@ -3035,7 +3880,9 @@ function updateSceneForFrame(
       frame.timeSeconds * (0.72 + frame.seaState.tempo * 0.25) / visual.motionPeriodScale
       + visual.bobPhase,
     ) * bobAmplitude;
-    visual.sampleState = sample?.state ?? "idle";
+    visual.sampleState = transition
+      ? (departing ? "departing" : transition.kind === "arrival" ? "arriving" : "sailing")
+      : (sample?.state ?? "idle");
     // Lay a warm reflection lane on the sea under each ship's lantern(s).
     scene.laneRegistry.set({
       color: HARBOR_PALETTE.lantern_glow,
@@ -3045,7 +3892,9 @@ function updateSceneForFrame(
       worldX: visual.root.position.x,
       worldZ: visual.root.position.z,
     });
-    const wakeIntensity = sample?.wakeIntensity ?? 0;
+    const wakeIntensity = transition && !frame.reducedMotion
+      ? Math.max(sample?.wakeIntensity ?? 0, 0.68 * transitionVisibility)
+      : (sample?.wakeIntensity ?? 0);
     const showShipDetail = showWorldDetail
       || visual.ship.detailId === frame.hoveredDetailId
       || visual.ship.detailId === frame.selectedDetailId;
@@ -3129,7 +3978,7 @@ function updateSceneForFrame(
   endFleetFrame(content.fleetBatches);
   // W4.1: the shadow buffer holds a spare slot for the transient outsider;
   // clamp the live count so slots beyond the fleet are never drawn.
-  content.shipShadows.count = content.ships.length;
+  content.shipShadows.count = renderedShipCount;
   content.shipShadows.instanceMatrix.needsUpdate = true;
   content.visibleShipCount = visibleShipCount;
 
@@ -3258,6 +4107,48 @@ function updateSceneForFrame(
   updateSelectedRoute(content, frame);
   updateCueMarker(scene.hoverMarker, content, frame.hoveredDetailId, frame, 0.94);
   updateCueMarker(scene.selectedMarker, content, frame.selectedDetailId, frame, 1.08);
+}
+
+function updateScalarTransitions(
+  content: GardenContent,
+  deltaSeconds: number,
+  reducedMotion: boolean,
+): void {
+  const alpha = reducedMotion
+    ? 1
+    : 1 - Math.exp(
+        -MathUtils.clamp(deltaSeconds, 0, 0.25) / GARDEN_SCALAR_TRANSITION_SECONDS,
+      );
+  for (let index = content.scalarTransitions.length - 1; index >= 0; index -= 1) {
+    const transition = content.scalarTransitions[index]!;
+    if (!transition.active && !reducedMotion) continue;
+    transition.mix += (1 - transition.mix) * alpha;
+    if (transition.mix > 0.999) transition.mix = 1;
+    setScalarMaterialMix(transition.outgoing, 1 - transition.mix);
+    setScalarMaterialMix(transition.incoming, transition.mix);
+    if (transition.mix < 1) continue;
+    for (const state of transition.incoming) {
+      state.material.opacity = state.opacity;
+      state.material.transparent = state.transparent;
+      state.material.depthWrite = state.depthWrite;
+    }
+    transition.outgoingRoot.removeFromParent();
+    disposeThreeObjectTree(transition.outgoingRoot);
+    content.scalarTransitions.splice(index, 1);
+  }
+  for (let index = content.dockAccentTransitions.length - 1; index >= 0; index -= 1) {
+    const transition = content.dockAccentTransitions[index]!;
+    if (!transition.active && !reducedMotion) continue;
+    transition.material.color.lerp(transition.target, alpha);
+    const distance = Math.max(
+      Math.abs(transition.material.color.r - transition.target.r),
+      Math.abs(transition.material.color.g - transition.target.g),
+      Math.abs(transition.material.color.b - transition.target.b),
+    );
+    if (distance > 0.001) continue;
+    transition.material.color.copy(transition.target);
+    content.dockAccentTransitions.splice(index, 1);
+  }
 }
 
 function updateCamera(camera: OrthographicCamera, frame: ThreeWorldRendererFrame): void {
