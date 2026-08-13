@@ -2481,37 +2481,28 @@ describe("motion", () => {
     });
   });
 
-  describe("T3.2 data-driven speed scalar (marketCap quartile)", () => {
-    it("top-quartile ship has shorter cycleSeconds than bottom-quartile ship (≥10% faster)", () => {
-      // Build a 4-ship fleet so each ship lands in its own quartile.
-      const mkShip = (id: string, marketCapUsd: number) => worldForShip({
+  describe("T3.2 data-driven speed scalar (24h flow intensity)", () => {
+    it("maps active mint/redeem flow to a modest faster cycle without using market cap", () => {
+      const mkShip = (id: string, flowIntensity: number) => worldForShip({
         chainCirculating: chainCirculating(["Ethereum"]),
         chains: ["ethereum"],
-      }).ships.map((s) => ({ ...s, id, marketCapUsd, detailId: `ship.${id}` }))[0]!;
+      }).ships.map((s) => ({ ...s, id, flowIntensity, detailId: `ship.${id}` }))[0]!;
 
-      const smallShip = mkShip("ship-small", 1_000_000);
-      const bigShip = mkShip("ship-big", 100_000_000_000);
+      const smallShip = mkShip("ship-languid", 0);
+      const bigShip = mkShip("ship-active", -100);
       const allShips = [smallShip, bigShip];
 
       const tempoSmall = shipCycleTempo(smallShip, allShips);
       const tempoBig = shipCycleTempo(bigShip, allShips);
 
-      expect(tempoSmall.quartile).toBeLessThan(tempoBig.quartile);
-      // Scalars: small gets 0.85 (Q0), big gets 1.15 (Q3) in a 2-ship fleet.
-      // Q0 threshold is <25th percentile of [1M, 100B] sorted = <1M so 1M is Q0;
-      // Actually with 2 ships: sorted=[1M,100B], q1=sorted[0]=1M, q2=sorted[1]=100B.
-      // smallShip marketCap=1M < q1=1M is false; 1M < q2=100B → Q1 (Steady).
-      // bigShip 100B >= q2=100B → Q3 (Active).
-      // The important assertion is that big gets a higher scalar.
+      expect(tempoSmall.label).toBe("Languid");
+      expect(tempoBig.label).toBe("Active");
       expect(tempoBig.scalar).toBeGreaterThan(tempoSmall.scalar);
-
-      // The scalar difference must yield ≥10% faster cycle for the bigger ship
-      // (after dividing base by scalar, bigger scalar → smaller cycle).
       const ratio = tempoSmall.scalar / tempoBig.scalar;
-      expect(ratio).toBeLessThanOrEqual(0.9); // big is at least ~10% faster in base cycle
+      expect(ratio).toBeCloseTo(0.7391, 3);
     });
 
-    it("SPEED_QUARTILE_SCALARS has 4 entries in ascending order from 0.85 to 1.15", () => {
+    it("SPEED_QUARTILE_SCALARS keeps the existing 0.85–1.15 flow landmarks", () => {
       expect(SPEED_QUARTILE_SCALARS).toHaveLength(4);
       expect(SPEED_QUARTILE_SCALARS[0]).toBe(0.85);
       expect(SPEED_QUARTILE_SCALARS[3]).toBe(1.15);
@@ -2520,35 +2511,32 @@ describe("motion", () => {
       }
     });
 
-    it("single-ship fleet always returns Q0 (Languid)", () => {
+    it("uses neutral pace when a single ship has no flow reading", () => {
       const ship = worldForShip({
         chainCirculating: chainCirculating(["Ethereum"]),
         chains: ["ethereum"],
       }).ships[0]!;
       const tempo = shipCycleTempo(ship, [ship]);
-      expect(tempo.quartile).toBe(0);
-      expect(tempo.label).toBe("Languid");
-      expect(tempo.scalar).toBe(0.85);
+      expect(tempo.label).toBe("Unmeasured");
+      expect(tempo.scalar).toBe(1);
     });
 
-    it("two-ship fleet: lower marketCap ship gets lower or equal quartile", () => {
+    it("uses flow magnitude rather than flow direction", () => {
       const base = worldForShip({ chainCirculating: chainCirculating(["Ethereum"]), chains: ["ethereum"] });
-      const cheapShip = { ...base.ships[0]!, id: "cheap", marketCapUsd: 500_000 };
-      const expensiveShip = { ...base.ships[0]!, id: "expensive", marketCapUsd: 50_000_000_000 };
-      const all = [cheapShip, expensiveShip];
-      const tempoCheap = shipCycleTempo(cheapShip, all);
-      const tempoExpensive = shipCycleTempo(expensiveShip, all);
-      expect(tempoCheap.quartile).toBeLessThanOrEqual(tempoExpensive.quartile);
+      const minting = { ...base.ships[0]!, id: "minting", flowIntensity: 60 };
+      const redeeming = { ...base.ships[0]!, id: "redeeming", flowIntensity: -60 };
+      expect(shipCycleTempo(minting, [minting, redeeming])).toMatchObject({ label: "Brisk", scalar: 1.03 });
+      expect(shipCycleTempo(redeeming, [minting, redeeming])).toMatchObject({ label: "Brisk", scalar: 1.03 });
     });
 
-    it("four-ship fleet produces all four quartile labels", () => {
+    it("four flow bands produce all four labels", () => {
       const base = worldForShip({ chainCirculating: chainCirculating(["Ethereum"]), chains: ["ethereum"] });
-      const makeShip = (id: string, cap: number) => ({ ...base.ships[0]!, id, marketCapUsd: cap });
+      const makeShip = (id: string, flowIntensity: number) => ({ ...base.ships[0]!, id, flowIntensity });
       const ships = [
-        makeShip("a", 1_000),
-        makeShip("b", 10_000),
-        makeShip("c", 100_000),
-        makeShip("d", 1_000_000),
+        makeShip("a", 0),
+        makeShip("b", 25),
+        makeShip("c", 50),
+        makeShip("d", 75),
       ];
       const tempos = ships.map((s) => shipCycleTempo(s, ships).label);
       expect(tempos).toContain("Languid");
@@ -2557,18 +2545,11 @@ describe("motion", () => {
       expect(tempos).toContain("Active");
     });
 
-    it("top-quartile ship in a plan has strictly shorter cycleSeconds than bottom-quartile under matched chain breadth", () => {
-      // Build two worlds with identical chain breadth but different marketCaps.
+    it("keeps planned ship cycles in range when flow data is absent", () => {
       const chains = ["ethereum"];
       const circulating = chainCirculating(["Ethereum"]);
       const worldSmall = worldForShip({ chainCirculating: circulating, chains });
 
-      // Force distinct marketCaps so they land in different quartiles when
-      // compared in a hypothetical 2-ship fleet. We test the scalar's effect
-      // by calling buildBaseMotionPlan on a world that has one ship each.
-      // Since each world has one ship, each gets Q0 scalar=0.85. So we instead
-      // test directly via the cycleSeconds formula by constructing a plan for
-      // a multi-ship world built from the dense fixture.
       const densePlan = buildBaseMotionPlan(buildPharosVilleWorld({
         stablecoins: denseFixtureStablecoins,
         chains: denseFixtureChains,
@@ -2580,35 +2561,29 @@ describe("motion", () => {
         freshness: {},
       }));
 
-      // In a multi-ship world, ships with different marketCap quartiles must
-      // have different scalars, and the cycleSeconds of a Q3 ship must be ≤
-      // that of a Q0 ship with identical chain breadth (when jitter is the same).
-      // We assert the plan contains routes and that the routes' cycleSeconds
-      // stay within the design bounds.
       expect(densePlan.shipRoutes.size).toBeGreaterThan(1);
       for (const route of densePlan.shipRoutes.values()) {
         expect(route.cycleSeconds).toBeGreaterThanOrEqual(SHIP_CYCLE_MIN_SECONDS);
         expect(route.cycleSeconds).toBeLessThanOrEqual(SHIP_CYCLE_MAX_SECONDS);
       }
 
-      // Verify small world cycle is also in bounds (single-ship → Q0).
       const smallPlan = buildBaseMotionPlan(worldSmall);
       const route = smallPlan.shipRoutes.get(worldSmall.ships[0]!.id)!;
       expect(route.cycleSeconds).toBeGreaterThanOrEqual(SHIP_CYCLE_MIN_SECONDS);
       expect(route.cycleSeconds).toBeLessThanOrEqual(SHIP_CYCLE_MAX_SECONDS);
     });
 
-    it("keeps planned ship cycles in the live-motion tempo range while preserving scalar ordering", () => {
+    it("keeps planned ship cycles in range while preserving flow scalar ordering", () => {
       const baseWorld = worldForShip({
         chainCirculating: chainCirculating(["Ethereum"]),
         chains: ["ethereum"],
       });
       const baseShip = baseWorld.ships[0]!;
       const ships = [
-        { ...baseShip, id: "cycle-q0", detailId: "ship.cycle-q0", marketCapUsd: 1_000 },
-        { ...baseShip, id: "cycle-q1", detailId: "ship.cycle-q1", marketCapUsd: 10_000 },
-        { ...baseShip, id: "cycle-q2", detailId: "ship.cycle-q2", marketCapUsd: 100_000 },
-        { ...baseShip, id: "cycle-q3", detailId: "ship.cycle-q3", marketCapUsd: 1_000_000 },
+        { ...baseShip, id: "cycle-q0", detailId: "ship.cycle-q0", flowIntensity: 0 },
+        { ...baseShip, id: "cycle-q1", detailId: "ship.cycle-q1", flowIntensity: 25 },
+        { ...baseShip, id: "cycle-q2", detailId: "ship.cycle-q2", flowIntensity: 50 },
+        { ...baseShip, id: "cycle-q3", detailId: "ship.cycle-q3", flowIntensity: 100 },
       ];
       const plan = buildBaseMotionPlan({ ...baseWorld, ships });
       const languidRoute = plan.shipRoutes.get("cycle-q0")!;

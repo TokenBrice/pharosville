@@ -420,8 +420,8 @@ describe("detail-model analytical links", () => {
     ]);
   });
 
-  it("exposes a Cycle tempo fact with one of the four canonical labels", () => {
-    const ship: import("./world-types").ShipNode = {
+  it("exposes a Cycle tempo fact with the per-coin flow intensity", () => {
+    const ship: import("./world-types").ShipNode & { flowIntensity: number } = {
       id: "usdt-tether",
       kind: "ship",
       label: "Tether",
@@ -466,19 +466,20 @@ describe("detail-model analytical links", () => {
       },
       change24hUsd: null,
       change24hPct: null,
+      flowIntensity: 64,
       detailId: "ship.usdt-tether",
     };
     const detail = detailForShip(ship);
     const tempoFact = detail.facts.find((fact) => fact.label === "Cycle tempo");
     expect(tempoFact).toBeDefined();
-    expect(["Languid", "Steady", "Brisk", "Active"]).toContain(tempoFact!.value);
+    expect(tempoFact).toEqual({
+      label: "Cycle tempo",
+      value: "Brisk — 64/100 24h mint/redeem flow intensity",
+    });
   });
 
-  it("computes Cycle tempo per quartile when allShips context is supplied (BLOCKER fix from DOM-parity review)", () => {
-    // Without `allShips` the helper falls back to a 1-ship fleet that always
-    // returns Q0 / "Languid". This test exercises the multi-ship path through
-    // `detailForShip` so the Q1/Q2/Q3 paths are not silently untested.
-    const baseShip: import("./world-types").ShipNode = {
+  it("computes Cycle tempo from each coin's flow intensity regardless of fleet context", () => {
+    const baseShip: import("./world-types").ShipNode & { flowIntensity: number } = {
       id: "base",
       kind: "ship",
       label: "Base",
@@ -523,28 +524,29 @@ describe("detail-model analytical links", () => {
       },
       change24hUsd: null,
       change24hPct: null,
+      flowIntensity: 0,
       detailId: "ship.base",
     };
     const ships = [
-      { ...baseShip, id: "q0", detailId: "ship.q0", marketCapUsd: 1_000 },
-      { ...baseShip, id: "q1", detailId: "ship.q1", marketCapUsd: 10_000 },
-      { ...baseShip, id: "q2", detailId: "ship.q2", marketCapUsd: 100_000 },
-      { ...baseShip, id: "q3", detailId: "ship.q3", marketCapUsd: 1_000_000 },
+      { ...baseShip, id: "q0", detailId: "ship.q0", marketCapUsd: 1_000, flowIntensity: 0 },
+      { ...baseShip, id: "q1", detailId: "ship.q1", marketCapUsd: 10_000, flowIntensity: 25 },
+      { ...baseShip, id: "q2", detailId: "ship.q2", marketCapUsd: 100_000, flowIntensity: -50 },
+      { ...baseShip, id: "q3", detailId: "ship.q3", marketCapUsd: 1_000_000, flowIntensity: 100 },
     ];
     const tempoLabels = ships.map((ship) => {
       const detail = detailForShip(ship, { allShips: ships });
       const fact = detail.facts.find((f) => f.label === "Cycle tempo");
       return fact?.value;
     });
-    // Each quartile path must be exercised — all four labels must appear.
-    expect(tempoLabels).toContain("Languid");
-    expect(tempoLabels).toContain("Steady");
-    expect(tempoLabels).toContain("Brisk");
-    expect(tempoLabels).toContain("Active");
-    // Without context the helper degrades to Q0 — guard against silent regression.
+    expect(tempoLabels).toEqual([
+      "Languid — 0/100 24h mint/redeem flow intensity",
+      "Steady — 25/100 24h mint/redeem flow intensity",
+      "Brisk — 50/100 24h mint/redeem flow intensity",
+      "Active — 100/100 24h mint/redeem flow intensity",
+    ]);
     const detailWithoutContext = detailForShip(ships[3]!);
     const tempoWithoutContext = detailWithoutContext.facts.find((f) => f.label === "Cycle tempo");
-    expect(tempoWithoutContext?.value).toBe("Languid");
+    expect(tempoWithoutContext?.value).toBe("Active — 100/100 24h mint/redeem flow intensity");
   });
 
   it("exposes ship route and Ledger Mooring placement facts", () => {

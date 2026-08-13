@@ -169,6 +169,9 @@ export function motionPlanSignature(world: PharosVilleWorld): string {
       ship.marketCapUsd,
       ship.change24hUsd ?? "",
       ship.change24hPct ?? "",
+      // W7.7: flow-only refreshes must invalidate the plan whose cycle scalar
+      // is derived from this field.
+      (ship as ShipNode & { flowIntensity?: number | null }).flowIntensity ?? "",
       `${ship.riskTile.x},${ship.riskTile.y}`,
       ship.riskPlacement,
       ship.riskZone,
@@ -193,9 +196,9 @@ export function buildBaseMotionPlan(world: PharosVilleWorld, timeSeconds = 0): P
   const bucket = Math.floor(timeSeconds / 600);
   const waterRouteCache = getMapPathCache(world.map, world.ships.length);
 
-  // Compute per-ship speed scalars from marketCap quartiles once, at plan-build
-  // time. `precomputeShipTempos` does a single sort over the fleet (O(N log N))
-  // instead of N independent sorts (O(N² log N)) that the prior loop incurred.
+  // Compute per-ship speed scalars from 24h mint/redeem flow intensity once,
+  // at plan-build time. `precomputeShipTempos` is now an O(N) pass because the
+  // rate is independent per coin.
   const tempoById = precomputeShipTempos(world.ships);
   const speedScalarById = new Map<string, number>();
   for (const [shipId, tempo] of tempoById) {

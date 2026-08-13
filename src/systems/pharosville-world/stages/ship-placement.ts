@@ -301,6 +301,12 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
   const pegById = buildPegSummaryCoinMap(inputs.pegSummary?.coins);
   const reportCardById = buildReportCardMap(inputs.reportCards?.cards) ?? {};
   const stressById = inputs.stress?.signals ?? {};
+  // W7.7 — keep the per-coin rate reading on the ship that motion planning,
+  // detail, and the ledger already share. Missing rows remain null so the
+  // tempo derivation can choose neutral 1.0 rather than inventing calm.
+  const flowIntensityById = new Map(
+    (inputs.mintBurn?.coins ?? []).map((coin) => [coin.stablecoinId, coin.flowIntensity] as const),
+  );
   const renderedDockChainIds = new Set(docks.map((dock) => dock.chainId));
 
   const assets = activeAssets(inputs.stablecoins);
@@ -384,6 +390,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
       visual: { ...shipVisual, hullForm: { ...shipVisual.hullForm, waterline } },
       change24hUsd: recent.change24hUsd,
       change24hPct: recent.change24hPct,
+      flowIntensity: flowIntensityById.get(asset.id) ?? null,
       pegDeviationBps: pegCoin?.currentDeviationBps ?? null,
       pegCurrency: pegCoin?.pegCurrency ?? null,
       change7dPct: recent.change7dPct,

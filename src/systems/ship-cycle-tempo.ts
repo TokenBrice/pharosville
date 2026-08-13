@@ -1,113 +1,108 @@
 import type { ShipNode } from "./world-types";
 
 /**
- * Four human-readable tempo labels corresponding to marketCap quartiles.
- * Q0 (lowest marketCap) → "Languid"; Q3 (highest) → "Active".
- * These labels surface in the detail panel and accessibility ledger so any
- * data-driven speed difference on the canvas has a DOM-parity equivalent.
- *
- * "Active" replaces an earlier "Lively" because screen-reader playback of
- * "cycle tempo lively" reads as a fashion adjective rather than a speed
- * cue (see DOM-parity review 2026-05-03).
+ * Four human-readable tempo labels corresponding to 24h mint/redeem activity.
+ * The magnitude of a coin's signed `flowIntensity` selects the label; the
+ * sign remains the separate 24h supply-change reading. These labels surface in
+ * the detail panel and accessibility ledger so the rate cue has DOM parity.
  */
 export const CYCLE_TEMPO_LABELS = ["Languid", "Steady", "Brisk", "Active"] as const;
 
 export type CycleTempoLabel = typeof CYCLE_TEMPO_LABELS[number];
+export const CYCLE_TEMPO_UNAVAILABLE_LABEL = "Unmeasured" as const;
+export type CycleTempoDisplayLabel = CycleTempoLabel | typeof CYCLE_TEMPO_UNAVAILABLE_LABEL;
 
+/**
+ * The cycle pace now says something about transfers: it tracks the magnitude
+ * of the coin's 24h mint/redeem flow, not its market-cap tier. Direction stays
+ * in the adjacent 24h supply-change fact.
+ */
 export function cycleTempoReadingClause(): string {
-  return "cycle pace tracks supply tier, not transfers";
+  return "cycle pace tracks 24h mint/redeem flow intensity by magnitude, not market-cap tier; unavailable flow uses neutral pace and is explicitly disclaimed";
 }
 
 /**
- * Compute the marketCap quartile (0–3) for a ship relative to its fleet.
- * Pure / deterministic. Returns 0 for single-ship fleets.
+ * The old export name is kept because `motion.ts` is a stable barrel consumed
+ * by the motion tests and renderer. Its values are now the low-to-high flow
+ * intensity interpolation landmarks, not market-cap quartiles.
  */
-function normalizedMarketCap(value: number): number {
-  return Number.isFinite(value) && value > 0 ? value : 0;
+export const SPEED_QUARTILE_SCALARS = [0.85, 0.95, 1.05, 1.15] as const;
+
+const FLOW_INTENSITY_MAX = 100;
+
+type ShipWithFlowIntensity = ShipNode & { flowIntensity?: number | null };
+
+function normalizedFlowIntensity(ship: ShipNode): number | null {
+  const value = (ship as ShipWithFlowIntensity).flowIntensity;
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return Math.max(-FLOW_INTENSITY_MAX, Math.min(FLOW_INTENSITY_MAX, value));
 }
 
-function compareShipsByMarketCapRank(left: ShipNode, right: ShipNode): number {
-  const byMarketCap = normalizedMarketCap(left.marketCapUsd) - normalizedMarketCap(right.marketCapUsd);
-  return byMarketCap !== 0 ? byMarketCap : left.id.localeCompare(right.id);
+function intensityBand(flowIntensity: number): 0 | 1 | 2 | 3 {
+  return Math.min(3, Math.floor(Math.abs(flowIntensity) / 25)) as 0 | 1 | 2 | 3;
 }
 
-function quartileForRankPosition(index: number, total: number): 0 | 1 | 2 | 3 {
-  if (total <= 1) return 0;
-  return Math.max(0, Math.min(3, Math.round((index / (total - 1)) * 3))) as 0 | 1 | 2 | 3;
-}
-
-function marketCapQuartile(ship: ShipNode, allShips: readonly ShipNode[]): 0 | 1 | 2 | 3 {
-  if (allShips.length <= 1) return 0;
-  const sorted = [...allShips].sort(compareShipsByMarketCapRank);
-  const index = sorted.findIndex((entry) => entry.id === ship.id);
-  return quartileForRankPosition(index >= 0 ? index : 0, sorted.length);
+/**
+ * Map signed per-coin flow intensity to the existing modest speed band.
+ * Missing intensity is deliberately different from measured zero: the former
+ * is neutral 1.0 and says nothing, while the latter is a measured languid
+ * reading at the slow edge of the band.
+ */
+export function cycleTempoSpeedScalar(flowIntensity: number | null | undefined): number {
+  if (typeof flowIntensity !== "number" || !Number.isFinite(flowIntensity)) return 1;
+  const magnitude = Math.min(FLOW_INTENSITY_MAX, Math.abs(flowIntensity));
+  const slow = SPEED_QUARTILE_SCALARS[0];
+  const fast = SPEED_QUARTILE_SCALARS[SPEED_QUARTILE_SCALARS.length - 1];
+  return slow + (fast - slow) * (magnitude / FLOW_INTENSITY_MAX);
 }
 
 export interface ShipCycleTempoResult {
-  quartile: 0 | 1 | 2 | 3;
-  label: CycleTempoLabel;
+  flowIntensity: number | null;
+  label: CycleTempoDisplayLabel;
   scalar: number;
 }
 
 /**
- * Compute the cycle-tempo descriptor for a single ship relative to its fleet.
- * Single source of truth used by motion-planning, detail-model, and
- * accessibility-ledger so the quartile logic is never duplicated.
- *
- * Each call sorts the full marketCap array (O(N log N)). When you need
- * tempos for many ships in the same fleet, prefer `precomputeShipTempos` —
- * it amortizes the sort to a single pass.
- *
- * @param ship - The ship to compute tempo for.
- * @param allShips - All ships in the world (including `ship`).
+ * Format the detail-panel value for the same result used by motion planning.
+ * An absent feed is explicit: the route remains at neutral speed and the
+ * stillness contract is not allowed to turn missing data into a calm reading.
  */
-export function shipCycleTempo(ship: ShipNode, allShips: readonly ShipNode[]): ShipCycleTempoResult {
-  const quartile = marketCapQuartile(ship, allShips);
+export function cycleTempoDetailLabel(tempo: ShipCycleTempoResult): string {
+  if (tempo.flowIntensity === null) {
+    return `${CYCLE_TEMPO_UNAVAILABLE_LABEL} — neutral pace (24h mint/redeem flow intensity unavailable)`;
+  }
+  return `${tempo.label} — ${Math.round(Math.abs(tempo.flowIntensity))}/100 24h mint/redeem flow intensity`;
+}
+
+/**
+ * Compute the flow-tempo descriptor for a single ship.
+ * `allShips` remains in the signature for the shared motion/detail call shape;
+ * tempo is per-coin now and no fleet ranking or sort is involved.
+ */
+export function shipCycleTempo(ship: ShipNode, _allShips: readonly ShipNode[] = []): ShipCycleTempoResult {
+  const flowIntensity = normalizedFlowIntensity(ship);
+  if (flowIntensity === null) {
+    return {
+      flowIntensity: null,
+      label: CYCLE_TEMPO_UNAVAILABLE_LABEL,
+      scalar: 1,
+    };
+  }
   return {
-    quartile,
-    label: CYCLE_TEMPO_LABELS[quartile],
-    scalar: SPEED_QUARTILE_SCALARS[quartile],
+    flowIntensity,
+    label: CYCLE_TEMPO_LABELS[intensityBand(flowIntensity)],
+    scalar: cycleTempoSpeedScalar(flowIntensity),
   };
 }
 
 /**
- * Precompute cycle-tempo descriptors for every ship in a fleet with one sort.
- * Returns a Map keyed on ship id. O(N log N) total instead of O(N² log N) for
- * naive `ships.map(s => shipCycleTempo(s, ships))`.
- *
- * Use this whenever you need tempos for more than one ship in the same fleet:
- * plan-build (`buildBaseMotionPlan`), detail-index, accessibility-ledger.
+ * Precompute cycle-tempo descriptors for every ship. The function remains the
+ * fleet-level entry point used by motion planning, detail-index, and the
+ * accessibility ledger; the derivation itself is now O(N) because it is
+ * independent per coin.
  */
 export function precomputeShipTempos(allShips: readonly ShipNode[]): Map<string, ShipCycleTempoResult> {
   const result = new Map<string, ShipCycleTempoResult>();
-  if (allShips.length === 0) return result;
-  if (allShips.length === 1) {
-    const ship = allShips[0]!;
-    result.set(ship.id, {
-      quartile: 0,
-      label: CYCLE_TEMPO_LABELS[0],
-      scalar: SPEED_QUARTILE_SCALARS[0],
-    });
-    return result;
-  }
-  const sorted = [...allShips].sort(compareShipsByMarketCapRank);
-  for (const [index, ship] of sorted.entries()) {
-    const quartile = quartileForRankPosition(index, sorted.length);
-    result.set(ship.id, {
-      quartile,
-      label: CYCLE_TEMPO_LABELS[quartile],
-      scalar: SPEED_QUARTILE_SCALARS[quartile],
-    });
-  }
+  for (const ship of allShips) result.set(ship.id, shipCycleTempo(ship, allShips));
   return result;
 }
-
-/**
- * Speed scalars indexed by marketCap quartile (0 = lowest, 3 = highest).
- * Applied as a divisor to cycleSeconds so high-quartile ships complete cycles
- * faster (shorter cycleSeconds = faster perceived movement):
- *   cycleSeconds / scalar → Q3 ships are ~15% faster than Q0 ships.
- *
- * The 0.85–1.15 range keeps the cycle within the 780–1560s bounds by design.
- */
-export const SPEED_QUARTILE_SCALARS = [0.85, 0.95, 1.05, 1.15] as const;

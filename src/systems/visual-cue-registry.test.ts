@@ -30,7 +30,7 @@ describe("buildVisualCueRegistry", () => {
       "cue.water.semantic-terrain",
     ]));
     expect(cues.find((cue) => cue.id === "cue.ship.motion")).toMatchObject({
-      failureState: "reduced-motion static risk-water idle position with evidence caveat",
+      failureState: expect.stringContaining("reduced-motion static risk-water idle position with evidence caveat"),
       target: { kind: "ship" },
       primaryChannels: ["motion", "position", "opacity"],
     });
@@ -54,6 +54,17 @@ describe("buildVisualCueRegistry", () => {
     // Tone contract: the hoist reports, it does not alarm. No cue copy here
     // may reach for emergency language.
     expect(`${cue?.visual} ${cue?.questionAnswered}`).not.toMatch(/\b(alert|alarm|urgent|critical|emergency)\b/i);
+  });
+
+  it("registers ship cycle tempo against per-coin mint/redeem flow intensity", () => {
+    const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.ship.motion");
+
+    expect(cue).toMatchObject({
+      sourceField: expect.stringContaining("mintBurn.coins[].flowIntensity"),
+      questionAnswered: expect.stringContaining("24h mint/redeem flow"),
+      failureState: expect.stringContaining("neutral 1.0 cycle-speed scalar"),
+    });
+    expect(cue?.domEquivalent).toContain("not market-cap tier");
   });
 
   it("does not expose removed data-building cue targets", () => {

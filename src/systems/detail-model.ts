@@ -8,7 +8,7 @@ import { analyticalRouteHref } from "./route-links";
 import { formationLabel, squadForMember, squadRole } from "./maker-squad";
 import { zoneThemeForTerrain } from "./palette";
 import { RISK_WATER_AREAS } from "./risk-water-areas";
-import { shipCycleTempo, type ShipCycleTempoResult } from "./ship-cycle-tempo";
+import { cycleTempoDetailLabel, shipCycleTempo, type ShipCycleTempoResult } from "./ship-cycle-tempo";
 import type { SupplyTide } from "./supply-tide";
 import { deriveLampStatus, lampStatusReading } from "./lamp-status";
 import type { PharosVilleFreshness } from "./world-types";
@@ -1021,7 +1021,7 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
     { label: "24h supply change", value: change24hPctLabel(node.change24hPct) },
     ...(momentum ? [{ label: "Supply momentum", value: momentum }] : []),
     ...(depegHistory ? [{ label: "Depeg history", value: depegHistory }] : []),
-    { label: "Cycle tempo", value: cycleTempo.label },
+    { label: "Cycle tempo", value: cycleTempoDetailLabel(cycleTempo) },
     ...(safetyGrade ? [{ label: "Safety grade", value: safetyGrade }] : []),
     { label: "Ship class", value: node.visual.classLabel },
     { label: "Size tier", value: node.visual.sizeLabel },
