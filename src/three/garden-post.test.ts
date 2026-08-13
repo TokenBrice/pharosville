@@ -1,4 +1,21 @@
-import { HalfFloatType, OrthographicCamera, Scene, type WebGLRenderer } from "three";
+// @vitest-environment jsdom
+//
+// The post chain owns two of its own textures (the phase LUT strip and the
+// blue-noise dither mask) and loads them through three's TextureLoader, which
+// needs a document. Under the default `node` environment the loader is skipped
+// by design and half the W1.1/W1.2 contract would be untestable.
+import {
+  ClampToEdgeWrapping,
+  HalfFloatType,
+  LinearFilter,
+  NearestFilter,
+  NoColorSpace,
+  OrthographicCamera,
+  RepeatWrapping,
+  Scene,
+  type Texture,
+  type WebGLRenderer,
+} from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createGardenPost, type GardenPost } from "./garden-post";
 
@@ -365,6 +382,20 @@ function numberUniform(effect: FakeEffect, name: string): number {
   return value;
 }
 
+function lutWeights(): [number, number, number] {
+  const value = effectNamed("GardenLut").uniforms.get("lutWeights")?.value as
+    | { x: number; y: number; z: number }
+    | undefined;
+  if (!value) throw new Error("Expected the GardenLut lutWeights uniform");
+  return [value.x, value.y, value.z];
+}
+
+function lutTexture(name: "ditherNoise" | "lutStrip"): Texture {
+  const value = effectNamed("GardenLut").uniforms.get(name)?.value as Texture | null | undefined;
+  if (!value) throw new Error(`Expected the GardenLut ${name} texture`);
+  return value;
+}
+
 beforeEach(() => {
   activePosts.length = 0;
   postHarness.blooms.length = 0;
@@ -409,11 +440,14 @@ describe("garden post-processing contracts", () => {
     const passEffects = composer.passes.map((pass) => (
       pass.effects?.map((effect) => effect.name) ?? [pass.name]
     ));
+    // W1.1: the authored cube is the THIRD effect of the grade pass, not a
+    // fourth pass. Its position after ToneMappingEffect is the contract — a LUT
+    // ahead of AgX would be graded on values it has no entries for.
     expect(passEffects).toEqual([
       ["RenderPass"],
       [undefined],
       ["BloomEffect"],
-      ["GardenGrade", "ToneMappingEffect"],
+      ["GardenGrade", "ToneMappingEffect", "GardenLut"],
       ["SMAAEffect"],
     ]);
     expect(post.getPassList()).toEqual([
@@ -422,6 +456,7 @@ describe("garden post-processing contracts", () => {
       "bloom",
       "grade",
       "output",
+      "lut",
       "smaa",
     ]);
 
@@ -434,6 +469,147 @@ describe("garden post-processing contracts", () => {
     expect(composer.passes.slice(0, -1).every((pass) => !pass.renderToScreen)).toBe(true);
     expect(effectNamed("SMAAEffect").attributes).toBe(2);
     expect(effectNamed("GardenGrade").fragmentShader).not.toMatch(/toneMapping|colorspace/i);
+    // The grade stays parametric and pre-tone-map; every lookup lives in the
+    // one effect that runs on the display signal.
+    expect(effectNamed("GardenGrade").fragmentShader).not.toMatch(/lutStrip|ditherNoise/);
+  });
+
+  it("applies the authored cube and the dither on the display signal, in one fused pass", () => {
+    makePost();
+    const lut = effectNamed("GardenLut");
+
+    // The sRGB round trip is what makes "post-tone-map" mean "in display
+    // space": the composer's intermediate buffer is linear half-float, so the
+    // effect has to encode, look up, dither, and decode.
+    expect(lut.fragmentShader).toMatch(/gardenLinearToDisplay\(clamp\(inputColor\.rgb/);
+    expect(lut.fragmentShader).toMatch(/outputColor = vec4\(gardenDisplayToLinear/);
+    // W1.2: one output code of blue noise, addressed in device pixels so the
+    // mask tiles 1:1 with the pixels that quantize.
+    expect(lut.fragmentShader).toMatch(/gl_FragCoord\.xy \/ DITHER_TILE/);
+    expect(lut.fragmentShader).toMatch(/\(noise - 0\.5\) \* ditherMix \/ 255\.0/);
+    // Manual trilinear: the blue axis is lerped by hand between two slices so
+    // hardware filtering never crosses a slice or a phase-band boundary.
+    expect(lut.fragmentShader).toMatch(/mix\(nearSlice, farSlice, slice - low\)/);
+  });
+
+  it("loads the LUT and dither textures as raw, unfiltered look-up data", () => {
+    makePost();
+    const strip = lutTexture("lutStrip");
+    const noise = lutTexture("ditherNoise");
+
+    for (const texture of [strip, noise]) {
+      // A transfer function on read, a mipmap chain, or a Y flip each silently
+      // corrupts a packed cube; none of them can be caught by looking at it.
+      expect(texture.colorSpace).toBe(NoColorSpace);
+      expect(texture.generateMipmaps).toBe(false);
+      expect(texture.flipY).toBe(false);
+    }
+    // The cube interpolates (that is the point) and clamps at the cube edges;
+    // the dither mask must not interpolate at all, and it tiles the frame.
+    expect([strip.minFilter, strip.magFilter]).toEqual([LinearFilter, LinearFilter]);
+    expect([strip.wrapS, strip.wrapT]).toEqual([ClampToEdgeWrapping, ClampToEdgeWrapping]);
+    expect([noise.minFilter, noise.magFilter]).toEqual([NearestFilter, NearestFilter]);
+    expect([noise.wrapS, noise.wrapT]).toEqual([RepeatWrapping, RepeatWrapping]);
+  });
+
+  it("blends the three LUT bands by the same law the parametric tables use", () => {
+    const { post } = makePost();
+    const lut = effectNamed("GardenLut");
+
+    expect([...lut.uniforms.keys()].sort()).toEqual([
+      "ditherMix",
+      "ditherNoise",
+      "grain",
+      "lutMix",
+      "lutStrip",
+      "lutWeights",
+    ]);
+    // Paper grain A/B'd and dropped; the term stays behind a zeroed dial.
+    expect(numberUniform(lut, "grain")).toBe(0);
+
+    // Night is the base of the blend, exactly as in the grade tables.
+    expect(lutWeights()).toEqual([1, 0, 0]);
+    post.setGrade(0, 1);
+    expect(lutWeights()).toEqual([0, 1, 0]);
+    post.setGrade(1, 0);
+    expect(lutWeights()).toEqual([0, 0, 1]);
+    post.setGrade(1, 1);
+    expect(lutWeights()).toEqual([0, 0, 1]);
+
+    // The mid-blend weights are the expansion of
+    // lerp(lerp(night, dusk, duskMix), day, dayMix), and they sum to 1.
+    post.setGrade(0.4, 0.25);
+    const [night, dusk, day] = lutWeights();
+    expect(day).toBeCloseTo(0.4);
+    expect(dusk).toBeCloseTo(0.15);
+    expect(night).toBeCloseTo(0.45);
+    expect(night + dusk + day).toBeCloseTo(1);
+
+    // A caller outside [0, 1] must never produce a negative band weight — the
+    // parametric lerps extrapolate, but a LUT sampled in reverse is not a look.
+    post.setGrade(1.5, -0.4);
+    expect(lutWeights()).toEqual([0, 0, 1]);
+    post.setGrade(-0.2, 1.4);
+    expect(lutWeights()).toEqual([0, 1, 0]);
+  });
+
+  it("keeps the LUT on at every tier and inert until its texture decodes", () => {
+    const { post } = makePost();
+    const lut = effectNamed("GardenLut");
+
+    // Nothing is graded through an undecoded texture: the effect passes the
+    // tone-mapped frame straight through until the PNG arrives.
+    expect(numberUniform(lut, "lutMix")).toBe(0);
+    expect(numberUniform(lut, "ditherMix")).toBe(0);
+
+    // Tier invariance: no tier may change hue, so every tier the scheduler can
+    // reach still lists the grade/tone-map/LUT stage.
+    post.setBloomEnabled(false);
+    post.setAOTierWeight(0);
+    expect(post.getPassList()).toEqual(["render", "grade", "output", "lut", "smaa"]);
+    post.setAOZoomDetail(0);
+    expect(post.getPassList()).toContain("lut");
+  });
+
+  it("fades the authored cube in rather than snapping the frame when it decodes", () => {
+    const images: Element[] = [];
+    const createElement = document.createElementNS.bind(document);
+    vi.spyOn(document, "createElementNS").mockImplementation(((namespace: string, name: string) => {
+      const element = createElement(namespace, name) as Element;
+      images.push(element);
+      return element;
+    }) as typeof document.createElementNS);
+
+    const { post } = makePost();
+    const lut = effectNamed("GardenLut");
+    // Both textures are same-origin and cache-busted by content hash, which is
+    // what `npm run check:garden-luts` verifies against the generated pixels.
+    expect(images.map((image) => image.getAttribute("src"))).toEqual([
+      expect.stringMatching(/^\/pharosville\/textures\/garden-grade-lut\.png\?v=[0-9a-f]{12}$/),
+      expect.stringMatching(/^\/pharosville\/textures\/garden-blue-noise\.png\?v=[0-9a-f]{12}$/),
+    ]);
+
+    for (const image of images) image.dispatchEvent(new Event("load"));
+    // Still nothing this frame: the fade is driven by the render clock.
+    expect(numberUniform(lut, "lutMix")).toBe(0);
+
+    post.render(1 / 60);
+    const firstStep = numberUniform(lut, "lutMix");
+    expect(firstStep).toBeGreaterThan(0);
+    expect(firstStep).toBeLessThan(0.2);
+    expect(numberUniform(lut, "ditherMix")).toBeCloseTo(firstStep);
+
+    // 95 % of the way inside half a second, fully settled inside 1.5 s, and
+    // then it stays settled rather than creeping.
+    for (let frame = 0; frame < 30; frame += 1) post.render(1 / 60);
+    expect(numberUniform(lut, "lutMix")).toBeGreaterThan(0.9);
+    for (let frame = 0; frame < 60; frame += 1) post.render(1 / 60);
+    expect(numberUniform(lut, "lutMix")).toBe(1);
+    expect(numberUniform(lut, "ditherMix")).toBe(1);
+    post.render(1 / 60);
+    expect(numberUniform(lut, "lutMix")).toBe(1);
+
+    vi.restoreAllMocks();
   });
 
   it("blends night, dusk, day, storm, lightning, bloom, and AO from one phase plan", () => {
@@ -444,6 +620,11 @@ describe("garden post-processing contracts", () => {
     expect(colorUniform(grade, "lift")).toEqual([0.012, 0.016, 0.03]);
     expect(numberUniform(grade, "saturation")).toBe(1.1);
     expect(numberUniform(grade, "vignette")).toBe(0.36);
+    // W1.4: the vignette's weight leans up the frame, hardest by day where the
+    // haze band is brightest and gentlest at night, which has little sky to
+    // spare. The `vignette` amounts themselves are untouched — the bias
+    // redistributes the shipped darkening rather than adding to it.
+    expect(numberUniform(grade, "vignetteBias")).toBe(0.25);
     expect(numberUniform(grade, "flash")).toBe(0);
     expect(bloom.intensity).toBe(0.55);
     expect(bloom.luminanceMaterial.threshold).toBe(0.95);
@@ -452,6 +633,7 @@ describe("garden post-processing contracts", () => {
     post.setGrade(0, 1);
     expect(colorUniform(grade, "lift")).toEqual([0.006, 0.006, 0.008]);
     expect(numberUniform(grade, "saturation")).toBe(1.06);
+    expect(numberUniform(grade, "vignetteBias")).toBe(0.35);
     expect(bloom.intensity).toBe(0.78);
     expect(bloom.luminanceMaterial.threshold).toBe(0.9);
     expect(n8ao.configuration.intensity).toBe(4);
@@ -465,6 +647,7 @@ describe("garden post-processing contracts", () => {
     // dusk and night at 0.36, and with real haze in the far field the frame has
     // the range to carry it.
     expect(numberUniform(grade, "vignette")).toBe(0.32);
+    expect(numberUniform(grade, "vignetteBias")).toBe(0.45);
     expect(bloom.intensity).toBe(0.92);
     expect(bloom.luminanceMaterial.threshold).toBe(0.95);
     expect(n8ao.configuration.intensity).toBe(3);
