@@ -20,6 +20,7 @@ import {
   type DataTexture,
 } from "three";
 import type { PharosVilleRenderSchedulerTier } from "../renderer/render-types";
+import { lampStatusModulationForMix, type LampStatusModulation } from "../systems/lamp-status";
 import { HARBOR_PALETTE } from "../systems/palette";
 import { stableUnit } from "./garden-util";
 
@@ -50,6 +51,7 @@ const palette = (hex: string): Color => new Color(hex);
 const FLAME_CORE = palette(P.sun_day_warm);
 const FLAME_MID = palette(P.lantern_glow);
 const FLAME_OUTER = palette(P.vermillion);
+const LAMP_COOL = palette(P.lantern_cold);
 const EMBER_HOT = palette(P.foam_white);
 const EMBER_MID = palette(P.lantern_glow);
 const EMBER_COOL = palette(P.vermillion);
@@ -75,12 +77,16 @@ const WIND_Z = -Math.SQRT1_2;
 export interface BeaconFireUniforms {
   uFlicker: { value: number };
   uIntensity: { value: number };
+  uStatusCool: { value: number };
+  uStatusIntensity: { value: number };
   uTime: { value: number };
 }
 
 export interface GardenBeaconFireUpdate {
   /** PSI stress — scales the flicker amplitude (D5). */
   psiStress: number;
+  /** Status overlay; PSI remains the flame's base color and character. */
+  lampModulation?: LampStatusModulation;
   reducedMotion: boolean;
   timeSeconds: number;
 }
@@ -104,6 +110,8 @@ export function createGardenBeaconFire(cloudNoise: DataTexture): GardenBeaconFir
   const uniforms: BeaconFireUniforms = {
     uFlicker: { value: 0.5 },
     uIntensity: { value: 0 },
+    uStatusCool: { value: 0 },
+    uStatusIntensity: { value: 1 },
     uTime: { value: 0 },
   };
 
@@ -147,8 +155,11 @@ export function createGardenBeaconFire(cloudNoise: DataTexture): GardenBeaconFir
     },
     smokeMaterial: smoke.material,
     uniforms,
-    update({ psiStress, reducedMotion, timeSeconds }) {
-      const time = reducedMotion ? 0 : Math.max(0, timeSeconds);
+    update({ lampModulation, psiStress, reducedMotion, timeSeconds }) {
+      const modulation = lampModulation ?? lampStatusModulationForMix(0);
+      uniforms.uStatusCool.value = modulation.coolMix;
+      uniforms.uStatusIntensity.value = modulation.intensityScale;
+      const time = reducedMotion ? 0 : Math.max(0, timeSeconds) * modulation.rotationScale;
       uniforms.uTime.value = time;
       // Deterministic breathing from three slow, detuned waves. The former
       // 9 Hz stepped hash changed the flame, halo, point light, and water lane
@@ -198,8 +209,11 @@ function createFlame(uniforms: BeaconFireUniforms): Mesh<BufferGeometry, ShaderM
       uniform vec3 uColorCore;
       uniform vec3 uColorMid;
       uniform vec3 uColorOuter;
+      uniform vec3 uStatusCoolColor;
       uniform float uFlicker;
       uniform float uIntensity;
+      uniform float uStatusCool;
+      uniform float uStatusIntensity;
       uniform float uTime;
       varying vec2 vUv;
 
@@ -247,10 +261,13 @@ function createFlame(uniforms: BeaconFireUniforms): Mesh<BufferGeometry, ShaderM
         vec3 color = uColorOuter;
         color = mix(color, uColorMid, mid);
         color = mix(color, uColorCore, core);
+        // Temperature is a restrained overlay: the PSI bands remain visible
+        // and recognizable instead of being replaced by a status swatch.
+        color = mix(color, mix(color, uStatusCoolColor, 0.38), uStatusCool);
         float alpha = smoothstep(0.08 - bandWidth, 0.08 + bandWidth, flame) * 0.96;
         if (alpha < 0.01) discard;
 
-        float hdr = uIntensity * 0.32 * (0.88 + uFlicker * 0.3);
+        float hdr = uIntensity * uStatusIntensity * 0.32 * (0.88 + uFlicker * 0.3);
         // Band-shaped gain: only the cream core burns hot enough to bloom;
         // the gold mid and vermillion edge stay near 1.0 so the posterized
         // bands keep their hue instead of blowing to a white column.
@@ -266,6 +283,7 @@ function createFlame(uniforms: BeaconFireUniforms): Mesh<BufferGeometry, ShaderM
       uColorCore: { value: FLAME_CORE },
       uColorMid: { value: FLAME_MID },
       uColorOuter: { value: FLAME_OUTER },
+      uStatusCoolColor: { value: LAMP_COOL },
     },
     vertexShader: /* glsl */ `
       varying vec2 vUv;
@@ -338,6 +356,9 @@ function createEmbers(uniforms: BeaconFireUniforms): Points<BufferGeometry, Shad
       uniform vec3 uColorHot;
       uniform vec3 uColorMid;
       uniform float uIntensity;
+      uniform float uStatusCool;
+      uniform float uStatusIntensity;
+      uniform vec3 uStatusCoolColor;
       varying float vAge;
 
       void main() {
@@ -345,7 +366,8 @@ function createEmbers(uniforms: BeaconFireUniforms): Points<BufferGeometry, Shad
         if (soft < 0.02) discard;
         vec3 color = mix(uColorHot, uColorMid, smoothstep(0.0, 0.45, vAge));
         color = mix(color, uColorCool, smoothstep(0.4, 1.0, vAge));
-        float hdr = mix(2.2, 0.5, vAge) * (0.3 + uIntensity * 0.12);
+        color = mix(color, mix(color, uStatusCoolColor, 0.28), uStatusCool);
+        float hdr = mix(2.2, 0.5, vAge) * (0.3 + uIntensity * uStatusIntensity * 0.12);
         gl_FragColor = vec4(color * hdr, soft);
       }
     `,
@@ -356,6 +378,7 @@ function createEmbers(uniforms: BeaconFireUniforms): Points<BufferGeometry, Shad
       uColorCool: { value: EMBER_COOL },
       uColorHot: { value: EMBER_HOT },
       uColorMid: { value: EMBER_MID },
+      uStatusCoolColor: { value: LAMP_COOL },
     },
     vertexShader: /* glsl */ `
       attribute vec4 aSeed;

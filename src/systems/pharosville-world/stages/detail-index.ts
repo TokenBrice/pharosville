@@ -26,7 +26,13 @@ function buildDetailIndex(world: PharosVilleWorldBase): DetailIndexStage["detail
   const fleetRankById = precomputeFleetMarketCapRanks(world.ships);
   const inWorldShipDetailIds = new Set(world.ships.map((ship) => ship.detailId));
   const details = [
-    detailForLighthouse(world.lighthouse, world.supplyTide, world.fleetIssuance),
+    detailForLighthouse(
+      world.lighthouse,
+      world.supplyTide,
+      world.fleetIssuance,
+      world.freshness,
+      world.generatedAt,
+    ),
     detailForPigeonnier(world.pigeonnier),
     ...world.docks.map((dock) => detailForDock(dock, { inWorldDetailIds: inWorldShipDetailIds })),
     ...world.ships.map((ship) => {

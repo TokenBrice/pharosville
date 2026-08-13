@@ -10,6 +10,8 @@ import { zoneThemeForTerrain } from "./palette";
 import { RISK_WATER_AREAS } from "./risk-water-areas";
 import { shipCycleTempo, type ShipCycleTempoResult } from "./ship-cycle-tempo";
 import type { SupplyTide } from "./supply-tide";
+import { deriveLampStatus, lampStatusReading } from "./lamp-status";
+import type { PharosVilleFreshness } from "./world-types";
 
 const usd = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0, style: "currency", currency: "USD" });
 const percent = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1, style: "percent" });
@@ -78,6 +80,19 @@ export function lighthouseBeamWarmCueLabel(areas?: readonly AreaNode[]): string 
     .map((area) => `${area.label} ${area.band}${area.count != null ? ` (${pluralize(area.count, "stablecoin")})` : ""}`)
     .join(", ");
   return `Beam warming amber under elevated DEWS: ${areaList}. Fleet PSI cue (not a per-zone reading).`;
+}
+
+function lampAsOfLabel(generatedAt: number | null | undefined): string {
+  if (generatedAt == null || !Number.isFinite(generatedAt) || generatedAt <= 0) return "unknown time";
+  return new Date(generatedAt).toISOString().slice(11, 16);
+}
+
+/** The lighthouse detail row shared by the lamp cue's DOM parity surfaces. */
+export function lighthouseLampStatusLabel(
+  freshness: PharosVilleFreshness = {},
+  generatedAt?: number | null,
+): string {
+  return `${lampStatusReading(deriveLampStatus(freshness))} as of ${lampAsOfLabel(generatedAt)}`;
 }
 
 function chainLabel(chainId: string): string {
@@ -512,6 +527,8 @@ export function detailForLighthouse(
   node: LighthouseNode,
   supplyTide?: SupplyTide,
   fleetIssuance?: PharosVilleWorld["fleetIssuance"],
+  freshness: PharosVilleFreshness = {},
+  generatedAt?: number | null,
 ): DetailModel {
   const tide = supplyTideLabel(supplyTide);
   const flightToQuality = flightToQualityLabel(fleetIssuance);
@@ -533,6 +550,7 @@ export function detailForLighthouse(
       ...(trend ? [{ label: "Trend", value: trend }] : []),
       ...(composition ? [{ label: "Composition", value: composition }] : []),
       { label: "Beam warmth cue", value: lighthouseBeamWarmCueLabel() },
+      { label: "Harbor light", value: lighthouseLampStatusLabel(freshness, generatedAt) },
       ...(beamDwell ? [{ label: "Beam bearing", value: beamDwell }] : []),
       { label: "Worst band, 30d", value: highWaterMarkLabel(node.highWaterMark) },
       ...(tide ? [{ label: "Supply tide 7d", value: tide }] : []),

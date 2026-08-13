@@ -1,5 +1,6 @@
 import { DataTexture, Mesh, Points, RGBAFormat } from "three";
 import { describe, expect, it } from "vitest";
+import { lampStatusModulationForMix } from "../systems/lamp-status";
 import { createGardenBeaconFire } from "./garden-beacon-fire";
 import { createGardenSummitBirds } from "./garden-summit-birds";
 
@@ -63,6 +64,26 @@ describe("garden beacon fire (W4)", () => {
     const calm = fire.update({ psiStress: 0, reducedMotion: false, timeSeconds: 3.7 });
     const stressed = fire.update({ psiStress: 1, reducedMotion: false, timeSeconds: 3.7 });
     expect(stressed).not.toBe(calm);
+    fire.dispose();
+  });
+
+  it("keeps PSI flame bands while applying cool and dim status modulation", () => {
+    const fire = createGardenBeaconFire(mockNoiseTexture());
+    fire.update({
+      lampModulation: lampStatusModulationForMix(1),
+      psiStress: 0.4,
+      reducedMotion: false,
+      timeSeconds: 12,
+    });
+    expect(fire.uniforms.uStatusCool.value).toBeGreaterThan(0);
+    expect(fire.uniforms.uStatusIntensity.value).toBeLessThan(1);
+    fire.update({
+      lampModulation: lampStatusModulationForMix(2),
+      psiStress: 0.4,
+      reducedMotion: false,
+      timeSeconds: 12,
+    });
+    expect(fire.uniforms.uStatusIntensity.value).toBeCloseTo(0.2, 6);
     fire.dispose();
   });
 });

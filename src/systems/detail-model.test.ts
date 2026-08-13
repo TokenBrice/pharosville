@@ -21,6 +21,7 @@ import {
   flightToQualityLabel,
   harborRankLabel,
   lighthouseBeamWarmCueLabel,
+  lighthouseLampStatusLabel,
   PHAROS_WATCH_TELEGRAM_HREF,
   psiCompositionLabel,
   psiTrendLabel,
@@ -606,6 +607,48 @@ describe("detail-model analytical links", () => {
       { label: "Route source", value: "stablecoins.chainCirculating, pegSummary.coins[], stress.signals[]" },
       { label: "Evidence", value: "meta.flags.navToken, pegSummary.coins[]" },
     ]));
+  });
+});
+
+describe("W6.4 — lighthouse lamp status parity", () => {
+  it("states freshness, stale feeds, and API outage with an as-of time", () => {
+    expect(lighthouseLampStatusLabel({}, Date.UTC(2026, 7, 13, 14, 32))).toBe(
+      "steady — all feeds fresh as of 14:32",
+    );
+    expect(lighthouseLampStatusLabel({ pegSummaryStale: true }, Date.UTC(2026, 7, 13, 14, 32))).toBe(
+      "cooler and slower — some feeds stale as of 14:32",
+    );
+    expect(lighthouseLampStatusLabel({
+      stablecoinsStale: true,
+      chainsStale: true,
+      stabilityStale: true,
+      pegSummaryStale: true,
+      stressStale: true,
+      reportCardsStale: true,
+      mintBurnStale: true,
+    }, Date.UTC(2026, 7, 13, 14, 32))).toBe(
+      "dimmed — API unreachable; showing last-good data as of 14:32",
+    );
+  });
+
+  it("puts Harbor light beside the existing PSI rows", () => {
+    const detail = detailForLighthouse({
+      id: "lighthouse",
+      kind: "lighthouse",
+      label: "Pharos lighthouse",
+      tile: { x: 1, y: 1 },
+      psiBand: "STEADY",
+      score: 88,
+      color: "#ffffff",
+      unavailable: false,
+      detailId: "lighthouse",
+    }, undefined, undefined, { chainsStale: true }, Date.UTC(2026, 7, 13, 14, 32));
+
+    expect(detail.facts).toContainEqual({
+      label: "Harbor light",
+      value: "cooler and slower — some feeds stale as of 14:32",
+    });
+    expect(detail.facts.some((fact) => fact.label === "Band")).toBe(true);
   });
 });
 

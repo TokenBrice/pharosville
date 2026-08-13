@@ -21,6 +21,7 @@ describe("buildVisualCueRegistry", () => {
     const cues = buildVisualCueRegistry();
 
     expect(cues.map((cue) => cue.id)).toContain("cue.lighthouse.psi");
+    expect(cues.map((cue) => cue.id)).toContain("cue.lighthouse.lamp-status");
     expect(cues.map((cue) => cue.id)).toEqual(expect.arrayContaining([
       "cue.ship.motion",
       "cue.ship.hull",
@@ -121,6 +122,7 @@ describe("buildVisualCueRegistry", () => {
       "cue.lighthouse.signal-mast",
       "cue.world.supply-tide",
       "cue.lighthouse.high-water-mark",
+      "cue.lighthouse.lamp-status",
       "cue.ship.cross-bearing-buoy",
       "cue.ship.peg-trim",
       "cue.ship.audit-shield",

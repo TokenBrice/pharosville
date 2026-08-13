@@ -33,6 +33,7 @@ import {
   DAY_CYCLE_SKY_PRESETS,
   type DayCyclePhase,
 } from "./garden-day-cycle";
+import type { LampStatusModulation } from "../systems/lamp-status";
 import { gardenModelAnchor } from "./garden-models";
 import { stableUnit } from "./garden-util";
 
@@ -77,6 +78,9 @@ const BRONZE = palette(P.timber_mid).lerp(palette(P.iron_dark), 0.4);
 const GILT = palette(P.lantern_warm).lerp(palette(P.lantern_glow), 0.35);
 const STAIR_STONE = palette(P.foam_white).lerp(palette(P.lantern_glow), 0.3);
 const SHORE_STONE = palette(P.stone_mid).lerp(palette(P.fog_pale), 0.25);
+const LAMP_BASE_COLOR = palette(P.lantern_warm);
+const LAMP_BASE_EMISSIVE = palette(P.lantern_glow);
+const LAMP_COOL_COLOR = palette(P.lantern_cold);
 
 interface LighthouseModelTarget {
   beacon: Mesh<SphereGeometry, MeshStandardMaterial>;
@@ -88,6 +92,13 @@ interface LighthouseModelTarget {
   lighthouseShell: Group;
   statueGleamMaterials?: MeshStandardMaterial[];
   summitBirdsRoot?: Object3D | null;
+}
+
+export interface LighthouseLampTarget {
+  beacon: Mesh<SphereGeometry, MeshStandardMaterial>;
+  beaconHalo: Mesh<SphereGeometry, MeshBasicMaterial>;
+  beam: Group;
+  lighthouseLight: PointLight;
 }
 
 export function attachGardenLighthouseModel(
@@ -261,6 +272,40 @@ export function updateLighthouseRimLight(phase: DayCyclePhase): void {
   );
   // Subtle by day; strongest at night where the tower meets the indigo sky.
   RIM_UNIFORMS.uLighthouseRimStrength.value = 0.1 + phase.dusk * 0.04 + phase.night * 0.08;
+}
+
+/**
+ * W6.4 status overlay. Day-cycle and PSI values are already on the target
+ * before this runs; applying the modulation after both means liveness cannot
+ * erase the existing PSI character and unreachable can still win on intensity.
+ */
+export function updateLighthouseLampStatus(
+  target: LighthouseLampTarget,
+  modulation: LampStatusModulation,
+): void {
+  const coolMix = Math.min(1, Math.max(0, modulation.coolMix));
+  target.beacon.material.color.copy(LAMP_BASE_COLOR).lerp(LAMP_COOL_COLOR, coolMix);
+  target.beacon.material.emissive.copy(LAMP_BASE_EMISSIVE).lerp(LAMP_COOL_COLOR, coolMix * 0.7);
+  target.beacon.material.emissiveIntensity *= modulation.intensityScale;
+
+  target.beaconHalo.material.color.copy(LAMP_BASE_EMISSIVE).lerp(LAMP_COOL_COLOR, coolMix);
+  target.beaconHalo.material.opacity *= modulation.intensityScale;
+
+  target.lighthouseLight.color.copy(LAMP_BASE_COLOR).lerp(LAMP_COOL_COLOR, coolMix);
+  target.lighthouseLight.intensity *= modulation.intensityScale;
+
+  target.beam.traverse((object) => {
+    if (!(object instanceof Mesh) && !(object instanceof Points)) return;
+    const material = object.material;
+    if (!(material instanceof ShaderMaterial)) return;
+    const color = material.uniforms.uColor?.value;
+    if (color instanceof Color) {
+      color.copy(BEAM_COLOR).lerp(BEAM_COOL_COLOR, coolMix);
+    }
+    if (typeof material.uniforms.uOpacity?.value === "number") {
+      material.uniforms.uOpacity.value *= modulation.intensityScale;
+    }
+  });
 }
 
 /**
@@ -783,6 +828,7 @@ const BEAM_BASE_RADIUS = 2.4;
 const BEAM_DUST_COUNT = 40;
 // C1 palette-derived: warm lantern gold lifted toward foam white.
 const BEAM_COLOR = palette(P.lantern_glow).lerp(palette(P.foam_white), 0.22);
+const BEAM_COOL_COLOR = BEAM_COLOR.clone().lerp(LAMP_COOL_COLOR, 0.75);
 
 /**
  * The volumetric beam: an open additive cone (apex at the beacon, axis along
