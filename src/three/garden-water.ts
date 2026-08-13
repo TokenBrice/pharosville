@@ -32,6 +32,11 @@ import {
   dayCyclePhase,
   MOON_COLOR,
 } from "./garden-day-cycle";
+import {
+  gardenHeightFogGlsl,
+  gardenHeightFogUniforms,
+  updateGardenHeightFog,
+} from "./garden-height-fog";
 import { GARDEN_MOON_AZIMUTH, gardenBokashiBandGlsl } from "./garden-sky";
 import { gardenSunPose } from "./garden-sun";
 import { MAX_GARDEN_LIGHT_LANES } from "./garden-lanterns";
@@ -548,7 +553,6 @@ export const FRAGMENT_SHADER = /* glsl */ `
   uniform float uGlitterStrength;
   uniform float uHarborCalm;
   uniform vec4 uHarborEllipse;
-  uniform float uHeightFogDensity;
   uniform vec3 uHighlightColor;
   uniform vec2 uIslandCenter;
   uniform float uLaneCount;
@@ -719,6 +723,7 @@ export const FRAGMENT_SHADER = /* glsl */ `
   }
 
 ${gardenBokashiBandGlsl()}
+${gardenHeightFogGlsl()}
 
   void main() {
     // --- W6.1: open-ocean early-out ----------------------------------------
@@ -775,12 +780,13 @@ ${gardenBokashiBandGlsl()}
       }
       float openFacet = clamp(normalize(vec3(-0.46, 0.2, 0.86)).z * 0.5 + 0.55, 0.2, 1.0);
       vec3 openView = normalize(cameraPosition - vWorldPosition);
+      float openCamDistance = distance(cameraPosition, vWorldPosition);
       vec3 openColor = gardenOpenOcean(
         openTonalCurrent,
         1.0 - openCloudCover * uCloudShadowStrength,
         openFacet,
         pow(1.0 - max(0.0, openView.z), 3.0),
-        distance(cameraPosition, vWorldPosition)
+        openCamDistance
       );
       gl_FragColor = vec4(openColor, 1.0);
       // The early-out must close the frame EXACTLY as the end of main does.
@@ -794,6 +800,14 @@ ${gardenBokashiBandGlsl()}
       #include <tonemapping_fragment>
       #include <colorspace_fragment>
       #include <fog_fragment>
+      // W2.1: the open-ocean branch draws most of the upper-frame air at wide
+      // framing, so it must evaluate the same shared term as the detailed sea.
+      gl_FragColor.rgb = gardenApplyHeightFog(
+        gl_FragColor.rgb,
+        vWorldPosition,
+        vFogDepth,
+        normalize(vWorldPosition - cameraPosition)
+      );
       // W1.4: and the bokashi wipe too. At wide framings this branch draws most
       // of the far water in the upper frame, so leaving the bands off it would
       // step the ramp at the same map boundary L1 spent its effort erasing.
@@ -1566,17 +1580,15 @@ ${gardenBokashiBandGlsl()}
     #include <colorspace_fragment>
     #include <fog_fragment>
 
-    // Phase 2 (2d) height fog: an exponential low-altitude haze layered over
-    // the global linear Fog — strongest at the water plane, thinning with
-    // altitude, so the distant sea melts into the dome's haze band instead of
-    // ending on an edge. Same fogColor, same contract: one fog system with
-    // one extra term, not a second fog. The ramp starts past the island's
-    // depth (195) so the W6.8 guarantee — the graded monument sits at zero
-    // haze — survives the new term untouched.
-    float heightFogFactor = exp(-max(vWorldPosition.y - uWaterLevel, 0.0) * 0.6);
-    float heightFog = (1.0 - exp(-uHeightFogDensity * max(camDistance - 200.0, 0.0)))
-      * heightFogFactor;
-    gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, clamp(heightFog, 0.0, 1.0));
+    // W2.1 replaces the former water-only far cutoff with the shared analytic
+    // term. This is still one extra term in the scene fog ladder: the same
+    // factor, sun tint and altitude falloff now shade sea, fleet and land.
+    gl_FragColor.rgb = gardenApplyHeightFog(
+      gl_FragColor.rgb,
+      vWorldPosition,
+      vFogDepth,
+      normalize(vWorldPosition - cameraPosition)
+    );
 
     // W1.4 bokashi bands: the printer's wipe, applied last, over the finished
     // sea-and-haze. Density only — one pigment at three stops — so the day
@@ -1700,6 +1712,7 @@ export function createGardenWater(waterLevel: number): GardenWater {
   const regionExtent = regionField.tileSpan * TILE_SCALE_UNITS;
   const regionTransform = new Vector4(0, 0, 1 / regionExtent, -1 / regionExtent);
   const uniforms = {
+    ...gardenHeightFogUniforms,
     fogColor: { value: new Color() },
     fogFar: { value: 1_000 },
     fogNear: { value: 1 },
@@ -1727,8 +1740,6 @@ export function createGardenWater(waterLevel: number): GardenWater {
     uGlitterStrength: { value: 1 },
     uHarborCalm: { value: 0.7 },
     uHarborEllipse: { value: new Vector4(0, 0, 1 / 13, 1 / 9) },
-    // Phase 2 (2d) height fog: density only — the global Fog owns the colour.
-    uHeightFogDensity: { value: 0 },
     uHighlightColor: { value: highlightColor },
     uIslandCenter: { value: new Vector2() },
     uLaneCount: { value: 0 },
@@ -2138,11 +2149,15 @@ export function createGardenWater(waterLevel: number): GardenWater {
       );
       uniforms.uWindSpeed.value = MathUtils.clamp(weather?.windSpeed ?? 0, 0, 1);
       uniforms.uStorm.value = stormLevel;
-      // Phase 2 (2d) height fog density: thickest at dawn/dusk, present at
-      // night, barely there at noon; a storm closes the visible distance.
-      // The far-water ramp (from depth 200) keeps the island at zero haze.
-      uniforms.uHeightFogDensity.value = blendPhaseScalar(0.0011, 0.0016, 0.0005, dusk, daylight)
-        * (1 + stormLevel * 1.6);
+      // W2.1: one allocation-free update drives the shared term on water,
+      // fleet, hero hulls, island and docks. The sun direction is resolved by
+      // garden-sun's contract-owned arc inside the shared updater.
+      updateGardenHeightFog({
+        hour: frame.wallClockHour,
+        phase: { daylight, dusk, night },
+        seaLevel: waterLevel,
+        stormLevel,
+      });
       uniforms.uWaveAmplitude.value = Math.min(
         GARDEN_WATER_MAX_DISPLACEMENT,
         0.022

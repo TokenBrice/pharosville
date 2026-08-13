@@ -45,6 +45,24 @@ export interface DayCycleLightPreset {
   hemiSky: Color;
 }
 
+/**
+ * W2.1: authored parameters for the shared sun-tinted height-fog term.
+ *
+ * Density is intentionally lowest by day: the day grade is already pale, so
+ * the fog's job there is to separate a crisp foreground from a cooler distant
+ * fleet, not to lay another milk wash over the whole frame. Height falloff
+ * protects the monument and upper sails while the sea-level air remains
+ * legible. These are decorative atmosphere values only; they encode no data.
+ */
+export interface DayCycleHeightFogPreset {
+  density: number;
+  heightFalloff: number;
+  horizon: Color;
+  phaseGain: number;
+  sunTint: Color;
+  zenith: Color;
+}
+
 // Sky presets (consumed by garden-sky). Night keeps the Lantern Sea identity;
 // dusk is the ember horizon (G4 — a real, distinct state again); day is the
 // ukiyo-e bokashi gradient: deep indigo-teal zenith, pale warm horizon, fog
@@ -107,6 +125,33 @@ export const DAY_CYCLE_LIGHT_PRESETS: Record<DayCyclePhaseName, DayCycleLightPre
   },
 };
 
+export const DAY_CYCLE_HEIGHT_FOG_PRESETS: Record<DayCyclePhaseName, DayCycleHeightFogPreset> = {
+  day: {
+    density: 0.00016,
+    heightFalloff: 0.28,
+    horizon: DAY_CYCLE_SKY_PRESETS.day.fog.clone(),
+    phaseGain: 0.32,
+    sunTint: DAY_CYCLE_LIGHT_PRESETS.day.dirColor.clone(),
+    zenith: DAY_CYCLE_SKY_PRESETS.day.zenith.clone(),
+  },
+  dusk: {
+    density: 0.00062,
+    heightFalloff: 0.2,
+    horizon: DAY_CYCLE_SKY_PRESETS.dusk.fog.clone(),
+    phaseGain: 0.78,
+    sunTint: DAY_CYCLE_LIGHT_PRESETS.dusk.dirColor.clone(),
+    zenith: DAY_CYCLE_SKY_PRESETS.dusk.zenith.clone(),
+  },
+  night: {
+    density: 0.00034,
+    heightFalloff: 0.24,
+    horizon: DAY_CYCLE_SKY_PRESETS.night.fog.clone(),
+    phaseGain: 0.04,
+    sunTint: DAY_CYCLE_LIGHT_PRESETS.night.dirColor.clone(),
+    zenith: DAY_CYCLE_SKY_PRESETS.night.zenith.clone(),
+  },
+};
+
 export interface DayCyclePhase {
   daylight: number;
   dusk: number;
@@ -145,7 +190,13 @@ export function blendDayCycleColor(
   target.copy(night).lerp(dusk, duskMix).lerp(day, daylightMix);
 }
 
-function blendScalar(night: number, dusk: number, day: number, duskMix: number, daylightMix: number): number {
+export function blendDayCycleScalar(
+  night: number,
+  dusk: number,
+  day: number,
+  duskMix: number,
+  daylightMix: number,
+): number {
   return (night + (dusk - night) * duskMix) + (day - (night + (dusk - night) * duskMix)) * daylightMix;
 }
 
@@ -191,13 +242,13 @@ export function updateDayCycle(
 
   blendDayCycleColor(scene.hemisphereLight.color, nightRig.hemiSky, duskRig.hemiSky, dayRig.hemiSky, dusk, daylight);
   blendDayCycleColor(scene.hemisphereLight.groundColor, nightRig.hemiGround, duskRig.hemiGround, dayRig.hemiGround, dusk, daylight);
-  scene.hemisphereLight.intensity = blendScalar(nightRig.hemiIntensity, duskRig.hemiIntensity, dayRig.hemiIntensity, dusk, daylight);
+  scene.hemisphereLight.intensity = blendDayCycleScalar(nightRig.hemiIntensity, duskRig.hemiIntensity, dayRig.hemiIntensity, dusk, daylight);
 
   blendDayCycleColor(scene.ambientLight.color, nightRig.ambient, duskRig.ambient, dayRig.ambient, dusk, daylight);
-  scene.ambientLight.intensity = blendScalar(nightRig.ambientIntensity, duskRig.ambientIntensity, dayRig.ambientIntensity, dusk, daylight);
+  scene.ambientLight.intensity = blendDayCycleScalar(nightRig.ambientIntensity, duskRig.ambientIntensity, dayRig.ambientIntensity, dusk, daylight);
 
   blendDayCycleColor(scene.directionalLight.color, nightRig.dirColor, duskRig.dirColor, dayRig.dirColor, dusk, daylight);
-  scene.directionalLight.intensity = blendScalar(nightRig.dirIntensity, duskRig.dirIntensity, dayRig.dirIntensity, dusk, daylight);
+  scene.directionalLight.intensity = blendDayCycleScalar(nightRig.dirIntensity, duskRig.dirIntensity, dayRig.dirIntensity, dusk, daylight);
 
   if (!scene.content) return;
   // The beacon signal is unchanged (D5): the same PSI-modulated intensity
@@ -216,12 +267,12 @@ export function updateDayCycle(
   // D3: by day the flame banks low (the smoke column is the day signal);
   // at dusk it rises; by night it owns the sky.
   scene.content.beaconFire.uniforms.uIntensity.value = beaconIntensity
-    * blendScalar(1, 0.85, 0.26, dusk, daylight);
+    * blendDayCycleScalar(1, 0.85, 0.26, dusk, daylight);
   // D3 smoke daymark: a proud grey-blue column by day, thinning through dusk
   // to a thin backlit wisp at night.
   const smokeUniforms = scene.content.beaconFire.smokeMaterial.uniforms;
   smokeUniforms.uDayMix.value = daylight;
-  smokeUniforms.uOpacity.value = blendScalar(0.1, 0.22, 0.62, dusk, daylight);
+  smokeUniforms.uOpacity.value = blendDayCycleScalar(0.1, 0.22, 0.62, dusk, daylight);
   // D4 mirror glint: a slow day-only emissive pulse (peak HDR ~2.2) so the
   // legendary bronze mirror flashes against the day sky. Deterministic in
   // timeSeconds; frozen at its t=0 glint under reduced motion.

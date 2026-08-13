@@ -30,6 +30,7 @@ import {
   gardenChainFlagAtlas,
   gardenChainFlagCellUv,
 } from "./garden-chain-flag";
+import { applyGardenHeightFog } from "./garden-height-fog";
 import { setTilePosition, stableUnit, TILE_SCALE } from "./garden-util";
 import type { GardenHarborCalmMask } from "./garden-water-contract";
 
@@ -230,6 +231,7 @@ export function createHarborLanterns(
   bodies.instanceMatrix.needsUpdate = true;
   lights.instanceMatrix.needsUpdate = true;
   root.add(bodies, lights);
+  applyGardenHeightFog(root);
   return { lightMaterial, root };
 }
 
@@ -842,6 +844,7 @@ export function createDock(
     PLAN_HALF_SPAN[plan] * width,
     grand ? width * 2.23 : 0,
   );
+  applyGardenHeightFog(root);
 
   return {
     cargoTideLanes: cargoTideLanes(length, quayLength, quayWidth, quayX),

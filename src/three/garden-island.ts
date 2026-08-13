@@ -32,6 +32,7 @@ import { HARBOR_PALETTE } from "../systems/palette";
 import type { SupplyTide } from "../systems/supply-tide";
 import type { PharosVilleWorld } from "../systems/world-types";
 import { createLighthouse } from "./garden-lighthouse";
+import { applyGardenHeightFog } from "./garden-height-fog";
 import { setTilePosition, stableUnit } from "./garden-util";
 import { sampleTideLine } from "./garden-tide-line";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
@@ -338,6 +339,7 @@ export function createTerracedIsland(
     createTerraceLanterns(),
   );
   if (cloudShadows) applyGardenCloudShadows(root, cloudShadows);
+  applyGardenHeightFog(root);
 
   return {
     beacon: lighthouse.beacon,
@@ -427,6 +429,9 @@ export function applyGardenCloudShadows(
       };
     }
   });
+  // The same helper is used for asynchronously attached lighthouse geometry;
+  // keep that late material in the shared air as well as the shared cloud.
+  applyGardenHeightFog(root);
 }
 
 function createIrregularTerraceGeometry(

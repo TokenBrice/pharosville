@@ -687,10 +687,10 @@ const SEPARABLE_BLUR_FRAGMENT_SHADER = /* glsl */ `
  * W2.3 — the miniature-garden pass, in numbers.
  *
  * WHY A CUSTOM EFFECT AND NOT `DepthOfFieldEffect`. The stock effect models a
- * lens: a circle of confusion around a focus DISTANCE, scattered by a bokeh
- * kernel, with separate near/far fields, a CoC pass, a mask pass and four bokeh
+ * lens: a circle of confusion around a focus DISTANCE, scattered by a blur
+ * kernel, with separate near/far fields, a CoC pass, a mask pass and four blur
  * passes — seven off-screen draws and five render targets. Under a locked
- * orthographic camera there is no lens and no perspective for a bokeh disc to
+ * orthographic camera there is no lens and no perspective for a blur disc to
  * describe; what the frame wants is the tilt-shift READ: one horizontal band of
  * the world in focus, everything nearer and farther softening, which is a band
  * test on view-space distance plus a screen-vertical bias. That is one blur
@@ -736,7 +736,7 @@ const DOF_GRADIENT_BIAS = 0.32;
 const DOF_GRADIENT_LOW = 0.16;
 const DOF_GRADIENT_HIGH = 0.92;
 /**
- * The bokehScale-equivalent, and the whole "is this a garnish" question.
+ * The blur-scale equivalent, and the whole "is this a garnish" question.
  *
  * Measured on the real GPU against a controlled A/B — two settled reduced-motion
  * dusk frames identical but for this dial (`outputs/w24-dusk-rays-tuned.png`
@@ -764,7 +764,7 @@ const DOF_GRADIENT_HIGH = 0.92;
 const DOF_STRENGTH = 0.72;
 
 const TILT_SHIFT_FRAGMENT_SHADER = /* glsl */ `
-  uniform sampler2D bokehBuffer;
+  uniform sampler2D softFieldBuffer;
   uniform float focusCenter;
   uniform float focusRange;
   uniform float nearFalloff;
@@ -807,8 +807,8 @@ const TILT_SHIFT_FRAGMENT_SHADER = /* glsl */ `
     float bias = mix(1.0 - gradientBias, 1.0 + gradientBias, smoothstep(gradientLow, gradientHigh, uv.y));
     float coc = clamp(max(farCoc * bias, nearCoc * (2.0 - bias)), 0.0, 1.0);
 
-    vec3 bokeh = texture2D(bokehBuffer, uv).rgb;
-    outputColor = vec4(mix(inputColor.rgb, bokeh, coc * strength), inputColor.a);
+    vec3 softField = texture2D(softFieldBuffer, uv).rgb;
+    outputColor = vec4(mix(inputColor.rgb, softField, coc * strength), inputColor.a);
   }
 `;
 
@@ -836,7 +836,7 @@ class GardenTiltShiftEffect extends Effect {
       attributes: EffectAttribute.DEPTH,
       blendFunction: BlendFunction.SRC,
       uniforms: new Map<string, Uniform>([
-        ["bokehBuffer", new Uniform(null)],
+        ["softFieldBuffer", new Uniform(null)],
         ["focusCenter", new Uniform(1)],
         ["focusRange", new Uniform(1)],
         ["nearFalloff", new Uniform(1)],
@@ -850,7 +850,7 @@ class GardenTiltShiftEffect extends Effect {
 
     // HalfFloat to match the composer's own buffer: the blurred copy is mixed
     // back into a linear HDR frame that still has to survive AgX, so clipping
-    // the bokeh to LDR here would darken every soft highlight.
+    // the soft field to LDR here would darken every soft highlight.
     this.blurTargetA = new WebGLRenderTarget(1, 1, {
       depthBuffer: false,
       magFilter: LinearFilter,
@@ -861,7 +861,7 @@ class GardenTiltShiftEffect extends Effect {
     this.blurTargetA.texture.name = "GardenTiltShift.BlurX";
     this.blurTargetB = this.blurTargetA.clone();
     this.blurTargetB.texture.name = "GardenTiltShift.BlurY";
-    this.uniforms.get("bokehBuffer")!.value = this.blurTargetB.texture;
+    this.uniforms.get("softFieldBuffer")!.value = this.blurTargetB.texture;
 
     this.horizontalPass = new ShaderPass(createSeparableBlurMaterial());
     this.verticalPass = new ShaderPass(createSeparableBlurMaterial());

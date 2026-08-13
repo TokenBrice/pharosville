@@ -38,6 +38,10 @@ import {
 import { HARBOR_PALETTE } from "../systems/palette";
 import type { ShipNode } from "../systems/world-types";
 import { heroHullModelFor } from "../systems/unique-ships";
+import {
+  applyGardenHeightFog,
+  patchGardenHeightFogMaterial,
+} from "./garden-height-fog";
 import { gardenModelAnchor, type GardenModelId } from "./garden-models";
 import {
   GARDEN_WATER_MAX_RIPPLE_RINGS,
@@ -1118,6 +1122,9 @@ export function createShip(
   const wake = createWake(cache);
   root.add(wake.root);
   applyShipPegTrim(root, ship, wake.root);
+  // W2.1: hero/procedural ships keep their object tree, so patch their lit
+  // materials here while the rank-and-file fleet takes the batch shader path.
+  applyGardenHeightFog(root);
   const motion = FLEET_TIER_MOTION[tier];
   // Subtle livery cast multiplied over the hero wood on attach (white base × a
   // mostly-white tint keeps the baked 3-tone shading readable).
@@ -1196,6 +1203,7 @@ export function attachGardenHeroModel(visual: ShipVisual, model: Group): void {
     // `vertexColors: true` (generate-garden-heroes.mjs), so the dye modulates
     // the baked shading instead of flattening it.
     if (object.name === "sail-hull") material.color.multiply(visual.sailColor);
+    patchGardenHeightFogMaterial(material);
     object.material = material;
     // The directional shadow map is island-only and static. Hero ships move,
     // so casting them into that map would leave frozen shadow ghosts and force

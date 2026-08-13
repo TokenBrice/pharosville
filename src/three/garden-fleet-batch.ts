@@ -20,6 +20,10 @@ import type { GardenHullSilhouette } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE } from "../systems/palette";
 import type { GardenShipGeometryCache } from "./garden-util";
 import { cachedShipGeometry } from "./garden-util";
+import {
+  injectGardenHeightFog,
+  patchGardenHeightFogMaterial,
+} from "./garden-height-fog";
 
 /**
  * W1 (Grand Scale Revamp, decision D2): the fleet is drawn as a small fixed
@@ -744,8 +748,9 @@ export function patchFleetHullFormMaterial(material: MeshStandardMaterial): void
         attribute vec3 aTrim;`,
       )
       .replace("#include <color_vertex>", `#include <color_vertex>\n${STRAKE_PAINT}`);
+    injectGardenHeightFog(shader);
   };
-  material.customProgramCacheKey = () => "garden-fleet-hull-form-strake-trim";
+  material.customProgramCacheKey = () => "garden-fleet-hull-form-strake-trim-height-fog";
 }
 
 export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
@@ -969,9 +974,14 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
           );
         }`,
       );
+    // The aerial chroma restraint above settles the distant dye while
+    // preserving value; the shared fog term then places that restrained sail
+    // in the same directional air as hull, sea and land. Neither rewrites the
+    // other's arithmetic.
+    injectGardenHeightFog(shader);
   };
   material.customProgramCacheKey = () =>
-    "garden-fleet-sail-atlas-hull-form-dye-furl-emissive-trim-aerial-framing-weave";
+    "garden-fleet-sail-atlas-hull-form-dye-furl-emissive-trim-aerial-framing-weave-height-fog";
 }
 
 function createInstancedPart(
@@ -1092,6 +1102,7 @@ export function createFleetBatches(input: {
     roughness: 0.7,
     side: DoubleSide,
   });
+  patchGardenHeightFogMaterial(pennantMaterial);
   materials.push(pennantMaterial);
 
   const bySilhouette = new Map<GardenHullSilhouette, FleetSilhouetteBatch>();

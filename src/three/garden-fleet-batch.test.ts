@@ -880,4 +880,34 @@ describe("W3.7 woven cloth", () => {
     expect(shader.uniforms.uClothWeave!.value).toBe(0);
     expect(shader.uniforms.uClothRestraint!.value).toBe(0);
   });
+
+  it("composes aerial chroma recession before the shared height fog", () => {
+    const material = new MeshStandardMaterial();
+    patchSailAtlasMaterial(material);
+    const shader = {
+      fragmentShader: [
+        "#include <common>",
+        "#include <map_fragment>",
+        "#include <normal_fragment_begin>",
+        "#include <fog_fragment>",
+      ].join("\n"),
+      uniforms: {} as Record<string, { value: unknown }>,
+      vertexShader: [
+        "#include <common>",
+        "#include <begin_vertex>",
+        "#include <project_vertex>",
+        "#include <uv_vertex>",
+        "#include <worldpos_vertex>",
+      ].join("\n"),
+    };
+    material.onBeforeCompile!(shader as never, null as never);
+
+    const restraintAt = shader.fragmentShader.indexOf("sailCloth = mix(sailCloth");
+    const fogAt = shader.fragmentShader.indexOf("gl_FragColor.rgb = gardenApplyHeightFog");
+    expect(restraintAt).toBeGreaterThan(-1);
+    expect(fogAt).toBeGreaterThan(restraintAt);
+    expect(shader.fragmentShader).toContain("pow(sunDot, 8.0)");
+    expect(shader.vertexShader).toContain("vGardenHeightFogWorldPosition");
+    expect(shader.uniforms.uGardenHeightFogDensity).toBeDefined();
+  });
 });

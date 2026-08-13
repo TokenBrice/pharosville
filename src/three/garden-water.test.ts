@@ -258,6 +258,10 @@ describe("createGardenWater", () => {
       expect(source.split(`#include <${chunk}>`)).toHaveLength(3);
       expect(earlyOut).toContain(`#include <${chunk}>`);
     }
+    // W2.1 is part of that close too: most upper-frame water takes this branch,
+    // so omitting the analytic term would reveal the rounded map boundary.
+    expect(source.split("gl_FragColor.rgb = gardenApplyHeightFog(")).toHaveLength(3);
+    expect(earlyOut).toContain("gl_FragColor.rgb = gardenApplyHeightFog(");
   });
 
   it("samples the region field with nearest filtering", () => {
@@ -558,18 +562,18 @@ describe("createGardenWater", () => {
   });
 
   it("thickens the height fog at dusk and in storms, thinnest at noon", () => {
-    // Phase 2 (2d): the height fog is a density term only — the global Fog
-    // owns the colour — strongest at dawn/dusk, faint at noon, closed in by
-    // the storm multiplier.
+    // W2.1: the shared density is strongest at dawn/dusk, faint at noon, and
+    // closed in by weather without changing the phase-authored tint.
     const water = createGardenWater(0);
     expect(uniformNumber(water.material, "uWaterLevel")).toBe(0);
+    expect(uniformNumber(water.material, "uGardenHeightFogSeaLevel")).toBe(0);
 
     water.update(frame({ wallClockHour: 12 }));
-    const noon = uniformNumber(water.material, "uHeightFogDensity");
+    const noon = uniformNumber(water.material, "uGardenHeightFogDensity");
     water.update(frame({ wallClockHour: 0 }));
-    const night = uniformNumber(water.material, "uHeightFogDensity");
+    const night = uniformNumber(water.material, "uGardenHeightFogDensity");
     water.update(frame({ wallClockHour: 18 }));
-    const dusk = uniformNumber(water.material, "uHeightFogDensity");
+    const dusk = uniformNumber(water.material, "uGardenHeightFogDensity");
 
     expect(noon).toBeGreaterThan(0);
     expect(night).toBeGreaterThan(noon);
@@ -584,7 +588,7 @@ describe("createGardenWater", () => {
       stormLevel: 1,
       lightning: 0,
     });
-    expect(uniformNumber(water.material, "uHeightFogDensity")).toBeCloseTo(noon * 2.6);
+    expect(uniformNumber(water.material, "uGardenHeightFogDensity")).toBeCloseTo(noon * 2.2);
   });
 
   it("ships the Gerstner spectrum in the vertex shader, not the sine sum", () => {
