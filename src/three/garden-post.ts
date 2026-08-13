@@ -112,7 +112,7 @@ const DAY_GRADE: GradePreset = {
   saturation: 0.97,
   shadowTint: [0.84, 0.96, 1.1],
   split: 0.5,
-  vignette: 0.24,
+  vignette: 0.32,
 };
 
 const POST_PHASE_NIGHT: PostPhaseConfig = {

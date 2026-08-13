@@ -31,6 +31,7 @@ export const GARDEN_SAIL_TEXTURE_SIZE = TEXTURE_SIZE;
  * already the ship's identity, it was just being diluted away.
  */
 const CLOTH_CANVAS_LIFT = 0.17;
+
 const CLOTH_LUMINANCE_FLOOR = 0.1;
 const CLOTH_CANVAS = "#f4ecd8";
 
@@ -196,7 +197,6 @@ function paintSailField(
  */
 const IDENTITY_FIELD_RADIUS = 55;
 const IDENTITY_LOGO_SPAN = 0.78;
-const IDENTITY_RIM_WIDTH = 2;
 
 function paintSailIdentity(
   context: CanvasRenderingContext2D,
@@ -273,6 +273,20 @@ function paintSailIdentity(
   context.restore();
 }
 
+/**
+ * The contrast plate the mark sits on.
+ *
+ * What made this read as a STICKER rather than as painted canvas was not the
+ * logo — it was the plate: a hard-edged circle filled at 0.94 with a 2px rim
+ * stroke over it. That is a decal, geometrically and literally, and sixty of
+ * them scattered across the frame is most of what "too messy" was pointing at.
+ *
+ * It is now a plate with a soft shoulder and no rim. The centre keeps enough
+ * opacity to carry a white mark against a pale sail — the whole reason the
+ * plate exists — while the outer fifth ramps to nothing, so the field dissolves
+ * into the ship's own cloth instead of ending on an edge. Same legibility where
+ * the logo actually sits, no cut-out silhouette around it.
+ */
 function paintIdentityField(
   context: CanvasRenderingContext2D,
   livery: ShipLivery,
@@ -281,15 +295,31 @@ function paintIdentityField(
   radius: number,
 ): void {
   context.save();
+  const matte = new Color(safeCssColor(livery.logoMatte, "#141414"));
+  const gradient = context.createRadialGradient(x, y, radius * IDENTITY_FIELD_CORE, x, y, radius);
+  gradient.addColorStop(0, cssRgba(matte, IDENTITY_FIELD_ALPHA));
+  // Quadratic-ish shoulder rather than linear: a straight ramp still shows a
+  // visible ring where it meets the cloth.
+  gradient.addColorStop(0.55, cssRgba(matte, IDENTITY_FIELD_ALPHA * 0.55));
+  gradient.addColorStop(1, cssRgba(matte, 0));
   drawIdentityFieldPath(context, x, y, radius);
-  context.globalAlpha = 0.94;
-  context.fillStyle = livery.logoMatte;
+  context.fillStyle = gradient;
   context.fill();
-  context.globalAlpha = 0.74;
-  context.lineWidth = IDENTITY_RIM_WIDTH;
-  context.strokeStyle = livery.secondary;
-  context.stroke();
   context.restore();
+}
+
+/** Fraction of the radius held at full plate opacity before the shoulder. */
+const IDENTITY_FIELD_CORE = 0.62;
+/** Plate opacity under the mark itself. */
+const IDENTITY_FIELD_ALPHA = 0.86;
+
+/** `rgba(...)` for a canvas paint, in sRGB — three's Color components are linear. */
+function cssRgba(color: Color, alpha: number): string {
+  const hex = color.getHexString(SRGBColorSpace);
+  const red = Number.parseInt(hex.slice(0, 2), 16);
+  const green = Number.parseInt(hex.slice(2, 4), 16);
+  const blue = Number.parseInt(hex.slice(4, 6), 16);
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
 function drawIdentityFieldPath(

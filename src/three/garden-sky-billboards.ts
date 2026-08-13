@@ -47,7 +47,7 @@ export interface GardenSkyBillboards {
   mist: GardenSkyBillboardLayer;
 }
 
-export const MIST_BANK_COUNT = 4;
+export const MIST_BANK_COUNT = 9;
 export const CLOUD_COUNT = 5;
 
 /**
@@ -60,13 +60,43 @@ export const CLOUD_COUNT = 5;
  * a point's frame-top coordinate is `-0.3536(x+z) + 0.866y` over the
  * half-height — the mist banks land at ndc ~0.5–0.95 at mid zoom, the clouds
  * fill the same band at whole-map zoom and drift in and out at its top edge.
+ *
+ * Nine banks, not four, and layered in DEPTH rather than clustered.
+ *
+ * With the fog repaired (garden-sky.ts, 2026-08-13 — the reference view height
+ * had switched aerial perspective off entirely), the far third of the frame
+ * finally grades into haze, and mist reads against it instead of floating on
+ * flat water. Four banks in one pocket of the negative quadrant were all the
+ * old flat far-field could carry; against a real gradient there is room for
+ * layers.
+ *
+ * A point's height up the frame goes as `-0.3536(x + z) + 0.866y`, so the sum
+ * of x and z is the depth axis and their difference spreads laterally. The
+ * banks below are sorted by that sum into three distinct shelves — near (~42),
+ * middle (~46–55) and far (~76–99) — with the largest and highest kept
+ * furthest away. Overlapping shelves at different scales is what turns haze
+ * into distance rather than into a wash: the eye reads the near bank against
+ * the far one and infers the space between them.
+ *
+ * Every anchor stays at or beyond -40 on BOTH axes, which is not a stylistic
+ * preference: banks drift +/- half their span (21 units) along the wind, so -40
+ * is what keeps the nearest one clear of an island that occupies +/-20 of the
+ * origin. Two of the near-shelf banks were first authored at -35 and the sky
+ * test caught them.
  */
 const MIST_BANKS: ReadonlyArray<readonly [number, number, number, number, number]> = [
-  // x, y, z, width, height
+  // x, y, z, width, height  — near shelf
+  [-60, 2.0, -60, 30, 4.2],
+  [-90, 2.2, -42, 40, 5.0],
+  [-42, 3.4, -90, 44, 6.5],
+  // middle shelf
   [-72, 3.0, -72, 46, 7.5],
   [-110, 4.0, -40, 38, 6],
   [-40, 2.5, -115, 34, 5.5],
+  // far shelf
   [-130, 4.5, -85, 54, 8],
+  [-115, 3.8, -160, 50, 7],
+  [-150, 5.0, -130, 62, 9],
 ];
 
 const CLOUDS: ReadonlyArray<readonly [number, number, number, number, number]> = [
@@ -77,8 +107,15 @@ const CLOUDS: ReadonlyArray<readonly [number, number, number, number, number]> =
   [-95, 20, -150, 34, 11],
 ];
 
-/** Authored per-instance seeds (no RNG anywhere near the frame path). */
-const SEEDS = [0.13, 0.41, 0.62, 0.87, 0.29];
+/**
+ * Authored per-instance seeds (no RNG anywhere near the frame path).
+ *
+ * One per mist bank and then some: seeds are handed out modulo this list, so a
+ * list shorter than the layer would give two banks the same drift phase, and a
+ * matched pair sliding in lockstep is exactly the kind of repetition that reads
+ * as tiling rather than as weather.
+ */
+const SEEDS = [0.13, 0.41, 0.62, 0.87, 0.29, 0.07, 0.53, 0.71, 0.95];
 
 // Sin-free hash/value noise, same family as the water shader's (its S4 note:
 // the classic fract(sin) hash is unstable on some GPUs). The breakup is

@@ -12,6 +12,21 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-08-13-quiet-anchorage",
+    version: PHAROSVILLE_RELEASE_VERSIONS.quietAnchorage,
+    date: "2026-08-13",
+    title: "Quiet Anchorage",
+    summary: "The harbor becomes a composed picture rather than a full one: the fleet gathers into anchorages with open water between them, distance finally reads as distance, and the light moves through the day.",
+    bullets: [
+      "Moored the fleet in anchorages instead of spreading it evenly across every stretch of water, so each sea keeps one harbor that matters, a few quieter roadsteads, and genuine open water between them; the lighthouse holds the frame again.",
+      "Restored aerial perspective at the standard framing, where a mis-set reference height had silently disabled it: the far sea now drains toward haze and dissolves at the world's edge instead of ending on a hard boundary.",
+      "Put the sun on a real arc, so shadow direction and length, the sky's glow, and the sun's road across the water all change with the hour rather than only shifting colour; the Pharos tower now casts a long shadow over the sea that stretches toward dawn and dusk.",
+      "Let the sails read as cloth. Each issuer's mark now sits in the canvas instead of on a hard-edged plate, and brand colour eases back when you pull out over the whole sea and returns in full as you sail in, so identity stays exact where you are actually reading it.",
+      "Deepened the drifting mist into layered banks and settled the daylight frame, keeping every reading, hover, selection, and ledger entry unchanged.",
+    ],
+    source: "Collected from the 2026-08-13 visual poetry pass after v0.7.1.",
+  },
+  {
     id: "2026-08-12-roomier-harbor",
     version: PHAROSVILLE_RELEASE_VERSIONS.roomierHarbor,
     date: "2026-08-12",

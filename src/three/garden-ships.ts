@@ -186,6 +186,13 @@ interface ShipSailTextureTarget {
   ships: readonly ShipVisual[];
 }
 
+/**
+ * Yaw of a hero hull's identity sail, matching the yard yaw the procedural rigs
+ * already use. Small on purpose: enough that the cloth is clearly bent to a
+ * spar and not squared to the viewer, not so much that the mark skews away.
+ */
+const HERO_IDENTITY_SAIL_YAW = 0.09;
+
 const GARDEN_SHIP_RIGS: Record<GardenHullSilhouette, readonly GardenMastPlan[]> = {
   galleon: [
     {
@@ -1210,9 +1217,15 @@ export function attachGardenHeroModel(visual: ShipVisual, model: Group): void {
 
   if (visual.identitySail) {
     // Hang the logo sail as the main course, just below the furled topsail yard.
+    //
+    // It used to be scaled 1.6 x 1.75 with its rotation ZEROED, which squared a
+    // flat oversized panel to the camera on every hero hull — a signboard bolted
+    // to a ship rather than a sail bent to its yard. Keeping the rig's own slight
+    // yaw and easing the scale back lets the curved patch geometry read as cloth
+    // catching wind, which is what the sail already is underneath.
     visual.identitySail.position.set(masthead.x, masthead.y * 0.64 + waterline, 0.24);
-    visual.identitySail.scale.set(1.6, 1.75, 1);
-    visual.identitySail.rotation.set(0, 0, 0);
+    visual.identitySail.scale.set(1.28, 1.42, 1);
+    visual.identitySail.rotation.set(0, HERO_IDENTITY_SAIL_YAW, 0);
   }
 }
 

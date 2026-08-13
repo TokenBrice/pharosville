@@ -461,7 +461,10 @@ describe("garden post-processing contracts", () => {
     expect(colorUniform(grade, "lift")[1]).toBeCloseTo(0.004);
     expect(colorUniform(grade, "lift")[2]).toBeCloseTo(0.006);
     expect(numberUniform(grade, "saturation")).toBe(0.97);
-    expect(numberUniform(grade, "vignette")).toBe(0.24);
+    // 0.32 since 2026-08-13, up from 0.24 — the day was the outlier against
+    // dusk and night at 0.36, and with real haze in the far field the frame has
+    // the range to carry it.
+    expect(numberUniform(grade, "vignette")).toBe(0.32);
     expect(bloom.intensity).toBe(0.92);
     expect(bloom.luminanceMaterial.threshold).toBe(0.95);
     expect(n8ao.configuration.intensity).toBe(3);

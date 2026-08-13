@@ -25,6 +25,7 @@ import {
   STAR_COLOR,
   type DayCyclePhase,
 } from "./garden-day-cycle";
+import { GARDEN_MOON_AZIMUTH, gardenSunPose } from "./garden-sun";
 
 const DOME_RADIUS = 300;
 const STAR_COUNT = 720;
@@ -81,7 +82,28 @@ const FOG_FAR = 300;
 // perspective stays a depth cue instead of becoming a haze wall.
 //
 // Reference view height at the calibration framing, used as the scale pivot.
-const FOG_REFERENCE_VIEW_HEIGHT = 34;
+//
+// 2026-08-13: this was 34, and that number had switched the entire aerial
+// perspective system OFF at the framing it was calibrated for.
+//
+// `gardenCameraViewHeight(viewportHeight, zoom) = viewportHeight / (TILE_HEIGHT
+// * zoom)`, so the default framing measures 76.9 at the ladder's own stated
+// calibration (960 @ 0.78) and 80.4 at 1000 @ 0.7776 — not 34. Against a pivot
+// of 34 the ratio is 2.3, which clamps hard to FOG_MAX_SCALE and pushes
+// FOG_NEAR out to 267 while the visible ground plane only spans depth ~121-255.
+// Nothing in the frame ever reached the near plane. The depth table above,
+// every figure in it, and the whole "bokashi seam where far water meets sky"
+// it describes were accurate about the DESIGN and inert in the PICTURE, which
+// is why the far fleet read exactly as crisp as the near fleet and the day
+// graded flat.
+//
+// 78 is the real default. It restores the documented ladder exactly: scale 1.0
+// at the landing framing, so the island still sits at zero haze and the frame
+// top reaches ~0.63. The clamp keeps doing its two jobs from there — pulling
+// toward 1.5 as the camera pulls out so the world's edge dissolves instead of
+// ending as a diamond slab in a void, and holding at 1.0 on the way in so
+// close-ups stay crisp.
+const FOG_REFERENCE_VIEW_HEIGHT = 78;
 const FOG_MIN_SCALE = 1;
 // Capped at 1.5, not 2.6. W6.6 scaled fog with the view to stop noon becoming
 // a white-out, but at whole-map framing a 2.6x scale pushed FOG_NEAR out to
@@ -97,22 +119,19 @@ const FOG_MAX_SCALE = 1.5;
 export const GARDEN_CUMULUS_BILLBOARDS_ENABLED = false;
 
 // The moon sits upper-left of the standard framing; V2's moon road aligns its
-// water glitter band to this azimuth.
-export const GARDEN_MOON_AZIMUTH = Math.PI * 0.62;
+// water glitter band to this azimuth. Re-exported from garden-sun, which owns
+// light geometry, so the dome and the water cannot disagree about the bearing.
+export { GARDEN_MOON_AZIMUTH };
 const MOON_ELEVATION = Math.PI * 0.34;
 
-// Phase 2 (item 2c): the dome's sun sits where the key light is — the
-// directional light rides at island + (-35, 48, -30) — so the dome's glow,
-// the water's glitter and the cast shadows all agree on the sun's bearing.
-// The light rig keeps a FIXED position, so the phase weights are the
-// elevation contract: the full 46° at noon, a low ember sun at dusk, below
-// the horizon at night (where the scattering layer fades to zero and the
-// authored indigo + stars rule).
-const SUN_AZIMUTH_X = Math.cos(Math.atan2(-30, -35));
-const SUN_AZIMUTH_Z = Math.sin(Math.atan2(-30, -35));
-const SUN_DAY_ELEVATION = 0.721; // sin of the key light's elevation
-const SUN_DUSK_ELEVATION = 0.1;
-const SUN_NIGHT_ELEVATION = -0.22;
+// Phase 2 (item 2c) kept the dome's glow, the water's glitter and the cast
+// shadows agreeing on the sun's bearing by writing that bearing down in three
+// places. They agreed because nothing moved. Now the arc in garden-sun.ts is
+// the single source and all three read it, so they agree because there is only
+// one answer — and the sun's elevation going below the horizon after dark is
+// what fades the scattering layer out and hands the sky to the authored indigo
+// and the stars.
+
 
 // Phase-lit cloud palette — every swatch derived from the authored day-cycle
 // presets and HARBOR_PALETTE, blended per frame with the one scene blend law.
@@ -128,6 +147,8 @@ const CLOUD_SHADE_NIGHT = DAY_CYCLE_SKY_PRESETS.night.zenith.clone();
 
 export interface GardenSkyFrame {
   reducedMotion: boolean;
+  /** Drives the sun's place on the day's arc (garden-sun.ts). */
+  wallClockHour: number;
   /** Camera view height in world units; drives the fog-range scale (W6.6). */
   viewHeight: number;
   targetX: number;
@@ -170,7 +191,7 @@ export interface GardenSky {
    * right after this call lights the world with the same storm the viewer
    * sees. The day cycle remains the base; storm is a multiplier, never a hue.
    */
-  applyPhase: (phase: DayCyclePhase, stormLevel?: number) => void;
+  applyPhase: (phase: DayCyclePhase, wallClockHour: number, stormLevel?: number) => void;
   dispose: () => void;
   /**
    * W6.5: the dome's own shader material, shared with the environment baker.
@@ -442,6 +463,7 @@ export function createGardenSky(): GardenSky {
   const cloudBodyColor = new Color();
   const cloudShadeColor = new Color();
   const sunQuadDir = new Vector2(0, 1);
+  const scratchSunPose = { direction: new Vector3(0, 1, 0), elevation: Math.PI / 2 };
   const windDir = new Vector2(-0.855, 0.519);
   billboards.mist.material.uniforms.uColor.value = mistColor;
   billboards.mist.material.uniforms.uWindDir.value = windDir;
@@ -453,8 +475,8 @@ export function createGardenSky(): GardenSky {
   billboards.clouds.material.uniforms.uSunQuadDir.value = sunQuadDir;
   billboards.clouds.material.uniforms.uWindDir.value = windDir;
 
-  const applyPhase = (phase: DayCyclePhase, stormLevel = 0): void => {
-    const { daylight, dusk, night } = phase;
+  const applyPhase = (phase: DayCyclePhase, wallClockHour: number, stormLevel = 0): void => {
+    const { daylight, dusk } = phase;
     const storm = Math.min(1, Math.max(0, stormLevel));
     const skyPresets = DAY_CYCLE_SKY_PRESETS;
     const zenith = dome.material.uniforms.uZenith.value as Color;
@@ -473,11 +495,13 @@ export function createGardenSky(): GardenSky {
     // the haze band's strength. The sun tint follows the light rig, the same
     // colour the water glitter uses. All of it is phase-derived, so the PMREM
     // bake right after this call sees the same sky the frame will grade.
-    const sinEl = daylight * SUN_DAY_ELEVATION
-      + dusk * SUN_DUSK_ELEVATION
-      + night * SUN_NIGHT_ELEVATION;
-    const cosEl = Math.sqrt(Math.max(0, 1 - sinEl * sinEl));
-    sunDir.set(SUN_AZIMUTH_X * cosEl, sinEl, SUN_AZIMUTH_Z * cosEl);
+    // The dome's sun is THE sun (garden-sun.ts), not a separate opinion about
+    // it. Previously this slid a fixed azimuth up and down three authored
+    // elevation constants, so the glow could never tell morning from evening —
+    // the two hours share phase weights and differ only in bearing, which is
+    // exactly what the old formula threw away.
+    gardenSunPose(wallClockHour, scratchSunPose);
+    sunDir.copy(scratchSunPose.direction);
     blendDayCycleColor(
       sunColor,
       DAY_CYCLE_LIGHT_PRESETS.night.dirColor,
@@ -532,7 +556,7 @@ export function createGardenSky(): GardenSky {
       );
       fog.near = FOG_NEAR * fogScale * (1 - storm * 0.32);
       fog.far = FOG_FAR * fogScale * (1 - storm * 0.25);
-      applyPhase(phase, storm);
+      applyPhase(phase, frame.wallClockHour, storm);
       const { daylight, dusk, night } = phase;
 
       // Storm cloud hides the stars and the moon.

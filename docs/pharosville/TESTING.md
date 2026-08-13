@@ -125,6 +125,15 @@ npm run preview -- --hash "#t=22&n=1" --out night.png
 npm run preview -- --headed --seconds 8
 ```
 
+`preview.mjs` resolves the operator's own Chrome per platform. On Linux that is
+deliberately the WRAPPER (`/usr/bin/google-chrome-stable`), because it is what
+applies `chrome-flags.conf` and so what keeps rendering off SwiftShader; on
+macOS there is no wrapper and none is needed, since the app bundle reaches the
+GPU through ANGLE/Metal (measured 2026-08-13 on an M5 Pro: `ANGLE (Apple, ANGLE
+Metal Renderer: Apple M5 Pro)`, 120 fps, tier `full`). Override either with
+`--chrome <path>`. The SwiftShader assertion is unchanged on every platform and
+remains what makes the reading honest.
+
 `scripts/pharosville/preview.mjs` goes through the wrapper, exits non-zero rather
 than report a software frame, and prints the scheduler tier, p50/p90, draw calls,
 triangles and visible ship count alongside a screenshot in `outputs/`. It waits
