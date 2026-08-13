@@ -135,7 +135,8 @@ Metal Renderer: Apple M5 Pro)`, 120 fps, tier `full`). Override either with
 remains what makes the reading honest.
 
 `scripts/pharosville/preview.mjs` goes through the wrapper, exits non-zero rather
-than report a software frame, and prints the scheduler tier, p50/p90, draw calls,
+than report a software frame, and prints the scheduler tier, p50/p90, the
+p95/p99/worst-frame tail, long-task counts, draw calls,
 triangles and visible ship count alongside a screenshot in `outputs/`. It waits
 for the fleet to populate and then for the pacing ring to refill before reading,
 because both the snapshot rebuild and the load spike otherwise dominate the
@@ -154,12 +155,48 @@ npm run preview -- --assert --max-p90=20 --max-draw-calls=700 --require-tier=ful
 ```
 
 `--assert` turns those printed numbers into a gate. Defaults: scheduler tier
-`full`, p90 ≤ 20 ms (a vsync-capped frame is 16.7 ms, so this tolerates the odd
-missed vsync without accepting 33 ms — a whole dropped frame), and ≤ 700 draw
-calls. It reads three rings spaced longer apart than the 120-sample window and
-asserts the median p90, so no read still carries load-spike frames and one
-background spike on a busy machine cannot block a push while a real regression —
-which shows in all three — still does.
+`full`, p90 ≤ 20 ms and **p95 ≤ 20 ms** (a vsync-capped frame is 16.7 ms, so
+this tolerates the odd missed vsync without accepting 33 ms — a whole dropped
+frame), and ≤ 700 draw calls.
+
+#### The tail is the calm metric
+
+Calm is a P95 property. One 100 ms frame a minute is felt; 2 ms on the average
+is not. So the animated arm does not read the pacing window once — it SWEEPS it,
+polling every 800 ms for `--tail-seconds` (default 12), and reports:
+
+| line | what it is |
+| --- | --- |
+| `frame` | the representative window: fps, p50, p90, dropped |
+| `tail` | p95 / p99 / worst frame **of that one 120-frame window** |
+| `longtask` | long tasks in the rolling window and the longest — where a GC pause or a rebuild shows up before it reaches the frame |
+| `sweep` | the **worst window** of the whole sweep, and whether the windows were continuous |
+
+The reported window is the median-p90 read of the sweep, so neither the best nor
+the worst read is the report; **the gate is the worst window's p95**, because
+the question a tail asks is whether ANY second was bad, not whether the typical
+one was. A P95 breach is a FAIL. p99, the worst single frame and the long-task
+counts are printed but not gated: a lone spike on a busy machine is real
+information and a bad reason to block a push, while a whole bad second moves p95
+and does block one. Override with `--max-p95=<ms>`.
+
+Be honest about the span. The in-page ring holds 120 frames — about 1 s at
+120 Hz, 2 s at 60 Hz — so a `tail` line describes one second, and a 12 s sweep
+is a dozen chances to catch a spike, not a minute of coverage. The sweep says
+`continuous` only when each window spans at least the 800 ms poll interval, so
+no frames fell between reads; otherwise it says `WITH GAPS` and names the
+shortfall. Raise `--tail-seconds` to widen the search (runtime rises with it).
+
+The ring is not simply made longer because its p90 is what the render scheduler
+and the adaptive-DPR governor key off (`src/renderer/render-scheduler.ts`,
+`src/systems/render-surface-budget.ts`) — a longer ring would slow every quality
+decision the renderer makes in order to buy a statistic. Sampling the short
+window often buys the same coverage without that cost.
+
+A page whose telemetry publishes no `p95Ms` at all — any bundle older than this
+lane — is a **SKIP (78)**, not a pass: the gate's headline metric was not
+measured, and "measured everything except the one it is named for" is not a
+claim it may make.
 
 It has three outcomes, never two:
 
@@ -172,8 +209,8 @@ It has three outcomes, never two:
 Exit 78 is the honest-degradation path, and it is why the gate can live on a
 machine-dependent measurement at all. It fires under `CI`, when the Chrome
 wrapper is missing, when there is no X11/Wayland display, when nothing is
-serving the target URL, when the world never populates, and when the renderer
-turns out to be SwiftShader after all. A bare `npm run preview` still fails loudly
+serving the target URL, when the world never populates, when the page publishes
+no P95 tail, and when the renderer turns out to be SwiftShader after all. A bare `npm run preview` still fails loudly
 on SwiftShader instead of skipping, because that run was asked for deliberately.
 
 `validate:deploy-gate` — the pre-push gate for `main` — runs both `--assert`
@@ -195,7 +232,8 @@ npm run preview -- --assert --reduced --hash "#sel=ship.satusd-river&t=12"
 
 This asserts full tier, at most 700 calls, 500k triangles, 500 geometries, and
 72 textures. It intentionally does not invent fps or frame-time data for a
-deterministic zero-RAF frame.
+deterministic zero-RAF frame — no p95 either: a frame that is painted once has
+no tail, and the sweep does not run on this arm.
 
 The word that carries this lane is **settled**. Reduced motion paints once and
 then repaints only when something asynchronous lands, so an early read is not
