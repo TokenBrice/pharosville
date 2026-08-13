@@ -7,6 +7,7 @@ import {
   EffectPass,
   BlendFunction,
   RenderPass,
+  ShaderPass,
   SMAAEffect,
   ToneMappingEffect,
   ToneMappingMode,
@@ -14,20 +15,27 @@ import {
 import {
   ClampToEdgeWrapping,
   Color,
+  DirectionalLight,
   HalfFloatType,
   LinearFilter,
+  Matrix4,
   NearestFilter,
+  NoBlending,
   NoColorSpace,
   RepeatWrapping,
+  ShaderMaterial,
   Texture,
   TextureLoader,
   Uniform,
   Vector2,
   Vector3,
+  WebGLRenderTarget,
   type Camera,
+  type OrthographicCamera,
   type Scene,
   type WebGLRenderer,
 } from "three";
+import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
 
 /**
  * Phase 1b (Breathtaking Rendering): one table owns every per-day-phase post
@@ -629,6 +637,651 @@ class GardenLutEffect extends Effect {
   }
 }
 
+/**
+ * The vertex half of every off-screen helper pass below.
+ *
+ * `postprocessing`'s `Pass` draws a single oversized triangle whose `position`
+ * attribute already spans clip space, so the UV is reconstructed from it rather
+ * than interpolated from an attribute — the convention every material in the
+ * library follows, and the one a `ShaderPass` expects.
+ */
+const FULLSCREEN_VERTEX_SHADER = /* glsl */ `
+  varying vec2 vUv;
+
+  void main() {
+    vUv = position.xy * 0.5 + 0.5;
+    gl_Position = vec4(position.xy, 1.0, 1.0);
+  }
+`;
+
+/**
+ * The 9-tap Gaussian, collapsed to 5 hardware-filtered fetches.
+ *
+ * The two off-centre taps sit at non-integer texel offsets so the bilinear unit
+ * returns the weighted average of the two texels either side of them; that is
+ * what buys a sigma-2 kernel for five samples instead of nine. Weights and
+ * offsets are the standard pair for that sigma and sum to exactly 1, so the
+ * blur is energy-preserving — a blurred HDR highlight keeps its brightness
+ * rather than dimming as it spreads.
+ */
+const SEPARABLE_BLUR_FRAGMENT_SHADER = /* glsl */ `
+  uniform sampler2D inputBuffer;
+  uniform vec2 blurDirection;
+  varying vec2 vUv;
+
+  void main() {
+    vec2 near = blurDirection * 1.3846153846;
+    vec2 far = blurDirection * 3.2307692308;
+    vec4 sum = texture2D(inputBuffer, vUv) * 0.2270270270;
+    sum += texture2D(inputBuffer, vUv + near) * 0.3162162162;
+    sum += texture2D(inputBuffer, vUv - near) * 0.3162162162;
+    sum += texture2D(inputBuffer, vUv + far) * 0.0702702703;
+    sum += texture2D(inputBuffer, vUv - far) * 0.0702702703;
+    gl_FragColor = sum;
+  }
+`;
+
+/**
+ * W2.3 — the miniature-garden pass, in numbers.
+ *
+ * WHY A CUSTOM EFFECT AND NOT `DepthOfFieldEffect`. The stock effect models a
+ * lens: a circle of confusion around a focus DISTANCE, scattered by a bokeh
+ * kernel, with separate near/far fields, a CoC pass, a mask pass and four bokeh
+ * passes — seven off-screen draws and five render targets. Under a locked
+ * orthographic camera there is no lens and no perspective for a bokeh disc to
+ * describe; what the frame wants is the tilt-shift READ: one horizontal band of
+ * the world in focus, everything nearer and farther softening, which is a band
+ * test on view-space distance plus a screen-vertical bias. That is one blur
+ * chain (two half-res draws) and one composite fused into a pass that already
+ * exists, and it reuses the depth texture N8AO already forces the composer to
+ * carry (`needsDepthTexture`) rather than adding one.
+ *
+ * THE BAND, IN VIEW HEIGHTS RATHER THAN WORLD UNITS. The camera sits at a fixed
+ * 179.6 units from the point it looks at and rakes down at 30°, so a point one
+ * screen-height higher in the frame is `2 / cos(30°)` ≈ 1.73 view heights
+ * farther away: the whole frame spans ±0.87 view heights of distance about its
+ * centre, at every zoom. Expressing the band in view heights is therefore the
+ * only way it can mean the same thing at overview and detail zoom — a band in
+ * world units would put the entire overview map out of focus and the entire
+ * detail framing in it. `focusRange` 0.45 keeps the middle ~52 % of the frame
+ * perfectly sharp; the falloffs reach full softness a hair past each edge.
+ *
+ * WHY THE DEPTH BAND IS NOT REDUNDANT WITH THE GRADIENT. The tower is 34 units
+ * tall, which under this rake projects ~0.47 view heights UP the frame while
+ * moving it 0.31 view heights NEARER. A pure screen gradient would blur the
+ * lighthouse crown and leave the water behind it sharp — precisely backwards.
+ * So the gradient may only ever SCALE a softness the depth band already
+ * granted (`bias` multiplies, it does not add): the crown stays exactly sharp
+ * at the top of the frame while the open water at the same screen row softens.
+ * That is also what keeps the fleet safe — a ship at the anchorage sits inside
+ * the band and cannot be blurred by where it happens to sit on screen.
+ */
+const DOF_RESOLUTION_SCALE = 0.5;
+/** Blur step in half-res texels; scales the shared 9-tap offsets. */
+const DOF_BLUR_SPREAD = 2;
+/** Half-width of the perfectly sharp band, in view heights (see above). */
+const DOF_FOCUS_RANGE = 0.55;
+/** How far past the band softness takes to reach full, in view heights. */
+const DOF_FAR_FALLOFF = 0.5;
+const DOF_NEAR_FALLOFF = 0.45;
+/**
+ * How much the screen-vertical gradient may lean the softness up the frame.
+ * At 0.32 the top of the frame carries 1.32x the far softness the depth band
+ * granted it and the bottom 0.68x, with the near field mirrored — the classic
+ * diorama lean, biasing what depth already decided.
+ */
+const DOF_GRADIENT_BIAS = 0.32;
+const DOF_GRADIENT_LOW = 0.16;
+const DOF_GRADIENT_HIGH = 0.92;
+/**
+ * The bokehScale-equivalent, and the whole "is this a garnish" question.
+ *
+ * Measured on the real GPU against a controlled A/B — two settled reduced-motion
+ * dusk frames identical but for this dial (`outputs/w24-dusk-rays-tuned.png`
+ * against `outputs/w23-dusk-dof-off.png`) — by how much local gradient energy
+ * each band of the frame retains. At the 0.62 that pair was captured with:
+ *
+ *                        deep field (haze/water)   objects (hulls, rigging)
+ *   top 9 % of frame            0.92                       0.94
+ *   middle 20-60 %              0.98                       1.00
+ *   bottom 8 %                  0.83                       0.95
+ *
+ * Two things in that table are the design working. The middle of the frame is
+ * untouched to three decimal places — the fleet where a viewer dwells is not
+ * softened at all. And in the bands that DO soften, the deep field gives up
+ * more than the objects standing in it, because a mast twelve units above the
+ * water is six units NEARER than the water behind it and the depth band knows
+ * that. A screen gradient alone would have had it exactly backwards.
+ *
+ * The shipped 0.72, with the falloffs tightened alongside it, runs ~1.5x that
+ * table: a veil over the haze band and the nearest water, the anchorage sharp.
+ * The first tuning pass ran a narrower band at a similar strength and softened
+ * fleet detail a third of the way up the frame, which is the line this must
+ * stay under. A viewer should read "tender diorama", never "tilt-shift filter".
+ */
+const DOF_STRENGTH = 0.72;
+
+const TILT_SHIFT_FRAGMENT_SHADER = /* glsl */ `
+  uniform sampler2D bokehBuffer;
+  uniform float focusCenter;
+  uniform float focusRange;
+  uniform float nearFalloff;
+  uniform float farFalloff;
+  uniform float gradientBias;
+  uniform float gradientLow;
+  uniform float gradientHigh;
+  uniform float strength;
+
+  void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor) {
+    // Uniform-controlled, so the whole wavefront takes the same branch: at a
+    // tier that has faded the pass out this costs one comparison per fragment
+    // and no texture fetch.
+    if (strength <= 0.0) {
+      outputColor = inputColor;
+      return;
+    }
+
+    // Orthographic depth is linear, so this is an exact view-space distance.
+    // getViewZ resolves to the orthographic reconstruction because the pass
+    // camera is not a PerspectiveCamera.
+    float viewDistance = -getViewZ(depth);
+
+    float farCoc = smoothstep(
+      focusCenter + focusRange,
+      focusCenter + focusRange + farFalloff,
+      viewDistance
+    );
+    // smoothstep is undefined when edge0 > edge1, so the near side is written
+    // as the complement of an increasing ramp rather than a descending one.
+    float nearCoc = 1.0 - smoothstep(
+      focusCenter - focusRange - nearFalloff,
+      focusCenter - focusRange,
+      viewDistance
+    );
+
+    // The diorama lean. This MULTIPLIES the depth verdict, so it can deepen a
+    // softness the band already granted but can never invent one — see the
+    // comment block above for why that distinction is the whole design.
+    float bias = mix(1.0 - gradientBias, 1.0 + gradientBias, smoothstep(gradientLow, gradientHigh, uv.y));
+    float coc = clamp(max(farCoc * bias, nearCoc * (2.0 - bias)), 0.0, 1.0);
+
+    vec3 bokeh = texture2D(bokehBuffer, uv).rgb;
+    outputColor = vec4(mix(inputColor.rgb, bokeh, coc * strength), inputColor.a);
+  }
+`;
+
+/**
+ * The tilt-shift effect: one half-res separable blur chain, composited by a
+ * circle of confusion derived from the depth band and the vertical gradient.
+ *
+ * The blur runs in `update()`, which `EffectPass` calls with its own input
+ * buffer before the fused fullscreen draw — so the softened copy is made from
+ * exactly the pixels this effect's `mainImage` will be handed, and the whole
+ * stage still costs the main chain no extra fullscreen pass.
+ *
+ * Disposal is inherited: `Effect.dispose()` walks this instance's own fields
+ * and disposes every render target, material and pass it finds, which is all
+ * three of the resources below.
+ */
+class GardenTiltShiftEffect extends Effect {
+  private readonly blurTargetA: WebGLRenderTarget;
+  private readonly blurTargetB: WebGLRenderTarget;
+  private readonly horizontalPass: ShaderPass;
+  private readonly verticalPass: ShaderPass;
+
+  constructor() {
+    super("GardenTiltShift", TILT_SHIFT_FRAGMENT_SHADER, {
+      attributes: EffectAttribute.DEPTH,
+      blendFunction: BlendFunction.SRC,
+      uniforms: new Map<string, Uniform>([
+        ["bokehBuffer", new Uniform(null)],
+        ["focusCenter", new Uniform(1)],
+        ["focusRange", new Uniform(1)],
+        ["nearFalloff", new Uniform(1)],
+        ["farFalloff", new Uniform(1)],
+        ["gradientBias", new Uniform(DOF_GRADIENT_BIAS)],
+        ["gradientLow", new Uniform(DOF_GRADIENT_LOW)],
+        ["gradientHigh", new Uniform(DOF_GRADIENT_HIGH)],
+        ["strength", new Uniform(0)],
+      ]),
+    });
+
+    // HalfFloat to match the composer's own buffer: the blurred copy is mixed
+    // back into a linear HDR frame that still has to survive AgX, so clipping
+    // the bokeh to LDR here would darken every soft highlight.
+    this.blurTargetA = new WebGLRenderTarget(1, 1, {
+      depthBuffer: false,
+      magFilter: LinearFilter,
+      minFilter: LinearFilter,
+      stencilBuffer: false,
+      type: HalfFloatType,
+    });
+    this.blurTargetA.texture.name = "GardenTiltShift.BlurX";
+    this.blurTargetB = this.blurTargetA.clone();
+    this.blurTargetB.texture.name = "GardenTiltShift.BlurY";
+    this.uniforms.get("bokehBuffer")!.value = this.blurTargetB.texture;
+
+    this.horizontalPass = new ShaderPass(createSeparableBlurMaterial());
+    this.verticalPass = new ShaderPass(createSeparableBlurMaterial());
+  }
+
+  /** 0 disables the stage outright — no blur draws, no texture fetch. */
+  get strength(): number {
+    return (this.uniforms.get("strength")!.value as number);
+  }
+
+  set strength(value: number) {
+    this.uniforms.get("strength")!.value = value;
+  }
+
+  /**
+   * The sharp band, in view-space distance. `focusCenter` is a plain uniform
+   * on purpose: W4.6 eases it toward a selected ship, and a uniform is the one
+   * thing that can be moved every frame without touching the pass list.
+   */
+  setFocusBand(center: number, viewHeight: number): void {
+    this.uniforms.get("focusCenter")!.value = center;
+    this.uniforms.get("focusRange")!.value = viewHeight * DOF_FOCUS_RANGE;
+    this.uniforms.get("farFalloff")!.value = viewHeight * DOF_FAR_FALLOFF;
+    this.uniforms.get("nearFalloff")!.value = viewHeight * DOF_NEAR_FALLOFF;
+  }
+
+  override setSize(width: number, height: number): void {
+    const blurWidth = Math.max(1, Math.round(width * DOF_RESOLUTION_SCALE));
+    const blurHeight = Math.max(1, Math.round(height * DOF_RESOLUTION_SCALE));
+    this.blurTargetA.setSize(blurWidth, blurHeight);
+    this.blurTargetB.setSize(blurWidth, blurHeight);
+    // The horizontal pass reads the FULL-res frame at the half-res raster, so
+    // one half-res texel of offset is two full-res texels: the downsample and
+    // the first blur axis are the same draw.
+    blurDirectionOf(this.horizontalPass).set(DOF_BLUR_SPREAD / blurWidth, 0);
+    blurDirectionOf(this.verticalPass).set(0, DOF_BLUR_SPREAD / blurHeight);
+  }
+
+  override update(renderer: WebGLRenderer, inputBuffer: WebGLRenderTarget): void {
+    if (this.strength <= 0) return;
+    this.horizontalPass.render(renderer, inputBuffer, this.blurTargetA);
+    this.verticalPass.render(renderer, this.blurTargetA, this.blurTargetB);
+  }
+}
+
+function createSeparableBlurMaterial(): ShaderMaterial {
+  return new ShaderMaterial({
+    blending: NoBlending,
+    depthTest: false,
+    depthWrite: false,
+    fragmentShader: SEPARABLE_BLUR_FRAGMENT_SHADER,
+    name: "GardenSeparableBlurMaterial",
+    uniforms: {
+      blurDirection: new Uniform(new Vector2()),
+      inputBuffer: new Uniform(null),
+    },
+    vertexShader: FULLSCREEN_VERTEX_SHADER,
+  });
+}
+
+function blurDirectionOf(pass: ShaderPass): Vector2 {
+  const material = pass.fullscreenMaterial as ShaderMaterial;
+  return material.uniforms.blurDirection!.value as Vector2;
+}
+
+/**
+ * W2.4 — low-sun god rays through the tower, in numbers.
+ *
+ * WHY HAND-ROLLED AND NOT `three-good-godrays`. The plan named it as the
+ * preferred route; its published peer range is `three >= 0.125.0 <= 0.182.0`
+ * (0.12.1, checked 2026-08-13) and this repository is pinned to three 0.185.1
+ * because `postprocessing` 6.39.4 pins `three < 0.186`. Installing it would
+ * mean either an unsatisfied peer or a three downgrade that the post stack
+ * forbids. Beyond the version wall it is also built around a perspective
+ * reconstruction, and every ray in this world is parallel by construction: a
+ * directional light under a LOCKED ORTHOGRAPHIC camera projects parallel world
+ * shafts to parallel screen lines, with no vanishing point for a radial-blur
+ * god-ray to radiate from. The raymarch below is ~40 lines of GLSL, adds zero
+ * bytes of dependency, and is correct for this camera by construction.
+ *
+ * WHAT IT MARCHES. For every half-res pixel: the camera ray from the near plane
+ * to whatever the depth buffer says it hit, clipped to the slab of air the
+ * medium occupies, sampled at 28 jittered steps. Each sample is transformed by
+ * `light.shadow.matrix` — the SAME matrix the world's receiving materials use,
+ * belonging to the same 2048² map that W2.2 fitted over the island and the
+ * harbour ring — and tested against the shadow map. So a shaft breaks exactly
+ * where the tower's sea shadow breaks: not approximately, but because it is
+ * literally the same lookup. No second shadow render, no second matrix, and
+ * nothing to drift out of agreement.
+ *
+ * WHY THE SHAFTS STAY LOW. Density falls off exponentially with height above
+ * the sea (e-folding ~18 units), and the slab is capped just above the tower's
+ * 34-unit crown. Haze lies on water; a medium of uniform density up the whole
+ * frame is what turns crepuscular rays into the "fog cone" failure this task
+ * was warned about.
+ *
+ * WHY THERE IS NO PHASE FUNCTION. Forward scattering weights a shaft by the
+ * angle between the view ray and the light. Under a locked orthographic camera
+ * BOTH are constant across the frame, so the whole term collapses to one scalar
+ * per frame — which is already what the per-phase intensity below is. Computing
+ * it per fragment would spend ALU to arrive at a number the table states.
+ */
+const GODRAY_RESOLUTION_SCALE = 0.5;
+/**
+ * The march's whole cost knob. 28 steps over a ~80-unit slab is ~2.9 units per
+ * step against a 0.043-unit shadow texel — coarse per sample, but the tower's
+ * shadow is a solid volume tens of units deep, and the interleaved-gradient
+ * jitter below turns the residual banding into the dither the eye integrates.
+ */
+const GODRAY_STEPS = 28;
+/** The sea plane the medium sits on; mirrors `GARDEN_WATER_Y`. */
+const GODRAY_SEA_LEVEL = GARDEN_WATER_Y;
+/** Slab height above the sea, in world units — just over the 34-unit crown. */
+const GODRAY_VOLUME_TOP = 46;
+/** Exponential density falloff with height; 0.055 e-folds in ~18 units. */
+const GODRAY_HEIGHT_FALLOFF = 0.1;
+/**
+ * Depth-compare bias, in the shadow map's normalized depth.
+ *
+ * A march sample in free air grazing the water sits a hair from the recorded
+ * depth of whatever the light saw there, and without a bias that hair reads as
+ * shimmering speckle along the shoreline. 0.0016 over the shadow camera's
+ * ~215-unit range is ~0.34 world units — under one step of the march and far
+ * under anything the eye can place.
+ */
+const GODRAY_SHADOW_BIAS = 0.0016;
+/**
+ * Where the low-sun window opens and closes, as key-light elevation in radians.
+ *
+ * Read from the light that actually casts the shadow map, which is
+ * `gardenKeyLightPose` — the sun by day, crossed to the moon after dark. That
+ * choice is deliberate: rays that agree with the shadow map must be gated by
+ * the same pose the map was drawn for. Against the shipped arc it lands at
+ * ~1.0 at dusk (t=19, elevation floored to 0.12), ~0.55 at dawn (t=7, 0.34),
+ * ~0.28 through late afternoon (t=17), and exactly 0 at noon (0.80) and at
+ * night, where the pose has crossed to the high moon (0.91).
+ */
+const GODRAY_ELEVATION_FULL = 0.16;
+const GODRAY_ELEVATION_NONE = 0.55;
+/**
+ * The night kill. Elevation alone cannot close the window after sunset: the
+ * pose crosses to the moon through the evening and passes back down through
+ * the low band on its way. Weighting by the day cycle's own night scalar shuts
+ * the rays with the light that made them — ~0.32 of full at t=20 while the
+ * ember horizon is still lit, ~0.03 by t=21, exactly 0 at night proper.
+ */
+const GODRAY_NIGHT_FADE_POWER = 1;
+/**
+ * The lit optical thickness of a full, unshadowed column, in world units — the
+ * denominator that turns the march's integral into a 0..1 shaft term.
+ *
+ * Derived, not guessed: the slab is 47.45 units tall, the density is
+ * exp(-0.1·height), and the locked 30° rake means the ray descends one unit of
+ * height every two units of length, so the integral is
+ * 2·(1 − e^(−0.1·47.45))/0.1 ≈ 19.8. Rounding to 20 leaves a full column just
+ * under 1 and every partial column proportionally under that.
+ */
+const GODRAY_REFERENCE_THICKNESS = 20;
+/**
+ * Master intensity, as a linear-HDR add on the pre-grade frame.
+ *
+ * Sized by MEASUREMENT, not by eye, against a controlled real-GPU A/B: two
+ * settled reduced-motion dusk frames (`outputs/w24-dusk-rays-{on,off}.png`,
+ * identical in every other respect) differenced block by block.
+ *
+ * At 0.05 the shafts lifted the whole frame's mean luminance by 8.4 codes of
+ * 255 and the brightest blocks by 22.6 — a real structure (the tower's shadow
+ * column read as a 19-code dip against its neighbours) sitting on a DC pedestal
+ * far too tall to call a garnish, and a rewrite of a grade W1.x tuned to a
+ * tenth of a code. The pedestal is not a bug in the model: at low sun the air
+ * IS lit nearly everywhere the map covers, so a physically honest medium has
+ * one. What must be restrained is its height. At 0.02 the frame mean moves
+ * ~3.4 codes, the brightest blocks ~9, and the tower's shadow still cuts ~8
+ * codes across its column — legible as light, too quiet to read as fog.
+ *
+ * Also far under the day bloom knee (1.20) by construction, so a shaft can
+ * never open bloom onto the sky the W1.3 retune spent its margin protecting.
+ */
+const GODRAY_INTENSITY = 0.02;
+/**
+ * The hour the shafts inherit. Dusk is the ember hour and reads warm; dawn is
+ * pale and cooler. The day cycle's `daylight` scalar is what separates them —
+ * both windows sit at dusk≈1, but the evening window has daylight 0 while the
+ * dawn window is already at ~0.65 — so it is the natural mix parameter, and it
+ * costs nothing extra to read.
+ */
+const GODRAY_DUSK_COLOR: readonly [number, number, number] = [1, 0.63, 0.3];
+const GODRAY_DAWN_COLOR: readonly [number, number, number] = [0.88, 0.89, 0.95];
+const GODRAY_DUSK_DENSITY = 1;
+const GODRAY_DAWN_DENSITY = 0.74;
+/** Tier fade time constant — the same 180 ms ease the AO weight rides. */
+const GODRAY_TIER_FADE_SECONDS = 0.18;
+
+const GODRAY_MARCH_FRAGMENT_SHADER = /* glsl */ `
+  uniform sampler2D depthBuffer;
+  uniform sampler2DShadow shadowMap;
+  uniform mat4 shadowMatrix;
+  uniform mat4 inverseViewProjection;
+  uniform vec3 rayColor;
+  uniform float seaLevel;
+  uniform float volumeTop;
+  uniform float heightFalloff;
+  uniform float referenceThickness;
+  uniform float shadowBias;
+  varying vec2 vUv;
+
+  vec3 worldFromDepth(const in vec2 uv, const in float depth) {
+    vec4 clip = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 world = inverseViewProjection * clip;
+    return world.xyz / world.w;
+  }
+
+  void main() {
+    float depth = texture2D(depthBuffer, vUv).r;
+    vec3 rayStart = worldFromDepth(vUv, 0.0);
+    vec3 rayEnd = worldFromDepth(vUv, depth);
+    vec3 segment = rayEnd - rayStart;
+    float segmentLength = length(segment);
+    vec3 direction = segment / max(segmentLength, 1e-4);
+
+    // Clip the march to the slab of air the medium occupies. Without this the
+    // ray would be walked across the camera's whole 500-unit range to sample
+    // 28 points, almost all of them in vacuum above the haze.
+    float tMin = 0.0;
+    float tMax = segmentLength;
+    if (abs(direction.y) > 1e-4) {
+      float tTop = (seaLevel + volumeTop - rayStart.y) / direction.y;
+      float tSea = (seaLevel - rayStart.y) / direction.y;
+      tMin = max(tMin, min(tTop, tSea));
+      tMax = min(tMax, max(tTop, tSea));
+    }
+    if (tMax <= tMin) {
+      gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+      return;
+    }
+
+    float span = tMax - tMin;
+    float stepSize = span / float(${GODRAY_STEPS});
+    // Interleaved gradient noise (Jimenez): a low-discrepancy, purely
+    // positional dither. Deterministic per pixel and free of any clock, so a
+    // reduced-motion frame is bit-identical from one render to the next.
+    float jitter = fract(52.9829189 * fract(0.06711056 * gl_FragCoord.x + 0.00583715 * gl_FragCoord.y));
+
+    float lit = 0.0;
+    for (int i = 0; i < ${GODRAY_STEPS}; i++) {
+      vec3 samplePoint = rayStart + direction * (tMin + (float(i) + jitter) * stepSize);
+      vec4 shadowClip = shadowMatrix * vec4(samplePoint, 1.0);
+      vec3 shadowCoord = shadowClip.xyz / shadowClip.w;
+
+      // Outside the static map's frustum there is no answer, so contribute
+      // nothing rather than guess — and feather the last quarter of the way
+      // out so the shafts dissolve into the haze instead of ending on the
+      // rectangle the shadow camera happens to cover.
+      vec2 edge = abs(shadowCoord.xy - 0.5) * 2.0;
+      float inside = 1.0 - smoothstep(0.55, 1.0, max(edge.x, edge.y));
+      inside *= step(0.0, shadowCoord.z) * step(shadowCoord.z, 1.0);
+      if (inside <= 0.0) continue;
+
+      float visibility = texture(shadowMap, vec3(shadowCoord.xy, shadowCoord.z - shadowBias));
+      float density = exp(-max(samplePoint.y - seaLevel, 0.0) * heightFalloff);
+      lit += visibility * density * inside;
+    }
+
+    // An INTEGRAL, not an average: multiplying by the step length turns the sum
+    // into the lit optical thickness the ray actually crossed, in world units.
+    // The distinction is not pedantry — a ray that stops on the tower's flank
+    // has metres of air in front of it and a ray that reaches the sea has tens,
+    // and an average would hand both the same brightness, painting the tower's
+    // own face with the haze that belongs in front of it.
+    float thickness = clamp(lit * stepSize / referenceThickness, 0.0, 1.0);
+
+    // The contrast curve is what keeps this reading as LIGHT rather than fog.
+    // A low sun lights nearly the whole slab, so the honest answer is a broad
+    // plateau — physically right, and on screen a warm smear over half the
+    // anchorage (measured: the first tuning pass did exactly that). Bending the
+    // thickness before it is scaled widens the gap between a shaft and its
+    // shadow without raising the level of either: a full column keeps its value
+    // while a half-occluded one falls to a fifth rather than a half.
+    float shaft = pow(thickness, 2.2);
+    gl_FragColor = vec4(rayColor * shaft, 1.0);
+  }
+`;
+
+const GODRAY_FRAGMENT_SHADER = /* glsl */ `
+  uniform sampler2D raysBuffer;
+  uniform float rayWeight;
+
+  void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
+    // Uniform branch: outside the low-sun window this stage is one comparison.
+    if (rayWeight <= 0.0) {
+      outputColor = inputColor;
+      return;
+    }
+    outputColor = vec4(inputColor.rgb + texture2D(raysBuffer, uv).rgb * rayWeight, inputColor.a);
+  }
+`;
+
+/**
+ * How much of the low-sun window is open at a given key-light elevation.
+ *
+ * Exported because it is the whole gating contract and it is pure: a test can
+ * lock the curve at every hour of the shipped arc without a GPU, a scene or a
+ * light. `night` is the day cycle's own night weight — see
+ * GODRAY_NIGHT_FADE_POWER for why elevation alone is not enough.
+ */
+export function gardenGodRayLowSunGate(elevation: number, night: number): number {
+  if (!Number.isFinite(elevation)) return 0;
+  const span = GODRAY_ELEVATION_NONE - GODRAY_ELEVATION_FULL;
+  const t = clampUnit((GODRAY_ELEVATION_NONE - elevation) / span);
+  const eased = t * t * (3 - 2 * t);
+  return eased * Math.pow(1 - clampUnit(night), GODRAY_NIGHT_FADE_POWER);
+}
+
+/**
+ * The god-ray effect: one half-res raymarch of the world's own shadow map,
+ * added to the linear HDR frame before the grade so the shafts are graded and
+ * tone-mapped with everything else rather than painted over the top.
+ *
+ * DECORATIVE. The shafts carry no data: they are weather and hour, nothing in
+ * the payload moves them, and no cue in `visual-cue-registry.ts` reads them.
+ * Nothing here needs a registry entry, a detail row or a ledger clause.
+ */
+class GardenGodRaysEffect extends Effect {
+  private readonly rayTarget: WebGLRenderTarget;
+  private readonly marchPass: ShaderPass;
+  private readonly marchUniforms: Record<string, Uniform>;
+
+  constructor() {
+    super("GardenGodRays", GODRAY_FRAGMENT_SHADER, {
+      // The march needs depth and gets it through `setDepthTexture` below;
+      // declaring the attribute is what makes the pass forward it here.
+      attributes: EffectAttribute.DEPTH,
+      blendFunction: BlendFunction.SRC,
+      uniforms: new Map<string, Uniform>([
+        ["raysBuffer", new Uniform(null)],
+        ["rayWeight", new Uniform(0)],
+      ]),
+    });
+
+    this.rayTarget = new WebGLRenderTarget(1, 1, {
+      depthBuffer: false,
+      magFilter: LinearFilter,
+      minFilter: LinearFilter,
+      stencilBuffer: false,
+      type: HalfFloatType,
+    });
+    this.rayTarget.texture.name = "GardenGodRays.Half";
+    this.uniforms.get("raysBuffer")!.value = this.rayTarget.texture;
+
+    this.marchUniforms = {
+      depthBuffer: new Uniform(null),
+      heightFalloff: new Uniform(GODRAY_HEIGHT_FALLOFF),
+      inverseViewProjection: new Uniform(new Matrix4()),
+      rayColor: new Uniform(new Vector3(1, 1, 1)),
+      referenceThickness: new Uniform(GODRAY_REFERENCE_THICKNESS),
+      seaLevel: new Uniform(GODRAY_SEA_LEVEL),
+      shadowBias: new Uniform(GODRAY_SHADOW_BIAS),
+      shadowMap: new Uniform(null),
+      shadowMatrix: new Uniform(new Matrix4()),
+      volumeTop: new Uniform(GODRAY_VOLUME_TOP),
+    };
+    this.marchPass = new ShaderPass(new ShaderMaterial({
+      blending: NoBlending,
+      depthTest: false,
+      depthWrite: false,
+      fragmentShader: GODRAY_MARCH_FRAGMENT_SHADER,
+      name: "GardenGodRayMarchMaterial",
+      uniforms: this.marchUniforms,
+      vertexShader: FULLSCREEN_VERTEX_SHADER,
+    }));
+  }
+
+  /** 0 outside the low-sun window; also the pass-skip predicate. */
+  get weight(): number {
+    return (this.uniforms.get("rayWeight")!.value as number);
+  }
+
+  set weight(value: number) {
+    this.uniforms.get("rayWeight")!.value = value;
+  }
+
+  /** Hue and density for the hour. Never a tier input — see tier invariance. */
+  setPhaseLook(red: number, green: number, blue: number): void {
+    (this.marchUniforms.rayColor!.value as Vector3).set(red, green, blue);
+  }
+
+  /**
+   * The world's own shadow rig. `shadow.matrix` is the matrix the map was last
+   * DRAWN with — not the light's current pose — which is exactly right: the
+   * static map is re-rendered only past a 0.6° re-steer, and reading the live
+   * pose instead would slide the shafts off the shadows between re-steers.
+   */
+  setShadowRig(shadowMap: Texture | null, shadowMatrix: Matrix4 | null): void {
+    this.marchUniforms.shadowMap!.value = shadowMap;
+    if (shadowMatrix) this.marchUniforms.shadowMatrix!.value = shadowMatrix;
+  }
+
+  /** World-space reconstruction for the current frame's camera. */
+  setInverseViewProjection(matrix: Matrix4): void {
+    (this.marchUniforms.inverseViewProjection!.value as Matrix4).copy(matrix);
+  }
+
+  override setDepthTexture(depthTexture: Texture): void {
+    this.marchUniforms.depthBuffer!.value = depthTexture;
+  }
+
+  override setSize(width: number, height: number): void {
+    this.rayTarget.setSize(
+      Math.max(1, Math.round(width * GODRAY_RESOLUTION_SCALE)),
+      Math.max(1, Math.round(height * GODRAY_RESOLUTION_SCALE)),
+    );
+  }
+
+  override update(renderer: WebGLRenderer): void {
+    // Outside the low-sun window, and at every tier below full, the march is
+    // not merely faded — it is not drawn. This is the honest half of the
+    // "dawn/dusk only" cost claim.
+    if (this.weight <= 0 || this.marchUniforms.shadowMap!.value === null) return;
+    this.marchPass.render(renderer, null, this.rayTarget);
+  }
+}
+
 export interface GardenPost {
   dispose: () => void;
   // The returned array is a reused internal buffer: read it within the frame,
@@ -645,6 +1298,14 @@ export interface GardenPost {
   setAOZoomDetail: (detail: number) => void;
   setBloomEnabled: (enabled: boolean) => void;
   setEnabled: (enabled: boolean) => void;
+  /**
+   * W2.3 / W4.6 seam: where the tilt-shift's sharp band sits, as a view-space
+   * distance. `null` (the default) derives it from the camera — the point the
+   * locked vantage looks at on the sea. W4.6 eases a selected ship's distance
+   * in here; nothing else may touch it, and it is a uniform write, never a
+   * pass-list change.
+   */
+  setFocusBandDistance: (distance: number | null) => void;
   // No nightMix: night is the base of the blend (as in `blendScalar`), and the
   // day cycle derives it as `1 - daylight - dusk` anyway, so it carries nothing.
   // Phase 2: stormLevel applies the table's storm scalars (wet-glow bloom,
@@ -663,6 +1324,39 @@ function lerp(a: number, b: number, t: number): number {
 function clampUnit(value: number): number {
   if (Number.isNaN(value)) return 0;
   return Math.min(1, Math.max(0, value));
+}
+
+/**
+ * Frame-rate independent approach, so a fade lasts the same wall time whatever
+ * the frame took. `rate` is the reciprocal of the time constant: 6 settles a
+ * texture fade inside ~1.5 s, `1 / 0.18` matches the tier ease the AO weight
+ * rides in `world-renderer.ts`.
+ */
+function easeExponential(
+  current: number,
+  target: number,
+  deltaSeconds: number,
+  rate: number,
+): number {
+  if (current === target) return target;
+  const delta = Number.isFinite(deltaSeconds) && deltaSeconds > 0 ? deltaSeconds : 1 / 60;
+  const next = current + (target - current) * (1 - Math.exp(-rate * delta));
+  return Math.abs(target - next) < 1e-3 ? target : next;
+}
+
+/**
+ * The scene's shadow-casting directional light, or null.
+ *
+ * One traversal, at construction, of a scene that has its lights but not yet
+ * its world content. Null is a supported answer: without a light there is no
+ * shadow map to agree with, and W2.4 stands down rather than inventing shafts.
+ */
+function findShadowCastingLight(scene: Scene): DirectionalLight | null {
+  const found: DirectionalLight[] = [];
+  scene.traverse((object) => {
+    if (object instanceof DirectionalLight && object.castShadow) found.push(object);
+  });
+  return found[0] ?? null;
 }
 
 /** applyGrade runs once per frame; the storm-lift blend reuses this scratch. */
@@ -784,7 +1478,8 @@ function installN8AODisposalAdapter(pass: N8AOPostPass): void {
  * rendering plan — supersedes the three/examples EffectComposer stack):
  *
  *   RenderPass → N8AOPostPass (AO on scene color) → EffectPass(BloomEffect) →
- *   EffectPass(GardenGrade + ToneMapping AGX, fused) → EffectPass(SMAA)
+ *   EffectPass(GardenTiltShift + GardenGodRays + GardenGrade + ToneMapping AGX
+ *   + GardenLut, fused) → EffectPass(SMAA)
  *
  * drawn through a multisampled (4×) HalfFloat frame buffer so MSAA survives
  * the composite. Tone mapping and color-space output each happen exactly
@@ -796,8 +1491,10 @@ function installN8AODisposalAdapter(pass: N8AOPostPass): void {
  * last, on the LDR result, per the pmndrs convention.
  *
  * The AO pass sets `needsDepthTexture`, which makes the composer carry depth
- * textures and blit the multisampled scene depth into a stable target once
- * per frame — the cost AO pays for reading depth; nothing else uses it.
+ * textures and blit the multisampled scene depth into a stable target once per
+ * frame. W2.3 and W2.4 now read that SAME texture — the composer hands its
+ * stable depth to every pass once any pass asks for it, so the depth band and
+ * the raymarch's world reconstruction are free of a second depth prepass.
  */
 export function createGardenPost(
   renderer: WebGLRenderer,
@@ -902,12 +1599,33 @@ export function createGardenPost(
   // that OutputPass applied in the old chain.
   const toneMappingEffect = new ToneMappingEffect({ mode: ToneMappingMode.AGX });
   const lutEffect = new GardenLutEffect();
-  // Grade, tone mapping and the LUT share one pass so they fuse into a single
-  // full-screen draw (all three are attribute-free, so registration order
-  // holds). The order IS the contract: parametric grade on the linear HDR
-  // frame, then AgX, then the authored cube and the dither on the display
-  // signal AgX produced.
-  const gradePass = new EffectPass(camera, gradeEffect, toneMappingEffect, lutEffect);
+  const tiltShiftEffect = new GardenTiltShiftEffect();
+  const godRaysEffect = new GardenGodRaysEffect();
+  // Five effects, ONE full-screen draw. pmndrs chains the effects of a pass
+  // into a single fragment shader, feeding each `mainImage` the previous one's
+  // output, so W2.3 and W2.4 add no pass to the main chain — only their own
+  // half-res off-screen work, which runs in `update()` and is skipped outright
+  // when their weights are zero.
+  //
+  // The order IS the contract, and both new stages are BEFORE the grade so the
+  // softened pixels and the shafts are graded, tone-mapped and looked up with
+  // everything else rather than painted over the finished picture:
+  //
+  //   tilt-shift (depth band) → god rays (add) → parametric grade → AgX →
+  //   authored cube + dither
+  //
+  // Depth-of-field first because the shafts are light IN THE AIR between the
+  // camera and the water: softening them by the same band that softens the
+  // surface behind them would make the near air read as out of focus, which
+  // nothing in the frame is.
+  const gradePass = new EffectPass(
+    camera,
+    tiltShiftEffect,
+    godRaysEffect,
+    gradeEffect,
+    toneMappingEffect,
+    lutEffect,
+  );
 
   const smaaEffect = new SMAAEffect();
   // SMAAEffect requests a depth texture unconditionally, but it only reads
@@ -963,7 +1681,40 @@ export function createGardenPost(
   let phaseAOIntensity = POST_PHASE_NIGHT.aoIntensity;
   const passList: string[] = [];
 
-  function syncAOPass(): void {
+  /**
+   * The tilt-shift is designed for the locked orthographic vantage and for
+   * nothing else: its band is expressed in view heights, which a perspective
+   * frustum does not have, and its depth reconstruction assumes the linear
+   * depth only an orthographic projection produces. If this renderer ever gets
+   * a different camera the stage stands down rather than guessing.
+   */
+  const orthographicCamera = (camera as OrthographicCamera).isOrthographicCamera === true
+    ? camera as OrthographicCamera
+    : null;
+  /**
+   * The world's shadow-casting key light, resolved ONCE.
+   *
+   * `createGardenPost` is handed the scene root, and `createGardenScene` has
+   * already added the directional light by the time it is called, so the rig
+   * W2.4 needs is reachable without widening this module's contract or asking
+   * `world-renderer.ts` for a setter. A per-frame traversal of a 600-object
+   * graph to re-find a light that is never replaced would be the expensive way
+   * to learn the same answer.
+   */
+  const shadowLight = findShadowCastingLight(scene);
+  const scratchForward = new Vector3();
+  const scratchLightDelta = new Vector3();
+  const scratchInverseViewProjection = new Matrix4();
+  /** W4.6 seam; null means "derive the band from the camera". */
+  let focusBandOverride: number | null = null;
+  /** Night weight of the current phase blend — the god rays' sunset kill. */
+  let phaseNightWeight = 1;
+  /** Per-phase ray density; hue rides on the effect's own uniform. */
+  let rayPhaseDensity = GODRAY_DUSK_DENSITY;
+  /** Eased full-tier weight for the rays, on the AO fade's time constant. */
+  let rayTierWeight = 1;
+
+  function syncTierFidelity(): void {
     // The pass costs nothing at whole-map zoom: the overview-LOD detail
     // scalar fades AO out over the same zoom band that sheds the small props,
     // and at zero the pass is skipped outright. AO is a grounding FIDELITY,
@@ -977,6 +1728,20 @@ export function createGardenPost(
       * aoTierWeight;
     const radiusScale = aoQuality === "full" ? 1 : AO_BALANCED_RADIUS_SCALE;
     aoConfiguration.aoRadius = AO_RADIUS * radiusScale;
+
+    // W2.3 rides the SAME eased tier weight the AO does, because it is the same
+    // decision: `world-renderer.ts` drives that weight to 1 at full and
+    // balanced, to 0 below, over a 180 ms ease, and never by mutating the pass
+    // list mid-session. Depth of field is a fidelity, not a colour, so shedding
+    // it below balanced is inside the tier-invariance contract; the grade, the
+    // tone map and the cube stay on at every tier, exactly as before.
+    //
+    // Deliberately NOT scaled by `aoZoomDetail`: that scalar sheds AO with the
+    // small props it grounds, while the tilt-shift band is expressed in view
+    // heights and therefore says the same thing at every zoom.
+    tiltShiftEffect.strength = enabled && orthographicCamera
+      ? aoTierWeight * DOF_STRENGTH
+      : 0;
   }
 
   function applyGrade(dayMix: number, duskMix: number, stormLevel = 0, flash = 0): void {
@@ -1009,6 +1774,18 @@ export function createGardenPost(
     const dayWeight = clampUnit(dayMix);
     const duskWeight = clampUnit(duskMix) * (1 - dayWeight);
     lutUniforms.lutWeights.value.set(1 - dayWeight - duskWeight, duskWeight, dayWeight);
+    // W2.4: the shafts inherit the hour from the same three weights. The night
+    // band is the rays' sunset kill (see GODRAY_NIGHT_FADE_POWER), and the day
+    // band is what separates the two low-sun windows — an evening at dusk=1 has
+    // daylight 0 where a dawn at dusk=1 is already climbing, so `dayWeight`
+    // reads dusk-gold at 0 and dawn-pale at 1 without a fourth scalar.
+    phaseNightWeight = 1 - dayWeight - duskWeight;
+    godRaysEffect.setPhaseLook(
+      lerp(GODRAY_DUSK_COLOR[0], GODRAY_DAWN_COLOR[0], dayWeight),
+      lerp(GODRAY_DUSK_COLOR[1], GODRAY_DAWN_COLOR[1], dayWeight),
+      lerp(GODRAY_DUSK_COLOR[2], GODRAY_DAWN_COLOR[2], dayWeight),
+    );
+    rayPhaseDensity = lerp(GODRAY_DUSK_DENSITY, GODRAY_DAWN_DENSITY, dayWeight);
     // The bloom knee follows the same blend so the bright day sky/fog never
     // crosses it; night keeps the lowest knee for the Lantern Sea emissives.
     // The storm rows then drop the knee and raise the strength for the
@@ -1060,21 +1837,85 @@ export function createGardenPost(
       POST_PHASE_DAY.aoIntensity,
       dayMix,
     );
-    syncAOPass();
+    syncTierFidelity();
   }
   applyGrade(0, 0);
 
-  /** Frame-rate independent approach, so the fade lasts the same wall time. */
-  function easePostAsset(current: number, target: number, deltaSeconds: number): number {
-    if (current === target) return target;
-    const delta = Number.isFinite(deltaSeconds) && deltaSeconds > 0 ? deltaSeconds : 1 / 60;
-    const next = current + (target - current) * (1 - Math.exp(-POST_ASSET_FADE_RATE * delta));
-    return Math.abs(target - next) < 1e-3 ? target : next;
+  function easePostAssets(deltaSeconds = 0): void {
+    lutUniforms.lutMix.value = easeExponential(lutUniforms.lutMix.value, lutTarget, deltaSeconds, POST_ASSET_FADE_RATE);
+    lutUniforms.ditherMix.value = easeExponential(lutUniforms.ditherMix.value, ditherTarget, deltaSeconds, POST_ASSET_FADE_RATE);
   }
 
-  function easePostAssets(deltaSeconds = 0): void {
-    lutUniforms.lutMix.value = easePostAsset(lutUniforms.lutMix.value, lutTarget, deltaSeconds);
-    lutUniforms.ditherMix.value = easePostAsset(lutUniforms.ditherMix.value, ditherTarget, deltaSeconds);
+  /**
+   * Everything the two hero passes need from the camera, once per frame.
+   *
+   * The camera's world matrix is refreshed here rather than trusted: the grade
+   * is pushed from `world-renderer.ts` BEFORE the composer runs, and a stale
+   * matrix would put a frame of lag between the shafts and the world they are
+   * cast through. `updateMatrixWorld` on a parentless camera is a matrix
+   * compose — it is not a scene traversal.
+   */
+  function syncCameraDerivedUniforms(): void {
+    camera.updateMatrixWorld();
+    camera.getWorldDirection(scratchForward);
+    // The centre of the sharp band is where the locked vantage looks at the
+    // sea: the drop from the camera to the water plane, along the view ray.
+    // Derived rather than hard-coded so a re-framed camera cannot silently
+    // leave the band behind — and floored so a degenerate camera (a unit-test
+    // default, a horizontal rake) cannot divide the band to infinity.
+    const drop = camera.position.y - GODRAY_SEA_LEVEL;
+    const focusCenter = drop / Math.max(Math.abs(scratchForward.y), 0.05);
+    const viewHeight = orthographicCamera
+      ? Math.abs(orthographicCamera.top - orthographicCamera.bottom)
+      : 0;
+    tiltShiftEffect.setFocusBand(focusBandOverride ?? focusCenter, viewHeight);
+    // World reconstruction for the raymarch: clip -> view -> world in one
+    // matrix, so the march shader unprojects with a single multiply.
+    scratchInverseViewProjection.multiplyMatrices(camera.matrixWorld, camera.projectionMatrixInverse);
+    godRaysEffect.setInverseViewProjection(scratchInverseViewProjection);
+  }
+
+  /**
+   * The low-sun window, the tier fade, and the rig the march reads.
+   *
+   * Both gates are uniform writes on a pass that is always registered — the
+   * pass list is never mutated mid-session, which is the discipline the AO
+   * weight already follows and the reason a tier flap cannot pop the frame.
+   */
+  function syncGodRays(deltaSeconds: number): void {
+    // Full tier only. `aoQuality` is what `world-renderer.ts` reports the
+    // resolved tier as, and it flips without an ease of its own, so the ease
+    // lives here — same 180 ms constant as the AO weight it rides beside.
+    const tierTarget = enabled && aoQuality === "full" ? aoTierWeight : 0;
+    rayTierWeight = easeExponential(
+      rayTierWeight,
+      tierTarget,
+      deltaSeconds,
+      1 / GODRAY_TIER_FADE_SECONDS,
+    );
+
+    if (!shadowLight) {
+      godRaysEffect.weight = 0;
+      return;
+    }
+    const shadowMap = shadowLight.shadow.map?.depthTexture ?? null;
+    godRaysEffect.setShadowRig(shadowMap, shadowLight.shadow.matrix);
+    if (!shadowMap) {
+      // No map has been rendered yet (first frames, or shadows shed entirely
+      // at `constrained`): there is nothing to agree with, so draw nothing.
+      godRaysEffect.weight = 0;
+      return;
+    }
+
+    scratchLightDelta.copy(shadowLight.position).sub(shadowLight.target.position);
+    const distance = scratchLightDelta.length();
+    const elevation = distance > 1e-4
+      ? Math.asin(Math.min(1, Math.max(-1, scratchLightDelta.y / distance)))
+      : Math.PI / 2;
+    godRaysEffect.weight = gardenGodRayLowSunGate(elevation, phaseNightWeight)
+      * rayTierWeight
+      * rayPhaseDensity
+      * GODRAY_INTENSITY;
   }
 
   return {
@@ -1094,6 +1935,14 @@ export function createGardenPost(
         passList.push("render");
         if (n8aoPass.enabled) passList.push("n8ao");
         if (bloomPass.enabled) passList.push("bloom");
+        // "dof" (W2.3) and "godrays" (W2.4) are fused into the grade pass, like
+        // "output" and "lut" below, so none of the four adds a draw to the main
+        // chain. They are listed only while their weights are non-zero, which
+        // is what makes the list evidence: a day frame shows "dof" and no
+        // "godrays", a dusk frame at full tier shows both, and a night frame
+        // shows neither ray nor any change of colour.
+        if (tiltShiftEffect.strength > 0) passList.push("dof");
+        if (godRaysEffect.weight > 0) passList.push("godrays");
         // "output" is the tone-map/sRGB stage and "lut" the authored cube plus
         // dither, both fused into the grade pass rather than adding a draw.
         passList.push("grade", "output", "lut", "smaa");
@@ -1105,6 +1954,8 @@ export function createGardenPost(
     },
     render(deltaTime) {
       easePostAssets(deltaTime);
+      syncCameraDerivedUniforms();
+      syncGodRays(deltaTime ?? 0);
       if (!enabled) {
         // The composer permanently disables the renderer's autoClear, so the
         // direct fallback must clear explicitly.
@@ -1117,19 +1968,19 @@ export function createGardenPost(
     },
     setAOTierWeight(weight) {
       aoTierWeight = clampUnit(weight);
-      syncAOPass();
+      syncTierFidelity();
     },
     setAOEnabled(aoEnabled) {
       aoTierWeight = aoEnabled ? 1 : 0;
-      syncAOPass();
+      syncTierFidelity();
     },
     setAOQuality(quality) {
       aoQuality = quality;
-      syncAOPass();
+      syncTierFidelity();
     },
     setAOZoomDetail(detail) {
       aoZoomDetail = detail;
-      syncAOPass();
+      syncTierFidelity();
     },
     setBloomEnabled(bloomEnabled) {
       // Pass-level toggle: the composer skips disabled passes outright, which
@@ -1139,7 +1990,10 @@ export function createGardenPost(
     },
     setEnabled(nextEnabled) {
       enabled = nextEnabled;
-      syncAOPass();
+      syncTierFidelity();
+    },
+    setFocusBandDistance(distance) {
+      focusBandOverride = distance !== null && Number.isFinite(distance) ? distance : null;
     },
     setGrade(dayMix, duskMix, stormLevel = 0, flash = 0) {
       applyGrade(dayMix, duskMix, stormLevel, flash);

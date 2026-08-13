@@ -6,6 +6,7 @@
 // by design and half the W1.1/W1.2 contract would be untestable.
 import {
   ClampToEdgeWrapping,
+  DirectionalLight,
   HalfFloatType,
   LinearFilter,
   NearestFilter,
@@ -13,11 +14,14 @@ import {
   OrthographicCamera,
   RepeatWrapping,
   Scene,
+  Texture as ThreeTexture,
   type Texture,
   type WebGLRenderer,
 } from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createGardenPost, type GardenPost } from "./garden-post";
+import { dayCyclePhase } from "./garden-day-cycle";
+import { createGardenPost, gardenGodRayLowSunGate, type GardenPost } from "./garden-post";
+import { gardenKeyLightPose } from "./garden-sun";
 
 const postHarness = vi.hoisted(() => {
   const makeDisposable = (name: string) => ({
@@ -30,6 +34,7 @@ const postHarness = vi.hoisted(() => {
     effects: [] as unknown[],
     makeDisposable,
     n8aoPasses: [] as unknown[],
+    shaderPasses: [] as unknown[],
     sharedN8AOGeometry: makeDisposable("n8ao-shared-geometry"),
   };
 });
@@ -184,6 +189,21 @@ vi.mock("postprocessing", () => {
     }
   }
 
+  // W2.3/W2.4 own off-screen helper passes (the half-res blur chain and the
+  // shadow-map raymarch). They never enter the composer — the hero effects
+  // drive them from `update()` — so the harness only has to record them.
+  class FakeShaderPass {
+    dispose = vi.fn();
+    render = vi.fn();
+
+    constructor(
+      readonly fullscreenMaterial: { uniforms: Record<string, { value: unknown }> },
+      readonly input = "inputBuffer",
+    ) {
+      postHarness.shaderPasses.push(this);
+    }
+  }
+
   class FakeRenderPass {
     enabled = true;
     name = "RenderPass";
@@ -235,6 +255,7 @@ vi.mock("postprocessing", () => {
     EffectComposer: FakeEffectComposer,
     EffectPass: FakeEffectPass,
     RenderPass: FakeRenderPass,
+    ShaderPass: FakeShaderPass,
     SMAAEffect: FakeSMAAEffect,
     ToneMappingEffect: FakeToneMappingEffect,
     ToneMappingMode,
@@ -330,6 +351,13 @@ interface FakeN8AOPass extends FakePass {
   writeTargetInternal: MockDisposable;
 }
 
+interface FakeShaderPass {
+  fullscreenMaterial: {
+    name: string;
+    uniforms: Record<string, { value: unknown }>;
+  };
+}
+
 interface FakeQuad {
   _mesh: {
     geometry: MockDisposable;
@@ -346,8 +374,37 @@ function latest<T>(entries: unknown[]): T {
   return entry as T;
 }
 
-function makePost(): {
+/**
+ * The shipped vantage, reproduced: `world-renderer.ts` parks the camera at a
+ * fixed 110-unit offset raked 30° down (`CAMERA_DISTANCE`, `updateCamera`) and
+ * sizes the frustum from `gardenCameraViewHeight`, which is 62.5 units at the
+ * 1000 px preview height. W2.3's focus band is derived from exactly this pose,
+ * so a default `new OrthographicCamera()` would test a band that never ships.
+ */
+const CAMERA_DISTANCE = 110;
+const VIEW_HEIGHT = 62.5;
+/** `gardenKeyLightPose` returns a unit direction; the rig stands this far off. */
+const LIGHT_DISTANCE = 120;
+
+function makeGardenCamera(): OrthographicCamera {
+  const viewWidth = VIEW_HEIGHT * 1.6;
+  const camera = new OrthographicCamera(
+    -viewWidth / 2,
+    viewWidth / 2,
+    VIEW_HEIGHT / 2,
+    -VIEW_HEIGHT / 2,
+    0.1,
+    500,
+  );
+  camera.position.set(CAMERA_DISTANCE, CAMERA_DISTANCE * Math.sqrt(2 / 3), CAMERA_DISTANCE);
+  camera.lookAt(0, 0, 0);
+  camera.updateProjectionMatrix();
+  return camera;
+}
+
+function makePost(options: { withShadowLight?: boolean } = {}): {
   composer: FakeComposer;
+  light: DirectionalLight | null;
   n8ao: FakeN8AOPass;
   post: GardenPost;
   renderer: WebGLRenderer;
@@ -360,14 +417,35 @@ function makePost(): {
     render: vi.fn(),
     setRenderTarget: vi.fn(),
   } as unknown as WebGLRenderer;
-  const post = createGardenPost(renderer, new Scene(), new OrthographicCamera());
+  const scene = new Scene();
+  let light: DirectionalLight | null = null;
+  if (options.withShadowLight) {
+    light = new DirectionalLight();
+    light.castShadow = true;
+    scene.add(light, light.target);
+    // three allocates `shadow.map` on the first shadow render, which needs a
+    // GL context. The post chain only ever reads `map.depthTexture`, so a
+    // stand-in is enough to exercise the gating without one.
+    (light.shadow as unknown as { map: { depthTexture: Texture } }).map = {
+      depthTexture: new ThreeTexture(),
+    };
+  }
+  const post = createGardenPost(renderer, scene, makeGardenCamera());
   activePosts.push(post);
   return {
     composer: latest<FakeComposer>(postHarness.composers),
+    light,
     n8ao: latest<FakeN8AOPass>(postHarness.n8aoPasses),
     post,
     renderer,
   };
+}
+
+/** Point the rig at the pose the shipped arc gives for a wall-clock hour. */
+function aimLightAtHour(light: DirectionalLight, hour: number): void {
+  const pose = gardenKeyLightPose(hour, dayCyclePhase(hour));
+  light.target.position.set(0, 0, 0);
+  light.position.copy(pose.direction).multiplyScalar(LIGHT_DISTANCE);
 }
 
 function effectNamed(name: string): FakeEffect {
@@ -376,6 +454,18 @@ function effectNamed(name: string): FakeEffect {
   ));
   if (!effect) throw new Error(`Expected ${name} in post-processing harness`);
   return effect as FakeEffect;
+}
+
+/**
+ * The god-ray raymarch runs in its own off-screen ShaderPass, so its uniforms
+ * live on that pass's material rather than on the fused effect.
+ */
+function marchUniforms(): Record<string, { value: unknown }> {
+  const pass = postHarness.shaderPasses.find((candidate) => (
+    (candidate as FakeShaderPass).fullscreenMaterial.name === "GardenGodRayMarchMaterial"
+  ));
+  if (!pass) throw new Error("Expected the god-ray march pass in the harness");
+  return (pass as FakeShaderPass).fullscreenMaterial.uniforms;
 }
 
 function colorUniform(effect: FakeEffect, name: string): [number, number, number] {
@@ -410,6 +500,7 @@ beforeEach(() => {
   postHarness.composers.length = 0;
   postHarness.effects.length = 0;
   postHarness.n8aoPasses.length = 0;
+  postHarness.shaderPasses.length = 0;
   postHarness.sharedN8AOGeometry.dispose.mockClear();
 });
 
@@ -450,25 +541,37 @@ describe("garden post-processing contracts", () => {
     const passEffects = composer.passes.map((pass) => (
       pass.effects?.map((effect) => effect.name) ?? [pass.name]
     ));
-    // W1.1: the authored cube is the THIRD effect of the grade pass, not a
+    // W1.1: the authored cube is the LAST effect of the grade pass, not a
     // fourth pass. Its position after ToneMappingEffect is the contract — a LUT
     // ahead of AgX would be graded on values it has no entries for.
+    // W2.3/W2.4: the two hero atmosphere stages join the SAME pass, ahead of
+    // the grade, so the softened pixels and the shafts are graded and
+    // tone-mapped with the rest of the frame instead of painted over it — and
+    // so neither adds a full-screen draw to the main chain.
     expect(passEffects).toEqual([
       ["RenderPass"],
       [undefined],
       ["BloomEffect"],
-      ["GardenGrade", "ToneMappingEffect", "GardenLut"],
+      ["GardenTiltShift", "GardenGodRays", "GardenGrade", "ToneMappingEffect", "GardenLut"],
       ["SMAAEffect"],
     ]);
     expect(post.getPassList()).toEqual([
       "render",
       "n8ao",
       "bloom",
+      // No "godrays": the harness scene has no shadow-casting light, and the
+      // construction blend is night, where the window is shut either way.
+      "dof",
       "grade",
       "output",
       "lut",
       "smaa",
     ]);
+    // Both hero stages read the depth texture N8AO already forces the composer
+    // to carry; neither may drag a convolution attribute into the fused pass,
+    // which would make the merge illegal.
+    expect(effectNamed("GardenTiltShift").attributes).toBe(1);
+    expect(effectNamed("GardenGodRays").attributes).toBe(1);
 
     const toneEffects = postHarness.effects.filter((candidate) => (
       (candidate as FakeEffect).name === "ToneMappingEffect"
@@ -756,6 +859,212 @@ describe("garden post-processing contracts", () => {
     expect(post.getPassList()).toEqual([]);
     post.setEnabled(true);
     expect(n8ao.enabled).toBe(true);
+  });
+
+  it("fades the tilt-shift on the shared tier weight and never on zoom or hue", () => {
+    const { post } = makePost();
+    const tiltShift = effectNamed("GardenTiltShift");
+    const grade = effectNamed("GardenGrade");
+
+    // W2.3 rides the SAME eased weight the AO does, because it is the same
+    // tier decision — full/balanced on, below off, over a 180 ms ease driven
+    // by world-renderer. It is a fidelity, not a colour.
+    expect(numberUniform(tiltShift, "strength")).toBeCloseTo(0.72);
+    post.setAOTierWeight(0.5);
+    expect(numberUniform(tiltShift, "strength")).toBeCloseTo(0.36);
+    post.setAOTierWeight(0);
+    expect(numberUniform(tiltShift, "strength")).toBe(0);
+    post.setAOTierWeight(1);
+
+    // Unlike AO, the band is expressed in view heights, so it says the same
+    // thing at overview zoom as at detail zoom and must NOT ride the LOD fade.
+    post.setAOZoomDetail(0);
+    expect(numberUniform(tiltShift, "strength")).toBeCloseTo(0.72);
+    post.setAOZoomDetail(1);
+
+    // Tier invariance: shedding the softening may not move a single grade
+    // value, and the AO exponent stays the AO's business.
+    const saturation = numberUniform(grade, "saturation");
+    const vignette = numberUniform(grade, "vignette");
+    post.setAOQuality("balanced");
+    post.setAOTierWeight(0);
+    expect(numberUniform(grade, "saturation")).toBe(saturation);
+    expect(numberUniform(grade, "vignette")).toBe(vignette);
+
+    post.setEnabled(false);
+    expect(numberUniform(tiltShift, "strength")).toBe(0);
+  });
+
+  it("derives the tilt-shift band from the camera and leaves its centre driveable", () => {
+    const { post } = makePost();
+    const tiltShift = effectNamed("GardenTiltShift");
+
+    post.render(1 / 60);
+    // The sharp band centres on where the locked vantage looks at the sea:
+    // the camera's drop to the water plane along its own view ray. At the
+    // shipped 30° rake from y = 110·sqrt(2/3) that is (89.81 + 1.45) / 0.5.
+    expect(numberUniform(tiltShift, "focusCenter")).toBeCloseTo(182.53, 1);
+    // ... and the widths are view heights, not world units, so a zoom cannot
+    // put the whole map out of focus or the whole detail framing into it.
+    expect(numberUniform(tiltShift, "focusRange")).toBeCloseTo(62.5 * 0.55);
+    expect(numberUniform(tiltShift, "farFalloff")).toBeCloseTo(62.5 * 0.5);
+    expect(numberUniform(tiltShift, "nearFalloff")).toBeCloseTo(62.5 * 0.45);
+
+    // W4.6 seam: the centre is a plain uniform, so a focus pull toward a
+    // selected ship is an ease, never a pass-list change.
+    post.setFocusBandDistance(140);
+    post.render(1 / 60);
+    expect(numberUniform(tiltShift, "focusCenter")).toBe(140);
+    expect(numberUniform(tiltShift, "focusRange")).toBeCloseTo(62.5 * 0.55);
+    post.setFocusBandDistance(null);
+    post.render(1 / 60);
+    expect(numberUniform(tiltShift, "focusCenter")).toBeCloseTo(182.53, 1);
+  });
+
+  it("opens the god-ray window only for a sun that is both low and still up", () => {
+    // The gate is pure, so the whole curve can be locked without a GPU.
+    // Monotone in elevation: a lower sun never buys fewer rays.
+    let previous = -1;
+    for (const elevation of [0.9, 0.7, 0.55, 0.45, 0.35, 0.25, 0.16, 0.1]) {
+      const gate = gardenGodRayLowSunGate(elevation, 0);
+      expect(gate).toBeGreaterThanOrEqual(previous);
+      previous = gate;
+    }
+    expect(gardenGodRayLowSunGate(0.12, 0)).toBe(1);
+    expect(gardenGodRayLowSunGate(0.8, 0)).toBe(0);
+    // Night closes it whatever the pose says, which is the half elevation
+    // cannot do: the key light crosses back down through the low band on its
+    // way to the moon.
+    expect(gardenGodRayLowSunGate(0.12, 1)).toBe(0);
+    expect(gardenGodRayLowSunGate(0.12, 0.5)).toBeCloseTo(0.5);
+    expect(gardenGodRayLowSunGate(Number.NaN, 0)).toBe(0);
+  });
+
+  it("drives the god rays from the shipped arc, dusk brightest and night dark", () => {
+    const { light, post } = makePost({ withShadowLight: true });
+    const godRays = effectNamed("GardenGodRays");
+    if (!light) throw new Error("Expected a shadow-casting light");
+
+    const rayWeightAt = (hour: number): number => {
+      const phase = dayCyclePhase(hour);
+      aimLightAtHour(light, hour);
+      post.setGrade(phase.daylight, phase.dusk);
+      post.render(1 / 60);
+      return numberUniform(godRays, "rayWeight");
+    };
+
+    const dusk = rayWeightAt(19);
+    const dawn = rayWeightAt(7);
+    const lateAfternoon = rayWeightAt(17);
+    const emberEvening = rayWeightAt(20);
+
+    // Dusk is the money shot: the arc floors the key light at 0.12 rad there,
+    // the window is wide open, and the dusk row is the densest.
+    expect(dusk).toBeCloseTo(0.02, 3);
+    // Dawn is the same window from the other side, but the sun is already
+    // ~19° up: present and deliberately paler.
+    expect(dawn).toBeGreaterThan(0.006);
+    expect(dawn).toBeLessThan(dusk * 0.6);
+    expect(lateAfternoon).toBeGreaterThan(0);
+    expect(lateAfternoon).toBeLessThan(dawn);
+    expect(emberEvening).toBeGreaterThan(0);
+    expect(emberEvening).toBeLessThan(dusk);
+
+    // Shut at high day and at night proper — no shafts without a low sun.
+    expect(rayWeightAt(12)).toBe(0);
+    expect(rayWeightAt(22)).toBe(0);
+    expect(rayWeightAt(2)).toBe(0);
+  });
+
+  it("colours the shafts from the hour and never from the tier", () => {
+    const { light, post } = makePost({ withShadowLight: true });
+    if (!light) throw new Error("Expected a shadow-casting light");
+    const march = marchUniforms();
+
+    // Evening: dusk = 1 with daylight 0, so the shafts take the ember row.
+    post.setGrade(0, 1);
+    const evening = [...(march.rayColor!.value as { toArray: () => number[] }).toArray()];
+    expect(evening[0]).toBeCloseTo(1);
+    expect(evening[2]).toBeCloseTo(0.3);
+    // Dawn: the same dusk = 1 window, but daylight is already climbing, which
+    // is the one scalar that separates the two low-sun windows.
+    post.setGrade(0.65, 1);
+    const morning = [...(march.rayColor!.value as { toArray: () => number[] }).toArray()];
+    expect(morning[2]).toBeGreaterThan(evening[2]!);
+    expect(morning[0]).toBeLessThan(evening[0]!);
+
+    // Tier may scale the shafts to nothing; it may never touch their hue.
+    post.setAOQuality("balanced");
+    post.setAOTierWeight(0.2);
+    post.render(1 / 60);
+    const afterTier = [...(march.rayColor!.value as { toArray: () => number[] }).toArray()];
+    expect(afterTier).toEqual(morning);
+  });
+
+  it("eases the god rays out below full tier instead of touching the pass list", () => {
+    const { light, post } = makePost({ withShadowLight: true });
+    if (!light) throw new Error("Expected a shadow-casting light");
+    const godRays = effectNamed("GardenGodRays");
+    const phase = dayCyclePhase(19);
+    aimLightAtHour(light, 19);
+    post.setGrade(phase.daylight, phase.dusk);
+    post.render(1 / 60);
+    expect(numberUniform(godRays, "rayWeight")).toBeCloseTo(0.02, 3);
+    expect(post.getPassList()).toContain("godrays");
+
+    // The tier drops to balanced. The pass stays registered; only the weight
+    // moves, and it moves over ~180 ms rather than in one frame.
+    post.setAOQuality("balanced");
+    post.render(1 / 60);
+    const firstStep = numberUniform(godRays, "rayWeight");
+    expect(firstStep).toBeLessThan(0.02);
+    expect(firstStep).toBeGreaterThan(0.014);
+    // One time constant (the AO fade's 180 ms) takes it to 1/e of the way; it
+    // then settles exactly on zero, rather than creeping, once the remaining
+    // ease is inside a thousandth — ~1.3 s in.
+    for (let frame = 0; frame < 10; frame += 1) post.render(1 / 60);
+    const oneTimeConstant = numberUniform(godRays, "rayWeight");
+    expect(oneTimeConstant).toBeLessThan(0.02 * 0.42);
+    expect(oneTimeConstant).toBeGreaterThan(0.02 * 0.3);
+    for (let frame = 0; frame < 90; frame += 1) post.render(1 / 60);
+    expect(numberUniform(godRays, "rayWeight")).toBe(0);
+    // Still one pass, still the same effect chain — the shed is a uniform.
+    const composer = latest<FakeComposer>(postHarness.composers);
+    expect(composer.passes.at(-2)?.effects?.map((effect) => effect.name)).toEqual([
+      "GardenTiltShift",
+      "GardenGodRays",
+      "GardenGrade",
+      "ToneMappingEffect",
+      "GardenLut",
+    ]);
+    expect(post.getPassList()).not.toContain("godrays");
+  });
+
+  it("keeps the shafts dark until the world has a shadow map to agree with", () => {
+    const { light, post } = makePost({ withShadowLight: true });
+    const godRays = effectNamed("GardenGodRays");
+    if (!light) throw new Error("Expected a shadow-casting light");
+    const phase = dayCyclePhase(19);
+    aimLightAtHour(light, 19);
+    post.setGrade(phase.daylight, phase.dusk);
+
+    // Before the first shadow render (and at any tier that sheds shadows
+    // outright) there is nothing to break the shafts against, so nothing is
+    // drawn rather than an unbroken wash.
+    (light.shadow as unknown as { map: null }).map = null;
+    post.render(1 / 60);
+    expect(numberUniform(godRays, "rayWeight")).toBe(0);
+    expect(post.getPassList()).not.toContain("godrays");
+
+    (light.shadow as unknown as { map: { depthTexture: Texture } }).map = {
+      depthTexture: new ThreeTexture(),
+    };
+    post.render(1 / 60);
+    expect(numberUniform(godRays, "rayWeight")).toBeGreaterThan(0);
+    // The march reads the SAME matrix the world's receiving materials do, so
+    // a shaft cannot disagree with the shadow it is cast through.
+    expect(marchUniforms().shadowMatrix!.value).toBe(light.shadow.matrix);
+    expect(marchUniforms().shadowMap!.value).toBe(light.shadow.map?.depthTexture);
   });
 
   it("sizes composer targets from CSS dimensions after renderer DPR setup", () => {
