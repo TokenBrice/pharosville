@@ -130,11 +130,13 @@ vi.mock("postprocessing", () => {
   class FakeBloomEffect extends FakeEffect {
     intensity: number;
     luminanceMaterial: { smoothing: number; threshold: number };
+    mipmapBlurPass: { radius: number };
 
     constructor(readonly bloomOptions: {
       intensity: number;
       luminanceSmoothing: number;
       luminanceThreshold: number;
+      radius: number;
     }) {
       super("BloomEffect");
       this.intensity = bloomOptions.intensity;
@@ -142,6 +144,9 @@ vi.mock("postprocessing", () => {
         smoothing: bloomOptions.luminanceSmoothing,
         threshold: bloomOptions.luminanceThreshold,
       };
+      // The blur spread is a uniform on the upsample material, not a define,
+      // which is what makes a per-phase radius free of shader recompiles.
+      this.mipmapBlurPass = { radius: bloomOptions.radius };
       postHarness.blooms.push(this);
     }
   }
@@ -279,6 +284,9 @@ interface FakeBloom {
   luminanceMaterial: {
     smoothing: number;
     threshold: number;
+  };
+  mipmapBlurPass: {
+    radius: number;
   };
 }
 
@@ -429,12 +437,14 @@ describe("garden post-processing contracts", () => {
       halfRes: true,
       transparencyAware: false,
     });
+    // Constructed with the NIGHT row, which is the base of the day-cycle blend
+    // — the same convention the grade and AO values follow.
     expect(bloom.bloomOptions).toMatchObject({
       blendFunction: "ADD",
       levels: 5,
-      luminanceSmoothing: 0.01,
+      luminanceSmoothing: 0.45,
       mipmapBlur: true,
-      radius: 0.6,
+      radius: 0.72,
     });
 
     const passEffects = composer.passes.map((pass) => (
@@ -626,16 +636,23 @@ describe("garden post-processing contracts", () => {
     // redistributes the shipped darkening rather than adding to it.
     expect(numberUniform(grade, "vignetteBias")).toBe(0.25);
     expect(numberUniform(grade, "flash")).toBe(0);
-    expect(bloom.intensity).toBe(0.55);
-    expect(bloom.luminanceMaterial.threshold).toBe(0.95);
+    // W1.3: the night knee clears the lantern pool ring (~1.0 luminance) that
+    // used to smear the whole water plane, so only the beacon and the top of
+    // the moon road survive it — with the wash gone, night's strength can rise.
+    expect(bloom.intensity).toBe(0.8);
+    expect(bloom.luminanceMaterial.threshold).toBe(1.55);
+    expect(bloom.luminanceMaterial.smoothing).toBe(0.45);
+    expect(bloom.mipmapBlurPass.radius).toBe(0.72);
     expect(n8ao.configuration.intensity).toBe(5);
 
     post.setGrade(0, 1);
     expect(colorUniform(grade, "lift")).toEqual([0.006, 0.006, 0.008]);
     expect(numberUniform(grade, "saturation")).toBe(1.06);
     expect(numberUniform(grade, "vignetteBias")).toBe(0.35);
-    expect(bloom.intensity).toBe(0.78);
-    expect(bloom.luminanceMaterial.threshold).toBe(0.9);
+    expect(bloom.intensity).toBe(0.85);
+    expect(bloom.luminanceMaterial.threshold).toBe(1.15);
+    expect(bloom.luminanceMaterial.smoothing).toBe(0.3);
+    expect(bloom.mipmapBlurPass.radius).toBe(0.64);
     expect(n8ao.configuration.intensity).toBe(4);
 
     post.setGrade(1, 0);
@@ -649,7 +666,12 @@ describe("garden post-processing contracts", () => {
     expect(numberUniform(grade, "vignette")).toBe(0.32);
     expect(numberUniform(grade, "vignetteBias")).toBe(0.45);
     expect(bloom.intensity).toBe(0.92);
-    expect(bloom.luminanceMaterial.threshold).toBe(0.95);
+    // W1.3: 50 % of margin over the bokashi haze band (~0.7–0.8) instead of the
+    // old 19 %, so the day sky cannot bloom even if the wipe drifts brighter —
+    // and still under the sun glitter (~1.4–1.7), which is what may sparkle.
+    expect(bloom.luminanceMaterial.threshold).toBe(1.2);
+    expect(bloom.luminanceMaterial.smoothing).toBe(0.2);
+    expect(bloom.mipmapBlurPass.radius).toBe(0.5);
     expect(n8ao.configuration.intensity).toBe(3);
 
     post.setGrade(0.4, 0.25, 0.5, 0.65);
@@ -657,16 +679,27 @@ describe("garden post-processing contracts", () => {
     expect(numberUniform(grade, "flash")).toBe(0.65);
     // W0.3: a stroke lifts bloom intensity on the same envelope as the grade's
     // flash add — the grade pass runs after the bloom pass, so this is the only
-    // road a strike has into the glow. Phase blend 0.8615 + 0.65 * 0.35 strike.
-    expect(bloom.intensity).toBeCloseTo(0.8615 + 0.65 * 0.35);
-    expect(bloom.luminanceMaterial.threshold).toBeCloseTo(0.91275);
+    // road a strike has into the glow. Phase blend 0.8555, storm adds 0.129.
+    expect(bloom.intensity).toBeCloseTo(0.9845 + 0.65 * 0.35);
+    // Knee 1.35 by the phase blend, less 0.5 * 0.2845 of storm wet-glow.
+    expect(bloom.luminanceMaterial.threshold).toBeCloseTo(1.20775);
+    expect(bloom.luminanceMaterial.smoothing).toBeCloseTo(0.3275);
+    expect(bloom.mipmapBlurPass.radius).toBeCloseTo(0.62);
     expect(n8ao.configuration.intensity).toBeCloseTo(4.05);
 
     // The envelope's double stroke can sum past 1; bloom sees it clamped so a
     // strike widens the glow but can never blow the frame out.
     post.setGrade(0.4, 0.25, 0.5, 1.4);
     expect(numberUniform(grade, "flash")).toBe(1.4);
-    expect(bloom.intensity).toBeCloseTo(0.8615 + 1 * 0.35);
+    expect(bloom.intensity).toBeCloseTo(0.9845 + 1 * 0.35);
+
+    // No storm at any phase blend may open the knee onto the plain day sky:
+    // the floor sits above the bokashi haze band, and the shipped rows land
+    // well clear of it (0.90 at the worst, which is dusk under a full storm).
+    for (const [dayMix, duskMix] of [[0, 0], [0, 1], [1, 0], [0.5, 0.5]] as const) {
+      post.setGrade(dayMix, duskMix, 1);
+      expect(bloom.luminanceMaterial.threshold).toBeGreaterThanOrEqual(0.85);
+    }
   });
 
   it("multiplies AO quality, zoom, and continuous tier weights without recompiling quality", () => {

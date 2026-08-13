@@ -40,14 +40,77 @@ import {
  * day sky/fog sits at ~0.7–0.8 linear luminance frame-wide and the full-tier
  * lantern pool ring overlaps to ~1.0 around the island, so a 0.55 knee lets
  * bloom flood the whole frame (the P1 full-tier whiteout). The knees below
- * keep only true HDR sources blooming — sun glitter (~1.6), moon-road
- * sparkles (~1.7), and the warm emissive cores (beacon ~3–7, lantern cores
- * ~2) — while sky, fog, water bands, and reflection pools stay below.
+ * keep only true HDR sources blooming, while sky, fog, water bands, and
+ * reflection pools stay below.
  *
- * Bloom strength also follows the day cycle: the beacon's ~7-luminance HDR
- * core at full strength smears a warm wash across the whole island at night,
- * so night runs a gentler strength that keeps the beacon/lantern bloom golden
- * and local; day keeps the full strength for the sun-glitter sparkle.
+ * W1.3 (2026-08-13) re-derived the knees from what the frame ACTUALLY hands
+ * the prefilter, because the older figures above conflated `emissiveIntensity`
+ * with the relative luminance the LuminanceMaterial computes. The prefilter
+ * sees the linear HDR frame BEFORE the grade and before AgX, so an emissive
+ * surface reaches it at `emissiveIntensity * luminance(emissiveColorLinear)`,
+ * and every warm emitter in this world is `lantern_warm` (#d49a3e), whose
+ * linear relative luminance is 0.371 — not 1. Recomputed against the shipped
+ * drivers, at night:
+ *
+ *   harbor lantern core   2.08 (garden-day-cycle) * 0.371  ≈ 0.77
+ *   ship lantern core     1.95 * 0.371                     ≈ 0.72
+ *   lantern pool ring     painted reflection disc          ≈ 1.0
+ *   moon-road glitter     garden-water `* 2.6` on a pale road colour ≈ 1.7–2.1
+ *   beacon fire core      uIntensity ~7.2, near-white       ≈ 4–6
+ *   sun glitter (day)     garden-water `* 1.7`              ≈ 1.4–1.7
+ *   day sky / haze band                                     ≈ 0.7–0.8
+ *
+ * Two things follow from that ordering, and the second one is the surprise.
+ *
+ * First: at the old 0.95 knee the LANTERNS WERE ALREADY BELOW IT. Every warm
+ * halo visible around a lantern at night is painted geometry, not bloom. So
+ * raising the night knee cannot cost lantern glow — and, symmetrically, no
+ * knee that keeps the moon road (~1.7–2.1) quiet could ever have made lanterns
+ * bloom. The night knee therefore moves above the lantern pool ring, to 1.55
+ * with a wide 0.45 shoulder, which leaves the intended hierarchy: beacon
+ * dominant, moon road a quiet secondary at ~25 % weight on its shoulder,
+ * everything else ember.
+ *
+ * Second, and this is why W1.3 did NOT go on to add a SelectiveBloomEffect:
+ * the night frame's milkiness is not bloom at all. A/B'd on the real GPU
+ * (Apple M5 Pro, ANGLE Metal, tier full, `preview.mjs` at `#t=22&n=1`, one
+ * commit, only this row changed), the old row against the new one moves the
+ * whole frame's mean luminance by 0.17 codes of 255 — open water by 0.20, the
+ * dock lantern cluster by 0.01, the beacon by -0.24, the moon road by +1.64.
+ * Almost nothing in a night frame except the beacon and the tips of the moon
+ * road crosses even the OLD knee. The wash the plan wanted removed is the
+ * painted reflection discs and the water shader, which live in `garden-water`
+ * and `garden-island`, not here. An emissive-luminance mask was therefore not
+ * added: selectivity isolates emitters from a bloom that is drowning them, and
+ * measurement says this bloom is not drowning anything. The escalation would
+ * have bought a second luminance target and a mask pass to solve a problem in
+ * a different file. What this retune does buy is structural and cheap: the
+ * pool ring's marginal contribution leaves, the energy goes to the beacon
+ * (strength 0.55 → 0.80), and the day knee stops sitting 19 % above a haze
+ * band that other work is actively re-authoring.
+ *
+ * Day is the mirror case: the sky is the brightest thing in the frame by area,
+ * and "crisp day" means bloom must not be able to reach it even if the bokashi
+ * wipe drifts. The 0.95 knee left only a 19 % margin over the haze band; 1.20
+ * leaves 50 %, and still sits under the sun glitter, which is the one thing by
+ * day that is supposed to sparkle. Dusk splits the difference at 1.15 with a
+ * wide shoulder, because warm pools ARE the dusk look.
+ *
+ * Bloom strength also follows the day cycle. Night's old 0.55 was a defensive
+ * number set when the whole pool ring was blooming; with the wash gone, the
+ * beacon is nearly alone above the knee and can be given back its presence
+ * (0.80) without smearing the island. Day keeps its strength for the glitter.
+ *
+ * Smoothing and radius are per-phase for the same reason. The knee's shoulder
+ * width is what turns a threshold into a hierarchy — a hard 0.01 knee makes
+ * every source either fully in or fully out, which is precisely the flat look
+ * W1.3 exists to fix — and the mipmap radius is what separates a tight day
+ * sparkle (0.50) from a beacon that breathes at night (0.72). Both are plain
+ * uniforms: `LuminanceMaterial.smoothing` writes `uniforms.smoothing` (its
+ * `defines.THRESHOLD` write is a no-op here, since the threshold is never 0
+ * and nothing sets `needsUpdate`), and `MipmapBlurPass.radius` is a uniform on
+ * the upsample material. Neither recompiles a shader, so both are safe on the
+ * per-frame day-cycle path — unlike N8AO's sample counts.
  *
  * AO intensity is N8AO's `pow(ao, intensity)` exponent — higher darkens
  * occluded areas more. Night is the hero (strongest grounding under the
@@ -56,6 +119,10 @@ import {
  */
 interface PostPhaseConfig {
   aoIntensity: number;
+  /** Mipmap-blur spread: tight by day for crispness, wide at night to breathe. */
+  bloomRadius: number;
+  /** Width of the knee's shoulder above `bloomThreshold` (the smoothstep range). */
+  bloomSmoothing: number;
   bloomStrength: number;
   bloomThreshold: number;
   grade: GradePreset;
@@ -141,40 +208,53 @@ const DAY_GRADE: GradePreset = {
 
 const POST_PHASE_NIGHT: PostPhaseConfig = {
   aoIntensity: 5,
-  bloomStrength: 0.55,
-  bloomThreshold: 0.95,
+  bloomRadius: 0.72,
+  bloomSmoothing: 0.45,
+  bloomStrength: 0.8,
+  bloomThreshold: 1.55,
   grade: NIGHT_GRADE,
   stormBloomStrength: 0.22,
-  stormBloomThreshold: 0.05,
+  stormBloomThreshold: 0.3,
   stormLift: [0.004, 0.008, 0.02],
 };
 const POST_PHASE_DUSK: PostPhaseConfig = {
   aoIntensity: 4,
-  bloomStrength: 0.78,
-  bloomThreshold: 0.9,
+  bloomRadius: 0.64,
+  bloomSmoothing: 0.3,
+  bloomStrength: 0.85,
+  bloomThreshold: 1.15,
   grade: DUSK_GRADE,
   stormBloomStrength: 0.26,
-  stormBloomThreshold: 0.06,
+  stormBloomThreshold: 0.25,
   stormLift: [0.004, 0.008, 0.02],
 };
 const POST_PHASE_DAY: PostPhaseConfig = {
   aoIntensity: 3,
+  bloomRadius: 0.5,
+  bloomSmoothing: 0.2,
   bloomStrength: 0.92,
-  bloomThreshold: 0.95,
+  bloomThreshold: 1.2,
   grade: DAY_GRADE,
   stormBloomStrength: 0.3,
-  stormBloomThreshold: 0.07,
+  stormBloomThreshold: 0.28,
   stormLift: [0.005, 0.009, 0.022],
 };
 
 // UnrealBloomPass was a fixed five-level mip pyramid; keep the same depth so
 // the glow spread stays the size the day-cycle grades were tuned against.
 const BLOOM_MIP_LEVELS = 5;
-// UnrealBloomPass's hard knee was `smoothstep(threshold, threshold + 0.01, l)`.
-// The pmndrs LuminanceMaterial uses the identical expression, so the same
-// 0.01 smoothing range keeps the knee bit-faithful.
-const BLOOM_LUMINANCE_SMOOTHING = 0.01;
-const BLOOM_RADIUS = 0.6;
+/**
+ * The floor a full storm may never open the knee past.
+ *
+ * The storm rows subtract from the phase knee to buy the wet-glow flare, and
+ * their subtraction had to grow with the W1.3 knees (0.05 off a 0.95 knee was
+ * 5 %; the same 0.05 off 1.55 would have been noise). This floor is what keeps
+ * that growth honest: 0.85 still sits above the day haze band (~0.7–0.8), so
+ * no storm, at any phase blend, can open bloom onto plain sky. With the W1.3
+ * rows the worst case lands at 0.90 (dusk), so the floor is a backstop against
+ * future retunes rather than a clamp anything currently reaches.
+ */
+const BLOOM_STORM_THRESHOLD_FLOOR = 0.85;
 
 /**
  * W0.3: how much bloom intensity a full lightning stroke adds.
@@ -193,7 +273,9 @@ const BLOOM_RADIUS = 0.6;
  * no second luminance prefilter, and the grade's flash add stays exactly as it
  * was (the frame is not brightened twice — this only widens the glow around
  * highlights the strike itself lit). Deliberately modest: at a night storm
- * peak this takes bloom from ~0.77 to ~1.12 for a third of a second.
+ * peak this takes bloom from ~1.02 to ~1.37 for a third of a second (it was
+ * ~0.77 to ~1.12 before the W1.3 retune raised night's base strength; the
+ * add itself is unchanged, and it stays a third of the base either way).
  * Preview-tunable, like the phase table above.
  */
 const BLOOM_FLASH_INTENSITY = 0.35;
@@ -216,6 +298,37 @@ const BLOOM_FLASH_INTENSITY = 0.35;
  * The radius is in world units: the island rock is ~14 units across and a
  * ship hull a few, so 2 units grounds hulls, docks and terraces without
  * reading as an edge detector. Preview-tunable, like the phase table above.
+ *
+ * W2.5 — MEASURED AND CLOSED, 2026-08-13. The plan asked whether a sustained
+ * `full` tier should swap to a second, higher-quality AO pass built at boot
+ * (quality modes recompile, so they can never be switched live). It should
+ * not, and the reason is that the upgrade is not visible.
+ *
+ * A/B on the real GPU (Apple M5 Pro, ANGLE Metal, tier full, day, default
+ * framing, 1600x1000, `scripts/pharosville/preview.mjs` — never Playwright),
+ * "Performance" (8 AO / 4 denoise, denoiseRadius 12) against "High" (64 AO /
+ * 8 denoise, denoiseRadius 6), everything else identical. Mean absolute
+ * per-pixel luminance difference, in codes of 255:
+ *
+ *   island rock + terraces      0.61      dock cluster        1.13
+ *   lighthouse masonry          0.43      hull waterlines     3.53
+ *   OPEN WATER (no AO reaches it)         2.52
+ *
+ * The last row is the control and the whole answer: a region AO cannot touch
+ * differs between the two runs by 2.52 codes purely from waves, bobbing hulls
+ * and gulls moving between captures. Every AO-bearing STATIC surface differs
+ * by LESS than that noise floor, and the mean luminance of those surfaces
+ * moves by 0.04–0.09 codes. Eight times the AO samples buys a difference this
+ * frame cannot carry — the half-res depth-aware upsample, the denoiser, and
+ * then a painterly grade with an authored LUT over the top each blur away
+ * more than the extra samples add. Night runs a stronger AO exponent (5 vs 3),
+ * which scales those static-surface deltas to ~1 code: still under the floor.
+ *
+ * So there is no second pass here, and deliberately so: it would have cost a
+ * second shader compile at boot, a second set of half-res AO/denoise targets
+ * resident for the session, and a tier-fade-masked swap to keep correct, all
+ * to buy nothing anyone can see. Re-open this only with a frame that shows the
+ * difference, not with a sample count that sounds better.
  *
  * Sample counts and halfRes are set ONCE here: changing them recompiles the
  * AO shaders, so the scheduler never touches them per tier — tier policy
@@ -765,8 +878,9 @@ export function createGardenPost(
   n8aoPass.configuration.distanceFalloff = AO_DISTANCE_FALLOFF;
   installN8AODisposalAdapter(n8aoPass);
 
-  // UnrealBloom→BloomEffect mapping: threshold→luminanceThreshold (same
-  // smoothstep knee, see BLOOM_LUMINANCE_SMOOTHING), strength→intensity
+  // UnrealBloom→BloomEffect mapping: threshold→luminanceThreshold (the same
+  // `smoothstep(threshold, threshold + smoothing, l)` knee, now opened into a
+  // per-phase shoulder by W1.3), strength→intensity
   // (bloom output scaled before blending), radius→radius, 5-level pyramid→
   // levels. BlendFunction.ADD reproduces UnrealBloomPass's additive composite
   // (`scene + strength · bloom`) — the default SCREEN would soften the HDR
@@ -775,10 +889,10 @@ export function createGardenPost(
     blendFunction: BlendFunction.ADD,
     intensity: POST_PHASE_NIGHT.bloomStrength,
     levels: BLOOM_MIP_LEVELS,
-    luminanceSmoothing: BLOOM_LUMINANCE_SMOOTHING,
+    luminanceSmoothing: POST_PHASE_NIGHT.bloomSmoothing,
     luminanceThreshold: POST_PHASE_NIGHT.bloomThreshold,
     mipmapBlur: true,
-    radius: BLOOM_RADIUS,
+    radius: POST_PHASE_NIGHT.bloomRadius,
   });
   const bloomPass = new EffectPass(camera, bloomEffect);
 
@@ -906,12 +1020,25 @@ export function createGardenPost(
       dayMix,
     );
     bloomLuminance.threshold = Math.max(
-      0.55,
+      BLOOM_STORM_THRESHOLD_FLOOR,
       lerp(
         lerp(POST_PHASE_NIGHT.bloomThreshold, POST_PHASE_DUSK.bloomThreshold, duskMix),
         POST_PHASE_DAY.bloomThreshold,
         dayMix,
       ) - storm * stormThreshold,
+    );
+    // W1.3: the shoulder and the spread blend on the same law as the knee.
+    // Both are plain uniforms (no shader recompile), so they are safe here on
+    // the once-per-frame day-cycle path — see the phase-table comment.
+    bloomLuminance.smoothing = lerp(
+      lerp(POST_PHASE_NIGHT.bloomSmoothing, POST_PHASE_DUSK.bloomSmoothing, duskMix),
+      POST_PHASE_DAY.bloomSmoothing,
+      dayMix,
+    );
+    bloomEffect.mipmapBlurPass.radius = lerp(
+      lerp(POST_PHASE_NIGHT.bloomRadius, POST_PHASE_DUSK.bloomRadius, duskMix),
+      POST_PHASE_DAY.bloomRadius,
+      dayMix,
     );
     // W0.3: the strike's flare. The lightning envelope peaks above 1 (the
     // double stroke sums two decays), so it is clamped before it reaches the
