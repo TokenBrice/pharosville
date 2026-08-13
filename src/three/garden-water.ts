@@ -535,6 +535,13 @@ export const FRAGMENT_SHADER = /* glsl */ `
   uniform vec2 uMoonDir;
   uniform vec2 uSunDir;
   uniform float uSunHeight;
+  // The Pharos crown, matching SHADOW_CASTER_HEIGHT in world-renderer -- the
+  // same caster the directional light's frustum is sized around.
+  #define GARDEN_TOWER_HEIGHT 34.0
+  // Past this the shadow is longer than any stretch of water the eye follows,
+  // and a band that runs to the frame edge stops reading as a shadow.
+  #define GARDEN_TOWER_SHADOW_MAX_REACH 150.0
+  #define GARDEN_TOWER_SHADOW_STRENGTH 0.34
   uniform vec3 uMoonRoadColor;
   uniform float uNight;
   uniform sampler2D uNormalMap;
@@ -1211,6 +1218,43 @@ export const FRAGMENT_SHADER = /* glsl */ `
       float sunSide = smoothstep(-26.0, 4.0, sunAlong);
       float sunBand = sunProfile * sunReach * sunSide;
       waterColor = mix(waterColor, uSunGlitterColor, sunBand * dayRoad * mix(0.05, 0.13, lowSun));
+
+      // --- and the tower's shadow, opposite it ------------------------------
+      // The island throws nothing onto the sea otherwise. The directional
+      // light's shadow map is island-only and static (world-renderer sizes its
+      // frustum to the island precisely so the map stays cheap), and the water
+      // is a raw ShaderMaterial that never opts into three's shadow chunks — so
+      // the single most legible statement the sun's arc could make, a long
+      // shadow swinging across open water through the day, was simply absent.
+      //
+      // Analytic rather than sampled, for the same reason the lighthouse mirror
+      // column below is: the caster is ONE static silhouette and the sun's
+      // bearing is already here as a uniform, so the whole thing is a distance
+      // and a Gaussian. No second depth pass, no shadow map that would have to
+      // grow to cover 280 units of water.
+      //
+      // A caster of height h at elevation e reaches h·cos(e)/sin(e) along the
+      // ground, which is why this lengthens dramatically as the sun drops and
+      // is barely visible at noon — exactly as it should be.
+      float sunSine = max(uSunHeight, 0.08);
+      float shadowReach = min(
+        GARDEN_TOWER_HEIGHT * sqrt(max(0.0, 1.0 - sunSine * sunSine)) / sunSine,
+        GARDEN_TOWER_SHADOW_MAX_REACH
+      );
+      float shadowAlong = -sunAlong;
+      float shadowT = shadowAlong / shadowReach;
+      if (shadowT > 0.0 && shadowT < 1.0) {
+        // A slender finger, widening only gently. The tower is a few units
+        // across, so a band that starts wide reads as a bruise under the island
+        // rather than as the shadow of the thing standing on it. The widening
+        // that remains is penumbra, which genuinely does grow with distance.
+        float shadowWidth = mix(3.2, 10.0, shadowT);
+        float shadowProfile = exp(-(sunAcross * sunAcross) / (shadowWidth * shadowWidth));
+        // Squared taper so the tip dissolves rather than stopping.
+        float shadowFade = (1.0 - shadowT) * (1.0 - shadowT);
+        float towerShadow = shadowProfile * shadowFade * dayRoad * GARDEN_TOWER_SHADOW_STRENGTH;
+        waterColor *= 1.0 - clamp(towerShadow, 0.0, 0.6);
+      }
     }
 
     if (uGlitterStrength > 0.001 && uDaylight + uDusk > 0.001) {
